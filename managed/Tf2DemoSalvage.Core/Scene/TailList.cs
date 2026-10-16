@@ -1,6 +1,7 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Linq;
 
 namespace Tf2DemoSalvage.Core.Scene;
 
@@ -76,21 +77,44 @@ internal sealed class TailList<T> : IReadOnlyList<T>, ITailList
             }
         }
 
-        if (before < 0 || kept.Count == before + 1)
+        Splice(before, kept);
+    }
+
+    /// <summary>
+    /// As <see cref="DropBefore(Func{T, int}, int)"/>, but also keeping, before the cut, the element in force at each of
+    /// <paramref name="keepAt"/> — the moments a reader still asks about from behind the cut.
+    /// </summary>
+    /// <param name="tickOf">An element's tick; the list is in tick order.</param>
+    /// <param name="cut">The earliest tick every reader asks about.</param>
+    /// <param name="keepAt">Earlier ticks one reader still asks about, in any order.</param>
+    public void DropBefore(Func<T, int> tickOf, int cut, IReadOnlyCollection<int> keepAt)
+    {
+        ArgumentNullException.ThrowIfNull(keepAt);
+
+        List<int> asked = [.. keepAt.Where(tick => tick < cut).Order()];
+        List<T> kept = [];
+        int before = _items.FindLastIndex(item => tickOf(item) < cut);
+
+        // Walked backwards: the element in force at the cut first, then, for each asked tick from the latest down, the
+        // last element at or before it — once, however many asked ticks it answers.
+        for (int index = before, next = asked.Count - 1; index >= 0; index--)
         {
-            return;
+            int tick = tickOf(_items[index]);
+            bool answers = index == before;
+
+            while (next >= 0 && asked[next] >= tick)
+            {
+                answers = true;
+                next--;
+            }
+
+            if (answers)
+            {
+                kept.Add(_items[index]);
+            }
         }
 
-        // Spliced in place: the kept records, in their order, go in the slots just before what follows the cut, and the
-        // front is dropped up to them — so every chunk after the cut is untouched and a checkpoint still shares it.
-        int start = before + 1 - kept.Count;
-
-        for (int index = 0; index < kept.Count; index++)
-        {
-            _items[start + index] = kept[kept.Count - 1 - index];
-        }
-
-        _items.DropFront(start);
+        Splice(before, kept);
     }
 
     /// <summary>
@@ -107,6 +131,31 @@ internal sealed class TailList<T> : IReadOnlyList<T>, ITailList
         {
             _items.DropFront(Math.Min(inForce, _items.Count - 1));
         }
+    }
+
+    /// <summary>
+    /// Keeps <paramref name="kept"/> (latest first, all at or before <paramref name="before"/>) as the only elements up to
+    /// that index.
+    /// </summary>
+    /// <remarks>
+    /// Spliced in place: the kept records, in their order, go in the slots just before what follows the cut, and the
+    /// front is dropped up to them — so every chunk after the cut is untouched and a checkpoint still shares it.
+    /// </remarks>
+    private void Splice(int before, List<T> kept)
+    {
+        if (before < 0 || kept.Count == before + 1)
+        {
+            return;
+        }
+
+        int start = before + 1 - kept.Count;
+
+        for (int index = 0; index < kept.Count; index++)
+        {
+            _items[start + index] = kept[kept.Count - 1 - index];
+        }
+
+        _items.DropFront(start);
     }
 
     /// <inheritdoc/>

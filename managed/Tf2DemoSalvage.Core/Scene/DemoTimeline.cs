@@ -4758,9 +4758,14 @@ public sealed class DemoTimeline
             props.RemoveAll(track => track.EndTick <= trackCut);
             playerTracks.RemoveAll(track => track.EndTick <= trackCut);
 
-            // Frames at the OUTPUT cut, not the track's: the HUD feed resolves every event it replays against the players
-            // and rules at that event's own tick (`HudEventFeed.Resolve`), as far back as the feed reaches (D220).
-            frames.DropBefore(frame => frame.Tick, cut);
+            // Frames at the TRACK cut, plus the frame in force at every game event inside the feed span: the HUD feed
+            // resolves each event it replays against the players and rules at that event's own tick
+            // (`HudEventFeed.Resolve`, D220), and nothing else reads a frame from behind the track cut. Every frame of
+            // the span was 800 ticks of frames per checkpoint, overlapping the next: on f12 it nearly doubled the heap.
+            frames.DropBefore(
+                frame => frame.Tick,
+                trackCut,
+                [.. gameEvents.Where(fired => fired.Tick >= cut && fired.Tick < trackCut).Select(fired => fired.Tick).Distinct()]);
             soundscapes.DropBefore(sample => sample.Tick, cut);
             director.DropBefore(shot => shot.Tick, cut);
             viewCommands.DropBefore(command => command.Tick, cut);

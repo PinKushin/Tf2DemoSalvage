@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 
@@ -88,22 +89,49 @@ public sealed class TimelineCheckpointsTests
     }
 
     /// <remarks>
-    /// **Frames reach as far back as the HUD feed does** (review finding 1): `HudEventFeed.Resolve` asks for the players
-    /// and rules at each replayed event's own tick, up to the output reach back. With an output reach of 20 and a track
-    /// reach of 2, a window late in the long walk must answer PlayersAt 18 ticks back as the whole build does.
+    /// **Frames are kept at the event ticks the HUD feed reaches back to, and only there** (review findings 1, 1b):
+    /// `HudEventFeed.Resolve` asks for the players and rules at each replayed event's own tick, so the frame in force at
+    /// a death 30-odd ticks back must survive a track reach of 2 — and the frames between it and the track cut need not.
     /// </remarks>
     [Test]
-    public void Window_PlayersAtTheOutputReachBack_AnswersAsTheWholeTimeline()
+    public void Window_AnEventInsideTheFeedSpan_KeepsItsFrameAndNotTheOthers()
     {
-        byte[] demo = LongWalk();
+        byte[] demo = LongWalkWithADeathAt(30);
         DemoTimeline whole = DemoTimeline.Build(demo);
-        DemoTimeline.Checkpoints checkpoints = DemoTimeline.Checkpoints.Walk(demo, Every, lookbackTicks: 20, trackLookbackTicks: 2)!;
+        DemoTimeline.Checkpoints checkpoints = DemoTimeline.Checkpoints.Walk(demo, Every, lookbackTicks: 40, trackLookbackTicks: 2)!;
         int late = whole.LastTick - 3;
-        int back = late - 18;
         DemoTimeline window = checkpoints.Window(late, late + 1);
 
-        whole.PlayersAt(back).ShouldNotBeEmpty("the control: someone is there to compare");
-        TimelineFingerprint.OfAnswer(window.PlayersAt(back)).Hash.ShouldBe(TimelineFingerprint.OfAnswer(whole.PlayersAt(back)).Hash);
+        window.GameEvents.ShouldContain(fired => fired.Tick == 30, "the control: the death is inside the feed span");
+        whole.PlayersAt(30).ShouldNotBeEmpty("the control: someone is there to compare");
+        TimelineFingerprint.OfAnswer(window.PlayersAt(30)).Hash.ShouldBe(TimelineFingerprint.OfAnswer(whole.PlayersAt(30)).Hash);
+        window.Frames.Count(frame => frame.Tick < late - 4).ShouldBeLessThanOrEqualTo(2, "only the event's frame and the one in force at the track cut");
+    }
+
+    /// <summary>The long walk with a `player_death` game event in its packet at <paramref name="tick"/>.</summary>
+    private static byte[] LongWalkWithADeathAt(int tick)
+    {
+        GameEventListMessage declaration = new(
+            [new GameEventDefinition(1, "player_death", [new GameEventField("userid", GameEventValueType.Short)])]);
+        GameEventMessage death = new(1, "player_death", new Dictionary<string, object?> { ["userid"] = (short)2 });
+        List<DemoCommand> commands = [];
+
+        foreach (DemoCommand command in DemoCommandReader.Read(LongWalk().AsMemory(DemoHeader.SizeBytes)))
+        {
+            if (command.Type == DemoCommandType.Stop)
+            {
+                continue;
+            }
+
+            commands.Add(command);
+
+            if (command.Type == DemoCommandType.Packet && command.Tick == tick)
+            {
+                commands.Add(SyntheticDemo.Packet(SyntheticDemo.DefaultProtocol, tick, declaration, death));
+            }
+        }
+
+        return SyntheticDemo.From(SyntheticDemo.DefaultProtocol, [.. commands]);
     }
 
     /// <remarks>
