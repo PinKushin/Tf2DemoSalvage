@@ -805,6 +805,9 @@ internal class MainForm : Form, IViewerWindow, IIdleHost
     /// <summary>Environment variable pinning the window position, as X,Y.</summary>
     public const string WindowPositionVariable = "TF2VIEW_WINDOW_POS";
 
+    /// <summary>Environment variable pinning the 3D view's client size, as WIDTHxHEIGHT; the window grows around it.</summary>
+    public const string ViewportSizeVariable = "TF2VIEW_VIEWPORT_SIZE";
+
     // **`CameraVariable` was declared HERE as well, and this copy was read by nothing** — removed
     // 2026-08-29. `FreeCameraController` declares the same name and is the only place that reads
     // the environment for it, so this was a second answer to one question with no way to notice the
@@ -842,6 +845,14 @@ internal class MainForm : Form, IViewerWindow, IIdleHost
         {
             StartPosition = FormStartPosition.Manual;
             Location = new Point(at.X, at.Y);
+        }
+
+        // **The 3D view's own size, once the layout has placed it** (D219): a golden is compared at TF2's frame size, and the
+        // chrome around the view differs with display scaling, so a window size only gives 1280x720 at one DPI.
+        if (WindowGeometry.Size(Environment.GetEnvironmentVariable(ViewportSizeVariable)) is { } view)
+        {
+            Load += (_, _) => Size = new Size(
+                Width + view.Width - _viewport.ClientSize.Width, Height + view.Height - _viewport.ClientSize.Height);
         }
     }
 

@@ -98,10 +98,12 @@ public static class ViewerHelp
           TF2VIEW_STEAM_ROOT         The only Steam folder discovery looks in (tests).
           TF2VIEW_PICK               "x y": log what lies under that pixel of a --shot.
           TF2VIEW_SEEK_THROUGH       "60000 5000": ticks a --shot seeks through before its own.
+          TF2VIEW_VIEWPORT_SIZE      "1280x720": WIDTHxHEIGHT of the 3D view; the window grows
+                                     around it, at any display scaling. Wins over the window size.
           TF2VIEW_WARP               Draw through WARP, reproducing a machine with no GPU.
           TF2VIEW_WINDOW_POS         "85,78": window position, X,Y.
-          TF2VIEW_WINDOW_SIZE        "1576x889": WIDTHxHEIGHT of the WINDOW. The frame adds
-                                     296x169, so 1576x889 gives a 1280x720 viewport.
+          TF2VIEW_WINDOW_SIZE        "1576x889": WIDTHxHEIGHT of the WINDOW. At 100% scaling the
+                                     frame adds 296x169, so 1576x889 gives a 1280x720 viewport.
 
         NOTES
           The viewer takes the desktop, so run it under the machine-wide lock when anything else
