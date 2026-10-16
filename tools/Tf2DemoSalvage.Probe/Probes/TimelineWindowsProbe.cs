@@ -79,6 +79,12 @@ public sealed class TimelineWindowsProbe : IProbe
             output.WriteLine($"    mid checkpoint {field,-30} {bytes / 1048576d,8:0.0} MB");
         }
 
+        // What a RESUME of the mid checkpoint creates, by type — the copy a window pays before it decodes (D217 step 4).
+        foreach ((Type type, (long objects, long elements)) in checkpoints.ResumeCensus(ticks.Length / 2).OrderByDescending(entry => entry.Value.Elements).Take(15))
+        {
+            output.WriteLine($"    resume creates {objects,12:N0} objects {elements,14:N0} elements  {type}");
+        }
+
         if (costOnly)
         {
             return;

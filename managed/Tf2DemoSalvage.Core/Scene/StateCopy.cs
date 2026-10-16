@@ -57,19 +57,22 @@ internal static class StateCopy
     /// </remarks>
     /// <param name="created">When given, filled with what the copy CREATED rather than reused, by type — the diagnostic for
     /// what a checkpoint costs beyond the one before.</param>
+    /// <param name="freeze">Whether to freeze every <see cref="PropertyBag"/> in the source first, so this copy and every
+    /// copy of it share them (D217 step 4); a checkpoint does, nothing else.</param>
     public static T Of<T>(
         T source,
         IReadOnlySet<object> share,
         Dictionary<object, object>? prior,
         out Dictionary<object, object> copies,
-        Dictionary<Type, (long Objects, long Elements)>? created = null)
+        Dictionary<Type, (long Objects, long Elements)>? created = null,
+        bool freeze = false)
         where T : class
     {
         ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(share);
 
         copies = new(ReferenceEqualityComparer.Instance);
-        Reuse reuse = new(share, prior, created);
+        Reuse reuse = new(share, prior, created) { Freeze = freeze };
 
         T copy = (T)Copy(source, share, copies, reuse)!;
         reuse.MapReused(copies);
@@ -89,6 +92,9 @@ internal static class StateCopy
 
         /// <summary>The shallowest open assumption the comparison in progress has leaned on.</summary>
         private int _leanedOn = int.MaxValue;
+
+        /// <summary>Whether the copy freezes every <see cref="PropertyBag"/> it reaches, in the ORIGINAL, before copying it.</summary>
+        public bool Freeze { get; init; }
 
         /// <summary>Counts a NEW object (an array counts its elements), when the caller asked what a copy creates.</summary>
         public void Created(Type type, long elements)
@@ -378,6 +384,12 @@ internal static class StateCopy
             return done;
         }
 
+        // A checkpoint freezes each entity's properties first, so the copy and every resume of it share them (D217 step 4).
+        if (reuse.Freeze && value is PropertyBag bag)
+        {
+            bag.Freeze();
+        }
+
         if (reuse.Unchanged(value) is { } earlier)
         {
             // Its children are the earlier copy's too; mapping them keeps a second reference to one of them on the same copy.
@@ -478,5 +490,6 @@ internal static class StateCopy
         type.IsPrimitive || type.IsEnum || type == typeof(string) || type == typeof(decimal)
         || typeof(Delegate).IsAssignableFrom(type) || typeof(MemberInfo).IsAssignableFrom(type)
         || type.IsPointer
+        || type == typeof(PropertyBag.Frozen)
         || (type.IsGenericType && type.GetGenericTypeDefinition() == typeof(ReadOnlyMemory<>));
 }

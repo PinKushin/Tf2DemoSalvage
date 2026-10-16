@@ -229,4 +229,48 @@ public sealed class StateCopyTests
         copy.Value.ShouldBe(10);
         copy.Other!.Other.ShouldBeSameAs(copy);
     }
+
+    private static PropertyBag Bag()
+    {
+        PropertyBag bag = new();
+
+        for (int key = 0; key < 100; key++)
+        {
+            bag.Set($"k{key}", Core.Schema.PropertyValue.FromInt(key), key);
+        }
+
+        return bag;
+    }
+
+    /// <remarks>
+    /// **A frozen bag is shared, not copied** (D217 step 4): copying it with no prior creates the bag's shell and nothing
+    /// under it — no key map, no chunk list, no chunk.
+    /// </remarks>
+    [Test]
+    public void Of_FrozenBag_CreatesOnlyItsShell()
+    {
+        PropertyBag bag = Bag();
+        bag.Freeze();
+        Dictionary<Type, (long Objects, long Elements)> created = [];
+
+        PropertyBag copy = StateCopy.Of(bag, new HashSet<object>(), prior: null, out _, created);
+
+        created.Keys.ShouldBe([typeof(PropertyBag)]);
+        copy["k99"].AsInt.ShouldBe(99);
+    }
+
+    /// <remarks>**A thawed bag is copied** like any other: its four chunks of 32 slots, with no prior to share.</remarks>
+    [Test]
+    public void Of_ThawedBag_CopiesItsChunks()
+    {
+        PropertyBag bag = Bag();
+        bag.Freeze();
+        bag.Set("k0", Core.Schema.PropertyValue.FromInt(-1), 101);
+        Dictionary<Type, (long Objects, long Elements)> created = [];
+
+        PropertyBag copy = StateCopy.Of(bag, new HashSet<object>(), prior: null, out _, created);
+
+        created[typeof((Core.Schema.PropertyValue, long)[])].ShouldBe((4, 128));
+        copy["k0"].AsInt.ShouldBe(-1);
+    }
 }

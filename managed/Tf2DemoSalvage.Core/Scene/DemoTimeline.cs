@@ -2954,6 +2954,16 @@ public sealed class DemoTimeline
         /// <returns>Its fields, largest first.</returns>
         public IReadOnlyList<(string Field, long Bytes)> CostByField(int index) =>
             _checkpoints[index].State.SnapshotCost().Fields;
+
+        /// <summary>What resuming one checkpoint creates, by type: the census of a resume copy (D217 step 4).</summary>
+        /// <param name="index">Which checkpoint.</param>
+        /// <returns>Objects and array elements created, by type.</returns>
+        public Dictionary<Type, (long Objects, long Elements)> ResumeCensus(int index)
+        {
+            Dictionary<Type, (long Objects, long Elements)> created = [];
+            GC.KeepAlive(Builder.FromCheckpoint(_checkpoints[index].State, _inputs, created));
+            return created;
+        }
     }
 
     /// <summary>A builder's state between two commands, and its output lists' marks (D217).</summary>
@@ -4848,7 +4858,8 @@ public sealed class DemoTimeline
             Dictionary<Type, (long Objects, long Elements)>? created = null)
         {
             lease.Refuse("checkpoint");
-            return StateCopy.Of(this, SharedInputs(), prior, out copies, created);
+            // Freezing every entity's properties, so the resume copy shares them rather than copying ~200k slots (D217 step 4).
+            return StateCopy.Of(this, SharedInputs(), prior, out copies, created, freeze: true);
         }
 
         /// <summary>The facts only the END of a demo knows, which every window of it reports (D217 step 3).</summary>
@@ -4890,7 +4901,12 @@ public sealed class DemoTimeline
         /// <param name="checkpoint">The checkpoint.</param>
         /// <returns>The builder, ready for the commands after it.</returns>
         /// <param name="inputs">What every copy shares rather than copies — <see cref="Inputs"/>, built once per walk.</param>
-        public static Builder FromCheckpoint(Builder checkpoint, IReadOnlySet<object> inputs) => StateCopy.Of(checkpoint, inputs);
+        /// <param name="created">When given, counts what the resume copy creates, by type (D217 step 4's census).</param>
+        public static Builder FromCheckpoint(
+            Builder checkpoint,
+            IReadOnlySet<object> inputs,
+            Dictionary<Type, (long Objects, long Elements)>? created = null) =>
+            StateCopy.Of(checkpoint, inputs, prior: null, out _, created);
 
         /// <summary>
         /// What every copy of this builder and of its checkpoints shares: the same set for a whole walk, since the schema,
