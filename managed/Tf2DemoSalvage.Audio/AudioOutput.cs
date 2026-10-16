@@ -266,10 +266,7 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
 
         _al.SourcePlay(source);
 
-        int id = _nextVoice;
-
-        // 0 is "nothing started"; a wrap after 2^31 starts skips it rather than handing it out.
-        _nextVoice = _nextVoice == int.MaxValue ? 1 : _nextVoice + 1;
+        int id = NextVoice();
 
         Voice started = new(source, buffer, entity, channel, sample.Samples, id);
         _playing.Add(started);
@@ -293,6 +290,21 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
     /// <exception cref="ObjectDisposedException">The output has been disposed.</exception>
     public bool SetVoicePitch(int voice, float pitch) =>
         Find(voice) is { } found && Set(found, SourceFloat.Pitch, pitch);
+
+    /// <summary>The next free handle: never 0, which means "nothing started", and never one still sounding after a wrap.</summary>
+    private int NextVoice()
+    {
+        int id;
+
+        do
+        {
+            id = _nextVoice;
+            _nextVoice = _nextVoice == int.MaxValue ? 1 : _nextVoice + 1;
+        }
+        while (_byId.ContainsKey(id));
+
+        return id;
+    }
 
     /// <summary>A voice still sounding, or null; one that has finished is reaped here, so "alive" means audible.</summary>
     /// <remarks>
@@ -318,11 +330,12 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
         return null;
     }
 
+    /// <summary>Whether a voice is still a channel: playing, paused or not yet started. Only a stopped source has ended.</summary>
     private bool IsPlaying(Voice voice)
     {
         _al.GetSourceProperty(voice.Source, GetSourceInteger.SourceState, out int state);
 
-        return state == (int)SourceState.Playing;
+        return state != (int)SourceState.Stopped;
     }
 
     private bool Set(Voice voice, SourceFloat property, float value)
@@ -544,6 +557,9 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
         Play(sample, leftPan, rightPan, gain, pitch, entity, channel);
 
     /// <inheritdoc/>
+    bool IAudioSink.HandsOutVoices => true;
+
+    /// <inheritdoc/>
     bool IAudioSink.SetVoiceGain(int voice, float gain) => SetVoiceGain(voice, gain);
 
     /// <inheritdoc/>
@@ -565,17 +581,27 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
 
         // The first match in start order, and only it — `S_AlterChannel` returns after acting on one channel
         // (FUN_18002aa20: `if ((flags & 0x200) == 0) { result = 1; goto done; }` after the first hit).
-        int index = _playing.FindIndex(voice => voice.Entity == entity && voice.Channel == channel && voice.Samples.Equals(sample.Samples));
-
-        if (index < 0)
+        // A voice that has finished is no channel to the engine — its mixer freed it — so it is reaped here, not matched.
+        for (int index = 0; index < _playing.Count;)
         {
-            return 0;
+            Voice voice = _playing[index];
+
+            if (voice.Entity != entity || voice.Channel != channel || !voice.Samples.Equals(sample.Samples))
+            {
+                index++;
+                continue;
+            }
+
+            bool playing = IsPlaying(voice);
+            Free(index);
+
+            if (playing)
+            {
+                return voice.Id;
+            }
         }
 
-        int id = _playing[index].Id;
-        Free(index);
-
-        return id;
+        return 0;
     }
 
     /// <summary>Stops a voice, releases its source and buffer, and forgets its handle.</summary>

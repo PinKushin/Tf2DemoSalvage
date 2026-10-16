@@ -32,6 +32,10 @@ public interface IAudioSink
     /// <param name="entity">Which entity it belongs to.</param>
     /// <param name="channel">Which channel of that entity.</param>
     /// <returns>The voice's own handle, for <see cref="SetVoiceGain"/>; 0 when nothing was started.</returns>
+    /// <remarks>
+    /// From a sink whose <see cref="HandsOutVoices"/> is true, 0 means the start was refused and nothing plays; from one
+    /// that never hands them out, 0 is all it ever answers and the sound is addressed by entity and channel.
+    /// </remarks>
     public int Play(
         SoundSample sample,
         float leftPan,
@@ -47,6 +51,9 @@ public interface IAudioSink
     /// <param name="gain">The new volume.</param>
     /// <returns>Whether anything was playing there to change.</returns>
     public bool SetGain(int entity, int channel, float gain);
+
+    /// <summary>Whether <see cref="Play"/> hands out voice handles, so that 0 from it means "refused".</summary>
+    public bool HandsOutVoices => false;
 
     /// <summary>Changes one voice's volume — one engine channel, so overlapping CHAN_AUTO sounds stay apart (B545).</summary>
     /// <param name="voice">The handle <see cref="Play"/> returned.</param>

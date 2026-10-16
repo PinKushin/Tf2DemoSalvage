@@ -596,6 +596,26 @@ public sealed partial class SoundPresenter(
         }
     }
 
+    /// <summary>Applies a change to the music voice `S_AlterChannel` matched, keeping the volume it now has; false when it has gone.</summary>
+    private bool AlterMusic(IAudioSink output, SceneSound sound, int voice)
+    {
+        (int entity, int channel, string name, float stored) = _music[voice];
+        float volume = sound.ChangesVolume ? sound.Volume : stored;
+        bool alive = output.SetVoiceGain(voice, volume * SoundGain.Music(isMusic: true, MusicVolume()));
+
+        if (alive && sound.ChangesPitch)
+        {
+            alive = output.SetVoicePitch(voice, SoundScript.Rate(sound.Pitch));
+        }
+
+        if (alive)
+        {
+            _music[voice] = (entity, channel, name, volume);
+        }
+
+        return alive;
+    }
+
     /// <summary>Applies a change to the loop `S_AlterChannel` matched; false when its voice has gone.</summary>
     private bool AlterLoop(IAudioSink output, SceneSound sound, (float X, float Y, float Z) listener, int voice)
     {
@@ -651,35 +671,27 @@ public sealed partial class SoundPresenter(
         // A music one-shot is altered in place too, keeping its new volume for the per-pass re-gain (B545).
         // A voice that has already ended matches nothing, so the entry goes and the sound falls through to a start, as
         // `S_AlterChannel` returning 0 does (FUN_18002aa20).
-        if (!sound.IsStop && (sound.ChangesVolume || sound.ChangesPitch) &&
-            MusicVoice(sound.EntityIndex, sound.Channel, sound.Name) is { } altering)
+        // A matched voice found gone is forgotten and the match is tried again, because `S_AlterChannel` walks every
+        // channel and acts on the first that still plays the sound; only when none does is the sound started.
+        bool altering = !sound.IsStop && (sound.ChangesVolume || sound.ChangesPitch);
+
+        while (altering && MusicVoice(sound.EntityIndex, sound.Channel, sound.Name) is { } musicVoice)
         {
-            (int entity, int channel, string name, float stored) = _music[altering];
-            float volume = sound.ChangesVolume ? sound.Volume : stored;
-            bool alive = output.SetVoiceGain(altering, volume * SoundGain.Music(isMusic: true, MusicVolume()));
-
-            if (alive && sound.ChangesPitch)
+            if (AlterMusic(output, sound, musicVoice))
             {
-                alive = output.SetVoicePitch(altering, SoundScript.Rate(sound.Pitch));
-            }
-
-            if (alive)
-            {
-                _music[altering] = (entity, channel, name, volume);
                 return;
             }
 
-            _music.Remove(altering);
+            _music.Remove(musicVoice);
         }
 
-        if (!sound.IsStop && (sound.ChangesVolume || sound.ChangesPitch) && loops.Alter(sound, out int loopVoice))
+        while (altering && loops.Alter(sound, out int loopVoice))
         {
             if (AlterLoop(output, sound, listener, loopVoice))
             {
                 return;
             }
 
-            // The loop's voice has gone: nothing matched, so the sound starts, as `S_AlterChannel` returning 0 leads to.
             loops.ForgetVoice(loopVoice);
         }
 
@@ -699,7 +711,7 @@ public sealed partial class SoundPresenter(
                     loops.ForgetVoice(stopped);
                     _music.Remove(stopped);
                 }
-                else
+                else if (!output.HandsOutVoices)
                 {
                     loops.Forget(sound.EntityIndex, sound.Channel, sound.Name);
 
@@ -870,6 +882,13 @@ public sealed partial class SoundPresenter(
         // CHAN_AUTO loops are tracked too even though a stop cannot reach them, because the gain
         // update keys on the same pair and an untracked loop is the bug either way. They end when
         // the demo does.
+        // A refused start plays nothing, so there is nothing to follow; tracking it would add a key-addressed entry
+        // whose replacement rule drops the live CHAN_AUTO loops on the entity (B545 review).
+        if (started == 0 && output.HandsOutVoices)
+        {
+            return;
+        }
+
         loops.Track(sound, started);
     }
 }

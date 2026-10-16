@@ -122,6 +122,34 @@ public sealed class AudioOutputDeviceTests
         output.SetVoicePitch(voice, 1f).ShouldBeFalse();
     }
 
+    /// <remarks>
+    /// A finished voice is no channel — the engine's mixer freed it — so a stop passes over it to the first voice still
+    /// playing that sound (`S_AlterChannel`, FUN_18002aa20), and reaps it on the way.
+    /// </remarks>
+    [Test]
+    public void Silence_AFinishedVoiceBeforeAPlayingOne_StopsThePlayingOne()
+    {
+        using AudioOutput output = Open();
+        IAudioSink sink = output;
+        SoundSample once = Tone(frames: 64);
+
+        int finished = output.Play(once, 1f, 1f, entity: 1, channel: 0);
+        int probe = output.Play(Tone(frames: 64), 1f, 1f, entity: 2, channel: 0);
+        int playing = output.Play(once with { Loops = true }, 1f, 1f, entity: 1, channel: 0);
+
+        // The probe started after the first voice and is as long, so once it has ended the first has too.
+        System.Diagnostics.Stopwatch waited = System.Diagnostics.Stopwatch.StartNew();
+
+        while (output.SetVoiceGain(probe, 1f) && waited.Elapsed < TimeSpan.FromSeconds(5))
+        {
+            // Synchronising on the probe's own state.
+        }
+
+        sink.Silence(1, 0, once).ShouldBe(playing, "the finished voice is passed over");
+        finished.ShouldNotBe(playing);
+        output.Playing.ShouldBe(0, "the finished voice was reaped on the way, the probe by its gain");
+    }
+
     [Test]
     public void Play_ASampleWithNoFrames_IsIgnoredRatherThanQueued()
     {

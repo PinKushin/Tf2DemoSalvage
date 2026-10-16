@@ -291,6 +291,43 @@ public sealed class SoundPresenterMusicVolumeTests
     }
 
     [Test]
+    public void Update_ARefusedAutoLoopStart_LeavesTheLiveLoopsOnTheEntityFollowed()
+    {
+        (SoundPresenter presenter, Sink sink) = Presenter(
+            static () => 1f,
+            Sound(50, "ambient/hum_loop.wav", 0.6f),
+            Sound(51, "ambient/fan_loop.wav", 0.4f),
+            Sound(52, "ambient/drip_loop.wav", 0.2f));
+        sink.RefuseStart = 3;
+
+        Run(presenter, sink, 40, 60, 61);
+
+        sink.Loops.Count.ShouldBe(2, "a refused start plays nothing and is not followed");
+        sink.GainedBy.ShouldBe([(1, 0.6f), (2, 0.4f)]);
+    }
+
+    /// <remarks>`S_AlterChannel` walks every channel and acts on the first still playing the sound (FUN_18002aa20).</remarks>
+    [Test]
+    public void Update_AChangeWhoseFirstMatchHasEnded_AltersTheNextMatchInsteadOfStarting()
+    {
+        (SoundPresenter presenter, Sink sink) = Presenter(
+            static () => 1f,
+            Sound(50, "#music/song.wav", 0.5f),
+            Sound(51, "#music/song.wav", 0.6f),
+            Sound(55, "#music/song.wav", 0.1f) with { ChangesVolume = true });
+
+        Run(presenter, sink, 40, 52);
+
+        // Voice 1 lives through this pass's re-gain and has ended by the change.
+        sink.GainsLeftFor[1] = 1;
+        sink.GainedBy.Clear();
+        Run(presenter, sink, 60);
+
+        sink.Started.ShouldBe([0.5f, 0.6f], "a later match still plays, so nothing is started");
+        sink.GainedBy[^1].ShouldBe((2, 0.1f));
+    }
+
+    [Test]
     public void Update_TwoAutoLoopsOnOneEntity_AreBothFollowed()
     {
         (SoundPresenter presenter, Sink sink) = Presenter(
@@ -326,14 +363,17 @@ public sealed class SoundPresenterMusicVolumeTests
             loops,
             name =>
             {
-                if (!samples.TryGetValue(name, out SoundSample sample))
+                // Keyed as SoundCache keys it, by the engine's sfx identity.
+                string key = Tf2DemoSalvage.Core.Net.SoundName.SfxKey(name);
+
+                if (!samples.TryGetValue(key, out SoundSample sample))
                 {
                     sample = new(
                         SampleRate: 22050,
                         Channels: 1,
                         Samples: new float[] { 0.5f, -0.5f },
                         Loops: name.EndsWith("_loop.wav", StringComparison.Ordinal));
-                    samples[name] = sample;
+                    samples[key] = sample;
                 }
 
                 return sample;
@@ -367,8 +407,23 @@ public sealed class SoundPresenterMusicVolumeTests
         /// <summary>How many more voice gains the voices live through before they have ended.</summary>
         public int GainsLeft { get; set; } = int.MaxValue;
 
+        public bool HandsOutVoices => true;
+
+        /// <summary>Which start, counting from 1, the sink refuses — answering 0 and playing nothing.</summary>
+        public int RefuseStart { get; set; }
+
+        /// <summary>How many more gains a given voice lives through before it has ended.</summary>
+        public Dictionary<int, int> GainsLeftFor { get; } = [];
+
+        private int _attempts;
+
         public int Play(SoundSample sample, float leftPan, float rightPan, float gain, float pitch, int entity, int channel)
         {
+            if (++_attempts == RefuseStart)
+            {
+                return 0;
+            }
+
             if (channel != AutoChannel)
             {
                 End(index => _voices[index].Entity == entity && _voices[index].Channel == channel, all: true);
@@ -387,7 +442,14 @@ public sealed class SoundPresenterMusicVolumeTests
                 return false;
             }
 
-            if (GainsLeft-- <= 0)
+            bool doomed = GainsLeftFor.TryGetValue(voice, out int left) && left <= 0;
+
+            if (GainsLeftFor.ContainsKey(voice))
+            {
+                GainsLeftFor[voice] = left - 1;
+            }
+
+            if (doomed || GainsLeft-- <= 0)
             {
                 End(index => _voices[index].Id == voice, all: true);
                 return false;
