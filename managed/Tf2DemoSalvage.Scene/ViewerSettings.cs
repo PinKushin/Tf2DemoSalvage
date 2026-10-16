@@ -718,6 +718,12 @@ public sealed record ViewerSettings
     /// <summary>Command name for <see cref="Volume"/>.</summary>
     public const string VolumeCommand = "volume";
 
+    /// <summary>`voice_scale`, default 1 and unbounded: the scale `CAutoGain` applies to demo voice (VoiceAutoGain).</summary>
+    public float VoiceScale { get; init; } = EngineConVars.ByName(VoiceScaleCommand).Number;
+
+    /// <summary>Command name for <see cref="VoiceScale"/>.</summary>
+    public const string VoiceScaleCommand = "voice_scale";
+
     /// <summary>`snd_mute_losefocus`, default 1: silent while the window does not have focus.</summary>
     public bool MuteLoseFocus { get; init; } = EngineConVars.ByName(MuteLoseFocusCommand).Number != 0f;
 
@@ -1012,6 +1018,11 @@ public sealed record ViewerSettings
         {
             EngineConVar declared = EngineConVars.ByName(VolumeCommand);
             settings = settings with { Volume = Math.Clamp(volume, declared.Min!.Value, declared.Max!.Value) };
+        }
+
+        if (ReadNumber(values, VoiceScaleCommand) is { } voiceScale)
+        {
+            settings = settings with { VoiceScale = voiceScale };
         }
 
         if (Read(values, MuteLoseFocusCommand) is { } mute)
@@ -1316,6 +1327,7 @@ public sealed record ViewerSettings
         (PhongCommand, s => Switch(s.Phong)),
         (DrawMonitorsCommand, s => Switch(s.DrawMonitors)),
         (VolumeCommand, s => EngineFloat(s.Volume)),
+        (VoiceScaleCommand, s => EngineFloat(s.VoiceScale)),
         (MuteLoseFocusCommand, s => Switch(s.MuteLoseFocus)),
         (FlipViewModelsCommand, s => Switch(s.FlipViewModels)),
         (UseMinViewmodelsCommand, s => Switch(s.UseMinViewmodels)),

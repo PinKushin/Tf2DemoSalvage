@@ -148,6 +148,12 @@ public static class EngineConVars
         new("snd_mute_losefocus", "1", Replicated: false, Cheat: false),
         new("voice_scale", "1", Replicated: false, Cheat: false),
 
+        // **The client voice path's own** (`VoicePlan`), read from engine.dll's registrations (VoiceConVarConformanceTests).
+        new("voice_maxgain", "10", Replicated: false, Cheat: false),
+        new("voice_avggain", "0.5", Replicated: false, Cheat: false),
+        new("voice_buffer_ms", "100", Replicated: false, Cheat: false),
+        new("voice_fadeouttime", "0.1", Replicated: false, Cheat: false),
+
         // Replicated, declared, and read by nothing yet — the shape is the point (D106).
         // `sv_downloadurl` is the one with a use waiting: a demo that carries it names where its
         // own map came from, which `MapDownloader` currently substitutes a public mirror for.

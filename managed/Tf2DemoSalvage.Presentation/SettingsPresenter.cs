@@ -296,6 +296,9 @@ public sealed class SettingsPresenter
     public float MasterGain(bool focused) =>
         (_settings.MuteLoseFocus && !focused) || float.IsNaN(_settings.Volume) ? 0f : _settings.Volume;
 
+    /// <summary>`voice_scale`, which <c>CAutoGain</c> applies to demo voice; NaN is silence, as for `volume`.</summary>
+    public float VoiceScale => float.IsNaN(_settings.VoiceScale) ? 0f : _settings.VoiceScale;
+
     /// <summary>The Volume menu's levels, a tenth apart as TF2's Audio slider is read.</summary>
     private static readonly int[] VolumeSteps = [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100];
 

@@ -1218,3 +1218,40 @@ rendered level, and 0 renders exact zeros (`AudioOutputDeviceTests`).
 
 **Music is the open question.** `soundchars.h` has prefixes for streaming, voice, sentences, dry mix and spatial
 modes, but none for music. So whatever `snd_musicvolume` selects, the selection lives in `engine.dll` (B545).
+
+## Demo voice: five channels, a 100 ms pad, and a gain that applies `voice_scale` twice (B548)
+
+Four voice decoders existed for months and only the probe, the corpus tests and the fuzzer called them. The playback
+path between a decoded packet and the mixer is engine code, absent from the SDK, so it was read from TF2's x64
+`engine.dll` (2026-10-15). *Read from the binary* for everything below unless marked.
+
+- **The speaker is `client + 1`.** `CClientState::ProcessVoiceData` (`FUN_1801fa0d0`) adds one to the message's
+  client and passes that entity to `GetPlayerInfo`, `Voice_GetChannel` (`FUN_180057a60`) and `Voice_AssignChannel`
+  (`FUN_180057350`). It also drops a speaker whose name lacks `cl_voice_filter`, and nothing plays unless
+  `voice_enable` is set.
+- **Five channels and no more.** `Voice_AddIncomingData` (`FUN_180056eb0`) returns early for an index above 4, and
+  `Voice_AssignChannel` returns -1 when none is free: a sixth simultaneous speaker is dropped.
+- **Assigning a channel resets three things**: its buffer, its `CAutoGain` (`FUN_1800591d0`, called with
+  `128, voice_maxgain, voice_avggain, voice_scale`), and a pad of `clamp(voice_buffer_ms, 1, 5000) × 0.001` s.
+  `Voice_Idle` (`FUN_180058090`) counts the pad down by frame time and starts the channel's sound when it reaches zero.
+  It ends the channel when the buffer runs dry. The ConVar defaults are `voice_maxgain` 10, `voice_avggain` 0.5,
+  `voice_buffer_ms` 100, `voice_fadeouttime` 0.1 (`VoiceConVarConformanceTests`).
+- **`CAutoGain::ProcessSamples` (`FUN_180058fe0`) normalises per 128-sample block.** It targets
+  `32767 / (avg + (max - avg) × voice_avggain)` capped at `voice_maxgain`, and ramps to the target in fixed point
+  over the next block. **`voice_scale` lands twice**: the next gain is multiplied by the scale, and a block's current
+  gain is that next gain times the scale again. So `voice_scale 0.5` settles at a quarter of the unscaled level.
+  Ported as found. The first block always passes at 1.0, because `Reset` starts the fixed gain at `0x80`.
+- **The mixer's read fades the tail.** `Voice_GetOutputData` (`FUN_180057dc0`) multiplies the last
+  `max(2, rate × voice_fadeouttime)` buffered samples by `1 - k / (N - 1)`, so a run of speech ends on silence.
+- **The sound is `VoiceSE_StartChannel`'s** (`FUN_18005a670`): `entchannel = index + 8`, volume 1, pitch 100. A
+  proximity channel plays at `SNDLVL_80dB` (`0x50`) from the speaker. Anything else plays at `SNDLVL_60dB` (`0x3c`)
+  from the VIEW entity, so ordinary team voice is centred and unattenuated wherever the camera is.
+
+**Seek and pause follow from the buffer, and that is the whole rule.** The buffer only holds what has arrived. Paused,
+no packet arrives, so speech stops once the pad drains. After a jump, speech resumes at the next packet that arrives,
+behind a fresh pad and a fresh gain. `VoicePresenter` does exactly that. Two choices in it are *ours*: it uses wall
+time for the drain, and it restarts a spurt from the first packet at or after the new tick.
+
+**Output-level check:** `CorpusVoicePlaybackTests` plays the committed `z1800.dem` (806 `vaudio_celt` packets) through
+the presenter, and asserts that every planned spurt starts once, audibly, on a channel from 8 to 12. What is not
+ported is B548.

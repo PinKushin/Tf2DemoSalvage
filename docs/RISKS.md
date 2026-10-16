@@ -39545,8 +39545,8 @@ before changing it. *Measured; the engine side not read.*
 **Found implementing D218** (2026-10-14). `volume` and `snd_mute_losefocus` reach the mix. These two are declared with
 TF2's defaults and bounds, so a config, a bind or `toggle` sets them without complaint, but nothing reads them:
 
-- **`voice_scale`**: this viewer decodes demo voice (`CeltVoiceDecoder` and the others) but plays none of it, so
-  there is nothing for it to scale yet.
+- **`voice_scale`**: ~~plays none of it~~ **applied 2026-10-15 (`fix/demo-voice`)**: demo voice now plays, and
+  `voice_scale` reaches it through `VoiceAutoGain`, the engine's `CAutoGain`, read as each spurt starts (B548).
 - **`snd_musicvolume`**: which sounds count as music is the closed engine's decision. The SDK has no `IsMusic`, and
   `soundchars.h`'s prefixes include none for music (`#` is `CHAR_DRYMIX`, "bypasses dsp fx"). Guessing "`#` and a
   path under `music/`" would be a fallback that looks like an answer
@@ -39599,4 +39599,25 @@ the bind's before the chord test. (6) `SetsState` now uses `SetConVar`'s own tes
 how the console treats a typed line, and an undeclared name is no ConVar in the engine either, so that part was
 dropped. (7) `Run` returns whether it acted; the shared counter is gone. The menu check is back in the UI test (D218's
 sync on open), and the open item above about the menu is closed by it.
+
+## B548 — demo voice plays through the engine's voice channels; four parts of that path are not ported — OPEN, gap
+
+**Wired 2026-10-15 (`fix/demo-voice`).** `svc_VoiceData` and `svc_VoiceInit` now reach playback: the timeline keeps
+them (`DemoTimeline.Voice`, `VoiceInits`), `VoicePlan` lays them out as the engine's five voice channels would play
+them, and `VoicePresenter` starts each run on `CHAN_VOICE_BASE + index`. Every behaviour and its engine.dll address:
+`docs/findings/31-game-audio.md`, "Demo voice". Not ported, each a divergence a listener can hear:
+
+1. **The voice duck.** While any voice channel plays, `voice_overdrive` (2) scales every OTHER sound by
+   `256 / ((0.5 - 0.5 cos(π t / voice_overdrivefadetime)) × (overdrive - 1) + 1)`, ramping over
+   `voice_overdrivefadetime` (0.4 s) — `FUN_18005a5a0`, applied in the mixer at `FUN_180040cc0` to every channel whose
+   source is not a voice. `IAudioSink` has no per-category gain to carry it.
+2. **The speaking indicator.** `Voice_Idle` calls the client's `VoiceStatus(entity, true/false)` as a channel starts
+   and ends, which reaches `CVoiceStatus::UpdateSpeakerStatus` (`voice_status.cpp:284`) and the head label
+   `DrawHeadLabels` draws (`:205`, gated on `GameRules()->ShouldDrawHeadLabels()`), and TF2's HUD speaker list. Whether
+   TF2's rules draw head labels, and the HUD panel's layout, are not read.
+3. **Spatialisation is fixed at the start**, as for every one-shot here; the engine re-spatialises a proximity voice
+   from the speaker every mix. Proximity is rare in TF2 (team voice is not proximity), so this is mostly moot.
+4. **One decoder per speaker for the whole demo**, where `Voice_AssignChannel` resets the channel's codec; and the
+   device resamples where the engine upsamples linearly into its buffer (`FUN_180056eb0`). `cl_voice_filter` (a name
+   substring filter in `ProcessVoiceData`) is not offered.
 

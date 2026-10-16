@@ -2183,6 +2183,17 @@ public sealed class DemoTimeline
     /// <summary>The chat's user messages — `SayText`, `SayText2`, `TextMsg` — in stream order, bodies as sent.</summary>
     public IReadOnlyList<SceneUserMessage> UserMessages { get; private init; } = [];
 
+    /// <summary>Every <c>svc_VoiceData</c> with a body, in stream order — what the client's voice path plays.</summary>
+    public IReadOnlyList<SceneVoice> Voice { get; private init; } = [];
+
+    /// <summary>Every <c>svc_VoiceInit</c>, in stream order — which codec <see cref="Voice"/> is in.</summary>
+    public IReadOnlyList<SceneVoiceInit> VoiceInits { get; private init; } = [];
+
+    /// <summary>The voice codec in force at a tick, or null before any <c>svc_VoiceInit</c>.</summary>
+    /// <param name="tick">The tick.</param>
+    /// <returns>The last init's codec at or before the tick.</returns>
+    public string? VoiceCodecAt(int tick) => VoiceInits.LastOrDefault(init => init.Tick <= tick)?.Codec;
+
     /// <summary>Which entity a person named on the command line is.</summary>
     /// <param name="who">A player name, a user id, or an entity index.</param>
     /// <returns>The entity index to spectate, or null when nobody matches.</returns>
@@ -2808,6 +2819,8 @@ public sealed class DemoTimeline
         private readonly Dictionary<int, PlayerInfo> everyone;
         private readonly TailList<SceneGameEvent> gameEvents;
         private readonly TailList<SceneUserMessage> userMessages;
+        private readonly TailList<SceneVoice> voice;
+        private readonly TailList<SceneVoiceInit> voiceInits;
 
         // Deep-copied with the builder rather than marked: small, and a plain list (D217).
         private readonly List<(int Tick, bool Show)> spectatorGuiChanges;
@@ -3077,6 +3090,8 @@ public sealed class DemoTimeline
         // The game events, each sharing one copy of the roster until the roster next changes.
         gameEvents = [];
         userMessages = [];
+        voice = [];
+        voiceInits = [];
         spectatorGuiChanges = [];
         rosterAtEvent = null;
 
@@ -3221,6 +3236,15 @@ public sealed class DemoTimeline
 
                     // **The chat's user messages, bodies kept** — the reader parses `SayText2` into a chat line, but the
                     // HUD needs what `CBaseHudChat::MsgFunc_SayText2` reads, colour codes and all.
+                    // **Voice, for the client's voice path** — `CClientState::ProcessVoiceData` and `Voice_Init`.
+                    case VoiceDataMessage { BodyBits: > 0 } spoken:
+                        voice.Add(new SceneVoice(command.Tick, spoken.Client, spoken.Proximity != 0, spoken.Body));
+                        continue;
+
+                    case VoiceInitMessage init:
+                        voiceInits.Add(new SceneVoiceInit(command.Tick, init.Codec, init.Quality, init.SampleRate));
+                        continue;
+
                     case ChatMessage chat:
                         userMessages.Add(new SceneUserMessage(command.Tick, SceneUserMessage.SayText2, chat.Body));
                         continue;
@@ -4349,7 +4373,7 @@ public sealed class DemoTimeline
         private ITailList[] Outputs() =>
         [
             frames, sounds, soundscapes, director, viewCommands, userCommands, packetAcknowledgements, conVarHistory,
-            viewmodels, fogSamples, gameEvents, userMessages, replaced,
+            viewmodels, fogSamples, gameEvents, userMessages, replaced, voice, voiceInits,
         ];
 
         /// <summary>A copy of the pass as it stands between two commands, from which it can be resumed.</summary>
@@ -4595,6 +4619,8 @@ public sealed class DemoTimeline
             Roster = everyone,
             GameEvents = gameEvents.HandOut(),
             UserMessages = userMessages.HandOut(),
+            Voice = voice.HandOut(),
+            VoiceInits = voiceInits.HandOut(),
             SpectatorGuiChanges = [.. spectatorGuiChanges],
             RecorderEntityIndex = recorderSlot is { } recorded ? recorded + 1 : null,
             Corpses = [.. replaced, .. corpses.Values],

@@ -1,5 +1,6 @@
 using System;
 using System.Diagnostics;
+using System.Linq;
 
 using Microsoft.Extensions.Logging;
 
@@ -120,5 +121,48 @@ public sealed partial class ViewerPresenter
             recorded);
 
         StallReport.Sounds(phases, Stopwatch.GetTimestamp() - soundAt, _audioLog);
+
+        PlayVoice(output, tick, ears.Origin, ears.Right);
+    }
+
+    /// <summary>The demo's voice, through the engine's voice channels (<see cref="VoicePresenter"/>).</summary>
+    private readonly VoicePresenter _voice = new();
+
+    /// <summary>The timeline <see cref="_voice"/>'s plan was laid out from.</summary>
+    private DemoTimeline? _voiceTimeline;
+
+    private void PlayVoice(IAudioSink output, int tick, (float X, float Y, float Z) listener, (float X, float Y, float Z) right)
+    {
+        if (!ReferenceEquals(_timeline, _voiceTimeline))
+        {
+            // Laid out once per demo: decoding is the cost, and the plan is fixed by what the recording carries.
+            _voiceTimeline = _timeline;
+            VoicePlanResult plan = _timeline is { } demo
+                ? VoicePlan.From(demo.VoiceInits, demo.Voice, demo.IntervalPerTick)
+                : new VoicePlanResult([], null);
+
+            _voice.Plan = plan.Spurts;
+            _audioLog.LogInformation(
+                "{Message}",
+                $"voice: {plan.Spurts.Count} spurts from {_timeline?.Voice.Count ?? 0} packets" +
+                (plan.Refusal is { } refusal ? "; " + refusal : string.Empty));
+        }
+
+        if (_timeline is not { } timeline)
+        {
+            return;
+        }
+
+        _voice.Scale = _settingsOwner.VoiceScale;
+        _voice.Update(
+            output,
+            tick,
+            _sound.Schedule?.Jumped ?? false,
+            listener,
+            right,
+            _audioClock.Elapsed.TotalSeconds,
+            entity => timeline.PlayersAt(tick).FirstOrDefault(player => player.EntityIndex == entity) is { EntityIndex: > 0 } player
+                ? (player.X, player.Y, player.Z)
+                : null);
     }
 }
