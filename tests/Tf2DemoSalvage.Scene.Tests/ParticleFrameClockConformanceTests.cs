@@ -66,6 +66,19 @@ public sealed class ParticleFrameClockConformanceTests
         effects.BurstSteps(1).ShouldBe(steps, "a paused frame's time is 0");
     }
 
+    /// <remarks>`UpdateNewEffects` updates every effect's control points before choosing what to simulate (particlemgr.cpp:1841-1853).</remarks>
+    [Test]
+    public void Bursts_ShownTimeUnchanged_StillReadTheFramesControlPoint()
+    {
+        ParticleEffects effects = new();
+        ParticleBurst burst = Emitting(key: 1, tick: 100);
+
+        effects.Bursts([burst with { At = Along(10f) }], Interval, null, 100, 100.5d);
+        effects.Bursts([burst with { At = Along(30f) }], Interval, null, 100, 100.5d);
+
+        effects.BurstEffect(1)!.ControlPoint(0).At.X.ShouldBe(30f);
+    }
+
     [Test]
     public void Bursts_ReachedBySeekFromDifferentPlaces_AreTheSame()
     {

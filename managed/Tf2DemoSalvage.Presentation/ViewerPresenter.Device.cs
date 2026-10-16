@@ -92,6 +92,12 @@ public sealed partial class ViewerPresenter
 
         device.SetCamera(viewing, surfaceColours);
 
+        // **Posed before the particles read a single attachment** (D221, B539): `view->OnRenderStart()` places the
+        // player and the view models (cdll_client_int.cpp:2184) before `ParticleMgr()->Simulate` (`:2234`) reads
+        // them. Stepped first, every followed point read the LAST frame's pose, and the first frame after a seek read
+        // a viewmodel posed for no camera at all. `ProjectWorld`'s own call then finds the moment posed and returns.
+        PoseOver(device);
+
         long particlesAt = Stopwatch.GetTimestamp();
 
         _effects.DrawOver(ViewFrameNow, viewing, drawing);

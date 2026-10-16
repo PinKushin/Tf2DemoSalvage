@@ -64,7 +64,15 @@ internal sealed class FakeViewerDevice : IViewerDevice
 
     public int? ObserverTarget { get => null; set => Note(nameof(ObserverTarget), value?.ToString(CultureInfo.InvariantCulture) ?? "nobody"); }
 
-    public ViewFrustum Frustum => default;
+    /// <summary>Read by the pose, so its read is written down: where the pose falls in the frame is an order too (D221).</summary>
+    public ViewFrustum Frustum
+    {
+        get
+        {
+            _set.Add(nameof(Frustum));
+            return default;
+        }
+    }
 
     public RenderableViews Views => default;
 

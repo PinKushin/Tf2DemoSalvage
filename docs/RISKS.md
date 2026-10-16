@@ -38111,8 +38111,14 @@ with gummo standing still under a beam.
   it gives that up, or needs a scheme that keeps it. That trade is the owner's
   (`docs/memory/name-the-trade-before-fixing-valve.md`). **Corrected:** this said rocket trails already stepped by
   frame; `ParticleEffects.Update` stepped whole ticks too. **Decided and built: D221**, every effect per frame.
-- **Seen on the way, not chased:** the paused 63801 and 63814 shots draw no visible beam between gun and patient
-  where TF2's do; a pick at (560 290) finds four faint `medicbeam_curl` quads 60-110 units PAST the patient.
+- **The invisible beam, FIXED (D221):** the paused 63801 and 63814 shots drew no beam between gun and patient where
+  TF2's do; a pick at (560 290) found four faint `medicbeam_curl` quads 60-110 units past the patient. *Measured*
+  (a temporary log of every child after the step): control point 0 was (102.1 -66.9 -68.1), about 1,000 units from
+  the eye, on every frame. The particles stepped in `UploadCameraOver` BEFORE `ProjectWorld` posed the moment, so they
+  read the previous frame's pose, and on a seek's first frame a viewmodel posed for no camera; a paused frame then
+  stepped nothing and kept it. *Read from published source*: `OnRenderStart` places the view models
+  (cdll_client_int.cpp:2184) before `Simulate` (`:2234`), and `UpdateNewEffects` re-reads every point at any frame
+  time (particlemgr.cpp:1841-1853). After: the beam leaves the gun and climbs to gummo, as TF2's 63814 does.
 - **Captures:** TF2 63619, 63634, 63791, 63801, 63814, 63826 (in-eye, `host_timescale` 0.05, LDR as installed) and
   the viewer's 63801 and 63814; none committed.
 

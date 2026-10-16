@@ -582,8 +582,13 @@ public sealed class ViewerPresenterTests
         }
     }
 
+    /// <remarks>
+    /// **The pose comes between the camera and the effects** (D221): `view->OnRenderStart()` places the view models
+    /// (cdll_client_int.cpp:2184) before `ParticleMgr()->Simulate` reads any attachment (`:2234`). The pose's read of the
+    /// frustum is what marks it.
+    /// </remarks>
     [Test]
-    public void UploadCameraOver_AFrame_SetsTheDemosFeedsThenTheExposureThenTheCameraThenTheEffects()
+    public void UploadCameraOver_AFrame_SetsTheDemosFeedsThenTheExposureThenTheCameraThenPosesThenTheEffects()
     {
         WriteMap();
         (ViewerPresenter loader, _, _) = Loader();
@@ -603,6 +608,7 @@ public sealed class ViewerPresenterTests
                 "WorldFog none", "SkyFog none", "MonitorCamera none", "Tonemap default",
                 "ExposureSeconds 0.25", "ObserverTarget nobody",
                 nameof(IViewerDevice.SetCamera),
+                nameof(IViewerDevice.Frustum),
                 nameof(IFrameDevice.SetParticles),
             ]);
             device.Camera.SurfaceColours.ShouldBeTrue();

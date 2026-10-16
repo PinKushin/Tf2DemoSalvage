@@ -10411,6 +10411,13 @@ held to a tick, it stays where the tick left it while the eye and the hands move
   (`ParticleFrameClockConformanceTests.Bursts_ReachedBySeekFromDifferentPlaces_AreTheSame`).
 - **What this gives up, stated:** a played sequence and a seek to the same moment differ by the frames' sizes, as two
   TF2 clients at different frame rates do.
+- **A frame that steps nothing still reads its points**: `UpdateNewEffects` calls every effect's `Update`, and so
+  `UpdateControlPoint`, before it chooses what to simulate (particlemgr.cpp:1841-1853).
+- **The pose comes before the particles**: `UploadCameraOver` poses the moment after `SetCamera` and before the
+  effects step, as `OnRenderStart` places the view models before `Simulate`. Stepped first, every followed point read
+  the previous frame's pose, and the first frame after a seek read a viewmodel posed for no camera — B539's
+  invisible beam (control point 0 at (102 -67 -68), about 1,000 units from the eye). The pose's time moves from the
+  frame's `project` column to `camera` (`device`).
 - **Correction:** B539's first write-up said rocket trails already stepped by frame. They did not; `Update` stepped
   whole ticks too, and moves with the bursts here.
 

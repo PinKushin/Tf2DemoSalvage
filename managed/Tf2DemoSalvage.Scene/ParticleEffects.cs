@@ -436,6 +436,13 @@ public sealed class ParticleEffects
                 taken++;
             }
 
+            // **A frame that steps nothing still reads its points**: `UpdateNewEffects` calls every effect's `Update`
+            // — `UpdateControlPoint` — before it decides what to simulate (particlemgr.cpp:1841-1853), at any frame time.
+            if (taken == running.Stepped)
+            {
+                running.Effect.SetControlPoint(0, burst.At);
+            }
+
             bool stopped = burst.StopTick is { } stopTick && now >= stopTick;
 
             _bursts[burst.Key] = running with { Stepped = taken, SimulatedTo = reachedTo, Stopped = stopped };
