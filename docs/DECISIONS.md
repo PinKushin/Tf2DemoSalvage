@@ -10258,11 +10258,16 @@ made reliable, that is reported instead of shipping flaky ones.
   `cl_savescreenshotstosteam 0`. It was found at 1 (default 0), which is how earlier agent captures reached the library.
 - **The tests skip, with a reason, without the game or the lcor demo.** CI has neither
   (`docs/memory/ci-is-the-machine-without-tf2.md`).
-- **The tests are reliable.** Two viewer captures of every case measured the same to the printed digit. Two TF2
-  captures differed by at most 0.2 luma per region.
-- **Unresolved: `mat_hdr_level 1`.** Switching from level 2 to level 1 on a loaded map left TF2's frame unchanged
-  (every region equal to 0.1), while the viewer's level 1 is darker than its level 2. There is no level-1 golden, and
-  no level-1-minus-level-0 bloom delta, until a capture is taken after a map load at level 1.
-- **The lakeside sun golden is red on main.** It is `[Explicit]` and serves as the acceptance check for
-  `fix/bloom-strength`; the numbers are in its remarks.
+- **The tests are reliable**, measured: `docs/verification/README.md#golden-images-d219`.
+- **A golden is taken after a map LOAD at its `mat_hdr_level`, never after a live switch.** Switching from 2 to 1
+  on a loaded map changed nothing in TF2; switching to 0 changed the frame, but not to what a map loaded at level 0
+  draws (regions up to 7.5 luma apart, the right-hand wall's light shafts absent). The level-0 golden was retaken
+  after a load on 2026-10-15; numbers in the verification section above. **The viewer's level 0 matches the switched
+  frame and not the loaded one** (worst region 7.6), so the level-0 case is `[Explicit]` until that is understood.
+  There is still no level-1 golden.
+- **The viewer frame is drawn at TF2's 1280x720**, not the 984x551 viewport the default window leaves; the three sizes
+  measured are in `GoldenImageUiTests.SameSizeAsTf2`.
+- **A capture's exposure is read, not assumed**: `--shot` waits for `PostProcessingSettled` (B514, B520), and the
+  `wrote …` log line now carries `PostProcessingReport` at the frame written.
+- **The lakeside sun golden is still red after B537**, and stays `[Explicit]`: the numbers are in its remarks.
 

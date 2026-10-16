@@ -25,17 +25,30 @@ internal sealed record Golden(
         ["+demo_fov_override", "90", "+cl_drawhud", "0", "+cl_showfps", "0"];
 
     /// <summary>cp_granary's BLU-side yard: containers, silos, a lit wall, sky. No particles; the spinning CP hologram is one small sprite.</summary>
-    public static Golden Granary(int hdrLevel) => hdrLevel is not (0 or 2)
-        ? throw new ArgumentOutOfRangeException(
-            nameof(hdrLevel), hdrLevel,
-            $"there is no cp_granary golden at mat_hdr_level {hdrLevel}: only levels 0 and 2 were captured (D219).")
-        : new(
-        $"cp_granary_yard_hdr{hdrLevel}.png",
-        "cp_granary",
-        "golden_cp_granary2.dem",
-        "-1982 -794 -294 -1 61",
-        ["+mat_hdr_level", hdrLevel.ToString(System.Globalization.CultureInfo.InvariantCulture)],
-        "BLU yard toward the silos and the middle point, at mat_hdr_level " + hdrLevel);
+    /// <remarks>
+    /// **Level 0 is `_loaded`**: retaken 2026-10-15 after `map cp_granary` at level 0, because the first level-0 capture
+    /// was a live switch from 2 and does not match a loaded map (D219). `cp_granary_yard_hdr0.png` is that superseded
+    /// capture, read by nothing.
+    /// </remarks>
+    public static Golden Granary(int hdrLevel)
+    {
+        string file = hdrLevel switch
+        {
+            0 => "cp_granary_yard_hdr0_loaded.png",
+            2 => "cp_granary_yard_hdr2.png",
+            _ => throw new ArgumentOutOfRangeException(
+                nameof(hdrLevel), hdrLevel,
+                $"there is no cp_granary golden at mat_hdr_level {hdrLevel}: only levels 0 and 2 were captured (D219)."),
+        };
+
+        return new(
+            file,
+            "cp_granary",
+            "golden_cp_granary2.dem",
+            "-1982 -794 -294 -1 61",
+            ["+mat_hdr_level", hdrLevel.ToString(System.Globalization.CultureInfo.InvariantCulture)],
+            "BLU yard toward the silos and the middle point, at mat_hdr_level " + hdrLevel);
+    }
 
     /// <summary>koth_lakeside_final's sun from the middle, looking up into it, with bloom (the B378 camera).</summary>
     public static readonly Golden LakesideSun = new(

@@ -131,6 +131,33 @@ and the demos extracted from the pool's archives.
 
 ---
 
+## Golden images (D219)
+
+**Repeatability, 2026-10-14.** Two viewer captures of every case measured the same to the printed digit. Two TF2
+captures differed by at most 0.2 luma per 4x3 region (granary, both levels); the two lakeside captures measured
+identically.
+
+**A live `mat_hdr_level` switch is not a capture, 2026-10-15.** cp_granary at `spec_goto -1982 -794 -294 -1 61`,
+`fov_desired 90`, 1280x720, through the tf2 MCP, against the level-0 golden that had been taken after a live switch
+from 2: a map LOADED at level 0 measures `79.6 132.0 137.1 51.5 38.7 59.7 67.1 67.4 60.2 70.2 77.5 66.5` per region
+against `78.6 130.8 133.6 45.2 38.3 57.8 64.9 59.9 59.8 69.1 76.3 62.9`, worst 7.5. The loaded frame shows light
+shafts on the right-hand wall that the switched one lacks. The level-0 golden is the loaded frame since that date. The viewer at level 0
+against it: worst region 7.6 luma, worst channel 9.0.
+
+**The viewer against TF2 at three frame sizes, 2026-10-15**, worst granary region at level 2 (level 0 in brackets,
+against the switched golden): 984x551 (the default window's viewport) 1.0 (0.7); 1024x576 1.5 (1.2); 1280x720 0.5
+(0.3). One channel of a region at 1280x720: 1.1 (0.9). The viewer at level 0 against the level-2 golden: 17.6.
+
+**Exposure at the captured frame, 2026-10-15**, the viewer's own `wrote viewer.png` line: granary level 2 `tone-map
+scale 1, bloom 0.30018133; bloom settled True at 0.3002; exposure walks True, settled True, at 1 toward 1`, after six
+`capture waiting on post-processing` lines (bloom still walking); level 0 `exposure walks False` (no tone map below
+level 2). So the level-2 frame is settled, by the device's reading at that frame.
+
+**Hue sabotage, 2026-10-15:** red +4 and blue −10 in `Device3D.WritePng` moved the worst channel to 10.1 at both
+levels and luma by under 0.4; the channel assertion went red, the luma one stayed green; restored.
+
+---
+
 ## The viewer's frame cost
 
 ### Release runs 340–490 fps; Debug is not a measurement of anything
