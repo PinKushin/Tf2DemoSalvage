@@ -1536,7 +1536,12 @@ public sealed class ScenePropTrack
             ? SceneModelKind.Studio
             : Classify(modelPath);
 
-    /// <summary>How many moments the entity actually changed at.</summary>
+    /// <summary>How many moments the entity actually changed at, EVER — trimmed keyframes included.</summary>
+    /// <remarks>
+    /// **Not <c>Keyframes.Count</c> on a window** (D217 step 3): that is the keyframes still held, and this counts every
+    /// one the track was given. On a whole build the two are equal. Its readers are whole-build counts (tests, corpus
+    /// tallies, <c>sample-cost</c>) and the trim test that compares the two on purpose.
+    /// </remarks>
     public int KeyframeCount => _keyframes.Count;
 
     /// <summary>How many keyframes this track still holds — fewer than <see cref="KeyframeCount"/> once trimmed (D217 step 3).</summary>

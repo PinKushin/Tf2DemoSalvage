@@ -2720,11 +2720,15 @@ public sealed class DemoTimeline
         private readonly List<(int Command, int Tick, Builder State)> _checkpoints;
         private readonly Builder.EndFacts _end;
 
+        /// <summary>What every resume shares, built once for the walk rather than per window.</summary>
+        private readonly IReadOnlySet<object> _inputs;
+
         private Checkpoints(List<DemoCommand> commands, List<(int, int, Builder)> checkpoints, Builder.EndFacts end)
         {
             _commands = commands;
             _checkpoints = checkpoints;
             _end = end;
+            _inputs = checkpoints[0].Item3.Inputs();
         }
 
         /// <summary>The least reach any checkpoint kept: what every window can answer for.</summary>
@@ -2893,7 +2897,7 @@ public sealed class DemoTimeline
             (int command, _, Builder state) = _checkpoints[Math.Max(0, at)];
 
             long from = Stopwatch.GetTimestamp();
-            Builder resumed = Builder.FromCheckpoint(state);
+            Builder resumed = Builder.FromCheckpoint(state, _inputs);
             long copied = Stopwatch.GetTimestamp();
             int end = command;
 
@@ -2923,7 +2927,7 @@ public sealed class DemoTimeline
             foreach ((_, _, Builder state) in _checkpoints)
             {
                 long before = GC.GetAllocatedBytesForCurrentThread();
-                Builder copy = Builder.FromCheckpoint(state);
+                Builder copy = Builder.FromCheckpoint(state, _inputs);
                 long bytes = GC.GetAllocatedBytesForCurrentThread() - before;
                 GC.KeepAlive(copy);
                 total += bytes;
@@ -4836,7 +4840,15 @@ public sealed class DemoTimeline
         /// <summary>A builder resumed from a checkpoint, which stays untouched for the next resume.</summary>
         /// <param name="checkpoint">The checkpoint.</param>
         /// <returns>The builder, ready for the commands after it.</returns>
-        public static Builder FromCheckpoint(Builder checkpoint) => StateCopy.Of(checkpoint, checkpoint.SharedInputs());
+        /// <param name="inputs">What every copy shares rather than copies — <see cref="Inputs"/>, built once per walk.</param>
+        public static Builder FromCheckpoint(Builder checkpoint, IReadOnlySet<object> inputs) => StateCopy.Of(checkpoint, inputs);
+
+        /// <summary>
+        /// What every copy of this builder and of its checkpoints shares: the same set for a whole walk, since the schema,
+        /// its flattening cache (filled before the first checkpoint) and the commands do not change.
+        /// </summary>
+        /// <returns>A new set; a walk builds it once and hands it to every resume.</returns>
+        public HashSet<object> Inputs() => SharedInputs();
 
         /// <summary>What every copy of this builder shares rather than copies: the schema, its caches and the commands.</summary>
         private HashSet<object> SharedInputs()
