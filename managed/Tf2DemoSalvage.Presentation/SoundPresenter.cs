@@ -19,6 +19,7 @@ namespace Tf2DemoSalvage.Presentation;
 /// <param name="Loops">Re-attenuating every tracked loop to the listener.</param>
 /// <param name="Soundscape">Choosing and fading the map's ambience.</param>
 /// <param name="Starting">Playing everything that begins this tick.</param>
+/// <param name="Voice">Demo voice: deciding what starts, and decoding what does (<c>VoicePresenter</c>).</param>
 /// <remarks>
 /// **Returned rather than logged here, because the format is the view's business and the timing is
 /// not.** The presenter can see the phase boundaries and the view owns what a slow line looks like;
@@ -30,7 +31,8 @@ public readonly record struct SoundPhases(
     long Reclaim,
     long Loops,
     long Soundscape,
-    long Starting);
+    long Starting,
+    long Voice = 0);
 
 /// <summary>Decides what should be audible at a tick, and tells a sink to make it so.</summary>
 /// <remarks>

@@ -296,6 +296,12 @@ public sealed class SettingsPresenter
     public float MasterGain(bool focused) =>
         (_settings.MuteLoseFocus && !focused) || float.IsNaN(_settings.Volume) ? 0f : _settings.Volume;
 
+    /// <summary>`voice_scale`, which <c>CAutoGain</c> applies to demo voice; NaN is silence, as for `volume`.</summary>
+    public float VoiceScale => float.IsNaN(_settings.VoiceScale) ? 0f : _settings.VoiceScale;
+
+    /// <summary>`voice_enable`: off, demo voice is not played.</summary>
+    public bool VoiceEnable => _settings.VoiceEnable;
+
     /// <summary>`snd_musicvolume` as stored, NaN included; <c>SoundGain.Music</c> decides what it does to a sound (B545).</summary>
     public float MusicVolume => _settings.MusicVolume;
 

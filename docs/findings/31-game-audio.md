@@ -1230,3 +1230,90 @@ more takes a different gain branch that never reads the music volume. No path, n
 take part. The guess "`#` and a path under `music/`" would have made the path a condition, and the engine never
 checks it. A `#` sound at a nonzero soundlevel is not music either. *Read from the binary.* The duck scale (`DAT_1804600e8`, eased in FUN_18002fbe0) is 1 except while the
 engine ducks music under speech, and it is not ported.
+
+## Demo voice: five channels, a 100 ms pad, and a gain that applies `voice_scale` twice (B549)
+
+Four voice decoders existed for months and only the probe, the corpus tests and the fuzzer called them. The playback
+path between a decoded packet and the mixer is engine code, absent from the SDK, so it was read from TF2's x64
+`engine.dll` (2026-10-15). *Read from the binary* for everything below unless marked.
+
+- **The speaker is `client + 1`.** `CClientState::ProcessVoiceData` (`FUN_1801fa0d0`) adds one to the message's
+  client and passes that entity to `GetPlayerInfo`, `Voice_GetChannel` (`FUN_180057a60`) and `Voice_AssignChannel`
+  (`FUN_180057350`). It also drops a speaker whose name lacks `cl_voice_filter`, and nothing plays unless
+  `voice_enable` is set.
+- **Five channels and no more.** `Voice_AddIncomingData` (`FUN_180056eb0`) returns early for an index above 4, and
+  `Voice_AssignChannel` returns -1 when none is free: a sixth simultaneous speaker is dropped.
+- **Assigning a channel resets three things**: its buffer, its `CAutoGain` (`FUN_1800591d0`, called with
+  `128, voice_maxgain, voice_avggain, voice_scale`), and a pad of `clamp(voice_buffer_ms, 1, 5000) × 0.001` s.
+  `Voice_Idle` (`FUN_180058090`) counts the pad down by frame time and starts the channel's sound when it reaches zero.
+  It ends the channel when the buffer runs dry. The ConVar defaults are `voice_maxgain` 10, `voice_avggain` 0.5,
+  `voice_buffer_ms` 100, `voice_fadeouttime` 0.1 (`VoiceConVarConformanceTests`).
+- **`CAutoGain::ProcessSamples` (`FUN_180058fe0`) normalises per 128-sample block.** It targets
+  `32767 / (avg + (max - avg) × voice_avggain)` capped at `voice_maxgain`, and ramps to the target in fixed point
+  over the next block. **`voice_scale` lands twice**: the next gain is multiplied by the scale, and a block's current
+  gain is that next gain times the scale again. So `voice_scale 0.5` settles at a quarter of the unscaled level.
+  Ported as found. The first block always passes at 1.0, because `Reset` starts the fixed gain at `0x80`.
+- **The mixer's read fades the tail.** `Voice_GetOutputData` (`FUN_180057dc0`) multiplies the last
+  `max(2, rate × voice_fadeouttime)` buffered samples by `1 - k / (N - 1)`, so a run of speech ends on silence.
+- **The sound is `VoiceSE_StartChannel`'s** (`FUN_18005a670`): `entchannel = index + 8`, volume 1, pitch 100. A
+  proximity channel plays at `SNDLVL_80dB` (`0x50`) from the speaker. Anything else plays at `SNDLVL_60dB` (`0x3c`)
+  from the VIEW entity, so ordinary team voice is centred and unattenuated wherever the camera is.
+
+- **The buffer is bounded and the newest audio wins.** Each channel's buffer is `0xac44` bytes, 22050 samples at the
+  output rate (`FUN_180002bb0` sizes all five). Its write (`FUN_180016fd0`) always lands; on overflow the read point
+  jumps to the write point, so the OLDEST unread samples are lost. The output rate is `Voice_Init`'s
+  (`FUN_180058700`): 44100 for `steam` with no rate, otherwise the rate the init carried.
+- **A second `svc_VoiceInit` ends every channel**: `ProcessVoiceInit` (`FUN_1801fa2b0`) calls `Voice_Init`, which calls
+  `Voice_Deinit` (`FUN_180057510`) first.
+- **The gain's fixed-point conversions are `CVTTSS2SI`** (180059121, 18005917d): out of range gives `0x80000000`,
+  and the products after it are 32-bit `IMUL`s that wrap. .NET's own float-to-int cast saturates, so `VoiceAutoGain`
+  converts explicitly. `voice_scale` is registered with no bounds (the four-argument constructor, flags `0x80`).
+- **`Voice_Idle` is passed the host frame time** (`_Host_RunFrame_Client`, the load at 1801a59c6), so the pad drains
+  on demo time: a paused demo holds a pending start.
+
+**Seek and pause follow from the buffer.** The buffer only holds what has arrived. Stalled, no packet arrives, so a
+voice plays out what had arrived and then starves. After a jump, a step back or a starve, speech resumes at the next
+packet that arrives, behind a fresh pad, a fresh gain and a fresh decoder.
+
+**The choices that are ours, not the engine's** — each is a place a listener could tell the difference:
+
+1. **The channel layout assumes playback at the recording's own speed.** `VoicePlan` decides channel assignment, the
+   plan's starves and buffer overflow once, in demo time. At another speed the presenter starves and resumes on the
+   real transport — the mixer reads on the wall clock, packets arrive on demo time — so slow playback stutters as the
+   engine's does, but which of five channels a resume lands on, and overflow at speed, are the 1x plan's.
+2. **A channel run is handed to the device whole**, including speech that has not yet arrived. The engine's fade over
+   the last `voice_fadeouttime` of what is buffered (FUN_180057dc0) is followed per voice with `SetVoiceGain` as the
+   read closes on the end of what arrived — once a frame, where the engine fades per sample — and the voice is
+   silenced when the read reaches it. The planned run's own end is faded per sample in the render.
+3. **The device resamples.** The engine upsamples linearly into its buffer (`FUN_180056eb0`).
+4. **Steam Voice decoders are fresh per start, like the frame codecs.** The engine hands Steam Voice to
+   `steamclient`'s `DecompressVoice`, whose state is not read.
+5. **The view entity is `svc_ServerInfo`'s player slot + 1** (`DemoTimeline.RecorderEntityIndex`), not the engine's
+   live view entity, which `svc_SetView` can change.
+6. **SILK's sample count is one 20 ms frame per Steam SILK record**, from the corpus measurement in findings/02. The
+   engine never counts; it decodes.
+7. **A decode not ready when the pad drains starts late, skipping what the mixer would have read.** The engine
+   decodes each packet as it arrives, so it never waits.
+8. **The codec in force is the init a packet arrived under, by stream order** (`SceneVoice.Init`), and Steam Voice is
+   decoded by its own audio record whatever the init named.
+9. **Pan and gain are fixed when a run starts**, where the engine re-spatialises every mix.
+10. **The mixer's clock advances at most 0.1 s a frame** (`snd_mixahead`'s default), so one long frame — a map load —
+    does not drain every voice at once. *Interpolated, not read:* Quake's `S_Update_` lineage resumes painting from the
+    device's position after a stall rather than painting the gap; TF2's own mixer was not re-read for it.
+11. **Not ported (B549):** the `voice_overdrive` duck, the speaking indicator, `cl_voice_filter`, the immediate stop
+    of a `Voice_Init` mid-speech, and whatever the engine does with voice during a demo skip (B550).
+
+**Measured 2026-10-16.** On the heaviest voice demo in lcor (`2013-08-23-20-53-blu_vs_red-cp_granary.dem`: 6,861
+packets, 2.39 MB of voice, 908 spurts), the plan's heap is 0.56 MB and it lays out in 46 ms in Release — so it runs off
+the frame. The largest single render is 0.45 MB; the five largest together, the most five channels hold, 2.05 MB;
+every render at once, which the first version kept resident, would be 49.6 MB (`voice-memory` probe).
+
+**Not measured in TF2.** The task asked for slow playback in TF2 at `host_timescale 0.25`. The current client would
+not play the voice demos available: z1800 and the 2020 ETF2L SourceTV demo both end at load with
+`CL_ParseClassInfo_EndClasses: CreateDecoders failed`, and the 2026 recordings in `tf/` are the owner's own and hold
+no voice. So the stutter is read from the binary (the mixer's read in `Voice_GetOutputData` against the arrival in
+`Voice_AddIncomingData`), not heard.
+
+**Output-level check:** `CorpusVoicePlaybackTests` plays the committed `z1800.dem` (806 `vaudio_celt` packets) through
+the presenter. It asserts that the set of (entity, channel, start tick) started equals the plan's, and that every start
+carries speech.
