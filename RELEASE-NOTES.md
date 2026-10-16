@@ -1,5 +1,11 @@
 # Tf2DemoSalvage 0.1.0-beta.44
 
+## Unreleased
+
+- **`TF2VIEW_VIEWPORT_SIZE`** (`"1280x720"`, WIDTHxHEIGHT) sizes the 3D view itself; the window grows around it,
+  so the view is that size at any display scaling. A value that does not parse is logged and ignored. For scripted
+  captures; `--help` lists it.
+
 ## Changes in 0.1.0-beta.44
 
 - **Volume control.** View > Volume sets the sound volume in tenths, and `volume` works as in TF2: in a config,

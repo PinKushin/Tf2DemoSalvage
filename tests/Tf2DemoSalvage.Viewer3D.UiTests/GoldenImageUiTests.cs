@@ -104,8 +104,8 @@ public sealed class GoldenImageUiTests
             luma.ShouldBeGreaterThan(RegionTolerance, $"level 0 and level 2 measure alike, so the measure cannot separate them: {report}");
 
             // **Not a degenerate frame**: a black frame or a failed load is also "far". Level 0 is the same scene without
-            // HDR, so it keeps the yard's layout (its regions spread at least half as wide as the golden's, 112.7 luma) and
-            // is darker, never brighter, region by region.
+            // HDR, so it keeps the yard's layout (its regions spread at least half as wide as the golden's) and no region
+            // is brighter than level 2's by more than RegionTolerance.
             (actual.Max() - actual.Min()).ShouldBeGreaterThan(
                 (expected.Max() - expected.Min()) / 2, $"the level-0 frame has lost the yard's layout: {report}");
             expected.Zip(actual, (e, a) => a - e).Max().ShouldBeLessThanOrEqualTo(
@@ -172,7 +172,9 @@ public sealed class GoldenImageUiTests
 
         if (!File.Exists(viewerSide.DemoPath))
         {
-            Assert.Ignore($"The lcor demo for this golden is not present at {viewerSide.DemoPath}.");
+            Assert.Ignore(
+                $"The lcor demo for this golden is not present at {viewerSide.DemoPath}. lcor is git-ignored, so a worktree "
+                + "has it only when tools/corpus/local is junctioned to the main checkout's (docs/memory/lcor-is-not-in-a-worktree.md).");
         }
 
         string folder = Path.Combine(Path.GetTempPath(), "tf2ds-golden", Guid.NewGuid().ToString("N"));

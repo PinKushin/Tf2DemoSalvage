@@ -849,11 +849,30 @@ internal class MainForm : Form, IViewerWindow, IIdleHost
 
         // **The 3D view's own size, once the layout has placed it** (D219): a golden is compared at TF2's frame size, and the
         // chrome around the view differs with display scaling, so a window size only gives 1280x720 at one DPI.
-        if (WindowGeometry.Size(Environment.GetEnvironmentVariable(ViewportSizeVariable)) is { } view)
+        if (Environment.GetEnvironmentVariable(ViewportSizeVariable) is { } asked)
         {
-            Load += (_, _) => Size = new Size(
-                Width + view.Width - _viewport.ClientSize.Width, Height + view.Height - _viewport.ClientSize.Height);
+            Shown += (_, _) => FitViewport(asked);
         }
+    }
+
+    /// <summary>Sizes the window so the 3D view is <paramref name="asked"/>, after layout, and logs the size it got.</summary>
+    private void FitViewport(string asked)
+    {
+        if (WindowGeometry.Size(asked) is not { } view)
+        {
+            _renderLog.LogWarning("{Message}", $"{ViewportSizeVariable} \"{asked}\" is not WIDTHxHEIGHT, so the view keeps its size");
+            return;
+        }
+
+        PerformLayout();
+        (int width, int height) = WindowGeometry.OuterSizeFor(
+            view, (Width, Height), (_viewport.ClientSize.Width, _viewport.ClientSize.Height));
+        Size = new Size(width, height);
+        PerformLayout();
+
+        // **The size it GOT, which a DPI or work-area clamp can make smaller than asked.**
+        _renderLog.LogInformation(
+            "{Message}", $"{ViewportSizeVariable} {view.Width}x{view.Height}: view is {_viewport.ClientSize.Width}x{_viewport.ClientSize.Height}");
     }
 
     /// <summary>Loads a demo by path, on this thread: <see cref="ViewerPresenter.LoadDemo"/>.</summary>

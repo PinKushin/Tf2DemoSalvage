@@ -133,6 +133,12 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
 
     /// <summary>Where to write the next presented frame, when a capture has been asked for.</summary>
     private string? _captureTo;
+
+    /// <summary>Whether the last frame drawn had settled post-processing, as it was drawn; for the capture log (B243).</summary>
+    private bool _drawnSettled;
+
+    /// <summary>The bloom amount the last frame was drawn with, 0 when bloom was off; for the capture log (B243).</summary>
+    private float _drawnBloom;
     private ComPtr<ID3D11RenderTargetView> _backBufferView;
 
     /// <summary>A plain-UNORM view of the back buffer: the bloom is added to the stored gamma values (B514).</summary>
@@ -523,14 +529,14 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
                     if (_render.IsEnabled(LogLevel.Information))
                     {
                         _render.LogInformation(
-                            "wrote {File}, {Width}x{Height}, {Kilobytes} KB, tone-map scale {Scale}, bloom {Bloom}; post-processing settled {PostProcessingSettled} ({PostProcessing})",
+                            "wrote {File}, {Width}x{Height}, {Kilobytes} KB, drawn with tone-map scale {Scale}, bloom {Bloom}, post-processing settled {PostProcessingSettled}; after it: {PostProcessing}",
                             Path.GetFileName(path),
                             description.Width,
                             description.Height,
                             new FileInfo(path).Length / 1024,
-                            _exposure.Current,
-                            _bloomAmount.Current,
-                            PostProcessingSettled,
+                            _world?.LinearLightScale ?? 1f,
+                            _drawnBloom,
+                            _drawnSettled,
                             PostProcessingReport);
                     }
                 }
@@ -1696,10 +1702,17 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
                 // (B514). The HUD is drawn after it, so the HUD neither blooms nor is bloomed over.
                 // **`DoPreBloomTonemapping` first** (viewpostprocess.cpp:1600-1661): the histogram of the frame as drawn,
                 // the goal from it, then the material system's walk by this frame's game time.
+                // **Whether THIS frame was drawn settled, read before the walk moves the exposure on** (B243): the world
+                // above used `LinearLightScale`, which the walk below changes only for the next frame.
+                bool exposureSettled = !ExposureWalks || _exposure.Settled;
+
                 UpdateExposure();
 
                 float bloom = _bloomAmount.Next(
                     _world.Bloom, _world.HdrType, Tonemap.UseBloom, Tonemap.Bloom);
+
+                _drawnSettled = exposureSettled && _bloomAmount.Settled;
+                _drawnBloom = DisableBloom ? 0f : bloom;
 
                 if (bloom > 0f && !DisableBloom)
                 {

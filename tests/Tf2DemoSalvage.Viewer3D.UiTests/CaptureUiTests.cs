@@ -344,12 +344,14 @@ public sealed class CaptureUiTests
             RedirectStandardOutput = true,
         };
 
-        // **Nothing of the test runner's own `TF2VIEW_*` reaches the capture except the window's geometry** (D219): a
-        // `TF2VIEW_CAMERA` left in the shell would move every golden's frame. The geometry stays because CI sets
-        // `TF2VIEW_WINDOW_SIZE` job-wide to fit its small screen (`test.yml`), and a golden passes its own size anyway.
+        // **Nothing of the test runner's own `TF2VIEW_*` reaches the capture** (D219): a `TF2VIEW_CAMERA` left in a
+        // developer's shell would move every golden's frame. **Except the window's geometry on CI**, which `test.yml`
+        // sets job-wide to fit its small screen; a golden passes its own view size anyway.
+        bool onCi = !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("CI"));
+
         foreach (string inherited in start.Environment.Keys
             .Where(name => name.StartsWith("TF2VIEW_", StringComparison.OrdinalIgnoreCase)
-                && name is not (MainForm.WindowSizeVariable or MainForm.WindowPositionVariable))
+                && !(onCi && name is (MainForm.WindowSizeVariable or MainForm.WindowPositionVariable)))
             .ToList())
         {
             start.Environment.Remove(inherited);

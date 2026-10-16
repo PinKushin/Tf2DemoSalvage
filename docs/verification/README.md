@@ -150,8 +150,9 @@ against it: worst region 7.6 luma, worst channel 9.0.
 against the switched golden): 984x551 (the default window's viewport) 1.0 (0.7); 1024x576 1.5 (1.2); 1280x720 0.5
 (0.3). One channel of a region at 1280x720: 1.1 (0.9). The viewer at level 0 against the level-2 golden: 17.6.
 
-**Exposure at the captured frame, 2026-10-15**, the viewer's own `wrote viewer.png` line (now `…; post-processing
-settled {True|False} (<report>)`): granary level 2 `tone-map scale 1, bloom 0.30018133; bloom settled True at 0.3002;
+**Exposure at the captured frame, 2026-10-15**, the viewer's own `wrote viewer.png` line (since 2026-10-16
+`… drawn with tone-map scale S, bloom B, post-processing settled {True|False}; after it: <report>`, the first three
+carried from the frame's draw, B243): granary level 2 `tone-map scale 1, bloom 0.30018133; bloom settled True at 0.3002;
 exposure walks True, settled True, at 1 toward 1`, after six
 `capture waiting on post-processing` lines (bloom still walking); level 0 `exposure walks False` (no tone map below
 level 2). So the level-2 frame is settled, by the device's reading at that frame.

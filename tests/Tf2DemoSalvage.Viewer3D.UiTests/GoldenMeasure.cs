@@ -44,12 +44,12 @@ internal sealed class GoldenMeasure
     /// </remarks>
     public const int MeasuredWidth = 640;
 
-    /// <summary>Reads an image file, resampled to <see cref="MeasuredWidth"/> unless it is that wide already (a golden).</summary>
+    /// <summary>Reads an image file, resampled to <see cref="MeasuredWidth"/> unless it is already that wide and 16:9 (a golden).</summary>
     public static GoldenMeasure Load(string path)
     {
         using Bitmap source = new(path);
 
-        if (source.Width == MeasuredWidth)
+        if (source.Width == MeasuredWidth && source.Height * 16 == MeasuredWidth * 9)
         {
             return Of(source);
         }
