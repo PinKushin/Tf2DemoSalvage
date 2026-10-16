@@ -10407,19 +10407,28 @@ held to a tick, it stays where the tick left it while the eye and the hands move
   itself into sub-steps — on the points the frame read. A frame that does not move the clock — paused — steps
   nothing, as a paused client's frame time of 0 does (B538). A step across a burst's stop is split at the stop, as
   `StopEmission` lands before the frame's `Simulate`.
-- **A seek's replay is OUR ADDITION, not parity.** On a seek — the skip rule every other seek path uses,
-  `SoundSchedule.IsSkip` (first frame, backwards, or more than 133 ticks), carried as `Seeked` — or a clock that went
-  backwards, a burst is rebuilt from its start a tick at a time, each at that tick's points (B527), then the fraction;
+- **A seek's replay is OUR ADDITION, not parity.** On a seek — the frame's one skip decision below, carried as
+  `Seeked` — or a clock that went backwards, a burst is rebuilt from its start a tick at a time, each at that tick's points (B527), then the fraction;
   every rocket trail is dropped and replayed along its rocket's path, which `Update` already does for an empty trail.
   A long PLAYED frame never rebuilds: as first built, more than a quarter second of demo time did, so 8x at 30 fps or a
   stall replayed every live burst from birth on every frame.
 - **One skip decision a frame** (`FrameSkip`): made where the moment is shown (`FramePresenter.ReplaySkip`) and read
   once by the particles and the sound, which kept cursors of their own until now. A frame whose effects do not run —
   no trail definition, every CI run — holds the seek for the first frame whose effects do.
-- **Not yet read: the engine's frame-time clamp.** Whether `Host_FilterTime` clamps a demo frame's
-  `host_frametime` / `gpGlobals->frametime` (to about 0.1 s) is unread, so the played-frame step is not clamped beyond
-  the particle simulation's own `maximum time step` × 10. The engine.dll Ghidra server was up on 2026-10-16, but its
-  analysis tools did not reach this session (the client needs a reconnect).
+- **The frame-time clamp is the transport's, and it is the engine's** (*read in disassembly* by the coordinator,
+  engine.dll x64 `Host_FilterTime` = FUN_18019ffe0): playing back with `host_timescale` above 0, the frame time is
+  multiplied by the timescale and clamped to at most timescale × 0.1 s; otherwise to [0.001, 0.1] s; `host_framerate`
+  above 0 replaces it with a fixed step times the playback timescale. `PlaybackPresenter.Advance` already hands the
+  clock `min( elapsed, 0.1 s )` and the clock multiplies by the timescale, so a demo frame advances at most
+  timescale × 0.1 s of demo time — the same bound. The particles step by the clock's demo time, so their played
+  step carries the same clamp and takes none of its own. *Not compared:* the 0.001 s floor and `host_framerate`.
+- **A skip is a JUMP, never a distance** (owner via the coordinator, 2026-10-16: *"a played frame is never a skip in
+  TF2, however many ticks it covers. Only an explicit jump (demo_gototick or the transport seek) skips"*).
+  `PlaybackPresenter.Jumps` counts seeks, scrubs and a new clock; the skip decision is a changed count, or the first
+  move, and no longer `SoundSchedule.IsSkip`'s 133-tick distance — for the seek replay, the particles and the sound.
+  B504's dealt-sound replay still runs on a real seek (`FramePresenterSeekTests`). It replaced a rule under which, at
+  8x, a frame slower than a quarter second counted as a seek and replayed the skip and every live burst, which is
+  what `Play_AtEightTimesSpeed…` measured: 6 rate samples of 10, mean frame 690 ms.
 - **The trade, stated.** TF2 does not replay. *Read from this project's disassembly* (B504, `FramePresenter.Seek`): a
   `demo_gototick` reads at most 99 packets a frame and `_Host_RunFrame` renders after each batch with no skip test, so
   the engine's particles see a skip as a few frames of real frame time across hundreds of demo ticks, and effects

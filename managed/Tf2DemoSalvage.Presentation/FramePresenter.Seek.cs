@@ -40,9 +40,10 @@ public sealed partial class FramePresenter
     /// <param name="tick">The moment to show, which may fall between ticks.</param>
     /// <param name="device">The device, or null before there is one.</param>
     /// <param name="show">Shows a tick as the window shows it, and answers what the window knows afterwards.</param>
+    /// <param name="jumps">How many times the transport has jumped — a move is a skip only when this changed (D221).</param>
     /// <exception cref="ArgumentNullException"><paramref name="show"/> is null.</exception>
-    public void ShowMoment(in ViewFrame frame, double tick, Device3D? device, Func<double, ViewFrame> show) =>
-        ShowMomentOver(frame, tick, device, show, HasHud ? SkipHudFrame : null);
+    public void ShowMoment(in ViewFrame frame, double tick, Device3D? device, Func<double, ViewFrame> show, int jumps) =>
+        ShowMomentOver(frame, tick, device, show, HasHud ? SkipHudFrame : null, jumps);
 
     /// <summary>The same, over any device (D214).</summary>
     /// <param name="frame">What the window knows of the frame.</param>
@@ -50,11 +51,13 @@ public sealed partial class FramePresenter
     /// <param name="device">The device, or null.</param>
     /// <param name="show">Shows a tick, and answers what the window knows afterwards.</param>
     /// <param name="skipHudFrame">One skip frame of the HUD, or null.</param>
+    /// <param name="jumps">How many times the transport has jumped.</param>
     internal void ShowMomentOver(
-        in ViewFrame frame, double tick, IDecalUpload? device, Func<double, ViewFrame> show, Action<DemoTimeline, int>? skipHudFrame)
+        in ViewFrame frame, double tick, IDecalUpload? device, Func<double, ViewFrame> show, Action<DemoTimeline, int>? skipHudFrame, int jumps = 0)
     {
         ArgumentNullException.ThrowIfNull(show);
 
+        _jumpsNow = jumps;
         _frame = frame;
         _show = show;
         _skipHudFrame = skipHudFrame;
@@ -112,6 +115,12 @@ public sealed partial class FramePresenter
     /// <summary>The whole tick <see cref="ShowMoment"/> last showed, or null before the first.</summary>
     private int? _skipShown;
 
+    /// <summary>The transport's jump count this <see cref="ShowMoment"/> was given.</summary>
+    private int _jumpsNow;
+
+    /// <summary>The jump count the last skip decision consumed.</summary>
+    private int _jumpsSkipped;
+
     /// <summary>The last move <see cref="ShowMoment"/> made, and whether it was a skip — the one decision each reader takes once.</summary>
     public FrameSkip? Skip { get; private set; }
 
@@ -145,8 +154,12 @@ public sealed partial class FramePresenter
         _skipShown = target;
 
         // **The frame's one skip decision** (D221): the particles and the sound read this, rather than each keeping a
-        // cursor of its own that a different call cadence could leave disagreeing.
-        bool skipped = SoundSchedule.IsSkip(from, target);
+        // cursor of its own that a different call cadence could leave disagreeing. **A skip is a JUMP, not a distance**:
+        // the engine skips only on an explicit `demo_gototick`, and a played frame — whose demo time `Host_FilterTime`
+        // (engine.dll FUN_18019ffe0) caps at 0.1 s times the timescale — never is, however many ticks it covers.
+        bool skipped = from is null || _jumpsNow != _jumpsSkipped;
+
+        _jumpsSkipped = _jumpsNow;
 
         if (from != target)
         {

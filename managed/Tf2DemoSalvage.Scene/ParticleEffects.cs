@@ -332,8 +332,8 @@ public sealed class ParticleEffects
     /// that went backwards, the effect is replayed from its start a tick at a time, each at that tick's points, then the
     /// fraction — so an effect met mid-life is shown mid-life, and the same after any seek to that moment.
     /// </remarks>
-    /// <param name="seeked">Whether this frame landed by a seek rather than by playing — the skip rule
-    /// (`SoundSchedule.IsSkip`); false for a played frame of any length.</param>
+    /// <param name="seeked">Whether this frame landed by a transport jump rather than by playing; false for a played
+    /// frame of any length.</param>
     public void Bursts(
         IReadOnlyList<ParticleBurst> live,
         float seconds,

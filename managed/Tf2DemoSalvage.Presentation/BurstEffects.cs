@@ -29,7 +29,7 @@ namespace Tf2DemoSalvage.Presentation;
 /// <param name="HealTargetMarker">`hud_medichealtargetmarker`.</param>
 /// <param name="Scripts">The soundscripts the game loaded, or null.</param>
 /// <param name="Silent">Whether this pass is a seek's replay, which nobody hears.</param>
-/// <param name="Seeked">Whether this frame landed by a seek, by the skip rule (`SoundSchedule.IsSkip`) — what rebuilds a burst (D221).</param>
+/// <param name="Seeked">Whether this frame landed by a seek, the frame's one skip decision, a transport jump (`FrameSkip`) — what rebuilds a burst (D221).</param>
 public readonly record struct BurstFrame(
     DemoTimeline? Timeline,
     LoadedMap? Loaded,

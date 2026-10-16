@@ -102,7 +102,10 @@ public sealed class FramePresenterHudTests
         public VguiDrawList? Overlay(int tick) =>
             Frames.BuildOverlay(new OverlayFrame(Timeline, null, "cp_test", tick, 1280, 720, new CrosshairSettings(), 0, false, 0.016d), null);
 
-        public void Seek(double tick) => Frames.ShowMoment(Frame(tick), tick, null, static shown => Frame(shown));
+        /// <summary>A seek: the transport jumps, so the move is a skip (D221).</summary>
+        public void Seek(double tick) => Frames.ShowMoment(Frame(tick), tick, null, static shown => Frame(shown), ++_jumps);
+
+        private int _jumps;
 
         private static ViewFrame Frame(double shown) =>
             new(Timeline, null, null, (int)shown, shown, false, false, null, 1280, 720, 0.016f, 0d, true, true, true, 2048, 50);

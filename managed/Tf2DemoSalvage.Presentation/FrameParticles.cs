@@ -23,7 +23,7 @@ namespace Tf2DemoSalvage.Presentation;
 /// <param name="ViewportHeight">The viewport's height in pixels, for the glow proxies.</param>
 /// <param name="DoPixelVisibility">`r_dopixelvisibility`.</param>
 /// <param name="ShownTick">The moment the frame showed, fraction included, which the trails are stepped to (D221); null for <paramref name="Tick"/>.</param>
-/// <param name="Seeked">Whether this frame landed by a seek, by the skip rule (`SoundSchedule.IsSkip`).</param>
+/// <param name="Seeked">Whether this frame landed by a seek, the frame's one skip decision — a transport jump, never a long frame (`FrameSkip`, D221).</param>
 public readonly record struct ParticleFrame(
     DemoTimeline? Timeline,
     LoadedMap? Loaded,

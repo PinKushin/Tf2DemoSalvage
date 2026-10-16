@@ -229,6 +229,7 @@ public sealed partial class ViewerPresenter : IDisposable
         _spectateWho = spectateWho;
         _loggers = loggers;
         _window = window;
+        _jumps = playback;
         _spectator = new SpectatorView(loggers.CreateLogger("spectate"));
         _camera = new CameraPresenter(cameraView, _spectator, loggers, window, () => _timeline, () => _loaded, () => settings.Current);
         _maps = maps;

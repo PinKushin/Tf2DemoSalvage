@@ -140,8 +140,12 @@ public sealed partial class ViewerPresenter
                 Window.ShowOnly(shown);
 
                 return ViewFrameNow;
-            });
+            },
+            _jumps.Jumps);
     }
+
+    /// <summary>The transport, asked only how many times playback has jumped — what makes a move a skip (D221).</summary>
+    private readonly PlaybackPresenter _jumps;
 
     /// <summary>`TF2VIEW_PICK="x y"`: what lies under that pixel of the shot — <see cref="PickReport"/> — or null.</summary>
     /// <param name="asked">The variable's text, or null.</param>
