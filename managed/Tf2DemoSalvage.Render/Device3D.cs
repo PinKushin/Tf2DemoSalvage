@@ -523,13 +523,14 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
                     if (_render.IsEnabled(LogLevel.Information))
                     {
                         _render.LogInformation(
-                            "wrote {File}, {Width}x{Height}, {Kilobytes} KB, tone-map scale {Scale}, bloom {Bloom}; {PostProcessing}",
+                            "wrote {File}, {Width}x{Height}, {Kilobytes} KB, tone-map scale {Scale}, bloom {Bloom}; post-processing settled {PostProcessingSettled} ({PostProcessing})",
                             Path.GetFileName(path),
                             description.Width,
                             description.Height,
                             new FileInfo(path).Length / 1024,
                             _exposure.Current,
                             _bloomAmount.Current,
+                            PostProcessingSettled,
                             PostProcessingReport);
                     }
                 }

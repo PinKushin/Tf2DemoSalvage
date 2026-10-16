@@ -44,10 +44,17 @@ internal sealed class GoldenMeasure
     /// </remarks>
     public const int MeasuredWidth = 640;
 
-    /// <summary>Reads an image file, resampled to <see cref="MeasuredWidth"/>.</summary>
+    /// <summary>Reads an image file, resampled to <see cref="MeasuredWidth"/> unless it is that wide already (a golden).</summary>
     public static GoldenMeasure Load(string path)
     {
-        using Bitmap rgb = Resampled(path);
+        using Bitmap source = new(path);
+
+        if (source.Width == MeasuredWidth)
+        {
+            return Of(source);
+        }
+
+        using Bitmap rgb = Resampled(source);
 
         return Of(rgb);
     }
@@ -79,6 +86,12 @@ internal sealed class GoldenMeasure
     public static Bitmap Resampled(string path)
     {
         using Bitmap source = new(path);
+
+        return Resampled(source);
+    }
+
+    private static Bitmap Resampled(Bitmap source)
+    {
         int height = (int)Math.Round((double)source.Height * MeasuredWidth / source.Width);
         Bitmap target = new(MeasuredWidth, height, PixelFormat.Format32bppArgb);
 
@@ -126,7 +139,10 @@ internal sealed class GoldenMeasure
             }
         }
 
-        count.ShouldBeGreaterThan(0, $"no pixel reaches luma {threshold}, so there is no bright centroid.");
+        if (count == 0)
+        {
+            throw new InvalidOperationException($"no pixel reaches luma {threshold}, so there is no bright centroid.");
+        }
 
         return (sx / count / Width, sy / count / Width);
     }

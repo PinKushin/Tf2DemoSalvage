@@ -133,9 +133,11 @@ and the demos extracted from the pool's archives.
 
 ## Golden images (D219)
 
-**Repeatability, 2026-10-14.** Two viewer captures of every case measured the same to the printed digit. Two TF2
-captures differed by at most 0.2 luma per 4x3 region (granary, both levels); the two lakeside captures measured
-identically.
+**Repeatability.** TF2, 2026-10-14: two captures per golden; granary differed by at most 0.2 luma per 4x3 region
+(both levels), the two lakeside captures measured identically. The viewer, 2026-10-16, at a 1280x720 view: **five**
+runs each of granary level 2, the level-0 control and the lakeside sun printed identical numbers to 0.1 in every
+region, channel and ring, so the viewer's spread is below the printed resolution and the tolerances' headroom (1.0
+against 0.5 luma, 2.0 against 1.1 per channel) is unchanged.
 
 **A live `mat_hdr_level` switch is not a capture, 2026-10-15.** cp_granary at `spec_goto -1982 -794 -294 -1 61`,
 `fov_desired 90`, 1280x720, through the tf2 MCP, against the level-0 golden that had been taken after a live switch
@@ -148,8 +150,9 @@ against it: worst region 7.6 luma, worst channel 9.0.
 against the switched golden): 984x551 (the default window's viewport) 1.0 (0.7); 1024x576 1.5 (1.2); 1280x720 0.5
 (0.3). One channel of a region at 1280x720: 1.1 (0.9). The viewer at level 0 against the level-2 golden: 17.6.
 
-**Exposure at the captured frame, 2026-10-15**, the viewer's own `wrote viewer.png` line: granary level 2 `tone-map
-scale 1, bloom 0.30018133; bloom settled True at 0.3002; exposure walks True, settled True, at 1 toward 1`, after six
+**Exposure at the captured frame, 2026-10-15**, the viewer's own `wrote viewer.png` line (now `…; post-processing
+settled {True|False} (<report>)`): granary level 2 `tone-map scale 1, bloom 0.30018133; bloom settled True at 0.3002;
+exposure walks True, settled True, at 1 toward 1`, after six
 `capture waiting on post-processing` lines (bloom still walking); level 0 `exposure walks False` (no tone map below
 level 2). So the level-2 frame is settled, by the device's reading at that frame.
 

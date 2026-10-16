@@ -21,6 +21,11 @@ internal sealed record Golden(
     /// 1280x720 windowed, as a spectator in `spec_mode 6` placed with `spec_goto`, `cl_drawhud 0`, through the tf2 MCP's
     /// screenshot tool, which writes nothing to Steam's library. Captured 2026-10-14 on the TF2 build current that day.
     /// </summary>
+    /// <remarks>
+    /// **How the PNG was made from the capture**: <see cref="GoldenMeasure.Resampled(string)"/> on the 1280x720 screenshot,
+    /// once, to <see cref="GoldenMeasure.MeasuredWidth"/> wide (HighQualityBilinear, HighQuality pixel offset). A golden is
+    /// therefore measured as it is, and only the viewer's frame is resampled at test time.
+    /// </remarks>
     public static readonly IReadOnlyList<string> Common =
         ["+demo_fov_override", "90", "+cl_drawhud", "0", "+cl_showfps", "0"];
 
@@ -62,7 +67,21 @@ internal sealed record Golden(
     /// <summary>The committed image's path in the test output.</summary>
     public string ImagePath => Path.Combine(TestContext.CurrentContext.TestDirectory, "Goldens", File);
 
-    /// <summary>The demo's path: lcor in the main checkout, which is also where a worktree's junction points.</summary>
-    public string DemoPath => Path.GetFullPath(Path.Combine(
-        TestContext.CurrentContext.TestDirectory, "..", "..", "..", "..", "..", "tools", "corpus", "local", Demo));
+    /// <summary>The demo's path: lcor under the checkout this test was built from (a worktree needs its junction).</summary>
+    /// <remarks>The checkout is found by walking up to `Tf2DemoSalvage.slnx`, so the build output's depth does not matter.</remarks>
+    public string DemoPath => Path.Combine(CheckoutRoot(), "tools", "corpus", "local", Demo);
+
+    private static string CheckoutRoot()
+    {
+        for (DirectoryInfo? at = new(TestContext.CurrentContext.TestDirectory); at is not null; at = at.Parent)
+        {
+            if (System.IO.File.Exists(Path.Combine(at.FullName, "Tf2DemoSalvage.slnx")))
+            {
+                return at.FullName;
+            }
+        }
+
+        throw new DirectoryNotFoundException(
+            $"no Tf2DemoSalvage.slnx above {TestContext.CurrentContext.TestDirectory}, so lcor cannot be found.");
+    }
 }

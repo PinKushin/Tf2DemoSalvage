@@ -57,16 +57,20 @@ public sealed class GoldenMeasureTests
     }
 
     [Test]
-    public void RegionChannelMeans_OfAHueRotationAtEqualLumaOrder_Moves()
+    public void RegionChannelMeans_OfAHueShiftAtEqualLuma_MovesByPlus15Minus9Plus7()
     {
-        // Every channel swapped round: a hue shift. The channel means must move by the full channel difference.
-        using Bitmap before = Paint(4, 4, (_, _) => Color.FromArgb(200, 100, 50));
-        using Bitmap after = Paint(4, 4, (_, _) => Color.FromArgb(50, 200, 100));
+        // 299·15 − 587·9 + 114·7 = 0, so grey 100 and (115, 91, 107) have exactly the same Rec. 601 luma: 100.
+        using Bitmap before = Paint(4, 4, (_, _) => Grey(100));
+        using Bitmap after = Paint(4, 4, (_, _) => Color.FromArgb(115, 91, 107));
+        GoldenMeasure a = GoldenMeasure.Of(before);
+        GoldenMeasure b = GoldenMeasure.Of(after);
 
-        double[] a = GoldenMeasure.Of(before).RegionChannelMeans(1, 1);
-        double[] b = GoldenMeasure.Of(after).RegionChannelMeans(1, 1);
-
-        a.Zip(b, (p, q) => Math.Abs(p - q)).Max().ShouldBe(150);
+        Assert.Multiple(() =>
+        {
+            // The control: luma cannot see this shift at all.
+            b.RegionMeans(1, 1)[0].ShouldBe(a.RegionMeans(1, 1)[0], 0.001);
+            b.RegionChannelMeans(1, 1).Zip(a.RegionChannelMeans(1, 1), (q, p) => q - p).ShouldBe([15, -9, 7]);
+        });
     }
 
     [Test]
@@ -105,7 +109,7 @@ public sealed class GoldenMeasureTests
     {
         using Bitmap image = Paint(10, 10, (_, _) => Grey(30));
 
-        Should.Throw<Exception>(() => GoldenMeasure.Of(image).BrightCentroid(250))
+        Should.Throw<InvalidOperationException>(() => GoldenMeasure.Of(image).BrightCentroid(250))
             .Message.ShouldContain("no pixel reaches luma 250");
     }
 
@@ -131,8 +135,10 @@ public sealed class GoldenMeasureTests
 
     /// <summary>Every committed golden is <see cref="GoldenMeasure.MeasuredWidth"/> wide and 16:9, as TF2's 1280x720 resampled.</summary>
     [Test]
-    public void Goldens_EveryCommittedPng_Is640By360()
+    public void Goldens_EveryCommittedPng_IsMeasuredWidthAt16By9()
     {
+        const int Height = GoldenMeasure.MeasuredWidth * 9 / 16;
+
         string[] pngs = Directory.GetFiles(Path.Combine(TestContext.CurrentContext.TestDirectory, "Goldens"), "*.png");
 
         pngs.ShouldNotBeEmpty("no golden was copied to the test output, so this checked nothing.");
@@ -143,7 +149,7 @@ public sealed class GoldenMeasureTests
             {
                 using Bitmap image = new(png);
 
-                (image.Width, image.Height).ShouldBe((GoldenMeasure.MeasuredWidth, 360), Path.GetFileName(png));
+                (image.Width, image.Height).ShouldBe((GoldenMeasure.MeasuredWidth, Height),Path.GetFileName(png));
             }
         });
     }

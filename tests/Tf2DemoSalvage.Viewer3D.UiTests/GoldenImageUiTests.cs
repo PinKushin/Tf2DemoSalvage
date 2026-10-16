@@ -93,11 +93,24 @@ public sealed class GoldenImageUiTests
     {
         (GoldenMeasure tf2, GoldenMeasure viewer) = Shoot(Golden.Granary(2), Golden.Granary(0));
 
-        (double luma, string report) = Worst(tf2.RegionMeans(4, 3), viewer.RegionMeans(4, 3));
+        double[] expected = tf2.RegionMeans(4, 3);
+        double[] actual = viewer.RegionMeans(4, 3);
+        (double luma, string report) = Worst(expected, actual);
 
         TestContext.Out.WriteLine($"GOLDEN control hdr2 golden / viewer hdr0 luma: {report}");
 
-        luma.ShouldBeGreaterThan(RegionTolerance, $"level 0 and level 2 measure alike, so the measure cannot separate them: {report}");
+        Assert.Multiple(() =>
+        {
+            luma.ShouldBeGreaterThan(RegionTolerance, $"level 0 and level 2 measure alike, so the measure cannot separate them: {report}");
+
+            // **Not a degenerate frame**: a black frame or a failed load is also "far". Level 0 is the same scene without
+            // HDR, so it keeps the yard's layout (its regions spread at least half as wide as the golden's, 112.7 luma) and
+            // is darker, never brighter, region by region.
+            (actual.Max() - actual.Min()).ShouldBeGreaterThan(
+                (expected.Max() - expected.Min()) / 2, $"the level-0 frame has lost the yard's layout: {report}");
+            expected.Zip(actual, (e, a) => a - e).Max().ShouldBeLessThanOrEqualTo(
+                RegionTolerance, $"a level-0 region is brighter than level 2's: {report}");
+        });
     }
 
     /// <summary>koth_lakeside's sun at level 2 with bloom: the bright area and the falloff around it, against TF2's.</summary>
@@ -113,8 +126,9 @@ public sealed class GoldenImageUiTests
     /// are 1.54% against 1.41%, so the excess is bloom's.
     ///
     /// **Tolerances**: the two TF2 captures are identical, so TF2's spread gives no width. The bright fraction may be 10%
-    /// off TF2's, relative, and a ring 3 luma — the bloom-off control above already differs by 8% and 2..21 luma, so
-    /// this asks for better than the frame without bloom does today.
+    /// off TF2's, relative, and a ring 3 luma. The `mat_disable_bloom 1` numbers above were a one-off measurement on
+    /// 2026-10-14, not a test here; they differed by 8% and 2..21 luma, so this asks for better than the frame without
+    /// bloom did then.
     /// </remarks>
     [Test]
     [Explicit("red after B537: the viewer's sun disc is smaller and its glow falls off faster than TF2's (D219)")]
@@ -139,16 +153,14 @@ public sealed class GoldenImageUiTests
         });
     }
 
-    /// <summary>
-    /// The outer window size whose viewport is 1280x720, the size TF2 rendered every golden at.
-    /// </summary>
+    /// <summary>The 3D view's size, `TF2VIEW_VIEWPORT_SIZE`: the size TF2 rendered every golden at.</summary>
     /// <remarks>
-    /// **The default 1280x720 WINDOW gave a 984x551 viewport** — the playlist and the bars take 296 by 169 — which is
-    /// 1.786:1 against 16:9's 1.778, 0.4% wide. Measured 2026-10-15 at three sizes, worst granary region at level 2:
-    /// 984x551 gave 1.0 luma, 1024x576 (16:9, smaller) gave 1.5, and 1280x720 gives 0.5. So the size matters as well as
-    /// the aspect, and the frame is drawn at TF2's own.
+    /// **The default 1280x720 WINDOW gave a 984x551 viewport** — the playlist and the bars take 296 by 169 at 100% display
+    /// scaling — which is 1.786:1 against 16:9's 1.778. Measured 2026-10-15 at three sizes, worst granary region at level
+    /// 2: 984x551 gave 1.0 luma, 1024x576 (16:9, smaller) gave 1.5, and 1280x720 gives 0.5. So the size matters as well
+    /// as the aspect. The view is sized directly, so the chrome's size at other scalings does not matter.
     /// </remarks>
-    private const string SameSizeAsTf2 = "1576x889";
+    private const string SameSizeAsTf2 = "1280x720";
 
     /// <summary>Captures the viewer as <paramref name="viewerSide"/> says and loads it beside <paramref name="golden"/>.</summary>
     private static (GoldenMeasure Tf2, GoldenMeasure Viewer) Shoot(Golden golden, Golden viewerSide)
@@ -174,7 +186,7 @@ public sealed class GoldenImageUiTests
                 new Dictionary<string, string>
                 {
                     ["TF2VIEW_CAMERA"] = viewerSide.Camera,
-                    [MainForm.WindowSizeVariable] = SameSizeAsTf2,
+                    [MainForm.ViewportSizeVariable] = SameSizeAsTf2,
                 },
                 viewerSide.DemoPath, png, LongEnoughToBeAHang, ShotTick, [.. Golden.Common, .. viewerSide.ConVars]);
 
