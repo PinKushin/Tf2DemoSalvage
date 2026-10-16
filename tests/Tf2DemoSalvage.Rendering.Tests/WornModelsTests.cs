@@ -67,6 +67,15 @@ public sealed class WornModelsTests
     }
 
     [Test]
+    public void From_AnAttachedTrackNeverStamped_IsWornByItsCurrentFields()
+    {
+        // A track built without the builder has no identity history; it answers its current fields once.
+        ScenePropTrack hat = new(7, "models/hat.mdl") { AttachedTo = 4 };
+
+        WornModels.From([hat], []).ShouldBe(["models/hat.mdl"], ignoreOrder: true);
+    }
+
+    [Test]
     public void From_AnUnattachedTrack_IsNotWorn()
     {
         // **The control, and without it every assertion here passes against "return everything".**

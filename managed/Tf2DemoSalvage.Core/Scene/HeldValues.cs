@@ -1,4 +1,3 @@
-using System;
 using System.Collections.Generic;
 
 namespace Tf2DemoSalvage.Core.Scene;
@@ -26,13 +25,17 @@ internal sealed class HeldValues<T>
     /// <summary>Records the value received at a tick; a repeat of the last is not kept.</summary>
     /// <param name="tick">When it was received; never before the last.</param>
     /// <param name="value">The value.</param>
-    /// <exception cref="ArgumentOutOfRangeException">The tick is before the last one set.</exception>
+    /// <remarks>
+    /// **A tick earlier than the last is taken AS the last, never refused.** Nothing in the builder guarantees packet
+    /// ticks only rise, and one regression must not end the whole demo's build (decoding is total). Treating it as
+    /// arriving at the latest tick keeps the list ordered for the binary search, and is the answer a client that
+    /// received it last would hold from then on. Keyframes have the same exposure and do not order-check either.
+    /// </remarks>
     public void Set(int tick, T value)
     {
         if (_ticks.Count > 0 && tick < _ticks[^1])
         {
-            throw new ArgumentOutOfRangeException(
-                nameof(tick), tick, $"values arrive in tick order; the last was at {_ticks[^1]}");
+            tick = _ticks[^1];
         }
 
         if (_ticks.Count > 0 && _ticks[^1] == tick)

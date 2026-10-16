@@ -6682,33 +6682,42 @@ public sealed class DemoTimeline
 
         // Allocated only for an entity that HAS children, which on `cp_granary` is 66 of 297 brush
         // entities and none of the props.
-        Queue<(int Child, int Parent)> pending = new(children.Select(child => (child, asked.EntityIndex)));
+        Queue<(int Child, int Parent)> pending = new();
+
+        foreach (int child in children)
+        {
+            pending.Enqueue((child, asked.EntityIndex));
+        }
+
         HashSet<int> walked = [asked.EntityIndex];
 
         while (pending.TryDequeue(out (int Child, int Parent) next))
         {
             int child = next.Child;
 
-            // The child's own last stated pose, asked of the child's track — the clause calls
-            // `ShouldInterpolate` on the CHILD, so the child's render mode decides, not the parent's.
-            ScenePropTrack? hanging = OccupantAt(child, tick);
-
-            if (hanging is not null)
+            // **The occupant alive at the tick, or no child at all** (B548). The map is keyed by slot and holds every
+            // parent any occupant ever had, so the question is asked of the entity that exists now; a slot with no
+            // live occupant has nothing hanging in it, and its grandchildren are not reached through it.
+            if (TrackFor(child, tick) is not { } hanging)
             {
-                // **The answer holds only until this child's own can change** (B438), which is the
-                // parent's to hear about: a wake at the child's keyframe re-derives the child alone.
-                // Taken before the parent test, since a change of parent is one of those changes (B548).
-                revisit = Math.Min(revisit, hanging.HeldChangesAfter(tick));
-
-                // **A child of this parent only while it hangs from it** (B548): the map holds every parent
-                // the child ever had, and `FirstMoveChild` holds the one it has now.
-                if (hanging.FactsAt(tick).AttachedTo != next.Parent)
+                // Its wake still matters to the parent: the slot's last occupant may be born later and hang here.
+                if (_trackByEntity.TryGetValue(child, out ScenePropTrack? later))
                 {
-                    continue;
+                    revisit = Math.Min(revisit, later.HeldChangesAfter(tick));
                 }
+
+                continue;
             }
 
-            if (!walked.Add(child))
+            // **The answer holds only until this child's own can change** (B438), which is the parent's to hear
+            // about. Taken for a FORMER child too, as a superset like every wake in `Motion`: its next change may make it
+            // this parent's child again. Measured, not argued: moving the line below the parent test reddened no test —
+            // a mover that is moving wakes itself at each arrival and changetime, which covers every case built so far
+            // — so this is the cheap direction of an error, an extra lookup, kept rather than proved necessary (B548).
+            revisit = Math.Min(revisit, hanging.HeldChangesAfter(tick));
+
+            // **A child of this parent only while it hangs from it** (B548): `FirstMoveChild` holds the parent it has now.
+            if (hanging.FactsAt(tick).AttachedTo != next.Parent || !walked.Add(child))
             {
                 continue;
             }
@@ -6718,7 +6727,9 @@ public sealed class DemoTimeline
                 return true;
             }
 
-            if (hanging is not null && Visible(hanging, hanging.Held(tick), tick))
+            // The child's own last stated pose — the clause calls `ShouldInterpolate` on the CHILD, so the child's
+            // render mode decides, not the parent's.
+            if (Visible(hanging, hanging.Held(tick), tick))
             {
                 return true;
             }
@@ -6804,28 +6815,6 @@ public sealed class DemoTimeline
 
         return children;
     }
-
-    /// <summary>The occupant of a slot alive at a tick, else the slot's last — the walk's old answer (B548).</summary>
-    /// <remarks>
-    /// The child's parent is now asked AT the tick, so the track asked must be the one alive then: the slot's last
-    /// occupant answers for a different entity whenever the slot was reused.
-    /// </remarks>
-    private ScenePropTrack? OccupantAt(int entity, double tick)
-    {
-        _occupants ??= _props.Concat(_playerTracks)
-            .GroupBy(track => track.EntityIndex)
-            .ToDictionary(group => group.Key, group => group.ToList());
-
-        if (!_occupants.TryGetValue(entity, out List<ScenePropTrack>? occupants))
-        {
-            return null;
-        }
-
-        return occupants.Find(track => track.Alive(tick)) ?? _trackByEntity.GetValueOrDefault(entity);
-    }
-
-    /// <summary>Every track by slot, or null before the first walk built it.</summary>
-    private Dictionary<int, List<ScenePropTrack>>? _occupants;
 
     /// <summary>Movement children by parent, or null before the first sampling built it.</summary>
     private Dictionary<int, List<int>>? _moveChildren;

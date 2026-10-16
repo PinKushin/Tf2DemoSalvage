@@ -1,5 +1,3 @@
-using System;
-
 using Tf2DemoSalvage.Core.Scene;
 
 namespace Tf2DemoSalvage.Core.Tests.Scene;
@@ -67,12 +65,51 @@ public sealed class HeldValuesTests
     }
 
     [Test]
-    public void Set_AnEarlierTick_Throws()
+    public void Set_AnEarlierTick_IsTakenAtTheLast()
     {
         HeldValues<string> held = new();
-        held.Set(10, "A");
+        held.Set(5, "A");
+        held.Set(10, "B");
+        held.Set(9, "C");
 
-        Should.Throw<ArgumentOutOfRangeException>(() => held.Set(9, "B"));
+        held.Ticks.ShouldBe([5, 10]);
+        held.Values.ShouldBe(["A", "C"]);
+    }
+
+    [Test]
+    public void Set_FourValuesAtOneTickEndingWhereTheyBegan_KeepsOne()
+    {
+        HeldValues<string> held = new();
+        held.Set(5, "A");
+        held.Set(5, "B");
+        held.Set(5, "C");
+        held.Set(5, "A");
+
+        held.Ticks.ShouldBe([5]);
+        held.Values.ShouldBe(["A"]);
+    }
+
+    [Test]
+    public void Set_ARevertAtOneTickToTheValueBefore_DropsTheEntry()
+    {
+        HeldValues<string> held = new();
+        held.Set(1, "X");
+        held.Set(5, "A");
+        held.Set(5, "B");
+        held.Set(5, "X");
+
+        held.Ticks.ShouldBe([1]);
+        held.Values.ShouldBe(["X"]);
+    }
+
+    [Test]
+    public void Set_ASecondValueAtTheOnlyTick_ReplacesIt()
+    {
+        HeldValues<string> held = new();
+        held.Set(5, "A");
+        held.Set(5, "B");
+
+        held.Values.ShouldBe(["B"]);
     }
 
     [Test]

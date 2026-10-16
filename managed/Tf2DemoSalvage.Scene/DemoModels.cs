@@ -342,17 +342,18 @@ public static class DemoModels
             // **A beam names a second sprite, its halo** — `m_nHaloIndex`, drawn by `BeamDrawHalo` beside the shaft.
             // Every corpus spotlight's is `sprites/light_glow03.vmt`, which an `env_sprite` on the same map usually
             // asks for too; "usually" is not a reason to leave a beam's halo to chance.
-            foreach ((int _, ScenePose pose) in track.Keyframes)
+            foreach ((int at, ScenePose pose) in track.Keyframes)
             {
                 if (pose.Beam?.HaloPath is { Length: > 0 } halo)
                 {
                     paths.Add(halo);
                 }
 
-                // **And a rope names its translucent anti-aliasing material**, `<material>_back` (`c_rope.cpp:1323`).
-                if (pose.Rope is not null)
+                // **And a rope names its translucent anti-aliasing material**, `<material>_back` (`c_rope.cpp:1323`) —
+                // of the material it held while it was a rope, not of every material the slot ever named (B548).
+                if (pose.Rope is not null && track.FactsAt(at).ModelPath is { Length: > 0 } material)
                 {
-                    paths.UnionWith(sprites.Select(EntityRopes.BackMaterialPath));
+                    paths.Add(EntityRopes.BackMaterialPath(material));
 
                     // And, for the holiday lights, Pyrovision's solid material and the two light sprites (B478).
                     paths.Add(EntityRopes.PureWhiteMaterial);

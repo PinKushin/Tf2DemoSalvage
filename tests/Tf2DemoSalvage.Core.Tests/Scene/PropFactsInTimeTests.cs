@@ -65,6 +65,21 @@ public sealed class PropFactsInTimeTests
     }
 
     [Test]
+    public void FactsAt_OnAPlayerTrackWhoseTeamArrivesLater_AnswersTheTeamHeldThen()
+    {
+        // A PLAYER's update goes through the same builder path as a prop's (its model is "" not null, so the
+        // model-or-item guard passes) and is stamped there. Team stated at 10, changed at 20.
+        DemoTimeline timeline = DemoTimeline.Build(
+            SyntheticPlayer.DemoOfALateTeam(0.015f, (0, null), (10, 2), (20, 3)));
+
+        ScenePropTrack player = timeline.PlayerTracks.ShouldHaveSingleItem();
+
+        player.FactsAt(5).TeamNumber.ShouldBeNull();
+        player.FactsAt(15).TeamNumber.ShouldBe(2);
+        player.FactsAt(25).TeamNumber.ShouldBe(3);
+    }
+
+    [Test]
     public void Stamp_AnEconWireRebuiltWithTheSameValues_AddsNoEntry()
     {
         // `EconAttributeWire` compares by value (B234), and the builder makes a fresh one on every element update.

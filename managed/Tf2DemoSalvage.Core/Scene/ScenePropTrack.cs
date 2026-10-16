@@ -2240,7 +2240,8 @@ public sealed class ScenePropTrack
         // advance on top dominated it. B274 gave it its own clock, its own neighbours and its own
         // fraction, which for a viewmodel is a different pair again, and the error stopped being
         // smooth.
-        float cycle = ClientSideAnimated
+        // Asked AT the tick: the flag is networked per update, so the end value would decide every earlier frame (B548).
+        float cycle = FactsAt(tick).ClientSideAnimated
             ? animationFrom.Cycle
             : InterpolateCycle(
                 animationPrevious, animationFrom, animationTo, animationFraction);

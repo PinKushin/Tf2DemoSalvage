@@ -40,14 +40,24 @@ public sealed class ModelChangesProbe : IProbe
         List<ScenePropTrack> tracks = [.. timeline.Props, .. timeline.PlayerTracks];
         int changed = 0;
         int entries = 0;
+        int animationOnly = 0;
 
         foreach (ScenePropTrack track in tracks)
         {
             string? before = null;
+            ScenePropFacts? previous = null;
 
             foreach ((int tick, ScenePropFacts facts) in track.FactsHistory)
             {
                 entries++;
+
+                // The cost of carrying m_bClientSideAnimation in the facts: entries (and wakes) it alone caused.
+                if (previous is { } last && last with { ClientSideAnimated = facts.ClientSideAnimated } == facts)
+                {
+                    animationOnly++;
+                }
+
+                previous = facts;
 
                 if (before is not null && facts.ModelPath != before)
                 {
@@ -59,6 +69,6 @@ public sealed class ModelChangesProbe : IProbe
             }
         }
 
-        output.WriteLine($"{timeline.Props.Count} prop and {timeline.PlayerTracks.Count} player tracks walked, {entries} identity entries (control: more than {tracks.Count} means the builder stamped changes), {changed} model changes");
+        output.WriteLine($"{timeline.Props.Count} prop and {timeline.PlayerTracks.Count} player tracks walked, {entries} identity entries (control: more than {tracks.Count} means the builder stamped changes), {changed} model changes, {animationOnly} entries from client-side animation alone");
     }
 }

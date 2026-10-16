@@ -209,6 +209,85 @@ public sealed class InterpolationListTests
     }
 
     /// <remarks>
+    /// **A child that no longer exists hangs from nothing** (B548): on 3 and visible, but ended at tick 10, so at
+    /// tick 14 it forces nothing — and nothing reaches 3 THROUGH it: the visible grandchild 5 hangs on the dead 4.
+    /// The slot's last occupant used to stand in for a dead child, and its children were walked.
+    /// </remarks>
+    [Test]
+    public void PropsAt_ForAnInvisibleParentWhoseChildHasDied_HoldsItsLastStatedPose()
+    {
+        ScenePropTrack child = Hanging(4, 3);
+        child.End(10);
+
+        DrawnX(3, [Invisible(3), child, Hanging(5, 4)]).ShouldBe(200f);
+    }
+
+    /// <remarks>A child not born until tick 20 hangs from nothing at tick 14 either, nor carries its grandchild to 3.</remarks>
+    [Test]
+    public void PropsAt_ForAnInvisibleParentWhoseChildIsNotYetBorn_HoldsItsLastStatedPose()
+    {
+        ScenePropTrack child = new(entityIndex: 4, "models/props_gameplay/door_slide_door.mdl") { AttachedTo = 3 };
+        child.Add(20, new ScenePose { X = 0f, Y = -1f, Z = 5f });
+
+        DrawnX(3, [Invisible(3), child, Hanging(5, 4)]).ShouldBe(200f);
+    }
+
+    /// <remarks>
+    /// **A reused child slot is two entities** (B548): the first occupant hung on 3 and ended at tick 10, the second
+    /// hangs elsewhere — so at tick 14 the slot's occupant is no child of 3.
+    /// </remarks>
+    [Test]
+    public void PropsAt_ForAnInvisibleParentWhoseChildSlotWasReused_HoldsItsLastStatedPose()
+    {
+        ScenePropTrack first = Hanging(4, 3);
+        first.End(10);
+        ScenePropTrack second = Hanging(4, 9);
+        second.Add(12, new ScenePose { X = 0f, Y = -1f, Z = 6f });
+
+        DrawnX(3, [Invisible(3), first, second]).ShouldBe(200f);
+    }
+
+    /// <remarks>
+    /// **A parent change between two stepped samples wakes the parent** (B548). The child moves onto the invisible
+    /// mover at tick 20 with no keyframe of the mover's in between, so only the child's own wake can bring the
+    /// mover back onto the list. At tick 45 the target, 37, lies between the mover's keyframes at 14 and 40, so a
+    /// blending mover is below 400 (held, it is 400); the stepped sample must equal the cold one.
+    /// </remarks>
+    [Test]
+    public void PropsAt_SteppedAcrossAChildJoining_InterpolatesTheParentAfter()
+    {
+        static DemoTimeline Scene()
+        {
+            ScenePropTrack mover = Invisible(3);
+            mover.Add(40, new ScenePose { X = 400f, RenderMode = RenderModes.None });
+            ScenePropTrack child = new(entityIndex: 4, "models/props_gameplay/door_slide_door.mdl") { AttachedTo = 9 };
+            child.Add(0, new ScenePose { X = 0f, Y = -1f, Z = 5f });
+            child.Stamp(0);
+            child.Add(20, new ScenePose { X = 0f, Y = -1f, Z = 5f });
+            child.AttachedTo = 3;
+            child.Stamp(20);
+
+            return DemoTimeline.ForTracks([mover, child]);
+        }
+
+        List<SceneProp> props = [];
+
+        Scene().PropsAt(45d, props);
+        float cold = props.Single(prop => prop.EntityIndex == 3).Pose.X;
+
+        DemoTimeline stepped = Scene();
+        props.Clear();
+        stepped.PropsAt(16d, props);
+        props.Single(prop => prop.EntityIndex == 3).Pose.X.ShouldBe(200f, "before the child joins, the mover holds");
+        props.Clear();
+        stepped.PropsAt(45d, props);
+
+        props.Single(prop => prop.EntityIndex == 3).Pose.X.ShouldBe(cold, "stepped matches a cold sample");
+        // The oracle is the equality above; this only shows the cold sample is a blend, not the held 400.
+        cold.ShouldBeLessThan(400f);
+    }
+
+    /// <remarks>
     /// **Clause one, <c>render-&gt;GetViewEntity() == index</c>** (`c_baseentity.cpp:3031`). It is
     /// tested BEFORE the model and the render mode, so it outranks every reason not to interpolate —
     /// the entity the view is attached to is interpolated even while it is invisible, which is what a

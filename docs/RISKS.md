@@ -39646,3 +39646,18 @@ networked bool (`tf_item_wearable.h:45`), so it is now the state's value — *no
 `ClientSideAnimated` (`m_bClientSideAnimation`, networked per update) joined the facts; per-field `FactsAt` tests cover
 ten of the eleven fields, all but `ClassName` (dropping one from the snapshot reddened its case).
 
+**Second review, 2026-10-15.** Player tracks ARE stamped: `ModelFor` answers `""` for `CTFPlayer`
+(`DemoTimeline.cs` `ModelFor`), so the model-or-item guard passes and the update reaches `Stamp`; a synthetic late-team
+player holds no team, then 2, then 3 (`FactsAt_OnAPlayerTrackWhoseTeamArrivesLater…`; skipping `Stamp` for an empty
+model reddened it). `HeldValues.Set` no longer throws on an earlier tick — nothing guarantees packet ticks rise, and one
+must not end a build — it takes it as the latest tick (no logging exists at that layer; no gcor demo regresses, or the
+corpus phase would have thrown under the old code). The move-children walk asks `TrackFor(child, tick)`: a child with
+no live occupant is skipped with its subtree (its slot's last occupant still contributes a wake), which removes the
+lazy `_occupants` cache; a visible grandchild under a dead or unborn child reddened two tests when the fallback was put
+back. The cycle's client-side test reads `FactsAt(tick)` (`AppliedTimeTests.At_BeforeTheEntityTurnsClientSideAnimated…`,
+reddened by reverting). Taking the child's wake only for current children reddened nothing — a moving mover wakes
+itself — so it stays the superset. `ClientSideAnimated` in the facts costs **0** extra entries on f12 (`model-changes`).
+`OfDisguise` without `||` survives PVS re-entry because a same-serial enter keeps the accumulated state and merges no
+baseline (`EntityStateTable.cs:177-209`, B231) — argued, not tested. The rope `_back` material is taken from the model
+the track held at the rope's own keyframe.
+
