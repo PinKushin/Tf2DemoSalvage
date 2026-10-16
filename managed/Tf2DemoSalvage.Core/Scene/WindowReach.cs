@@ -18,6 +18,11 @@ public sealed record WindowSettings(ClientInterp? Client = null, double DeathNot
     /// A death notice lasts <c>hud_deathnotice_time</c>, DOUBLED when the local player is involved
     /// (<c>DeathNoticeItem::GetExpiryTime</c>, tf/hud_basedeathnotice.cpp:923-931); a chat line
     /// <c>hud_saytext_time</c>.
+    ///
+    /// **An over-approximation, on purpose.** It is the longest ANY line can live: a notice the local player is not in
+    /// lasts half as long, and a notice pushed off by the feed's line cap goes sooner still. Reaching for the longest
+    /// costs only the events in the span and their frames (the trim keeps nothing else from behind the track cut);
+    /// reaching for less would drop a line the HUD still draws.
     /// </remarks>
     public double FeedSeconds => Math.Max(DeathNoticeSeconds * 2d, SayTextSeconds);
 }
@@ -66,14 +71,28 @@ public sealed record WindowReach(int TrackTicks, int OutputTicks)
         ArgumentNullException.ThrowIfNull(server);
 
         double interval = intervalPerTick > 0d ? intervalPerTick : ScenePropTrack.Tf2TickInterval;
-        double feed = settings.FeedSeconds;
 
         // SpeedAt and HeadingAt sample the track a fixed 0.1 s before the tick, converted at 0.015 s per tick as they
         // convert it, whatever the demo's own interval.
         return new WindowReach(
             ScenePropTrack.DelayTicksFor(interval, settings.Interp.Amount(server))
                 + (int)Math.Ceiling(DemoTimeline.MotionWindowSeconds / 0.015d),
-            (int)Math.Ceiling(feed / interval));
+            FeedTicks(settings, interval));
+    }
+
+    /// <summary>The HUD feed span in ticks — the one conversion, read by this reach and by the feed that replays it.</summary>
+    /// <param name="settings">The viewer's settings.</param>
+    /// <param name="intervalPerTick">Seconds per tick; TF2's when the demo states none.</param>
+    /// <returns><see cref="WindowSettings.FeedSeconds"/> in ticks, rounded up.</returns>
+    public static int FeedTicks(WindowSettings settings, double intervalPerTick)
+    {
+        ArgumentNullException.ThrowIfNull(settings);
+
+        double interval = intervalPerTick > 0d ? intervalPerTick : ScenePropTrack.Tf2TickInterval;
+
+        // Rounded to a thousandth of a tick before the ceiling: an interval arrives as a float, and 12 s over 0.015f
+        // widened to double is 800.0000179 ticks, which a bare ceiling makes 801 where the span is 800.
+        return (int)Math.Ceiling(Math.Round(settings.FeedSeconds / interval, 3));
     }
 
     /// <summary>Whether this reach keeps at least everything <paramref name="other"/> needs.</summary>

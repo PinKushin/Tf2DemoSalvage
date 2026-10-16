@@ -38,8 +38,7 @@ public sealed class HudEventFeed
 
         int? last = _lastTick;
         (bool reset, IReadOnlyList<SceneGameEvent> events) = Advance(timeline.GameEvents, Interval(timeline), tick);
-        int windowTicks = (int)MathF.Ceiling(Window / Interval(timeline));
-        int from = reset ? tick - windowTicks : last!.Value;
+        int from = reset ? tick - WindowReach.FeedTicks(Settings, Interval(timeline)) : last!.Value;
         List<SceneUserMessage> messages = [];
 
         foreach (SceneUserMessage message in timeline.UserMessages)
@@ -62,7 +61,7 @@ public sealed class HudEventFeed
     {
         ArgumentNullException.ThrowIfNull(events);
 
-        int windowTicks = (int)MathF.Ceiling(Window / interval);
+        int windowTicks = WindowReach.FeedTicks(Settings, interval);
         bool reset = _lastTick is not { } last || tick < last || tick - last > windowTicks;
         int from = reset ? tick - windowTicks : _lastTick!.Value;
 

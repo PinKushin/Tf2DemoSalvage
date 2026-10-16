@@ -53,7 +53,8 @@ public sealed class TimelineWindowsProbe : IProbe
         long heapBefore = Live();
         Stopwatch walk = Stopwatch.StartNew();
         Dictionary<Type, (long Objects, long Elements)>? created = costOnly ? [] : null;
-        DemoTimeline.Checkpoints checkpoints = DemoTimeline.Checkpoints.Walk(demo, everyTicks, new WindowSettings(), created)!;
+        WindowSettings settings = new();
+        DemoTimeline.Checkpoints checkpoints = DemoTimeline.Checkpoints.Walk(demo, everyTicks, settings, created)!;
         walk.Stop();
         long heapAfter = Live();
 
@@ -102,8 +103,8 @@ public sealed class TimelineWindowsProbe : IProbe
             DemoTimeline window = checkpoints.Window((int)tick, (int)tick + 1, out (double Copy, double Decode, double Finish) spent);
             windows.Stop();
             phases = (phases.Copy + spent.Copy, phases.Decode + spent.Decode, phases.Finish + spent.Finish);
-            List<(string Question, object? Answer)> expected = TimelineAnswers.At(whole, tick);
-            List<(string Question, object? Answer)> actual = TimelineAnswers.At(window, tick);
+            List<(string Question, object? Answer)> expected = TimelineAnswers.At(whole, tick, settings);
+            List<(string Question, object? Answer)> actual = TimelineAnswers.At(window, tick, settings);
             bool differs = false;
 
             for (int index = 0; index < expected.Count; index++)

@@ -108,6 +108,23 @@ public sealed class TimelineCheckpointsTests
         window.Frames.Count(frame => frame.Tick < late - 4).ShouldBeLessThanOrEqualTo(2, "only the event's frame and the one in force at the track cut");
     }
 
+    /// <remarks>
+    /// **The comparison asks about the events the GIVEN settings replay**: at tick 60 a death at 30 is inside the default
+    /// 12 s span and outside a 0.1 s one (0.2 s doubled, 14 ticks).
+    /// </remarks>
+    [Test]
+    public void At_EventsWorldUnderShorterFeedSettings_LeavesOutTheOlderDeath()
+    {
+        DemoTimeline whole = DemoTimeline.Build(LongWalkWithADeathAt(30));
+
+        static object? EventsWorld(List<(string Question, object? Answer)> answers) =>
+            answers.Single(answer => answer.Question == "events' world").Answer;
+
+        ((System.Collections.ICollection)EventsWorld(TimelineAnswers.At(whole, 60))!).Count.ShouldBe(1, "the control");
+        ((System.Collections.ICollection)EventsWorld(TimelineAnswers.At(whole, 60, new WindowSettings(DeathNoticeSeconds: 0.1d, SayTextSeconds: 0.1d)))!)
+            .Count.ShouldBe(0);
+    }
+
     /// <summary>The long walk with a `player_death` game event in its packet at <paramref name="tick"/>.</summary>
     private static byte[] LongWalkWithADeathAt(int tick)
     {

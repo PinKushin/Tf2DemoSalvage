@@ -19,8 +19,10 @@ internal static class TimelineAnswers
     /// <summary>What <paramref name="timeline"/> answers at <paramref name="tick"/>, in a hashable shape.</summary>
     /// <param name="timeline">The timeline asked.</param>
     /// <param name="tick">The moment; fractional ticks exercise interpolation.</param>
+    /// <param name="settings">The settings the windows were walked under, whose feed span the replayed events fall in;
+    /// the defaults when not given.</param>
     /// <returns>A list of named answers.</returns>
-    public static List<(string Question, object? Answer)> At(DemoTimeline timeline, double tick)
+    public static List<(string Question, object? Answer)> At(DemoTimeline timeline, double tick, WindowSettings? settings = null)
     {
         int whole = (int)System.Math.Floor(tick);
 
@@ -57,19 +59,19 @@ internal static class TimelineAnswers
             ("sounds", timeline.Sounds.Where(sound => sound.Tick == whole).ToList()),
             ("events", timeline.GameEvents.Where(fired => fired.Tick == whole).ToList()),
             ("messages", timeline.UserMessages.Where(message => message.Tick == whole).ToList()),
-            ("events' world", EventsWorld(timeline, whole)),
+            ("events' world", EventsWorld(timeline, whole, settings ?? new WindowSettings())),
         ];
 
         return answers;
     }
 
     /// <summary>
-    /// What <c>HudEventFeed.Resolve</c> asks after a seek: every event the feed replays — those within the default
-    /// settings' feed span — with the players and rules at the event's OWN tick.
+    /// What <c>HudEventFeed.Resolve</c> asks after a seek: every event the feed replays — those within the settings'
+    /// feed span, converted as the feed converts it — with the players and rules at the event's OWN tick.
     /// </summary>
-    private static List<(int, IReadOnlyList<ScenePlayer>, SceneGameRules)> EventsWorld(DemoTimeline timeline, int whole)
+    private static List<(int, IReadOnlyList<ScenePlayer>, SceneGameRules)> EventsWorld(DemoTimeline timeline, int whole, WindowSettings settings)
     {
-        int span = WindowReach.For(new WindowSettings(), timeline.ServerConVars, timeline.IntervalPerTick).OutputTicks;
+        int span = WindowReach.FeedTicks(settings, timeline.IntervalPerTick);
 
         return
         [
