@@ -10263,6 +10263,50 @@ So it no longer runs out of memory partway, but it does not open in useful time 
 timeline build plus a checkpoint copy, and the command list still holds the file (B449's streaming reader is not used
 by the timeline).
 
+### Step 4 — the resume copy, and the order of what follows (2026-10-16)
+
+**The plan chosen**, by the lead from the planner's diagnosis: `Checkpoints.Window` resumes through
+`Builder.FromCheckpoint`, a FULL `StateCopy.Of` with no prior, which reflects over every object and copies struct
+arrays element by element. Its first two steps:
+1. **A census of the resume copy** — `FromCheckpoint` takes a `created` count, printed by `timeline-windows` as
+   `resume creates …` beside `CostByField`.
+2. **Frozen property bags.** `Builder.Checkpoint` freezes every `PropertyBag` it reaches before copying it; the frozen
+   form is immutable and `StateCopy` shares it (beside `Immutable`). The first write after a freeze thaws, copying the
+   key map only when a key is added and a chunk only when it is written. The straight build never freezes.
+
+The framing is the owner's video-editor question above (*keyframes plus decode-forward, an index, and a cache near
+the playhead*): a resume is the decoder starting from a keyframe, and a keyframe that has to be copied whole before it
+can be read is not one.
+
+**Built simpler than the plan, deliberately.** The plan packed a frozen bag into one `byte[]` of fixed records plus an
+`object[]` side table. Shared by reference, the existing chunks already ARE immutable once frozen, so the frozen form
+is the key map and the chunk arrays, unchanged; the packing would only save heap, and the heap the checkpoints keep
+did not move (below), so it was not worth a second representation. Revisit only if a census says the chunks are
+what is held.
+
+**Measured** (`timeline-windows`, 120 seeks, machine shared with other agents so the milliseconds are noisy; the
+before is the same commit with the freeze turned off):
+
+| demo | resume copy ms | decode ms | MB a resume allocates | retained heap | seeks differing |
+|---|---:|---:|---:|---:|---:|
+| f12, before | 279 | 366 | 146.5 | 1,016 MB | 0 of 120 |
+| f12, after | **117** | 299 | **88.9** | 1,020 MB | 0 of 120 |
+| rgl-pug, before | 363 | 254 | 281.4 | 3,026 MB | 0 of 120 |
+| rgl-pug, after | **280** | 252 | **222.9** | 3,024 MB | 0 of 120 |
+
+`timeline-fingerprint` on f12 is identical to main's (frames `4F4509E1…`, props `3C6967B2…`, collections
+`F97EF29D…`), measured on both trees. The census confirms the mechanism: the resume no longer creates any `(PropertyValue, long)[]` chunk (f12 2,144 →
+0, rgl-pug 2,232 → 0) or `Dictionary<string, int>` entry array (625 → 0, 670 → 0). **What is left, for the next
+step**: `Int32[]` (279 k elements on f12, 481 k on rgl-pug), `Single[]` (125 k / 237 k) and, on rgl-pug,
+`DecodedProperty[]` (90 k) — `entities` is still 163 MB of rgl-pug's mid checkpoint, and `decoder` 161 MB. Checkpoint
+spacing is unchanged; that is a later step.
+
+**The order after these two steps — the viewer half, decided by the owner the same day: a backward seek must NOT
+replay the demo from the start.** The state the skip replay builds up — the dealt HUD sounds and decals of B504,
+`ReplaySkip` in `FramePresenter.Seek.cs` — is to be carried in checkpoints instead, the way D220 carries corpses.
+Owner: *"I think you're second idea is how we should do it. We are having to do something here valve hasn't even
+done. So it's not simple."* It comes after the copy work above, not before; not built yet.
+
 ## D218 — TF2's volume ConVars, and the test suite launches the viewer silent (2026-10-14)
 
 **Owner, in his words:** *"its kinda irritating to have to lissten to the tests and probes all the time when they
