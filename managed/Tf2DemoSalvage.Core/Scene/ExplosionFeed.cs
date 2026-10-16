@@ -53,7 +53,7 @@ public sealed class ExplosionFeed
     /// <summary>`m_nSound`.</summary>
     private const string SoundProperty = "m_nSound";
 
-    private readonly List<SceneExplosion> _blasts = [];
+    private readonly ChunkedList<SceneExplosion> _blasts = [];
 
     /// <summary>Every blast recorded, in tick order.</summary>
     public IReadOnlyList<SceneExplosion> All => _blasts;

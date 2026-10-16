@@ -160,7 +160,7 @@ public sealed class ProjectileProbe : IProbe
             foreach (ScenePropTrack example in (ScenePropTrack[])[of[0], of[of.Count / 2], of[^1]])
             {
                 (int tick, ScenePose pose) = example.Keyframes.Count > 0
-                    ? example.Keyframes[0]
+                    ? (example.FirstTick, example.FirstPose)
                     : (example.FirstTick, default);
 
                 output.WriteLine(string.Create(

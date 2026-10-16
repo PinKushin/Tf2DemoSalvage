@@ -77,7 +77,7 @@ public sealed class EffectDispatchFeed
     /// <summary>The string table <c>m_iEffectName</c> points into.</summary>
     public const string TableName = "EffectDispatch";
 
-    private readonly List<SceneEffectDispatch> _effects = [];
+    private readonly ChunkedList<SceneEffectDispatch> _effects = [];
 
     /// <summary>Every dispatch, in tick order.</summary>
     public IReadOnlyList<SceneEffectDispatch> All => _effects;

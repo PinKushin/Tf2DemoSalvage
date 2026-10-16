@@ -32,7 +32,7 @@ public sealed class TfParticleEffectFeed
     /// <summary>`kInvalidEHandleParticleEffect`.</summary>
     private const int NoEntity = 2047;
 
-    private readonly List<SceneEffectDispatch> _effects = [];
+    private readonly ChunkedList<SceneEffectDispatch> _effects = [];
 
     /// <summary>Every effect, in fire order, as its dispatch.</summary>
     public IReadOnlyList<SceneEffectDispatch> All => _effects;

@@ -1,0 +1,54 @@
+using Tf2DemoSalvage.Core.Scene;
+
+namespace Tf2DemoSalvage.Core.Tests.Scene;
+
+/// <summary>A history trimmed for a checkpoint (D217 step 3) must answer every question at or after its cut as before.</summary>
+public sealed class InterpolatedHistoryTests
+{
+    /// <summary>Twenty entries, each changed and received at its own tick, valued at its tick.</summary>
+    private static InterpolatedHistory Twenty()
+    {
+        InterpolatedHistory history = new(1);
+
+        for (int tick = 1; tick <= 20; tick++)
+        {
+            history.Add(tick, tick, [tick]);
+        }
+
+        return history;
+    }
+
+    private static (float Older, float Newer) Pair(InterpolatedHistory history, double target, int arrivedBy)
+    {
+        Bracketing pair = history.Bracket(target, arrivedBy).ShouldNotBeNull();
+
+        return (history.ValuesAt(pair.Older)[0], history.ValuesAt(pair.Newer)[0]);
+    }
+
+    /// <remarks>
+    /// **A cut at 15 with a tail of 2** drops the twelve entries before 13 (entries 1..14 precede the cut; 14 − 2 = 12),
+    /// and the pair bracketing 16.5 is the same two values.
+    /// </remarks>
+    [Test]
+    public void DropReceivedBefore_CutAt15Tail2_KeepsTwoBeforeTheCutAndTheSameAnswers()
+    {
+        InterpolatedHistory history = Twenty();
+        (float, float) before = Pair(history, 16.5, 17);
+
+        history.DropReceivedBefore(15, 2);
+
+        (history.Count, history.ChangeTimeAt(0)).ShouldBe((8, 13));
+        Pair(history, 16.5, 17).ShouldBe(before);
+    }
+
+    /// <remarks>**The last entry is never dropped**, however late the cut: the value in force must stay.</remarks>
+    [Test]
+    public void DropReceivedBefore_CutPastTheEnd_KeepsTheLast()
+    {
+        InterpolatedHistory history = Twenty();
+
+        history.DropReceivedBefore(100, 0);
+
+        (history.Count, history.ChangeTimeAt(0), history.ValuesAt(0)[0]).ShouldBe((1, 20, 20f));
+    }
+}

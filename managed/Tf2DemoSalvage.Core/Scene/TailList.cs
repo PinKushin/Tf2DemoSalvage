@@ -1,6 +1,7 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Linq;
 
 namespace Tf2DemoSalvage.Core.Scene;
 
@@ -10,11 +11,13 @@ namespace Tf2DemoSalvage.Core.Scene;
 /// list's count and last element instead of copying it, which is sound only while nothing earlier in the list is ever
 /// written again. That was first a remark, and `choreography` broke it for a whole review round — a run's stop written
 /// behind later runs. Any edit away from the tail now throws where it is made.
+///
+/// **Stored as a <see cref="ChunkedList{T}"/>** (D217 step 3), so checkpoints share every full chunk.
 /// </remarks>
 /// <typeparam name="T">The element type.</typeparam>
 internal sealed class TailList<T> : IReadOnlyList<T>, ITailList
 {
-    private readonly List<T> _items = [];
+    private readonly ChunkedList<T> _items = [];
 
     /// <inheritdoc cref="IReadOnlyCollection{T}.Count"/>
     public int Count => _items.Count;
@@ -42,12 +45,118 @@ internal sealed class TailList<T> : IReadOnlyList<T>, ITailList
     public void RemoveAt(int index)
     {
         Tail(index, "remove");
-        _items.RemoveAt(index);
+        _items.RemoveLast();
     }
 
-    /// <summary>The list itself, for the timeline that is handed out.</summary>
-    /// <returns>The backing list, which no builder may write once it is out (the builder's lease).</returns>
-    public List<T> HandOut() => _items;
+    /// <summary>The elements as a list for the timeline that is handed out; the tail list is left empty.</summary>
+    /// <returns>The list, which no builder may write once it is out (the builder's lease).</returns>
+    /// <remarks>Moved chunk by chunk, so a whole build's frames are never held twice.</remarks>
+    public List<T> HandOut() => _items.MoveOut();
+
+    /// <summary>
+    /// As <see cref="DropBefore(Func{T, int}, int)"/>, but for a list that interleaves several streams written only on
+    /// change: before the cut, each stream's LAST element is kept, since it is what is in force at the cut.
+    /// </summary>
+    /// <typeparam name="TKey">What names a stream.</typeparam>
+    /// <param name="tickOf">An element's tick; the list is in tick order.</param>
+    /// <param name="streamOf">An element's stream.</param>
+    /// <param name="cut">The earliest tick still to be answered.</param>
+    public void DropBefore<TKey>(Func<T, int> tickOf, Func<T, TKey> streamOf, int cut)
+    {
+        HashSet<TKey> seen = [];
+        List<T> kept = [];
+
+        // Walked backwards from the cut: the first of each stream met is its last before the cut.
+        int before = _items.FindLastIndex(item => tickOf(item) < cut);
+
+        for (int index = before; index >= 0; index--)
+        {
+            if (seen.Add(streamOf(_items[index])))
+            {
+                kept.Add(_items[index]);
+            }
+        }
+
+        Splice(before, kept);
+    }
+
+    /// <summary>
+    /// As <see cref="DropBefore(Func{T, int}, int)"/>, but also keeping, before the cut, the element in force at each of
+    /// <paramref name="keepAt"/> — the moments a reader still asks about from behind the cut.
+    /// </summary>
+    /// <param name="tickOf">An element's tick; the list is in tick order.</param>
+    /// <param name="cut">The earliest tick every reader asks about.</param>
+    /// <param name="keepAt">Earlier ticks one reader still asks about, in any order.</param>
+    public void DropBefore(Func<T, int> tickOf, int cut, IReadOnlyCollection<int> keepAt)
+    {
+        ArgumentNullException.ThrowIfNull(keepAt);
+
+        List<int> asked = [.. keepAt.Where(tick => tick < cut).Order()];
+        List<T> kept = [];
+        int before = _items.FindLastIndex(item => tickOf(item) < cut);
+
+        // Walked backwards: the element in force at the cut first, then, for each asked tick from the latest down, the
+        // last element at or before it — once, however many asked ticks it answers.
+        for (int index = before, next = asked.Count - 1; index >= 0; index--)
+        {
+            int tick = tickOf(_items[index]);
+            bool answers = index == before;
+
+            while (next >= 0 && asked[next] >= tick)
+            {
+                answers = true;
+                next--;
+            }
+
+            if (answers)
+            {
+                kept.Add(_items[index]);
+            }
+        }
+
+        Splice(before, kept);
+    }
+
+    /// <summary>
+    /// Drops the front of the list up to the last element stamped before <paramref name="cut"/>, which is kept as the
+    /// value in force there (D217 step 3). The last element is never dropped.
+    /// </summary>
+    /// <param name="tickOf">An element's tick; the list is in tick order.</param>
+    /// <param name="cut">The earliest tick still to be answered.</param>
+    public void DropBefore(Func<T, int> tickOf, int cut)
+    {
+        int inForce = _items.FindLastIndex(item => tickOf(item) < cut);
+
+        if (inForce > 0)
+        {
+            _items.DropFront(Math.Min(inForce, _items.Count - 1));
+        }
+    }
+
+    /// <summary>
+    /// Keeps <paramref name="kept"/> (latest first, all at or before <paramref name="before"/>) as the only elements up to
+    /// that index.
+    /// </summary>
+    /// <remarks>
+    /// Spliced in place: the kept records, in their order, go in the slots just before what follows the cut, and the
+    /// front is dropped up to them — so every chunk after the cut is untouched and a checkpoint still shares it.
+    /// </remarks>
+    private void Splice(int before, List<T> kept)
+    {
+        if (before < 0 || kept.Count == before + 1)
+        {
+            return;
+        }
+
+        int start = before + 1 - kept.Count;
+
+        for (int index = 0; index < kept.Count; index++)
+        {
+            _items[start + index] = kept[kept.Count - 1 - index];
+        }
+
+        _items.DropFront(start);
+    }
 
     /// <inheritdoc/>
     public IEnumerator<T> GetEnumerator() => _items.GetEnumerator();
@@ -56,7 +165,7 @@ internal sealed class TailList<T> : IReadOnlyList<T>, ITailList
 
     object? ITailList.Last => _items.Count > 0 ? _items[^1] : null;
 
-    void ITailList.RemoveLast() => _items.RemoveAt(_items.Count - 1);
+    void ITailList.RemoveLast() => _items.RemoveLast();
 
     void ITailList.AddBoxed(object? item) => _items.Add((T)item!);
 

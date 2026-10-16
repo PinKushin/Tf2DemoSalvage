@@ -1,3 +1,4 @@
+using System;
 using System.Linq;
 
 using Tf2DemoSalvage.Core.Scene;
@@ -63,5 +64,44 @@ public sealed class PoseKeyframesTests
         track.Add(12, second);
 
         track.KeyframeCount.ShouldBe(2);
+    }
+
+    private static ScenePropTrack Trimmed()
+    {
+        ScenePropTrack track = new(1, "models/a.mdl");
+
+        track.Add(10, Pose(1f, 4));
+        track.Add(11, Pose(2f, 4));
+        track.Add(12, Pose(3f, 4));
+        track.Add(13, Pose(4f, 4));
+        track.TrimBefore(13);
+
+        return track;
+    }
+
+    /// <remarks>
+    /// **After a trim, Keyframes is the list of what is held, and keeps the list contract** (D217 step 3): of four
+    /// keyframes, a cut at 13 drops two; Count, the indexer and enumeration agree on the two held, ticks 12 and 13, and
+    /// AppliedAt is indexed the same way.
+    /// </remarks>
+    [Test]
+    public void Keyframes_AfterATrim_AreTheHeldOnesUnderOneContract()
+    {
+        ScenePropTrack track = Trimmed();
+
+        track.HeldKeyframeCount.ShouldBe(2, "the control: the trim dropped two");
+        track.Keyframes.Count.ShouldBe(2);
+        track.Keyframes.Select(keyframe => keyframe.Tick).ShouldBe([12, 13]);
+        (track.Keyframes[0].Tick, track.AppliedAt(0)).ShouldBe((12, 12));
+        Should.Throw<ArgumentOutOfRangeException>(() => track.Keyframes[2]);
+    }
+
+    /// <remarks>**The birth survives a trim**: the first keyframe's tick and pose, which `Alive` and a projectile's age read.</remarks>
+    [Test]
+    public void TrimBefore_FirstTwoDropped_KeepsTheFirstTickAndPose()
+    {
+        ScenePropTrack track = Trimmed();
+
+        (track.FirstTick, track.FirstPose.X).ShouldBe((10, 1f));
     }
 }

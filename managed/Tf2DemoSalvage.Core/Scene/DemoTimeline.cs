@@ -2717,6 +2717,245 @@ public sealed class DemoTimeline
     /// <returns>The count.</returns>
     internal static int CommandCount(ReadOnlyMemory<byte> file) => DemoCommandReader.Read(file[DemoHeader.SizeBytes..]).Count();
 
+    /// <summary>
+    /// A demo walked once, keeping a checkpoint every few seconds and no whole-demo output: any tick is answered by a
+    /// WINDOW, the nearest earlier checkpoint decoded forward past it (D217 step 3).
+    /// </summary>
+    /// <remarks>
+    /// **The video editor's arrangement**, as the owner asked for it: keyframes are the checkpoints, the demo's own
+    /// commands are the bytes between them, and a seek is restore plus decode-forward. Each checkpoint owns its state and
+    /// output tail, so seeks in any order are exact — the back-then-forward case the shared-list marks refused.
+    /// </remarks>
+    internal sealed class Checkpoints
+    {
+        private readonly List<DemoCommand> _commands;
+        private readonly List<(int Command, int Tick, Builder State)> _checkpoints;
+        private readonly Builder.EndFacts _end;
+
+        /// <summary>What every resume shares, built once for the walk rather than per window.</summary>
+        private readonly IReadOnlySet<object> _inputs;
+
+        private Checkpoints(List<DemoCommand> commands, List<(int, int, Builder)> checkpoints, Builder.EndFacts end)
+        {
+            _commands = commands;
+            _checkpoints = checkpoints;
+            _end = end;
+            _inputs = checkpoints[0].Item3.Inputs();
+        }
+
+        /// <summary>The least reach any checkpoint kept: what every window can answer for.</summary>
+        public WindowReach Reach { get; private init; } = new(0, 0);
+
+        /// <summary>The interpolation settings the walk was decoded under, which every window finishes with.</summary>
+        public ClientInterp Client { get; private init; } = new();
+
+        /// <summary>The demo's first frame's tick — its START, which a window's own FirstTick (its cut) is not.</summary>
+        public int FirstTick { get; private init; }
+
+        /// <summary>The demo's seconds per tick.</summary>
+        public double IntervalPerTick { get; private init; }
+
+        /// <summary>The ticks the checkpoints were taken at, in order.</summary>
+        public IEnumerable<int> Ticks => _checkpoints.Select(checkpoint => checkpoint.Tick);
+
+        /// <summary>
+        /// Walks the demo with the reach <paramref name="settings"/> give every reader (D220), and walks again if the
+        /// demo's FINAL server bounds, which every window's interpolation uses, need further than a checkpoint kept.
+        /// </summary>
+        /// <param name="file">The whole demo file.</param>
+        /// <param name="everyTicks">The spacing between checkpoints.</param>
+        /// <param name="settings">The viewer's settings; when they change, ask <see cref="Covers"/> and walk again if not.</param>
+        /// <param name="created">When given, counts what every checkpoint after the first creates rather than shares, by type.</param>
+        /// <returns>The checkpoints, or null for a demo with no data tables.</returns>
+        public static Checkpoints? Walk(
+            ReadOnlyMemory<byte> file,
+            int everyTicks,
+            WindowSettings settings,
+            Dictionary<Type, (long Objects, long Elements)>? created = null)
+        {
+            ArgumentNullException.ThrowIfNull(settings);
+
+            if (Walk(file, everyTicks, settings.Interp, builder => builder.ReachFor(settings), created) is not { } walked)
+            {
+                return null;
+            }
+
+            WindowReach needed = WindowReach.For(settings, walked._end.ServerConVars, walked.IntervalPerTick);
+
+            if (walked.Reach.Covers(needed))
+            {
+                return walked;
+            }
+
+            // The first walk's counts describe checkpoints thrown away; only the walk returned is counted.
+            created?.Clear();
+            return Walk(file, everyTicks, settings.Interp, _ => needed, created);
+        }
+
+        /// <summary>Walks with a FIXED reach, for a test or probe that needs the trim to bite at a chosen depth.</summary>
+        /// <param name="file">The whole demo file.</param>
+        /// <param name="everyTicks">The spacing between checkpoints.</param>
+        /// <param name="lookbackTicks">How much output before a checkpoint it keeps.</param>
+        /// <param name="trackLookbackTicks">How much track history before a checkpoint it keeps.</param>
+        /// <param name="client">The viewer's interpolation settings.</param>
+        /// <param name="created">When given, counts what every checkpoint after the first creates rather than shares, by type.</param>
+        /// <returns>The checkpoints, or null for a demo with no data tables.</returns>
+        public static Checkpoints? Walk(
+            ReadOnlyMemory<byte> file,
+            int everyTicks,
+            int lookbackTicks,
+            int trackLookbackTicks = int.MaxValue,
+            ClientInterp? client = null,
+            Dictionary<Type, (long Objects, long Elements)>? created = null)
+        {
+            WindowReach reach = new(Math.Min(lookbackTicks, trackLookbackTicks), lookbackTicks);
+            return Walk(file, everyTicks, client ?? new ClientInterp(), _ => reach, created);
+        }
+
+        /// <summary>Whether windows of this walk answer for <paramref name="settings"/>, or the demo must be walked again.</summary>
+        /// <param name="settings">The viewer's settings now.</param>
+        /// <returns>
+        /// True when the interpolation settings are the ones walked with — they are decoded into every checkpoint — and
+        /// every reader's reach under them is no further than what was kept.
+        /// </returns>
+        public bool Covers(WindowSettings settings)
+        {
+            ArgumentNullException.ThrowIfNull(settings);
+            return settings.Interp == Client && Reach.Covers(WindowReach.For(settings, _end.ServerConVars, IntervalPerTick));
+        }
+
+        private static Checkpoints? Walk(
+            ReadOnlyMemory<byte> file,
+            int everyTicks,
+            ClientInterp client,
+            Func<Builder, WindowReach> reachAt,
+            Dictionary<Type, (long Objects, long Elements)>? created)
+        {
+            if (Start(file, null, client, null, out List<DemoCommand> commands) is not { } builder)
+            {
+                return null;
+            }
+
+            WindowReach least = new(int.MaxValue, int.MaxValue);
+
+            // Every class flattened now, so no window ever writes the flattening cache all checkpoints share.
+            builder.FlattenEveryClass();
+            List<(int, int, Builder)> checkpoints = [(0, int.MinValue, builder.Checkpoint(null, out Dictionary<object, object> prior))];
+            int next = int.MinValue;
+            int from = 0;
+
+            for (int index = 0; index < commands.Count; index++)
+            {
+                // **Packets only**: they are what frames are made of, and their ticks rise. A signon command carries the
+                // server's tick at the moment recording began (`Finish` re-times its sounds for that reason), far past
+                // the first packets' ticks, so it would place a checkpoint thousands of ticks into the future.
+                if (commands[index].Type != DemoCommandType.Packet)
+                {
+                    continue;
+                }
+
+                int tick = commands[index].Tick;
+
+                if (next == int.MinValue && tick > 0)
+                {
+                    next = tick + everyTicks;
+                }
+
+                if (next != int.MinValue && tick >= next)
+                {
+                    builder.Run(commands.Skip(from).Take(index - from));
+                    from = index;
+                    // The reach under the settings and the server's bounds as they stand at this checkpoint.
+                    WindowReach reach = reachAt(builder);
+                    least = new WindowReach(Math.Min(least.TrackTicks, reach.TrackTicks), Math.Min(least.OutputTicks, reach.OutputTicks));
+                    builder.Trim(Cut(tick, reach.OutputTicks), Cut(tick, reach.TrackTicks));
+                    checkpoints.Add((index, tick, builder.Checkpoint(prior, out prior, created)));
+                    next = tick + everyTicks;
+                }
+            }
+
+            builder.Run(commands.Skip(from));
+
+            // Only the end-of-demo facts are kept from the walk itself; the rest of it is garbage once this returns.
+            return new Checkpoints(commands, checkpoints, builder.End())
+            {
+                Reach = least.TrackTicks == int.MaxValue ? reachAt(builder) : least,
+                Client = client,
+                IntervalPerTick = builder.IntervalPerTick,
+                FirstTick = builder.StartTick,
+            };
+        }
+
+        /// <summary>A tick less a reach, saturating rather than wrapping for an unbounded one.</summary>
+        private static int Cut(int tick, int reach) => (int)Math.Max(int.MinValue, (long)tick - reach);
+
+        /// <summary>The timeline from the checkpoint at or before <paramref name="tick"/> through <paramref name="through"/>.</summary>
+        /// <param name="tick">The first tick the window must answer.</param>
+        /// <param name="through">The last tick it must answer.</param>
+        /// <returns>A timeline whose answers in that range equal a whole build's.</returns>
+        /// <remarks>
+        /// **Safe to call from several threads at once**: it writes nothing it shares. Each window copies its checkpoint;
+        /// the schema, its flattening cache (filled by the walk) and the end facts are only read.
+        /// </remarks>
+        public DemoTimeline Window(int tick, int through) => Window(tick, through, out _);
+
+        /// <inheritdoc cref="Window(int, int)"/>
+        /// <param name="tick">The first tick the window must answer.</param>
+        /// <param name="through">The last tick it must answer.</param>
+        /// <param name="spent">Where it spent its time, in milliseconds: copying the checkpoint, decoding forward, finishing.</param>
+        public DemoTimeline Window(int tick, int through, out (double Copy, double Decode, double Finish) spent)
+        {
+            int at = _checkpoints.FindLastIndex(checkpoint => checkpoint.Tick <= tick);
+            (int command, _, Builder state) = _checkpoints[Math.Max(0, at)];
+
+            long from = Stopwatch.GetTimestamp();
+            Builder resumed = Builder.FromCheckpoint(state, _inputs);
+            long copied = Stopwatch.GetTimestamp();
+            int end = command;
+
+            // Through every command of the next tick too, so the last frame asked for is final rather than mid-tick.
+            while (end < _commands.Count && (_commands[end].Type != DemoCommandType.Packet || _commands[end].Tick <= through + 1))
+            {
+                end++;
+            }
+
+            resumed.Run(_commands.Skip(command).Take(end - command));
+            long ran = Stopwatch.GetTimestamp();
+            DemoTimeline window = resumed.Finish(_end);
+            spent = (
+                Stopwatch.GetElapsedTime(from, copied).TotalMilliseconds,
+                Stopwatch.GetElapsedTime(copied, ran).TotalMilliseconds,
+                Stopwatch.GetElapsedTime(ran).TotalMilliseconds);
+            return window;
+        }
+
+        /// <summary>What the checkpoints allocate in all, measured by copying each once.</summary>
+        /// <returns>Bytes, and the largest single checkpoint.</returns>
+        public (long Total, long Largest) Cost()
+        {
+            long total = 0;
+            long largest = 0;
+
+            foreach ((_, _, Builder state) in _checkpoints)
+            {
+                long before = GC.GetAllocatedBytesForCurrentThread();
+                Builder copy = Builder.FromCheckpoint(state, _inputs);
+                long bytes = GC.GetAllocatedBytesForCurrentThread() - before;
+                GC.KeepAlive(copy);
+                total += bytes;
+                largest = Math.Max(largest, bytes);
+            }
+
+            return (total, largest);
+        }
+
+        /// <summary>One checkpoint's bytes by field, as <c>SnapshotCost</c> reports a snapshot's.</summary>
+        /// <param name="index">Which checkpoint.</param>
+        /// <returns>Its fields, largest first.</returns>
+        public IReadOnlyList<(string Field, long Bytes)> CostByField(int index) =>
+            _checkpoints[index].State.SnapshotCost().Fields;
+    }
+
     /// <summary>A builder's state between two commands, and its output lists' marks (D217).</summary>
     private sealed record BuilderSnapshot(Builder Builder, (int Count, object? Last)[] Marks);
 
@@ -2825,7 +3064,7 @@ public sealed class DemoTimeline
         private readonly SoundNames soundNames;
         private readonly TailList<SceneSound> sounds;
         private readonly ScenePrecache scenePrecache;
-        private readonly List<SceneChoreography> choreography;
+        private readonly ChunkedList<SceneChoreography> choreography;
         private readonly Dictionary<int, int> playingScenes;
         private readonly TailList<(int Tick, SceneSoundscape Soundscape)> soundscapes;
         private readonly TailList<(int Tick, DirectorShot Shot)> director;
@@ -4385,6 +4624,7 @@ public sealed class DemoTimeline
                 firstStated.Observe(frames[^1]);
             }
 
+            firstFrameTick ??= command.Tick;
             frames.Add(new TimelineFrame(command.Tick, players, recorderTeam, roundState, rules, serverTick, roundTimers, buildings, teams, scoreboardPlayers, idEntities));
         }
         }
@@ -4520,19 +4760,167 @@ public sealed class DemoTimeline
             return (total, [.. fields.OrderByDescending(field => field.Bytes)]);
         }
 
-        /// <summary>What a copy of this builder shares with it instead of copying: the inputs and the outputs.</summary>
-        private HashSet<object> Shared(ITailList[] outputs)
+        /// <summary>
+        /// Drops every piece of output no question at or after <paramref name="cut"/> can read (D217 step 3): track
+        /// histories, tracks that ended before it, and the front of the tick-ordered output lists.
+        /// </summary>
+        /// <param name="cut">The earliest tick still to be answered, already moved back by the caller's lookback.</param>
+        /// <remarks>
+        /// **What a checkpoint is made of.** Run, trim, copy: what is left is the decoder's own state (entity table,
+        /// baselines, string tables, feeds in flight) plus each output's tail. Sounds are kept whole, because a loop
+        /// started long ago is still playing (`docs/memory/a-loop-is-state-not-an-event.md`); they are small.
+        ///
+        /// **Kept whole, and why** (D220 review): <c>playingScenes</c> and <c>corpses</c> are live state — the scene each
+        /// slot is playing, the corpse each slot holds now — read by the next update, not output. <c>replaced</c>, the
+        /// corpses a slot has since replaced, is a corpse's whole life, which D220 carries rather than reaches for: how
+        /// long one is drawn depends on whether it is in view (<c>C_TFRagdoll::ClientThink</c>), which no setting bounds.
+        /// Trimmed here besides the lists: scene runs that stopped before the cut, which cover no tick a window answers,
+        /// and the spectator-GUI changes before the one in force.
+        /// </remarks>
+        /// <param name="trackCut">
+        /// The same for track histories, which need far less: only what the interpolation reaches back over (one delay and
+        /// the spline's older samples). Measured on f12, histories kept for a 4 s lookback were most of what every
+        /// checkpoint copied afresh, because every moving track's histories change between two checkpoints.
+        /// </param>
+        public void Trim(int cut, int trackCut)
+        {
+            lease.Refuse("trim");
+
+            foreach (ScenePropTrack track in props.Concat(playerTracks))
+            {
+                track.TrimBefore(trackCut);
+            }
+
+            props.RemoveAll(track => track.EndTick <= trackCut);
+            playerTracks.RemoveAll(track => track.EndTick <= trackCut);
+
+            // Frames at the TRACK cut, plus the frame in force at every game event inside the feed span: the HUD feed
+            // resolves each event it replays against the players and rules at that event's own tick
+            // (`HudEventFeed.Resolve`, D220), and nothing else reads a frame from behind the track cut. Every frame of
+            // the span was 800 ticks of frames per checkpoint, overlapping the next: on f12 it nearly doubled the heap.
+            frames.DropBefore(
+                frame => frame.Tick,
+                trackCut,
+                [.. gameEvents.Where(fired => fired.Tick >= cut && fired.Tick < trackCut).Select(fired => fired.Tick).Distinct()]);
+            soundscapes.DropBefore(sample => sample.Tick, cut);
+            director.DropBefore(shot => shot.Tick, cut);
+            viewCommands.DropBefore(command => command.Tick, cut);
+            userCommands.DropBefore(command => command.Tick, cut);
+            packetAcknowledgements.DropBefore(ack => ack.Tick, cut);
+            conVarHistory.DropBefore(change => change.Tick, cut);
+            // By stream: `viewmodels` interleaves every player's two hands, each written only on CHANGE, so the record in
+            // force for one can sit far behind the cut — a plain tick cut lost it (f12: 50 of 80 seeks differed).
+            viewmodels.DropBefore(sample => sample.Tick, sample => (sample.Weapon.OwnerEntityIndex, sample.Weapon.IsMainHand), cut);
+            fogSamples.DropBefore(sample => sample.Tick, cut);
+            gameEvents.DropBefore(fired => fired.Tick, cut);
+            userMessages.DropBefore(message => message.Tick, cut);
+
+            // A run is written behind the tail (its stop), so this list is chunked but not a TailList, and it is rebuilt
+            // when anything stopped before the cut: a match holds few runs at once, so the rebuild copies little.
+            if (choreography.FindLastIndex(run => run.StoppedTick < cut) >= 0)
+            {
+                List<SceneChoreography> live = [.. choreography.Where(run => run.StoppedTick is null || run.StoppedTick >= cut)];
+                choreography.Clear();
+                live.ForEach(choreography.Add);
+            }
+
+            // At or before: the change in force at the cut is kept.
+            int gui = spectatorGuiChanges.FindLastIndex(change => change.Tick < cut);
+
+            if (gui > 0)
+            {
+                spectatorGuiChanges.RemoveRange(0, gui);
+            }
+        }
+
+        /// <summary>A copy of the pass that owns all of its state and output, from which any number of windows resume.</summary>
+        /// <returns>The checkpoint; <see cref="Trim"/> first, or it is as large as the whole timeline.</returns>
+        /// <remarks>
+        /// **Owns its output, unlike <see cref="Snapshot"/>**, so resuming one never cuts what another reads, and a seek
+        /// back then forward is as good as forward alone — the case marks had to refuse.
+        /// </remarks>
+        /// <param name="prior">The previous checkpoint's copy map, whose unchanged objects this one shares; null for none.</param>
+        /// <param name="copies">This checkpoint's copy map, for the next.</param>
+        /// <param name="created">When given, counts what the checkpoint creates rather than shares, by type.</param>
+        public Builder Checkpoint(
+            Dictionary<object, object>? prior,
+            out Dictionary<object, object> copies,
+            Dictionary<Type, (long Objects, long Elements)>? created = null)
+        {
+            lease.Refuse("checkpoint");
+            return StateCopy.Of(this, SharedInputs(), prior, out copies, created);
+        }
+
+        /// <summary>The facts only the END of a demo knows, which every window of it reports (D217 step 3).</summary>
+        /// <param name="ServerConVars">The final server ConVars, which bound the interpolation.</param>
+        /// <param name="FirstStated">Each player's first stated team and class, the final frame observed.</param>
+        /// <param name="Everyone">Everyone who played, by user id.</param>
+        internal sealed record EndFacts(ServerConVars ServerConVars, FirstStatedRoster FirstStated, Dictionary<int, PlayerInfo> Everyone);
+
+        /// <summary>This pass's end facts, once its last command has run: its final frame is observed here, being final.</summary>
+        /// <returns>The facts, which nothing writes afterwards — the pass is finished — so every window shares them.</returns>
+        public EndFacts End()
+        {
+            if (frames.Count > 0)
+            {
+                firstStated.Observe(frames[^1]);
+            }
+
+            return new EndFacts(serverConVars, firstStated, everyone);
+        }
+
+        /// <summary>The first frame's tick, kept when a trim drops that frame: the demo's start, for a walk's windows.</summary>
+        private int? firstFrameTick;
+
+        /// <summary>The demo's first frame's tick, or 0 for a demo with none — what <c>FirstTick</c> is on a whole build.</summary>
+        public int StartTick => firstFrameTick ?? 0;
+
+        /// <summary>Seconds per tick as the demo's server info stated it, or 0 before it has.</summary>
+        public double IntervalPerTick => interval;
+
+        /// <summary>Every reader's reach under <paramref name="settings"/> and the server's bounds as they stand now (D220).</summary>
+        /// <param name="settings">The viewer's settings.</param>
+        /// <returns>The reach.</returns>
+        public WindowReach ReachFor(WindowSettings settings) => WindowReach.For(settings, serverConVars, interval);
+
+        /// <summary>Fills the decoder's flattening cache for every class, so no resume of a checkpoint writes it.</summary>
+        public void FlattenEveryClass() => decoder.FlattenEveryClass();
+
+        /// <summary>A builder resumed from a checkpoint, which stays untouched for the next resume.</summary>
+        /// <param name="checkpoint">The checkpoint.</param>
+        /// <returns>The builder, ready for the commands after it.</returns>
+        /// <param name="inputs">What every copy shares rather than copies — <see cref="Inputs"/>, built once per walk.</param>
+        public static Builder FromCheckpoint(Builder checkpoint, IReadOnlySet<object> inputs) => StateCopy.Of(checkpoint, inputs);
+
+        /// <summary>
+        /// What every copy of this builder and of its checkpoints shares: the same set for a whole walk, since the schema,
+        /// its flattening cache (filled before the first checkpoint) and the commands do not change.
+        /// </summary>
+        /// <returns>A new set; a walk builds it once and hands it to every resume.</returns>
+        public HashSet<object> Inputs() => SharedInputs();
+
+        /// <summary>What every copy of this builder shares rather than copies: the schema, its caches and the commands.</summary>
+        private HashSet<object> SharedInputs()
         {
             // The schema and everything under it never change once parsed; walked once, then shared by every snapshot.
             schemaGraph ??= StateCopy.Reachable(schema);
 
-            HashSet<object> shared = new(schemaGraph, ReferenceEqualityComparer.Instance) { commands, lease, schemaGraph };
+            HashSet<object> shared = new(schemaGraph, ReferenceEqualityComparer.Instance) { commands, schemaGraph };
             shared.UnionWith(decoder.SchemaDerived());
 
             if (classes is not null)
             {
                 shared.Add(classes);
             }
+
+            return shared;
+        }
+
+        /// <summary>What a copy of this builder shares with it instead of copying: the inputs and the outputs.</summary>
+        private HashSet<object> Shared(ITailList[] outputs)
+        {
+            HashSet<object> shared = SharedInputs();
+            shared.Add(lease);
 
             foreach (ITailList output in outputs)
             {
@@ -4576,14 +4964,14 @@ public sealed class DemoTimeline
 
         /// <summary>Runs the post-passes and hands over the timeline; the builder, its snapshots and their resumes are spent afterwards.</summary>
         /// <returns>The timeline.</returns>
-        public DemoTimeline Finish()
+        /// <param name="whole">
+        /// For a WINDOW (D217 step 3): the end-of-demo facts of the walk over the whole demo (<see cref="End"/>), which the
+        /// window cannot know from its own commands. Null for a straight build, where this builder's own are those.
+        /// </param>
+        public DemoTimeline Finish(EndFacts? whole = null)
         {
         lease.HandOut();
-
-        if (frames.Count > 0)
-        {
-            firstStated.Observe(frames[^1]);
-        }
+        EndFacts end = whole ?? End();
 
         // **The signon's sounds are the ambience already playing, and its clock is not the
         // recording's.** Measured on movement-test-pov-cp_process: six )ambient/machine_hum.wav
@@ -4631,7 +5019,7 @@ public sealed class DemoTimeline
         }
 
         // The viewer's own interp (`cl_interp` and friends from its config), under the server's final bounds.
-        double interpAmount = client.Amount(serverConVars);
+        double interpAmount = client.Amount(end.ServerConVars);
         int delayTicks = ScenePropTrack.DelayTicksFor(interval, interpAmount);
 
         foreach (ScenePropTrack track in props.Concat(playerTracks))
@@ -4641,14 +5029,14 @@ public sealed class DemoTimeline
 
         return new DemoTimeline(
             frames.HandOut(), props, playerTracks, viewCommands.HandOut(), viewmodels.HandOut(), fogSamples.HandOut(), heard,
-            soundscapes.HandOut(), director.HandOut(), firstStated)
+            soundscapes.HandOut(), director.HandOut(), end.FirstStated)
         {
             MaxClients = maxClients,
             ClientInterpAmount = interpAmount,
             FogControllersSeen = fogControllersSeen,
             FogControllerProperties = fogProperties,
             IntervalPerTick = interval,
-            Roster = everyone,
+            Roster = end.Everyone,
             GameEvents = gameEvents.HandOut(),
             UserMessages = userMessages.HandOut(),
             Voice = voice.HandOut(),
@@ -4672,7 +5060,7 @@ public sealed class DemoTimeline
             TfParticleEffects = feeds.TfParticleEffects,
             Sparks = feeds.Sparks,
             Scenes = choreography,
-            ServerConVars = serverConVars,
+            ServerConVars = end.ServerConVars,
             ConVarChanges = conVarHistory.HandOut(),
             UserCommands = userCommands.HandOut(),
             PacketAcknowledgements = packetAcknowledgements.HandOut(),
@@ -7120,7 +7508,8 @@ public sealed class DemoTimeline
             // Stryker disable all : the guard condition spans two lines, so a mutant that empties
             // the guard body leaves 'pose' unassigned at its use below (CS0165), and Safe Mode
             // then drops every mutation in this method — B410.
-            if (!_trackByEntity.TryGetValue(player.EntityIndex, out ScenePropTrack? track) ||
+            // The occupant of the slot AT this tick, not its last one: a reused slot holds several tracks.
+            if (TrackFor(player.EntityIndex, tick) is not { } track ||
                 (interpolating ? track.At(tick) : track.Held(tick)) is not { } pose)
             {
                 into.Add(player);
@@ -7322,9 +7711,15 @@ public sealed class DemoTimeline
     /// Vertical motion is left out, which is what <c>GetOuterXYSpeed</c> does — a falling player is
     /// not running.
     /// </remarks>
+    /// <summary>
+    /// The seconds a player's speed and heading are differenced over — this project's choice, not an engine setting, and
+    /// a reader of the track that far before the tick, which a window's reach must cover (D220).
+    /// </summary>
+    internal const double MotionWindowSeconds = 0.1d;
+
     private static float SpeedAt(ScenePropTrack track, double tick)
     {
-        const double window = 0.1d;
+        const double window = MotionWindowSeconds;
 
         double ticks = window / Math.Max(0.001f, 0.015f);
 
@@ -7353,7 +7748,7 @@ public sealed class DemoTimeline
     /// </remarks>
     private static float? HeadingAt(ScenePropTrack track, double tick)
     {
-        const double window = 0.1d;
+        const double window = MotionWindowSeconds;
 
         double ticks = window / Math.Max(0.001f, 0.015f);
 

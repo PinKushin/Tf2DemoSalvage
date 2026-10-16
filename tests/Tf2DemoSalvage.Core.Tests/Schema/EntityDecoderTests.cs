@@ -431,6 +431,27 @@ public sealed class EntityDecoderTests
         entity.Properties[0].Value.AsInt.ShouldBe(4000);
     }
 
+    /// <remarks>
+    /// **After FlattenEveryClass the cache is only read** (D217 step 3: every window shares it): two classes flattened,
+    /// and asking for each again adds nothing to what the decoder shares.
+    /// </remarks>
+    [Test]
+    public void FlattenedFor_AfterFlattenEveryClass_WritesNothing()
+    {
+        List<SendProperty> properties = [new(SendPropType.Int, "m_iHealth", Unsigned, string.Empty, 0f, 0f, 10, 0)];
+        EntityDecoder decoder = new(
+            new DemoSchema([new SendTable("DT_Test", true, properties)], [new ServerClass(0, "CA", "DT_Test"), new ServerClass(1, "CB", "DT_Test")]),
+            ClassBits);
+
+        decoder.FlattenEveryClass();
+        object[] shared = [.. decoder.SchemaDerived()];
+        decoder.FlattenedFor(0);
+        decoder.FlattenedFor(1);
+
+        shared.Length.ShouldBe(4, "the cache and the class map, and one list per class");
+        decoder.SchemaDerived().ShouldBe(shared);
+    }
+
     [Test]
     public void NullSchema_IsRejectedAtConstruction()
     {

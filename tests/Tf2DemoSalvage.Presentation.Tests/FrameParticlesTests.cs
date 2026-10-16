@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Numerics;
 
 using Tf2DemoSalvage.Content.Assets;
@@ -93,6 +94,28 @@ public sealed class FrameParticlesTests
         particles.TrailEffect(SyntheticRocket.RocketEntityIndex).ShouldNotBeNull();
         particles.TrailEffect(SyntheticRocket.OwnerEntityIndex).ShouldBeNull("its owner is no projectile");
         particles.Count.ShouldBe(1);
+    }
+
+    /// <remarks>
+    /// **A window's track is trimmed** (D217 step 3): its first keyframes are gone, and the trail's birth is the track's
+    /// kept first tick and pose, not index 0 — which throws once anything is dropped.
+    /// </remarks>
+    [Test]
+    public void TrailsOver_ARocketWhoseTrackWasTrimmed_StartsItsTrail()
+    {
+        DemoTimeline rocket = DemoTimeline.Build(SyntheticRocket.DemoOverTicks(
+            0.015f, (100, 0f, 0f, 64f), (110, 150f, 0f, 64f), (120, 300f, 0f, 64f), (130, 450f, 0f, 64f)));
+        ScenePropTrack track = rocket.Props.Single(prop => prop.EntityIndex == SyntheticRocket.RocketEntityIndex);
+        track.TrimBefore(130);
+        track.HeldKeyframeCount.ShouldBeLessThan(track.KeyframeCount, "the control: the trim dropped the first keyframes");
+        List<SceneProp> drawn = [];
+        rocket.PropsAt(125, drawn);
+        ParticleEffects particles = new();
+
+        new FrameParticles(particles, new RecordingLogger())
+            .TrailsOver(new ParticleFrame(rocket, null, 125, Overhead, drawn, 0.05f, 720, false), Map()).ShouldBeTrue();
+
+        particles.TrailEffect(SyntheticRocket.RocketEntityIndex).ShouldNotBeNull();
     }
 
     [Test]

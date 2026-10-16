@@ -5,6 +5,25 @@ namespace Tf2DemoSalvage.Core.Tests.Scene;
 /// <summary>A value as held at each tick, change-only (B548).</summary>
 public sealed class HeldValuesTests
 {
+    /// <remarks>
+    /// **A trim keeps the value in force at the cut** (D217 step 3): of A at 5, B at 10, C at 20, a cut at 15 drops A and
+    /// keeps B, so 15 still answers B and 20 answers C.
+    /// </remarks>
+    [Test]
+    public void DropBefore_ACutBetweenChanges_KeepsTheValueInForce()
+    {
+        HeldValues<string> held = new();
+        held.Set(5, "A");
+        held.Set(10, "B");
+        held.Set(20, "C");
+
+        held.DropBefore(15);
+
+        held.Ticks.ShouldBe([10, 20]);
+        held.TryAt(15, out string at).ShouldBeTrue();
+        at.ShouldBe("B");
+    }
+
     [Test]
     public void TryAt_BeforeTheFirst_IsFalse()
     {

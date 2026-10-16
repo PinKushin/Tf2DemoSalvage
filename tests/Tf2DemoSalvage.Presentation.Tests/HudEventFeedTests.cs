@@ -45,6 +45,22 @@ public sealed class HudEventFeedTests
         crossed.Select(fired => fired.Tick).ShouldBe([300, 400, 500, 600, 700, 800, 900, 1000], "ticks 201 to 1000");
     }
 
+    /// <remarks>
+    /// **The span is the settings' (`WindowReach.FeedTicks`), the one the timeline's reach uses**: a 9 s kill feed lives
+    /// 18 s for the local player, 1,200 ticks, so a seek back to 2,000 replays from tick 801 — events 900 to 2,000.
+    /// </remarks>
+    [Test]
+    public void Advance_ASeekWithALongerKillFeed_ReplaysTheLongerSpan()
+    {
+        HudEventFeed feed = new() { Settings = new WindowSettings(DeathNoticeSeconds: 9d) };
+
+        feed.Advance(Events, Interval, 100);
+        (bool reset, IReadOnlyList<SceneGameEvent> crossed) = feed.Advance(Events, Interval, 2000);
+
+        reset.ShouldBeTrue();
+        crossed.Select(fired => fired.Tick).ShouldBe([.. Enumerable.Range(9, 12).Select(i => i * 100)]);
+    }
+
     [Test]
     public void Advance_ASkipPastTheWindow_ResetsToo()
     {

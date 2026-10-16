@@ -13,7 +13,7 @@ namespace Tf2DemoSalvage.Presentation;
 /// <see cref="Window"/> — is `demo_gototick`: the engine reads every packet to the new tick, rendering a frame per 99
 /// (B504), so listeners hear each event. The viewer's skip runs the HUD through those frames itself (`MainForm.ReplaySkip`),
 /// so this feed is reset only where no skip ran first — no HUD yet. Replaying the last <see cref="Window"/> seconds is then
-/// the same picture, because no notice outlives it (`hud_deathnotice_time` × 2, hud_basedeathnotice.cpp:923).
+/// the same picture, because no line outlives it (`hud_deathnotice_time` × 2, hud_basedeathnotice.cpp:923; `hud_saytext_time`).
 /// **ponytail:** an event older than the window that a later one would have merged into (`UseExistingNotice`) is not
 /// replayed; the merged line would already have expired, so only its count can differ.
 /// </remarks>
@@ -21,8 +21,11 @@ public sealed class HudEventFeed
 {
     private int? _lastTick;
 
-    /// <summary>The seconds replayed after a seek.</summary>
-    public float Window { get; set; } = 12f;
+    /// <summary>The viewer's settings, whose HUD feed times set how much a seek replays — the one owner of that span (D220).</summary>
+    public WindowSettings Settings { get; set; } = new();
+
+    /// <summary>The seconds replayed after a seek: the longest feed line's life (<see cref="WindowSettings.FeedSeconds"/>).</summary>
+    public float Window => (float)Settings.FeedSeconds;
 
     /// <summary>The events to deliver this frame, and whether the HUD must be emptied first.</summary>
     /// <param name="timeline">The demo.</param>
@@ -35,8 +38,7 @@ public sealed class HudEventFeed
 
         int? last = _lastTick;
         (bool reset, IReadOnlyList<SceneGameEvent> events) = Advance(timeline.GameEvents, Interval(timeline), tick);
-        int windowTicks = (int)MathF.Ceiling(Window / Interval(timeline));
-        int from = reset ? tick - windowTicks : last!.Value;
+        int from = reset ? tick - WindowReach.FeedTicks(Settings, Interval(timeline)) : last!.Value;
         List<SceneUserMessage> messages = [];
 
         foreach (SceneUserMessage message in timeline.UserMessages)
@@ -59,7 +61,7 @@ public sealed class HudEventFeed
     {
         ArgumentNullException.ThrowIfNull(events);
 
-        int windowTicks = (int)MathF.Ceiling(Window / interval);
+        int windowTicks = WindowReach.FeedTicks(Settings, interval);
         bool reset = _lastTick is not { } last || tick < last || tick - last > windowTicks;
         int from = reset ? tick - windowTicks : _lastTick!.Value;
 

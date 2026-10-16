@@ -25,7 +25,7 @@ public sealed class BloodFeed
     /// <summary>The server class this reads.</summary>
     public const string EventClassName = "CTETFBlood";
 
-    private readonly List<SceneBlood> _blood = [];
+    private readonly ChunkedList<SceneBlood> _blood = [];
 
     /// <summary>Every blood event, in tick order.</summary>
     public IReadOnlyList<SceneBlood> All => _blood;

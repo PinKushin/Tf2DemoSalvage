@@ -19,7 +19,7 @@ public sealed class ShotFeed
     /// <summary>The server class this reads.</summary>
     public const string EventClassName = "CTEFireBullets";
 
-    private readonly List<SceneShot> _shots = [];
+    private readonly ChunkedList<SceneShot> _shots = [];
 
     /// <summary>Every shot recorded, in tick order.</summary>
     public IReadOnlyList<SceneShot> All => _shots;

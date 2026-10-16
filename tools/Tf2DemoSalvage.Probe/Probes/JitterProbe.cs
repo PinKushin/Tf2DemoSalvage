@@ -87,7 +87,7 @@ public sealed class JitterProbe : IProbe
 
         if (from < 0)
         {
-            from = track.Keyframes[0].Tick;
+            from = track.FirstTick;
         }
 
         int span = arguments.Count > 3 &&

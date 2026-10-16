@@ -34,7 +34,7 @@ public readonly record struct SceneHealBeam(int Medigun, int Target, bool Charge
 public sealed class HealBeamFeed
 {
     private readonly Dictionary<int, (int? Target, bool ChargeRelease, int Beam)> _state = [];
-    private readonly List<SceneHealBeam> _beams = [];
+    private readonly ChunkedList<SceneHealBeam> _beams = [];
 
     /// <summary>The medigun's server class.</summary>
     public const string MedigunClassName = "CWeaponMedigun";
@@ -49,7 +49,7 @@ public sealed class HealBeamFeed
     public const string HealingKey = "DT_WeaponMedigun.m_bHealing";
 
     private readonly Dictionary<int, bool> _healing = [];
-    private readonly List<(int Medigun, int Tick)> _healingStops = [];
+    private readonly ChunkedList<(int Medigun, int Tick)> _healingStops = [];
 
     /// <summary>Every tick a medigun's `m_bHealing` fell from true to false, in order.</summary>
     public IReadOnlyList<(int Medigun, int Tick)> HealingStops => _healingStops;

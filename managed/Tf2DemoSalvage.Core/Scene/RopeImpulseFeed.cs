@@ -27,7 +27,7 @@ public sealed class RopeImpulseFeed
     /// <summary>The rope's server class.</summary>
     public const string RopeClassName = "CRopeKeyframe";
 
-    private readonly List<SceneRopeImpulse> _impulses = [];
+    private readonly ChunkedList<SceneRopeImpulse> _impulses = [];
 
     /// <summary>Every impulse, in arrival order.</summary>
     public IReadOnlyList<SceneRopeImpulse> All => _impulses;

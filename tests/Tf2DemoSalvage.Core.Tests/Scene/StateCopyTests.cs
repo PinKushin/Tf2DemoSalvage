@@ -106,4 +106,127 @@ public sealed class StateCopyTests
         copy.First.ShouldBeSameAs(original.First);
         copy.Second.ShouldNotBeSameAs(original.Second);
     }
+
+    /// <remarks>
+    /// **Checkpoints share what did not change** (D217 step 3): of two lists, the one left alone is the earlier copy's own
+    /// object, the one changed is a new copy holding the new values.
+    /// </remarks>
+    [Test]
+    public void Of_WithPrior_SharesTheUnchangedListAndCopiesTheChangedOne()
+    {
+        Holder original = new() { First = [1], Second = [2] };
+        Holder earlier = StateCopy.Of(original, new HashSet<object>(), prior: null, out Dictionary<object, object> map);
+
+        original.Second.Add(3);
+        Holder later = StateCopy.Of(original, new HashSet<object>(), map, out _);
+
+        later.First.ShouldBeSameAs(earlier.First);
+        later.Second.ShouldNotBeSameAs(earlier.Second);
+        later.Second.ShouldBe([2, 3]);
+        earlier.Second.ShouldBe([2]);
+    }
+
+    private sealed class Signed
+    {
+        public List<float> Values { get; } = [0f];
+    }
+
+    /// <remarks>**Bit for bit**: +0 and −0 compare equal as floats, and an earlier copy holding the other is not the same state.</remarks>
+    [Test]
+    public void Of_WithPriorAndAZeroThatChangedSign_CopiesAgain()
+    {
+        Signed original = new();
+        Signed earlier = StateCopy.Of(original, new HashSet<object>(), prior: null, out Dictionary<object, object> map);
+
+        original.Values[0] = -0f;
+        Signed later = StateCopy.Of(original, new HashSet<object>(), map, out _);
+
+        later.Values.ShouldNotBeSameAs(earlier.Values);
+        BitConverter.SingleToInt32Bits(later.Values[0]).ShouldBe(BitConverter.SingleToInt32Bits(-0f));
+    }
+
+    /// <remarks>
+    /// **Three copies, not two**: an object inside a reused one was never visited by the second copy, so it has to be put
+    /// in that copy's map — or the third copy cannot recognise it, and copies the whole unchanged list again.
+    /// </remarks>
+    [Test]
+    public void Of_ThirdCopyOfAnUnchangedNestedList_StillSharesIt()
+    {
+        Holder original = new();
+        original.BySlot[1] = [4];
+        Holder first = StateCopy.Of(original, new HashSet<object>(), prior: null, out Dictionary<object, object> map);
+        StateCopy.Of(original, new HashSet<object>(), map, out map);
+
+        original.First.Add(9);
+        Holder third = StateCopy.Of(original, new HashSet<object>(), map, out _);
+
+        third.BySlot.ShouldBeSameAs(first.BySlot);
+        third.First.ShouldNotBeSameAs(first.First);
+    }
+
+    /// <remarks>
+    /// **A primitive array is compared bit for bit**: one element of a float array going from 0 to −0 is a change, the
+    /// engine's comparisons can tell them apart; an unchanged int array is reused.
+    /// </remarks>
+    [Test]
+    public void Of_WithPriorAFloatArrayWhoseZeroChangedSign_CopiesItAndReusesTheUnchangedOne()
+    {
+        float[] floats = [1f, 0f, 2f];
+        object[] root = [floats, new[] { 1, 2, 3 }];
+        object[] first = StateCopy.Of(root, new HashSet<object>(), prior: null, out Dictionary<object, object> map);
+
+        floats[1] = -0f;
+        object[] second = StateCopy.Of(root, new HashSet<object>(), map, out _);
+
+        second[0].ShouldNotBeSameAs(first[0]);
+        BitConverter.SingleToInt32Bits(((float[])second[0])[1]).ShouldBe(BitConverter.SingleToInt32Bits(-0f));
+        second[1].ShouldBeSameAs(first[1]);
+    }
+
+    /// <remarks>
+    /// **An enum array is compared byte for byte too**: one element changing is a change and copies the array again; the
+    /// other, unchanged, is reused.
+    /// </remarks>
+    [Test]
+    public void Of_WithPriorAnEnumArrayWithOneElementChanged_CopiesItAndReusesTheUnchangedOne()
+    {
+        DayOfWeek[] changed = [DayOfWeek.Monday, DayOfWeek.Tuesday];
+        object[] root = [changed, new[] { DayOfWeek.Friday }];
+        object[] first = StateCopy.Of(root, new HashSet<object>(), prior: null, out Dictionary<object, object> map);
+
+        changed[1] = DayOfWeek.Sunday;
+        object[] second = StateCopy.Of(root, new HashSet<object>(), map, out _);
+
+        second[0].ShouldNotBeSameAs(first[0]);
+        ((DayOfWeek[])second[0]).ShouldBe([DayOfWeek.Monday, DayOfWeek.Sunday]);
+        second[1].ShouldBeSameAs(first[1]);
+    }
+
+    /// <summary>A node of a cycle: the reference is declared first, so a comparison follows it before reading the value.</summary>
+    private sealed class Node
+    {
+        public Node? Other { get; set; }
+
+        public int Value { get; set; }
+    }
+
+    /// <remarks>
+    /// **A cycle must not reuse what was judged against an assumption that failed**: A and B name each other; A's value
+    /// changes. Comparing A assumes it equal while it follows the cycle, so B is judged unchanged — and once A is found
+    /// changed, the earlier B, which names the earlier A, must not be reused, or the copy's cycle closes on stale A.
+    /// </remarks>
+    [Test]
+    public void Of_WithPriorACycleWhoseOtherEndChanged_ClosesTheCycleOnTheNewCopy()
+    {
+        Node a = new() { Value = 1 };
+        Node b = new() { Other = a, Value = 2 };
+        a.Other = b;
+        StateCopy.Of(a, new HashSet<object>(), prior: null, out Dictionary<object, object> map);
+
+        a.Value = 10;
+        Node copy = StateCopy.Of(a, new HashSet<object>(), map, out _);
+
+        copy.Value.ShouldBe(10);
+        copy.Other!.Other.ShouldBeSameAs(copy);
+    }
 }

@@ -2451,6 +2451,65 @@ internal static class SyntheticPlayer
         return SyntheticDemo.From(SyntheticDemo.DefaultProtocol, [.. commands]);
     }
 
+    /// <summary>One player slot over ticks, its occupant named by a serial: a serial change re-creates the slot.</summary>
+    /// <param name="intervalPerTick">Seconds per tick, as <c>svc_ServerInfo</c> declares it.</param>
+    /// <param name="snapshots">Each snapshot's tick, X position and occupant serial, in slot 1.</param>
+    /// <returns>A demo's bytes.</returns>
+    /// <remarks>
+    /// **A reused slot** (B548's `TrackFor(entity, tick)`): the edict is recycled, so the slot holds two tracks and
+    /// "the track for slot 1" names neither until a tick is given.
+    /// </remarks>
+    public static byte[] DemoOfAReusedSlot(float intervalPerTick, params (int Tick, float X, int Serial)[] snapshots)
+    {
+        ArgumentNullException.ThrowIfNull(snapshots);
+
+        DemoSchema schema = Schema();
+        EntityDecoder decoder = new(schema, EntityDecoder.ClassIdBits(schema.ServerClasses.Count));
+
+        List<DemoCommand> commands =
+        [
+            SyntheticDemo.Packet(SyntheticDemo.DefaultProtocol, 0, ServerInfo(intervalPerTick)),
+            SyntheticDemo.DataTables(schema),
+        ];
+
+        for (int index = 0; index < snapshots.Length; index++)
+        {
+            (int tick, float x, int serial) = snapshots[index];
+            bool enters = index == 0 || snapshots[index - 1].Serial != serial;
+
+            Dictionary<string, PropertyValue> values = new()
+            {
+                ["m_vecOrigin"] = PropertyValue.FromVectorXY(x, 0f),
+                ["m_vecOrigin[2]"] = PropertyValue.FromFloat(0f),
+                ["m_lifeState"] = PropertyValue.FromInt(0),
+                ["m_iTeamNum"] = PropertyValue.FromInt(SceneTeams.Red),
+            };
+
+            DecodedEntity player = Entity(decoder, PlayerClassId, 1, values) with
+            {
+                SerialNumber = serial,
+                UpdateType = enters ? EntityUpdateType.Enter : EntityUpdateType.Delta,
+            };
+
+            byte[] body = decoder.EncodeEntities([player], [], isDelta: index > 0, 0, out int bits);
+
+            commands.Add(SyntheticDemo.Packet(
+                SyntheticDemo.DefaultProtocol,
+                tick,
+                new PacketEntitiesMessage(
+                    MaxEntries: 64,
+                    IsDelta: index > 0,
+                    DeltaFromTick: index > 0 ? snapshots[index - 1].Tick : null,
+                    BaselineIndex: false,
+                    UpdatedEntries: 1,
+                    LengthBits: bits,
+                    UpdateBaseline: false,
+                    Body: body)));
+        }
+
+        return SyntheticDemo.From(SyntheticDemo.DefaultProtocol, [.. commands]);
+    }
+
     /// <summary>
     /// Several players each carrying `m_audio.soundscapeIndex` in `DT_Local`, sent once on entry and held, over ticks.
     /// </summary>

@@ -214,6 +214,40 @@ public sealed class InterpolatedHistory
     /// <summary>How many entries the history holds.</summary>
     public int Count => _changeTimes.Count;
 
+    /// <summary>
+    /// Drops entries received before <paramref name="cut"/>, keeping <paramref name="tail"/> of them (D217 step 3).
+    /// </summary>
+    /// <param name="cut">The earliest tick a later question can be asked at, less its lookback.</param>
+    /// <param name="tail">How many entries before the cut to keep, for the spline's older samples.</param>
+    /// <remarks>
+    /// **Indices here are relative and that is safe**: <see cref="Bracketing"/> is produced and consumed within one call
+    /// on the same history, never held across a trim. A generation that began before the cut starts at the first kept
+    /// entry, which every answer at or after the cut already reaches no lower than.
+    /// </remarks>
+    internal void DropReceivedBefore(int cut, int tail)
+    {
+        int drop = Math.Min(LastReceivedAtOrBefore(cut - 1) + 1 - tail, _changeTimes.Count - 1);
+
+        if (drop <= 0)
+        {
+            return;
+        }
+
+        int values = _offsets[drop];
+        _changeTimes.RemoveRange(0, drop);
+        _received.RemoveRange(0, drop);
+        _flushedAt.RemoveRange(0, drop);
+        _offsets.RemoveRange(0, drop);
+        _generationStarts.RemoveRange(0, drop);
+        _values.RemoveRange(0, values);
+
+        for (int index = 0; index < _offsets.Count; index++)
+        {
+            _offsets[index] -= values;
+            _generationStarts[index] = Math.Max(0, _generationStarts[index] - drop);
+        }
+    }
+
     /// <summary>How many components an entry carries — the engine's <c>m_nMaxCount</c>.</summary>
     /// <remarks>
     /// Read by the caller filling an entry, so the copy is the width the history actually has rather than
