@@ -61,6 +61,20 @@ public sealed class TimelineCheckpointsTests
         values.ShouldBeGreaterThan(ticks.Count * 20);
     }
 
+    /// <remarks>
+    /// **The direct control** (D217 step 4): two windows built from each checkpoint leave every value it holds — its
+    /// shared frozen property bags included — as it was. Answers alone can agree while a checkpoint is being written.
+    /// </remarks>
+    [Test]
+    public void WindowsWriteTheirCheckpoint_EveryCheckpointOfALongWalk_IsFalse()
+    {
+        DemoTimeline.Checkpoints checkpoints = DemoTimeline.Checkpoints.Walk(LongWalk(), Every, Lookback)!;
+        int count = checkpoints.Ticks.Count();
+        count.ShouldBeGreaterThan(2);
+
+        Enumerable.Range(0, count).Where(checkpoints.WindowsWriteTheirCheckpoint).ShouldBeEmpty();
+    }
+
     /// <summary>A player moving every other tick for 60 ticks: more history than a checkpoint keeps, so the trim bites.</summary>
     private static byte[] LongWalk() =>
         SyntheticPlayer.DemoOverTicks(0.015f, [.. Enumerable.Range(0, 30).Select(step => (10 + (step * 2), step * 3f, (step % 5) * 1.5f))]);

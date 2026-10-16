@@ -451,6 +451,10 @@ public sealed class MomentScene : IGameSystemPerFrame
             players, _drawn, Appearance, _models,
             (viewerFlags & VisionVisibility.HalloweenFlag) == VisionVisibility.HalloweenFlag);
 
+        // **Every prop of the moment, before any visibility rule removes one** (B551): a move child's parent is its
+        // parent whether or not it is drawn, and the passes below each see only their share.
+        _models.PlaceFrame(_drawn);
+
         // **The engine does not draw the player whose eyes you are using**, and cosmetics merge onto
         // their wearer's bones, so the hat goes with them. Without this the first-person view is the
         // inside of the recorder's own model and a hat hanging over the lens.

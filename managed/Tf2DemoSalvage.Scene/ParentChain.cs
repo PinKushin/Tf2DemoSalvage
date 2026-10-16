@@ -47,7 +47,30 @@ public static class ParentChain
     /// anything: a chain past the budget keeps the prop's own pose, which draws it in the wrong place rather than not
     /// at all.
     /// </remarks>
-    public static ScenePose Absolute(SceneProp prop, Func<int, SceneProp?> byEntity, int budget)
+    public static ScenePose Absolute(SceneProp prop, Func<int, SceneProp?> byEntity, int budget) =>
+        Absolute(prop, byEntity, budget, attachmentOf: null);
+
+    /// <summary>The absolute pose, with a parent's attachments resolvable — <c>GetParentToWorldTransform</c> in full.</summary>
+    /// <param name="prop">The prop.</param>
+    /// <param name="byEntity">This frame's props by entity index, or null where an index names none.</param>
+    /// <param name="budget">How many parents may still be walked.</param>
+    /// <param name="attachmentOf">
+    /// An entity's attachment world matrix by its one-based number, as a 3×4 row-major <c>matrix3x4_t</c>, or null
+    /// when it cannot be resolved; null itself for a caller with no posed skeletons.
+    /// </param>
+    /// <returns>The absolute pose.</returns>
+    /// <remarks>
+    /// **An attachment, when named and resolvable, replaces the parent's transform** (<c>c_baseentity.cpp:4330-4342</c>):
+    /// <c>GetAttachment( m_iParentAttachment, vOrigin, vAngles )</c>, <c>AngleMatrix( vAngles, vOrigin, tempMatrix )</c>,
+    /// and the child's local transform is concatenated onto THAT. Unresolvable falls through to the parent's own.
+    ///
+    /// **The parent's model scale is not in its frame.** <c>m_rgflCoordinateFrame</c> is
+    /// <c>AngleMatrix( GetLocalAngles(), GetLocalOrigin(), … )</c> at the root (<c>:4380</c>) and a
+    /// <c>ConcatTransforms</c> of two such matrices below it (<c>:4401</c>) — angles and origins only. The model scale
+    /// is applied when the bones are built, so a child's offset is not stretched by its parent's size.
+    /// </remarks>
+    public static ScenePose Absolute(
+        SceneProp prop, Func<int, SceneProp?> byEntity, int budget, Func<int, int, float[]?>? attachmentOf)
     {
         ArgumentNullException.ThrowIfNull(prop);
         ArgumentNullException.ThrowIfNull(byEntity);
@@ -57,15 +80,19 @@ public static class ParentChain
             return prop.Pose;
         }
 
-        ScenePose above = Absolute(parent, byEntity, budget - 1);
+        ScenePose above = Absolute(parent, byEntity, budget - 1, attachmentOf);
 
         if (prop.BoneMerged)
         {
             return above;
         }
 
-        PropTransform composed = new PropTransform(
-                above.X, above.Y, above.Z, above.Pitch, above.Yaw, above.Roll, above.Scale)
+        PropTransform parentToWorld =
+            prop.AttachmentPoint is { } point && point > 0 && attachmentOf?.Invoke(wearer, point) is { } attachment
+                ? PropTransform.FromMatrix(attachment)
+                : new PropTransform(above.X, above.Y, above.Z, above.Pitch, above.Yaw, above.Roll, 1f);
+
+        PropTransform composed = parentToWorld
             .Concat(new PropTransform(
                 prop.Pose.X, prop.Pose.Y, prop.Pose.Z,
                 prop.Pose.Pitch, prop.Pose.Yaw, prop.Pose.Roll, prop.Pose.Scale));

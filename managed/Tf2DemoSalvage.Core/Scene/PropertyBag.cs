@@ -27,18 +27,99 @@ internal sealed class PropertyBag : IReadOnlyDictionary<string, PropertyValue>
 
     private const int ChunkSize = 1 << ChunkBits;
 
-    private readonly Dictionary<string, int> _slots = new(StringComparer.Ordinal);
+    /// <summary>
+    /// A bag's contents made immutable at a checkpoint (D217 step 4), which <see cref="StateCopy"/> shares rather than
+    /// copies: nothing writes its map or its chunks again, because the next write to the bag thaws first.
+    /// </summary>
+    internal sealed class Frozen(Dictionary<string, int> slots, (PropertyValue Value, long Sequence)[][] chunks)
+    {
+        public Dictionary<string, int> Slots { get; } = slots;
 
-    private readonly List<(PropertyValue Value, long Sequence)[]> _chunks = [];
+        public (PropertyValue Value, long Sequence)[][] Chunks { get; } = chunks;
+    }
+
+    // Exactly one of the two forms is live: _frozen, or the three below it (null while frozen, so a copy of a frozen
+    // bag follows nothing but the shared Frozen).
+    private Frozen? _frozen;
+
+    private Dictionary<string, int>? _slots = new(StringComparer.Ordinal);
+
+    private List<(PropertyValue Value, long Sequence)[]>? _chunks = [];
+
+    // OWNERSHIP IS NOT COPIED, so false and null mean "owns nothing", and that is what a copy starts with: a copy of a
+    // thawed bag may hold a chunk or a map that a prior copy reuses, and a copied "owned" would write straight into it.
+    // A copy instead copies before its first write, as a thawed bag does. Set true only where this instance makes the map.
+
+    /// <summary>Whether this instance made <see cref="_slots"/>, and may add a key to it in place.</summary>
+    [StateCopy.NotCopied]
+    private bool _ownsSlots = true;
+
+    /// <summary>Per chunk, whether this instance made it and may write it in place; missing or null is not owned.</summary>
+    [StateCopy.NotCopied]
+    private List<bool>? _owned = [];
+
+    private Dictionary<string, int> Slots => _frozen?.Slots ?? _slots!;
+
+    /// <summary>Whether the bag is in its frozen, shared form.</summary>
+    internal bool IsFrozen => _frozen is not null;
 
     /// <inheritdoc/>
-    public int Count => _slots.Count;
+    public int Count => Slots.Count;
 
     /// <inheritdoc/>
-    public IEnumerable<string> Keys => _slots.Keys;
+    public IEnumerable<string> Keys => Slots.Keys;
 
     /// <inheritdoc/>
-    public IEnumerable<PropertyValue> Values => _slots.Values.Select(slot => At(slot).Value);
+    public IEnumerable<PropertyValue> Values => Slots.Values.Select(slot => Read(slot).Value);
+
+    /// <summary>Makes the contents immutable and shareable; a no-op when nothing was written since the last freeze.</summary>
+    /// <remarks>
+    /// **Only a checkpoint freezes** (D217 step 4): a straight build never calls this, so it never pays a thaw. A resume
+    /// copy then shares every bag, and pays a thaw only for the entities its own window writes.
+    /// </remarks>
+    public void Freeze()
+    {
+        if (_frozen is not null)
+        {
+            return;
+        }
+
+        _frozen = new Frozen(_slots!, [.. _chunks!]);
+        _slots = null;
+        _chunks = null;
+        // Nothing to reset beyond this: ownership is read only while thawed, and Thaw sets it before any read.
+        _owned = null;
+    }
+
+    /// <summary>Back to the writable form over the frozen one's map and chunks, owning none of them.</summary>
+    /// <remarks>The one place a thawed bag learns it shares: every write below copies before it writes.</remarks>
+    private void Thaw()
+    {
+        if (_frozen is null)
+        {
+            return;
+        }
+
+        _slots = _frozen.Slots;
+        _ownsSlots = false;
+        _chunks = [.. _frozen.Chunks];
+        _owned = null;
+        _frozen = null;
+    }
+
+    private bool Owns(int chunk) => _owned is { } owned && chunk < owned.Count && owned[chunk];
+
+    private void Own(int chunk)
+    {
+        _owned ??= [];
+
+        while (_owned.Count <= chunk)
+        {
+            _owned.Add(false);
+        }
+
+        _owned[chunk] = true;
+    }
 
     /// <inheritdoc/>
     public PropertyValue this[string key] =>
@@ -50,41 +131,63 @@ internal sealed class PropertyBag : IReadOnlyDictionary<string, PropertyValue>
     /// <param name="sequence">The entity's write counter at this write.</param>
     public void Set(string key, PropertyValue value, long sequence)
     {
-        if (!_slots.TryGetValue(key, out int slot))
+        Thaw();
+
+        if (!_slots!.TryGetValue(key, out int slot))
         {
+            if (!_ownsSlots)
+            {
+                // Copied in insertion order: nothing is ever removed from a slot map, only cleared. An enumeration of
+                // Keys in progress goes on over the old map rather than throwing, which no caller relies on either way.
+                _slots = new Dictionary<string, int>(_slots, StringComparer.Ordinal);
+                _ownsSlots = true;
+            }
+
             slot = _slots.Count;
             _slots.Add(key, slot);
 
-            if ((slot >> ChunkBits) == _chunks.Count)
+            if ((slot >> ChunkBits) == _chunks!.Count)
             {
                 _chunks.Add(new (PropertyValue, long)[ChunkSize]);
+                Own(slot >> ChunkBits);
             }
         }
 
-        At(slot) = (value, sequence);
+        int chunk = slot >> ChunkBits;
+
+        if (!Owns(chunk))
+        {
+            _chunks![chunk] = ((PropertyValue Value, long Sequence)[])_chunks[chunk].Clone();
+            Own(chunk);
+        }
+
+        _chunks![chunk][slot & (ChunkSize - 1)] = (value, sequence);
     }
 
     /// <summary>When a key was last written, or −1 when it never was.</summary>
     /// <param name="key">The property's key.</param>
     /// <returns>The sequence number.</returns>
-    public long Sequence(string key) => _slots.TryGetValue(key, out int slot) ? At(slot).Sequence : -1;
+    public long Sequence(string key) => Slots.TryGetValue(key, out int slot) ? Read(slot).Sequence : -1;
 
     /// <summary>Forgets every property; enumeration restarts from the next write, as the dictionary's did.</summary>
     public void Clear()
     {
-        _slots.Clear();
-        _chunks.Clear();
+        _frozen = null;
+        _slots = new(StringComparer.Ordinal);
+        _ownsSlots = true;
+        _chunks = [];
+        _owned = [];
     }
 
     /// <inheritdoc/>
-    public bool ContainsKey(string key) => _slots.ContainsKey(key);
+    public bool ContainsKey(string key) => Slots.ContainsKey(key);
 
     /// <inheritdoc/>
     public bool TryGetValue(string key, [MaybeNullWhen(false)] out PropertyValue value)
     {
-        if (_slots.TryGetValue(key, out int slot))
+        if (Slots.TryGetValue(key, out int slot))
         {
-            value = At(slot).Value;
+            value = Read(slot).Value;
             return true;
         }
 
@@ -95,13 +198,14 @@ internal sealed class PropertyBag : IReadOnlyDictionary<string, PropertyValue>
     /// <inheritdoc/>
     public IEnumerator<KeyValuePair<string, PropertyValue>> GetEnumerator()
     {
-        foreach ((string key, int slot) in _slots)
+        foreach ((string key, int slot) in Slots)
         {
-            yield return new KeyValuePair<string, PropertyValue>(key, At(slot).Value);
+            yield return new KeyValuePair<string, PropertyValue>(key, Read(slot).Value);
         }
     }
 
     IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
 
-    private ref (PropertyValue Value, long Sequence) At(int slot) => ref _chunks[slot >> ChunkBits][slot & (ChunkSize - 1)];
+    private (PropertyValue Value, long Sequence) Read(int slot) =>
+        (_frozen is { } frozen ? frozen.Chunks[slot >> ChunkBits] : _chunks![slot >> ChunkBits])[slot & (ChunkSize - 1)];
 }

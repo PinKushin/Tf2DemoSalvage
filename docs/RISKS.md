@@ -39776,3 +39776,70 @@ cable that changes material backs only the one it held as a rope (`DemoModelsTes
 reddened it. A builder stamp lands on the same tick as the update's keyframe, so `FactsAt(keyframe)` is never before
 the first stamp.
 
+## B551 — a move child was LIT at its local origin, and a grandchild drawn one level deep — FIXED 2026-10-16 (`fix/parented-prop-origin`)
+
+**Reported as "PropsAt draws a child at its local origin", and that half was a misreading.** A timeline test authored a
+child 2 units off a parent at X=199 and expected `DemoTimeline.PropsAt` to answer 201; it answers 2, by design. The wire
+carries the LOCAL origin — `SendProxy_Origin` sends `GetLocalOrigin()` (`server/baseentity.cpp:199`, read) — and
+`PropsAt` answers what the wire stated; `CalcAbsolutePosition` (`client/c_baseentity.cpp:4393-4401`, read) is Scene's
+`ParentChain.Absolute` and the model pass. `SceneProp.Pose`'s doc said only "where it is", which invited the reading; it
+now says local.
+
+**What the audit found behind it, in `EntityModels`:**
+
+1. **Lighting, cubemap and distance fade were sampled at the local origin** of every parented, non-bone-merged prop:
+   `IlluminationPoint` took `prop.Pose`. Measured with the new `move-parent` probe (20 samples per demo):
+   `pl_badwater_pro_v12` 473 of 473 child samples (`CDynamicProp` on `CBaseDoor`), `pl_upward_f12` 180 of 180, sit more
+   than a unit from their local origin — every one was lit from the wrong place.
+2. **A baked or brush child composed onto its parent's RAW pose**, one level only, where `GetParentToWorldTransform`
+   is the parent's own `EntityToWorldTransform` (`:4342`), composed by the same function. Arithmetic: a grandchild drew
+   at its parent's local offset. Measured depth ≥ 2: zero on both demos, so no visible case is known yet.
+
+Both now go through `ParentChain.Absolute`. Held by `MoveChildPlacementConformanceTests` (both red before the fix,
+with an unparented control) and, on real bytes, `MoveChildPlacementCorpusTests` on badwater (lcor; skips in CI).
+
+**Review round, same branch — four more of the same mechanism, each red first and each sabotaged:**
+
+3. **The parent was looked up in the PASS, not the frame.** `Simulate` indexes only its own pass (drawn, undrawn,
+   viewmodel) and the scene's visibility rules remove props before any pass, so a child whose parent was filtered — a
+   won round's respawn wall, an undrawn first-person player — got its LOCAL pose, and a baked one was not drawn at all.
+   `MomentScene.Build` now hands every prop to `EntityModelSet.PlaceFrame` before the filters; a parent missing from the
+   pass comes from there.
+4. **The parent's attachment was ignored** (`GetParentToWorldTransform`, `:4330-4338`). `Absolute` now composes
+   attachment × local when `m_iParentAttachment` resolves. Behind it: a skinned non-bone-merged child was given
+   `Follows`, so it bone-merged onto any bone it shared by name and stood at the bare attachment — `IsFollowingEntity`
+   is `EF_BONEMERGE && MOVETYPE_NONE && GetMoveParent()`. Followed now only when bone-merged.
+5. **The parent's model scale stretched the child's offset.** `m_rgflCoordinateFrame` is built from angles and origins
+   alone (`AngleMatrix( GetLocalAngles(), GetLocalOrigin(), … )`, `:4380`; `ConcatTransforms`, `:4401`); the model
+   scale belongs to bone setup. The parent's frame is composed at scale 1.
+6. The stale B241 note that the pose "already carries the world placement" is corrected beside the code.
+
+`Absolute` caches its lookups and memoizes per pass, but nothing composed while `Simulate` runs — a parent's bones may
+not be posed yet. **That guard survives every sabotage**: a child listed before a moving, attachment-bearing parent
+still draws at this frame's attachment without it. Kept on review request; a candidate for deletion.
+
+**Second review round:** `PlaceFrame` gets `_drawn` before any filter, which is every prop `PropsAt` returned plus the
+statics and players — the undrawn pass is cut from it afterwards (tested: a parent only in the undrawn pass carries a
+visible child). The frame's props live until the next `PlaceFrame`, which `MomentScene` makes every frame. (A first
+cut tied them to the demo time of the first pass after `PlaceFrame`; a seek's corpse replay, `AdvanceCorpsesAlone`,
+simulates at its own tick in between, claimed that time, and the real pass then dropped every parent — round 3, tested.)
+`_simulating` is set and cleared in a `try`/`finally` around the whole of `Simulate`. **Its cost, measured 2026-10-16**
+(`--measure 20`, `pl_badwater_pro_v12` tick 60000, first person, back to back on this branch with only that guard
+toggled — not against main): moment pose 1.8 ms with the guard, 1.6 ms with memoizing allowed during `Simulate`
+(simulate 1.0 against 0.8). The machine was at 83-99% CPU from other agents and both runs drew 5-12 fps with
+`capture` stalls of seconds, so the 0.2 ms gap is inside the noise; not significant, no "bones posed" set built. `Attach`'s early return for a non-bone-merged
+child loses nothing: the method sets only `EntityTransform` and a log line, and `PlacementOf` sets the former.
+`FromMatrix` is pinned against the Euler constructor and a real attachment at pitch 20, yaw 50, roll 70 (a transpose
+reddens four tests), and a child's drawn size against its own scale alone.
+
+**Still open, not touched:**
+- **No real attachment-hung non-bone-merged child** has been seen on any demo probed; the attachment branch rests on
+  synthetic tests only.
+- **The payload cart is not a move child on the wire**: `bomb_cart.mdl` is a `CPhysicsProp` with no parent, sending its
+  world origin. Nothing to compose.
+- **`pl_badwater`'s seven `train_billboard001_sm.mdl` (`CDynamicProp`, e.g. entity 408) sit at (0 0 47) with NO
+  parent** at tick 60000 — a local-looking origin. Either the map parents them to something the server does not send
+  (then the engine draws them there too) or the handle fails to resolve here. **Not answerable yet**: the map
+  `pl_badwater_pro_v12.bsp` is not on this machine (not under the game's `tf/maps`, `tf/download/maps`, `tf2ds`, or the
+  user profile), so its `parentname` cannot be read, and no sampled tick gives them a parent.
+

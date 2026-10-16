@@ -2954,6 +2954,37 @@ public sealed class DemoTimeline
         /// <returns>Its fields, largest first.</returns>
         public IReadOnlyList<(string Field, long Bytes)> CostByField(int index) =>
             _checkpoints[index].State.SnapshotCost().Fields;
+
+        /// <summary>
+        /// The direct control on a checkpoint staying untouched: its value hash, before and after two windows are built
+        /// from it — the first resume decoding forward, then a second (D217 step 4).
+        /// </summary>
+        /// <param name="index">Which checkpoint.</param>
+        /// <returns>Whether either window changed any value the checkpoint holds, shared frozen state included.</returns>
+        /// <remarks>
+        /// **Why not answers alone**: a window that wrote its checkpoint changes the NEXT window from it, and a later seek
+        /// can still agree with a whole build by luck; and comparing a resume with a fresh one cannot see a write into
+        /// what they share. The hash follows that shared state.
+        /// </remarks>
+        public bool WindowsWriteTheirCheckpoint(int index)
+        {
+            (_, int tick, Builder state) = _checkpoints[index];
+            int through = index + 1 < _checkpoints.Count ? _checkpoints[index + 1].Tick - 1 : tick + 1;
+            string before = StateCopy.Digest(state, _inputs);
+            GC.KeepAlive(Window(tick, through));
+            GC.KeepAlive(Window(tick, through));
+            return StateCopy.Digest(state, _inputs) != before;
+        }
+
+        /// <summary>What resuming one checkpoint creates, by type: the census of a resume copy (D217 step 4).</summary>
+        /// <param name="index">Which checkpoint.</param>
+        /// <returns>Objects and array elements created, by type.</returns>
+        public Dictionary<Type, (long Objects, long Elements)> ResumeCensus(int index)
+        {
+            Dictionary<Type, (long Objects, long Elements)> created = [];
+            GC.KeepAlive(Builder.FromCheckpoint(_checkpoints[index].State, _inputs, created));
+            return created;
+        }
     }
 
     /// <summary>A builder's state between two commands, and its output lists' marks (D217).</summary>
@@ -4848,7 +4879,8 @@ public sealed class DemoTimeline
             Dictionary<Type, (long Objects, long Elements)>? created = null)
         {
             lease.Refuse("checkpoint");
-            return StateCopy.Of(this, SharedInputs(), prior, out copies, created);
+            // Freezing every entity's properties, so the resume copy shares them rather than copying ~200k slots (D217 step 4).
+            return StateCopy.Of(this, SharedInputs(), prior, out copies, created, freeze: true);
         }
 
         /// <summary>The facts only the END of a demo knows, which every window of it reports (D217 step 3).</summary>
@@ -4890,7 +4922,12 @@ public sealed class DemoTimeline
         /// <param name="checkpoint">The checkpoint.</param>
         /// <returns>The builder, ready for the commands after it.</returns>
         /// <param name="inputs">What every copy shares rather than copies — <see cref="Inputs"/>, built once per walk.</param>
-        public static Builder FromCheckpoint(Builder checkpoint, IReadOnlySet<object> inputs) => StateCopy.Of(checkpoint, inputs);
+        /// <param name="created">When given, counts what the resume copy creates, by type (D217 step 4's census).</param>
+        public static Builder FromCheckpoint(
+            Builder checkpoint,
+            IReadOnlySet<object> inputs,
+            Dictionary<Type, (long Objects, long Elements)>? created = null) =>
+            StateCopy.Of(checkpoint, inputs, prior: null, out _, created);
 
         /// <summary>
         /// What every copy of this builder and of its checkpoints shares: the same set for a whole walk, since the schema,
