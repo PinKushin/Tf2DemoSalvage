@@ -39746,8 +39746,17 @@ with an unparented control) and, on real bytes, `MoveChildPlacementCorpusTests` 
    scale belongs to bone setup. The parent's frame is composed at scale 1.
 6. The stale B241 note that the pose "already carries the world placement" is corrected beside the code.
 
-`Absolute` caches its lookups and memoizes per pass (cleared again once the pass's scene is listed, because an
-attachment asked during `Simulate` may predate the parent's bones).
+`Absolute` caches its lookups and memoizes per pass, but nothing composed while `Simulate` runs — a parent's bones may
+not be posed yet. **That guard survives every sabotage**: a child listed before a moving, attachment-bearing parent
+still draws at this frame's attachment without it. Kept on review request; a candidate for deletion.
+
+**Second review round:** `PlaceFrame` gets `_drawn` before any filter, which is every prop `PropsAt` returned plus the
+statics and players — the undrawn pass is cut from it afterwards (tested: a parent only in the undrawn pass carries a
+visible child). The frame's props are claimed by the first pass at one demo time and dropped by a pass at another, so a
+caller that stops handing frames over cannot keep a departed parent. `Attach`'s early return for a non-bone-merged
+child loses nothing: the method sets only `EntityTransform` and a log line, and `PlacementOf` sets the former.
+`FromMatrix` is pinned against the Euler constructor and a real attachment at pitch 20, yaw 50, roll 70 (a transpose
+reddens four tests), and a child's drawn size against its own scale alone.
 
 **Still open, not touched:**
 - **No real attachment-hung non-bone-merged child** has been seen on any demo probed; the attachment branch rests on

@@ -1100,6 +1100,21 @@ public sealed class EntityModelSet : Hud.IMdlCache, IPosedEntities
         // Resolved attachments belong to this pass's camera, not to the entity — see the field.
         _attachments.Clear();
         _absolute.Clear();
+        _simulating = true;
+
+        // **The frame's props belong to ONE moment** (B551): the first pass after `PlaceFrame` claims them, and a pass
+        // at any other demo time drops them, so a caller that never hands over a new frame cannot keep a parent that
+        // has left alive in an old one.
+        long moment = BitConverter.DoubleToInt64Bits(seconds);
+
+        if (_frameMoment is null)
+        {
+            _frameMoment = moment;
+        }
+        else if (_frameMoment != moment)
+        {
+            _frameProps.Clear();
+        }
 
         // Events are a per-FRAME answer; the WALK's state is per entity and survives. **Cleared when the time moves, not
         // per pass**: a frame runs this three times (drawn, undrawn, viewmodel), and clearing per pass left only the
@@ -4065,7 +4080,7 @@ public sealed class EntityModelSet : Hud.IMdlCache, IPosedEntities
     /// </para>
     private ScenePose Absolute(SceneProp prop, int budget)
     {
-        bool full = budget == AnimatingEntity.MaximumFollowDepth;
+        bool full = budget == AnimatingEntity.MaximumFollowDepth && !_simulating;
 
         if (full && _absolute.TryGetValue(prop.EntityIndex, out ScenePose known))
         {
@@ -4116,6 +4131,7 @@ public sealed class EntityModelSet : Hud.IMdlCache, IPosedEntities
 
         _frameProps.Clear();
         _absolute.Clear();
+        _frameMoment = null;
 
         foreach (SceneProp prop in props)
         {
@@ -4125,6 +4141,15 @@ public sealed class EntityModelSet : Hud.IMdlCache, IPosedEntities
 
     /// <summary>Each entity's absolute pose, composed once per pass — the engine's cached <c>m_rgflCoordinateFrame</c>.</summary>
     private readonly Dictionary<int, ScenePose> _absolute = [];
+
+    /// <summary>The demo time the frame's props were claimed at, or null until a pass claims them.</summary>
+    private long? _frameMoment;
+
+    /// <summary>
+    /// Whether `Simulate` is still bringing the pass's entities up to date — so a parent's bones may not be posed yet and
+    /// nothing composed from them is kept.
+    /// </summary>
+    private bool _simulating;
 
     /// <summary>Bone-to-world folded with the model's bind pose, which is what the shader skins by.</summary>
     /// <remarks>
@@ -5818,9 +5843,10 @@ public sealed class EntityModelSet : Hud.IMdlCache, IPosedEntities
             scene[prop.EntityIndex] = prop;
         }
 
-        // **Absolute poses composed during Simulate may predate this pass's attachments** — `AttachmentMatrix` asks the
-        // scene just filled — so the draw recomposes once rather than reusing an attachment-less answer (B551).
-        _absolute.Clear();
+        // **Nothing composed while Simulate ran was kept** (B551): a parent's bones asked for then may predate its own
+        // update. Defensive: no construction tried — a child listed before a moving, attachment-bearing parent — shows a
+        // stale answer, so dropping this survives every test; it is kept because the coordinator's review asked for it.
+        _simulating = false;
 
         // **Every prop that does not draw is counted with its reason.** A silent `continue` here is
         // how "all the props went away" became a guessing game: the scene said 14 models, the map

@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using System.Linq;
 
 using Tf2DemoSalvage.Content.Assets;
+using Tf2DemoSalvage.Content.Bsp;
 using Tf2DemoSalvage.Core.Scene;
 
 namespace Tf2DemoSalvage.Scene.Tests;
@@ -192,6 +193,120 @@ public sealed class MoveChildPlacementConformanceTests
 
         scene.Drawn.Select(prop => prop.EntityIndex).ShouldBe([2], "the control: the wall itself is gone");
         scene.Instances.Single(model => model.ModelPath == ChildModel).Matrix[12].ShouldBe(201f, 1e-3f);
+    }
+
+    /// <summary>A parent posed only in the UNDRAWN pass still carries a child the world pass draws.</summary>
+    [Test]
+    public void Instances_ParentOnlyInTheUndrawnPass_CarriesAVisibleChild()
+    {
+        SceneProp parent = new(1, ParentModel, SceneModelKind.Studio, new ScenePose { X = 199f });
+        SceneProp child = new(2, ChildModel, SceneModelKind.Studio, new ScenePose { X = 2f }, AttachedTo: 1);
+
+        EntityModelSet models = new();
+        models.Add([parent, child], _ => Baked());
+        models.PlaceFrame([parent, child]);
+
+        List<ModelInstance> world = [];
+        models.Instances([parent], [], seconds: 1d, pass: EntityModelSet.UndrawnPass);
+        models.Instances([child], world, seconds: 1d);
+
+        world.Single(model => model.ModelPath == ChildModel).Matrix[12].ShouldBe(201f, 1e-3f);
+    }
+
+    /// <summary>
+    /// **A frame's props do not outlive the frame.** A caller that handed them over once and then simulates a LATER
+    /// moment without the parent must not find it: the parent has left, so the child stands at its own offset, as
+    /// <c>HierarchySetParent( NULL )</c> leaves it.
+    /// </summary>
+    [Test]
+    public void Instances_AtALaterMomentWithoutPlaceFrame_ForgetsTheOldParent()
+    {
+        SceneProp parent = new(1, ParentModel, SceneModelKind.Studio, new ScenePose { X = 199f });
+        SceneProp child = new(2, ChildModel, SceneModelKind.Studio, new ScenePose { X = 2f }, AttachedTo: 1);
+
+        EntityModelSet models = new();
+        models.Add([parent, child], _ => Baked());
+        models.PlaceFrame([parent, child]);
+        models.Instances([child], [], seconds: 1d);
+
+        List<ModelInstance> later = [];
+        models.Instances([child], later, seconds: 2d);
+
+        // The child of a parent nobody has now is not composed: the bone path refuses it, as an unknown wearer.
+        later.ShouldNotContain(model => model.ModelPath == ChildModel && System.MathF.Abs(model.Matrix[12] - 201f) < 1e-3f);
+    }
+
+    /// <summary>
+    /// **<see cref="PropTransform.FromMatrix"/> against both other routes, with a rotation that is not symmetric**, so a
+    /// transpose cannot pass: the Euler constructor's own matrix read back through it, and a real attachment matrix
+    /// whose child, hung at zero offset, must face exactly as the attachment does.
+    /// </summary>
+    [Test]
+    public void FromMatrix_ANonSymmetricRotation_MatchesTheEulerAndTheAttachment()
+    {
+        PropTransform euler = new(5f, 6f, 7f, 20f, 50f, 70f, 1f);
+        float[] valve = MatrixConvention.ToBoneMatrix(euler.ToMatrix());
+
+        PropTransform.FromMatrix(valve).ToMatrix().ShouldBe(euler.ToMatrix(), 1e-5f);
+
+        SceneProp parent = new(
+            1, ParentModel, SceneModelKind.Studio, new ScenePose { X = 100f, Y = 200f, Z = 300f, Pitch = 20f, Yaw = 50f, Roll = 70f });
+        SceneProp child = new(2, ChildModel, SceneModelKind.Studio, new ScenePose(), AttachedTo: 1, AttachmentPoint: 1);
+
+        EntityModelSet models = new();
+        models.Add([parent, child], path => path == ParentModel ? WithMuzzle() : Baked());
+        List<ModelInstance> drawn = [];
+        models.Instances([parent, child], drawn, seconds: 0d);
+
+        ParticleControlPoint muzzle = models.AttachmentPoint(1, 1).ShouldNotBeNull();
+        float[] matrix = drawn.Single(model => model.ModelPath == ChildModel).Matrix;
+
+        // ToMatrix's first row is the child's forward (column 0 of its rotation), the third its up.
+        float[] expected =
+        [
+            muzzle.Forward.X, muzzle.Forward.Y, muzzle.Forward.Z,
+            muzzle.Up.X, muzzle.Up.Y, muzzle.Up.Z,
+            muzzle.At.X, muzzle.At.Y, muzzle.At.Z,
+        ];
+        float[] actual = [matrix[0], matrix[1], matrix[2], matrix[8], matrix[9], matrix[10], matrix[12], matrix[13], matrix[14]];
+        actual.ShouldBe(expected, 1e-3f);
+    }
+
+    /// <summary>
+    /// **An attachment asked before its parent is updated is not kept.** The child is listed FIRST, so while the pass is
+    /// simulated it asks for the parent's attachment before the parent's own pose has moved to this frame; the draw must
+    /// use the attachment of the frame it draws. The parent moves from X = 100 to X = 150; its muzzle is one unit along
+    /// its forward, so the child hung two units further sits at 153.
+    /// </summary>
+    [Test]
+    public void Instances_ChildListedBeforeAMovingParent_UsesThisFramesAttachment()
+    {
+        SceneProp child = new(2, ChildModel, SceneModelKind.Studio, new ScenePose { X = 2f }, AttachedTo: 1, AttachmentPoint: 1);
+        SceneProp before = new(1, ParentModel, SceneModelKind.Studio, new ScenePose { X = 100f });
+        SceneProp after = before with { Pose = before.Pose with { X = 150f } };
+
+        EntityModelSet models = new();
+        models.Add([child, before], path => path == ParentModel ? WithMuzzle() : Baked());
+        models.Instances([child, before], [], seconds: 1d);
+
+        List<ModelInstance> drawn = [];
+        models.Instances([child, after], drawn, seconds: 2d);
+
+        drawn.Single(model => model.ModelPath == ChildModel).Matrix[12].ShouldBe(153f, 1e-3f);
+    }
+
+    /// <summary>
+    /// **A child's size is its own model scale and nothing of its parent's** — the frame carries none (<c>:4380</c>).
+    /// A parent at 2 holding a child at 3 draws the child at 3.
+    /// </summary>
+    [Test]
+    public void Instances_ScaledChildOfAScaledParent_IsSizedByItsOwnScaleOnly()
+    {
+        ModelInstance child = Child(
+            new SceneProp(1, ParentModel, SceneModelKind.Studio, new ScenePose { X = 199f, Scale = 2f }),
+            new SceneProp(2, ChildModel, SceneModelKind.Studio, new ScenePose { X = 2f, Scale = 3f }, AttachedTo: 1));
+
+        new System.Numerics.Vector3(child.Matrix[0], child.Matrix[1], child.Matrix[2]).Length().ShouldBe(3f, 1e-4f);
     }
 
     private static ModelInstance Child(params SceneProp[] props)
