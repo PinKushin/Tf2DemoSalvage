@@ -2702,6 +2702,9 @@ public sealed class DemoTimeline
         /// <summary>The interpolation settings the walk was decoded under, which every window finishes with.</summary>
         public ClientInterp Client { get; private init; } = new();
 
+        /// <summary>The demo's first frame's tick — its START, which a window's own FirstTick (its cut) is not.</summary>
+        public int FirstTick { get; private init; }
+
         /// <summary>The demo's seconds per tick.</summary>
         public double IntervalPerTick { get; private init; }
 
@@ -2732,9 +2735,14 @@ public sealed class DemoTimeline
 
             WindowReach needed = WindowReach.For(settings, walked._end.ServerConVars, walked.IntervalPerTick);
 
-            return walked.Reach.Covers(needed)
-                ? walked
-                : Walk(file, everyTicks, settings.Interp, _ => needed, created);
+            if (walked.Reach.Covers(needed))
+            {
+                return walked;
+            }
+
+            // The first walk's counts describe checkpoints thrown away; only the walk returned is counted.
+            created?.Clear();
+            return Walk(file, everyTicks, settings.Interp, _ => needed, created);
         }
 
         /// <summary>Walks with a FIXED reach, for a test or probe that needs the trim to bite at a chosen depth.</summary>
@@ -2827,6 +2835,7 @@ public sealed class DemoTimeline
                 Reach = least.TrackTicks == int.MaxValue ? reachAt(builder) : least,
                 Client = client,
                 IntervalPerTick = builder.IntervalPerTick,
+                FirstTick = builder.StartTick,
             };
         }
 
@@ -4555,6 +4564,7 @@ public sealed class DemoTimeline
                 firstStated.Observe(frames[^1]);
             }
 
+            firstFrameTick ??= command.Tick;
             frames.Add(new TimelineFrame(command.Tick, players, recorderTeam, roundState, rules, serverTick, roundTimers, buildings, teams, scoreboardPlayers, idEntities));
         }
         }
@@ -4769,6 +4779,12 @@ public sealed class DemoTimeline
 
             return new EndFacts(serverConVars, firstStated, everyone);
         }
+
+        /// <summary>The first frame's tick, kept when a trim drops that frame: the demo's start, for a walk's windows.</summary>
+        private int? firstFrameTick;
+
+        /// <summary>The demo's first frame's tick, or 0 for a demo with none — what <c>FirstTick</c> is on a whole build.</summary>
+        public int StartTick => firstFrameTick ?? 0;
 
         /// <summary>Seconds per tick as the demo's server info stated it, or 0 before it has.</summary>
         public double IntervalPerTick => interval;
