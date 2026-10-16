@@ -127,11 +127,13 @@ public sealed class TriggerSoundscapeCorpusTests
     {
         public float MasterGain { get; set; } = 1f;
 
-        public void Play(SoundSample sample, float leftPan, float rightPan, float gain, float pitch, int entity, int channel)
-        {
-        }
+        public int Play(SoundSample sample, float leftPan, float rightPan, float gain, float pitch, int entity, int channel) => 0;
 
         public bool SetGain(int entity, int channel, float gain) => true;
+
+        public bool SetVoiceGain(int voice, float gain) => false;
+
+        public bool SetVoicePitch(int voice, float pitch) => false;
 
         public bool SetPitch(int entity, int channel, float pitch) => true;
 
@@ -139,9 +141,7 @@ public sealed class TriggerSoundscapeCorpusTests
         {
         }
 
-        public void Silence(int entity, int channel, SoundSample sample)
-        {
-        }
+        public int Silence(int entity, int channel, SoundSample sample) => 0;
 
         public void SilenceAll()
         {

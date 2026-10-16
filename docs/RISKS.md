@@ -39540,18 +39540,30 @@ identical answers by fingerprint); it did NOT decide whose ears a SourceTV demo 
 local player's (the SourceTV client) or the spectated player's — to be read (`C_SoundscapeSystem`, `soundscape.cpp`)
 before changing it. *Measured; the engine side not read.*
 
-## B545 — `snd_musicvolume` and `voice_scale` are declared and stored, and applied nowhere — OPEN, gap
+## B545 — `voice_scale` is applied nowhere, and `snd_musicvolume` has no music duck — OPEN, gap
 
 **Found implementing D218** (2026-10-14). `volume` and `snd_mute_losefocus` reach the mix. These two are declared with
 TF2's defaults and bounds, so a config, a bind or `toggle` sets them without complaint, but nothing reads them:
 
-- **`voice_scale`**: ~~plays none of it~~ **applied 2026-10-15 (`fix/demo-voice`)**: demo voice now plays, and
-  `voice_scale` reaches it through `VoiceAutoGain`, the engine's `CAutoGain`, read as each spurt starts (B549).
-- **`snd_musicvolume`**: which sounds count as music is the closed engine's decision. The SDK has no `IsMusic`, and
-  `soundchars.h`'s prefixes include none for music (`#` is `CHAR_DRYMIX`, "bypasses dsp fx"). Guessing "`#` and a
-  path under `music/`" would be a fallback that looks like an answer
-  (`docs/memory/fallbacks-do-not-make-guesses-safe.md`). **To read:** `snd_musicvolume`'s xrefs in `engine.dll`, then
-  apply it as a per-sound multiplier where the engine does. *Read from the SDK; the engine not read.*
+- **`voice_scale`**: APPLIED 2026-10-15 (`fix/demo-voice`): demo voice now plays, and `voice_scale` reaches it
+  through `VoiceAutoGain`, the engine's `CAutoGain`, read as each spurt's channel is assigned (B549).
+- **`snd_musicvolume`**: APPLIED 2026-10-15 (`fix/music-voice-volume`). Read from `engine.dll` (x64): FUN_18002d5c0
+  sets the channel's dry bit (0x4 at +0x13c) when the wave's leading sound characters include `#`; FUN_1800292f0
+  multiplies the gain by `snd_musicvolume` (and a duck scale) when that bit is set and the distance multiplier is 0,
+  which both start paths write only for soundlevel exactly 0. No path, soundscript flag or mixer group decides it.
+  `SoundGain.IsMusic` and `SoundGain.Music` apply it to one-shots, tracked loops and soundscape loops, and every pass
+  re-gains what is playing, as the engine's per-mix channel gain does (`SoundMusicVolumeConformanceTests`,
+  `SoundPresenterMusicVolumeTests`). An unpositioned soundscape loop is music by its wave alone, because
+  `EmitAmbientSound` (FUN_180017150) starts it at soundlevel 0 whatever the script says. A music one-shot's
+  followed volume ends with its voice, on a stop naming it, and on a seek (B550); a `SND_CHANGE_VOL` alters it in
+  place. Names match as `S_AlterChannel` matches them, by `CSfxTable`: `S_FindName` (FUN_18002b290) keys the whole
+  name, sound characters kept, through the file system's `FindOrAddFileName` (vtable +0x118, confirmed by its
+  neighbour +0x120 being called as `String(handle, buf, 0x200)` in the sfx's `getname`, FUN_1800309c0), which
+  lower-cases and fixes separators (`SoundName.SfxKey`). Music and loops are gained per voice (`IAudioSink.Play`
+  returns a handle; `SetVoiceGain`, `SetVoicePitch`), because `SND_PickDynamicChannel` (FUN_18002a330) gives every
+  CHAN_AUTO start its own channel and hands a named channel's busy slot back for replacement. *Read from the binary.*
+  **Still open: the duck** (`DAT_1804600e8`, eased in
+  FUN_18002fbe0), which is 1 here.
 
 ## B546 — the STV spectator GUI's other three parts: the control-point row, the target ID's health, overheal colour — OPEN, gap
 
@@ -39622,5 +39634,27 @@ them, and `VoicePresenter` starts each run on `CHAN_VOICE_BASE + index`. Every b
 5. **A `Voice_Init` mid-speech** ends the channel in the plan, but the sound already handed to the device plays out;
    the engine's `Voice_Deinit` stops it at once.
 
+6. **Voice across a demo skip.** Voice resumes at the next packet after a seek; whether `ProcessVoiceData` runs
+   while `IsSkipping()` (B550) — so skipped-over speech fills the buffer or is dropped — is not read.
+
 The rest of the choices that are ours, not the engine's, are listed in findings/31, "Demo voice".
+
+## B550 — a seek silences every sound and re-establishes loops; the engine's demo skip keeps what plays and starts only static sounds — OPEN, defect
+
+**Found reviewing B545** (2026-10-15). Ours: a seek silences everything and re-establishes only loops
+(`SoundPresenter`'s `Jumped` and `reestablishing` branches), so a music one-shot mid-song is gone and its
+`snd_musicvolume` following with it. **The engine, read from engine.dll (x64):**
+
+- `CDemoPlayer::SkipToTick` (FUN_180073b10, `"DemoPlayer: SkipToTick"`): a target BEHIND the current tick reloads the
+  demo through its own `StartPlayback` (vtable +0x28, `"DemoPlayer: Reloading demo file"`) and skips forward from the
+  start; a target AHEAD only sets the skip tick (+0x5bc). Nothing in it stops a sound, so on a forward skip whatever
+  was playing keeps playing. Whether the reload's reconnect stops sounds is not read.
+- The sound dispatch (FUN_18008b7f0, called for each queued `svc_Sounds` entry by FUN_18008bb10) drops a sound while
+  `IsSkipping()` (demo player vtable +0x48, FUN_180072a90: `m_bPlaying && m_nSkipToTick != -1`) unless it is static
+  (`staticsound = channel == CHAN_STATIC`) or carries `SND_STOP` (flag 4). So during a skip, static sounds still start
+  and stops still stop, and every dynamic sound — dynamic loops included — is dropped.
+
+**Why it stays open:** matching it rewrites the seek model for every sound, not music: no silence on a forward seek,
+CHAN_STATIC starts and stops replayed through the skipped range, dynamic loops not re-established, and the reload
+path's stop read first. That is its own change with its own tests. *Read from the binary.*
 

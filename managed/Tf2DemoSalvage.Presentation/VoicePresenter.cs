@@ -242,7 +242,7 @@ public sealed class VoicePresenter
 
             if (now - playing.StartedAt >= arrived)
             {
-                output.Silence(playing.Entity, playing.Channel);
+                output.Silence(playing.Entity, playing.Channel, playing.Sample);
                 _playing.RemoveAt(i);
                 _starved.Add((playing.Spurt, next));
             }
@@ -288,7 +288,8 @@ public sealed class VoicePresenter
     {
         foreach (Playing playing in _playing)
         {
-            output.Silence(playing.Entity, playing.Channel);
+            // The one voice this started, matched by its own sample, so nothing else on the channel stops (B545).
+            output.Silence(playing.Entity, playing.Channel, playing.Sample);
         }
 
         _playing.Clear();
@@ -325,11 +326,11 @@ public sealed class VoicePresenter
 
         // A channel holds one spurt at a time, so whatever last played on it has ended.
         _playing.RemoveAll(playing => playing.Channel == channel);
-        _playing.Add(new Playing(spurt, entity, channel, now - ((double)skip / spurt.SampleRate), spurt.Packets[packet].Offset));
+        _playing.Add(new Playing(spurt, entity, channel, sample, now - ((double)skip / spurt.SampleRate), spurt.Packets[packet].Offset));
         Prune();
     }
 
     private readonly record struct Pending(VoiceSpurt Spurt, int Packet, int AtTick, Task<SoundSample> Sound);
 
-    private readonly record struct Playing(VoiceSpurt Spurt, int Entity, int Channel, double StartedAt, int FirstSample);
+    private readonly record struct Playing(VoiceSpurt Spurt, int Entity, int Channel, SoundSample Sample, double StartedAt, int FirstSample);
 }

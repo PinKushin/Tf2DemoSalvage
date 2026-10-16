@@ -222,10 +222,17 @@ public sealed class VoicePresenterConformanceTests
 
         public float MasterGain { get; set; } = 1f;
 
-        void IAudioSink.Play(SoundSample sample, float leftPan, float rightPan, float gain, float pitch, int entity, int channel) =>
+        int IAudioSink.Play(SoundSample sample, float leftPan, float rightPan, float gain, float pitch, int entity, int channel)
+        {
             Played.Add(new Play(sample, leftPan, rightPan, gain, pitch, entity, channel));
+            return 0;
+        }
 
         public bool SetGain(int entity, int channel, float gain) => false;
+
+        public bool SetVoiceGain(int voice, float gain) => false;
+
+        public bool SetVoicePitch(int voice, float pitch) => false;
 
         public bool SetPitch(int entity, int channel, float pitch) => false;
 
@@ -235,6 +242,10 @@ public sealed class VoicePresenterConformanceTests
 
         public void Silence(int entity, int channel) => Silenced.Add((entity, channel));
 
-        public void Silence(int entity, int channel, SoundSample sample) => Silenced.Add((entity, channel));
+        public int Silence(int entity, int channel, SoundSample sample)
+        {
+            Silenced.Add((entity, channel));
+            return 0;
+        }
     }
 }

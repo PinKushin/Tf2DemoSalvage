@@ -635,7 +635,10 @@ Things a user is likely to notice. Each has an entry in `docs/RISKS.md` in the r
 - **The heal glow beside a running patient is partly fixed** (B538, B539): the beam's arc toward the aim still
   differs from the game's, and the haze is fainter, with fewer pluses along the beam.
 - **`mat_hdr_level 3` is drawn as 2** (B537).
-- **`snd_musicvolume` and `voice_scale` are accepted but not applied yet** (B545).
+- **`voice_scale` is accepted but not applied yet**: the viewer does not play demo voice yet (B545).
+- **`snd_musicvolume` lowers music but never ducks it** (B545). It applies to the sounds TF2 treats as music,
+  which are `#` sounds with no distance falloff, including map soundscapes. A change takes effect on music that
+  is already playing. TF2 also turns music down briefly while someone speaks, and the viewer does not.
 - **Some outdoor details still differ in brightness from the game** (B514 is open): a band of ground changes
   brightness at some moments of the f12 demo. Players and weapons were compared with the game at one moment of
   one demo (a demoman, near tick 63600), and every difference found there was fixed except the heal glow cloud

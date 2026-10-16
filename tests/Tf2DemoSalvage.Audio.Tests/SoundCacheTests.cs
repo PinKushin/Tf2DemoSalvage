@@ -54,6 +54,29 @@ public sealed class SoundCacheTests
         reads.Count.ShouldBe(1);
     }
 
+    /// <remarks>
+    /// One sample per <c>CSfxTable</c>: `S_FindName` (engine.dll FUN_18002b290) keys the whole name through the file-name
+    /// table, which lower-cases and fixes separators, so these are one sound — and a stop naming one matches the voice
+    /// started by the other, as `S_AlterChannel` matches by sfx (B545). The `#` is part of the key.
+    /// </remarks>
+    [TestCase("#Music/Song.wav", "#music\\song.wav", 1)]
+    [TestCase("#music/song.wav", "music/song.wav", 2)]
+    public void Sample_ForTwoSpellingsOfOneSfx_IsOneSample(string first, string second, int expectedReads)
+    {
+        List<string> reads = [];
+        SoundCache cache = Cache(reads);
+
+        SoundSample? one = cache.Sample(first);
+        SoundSample? two = cache.Sample(second);
+
+        reads.Count.ShouldBe(expectedReads);
+
+        // A record struct, so "the same sample" is the decode the two share, which is what a stop matches on.
+        one.ShouldNotBeNull();
+        two.ShouldNotBeNull();
+        two.Value.Samples.Equals(one.Value.Samples).ShouldBe(expectedReads == 1);
+    }
+
     [Test]
     public void Sample_ForTwoDifferentNames_ReadsEachOfThem()
     {

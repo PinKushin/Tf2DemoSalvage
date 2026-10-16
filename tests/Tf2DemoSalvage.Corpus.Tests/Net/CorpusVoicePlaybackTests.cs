@@ -60,10 +60,17 @@ public sealed class CorpusVoicePlaybackTests
 
         public float MasterGain { get; set; } = 1f;
 
-        public void Play(SoundSample sample, float leftPan, float rightPan, float gain, float pitch, int entity, int channel) =>
+        public int Play(SoundSample sample, float leftPan, float rightPan, float gain, float pitch, int entity, int channel)
+        {
             Played.Add((entity, channel, Tick, sample.Samples.ToArray().Max(System.MathF.Abs)));
+            return 0;
+        }
 
         public bool SetGain(int entity, int channel, float gain) => false;
+
+        public bool SetVoiceGain(int voice, float gain) => false;
+
+        public bool SetVoicePitch(int voice, float pitch) => false;
 
         public bool SetPitch(int entity, int channel, float pitch) => false;
 
@@ -79,9 +86,6 @@ public sealed class CorpusVoicePlaybackTests
             // Only starts are asserted.
         }
 
-        public void Silence(int entity, int channel, SoundSample sample)
-        {
-            // Only starts are asserted.
-        }
+        public int Silence(int entity, int channel, SoundSample sample) => 0;
     }
 }

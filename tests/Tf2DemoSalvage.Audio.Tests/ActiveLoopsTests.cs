@@ -32,8 +32,8 @@ public sealed class ActiveLoopsTests
 
         loops.Track(Hum(x: 1000f));
 
-        float far = loops.GainsAt(0f, 0f, 0f).Single().Gain;
-        float near = loops.GainsAt(900f, 0f, 0f).Single().Gain;
+        float far = loops.GainsAt(0f, 0f, 0f, 1f).Single().Gain;
+        float near = loops.GainsAt(900f, 0f, 0f, 1f).Single().Gain;
 
         // **The whole point, and it is a comparison rather than a pinned value.** Which exact gain
         // Valve's curve gives at 1000 units is SoundGain's business and is tested there; what this
@@ -51,7 +51,7 @@ public sealed class ActiveLoopsTests
 
         // Inside the reference distance the curve is unattenuated, so the sound's own volume is all
         // that remains. An exact prediction: 1.0, not merely "loud".
-        loops.GainsAt(0f, 0f, 0f).Single().Gain.ShouldBe(1f, 0.001d);
+        loops.GainsAt(0f, 0f, 0f, 1f).Single().Gain.ShouldBe(1f, 0.001d);
     }
 
     [Test]
@@ -61,7 +61,7 @@ public sealed class ActiveLoopsTests
 
         loops.Track(Hum(x: 100_000f));
 
-        (int Entity, int Channel, float Gain)[] gains = [.. loops.GainsAt(0f, 0f, 0f)];
+        (int Entity, int Channel, int Voice, float Gain)[] gains = [.. loops.GainsAt(0f, 0f, 0f, 1f)];
 
         // **Present and silent, not absent.** The sound is still playing; the sink has to be told it
         // is now inaudible. Dropping the entry would leave the source holding its last audible gain
@@ -83,7 +83,7 @@ public sealed class ActiveLoopsTests
 
         // And it is the SECOND one that survived — a check the count alone cannot make, since
         // keeping the first would also leave exactly one entry.
-        loops.GainsAt(0f, 0f, 0f).Single().Gain.ShouldBeLessThan(
+        loops.GainsAt(0f, 0f, 0f, 1f).Single().Gain.ShouldBeLessThan(
             1f, "the surviving loop should be the distant one that replaced it");
     }
 
@@ -109,7 +109,7 @@ public sealed class ActiveLoopsTests
         loops.Track(Hum(x: 0f, entity: 1, channel: 6));
 
         loops.Forget(1, 6).ShouldBeTrue();
-        loops.GainsAt(0f, 0f, 0f).ShouldBeEmpty();
+        loops.GainsAt(0f, 0f, 0f, 1f).ShouldBeEmpty();
 
         loops.Forget(1, 6).ShouldBeFalse("forgetting twice should report that nothing was there");
     }

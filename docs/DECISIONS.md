@@ -10204,8 +10204,14 @@ config line or a bind setting it did nothing.
 - View > Volume offers tenths and the unfocused mute, and saves both (`volume` is `archive` in TF2).
 - Every UI-test launch puts `+volume 0` FIRST (`ViewerApplication.Silent`), so a test whose subject is sound overrides
   it later on the line. `PausedSoundUiTests` does that with `+volume 1`. No probe launches the viewer.
-- `snd_musicvolume` and `voice_scale` are declared and stored but applied nowhere: this viewer plays no voice, and
-  which sounds the engine treats as music needs `engine.dll` read (B545).
+- `snd_musicvolume` and `voice_scale` were declared and stored but applied nowhere (B545). **Corrected 2026-10-15:**
+  this line used to say "this viewer plays no voice" as though leaving voice out were a decision. It was not one.
+  The owner: *"that was never made, no idea how it got there voice has always been in scope"*, and why: *"theres not
+  a lot of comp demos that will have voice, but if the pros did use ingame voice for a taunt or talking shit, i want
+  to hear it, and pub demos wiill have voice a lot of the time"*. Voice has always been in scope. What is true is
+  narrower: the four voice decoders exist, but only probes, corpus tests and the fuzzer construct them, so nothing
+  plays voice yet and `voice_scale` has nothing to scale (B545). `snd_musicvolume` is now applied, from
+  `engine.dll`: a `#` sound at soundlevel 0 (`SoundMusicVolumeConformanceTests`).
 
 **Review fixes, 2026-10-14** (branch `fix/volume-review`):
 

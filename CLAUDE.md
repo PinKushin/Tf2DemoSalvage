@@ -22,7 +22,7 @@ The lookup table; reasoning lives in the sections below, not here. Every path is
 | do | run |
 |---|---|
 | build everything | `MSBUILDDISABLENODEREUSE=1 dotnet build Tf2DemoSalvage.slnx` |
-| **the merge gate, phase 1** (twelve assemblies, count-floored) | `TF2DEMOSALVAGE_GCOR_ONLY=1 bash build/gate.sh` |
+| **the merge gate, phase 1** (twelve assemblies, count-floored) | `TF2DEMOSALVAGE_GCOR_ONLY=1 pwsh C:/Users/pinku/source/repos/PinKushin/run-exclusive.ps1 -Shared "C:/Program Files/Git/bin/bash.exe" build/gate.sh` — `-Shared`: up to three at once, never beside a UI run |
 | **the merge gate, phase 2** (UI, including the playback test — B408; takes the desktop, so the machine-wide lock) | `pwsh C:/Users/pinku/source/repos/PinKushin/run-exclusive.ps1 dotnet test tests/Tf2DemoSalvage.Viewer3D.UiTests` |
 | full corpus superset (~50 min, ~15 GB peak; decode changes only) | `TF2DEMOSALVAGE_GCOR_ONLY=0 bash build/gate.sh` — the script defaults to gcor; in a worktree, junction lcor first (`docs/memory/lcor-is-not-in-a-worktree.md`) |
 | one test project | `dotnet test tests/Tf2DemoSalvage.Core.Tests` |
