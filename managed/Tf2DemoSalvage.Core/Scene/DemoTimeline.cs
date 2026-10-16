@@ -2955,6 +2955,27 @@ public sealed class DemoTimeline
         public IReadOnlyList<(string Field, long Bytes)> CostByField(int index) =>
             _checkpoints[index].State.SnapshotCost().Fields;
 
+        /// <summary>
+        /// The direct control on a checkpoint staying untouched: its value hash, before and after two windows are built
+        /// from it — the first resume decoding forward, then a second (D217 step 4).
+        /// </summary>
+        /// <param name="index">Which checkpoint.</param>
+        /// <returns>Whether either window changed any value the checkpoint holds, shared frozen state included.</returns>
+        /// <remarks>
+        /// **Why not answers alone**: a window that wrote its checkpoint changes the NEXT window from it, and a later seek
+        /// can still agree with a whole build by luck; and comparing a resume with a fresh one cannot see a write into
+        /// what they share. The hash follows that shared state.
+        /// </remarks>
+        public bool WindowsWriteTheirCheckpoint(int index)
+        {
+            (_, int tick, Builder state) = _checkpoints[index];
+            int through = index + 1 < _checkpoints.Count ? _checkpoints[index + 1].Tick - 1 : tick + 1;
+            string before = StateCopy.Digest(state, _inputs);
+            GC.KeepAlive(Window(tick, through));
+            GC.KeepAlive(Window(tick, through));
+            return StateCopy.Digest(state, _inputs) != before;
+        }
+
         /// <summary>What resuming one checkpoint creates, by type: the census of a resume copy (D217 step 4).</summary>
         /// <param name="index">Which checkpoint.</param>
         /// <returns>Objects and array elements created, by type.</returns>

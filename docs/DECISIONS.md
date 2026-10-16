@@ -10298,8 +10298,19 @@ before is the same commit with the freeze turned off):
 `F97EF29D…`), measured on both trees. The census confirms the mechanism: the resume no longer creates any `(PropertyValue, long)[]` chunk (f12 2,144 →
 0, rgl-pug 2,232 → 0) or `Dictionary<string, int>` entry array (625 → 0, 670 → 0). **What is left, for the next
 step**: `Int32[]` (279 k elements on f12, 481 k on rgl-pug), `Single[]` (125 k / 237 k) and, on rgl-pug,
-`DecodedProperty[]` (90 k) — `entities` is still 163 MB of rgl-pug's mid checkpoint, and `decoder` 161 MB. Checkpoint
-spacing is unchanged; that is a later step.
+`DecodedProperty[]` (90 k) — a resume of rgl-pug's mid checkpoint still allocates 163 MB for `entities` and 161 MB
+for `decoder` (the probe's `mid resume allocates` lines, each field copied alone; renamed from `mid checkpoint`, which
+read as what the checkpoint holds). **And a write to any one property still re-copies that entity's whole
+`EntityState` shell** at the next checkpoint, every field of it, since the shell is what changed; that is the next cost
+to attack beside the `Int32[]`/`Single[]` and decoder state above. Checkpoint spacing is unchanged; that is a later
+step.
+
+**Hardened after review** (Fable's and the coordinator's): a bag's ownership of its key map and chunks is
+`[StateCopy.NotCopied]`, so a copy owns nothing and copies before its first write — a copied "owned" could have written
+into a chunk a prior copy reuses (unreachable today, impossible now). `Checkpoints.WindowsWriteTheirCheckpoint` is the
+direct control: a value hash of a checkpoint (`StateCopy.Digest`, which follows shared frozen state) before and after
+two windows from it. Sabotaged by letting a thawed bag write its frozen chunks in place, it reddens while the
+window-equals-whole-build test stays green — the case where IDENTICAL alone masks a leak. `timeline-windows` prints it.
 
 **The order after these two steps — the viewer half, decided by the owner the same day: a backward seek must NOT
 replay the demo from the start.** The state the skip replay builds up — the dealt HUD sounds and decals of B504,

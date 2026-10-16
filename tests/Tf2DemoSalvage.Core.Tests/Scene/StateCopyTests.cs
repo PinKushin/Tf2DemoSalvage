@@ -273,4 +273,48 @@ public sealed class StateCopyTests
         created[typeof((Core.Schema.PropertyValue, long)[])].ShouldBe((4, 128));
         copy["k0"].AsInt.ShouldBe(-1);
     }
+
+    /// <remarks>
+    /// **A copy owns nothing it did not make**: copy 2 of a thawed bag reuses copy 1's chunk 0 (unchanged), and a write
+    /// to copy 2 must copy that chunk first. An inherited "owned" would write straight into copy 1.
+    /// </remarks>
+    [Test]
+    public void Set_OnACopyReusingAPriorChunk_LeavesThePriorCopyUnchanged()
+    {
+        PropertyBag bag = Bag();
+        bag.Freeze();
+        bag.Set("k0", Core.Schema.PropertyValue.FromInt(-1), 101);
+        PropertyBag first = StateCopy.Of(bag, new HashSet<object>(), prior: null, out Dictionary<object, object> map);
+        bag.Set("k40", Core.Schema.PropertyValue.FromInt(-40), 102);
+        PropertyBag second = StateCopy.Of(bag, new HashSet<object>(), map, out _);
+
+        second.Set("k1", Core.Schema.PropertyValue.FromInt(-2), 103);
+
+        (first["k1"].AsInt, second["k1"].AsInt).ShouldBe((1L, -2L));
+    }
+
+    private sealed class BagHolder
+    {
+        public PropertyBag Properties { get; } = Bag();
+    }
+
+    /// <remarks>
+    /// **The freeze site skips a bag under a parent reused unchanged, and that bag is still frozen** — the second
+    /// checkpoint shares the first one's bag; a bag written between them is frozen again by the second.
+    /// </remarks>
+    [Test]
+    public void Of_FreezingAgainOverAnUnchangedParent_LeavesItsBagFrozen()
+    {
+        BagHolder still = new();
+        BagHolder written = new();
+        List<BagHolder> both = [still, written];
+        List<BagHolder> first = StateCopy.Of(both, new HashSet<object>(), prior: null, out Dictionary<object, object> map, freeze: true);
+        written.Properties.Set("k0", Core.Schema.PropertyValue.FromInt(-1), 101);
+
+        List<BagHolder> second = StateCopy.Of(both, new HashSet<object>(), map, out _, freeze: true);
+
+        (still.Properties.IsFrozen, written.Properties.IsFrozen).ShouldBe((true, true));
+        second[0].ShouldBeSameAs(first[0]);
+        second[1].Properties["k0"].AsInt.ShouldBe(-1);
+    }
 }
