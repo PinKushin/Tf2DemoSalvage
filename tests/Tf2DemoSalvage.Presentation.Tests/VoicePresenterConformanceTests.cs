@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading.Tasks;
 
 using Tf2DemoSalvage.Audio;
 
@@ -188,7 +189,7 @@ public sealed class VoicePresenterConformanceTests
 
     private static (float X, float Y, float Z)? Nowhere(int entity) => null;
 
-    private static VoicePresenter Presenter(VoiceSpurt spurt) => new() { Plan = [spurt], Decoders = _ => new Steady() };
+    private static VoicePresenter Presenter(VoiceSpurt spurt) => new() { Plan = [spurt], Decoders = _ => new Steady(), Renderer = render => Task.FromResult(render()) };
 
     /// <summary>1600-sample packets (0.2 s at 8 kHz) from entity 3, one a tick from tick 10: starts at 17.</summary>
     private static VoiceSpurt Spurt(bool proximity, int packets = 2) =>

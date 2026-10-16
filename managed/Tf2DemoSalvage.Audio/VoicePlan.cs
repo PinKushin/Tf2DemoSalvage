@@ -289,6 +289,27 @@ public static class VoicePlan
         return new SoundSample(spurt.SampleRate, 1, samples);
     }
 
+    /// <summary>Where a spurt sample lands in its render, once the overwritten runs are taken out.</summary>
+    /// <param name="spurt">The spurt.</param>
+    /// <param name="offset">A sample offset in the spurt.</param>
+    /// <returns>The offset in <see cref="Render(VoiceSpurt, int, int, float)"/>'s output from packet 0.</returns>
+    public static int KeptOffset(VoiceSpurt spurt, int offset)
+    {
+        ArgumentNullException.ThrowIfNull(spurt);
+
+        int kept = offset;
+
+        foreach (VoiceCut cut in spurt.Cuts)
+        {
+            if (cut.Offset < offset)
+            {
+                kept -= Math.Min(cut.Count, offset - cut.Offset);
+            }
+        }
+
+        return kept;
+    }
+
     private static void Close(Open?[] slots, List<Open> done, Func<Open, bool> ends)
     {
         for (int i = 0; i < Channels; i++)

@@ -169,7 +169,16 @@ public sealed partial class ViewerPresenter
             // The view entity is the recorder's: `svc_ServerInfo`'s player slot + 1, which a demo views from.
             timeline.RecorderEntityIndex ?? 0,
             _speakerAt ??= SpeakerAt);
+
+        if (_voice.Failure is { } failure && !string.Equals(failure, _voiceFailure, StringComparison.Ordinal))
+        {
+            _voiceFailure = failure;
+            _audioLog.LogWarning("{Message}", "voice: a start could not be decoded: " + failure);
+        }
     }
+
+    /// <summary>The last decode failure logged, so each is logged once.</summary>
+    private string? _voiceFailure;
 
     /// <summary>The tick <see cref="SpeakerAt"/> answers for.</summary>
     private int _voiceTick;

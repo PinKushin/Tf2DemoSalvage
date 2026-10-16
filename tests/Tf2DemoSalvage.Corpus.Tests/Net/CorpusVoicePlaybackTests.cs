@@ -29,7 +29,14 @@ public sealed class CorpusVoicePlaybackTests
 
         int view = timeline.RecorderEntityIndex ?? 0;
         Sink sink = new();
-        VoicePresenter presenter = new() { Plan = plan.Spurts, Interval = timeline.IntervalPerTick };
+        VoicePresenter presenter = new()
+        {
+            Plan = plan.Spurts,
+            Interval = timeline.IntervalPerTick,
+
+            // Inline, so each start lands on its own tick; the viewer decodes off the frame.
+            Renderer = render => System.Threading.Tasks.Task.FromResult(render()),
+        };
         int last = timeline.Frames[^1].Tick;
 
         for (int tick = timeline.Frames[0].Tick; tick <= last; tick++)

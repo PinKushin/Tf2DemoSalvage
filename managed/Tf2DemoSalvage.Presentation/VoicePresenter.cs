@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Threading.Tasks;
 
 using Tf2DemoSalvage.Audio;
 using Tf2DemoSalvage.Core.Net;
@@ -37,6 +38,7 @@ public sealed class VoicePresenter
             _pending.Clear();
             _playing.Clear();
             _starved.Clear();
+            _renders.Clear();
             _next = 0;
             _lastTick = null;
         }
@@ -110,14 +112,90 @@ public sealed class VoicePresenter
         {
             Pending due = _pending[i];
 
-            if (due.AtTick <= tick)
+            if (due.AtTick > tick || !due.Sound.IsCompleted)
             {
-                _pending.RemoveAt(i);
-                int skip = (int)Math.Round((tick - due.AtTick) * (double)Interval * due.Spurt.SampleRate);
-                Start(output, due.Spurt, due.Packet, skip, now, listener, right, viewEntity, speakerAt);
+                // Not due, or still decoding: a late decode starts part-way in, as the mixer would have read on.
+                continue;
+            }
+
+            _pending.RemoveAt(i);
+
+            if (!due.Sound.IsCompletedSuccessfully)
+            {
+                // Recorded for the caller's log rather than thrown on the frame.
+                Failure = due.Sound.Exception?.GetBaseException().Message;
+                continue;
+            }
+
+            int skip = (int)Math.Round((tick - due.AtTick) * (double)Interval * due.Spurt.SampleRate);
+            Start(output, due.Spurt, due.Packet, due.Sound.Result, skip, now, listener, right, viewEntity, speakerAt);
+        }
+    }
+
+    /// <summary>The last start whose decode failed, for the caller to log; null when none has.</summary>
+    public string? Failure { get; private set; }
+
+    /// <summary>Runs a start's decode; off the frame by default, inline for a test.</summary>
+    public Func<Func<SoundSample>, Task<SoundSample>> Renderer { get; init; } = Task.Run;
+
+    /// <summary>
+    /// Queues a start and begins decoding it now, at the packet that assigns the channel — where
+    /// <c>Voice_AssignChannel</c> reads <c>voice_scale</c> — so the pad's lead hides the decode.
+    /// </summary>
+    /// <remarks>
+    /// **Each spurt is decoded once, from its first packet, and a resume slices it.** A run whose frames step past
+    /// <c>SoundSchedule.CatchUpTicks</c> is a jump every frame, and re-decoding every arriving spurt per jump starved the
+    /// frame (the 8x playback test fell to 600 ms frames). The engine decodes a resume with a fresh decoder and gain; a
+    /// slice carries the state the first packet built. Ours, listed in findings/31.
+    /// </remarks>
+    private void Queue(VoiceSpurt spurt, int packet, int atTick)
+    {
+        if (!_renders.TryGetValue(spurt, out Task<SoundSample>? sound))
+        {
+            float scale = Scale;
+            Func<VoiceKind, IVoiceStreamDecoder> decoders = Decoders;
+            sound = Renderer(() => VoicePlan.Render(spurt, 0, 0, scale, decoders));
+            _renders[spurt] = sound;
+        }
+
+        _pending.Add(new Pending(spurt, packet, atTick, sound));
+    }
+
+    /// <summary>Drops the decodes nothing pending, starved or playing still needs.</summary>
+    private void Prune()
+    {
+        if (_renders.Count == 0)
+        {
+            return;
+        }
+
+        HashSet<VoiceSpurt> needed = [];
+
+        foreach (Pending pending in _pending)
+        {
+            needed.Add(pending.Spurt);
+        }
+
+        foreach ((VoiceSpurt spurt, int _) in _starved)
+        {
+            needed.Add(spurt);
+        }
+
+        foreach (Playing playing in _playing)
+        {
+            needed.Add(playing.Spurt);
+        }
+
+        foreach (VoiceSpurt spurt in new List<VoiceSpurt>(_renders.Keys))
+        {
+            if (!needed.Contains(spurt))
+            {
+                _renders.Remove(spurt);
             }
         }
     }
+
+    private readonly Dictionary<VoiceSpurt, Task<SoundSample>> _renders = new(ReferenceEqualityComparer.Instance);
 
     /// <summary>Playback moved forward: packets in <c>(last, tick]</c> arrive.</summary>
     private void Arrive(int last, int tick)
@@ -128,7 +206,7 @@ public sealed class VoicePresenter
 
             if (spurt.Packets[0].Tick > last)
             {
-                _pending.Add(new Pending(spurt, 0, spurt.StartTick));
+                Queue(spurt, 0, spurt.StartTick);
             }
         }
 
@@ -141,7 +219,7 @@ public sealed class VoicePresenter
             if (packet.Tick <= tick)
             {
                 _starved.RemoveAt(i);
-                _pending.Add(new Pending(spurt, next, packet.Tick + spurt.PadTicks));
+                Queue(spurt, next, packet.Tick + spurt.PadTicks);
             }
         }
     }
@@ -185,9 +263,11 @@ public sealed class VoicePresenter
 
             if (next >= 0)
             {
-                _pending.Add(new Pending(spurt, next, spurt.Packets[next].Tick + spurt.PadTicks));
+                Queue(spurt, next, spurt.Packets[next].Tick + spurt.PadTicks);
             }
         }
+
+        Prune();
     }
 
     /// <summary>The first packet arriving at or after a tick, or -1.</summary>
@@ -218,6 +298,7 @@ public sealed class VoicePresenter
         IAudioSink output,
         VoiceSpurt spurt,
         int packet,
+        SoundSample rendered,
         int skip,
         double now,
         (float X, float Y, float Z) listener,
@@ -237,15 +318,18 @@ public sealed class VoicePresenter
 
         (float left, float rightGain) = SoundGain.Pan(SoundGain.Rightward(listener, right, source));
 
-        SoundSample sample = VoicePlan.Render(spurt, packet, skip, Scale, Decoders);
+        // From the packet the channel was assigned at, less what the mixer had already read: a slice, not a re-render.
+        int from = Math.Min(VoicePlan.KeptOffset(spurt, spurt.Packets[packet].Offset) + skip, rendered.Samples.Length);
+        SoundSample sample = rendered with { Samples = rendered.Samples[from..] };
         output.Play(sample, left, rightGain, SoundGain.AtDistance(spurt.Proximity ? 80 : 60, distance), 1f, entity, channel);
 
         // A channel holds one spurt at a time, so whatever last played on it has ended.
         _playing.RemoveAll(playing => playing.Channel == channel);
         _playing.Add(new Playing(spurt, entity, channel, now - ((double)skip / spurt.SampleRate), spurt.Packets[packet].Offset));
+        Prune();
     }
 
-    private readonly record struct Pending(VoiceSpurt Spurt, int Packet, int AtTick);
+    private readonly record struct Pending(VoiceSpurt Spurt, int Packet, int AtTick, Task<SoundSample> Sound);
 
     private readonly record struct Playing(VoiceSpurt Spurt, int Entity, int Channel, double StartedAt, int FirstSample);
 }
