@@ -93,11 +93,33 @@ public sealed class FramePresenterTests
     [Test]
     public void Take_OneMove_AnswersEachReaderOnce()
     {
-        FrameSkip move = new(100, Skipped: true, Generation: 3);
-        int particles = 0;
-        int sound = 0;
+        FrameSkip move = new(100, Generation: 3, Skips: 1) { Skipped = true };
+        (int, int) particles = default;
+        (int, int) sound = default;
 
         (move.Take(ref particles), move.Take(ref particles), move.Take(ref sound)).ShouldBe((true, null, true));
+    }
+
+    /// <remarks>
+    /// **A reader sees a skip it missed**: the opening state's jump and the frame's played step both come before the
+    /// sound runs. Measured: the sound read only the played step, called the 20,000-tick jump playing, and started
+    /// every sound since tick 0 — 2,159 ms over the run's first three frames at 8x, against 23 ms on main.
+    /// </remarks>
+    [Test]
+    public void ShowMomentOver_AJumpThenAPlayedStepBeforeTheReader_StillReadsTheJump()
+    {
+        FramePresenter frames = Presenter();
+        (int, int) sound = default;
+
+        frames.ShowMomentOver(Frame(tick: 400), 400d, null, static tick => Frame(tick: (int)tick), null, jumps: 1);
+        frames.Skip!.Take(ref sound);
+        frames.ShowMomentOver(Frame(tick: 20000), 20000d, null, static tick => Frame(tick: (int)tick), null, jumps: 2);
+        frames.ShowMomentOver(Frame(tick: 20053), 20053d, null, static tick => Frame(tick: (int)tick), null, jumps: 2);
+
+        FrameSkip last = frames.Skip.ShouldNotBeNull();
+
+        last.Skipped.ShouldBeFalse("the control: the last move was played");
+        last.Take(ref sound).ShouldBe(true);
     }
 
     [Test]

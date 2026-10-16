@@ -1,24 +1,30 @@
 namespace Tf2DemoSalvage.Presentation;
 
-/// <summary>One move of playback to a tick, and whether it was a skip by <see cref="SoundSchedule.IsSkip"/> (D221).</summary>
-/// <param name="Tick">The tick moved to.</param>
-/// <param name="Skipped">Whether the move was a seek rather than playing.</param>
-/// <param name="Generation">Counts the moves, so each reader takes a move once.</param>
+/// <summary>The last move of playback to a tick, and how many of the moves so far were skips (D221).</summary>
+/// <param name="Tick">The tick last moved to.</param>
+/// <param name="Generation">Counts the moves.</param>
+/// <param name="Skips">Counts the moves that were skips — a transport jump, or the first move.</param>
 /// <remarks>
-/// **Decided once, where a moment is shown, and read by everything that asks** — the seek replay, the particles and the
-/// sound — so three cursors with three cadences cannot answer one frame three ways.
+/// **Decided where a moment is shown, and read by everything that asks** — the seek replay, the particles and the
+/// sound — so three cursors with three cadences cannot answer one frame three ways. **A reader asks whether a skip
+/// happened since it last asked, not whether the LAST move was one**: a frame can make two moves before a reader runs —
+/// the opening state's jump, then the frame's played step — and the reader must still see the jump.
 /// </remarks>
-public sealed record FrameSkip(int Tick, bool Skipped, int Generation)
+public sealed record FrameSkip(int Tick, int Generation, int Skips)
 {
-    /// <summary>The move's answer the first time a reader asks, marking it taken.</summary>
-    /// <param name="taken">The reader's last generation taken.</param>
-    /// <returns>Whether the move was a skip, once per move and reader; null when this reader has taken it already.</returns>
-    public bool? Take(ref int taken)
+    /// <summary>Whether the last move was a skip.</summary>
+    public bool Skipped { get; init; }
+
+    /// <summary>Whether a skip happened since this reader last asked, once per move; null when nothing has moved since.</summary>
+    /// <param name="taken">The reader's last generation and skip count seen.</param>
+    /// <returns>True when a skip happened since; false when only played moves did; null when nothing moved.</returns>
+    public bool? Take(ref (int Generation, int Skips) taken)
     {
-        bool fresh = taken != Generation;
+        bool fresh = taken.Generation != Generation;
+        bool skipped = taken.Skips != Skips;
 
-        taken = Generation;
+        taken = (Generation, Skips);
 
-        return fresh ? Skipped : null;
+        return fresh ? skipped : null;
     }
 }

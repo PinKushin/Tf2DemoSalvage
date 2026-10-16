@@ -235,8 +235,8 @@ public sealed partial class FramePresenter
                 _bursts.Bursts,
                 _particles));
 
-    /// <summary>The last <see cref="FrameSkip"/> generation the particles took.</summary>
-    private int _particlesTaken;
+    /// <summary>The last <see cref="FrameSkip"/> the particles took.</summary>
+    private (int Generation, int Skips) _particlesTaken;
 
     /// <summary>A skip taken and not yet handed to effects that ran.</summary>
     private bool _seekPending;

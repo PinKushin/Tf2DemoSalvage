@@ -181,8 +181,8 @@ public sealed partial class SoundPresenter(
     /// <summary>The last tick a pass reached, or null before the first pass of a schedule.</summary>
     private int? _playedTo;
 
-    /// <summary>The last <see cref="FrameSkip"/> generation the sound took.</summary>
-    private int _moveTaken;
+    /// <summary>The last <see cref="FrameSkip"/> the sound took.</summary>
+    private (int Generation, int Skips) _moveTaken;
 
     /// <summary>The soundscripts the game loaded, or null until an install is opened.</summary>
     /// <remarks>

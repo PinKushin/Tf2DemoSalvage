@@ -163,7 +163,7 @@ public sealed partial class FramePresenter
 
         if (from != target)
         {
-            Skip = new FrameSkip(target, skipped, (Skip?.Generation ?? 0) + 1);
+            Skip = new FrameSkip(target, (Skip?.Generation ?? 0) + 1, (Skip?.Skips ?? 0) + (skipped ? 1 : 0)) { Skipped = skipped };
         }
 
         // Stryker disable once all : a mutated guard leaves its pattern variables unassigned (CS0165) and Safe Mode drops the method - B410

@@ -10487,6 +10487,11 @@ held to a tick, it stays where the tick left it while the eye and the hands move
   B504's dealt-sound replay still runs on a real seek (`FramePresenterSeekTests`). It replaced a rule under which, at
   8x, a frame slower than a quarter second counted as a seek and replayed the skip and every live burst, which is
   what `Play_AtEightTimesSpeed…` measured: 6 rate samples of 10, mean frame 690 ms.
+- **A reader asks whether a skip happened since it last asked**, not whether the last move was one (`FrameSkip.Skips`).
+  *Measured* (z1800, `--tick 20000 --autoplay --measure 20 +demo_timescale 8`, Debug): the opening state's jump and
+  the frame's played step both land before the sound runs, so a reader of the last move called a 20,000-tick jump
+  playing and the sound started every sound since tick 0 — sound 2,159 ms over the first three frames, 5 rate samples,
+  against main's 23 ms and 11. After: sound 15.8 ms over those frames, 12 samples, mean frame 267 ms (main 435 ms).
 - **The trade, stated.** TF2 does not replay. *Read from this project's disassembly* (B504, `FramePresenter.Seek`): a
   `demo_gototick` reads at most 99 packets a frame and `_Host_RunFrame` renders after each batch with no skip test, so
   the engine's particles see a skip as a few frames of real frame time across hundreds of demo ticks, and effects
