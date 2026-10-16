@@ -95,6 +95,31 @@ public sealed class TailListTests
     }
 
     /// <remarks>
+    /// **The in-place splice never writes a checkpoint's chunks**: a checkpoint copies the live chunks (and a later one
+    /// reuses only an EARLIER COPY's), so after two checkpoints, a by-stream trim of the live list leaves both reading
+    /// every record they held.
+    /// </remarks>
+    [Test]
+    public void DropBefore_ByStreamAfterCheckpoints_LeavesTheCheckpointsWhole()
+    {
+        TailList<(int Tick, int Stream)> list = [];
+
+        for (int tick = 0; tick < 3000; tick++)
+        {
+            list.Add((tick, tick % 2));
+        }
+
+        TailList<(int Tick, int Stream)> first = StateCopy.Of(list, new HashSet<object>(), prior: null, out Dictionary<object, object> map);
+        TailList<(int Tick, int Stream)> second = StateCopy.Of(list, new HashSet<object>(), map, out _);
+
+        list.DropBefore(entry => entry.Tick, entry => entry.Stream, 100);
+
+        list.Count.ShouldBe(2902, "the control: the trim ran");
+        first.ShouldBe(Enumerable.Range(0, 3000).Select(tick => (tick, tick % 2)));
+        second.ShouldBe(Enumerable.Range(0, 3000).Select(tick => (tick, tick % 2)));
+    }
+
+    /// <remarks>
     /// **Across chunk boundaries** (chunks of 1,024): 3,000 elements, a cut dropping 1,500 of them and the last removed,
     /// read back in order with the right count.
     /// </remarks>
