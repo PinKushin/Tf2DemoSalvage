@@ -59,8 +59,8 @@ public sealed class SoundscapeSystemTests
         // distance" from "happened to be zero away".
         SoundscapeVoice voice = new(1, "ambient/indoors.wav", 0.5f, 100, Position: null, SoundLevel: 75);
 
-        SoundscapeSystem.GainOf(voice, (0f, 0f, 0f)).ShouldBe(0.5f);
-        SoundscapeSystem.GainOf(voice, (4000f, 3000f, 500f)).ShouldBe(0.5f);
+        SoundscapeSystem.GainOf(voice, (0f, 0f, 0f), 1f).ShouldBe(0.5f);
+        SoundscapeSystem.GainOf(voice, (4000f, 3000f, 500f), 1f).ShouldBe(0.5f);
     }
 
     [Test]
@@ -77,8 +77,8 @@ public sealed class SoundscapeSystemTests
             Position: (1000f, 0f, 0f),
             SoundLevel: 70);
 
-        float near = SoundscapeSystem.GainOf(voice, (900f, 0f, 0f));
-        float far = SoundscapeSystem.GainOf(voice, (0f, 0f, 0f));
+        float near = SoundscapeSystem.GainOf(voice, (900f, 0f, 0f), 1f);
+        float far = SoundscapeSystem.GainOf(voice, (0f, 0f, 0f), 1f);
 
         near.ShouldBeGreaterThan(far);
         far.ShouldBeGreaterThan(0f, "attenuation is a falloff, not a cutoff");

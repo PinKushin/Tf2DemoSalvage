@@ -312,6 +312,17 @@ public sealed class ViewerPresenterTests
     }
 
     [Test]
+    public void MusicVolumes_FromAConfigBeforeAnyFrame_AreTheConfigsForEverySoundSystem()
+    {
+        (ViewerPresenter loader, _, _) = Loader(settings: ViewerSettings.Parse("snd_musicvolume 0.25"));
+
+        using (loader)
+        {
+            loader.MusicVolumes.ShouldBe((0.25f, 0.25f), "the first music sound must not play at 1 (B545)");
+        }
+    }
+
+    [Test]
     public void PlaySoundsOver_WithNoListener_AsksForNoEyesAndStepsNothing()
     {
         WriteMap();

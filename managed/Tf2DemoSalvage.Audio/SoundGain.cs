@@ -146,6 +146,56 @@ public static class SoundGain
         return gain < MinimumGain ? 0f : gain;
     }
 
+    /// <summary>Whether the engine mixes a sound as music, the channels <c>snd_musicvolume</c> scales (B545).</summary>
+    /// <param name="name">The wave as played, sound characters included.</param>
+    /// <param name="soundLevel">Its <c>SNDLVL</c> as sent.</param>
+    /// <returns>True for a <c>'#'</c> among the leading sound characters at soundlevel exactly 0.</returns>
+    /// <remarks>
+    /// engine.dll: FUN_18002d5c0 walks the name's leading sound characters with no length cap and sets bit 4 at
+    /// +0x13c on reaching <c>'#'</c>; any other character ends the walk. FUN_1800292f0 (1800293ba) scales by
+    /// <c>snd_musicvolume</c> when that bit is set and the distance multiplier is 0, which both start paths
+    /// (18002e0b5, 18002eef2) write only for soundlevel 0; 256 and up takes the other gain branch. Citation:
+    /// <c>SoundMusicVolumeConformanceTests</c>. Allocation-free because soundscape loops ask every frame.
+    /// </remarks>
+    public static bool IsMusic(string name, int soundLevel)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+
+        if (soundLevel != 0)
+        {
+            return false;
+        }
+
+        foreach (char character in name)
+        {
+            if (character == '#')
+            {
+                return true;
+            }
+
+            if (!SoundName.IsSoundChar(character))
+            {
+                return false;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>`snd_musicvolume`'s share of a sound's gain: the setting for music, 1 for everything else.</summary>
+    /// <param name="isMusic">What <see cref="IsMusic"/> answered.</param>
+    /// <param name="musicVolume">`snd_musicvolume`; NaN is silence, as a NaN `volume` is.</param>
+    /// <returns>The multiplier.</returns>
+    public static float Music(bool isMusic, float musicVolume)
+    {
+        if (!isMusic)
+        {
+            return 1f;
+        }
+
+        return float.IsNaN(musicVolume) ? 0f : musicVolume;
+    }
+
     /// <summary>How a sound at a bearing splits across a stereo pair.</summary>
     /// <param name="rightward">
     /// How far to the listener's right the source is, −1 fully left through +1 fully right.
