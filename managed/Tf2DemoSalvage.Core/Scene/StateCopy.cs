@@ -518,7 +518,7 @@ internal static class StateCopy
         }
 
         // Shared inputs and the truly immutable are markers; a frozen bag is followed, being the state under test.
-        if ((Immutable(type) && type != typeof(PropertyBag.Frozen)) || share.Contains(value))
+        if ((Immutable(type) && type != typeof(PropertyBag.Frozen) && type != typeof(Schema.DecodedProperties)) || share.Contains(value))
         {
             hash.AppendData("s"u8);
             return;
@@ -603,5 +603,6 @@ internal static class StateCopy
         || typeof(Delegate).IsAssignableFrom(type) || typeof(MemberInfo).IsAssignableFrom(type)
         || type.IsPointer
         || type == typeof(PropertyBag.Frozen)
+        || type == typeof(Schema.DecodedProperties)
         || (type.IsGenericType && type.GetGenericTypeDefinition() == typeof(ReadOnlyMemory<>));
 }

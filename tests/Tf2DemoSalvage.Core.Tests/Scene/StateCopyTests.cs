@@ -230,6 +230,27 @@ public sealed class StateCopyTests
         copy.Other!.Other.ShouldBeSameAs(copy);
     }
 
+    private static Core.Schema.DecodedProperty Property(int index, long value) =>
+        new(index, default!, Core.Schema.PropertyValue.FromInt(value));
+
+    /// <remarks>
+    /// **A merged baseline is shared by a copy, not copied** (D217 step 4): the decoder's baselines and slots hold
+    /// what <c>BaselineMerge.Overlay</c> makes, and a resume copied each element by element.
+    /// </remarks>
+    [Test]
+    public void Of_AMergedBaseline_IsTheSameInstance()
+    {
+        IReadOnlyList<Core.Schema.DecodedProperty> merged = Core.Schema.BaselineMerge.Overlay([Property(0, 1), Property(2, 3)], [Property(1, 5), Property(2, 7)]);
+        List<IReadOnlyList<Core.Schema.DecodedProperty>> holder = [merged];
+        Dictionary<Type, (long Objects, long Elements)> created = [];
+
+        List<IReadOnlyList<Core.Schema.DecodedProperty>> copy = StateCopy.Of(holder, new HashSet<object>(), prior: null, out _, created);
+
+        copy[0].ShouldBeSameAs(merged);
+        created.Keys.ShouldBe([typeof(List<IReadOnlyList<Core.Schema.DecodedProperty>>), typeof(IReadOnlyList<Core.Schema.DecodedProperty>[])], ignoreOrder: true);
+        System.Linq.Enumerable.Select(merged, property => property.Value.AsInt).ShouldBe([1L, 5L, 7L]);
+    }
+
     private static PropertyBag Bag()
     {
         PropertyBag bag = new();

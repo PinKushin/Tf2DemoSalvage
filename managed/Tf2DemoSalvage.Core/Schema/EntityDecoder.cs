@@ -764,7 +764,7 @@ public sealed class EntityDecoder : IEntityBaselines
     /// <summary>The delay is sent in hundredths of a second.</summary>
     private const float DelayScale = 100f;
 
-    private List<DecodedProperty> ReadProperties(ref BitReader reader, int classId)
+    private DecodedProperties ReadProperties(ref BitReader reader, int classId)
     {
         IReadOnlyList<FlatProperty> flat = FlattenedFor(classId);
         List<DecodedProperty> properties = [];
@@ -803,7 +803,7 @@ public sealed class EntityDecoder : IEntityBaselines
                 elementShapes));
         }
 
-        return properties;
+        return new DecodedProperties(properties);
     }
 
     private static PropertyValue ReadValue(
