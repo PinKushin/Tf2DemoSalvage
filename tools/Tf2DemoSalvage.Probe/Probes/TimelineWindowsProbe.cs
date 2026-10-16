@@ -46,8 +46,9 @@ public sealed class TimelineWindowsProbe : IProbe
         int samples = arguments.Count > 2 ? int.Parse(arguments[2], CultureInfo.InvariantCulture) : 60;
         bool costOnly = arguments.Count > 3 && arguments[3] == "cost";
         byte[] demo = File.ReadAllBytes(path);
-        const double Interval = 0.015;
-        int everyTicks = (int)(every / Interval);
+        // The spacing is asked for in seconds before the demo is read, so it converts at TF2's interval (its one owner);
+        // every reach is the demo's own, from the interval its server info states.
+        int everyTicks = (int)(every / ScenePropTrack.Tf2TickInterval);
 
         long heapBefore = Live();
         Stopwatch walk = Stopwatch.StartNew();

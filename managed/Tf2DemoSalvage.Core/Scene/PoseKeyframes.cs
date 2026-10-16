@@ -15,8 +15,11 @@ namespace Tf2DemoSalvage.Core.Scene;
 ///
 /// **What it hands back is the pose it was given, by value.** The shared half is reused only when every value in it is
 /// equal — lists element by element — so a list reference can differ from the caller's while its contents cannot.
+///
+/// **Not itself a list**: its indices are absolute across a trim, so its <see cref="Count"/> counts the dropped keyframes
+/// its indexer refuses. The list readers get is <see cref="Held"/>, which keeps the contract.
 /// </remarks>
-internal sealed class PoseKeyframes : IReadOnlyList<(int Tick, ScenePose Pose)>
+internal sealed class PoseKeyframes
 {
     private readonly List<Stored> _stored = [];
 
@@ -36,8 +39,11 @@ internal sealed class PoseKeyframes : IReadOnlyList<(int Tick, ScenePose Pose)>
 
     private Stored _first;
 
-    /// <inheritdoc/>
+    /// <summary>One past the last keyframe's absolute index: every keyframe ever added, dropped ones included.</summary>
     public int Count => Dropped + _stored.Count;
+
+    /// <summary>The keyframes still held, as a list indexed from 0 — what readers outside the track see.</summary>
+    public IReadOnlyList<(int Tick, ScenePose Pose)> Held => new HeldKeyframes(this);
 
     /// <summary>Drops every keyframe before an absolute index; indices and <see cref="FirstTick"/> are unchanged.</summary>
     /// <param name="index">The first keyframe to keep; clamped so the last one is always kept.</param>
@@ -54,7 +60,8 @@ internal sealed class PoseKeyframes : IReadOnlyList<(int Tick, ScenePose Pose)>
         Dropped += drop;
     }
 
-    /// <inheritdoc/>
+    /// <summary>A keyframe by absolute index; one below <see cref="Dropped"/> throws.</summary>
+    /// <param name="index">The absolute index.</param>
     public (int Tick, ScenePose Pose) this[int index]
     {
         get
@@ -117,16 +124,26 @@ internal sealed class PoseKeyframes : IReadOnlyList<(int Tick, ScenePose Pose)>
 
     private static readonly SceneAnimationLayer[] NoLayers = [];
 
-    /// <inheritdoc/>
-    public IEnumerator<(int Tick, ScenePose Pose)> GetEnumerator()
+    /// <summary>The held keyframes as a list from 0: Count, the indexer and enumeration agree.</summary>
+    private sealed class HeldKeyframes(PoseKeyframes keyframes) : IReadOnlyList<(int Tick, ScenePose Pose)>
     {
-        for (int index = Dropped; index < Count; index++)
-        {
-            yield return this[index];
-        }
-    }
+        public int Count => keyframes._stored.Count;
 
-    IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
+        public (int Tick, ScenePose Pose) this[int index] =>
+            (uint)index < (uint)Count
+                ? keyframes[keyframes.Dropped + index]
+                : throw new ArgumentOutOfRangeException(nameof(index), index, $"{Count} keyframes are held.");
+
+        public IEnumerator<(int Tick, ScenePose Pose)> GetEnumerator()
+        {
+            for (int index = 0; index < Count; index++)
+            {
+                yield return this[index];
+            }
+        }
+
+        IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
+    }
 
     /// <summary>The half that rarely changes, held once for a run of keyframes.</summary>
     private sealed record Shared(ScenePose Pose);

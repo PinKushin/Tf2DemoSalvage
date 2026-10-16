@@ -3,6 +3,7 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Reflection;
 using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 
 namespace Tf2DemoSalvage.Core.Scene;
 
@@ -173,6 +174,10 @@ internal static class StateCopy
             return same;
         }
 
+        /// <summary>A one-dimensional array of primitives as its bytes.</summary>
+        private static ReadOnlySpan<byte> Bytes(Array array) =>
+            MemoryMarshal.CreateReadOnlySpan(ref MemoryMarshal.GetArrayDataReference(array), Buffer.ByteLength(array));
+
         private bool Compare(object original, object earlier)
         {
             Type type = original.GetType();
@@ -189,6 +194,15 @@ internal static class StateCopy
                 if (array.Length != other.Length || array.Rank != 1)
                 {
                     return false;
+                }
+
+                Type element = type.GetElementType()!;
+
+                // Primitives and enums byte for byte, unboxed: bit for bit is what Value asks of a float too, and these
+                // have no padding to differ in. A struct may, so it stays element by element.
+                if (element.IsPrimitive || element.IsEnum)
+                {
+                    return Bytes(array).SequenceEqual(Bytes(other));
                 }
 
                 for (int index = 0; index < array.Length; index++)

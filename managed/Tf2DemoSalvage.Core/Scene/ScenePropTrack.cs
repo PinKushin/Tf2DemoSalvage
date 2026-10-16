@@ -1690,8 +1690,12 @@ public sealed class ScenePropTrack
     /// It is also the difference between a cheap question and an expensive one: asking a track
     /// about every tick of a long demo is hundreds of thousands of lookups for a few dozen stored
     /// poses.
+    ///
+    /// **After a trim (D217 step 3) these are the keyframes still held, indexed from 0** — the birth is
+    /// <see cref="FirstTick"/> and <see cref="FirstPose"/>, and <see cref="AppliedAt(int)"/> and its siblings are
+    /// indexed the same way.
     /// </remarks>
-    public IReadOnlyList<(int Tick, ScenePose Pose)> Keyframes => _keyframes;
+    public IReadOnlyList<(int Tick, ScenePose Pose)> Keyframes => _keyframes.Held;
 
     /// <summary>When the value in a keyframe applied, which may precede its arrival.</summary>
     /// <param name="index">Which keyframe, indexed as <see cref="Keyframes"/> is.</param>
@@ -1702,7 +1706,7 @@ public sealed class ScenePropTrack
     /// twice; this is the number the interpolation used.
     /// </remarks>
     public int AppliedAt(int index) =>
-        _appliedAt.Count > index - _keyframes.Dropped ? _appliedAt[index - _keyframes.Dropped] : _keyframes.TickAt(index);
+        _appliedAt.Count > index ? _appliedAt[index] : _keyframes.TickAt(_keyframes.Dropped + index);
 
     /// <summary>The last tick the demo restated a keyframe's pose, which is where movement begins.</summary>
     /// <param name="index">Which keyframe, indexed as <see cref="Keyframes"/> is.</param>
@@ -1714,7 +1718,7 @@ public sealed class ScenePropTrack
     /// movement from the duration of a hold.
     /// </remarks>
     public int HeldUntil(int index) =>
-        _heldUntil.Count > index - _keyframes.Dropped ? _heldUntil[index - _keyframes.Dropped] : _keyframes.TickAt(index);
+        _heldUntil.Count > index ? _heldUntil[index] : _keyframes.TickAt(_keyframes.Dropped + index);
 
     /// <summary>When the ANIMATION in a keyframe applied, which is the engine's other clock.</summary>
     /// <param name="index">Which keyframe, indexed as <see cref="Keyframes"/> is.</param>
@@ -1724,9 +1728,9 @@ public sealed class ScenePropTrack
     /// asserted on real bytes without a test re-deriving it and checking its own arithmetic twice.
     /// </remarks>
     public int AnimationAppliedAt(int index) =>
-        _animationAppliedAt.Count > index - _keyframes.Dropped
-            ? _animationAppliedAt[index - _keyframes.Dropped]
-            : _keyframes.TickAt(index);
+        _animationAppliedAt.Count > index
+            ? _animationAppliedAt[index]
+            : _keyframes.TickAt(_keyframes.Dropped + index);
 
     /// <summary>The first tick this entity was seen at.</summary>
     public int FirstTick => _keyframes.Count > 0 ? _keyframes.FirstTick : int.MaxValue;

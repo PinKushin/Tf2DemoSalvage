@@ -80,17 +80,20 @@ public sealed class PoseKeyframesTests
     }
 
     /// <remarks>
-    /// **Indices stay absolute after a trim** (D217 step 3): of four keyframes, a cut at 13 drops the first two; index 2 is
-    /// still tick 12, and an index below the drop throws rather than answering another keyframe.
+    /// **After a trim, Keyframes is the list of what is held, and keeps the list contract** (D217 step 3): of four
+    /// keyframes, a cut at 13 drops two; Count, the indexer and enumeration agree on the two held, ticks 12 and 13, and
+    /// AppliedAt is indexed the same way.
     /// </remarks>
     [Test]
-    public void Keyframes_IndexBelowTheDropped_Throws()
+    public void Keyframes_AfterATrim_AreTheHeldOnesUnderOneContract()
     {
         ScenePropTrack track = Trimmed();
 
         track.HeldKeyframeCount.ShouldBe(2, "the control: the trim dropped two");
-        track.Keyframes[2].Tick.ShouldBe(12);
-        Should.Throw<ArgumentOutOfRangeException>(() => track.Keyframes[1]);
+        track.Keyframes.Count.ShouldBe(2);
+        track.Keyframes.Select(keyframe => keyframe.Tick).ShouldBe([12, 13]);
+        (track.Keyframes[0].Tick, track.AppliedAt(0)).ShouldBe((12, 12));
+        Should.Throw<ArgumentOutOfRangeException>(() => track.Keyframes[2]);
     }
 
     /// <remarks>**The birth survives a trim**: the first keyframe's tick and pose, which `Alive` and a projectile's age read.</remarks>

@@ -65,7 +65,7 @@ public sealed class SpriteTrailProbe : IProbe
 
         foreach (ScenePropTrack track in trails.Take(shown))
         {
-            int first = track.Keyframes[0].Tick;
+            int first = track.FirstTick;
             int last = track.Keyframes[^1].Tick;
             Vector3? start = null;
             Vector3 end = Vector3.Zero;
