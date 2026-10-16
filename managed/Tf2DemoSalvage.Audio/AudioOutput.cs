@@ -45,7 +45,15 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
 
     /// <summary>One sound in flight.</summary>
     /// <remarks>`Samples` names the sound it plays, as the engine's `ch->sfx` does — one cached decode per name.</remarks>
-    private readonly record struct Voice(uint Source, uint Buffer, int Entity, int Channel, ReadOnlyMemory<float> Samples);
+    /// <remarks>`Id` is the voice's own handle, as the engine's channel index is: two CHAN_AUTO sounds on one entity are two
+    /// channels (`SND_PickDynamicChannel`, engine.dll FUN_18002a330, never matches a CHAN_AUTO request to a busy channel).</remarks>
+    private readonly record struct Voice(uint Source, uint Buffer, int Entity, int Channel, ReadOnlyMemory<float> Samples, int Id);
+
+    /// <summary>The next voice handle; 0 is reserved for "nothing started".</summary>
+    private int _nextVoice = 1;
+
+    /// <summary>The voices in <see cref="_playing"/> by handle, so a per-voice gain is one lookup, not a scan.</summary>
+    private readonly Dictionary<int, Voice> _byId = [];
 
     /// <summary>
     /// <c>CHAN_AUTO</c>, <c>soundflags.h</c>: the engine allocates a free channel rather than a
@@ -154,6 +162,7 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
     /// The channel from <c>soundflags.h</c>. A named one holds a single sound per entity, so
     /// starting on a busy one replaces what is there; <c>CHAN_AUTO</c> overlaps by design.
     /// </param>
+    /// <returns>The voice's handle, for <see cref="SetVoiceGain"/>; 0 when nothing was started.</returns>
     /// <exception cref="ObjectDisposedException">The output has been disposed.</exception>
     /// <remarks>
     /// **The gains arrive already computed and are applied to the SAMPLES**, not handed to OpenAL
@@ -164,7 +173,7 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
     /// sound in Source is already a finished mix — music, and some ambience — and re-panning it
     /// would be inventing a position it does not have.
     /// </remarks>
-    public void Play(
+    public int Play(
         SoundSample sample,
         float leftPan,
         float rightPan,
@@ -177,7 +186,7 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
 
         if (sample.Samples.Length == 0 || sample.SampleRate <= 0 || sample.Channels <= 0)
         {
-            return;
+            return 0;
         }
 
         // **A named channel holds one sound per entity, so starting on a busy one replaces it.**
@@ -206,7 +215,7 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
 
         if (stereo.Length == 0)
         {
-            return;
+            return 0;
         }
 
         uint buffer = _al.GenBuffer();
@@ -257,7 +266,83 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
 
         _al.SourcePlay(source);
 
-        _playing.Add(new Voice(source, buffer, entity, channel, sample.Samples));
+        int id = NextVoice();
+
+        Voice started = new(source, buffer, entity, channel, sample.Samples, id);
+        _playing.Add(started);
+        _byId[id] = started;
+
+        return id;
+    }
+
+    /// <summary>Re-gains one voice, as the engine's mixer gains one channel (B545).</summary>
+    /// <param name="voice">The handle <see cref="Play"/> returned.</param>
+    /// <param name="gain">The gain.</param>
+    /// <returns>Whether that voice is still playing.</returns>
+    /// <exception cref="ObjectDisposedException">The output has been disposed.</exception>
+    public bool SetVoiceGain(int voice, float gain) =>
+        Find(voice) is { } found && Set(found, SourceFloat.Gain, gain < 0f ? 0f : gain);
+
+    /// <summary>Changes one voice's rate, as `S_AlterChannel` changes one channel's pitch.</summary>
+    /// <param name="voice">The handle <see cref="Play"/> returned.</param>
+    /// <param name="pitch">The rate, 1 unshifted.</param>
+    /// <returns>Whether that voice is still playing.</returns>
+    /// <exception cref="ObjectDisposedException">The output has been disposed.</exception>
+    public bool SetVoicePitch(int voice, float pitch) =>
+        Find(voice) is { } found && Set(found, SourceFloat.Pitch, pitch);
+
+    /// <summary>The next free handle: never 0, which means "nothing started", and never one still sounding after a wrap.</summary>
+    private int NextVoice()
+    {
+        int id;
+
+        do
+        {
+            id = _nextVoice;
+            _nextVoice = _nextVoice == int.MaxValue ? 1 : _nextVoice + 1;
+        }
+        while (_byId.ContainsKey(id));
+
+        return id;
+    }
+
+    /// <summary>A voice still sounding, or null; one that has finished is reaped here, so "alive" means audible.</summary>
+    /// <remarks>
+    /// A finished source stays in <see cref="_playing"/> until <see cref="Reclaim"/>, and answering for it would make an
+    /// `SND_CHANGE_VOL` on ended music alter nothing instead of starting it, as `S_AlterChannel` matching nothing does.
+    /// </remarks>
+    private Voice? Find(int voice)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+
+        if (!_byId.TryGetValue(voice, out Voice found))
+        {
+            return null;
+        }
+
+        if (IsPlaying(found))
+        {
+            return found;
+        }
+
+        Free(_playing.IndexOf(found));
+
+        return null;
+    }
+
+    /// <summary>Whether a voice is still a channel: playing, paused or not yet started. Only a stopped source has ended.</summary>
+    private bool IsPlaying(Voice voice)
+    {
+        _al.GetSourceProperty(voice.Source, GetSourceInteger.SourceState, out int state);
+
+        return state != (int)SourceState.Stopped;
+    }
+
+    private bool Set(Voice voice, SourceFloat property, float value)
+    {
+        _al.SetSourceProperty(voice.Source, property, value);
+
+        return true;
     }
 
     /// <summary>Re-attenuates a sound that is already playing.</summary>
@@ -358,12 +443,7 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
                 continue;
             }
 
-            _al.SourceStop(voice.Source);
-            _al.SetSourceProperty(voice.Source, SourceInteger.Buffer, 0);
-            _al.DeleteSource(voice.Source);
-            _al.DeleteBuffer(voice.Buffer);
-
-            _playing.RemoveAt(index);
+            Free(index);
         }
     }
 
@@ -383,23 +463,12 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
 
         for (int index = _playing.Count - 1; index >= 0; index--)
         {
-            (uint source, uint buffer, _, _, _) = _playing[index];
-
-            _al.GetSourceProperty(source, GetSourceInteger.SourceState, out int state);
-
-            if (state == (int)SourceState.Playing)
+            if (IsPlaying(_playing[index]))
             {
                 continue;
             }
 
-            // **Detached before the buffer is deleted**, which OpenAL requires: a buffer still
-            // attached to a source is in use, and deleting it is an error the driver reports
-            // through alGetError rather than by failing the call.
-            _al.SetSourceProperty(source, SourceInteger.Buffer, 0);
-            _al.DeleteSource(source);
-            _al.DeleteBuffer(buffer);
-
-            _playing.RemoveAt(index);
+            Free(index);
             freed++;
         }
 
@@ -417,7 +486,7 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
 
-        foreach ((uint source, uint buffer, _, _, _) in _playing)
+        foreach ((uint source, uint buffer, _, _, _, _) in _playing)
         {
             _al.SourceStop(source);
             _al.SetSourceProperty(source, SourceInteger.Buffer, 0);
@@ -426,6 +495,7 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
         }
 
         _playing.Clear();
+        _byId.Clear();
     }
 
     /// <summary>Interleaves a sample to stereo 16-bit, applying the two gains.</summary>
@@ -476,7 +546,7 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
     /// callers expect them, and the interface can avoid CA1716's objection to a member named
     /// <c>Stop</c> without this class having to rename anything.
     /// </remarks>
-    void IAudioSink.Play(
+    int IAudioSink.Play(
         SoundSample sample,
         float leftPan,
         float rightPan,
@@ -485,6 +555,15 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
         int entity,
         int channel) =>
         Play(sample, leftPan, rightPan, gain, pitch, entity, channel);
+
+    /// <inheritdoc/>
+    bool IAudioSink.HandsOutVoices => true;
+
+    /// <inheritdoc/>
+    bool IAudioSink.SetVoiceGain(int voice, float gain) => SetVoiceGain(voice, gain);
+
+    /// <inheritdoc/>
+    bool IAudioSink.SetVoicePitch(int voice, float pitch) => SetVoicePitch(voice, pitch);
 
     /// <inheritdoc/>
     bool IAudioSink.SetGain(int entity, int channel, float gain) => SetGain(entity, channel, gain);
@@ -496,25 +575,49 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
     void IAudioSink.Silence(int entity, int channel) => Stop(entity, channel);
 
     /// <inheritdoc/>
-    void IAudioSink.Silence(int entity, int channel, SoundSample sample)
+    int IAudioSink.Silence(int entity, int channel, SoundSample sample)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
 
-        // The first match, and only it — `S_AlterChannel` returns after acting on one channel.
-        int index = _playing.FindIndex(voice => voice.Entity == entity && voice.Channel == channel && voice.Samples.Equals(sample.Samples));
-
-        if (index < 0)
+        // The first match in start order, and only it — `S_AlterChannel` returns after acting on one channel
+        // (FUN_18002aa20: `if ((flags & 0x200) == 0) { result = 1; goto done; }` after the first hit).
+        // A voice that has finished is no channel to the engine — its mixer freed it — so it is reaped here, not matched.
+        for (int index = 0; index < _playing.Count;)
         {
-            return;
+            Voice voice = _playing[index];
+
+            if (voice.Entity != entity || voice.Channel != channel || !voice.Samples.Equals(sample.Samples))
+            {
+                index++;
+                continue;
+            }
+
+            bool playing = IsPlaying(voice);
+            Free(index);
+
+            if (playing)
+            {
+                return voice.Id;
+            }
         }
 
-        Voice found = _playing[index];
+        return 0;
+    }
 
-        _al.SourceStop(found.Source);
-        _al.SetSourceProperty(found.Source, SourceInteger.Buffer, 0);
-        _al.DeleteSource(found.Source);
-        _al.DeleteBuffer(found.Buffer);
+    /// <summary>Stops a voice, releases its source and buffer, and forgets its handle.</summary>
+    private void Free(int index)
+    {
+        Voice voice = _playing[index];
+
+        // **Detached before the buffer is deleted**, which OpenAL requires: a buffer still attached to a source is in
+        // use, and deleting it is an error the driver reports through alGetError rather than by failing the call.
+        _al.SourceStop(voice.Source);
+        _al.SetSourceProperty(voice.Source, SourceInteger.Buffer, 0);
+        _al.DeleteSource(voice.Source);
+        _al.DeleteBuffer(voice.Buffer);
+
         _playing.RemoveAt(index);
+        _byId.Remove(voice.Id);
     }
 
     /// <inheritdoc/>

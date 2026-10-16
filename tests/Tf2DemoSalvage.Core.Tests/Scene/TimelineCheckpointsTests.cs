@@ -1,7 +1,9 @@
 using System.Collections.Generic;
 using System.Linq;
 
+using Tf2DemoSalvage.Core.Container;
 using Tf2DemoSalvage.Core.Net;
+using Tf2DemoSalvage.Core.Schema;
 using Tf2DemoSalvage.Core.Scene;
 
 namespace Tf2DemoSalvage.Core.Tests.Scene;
@@ -105,6 +107,106 @@ public sealed class TimelineCheckpointsTests
     }
 
     /// <remarks>
+    /// **A window finds a slot's tracks through the slot index** (B548: `TrackFor` and the move-child walk read
+    /// `_tracksBySlot`, built in the constructor). With a child hanging from a moving parent, a window late in the demo
+    /// finds the parent's and the child's track at the tick, as the whole build does, and samples the parent the same.
+    /// </remarks>
+    [Test]
+    public void Window_AChildHangingFromAMovingParent_FindsBothTracksAsTheWholeTimelineDoes()
+    {
+        byte[] demo = ParentAndChild([.. Enumerable.Range(0, 20).Select(step => (10 + (step * 2), 64f + (step * 10f)))]);
+        DemoTimeline whole = DemoTimeline.Build(demo);
+        DemoTimeline.Checkpoints checkpoints = DemoTimeline.Checkpoints.Walk(demo, Every, lookbackTicks: 4)!;
+        int late = whole.LastTick - 3;
+        DemoTimeline window = checkpoints.Window(late, late + 1);
+
+        foreach (int slot in new[] { ParentSlot, ChildSlot })
+        {
+            ScenePropTrack expected = whole.TrackFor(slot, late).ShouldNotBeNull($"the control: the whole build has slot {slot}");
+            ScenePropTrack actual = window.TrackFor(slot, late).ShouldNotBeNull($"slot {slot}");
+            (actual.SerialNumber, actual.FirstTick).ShouldBe((expected.SerialNumber, expected.FirstTick));
+        }
+
+        TimelineFingerprint.OfAnswer(window.TrackFor(ParentSlot, late)!.At(late)).Hash
+            .ShouldBe(TimelineFingerprint.OfAnswer(whole.TrackFor(ParentSlot, late)!.At(late)).Hash);
+    }
+
+    private const int ParentSlot = 7;
+
+    private const int ChildSlot = 8;
+
+    private const float ChildOffset = 2f;
+
+    /// <summary>A parent prop moving along X at each (tick, x), and a child parented to it 2 units along X.</summary>
+    private static byte[] ParentAndChild(params (int Tick, float X)[] frames)
+    {
+        DemoSchema schema = new(
+            [
+                new SendTable("DT_BaseEntity", NeedsDecoder: true,
+                [
+                    new SendProperty(SendPropType.Int, "m_nModelIndex", 1, string.Empty, 0f, 0f, 13, 0),
+                    new SendProperty(SendPropType.VectorXY, "m_vecOrigin", 1, string.Empty, -16384f, 16384f, 32, 0),
+                    new SendProperty(SendPropType.Float, "m_vecOrigin[2]", 1, string.Empty, -16384f, 16384f, 32, 0),
+                    new SendProperty(SendPropType.Int, "moveparent", 1, string.Empty, 0f, 0f, 21, 0),
+                ]),
+                new SendTable("DT_DynamicProp", NeedsDecoder: true,
+                    [new SendProperty(SendPropType.DataTable, "baseentity", 1, "DT_BaseEntity", 0f, 0f, 0, 0)]),
+            ],
+            [new ServerClass(0, "CDynamicProp", "DT_DynamicProp")]);
+        EntityDecoder decoder = new(schema, EntityDecoder.ClassIdBits(1));
+        IReadOnlyList<FlatProperty> flat = decoder.FlattenedFor(0);
+        const int Serial = 3;
+        const int NoParent = (1 << 21) - 1;
+
+        List<DemoCommand> commands =
+        [
+            SyntheticDemo.Packet(SyntheticDemo.DefaultProtocol, 0,
+                SyntheticDemo.StringTable(ModelPrecache.TableName, [string.Empty, "models/a.mdl"], maxEntries: 8)),
+            SyntheticDemo.DataTables(schema),
+        ];
+
+        for (int index = 0; index < frames.Length; index++)
+        {
+            DecodedEntity Prop(int slot, float x, int parent) => new(
+                slot,
+                0,
+                SerialNumber: Serial,
+                index == 0 ? EntityUpdateType.Enter : EntityUpdateType.Delta,
+                [
+                    .. new (string Name, PropertyValue Value)[]
+                    {
+                        ("m_nModelIndex", PropertyValue.FromInt(1)),
+                        ("m_vecOrigin", PropertyValue.FromVectorXY(x, 0f)),
+                        ("m_vecOrigin[2]", PropertyValue.FromFloat(0f)),
+                        ("moveparent", PropertyValue.FromInt(parent)),
+                    }
+                    .Select(property =>
+                    {
+                        int at = flat.ToList().FindIndex(candidate => candidate.Property.Name == property.Name);
+                        return new DecodedProperty(at, flat[at], property.Value);
+                    })
+                    .OrderBy(property => property.Index),
+                ]);
+
+            byte[] body = decoder.EncodeEntities(
+                [Prop(ParentSlot, frames[index].X, NoParent), Prop(ChildSlot, ChildOffset, ParentSlot | (Serial << 11))],
+                [], isDelta: index > 0, 0, out int bits);
+
+            commands.Add(SyntheticDemo.Packet(SyntheticDemo.DefaultProtocol, frames[index].Tick, new PacketEntitiesMessage(
+                MaxEntries: 64,
+                IsDelta: index > 0,
+                DeltaFromTick: index > 0 ? frames[index - 1].Tick : null,
+                BaselineIndex: false,
+                UpdatedEntries: 2,
+                LengthBits: bits,
+                UpdateBaseline: false,
+                Body: body)));
+        }
+
+        return SyntheticDemo.From(SyntheticDemo.DefaultProtocol, [.. commands]);
+    }
+
+    /// <remarks>
     /// **A team stated only in the demo's FINAL frame** fills every earlier frame (the first-stated roster), and a window
     /// long before it must fill it too — the final frame is observed only when the walk is finished.
     /// </remarks>
@@ -129,7 +231,7 @@ public sealed class TimelineCheckpointsTests
         byte[] demo = SyntheticDemo.From(
             SyntheticDemo.DefaultProtocol,
             [
-                SyntheticDemo.DataTables(new Core.Schema.DemoSchema([], [])),
+                SyntheticDemo.DataTables(new DemoSchema([], [])),
                 SyntheticDemo.Packet(
                     SyntheticDemo.DefaultProtocol,
                     1,

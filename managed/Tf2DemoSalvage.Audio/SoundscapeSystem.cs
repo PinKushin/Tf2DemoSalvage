@@ -406,7 +406,9 @@ public sealed class SoundscapeSystem(
 
         // **At the loop's own pitch** — `EmitAmbientSound( pSoundName, 0, pitch )` and `ep.m_nPitch = pitch`
         // (`c_soundscape.cpp:1161,1171`). Every loop played at rate 1 until B462; `Halloween.Outside` is at 50.
-        output.Play(
+        // Gained by key, not handle: the key is a channel on the reserved soundscape entity that the mixer never hands
+        // out twice while it sounds, so a key names exactly one voice.
+        int started = output.Play(
             opened,
             left,
             rightGain,
@@ -414,6 +416,15 @@ public sealed class SoundscapeSystem(
             SoundScript.Rate(voice.Pitch),
             SoundscapeEntity,
             voice.Key);
+
+        // A refused start is remembered as started, as an unopenable file is above, so it is tried once and not
+        // every frame of a fade; the reason is the sample's shape, said here because the sink has no log.
+        if (started == 0)
+        {
+            audio.LogWarning(
+                "{Message}",
+                $"soundscape loop '{voice.Wave}' started no voice: {opened.Samples.Length} samples, {opened.SampleRate} Hz, {opened.Channels} channels");
+        }
 
         _voices.Add(voice.Key);
     }
@@ -436,8 +447,11 @@ public sealed class SoundscapeSystem(
     /// </remarks>
     public static float GainOf(SoundscapeVoice voice, (float X, float Y, float Z) listener, float musicVolume)
     {
-        // The engine's channel gain applies to a soundscape loop as to any channel (B545).
-        float music = SoundGain.Music(SoundGain.IsMusic(voice.Wave, voice.SoundLevel), musicVolume);
+        // The engine's channel gain applies to a soundscape loop as to any channel (B545). An unpositioned loop goes
+        // through `EmitAmbientSound` (`c_soundscape.cpp:1161`), which engine.dll's FUN_180017150 starts at soundlevel 0
+        // on CHAN_STATIC whatever the script says; only a positioned one carries the script's soundlevel (`:1173`).
+        int startedAt = voice.Position is null ? 0 : voice.SoundLevel;
+        float music = SoundGain.Music(SoundGain.IsMusic(voice.Wave, startedAt), musicVolume);
 
         if (voice.Position is not { } at)
         {

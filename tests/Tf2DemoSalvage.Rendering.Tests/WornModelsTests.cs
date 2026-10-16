@@ -48,6 +48,34 @@ public sealed class WornModelsTests
     }
 
     [Test]
+    public void From_AnItemAttachedThenDroppedWithANewModel_PreloadsTheModelItWore()
+    {
+        // B548: worn early, dropped by the demo's end under another model. The model it wore merged is still drawn
+        // merged at those earlier ticks; the one it ends on stands alone.
+        ScenePropTrack item = new(7, "models/worn.mdl");
+        item.Add(0, new ScenePose());
+        item.AttachedTo = 4;
+        item.Stamp(0);
+        item.AttachedTo = null;
+        item.Follow("models/dropped.mdl");
+        item.Stamp(10);
+
+        HashSet<string> worn = WornModels.From([item], []);
+
+        worn.ShouldContain("models/worn.mdl");
+        worn.ShouldNotContain("models/dropped.mdl", "the control: what was never worn is not worn");
+    }
+
+    [Test]
+    public void From_AnAttachedTrackNeverStamped_IsWornByItsCurrentFields()
+    {
+        // A track built without the builder has no identity history; it answers its current fields once.
+        ScenePropTrack hat = new(7, "models/hat.mdl") { AttachedTo = 4 };
+
+        WornModels.From([hat], []).ShouldBe(["models/hat.mdl"], ignoreOrder: true);
+    }
+
+    [Test]
     public void From_AnUnattachedTrack_IsNotWorn()
     {
         // **The control, and without it every assertion here passes against "return everything".**

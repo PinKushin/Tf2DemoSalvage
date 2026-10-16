@@ -40,6 +40,15 @@ public static class WindowGeometry
             : null;
     }
 
+    /// <summary>The outer window size that gives the 3D view <paramref name="view"/>, from the current window and view.</summary>
+    /// <param name="view">The view size asked for (<c>TF2VIEW_VIEWPORT_SIZE</c>).</param>
+    /// <param name="outer">The window's current outer size.</param>
+    /// <param name="client">The view's current client size, after layout.</param>
+    /// <remarks>The chrome around the view is whatever the two current sizes differ by, so this holds at any display scaling.</remarks>
+    public static (int Width, int Height) OuterSizeFor(
+        (int Width, int Height) view, (int Width, int Height) outer, (int Width, int Height) client) =>
+        (outer.Width + view.Width - client.Width, outer.Height + view.Height - client.Height);
+
     /// <summary>Reads an <c>X,Y</c> pair.</summary>
     /// <param name="text">The value, or null when the variable is unset.</param>
     /// <returns>The position, or null when the text is not a usable one.</returns>

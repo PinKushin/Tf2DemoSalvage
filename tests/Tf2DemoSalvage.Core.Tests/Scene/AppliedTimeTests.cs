@@ -168,6 +168,26 @@ public sealed class AppliedTimeTests
     }
 
     /// <remarks>
+    /// **The flag is the one held AT the tick** (B548): server-animated until tick 40, client-side from then, so at
+    /// tick 20 the cycle is still interpolated. Read from the demo's end, it froze the cycle at every earlier tick.
+    /// </remarks>
+    [Test]
+    public void At_BeforeTheEntityTurnsClientSideAnimated_InterpolatesTheCycle()
+    {
+        ScenePropTrack track = new(entityIndex: 3, "models/weapons/v_rocketlauncher.mdl");
+
+        track.Add(0, new ScenePose { X = 0f, Cycle = 0f });
+        track.Stamp(0);
+        track.Add(20, new ScenePose { X = 100f, Cycle = 0.4f });
+        track.Stamp(20);
+        track.Add(40, new ScenePose { X = 100f, Cycle = 0.4f });
+        track.ClientSideAnimated = true;
+        track.Stamp(40);
+
+        track.At(20d)!.Value.Cycle.ShouldBeGreaterThan(0f, "server-animated at tick 20, so the cycle blends");
+    }
+
+    /// <remarks>
     /// **The spline's third sample is chosen on the CHANGETIME gap, not on arrival** (B278).
     /// `CInterpolatedVarArrayBase::GetInterpolationInfo` (`interpolatedvar.h:851`):
     ///

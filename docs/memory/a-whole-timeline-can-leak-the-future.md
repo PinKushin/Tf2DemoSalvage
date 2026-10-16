@@ -1,10 +1,13 @@
 ---
 name: a-whole-timeline-can-leak-the-future
-description: "Track scalars written last-write-wins (Econ, ModelPath...) answer every tick with the demo's END value; a window disagrees because it is right"
+description: "FIXED by B548: track scalars were last-write-wins (Econ, ModelPath...) and answered every tick with the demo's END value; a window disagreed because it was right"
 metadata:
   node_type: memory
   type: project
 ---
+
+**Fixed by B548** (`HeldValues<T>`: prop facts held per tick, trimmed with the rest of a track). Kept for the
+pattern: a whole-build reference can itself be wrong.
 
 `ScenePropTrack.Econ`, `ModelPath` (via `Follow`), `ItemDefinitionIndex`, `ClassName`, `TeamNumber` and the other
 track scalars are overwritten as the builder walks, so a WHOLE timeline answers every tick with the value the demo

@@ -171,9 +171,13 @@ public static class DemoModels
             // load. The models themselves are not lost: `game.Weapons.AllIn` below walks what every
             // player holds and resolves each through the same item schema, so `c_medigun.mdl` is
             // loaded by the route that knows its name.
-            if (track.Kind == SceneModelKind.Studio && track.ModelPath.Length > 0)
+            // Every model the entity named in its life, since a tick before a swap draws the earlier one (B548).
+            foreach (string path in track.ModelPaths)
             {
-                paths.Add(track.ModelPath);
+                if (path.Length > 0 && ScenePropTrack.Classify(path) == SceneModelKind.Studio)
+                {
+                    paths.Add(path);
+                }
             }
         }
 
@@ -324,27 +328,32 @@ public static class DemoModels
 
         foreach (ScenePropTrack track in demo.Props)
         {
-            if (track.Kind != SceneModelKind.Sprite || track.ModelPath.Length == 0)
+            // Every sprite the entity named in its life, since a tick before a swap draws the earlier one (B548).
+            List<string> sprites = [.. track.ModelPaths.Where(
+                path => path.Length > 0 && ScenePropTrack.Classify(path) == SceneModelKind.Sprite)];
+
+            if (sprites.Count == 0)
             {
                 continue;
             }
 
-            paths.Add(track.ModelPath);
+            paths.UnionWith(sprites);
 
             // **A beam names a second sprite, its halo** — `m_nHaloIndex`, drawn by `BeamDrawHalo` beside the shaft.
             // Every corpus spotlight's is `sprites/light_glow03.vmt`, which an `env_sprite` on the same map usually
             // asks for too; "usually" is not a reason to leave a beam's halo to chance.
-            foreach ((int _, ScenePose pose) in track.Keyframes)
+            foreach ((int at, ScenePose pose) in track.Keyframes)
             {
                 if (pose.Beam?.HaloPath is { Length: > 0 } halo)
                 {
                     paths.Add(halo);
                 }
 
-                // **And a rope names its translucent anti-aliasing material**, `<material>_back` (`c_rope.cpp:1323`).
-                if (pose.Rope is not null)
+                // **And a rope names its translucent anti-aliasing material**, `<material>_back` (`c_rope.cpp:1323`) —
+                // of the material it held while it was a rope, not of every material the slot ever named (B548).
+                if (pose.Rope is not null && track.FactsAt(at).ModelPath is { Length: > 0 } material)
                 {
-                    paths.Add(EntityRopes.BackMaterialPath(track.ModelPath));
+                    paths.Add(EntityRopes.BackMaterialPath(material));
 
                     // And, for the holiday lights, Pyrovision's solid material and the two light sprites (B478).
                     paths.Add(EntityRopes.PureWhiteMaterial);

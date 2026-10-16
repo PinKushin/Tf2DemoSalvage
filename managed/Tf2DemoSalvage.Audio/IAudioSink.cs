@@ -16,6 +16,10 @@ namespace Tf2DemoSalvage.Audio;
 /// The engine's own split is the same shape: <c>C_SoundscapeSystem</c> decides what should be
 /// playing and calls through <c>enginesound</c>, which is an interface
 /// (<c>IEngineSound</c>) rather than the mixer itself.
+///
+/// **One thread.** Every call comes from the viewer's frame loop (<c>ViewerSession</c>'s frame calls
+/// <c>PlaySounds</c>, which steps <c>SoundPresenter</c> and the soundscape), and the settings a pass reads are set
+/// from that same UI thread, so no implementation locks. A caller on another thread would need one.
 /// </remarks>
 public interface IAudioSink
 {
@@ -27,7 +31,12 @@ public interface IAudioSink
     /// <param name="pitch">Playback rate.</param>
     /// <param name="entity">Which entity it belongs to.</param>
     /// <param name="channel">Which channel of that entity.</param>
-    public void Play(
+    /// <returns>The voice's own handle, for <see cref="SetVoiceGain"/>; 0 when nothing was started.</returns>
+    /// <remarks>
+    /// From a sink whose <see cref="HandsOutVoices"/> is true, 0 means the start was refused and nothing plays; from one
+    /// that never hands them out, 0 is all it ever answers and the sound is addressed by entity and channel.
+    /// </remarks>
+    public int Play(
         SoundSample sample,
         float leftPan,
         float rightPan,
@@ -42,6 +51,21 @@ public interface IAudioSink
     /// <param name="gain">The new volume.</param>
     /// <returns>Whether anything was playing there to change.</returns>
     public bool SetGain(int entity, int channel, float gain);
+
+    /// <summary>Whether <see cref="Play"/> hands out voice handles, so that 0 from it means "refused".</summary>
+    public bool HandsOutVoices => false;
+
+    /// <summary>Changes one voice's volume — one engine channel, so overlapping CHAN_AUTO sounds stay apart (B545).</summary>
+    /// <param name="voice">The handle <see cref="Play"/> returned.</param>
+    /// <param name="gain">The new volume.</param>
+    /// <returns>Whether that voice is still playing.</returns>
+    public bool SetVoiceGain(int voice, float gain);
+
+    /// <summary>Changes one voice's playback rate, as `S_AlterChannel` changes the one channel it matched.</summary>
+    /// <param name="voice">The handle <see cref="Play"/> returned.</param>
+    /// <param name="pitch">The new rate, 1 unshifted.</param>
+    /// <returns>Whether that voice is still playing.</returns>
+    public bool SetVoicePitch(int voice, float pitch);
 
     /// <summary>Changes a playing sound's playback rate — `SND_CHANGE_PITCH`.</summary>
     /// <param name="entity">Which entity.</param>
@@ -76,7 +100,8 @@ public interface IAudioSink
     /// <param name="entity">Which entity.</param>
     /// <param name="channel">Which channel.</param>
     /// <param name="sample">The sound, matched as the engine matches `ch->sfx`: the cached sample for its name.</param>
-    public void Silence(int entity, int channel, SoundSample sample);
+    /// <returns>The handle of the voice it stopped, so a caller following it forgets that one; 0 when none.</returns>
+    public int Silence(int entity, int channel, SoundSample sample);
 
     /// <summary>The gain over the whole mix — `volume`, or 0 under `snd_mute_losefocus` — applied after every sound's own.</summary>
     public float MasterGain { get; set; }

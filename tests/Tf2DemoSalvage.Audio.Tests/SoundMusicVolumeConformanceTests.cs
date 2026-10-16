@@ -47,6 +47,16 @@ public sealed class SoundMusicVolumeConformanceTests
     public void IsMusic_ByLeadingCharactersAndSoundLevel_IsTheEnginesDryBitAtZeroDistance(string name, int soundLevel, bool expected) =>
         SoundGain.IsMusic(name, soundLevel).ShouldBe(expected);
 
+    /// <remarks>`S_FindName`'s key, `CUtlFilenameSymbolTable::FindOrAddFileName` (`utlsymbol.cpp:312`, `strtools.cpp:2315`).</remarks>
+    [TestCase("#Music/Song.wav", "#music\\song.wav")]
+    [TestCase("#music//song.wav", "#music\\song.wav")]
+    [TestCase("#music/./song.wav", "#music\\song.wav")]
+    [TestCase("./music/song.wav", "music\\song.wav")]
+    [TestCase("//music", "\\\\music")]
+    [TestCase(")#ui/a.wav", ")#ui\\a.wav")]
+    public void SfxKey_ForAName_IsTheEnginesFileNameKey(string name, string expected) =>
+        Tf2DemoSalvage.Core.Net.SoundName.SfxKey(name).ShouldBe(expected);
+
     [TestCase(true, 0.25f, 0.25f)]
     [TestCase(true, 0f, 0f)]
     [TestCase(true, float.NaN, 0f)]
@@ -71,5 +81,19 @@ public sealed class SoundMusicVolumeConformanceTests
         SoundscapeVoice voice = new(1, "#music/room.wav", 0.8f, 100, Position: null, SoundLevel: 0);
 
         SoundscapeSystem.GainOf(voice, (0f, 0f, 0f), 0.5f).ShouldBe(0.4f);
+    }
+
+    /// <remarks>
+    /// An unpositioned soundscape loop is `EmitAmbientSound` (`c_soundscape.cpp:1161`); engine.dll FUN_180017150 fills
+    /// StartSoundParams_t with soundlevel 0 and CHAN_STATIC, not the script's level, so a `#` ambient is music. A
+    /// positioned one is `EmitSound` with `ep.m_SoundLevel = soundlevel` (`:1173`), so at 75 it is not.
+    /// </remarks>
+    [TestCase(false, 0.4f)]
+    [TestCase(true, 0.8f)]
+    public void GainOf_AMusicSoundscapeLoopAtTheScriptsLevel_IsMusicOnlyWhenAmbient(bool positioned, float expected)
+    {
+        SoundscapeVoice voice = new(1, "#music/room.wav", 0.8f, 100, positioned ? (0f, 0f, 0f) : null, SoundLevel: 75);
+
+        SoundscapeSystem.GainOf(voice, (0f, 0f, 0f), 0.5f).ShouldBe(expected);
     }
 }

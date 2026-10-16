@@ -5,9 +5,8 @@
 #   TF2VIEW_CAMERA="x y z pitch yaw" bash tools/golden-viewer-shot.sh ...     # a fixed camera
 #
 # Builds first (never run a stale binary), takes the machine-wide lock (the viewer takes the desktop).
-# 1576x889 is the WINDOW that yields a 1280x720 viewport: the frame adds 296 x 169 at every size
-# measured (1280x720 -> 984x551, 1700x1000 -> 1404x831). The format is WIDTHxHEIGHT; any other form is
-# silently ignored (B517). cl_showfps is forced off because the owner's settings.cfg
+# TF2VIEW_VIEWPORT_SIZE sizes the 3D view itself, so it is 1280x720 at any display scaling (the window
+# chrome is 296 x 169 only at 100%). The format is WIDTHxHEIGHT; any other form is logged and ignored. cl_showfps is forced off because the owner's settings.cfg
 # turns it on and the overlay would be a divergence of our own making. viewmodel_fov_demo is pinned to 54,
 # TF2's default and the value the TF2 side pins: this viewer's own default is 70 (D43), which draws a smaller,
 # more centred weapon than the reference (B523). hud_saytext_time is 0 because a shot is taken the moment the
@@ -39,7 +38,7 @@ for argument in "$demo" "$out" "$@"; do
 done
 rm -f -- "$out"
 MSBUILDDISABLENODEREUSE=1 dotnet build "$root/managed/Tf2DemoSalvage.Viewer3D" -v q -nologo | grep -E "Warn|Err"
-TF2VIEW_WINDOW_SIZE="1576x889" pwsh C:/Users/pinku/source/repos/PinKushin/run-exclusive.ps1 \
+TF2VIEW_VIEWPORT_SIZE="1280x720" pwsh C:/Users/pinku/source/repos/PinKushin/run-exclusive.ps1 \
   "$root/managed/Tf2DemoSalvage.Viewer3D/bin/Debug/net10.0-windows/tf2demoview.exe" "$demo" \
   --tick "$tick" --shot "$out" +volume 0 +cl_showfps 0 +viewmodel_fov_demo 54 +hud_saytext_time 0 \
   +mat_force_tonemap_scale 1 +mat_disable_bloom 1 +mat_hdr_level 2 "$@"
