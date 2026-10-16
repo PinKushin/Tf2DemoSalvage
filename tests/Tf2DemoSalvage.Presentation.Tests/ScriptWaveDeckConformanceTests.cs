@@ -620,8 +620,15 @@ public sealed class ScriptWaveDeckConformanceTests
 
         public List<(int Entity, string Wave)> Started { get; } = [];
 
-        public void Play(SoundSample sample, float leftPan, float rightPan, float gain, float pitch, int entity, int channel) =>
+        public int Play(SoundSample sample, float leftPan, float rightPan, float gain, float pitch, int entity, int channel)
+        {
             Started.Add((entity, NameOf[sample]));
+            return 0;
+        }
+
+        public bool SetVoiceGain(int voice, float gain) => false;
+
+        public bool SetVoicePitch(int voice, float pitch) => false;
 
         public bool SetGain(int entity, int channel, float gain) => false;
 
@@ -639,6 +646,10 @@ public sealed class ScriptWaveDeckConformanceTests
             // Only the named stop is asked about.
         }
 
-        public void Silence(int entity, int channel, SoundSample sample) => Silenced.Add(NameOf[sample]);
+        public int Silence(int entity, int channel, SoundSample sample)
+        {
+            Silenced.Add(NameOf[sample]);
+            return 0;
+        }
     }
 }

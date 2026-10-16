@@ -91,4 +91,58 @@ public readonly record struct SoundName(string Path, IReadOnlyList<char> Charact
 
         return new SoundName(precached[at..], precached[..at].ToCharArray());
     }
+
+    /// <summary>Whether two names are one <c>CSfxTable</c> to the engine, which is how `S_AlterChannel` matches (<see cref="SfxKey"/>).</summary>
+    /// <param name="first">A name.</param>
+    /// <param name="second">Another.</param>
+    /// <returns>True when their keys are equal.</returns>
+    public static bool SameSfx(string first, string second) =>
+        string.Equals(SfxKey(first), SfxKey(second), StringComparison.Ordinal);
+
+    /// <summary>The key two names share exactly when the engine resolves them to one <c>CSfxTable</c>.</summary>
+    /// <param name="name">A sound name as played or stopped, sound characters included.</param>
+    /// <returns>The name lower-cased with its separators fixed, its sound characters kept.</returns>
+    /// <remarks>
+    /// `S_AlterChannel` (engine.dll FUN_18002aa20) matches a playing channel by its <c>CSfxTable</c> POINTER, and
+    /// `S_FindName` (FUN_18002b290) looks a name up by the file system's file-name handle of the WHOLE name, sound
+    /// characters included — so <c>#a.wav</c> and <c>a.wav</c> are two sounds. That handle is
+    /// <c>CUtlFilenameSymbolTable::FindOrAddFileName</c> (`utlsymbol.cpp:312`): <c>Q_RemoveDotSlashes</c> then
+    /// <c>Q_strlower</c>. The handle call is engine.dll's file-system vtable +0x118, *interpolated* to be that
+    /// function from the SDK. ponytail: <c>..</c> segments are not collapsed (`strtools.cpp:2409`); no sound name
+    /// has been seen carrying one.
+    /// </remarks>
+    public static string SfxKey(string name)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+
+        // V_FixSlashes to the Windows separator, then V_RemoveDotSlashes (`strtools.cpp:2315`).
+        string fixedSlashes = name.Replace('/', '\\');
+        System.Text.StringBuilder key = new(fixedSlashes.Length);
+
+        foreach (char character in fixedSlashes)
+        {
+            // Double slashes collapse from the second character on (`:2324`).
+            if (character == '\\' && key.Length > 1 && key[^1] == '\\')
+            {
+                continue;
+            }
+
+            // Q_strlower is the C runtime's tolower: ASCII only, so no culture applies.
+            key.Append(character is >= 'A' and <= 'Z' ? (char)(character + ('a' - 'A')) : character);
+
+            // "\.\" becomes "\" (`:2341`).
+            if (key.Length >= 3 && key[^1] == '\\' && key[^2] == '.' && key[^3] == '\\')
+            {
+                key.Length -= 2;
+            }
+        }
+
+        // A leading ".\" goes (`:2365`, `:2403`).
+        if (key.Length > 1 && key[0] == '.' && key[1] == '\\')
+        {
+            key.Remove(0, 2);
+        }
+
+        return key.ToString();
+    }
 }

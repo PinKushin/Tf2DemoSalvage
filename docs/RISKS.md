@@ -39554,7 +39554,16 @@ TF2's defaults and bounds, so a config, a bind or `toggle` sets them without com
   which both start paths write only for soundlevel exactly 0. No path, soundscript flag or mixer group decides it.
   `SoundGain.IsMusic` and `SoundGain.Music` apply it to one-shots, tracked loops and soundscape loops, and every pass
   re-gains what is playing, as the engine's per-mix channel gain does (`SoundMusicVolumeConformanceTests`,
-  `SoundPresenterMusicVolumeTests`). *Read from the binary.* **Still open: the duck** (`DAT_1804600e8`, eased in
+  `SoundPresenterMusicVolumeTests`). An unpositioned soundscape loop is music by its wave alone, because
+  `EmitAmbientSound` (FUN_180017150) starts it at soundlevel 0 whatever the script says. A music one-shot's
+  followed volume ends with its voice, on a stop naming it, and on a seek (B550); a `SND_CHANGE_VOL` alters it in
+  place. Names match as `S_AlterChannel` matches them, by `CSfxTable`: `S_FindName` (FUN_18002b290) keys the whole
+  name, sound characters kept, through the file system's `FindOrAddFileName` (vtable +0x118, confirmed by its
+  neighbour +0x120 being called as `String(handle, buf, 0x200)` in the sfx's `getname`, FUN_1800309c0), which
+  lower-cases and fixes separators (`SoundName.SfxKey`). Music and loops are gained per voice (`IAudioSink.Play`
+  returns a handle; `SetVoiceGain`, `SetVoicePitch`), because `SND_PickDynamicChannel` (FUN_18002a330) gives every
+  CHAN_AUTO start its own channel and hands a named channel's busy slot back for replacement. *Read from the binary.*
+  **Still open: the duck** (`DAT_1804600e8`, eased in
   FUN_18002fbe0), which is 1 here.
 
 ## B546 — the STV spectator GUI's other three parts: the control-point row, the target ID's health, overheal colour — OPEN, gap
@@ -39603,4 +39612,23 @@ the bind's before the chord test. (6) `SetsState` now uses `SetConVar`'s own tes
 how the console treats a typed line, and an undeclared name is no ConVar in the engine either, so that part was
 dropped. (7) `Run` returns whether it acted; the shared counter is gone. The menu check is back in the UI test (D218's
 sync on open), and the open item above about the menu is closed by it.
+
+## B550 — a seek silences every sound and re-establishes loops; the engine's demo skip keeps what plays and starts only static sounds — OPEN, defect
+
+**Found reviewing B545** (2026-10-15). Ours: a seek silences everything and re-establishes only loops
+(`SoundPresenter`'s `Jumped` and `reestablishing` branches), so a music one-shot mid-song is gone and its
+`snd_musicvolume` following with it. **The engine, read from engine.dll (x64):**
+
+- `CDemoPlayer::SkipToTick` (FUN_180073b10, `"DemoPlayer: SkipToTick"`): a target BEHIND the current tick reloads the
+  demo through its own `StartPlayback` (vtable +0x28, `"DemoPlayer: Reloading demo file"`) and skips forward from the
+  start; a target AHEAD only sets the skip tick (+0x5bc). Nothing in it stops a sound, so on a forward skip whatever
+  was playing keeps playing. Whether the reload's reconnect stops sounds is not read.
+- The sound dispatch (FUN_18008b7f0, called for each queued `svc_Sounds` entry by FUN_18008bb10) drops a sound while
+  `IsSkipping()` (demo player vtable +0x48, FUN_180072a90: `m_bPlaying && m_nSkipToTick != -1`) unless it is static
+  (`staticsound = channel == CHAN_STATIC`) or carries `SND_STOP` (flag 4). So during a skip, static sounds still start
+  and stops still stop, and every dynamic sound — dynamic loops included — is dropped.
+
+**Why it stays open:** matching it rewrites the seek model for every sound, not music: no silence on a forward seek,
+CHAN_STATIC starts and stops replayed through the skipped range, dynamic loops not re-established, and the reload
+path's stop read first. That is its own change with its own tests. *Read from the binary.*
 
