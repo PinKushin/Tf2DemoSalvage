@@ -183,6 +183,25 @@ public sealed class StateCopyTests
         second[1].ShouldBeSameAs(first[1]);
     }
 
+    /// <remarks>
+    /// **An enum array is compared byte for byte too**: one element changing is a change and copies the array again; the
+    /// other, unchanged, is reused.
+    /// </remarks>
+    [Test]
+    public void Of_WithPriorAnEnumArrayWithOneElementChanged_CopiesItAndReusesTheUnchangedOne()
+    {
+        DayOfWeek[] changed = [DayOfWeek.Monday, DayOfWeek.Tuesday];
+        object[] root = [changed, new[] { DayOfWeek.Friday }];
+        object[] first = StateCopy.Of(root, new HashSet<object>(), prior: null, out Dictionary<object, object> map);
+
+        changed[1] = DayOfWeek.Sunday;
+        object[] second = StateCopy.Of(root, new HashSet<object>(), map, out _);
+
+        second[0].ShouldNotBeSameAs(first[0]);
+        ((DayOfWeek[])second[0]).ShouldBe([DayOfWeek.Monday, DayOfWeek.Sunday]);
+        second[1].ShouldBeSameAs(first[1]);
+    }
+
     /// <summary>A node of a cycle: the reference is declared first, so a comparison follows it before reading the value.</summary>
     private sealed class Node
     {
