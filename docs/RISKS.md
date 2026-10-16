@@ -39755,7 +39755,11 @@ statics and players — the undrawn pass is cut from it afterwards (tested: a pa
 visible child). The frame's props live until the next `PlaceFrame`, which `MomentScene` makes every frame. (A first
 cut tied them to the demo time of the first pass after `PlaceFrame`; a seek's corpse replay, `AdvanceCorpsesAlone`,
 simulates at its own tick in between, claimed that time, and the real pass then dropped every parent — round 3, tested.)
-`_simulating` is set and cleared in a `try`/`finally` around the whole of `Simulate`. `Attach`'s early return for a non-bone-merged
+`_simulating` is set and cleared in a `try`/`finally` around the whole of `Simulate`. **Its cost, measured 2026-10-16**
+(`--measure 20`, `pl_badwater_pro_v12` tick 60000, first person, back to back on this branch with only that guard
+toggled — not against main): moment pose 1.8 ms with the guard, 1.6 ms with memoizing allowed during `Simulate`
+(simulate 1.0 against 0.8). The machine was at 83-99% CPU from other agents and both runs drew 5-12 fps with
+`capture` stalls of seconds, so the 0.2 ms gap is inside the noise; not significant, no "bones posed" set built. `Attach`'s early return for a non-bone-merged
 child loses nothing: the method sets only `EntityTransform` and a log line, and `PlacementOf` sets the former.
 `FromMatrix` is pinned against the Euler constructor and a real attachment at pitch 20, yaw 50, roll 70 (a transpose
 reddens four tests), and a child's drawn size against its own scale alone.
