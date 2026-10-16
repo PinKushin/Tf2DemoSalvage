@@ -38106,7 +38106,7 @@ with gummo standing still under a beam.
 - **Seen on the way, not chased:** the paused 63801 and 63814 shots draw no visible beam between gun and patient
   where TF2's do; a pick at (560 290) finds four faint `medicbeam_curl` quads 60-110 units PAST the patient.
 - **Captures:** TF2 63619, 63634, 63791, 63801, 63814, 63826 (in-eye, `host_timescale` 0.05, LDR as installed) and
-  the viewer's 63801 and 63814; none committed, deleted after reading.
+  the viewer's 63801 and 63814; none committed.
 
 Files at the worktree root of `fix/heal-glow`: `heal-tf2-medic-eye-63622-fullspeed.png`,
 `heal-viewer-medic-eye-63622.png`, `heal-tf2-chase.png`, `heal-viewer-before-chase.png`,
