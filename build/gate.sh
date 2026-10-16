@@ -62,6 +62,14 @@ here=$(cd "$(dirname "$0")" && pwd)
 # specimens. Pass TF2DEMOSALVAGE_GCOR_ONLY=0 for the full superset.
 export TF2DEMOSALVAGE_GCOR_ONLY="${TF2DEMOSALVAGE_GCOR_ONLY:-1}"
 
+# **A fresh worktree holds Git LFS pointer stubs, not the gcor demos**, and the corpus suite then fails 38 tests on
+# them — five agents hit it on 2026-10-15/16. `git lfs ls-files` marks an unfilled file with ` - ` (a filled one ` * `);
+# `git lfs checkout` fills them from the local LFS cache, with no download.
+if git lfs ls-files 2>/dev/null | grep ' - tools/corpus/demos/' >/dev/null; then
+  echo "gcor demos are LFS pointers in this checkout; filling them from the local cache"
+  git lfs checkout -- tools/corpus/demos
+fi
+
 # First, because it takes no time and its failure mode is silent: a decision number used twice makes
 # every citation of it ambiguous, and nothing else in the build notices (B118).
 "$here/assert-decision-numbers.sh"
