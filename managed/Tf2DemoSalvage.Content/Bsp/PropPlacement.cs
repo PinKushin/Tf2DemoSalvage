@@ -138,6 +138,28 @@ public readonly record struct PropTransform
         _originX, _originY, _originZ, 1f,
     ];
 
+    /// <summary>A transform from Valve's <c>matrix3x4_t</c>, row major, translation in column three, at scale 1.</summary>
+    /// <param name="matrix">Twelve floats; the 3×3 part must be a rotation, as a bone or attachment matrix is.</param>
+    /// <returns>The transform.</returns>
+    /// <exception cref="ArgumentException">Fewer than twelve floats.</exception>
+    /// <remarks>
+    /// For <c>GetParentToWorldTransform</c>'s attachment branch (<c>c_baseentity.cpp:4336</c>), whose
+    /// <c>AngleMatrix( vAngles, vOrigin )</c> rebuilds exactly the rotation the attachment matrix already holds.
+    /// </remarks>
+    public static PropTransform FromMatrix(ReadOnlySpan<float> matrix)
+    {
+        if (matrix.Length < 12)
+        {
+            throw new ArgumentException("a matrix3x4_t is twelve floats", nameof(matrix));
+        }
+
+        return new PropTransform(
+            matrix[3], matrix[7], matrix[11], 1f,
+            matrix[0], matrix[1], matrix[2],
+            matrix[4], matrix[5], matrix[6],
+            matrix[8], matrix[9], matrix[10]);
+    }
+
     /// <summary>Turns a normal, which takes the rotation but neither the origin nor the scale.</summary>
     /// <param name="x">The normal, in the model's own space.</param>
     /// <param name="y">The normal, in the model's own space.</param>
