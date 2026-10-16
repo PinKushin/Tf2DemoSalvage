@@ -646,6 +646,10 @@ public sealed class ScriptWaveDeckConformanceTests
             // Only the named stop is asked about.
         }
 
-        public void Silence(int entity, int channel, SoundSample sample) => Silenced.Add(NameOf[sample]);
+        public int Silence(int entity, int channel, SoundSample sample)
+        {
+            Silenced.Add(NameOf[sample]);
+            return 0;
+        }
     }
 }

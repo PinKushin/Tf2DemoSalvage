@@ -147,6 +147,10 @@ public sealed class SoundPresenterChangeConformanceTests
             _playing.Remove((entity, channel));
         }
 
-        public void Silence(int entity, int channel, SoundSample sample) => Stopped.Add((entity, channel, nameOf(sample)));
+        public int Silence(int entity, int channel, SoundSample sample)
+        {
+            Stopped.Add((entity, channel, nameOf(sample)));
+            return 0;
+        }
     }
 }

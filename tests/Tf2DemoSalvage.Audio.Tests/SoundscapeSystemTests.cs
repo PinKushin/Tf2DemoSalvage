@@ -305,7 +305,11 @@ public sealed class SoundscapeSystemTests
 
         public void Silence(int entity, int channel) => Silenced.Add((entity, channel));
 
-        public void Silence(int entity, int channel, SoundSample sample) => Silenced.Add((entity, channel));
+        public int Silence(int entity, int channel, SoundSample sample)
+        {
+            Silenced.Add((entity, channel));
+            return 0;
+        }
 
         public void SilenceAll() => Silenced.Add((AllEntities, AllChannels));
 

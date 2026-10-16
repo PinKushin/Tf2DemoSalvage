@@ -52,6 +52,9 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
     /// <summary>The next voice handle; 0 is reserved for "nothing started".</summary>
     private int _nextVoice = 1;
 
+    /// <summary>The voices in <see cref="_playing"/> by handle, so a per-voice gain is one lookup, not a scan.</summary>
+    private readonly Dictionary<int, Voice> _byId = [];
+
     /// <summary>
     /// <c>CHAN_AUTO</c>, <c>soundflags.h</c>: the engine allocates a free channel rather than a
     /// named one, so these overlap instead of replacing each other.
@@ -263,8 +266,14 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
 
         _al.SourcePlay(source);
 
-        int id = _nextVoice++;
-        _playing.Add(new Voice(source, buffer, entity, channel, sample.Samples, id));
+        int id = _nextVoice;
+
+        // 0 is "nothing started"; a wrap after 2^31 starts skips it rather than handing it out.
+        _nextVoice = _nextVoice == int.MaxValue ? 1 : _nextVoice + 1;
+
+        Voice started = new(source, buffer, entity, channel, sample.Samples, id);
+        _playing.Add(started);
+        _byId[id] = started;
 
         return id;
     }
@@ -285,13 +294,35 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
     public bool SetVoicePitch(int voice, float pitch) =>
         Find(voice) is { } found && Set(found, SourceFloat.Pitch, pitch);
 
+    /// <summary>A voice still sounding, or null; one that has finished is reaped here, so "alive" means audible.</summary>
+    /// <remarks>
+    /// A finished source stays in <see cref="_playing"/> until <see cref="Reclaim"/>, and answering for it would make an
+    /// `SND_CHANGE_VOL` on ended music alter nothing instead of starting it, as `S_AlterChannel` matching nothing does.
+    /// </remarks>
     private Voice? Find(int voice)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
 
-        int index = _playing.FindIndex(playing => playing.Id == voice);
+        if (!_byId.TryGetValue(voice, out Voice found))
+        {
+            return null;
+        }
 
-        return index < 0 ? null : _playing[index];
+        if (IsPlaying(found))
+        {
+            return found;
+        }
+
+        Free(_playing.IndexOf(found));
+
+        return null;
+    }
+
+    private bool IsPlaying(Voice voice)
+    {
+        _al.GetSourceProperty(voice.Source, GetSourceInteger.SourceState, out int state);
+
+        return state == (int)SourceState.Playing;
     }
 
     private bool Set(Voice voice, SourceFloat property, float value)
@@ -399,12 +430,7 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
                 continue;
             }
 
-            _al.SourceStop(voice.Source);
-            _al.SetSourceProperty(voice.Source, SourceInteger.Buffer, 0);
-            _al.DeleteSource(voice.Source);
-            _al.DeleteBuffer(voice.Buffer);
-
-            _playing.RemoveAt(index);
+            Free(index);
         }
     }
 
@@ -424,23 +450,12 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
 
         for (int index = _playing.Count - 1; index >= 0; index--)
         {
-            (uint source, uint buffer, _, _, _, _) = _playing[index];
-
-            _al.GetSourceProperty(source, GetSourceInteger.SourceState, out int state);
-
-            if (state == (int)SourceState.Playing)
+            if (IsPlaying(_playing[index]))
             {
                 continue;
             }
 
-            // **Detached before the buffer is deleted**, which OpenAL requires: a buffer still
-            // attached to a source is in use, and deleting it is an error the driver reports
-            // through alGetError rather than by failing the call.
-            _al.SetSourceProperty(source, SourceInteger.Buffer, 0);
-            _al.DeleteSource(source);
-            _al.DeleteBuffer(buffer);
-
-            _playing.RemoveAt(index);
+            Free(index);
             freed++;
         }
 
@@ -467,6 +482,7 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
         }
 
         _playing.Clear();
+        _byId.Clear();
     }
 
     /// <summary>Interleaves a sample to stereo 16-bit, applying the two gains.</summary>
@@ -543,25 +559,39 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
     void IAudioSink.Silence(int entity, int channel) => Stop(entity, channel);
 
     /// <inheritdoc/>
-    void IAudioSink.Silence(int entity, int channel, SoundSample sample)
+    int IAudioSink.Silence(int entity, int channel, SoundSample sample)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
 
-        // The first match, and only it — `S_AlterChannel` returns after acting on one channel.
+        // The first match in start order, and only it — `S_AlterChannel` returns after acting on one channel
+        // (FUN_18002aa20: `if ((flags & 0x200) == 0) { result = 1; goto done; }` after the first hit).
         int index = _playing.FindIndex(voice => voice.Entity == entity && voice.Channel == channel && voice.Samples.Equals(sample.Samples));
 
         if (index < 0)
         {
-            return;
+            return 0;
         }
 
-        Voice found = _playing[index];
+        int id = _playing[index].Id;
+        Free(index);
 
-        _al.SourceStop(found.Source);
-        _al.SetSourceProperty(found.Source, SourceInteger.Buffer, 0);
-        _al.DeleteSource(found.Source);
-        _al.DeleteBuffer(found.Buffer);
+        return id;
+    }
+
+    /// <summary>Stops a voice, releases its source and buffer, and forgets its handle.</summary>
+    private void Free(int index)
+    {
+        Voice voice = _playing[index];
+
+        // **Detached before the buffer is deleted**, which OpenAL requires: a buffer still attached to a source is in
+        // use, and deleting it is an error the driver reports through alGetError rather than by failing the call.
+        _al.SourceStop(voice.Source);
+        _al.SetSourceProperty(voice.Source, SourceInteger.Buffer, 0);
+        _al.DeleteSource(voice.Source);
+        _al.DeleteBuffer(voice.Buffer);
+
         _playing.RemoveAt(index);
+        _byId.Remove(voice.Id);
     }
 
     /// <inheritdoc/>

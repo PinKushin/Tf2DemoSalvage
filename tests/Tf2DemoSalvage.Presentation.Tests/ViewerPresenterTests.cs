@@ -669,9 +669,6 @@ public sealed class ViewerPresenterTests
             // Nothing is tracked per channel here.
         }
 
-        public void Silence(int entity, int channel, SoundSample sample)
-        {
-            // As above.
-        }
+        public int Silence(int entity, int channel, SoundSample sample) => 0;
     }
 }

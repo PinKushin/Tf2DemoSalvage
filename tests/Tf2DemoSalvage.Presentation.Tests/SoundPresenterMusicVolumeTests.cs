@@ -232,6 +232,77 @@ public sealed class SoundPresenterMusicVolumeTests
         sink.GainedBy.ShouldBe([(1, 0.6f)], "only the loop is re-gained");
     }
 
+    /// <remarks>`S_AlterChannel` acts on the first match in channel order, so after a voice ends and another starts, a change
+    /// still reaches the oldest one still playing — not the newest, which a hash map reusing the freed slot would list first.</remarks>
+    [Test]
+    public void Update_AVolumeChangeAfterAVoiceEndedAndAnotherStarted_AltersTheOldestStillPlaying()
+    {
+        (SoundPresenter presenter, Sink sink) = Presenter(
+            static () => 1f,
+            Sound(50, "#music/song.wav", 0.5f),
+            Sound(51, "#music/song.wav", 0.6f),
+            Sound(52, "#music/song.wav", 0.7f),
+            Sound(56, "#music/song.wav", 0.8f),
+            Sound(58, "#music/song.wav", 0.1f) with { ChangesVolume = true });
+
+        Run(presenter, sink, 40, 53);
+        sink.Finish(1);
+        Run(presenter, sink, 54, 57);
+        sink.GainedBy.Clear();
+        Run(presenter, sink, 59);
+
+        // The pass re-gains every music voice first (2, 3, 4 at their volumes), then the change alters one.
+        sink.GainedBy.ShouldBe([(2, 0.6f), (3, 0.7f), (4, 0.8f), (2, 0.1f)], "the change reaches voice 2, the first still playing");
+    }
+
+    [Test]
+    public void Update_AVolumeChangeOnALoopItsChannelReplaced_StartsTheLoopAgain()
+    {
+        (SoundPresenter presenter, Sink sink) = Presenter(
+            static () => 1f,
+            Sound(50, "ambient/hum_loop.wav", 0.6f, WeaponChannel),
+            Sound(52, "ui/beep.wav", 0.5f, WeaponChannel),
+            Sound(55, "ambient/hum_loop.wav", 0.3f, WeaponChannel) with { ChangesVolume = true });
+
+        // Pass 53 starts the beep after its re-gain, so pass 54 is the first to find the loop's voice gone.
+        Run(presenter, sink, 40, 51, 53, 54);
+        sink.Loops.Count.ShouldBe(0, "the pass that found the replaced voice gone stopped following it");
+
+        Run(presenter, sink, 60);
+
+        sink.Started.ShouldBe([0.6f, 0.5f, 0.3f], "the loop's voice was replaced, so the change matched nothing and started it");
+    }
+
+    [Test]
+    public void Update_AVolumeChangeOnALoopThatEndedThisPass_StartsTheLoopAgain()
+    {
+        (SoundPresenter presenter, Sink sink) = Presenter(
+            static () => 1f,
+            Sound(50, "ambient/hum_loop.wav", 0.6f, WeaponChannel),
+            Sound(55, "ambient/hum_loop.wav", 0.3f, WeaponChannel) with { ChangesVolume = true });
+
+        Run(presenter, sink, 40, 51);
+
+        // The voice survives this pass's re-gain and has gone by the change.
+        sink.GainsLeft = 1;
+        Run(presenter, sink, 60);
+
+        sink.Started.ShouldBe([0.6f, 0.3f], "S_AlterChannel matched nothing, so the change starts the loop");
+    }
+
+    [Test]
+    public void Update_TwoAutoLoopsOnOneEntity_AreBothFollowed()
+    {
+        (SoundPresenter presenter, Sink sink) = Presenter(
+            static () => 1f,
+            Sound(50, "ambient/hum_loop.wav", 0.6f),
+            Sound(51, "ambient/fan_loop.wav", 0.4f));
+
+        Run(presenter, sink, 40, 60, 61);
+
+        sink.GainedBy.ShouldBe([(1, 0.6f), (2, 0.4f)], "each CHAN_AUTO loop is its own channel");
+    }
+
     private static void Run(SoundPresenter presenter, Sink sink, params int[] ticks)
     {
         foreach (int tick in ticks)
@@ -245,12 +316,14 @@ public sealed class SoundPresenterMusicVolumeTests
 
     private static (SoundPresenter Presenter, Sink Sink) Presenter(Func<float> musicVolume, params SceneSound[] sounds)
     {
+        ActiveLoops loops = new();
+
         // One decode per name, as SoundCache keeps it, so a stop's sample names the sound it stops.
         Dictionary<string, SoundSample> samples = new(StringComparer.Ordinal);
 
         SoundPresenter presenter = new(
             new SoundscapeSystem(new ActiveLoops(), _ => null, NullLogger.Instance),
-            new ActiveLoops(),
+            loops,
             name =>
             {
                 if (!samples.TryGetValue(name, out SoundSample sample))
@@ -271,7 +344,7 @@ public sealed class SoundPresenterMusicVolumeTests
             MusicVolume = musicVolume,
         };
 
-        return (presenter, new Sink());
+        return (presenter, new Sink { Loops = loops });
     }
 
     private sealed class Sink : IAudioSink
@@ -279,6 +352,9 @@ public sealed class SoundPresenterMusicVolumeTests
         private readonly List<(int Id, int Entity, int Channel, SoundSample Sample, bool Alive)> _voices = [];
 
         public float MasterGain { get; set; } = 1f;
+
+        /// <summary>The presenter's loops, so a test can see what is still followed.</summary>
+        public ActiveLoops Loops { get; init; } = new();
 
         public List<float> Started { get; } = [];
 
@@ -343,28 +419,36 @@ public sealed class SoundPresenterMusicVolumeTests
         public void Silence(int entity, int channel) =>
             End(index => _voices[index].Entity == entity && _voices[index].Channel == channel, all: true);
 
-        public void Silence(int entity, int channel, SoundSample sample) =>
+        public int Silence(int entity, int channel, SoundSample sample) =>
             End(
                 index => _voices[index].Entity == entity && _voices[index].Channel == channel &&
                          _voices[index].Sample.Samples.Equals(sample.Samples),
                 all: false);
 
+        /// <summary>One voice finishes on its own.</summary>
+        public void Finish(int voice) => End(index => _voices[index].Id == voice, all: true);
+
         private bool Alive(int voice) => voice > 0 && voice <= _voices.Count && _voices[voice - 1].Alive;
 
-        private void End(Func<int, bool> matches, bool all)
+        private int End(Func<int, bool> matches, bool all)
         {
+            int first = 0;
+
             for (int index = 0; index < _voices.Count; index++)
             {
                 if (_voices[index].Alive && matches(index))
                 {
                     _voices[index] = _voices[index] with { Alive = false };
+                    first = first == 0 ? _voices[index].Id : first;
 
                     if (!all)
                     {
-                        return;
+                        break;
                     }
                 }
             }
+
+            return first;
         }
     }
 }

@@ -16,6 +16,10 @@ namespace Tf2DemoSalvage.Audio;
 /// The engine's own split is the same shape: <c>C_SoundscapeSystem</c> decides what should be
 /// playing and calls through <c>enginesound</c>, which is an interface
 /// (<c>IEngineSound</c>) rather than the mixer itself.
+///
+/// **One thread.** Every call comes from the viewer's frame loop (<c>ViewerSession</c>'s frame calls
+/// <c>PlaySounds</c>, which steps <c>SoundPresenter</c> and the soundscape), and the settings a pass reads are set
+/// from that same UI thread, so no implementation locks. A caller on another thread would need one.
 /// </remarks>
 public interface IAudioSink
 {
@@ -89,7 +93,8 @@ public interface IAudioSink
     /// <param name="entity">Which entity.</param>
     /// <param name="channel">Which channel.</param>
     /// <param name="sample">The sound, matched as the engine matches `ch->sfx`: the cached sample for its name.</param>
-    public void Silence(int entity, int channel, SoundSample sample);
+    /// <returns>The handle of the voice it stopped, so a caller following it forgets that one; 0 when none.</returns>
+    public int Silence(int entity, int channel, SoundSample sample);
 
     /// <summary>The gain over the whole mix — `volume`, or 0 under `snd_mute_losefocus` — applied after every sound's own.</summary>
     public float MasterGain { get; set; }

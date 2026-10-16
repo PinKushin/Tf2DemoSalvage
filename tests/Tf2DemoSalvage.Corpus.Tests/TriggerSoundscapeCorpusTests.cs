@@ -141,9 +141,7 @@ public sealed class TriggerSoundscapeCorpusTests
         {
         }
 
-        public void Silence(int entity, int channel, SoundSample sample)
-        {
-        }
+        public int Silence(int entity, int channel, SoundSample sample) => 0;
 
         public void SilenceAll()
         {

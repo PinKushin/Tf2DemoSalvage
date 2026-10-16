@@ -487,10 +487,8 @@ public sealed class SoundscapeLoopingConformanceTests
             // Nothing to record: this sink measures starts only.
         }
 
-        public void Silence(int entity, int channel, SoundSample sample)
-        {
-            // Nothing to record: this sink measures starts only.
-        }
+        // Nothing to record: this sink measures starts only.
+        public int Silence(int entity, int channel, SoundSample sample) => 0;
 
         public void SilenceAll()
         {

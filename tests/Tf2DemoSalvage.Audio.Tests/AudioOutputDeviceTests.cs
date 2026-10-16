@@ -98,6 +98,30 @@ public sealed class AudioOutputDeviceTests
         output.SetVoiceGain(0, 0.5f).ShouldBeFalse("0 names no voice");
     }
 
+    /// <remarks>
+    /// A source that has finished stays in the list until <c>Reclaim</c>; "alive" must mean audible, or a change to
+    /// ended music alters nothing instead of starting it, as `S_AlterChannel` matching nothing does (FUN_18002aa20).
+    /// Synchronised on the condition with a deadline, never on a clock.
+    /// </remarks>
+    [Test]
+    public void SetVoiceGain_AVoiceThatHasFinished_IsGoneAndReaped()
+    {
+        using AudioOutput output = Open();
+
+        int voice = output.Play(Tone(frames: 64), 1f, 1f, entity: 1, channel: 0);
+        System.Diagnostics.Stopwatch waited = System.Diagnostics.Stopwatch.StartNew();
+        bool alive = true;
+
+        while (alive && waited.Elapsed < TimeSpan.FromSeconds(5))
+        {
+            alive = output.SetVoiceGain(voice, 0.5f);
+        }
+
+        alive.ShouldBeFalse("64 frames at 44.1 kHz end in under 2 ms of playback");
+        output.Playing.ShouldBe(0, "the finished voice was reaped by the call that found it finished");
+        output.SetVoicePitch(voice, 1f).ShouldBeFalse();
+    }
+
     [Test]
     public void Play_ASampleWithNoFrames_IsIgnoredRatherThanQueued()
     {

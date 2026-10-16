@@ -65,9 +65,11 @@ public sealed partial class SoundPresenter(
     /// Music is `SNDLVL_NONE`, so its gain is volume × `snd_musicvolume` with no distance term. Keyed per voice
     /// because the engine gains per channel and `SND_PickDynamicChannel` (FUN_18002a330) gives every CHAN_AUTO start
     /// its own channel. An entry ends when its voice has (`SetVoiceGain` answers false — a named channel's next
-    /// sound replaces it in the sink), on a stop naming it, and on a seek.
+    /// sound replaces it in the sink), on a stop naming it, and on a seek. Sorted by handle, which the sink hands out
+    /// in start order, so "first match" walks as the engine's does; a hash map's order is not start order once a slot
+    /// has been freed and reused.
     /// </remarks>
-    private readonly Dictionary<int, (int Entity, int Channel, string Name, float Volume)> _music = [];
+    private readonly SortedDictionary<int, (int Entity, int Channel, string Name, float Volume)> _music = new();
 
     /// <summary>The first music voice on an entity's channel playing a sound, as `S_AlterChannel` finds the first match.</summary>
     private int? MusicVoice(int entity, int channel, string name)
@@ -559,7 +561,18 @@ public sealed partial class SoundPresenter(
         foreach ((int entity, int channel, int voice, float gain) in
             loops.GainsAt(listener.X, listener.Y, listener.Z, musicVolume))
         {
-            Gain(output, entity, channel, voice, gain);
+            // A voice the sink no longer has — replaced on its channel, or ended — is no longer followed, so a later
+            // change to it falls through to a start as `S_AlterChannel` matching nothing does.
+            if (voice != 0 && !output.SetVoiceGain(voice, gain))
+            {
+                loops.ForgetVoice(voice);
+                continue;
+            }
+
+            if (voice == 0)
+            {
+                output.SetGain(entity, channel, gain);
+            }
 
             // **Logged only when a loop crosses between silent and audible**, which is the question
             // a listener actually has: "I walked up to the machine and heard nothing". Per-pass
@@ -583,9 +596,40 @@ public sealed partial class SoundPresenter(
         }
     }
 
-    /// <summary>Gains one voice when the sink gave it a handle, else the entity's channel.</summary>
-    private static void Gain(IAudioSink output, int entity, int channel, int voice, float gain) =>
-        _ = voice != 0 ? output.SetVoiceGain(voice, gain) : output.SetGain(entity, channel, gain);
+    /// <summary>Applies a change to the loop `S_AlterChannel` matched; false when its voice has gone.</summary>
+    private bool AlterLoop(IAudioSink output, SceneSound sound, (float X, float Y, float Z) listener, int voice)
+    {
+        float rate = SoundScript.Rate(sound.Pitch);
+
+        if (voice == 0)
+        {
+            if (sound.ChangesVolume && loops.GainAt(sound.EntityIndex, sound.Channel, listener, MusicVolume()) is { } keyed)
+            {
+                output.SetGain(sound.EntityIndex, sound.Channel, keyed);
+            }
+
+            if (sound.ChangesPitch)
+            {
+                output.SetPitch(sound.EntityIndex, sound.Channel, rate);
+            }
+
+            return true;
+        }
+
+        bool alive = true;
+
+        if (sound.ChangesVolume && loops.GainOfVoice(voice, listener, MusicVolume()) is { } altered)
+        {
+            alive = output.SetVoiceGain(voice, altered);
+        }
+
+        if (alive && sound.ChangesPitch)
+        {
+            alive = output.SetVoicePitch(voice, rate);
+        }
+
+        return alive;
+    }
 
     /// <summary>Plays, or silences, one sound the schedule produced.</summary>
     private void Start(
@@ -628,24 +672,15 @@ public sealed partial class SoundPresenter(
             _music.Remove(altering);
         }
 
-        if (!sound.IsStop && (sound.ChangesVolume || sound.ChangesPitch) && loops.Alter(sound))
+        if (!sound.IsStop && (sound.ChangesVolume || sound.ChangesPitch) && loops.Alter(sound, out int loopVoice))
         {
-            int voice = loops.VoiceOf(sound.EntityIndex, sound.Channel);
-
-            if (sound.ChangesVolume && loops.GainAt(sound.EntityIndex, sound.Channel, listener, MusicVolume()) is { } altered)
+            if (AlterLoop(output, sound, listener, loopVoice))
             {
-                Gain(output, sound.EntityIndex, sound.Channel, voice, altered);
+                return;
             }
 
-            if (sound.ChangesPitch)
-            {
-                float rate = SoundScript.Rate(sound.Pitch);
-                _ = voice != 0
-                    ? output.SetVoicePitch(voice, rate)
-                    : output.SetPitch(sound.EntityIndex, sound.Channel, rate);
-            }
-
-            return;
+            // The loop's voice has gone: nothing matched, so the sound starts, as `S_AlterChannel` returning 0 leads to.
+            loops.ForgetVoice(loopVoice);
         }
 
         // **A stop names its sound** (B416): `S_AlterChannel` stops the first channel playing THAT sound on the entity and
@@ -654,13 +689,24 @@ public sealed partial class SoundPresenter(
         {
             if (sound.Name.Length > 0 && sample(sound.Name) is { } named)
             {
-                output.Silence(sound.EntityIndex, sound.Channel, named);
-                loops.Forget(sound.EntityIndex, sound.Channel, sound.Name);
+                // The sink names the one voice it stopped — the first in start order, as `S_AlterChannel` stops one — so
+                // what is followed forgets exactly that voice. A sink without handles answers 0, and the stop is
+                // matched here by name instead.
+                int stopped = output.Silence(sound.EntityIndex, sound.Channel, named);
 
-                // Only the sound the stop names, as `S_AlterChannel` matches it.
-                if (MusicVoice(sound.EntityIndex, sound.Channel, sound.Name) is { } stopped)
+                if (stopped != 0)
                 {
+                    loops.ForgetVoice(stopped);
                     _music.Remove(stopped);
+                }
+                else
+                {
+                    loops.Forget(sound.EntityIndex, sound.Channel, sound.Name);
+
+                    if (MusicVoice(sound.EntityIndex, sound.Channel, sound.Name) is { } matched)
+                    {
+                        _music.Remove(matched);
+                    }
                 }
             }
 
@@ -781,6 +827,17 @@ public sealed partial class SoundPresenter(
 
         // Followed as its own voice: a sound that replaces it on a named channel ends that voice in the sink, and one
         // that overlaps it on CHAN_AUTO is another voice, so nothing else here needs to forget it.
+        // `AudioOutput.Play` starts nothing for a sample with no frames, no rate or no channels, or one whose stereo
+        // conversion comes out empty; it has no log of its own, so the refusal is said here with the sample's shape.
+        if (started == 0 && audio.IsEnabled(LogLevel.Debug))
+        {
+            audio.LogDebug(
+                "{Message}",
+                string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"sound started no voice tick {sound.Tick} {sound.Name} : {opened.Samples.Length} samples, {opened.SampleRate} Hz, {opened.Channels} channels"));
+        }
+
         if (music && !opened.Loops && started != 0)
         {
             _music[started] = (sound.EntityIndex, sound.Channel, sound.Name, sound.Volume);

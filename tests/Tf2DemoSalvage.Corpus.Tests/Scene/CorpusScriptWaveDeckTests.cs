@@ -125,9 +125,6 @@ public sealed class CorpusScriptWaveDeckTests
             // Explosions schedule no stops.
         }
 
-        public void Silence(int entity, int channel, SoundSample sample)
-        {
-            // As above.
-        }
+        public int Silence(int entity, int channel, SoundSample sample) => 0;
     }
 }
