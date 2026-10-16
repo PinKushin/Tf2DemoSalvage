@@ -736,10 +736,6 @@ public sealed class BurstEffects
             if (!systems.TryGetValue(name, out ParticleSystem? definition) ||
                 MedigunMuzzle(beam, inEyesOf, handsHold) is not { } muzzle)
             {
-                _renderLog.LogInformation("TEMP heal beam {Index} tick {Tick} skipped: system {Has}, eyes {Eyes}, owner {Owner}, hands {Hands}, vm muzzle {Vm}, world muzzle {World}",
-                    index, tick, systems.ContainsKey(name), inEyesOf, beam.Owner, handsHold?.Invoke(beam),
-                    _models.AttachmentPoint(ViewmodelScene.WeaponEntityIndex, "muzzle") is not null,
-                    _models.AttachmentPoint(beam.Medigun, "muzzle") is not null);
                 continue;
             }
 
@@ -770,18 +766,6 @@ public sealed class BurstEffects
                 then => HealBeamThen(playedAt(then), beam, muzzle, medicDrawn, medicYaw, patient);
 
             (ParticleControlPoint at, ParticleControlPoint? far) = paused ? history(tick) : (muzzle, patient);
-
-            if (_renderLog.IsEnabled(LogLevel.Debug) || true)
-            {
-                // Stryker disable once all : a mutated interpolated string cannot bind to its handler (CS1620) and Safe Mode drops the method - B410
-                _renderLog.LogInformation(
-                    "{Message}",
-                    string.Create(
-                        CultureInfo.InvariantCulture,
-                        $"TEMP heal beam {index} tick {tick}: control point 0 at {at.At} forward {at.Forward} " +
-                        $"({(inEyesOf is not null && beam.Owner == inEyesOf ? "in his eyes" : "world")}), " +
-                        $"control point 1 at {far?.At}; camera {_frame.Viewing?.Origin} {_frame.Viewing?.Angles}"));
-            }
 
             _burstsNow.Add(new ParticleBurst(HealBeamKeys + (2L * index), definition, at, from, far, beam.End, history));
 
