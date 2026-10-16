@@ -34,7 +34,8 @@ public sealed class ActiveLoops
     /// <param name="Z">Where it is.</param>
     /// <param name="Name">What it plays, which `S_AlterChannel` matches as well as the channel.</param>
     /// <param name="IsMusic"><see cref="SoundGain.IsMusic"/>, decided once at the start as the engine sets its bit once.</param>
-    private readonly record struct Loop(float Volume, int SoundLevel, float X, float Y, float Z, string Name, bool IsMusic);
+    /// <param name="Voice">The sink's handle for the voice, or 0 to gain it by entity and channel.</param>
+    private readonly record struct Loop(float Volume, int SoundLevel, float X, float Y, float Z, string Name, bool IsMusic, int Voice);
 
     /// <summary>Keyed the way the engine keys a playing sound: one per entity per channel.</summary>
     private readonly Dictionary<(int Entity, int Channel), Loop> _loops = [];
@@ -49,7 +50,12 @@ public sealed class ActiveLoops
     /// applies to the sound itself: a named channel holds one at a time, so the new one displaces
     /// the old rather than joining it.
     /// </remarks>
-    public void Track(SceneSound sound)
+    public void Track(SceneSound sound) => Track(sound, 0);
+
+    /// <summary>Starts following a looping sound the sink started as one voice, so its gain reaches that voice only.</summary>
+    /// <param name="sound">The sound, as the timeline recorded it.</param>
+    /// <param name="voice">The handle <see cref="IAudioSink.Play"/> returned.</param>
+    public void Track(SceneSound sound, int voice)
     {
         _loops[(sound.EntityIndex, sound.Channel)] =
             new Loop(
@@ -59,8 +65,16 @@ public sealed class ActiveLoops
                 sound.OriginY,
                 sound.OriginZ,
                 sound.Name,
-                SoundGain.IsMusic(sound.Name, sound.SoundLevel));
+                SoundGain.IsMusic(sound.Name, sound.SoundLevel),
+                voice);
     }
+
+    /// <summary>The sink's handle for the loop on an entity's channel, or 0 when it is gained by key.</summary>
+    /// <param name="entity">The entity.</param>
+    /// <param name="channel">The channel.</param>
+    /// <returns>The handle.</returns>
+    public int VoiceOf(int entity, int channel) =>
+        _loops.TryGetValue((entity, channel), out Loop loop) ? loop.Voice : 0;
 
     /// <summary>`S_AlterChannel`: finds the loop playing a sound on its entity's channel, and takes its new volume if it changes one.</summary>
     /// <param name="sound">A sound carrying `SND_CHANGE_VOL` or `SND_CHANGE_PITCH`.</param>
@@ -144,7 +158,7 @@ public sealed class ActiveLoops
     /// is still playing and still needs to be told it is inaudible; omitting it would leave the sink
     /// holding the last audible value, which is the bug this type exists to fix.
     /// </remarks>
-    public IEnumerable<(int Entity, int Channel, float Gain)> GainsAt(float x, float y, float z, float musicVolume)
+    public IEnumerable<(int Entity, int Channel, int Voice, float Gain)> GainsAt(float x, float y, float z, float musicVolume)
     {
         foreach (((int entity, int channel), Loop loop) in _loops)
         {
@@ -154,7 +168,7 @@ public sealed class ActiveLoops
 
             float distance = MathF.Sqrt((dx * dx) + (dy * dy) + (dz * dz));
 
-            yield return (entity, channel, GainOf(loop, distance, musicVolume));
+            yield return (entity, channel, loop.Voice, GainOf(loop, distance, musicVolume));
         }
     }
 }

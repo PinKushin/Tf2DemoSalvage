@@ -109,11 +109,17 @@ public sealed class SoundPresenterChangeConformanceTests
 
         private readonly Dictionary<(int, int), string> _playing = [];
 
-        public void Play(SoundSample sample, float leftPan, float rightPan, float gain, float pitch, int entity, int channel)
+        /// <remarks>Returns no voice handle, so every gain and pitch here is by entity and channel.</remarks>
+        public int Play(SoundSample sample, float leftPan, float rightPan, float gain, float pitch, int entity, int channel)
         {
             Played.Add(nameOf(sample));
             _playing[(entity, channel)] = nameOf(sample);
+            return 0;
         }
+
+        public bool SetVoiceGain(int voice, float gain) => false;
+
+        public bool SetVoicePitch(int voice, float pitch) => false;
 
         public bool SetGain(int entity, int channel, float gain)
         {

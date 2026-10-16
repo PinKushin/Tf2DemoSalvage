@@ -102,10 +102,12 @@ public sealed class CorpusScriptWaveDeckTests
     {
         public float MasterGain { get; set; } = 1f;
 
-        public void Play(SoundSample sample, float leftPan, float rightPan, float gain, float pitch, int entity, int channel)
-        {
-            // The presenter's sample lookup is the record.
-        }
+        // The presenter's sample lookup is the record.
+        public int Play(SoundSample sample, float leftPan, float rightPan, float gain, float pitch, int entity, int channel) => 0;
+
+        public bool SetVoiceGain(int voice, float gain) => false;
+
+        public bool SetVoicePitch(int voice, float pitch) => false;
 
         public bool SetGain(int entity, int channel, float gain) => false;
 

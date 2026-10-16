@@ -61,7 +61,7 @@ public sealed class ActiveLoopsTests
 
         loops.Track(Hum(x: 100_000f));
 
-        (int Entity, int Channel, float Gain)[] gains = [.. loops.GainsAt(0f, 0f, 0f, 1f)];
+        (int Entity, int Channel, int Voice, float Gain)[] gains = [.. loops.GainsAt(0f, 0f, 0f, 1f)];
 
         // **Present and silent, not absent.** The sound is still playing; the sink has to be told it
         // is now inaudible. Dropping the entry would leave the source holding its last audible gain

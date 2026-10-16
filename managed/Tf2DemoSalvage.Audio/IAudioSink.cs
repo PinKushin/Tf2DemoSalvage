@@ -27,7 +27,8 @@ public interface IAudioSink
     /// <param name="pitch">Playback rate.</param>
     /// <param name="entity">Which entity it belongs to.</param>
     /// <param name="channel">Which channel of that entity.</param>
-    public void Play(
+    /// <returns>The voice's own handle, for <see cref="SetVoiceGain"/>; 0 when nothing was started.</returns>
+    public int Play(
         SoundSample sample,
         float leftPan,
         float rightPan,
@@ -42,6 +43,18 @@ public interface IAudioSink
     /// <param name="gain">The new volume.</param>
     /// <returns>Whether anything was playing there to change.</returns>
     public bool SetGain(int entity, int channel, float gain);
+
+    /// <summary>Changes one voice's volume — one engine channel, so overlapping CHAN_AUTO sounds stay apart (B545).</summary>
+    /// <param name="voice">The handle <see cref="Play"/> returned.</param>
+    /// <param name="gain">The new volume.</param>
+    /// <returns>Whether that voice is still playing.</returns>
+    public bool SetVoiceGain(int voice, float gain);
+
+    /// <summary>Changes one voice's playback rate, as `S_AlterChannel` changes the one channel it matched.</summary>
+    /// <param name="voice">The handle <see cref="Play"/> returned.</param>
+    /// <param name="pitch">The new rate, 1 unshifted.</param>
+    /// <returns>Whether that voice is still playing.</returns>
+    public bool SetVoicePitch(int voice, float pitch);
 
     /// <summary>Changes a playing sound's playback rate — `SND_CHANGE_PITCH`.</summary>
     /// <param name="entity">Which entity.</param>

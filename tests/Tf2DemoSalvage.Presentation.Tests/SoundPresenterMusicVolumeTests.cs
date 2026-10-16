@@ -1,4 +1,6 @@
+using System;
 using System.Collections.Generic;
+using System.Linq;
 
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -12,24 +14,28 @@ namespace Tf2DemoSalvage.Presentation.Tests;
 /// change while it plays, as the engine's per-mix channel gain does (FUN_1800292f0, B545;
 /// <c>SoundMusicVolumeConformanceTests</c> holds the citation).
 /// </summary>
+/// <remarks>
+/// The sink here keeps voices as the engine keeps channels: each start is its own voice, a named channel's next start
+/// ends the one before (`SND_PickDynamicChannel`, FUN_18002a330, hands back the busy channel), CHAN_AUTO never does,
+/// and a stop ends the first voice on its key playing that sound (`S_AlterChannel`, FUN_18002aa20).
+/// </remarks>
 public sealed class SoundPresenterMusicVolumeTests
 {
     private const int Entity = 3;
-    private const int Channel = 0;
+    private const int AutoChannel = 0;
+    private const int WeaponChannel = 1;
 
     [Test]
     public void Update_AMusicOneShot_PlaysAtVolumeTimesMusicVolumeAndFollowsAChange()
     {
         float musicVolume = 0.25f;
-        (SoundPresenter presenter, Sink sink) = Presenter("#music/song.wav", () => musicVolume);
+        (SoundPresenter presenter, Sink sink) = Presenter(() => musicVolume, Sound(50, "#music/song.wav", 0.8f));
 
-        presenter.Update(sink, 40, (0f, 0f, 0f), (0f, -1f, 0f), now: 0d);
-        presenter.Update(sink, 60, (0f, 0f, 0f), (0f, -1f, 0f), now: 0.1d);
-
+        Run(presenter, sink, 40, 60);
         sink.Started.ShouldBe([0.2f], "volume 0.8 × snd_musicvolume 0.25");
 
         musicVolume = 0.5f;
-        presenter.Update(sink, 61, (0f, 0f, 0f), (0f, -1f, 0f), now: 0.2d);
+        Run(presenter, sink, 61);
 
         sink.Gained.ShouldBe([0.4f], "re-gained on the next pass while it plays");
     }
@@ -38,12 +44,11 @@ public sealed class SoundPresenterMusicVolumeTests
     public void Update_AMusicOneShotAtMusicVolumeZero_StillStartsSoRaisingItIsHeard()
     {
         float musicVolume = 0f;
-        (SoundPresenter presenter, Sink sink) = Presenter("#music/song.wav", () => musicVolume);
+        (SoundPresenter presenter, Sink sink) = Presenter(() => musicVolume, Sound(50, "#music/song.wav", 0.8f));
 
-        presenter.Update(sink, 40, (0f, 0f, 0f), (0f, -1f, 0f), now: 0d);
-        presenter.Update(sink, 60, (0f, 0f, 0f), (0f, -1f, 0f), now: 0.1d);
+        Run(presenter, sink, 40, 60);
         musicVolume = 1f;
-        presenter.Update(sink, 61, (0f, 0f, 0f), (0f, -1f, 0f), now: 0.2d);
+        Run(presenter, sink, 61);
 
         sink.Started.ShouldBe([0f]);
         sink.Gained[^1].ShouldBe(0.8f);
@@ -52,28 +57,40 @@ public sealed class SoundPresenterMusicVolumeTests
     [Test]
     public void Update_AnOrdinaryOneShot_IgnoresMusicVolume()
     {
-        (SoundPresenter presenter, Sink sink) = Presenter("music/song.wav", static () => 0.25f);
+        (SoundPresenter presenter, Sink sink) = Presenter(static () => 0.25f, Sound(50, "music/song.wav", 0.8f));
 
-        presenter.Update(sink, 40, (0f, 0f, 0f), (0f, -1f, 0f), now: 0d);
-        presenter.Update(sink, 60, (0f, 0f, 0f), (0f, -1f, 0f), now: 0.1d);
+        Run(presenter, sink, 40, 60);
 
         sink.Started.ShouldBe([0.8f]);
     }
 
+    /// <remarks>CHAN_AUTO gives each start its own channel, so the music keeps following and the beep keeps its own gain.</remarks>
     [Test]
-    public void Update_AnOrdinarySoundAfterMusicOnTheSameChannel_KeepsItsOwnGain()
+    public void Update_AnOrdinarySoundOverlappingMusicOnAuto_LeavesBothTheirOwnGains()
     {
         (SoundPresenter presenter, Sink sink) = Presenter(
             static () => 0.25f,
             Sound(50, "#music/song.wav", 0.8f),
             Sound(55, "ui/beep.wav", 0.6f));
 
-        presenter.Update(sink, 40, (0f, 0f, 0f), (0f, -1f, 0f), now: 0d);
-        presenter.Update(sink, 60, (0f, 0f, 0f), (0f, -1f, 0f), now: 0.1d);
-        presenter.Update(sink, 61, (0f, 0f, 0f), (0f, -1f, 0f), now: 0.2d);
+        Run(presenter, sink, 40, 60, 61);
 
         sink.Started.ShouldBe([0.2f, 0.6f]);
-        sink.Gained.ShouldBeEmpty("the channel no longer plays music, so nothing re-gains it to music × 0.25");
+        sink.GainedBy.ShouldBe([(1, 0.2f)], "only the music voice is re-gained, and to its own level");
+    }
+
+    [Test]
+    public void Update_AnOrdinarySoundReplacingMusicOnANamedChannel_EndsTheFollowing()
+    {
+        (SoundPresenter presenter, Sink sink) = Presenter(
+            static () => 0.25f,
+            Sound(50, "#music/song.wav", 0.8f, WeaponChannel),
+            Sound(55, "ui/beep.wav", 0.6f, WeaponChannel));
+
+        Run(presenter, sink, 40, 60, 61);
+
+        sink.Started.ShouldBe([0.2f, 0.6f]);
+        sink.Gained.ShouldBeEmpty("the beep took the music's channel, and nothing re-gains it to music × 0.25");
     }
 
     /// <remarks>
@@ -92,17 +109,40 @@ public sealed class SoundPresenterMusicVolumeTests
             Sound(50, "#music/song.wav", 0.8f),
             Sound(55, stop, 0.8f) with { IsStop = true });
 
-        presenter.Update(sink, 40, (0f, 0f, 0f), (0f, -1f, 0f), now: 0d);
-        presenter.Update(sink, 52, (0f, 0f, 0f), (0f, -1f, 0f), now: 0.1d);
-        presenter.Update(sink, 53, (0f, 0f, 0f), (0f, -1f, 0f), now: 0.15d);
+        Run(presenter, sink, 40, 52, 53);
         sink.Gained.ShouldBe([0.2f], "followed before the stop");
 
-        presenter.Update(sink, 60, (0f, 0f, 0f), (0f, -1f, 0f), now: 0.2d);
-        sink.Replay();
-        presenter.Update(sink, 61, (0f, 0f, 0f), (0f, -1f, 0f), now: 0.3d);
-
         // Pass 60 re-gains before the stop it carries, so 2; pass 61 adds one only for a stop that missed.
+        Run(presenter, sink, 60, 61);
+
         sink.Gained.Count.ShouldBe(forgets ? 2 : 3);
+    }
+
+    [Test]
+    public void Update_AStopNamingAnotherSound_KeepsFollowingTheMusic()
+    {
+        (SoundPresenter presenter, Sink sink) = Presenter(
+            static () => 0.25f,
+            Sound(50, "#music/song.wav", 0.8f),
+            Sound(55, "#music/other.wav", 0.8f) with { IsStop = true });
+
+        Run(presenter, sink, 40, 60, 61);
+
+        sink.Gained.ShouldBe([0.2f], "S_AlterChannel stops only the sound a stop names");
+    }
+
+    [Test]
+    public void Update_AVolumeChangeOnAMusicOneShot_AltersItAndKeepsTheNewVolume()
+    {
+        (SoundPresenter presenter, Sink sink) = Presenter(
+            static () => 0.25f,
+            Sound(50, "#music/song.wav", 0.8f),
+            Sound(55, "#music/song.wav", 0.4f) with { ChangesVolume = true });
+
+        Run(presenter, sink, 40, 60, 61);
+
+        sink.Started.ShouldBe([0.2f], "altered in place, not restarted");
+        sink.Gained.ShouldBe([0.1f, 0.1f], "the change, then the next pass keeping it");
     }
 
     [Test]
@@ -113,12 +153,11 @@ public sealed class SoundPresenterMusicVolumeTests
             Sound(50, "#music/song.wav", 0.8f),
             Sound(55, "#music/song.wav", 0.4f) with { ChangesVolume = true });
 
-        presenter.Update(sink, 40, (0f, 0f, 0f), (0f, -1f, 0f), now: 0d);
-        presenter.Update(sink, 52, (0f, 0f, 0f), (0f, -1f, 0f), now: 0.1d);
+        Run(presenter, sink, 40, 52);
 
         // The voice survives this pass's re-gain and has ended by the change.
         sink.GainsLeft = 1;
-        presenter.Update(sink, 60, (0f, 0f, 0f), (0f, -1f, 0f), now: 0.2d);
+        Run(presenter, sink, 60);
 
         sink.Started.ShouldBe([0.2f, 0.1f], "S_AlterChannel matched nothing, so S_StartSound starts it");
     }
@@ -131,9 +170,7 @@ public sealed class SoundPresenterMusicVolumeTests
             Sound(50, "#music/song.wav", 0.8f),
             Sound(55, "#music/song.wav", 0.1f) with { ChangesPitch = true, Pitch = 120 });
 
-        presenter.Update(sink, 40, (0f, 0f, 0f), (0f, -1f, 0f), now: 0d);
-        presenter.Update(sink, 60, (0f, 0f, 0f), (0f, -1f, 0f), now: 0.1d);
-        presenter.Update(sink, 61, (0f, 0f, 0f), (0f, -1f, 0f), now: 0.2d);
+        Run(presenter, sink, 40, 60, 61);
 
         sink.Started.ShouldBe([0.2f]);
         sink.Pitched.ShouldBe([1.2f]);
@@ -148,10 +185,35 @@ public sealed class SoundPresenterMusicVolumeTests
             Sound(50, "#music/song.wav", 0.8f),
             Sound(55, "#music/other.wav", 0.4f) with { ChangesVolume = true });
 
-        presenter.Update(sink, 40, (0f, 0f, 0f), (0f, -1f, 0f), now: 0d);
-        presenter.Update(sink, 60, (0f, 0f, 0f), (0f, -1f, 0f), now: 0.1d);
+        Run(presenter, sink, 40, 60);
 
         sink.Started.ShouldBe([0.2f, 0.1f]);
+    }
+
+    [Test]
+    public void Update_WhilePaused_AppliesAMusicVolumeChange()
+    {
+        float musicVolume = 0.25f;
+        (SoundPresenter presenter, Sink sink) = Presenter(() => musicVolume, Sound(50, "#music/song.wav", 0.8f));
+
+        Run(presenter, sink, 40, 60);
+        musicVolume = 0.5f;
+        Run(presenter, sink, 60);
+
+        sink.Gained.ShouldBe([0.4f], "a paused pass is the same tick again, and still re-gains");
+    }
+
+    [Test]
+    public void Update_AMusicOneShotAndALoopOnOneKey_KeepTheirOwnGains()
+    {
+        (SoundPresenter presenter, Sink sink) = Presenter(
+            static () => 0.25f,
+            Sound(50, "ambient/hum_loop.wav", 0.6f),
+            Sound(55, "#music/song.wav", 0.8f));
+
+        Run(presenter, sink, 40, 60, 61);
+
+        sink.GainedBy.ShouldBe([(2, 0.2f), (1, 0.6f)], "each voice at its own gain, music then the loop");
     }
 
     [Test]
@@ -163,91 +225,46 @@ public sealed class SoundPresenterMusicVolumeTests
             Sound(51, "#music/song.wav", 0.8f),
             Sound(55, "#music/song.wav", 0.8f) with { IsStop = true });
 
-        presenter.Update(sink, 40, (0f, 0f, 0f), (0f, -1f, 0f), now: 0d);
-        presenter.Update(sink, 60, (0f, 0f, 0f), (0f, -1f, 0f), now: 0.1d);
-        sink.Replay();
-        sink.Gained.Clear();
-        presenter.Update(sink, 61, (0f, 0f, 0f), (0f, -1f, 0f), now: 0.2d);
+        Run(presenter, sink, 40, 60);
+        sink.GainedBy.Clear();
+        Run(presenter, sink, 61);
 
-        sink.Gained.ShouldBe([0.6f], "only the loop is re-gained");
+        sink.GainedBy.ShouldBe([(1, 0.6f)], "only the loop is re-gained");
     }
 
-    [Test]
-    public void Update_AStopNamingAnotherSound_KeepsFollowingTheMusic()
+    private static void Run(SoundPresenter presenter, Sink sink, params int[] ticks)
     {
-        (SoundPresenter presenter, Sink sink) = Presenter(
-            static () => 0.25f,
-            Sound(50, "#music/song.wav", 0.8f),
-            Sound(55, "#music/other.wav", 0.8f) with { IsStop = true });
-
-        presenter.Update(sink, 40, (0f, 0f, 0f), (0f, -1f, 0f), now: 0d);
-        presenter.Update(sink, 60, (0f, 0f, 0f), (0f, -1f, 0f), now: 0.1d);
-        sink.Replay();
-        presenter.Update(sink, 61, (0f, 0f, 0f), (0f, -1f, 0f), now: 0.2d);
-
-        sink.Gained.ShouldBe([0.2f], "S_AlterChannel stops only the sound a stop names");
+        foreach (int tick in ticks)
+        {
+            presenter.Update(sink, tick, (0f, 0f, 0f), (0f, -1f, 0f), now: tick / 100d);
+        }
     }
 
-    [Test]
-    public void Update_AVolumeChangeOnAMusicOneShot_AltersItAndKeepsTheNewVolume()
+    private static SceneSound Sound(int tick, string name, float volume, int channel = AutoChannel) =>
+        new(tick, name, 1, Entity, channel, volume, 0, 100, 0f, 0f, 0f, 0f);
+
+    private static (SoundPresenter Presenter, Sink Sink) Presenter(Func<float> musicVolume, params SceneSound[] sounds)
     {
-        (SoundPresenter presenter, Sink sink) = Presenter(
-            static () => 0.25f,
-            Sound(50, "#music/song.wav", 0.8f),
-            Sound(55, "#music/song.wav", 0.4f) with { ChangesVolume = true });
-
-        presenter.Update(sink, 40, (0f, 0f, 0f), (0f, -1f, 0f), now: 0d);
-        presenter.Update(sink, 60, (0f, 0f, 0f), (0f, -1f, 0f), now: 0.1d);
-        presenter.Update(sink, 61, (0f, 0f, 0f), (0f, -1f, 0f), now: 0.2d);
-
-        sink.Started.ShouldBe([0.2f], "altered in place, not restarted");
-        sink.Gained.ShouldBe([0.1f, 0.1f], "the change, then the next pass keeping it");
-    }
-
-    [Test]
-    public void Update_WhilePaused_AppliesAMusicVolumeChange()
-    {
-        float musicVolume = 0.25f;
-        (SoundPresenter presenter, Sink sink) = Presenter("#music/song.wav", () => musicVolume);
-
-        presenter.Update(sink, 40, (0f, 0f, 0f), (0f, -1f, 0f), now: 0d);
-        presenter.Update(sink, 60, (0f, 0f, 0f), (0f, -1f, 0f), now: 0.1d);
-        musicVolume = 0.5f;
-        presenter.Update(sink, 60, (0f, 0f, 0f), (0f, -1f, 0f), now: 0.2d);
-
-        sink.Gained.ShouldBe([0.4f], "a paused pass is the same tick again, and still re-gains");
-    }
-
-    [Test]
-    public void Update_AMusicOneShotOnALoopsChannel_LeavesTheLoopsGain()
-    {
-        (SoundPresenter presenter, Sink sink) = Presenter(
-            static () => 0.25f,
-            Sound(50, "ambient/hum_loop.wav", 0.6f),
-            Sound(55, "#music/song.wav", 0.8f));
-
-        presenter.Update(sink, 40, (0f, 0f, 0f), (0f, -1f, 0f), now: 0d);
-        presenter.Update(sink, 60, (0f, 0f, 0f), (0f, -1f, 0f), now: 0.1d);
-        presenter.Update(sink, 61, (0f, 0f, 0f), (0f, -1f, 0f), now: 0.2d);
-
-        sink.Gained[^1].ShouldBe(0.6f, "the loop is gained last, so it is what the key is left at");
-    }
-
-    private static SceneSound Sound(int tick, string name, float volume) =>
-        new(tick, name, 1, Entity, Channel, volume, 0, 100, 0f, 0f, 0f, 0f);
-
-    private static (SoundPresenter Presenter, Sink Sink) Presenter(string name, System.Func<float> musicVolume) =>
-        Presenter(musicVolume, Sound(50, name, 0.8f));
-
-    private static (SoundPresenter Presenter, Sink Sink) Presenter(System.Func<float> musicVolume, params SceneSound[] sounds)
-    {
-        SoundSample sample = new(SampleRate: 22050, Channels: 1, Samples: new float[] { 0.5f, -0.5f }, Loops: false);
-        SoundSample loop = sample with { Loops = true };
+        // One decode per name, as SoundCache keeps it, so a stop's sample names the sound it stops.
+        Dictionary<string, SoundSample> samples = new(StringComparer.Ordinal);
 
         SoundPresenter presenter = new(
             new SoundscapeSystem(new ActiveLoops(), _ => null, NullLogger.Instance),
             new ActiveLoops(),
-            name => name.EndsWith("_loop.wav", System.StringComparison.Ordinal) ? loop : sample,
+            name =>
+            {
+                if (!samples.TryGetValue(name, out SoundSample sample))
+                {
+                    sample = new(
+                        SampleRate: 22050,
+                        Channels: 1,
+                        Samples: new float[] { 0.5f, -0.5f },
+                        Loops: name.EndsWith("_loop.wav", StringComparison.Ordinal));
+                    samples[name] = sample;
+                }
+
+                return sample;
+            },
             NullLogger.Instance)
         {
             Schedule = new SoundSchedule(sounds),
@@ -259,59 +276,95 @@ public sealed class SoundPresenterMusicVolumeTests
 
     private sealed class Sink : IAudioSink
     {
-        private bool _playing;
+        private readonly List<(int Id, int Entity, int Channel, SoundSample Sample, bool Alive)> _voices = [];
 
         public float MasterGain { get; set; } = 1f;
 
         public List<float> Started { get; } = [];
 
-        public List<float> Gained { get; } = [];
+        public List<(int Voice, float Gain)> GainedBy { get; } = [];
 
-        public void Play(SoundSample sample, float leftPan, float rightPan, float gain, float pitch, int entity, int channel)
-        {
-            Started.Add(gain);
-            _playing = true;
-        }
+        public List<float> Gained => [.. GainedBy.Select(static gain => gain.Gain)];
 
         public List<float> Pitched { get; } = [];
 
-        /// <summary>How many more gains the voice lives through before it has ended.</summary>
+        /// <summary>How many more voice gains the voices live through before they have ended.</summary>
         public int GainsLeft { get; set; } = int.MaxValue;
 
-        public bool SetGain(int entity, int channel, float gain)
+        public int Play(SoundSample sample, float leftPan, float rightPan, float gain, float pitch, int entity, int channel)
         {
-            if (_playing && GainsLeft-- <= 0)
+            if (channel != AutoChannel)
             {
-                _playing = false;
+                End(index => _voices[index].Entity == entity && _voices[index].Channel == channel, all: true);
             }
 
-            if (_playing && entity == Entity && channel == Channel)
-            {
-                Gained.Add(gain);
-            }
+            Started.Add(gain);
+            _voices.Add((_voices.Count + 1, entity, channel, sample, true));
 
-            return _playing;
+            return _voices.Count;
         }
 
-        public bool SetPitch(int entity, int channel, float pitch)
+        public bool SetVoiceGain(int voice, float gain)
         {
-            if (_playing)
+            if (!Alive(voice))
             {
-                Pitched.Add(pitch);
+                return false;
             }
 
-            return _playing;
+            if (GainsLeft-- <= 0)
+            {
+                End(index => _voices[index].Id == voice, all: true);
+                return false;
+            }
+
+            GainedBy.Add((voice, gain));
+            return true;
         }
 
-        /// <summary>Something else starts on the stopped channel, so a stale entry would find a voice to re-gain.</summary>
-        public void Replay() => _playing = true;
+        public bool SetVoicePitch(int voice, float pitch)
+        {
+            if (!Alive(voice))
+            {
+                return false;
+            }
 
-        public void SilenceAll() => _playing = false;
+            Pitched.Add(pitch);
+            return true;
+        }
+
+        public bool SetGain(int entity, int channel, float gain) => false;
+
+        public bool SetPitch(int entity, int channel, float pitch) => false;
+
+        public void SilenceAll() => End(static _ => true, all: true);
 
         public int Reclaim() => 0;
 
-        public void Silence(int entity, int channel) => _playing = false;
+        public void Silence(int entity, int channel) =>
+            End(index => _voices[index].Entity == entity && _voices[index].Channel == channel, all: true);
 
-        public void Silence(int entity, int channel, SoundSample sample) => _playing = false;
+        public void Silence(int entity, int channel, SoundSample sample) =>
+            End(
+                index => _voices[index].Entity == entity && _voices[index].Channel == channel &&
+                         _voices[index].Sample.Samples.Equals(sample.Samples),
+                all: false);
+
+        private bool Alive(int voice) => voice > 0 && voice <= _voices.Count && _voices[voice - 1].Alive;
+
+        private void End(Func<int, bool> matches, bool all)
+        {
+            for (int index = 0; index < _voices.Count; index++)
+            {
+                if (_voices[index].Alive && matches(index))
+                {
+                    _voices[index] = _voices[index] with { Alive = false };
+
+                    if (!all)
+                    {
+                        return;
+                    }
+                }
+            }
+        }
     }
 }

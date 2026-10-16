@@ -75,6 +75,29 @@ public sealed class AudioOutputDeviceTests
         output.Playing.ShouldBe(1, "the sample became a voice");
     }
 
+    /// <remarks>
+    /// Each start is its own voice, as each is its own engine channel: two CHAN_AUTO starts on one entity are two
+    /// (`SND_PickDynamicChannel`, engine.dll FUN_18002a330, never hands a CHAN_AUTO request a busy channel), and a
+    /// named channel's next start ends the voice before it.
+    /// </remarks>
+    [Test]
+    public void SetVoiceGain_TwoAutoVoicesAndANamedReplacement_ReachesOnlyVoicesStillPlaying()
+    {
+        using AudioOutput output = Open();
+
+        int first = output.Play(Tone(), 1f, 1f, entity: 1, channel: 0);
+        int second = output.Play(Tone(), 1f, 1f, entity: 1, channel: 0);
+        int named = output.Play(Tone(), 1f, 1f, entity: 1, channel: 1);
+        int replacing = output.Play(Tone(), 1f, 1f, entity: 1, channel: 1);
+
+        new[] { first, second, named, replacing }.Distinct().Count().ShouldBe(4);
+        output.SetVoiceGain(first, 0.5f).ShouldBeTrue("CHAN_AUTO overlaps");
+        output.SetVoiceGain(second, 0.5f).ShouldBeTrue();
+        output.SetVoiceGain(named, 0.5f).ShouldBeFalse("the named channel's next start replaced it");
+        output.SetVoicePitch(replacing, 1.2f).ShouldBeTrue();
+        output.SetVoiceGain(0, 0.5f).ShouldBeFalse("0 names no voice");
+    }
+
     [Test]
     public void Play_ASampleWithNoFrames_IsIgnoredRatherThanQueued()
     {

@@ -641,10 +641,12 @@ public sealed class ViewerPresenterTests
 
         public int Reclaims { get; private set; }
 
-        public void Play(SoundSample sample, float leftPan, float rightPan, float gain, float pitch, int entity, int channel)
-        {
-            // The written demo carries no sound; nothing is played.
-        }
+        // The written demo carries no sound; nothing is played.
+        public int Play(SoundSample sample, float leftPan, float rightPan, float gain, float pitch, int entity, int channel) => 0;
+
+        public bool SetVoiceGain(int voice, float gain) => false;
+
+        public bool SetVoicePitch(int voice, float pitch) => false;
 
         public bool SetGain(int entity, int channel, float gain) => false;
 

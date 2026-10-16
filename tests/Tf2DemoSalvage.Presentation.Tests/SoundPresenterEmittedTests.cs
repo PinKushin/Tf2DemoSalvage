@@ -117,8 +117,15 @@ public sealed class SoundPresenterEmittedTests
 
         public List<(SoundSample Sample, float Gain, int Entity, int Channel)> Played { get; } = [];
 
-        public void Play(SoundSample sample, float leftPan, float rightPan, float gain, float pitch, int entity, int channel) =>
+        public int Play(SoundSample sample, float leftPan, float rightPan, float gain, float pitch, int entity, int channel)
+        {
             Played.Add((sample, gain, entity, channel));
+            return 0;
+        }
+
+        public bool SetVoiceGain(int voice, float gain) => false;
+
+        public bool SetVoicePitch(int voice, float pitch) => false;
 
         public bool SetGain(int entity, int channel, float gain) => false;
 

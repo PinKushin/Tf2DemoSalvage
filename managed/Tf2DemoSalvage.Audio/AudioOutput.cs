@@ -45,7 +45,12 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
 
     /// <summary>One sound in flight.</summary>
     /// <remarks>`Samples` names the sound it plays, as the engine's `ch->sfx` does — one cached decode per name.</remarks>
-    private readonly record struct Voice(uint Source, uint Buffer, int Entity, int Channel, ReadOnlyMemory<float> Samples);
+    /// <remarks>`Id` is the voice's own handle, as the engine's channel index is: two CHAN_AUTO sounds on one entity are two
+    /// channels (`SND_PickDynamicChannel`, engine.dll FUN_18002a330, never matches a CHAN_AUTO request to a busy channel).</remarks>
+    private readonly record struct Voice(uint Source, uint Buffer, int Entity, int Channel, ReadOnlyMemory<float> Samples, int Id);
+
+    /// <summary>The next voice handle; 0 is reserved for "nothing started".</summary>
+    private int _nextVoice = 1;
 
     /// <summary>
     /// <c>CHAN_AUTO</c>, <c>soundflags.h</c>: the engine allocates a free channel rather than a
@@ -154,6 +159,7 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
     /// The channel from <c>soundflags.h</c>. A named one holds a single sound per entity, so
     /// starting on a busy one replaces what is there; <c>CHAN_AUTO</c> overlaps by design.
     /// </param>
+    /// <returns>The voice's handle, for <see cref="SetVoiceGain"/>; 0 when nothing was started.</returns>
     /// <exception cref="ObjectDisposedException">The output has been disposed.</exception>
     /// <remarks>
     /// **The gains arrive already computed and are applied to the SAMPLES**, not handed to OpenAL
@@ -164,7 +170,7 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
     /// sound in Source is already a finished mix — music, and some ambience — and re-panning it
     /// would be inventing a position it does not have.
     /// </remarks>
-    public void Play(
+    public int Play(
         SoundSample sample,
         float leftPan,
         float rightPan,
@@ -177,7 +183,7 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
 
         if (sample.Samples.Length == 0 || sample.SampleRate <= 0 || sample.Channels <= 0)
         {
-            return;
+            return 0;
         }
 
         // **A named channel holds one sound per entity, so starting on a busy one replaces it.**
@@ -206,7 +212,7 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
 
         if (stereo.Length == 0)
         {
-            return;
+            return 0;
         }
 
         uint buffer = _al.GenBuffer();
@@ -257,7 +263,42 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
 
         _al.SourcePlay(source);
 
-        _playing.Add(new Voice(source, buffer, entity, channel, sample.Samples));
+        int id = _nextVoice++;
+        _playing.Add(new Voice(source, buffer, entity, channel, sample.Samples, id));
+
+        return id;
+    }
+
+    /// <summary>Re-gains one voice, as the engine's mixer gains one channel (B545).</summary>
+    /// <param name="voice">The handle <see cref="Play"/> returned.</param>
+    /// <param name="gain">The gain.</param>
+    /// <returns>Whether that voice is still playing.</returns>
+    /// <exception cref="ObjectDisposedException">The output has been disposed.</exception>
+    public bool SetVoiceGain(int voice, float gain) =>
+        Find(voice) is { } found && Set(found, SourceFloat.Gain, gain < 0f ? 0f : gain);
+
+    /// <summary>Changes one voice's rate, as `S_AlterChannel` changes one channel's pitch.</summary>
+    /// <param name="voice">The handle <see cref="Play"/> returned.</param>
+    /// <param name="pitch">The rate, 1 unshifted.</param>
+    /// <returns>Whether that voice is still playing.</returns>
+    /// <exception cref="ObjectDisposedException">The output has been disposed.</exception>
+    public bool SetVoicePitch(int voice, float pitch) =>
+        Find(voice) is { } found && Set(found, SourceFloat.Pitch, pitch);
+
+    private Voice? Find(int voice)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+
+        int index = _playing.FindIndex(playing => playing.Id == voice);
+
+        return index < 0 ? null : _playing[index];
+    }
+
+    private bool Set(Voice voice, SourceFloat property, float value)
+    {
+        _al.SetSourceProperty(voice.Source, property, value);
+
+        return true;
     }
 
     /// <summary>Re-attenuates a sound that is already playing.</summary>
@@ -383,7 +424,7 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
 
         for (int index = _playing.Count - 1; index >= 0; index--)
         {
-            (uint source, uint buffer, _, _, _) = _playing[index];
+            (uint source, uint buffer, _, _, _, _) = _playing[index];
 
             _al.GetSourceProperty(source, GetSourceInteger.SourceState, out int state);
 
@@ -417,7 +458,7 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
 
-        foreach ((uint source, uint buffer, _, _, _) in _playing)
+        foreach ((uint source, uint buffer, _, _, _, _) in _playing)
         {
             _al.SourceStop(source);
             _al.SetSourceProperty(source, SourceInteger.Buffer, 0);
@@ -476,7 +517,7 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
     /// callers expect them, and the interface can avoid CA1716's objection to a member named
     /// <c>Stop</c> without this class having to rename anything.
     /// </remarks>
-    void IAudioSink.Play(
+    int IAudioSink.Play(
         SoundSample sample,
         float leftPan,
         float rightPan,
@@ -485,6 +526,12 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
         int entity,
         int channel) =>
         Play(sample, leftPan, rightPan, gain, pitch, entity, channel);
+
+    /// <inheritdoc/>
+    bool IAudioSink.SetVoiceGain(int voice, float gain) => SetVoiceGain(voice, gain);
+
+    /// <inheritdoc/>
+    bool IAudioSink.SetVoicePitch(int voice, float pitch) => SetVoicePitch(voice, pitch);
 
     /// <inheritdoc/>
     bool IAudioSink.SetGain(int entity, int channel, float gain) => SetGain(entity, channel, gain);

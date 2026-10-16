@@ -60,15 +60,28 @@ public sealed partial class SoundPresenter(
     /// <summary>`snd_musicvolume`, asked every pass: the engine recomputes each channel's gain every mix (FUN_1800292f0, B545).</summary>
     public Func<float> MusicVolume { get; init; } = static () => 1f;
 
-    /// <summary>The music one-shots started, by channel, with their own volume — re-gained every pass as loops are.</summary>
+    /// <summary>The music one-shots playing, by the sink's voice handle — one engine channel each — re-gained every pass.</summary>
     /// <remarks>
-    /// Music is `SNDLVL_NONE`, so its gain is volume × `snd_musicvolume` with no distance term. An entry ends when
-    /// its voice has finished (`SetGain` answers false), on a stop naming it, on any other sound starting on its
-    /// key, and on a seek. ponytail: the sink keys voices by entity and channel, not per voice, so two music
-    /// one-shots overlapping on one CHAN_AUTO key are both gained at the later one's volume until both end; that
-    /// is audible only as the earlier one jumping to the later one's level. Per-voice keys in IAudioSink lift it.
+    /// Music is `SNDLVL_NONE`, so its gain is volume × `snd_musicvolume` with no distance term. Keyed per voice
+    /// because the engine gains per channel and `SND_PickDynamicChannel` (FUN_18002a330) gives every CHAN_AUTO start
+    /// its own channel. An entry ends when its voice has (`SetVoiceGain` answers false — a named channel's next
+    /// sound replaces it in the sink), on a stop naming it, and on a seek.
     /// </remarks>
-    private readonly Dictionary<(int Entity, int Channel), (string Name, float Volume)> _music = [];
+    private readonly Dictionary<int, (int Entity, int Channel, string Name, float Volume)> _music = [];
+
+    /// <summary>The first music voice on an entity's channel playing a sound, as `S_AlterChannel` finds the first match.</summary>
+    private int? MusicVoice(int entity, int channel, string name)
+    {
+        foreach ((int voice, (int Entity, int Channel, string Name, float Volume) playing) in _music)
+        {
+            if (playing.Entity == entity && playing.Channel == channel && SoundName.SameSfx(playing.Name, name))
+            {
+                return voice;
+            }
+        }
+
+        return null;
+    }
 
     /// <summary>How many sounds actually reached the output.</summary>
     private int _submitted;
@@ -533,20 +546,20 @@ public sealed partial class SoundPresenter(
     {
         float musicVolume = MusicVolume();
 
-        // Music one-shots first and loops second, so on a key in both the loop's gain is the one left set: the sink
-        // gains every voice on a key, and the loop is the voice still running when the one-shot ends.
-        foreach (((int entity, int channel), (string _, float volume)) in _music.ToArray())
+        // Every gain goes to one voice, as the engine's mixer gains one channel, so the order of these two passes
+        // cannot change any voice's gain.
+        foreach ((int voice, (int _, int _, string _, float volume)) in _music.ToArray())
         {
-            if (!output.SetGain(entity, channel, volume * SoundGain.Music(isMusic: true, musicVolume)))
+            if (!output.SetVoiceGain(voice, volume * SoundGain.Music(isMusic: true, musicVolume)))
             {
-                _music.Remove((entity, channel));
+                _music.Remove(voice);
             }
         }
 
-        foreach ((int entity, int channel, float gain) in
+        foreach ((int entity, int channel, int voice, float gain) in
             loops.GainsAt(listener.X, listener.Y, listener.Z, musicVolume))
         {
-            output.SetGain(entity, channel, gain);
+            Gain(output, entity, channel, voice, gain);
 
             // **Logged only when a loop crosses between silent and audible**, which is the question
             // a listener actually has: "I walked up to the machine and heard nothing". Per-pass
@@ -570,6 +583,10 @@ public sealed partial class SoundPresenter(
         }
     }
 
+    /// <summary>Gains one voice when the sink gave it a handle, else the entity's channel.</summary>
+    private static void Gain(IAudioSink output, int entity, int channel, int voice, float gain) =>
+        _ = voice != 0 ? output.SetVoiceGain(voice, gain) : output.SetGain(entity, channel, gain);
+
     /// <summary>Plays, or silences, one sound the schedule produced.</summary>
     private void Start(
         IAudioSink output,
@@ -591,36 +608,41 @@ public sealed partial class SoundPresenter(
         // A voice that has already ended matches nothing, so the entry goes and the sound falls through to a start, as
         // `S_AlterChannel` returning 0 does (FUN_18002aa20).
         if (!sound.IsStop && (sound.ChangesVolume || sound.ChangesPitch) &&
-            _music.TryGetValue((sound.EntityIndex, sound.Channel), out (string Name, float Volume) playing) &&
-            SoundName.SameSfx(playing.Name, sound.Name))
+            MusicVoice(sound.EntityIndex, sound.Channel, sound.Name) is { } altering)
         {
-            float volume = sound.ChangesVolume ? sound.Volume : playing.Volume;
-            bool alive = output.SetGain(sound.EntityIndex, sound.Channel, volume * SoundGain.Music(isMusic: true, MusicVolume()));
+            (int entity, int channel, string name, float stored) = _music[altering];
+            float volume = sound.ChangesVolume ? sound.Volume : stored;
+            bool alive = output.SetVoiceGain(altering, volume * SoundGain.Music(isMusic: true, MusicVolume()));
 
             if (alive && sound.ChangesPitch)
             {
-                alive = output.SetPitch(sound.EntityIndex, sound.Channel, SoundScript.Rate(sound.Pitch));
+                alive = output.SetVoicePitch(altering, SoundScript.Rate(sound.Pitch));
             }
 
             if (alive)
             {
-                _music[(sound.EntityIndex, sound.Channel)] = (playing.Name, volume);
+                _music[altering] = (entity, channel, name, volume);
                 return;
             }
 
-            _music.Remove((sound.EntityIndex, sound.Channel));
+            _music.Remove(altering);
         }
 
         if (!sound.IsStop && (sound.ChangesVolume || sound.ChangesPitch) && loops.Alter(sound))
         {
+            int voice = loops.VoiceOf(sound.EntityIndex, sound.Channel);
+
             if (sound.ChangesVolume && loops.GainAt(sound.EntityIndex, sound.Channel, listener, MusicVolume()) is { } altered)
             {
-                output.SetGain(sound.EntityIndex, sound.Channel, altered);
+                Gain(output, sound.EntityIndex, sound.Channel, voice, altered);
             }
 
             if (sound.ChangesPitch)
             {
-                output.SetPitch(sound.EntityIndex, sound.Channel, SoundScript.Rate(sound.Pitch));
+                float rate = SoundScript.Rate(sound.Pitch);
+                _ = voice != 0
+                    ? output.SetVoicePitch(voice, rate)
+                    : output.SetPitch(sound.EntityIndex, sound.Channel, rate);
             }
 
             return;
@@ -636,10 +658,9 @@ public sealed partial class SoundPresenter(
                 loops.Forget(sound.EntityIndex, sound.Channel, sound.Name);
 
                 // Only the sound the stop names, as `S_AlterChannel` matches it.
-                if (_music.TryGetValue((sound.EntityIndex, sound.Channel), out (string Name, float Volume) stopped) &&
-                    SoundName.SameSfx(stopped.Name, sound.Name))
+                if (MusicVoice(sound.EntityIndex, sound.Channel, sound.Name) is { } stopped)
                 {
-                    _music.Remove((sound.EntityIndex, sound.Channel));
+                    _music.Remove(stopped);
                 }
             }
 
@@ -741,7 +762,7 @@ public sealed partial class SoundPresenter(
                     $"sound start tick {sound.Tick} {sound.Name} : src {sound.EntityIndex} : channel {sound.Channel} : gain {gain:0.###}"));
         }
 
-        output.Play(
+        int started = output.Play(
             opened,
             left,
             rightGain,
@@ -758,16 +779,12 @@ public sealed partial class SoundPresenter(
             sound.EntityIndex,
             sound.Channel);
 
-        // The channel now plays THIS sound: music is followed by name, and anything else ends what was followed there.
-        if (music && !opened.Loops)
+        // Followed as its own voice: a sound that replaces it on a named channel ends that voice in the sink, and one
+        // that overlaps it on CHAN_AUTO is another voice, so nothing else here needs to forget it.
+        if (music && !opened.Loops && started != 0)
         {
-            _music[(sound.EntityIndex, sound.Channel)] = (sound.Name, sound.Volume);
+            _music[started] = (sound.EntityIndex, sound.Channel, sound.Name, sound.Volume);
         }
-        else
-        {
-            _music.Remove((sound.EntityIndex, sound.Channel));
-        }
-
         if (!opened.Loops)
         {
             return;
@@ -796,6 +813,6 @@ public sealed partial class SoundPresenter(
         // CHAN_AUTO loops are tracked too even though a stop cannot reach them, because the gain
         // update keys on the same pair and an untracked loop is the bug either way. They end when
         // the demo does.
-        loops.Track(sound);
+        loops.Track(sound, started);
     }
 }

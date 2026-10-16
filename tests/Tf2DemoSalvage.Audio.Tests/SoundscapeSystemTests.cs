@@ -276,14 +276,22 @@ public sealed class SoundscapeSystemTests
 
         public List<(int Entity, int Channel)> Silenced { get; } = [];
 
-        public void Play(
+        public int Play(
             SoundSample sample,
             float leftPan,
             float rightPan,
             float gain,
             float pitch,
             int entity,
-            int channel) => Played.Add((entity, channel));
+            int channel)
+        {
+            Played.Add((entity, channel));
+            return 0;
+        }
+
+        public bool SetVoiceGain(int voice, float gain) => false;
+
+        public bool SetVoicePitch(int voice, float pitch) => false;
 
         public int Regained { get; private set; }
 
