@@ -80,6 +80,32 @@ public sealed class ParticleFrameClockConformanceTests
         effects.BurstEffect(1)!.ControlPoint(0).At.X.ShouldBe(30f);
     }
 
+    /// <remarks>A paused frame's pose is the last one's: the hitboxes are read on the first still frame and not again.</remarks>
+    [Test]
+    public void Bursts_SeveralStillFrames_ReadTheModelOnce()
+    {
+        ParticleEffects effects = new();
+        int asked = 0;
+        ParticleBurst burst = Emitting(key: 1, tick: 100) with
+        {
+            Model = () =>
+            {
+                asked++;
+                return ([], Vector3.Zero);
+            },
+        };
+
+        effects.Bursts([burst], Interval, null, 100, 100.5d);
+        asked = 0;
+
+        for (int frame = 0; frame < 5; frame++)
+        {
+            effects.Bursts([burst], Interval, null, 100, 100.5d);
+        }
+
+        asked.ShouldBe(1);
+    }
+
     /// <remarks>A played frame is one `Simulate( frametime )` however long it is — 8x at 30 fps, or a stall.</remarks>
     [Test]
     public void Bursts_ALongPlayedFrame_IsOneStep()

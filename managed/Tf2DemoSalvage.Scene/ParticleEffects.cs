@@ -450,19 +450,29 @@ public sealed class ParticleEffects
 
             // **A frame that steps nothing still reads its points**: `UpdateNewEffects` calls every effect's `Update`
             // — `UpdateControlPoint` — before it decides what to simulate (particlemgr.cpp:1841-1853), at any frame time.
+            bool stillRead = running.StillRead;
+
             if (taken == running.Stepped)
             {
                 running.Effect.SetControlPoint(0, burst.At);
 
-                if (burst.Model?.Invoke() is { } still)
+                // **The hitboxes once per still, not once per frame**: a still frame's pose is the last one's, so the
+                // first still frame after a step reads them and the rest of the pause has nothing new to read.
+                if (!stillRead && burst.Model?.Invoke() is { } still)
                 {
                     running.Effect.SetHitboxes(0, Carried(still.Boxes, burst.At.At - still.PosedAt));
                 }
+
+                stillRead = true;
+            }
+            else
+            {
+                stillRead = false;
             }
 
             bool stopped = burst.StopTick is { } stopTick && now >= stopTick;
 
-            _bursts[burst.Key] = running with { Stepped = taken, SimulatedTo = reachedTo, Stopped = stopped };
+            _bursts[burst.Key] = running with { Stepped = taken, SimulatedTo = reachedTo, Stopped = stopped, StillRead = stillRead };
         }
 
         Retire();
@@ -523,7 +533,7 @@ public sealed class ParticleEffects
     private readonly List<long> _finished = [];
 
     /// <summary>One running one-shot: how many steps it took, and to how many ticks after it fired, fraction included.</summary>
-    private readonly record struct RunningBurst(ParticleEffect Effect, int Stepped, double SimulatedTo, bool Stopped);
+    private readonly record struct RunningBurst(ParticleEffect Effect, int Stepped, double SimulatedTo, bool Stopped, bool StillRead = false);
 
     /// <summary>Builds every live effect's quads for this frame's camera.</summary>
     /// <param name="eye">Where the camera is — a sprite trail turns about its own length to face it.</param>

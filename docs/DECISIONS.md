@@ -10413,6 +10413,13 @@ held to a tick, it stays where the tick left it while the eye and the hands move
   every rocket trail is dropped and replayed along its rocket's path, which `Update` already does for an empty trail.
   A long PLAYED frame never rebuilds: as first built, more than a quarter second of demo time did, so 8x at 30 fps or a
   stall replayed every live burst from birth on every frame.
+- **One skip decision a frame** (`FrameSkip`): made where the moment is shown (`FramePresenter.ReplaySkip`) and read
+  once by the particles and the sound, which kept cursors of their own until now. A frame whose effects do not run —
+  no trail definition, every CI run — holds the seek for the first frame whose effects do.
+- **Not yet read: the engine's frame-time clamp.** Whether `Host_FilterTime` clamps a demo frame's
+  `host_frametime` / `gpGlobals->frametime` (to about 0.1 s) is unread, so the played-frame step is not clamped beyond
+  the particle simulation's own `maximum time step` × 10. The engine.dll Ghidra server was up on 2026-10-16, but its
+  analysis tools did not reach this session (the client needs a reconnect).
 - **The trade, stated.** TF2 does not replay. *Read from this project's disassembly* (B504, `FramePresenter.Seek`): a
   `demo_gototick` reads at most 99 packets a frame and `_Host_RunFrame` renders after each batch with no skip test, so
   the engine's particles see a skip as a few frames of real frame time across hundreds of demo ticks, and effects

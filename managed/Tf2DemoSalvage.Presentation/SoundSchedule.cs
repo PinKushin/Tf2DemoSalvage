@@ -100,14 +100,15 @@ public sealed class SoundSchedule
     /// advanced from, so it positions the cursor and returns nothing — otherwise opening a demo
     /// fires every sound before tick one, including the map ambience the signon put there.
     /// </remarks>
-    public IReadOnlyList<SceneSound> Advance(int tick)
+    /// <param name="skipped">The frame's one skip decision for this move (<see cref="FrameSkip"/>, D221), or null to decide here.</param>
+    public IReadOnlyList<SceneSound> Advance(int tick, bool? skipped = null)
     {
         bool first = _tick == int.MinValue;
         int previous = _tick;
 
         _tick = tick;
 
-        if (IsSkip(first ? null : previous, tick))
+        if (skipped ?? IsSkip(first ? null : previous, tick))
         {
             Jumped = !first;
             Repositioned = true;

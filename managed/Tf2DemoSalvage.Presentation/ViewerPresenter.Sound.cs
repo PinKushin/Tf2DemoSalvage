@@ -117,7 +117,8 @@ public sealed partial class ViewerPresenter
             ears.Origin,
             ears.Right,
             _audioClock.Elapsed.TotalSeconds,
-            recorded);
+            recorded,
+            _effects.Skip);
 
         long voiceAt = Stopwatch.GetTimestamp();
         PlayVoice(output, tick, ears.Origin, ears.Right);

@@ -235,8 +235,14 @@ public sealed partial class FramePresenter
                 _bursts.Bursts,
                 _particles));
 
-    /// <summary>The whole tick the particles were last stepped to, or null before the first frame.</summary>
-    private int? _particlesShown;
+    /// <summary>The last <see cref="FrameSkip"/> generation the particles took.</summary>
+    private int _particlesTaken;
+
+    /// <summary>A skip taken and not yet handed to effects that ran.</summary>
+    private bool _seekPending;
+
+    /// <summary>Whether a skip is held for the next frame whose effects run, for a test.</summary>
+    internal bool SeekPending => _seekPending;
 
     /// <summary>What a bullet is traced against this frame.</summary>
     private BulletScene BulletSceneNow => new(_frame.Timeline, _frame.Loaded?.Level, _moments.Source, _frame.ShownTick, _frame.Playing);
@@ -314,11 +320,12 @@ public sealed partial class FramePresenter
 
         IReadOnlyList<ParticleBatch> batches = [];
 
-        // **A seek is the skip rule's, not a long frame** (D221): a played frame of any length is one step, as the
-        // engine's `Simulate( frametime )` is; only a frame the transport jumped to rebuilds the effects.
-        bool seeked = SoundSchedule.IsSkip(_particlesShown, tick);
+        // **A seek is the frame's one skip decision, not a long frame** (D221): a played frame of any length is one
+        // step, as the engine's `Simulate( frametime )` is; only a frame the transport jumped to rebuilds the effects.
+        // Held until the effects run, so a frame with no trail definition — which steps none — does not lose it.
+        _seekPending |= Skip?.Take(ref _particlesTaken) == true;
 
-        _particlesShown = tick;
+        bool seeked = _seekPending;
 
         ParticleFrame particles = new(
             _frame.Timeline,
@@ -356,6 +363,8 @@ public sealed partial class FramePresenter
             {
                 _sound.Emit(whiz);
             }
+
+            _seekPending = false;
 
             EffectEntityFrame strips = new(
                 _frame.Timeline, _frame.Loaded, tick, viewing, _moment.Drawn, _frame.ViewportWidth, _moment.ViewerVisionFlags);

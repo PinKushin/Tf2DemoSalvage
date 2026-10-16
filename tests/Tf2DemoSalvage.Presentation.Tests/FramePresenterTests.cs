@@ -71,6 +71,35 @@ public sealed class FramePresenterTests
             "light styles first, because the decals and the particles are lit by them; the particles last, with the impacts joined");
     }
 
+    /// <remarks>
+    /// **The seek is the frame's one decision, and a frame that runs no effects keeps it** (D221): with no trail
+    /// definition — every CI run — no burst steps, and the seek waits for the frame that does.
+    /// </remarks>
+    [Test]
+    public void DrawOver_ASeekOnFramesWithNoTrailDefinition_HoldsTheSeekForTheEffects()
+    {
+        FramePresenter frames = Presenter();
+        FakeFrameDevice device = new();
+
+        frames.ShowMomentOver(Frame(tick: 100), 100d, null, static tick => Frame(tick: (int)tick), null);
+        frames.Skip.ShouldNotBeNull().Skipped.ShouldBeTrue("the control: the first move is a skip");
+
+        frames.DrawOver(Frame(tick: 100), AlongX, device);
+        frames.DrawOver(Frame(tick: 100), AlongX, device);
+
+        frames.SeekPending.ShouldBeTrue();
+    }
+
+    [Test]
+    public void Take_OneMove_AnswersEachReaderOnce()
+    {
+        FrameSkip move = new(100, Skipped: true, Generation: 3);
+        int particles = 0;
+        int sound = 0;
+
+        (move.Take(ref particles), move.Take(ref particles), move.Take(ref sound)).ShouldBe((true, null, true));
+    }
+
     [Test]
     public void Pick_OfAFrame_IsAskedWithTheFramesTickAndSize()
     {

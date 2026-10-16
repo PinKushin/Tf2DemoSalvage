@@ -112,6 +112,9 @@ public sealed partial class FramePresenter
     /// <summary>The whole tick <see cref="ShowMoment"/> last showed, or null before the first.</summary>
     private int? _skipShown;
 
+    /// <summary>The last move <see cref="ShowMoment"/> made, and whether it was a skip — the one decision each reader takes once.</summary>
+    public FrameSkip? Skip { get; private set; }
+
     /// <summary>The HUD sounds of the skip frame being run, or null outside a skip.</summary>
     private List<SceneSound>? _skipFrameSounds;
 
@@ -141,8 +144,17 @@ public sealed partial class FramePresenter
 
         _skipShown = target;
 
+        // **The frame's one skip decision** (D221): the particles and the sound read this, rather than each keeping a
+        // cursor of its own that a different call cadence could leave disagreeing.
+        bool skipped = SoundSchedule.IsSkip(from, target);
+
+        if (from != target)
+        {
+            Skip = new FrameSkip(target, skipped, (Skip?.Generation ?? 0) + 1);
+        }
+
         // Stryker disable once all : a mutated guard leaves its pattern variables unassigned (CS0165) and Safe Mode drops the method - B410
-        if (_frame.Timeline is not { } timeline || !SoundSchedule.IsSkip(from, target) || _sound.Scripts is not { } scripts)
+        if (_frame.Timeline is not { } timeline || !skipped || _sound.Scripts is not { } scripts)
         {
             return;
         }
