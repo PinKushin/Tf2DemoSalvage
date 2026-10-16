@@ -100,6 +100,24 @@ public sealed class VoicePresenterConformanceTests
         sink.Silenced.ShouldBe([(View, 8)]);
     }
 
+    /// <summary>
+    /// The mixer fades the last <c>voice_fadeouttime</c> (0.1 s) of what is buffered (FUN_180057dc0): 50 ms before the
+    /// 1.6 s that arrived runs out, the voice is at half its gain.
+    /// </summary>
+    [Test]
+    public void Update_CloseToRunningDry_FadesTheVoice()
+    {
+        Recording sink = new();
+        VoicePresenter presenter = Presenter(Spurt(proximity: false, packets: 12));
+
+        Step(presenter, sink, 10, 0d);
+        Step(presenter, sink, 17, 0.1d);
+        Step(presenter, sink, 17, 1.65d);
+
+        sink.VoiceGains[^1].Voice.ShouldBe(7);
+        sink.VoiceGains[^1].Gain.ShouldBe(0.5f, 1e-3f);
+    }
+
     /// <summary>The pad drains on demo time: paused before it drains, the spurt still starts when the demo reaches it.</summary>
     [Test]
     public void Update_ASpurtWhosePadIsDrainingAcrossAPause_StillStartsWhole()
@@ -301,12 +319,18 @@ public sealed class VoicePresenterConformanceTests
         int IAudioSink.Play(SoundSample sample, float leftPan, float rightPan, float gain, float pitch, int entity, int channel)
         {
             Played.Add(new Play(sample, leftPan, rightPan, gain, pitch, entity, channel));
-            return 0;
+            return 7;
         }
 
         public bool SetGain(int entity, int channel, float gain) => false;
 
-        public bool SetVoiceGain(int voice, float gain) => false;
+        public List<(int Voice, float Gain)> VoiceGains { get; } = [];
+
+        public bool SetVoiceGain(int voice, float gain)
+        {
+            VoiceGains.Add((voice, gain));
+            return true;
+        }
 
         public bool SetVoicePitch(int voice, float pitch) => false;
 

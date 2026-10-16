@@ -132,22 +132,40 @@ public sealed partial class ViewerPresenter
     /// <summary>The timeline <see cref="_voice"/>'s plan was laid out from.</summary>
     private DemoTimeline? _voiceTimeline;
 
+    /// <summary>The plan being laid out off the frame, or null once it has landed.</summary>
+    private System.Threading.Tasks.Task<VoicePlanResult>? _voicePlan;
+
     private void PlayVoice(IAudioSink output, int tick, (float X, float Y, float Z) listener, (float X, float Y, float Z) right)
     {
         if (!ReferenceEquals(_timeline, _voiceTimeline))
         {
-            // Laid out once per demo from the framing alone; decoding happens per start, in `VoicePlan.Render`.
+            // Laid out once per demo from the framing alone, off the frame: 46 ms on the heaviest lcor voice demo
+            // (voice-memory probe, 6,861 packets). Until it lands no voice plays; decoding happens per start.
             _voiceTimeline = _timeline;
-            VoicePlanResult plan = _timeline is { } demo
-                ? VoicePlan.From(demo.VoiceInits, demo.Voice, demo.IntervalPerTick)
-                : new VoicePlanResult([], null);
+            _voice.Plan = [];
+            _voicePlan = _timeline is { } demo
+                ? System.Threading.Tasks.Task.Run(() => VoicePlan.From(demo.VoiceInits, demo.Voice, demo.IntervalPerTick), _shutdown)
+                : null;
+        }
 
-            _voice.Plan = plan.Spurts;
-            _voice.Interval = _timeline?.IntervalPerTick ?? _voice.Interval;
-            _audioLog.LogInformation(
-                "{Message}",
-                $"voice: {plan.Spurts.Count} spurts from {_timeline?.Voice.Count ?? 0} packets" +
-                (plan.Refusal is { } refusal ? "; " + refusal : string.Empty));
+        if (_voicePlan is { IsCompleted: true } laid)
+        {
+            _voicePlan = null;
+
+            if (laid.IsCompletedSuccessfully)
+            {
+                VoicePlanResult plan = laid.Result;
+                _voice.Plan = plan.Spurts;
+                _voice.Interval = _timeline?.IntervalPerTick ?? _voice.Interval;
+                _audioLog.LogInformation(
+                    "{Message}",
+                    $"voice: {plan.Spurts.Count} spurts from {_timeline?.Voice.Count ?? 0} packets" +
+                    (plan.Refusal is { } refusal ? "; " + refusal : string.Empty));
+            }
+            else
+            {
+                _audioLog.LogWarning("{Message}", "voice: the plan could not be laid out: " + laid.Exception?.GetBaseException().Message);
+            }
         }
 
         if (_timeline is not { } timeline)

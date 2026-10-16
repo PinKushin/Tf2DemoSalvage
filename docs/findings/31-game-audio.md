@@ -1277,24 +1277,39 @@ packet that arrives, behind a fresh pad, a fresh gain and a fresh decoder.
 
 **The choices that are ours, not the engine's** — each is a place a listener could tell the difference:
 
-1. **The layout assumes playback at the recording's own speed.** `VoicePlan` decides channels, starves and overflow
-   once, in demo time. The presenter follows the real transport only for when sounds start and stop.
-2. **Slow playback never starves.** The engine's mixer reads in real time, so slowed playback would starve between
-   packets. Here a voice starves only while the demo is stalled, measured on the wall clock against what had arrived.
-   The engine likely stutters at slow playback; this does not. *Interpolated: not measured in TF2.*
-3. **A spurt is handed to the device whole**, so speech that had not yet arrived is already queued. It is silenced
-   when a stall starves it, and on a jump or a step back.
-4. **The device resamples.** The engine upsamples linearly into its buffer (`FUN_180056eb0`).
-5. **Steam Voice decoders are reset per start, like the frame codecs.** The engine hands Steam Voice to
+1. **The channel layout assumes playback at the recording's own speed.** `VoicePlan` decides channel assignment, the
+   plan's starves and buffer overflow once, in demo time. At another speed the presenter starves and resumes on the
+   real transport — the mixer reads on the wall clock, packets arrive on demo time — so slow playback stutters as the
+   engine's does, but which of five channels a resume lands on, and overflow at speed, are the 1x plan's.
+2. **A channel run is handed to the device whole**, including speech that has not yet arrived. The engine's fade over
+   the last `voice_fadeouttime` of what is buffered (FUN_180057dc0) is followed per voice with `SetVoiceGain` as the
+   read closes on the end of what arrived — once a frame, where the engine fades per sample — and the voice is
+   silenced when the read reaches it. The planned run's own end is faded per sample in the render.
+3. **The device resamples.** The engine upsamples linearly into its buffer (`FUN_180056eb0`).
+4. **Steam Voice decoders are fresh per start, like the frame codecs.** The engine hands Steam Voice to
    `steamclient`'s `DecompressVoice`, whose state is not read.
-6. **The view entity is `svc_ServerInfo`'s player slot + 1** (`DemoTimeline.RecorderEntityIndex`), not the engine's
+5. **The view entity is `svc_ServerInfo`'s player slot + 1** (`DemoTimeline.RecorderEntityIndex`), not the engine's
    live view entity, which `svc_SetView` can change.
-7. **SILK's sample count is one 20 ms frame per Steam SILK record**, from the corpus measurement in findings/02. The
-   engine never counts, it decodes.
-8. **The codec in force is resolved in `VoicePlan.From`** by walking the inits beside the packets, the same rule as
-   `DemoTimeline.VoiceCodecAt`, without its per-call scan.
-9. **Not ported (B549):** the `voice_overdrive` duck, the speaking indicator, per-mix re-spatialisation of proximity
-   voice, `cl_voice_filter`, and the immediate stop of a `Voice_Init` mid-speech.
+6. **SILK's sample count is one 20 ms frame per Steam SILK record**, from the corpus measurement in findings/02. The
+   engine never counts; it decodes.
+7. **A decode not ready when the pad drains starts late, skipping what the mixer would have read.** The engine
+   decodes each packet as it arrives, so it never waits.
+8. **The codec in force is the init a packet arrived under, by stream order** (`SceneVoice.Init`), and Steam Voice is
+   decoded by its own audio record whatever the init named.
+9. **Pan and gain are fixed when a run starts**, where the engine re-spatialises every mix.
+10. **Not ported (B549):** the `voice_overdrive` duck, the speaking indicator, `cl_voice_filter`, the immediate stop
+    of a `Voice_Init` mid-speech, and whatever the engine does with voice during a demo skip (B550).
+
+**Measured 2026-10-16.** On the heaviest voice demo in lcor (`2013-08-23-20-53-blu_vs_red-cp_granary.dem`: 6,861
+packets, 2.39 MB of voice, 908 spurts), the plan's heap is 0.56 MB and it lays out in 46 ms in Release — so it runs off
+the frame. The largest single render is 0.45 MB; the five largest together, the most five channels hold, 2.05 MB;
+every render at once, which the first version kept resident, would be 49.6 MB (`voice-memory` probe).
+
+**Not measured in TF2.** The task asked for slow playback in TF2 at `host_timescale 0.25`. The current client would
+not play the voice demos available: z1800 and the 2020 ETF2L SourceTV demo both end at load with
+`CL_ParseClassInfo_EndClasses: CreateDecoders failed`, and the 2026 recordings in `tf/` are the owner's own and hold
+no voice. So the stutter is read from the binary (the mixer's read in `Voice_GetOutputData` against the arrival in
+`Voice_AddIncomingData`), not heard.
 
 **Output-level check:** `CorpusVoicePlaybackTests` plays the committed `z1800.dem` (806 `vaudio_celt` packets) through
 the presenter. It asserts that the set of (entity, channel, start tick) started equals the plan's, and that every start

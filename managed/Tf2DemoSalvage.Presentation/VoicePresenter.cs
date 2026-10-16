@@ -258,7 +258,16 @@ public sealed class VoicePresenter
             double arrived = (double)(VoicePlan.KeptOffset(playing.Spurt, playing.Spurt.Packets[next].Offset) -
                 VoicePlan.KeptOffset(playing.Spurt, playing.FirstSample)) / playing.Spurt.SampleRate;
 
-            if (now - playing.StartedAt >= arrived)
+            double left = arrived - (now - playing.StartedAt);
+
+            // The mixer fades the last `voice_fadeouttime` of what is buffered (FUN_180057dc0): followed per voice as the
+            // read closes on the end of what arrived, and lifted again if more arrives first.
+            if (playing.Voice != 0 && left > 0d)
+            {
+                output.SetVoiceGain(playing.Voice, playing.Gain * (float)Math.Min(1d, left / FadeSeconds));
+            }
+
+            if (left <= 0d)
             {
                 output.Silence(playing.Entity, playing.Channel, playing.Sample);
                 _playing.RemoveAt(i);
@@ -348,15 +357,21 @@ public sealed class VoicePresenter
             return;
         }
 
-        output.Play(sample, left, rightGain, SoundGain.AtDistance(spurt.Proximity ? 80 : 60, distance), 1f, entity, channel);
+        float gain = SoundGain.AtDistance(spurt.Proximity ? 80 : 60, distance);
+        int voice = output.Play(sample, left, rightGain, gain, 1f, entity, channel);
 
         // A channel holds one spurt at a time, so whatever last played on it has ended.
         _playing.RemoveAll(playing => playing.Channel == channel);
-        _playing.Add(new Playing(spurt, entity, channel, sample, now - ((double)skip / spurt.SampleRate), spurt.Packets[packet].Offset));
+        _playing.Add(new Playing(
+            spurt, entity, channel, sample, now - ((double)skip / spurt.SampleRate), spurt.Packets[packet].Offset, voice, gain));
         Prune();
     }
 
     private readonly record struct Pending(VoiceSpurt Spurt, int Packet, int AtTick, Task<SoundSample> Sound, float Scale);
 
-    private readonly record struct Playing(VoiceSpurt Spurt, int Entity, int Channel, SoundSample Sample, double StartedAt, int FirstSample);
+    private readonly record struct Playing(
+        VoiceSpurt Spurt, int Entity, int Channel, SoundSample Sample, double StartedAt, int FirstSample, int Voice, float Gain);
+
+    /// <summary><c>voice_fadeouttime</c>, the mixer's fade over the end of what is buffered.</summary>
+    private static double FadeSeconds => Math.Max(1e-3, EngineConVars.ByName("voice_fadeouttime").Number);
 }
