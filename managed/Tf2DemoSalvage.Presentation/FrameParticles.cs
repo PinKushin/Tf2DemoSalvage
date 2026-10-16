@@ -185,9 +185,10 @@ public sealed class FrameParticles
                 // is created, and not per frame.
                 if (TrackAt(frame.Timeline, prop.EntityIndex, frame.Tick) is { } track)
                 {
-                    (int first, ScenePose pose) = track.Keyframes[0];
+                    // The track's birth, not `Keyframes[0]`: a window's track is trimmed and index 0 is gone (D217 step 3).
+                    ScenePose pose = track.FirstPose;
 
-                    age = Math.Max(0, frame.Tick - first);
+                    age = Math.Max(0, frame.Tick - track.FirstTick);
                     born = new ParticleControlPoint(
                         new Vector3(pose.X, pose.Y, pose.Z),
                         here.Forward,
@@ -414,7 +415,7 @@ public sealed class FrameParticles
                 continue;
             }
 
-            if (track.Keyframes[0].Tick <= tick && tick <= track.Keyframes[^1].Tick)
+            if (track.FirstTick <= tick && tick <= track.Keyframes[^1].Tick)
             {
                 return track;
             }

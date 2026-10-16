@@ -56,7 +56,7 @@ public sealed class DecalFeed
     /// <summary>The string table <c>m_nIndex</c> points into.</summary>
     public const string TableName = "decalprecache";
 
-    private readonly List<SceneDecal> _decals = [];
+    private readonly ChunkedList<SceneDecal> _decals = [];
 
     /// <summary>Every decal event, in tick order.</summary>
     public IReadOnlyList<SceneDecal> All => _decals;

@@ -10185,6 +10185,84 @@ asked for every helper only the pass calls to move inside the class; they are wr
 - **Equivalence on real demos, now over every collection**: `timeline-resume` at half way, with every fix above in,
   identical on movement-test, rgl-pug and f12 (9.2 M, 1.23 G and 1.22 G values).
 
+**Step 3, checkpoints that own their output, and windows resumed from them (2026-10-15, branch
+`feat/timeline-windows`).** What was built is the Core half: a demo walked ONCE into checkpoints with no whole-demo
+output kept, and any tick answered by a window — the nearest earlier checkpoint copied and decoded forward
+(`DemoTimeline.Checkpoints`). **The viewer is not on it yet**; that is step 4, below.
+
+- **What a checkpoint is.** Run, `Builder.Trim(cut, trackCut)`, `Builder.Checkpoint()`. The trim drops what no question
+  at or after the cut can read: track keyframes (indices stay ABSOLUTE, so `AppliedAt(n)` means the same keyframe in a
+  window as in the whole timeline; the birth tick and first pose are kept), interpolation history received before the
+  track cut less an 8-entry tail, tracks that ended, and the front of every tick-ordered output list — `viewmodels` per
+  stream, below. Sounds stay whole, because a loop started long ago is still playing. The checkpoint copies state AND
+  output tail, so it owns everything it holds: **back-then-forward seeks are exact**, the case marks had to refuse.
+- **Checkpoints share.** `StateCopy` reuses an object of the previous checkpoint's copy when its original is still
+  equal (floats bit for bit, every reference still naming the copy of the same original). That alone is not enough,
+  because one changed element re-creates a whole array: the census in `timeline-windows … cost` counts what each
+  checkpoint CREATES, by type, and named three quadratic holders, each fixed by giving it a shape that changes in one
+  place — `TailList` stores 1,024-element chunks (sounds were 5.3 M elements re-created on f12); track history is kept
+  for a one-second track cut rather than the four-second list lookback; and an entity's two property dictionaries
+  became one `PropertyBag` (a key → slot map plus 32-slot value chunks, insertion order kept because several readers
+  take the first key matching a pattern).
+- **Whole-demo facts a window cannot know** come from the walk's end: `Finish(whole)` takes the final server ConVars
+  (the interpolation's bounds), the first-stated roster and everyone who played.
+- **Equivalence** (`timeline-windows`; `TimelineAnswers` is every public question at one tick — players, every live
+  track's `At` and `Held`, `PropsAt`, frame state, fog, soundscape, director, recorded view, ConVars, viewmodels, sounds,
+  events and messages — shared with `TimelineCheckpointsTests`). 40 ticks, visited latest-first then earliest-first, so
+  every window after the first is a seek back or forward: movement-test identical (6.5 M values). f12 and rgl-pug
+  differ only in props' `Econ` and `ModelPath`, at 16 of 80 and 6 of 80 seeks.
+- **Those two are the whole timeline leaking the future, filed, not changed.** `ScenePropTrack.Econ`, `ModelPath`
+  (`Follow`), `ItemDefinitionIndex`, `ClassName`, `TeamNumber` and the other track scalars are written last-write-wins,
+  so the whole timeline answers every tick with the value the demo ENDED on; a window built to its own end answers the
+  value as of then, which is what the engine holds. Making them per-tick histories changes the whole timeline's
+  answers, so it is the owner's call (`docs/memory/name-the-trade-before-fixing-valve.md`).
+- **Found on the way:** `viewmodels` interleaves every player's two hands and writes each only on change, so a plain
+  tick cut dropped a quiet player's record in force (f12: 50 of 80 seeks); it is trimmed per (owner, hand).
+  `DemoTimeline.Viewmodel` also walks the list from the start on every question, linear in the demo.
+- **The straight build is unchanged**: `timeline-fingerprint` at the branch's head identical to origin/main (e10fd9e1)
+  on movement-test (9.3 M values), rgl-pug (1.24 G) and f12 (1.23 G), every section. **Frame time too**: `--measure 20`
+  on f12 at tick 60000, first person, two alternating rounds each: settled 33–37 fps and a 12.7–13.2 ms moment cost on
+  both origin/main and the branch.
+
+**Cost** (a checkpoint every 5 s; "a window" is the mean over the 80 seeks, split into copying the checkpoint, decoding
+forward and finishing):
+
+| demo, after | checkpoints hold | a window takes |
+|---|---:|---:|
+| f12 (58 MB, 291 checkpoints; whole timeline 1,235 MB): trimmed, shared by equality | 2,830 MB | 428 ms |
+| + chunked tail lists, one-second track cut | 2,158 MB | — |
+| + frames at the track cut | 1,663 MB | 399 ms |
+| + `PropertyBag`, feeds and choreography chunked | **1,075 MB** | 469 ms (copy 201, decode 265) |
+| rgl-pug (52 MB, 431 checkpoints; whole 1,401 MB), all of the above | 2,726 MB | 627 ms (copy 350, decode 272) |
+| movement-test (2 MB, 21 checkpoints), all of the above | — | 173 ms (copy 132, decode 41) |
+
+**Not yet affordable, and why — what step 4 starts from.** On f12 the checkpoints now hold less than the whole timeline;
+on rgl-pug, twice as much, because a copy of its entity table and decoder baselines is 224 + 161 MB against f12's
+95 + 35. And a window costs 470–630 ms against the owner's 100–200 ms: about half copying the checkpoint
+(reflection, field by field), half decoding a mean 2.5 s forward. Before the viewer moves onto windows:
+1. **The copy**: a resume that does not copy what it will only read (copy-on-write for the entity table and the
+   decoder's baselines), or a compiled per-type copier instead of reflection; and a compact entity state.
+2. **The decode**: denser checkpoints are only affordable once (1) shrinks what each new one creates; the walk's
+   census (`timeline-windows … cost`) is the instrument.
+3. Then the window cache in Presentation: every reader in the inventory below asks for state at a tick through it, a
+   window is built per checkpoint span around the playhead and evicted behind it, and a seek is restore plus
+   decode-forward.
+
+**Reader inventory** (references outside `DemoTimeline.cs`, tools included, at 99252b84): `Frames` 71 in 30 files,
+`Corpses` 56 in 11, `Props` 52 in 27, `Dispatches` 37 in 10, `Sounds` 23 in 14, `HealBeams` 12 in 5, `Scenes` 12 in 5,
+`Decals` 10 in 4, `PlayerTracks` 9 in 7, `Shots` 6, `Explosions` 5, `Soundscapes` 5, `Tonemap` 5, `MuzzleFlashes` 4,
+the other feeds 1–3 each; and track internals (`Keyframes`, `KeyframeCount`, `AppliedAt`, `Simulation`…) in eight
+production files (`IvpRagdollWorld`, `FrameParticles`, `CorpseRecord`, `DemoModels`, `EntityModels`, `MomentScene`,
+`RagdollFade`, `RagdollProps`) and nineteen probes. Most ask per tick already; the ones that walk a whole list
+(`Viewmodel`, corpse and ragdoll readers over keyframes) are the ones a window changes.
+
+**The 1.3 GB idle demo** (B449's koth_product, `D:\tf2-demo-archive\ETF2L Season 29`; it is not in lcor): the
+checkpoint walk, one every 60 s, ran 90 minutes at a 3.0–3.4 GB working set (peak 3,623 MB, of which the file itself is
+1.3 GB and the command list most of the rest) without finishing, and was stopped because it held the machine lock.
+So it no longer runs out of memory partway, but it does not open in useful time either: the walk is the whole
+timeline build plus a checkpoint copy, and the command list still holds the file (B449's streaming reader is not used
+by the timeline).
+
 ## D218 — TF2's volume ConVars, and the test suite launches the viewer silent (2026-10-14)
 
 **Owner, in his words:** *"its kinda irritating to have to lissten to the tests and probes all the time when they
@@ -10276,4 +10354,34 @@ made reliable, that is reported instead of shipping flaky ones.
 - **A capture's exposure is read, not assumed**: `--shot` waits for `PostProcessingSettled` (B514, B520), and the
   `wrote …` log line now carries `PostProcessingReport` at the frame written.
 - **The lakeside sun golden is still red after B537**, and stays `[Explicit]`: the numbers are in its remarks.
+
+## D220 — a window's lookback is computed from the current settings over every reader; unbounded state is carried (2026-10-15)
+
+**The question.** D217 step 3 trims each checkpoint to a lookback, and the first cut chose numbers: 4 s for the output
+lists and 67 ticks (1 s) for track histories. A review asked whether the 1 s frame cut was enough for a 4 s lookback.
+
+**The owner, in his own words:** *"the longer before we look the better the sim will be, but we obviously cant hold the
+whole demo like i thought wwe could originally"*; *"corpses fade, but the fade can be changed"*; *"a lot of the stuff
+we might need to reach backk for might be in settings and cvars but im not sure"*. Asked whether that was a decision or
+brainstorming: *"no thats a fine decision"*.
+
+**What followed:**
+
+- **The reach is ONE function of the current settings over every reader** — `WindowReach.For(WindowSettings,
+  ServerConVars, interval)`, never a fixed number of seconds. Each reader, with what bounds it, is listed in its
+  remarks: track pose by the interpolation set (`cl_interp`, `cl_interp_ratio`, `cl_updaterate` under
+  `sv_client_min/max_interp_ratio`, cdll_bounded_cvars.cpp:126); the kill feed by `hud_deathnotice_time`; chat by
+  `hud_saytext_time` (the feed span is the longer of twice `hud_deathnotice_time` — `GetExpiryTime` doubles it for
+  the local player — and `hud_saytext_time`); frames reach that span too, because the HUD resolves each replayed
+  event at its own tick; every other at-or-before list needs no reach, because the trim keeps the value in force.
+- **A settings change re-windows**: `Checkpoints.Covers(settings)` is false when the interpolation set differs (it is
+  decoded into every checkpoint) or any reader would reach further than was kept, and the caller walks again.
+- **Anything no setting bounds is carried in the checkpoint**, not reached for: sounds (a loop is state), a track's
+  birth tick and pose. A corpse is the case the owner named, and reading the engine made it unbounded rather than a
+  setting: `C_TFRagdoll::ClientThink` re-arms the fade at `cl_ragdoll_fade_time × 0.33` on every think the corpse is
+  visible (c_tf_player.cpp:1532-1546), so a corpse in view never fades. Its live simulated state belongs in the
+  checkpoint — the ragdoll entity already is (a live track keeps its birth), the viewer's simulated corpse
+  (`RagdollFade`) is not yet, and is filed as follow-up work rather than given a reach.
+- **The final server bounds govern**: a window finishes with the demo's END ConVars, so a walk whose checkpoints kept
+  less than those need walks again at the needed reach.
 

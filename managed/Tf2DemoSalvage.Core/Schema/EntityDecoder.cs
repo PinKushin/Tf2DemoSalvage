@@ -1075,6 +1075,19 @@ public sealed class EntityDecoder : IEntityBaselines
             : BaselineMerge.Overlay(baseline, entity.Properties);
     }
 
+    /// <summary>Flattens every class now, so <see cref="FlattenedFor"/> only reads its cache from then on.</summary>
+    /// <remarks>
+    /// **For a decoder whose cache is shared** — every checkpoint of a timeline walk and every window resumed from one
+    /// share it (D217 step 3), and two windows decoding at once would otherwise both write one dictionary.
+    /// </remarks>
+    internal void FlattenEveryClass()
+    {
+        foreach (int classId in _classesById.Keys)
+        {
+            FlattenedFor(classId);
+        }
+    }
+
     /// <summary>The flattened property list a class's updates index into.</summary>
     /// <param name="classId">The networked class.</param>
     /// <returns>Its properties, in the order the wire numbers them.</returns>

@@ -101,5 +101,6 @@
 - [A seek rebuilds what playing accumulated](a-seek-rebuilds-what-playing-accumulated.md) (B527); [a directorless STV chase does not turn](a-directorless-stv-chase-does-not-turn.md) (B535).
 - [A paused frame is two moments](a-paused-frame-is-two-moments.md) (B538); [walks no animation event](a-paused-frame-walks-no-animation-event.md) (B541).
 - [Game handles are not personal information](game-handles-are-not-personal-information.md) — fine in committed docs; no history scrub.
+- [A whole timeline can leak the future](a-whole-timeline-can-leak-the-future.md) (D217 step 3).
 - [Log findings to the measurement box log](log-findings-to-the-measurement-box-log.md) — findings go in `PinKushin/MEASUREMENT-BOX-LOG.md`.
 - [Index notes](index-notes.md) — decision numbers formerly beside links.

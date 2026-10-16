@@ -108,6 +108,19 @@ internal sealed class HeldValues<T>
         return index >= 0;
     }
 
+    /// <summary>Drops every value superseded before a tick, keeping the one in force there (D217 step 3).</summary>
+    /// <param name="cut">The earliest tick still to be answered.</param>
+    public void DropBefore(int cut)
+    {
+        int keep = IndexAt(cut);
+
+        if (keep > 0)
+        {
+            _ticks.RemoveRange(0, keep);
+            _values.RemoveRange(0, keep);
+        }
+    }
+
     /// <summary>The next tick after this one at which the value changes, or infinity.</summary>
     /// <param name="tick">The moment.</param>
     /// <returns>The tick.</returns>

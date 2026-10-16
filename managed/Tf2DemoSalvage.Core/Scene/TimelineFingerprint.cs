@@ -83,6 +83,17 @@ public sealed record TimelineFingerprint(string Frames, string Soundscapes, stri
     /// <summary>Every other public collection of the timeline, each under its property name.</summary>
     public string Collections { get; init; } = string.Empty;
 
+    /// <summary>One answer hashed by the same walk as a whole timeline — for comparing what two timelines SAY at a tick.</summary>
+    /// <param name="value">The answer: a pose, a list of players, a tuple of several.</param>
+    /// <returns>The hash, and how many values went into it (the control: a hash of nothing matches anything).</returns>
+    public static (string Hash, long Values) OfAnswer(object? value)
+    {
+        long values = 0;
+        using IncrementalHash hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+        Append(hash, value, ref values);
+        return (Convert.ToHexString(hash.GetHashAndReset()), values);
+    }
+
     private static void Append(IncrementalHash hash, object? value, ref long values)
     {
         switch (value)

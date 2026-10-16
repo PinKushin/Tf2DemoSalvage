@@ -8541,6 +8541,13 @@ timing, memory and timeline-heap columns excluded); a planted difference is foun
 1,498 → 812 MB), every answer identical by `timeline-fingerprint`. Still ~34x the file; the checkpointed timeline that
 would make it ~1x is filed in D217 with what it needs. The 1.3 GB demo was not attempted.
 
+**2026-10-15 (D217), third step, Core only:** a demo can be walked once into checkpoints holding no whole-demo
+output, any tick answered by a window resumed from the nearest one (`DemoTimeline.Checkpoints`, probe
+`timeline-windows`). Checkpoints every 5 s hold 1,075 MB on f12 (whole timeline 1,235) but 2,726 MB on rgl-pug (whole
+1,401), and the viewer is not on them yet, so this does not close B449; the remaining holders (the live entity table, the
+decoder's baselines) and the 470–630 ms window cost are D217's step 4. koth_product through the checkpoint walk ran 90
+minutes at 3.0–3.4 GB (peak 3,623 MB) without finishing and was stopped: no longer out of memory, not yet usable.
+
 **2026-10-14 (D217), second step:** prop keyframes keep position and angles inline and share the rest with the
 keyframe before. f12 1,981 → 1,235 MB (keyframes 856 → 108 MB), rgl-pug-2026-08-10-pov 2,422 → 1,401 MB (keyframes
 1,199 → 175 MB); identical `timeline-fingerprint` hashes, which now cover prop keyframes too, on f12, rgl-pug and

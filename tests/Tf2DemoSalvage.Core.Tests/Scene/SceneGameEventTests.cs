@@ -151,7 +151,8 @@ public sealed class SceneGameEventTests
     /// <summary>`userinfo` holding one player in entry 0 — entity 1.</summary>
     private static CreateStringTableMessage Roster(string name, int userId) => SyntheticDemo.StringTable("userinfo", [("0", Record(name, userId))]);
 
-    private static byte[] Record(string name, int userId)
+    /// <summary>A <c>userinfo</c> entry's bytes: the name and the user id, everything else zero.</summary>
+    internal static byte[] Record(string name, int userId)
     {
         byte[] record = new byte[PlayerInfo.RecordBytes];
         Encoding.UTF8.GetBytes(name).CopyTo(record, 0);

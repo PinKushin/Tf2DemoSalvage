@@ -1536,8 +1536,16 @@ public sealed class ScenePropTrack
             ? SceneModelKind.Studio
             : Classify(modelPath);
 
-    /// <summary>How many moments the entity actually changed at.</summary>
+    /// <summary>How many moments the entity actually changed at, EVER — trimmed keyframes included.</summary>
+    /// <remarks>
+    /// **Not <c>Keyframes.Count</c> on a window** (D217 step 3): that is the keyframes still held, and this counts every
+    /// one the track was given. On a whole build the two are equal. Its readers are whole-build counts (tests, corpus
+    /// tallies, <c>sample-cost</c>) and the trim test that compares the two on purpose.
+    /// </remarks>
     public int KeyframeCount => _keyframes.Count;
+
+    /// <summary>How many keyframes this track still holds — fewer than <see cref="KeyframeCount"/> once trimmed (D217 step 3).</summary>
+    internal int HeldKeyframeCount => _keyframes.Count - _keyframes.Dropped;
 
     /// <summary>Whether this track can ever answer a different pose — B259 fix 3, stage A.</summary>
     /// <remarks>
@@ -1568,7 +1576,7 @@ public sealed class ScenePropTrack
     /// <param name="tick">The moment being sampled.</param>
     /// <returns>Whether the track answers a pose at that tick.</returns>
     public bool Alive(double tick) =>
-        _keyframes.Count > 0 && tick < _endTick && tick >= _keyframes.TickAt(0);
+        _keyframes.Count > 0 && tick < _endTick && tick >= _keyframes.FirstTick;
 
     /// <summary>The prop this track currently answers, kept between rebuilds; null while absent.</summary>
     /// <remarks>
@@ -1624,12 +1632,12 @@ public sealed class ScenePropTrack
         // interpolation says nothing about any of them — so they are wakes whatever else is true.
         double next = HeldChangesAfter(tick);
 
-        if (_keyframes.Count == 0 || tick < _keyframes.TickAt(0) || tick >= _endTick)
+        if (_keyframes.Count == 0 || tick < _keyframes.FirstTick || tick >= _endTick)
         {
             return (false, next);
         }
 
-        int born = _keyframes.TickAt(0);
+        int born = _keyframes.FirstTick;
         int now = (int)Math.Floor(tick);
         double target = tick - InterpolationDelayTicks;
 
@@ -1734,9 +1742,9 @@ public sealed class ScenePropTrack
             return double.PositiveInfinity;
         }
 
-        if (tick < _keyframes.TickAt(0))
+        if (tick < _keyframes.FirstTick)
         {
-            return _keyframes.TickAt(0);
+            return _keyframes.FirstTick;
         }
 
         int state = IndexAt((int)Math.Floor(tick));
@@ -1771,8 +1779,12 @@ public sealed class ScenePropTrack
     /// It is also the difference between a cheap question and an expensive one: asking a track
     /// about every tick of a long demo is hundreds of thousands of lookups for a few dozen stored
     /// poses.
+    ///
+    /// **After a trim (D217 step 3) these are the keyframes still held, indexed from 0** — the birth is
+    /// <see cref="FirstTick"/> and <see cref="FirstPose"/>, and <see cref="AppliedAt(int)"/> and its siblings are
+    /// indexed the same way.
     /// </remarks>
-    public IReadOnlyList<(int Tick, ScenePose Pose)> Keyframes => _keyframes;
+    public IReadOnlyList<(int Tick, ScenePose Pose)> Keyframes => _keyframes.Held;
 
     /// <summary>When the value in a keyframe applied, which may precede its arrival.</summary>
     /// <param name="index">Which keyframe, indexed as <see cref="Keyframes"/> is.</param>
@@ -1783,7 +1795,7 @@ public sealed class ScenePropTrack
     /// twice; this is the number the interpolation used.
     /// </remarks>
     public int AppliedAt(int index) =>
-        _appliedAt.Count > index ? _appliedAt[index] : _keyframes.TickAt(index);
+        _appliedAt.Count > index ? _appliedAt[index] : _keyframes.TickAt(_keyframes.Dropped + index);
 
     /// <summary>The last tick the demo restated a keyframe's pose, which is where movement begins.</summary>
     /// <param name="index">Which keyframe, indexed as <see cref="Keyframes"/> is.</param>
@@ -1795,7 +1807,7 @@ public sealed class ScenePropTrack
     /// movement from the duration of a hold.
     /// </remarks>
     public int HeldUntil(int index) =>
-        _heldUntil.Count > index ? _heldUntil[index] : _keyframes.TickAt(index);
+        _heldUntil.Count > index ? _heldUntil[index] : _keyframes.TickAt(_keyframes.Dropped + index);
 
     /// <summary>When the ANIMATION in a keyframe applied, which is the engine's other clock.</summary>
     /// <param name="index">Which keyframe, indexed as <see cref="Keyframes"/> is.</param>
@@ -1805,10 +1817,16 @@ public sealed class ScenePropTrack
     /// asserted on real bytes without a test re-deriving it and checking its own arithmetic twice.
     /// </remarks>
     public int AnimationAppliedAt(int index) =>
-        _animationAppliedAt.Count > index ? _animationAppliedAt[index] : _keyframes.TickAt(index);
+        _animationAppliedAt.Count > index
+            ? _animationAppliedAt[index]
+            : _keyframes.TickAt(_keyframes.Dropped + index);
 
     /// <summary>The first tick this entity was seen at.</summary>
-    public int FirstTick => _keyframes.Count > 0 ? _keyframes.TickAt(0) : int.MaxValue;
+    public int FirstTick => _keyframes.Count > 0 ? _keyframes.FirstTick : int.MaxValue;
+
+    /// <summary>The pose this entity was first seen in, kept when a trim drops its keyframe (D217 step 3).</summary>
+    /// <remarks>Read this, not <c>Keyframes[0]</c>, which throws on a trimmed track.</remarks>
+    public ScenePose FirstPose => _keyframes.FirstPose;
 
     /// <summary>Works out what a model reference names.</summary>
     /// <param name="modelPath">The reference, as <c>modelprecache</c> carried it.</param>
@@ -2029,6 +2047,69 @@ public sealed class ScenePropTrack
     /// </remarks>
     public void End(int tick) => _endTick = tick;
 
+    /// <summary>
+    /// Drops what no question at or after <paramref name="cut"/> can read, keeping indices absolute (D217 step 3).
+    /// </summary>
+    /// <param name="cut">The earliest tick still to be answered, already moved back by the caller's lookback.</param>
+    /// <remarks>
+    /// **What survives**: the keyframe at or before the cut and one before it (the spline's third sample), every
+    /// history entry received from the cut on and <see cref="HistoryTail"/> before it, the collision in force at the
+    /// cut, and every scalar — the birth tick, the end tick and the last-received values <see cref="Add(int, ScenePose, int, int)"/>
+    /// compares against. The builder writes only the LAST keyframe's held-until, which is always kept.
+    /// </remarks>
+    internal void TrimBefore(int cut)
+    {
+        if (_keyframes.Count == 0)
+        {
+            return;
+        }
+
+        int keep = Math.Max(_keyframes.Dropped, KeyframeAtOrBefore(cut) - 1);
+        int before = _keyframes.Dropped;
+        _keyframes.DropBefore(keep);
+        int dropped = _keyframes.Dropped - before;
+
+        if (dropped > 0)
+        {
+            _heldUntil.RemoveRange(0, Math.Min(dropped, _heldUntil.Count));
+            _appliedAt.RemoveRange(0, Math.Min(dropped, _appliedAt.Count));
+            _animationAppliedAt.RemoveRange(0, Math.Min(dropped, _animationAppliedAt.Count));
+        }
+
+        _simulation.DropReceivedBefore(cut, HistoryTail);
+        _animation.DropReceivedBefore(cut, HistoryTail);
+        _poseParameters.DropReceivedBefore(cut, HistoryTail);
+
+        _collisions.DropBefore(cut);
+        _facts.DropBefore(cut);
+    }
+
+    /// <summary>History entries kept from before a trim's cut: the spline's older samples and a flushed run's.</summary>
+    private const int HistoryTail = 8;
+
+    /// <summary>The last keyframe at or before a tick by tick alone, ignoring life; the first kept when none is.</summary>
+    private int KeyframeAtOrBefore(int tick)
+    {
+        int low = _keyframes.Dropped;
+        int high = _keyframes.Count - 1;
+
+        while (low < high)
+        {
+            int middle = low + ((high - low + 1) / 2);
+
+            if (_keyframes.TickAt(middle) <= tick)
+            {
+                low = middle;
+            }
+            else
+            {
+                high = middle - 1;
+            }
+        }
+
+        return low;
+    }
+
     /// <summary>The first tick the entity was gone; <see cref="int.MaxValue"/> while it never was.</summary>
     /// <remarks>
     /// **Exposed so a report of this track's window prints the bound <see cref="Alive"/> tests**, not
@@ -2095,10 +2176,10 @@ public sealed class ScenePropTrack
         // The moment being drawn, one interpolation window behind the moment being asked for.
         double target = tick - InterpolationDelayTicks;
 
-        if (target <= _keyframes.TickAt(0))
+        if (target <= _keyframes.FirstTick)
         {
             // Nothing had been received yet, so the first stated pose is all a client would have.
-            return _keyframes[0].Pose;
+            return _keyframes.FirstPose;
         }
 
         // **The pair comes from the SIMULATION HISTORY, chosen by changetime** (B382, B377). The history
@@ -2650,7 +2731,7 @@ public sealed class ScenePropTrack
             return -1;
         }
 
-        int low = 0;
+        int low = _keyframes.Dropped;
         int high = _keyframes.Count - 1;
 
         while (low < high)
