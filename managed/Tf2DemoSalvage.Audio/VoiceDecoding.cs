@@ -56,15 +56,24 @@ public static class VoiceDecoding
     /// <returns>Its framing; <see cref="VoiceKind.None"/> for a codec or a body this cannot frame.</returns>
     public static VoiceFraming Frame(string? codec, ReadOnlySpan<byte> body)
     {
+        // **Steam Voice picks its decoder by the payload's own audio record**, not by the init's name: the engine hands the
+        // whole payload to Steam (B441), and an init naming `vaudio_speex` has been measured carrying SILK.
+        if (codec is "steam" or "vaudio_speex" && SteamVoicePayload.TryDecode(body, out VoicePacket? steam))
+        {
+            return steam.Codec switch
+            {
+                SteamVoiceCodec.Silk => new VoiceFraming(VoiceKind.Silk, SilkVoiceDecoder.SampleRate, steam.Chunks.Count * SilkFrameSamples),
+                SteamVoiceCodec.Opus => new VoiceFraming(VoiceKind.Opus, OpusVoiceDecoder.SampleRate, OpusSamples(steam)),
+
+                // A silence record: no audio, so no decoder is asked for anything.
+                _ => new VoiceFraming(VoiceKind.Opus, OpusVoiceDecoder.SampleRate, 0),
+            };
+        }
+
         switch (codec)
         {
             case "steam":
-                return SteamVoicePayload.TryDecode(body, out VoicePacket? opus)
-                    ? new VoiceFraming(VoiceKind.Opus, OpusVoiceDecoder.SampleRate, OpusSamples(opus))
-                    : default;
-
-            case "vaudio_speex" when SteamVoicePayload.TryDecode(body, out VoicePacket? silk):
-                return new VoiceFraming(VoiceKind.Silk, SilkVoiceDecoder.SampleRate, silk.Chunks.Count * SilkFrameSamples);
+                return default;
 
             case "vaudio_speex":
                 return new VoiceFraming(VoiceKind.Speex, SpeexVoiceDecoder.SampleRate, body.Length / SpeexFrameBytes * SpeexFrameSamples);
@@ -132,7 +141,8 @@ public static class VoiceDecoding
             probe.Open();
             return null;
         }
-        catch (Exception error) when (error is DllNotFoundException or TypeInitializationException or InvalidOperationException or EntryPointNotFoundException)
+        catch (Exception error) when (error is DllNotFoundException or TypeInitializationException or InvalidOperationException
+            or EntryPointNotFoundException or BadImageFormatException)
         {
             return kind + ": " + error.GetType().Name + ": " + error.Message;
         }

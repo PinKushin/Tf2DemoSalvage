@@ -47,7 +47,7 @@ public sealed class CorpusVoicePlaybackTests
 
         plan.Spurts.ShouldNotBeEmpty("z1800 carries 806 voice packets");
         sink.Played.Select(played => (played.Entity, played.Channel, played.Tick)).ShouldBe(
-            plan.Spurts.Select(spurt => (spurt.Proximity ? spurt.Entity : view, VoicePlan.EngineChannel(spurt.Channel), spurt.StartTick)),
+            plan.Spurts.Where(spurt => spurt.Length > 0).Select(spurt => (spurt.Proximity ? spurt.Entity : view, VoicePlan.EngineChannel(spurt.Channel), spurt.StartTick)),
             ignoreOrder: true);
         sink.Played.ShouldAllBe(played => played.Peak > 0f, "every spurt carries speech, not silence");
     }

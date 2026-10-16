@@ -187,6 +187,12 @@ public sealed class VoiceConformanceTests
     public void Frame_TwoRawSpeexFrames_Are320SamplesAt8000() =>
         VoiceDecoding.Frame("vaudio_speex", new byte[56]).ShouldBe(new VoiceFraming(VoiceKind.Speex, 8000, 320));
 
+    /// <summary>Steam Voice decodes by its own audio record: SILK under a <c>steam</c> init is still SILK (B441).</summary>
+    [TestCase("steam")]
+    [TestCase("vaudio_speex")]
+    public void Frame_SteamVoiceWithASilkRecord_IsSilkWhateverTheInitSays(string codec) =>
+        VoiceDecoding.Frame(codec, SteamSilk(3)).ShouldBe(new VoiceFraming(VoiceKind.Silk, 16000, 960));
+
     [Test]
     public void Frame_AnUnknownCodec_IsNone() =>
         VoiceDecoding.Frame("vaudio_miles", new byte[56]).Kind.ShouldBe(VoiceKind.None);
@@ -256,6 +262,28 @@ public sealed class VoiceConformanceTests
     }
 
     private static IVoiceStreamDecoder Steady(VoiceKind kind) => new SteadyDecoder();
+
+    /// <summary>A Steam Voice payload: steamID, a 16 kHz rate record, a SILK record of two-byte frames, its CRC32 tail.</summary>
+    private static byte[] SteamSilk(int frames)
+    {
+        List<byte> block = [];
+
+        for (int i = 0; i < frames; i++)
+        {
+            block.AddRange(BitConverter.GetBytes((ushort)2));
+            block.AddRange([1, 2]);
+        }
+
+        block.AddRange(BitConverter.GetBytes((ushort)0xFFFF));
+
+        List<byte> payload = [.. BitConverter.GetBytes(76561197960265728UL), 0x0B, .. BitConverter.GetBytes((ushort)16000)];
+        payload.Add(0x04);
+        payload.AddRange(BitConverter.GetBytes((ushort)block.Count));
+        payload.AddRange(block);
+        payload.AddRange(BitConverter.GetBytes(System.IO.Hashing.Crc32.HashToUInt32([.. payload])));
+
+        return [.. payload];
+    }
 
     private static VoiceArrival Packet(int tick, int entity, int samples) =>
         new(tick, entity, Proximity: false, new VoiceFraming(VoiceKind.Speex, 8000, samples), Array.Empty<byte>());

@@ -115,19 +115,56 @@ public sealed class VoicePresenterConformanceTests
         sink.Played.ShouldHaveSingleItem().Sample.FrameCount.ShouldBe(3200);
     }
 
-    /// <summary>Slow playback is not a stall: the demo keeps advancing, so the voice is never silenced.</summary>
+    /// <summary>
+    /// **Slow playback starves, as the engine's does.** Packets of one tick's audio (120 samples, 15 ms) arrive one per
+    /// tick; at a quarter speed a tick takes 60 ms of the mixer's real time, so the buffer runs dry and the channel ends.
+    /// </summary>
     [Test]
-    public void Update_PlayingAtATenthOfSpeed_NeverSilences()
+    public void Update_PlayingAtAQuarterSpeed_Starves()
     {
         Recording sink = new();
-        VoicePresenter presenter = Presenter(Spurt(proximity: false, packets: 12));
+        VoicePresenter presenter = Presenter(Spurt(proximity: false, packets: 40, samples: 120));
 
-        for (int tick = 10; tick <= 30; tick++)
+        for (int tick = 10; tick <= 40; tick++)
         {
-            Step(presenter, sink, tick, (tick - 10) * 0.15d);
+            Step(presenter, sink, tick, (tick - 10) * 0.06d);
+        }
+
+        sink.Silenced.ShouldNotBeEmpty();
+    }
+
+    /// <summary>The control: the same packets at the recording's own speed arrive as fast as they play, and never starve.</summary>
+    [Test]
+    public void Update_PlayingAtFullSpeed_NeverStarves()
+    {
+        Recording sink = new();
+        VoicePresenter presenter = Presenter(Spurt(proximity: false, packets: 40, samples: 120));
+
+        for (int tick = 10; tick <= 40; tick++)
+        {
+            Step(presenter, sink, tick, (tick - 10) * 0.015d);
         }
 
         sink.Silenced.ShouldBeEmpty();
+    }
+
+    /// <summary>A resume decodes from its own packet with a fresh decoder: <c>Voice_AssignChannel</c> resets the codec.</summary>
+    [Test]
+    public void Update_AJumpIntoASpurt_DecodesFreshFromTheResumePacket()
+    {
+        Recording sink = new();
+        List<int> decodedFrom = [];
+        VoicePresenter presenter = new()
+        {
+            Plan = [Spurt(proximity: false, packets: 3)],
+            Decoders = _ => new Counting(decodedFrom),
+            Renderer = render => Task.FromResult(render()),
+        };
+
+        presenter.Update(sink, 10, jumped: true, Origin, Ears, 0d, View, Nowhere);
+        presenter.Update(sink, 12, jumped: true, Origin, Ears, 0.03d, View, Nowhere);
+
+        decodedFrom.ShouldBe([3, 1], "a decoder per start, each fed only the packets from its own start");
     }
 
     [Test]
@@ -154,6 +191,30 @@ public sealed class VoicePresenterConformanceTests
         Step(presenter, sink, 20, 0.15d);
 
         sink.Played.ShouldHaveSingleItem().Sample.FrameCount.ShouldBe(3200 - 360);
+    }
+
+    /// <summary>A decode that finishes while the demo is paused past its pad starts then, as the engine's buffered start would.</summary>
+    [Test]
+    public void Update_ADecodeFinishingWhilePausedPastThePad_StartsThen()
+    {
+        Recording sink = new();
+        TaskCompletionSource<SoundSample> decode = new();
+        Func<SoundSample>? render = null;
+        VoicePresenter presenter = new()
+        {
+            Plan = [Spurt(proximity: false)],
+            Decoders = _ => new Steady(),
+            Renderer = work => { render = work; return decode.Task; },
+        };
+
+        Step(presenter, sink, 10, 0d);
+        Step(presenter, sink, 17, 0.1d);
+        sink.Played.ShouldBeEmpty("still decoding");
+
+        decode.SetResult(render!());
+        Step(presenter, sink, 17, 0.2d);
+
+        sink.Played.Count.ShouldBe(1);
     }
 
     [Test]
@@ -192,11 +253,26 @@ public sealed class VoicePresenterConformanceTests
     private static VoicePresenter Presenter(VoiceSpurt spurt) => new() { Plan = [spurt], Decoders = _ => new Steady(), Renderer = render => Task.FromResult(render()) };
 
     /// <summary>1600-sample packets (0.2 s at 8 kHz) from entity 3, one a tick from tick 10: starts at 17.</summary>
-    private static VoiceSpurt Spurt(bool proximity, int packets = 2) =>
+    private static VoiceSpurt Spurt(bool proximity, int packets = 2, int samples = 1600) =>
         VoicePlan.Build(
             [.. Enumerable.Range(0, packets).Select(i =>
-                new VoiceArrival(10 + i, 3, proximity, new VoiceFraming(VoiceKind.Speex, 8000, 1600), Array.Empty<byte>()))],
+                new VoiceArrival(10 + i, 3, proximity, new VoiceFraming(VoiceKind.Speex, 8000, samples), Array.Empty<byte>()))],
             0.015f).ShouldHaveSingleItem();
+
+    /// <summary>Records how many packets each fresh decoder was fed.</summary>
+    private sealed class Counting(List<int> fed) : IVoiceStreamDecoder
+    {
+        private int _packets;
+
+        public int Decode(ReadOnlySpan<byte> body, Span<short> into)
+        {
+            _packets++;
+            into.Fill(1000);
+            return 0;
+        }
+
+        public void Dispose() => fed.Add(_packets);
+    }
 
     private sealed class Steady : IVoiceStreamDecoder
     {

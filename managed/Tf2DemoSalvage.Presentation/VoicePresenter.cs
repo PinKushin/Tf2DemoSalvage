@@ -38,7 +38,7 @@ public sealed class VoicePresenter
             _pending.Clear();
             _playing.Clear();
             _starved.Clear();
-            _renders.Clear();
+            Prune();
             _next = 0;
             _lastTick = null;
         }
@@ -80,7 +80,11 @@ public sealed class VoicePresenter
 
         if (!Enabled)
         {
+            // `Voice_Idle` ends every channel; nothing queued survives (`Voice_Deinit`).
             SilencePlaying(output);
+            _pending.Clear();
+            _starved.Clear();
+            Prune();
             _lastTick = null;
             return;
         }
@@ -98,12 +102,14 @@ public sealed class VoicePresenter
         }
         else if (tick == last)
         {
-            Stall(output, tick, now);
-            return;
+            // Stalled: nothing arrives, but the mixer reads on; a start whose pad has run out and whose decode has just
+            // finished still starts below.
+            Starve(output, tick, now);
         }
         else
         {
             Arrive(last, tick);
+            Starve(output, tick, now);
         }
 
         _lastTick = tick;
@@ -122,8 +128,9 @@ public sealed class VoicePresenter
 
             if (!due.Sound.IsCompletedSuccessfully)
             {
-                // Recorded for the caller's log rather than thrown on the frame.
+                // Recorded for the caller's log rather than thrown on the frame; forgotten so a resume decodes it again.
                 Failure = due.Sound.Exception?.GetBaseException().Message;
+                Prune();
                 continue;
             }
 
@@ -132,70 +139,76 @@ public sealed class VoicePresenter
         }
     }
 
-    /// <summary>The last start whose decode failed, for the caller to log; null when none has.</summary>
-    public string? Failure { get; private set; }
+    /// <summary>The last decode that failed, for the caller to log; null when none has. Written from the decode's own thread too.</summary>
+    public string? Failure
+    {
+        get => System.Threading.Volatile.Read(ref _failure);
+        private set => System.Threading.Volatile.Write(ref _failure, value);
+    }
+
+    private string? _failure;
 
     /// <summary>Runs a start's decode; off the frame by default, inline for a test.</summary>
     public Func<Func<SoundSample>, Task<SoundSample>> Renderer { get; init; } = Task.Run;
 
     /// <summary>
-    /// Queues a start and begins decoding it now, at the packet that assigns the channel — where
-    /// <c>Voice_AssignChannel</c> reads <c>voice_scale</c> — so the pad's lead hides the decode.
+    /// Queues a start and begins decoding it now, from the packet that assigns the channel, with a fresh decoder and gain —
+    /// as <c>Voice_AssignChannel</c> resets both and reads <c>voice_scale</c> — off the frame, so the pad's lead hides it.
     /// </summary>
     /// <remarks>
-    /// **Each spurt is decoded once, from its first packet, and a resume slices it.** A run whose frames step past
-    /// <c>SoundSchedule.CatchUpTicks</c> is a jump every frame, and re-decoding every arriving spurt per jump starved the
-    /// frame (the 8x playback test fell to 600 ms frames). The engine decodes a resume with a fresh decoder and gain; a
-    /// slice carries the state the first packet built. Ours, listed in findings/31.
+    /// **A decode not finished when the pad drains starts late, part-way in.** The engine has no such case: it decodes
+    /// each packet as it arrives (<c>Voice_AddIncomingData</c>), so by the pad's end the buffer holds what arrived, and the
+    /// mixer reads from its start. Skipping what the mixer would have read since is the nearest match.
+    /// A queued decode that nothing will play — superseded by a jump — is cancelled.
     /// </remarks>
     private void Queue(VoiceSpurt spurt, int packet, int atTick)
     {
-        if (!_renders.TryGetValue(spurt, out Task<SoundSample>? sound))
+        // Keyed with the scale too: each start reads `voice_scale` afresh, as `Voice_AssignChannel` does.
+        float scale = Scale;
+
+        if (!_renders.TryGetValue((spurt, packet, scale), out Rendering? rendering))
         {
-            float scale = Scale;
             Func<VoiceKind, IVoiceStreamDecoder> decoders = Decoders;
-            sound = Renderer(() => VoicePlan.Render(spurt, 0, 0, scale, decoders));
-            _renders[spurt] = sound;
+            // CA2000 is a false positive: ownership moves into `_renders`, and `Prune` cancels and disposes it.
+#pragma warning disable CA2000
+            System.Threading.CancellationTokenSource cancel = new();
+#pragma warning restore CA2000
+            System.Threading.CancellationToken token = cancel.Token;
+            Task<SoundSample> sound = Renderer(() => VoicePlan.Render(spurt, packet, 0, scale, decoders, token));
+
+            // Observed even when nothing reaches its start, so a fault is reported rather than unobserved.
+            _ = sound.ContinueWith(
+                faulted => Failure = faulted.Exception?.GetBaseException().Message,
+                System.Threading.CancellationToken.None,
+                TaskContinuationOptions.OnlyOnFaulted,
+                TaskScheduler.Default);
+
+            rendering = new Rendering(sound, cancel);
+            _renders[(spurt, packet, scale)] = rendering;
         }
 
-        _pending.Add(new Pending(spurt, packet, atTick, sound));
+        _pending.Add(new Pending(spurt, packet, atTick, rendering.Sound, scale));
     }
 
-    /// <summary>Drops the decodes nothing pending, starved or playing still needs.</summary>
+    /// <summary>Cancels and drops the decodes nothing pending still needs; a started sound holds its own samples.</summary>
     private void Prune()
     {
-        if (_renders.Count == 0)
+        foreach ((VoiceSpurt, int, float) key in new List<(VoiceSpurt, int, float)>(_renders.Keys))
         {
-            return;
-        }
-
-        HashSet<VoiceSpurt> needed = [];
-
-        foreach (Pending pending in _pending)
-        {
-            needed.Add(pending.Spurt);
-        }
-
-        foreach ((VoiceSpurt spurt, int _) in _starved)
-        {
-            needed.Add(spurt);
-        }
-
-        foreach (Playing playing in _playing)
-        {
-            needed.Add(playing.Spurt);
-        }
-
-        foreach (VoiceSpurt spurt in new List<VoiceSpurt>(_renders.Keys))
-        {
-            if (!needed.Contains(spurt))
+            if (!_pending.Exists(pending =>
+                ReferenceEquals(pending.Spurt, key.Item1) && pending.Packet == key.Item2 && BitConverter.SingleToInt32Bits(pending.Scale) == BitConverter.SingleToInt32Bits(key.Item3) &&
+                !pending.Sound.IsFaulted))
             {
-                _renders.Remove(spurt);
+                _renders[key].Cancel.Cancel();
+                _renders[key].Cancel.Dispose();
+                _renders.Remove(key);
             }
         }
     }
 
-    private readonly Dictionary<VoiceSpurt, Task<SoundSample>> _renders = new(ReferenceEqualityComparer.Instance);
+    private readonly Dictionary<(VoiceSpurt, int, float), Rendering> _renders = [];
+
+    private sealed record Rendering(Task<SoundSample> Sound, System.Threading.CancellationTokenSource Cancel);
 
     /// <summary>Playback moved forward: packets in <c>(last, tick]</c> arrive.</summary>
     private void Arrive(int last, int tick)
@@ -224,8 +237,11 @@ public sealed class VoicePresenter
         }
     }
 
-    /// <summary>The demo is not advancing: nothing arrives, and a voice that has played everything that arrived goes quiet.</summary>
-    private void Stall(IAudioSink output, int tick, double now)
+    /// <summary>
+    /// The mixer reads in real time and packets arrive in demo time: a voice that has played everything that has arrived is
+    /// starved and ended (<c>Voice_Idle</c>), stalled or not — so slow playback stutters, as the engine's does.
+    /// </summary>
+    private void Starve(IAudioSink output, int tick, double now)
     {
         for (int i = _playing.Count - 1; i >= 0; i--)
         {
@@ -238,7 +254,9 @@ public sealed class VoicePresenter
                 continue;
             }
 
-            double arrived = (double)(playing.Spurt.Packets[next].Offset - playing.FirstSample) / playing.Spurt.SampleRate;
+            // In samples the buffer kept: what it overwrote never reaches the mixer.
+            double arrived = (double)(VoicePlan.KeptOffset(playing.Spurt, playing.Spurt.Packets[next].Offset) -
+                VoicePlan.KeptOffset(playing.Spurt, playing.FirstSample)) / playing.Spurt.SampleRate;
 
             if (now - playing.StartedAt >= arrived)
             {
@@ -319,9 +337,17 @@ public sealed class VoicePresenter
 
         (float left, float rightGain) = SoundGain.Pan(SoundGain.Rightward(listener, right, source));
 
-        // From the packet the channel was assigned at, less what the mixer had already read: a slice, not a re-render.
-        int from = Math.Min(VoicePlan.KeptOffset(spurt, spurt.Packets[packet].Offset) + skip, rendered.Samples.Length);
+        // Rendered from the packet the channel was assigned at; what the mixer had already read is sliced off.
+        int from = Math.Min(skip, rendered.Samples.Length);
         SoundSample sample = rendered with { Samples = rendered.Samples[from..] };
+
+        if (sample.Samples.IsEmpty)
+        {
+            // A channel run of no samples — Steam Voice's silence records — held its channel through the pad, as the
+            // engine's does, and the mixer's first read starves it: there is nothing to hand the device.
+            return;
+        }
+
         output.Play(sample, left, rightGain, SoundGain.AtDistance(spurt.Proximity ? 80 : 60, distance), 1f, entity, channel);
 
         // A channel holds one spurt at a time, so whatever last played on it has ended.
@@ -330,7 +356,7 @@ public sealed class VoicePresenter
         Prune();
     }
 
-    private readonly record struct Pending(VoiceSpurt Spurt, int Packet, int AtTick, Task<SoundSample> Sound);
+    private readonly record struct Pending(VoiceSpurt Spurt, int Packet, int AtTick, Task<SoundSample> Sound, float Scale);
 
     private readonly record struct Playing(VoiceSpurt Spurt, int Entity, int Channel, SoundSample Sample, double StartedAt, int FirstSample);
 }

@@ -236,7 +236,19 @@ public static class VoicePlan
     /// <param name="scale"><c>voice_scale</c>.</param>
     /// <param name="decoders">Makes a fresh decoder for a kind.</param>
     /// <returns>Mono samples at the spurt's rate.</returns>
-    public static SoundSample Render(VoiceSpurt spurt, int fromPacket, int skip, float scale, Func<VoiceKind, IVoiceStreamDecoder> decoders)
+    public static SoundSample Render(VoiceSpurt spurt, int fromPacket, int skip, float scale, Func<VoiceKind, IVoiceStreamDecoder> decoders) =>
+        Render(spurt, fromPacket, skip, scale, decoders, System.Threading.CancellationToken.None);
+
+    /// <summary>A cancellable <see cref="Render(VoiceSpurt, int, int, float, Func{VoiceKind, IVoiceStreamDecoder})"/>, checked per packet.</summary>
+    /// <param name="spurt">The spurt.</param>
+    /// <param name="fromPacket">The packet the channel was assigned at.</param>
+    /// <param name="skip">Samples already read by the mixer.</param>
+    /// <param name="scale"><c>voice_scale</c>.</param>
+    /// <param name="decoders">Makes a fresh decoder for a kind.</param>
+    /// <param name="cancel">Abandons a render nothing will play.</param>
+    /// <returns>Mono samples at the spurt's rate.</returns>
+    public static SoundSample Render(
+        VoiceSpurt spurt, int fromPacket, int skip, float scale, Func<VoiceKind, IVoiceStreamDecoder> decoders, System.Threading.CancellationToken cancel)
     {
         ArgumentNullException.ThrowIfNull(spurt);
         ArgumentNullException.ThrowIfNull(decoders);
@@ -248,6 +260,7 @@ public static class VoicePlan
         {
             for (int i = fromPacket; i < spurt.Packets.Count; i++)
             {
+                cancel.ThrowIfCancellationRequested();
                 VoiceSpurtPacket packet = spurt.Packets[i];
                 decoder.Decode(packet.Body.Span, pcm.AsSpan(packet.Offset - first, packet.Samples));
             }
@@ -289,10 +302,10 @@ public static class VoicePlan
         return new SoundSample(spurt.SampleRate, 1, samples);
     }
 
-    /// <summary>Where a spurt sample lands in its render, once the overwritten runs are taken out.</summary>
+    /// <summary>Where a spurt sample lands once the runs the buffer overwrote are taken out.</summary>
     /// <param name="spurt">The spurt.</param>
     /// <param name="offset">A sample offset in the spurt.</param>
-    /// <returns>The offset in <see cref="Render(VoiceSpurt, int, int, float)"/>'s output from packet 0.</returns>
+    /// <returns>How many kept samples precede it.</returns>
     public static int KeptOffset(VoiceSpurt spurt, int offset)
     {
         ArgumentNullException.ThrowIfNull(spurt);
