@@ -1099,6 +1099,7 @@ public sealed class EntityModelSet : Hud.IMdlCache, IPosedEntities
 
         // Resolved attachments belong to this pass's camera, not to the entity — see the field.
         _attachments.Clear();
+        _absolute.Clear();
 
         // Events are a per-FRAME answer; the WALK's state is per entity and survives. **Cleared when the time moves, not
         // per pass**: a frame runs this three times (drawn, undrawn, viewmodel), and clearing per pass left only the
@@ -1501,7 +1502,10 @@ public sealed class EntityModelSet : Hud.IMdlCache, IPosedEntities
                 continue;
             }
 
-            animating.Follows = prop.AttachedTo is { } wearer
+            // **Followed only when bone-merged** — `IsFollowingEntity` is `EF_BONEMERGE && MOVETYPE_NONE && GetMoveParent()`
+            // (the `IsFollowingEntity` note further down this file). A plain move child following its parent merged any bone it
+            // shared by name and stood at the parent's attachment, not attachment × local (B551).
+            animating.Follows = prop is { AttachedTo: { } wearer, BoneMerged: true }
                 ? _entities.GetValueOrDefault(wearer)
                 : null;
 
@@ -1532,6 +1536,13 @@ public sealed class EntityModelSet : Hud.IMdlCache, IPosedEntities
     /// </remarks>
     private void Attach(SceneProp prop, AnimatingEntity animating, double seconds)
     {
+        // **A move child that is NOT bone-merged is attachment × LOCAL, which `PlacementOf` already composed through
+        // `Absolute`** (B551, `c_baseentity.cpp:4330-4401`); the bare attachment matrix below would drop its own offset.
+        if (!prop.BoneMerged)
+        {
+            return;
+        }
+
         // Stryker disable all : a mutant that empties the guard body leaves 'point', 'wearer',
         // 'posed', 'wearerModel' and 'attachments' unassigned below (CS0165), and Safe Mode then
         // drops every mutation in this method — B410.
@@ -1755,12 +1766,17 @@ public sealed class EntityModelSet : Hud.IMdlCache, IPosedEntities
         AttachmentMatrix(entity, pick) is { } placement ? (placement[3], placement[7], placement[11]) : null;
 
     /// <summary>The attachment's world matrix, 3×4 row-major, for the attachment <paramref name="pick"/> chooses.</summary>
-    private float[]? AttachmentMatrix(int entity, Func<IReadOnlyList<StudioAttachment>, int> pick)
+    private float[]? AttachmentMatrix(int entity, Func<IReadOnlyList<StudioAttachment>, int> pick) =>
+        InScene(entity) is null ? null : PosedAttachmentMatrix(entity, pick);
+
+    /// <summary>The attachment matrix of an entity posed in the pass in flight, which the scene does not list yet.</summary>
+    /// <remarks>For a move child's parent during `Simulate` (B551); everything asked from outside goes through
+    /// <see cref="AttachmentMatrix"/>, which refuses an entity that has left the scene.</remarks>
+    private float[]? PosedAttachmentMatrix(int entity, Func<IReadOnlyList<StudioAttachment>, int> pick)
     {
         // Stryker disable all : a mutant that empties the guard body leaves the out variables unassigned
         // below (CS0165), and Safe Mode then drops every mutation in this method — B410.
-        if (InScene(entity) is null ||
-            !_entities.TryGetValue(entity, out AnimatingEntity? animating) ||
+        if (!_entities.TryGetValue(entity, out AnimatingEntity? animating) ||
             !_entityModels.TryGetValue(entity, out string? model) ||
             !_frames.TryGetValue(model, out PropModels.ModelFrames? frames) ||
             frames.Attachments is not { Count: > 0 } attachments)
@@ -4042,12 +4058,73 @@ public sealed class EntityModelSet : Hud.IMdlCache, IPosedEntities
     /// asks <c>GetAbsOrigin()</c>. The owner's report that drove its third branch — *"that one gate on the left is
     /// rotated 90 degreed"*, from `cp_fulgur`'s setup gates (B241) — is why the angle shortcut there is conditional.
     /// </remarks>
-    private ScenePose Absolute(SceneProp prop, int budget) =>
-        ParentChain.Absolute(
-            prop, entity => _propsByEntity.TryGetValue(entity, out SceneProp? parent) ? parent : null, budget);
+    /// <para>
+    /// **Parents come from the pass first and the frame second** (B551): the pass's copy is the one this pass posed, and
+    /// <see cref="PlaceFrame"/>'s map supplies a parent the pass does not hold. **Memoized per pass** at the full depth,
+    /// cleared where the pass's attachments are, because an attachment-hung child is only as fresh as that table.
+    /// </para>
+    private ScenePose Absolute(SceneProp prop, int budget)
+    {
+        bool full = budget == AnimatingEntity.MaximumFollowDepth;
+
+        if (full && _absolute.TryGetValue(prop.EntityIndex, out ScenePose known))
+        {
+            return known;
+        }
+
+        _parentOf ??= ParentOf;
+        _attachmentOf ??= (entity, number) =>
+            PosedAttachmentMatrix(entity, attachments => number >= 1 && number <= attachments.Count ? number - 1 : -1);
+
+        ScenePose pose = ParentChain.Absolute(prop, _parentOf, budget, _attachmentOf);
+
+        if (full)
+        {
+            _absolute[prop.EntityIndex] = pose;
+        }
+
+        return pose;
+    }
+
+    /// <summary>An entity's prop: this pass's copy, else the frame's (<see cref="PlaceFrame"/>).</summary>
+    private SceneProp? ParentOf(int entity) =>
+        _propsByEntity.TryGetValue(entity, out SceneProp? inPass) ? inPass : _frameProps.GetValueOrDefault(entity);
+
+    /// <summary><see cref="Absolute"/>'s parent lookup, made once rather than per call.</summary>
+    private Func<int, SceneProp?>? _parentOf;
+
+    /// <summary><see cref="Absolute"/>'s attachment lookup, made once rather than per call.</summary>
+    private Func<int, int, float[]?>? _attachmentOf;
 
     /// <summary>This frame's props by entity index, so a parent chain can be walked.</summary>
     private readonly Dictionary<int, SceneProp> _propsByEntity = [];
+
+    /// <summary>Every prop of this frame, whatever pass draws it — the parents a pass's own list may lack (B551).</summary>
+    private readonly Dictionary<int, SceneProp> _frameProps = [];
+
+    /// <summary>Hands over every prop of the frame before its passes, so a move parent is found in any of them.</summary>
+    /// <param name="props">The frame's props, drawn or not.</param>
+    /// <remarks>
+    /// **A pass's list is not the frame.** `Simulate` indexes only the props of its own pass — drawn, undrawn or
+    /// viewmodel — and the scene's visibility rules remove props from those lists, while <c>CalcAbsolutePosition</c>
+    /// composes a child onto its parent with no reference to whether the parent is drawn (`c_baseentity.cpp:4393`).
+    /// A parent missing from the child's pass gave it its LOCAL pose, which is B551 again.
+    /// </remarks>
+    public void PlaceFrame(IEnumerable<SceneProp> props)
+    {
+        ArgumentNullException.ThrowIfNull(props);
+
+        _frameProps.Clear();
+        _absolute.Clear();
+
+        foreach (SceneProp prop in props)
+        {
+            _frameProps[prop.EntityIndex] = prop;
+        }
+    }
+
+    /// <summary>Each entity's absolute pose, composed once per pass — the engine's cached <c>m_rgflCoordinateFrame</c>.</summary>
+    private readonly Dictionary<int, ScenePose> _absolute = [];
 
     /// <summary>Bone-to-world folded with the model's bind pose, which is what the shader skins by.</summary>
     /// <remarks>
@@ -5741,6 +5818,10 @@ public sealed class EntityModelSet : Hud.IMdlCache, IPosedEntities
             scene[prop.EntityIndex] = prop;
         }
 
+        // **Absolute poses composed during Simulate may predate this pass's attachments** — `AttachmentMatrix` asks the
+        // scene just filled — so the draw recomposes once rather than reusing an attachment-less answer (B551).
+        _absolute.Clear();
+
         // **Every prop that does not draw is counted with its reason.** A silent `continue` here is
         // how "all the props went away" became a guessing game: the scene said 14 models, the map
         // showed one, and nothing in between reported which test rejected the other thirteen.
@@ -5804,14 +5885,12 @@ public sealed class EntityModelSet : Hud.IMdlCache, IPosedEntities
             // been, which is why nobody could see it until `kRenderNone` stopped drawing that.
             ScenePose pose = prop.Pose;
 
-            // **This was changed to compose the parent chain and changed back** (B241). The theory
-            // was that a parented prop drew at its LOCAL offset; the measurement says otherwise —
-            // with the composition removed again, the viewer still logs
-            // `door_grate003_top draws at (5416, -2168, 552)`, the gate. The pose reaching here
-            // already carries the world placement, so composing again would apply it twice.
-            //
-            // Left as it was, deliberately: an unverifiable change to where EVERY prop is drawn is
-            // not worth carrying on a theory the evidence does not support.
+            // **The pose here is the wire's, and for a move child that is LOCAL** — `SendProxy_Origin`
+            // sends `GetLocalOrigin()` (`server/baseentity.cpp:199`). B241 once read
+            // `door_grate003_top draws at (5416, -2168, 552)` as proof the pose was already world; it was
+            // a child of a `func_door`, and a brush door with no origin brush sits at (0, 0, 0), where local and
+            // world coincide (interpolated: that door's origin was not re-measured). A
+            // parented, non-bone-merged prop is composed below through `Absolute` (B551), not here.
             //
             // **A gib is drawn where its physics object is** (B409): `C_PhysPropClientside`'s origin and angles follow the object,
             // and a gib model is baked, so its entity transform is the whole of its pose.
@@ -6004,17 +6083,17 @@ public sealed class EntityModelSet : Hud.IMdlCache, IPosedEntities
             //
             // Placed BEFORE the bone-merge branch reads `_drawnPlacements`, because the two are
             // alternatives rather than stages: the engine returns from whichever one applies.
-            if (prop is { AttachedTo: { } parent, BoneMerged: false }
-                && _parentPlacements.TryGetValue(parent, out PropTransform parentToWorld))
+            if (prop is { AttachedTo: { } parent, BoneMerged: false } && ParentOf(parent) is not null)
             {
                 // `GetParentToWorldTransform` prefers the parent's ATTACHMENT when one is named and
                 // resolvable, and falls back to the parent's own transform otherwise
-                // (`c_baseentity.cpp:4330`). Brushwork has no attachments, so the fallback is the
-                // path every gate takes; an attachment-hung child still reaches the bone code below
-                // through `AttachmentPoint`.
-                // **The whole chain, not one level** (B551): `GetParentToWorldTransform` is the parent's own
-                // `EntityToWorldTransform`, composed by the same function (`c_baseentity.cpp:4342`). Concatenating onto
-                // the parent's raw pose put a grandchild at its parent's LOCAL offset.
+                // (`c_baseentity.cpp:4330`) — both inside `Absolute` (B551). Brushwork has no
+                // attachments, so the fallback is the path every gate takes.
+                //
+                // **The whole chain, not one level** (B551): the parent's transform is its own
+                // `EntityToWorldTransform`, composed by the same function (`:4342`). Concatenating onto
+                // the parent's raw pose put a grandchild at its parent's LOCAL offset. And the parent is
+                // looked up in the FRAME, not this pass, so an undrawn parent still carries its child.
                 ScenePose placedAt = Absolute(prop, AnimatingEntity.MaximumFollowDepth);
                 transform = new PropTransform(
                     placedAt.X, placedAt.Y, placedAt.Z,
@@ -6043,9 +6122,8 @@ public sealed class EntityModelSet : Hud.IMdlCache, IPosedEntities
                 {
                     _render.LogDebug(
                         "{Message}",
-                        $"{prop.ModelPath} composed onto {parent}: parent "
-                        + $"({parentToWorld.OriginX:0} {parentToWorld.OriginY:0} "
-                        + $"{parentToWorld.OriginZ:0}) + local "
+                        $"{prop.ModelPath} composed onto {parent}"
+                        + $"{(prop.AttachmentPoint is { } point ? $" attachment {point}" : string.Empty)}: local "
                         + $"({prop.Pose.X:0} {prop.Pose.Y:0} {prop.Pose.Z:0}) = "
                         + $"({transform.OriginX:0} {transform.OriginY:0} {transform.OriginZ:0})");
                 }

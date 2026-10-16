@@ -39730,13 +39730,33 @@ now says local.
 Both now go through `ParentChain.Absolute`. Held by `MoveChildPlacementConformanceTests` (both red before the fix,
 with an unparented control) and, on real bytes, `MoveChildPlacementCorpusTests` on badwater (lcor; skips in CI).
 
+**Review round, same branch — four more of the same mechanism, each red first and each sabotaged:**
+
+3. **The parent was looked up in the PASS, not the frame.** `Simulate` indexes only its own pass (drawn, undrawn,
+   viewmodel) and the scene's visibility rules remove props before any pass, so a child whose parent was filtered — a
+   won round's respawn wall, an undrawn first-person player — got its LOCAL pose, and a baked one was not drawn at all.
+   `MomentScene.Build` now hands every prop to `EntityModelSet.PlaceFrame` before the filters; a parent missing from the
+   pass comes from there.
+4. **The parent's attachment was ignored** (`GetParentToWorldTransform`, `:4330-4338`). `Absolute` now composes
+   attachment × local when `m_iParentAttachment` resolves. Behind it: a skinned non-bone-merged child was given
+   `Follows`, so it bone-merged onto any bone it shared by name and stood at the bare attachment — `IsFollowingEntity`
+   is `EF_BONEMERGE && MOVETYPE_NONE && GetMoveParent()`. Followed now only when bone-merged.
+5. **The parent's model scale stretched the child's offset.** `m_rgflCoordinateFrame` is built from angles and origins
+   alone (`AngleMatrix( GetLocalAngles(), GetLocalOrigin(), … )`, `:4380`; `ConcatTransforms`, `:4401`); the model
+   scale belongs to bone setup. The parent's frame is composed at scale 1.
+6. The stale B241 note that the pose "already carries the world placement" is corrected beside the code.
+
+`Absolute` caches its lookups and memoizes per pass (cleared again once the pass's scene is listed, because an
+attachment asked during `Simulate` may predate the parent's bones).
+
 **Still open, not touched:**
-- **Parent attachment for a non-bone-merged child** (`m_iParentAttachment`, `:4330`): `ParentChain.Absolute` ignores
-  it, and `Attach` sets a skinned child's placement to the attachment and drops its local offset. Measured attached
-  non-bone-merged children: zero on every demo probed, so the gap is unmeasured on real data.
+- **No real attachment-hung non-bone-merged child** has been seen on any demo probed; the attachment branch rests on
+  synthetic tests only.
 - **The payload cart is not a move child on the wire**: `bomb_cart.mdl` is a `CPhysicsProp` with no parent, sending its
   world origin. Nothing to compose.
 - **`pl_badwater`'s seven `train_billboard001_sm.mdl` (`CDynamicProp`, e.g. entity 408) sit at (0 0 47) with NO
   parent** at tick 60000 — a local-looking origin. Either the map parents them to something the server does not send
-  (then the engine draws them there too) or the handle fails to resolve here. Not investigated.
+  (then the engine draws them there too) or the handle fails to resolve here. **Not answerable yet**: the map
+  `pl_badwater_pro_v12.bsp` is not on this machine (not under the game's `tf/maps`, `tf/download/maps`, `tf2ds`, or the
+  user profile), so its `parentname` cannot be read, and no sampled tick gives them a parent.
 
