@@ -1219,7 +1219,7 @@ rendered level, and 0 renders exact zeros (`AudioOutputDeviceTests`).
 **Music is the open question.** `soundchars.h` has prefixes for streaming, voice, sentences, dry mix and spatial
 modes, but none for music. So whatever `snd_musicvolume` selects, the selection lives in `engine.dll` (B545).
 
-## Demo voice: five channels, a 100 ms pad, and a gain that applies `voice_scale` twice (B548)
+## Demo voice: five channels, a 100 ms pad, and a gain that applies `voice_scale` twice (B549)
 
 Four voice decoders existed for months and only the probe, the corpus tests and the fuzzer called them. The playback
 path between a decoded packet and the mixer is engine code, absent from the SDK, so it was read from TF2's x64
@@ -1247,11 +1247,43 @@ path between a decoded packet and the mixer is engine code, absent from the SDK,
   proximity channel plays at `SNDLVL_80dB` (`0x50`) from the speaker. Anything else plays at `SNDLVL_60dB` (`0x3c`)
   from the VIEW entity, so ordinary team voice is centred and unattenuated wherever the camera is.
 
-**Seek and pause follow from the buffer, and that is the whole rule.** The buffer only holds what has arrived. Paused,
-no packet arrives, so speech stops once the pad drains. After a jump, speech resumes at the next packet that arrives,
-behind a fresh pad and a fresh gain. `VoicePresenter` does exactly that. Two choices in it are *ours*: it uses wall
-time for the drain, and it restarts a spurt from the first packet at or after the new tick.
+- **The buffer is bounded and the newest audio wins.** Each channel's buffer is `0xac44` bytes, 22050 samples at the
+  output rate (`FUN_180002bb0` sizes all five). Its write (`FUN_180016fd0`) always lands; on overflow the read point
+  jumps to the write point, so the OLDEST unread samples are lost. The output rate is `Voice_Init`'s
+  (`FUN_180058700`): 44100 for `steam` with no rate, otherwise the rate the init carried.
+- **A second `svc_VoiceInit` ends every channel**: `ProcessVoiceInit` (`FUN_1801fa2b0`) calls `Voice_Init`, which calls
+  `Voice_Deinit` (`FUN_180057510`) first.
+- **The gain's fixed-point conversions are `CVTTSS2SI`** (180059121, 18005917d): out of range gives `0x80000000`,
+  and the products after it are 32-bit `IMUL`s that wrap. .NET's own float-to-int cast saturates, so `VoiceAutoGain`
+  converts explicitly. `voice_scale` is registered with no bounds (the four-argument constructor, flags `0x80`).
+- **`Voice_Idle` is passed the host frame time** (`_Host_RunFrame_Client`, the load at 1801a59c6), so the pad drains
+  on demo time: a paused demo holds a pending start.
+
+**Seek and pause follow from the buffer.** The buffer only holds what has arrived. Stalled, no packet arrives, so a
+voice plays out what had arrived and then starves. After a jump, a step back or a starve, speech resumes at the next
+packet that arrives, behind a fresh pad, a fresh gain and a fresh decoder.
+
+**The choices that are ours, not the engine's** — each is a place a listener could tell the difference:
+
+1. **The layout assumes playback at the recording's own speed.** `VoicePlan` decides channels, starves and overflow
+   once, in demo time. The presenter follows the real transport only for when sounds start and stop.
+2. **Slow playback never starves.** The engine's mixer reads in real time, so slowed playback would starve between
+   packets. Here a voice starves only while the demo is stalled, measured on the wall clock against what had arrived.
+   The engine likely stutters at slow playback; this does not. *Interpolated: not measured in TF2.*
+3. **A spurt is handed to the device whole**, so speech that had not yet arrived is already queued. It is silenced
+   when a stall starves it, and on a jump or a step back.
+4. **The device resamples.** The engine upsamples linearly into its buffer (`FUN_180056eb0`).
+5. **Steam Voice decoders are reset per start, like the frame codecs.** The engine hands Steam Voice to
+   `steamclient`'s `DecompressVoice`, whose state is not read.
+6. **The view entity is `svc_ServerInfo`'s player slot + 1** (`DemoTimeline.RecorderEntityIndex`), not the engine's
+   live view entity, which `svc_SetView` can change.
+7. **SILK's sample count is one 20 ms frame per Steam SILK record**, from the corpus measurement in findings/02. The
+   engine never counts, it decodes.
+8. **The codec in force is resolved in `VoicePlan.From`** by walking the inits beside the packets, the same rule as
+   `DemoTimeline.VoiceCodecAt`, without its per-call scan.
+9. **Not ported (B549):** the `voice_overdrive` duck, the speaking indicator, per-mix re-spatialisation of proximity
+   voice, `cl_voice_filter`, and the immediate stop of a `Voice_Init` mid-speech.
 
 **Output-level check:** `CorpusVoicePlaybackTests` plays the committed `z1800.dem` (806 `vaudio_celt` packets) through
-the presenter, and asserts that every planned spurt starts once, audibly, on a channel from 8 to 12. What is not
-ported is B548.
+the presenter. It asserts that the set of (entity, channel, start tick) started equals the plan's, and that every start
+carries speech.

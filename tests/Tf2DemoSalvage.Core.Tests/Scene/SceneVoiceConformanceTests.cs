@@ -1,3 +1,5 @@
+using System.Linq;
+
 using Tf2DemoSalvage.Core.Net;
 using Tf2DemoSalvage.Core.Scene;
 
@@ -42,13 +44,16 @@ public sealed class SceneVoiceConformanceTests
         (init.Tick, init.Codec, init.Quality, init.SampleRate).ShouldBe((7, "vaudio_celt", 22050, (int?)22050));
     }
 
+    /// <summary>By stream order: the engine applies each message as it reads it, whatever the tick says.</summary>
     [Test]
-    public void CodecAt_BeforeAndAfterAnInit_IsNullThenTheInitsCodec()
+    public void VoiceCodecOf_PacketsBeforeAndAfterAnInit_AreNullThenTheInitsCodec()
     {
-        DemoTimeline timeline = Watching(new VoiceInitMessage("steam", 5));
+        DemoTimeline timeline = Watching(
+            new VoiceDataMessage(1, 0, 8, new byte[1]),
+            new VoiceInitMessage("steam", 5),
+            new VoiceDataMessage(1, 0, 8, new byte[1]));
 
-        timeline.VoiceCodecAt(6).ShouldBeNull();
-        timeline.VoiceCodecAt(7).ShouldBe("steam");
+        timeline.Voice.Select(timeline.VoiceCodecOf).ShouldBe([null, "steam"]);
     }
 
     private static DemoTimeline Watching(params INetMessage[] messages) =>

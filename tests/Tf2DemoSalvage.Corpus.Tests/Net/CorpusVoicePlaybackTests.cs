@@ -12,15 +12,14 @@ namespace Tf2DemoSalvage.Core.Tests.Net;
 /// <remarks>
 /// **z1800 because it is committed and carries voice** — 806 <c>vaudio_celt</c> packets (findings/02), so this runs on
 /// every machine with the CELT library. The unit tests prove the plan and the presenter with values they chose; this is
-/// the only one that fails if the timeline, the decoder and the presenter are not wired to each other.
+/// the only one that fails if the timeline, the framing, the decoder and the presenter are not wired to each other.
 /// </remarks>
 public sealed class CorpusVoicePlaybackTests
 {
     [Test]
-    public void Update_PlayingZ1800ThroughItsVoice_StartsEverySpurtAudiblyOnAVoiceChannel()
+    public void Update_PlayingZ1800ThroughItsVoice_StartsEachSpurtWhereThePlanPutsIt()
     {
         DemoTimeline timeline = DemoTimeline.Build(File.ReadAllBytes(Corpus.Demo("z1800")));
-
         VoicePlanResult plan = VoicePlan.From(timeline.VoiceInits, timeline.Voice, timeline.IntervalPerTick);
 
         if (plan.Refusal is { } refusal && plan.Spurts.Count == 0)
@@ -28,29 +27,34 @@ public sealed class CorpusVoicePlaybackTests
             Assert.Ignore("voice could not be decoded on this machine: " + refusal);
         }
 
+        int view = timeline.RecorderEntityIndex ?? 0;
         Sink sink = new();
-        VoicePresenter presenter = new() { Plan = plan.Spurts };
+        VoicePresenter presenter = new() { Plan = plan.Spurts, Interval = timeline.IntervalPerTick };
         int last = timeline.Frames[^1].Tick;
 
         for (int tick = timeline.Frames[0].Tick; tick <= last; tick++)
         {
-            presenter.Update(sink, tick, jumped: false, (0f, 0f, 0f), (0f, -1f, 0f), now: tick * 0.015d, _ => null);
+            sink.Tick = tick;
+            presenter.Update(sink, tick, jumped: false, (0f, 0f, 0f), (0f, -1f, 0f), tick * (double)timeline.IntervalPerTick, view, _ => null);
         }
 
-        plan.Spurts.Count.ShouldBeGreaterThan(0, "z1800 carries 806 voice packets");
-        sink.Played.Count.ShouldBe(plan.Spurts.Count, "every spurt starts once on a straight play-through");
-        sink.Played.ShouldAllBe(played => played.Channel >= VoicePlan.ChannelBase && played.Channel < VoicePlan.ChannelBase + VoicePlan.Channels);
-        sink.Played.Count(played => played.Peak > 0f).ShouldBe(sink.Played.Count, "every spurt carries speech, not silence");
+        plan.Spurts.ShouldNotBeEmpty("z1800 carries 806 voice packets");
+        sink.Played.Select(played => (played.Entity, played.Channel, played.Tick)).ShouldBe(
+            plan.Spurts.Select(spurt => (spurt.Proximity ? spurt.Entity : view, VoicePlan.EngineChannel(spurt.Channel), spurt.StartTick)),
+            ignoreOrder: true);
+        sink.Played.ShouldAllBe(played => played.Peak > 0f, "every spurt carries speech, not silence");
     }
 
     private sealed class Sink : IAudioSink
     {
-        public List<(int Channel, float Peak)> Played { get; } = [];
+        public int Tick { get; set; }
+
+        public List<(int Entity, int Channel, int Tick, float Peak)> Played { get; } = [];
 
         public float MasterGain { get; set; } = 1f;
 
         public void Play(SoundSample sample, float leftPan, float rightPan, float gain, float pitch, int entity, int channel) =>
-            Played.Add((channel, sample.Samples.ToArray().Max(System.MathF.Abs)));
+            Played.Add((entity, channel, Tick, sample.Samples.ToArray().Max(System.MathF.Abs)));
 
         public bool SetGain(int entity, int channel, float gain) => false;
 

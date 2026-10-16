@@ -724,6 +724,12 @@ public sealed record ViewerSettings
     /// <summary>Command name for <see cref="VoiceScale"/>.</summary>
     public const string VoiceScaleCommand = "voice_scale";
 
+    /// <summary>`voice_enable`, default 1: 0 plays no demo voice, as `ProcessVoiceData` drops every packet.</summary>
+    public bool VoiceEnable { get; init; } = EngineConVars.ByName(VoiceEnableCommand).Number != 0f;
+
+    /// <summary>Command name for <see cref="VoiceEnable"/>.</summary>
+    public const string VoiceEnableCommand = "voice_enable";
+
     /// <summary>`snd_mute_losefocus`, default 1: silent while the window does not have focus.</summary>
     public bool MuteLoseFocus { get; init; } = EngineConVars.ByName(MuteLoseFocusCommand).Number != 0f;
 
@@ -1023,6 +1029,11 @@ public sealed record ViewerSettings
         if (ReadNumber(values, VoiceScaleCommand) is { } voiceScale)
         {
             settings = settings with { VoiceScale = voiceScale };
+        }
+
+        if (Read(values, VoiceEnableCommand) is { } voiceEnable)
+        {
+            settings = settings with { VoiceEnable = voiceEnable != 0 };
         }
 
         if (Read(values, MuteLoseFocusCommand) is { } mute)
@@ -1328,6 +1339,7 @@ public sealed record ViewerSettings
         (DrawMonitorsCommand, s => Switch(s.DrawMonitors)),
         (VolumeCommand, s => EngineFloat(s.Volume)),
         (VoiceScaleCommand, s => EngineFloat(s.VoiceScale)),
+        (VoiceEnableCommand, s => Switch(s.VoiceEnable)),
         (MuteLoseFocusCommand, s => Switch(s.MuteLoseFocus)),
         (FlipViewModelsCommand, s => Switch(s.FlipViewModels)),
         (UseMinViewmodelsCommand, s => Switch(s.UseMinViewmodels)),

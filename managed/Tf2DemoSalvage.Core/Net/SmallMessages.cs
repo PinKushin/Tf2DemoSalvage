@@ -213,17 +213,15 @@ public sealed record VoiceInitMessage(
 /// a different project. The header is the part a reader wants: it turns "someone used voice" into
 /// a timeline of who talked.
 ///
-/// **How the client slot maps to a player is NOT yet established, and this record deliberately
-/// does not pretend otherwise.** Source is widely described as numbering voice clients from zero
-/// where entities number players from one, which would make the entity <c>Client + 1</c>. The only
-/// evidence available contradicts that: the protocol-11 SourceTV demo names two entities — 0 for
-/// SourceTV and 1 for the single human — and every one of its 125 voice packets reports
-/// <c>client 1</c>. Under the +1 rule that would be entity 2, which does not exist in the file.
+/// **The entity is <c>Client + 1</c>, read from the engine** (2026-10-15): <c>CClientState::ProcessVoiceData</c>
+/// (x64 engine.dll <c>FUN_1801fa0d0</c>) adds one to the client before every use — <c>GetPlayerInfo</c>, the channel
+/// lookup and the channel's sound — so <c>SceneVoice.Entity</c> is that.
 ///
-/// One speaker in one demo cannot settle it, and a SourceTV slot may itself shift the numbering.
-/// Resolving voice to a name needs a recording with **two or more people talking**, where the
-/// mapping either lines up or does not. Until then the raw slot is reported and nothing is
-/// inferred from it — a plausible wrong name is worse than a number.
+/// **The protocol-11 SourceTV demo looked like a contradiction and is not one.** Its 125 packets all report
+/// <c>client 1</c>, entity 2, where the earlier reading of its roster named only slots 0 (SourceTV) and 1 (the human).
+/// Those were <c>userinfo</c> ENTRY numbers, which are slots, so the human in slot 1 IS entity 2 — the same +1 every
+/// roster lookup here applies (<c>SceneGameEventTests</c>: "entry 0 is entity 1"). *Interpolated from the engine's rule;
+/// that demo's entity 2 was not re-measured.*
 ///
 /// This message went unreported for a long time for a mundane reason: no demo in the corpus
 /// contained one. The two protocol-11 recordings carry 125 between them and nothing else carries

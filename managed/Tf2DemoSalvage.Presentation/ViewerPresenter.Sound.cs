@@ -1,6 +1,5 @@
 using System;
 using System.Diagnostics;
-using System.Linq;
 
 using Microsoft.Extensions.Logging;
 
@@ -120,9 +119,11 @@ public sealed partial class ViewerPresenter
             _audioClock.Elapsed.TotalSeconds,
             recorded);
 
-        StallReport.Sounds(phases, Stopwatch.GetTimestamp() - soundAt, _audioLog);
-
+        long voiceAt = Stopwatch.GetTimestamp();
         PlayVoice(output, tick, ears.Origin, ears.Right);
+        long voiced = Stopwatch.GetTimestamp();
+
+        StallReport.Sounds(phases with { Voice = voiced - voiceAt }, voiced - soundAt, _audioLog);
     }
 
     /// <summary>The demo's voice, through the engine's voice channels (<see cref="VoicePresenter"/>).</summary>
@@ -135,13 +136,14 @@ public sealed partial class ViewerPresenter
     {
         if (!ReferenceEquals(_timeline, _voiceTimeline))
         {
-            // Laid out once per demo: decoding is the cost, and the plan is fixed by what the recording carries.
+            // Laid out once per demo from the framing alone; decoding happens per start, in `VoicePlan.Render`.
             _voiceTimeline = _timeline;
             VoicePlanResult plan = _timeline is { } demo
                 ? VoicePlan.From(demo.VoiceInits, demo.Voice, demo.IntervalPerTick)
                 : new VoicePlanResult([], null);
 
             _voice.Plan = plan.Spurts;
+            _voice.Interval = _timeline?.IntervalPerTick ?? _voice.Interval;
             _audioLog.LogInformation(
                 "{Message}",
                 $"voice: {plan.Spurts.Count} spurts from {_timeline?.Voice.Count ?? 0} packets" +
@@ -154,6 +156,8 @@ public sealed partial class ViewerPresenter
         }
 
         _voice.Scale = _settingsOwner.VoiceScale;
+        _voice.Enabled = _settingsOwner.VoiceEnable;
+        _voiceTick = tick;
         _voice.Update(
             output,
             tick,
@@ -161,8 +165,34 @@ public sealed partial class ViewerPresenter
             listener,
             right,
             _audioClock.Elapsed.TotalSeconds,
-            entity => timeline.PlayersAt(tick).FirstOrDefault(player => player.EntityIndex == entity) is { EntityIndex: > 0 } player
-                ? (player.X, player.Y, player.Z)
-                : null);
+
+            // The view entity is the recorder's: `svc_ServerInfo`'s player slot + 1, which a demo views from.
+            timeline.RecorderEntityIndex ?? 0,
+            _speakerAt ??= SpeakerAt);
+    }
+
+    /// <summary>The tick <see cref="SpeakerAt"/> answers for.</summary>
+    private int _voiceTick;
+
+    /// <summary>Made once, so a frame allocates no delegate.</summary>
+    private Func<int, (float X, float Y, float Z)?>? _speakerAt;
+
+    /// <summary>Where a speaker stands at the voice tick, asked only when a proximity voice starts.</summary>
+    private (float X, float Y, float Z)? SpeakerAt(int entity)
+    {
+        if (_timeline is not { } timeline)
+        {
+            return null;
+        }
+
+        foreach (ScenePlayer player in timeline.PlayersAt(_voiceTick))
+        {
+            if (player.EntityIndex == entity)
+            {
+                return (player.X, player.Y, player.Z);
+            }
+        }
+
+        return null;
     }
 }

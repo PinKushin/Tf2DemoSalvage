@@ -264,7 +264,8 @@ public static class StallReport
                 $", reclaim {Ms(phases.Reclaim):0.#}" +
                 $", loops {Ms(phases.Loops):0.#}" +
                 $", soundscape {Ms(phases.Soundscape):0.#}" +
-                $", starting {Ms(phases.Starting):0.#}"));
+                $", starting {Ms(phases.Starting):0.#}" +
+                $", voice {Ms(phases.Voice):0.#}"));
 
         // Stryker restore all
     }

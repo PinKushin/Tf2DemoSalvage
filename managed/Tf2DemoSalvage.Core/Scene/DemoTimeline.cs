@@ -2189,10 +2189,11 @@ public sealed class DemoTimeline
     /// <summary>Every <c>svc_VoiceInit</c>, in stream order — which codec <see cref="Voice"/> is in.</summary>
     public IReadOnlyList<SceneVoiceInit> VoiceInits { get; private init; } = [];
 
-    /// <summary>The voice codec in force at a tick, or null before any <c>svc_VoiceInit</c>.</summary>
-    /// <param name="tick">The tick.</param>
-    /// <returns>The last init's codec at or before the tick.</returns>
-    public string? VoiceCodecAt(int tick) => VoiceInits.LastOrDefault(init => init.Tick <= tick)?.Codec;
+    /// <summary>The voice codec a packet arrived under, or null when no <c>svc_VoiceInit</c> preceded it.</summary>
+    /// <param name="voice">One of <see cref="Voice"/>.</param>
+    /// <returns>The codec of the init in force, by stream order.</returns>
+    public string? VoiceCodecOf(SceneVoice voice) =>
+        voice is { Init: >= 0 } && voice.Init < VoiceInits.Count ? VoiceInits[voice.Init].Codec : null;
 
     /// <summary>Which entity a person named on the command line is.</summary>
     /// <param name="who">A player name, a user id, or an entity index.</param>
@@ -3238,7 +3239,7 @@ public sealed class DemoTimeline
                     // HUD needs what `CBaseHudChat::MsgFunc_SayText2` reads, colour codes and all.
                     // **Voice, for the client's voice path** — `CClientState::ProcessVoiceData` and `Voice_Init`.
                     case VoiceDataMessage { BodyBits: > 0 } spoken:
-                        voice.Add(new SceneVoice(command.Tick, spoken.Client, spoken.Proximity != 0, spoken.Body));
+                        voice.Add(new SceneVoice(command.Tick, spoken.Client, spoken.Proximity != 0, spoken.Body, voiceInits.Count - 1));
                         continue;
 
                     case VoiceInitMessage init:

@@ -69,7 +69,7 @@ public sealed class VoiceAutoGain
             if (_blockOffset % BlockSize == 0)
             {
                 float current = _scale * _nextGain;
-                _fixedGain = (int)(current * 128f);
+                _fixedGain = Truncate(current * 128f);
 
                 int average = _blockTotal / BlockSize;
                 float next = Math.Min(32767f / (((_blockMax - average) * _avgToMax) + average), _maxGain);
@@ -79,8 +79,16 @@ public sealed class VoiceAutoGain
                 _blockOffset = 0;
 
                 _nextGain = next * _scale;
-                _fixedStep = (int)((_nextGain - current) / (BlockSize - 1) * 128f);
+                _fixedStep = Truncate((_nextGain - current) / (BlockSize - 1) * 128f);
             }
         }
     }
+
+    /// <summary>
+    /// <c>CVTTSS2SI</c>, as the engine converts both fixed-point values (180059121, 18005917d): toward zero, and
+    /// <c>0x80000000</c> for anything out of range or NaN. .NET's own cast saturates instead, which a large
+    /// <c>voice_scale</c> reaches; the products after it are 32-bit <c>IMUL</c>s, which wrap as C# does unchecked.
+    /// </summary>
+    private static int Truncate(float value) =>
+        value is >= -2147483648f and < 2147483648f ? (int)value : int.MinValue;
 }

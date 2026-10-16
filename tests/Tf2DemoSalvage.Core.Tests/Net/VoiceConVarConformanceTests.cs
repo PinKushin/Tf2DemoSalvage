@@ -8,6 +8,9 @@ namespace Tf2DemoSalvage.Core.Tests.Net;
 /// 2026-10-15, each a static initializer calling <c>ConVar::ConVar(this, name, default, flags)</c>:
 ///
 /// <code>
+/// FUN_180002d70  ConVar @1804e8c50 "voice_enable"      default @18035e7a4 "1"    flags 0x80 (FCVAR_ARCHIVE)
+/// FUN_180002ef0  ConVar @1804e88f0 "voice_scale"       default @18035e7a4 "1"    flags 0x80 — the four-argument
+///                constructor, so no bounds (MixerConVarConformanceTests holds the null min/max)
 /// FUN_180002e70  ConVar @1804e8860 "voice_maxgain"     default @180362108 "10"   flags 0
 /// FUN_180002cf0  ConVar @1804e87d0 "voice_avggain"     default @18035e20c "0.5"  flags 0
 /// FUN_180002d30  ConVar @1804e8d70 "voice_buffer_ms"   default @180362228 "100"  flags 0x8000 (FCVAR_INTERNAL_USE)
@@ -21,6 +24,7 @@ namespace Tf2DemoSalvage.Core.Tests.Net;
 /// </remarks>
 public sealed class VoiceConVarConformanceTests
 {
+    [TestCase("voice_enable", "1")]
     [TestCase("voice_maxgain", "10")]
     [TestCase("voice_avggain", "0.5")]
     [TestCase("voice_buffer_ms", "100")]

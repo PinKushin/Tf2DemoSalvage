@@ -149,6 +149,7 @@ public static class EngineConVars
         new("voice_scale", "1", Replicated: false, Cheat: false),
 
         // **The client voice path's own** (`VoicePlan`), read from engine.dll's registrations (VoiceConVarConformanceTests).
+        new("voice_enable", "1", Replicated: false, Cheat: false),
         new("voice_maxgain", "10", Replicated: false, Cheat: false),
         new("voice_avggain", "0.5", Replicated: false, Cheat: false),
         new("voice_buffer_ms", "100", Replicated: false, Cheat: false),

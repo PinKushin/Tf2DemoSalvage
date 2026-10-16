@@ -5,7 +5,12 @@ namespace Tf2DemoSalvage.Core.Scene;
 /// <param name="Client">The speaking client's slot.</param>
 /// <param name="Proximity">Whether the server sent it as proximity voice, spatialised from the speaker.</param>
 /// <param name="Body">The codec payload.</param>
-public sealed record SceneVoice(int Tick, int Client, bool Proximity, System.ReadOnlyMemory<byte> Body)
+/// <param name="Init">
+/// Which of <see cref="DemoTimeline.VoiceInits"/> was in force when it arrived, in STREAM order, or -1 for none. Not by
+/// tick: a signon's tick is not ordered against the game packets' (`demo-ticks-do-not-start-at-zero`), and the engine
+/// applies each message as it reads it.
+/// </param>
+public sealed record SceneVoice(int Tick, int Client, bool Proximity, System.ReadOnlyMemory<byte> Body, int Init = -1)
 {
     /// <summary>The speaker's entity: <c>m_nFromClient + 1</c>, as <c>CClientState::ProcessVoiceData</c> (engine.dll <c>FUN_1801fa0d0</c>) reads it.</summary>
     public int Entity => Client + 1;

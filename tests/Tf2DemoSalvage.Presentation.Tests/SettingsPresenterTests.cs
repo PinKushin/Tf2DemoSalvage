@@ -376,6 +376,18 @@ public sealed class SettingsPresenterTests
         settings.VoiceScale.ShouldBe(expected, 1e-6f);
     }
 
+    [TestCase("voice_enable 0", false)]
+    [TestCase("voice_enable 1", true)]
+    public void VoiceEnable_AfterABoundKey_IsWhatTheKeySet(string command, bool expected)
+    {
+        (SettingsPresenter settings, _) = Owner();
+        ConfigConsole console = Console(settings, command);
+
+        Press(console);
+
+        settings.VoiceEnable.ShouldBe(expected);
+    }
+
     [Test]
     public void ReadLaunch_TheSuitesSilenceThenATestsOwnVolume_TheLaterWins()
     {

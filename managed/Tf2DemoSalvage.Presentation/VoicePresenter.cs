@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Linq;
 
 using Tf2DemoSalvage.Audio;
 using Tf2DemoSalvage.Core.Net;
@@ -10,24 +9,25 @@ namespace Tf2DemoSalvage.Presentation;
 /// <summary>Plays a demo's voice as playback reaches it, the way the engine's voice channels sound.</summary>
 /// <remarks>
 /// **The sound is <c>VoiceSE_StartChannel</c>'s** (engine.dll x64 <c>FUN_18005a670</c>): channel <c>8 + index</c>, volume 1,
-/// pitch 100; a proximity channel at <c>SNDLVL_80dB</c> from the speaker, any other at <c>SNDLVL_60dB</c> from the view
-/// entity, which puts it at the listener — centred and unattenuated. Like every other one-shot here, the pan and gain
-/// are fixed when the sound starts.
+/// pitch 100; a proximity channel at <c>SNDLVL_80dB</c> from the speaker, any other at <c>SNDLVL_60dB</c> with the VIEW
+/// entity as its source — at the listener, centred and unattenuated.
 ///
-/// **Seek and pause follow the engine's buffer** (<c>Voice_Idle</c>, FUN_180058090): it only holds what has arrived.
-/// Paused, nothing arrives, so a playing voice is silenced once the pad has drained. After a jump, or on resuming, a
-/// spurt whose packets are still arriving restarts from the next packet, behind a fresh pad.
+/// **Timing follows the engine's buffer, which holds only what has arrived.** The pad drains on demo time, because
+/// <c>Voice_Idle</c> is passed the host frame time, which demo playback scales; so a pause holds a pending start, and a
+/// step that overshoots it starts part-way in, as the mixer would have. While the demo is stalled nothing arrives, so a
+/// playing voice is silenced once the audio that HAD arrived has been played. After a jump, a step back, or a starve,
+/// speech resumes at the next packet that arrives, behind a fresh pad and a fresh gain and decoder.
 /// </remarks>
 public sealed class VoicePresenter
 {
-    private readonly List<(VoiceSpurt Spurt, int Offset, int AtTick)> _pending = [];
-    private readonly List<VoiceSpurt> _playing = [];
+    private readonly List<Pending> _pending = [];
+    private readonly List<Playing> _playing = [];
+    private readonly List<(VoiceSpurt Spurt, int NextPacket)> _starved = [];
     private IReadOnlyList<VoiceSpurt> _plan = [];
+    private int _next;
     private int? _lastTick;
-    private double _lastAdvance;
-    private bool _starved;
 
-    /// <summary>The demo's voice, laid out by <see cref="VoicePlan"/>; setting it starts over.</summary>
+    /// <summary>The demo's voice, laid out by <see cref="VoicePlan"/>, in order of first packet; setting it starts over.</summary>
     public IReadOnlyList<VoiceSpurt> Plan
     {
         get => _plan;
@@ -36,22 +36,33 @@ public sealed class VoicePresenter
             _plan = value ?? [];
             _pending.Clear();
             _playing.Clear();
+            _starved.Clear();
+            _next = 0;
             _lastTick = null;
-            _starved = false;
         }
     }
+
+    /// <summary>Makes a fresh decoder per start; replaceable so a test needs no native library.</summary>
+    public Func<VoiceKind, IVoiceStreamDecoder> Decoders { get; init; } = kind => new VoiceStreamDecoder(kind);
+
+    /// <summary>Seconds per tick, for how far a step overshot a start.</summary>
+    public float Interval { get; set; } = 0.015f;
 
     /// <summary><c>voice_scale</c>, read as each spurt starts, as <c>Voice_AssignChannel</c> reads it.</summary>
     public float Scale { get; set; } = EngineConVars.ByName("voice_scale").Number;
 
+    /// <summary><c>voice_enable</c>: off, <c>ProcessVoiceData</c> drops every packet and <c>Voice_Idle</c> ends every channel.</summary>
+    public bool Enabled { get; set; } = EngineConVars.ByName("voice_enable").Number != 0f;
+
     /// <summary>Brings voice up to date for one pass.</summary>
     /// <param name="output">Where sound goes.</param>
     /// <param name="tick">The tick being played.</param>
-    /// <param name="jumped">Whether playback jumped here rather than playing to it — everything in flight was silenced.</param>
+    /// <param name="jumped">Whether playback jumped here — everything in flight was already silenced.</param>
     /// <param name="listener">Where the ears are.</param>
     /// <param name="right">The listener's right vector.</param>
-    /// <param name="now">Seconds on a wall clock, for the pad draining while paused.</param>
-    /// <param name="speakerAt">Where an entity stands at this tick, or null when it is not known.</param>
+    /// <param name="now">Seconds on a wall clock, which is the mixer's.</param>
+    /// <param name="viewEntity">The view entity, a non-proximity voice's source.</param>
+    /// <param name="speakerAt">Where an entity stands now, or null; asked only for a proximity start.</param>
     public void Update(
         IAudioSink output,
         int tick,
@@ -59,88 +70,165 @@ public sealed class VoicePresenter
         (float X, float Y, float Z) listener,
         (float X, float Y, float Z) right,
         double now,
+        int viewEntity,
         Func<int, (float X, float Y, float Z)?> speakerAt)
     {
         ArgumentNullException.ThrowIfNull(output);
         ArgumentNullException.ThrowIfNull(speakerAt);
 
+        if (!Enabled)
+        {
+            SilencePlaying(output);
+            _lastTick = null;
+            return;
+        }
+
         if (_lastTick is not { } last || jumped || tick < last)
         {
-            // Nothing that was in flight survives; speech still arriving resumes from its next packet.
+            if (!jumped)
+            {
+                // A step back the schedule did not call a jump: nothing silenced it yet.
+                SilencePlaying(output);
+            }
+
             _playing.Clear();
             Resume(tick);
         }
         else if (tick == last)
         {
-            if (!_starved && now - _lastAdvance > VoicePlan.PadSeconds)
-            {
-                // Paused: no packet arrives, the buffer drains, `Voice_Idle` ends the channel.
-                foreach (VoiceSpurt spurt in _playing)
-                {
-                    output.Silence(spurt.Entity, VoicePlan.EngineChannel(spurt.Channel));
-                }
-
-                _playing.Clear();
-                _pending.Clear();
-                _starved = true;
-            }
-
+            Stall(output, tick, now);
             return;
-        }
-        else if (_starved)
-        {
-            Resume(tick);
         }
         else
         {
-            // A spurt is queued when its first packet arrives, and sounds when its pad has drained.
-            foreach (VoiceSpurt spurt in _plan.Where(spurt => spurt.Packets[0].Tick > last && spurt.Packets[0].Tick <= tick))
-            {
-                _pending.Add((spurt, 0, spurt.StartTick));
-            }
+            Arrive(last, tick);
         }
 
         _lastTick = tick;
-        _lastAdvance = now;
-        _starved = false;
 
-        foreach ((VoiceSpurt spurt, int offset, int _) in _pending.Where(entry => entry.AtTick <= tick).ToList())
+        for (int i = _pending.Count - 1; i >= 0; i--)
         {
-            Start(output, spurt, offset, listener, right, speakerAt);
-        }
+            Pending due = _pending[i];
 
-        _pending.RemoveAll(entry => entry.AtTick <= tick);
+            if (due.AtTick <= tick)
+            {
+                _pending.RemoveAt(i);
+                int skip = (int)Math.Round((tick - due.AtTick) * (double)Interval * due.Spurt.SampleRate);
+                Start(output, due.Spurt, due.Packet, skip, now, listener, right, viewEntity, speakerAt);
+            }
+        }
     }
 
-    /// <summary>Queues every spurt with packets still to arrive, from the first at or after the tick, behind a fresh pad.</summary>
-    private void Resume(int tick)
+    /// <summary>Playback moved forward: packets in <c>(last, tick]</c> arrive.</summary>
+    private void Arrive(int last, int tick)
     {
-        _pending.Clear();
-
-        foreach (VoiceSpurt spurt in _plan)
+        while (_next < _plan.Count && _plan[_next].Packets[0].Tick <= tick)
         {
-            if (spurt.Packets[0].Tick > tick || spurt.Packets[^1].Tick < tick)
+            VoiceSpurt spurt = _plan[_next++];
+
+            if (spurt.Packets[0].Tick > last)
             {
-                // Not begun — the ordinary crossing queues it — or finished arriving.
+                _pending.Add(new Pending(spurt, 0, spurt.StartTick));
+            }
+        }
+
+        // A starved channel is assigned afresh by its next packet.
+        for (int i = _starved.Count - 1; i >= 0; i--)
+        {
+            (VoiceSpurt spurt, int next) = _starved[i];
+            VoiceSpurtPacket packet = spurt.Packets[next];
+
+            if (packet.Tick <= tick)
+            {
+                _starved.RemoveAt(i);
+                _pending.Add(new Pending(spurt, next, packet.Tick + spurt.PadTicks));
+            }
+        }
+    }
+
+    /// <summary>The demo is not advancing: nothing arrives, and a voice that has played everything that arrived goes quiet.</summary>
+    private void Stall(IAudioSink output, int tick, double now)
+    {
+        for (int i = _playing.Count - 1; i >= 0; i--)
+        {
+            Playing playing = _playing[i];
+            int next = NextPacket(playing.Spurt, tick + 1);
+
+            if (next < 0)
+            {
+                // Everything arrived; the sound plays out and ends of itself.
                 continue;
             }
 
-            VoicePacketSpan next = spurt.Packets.First(packet => packet.Tick >= tick);
-            _pending.Add((spurt, next.Offset, tick + (spurt.StartTick - spurt.Packets[0].Tick)));
+            double arrived = (double)(playing.Spurt.Packets[next].Offset - playing.FirstSample) / playing.Spurt.SampleRate;
+
+            if (now - playing.StartedAt >= arrived)
+            {
+                output.Silence(playing.Entity, playing.Channel);
+                _playing.RemoveAt(i);
+                _starved.Add((playing.Spurt, next));
+            }
         }
+    }
+
+    /// <summary>Queues every spurt with packets still to arrive at or after the tick, from the next one, behind a fresh pad.</summary>
+    private void Resume(int tick)
+    {
+        _pending.Clear();
+        _starved.Clear();
+        _next = 0;
+
+        while (_next < _plan.Count && _plan[_next].Packets[0].Tick <= tick)
+        {
+            VoiceSpurt spurt = _plan[_next++];
+            int next = NextPacket(spurt, tick);
+
+            if (next >= 0)
+            {
+                _pending.Add(new Pending(spurt, next, spurt.Packets[next].Tick + spurt.PadTicks));
+            }
+        }
+    }
+
+    /// <summary>The first packet arriving at or after a tick, or -1.</summary>
+    private static int NextPacket(VoiceSpurt spurt, int tick)
+    {
+        for (int i = 0; i < spurt.Packets.Count; i++)
+        {
+            if (spurt.Packets[i].Tick >= tick)
+            {
+                return i;
+            }
+        }
+
+        return -1;
+    }
+
+    private void SilencePlaying(IAudioSink output)
+    {
+        foreach (Playing playing in _playing)
+        {
+            output.Silence(playing.Entity, playing.Channel);
+        }
+
+        _playing.Clear();
     }
 
     private void Start(
         IAudioSink output,
         VoiceSpurt spurt,
-        int offset,
+        int packet,
+        int skip,
+        double now,
         (float X, float Y, float Z) listener,
         (float X, float Y, float Z) right,
+        int viewEntity,
         Func<int, (float X, float Y, float Z)?> speakerAt)
     {
-        // Proximity: SNDLVL_80dB from the speaker. Otherwise SNDLVL_60dB from the view entity, which is the listener.
+        // Proximity: SNDLVL_80dB from the speaker. Otherwise SNDLVL_60dB with the view entity as the source.
         (float X, float Y, float Z) source = spurt.Proximity && speakerAt(spurt.Entity) is { } at ? at : listener;
-        int soundLevel = spurt.Proximity ? 80 : 60;
+        int entity = spurt.Proximity ? spurt.Entity : viewEntity;
+        int channel = VoicePlan.EngineChannel(spurt.Channel);
 
         float distance = MathF.Sqrt(
             ((source.X - listener.X) * (source.X - listener.X)) +
@@ -149,17 +237,15 @@ public sealed class VoicePresenter
 
         (float left, float rightGain) = SoundGain.Pan(SoundGain.Rightward(listener, right, source));
 
-        output.Play(
-            VoicePlan.Render(spurt, offset, Scale),
-            left,
-            rightGain,
-            SoundGain.AtDistance(soundLevel, distance),
-            1f,
-            spurt.Entity,
-            VoicePlan.EngineChannel(spurt.Channel));
+        SoundSample sample = VoicePlan.Render(spurt, packet, skip, Scale, Decoders);
+        output.Play(sample, left, rightGain, SoundGain.AtDistance(spurt.Proximity ? 80 : 60, distance), 1f, entity, channel);
 
         // A channel holds one spurt at a time, so whatever last played on it has ended.
-        _playing.RemoveAll(playing => playing.Channel == spurt.Channel);
-        _playing.Add(spurt);
+        _playing.RemoveAll(playing => playing.Channel == channel);
+        _playing.Add(new Playing(spurt, entity, channel, now - ((double)skip / spurt.SampleRate), spurt.Packets[packet].Offset));
     }
+
+    private readonly record struct Pending(VoiceSpurt Spurt, int Packet, int AtTick);
+
+    private readonly record struct Playing(VoiceSpurt Spurt, int Entity, int Channel, double StartedAt, int FirstSample);
 }
