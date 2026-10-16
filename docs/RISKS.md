@@ -39554,7 +39554,12 @@ TF2's defaults and bounds, so a config, a bind or `toggle` sets them without com
   which both start paths write only for soundlevel exactly 0. No path, soundscript flag or mixer group decides it.
   `SoundGain.IsMusic` and `SoundGain.Music` apply it to one-shots, tracked loops and soundscape loops, and every pass
   re-gains what is playing, as the engine's per-mix channel gain does (`SoundMusicVolumeConformanceTests`,
-  `SoundPresenterMusicVolumeTests`). *Read from the binary.* **Still open: the duck** (`DAT_1804600e8`, eased in
+  `SoundPresenterMusicVolumeTests`). An unpositioned soundscape loop is music by its wave alone, because
+  `EmitAmbientSound` (FUN_180017150) starts it at soundlevel 0 whatever the script says. A music one-shot's
+  followed volume ends on a stop naming it, on any other sound starting on its key, and on a seek; a
+  `SND_CHANGE_VOL` alters it in place. Limits: the sink keys voices by entity and channel, so two overlapping
+  CHAN_AUTO music one-shots share the later one's volume, and a seek does not restart a music one-shot (as for
+  every one-shot; what the engine does on a demo seek is not read). *Read from the binary.* **Still open: the duck** (`DAT_1804600e8`, eased in
   FUN_18002fbe0), which is 1 here.
 
 ## B546 — the STV spectator GUI's other three parts: the control-point row, the target ID's health, overheal colour — OPEN, gap

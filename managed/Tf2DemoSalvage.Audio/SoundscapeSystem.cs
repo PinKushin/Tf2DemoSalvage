@@ -436,8 +436,11 @@ public sealed class SoundscapeSystem(
     /// </remarks>
     public static float GainOf(SoundscapeVoice voice, (float X, float Y, float Z) listener, float musicVolume)
     {
-        // The engine's channel gain applies to a soundscape loop as to any channel (B545).
-        float music = SoundGain.Music(SoundGain.IsMusic(voice.Wave, voice.SoundLevel), musicVolume);
+        // The engine's channel gain applies to a soundscape loop as to any channel (B545). An unpositioned loop goes
+        // through `EmitAmbientSound` (`c_soundscape.cpp:1161`), which engine.dll's FUN_180017150 starts at soundlevel 0
+        // on CHAN_STATIC whatever the script says; only a positioned one carries the script's soundlevel (`:1173`).
+        int startedAt = voice.Position is null ? 0 : voice.SoundLevel;
+        float music = SoundGain.Music(SoundGain.IsMusic(voice.Wave, startedAt), musicVolume);
 
         if (voice.Position is not { } at)
         {

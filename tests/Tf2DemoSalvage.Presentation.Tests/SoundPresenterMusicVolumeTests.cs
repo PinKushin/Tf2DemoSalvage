@@ -60,18 +60,117 @@ public sealed class SoundPresenterMusicVolumeTests
         sink.Started.ShouldBe([0.8f]);
     }
 
-    private static (SoundPresenter Presenter, Sink Sink) Presenter(string name, System.Func<float> musicVolume)
+    [Test]
+    public void Update_AnOrdinarySoundAfterMusicOnTheSameChannel_KeepsItsOwnGain()
+    {
+        (SoundPresenter presenter, Sink sink) = Presenter(
+            static () => 0.25f,
+            Sound(50, "#music/song.wav", 0.8f),
+            Sound(55, "ui/beep.wav", 0.6f));
+
+        presenter.Update(sink, 40, (0f, 0f, 0f), (0f, -1f, 0f), now: 0d);
+        presenter.Update(sink, 60, (0f, 0f, 0f), (0f, -1f, 0f), now: 0.1d);
+        presenter.Update(sink, 61, (0f, 0f, 0f), (0f, -1f, 0f), now: 0.2d);
+
+        sink.Started.ShouldBe([0.2f, 0.6f]);
+        sink.Gained.ShouldBeEmpty("the channel no longer plays music, so nothing re-gains it to music × 0.25");
+    }
+
+    [Test]
+    public void Update_AStopOnAMusicChannel_ForgetsTheMusic()
+    {
+        (SoundPresenter presenter, Sink sink) = Presenter(
+            static () => 0.25f,
+            Sound(50, "#music/song.wav", 0.8f),
+            Sound(55, "#music/song.wav", 0.8f) with { IsStop = true });
+
+        presenter.Update(sink, 40, (0f, 0f, 0f), (0f, -1f, 0f), now: 0d);
+        presenter.Update(sink, 60, (0f, 0f, 0f), (0f, -1f, 0f), now: 0.1d);
+        sink.Replay();
+        presenter.Update(sink, 61, (0f, 0f, 0f), (0f, -1f, 0f), now: 0.2d);
+
+        sink.Gained.ShouldBeEmpty("a stopped music channel is not re-gained when the channel plays again");
+    }
+
+    [Test]
+    public void Update_AStopNamingAnotherSound_KeepsFollowingTheMusic()
+    {
+        (SoundPresenter presenter, Sink sink) = Presenter(
+            static () => 0.25f,
+            Sound(50, "#music/song.wav", 0.8f),
+            Sound(55, "#music/other.wav", 0.8f) with { IsStop = true });
+
+        presenter.Update(sink, 40, (0f, 0f, 0f), (0f, -1f, 0f), now: 0d);
+        presenter.Update(sink, 60, (0f, 0f, 0f), (0f, -1f, 0f), now: 0.1d);
+        sink.Replay();
+        presenter.Update(sink, 61, (0f, 0f, 0f), (0f, -1f, 0f), now: 0.2d);
+
+        sink.Gained.ShouldBe([0.2f], "S_AlterChannel stops only the sound a stop names");
+    }
+
+    [Test]
+    public void Update_AVolumeChangeOnAMusicOneShot_AltersItAndKeepsTheNewVolume()
+    {
+        (SoundPresenter presenter, Sink sink) = Presenter(
+            static () => 0.25f,
+            Sound(50, "#music/song.wav", 0.8f),
+            Sound(55, "#music/song.wav", 0.4f) with { ChangesVolume = true });
+
+        presenter.Update(sink, 40, (0f, 0f, 0f), (0f, -1f, 0f), now: 0d);
+        presenter.Update(sink, 60, (0f, 0f, 0f), (0f, -1f, 0f), now: 0.1d);
+        presenter.Update(sink, 61, (0f, 0f, 0f), (0f, -1f, 0f), now: 0.2d);
+
+        sink.Started.ShouldBe([0.2f], "altered in place, not restarted");
+        sink.Gained.ShouldBe([0.1f, 0.1f], "the change, then the next pass keeping it");
+    }
+
+    [Test]
+    public void Update_WhilePaused_AppliesAMusicVolumeChange()
+    {
+        float musicVolume = 0.25f;
+        (SoundPresenter presenter, Sink sink) = Presenter("#music/song.wav", () => musicVolume);
+
+        presenter.Update(sink, 40, (0f, 0f, 0f), (0f, -1f, 0f), now: 0d);
+        presenter.Update(sink, 60, (0f, 0f, 0f), (0f, -1f, 0f), now: 0.1d);
+        musicVolume = 0.5f;
+        presenter.Update(sink, 60, (0f, 0f, 0f), (0f, -1f, 0f), now: 0.2d);
+
+        sink.Gained.ShouldBe([0.4f], "a paused pass is the same tick again, and still re-gains");
+    }
+
+    [Test]
+    public void Update_AMusicOneShotOnALoopsChannel_LeavesTheLoopsGain()
+    {
+        (SoundPresenter presenter, Sink sink) = Presenter(
+            static () => 0.25f,
+            Sound(50, "ambient/hum_loop.wav", 0.6f),
+            Sound(55, "#music/song.wav", 0.8f));
+
+        presenter.Update(sink, 40, (0f, 0f, 0f), (0f, -1f, 0f), now: 0d);
+        presenter.Update(sink, 60, (0f, 0f, 0f), (0f, -1f, 0f), now: 0.1d);
+        presenter.Update(sink, 61, (0f, 0f, 0f), (0f, -1f, 0f), now: 0.2d);
+
+        sink.Gained[^1].ShouldBe(0.6f, "the loop is gained last, so it is what the key is left at");
+    }
+
+    private static SceneSound Sound(int tick, string name, float volume) =>
+        new(tick, name, 1, Entity, Channel, volume, 0, 100, 0f, 0f, 0f, 0f);
+
+    private static (SoundPresenter Presenter, Sink Sink) Presenter(string name, System.Func<float> musicVolume) =>
+        Presenter(musicVolume, Sound(50, name, 0.8f));
+
+    private static (SoundPresenter Presenter, Sink Sink) Presenter(System.Func<float> musicVolume, params SceneSound[] sounds)
     {
         SoundSample sample = new(SampleRate: 22050, Channels: 1, Samples: new float[] { 0.5f, -0.5f }, Loops: false);
-        SceneSound sound = new(50, name, 1, Entity, Channel, 0.8f, 0, 100, 0f, 0f, 0f, 0f);
+        SoundSample loop = sample with { Loops = true };
 
         SoundPresenter presenter = new(
             new SoundscapeSystem(new ActiveLoops(), _ => null, NullLogger.Instance),
             new ActiveLoops(),
-            _ => sample,
+            name => name.EndsWith("_loop.wav", System.StringComparison.Ordinal) ? loop : sample,
             NullLogger.Instance)
         {
-            Schedule = new SoundSchedule([sound]),
+            Schedule = new SoundSchedule(sounds),
             MusicVolume = musicVolume,
         };
 
@@ -105,6 +204,9 @@ public sealed class SoundPresenterMusicVolumeTests
         }
 
         public bool SetPitch(int entity, int channel, float pitch) => _playing;
+
+        /// <summary>Something else starts on the stopped channel, so a stale entry would find a voice to re-gain.</summary>
+        public void Replay() => _playing = true;
 
         public void SilenceAll() => _playing = false;
 

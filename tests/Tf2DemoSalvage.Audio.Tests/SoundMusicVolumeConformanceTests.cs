@@ -72,4 +72,18 @@ public sealed class SoundMusicVolumeConformanceTests
 
         SoundscapeSystem.GainOf(voice, (0f, 0f, 0f), 0.5f).ShouldBe(0.4f);
     }
+
+    /// <remarks>
+    /// An unpositioned soundscape loop is `EmitAmbientSound` (`c_soundscape.cpp:1161`); engine.dll FUN_180017150 fills
+    /// StartSoundParams_t with soundlevel 0 and CHAN_STATIC, not the script's level, so a `#` ambient is music. A
+    /// positioned one is `EmitSound` with `ep.m_SoundLevel = soundlevel` (`:1173`), so at 75 it is not.
+    /// </remarks>
+    [TestCase(false, 0.4f)]
+    [TestCase(true, 0.8f)]
+    public void GainOf_AMusicSoundscapeLoopAtTheScriptsLevel_IsMusicOnlyWhenAmbient(bool positioned, float expected)
+    {
+        SoundscapeVoice voice = new(1, "#music/room.wav", 0.8f, 100, positioned ? (0f, 0f, 0f) : null, SoundLevel: 75);
+
+        SoundscapeSystem.GainOf(voice, (0f, 0f, 0f), 0.5f).ShouldBe(expected);
+    }
 }

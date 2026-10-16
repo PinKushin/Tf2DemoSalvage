@@ -556,4 +556,12 @@ public sealed class ViewerSettingsTests
         written.ShouldNotContain("NaN", Case.Sensitive);
         written.ShouldContain(expected);
     }
+
+    [Test]
+    public void Parse_ASavedNanMusicVolume_ReadsBackAsNan()
+    {
+        string saved = ViewerSettings.Parse("snd_musicvolume nan").Write();
+
+        float.IsNaN(ViewerSettings.Parse(saved).MusicVolume).ShouldBeTrue("Math.Clamp keeps NaN, as ClampValue's two tests do");
+    }
 }
