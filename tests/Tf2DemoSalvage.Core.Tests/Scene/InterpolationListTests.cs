@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 
@@ -286,6 +287,108 @@ public sealed class InterpolationListTests
         // The oracle is the equality above; this only shows the cold sample is a blend, not the held 400.
         cold.ShouldBeLessThan(400f);
     }
+
+    /// <summary>
+    /// The invisible mover 3, moving 0 → 300 between keyframes 0 and 30, sampled stepped at 10, 31 and 34 beside a
+    /// cold sample at 34 — the only shape in which a CHILD's wake is observable.
+    /// </summary>
+    /// <remarks>
+    /// The mover wakes itself at its own arrival (30) and its changetime plus the delay (38), so a child event
+    /// between 31 and 34 is seen at 34 only if the child's wake brings the mover back; without it the mover holds 300.
+    /// </remarks>
+    private static (float Stepped, float Cold) SteppedAndCold(Func<ScenePropTrack[]> children)
+    {
+        DemoTimeline Scene()
+        {
+            ScenePropTrack mover = new(3, "*40");
+            mover.Add(0, new ScenePose { X = 0f, RenderMode = RenderModes.None });
+            mover.Add(30, new ScenePose { X = 300f, RenderMode = RenderModes.None });
+
+            return DemoTimeline.ForTracks([mover, .. children()]);
+        }
+
+        List<SceneProp> props = [];
+        Scene().PropsAt(34d, props);
+        float cold = props.Single(prop => prop.EntityIndex == 3).Pose.X;
+
+        DemoTimeline stepped = Scene();
+
+        foreach (double tick in (double[])[10d, 31d, 34d])
+        {
+            props.Clear();
+            stepped.PropsAt(tick, props);
+        }
+
+        return (props.Single(prop => prop.EntityIndex == 3).Pose.X, cold);
+    }
+
+    /// <remarks>
+    /// **A slot reused three times wakes the parent at the occupant born NEXT** (B548): A died at 5, B is born at 32
+    /// on 3, C is born at 60 elsewhere. At 31 the slot is empty; the wake must be B's birth, not the last occupant's.
+    /// </remarks>
+    [Test]
+    public void PropsAt_SteppedAcrossTheNextOccupantOfAReusedSlot_MatchesACold()
+    {
+        (float stepped, float cold) = SteppedAndCold(() =>
+        {
+            ScenePropTrack first = Hanging(4, 3);
+            first.End(5);
+            ScenePropTrack second = new(4, "models/props_gameplay/door_slide_door.mdl") { AttachedTo = 3 };
+            second.Add(32, new ScenePose { X = 0f, Y = -1f, Z = 5f });
+            ScenePropTrack third = new(4, "models/props_gameplay/door_slide_door.mdl") { AttachedTo = 9 };
+            third.Add(60, new ScenePose { X = 0f, Y = -1f, Z = 5f });
+
+            return [first, second, third];
+        });
+
+        cold.ShouldBeLessThan(300f, "the control: at 34 the cold sample blends");
+        stepped.ShouldBe(cold);
+    }
+
+    /// <remarks>
+    /// **A FORMER child's wake is what brings the parent back when it rejoins** (B548): on 9 until 32, then on 3.
+    /// </remarks>
+    [Test]
+    public void PropsAt_SteppedAcrossAFormerChildRejoining_MatchesACold()
+    {
+        (float stepped, float cold) = SteppedAndCold(() =>
+        {
+            ScenePropTrack child = new(4, "models/props_gameplay/door_slide_door.mdl") { AttachedTo = 9 };
+            child.Add(0, new ScenePose { X = 0f, Y = -1f, Z = 5f });
+            child.Stamp(0);
+            child.Add(32, new ScenePose { X = 0f, Y = -1f, Z = 5f });
+            child.AttachedTo = 3;
+            child.Stamp(32);
+
+            return [child];
+        });
+
+        cold.ShouldBeLessThan(300f, "the control: at 34 the cold sample blends");
+        stepped.ShouldBe(cold);
+    }
+
+    /// <remarks>
+    /// **The view entity counts as a child only while it IS one.** `ShouldInterpolate`'s fourth clause walks
+    /// `FirstMoveChild`/`NextMovePeer` and asks each child's `ShouldInterpolate`, whose first clause is
+    /// `render->GetViewEntity() == index` (`c_baseentity.cpp:3031`); an entity hung elsewhere is not on that list.
+    /// </remarks>
+    [Test]
+    public void PropsAt_ForAnInvisibleParentWhenTheViewEntityHangsElsewhere_HoldsItsLastStatedPose()
+    {
+        // On 3 until tick 10, on 9 from then: still under 3 in the every-parent map, no longer its child at 14.
+        ScenePropTrack view = Hanging(4, 3, RenderModes.None);
+        view.Stamp(0);
+        view.Add(10, new ScenePose { X = 0f, Y = -1f, Z = 6f, RenderMode = RenderModes.None });
+        view.AttachedTo = 9;
+        view.Stamp(10);
+
+        DrawnX(3, [Invisible(3), view], viewEntity: 4).ShouldBe(200f);
+    }
+
+    /// <remarks>The counterpart: an invisible view entity that DOES hang on the mover forces it onto the list.</remarks>
+    [Test]
+    public void PropsAt_ForAnInvisibleParentWhoseChildIsTheViewEntity_InterpolatesTheParent() =>
+        DrawnX(3, [Invisible(3), Hanging(4, 3, RenderModes.None)], viewEntity: 4).ShouldBe(85.71429f);
 
     /// <remarks>
     /// **Clause one, <c>render-&gt;GetViewEntity() == index</c>** (`c_baseentity.cpp:3031`). It is

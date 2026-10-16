@@ -74,6 +74,32 @@ public sealed class HeldValuesTests
 
         held.Ticks.ShouldBe([5, 10]);
         held.Values.ShouldBe(["A", "C"]);
+        held.Clamped.ShouldBe(1);
+    }
+
+    [Test]
+    public void Set_AnEarlierTickRevertingToTheValueBefore_LeavesNoChange()
+    {
+        HeldValues<string> held = new();
+        held.Set(5, "A");
+        held.Set(10, "B");
+        held.Set(9, "A");
+
+        held.Ticks.ShouldBe([5]);
+        held.Values.ShouldBe(["A"]);
+        held.Clamped.ShouldBe(1);
+    }
+
+    [Test]
+    public void Set_AnEarlierTickWithOneEntry_ReplacesItAtItsTick()
+    {
+        HeldValues<string> held = new();
+        held.Set(10, "A");
+        held.Set(9, "B");
+
+        held.Ticks.ShouldBe([10]);
+        held.Values.ShouldBe(["B"]);
+        held.Clamped.ShouldBe(1);
     }
 
     [Test]

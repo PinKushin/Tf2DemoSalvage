@@ -39661,3 +39661,18 @@ itself — so it stays the superset. `ClientSideAnimated` in the facts costs **0
 baseline (`EntityStateTable.cs:177-209`, B231) — argued, not tested. The rope `_back` material is taken from the model
 the track held at the rope's own keyframe.
 
+**Third review, 2026-10-16.** An empty child slot wakes the parent at the EARLIEST occupant born after the tick
+(`NextBirthInSlot`), not the slot's last; a slot reused three times reddened when put back. A live child's death is
+already in its `HeldChangesAfter` (`_endTick`). `TrackFor(entity, tick)` reads an index by slot built in the
+constructor. The view entity counts only as a current child — the fourth clause walks `FirstMoveChild`'s list and asks
+each child's `ShouldInterpolate`, whose first clause is the view-entity test (`c_baseentity.cpp:3031`); a view entity
+that left the parent reddened when its test was moved ahead of the parent check. Player tracks join the move-children
+map (any `C_BaseEntity` can be a move child; no test). The former-child wake now has its test: a child rejoining between
+the mover's own wakes (stepped 10/31/34 against a cold 34); dropping the wake reddened it. Regressed ticks are counted
+(`HeldValues.Clamped`, summed by `model-changes`): **0** on f12. A demo is played packet by packet and an older packet
+is applied as received, so taking it at the latest tick is the client's rule; three `HeldValuesTests` cover a
+regression with a new value, one reverting, and one with a single entry. The rope `_back` is the held material: a
+cable that changes material backs only the one it held as a rope (`DemoModelsTests`); reverting to every sprite path
+reddened it. A builder stamp lands on the same tick as the update's keyframe, so `FactsAt(keyframe)` is never before
+the first stamp.
+

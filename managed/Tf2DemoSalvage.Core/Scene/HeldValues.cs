@@ -36,6 +36,7 @@ internal sealed class HeldValues<T>
         if (_ticks.Count > 0 && tick < _ticks[^1])
         {
             tick = _ticks[^1];
+            Clamped++;
         }
 
         if (_ticks.Count > 0 && _ticks[^1] == tick)
@@ -63,6 +64,9 @@ internal sealed class HeldValues<T>
         _ticks.Add(tick);
         _values.Add(value);
     }
+
+    /// <summary>How many values arrived with a tick before the last, and were taken at the last.</summary>
+    public int Clamped { get; private set; }
 
     /// <summary>The tick each value in <see cref="Values"/> was set at.</summary>
     public IReadOnlyList<int> Ticks => _ticks;

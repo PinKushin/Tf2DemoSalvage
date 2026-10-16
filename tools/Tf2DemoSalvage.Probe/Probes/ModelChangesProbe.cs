@@ -69,6 +69,6 @@ public sealed class ModelChangesProbe : IProbe
             }
         }
 
-        output.WriteLine($"{timeline.Props.Count} prop and {timeline.PlayerTracks.Count} player tracks walked, {entries} identity entries (control: more than {tracks.Count} means the builder stamped changes), {changed} model changes, {animationOnly} entries from client-side animation alone");
+        output.WriteLine($"{timeline.Props.Count} prop and {timeline.PlayerTracks.Count} player tracks walked, {entries} identity entries (control: more than {tracks.Count} means the builder stamped changes), {changed} model changes, {animationOnly} entries from client-side animation alone, {tracks.Sum(track => track.FactsClamped)} stamps that arrived with a regressed tick");
     }
 }

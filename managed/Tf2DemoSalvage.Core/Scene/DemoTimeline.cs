@@ -1668,6 +1668,41 @@ public sealed class DemoTimeline
         {
             _trackByEntity[track.EntityIndex] = track;
         }
+
+        // **Every occupant of each slot, built here and never lazily** (B548): `TrackFor(entity, tick)` and the
+        // move-child walk ask it per child per sample, and a cache written on first read is a write a concurrent
+        // reader can race. Props then players, the order `TrackFor` has always searched.
+        foreach (ScenePropTrack track in _props.Concat(_playerTracks))
+        {
+            if (!_tracksBySlot.TryGetValue(track.EntityIndex, out List<ScenePropTrack>? occupants))
+            {
+                _tracksBySlot[track.EntityIndex] = occupants = [];
+            }
+
+            occupants.Add(track);
+        }
+    }
+
+    /// <summary>Every track by slot, in the order <see cref="TrackFor(int, double)"/> searches them.</summary>
+    private readonly Dictionary<int, List<ScenePropTrack>> _tracksBySlot = [];
+
+    /// <summary>The first tick after this one at which any occupant of a slot is born, or infinity (B548).</summary>
+    private double NextBirthInSlot(int entityIndex, double tick)
+    {
+        double next = double.PositiveInfinity;
+
+        if (_tracksBySlot.TryGetValue(entityIndex, out List<ScenePropTrack>? occupants))
+        {
+            foreach (ScenePropTrack occupant in occupants)
+            {
+                if (occupant.FirstTick > tick && occupant.FirstTick < next)
+                {
+                    next = occupant.FirstTick;
+                }
+            }
+        }
+
+        return next;
     }
 
     /// <summary>Every model-bearing entity the demo carried, with its pose over time.</summary>
@@ -6700,20 +6735,17 @@ public sealed class DemoTimeline
             // live occupant has nothing hanging in it, and its grandchildren are not reached through it.
             if (TrackFor(child, tick) is not { } hanging)
             {
-                // Its wake still matters to the parent: the slot's last occupant may be born later and hang here.
-                if (_trackByEntity.TryGetValue(child, out ScenePropTrack? later))
-                {
-                    revisit = Math.Min(revisit, later.HeldChangesAfter(tick));
-                }
+                // Its wake still matters to the parent: the slot's NEXT occupant, whichever is born first after the
+                // tick, may hang here. A live child's own death is in its `HeldChangesAfter`, so the two together
+                // re-derive the parent when the child vanishes and when the slot is filled again.
+                revisit = Math.Min(revisit, NextBirthInSlot(child, tick));
 
                 continue;
             }
 
             // **The answer holds only until this child's own can change** (B438), which is the parent's to hear
-            // about. Taken for a FORMER child too, as a superset like every wake in `Motion`: its next change may make it
-            // this parent's child again. Measured, not argued: moving the line below the parent test reddened no test —
-            // a mover that is moving wakes itself at each arrival and changetime, which covers every case built so far
-            // — so this is the cheap direction of an error, an extra lookup, kept rather than proved necessary (B548).
+            // about. Taken for a FORMER child too: its next change may make it this parent's child again, between the
+            // mover's own wakes — `PropsAt_SteppedAcrossAFormerChildRejoining_MatchesACold` fails without it (B548).
             revisit = Math.Min(revisit, hanging.HeldChangesAfter(tick));
 
             // **A child of this parent only while it hangs from it** (B548): `FirstMoveChild` holds the parent it has now.
@@ -6722,6 +6754,8 @@ public sealed class DemoTimeline
                 continue;
             }
 
+            // The view entity counts only as a CURRENT child: the fourth clause asks `ShouldInterpolate` of each entity
+            // on `FirstMoveChild`'s list, and that list holds the children the parent has now (`c_baseentity.cpp:3031`).
             if (viewEntity == child)
             {
                 return true;
@@ -6790,7 +6824,9 @@ public sealed class DemoTimeline
 
         // **Every parent the child EVER had, not its last** (B548): the walk keeps only the child whose parent
         // at the asked tick is the one it came from, so a wearable that changed hands is visited under each.
-        foreach (ScenePropTrack track in _props)
+        // **Players too**: `FirstMoveChild` is a property of every `C_BaseEntity`, and a player hung on a parent is
+        // as much its move child as a prop is (B548).
+        foreach (ScenePropTrack track in _props.Concat(_playerTracks))
         {
             foreach ((int _, ScenePropFacts facts) in track.FactsHistory)
             {
@@ -7207,19 +7243,14 @@ public sealed class DemoTimeline
     /// </remarks>
     public ScenePropTrack? TrackFor(int entityIndex, double tick)
     {
-        foreach (ScenePropTrack track in _props)
+        if (_tracksBySlot.TryGetValue(entityIndex, out List<ScenePropTrack>? occupants))
         {
-            if (track.EntityIndex == entityIndex && track.Alive(tick))
+            foreach (ScenePropTrack track in occupants)
             {
-                return track;
-            }
-        }
-
-        foreach (ScenePropTrack track in _playerTracks)
-        {
-            if (track.EntityIndex == entityIndex && track.Alive(tick))
-            {
-                return track;
+                if (track.Alive(tick))
+                {
+                    return track;
+                }
             }
         }
 

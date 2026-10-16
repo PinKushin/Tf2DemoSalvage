@@ -31,6 +31,32 @@ public sealed class DemoModelsTests
     // timeline sources named above.
 
     [Test]
+    public void Sprites_ARopeThatChangesMaterial_BacksOnlyTheMaterialItHeldAsARope()
+    {
+        // B548: a cable that is a rope under `cable/a.vmt`, then under `cable/b.vmt` is no rope. Both sprites load;
+        // only the one held at a rope keyframe gets its `_back` anti-aliasing material.
+        Core.Scene.ScenePropTrack cable = new(7, "cable/a.vmt");
+        cable.Add(0, new Core.Scene.ScenePose
+        {
+            Rope = new Core.Scene.SceneRope(
+                StartPoint: 1, StartAttachment: 0, EndPoint: 2, EndAttachment: 0, Slack: 120, Length: 300,
+                LockedPoints: 3, Flags: 104, Segments: 10, ConstrainBetweenEndpoints: false, Subdiv: 2,
+                TextureScale: 1f, Width: 2f, ScrollSpeed: 0f),
+        });
+        cable.Stamp(0);
+        cable.Add(10, new Core.Scene.ScenePose { X = 1f });
+        cable.Follow("cable/b.vmt");
+        cable.Stamp(10);
+
+        HashSet<string> sprites = DemoModels.Sprites(Core.Scene.DemoTimeline.ForTracks([cable]));
+
+        sprites.ShouldContain("cable/a.vmt");
+        sprites.ShouldContain("cable/b.vmt");
+        sprites.ShouldContain(EntityRopes.BackMaterialPath("cable/a.vmt"));
+        sprites.ShouldNotContain(EntityRopes.BackMaterialPath("cable/b.vmt"));
+    }
+
+    [Test]
     public void Precache_WithNoDemoOpen_DoesNothingRatherThanThrowing()
     {
         // **The guard moved here from the call site** (B208). "There is no demo" and "the game

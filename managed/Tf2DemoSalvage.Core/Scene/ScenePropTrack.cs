@@ -1277,6 +1277,9 @@ public sealed class ScenePropTrack
     /// <param name="tick">The tick the update was received.</param>
     internal void Stamp(int tick) => _facts.Set(tick, Current());
 
+    /// <summary>How many stamps arrived with a tick before the last one (B548) — surfaced by <c>model-changes</c>.</summary>
+    internal int FactsClamped => _facts.Clamped;
+
     /// <summary>The identity fields as they stand now.</summary>
     private ScenePropFacts Current() => new(
         ModelPath, ItemDefinitionIndex, ClassName, OfDisguise, TeamNumber,
