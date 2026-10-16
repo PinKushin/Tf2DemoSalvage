@@ -134,6 +134,24 @@ public sealed class TimelineCheckpointsTests
     }
 
     /// <remarks>
+    /// **A scene run that stopped before the cut is trimmed** (review item 2): it covers no tick a window answers. Late in
+    /// the scenes demo, with a reach of 2, the window holds fewer runs than the whole build and still answers alike.
+    /// </remarks>
+    [Test]
+    public void Window_LateInTheScenesDemo_HoldsOnlyTheRunsStillLive()
+    {
+        byte[] demo = SyntheticPlayer.DemoOfScenes(
+            (10, 1, null, 4), (12, 1, 2, 5), (12, 1, 2, 6), (14, null, 2, 6), (16, null, null, 6), (18, 3, null, 6), (20, null, null, 6),
+            (22, null, null, 6), (24, null, null, 6));
+        DemoTimeline whole = DemoTimeline.Build(demo);
+        DemoTimeline window = DemoTimeline.Checkpoints.Walk(demo, Every, lookbackTicks: 2)!.Window(23, 24);
+
+        whole.Scenes.Count(run => run.StoppedTick < 20).ShouldBeGreaterThan(0, "the control: runs stopped well before the window");
+        window.Scenes.Count.ShouldBeLessThan(whole.Scenes.Count);
+        TimelineFingerprint.OfAnswer(TimelineAnswers.At(window, 23)).Hash.ShouldBe(TimelineFingerprint.OfAnswer(TimelineAnswers.At(whole, 23)).Hash);
+    }
+
+    /// <remarks>
     /// **The comparison asks about the events the GIVEN settings replay**: at tick 60 a death at 30 is inside the default
     /// 12 s span and outside a 0.1 s one (0.2 s doubled, 14 ticks).
     /// </remarks>

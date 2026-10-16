@@ -4744,6 +4744,13 @@ public sealed class DemoTimeline
         /// **What a checkpoint is made of.** Run, trim, copy: what is left is the decoder's own state (entity table,
         /// baselines, string tables, feeds in flight) plus each output's tail. Sounds are kept whole, because a loop
         /// started long ago is still playing (`docs/memory/a-loop-is-state-not-an-event.md`); they are small.
+        ///
+        /// **Kept whole, and why** (D220 review): <c>playingScenes</c> and <c>corpses</c> are live state — the scene each
+        /// slot is playing, the corpse each slot holds now — read by the next update, not output. <c>replaced</c>, the
+        /// corpses a slot has since replaced, is a corpse's whole life, which D220 carries rather than reaches for: how
+        /// long one is drawn depends on whether it is in view (<c>C_TFRagdoll::ClientThink</c>), which no setting bounds.
+        /// Trimmed here besides the lists: scene runs that stopped before the cut, which cover no tick a window answers,
+        /// and the spectator-GUI changes before the one in force.
         /// </remarks>
         /// <param name="trackCut">
         /// The same for track histories, which need far less: only what the interpolation reaches back over (one delay and
@@ -4782,6 +4789,23 @@ public sealed class DemoTimeline
             fogSamples.DropBefore(sample => sample.Tick, cut);
             gameEvents.DropBefore(fired => fired.Tick, cut);
             userMessages.DropBefore(message => message.Tick, cut);
+
+            // A run is written behind the tail (its stop), so this list is chunked but not a TailList, and it is rebuilt
+            // when anything stopped before the cut: a match holds few runs at once, so the rebuild copies little.
+            if (choreography.FindLastIndex(run => run.StoppedTick < cut) >= 0)
+            {
+                List<SceneChoreography> live = [.. choreography.Where(run => run.StoppedTick is null || run.StoppedTick >= cut)];
+                choreography.Clear();
+                live.ForEach(choreography.Add);
+            }
+
+            // At or before: the change in force at the cut is kept.
+            int gui = spectatorGuiChanges.FindLastIndex(change => change.Tick < cut);
+
+            if (gui > 0)
+            {
+                spectatorGuiChanges.RemoveRange(0, gui);
+            }
         }
 
         /// <summary>A copy of the pass that owns all of its state and output, from which any number of windows resume.</summary>
