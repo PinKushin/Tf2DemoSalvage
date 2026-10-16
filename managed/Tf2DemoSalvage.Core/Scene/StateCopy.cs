@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Linq;
 using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
@@ -57,19 +58,22 @@ internal static class StateCopy
     /// </remarks>
     /// <param name="created">When given, filled with what the copy CREATED rather than reused, by type — the diagnostic for
     /// what a checkpoint costs beyond the one before.</param>
+    /// <param name="freeze">Whether to freeze every <see cref="PropertyBag"/> in the source first, so this copy and every
+    /// copy of it share them (D217 step 4); a checkpoint does, nothing else.</param>
     public static T Of<T>(
         T source,
         IReadOnlySet<object> share,
         Dictionary<object, object>? prior,
         out Dictionary<object, object> copies,
-        Dictionary<Type, (long Objects, long Elements)>? created = null)
+        Dictionary<Type, (long Objects, long Elements)>? created = null,
+        bool freeze = false)
         where T : class
     {
         ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(share);
 
         copies = new(ReferenceEqualityComparer.Instance);
-        Reuse reuse = new(share, prior, created);
+        Reuse reuse = new(share, prior, created) { Freeze = freeze };
 
         T copy = (T)Copy(source, share, copies, reuse)!;
         reuse.MapReused(copies);
@@ -89,6 +93,9 @@ internal static class StateCopy
 
         /// <summary>The shallowest open assumption the comparison in progress has leaned on.</summary>
         private int _leanedOn = int.MaxValue;
+
+        /// <summary>Whether the copy freezes every <see cref="PropertyBag"/> it reaches, in the ORIGINAL, before copying it.</summary>
+        public bool Freeze { get; init; }
 
         /// <summary>Counts a NEW object (an array counts its elements), when the caller asked what a copy creates.</summary>
         public void Created(Type type, long elements)
@@ -378,6 +385,14 @@ internal static class StateCopy
             return done;
         }
 
+        // A checkpoint freezes each entity's properties first, so the copy and every resume of it share them (D217 step 4).
+        // A bag under a parent reused unchanged above never reaches here, and needs not: it is unchanged only if its
+        // shell still names the same Frozen as the prior copy's, which means it is still frozen (StateCopyTests holds it).
+        if (reuse.Freeze && value is PropertyBag bag)
+        {
+            bag.Freeze();
+        }
+
         if (reuse.Unchanged(value) is { } earlier)
         {
             // Its children are the earlier copy's too; mapping them keeps a second reference to one of them on the same copy.
@@ -433,11 +448,120 @@ internal static class StateCopy
         return into;
     }
 
+    /// <summary>
+    /// A field a copy leaves at its default and a comparison ignores: an instance's claim on what it alone may write,
+    /// which a copy must not inherit (<see cref="PropertyBag"/>'s ownership, D217 step 4).
+    /// </summary>
+    [AttributeUsage(AttributeTargets.Field)]
+    internal sealed class NotCopiedAttribute : Attribute;
+
+    private static readonly ConcurrentDictionary<Type, FieldInfo[]> FieldsByType = new();
+
     // Reaching private fields is the whole of a deep copy: it copies what each type keeps to itself.
 #pragma warning disable S3011
-    private static FieldInfo[] Fields(Type type) =>
-        type.GetFields(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly);
+    private static FieldInfo[] Fields(Type type) => FieldsByType.GetOrAdd(type, static type =>
+        [.. type.GetFields(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly)
+            .Where(field => !field.IsDefined(typeof(NotCopiedAttribute), inherit: false))]);
 #pragma warning restore S3011
+
+    /// <summary>A hash of every VALUE reachable from a root, identity ignored except for the graph's shape.</summary>
+    /// <param name="root">The root.</param>
+    /// <param name="share">Instances hashed as a marker rather than followed, as a copy shares them.</param>
+    /// <returns>The hash, as hex.</returns>
+    /// <remarks>
+    /// **The control for "nothing wrote the checkpoint"** (D217 step 4). Comparing a checkpoint with a copy of it cannot
+    /// see a write into something they SHARE — a frozen bag's chunks are both of theirs — so this follows shared frozen
+    /// state too, and two hashes of one checkpoint, before and after a window, must agree.
+    /// </remarks>
+    public static string Digest(object root, IReadOnlySet<object> share)
+    {
+        ArgumentNullException.ThrowIfNull(root);
+        ArgumentNullException.ThrowIfNull(share);
+
+        using System.Security.Cryptography.IncrementalHash hash =
+            System.Security.Cryptography.IncrementalHash.CreateHash(System.Security.Cryptography.HashAlgorithmName.SHA256);
+        Hash(root, share, new Dictionary<object, int>(ReferenceEqualityComparer.Instance), hash);
+        return Convert.ToHexString(hash.GetHashAndReset());
+    }
+
+    private static void Hash(object? value, IReadOnlySet<object> share, Dictionary<object, int> seen, System.Security.Cryptography.IncrementalHash hash)
+    {
+        if (value is null)
+        {
+            hash.AppendData("n"u8);
+            return;
+        }
+
+        Type type = value.GetType();
+        hash.AppendData(BitConverter.GetBytes(type.TypeHandle.Value));
+
+        switch (value)
+        {
+            case float single:
+                hash.AppendData(BitConverter.GetBytes(BitConverter.SingleToInt32Bits(single)));
+                return;
+            case double number:
+                hash.AppendData(BitConverter.GetBytes(BitConverter.DoubleToInt64Bits(number)));
+                return;
+            case string text:
+                hash.AppendData(BitConverter.GetBytes(text.Length));
+                hash.AppendData(MemoryMarshal.AsBytes(text.AsSpan()));
+                return;
+            default:
+                break;
+        }
+
+        if (type.IsPrimitive || type.IsEnum || type == typeof(decimal))
+        {
+            hash.AppendData(System.Text.Encoding.UTF8.GetBytes(Convert.ToString(value, System.Globalization.CultureInfo.InvariantCulture)!));
+            return;
+        }
+
+        // Shared inputs and the truly immutable are markers; a frozen bag is followed, being the state under test.
+        if ((Immutable(type) && type != typeof(PropertyBag.Frozen)) || share.Contains(value))
+        {
+            hash.AppendData("s"u8);
+            return;
+        }
+
+        if (!type.IsValueType)
+        {
+            if (seen.TryGetValue(value, out int at))
+            {
+                hash.AppendData(BitConverter.GetBytes(at));
+                return;
+            }
+
+            seen[value] = seen.Count;
+        }
+
+        if (value is Array array)
+        {
+            hash.AppendData(BitConverter.GetBytes(array.Length));
+            Type element = type.GetElementType()!;
+
+            if ((element.IsPrimitive || element.IsEnum) && array.Rank == 1)
+            {
+                hash.AppendData(MemoryMarshal.CreateReadOnlySpan(ref MemoryMarshal.GetArrayDataReference(array), Buffer.ByteLength(array)));
+                return;
+            }
+
+            foreach (object? item in array)
+            {
+                Hash(item, share, seen, hash);
+            }
+
+            return;
+        }
+
+        for (Type? level = type; level is not null; level = level.BaseType)
+        {
+            foreach (FieldInfo field in Fields(level))
+            {
+                Hash(field.GetValue(value), share, seen, hash);
+            }
+        }
+    }
 
     private static int[] LengthsOf(Array array)
     {
@@ -478,5 +602,6 @@ internal static class StateCopy
         type.IsPrimitive || type.IsEnum || type == typeof(string) || type == typeof(decimal)
         || typeof(Delegate).IsAssignableFrom(type) || typeof(MemberInfo).IsAssignableFrom(type)
         || type.IsPointer
+        || type == typeof(PropertyBag.Frozen)
         || (type.IsGenericType && type.GetGenericTypeDefinition() == typeof(ReadOnlyMemory<>));
 }

@@ -76,8 +76,20 @@ public sealed class TimelineWindowsProbe : IProbe
 
         foreach ((string field, long bytes) in checkpoints.CostByField(ticks.Length / 2).Take(10))
         {
-            output.WriteLine($"    mid checkpoint {field,-30} {bytes / 1048576d,8:0.0} MB");
+            // Each field copied alone with no prior: what a RESUME allocates for it, not what the checkpoint holds.
+            output.WriteLine($"    mid resume allocates {field,-30} {bytes / 1048576d,8:0.0} MB");
         }
+
+        // What a RESUME of the mid checkpoint creates, by type — the copy a window pays before it decodes (D217 step 4).
+        foreach ((Type type, (long objects, long elements)) in checkpoints.ResumeCensus(ticks.Length / 2).OrderByDescending(entry => entry.Value.Elements).Take(15))
+        {
+            output.WriteLine($"    resume creates {objects,12:N0} objects {elements,14:N0} elements  {type}");
+        }
+
+        // The direct control: two windows built from the mid checkpoint leave every value it holds as it was.
+        output.WriteLine(checkpoints.WindowsWriteTheirCheckpoint(ticks.Length / 2)
+            ? "  control: a window WROTE its checkpoint"
+            : "  control: two windows leave their checkpoint unchanged");
 
         if (costOnly)
         {
