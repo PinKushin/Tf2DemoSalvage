@@ -62,4 +62,17 @@ public sealed class WindowGeometryTests
     {
         WindowGeometry.Position(text).ShouldBeNull();
     }
+
+    [Test]
+    public void OuterSizeFor_A984x551ViewInA1280x720Window_Is1576x889ForA1280x720View()
+    {
+        // The chrome at 100% scaling, measured 2026-10-15: 296 by 169 around the view.
+        WindowGeometry.OuterSizeFor((1280, 720), (1280, 720), (984, 551)).ShouldBe((1576, 889));
+    }
+
+    [Test]
+    public void OuterSizeFor_AViewAlreadyTheAskedSize_KeepsTheWindow()
+    {
+        WindowGeometry.OuterSizeFor((640, 360), (1000, 600), (640, 360)).ShouldBe((1000, 600));
+    }
 }
