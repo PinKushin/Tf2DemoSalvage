@@ -86,6 +86,12 @@ public sealed class TimelineWindowsProbe : IProbe
             output.WriteLine($"    resume creates {objects,12:N0} objects {elements,14:N0} elements  {type}");
         }
 
+        // Who owns what a resume creates, two fields down; each owner copied alone, so shared objects count under both.
+        foreach ((string owner, Type type, long objects, long elements) in checkpoints.ResumeCensusByOwner(ticks.Length / 2).Take(25))
+        {
+            output.WriteLine($"    owner {owner,-40} {objects,10:N0} objects {elements,12:N0} elements  {type.Name}");
+        }
+
         // The direct control: two windows built from the mid checkpoint leave every value it holds as it was.
         output.WriteLine(checkpoints.WindowsWriteTheirCheckpoint(ticks.Length / 2)
             ? "  control: a window WROTE its checkpoint"

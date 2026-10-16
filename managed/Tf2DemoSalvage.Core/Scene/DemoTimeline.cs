@@ -2976,6 +2976,12 @@ public sealed class DemoTimeline
             return StateCopy.Digest(state, _inputs) != before;
         }
 
+        /// <summary>What resuming one checkpoint creates, by owning field and type (D217 step 4).</summary>
+        /// <param name="index">Which checkpoint.</param>
+        /// <returns>The rows, largest first.</returns>
+        public IReadOnlyList<(string Owner, Type Type, long Objects, long Elements)> ResumeCensusByOwner(int index) =>
+            _checkpoints[index].State.CensusByOwner();
+
         /// <summary>What resuming one checkpoint creates, by type: the census of a resume copy (D217 step 4).</summary>
         /// <param name="index">Which checkpoint.</param>
         /// <returns>Objects and array elements created, by type.</returns>
@@ -4789,6 +4795,57 @@ public sealed class DemoTimeline
             GC.KeepAlive(schemaCopy);
 
             return (total, [.. fields.OrderByDescending(field => field.Bytes)]);
+        }
+
+        /// <summary>
+        /// What a resume CREATES, by owning field two levels down (<c>entities._byClass</c>) and type — D217 step 4's
+        /// instrument for which structure owns each array a resume copies.
+        /// </summary>
+        /// <returns>Each owner's largest created type by elements, largest first.</returns>
+        /// <remarks>
+        /// Each owner is copied alone with no prior, as a resume copies, so an object two owners share counts under both.
+        /// The control: the totals over owners are at least the whole resume's (<c>ResumeCensus</c>).
+        /// </remarks>
+        public IReadOnlyList<(string Owner, Type Type, long Objects, long Elements)> CensusByOwner()
+        {
+            HashSet<object> shared = SharedInputs();
+            List<(string, Type, long, long)> rows = [];
+
+            // Reaching private fields is the instrument: it copies each one as a resume does.
+#pragma warning disable S3011
+            const System.Reflection.BindingFlags Instance =
+                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic;
+
+            foreach (System.Reflection.FieldInfo field in typeof(Builder).GetFields(Instance))
+            {
+                if (field.GetValue(this) is not { } value || value.GetType().IsValueType || shared.Contains(value))
+                {
+                    continue;
+                }
+
+                IEnumerable<(string Name, object? Value)> owners = value is System.Collections.IEnumerable || value.GetType().Namespace?.StartsWith("System", StringComparison.Ordinal) == true
+                    ? [(field.Name, value)]
+                    : value.GetType().GetFields(Instance).Select(inner => ($"{field.Name}.{inner.Name}", inner.GetValue(value)));
+#pragma warning restore S3011
+
+                foreach ((string name, object? owned) in owners)
+                {
+                    if (owned is null || owned.GetType().IsValueType || shared.Contains(owned))
+                    {
+                        continue;
+                    }
+
+                    Dictionary<Type, (long Objects, long Elements)> created = [];
+                    GC.KeepAlive(StateCopy.Of(owned, shared, prior: null, out _, created));
+
+                    foreach ((Type type, (long objects, long elements)) in created)
+                    {
+                        rows.Add((name, type, objects, elements));
+                    }
+                }
+            }
+
+            return [.. rows.OrderByDescending(row => row.Item4)];
         }
 
         /// <summary>
