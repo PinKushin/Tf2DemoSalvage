@@ -26,7 +26,8 @@ public sealed class WindowReachTests
 
     /// <remarks>
     /// **Each setting moves its own reader's reach**: `cl_interp` 0.5 s is (int)(0.5 + 33.3) + 1 = 34 ticks of delay, 41
-    /// with the motion window, and a kill feed of 20 s outlasts the chat's 12, so 1,334 output ticks (1,333.3 rounded up).
+    /// with the motion window; a kill feed of 20 s lasts 40 s for the local player (`GetExpiryTime` doubles it,
+    /// hud_basedeathnotice.cpp:929), outlasting the chat's 12: 2,667 output ticks (2,666.7 rounded up).
     /// </remarks>
     [Test]
     public void For_LongerInterpAndKillFeed_ReachesFurther()
@@ -35,7 +36,7 @@ public sealed class WindowReachTests
 
         WindowReach reach = WindowReach.For(settings, new ServerConVars(), Interval);
 
-        (reach.TrackTicks, reach.OutputTicks).ShouldBe((41, 1334));
+        (reach.TrackTicks, reach.OutputTicks).ShouldBe((41, 2667));
     }
 
     /// <remarks>

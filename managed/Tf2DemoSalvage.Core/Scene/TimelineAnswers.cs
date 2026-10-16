@@ -57,9 +57,26 @@ internal static class TimelineAnswers
             ("sounds", timeline.Sounds.Where(sound => sound.Tick == whole).ToList()),
             ("events", timeline.GameEvents.Where(fired => fired.Tick == whole).ToList()),
             ("messages", timeline.UserMessages.Where(message => message.Tick == whole).ToList()),
+            ("events' world", EventsWorld(timeline, whole)),
         ];
 
         return answers;
+    }
+
+    /// <summary>
+    /// What <c>HudEventFeed.Resolve</c> asks after a seek: every event the feed replays — those within the default
+    /// settings' feed span — with the players and rules at the event's OWN tick.
+    /// </summary>
+    private static List<(int, IReadOnlyList<ScenePlayer>, SceneGameRules)> EventsWorld(DemoTimeline timeline, int whole)
+    {
+        int span = WindowReach.For(new WindowSettings(), timeline.ServerConVars, timeline.IntervalPerTick).OutputTicks;
+
+        return
+        [
+            .. timeline.GameEvents
+                .Where(fired => fired.Tick > whole - span && fired.Tick <= whole)
+                .Select(fired => (fired.Tick, timeline.PlayersAt(fired.Tick), timeline.RulesAt(fired.Tick))),
+        ];
     }
 
     private static List<(int, int, int, ScenePose?, ScenePose?)> Tracks(DemoTimeline timeline, double tick) =>

@@ -86,6 +86,25 @@ public sealed class TimelineCheckpointsTests
     }
 
     /// <remarks>
+    /// **Frames reach as far back as the HUD feed does** (review finding 1): `HudEventFeed.Resolve` asks for the players
+    /// and rules at each replayed event's own tick, up to the output reach back. With an output reach of 20 and a track
+    /// reach of 2, a window late in the long walk must answer PlayersAt 18 ticks back as the whole build does.
+    /// </remarks>
+    [Test]
+    public void Window_PlayersAtTheOutputReachBack_AnswersAsTheWholeTimeline()
+    {
+        byte[] demo = LongWalk();
+        DemoTimeline whole = DemoTimeline.Build(demo);
+        DemoTimeline.Checkpoints checkpoints = DemoTimeline.Checkpoints.Walk(demo, Every, lookbackTicks: 20, trackLookbackTicks: 2)!;
+        int late = whole.LastTick - 3;
+        int back = late - 18;
+        DemoTimeline window = checkpoints.Window(late, late + 1);
+
+        whole.PlayersAt(back).ShouldNotBeEmpty("the control: someone is there to compare");
+        TimelineFingerprint.OfAnswer(window.PlayersAt(back)).Hash.ShouldBe(TimelineFingerprint.OfAnswer(whole.PlayersAt(back)).Hash);
+    }
+
+    /// <remarks>
     /// **A team stated only in the demo's FINAL frame** fills every earlier frame (the first-stated roster), and a window
     /// long before it must fill it too — the final frame is observed only when the walk is finished.
     /// </remarks>

@@ -12,6 +12,14 @@ public sealed record WindowSettings(ClientInterp? Client = null, double DeathNot
 {
     /// <summary>The interpolation settings, defaulted.</summary>
     public ClientInterp Interp => Client ?? new ClientInterp();
+
+    /// <summary>How long the HUD's longest feed line lasts: what a seek replays, and the output lists' reach.</summary>
+    /// <remarks>
+    /// A death notice lasts <c>hud_deathnotice_time</c>, DOUBLED when the local player is involved
+    /// (<c>DeathNoticeItem::GetExpiryTime</c>, tf/hud_basedeathnotice.cpp:923-931); a chat line
+    /// <c>hud_saytext_time</c>.
+    /// </remarks>
+    public double FeedSeconds => Math.Max(DeathNoticeSeconds * 2d, SayTextSeconds);
 }
 
 /// <summary>
@@ -31,9 +39,11 @@ public sealed record WindowSettings(ClientInterp? Client = null, double DeathNot
 /// - **A player's speed and heading** (<c>SpeedAt</c>, <c>HeadingAt</c>): the track pose a further
 ///   <see cref="DemoTimeline.MotionWindowSeconds"/> back — fixed, this project's own differencing window. Missed in the
 ///   first version and found by the windows probe on rgl-pug (<c>Speed</c> differed at 2 of 120 seeks).
-/// - **Kill feed** (<c>TfHudDeathNotice</c>, over <c>GameEvents</c>): <c>hud_deathnotice_time</c>.
-/// - **Chat** (<c>TfHudChat</c>, over <c>UserMessages</c>): <c>hud_saytext_time</c>.
-/// - **Fixed, reach 0**: frames and every at-or-before list (soundscape, fog, director, recorded view, ConVar history,
+/// - **Kill feed and chat** (<c>HudEventFeed</c>, replaying <c>GameEvents</c> and <c>UserMessages</c> after a seek):
+///   <see cref="WindowSettings.FeedSeconds"/> — <c>hud_deathnotice_time</c> × 2 and <c>hud_saytext_time</c>.
+/// - **Frames, by the same feed**: <c>HudEventFeed.Resolve</c> reads the players and rules at each replayed event's own
+///   tick, so frames are cut at the OUTPUT reach, not the track's.
+/// - **Fixed, reach 0**: every other at-or-before list (soundscape, fog, director, recorded view, ConVar history,
 ///   viewmodels by stream) — the trim keeps the element in force at the cut, which is all an at-or-before reader reads.
 /// - **Unbounded, carried in the checkpoint**: sounds, kept whole (a loop started long ago still plays,
 ///   `docs/memory/a-loop-is-state-not-an-event.md`); and a track's birth tick and pose, kept through any trim.
@@ -56,7 +66,7 @@ public sealed record WindowReach(int TrackTicks, int OutputTicks)
         ArgumentNullException.ThrowIfNull(server);
 
         double interval = intervalPerTick > 0d ? intervalPerTick : ScenePropTrack.Tf2TickInterval;
-        double feed = Math.Max(settings.DeathNoticeSeconds, settings.SayTextSeconds);
+        double feed = settings.FeedSeconds;
 
         // SpeedAt and HeadingAt sample the track a fixed 0.1 s before the tick, converted at 0.015 s per tick as they
         // convert it, whatever the demo's own interval.
