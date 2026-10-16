@@ -73,6 +73,9 @@ public sealed partial class ViewerPresenter : IDisposable
     /// <summary>Decides what should be audible at a tick.</summary>
     private readonly SoundPresenter _sound;
 
+    /// <summary>The `snd_musicvolume` each sound system reads every pass, one-shots and loops then soundscapes (B545).</summary>
+    internal (float Sounds, float Soundscapes) MusicVolumes => (_sound.MusicVolume(), _soundscape.MusicVolume());
+
     /// <summary>Everything a frame makes around its models (D92, D214).</summary>
     private readonly FramePresenter _effects;
 
@@ -244,8 +247,13 @@ public sealed partial class ViewerPresenter : IDisposable
         // tested without a window: the loops it shares with one-shot playback, the decode cache,
         // and somewhere to report. Its map-dependent state arrives when a map is read.
         _sounds = new SoundCache(_audioLog);
-        _soundscape = new SoundscapeSystem(_loops, _sounds.Sample, _audioLog);
-        _sound = new SoundPresenter(_soundscape, _loops, _sounds.Sample, _audioLog) { ClientSoundLog = _renderLog };
+        // `snd_musicvolume` is asked for on every pass, so the first frame and a live change both read the setting (B545).
+        _soundscape = new SoundscapeSystem(_loops, _sounds.Sample, _audioLog) { MusicVolume = () => _settingsOwner.MusicVolume };
+        _sound = new SoundPresenter(_soundscape, _loops, _sounds.Sample, _audioLog)
+        {
+            ClientSoundLog = _renderLog,
+            MusicVolume = () => _settingsOwner.MusicVolume,
+        };
 
         // **A real source that answers unlit, rather than a null field checked at every call.** The
         // asset loader and the model set both take it as a delegate, and a null there is the shape
@@ -431,6 +439,7 @@ public sealed partial class ViewerPresenter : IDisposable
     public void Dispose()
     {
         ReleaseCorpseRecord();
+        ReleaseVoice();
 
         _audio?.Dispose();
         _audio = null;

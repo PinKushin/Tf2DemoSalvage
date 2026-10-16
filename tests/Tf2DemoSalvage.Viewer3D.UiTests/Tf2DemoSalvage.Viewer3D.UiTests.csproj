@@ -40,6 +40,11 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- Real TF2 screenshots the golden tests measure against (D219). Ordinary PNGs, not LFS. -->
+    <None Include="Goldens\*.png" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
     <!-- Referenced so the viewer is built before these run. A UI test against a stale binary is
          the same failure as skipping the build step: it drives code that no longer exists, and it
          presents as a passing suite. (Written without the flag's name because an XML comment

@@ -321,7 +321,7 @@ public sealed class EffectEntities
 
         return timeline.TrackFor(slot, tick) is { } track &&
             track.Continues(handle >> 11) &&
-            track.ModelPath.Length > 0 &&
+            track.FactsAt(tick).ModelPath.Length > 0 &&
             timeline.Dormancy.IsDormant(slot, tick);
     }
 

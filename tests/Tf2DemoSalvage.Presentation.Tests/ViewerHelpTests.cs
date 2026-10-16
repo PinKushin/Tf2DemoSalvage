@@ -25,6 +25,12 @@ public sealed class ViewerHelpTests
     }
 
     [Test]
+    public void Text_ViewportSizeExample_ParsesAsASize()
+    {
+        WindowGeometry.Size(Example("TF2VIEW_VIEWPORT_SIZE")).ShouldBe((1280, 720));
+    }
+
+    [Test]
     public void Text_WindowPosExample_ParsesAsAPosition()
     {
         WindowGeometry.Position(Example("TF2VIEW_WINDOW_POS")).ShouldBe((85, 78));

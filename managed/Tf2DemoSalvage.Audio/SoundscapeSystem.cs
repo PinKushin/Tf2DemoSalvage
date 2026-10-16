@@ -94,6 +94,9 @@ public sealed class SoundscapeSystem(
     private bool _reportedNoPlacements;
     private bool _reportedFirstChoice;
 
+    /// <summary>`snd_musicvolume`, read every pass so a change reaches a playing `#` loop at `SNDLVL_NONE` (B545).</summary>
+    public Func<float> MusicVolume { get; init; } = static () => 1f;
+
     /// <summary>The map's soundscape scripts, or null before a map is read.</summary>
     public SoundscapeCatalog? Catalog { get; set; }
 
@@ -376,7 +379,7 @@ public sealed class SoundscapeSystem(
         if (_voices.Contains(voice.Key))
         {
             // Already playing: the fade is a gain change, not a restart.
-            output.SetGain(SoundscapeEntity, voice.Key, GainOf(voice, listener));
+            output.SetGain(SoundscapeEntity, voice.Key, GainOf(voice, listener, MusicVolume()));
             return;
         }
 
@@ -394,7 +397,7 @@ public sealed class SoundscapeSystem(
         audio.LogInformation(
             "{Message}",
             $"soundscape loop '{voice.Wave}' starting at gain " +
-            $"{GainOf(voice, listener).ToString("0.###", CultureInfo.InvariantCulture)}" +
+            $"{GainOf(voice, listener, MusicVolume()).ToString("0.###", CultureInfo.InvariantCulture)}" +
             (voice.Position is null ? " (at the listener)" : " (positioned)"));
 
         (float left, float rightGain) = voice.Position is { } at
@@ -403,14 +406,25 @@ public sealed class SoundscapeSystem(
 
         // **At the loop's own pitch** — `EmitAmbientSound( pSoundName, 0, pitch )` and `ep.m_nPitch = pitch`
         // (`c_soundscape.cpp:1161,1171`). Every loop played at rate 1 until B462; `Halloween.Outside` is at 50.
-        output.Play(
+        // Gained by key, not handle: the key is a channel on the reserved soundscape entity that the mixer never hands
+        // out twice while it sounds, so a key names exactly one voice.
+        int started = output.Play(
             opened,
             left,
             rightGain,
-            GainOf(voice, listener),
+            GainOf(voice, listener, MusicVolume()),
             SoundScript.Rate(voice.Pitch),
             SoundscapeEntity,
             voice.Key);
+
+        // A refused start is remembered as started, as an unopenable file is above, so it is tried once and not
+        // every frame of a fade; the reason is the sample's shape, said here because the sink has no log.
+        if (started == 0)
+        {
+            audio.LogWarning(
+                "{Message}",
+                $"soundscape loop '{voice.Wave}' started no voice: {opened.Samples.Length} samples, {opened.SampleRate} Hz, {opened.Channels} channels");
+        }
 
         _voices.Add(voice.Key);
     }
@@ -418,6 +432,7 @@ public sealed class SoundscapeSystem(
     /// <summary>A voice's gain, which is its fade times its distance falloff.</summary>
     /// <param name="voice">The voice.</param>
     /// <param name="listener">Where the ears are.</param>
+    /// <param name="musicVolume">`snd_musicvolume`, for a music loop (<see cref="SoundGain.Music"/>, B545).</param>
     /// <returns>The gain to play it at.</returns>
     /// <remarks>
     /// **A positioned loop attenuates and an unpositioned one does not.** A soundscape sound with no
@@ -430,11 +445,17 @@ public sealed class SoundscapeSystem(
     /// all — and the <c>soundlevel</c> key was not read, so the 79 shipped positioned loops that name a soundlevel and
     /// no attenuation played at full volume at any distance (B462).
     /// </remarks>
-    public static float GainOf(SoundscapeVoice voice, (float X, float Y, float Z) listener)
+    public static float GainOf(SoundscapeVoice voice, (float X, float Y, float Z) listener, float musicVolume)
     {
+        // The engine's channel gain applies to a soundscape loop as to any channel (B545). An unpositioned loop goes
+        // through `EmitAmbientSound` (`c_soundscape.cpp:1161`), which engine.dll's FUN_180017150 starts at soundlevel 0
+        // on CHAN_STATIC whatever the script says; only a positioned one carries the script's soundlevel (`:1173`).
+        int startedAt = voice.Position is null ? 0 : voice.SoundLevel;
+        float music = SoundGain.Music(SoundGain.IsMusic(voice.Wave, startedAt), musicVolume);
+
         if (voice.Position is not { } at)
         {
-            return voice.Volume;
+            return voice.Volume * music;
         }
 
         float dx = at.X - listener.X;
@@ -443,6 +464,6 @@ public sealed class SoundscapeSystem(
 
         float distance = MathF.Sqrt((dx * dx) + (dy * dy) + (dz * dz));
 
-        return voice.Volume * SoundGain.AtDistance(voice.SoundLevel, distance);
+        return voice.Volume * SoundGain.AtDistance(voice.SoundLevel, distance) * music;
     }
 }

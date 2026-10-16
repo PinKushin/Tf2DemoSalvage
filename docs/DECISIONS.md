@@ -10204,8 +10204,14 @@ config line or a bind setting it did nothing.
 - View > Volume offers tenths and the unfocused mute, and saves both (`volume` is `archive` in TF2).
 - Every UI-test launch puts `+volume 0` FIRST (`ViewerApplication.Silent`), so a test whose subject is sound overrides
   it later on the line. `PausedSoundUiTests` does that with `+volume 1`. No probe launches the viewer.
-- `snd_musicvolume` and `voice_scale` are declared and stored but applied nowhere: this viewer plays no voice, and
-  which sounds the engine treats as music needs `engine.dll` read (B545).
+- `snd_musicvolume` and `voice_scale` were declared and stored but applied nowhere (B545). **Corrected 2026-10-15:**
+  this line used to say "this viewer plays no voice" as though leaving voice out were a decision. It was not one.
+  The owner: *"that was never made, no idea how it got there voice has always been in scope"*, and why: *"theres not
+  a lot of comp demos that will have voice, but if the pros did use ingame voice for a taunt or talking shit, i want
+  to hear it, and pub demos wiill have voice a lot of the time"*. Voice has always been in scope. What is true is
+  narrower: the four voice decoders exist, but only probes, corpus tests and the fuzzer construct them, so nothing
+  plays voice yet and `voice_scale` has nothing to scale (B545). `snd_musicvolume` is now applied, from
+  `engine.dll`: a `#` sound at soundlevel 0 (`SoundMusicVolumeConformanceTests`).
 
 **Review fixes, 2026-10-14** (branch `fix/volume-review`):
 
@@ -10234,4 +10240,40 @@ config line or a bind setting it did nothing.
 - The loopback test device takes its THREAD's context (`ALC_EXT_thread_local_context`) and puts back the one it
   found, only while its own is still current (per thread: disposed on another thread, it leaves the opener's alone); `alcRenderSamplesSOFT` is resolved once; a missing library ignores the test rather than erroring.
 - `tools/golden-viewer-shot.sh` launches with `+volume 0`.
+
+## D219 — golden images: real TF2 screenshots, compared by measure in real UI tests (2026-10-14)
+
+**Owner, in his words:** *"real goldens are used for tests, real UI or integration tests"*. Asked whether TF2
+screenshots may be committed to this public repo: *"tf2s screenshots are not vallve content, they are SSs"* and *"yes,
+screenshots only"*. On building them at all: *"build the golden tests if we can get them to work"*. If they cannot be
+made reliable, that is reported instead of shipping flaky ones.
+
+**What follows from it:**
+
+- **Screenshots may be committed, but game files never are.** VPKs, maps, models, textures and sounds stay out of the
+  repo as before. Valve's content-use policy allows non-commercial use of screenshots. That is the lead's reading,
+  recorded as such, and is not legal advice.
+- **Few goldens, only what a test reads.** They are ordinary PNGs, resampled to 640 wide, in
+  `tests/Tf2DemoSalvage.Viewer3D.UiTests/Goldens/`, not Git LFS. `Golden.cs` records each one beside it: map, the demo
+  the viewer plays, camera, field of view, ConVars, and what the image shows.
+- **The comparison is a measure, never pixel equality** (`GoldenMeasure`): grid region means, the bright-pixel
+  fraction, and a radial luma profile. Every tolerance states its numbers in the test.
+- **TF2 captures a map it loaded itself, never one reached by playing an old demo.** The viewer plays a demo recorded
+  in the same TF2 session on the same map, with `TF2VIEW_CAMERA` and `demo_fov_override 90`. The goldens were taken
+  with the tf2 MCP's screenshot tool, which writes nothing to Steam's library, after setting
+  `cl_savescreenshotstosteam 0`. It was found at 1 (default 0), which is how earlier agent captures reached the library.
+- **The tests skip, with a reason, without the game or the lcor demo.** CI has neither
+  (`docs/memory/ci-is-the-machine-without-tf2.md`).
+- **The tests are reliable**, measured: `docs/verification/README.md#golden-images-d219`.
+- **A golden is taken after a map LOAD at its `mat_hdr_level`, never after a live switch.** Switching from 2 to 1
+  on a loaded map changed nothing in TF2; switching to 0 changed the frame, but not to what a map loaded at level 0
+  draws (regions up to 7.5 luma apart, the right-hand wall's light shafts absent). The level-0 golden was retaken
+  after a load on 2026-10-15; numbers in the verification section above. **The viewer's level 0 matches the switched
+  frame and not the loaded one** (worst region 7.6), so the level-0 case is `[Explicit]` until that is understood.
+  There is still no level-1 golden.
+- **The viewer frame is drawn at TF2's 1280x720**, not the 984x551 viewport the default window leaves; the three sizes
+  measured are in `GoldenImageUiTests.SameSizeAsTf2`.
+- **A capture's exposure is read, not assumed**: `--shot` waits for `PostProcessingSettled` (B514, B520), and the
+  `wrote …` log line now carries `PostProcessingReport` at the frame written.
+- **The lakeside sun golden is still red after B537**, and stays `[Explicit]`: the numbers are in its remarks.
 

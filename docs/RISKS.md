@@ -39540,18 +39540,30 @@ identical answers by fingerprint); it did NOT decide whose ears a SourceTV demo 
 local player's (the SourceTV client) or the spectated player's — to be read (`C_SoundscapeSystem`, `soundscape.cpp`)
 before changing it. *Measured; the engine side not read.*
 
-## B545 — `snd_musicvolume` and `voice_scale` are declared and stored, and applied nowhere — OPEN, gap
+## B545 — `voice_scale` is applied nowhere, and `snd_musicvolume` has no music duck — OPEN, gap
 
 **Found implementing D218** (2026-10-14). `volume` and `snd_mute_losefocus` reach the mix. These two are declared with
 TF2's defaults and bounds, so a config, a bind or `toggle` sets them without complaint, but nothing reads them:
 
-- **`voice_scale`**: this viewer decodes demo voice (`CeltVoiceDecoder` and the others) but plays none of it, so
-  there is nothing for it to scale yet.
-- **`snd_musicvolume`**: which sounds count as music is the closed engine's decision. The SDK has no `IsMusic`, and
-  `soundchars.h`'s prefixes include none for music (`#` is `CHAR_DRYMIX`, "bypasses dsp fx"). Guessing "`#` and a
-  path under `music/`" would be a fallback that looks like an answer
-  (`docs/memory/fallbacks-do-not-make-guesses-safe.md`). **To read:** `snd_musicvolume`'s xrefs in `engine.dll`, then
-  apply it as a per-sound multiplier where the engine does. *Read from the SDK; the engine not read.*
+- **`voice_scale`**: APPLIED 2026-10-15 (`fix/demo-voice`): demo voice now plays, and `voice_scale` reaches it
+  through `VoiceAutoGain`, the engine's `CAutoGain`, read as each spurt's channel is assigned (B549).
+- **`snd_musicvolume`**: APPLIED 2026-10-15 (`fix/music-voice-volume`). Read from `engine.dll` (x64): FUN_18002d5c0
+  sets the channel's dry bit (0x4 at +0x13c) when the wave's leading sound characters include `#`; FUN_1800292f0
+  multiplies the gain by `snd_musicvolume` (and a duck scale) when that bit is set and the distance multiplier is 0,
+  which both start paths write only for soundlevel exactly 0. No path, soundscript flag or mixer group decides it.
+  `SoundGain.IsMusic` and `SoundGain.Music` apply it to one-shots, tracked loops and soundscape loops, and every pass
+  re-gains what is playing, as the engine's per-mix channel gain does (`SoundMusicVolumeConformanceTests`,
+  `SoundPresenterMusicVolumeTests`). An unpositioned soundscape loop is music by its wave alone, because
+  `EmitAmbientSound` (FUN_180017150) starts it at soundlevel 0 whatever the script says. A music one-shot's
+  followed volume ends with its voice, on a stop naming it, and on a seek (B550); a `SND_CHANGE_VOL` alters it in
+  place. Names match as `S_AlterChannel` matches them, by `CSfxTable`: `S_FindName` (FUN_18002b290) keys the whole
+  name, sound characters kept, through the file system's `FindOrAddFileName` (vtable +0x118, confirmed by its
+  neighbour +0x120 being called as `String(handle, buf, 0x200)` in the sfx's `getname`, FUN_1800309c0), which
+  lower-cases and fixes separators (`SoundName.SfxKey`). Music and loops are gained per voice (`IAudioSink.Play`
+  returns a handle; `SetVoiceGain`, `SetVoicePitch`), because `SND_PickDynamicChannel` (FUN_18002a330) gives every
+  CHAN_AUTO start its own channel and hands a named channel's busy slot back for replacement. *Read from the binary.*
+  **Still open: the duck** (`DAT_1804600e8`, eased in
+  FUN_18002fbe0), which is 1 here.
 
 ## B546 — the STV spectator GUI's other three parts: the control-point row, the target ID's health, overheal colour — OPEN, gap
 
@@ -39599,4 +39611,126 @@ the bind's before the chord test. (6) `SetsState` now uses `SetConVar`'s own tes
 how the console treats a typed line, and an undeclared name is no ConVar in the engine either, so that part was
 dropped. (7) `Run` returns whether it acted; the shared counter is gone. The menu check is back in the UI test (D218's
 sync on open), and the open item above about the menu is closed by it.
+
+## B549 — demo voice plays through the engine's voice channels; parts of that path are not ported — OPEN, gap
+
+**Wired 2026-10-15 (`fix/demo-voice`).** `svc_VoiceData` and `svc_VoiceInit` now reach playback: the timeline keeps
+them (`DemoTimeline.Voice`, `VoiceInits`), `VoicePlan` lays them out as the engine's five voice channels would play
+them, and `VoicePresenter` starts each run on `CHAN_VOICE_BASE + index`. Every behaviour and its engine.dll address:
+`docs/findings/31-game-audio.md`, "Demo voice". Not ported, each a divergence a listener can hear:
+
+1. **The voice duck.** While any voice channel plays, `voice_overdrive` (2) scales every OTHER sound by
+   `256 / ((0.5 - 0.5 cos(π t / voice_overdrivefadetime)) × (overdrive - 1) + 1)`, ramping over
+   `voice_overdrivefadetime` (0.4 s) — `FUN_18005a5a0`, applied in the mixer at `FUN_180040cc0` to every channel whose
+   source is not a voice. `IAudioSink` has no per-category gain to carry it.
+2. **The speaking indicator.** `Voice_Idle` calls the client's `VoiceStatus(entity, true/false)` as a channel starts
+   and ends, which reaches `CVoiceStatus::UpdateSpeakerStatus` (`voice_status.cpp:284`) and the head label
+   `DrawHeadLabels` draws (`:205`, gated on `GameRules()->ShouldDrawHeadLabels()`), and TF2's HUD speaker list. Whether
+   TF2's rules draw head labels, and the HUD panel's layout, are not read.
+3. **Spatialisation is fixed at the start**, as for every one-shot here; the engine re-spatialises a proximity voice
+   from the speaker every mix. Proximity is rare in TF2 (team voice is not proximity), so this is mostly moot.
+4. **The device resamples** where the engine upsamples linearly into its buffer (`FUN_180056eb0`), and
+   `cl_voice_filter` (a name substring filter in `ProcessVoiceData`) is not offered.
+5. **A `Voice_Init` mid-speech** ends the channel in the plan, but the sound already handed to the device plays out;
+   the engine's `Voice_Deinit` stops it at once.
+
+6. **Voice across a demo skip.** Voice resumes at the next packet after a seek; whether `ProcessVoiceData` runs
+   while `IsSkipping()` (B550) — so skipped-over speech fills the buffer or is dropped — is not read.
+
+The rest of the choices that are ours, not the engine's, are listed in findings/31, "Demo voice".
+
+## B550 — a seek silences every sound and re-establishes loops; the engine's demo skip keeps what plays and starts only static sounds — OPEN, defect
+
+**Found reviewing B545** (2026-10-15). Ours: a seek silences everything and re-establishes only loops
+(`SoundPresenter`'s `Jumped` and `reestablishing` branches), so a music one-shot mid-song is gone and its
+`snd_musicvolume` following with it. **The engine, read from engine.dll (x64):**
+
+- `CDemoPlayer::SkipToTick` (FUN_180073b10, `"DemoPlayer: SkipToTick"`): a target BEHIND the current tick reloads the
+  demo through its own `StartPlayback` (vtable +0x28, `"DemoPlayer: Reloading demo file"`) and skips forward from the
+  start; a target AHEAD only sets the skip tick (+0x5bc). Nothing in it stops a sound, so on a forward skip whatever
+  was playing keeps playing. Whether the reload's reconnect stops sounds is not read.
+- The sound dispatch (FUN_18008b7f0, called for each queued `svc_Sounds` entry by FUN_18008bb10) drops a sound while
+  `IsSkipping()` (demo player vtable +0x48, FUN_180072a90: `m_bPlaying && m_nSkipToTick != -1`) unless it is static
+  (`staticsound = channel == CHAN_STATIC`) or carries `SND_STOP` (flag 4). So during a skip, static sounds still start
+  and stops still stop, and every dynamic sound — dynamic loops included — is dropped.
+
+**Why it stays open:** matching it rewrites the seek model for every sound, not music: no silence on a forward seek,
+CHAN_STATIC starts and stops replayed through the skipped range, dynamic loops not re-established, and the reload
+path's stop read first. That is its own change with its own tests. *Read from the binary.*
+
+## B548 — a prop's model, item, owner, parent, team and attributes answered every tick with the demo's END value — FIXED 2026-10-15 (`fix/prop-fields-in-time`)
+
+Found by D217 step 3: windows answered differently from the whole timeline at 16 of 80 seeks on f12 and 6 of 80 on
+rgl-pug, every difference a prop's `Econ` or `ModelPath` — and the window was right
+(`docs/memory/a-whole-timeline-can-leak-the-future.md`, on `feat/timeline-windows`). Cause, *read*: `ModelPath`
+(`Follow`), `ItemDefinitionIndex`, `ClassName`, `OfDisguise`, `TeamNumber`, `AttachedTo`, `BoneMerged`, `OwnedBy`,
+`AttachmentPoint` and `Econ` were track scalars the builder overwrote per update, and `BuildProp`/`Visible` read them
+at any tick. The engine holds each as of the latest update received — `ValidateModelIndex` ends in
+`SetModelByIndex( m_nModelIndex )` on every `PostDataUpdate` (`c_baseentity.cpp:2531`), and
+`CEconEntity::OnDataChanged` hands every update to the attribute container (`econ_entity.cpp:1032`). Skin and body
+were never affected: they are in the pose.
+
+Fix: one history, not one per field. The builder stamps a `ScenePropFacts` record per update into `HeldValues<T>`
+(change-only, binary search — the collision list uses it too); `PropsAt`, `Visible`, `MovementWorld`'s team and
+`EffectEntities`' dormancy read `FactsAt(tick)`; precaching walks every model a track named (`ModelPaths`), since an
+earlier tick now draws an earlier model. A fact change is a `HeldChangesAfter` boundary, so a swap with an unchanged
+pose still wakes the sampler. The track scalars remain, as the builder's working state and the latest value.
+
+Measured (*corpus*): `model-changes` on f12 — 4,755 prop tracks, 20 model changes, all sentry/dispenser upgrades
+(`sentryN_heavy` → `sentryN` → next level). Entity 457 upgrades 1 → 3 between ticks 67049 and 67918 and ends level 3,
+so at tick 66600 origin/main drew a level-3 sentry where the engine holds level 1; fixed, level 1. With the merge of
+`feat/timeline-windows` (scratch, `HeldValues.DropBefore` in `TrimBefore`): `timeline-windows <demo> 5 4 40` is
+IDENTICAL, 0 of 80 seeks, on f12 (21.7 M values) and rgl-pug (17.0 M). `timeline-fingerprint` on f12 is identical
+to origin/main (a9029bde) in every section (1.23 G values) — **which says the track histories and keyframes did not
+move, and nothing about this fix**: *interpolated* from identical hashes across a change `PropsAt` shows, the fingerprint hashes what the tracks store, not `PropsAt`'s answers, so it
+cannot see a fact read at a tick. The windows probe and the tick-66600 pair are the instruments that can. Tests: `ModelIndexFollowsUpdatesConformanceTests.
+PropsAt_BeforeAndAfterAModelChange_DrawsTheModelHeldAtEachTick` (cold and stepped), `PropFactsInTimeTests` (three).
+Sabotage: `BuildProp` reading `track.ModelPath` reddened both conformance cases; dropping the fact wake reddened only
+`HeldChangesAfter_AModelChangeWithNoNewPose_IsAWake` — in an authored demo every update makes a keyframe (its pose
+lists compare by reference), so the conformance test cannot see that wake. **Open:** `CarriedAtDeath`/`WornAtDeath`
+read the scalars, correctly, because they run while building at the death tick; `SolidBrushEntities`/`BrushTracks`
+classify a brush by its last model. Findings: `19-model-indices.md`.
+
+**Review, 2026-10-15.** (1) The move-children map used each child's LAST parent, so the fourth `ShouldInterpolate`
+clause visited a wearable under its final parent at every tick; it now holds every parent a child ever had, and the walk
+keeps a child only while `FactsAt(tick).AttachedTo` is the parent it came from, asking the slot's occupant alive at the
+tick (`OccupantAt`). Two `InterpolationListTests` (joins later / leaves later); sabotaging the parent test reddened the
+first, collapsing the map to the last parent the second. (2) Sprite and (3) worn preloads walk the history, worn gated
+per entry on that entry's parent (`WornModelsTests`; gating on the latest parent reddened it). (4) The track's doc
+block had attached itself to `ScenePropFacts`. (5) `HeldValues.Set` drops a same-tick revert and refuses an earlier
+tick (`HeldValuesTests`; disabling the drop reddened the revert test). (6) `ClassName` stays a scalar, argued on the
+property: one `EntityState` and class id per serial. `OfDisguise` was sticky (`||`); `m_bDisguiseWearable` is a plain
+networked bool (`tf_item_wearable.h:45`), so it is now the state's value — *not* covered by a builder-level test.
+`ClientSideAnimated` (`m_bClientSideAnimation`, networked per update) joined the facts; per-field `FactsAt` tests cover
+ten of the eleven fields, all but `ClassName` (dropping one from the snapshot reddened its case).
+
+**Second review, 2026-10-15.** Player tracks ARE stamped: `ModelFor` answers `""` for `CTFPlayer`
+(`DemoTimeline.cs` `ModelFor`), so the model-or-item guard passes and the update reaches `Stamp`; a synthetic late-team
+player holds no team, then 2, then 3 (`FactsAt_OnAPlayerTrackWhoseTeamArrivesLater…`; skipping `Stamp` for an empty
+model reddened it). `HeldValues.Set` no longer throws on an earlier tick — nothing guarantees packet ticks rise, and one
+must not end a build — it takes it as the latest tick (no logging exists at that layer; no gcor demo regresses, or the
+corpus phase would have thrown under the old code). The move-children walk asks `TrackFor(child, tick)`: a child with
+no live occupant is skipped with its subtree (its slot's last occupant still contributes a wake), which removes the
+lazy `_occupants` cache; a visible grandchild under a dead or unborn child reddened two tests when the fallback was put
+back. The cycle's client-side test reads `FactsAt(tick)` (`AppliedTimeTests.At_BeforeTheEntityTurnsClientSideAnimated…`,
+reddened by reverting). Taking the child's wake only for current children reddened nothing — a moving mover wakes
+itself — so it stays the superset. `ClientSideAnimated` in the facts costs **0** extra entries on f12 (`model-changes`).
+`OfDisguise` without `||` survives PVS re-entry because a same-serial enter keeps the accumulated state and merges no
+baseline (`EntityStateTable.cs:177-209`, B231) — argued, not tested. The rope `_back` material is taken from the model
+the track held at the rope's own keyframe.
+
+**Third review, 2026-10-16.** An empty child slot wakes the parent at the EARLIEST occupant born after the tick
+(`NextBirthInSlot`), not the slot's last; a slot reused three times reddened when put back. A live child's death is
+already in its `HeldChangesAfter` (`_endTick`). `TrackFor(entity, tick)` reads an index by slot built in the
+constructor. The view entity counts only as a current child — the fourth clause walks `FirstMoveChild`'s list and asks
+each child's `ShouldInterpolate`, whose first clause is the view-entity test (`c_baseentity.cpp:3031`); a view entity
+that left the parent reddened when its test was moved ahead of the parent check. Player tracks join the move-children
+map (any `C_BaseEntity` can be a move child; no test). The former-child wake now has its test: a child rejoining between
+the mover's own wakes (stepped 10/31/34 against a cold 34); dropping the wake reddened it. Regressed ticks are counted
+(`HeldValues.Clamped`, summed by `model-changes`): **0** on f12. A demo is played packet by packet and an older packet
+is applied as received, so taking it at the latest tick is the client's rule; three `HeldValuesTests` cover a
+regression with a new value, one reverting, and one with a single entry. The rope `_back` is the held material: a
+cable that changes material backs only the one it held as a rope (`DemoModelsTests`); reverting to every sprite path
+reddened it. A builder stamp lands on the same tick as the update's keyframe, so `FactsAt(keyframe)` is never before
+the first stamp.
 

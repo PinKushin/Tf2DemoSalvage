@@ -119,6 +119,135 @@ public sealed partial class ViewerPresenter
             _audioClock.Elapsed.TotalSeconds,
             recorded);
 
-        StallReport.Sounds(phases, Stopwatch.GetTimestamp() - soundAt, _audioLog);
+        long voiceAt = Stopwatch.GetTimestamp();
+        PlayVoice(output, tick, ears.Origin, ears.Right);
+        long voiced = Stopwatch.GetTimestamp();
+
+        StallReport.Sounds(phases with { Voice = voiced - voiceAt }, voiced - soundAt, _audioLog);
+    }
+
+    /// <summary>The demo's voice, through the engine's voice channels (<see cref="VoicePresenter"/>).</summary>
+    private readonly VoicePresenter _voice = new();
+
+    /// <summary>The timeline <see cref="_voice"/>'s plan was laid out from.</summary>
+    private DemoTimeline? _voiceTimeline;
+
+    /// <summary>The plan being laid out off the frame, or null once it has landed.</summary>
+    private System.Threading.Tasks.Task<VoicePlanResult>? _voicePlan;
+
+    /// <summary>Cancels <see cref="_voicePlan"/> when its demo is replaced or the window closes.</summary>
+    private System.Threading.CancellationTokenSource? _voicePlanCancel;
+
+    /// <summary>Abandons the plan in flight, for a demo replaced or a window closing.</summary>
+    private void CancelVoicePlan()
+    {
+        _voicePlanCancel?.Cancel();
+        _voicePlanCancel?.Dispose();
+        _voicePlanCancel = null;
+    }
+
+    /// <summary>Stops voice work for a closing window: the plan in flight and every decode.</summary>
+    private void ReleaseVoice()
+    {
+        CancelVoicePlan();
+        _voice.Dispose();
+    }
+
+    private void PlayVoice(IAudioSink output, int tick, (float X, float Y, float Z) listener, (float X, float Y, float Z) right)
+    {
+        if (!ReferenceEquals(_timeline, _voiceTimeline))
+        {
+            // Laid out once per demo from the framing alone, off the frame: 46 ms on the heaviest lcor voice demo
+            // (voice-memory probe, 6,861 packets). Until it lands no voice plays; decoding happens per start.
+            //
+            // `Voice` and `VoiceInits` are the builder's lists handed out whole (`TailList.HandOut`), not streamed
+            // (B449), and nothing writes them after the build, so a pool thread may read them.
+            _voiceTimeline = _timeline;
+            _voice.Plan = [];
+            CancelVoicePlan();
+
+            if (_timeline is { } demo)
+            {
+                _voicePlanCancel = System.Threading.CancellationTokenSource.CreateLinkedTokenSource(_shutdown);
+                System.Threading.CancellationToken token = _voicePlanCancel.Token;
+                _voicePlan = System.Threading.Tasks.Task.Run(
+                    () => VoicePlan.From(demo.VoiceInits, demo.Voice, demo.IntervalPerTick, cancel: token), token);
+            }
+        }
+
+        if (_voicePlan is { IsCompleted: true } laid)
+        {
+            _voicePlan = null;
+
+            // A cancelled plan is a demo that closed or was replaced: nothing to report.
+            if (laid.IsCompletedSuccessfully)
+            {
+                VoicePlanResult plan = laid.Result;
+                _voice.Plan = plan.Spurts;
+                _voice.Interval = _timeline?.IntervalPerTick ?? _voice.Interval;
+                _audioLog.LogInformation(
+                    "{Message}",
+                    $"voice: {plan.Spurts.Count} spurts from {_timeline?.Voice.Count ?? 0} packets" +
+                    (plan.Refusal is { } refusal ? "; " + refusal : string.Empty));
+            }
+            else if (laid.IsFaulted)
+            {
+                _audioLog.LogWarning("{Message}", "voice: the plan could not be laid out: " + laid.Exception?.GetBaseException().Message);
+            }
+        }
+
+        if (_timeline is not { } timeline)
+        {
+            return;
+        }
+
+        _voice.Scale = _settingsOwner.VoiceScale;
+        _voice.Enabled = _settingsOwner.VoiceEnable;
+        _voiceTick = tick;
+        _voice.Update(
+            output,
+            tick,
+            _sound.Schedule?.Jumped ?? false,
+            listener,
+            right,
+            _audioClock.Elapsed.TotalSeconds,
+
+            // The view entity is the recorder's: `svc_ServerInfo`'s player slot + 1, which a demo views from.
+            timeline.RecorderEntityIndex ?? 0,
+            _speakerAt ??= SpeakerAt);
+
+        if (_voice.Failure is { } failure && !string.Equals(failure, _voiceFailure, StringComparison.Ordinal))
+        {
+            _voiceFailure = failure;
+            _audioLog.LogWarning("{Message}", "voice: a start could not be decoded: " + failure);
+        }
+    }
+
+    /// <summary>The last decode failure logged, so each is logged once.</summary>
+    private string? _voiceFailure;
+
+    /// <summary>The tick <see cref="SpeakerAt"/> answers for.</summary>
+    private int _voiceTick;
+
+    /// <summary>Made once, so a frame allocates no delegate.</summary>
+    private Func<int, (float X, float Y, float Z)?>? _speakerAt;
+
+    /// <summary>Where a speaker stands at the voice tick, asked only when a proximity voice starts.</summary>
+    private (float X, float Y, float Z)? SpeakerAt(int entity)
+    {
+        if (_timeline is not { } timeline)
+        {
+            return null;
+        }
+
+        foreach (ScenePlayer player in timeline.PlayersAt(_voiceTick))
+        {
+            if (player.EntityIndex == entity)
+            {
+                return (player.X, player.Y, player.Z);
+            }
+        }
+
+        return null;
     }
 }

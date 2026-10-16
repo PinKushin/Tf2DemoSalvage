@@ -59,8 +59,8 @@ public sealed class SoundscapeSystemTests
         // distance" from "happened to be zero away".
         SoundscapeVoice voice = new(1, "ambient/indoors.wav", 0.5f, 100, Position: null, SoundLevel: 75);
 
-        SoundscapeSystem.GainOf(voice, (0f, 0f, 0f)).ShouldBe(0.5f);
-        SoundscapeSystem.GainOf(voice, (4000f, 3000f, 500f)).ShouldBe(0.5f);
+        SoundscapeSystem.GainOf(voice, (0f, 0f, 0f), 1f).ShouldBe(0.5f);
+        SoundscapeSystem.GainOf(voice, (4000f, 3000f, 500f), 1f).ShouldBe(0.5f);
     }
 
     [Test]
@@ -77,8 +77,8 @@ public sealed class SoundscapeSystemTests
             Position: (1000f, 0f, 0f),
             SoundLevel: 70);
 
-        float near = SoundscapeSystem.GainOf(voice, (900f, 0f, 0f));
-        float far = SoundscapeSystem.GainOf(voice, (0f, 0f, 0f));
+        float near = SoundscapeSystem.GainOf(voice, (900f, 0f, 0f), 1f);
+        float far = SoundscapeSystem.GainOf(voice, (0f, 0f, 0f), 1f);
 
         near.ShouldBeGreaterThan(far);
         far.ShouldBeGreaterThan(0f, "attenuation is a falloff, not a cutoff");
@@ -276,14 +276,22 @@ public sealed class SoundscapeSystemTests
 
         public List<(int Entity, int Channel)> Silenced { get; } = [];
 
-        public void Play(
+        public int Play(
             SoundSample sample,
             float leftPan,
             float rightPan,
             float gain,
             float pitch,
             int entity,
-            int channel) => Played.Add((entity, channel));
+            int channel)
+        {
+            Played.Add((entity, channel));
+            return 0;
+        }
+
+        public bool SetVoiceGain(int voice, float gain) => false;
+
+        public bool SetVoicePitch(int voice, float pitch) => false;
 
         public int Regained { get; private set; }
 
@@ -297,7 +305,11 @@ public sealed class SoundscapeSystemTests
 
         public void Silence(int entity, int channel) => Silenced.Add((entity, channel));
 
-        public void Silence(int entity, int channel, SoundSample sample) => Silenced.Add((entity, channel));
+        public int Silence(int entity, int channel, SoundSample sample)
+        {
+            Silenced.Add((entity, channel));
+            return 0;
+        }
 
         public void SilenceAll() => Silenced.Add((AllEntities, AllChannels));
 

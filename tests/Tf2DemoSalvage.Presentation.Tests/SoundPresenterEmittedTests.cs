@@ -117,8 +117,15 @@ public sealed class SoundPresenterEmittedTests
 
         public List<(SoundSample Sample, float Gain, int Entity, int Channel)> Played { get; } = [];
 
-        public void Play(SoundSample sample, float leftPan, float rightPan, float gain, float pitch, int entity, int channel) =>
+        public int Play(SoundSample sample, float leftPan, float rightPan, float gain, float pitch, int entity, int channel)
+        {
             Played.Add((sample, gain, entity, channel));
+            return 0;
+        }
+
+        public bool SetVoiceGain(int voice, float gain) => false;
+
+        public bool SetVoicePitch(int voice, float pitch) => false;
 
         public bool SetGain(int entity, int channel, float gain) => false;
 
@@ -136,9 +143,6 @@ public sealed class SoundPresenterEmittedTests
             // Nothing is tracked per channel here, and no stop is scheduled in these tests.
         }
 
-        public void Silence(int entity, int channel, SoundSample sample)
-        {
-            // As above.
-        }
+        public int Silence(int entity, int channel, SoundSample sample) => 0;
     }
 }

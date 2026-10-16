@@ -75,6 +75,81 @@ public sealed class AudioOutputDeviceTests
         output.Playing.ShouldBe(1, "the sample became a voice");
     }
 
+    /// <remarks>
+    /// Each start is its own voice, as each is its own engine channel: two CHAN_AUTO starts on one entity are two
+    /// (`SND_PickDynamicChannel`, engine.dll FUN_18002a330, never hands a CHAN_AUTO request a busy channel), and a
+    /// named channel's next start ends the voice before it.
+    /// </remarks>
+    [Test]
+    public void SetVoiceGain_TwoAutoVoicesAndANamedReplacement_ReachesOnlyVoicesStillPlaying()
+    {
+        using AudioOutput output = Open();
+
+        int first = output.Play(Tone(), 1f, 1f, entity: 1, channel: 0);
+        int second = output.Play(Tone(), 1f, 1f, entity: 1, channel: 0);
+        int named = output.Play(Tone(), 1f, 1f, entity: 1, channel: 1);
+        int replacing = output.Play(Tone(), 1f, 1f, entity: 1, channel: 1);
+
+        new[] { first, second, named, replacing }.Distinct().Count().ShouldBe(4);
+        output.SetVoiceGain(first, 0.5f).ShouldBeTrue("CHAN_AUTO overlaps");
+        output.SetVoiceGain(second, 0.5f).ShouldBeTrue();
+        output.SetVoiceGain(named, 0.5f).ShouldBeFalse("the named channel's next start replaced it");
+        output.SetVoicePitch(replacing, 1.2f).ShouldBeTrue();
+        output.SetVoiceGain(0, 0.5f).ShouldBeFalse("0 names no voice");
+    }
+
+    /// <remarks>
+    /// A source that has finished stays in the list until <c>Reclaim</c>; "alive" must mean audible, or a change to
+    /// ended music alters nothing instead of starting it, as `S_AlterChannel` matching nothing does (FUN_18002aa20).
+    /// Synchronised on the condition with a deadline, never on a clock.
+    /// </remarks>
+    [Test]
+    public void SetVoiceGain_AVoiceThatHasFinished_IsGoneAndReaped()
+    {
+        using AudioOutput output = Open();
+
+        int voice = output.Play(Tone(frames: 64), 1f, 1f, entity: 1, channel: 0);
+        System.Diagnostics.Stopwatch waited = System.Diagnostics.Stopwatch.StartNew();
+        bool alive = true;
+
+        while (alive && waited.Elapsed < TimeSpan.FromSeconds(5))
+        {
+            alive = output.SetVoiceGain(voice, 0.5f);
+        }
+
+        alive.ShouldBeFalse("64 frames at 44.1 kHz end in under 2 ms of playback");
+        output.Playing.ShouldBe(0, "the finished voice was reaped by the call that found it finished");
+        output.SetVoicePitch(voice, 1f).ShouldBeFalse();
+    }
+
+    /// <remarks>
+    /// A finished voice is no channel — the engine's mixer freed it — so a stop passes over it to the first voice still
+    /// playing that sound (`S_AlterChannel`, FUN_18002aa20), and reaps it on the way.
+    /// </remarks>
+    [Test]
+    public void Silence_AFinishedVoiceBeforeAPlayingOne_StopsThePlayingOne()
+    {
+        using AudioOutput output = Open();
+        IAudioSink sink = output;
+        SoundSample once = Tone(frames: 64);
+
+        int finished = output.Play(once, 1f, 1f, entity: 1, channel: 0);
+        int probe = output.Play(Tone(frames: 64), 1f, 1f, entity: 2, channel: 0);
+        int playing = output.Play(once with { Loops = true }, 1f, 1f, entity: 1, channel: 0);
+
+        // The probe started after the first voice and is as long, so once it has ended the first has too.
+        System.Diagnostics.Stopwatch waited = System.Diagnostics.Stopwatch.StartNew();
+
+        while (output.SetVoiceGain(probe, 1f) && waited.Elapsed < TimeSpan.FromSeconds(5))
+        {
+            // Synchronising on the probe's own state.
+        }
+
+        sink.Silence(1, 0, once).ShouldBe(playing, "the finished voice is passed over");
+        finished.ShouldNotBe(playing);
+        output.Playing.ShouldBe(0, "the finished voice was reaped on the way, the probe by its gain");
+    }
+
     [Test]
     public void Play_ASampleWithNoFrames_IsIgnoredRatherThanQueued()
     {

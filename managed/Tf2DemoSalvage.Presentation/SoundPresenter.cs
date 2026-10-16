@@ -7,6 +7,7 @@ using System.Linq;
 using Microsoft.Extensions.Logging;
 
 using Tf2DemoSalvage.Audio;
+using Tf2DemoSalvage.Core.Net;
 using Tf2DemoSalvage.Core.Scene;
 using Tf2DemoSalvage.GameSystems;
 
@@ -18,6 +19,7 @@ namespace Tf2DemoSalvage.Presentation;
 /// <param name="Loops">Re-attenuating every tracked loop to the listener.</param>
 /// <param name="Soundscape">Choosing and fading the map's ambience.</param>
 /// <param name="Starting">Playing everything that begins this tick.</param>
+/// <param name="Voice">Demo voice: deciding what starts, and decoding what does (<c>VoicePresenter</c>).</param>
 /// <remarks>
 /// **Returned rather than logged here, because the format is the view's business and the timing is
 /// not.** The presenter can see the phase boundaries and the view owns what a slow line looks like;
@@ -29,7 +31,8 @@ public readonly record struct SoundPhases(
     long Reclaim,
     long Loops,
     long Soundscape,
-    long Starting);
+    long Starting,
+    long Voice = 0);
 
 /// <summary>Decides what should be audible at a tick, and tells a sink to make it so.</summary>
 /// <remarks>
@@ -56,6 +59,34 @@ public sealed partial class SoundPresenter(
     Func<string, SoundSample?> sample,
     ILogger audio) : IGameSystem
 {
+    /// <summary>`snd_musicvolume`, asked every pass: the engine recomputes each channel's gain every mix (FUN_1800292f0, B545).</summary>
+    public Func<float> MusicVolume { get; init; } = static () => 1f;
+
+    /// <summary>The music one-shots playing, by the sink's voice handle — one engine channel each — re-gained every pass.</summary>
+    /// <remarks>
+    /// Music is `SNDLVL_NONE`, so its gain is volume × `snd_musicvolume` with no distance term. Keyed per voice
+    /// because the engine gains per channel and `SND_PickDynamicChannel` (FUN_18002a330) gives every CHAN_AUTO start
+    /// its own channel. An entry ends when its voice has (`SetVoiceGain` answers false — a named channel's next
+    /// sound replaces it in the sink), on a stop naming it, and on a seek. Sorted by handle, which the sink hands out
+    /// in start order, so "first match" walks as the engine's does; a hash map's order is not start order once a slot
+    /// has been freed and reused.
+    /// </remarks>
+    private readonly SortedDictionary<int, (int Entity, int Channel, string Name, float Volume)> _music = new();
+
+    /// <summary>The first music voice on an entity's channel playing a sound, as `S_AlterChannel` finds the first match.</summary>
+    private int? MusicVoice(int entity, int channel, string name)
+    {
+        foreach ((int voice, (int Entity, int Channel, string Name, float Volume) playing) in _music)
+        {
+            if (playing.Entity == entity && playing.Channel == channel && SoundName.SameSfx(playing.Name, name))
+            {
+                return voice;
+            }
+        }
+
+        return null;
+    }
+
     /// <summary>How many sounds actually reached the output.</summary>
     private int _submitted;
 
@@ -260,6 +291,7 @@ public sealed partial class SoundPresenter(
         {
             output.SilenceAll();
             loops.Clear();
+            _music.Clear();
 
             // **The soundscape has to be forgotten too, and leaving it out was a silent bug.**
             // Silencing everything deletes the soundscape's sources as well, but its voice keys
@@ -516,10 +548,33 @@ public sealed partial class SoundPresenter(
     /// <summary>Re-attenuates every tracked loop to where the listener now stands.</summary>
     private void Attenuate(IAudioSink output, (float X, float Y, float Z) listener)
     {
-        foreach ((int entity, int channel, float gain) in
-            loops.GainsAt(listener.X, listener.Y, listener.Z))
+        float musicVolume = MusicVolume();
+
+        // Every gain goes to one voice, as the engine's mixer gains one channel, so the order of these two passes
+        // cannot change any voice's gain.
+        foreach ((int voice, (int _, int _, string _, float volume)) in _music.ToArray())
         {
-            output.SetGain(entity, channel, gain);
+            if (!output.SetVoiceGain(voice, volume * SoundGain.Music(isMusic: true, musicVolume)))
+            {
+                _music.Remove(voice);
+            }
+        }
+
+        foreach ((int entity, int channel, int voice, float gain) in
+            loops.GainsAt(listener.X, listener.Y, listener.Z, musicVolume))
+        {
+            // A voice the sink no longer has — replaced on its channel, or ended — is no longer followed, so a later
+            // change to it falls through to a start as `S_AlterChannel` matching nothing does.
+            if (voice != 0 && !output.SetVoiceGain(voice, gain))
+            {
+                loops.ForgetVoice(voice);
+                continue;
+            }
+
+            if (voice == 0)
+            {
+                output.SetGain(entity, channel, gain);
+            }
 
             // **Logged only when a loop crosses between silent and audible**, which is the question
             // a listener actually has: "I walked up to the machine and heard nothing". Per-pass
@@ -543,6 +598,62 @@ public sealed partial class SoundPresenter(
         }
     }
 
+    /// <summary>Applies a change to the music voice `S_AlterChannel` matched, keeping the volume it now has; false when it has gone.</summary>
+    private bool AlterMusic(IAudioSink output, SceneSound sound, int voice)
+    {
+        (int entity, int channel, string name, float stored) = _music[voice];
+        float volume = sound.ChangesVolume ? sound.Volume : stored;
+        bool alive = output.SetVoiceGain(voice, volume * SoundGain.Music(isMusic: true, MusicVolume()));
+
+        if (alive && sound.ChangesPitch)
+        {
+            alive = output.SetVoicePitch(voice, SoundScript.Rate(sound.Pitch));
+        }
+
+        if (alive)
+        {
+            _music[voice] = (entity, channel, name, volume);
+        }
+
+        return alive;
+    }
+
+    /// <summary>Applies a change to the loop `S_AlterChannel` matched; false when its voice has gone.</summary>
+    private bool AlterLoop(IAudioSink output, SceneSound sound, (float X, float Y, float Z) listener, int voice)
+    {
+        float rate = SoundScript.Rate(sound.Pitch);
+
+        bool alive = true;
+
+        // Without a handle the key is what answers: false from the sink means nothing plays there any more.
+        if (voice == 0)
+        {
+            if (sound.ChangesVolume && loops.GainAt(sound.EntityIndex, sound.Channel, listener, MusicVolume()) is { } keyed)
+            {
+                alive = output.SetGain(sound.EntityIndex, sound.Channel, keyed);
+            }
+
+            if (alive && sound.ChangesPitch)
+            {
+                alive = output.SetPitch(sound.EntityIndex, sound.Channel, rate);
+            }
+
+            return alive;
+        }
+
+        if (sound.ChangesVolume && loops.GainOfVoice(voice, listener, MusicVolume()) is { } altered)
+        {
+            alive = output.SetVoiceGain(voice, altered);
+        }
+
+        if (alive && sound.ChangesPitch)
+        {
+            alive = output.SetVoicePitch(voice, rate);
+        }
+
+        return alive;
+    }
+
     /// <summary>Plays, or silences, one sound the schedule produced.</summary>
     private void Start(
         IAudioSink output,
@@ -560,19 +671,40 @@ public sealed partial class SoundPresenter(
         // **`SND_CHANGE_VOL` / `SND_CHANGE_PITCH` alter the sound where it plays** — `S_StartSound` hands them to
         // `S_AlterChannel`, which matches entity, channel and sound — and only fall through to a start when nothing matched.
         // Started afresh, a server's scrape or door loop restarted from its first sample on every volume update.
-        if (!sound.IsStop && (sound.ChangesVolume || sound.ChangesPitch) && loops.Alter(sound))
+        // A music one-shot is altered in place too, keeping its new volume for the per-pass re-gain (B545).
+        // A voice that has already ended matches nothing, so the entry goes and the sound falls through to a start, as
+        // `S_AlterChannel` returning 0 does (FUN_18002aa20).
+        // A matched voice found gone is forgotten and the match is tried again, because `S_AlterChannel` walks every
+        // channel and acts on the first that still plays the sound; only when none does is the sound started.
+        bool altering = !sound.IsStop && (sound.ChangesVolume || sound.ChangesPitch);
+
+        while (altering && MusicVoice(sound.EntityIndex, sound.Channel, sound.Name) is { } musicVoice)
         {
-            if (sound.ChangesVolume && loops.GainAt(sound.EntityIndex, sound.Channel, listener) is { } altered)
+            if (AlterMusic(output, sound, musicVoice))
             {
-                output.SetGain(sound.EntityIndex, sound.Channel, altered);
+                return;
             }
 
-            if (sound.ChangesPitch)
+            _music.Remove(musicVoice);
+        }
+
+        while (altering && loops.Alter(sound, out int loopVoice))
+        {
+            if (AlterLoop(output, sound, listener, loopVoice))
             {
-                output.SetPitch(sound.EntityIndex, sound.Channel, SoundScript.Rate(sound.Pitch));
+                return;
             }
 
-            return;
+            // The exact entry Alter matched: by handle, or — without one — the first on the key playing the sound, which
+            // is the same search Alter made. Either way one entry goes per turn, so the retry ends.
+            if (loopVoice != 0)
+            {
+                loops.ForgetVoice(loopVoice);
+            }
+            else
+            {
+                loops.Forget(sound.EntityIndex, sound.Channel, sound.Name);
+            }
         }
 
         // **A stop names its sound** (B416): `S_AlterChannel` stops the first channel playing THAT sound on the entity and
@@ -581,8 +713,25 @@ public sealed partial class SoundPresenter(
         {
             if (sound.Name.Length > 0 && sample(sound.Name) is { } named)
             {
-                output.Silence(sound.EntityIndex, sound.Channel, named);
-                loops.Forget(sound.EntityIndex, sound.Channel, sound.Name);
+                // The sink names the one voice it stopped — the first in start order, as `S_AlterChannel` stops one — so
+                // what is followed forgets exactly that voice. A sink without handles answers 0, and the stop is
+                // matched here by name instead.
+                int stopped = output.Silence(sound.EntityIndex, sound.Channel, named);
+
+                if (stopped != 0)
+                {
+                    loops.ForgetVoice(stopped);
+                    _music.Remove(stopped);
+                }
+                else if (!output.HandsOutVoices)
+                {
+                    loops.Forget(sound.EntityIndex, sound.Channel, sound.Name);
+
+                    if (MusicVoice(sound.EntityIndex, sound.Channel, sound.Name) is { } matched)
+                    {
+                        _music.Remove(matched);
+                    }
+                }
             }
 
             return;
@@ -626,14 +775,18 @@ public sealed partial class SoundPresenter(
         //
         // The general lesson is D80's, one layer up: a special case that makes something audible is
         // indistinguishable from a working feature until somebody listens.
-        float gain = sound.Volume * SoundGain.AtDistance(sound.SoundLevel, distance);
+        bool music = SoundGain.IsMusic(sound.Name, sound.SoundLevel);
+        float gain = sound.Volume * SoundGain.AtDistance(sound.SoundLevel, distance) *
+            SoundGain.Music(music, MusicVolume());
 
         // **A loop is started even when it is currently inaudible, and a one-shot is not.** Silence
         // now is permanent for a one-shot, so skipping it saves a buffer nobody hears. A loop that
         // is out of range at the moment it starts is the ordinary case — the map's ambience begins
         // on the first tick, wherever the camera happens to be — and refusing it would mean the
         // sound never exists to be turned up when the listener walks over.
-        if (gain <= 0f && !opened.Loops)
+        // Music is not dropped for being silent: `snd_musicvolume 0` mutes a playing channel, and raising it again
+        // brings that channel back (B545).
+        if (gain <= 0f && !opened.Loops && !music)
         {
             // **The audio subsystem had no output-level instrument at all**, which is why "we lost
             // sound at some point in the past 2 days" could not be placed. Every audio line in a run
@@ -679,7 +832,7 @@ public sealed partial class SoundPresenter(
                     $"sound start tick {sound.Tick} {sound.Name} : src {sound.EntityIndex} : channel {sound.Channel} : gain {gain:0.###}"));
         }
 
-        output.Play(
+        int started = output.Play(
             opened,
             left,
             rightGain,
@@ -696,6 +849,23 @@ public sealed partial class SoundPresenter(
             sound.EntityIndex,
             sound.Channel);
 
+        // Followed as its own voice: a sound that replaces it on a named channel ends that voice in the sink, and one
+        // that overlaps it on CHAN_AUTO is another voice, so nothing else here needs to forget it.
+        // `AudioOutput.Play` starts nothing for a sample with no frames, no rate or no channels, or one whose stereo
+        // conversion comes out empty; it has no log of its own, so the refusal is said here with the sample's shape.
+        if (started == 0 && audio.IsEnabled(LogLevel.Debug))
+        {
+            audio.LogDebug(
+                "{Message}",
+                string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"sound started no voice tick {sound.Tick} {sound.Name} : {opened.Samples.Length} samples, {opened.SampleRate} Hz, {opened.Channels} channels"));
+        }
+
+        if (music && !opened.Loops && started != 0)
+        {
+            _music[started] = (sound.EntityIndex, sound.Channel, sound.Name, sound.Volume);
+        }
         if (!opened.Loops)
         {
             return;
@@ -724,6 +894,13 @@ public sealed partial class SoundPresenter(
         // CHAN_AUTO loops are tracked too even though a stop cannot reach them, because the gain
         // update keys on the same pair and an untracked loop is the bug either way. They end when
         // the demo does.
-        loops.Track(sound);
+        // A refused start plays nothing, so there is nothing to follow; tracking it would add a key-addressed entry
+        // whose replacement rule drops the live CHAN_AUTO loops on the entity (B545 review).
+        if (started == 0 && output.HandsOutVoices)
+        {
+            return;
+        }
+
+        loops.Track(sound, started);
     }
 }

@@ -312,6 +312,17 @@ public sealed class ViewerPresenterTests
     }
 
     [Test]
+    public void MusicVolumes_FromAConfigBeforeAnyFrame_AreTheConfigsForEverySoundSystem()
+    {
+        (ViewerPresenter loader, _, _) = Loader(settings: ViewerSettings.Parse("snd_musicvolume 0.25"));
+
+        using (loader)
+        {
+            loader.MusicVolumes.ShouldBe((0.25f, 0.25f), "the first music sound must not play at 1 (B545)");
+        }
+    }
+
+    [Test]
     public void PlaySoundsOver_WithNoListener_AsksForNoEyesAndStepsNothing()
     {
         WriteMap();
@@ -630,10 +641,12 @@ public sealed class ViewerPresenterTests
 
         public int Reclaims { get; private set; }
 
-        public void Play(SoundSample sample, float leftPan, float rightPan, float gain, float pitch, int entity, int channel)
-        {
-            // The written demo carries no sound; nothing is played.
-        }
+        // The written demo carries no sound; nothing is played.
+        public int Play(SoundSample sample, float leftPan, float rightPan, float gain, float pitch, int entity, int channel) => 0;
+
+        public bool SetVoiceGain(int voice, float gain) => false;
+
+        public bool SetVoicePitch(int voice, float pitch) => false;
 
         public bool SetGain(int entity, int channel, float gain) => false;
 
@@ -656,9 +669,6 @@ public sealed class ViewerPresenterTests
             // Nothing is tracked per channel here.
         }
 
-        public void Silence(int entity, int channel, SoundSample sample)
-        {
-            // As above.
-        }
+        public int Silence(int entity, int channel, SoundSample sample) => 0;
     }
 }

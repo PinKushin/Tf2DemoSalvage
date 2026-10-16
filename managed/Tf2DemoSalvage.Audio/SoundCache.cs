@@ -40,7 +40,7 @@ public readonly record struct PrecacheResult(int Named, int Decoded, double Seco
 public sealed class SoundCache
 {
     private readonly Dictionary<string, SoundSample?> _cache =
-        new(StringComparer.OrdinalIgnoreCase);
+        new(StringComparer.Ordinal);
 
     private readonly ILogger _audio;
     private int _unopened;
@@ -100,7 +100,11 @@ public sealed class SoundCache
     {
         ArgumentNullException.ThrowIfNull(name);
 
-        if (_cache.TryGetValue(name, out SoundSample? cached))
+        // Keyed as `S_FindName` keys a `CSfxTable` (B545): two names the engine resolves to one sfx are one sample here,
+        // so a stop matching the sample matches exactly what `S_AlterChannel` matches.
+        string key = SoundName.SfxKey(name);
+
+        if (_cache.TryGetValue(key, out SoundSample? cached))
         {
             return cached;
         }
@@ -152,7 +156,7 @@ public sealed class SoundCache
             }
         }
 
-        _cache[name] = sample;
+        _cache[key] = sample;
 
         double readSeconds = (Stopwatch.GetTimestamp() - readAt) / (double)Stopwatch.Frequency;
 

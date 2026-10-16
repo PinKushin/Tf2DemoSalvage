@@ -429,8 +429,8 @@ public sealed class SoundscapeLoopingConformanceTests
         SoundscapeVoice near = new(1, "ambient/hum.wav", 1f, 100, (500f, 0f, 0f), 75);
         SoundscapeVoice loud = near with { SoundLevel = 95 };
 
-        SoundscapeSystem.GainOf(near, (0f, 0f, 0f)).ShouldBe(SoundGain.AtDistance(75, 500f));
-        SoundscapeSystem.GainOf(loud, (0f, 0f, 0f)).ShouldBe(SoundGain.AtDistance(95, 500f));
+        SoundscapeSystem.GainOf(near, (0f, 0f, 0f), 1f).ShouldBe(SoundGain.AtDistance(75, 500f));
+        SoundscapeSystem.GainOf(loud, (0f, 0f, 0f), 1f).ShouldBe(SoundGain.AtDistance(95, 500f));
         SoundGain.AtDistance(75, 500f).ShouldBeLessThan(SoundGain.AtDistance(95, 500f), "the two levels must differ here");
     }
 
@@ -468,8 +468,15 @@ public sealed class SoundscapeLoopingConformanceTests
 
         public List<float> Pitches { get; } = [];
 
-        public void Play(SoundSample sample, float leftPan, float rightPan, float gain, float pitch, int entity, int channel) =>
+        public int Play(SoundSample sample, float leftPan, float rightPan, float gain, float pitch, int entity, int channel)
+        {
             Pitches.Add(pitch);
+            return 0;
+        }
+
+        public bool SetVoiceGain(int voice, float gain) => false;
+
+        public bool SetVoicePitch(int voice, float pitch) => false;
 
         public bool SetGain(int entity, int channel, float gain) => true;
 
@@ -480,10 +487,8 @@ public sealed class SoundscapeLoopingConformanceTests
             // Nothing to record: this sink measures starts only.
         }
 
-        public void Silence(int entity, int channel, SoundSample sample)
-        {
-            // Nothing to record: this sink measures starts only.
-        }
+        // Nothing to record: this sink measures starts only.
+        public int Silence(int entity, int channel, SoundSample sample) => 0;
 
         public void SilenceAll()
         {

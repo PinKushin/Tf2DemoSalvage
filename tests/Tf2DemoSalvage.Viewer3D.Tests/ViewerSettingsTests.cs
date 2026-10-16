@@ -545,4 +545,23 @@ public sealed class ViewerSettingsTests
 
         ViewerSettings.Load(file).Fullbright.ShouldBe(expected);
     }
+
+    [TestCase("snd_musicvolume nan", "snd_musicvolume nan")]
+    [TestCase("snd_musicvolume 0.3", "snd_musicvolume 0.3")]
+    [TestCase("snd_musicvolume 7", "snd_musicvolume 1.000000")]
+    public void Write_AMusicVolume_IsSavedAsTheEngineStoresIt(string config, string expected)
+    {
+        string written = ViewerSettings.Parse(config).Write();
+
+        written.ShouldNotContain("NaN", Case.Sensitive);
+        written.ShouldContain(expected);
+    }
+
+    [Test]
+    public void Parse_ASavedNanMusicVolume_ReadsBackAsNan()
+    {
+        string saved = ViewerSettings.Parse("snd_musicvolume nan").Write();
+
+        float.IsNaN(ViewerSettings.Parse(saved).MusicVolume).ShouldBeTrue("Math.Clamp keeps NaN, as ClampValue's two tests do");
+    }
 }

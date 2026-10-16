@@ -718,6 +718,24 @@ public sealed record ViewerSettings
     /// <summary>Command name for <see cref="Volume"/>.</summary>
     public const string VolumeCommand = "volume";
 
+    /// <summary>`voice_scale`, default 1 and unbounded: the scale `CAutoGain` applies to demo voice (VoiceAutoGain).</summary>
+    public float VoiceScale { get; init; } = EngineConVars.ByName(VoiceScaleCommand).Number;
+
+    /// <summary>Command name for <see cref="VoiceScale"/>.</summary>
+    public const string VoiceScaleCommand = "voice_scale";
+
+    /// <summary>`voice_enable`, default 1: 0 plays no demo voice, as `ProcessVoiceData` drops every packet.</summary>
+    public bool VoiceEnable { get; init; } = EngineConVars.ByName(VoiceEnableCommand).Number != 0f;
+
+    /// <summary>Command name for <see cref="VoiceEnable"/>.</summary>
+    public const string VoiceEnableCommand = "voice_enable";
+
+    /// <summary>`snd_musicvolume`, 0 to 1, scaling music only — clamped to its declaration as `ClampValue` stores it (B545).</summary>
+    public float MusicVolume { get; init; } = EngineConVars.ByName(MusicVolumeCommand).Number;
+
+    /// <summary>Command name for <see cref="MusicVolume"/>.</summary>
+    public const string MusicVolumeCommand = "snd_musicvolume";
+
     /// <summary>`snd_mute_losefocus`, default 1: silent while the window does not have focus.</summary>
     public bool MuteLoseFocus { get; init; } = EngineConVars.ByName(MuteLoseFocusCommand).Number != 0f;
 
@@ -1012,6 +1030,22 @@ public sealed record ViewerSettings
         {
             EngineConVar declared = EngineConVars.ByName(VolumeCommand);
             settings = settings with { Volume = Math.Clamp(volume, declared.Min!.Value, declared.Max!.Value) };
+        }
+
+        if (ReadNumber(values, VoiceScaleCommand) is { } voiceScale)
+        {
+            settings = settings with { VoiceScale = voiceScale };
+        }
+
+        if (Read(values, VoiceEnableCommand) is { } voiceEnable)
+        {
+            settings = settings with { VoiceEnable = voiceEnable != 0 };
+        }
+
+        if (ReadNumber(values, MusicVolumeCommand) is { } music)
+        {
+            EngineConVar declared = EngineConVars.ByName(MusicVolumeCommand);
+            settings = settings with { MusicVolume = Math.Clamp(music, declared.Min!.Value, declared.Max!.Value) };
         }
 
         if (Read(values, MuteLoseFocusCommand) is { } mute)
@@ -1316,6 +1350,9 @@ public sealed record ViewerSettings
         (PhongCommand, s => Switch(s.Phong)),
         (DrawMonitorsCommand, s => Switch(s.DrawMonitors)),
         (VolumeCommand, s => EngineFloat(s.Volume)),
+        (VoiceScaleCommand, s => EngineFloat(s.VoiceScale)),
+        (VoiceEnableCommand, s => Switch(s.VoiceEnable)),
+        (MusicVolumeCommand, s => EngineFloat(s.MusicVolume)),
         (MuteLoseFocusCommand, s => Switch(s.MuteLoseFocus)),
         (FlipViewModelsCommand, s => Switch(s.FlipViewModels)),
         (UseMinViewmodelsCommand, s => Switch(s.UseMinViewmodels)),
@@ -1514,6 +1551,11 @@ public sealed record ViewerSettings
             VolumeCommand,
             ConVarText(VolumeCommand)!,
             Math.Abs(Volume - Defaults.Volume) < 0.005f);
+        Setting(
+            text,
+            MusicVolumeCommand,
+            ConVarText(MusicVolumeCommand)!,
+            Math.Abs(MusicVolume - Defaults.MusicVolume) < 0.005f);
         Setting(
             text,
             MuteLoseFocusCommand,

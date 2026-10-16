@@ -99,7 +99,7 @@ public sealed class MovementWorld
                         new Vector3(pose.Pitch, pose.Yaw, pose.Roll)),
                     track.ClassName,
                     collision,
-                    track.TeamNumber));
+                    track.FactsAt(tick).TeamNumber));
             }
         }
 
