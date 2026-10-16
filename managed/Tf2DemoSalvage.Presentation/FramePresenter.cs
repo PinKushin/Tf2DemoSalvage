@@ -318,7 +318,8 @@ public sealed partial class FramePresenter
             _moment.Drawn,
             _frame.FrameSeconds,
             _frame.ViewportHeight,
-            _frame.DoPixelVisibility);
+            _frame.DoPixelVisibility,
+            _frame.ShownTick);
 
         if (_frameParticles.Trails(particles))
         {

@@ -383,7 +383,8 @@ public sealed class BurstEffects
             _burstsNow,
             timeline.IntervalPerTick,
             systems,
-            tick);
+            tick,
+            frame.ShownTick);
 
         return _whizzes;
     }

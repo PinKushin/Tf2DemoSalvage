@@ -22,6 +22,7 @@ namespace Tf2DemoSalvage.Presentation;
 /// <param name="FrameSeconds">The frame's real duration, for the glow gate's fade.</param>
 /// <param name="ViewportHeight">The viewport's height in pixels, for the glow proxies.</param>
 /// <param name="DoPixelVisibility">`r_dopixelvisibility`.</param>
+/// <param name="ShownTick">The moment the frame showed, fraction included, which the trails are stepped to (D221); null for <paramref name="Tick"/>.</param>
 public readonly record struct ParticleFrame(
     DemoTimeline? Timeline,
     LoadedMap? Loaded,
@@ -30,7 +31,8 @@ public readonly record struct ParticleFrame(
     IReadOnlyList<SceneProp> Drawn,
     float FrameSeconds,
     int ViewportHeight,
-    bool DoPixelVisibility);
+    bool DoPixelVisibility,
+    double? ShownTick = null);
 
 /// <summary>What a loaded map holds that a frame's particles read, as data (D214): a test supplies it by hand.</summary>
 /// <param name="RocketTrail">The rocket trail's definition, or null when the map loaded none.</param>
@@ -205,7 +207,8 @@ public sealed class FrameParticles
             trail,
             frame.Timeline?.IntervalPerTick ?? (1f / 66f),
             map.Systems,
-            frame.Tick);
+            frame.Tick,
+            frame.ShownTick);
 
         return true;
     }

@@ -10385,3 +10385,32 @@ brainstorming: *"no thats a fine decision"*.
 - **The final server bounds govern**: a window finishes with the demo's END ConVars, so a walk whose checkpoints kept
   less than those need walks again at the needed reach.
 
+## D221 — particles are simulated once a frame, by the frame's demo time, as TF2 does; a seek replays on a fixed clock (2026-10-16)
+
+**The question.** B539: in the medic's eyes the heal beam swings toward the camera and back. Control point 0's place
+and axes measured right; what differed was the cadence. Every effect in `ParticleEffects` — bursts and rocket trails
+alike — was stepped once per TICK, with its control points set only inside that step.
+
+**The owner, in his own words:** *"the particles should go to per frame for parity and more correctness"*.
+
+**Why it follows** (*read from published source*): `CHLClient::FrameStageNotify`'s render start places the player and
+the view models (`view->OnRenderStart()`, cdll_client_int.cpp:2184) and then runs
+`ParticleMgr()->Simulate( gpGlobals->frametime )` (`:2234`) every frame. Its `OnParticleSystemUpdated`
+(particle_property.cpp:427-446) calls `UpdateControlPoint` (`:527-640`) for every followed point, so each frame
+re-reads the points and steps by that frame's time. In first person the beam's start is about 80 units from the eye;
+held to a tick, it stays where the tick left it while the eye and the hands move on.
+
+**What was built:**
+
+- `ParticleEffects.Bursts` and `Update` take the frame's moment (`ShownTick`, fraction included). A played frame is
+  one step of the demo time since the last frame, on the points the frame read. A frame that does not move the clock —
+  paused — steps nothing, as a paused client's frame time of 0 does (B538).
+- **A seek is ours and replays**: backwards, or forwards by more than `ParticleEffects.LongestFrameTicks` (a quarter
+  second), a burst is rebuilt from its start a tick at a time, each at that tick's points (B527), then the fraction.
+  The picture after a seek is the same however the viewer got there
+  (`ParticleFrameClockConformanceTests.Bursts_ReachedBySeekFromDifferentPlaces_AreTheSame`).
+- **What this gives up, stated:** a played sequence and a seek to the same moment differ by the frames' sizes, as two
+  TF2 clients at different frame rates do.
+- **Correction:** B539's first write-up said rocket trails already stepped by frame. They did not; `Update` stepped
+  whole ticks too, and moves with the bursts here.
+

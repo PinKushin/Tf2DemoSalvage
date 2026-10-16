@@ -38108,8 +38108,9 @@ with gummo standing still under a beam.
   a `--shot` is a paused frame and cannot show it.
 - **Why not fixed here:** it is the burst clock for every effect, not the beam. `ParticleEffects.Bursts` steps
   ticks on purpose so a seek gives the same answer however the viewer arrived; per-frame simulation as the engine does
-  it gives that up, or needs a scheme that keeps it (rockets' trails already step by frame, `FrameParticles.Trails`).
-  That trade is the owner's (`docs/memory/name-the-trade-before-fixing-valve.md`).
+  it gives that up, or needs a scheme that keeps it. That trade is the owner's
+  (`docs/memory/name-the-trade-before-fixing-valve.md`). **Corrected:** this said rocket trails already stepped by
+  frame; `ParticleEffects.Update` stepped whole ticks too. **Decided and built: D221**, every effect per frame.
 - **Seen on the way, not chased:** the paused 63801 and 63814 shots draw no visible beam between gun and patient
   where TF2's do; a pick at (560 290) finds four faint `medicbeam_curl` quads 60-110 units PAST the patient.
 - **Captures:** TF2 63619, 63634, 63791, 63801, 63814, 63826 (in-eye, `host_timescale` 0.05, LDR as installed) and
