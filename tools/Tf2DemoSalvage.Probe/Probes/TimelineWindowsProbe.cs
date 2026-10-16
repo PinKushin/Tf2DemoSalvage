@@ -17,7 +17,7 @@ namespace Tf2DemoSalvage.Probe.Probes;
 /// the first is a seek back or a seek forward past one already made — the back-then-forward case marks refused.
 ///
 /// **Its controls**: the value count beside each comparison (a hash of nothing matches anything). The reach is the
-/// default settings' (<c>WindowReach</c>, D219), never a number chosen here.
+/// default settings' (<c>WindowReach</c>, D220), never a number chosen here.
 ///
 /// It asserts nothing — a measurement is not a test (D38).
 /// </remarks>
@@ -28,7 +28,7 @@ public sealed class TimelineWindowsProbe : IProbe
 
     /// <inheritdoc/>
     public string Summary =>
-        "checkpoint a demo, answer sample ticks through windows, compare with a whole build, and say what checkpoints cost: timeline-windows <demo> [every s=5] [samples=60] [cost]; the reach is the default settings' (D219)";
+        "checkpoint a demo, answer sample ticks through windows, compare with a whole build, and say what checkpoints cost: timeline-windows <demo> [every s=5] [samples=60] [cost]; the reach is the default settings' (D220)";
 
     /// <inheritdoc/>
     public void Run(TextWriter output, IReadOnlyList<string> arguments)

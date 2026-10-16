@@ -2709,7 +2709,7 @@ public sealed class DemoTimeline
         public IEnumerable<int> Ticks => _checkpoints.Select(checkpoint => checkpoint.Tick);
 
         /// <summary>
-        /// Walks the demo with the reach <paramref name="settings"/> give every reader (D219), and walks again if the
+        /// Walks the demo with the reach <paramref name="settings"/> give every reader (D220), and walks again if the
         /// demo's FINAL server bounds, which every window's interpolation uses, need further than a checkpoint kept.
         /// </summary>
         /// <param name="file">The whole demo file.</param>
@@ -4773,7 +4773,7 @@ public sealed class DemoTimeline
         /// <summary>Seconds per tick as the demo's server info stated it, or 0 before it has.</summary>
         public double IntervalPerTick => interval;
 
-        /// <summary>Every reader's reach under <paramref name="settings"/> and the server's bounds as they stand now (D219).</summary>
+        /// <summary>Every reader's reach under <paramref name="settings"/> and the server's bounds as they stand now (D220).</summary>
         /// <param name="settings">The viewer's settings.</param>
         /// <returns>The reach.</returns>
         public WindowReach ReachFor(WindowSettings settings) => WindowReach.For(settings, serverConVars, interval);
@@ -7565,7 +7565,7 @@ public sealed class DemoTimeline
     /// </remarks>
     /// <summary>
     /// The seconds a player's speed and heading are differenced over — this project's choice, not an engine setting, and
-    /// a reader of the track that far before the tick, which a window's reach must cover (D219).
+    /// a reader of the track that far before the tick, which a window's reach must cover (D220).
     /// </summary>
     internal const double MotionWindowSeconds = 0.1d;
 

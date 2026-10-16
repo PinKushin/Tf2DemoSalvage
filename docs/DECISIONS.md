@@ -10319,7 +10319,7 @@ config line or a bind setting it did nothing.
   found, only while its own is still current (per thread: disposed on another thread, it leaves the opener's alone); `alcRenderSamplesSOFT` is resolved once; a missing library ignores the test rather than erroring.
 - `tools/golden-viewer-shot.sh` launches with `+volume 0`.
 
-## D219 — a window's lookback is computed from the current settings over every reader; unbounded state is carried (2026-10-15)
+## D220 — a window's lookback is computed from the current settings over every reader; unbounded state is carried (2026-10-15)
 
 **The question.** D217 step 3 trims each checkpoint to a lookback, and the first cut chose numbers: 4 s for the output
 lists and 67 ticks (1 s) for track histories. A review asked whether the 1 s frame cut was enough for a 4 s lookback.

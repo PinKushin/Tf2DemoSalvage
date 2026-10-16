@@ -4,7 +4,7 @@ using Tf2DemoSalvage.Core.Net;
 
 namespace Tf2DemoSalvage.Core.Scene;
 
-/// <summary>The viewer's settings that bound how far back a window's readers look (D219).</summary>
+/// <summary>The viewer's settings that bound how far back a window's readers look (D220).</summary>
 /// <param name="Client">The viewer's interpolation ConVars (<c>cl_interp</c>, <c>cl_interp_ratio</c>, <c>cl_updaterate</c>).</param>
 /// <param name="DeathNoticeSeconds"><c>hud_deathnotice_time</c>, default 6 (tf/hud_basedeathnotice.cpp:31).</param>
 /// <param name="SayTextSeconds"><c>hud_saytext_time</c>, default 12 (hud_basechat.cpp:37).</param>
@@ -16,7 +16,7 @@ public sealed record WindowSettings(ClientInterp? Client = null, double DeathNot
 
 /// <summary>
 /// How far back before a checkpoint its output must reach, in ticks: ONE function of the current settings over every
-/// reader a window serves (D219), never a fixed number of seconds.
+/// reader a window serves (D220), never a fixed number of seconds.
 /// </summary>
 /// <param name="TrackTicks">What track histories and keyframes must keep: the interpolation delay.</param>
 /// <param name="OutputTicks">What the tick-ordered output lists must keep: the longest HUD feed that looks back.</param>

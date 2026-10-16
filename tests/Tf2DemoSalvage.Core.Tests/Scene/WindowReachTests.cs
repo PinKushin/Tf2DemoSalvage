@@ -5,7 +5,7 @@ namespace Tf2DemoSalvage.Core.Tests.Scene;
 
 /// <summary>
 /// How far back a checkpoint keeps what its readers look back over, computed from the settings that bound each reader
-/// (D219) — never a fixed number of seconds.
+/// (D220) — never a fixed number of seconds.
 /// </summary>
 public sealed class WindowReachTests
 {
