@@ -1,6 +1,6 @@
 ---
 name: a-gate-that-waits-says-what-it-waits-on
-description: "A --shot held by a settle gate logs the gate and its values once a second; an async ring never re-queues a slot its reader still waits on (B520, CI hang 2026-10-11)."
+description: "A --shot held by a settle gate logs the gate and its values once a second; an async ring never re-queues a slot its reader still waits on (B520, CI hang 2026-10-11); the log line reads capture waiting on ..."
 metadata:
   type: project
 ---

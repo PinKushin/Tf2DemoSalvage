@@ -1,6 +1,6 @@
 ---
 name: spend-fewer-tokens
-description: The owner runs ponytail ultra for token savings and expects drift back to verbosity; the big costs are essay remarks and wide reads.
+description: The owner runs ponytail ultra for token savings and expects drift back to verbosity; the big costs are essay remarks and wide reads (whole-log reads).
 metadata:
   type: feedback
 ---

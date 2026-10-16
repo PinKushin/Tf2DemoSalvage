@@ -1,6 +1,6 @@
 ---
 name: a-weapons-world-model-is-its-items
-description: The client rebuilds a TF weapon's third-person model from its valid item over the networked index; a wearable keeps the networked one.
+description: The client rebuilds a TF weapon's third-person model from its valid item over the networked index; a wearable keeps the networked one; read model_world first.
 metadata:
   type: project
 ---

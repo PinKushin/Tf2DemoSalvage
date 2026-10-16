@@ -1,6 +1,6 @@
 ---
 name: one-subagent-and-prefer-cheap-models
-description: "Subagent model selection: opus for full implementation work (D196), sonnet for a bounded known task, haiku only for the sabotage verifier."
+description: "Subagent model selection: opus for full implementation work (D196), sonnet for a bounded known task, haiku only for the sabotage verifier; one subagent at a time."
 metadata:
   type: feedback
 ---

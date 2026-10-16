@@ -1,6 +1,6 @@
 ---
 name: check-the-reference-subject-before-the-camera
-description: Before blaming a camera for a TF2 mismatch, probe whether the spectated player is alive and holds the weapon in the reference (B522)
+description: Before blaming a camera for a TF2 mismatch, probe whether the spectated player is alive and holds the weapon in the reference; a dead target is chased (B522)
 metadata:
   node_type: memory
   type: feedback

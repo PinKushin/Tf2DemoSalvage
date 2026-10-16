@@ -32,7 +32,8 @@ public sealed class ActiveLoops
     /// <param name="Y">Where it is.</param>
     /// <param name="Z">Where it is.</param>
     /// <param name="Name">What it plays, which `S_AlterChannel` matches as well as the channel.</param>
-    private readonly record struct Loop(float Volume, int SoundLevel, float X, float Y, float Z, string Name);
+    /// <param name="IsMusic"><see cref="SoundGain.IsMusic"/>, decided once at the start as the engine sets its bit once.</param>
+    private readonly record struct Loop(float Volume, int SoundLevel, float X, float Y, float Z, string Name, bool IsMusic);
 
     /// <summary>Keyed the way the engine keys a playing sound: one per entity per channel.</summary>
     private readonly Dictionary<(int Entity, int Channel), Loop> _loops = [];
@@ -50,7 +51,14 @@ public sealed class ActiveLoops
     public void Track(SceneSound sound)
     {
         _loops[(sound.EntityIndex, sound.Channel)] =
-            new Loop(sound.Volume, sound.SoundLevel, sound.OriginX, sound.OriginY, sound.OriginZ, sound.Name);
+            new Loop(
+                sound.Volume,
+                sound.SoundLevel,
+                sound.OriginX,
+                sound.OriginY,
+                sound.OriginZ,
+                sound.Name,
+                SoundGain.IsMusic(sound.Name, sound.SoundLevel));
     }
 
     /// <summary>`S_AlterChannel`: finds the loop playing a sound on its entity's channel, and takes its new volume if it changes one.</summary>
@@ -76,8 +84,9 @@ public sealed class ActiveLoops
     /// <param name="entity">The entity.</param>
     /// <param name="channel">The channel.</param>
     /// <param name="listener">The listener, in world units.</param>
+    /// <param name="musicVolume">`snd_musicvolume`, for a music loop (<see cref="SoundGain.Music"/>, B545).</param>
     /// <returns>The gain.</returns>
-    public float? GainAt(int entity, int channel, (float X, float Y, float Z) listener)
+    public float? GainAt(int entity, int channel, (float X, float Y, float Z) listener, float musicVolume)
     {
         if (!_loops.TryGetValue((entity, channel), out Loop loop))
         {
@@ -88,8 +97,11 @@ public sealed class ActiveLoops
         float dy = loop.Y - listener.Y;
         float dz = loop.Z - listener.Z;
 
-        return loop.Volume * SoundGain.AtDistance(loop.SoundLevel, MathF.Sqrt((dx * dx) + (dy * dy) + (dz * dz)));
+        return GainOf(loop, MathF.Sqrt((dx * dx) + (dy * dy) + (dz * dz)), musicVolume);
     }
+
+    private static float GainOf(Loop loop, float distance, float musicVolume) =>
+        loop.Volume * SoundGain.AtDistance(loop.SoundLevel, distance) * SoundGain.Music(loop.IsMusic, musicVolume);
 
     /// <summary>Stops following whatever was on a channel.</summary>
     /// <param name="entity">The entity.</param>
@@ -119,6 +131,7 @@ public sealed class ActiveLoops
     /// <param name="x">The listener, in world units.</param>
     /// <param name="y">The listener.</param>
     /// <param name="z">The listener.</param>
+    /// <param name="musicVolume">`snd_musicvolume`, for a music loop (<see cref="SoundGain.Music"/>, B545).</param>
     /// <returns>One entry per tracked loop, naming its channel and its gain.</returns>
     /// <remarks>
     /// **Valve's curve, the same one the sound was started with.** <see cref="SoundGain.AtDistance"/>
@@ -130,7 +143,7 @@ public sealed class ActiveLoops
     /// is still playing and still needs to be told it is inaudible; omitting it would leave the sink
     /// holding the last audible value, which is the bug this type exists to fix.
     /// </remarks>
-    public IEnumerable<(int Entity, int Channel, float Gain)> GainsAt(float x, float y, float z)
+    public IEnumerable<(int Entity, int Channel, float Gain)> GainsAt(float x, float y, float z, float musicVolume)
     {
         foreach (((int entity, int channel), Loop loop) in _loops)
         {
@@ -140,7 +153,7 @@ public sealed class ActiveLoops
 
             float distance = MathF.Sqrt((dx * dx) + (dy * dy) + (dz * dz));
 
-            yield return (entity, channel, loop.Volume * SoundGain.AtDistance(loop.SoundLevel, distance));
+            yield return (entity, channel, GainOf(loop, distance, musicVolume));
         }
     }
 }

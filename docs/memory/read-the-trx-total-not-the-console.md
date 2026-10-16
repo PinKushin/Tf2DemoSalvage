@@ -1,6 +1,6 @@
 ---
 name: read-the-trx-total-not-the-console
-description: "How to read a test run honestly — the trx total, not the console; a floor that tracks the suite; a skip is invisible; a wrong invocation exits 0; never edit a running script; build servers outlive the build and accumulate; push when the gate is green but not for its own sake, and read the CI run rather than trusting the tick; a probe belongs outside the suite, not inside it as an [Explicit] test; and a UI suite's timing measures the application, not the harness."
+description: "How to read a test run honestly — the trx total, not the console; a floor that tracks the suite; a skip is invisible; a wrong invocation exits 0; never edit a running script; build servers outlive the build and accumulate; push when the gate is green but not for its own sake, and read the CI run rather than trusting the tick; a probe belongs outside the suite, not inside it as an [Explicit] test; and a UI suite's timing measures the application, not the harness; reap-dotnet.ps1 ends leftover build servers."
 metadata: 
   node_type: memory
   type: project

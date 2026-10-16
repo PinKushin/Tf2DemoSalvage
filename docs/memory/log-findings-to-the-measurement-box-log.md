@@ -1,6 +1,6 @@
 ---
 name: log-findings-to-the-measurement-box-log
-description: "When a measurement check or CI/mutation/fuzz review finds something, file it in PinKushin/MEASUREMENT-BOX-LOG.md so working agents can act on it"
+description: "When a measurement check or CI/mutation/fuzz review finds something, file it in PinKushin/MEASUREMENT-BOX-LOG.md so working agents can act on it (failed or cancelled run, score drop, crash input)"
 metadata:
   node_type: memory
   type: feedback

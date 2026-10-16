@@ -1,6 +1,6 @@
 ---
 name: where-the-game-and-clients-live
-description: "Paths to the live TF2 install, the period clients used to date the era corpus, and the Source SDK checkout — all on F:, plus the Ghidra project and imported binaries on D:."
+description: "Paths to the live TF2 install, the period clients used to date the era corpus, and the Source SDK checkout — all on F:, plus the Ghidra project and imported binaries on D:; the 2010 client came from archive.org."
 metadata: 
   node_type: memory
   type: reference

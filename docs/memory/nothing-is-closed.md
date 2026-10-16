@@ -1,6 +1,6 @@
 ---
 name: nothing-is-closed
-description: "Never write that something is closed or unknowable — the SDK, its public headers, the game's shipped data and the shipped binaries have answered every such claim made here; covers reading Valve's shader or header for a rendering defect BEFORE measuring our own data, the generated coverage report that already holds the denominator, measuring every hop in a chain rather than re-reasoning about the ones already checked, and suspecting the input and its identity before suspecting a correct algorithm."
+description: "Never write that something is closed or unknowable — the SDK, its public headers, the game's shipped data and the shipped binaries have answered every such claim made here; covers reading Valve's shader or header for a rendering defect BEFORE measuring our own data, the generated coverage report that already holds the denominator, measuring every hop in a chain rather than re-reasoning about the ones already checked, and suspecting the input and its identity before suspecting a correct algorithm; settle constants in DISASSEMBLY."
 metadata: 
   node_type: memory
   type: feedback

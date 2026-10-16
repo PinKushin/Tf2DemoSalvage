@@ -1,6 +1,6 @@
 ---
 name: ask-whether-the-data-arrived
-description: "Before analysing a decoder bit by bit, check that every message actually reached it — three rounds of bit-level analysis went into a decoder that was already correct"
+description: "Before analysing a decoder bit by bit, check that every message actually reached it — three rounds of bit-level analysis went into a decoder that was already correct; a dropped message imitates a desync"
 metadata: 
   node_type: memory
   type: project

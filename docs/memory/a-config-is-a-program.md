@@ -1,6 +1,6 @@
 ---
 name: a-config-is-a-program
-description: A Source .cfg is executed, not read; aliases redefine each other at runtime, so static resolution is wrong by construction.
+description: A Source .cfg is executed, not read; aliases redefine each other at runtime, so static resolution is wrong by construction; a running client serves a STALE cfg.
 metadata:
   type: project
 ---

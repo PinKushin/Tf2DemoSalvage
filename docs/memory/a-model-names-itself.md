@@ -1,6 +1,6 @@
 ---
 name: a-model-names-itself
-description: Files the engine derives from a model are named from studiohdr pszName, not the load path
+description: Files the engine derives from a model are named from studiohdr pszName, not the load path (B513)
 type: project
 ---
 
