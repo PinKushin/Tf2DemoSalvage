@@ -7445,7 +7445,8 @@ public sealed class DemoTimeline
             // Stryker disable all : the guard condition spans two lines, so a mutant that empties
             // the guard body leaves 'pose' unassigned at its use below (CS0165), and Safe Mode
             // then drops every mutation in this method — B410.
-            if (!_trackByEntity.TryGetValue(player.EntityIndex, out ScenePropTrack? track) ||
+            // The occupant of the slot AT this tick, not its last one: a reused slot holds several tracks.
+            if (TrackFor(player.EntityIndex, tick) is not { } track ||
                 (interpolating ? track.At(tick) : track.Held(tick)) is not { } pose)
             {
                 into.Add(player);

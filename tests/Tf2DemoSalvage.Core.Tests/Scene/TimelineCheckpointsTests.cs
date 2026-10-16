@@ -109,6 +109,31 @@ public sealed class TimelineCheckpointsTests
     }
 
     /// <remarks>
+    /// **A player is sampled from the occupant of his slot AT the tick** (review item 4): slot 1 is one player from 10 to
+    /// 30 and another from 40 to 60. At 20.5 the drawn position is the first occupant's interpolated one — not the frame's
+    /// raw position, which is what a lookup of the slot's LAST occupant (not alive at 20.5) falls back to. A window,
+    /// which has not yet decoded the second occupant, would otherwise disagree with the whole build here.
+    /// </remarks>
+    [Test]
+    public void PlayersAt_InAReusedSlotBeforeItsLastOccupant_SamplesTheOccupantThen()
+    {
+        DemoTimeline whole = DemoTimeline.Build(SyntheticPlayer.DemoOfAReusedSlot(
+            0.015f,
+            [
+                .. Enumerable.Range(10, 21).Select(tick => (tick, tick * 4f, 1)),
+                .. Enumerable.Range(40, 21).Select(tick => (tick, -tick * 4f, 2)),
+            ]));
+        ScenePose expected = whole.TrackFor(1, 20.5).ShouldNotBeNull("the control: an occupant is alive at 20.5").At(20.5).ShouldNotBeNull();
+        whole.PlayerTracks.Count(track => track.EntityIndex == 1).ShouldBe(2, "the control: the slot was reused");
+
+        List<ScenePlayer> players = [];
+        whole.PlayersAt(20.5, players);
+
+        players.ShouldHaveSingleItem().X.ShouldBe(expected.X);
+        expected.X.ShouldNotBe(whole.PlayersAt(20).Single().X, "the control: interpolated is not the frame's own");
+    }
+
+    /// <remarks>
     /// **The comparison asks about the events the GIVEN settings replay**: at tick 60 a death at 30 is inside the default
     /// 12 s span and outside a 0.1 s one (0.2 s doubled, 14 ticks).
     /// </remarks>
