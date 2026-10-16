@@ -51,4 +51,25 @@ public sealed class InterpolatedHistoryTests
 
         (history.Count, history.ChangeTimeAt(0), history.ValuesAt(0)[0]).ShouldBe((1, 20, 20f));
     }
+
+    /// <remarks>
+    /// **A trim gives back the capacity** (D217 step 4): a copy copies a list's whole backing array, so a history grown to
+    /// 1,000 and cut to its last 2 must copy five int lists of 2 and one float list of 2, not of 1,024.
+    /// </remarks>
+    [Test]
+    public void DropReceivedBefore_AfterAThousand_CopiesOnlyWhatIsKept()
+    {
+        InterpolatedHistory history = new(1);
+
+        for (int tick = 1; tick <= 1000; tick++)
+        {
+            history.Add(tick, tick, [tick]);
+        }
+
+        history.DropReceivedBefore(999, 0);
+        System.Collections.Generic.Dictionary<System.Type, (long Objects, long Elements)> created = [];
+        StateCopy.Of(history, new System.Collections.Generic.HashSet<object>(), prior: null, out _, created);
+
+        (history.Count, created[typeof(int[])], created[typeof(float[])]).ShouldBe((2, (5L, 10L), (1L, 2L)));
+    }
 }

@@ -246,6 +246,14 @@ public sealed class InterpolatedHistory
             _offsets[index] -= values;
             _generationStarts[index] = Math.Max(0, _generationStarts[index] - drop);
         }
+
+        // A trim runs before every checkpoint, and a copy copies a list's whole capacity, not its count (D217 step 4).
+        _changeTimes.TrimExcess();
+        _received.TrimExcess();
+        _flushedAt.TrimExcess();
+        _offsets.TrimExcess();
+        _generationStarts.TrimExcess();
+        _values.TrimExcess();
     }
 
     /// <summary>How many components an entry carries — the engine's <c>m_nMaxCount</c>.</summary>

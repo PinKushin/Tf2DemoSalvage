@@ -104,4 +104,27 @@ public sealed class PoseKeyframesTests
 
         (track.FirstTick, track.FirstPose.X).ShouldBe((10, 1f));
     }
+
+    /// <remarks>
+    /// **A trim gives back the capacity** (D217 step 4): a track grown to 1,000 keyframes and trimmed near its end copies
+    /// one stored array exactly as long as the keyframes it kept, not the 1,024 it grew to.
+    /// </remarks>
+    [Test]
+    public void TrimBefore_AfterAThousand_CopiesOnlyTheKeptKeyframes()
+    {
+        ScenePropTrack track = new(1, "models/a.mdl");
+
+        for (int tick = 1; tick <= 1000; tick++)
+        {
+            track.Add(tick, Pose(tick, 4, 0.5f));
+        }
+
+        track.TrimBefore(999);
+        System.Collections.Generic.Dictionary<Type, (long Objects, long Elements)> created = [];
+        StateCopy.Of(track, new System.Collections.Generic.HashSet<object>(), prior: null, out _, created);
+
+        int kept = track.Keyframes.Count;
+        kept.ShouldBeLessThan(10);
+        created.Single(entry => entry.Key.Name == "Stored[]").Value.ShouldBe((1L, (long)kept));
+    }
 }
