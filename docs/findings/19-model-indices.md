@@ -86,6 +86,21 @@ client and the table carries no entry. `ModelPrecache.Path` answers `null` rathe
 which is the whole point — the alternative is reading an unrelated entry and drawing a confident
 wrong model.
 
+## A model index is held as of a tick, and a whole timeline forgot that (B548)
+
+The client re-reads `m_nModelIndex` on every update (`ValidateModelIndex` → `SetModelByIndex`,
+`c_baseentity.cpp:2531`; evidence: **read from published source**), so at any moment it draws the
+model the latest update named. This project decodes the whole demo before drawing anything, and kept
+the model as one field the builder overwrote — so every tick answered with the model the demo ENDED
+on. The wrong conclusion it produced was quiet: an earlier fix made the model "follow its index",
+and the test for that only asked about the end.
+
+What killed it was a second reader. D217's windows build a timeline only to a tick, and disagreed with
+the whole one exactly on these fields. **Measured on f12** (evidence: **corpus**): 20 model changes in
+4,755 prop tracks, every one a building's upgrade. Entity 457, a sentry, is level 1 at tick 66600 and
+level 3 from 67918 to the demo's end — origin/main drew level 3 at 66600. The item index, owner,
+parent, team and econ attributes had the same shape and moved with it.
+
 ## Static props are the exception, and the engine agrees
 
 Static props do come from the map file, and in the engine they are a separate system

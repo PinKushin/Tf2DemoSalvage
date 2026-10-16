@@ -119,6 +119,53 @@ public sealed class ModelIndexFollowsUpdatesConformanceTests
             .ShouldBe(1, "a model change is not a new entity");
     }
 
+    /// <summary>
+    /// **An earlier tick draws the model the entity HELD then, not the one the demo ended on** (B548).
+    /// </summary>
+    /// <remarks>
+    /// `SetModelByIndex( m_nModelIndex )` runs on each update as it arrives (<c>c_baseentity.cpp:2531</c>),
+    /// so a client at tick 5 has received only the first index. The track's scalar is the builder's
+    /// last write — read at tick 5 it named the tick-10 model. The pose is identical in both updates,
+    /// so no keyframe marks the change: the swap must wake the sampler on its own.
+    /// </remarks>
+    /// <param name="stepped">Whether the second read advances the same timeline rather than a cold one.</param>
+    [TestCase(false)]
+    [TestCase(true)]
+    public void PropsAt_BeforeAndAfterAModelChange_DrawsTheModelHeldAtEachTick(bool stepped)
+    {
+        byte[] demo = Demo((0, FirstModel), (10, SecondModel));
+        DemoTimeline timeline = DemoTimeline.Build(demo);
+
+        DrawnModel(timeline, 5).ShouldBe(FirstPath, "at tick 5 only the first update has arrived");
+
+        // Stepped one tick at a time, so each read advances the cached samples rather than resyncing.
+        for (int tick = 6; stepped && tick < 20; tick++)
+        {
+            DrawnModel(timeline, tick).ShouldBe(tick < 10 ? FirstPath : SecondPath, $"tick {tick}");
+        }
+
+        DrawnModel(stepped ? timeline : DemoTimeline.Build(demo), 20).ShouldBe(SecondPath);
+    }
+
+    [Test]
+    public void PropsAt_ASeekBackAcrossAModelChange_DrawsTheEarlierModel()
+    {
+        // Read after the swap first, so the cached sample holds the later model when the seek goes back.
+        DemoTimeline timeline = DemoTimeline.Build(Demo((0, FirstModel), (10, SecondModel)));
+
+        DrawnModel(timeline, 20).ShouldBe(SecondPath);
+        DrawnModel(timeline, 5).ShouldBe(FirstPath, "a seek back answers what the entity held then");
+    }
+
+    /// <summary>The model the prop in the fixture's slot is drawn with at a tick.</summary>
+    private static string DrawnModel(DemoTimeline timeline, int tick)
+    {
+        List<SceneProp> props = [];
+        timeline.PropsAt(tick, props);
+
+        return props.Single(prop => prop.EntityIndex == PropEntityIndex).ModelPath;
+    }
+
     /// <summary>A demo of one prop, sent once per entry with the model index given.</summary>
     /// <param name="frames">Tick and precache index for each snapshot; the first creates.</param>
     /// <returns>The demo's bytes.</returns>
