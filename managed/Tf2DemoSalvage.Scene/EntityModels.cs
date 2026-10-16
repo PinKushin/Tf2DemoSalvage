@@ -929,6 +929,15 @@ public sealed class EntityModelSet : Hud.IMdlCache, IPosedEntities
             return origin;
         }
 
+        // **A move child's pose is LOCAL, so it is lit where the chain puts it** (B551). The wire sends
+        // `GetLocalOrigin()` (`server/baseentity.cpp:199`) and the engine samples light at the absolute place
+        // `CalcAbsolutePosition` composes (`c_baseentity.cpp:4401`); lighting a `func_door`'s grate at its offset lit it
+        // from wherever that offset happens to fall in the map.
+        if (prop is { AttachedTo: not null, BoneMerged: false })
+        {
+            pose = Absolute(prop, AnimatingEntity.MaximumFollowDepth);
+        }
+
         if (!_frames.TryGetValue(prop.ModelPath, out PropModels.ModelFrames? entry))
         {
             return (pose.X, pose.Y, pose.Z);
@@ -6003,11 +6012,14 @@ public sealed class EntityModelSet : Hud.IMdlCache, IPosedEntities
                 // (`c_baseentity.cpp:4330`). Brushwork has no attachments, so the fallback is the
                 // path every gate takes; an attachment-hung child still reaches the bone code below
                 // through `AttachmentPoint`.
-                transform = parentToWorld.Concat(
-                    new PropTransform(
-                        prop.Pose.X, prop.Pose.Y, prop.Pose.Z,
-                        prop.Pose.Pitch, prop.Pose.Yaw, prop.Pose.Roll,
-                        prop.Pose.Scale));
+                // **The whole chain, not one level** (B551): `GetParentToWorldTransform` is the parent's own
+                // `EntityToWorldTransform`, composed by the same function (`c_baseentity.cpp:4342`). Concatenating onto
+                // the parent's raw pose put a grandchild at its parent's LOCAL offset.
+                ScenePose placedAt = Absolute(prop, AnimatingEntity.MaximumFollowDepth);
+                transform = new PropTransform(
+                    placedAt.X, placedAt.Y, placedAt.Z,
+                    placedAt.Pitch, placedAt.Yaw, placedAt.Roll,
+                    prop.Pose.Scale);
 
                 // **Says where the composition actually PUT it, once per model.** Every input to
                 // this was measured and correct — the parent is the right `func_door`, at the right

@@ -39708,3 +39708,35 @@ cable that changes material backs only the one it held as a rope (`DemoModelsTes
 reddened it. A builder stamp lands on the same tick as the update's keyframe, so `FactsAt(keyframe)` is never before
 the first stamp.
 
+## B551 — a move child was LIT at its local origin, and a grandchild drawn one level deep — FIXED 2026-10-16 (`fix/parented-prop-origin`)
+
+**Reported as "PropsAt draws a child at its local origin", and that half was a misreading.** A timeline test authored a
+child 2 units off a parent at X=199 and expected `DemoTimeline.PropsAt` to answer 201; it answers 2, by design. The wire
+carries the LOCAL origin — `SendProxy_Origin` sends `GetLocalOrigin()` (`server/baseentity.cpp:199`, read) — and
+`PropsAt` answers what the wire stated; `CalcAbsolutePosition` (`client/c_baseentity.cpp:4393-4401`, read) is Scene's
+`ParentChain.Absolute` and the model pass. `SceneProp.Pose`'s doc said only "where it is", which invited the reading; it
+now says local.
+
+**What the audit found behind it, in `EntityModels`:**
+
+1. **Lighting, cubemap and distance fade were sampled at the local origin** of every parented, non-bone-merged prop:
+   `IlluminationPoint` took `prop.Pose`. Measured with the new `move-parent` probe (20 samples per demo):
+   `pl_badwater_pro_v12` 473 of 473 child samples (`CDynamicProp` on `CBaseDoor`), `pl_upward_f12` 180 of 180, sit more
+   than a unit from their local origin — every one was lit from the wrong place.
+2. **A baked or brush child composed onto its parent's RAW pose**, one level only, where `GetParentToWorldTransform`
+   is the parent's own `EntityToWorldTransform` (`:4342`), composed by the same function. Arithmetic: a grandchild drew
+   at its parent's local offset. Measured depth ≥ 2: zero on both demos, so no visible case is known yet.
+
+Both now go through `ParentChain.Absolute`. Held by `MoveChildPlacementConformanceTests` (both red before the fix,
+with an unparented control) and, on real bytes, `MoveChildPlacementCorpusTests` on badwater (lcor; skips in CI).
+
+**Still open, not touched:**
+- **Parent attachment for a non-bone-merged child** (`m_iParentAttachment`, `:4330`): `ParentChain.Absolute` ignores
+  it, and `Attach` sets a skinned child's placement to the attachment and drops its local offset. Measured attached
+  non-bone-merged children: zero on every demo probed, so the gap is unmeasured on real data.
+- **The payload cart is not a move child on the wire**: `bomb_cart.mdl` is a `CPhysicsProp` with no parent, sending its
+  world origin. Nothing to compose.
+- **`pl_badwater`'s seven `train_billboard001_sm.mdl` (`CDynamicProp`, e.g. entity 408) sit at (0 0 47) with NO
+  parent** at tick 60000 — a local-looking origin. Either the map parents them to something the server does not send
+  (then the engine draws them there too) or the handle fails to resolve here. Not investigated.
+

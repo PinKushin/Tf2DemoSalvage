@@ -553,7 +553,10 @@ public readonly record struct ScenePose
 /// <param name="EntityIndex">Slot in the entity table, so a viewer can label or pick it.</param>
 /// <param name="ModelPath">What to draw, as <c>modelprecache</c> named it.</param>
 /// <param name="Kind">Which loader the path belongs to.</param>
-/// <param name="Pose">Where it is and what it is doing.</param>
+/// <param name="Pose">
+/// Where the wire puts it and what it is doing. **For a move child this is LOCAL to the parent** — the server sends
+/// <c>GetLocalOrigin()</c> (<c>server/baseentity.cpp:199</c>) — and world is <c>ParentChain.Absolute</c> in Scene (B551).
+/// </param>
 /// <param name="AttachedTo">
 /// The entity whose skeleton carries this one, or <c>null</c> when it stands on its own origin.
 /// </param>
