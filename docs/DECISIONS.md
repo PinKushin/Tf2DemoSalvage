@@ -10311,6 +10311,9 @@ into a chunk a prior copy reuses (unreachable today, impossible now). `Checkpoin
 direct control: a value hash of a checkpoint (`StateCopy.Digest`, which follows shared frozen state) before and after
 two windows from it. Sabotaged by letting a thawed bag write its frozen chunks in place, it reddens while the
 window-equals-whole-build test stays green — the case where IDENTICAL alone masks a leak. `timeline-windows` prints it.
+Re-measured after it: f12 copy 108 ms, 69.6 MB a resume, 1,020 MB kept; rgl-pug copy 256 ms, 174.6 MB, 3,023 MB; both
+IDENTICAL (0 of 120) with the control unchanged, and the f12 fingerprint as above. The resume shrank again because a
+copy no longer carries the ownership lists.
 
 **The order after these two steps — the viewer half, decided by the owner the same day: a backward seek must NOT
 replay the demo from the start.** The state the skip replay builds up — the dealt HUD sounds and decals of B504,
