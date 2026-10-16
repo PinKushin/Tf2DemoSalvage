@@ -29,6 +29,7 @@ namespace Tf2DemoSalvage.Presentation;
 /// <param name="HealTargetMarker">`hud_medichealtargetmarker`.</param>
 /// <param name="Scripts">The soundscripts the game loaded, or null.</param>
 /// <param name="Silent">Whether this pass is a seek's replay, which nobody hears.</param>
+/// <param name="Seeked">Whether this frame landed by a seek, by the skip rule (`SoundSchedule.IsSkip`) — what rebuilds a burst (D221).</param>
 public readonly record struct BurstFrame(
     DemoTimeline? Timeline,
     LoadedMap? Loaded,
@@ -44,7 +45,8 @@ public readonly record struct BurstFrame(
     bool DrawViewmodel,
     bool HealTargetMarker,
     SoundScriptCatalog? Scripts,
-    bool Silent);
+    bool Silent,
+    bool Seeked = false);
 
 /// <summary>What a frame's map and game hold that the bursts read, as data (D214): a test supplies it by hand.</summary>
 /// <param name="Systems">The map's particle systems by name.</param>
@@ -284,8 +286,8 @@ public sealed class BurstEffects
     /// <returns>The near-miss whizzes this frame's tracers made, to be emitted in this order; valid until the next call.</returns>
     /// <remarks>
     /// **`CTETFExplosion` is a temp entity, so there is no entity to follow** — the blast happens at a point and
-    /// its effect runs on its own. `ParticleEffects.Bursts` measures each one's age in TICKS, so a seek lands on
-    /// the same picture however the viewer arrived at it.
+    /// its effect runs on its own. `ParticleEffects.Bursts` steps each one by the frame's demo time and rebuilds it on a
+    /// seek, so it is the same after any seek to a moment (D221).
     ///
     /// **A system this map did not upload a texture for draws nothing rather than the chequer**, which is what
     /// `Build` already does for an unresolved particle material: a missing effect is a missing effect, not a
@@ -384,7 +386,8 @@ public sealed class BurstEffects
             timeline.IntervalPerTick,
             systems,
             tick,
-            frame.ShownTick);
+            frame.ShownTick,
+            frame.Seeked);
 
         return _whizzes;
     }

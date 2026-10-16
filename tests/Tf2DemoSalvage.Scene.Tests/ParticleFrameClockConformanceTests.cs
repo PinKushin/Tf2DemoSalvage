@@ -14,8 +14,9 @@ namespace Tf2DemoSalvage.Scene.Tests;
 /// // particle_property.cpp:427-446 — OnParticleSystemUpdated → UpdateParticleEffect → UpdateControlPoint (:527-640)
 /// </code>
 /// Every frame re-reads each followed point and steps the effect by that frame's time; a paused client's frame time is
-/// 0 and steps nothing. **A seek is ours, not the engine's**: it rebuilds the effect from its start on a fixed clock,
-/// so the picture after a seek is the same however the viewer got there.
+/// 0 and steps nothing, and still reads its points (particlemgr.cpp:1841-1853). **A seek's rebuild is our addition,
+/// not the engine's**: the effect is replayed from its start on a fixed clock, so it is the same after any seek to a
+/// moment — and may differ, within a frame's emission, from playing to it.
 /// </remarks>
 public sealed class ParticleFrameClockConformanceTests
 {
@@ -79,20 +80,85 @@ public sealed class ParticleFrameClockConformanceTests
         effects.BurstEffect(1)!.ControlPoint(0).At.X.ShouldBe(30f);
     }
 
+    /// <remarks>A played frame is one `Simulate( frametime )` however long it is — 8x at 30 fps, or a stall.</remarks>
+    [Test]
+    public void Bursts_ALongPlayedFrame_IsOneStep()
+    {
+        ParticleEffects effects = new();
+        ParticleBurst burst = Emitting(key: 1, tick: 100);
+
+        effects.Bursts([burst], Interval, null, 100, 100d);
+        effects.Bursts([burst], Interval, null, 140, 140d);
+
+        effects.BurstSteps(1).ShouldBe(1, "forty ticks played in one frame are one simulation, not a replay");
+    }
+
+    /// <remarks>`StopEmission` lands before the frame's `Simulate`, so a frame across the stop emits only up to it.</remarks>
+    [Test]
+    public void Bursts_AFrameAcrossTheStop_EmitsOnlyUpToIt()
+    {
+        ParticleEffects split = new();
+        ParticleEffects ticked = new();
+        ParticleBurst burst = Emitting(key: 1, tick: 100) with { StopTick = 110 };
+
+        split.Bursts([burst], Interval, null, 100, 100d);
+        split.Bursts([burst], Interval, null, 112, 112d);
+        ticked.Bursts([burst], Interval, null, 112, 112d, seeked: true);
+
+        split.BurstParticles(1)!.Count.ShouldBe(ticked.BurstParticles(1)!.Count, "the control: a replay a tick at a time stops at 110");
+    }
+
+    /// <remarks>
+    /// **The control on the rebuild**: playing to a moment and seeking to it are allowed to differ, by the frames' sizes,
+    /// and no more than one frame's emission.
+    /// </remarks>
+    [Test]
+    public void Bursts_PlayedAgainstSoughtToOneMoment_DifferByLessThanAFramesEmission()
+    {
+        ParticleEffects played = new();
+        ParticleEffects sought = new();
+        ParticleBurst burst = Emitting(key: 1, tick: 100);
+
+        for (double shown = 100d; shown <= 110.5d; shown += 0.35d)
+        {
+            played.Bursts([burst], Interval, null, (int)shown, shown);
+        }
+
+        played.Bursts([burst], Interval, null, 110, 110.5d);
+        sought.Bursts([burst], Interval, null, 110, 110.5d, seeked: true);
+
+        played.BurstParticles(1)!.Age.ShouldBe(sought.BurstParticles(1)!.Age, 1e-5f);
+        Math.Abs(played.BurstParticles(1)!.Count - sought.BurstParticles(1)!.Count).ShouldBeLessThanOrEqualTo(1);
+    }
+
+    [Test]
+    public void Update_AStillFrame_ReadsTheTrailsPoint()
+    {
+        ParticleEffects effects = new();
+        ParticleSystem trail = Emitting(key: 1, tick: 0).Definition;
+
+        effects.Update([(7, Along(5f), null, 0)], trail, Interval, null, 0, 0d);
+        effects.Update([(7, Along(5f), null, 0)], trail, Interval, null, 0, 0.5d);
+        effects.Update([(7, Along(25f), null, 0)], trail, Interval, null, 0, 0.5d);
+
+        effects.TrailEffect(7)!.ControlPoint(0).At.X.ShouldBe(25f);
+    }
+
+    /// <remarks>**The rebuild is ours** (D221): the same after any seek to a moment, not the same as playing to it.</remarks>
     [Test]
     public void Bursts_ReachedBySeekFromDifferentPlaces_AreTheSame()
     {
         ParticleBurst burst = Emitting(key: 1, tick: 100) with { History = static tick => (Along(tick), null) };
 
         ParticleEffects direct = new();
-        direct.Bursts([burst with { At = Along(110.5f) }], Interval, null, 110, 110.5d);
+        direct.Bursts([burst with { At = Along(110.5f) }], Interval, null, 110, 110.5d, seeked: true);
 
         ParticleEffects played = new();
 
-        // Played, a seek forward, a seek back, and a step back inside one tick.
-        foreach (double shown in (double[])[100d, 100.5d, 101.25d, 103d, 140d, 110.75d])
+        // Played, then seeks forward and back, then a step back inside one tick.
+        foreach ((double shown, bool seeked) in ((double, bool)[])[(100d, false), (100.5d, false), (101.25d, false), (103d, false), (140d, true), (110.75d, true)])
         {
-            played.Bursts([burst with { At = Along((float)shown) }], Interval, null, (int)shown, shown);
+            played.Bursts([burst with { At = Along((float)shown) }], Interval, null, (int)shown, shown, seeked);
         }
 
         played.Bursts([burst with { At = Along(110.5f) }], Interval, null, 110, 110.5d);

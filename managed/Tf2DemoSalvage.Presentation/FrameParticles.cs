@@ -23,6 +23,7 @@ namespace Tf2DemoSalvage.Presentation;
 /// <param name="ViewportHeight">The viewport's height in pixels, for the glow proxies.</param>
 /// <param name="DoPixelVisibility">`r_dopixelvisibility`.</param>
 /// <param name="ShownTick">The moment the frame showed, fraction included, which the trails are stepped to (D221); null for <paramref name="Tick"/>.</param>
+/// <param name="Seeked">Whether this frame landed by a seek, by the skip rule (`SoundSchedule.IsSkip`).</param>
 public readonly record struct ParticleFrame(
     DemoTimeline? Timeline,
     LoadedMap? Loaded,
@@ -32,7 +33,8 @@ public readonly record struct ParticleFrame(
     float FrameSeconds,
     int ViewportHeight,
     bool DoPixelVisibility,
-    double? ShownTick = null);
+    double? ShownTick = null,
+    bool Seeked = false);
 
 /// <summary>What a loaded map holds that a frame's particles read, as data (D214): a test supplies it by hand.</summary>
 /// <param name="RocketTrail">The rocket trail's definition, or null when the map loaded none.</param>
@@ -208,7 +210,8 @@ public sealed class FrameParticles
             frame.Timeline?.IntervalPerTick ?? (1f / 66f),
             map.Systems,
             frame.Tick,
-            frame.ShownTick);
+            frame.ShownTick,
+            frame.Seeked);
 
         return true;
     }

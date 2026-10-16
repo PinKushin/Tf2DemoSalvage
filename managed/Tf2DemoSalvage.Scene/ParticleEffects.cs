@@ -150,6 +150,7 @@ public sealed class ParticleEffects
     /// does, and what stops a still from piling every particle on one spot (B375).
     /// </param>
     /// <param name="shown">The moment shown, fraction included, which the trails are stepped to (D221); null for <paramref name="tick"/>.</param>
+    /// <param name="seeked">Whether this frame landed by a seek; every trail is then dropped and replayed from its rocket's start.</param>
     /// <exception cref="ArgumentNullException"><paramref name="projectiles"/> is null.</exception>
     /// <remarks>
     /// **Stepped on the timeline's own interval**, which is the same clock `RagdollProps` receives —
@@ -163,7 +164,8 @@ public sealed class ParticleEffects
         float seconds,
         IReadOnlyDictionary<string, ParticleSystem>? others = null,
         int tick = 0,
-        double? shown = null)
+        double? shown = null,
+        bool seeked = false)
     {
         ArgumentNullException.ThrowIfNull(projectiles);
 
@@ -184,12 +186,14 @@ public sealed class ParticleEffects
         // stepped by the game clock, and a paused clock steps them not at all.
         //
         // **Once a FRAME, by the frame's demo time** (D221): `ParticleMgr()->Simulate( gpGlobals->frametime )`
-        // (cdll_client_int.cpp:2234). A jump longer than a frame can be is a seek, stepped a tick at a time.
+        // (cdll_client_int.cpp:2234), however long the frame. **A seek replays a trail along its rocket's path** — the
+        // replay below, from the projectile's start — rather than stepping it on today's point: every trail is dropped
+        // and rebuilt, our addition as the bursts' is (D221).
         double advanced = now - _tick;
 
         _tick = now;
 
-        if (advanced < 0d || advanced > 200d)
+        if (seeked || advanced < 0d || advanced > 200d)
         {
             // **A seek throws every trail away, as `Bursts` does** (B420): backwards, or too far forwards to replay.
             // A trail whose rocket is gone fades only by ticks played forward, and a seek plays none — so kept, it
@@ -199,9 +203,8 @@ public sealed class ParticleEffects
             advanced = 0d;
         }
 
-        // A played frame is one step; a seek forward, whole ticks and then the fraction.
-        int whole = advanced > LongestFrameTicks ? (int)advanced : 0;
-        float last = (float)((advanced - whole) * seconds);
+        // A played frame is one step, however long.
+        float last = (float)(advanced * seconds);
 
         _alive.Clear();
 
@@ -249,14 +252,14 @@ public sealed class ParticleEffects
                 continue;
             }
 
-            for (int step = 0; step < whole; step++)
-            {
-                effect.Step(at, seconds);
-            }
-
             if (last > 0f)
             {
                 effect.Step(at, last);
+            }
+            else
+            {
+                // A still frame reads the point all the same (particlemgr.cpp:1841-1853), as a burst's does.
+                effect.SetControlPoint(0, at);
             }
         }
 
@@ -269,11 +272,6 @@ public sealed class ParticleEffects
             if (_alive.Contains(entity))
             {
                 continue;
-            }
-
-            for (int step = 0; step < whole; step++)
-            {
-                effect.Fade(seconds);
             }
 
             if (last > 0f)
@@ -327,16 +325,22 @@ public sealed class ParticleEffects
     /// **Played, a burst is stepped once a FRAME by the frame's demo time, on the frame's control points** (D221):
     /// `ParticleMgr()->Simulate( gpGlobals->frametime )` (cdll_client_int.cpp:2234) runs every frame after the view
     /// models are placed (`:2184`), and `UpdateControlPoint` re-reads each followed point (particle_property.cpp:427-446,
-    /// 527-640). A frame that does not move the clock — a paused one — steps nothing. **A seek rebuilds**: backwards, or
-    /// forwards by more than <see cref="LongestFrameTicks"/>, the effect is replayed from its start a tick at a time and
-    /// then the fraction, so the picture after a seek is the same however the viewer arrived.
+    /// 527-640). **However long the frame**: a played frame is one `Simulate( frametime )`, which cuts itself into
+    /// sub-steps. A frame that does not move the clock — a paused one — steps nothing and still reads its points.
+    ///
+    /// **A seek rebuilds, and that is OUR addition, not the engine's** (D221): on <paramref name="seeked"/>, or a clock
+    /// that went backwards, the effect is replayed from its start a tick at a time, each at that tick's points, then the
+    /// fraction — so an effect met mid-life is shown mid-life, and the same after any seek to that moment.
     /// </remarks>
+    /// <param name="seeked">Whether this frame landed by a seek rather than by playing — the skip rule
+    /// (`SoundSchedule.IsSkip`); false for a played frame of any length.</param>
     public void Bursts(
         IReadOnlyList<ParticleBurst> live,
         float seconds,
         IReadOnlyDictionary<string, ParticleSystem>? others,
         int tick,
-        double? shown = null)
+        double? shown = null,
+        bool seeked = false)
     {
         ArgumentNullException.ThrowIfNull(live);
 
@@ -374,8 +378,8 @@ public sealed class ParticleEffects
             // Stryker disable all : 'running' is declared by the TryGetValue before a '||' and read after it, so the
             // Logical mutator's switch leaves it unassigned (CS0165) and Safe Mode drops the method — B410.
             bool rebuild = !_bursts.TryGetValue(burst.Key, out RunningBurst running) ||
-                running.SimulatedTo > wanted ||
-                wanted - running.SimulatedTo > LongestFrameTicks;
+                seeked ||
+                running.SimulatedTo > wanted;
 
             if (rebuild)
             {
@@ -398,9 +402,17 @@ public sealed class ParticleEffects
 
             // A rebuild replays whole ticks first, each where its points were then (B527); the last step — the only one a
             // played frame takes — runs to this frame's moment on this frame's points.
+            // `StopEmission` lands before the frame's `Simulate`, so a step that crosses the stop is split there.
+            double stopAt = burst.StopTick is { } stopping ? stopping - burst.Tick : double.MaxValue;
+
             while (reachedTo < wanted)
             {
                 double next = rebuild && Math.Floor(reachedTo) + 1d <= wanted ? Math.Floor(reachedTo) + 1d : wanted;
+
+                if (reachedTo < stopAt && next > stopAt)
+                {
+                    next = stopAt;
+                }
                 int reached = burst.Tick + (int)next;
                 bool past = rebuild && next < wanted && burst.History is not null;
 
@@ -441,6 +453,11 @@ public sealed class ParticleEffects
             if (taken == running.Stepped)
             {
                 running.Effect.SetControlPoint(0, burst.At);
+
+                if (burst.Model?.Invoke() is { } still)
+                {
+                    running.Effect.SetHitboxes(0, Carried(still.Boxes, burst.At.At - still.PosedAt));
+                }
             }
 
             bool stopped = burst.StopTick is { } stopTick && now >= stopTick;
@@ -507,16 +524,6 @@ public sealed class ParticleEffects
 
     /// <summary>One running one-shot: how many steps it took, and to how many ticks after it fired, fraction included.</summary>
     private readonly record struct RunningBurst(ParticleEffect Effect, int Stepped, double SimulatedTo, bool Stopped);
-
-    /// <summary>
-    /// The most demo time one frame may step, in ticks — a quarter second at 66 a second; a jump further is a seek and
-    /// rebuilds (D221).
-    /// </summary>
-    /// <remarks>
-    /// **Ours, not the engine's**: a live client never seeks. A quarter second is longer than any frame a viewer that
-    /// plays draws, and short enough that a scrub forward replays rather than taking one long step on today's points.
-    /// </remarks>
-    public const double LongestFrameTicks = 16.5d;
 
     /// <summary>Builds every live effect's quads for this frame's camera.</summary>
     /// <param name="eye">Where the camera is — a sprite trail turns about its own length to face it.</param>

@@ -175,6 +175,10 @@ TF2VIEW_AUTOPLAY=1 pwsh run-exclusive.ps1 tf2demoview <demo> --tick 5000 --first
 Release: steady **340–490 fps**, best sample 743, frame ~2 ms — `draw` ~1 ms, `project` 0.5–2 ms,
 pose 0.5–2 ms.
 
+**The pose moved columns on 2026-10-16 (D221):** it runs in `camera` now (inside `SLOW CAMERA`'s `device`), between
+`SetCamera` and the particles, and `project` no longer holds it. A measurement taken before that date compares `camera`
+and `project` across the shift; this one has not been retaken.
+
 **A Debug build measured 150–378 fps with two stalls to 51 and 69**, and those stalls do not exist
 in Release. An "the viewer got slow" report taken from a Debug run is measuring the build
 configuration. Measure Release, or say which one it was.

@@ -235,6 +235,9 @@ public sealed partial class FramePresenter
                 _bursts.Bursts,
                 _particles));
 
+    /// <summary>The whole tick the particles were last stepped to, or null before the first frame.</summary>
+    private int? _particlesShown;
+
     /// <summary>What a bullet is traced against this frame.</summary>
     private BulletScene BulletSceneNow => new(_frame.Timeline, _frame.Loaded?.Level, _moments.Source, _frame.ShownTick, _frame.Playing);
 
@@ -310,6 +313,13 @@ public sealed partial class FramePresenter
         _impacts.Step(impacts);
 
         IReadOnlyList<ParticleBatch> batches = [];
+
+        // **A seek is the skip rule's, not a long frame** (D221): a played frame of any length is one step, as the
+        // engine's `Simulate( frametime )` is; only a frame the transport jumped to rebuilds the effects.
+        bool seeked = SoundSchedule.IsSkip(_particlesShown, tick);
+
+        _particlesShown = tick;
+
         ParticleFrame particles = new(
             _frame.Timeline,
             _frame.Loaded,
@@ -319,7 +329,8 @@ public sealed partial class FramePresenter
             _frame.FrameSeconds,
             _frame.ViewportHeight,
             _frame.DoPixelVisibility,
-            _frame.ShownTick);
+            _frame.ShownTick,
+            seeked);
 
         if (_frameParticles.Trails(particles))
         {
@@ -340,7 +351,8 @@ public sealed partial class FramePresenter
                          _frame.DrawViewmodel,
                          _frame.HealTargetMarker,
                          _sound.Scripts,
-                         Replaying)))
+                         Replaying,
+                         seeked)))
             {
                 _sound.Emit(whiz);
             }

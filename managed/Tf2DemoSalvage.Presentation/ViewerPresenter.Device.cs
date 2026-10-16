@@ -133,8 +133,15 @@ public sealed partial class ViewerPresenter
         }
     }
 
+    /// <summary>Told each time <see cref="PoseOver"/> has posed the moment, for a test that checks where the pose falls.</summary>
+    internal Action? Posed { get; set; }
+
     /// <summary><see cref="PoseNow"/> over a device a test can read.</summary>
-    internal void PoseOver(IViewerDevice device) => _moments.PoseNow(device.Frustum, device.Views, device.Eye, device.ScreenView);
+    internal void PoseOver(IViewerDevice device)
+    {
+        _moments.PoseNow(device.Frustum, device.Views, device.Eye, device.ScreenView);
+        Posed?.Invoke();
+    }
 
     /// <summary>Hands this frame's scene to the device.</summary>
     /// <param name="red">The background's red.</param>

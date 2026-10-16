@@ -118,6 +118,38 @@ public sealed class FrameParticlesTests
         particles.TrailEffect(SyntheticRocket.RocketEntityIndex).ShouldNotBeNull();
     }
 
+    /// <remarks>**The frame's moment reaches the trails** (D221): half a tick later is half a tick of simulation.</remarks>
+    [Test]
+    public void TrailsOver_AFrameHalfATickLater_StepsTheTrailByHalfATick()
+    {
+        ParticleEffects particles = new();
+        FrameParticles frame = new(particles, new RecordingLogger());
+        List<SceneProp> drawn = DrawnAt(110);
+
+        // A trail that emits, so it is not empty and replayed from its rocket's start on every call.
+        ParticleMap map = Map() with
+        {
+            RocketTrail = Trail with
+            {
+                Emitters =
+                [
+                    new ParticleFunction(
+                        "emit_continuously",
+                        "emitter",
+                        new Dictionary<string, DmxValue>(StringComparer.Ordinal) { ["emission_rate"] = new(DmxAttributeType.Real, 132d) }),
+                ],
+            },
+        };
+
+        frame.TrailsOver(Frame(110, drawn) with { ShownTick = 110d }, map).ShouldBeTrue();
+        float before = particles.TrailEffect(SyntheticRocket.RocketEntityIndex)!.Particles.Age;
+
+        frame.TrailsOver(Frame(110, drawn) with { ShownTick = 110.5d }, map).ShouldBeTrue();
+
+        (particles.TrailEffect(SyntheticRocket.RocketEntityIndex)!.Particles.Age - before)
+            .ShouldBe(0.5f * Frame(110, drawn).Timeline!.IntervalPerTick, 1e-6f);
+    }
+
     [Test]
     public void TrailsOver_AMapWithNoRocketTrail_StepsNothingAndSaysSo()
     {
