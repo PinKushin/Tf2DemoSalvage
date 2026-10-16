@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 
+using Tf2DemoSalvage.Core.Net;
 using Tf2DemoSalvage.Core.Scene;
 
 namespace Tf2DemoSalvage.Audio;
@@ -67,7 +68,7 @@ public sealed class ActiveLoops
     public bool Alter(SceneSound sound)
     {
         if (!_loops.TryGetValue((sound.EntityIndex, sound.Channel), out Loop loop) ||
-            !string.Equals(loop.Name, sound.Name, StringComparison.OrdinalIgnoreCase))
+            !SoundName.SameSfx(loop.Name, sound.Name))
         {
             return false;
         }
@@ -116,7 +117,7 @@ public sealed class ActiveLoops
     /// <returns>Whether that loop was being followed.</returns>
     public bool Forget(int entity, int channel, string name) =>
         _loops.TryGetValue((entity, channel), out Loop loop) &&
-        string.Equals(loop.Name, name, StringComparison.OrdinalIgnoreCase) &&
+        SoundName.SameSfx(loop.Name, name) &&
         _loops.Remove((entity, channel));
 
     /// <summary>Forgets everything, for a seek or a new demo.</summary>

@@ -47,6 +47,16 @@ public sealed class SoundMusicVolumeConformanceTests
     public void IsMusic_ByLeadingCharactersAndSoundLevel_IsTheEnginesDryBitAtZeroDistance(string name, int soundLevel, bool expected) =>
         SoundGain.IsMusic(name, soundLevel).ShouldBe(expected);
 
+    /// <remarks>`S_FindName`'s key, `CUtlFilenameSymbolTable::FindOrAddFileName` (`utlsymbol.cpp:312`, `strtools.cpp:2315`).</remarks>
+    [TestCase("#Music/Song.wav", "#music\\song.wav")]
+    [TestCase("#music//song.wav", "#music\\song.wav")]
+    [TestCase("#music/./song.wav", "#music\\song.wav")]
+    [TestCase("./music/song.wav", "music\\song.wav")]
+    [TestCase("//music", "\\\\music")]
+    [TestCase(")#ui/a.wav", ")#ui\\a.wav")]
+    public void SfxKey_ForAName_IsTheEnginesFileNameKey(string name, string expected) =>
+        Tf2DemoSalvage.Core.Net.SoundName.SfxKey(name).ShouldBe(expected);
+
     [TestCase(true, 0.25f, 0.25f)]
     [TestCase(true, 0f, 0f)]
     [TestCase(true, float.NaN, 0f)]

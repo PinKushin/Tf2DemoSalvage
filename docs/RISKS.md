@@ -39557,9 +39557,12 @@ TF2's defaults and bounds, so a config, a bind or `toggle` sets them without com
   `SoundPresenterMusicVolumeTests`). An unpositioned soundscape loop is music by its wave alone, because
   `EmitAmbientSound` (FUN_180017150) starts it at soundlevel 0 whatever the script says. A music one-shot's
   followed volume ends on a stop naming it, on any other sound starting on its key, and on a seek; a
-  `SND_CHANGE_VOL` alters it in place. Limits: the sink keys voices by entity and channel, so two overlapping
-  CHAN_AUTO music one-shots share the later one's volume, and a seek does not restart a music one-shot (as for
-  every one-shot; what the engine does on a demo seek is not read). *Read from the binary.* **Still open: the duck** (`DAT_1804600e8`, eased in
+  `SND_CHANGE_VOL` alters it in place. Names match as `S_AlterChannel` matches them, by `CSfxTable`: `S_FindName`
+  (FUN_18002b290) keys the whole name, sound characters kept, through the file-name table, which lower-cases and
+  fixes separators (`SoundName.SfxKey`). Limit: the sink keys voices by entity and channel, so overlapping CHAN_AUTO
+  voices on one entity cannot be told apart; a non-music CHAN_AUTO start there ends the music's following rather
+  than leave the new sound forced to the music's gain. Per-voice handles would change `IAudioSink`, `AudioOutput`
+  and eight test sinks. *Read from the binary.* **Still open: the duck** (`DAT_1804600e8`, eased in
   FUN_18002fbe0), which is 1 here.
 
 ## B546 — the STV spectator GUI's other three parts: the control-point row, the target ID's health, overheal colour — OPEN, gap
@@ -39608,4 +39611,13 @@ the bind's before the chord test. (6) `SetsState` now uses `SetConVar`'s own tes
 how the console treats a typed line, and an undeclared name is no ConVar in the engine either, so that part was
 dropped. (7) `Run` returns whether it acted; the shared counter is gone. The menu check is back in the UI test (D218's
 sync on open), and the open item above about the menu is closed by it.
+
+## B548 — a music one-shot playing across a seek is not restarted; what the engine does on a demo seek is not read — OPEN, gap
+
+**Found reviewing B545** (2026-10-15). A seek silences everything and re-establishes only loops (`SoundPresenter`'s
+`Jumped` and `reestablishing` branches), so a `#` one-shot at `SNDLVL_NONE` that was mid-song is gone after a seek and
+its `snd_musicvolume` following is cleared with it. That is the rule for every one-shot here, not a music rule. Whether
+TF2's demo seek (`demo_gototick`, the demo player's skip) restarts sounds in flight is a question for engine.dll and
+has not been read. *Measured in our code; the engine not read.* **To read:** the demo player's skip path and whether
+it calls `S_StopAllSounds` and re-sends sound state.
 

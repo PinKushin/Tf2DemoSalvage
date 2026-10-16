@@ -7,6 +7,7 @@ using System.Linq;
 using Microsoft.Extensions.Logging;
 
 using Tf2DemoSalvage.Audio;
+using Tf2DemoSalvage.Core.Net;
 using Tf2DemoSalvage.Core.Scene;
 using Tf2DemoSalvage.GameSystems;
 
@@ -587,22 +588,27 @@ public sealed partial class SoundPresenter(
         // `S_AlterChannel`, which matches entity, channel and sound — and only fall through to a start when nothing matched.
         // Started afresh, a server's scrape or door loop restarted from its first sample on every volume update.
         // A music one-shot is altered in place too, keeping its new volume for the per-pass re-gain (B545).
+        // A voice that has already ended matches nothing, so the entry goes and the sound falls through to a start, as
+        // `S_AlterChannel` returning 0 does (FUN_18002aa20).
         if (!sound.IsStop && (sound.ChangesVolume || sound.ChangesPitch) &&
             _music.TryGetValue((sound.EntityIndex, sound.Channel), out (string Name, float Volume) playing) &&
-            string.Equals(playing.Name, sound.Name, StringComparison.OrdinalIgnoreCase))
+            SoundName.SameSfx(playing.Name, sound.Name))
         {
-            if (sound.ChangesVolume)
+            float volume = sound.ChangesVolume ? sound.Volume : playing.Volume;
+            bool alive = output.SetGain(sound.EntityIndex, sound.Channel, volume * SoundGain.Music(isMusic: true, MusicVolume()));
+
+            if (alive && sound.ChangesPitch)
             {
-                _music[(sound.EntityIndex, sound.Channel)] = (sound.Name, sound.Volume);
-                output.SetGain(sound.EntityIndex, sound.Channel, sound.Volume * SoundGain.Music(isMusic: true, MusicVolume()));
+                alive = output.SetPitch(sound.EntityIndex, sound.Channel, SoundScript.Rate(sound.Pitch));
             }
 
-            if (sound.ChangesPitch)
+            if (alive)
             {
-                output.SetPitch(sound.EntityIndex, sound.Channel, SoundScript.Rate(sound.Pitch));
+                _music[(sound.EntityIndex, sound.Channel)] = (playing.Name, volume);
+                return;
             }
 
-            return;
+            _music.Remove((sound.EntityIndex, sound.Channel));
         }
 
         if (!sound.IsStop && (sound.ChangesVolume || sound.ChangesPitch) && loops.Alter(sound))
@@ -631,7 +637,7 @@ public sealed partial class SoundPresenter(
 
                 // Only the sound the stop names, as `S_AlterChannel` matches it.
                 if (_music.TryGetValue((sound.EntityIndex, sound.Channel), out (string Name, float Volume) stopped) &&
-                    string.Equals(stopped.Name, sound.Name, StringComparison.OrdinalIgnoreCase))
+                    SoundName.SameSfx(stopped.Name, sound.Name))
                 {
                     _music.Remove((sound.EntityIndex, sound.Channel));
                 }
