@@ -195,6 +195,27 @@ public sealed class MoveChildPlacementConformanceTests
         scene.Instances.Single(model => model.ModelPath == ChildModel).Matrix[12].ShouldBe(201f, 1e-3f);
     }
 
+    /// <summary>
+    /// **A seek's corpse replay does not touch the frame.** `AdvanceCorpsesAlone` simulates at the corpses' own tick
+    /// between `PlaceFrame` and the frame's first pass; the parent handed over must still carry its child.
+    /// </summary>
+    [Test]
+    public void Instances_AfterACorpseReplayAtAnotherTick_KeepsTheFramesParent()
+    {
+        SceneProp parent = new(1, ParentModel, SceneModelKind.Studio, new ScenePose { X = 199f });
+        SceneProp child = new(2, ChildModel, SceneModelKind.Studio, new ScenePose { X = 2f }, AttachedTo: 1);
+
+        EntityModelSet models = new();
+        models.Add([parent, child], _ => Baked());
+        models.PlaceFrame([parent, child]);
+        models.AdvanceCorpsesAlone([], 5d);
+
+        List<ModelInstance> world = [];
+        models.Instances([child], world, seconds: 1d);
+
+        world.Single(model => model.ModelPath == ChildModel).Matrix[12].ShouldBe(201f, 1e-3f);
+    }
+
     /// <summary>A parent posed only in the UNDRAWN pass still carries a child the world pass draws.</summary>
     [Test]
     public void Instances_ParentOnlyInTheUndrawnPass_CarriesAVisibleChild()
@@ -214,12 +235,11 @@ public sealed class MoveChildPlacementConformanceTests
     }
 
     /// <summary>
-    /// **A frame's props do not outlive the frame.** A caller that handed them over once and then simulates a LATER
-    /// moment without the parent must not find it: the parent has left, so the child stands at its own offset, as
-    /// <c>HierarchySetParent( NULL )</c> leaves it.
+    /// **A frame's props live until the next frame is handed over**, and no longer: once the next `PlaceFrame` lacks the
+    /// parent, the parent has left, so the child is not composed onto it — <c>HierarchySetParent( NULL )</c>.
     /// </summary>
     [Test]
-    public void Instances_AtALaterMomentWithoutPlaceFrame_ForgetsTheOldParent()
+    public void Instances_AfterTheNextPlaceFrameWithoutTheParent_ForgetsIt()
     {
         SceneProp parent = new(1, ParentModel, SceneModelKind.Studio, new ScenePose { X = 199f });
         SceneProp child = new(2, ChildModel, SceneModelKind.Studio, new ScenePose { X = 2f }, AttachedTo: 1);
@@ -229,6 +249,7 @@ public sealed class MoveChildPlacementConformanceTests
         models.PlaceFrame([parent, child]);
         models.Instances([child], [], seconds: 1d);
 
+        models.PlaceFrame([child]);
         List<ModelInstance> later = [];
         models.Instances([child], later, seconds: 2d);
 

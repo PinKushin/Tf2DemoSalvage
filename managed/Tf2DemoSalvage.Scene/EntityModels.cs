@@ -1088,6 +1088,23 @@ public sealed class EntityModelSet : Hud.IMdlCache, IPosedEntities
     /// </remarks>
     private void Simulate(IReadOnlyList<SceneProp> props, double seconds, bool fireEvents = true)
     {
+        // **Nothing composed while the pass's entities are brought up to date is kept** (B551) — a parent's bones may
+        // not be posed yet. Set and cleared here, around the whole of it, so no return or throw can leave it set.
+        _simulating = true;
+
+        try
+        {
+            SimulatePass(props, seconds, fireEvents);
+        }
+        finally
+        {
+            _simulating = false;
+        }
+    }
+
+    /// <summary><see cref="Simulate"/>'s body.</summary>
+    private void SimulatePass(IReadOnlyList<SceneProp> props, double seconds, bool fireEvents)
+    {
         _simulatedSeconds = seconds;
 
         // `if ( gpGlobals->frametime != 0.0f ) DoAnimationEvents(...)` (`c_baseanimating.cpp:5162`) — see `Paused`.
@@ -1100,21 +1117,6 @@ public sealed class EntityModelSet : Hud.IMdlCache, IPosedEntities
         // Resolved attachments belong to this pass's camera, not to the entity — see the field.
         _attachments.Clear();
         _absolute.Clear();
-        _simulating = true;
-
-        // **The frame's props belong to ONE moment** (B551): the first pass after `PlaceFrame` claims them, and a pass
-        // at any other demo time drops them, so a caller that never hands over a new frame cannot keep a parent that
-        // has left alive in an old one.
-        long moment = BitConverter.DoubleToInt64Bits(seconds);
-
-        if (_frameMoment is null)
-        {
-            _frameMoment = moment;
-        }
-        else if (_frameMoment != moment)
-        {
-            _frameProps.Clear();
-        }
 
         // Events are a per-FRAME answer; the WALK's state is per entity and survives. **Cleared when the time moves, not
         // per pass**: a frame runs this three times (drawn, undrawn, viewmodel), and clearing per pass left only the
@@ -4124,6 +4126,9 @@ public sealed class EntityModelSet : Hud.IMdlCache, IPosedEntities
     /// viewmodel — and the scene's visibility rules remove props from those lists, while <c>CalcAbsolutePosition</c>
     /// composes a child onto its parent with no reference to whether the parent is drawn (`c_baseentity.cpp:4393`).
     /// A parent missing from the child's pass gave it its LOCAL pose, which is B551 again.
+    ///
+    /// **They live until the next call, and nothing else ends them.** `MomentScene` calls this every frame; a seek's
+    /// corpse replay (`AdvanceCorpsesAlone`) simulates at its own tick in between and neither claims nor clears them.
     /// </remarks>
     public void PlaceFrame(IEnumerable<SceneProp> props)
     {
@@ -4131,7 +4136,6 @@ public sealed class EntityModelSet : Hud.IMdlCache, IPosedEntities
 
         _frameProps.Clear();
         _absolute.Clear();
-        _frameMoment = null;
 
         foreach (SceneProp prop in props)
         {
@@ -4142,12 +4146,10 @@ public sealed class EntityModelSet : Hud.IMdlCache, IPosedEntities
     /// <summary>Each entity's absolute pose, composed once per pass — the engine's cached <c>m_rgflCoordinateFrame</c>.</summary>
     private readonly Dictionary<int, ScenePose> _absolute = [];
 
-    /// <summary>The demo time the frame's props were claimed at, or null until a pass claims them.</summary>
-    private long? _frameMoment;
-
     /// <summary>
     /// Whether `Simulate` is still bringing the pass's entities up to date — so a parent's bones may not be posed yet and
-    /// nothing composed from them is kept.
+    /// nothing composed from them is kept. Defensive: no construction tried (a child listed before a moving,
+    /// attachment-bearing parent) shows a stale answer without it, so dropping it survives every test; kept on review.
     /// </summary>
     private bool _simulating;
 
@@ -5843,10 +5845,9 @@ public sealed class EntityModelSet : Hud.IMdlCache, IPosedEntities
             scene[prop.EntityIndex] = prop;
         }
 
-        // **Nothing composed while Simulate ran was kept** (B551): a parent's bones asked for then may predate its own
-        // update. Defensive: no construction tried — a child listed before a moving, attachment-bearing parent — shows a
-        // stale answer, so dropping this survives every test; it is kept because the coordinator's review asked for it.
-        _simulating = false;
+        // **Attachments resolved while the pass was simulated are resolved again for the draw** (B551): a parent's bones
+        // asked for then may predate its own update. Defensive like `_simulating` — no test reaches a stale one.
+        _attachments.Clear();
 
         // **Every prop that does not draw is counted with its reason.** A silent `continue` here is
         // how "all the props went away" became a guessing game: the scene said 14 models, the map

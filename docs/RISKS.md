@@ -39752,8 +39752,10 @@ still draws at this frame's attachment without it. Kept on review request; a can
 
 **Second review round:** `PlaceFrame` gets `_drawn` before any filter, which is every prop `PropsAt` returned plus the
 statics and players — the undrawn pass is cut from it afterwards (tested: a parent only in the undrawn pass carries a
-visible child). The frame's props are claimed by the first pass at one demo time and dropped by a pass at another, so a
-caller that stops handing frames over cannot keep a departed parent. `Attach`'s early return for a non-bone-merged
+visible child). The frame's props live until the next `PlaceFrame`, which `MomentScene` makes every frame. (A first
+cut tied them to the demo time of the first pass after `PlaceFrame`; a seek's corpse replay, `AdvanceCorpsesAlone`,
+simulates at its own tick in between, claimed that time, and the real pass then dropped every parent — round 3, tested.)
+`_simulating` is set and cleared in a `try`/`finally` around the whole of `Simulate`. `Attach`'s early return for a non-bone-merged
 child loses nothing: the method sets only `EntityTransform` and a log line, and `PlacementOf` sets the former.
 `FromMatrix` is pinned against the Euler constructor and a real attachment at pitch 20, yaw 50, roll 70 (a transpose
 reddens four tests), and a child's drawn size against its own scale alone.
