@@ -1297,7 +1297,10 @@ packet that arrives, behind a fresh pad, a fresh gain and a fresh decoder.
 8. **The codec in force is the init a packet arrived under, by stream order** (`SceneVoice.Init`), and Steam Voice is
    decoded by its own audio record whatever the init named.
 9. **Pan and gain are fixed when a run starts**, where the engine re-spatialises every mix.
-10. **Not ported (B549):** the `voice_overdrive` duck, the speaking indicator, `cl_voice_filter`, the immediate stop
+10. **The mixer's clock advances at most 0.1 s a frame** (`snd_mixahead`'s default), so one long frame — a map load —
+    does not drain every voice at once. *Interpolated, not read:* Quake's `S_Update_` lineage resumes painting from the
+    device's position after a stall rather than painting the gap; TF2's own mixer was not re-read for it.
+11. **Not ported (B549):** the `voice_overdrive` duck, the speaking indicator, `cl_voice_filter`, the immediate stop
     of a `Voice_Init` mid-speech, and whatever the engine does with voice during a demo skip (B550).
 
 **Measured 2026-10-16.** On the heaviest voice demo in lcor (`2013-08-23-20-53-blu_vs_red-cp_granary.dem`: 6,861

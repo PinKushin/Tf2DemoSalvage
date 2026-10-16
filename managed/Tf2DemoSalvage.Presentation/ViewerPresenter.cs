@@ -439,6 +439,7 @@ public sealed partial class ViewerPresenter : IDisposable
     public void Dispose()
     {
         ReleaseCorpseRecord();
+        ReleaseVoice();
 
         _audio?.Dispose();
         _audio = null;

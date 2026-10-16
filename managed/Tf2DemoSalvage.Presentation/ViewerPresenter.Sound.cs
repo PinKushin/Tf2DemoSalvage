@@ -135,23 +135,51 @@ public sealed partial class ViewerPresenter
     /// <summary>The plan being laid out off the frame, or null once it has landed.</summary>
     private System.Threading.Tasks.Task<VoicePlanResult>? _voicePlan;
 
+    /// <summary>Cancels <see cref="_voicePlan"/> when its demo is replaced or the window closes.</summary>
+    private System.Threading.CancellationTokenSource? _voicePlanCancel;
+
+    /// <summary>Abandons the plan in flight, for a demo replaced or a window closing.</summary>
+    private void CancelVoicePlan()
+    {
+        _voicePlanCancel?.Cancel();
+        _voicePlanCancel?.Dispose();
+        _voicePlanCancel = null;
+    }
+
+    /// <summary>Stops voice work for a closing window: the plan in flight and every decode.</summary>
+    private void ReleaseVoice()
+    {
+        CancelVoicePlan();
+        _voice.Dispose();
+    }
+
     private void PlayVoice(IAudioSink output, int tick, (float X, float Y, float Z) listener, (float X, float Y, float Z) right)
     {
         if (!ReferenceEquals(_timeline, _voiceTimeline))
         {
             // Laid out once per demo from the framing alone, off the frame: 46 ms on the heaviest lcor voice demo
             // (voice-memory probe, 6,861 packets). Until it lands no voice plays; decoding happens per start.
+            //
+            // `Voice` and `VoiceInits` are the builder's lists handed out whole (`TailList.HandOut`), not streamed
+            // (B449), and nothing writes them after the build, so a pool thread may read them.
             _voiceTimeline = _timeline;
             _voice.Plan = [];
-            _voicePlan = _timeline is { } demo
-                ? System.Threading.Tasks.Task.Run(() => VoicePlan.From(demo.VoiceInits, demo.Voice, demo.IntervalPerTick), _shutdown)
-                : null;
+            CancelVoicePlan();
+
+            if (_timeline is { } demo)
+            {
+                _voicePlanCancel = System.Threading.CancellationTokenSource.CreateLinkedTokenSource(_shutdown);
+                System.Threading.CancellationToken token = _voicePlanCancel.Token;
+                _voicePlan = System.Threading.Tasks.Task.Run(
+                    () => VoicePlan.From(demo.VoiceInits, demo.Voice, demo.IntervalPerTick, cancel: token), token);
+            }
         }
 
         if (_voicePlan is { IsCompleted: true } laid)
         {
             _voicePlan = null;
 
+            // A cancelled plan is a demo that closed or was replaced: nothing to report.
             if (laid.IsCompletedSuccessfully)
             {
                 VoicePlanResult plan = laid.Result;
@@ -162,7 +190,7 @@ public sealed partial class ViewerPresenter
                     $"voice: {plan.Spurts.Count} spurts from {_timeline?.Voice.Count ?? 0} packets" +
                     (plan.Refusal is { } refusal ? "; " + refusal : string.Empty));
             }
-            else
+            else if (laid.IsFaulted)
             {
                 _audioLog.LogWarning("{Message}", "voice: the plan could not be laid out: " + laid.Exception?.GetBaseException().Message);
             }

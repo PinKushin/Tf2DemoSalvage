@@ -82,7 +82,21 @@ public sealed class VoicePresenterConformanceTests
 
         Step(presenter, sink, 10, 0d);
         Step(presenter, sink, 17, 0.1d);
-        Step(presenter, sink, 17, 1.1d);
+        StallUntil(presenter, sink, 17, 0.1d, 1.1d);
+
+        sink.Silenced.ShouldBeEmpty();
+    }
+
+    /// <summary>One long frame — a map load — is not a long read: the mixer advances at most <c>snd_mixahead</c> a pass.</summary>
+    [Test]
+    public void Update_OneLongHitch_DoesNotStarveTheVoice()
+    {
+        Recording sink = new();
+        VoicePresenter presenter = Presenter(Spurt(proximity: false, packets: 12));
+
+        Step(presenter, sink, 10, 0d);
+        Step(presenter, sink, 17, 0.1d);
+        Step(presenter, sink, 17, 5d);
 
         sink.Silenced.ShouldBeEmpty();
     }
@@ -95,7 +109,7 @@ public sealed class VoicePresenterConformanceTests
 
         Step(presenter, sink, 10, 0d);
         Step(presenter, sink, 17, 0.1d);
-        Step(presenter, sink, 17, 1.8d);
+        StallUntil(presenter, sink, 17, 0.1d, 1.8d);
 
         sink.Silenced.ShouldBe([(View, 8)]);
     }
@@ -112,7 +126,7 @@ public sealed class VoicePresenterConformanceTests
 
         Step(presenter, sink, 10, 0d);
         Step(presenter, sink, 17, 0.1d);
-        Step(presenter, sink, 17, 1.65d);
+        StallUntil(presenter, sink, 17, 0.1d, 1.65d);
 
         sink.VoiceGains[^1].Voice.ShouldBe(7);
         sink.VoiceGains[^1].Gain.ShouldBe(0.5f, 1e-3f);
@@ -261,6 +275,15 @@ public sealed class VoicePresenterConformanceTests
         float[] samples = sink.Played.ShouldHaveSingleItem().Sample.Samples.ToArray();
         samples[0].ShouldBeGreaterThan(0f, "Reset's gain is 1.0 for the first block");
         samples.Skip(256).ShouldAllBe(sample => sample == 0f);
+    }
+
+    /// <summary>Holds a tick from one wall time to another in 50 ms frames, as a paused viewer keeps drawing.</summary>
+    private static void StallUntil(VoicePresenter presenter, Recording sink, int tick, double from, double until)
+    {
+        for (int frame = 1; from + (frame * 0.05d) <= until + 1e-9; frame++)
+        {
+            Step(presenter, sink, tick, from + (frame * 0.05d));
+        }
     }
 
     private static void Step(VoicePresenter presenter, Recording sink, int tick, double now) =>

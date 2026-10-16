@@ -19,7 +19,7 @@ namespace Tf2DemoSalvage.Presentation;
 /// playing voice is silenced once the audio that HAD arrived has been played. After a jump, a step back, or a starve,
 /// speech resumes at the next packet that arrives, behind a fresh pad and a fresh gain and decoder.
 /// </remarks>
-public sealed class VoicePresenter
+public sealed class VoicePresenter : IDisposable
 {
     private readonly List<Pending> _pending = [];
     private readonly List<Playing> _playing = [];
@@ -38,7 +38,7 @@ public sealed class VoicePresenter
             _pending.Clear();
             _playing.Clear();
             _starved.Clear();
-            Prune();
+            ClearRenders();
             _next = 0;
             _lastTick = null;
         }
@@ -77,6 +77,9 @@ public sealed class VoicePresenter
     {
         ArgumentNullException.ThrowIfNull(output);
         ArgumentNullException.ThrowIfNull(speakerAt);
+
+        now = MixerTime(now);
+        _fadeSeconds = Math.Max(1e-3, EngineConVars.ByName("voice_fadeouttime").Number);
 
         if (!Enabled)
         {
@@ -174,7 +177,18 @@ public sealed class VoicePresenter
             System.Threading.CancellationTokenSource cancel = new();
 #pragma warning restore CA2000
             System.Threading.CancellationToken token = cancel.Token;
-            Task<SoundSample> sound = Renderer(() => VoicePlan.Render(spurt, packet, 0, scale, decoders, token));
+            Task<SoundSample> sound;
+
+            try
+            {
+                sound = Renderer(() => VoicePlan.Render(spurt, packet, 0, scale, decoders, token));
+            }
+            catch
+            {
+                // A renderer that throws before handing back a task leaves the source with nobody to dispose it.
+                cancel.Dispose();
+                throw;
+            }
 
             // Observed even when nothing reaches its start, so a fault is reported rather than unobserved.
             _ = sound.ContinueWith(
@@ -195,9 +209,11 @@ public sealed class VoicePresenter
     {
         foreach ((VoiceSpurt, int, float) key in new List<(VoiceSpurt, int, float)>(_renders.Keys))
         {
-            if (!_pending.Exists(pending =>
-                ReferenceEquals(pending.Spurt, key.Item1) && pending.Packet == key.Item2 && BitConverter.SingleToInt32Bits(pending.Scale) == BitConverter.SingleToInt32Bits(key.Item3) &&
-                !pending.Sound.IsFaulted))
+            // A failed decode is kept, so a jump every frame does not decode a known-bad run again every frame; it holds no
+            // samples, and goes with the plan.
+            if (!_renders[key].Sound.IsFaulted && !_pending.Exists(pending =>
+                ReferenceEquals(pending.Spurt, key.Item1) && pending.Packet == key.Item2 &&
+                BitConverter.SingleToInt32Bits(pending.Scale) == BitConverter.SingleToInt32Bits(key.Item3)))
             {
                 _renders[key].Cancel.Cancel();
                 _renders[key].Cancel.Dispose();
@@ -372,6 +388,50 @@ public sealed class VoicePresenter
     private readonly record struct Playing(
         VoiceSpurt Spurt, int Entity, int Channel, SoundSample Sample, double StartedAt, int FirstSample, int Voice, float Gain);
 
-    /// <summary><c>voice_fadeouttime</c>, the mixer's fade over the end of what is buffered.</summary>
-    private static double FadeSeconds => Math.Max(1e-3, EngineConVars.ByName("voice_fadeouttime").Number);
+    /// <summary><c>voice_fadeouttime</c>, the mixer's fade over the end of what is buffered, read once per pass.</summary>
+    private double FadeSeconds => _fadeSeconds;
+
+    private double _fadeSeconds = 0.1;
+
+    /// <summary>The most mixer time one pass may advance: <c>snd_mixahead</c>'s default, 0.1 s.</summary>
+    private const double MostMixedPerPass = 0.1;
+
+    private double? _wallBefore;
+    private double _mixed;
+
+    /// <summary>
+    /// The mixer's clock: wall time, but advancing at most <see cref="MostMixedPerPass"/> a pass, so a long hitch — a map
+    /// load — does not drain every voice buffer at once.
+    /// </summary>
+    /// <remarks>
+    /// **Interpolated, not read** (the binary was not available for this pass): Source's mixer paints at most
+    /// <c>snd_mixahead</c> ahead of the device and, after a stall, resumes from where the device is rather than painting the
+    /// gap — Quake's <c>S_Update_</c> moves <c>paintedtime</c> up to <c>soundtime</c> — so a voice channel's buffer is read
+    /// only by what is painted. Listed in findings/31 as ours until <c>S_Update_</c> is read in TF2's engine.dll.
+    /// </remarks>
+    private double MixerTime(double wall)
+    {
+        if (_wallBefore is { } before)
+        {
+            _mixed += Math.Clamp(wall - before, 0d, MostMixedPerPass);
+        }
+
+        _wallBefore = wall;
+        return _mixed;
+    }
+
+    /// <inheritdoc/>
+    public void Dispose() => ClearRenders();
+
+    /// <summary>Cancels and drops every decode, failed ones included.</summary>
+    private void ClearRenders()
+    {
+        foreach (Rendering rendering in _renders.Values)
+        {
+            rendering.Cancel.Cancel();
+            rendering.Cancel.Dispose();
+        }
+
+        _renders.Clear();
+    }
 }

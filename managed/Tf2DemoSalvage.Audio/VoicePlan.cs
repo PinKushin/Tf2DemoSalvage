@@ -114,9 +114,14 @@ public static class VoicePlan
     /// <param name="voice">Its <c>svc_VoiceData</c>s.</param>
     /// <param name="interval">Seconds per tick.</param>
     /// <param name="unavailable">Why a decoder cannot be made, or null when it can; <see cref="VoiceDecoding.Unavailable"/> by default.</param>
+    /// <param name="cancel">Abandons a plan for a demo that is no longer open.</param>
     /// <returns>The spurts, and why any voice cannot be played.</returns>
     public static VoicePlanResult From(
-        IReadOnlyList<SceneVoiceInit> inits, IReadOnlyList<SceneVoice> voice, float interval, Func<VoiceKind, string?>? unavailable = null)
+        IReadOnlyList<SceneVoiceInit> inits,
+        IReadOnlyList<SceneVoice> voice,
+        float interval,
+        Func<VoiceKind, string?>? unavailable = null,
+        System.Threading.CancellationToken cancel = default)
     {
         ArgumentNullException.ThrowIfNull(inits);
         ArgumentNullException.ThrowIfNull(voice);
@@ -128,6 +133,8 @@ public static class VoicePlan
 
         foreach (SceneVoice packet in voice)
         {
+            cancel.ThrowIfCancellationRequested();
+
             // The init in force when this packet arrived, by stream order, as `DemoTimeline.VoiceCodecOf` reads it.
             SceneVoiceInit? init = packet.Init >= 0 && packet.Init < inits.Count ? inits[packet.Init] : null;
             string? codec = init?.Codec;
