@@ -108,7 +108,7 @@ public sealed class MomentCostLogTests
         MomentPhases phases = Posing(50) with
         {
             Counters = new EntityModelSet.PoseCounters(
-                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, Corpses: 40 * Millisecond, CorpseSteps: 8),
+                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, Corpses: 40 * Millisecond, CorpseSteps: 8, Advance: 40 * Millisecond),
         };
 
         string? line = log.Report(phases, sampleTicks: 0);
@@ -116,5 +116,56 @@ public sealed class MomentCostLogTests
         // 40 ms over 8 steps is 5 ms a step, the number that separates many corpses from a slow one.
         Assert.That(line, Does.Contain("corpses 40 over 8 steps"));
         Assert.That(line, Does.Contain("rest 10"));
+    }
+
+    /// <remarks>
+    /// **The columns that split `rest` on `cp_process_f12`, where it was 6–20 ms untimed.** Each is
+    /// given a distinct width so a column printing another's value cannot pass: 60 ms of pose less
+    /// collate 1, baked 2, place 3, advance 9 and undrawn 6 leaves rest 39. The corpse step (5) sits
+    /// INSIDE advance, so taking it out as well would read 34.
+    /// </remarks>
+    [Test]
+    public void Report_WithEveryPoseColumn_NamesEachAndLeavesTheResidual()
+    {
+        MomentCostLog log = new(every: 1);
+
+        MomentPhases phases = Posing(60) with
+        {
+            Undrawn = 6 * Millisecond,
+            Counters = new EntityModelSet.PoseCounters(
+                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                Corpses: 5 * Millisecond,
+                Collate: 1 * Millisecond,
+                Baked: 2 * Millisecond,
+                Place: 3 * Millisecond,
+                Advance: 9 * Millisecond),
+        };
+
+        string? line = log.Report(phases, sampleTicks: 0);
+
+        Assert.That(line, Does.Contain("collate 1,"));
+        Assert.That(line, Does.Contain("baked 2,"));
+        Assert.That(line, Does.Contain("place 3,"));
+        Assert.That(line, Does.Contain("advance 9"));
+        Assert.That(line, Does.Contain("undrawn 6,"));
+        Assert.That(line, Does.Contain("rest 39"));
+    }
+
+    /// <remarks>
+    /// **A rebuild replays every tick since the earliest death, so it is the number that says whether `corpses` is the
+    /// engine's per-tick step or our catch-up** — a count summed over the window (3 across two rebuilds), not averaged.
+    /// </remarks>
+    [Test]
+    public void Report_WithCorpseRebuilds_SumsTheCountAndMeansTheTime()
+    {
+        MomentCostLog log = new(every: 2);
+
+        _ = log.Report(Posing(10) with { Counters = new EntityModelSet.PoseCounters(
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, CorpseRebuilds: 1, CorpseBuilding: 2 * Millisecond) }, sampleTicks: 0);
+
+        string? line = log.Report(Posing(10) with { Counters = new EntityModelSet.PoseCounters(
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, CorpseRebuilds: 2, CorpseBuilding: 6 * Millisecond) }, sampleTicks: 0);
+
+        Assert.That(line, Does.Contain("3 rebuilt in 4"));
     }
 }

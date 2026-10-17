@@ -404,6 +404,18 @@ public sealed class EntityModelSet : Hud.IMdlCache, IPosedEntities
     /// <summary>What composing skinning matrices has cost, ever.</summary>
     public long SkinTicks { get; set; }
 
+    /// <summary>What collating the pass's props into views has cost, ever — `BuildRenderablesList`.</summary>
+    public long CollateTicks { get; set; }
+
+    /// <summary>What a static prop's colour mesh and its full-lighting state have cost, ever.</summary>
+    public long BakedTicks { get; set; }
+
+    /// <summary>What placing, fading and building each drawn instance has cost, ever — the loop after the skin.</summary>
+    public long PlaceTicks { get; set; }
+
+    /// <summary>What gathering corpse requests and advancing the corpse environment has cost, ever, stepping included.</summary>
+    public long AdvanceTicks { get; set; }
+
     /// <summary>What bringing every entity's state up to date has cost, ever.</summary>
     public long SimulateTicks { get; set; }
 
@@ -432,7 +444,13 @@ public sealed class EntityModelSet : Hud.IMdlCache, IPosedEntities
         int PoseBuilds,
         long Corpses = 0,
         int CorpseSteps = 0,
-        int CorpsesHeld = 0)
+        int CorpsesHeld = 0,
+        long Collate = 0,
+        long Baked = 0,
+        long Place = 0,
+        long Advance = 0,
+        int CorpseRebuilds = 0,
+        long CorpseBuilding = 0)
     {
         /// <summary>What happened between an earlier snapshot and this one.</summary>
         /// <param name="before">The earlier snapshot.</param>
@@ -457,7 +475,13 @@ public sealed class EntityModelSet : Hud.IMdlCache, IPosedEntities
                 // whose difference is the work done between two snapshots; this one is how many corpses the environment is
                 // holding right now, and subtracting an earlier reading would answer "how many did it gain", which is not
                 // the question — the question is whether it plateaus.
-                CorpsesHeld);
+                CorpsesHeld,
+                Collate - before.Collate,
+                Baked - before.Baked,
+                Place - before.Place,
+                Advance - before.Advance,
+                CorpseRebuilds - before.CorpseRebuilds,
+                CorpseBuilding - before.CorpseBuilding);
     }
 
     /// <summary>Every pose-phase counter as it stands now.</summary>
@@ -475,7 +499,13 @@ public sealed class EntityModelSet : Hud.IMdlCache, IPosedEntities
         SkeletonPose.PoseBuilds,
         Corpses.SteppingTicks,
         Corpses.Steps,
-        Corpses.Count);
+        Corpses.Count,
+        CollateTicks,
+        BakedTicks,
+        PlaceTicks,
+        AdvanceTicks,
+        Corpses.Rebuilds,
+        Corpses.BuildingTicks);
 
     /// <summary>What per-prop reporting has cost, ever.</summary>
     public long ReportTicks { get; set; }
@@ -5827,7 +5857,11 @@ public sealed class EntityModelSet : Hud.IMdlCache, IPosedEntities
 
         SimulateTicks += System.Diagnostics.Stopwatch.GetTimestamp() - simulatedAt;
 
+        long advancedAt = System.Diagnostics.Stopwatch.GetTimestamp();
+
         AdvanceCorpses(props, seconds);
+
+        AdvanceTicks += System.Diagnostics.Stopwatch.GetTimestamp() - advancedAt;
 
         // **What exists, per pass, kept past the next pass** (B415). `_propsByEntity` is the pass in flight, and the viewmodel
         // pass replaces the world's; a question asked between frames — a decal's bones, an effect's attachment — must still
@@ -5860,7 +5894,11 @@ public sealed class EntityModelSet : Hud.IMdlCache, IPosedEntities
         // **Collated before anything is posed, in collation order** (B254, B262): `BuildRenderablesList` over each
         // view's leaves, the frustum test inside it, and only what a view collates reaches `DrawModel` and so
         // `SetupBones`. The box needs no bones — `WorldBoxFor` is `CalcRenderableWorldSpaceAABB`.
+        long collatedAt = System.Diagnostics.Stopwatch.GetTimestamp();
+
         Collate(props, frustum, views, pass);
+
+        CollateTicks += System.Diagnostics.Stopwatch.GetTimestamp() - collatedAt;
 
         foreach ((SceneProp prop, int place, int? bucket, bool inSky) in _ordered)
         {
@@ -5956,6 +5994,8 @@ public sealed class EntityModelSet : Hud.IMdlCache, IPosedEntities
             // `engine.dll FUN_1800eb1a0` then refuses static lighting, no colour mesh is drawn (the phong shader could
             // not read one: `skin_ps20b.fxc:220-222` passes a zero static colour), and the state is the handle's full
             // one, flags 7.
+            long bakedAt = System.Diagnostics.Stopwatch.GetTimestamp();
+
             bool fullyLit =
                 prop.EntityIndex >= PropModels.FirstStaticPropEntityIndex &&
                 _frames.TryGetValue(prop.ModelPath, out PropModels.ModelFrames? propFrames) &&
@@ -5976,6 +6016,8 @@ public sealed class EntityModelSet : Hud.IMdlCache, IPosedEntities
                 light = locals.Count > 0 ? LevelLighting.NoStaticState : null;
                 sun = null;
             }
+
+            BakedTicks += System.Diagnostics.Stopwatch.GetTimestamp() - bakedAt;
 
             // **The point the cube was sampled at, carried so the RENDERER can choose a cubemap
             // from it** (B170). `ModelLighting.For` already resolved where this model is — via the
@@ -6060,6 +6102,8 @@ public sealed class EntityModelSet : Hud.IMdlCache, IPosedEntities
                 // takes its wearer's bones and those already carry the wearer's placement.
                 transform = PropTransform.Identity;
             }
+
+            long placingAt = System.Diagnostics.Stopwatch.GetTimestamp();
 
             // **Applies the matrices the GPU is about to use, on the processor, and reports the
             // result.** A skinned model that draws wrong could be a bad pose or a bad shader, and
@@ -6395,6 +6439,8 @@ public sealed class EntityModelSet : Hud.IMdlCache, IPosedEntities
                 InSky: inSky,
                 Cloak: cloak,
                 Flex: FlexFor(prop, parts, seconds)));
+
+            PlaceTicks += System.Diagnostics.Stopwatch.GetTimestamp() - placingAt;
 
             // **The item's `attached_models`, drawn on the item's own transform and bones.**
             // `DrawEconEntityAttachedModels` (`econ_entity.cpp:103`) copies the parent's

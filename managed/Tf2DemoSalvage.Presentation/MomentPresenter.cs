@@ -351,6 +351,7 @@ public sealed class MomentPresenter
             // correctly, and the one line that reads it silently dropping it. The same defect the
             // three fields above were fixed for, one field short of finished.
             Unjudgeable = posing.Unjudgeable,
+            Undrawn = posing.Undrawn,
         };
 
         _ledger.Posed(phases.Pose);

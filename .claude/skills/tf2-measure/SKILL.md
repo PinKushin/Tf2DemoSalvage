@@ -1,5 +1,5 @@
 ---
-name: measure
+name: tf2-measure
 description: >
   Measure the viewer's frame cost honestly - one command, playback seconds, parsed means. Use
   whenever asked how fast the viewer is, whether a change helped, where a frame goes, or before
@@ -33,25 +33,31 @@ the build output rather than a grep of it (`error S` is not `error CS`).
 - **`+fps_max 0`** or the cap is what you measure. The default is 300.
 - **It exits itself**, so this never needs backgrounding, a sleep, or a kill.
 
-## Read only a FOCUSED window
+## The focus sleep is off for you
 
-`NoFocusSleep` is the engine's own `engine_no_focus_sleep`: an unattended run is clamped and the
-number is meaningless. A clamped run is recognisable without knowing that — its phases sum to ~10 ms
-under a 63 ms frame with `unaccounted 0`, and a long run comes out bimodal (p25 16 fps, median 106).
-`--measure` exits on its own, so run it in the foreground and this does not arise.
+`--measure` sets `engine_no_focus_sleep 0` itself, last, over anything on the line or in the config:
+a viewer an agent launches never takes focus, and the engine's 50 ms sleep then clamped every run
+(`LaunchOptionsTests.Read_WithMeasure_TurnsTheNoFocusSleepOff`). Do not pass it by hand. A clamped
+run, should one ever turn up again, looks like phases summing to ~10 ms under a 63 ms frame with
+`unaccounted 0`.
 
 ## What the lines mean
 
 ```
 frame rate 235 fps, 6.1 ms; sound, camera, project, advance, capture, hud, draw
-moment cost 2.9 ms = sample, drawlist, models, pose; pose = lighting, simulate, setup, skin, anim, rest
+moment cost 2.9 ms = sample, drawlist, models, pose; pose = lighting, simulate, setup, skin, anim,
+                     reports, collate, baked, place, undrawn, advance (corpses …), rest
                      posed N of M selected, K hidden by pvs
 ```
 
 - Both are **means over the interval**, never one sampled frame — a per-second sample at 200 fps is
   one frame in two hundred dressed as a measurement.
 - `advance` is the scene rebuild; `project` carries the pose since it moved after the view.
-- `rest` is a residual. **Every direct column small with `rest` large means the cost is somewhere no
+- `collate` is the leaf/frustum cull, `baked` a static prop's colour mesh and lighting state,
+  `place` everything after the skin up to the instance, `undrawn` the first-person player's own
+  pass, `advance` the corpse environment whole — `corpses` is the stepping inside it, so it is not
+  added to the sum. `anim` sits inside `setup`.
+- `rest` is a residual (`MomentPhases.PoseRest`, the one formula both lines read). **Every direct column small with `rest` large means the cost is somewhere no
   timer covers yet** — that pattern found 129 ms hiding in a 133 ms pose.
 - `posed N of M` is the cull. `N` counts props that actually reached bone setup, not `M − culled`.
 

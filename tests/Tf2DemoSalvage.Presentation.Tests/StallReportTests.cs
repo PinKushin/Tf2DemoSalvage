@@ -193,7 +193,7 @@ public sealed class StallReportTests
             Pose: Ticks(SlowMs),
             Weapons: 0,
             Viewmodel: 0,
-            Counters: new EntityModelSet.PoseCounters(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, Corpses: Ticks(70d)),
+            Counters: new EntityModelSet.PoseCounters(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, Corpses: Ticks(70d), Advance: Ticks(70d)),
             Drawn: 0);
 
         StallReport.Moment(phases, sampleTicks: 0, playerTicks: 0, log);
