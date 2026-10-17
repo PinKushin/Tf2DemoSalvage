@@ -34,13 +34,11 @@ public sealed class DecodedPropertiesTests
         list.Flat.ShouldBeSameAs(Flat);
         list.Count.ShouldBe(3);
 
-        for (int index = 0; index < items.Length; index++)
-        {
-            (list[index].Index, list[index].Definition, BitConverter.SingleToInt32Bits(index == 1 ? list[index].Value.AsFloat : 0f),
-                list[index].IndexPayloadBits, list[index].CoordShape, list[index].ElementShapes)
-                .ShouldBe((items[index].Index, items[index].Definition, BitConverter.SingleToInt32Bits(index == 1 ? items[index].Value.AsFloat : 0f),
-                    items[index].IndexPayloadBits, items[index].CoordShape, items[index].ElementShapes));
-        }
+        // Field for field and bit for bit: the digest hashes every field, floats by their bits.
+        HashSet<object> none = [];
+        string[] read = [.. Enumerable.Range(0, items.Length).Select(index => StateCopy.Digest(list[index], none))];
+
+        read.ShouldBe([.. items.Select(item => StateCopy.Digest(item, none))]);
     }
 
     /// <remarks>

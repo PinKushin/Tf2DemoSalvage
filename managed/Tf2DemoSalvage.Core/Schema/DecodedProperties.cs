@@ -20,8 +20,9 @@ namespace Tf2DemoSalvage.Core.Schema;
 internal sealed class DecodedProperties : IReadOnlyList<DecodedProperty>
 {
     /// <summary>A property without its definition, which is <c>_flat[Index]</c>.</summary>
+    /// <remarks>The value packed (24 bytes, not 40), and read back field for field: <see cref="PropertyValue.Pack"/>.</remarks>
     private readonly record struct Compact(
-        int Index, PropertyValue Value, int IndexPayloadBits, int CoordShape, IReadOnlyList<int>? ElementShapes);
+        int Index, PropertyValue.Packed Value, int IndexPayloadBits, int CoordShape, IReadOnlyList<int>? ElementShapes);
 
     private readonly IReadOnlyList<FlatProperty>? _flat;
 
@@ -53,7 +54,7 @@ internal sealed class DecodedProperties : IReadOnlyList<DecodedProperty>
                 return;
             }
 
-            compact[index] = new Compact(item.Index, item.Value, item.IndexPayloadBits, item.CoordShape, item.ElementShapes);
+            compact[index] = new Compact(item.Index, item.Value.Pack(), item.IndexPayloadBits, item.CoordShape, item.ElementShapes);
         }
 
         _flat = flat;
@@ -77,7 +78,8 @@ internal sealed class DecodedProperties : IReadOnlyList<DecodedProperty>
             }
 
             Compact item = _compact![index];
-            return new DecodedProperty(item.Index, _flat![item.Index], item.Value, item.IndexPayloadBits, item.CoordShape, item.ElementShapes);
+            return new DecodedProperty(
+                item.Index, _flat![item.Index], PropertyValue.Unpack(item.Value), item.IndexPayloadBits, item.CoordShape, item.ElementShapes);
         }
     }
 
