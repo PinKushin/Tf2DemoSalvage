@@ -297,9 +297,11 @@ internal sealed unsafe class VguiRenderer : IDisposable
             float right = (quad.X1 / viewportWidth * 2f) - 1f;
             float top = 1f - (quad.Y0 / viewportHeight * 2f);
             float bottom = 1f - (quad.Y1 / viewportHeight * 2f);
-            float red = quad.Red / 255f;
-            float green = quad.Green / 255f;
-            float blue = quad.Blue / 255f;
+            // `GammaToLinear( v.vColor.rgb )` (vertexlit_and_unlit_generic_vs20.fxc:238): a VGUI colour is gamma, and the
+            // frame's sRGB write would otherwise brighten it.
+            float red = GammaToLinear(quad.Red);
+            float green = GammaToLinear(quad.Green);
+            float blue = GammaToLinear(quad.Blue);
 
             // A polygon's fan triangle, then a degenerate one so every item stays six vertices.
             if (quad.Triangle is ({ } a, { } b, { } c))
@@ -325,6 +327,9 @@ internal sealed unsafe class VguiRenderer : IDisposable
 
         return data;
     }
+
+    /// <summary>`GammaToLinear` (common_fxc.h): <c>pow( x, 2.2 )</c>.</summary>
+    private static float GammaToLinear(byte channel) => MathF.Pow(channel / 255f, 2.2f);
 
     private static void Append(float[] data, ref int at, float x, float y, float s, float t, float red, float green, float blue, byte alpha)
     {

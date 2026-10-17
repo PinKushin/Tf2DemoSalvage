@@ -21,6 +21,25 @@ public sealed class VguiRendererTests
         data[4].ShouldBe(1f, "red");
     }
 
+    /// <remarks>
+    /// `o.color.rgb = GammaToLinear( v.vColor.rgb )` (vertexlit_and_unlit_generic_vs20.fxc:238), `pow( x, 2.2 )`
+    /// (common_fxc.h), before the frame's sRGB write. Measured against TF2 on cp_process_f12, 2026-10-17: TanLight
+    /// (235 226 202) text reads back 236 227 203 — what pow 2.2 then the sRGB curve gives — where ours, written straight
+    /// to the sRGB view, read 246 242 230.
+    /// </remarks>
+    [Test]
+    public void BuildVertices_AGammaColour_IsLinearisedByPowTwoPointTwo()
+    {
+        VguiQuad quad = new(null, 0f, 0f, 1f, 1f, 0f, 0f, 1f, 1f, 235, 128, 0, 255, 255, 255, 255);
+
+        float[] data = VguiRenderer.BuildVertices([quad], 1, 1);
+
+        data[4].ShouldBe(System.MathF.Pow(235f / 255f, 2.2f), 1e-6f);
+        data[5].ShouldBe(System.MathF.Pow(128f / 255f, 2.2f), 1e-6f);
+        data[6].ShouldBe(0f);
+        data[7].ShouldBe(1f, "alpha is not converted (:239)");
+    }
+
     [Test]
     public void Steps_AModelBetweenQuadsOfOneTexture_SplitsTheRunAtItsPlaceInPaintOrder()
     {
