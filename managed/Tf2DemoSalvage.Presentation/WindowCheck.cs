@@ -47,6 +47,8 @@ public sealed class WindowCheck
     {
         ArgumentNullException.ThrowIfNull(log);
 
+        log.LogInformation("{Message}", $"windows: walking {Path.GetFileName(path)} into checkpoints beside the whole timeline");
+
         return new WindowCheck(
             Task.Run(() =>
             {

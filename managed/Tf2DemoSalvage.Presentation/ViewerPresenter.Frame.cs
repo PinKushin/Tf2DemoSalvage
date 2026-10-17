@@ -142,8 +142,6 @@ public sealed partial class ViewerPresenter
                 return ViewFrameNow;
             },
             _jumps.Jumps);
-
-        _windowCheck?.Observe(_effects.Skip, _timeline);
     }
 
     /// <summary>Whether `--windows` asked for the window cache beside the whole timeline (D217 step 4).</summary>
@@ -164,6 +162,12 @@ public sealed partial class ViewerPresenter
     public FrameOverlay BuildOverlay()
     {
         WindowFrame window = Window.Frame();
+
+        // Every drawn frame, paused or playing, so a window finished after its seek is still checked.
+        if (_timeline is { } whole)
+        {
+            _windowCheck?.Observe(_effects.Skip, whole);
+        }
 
         return new FrameOverlay(_effects.BuildOverlay(
             new OverlayFrame(

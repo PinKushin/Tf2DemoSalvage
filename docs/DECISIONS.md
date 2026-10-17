@@ -10479,6 +10479,20 @@ through the cache; eight windows of one span built at once all answer the same a
 sixteen threads reading one frozen bag all see its values (the unpack cache's compare-and-swap, which a publish-before-
 fill sabotage reddens).
 
+**Measured in the running viewer** (Release, `--windows --tick 30000 --measure 400 --then-seek 60000 +fps_max 0`, under
+the machine lock, the viewer rendering uncapped beside the walk):
+
+| demo | walk, beside playback | memory the walk kept | seek to 60000: window ready | answers |
+|---|---:|---:|---:|---|
+| f12 | 258 s, 727 checkpoints | 809 MB | **461 ms** | IDENTICAL, 1,990,280 values |
+| rgl-pug | 358 s, 1,076 checkpoints | 1,776 MB | **414 ms** | IDENTICAL, 1,359,421 values |
+
+The seek here is about twice the probe's 230 ms because the viewer is drawing uncapped on the same cores; the memory is
+a full-collection delta across the walk, so it includes what the viewer allocated meanwhile, above the probe's 683 and
+1,573 MB. **Two findings for piece 2**: in a Debug viewer — what the owner runs (D176) — the walk had not finished on
+z1800 or f12 after several minutes, so the walk itself needs to be faster or incremental before windows replace the
+whole timeline; and the walk runs AFTER the whole build today, so a load pays both until piece 4 removes the first.
+
 ## D218 — TF2's volume ConVars, and the test suite launches the viewer silent (2026-10-14)
 
 **Owner, in his words:** *"its kinda irritating to have to lissten to the tests and probes all the time when they
