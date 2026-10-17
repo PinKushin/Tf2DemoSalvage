@@ -70,6 +70,46 @@ public sealed class TfControlsConformanceTests
         surface.Calls.ShouldContain("texture vgui/blue");
     }
 
+    /// <remarks>
+    /// `m_iBGTeam` is read in the CONSTRUCTOR and by `localplayer_changeteam` alone (tf_imagepanel.cpp:36, :79-84);
+    /// `ApplySettings` keeps it (:51-63). A reload of the `.res` after the team event — `HudPlayerClass` reloads on a class
+    /// change — read the viewport's team again while it still held the old one, and every stock blue HUD drew red
+    /// backgrounds (2026-10-17, measured against TF2 on cp_process_f12).
+    /// </remarks>
+    [Test]
+    public void TfImagePanel_ReloadedAfterATeamChange_KeepsTheEventsTeam()
+    {
+        (VguiContext context, TextRecorder surface) = Context();
+        TfImagePanel panel = new(new HudViewport(), "Bg");
+        KeyValuesTree block = Block("\"image\" \"red\" \"teambg_2\" \"red\" \"teambg_3\" \"blue\"", "Bg");
+
+        panel.ApplySettings(block, context);
+        panel.LocalTeam = 3;
+        panel.ApplySettings(block, context);
+        panel.PaintBackground(surface, context);
+
+        surface.Calls.ShouldContain("texture vgui/blue");
+        surface.Calls.ShouldNotContain("texture vgui/red");
+    }
+
+    /// <remarks>
+    /// `localplayer_changeteam` fires when the team the HUD last THOUGHT on changes. `VguiHud.Frame` thinks on the last
+    /// frame's state and then stores this frame's with `SetState`, so a check against the stored state saw the new team
+    /// already there and never fired: a recording that joins BLU drew every team background red (2026-10-17).
+    /// </remarks>
+    [Test]
+    public void Think_ATeamStoredBeforeItIsThoughtOn_StillFiresTheTeamChange()
+    {
+        HudViewport viewport = new();
+        TfImagePanel panel = new(viewport, "Bg");
+
+        viewport.Think(new HudState { Team = 0 });
+        viewport.SetState(new HudState { Team = 3 });
+        viewport.Think(new HudState { Team = 3 });
+
+        panel.LocalTeam.ShouldBe(3);
+    }
+
     [TestCase("CExLabel", typeof(TfExLabel))]
     [TestCase("CTFImagePanel", typeof(TfImagePanel))]
     public void Create_TfControls_AreRegistered(string name, System.Type type) =>

@@ -325,7 +325,7 @@ public sealed class HudViewport : VguiEditablePanel
 {
     private readonly List<IHudElement> _elements = [];
     private readonly Dictionary<string, List<IHudElement>> _lockers = new(StringComparer.Ordinal);
-    private bool _teamSent;
+    private int? _teamSent;
 
     private const string AnimationManifest = "scripts/hudanimations_manifest.txt";
 
@@ -445,9 +445,10 @@ public sealed class HudViewport : VguiEditablePanel
     public void Think(HudState state)
     {
         // `localplayer_changeteam`, which every `CTFImagePanel` listens for (tf_imagepanel.cpp:79).
-        if (state.Team != State.Team || !_teamSent)
+        // Against the team last SENT, not `State`: `SetState` stores a frame's state before it is thought on.
+        if (_teamSent != state.Team)
         {
-            _teamSent = true;
+            _teamSent = state.Team;
             SetLocalTeam(this, state.Team);
         }
 

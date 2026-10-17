@@ -59,6 +59,7 @@ public sealed class TfImagePanel(VguiPanel? parent, string? name) : VguiScalable
 {
     private readonly string[] _teamBg = ["", "", "", ""];
     private int _localTeam;
+    private bool _teamRead;
 
     /// <inheritdoc/>
     public override string ClassName => "CTFImagePanel";
@@ -69,6 +70,7 @@ public sealed class TfImagePanel(VguiPanel? parent, string? name) : VguiScalable
         get => _localTeam;
         set
         {
+            _teamRead = true;
             _localTeam = value;
             UpdateBGImage();
         }
@@ -84,9 +86,11 @@ public sealed class TfImagePanel(VguiPanel? parent, string? name) : VguiScalable
             _teamBg[team] = block.Find(string.Create(CultureInfo.InvariantCulture, $"teambg_{team}"))?.Value ?? string.Empty;
         }
 
-        // The constructor's `GetLocalPlayer()->GetTeamNumber()`: a panel a `.res` makes now reads the team now.
-        if (HudViewport.Of(this) is { } viewport)
+        // The constructor's `GetLocalPlayer()->GetTeamNumber()` (tf_imagepanel.cpp:36): read ONCE, on the first settings
+        // pass, because the panel has no viewport before it. A reload keeps the team the event set (:79-84).
+        if (!_teamRead && HudViewport.Of(this) is { } viewport)
         {
+            _teamRead = true;
             _localTeam = viewport.State.Team;
         }
 
