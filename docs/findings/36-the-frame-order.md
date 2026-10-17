@@ -226,3 +226,28 @@ image) are ~0.02, so ~0.23 ms is the card panel's own background/border paint. `
 
 **`camera` against the moment**: `camera` = view 0.03 + setcamera 1.0–1.4 (world cull) + pose 7–11 (the moment's pose plus
 the viewmodel) + **particles 3.3–6.1**. The gap between `camera` and the moment cost is the particles and the world cull.
+
+## 9. Below the timers: a profile (2026-10-17, dotnet-trace sampled, f12 at 30000)
+
+The card's 0.23 ms of "own paint" was not paint. **`VguiScalableImageBorder.Paint` asked `DrawGetTextureSize`, and the
+answer was resolved out of the VPK — a file open, `OSFileStreamStrategy..ctor` — every frame, for every card**: 40% of
+`VguiHud.Frame`. `ISurface::DrawSetTextureFile` keys a texture by name and loads it once; `VguiTextureSizes` now does.
+`hud` 5–8 ms → ~1; `specgui` 3.0–3.6 → 0.14–0.31. The wrong turn worth keeping: the per-element timer said "the card's
+own background", and the background (`DrawBox`, three rects and four corners) was innocent — a timer names a span, a
+profile names a call.
+
+**`FlexFor`'s largest part was `FaceSources.Voices`** (39%): it replayed every sound an actor had made since the start of
+the demo, each frame, per drawn face, to rebuild what the mouth holds. The mixer holds its channels and changes them only
+when a sound starts or runs out (`MIX_MixChannelsToPaintbuffer`, B513), so the answer is now kept from the last such event
+to the next. Held by a differential sweep against a fresh walk (`FaceSourcesVoicesTests`). `flex` 1.6–4.9 → 0.8–2.1. What
+remains (`InBufferOrder`, `Deltas`) is per-frame face work the engine also does for a drawn face — filed, not changed.
+
+**Particles are allocation-bound**: `PollGC` 28% and `BulkMoveWithWriteBarrier` 21% of `DrawOver`, `BurstEffects.Step` and
+`ParticleEffects.Bursts` the largest callers. **The engine also sleeps a system it has not drawn**: `CNewParticleEffect`
+sets `m_flNextSleepTime` to now + `m_flNoDrawTimeToGoToSleep` whenever it is drawn or distance-culled
+(`particles_new.cpp:536`), and `CParticleMgr::BuildParticleSimList` skips one past that time with live particles unless
+it moved (`particlemgr.cpp:1775-1791`). This viewer simulates every system every frame. Filed, not changed: it needs the
+particle systems' bounds in the leaf system to know which were drawn.
+
+**`collate` stayed ~1 ms after the box was filed once** (§8's suspicion, measured false): the remaining cost is the
+per-prop bookkeeping — three tuple-keyed dictionaries hashing the model path — not the box.
