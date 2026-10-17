@@ -195,7 +195,8 @@ public sealed partial class FramePresenter
             path => HudArchives()?.Read(path),
             path => HudArchives()?.FullPathOnDisk(path),
             window.Gdi,
-            material => ResolveVguiMaterial(material) is { } texture ? (texture.MappingWidth, texture.MappingHeight) : (0, 0));
+            new VguiTextureSizes(
+                material => ResolveVguiMaterial(material) is { } texture ? (texture.MappingWidth, texture.MappingHeight) : (0, 0)).Size);
         _vguiHud ??= new VguiHud(_vguiHost, _models);
         _vguiHud.Parts = Parts;
         _vguiTools ??= new VguiTools(_vguiHost);
