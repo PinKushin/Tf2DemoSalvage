@@ -5950,14 +5950,23 @@ public sealed class EntityModelSet : Hud.IMdlCache, IPosedEntities
         // **Simulated and in the scene, but not posed, when nothing will draw him** — `C_BasePlayer::ShouldDraw` is false for
         // the local player in first person, so the engine reaches his `SetupBones` only from a monitor's `ForceTempForceDraw`
         // (`viewrender.cpp:3266-3287`) or `CModelRender::AddDecal`; our decal queries call `SetupBones` themselves.
-        if (!PosesUndrawn && string.Equals(pass, UndrawnPass, StringComparison.Ordinal))
-        {
-            return;
-        }
-
         // **Attachments resolved while the pass was simulated are resolved again for the draw** (B551): a parent's bones
         // asked for then may predate its own update. Defensive like `_simulating` — no test reaches a stale one.
         _attachments.Clear();
+
+        if (!PosesUndrawn && string.Equals(pass, UndrawnPass, StringComparison.Ordinal))
+        {
+            // Counted, with the reason, like every other prop that does not draw: `ShouldDraw` refused it.
+            _tally.Begin(props.Count, pass);
+
+            for (int at = 0; at < props.Count; at++)
+            {
+                _tally.NotDrawn();
+            }
+
+            _tally.Report();
+            return;
+        }
 
         // **Every prop that does not draw is counted with its reason.** A silent `continue` here is
         // how "all the props went away" became a guessing game: the scene said 14 models, the map

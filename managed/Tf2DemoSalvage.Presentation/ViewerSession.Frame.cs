@@ -393,12 +393,19 @@ public sealed partial class ViewerSession
         // **The log's own meter, always smoothed**, fed the frame time the on-screen one gets. The on-screen meter answers
         // nothing while `cl_showfps` is 0 — Valve's rule for drawing it — and with no TF2 install it is never built, so a
         // log that borrowed its reading went silent on a fresh profile and `--measure` counted 0 samples on CI.
-        _presenter.FrameParts.Frame();
+        // **Timed only for `--measure`**: the parts cost a clock read each, and a log line nobody asked for.
+        if (_launch.MeasureSeconds is not null)
+        {
+            _presenter.FrameParts ??= new FrameParts();
+        }
+
+        _presenter.FrameParts?.Frame();
 
         if (_frameRateLog.Report(_loggedRate.Sample(_clock.LastFrameSeconds), phases, _frameSeconds) is { } logged)
         {
-            // The parts of `camera` and `hud`, over the same frames as the line they follow.
-            string rate = logged + "; parts: " + _presenter.FrameParts.Report();
+            // The parts of `camera` and `hud`, over the same frames as the line they follow. Nested: `hud frame` holds
+            // the `hud think`…`hud paint` parts, `hud paint` the viewport's children, `specgui` its cards, a card its `card.*`.
+            string rate = _presenter.FrameParts is { } parts ? logged + "; parts: " + parts.Report() : logged;
 
             _renderLog.LogInformation("{Message}", rate);
 

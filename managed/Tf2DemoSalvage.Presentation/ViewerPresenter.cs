@@ -370,8 +370,12 @@ public sealed partial class ViewerPresenter : IDisposable
     /// <summary>The camera presenter this owns, with the spectator the map gives a world and a demo gives eyes.</summary>
     public CameraPresenter Camera => _camera;
 
-    /// <summary>The parts of the frame's `camera` and `hud` phases, for the rate line.</summary>
-    public FrameParts FrameParts => _effects.Parts;
+    /// <summary>The parts of the frame's `camera` and `hud` phases for the rate line; null, and untimed, unless measuring.</summary>
+    public FrameParts? FrameParts
+    {
+        get => _effects.Parts;
+        set => _effects.Parts = value;
+    }
 
     /// <summary>The settings' owner, which the window talks to in plain values.</summary>
     public SettingsPresenter Settings => _settingsOwner;

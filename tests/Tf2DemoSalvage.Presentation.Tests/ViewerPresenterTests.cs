@@ -608,11 +608,41 @@ public sealed class ViewerPresenterTests
                 "WorldFog none", "SkyFog none", "MonitorCamera none", "Tonemap default",
                 "ExposureSeconds 0.25", "ObserverTarget nobody",
                 nameof(IViewerDevice.SetCamera),
+                "DrawsMonitor read True",
                 "posed",
                 nameof(IFrameDevice.SetParticles),
             ]);
             device.Camera.SurfaceColours.ShouldBeTrue();
             device.Camera.Camera.ShouldNotBeNull();
+        }
+    }
+
+    /// <remarks>
+    /// **The pose asks the device whether a monitor draws, before posing and once** (B511). What the answer does to the
+    /// followed player is `MomentSceneTests.Pose_InFirstPersonWithAMonitorOrNot_BuildsTheFollowedPlayerOnlyForOne`; this is
+    /// the hop between the two, both ways.
+    /// </remarks>
+    [TestCase(true)]
+    [TestCase(false)]
+    public void UploadCameraOver_AFrame_AsksWhetherAMonitorDrawsBeforePosing(bool monitor)
+    {
+        WriteMap();
+        (ViewerPresenter loader, _, _) = Loader();
+        Questions asked = new();
+        FakeViewerDevice device = new() { DrawsMonitor = monitor };
+
+        using (loader)
+        {
+            loader.AttachWindow(asked.Window(loader), new FpsPanelTests.SolidGdi());
+            loader.LoadDemo(WriteDemo("monitor")).Loaded.ShouldBeTrue();
+
+            loader.Posed = () => device.Mark("posed");
+            loader.UploadCameraOver(device, new FakeFrameDevice(), flyTicks: 0, exposureSeconds: 0f, surfaceColours: false);
+
+            int read = device.Set.ToList().IndexOf($"DrawsMonitor read {monitor}");
+            read.ShouldBeGreaterThanOrEqualTo(0);
+            device.Set.ToList().IndexOf("posed").ShouldBe(read + 1);
+            device.Set.Count(line => line.StartsWith("DrawsMonitor read", StringComparison.Ordinal)).ShouldBe(1);
         }
     }
 

@@ -206,7 +206,8 @@ public sealed class MomentCostLog
             // posed means mask thrash, where a wearable asking for bones its owner has not built
             // forces the owner to rebuild, repeatedly, inside one frame.
             + $"; built {_poseBuilds / (double)over:0.#}"
-            + $" (simulate {_buildsSimulating / (double)over:0.#}, draw {_buildsDrawing / (double)over:0.#})"
+            + $" (simulate {_buildsSimulating / (double)over:0.#}, draw {_buildsDrawing / (double)over:0.#}"
+            + $", other {(_poseBuilds - _buildsSimulating - _buildsDrawing) / (double)over:0.#})"
             + $"; posed {_drawn / (double)over:0.#} of {_selected / (double)over:0.#} selected"
             + $", {_hidden / (double)over:0.#} hidden by pvs"
             + $", {_unjudged / (double)over:0.#} unjudgeable");

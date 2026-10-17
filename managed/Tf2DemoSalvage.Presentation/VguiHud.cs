@@ -156,7 +156,7 @@ public sealed class VguiHud
         }
 
         // `system()->GetCurrentTime()`, which a `RichText` fades on.
-        long partAt = System.Diagnostics.Stopwatch.GetTimestamp();
+        long partAt = Parts is null ? 0 : System.Diagnostics.Stopwatch.GetTimestamp();
         VguiRichText.HudClock = state.RealTime;
 
         // `CMDLPanel::GetAutoPlayTime()` — the model panel's cycle clock is real time too (mdlpanel.cpp:638) — and its
@@ -358,9 +358,12 @@ public sealed class VguiHud
         SpectatorGui.ChildPainted ??= Parts is { } named ? (child, ticks) => named.Add(child.Name, ticks) : null;
 
         // And inside each player card, by the card's own child names — summed across the twelve cards.
-        foreach (Tf2DemoSalvage.Scene.Hud.VguiPanel card in SpectatorGui.Children)
+        if (Parts is { } inCard)
         {
-            card.ChildPainted ??= Parts is { } inCard ? (child, ticks) => inCard.Add("card." + child.Name, ticks) : null;
+            for (int at = 0; at < SpectatorGui.Children.Count; at++)
+            {
+                SpectatorGui.Children[at].ChildPainted ??= (child, ticks) => inCard.Add(CardPart(child.Name), ticks);
+            }
         }
         Viewport.PaintTraverse(_host.List, _context);
         _ = Part("hud paint", partAt);
@@ -372,10 +375,29 @@ public sealed class VguiHud
     /// <summary>Adds the time since <paramref name="since"/> to a part, and returns now.</summary>
     private long Part(string name, long since)
     {
+        if (Parts is not { } parts)
+        {
+            return 0;
+        }
+
         long now = System.Diagnostics.Stopwatch.GetTimestamp();
-        Parts?.Add(name, now - since);
+        parts.Add(name, now - since);
         return now;
     }
+
+    /// <summary>A card child's part name, made once per name — the paint runs every frame and must not allocate one.</summary>
+    private string CardPart(string child)
+    {
+        if (!_cardParts.TryGetValue(child, out string? part))
+        {
+            part = "card." + child;
+            _cardParts[child] = part;
+        }
+
+        return part;
+    }
+
+    private readonly Dictionary<string, string> _cardParts = new(StringComparer.Ordinal);
 
     /// <summary>An event the client fires itself, with no fields — `FireEventClientSide`.</summary>
     private static SceneGameEvent ClientEvent(int tick, string name) =>

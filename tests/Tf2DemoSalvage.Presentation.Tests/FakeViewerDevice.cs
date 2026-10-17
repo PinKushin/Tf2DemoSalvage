@@ -72,7 +72,18 @@ internal sealed class FakeViewerDevice : IViewerDevice
 
     public ScreenFadeView? ScreenView => null;
 
-    public bool DrawsMonitor { get; set; }
+    /// <summary>True by default, the behaviour before the device was asked: the undrawn player is posed.</summary>
+    public bool DrawsMonitor
+    {
+        get
+        {
+            _set.Add(string.Create(CultureInfo.InvariantCulture, $"DrawsMonitor read {_drawsMonitor}"));
+            return _drawsMonitor;
+        }
+        set => _drawsMonitor = value;
+    }
+
+    private bool _drawsMonitor = true;
 
     public ScreenOverlayMaterial? ScreenOverlay { get => null; set => Note(nameof(ScreenOverlay), value is null ? "none" : "set"); }
 

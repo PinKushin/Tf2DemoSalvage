@@ -180,7 +180,7 @@ public sealed partial class FramePresenter
     public VguiDrawList? BuildOverlay(in OverlayFrame frame, Device3D? device)
     {
         _overlay = frame;
-        long partAt = System.Diagnostics.Stopwatch.GetTimestamp();
+        long partAt = Parts is null ? 0 : System.Diagnostics.Stopwatch.GetTimestamp();
 
         // A scheme read before the install is open is empty, and an empty scheme's `Panel.BgColor` falls back to opaque
         // white — the viewport would fill the screen with it and keep it, since only a new size loads the scheme again.
@@ -196,7 +196,8 @@ public sealed partial class FramePresenter
             path => HudArchives()?.FullPathOnDisk(path),
             window.Gdi,
             material => ResolveVguiMaterial(material) is { } texture ? (texture.MappingWidth, texture.MappingHeight) : (0, 0));
-        _vguiHud ??= new VguiHud(_vguiHost, _models) { Parts = Parts };
+        _vguiHud ??= new VguiHud(_vguiHost, _models);
+        _vguiHud.Parts = Parts;
         _vguiTools ??= new VguiTools(_vguiHost);
 
         if (device is not null && !ReferenceEquals(device, _vguiResolverDevice))
@@ -288,14 +289,19 @@ public sealed partial class FramePresenter
         return _vguiHost.List;
     }
 
-    /// <summary>The parts of the frame's `camera` and `hud` phases, for the rate line.</summary>
-    public FrameParts Parts { get; } = new();
+    /// <summary>The parts of the frame's `camera` and `hud` phases for the rate line — set only for `--measure`, else null.</summary>
+    public FrameParts? Parts { get; set; }
 
-    /// <summary>Adds the time since <paramref name="since"/> to a part and returns now, to time the next.</summary>
+    /// <summary>Adds the time since <paramref name="since"/> to a part and returns now, to time the next; nothing unmeasured.</summary>
     internal long Part(string name, long since)
     {
+        if (Parts is not { } parts)
+        {
+            return 0;
+        }
+
         long now = System.Diagnostics.Stopwatch.GetTimestamp();
-        Parts.Add(name, now - since);
+        parts.Add(name, now - since);
         return now;
     }
 

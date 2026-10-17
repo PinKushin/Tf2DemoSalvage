@@ -235,6 +235,35 @@ public sealed class MoveChildPlacementConformanceTests
     }
 
     /// <summary>
+    /// **The instance carries the box the collation filed it by** — `CalcRenderableWorldSpaceAABB`, placed once. Two props
+    /// of one model 199 units apart in X: every bound of the far one is the near one's, X moved by exactly 199. A carry that
+    /// swapped two elements, or dropped the placement, cannot pass.
+    /// </summary>
+    [Test]
+    public void Instances_TwoPlacedProps_CarryTheirCollatedBoxes()
+    {
+        SceneProp near = new(1, ParentModel, SceneModelKind.Studio, new ScenePose());
+        SceneProp far = new(2, ParentModel, SceneModelKind.Studio, new ScenePose { X = 199f });
+
+        EntityModelSet models = new();
+        models.Add([near, far], _ => Baked() with { HeaderBounds = new StudioBox(-1f, -2f, -3f, 4f, 5f, 6f) });
+        models.PlaceFrame([near, far]);
+
+        List<ModelInstance> world = [];
+        models.Instances([near, far], world, seconds: 1d);
+
+        (float MinX, float MinY, float MinZ, float MaxX, float MaxY, float MaxZ) a =
+            world.Single(model => model.EntityIndex == 1).WorldBounds;
+        (float MinX, float MinY, float MinZ, float MaxX, float MaxY, float MaxZ) b =
+            world.Single(model => model.EntityIndex == 2).WorldBounds;
+
+        (a.MaxX > a.MinX).ShouldBeTrue("the control: the model has a box at all");
+        b.MinX.ShouldBe(a.MinX + 199f, 1e-3f);
+        b.MaxX.ShouldBe(a.MaxX + 199f, 1e-3f);
+        (b.MinY, b.MinZ, b.MaxY, b.MaxZ).ShouldBe((a.MinY, a.MinZ, a.MaxY, a.MaxZ));
+    }
+
+    /// <summary>
     /// **The undrawn pass builds nothing when nothing will draw it** — `C_BasePlayer::ShouldDraw` is false for the local player
     /// in first person, so the engine reaches his `SetupBones` only from a monitor's `ForceTempForceDraw` or `AddDecal`, and
     /// both of ours ask on demand. The control is the same call with posing on, which does build the instance; and the parent

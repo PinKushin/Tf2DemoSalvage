@@ -166,7 +166,7 @@ public sealed class MomentCostLogTests
                 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 9, BuildsSimulating: 6, BuildsDrawing: 2),
         };
 
-        Assert.That(log.Report(phases, sampleTicks: 0), Does.Contain("built 9 (simulate 6, draw 2)"));
+        Assert.That(log.Report(phases, sampleTicks: 0), Does.Contain("built 9 (simulate 6, draw 2, other 1)"));
     }
 
     /// <remarks>

@@ -104,10 +104,16 @@ public sealed partial class ViewerPresenter
 
         _effects.DrawOver(ViewFrameNow, viewing, drawing);
 
-        _effects.Parts.Add("camera view", deviceAt - viewAt);
-        _effects.Parts.Add("camera setcamera", posingAt - deviceAt);
-        _effects.Parts.Add("camera pose", particlesAt - posingAt);
-        _ = _effects.Part("camera particles", particlesAt);
+        // One reading of the clock for the particles' end, carried to both reports (B243).
+        long particledAt = Stopwatch.GetTimestamp();
+
+        if (_effects.Parts is { } parts)
+        {
+            parts.Add("camera view", deviceAt - viewAt);
+            parts.Add("camera setcamera", posingAt - deviceAt);
+            parts.Add("camera pose", particlesAt - posingAt);
+            parts.Add("camera particles", particledAt - particlesAt);
+        }
 
         // **Each piece named, because the `camera` column alone held 102 and 410 ms stalls** on f12
         // in seconds with no collection, and it is four unrelated pieces of work.
@@ -115,7 +121,7 @@ public sealed partial class ViewerPresenter
             flyTicks,
             deviceAt - viewAt,
             particlesAt - deviceAt,
-            Stopwatch.GetTimestamp() - particlesAt,
+            particledAt - particlesAt,
             _renderLog);
     }
 

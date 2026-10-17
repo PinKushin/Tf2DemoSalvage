@@ -60,7 +60,12 @@ moment cost 2.9 ms = sample, drawlist, models, pose; pose = lighting, simulate, 
   added to the sum. `anim` sits inside `setup`.
 - `rest` is a residual (`MomentPhases.PoseRest`, the one formula both lines read). **Every direct column small with `rest` large means the cost is somewhere no
   timer covers yet** — that pattern found 129 ms hiding in a 133 ms pose.
-- `posed N of M` is the cull. `N` counts props that actually reached bone setup, not `M − culled`.
+- `posed N of M` is the cull. `N` counts WORLD-pass props that reached bone setup, not `M − culled`. Before
+  2026-10-17 it was read after the first-person undrawn pass and counted that pass instead ("posed 5" on f12).
+- `built B (simulate S, draw D, other O)`: skeletons built and where; B ≈ posed is one build per prop.
+- Rate line ends `; parts:` (only under `--measure`): `camera view/setcamera/pose/particles`, then hud parts. Nested:
+  `hud frame` ⊃ `hud think…hud paint`; `hud paint` ⊃ viewport children by `.res` name; `specgui` ⊃ `playerpanelN`;
+  `card.*` sums one child name over all cards. Do not add nested parts together.
 
 ## Quoting a number
 

@@ -3351,8 +3351,13 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
     public Core.Scene.ScreenFadeView? ScreenView => _screenView;
 
     /// <inheritdoc/>
-    /// <remarks>`DrawMonitorPass`'s own first two refusals; the camera entity is fed after the pose, so it is not asked.</remarks>
-    public bool DrawsMonitor => DrawMonitors && _world is { HasCameraTarget: true };
+    /// <remarks>
+    /// **`DrawMonitorPass`'s own refusals, all of them**: `MonitorCamera` is fed and `SetCamera` builds `_monitorView` before
+    /// the pose (`UploadCameraOver`), so the answer here is the one the draw will reach. `cl_drawmonitors` cannot change
+    /// between the two: settings arrive through the message pump, and pose and draw run inside one `RenderFrame`.
+    /// </remarks>
+    public bool DrawsMonitor =>
+        DrawMonitors && _world is { HasCameraTarget: true } && _monitorView is not null && MonitorCamera is not null;
 
     private Core.Scene.ScreenFadeView? _screenView;
 
