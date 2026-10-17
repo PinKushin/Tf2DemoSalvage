@@ -123,8 +123,12 @@ public sealed class PoseKeyframesTests
         System.Collections.Generic.Dictionary<Type, (long Objects, long Elements)> created = [];
         StateCopy.Of(track, new System.Collections.Generic.HashSet<object>(), prior: null, out _, created);
 
-        int kept = track.Keyframes.Count;
-        kept.ShouldBeLessThan(10);
-        created.Single(entry => entry.Key.Name == "Stored[]").Value.ShouldBe((1L, (long)kept));
+        // Keyframe 999 is index 998; the trim keeps one before it, so 997 of 1,000 go and 3 stay.
+        track.Keyframes.Count.ShouldBe(3);
+        created.Single(entry => entry.Key.Name == "Stored[]").Value.ShouldBe((1L, 3L));
+        // The ints, by arithmetic: three applied-at lists of 3 (one per kept keyframe) = 9, and three histories of five
+        // int lists, each keeping 2 + HistoryTail (8) = 10 entries = 150; 159 in 18 arrays, plus one empty array (an
+        // int list holding nothing, not traced to its field). Untrimmed, each would be its 1,024-slot capacity.
+        created[typeof(int[])].ShouldBe((19L, 159L));
     }
 }

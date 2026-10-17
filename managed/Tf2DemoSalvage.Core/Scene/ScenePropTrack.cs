@@ -2079,9 +2079,9 @@ public sealed class ScenePropTrack
             _animationAppliedAt.RemoveRange(0, Math.Min(dropped, _animationAppliedAt.Count));
 
             // A copy copies a list's capacity, not its count; this runs before every checkpoint (D217 step 4).
-            _heldUntil.TrimExcess();
-            _appliedAt.TrimExcess();
-            _animationAppliedAt.TrimExcess();
+            _heldUntil.TrimIfSparse();
+            _appliedAt.TrimIfSparse();
+            _animationAppliedAt.TrimIfSparse();
         }
 
         _simulation.DropReceivedBefore(cut, HistoryTail);

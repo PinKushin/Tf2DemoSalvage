@@ -10348,7 +10348,18 @@ machine (other agents' gates were running); rgl-pug's did not move, so it is rea
 | f12 | **205** (68 + 135) | 1,505 MB | 727 |
 | rgl-pug | **220** (85 + 132) | 3,996 MB | 1,076 |
 
-That reaches the owner's 100–200 ms band at the edge, at about twice the heap. What the next step is for: what each
+That reaches the owner's 100–200 ms band at the edge, at about twice the heap. **Spacing stays 5 s: the owner
+decides it.**
+
+**After review** (Fable, coordinator): `DecodedProperties` copies what it is given into its own array, so immutability
+is enforced, not promised; a trim shrinks a list only past half spare (`ListCapacity.TrimIfSparse`), so a history
+appended to again does not reallocate every checkpoint; and the owner census has its control — owners' elements
+summed per type must reach the whole resume's (`ResumeCensusByOwner_EveryType_ReachesTheWholeResume`, also printed by
+the probe). That control failed at once: the census counted no owner's own shell (the builder, the entity table, each
+feed), which is now fixed. Frame cost, `--measure 20` on f12 at tick 30000, first person, `+fps_max 0`, unconditional
+shrink then half-spare: 164.0 then 171.7 ms mean over 122 and 117 frames — the same, as expected, since the viewer
+builds its timeline straight and never trims. **Both are about 12 fps**, which is far below earlier measurements on this
+demo and is not caused by this change (pose and project dominate); flagged for its own look. What the next step is for: what each
 checkpoint still holds beyond the one before — tracks and props are now most of a resume (11.6 + 9.2 MB on f12).
 
 **The order after these two steps — the viewer half, decided by the owner the same day: a backward seek must NOT

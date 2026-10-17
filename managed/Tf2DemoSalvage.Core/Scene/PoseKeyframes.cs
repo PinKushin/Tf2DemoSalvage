@@ -58,7 +58,7 @@ internal sealed class PoseKeyframes
 
         _stored.RemoveRange(0, drop);
         // A copy copies a list's capacity, not its count; this runs before every checkpoint (D217 step 4).
-        _stored.TrimExcess();
+        _stored.TrimIfSparse();
         Dropped += drop;
     }
 

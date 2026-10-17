@@ -231,7 +231,25 @@ public sealed class StateCopyTests
     }
 
     private static Core.Schema.DecodedProperty Property(int index, long value) =>
-        new(index, default!, Core.Schema.PropertyValue.FromInt(value));
+        new(index, new Core.Schema.FlatProperty(
+                new Core.Schema.SendProperty(Core.Schema.SendPropType.Int, $"m_iValue{index}", 0, string.Empty, 0f, 0f, 32, 0), "DT_Test", null),
+            Core.Schema.PropertyValue.FromInt(value));
+
+    /// <remarks>
+    /// **A decoded list owns its storage** (D217 step 4): a checkpoint shares it on the promise that nothing writes it,
+    /// so the list the maker built is copied in, and a later write to that list cannot reach it.
+    /// </remarks>
+    [Test]
+    public void DecodedProperties_MakersListWrittenAfterwards_KeepsItsValues()
+    {
+        List<Core.Schema.DecodedProperty> made = [Property(0, 1), Property(1, 2)];
+        Core.Schema.DecodedProperties list = new(System.Runtime.InteropServices.CollectionsMarshal.AsSpan(made));
+
+        made[0] = Property(0, 99);
+        made.Add(Property(2, 3));
+
+        (list.Count, list[0].Value.AsInt, list[1].Value.AsInt).ShouldBe((2, 1L, 2L));
+    }
 
     /// <remarks>
     /// **A merged baseline is shared by a copy, not copied** (D217 step 4): the decoder's baselines and slots hold

@@ -4809,7 +4809,9 @@ public sealed class DemoTimeline
         public IReadOnlyList<(string Owner, Type Type, long Objects, long Elements)> CensusByOwner()
         {
             HashSet<object> shared = SharedInputs();
-            List<(string, Type, long, long)> rows = [];
+            // The builder's own shell, and below each owner that is descended into, that owner's own: a census of the
+            // fields alone left them out, and the control (whole-resume census) caught it.
+            List<(string, Type, long, long)> rows = [("(builder)", typeof(Builder), 1, 1)];
 
             // Reaching private fields is the instrument: it copies each one as a resume does.
 #pragma warning disable S3011
@@ -4827,6 +4829,11 @@ public sealed class DemoTimeline
                     ? [(field.Name, value)]
                     : value.GetType().GetFields(Instance).Select(inner => ($"{field.Name}.{inner.Name}", inner.GetValue(value)));
 #pragma warning restore S3011
+
+                if (owners.FirstOrDefault().Name != field.Name)
+                {
+                    rows.Add((field.Name, value.GetType(), 1, 1));
+                }
 
                 foreach ((string name, object? owned) in owners)
                 {

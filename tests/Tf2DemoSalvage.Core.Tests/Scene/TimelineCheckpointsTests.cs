@@ -75,6 +75,23 @@ public sealed class TimelineCheckpointsTests
         Enumerable.Range(0, count).Where(checkpoints.WindowsWriteTheirCheckpoint).ShouldBeEmpty();
     }
 
+    /// <remarks>
+    /// **The owner census has its control** (D217 step 4): owners counted alone can only double-count what they share,
+    /// so every type's elements summed over owners reach the whole resume's; a shortfall is an owner the census skipped.
+    /// </remarks>
+    [Test]
+    public void ResumeCensusByOwner_EveryType_ReachesTheWholeResume()
+    {
+        DemoTimeline.Checkpoints checkpoints = DemoTimeline.Checkpoints.Walk(LongWalk(), Every, Lookback)!;
+        int middle = checkpoints.Ticks.Count() / 2;
+        Dictionary<Type, (long Objects, long Elements)> whole = checkpoints.ResumeCensus(middle);
+        Dictionary<Type, long> byOwners = checkpoints.ResumeCensusByOwner(middle)
+            .GroupBy(row => row.Type).ToDictionary(group => group.Key, group => group.Sum(row => row.Elements));
+
+        whole.Count.ShouldBeGreaterThan(5);
+        whole.Where(entry => byOwners.GetValueOrDefault(entry.Key) < entry.Value.Elements).Select(entry => entry.Key.Name).ShouldBeEmpty();
+    }
+
     /// <summary>A player moving every other tick for 60 ticks: more history than a checkpoint keeps, so the trim bites.</summary>
     private static byte[] LongWalk() =>
         SyntheticPlayer.DemoOverTicks(0.015f, [.. Enumerable.Range(0, 30).Select(step => (10 + (step * 2), step * 3f, (step % 5) * 1.5f))]);
