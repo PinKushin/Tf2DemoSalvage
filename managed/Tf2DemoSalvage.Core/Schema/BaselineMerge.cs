@@ -41,6 +41,9 @@ internal static class BaselineMerge
 
         // Write-once, so a checkpoint shares it (D217 step 4).
         DecodedProperty[] values = [.. merged.Values];
-        return new DecodedProperties(values);
+
+        // Stored against the class's flattened list when either side was, without each definition (D217 step 4 part 3).
+        IReadOnlyList<FlatProperty>? flat = (update as DecodedProperties)?.Flat ?? (baseline as DecodedProperties)?.Flat;
+        return flat is null ? new DecodedProperties(values) : new DecodedProperties(flat, values);
     }
 }

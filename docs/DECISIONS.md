@@ -10359,7 +10359,23 @@ the probe). That control failed at once: the census counted no owner's own shell
 feed), which is now fixed. Frame cost, `--measure 20` on f12 at tick 30000, first person, `+fps_max 0`, unconditional
 shrink then half-spare: 164.0 then 171.7 ms mean over 122 and 117 frames — the same, as expected, since the viewer
 builds its timeline straight and never trims. **Both are about 12 fps**, which is far below earlier measurements on this
-demo and is not caused by this change (pose and project dominate); flagged for its own look. What the next step is for: what each
+demo and is not caused by this change (pose and project dominate); flagged for its own look.
+
+### Step 4, part 3 — memory first (2026-10-16)
+
+**Owner, 2026-10-16:** *"shrink memory first lets see what we can do"*. So checkpoint spacing stays at 5 s until the
+checkpoints keep less; 2 s was measured above at about twice the heap.
+
+**The instrument**: `Checkpoints.KeptByOwner` — every object every checkpoint keeps, counted once under the first owner
+that reaches it, in estimated bytes (`StateCopy.Footprint`). Its control is the sum beside the measured retained heap
+(f12 752.7 against 782.9 MB; rgl-pug 2,559.7 against 2,627.5). Top owners: on rgl-pug the decoder's per-entity baseline
+slots (812 MB) and the entity table (789), then frames (214) and tracks (209); on f12 frames (182), the entity table
+(166), tracks (66) and view commands (56). Order taken, the coordinator's: baseline slots, entity bags, tracks; frames
+only if the change is lossless for what the HUD feed reads.
+
+1. **Decoded property lists without their definitions.** Every property a class decodes carried `flat[Index]` by value,
+   most of its bytes. `DecodedProperties` given the class's flattened list keeps the rest and reads the definition back;
+   a property whose definition is not the list's own keeps the list whole, so reads are exactly what was stored. What the next step is for: what each
 checkpoint still holds beyond the one before — tracks and props are now most of a resume (11.6 + 9.2 MB on f12).
 
 **The order after these two steps — the viewer half, decided by the owner the same day: a backward seek must NOT

@@ -803,7 +803,7 @@ public sealed class EntityDecoder : IEntityBaselines
                 elementShapes));
         }
 
-        return new DecodedProperties(System.Runtime.InteropServices.CollectionsMarshal.AsSpan(properties));
+        return new DecodedProperties(flat, System.Runtime.InteropServices.CollectionsMarshal.AsSpan(properties));
     }
 
     private static PropertyValue ReadValue(
