@@ -39,6 +39,8 @@ internal static class BaselineMerge
             merged[property.Index] = property;
         }
 
-        return [.. merged.Values];
+        // Write-once, so a checkpoint shares it (D217 step 4).
+        DecodedProperty[] values = [.. merged.Values];
+        return new DecodedProperties(values);
     }
 }

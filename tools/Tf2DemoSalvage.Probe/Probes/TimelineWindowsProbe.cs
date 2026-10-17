@@ -86,6 +86,20 @@ public sealed class TimelineWindowsProbe : IProbe
             output.WriteLine($"    resume creates {objects,12:N0} objects {elements,14:N0} elements  {type}");
         }
 
+        // Who owns what a resume creates, two fields down; each owner copied alone, so shared objects count under both.
+        IReadOnlyList<(string Owner, Type Type, long Objects, long Elements)> owners = checkpoints.ResumeCensusByOwner(ticks.Length / 2);
+
+        foreach ((string owner, Type type, long objects, long elements) in owners.Take(25))
+        {
+            output.WriteLine($"    owner {owner,-40} {objects,10:N0} objects {elements,12:N0} elements  {type.Name}");
+        }
+
+        // The instrument's control: owners counted alone can only double-count, so their sum must reach the whole
+        // resume's census; a sum BELOW it means an owner was skipped.
+        long byOwners = owners.Sum(row => row.Elements);
+        long wholeResume = checkpoints.ResumeCensus(ticks.Length / 2).Values.Sum(count => count.Elements);
+        output.WriteLine($"    owners sum {byOwners:N0} elements, whole resume {wholeResume:N0}: {(byOwners >= wholeResume ? "covers it" : "MISSES SOME")}");
+
         // The direct control: two windows built from the mid checkpoint leave every value it holds as it was.
         output.WriteLine(checkpoints.WindowsWriteTheirCheckpoint(ticks.Length / 2)
             ? "  control: a window WROTE its checkpoint"

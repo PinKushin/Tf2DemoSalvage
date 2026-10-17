@@ -167,4 +167,25 @@ public sealed class HeldValuesTests
         held.ChangesAfter(0).ShouldBe(5d);
         held.ChangesAfter(5).ShouldBe(10d);
     }
+
+    /// <remarks>
+    /// **A trim gives back the capacity** (D217 step 4): a thousand values cut to the last two copy two-element arrays,
+    /// not the 1,024 the lists grew to.
+    /// </remarks>
+    [Test]
+    public void DropBefore_AfterAThousand_CopiesOnlyWhatIsKept()
+    {
+        HeldValues<string> held = new();
+
+        for (int tick = 1; tick <= 1000; tick++)
+        {
+            held.Set(tick, $"v{tick}");
+        }
+
+        held.DropBefore(999);
+        System.Collections.Generic.Dictionary<System.Type, (long Objects, long Elements)> created = [];
+        StateCopy.Of(held, new System.Collections.Generic.HashSet<object>(), prior: null, out _, created);
+
+        (held.Count, created[typeof(int[])], created[typeof(string[])]).ShouldBe((2, (1L, 2L), (1L, 2L)));
+    }
 }

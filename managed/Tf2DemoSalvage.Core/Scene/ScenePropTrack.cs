@@ -2077,6 +2077,11 @@ public sealed class ScenePropTrack
             _heldUntil.RemoveRange(0, Math.Min(dropped, _heldUntil.Count));
             _appliedAt.RemoveRange(0, Math.Min(dropped, _appliedAt.Count));
             _animationAppliedAt.RemoveRange(0, Math.Min(dropped, _animationAppliedAt.Count));
+
+            // A copy copies a list's capacity, not its count; this runs before every checkpoint (D217 step 4).
+            _heldUntil.TrimIfSparse();
+            _appliedAt.TrimIfSparse();
+            _animationAppliedAt.TrimIfSparse();
         }
 
         _simulation.DropReceivedBefore(cut, HistoryTail);

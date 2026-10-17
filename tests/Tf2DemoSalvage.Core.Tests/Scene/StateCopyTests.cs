@@ -230,6 +230,45 @@ public sealed class StateCopyTests
         copy.Other!.Other.ShouldBeSameAs(copy);
     }
 
+    private static Core.Schema.DecodedProperty Property(int index, long value) =>
+        new(index, new Core.Schema.FlatProperty(
+                new Core.Schema.SendProperty(Core.Schema.SendPropType.Int, $"m_iValue{index}", 0, string.Empty, 0f, 0f, 32, 0), "DT_Test", null),
+            Core.Schema.PropertyValue.FromInt(value));
+
+    /// <remarks>
+    /// **A decoded list owns its storage** (D217 step 4): a checkpoint shares it on the promise that nothing writes it,
+    /// so the list the maker built is copied in, and a later write to that list cannot reach it.
+    /// </remarks>
+    [Test]
+    public void DecodedProperties_MakersListWrittenAfterwards_KeepsItsValues()
+    {
+        List<Core.Schema.DecodedProperty> made = [Property(0, 1), Property(1, 2)];
+        Core.Schema.DecodedProperties list = new(System.Runtime.InteropServices.CollectionsMarshal.AsSpan(made));
+
+        made[0] = Property(0, 99);
+        made.Add(Property(2, 3));
+
+        (list.Count, list[0].Value.AsInt, list[1].Value.AsInt).ShouldBe((2, 1L, 2L));
+    }
+
+    /// <remarks>
+    /// **A merged baseline is shared by a copy, not copied** (D217 step 4): the decoder's baselines and slots hold
+    /// what <c>BaselineMerge.Overlay</c> makes, and a resume copied each element by element.
+    /// </remarks>
+    [Test]
+    public void Of_AMergedBaseline_IsTheSameInstance()
+    {
+        IReadOnlyList<Core.Schema.DecodedProperty> merged = Core.Schema.BaselineMerge.Overlay([Property(0, 1), Property(2, 3)], [Property(1, 5), Property(2, 7)]);
+        List<IReadOnlyList<Core.Schema.DecodedProperty>> holder = [merged];
+        Dictionary<Type, (long Objects, long Elements)> created = [];
+
+        List<IReadOnlyList<Core.Schema.DecodedProperty>> copy = StateCopy.Of(holder, new HashSet<object>(), prior: null, out _, created);
+
+        copy[0].ShouldBeSameAs(merged);
+        created.Keys.ShouldBe([typeof(List<IReadOnlyList<Core.Schema.DecodedProperty>>), typeof(IReadOnlyList<Core.Schema.DecodedProperty>[])], ignoreOrder: true);
+        System.Linq.Enumerable.Select(merged, property => property.Value.AsInt).ShouldBe([1L, 5L, 7L]);
+    }
+
     private static PropertyBag Bag()
     {
         PropertyBag bag = new();

@@ -118,6 +118,9 @@ internal sealed class HeldValues<T>
         {
             _ticks.RemoveRange(0, keep);
             _values.RemoveRange(0, keep);
+            // A copy copies a list's capacity, not its count; this runs before every checkpoint (D217 step 4).
+            _ticks.TrimIfSparse();
+            _values.TrimIfSparse();
         }
     }
 
