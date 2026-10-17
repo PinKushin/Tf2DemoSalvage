@@ -10525,6 +10525,13 @@ forced-GC delta; it logs how long the UI-thread compare took; `WindowEquivalence
 faulted window, the seek during the walk, the last window, a tick before the first checkpoint, a faulted window rebuilt,
 cancellation in Core, and the two races released together by a barrier.
 
+**The UI-thread compare, measured and spread** (rgl-pug, Release, under the lock): in one go it took 709 and 1,089 ms of
+a frame. Now the window's answers are computed on a worker and the whole timeline's one question per drawn frame: 585
+and 1,112 ms over the frames, but **the longest single question still takes 472–561 ms**, so one frame per checked seek
+still stalls. It is a diagnostic behind `--windows`, and piece 2's light layer replaces the whole-timeline side it
+reads; left as measured, not chased. A seek made during the walk was checked when the walk ended (30006, IDENTICAL), and
+60000 was IDENTICAL; the checkpoints keep 1,454 MB by `KeptBytes`.
+
 ## D218 — TF2's volume ConVars, and the test suite launches the viewer silent (2026-10-14)
 
 **Owner, in his words:** *"its kinda irritating to have to lissten to the tests and probes all the time when they
