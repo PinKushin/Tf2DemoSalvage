@@ -10315,6 +10315,42 @@ Re-measured after it: f12 copy 108 ms, 69.6 MB a resume, 1,020 MB kept; rgl-pug 
 IDENTICAL (0 of 120) with the control unchanged, and the f12 fingerprint as above. The resume shrank again because a
 copy no longer carries the ownership lists.
 
+### Step 4, part 2 — the three costs the census named (2026-10-16)
+
+**The census by owner came first** (`timeline-windows` prints `owner <field>.<field>`, each owner copied alone): it
+moved the order. The `EntityStateTable` dictionaries were not a cost — `entities` in the per-field line was the decoder
+seen again through the table's `_baselines` reference — so (a) was dropped with that evidence. The `Int32[]`/`Single[]`
+belonged to the tracks' histories, and the decoder's bytes were `DecodedProperty[]` in its class baselines and baseline
+slots.
+
+1. **Track histories give back capacity on a trim.** A copy copies a list's whole backing array; the histories grew,
+   then the trim before every checkpoint cut their front and kept the capacity. `TrimExcess` after each cut
+   (`InterpolatedHistory`, `HeldValues`, `PoseKeyframes`, the track's applied-at lists). f12: the tracks' `Int32[]` a
+   resume creates 227 k → 52 k elements, **retained heap 1,020 → 785 MB**; rgl-pug 3,023 → 2,635 MB.
+2. **Decoded property lists are write-once and shared.** `ReadProperties` and `BaselineMerge.Overlay` hand back
+   `DecodedProperties`, a list its maker gives away, which `StateCopy.Immutable` names (and `Digest` still follows).
+   rgl-pug: the decoder's resume allocation 126 → 0.7 MB, `entities` 127 → 1.8 MB.
+
+| demo, 5 s spacing | copy ms | decode ms | MB a resume allocates | heap kept | seeks differing |
+|---|---:|---:|---:|---:|---:|
+| f12, part 1 | 108 | 337 | 69.6 | 1,020 MB | 0 of 120 |
+| f12, part 2 | **84** | 417 | **38.2** | **785 MB** | 0 of 120 |
+| rgl-pug, part 1 | 256 | 282 | 174.6 | 3,023 MB | 0 of 120 |
+| rgl-pug, part 2 | **82** | 282 | **46.7** | **2,636 MB** | 0 of 120 |
+
+The digest control is unchanged after both, and the f12 fingerprint is identical. f12's decode figure rose on a busy
+machine (other agents' gates were running); rgl-pug's did not move, so it is read as noise, not as the wrapper.
+
+**Checkpoint spacing measured at 2 s, not adopted:**
+
+| demo, 2 s spacing | window ms (copy + decode) | heap kept | checkpoints |
+|---|---:|---:|---:|
+| f12 | **205** (68 + 135) | 1,505 MB | 727 |
+| rgl-pug | **220** (85 + 132) | 3,996 MB | 1,076 |
+
+That reaches the owner's 100–200 ms band at the edge, at about twice the heap. What the next step is for: what each
+checkpoint still holds beyond the one before — tracks and props are now most of a resume (11.6 + 9.2 MB on f12).
+
 **The order after these two steps — the viewer half, decided by the owner the same day: a backward seek must NOT
 replay the demo from the start.** The state the skip replay builds up — the dealt HUD sounds and decals of B504,
 `ReplaySkip` in `FramePresenter.Seek.cs` — is to be carried in checkpoints instead, the way D220 carries corpses.
