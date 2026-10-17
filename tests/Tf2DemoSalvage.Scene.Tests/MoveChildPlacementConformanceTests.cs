@@ -264,6 +264,33 @@ public sealed class MoveChildPlacementConformanceTests
     }
 
     /// <summary>
+    /// **A static prop is filed once, and filed again the moment its placement differs** — `CStaticPropMgr` never re-links
+    /// one, so a reuse is the engine's; but a reuse that outlived a change would draw and cull it where it was. The same
+    /// static prop, at 0 then at 199: its box follows. The control is the first frame's box.
+    /// </summary>
+    [Test]
+    public void Instances_AStaticPropWhosePlacementChanges_IsFiledAgain()
+    {
+        const int Static = PropModels.FirstStaticPropEntityIndex + 7;
+        SceneProp at0 = new(Static, ParentModel, SceneModelKind.Studio, new ScenePose());
+        SceneProp at199 = at0 with { Pose = new ScenePose { X = 199f } };
+
+        EntityModelSet models = new();
+        models.Add([at0], _ => Baked() with { HeaderBounds = new StudioBox(-1f, -2f, -3f, 4f, 5f, 6f) });
+
+        List<ModelInstance> first = [];
+        models.Instances([at0], first, seconds: 1d);
+        List<ModelInstance> again = [];
+        models.Instances([at0], again, seconds: 2d);
+        List<ModelInstance> moved = [];
+        models.Instances([at199], moved, seconds: 3d);
+
+        first.Single().WorldBounds.MinX.ShouldBe(-1f, 1e-3f, "the control: filed at its placement");
+        again.Single().WorldBounds.ShouldBe(first.Single().WorldBounds, "unmoved, the filed box is the box");
+        moved.Single().WorldBounds.MinX.ShouldBe(198f, 1e-3f, "moved, it is filed again");
+    }
+
+    /// <summary>
     /// **The undrawn pass builds nothing when nothing will draw it** — `C_BasePlayer::ShouldDraw` is false for the local player
     /// in first person, so the engine reaches his `SetupBones` only from a monitor's `ForceTempForceDraw` or `AddDecal`, and
     /// both of ours ask on demand. The control is the same call with posing on, which does build the instance; and the parent

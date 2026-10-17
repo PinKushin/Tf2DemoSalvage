@@ -6809,11 +6809,40 @@ public sealed class EntityModelSet : Hud.IMdlCache, IPosedEntities
             _occurrence[(prop.EntityIndex, prop.ModelPath)] = seen + 1;
             (int, string, int) key = (prop.EntityIndex, prop.ModelPath, seen);
 
-            (float, float, float, float, float, float) box = WorldBoxFor(prop);
+            // **Filed again only when it moved** — `CStaticPropMgr` inserts a static prop at level load and never re-links
+            // it, and an entity re-links on `RenderableChanged`, which it raises when its origin, angles or model change. A
+            // prop with no parent is placed from exactly the fields compared here (`Placed`), so an unchanged placement
+            // over the same frames IS an unchanged box; a parented one follows its parent and is placed every frame.
+            bool fixedProp = prop.AttachedTo is null;
+            _frames.TryGetValue(prop.ModelPath, out PropModels.ModelFrames? filedFrames);
+            FiledPlacement placement = new(
+                prop.Pose.X, prop.Pose.Y, prop.Pose.Z, prop.Pose.Pitch, prop.Pose.Yaw, prop.Pose.Roll, prop.Pose.Scale, prop.Pose.Sequence);
+            bool unmoved = false;
+            (float, float, float, float, float, float) box = default;
+
+            if (fixedProp &&
+                _filedBoxes.TryGetValue(key, out (FiledPlacement Placement, PropModels.ModelFrames? Frames, (float, float, float, float, float, float) Box) filed) &&
+                filed.Placement == placement && ReferenceEquals(filed.Frames, filedFrames))
+            {
+                unmoved = true;
+                box = filed.Box;
+            }
+            else
+            {
+                box = WorldBoxFor(prop);
+
+                if (fixedProp)
+                {
+                    _filedBoxes[key] = (placement, filedFrames, box);
+                }
+            }
 
             if (_handleOf.TryGetValue(key, out int handle))
             {
-                _leafSystem.RenderableChanged(handle, box);
+                if (!unmoved)
+                {
+                    _leafSystem.RenderableChanged(handle, box);
+                }
             }
             else
             {
@@ -6837,6 +6866,7 @@ public sealed class EntityModelSet : Hud.IMdlCache, IPosedEntities
         {
             _leafSystem.RemoveRenderable(_handleOf[key]);
             _handleOf.Remove(key);
+            _filedBoxes.Remove(key);
         }
 
         _leafSystem.PreRender();
@@ -6892,6 +6922,13 @@ public sealed class EntityModelSet : Hud.IMdlCache, IPosedEntities
     }
 
     private readonly Dictionary<int, (SceneProp Prop, (float, float, float, float, float, float) Box)> _propByHandle = [];
+
+    /// <summary>Each unparented prop's filed box, with the placement and frames it was filed from — re-filed when either changes.</summary>
+    private readonly Dictionary<(int Entity, string Model, int Occurrence), (FiledPlacement Placement, PropModels.ModelFrames? Frames, (float, float, float, float, float, float) Box)> _filedBoxes = [];
+
+    /// <summary>What an unparented prop's box is placed from — compared whole, so any change files it again.</summary>
+    private readonly record struct FiledPlacement(
+        float X, float Y, float Z, float Pitch, float Yaw, float Roll, float Scale, int Sequence);
 
     /// <summary>Brings every corpse's simulation up to the tick, seen or not (B58).</summary>
     /// <param name="props">Every prop this moment carries, before any cull.</param>
@@ -7004,6 +7041,7 @@ public sealed class EntityModelSet : Hud.IMdlCache, IPosedEntities
             // **A new map is a new leaf system** (`LevelInitPreEntity`): every handle names the old tree's leaves.
             _tree = value;
             _handleOf.Clear();
+            _filedBoxes.Clear();
             _leafSystem = value is { IsEmpty: false } tree ? new ClientLeafSystem(tree.LeafCount, tree.EnumerateLeavesInBox) : OneLeaf();
             _everyLeaf = value is { IsEmpty: false } leaves ? [.. Enumerable.Range(0, leaves.LeafCount)] : PlaceZero;
         }
