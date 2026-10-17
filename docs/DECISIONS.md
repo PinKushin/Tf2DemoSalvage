@@ -10532,6 +10532,11 @@ still stalls. It is a diagnostic behind `--windows`, and piece 2's light layer r
 reads; left as measured, not chased. A seek made during the walk was checked when the walk ended (30006, IDENTICAL), and
 60000 was IDENTICAL; the checkpoints keep 1,454 MB by `KeptBytes`.
 
+**The scrub plan's first answers — owner, 2026-10-17:** *"1a, 2 light, 3 idk, maybe?"*. (1a) Checkpoints stay at 2 s and
+shrink further — the tracks next, then the packed bag chunks. (2) The viewmodel is LIGHT during a drag. (3) Quantizing
+the light table's positions to 16 bits is NOT decided: the table is built exact first, measured on f12 and rgl-pug with
+and without 16-bit positions, and he decides from the numbers.
+
 ## D218 — TF2's volume ConVars, and the test suite launches the viewer silent (2026-10-14)
 
 **Owner, in his words:** *"its kinda irritating to have to lissten to the tests and probes all the time when they
