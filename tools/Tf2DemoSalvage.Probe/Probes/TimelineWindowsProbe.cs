@@ -28,7 +28,7 @@ public sealed class TimelineWindowsProbe : IProbe
 
     /// <inheritdoc/>
     public string Summary =>
-        "checkpoint a demo, answer sample ticks through windows, compare with a whole build, and say what checkpoints cost: timeline-windows <demo> [every s=5] [samples=60] [cost]; the reach is the default settings' (D220)";
+        "checkpoint a demo, answer sample ticks through windows, compare with a whole build, and say what checkpoints cost: timeline-windows <demo> [every s=2, the decided spacing] [samples=60] [cost]; the reach is the default settings' (D220)";
 
     /// <inheritdoc/>
     public void Run(TextWriter output, IReadOnlyList<string> arguments)
@@ -38,16 +38,17 @@ public sealed class TimelineWindowsProbe : IProbe
 
         if (arguments.Count == 0 || DemoCorpus.Find(arguments[0], output) is not { } path)
         {
-            output.WriteLine("timeline-windows <demo> [every seconds] [samples] [cost]");
+            output.WriteLine("timeline-windows <demo> [every seconds=2, the decided spacing] [samples=60] [cost]");
             return;
         }
 
-        double every = arguments.Count > 1 ? double.Parse(arguments[1], CultureInfo.InvariantCulture) : 5;
+        double every = arguments.Count > 1 ? double.Parse(arguments[1], CultureInfo.InvariantCulture) : DemoTimeline.Checkpoints.SpacingSeconds;
         int samples = arguments.Count > 2 ? int.Parse(arguments[2], CultureInfo.InvariantCulture) : 60;
         bool costOnly = arguments.Count > 3 && arguments[3] == "cost";
         byte[] demo = File.ReadAllBytes(path);
         // The spacing is asked for in seconds before the demo is read, so it converts at TF2's interval (its one owner);
-        // every reach is the demo's own, from the interval its server info states.
+        // every reach is the demo's own, from the interval its server info states. TRUNCATED, deliberately: 2 s is
+        // 133.33 ticks and checkpoints fall every 133, so spacing is never longer than asked.
         int everyTicks = (int)(every / ScenePropTrack.Tf2TickInterval);
 
         long heapBefore = Live();

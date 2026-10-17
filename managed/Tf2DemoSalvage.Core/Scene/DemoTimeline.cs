@@ -2758,6 +2758,13 @@ public sealed class DemoTimeline
         /// <summary>The ticks the checkpoints were taken at, in order.</summary>
         public IEnumerable<int> Ticks => _checkpoints.Select(checkpoint => checkpoint.Tick);
 
+        /// <summary>The spacing between checkpoints, in seconds of demo time — the owner's, 2026-10-17 (D217 step 4).</summary>
+        /// <remarks>
+        /// **Two seconds**, the owner: *"go with 2 s"*, once part 3 had made the checkpoints small enough; the seek cost
+        /// and memory it was decided on are in DECISIONS D217, "Step 4 — checkpoint spacing is 2 s".
+        /// </remarks>
+        public const double SpacingSeconds = 2;
+
         /// <summary>
         /// Walks the demo with the reach <paramref name="settings"/> give every reader (D220), and walks again if the
         /// demo's FINAL server bounds, which every window's interpolation uses, need further than a checkpoint kept.
