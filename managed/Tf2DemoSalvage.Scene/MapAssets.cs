@@ -96,6 +96,7 @@ namespace Tf2DemoSalvage.Scene;
 /// <param name="Refract">A model's <c>Refract</c> material, drawn by warping the frame (B506); null for any other.</param>
 /// <param name="Cloak">A model material's cloak pass (<c>$cloakpassenabled</c>); null for one without.</param>
 /// <param name="IsCameraTarget">Whether the slot is <c>_rt_Camera</c>, the monitor target (B511).</param>
+/// <param name="DistanceAlpha">A <c>$distancealpha</c> material's parameters (the HUD's backgrounds); null for any other.</param>
 /// <remarks>
 /// **Alpha tested and translucent are different operations and never both.** A cut-out surface is
 /// drawn in the opaque pass and needs no ordering; a blended one has to be drawn afterwards, back
@@ -163,7 +164,10 @@ public readonly record struct MapTexture(
     CloakPass? Cloak = null,
 
     // **`_rt_Camera`, the monitor target** (B511): the renderer binds the point_camera view here, not this image.
-    bool IsCameraTarget = false)
+    bool IsCameraTarget = false,
+
+    // **A `$distancealpha` material's shape, edge, outline and glow** — TF2's HUD backgrounds; null for any other.
+    VguiDistanceAlpha? DistanceAlpha = null)
 {
     /// <summary>The render target <c>CTFRenderTargets</c> creates for monitors (`baseclientrendertargets.cpp:37-46`).</summary>
     public const string CameraTargetName = "_rt_Camera";
@@ -2779,8 +2783,24 @@ public sealed class MapAssets
     {
         ArgumentNullException.ThrowIfNull(assets);
         ArgumentNullException.ThrowIfNull(material);
+        ArgumentNullException.ThrowIfNull(pak);
+        ArgumentNullException.ThrowIfNull(archives);
 
-        return Resolve(assets, material, pak, archives, maximumTextureSize).Texture;
+        ResolvedMaterial resolved = Resolve(assets, material, pak, archives, maximumTextureSize);
+
+        if (resolved.Texture is not { } texture)
+        {
+            return null;
+        }
+
+        // A `$distancealpha` material — the HUD's backgrounds — carries its shape, edge, outline and glow. Read again here,
+        // because `Resolve` gives out textures, not values, and a VGUI material is resolved once per name.
+        string path = "materials/" + (material.EndsWith(".vmt", StringComparison.OrdinalIgnoreCase) ? material[..^4] : material) + ".vmt";
+        byte[]? Find(string name) => pak.ReadFile(name) ?? archives.Read(name);
+
+        return Find(path) is { } vmt && VguiDistanceAlpha.Read(VmtMaterial.Load(vmt, Find).Value, resolved.Detail?.Texture) is { } shape
+            ? texture with { DistanceAlpha = shape }
+            : texture;
     }
 
     private static ResolvedMaterial Resolve(

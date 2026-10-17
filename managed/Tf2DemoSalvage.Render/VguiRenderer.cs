@@ -39,14 +39,82 @@ internal sealed unsafe class VguiRenderer : IDisposable
             return output;
         }
 
+        Texture2D DetailTexture : register(t1);
+
+        // c5-c9 of vertexlit_and_unlit_generic_ps2x.fxc (:146-171), then which effects the material switched on.
+        cbuffer DistanceAlpha : register(b0)
+        {
+            float4 GlowParams;     // GLOW_UV_OFFSET, OUTER_GLOW_MIN_DVALUE, OUTER_GLOW_MAX_DVALUE
+            float4 GlowColour;     // OUTER_GLOW_COLOR
+            float4 MaskRange;      // SOFT_MASK_MAX, SOFT_MASK_MIN
+            float4 OutlineColour;  // g_OutlineColor
+            float4 OutlineParams;  // g_OutlineParams
+            float4 Switches;       // DISTANCEALPHA, SOFT_MASK, OUTLINE, OUTER_GLOW
+            float4 DetailSwitches; // DETAILTEXTURE, DISTANCEALPHAFROMDETAIL, DETAIL_BLEND_MODE, g_DetailBlendFactor
+        };
+
         float4 PsMain(VsOut input) : SV_TARGET
         {
-            return Base.Sample(Sampler, input.uv) * input.col;
+            float4 baseColor = Base.Sample(Sampler, input.uv);
+
+            // `#if DISTANCEALPHA` (:257-327). ponytail: $detailscale 1 and no detail transform — every TF2 HUD material.
+            if (Switches.x > 0.5)
+            {
+                float4 detailColor = DetailTexture.Sample(Sampler, input.uv);
+                float distAlphaMask = baseColor.a;
+
+                if (DetailSwitches.y > 0.5)
+                {
+                    distAlphaMask = detailColor.a;
+                    detailColor.a = 1.0;
+                }
+
+                // TextureCombine (common_ps_fxc.h:698): TCOMBINE_MULTIPLY (8), the one TF2's HUD materials use.
+                // ponytail: the other modes are not ported; add them when a VGUI material names one.
+                if (DetailSwitches.x > 0.5 && abs(DetailSwitches.z - 8.0) < 0.5)
+                {
+                    baseColor = lerp(baseColor, baseColor * detailColor, DetailSwitches.w);
+                }
+
+                if (Switches.z > 0.5)
+                {
+                    float4 oFactors = smoothstep(OutlineParams.xyzw, OutlineParams.wzyx, distAlphaMask);
+                    baseColor = lerp(baseColor, OutlineColour, oFactors.x * oFactors.y);
+                }
+
+                float mskUsed;
+
+                if (Switches.y > 0.5)
+                {
+                    mskUsed = smoothstep(MaskRange.y, MaskRange.x, distAlphaMask);
+                    baseColor.a *= mskUsed;
+                }
+                else
+                {
+                    mskUsed = distAlphaMask >= 0.5;
+                    baseColor.a = DetailSwitches.x > 0.5 ? baseColor.a * mskUsed : mskUsed;
+                }
+
+                if (Switches.w > 0.5)
+                {
+                    float4 glowTexel = DetailSwitches.y > 0.5
+                        ? DetailTexture.Sample(Sampler, input.uv + GlowParams.xy)
+                        : Base.Sample(Sampler, input.uv + GlowParams.xy);
+                    float4 glowc = GlowColour * smoothstep(GlowParams.z, GlowParams.w, glowTexel.a);
+                    baseColor = lerp(glowc, baseColor, mskUsed);
+                }
+            }
+
+            return baseColor * input.col;
         }
         """;
 
-    private readonly Dictionary<string, (ComPtr<ID3D11ShaderResourceView> View, bool Additive)> _textures =
+    private const int ConstantFloats = 28;
+
+    private readonly Dictionary<string, (ComPtr<ID3D11ShaderResourceView> View, bool Additive, ComPtr<ID3D11ShaderResourceView> Detail, VguiDistanceAlpha? Shape)> _textures =
         new(StringComparer.OrdinalIgnoreCase);
+
+    private ComPtr<ID3D11Buffer> _constants;
 
     private readonly Dictionary<string, (ComPtr<ID3D11ShaderResourceView> View, int Version)> _pages =
         new(StringComparer.Ordinal);
@@ -143,6 +211,39 @@ internal sealed unsafe class VguiRenderer : IDisposable
         MapTexture white = new(1, 1, 1, 1, TextureImage.Rgba(new byte[] { 255, 255, 255, 255 }), IsTransparent: true);
 
         renderer._white = WorldRenderer.UploadTexture(device, context, white);
+
+        BufferDesc constants = new()
+        {
+            ByteWidth = 32 * sizeof(float),
+            Usage = Usage.Dynamic,
+            BindFlags = (uint)BindFlag.ConstantBuffer,
+            CPUAccessFlags = (uint)CpuAccessFlag.Write,
+        };
+
+        SilkMarshal.ThrowHResult(device.CreateBuffer(in constants, ref Unsafe.NullRef<SubresourceData>(), ref renderer._constants));
+    }
+
+    /// <summary>A run's c5-c9 and switches; all zero for a material without `$distancealpha`.</summary>
+    /// <param name="shape">The material's distance-alpha parameters, or null.</param>
+    /// <param name="viewportWidth">The back buffer's width.</param>
+    /// <param name="viewportHeight">Its height.</param>
+    /// <returns>The constant buffer's floats.</returns>
+    internal static float[] DistanceAlphaConstants(VguiDistanceAlpha? shape, int viewportWidth, int viewportHeight)
+    {
+        float[] data = new float[ConstantFloats];
+
+        if (shape is null)
+        {
+            return data;
+        }
+
+        shape.Constants(viewportWidth, viewportHeight).CopyTo(data, 0);
+
+        (data[20], data[21], data[22], data[23]) = (1f, shape.SoftMask ? 1f : 0f, shape.Outline ? 1f : 0f, shape.Glow ? 1f : 0f);
+        (data[24], data[25], data[26], data[27]) =
+            (shape.Detail is null ? 0f : 1f, shape.FromDetail ? 1f : 0f, shape.DetailBlendMode, shape.DetailBlendFactor);
+
+        return data;
     }
 
     /// <summary>Draws the quads into the bound render target.</summary>
@@ -202,7 +303,8 @@ internal sealed unsafe class VguiRenderer : IDisposable
                 bound = true;
             }
 
-            (ComPtr<ID3D11ShaderResourceView> view, bool additive) = Source(device, context, quads[start].Texture, resolve);
+            (ComPtr<ID3D11ShaderResourceView> view, bool additive, ComPtr<ID3D11ShaderResourceView> detail, VguiDistanceAlpha? shape) =
+                Source(device, context, quads[start].Texture, resolve);
 
             additive |= quads[start].Additive;
 
@@ -215,6 +317,12 @@ internal sealed unsafe class VguiRenderer : IDisposable
                     context.OMSetBlendState(additive ? _additive : _translucent, blendFactor, 0xFFFFFFFF);
                 }
 
+                UploadConstants(context, DistanceAlphaConstants(shape, viewportWidth, viewportHeight));
+                context.PSSetConstantBuffers(0, 1, ref _constants);
+
+                ComPtr<ID3D11ShaderResourceView> detailView = detail.Handle is not null ? detail : _white;
+
+                context.PSSetShaderResources(1, 1, ref detailView);
                 context.PSSetShaderResources(0, 1, ref view);
                 context.Draw((uint)((end - start) * VerticesPerQuad), (uint)(start * VerticesPerQuad));
             }
@@ -344,17 +452,30 @@ internal sealed unsafe class VguiRenderer : IDisposable
     }
 
     /// <summary>What a run samples: the white texel for a fill, a glyph page, or a material.</summary>
-    private (ComPtr<ID3D11ShaderResourceView> View, bool Additive) Source(
+    private (ComPtr<ID3D11ShaderResourceView> View, bool Additive, ComPtr<ID3D11ShaderResourceView> Detail, VguiDistanceAlpha? Shape) Source(
         ComPtr<ID3D11Device> device, ComPtr<ID3D11DeviceContext> context, string? texture, Func<string, MapTexture?> resolve)
     {
         if (texture is null)
         {
-            return (_white, false);
+            return (_white, false, default, null);
         }
 
         return _pages.TryGetValue(texture, out (ComPtr<ID3D11ShaderResourceView> View, int Version) page)
-            ? (page.View, false)
+            ? (page.View, false, default, null)
             : Texture(device, context, texture, resolve);
+    }
+
+    private void UploadConstants(ComPtr<ID3D11DeviceContext> context, float[] data)
+    {
+        MappedSubresource mapped = default;
+        SilkMarshal.ThrowHResult(context.Map(_constants, 0, Map.WriteDiscard, 0, ref mapped));
+
+        fixed (float* source = data)
+        {
+            System.Buffer.MemoryCopy(source, mapped.PData, 32 * sizeof(float), data.Length * sizeof(float));
+        }
+
+        context.Unmap(_constants, 0);
     }
 
     /// <summary>Each glyph page uploaded, and uploaded again when a glyph was added since.</summary>
@@ -379,17 +500,22 @@ internal sealed unsafe class VguiRenderer : IDisposable
     }
 
     /// <summary>A material's view, uploaded once; an unresolved material is remembered as absent and draws nothing.</summary>
-    private (ComPtr<ID3D11ShaderResourceView> View, bool Additive) Texture(
+    private (ComPtr<ID3D11ShaderResourceView> View, bool Additive, ComPtr<ID3D11ShaderResourceView> Detail, VguiDistanceAlpha? Shape) Texture(
         ComPtr<ID3D11Device> device, ComPtr<ID3D11DeviceContext> context, string name, Func<string, MapTexture?> resolve)
     {
-        if (_textures.TryGetValue(name, out (ComPtr<ID3D11ShaderResourceView> View, bool Additive) held))
+        if (_textures.TryGetValue(name, out (ComPtr<ID3D11ShaderResourceView> View, bool Additive, ComPtr<ID3D11ShaderResourceView> Detail, VguiDistanceAlpha? Shape) held))
         {
             return held;
         }
 
         // `$vertexalpha` blends and keeps the texture's alpha, so the upload must not force it opaque.
         MapTexture? texture = resolve(name) is { } found ? found with { IsTransparent = true } : null;
-        (ComPtr<ID3D11ShaderResourceView>, bool) entry = (texture is null ? default : WorldRenderer.UploadTexture(device, context, texture), texture?.IsAdditive ?? false);
+        VguiDistanceAlpha? shape = texture?.DistanceAlpha;
+        ComPtr<ID3D11ShaderResourceView> detail = shape?.Detail is { } mask
+            ? WorldRenderer.UploadTexture(device, context, mask with { IsTransparent = true })
+            : default;
+        (ComPtr<ID3D11ShaderResourceView>, bool, ComPtr<ID3D11ShaderResourceView>, VguiDistanceAlpha?) entry =
+            (texture is null ? default : WorldRenderer.UploadTexture(device, context, texture), texture?.IsAdditive ?? false, detail, shape);
 
         _textures[name] = entry;
 
@@ -461,10 +587,13 @@ internal sealed unsafe class VguiRenderer : IDisposable
     /// <inheritdoc/>
     public void Dispose()
     {
-        foreach ((ComPtr<ID3D11ShaderResourceView> view, _) in _textures.Values)
+        foreach ((ComPtr<ID3D11ShaderResourceView> view, _, ComPtr<ID3D11ShaderResourceView> detail, _) in _textures.Values)
         {
             view.Dispose();
+            detail.Dispose();
         }
+
+        _constants.Dispose();
 
         foreach ((ComPtr<ID3D11ShaderResourceView> view, _) in _pages.Values)
         {

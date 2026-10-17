@@ -41,6 +41,26 @@ public sealed class VguiRendererTests
     }
 
     [Test]
+    public void DistanceAlphaConstants_NoShape_AreAllZeroSoTheShaderSkipsTheBlock() =>
+        VguiRenderer.DistanceAlphaConstants(null, 1280, 720).ShouldAllBe(value => value == 0f);
+
+    [Test]
+    public void DistanceAlphaConstants_TheAmmoBackground_PacksC5ToC9ThenItsSwitches()
+    {
+        Tf2DemoSalvage.Scene.VguiDistanceAlpha shape = new(
+            Detail: null, FromDetail: true, DetailBlendMode: 8, DetailBlendFactor: 1f,
+            SoftMask: true, SoftStart: 0.45f, SoftEnd: 0.3f, ScaleEdges: false,
+            Outline: true, OutlineColor: (0.7f, 0.7f, 0.5f), OutlineAlpha: 1f,
+            OutlineStart0: 0.3f, OutlineStart1: 0.49f, OutlineEnd0: 0.49f, OutlineEnd1: 0.73f, ScaleOutline: false,
+            Glow: false, GlowColor: (0f, 0f, 0f), GlowAlpha: 0.45f, GlowStart: 0.03f, GlowEnd: 0.5f, GlowX: -0.001f, GlowY: -0.001f);
+
+        float[] data = VguiRenderer.DistanceAlphaConstants(shape, 1024, 768);
+
+        data[..20].ShouldBe(shape.Constants(1024, 768));
+        data[20..].ShouldBe([1f, 1f, 1f, 0f, 0f, 1f, 8f, 1f], "distance alpha, soft, outline, no glow; no detail texture, from detail, multiply, factor 1");
+    }
+
+    [Test]
     public void Steps_AModelBetweenQuadsOfOneTexture_SplitsTheRunAtItsPlaceInPaintOrder()
     {
         // Three quads of one texture would be one run; a 3D paint recorded after the first cuts it in two around itself.
