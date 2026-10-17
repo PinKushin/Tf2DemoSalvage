@@ -472,11 +472,79 @@ public sealed class ParticleEffects
 
             bool stopped = burst.StopTick is { } stopTick && now >= stopTick;
 
-            _bursts[burst.Key] = running with { Stepped = taken, SimulatedTo = reachedTo, Stopped = stopped, StillRead = stillRead };
+            _bursts[burst.Key] = running with
+            {
+                Stepped = taken, SimulatedTo = reachedTo, Stopped = stopped, StillRead = stillRead, Tick = burst.Tick,
+                Name = burst.Definition.Name,
+            };
         }
 
+        FadeUnoffered(now, seconds);
         Retire();
     }
+
+    /// <summary>
+    /// An effect its caller no longer offers is its owner's emission stopping — `StopEmission`: no particle is born, the
+    /// live ones age out where they are, and <see cref="Retire"/> takes it when it is empty.
+    /// </summary>
+    /// <remarks>
+    /// **It was held frozen instead** — never stepped, never retired, and drawn — so a heal beam whose patient died, or
+    /// any effect whose offer simply ended, stood in the air where its last particles were (owner, 2026-10-17: "drawing
+    /// old beams in the air"). `CWeaponMedigun::UpdateEffects` stops the beam with `StopEmission` when the target changes
+    /// or is gone (`tf_weapon_medigun.cpp:2369-2397`); every other owner that stops offering one does the same here.
+    /// </remarks>
+    private void FadeUnoffered(double now, float seconds)
+    {
+        _unoffered.Clear();
+
+        foreach (long key in _bursts.Keys)
+        {
+            if (!_offered.Contains(key))
+            {
+                _unoffered.Add(key);
+            }
+        }
+
+        foreach (long key in _unoffered)
+        {
+            RunningBurst running = _bursts[key];
+            double wanted = now - running.Tick;
+
+            if (wanted > running.SimulatedTo)
+            {
+                running.Effect.Fade((float)((wanted - running.SimulatedTo) * seconds));
+                running = running with { SimulatedTo = wanted };
+            }
+
+            _bursts[key] = running with { Stopped = true };
+        }
+    }
+
+    /// <summary>How many bursts run, by effect name, and how many of those their caller no longer offers.</summary>
+    /// <returns>One row per effect name, in no particular order.</returns>
+    /// <remarks>An instrument for leaks: a name whose count climbs, or whose unoffered count never drains, outlives its owner.</remarks>
+    public IReadOnlyList<(string Name, int Live, int Unoffered)> Census()
+    {
+        Dictionary<string, (int Live, int Unoffered)> rows = new(StringComparer.Ordinal);
+
+        foreach ((long key, RunningBurst running) in _bursts)
+        {
+            (int live, int unoffered) = rows.GetValueOrDefault(running.Name);
+            rows[running.Name] = (live + 1, unoffered + (_offered.Contains(key) ? 0 : 1));
+        }
+
+        List<(string Name, int Live, int Unoffered)> census = new(rows.Count);
+
+        foreach ((string name, (int live, int unoffered)) in rows)
+        {
+            census.Add((name, live, unoffered));
+        }
+
+        return census;
+    }
+
+    /// <summary>The keys no longer offered on the last call, reused.</summary>
+    private readonly List<long> _unoffered = [];
 
     /// <summary>A model's boxes moved rigidly; the same list when they have not moved.</summary>
     private static IReadOnlyList<ModelHitbox> Carried(IReadOnlyList<ModelHitbox> boxes, Vector3 by)
@@ -533,7 +601,8 @@ public sealed class ParticleEffects
     private readonly List<long> _finished = [];
 
     /// <summary>One running one-shot: how many steps it took, and to how many ticks after it fired, fraction included.</summary>
-    private readonly record struct RunningBurst(ParticleEffect Effect, int Stepped, double SimulatedTo, bool Stopped, bool StillRead = false);
+    private readonly record struct RunningBurst(
+        ParticleEffect Effect, int Stepped, double SimulatedTo, bool Stopped, bool StillRead = false, int Tick = 0, string Name = "");
 
     /// <summary>Builds every live effect's quads for this frame's camera.</summary>
     /// <param name="eye">Where the camera is — a sprite trail turns about its own length to face it.</param>

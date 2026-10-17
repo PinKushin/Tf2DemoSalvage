@@ -162,6 +162,9 @@ public sealed partial class FramePresenter
     /// <summary>How many trails and bursts are running and how many quads the last frame built, for an instrument.</summary>
     public (int Trails, int Bursts, int Quads) ParticleCounts => (_particles.Count, _particles.BurstCount, _frameParticles.Quads);
 
+    /// <summary>The running bursts by effect name, with how many of each their caller no longer offers — a leak census.</summary>
+    public IReadOnlyList<(string Name, int Live, int Unoffered)> ParticleCensus() => _particles.Census();
+
     /// <summary>Forgets what belonged to the map that is going.</summary>
     public void ClearMap()
     {

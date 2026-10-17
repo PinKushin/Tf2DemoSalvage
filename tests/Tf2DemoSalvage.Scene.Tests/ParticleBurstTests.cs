@@ -104,13 +104,23 @@ public sealed class ParticleBurstTests
     /// caller's window moves past it. The same rule a rocket's trail follows when the rocket explodes: cutting the
     /// effect at the source is the opposite of what an explosion looks like.
     /// </remarks>
+    /// <remarks>
+    /// **With particles in it** (2026-10-17): this used an effect that emits nothing, which was kept only because an
+    /// unoffered effect was frozen rather than run; now that it runs, an empty one is rightly gone.
+    /// </remarks>
     [Test]
     public void Bursts_NoLongerOffered_KeepRunningUntilEmpty()
     {
         ParticleEffects effects = new();
+        ParticleBurst blast = new(
+            1, Beam, new ParticleControlPoint(Vector3.Zero, Vector3.UnitX, Vector3.UnitY, Vector3.UnitZ), 100);
 
-        effects.Bursts([Burst(key: 1, tick: 100)], Interval, null, tick: 100);
-        effects.Bursts([], Interval, null, tick: 101);
+        for (int tick = 100; tick <= 105; tick++)
+        {
+            effects.Bursts([blast], Interval, null, tick);
+        }
+
+        effects.Bursts([], Interval, null, tick: 106);
 
         effects.BurstCount.ShouldBe(1, "a blast does not stop because the window moved past it");
     }
@@ -420,6 +430,65 @@ public sealed class ParticleBurstTests
     [TestCase(2L, 0x3C6EF372)]
     public void SeedFor_AnIdentity_IsItsFibonacciHashAndNeverZero(long identity, int expected) =>
         ParticleEffects.SeedFor(identity).ShouldBe(expected);
+
+    /// <remarks>
+    /// **An effect its caller stops offering, unstopped, is the owner's emission stopping** — the medic's beam when its
+    /// patient dies is `UpdateEffects`' `StopEmission` (`tf_weapon_medigun.cpp:2374-2375`): no more particles are born,
+    /// the live ones finish their lives, and the effect goes. Ours was held frozen — never stepped, never retired, drawn
+    /// where its last particles stood: the owner's "old beams in the air". A beam emitting 66 a second, each living half a
+    /// second, offered for ten ticks: a second and a half after the offer ends it is gone. The control is the tick after
+    /// the offer ends, when it is still there and counted as no longer offered.
+    /// </remarks>
+    [Test]
+    public void Bursts_AnEndlessEffectNoLongerOffered_StopsEmittingAndIsGoneWhenItsParticlesDie()
+    {
+        ParticleEffects effects = new();
+        ParticleBurst beam = new(
+            9, Beam, new ParticleControlPoint(Vector3.Zero, Vector3.UnitX, Vector3.UnitY, Vector3.UnitZ), 100);
+
+        for (int tick = 100; tick <= 110; tick++)
+        {
+            effects.Bursts([beam], Interval, null, tick);
+        }
+
+        effects.Bursts([], Interval, null, tick: 111);
+
+        effects.BurstCount.ShouldBe(1, "the control: its particles are still alive");
+        effects.Census().ShouldContain(("test_beam", 1, 1));
+
+        for (int tick = 112; tick <= 210; tick++)
+        {
+            effects.Bursts([], Interval, null, tick);
+        }
+
+        effects.BurstCount.ShouldBe(0);
+    }
+
+    /// <summary>A beam's shape: emits for ever, each particle lives half a second.</summary>
+    private static readonly ParticleSystem Beam = new(
+        Name: "test_beam",
+        Emitters:
+        [
+            new ParticleFunction(
+                Function: "emit_continuously",
+                Name: "emitter",
+                Parameters: new Dictionary<string, DmxValue>(StringComparer.Ordinal)
+                {
+                    ["emission_rate"] = new(DmxAttributeType.Real, 66d),
+                }),
+        ],
+        Initializers:
+        [
+            new ParticleFunction("Lifetime Random", "life", new Dictionary<string, DmxValue>(StringComparer.Ordinal)
+            {
+                ["lifetime_min"] = new(DmxAttributeType.Real, 0.5d),
+                ["lifetime_max"] = new(DmxAttributeType.Real, 0.5d),
+            }),
+        ],
+        Operators: [new ParticleFunction("Lifespan Decay", "decay", new Dictionary<string, DmxValue>(StringComparer.Ordinal))],
+        Renderers: [],
+        Children: [],
+        Parameters: new Dictionary<string, DmxValue>(StringComparer.Ordinal));
 
     private static ParticleBurst Burst(long key, int tick, float x = 0f) =>
         new(

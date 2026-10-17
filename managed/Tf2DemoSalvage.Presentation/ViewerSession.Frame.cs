@@ -422,6 +422,12 @@ public sealed partial class ViewerSession
                 _measured.AddCost(cost);
                 _moments.LastCost = null;
             }
+
+            // **What is alive, once a second, for a leak to show as a count that climbs** (lifetime audit, 2026-10-17).
+            if (_launch.MeasureSeconds is not null)
+            {
+                _measured.AddNote(ParticleCensusLine.Format(_shownTick, _effects.ParticleCensus()));
+            }
         }
 
         // **Counted in seconds of PLAYBACK.** A wall clock would spend the first twenty seconds on
