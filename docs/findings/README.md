@@ -262,6 +262,11 @@ in any public writeup found:
   core and a six-times-larger glow a hundred units in front of the eye, each gated by its own occlusion query sized
   in SCREEN space at `zFar * 0.999`. Only the main view and monitors draw overlays at all, and a monitor's query is
   never issued, so it sees no sun ([77](77-the-sun-is-two-overlays-at-the-far-plane.md)).
+- **The stock HUD against TF2's own.** Every difference the owner saw was under the HUD element, not in it: a
+  `$distancealpha` material drawn as a rectangle, a team event compared against a state already stored, a sequence looked
+  up in the root model instead of the virtual one, and VGUI colours written to the sRGB view without `GammaToLinear`.
+  The ammo number's shadow is still painted over it, and the panel tree does not explain why
+  ([78](78-the-stock-hud-against-tf2.md)).
 
 ## Conventions used throughout
 
