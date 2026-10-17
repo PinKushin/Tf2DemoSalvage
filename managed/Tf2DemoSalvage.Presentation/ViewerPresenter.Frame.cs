@@ -142,7 +142,15 @@ public sealed partial class ViewerPresenter
                 return ViewFrameNow;
             },
             _jumps.Jumps);
+
+        _windowCheck?.Observe(_effects.Skip, _timeline);
     }
+
+    /// <summary>Whether `--windows` asked for the window cache beside the whole timeline (D217 step 4).</summary>
+    public bool CheckWindows { get; set; }
+
+    /// <summary>The window cache's check for the demo on screen, or null without `--windows`.</summary>
+    private WindowCheck? _windowCheck;
 
     /// <summary>The transport, asked only how many times playback has jumped — what makes a move a skip (D221).</summary>
     private readonly PlaybackPresenter _jumps;

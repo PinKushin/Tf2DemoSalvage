@@ -10454,6 +10454,31 @@ under the machine lock, which keeps other locked work off but not other agents' 
 owner's viewer measurement to finish first. These are after the decode-regression fix above (the property bag's
 enumerator, "The decode regression was real, and is fixed"), which is what brought decode under main's.
 
+### Step 4 — the viewer's window cache, piece 1 of 4 (2026-10-17)
+
+**The owner's goal, restated for this work** (2026-10-14, above): memory about the file plus checkpoints — no whole
+timeline at all. The order, four pieces each gated: (1) a window cache in Presentation, running beside the whole timeline
+behind a launch option; (2) the readers that walk whole lists moved onto windows, one family at a time; (3) the
+skip-replay state carried in checkpoints; (4) the whole-timeline build dropped once nothing reads it.
+
+**Where the skip-replay state lives — MY call, not the owner's**, which the coordinator relayed as an implementation
+choice since what he sees is the same either way. The state a seek replays (the dealt HUD sounds and decks, the HUD feed,
+the animation-event walk, model decals; `FramePresenter.ReplaySkip`) is presenter state, and moving it into Core so
+`StateCopy` checkpoints it would put presentation behaviour below the D214 line. So Presentation snapshots its own
+presenters' state at each checkpoint tick, in a Presentation-side copy testable on its own and keyed to the Core
+checkpoint's tick; Core keeps no presenter state.
+
+**Piece 1, built:** `WindowCache` (Presentation) over `TimelineWindows` (Core's public face of the checkpoint walk). A
+window spans one checkpoint to the next; serving one sets the next building on a worker (the prefetch), and only those
+two are held. `WindowCache.SpacingTicks` owns seconds-to-ticks and **truncates** (2 s at 15 ms is 133 ticks; never
+further apart than asked), pinned by a test. `--windows` turns it on beside the whole timeline: the walk runs on a
+worker after load, every seek asks the cache for its window, and the frame after the window is ready compares it with
+the whole timeline (`WindowEquivalence.Compare`, the probe's own walk) and logs the time and the verdict. Nothing drawn
+changes; off by default (a launch option, D210). Tested: every tick of a synthetic walk answers as the whole timeline
+through the cache; eight windows of one span built at once all answer the same and leave their checkpoint unchanged;
+sixteen threads reading one frozen bag all see its values (the unpack cache's compare-and-swap, which a publish-before-
+fill sabotage reddens).
+
 ## D218 — TF2's volume ConVars, and the test suite launches the viewer silent (2026-10-14)
 
 **Owner, in his words:** *"its kinda irritating to have to lissten to the tests and probes all the time when they

@@ -78,6 +78,9 @@ public static class ViewerHelp
                                      is not a demo.
           --then-seek <tick>         With --measure: then pause, seek to this tick and measure the
                                      paused frame as long again (mean ms, phases, live particles).
+          --windows                  Also walk the demo into 2-second checkpoints and, on every seek,
+                                     log what answering it through a window cost and whether it
+                                     matched; nothing drawn changes.
           +<cvar> <value>            Set a cvar for this run only, as Source does. Anything in
                                      settings.cfg works here: fps_max 0, developer 1, and so on.
 

@@ -391,6 +391,9 @@ public sealed partial class ViewerPresenter : IDisposable
         // stick without being passed again every time.
         _effects.ChosenHud = launch.Hud ?? _settings.ChosenHud;
 
+        // `--windows` (D217 step 4): the window cache beside the whole timeline, for every demo this run opens.
+        CheckWindows = launch.Windows;
+
         return launch;
     }
 
@@ -1002,6 +1005,11 @@ public sealed partial class ViewerPresenter : IDisposable
         _demo = decoded.Demo;
         _timeline = decoded.Timeline;
 
+        // `--windows` (D217 step 4): the window cache walks beside the whole timeline and is checked on every seek.
+        _windowCheck = CheckWindows && decoded.Timeline is not null
+            ? WindowCheck.Start(decoded.Demo.Path, new Core.Scene.WindowSettings(_settings.Interp), _demoLog)
+            : null;
+
         _camera.DemoOpening(_spectateWho());
 
         // **One call where there were six assignments, and that is the whole point** (B193). The
@@ -1114,6 +1122,7 @@ public sealed partial class ViewerPresenter : IDisposable
     {
         _demo = null;
         _timeline = null;
+        _windowCheck = null;
 
         // **`DemoSystems.Open` with no timeline IS "close the demo", and calling it is what makes
         // this path complete** (B228). It was three hand-written lines — the clock, the transport

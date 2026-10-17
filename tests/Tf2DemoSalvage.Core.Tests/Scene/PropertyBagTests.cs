@@ -265,6 +265,24 @@ public sealed class PropertyBagTests
         }
     }
 
+    /// <remarks>
+    /// **Read from many threads at once, a frozen bag answers the same every time** (D217 step 4): the unpack cache is
+    /// written by the first read of each chunk, so sixteen threads racing to fill it must each see every value as frozen.
+    /// </remarks>
+    [Test]
+    public void Read_SixteenThreadsAtOnceOnAFrozenBag_EveryReadIsTheFrozenValue()
+    {
+        PropertyBag bag = Filled();
+        bag.Freeze();
+        PropertyBag reference = StateCopy.Of(bag, new HashSet<object>());
+        string expected = Describe(reference);
+
+        string[] seen = new string[16];
+        System.Threading.Tasks.Parallel.For(0, seen.Length, thread => seen[thread] = Describe(bag));
+
+        seen.ShouldAllBe(described => described == expected);
+    }
+
     /// <remarks>**Clear after a freeze restarts the order on the bag alone**; the frozen form keeps every key.</remarks>
     [Test]
     public void Clear_AfterFreeze_ThenSet_RestartsOnlyTheBag()
