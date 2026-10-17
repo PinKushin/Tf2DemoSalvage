@@ -1,10 +1,13 @@
+using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 
 using Tf2DemoSalvage.Core.Scene;
-using Tf2DemoSalvage.Presentation;
 using Tf2DemoSalvage.Core.Tests;
+using Tf2DemoSalvage.Presentation;
 
 namespace Tf2DemoSalvage.Presentation.Tests;
 
@@ -24,20 +27,22 @@ public sealed class WindowCacheTests
         WindowCache.SpacingTicks(secondsPerTick).ShouldBe(expected);
 
     /// <summary>A player moving every other tick for 600 ticks — five checkpoints at 133.</summary>
-    private static byte[] Walk() =>
+    internal static byte[] Walk() =>
         SyntheticPlayer.DemoOverTicks(0.015f, [.. Enumerable.Range(0, 300).Select(step => (10 + (step * 2), step * 3f, (step % 5) * 1.5f))]);
 
+    private static readonly Lazy<DemoTimeline> Small = new(() => DemoTimeline.Build(Walk()));
+
     /// <remarks>
-    /// **A seek anywhere answers as the whole timeline does**, every question at every tick, through the window the cache
-    /// serves there; and serving one sets the next building, so it is held before it is asked for.
+    /// **A seek anywhere answers as the whole timeline does**, every question at every seventh tick, through the window the
+    /// cache serves there; and serving the first window holds it and the next, nothing more.
     /// </remarks>
     [Test]
-    public async Task At_EveryTick_AnswersAsTheWholeTimelineAndHoldsTheNext()
+    public async Task At_EverySeventhTick_AnswersAsTheWholeTimelineAndHoldsTheNext()
     {
         byte[] demo = Walk();
         DemoTimeline whole = DemoTimeline.Build(demo);
         WindowSettings settings = new();
-        WindowCache cache = WindowCache.Walk(demo, settings).ShouldNotBeNull();
+        using WindowCache cache = WindowCache.Walk(demo, 0.015, settings, out _).ShouldNotBeNull();
         cache.Count.ShouldBeGreaterThan(3);
         List<string> differing = [];
         long values = 0;
@@ -53,29 +58,112 @@ public sealed class WindowCacheTests
         differing.ShouldBeEmpty();
         values.ShouldBeGreaterThan(1000);
 
-        // The prefetch: serving the first window holds the second, and nothing past it.
+        // The prefetch: once the served window is built, the next is set building, and nothing past it.
         await cache.At(whole.FirstTick).ConfigureAwait(false);
-        cache.Held.ShouldBe(2);
+        SpinWait.SpinUntil(() => cache.Held.Count == 2, TimeSpan.FromSeconds(10)).ShouldBeTrue();
+        cache.Held.Order().ShouldBe([0, 1]);
+    }
+
+    /// <summary>A builder over four checkpoints that waits for its token and records what it was asked and what it saw.</summary>
+    private sealed class Builds
+    {
+        public ConcurrentBag<(int Start, int Through)> Asked { get; } = [];
+
+        public ConcurrentBag<int> Cancelled { get; } = [];
+
+        public DemoTimeline Build(int start, int through, CancellationToken cancel)
+        {
+            Asked.Add((start, through));
+
+            // Held until cancelled, as a long decode is, so an eviction's cancel is what ends it.
+            if (cancel.WaitHandle.WaitOne(TimeSpan.FromSeconds(10)))
+            {
+                Cancelled.Add(start);
+                cancel.ThrowIfCancellationRequested();
+            }
+
+            return Small.Value;
+        }
     }
 
     /// <remarks>
-    /// **Two threads, one checkpoint**: eight windows of one span built at once all answer as the whole timeline does, and
-    /// the checkpoint they resumed is left unchanged — the case the prefetch makes, and where the frozen bags' read cache
-    /// is shared.
+    /// **Latest wins, nothing queues** (the owner, 2026-10-17): four seeks in quick succession — to 50, 150, 250, 350, each
+    /// overtaking a build still running — leave one build in flight, the last target's; the other three are cancelled
+    /// mid-build and none completes; and no prefetch starts while the last is still building.
     /// </remarks>
     [Test]
-    public async Task Window_EightAtOnceFromOneCheckpoint_AllAnswerAsTheWholeAndLeaveItUnchanged()
+    public async Task At_FourSeeksInQuickSuccession_BuildOnlyTheLastTarget()
     {
-        byte[] demo = Walk();
-        DemoTimeline whole = DemoTimeline.Build(demo);
-        WindowSettings settings = new();
-        TimelineWindows walk = TimelineWindows.Walk(demo, WindowCache.SpacingTicks(0.015), settings).ShouldNotBeNull();
-        int start = walk.Ticks[2];
-        int through = walk.Ticks[3] - 1;
+        Builds builds = new();
+        using WindowCache cache = new([0, 100, 200, 300, 400], builds.Build);
+        List<Task<DemoTimeline>> overtaken = [];
 
-        DemoTimeline[] windows = await Task.WhenAll(Enumerable.Range(0, 8).Select(_ => Task.Run(() => walk.Window(start, through)))).ConfigureAwait(false);
+        foreach (int tick in new[] { 50, 150, 250 })
+        {
+            overtaken.Add(cache.At(tick));
 
-        windows.Select(window => WindowEquivalence.Compare(whole, window, start + 40.5, settings).Differing.Count).ShouldAllBe(count => count == 0);
-        walk.WindowsLeaveCheckpointUnchanged(2).ShouldBeTrue();
+            // Each build running before the next seek, so each is cancelled mid-build rather than before it starts.
+            int asked = overtaken.Count;
+            SpinWait.SpinUntil(() => builds.Asked.Count == asked, TimeSpan.FromSeconds(10)).ShouldBeTrue();
+        }
+
+        Task<DemoTimeline> last = cache.At(350);
+
+        foreach (Task<DemoTimeline> lost in overtaken)
+        {
+            await Should.ThrowAsync<OperationCanceledException>(lost).ConfigureAwait(false);
+        }
+
+        SpinWait.SpinUntil(() => builds.Cancelled.Count == 3, TimeSpan.FromSeconds(10)).ShouldBeTrue();
+        SpinWait.SpinUntil(() => builds.Asked.Count == 4, TimeSpan.FromSeconds(10)).ShouldBeTrue();
+        builds.Cancelled.Order().ShouldBe([0, 100, 200]);
+        cache.Held.ShouldBe([3]);
+        (last.IsCompleted, builds.Asked.Count).ShouldBe((false, 4));
+    }
+
+    /// <remarks>**The last window reaches the end of the demo and has no next**: one window held, asked through the end.</remarks>
+    [Test]
+    public void At_TheLastCheckpoint_HoldsOnlyItThroughTheEnd()
+    {
+        Builds builds = new();
+        using WindowCache cache = new([0, 100, 200, 300], builds.Build);
+
+        cache.At(350);
+
+        cache.Held.ShouldBe([3]);
+        SpinWait.SpinUntil(() => !builds.Asked.IsEmpty, TimeSpan.FromSeconds(10)).ShouldBeTrue();
+        builds.Asked.ShouldBe([(300, int.MaxValue - 1)]);
+    }
+
+    /// <remarks>
+    /// **Before the first checkpoint, the first window answers**: a tick of −10 asks for 0 through 99, and nothing else
+    /// while that build runs.
+    /// </remarks>
+    [Test]
+    public void At_ATickBeforeTheFirstCheckpoint_ServesTheFirstWindow()
+    {
+        Builds builds = new();
+        using WindowCache cache = new([0, 100, 200, 300], builds.Build);
+
+        cache.At(-10);
+
+        SpinWait.SpinUntil(() => !builds.Asked.IsEmpty, TimeSpan.FromSeconds(10)).ShouldBeTrue();
+        cache.Held.ShouldBe([0]);
+        builds.Asked.ShouldBe([(0, 99)]);
+    }
+
+    /// <remarks>**A faulted window is never served again**: the first build throws; asked again, the cache builds afresh.</remarks>
+    [Test]
+    public async Task At_AfterAFaultedWindow_BuildsItAgain()
+    {
+        int calls = 0;
+        using WindowCache cache = new(
+            [0],
+            (_, _, _) => Interlocked.Increment(ref calls) == 1 ? throw new InvalidOperationException("broken") : Small.Value);
+
+        await Should.ThrowAsync<InvalidOperationException>(cache.At(5)).ConfigureAwait(false);
+        DemoTimeline second = await cache.At(5).ConfigureAwait(false);
+
+        (second, calls).ShouldBe((Small.Value, 2));
     }
 }

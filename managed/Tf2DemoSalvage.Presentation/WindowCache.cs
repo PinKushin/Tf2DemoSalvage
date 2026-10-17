@@ -18,22 +18,36 @@ namespace Tf2DemoSalvage.Presentation;
 /// the one place two threads use the walk at once — a window writes nothing it shares, and a frozen property bag's read
 /// cache publishes by compare-and-swap.
 ///
+/// **Latest wins: at most the target's window and, once it is built, the next are held; every other is CANCELLED**, so a
+/// scrub that crosses many windows builds only where it ends (the owner's rule, <see cref="At"/>). A window that faulted
+/// or was cancelled is dropped, and the next ask builds it again. Nothing here waits: a caller shows what it has until the
+/// window is ready.
+///
 /// **The first production caller of the decided spacing** (the owner's 2 s, <see cref="TimelineWindows.SpacingSeconds"/>),
 /// through <see cref="SpacingTicks"/>, which owns the conversion.
 /// </remarks>
-public sealed class WindowCache
+public sealed class WindowCache : IDisposable
 {
-    private readonly TimelineWindows _walk;
+    private readonly IReadOnlyList<int> _starts;
+
+    private readonly Func<int, int, CancellationToken, DemoTimeline> _build;
 
     private readonly Lock _gate = new();
 
-    /// <summary>Windows built or being built, by the checkpoint index they start at; at most the served one and the next.</summary>
-    private readonly Dictionary<int, Task<DemoTimeline>> _windows = [];
+    /// <summary>Windows built or being built, by the checkpoint index they start at, each with what cancels it.</summary>
+    private readonly Dictionary<int, (Task<DemoTimeline> Window, CancellationTokenSource Cancel)> _windows = [];
 
-    private WindowCache(TimelineWindows walk) => _walk = walk;
+    /// <summary>A cache over checkpoint ticks and a window builder: the walk's in production, any for a test.</summary>
+    /// <param name="starts">The checkpoint ticks, in order.</param>
+    /// <param name="build">Builds the window from one tick through another.</param>
+    internal WindowCache(IReadOnlyList<int> starts, Func<int, int, CancellationToken, DemoTimeline> build)
+    {
+        _starts = starts;
+        _build = build;
+    }
 
     /// <summary>The checkpoint spacing in ticks at a tick interval: the seconds TRUNCATED to whole ticks.</summary>
-    /// <param name="secondsPerTick">The demo's interval, TF2's 0.015 s unless its server info says otherwise.</param>
+    /// <param name="secondsPerTick">The demo's own interval, from its server info.</param>
     /// <returns>The ticks between checkpoints, at least one.</returns>
     /// <remarks>
     /// **Truncated, so checkpoints are never further apart than the owner's 2 s**: at 15 ms that is 133.33 ticks, so
@@ -44,69 +58,137 @@ public sealed class WindowCache
 
     /// <summary>Walks a demo into checkpoints at the decided spacing. Seconds to minutes of work: call it off the UI thread.</summary>
     /// <param name="file">The whole demo file.</param>
+    /// <param name="secondsPerTick">The demo's own tick interval.</param>
     /// <param name="settings">The viewer's window settings, which bound what each checkpoint keeps (D220).</param>
+    /// <param name="walk">The walk, for what it keeps; null for a demo with no data tables.</param>
     /// <returns>The cache, or null for a demo with no data tables.</returns>
-    public static WindowCache? Walk(ReadOnlyMemory<byte> file, WindowSettings settings)
+    public static WindowCache? Walk(ReadOnlyMemory<byte> file, double secondsPerTick, WindowSettings settings, out TimelineWindows? walk)
     {
         ArgumentNullException.ThrowIfNull(settings);
 
-        return TimelineWindows.Walk(file, SpacingTicks(ScenePropTrack.Tf2TickInterval), settings) is { } walked
-            ? new WindowCache(walked)
-            : null;
+        walk = TimelineWindows.Walk(file, SpacingTicks(secondsPerTick), settings);
+        TimelineWindows? walked = walk;
+
+        return walked is null ? null : new WindowCache(walked.Ticks, (tick, through, cancel) => walked.Window(tick, through, cancel));
     }
 
     /// <summary>How many checkpoints the walk took.</summary>
-    public int Count => _walk.Count;
+    public int Count => _starts.Count;
 
-    /// <summary>The window answering a moment, and the one after it set building on a worker.</summary>
-    /// <param name="tick">The moment.</param>
-    /// <returns>The window, once built.</returns>
+    /// <summary>The checkpoint indices of the windows held, served or prefetched.</summary>
+    internal IReadOnlyCollection<int> Held
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return [.. _windows.Keys];
+            }
+        }
+    }
+
+    /// <summary>The window answering a moment; once it is built, and no newer seek has come, the next is prefetched.</summary>
+    /// <param name="tick">The moment; before the first checkpoint, the first window answers.</param>
+    /// <returns>The window, once built — cancelled if a newer seek overtakes it.</returns>
+    /// <remarks>
+    /// **Latest wins, nothing queues** — the owner, 2026-10-17: *"builds probably chouldnt qeue at all? when people scrub
+    /// they care about where they end up, not what they hit before"*. Every held window but the target is dropped and its
+    /// build cancelled, the prefetch included; the prefetch starts only after the target's window is built, and only if
+    /// this is still the latest seek. A window already built for the target is served as it is.
+    /// </remarks>
     public Task<DemoTimeline> At(double tick)
     {
-        int index = _walk.IndexAt(tick);
+        int index = Math.Max(0, LastAtOrBefore(tick));
 
         lock (_gate)
         {
-            // Only the served window and the next are kept: a seek elsewhere drops the rest.
-            foreach (int stale in _windows.Keys.Where(key => key != index && key != index + 1).ToList())
+            int seek = ++_seeks;
+
+            foreach (int stale in _windows.Keys.Where(key => key != index).ToList())
             {
-                _windows.Remove(stale);
+                Drop(stale);
             }
 
             Task<DemoTimeline> served = Ensure(index);
 
-            if (index + 1 < _walk.Count)
+            if (index + 1 < _starts.Count)
             {
-                Ensure(index + 1);
+                served.ContinueWith(
+                    built =>
+                    {
+                        lock (_gate)
+                        {
+                            // Only behind the latest seek's finished window: a newer seek has its own build to finish first.
+                            if (built.IsCompletedSuccessfully && seek == _seeks && _windows.ContainsKey(index))
+                            {
+                                Ensure(index + 1);
+                            }
+                        }
+                    },
+                    CancellationToken.None,
+                    TaskContinuationOptions.ExecuteSynchronously,
+                    TaskScheduler.Default);
             }
 
             return served;
         }
     }
 
-    /// <summary>How many windows are held, served or prefetched: two once a window with one after it is served.</summary>
-    public int Held
+    /// <summary>How many seeks have been asked; the prefetch belongs only to the latest.</summary>
+    private int _seeks;
+
+    /// <inheritdoc/>
+    public void Dispose()
     {
-        get
+        lock (_gate)
         {
-            lock (_gate)
+            foreach (int held in _windows.Keys.ToList())
             {
-                return _windows.Count;
+                Drop(held);
             }
         }
     }
 
-    private Task<DemoTimeline> Ensure(int index)
+    private int LastAtOrBefore(double tick)
     {
-        if (!_windows.TryGetValue(index, out Task<DemoTimeline>? window))
-        {
-            int start = _walk.Ticks[index];
-            int through = index + 1 < _walk.Count ? _walk.Ticks[index + 1] - 1 : int.MaxValue - 1;
+        int found = -1;
 
-            window = Task.Run(() => _walk.Window(start, through));
-            _windows[index] = window;
+        for (int index = 0; index < _starts.Count && _starts[index] <= tick; index++)
+        {
+            found = index;
         }
 
-        return window;
+        return found;
+    }
+
+    private void Drop(int index)
+    {
+        (_, CancellationTokenSource cancel) = _windows[index];
+        _windows.Remove(index);
+        cancel.Cancel();
+        cancel.Dispose();
+    }
+
+    private Task<DemoTimeline> Ensure(int index)
+    {
+        // A window that faulted or was cancelled is never served again: the ask builds it afresh.
+        if (_windows.TryGetValue(index, out (Task<DemoTimeline> Window, CancellationTokenSource Cancel) held)
+            && (held.Window.IsFaulted || held.Window.IsCanceled))
+        {
+            Drop(index);
+        }
+
+        if (!_windows.TryGetValue(index, out held))
+        {
+            int start = _starts[index];
+            int through = index + 1 < _starts.Count ? _starts[index + 1] - 1 : int.MaxValue - 1;
+            CancellationTokenSource cancel = new();
+            CancellationToken token = cancel.Token;
+
+            held = (Task.Run(() => _build(start, through, token), token), cancel);
+            _windows[index] = held;
+        }
+
+        return held.Window;
     }
 }

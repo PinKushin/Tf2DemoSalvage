@@ -701,7 +701,7 @@ public sealed partial class ViewerPresenter : IDisposable
         try
         {
             return Apply(DecodedDemo.Read(
-                path, _demoLog, interp: _settings.Interp, classes: _levels.Install(_maps.GameFolder).ClassAnimation));
+                path, _demoLog, interp: _settings.Interp, classes: _levels.Install(_maps.GameFolder).ClassAnimation, keepBytes: CheckWindows));
         }
         catch (Exception failure) when (failure is IOException or InvalidDataException)
         {
@@ -775,7 +775,7 @@ public sealed partial class ViewerPresenter : IDisposable
             DecodedDemo decoded = await Task
                 .Run(
                     () => DecodedDemo.Read(
-                        path, demoLog, progress.Report, interp, _levels.Install(_maps.GameFolder).ClassAnimation),
+                        path, demoLog, progress.Report, interp, _levels.Install(_maps.GameFolder).ClassAnimation, keepBytes: CheckWindows),
                     _shutdown)
                 .ConfigureAwait(false);
 
@@ -1006,9 +1006,9 @@ public sealed partial class ViewerPresenter : IDisposable
         _timeline = decoded.Timeline;
 
         // `--windows` (D217 step 4): the window cache walks beside the whole timeline and is checked on every seek.
-        _windowCheck = CheckWindows && decoded.Timeline is not null
-            ? WindowCheck.Start(decoded.Demo.Path, new Core.Scene.WindowSettings(_settings.Interp), _demoLog)
-            : null;
+        // The last demo's check stops first: its walk and its windows are cancelled.
+        _windowCheck?.Dispose();
+        _windowCheck = CheckWindows ? WindowCheck.For(decoded, new Core.Scene.WindowSettings(_settings.Interp), _demoLog) : null;
 
         _camera.DemoOpening(_spectateWho());
 
@@ -1122,6 +1122,7 @@ public sealed partial class ViewerPresenter : IDisposable
     {
         _demo = null;
         _timeline = null;
+        _windowCheck?.Dispose();
         _windowCheck = null;
 
         // **`DemoSystems.Open` with no timeline IS "close the demo", and calling it is what makes

@@ -2758,12 +2758,6 @@ public sealed class DemoTimeline
         /// <summary>The ticks the checkpoints were taken at, in order.</summary>
         public IEnumerable<int> Ticks => _checkpoints.Select(checkpoint => checkpoint.Tick);
 
-        /// <summary>The spacing between checkpoints, in seconds of demo time — the owner's, 2026-10-17 (D217 step 4).</summary>
-        /// <remarks>
-        /// **Two seconds**, the owner: *"go with 2 s"*, once part 3 had made the checkpoints small enough; the seek cost
-        /// and memory it was decided on are in DECISIONS D217, "Step 4 — checkpoint spacing is 2 s".
-        /// </remarks>
-        public const double SpacingSeconds = 2;
 
         /// <summary>
         /// Walks the demo with the reach <paramref name="settings"/> give every reader (D220), and walks again if the
@@ -2910,7 +2904,16 @@ public sealed class DemoTimeline
         /// <param name="tick">The first tick the window must answer.</param>
         /// <param name="through">The last tick it must answer.</param>
         /// <param name="spent">Where it spent its time, in milliseconds: copying the checkpoint, decoding forward, finishing.</param>
-        public DemoTimeline Window(int tick, int through, out (double Copy, double Decode, double Finish) spent)
+        public DemoTimeline Window(int tick, int through, out (double Copy, double Decode, double Finish) spent) =>
+            Window(tick, through, CancellationToken.None, out spent);
+
+        /// <inheritdoc cref="Window(int, int)"/>
+        /// <param name="tick">The first tick the window must answer.</param>
+        /// <param name="through">The last tick it must answer.</param>
+        /// <param name="cancel">Stops the decode between two commands; the window is then never finished.</param>
+        /// <param name="spent">Where it spent its time, in milliseconds.</param>
+        /// <exception cref="OperationCanceledException">Cancelled before the window was finished.</exception>
+        public DemoTimeline Window(int tick, int through, CancellationToken cancel, out (double Copy, double Decode, double Finish) spent)
         {
             int at = _checkpoints.FindLastIndex(checkpoint => checkpoint.Tick <= tick);
             (int command, _, Builder state) = _checkpoints[Math.Max(0, at)];
@@ -2926,7 +2929,9 @@ public sealed class DemoTimeline
                 end++;
             }
 
-            resumed.Run(_commands.Skip(command).Take(end - command));
+            // Checked between commands, so a scrub's abandoned window stops within one command of being cancelled.
+            resumed.Run(_commands.Skip(command).Take(end - command).TakeWhile(_ => !cancel.IsCancellationRequested));
+            cancel.ThrowIfCancellationRequested();
             long ran = Stopwatch.GetTimestamp();
             DemoTimeline window = resumed.Finish(_end);
             spent = (

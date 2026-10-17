@@ -25,7 +25,8 @@ public static class WindowEquivalence
 
         List<(string Question, object? Answer)> expected = TimelineAnswers.At(whole, tick, settings);
         List<(string Question, object? Answer)> actual = TimelineAnswers.At(window, tick, settings);
-        List<string> differing = [];
+        // Counted first: a window with an answer the whole has not, or one fewer, differs whatever the shared ones say.
+        List<string> differing = expected.Count == actual.Count ? [] : [$"answer count {actual.Count} against {expected.Count}"];
         long values = 0;
 
         for (int index = 0; index < expected.Count; index++)

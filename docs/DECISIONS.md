@@ -10438,7 +10438,7 @@ done. So it's not simple."* It comes after the copy work above, not before; not 
 ### Step 4 — checkpoint spacing is 2 s (2026-10-17)
 
 **Owner, 2026-10-17:** *"go with 2 s"*, once part 3 had shrunk what the checkpoints keep. The one owner of the number
-is `DemoTimeline.Checkpoints.SpacingSeconds`; the `timeline-windows` probe defaults to it. No production caller walks
+is `TimelineWindows.SpacingSeconds` (moved there from `Checkpoints` by the piece 1 review); the `timeline-windows` probe defaults to it. No production caller walks
 checkpoints yet (the window cache in Presentation is the next step), so this sets what that caller will use.
 
 **Seconds to ticks truncates**, in the probe that is the only caller: 2 s is 133.33 ticks at TF2's 15 ms, so a
@@ -10492,6 +10492,38 @@ a full-collection delta across the walk, so it includes what the viewer allocate
 1,573 MB. **Two findings for piece 2**: in a Debug viewer — what the owner runs (D176) — the walk had not finished on
 z1800 or f12 after several minutes, so the walk itself needs to be faster or incremental before windows replace the
 whole timeline; and the walk runs AFTER the whole build today, so a load pays both until piece 4 removes the first.
+
+**Latest wins, nothing queues — owner, 2026-10-17:** *"builds probably chouldnt qeue at all? when people scrub they care
+about where they end up, not what they hit before"*. It replaces the review's "add cancellation" with a stronger rule: a
+new seek drops every held window but its target and cancels its build (`Checkpoints.Window` stops between commands); the
+next window is prefetched only once the target's is built and only if no newer seek has come; the frame never waits, it
+shows what it has. Tested by four seeks in quick succession, each overtaking a running build: three cancelled mid-build,
+none completes, one in flight, no prefetch meanwhile — and keeping the stale windows reddens it.
+
+**Light and heavy — owner, 2026-10-17, and it CORRECTS the plan above:** *"that design kinda needed to be here from the
+beggining, but yes thats a decision, scub means nothing if it doesnt give youu live feedback really"*. A LIGHT layer stays
+whole in memory and scrubs live — what the demo states, with no simulation: positions and angles, animation sequence and
+cycle, pose parameters, health, class, alive or dead, the kill feed and the score — sized on f12 and rgl-pug to stay about
+the demo's order plus a little. A HEAVY layer — particles, corpses, sounds, dealt decals and decks, the HUD's built-up
+state — is built by windows only when the scrub stops, latest wins. While dragging the viewer draws the light layer; on
+release the window fills the heavy state in. **So piece 4 drops only the heavy part of the whole build, never the light
+one, and piece 2 becomes splitting the readers into light and heavy, the light layer its own type in Core** — planned
+first, with the reader inventory sorted, before it is built.
+
+**Refined the same day — owner, 2026-10-17:** *"the light layer doesnt neccasarily need to be kept in memory, but i know
+some of it does, but basicallly build our scrub as close to the best video editors scrub iff we can"*. So the light layer
+holds only what live scrubbing needs, modelled on the best editors' scrub (a small resident index, a proxy for the drag,
+a cache growing outward from the playhead with prefetch in the scrub direction, exact on release, frame-accurate
+stepping, shuttle); audio scrub is flagged, not built. The plan maps each technique before anything is built.
+
+**Review fixes to piece 1** (Sonnet): a faulted or cancelled walk or window parks the check with one warning instead of
+throwing every frame; a seek made during the walk is checked when the walk ends; the check is disposed — walk told to
+stop, windows cancelled — on close or a new demo; it reuses the bytes the load read (`DecodedDemo.Bytes`, kept only under
+`--windows`) and the demo's own tick interval; the memory it logs is the checkpoints' own `KeptBytes` (B243), not a
+forced-GC delta; it logs how long the UI-thread compare took; `WindowEquivalence` counts answers too; the Core surface is
+`TimelineWindows` with the test-only member internal and `SpacingSeconds` in one place. Tests added: the faulted walk, the
+faulted window, the seek during the walk, the last window, a tick before the first checkpoint, a faulted window rebuilt,
+cancellation in Core, and the two races released together by a barrier.
 
 ## D218 — TF2's volume ConVars, and the test suite launches the viewer silent (2026-10-14)
 

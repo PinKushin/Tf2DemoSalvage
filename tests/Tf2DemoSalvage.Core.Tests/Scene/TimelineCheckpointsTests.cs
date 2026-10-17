@@ -92,6 +92,53 @@ public sealed class TimelineCheckpointsTests
         whole.Where(entry => byOwners.GetValueOrDefault(entry.Key) < entry.Value.Elements).Select(entry => entry.Key.Name).ShouldBeEmpty();
     }
 
+    /// <remarks>
+    /// **Eight windows of one span, released together**: built at the same moment from one checkpoint (the prefetch's
+    /// case, where frozen bags' read caches are shared), every one answers as the whole timeline does and the checkpoint
+    /// is left unchanged.
+    /// </remarks>
+    [Test]
+    public void Window_EightReleasedTogetherFromOneCheckpoint_AllAnswerAsTheWholeAndLeaveItUnchanged()
+    {
+        byte[] demo = LongWalk();
+        DemoTimeline whole = DemoTimeline.Build(demo);
+        TimelineWindows walk = TimelineWindows.Walk(demo, Every, new WindowSettings()).ShouldNotBeNull();
+        int start = walk.Ticks[2];
+        int through = walk.Ticks[3] - 1;
+        DemoTimeline[] windows = new DemoTimeline[8];
+        using System.Threading.Barrier together = new(windows.Length);
+
+        System.Threading.Tasks.Task.WaitAll(
+        [
+            .. Enumerable.Range(0, windows.Length).Select(index => System.Threading.Tasks.Task.Factory.StartNew(
+                () =>
+                {
+                    together.SignalAndWait();
+                    windows[index] = walk.Window(start, through);
+                },
+                System.Threading.CancellationToken.None,
+                System.Threading.Tasks.TaskCreationOptions.LongRunning,
+                System.Threading.Tasks.TaskScheduler.Default)),
+        ]);
+
+        windows.Select(window => WindowEquivalence.Compare(whole, window, through - 0.5).Differing.Count).ShouldAllBe(count => count == 0);
+        walk.WindowsLeaveCheckpointUnchanged(2).ShouldBeTrue();
+    }
+
+    /// <remarks>
+    /// **A window cancelled before it is finished throws, and is never handed out**: the token set before the build, the
+    /// decode stops at its first command.
+    /// </remarks>
+    [Test]
+    public void Window_CancelledBeforeItIsBuilt_Throws()
+    {
+        TimelineWindows walk = TimelineWindows.Walk(LongWalk(), Every, new WindowSettings()).ShouldNotBeNull();
+        using System.Threading.CancellationTokenSource cancel = new();
+        cancel.Cancel();
+
+        Should.Throw<OperationCanceledException>(() => walk.Window(walk.Ticks[1], walk.Ticks[2] - 1, cancel.Token));
+    }
+
     /// <summary>A player moving every other tick for 60 ticks: more history than a checkpoint keeps, so the trim bites.</summary>
     private static byte[] LongWalk() =>
         SyntheticPlayer.DemoOverTicks(0.015f, [.. Enumerable.Range(0, 30).Select(step => (10 + (step * 2), step * 3f, (step % 5) * 1.5f))]);

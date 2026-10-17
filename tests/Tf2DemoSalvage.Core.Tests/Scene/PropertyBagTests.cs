@@ -278,7 +278,22 @@ public sealed class PropertyBagTests
         string expected = Describe(reference);
 
         string[] seen = new string[16];
-        System.Threading.Tasks.Parallel.For(0, seen.Length, thread => seen[thread] = Describe(bag));
+        using System.Threading.Barrier start = new(seen.Length);
+
+        // Every reader released at once, so the first reads of each chunk really race to fill the cache.
+        System.Threading.Tasks.Task[] readers =
+        [
+            .. Enumerable.Range(0, seen.Length).Select(thread => System.Threading.Tasks.Task.Factory.StartNew(
+                () =>
+                {
+                    start.SignalAndWait();
+                    seen[thread] = Describe(bag);
+                },
+                System.Threading.CancellationToken.None,
+                System.Threading.Tasks.TaskCreationOptions.LongRunning,
+                System.Threading.Tasks.TaskScheduler.Default)),
+        ];
+        System.Threading.Tasks.Task.WaitAll(readers);
 
         seen.ShouldAllBe(described => described == expected);
     }
