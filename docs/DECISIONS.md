@@ -10375,7 +10375,43 @@ only if the change is lossless for what the HUD feed reads.
 
 1. **Decoded property lists without their definitions.** Every property a class decodes carried `flat[Index]` by value,
    most of its bytes. `DecodedProperties` given the class's flattened list keeps the rest and reads the definition back;
-   a property whose definition is not the list's own keeps the list whole, so reads are exactly what was stored. What the next step is for: what each
+   a property whose definition is not the list's own keeps the list whole, so reads are exactly what was stored.
+   rgl-pug: baseline slots 812 → 311 MB, heap kept 2,628 → 2,127 MB. f12 783 → 781 (its slots were small).
+2. **A frozen property bag is packed.** `PropertyValue.Pack` keeps a value in 24 bytes (the integer and the first two
+   floats share one long, the string and the array one reference) and `Unpack` gives back the value field for field;
+   a thawed bag reads unwritten chunks from the frozen form, unpacked once per bag. rgl-pug 2,127 → 2,029 MB.
+3. **One string per property key.** The key `Table.Prop` was built per write and every entity kept its own copy of
+   every key — 254 MB of strings on rgl-pug. `PropertyKeys.Of` interns it. rgl-pug 2,029 → 1,768 MB.
+4. **The baseline slots' compact record packs its value too.** With (5) below, rgl-pug 1,768 → 1,513 MB.
+5. **A cleared bag keeps its key map and hides the keys**: a re-entered entity sent its keys in the same order re-uses
+   the map; one out of order gets a map of its own with exactly its visible keys, in order. Key maps were 210 MB of
+   rgl-pug's entity table.
+6. **Output lists chunk by 64, not 1,024.** A checkpoint keeps a trimmed tail of a few dozen elements per output list,
+   but a copy copies whole chunks, so a 1,024-slot tail chunk was mostly empty slots. The largest single step:
+   **f12 719 → 407 MB, rgl-pug 1,513 → 1,061 MB.**
+
+Tried and dropped, with the number that killed it: property-bag chunks of 8 instead of 32 saved 15 MB of rgl-pug's
+1,514 — an entity written between two checkpoints writes most of its chunks, so smaller chunks only add headers.
+Frames were left alone except for (6), which changes their storage and not one value: what the HUD feed reads is the
+same frames, and every window answered IDENTICAL.
+
+| demo, 5 s | heap kept, before part 3 | after | window ms (copy + decode) after |
+|---|---:|---:|---:|
+| f12 | 783 MB | **408 MB** | 590 (78 + 509), machine loaded: walk 326 s against 188 s earlier |
+| rgl-pug | 2,628 MB | **1,061 MB** | 426 (76 + 347) |
+
+| demo, 2 s | heap kept, part 2 | after part 3 | window ms (copy + decode) |
+|---|---:|---:|---:|
+| f12 | 1,505 MB | **681 MB** | **234** (62 + 170) |
+| rgl-pug | 3,996 MB | **1,571 MB** | **227** (73 + 152) |
+
+Every step: 0 of 120 seeks differ on both demos, the digest control unchanged, the census controls green; the f12
+fingerprint is unchanged at the end. At 2 s the checkpoints now keep less than they did at 5 s before part 3. **Decode
+is the caveat**: it has read higher through part 3 (f12 317 → 509, rgl-pug 249 → 347 ms at 5 s), on a machine whose
+walk time also rose by as much, so it is not settled whether unpacking costs decode time; measure it on a quiet machine
+before deciding spacing. Next candidates by the instrument: the tracks' five parallel history lists per history (one
+list of a struct would save about 30 MB on rgl-pug), and the packed bag chunks themselves (202 MB), which are what
+written entities change between checkpoints. What the next step is for: what each
 checkpoint still holds beyond the one before — tracks and props are now most of a resume (11.6 + 9.2 MB on f12).
 
 **The order after these two steps — the viewer half, decided by the owner the same day: a backward seek must NOT
