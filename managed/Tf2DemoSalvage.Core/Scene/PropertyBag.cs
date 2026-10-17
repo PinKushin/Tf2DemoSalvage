@@ -20,6 +20,11 @@ namespace Tf2DemoSalvage.Core.Scene;
 /// **Enumeration order is the old dictionary's — insertion order, restarted by <see cref="Clear"/>** — because the slot
 /// map IS a dictionary keyed the same way and filled in the same order, and several readers take the first key that
 /// matches a pattern.
+///
+/// **A clear keeps the map and hides its keys** (D217 step 4, part 3): only the first <see cref="_count"/> slots are the
+/// bag's, so an entity that re-enters and is sent its keys in the same order as before re-uses its map rather than
+/// building another — slot maps were 210 MB of what rgl-pug's checkpoints kept of the entity table. A key that arrives
+/// out of that order makes the bag a map of its own, holding exactly its visible keys in their order.
 /// </remarks>
 internal sealed class PropertyBag : IReadOnlyDictionary<string, PropertyValue>
 {
@@ -35,9 +40,12 @@ internal sealed class PropertyBag : IReadOnlyDictionary<string, PropertyValue>
     /// **Packed** (D217 step 4, part 3): a frozen slot is a <see cref="PropertyValue.Packed"/> and its sequence, 32 bytes
     /// against 48, because the entity table was the largest thing rgl-pug's checkpoints kept (789 MB). A read unpacks.
     /// </remarks>
-    internal sealed class Frozen(Dictionary<string, int> slots, (PropertyValue.Packed Value, long Sequence)[][] chunks)
+    internal sealed class Frozen(Dictionary<string, int> slots, int count, (PropertyValue.Packed Value, long Sequence)[][] chunks)
     {
         public Dictionary<string, int> Slots { get; } = slots;
+
+        /// <summary>How many of the map's slots, in order, are the bag's.</summary>
+        public int Count { get; } = count;
 
         public (PropertyValue.Packed Value, long Sequence)[][] Chunks { get; } = chunks;
     }
@@ -53,6 +61,9 @@ internal sealed class PropertyBag : IReadOnlyDictionary<string, PropertyValue>
     private Frozen? _base;
 
     private Dictionary<string, int>? _slots = new(StringComparer.Ordinal);
+
+    /// <summary>While thawed, how many of <see cref="_slots"/>'s slots, in order, are the bag's.</summary>
+    private int _count;
 
     /// <summary>The writable chunks; null for one still read from <see cref="_base"/>.</summary>
     private List<(PropertyValue Value, long Sequence)[]?>? _chunks = [];
@@ -71,17 +82,20 @@ internal sealed class PropertyBag : IReadOnlyDictionary<string, PropertyValue>
 
     private Dictionary<string, int> Slots => _frozen?.Slots ?? _slots!;
 
+    /// <summary>The key → slot map in use, by identity: what a re-entered entity re-uses (D217 step 4, part 3).</summary>
+    internal object SlotMap => Slots;
+
     /// <summary>Whether the bag is in its frozen, shared form.</summary>
     internal bool IsFrozen => _frozen is not null;
 
     /// <inheritdoc/>
-    public int Count => Slots.Count;
+    public int Count => _frozen?.Count ?? _count;
 
     /// <inheritdoc/>
-    public IEnumerable<string> Keys => Slots.Keys;
+    public IEnumerable<string> Keys => Slots.Keys.Take(Count);
 
     /// <inheritdoc/>
-    public IEnumerable<PropertyValue> Values => Slots.Values.Select(slot => Read(slot).Value);
+    public IEnumerable<PropertyValue> Values => Slots.Values.Take(Count).Select(slot => Read(slot).Value);
 
     /// <summary>Makes the contents immutable and shareable; a no-op when nothing was written since the last freeze.</summary>
     /// <remarks>
@@ -102,7 +116,7 @@ internal sealed class PropertyBag : IReadOnlyDictionary<string, PropertyValue>
             packed[chunk] = _chunks[chunk] is { } written ? Pack(written) : _base!.Chunks[chunk];
         }
 
-        _frozen = new Frozen(_slots!, packed);
+        _frozen = new Frozen(_slots!, _count, packed);
         _base = null;
         _slots = null;
         _chunks = null;
@@ -120,6 +134,7 @@ internal sealed class PropertyBag : IReadOnlyDictionary<string, PropertyValue>
         }
 
         _slots = _frozen.Slots;
+        _count = _frozen.Count;
         _ownsSlots = false;
         _chunks = [.. new (PropertyValue, long)[]?[_frozen.Chunks.Length]];
         _owned = null;
@@ -165,6 +180,9 @@ internal sealed class PropertyBag : IReadOnlyDictionary<string, PropertyValue>
         _owned[chunk] = true;
     }
 
+    /// <summary>The slot a key holds in the bag, or −1: a key the map holds past the visible count is not the bag's.</summary>
+    private int SlotOf(string key) => Slots.TryGetValue(key, out int slot) && slot < Count ? slot : -1;
+
     /// <inheritdoc/>
     public PropertyValue this[string key] =>
         TryGetValue(key, out PropertyValue value) ? value : throw new KeyNotFoundException(key);
@@ -177,18 +195,11 @@ internal sealed class PropertyBag : IReadOnlyDictionary<string, PropertyValue>
     {
         Thaw();
 
-        if (!_slots!.TryGetValue(key, out int slot))
-        {
-            if (!_ownsSlots)
-            {
-                // Copied in insertion order: nothing is ever removed from a slot map, only cleared. An enumeration of
-                // Keys in progress goes on over the old map rather than throwing, which no caller relies on either way.
-                _slots = new Dictionary<string, int>(_slots, StringComparer.Ordinal);
-                _ownsSlots = true;
-            }
+        int slot = SlotOf(key);
 
-            slot = _slots.Count;
-            _slots.Add(key, slot);
+        if (slot < 0)
+        {
+            slot = Append(key);
 
             if ((slot >> ChunkBits) == _chunks!.Count)
             {
@@ -208,29 +219,65 @@ internal sealed class PropertyBag : IReadOnlyDictionary<string, PropertyValue>
         _chunks![chunk]![slot & (ChunkSize - 1)] = (value, sequence);
     }
 
+    /// <summary>Makes a new key the next visible slot: the map's own next key when it is this one, else a map of its own.</summary>
+    private int Append(string key)
+    {
+        if (_slots!.TryGetValue(key, out int held) && held == _count)
+        {
+            // The same key in the same place as before the clear: the map already says so.
+            return _count++;
+        }
+
+        if (!_ownsSlots || _slots.Count != _count)
+        {
+            // Copied in insertion order, visible keys only: nothing is ever removed from a slot map, only hidden. An
+            // enumeration of Keys in progress goes on over the old map rather than throwing, which no caller relies on.
+            Dictionary<string, int> own = new(_count + 1, StringComparer.Ordinal);
+
+            foreach ((string visible, int at) in _slots.Take(_count))
+            {
+                own.Add(visible, at);
+            }
+
+            _slots = own;
+            _ownsSlots = true;
+        }
+
+        _slots.Add(key, _count);
+        return _count++;
+    }
+
     /// <summary>When a key was last written, or −1 when it never was.</summary>
     /// <param name="key">The property's key.</param>
     /// <returns>The sequence number.</returns>
-    public long Sequence(string key) => Slots.TryGetValue(key, out int slot) ? Read(slot).Sequence : -1;
+    public long Sequence(string key) => SlotOf(key) is >= 0 and int slot ? Read(slot).Sequence : -1;
 
     /// <summary>Forgets every property; enumeration restarts from the next write, as the dictionary's did.</summary>
+    /// <remarks>The map is kept, its keys hidden, for an entity sent the same keys in the same order again.</remarks>
     public void Clear()
     {
+        if (_frozen is not null)
+        {
+            _slots = _frozen.Slots;
+            _ownsSlots = false;
+        }
+
         _frozen = null;
         _base = null;
-        _slots = new(StringComparer.Ordinal);
-        _ownsSlots = true;
+        _count = 0;
         _chunks = [];
         _owned = [];
     }
 
     /// <inheritdoc/>
-    public bool ContainsKey(string key) => Slots.ContainsKey(key);
+    public bool ContainsKey(string key) => SlotOf(key) >= 0;
 
     /// <inheritdoc/>
     public bool TryGetValue(string key, [MaybeNullWhen(false)] out PropertyValue value)
     {
-        if (Slots.TryGetValue(key, out int slot))
+        int slot = SlotOf(key);
+
+        if (slot >= 0)
         {
             value = Read(slot).Value;
             return true;
@@ -243,7 +290,7 @@ internal sealed class PropertyBag : IReadOnlyDictionary<string, PropertyValue>
     /// <inheritdoc/>
     public IEnumerator<KeyValuePair<string, PropertyValue>> GetEnumerator()
     {
-        foreach ((string key, int slot) in Slots)
+        foreach ((string key, int slot) in Slots.Take(Count))
         {
             yield return new KeyValuePair<string, PropertyValue>(key, Read(slot).Value);
         }

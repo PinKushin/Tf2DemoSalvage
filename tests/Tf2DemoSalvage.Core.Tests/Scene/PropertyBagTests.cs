@@ -156,6 +156,50 @@ public sealed class PropertyBagTests
         Describe(checkpoint).ShouldBe(frozen);
     }
 
+    /// <remarks>
+    /// **A clear then the same keys in the same order re-uses the map** (D217 step 4, part 3): the second checkpoint of a
+    /// re-entered entity holds the same key map as before, and reads as freshly written.
+    /// </remarks>
+    [Test]
+    public void Clear_ThenTheSameKeysInOrder_KeepsTheMap()
+    {
+        PropertyBag bag = Filled();
+        bag.Freeze();
+        object before = bag.SlotMap;
+
+        bag.Clear();
+        bag.Set("k0", PropertyValue.FromInt(10), 400);
+        bag.Set("k1", PropertyValue.FromInt(11), 401);
+        bag.Freeze();
+        PropertyBag later = StateCopy.Of(bag, new HashSet<object>());
+
+        bag.SlotMap.ShouldBeSameAs(before);
+        Describe(later).ShouldBe("k0=Int:10@400;k1=Int:11@401");
+        (later.Count, later.ContainsKey("k2"), later.Sequence("k2"), later.TryGetValue("name", out _)).ShouldBe((2, false, -1L, false));
+    }
+
+    /// <remarks>
+    /// **Out of the old order, the bag gets a map of its own** holding only its visible keys, in the new order — and the
+    /// map the earlier freeze shares is unchanged.
+    /// </remarks>
+    [Test]
+    public void Clear_ThenKeysOutOfTheOldOrder_EnumeratesTheNewOrder()
+    {
+        PropertyBag bag = Filled();
+        bag.Freeze();
+        string frozen = Describe(bag);
+        PropertyBag checkpoint = StateCopy.Of(bag, new HashSet<object>());
+
+        bag.Clear();
+        bag.Set("k0", PropertyValue.FromInt(10), 400);
+        bag.Set("k5", PropertyValue.FromInt(15), 401);
+        bag.Set("fresh", PropertyValue.FromInt(16), 402);
+
+        bag.Keys.ShouldBe(["k0", "k5", "fresh"]);
+        (bag.ContainsKey("k1"), bag["k5"].AsInt).ShouldBe((false, 15L));
+        Describe(checkpoint).ShouldBe(frozen);
+    }
+
     /// <remarks>**Clear after a freeze restarts the order on the bag alone**; the frozen form keeps every key.</remarks>
     [Test]
     public void Clear_AfterFreeze_ThenSet_RestartsOnlyTheBag()
