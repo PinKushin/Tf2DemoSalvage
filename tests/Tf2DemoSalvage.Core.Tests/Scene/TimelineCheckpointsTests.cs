@@ -126,6 +126,34 @@ public sealed class TimelineCheckpointsTests
     }
 
     /// <remarks>
+    /// **The comparison made a question at a time is the one made at once, and it can fail**: a window asked about a tick
+    /// far outside its span differs from the whole timeline, stepped one question per call through every question and
+    /// then done, the same questions both ways; the window asked inside its span does not differ.
+    /// </remarks>
+    [Test]
+    public void Step_AWindowAskedOutsideItsSpan_DiffersAsTheOneShotCompareDoes()
+    {
+        byte[] demo = LongWalk();
+        DemoTimeline whole = DemoTimeline.Build(demo);
+        TimelineWindows walk = TimelineWindows.Walk(demo, Every, new WindowSettings()).ShouldNotBeNull();
+        DemoTimeline early = walk.Window(walk.Ticks[1], walk.Ticks[2] - 1);
+        double late = whole.LastTick - 0.5;
+
+        WindowEquivalence stepped = WindowEquivalence.Start(whole, early, late);
+        int steps = 0;
+
+        while (!stepped.Step())
+        {
+            steps++;
+        }
+
+        stepped.Differing.ShouldNotBeEmpty();
+        stepped.Differing.ShouldBe(WindowEquivalence.Compare(whole, early, late).Differing);
+        (steps, stepped.Done).ShouldBe((25, true));
+        WindowEquivalence.Compare(whole, early, walk.Ticks[1] + 0.5).Differing.ShouldBeEmpty();
+    }
+
+    /// <remarks>
     /// **A window cancelled before it is finished throws, and is never handed out**: the token set before the build, the
     /// decode stops at its first command.
     /// </remarks>

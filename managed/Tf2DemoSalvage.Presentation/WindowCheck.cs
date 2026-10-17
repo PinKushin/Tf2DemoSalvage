@@ -173,14 +173,66 @@ public sealed class WindowCheck : IDisposable
                 return;
             }
 
-            Report(waiting.Window.Result, whole, waiting.Tick, Stopwatch.GetElapsedTime(waiting.Began));
+            // The window's answers on a worker — the window is this check's alone — and the whole timeline's one question
+            // per frame below, on this thread, which owns it: one comparison of a real match was a second on the UI thread.
+            DemoTimeline window = waiting.Window.Result;
+            double tick = waiting.Tick;
+            _comparing = new Comparing(
+                Task.Run(() => WindowEquivalence.Start(whole, window, tick, _settings), _closing.Token), tick, Stopwatch.GetElapsedTime(waiting.Began));
         }
+
+        StepComparison();
 
         // A skip since the last look, as every reader of the move asks (FrameSkip): the count, not the last move.
         if (skip is { } jumped && jumped.Skips != _seenSkips)
         {
             _seenSkips = jumped.Skips;
+            _comparing = null;
             _pending = (cache.At(jumped.Tick), jumped.Tick, Stopwatch.GetTimestamp());
+        }
+    }
+
+    /// <summary>A comparison being made a question per frame, and what it has cost the frames so far.</summary>
+    private sealed class Comparing(Task<WindowEquivalence> prepared, double tick, TimeSpan ready)
+    {
+        public Task<WindowEquivalence> Prepared { get; } = prepared;
+
+        public double Tick { get; } = tick;
+
+        public TimeSpan Ready { get; } = ready;
+
+        public TimeSpan Longest { get; set; }
+
+        public TimeSpan Total { get; set; }
+    }
+
+    private Comparing? _comparing;
+
+    private void StepComparison()
+    {
+        if (_comparing is not { Prepared.IsCompleted: true } comparing)
+        {
+            return;
+        }
+
+        if (!comparing.Prepared.IsCompletedSuccessfully)
+        {
+            _comparing = null;
+            Park($"the comparison for {comparing.Tick.ToString(CultureInfo.InvariantCulture)}", comparing.Prepared.Exception);
+            return;
+        }
+
+        long began = Stopwatch.GetTimestamp();
+        WindowEquivalence equivalence = comparing.Prepared.Result;
+        bool done = equivalence.Step();
+        TimeSpan step = Stopwatch.GetElapsedTime(began);
+        comparing.Total += step;
+        comparing.Longest = step > comparing.Longest ? step : comparing.Longest;
+
+        if (done)
+        {
+            _comparing = null;
+            Report(equivalence, comparing);
         }
     }
 
@@ -204,17 +256,16 @@ public sealed class WindowCheck : IDisposable
         _log.LogWarning(failure, "{Message}", $"windows: {what} failed; the check is off for this demo");
     }
 
-    private void Report(DemoTimeline window, DemoTimeline whole, double tick, TimeSpan ready)
+    private void Report(WindowEquivalence equivalence, Comparing comparing)
     {
-        long comparing = Stopwatch.GetTimestamp();
-        (IReadOnlyList<string> differing, long values) = WindowEquivalence.Compare(whole, window, tick, _settings);
-        TimeSpan compared = Stopwatch.GetElapsedTime(comparing);
+        IReadOnlyList<string> differing = equivalence.Differing;
         string verdict = differing.Count == 0 ? "IDENTICAL" : "DIFFERENT in " + string.Join(", ", differing);
 
         _log.LogInformation(
             "{Message}",
             string.Create(
                 CultureInfo.InvariantCulture,
-                $"windows: seek to {tick} ready in {ready.TotalMilliseconds:0} ms; compared {values} values in {compared.TotalMilliseconds:0} ms on the UI thread, {verdict}"));
+                $"windows: seek to {comparing.Tick} ready in {comparing.Ready.TotalMilliseconds:0} ms; compared {equivalence.Values} values, " +
+                $"{comparing.Total.TotalMilliseconds:0} ms of UI frames, the longest frame's share {comparing.Longest.TotalMilliseconds:0} ms, {verdict}"));
     }
 }

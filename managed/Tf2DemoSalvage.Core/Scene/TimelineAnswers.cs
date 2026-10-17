@@ -22,47 +22,51 @@ internal static class TimelineAnswers
     /// <param name="settings">The settings the windows were walked under, whose feed span the replayed events fall in;
     /// the defaults when not given.</param>
     /// <returns>A list of named answers.</returns>
-    public static List<(string Question, object? Answer)> At(DemoTimeline timeline, double tick, WindowSettings? settings = null)
+    public static List<(string Question, object? Answer)> At(DemoTimeline timeline, double tick, WindowSettings? settings = null) =>
+        [.. Each(timeline, tick, settings)];
+
+    /// <summary>The same answers, each computed only when it is asked for — so a caller can spread them over frames.</summary>
+    /// <param name="timeline">The timeline asked.</param>
+    /// <param name="tick">The moment.</param>
+    /// <param name="settings">As <see cref="At"/>.</param>
+    /// <returns>The named answers, in <see cref="At"/>'s order.</returns>
+    public static IEnumerable<(string Question, object? Answer)> Each(DemoTimeline timeline, double tick, WindowSettings? settings = null)
     {
         int whole = (int)System.Math.Floor(tick);
 
+        // The two samplings first, in the order the whole list always made them: the sampler keeps state between calls.
         List<ScenePlayer> players = [];
         timeline.PlayersAt(tick, players);
 
         List<SceneProp> props = [];
         timeline.PropsAt(tick, props);
 
-        List<(string, object?)> answers =
-        [
-            ("players", players),
-            ("frame players", timeline.PlayersAt(whole)),
-            ("props", props.OrderBy(prop => prop.EntityIndex).ToList()),
-            ("tracks", Tracks(timeline, tick)),
-            ("soundscape", timeline.SoundscapeAt(whole)),
-            ("fog", timeline.FogAt(whole)),
-            ("sky fog", timeline.SkyFogAt(whole)),
-            ("director", timeline.DirectorAt(whole)),
-            ("recorded view", timeline.RecordedViewAt(whole)),
-            ("convars", timeline.ServerConVarsAt(whole)),
-            ("spectator gui", timeline.SpectatorGuiShownAt(whole)),
-            ("round state", timeline.RoundStateAt(tick)),
-            ("rules", timeline.RulesAt(whole)),
-            ("round timers", timeline.RoundTimersAt(whole)),
-            ("buildings", timeline.BuildingsAt(whole)),
-            ("teams", timeline.TeamsAt(whole)),
-            ("scoreboard", timeline.ScoreboardPlayersAt(whole)),
-            ("id entities", timeline.IdEntitiesAt(whole)),
-            ("recorder team", timeline.RecorderTeamAt(whole)),
-            ("server tick", timeline.ServerTickAt(whole)),
-            ("viewmodels", players.Select(player => (timeline.ViewmodelAt(whole, player.EntityIndex),
-                timeline.OffHandViewmodelAt(whole, player.EntityIndex))).ToList()),
-            ("sounds", timeline.Sounds.Where(sound => sound.Tick == whole).ToList()),
-            ("events", timeline.GameEvents.Where(fired => fired.Tick == whole).ToList()),
-            ("messages", timeline.UserMessages.Where(message => message.Tick == whole).ToList()),
-            ("events' world", EventsWorld(timeline, whole, settings ?? new WindowSettings())),
-        ];
-
-        return answers;
+        yield return ("players", players);
+        yield return ("frame players", timeline.PlayersAt(whole));
+        yield return ("props", props.OrderBy(prop => prop.EntityIndex).ToList());
+        yield return ("tracks", Tracks(timeline, tick));
+        yield return ("soundscape", timeline.SoundscapeAt(whole));
+        yield return ("fog", timeline.FogAt(whole));
+        yield return ("sky fog", timeline.SkyFogAt(whole));
+        yield return ("director", timeline.DirectorAt(whole));
+        yield return ("recorded view", timeline.RecordedViewAt(whole));
+        yield return ("convars", timeline.ServerConVarsAt(whole));
+        yield return ("spectator gui", timeline.SpectatorGuiShownAt(whole));
+        yield return ("round state", timeline.RoundStateAt(tick));
+        yield return ("rules", timeline.RulesAt(whole));
+        yield return ("round timers", timeline.RoundTimersAt(whole));
+        yield return ("buildings", timeline.BuildingsAt(whole));
+        yield return ("teams", timeline.TeamsAt(whole));
+        yield return ("scoreboard", timeline.ScoreboardPlayersAt(whole));
+        yield return ("id entities", timeline.IdEntitiesAt(whole));
+        yield return ("recorder team", timeline.RecorderTeamAt(whole));
+        yield return ("server tick", timeline.ServerTickAt(whole));
+        yield return ("viewmodels", players.Select(player => (timeline.ViewmodelAt(whole, player.EntityIndex),
+            timeline.OffHandViewmodelAt(whole, player.EntityIndex))).ToList());
+        yield return ("sounds", timeline.Sounds.Where(sound => sound.Tick == whole).ToList());
+        yield return ("events", timeline.GameEvents.Where(fired => fired.Tick == whole).ToList());
+        yield return ("messages", timeline.UserMessages.Where(message => message.Tick == whole).ToList());
+        yield return ("events' world", EventsWorld(timeline, whole, settings ?? new WindowSettings()));
     }
 
     /// <summary>
