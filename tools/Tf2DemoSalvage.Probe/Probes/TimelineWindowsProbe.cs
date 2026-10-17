@@ -100,6 +100,16 @@ public sealed class TimelineWindowsProbe : IProbe
         long wholeResume = checkpoints.ResumeCensus(ticks.Length / 2).Values.Sum(count => count.Elements);
         output.WriteLine($"    owners sum {byOwners:N0} elements, whole resume {wholeResume:N0}: {(byOwners >= wholeResume ? "covers it" : "MISSES SOME")}");
 
+        // What all the checkpoints KEEP, by owner; its control is the sum beside the measured retained heap.
+        IReadOnlyList<(string Owner, long Bytes)> kept = checkpoints.KeptByOwner();
+
+        foreach ((string owner, long bytes) in kept.Take(12))
+        {
+            output.WriteLine($"    kept {owner,-40} {bytes / 1048576d,10:0.0} MB");
+        }
+
+        output.WriteLine($"    kept by owners {kept.Sum(row => row.Bytes) / 1048576d:0.0} MB against a retained heap of {(heapAfter - heapBefore) / 1048576d:0.0} MB");
+
         // The direct control: two windows built from the mid checkpoint leave every value it holds as it was.
         output.WriteLine(checkpoints.WindowsWriteTheirCheckpoint(ticks.Length / 2)
             ? "  control: a window WROTE its checkpoint"

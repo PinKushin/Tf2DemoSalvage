@@ -2976,6 +2976,34 @@ public sealed class DemoTimeline
             return StateCopy.Digest(state, _inputs) != before;
         }
 
+        /// <summary>
+        /// What every checkpoint together KEEPS, by owner, in approximate bytes: each object counted once, under the first
+        /// owner of the first checkpoint that reaches it (D217 step 4, part 3).
+        /// </summary>
+        /// <returns>Owners, largest first.</returns>
+        /// <remarks>
+        /// **First reach wins**, so an object two checkpoints share is the earlier one's, and one two owners share is the
+        /// one walked first; owner shells are not counted. The control: the sum sits near the measured retained heap.
+        /// </remarks>
+        public IReadOnlyList<(string Owner, long Bytes)> KeptByOwner()
+        {
+            HashSet<object> seen = new(ReferenceEqualityComparer.Instance);
+            Dictionary<string, long> bytes = [];
+
+            foreach ((_, _, Builder state) in _checkpoints)
+            {
+                foreach ((string name, object owned, bool shell) in state.Owners(_inputs))
+                {
+                    if (!shell)
+                    {
+                        bytes[name] = bytes.GetValueOrDefault(name) + StateCopy.Footprint(owned, _inputs, seen);
+                    }
+                }
+            }
+
+            return [.. bytes.Select(entry => (entry.Key, entry.Value)).OrderByDescending(entry => entry.Value)];
+        }
+
         /// <summary>What resuming one checkpoint creates, by owning field and type (D217 step 4).</summary>
         /// <param name="index">Which checkpoint.</param>
         /// <returns>The rows, largest first.</returns>
@@ -4813,7 +4841,34 @@ public sealed class DemoTimeline
             // fields alone left them out, and the control (whole-resume census) caught it.
             List<(string, Type, long, long)> rows = [("(builder)", typeof(Builder), 1, 1)];
 
-            // Reaching private fields is the instrument: it copies each one as a resume does.
+            foreach ((string name, object owned, bool shell) in Owners(shared))
+            {
+                if (shell)
+                {
+                    rows.Add((name, owned.GetType(), 1, 1));
+                    continue;
+                }
+
+                Dictionary<Type, (long Objects, long Elements)> created = [];
+                GC.KeepAlive(StateCopy.Of(owned, shared, prior: null, out _, created));
+
+                foreach ((Type type, (long objects, long elements)) in created)
+                {
+                    rows.Add((name, type, objects, elements));
+                }
+            }
+
+            return [.. rows.OrderByDescending(row => row.Item4)];
+        }
+
+        /// <summary>
+        /// The builder's state by owner, two fields down: each owner, and a shell row for each field descended into.
+        /// </summary>
+        /// <param name="shared">The inputs every copy shares, which are no one's state.</param>
+        /// <returns>Each owner's name and object; <c>Shell</c> marks a descended field's own object.</returns>
+        internal IEnumerable<(string Name, object Value, bool Shell)> Owners(IReadOnlySet<object> shared)
+        {
+            // Reaching private fields is the instrument: it walks each one as a copy does.
 #pragma warning disable S3011
             const System.Reflection.BindingFlags Instance =
                 System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic;
@@ -4825,34 +4880,25 @@ public sealed class DemoTimeline
                     continue;
                 }
 
-                IEnumerable<(string Name, object? Value)> owners = value is System.Collections.IEnumerable || value.GetType().Namespace?.StartsWith("System", StringComparison.Ordinal) == true
-                    ? [(field.Name, value)]
-                    : value.GetType().GetFields(Instance).Select(inner => ($"{field.Name}.{inner.Name}", inner.GetValue(value)));
-#pragma warning restore S3011
+                bool whole = value is System.Collections.IEnumerable || value.GetType().Namespace?.StartsWith("System", StringComparison.Ordinal) == true;
 
-                if (owners.FirstOrDefault().Name != field.Name)
+                if (whole)
                 {
-                    rows.Add((field.Name, value.GetType(), 1, 1));
+                    yield return (field.Name, value, false);
+                    continue;
                 }
 
-                foreach ((string name, object? owned) in owners)
+                yield return (field.Name, value, true);
+
+                foreach (System.Reflection.FieldInfo inner in value.GetType().GetFields(Instance))
                 {
-                    if (owned is null || owned.GetType().IsValueType || shared.Contains(owned))
+                    if (inner.GetValue(value) is { } owned && !owned.GetType().IsValueType && !shared.Contains(owned))
                     {
-                        continue;
-                    }
-
-                    Dictionary<Type, (long Objects, long Elements)> created = [];
-                    GC.KeepAlive(StateCopy.Of(owned, shared, prior: null, out _, created));
-
-                    foreach ((Type type, (long objects, long elements)) in created)
-                    {
-                        rows.Add((name, type, objects, elements));
+                        yield return ($"{field.Name}.{inner.Name}", owned, false);
                     }
                 }
             }
-
-            return [.. rows.OrderByDescending(row => row.Item4)];
+#pragma warning restore S3011
         }
 
         /// <summary>

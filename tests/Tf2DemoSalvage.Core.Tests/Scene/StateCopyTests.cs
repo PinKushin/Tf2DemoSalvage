@@ -269,6 +269,29 @@ public sealed class StateCopyTests
         System.Linq.Enumerable.Select(merged, property => property.Value.AsInt).ShouldBe([1L, 5L, 7L]);
     }
 
+    private sealed class Sized
+    {
+        public int[] Numbers { get; } = new int[10];
+
+        public string Text { get; } = "abcd";
+    }
+
+    /// <remarks>
+    /// **The footprint arithmetic** (D217 step 4, part 3): an object of two references is 16 + 8 + 8 = 32, an int[10] is
+    /// 24 + 40 = 64 and a four-character string 22 + 8 = 30, so 126; walked again with the same seen set, nothing is new.
+    /// </remarks>
+    [Test]
+    public void Footprint_AnObjectWithAnArrayAndAString_Is126ThenNothing()
+    {
+        Sized root = new();
+        HashSet<object> seen = new(ReferenceEqualityComparer.Instance);
+
+        long first = StateCopy.Footprint(root, new HashSet<object>(), seen);
+        long again = StateCopy.Footprint(root, new HashSet<object>(), seen);
+
+        (first, again, root.Numbers.Length, root.Text.Length).ShouldBe((126L, 0L, 10, 4));
+    }
+
     private static PropertyBag Bag()
     {
         PropertyBag bag = new();
