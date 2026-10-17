@@ -235,6 +235,32 @@ public sealed class MoveChildPlacementConformanceTests
     }
 
     /// <summary>
+    /// **The undrawn pass builds nothing when nothing will draw it** — `C_BasePlayer::ShouldDraw` is false for the local player
+    /// in first person, so the engine reaches his `SetupBones` only from a monitor's `ForceTempForceDraw` or `AddDecal`, and
+    /// both of ours ask on demand. The control is the same call with posing on, which does build the instance; and the parent
+    /// still carries its child either way, because the frame, not the pass, places it.
+    /// </summary>
+    [TestCase(true, 1)]
+    [TestCase(false, 0)]
+    public void Instances_UndrawnPassWhenPosingIs_BuildsThatManyInstances(bool poses, int built)
+    {
+        SceneProp parent = new(1, ParentModel, SceneModelKind.Studio, new ScenePose { X = 199f });
+        SceneProp child = new(2, ChildModel, SceneModelKind.Studio, new ScenePose { X = 2f }, AttachedTo: 1);
+
+        EntityModelSet models = new() { PosesUndrawn = poses };
+        models.Add([parent, child], _ => Baked());
+        models.PlaceFrame([parent, child]);
+
+        List<ModelInstance> undrawn = [];
+        List<ModelInstance> world = [];
+        models.Instances([parent], undrawn, seconds: 1d, pass: EntityModelSet.UndrawnPass);
+        models.Instances([child], world, seconds: 1d);
+
+        undrawn.Count.ShouldBe(built);
+        world.Single(model => model.ModelPath == ChildModel).Matrix[12].ShouldBe(201f, 1e-3f);
+    }
+
+    /// <summary>
     /// **A frame's props live until the next frame is handed over**, and no longer: once the next `PlaceFrame` lacks the
     /// parent, the parent has left, so the child is not composed onto it — <c>HierarchySetParent( NULL )</c>.
     /// </summary>

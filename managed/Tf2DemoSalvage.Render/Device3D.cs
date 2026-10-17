@@ -3350,6 +3350,10 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
     /// <summary>The main view for <c>ComputePixelWidthOfSphere</c> (B432); null before a camera is set.</summary>
     public Core.Scene.ScreenFadeView? ScreenView => _screenView;
 
+    /// <inheritdoc/>
+    /// <remarks>`DrawMonitorPass`'s own first two refusals; the camera entity is fed after the pose, so it is not asked.</remarks>
+    public bool DrawsMonitor => DrawMonitors && _world is { HasCameraTarget: true };
+
     private Core.Scene.ScreenFadeView? _screenView;
 
     /// <summary>The views' leaf lists the scene collates its renderables over (B254, B262).</summary>

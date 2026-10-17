@@ -79,6 +79,12 @@ public interface IViewerDevice
     /// <summary>The view a static prop's screen fade is measured in, or null.</summary>
     public ScreenFadeView? ScreenView { get; }
 
+    /// <summary>
+    /// Whether a monitor view can draw this frame — `cl_drawmonitors` on and a world material binding `_rt_Camera` — so the
+    /// models only it draws (the first-person player, B511) are worth posing.
+    /// </summary>
+    public bool DrawsMonitor { get; }
+
     /// <summary>The recorder's screen overlay this frame, or null.</summary>
     public ScreenOverlayMaterial? ScreenOverlay { get; set; }
 

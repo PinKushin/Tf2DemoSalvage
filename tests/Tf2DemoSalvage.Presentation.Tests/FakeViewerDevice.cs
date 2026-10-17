@@ -72,6 +72,8 @@ internal sealed class FakeViewerDevice : IViewerDevice
 
     public ScreenFadeView? ScreenView => null;
 
+    public bool DrawsMonitor { get; set; }
+
     public ScreenOverlayMaterial? ScreenOverlay { get => null; set => Note(nameof(ScreenOverlay), value is null ? "none" : "set"); }
 
     public IReadOnlyList<ModelInstance> MonitorOnlyModels { get => []; set => Note(nameof(MonitorOnlyModels), value.Count); }

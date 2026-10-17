@@ -587,14 +587,19 @@ public sealed class MomentScene : IGameSystemPerFrame
     /// bug B203 fixed.
     /// </remarks>
     /// <param name="screen">The main view for the static props' screen fades (B432).</param>
+    /// <param name="monitor">Whether a monitor can draw this frame; false leaves the first-person player unposed (B511).</param>
     public MomentPhases Pose(
         MomentInfo info,
         ViewFrustum frustum = default,
         RenderableViews views = default,
         (float X, float Y, float Z)? eye = null,
-        ScreenFadeView? screen = null)
+        ScreenFadeView? screen = null,
+        bool monitor = true)
     {
         long posingAt = Stopwatch.GetTimestamp();
+
+        // Only a monitor draws the first-person player (B511); without one his pass simulates and is not posed.
+        _models.PosesUndrawn = monitor;
 
         // The main view for the static props' screen fades (B432), from the device beside the eye.
         _models.ScreenView = screen;

@@ -5885,6 +5885,14 @@ public sealed class EntityModelSet : Hud.IMdlCache, IPosedEntities
             scene[prop.EntityIndex] = prop;
         }
 
+        // **Simulated and in the scene, but not posed, when nothing will draw him** — `C_BasePlayer::ShouldDraw` is false for
+        // the local player in first person, so the engine reaches his `SetupBones` only from a monitor's `ForceTempForceDraw`
+        // (`viewrender.cpp:3266-3287`) or `CModelRender::AddDecal`; our decal queries call `SetupBones` themselves.
+        if (!PosesUndrawn && string.Equals(pass, UndrawnPass, StringComparison.Ordinal))
+        {
+            return;
+        }
+
         // **Attachments resolved while the pass was simulated are resolved again for the draw** (B551): a parent's bones
         // asked for then may predate its own update. Defensive like `_simulating` — no test reaches a stale one.
         _attachments.Clear();
@@ -6614,6 +6622,9 @@ public sealed class EntityModelSet : Hud.IMdlCache, IPosedEntities
     /// <c>!IsVisible()</c> (`c_baseanimating.cpp:3569`), so nothing this pass walks fires an event.
     /// </summary>
     public const string UndrawnPass = "undrawn";
+
+    /// <summary>Whether the undrawn pass builds instances — true only when a monitor will draw them this frame (B511).</summary>
+    public bool PosesUndrawn { get; set; } = true;
 
     /// <summary>The viewmodel's pass — the arms and the gun, posed after the world (`MomentScene.AddViewmodel`).</summary>
     public const string ViewmodelPass = "viewmodel";

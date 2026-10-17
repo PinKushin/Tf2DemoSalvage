@@ -139,7 +139,7 @@ public sealed partial class ViewerPresenter
     /// <summary><see cref="PoseNow"/> over a device a test can read.</summary>
     internal void PoseOver(IViewerDevice device)
     {
-        _moments.PoseNow(device.Frustum, device.Views, device.Eye, device.ScreenView);
+        _moments.PoseNow(device.Frustum, device.Views, device.Eye, device.ScreenView, device.DrawsMonitor);
         Posed?.Invoke();
     }
 
