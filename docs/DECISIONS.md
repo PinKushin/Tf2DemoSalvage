@@ -10428,6 +10428,19 @@ publishes by compare-and-swap. Chunks of 64 against 1,024, checkpoint build time
 reflection was 2% of the trace and was left. What the next step is for: what each
 checkpoint still holds beyond the one before — tracks and props are now most of a resume (11.6 + 9.2 MB on f12).
 
+### Step 4 — checkpoint spacing is 2 s (2026-10-17)
+
+**Owner, 2026-10-17:** *"go with 2 s"*, once part 3 had shrunk what the checkpoints keep. The one owner of the number
+is `DemoTimeline.Checkpoints.SpacingSeconds`; the `timeline-windows` probe defaults to it. No production caller walks
+checkpoints yet (the window cache in Presentation is the next step), so this sets what that caller will use.
+
+| demo, 2 s | checkpoints | memory kept | seek ms (copy + decode) | seeks differing |
+|---|---:|---:|---:|---:|
+| f12 | 727 | 683 MB | **229** (76 + 150) | 0 of 120 |
+| rgl-pug | 1,076 | 1,573 MB | **233** (98 + 131) | 0 of 120 |
+
+The digest control is unchanged on both.
+
 **The order after these two steps — the viewer half, decided by the owner the same day: a backward seek must NOT
 replay the demo from the start.** The state the skip replay builds up — the dealt HUD sounds and decals of B504,
 `ReplaySkip` in `FramePresenter.Seek.cs` — is to be carried in checkpoints instead, the way D220 carries corpses.

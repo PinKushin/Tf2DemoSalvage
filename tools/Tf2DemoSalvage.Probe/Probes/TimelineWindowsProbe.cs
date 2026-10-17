@@ -28,7 +28,7 @@ public sealed class TimelineWindowsProbe : IProbe
 
     /// <inheritdoc/>
     public string Summary =>
-        "checkpoint a demo, answer sample ticks through windows, compare with a whole build, and say what checkpoints cost: timeline-windows <demo> [every s=5] [samples=60] [cost]; the reach is the default settings' (D220)";
+        "checkpoint a demo, answer sample ticks through windows, compare with a whole build, and say what checkpoints cost: timeline-windows <demo> [every s=2, the decided spacing] [samples=60] [cost]; the reach is the default settings' (D220)";
 
     /// <inheritdoc/>
     public void Run(TextWriter output, IReadOnlyList<string> arguments)
@@ -42,7 +42,7 @@ public sealed class TimelineWindowsProbe : IProbe
             return;
         }
 
-        double every = arguments.Count > 1 ? double.Parse(arguments[1], CultureInfo.InvariantCulture) : 5;
+        double every = arguments.Count > 1 ? double.Parse(arguments[1], CultureInfo.InvariantCulture) : DemoTimeline.Checkpoints.SpacingSeconds;
         int samples = arguments.Count > 2 ? int.Parse(arguments[2], CultureInfo.InvariantCulture) : 60;
         bool costOnly = arguments.Count > 3 && arguments[3] == "cost";
         byte[] demo = File.ReadAllBytes(path);
