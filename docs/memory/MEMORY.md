@@ -1,3 +1,4 @@
+- [Design for what the user sees during it](design-for-what-the-user-sees-during-it.md) — scrub needs live feedback (D217).
 - [Tests before codecs](tests-before-codecs.md); [conformance first](conformance-test-before-implementation.md).
 - [Layer 2 is a dependency chain](layer2-is-a-dependency-chain.md); [length arithmetic](length-arithmetic-identifies-a-layout.md) IDs a layout.
 - [Fixtures are the weak point](fixtures-are-the-weak-point.md); [author the specimen](author-the-specimen-the-corpus-lacks.md) the corpus lacks.
