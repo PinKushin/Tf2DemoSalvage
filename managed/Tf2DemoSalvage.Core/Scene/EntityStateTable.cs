@@ -247,7 +247,13 @@ public sealed class EntityStateTable
             state.Forget();
         }
 
-        foreach (DecodedProperty property in properties)
+        // A decoded list hands over its key and value without building the property and its definition (D217 step 4).
+        for (int index = 0; properties is DecodedProperties decoded && index < decoded.Count; index++)
+        {
+            state.Set(decoded.KeyAt(index), decoded.ValueAt(index));
+        }
+
+        foreach (DecodedProperty property in properties is DecodedProperties ? [] : properties)
         {
             // **Element-scoped properties key by PATH, because their flat name collides by
             // construction** (B234). Every element of a `SendPropUtlVectorDataTable` references the

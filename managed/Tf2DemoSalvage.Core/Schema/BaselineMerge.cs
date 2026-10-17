@@ -26,6 +26,12 @@ internal static class BaselineMerge
     public static IReadOnlyList<DecodedProperty> Overlay(
         IReadOnlyList<DecodedProperty> baseline, IReadOnlyList<DecodedProperty> update)
     {
+        // One class's two compact lists in wire order: merged record by record, building no property (D217 step 4 part 3).
+        if (baseline is DecodedProperties from && update is DecodedProperties over && DecodedProperties.Merge(from, over) is { } fast)
+        {
+            return fast;
+        }
+
         SortedDictionary<int, DecodedProperty> merged = [];
 
         foreach (DecodedProperty property in baseline)

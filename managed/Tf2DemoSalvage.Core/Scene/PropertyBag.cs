@@ -3,6 +3,7 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.Linq;
+using System.Threading;
 
 using Tf2DemoSalvage.Core.Schema;
 
@@ -323,7 +324,14 @@ internal sealed class PropertyBag : IReadOnlyDictionary<string, PropertyValue>
     /// <summary>A packed chunk of the frozen form this bag reads, unpacked once and kept for later reads.</summary>
     private (PropertyValue Value, long Sequence)[] Unpacked(Frozen packed, int chunk)
     {
-        _unpacked ??= new (PropertyValue, long)[]?[packed.Chunks.Length];
-        return _unpacked[chunk] ??= Unpack(packed.Chunks[chunk]);
+        // A read writes this cache, so two readers on two threads must not lose or tear it: each publish is one compare
+        // and swap, and a reader that loses the race uses the winner's copy, which holds the same values.
+        (PropertyValue, long)[]?[] cache = Volatile.Read(ref _unpacked)
+            ?? Interlocked.CompareExchange(ref _unpacked, new (PropertyValue, long)[]?[packed.Chunks.Length], null)
+            ?? _unpacked!;
+
+        return Volatile.Read(ref cache[chunk])
+            ?? Interlocked.CompareExchange(ref cache[chunk], Unpack(packed.Chunks[chunk]), null)
+            ?? cache[chunk]!;
     }
 }

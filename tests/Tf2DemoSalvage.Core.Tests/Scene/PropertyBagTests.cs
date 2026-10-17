@@ -200,6 +200,71 @@ public sealed class PropertyBagTests
         Describe(checkpoint).ShouldBe(frozen);
     }
 
+    /// <remarks>
+    /// **An owned map re-filled in its own order takes a new key in place** (D217 step 4, part 3): a bag never frozen,
+    /// cleared, sent every key again in order, then one more — the same map, all keys in order, the new one last.
+    /// </remarks>
+    [Test]
+    public void Set_ANewKeyAfterTheOldOnesInOrder_AddsToTheOwnedMapInPlace()
+    {
+        PropertyBag bag = new();
+        bag.Set("a", PropertyValue.FromInt(1), 1);
+        bag.Set("b", PropertyValue.FromInt(2), 2);
+        object map = bag.SlotMap;
+
+        bag.Clear();
+        bag.Set("a", PropertyValue.FromInt(3), 3);
+        bag.Set("b", PropertyValue.FromInt(4), 4);
+        bag.Set("c", PropertyValue.FromInt(5), 5);
+
+        bag.SlotMap.ShouldBeSameAs(map);
+        Describe(bag).ShouldBe("a=Int:3@3;b=Int:4@4;c=Int:5@5");
+    }
+
+    /// <remarks>
+    /// **A read fills the unpack cache, and a write after it neither reads stale nor reaches the checkpoint**: k0 read
+    /// from the frozen form, then overwritten, reads the write; k1 in the same chunk keeps its value; the copy taken at
+    /// the freeze still reads as then.
+    /// </remarks>
+    [Test]
+    public void Set_AfterAReadOfTheFrozenChunk_ReadsTheWriteAndLeavesTheCheckpoint()
+    {
+        PropertyBag bag = Filled();
+        bag.Freeze();
+        string frozen = Describe(bag);
+        PropertyBag checkpoint = StateCopy.Of(bag, new HashSet<object>());
+        bag["k0"].AsInt.ShouldBe(0, "the read that fills the cache");
+
+        bag.Set("k0", PropertyValue.FromInt(77), 500);
+
+        (bag["k0"].AsInt, bag.Sequence("k0"), bag["k1"].AsInt).ShouldBe((77L, 500L, 3L));
+        Describe(checkpoint).ShouldBe(frozen);
+    }
+
+    /// <remarks>
+    /// **Hidden keys answer nothing, frozen or not**: after a clear and one key back, every reader — count, keys, values,
+    /// enumeration, lookups, sequences — sees one key, though the map still holds the others.
+    /// </remarks>
+    [Test]
+    public void Clear_ThenOneKeyBack_EveryReaderSeesOnlyThatKey()
+    {
+        PropertyBag bag = Filled();
+        bag.Clear();
+        bag.Set("k0", PropertyValue.FromInt(9), 600);
+
+        foreach (bool frozen in new[] { false, true })
+        {
+            if (frozen)
+            {
+                bag.Freeze();
+            }
+
+            (bag.Count, string.Join(",", bag.Keys), bag.Values.Count(), bag.Select(entry => entry.Key).Count(),bag.ContainsKey("k1"), bag.TryGetValue("k1", out _), bag.Sequence("k1"))
+                .ShouldBe((1, "k0", 1, 1, false, false, -1L), $"frozen {frozen}");
+            Should.Throw<KeyNotFoundException>(() => bag["k39"]);
+        }
+    }
+
     /// <remarks>**Clear after a freeze restarts the order on the bag alone**; the frozen form keeps every key.</remarks>
     [Test]
     public void Clear_AfterFreeze_ThenSet_RestartsOnlyTheBag()

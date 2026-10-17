@@ -350,6 +350,7 @@ public sealed class StateCopyTests
         [
             Core.Schema.PropertyValue.FromInt(-5_000_000_000), Core.Schema.PropertyValue.FromFloat(-0f),
             Core.Schema.PropertyValue.FromFloat(BitConverter.Int32BitsToSingle(0x7FC0_1234)),
+            Core.Schema.PropertyValue.FromVector(BitConverter.Int32BitsToSingle(0x7F80_1234), 0f, BitConverter.Int32BitsToSingle(0x7F80_1234)),
             Core.Schema.PropertyValue.FromVector(1.5f, -0f, 3f), Core.Schema.PropertyValue.FromVectorXY(-2f, 7f),
             Core.Schema.PropertyValue.FromString("scout"), Core.Schema.PropertyValue.FromArray([Core.Schema.PropertyValue.FromInt(9)]),
             default,
@@ -358,7 +359,7 @@ public sealed class StateCopyTests
         string[] unpacked = [.. System.Linq.Enumerable.Select(values, value => StateCopy.Digest(Core.Schema.PropertyValue.Unpack(value.Pack()), new HashSet<object>()))];
 
         unpacked.ShouldBe([.. System.Linq.Enumerable.Select(values, value => StateCopy.Digest(value, new HashSet<object>()))]);
-        Core.Schema.PropertyValue.Unpack(values[6].Pack()).AsArray.ShouldBeSameAs(values[6].AsArray);
+        Core.Schema.PropertyValue.Unpack(values[7].Pack()).AsArray.ShouldBeSameAs(values[7].AsArray);
     }
 
     /// <remarks>

@@ -447,9 +447,30 @@ public sealed class EntityDecoderTests
         object[] shared = [.. decoder.SchemaDerived()];
         decoder.FlattenedFor(0);
         decoder.FlattenedFor(1);
+        decoder.KeysFor(0);
 
-        shared.Length.ShouldBe(4, "the cache and the class map, and one list per class");
+        shared.Length.ShouldBe(7, "the two caches and the class map, and one list and one key array per class");
         decoder.SchemaDerived().ShouldBe(shared);
+    }
+
+    /// <remarks>
+    /// **One key string per key, for the decoder's life** (D217 step 4, part 3): two classes over one table hold the same
+    /// text in their own arrays, each class's array is built once, and a second decoder — another demo — builds its own,
+    /// so nothing outlives the decoder.
+    /// </remarks>
+    [Test]
+    public void KeysFor_AskedTwice_IsTheSameArrayAndScopedToTheDecoder()
+    {
+        List<SendProperty> properties = [new(SendPropType.Int, "m_iHealth", Unsigned, string.Empty, 0f, 0f, 10, 0)];
+        DemoSchema schema = new([new SendTable("DT_Test", true, properties)], [new ServerClass(0, "CA", "DT_Test")]);
+        EntityDecoder decoder = new(schema, ClassBits);
+        EntityDecoder another = new(schema, ClassBits);
+
+        string[] keys = decoder.KeysFor(0);
+
+        keys.ShouldBe(["DT_Test.m_iHealth"]);
+        decoder.KeysFor(0).ShouldBeSameAs(keys);
+        another.KeysFor(0).ShouldNotBeSameAs(keys);
     }
 
     [Test]
