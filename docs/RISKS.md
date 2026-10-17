@@ -38087,6 +38087,41 @@ with gummo standing still under a beam.
   **Left for a later pass:** the hands model's posed `muzzle` axes at 63611 against TF2's. That needs an attachment probe
   on our side and a console readout on TF2's.
 
+**2026-10-16, `fix/heal-beam-arc`: the orientation is the engine's; the CADENCE is not — NOT FIXED, needs the owner.**
+
+- **Control point 0 in the medic's eyes is right in place and in axes** (*measured*, a temporary log in
+  `AddHealBeams`, `f12tf.dem` 63814, `--spectate Exiou`): camera (-524.8 530.9 565.9) pitch -3.9 yaw 16.5; control
+  point 0 (-446.4 527.4 551.9), forward (0.886 0.392 0.249); control point 1 (-328.8 587.4 606.9). *Arithmetic*: the
+  point projects to about (621 371) of the 984x551 shot, on the drawn barrel tip, so `FormatViewModelAttachment`
+  places it where the hands draw it. Its forward is within 12 degrees of the path to the patient, so the bulge is
+  small, as TF2's 63791-63814 frames show (a near-straight beam out of the gun, curling up to gummo on the rock).
+- **The divergence: TF2 reads both control points and simulates the beam EVERY FRAME; we do it once per TICK.**
+  *Read from published source*: `CHLClient::FrameStageNotify`'s render start runs `view->OnRenderStart()` (places the
+  viewmodel, `cdll_client_int.cpp:2184`) and then `ParticleMgr()->Simulate( gpGlobals->frametime )` (`:2234`), whose
+  `OnParticleSystemUpdated` (`particle_property.cpp:427-446`) calls `UpdateControlPoint` (`:527-640`) for every
+  followed point. Ours: `ParticleEffects.Bursts` steps whole ticks of `IntervalPerTick` and sets control points only
+  inside that loop, called with `int tick` from `BurstEffects.StepOver`. *Interpolated, not shown on screen:* in
+  first person the beam's start (`_muzzle`, `Movement Lock to Control Point` on 0, and every young trail particle at
+  `t = 0` of the path constraint) is about 80 units from the eye, so between ticks it stays where the last tick put it
+  while the eye and the hands move on, then jumps; at the medic's speed and turn rate that is several degrees on
+  screen per tick. That is a candidate for "swinging back toward the medic and forward to the target", not proven:
+  a `--shot` is a paused frame and cannot show it.
+- **Why not fixed here:** it is the burst clock for every effect, not the beam. `ParticleEffects.Bursts` steps
+  ticks on purpose so a seek gives the same answer however the viewer arrived; per-frame simulation as the engine does
+  it gives that up, or needs a scheme that keeps it. That trade is the owner's
+  (`docs/memory/name-the-trade-before-fixing-valve.md`). **Corrected:** this said rocket trails already stepped by
+  frame; `ParticleEffects.Update` stepped whole ticks too. **Decided and built: D221**, every effect per frame.
+- **The invisible beam, FIXED (D221):** the paused 63801 and 63814 shots drew no beam between gun and patient where
+  TF2's do; a pick at (560 290) found four faint `medicbeam_curl` quads 60-110 units past the patient. *Measured*
+  (a temporary log of every child after the step): control point 0 was (102.1 -66.9 -68.1), about 1,000 units from
+  the eye, on every frame. The particles stepped in `UploadCameraOver` BEFORE `ProjectWorld` posed the moment, so they
+  read the previous frame's pose, and on a seek's first frame a viewmodel posed for no camera; a paused frame then
+  stepped nothing and kept it. *Read from published source*: `OnRenderStart` places the view models
+  (cdll_client_int.cpp:2184) before `Simulate` (`:2234`), and `UpdateNewEffects` re-reads every point at any frame
+  time (particlemgr.cpp:1841-1853). After: the beam leaves the gun and climbs to gummo, as TF2's 63814 does.
+- **Captures:** TF2 63619, 63634, 63791, 63801, 63814, 63826 (in-eye, `host_timescale` 0.05, LDR as installed) and
+  the viewer's 63801 and 63814; none committed.
+
 Files at the worktree root of `fix/heal-glow`: `heal-tf2-medic-eye-63622-fullspeed.png`,
 `heal-viewer-medic-eye-63622.png`, `heal-tf2-chase.png`, `heal-viewer-before-chase.png`,
 `heal-tf2-medic-eye.png`, `heal-viewer-before-medic-eye.png`.

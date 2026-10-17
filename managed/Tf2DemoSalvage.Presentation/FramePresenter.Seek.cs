@@ -40,9 +40,10 @@ public sealed partial class FramePresenter
     /// <param name="tick">The moment to show, which may fall between ticks.</param>
     /// <param name="device">The device, or null before there is one.</param>
     /// <param name="show">Shows a tick as the window shows it, and answers what the window knows afterwards.</param>
+    /// <param name="jumps">How many times the transport has jumped — a move is a skip only when this changed (D221).</param>
     /// <exception cref="ArgumentNullException"><paramref name="show"/> is null.</exception>
-    public void ShowMoment(in ViewFrame frame, double tick, Device3D? device, Func<double, ViewFrame> show) =>
-        ShowMomentOver(frame, tick, device, show, HasHud ? SkipHudFrame : null);
+    public void ShowMoment(in ViewFrame frame, double tick, Device3D? device, Func<double, ViewFrame> show, int jumps) =>
+        ShowMomentOver(frame, tick, device, show, HasHud ? SkipHudFrame : null, jumps);
 
     /// <summary>The same, over any device (D214).</summary>
     /// <param name="frame">What the window knows of the frame.</param>
@@ -50,11 +51,13 @@ public sealed partial class FramePresenter
     /// <param name="device">The device, or null.</param>
     /// <param name="show">Shows a tick, and answers what the window knows afterwards.</param>
     /// <param name="skipHudFrame">One skip frame of the HUD, or null.</param>
+    /// <param name="jumps">How many times the transport has jumped.</param>
     internal void ShowMomentOver(
-        in ViewFrame frame, double tick, IDecalUpload? device, Func<double, ViewFrame> show, Action<DemoTimeline, int>? skipHudFrame)
+        in ViewFrame frame, double tick, IDecalUpload? device, Func<double, ViewFrame> show, Action<DemoTimeline, int>? skipHudFrame, int jumps = 0)
     {
         ArgumentNullException.ThrowIfNull(show);
 
+        _jumpsNow = jumps;
         _frame = frame;
         _show = show;
         _skipHudFrame = skipHudFrame;
@@ -112,6 +115,18 @@ public sealed partial class FramePresenter
     /// <summary>The whole tick <see cref="ShowMoment"/> last showed, or null before the first.</summary>
     private int? _skipShown;
 
+    /// <summary>The demo <see cref="_skipShown"/> belongs to.</summary>
+    private DemoTimeline? _skipTimeline;
+
+    /// <summary>The transport's jump count this <see cref="ShowMoment"/> was given.</summary>
+    private int _jumpsNow;
+
+    /// <summary>The jump count the last skip decision consumed.</summary>
+    private int _jumpsSkipped;
+
+    /// <summary>The last move <see cref="ShowMoment"/> made, and whether it was a skip — the one decision each reader takes once.</summary>
+    public FrameSkip? Skip { get; private set; }
+
     /// <summary>The HUD sounds of the skip frame being run, or null outside a skip.</summary>
     private List<SceneSound>? _skipFrameSounds;
 
@@ -137,12 +152,33 @@ public sealed partial class FramePresenter
             return;
         }
 
+        // A new demo starts its own history: its first move is a skip, not a move from the last demo's tick.
+        if (!ReferenceEquals(_frame.Timeline, _skipTimeline))
+        {
+            _skipTimeline = _frame.Timeline;
+            _skipShown = null;
+        }
+
         int? from = _skipShown;
 
         _skipShown = target;
 
+        // **The frame's one skip decision** (D221): the particles and the sound read this, rather than each keeping a
+        // cursor of its own that a different call cadence could leave disagreeing. **A skip is a JUMP, not a distance**:
+        // the engine skips only on an explicit `demo_gototick`, and a played frame — whose demo time `Host_FilterTime`
+        // (engine.dll FUN_18019ffe0) caps at 0.1 s times the timescale — never is, however many ticks it covers.
+        bool skipped = from is null || _jumpsNow != _jumpsSkipped;
+
+        _jumpsSkipped = _jumpsNow;
+
+        // A jump that lands on the tick already shown is still a skip, and its readers must see it.
+        if (from != target || skipped)
+        {
+            Skip = new FrameSkip(target, (Skip?.Generation ?? 0) + 1, (Skip?.Skips ?? 0) + (skipped ? 1 : 0)) { Skipped = skipped };
+        }
+
         // Stryker disable once all : a mutated guard leaves its pattern variables unassigned (CS0165) and Safe Mode drops the method - B410
-        if (_frame.Timeline is not { } timeline || !SoundSchedule.IsSkip(from, target) || _sound.Scripts is not { } scripts)
+        if (_frame.Timeline is not { } timeline || !skipped || _sound.Scripts is not { } scripts)
         {
             return;
         }

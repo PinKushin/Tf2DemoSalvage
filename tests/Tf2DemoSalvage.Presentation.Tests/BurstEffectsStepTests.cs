@@ -142,6 +142,23 @@ public sealed class BurstEffectsStepTests
         particles.BurstCount.ShouldBe(1, "what is offered is what is stepped");
     }
 
+    /// <remarks>**The frame's moment reaches the bursts** (D221): a frame half a tick on steps the explosion by half a tick.</remarks>
+    [Test]
+    public void StepOver_AFrameHalfATickLater_StepsTheBurstByHalfATick()
+    {
+        DemoTimeline timeline = Timeline(Explosion(100));
+        int fired = timeline.Explosions.All.ShouldHaveSingleItem().Tick;
+        (BurstEffects bursts, _, ParticleEffects particles) = Presenter();
+
+        bursts.StepOver(Frame(timeline, fired + 1), World());
+        float before = particles.BurstParticles(0)!.Age;
+
+        bursts.StepOver(Frame(timeline, fired + 1) with { ShownTick = fired + 1.5d }, World());
+
+        (particles.BurstParticles(0)!.Age - before).ShouldBe(0.5f * timeline.IntervalPerTick, 1e-6f);
+        particles.BurstSteps(0).ShouldBe(2, "one tick on landing, then one step for the half");
+    }
+
     [TestCase(-1, 0, TestName = "StepOver_TheTickBeforeAnExplosionFires_OffersNone")]
     [TestCase(200, 1, TestName = "StepOver_TwoHundredTicksAfterAnExplosion_StillOffersIt")]
     [TestCase(201, 0, TestName = "StepOver_PastAnExplosionsWindow_OffersNone")]

@@ -10443,3 +10443,83 @@ brainstorming: *"no thats a fine decision"*.
 - **The final server bounds govern**: a window finishes with the demo's END ConVars, so a walk whose checkpoints kept
   less than those need walks again at the needed reach.
 
+## D221 — particles are simulated once a frame, by the frame's demo time, as TF2 does; a seek's replay is our addition (2026-10-16)
+
+**The question.** B539: in the medic's eyes the heal beam swings toward the camera and back. Control point 0's place
+and axes measured right; what differed was the cadence. Every effect in `ParticleEffects` — bursts and rocket trails
+alike — was stepped once per TICK, with its control points set only inside that step.
+
+**The owner, in his own words:** *"the particles should go to per frame for parity and more correctness"*.
+
+**Why it follows** (*read from published source*): `CHLClient::FrameStageNotify`'s render start places the player and
+the view models (`view->OnRenderStart()`, cdll_client_int.cpp:2184) and then runs
+`ParticleMgr()->Simulate( gpGlobals->frametime )` (`:2234`) every frame. Its `OnParticleSystemUpdated`
+(particle_property.cpp:427-446) calls `UpdateControlPoint` (`:527-640`) for every followed point, so each frame
+re-reads the points and steps by that frame's time. In first person the beam's start is about 80 units from the eye;
+held to a tick, it stays where the tick left it while the eye and the hands move on.
+
+**What was built:**
+
+- `ParticleEffects.Bursts` and `Update` take the frame's moment (`ShownTick`, fraction included). **A played frame is
+  one step of the demo time since the last frame, however long** — the engine's one `Simulate( frametime )`, which cuts
+  itself into sub-steps — on the points the frame read. A frame that does not move the clock — paused — steps
+  nothing, as a paused client's frame time of 0 does (B538). A step across a burst's stop is split at the stop, as
+  `StopEmission` lands before the frame's `Simulate`.
+- **A seek's replay is OUR ADDITION, not parity.** On a seek — the frame's one skip decision below, carried as
+  `Seeked` — or a clock that went backwards, a burst is rebuilt from its start a tick at a time, each at that tick's points (B527), then the fraction;
+  every rocket trail is dropped and replayed along its rocket's path, which `Update` already does for an empty trail.
+  A long PLAYED frame never rebuilds: as first built, more than a quarter second of demo time did, so 8x at 30 fps or a
+  stall replayed every live burst from birth on every frame.
+- **One skip decision a frame** (`FrameSkip`): made where the moment is shown (`FramePresenter.ReplaySkip`) and read
+  once by the particles and the sound, which kept cursors of their own until now. A frame whose effects do not run —
+  no trail definition, every CI run — holds the seek for the first frame whose effects do.
+- **The frame-time clamp is the transport's, and it is the engine's** (*read in disassembly* by the coordinator,
+  engine.dll x64 `Host_FilterTime` = FUN_18019ffe0): playing back with `host_timescale` above 0, the frame time is
+  multiplied by the timescale and clamped to at most timescale × 0.1 s; otherwise to [0.001, 0.1] s; `host_framerate`
+  above 0 replaces it with a fixed step times the playback timescale. `PlaybackPresenter.Advance` already hands the
+  clock `min( elapsed, 0.1 s )` and the clock multiplies by the timescale, so a demo frame advances at most
+  timescale × 0.1 s of demo time — the same bound. The particles step by the clock's demo time, so their played
+  step carries the same clamp and takes none of its own. *Not compared:* the 0.001 s floor and `host_framerate`.
+- **A skip is a JUMP, never a distance** (owner via the coordinator, 2026-10-16: *"a played frame is never a skip in
+  TF2, however many ticks it covers. Only an explicit jump (demo_gototick or the transport seek) skips"*).
+  `PlaybackPresenter.Jumps` counts seeks, scrubs and a new clock; the skip decision is a changed count, or the first
+  move, and no longer `SoundSchedule.IsSkip`'s 133-tick distance — for the seek replay, the particles and the sound.
+  B504's dealt-sound replay still runs on a real seek (`FramePresenterSeekTests`). It replaced a rule under which, at
+  8x, a frame slower than a quarter second counted as a seek and replayed the skip and every live burst, which is
+  what `Play_AtEightTimesSpeed…` measured: 6 rate samples of 10, mean frame 690 ms.
+- **Three edges of the decision, each tested:** a jump that lands on the tick already shown is a skip; a new demo
+  starts its own history (its first move is a skip, not a move from the last demo's tick); and a frame the sound sits
+  out — no schedule, no audio, no listener, or a move about another tick — marks the move seen, so the skip is not
+  taken later in the middle of play. The frame's tick and the sound's are both `(int)` of one clock position, never
+  negative, so they agree on every played frame.
+- **A reader asks whether a skip happened since it last asked**, not whether the last move was one (`FrameSkip.Skips`).
+  *Measured* (z1800, `--tick 20000 --autoplay --measure 20 +demo_timescale 8`, Debug): the opening state's jump and
+  the frame's played step both land before the sound runs, so a reader of the last move called a 20,000-tick jump
+  playing and the sound started every sound since tick 0 — sound 2,159 ms over the first three frames, 5 rate samples,
+  against main's 23 ms and 11. After: sound 15.8 ms over those frames, 12 samples, mean frame 267 ms (main 435 ms).
+- **The trade, stated.** TF2 does not replay. *Read from this project's disassembly* (B504, `FramePresenter.Seek`): a
+  `demo_gototick` reads at most 99 packets a frame and `_Host_RunFrame` renders after each batch with no skip test, so
+  the engine's particles see a skip as a few frames of real frame time across hundreds of demo ticks, and effects
+  arrive nearly fresh. Ours arrive mid-life, as playing would have left them. The coordinator's reading that the
+  engine skips rendering and particles on `demo_gototick` (`IsSkipping`) disagrees with B504's; it was not re-read here
+  — the Ghidra server was down — and B504's reading stands until it is.
+- **The same after a seek, not the same as playing** (`Bursts_ReachedBySeekFromDifferentPlaces_AreTheSame`): a seek
+  to a moment gives one answer from anywhere. Playing to it differs by the frames' sizes, as two TF2 clients at
+  different frame rates do; measured by `Bursts_PlayedAgainstSoughtToOneMoment_DifferByLessThanAFramesEmission` as
+  the same age and at most one particle apart.
+- **Not built: capping a replay to the effect's particle lifetime.** An emitter's `emission_start_time` and
+  `emission_duration` count from the effect's birth (the beam's stage 1 emits only for its first 0.75 s), so starting a
+  replay later needs the collection's clock set forward without simulating, which `ParticleEffect` cannot do. A seek's
+  cost is bounded by the callers' windows instead (two seconds for a heal beam, 200 ticks for an explosion), as it
+  was before this change.
+- **A frame that steps nothing still reads its points**: `UpdateNewEffects` calls every effect's `Update`, and so
+  `UpdateControlPoint`, before it chooses what to simulate (particlemgr.cpp:1841-1853). A burst re-reads control
+  point 0 and its model's hitboxes; a trail its control point.
+- **The pose comes before the particles**: `UploadCameraOver` poses the moment after `SetCamera` and before the
+  effects step, as `OnRenderStart` places the view models before `Simulate`. Stepped first, every followed point read
+  the previous frame's pose, and the first frame after a seek read a viewmodel posed for no camera — B539's
+  invisible beam (control point 0 at (102 -67 -68), about 1,000 units from the eye). The pose's time moves from the
+  frame's `project` column to `camera` (`device`); the column shift is recorded in `docs/verification/README.md`.
+- **Correction:** B539's first write-up said rocket trails already stepped by frame. They did not; `Update` stepped
+  whole ticks too, and moves with the bursts here.
+

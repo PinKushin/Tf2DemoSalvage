@@ -71,6 +71,72 @@ public sealed class FramePresenterTests
             "light styles first, because the decals and the particles are lit by them; the particles last, with the impacts joined");
     }
 
+    /// <remarks>
+    /// **The seek is the frame's one decision, and a frame that runs no effects keeps it** (D221): with no trail
+    /// definition — every CI run — no burst steps, and the seek waits for the frame that does.
+    /// </remarks>
+    [Test]
+    public void DrawOver_ASeekOnFramesWithNoTrailDefinition_HoldsTheSeekForTheEffects()
+    {
+        FramePresenter frames = Presenter();
+        FakeFrameDevice device = new();
+
+        frames.ShowMomentOver(Frame(tick: 100), 100d, null, static tick => Frame(tick: (int)tick), null);
+        frames.Skip.ShouldNotBeNull().Skipped.ShouldBeTrue("the control: the first move is a skip");
+
+        frames.DrawOver(Frame(tick: 100), AlongX, device);
+        frames.DrawOver(Frame(tick: 100), AlongX, device);
+
+        frames.SeekPending.ShouldBeTrue();
+    }
+
+    /// <remarks>A new demo's first move is a skip: it does not move from the last demo's tick (D221).</remarks>
+    [Test]
+    public void ShowMomentOver_ANewDemoAtTheSameTickAndJumpCount_IsASkip()
+    {
+        FramePresenter frames = Presenter();
+        DemoTimeline next = SyntheticEffects.TimelineWrittenWith(PlayerFlagLayout.Current);
+
+        frames.ShowMomentOver(Frame(tick: 500), 500d, null, static tick => Frame(tick: (int)tick), null, jumps: 1);
+        int skips = frames.Skip.ShouldNotBeNull().Skips;
+
+        frames.ShowMomentOver(Frame(next, 500), 500d, null, tick => Frame(next, (int)tick), null, jumps: 1);
+
+        frames.Skip.ShouldNotBeNull().Skips.ShouldBe(skips + 1);
+    }
+
+    [Test]
+    public void Take_OneMove_AnswersEachReaderOnce()
+    {
+        FrameSkip move = new(100, Generation: 3, Skips: 1) { Skipped = true };
+        (int, int) particles = default;
+        (int, int) sound = default;
+
+        (move.Take(ref particles), move.Take(ref particles), move.Take(ref sound)).ShouldBe((true, null, true));
+    }
+
+    /// <remarks>
+    /// **A reader sees a skip it missed**: the opening state's jump and the frame's played step both come before the
+    /// sound runs. Measured: the sound read only the played step, called the 20,000-tick jump playing, and started
+    /// every sound since tick 0 — 2,159 ms over the run's first three frames at 8x, against 23 ms on main.
+    /// </remarks>
+    [Test]
+    public void ShowMomentOver_AJumpThenAPlayedStepBeforeTheReader_StillReadsTheJump()
+    {
+        FramePresenter frames = Presenter();
+        (int, int) sound = default;
+
+        frames.ShowMomentOver(Frame(tick: 400), 400d, null, static tick => Frame(tick: (int)tick), null, jumps: 1);
+        frames.Skip!.Take(ref sound);
+        frames.ShowMomentOver(Frame(tick: 20000), 20000d, null, static tick => Frame(tick: (int)tick), null, jumps: 2);
+        frames.ShowMomentOver(Frame(tick: 20053), 20053d, null, static tick => Frame(tick: (int)tick), null, jumps: 2);
+
+        FrameSkip last = frames.Skip.ShouldNotBeNull();
+
+        last.Skipped.ShouldBeFalse("the control: the last move was played");
+        last.Take(ref sound).ShouldBe(true);
+    }
+
     [Test]
     public void Pick_OfAFrame_IsAskedWithTheFramesTickAndSize()
     {

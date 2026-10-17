@@ -92,6 +92,12 @@ public sealed partial class ViewerPresenter
 
         device.SetCamera(viewing, surfaceColours);
 
+        // **Posed before the particles read a single attachment** (D221, B539): `view->OnRenderStart()` places the
+        // player and the view models (cdll_client_int.cpp:2184) before `ParticleMgr()->Simulate` (`:2234`) reads
+        // them. Stepped first, every followed point read the LAST frame's pose, and the first frame after a seek read
+        // a viewmodel posed for no camera at all. `ProjectWorld`'s own call then finds the moment posed and returns.
+        PoseOver(device);
+
         long particlesAt = Stopwatch.GetTimestamp();
 
         _effects.DrawOver(ViewFrameNow, viewing, drawing);
@@ -127,8 +133,15 @@ public sealed partial class ViewerPresenter
         }
     }
 
+    /// <summary>Told each time <see cref="PoseOver"/> has posed the moment, for a test that checks where the pose falls.</summary>
+    internal Action? Posed { get; set; }
+
     /// <summary><see cref="PoseNow"/> over a device a test can read.</summary>
-    internal void PoseOver(IViewerDevice device) => _moments.PoseNow(device.Frustum, device.Views, device.Eye, device.ScreenView);
+    internal void PoseOver(IViewerDevice device)
+    {
+        _moments.PoseNow(device.Frustum, device.Views, device.Eye, device.ScreenView);
+        Posed?.Invoke();
+    }
 
     /// <summary>Hands this frame's scene to the device.</summary>
     /// <param name="red">The background's red.</param>

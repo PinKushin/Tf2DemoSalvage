@@ -90,6 +90,20 @@ public sealed class SoundScheduleTests
         schedule.Advance(4000).Select(sound => sound.Tick).ShouldBe(new[] { 4000 });
     }
 
+    /// <remarks>**The frame's one skip decision overrides the schedule's own** (D221), so sound and particles agree.</remarks>
+    [Test]
+    public void Advance_AFarMoveTheFrameCalledPlaying_PlaysThrough()
+    {
+        SoundSchedule schedule = Of(10, 20, 30, 4000, 4010);
+
+        schedule.Advance(5);
+
+        schedule.Advance(3990, skipped: false).Select(sound => sound.Tick).ShouldBe(new[] { 10, 20, 30 });
+        schedule.Jumped.ShouldBeFalse();
+        schedule.Advance(3995, skipped: true).ShouldBeEmpty("the control: a near move the frame called a skip");
+        schedule.Jumped.ShouldBeTrue();
+    }
+
     [Test]
     public void Advance_ASeekBackward_StartsNothingAndRepositions()
     {

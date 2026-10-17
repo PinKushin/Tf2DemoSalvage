@@ -75,6 +75,7 @@ public sealed class PlaybackPresenter
     public void Load(PlaybackClock? clock)
     {
         _clock = clock;
+        Jumps++;
 
         _view.Playing = false;
         _elapsed.Reset();
@@ -125,7 +126,18 @@ public sealed class PlaybackPresenter
     /// is loaded is ordinary — a launch option asks for one — and the clock is what knows the
     /// bounds, so clamping stays there rather than being duplicated by every caller.
     /// </remarks>
-    public void Seek(int tick) => _clock?.Seek(tick);
+    public void Seek(int tick)
+    {
+        _clock?.Seek(tick);
+        Jumps++;
+    }
+
+    /// <summary>How many times playback has jumped — a seek, a scrub or a new clock — rather than played (D221).</summary>
+    /// <remarks>
+    /// **What makes a move a skip, and the only thing.** The engine skips only on an explicit jump (`demo_gototick`);
+    /// a played frame is never a skip however many ticks it covers. Counted here, where every jump passes.
+    /// </remarks>
+    public int Jumps { get; private set; }
 
     /// <summary>Sizes the controls for a demo of the given length.</summary>
     /// <param name="lastTick">Highest tick in the demo; zero disables playback.</param>
@@ -202,6 +214,7 @@ public sealed class PlaybackPresenter
         // A scrub is a seek: the clock takes the new position outright and drops whatever part-tick
         // it had accumulated, or the next tick after a drag arrives early.
         clock.Seek(e.Tick);
+        Jumps++;
 
         MomentChanged?.Invoke(this, new MomentEventArgs(e.Tick));
     }

@@ -95,7 +95,10 @@ public sealed class FramePresenterSeekTests
         /// <summary>Whether the models were told the frame covers no demo time, each time the window was asked to show a tick.</summary>
         public List<bool> Paused { get; } = [];
 
-        public void Show(double tick, bool hud = true, IDecalUpload? device = null, double demoFrameSeconds = 0d) =>
+        private int _jumps;
+
+        /// <summary>Shows a moment; <paramref name="jump"/> is whether the transport jumped there, which is what a skip is (D221).</summary>
+        public void Show(double tick, bool hud = true, IDecalUpload? device = null, double demoFrameSeconds = 0d, bool jump = true) =>
             Frames.ShowMomentOver(
                 Frame(tick, demoFrameSeconds),
                 tick,
@@ -114,7 +117,8 @@ public sealed class FramePresenterSeekTests
                         HudFrames.Add(through);
                         InHudFrame?.Invoke(through);
                     }
-                    : null);
+                    : null,
+                jump ? ++_jumps : _jumps);
 
         private static ViewFrame Frame(double shown, double demoFrameSeconds) =>
             new(Timeline, null, null, (int)shown, shown, false, false, null, 1280, 720, 0.016f, demoFrameSeconds, true, true, true, 2048, 50);
@@ -195,11 +199,43 @@ public sealed class FramePresenterSeekTests
         seek.Show(500d);
         seek.HudFrames.Clear();
         seek.Shown.Clear();
-        seek.Show(501d);
+        seek.Show(501d, jump: false);
 
         seek.HudFrames.ShouldBeEmpty();
         seek.Shown.ShouldBe([501d]);
         seek.Audio.Count("skip: to 501").ShouldBe(0);
+    }
+
+    /// <remarks>A jump that lands on the tick already shown is a skip all the same, and its readers see it (D221).</remarks>
+    [Test]
+    public void ShowMomentOver_ASeekToTheTickShown_IsASkip()
+    {
+        Seeking seek = new();
+
+        seek.Show(500d);
+        int skips = seek.Frames.Skip.ShouldNotBeNull().Skips;
+
+        seek.Show(500d);
+
+        seek.Frames.Skip.ShouldNotBeNull().Skips.ShouldBe(skips + 1);
+    }
+
+    /// <remarks>
+    /// **A played frame is never a skip, however many ticks it covers** (D221): `Host_FilterTime` (engine.dll
+    /// FUN_18019ffe0) clamps a demo frame's time to 0.1 s times the timescale, and only `demo_gototick` skips. At 8x a
+    /// slow frame covers many ticks; it plays them.
+    /// </remarks>
+    [Test]
+    public void ShowMomentOver_APlayedFrameCoveringThousandsOfTicks_IsNoSkip()
+    {
+        Seeking seek = new();
+
+        seek.Show(100d);
+        seek.HudFrames.Clear();
+        seek.Show(2600d, jump: false);
+
+        seek.HudFrames.ShouldBeEmpty();
+        seek.Frames.Skip.ShouldNotBeNull().Skipped.ShouldBeFalse();
     }
 
     [Test]

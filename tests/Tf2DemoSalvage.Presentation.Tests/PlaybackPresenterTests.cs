@@ -71,6 +71,22 @@ public sealed class PlaybackPresenterTests
         presenter.Position.ShouldBeNull();
     }
 
+    /// <remarks>**A jump is a seek or a scrub, never a played frame** (D221): only `demo_gototick` skips in the engine.</remarks>
+    [Test]
+    public void Jumps_ASeekAgainstAPlayedFrame_CountsOnlyTheSeek()
+    {
+        (PlaybackPresenter presenter, FakePlaybackView view, FakeElapsedTime time) = Wired(lastTick: 1000);
+        int before = presenter.Jumps;
+
+        view.PressPlayPause(true);
+        time.Seconds = 0.1;
+        presenter.Advance();
+        presenter.Jumps.ShouldBe(before, "a played frame is no jump");
+
+        presenter.Seek(400);
+        presenter.Jumps.ShouldBe(before + 1);
+    }
+
     [Test]
     public void Advance_WhilePaused_DoesNothing()
     {

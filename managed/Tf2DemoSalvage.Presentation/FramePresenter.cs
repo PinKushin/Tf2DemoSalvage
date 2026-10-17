@@ -235,6 +235,15 @@ public sealed partial class FramePresenter
                 _bursts.Bursts,
                 _particles));
 
+    /// <summary>The last <see cref="FrameSkip"/> the particles took.</summary>
+    private (int Generation, int Skips) _particlesTaken;
+
+    /// <summary>A skip taken and not yet handed to effects that ran.</summary>
+    private bool _seekPending;
+
+    /// <summary>Whether a skip is held for the next frame whose effects run, for a test.</summary>
+    internal bool SeekPending => _seekPending;
+
     /// <summary>What a bullet is traced against this frame.</summary>
     private BulletScene BulletSceneNow => new(_frame.Timeline, _frame.Loaded?.Level, _moments.Source, _frame.ShownTick, _frame.Playing);
 
@@ -310,6 +319,14 @@ public sealed partial class FramePresenter
         _impacts.Step(impacts);
 
         IReadOnlyList<ParticleBatch> batches = [];
+
+        // **A seek is the frame's one skip decision, not a long frame** (D221): a played frame of any length is one
+        // step, as the engine's `Simulate( frametime )` is; only a frame the transport jumped to rebuilds the effects.
+        // Held until the effects run, so a frame with no trail definition — which steps none — does not lose it.
+        _seekPending |= Skip?.Take(ref _particlesTaken) == true;
+
+        bool seeked = _seekPending;
+
         ParticleFrame particles = new(
             _frame.Timeline,
             _frame.Loaded,
@@ -318,7 +335,9 @@ public sealed partial class FramePresenter
             _moment.Drawn,
             _frame.FrameSeconds,
             _frame.ViewportHeight,
-            _frame.DoPixelVisibility);
+            _frame.DoPixelVisibility,
+            _frame.ShownTick,
+            seeked);
 
         if (_frameParticles.Trails(particles))
         {
@@ -339,10 +358,13 @@ public sealed partial class FramePresenter
                          _frame.DrawViewmodel,
                          _frame.HealTargetMarker,
                          _sound.Scripts,
-                         Replaying)))
+                         Replaying,
+                         seeked)))
             {
                 _sound.Emit(whiz);
             }
+
+            _seekPending = false;
 
             EffectEntityFrame strips = new(
                 _frame.Timeline, _frame.Loaded, tick, viewing, _moment.Drawn, _frame.ViewportWidth, _moment.ViewerVisionFlags);
