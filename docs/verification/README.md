@@ -179,6 +179,23 @@ pose 0.5–2 ms.
 `SetCamera` and the particles, and `project` no longer holds it. A measurement taken before that date compares `camera`
 and `project` across the shift; this one has not been retaken.
 
+### The pose after the corpse fix (2026-10-17, Release, first person, tick 30000)
+
+`tf2demoview <demo> --tick 30000 --first-person --measure 20 +fps_max 0` (the focus sleep off by `--measure` itself in the
+after runs). A second agent held the lock with a corpus probe during the BEFORE f12 run, so its frame columns are
+contended; the moment-cost columns are per-rebuild CPU and comparable. Each row is one 100-rebuild report in the window.
+
+| demo | run | pose ms | advance (corpses) ms | steps/frame | rebuilt | rest ms | camera mean ms |
+|---|---|---|---|---|---|---|---|
+| f12 | owner, e9bcfc3e | 9.6–37.1 | — (13.3) | 60.6 | — | 6–19.8 | 14 |
+| f12 | before | 61.3 | 48.7 (23) | 51.3 | — | 0.5 | 104 (contended) |
+| f12 | after | 12 / 13.4 / 10.4 / 10 | 1.2 (0.4) / 0.2 / 0 / 0 | 1.9 / 1 / 0 / 0 | 1 / 0 / 0 / 0 | 0.4–0.6 | 20.7 |
+| gullywash_f9 | before | 20.3 / 22.4 / 5.5 | 10.2 (9.6) / 12.5 (11.1) / 0 | 217.6 / 232.9 / 0 | 28 / 47 / 0 | 0.2–0.3 | 33.0 |
+| gullywash_f9 | after | 10.1 / 12.6 / 6.4 | 0.4 / 0.2 / 0.2 | 8.1 / 2.7 / 1.1 | 1 / 0 / 0 | 0.2 | 24.8 |
+
+Whole-run frame means (load included): f12 150.5 → 50.4 ms (contended before), gullywash 67.1 → 58.4 ms. What it still
+does that the engine does not: `undrawn` 1–4 ms (`docs/findings/36-the-frame-order.md` §7).
+
 **A Debug build measured 150–378 fps with two stalls to 51 and 69**, and those stalls do not exist
 in Release. An "the viewer got slow" report taken from a Debug run is measuring the build
 configuration. Measure Release, or say which one it was.

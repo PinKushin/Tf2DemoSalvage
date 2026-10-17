@@ -120,6 +120,29 @@ public sealed class FirstPersonVisibilityConformanceTests
         FirstPersonVisibility.Visible([theirs], Viewed).ShouldContain(theirs);
     }
 
+    /// <remarks>
+    /// **A corpse is never the local player**: `C_TFRagdoll` and a player gib are their own client entities, drawn by their own
+    /// `ShouldDraw`, and `physenv` steps them whatever is drawn. Filtered here, one would leave the world pass, be retired from
+    /// the corpse environment, and replay from its death when the camera left the eyes. Every link names the viewed player —
+    /// owner, parent, a weapon state — so no rule above can take it out.
+    /// </remarks>
+    [TestCase(RagdollProps.RagdollClassName)]
+    [TestCase(RagdollProps.GibClassName)]
+    public void Visible_ACorpseOfTheViewedPlayer_IsStillDrawn(string className)
+    {
+        SceneProp corpse = new(
+            44,
+            "models/player/soldier.mdl",
+            SceneModelKind.Studio,
+            new ScenePose(),
+            AttachedTo: Viewed,
+            OwnedBy: Viewed,
+            WeaponState: 1,
+            ClassName: className);
+
+        FirstPersonVisibility.Visible([corpse], Viewed).ShouldContain(corpse);
+    }
+
     private static SceneProp Owned(int entity, string model, int? weaponState) =>
         new(
             entity,

@@ -55,6 +55,16 @@ public sealed class MomentCostLog
     private long _corpses;
     private long _corpseSteps;
     private int _corpsesHeld;
+    private long _collate;
+    private long _baked;
+    private long _place;
+    private long _advance;
+    private long _undrawn;
+    private int _corpseRebuilds;
+    private long _corpseBuilding;
+
+    /// <summary><see cref="MomentPhases.PoseRest"/>, summed as each rebuild computed it — carried, not re-derived here.</summary>
+    private long _rest;
 
     /// <summary>Skeletons actually rebuilt, against the entities posed.</summary>
     private long _poseBuilds;
@@ -107,6 +117,14 @@ public sealed class MomentCostLog
         _animation += phases.Counters.Animation;
         _corpses += phases.Counters.Corpses;
         _corpseSteps += phases.Counters.CorpseSteps;
+        _collate += phases.Counters.Collate;
+        _baked += phases.Counters.Baked;
+        _place += phases.Counters.Place;
+        _advance += phases.Counters.Advance;
+        _undrawn += phases.Undrawn;
+        _corpseRebuilds += phases.Counters.CorpseRebuilds;
+        _corpseBuilding += phases.Counters.CorpseBuilding;
+        _rest += phases.PoseRest;
 
         // **The MOST it held over the window, not the mean** (B413). This is a level rather than a cost, and it exists to
         // answer one question — does the environment plateau, or keep growing — which an average across a window that
@@ -153,8 +171,15 @@ public sealed class MomentCostLog
             + $", setup {Mean(_setup, over):0.#}"
             + $", skin {Mean(_skin, over):0.#}"
             + $", anim {Mean(_animation, over):0.#}"
-            + $", corpses {Mean(_corpses, over):0.#} over {_corpseSteps / (double)over:0.#} steps, {_corpsesHeld} held"
-            + $", rest {Mean(Rest(), over):0.#}"
+            + $", reports {Mean(_report, over):0.#}"
+            + $", collate {Mean(_collate, over):0.#}"
+            + $", baked {Mean(_baked, over):0.#}"
+            + $", place {Mean(_place, over):0.#}"
+            + $", undrawn {Mean(_undrawn, over):0.#}"
+            + $", advance {Mean(_advance, over):0.#}"
+            + $" (corpses {Mean(_corpses, over):0.#} over {_corpseSteps / (double)over:0.#} steps, {_corpsesHeld} held"
+            + $", {_corpseRebuilds} rebuilt in {Mean(_corpseBuilding, over):0.#})"
+            + $", rest {Mean(_rest, over):0.#}"
             // **Builds against posed is the number that says WHICH fps problem this is.** Roughly
             // equal means the readable-bone cache works and the cost is bone math; builds far above
             // posed means mask thrash, where a wearable asking for bones its owner has not built
@@ -183,6 +208,14 @@ public sealed class MomentCostLog
         _corpses = 0;
         _corpseSteps = 0;
         _corpsesHeld = 0;
+        _collate = 0;
+        _baked = 0;
+        _place = 0;
+        _advance = 0;
+        _undrawn = 0;
+        _corpseRebuilds = 0;
+        _corpseBuilding = 0;
+        _rest = 0;
         _poseBuilds = 0;
         _report = 0;
         _drawn = 0;
@@ -193,18 +226,6 @@ public sealed class MomentCostLog
 
         return line;
     }
-
-    /// <summary>The part of <c>pose</c> no timer covers, by subtraction.</summary>
-    /// <remarks>
-    /// **`anim` is deliberately not subtracted, and the first version of this subtracted it.** It
-    /// came out at `rest -0.4`, which is impossible for a residual and is how the mistake announced
-    /// itself: <c>Animation</c> is time already inside another column rather than a sibling of them,
-    /// so taking it out again counts it twice. The set subtracted here is exactly
-    /// <see cref="StallReport.Moment"/>'s, which is the formula that has been read against real
-    /// numbers.
-    /// </remarks>
-    private long Rest() =>
-        _pose - _lighting - _viewmodel - _simulate - _wornLight - _report - _setup - _skin - _corpses;
 
     /// <summary>Mean milliseconds per rebuild.</summary>
     private static double Mean(long ticks, int rebuilds) =>

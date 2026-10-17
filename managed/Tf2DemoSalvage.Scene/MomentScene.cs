@@ -25,6 +25,7 @@ namespace Tf2DemoSalvage.Scene;
 /// <param name="Drawn">How many props were posed, the control for <c>Counters.Built</c>.</param>
 /// <param name="Unjudgeable">How many the cull could not judge, for want of render bounds.</param>
 /// <param name="Hidden">How many the visibility half rejected, of those the frustum kept.</param>
+/// <param name="Undrawn">The pass over props posed for a decal but never drawn, whole — its counters are not differenced.</param>
 /// <param name="Selected">
 /// How many props <c>Build</c> chose, before the frustum rejected any (B254). The ratio against
 /// <paramref name="Drawn"/> is the measurement; either number alone says nothing about the cull.
@@ -60,8 +61,19 @@ public readonly record struct MomentPhases(
     int Hidden = 0,
 
     // How many the cull could not judge for want of render bounds (B254).
-    int Unjudgeable = 0)
+    int Unjudgeable = 0,
+    long Undrawn = 0)
 {
+    /// <summary>The part of <see cref="Pose"/> no timer covers, by subtraction — the one formula every report reads.</summary>
+    /// <remarks>
+    /// **`Animation` is not subtracted**: it is time inside `Setup`, and an earlier version that took it out read `rest -0.4`.
+    /// `Advance` holds `Corpses` (the step) and is subtracted in its place, for the same reason. One formula, read by both
+    /// `MomentCostLog` and `StallReport.Moment`, which each carried a copy until the copies had to change together.
+    /// </remarks>
+    public long PoseRest =>
+        Pose - Viewmodel - Undrawn - Counters.Lighting - Counters.Simulate - Counters.WornLight - Counters.Report
+        - Counters.Setup - Counters.Skin - Counters.Advance - Counters.Collate - Counters.Baked - Counters.Place;
+
     /// <summary>What the ledger measured but did not name, which is the column that matters.</summary>
     /// <remarks>
     /// **Arrived at by subtraction on purpose.** A derived column inherits every error of the ones
@@ -635,12 +647,15 @@ public sealed class MomentScene : IGameSystemPerFrame
         int hidden = _models.CulledByVisibility;
         int unjudged = _models.Unjudgeable;
 
+        long undrawnAt = Stopwatch.GetTimestamp();
+
         if (_undrawn.Count > 0)
         {
             // Its own pass, read after the world's counters, so it is posed and in the scene for a decal but never drawn.
             _models.Instances(
                 _undrawn, _undrawnInstances, Lighting.LightingAt, Lighting.SunAt, info.Seconds, pass: EntityModelSet.UndrawnPass);
         }
+        long undrawnTicks = Stopwatch.GetTimestamp() - undrawnAt;
         int posed = _models.Posed;
 
         // **Where the SOLVER put each corpse, which is the only thing that can aim a camera at
@@ -736,7 +751,8 @@ public sealed class MomentScene : IGameSystemPerFrame
             Drawn: posed,
             Selected: _drawn.Count,
             Hidden: hidden,
-            Unjudgeable: unjudged);
+            Unjudgeable: unjudged,
+            Undrawn: undrawnTicks);
     }
 
     /// <summary>The client thinks that allocate dynamic lights this moment (B425), at the moment's time.</summary>
@@ -1532,7 +1548,7 @@ public sealed class MomentScene : IGameSystemPerFrame
             // **Named, because this pass shares the world pass's tally.** It passes no frustum, so
             // its `off-screen` count is structurally zero — read as the world pass's, that is a
             // working cull reported as a broken one.
-            pass: "viewmodel");
+            pass: EntityModelSet.ViewmodelPass);
 
         // **Who owns the viewmodel and what team they are on, once per change** (B242). The skin
         // family is decided from the OWNER, and every wrong answer so far has been about not

@@ -72,8 +72,10 @@ public static class ViewerHelp
                                      HUD is TF2's stock one; tf/custom is not read for it.
           --measure <seconds>        Play for this many seconds OF PLAYBACK, print the mean frame
                                      cost, and exit. Not wall clock: loading a map takes about
-                                     twenty seconds and does not count against it. Exits 1, with
-                                     the reason on stderr, if the file is not a demo.
+                                     twenty seconds and does not count against it. Sets
+                                     engine_no_focus_sleep 0, since a launched window may never
+                                     take focus. Exits 1, with the reason on stderr, if the file
+                                     is not a demo.
           --then-seek <tick>         With --measure: then pause, seek to this tick and measure the
                                      paused frame as long again (mean ms, phases, live particles).
           +<cvar> <value>            Set a cvar for this run only, as Source does. Anything in

@@ -160,3 +160,38 @@ which cannot be verified by looking is a question and not a statement.
 It is plausible that this contributes to some of B198's reports — the spy animation looping, the
 door grates — and **it is not established.** Recording the temptation, since the tidy version of this
 story would claim the fix and move on.
+
+## 7. A render pass is not a frame: the corpse world was rebuilt every frame (2026-10-17)
+
+**What the engine does** (read from source): `CPhysicsSystem::PhysicsSimulate` (`game/client/physics.cpp`) steps
+`physenv` once a frame, at `SetSimulationTimestep( gpGlobals->interval_per_tick )` (`physics.cpp:177-180`) — one IVP step a
+tick, independent of how many views or passes draw. A ragdoll is never re-created except by its entity.
+
+**What we did.** `EntityModelSet.Instances` is called three times a frame in first person: the world pass, the
+first-person player's own undrawn pass (B511), and the viewmodel pass. Every call ran `AdvanceCorpses` with ITS props —
+and the two small passes carry no corpse. `CorpsePhysics.Advance` retires a corpse the moment no longer carries (that is
+how a fade leaves the world), so each small pass retired every corpse, and the next world pass found a corpse born before
+the world's tick and not running: "unreachable", rebuild, replay from the death.
+
+**Why it hid.** It was filed as settling. The owner's f12 line read `corpses 13.3 ms over 60.6 steps`, and a corpse that
+has just died is expensive, so the number looked like physics being physics. The number that gives it away is the STEPS:
+at 66 ticks a second and ~38 frames a second the engine takes 1.7 a frame. The second clue needed a column that did not
+exist — `advance` (all of `AdvanceCorpses`) against `corpses` (the step inside it): f12 at 30000 read `advance 48.7
+(corpses 23 over 51.3 steps, 11 held)`, so half the corpse cost was not even stepping. Adding a rebuild count settled it
+on gullywash_f9 with ONE corpse: `217.6 steps … 28 rebuilt` and `232.9 steps … 47 rebuilt` per hundred frames.
+
+**After** (measured, same command): f12 `1.9` and `1` steps a frame, `1 rebuilt` in the window (the seek's own); gullywash
+`8.1` (the seek's catch-up window), then `2.7` and `1.1`, `0 rebuilt`. `advance` 48.7/12.5/19.8 ms → 1.2/0.2/0.
+
+**Parity.** Only the world pass advances now, which is the engine's one step a frame. A replay from the death is
+deterministic and reproduces the continuous pose (`Instances_SeekingBackwards_RebuildsAndReplaysFromTheDeath` already
+relies on that), so the pose drawn should not change — only the work. Held by
+`CorpsePhysicsWiringTests.Instances_AnotherPassWithoutTheCorpse_LeavesItInTheWorld`.
+
+**The rest of the residual, for the record.** `rest` (6–20 ms on f12) is now timed out to ~0.2–0.6 ms: `collate` ~1,
+`baked` 3–4 ms in the window where static props are first seen and under 1 after (the colour mesh is cached per entity),
+`place` 1–4, `undrawn` 1–4, `advance` as above. **`undrawn` is the one remaining piece of work Valve does not do**:
+`C_BasePlayer::ShouldDraw` is false for the local player in first person, so the engine reaches his `SetupBones` only from
+`AddDecal` (on demand — our decal queries already call `SetupBones` themselves) or a monitor's `ForceTempForceDraw`. We
+pose and build instances for him every frame and discard them on any map without a camera target. Not yet removed: the
+pose step would need to know whether a monitor draws this frame, which only the device knows today.

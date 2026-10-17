@@ -197,8 +197,7 @@ public static class StallReport
         double skin = Ms(pose.Skin);
         double corpses = Ms(pose.Corpses);
 
-        double rest =
-            Ms(phases.Pose) - lighting - viewmodel - simulate - wornLight - reports - setup - skin - corpses;
+        double rest = Ms(phases.PoseRest);
 
         // Stryker disable all : the String mutator wraps the interpolated literal in a ternary that
         // cannot bind to string.Create's interpolated-string handler (CS1620), and Safe Mode then
@@ -218,7 +217,11 @@ public static class StallReport
                 $" (sink {Ms(pose.ReportLog):0.#})" +
                 $", setup {setup:0.#}" +
                 $", skin {skin:0.#}" +
-                $", corpses {corpses:0.#}" +
+                $", collate {Ms(pose.Collate):0.#}" +
+                $", baked {Ms(pose.Baked):0.#}" +
+                $", place {Ms(pose.Place):0.#}" +
+                $", undrawn {Ms(phases.Undrawn):0.#}" +
+                $", advance {Ms(pose.Advance):0.#} (corpses {corpses:0.#})" +
                 $", rest {rest:0.#}" +
                 $", built {pose.Built.ToString(CultureInfo.InvariantCulture)}" +
                 $" of {phases.Drawn.ToString(CultureInfo.InvariantCulture)}" +
