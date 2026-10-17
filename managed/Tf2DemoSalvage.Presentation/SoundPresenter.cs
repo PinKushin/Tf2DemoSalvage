@@ -300,6 +300,11 @@ public sealed partial class SoundPresenter(
         {
             skipped = moved.Take(ref _moveTaken);
         }
+        else
+        {
+            Pass(move);
+        }
+
         IReadOnlyList<SceneSound> starting = schedule.Advance(tick, skipped);
 
         if (schedule.Repositioned)
