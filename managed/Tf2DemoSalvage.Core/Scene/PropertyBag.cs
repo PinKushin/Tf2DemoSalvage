@@ -80,6 +80,13 @@ internal sealed class PropertyBag : IReadOnlyDictionary<string, PropertyValue>
     [StateCopy.NotCopied]
     private List<bool>? _owned = [];
 
+    /// <summary>
+    /// Packed chunks unpacked for reading, by chunk: a read of a frozen chunk unpacks it once, not once per value. Never
+    /// copied, so it is this instance's alone; it describes <see cref="_frozen"/>, or <see cref="_base"/> while thawed.
+    /// </summary>
+    [StateCopy.NotCopied]
+    private (PropertyValue Value, long Sequence)[]?[]? _unpacked;
+
     private Dictionary<string, int> Slots => _frozen?.Slots ?? _slots!;
 
     /// <summary>The key → slot map in use, by identity: what a re-entered entity re-uses (D217 step 4, part 3).</summary>
@@ -118,6 +125,7 @@ internal sealed class PropertyBag : IReadOnlyDictionary<string, PropertyValue>
 
         _frozen = new Frozen(_slots!, _count, packed);
         _base = null;
+        _unpacked = null;
         _slots = null;
         _chunks = null;
         // Nothing to reset beyond this: ownership is read only while thawed, and Thaw sets it before any read.
@@ -212,7 +220,7 @@ internal sealed class PropertyBag : IReadOnlyDictionary<string, PropertyValue>
 
         if (!Owns(chunk))
         {
-            _chunks![chunk] = _chunks[chunk] is { } held ? ((PropertyValue, long)[])held.Clone() : Unpack(_base!.Chunks[chunk]);
+            _chunks![chunk] = ((PropertyValue, long)[])(_chunks[chunk] ?? Unpacked(_base!, chunk)).Clone();
             Own(chunk);
         }
 
@@ -264,6 +272,7 @@ internal sealed class PropertyBag : IReadOnlyDictionary<string, PropertyValue>
 
         _frozen = null;
         _base = null;
+        _unpacked = null;
         _count = 0;
         _chunks = [];
         _owned = [];
@@ -305,10 +314,16 @@ internal sealed class PropertyBag : IReadOnlyDictionary<string, PropertyValue>
 
         if ((_frozen ?? (_chunks![chunk] is null ? _base : null)) is { } packed)
         {
-            (PropertyValue.Packed value, long sequence) = packed.Chunks[chunk][at];
-            return (PropertyValue.Unpack(value), sequence);
+            return Unpacked(packed, chunk)[at];
         }
 
         return _chunks![chunk]![at];
+    }
+
+    /// <summary>A packed chunk of the frozen form this bag reads, unpacked once and kept for later reads.</summary>
+    private (PropertyValue Value, long Sequence)[] Unpacked(Frozen packed, int chunk)
+    {
+        _unpacked ??= new (PropertyValue, long)[]?[packed.Chunks.Length];
+        return _unpacked[chunk] ??= Unpack(packed.Chunks[chunk]);
     }
 }
