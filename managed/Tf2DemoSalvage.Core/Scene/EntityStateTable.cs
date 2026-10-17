@@ -258,11 +258,7 @@ public sealed class EntityStateTable
             //
             // Everything else keeps the flat key, deliberately: every accessor in this file's
             // consumers spells `DT_Table.m_Prop`, and no non-element key collides.
-            state.Set(
-                property.Definition.ElementScoped && property.Definition.Path.Length > 0
-                    ? property.Definition.Path
-                    : $"{property.Definition.OwnerTable}.{property.Definition.Property.Name}",
-                property.Value);
+            state.Set(PropertyKeys.Of(property.Definition), property.Value);
         }
 
         // **After the loop and before anything can read it**, which is where the engine's receive
