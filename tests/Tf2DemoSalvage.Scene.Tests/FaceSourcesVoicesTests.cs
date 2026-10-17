@@ -46,6 +46,25 @@ public sealed class FaceSourcesVoicesTests
         changed.ShouldBeGreaterThan(4, "the control: the sweep crosses starts, ends and the stop, so the answer moves");
     }
 
+    /// <remarks>
+    /// **An early free is an event at the time it happens** — risk from review: b.wav (scheduled to end at 2.45 s) is stopped
+    /// at 1.5 s, and the span kept after it must begin at 1.5, not at the end b would have had, or nothing after the stop
+    /// is ever kept. Between the stop and c.wav at 1.8 s, three asks walk once.
+    /// </remarks>
+    [Test]
+    public void Voices_AfterAStopThatFreesEarly_KeepsTheAnswerUntilTheNextEvent()
+    {
+        FaceSources sources = Sources();
+
+        _ = sources.Voices(3, 1.6);
+        int walks = sources.Walks;
+        _ = sources.Voices(3, 1.65);
+        _ = sources.Voices(3, 1.75);
+
+        walks.ShouldBe(1, "the control: the first ask walks");
+        sources.Walks.ShouldBe(1);
+    }
+
     private static FaceSources Sources()
     {
         Sentence line = new([], [], SampleCount: 44100, SampleRate: 44100);

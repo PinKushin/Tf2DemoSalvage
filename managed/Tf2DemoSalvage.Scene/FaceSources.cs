@@ -190,16 +190,19 @@ public sealed class FaceSources
             return held.Voices;
         }
 
+        Walks++;
         double lastEvent = double.NegativeInfinity;
         double nextStart = double.PositiveInfinity;
         List<(string Path, FaceVoice Voice)> mouth = [];
         List<(int Channel, string Path, double End, bool Feeds)> playing = [];
 
-        void Free(int at)
+        // `when` is the time the channel is freed: its own end when it ran out, the new sound's start when a stop or a
+        // sound on its channel took it early — never the end it was scheduled for, which may be later or never.
+        void Free(int at, double when)
         {
-            (_, string path, double ended, bool feeds) = playing[at];
+            (_, string path, _, bool feeds) = playing[at];
             playing.RemoveAt(at);
-            lastEvent = Math.Max(lastEvent, ended);
+            lastEvent = Math.Max(lastEvent, when);
 
             if (!feeds)
             {
@@ -222,7 +225,7 @@ public sealed class FaceSources
         {
             for (int at = EarliestEnd(playing, time); at >= 0; at = EarliestEnd(playing, time))
             {
-                Free(at);
+                Free(at, playing[at].End);
             }
         }
 
@@ -253,7 +256,7 @@ public sealed class FaceSources
                     if (playing[at].Channel == Slot(sound) &&
                         (!sound.IsStop || string.Equals(playing[at].Path, path, StringComparison.OrdinalIgnoreCase)))
                     {
-                        Free(at);
+                        Free(at, start);
                     }
                 }
             }
@@ -301,6 +304,9 @@ public sealed class FaceSources
         _heard[entity] = (lastEvent, until, voices);
         return voices;
     }
+
+    /// <summary>How many times <see cref="Voices"/> walked the recording rather than answering from what it kept, ever.</summary>
+    public int Walks { get; private set; }
 
     /// <summary>Each entity's last answer from <see cref="Voices"/>, with the span of time over which it cannot change.</summary>
     private readonly Dictionary<int, (double From, double Until, IReadOnlyList<FaceVoice> Voices)> _heard = [];

@@ -63,6 +63,8 @@ public sealed class MomentCostLog
     private int _corpseRebuilds;
     private long _buildsSimulating;
     private long _buildsDrawing;
+    private long _buildsCorpses;
+    private long _buildsPlacing;
     private long _placeCompose;
     private long _placeFade;
     private long _placeBuild;
@@ -135,6 +137,8 @@ public sealed class MomentCostLog
         _corpseRebuilds += phases.Counters.CorpseRebuilds;
         _buildsSimulating += phases.Counters.BuildsSimulating;
         _buildsDrawing += phases.Counters.BuildsDrawing;
+        _buildsCorpses += phases.Counters.BuildsCorpses;
+        _buildsPlacing += phases.Counters.BuildsPlacing;
         _placeCompose += phases.Counters.PlaceCompose;
         _placeFade += phases.Counters.PlaceFade;
         _placeBuild += phases.Counters.PlaceBuild;
@@ -206,8 +210,8 @@ public sealed class MomentCostLog
             // posed means mask thrash, where a wearable asking for bones its owner has not built
             // forces the owner to rebuild, repeatedly, inside one frame.
             + $"; built {_poseBuilds / (double)over:0.#}"
-            + $" (simulate {_buildsSimulating / (double)over:0.#}, draw {_buildsDrawing / (double)over:0.#}"
-            + $", other {(_poseBuilds - _buildsSimulating - _buildsDrawing) / (double)over:0.#})"
+            + $" (simulate {_buildsSimulating / (double)over:0.#}, corpses {_buildsCorpses / (double)over:0.#}"
+            + $", draw {_buildsDrawing / (double)over:0.#}, place {_buildsPlacing / (double)over:0.#})"
             + $"; posed {_drawn / (double)over:0.#} of {_selected / (double)over:0.#} selected"
             + $", {_hidden / (double)over:0.#} hidden by pvs"
             + $", {_unjudged / (double)over:0.#} unjudgeable");
@@ -239,6 +243,8 @@ public sealed class MomentCostLog
         _corpseRebuilds = 0;
         _buildsSimulating = 0;
         _buildsDrawing = 0;
+        _buildsCorpses = 0;
+        _buildsPlacing = 0;
         _placeCompose = 0;
         _placeFade = 0;
         _placeBuild = 0;

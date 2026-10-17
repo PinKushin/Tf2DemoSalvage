@@ -410,6 +410,12 @@ public sealed class EntityModelSet : Hud.IMdlCache, IPosedEntities
     /// <summary>Skeletons built by the draw loop's own `SetupBones`, ever — parents of merged items included.</summary>
     public int BuildsDrawing { get; set; }
 
+    /// <summary>Skeletons built while advancing the corpses — a seed's death pose — ever.</summary>
+    public int BuildsCorpses { get; set; }
+
+    /// <summary>Skeletons built while placing a drawn instance — a parent's attachment — ever.</summary>
+    public int BuildsPlacing { get; set; }
+
     /// <summary>What collating the pass's props into views has cost, ever — `BuildRenderablesList`.</summary>
     public long CollateTicks { get; set; }
 
@@ -483,6 +489,8 @@ public sealed class EntityModelSet : Hud.IMdlCache, IPosedEntities
         long CorpseBuilding = 0,
         int BuildsSimulating = 0,
         int BuildsDrawing = 0,
+        int BuildsCorpses = 0,
+        int BuildsPlacing = 0,
         long PlaceCompose = 0,
         long PlaceFade = 0,
         long PlaceBuild = 0,
@@ -524,6 +532,8 @@ public sealed class EntityModelSet : Hud.IMdlCache, IPosedEntities
                 CorpseBuilding - before.CorpseBuilding,
                 BuildsSimulating - before.BuildsSimulating,
                 BuildsDrawing - before.BuildsDrawing,
+                BuildsCorpses - before.BuildsCorpses,
+                BuildsPlacing - before.BuildsPlacing,
                 PlaceCompose - before.PlaceCompose,
                 PlaceFade - before.PlaceFade,
                 PlaceBuild - before.PlaceBuild,
@@ -558,6 +568,8 @@ public sealed class EntityModelSet : Hud.IMdlCache, IPosedEntities
         Corpses.BuildingTicks,
         BuildsSimulating,
         BuildsDrawing,
+        BuildsCorpses,
+        BuildsPlacing,
         PlaceComposeTicks,
         PlaceFadeTicks,
         PlaceBuildTicks,
@@ -5444,6 +5456,7 @@ public sealed class EntityModelSet : Hud.IMdlCache, IPosedEntities
         _entities.Clear();
         _entityModels.Clear();
         _scenes.Clear();
+        _filedBoxes.Clear();
         _placements.Clear();
         _lightPoints.Clear();
         _drawnPlacements.Clear();
@@ -5920,6 +5933,7 @@ public sealed class EntityModelSet : Hud.IMdlCache, IPosedEntities
         BuildsSimulating += SkeletonPose.PoseBuilds - buildsBefore;
 
         long advancedAt = System.Diagnostics.Stopwatch.GetTimestamp();
+        int corpseBuildsBefore = SkeletonPose.PoseBuilds;
 
         // **The world pass only**: `physenv` is stepped once a frame (`CPhysicsSystem::PhysicsSimulate`) whatever is drawn, and
         // the undrawn and viewmodel passes carry no corpse — advancing on their empty lists retired every corpse, and the next
@@ -5930,6 +5944,7 @@ public sealed class EntityModelSet : Hud.IMdlCache, IPosedEntities
         }
 
         AdvanceTicks += System.Diagnostics.Stopwatch.GetTimestamp() - advancedAt;
+        BuildsCorpses += SkeletonPose.PoseBuilds - corpseBuildsBefore;
 
         // **What exists, per pass, kept past the next pass** (B415). `_propsByEntity` is the pass in flight, and the viewmodel
         // pass replaces the world's; a question asked between frames — a decal's bones, an effect's attachment — must still
@@ -6191,6 +6206,7 @@ public sealed class EntityModelSet : Hud.IMdlCache, IPosedEntities
             }
 
             long placingAt = System.Diagnostics.Stopwatch.GetTimestamp();
+            int placeBuildsBefore = SkeletonPose.PoseBuilds;
 
             // **Applies the matrices the GPU is about to use, on the processor, and reports the
             // result.** A skinned model that draws wrong could be a bad pose or a bad shader, and
@@ -6314,6 +6330,7 @@ public sealed class EntityModelSet : Hud.IMdlCache, IPosedEntities
                     // already refused by SetupBones returning false; this is the same rule for one
                     // with no skeleton to refuse with.
                     PlaceTicks += System.Diagnostics.Stopwatch.GetTimestamp() - placingAt;
+                    BuildsPlacing += SkeletonPose.PoseBuilds - placeBuildsBefore;
                     continue;
                 }
 
@@ -6466,6 +6483,7 @@ public sealed class EntityModelSet : Hud.IMdlCache, IPosedEntities
             if (cloak.Undrawn)
             {
                 PlaceTicks += System.Diagnostics.Stopwatch.GetTimestamp() - placingAt;
+                BuildsPlacing += SkeletonPose.PoseBuilds - placeBuildsBefore;
                 continue;
             }
 
@@ -6556,6 +6574,7 @@ public sealed class EntityModelSet : Hud.IMdlCache, IPosedEntities
             long instancedAt = System.Diagnostics.Stopwatch.GetTimestamp();
             PlaceBuildTicks += instancedAt - buildingAt;
             PlaceTicks += instancedAt - placingAt;
+            BuildsPlacing += SkeletonPose.PoseBuilds - placeBuildsBefore;
 
             // **The item's `attached_models`, drawn on the item's own transform and bones.**
             // `DrawEconEntityAttachedModels` (`econ_entity.cpp:103`) copies the parent's
@@ -6837,11 +6856,18 @@ public sealed class EntityModelSet : Hud.IMdlCache, IPosedEntities
                 }
             }
 
+            if (!fixedProp)
+            {
+                // A parented prop follows its parent: nothing filed for it may outlive the parenting.
+                _filedBoxes.Remove(key);
+            }
+
             if (_handleOf.TryGetValue(key, out int handle))
             {
                 if (!unmoved)
                 {
                     _leafSystem.RenderableChanged(handle, box);
+                    Relinked++;
                 }
             }
             else
@@ -6926,7 +6952,16 @@ public sealed class EntityModelSet : Hud.IMdlCache, IPosedEntities
     /// <summary>Each unparented prop's filed box, with the placement and frames it was filed from — re-filed when either changes.</summary>
     private readonly Dictionary<(int Entity, string Model, int Occurrence), (FiledPlacement Placement, PropModels.ModelFrames? Frames, (float, float, float, float, float, float) Box)> _filedBoxes = [];
 
+    /// <summary>How many times a filed renderable was re-linked (`RenderableChanged`), ever — counted at the call.</summary>
+    public int Relinked { get; private set; }
+
     /// <summary>What an unparented prop's box is placed from — compared whole, so any change files it again.</summary>
+    /// <remarks>
+    /// **Every input of <c>WorldBoxFor</c> for a prop with no parent, and nothing else**: `Placed(prop)` reads the model's
+    /// frames (compared by reference beside this), `RenderBoundsFor(Pose.Sequence)`, `Pose.Scale`, and the origin and
+    /// angles. A parent adds `_propsByEntity`, which is why a parented prop is never filed. Pinned by
+    /// `Instances_AnUnparentedPropChangingAnyPlacementField_IsRelinked`; a new input to `WorldBoxFor` belongs here too.
+    /// </remarks>
     private readonly record struct FiledPlacement(
         float X, float Y, float Z, float Pitch, float Yaw, float Roll, float Scale, int Sequence);
 

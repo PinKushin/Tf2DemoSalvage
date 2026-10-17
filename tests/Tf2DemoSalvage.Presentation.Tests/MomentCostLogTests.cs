@@ -163,10 +163,11 @@ public sealed class MomentCostLogTests
         MomentPhases phases = Posing(10) with
         {
             Counters = new EntityModelSet.PoseCounters(
-                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 9, BuildsSimulating: 6, BuildsDrawing: 2),
+                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 15, BuildsSimulating: 6, BuildsDrawing: 2, BuildsCorpses: 3, BuildsPlacing: 4),
         };
 
-        Assert.That(log.Report(phases, sampleTicks: 0), Does.Contain("built 9 (simulate 6, draw 2, other 1)"));
+        // Each counted where it was built (B243); 15 against 6+2+3+4 also shows nothing else built one.
+        Assert.That(log.Report(phases, sampleTicks: 0), Does.Contain("built 15 (simulate 6, corpses 3, draw 2, place 4)"));
     }
 
     /// <remarks>

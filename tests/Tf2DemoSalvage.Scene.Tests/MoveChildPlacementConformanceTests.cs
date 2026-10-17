@@ -291,6 +291,91 @@ public sealed class MoveChildPlacementConformanceTests
     }
 
     /// <summary>
+    /// **The reuse half, and every field it compares** (`FiledPlacement`): an unchanged frame re-links nothing; a change to
+    /// any one input of `WorldBoxFor` re-links exactly once. Counted at the `RenderableChanged` call.
+    /// </summary>
+    [Test]
+    public void Instances_AnUnparentedPropChangingAnyPlacementField_IsRelinked()
+    {
+        ScenePose start = new() { X = 1f, Y = 2f, Z = 3f, Pitch = 4f, Yaw = 5f, Roll = 6f, Scale = 1f, Sequence = 0 };
+        SceneProp prop = new(1, ParentModel, SceneModelKind.Studio, start);
+
+        EntityModelSet models = new();
+        models.Add([prop], _ => Baked() with { HeaderBounds = new StudioBox(-1f, -2f, -3f, 4f, 5f, 6f) });
+        models.Instances([prop], [], seconds: 1d);
+
+        int before = models.Relinked;
+        models.Instances([prop], [], seconds: 2d);
+        models.Relinked.ShouldBe(before, "unmoved: the filed box is reused, nothing re-linked");
+
+        ScenePose[] changed =
+        [
+            start with { X = 9f }, start with { Y = 9f }, start with { Z = 9f }, start with { Pitch = 9f },
+            start with { Yaw = 9f }, start with { Roll = 9f }, start with { Scale = 2f }, start with { Sequence = 1 },
+        ];
+
+        foreach (ScenePose pose in changed)
+        {
+            models.Instances([prop], [], seconds: 3d);
+            int at = models.Relinked;
+            models.Instances([prop with { Pose = pose }], [], seconds: 4d);
+            models.Relinked.ShouldBe(at + 1, $"changed {pose}");
+        }
+    }
+
+    /// <summary>
+    /// **Parenting forgets the filing** — red in review: unparented, then parented (placed every frame), then unparented at
+    /// the SAME pose, which must be re-linked, because the box it was last filed with was the parented one's.
+    /// </summary>
+    [Test]
+    public void Instances_UnparentedParentedThenUnparentedAtTheSamePose_IsFiledAgain()
+    {
+        SceneProp parent = new(1, ParentModel, SceneModelKind.Studio, new ScenePose { X = 199f });
+        SceneProp alone = new(2, ChildModel, SceneModelKind.Studio, new ScenePose { X = 2f });
+        SceneProp parented = alone with { AttachedTo = 1 };
+
+        EntityModelSet models = new();
+        models.Add([parent, alone], _ => Baked() with { HeaderBounds = new StudioBox(-1f, -2f, -3f, 4f, 5f, 6f) });
+        models.PlaceFrame([parent, alone]);
+
+        models.Instances([parent, alone], [], seconds: 1d);
+        models.PlaceFrame([parent, parented]);
+        models.Instances([parent, parented], [], seconds: 2d);
+        models.PlaceFrame([parent, alone]);
+        int at = models.Relinked;
+
+        List<ModelInstance> back = [];
+        models.Instances([parent, alone], back, seconds: 3d);
+
+        models.Relinked.ShouldBe(at + 1, "filed again on leaving its parent");
+        back.Single(model => model.EntityIndex == 2).WorldBounds.MinX.ShouldBe(1f, 1e-3f);
+    }
+
+    /// <summary>
+    /// **A new level's model, at the same pose, is filed from the new model** — `LevelShutdown` forgets every filing, and
+    /// the frames are compared by reference besides, so a model read again (a swap of `ModelFrames`) cannot keep the old
+    /// box. The control is the first level's box.
+    /// </summary>
+    [Test]
+    public void Instances_AfterLevelShutdownWithAnotherModel_FilesFromTheNewOne()
+    {
+        SceneProp prop = new(1, ParentModel, SceneModelKind.Studio, new ScenePose());
+
+        EntityModelSet models = new();
+        models.Add([prop], _ => Baked() with { HeaderBounds = new StudioBox(-1f, -2f, -3f, 4f, 5f, 6f) });
+        List<ModelInstance> first = [];
+        models.Instances([prop], first, seconds: 1d);
+
+        models.LevelShutdown();
+        models.Add([prop], _ => Baked() with { HeaderBounds = new StudioBox(-7f, -2f, -3f, 4f, 5f, 6f) });
+        List<ModelInstance> after = [];
+        models.Instances([prop], after, seconds: 2d);
+
+        first.Single().WorldBounds.MinX.ShouldBe(-1f, 1e-3f, "the control");
+        after.Single().WorldBounds.MinX.ShouldBe(-7f, 1e-3f);
+    }
+
+    /// <summary>
     /// **The undrawn pass builds nothing when nothing will draw it** — `C_BasePlayer::ShouldDraw` is false for the local player
     /// in first person, so the engine reaches his `SetupBones` only from a monitor's `ForceTempForceDraw` or `AddDecal`, and
     /// both of ours ask on demand. The control is the same call with posing on, which does build the instance; and the parent
