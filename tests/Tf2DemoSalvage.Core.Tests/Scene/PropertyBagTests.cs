@@ -137,6 +137,25 @@ public sealed class PropertyBagTests
         bag["k1"].AsInt.ShouldBe(3);
     }
 
+    /// <remarks>
+    /// **A second freeze packs what was written and reuses what was not** (D217 step 4, part 3): the written chunk reads
+    /// the new value, the untouched one the old, and the earlier checkpoint's copy still reads as at its freeze.
+    /// </remarks>
+    [Test]
+    public void Freeze_AgainAfterOneWrite_KeepsTheWriteAndEverythingElse()
+    {
+        PropertyBag bag = Filled();
+        bag.Freeze();
+        string frozen = Describe(bag);
+        PropertyBag checkpoint = StateCopy.Of(bag, new HashSet<object>());
+        bag.Set("k35", PropertyValue.FromInt(2000), 301);
+
+        bag.Freeze();
+
+        (bag["k35"].AsInt, bag.Sequence("k35"), bag["k0"].AsInt, bag.Sequence("k0")).ShouldBe((2000L, 301L, 0L, 100L));
+        Describe(checkpoint).ShouldBe(frozen);
+    }
+
     /// <remarks>**Clear after a freeze restarts the order on the bag alone**; the frozen form keeps every key.</remarks>
     [Test]
     public void Clear_AfterFreeze_ThenSet_RestartsOnlyTheBag()
