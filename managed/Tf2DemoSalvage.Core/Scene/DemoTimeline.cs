@@ -2760,8 +2760,8 @@ public sealed class DemoTimeline
 
         /// <summary>The spacing between checkpoints, in seconds of demo time — the owner's, 2026-10-17 (D217 step 4).</summary>
         /// <remarks>
-        /// **Two seconds**, the owner: *"go with 2 s"*, once part 3 had made the checkpoints small enough — at 2 s a seek
-        /// costs about 230 ms and the checkpoints keep 681 MB on f12, 1,571 MB on rgl-pug (DECISIONS D217).
+        /// **Two seconds**, the owner: *"go with 2 s"*, once part 3 had made the checkpoints small enough; the seek cost
+        /// and memory it was decided on are in DECISIONS D217, "Step 4 — checkpoint spacing is 2 s".
         /// </remarks>
         public const double SpacingSeconds = 2;
 

@@ -10349,7 +10349,7 @@ machine (other agents' gates were running); rgl-pug's did not move, so it is rea
 | rgl-pug | **220** (85 + 132) | 3,996 MB | 1,076 |
 
 That reaches the owner's 100–200 ms band at the edge, at about twice the heap. **Spacing stays 5 s: the owner
-decides it.**
+decides it.** *(Superseded: see "Step 4 — checkpoint spacing is 2 s" below.)*
 
 **After review** (Fable, coordinator): `DecodedProperties` copies what it is given into its own array, so immutability
 is enforced, not promised; a trim shrinks a list only past half spare (`ListCapacity.TrimIfSparse`), so a history
@@ -10364,7 +10364,8 @@ demo and is not caused by this change (pose and project dominate); flagged for i
 ### Step 4, part 3 — memory first (2026-10-16)
 
 **Owner, 2026-10-16:** *"shrink memory first lets see what we can do"*. So checkpoint spacing stays at 5 s until the
-checkpoints keep less; 2 s was measured above at about twice the heap.
+checkpoints keep less; 2 s was measured above at about twice the heap. *(Superseded: see "Step 4 — checkpoint
+spacing is 2 s" below.)*
 
 **The instrument**: `Checkpoints.KeptByOwner` — every object every checkpoint keeps, counted once under the first owner
 that reaches it, in estimated bytes (`StateCopy.Footprint`). Its control is the sum beside the measured retained heap
@@ -10428,24 +10429,30 @@ publishes by compare-and-swap. Chunks of 64 against 1,024, checkpoint build time
 reflection was 2% of the trace and was left. What the next step is for: what each
 checkpoint still holds beyond the one before — tracks and props are now most of a resume (11.6 + 9.2 MB on f12).
 
+**The order after these two steps — the viewer half, decided by the owner the same day: a backward seek must NOT
+replay the demo from the start.** The state the skip replay builds up — the dealt HUD sounds and decals of B504,
+`ReplaySkip` in `FramePresenter.Seek.cs` — is to be carried in checkpoints instead, the way D220 carries corpses.
+Owner: *"I think you're second idea is how we should do it. We are having to do something here valve hasn't even
+done. So it's not simple."* It comes after the copy work above, not before; not built yet.
+
 ### Step 4 — checkpoint spacing is 2 s (2026-10-17)
 
 **Owner, 2026-10-17:** *"go with 2 s"*, once part 3 had shrunk what the checkpoints keep. The one owner of the number
 is `DemoTimeline.Checkpoints.SpacingSeconds`; the `timeline-windows` probe defaults to it. No production caller walks
 checkpoints yet (the window cache in Presentation is the next step), so this sets what that caller will use.
 
-| demo, 2 s | checkpoints | memory kept | seek ms (copy + decode) | seeks differing |
+**Seconds to ticks truncates**, in the probe that is the only caller: 2 s is 133.33 ticks at TF2's 15 ms, so a
+checkpoint falls every 133 ticks — never further apart than asked.
+
+| demo, 2 s | checkpoints | memory kept | seek ms = copy + decode + finish | seeks differing |
 |---|---:|---:|---:|---:|
-| f12 | 727 | 683 MB | **229** (76 + 150) | 0 of 120 |
-| rgl-pug | 1,076 | 1,573 MB | **233** (98 + 131) | 0 of 120 |
+| f12 | 727 | 683 MB | **229** = 76 + 150 + 3 | 0 of 120 |
+| rgl-pug | 1,076 | 1,573 MB | **233** = 98 + 131 + 4 | 0 of 120 |
 
-The digest control is unchanged on both.
-
-**The order after these two steps — the viewer half, decided by the owner the same day: a backward seek must NOT
-replay the demo from the start.** The state the skip replay builds up — the dealt HUD sounds and decals of B504,
-`ReplaySkip` in `FramePresenter.Seek.cs` — is to be carried in checkpoints instead, the way D220 carries corpses.
-Owner: *"I think you're second idea is how we should do it. We are having to do something here valve hasn't even
-done. So it's not simple."* It comes after the copy work above, not before; not built yet.
+Each row is one run: the means of its 120 seeks. The digest control is unchanged on both. **Not a quiet machine**: run
+under the machine lock, which keeps other locked work off but not other agents' builds; the f12 run waited for an
+owner's viewer measurement to finish first. These are after the decode-regression fix above (the property bag's
+enumerator, "The decode regression was real, and is fixed"), which is what brought decode under main's.
 
 ## D218 — TF2's volume ConVars, and the test suite launches the viewer silent (2026-10-14)
 

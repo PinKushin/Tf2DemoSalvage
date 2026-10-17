@@ -38,7 +38,7 @@ public sealed class TimelineWindowsProbe : IProbe
 
         if (arguments.Count == 0 || DemoCorpus.Find(arguments[0], output) is not { } path)
         {
-            output.WriteLine("timeline-windows <demo> [every seconds] [samples] [cost]");
+            output.WriteLine("timeline-windows <demo> [every seconds=2, the decided spacing] [samples=60] [cost]");
             return;
         }
 
@@ -47,7 +47,8 @@ public sealed class TimelineWindowsProbe : IProbe
         bool costOnly = arguments.Count > 3 && arguments[3] == "cost";
         byte[] demo = File.ReadAllBytes(path);
         // The spacing is asked for in seconds before the demo is read, so it converts at TF2's interval (its one owner);
-        // every reach is the demo's own, from the interval its server info states.
+        // every reach is the demo's own, from the interval its server info states. TRUNCATED, deliberately: 2 s is
+        // 133.33 ticks and checkpoints fall every 133, so spacing is never longer than asked.
         int everyTicks = (int)(every / ScenePropTrack.Tf2TickInterval);
 
         long heapBefore = Live();
