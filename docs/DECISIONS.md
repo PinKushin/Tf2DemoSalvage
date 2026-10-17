@@ -10739,3 +10739,24 @@ held to a tick, it stays where the tick left it while the eye and the hands move
 - **Correction:** B539's first write-up said rocket trails already stepped by frame. They did not; `Update` stepped
   whole ticks too, and moves with the bursts here.
 
+## D222 — stock-HUD goldens come from the modern client with the owner's HUD moved out; the D219 exception for the HUD (2026-10-17)
+
+**The owner, in his words**, watching a UI run: *"the hud isnt right for stock, we need golden images for the hud and to
+fix those issues"*; then naming what he saw: *"the ammo font color, the background blocks on the ammo, and player
+model"*. Asked which client the stock reference comes from — his modern install carries his own HUD and config
+(`docs/memory/modern-tf2-is-not-a-stock-reference.md`), the era clients cannot play a 2026 demo — he chose: *"1 get rid
+of my hud, use the modern up to date client"*.
+
+**What followed:**
+
+- **His HUD was moved, not deleted**: `tf/custom/Garm3n-VIP-Quad` now lives at `F:\tf2-hud-backup\Garm3n-VIP-Quad`, and
+  stays out by default. "Get rid of" is his not wanting it back by default; it remains recoverable.
+- **His config still runs** (autoexec and the class configs set viewmodels and the crosshair); the ConVars a HUD capture
+  reads are set to their defaults for the capture and put back after, except `cl_savescreenshotstosteam`, which is his
+  setting at 0 and is never "restored" to anything else.
+- **The D219 exception, for the HUD alone:** a HUD golden is taken on `cp_process_f12`, the parity map
+  (`docs/memory/the-f12-demo-is-the-parity-reference.md`), on a map TF2 loaded itself with a POV demo recorded in the
+  same session — D219's route — because the HUD that matters is a playing player's, which the SourceTV f12 recording
+  does not show. The SourceTV f12 demo is the reference for the spectator view.
+- Until a golden is taken from TF2, a golden of our own render is a regression lock only, and is labelled as one.
+
