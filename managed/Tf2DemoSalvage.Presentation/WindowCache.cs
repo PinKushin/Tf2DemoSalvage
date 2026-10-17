@@ -61,12 +61,14 @@ public sealed class WindowCache : IDisposable
     /// <param name="secondsPerTick">The demo's own tick interval.</param>
     /// <param name="settings">The viewer's window settings, which bound what each checkpoint keeps (D220).</param>
     /// <param name="walk">The walk, for what it keeps; null for a demo with no data tables.</param>
+    /// <param name="cancel">Stops the walk between two packets.</param>
     /// <returns>The cache, or null for a demo with no data tables.</returns>
-    public static WindowCache? Walk(ReadOnlyMemory<byte> file, double secondsPerTick, WindowSettings settings, out TimelineWindows? walk)
+    public static WindowCache? Walk(
+        ReadOnlyMemory<byte> file, double secondsPerTick, WindowSettings settings, out TimelineWindows? walk, CancellationToken cancel = default)
     {
         ArgumentNullException.ThrowIfNull(settings);
 
-        walk = TimelineWindows.Walk(file, SpacingTicks(secondsPerTick), settings);
+        walk = TimelineWindows.Walk(file, SpacingTicks(secondsPerTick), settings, cancel);
         TimelineWindows? walked = walk;
 
         return walked is null ? null : new WindowCache(walked.Ticks, (tick, through, cancel) => walked.Window(tick, through, cancel));
@@ -96,9 +98,9 @@ public sealed class WindowCache : IDisposable
     /// build cancelled, the prefetch included; the prefetch starts only after the target's window is built, and only if
     /// this is still the latest seek. A window already built for the target is served as it is.
     /// </remarks>
-    public Task<DemoTimeline> At(double tick)
+    internal Task<DemoTimeline> At(double tick)
     {
-        int index = Math.Max(0, LastAtOrBefore(tick));
+        int index = TimelineWindows.IndexAt(_starts, tick);
 
         lock (_gate)
         {
@@ -149,24 +151,14 @@ public sealed class WindowCache : IDisposable
         }
     }
 
-    private int LastAtOrBefore(double tick)
-    {
-        int found = -1;
-
-        for (int index = 0; index < _starts.Count && _starts[index] <= tick; index++)
-        {
-            found = index;
-        }
-
-        return found;
-    }
-
     private void Drop(int index)
     {
-        (_, CancellationTokenSource cancel) = _windows[index];
+        (Task<DemoTimeline> window, CancellationTokenSource cancel) = _windows[index];
         _windows.Remove(index);
+
+        // Cancelled now; disposed only when the build has ended, since it may still be reading the token.
         cancel.Cancel();
-        cancel.Dispose();
+        window.ContinueWith(_ => cancel.Dispose(), CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
     }
 
     private Task<DemoTimeline> Ensure(int index)

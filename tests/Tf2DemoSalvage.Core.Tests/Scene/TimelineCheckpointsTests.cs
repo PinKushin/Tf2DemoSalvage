@@ -154,17 +154,39 @@ public sealed class TimelineCheckpointsTests
     }
 
     /// <remarks>
-    /// **A window cancelled before it is finished throws, and is never handed out**: the token set before the build, the
-    /// decode stops at its first command.
+    /// **A window cancelled mid-decode stops at the next command, throws, and is never handed out**: the token set as the
+    /// third command is reached, no fourth is decoded.
     /// </remarks>
     [Test]
-    public void Window_CancelledBeforeItIsBuilt_Throws()
+    public void Window_CancelledAtTheThirdCommand_DecodesNoFourthAndThrows()
     {
         TimelineWindows walk = TimelineWindows.Walk(LongWalk(), Every, new WindowSettings()).ShouldNotBeNull();
         using System.Threading.CancellationTokenSource cancel = new();
+        int reached = 0;
+
+        Should.Throw<OperationCanceledException>(() => walk.Window(
+            walk.Ticks[1],
+            int.MaxValue - 1,
+            () =>
+            {
+                if (++reached == 3)
+                {
+                    cancel.Cancel();
+                }
+            },
+            cancel.Token));
+
+        reached.ShouldBe(3);
+    }
+
+    /// <remarks>**A walk cancelled before it starts stops at its first packet and throws** — what Dispose relies on.</remarks>
+    [Test]
+    public void Walk_Cancelled_StopsAndThrows()
+    {
+        using System.Threading.CancellationTokenSource cancel = new();
         cancel.Cancel();
 
-        Should.Throw<OperationCanceledException>(() => walk.Window(walk.Ticks[1], walk.Ticks[2] - 1, cancel.Token));
+        Should.Throw<OperationCanceledException>(() => TimelineWindows.Walk(LongWalk(), Every, new WindowSettings(), cancel.Token));
     }
 
     /// <summary>A player moving every other tick for 60 ticks: more history than a checkpoint keeps, so the trim bites.</summary>

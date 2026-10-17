@@ -39,9 +39,11 @@ public sealed class TimelineWindows
     /// <param name="file">The whole demo file.</param>
     /// <param name="everyTicks">The spacing between checkpoints.</param>
     /// <param name="settings">The viewer's window settings (D220).</param>
+    /// <param name="cancel">Stops the walk between two packets.</param>
     /// <returns>The walk, or null for a demo with no data tables.</returns>
-    public static TimelineWindows? Walk(ReadOnlyMemory<byte> file, int everyTicks, WindowSettings settings) =>
-        DemoTimeline.Checkpoints.Walk(file, everyTicks, settings) is { } walked ? new TimelineWindows(walked) : null;
+    /// <exception cref="OperationCanceledException">Cancelled before the walk finished.</exception>
+    public static TimelineWindows? Walk(ReadOnlyMemory<byte> file, int everyTicks, WindowSettings settings, CancellationToken cancel = default) =>
+        DemoTimeline.Checkpoints.Walk(file, everyTicks, settings, created: null, cancel) is { } walked ? new TimelineWindows(walked) : null;
 
     /// <summary>The timeline from the checkpoint at or before <paramref name="tick"/> through <paramref name="through"/>.</summary>
     /// <param name="tick">The first tick the window must answer.</param>
@@ -52,10 +54,44 @@ public sealed class TimelineWindows
     public DemoTimeline Window(int tick, int through, CancellationToken cancel = default) =>
         _checkpoints.Window(tick, through, cancel, out _);
 
+    /// <summary>The same, told before each command is decoded — a test's hook to cancel mid-decode.</summary>
+    internal DemoTimeline Window(int tick, int through, Action onCommand, CancellationToken cancel) =>
+        _checkpoints.Window(tick, through, onCommand, cancel, out _);
+
     /// <summary>The index of the checkpoint at or before a tick, or 0 before the first.</summary>
     /// <param name="tick">The tick.</param>
     /// <returns>The index.</returns>
-    public int IndexAt(double tick) => Math.Max(0, Array.FindLastIndex(_ticks, start => start <= tick));
+    public int IndexAt(double tick) => IndexAt(_ticks, tick);
+
+    /// <summary>The index of the last start at or before a tick, by binary search over rising starts; 0 before the first.</summary>
+    /// <param name="starts">The starts, in rising order.</param>
+    /// <param name="tick">The tick.</param>
+    /// <returns>The index.</returns>
+    public static int IndexAt(IReadOnlyList<int> starts, double tick)
+    {
+        ArgumentNullException.ThrowIfNull(starts);
+
+        int low = 0;
+        int high = starts.Count - 1;
+        int found = 0;
+
+        while (low <= high)
+        {
+            int middle = low + ((high - low) / 2);
+
+            if (starts[middle] <= tick)
+            {
+                found = middle;
+                low = middle + 1;
+            }
+            else
+            {
+                high = middle - 1;
+            }
+        }
+
+        return found;
+    }
 
     /// <summary>What every checkpoint together keeps, in estimated bytes — the instrument's own sum (B243), not a GC delta.</summary>
     /// <returns>The bytes, every object counted once.</returns>

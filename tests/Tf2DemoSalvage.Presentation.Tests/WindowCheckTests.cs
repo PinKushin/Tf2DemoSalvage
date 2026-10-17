@@ -66,6 +66,7 @@ public sealed class WindowCheckTests
         check.Observe(new FrameSkip(90, 2, 2), Demo.Value.Whole);
 
         (log.Count("the window for 60 failed"), Volatile.Read(ref builds)).ShouldBe((1, 1));
+        broken.Held.ShouldBe([0], "the parked check asks nothing more: the faulted window is the only one, never rebuilt");
     }
 
     /// <remarks>
@@ -81,7 +82,7 @@ public sealed class WindowCheckTests
             closing =>
             {
                 release.Wait(TimeSpan.FromSeconds(30), closing).ShouldBeTrue();
-                return (WindowCache.Walk(Demo.Value.Demo, 0.015, Settings, out TimelineWindows? _), 0L, TimeSpan.Zero);
+                return (WindowCache.Walk(Demo.Value.Demo, 0.015, Settings, out TimelineWindows? _, closing), 0L, TimeSpan.Zero);
             },
             Settings,
             log);
@@ -94,5 +95,24 @@ public sealed class WindowCheckTests
         ObserveUntil(check, () => log.Count("IDENTICAL") > 0, seek);
 
         (log.Count("checking the seek to 60 made during the walk"), log.Count("seek to 60 ready")).ShouldBe((1, 1));
+    }
+
+    /// <remarks>**Dispose stops a running walk**: the walk waits on its token, and Dispose ends it cancelled.</remarks>
+    [Test]
+    public async Task Dispose_MidWalk_CancelsTheWalk()
+    {
+        WindowCheck check = new(
+            closing =>
+            {
+                closing.WaitHandle.WaitOne(TimeSpan.FromSeconds(30)).ShouldBeTrue();
+                closing.ThrowIfCancellationRequested();
+                return (WindowCache.Walk(Demo.Value.Demo, 0.015, Settings, out TimelineWindows? _, closing), 0L, TimeSpan.Zero);
+            },
+            Settings,
+            new RecordingLogger());
+
+        check.Dispose();
+
+        await Should.ThrowAsync<OperationCanceledException>(check.Walking).ConfigureAwait(false);
     }
 }

@@ -447,6 +447,10 @@ public sealed partial class ViewerPresenter : IDisposable
 
         _audio?.Dispose();
         _audio = null;
+
+        // `--windows`: the walk told to stop and every window build cancelled.
+        _windowCheck?.Dispose();
+        _windowCheck = null;
     }
 
     /// <summary>Loads the map a demo was recorded on, if a copy can be found.</summary>

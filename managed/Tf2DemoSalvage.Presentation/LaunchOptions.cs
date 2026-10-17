@@ -147,6 +147,14 @@ public static class LaunchOptionsReader
                 continue;
             }
 
+            // **The window cache, beside the whole timeline and checked against it on every seek** (D217 step 4). Off by
+            // default: it changes nothing drawn, and a user never sets an environment variable (D210).
+            if (argument == "--windows")
+            {
+                read = read with { Windows = true };
+                continue;
+            }
+
             // **An option because it was an environment variable, and that is the whole reason it
             // had no coverage.** `TF2VIEW_AUTOPLAY` had exactly one reference in the repository —
             // its own declaration — so nothing set it, nothing asserted it, and its ordering broke
@@ -158,14 +166,6 @@ public static class LaunchOptionsReader
             //
             // The variable still works, because a shell somewhere may already export it; see
             // `MainForm.AutoPlayVariable`.
-            // **The window cache, beside the whole timeline and checked against it on every seek** (D217 step 4). Off by
-            // default: it changes nothing drawn, and a user never sets an environment variable (D210).
-            if (argument == "--windows")
-            {
-                read = read with { Windows = true };
-                continue;
-            }
-
             if (argument == "--autoplay")
             {
                 read = read with { AutoPlay = true };

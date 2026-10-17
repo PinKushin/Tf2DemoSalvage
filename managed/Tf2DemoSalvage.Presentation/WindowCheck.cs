@@ -29,6 +29,10 @@ public sealed class WindowCheck : IDisposable
 
     private readonly WindowSettings _settings;
 
+    [System.Diagnostics.CodeAnalysis.SuppressMessage(
+        "Usage",
+        "CA2213:Disposable fields should be disposed",
+        Justification = "False positive: Dispose disposes it in the walk's continuation, once the walk stops reading its token.")]
     private readonly CancellationTokenSource _closing = new();
 
     private readonly Task<(WindowCache? Cache, long KeptBytes, TimeSpan Took)> _walk;
@@ -65,7 +69,7 @@ public sealed class WindowCheck : IDisposable
     /// <param name="settings">The settings windows are walked under.</param>
     /// <param name="log">Where the check reports.</param>
     /// <returns>The check, or null when the demo has no timeline or its bytes were not kept.</returns>
-    public static WindowCheck? For(Scene.DecodedDemo decoded, WindowSettings settings, ILogger log)
+    internal static WindowCheck? For(Scene.DecodedDemo decoded, WindowSettings settings, ILogger log)
     {
         ArgumentNullException.ThrowIfNull(decoded);
 
@@ -87,17 +91,17 @@ public sealed class WindowCheck : IDisposable
     /// <param name="settings">The settings windows are walked under.</param>
     /// <param name="log">Where the check reports.</param>
     /// <returns>The check, walking.</returns>
-    public static WindowCheck Start(ReadOnlyMemory<byte> file, double secondsPerTick, string name, WindowSettings settings, ILogger log)
+    internal static WindowCheck Start(ReadOnlyMemory<byte> file, double secondsPerTick, string name, WindowSettings settings, ILogger log)
     {
         ArgumentNullException.ThrowIfNull(log);
 
         log.LogInformation("{Message}", $"windows: walking {name} into checkpoints beside the whole timeline");
 
         return new WindowCheck(
-            _ =>
+            closing =>
             {
                 long began = Stopwatch.GetTimestamp();
-                WindowCache? cache = WindowCache.Walk(file, secondsPerTick, settings, out TimelineWindows? walk);
+                WindowCache? cache = WindowCache.Walk(file, secondsPerTick, settings, out TimelineWindows? walk, closing);
                 TimeSpan took = Stopwatch.GetElapsedTime(began);
 
                 // What the checkpoints keep, carried from the instrument that counts them (B243), not a GC delta.
@@ -242,12 +246,21 @@ public sealed class WindowCheck : IDisposable
     {
         _closing.Cancel();
 
-        if (_walk.IsCompletedSuccessfully)
-        {
-            _walk.Result.Cache?.Dispose();
-        }
+        // When the walk ends — now or after this, since it stops between packets: its cache's builds are cancelled, and
+        // the token the walk was reading is disposed only then.
+        _walk.ContinueWith(
+            walked =>
+            {
+                if (walked.IsCompletedSuccessfully)
+                {
+                    walked.Result.Cache?.Dispose();
+                }
 
-        _closing.Dispose();
+                _closing.Dispose();
+            },
+            CancellationToken.None,
+            TaskContinuationOptions.ExecuteSynchronously,
+            TaskScheduler.Default);
     }
 
     private void Park(string what, Exception? failure)
