@@ -393,8 +393,13 @@ public sealed partial class ViewerSession
         // **The log's own meter, always smoothed**, fed the frame time the on-screen one gets. The on-screen meter answers
         // nothing while `cl_showfps` is 0 — Valve's rule for drawing it — and with no TF2 install it is never built, so a
         // log that borrowed its reading went silent on a fresh profile and `--measure` counted 0 samples on CI.
-        if (_frameRateLog.Report(_loggedRate.Sample(_clock.LastFrameSeconds), phases, _frameSeconds) is { } rate)
+        _presenter.FrameParts.Frame();
+
+        if (_frameRateLog.Report(_loggedRate.Sample(_clock.LastFrameSeconds), phases, _frameSeconds) is { } logged)
         {
+            // The parts of `camera` and `hud`, over the same frames as the line they follow.
+            string rate = logged + "; parts: " + _presenter.FrameParts.Report();
+
             _renderLog.LogInformation("{Message}", rate);
 
             // **`--measure`, and the line it prints is the one just logged.** Reported from here

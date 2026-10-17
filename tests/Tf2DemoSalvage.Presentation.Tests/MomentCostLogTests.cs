@@ -145,10 +145,56 @@ public sealed class MomentCostLogTests
 
         Assert.That(line, Does.Contain("collate 1,"));
         Assert.That(line, Does.Contain("baked 2,"));
-        Assert.That(line, Does.Contain("place 3,"));
+        Assert.That(line, Does.Contain("place 3 ("));
         Assert.That(line, Does.Contain("advance 9"));
         Assert.That(line, Does.Contain("undrawn 6,"));
         Assert.That(line, Does.Contain("rest 39"));
+    }
+
+    /// <remarks>
+    /// **Where the skeletons were built**: 24 a rebuild against 5 posed on f12 says most are not the draw's. Distinct widths
+    /// (9 total, 6 simulating, 2 drawing) so a column printing another's count cannot pass.
+    /// </remarks>
+    [Test]
+    public void Report_WithBuildsBySite_NamesEach()
+    {
+        MomentCostLog log = new(every: 1);
+
+        MomentPhases phases = Posing(10) with
+        {
+            Counters = new EntityModelSet.PoseCounters(
+                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 9, BuildsSimulating: 6, BuildsDrawing: 2),
+        };
+
+        Assert.That(log.Report(phases, sampleTicks: 0), Does.Contain("built 9 (simulate 6, draw 2)"));
+    }
+
+    /// <remarks>
+    /// **The parts of `place`, each a distinct width**, so a column printing its neighbour's value cannot pass.
+    /// </remarks>
+    [Test]
+    public void Report_WithPlaceParts_NamesEach()
+    {
+        MomentCostLog log = new(every: 1);
+
+        MomentPhases phases = Posing(30) with
+        {
+            Counters = new EntityModelSet.PoseCounters(
+                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                Place: 20 * Millisecond,
+                PlaceCompose: 1 * Millisecond,
+                PlaceFade: 2 * Millisecond,
+                PlaceBuild: 17 * Millisecond,
+                PlaceBinds: 3 * Millisecond,
+                PlaceLookups: 14 * Millisecond,
+                PlaceMatrix: 4 * Millisecond,
+                PlaceSwap: 5 * Millisecond,
+                PlaceFlex: 6 * Millisecond),
+        };
+
+        Assert.That(
+            log.Report(phases, sampleTicks: 0),
+            Does.Contain("place 20 (compose 1, fade 2, build 17 of which binds 3, lookups 14 = matrix 4, swap 5, flex 6)"));
     }
 
     /// <remarks>

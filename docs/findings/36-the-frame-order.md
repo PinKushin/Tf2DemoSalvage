@@ -195,3 +195,34 @@ relies on that), so the pose drawn should not change — only the work. Held by
 `AddDecal` (on demand — our decal queries already call `SetupBones` themselves) or a monitor's `ForceTempForceDraw`. We
 pose and build instances for him every frame and discard them on any map without a camera target. Not yet removed: the
 pose step would need to know whether a monitor draws this frame, which only the device knows today.
+
+## 8. Where the rest of the frame goes, timed (2026-10-17, f12 at 30000, first person, Release)
+
+**Removed: the first-person player's pose when no monitor can draw him.** The device answers `IViewerDevice.DrawsMonitor`
+(`cl_drawmonitors` on and a world material binding `_rt_Camera` — `DrawMonitorPass`'s own first refusals); the undrawn
+pass then simulates him and registers him in the scene, so `AddDecal`'s on-demand `SetupBones` still finds him, and builds
+nothing. `undrawn` 2–3.2 ms → 0.1. Held by `Instances_UndrawnPassWhenPosingIs_BuildsThatManyInstances`.
+
+**An instrument bug it exposed** (B243): `posed N` was read after the undrawn pass, which resets the counter, so "posed 5"
+was always the first-person player and his cosmetics, never the world. Read before it now: **posed 22–25 against built
+22–26** — one skeleton per posed prop, the readable-bone cache working, and the engine's own rate (one `SetupBones` per
+drawn animating entity a frame). Nothing to remove there; "built 24–27 against posed 5" was the instrument.
+
+**`place` is the flex weights** (measured, sub-timed): `place 1.8–5.7 = compose ~0, fade ~0.03, binds 0.13–0.53, matrix
+~0.02, swap/tint/box 0.03–0.1, flex 1.6–4.9`. `FlexFor` runs only for drawn models with vertex animation — the engine
+also computes flexes for drawn faces only (`C_BaseFlex::SetupWeights`, CPU vertex animation in studiorender) — so this is
+not work Valve skips; it is ours done expensively (a delayed-weight comparison and, on any change, a full-vertex delta
+array re-laid in buffer order). Filed, not changed. The collation's box is now carried to the instance rather than computed
+again (`collatedBox`); it was not the cost.
+
+**`collate` ~1 ms over ~1,860 props** recomputes every box every frame to detect movement; the engine re-links only on
+`RenderableChanged`, which an entity raises when it moves, and never for a static prop. Filed: a static prop's box could be
+filed once.
+
+**`hud` 5–8 ms is paint, and paint is the tournament spectator GUI** (per element, `ChildPainted`): `specgui 3.0–3.6`
+of which twelve `playerpanelN` at ~0.25 ms each — and of each card's 0.25 ms, its children (health cross, name, class
+image) are ~0.02, so ~0.23 ms is the card panel's own background/border paint. `HudDeathNotice` 0.5–1.2, `HudChat` 0.35,
+`HudCrosshair` 0.3, `HudMatchStatus` 0.3. Think, events, layout are each under 0.1. Not yet explained below the card.
+
+**`camera` against the moment**: `camera` = view 0.03 + setcamera 1.0–1.4 (world cull) + pose 7–11 (the moment's pose plus
+the viewmodel) + **particles 3.3–6.1**. The gap between `camera` and the moment cost is the particles and the world cull.

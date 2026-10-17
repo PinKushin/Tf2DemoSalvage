@@ -156,6 +156,7 @@ public sealed class VguiHud
         }
 
         // `system()->GetCurrentTime()`, which a `RichText` fades on.
+        long partAt = System.Diagnostics.Stopwatch.GetTimestamp();
         VguiRichText.HudClock = state.RealTime;
 
         // `CMDLPanel::GetAutoPlayTime()` — the model panel's cycle clock is real time too (mdlpanel.cpp:638) — and its
@@ -216,9 +217,12 @@ public sealed class VguiHud
         // `_Host_RunFrame_Client` (0x1801a5860) read the frame's packets in `CL_ReadPackets` (0x18008d1f0). So the HUD's
         // show-or-hide sees the state the LAST frame's packets left. **Interpolated:** the first frame, and the first after
         // a seek, think on this frame's state, where the game's reloaded client would think on none.
+        partAt = Part("hud scheme", partAt);
+
         Viewport.Think(reset ? state : _thinkState ?? state);
         Viewport.SetState(state);
         _thinkState = state;
+        partAt = Part("hud think", partAt);
 
         // Events are dispatched as their packets are read, after the HUD's think and before the render stage — each to the
         // listeners that asked for it, as `IGameEventManager` delivers.
@@ -262,6 +266,7 @@ public sealed class VguiHud
             }
         }
 
+        partAt = Part("hud gameevents", partAt);
         LocalPlayerLifecycle(state, reset);
 
         // `localplayer_changedisguise` is fired client-side by `C_TFPlayer::OnDataChanged` (c_tf_player.cpp:4788-4797), so
@@ -316,6 +321,7 @@ public sealed class VguiHud
 
         // `CBaseViewport::OnThink`'s `Update()` of each panel that `NeedsUpdate` — the spectator GUI while it is shown.
         SpectatorGui.Update(state);
+        partAt = Part("hud updates", partAt);
 
         if (!paint)
         {
@@ -323,6 +329,7 @@ public sealed class VguiHud
         }
 
         VguiLayout.SolveTraverse(Viewport, _context);
+        partAt = Part("hud layout", partAt);
 
         // **A player card made this frame is filled before it is painted.** Cards are made by an update, take their scheme
         // (and find their `classimage`) on the layout just run, and are filled only by a later update throttled to
@@ -344,7 +351,30 @@ public sealed class VguiHud
             KothTimeStatus.BluePanel.RefreshExtraTimePanels();
             KothTimeStatus.RedPanel.RefreshExtraTimePanels();
         }
+        partAt = Part("hud cards", partAt);
+
+        // Which element the paint spends on: each of the viewport's direct children, by its `.res` name.
+        Viewport.ChildPainted ??= Parts is { } parts ? (child, ticks) => parts.Add(child.Name, ticks) : null;
+        SpectatorGui.ChildPainted ??= Parts is { } named ? (child, ticks) => named.Add(child.Name, ticks) : null;
+
+        // And inside each player card, by the card's own child names — summed across the twelve cards.
+        foreach (Tf2DemoSalvage.Scene.Hud.VguiPanel card in SpectatorGui.Children)
+        {
+            card.ChildPainted ??= Parts is { } inCard ? (child, ticks) => inCard.Add("card." + child.Name, ticks) : null;
+        }
         Viewport.PaintTraverse(_host.List, _context);
+        _ = Part("hud paint", partAt);
+    }
+
+    /// <summary>Where the frame's parts are timed, or null for none (tests).</summary>
+    public FrameParts? Parts { get; set; }
+
+    /// <summary>Adds the time since <paramref name="since"/> to a part, and returns now.</summary>
+    private long Part(string name, long since)
+    {
+        long now = System.Diagnostics.Stopwatch.GetTimestamp();
+        Parts?.Add(name, now - since);
+        return now;
     }
 
     /// <summary>An event the client fires itself, with no fields — `FireEventClientSide`.</summary>

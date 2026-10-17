@@ -96,11 +96,18 @@ public sealed partial class ViewerPresenter
         // player and the view models (cdll_client_int.cpp:2184) before `ParticleMgr()->Simulate` (`:2234`) reads
         // them. Stepped first, every followed point read the LAST frame's pose, and the first frame after a seek read
         // a viewmodel posed for no camera at all. `ProjectWorld`'s own call then finds the moment posed and returns.
+        long posingAt = Stopwatch.GetTimestamp();
+
         PoseOver(device);
 
         long particlesAt = Stopwatch.GetTimestamp();
 
         _effects.DrawOver(ViewFrameNow, viewing, drawing);
+
+        _effects.Parts.Add("camera view", deviceAt - viewAt);
+        _effects.Parts.Add("camera setcamera", posingAt - deviceAt);
+        _effects.Parts.Add("camera pose", particlesAt - posingAt);
+        _ = _effects.Part("camera particles", particlesAt);
 
         // **Each piece named, because the `camera` column alone held 102 and 410 ms stalls** on f12
         // in seconds with no collection, and it is four unrelated pieces of work.
