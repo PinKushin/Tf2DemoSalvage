@@ -235,6 +235,173 @@ public sealed class MoveChildPlacementConformanceTests
     }
 
     /// <summary>
+    /// **The instance carries the box the collation filed it by** — `CalcRenderableWorldSpaceAABB`, placed once. Two props
+    /// of one model 199 units apart in X: every bound of the far one is the near one's, X moved by exactly 199. A carry that
+    /// swapped two elements, or dropped the placement, cannot pass.
+    /// </summary>
+    [Test]
+    public void Instances_TwoPlacedProps_CarryTheirCollatedBoxes()
+    {
+        SceneProp near = new(1, ParentModel, SceneModelKind.Studio, new ScenePose());
+        SceneProp far = new(2, ParentModel, SceneModelKind.Studio, new ScenePose { X = 199f });
+
+        EntityModelSet models = new();
+        models.Add([near, far], _ => Baked() with { HeaderBounds = new StudioBox(-1f, -2f, -3f, 4f, 5f, 6f) });
+        models.PlaceFrame([near, far]);
+
+        List<ModelInstance> world = [];
+        models.Instances([near, far], world, seconds: 1d);
+
+        (float MinX, float MinY, float MinZ, float MaxX, float MaxY, float MaxZ) a =
+            world.Single(model => model.EntityIndex == 1).WorldBounds;
+        (float MinX, float MinY, float MinZ, float MaxX, float MaxY, float MaxZ) b =
+            world.Single(model => model.EntityIndex == 2).WorldBounds;
+
+        (a.MaxX > a.MinX).ShouldBeTrue("the control: the model has a box at all");
+        b.MinX.ShouldBe(a.MinX + 199f, 1e-3f);
+        b.MaxX.ShouldBe(a.MaxX + 199f, 1e-3f);
+        (b.MinY, b.MinZ, b.MaxY, b.MaxZ).ShouldBe((a.MinY, a.MinZ, a.MaxY, a.MaxZ));
+    }
+
+    /// <summary>
+    /// **A static prop is filed once, and filed again the moment its placement differs** — `CStaticPropMgr` never re-links
+    /// one, so a reuse is the engine's; but a reuse that outlived a change would draw and cull it where it was. The same
+    /// static prop, at 0 then at 199: its box follows. The control is the first frame's box.
+    /// </summary>
+    [Test]
+    public void Instances_AStaticPropWhosePlacementChanges_IsFiledAgain()
+    {
+        const int Static = PropModels.FirstStaticPropEntityIndex + 7;
+        SceneProp at0 = new(Static, ParentModel, SceneModelKind.Studio, new ScenePose());
+        SceneProp at199 = at0 with { Pose = new ScenePose { X = 199f } };
+
+        EntityModelSet models = new();
+        models.Add([at0], _ => Baked() with { HeaderBounds = new StudioBox(-1f, -2f, -3f, 4f, 5f, 6f) });
+
+        List<ModelInstance> first = [];
+        models.Instances([at0], first, seconds: 1d);
+        List<ModelInstance> again = [];
+        models.Instances([at0], again, seconds: 2d);
+        List<ModelInstance> moved = [];
+        models.Instances([at199], moved, seconds: 3d);
+
+        first.Single().WorldBounds.MinX.ShouldBe(-1f, 1e-3f, "the control: filed at its placement");
+        again.Single().WorldBounds.ShouldBe(first.Single().WorldBounds, "unmoved, the filed box is the box");
+        moved.Single().WorldBounds.MinX.ShouldBe(198f, 1e-3f, "moved, it is filed again");
+    }
+
+    /// <summary>
+    /// **The reuse half, and every field it compares** (`FiledPlacement`): an unchanged frame re-links nothing; a change to
+    /// any one input of `WorldBoxFor` re-links exactly once. Counted at the `RenderableChanged` call.
+    /// </summary>
+    [Test]
+    public void Instances_AnUnparentedPropChangingAnyPlacementField_IsRelinked()
+    {
+        ScenePose start = new() { X = 1f, Y = 2f, Z = 3f, Pitch = 4f, Yaw = 5f, Roll = 6f, Scale = 1f, Sequence = 0 };
+        SceneProp prop = new(1, ParentModel, SceneModelKind.Studio, start);
+
+        EntityModelSet models = new();
+        models.Add([prop], _ => Baked() with { HeaderBounds = new StudioBox(-1f, -2f, -3f, 4f, 5f, 6f) });
+        models.Instances([prop], [], seconds: 1d);
+
+        int before = models.Relinked;
+        models.Instances([prop], [], seconds: 2d);
+        models.Relinked.ShouldBe(before, "unmoved: the filed box is reused, nothing re-linked");
+
+        ScenePose[] changed =
+        [
+            start with { X = 9f }, start with { Y = 9f }, start with { Z = 9f }, start with { Pitch = 9f },
+            start with { Yaw = 9f }, start with { Roll = 9f }, start with { Scale = 2f }, start with { Sequence = 1 },
+        ];
+
+        foreach (ScenePose pose in changed)
+        {
+            models.Instances([prop], [], seconds: 3d);
+            int at = models.Relinked;
+            models.Instances([prop with { Pose = pose }], [], seconds: 4d);
+            models.Relinked.ShouldBe(at + 1, $"changed {pose}");
+        }
+    }
+
+    /// <summary>
+    /// **Parenting forgets the filing** — red in review: unparented, then parented (placed every frame), then unparented at
+    /// the SAME pose, which must be re-linked, because the box it was last filed with was the parented one's.
+    /// </summary>
+    [Test]
+    public void Instances_UnparentedParentedThenUnparentedAtTheSamePose_IsFiledAgain()
+    {
+        SceneProp parent = new(1, ParentModel, SceneModelKind.Studio, new ScenePose { X = 199f });
+        SceneProp alone = new(2, ChildModel, SceneModelKind.Studio, new ScenePose { X = 2f });
+        SceneProp parented = alone with { AttachedTo = 1 };
+
+        EntityModelSet models = new();
+        models.Add([parent, alone], _ => Baked() with { HeaderBounds = new StudioBox(-1f, -2f, -3f, 4f, 5f, 6f) });
+        models.PlaceFrame([parent, alone]);
+
+        models.Instances([parent, alone], [], seconds: 1d);
+        models.PlaceFrame([parent, parented]);
+        models.Instances([parent, parented], [], seconds: 2d);
+        models.PlaceFrame([parent, alone]);
+        int at = models.Relinked;
+
+        List<ModelInstance> back = [];
+        models.Instances([parent, alone], back, seconds: 3d);
+
+        models.Relinked.ShouldBe(at + 1, "filed again on leaving its parent");
+        back.Single(model => model.EntityIndex == 2).WorldBounds.MinX.ShouldBe(1f, 1e-3f);
+    }
+
+    /// <summary>
+    /// **A new level's model, at the same pose, is filed from the new model** — `LevelShutdown` forgets every filing, and
+    /// the frames are compared by reference besides, so a model read again (a swap of `ModelFrames`) cannot keep the old
+    /// box. The control is the first level's box.
+    /// </summary>
+    [Test]
+    public void Instances_AfterLevelShutdownWithAnotherModel_FilesFromTheNewOne()
+    {
+        SceneProp prop = new(1, ParentModel, SceneModelKind.Studio, new ScenePose());
+
+        EntityModelSet models = new();
+        models.Add([prop], _ => Baked() with { HeaderBounds = new StudioBox(-1f, -2f, -3f, 4f, 5f, 6f) });
+        List<ModelInstance> first = [];
+        models.Instances([prop], first, seconds: 1d);
+
+        models.LevelShutdown();
+        models.Add([prop], _ => Baked() with { HeaderBounds = new StudioBox(-7f, -2f, -3f, 4f, 5f, 6f) });
+        List<ModelInstance> after = [];
+        models.Instances([prop], after, seconds: 2d);
+
+        first.Single().WorldBounds.MinX.ShouldBe(-1f, 1e-3f, "the control");
+        after.Single().WorldBounds.MinX.ShouldBe(-7f, 1e-3f);
+    }
+
+    /// <summary>
+    /// **The undrawn pass builds nothing when nothing will draw it** — `C_BasePlayer::ShouldDraw` is false for the local player
+    /// in first person, so the engine reaches his `SetupBones` only from a monitor's `ForceTempForceDraw` or `AddDecal`, and
+    /// both of ours ask on demand. The control is the same call with posing on, which does build the instance; and the parent
+    /// still carries its child either way, because the frame, not the pass, places it.
+    /// </summary>
+    [TestCase(true, 1)]
+    [TestCase(false, 0)]
+    public void Instances_UndrawnPassWhenPosingIs_BuildsThatManyInstances(bool poses, int built)
+    {
+        SceneProp parent = new(1, ParentModel, SceneModelKind.Studio, new ScenePose { X = 199f });
+        SceneProp child = new(2, ChildModel, SceneModelKind.Studio, new ScenePose { X = 2f }, AttachedTo: 1);
+
+        EntityModelSet models = new() { PosesUndrawn = poses };
+        models.Add([parent, child], _ => Baked());
+        models.PlaceFrame([parent, child]);
+
+        List<ModelInstance> undrawn = [];
+        List<ModelInstance> world = [];
+        models.Instances([parent], undrawn, seconds: 1d, pass: EntityModelSet.UndrawnPass);
+        models.Instances([child], world, seconds: 1d);
+
+        undrawn.Count.ShouldBe(built);
+        world.Single(model => model.ModelPath == ChildModel).Matrix[12].ShouldBe(201f, 1e-3f);
+    }
+
+    /// <summary>
     /// **A frame's props live until the next frame is handed over**, and no longer: once the next `PlaceFrame` lacks the
     /// parent, the parent has left, so the child is not composed onto it — <c>HierarchySetParent( NULL )</c>.
     /// </summary>

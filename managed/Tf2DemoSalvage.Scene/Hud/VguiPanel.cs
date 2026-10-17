@@ -657,10 +657,14 @@ public class VguiPanel
         _ => 0,
     };
 
+    /// <summary>Told how long each direct child took to paint, children included — an instrument, null in production use.</summary>
+    public Action<VguiPanel, long>? ChildPainted { get; set; }
+
     /// <summary>`PaintTraverse` (Panel.cpp:1128).</summary>
     /// <param name="surface">The surface.</param>
     /// <param name="context">The scheme manager's scale.</param>
     /// <param name="repaint">Whether this panel draws; its children are traversed either way.</param>
+
     public void PaintTraverse(IVguiSurface surface, VguiContext context, bool repaint = true)
     {
         ArgumentNullException.ThrowIfNull(surface);
@@ -714,7 +718,11 @@ public class VguiPanel
         {
             if (child.Visible)
             {
+                long paintingAt = ChildPainted is null ? 0 : System.Diagnostics.Stopwatch.GetTimestamp();
+
                 child.PaintTraverse(surface, context, repaint);
+
+                ChildPainted?.Invoke(child, System.Diagnostics.Stopwatch.GetTimestamp() - paintingAt);
             }
         }
 

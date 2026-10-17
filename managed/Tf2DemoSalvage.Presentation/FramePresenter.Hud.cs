@@ -180,6 +180,7 @@ public sealed partial class FramePresenter
     public VguiDrawList? BuildOverlay(in OverlayFrame frame, Device3D? device)
     {
         _overlay = frame;
+        long partAt = Parts is null ? 0 : System.Diagnostics.Stopwatch.GetTimestamp();
 
         // A scheme read before the install is open is empty, and an empty scheme's `Panel.BgColor` falls back to opaque
         // white — the viewport would fill the screen with it and keep it, since only a new size loads the scheme again.
@@ -194,8 +195,11 @@ public sealed partial class FramePresenter
             path => HudArchives()?.Read(path),
             path => HudArchives()?.FullPathOnDisk(path),
             window.Gdi,
-            material => ResolveVguiMaterial(material) is { } texture ? (texture.MappingWidth, texture.MappingHeight) : (0, 0));
+            new VguiTextureSizes(
+                material => ResolveVguiMaterial(material) is { } texture ? (texture.MappingWidth, texture.MappingHeight) : (0, 0),
+                HudArchives).Size);
         _vguiHud ??= new VguiHud(_vguiHost, _models);
+        _vguiHud.Parts = Parts;
         _vguiTools ??= new VguiTools(_vguiHost);
 
         if (device is not null && !ReferenceEquals(device, _vguiResolverDevice))
@@ -220,6 +224,7 @@ public sealed partial class FramePresenter
             _vguiHud.Viewport.Items = items;
         }
 
+        partAt = Part("hud setup", partAt);
         int hudTick = _overlay.Tick;
         IReadOnlyList<HudGameEvent>? hudEvents = null;
         IReadOnlyList<Core.Scene.SceneUserMessage>? hudMessages = null;
@@ -231,6 +236,7 @@ public sealed partial class FramePresenter
             hudEvents = HudEventFeed.Resolve(hudTimeline, crossed, _overlay.MapName ?? string.Empty, _hudHooks);
         }
 
+        partAt = Part("hud events", partAt);
         _vguiHud.Viewport.Scripts = _hudScripts;
         _vguiHud.Viewport.ClassModels = game.Classes;
         _vguiHud.Viewport.ParticleSystems = _overlay.Loaded?.Assets?.ParticleSystemsByName;
@@ -252,7 +258,9 @@ public sealed partial class FramePresenter
         _vguiHud.MatchStatus.SoundEmitter ??= PlayHudSound;
         _vguiHud.ItemEffectMeters.SoundEmitter ??= PlayHudSound;
 
+        partAt = Part("hud precache", partAt);
         HudState hudState = HudStateAt(hudTick);
+        partAt = Part("hud state", partAt);
 
         _hudReplaying = hudReset;
 
@@ -269,6 +277,8 @@ public sealed partial class FramePresenter
         {
             _hudReplaying = false;
         }
+
+        partAt = Part("hud frame", partAt);
         _vguiTools.Frame(
             window.RealSeconds(),
             _overlay.LastFrameSeconds,
@@ -276,7 +286,25 @@ public sealed partial class FramePresenter
             window.Position(),
             _overlay.MapName);
 
+        _ = Part("hud tools", partAt);
+
         return _vguiHost.List;
+    }
+
+    /// <summary>The parts of the frame's `camera` and `hud` phases for the rate line — set only for `--measure`, else null.</summary>
+    public FrameParts? Parts { get; set; }
+
+    /// <summary>Adds the time since <paramref name="since"/> to a part and returns now, to time the next; nothing unmeasured.</summary>
+    internal long Part(string name, long since)
+    {
+        if (Parts is not { } parts)
+        {
+            return 0;
+        }
+
+        long now = System.Diagnostics.Stopwatch.GetTimestamp();
+        parts.Add(name, now - since);
+        return now;
     }
 
     /// <summary>A VGUI material's texture, from the install — `DrawSetTextureFile`.</summary>

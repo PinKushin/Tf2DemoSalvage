@@ -181,13 +181,28 @@ public sealed class FaceSources
             return [];
         }
 
+        // **The mixer holds its channels; it does not replay the recording each frame.** This walk does, from the first
+        // sound, so its answer is kept for as long as it cannot change: from the last start or end it took up to the next
+        // start or end it will — between two such events the walk takes exactly the same steps.
+        if (_heard.TryGetValue(entity, out (double From, double Until, IReadOnlyList<FaceVoice> Voices) held) &&
+            seconds >= held.From && seconds < held.Until)
+        {
+            return held.Voices;
+        }
+
+        Walks++;
+        double lastEvent = double.NegativeInfinity;
+        double nextStart = double.PositiveInfinity;
         List<(string Path, FaceVoice Voice)> mouth = [];
         List<(int Channel, string Path, double End, bool Feeds)> playing = [];
 
-        void Free(int at)
+        // `when` is the time the channel is freed: its own end when it ran out, the new sound's start when a stop or a
+        // sound on its channel took it early — never the end it was scheduled for, which may be later or never.
+        void Free(int at, double when)
         {
             (_, string path, _, bool feeds) = playing[at];
             playing.RemoveAt(at);
+            lastEvent = Math.Max(lastEvent, when);
 
             if (!feeds)
             {
@@ -210,7 +225,7 @@ public sealed class FaceSources
         {
             for (int at = EarliestEnd(playing, time); at >= 0; at = EarliestEnd(playing, time))
             {
-                Free(at);
+                Free(at, playing[at].End);
             }
         }
 
@@ -218,10 +233,12 @@ public sealed class FaceSources
         {
             if (start > seconds)
             {
+                nextStart = start;
                 break;
             }
 
             EndBefore(start);
+            lastEvent = Math.Max(lastEvent, start);
             string path = SoundPath(sound.Name);
 
             // SND_CHANGE_VOL / SND_CHANGE_PITCH retune a channel already playing; no channel starts.
@@ -239,7 +256,7 @@ public sealed class FaceSources
                     if (playing[at].Channel == Slot(sound) &&
                         (!sound.IsStop || string.Equals(playing[at].Path, path, StringComparison.OrdinalIgnoreCase)))
                     {
-                        Free(at);
+                        Free(at, start);
                     }
                 }
             }
@@ -275,8 +292,24 @@ public sealed class FaceSources
         }
 
         EndBefore(seconds);
-        return [.. mouth.Select(one => one.Voice)];
+
+        double until = nextStart;
+
+        foreach ((_, _, double end, _) in playing)
+        {
+            until = Math.Min(until, end);
+        }
+
+        IReadOnlyList<FaceVoice> voices = [.. mouth.Select(one => one.Voice)];
+        _heard[entity] = (lastEvent, until, voices);
+        return voices;
     }
+
+    /// <summary>How many times <see cref="Voices"/> walked the recording rather than answering from what it kept, ever.</summary>
+    public int Walks { get; private set; }
+
+    /// <summary>Each entity's last answer from <see cref="Voices"/>, with the span of time over which it cannot change.</summary>
+    private readonly Dictionary<int, (double From, double Until, IReadOnlyList<FaceVoice> Voices)> _heard = [];
 
     /// <summary>
     /// How long a sound plays: the cache's count when it lists one, else the file's own (read once). The mixer frees a

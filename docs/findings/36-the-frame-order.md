@@ -195,3 +195,59 @@ relies on that), so the pose drawn should not change — only the work. Held by
 `AddDecal` (on demand — our decal queries already call `SetupBones` themselves) or a monitor's `ForceTempForceDraw`. We
 pose and build instances for him every frame and discard them on any map without a camera target. Not yet removed: the
 pose step would need to know whether a monitor draws this frame, which only the device knows today.
+
+## 8. Where the rest of the frame goes, timed (2026-10-17, f12 at 30000, first person, Release)
+
+**Removed: the first-person player's pose when no monitor can draw him.** The device answers `IViewerDevice.DrawsMonitor`
+(`cl_drawmonitors` on and a world material binding `_rt_Camera` — `DrawMonitorPass`'s own first refusals); the undrawn
+pass then simulates him and registers him in the scene, so `AddDecal`'s on-demand `SetupBones` still finds him, and builds
+nothing. `undrawn` 2–3.2 ms → 0.1. Held by `Instances_UndrawnPassWhenPosingIs_BuildsThatManyInstances`.
+
+**An instrument bug it exposed** (B243): `posed N` was read after the undrawn pass, which resets the counter, so "posed 5"
+was always the first-person player and his cosmetics, never the world. Read before it now: **posed 22–25 against built
+22–26** — one skeleton per posed prop, the readable-bone cache working, and the engine's own rate (one `SetupBones` per
+drawn animating entity a frame). Nothing to remove there; "built 24–27 against posed 5" was the instrument.
+
+**`place` is the flex weights** (measured, sub-timed): `place 1.8–5.7 = compose ~0, fade ~0.03, binds 0.13–0.53, matrix
+~0.02, swap/tint/box 0.03–0.1, flex 1.6–4.9`. `FlexFor` runs only for drawn models with vertex animation — the engine
+also computes flexes for drawn faces only (`C_BaseFlex::SetupWeights`, CPU vertex animation in studiorender) — so this is
+not work Valve skips; it is ours done expensively (a delayed-weight comparison and, on any change, a full-vertex delta
+array re-laid in buffer order). Filed, not changed. The collation's box is now carried to the instance rather than computed
+again (`collatedBox`); it was not the cost.
+
+**`collate` ~1 ms over ~1,860 props** recomputes every box every frame to detect movement; the engine re-links only on
+`RenderableChanged`, which an entity raises when it moves, and never for a static prop. Filed: a static prop's box could be
+filed once.
+
+**`hud` 5–8 ms is paint, and paint is the tournament spectator GUI** (per element, `ChildPainted`): `specgui 3.0–3.6`
+of which twelve `playerpanelN` at ~0.25 ms each — and of each card's 0.25 ms, its children (health cross, name, class
+image) are ~0.02, so ~0.23 ms is the card panel's own background/border paint. `HudDeathNotice` 0.5–1.2, `HudChat` 0.35,
+`HudCrosshair` 0.3, `HudMatchStatus` 0.3. Think, events, layout are each under 0.1. Not yet explained below the card.
+
+**`camera` against the moment**: `camera` = view 0.03 + setcamera 1.0–1.4 (world cull) + pose 7–11 (the moment's pose plus
+the viewmodel) + **particles 3.3–6.1**. The gap between `camera` and the moment cost is the particles and the world cull.
+
+## 9. Below the timers: a profile (2026-10-17, dotnet-trace sampled, f12 at 30000)
+
+The card's 0.23 ms of "own paint" was not paint. **`VguiScalableImageBorder.Paint` asked `DrawGetTextureSize`, and the
+answer was resolved out of the VPK — a file open, `OSFileStreamStrategy..ctor` — every frame, for every card**: 40% of
+`VguiHud.Frame`. `ISurface::DrawSetTextureFile` keys a texture by name and loads it once; `VguiTextureSizes` now does.
+`hud` 5–8 ms → ~1; `specgui` 3.0–3.6 → 0.14–0.31. The wrong turn worth keeping: the per-element timer said "the card's
+own background", and the background (`DrawBox`, three rects and four corners) was innocent — a timer names a span, a
+profile names a call.
+
+**`FlexFor`'s largest part was `FaceSources.Voices`** (39%): it replayed every sound an actor had made since the start of
+the demo, each frame, per drawn face, to rebuild what the mouth holds. The mixer holds its channels and changes them only
+when a sound starts or runs out (`MIX_MixChannelsToPaintbuffer`, B513), so the answer is now kept from the last such event
+to the next. Held by a differential sweep against a fresh walk (`FaceSourcesVoicesTests`). `flex` 1.6–4.9 → 0.8–2.1. What
+remains (`InBufferOrder`, `Deltas`) is per-frame face work the engine also does for a drawn face — filed, not changed.
+
+**Particles are allocation-bound**: `PollGC` 28% and `BulkMoveWithWriteBarrier` 21% of `DrawOver`, `BurstEffects.Step` and
+`ParticleEffects.Bursts` the largest callers. **The engine also sleeps a system it has not drawn**: `CNewParticleEffect`
+sets `m_flNextSleepTime` to now + `m_flNoDrawTimeToGoToSleep` whenever it is drawn or distance-culled
+(`particles_new.cpp:536`), and `CParticleMgr::BuildParticleSimList` skips one past that time with live particles unless
+it moved (`particlemgr.cpp:1775-1791`). This viewer simulates every system every frame. Filed, not changed: it needs the
+particle systems' bounds in the leaf system to know which were drawn.
+
+**`collate` stayed ~1 ms after the box was filed once** (§8's suspicion, measured false): the remaining cost is the
+per-prop bookkeeping — three tuple-keyed dictionaries hashing the model path — not the box.

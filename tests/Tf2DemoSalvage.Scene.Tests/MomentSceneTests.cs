@@ -177,6 +177,26 @@ public sealed class MomentSceneTests
         scene.Drawn.Select(prop => prop.EntityIndex).ShouldContain(4);
     }
 
+    /// <remarks>
+    /// **The followed player is built for a monitor and for nothing else** (B511): `C_BasePlayer::ShouldDraw` is false in
+    /// first person, so the engine reaches his bones only from `ForceTempForceDraw` or `AddDecal`. The output a monitor
+    /// draws is <see cref="MomentScene.UndrawnInstances"/>; with a monitor it holds him, without one it is empty.
+    /// </remarks>
+    [TestCase(true)]
+    [TestCase(false)]
+    public void Pose_InFirstPersonWithAMonitorOrNot_BuildsTheFollowedPlayerOnlyForOne(bool monitor)
+    {
+        // Geometry, or the pass builds nothing either way and the false case cannot fail. Entity 3 IS the followed one.
+        MomentScene scene = Posable();
+        MomentInfo info = Info() with { FirstPerson = true, Followed = 3, EyeCamera = Eye() };
+
+        scene.Build([], [Prop("models/props/crate.mdl", entity: 3), Prop("models/props/crate.mdl", entity: 5)], info);
+        scene.Pose(info, monitor: monitor);
+
+        scene.UndrawnInstances.Count.ShouldBe(monitor ? 1 : 0);
+        scene.Instances.Count.ShouldBe(1, "the control: the world pass draws the other one either way");
+    }
+
     [Test]
     public void Build_InThirdPerson_DrawsEveryPlayer()
     {

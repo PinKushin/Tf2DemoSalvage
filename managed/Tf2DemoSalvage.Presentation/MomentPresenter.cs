@@ -306,11 +306,13 @@ public sealed class MomentPresenter
     /// beside it was built from.
     /// </param>
     /// <param name="screen">The main view for the static props' screen fades (B432), from the same device.</param>
+    /// <param name="monitor">Whether a monitor can draw this frame, so the first-person player is worth posing (B511).</param>
     public void PoseNow(
         ViewFrustum frustum = default,
         RenderableViews views = default,
         (float X, float Y, float Z)? eye = null,
-        ScreenFadeView? screen = null)
+        ScreenFadeView? screen = null,
+        bool monitor = true)
     {
         // Stryker disable once : a mutant that empties the guard body leaves 'info'
         // unassigned (CS0165), and Safe Mode then drops every mutation in this method — B410.
@@ -321,7 +323,7 @@ public sealed class MomentPresenter
 
         _posed = true;
 
-        MomentPhases posing = _moment.Pose(info, frustum, views, eye, screen);
+        MomentPhases posing = _moment.Pose(info, frustum, views, eye, screen, monitor);
 
         // **One line per rebuild, not two.** The two halves are measured apart and read together;
         // reporting each on its own would put `advance`'s parts in separate lines that a reader has

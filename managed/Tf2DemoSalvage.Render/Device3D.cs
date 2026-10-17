@@ -3350,6 +3350,15 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
     /// <summary>The main view for <c>ComputePixelWidthOfSphere</c> (B432); null before a camera is set.</summary>
     public Core.Scene.ScreenFadeView? ScreenView => _screenView;
 
+    /// <inheritdoc/>
+    /// <remarks>
+    /// **`DrawMonitorPass`'s own refusals, all of them**: `MonitorCamera` is fed and `SetCamera` builds `_monitorView` before
+    /// the pose (`UploadCameraOver`), so the answer here is the one the draw will reach. `cl_drawmonitors` cannot change
+    /// between the two: settings arrive through the message pump, and pose and draw run inside one `RenderFrame`.
+    /// </remarks>
+    public bool DrawsMonitor =>
+        DrawMonitors && _world is { HasCameraTarget: true } && _monitorView is not null && MonitorCamera is not null;
+
     private Core.Scene.ScreenFadeView? _screenView;
 
     /// <summary>The views' leaf lists the scene collates its renderables over (B254, B262).</summary>

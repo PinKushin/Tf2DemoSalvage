@@ -587,14 +587,19 @@ public sealed class MomentScene : IGameSystemPerFrame
     /// bug B203 fixed.
     /// </remarks>
     /// <param name="screen">The main view for the static props' screen fades (B432).</param>
+    /// <param name="monitor">Whether a monitor can draw this frame; false leaves the first-person player unposed (B511).</param>
     public MomentPhases Pose(
         MomentInfo info,
         ViewFrustum frustum = default,
         RenderableViews views = default,
         (float X, float Y, float Z)? eye = null,
-        ScreenFadeView? screen = null)
+        ScreenFadeView? screen = null,
+        bool monitor = true)
     {
         long posingAt = Stopwatch.GetTimestamp();
+
+        // Only a monitor draws the first-person player (B511); without one his pass simulates and is not posed.
+        _models.PosesUndrawn = monitor;
 
         // The main view for the static props' screen fades (B432), from the device beside the eye.
         _models.ScreenView = screen;
@@ -647,6 +652,10 @@ public sealed class MomentScene : IGameSystemPerFrame
         int hidden = _models.CulledByVisibility;
         int unjudged = _models.Unjudgeable;
 
+        // **And `Posed`, for the same reason, which it was not**: read after the undrawn pass it reported THAT pass —
+        // the first-person player and his cosmetics, "posed 5" on f12 — and never the world's.
+        int posed = _models.Posed;
+
         long undrawnAt = Stopwatch.GetTimestamp();
 
         if (_undrawn.Count > 0)
@@ -656,7 +665,6 @@ public sealed class MomentScene : IGameSystemPerFrame
                 _undrawn, _undrawnInstances, Lighting.LightingAt, Lighting.SunAt, info.Seconds, pass: EntityModelSet.UndrawnPass);
         }
         long undrawnTicks = Stopwatch.GetTimestamp() - undrawnAt;
-        int posed = _models.Posed;
 
         // **Where the SOLVER put each corpse, which is the only thing that can aim a camera at
         // one** (B58). A corpse's wire position is where it died; after physics it is somewhere

@@ -96,11 +96,24 @@ public sealed partial class ViewerPresenter
         // player and the view models (cdll_client_int.cpp:2184) before `ParticleMgr()->Simulate` (`:2234`) reads
         // them. Stepped first, every followed point read the LAST frame's pose, and the first frame after a seek read
         // a viewmodel posed for no camera at all. `ProjectWorld`'s own call then finds the moment posed and returns.
+        long posingAt = Stopwatch.GetTimestamp();
+
         PoseOver(device);
 
         long particlesAt = Stopwatch.GetTimestamp();
 
         _effects.DrawOver(ViewFrameNow, viewing, drawing);
+
+        // One reading of the clock for the particles' end, carried to both reports (B243).
+        long particledAt = Stopwatch.GetTimestamp();
+
+        if (_effects.Parts is { } parts)
+        {
+            parts.Add("camera view", deviceAt - viewAt);
+            parts.Add("camera setcamera", posingAt - deviceAt);
+            parts.Add("camera pose", particlesAt - posingAt);
+            parts.Add("camera particles", particledAt - particlesAt);
+        }
 
         // **Each piece named, because the `camera` column alone held 102 and 410 ms stalls** on f12
         // in seconds with no collection, and it is four unrelated pieces of work.
@@ -108,7 +121,7 @@ public sealed partial class ViewerPresenter
             flyTicks,
             deviceAt - viewAt,
             particlesAt - deviceAt,
-            Stopwatch.GetTimestamp() - particlesAt,
+            particledAt - particlesAt,
             _renderLog);
     }
 
@@ -139,7 +152,7 @@ public sealed partial class ViewerPresenter
     /// <summary><see cref="PoseNow"/> over a device a test can read.</summary>
     internal void PoseOver(IViewerDevice device)
     {
-        _moments.PoseNow(device.Frustum, device.Views, device.Eye, device.ScreenView);
+        _moments.PoseNow(device.Frustum, device.Views, device.Eye, device.ScreenView, device.DrawsMonitor);
         Posed?.Invoke();
     }
 

@@ -196,6 +196,30 @@ contended; the moment-cost columns are per-rebuild CPU and comparable. Each row 
 Whole-run frame means (load included): f12 150.5 → 50.4 ms (contended before), gullywash 67.1 → 58.4 ms. What it still
 does that the engine does not: `undrawn` 1–4 ms (`docs/findings/36-the-frame-order.md` §7).
 
+### Where the frame goes, by part (2026-10-17, feat/pose-loop-2, Release, first person, tick 30000)
+
+Same command; `--measure`'s rate line now ends `; parts:` with `camera`'s and `hud`'s parts, and the moment line splits
+`place` and `built`. Before is the coordinator's quiet-machine reading on main 59dfd24b; after runs shared the machine with
+other agents' corpus probes, so their frame columns are noisier than the per-rebuild ones.
+
+| step | measure | before (59dfd24b) | after |
+|---|---|---|---|
+| 1 undrawn pose | `undrawn` ms, f12 / gullywash | 2–3.2 / 1.2–4 | 0.1 / 0–0.1 |
+| 2 builds | `built` vs `posed` (world) | 24–27 vs "5" (the undrawn pass) | 22–26 vs 22–25 |
+| 3 place | place = binds + matrix + swap/tint/box + flex | 2.5 | 1.8–5.7 = 0.13–0.53 + ~0.02 + 0.03–0.1 + 1.6–4.9 |
+| 3 collate | ms over ~1,860 props | 1 | 1–1.2 (unchanged) |
+| 4 hud | paint / specgui (12 cards) / death notice | 4.9–10.1 total | 4.5–7.4 / 3.0–3.6 / 0.5–1.2 |
+| 5 camera | view + setcamera + pose + particles | 15.5–17.8 | 0.03 + 1.0–1.4 + 7–11 + 3.3–6.1 |
+| — | moment cost / pose, f12 | 12.2–13.5 / 10.3–11.3 | 9.7–12 / 7.6–9.6 |
+| (a) box filed once | `collate` ms | 1–1.2 | 1–1.4 (not the cost) |
+| (b) texture size once | `hud` / `specgui` ms, f12 | 5–8 / 3.0–3.6 | 1 / 0.14–0.16 |
+| (b) | `hud` / `specgui` ms, gullywash | — | 1.4–1.9 / 0.21–0.31 |
+| (d) mouth kept | `flex` ms, f12 / gullywash | 1.6–4.9 / — | 1.6–1.9 / 0.8–2.1 |
+| — | f12 frame rate | 31–37 fps (quiet, 59dfd24b) | 51–72 fps (shared machine) |
+
+(c) particles were profiled, not changed: 3.1–3.3 ms on f12, 7.5–11.3 on gullywash while another agent's UI suite held the
+machine. `docs/findings/36-the-frame-order.md` §9.
+
 **A Debug build measured 150–378 fps with two stalls to 51 and 69**, and those stalls do not exist
 in Release. An "the viewer got slow" report taken from a Debug run is measuring the build
 configuration. Measure Release, or say which one it was.

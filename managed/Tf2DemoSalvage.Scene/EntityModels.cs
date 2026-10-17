@@ -404,6 +404,18 @@ public sealed class EntityModelSet : Hud.IMdlCache, IPosedEntities
     /// <summary>What composing skinning matrices has cost, ever.</summary>
     public long SkinTicks { get; set; }
 
+    /// <summary>Skeletons built while simulating, ever — attachments and merges asked before the draw.</summary>
+    public int BuildsSimulating { get; set; }
+
+    /// <summary>Skeletons built by the draw loop's own `SetupBones`, ever — parents of merged items included.</summary>
+    public int BuildsDrawing { get; set; }
+
+    /// <summary>Skeletons built while advancing the corpses — a seed's death pose — ever.</summary>
+    public int BuildsCorpses { get; set; }
+
+    /// <summary>Skeletons built while placing a drawn instance — a parent's attachment — ever.</summary>
+    public int BuildsPlacing { get; set; }
+
     /// <summary>What collating the pass's props into views has cost, ever — `BuildRenderablesList`.</summary>
     public long CollateTicks { get; set; }
 
@@ -412,6 +424,30 @@ public sealed class EntityModelSet : Hud.IMdlCache, IPosedEntities
 
     /// <summary>What placing, fading and building each drawn instance has cost, ever — the loop after the skin.</summary>
     public long PlaceTicks { get; set; }
+
+    /// <summary>Of <see cref="PlaceTicks"/>: the debug guards and the parent composition, up to the fade.</summary>
+    public long PlaceComposeTicks { get; set; }
+
+    /// <summary>Of <see cref="PlaceTicks"/>: the distance and screen fades, `ComputeFxBlend` and the portal window blend.</summary>
+    public long PlaceFadeTicks { get; set; }
+
+    /// <summary>Of <see cref="PlaceTicks"/>: the proxies' binds (cloak, paint, burn, urine), the flex weights and the instance.</summary>
+    public long PlaceBuildTicks { get; set; }
+
+    /// <summary>Of <see cref="PlaceBuildTicks"/>: the four proxy binds — cloak, paint, burn, urine.</summary>
+    public long PlaceBindsTicks { get; set; }
+
+    /// <summary>Of <see cref="PlaceBuildTicks"/>: the matrix, skin swap, tint, world box and flex, before the instance.</summary>
+    public long PlaceLookupsTicks { get; set; }
+
+    /// <summary>Of <see cref="PlaceLookupsTicks"/>: the model-to-world matrix.</summary>
+    public long PlaceMatrixTicks { get; set; }
+
+    /// <summary>Of <see cref="PlaceLookupsTicks"/>: the skin swap, the brush tint and the world box.</summary>
+    public long PlaceSwapTicks { get; set; }
+
+    /// <summary>Of <see cref="PlaceLookupsTicks"/>: the flex weights.</summary>
+    public long PlaceFlexTicks { get; set; }
 
     /// <summary>What gathering corpse requests and advancing the corpse environment has cost, ever, stepping included.</summary>
     public long AdvanceTicks { get; set; }
@@ -450,7 +486,19 @@ public sealed class EntityModelSet : Hud.IMdlCache, IPosedEntities
         long Place = 0,
         long Advance = 0,
         int CorpseRebuilds = 0,
-        long CorpseBuilding = 0)
+        long CorpseBuilding = 0,
+        int BuildsSimulating = 0,
+        int BuildsDrawing = 0,
+        int BuildsCorpses = 0,
+        int BuildsPlacing = 0,
+        long PlaceCompose = 0,
+        long PlaceFade = 0,
+        long PlaceBuild = 0,
+        long PlaceBinds = 0,
+        long PlaceLookups = 0,
+        long PlaceMatrix = 0,
+        long PlaceSwap = 0,
+        long PlaceFlex = 0)
     {
         /// <summary>What happened between an earlier snapshot and this one.</summary>
         /// <param name="before">The earlier snapshot.</param>
@@ -481,7 +529,19 @@ public sealed class EntityModelSet : Hud.IMdlCache, IPosedEntities
                 Place - before.Place,
                 Advance - before.Advance,
                 CorpseRebuilds - before.CorpseRebuilds,
-                CorpseBuilding - before.CorpseBuilding);
+                CorpseBuilding - before.CorpseBuilding,
+                BuildsSimulating - before.BuildsSimulating,
+                BuildsDrawing - before.BuildsDrawing,
+                BuildsCorpses - before.BuildsCorpses,
+                BuildsPlacing - before.BuildsPlacing,
+                PlaceCompose - before.PlaceCompose,
+                PlaceFade - before.PlaceFade,
+                PlaceBuild - before.PlaceBuild,
+                PlaceBinds - before.PlaceBinds,
+                PlaceLookups - before.PlaceLookups,
+                PlaceMatrix - before.PlaceMatrix,
+                PlaceSwap - before.PlaceSwap,
+                PlaceFlex - before.PlaceFlex);
     }
 
     /// <summary>Every pose-phase counter as it stands now.</summary>
@@ -505,7 +565,19 @@ public sealed class EntityModelSet : Hud.IMdlCache, IPosedEntities
         PlaceTicks,
         AdvanceTicks,
         Corpses.Rebuilds,
-        Corpses.BuildingTicks);
+        Corpses.BuildingTicks,
+        BuildsSimulating,
+        BuildsDrawing,
+        BuildsCorpses,
+        BuildsPlacing,
+        PlaceComposeTicks,
+        PlaceFadeTicks,
+        PlaceBuildTicks,
+        PlaceBindsTicks,
+        PlaceLookupsTicks,
+        PlaceMatrixTicks,
+        PlaceSwapTicks,
+        PlaceFlexTicks);
 
     /// <summary>What per-prop reporting has cost, ever.</summary>
     public long ReportTicks { get; set; }
@@ -5384,6 +5456,7 @@ public sealed class EntityModelSet : Hud.IMdlCache, IPosedEntities
         _entities.Clear();
         _entityModels.Clear();
         _scenes.Clear();
+        _filedBoxes.Clear();
         _placements.Clear();
         _lightPoints.Clear();
         _drawnPlacements.Clear();
@@ -5842,6 +5915,7 @@ public sealed class EntityModelSet : Hud.IMdlCache, IPosedEntities
         // Skinning (0.2 ms) out left 127 ms in the remainder, and this is the larger half of it: a
         // pass over EVERY prop, not just the animated ones (B189).
         long simulatedAt = System.Diagnostics.Stopwatch.GetTimestamp();
+        int buildsBefore = SkeletonPose.PoseBuilds;
 
         Simulate(props, seconds, fireEvents: !string.Equals(pass, UndrawnPass, StringComparison.Ordinal));
 
@@ -5856,8 +5930,10 @@ public sealed class EntityModelSet : Hud.IMdlCache, IPosedEntities
         _barrelSeconds = seconds;
 
         SimulateTicks += System.Diagnostics.Stopwatch.GetTimestamp() - simulatedAt;
+        BuildsSimulating += SkeletonPose.PoseBuilds - buildsBefore;
 
         long advancedAt = System.Diagnostics.Stopwatch.GetTimestamp();
+        int corpseBuildsBefore = SkeletonPose.PoseBuilds;
 
         // **The world pass only**: `physenv` is stepped once a frame (`CPhysicsSystem::PhysicsSimulate`) whatever is drawn, and
         // the undrawn and viewmodel passes carry no corpse — advancing on their empty lists retired every corpse, and the next
@@ -5868,6 +5944,7 @@ public sealed class EntityModelSet : Hud.IMdlCache, IPosedEntities
         }
 
         AdvanceTicks += System.Diagnostics.Stopwatch.GetTimestamp() - advancedAt;
+        BuildsCorpses += SkeletonPose.PoseBuilds - corpseBuildsBefore;
 
         // **What exists, per pass, kept past the next pass** (B415). `_propsByEntity` is the pass in flight, and the viewmodel
         // pass replaces the world's; a question asked between frames — a decal's bones, an effect's attachment — must still
@@ -5885,9 +5962,26 @@ public sealed class EntityModelSet : Hud.IMdlCache, IPosedEntities
             scene[prop.EntityIndex] = prop;
         }
 
+        // **Simulated and in the scene, but not posed, when nothing will draw him** — `C_BasePlayer::ShouldDraw` is false for
+        // the local player in first person, so the engine reaches his `SetupBones` only from a monitor's `ForceTempForceDraw`
+        // (`viewrender.cpp:3266-3287`) or `CModelRender::AddDecal`; our decal queries call `SetupBones` themselves.
         // **Attachments resolved while the pass was simulated are resolved again for the draw** (B551): a parent's bones
         // asked for then may predate its own update. Defensive like `_simulating` — no test reaches a stale one.
         _attachments.Clear();
+
+        if (!PosesUndrawn && string.Equals(pass, UndrawnPass, StringComparison.Ordinal))
+        {
+            // Counted, with the reason, like every other prop that does not draw: `ShouldDraw` refused it.
+            _tally.Begin(props.Count, pass);
+
+            for (int at = 0; at < props.Count; at++)
+            {
+                _tally.NotDrawn();
+            }
+
+            _tally.Report();
+            return;
+        }
 
         // **Every prop that does not draw is counted with its reason.** A silent `continue` here is
         // how "all the props went away" became a guessing game: the scene said 14 models, the map
@@ -5906,7 +6000,7 @@ public sealed class EntityModelSet : Hud.IMdlCache, IPosedEntities
 
         CollateTicks += System.Diagnostics.Stopwatch.GetTimestamp() - collatedAt;
 
-        foreach ((SceneProp prop, int place, int? bucket, bool inSky) in _ordered)
+        foreach ((SceneProp prop, int place, int? bucket, bool inSky, (float, float, float, float, float, float)? collatedBox) in _ordered)
         {
             (int frame, int _, float blend) = SelectFor(prop, seconds);
 
@@ -6068,10 +6162,12 @@ public sealed class EntityModelSet : Hud.IMdlCache, IPosedEntities
                 // A corpse's simulation was brought up to this tick by `AdvanceCorpses`, before the
                 // cull, which is what attached the ragdoll hook this `SetupBones` runs.
                 long setupAt = System.Diagnostics.Stopwatch.GetTimestamp();
+                int drawBuildsBefore = SkeletonPose.PoseBuilds;
 
                 bool setUp = animating.SetupBones(StudioBoneFlags.UsedByAnything, seconds);
 
                 SetupTicks += System.Diagnostics.Stopwatch.GetTimestamp() - setupAt;
+                BuildsDrawing += SkeletonPose.PoseBuilds - drawBuildsBefore;
                 Posed++;
 
                 if (!setUp)
@@ -6110,6 +6206,7 @@ public sealed class EntityModelSet : Hud.IMdlCache, IPosedEntities
             }
 
             long placingAt = System.Diagnostics.Stopwatch.GetTimestamp();
+            int placeBuildsBefore = SkeletonPose.PoseBuilds;
 
             // **Applies the matrices the GPU is about to use, on the processor, and reports the
             // result.** A skinned model that draws wrong could be a bad pose or a bad shader, and
@@ -6233,6 +6330,7 @@ public sealed class EntityModelSet : Hud.IMdlCache, IPosedEntities
                     // already refused by SetupBones returning false; this is the same rule for one
                     // with no skeleton to refuse with.
                     PlaceTicks += System.Diagnostics.Stopwatch.GetTimestamp() - placingAt;
+                    BuildsPlacing += SkeletonPose.PoseBuilds - placeBuildsBefore;
                     continue;
                 }
 
@@ -6321,6 +6419,9 @@ public sealed class EntityModelSet : Hud.IMdlCache, IPosedEntities
             // origin — the placement, not the illumination point. The factor is 1 for the reason
             // `EntityFade.DistanceAlpha` gives: no local player's zoom to look through. Its screen fades —
             // the 0x20 branch and the level fade — come with it through `StaticPropFade.Opacity` (B432).
+            long fadingAt = System.Diagnostics.Stopwatch.GetTimestamp();
+            PlaceComposeTicks += fadingAt - placingAt;
+
             byte fade = 255;
 
             if (ViewOrigin is { } eye)
@@ -6356,7 +6457,7 @@ public sealed class EntityModelSet : Hud.IMdlCache, IPosedEntities
             if (prop.Pose.PortalWindow is { } window && ViewOrigin is { } watching)
             {
                 (float minX, float minY, float minZ, float maxX, float maxY, float maxZ) =
-                    WorldBoxFor(prop);
+                    collatedBox ?? WorldBoxFor(prop);
 
                 float portalBlend = AreaPortalWindow.Blend(
                     AreaPortalWindow.Distance(
@@ -6372,6 +6473,9 @@ public sealed class EntityModelSet : Hud.IMdlCache, IPosedEntities
                 PortalWindowsFaded++;
             }
 
+            long buildingAt = System.Diagnostics.Stopwatch.GetTimestamp();
+            PlaceFadeTicks += buildingAt - fadingAt;
+
             CloakBind cloak = Cloak?.Invoke(prop) ?? default;
 
             // `C_TFPlayer::DrawModel` returns before drawing anything once `GetEffectiveInvisibilityLevel() >= 1`
@@ -6379,12 +6483,31 @@ public sealed class EntityModelSet : Hud.IMdlCache, IPosedEntities
             if (cloak.Undrawn)
             {
                 PlaceTicks += System.Diagnostics.Stopwatch.GetTimestamp() - placingAt;
+                BuildsPlacing += SkeletonPose.PoseBuilds - placeBuildsBefore;
                 continue;
             }
 
+            (float Red, float Green, float Blue)? paint = Paint?.Invoke(prop);
+            float burn = BurnLevel?.Invoke(prop) ?? 0f;
+            (float Red, float Green, float Blue) urine = UrineTint?.Invoke(prop) ?? (1f, 1f, 1f);
+            long boundAt = System.Diagnostics.Stopwatch.GetTimestamp();
+            PlaceBindsTicks += boundAt - buildingAt;
+
+            float[] matrix = transform.ToMatrix();
+            long matrixAt = System.Diagnostics.Stopwatch.GetTimestamp();
+            PlaceMatrixTicks += matrixAt - boundAt;
+            IReadOnlyDictionary<int, int>? swap = SkinSwap(prop.ModelPath, skin);
+            (float Red, float Green, float Blue)? tint = EntityTint(prop.ModelPath);
+            (float MinX, float MinY, float MinZ, float MaxX, float MaxY, float MaxZ) bounds = collatedBox ?? WorldBoxFor(prop);
+            long swappedAt = System.Diagnostics.Stopwatch.GetTimestamp();
+            PlaceSwapTicks += swappedAt - matrixAt;
+            float[]? flex = FlexFor(prop, parts, seconds);
+            PlaceLookupsTicks += System.Diagnostics.Stopwatch.GetTimestamp() - boundAt;
+            PlaceFlexTicks += System.Diagnostics.Stopwatch.GetTimestamp() - swappedAt;
+
             into.Add(new ModelInstance(
                 prop.ModelPath,
-                transform.ToMatrix(),
+                matrix,
                 light,
 
                 // Cached alongside the cube, because the sun costs more than it looks: it traces a
@@ -6395,7 +6518,7 @@ public sealed class EntityModelSet : Hud.IMdlCache, IPosedEntities
                 frame,
                 blend,
                 bones,
-                SkinSwap(prop.ModelPath, skin),
+                swap,
                 parts?.BodyParts,
                 prop.Pose.Body,
 
@@ -6408,27 +6531,27 @@ public sealed class EntityModelSet : Hud.IMdlCache, IPosedEntities
                 // **TF2's paint, per entity** (B330). Asked here rather than carried on the prop
                 // because it needs the econ resolution and the item schema, which this layer
                 // reaches through a delegate exactly as it does for attached models.
-                Paint: Paint?.Invoke(prop),
+                Paint: paint,
 
                 // **How alight the wearer is** (B336). Zero rather than null, because
                 // `CProxyBurnLevel` has no absent state — it answers 0 for a player who is not
                 // burning, and a nullable here would invite a caller to treat "no scene" as
                 // different from "not on fire" when the engine does not.
-                Burn: BurnLevel?.Invoke(prop) ?? 0f,
-                Urine: UrineTint?.Invoke(prop) ?? (1f, 1f, 1f),
+                Burn: burn,
+                Urine: urine,
 
                 // `CullMode( MATERIAL_CULLMODE_CW )` around a flipped viewmodel's draw (`c_baseviewmodel.cpp:374`), B515.
                 Mirrored: prop.FlipViewModel,
                 Origin: origin,
 
                 // Only a brush entity has one; everything else answers null (B219).
-                Tint: EntityTint(prop.ModelPath),
+                Tint: tint,
 
                 // The lamps near this model, which its cube no longer carries (B170).
                 Locals: locals,
 
                 // The placed box the engine culls and buckets by — CalcRenderableWorldSpaceAABB.
-                WorldBounds: WorldBoxFor(prop),
+                WorldBounds: bounds,
 
                 // **$mostlyopaque, off the model's own header.** A model this side never loaded
                 // answers false, which is the engine's answer for a model with no flag — and the
@@ -6446,9 +6569,12 @@ public sealed class EntityModelSet : Hud.IMdlCache, IPosedEntities
                 SizeBucket: bucket,
                 InSky: inSky,
                 Cloak: cloak,
-                Flex: FlexFor(prop, parts, seconds)));
+                Flex: flex));
 
-            PlaceTicks += System.Diagnostics.Stopwatch.GetTimestamp() - placingAt;
+            long instancedAt = System.Diagnostics.Stopwatch.GetTimestamp();
+            PlaceBuildTicks += instancedAt - buildingAt;
+            PlaceTicks += instancedAt - placingAt;
+            BuildsPlacing += SkeletonPose.PoseBuilds - placeBuildsBefore;
 
             // **The item's `attached_models`, drawn on the item's own transform and bones.**
             // `DrawEconEntityAttachedModels` (`econ_entity.cpp:103`) copies the parent's
@@ -6525,7 +6651,7 @@ public sealed class EntityModelSet : Hud.IMdlCache, IPosedEntities
                     Origin: origin,
                     Tint: EntityTint(attachment),
                     Locals: locals,
-                    WorldBounds: WorldBoxFor(prop),
+                    WorldBounds: bounds,
                     TwoPass: attachedParts?.TwoPass ?? false,
                     Alpha: fx.Blend,
                     RenderMode: prop.Pose.RenderMode,
@@ -6615,6 +6741,9 @@ public sealed class EntityModelSet : Hud.IMdlCache, IPosedEntities
     /// </summary>
     public const string UndrawnPass = "undrawn";
 
+    /// <summary>Whether the undrawn pass builds instances — true only when a monitor will draw them this frame (B511).</summary>
+    public bool PosesUndrawn { get; set; } = true;
+
     /// <summary>The viewmodel's pass — the arms and the gun, posed after the world (`MomentScene.AddViewmodel`).</summary>
     public const string ViewmodelPass = "viewmodel";
 
@@ -6633,12 +6762,14 @@ public sealed class EntityModelSet : Hud.IMdlCache, IPosedEntities
     private static ClientLeafSystem OneLeaf() => new(1, static (_, _, into) => into.Add(0));
 
     private readonly Dictionary<(int Entity, string Model, int Occurrence), int> _handleOf = [];
-    private readonly Dictionary<(int Entity, string Model, int Occurrence), SceneProp> _propOf = [];
+    private readonly Dictionary<(int Entity, string Model, int Occurrence), (SceneProp Prop, (float, float, float, float, float, float) Box)> _propOf = [];
     private readonly Dictionary<(int Entity, string Model), int> _occurrence = [];
     private readonly List<(int Entity, string Model, int Occurrence)> _staleEntities = [];
     private readonly CollatedRenderables _mainCollated = new();
     private readonly CollatedRenderables _skyCollated = new();
-    private readonly List<(SceneProp Prop, int Place, int? Bucket, bool InSky)> _ordered = [];
+    // The box the collation filed each prop by — `CalcRenderableWorldSpaceAABB`, computed once a frame and carried to the
+    // instance rather than computed again; null for a pass that is not collated.
+    private readonly List<(SceneProp Prop, int Place, int? Bucket, bool InSky, (float, float, float, float, float, float)? Box)> _ordered = [];
     private static readonly Func<int, LeafRenderGroup> Opaque = static _ => LeafRenderGroup.Opaque;
 
     /// <summary>Registers this pass's props and collates each view's leaves into <see cref="_ordered"/>.</summary>
@@ -6668,7 +6799,7 @@ public sealed class EntityModelSet : Hud.IMdlCache, IPosedEntities
             {
                 if (CanDraw(prop))
                 {
-                    _ordered.Add((prop, 0, null, false));
+                    _ordered.Add((prop, 0, null, false, null));
                 }
                 else
                 {
@@ -6697,18 +6828,54 @@ public sealed class EntityModelSet : Hud.IMdlCache, IPosedEntities
             _occurrence[(prop.EntityIndex, prop.ModelPath)] = seen + 1;
             (int, string, int) key = (prop.EntityIndex, prop.ModelPath, seen);
 
-            (float, float, float, float, float, float) box = WorldBoxFor(prop);
+            // **Filed again only when it moved** — `CStaticPropMgr` inserts a static prop at level load and never re-links
+            // it, and an entity re-links on `RenderableChanged`, which it raises when its origin, angles or model change. A
+            // prop with no parent is placed from exactly the fields compared here (`Placed`), so an unchanged placement
+            // over the same frames IS an unchanged box; a parented one follows its parent and is placed every frame.
+            bool fixedProp = prop.AttachedTo is null;
+            _frames.TryGetValue(prop.ModelPath, out PropModels.ModelFrames? filedFrames);
+            FiledPlacement placement = new(
+                prop.Pose.X, prop.Pose.Y, prop.Pose.Z, prop.Pose.Pitch, prop.Pose.Yaw, prop.Pose.Roll, prop.Pose.Scale, prop.Pose.Sequence);
+            bool unmoved = false;
+            (float, float, float, float, float, float) box = default;
+
+            if (fixedProp &&
+                _filedBoxes.TryGetValue(key, out (FiledPlacement Placement, PropModels.ModelFrames? Frames, (float, float, float, float, float, float) Box) filed) &&
+                filed.Placement == placement && ReferenceEquals(filed.Frames, filedFrames))
+            {
+                unmoved = true;
+                box = filed.Box;
+            }
+            else
+            {
+                box = WorldBoxFor(prop);
+
+                if (fixedProp)
+                {
+                    _filedBoxes[key] = (placement, filedFrames, box);
+                }
+            }
+
+            if (!fixedProp)
+            {
+                // A parented prop follows its parent: nothing filed for it may outlive the parenting.
+                _filedBoxes.Remove(key);
+            }
 
             if (_handleOf.TryGetValue(key, out int handle))
             {
-                _leafSystem.RenderableChanged(handle, box);
+                if (!unmoved)
+                {
+                    _leafSystem.RenderableChanged(handle, box);
+                    Relinked++;
+                }
             }
             else
             {
                 _handleOf[key] = _leafSystem.AddRenderable(box);
             }
 
-            _propOf[key] = prop;
+            _propOf[key] = (prop, box);
         }
 
         _staleEntities.Clear();
@@ -6725,6 +6892,7 @@ public sealed class EntityModelSet : Hud.IMdlCache, IPosedEntities
         {
             _leafSystem.RemoveRenderable(_handleOf[key]);
             _handleOf.Remove(key);
+            _filedBoxes.Remove(key);
         }
 
         _leafSystem.PreRender();
@@ -6740,7 +6908,7 @@ public sealed class EntityModelSet : Hud.IMdlCache, IPosedEntities
             _leafSystem.BuildRenderablesList(views.SkyLeaves!, views.SkyFrustum, Opaque, _skyCollated, includeUnplaced: false);
         }
 
-        Dictionary<int, SceneProp> byHandle = _propByHandle;
+        Dictionary<int, (SceneProp Prop, (float, float, float, float, float, float) Box)> byHandle = _propByHandle;
         byHandle.Clear();
 
         foreach (((int, string, int) key, int handle) in _handleOf)
@@ -6750,7 +6918,8 @@ public sealed class EntityModelSet : Hud.IMdlCache, IPosedEntities
 
         foreach ((int handle, int place, int? bucket) in _mainCollated.Entries)
         {
-            _ordered.Add((byHandle[handle], place, bucket, false));
+            (SceneProp prop, (float, float, float, float, float, float) box) = byHandle[handle];
+            _ordered.Add((prop, place, bucket, false, box));
         }
 
         int collated = _mainCollated.Entries.Count;
@@ -6759,7 +6928,8 @@ public sealed class EntityModelSet : Hud.IMdlCache, IPosedEntities
         {
             foreach ((int handle, int place, int? bucket) in _skyCollated.Entries)
             {
-                _ordered.Add((byHandle[handle], place, bucket, true));
+                (SceneProp prop, (float, float, float, float, float, float) box) = byHandle[handle];
+                _ordered.Add((prop, place, bucket, true, box));
             }
 
             collated += _skyCollated.Entries.Count;
@@ -6777,7 +6947,23 @@ public sealed class EntityModelSet : Hud.IMdlCache, IPosedEntities
         }
     }
 
-    private readonly Dictionary<int, SceneProp> _propByHandle = [];
+    private readonly Dictionary<int, (SceneProp Prop, (float, float, float, float, float, float) Box)> _propByHandle = [];
+
+    /// <summary>Each unparented prop's filed box, with the placement and frames it was filed from — re-filed when either changes.</summary>
+    private readonly Dictionary<(int Entity, string Model, int Occurrence), (FiledPlacement Placement, PropModels.ModelFrames? Frames, (float, float, float, float, float, float) Box)> _filedBoxes = [];
+
+    /// <summary>How many times a filed renderable was re-linked (`RenderableChanged`), ever — counted at the call.</summary>
+    public int Relinked { get; private set; }
+
+    /// <summary>What an unparented prop's box is placed from — compared whole, so any change files it again.</summary>
+    /// <remarks>
+    /// **Every input of <c>WorldBoxFor</c> for a prop with no parent, and nothing else**: `Placed(prop)` reads the model's
+    /// frames (compared by reference beside this), `RenderBoundsFor(Pose.Sequence)`, `Pose.Scale`, and the origin and
+    /// angles. A parent adds `_propsByEntity`, which is why a parented prop is never filed. Pinned by
+    /// `Instances_AnUnparentedPropChangingAnyPlacementField_IsRelinked`; a new input to `WorldBoxFor` belongs here too.
+    /// </remarks>
+    private readonly record struct FiledPlacement(
+        float X, float Y, float Z, float Pitch, float Yaw, float Roll, float Scale, int Sequence);
 
     /// <summary>Brings every corpse's simulation up to the tick, seen or not (B58).</summary>
     /// <param name="props">Every prop this moment carries, before any cull.</param>
@@ -6890,6 +7076,7 @@ public sealed class EntityModelSet : Hud.IMdlCache, IPosedEntities
             // **A new map is a new leaf system** (`LevelInitPreEntity`): every handle names the old tree's leaves.
             _tree = value;
             _handleOf.Clear();
+            _filedBoxes.Clear();
             _leafSystem = value is { IsEmpty: false } tree ? new ClientLeafSystem(tree.LeafCount, tree.EnumerateLeavesInBox) : OneLeaf();
             _everyLeaf = value is { IsEmpty: false } leaves ? [.. Enumerable.Range(0, leaves.LeafCount)] : PlaceZero;
         }
