@@ -206,6 +206,20 @@ public sealed class FramePresenterSeekTests
         seek.Audio.Count("skip: to 501").ShouldBe(0);
     }
 
+    /// <remarks>A jump that lands on the tick already shown is a skip all the same, and its readers see it (D221).</remarks>
+    [Test]
+    public void ShowMomentOver_ASeekToTheTickShown_IsASkip()
+    {
+        Seeking seek = new();
+
+        seek.Show(500d);
+        int skips = seek.Frames.Skip.ShouldNotBeNull().Skips;
+
+        seek.Show(500d);
+
+        seek.Frames.Skip.ShouldNotBeNull().Skips.ShouldBe(skips + 1);
+    }
+
     /// <remarks>
     /// **A played frame is never a skip, however many ticks it covers** (D221): `Host_FilterTime` (engine.dll
     /// FUN_18019ffe0) clamps a demo frame's time to 0.1 s times the timescale, and only `demo_gototick` skips. At 8x a

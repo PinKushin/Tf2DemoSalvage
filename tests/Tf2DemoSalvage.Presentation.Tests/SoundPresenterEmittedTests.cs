@@ -87,6 +87,23 @@ public sealed class SoundPresenterEmittedTests
         sink.Played.ShouldBeEmpty();
     }
 
+    /// <remarks>
+    /// **A skip the sound sat out is not taken later** (D221): a frame whose move is about another tick marks it seen,
+    /// so normal play afterwards does not silence everything as though it had just jumped.
+    /// </remarks>
+    [Test]
+    public void Update_AfterASkipItSatOut_PlaysOnWithoutSilencing()
+    {
+        SoundPresenter presenter = Presenter(new SoundSample(SampleRate: 22050, Channels: 1, Samples: new float[] { 0.5f }));
+        Recording sink = new();
+
+        presenter.Update(sink, 40, (0f, 0f, 0f), (0f, -1f, 0f), now: 0d);
+        presenter.Update(sink, 41, (0f, 0f, 0f), (0f, -1f, 0f), now: 0.015d, move: new FrameSkip(900, 2, 2) { Skipped = true });
+        presenter.Update(sink, 42, (0f, 0f, 0f), (0f, -1f, 0f), now: 0.03d, move: new FrameSkip(42, 3, 2));
+
+        sink.Silenced.ShouldBe(0);
+    }
+
     private static SoundPresenter Presenter(SoundSample sample)
     {
         SoundPresenter presenter = new(
@@ -131,8 +148,11 @@ public sealed class SoundPresenterEmittedTests
 
         public bool SetPitch(int entity, int channel, float pitch) => false;
 
+        public int Silenced { get; private set; }
+
         public void SilenceAll()
         {
+            Silenced++;
             Played.Clear();
         }
 

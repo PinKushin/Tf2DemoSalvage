@@ -90,6 +90,21 @@ public sealed class FramePresenterTests
         frames.SeekPending.ShouldBeTrue();
     }
 
+    /// <remarks>A new demo's first move is a skip: it does not move from the last demo's tick (D221).</remarks>
+    [Test]
+    public void ShowMomentOver_ANewDemoAtTheSameTickAndJumpCount_IsASkip()
+    {
+        FramePresenter frames = Presenter();
+        DemoTimeline next = SyntheticEffects.TimelineWrittenWith(PlayerFlagLayout.Current);
+
+        frames.ShowMomentOver(Frame(tick: 500), 500d, null, static tick => Frame(tick: (int)tick), null, jumps: 1);
+        int skips = frames.Skip.ShouldNotBeNull().Skips;
+
+        frames.ShowMomentOver(Frame(next, 500), 500d, null, tick => Frame(next, (int)tick), null, jumps: 1);
+
+        frames.Skip.ShouldNotBeNull().Skips.ShouldBe(skips + 1);
+    }
+
     [Test]
     public void Take_OneMove_AnswersEachReaderOnce()
     {

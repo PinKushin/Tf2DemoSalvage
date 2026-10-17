@@ -10487,6 +10487,11 @@ held to a tick, it stays where the tick left it while the eye and the hands move
   B504's dealt-sound replay still runs on a real seek (`FramePresenterSeekTests`). It replaced a rule under which, at
   8x, a frame slower than a quarter second counted as a seek and replayed the skip and every live burst, which is
   what `Play_AtEightTimesSpeed…` measured: 6 rate samples of 10, mean frame 690 ms.
+- **Three edges of the decision, each tested:** a jump that lands on the tick already shown is a skip; a new demo
+  starts its own history (its first move is a skip, not a move from the last demo's tick); and a frame the sound sits
+  out — no schedule, no audio, no listener, or a move about another tick — marks the move seen, so the skip is not
+  taken later in the middle of play. The frame's tick and the sound's are both `(int)` of one clock position, never
+  negative, so they agree on every played frame.
 - **A reader asks whether a skip happened since it last asked**, not whether the last move was one (`FrameSkip.Skips`).
   *Measured* (z1800, `--tick 20000 --autoplay --measure 20 +demo_timescale 8`, Debug): the opening state's jump and
   the frame's played step both land before the sound runs, so a reader of the last move called a 20,000-tick jump

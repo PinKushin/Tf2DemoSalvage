@@ -115,6 +115,9 @@ public sealed partial class FramePresenter
     /// <summary>The whole tick <see cref="ShowMoment"/> last showed, or null before the first.</summary>
     private int? _skipShown;
 
+    /// <summary>The demo <see cref="_skipShown"/> belongs to.</summary>
+    private DemoTimeline? _skipTimeline;
+
     /// <summary>The transport's jump count this <see cref="ShowMoment"/> was given.</summary>
     private int _jumpsNow;
 
@@ -149,6 +152,13 @@ public sealed partial class FramePresenter
             return;
         }
 
+        // A new demo starts its own history: its first move is a skip, not a move from the last demo's tick.
+        if (!ReferenceEquals(_frame.Timeline, _skipTimeline))
+        {
+            _skipTimeline = _frame.Timeline;
+            _skipShown = null;
+        }
+
         int? from = _skipShown;
 
         _skipShown = target;
@@ -161,7 +171,8 @@ public sealed partial class FramePresenter
 
         _jumpsSkipped = _jumpsNow;
 
-        if (from != target)
+        // A jump that lands on the tick already shown is still a skip, and its readers must see it.
+        if (from != target || skipped)
         {
             Skip = new FrameSkip(target, (Skip?.Generation ?? 0) + 1, (Skip?.Skips ?? 0) + (skipped ? 1 : 0)) { Skipped = skipped };
         }

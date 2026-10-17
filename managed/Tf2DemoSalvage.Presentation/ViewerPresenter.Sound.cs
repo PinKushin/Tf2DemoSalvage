@@ -81,6 +81,8 @@ public sealed partial class ViewerPresenter
         // Stryker disable once all : a mutated guard leaves its pattern variables unassigned (CS0165) and Safe Mode drops the method - B410
         if (_audio is not { } output)
         {
+            _sound.Pass(_effects.Skip);
+
             return;
         }
 
@@ -100,6 +102,8 @@ public sealed partial class ViewerPresenter
         if (SoundListener.From(listener())
             is not { } ears)
         {
+            _sound.Pass(_effects.Skip);
+
             return;
         }
 

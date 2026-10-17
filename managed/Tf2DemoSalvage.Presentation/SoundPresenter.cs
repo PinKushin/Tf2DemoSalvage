@@ -184,6 +184,16 @@ public sealed partial class SoundPresenter(
     /// <summary>The last <see cref="FrameSkip"/> the sound took.</summary>
     private (int Generation, int Skips) _moveTaken;
 
+    /// <summary>Marks the frame's moves seen without acting on them — a frame the sound sat out (D221).</summary>
+    /// <param name="move">The frame's skip decision, or null.</param>
+    public void Pass(FrameSkip? move)
+    {
+        if (move is { } seen)
+        {
+            _moveTaken = (seen.Generation, seen.Skips);
+        }
+    }
+
     /// <summary>The soundscripts the game loaded, or null until an install is opened.</summary>
     /// <remarks>
     /// **The emitter's own table** — `soundemitterbase` in the engine. `svc_Sounds` arrive already resolved to a
@@ -277,12 +287,20 @@ public sealed partial class SoundPresenter(
 
         if (Schedule is not { } schedule)
         {
+            Pass(move);
+
             return default;
         }
 
-        // The frame's one skip decision when it is about this tick (D221); the schedule's own rule otherwise.
-        IReadOnlyList<SceneSound> starting = schedule.Advance(
-            tick, move is { } moved && moved.Tick == tick ? moved.Take(ref _moveTaken) : null);
+        // The frame's one skip decision when it is about this tick (D221); the schedule's own rule otherwise, and then
+        // the cursor is brought up to date so a skip it did not act on is not taken later, in the middle of play.
+        bool? skipped = null;
+
+        if (move is { } moved && moved.Tick == tick)
+        {
+            skipped = moved.Take(ref _moveTaken);
+        }
+        IReadOnlyList<SceneSound> starting = schedule.Advance(tick, skipped);
 
         if (schedule.Repositioned)
         {
