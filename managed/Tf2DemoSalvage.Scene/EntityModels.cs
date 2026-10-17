@@ -6232,6 +6232,7 @@ public sealed class EntityModelSet : Hud.IMdlCache, IPosedEntities
                     // at the map origin, which is worse than not drawing it. A SKINNED item is
                     // already refused by SetupBones returning false; this is the same rule for one
                     // with no skeleton to refuse with.
+                    PlaceTicks += System.Diagnostics.Stopwatch.GetTimestamp() - placingAt;
                     continue;
                 }
 
@@ -6377,6 +6378,7 @@ public sealed class EntityModelSet : Hud.IMdlCache, IPosedEntities
             // (c_tf_player.cpp:6938) — eyes and all, which carry no cloak pass of their own.
             if (cloak.Undrawn)
             {
+                PlaceTicks += System.Diagnostics.Stopwatch.GetTimestamp() - placingAt;
                 continue;
             }
 
@@ -6612,6 +6614,9 @@ public sealed class EntityModelSet : Hud.IMdlCache, IPosedEntities
     /// <c>!IsVisible()</c> (`c_baseanimating.cpp:3569`), so nothing this pass walks fires an event.
     /// </summary>
     public const string UndrawnPass = "undrawn";
+
+    /// <summary>The viewmodel's pass — the arms and the gun, posed after the world (`MomentScene.AddViewmodel`).</summary>
+    public const string ViewmodelPass = "viewmodel";
 
     private readonly HashSet<int> _inView = [];
 

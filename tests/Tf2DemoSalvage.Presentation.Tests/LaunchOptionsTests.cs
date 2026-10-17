@@ -293,20 +293,6 @@ public sealed class LaunchOptionsTests
     }
 
     /// <remarks>
-    /// **A measurement is never clamped by the focus sleep.** An agent-launched viewer does not take focus, so
-    /// `engine_no_focus_sleep 50` held every `--measure` run at ~20 fps unless the caller remembered to pass `0`.
-    /// Last on the line, so it holds even against an explicit `+engine_no_focus_sleep 50` before it — and the
-    /// control: without `--measure` that same `+` is kept.
-    /// </remarks>
-    [Test]
-    public void Read_WithMeasure_TurnsTheNoFocusSleepOff()
-    {
-        Read("a.dem", "+engine_no_focus_sleep", "50", "--measure", "5").Settings.NoFocusSleep.ShouldBe(0);
-        Read("a.dem", "--measure", "5", "+engine_no_focus_sleep", "50").Settings.NoFocusSleep.ShouldBe(0);
-        Read("a.dem", "+engine_no_focus_sleep", "50").Settings.NoFocusSleep.ShouldBe(50);
-    }
-
-    /// <remarks>
     /// **`--help` answers and stops.** The flag it was written for is `--first-person`, which
     /// existed and was reported in an audit as not existing, because the grep looking for it ran
     /// over the wrong project. A viewer that lists its own options answers that in one call.

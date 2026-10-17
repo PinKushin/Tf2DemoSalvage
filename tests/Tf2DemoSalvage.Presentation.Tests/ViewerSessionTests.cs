@@ -663,6 +663,27 @@ public sealed class ViewerSessionTests
         host.Sleeps.ShouldBe([50, 50]);
     }
 
+    /// <remarks>
+    /// **A measurement is never clamped by the focus sleep, from wherever the value came** — the saved settings (50 here) or a
+    /// `.cfg` executed after launch (the `SetConVar` below, the console's route). Held where the sleep is READ, so nothing set
+    /// later can put it back; said once, not once a frame. The control is the test above: the same settings, no `--measure`, sleep.
+    /// </remarks>
+    [Test]
+    public void Idle_WhileMeasuringWithANoFocusSleepSet_NeverSleepsAndSaysSoOnce()
+    {
+        using Rig rig = Build(new ViewerSettings { FrameRateLimit = 0, NoFocusSleep = 50 }, 0.5, "--measure", "5");
+        rig.Window.IsActiveApp = false;
+        rig.Settings.SetConVar(ViewerSettings.NoFocusSleepCommand, "50");
+        FakeIdleHost host = new();
+        host.Queue.Enqueue(null);
+        host.Queue.Enqueue(0x0200);
+
+        rig.Session.Idle(host);
+
+        host.Sleeps.ShouldBeEmpty();
+        rig.Log.Count("engine_no_focus_sleep 50 ignored while measuring").ShouldBe(1);
+    }
+
     [Test]
     public void SetPhong_FromTheMenu_IsWhatTheMenuReadsBack()
     {

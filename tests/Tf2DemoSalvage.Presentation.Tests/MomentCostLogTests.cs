@@ -152,6 +152,22 @@ public sealed class MomentCostLogTests
     }
 
     /// <remarks>
+    /// **The step is inside `advance`, so it is taken out once.** 50 ms of pose, 30 of advance holding 20 of stepping: the
+    /// formula reads 20. Subtracting both would read 0, `corpses` alone 30, and neither 50 — four candidates, four answers.
+    /// </remarks>
+    [Test]
+    public void PoseRest_WithTheStepInsideAdvance_TakesItOutOnce()
+    {
+        MomentPhases phases = Posing(50) with
+        {
+            Counters = new EntityModelSet.PoseCounters(
+                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, Corpses: 20 * Millisecond, Advance: 30 * Millisecond),
+        };
+
+        Assert.That(phases.PoseRest, Is.EqualTo(20 * Millisecond));
+    }
+
+    /// <remarks>
     /// **A rebuild replays every tick since the earliest death, so it is the number that says whether `corpses` is the
     /// engine's per-tick step or our catch-up** — a count summed over the window (3 across two rebuilds), not averaged.
     /// </remarks>

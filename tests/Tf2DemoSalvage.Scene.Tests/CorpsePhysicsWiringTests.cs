@@ -221,8 +221,9 @@ public sealed class CorpsePhysicsWiringTests
     /// 28 and 47 rebuilds per hundred frames with one corpse, ~220 steps a frame. The engine steps `physenv` once a frame
     /// (`CPhysicsSystem::PhysicsSimulate`) whatever is drawn. So: one tick later is one step, in the world built once.
     /// </remarks>
-    [Test]
-    public void Instances_AnotherPassWithoutTheCorpse_LeavesItInTheWorld()
+    [TestCase(EntityModelSet.UndrawnPass)]
+    [TestCase(EntityModelSet.ViewmodelPass)]
+    public void Instances_AnotherPassWithoutTheCorpse_LeavesItInTheWorld(string pass)
     {
         SceneProp corpse = Corpse() with { FirstTick = 66 };
         EntityModelSet models = new() { Geometry = _ => Frames() };
@@ -233,7 +234,7 @@ public sealed class CorpsePhysicsWiringTests
         models.Instances(drawn, [], seconds: 2d);
         models.Corpses.Steps.ShouldBe(66, "the control: seeded at its death and stepped to 132");
 
-        models.Instances([], [], seconds: 2d, pass: EntityModelSet.UndrawnPass);
+        models.Instances([], [], seconds: 2d, pass: pass);
 
         models.CurrentTick = 133d;
         models.Instances(drawn, [], seconds: 133d / 66d);

@@ -35,9 +35,10 @@ the build output rather than a grep of it (`error S` is not `error CS`).
 
 ## The focus sleep is off for you
 
-`--measure` sets `engine_no_focus_sleep 0` itself, last, over anything on the line or in the config:
-a viewer an agent launches never takes focus, and the engine's 50 ms sleep then clamped every run
-(`LaunchOptionsTests.Read_WithMeasure_TurnsTheNoFocusSleepOff`). Do not pass it by hand. A clamped
+`--measure` holds `engine_no_focus_sleep` at 0 where the sleep is read, over the command line, saved
+settings and any `.cfg` run later; logs `engine_no_focus_sleep N ignored while measuring` once per
+value. Agent-launched viewer never takes focus; the 50 ms sleep clamped every run
+(`ViewerSessionTests.Idle_WhileMeasuringWithANoFocusSleepSet_NeverSleepsAndSaysSoOnce`). Do not pass it by hand. A clamped
 run, should one ever turn up again, looks like phases summing to ~10 ms under a 63 ms frame with
 `unaccounted 0`.
 

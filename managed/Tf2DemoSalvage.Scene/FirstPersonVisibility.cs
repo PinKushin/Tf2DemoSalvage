@@ -81,9 +81,13 @@ public static class FirstPersonVisibility
             //
             // `WeaponState` is the discriminator the wire already gives us: it is null for anything
             // that did not declare `DT_BaseCombatWeapon`.
-            if (prop.EntityIndex == hidden ||
+            // **A corpse is never the local player** — its own client entity, stepped by `physenv` whatever is drawn; filtered,
+            // it would leave the world pass and the corpse environment would retire and replay it.
+            bool corpse = prop.ClassName is RagdollProps.RagdollClassName or RagdollProps.GibClassName;
+
+            if (!corpse && (prop.EntityIndex == hidden ||
                 prop.AttachedTo == hidden ||
-                (prop.OwnedBy == hidden && prop.WeaponState is not null))
+                (prop.OwnedBy == hidden && prop.WeaponState is not null)))
             {
                 continue;
             }

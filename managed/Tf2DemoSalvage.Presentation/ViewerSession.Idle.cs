@@ -51,7 +51,7 @@ public sealed partial class ViewerSession
             // unfocused window still rendered at full rate whenever a frame WAS due, which is every
             // frame at any reachable limit.
             // On activation, not focus: CEngine::Frame (engine.dll FUN_18020cbd0) sleeps when `!IsActiveApp()`.
-            int idle = FramePacer.NoFocusSleep(_window.IsActiveApp, _settingsOwner.NoFocusSleep);
+            int idle = FramePacer.NoFocusSleep(_window.IsActiveApp, MeasuredNoFocusSleep());
 
             if (idle > 0)
             {
@@ -116,6 +116,32 @@ public sealed partial class ViewerSession
         0x8000 => "WM_APP (a posted callback)",
         _ => $"message 0x{message:X4}",
     };
+
+    /// <summary>`engine_no_focus_sleep` as this frame takes it: zero for a `--measure` run, whatever set it.</summary>
+    /// <remarks>
+    /// **Held where the sleep is READ**, so neither the saved settings nor a `.cfg` executed after launch can put it back: a
+    /// viewer an agent launches never takes focus, and the 50 ms sleep would then BE the measurement. Said once per value.
+    /// </remarks>
+    private int MeasuredNoFocusSleep()
+    {
+        int set = _settingsOwner.NoFocusSleep;
+
+        if (_launch.MeasureSeconds is null)
+        {
+            return set;
+        }
+
+        if (set > 0 && set != _focusSleepIgnored)
+        {
+            _focusSleepIgnored = set;
+            _log.LogInformation("{Message}", $"{Tf2DemoSalvage.Scene.ViewerSettings.NoFocusSleepCommand} {set} ignored while measuring");
+        }
+
+        return 0;
+    }
+
+    /// <summary>The last `engine_no_focus_sleep` a measurement said it ignored, so the line is written once per value.</summary>
+    private int _focusSleepIgnored;
 
     /// <summary>The message that last ended a render burst.</summary>
     private uint _idleEndedBy;

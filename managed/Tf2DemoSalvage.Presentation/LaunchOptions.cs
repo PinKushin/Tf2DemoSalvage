@@ -342,13 +342,6 @@ public static class LaunchOptionsReader
             paths.Add(argument);
         }
 
-        // **A measurement is never clamped by the focus sleep**, whatever the line said before or after it: a viewer an
-        // agent launches does not take focus, and `engine_no_focus_sleep`'s 50 ms then IS the measurement.
-        if (read.MeasureSeconds is not null)
-        {
-            read = read with { Settings = read.Settings.Set(ViewerSettings.NoFocusSleepCommand, "0") };
-        }
-
         // **Say what came in, because "no demo" and "a demo that would not open" look identical
         // afterwards** (B401). A `--shot` run whose demo path never reached the window drew an
         // empty viewport and wrote a 12 KB picture of nothing, and the log said nothing about a
