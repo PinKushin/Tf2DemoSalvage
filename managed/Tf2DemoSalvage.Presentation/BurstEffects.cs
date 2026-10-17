@@ -245,6 +245,15 @@ public sealed class BurstEffects
     /// <summary>Every `CTETFParticleEffect` in the particle window this tick, reused.</summary>
     private readonly List<(int Index, SceneEffectDispatch Dispatch)> _tfParticlesNow = [];
 
+    /// <summary>The timeline <see cref="_stops"/> was computed for.</summary>
+    private DemoTimeline? _stopsOf;
+
+    /// <summary>Each `"ParticleEffect"` dispatch's stop tick (<see cref="DispatchStops"/>), by its index.</summary>
+    private int?[] _stops = [];
+
+    /// <summary>The dispatches stopped later than the window after they start, which the window alone would drop early.</summary>
+    private readonly List<int> _longLived = [];
+
     /// <summary>The view's own: the model set it draws with.</summary>
     /// <param name="particles">The effects these bursts are stepped in.</param>
     /// <param name="models">The posed entities, for attachments and hitboxes.</param>
@@ -1044,11 +1053,39 @@ public sealed class BurstEffects
         TickWindow.Between(
             timeline.Dispatches.All, static dispatch => dispatch.Tick, tick - ParticleDispatchWindowTicks, tick, _particleDispatchesNow);
 
+        // **An entity's effect runs until Valve's own stop reaches it** — `ParticleEffectStop`, or a later dispatch on the
+        // entity with RESET (`DispatchStops`) — so one stopped later than the window is still offered until it is.
+        if (!ReferenceEquals(_stopsOf, timeline))
+        {
+            _stopsOf = timeline;
+            _stops = DispatchStops.Compute(timeline.Dispatches.All, timeline.Dispatches.Names.Name);
+            _longLived.Clear();
+
+            for (int index = 0; index < _stops.Length; index++)
+            {
+                if (_stops[index] is { } stop && stop - timeline.Dispatches.All[index].Tick > ParticleDispatchWindowTicks)
+                {
+                    _longLived.Add(index);
+                }
+            }
+        }
+
         foreach ((int index, SceneEffectDispatch dispatch) in _particleDispatchesNow)
         {
             if (string.Equals(timeline.Dispatches.Names.Name(dispatch.Name), "ParticleEffect", StringComparison.Ordinal))
             {
-                AddParticleEffect(ParticleDispatchKeys + index, dispatch, timeline, systems);
+                AddParticleEffect(ParticleDispatchKeys + index, dispatch, timeline, systems, _stops[index]);
+            }
+        }
+
+        foreach (int index in _longLived)
+        {
+            SceneEffectDispatch dispatch = timeline.Dispatches.All[index];
+
+            // Older than the window, and its stop not yet a window behind: still running, or fading from its stop.
+            if (dispatch.Tick < tick - ParticleDispatchWindowTicks && tick < _stops[index]!.Value + ParticleDispatchWindowTicks)
+            {
+                AddParticleEffect(ParticleDispatchKeys + index, dispatch, timeline, systems, _stops[index]);
             }
         }
 
@@ -1064,7 +1101,7 @@ public sealed class BurstEffects
 
     /// <summary>One `"ParticleEffect"` dispatch's burst, under a key unique across both sources.</summary>
     private void AddParticleEffect(
-        long key, SceneEffectDispatch dispatch, DemoTimeline timeline, IReadOnlyDictionary<string, ParticleSystem> systems)
+        long key, SceneEffectDispatch dispatch, DemoTimeline timeline, IReadOnlyDictionary<string, ParticleSystem> systems, int? stop = null)
     {
         string? name = timeline.Dispatches.ParticleNames.Name(dispatch.HitBox);
         ParticleSystem? definition = name is null ? null : systems.GetValueOrDefault(name);
@@ -1088,7 +1125,7 @@ public sealed class BurstEffects
 
         if (definition is not null && point is { } at)
         {
-            _burstsNow.Add(new ParticleBurst(key, definition, at, dispatch.Tick, DispatchedEnd(dispatch)));
+            _burstsNow.Add(new ParticleBurst(key, definition, at, dispatch.Tick, DispatchedEnd(dispatch), stop));
         }
     }
 

@@ -426,7 +426,10 @@ public sealed partial class ViewerSession
             // **What is alive, once a second, for a leak to show as a count that climbs** (lifetime audit, 2026-10-17).
             if (_launch.MeasureSeconds is not null)
             {
-                _measured.AddNote(ParticleCensusLine.Format(_shownTick, _effects.ParticleCensus()));
+                (int trails, int modelDecals) = _effects.KeptCounts;
+                _measured.AddNote(string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"{ParticleCensusLine.Format(_shownTick, _effects.ParticleCensus())}; trails {trails}; model decals {modelDecals}"));
             }
         }
 

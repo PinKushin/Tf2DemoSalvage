@@ -165,6 +165,9 @@ public sealed partial class FramePresenter
     /// <summary>The running bursts by effect name, with how many of each their caller no longer offers — a leak census.</summary>
     public IReadOnlyList<(string Name, int Live, int Unoffered)> ParticleCensus() => _particles.Census();
 
+    /// <summary>What else the frame keeps alive, for the same census: projectile trails and decals on models.</summary>
+    public (int Trails, int ModelDecals) KeptCounts => (_particles.Count, _decals.ModelDecalCount);
+
     /// <summary>Forgets what belonged to the map that is going.</summary>
     public void ClearMap()
     {

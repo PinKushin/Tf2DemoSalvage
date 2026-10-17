@@ -1,0 +1,60 @@
+using Tf2DemoSalvage.Core.Scene;
+using Tf2DemoSalvage.Presentation;
+
+namespace Tf2DemoSalvage.Presentation.Tests;
+
+/// <summary>When an entity's dispatched particle effect stops — Valve's two messages, not a window.</summary>
+/// <remarks>
+/// <code>
+/// // particle_parse.cpp:500-519  StopParticleEffects( pEntity ) → DispatchEffect( "ParticleEffectStop", data )
+/// // c_particle_system.cpp:269   ParticleEffectStopCallback: pEnt->ParticleProp()->StopEmission()   — every effect it owns
+/// // c_particle_system.cpp:193   ParticleEffectCallback, PARTICLE_DISPATCH_RESET_PARTICLES: StopEmission() before Create
+/// </code>
+/// An effect dispatched from no entity is nobody's to stop: it ends by itself (`CNewParticleEffect::Create( NULL, … )`).
+/// </remarks>
+public sealed class DispatchStopsTests
+{
+    private const int Effect = 1;
+    private const int Stop = 2;
+
+    [Test]
+    public void Compute_AStopOnTheSameEntity_StopsItThere()
+    {
+        int?[] stops = DispatchStops.Compute(
+            [FromEntity(100, entity: 7), At(300, Stop, entity: 8), At(500, Stop, entity: 7)], NameOf);
+
+        stops[0].ShouldBe(500, "the stop on another entity is not its own");
+    }
+
+    [Test]
+    public void Compute_ALaterResetDispatchOnTheSameEntity_StopsTheEarlierOne()
+    {
+        int?[] stops = DispatchStops.Compute(
+            [FromEntity(100, entity: 7), FromEntity(200, entity: 7, reset: true)], NameOf);
+
+        stops[0].ShouldBe(200);
+        stops[1].ShouldBeNull("the reset stops what came before it, not itself");
+    }
+
+    [Test]
+    public void Compute_AnEffectFromNoEntity_IsNeverStopped()
+    {
+        int?[] stops = DispatchStops.Compute(
+            [At(100, Effect, entity: 7, flags: 0), At(200, Stop, entity: 7)], NameOf);
+
+        stops[0].ShouldBeNull();
+    }
+
+    private static string? NameOf(int name) => name switch
+    {
+        Effect => "ParticleEffect",
+        Stop => "ParticleEffectStop",
+        _ => null,
+    };
+
+    private static SceneEffectDispatch FromEntity(int tick, int entity, bool reset = false) =>
+        At(tick, Effect, entity, flags: reset ? 3 : 1);
+
+    private static SceneEffectDispatch At(int tick, int name, int entity, int flags = 1) =>
+        new(tick, name, default, default, default, default, flags, 1f, 0, 0, 0, 0, 0, entity, 0);
+}
