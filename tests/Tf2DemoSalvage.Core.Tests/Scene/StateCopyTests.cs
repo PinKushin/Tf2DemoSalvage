@@ -269,6 +269,29 @@ public sealed class StateCopyTests
         System.Linq.Enumerable.Select(merged, property => property.Value.AsInt).ShouldBe([1L, 5L, 7L]);
     }
 
+    private sealed class Sized
+    {
+        public int[] Numbers { get; } = new int[10];
+
+        public string Text { get; } = "abcd";
+    }
+
+    /// <remarks>
+    /// **The footprint arithmetic** (D217 step 4, part 3): an object of two references is 16 + 8 + 8 = 32, an int[10] is
+    /// 24 + 40 = 64 and a four-character string 22 + 8 = 30, so 126; walked again with the same seen set, nothing is new.
+    /// </remarks>
+    [Test]
+    public void Footprint_AnObjectWithAnArrayAndAString_Is126ThenNothing()
+    {
+        Sized root = new();
+        HashSet<object> seen = new(ReferenceEqualityComparer.Instance);
+
+        long first = StateCopy.Footprint(root, new HashSet<object>(), seen);
+        long again = StateCopy.Footprint(root, new HashSet<object>(), seen);
+
+        (first, again, root.Numbers.Length, root.Text.Length).ShouldBe((126L, 0L, 10, 4));
+    }
+
     private static PropertyBag Bag()
     {
         PropertyBag bag = new();
@@ -298,9 +321,12 @@ public sealed class StateCopyTests
         copy["k99"].AsInt.ShouldBe(99);
     }
 
-    /// <remarks>**A thawed bag is copied** like any other: its four chunks of 32 slots, with no prior to share.</remarks>
+    /// <remarks>
+    /// **A thawed bag copies only the chunk it wrote** (D217 step 4, part 3): the other three are still read from the
+    /// packed frozen form, which is shared, so one 32-slot chunk is created and the unwritten keys still read back.
+    /// </remarks>
     [Test]
-    public void Of_ThawedBag_CopiesItsChunks()
+    public void Of_ThawedBag_CopiesOnlyItsWrittenChunk()
     {
         PropertyBag bag = Bag();
         bag.Freeze();
@@ -309,8 +335,31 @@ public sealed class StateCopyTests
 
         PropertyBag copy = StateCopy.Of(bag, new HashSet<object>(), prior: null, out _, created);
 
-        created[typeof((Core.Schema.PropertyValue, long)[])].ShouldBe((4, 128));
-        copy["k0"].AsInt.ShouldBe(-1);
+        created[typeof((Core.Schema.PropertyValue, long)[])].ShouldBe((1, 32));
+        (copy["k0"].AsInt, copy["k99"].AsInt, copy.Sequence("k99")).ShouldBe((-1L, 99L, 99L));
+    }
+
+    /// <remarks>
+    /// **Packing is lossless** (D217 step 4, part 3): every kind, a negative zero, a NaN's payload and the default value
+    /// come back equal field for field, bits included — the digest hashes the fields themselves.
+    /// </remarks>
+    [Test]
+    public void Unpack_EveryKind_IsTheValuePacked()
+    {
+        Core.Schema.PropertyValue[] values =
+        [
+            Core.Schema.PropertyValue.FromInt(-5_000_000_000), Core.Schema.PropertyValue.FromFloat(-0f),
+            Core.Schema.PropertyValue.FromFloat(BitConverter.Int32BitsToSingle(0x7FC0_1234)),
+            Core.Schema.PropertyValue.FromVector(BitConverter.Int32BitsToSingle(0x7F80_1234), 0f, BitConverter.Int32BitsToSingle(0x7F80_1234)),
+            Core.Schema.PropertyValue.FromVector(1.5f, -0f, 3f), Core.Schema.PropertyValue.FromVectorXY(-2f, 7f),
+            Core.Schema.PropertyValue.FromString("scout"), Core.Schema.PropertyValue.FromArray([Core.Schema.PropertyValue.FromInt(9)]),
+            default,
+        ];
+
+        string[] unpacked = [.. System.Linq.Enumerable.Select(values, value => StateCopy.Digest(Core.Schema.PropertyValue.Unpack(value.Pack()), new HashSet<object>()))];
+
+        unpacked.ShouldBe([.. System.Linq.Enumerable.Select(values, value => StateCopy.Digest(value, new HashSet<object>()))]);
+        Core.Schema.PropertyValue.Unpack(values[7].Pack()).AsArray.ShouldBeSameAs(values[7].AsArray);
     }
 
     /// <remarks>

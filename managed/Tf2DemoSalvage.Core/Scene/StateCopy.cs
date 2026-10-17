@@ -464,6 +464,126 @@ internal static class StateCopy
             .Where(field => !field.IsDefined(typeof(NotCopiedAttribute), inherit: false))]);
 #pragma warning restore S3011
 
+    /// <summary>
+    /// The approximate bytes of every object reachable from a root that <paramref name="seen"/> has not met yet — what
+    /// this root keeps beyond what was already counted (D217 step 4, part 3).
+    /// </summary>
+    /// <param name="root">The root.</param>
+    /// <param name="share">Shared inputs, counted as nothing: every checkpoint holds the same ones.</param>
+    /// <param name="seen">Objects already counted, by identity; filled as this walks.</param>
+    /// <returns>Bytes: a 16-byte header plus each field's size for an object, 24 plus the elements for an array.</returns>
+    /// <remarks>
+    /// **An estimate with a control**: the probe prints the sum over every owner beside the measured retained heap, and
+    /// the two must agree to within the runtime's own overheads. It ranks owners; it is not an allocator's count.
+    /// </remarks>
+    /// <param name="byType">When given, filled with the same bytes by the type of the object that holds them.</param>
+    public static long Footprint(object root, IReadOnlySet<object> share, HashSet<object> seen, Dictionary<Type, long>? byType = null)
+    {
+        ArgumentNullException.ThrowIfNull(root);
+        ArgumentNullException.ThrowIfNull(share);
+        ArgumentNullException.ThrowIfNull(seen);
+
+        long bytes = 0;
+        Stack<object> pending = new([root]);
+
+        while (pending.TryPop(out object? next))
+        {
+            Type type = next.GetType();
+
+            // Strings and the shared write-once forms are state a checkpoint keeps, so they count; the other immutable
+            // types (delegates, reflection, the demo's own bytes) are inputs.
+            bool input = share.Contains(next)
+                || (Immutable(type) && type != typeof(string) && type != typeof(PropertyBag.Frozen) && type != typeof(Schema.DecodedProperties));
+
+            if (input || !seen.Add(next))
+            {
+                continue;
+            }
+
+            long size = Size(next, type, pending);
+            bytes += size;
+
+            if (byType is not null)
+            {
+                byType[type] = byType.GetValueOrDefault(type) + size;
+            }
+        }
+
+        return bytes;
+    }
+
+    /// <summary>One object's own bytes, pushing what it references.</summary>
+    private static long Size(object next, Type type, Stack<object> pending)
+    {
+        if (next is string text)
+        {
+            return 22 + (2L * text.Length);
+        }
+
+        if (next is Array array)
+        {
+            Type element = type.GetElementType()!;
+
+            if (HasReferences(element))
+            {
+                foreach (object? item in array)
+                {
+                    Follow(item, pending);
+                }
+            }
+
+            return 24 + ((long)array.Length * SlotSize(element));
+        }
+
+        long size = 16;
+
+        for (Type? level = type; level is not null; level = level.BaseType)
+        {
+            foreach (FieldInfo field in Fields(level))
+            {
+                size += SlotSize(field.FieldType);
+
+                if (HasReferences(field.FieldType))
+                {
+                    Follow(field.GetValue(next), pending);
+                }
+            }
+        }
+
+        return size;
+    }
+
+    private static int SlotSize(Type type) =>
+        type.IsValueType ? RuntimeHelpers.SizeOf(type.TypeHandle) : IntPtr.Size;
+
+    /// <summary>Pushes the objects a value names: itself if a reference, or the references inside it if a struct.</summary>
+    private static void Follow(object? value, Stack<object> pending)
+    {
+        if (value is null)
+        {
+            return;
+        }
+
+        Type type = value.GetType();
+
+        if (!type.IsValueType)
+        {
+            pending.Push(value);
+            return;
+        }
+
+        for (Type? level = type; level is not null && level.IsValueType; level = level.BaseType)
+        {
+            foreach (FieldInfo field in Fields(level))
+            {
+                if (HasReferences(field.FieldType))
+                {
+                    Follow(field.GetValue(value), pending);
+                }
+            }
+        }
+    }
+
     /// <summary>A hash of every VALUE reachable from a root, identity ignored except for the graph's shape.</summary>
     /// <param name="root">The root.</param>
     /// <param name="share">Instances hashed as a marker rather than followed, as a copy shares them.</param>

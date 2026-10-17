@@ -171,6 +171,60 @@ public readonly record struct PropertyValue
         _ => $"[{_array.Count}]",
     };
 
+    /// <summary>
+    /// A value in 24 bytes rather than 40, for storage that keeps many (D217 step 4, part 3): the payloads of one kind
+    /// never overlap another's, so the integer and the first two floats share <c>Bits</c> and the string and the array
+    /// share <c>Ref</c>.
+    /// </summary>
+    /// <param name="Bits">The integer, or the first float's bits low and the second's high.</param>
+    /// <param name="Z">The third float.</param>
+    /// <param name="Ref">The string or the array.</param>
+    /// <param name="Tag">The kind; <see cref="DefaultTag"/> for <c>default(PropertyValue)</c>, whose payloads are null.</param>
+    internal readonly record struct Packed(long Bits, float Z, object? Ref, byte Tag);
+
+    /// <summary>The tag of <c>default(PropertyValue)</c>, the one value no factory makes.</summary>
+    private const byte DefaultTag = byte.MaxValue;
+
+    /// <summary>This value packed; <see cref="Unpack"/> gives back one equal field for field, floats bit for bit.</summary>
+    /// <returns>The packed value.</returns>
+    internal Packed Pack()
+    {
+        if (_string is null)
+        {
+            return new Packed(0, 0f, null, DefaultTag);
+        }
+
+        long floats = (uint)BitConverter.SingleToInt32Bits(_x) | ((long)BitConverter.SingleToInt32Bits(_y) << 32);
+
+        return Kind switch
+        {
+            PropertyValueKind.Int => new Packed(_int, 0f, null, (byte)Kind),
+            PropertyValueKind.String => new Packed(0, 0f, _string, (byte)Kind),
+            PropertyValueKind.Array => new Packed(0, 0f, _array, (byte)Kind),
+            _ => new Packed(floats, _z, null, (byte)Kind),
+        };
+    }
+
+    /// <summary>The value a <see cref="Pack"/> made.</summary>
+    /// <param name="packed">The packed value.</param>
+    /// <returns>The value, through the factory its kind was made by.</returns>
+    internal static PropertyValue Unpack(Packed packed)
+    {
+        float x = BitConverter.Int32BitsToSingle((int)packed.Bits);
+        float y = BitConverter.Int32BitsToSingle((int)(packed.Bits >> 32));
+
+        return packed.Tag switch
+        {
+            DefaultTag => default,
+            (byte)PropertyValueKind.Int => FromInt(packed.Bits),
+            (byte)PropertyValueKind.Float => FromFloat(x),
+            (byte)PropertyValueKind.Vector => FromVector(x, y, packed.Z),
+            (byte)PropertyValueKind.VectorXY => FromVectorXY(x, y),
+            (byte)PropertyValueKind.String => FromString((string)packed.Ref!),
+            _ => FromArray((IReadOnlyList<PropertyValue>)packed.Ref!),
+        };
+    }
+
     private InvalidOperationException Mismatch(PropertyValueKind wanted) =>
         new($"Property value is {Kind}, not {wanted}.");
 }

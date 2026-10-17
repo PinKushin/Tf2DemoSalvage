@@ -10359,7 +10359,73 @@ the probe). That control failed at once: the census counted no owner's own shell
 feed), which is now fixed. Frame cost, `--measure 20` on f12 at tick 30000, first person, `+fps_max 0`, unconditional
 shrink then half-spare: 164.0 then 171.7 ms mean over 122 and 117 frames — the same, as expected, since the viewer
 builds its timeline straight and never trims. **Both are about 12 fps**, which is far below earlier measurements on this
-demo and is not caused by this change (pose and project dominate); flagged for its own look. What the next step is for: what each
+demo and is not caused by this change (pose and project dominate); flagged for its own look.
+
+### Step 4, part 3 — memory first (2026-10-16)
+
+**Owner, 2026-10-16:** *"shrink memory first lets see what we can do"*. So checkpoint spacing stays at 5 s until the
+checkpoints keep less; 2 s was measured above at about twice the heap.
+
+**The instrument**: `Checkpoints.KeptByOwner` — every object every checkpoint keeps, counted once under the first owner
+that reaches it, in estimated bytes (`StateCopy.Footprint`). Its control is the sum beside the measured retained heap
+(f12 752.7 against 782.9 MB; rgl-pug 2,559.7 against 2,627.5). Top owners: on rgl-pug the decoder's per-entity baseline
+slots (812 MB) and the entity table (789), then frames (214) and tracks (209); on f12 frames (182), the entity table
+(166), tracks (66) and view commands (56). Order taken, the coordinator's: baseline slots, entity bags, tracks; frames
+only if the change is lossless for what the HUD feed reads.
+
+1. **Decoded property lists without their definitions.** Every property a class decodes carried `flat[Index]` by value,
+   most of its bytes. `DecodedProperties` given the class's flattened list keeps the rest and reads the definition back;
+   a property whose definition is not the list's own keeps the list whole, so reads are exactly what was stored.
+   rgl-pug: baseline slots 812 → 311 MB, heap kept 2,628 → 2,127 MB. f12 783 → 781 (its slots were small).
+2. **A frozen property bag is packed.** `PropertyValue.Pack` keeps a value in 24 bytes (the integer and the first two
+   floats share one long, the string and the array one reference) and `Unpack` gives back the value field for field;
+   a thawed bag reads unwritten chunks from the frozen form, unpacked once per bag. rgl-pug 2,127 → 2,029 MB.
+3. **One string per property key.** The key `Table.Prop` was built per write and every entity kept its own copy of
+   every key — 254 MB of strings on rgl-pug. `PropertyKeys.Of` interns it. rgl-pug 2,029 → 1,768 MB.
+4. **The baseline slots' compact record packs its value too.** With (5) below, rgl-pug 1,768 → 1,513 MB.
+5. **A cleared bag keeps its key map and hides the keys**: a re-entered entity sent its keys in the same order re-uses
+   the map; one out of order gets a map of its own with exactly its visible keys, in order. Key maps were 210 MB of
+   rgl-pug's entity table.
+6. **Output lists chunk by 64, not 1,024.** A checkpoint keeps a trimmed tail of a few dozen elements per output list,
+   but a copy copies whole chunks, so a 1,024-slot tail chunk was mostly empty slots. The largest single step:
+   **f12 719 → 407 MB, rgl-pug 1,513 → 1,061 MB.**
+
+Tried and dropped, with the number that killed it: property-bag chunks of 8 instead of 32 saved 15 MB of rgl-pug's
+1,514 — an entity written between two checkpoints writes most of its chunks, so smaller chunks only add headers.
+Frames were left alone except for (6), which changes their storage and not one value: what the HUD feed reads is the
+same frames, and every window answered IDENTICAL.
+
+| demo, 5 s | heap kept, before part 3 | after | window ms (copy + decode) after |
+|---|---:|---:|---:|
+| f12 | 783 MB | **408 MB** | 590 (78 + 509), machine loaded: walk 326 s against 188 s earlier |
+| rgl-pug | 2,628 MB | **1,061 MB** | 426 (76 + 347) |
+
+| demo, 2 s | heap kept, part 2 | after part 3 | window ms (copy + decode) |
+|---|---:|---:|---:|
+| f12 | 1,505 MB | **681 MB** | **234** (62 + 170) |
+| rgl-pug | 3,996 MB | **1,571 MB** | **227** (73 + 152) |
+
+Every step: 0 of 120 seeks differ on both demos, the digest control unchanged, the census controls green; the f12
+fingerprint is unchanged at the end. At 2 s the checkpoints now keep less than they did at 5 s before part 3. **Decode
+is the caveat**: it has read higher through part 3 (f12 317 → 509, rgl-pug 249 → 347 ms at 5 s), on a machine whose
+walk time also rose by as much, so it is not settled whether unpacking costs decode time; measure it on a quiet machine
+before deciding spacing. Next candidates by the instrument: the tracks' five parallel history lists per history (one
+list of a struct would save about 30 MB on rgl-pug), and the packed bag chunks themselves (202 MB), which are what
+written entities change between checkpoints.
+
+**The decode regression was real, and is fixed** (review, 2026-10-17). Measured back to back under the machine lock on
+f12, main then the branch: decode 304 → 428 ms, walk 197 → 257 s. A sampled trace of the walk (`dotnet-trace`,
+`dotnet-sampled-thread-time`) put 18% of it in the property bag's enumerator — a LINQ `Take` over the boxed map
+enumerator and a chunk lookup per value — under the pattern scans `BoneControllers`, `PoseParameters` and
+`AnimationLayers`. Now the enumerator walks the map's own struct enumerator and resolves each chunk once; decoded lists
+hand the entity table a key and a value without building a property (`KeyAt`, `ValueAt`); the baseline merge of one
+class's two compact lists runs record by record; the decoder's own lists skip the definition compare. After: **f12
+decode 266 ms, walk 174 s; rgl-pug decode 222 ms, copy 75** — below main's, memory unchanged (409 and 1,064 MB), all
+windows IDENTICAL, fingerprint unchanged. Also from the review: keys are built once per class by the decoder and shared
+as schema-derived, not cached process-wide, so a corpus sweep holds one demo's keys at a time; the unpack cache
+publishes by compare-and-swap. Chunks of 64 against 1,024, checkpoint build time (walk, same run kind): f12 174 against
+183 s, rgl-pug 254 against 237 s — within the run-to-run spread, so the build costs no more; the copy's per-element
+reflection was 2% of the trace and was left. What the next step is for: what each
 checkpoint still holds beyond the one before — tracks and props are now most of a resume (11.6 + 9.2 MB on f12).
 
 **The order after these two steps — the viewer half, decided by the owner the same day: a backward seek must NOT

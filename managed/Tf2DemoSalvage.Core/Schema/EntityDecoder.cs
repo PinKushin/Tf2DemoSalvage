@@ -148,7 +148,7 @@ public sealed class EntityDecoder : IEntityBaselines
     /// **For the timeline builder's snapshot, which shares these instead of copying them.** A cache entry is computed
     /// the same way whichever builder adds it, so a live builder and a resumed one can share the dictionaries.
     /// </remarks>
-    internal IEnumerable<object> SchemaDerived() => [_flattened, _classesById, .. _flattened.Values];
+    internal IEnumerable<object> SchemaDerived() => [_flattened, _classesById, _keys, .. _flattened.Values, .. _keys.Values];
     private readonly Dictionary<int, ServerClass> _classesById = [];
     private readonly List<int> _removed = [];
 
@@ -803,7 +803,8 @@ public sealed class EntityDecoder : IEntityBaselines
                 elementShapes));
         }
 
-        return new DecodedProperties(System.Runtime.InteropServices.CollectionsMarshal.AsSpan(properties));
+        // Every definition here IS flat[index], so the list is built against the class without comparing each one.
+        return DecodedProperties.OfClass(flat, KeysFor(classId), System.Runtime.InteropServices.CollectionsMarshal.AsSpan(properties));
     }
 
     private static PropertyValue ReadValue(
@@ -1084,7 +1085,7 @@ public sealed class EntityDecoder : IEntityBaselines
     {
         foreach (int classId in _classesById.Keys)
         {
-            FlattenedFor(classId);
+            KeysFor(classId);
         }
     }
 
@@ -1113,6 +1114,38 @@ public sealed class EntityDecoder : IEntityBaselines
         _flattened[classId] = flat;
         return flat;
     }
+
+    /// <summary>
+    /// The key each of a class's flattened properties is stored under in an entity, by flattened index — one string per
+    /// key for as long as this decoder lives (D217 step 4, part 3).
+    /// </summary>
+    /// <param name="classId">The networked class.</param>
+    /// <returns>The keys, parallel to <see cref="FlattenedFor"/>.</returns>
+    /// <remarks>
+    /// **Scoped to the decoder**, so a corpus sweep holds one demo's keys at a time; schema-derived, so every checkpoint
+    /// and window shares it (<see cref="SchemaDerived"/>) and <see cref="FlattenEveryClass"/> fills it.
+    /// </remarks>
+    internal string[] KeysFor(int classId)
+    {
+        if (_keys.TryGetValue(classId, out string[]? cached))
+        {
+            return cached;
+        }
+
+        IReadOnlyList<FlatProperty> flat = FlattenedFor(classId);
+        string[] keys = new string[flat.Count];
+
+        for (int index = 0; index < keys.Length; index++)
+        {
+            keys[index] = Scene.PropertyKeys.Of(flat[index]);
+        }
+
+        _keys[classId] = keys;
+        return keys;
+    }
+
+    /// <summary>Each class's property keys, built once: <see cref="KeysFor"/>.</summary>
+    private readonly Dictionary<int, string[]> _keys = [];
 
     /// <summary>The networked class's name, or an empty string if the schema has no such id.</summary>
     /// <param name="classId">The class id read from an entering entity.</param>

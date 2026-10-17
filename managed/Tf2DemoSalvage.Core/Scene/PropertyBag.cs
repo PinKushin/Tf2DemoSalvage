@@ -3,6 +3,7 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.Linq;
+using System.Threading;
 
 using Tf2DemoSalvage.Core.Schema;
 
@@ -20,6 +21,11 @@ namespace Tf2DemoSalvage.Core.Scene;
 /// **Enumeration order is the old dictionary's — insertion order, restarted by <see cref="Clear"/>** — because the slot
 /// map IS a dictionary keyed the same way and filled in the same order, and several readers take the first key that
 /// matches a pattern.
+///
+/// **A clear keeps the map and hides its keys** (D217 step 4, part 3): only the first <see cref="_count"/> slots are the
+/// bag's, so an entity that re-enters and is sent its keys in the same order as before re-uses its map rather than
+/// building another — slot maps were 210 MB of what rgl-pug's checkpoints kept of the entity table. A key that arrives
+/// out of that order makes the bag a map of its own, holding exactly its visible keys in their order.
 /// </remarks>
 internal sealed class PropertyBag : IReadOnlyDictionary<string, PropertyValue>
 {
@@ -31,20 +37,37 @@ internal sealed class PropertyBag : IReadOnlyDictionary<string, PropertyValue>
     /// A bag's contents made immutable at a checkpoint (D217 step 4), which <see cref="StateCopy"/> shares rather than
     /// copies: nothing writes its map or its chunks again, because the next write to the bag thaws first.
     /// </summary>
-    internal sealed class Frozen(Dictionary<string, int> slots, (PropertyValue Value, long Sequence)[][] chunks)
+    /// <remarks>
+    /// **Packed** (D217 step 4, part 3): a frozen slot is a <see cref="PropertyValue.Packed"/> and its sequence, 32 bytes
+    /// against 48, because the entity table was the largest thing rgl-pug's checkpoints kept (789 MB). A read unpacks.
+    /// </remarks>
+    internal sealed class Frozen(Dictionary<string, int> slots, int count, (PropertyValue.Packed Value, long Sequence)[][] chunks)
     {
         public Dictionary<string, int> Slots { get; } = slots;
 
-        public (PropertyValue Value, long Sequence)[][] Chunks { get; } = chunks;
+        /// <summary>How many of the map's slots, in order, are the bag's.</summary>
+        public int Count { get; } = count;
+
+        public (PropertyValue.Packed Value, long Sequence)[][] Chunks { get; } = chunks;
     }
 
     // Exactly one of the two forms is live: _frozen, or the three below it (null while frozen, so a copy of a frozen
     // bag follows nothing but the shared Frozen).
     private Frozen? _frozen;
 
+    /// <summary>
+    /// While thawed, the frozen form it thawed from: a chunk not yet written since is read from there, still packed, and
+    /// is handed to the next freeze as it is.
+    /// </summary>
+    private Frozen? _base;
+
     private Dictionary<string, int>? _slots = new(StringComparer.Ordinal);
 
-    private List<(PropertyValue Value, long Sequence)[]>? _chunks = [];
+    /// <summary>While thawed, how many of <see cref="_slots"/>'s slots, in order, are the bag's.</summary>
+    private int _count;
+
+    /// <summary>The writable chunks; null for one still read from <see cref="_base"/>.</summary>
+    private List<(PropertyValue Value, long Sequence)[]?>? _chunks = [];
 
     // OWNERSHIP IS NOT COPIED, so false and null mean "owns nothing", and that is what a copy starts with: a copy of a
     // thawed bag may hold a chunk or a map that a prior copy reuses, and a copied "owned" would write straight into it.
@@ -58,19 +81,44 @@ internal sealed class PropertyBag : IReadOnlyDictionary<string, PropertyValue>
     [StateCopy.NotCopied]
     private List<bool>? _owned = [];
 
+    /// <summary>
+    /// Packed chunks unpacked for reading, by chunk: a read of a frozen chunk unpacks it once, not once per value. Never
+    /// copied, so it is this instance's alone; it describes <see cref="_frozen"/>, or <see cref="_base"/> while thawed.
+    /// </summary>
+    [StateCopy.NotCopied]
+    private (PropertyValue Value, long Sequence)[]?[]? _unpacked;
+
     private Dictionary<string, int> Slots => _frozen?.Slots ?? _slots!;
+
+    /// <summary>The key → slot map in use, by identity: what a re-entered entity re-uses (D217 step 4, part 3).</summary>
+    internal object SlotMap => Slots;
 
     /// <summary>Whether the bag is in its frozen, shared form.</summary>
     internal bool IsFrozen => _frozen is not null;
 
     /// <inheritdoc/>
-    public int Count => Slots.Count;
+    public int Count => _frozen?.Count ?? _count;
 
     /// <inheritdoc/>
-    public IEnumerable<string> Keys => Slots.Keys;
+    public IEnumerable<string> Keys
+    {
+        get
+        {
+            // The map's own struct enumerator, in insertion order — which is slot order — stopped at the visible count.
+            foreach ((string key, int slot) in Slots)
+            {
+                if (slot >= Count)
+                {
+                    yield break;
+                }
+
+                yield return key;
+            }
+        }
+    }
 
     /// <inheritdoc/>
-    public IEnumerable<PropertyValue> Values => Slots.Values.Select(slot => Read(slot).Value);
+    public IEnumerable<PropertyValue> Values => this.Select(entry => entry.Value);
 
     /// <summary>Makes the contents immutable and shareable; a no-op when nothing was written since the last freeze.</summary>
     /// <remarks>
@@ -84,7 +132,16 @@ internal sealed class PropertyBag : IReadOnlyDictionary<string, PropertyValue>
             return;
         }
 
-        _frozen = new Frozen(_slots!, [.. _chunks!]);
+        (PropertyValue.Packed, long)[][] packed = new (PropertyValue.Packed, long)[_chunks!.Count][];
+
+        for (int chunk = 0; chunk < packed.Length; chunk++)
+        {
+            packed[chunk] = _chunks[chunk] is { } written ? Pack(written) : _base!.Chunks[chunk];
+        }
+
+        _frozen = new Frozen(_slots!, _count, packed);
+        _base = null;
+        _unpacked = null;
         _slots = null;
         _chunks = null;
         // Nothing to reset beyond this: ownership is read only while thawed, and Thaw sets it before any read.
@@ -101,10 +158,36 @@ internal sealed class PropertyBag : IReadOnlyDictionary<string, PropertyValue>
         }
 
         _slots = _frozen.Slots;
+        _count = _frozen.Count;
         _ownsSlots = false;
-        _chunks = [.. _frozen.Chunks];
+        _chunks = [.. new (PropertyValue, long)[]?[_frozen.Chunks.Length]];
         _owned = null;
+        _base = _frozen;
         _frozen = null;
+    }
+
+    private static (PropertyValue.Packed, long)[] Pack((PropertyValue Value, long Sequence)[] chunk)
+    {
+        (PropertyValue.Packed, long)[] packed = new (PropertyValue.Packed, long)[chunk.Length];
+
+        for (int index = 0; index < chunk.Length; index++)
+        {
+            packed[index] = (chunk[index].Value.Pack(), chunk[index].Sequence);
+        }
+
+        return packed;
+    }
+
+    private static (PropertyValue Value, long Sequence)[] Unpack((PropertyValue.Packed Value, long Sequence)[] chunk)
+    {
+        (PropertyValue, long)[] values = new (PropertyValue, long)[chunk.Length];
+
+        for (int index = 0; index < chunk.Length; index++)
+        {
+            values[index] = (PropertyValue.Unpack(chunk[index].Value), chunk[index].Sequence);
+        }
+
+        return values;
     }
 
     private bool Owns(int chunk) => _owned is { } owned && chunk < owned.Count && owned[chunk];
@@ -121,6 +204,9 @@ internal sealed class PropertyBag : IReadOnlyDictionary<string, PropertyValue>
         _owned[chunk] = true;
     }
 
+    /// <summary>The slot a key holds in the bag, or −1: a key the map holds past the visible count is not the bag's.</summary>
+    private int SlotOf(string key) => Slots.TryGetValue(key, out int slot) && slot < Count ? slot : -1;
+
     /// <inheritdoc/>
     public PropertyValue this[string key] =>
         TryGetValue(key, out PropertyValue value) ? value : throw new KeyNotFoundException(key);
@@ -133,18 +219,11 @@ internal sealed class PropertyBag : IReadOnlyDictionary<string, PropertyValue>
     {
         Thaw();
 
-        if (!_slots!.TryGetValue(key, out int slot))
-        {
-            if (!_ownsSlots)
-            {
-                // Copied in insertion order: nothing is ever removed from a slot map, only cleared. An enumeration of
-                // Keys in progress goes on over the old map rather than throwing, which no caller relies on either way.
-                _slots = new Dictionary<string, int>(_slots, StringComparer.Ordinal);
-                _ownsSlots = true;
-            }
+        int slot = SlotOf(key);
 
-            slot = _slots.Count;
-            _slots.Add(key, slot);
+        if (slot < 0)
+        {
+            slot = Append(key);
 
             if ((slot >> ChunkBits) == _chunks!.Count)
             {
@@ -157,35 +236,73 @@ internal sealed class PropertyBag : IReadOnlyDictionary<string, PropertyValue>
 
         if (!Owns(chunk))
         {
-            _chunks![chunk] = ((PropertyValue Value, long Sequence)[])_chunks[chunk].Clone();
+            _chunks![chunk] = ((PropertyValue, long)[])(_chunks[chunk] ?? Unpacked(_base!, chunk)).Clone();
             Own(chunk);
         }
 
-        _chunks![chunk][slot & (ChunkSize - 1)] = (value, sequence);
+        _chunks![chunk]![slot & (ChunkSize - 1)] = (value, sequence);
+    }
+
+    /// <summary>Makes a new key the next visible slot: the map's own next key when it is this one, else a map of its own.</summary>
+    private int Append(string key)
+    {
+        if (_slots!.TryGetValue(key, out int held) && held == _count)
+        {
+            // The same key in the same place as before the clear: the map already says so.
+            return _count++;
+        }
+
+        if (!_ownsSlots || _slots.Count != _count)
+        {
+            // Copied in insertion order, visible keys only: nothing is ever removed from a slot map, only hidden. An
+            // enumeration of Keys in progress goes on over the old map rather than throwing, which no caller relies on.
+            Dictionary<string, int> own = new(_count + 1, StringComparer.Ordinal);
+
+            foreach ((string visible, int at) in _slots.Take(_count))
+            {
+                own.Add(visible, at);
+            }
+
+            _slots = own;
+            _ownsSlots = true;
+        }
+
+        _slots.Add(key, _count);
+        return _count++;
     }
 
     /// <summary>When a key was last written, or −1 when it never was.</summary>
     /// <param name="key">The property's key.</param>
     /// <returns>The sequence number.</returns>
-    public long Sequence(string key) => Slots.TryGetValue(key, out int slot) ? Read(slot).Sequence : -1;
+    public long Sequence(string key) => SlotOf(key) is >= 0 and int slot ? Read(slot).Sequence : -1;
 
     /// <summary>Forgets every property; enumeration restarts from the next write, as the dictionary's did.</summary>
+    /// <remarks>The map is kept, its keys hidden, for an entity sent the same keys in the same order again.</remarks>
     public void Clear()
     {
+        if (_frozen is not null)
+        {
+            _slots = _frozen.Slots;
+            _ownsSlots = false;
+        }
+
         _frozen = null;
-        _slots = new(StringComparer.Ordinal);
-        _ownsSlots = true;
+        _base = null;
+        _unpacked = null;
+        _count = 0;
         _chunks = [];
         _owned = [];
     }
 
     /// <inheritdoc/>
-    public bool ContainsKey(string key) => Slots.ContainsKey(key);
+    public bool ContainsKey(string key) => SlotOf(key) >= 0;
 
     /// <inheritdoc/>
     public bool TryGetValue(string key, [MaybeNullWhen(false)] out PropertyValue value)
     {
-        if (Slots.TryGetValue(key, out int slot))
+        int slot = SlotOf(key);
+
+        if (slot >= 0)
         {
             value = Read(slot).Value;
             return true;
@@ -198,14 +315,55 @@ internal sealed class PropertyBag : IReadOnlyDictionary<string, PropertyValue>
     /// <inheritdoc/>
     public IEnumerator<KeyValuePair<string, PropertyValue>> GetEnumerator()
     {
+        // The hottest reader in a build — every pattern scan over an entity walks this — so each chunk is resolved once,
+        // not once per value, and the map's struct enumerator is used directly (D217 step 4, part 3 review).
+        int count = Count;
+        int held = -1;
+        (PropertyValue Value, long Sequence)[] values = [];
+
         foreach ((string key, int slot) in Slots)
         {
-            yield return new KeyValuePair<string, PropertyValue>(key, Read(slot).Value);
+            if (slot >= count)
+            {
+                yield break;
+            }
+
+            if (slot >> ChunkBits != held)
+            {
+                held = slot >> ChunkBits;
+                values = ChunkValues(held);
+            }
+
+            yield return new KeyValuePair<string, PropertyValue>(key, values[slot & (ChunkSize - 1)].Value);
         }
     }
 
     IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
 
-    private (PropertyValue Value, long Sequence) Read(int slot) =>
-        (_frozen is { } frozen ? frozen.Chunks[slot >> ChunkBits] : _chunks![slot >> ChunkBits])[slot & (ChunkSize - 1)];
+    private (PropertyValue Value, long Sequence) Read(int slot) => ChunkValues(slot >> ChunkBits)[slot & (ChunkSize - 1)];
+
+    /// <summary>A chunk's values: the bag's own when it holds the chunk, else the frozen form's, unpacked once.</summary>
+    private (PropertyValue Value, long Sequence)[] ChunkValues(int chunk)
+    {
+        if (_frozen is { } frozen)
+        {
+            return Unpacked(frozen, chunk);
+        }
+
+        return _chunks![chunk] ?? Unpacked(_base!, chunk);
+    }
+
+    /// <summary>A packed chunk of the frozen form this bag reads, unpacked once and kept for later reads.</summary>
+    private (PropertyValue Value, long Sequence)[] Unpacked(Frozen packed, int chunk)
+    {
+        // A read writes this cache, so two readers on two threads must not lose or tear it: each publish is one compare
+        // and swap, and a reader that loses the race uses the winner's copy, which holds the same values.
+        (PropertyValue, long)[]?[] cache = Volatile.Read(ref _unpacked)
+            ?? Interlocked.CompareExchange(ref _unpacked, new (PropertyValue, long)[]?[packed.Chunks.Length], null)
+            ?? _unpacked!;
+
+        return Volatile.Read(ref cache[chunk])
+            ?? Interlocked.CompareExchange(ref cache[chunk], Unpack(packed.Chunks[chunk]), null)
+            ?? cache[chunk]!;
+    }
 }
