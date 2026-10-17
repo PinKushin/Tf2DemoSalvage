@@ -100,10 +100,25 @@ internal sealed class PropertyBag : IReadOnlyDictionary<string, PropertyValue>
     public int Count => _frozen?.Count ?? _count;
 
     /// <inheritdoc/>
-    public IEnumerable<string> Keys => Slots.Keys.Take(Count);
+    public IEnumerable<string> Keys
+    {
+        get
+        {
+            // The map's own struct enumerator, in insertion order — which is slot order — stopped at the visible count.
+            foreach ((string key, int slot) in Slots)
+            {
+                if (slot >= Count)
+                {
+                    yield break;
+                }
+
+                yield return key;
+            }
+        }
+    }
 
     /// <inheritdoc/>
-    public IEnumerable<PropertyValue> Values => Slots.Values.Take(Count).Select(slot => Read(slot).Value);
+    public IEnumerable<PropertyValue> Values => this.Select(entry => entry.Value);
 
     /// <summary>Makes the contents immutable and shareable; a no-op when nothing was written since the last freeze.</summary>
     /// <remarks>
@@ -300,25 +315,42 @@ internal sealed class PropertyBag : IReadOnlyDictionary<string, PropertyValue>
     /// <inheritdoc/>
     public IEnumerator<KeyValuePair<string, PropertyValue>> GetEnumerator()
     {
-        foreach ((string key, int slot) in Slots.Take(Count))
+        // The hottest reader in a build — every pattern scan over an entity walks this — so each chunk is resolved once,
+        // not once per value, and the map's struct enumerator is used directly (D217 step 4, part 3 review).
+        int count = Count;
+        int held = -1;
+        (PropertyValue Value, long Sequence)[] values = [];
+
+        foreach ((string key, int slot) in Slots)
         {
-            yield return new KeyValuePair<string, PropertyValue>(key, Read(slot).Value);
+            if (slot >= count)
+            {
+                yield break;
+            }
+
+            if (slot >> ChunkBits != held)
+            {
+                held = slot >> ChunkBits;
+                values = ChunkValues(held);
+            }
+
+            yield return new KeyValuePair<string, PropertyValue>(key, values[slot & (ChunkSize - 1)].Value);
         }
     }
 
     IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
 
-    private (PropertyValue Value, long Sequence) Read(int slot)
-    {
-        int chunk = slot >> ChunkBits;
-        int at = slot & (ChunkSize - 1);
+    private (PropertyValue Value, long Sequence) Read(int slot) => ChunkValues(slot >> ChunkBits)[slot & (ChunkSize - 1)];
 
-        if ((_frozen ?? (_chunks![chunk] is null ? _base : null)) is { } packed)
+    /// <summary>A chunk's values: the bag's own when it holds the chunk, else the frozen form's, unpacked once.</summary>
+    private (PropertyValue Value, long Sequence)[] ChunkValues(int chunk)
+    {
+        if (_frozen is { } frozen)
         {
-            return Unpacked(packed, chunk)[at];
+            return Unpacked(frozen, chunk);
         }
 
-        return _chunks![chunk]![at];
+        return _chunks![chunk] ?? Unpacked(_base!, chunk);
     }
 
     /// <summary>A packed chunk of the frozen form this bag reads, unpacked once and kept for later reads.</summary>
