@@ -68,6 +68,9 @@ public sealed class ParticleEffects
     /// <summary>How many one-shots are running.</summary>
     public int BurstCount => _bursts.Count;
 
+    /// <summary>How many times a burst was built from its start, ever — counted where it is built.</summary>
+    public int BurstBuilds { get; private set; }
+
     /// <summary>How many times one burst has been stepped, for a test or a diagnostic.</summary>
     /// <param name="key">The caller's key for it.</param>
     /// <returns>The step count, or −1 when no burst has that key.</returns>
@@ -384,6 +387,7 @@ public sealed class ParticleEffects
             if (rebuild)
             {
                 running = new RunningBurst(new ParticleEffect(burst.Definition, others, Sheets, SeedFor(burst.Key)), 0, 0d, false);
+                BurstBuilds++;
             }
 
             // Stryker restore all
@@ -475,11 +479,11 @@ public sealed class ParticleEffects
             _bursts[burst.Key] = running with
             {
                 Stepped = taken, SimulatedTo = reachedTo, Stopped = stopped, StillRead = stillRead, Tick = burst.Tick,
-                Name = burst.Definition.Name,
+                Name = burst.Definition.Name, Unoffered = false, LastAt = burst.At,
             };
         }
 
-        FadeUnoffered(now, seconds);
+        FadeUnoffered(now, seconds, seeked);
         Retire();
     }
 
@@ -493,7 +497,16 @@ public sealed class ParticleEffects
     /// old beams in the air"). `CWeaponMedigun::UpdateEffects` stops the beam with `StopEmission` when the target changes
     /// or is gone (`tf_weapon_medigun.cpp:2369-2397`); every other owner that stops offering one does the same here.
     /// </remarks>
-    private void FadeUnoffered(double now, float seconds)
+    /// <param name="now">The tick being shown, fraction included.</param>
+    /// <param name="seconds">Seconds per tick.</param>
+    /// <param name="seeked">Whether this frame is a seek's: what the target tick does not offer is history, not a fade.</param>
+    /// <remarks>
+    /// **A tick at a time**, as `CParticleMgr::UpdateNewEffects` simulates a frame, and **on its last control points**:
+    /// `StopEmission` leaves the effect in its owner's list (`particle_property.cpp:251`) so its points still follow — here
+    /// the last ones it was offered, since nothing offers newer. **A seek drops them**: arriving at a tick fresh, only what
+    /// that tick offers is built, so an effect carried across the jump would make the answer depend on the way in.
+    /// </remarks>
+    private void FadeUnoffered(double now, float seconds, bool seeked)
     {
         _unoffered.Clear();
 
@@ -507,16 +520,26 @@ public sealed class ParticleEffects
 
         foreach (long key in _unoffered)
         {
-            RunningBurst running = _bursts[key];
-            double wanted = now - running.Tick;
-
-            if (wanted > running.SimulatedTo)
+            if (seeked)
             {
-                running.Effect.Fade((float)((wanted - running.SimulatedTo) * seconds));
-                running = running with { SimulatedTo = wanted };
+                _bursts.Remove(key);
+                continue;
             }
 
-            _bursts[key] = running with { Stopped = true };
+            RunningBurst running = _bursts[key];
+            double wanted = now - running.Tick;
+            double reached = running.SimulatedTo;
+
+            while (reached < wanted)
+            {
+                double next = Math.Min(Math.Floor(reached) + 1d, wanted);
+
+                running.Effect.SetControlPoint(0, running.LastAt);
+                running.Effect.Fade((float)((next - reached) * seconds));
+                reached = next;
+            }
+
+            _bursts[key] = running with { SimulatedTo = reached, Stopped = true, Unoffered = true };
         }
     }
 
@@ -527,10 +550,10 @@ public sealed class ParticleEffects
     {
         Dictionary<string, (int Live, int Unoffered)> rows = new(StringComparer.Ordinal);
 
-        foreach ((long key, RunningBurst running) in _bursts)
+        foreach (RunningBurst running in _bursts.Values)
         {
             (int live, int unoffered) = rows.GetValueOrDefault(running.Name);
-            rows[running.Name] = (live + 1, unoffered + (_offered.Contains(key) ? 0 : 1));
+            rows[running.Name] = (live + 1, unoffered + (running.Unoffered ? 1 : 0));
         }
 
         List<(string Name, int Live, int Unoffered)> census = new(rows.Count);
@@ -602,7 +625,15 @@ public sealed class ParticleEffects
 
     /// <summary>One running one-shot: how many steps it took, and to how many ticks after it fired, fraction included.</summary>
     private readonly record struct RunningBurst(
-        ParticleEffect Effect, int Stepped, double SimulatedTo, bool Stopped, bool StillRead = false, int Tick = 0, string Name = "");
+        ParticleEffect Effect,
+        int Stepped,
+        double SimulatedTo,
+        bool Stopped,
+        bool StillRead = false,
+        int Tick = 0,
+        string Name = "",
+        bool Unoffered = false,
+        ParticleControlPoint LastAt = default);
 
     /// <summary>Builds every live effect's quads for this frame's camera.</summary>
     /// <param name="eye">Where the camera is — a sprite trail turns about its own length to face it.</param>

@@ -121,8 +121,81 @@ public sealed class ParticleBurstTests
         }
 
         effects.Bursts([], Interval, null, tick: 106);
+        int atEnd = effects.BurstParticles(1)!.Count;
+        // Born from tick 100 to 105, each living 33 ticks: by 136 the first are gone and none has replaced them.
+        effects.Bursts([], Interval, null, tick: 136);
+        int later = effects.BurstParticles(1)!.Count;
 
         effects.BurstCount.ShouldBe(1, "a blast does not stop because the window moved past it");
+
+        // It RUNS, it is not held: a frozen effect keeps every particle, a stopped one only loses them.
+        atEnd.ShouldBeGreaterThan(0, "the control: it had particles when the offer ended");
+        later.ShouldBeLessThan(atEnd, "no particle is born after the offer ends, and the live ones age out");
+    }
+
+    /// <remarks>
+    /// **Offered again after a gap, it continues — one effect, not a second built from its start** (review): a heal beam
+    /// across a moment its patient was not posed. Counted where a burst is built.
+    /// </remarks>
+    [Test]
+    public void Bursts_OfferedAgainAfterAGap_ContinueRatherThanRebuild()
+    {
+        ParticleEffects effects = new();
+        ParticleBurst beam = new(
+            1, Beam, new ParticleControlPoint(Vector3.Zero, Vector3.UnitX, Vector3.UnitY, Vector3.UnitZ), 100);
+
+        for (int tick = 100; tick <= 105; tick++)
+        {
+            effects.Bursts([beam], Interval, null, tick);
+        }
+
+        effects.Bursts([], Interval, null, tick: 106);
+        effects.Bursts([beam], Interval, null, tick: 107);
+
+        effects.BurstBuilds.ShouldBe(1);
+        effects.BurstCount.ShouldBe(1);
+    }
+
+    /// <remarks>A paused frame asks for the same tick again: an effect no longer offered does not age while paused.</remarks>
+    [Test]
+    public void Bursts_NoLongerOfferedWhilePaused_DoNotAge()
+    {
+        ParticleEffects effects = new();
+        ParticleBurst beam = new(
+            1, Beam, new ParticleControlPoint(Vector3.Zero, Vector3.UnitX, Vector3.UnitY, Vector3.UnitZ), 100);
+
+        for (int tick = 100; tick <= 120; tick++)
+        {
+            effects.Bursts([beam], Interval, null, tick);
+        }
+
+        effects.Bursts([], Interval, null, tick: 125);
+        int paused = effects.BurstParticles(1)!.Count;
+        effects.Bursts([], Interval, null, tick: 125);
+
+        effects.BurstParticles(1)!.Count.ShouldBe(paused);
+    }
+
+    /// <remarks>
+    /// **A seek forward forgets what the target tick does not offer**: arriving fresh, only the offered are built, so one
+    /// carried across the jump would make the picture depend on the way in. The control is the same jump without the seek.
+    /// </remarks>
+    [TestCase(false, 1)]
+    [TestCase(true, 0)]
+    public void Bursts_ASeekForwardPastTheOffer_KeepsAnEffectOnlyWhenPlayed(bool seeked, int left)
+    {
+        ParticleEffects effects = new();
+        ParticleBurst beam = new(
+            1, Beam, new ParticleControlPoint(Vector3.Zero, Vector3.UnitX, Vector3.UnitY, Vector3.UnitZ), 100);
+
+        for (int tick = 100; tick <= 120; tick++)
+        {
+            effects.Bursts([beam], Interval, null, tick);
+        }
+
+        effects.Bursts([], Interval, null, tick: 122, seeked: seeked);
+
+        effects.BurstCount.ShouldBe(left);
     }
 
     /// <remarks>
