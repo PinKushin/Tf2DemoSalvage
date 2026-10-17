@@ -14,9 +14,17 @@ namespace Tf2DemoSalvage.Core.Scene;
 /// <typeparam name="T">The element type.</typeparam>
 internal sealed class ChunkedList<T> : IReadOnlyList<T>
 {
-    private const int ChunkBits = 10;
+    /// <remarks>
+    /// **64, not 1,024** (D217 step 4, part 3): a checkpoint keeps a trimmed tail of a few dozen elements, but a copy
+    /// copies whole chunks, so a 1,024-slot tail chunk was mostly empty slots — `viewCommands` and the feeds held 1,024
+    /// elements per checkpoint each, and f12's checkpoints kept 719 MB where they keep 407 at 64.
+    /// </remarks>
+    private const int ChunkBits = 6;
 
     private const int ChunkSize = 1 << ChunkBits;
+
+    /// <summary>How many elements a chunk holds — what a copy of one changed chunk creates.</summary>
+    internal const int ChunkLength = ChunkSize;
 
     private readonly List<T[]> _chunks = [];
 

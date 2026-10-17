@@ -91,7 +91,7 @@ public sealed class TailListTests
 
         later.Take(3).ShouldBe([(98, 0), (99, 1), (100, 0)]);
         later.Count.ShouldBe(2902);
-        created[typeof((int, int)[])].ShouldBe((1, 1024));
+        created[typeof((int, int)[])].ShouldBe((1, ChunkedList<int>.ChunkLength));
     }
 
     /// <remarks>
@@ -158,7 +158,7 @@ public sealed class TailListTests
         Dictionary<Type, (long Objects, long Elements)> created = [];
         TailList<int> later = StateCopy.Of(list, new HashSet<object>(), map, out _, created);
 
-        created[typeof(int[])].ShouldBe((1, 1024));
+        created[typeof(int[])].ShouldBe((1, ChunkedList<int>.ChunkLength));
         later.ShouldBe(Enumerable.Range(0, 2501));
     }
 

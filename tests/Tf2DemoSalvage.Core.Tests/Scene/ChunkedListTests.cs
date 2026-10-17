@@ -35,9 +35,27 @@ public sealed class ChunkedListTests
         Dictionary<Type, (long Objects, long Elements)> created = [];
         ChunkedList<int> later = StateCopy.Of(list, new HashSet<object>(), map, out _, created);
 
-        created[typeof(int[])].ShouldBe((1, 1024));
+        created[typeof(int[])].ShouldBe((1, ChunkedList<int>.ChunkLength));
         later[5].ShouldBe(-5);
         later.Count.ShouldBe(3000);
+    }
+
+    /// <remarks>
+    /// **A trimmed tail copies 64 slots, not 1,024** (D217 step 4, part 3): of 3,000 elements the last 20 (2,980 to
+    /// 2,999) sit in one chunk, and a copy of the trimmed list creates that one chunk — the size is what a checkpoint
+    /// keeps for every output list.
+    /// </remarks>
+    [Test]
+    public void StateCopy_ATailOfTwenty_CreatesOne64SlotChunk()
+    {
+        ChunkedList<int> list = Upto(3000);
+        list.DropFront(2980);
+        Dictionary<Type, (long Objects, long Elements)> created = [];
+
+        ChunkedList<int> copy = StateCopy.Of(list, new HashSet<object>(), prior: null, out _, created);
+
+        created[typeof(int[])].ShouldBe((1, 64));
+        (copy.Count, copy[0], copy[19]).ShouldBe((20, 2980, 2999));
     }
 
     /// <remarks>**MoveOut hands over every element in order and leaves the list empty**, across a dropped front.</remarks>
