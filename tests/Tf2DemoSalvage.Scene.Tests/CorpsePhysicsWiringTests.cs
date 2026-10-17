@@ -215,6 +215,34 @@ public sealed class CorpsePhysicsWiringTests
     }
 
     /// <remarks>
+    /// **A pass that carries no corpse is not a moment that carries none.** The first-person undrawn pass and the viewmodel pass
+    /// call back into `Instances` with their own few props; each advanced the corpse environment with an empty list, which retired
+    /// every corpse, and the next frame's world pass rebuilt the world and replayed from the death — measured on gullywash_f9 as
+    /// 28 and 47 rebuilds per hundred frames with one corpse, ~220 steps a frame. The engine steps `physenv` once a frame
+    /// (`CPhysicsSystem::PhysicsSimulate`) whatever is drawn. So: one tick later is one step, in the world built once.
+    /// </remarks>
+    [Test]
+    public void Instances_AnotherPassWithoutTheCorpse_LeavesItInTheWorld()
+    {
+        SceneProp corpse = Corpse() with { FirstTick = 66 };
+        EntityModelSet models = new() { Geometry = _ => Frames() };
+        List<SceneProp> drawn = [corpse];
+        models.Add(drawn, _ => Frames());
+
+        models.CurrentTick = 132d;
+        models.Instances(drawn, [], seconds: 2d);
+        models.Corpses.Steps.ShouldBe(66, "the control: seeded at its death and stepped to 132");
+
+        models.Instances([], [], seconds: 2d, pass: EntityModelSet.UndrawnPass);
+
+        models.CurrentTick = 133d;
+        models.Instances(drawn, [], seconds: 133d / 66d);
+
+        models.Corpses.Rebuilds.ShouldBe(1, "the other pass did not take the corpse out of the world");
+        models.Corpses.Steps.ShouldBe(67, "one tick later is one step");
+    }
+
+    /// <remarks>
     /// **A seek backwards rebuilds the environment and replays it from the earliest death on screen** (D179): a corpse that died at
     /// tick 66, seen at 132 and then at 100, is rebuilt at 66 and stepped the 34 ticks to 100.
     /// </remarks>

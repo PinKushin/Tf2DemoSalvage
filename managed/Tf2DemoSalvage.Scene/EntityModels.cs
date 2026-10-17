@@ -5859,7 +5859,13 @@ public sealed class EntityModelSet : Hud.IMdlCache, IPosedEntities
 
         long advancedAt = System.Diagnostics.Stopwatch.GetTimestamp();
 
-        AdvanceCorpses(props, seconds);
+        // **The world pass only**: `physenv` is stepped once a frame (`CPhysicsSystem::PhysicsSimulate`) whatever is drawn, and
+        // the undrawn and viewmodel passes carry no corpse — advancing on their empty lists retired every corpse, and the next
+        // frame rebuilt the world and replayed from the death (~220 steps a frame on gullywash_f9).
+        if (string.Equals(pass, WorldPass, StringComparison.Ordinal))
+        {
+            AdvanceCorpses(props, seconds);
+        }
 
         AdvanceTicks += System.Diagnostics.Stopwatch.GetTimestamp() - advancedAt;
 
