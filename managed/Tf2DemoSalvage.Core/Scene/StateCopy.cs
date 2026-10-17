@@ -476,7 +476,8 @@ internal static class StateCopy
     /// **An estimate with a control**: the probe prints the sum over every owner beside the measured retained heap, and
     /// the two must agree to within the runtime's own overheads. It ranks owners; it is not an allocator's count.
     /// </remarks>
-    public static long Footprint(object root, IReadOnlySet<object> share, HashSet<object> seen)
+    /// <param name="byType">When given, filled with the same bytes by the type of the object that holds them.</param>
+    public static long Footprint(object root, IReadOnlySet<object> share, HashSet<object> seen, Dictionary<Type, long>? byType = null)
     {
         ArgumentNullException.ThrowIfNull(root);
         ArgumentNullException.ThrowIfNull(share);
@@ -499,45 +500,57 @@ internal static class StateCopy
                 continue;
             }
 
-            if (next is string text)
+            long size = Size(next, type, pending);
+            bytes += size;
+
+            if (byType is not null)
             {
-                bytes += 22 + (2L * text.Length);
-                continue;
-            }
-
-            if (next is Array array)
-            {
-                Type element = type.GetElementType()!;
-                bytes += 24 + ((long)array.Length * SlotSize(element));
-
-                if (HasReferences(element))
-                {
-                    foreach (object? item in array)
-                    {
-                        Follow(item, pending);
-                    }
-                }
-
-                continue;
-            }
-
-            bytes += 16;
-
-            for (Type? level = type; level is not null; level = level.BaseType)
-            {
-                foreach (FieldInfo field in Fields(level))
-                {
-                    bytes += SlotSize(field.FieldType);
-
-                    if (HasReferences(field.FieldType))
-                    {
-                        Follow(field.GetValue(next), pending);
-                    }
-                }
+                byType[type] = byType.GetValueOrDefault(type) + size;
             }
         }
 
         return bytes;
+    }
+
+    /// <summary>One object's own bytes, pushing what it references.</summary>
+    private static long Size(object next, Type type, Stack<object> pending)
+    {
+        if (next is string text)
+        {
+            return 22 + (2L * text.Length);
+        }
+
+        if (next is Array array)
+        {
+            Type element = type.GetElementType()!;
+
+            if (HasReferences(element))
+            {
+                foreach (object? item in array)
+                {
+                    Follow(item, pending);
+                }
+            }
+
+            return 24 + ((long)array.Length * SlotSize(element));
+        }
+
+        long size = 16;
+
+        for (Type? level = type; level is not null; level = level.BaseType)
+        {
+            foreach (FieldInfo field in Fields(level))
+            {
+                size += SlotSize(field.FieldType);
+
+                if (HasReferences(field.FieldType))
+                {
+                    Follow(field.GetValue(next), pending);
+                }
+            }
+        }
+
+        return size;
     }
 
     private static int SlotSize(Type type) =>

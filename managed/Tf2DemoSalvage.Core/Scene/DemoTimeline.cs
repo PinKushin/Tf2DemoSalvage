@@ -2985,7 +2985,8 @@ public sealed class DemoTimeline
         /// **First reach wins**, so an object two checkpoints share is the earlier one's, and one two owners share is the
         /// one walked first; owner shells are not counted. The control: the sum sits near the measured retained heap.
         /// </remarks>
-        public IReadOnlyList<(string Owner, long Bytes)> KeptByOwner()
+        /// <param name="byType">When given, filled with the bytes of each owner by the type holding them.</param>
+        public IReadOnlyList<(string Owner, long Bytes)> KeptByOwner(Dictionary<string, Dictionary<Type, long>>? byType = null)
         {
             HashSet<object> seen = new(ReferenceEqualityComparer.Instance);
             Dictionary<string, long> bytes = [];
@@ -2996,7 +2997,14 @@ public sealed class DemoTimeline
                 {
                     if (!shell)
                     {
-                        bytes[name] = bytes.GetValueOrDefault(name) + StateCopy.Footprint(owned, _inputs, seen);
+                        Dictionary<Type, long>? types = null;
+
+                        if (byType is not null && !byType.TryGetValue(name, out types))
+                        {
+                            types = byType[name] = [];
+                        }
+
+                        bytes[name] = bytes.GetValueOrDefault(name) + StateCopy.Footprint(owned, _inputs, seen, types);
                     }
                 }
             }
