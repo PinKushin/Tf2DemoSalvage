@@ -10411,7 +10411,21 @@ is the caveat**: it has read higher through part 3 (f12 317 → 509, rgl-pug 249
 walk time also rose by as much, so it is not settled whether unpacking costs decode time; measure it on a quiet machine
 before deciding spacing. Next candidates by the instrument: the tracks' five parallel history lists per history (one
 list of a struct would save about 30 MB on rgl-pug), and the packed bag chunks themselves (202 MB), which are what
-written entities change between checkpoints. What the next step is for: what each
+written entities change between checkpoints.
+
+**The decode regression was real, and is fixed** (review, 2026-10-17). Measured back to back under the machine lock on
+f12, main then the branch: decode 304 → 428 ms, walk 197 → 257 s. A sampled trace of the walk (`dotnet-trace`,
+`dotnet-sampled-thread-time`) put 18% of it in the property bag's enumerator — a LINQ `Take` over the boxed map
+enumerator and a chunk lookup per value — under the pattern scans `BoneControllers`, `PoseParameters` and
+`AnimationLayers`. Now the enumerator walks the map's own struct enumerator and resolves each chunk once; decoded lists
+hand the entity table a key and a value without building a property (`KeyAt`, `ValueAt`); the baseline merge of one
+class's two compact lists runs record by record; the decoder's own lists skip the definition compare. After: **f12
+decode 266 ms, walk 174 s; rgl-pug decode 222 ms, copy 75** — below main's, memory unchanged (409 and 1,064 MB), all
+windows IDENTICAL, fingerprint unchanged. Also from the review: keys are built once per class by the decoder and shared
+as schema-derived, not cached process-wide, so a corpus sweep holds one demo's keys at a time; the unpack cache
+publishes by compare-and-swap. Chunks of 64 against 1,024, checkpoint build time (walk, same run kind): f12 174 against
+183 s, rgl-pug 254 against 237 s — within the run-to-run spread, so the build costs no more; the copy's per-element
+reflection was 2% of the trace and was left. What the next step is for: what each
 checkpoint still holds beyond the one before — tracks and props are now most of a resume (11.6 + 9.2 MB on f12).
 
 **The order after these two steps — the viewer half, decided by the owner the same day: a backward seek must NOT
