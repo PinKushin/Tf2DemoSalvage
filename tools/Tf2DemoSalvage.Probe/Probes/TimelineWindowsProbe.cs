@@ -97,8 +97,8 @@ public sealed class TimelineWindowsProbe : IProbe
         // The instrument's control: owners counted alone can only double-count, so their sum must reach the whole
         // resume's census; a sum BELOW it means an owner was skipped.
         long byOwners = owners.Sum(row => row.Elements);
-        long whole = checkpoints.ResumeCensus(ticks.Length / 2).Values.Sum(count => count.Elements);
-        output.WriteLine($"    owners sum {byOwners:N0} elements, whole resume {whole:N0}: {(byOwners >= whole ? "covers it" : "MISSES SOME")}");
+        long wholeResume = checkpoints.ResumeCensus(ticks.Length / 2).Values.Sum(count => count.Elements);
+        output.WriteLine($"    owners sum {byOwners:N0} elements, whole resume {wholeResume:N0}: {(byOwners >= wholeResume ? "covers it" : "MISSES SOME")}");
 
         // The direct control: two windows built from the mid checkpoint leave every value it holds as it was.
         output.WriteLine(checkpoints.WindowsWriteTheirCheckpoint(ticks.Length / 2)
