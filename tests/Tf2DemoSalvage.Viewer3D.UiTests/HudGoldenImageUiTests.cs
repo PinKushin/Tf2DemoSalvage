@@ -130,7 +130,7 @@ public sealed class HudGoldenImageUiTests
 
             run.Exit.ShouldBe(0, $"standard error:{Environment.NewLine}{run.Errors}");
 
-            using Bitmap expected = new(Path.Combine(TestContext.CurrentContext.TestDirectory, "Goldens", golden));
+            using Bitmap expected = new(Path.Combine(TestContext.CurrentContext.TestDirectory, "Goldens", "Hud", golden));
             using Bitmap actual = new(png);
 
             (actual.Width, actual.Height).ShouldBe((expected.Width, expected.Height), "the viewer frame is not TF2's size");

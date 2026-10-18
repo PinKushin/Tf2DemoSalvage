@@ -133,6 +133,25 @@ public sealed class GoldenMeasureTests
         GoldenMeasure.Of(image).RadialProfile((0.5, 0.5), 0.05, 5).ShouldAllBe(r => Math.Abs(r - 100) < 0.01);
     }
 
+    /// <summary>Every committed HUD golden is TF2's own 1280x720, unresampled (D222: a HUD's shapes are its subject).</summary>
+    [Test]
+    public void Goldens_EveryHudPng_IsTf2s1280By720()
+    {
+        string[] pngs = Directory.GetFiles(Path.Combine(TestContext.CurrentContext.TestDirectory, "Goldens", "Hud"), "*.png");
+
+        pngs.ShouldNotBeEmpty("no HUD golden was copied to the test output, so this checked nothing.");
+
+        Assert.Multiple(() =>
+        {
+            foreach (string png in pngs)
+            {
+                using Bitmap image = new(png);
+
+                (image.Width, image.Height).ShouldBe((1280, 720), Path.GetFileName(png));
+            }
+        });
+    }
+
     /// <summary>Every committed golden is <see cref="GoldenMeasure.MeasuredWidth"/> wide and 16:9, as TF2's 1280x720 resampled.</summary>
     [Test]
     public void Goldens_EveryCommittedPng_IsMeasuredWidthAt16By9()

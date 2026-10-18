@@ -42,6 +42,7 @@
   <ItemGroup>
     <!-- Real TF2 screenshots the golden tests measure against (D219). Ordinary PNGs, not LFS. -->
     <None Include="Goldens\*.png" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="Goldens\Hud\*.png" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>
