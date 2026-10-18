@@ -467,13 +467,18 @@ public sealed class ParticleEffects
                 // asks (particles.obj, Ghidra). The tick asked is the one the step simulates INTO — the frame drawn at it.
                 bool dormant = burst.DormantAt?.Invoke(burst.Tick + (int)Math.Floor(next)) == true;
 
-                // Waking is `StartEmission`, which sets the sleep time to now plus the no-draw time.
-                if (wasDormant && !dormant)
+                // **Waking is `StartEmission`**: the emitters' `SkipToTime`, and the sleep time set to now plus the no-draw
+                // time. An effect already stopped never went dormant — `SetDormant` returns early on a stopped one — so it
+                // does not wake either.
+                bool stoppedHere = burst.StopTick is { } stopsAt && burst.Tick + reachedTo >= stopsAt;
+
+                if (wasDormant && !dormant && !stoppedHere)
                 {
+                    running.Effect.StartEmission();
                     nextSleep = reachedTo + noDraw;
                 }
 
-                wasDormant = dormant;
+                wasDormant = dormant && !stoppedHere;
 
                 // **Asleep, its clock stands**: `BuildParticleSimList` skips an effect at or past `m_flNextSleepTime` while
                 // it has live particles (particlemgr.cpp:1775-1776). Only a draw pushes the time on.

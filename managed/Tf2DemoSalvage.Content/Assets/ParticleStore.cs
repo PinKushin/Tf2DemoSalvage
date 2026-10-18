@@ -361,6 +361,10 @@ public sealed class ParticleStore
         Steps++;
     }
 
+    /// <summary>Sets the clock back, as `C_OP_ContinuousEmitter::SkipToTime` sets `m_flCurTime` before re-simulating.</summary>
+    /// <param name="age">The time to set it to.</param>
+    public void RewindTo(float age) => Age = age;
+
     /// <summary>The collection's `m_flPreviousDt`, which the integrator and the velocity initializers scale by (B494).</summary>
     /// <remarks>
     /// **Not the sub-step before this one.** The constructor and `SimulateFirstFrame` store 0.05 (`0x3d4ccccd` at +0x40),

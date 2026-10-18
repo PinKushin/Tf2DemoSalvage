@@ -87,25 +87,37 @@ Before, dormancy was sampled only at the frame's end, so a dormant tick inside a
 - clears its stopped flag;
 - calls the virtual at `+0xe8` with the collection's current time.
 
-In the SDK's `CParticleOperatorInstance` declaration that slot is `SkipToTime`. The x64 table carries
-one extra entry before `StopEmission`: the collection calls `+0x70`/`+0x78` where the SDK header puts
-`+0x68`/`+0x70`. So this is an *interpolation from the slot*.
+**The slot is read from the data, not inferred.** The RTTI-anchored vtable of `C_OP_ContinuousEmitter` is the
+`.rdata` block at `0x000654d0`. Its first entry is the complete-object locator (`0x00065bf0`, in `.rdata$r`), so the
+table starts at `0x000654d8`. In that table `+0x68` is `Emit` (`0x00066d30`), `+0x70` is `StopEmission`, `+0x78` is
+`StartEmission`, `+0x80` is `Restart`, and **`+0xe8` is `SkipToTime` (`0x000670f0`)**. The SDK header
+counts one virtual fewer before `Emit`. My first account explained the gap as an extra entry in "the x64 build",
+which was wrong: these objects *are* the SDK's x64 `particles.lib`, and the gap is in my count of the header.
 
-`SkipToTime` (`0x000670f0`) does not restart the window, which is `Restart`'s job (`0x000670c0`).
-Instead it does the following:
+`SkipToTime` does not restart the window; that is `Restart`'s job (`0x000670c0`). Read in the disassembly, it
+does the following:
 
-- emits at once the particles of a span ending now. The span starts at the window start for an emitter
-  with a duration, and at zero for one without. It is capped at 4 seconds, and the duration does not
-  cap it.
-- sets the emitter's running total to that count and **its emitted count to 0**.
-- unless `g_bDontMakeSkipToTimeTakeForever` is set, rewinds the collection's time to
-  `max(now − no-draw time, span start)` and re-simulates forward in 0.1 s steps.
+- returns if `curtime <= start time` (`COMISS`/`JBE`);
+- takes a span ending now that starts at the start time for an emitter with a duration and a start
+  time, and at 0 otherwise. The span is capped at 4.0 (`MINSS` against `0x000658ac`, which holds 4.0f). **The
+  duration does not cap it.**
+- stores the total as `span · rate` (`MOVSS [RSI], XMM0`) and **the emitted count as 0** (`MOV dword [RSI+4], 0`).
+  Nothing else in the function writes `[RSI+4]`.
+- births `min(floor(total), room)` particles, evenly over the span;
+- unless `g_bDontMakeSkipToTimeTakeForever` (`.bss 0x2100`) is set, sets the collection's time to
+  `max(now − no-draw time, span start)`. It then calls `CParticleCollection::Simulate(0.1, false)`
+  (the call at `0x000673db` relocates to `?Simulate@CParticleCollection@@QEAAXM_N@Z`) until the time is reached.
+  The loop counter is a float stepped through a double.
 
-Read literally, two things follow:
+**So the double emission is real code, not a decompiler artefact.** The re-simulation's own `Emit` calls find the
+emitted count at 0 and owe the whole total again. TF leaves the flag false: its line in
+`CParticleMgr::UpdateNewEffects` is commented out (particlemgr.cpp:1826-1829). The flag is the only input the
+disassembly could not settle. Valve's own commented-out line names the cost, so the TF2 run was not needed.
 
-- a beam waking from dormancy flashes up to four seconds of particles;
-- the next `Emit` owes the same particles again.
+**Ported**: `ParticleEffect.StartEmission`, which `ParticleEffects` calls when an owner wakes. Waking is
+skipped for an effect already stopped, because `SetDormant` returns early on a stopped one. Measured on a synthetic
+system, exact: a half-second emitter at 8 a second, woken at one second, goes from 4 particles to 24
+(4 + 8 at once + 8 + 4 in the re-simulation).
 
-That is either a real double emission or a misreading of a SIMD-heavy decompile. **It is not ported**
-until a TF2 observation settles it. The check is to stand a medic's heal beam's owner out of PVS and back,
-then count the beam's particles on the wake frame.
+**Evidence class.** These objects are the SDK's `particles.lib`, not TF2's live `client.dll`. That they match
+the shipped game is an assumption of the same kind as every other read from this library.

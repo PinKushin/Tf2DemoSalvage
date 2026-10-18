@@ -366,6 +366,102 @@ public sealed class ParticleEffect
     public void Fade(float seconds) => Simulate(seconds, emit: false);
 
     /// <summary>
+    /// `CParticleCollection::StartEmission(false)`, which waking from dormancy calls: each continuous emitter's
+    /// `StartEmission` calls `SkipToTime( curtime )` (vtable slot +0xe8, read from the RTTI-anchored table in
+    /// `builtin_particle_emitters.obj`), and children follow.
+    /// </summary>
+    /// <remarks>
+    /// `C_OP_ContinuousEmitter::SkipToTime` (`0x000670f0`, read in the disassembly):
+    /// <code>
+    /// if curtime &lt;= start time: return
+    /// from = duration != 0 ? start time : 0;   span = min( curtime − from, 4 )
+    /// total = span · rate;   emitted = 0          (mov dword [ctx+4], 0)
+    /// n = min( floor( total ), room ), born evenly over ( curtime − span, curtime ]
+    /// unless g_bDontMakeSkipToTimeTakeForever: curtime = max( curtime − no-draw time, curtime − span ),
+    ///     then Simulate( 0.1 ) until it is reached again
+    /// </code>
+    /// **The duration does not cap the span, and `emitted = 0` makes the next `Emit` owe the same particles again**:
+    /// the re-simulation's own `Emit` calls do exactly that. Both are Valve's code as compiled, not a reading of a
+    /// decompile. TF leaves the flag false (its line in `CParticleMgr::UpdateNewEffects` is commented out,
+    /// particlemgr.cpp:1826-1829).
+    /// </remarks>
+    public void StartEmission()
+    {
+        foreach (ParticleFunction emitter in System.Emitters)
+        {
+            if (string.Equals(emitter.Function, ContinuousEmitter, StringComparison.Ordinal))
+            {
+                SkipToTime(emitter);
+            }
+        }
+
+        foreach (ParticleEffect child in Children)
+        {
+            child.StartEmission();
+        }
+    }
+
+    /// <summary>`C_OP_ContinuousEmitter::SkipToTime( curtime )`; see <see cref="StartEmission"/>.</summary>
+    private void SkipToTime(ParticleFunction emitter)
+    {
+        float rate = (float)emitter.Number("emission_rate", 0d);
+        float duration = (float)emitter.Number("emission_duration", 0d);
+        float from = (float)emitter.Number("emission_start_time", 0d);
+        float now = Particles.Age;
+
+        if (now <= from)
+        {
+            return;
+        }
+
+#pragma warning disable S1244 // Floating point equality — the engine's own `m_flEmissionDuration != 0.0` test
+        float lower = duration != 0f && 0f < from ? from : 0f;
+#pragma warning restore S1244
+        float span = MathF.Min(now - lower, MaximumSkip);
+        float start = now - span;
+        float total = span * rate;
+
+        _continuous[emitter] = (total, 0);
+
+        int count = Math.Min((int)MathF.Floor(total), ParticleSystems.MaxParticles(System) - Particles.Count);
+
+        if (count > 0)
+        {
+            float step = span / count;
+            float born = step + start;
+            int first = Particles.Count;
+
+            for (int made = 0; made < count; made++)
+            {
+                born = MathF.Min(born, now);
+                BirthAt(born);
+                born += step;
+            }
+
+            InitializeFrom(first);
+        }
+
+        float back = MathF.Max(now - (float)SleepAfter(System), start);
+
+        Particles.RewindTo(back);
+
+        // The counter is a float stepped through a double (`CVTSS2SD`, `ADDSD`, `CVTPD2PS`), as compiled.
+        for (float at = back; at < now; at = (float)(at + SkipStep))
+        {
+            Simulate(SkipStepSeconds, emit: true);
+        }
+    }
+
+    /// <summary>`SkipToTime`'s cap on the span it emits, 4.0 (`MINSS` against `0x000658ac`).</summary>
+    private const float MaximumSkip = 4f;
+
+    /// <summary>`SkipToTime`'s re-simulation step, 0.1 as a double for the loop and a float for the call.</summary>
+    private const double SkipStep = 0.1d;
+
+    /// <summary>The same step as the float `Simulate` takes.</summary>
+    private const float SkipStepSeconds = 0.1f;
+
+    /// <summary>
     /// Seconds undrawn before a system sleeps: `time to sleep when not drawn`, default "8"
     /// (`DmxElementUnpackInit&lt;CParticleSystemDefinition&gt;`, particles.obj, read in Ghidra), at definition offset 0x234.
     /// </summary>

@@ -259,14 +259,12 @@ public sealed class ParticleBurstTests
         effects.BurstSteps(1).ShouldBe(steps + 10, "simulated: Simulate has no dormant check");
         effects.BurstParticles(1)!.Count.ShouldBe(before, "emission stopped, and nothing old enough to die yet");
 
-        // 66 a second is 0.99 a tick, so one tick may owe nothing yet: three must owe two.
-        for (int tick = 121; tick <= 123; tick++)
-        {
-            effects.Bursts([beam], Interval, null, tick);
-        }
+        effects.Bursts([beam], Interval, null, tick: 121);
 
         effects.BurstBuilds.ShouldBe(1, "woken, not built again");
-        effects.BurstParticles(1)!.Count.ShouldBeGreaterThan(before, "StartEmission: born again");
+
+        // `SkipToTime` on the wake births the whole 0.3 s the effect has lived, 20 of them, at once — besides re-simulating.
+        effects.BurstParticles(1)!.Count.ShouldBeGreaterThanOrEqualTo(before + 20, "StartEmission: SkipToTime( curtime )");
     }
 
     /// <remarks>
@@ -346,8 +344,9 @@ public sealed class ParticleBurstTests
 
     /// <remarks>
     /// **A played frame longer than a tick still meets a dormant tick inside it.** One frame of five ticks with the owner
-    /// dormant on the third is cut at each tick, so that tick births nothing — sampled only at the frame's end, the gap
-    /// would be stepped over and the frame would emit as if it were not there.
+    /// dormant on the third is cut at each tick, so the gap is met and the wake after it runs `SkipToTime`, which births
+    /// the effect's whole life again at once. Sampled only at the frame's end, the gap would be stepped over and the
+    /// frame would count exactly what an always-awake one does.
     /// </remarks>
     [Test]
     public void Bursts_AFrameLongerThanATick_MeetsADormantTickInside()
@@ -363,7 +362,7 @@ public sealed class ParticleBurstTests
             return effects.BurstParticles(1)!.Count;
         }
 
-        Count(gap).ShouldBe(Count(awake) - 1, "one tick of 66 a second births one fewer");
+        Count(gap).ShouldBeGreaterThan(Count(awake), "the wake inside the frame re-emitted");
     }
 
     private static readonly ParticleControlPoint Origin = new(Vector3.Zero, Vector3.UnitX, Vector3.UnitY, Vector3.UnitZ);
