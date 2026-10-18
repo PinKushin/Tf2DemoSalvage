@@ -14,7 +14,18 @@
     <!-- WinForms hosts the chrome. The viewport is a Panel whose handle the swap chain binds to,
          so Direct3D owns one rectangle and ordinary controls own everything around it. -->
     <UseWindowsForms>true</UseWindowsForms>
+
+    <!-- The project's own mark: original artwork, not Valve's emblem. Its source is the repo's
+         assets/icon.svg, which any front end can use; this .ico is that drawing at 16 to 256 px for
+         Windows alone. -->
+    <ApplicationIcon>Assets\icon.ico</ApplicationIcon>
   </PropertyGroup>
+
+  <ItemGroup>
+    <!-- The same file again for the windows' own icon, read whole so the title bar and taskbar get
+         their own sizes rather than the executable's 32 px one stretched (MainForm.ProgramIcon). -->
+    <EmbeddedResource Include="Assets\icon.ico" LogicalName="Tf2DemoSalvage.Viewer3D.icon.ico" />
+  </ItemGroup>
 
   <ItemGroup>
     <!-- The full logging package rather than Abstractions, because this is the composition root:
