@@ -365,6 +365,15 @@ public sealed class ParticleEffect
     /// </remarks>
     public void Fade(float seconds) => Simulate(seconds, emit: false);
 
+    /// <summary>
+    /// Seconds undrawn before a system sleeps: `time to sleep when not drawn`, default "8"
+    /// (`DmxElementUnpackInit&lt;CParticleSystemDefinition&gt;`, particles.obj, read in Ghidra), at definition offset 0x234.
+    /// </summary>
+    /// <param name="system">The definition.</param>
+    /// <returns>The no-draw time, in seconds.</returns>
+    public static double SleepAfter(ParticleSystem system) =>
+        ParticleSystems.Declared(system, "time to sleep when not drawn", 8d);
+
     /// <summary>The shortest step `CParticleCollection::Simulate` simulates — its <c>dt &gt;= 1e-22</c>.</summary>
     private const double ShortestStep = 1e-22;
 

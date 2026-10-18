@@ -49,15 +49,27 @@ owner was in the PVS and not dormant, but not posed. `DispatchedPoint` needs a p
 follows an entity. So the effect went unoffered, faded, was retired, and was replayed from its dispatch
 tick when the owner was posed again.
 
-The fix uses the sleep rule. An owned effect whose owner cannot be placed is offered **asleep**. It
-is not simulated and its clock stands. When it is woken, it takes the frame's step and nothing else.
-An effect that has never been built is not built while asleep, because there is no point to replay it
-on. It is built when it can first be placed, which happens once per seek.
+The fix ports the sleep clock as read. Each burst keeps `m_flNextSleepTime`:
 
-**Interpolated, flagged:** Valve sleeps an effect only once its no-draw time has passed, and only while
-it has live particles. We sleep it at once, whenever the owner is not posed. "Not posed" stands in for
-"not drawn", and it ignores the delay. A rebuild still happens once per seek for each effect whose owner
-is unposed at the target tick.
+- creation sets it to the creation time plus the no-draw time;
+- each drawn frame pushes it to at least now plus the no-draw time, after the frame's step;
+- waking from dormancy sets it to the wake time plus the no-draw time;
+- a step taken at or past it is skipped while the effect has live particles.
+
+The no-draw time is the definition's `time to sleep when not drawn`, default `"8"`
+(`DmxElementUnpackInit<CParticleSystemDefinition>`, particles.obj, at offset 0x234).
+
+An owned effect whose owner cannot be placed is offered **undrawn**. "Not posed" stands for "not
+rendered". Until its sleep time it simulates on the points it last had, then it stands. The first drawn
+frame after that still sleeps, because `Simulate` runs before `Render`, and the next frame steps.
+An effect that has never been built is not built undrawn, because there is no point to replay it on. It
+is built when it can first be placed, which happens once per seek.
+
+**Still interpolated:** while undrawn the effect follows the points it last had. Valve reads the
+attachment from a model it has not drawn, and we do not pose an undrawn model to read it.
+
+A played frame longer than a tick is now cut at each tick whenever the owner's dormancy is asked.
+Before, dormancy was sampled only at the frame's end, so a dormant tick inside a long frame was stepped over.
 
 ## Changed as a result
 
@@ -67,8 +79,33 @@ is unposed at the target tick.
   it was not written. The dormancy test now asserts that the effect is stepped and its count stays the
   same while dormant, and that it emits again after the wake.
 
-## Still open
+## Waking calls `SkipToTime`, read but not ported
 
-- What the continuous emitter's `StartEmission` virtual does with the current time was not followed.
-  If it restarts the emitter's start-time window, an emitter with a duration emits again on waking. We
-  do not do this.
+`C_OP_ContinuousEmitter::StartEmission` (`0x00067070`) does three things:
+
+- returns early if asked for infinite emitters only and this emitter has a duration;
+- clears its stopped flag;
+- calls the virtual at `+0xe8` with the collection's current time.
+
+In the SDK's `CParticleOperatorInstance` declaration that slot is `SkipToTime`. The x64 table carries
+one extra entry before `StopEmission`: the collection calls `+0x70`/`+0x78` where the SDK header puts
+`+0x68`/`+0x70`. So this is an *interpolation from the slot*.
+
+`SkipToTime` (`0x000670f0`) does not restart the window, which is `Restart`'s job (`0x000670c0`).
+Instead it does the following:
+
+- emits at once the particles of a span ending now. The span starts at the window start for an emitter
+  with a duration, and at zero for one without. It is capped at 4 seconds, and the duration does not
+  cap it.
+- sets the emitter's running total to that count and **its emitted count to 0**.
+- unless `g_bDontMakeSkipToTimeTakeForever` is set, rewinds the collection's time to
+  `max(now − no-draw time, span start)` and re-simulates forward in 0.1 s steps.
+
+Read literally, two things follow:
+
+- a beam waking from dormancy flashes up to four seconds of particles;
+- the next `Emit` owes the same particles again.
+
+That is either a real double emission or a misreading of a SIMD-heavy decompile. **It is not ported**
+until a TF2 observation settles it. The check is to stand a medic's heal beam's owner out of PVS and back,
+then count the beam's particles on the wake frame.

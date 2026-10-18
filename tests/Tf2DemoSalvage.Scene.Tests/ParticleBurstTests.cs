@@ -270,19 +270,21 @@ public sealed class ParticleBurstTests
     }
 
     /// <remarks>
-    /// **An effect asleep is not simulated and wakes where it stood** — `BuildParticleSimList` skips it
-    /// (particlemgr.cpp:1775) — and above all is not rebuilt: an effect that went unoffered while its owner could not be
-    /// placed was replayed from its dispatch tick, 28,000 ticks for each of two ornament glitters on f12.
+    /// **An undrawn effect sleeps once its no-draw time has passed, and wakes where it stood** — `Render` pushes
+    /// `m_flNextSleepTime` to now plus `time to sleep when not drawn`, and `BuildParticleSimList` skips an effect past it
+    /// (particlemgr.cpp:1775). Here that time is 0.15 s, 9.9 ticks: drawn to ten ticks old, it steps ten more undrawn
+    /// ticks and then stands. Drawn again, the frame's `Simulate` runs BEFORE its `Render`, so the first drawn frame still
+    /// sleeps and the next one steps. **Never rebuilt**: unoffered instead, an effect was replayed from its dispatch tick,
+    /// 28,000 ticks for each of two ornament glitters on f12.
     /// </remarks>
     [Test]
-    public void Bursts_WhileAsleep_AreNotSteppedAndWakeWithoutARebuild()
+    public void Bursts_UndrawnPastTheNoDrawTime_SleepAndWakeWithoutARebuild()
     {
         ParticleEffects effects = new();
-        ParticleBurst beam = new(
-            1, Beam, new ParticleControlPoint(Vector3.Zero, Vector3.UnitX, Vector3.UnitY, Vector3.UnitZ), 100);
+        ParticleBurst beam = new(1, Sleepy(Beam), Origin, 100);
 
         // Never placed yet: nothing to replay on, so nothing is built.
-        effects.Bursts([beam with { Asleep = true }], Interval, null, tick: 100);
+        effects.Bursts([beam with { Undrawn = true }], Interval, null, tick: 100);
         effects.BurstCount.ShouldBe(0);
 
         for (int tick = 100; tick <= 110; tick++)
@@ -294,17 +296,86 @@ public sealed class ParticleBurstTests
 
         for (int tick = 111; tick <= 500; tick++)
         {
-            effects.Bursts([beam with { Asleep = true }], Interval, null, tick);
+            effects.Bursts([beam with { Undrawn = true }], Interval, null, tick);
         }
 
-        effects.BurstSteps(1).ShouldBe(steps, "asleep: not simulated");
+        effects.BurstSteps(1).ShouldBe(steps + 10, "simulated through the no-draw time, then asleep");
 
         effects.Bursts([beam], Interval, null, tick: 501);
+        effects.BurstSteps(1).ShouldBe(steps + 10, "Simulate comes before the Render that wakes it");
 
-        effects.BurstBuilds.ShouldBe(1, "woken, not built again");
-        effects.ReplaySteps.ShouldBe(0, "and nothing replayed");
-        effects.BurstSteps(1).ShouldBe(steps + 1, "one tick on from where it stood");
+        effects.Bursts([beam], Interval, null, tick: 502);
+        effects.BurstSteps(1).ShouldBe(steps + 11, "awake: one tick on from where it stood");
+        effects.BurstBuilds.ShouldBe(1, "and never built again");
+        effects.ReplaySteps.ShouldBe(0);
     }
+
+    /// <remarks>
+    /// **An effect with no live particles never sleeps** — `BuildParticleSimList` skips only one with
+    /// `m_nActiveParticles > 0`. An emitter that starts at one second has nothing alive before then, so it is simulated
+    /// undrawn well past its no-draw time.
+    /// </remarks>
+    [Test]
+    public void Bursts_UndrawnWithNoLiveParticles_DoNotSleep()
+    {
+        ParticleEffects effects = new();
+        ParticleSystem late = Sleepy(Beam) with
+        {
+            Emitters =
+            [
+                new ParticleFunction("emit_continuously", "emitter", new Dictionary<string, DmxValue>(StringComparer.Ordinal)
+                {
+                    ["emission_rate"] = new(DmxAttributeType.Real, 66d),
+                    ["emission_start_time"] = new(DmxAttributeType.Real, 1d),
+                }),
+            ],
+        };
+        ParticleBurst burst = new(1, late, Origin, 100);
+
+        effects.Bursts([burst], Interval, null, tick: 100);
+        effects.Bursts([burst], Interval, null, tick: 101);
+
+        for (int tick = 102; tick <= 140; tick++)
+        {
+            effects.Bursts([burst with { Undrawn = true }], Interval, null, tick);
+        }
+
+        effects.BurstParticles(1)!.Count.ShouldBe(0, "the control: nothing alive yet");
+        effects.BurstSteps(1).ShouldBe(40, "stepped every tick, though undrawn for far past 9.9 ticks");
+    }
+
+    /// <remarks>
+    /// **A played frame longer than a tick still meets a dormant tick inside it.** One frame of five ticks with the owner
+    /// dormant on the third is cut at each tick, so that tick births nothing — sampled only at the frame's end, the gap
+    /// would be stepped over and the frame would emit as if it were not there.
+    /// </remarks>
+    [Test]
+    public void Bursts_AFrameLongerThanATick_MeetsADormantTickInside()
+    {
+        ParticleBurst awake = new(1, Beam, Origin, 100) { DormantAt = static _ => false };
+        ParticleBurst gap = awake with { DormantAt = static at => at == 103 };
+
+        int Count(ParticleBurst burst)
+        {
+            ParticleEffects effects = new();
+            effects.Bursts([burst], Interval, null, tick: 100);
+            effects.Bursts([burst], Interval, null, tick: 110);
+            return effects.BurstParticles(1)!.Count;
+        }
+
+        Count(gap).ShouldBe(Count(awake) - 1, "one tick of 66 a second births one fewer");
+    }
+
+    private static readonly ParticleControlPoint Origin = new(Vector3.Zero, Vector3.UnitX, Vector3.UnitY, Vector3.UnitZ);
+
+    /// <summary>A system that sleeps 0.15 s after its last draw.</summary>
+    private static ParticleSystem Sleepy(ParticleSystem system) => system with
+    {
+        Parameters = new Dictionary<string, DmxValue>(StringComparer.Ordinal)
+        {
+            ["time to sleep when not drawn"] = new(DmxAttributeType.Real, 0.15d),
+        },
+    };
 
     /// <remarks>
     /// **Scrubbing back before an explosion must remove it, and this is the only test that says so.** The

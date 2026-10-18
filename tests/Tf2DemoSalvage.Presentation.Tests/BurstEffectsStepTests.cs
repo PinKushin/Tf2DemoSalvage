@@ -457,8 +457,8 @@ public sealed class BurstEffectsStepTests
         ParticleControlPoint moved = ParticleControlPoint.Unoriented(new Vector3(90f, 0f, 0f));
 
         bursts.StepOver(Frame(timeline, fired), World());
-        bursts.Bursts.ShouldHaveSingleItem().Asleep.ShouldBeTrue(
-            "an entity not posed here sleeps its effect: unoffered, it would be retired and replayed from its dispatch tick");
+        bursts.Bursts.ShouldHaveSingleItem().Undrawn.ShouldBeTrue(
+            "an entity not posed here offers its effect undrawn: unoffered, it would be retired and replayed from its dispatch tick");
 
         models.Numbered[(Sentry, 3)] = first;
         bursts.StepOver(Frame(timeline, fired), World());
@@ -503,7 +503,7 @@ public sealed class BurstEffectsStepTests
         (BurstEffects bursts, FakePosedEntities models, _) = Presenter();
 
         bursts.StepOver(Frame(timeline, fired), World());
-        bursts.Bursts.ShouldHaveSingleItem().Asleep.ShouldBeTrue("an owner not posed here sleeps its effect");
+        bursts.Bursts.ShouldHaveSingleItem().Undrawn.ShouldBeTrue("an owner not posed here offers its effect undrawn");
 
         models.Posed.Add(Sentry);
         bursts.StepOver(Frame(timeline, fired), World());

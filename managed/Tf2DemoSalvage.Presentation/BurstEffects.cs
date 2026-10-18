@@ -1155,12 +1155,12 @@ public sealed class BurstEffects
                     $"{(point is null ? "NOT PLACED" + posed : "placed")}"));
         }
 
-        // **An owned effect whose owner is not posed sleeps** rather than going unoffered: unoffered, it would fade, be
-        // retired, and be replayed from its dispatch tick when the owner is posed again — tens of thousands of steps for a
-        // long-lived effect. Its point is a placeholder that a sleeping effect never reads.
-        bool asleep = definition is not null && point is null && dormantAt is not null;
+        // **An owned effect whose owner is not posed is offered undrawn** rather than not at all: unoffered, it would fade,
+        // be retired, and be replayed from its dispatch tick when the owner is posed again — tens of thousands of steps for
+        // a long-lived effect. Its point is a placeholder that an undrawn effect never reads.
+        bool undrawn = definition is not null && point is null && dormantAt is not null;
 
-        if (asleep)
+        if (undrawn)
         {
             point = ParticleControlPoint.Unoriented(Vector3.Zero);
         }
@@ -1170,7 +1170,7 @@ public sealed class BurstEffects
             _burstsNow.Add(new ParticleBurst(key, definition, at, dispatch.Tick, DispatchedEnd(dispatch), stop)
             {
                 DormantAt = dormantAt,
-                Asleep = asleep,
+                Undrawn = undrawn,
             });
         }
     }
