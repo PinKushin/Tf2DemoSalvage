@@ -271,6 +271,13 @@ public sealed class LaunchOptionsTests
         Read("a.dem", "--then-seek", "soon").ThenSeek.ShouldBeNull();
     }
 
+    /// <remarks>**`--windows` turns the window cache on, and it is off without it** (D217 step 4).</remarks>
+    [Test]
+    public void Read_WithAndWithoutWindows_TurnsTheWindowCacheOnOnlyWhenAsked()
+    {
+        (Read("a.dem", "--windows").Windows, Read("a.dem").Windows, Read("a.dem", "--windows").Paths.Single()).ShouldBe((true, false, "a.dem"));
+    }
+
     [Test]
     public void Read_WithMeasure_TakesTheSecondsToRunFor()
     {

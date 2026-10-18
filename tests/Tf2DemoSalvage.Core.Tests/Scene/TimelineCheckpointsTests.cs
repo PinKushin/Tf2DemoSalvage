@@ -92,6 +92,103 @@ public sealed class TimelineCheckpointsTests
         whole.Where(entry => byOwners.GetValueOrDefault(entry.Key) < entry.Value.Elements).Select(entry => entry.Key.Name).ShouldBeEmpty();
     }
 
+    /// <remarks>
+    /// **Eight windows of one span, released together**: built at the same moment from one checkpoint (the prefetch's
+    /// case, where frozen bags' read caches are shared), every one answers as the whole timeline does and the checkpoint
+    /// is left unchanged.
+    /// </remarks>
+    [Test]
+    public void Window_EightReleasedTogetherFromOneCheckpoint_AllAnswerAsTheWholeAndLeaveItUnchanged()
+    {
+        byte[] demo = LongWalk();
+        DemoTimeline whole = DemoTimeline.Build(demo);
+        TimelineWindows walk = TimelineWindows.Walk(demo, Every, new WindowSettings()).ShouldNotBeNull();
+        int start = walk.Ticks[2];
+        int through = walk.Ticks[3] - 1;
+        DemoTimeline[] windows = new DemoTimeline[8];
+        using System.Threading.Barrier together = new(windows.Length);
+
+        System.Threading.Tasks.Task.WaitAll(
+        [
+            .. Enumerable.Range(0, windows.Length).Select(index => System.Threading.Tasks.Task.Factory.StartNew(
+                () =>
+                {
+                    together.SignalAndWait();
+                    windows[index] = walk.Window(start, through);
+                },
+                System.Threading.CancellationToken.None,
+                System.Threading.Tasks.TaskCreationOptions.LongRunning,
+                System.Threading.Tasks.TaskScheduler.Default)),
+        ]);
+
+        windows.Select(window => WindowEquivalence.Compare(whole, window, through - 0.5).Differing.Count).ShouldAllBe(count => count == 0);
+        walk.WindowsLeaveCheckpointUnchanged(2).ShouldBeTrue();
+    }
+
+    /// <remarks>
+    /// **The comparison made a question at a time is the one made at once, and it can fail**: a window asked about a tick
+    /// far outside its span differs from the whole timeline, stepped one question per call through every question and
+    /// then done, the same questions both ways; the window asked inside its span does not differ.
+    /// </remarks>
+    [Test]
+    public void Step_AWindowAskedOutsideItsSpan_DiffersAsTheOneShotCompareDoes()
+    {
+        byte[] demo = LongWalk();
+        DemoTimeline whole = DemoTimeline.Build(demo);
+        TimelineWindows walk = TimelineWindows.Walk(demo, Every, new WindowSettings()).ShouldNotBeNull();
+        DemoTimeline early = walk.Window(walk.Ticks[1], walk.Ticks[2] - 1);
+        double late = whole.LastTick - 0.5;
+
+        WindowEquivalence stepped = WindowEquivalence.Start(whole, early, late);
+        int steps = 0;
+
+        while (!stepped.Step())
+        {
+            steps++;
+        }
+
+        stepped.Differing.ShouldNotBeEmpty();
+        stepped.Differing.ShouldBe(WindowEquivalence.Compare(whole, early, late).Differing);
+        (steps, stepped.Done).ShouldBe((25, true));
+        WindowEquivalence.Compare(whole, early, walk.Ticks[1] + 0.5).Differing.ShouldBeEmpty();
+    }
+
+    /// <remarks>
+    /// **A window cancelled mid-decode stops at the next command, throws, and is never handed out**: the token set as the
+    /// third command is reached, no fourth is decoded.
+    /// </remarks>
+    [Test]
+    public void Window_CancelledAtTheThirdCommand_DecodesNoFourthAndThrows()
+    {
+        TimelineWindows walk = TimelineWindows.Walk(LongWalk(), Every, new WindowSettings()).ShouldNotBeNull();
+        using System.Threading.CancellationTokenSource cancel = new();
+        int reached = 0;
+
+        Should.Throw<OperationCanceledException>(() => walk.Window(
+            walk.Ticks[1],
+            int.MaxValue - 1,
+            () =>
+            {
+                if (++reached == 3)
+                {
+                    cancel.Cancel();
+                }
+            },
+            cancel.Token));
+
+        reached.ShouldBe(3);
+    }
+
+    /// <remarks>**A walk cancelled before it starts stops at its first packet and throws** — what Dispose relies on.</remarks>
+    [Test]
+    public void Walk_Cancelled_StopsAndThrows()
+    {
+        using System.Threading.CancellationTokenSource cancel = new();
+        cancel.Cancel();
+
+        Should.Throw<OperationCanceledException>(() => TimelineWindows.Walk(LongWalk(), Every, new WindowSettings(), cancel.Token));
+    }
+
     /// <summary>A player moving every other tick for 60 ticks: more history than a checkpoint keeps, so the trim bites.</summary>
     private static byte[] LongWalk() =>
         SyntheticPlayer.DemoOverTicks(0.015f, [.. Enumerable.Range(0, 30).Select(step => (10 + (step * 2), step * 3f, (step % 5) * 1.5f))]);

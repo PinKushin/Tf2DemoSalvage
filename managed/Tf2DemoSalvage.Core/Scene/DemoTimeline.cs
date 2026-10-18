@@ -2758,13 +2758,6 @@ public sealed class DemoTimeline
         /// <summary>The ticks the checkpoints were taken at, in order.</summary>
         public IEnumerable<int> Ticks => _checkpoints.Select(checkpoint => checkpoint.Tick);
 
-        /// <summary>The spacing between checkpoints, in seconds of demo time — the owner's, 2026-10-17 (D217 step 4).</summary>
-        /// <remarks>
-        /// **Two seconds**, the owner: *"go with 2 s"*, once part 3 had made the checkpoints small enough; the seek cost
-        /// and memory it was decided on are in DECISIONS D217, "Step 4 — checkpoint spacing is 2 s".
-        /// </remarks>
-        public const double SpacingSeconds = 2;
-
         /// <summary>
         /// Walks the demo with the reach <paramref name="settings"/> give every reader (D220), and walks again if the
         /// demo's FINAL server bounds, which every window's interpolation uses, need further than a checkpoint kept.
@@ -2773,16 +2766,19 @@ public sealed class DemoTimeline
         /// <param name="everyTicks">The spacing between checkpoints.</param>
         /// <param name="settings">The viewer's settings; when they change, ask <see cref="Covers"/> and walk again if not.</param>
         /// <param name="created">When given, counts what every checkpoint after the first creates rather than shares, by type.</param>
+        /// <param name="cancel">Stops the walk between two packets.</param>
         /// <returns>The checkpoints, or null for a demo with no data tables.</returns>
+        /// <exception cref="OperationCanceledException">Cancelled before the walk finished.</exception>
         public static Checkpoints? Walk(
             ReadOnlyMemory<byte> file,
             int everyTicks,
             WindowSettings settings,
-            Dictionary<Type, (long Objects, long Elements)>? created = null)
+            Dictionary<Type, (long Objects, long Elements)>? created = null,
+            CancellationToken cancel = default)
         {
             ArgumentNullException.ThrowIfNull(settings);
 
-            if (Walk(file, everyTicks, settings.Interp, builder => builder.ReachFor(settings), created) is not { } walked)
+            if (Walk(file, everyTicks, settings.Interp, builder => builder.ReachFor(settings), created, cancel) is not { } walked)
             {
                 return null;
             }
@@ -2796,7 +2792,7 @@ public sealed class DemoTimeline
 
             // The first walk's counts describe checkpoints thrown away; only the walk returned is counted.
             created?.Clear();
-            return Walk(file, everyTicks, settings.Interp, _ => needed, created);
+            return Walk(file, everyTicks, settings.Interp, _ => needed, created, cancel);
         }
 
         /// <summary>Walks with a FIXED reach, for a test or probe that needs the trim to bite at a chosen depth.</summary>
@@ -2816,7 +2812,7 @@ public sealed class DemoTimeline
             Dictionary<Type, (long Objects, long Elements)>? created = null)
         {
             WindowReach reach = new(Math.Min(lookbackTicks, trackLookbackTicks), lookbackTicks);
-            return Walk(file, everyTicks, client ?? new ClientInterp(), _ => reach, created);
+            return Walk(file, everyTicks, client ?? new ClientInterp(), _ => reach, created, CancellationToken.None);
         }
 
         /// <summary>Whether windows of this walk answer for <paramref name="settings"/>, or the demo must be walked again.</summary>
@@ -2836,7 +2832,8 @@ public sealed class DemoTimeline
             int everyTicks,
             ClientInterp client,
             Func<Builder, WindowReach> reachAt,
-            Dictionary<Type, (long Objects, long Elements)>? created)
+            Dictionary<Type, (long Objects, long Elements)>? created,
+            CancellationToken cancel)
         {
             if (Start(file, null, client, null, out List<DemoCommand> commands) is not { } builder)
             {
@@ -2860,6 +2857,9 @@ public sealed class DemoTimeline
                 {
                     continue;
                 }
+
+                // Between packets, so a viewer closing or opening another demo stops a walk within one spacing.
+                cancel.ThrowIfCancellationRequested();
 
                 int tick = commands[index].Tick;
 
@@ -2910,7 +2910,25 @@ public sealed class DemoTimeline
         /// <param name="tick">The first tick the window must answer.</param>
         /// <param name="through">The last tick it must answer.</param>
         /// <param name="spent">Where it spent its time, in milliseconds: copying the checkpoint, decoding forward, finishing.</param>
-        public DemoTimeline Window(int tick, int through, out (double Copy, double Decode, double Finish) spent)
+        public DemoTimeline Window(int tick, int through, out (double Copy, double Decode, double Finish) spent) =>
+            Window(tick, through, CancellationToken.None, out spent);
+
+        /// <inheritdoc cref="Window(int, int)"/>
+        /// <param name="tick">The first tick the window must answer.</param>
+        /// <param name="through">The last tick it must answer.</param>
+        /// <param name="cancel">Stops the decode between two commands; the window is then never finished.</param>
+        /// <param name="spent">Where it spent its time, in milliseconds.</param>
+        /// <exception cref="OperationCanceledException">Cancelled before the window was finished.</exception>
+        public DemoTimeline Window(int tick, int through, CancellationToken cancel, out (double Copy, double Decode, double Finish) spent) =>
+            Window(tick, through, onCommand: null, cancel, out spent);
+
+        /// <inheritdoc cref="Window(int, int, CancellationToken, out ValueTuple{double, double, double})"/>
+        /// <param name="tick">The first tick the window must answer.</param>
+        /// <param name="through">The last tick it must answer.</param>
+        /// <param name="onCommand">Told before each command is decoded — a test's hook to cancel mid-decode; null for none.</param>
+        /// <param name="cancel">Stops the decode between two commands.</param>
+        /// <param name="spent">Where it spent its time, in milliseconds.</param>
+        internal DemoTimeline Window(int tick, int through, Action? onCommand, CancellationToken cancel, out (double Copy, double Decode, double Finish) spent)
         {
             int at = _checkpoints.FindLastIndex(checkpoint => checkpoint.Tick <= tick);
             (int command, _, Builder state) = _checkpoints[Math.Max(0, at)];
@@ -2926,7 +2944,13 @@ public sealed class DemoTimeline
                 end++;
             }
 
-            resumed.Run(_commands.Skip(command).Take(end - command));
+            // Checked between commands, so a scrub's abandoned window stops within one command of being cancelled.
+            resumed.Run(_commands.Skip(command).Take(end - command).TakeWhile(_ =>
+            {
+                onCommand?.Invoke();
+                return !cancel.IsCancellationRequested;
+            }));
+            cancel.ThrowIfCancellationRequested();
             long ran = Stopwatch.GetTimestamp();
             DemoTimeline window = resumed.Finish(_end);
             spent = (

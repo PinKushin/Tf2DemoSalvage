@@ -40,6 +40,7 @@ namespace Tf2DemoSalvage.Presentation;
 /// With <c>--measure</c>: once the measured playback ends, pause, seek to this tick and measure the paused frame for as
 /// long again, printing both (B420's scenario). Null for a single measurement.
 /// </param>
+/// <param name="Windows">`--windows`: run the window cache beside the whole timeline and check it on every seek (D217).</param>
 /// <param name="Hud">The HUD to draw — a folder or `.vpk` laid out as in `tf/custom` — or null for TF2's stock HUD (D193).</param>
 public readonly record struct LaunchOptions(
     ViewerSettings Settings,
@@ -58,7 +59,8 @@ public readonly record struct LaunchOptions(
     bool ThirdPerson = false,
     double? PlaybackSpeed = null,
     int? ThenSeek = null,
-    string? Hud = null);
+    string? Hud = null,
+    bool Windows = false);
 
 /// <summary>Reads the viewer's launch options.</summary>
 /// <remarks>
@@ -142,6 +144,14 @@ public static class LaunchOptionsReader
             if (argument == "--colours")
             {
                 read = read with { SurfaceColours = true };
+                continue;
+            }
+
+            // **The window cache, beside the whole timeline and checked against it on every seek** (D217 step 4). Off by
+            // default: it changes nothing drawn, and a user never sets an environment variable (D210).
+            if (argument == "--windows")
+            {
+                read = read with { Windows = true };
                 continue;
             }
 

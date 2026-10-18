@@ -10438,7 +10438,7 @@ done. So it's not simple."* It comes after the copy work above, not before; not 
 ### Step 4 — checkpoint spacing is 2 s (2026-10-17)
 
 **Owner, 2026-10-17:** *"go with 2 s"*, once part 3 had shrunk what the checkpoints keep. The one owner of the number
-is `DemoTimeline.Checkpoints.SpacingSeconds`; the `timeline-windows` probe defaults to it. No production caller walks
+is `TimelineWindows.SpacingSeconds` (moved there from `Checkpoints` by the piece 1 review); the `timeline-windows` probe defaults to it. No production caller walks
 checkpoints yet (the window cache in Presentation is the next step), so this sets what that caller will use.
 
 **Seconds to ticks truncates**, in the probe that is the only caller: 2 s is 133.33 ticks at TF2's 15 ms, so a
@@ -10453,6 +10453,89 @@ Each row is one run: the means of its 120 seeks. The digest control is unchanged
 under the machine lock, which keeps other locked work off but not other agents' builds; the f12 run waited for an
 owner's viewer measurement to finish first. These are after the decode-regression fix above (the property bag's
 enumerator, "The decode regression was real, and is fixed"), which is what brought decode under main's.
+
+### Step 4 — the viewer's window cache, piece 1 of 4 (2026-10-17)
+
+**The owner's goal, restated for this work** (2026-10-14, above): memory about the file plus checkpoints — no whole
+timeline at all. The order, four pieces each gated: (1) a window cache in Presentation, running beside the whole timeline
+behind a launch option; (2) the readers that walk whole lists moved onto windows, one family at a time; (3) the
+skip-replay state carried in checkpoints; (4) the whole-timeline build dropped once nothing reads it.
+
+**Where the skip-replay state lives — MY call, not the owner's**, which the coordinator relayed as an implementation
+choice since what he sees is the same either way. The state a seek replays (the dealt HUD sounds and decks, the HUD feed,
+the animation-event walk, model decals; `FramePresenter.ReplaySkip`) is presenter state, and moving it into Core so
+`StateCopy` checkpoints it would put presentation behaviour below the D214 line. So Presentation snapshots its own
+presenters' state at each checkpoint tick, in a Presentation-side copy testable on its own and keyed to the Core
+checkpoint's tick; Core keeps no presenter state.
+
+**Piece 1, built:** `WindowCache` (Presentation) over `TimelineWindows` (Core's public face of the checkpoint walk). A
+window spans one checkpoint to the next; serving one sets the next building on a worker (the prefetch), and only those
+two are held. `WindowCache.SpacingTicks` owns seconds-to-ticks and **truncates** (2 s at 15 ms is 133 ticks; never
+further apart than asked), pinned by a test. `--windows` turns it on beside the whole timeline: the walk runs on a
+worker after load, every seek asks the cache for its window, and the frame after the window is ready compares it with
+the whole timeline (`WindowEquivalence.Compare`, the probe's own walk) and logs the time and the verdict. Nothing drawn
+changes; off by default (a launch option, D210). Tested: every tick of a synthetic walk answers as the whole timeline
+through the cache; eight windows of one span built at once all answer the same and leave their checkpoint unchanged;
+sixteen threads reading one frozen bag all see its values (the unpack cache's compare-and-swap, which a publish-before-
+fill sabotage reddens).
+
+**Measured in the running viewer** (Release, `--windows --tick 30000 --measure 400 --then-seek 60000 +fps_max 0`, under
+the machine lock, the viewer rendering uncapped beside the walk):
+
+| demo | walk, beside playback | memory the walk kept | seek to 60000: window ready | answers |
+|---|---:|---:|---:|---|
+| f12 | 258 s, 727 checkpoints | 809 MB | **461 ms** | IDENTICAL, 1,990,280 values |
+| rgl-pug | 358 s, 1,076 checkpoints | 1,776 MB | **414 ms** | IDENTICAL, 1,359,421 values |
+
+The seek here is about twice the probe's 230 ms because the viewer is drawing uncapped on the same cores; the memory is
+a full-collection delta across the walk, so it includes what the viewer allocated meanwhile, above the probe's 683 and
+1,573 MB. **Two findings for piece 2**: in a Debug viewer — what the owner runs (D176) — the walk had not finished on
+z1800 or f12 after several minutes, so the walk itself needs to be faster or incremental before windows replace the
+whole timeline; and the walk runs AFTER the whole build today, so a load pays both until piece 4 removes the first.
+
+**Latest wins, nothing queues — owner, 2026-10-17:** *"builds probably chouldnt qeue at all? when people scrub they care
+about where they end up, not what they hit before"*. It replaces the review's "add cancellation" with a stronger rule: a
+new seek drops every held window but its target and cancels its build (`Checkpoints.Window` stops between commands); the
+next window is prefetched only once the target's is built and only if no newer seek has come; the frame never waits, it
+shows what it has. Tested by four seeks in quick succession, each overtaking a running build: three cancelled mid-build,
+none completes, one in flight, no prefetch meanwhile — and keeping the stale windows reddens it.
+
+**Light and heavy — owner, 2026-10-17, and it CORRECTS the plan above:** *"that design kinda needed to be here from the
+beggining, but yes thats a decision, scub means nothing if it doesnt give youu live feedback really"*. A LIGHT layer stays
+whole in memory and scrubs live — what the demo states, with no simulation: positions and angles, animation sequence and
+cycle, pose parameters, health, class, alive or dead, the kill feed and the score — sized on f12 and rgl-pug to stay about
+the demo's order plus a little. A HEAVY layer — particles, corpses, sounds, dealt decals and decks, the HUD's built-up
+state — is built by windows only when the scrub stops, latest wins. While dragging the viewer draws the light layer; on
+release the window fills the heavy state in. **So piece 4 drops only the heavy part of the whole build, never the light
+one, and piece 2 becomes splitting the readers into light and heavy, the light layer its own type in Core** — planned
+first, with the reader inventory sorted, before it is built.
+
+**Refined the same day — owner, 2026-10-17:** *"the light layer doesnt neccasarily need to be kept in memory, but i know
+some of it does, but basicallly build our scrub as close to the best video editors scrub iff we can"*. So the light layer
+holds only what live scrubbing needs, modelled on the best editors' scrub (a small resident index, a proxy for the drag,
+a cache growing outward from the playhead with prefetch in the scrub direction, exact on release, frame-accurate
+stepping, shuttle); audio scrub is flagged, not built. The plan maps each technique before anything is built.
+
+**Review fixes to piece 1** (Sonnet): a faulted or cancelled walk or window parks the check with one warning instead of
+throwing every frame; a seek made during the walk is checked when the walk ends; the check is disposed — walk told to
+stop, windows cancelled — on close or a new demo; it reuses the bytes the load read (`DecodedDemo.Bytes`, kept only under
+`--windows`) and the demo's own tick interval; the memory it logs is the checkpoints' own `KeptBytes` (B243), not a
+forced-GC delta; it logs how long the UI-thread compare took; `WindowEquivalence` counts answers too; the Core surface is
+`TimelineWindows` with the test-only member internal and `SpacingSeconds` in one place. Tests added: the faulted walk, the
+faulted window, the seek during the walk, the last window, a tick before the first checkpoint, a faulted window rebuilt,
+cancellation in Core, and the two races released together by a barrier.
+
+**The UI-thread compare, measured and spread** (rgl-pug, Release, under the lock): in one go it took 709 and 1,089 ms of
+a frame. Now the window's answers are computed on a worker and the whole timeline's one question per drawn frame: 585
+and 1,112 ms over the frames, but **the longest single question still takes 472–561 ms**, so one frame per checked seek
+still stalls. It is a diagnostic behind `--windows`, and piece 2's light layer replaces the whole-timeline side it
+reads; left as measured, not chased. A seek made during the walk was checked when the walk ended (30006, IDENTICAL), and
+60000 was IDENTICAL; the checkpoints keep 1,454 MB by `KeptBytes`.
+
+**The scrub plan's first answers — owner, 2026-10-17:** *"1a, 2 light, 3 idk, maybe?"*. (1a) Checkpoints stay at 2 s and
+shrink further — the tracks next, then the packed bag chunks. (2) The viewmodel is LIGHT during a drag. (3) Quantizing
+the light table's positions to 16 bits is NOT decided: the table is built exact first, measured on f12 and rgl-pug with
+and without 16-bit positions, and he decides from the numbers.
 
 ## D218 — TF2's volume ConVars, and the test suite launches the viewer silent (2026-10-14)
 

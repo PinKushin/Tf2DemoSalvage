@@ -23,12 +23,17 @@ namespace Tf2DemoSalvage.Scene;
 /// </remarks>
 public sealed record DecodedDemo(LoadedDemo Demo, DemoTimeline? Timeline)
 {
+    /// <summary>The file's bytes, when the read was asked to keep them (`--windows`, D217 step 4); empty otherwise.</summary>
+    /// <remarks>Kept only when asked: the whole file held for the demo's life is the window cache's input, not a default.</remarks>
+    public ReadOnlyMemory<byte> Bytes { get; init; }
+
     /// <summary>Reads and decodes a demo. Safe to call off the UI thread.</summary>
     /// <param name="path">The demo file.</param>
     /// <param name="demo">Where the decode reports what it found.</param>
     /// <param name="progress">Told the fraction of the timeline decoded, for a loading screen; null for none.</param>
     /// <param name="interp">The viewer's `cl_interp` settings; null for TF2's defaults.</param>
     /// <param name="classes">The installed game's class scripts, which the anim state reads (B437); null for none.</param>
+    /// <param name="keepBytes">Whether to keep the file's bytes for the window cache (`--windows`).</param>
     /// <returns>The header, and the timeline when one could be built.</returns>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <remarks>
@@ -43,7 +48,8 @@ public sealed record DecodedDemo(LoadedDemo Demo, DemoTimeline? Timeline)
         ILogger demo,
         Action<double>? progress = null,
         ClientInterp? interp = null,
-        IClassAnimationScripts? classes = null)
+        IClassAnimationScripts? classes = null,
+        bool keepBytes = false)
     {
         ArgumentNullException.ThrowIfNull(path);
         ArgumentNullException.ThrowIfNull(demo);
@@ -58,6 +64,7 @@ public sealed record DecodedDemo(LoadedDemo Demo, DemoTimeline? Timeline)
             (loaded.LengthWasMeasured ? ", length measured (truncated)" : string.Empty));
 
         DemoTimeline? timeline = null;
+        byte[] bytes = [];
 
         try
         {
@@ -68,7 +75,8 @@ public sealed record DecodedDemo(LoadedDemo Demo, DemoTimeline? Timeline)
 
             using (demo.Time("building the position timeline"))
             {
-                timeline = DemoTimeline.Build(File.ReadAllBytes(path), progress, interp, classes);
+                bytes = File.ReadAllBytes(path);
+                timeline = DemoTimeline.Build(bytes, progress, interp, classes);
             }
 
             TimeSpan gcPaused = GC.GetTotalPauseDuration() - gcBefore;
@@ -105,7 +113,7 @@ public sealed record DecodedDemo(LoadedDemo Demo, DemoTimeline? Timeline)
             demo.LogWarning(failure, "{Message}", "building the position timeline");
         }
 
-        return new DecodedDemo(loaded, timeline);
+        return new DecodedDemo(loaded, timeline) { Bytes = keepBytes ? bytes : ReadOnlyMemory<byte>.Empty };
     }
 
     /// <summary>Says what the decode found, once per demo.</summary>

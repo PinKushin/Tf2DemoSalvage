@@ -42,7 +42,7 @@ public sealed class TimelineWindowsProbe : IProbe
             return;
         }
 
-        double every = arguments.Count > 1 ? double.Parse(arguments[1], CultureInfo.InvariantCulture) : DemoTimeline.Checkpoints.SpacingSeconds;
+        double every = arguments.Count > 1 ? double.Parse(arguments[1], CultureInfo.InvariantCulture) : TimelineWindows.SpacingSeconds;
         int samples = arguments.Count > 2 ? int.Parse(arguments[2], CultureInfo.InvariantCulture) : 60;
         bool costOnly = arguments.Count > 3 && arguments[3] == "cost";
         byte[] demo = File.ReadAllBytes(path);

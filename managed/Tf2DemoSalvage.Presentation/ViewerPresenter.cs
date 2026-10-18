@@ -398,6 +398,9 @@ public sealed partial class ViewerPresenter : IDisposable
         // stick without being passed again every time.
         _effects.ChosenHud = launch.Hud ?? _settings.ChosenHud;
 
+        // `--windows` (D217 step 4): the window cache beside the whole timeline, for every demo this run opens.
+        CheckWindows = launch.Windows;
+
         return launch;
     }
 
@@ -451,6 +454,10 @@ public sealed partial class ViewerPresenter : IDisposable
 
         _audio?.Dispose();
         _audio = null;
+
+        // `--windows`: the walk told to stop and every window build cancelled.
+        _windowCheck?.Dispose();
+        _windowCheck = null;
     }
 
     /// <summary>Loads the map a demo was recorded on, if a copy can be found.</summary>
@@ -705,7 +712,7 @@ public sealed partial class ViewerPresenter : IDisposable
         try
         {
             return Apply(DecodedDemo.Read(
-                path, _demoLog, interp: _settings.Interp, classes: _levels.Install(_maps.GameFolder).ClassAnimation));
+                path, _demoLog, interp: _settings.Interp, classes: _levels.Install(_maps.GameFolder).ClassAnimation, keepBytes: CheckWindows));
         }
         catch (Exception failure) when (failure is IOException or InvalidDataException)
         {
@@ -779,7 +786,7 @@ public sealed partial class ViewerPresenter : IDisposable
             DecodedDemo decoded = await Task
                 .Run(
                     () => DecodedDemo.Read(
-                        path, demoLog, progress.Report, interp, _levels.Install(_maps.GameFolder).ClassAnimation),
+                        path, demoLog, progress.Report, interp, _levels.Install(_maps.GameFolder).ClassAnimation, keepBytes: CheckWindows),
                     _shutdown)
                 .ConfigureAwait(false);
 
@@ -1009,6 +1016,11 @@ public sealed partial class ViewerPresenter : IDisposable
         _demo = decoded.Demo;
         _timeline = decoded.Timeline;
 
+        // `--windows` (D217 step 4): the window cache walks beside the whole timeline and is checked on every seek.
+        // The last demo's check stops first: its walk and its windows are cancelled.
+        _windowCheck?.Dispose();
+        _windowCheck = CheckWindows ? WindowCheck.For(decoded, new Core.Scene.WindowSettings(_settings.Interp), _demoLog) : null;
+
         _camera.DemoOpening(_spectateWho());
 
         // **One call where there were six assignments, and that is the whole point** (B193). The
@@ -1121,6 +1133,8 @@ public sealed partial class ViewerPresenter : IDisposable
     {
         _demo = null;
         _timeline = null;
+        _windowCheck?.Dispose();
+        _windowCheck = null;
 
         // **`DemoSystems.Open` with no timeline IS "close the demo", and calling it is what makes
         // this path complete** (B228). It was three hand-written lines — the clock, the transport
