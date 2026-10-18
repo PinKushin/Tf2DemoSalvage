@@ -401,14 +401,24 @@ public sealed class ParticleEffects
 
             if (rebuild)
             {
-                // **A replay of at most ten seconds**: an effect its owner keeps running can be minutes old where a seek meets
-                // it, and what it drew longer ago than its particles live has no part in this frame.
-                running = new RunningBurst(
-                    new ParticleEffect(burst.Definition, others, Sheets, SeedFor(burst.Key)),
-                    0,
-                    Math.Max(0d, Math.Floor(wanted) - MaximumReplayTicks),
-                    false);
+                // **Not built when it began more than the replay bound ago**: a replay cannot start part-way through an
+                // effect (its emitters would begin again there), and an effect met that old — a rocket jump's smoke an owner
+                // never stops — has, in every case f12 shows, long since finished by itself. *Interpolated:* one still
+                // emitting at that age would be missing until its owner dispatches again.
+                if (wanted > MaximumReplayTicks)
+                {
+                    _bursts.Remove(burst.Key);
+                    continue;
+                }
+
+                running = new RunningBurst(new ParticleEffect(burst.Definition, others, Sheets, SeedFor(burst.Key)), 0, 0d, false);
                 BurstBuilds++;
+            }
+            else if (running.Effect.Finished)
+            {
+                // **Finished and still offered: kept, and not stepped** — `IsFinished` has no particles and will make none
+                // (particles.h:1119); stepping it is work with nothing to show. Kept so the offer does not rebuild it (B415).
+                continue;
             }
 
             // Stryker restore all
@@ -580,6 +590,12 @@ public sealed class ParticleEffects
 
         foreach (RunningBurst running in _bursts.Values)
         {
+            // A finished effect its owner still offers holds nothing and costs nothing; it is not live.
+            if (running.Effect.Finished)
+            {
+                continue;
+            }
+
             (int live, int unoffered) = rows.GetValueOrDefault(running.Name);
             rows[running.Name] = (live + 1, unoffered + (running.Unoffered ? 1 : 0));
         }

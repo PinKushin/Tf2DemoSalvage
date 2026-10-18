@@ -597,6 +597,40 @@ public sealed class ParticleBurstTests
         effects.BurstCount.ShouldBe(0);
     }
 
+    /// <remarks>
+    /// **Finished and still offered is held without stepping** — the rocket jump smoke an owner never stops (`tf_player.cpp:1511`)
+    /// is offered as long as its owner lives. The control is the step count before it finished.
+    /// </remarks>
+    [Test]
+    public void Bursts_FinishedButStillOffered_AreNotSteppedOrCounted()
+    {
+        ParticleEffects effects = new();
+        ParticleBurst done = Finished(key: 1, tick: 100);
+
+        effects.Bursts([done], Interval, null, tick: 101);
+        int steps = effects.BurstSteps(1);
+        effects.Bursts([done], Interval, null, tick: 140);
+
+        steps.ShouldBe(1, "the control: it stepped once, and finished");
+        effects.BurstSteps(1).ShouldBe(steps);
+        effects.Census().ShouldBeEmpty();
+    }
+
+    /// <remarks>
+    /// **Met older than the replay bound, it is not built**: a replay cannot begin part-way through, and starting it there
+    /// would emit again what finished long ago. The control is one met inside the bound.
+    /// </remarks>
+    [TestCase(ParticleEffects.MaximumReplayTicks, 1)]
+    [TestCase(ParticleEffects.MaximumReplayTicks + 1, 0)]
+    public void Bursts_FirstMetThisLongAfterItBegan_AreBuiltOnlyInsideTheBound(int age, int built)
+    {
+        ParticleEffects effects = new();
+
+        effects.Bursts([Burst(key: 1, tick: 100)], Interval, null, tick: 100 + age);
+
+        effects.BurstBuilds.ShouldBe(built);
+    }
+
     /// <summary>A beam's shape: emits for ever, each particle lives half a second.</summary>
     private static readonly ParticleSystem Beam = new(
         Name: "test_beam",
