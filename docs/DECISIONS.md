@@ -10760,3 +10760,33 @@ of my hud, use the modern up to date client"*.
   does not show. The SourceTV f12 demo is the reference for the spectator view.
 - Until a golden is taken from TF2, a golden of our own render is a regression lock only, and is labelled as one.
 
+## D223 — the front end moves from WinForms to Dear ImGui (Hexa.NET.ImGui on the D3D11 backend), one front end for every platform (2026-10-18)
+
+**The owner, in his words.** On why: *"im really thinking winforms will get fully pulled out on the switch to deaimgui
+so we only have to style a single frontend"*. On accessibility, which decided what the toolkit has to provide: *"the
+accesssabiliity in this project is moreso a test thing, blind people cannot play tf2, deaf can, and other disabilities
+can, but not blindness"* (`docs/memory/accessibility-here-is-for-tests.md`). After comparing it with Avalonia: *"we will
+go iimguii because while i dont exactly get what you are saying and describing, i think we are already doing it with the
+controls in full screen"*.
+
+**He is right about the full-screen controls.** `OverlayWindow` already floats the transport bar over the viewport as a
+separate owned window, because a child control over a `FLIP_DISCARD` swap chain does not composite; its remarks name
+"drawing the controls inside Direct3D" as the alternative refused only because it would put them beyond UIA. Dear ImGui
+draws inside the same D3D11 frame, so UI over the 3D view stops needing a second window, and UIA is no longer a
+requirement (accessibility here serves tests).
+
+**What was compared (2026-10-18, sources read that day):**
+- **Dear ImGui stack**: Hexa.NET.ImGui (MIT, docking branch, generated bindings) with its `Hexa.NET.ImGui.Backends` D3D11
+  backend drawing into the viewer's existing device; widget lookup by name through `ktsu.ImGui.Probes` or the same idea
+  written here; our own small test driver for input injection and frame stepping around the D3D11 host. The official
+  Dear ImGui Test Engine is free for this project (individual, OSI-licensed and under the turnover threshold) but has no
+  C# binding; `ktsu.ImGui.App.Testing` is built on its own OpenGL shell and a CPU rasteriser, so only its Probes fit.
+- **Avalonia**: mature, MIT, headless testing and native controls built in; the 3D view would embed either as a native
+  child window (no UI over it) or through `ICompositionGpuInterop` with a shared keyed-mutex D3D11 texture.
+- **egui** was ruled out: it is Rust, and Rust is refused for this project.
+
+**What this does not decide:** the order of the port, the test driver's shape, and the Linux renderer (D3D11 to Vulkan
+or OpenGL), which is the larger job under either toolkit. Text input, IME and file dialogs need a native helper under
+ImGui; that is part of the port's design. The icon's source already lives outside the WinForms project, at
+`assets/icon.svg`.
+

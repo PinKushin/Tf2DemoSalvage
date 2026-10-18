@@ -101,6 +101,15 @@ This is a genuine advantage over Valve's own client rather than a convenience fe
 
 It is also mostly a *scene-graph and camera* problem rather than a rendering one — six viewports over one shared world and entity state, so the cost is roughly six camera transforms and six draw passes, not six parsers. Worth designing the Phase 3.0 render loop with multiple viewports from the start rather than retrofitting a single-camera design, since the retrofit is the expensive version.
 
+**Player tags in free cam — an addition above Valve (owner-stated, 2026-10-18; feature, not started).** Free cam gets a
+name tag over each player, in team colour, so a whole team can be tracked from a free camera: the owner, *"i do want to
+add player tag things in free cam that tf2 doesnt have natively so the free cam can be used easier to track whole
+teams"*. TF2 has no such thing in free cam, so this sits on top of parity, never in place of it
+(`docs/memory/an-addition-above-valve-is-allowed.md`). Drawn by our renderer in the same frame as the world, from
+positions the timeline already holds, so it does not depend on the GUI toolkit (D223); the toolkit only carries its
+toggle and filters. Open questions for when it is built: which players get one (both teams, one team, alive only), and
+how it behaves behind walls.
+
 Rendering backend, when we get there: **Vortice.Windows** (actively maintained, modern successor to SharpDX, thin managed wrapper over real D3D11/12) fits your Windows/DirectX + C# preference directly — no need to drop into C for the renderer itself, only asset-format parsing if you want that shared with the C core for consistency.
 
 **Linux front end (owner-stated, 2026-10-03).** Dear ImGui in place of WinForms, Vulkan in place of Direct3D 11
