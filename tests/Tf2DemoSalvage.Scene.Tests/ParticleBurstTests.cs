@@ -228,11 +228,14 @@ public sealed class ParticleBurstTests
     }
 
     /// <remarks>
-    /// **A dormant owner's effect is held, hidden, and resumed — not replayed** (`SetDormant`, particle_property.cpp:465-475):
-    /// across ten dormant ticks nothing is built again and nothing is stepped; back, it runs on from where the clock is.
+    /// **A dormant owner's effect stops emitting and keeps simulating; awake, it emits again** — not held, not rebuilt.
+    /// `CParticleCollection::SetDormant(true)` is `StopEmission(false, false, false)` and `SetDormant(false)` is
+    /// `StartEmission(false)` (particles.obj, read in Ghidra 2026-10-18), and `Simulate` has no dormant check at all, so
+    /// the live particles go on aging out. A half-second beam dormant for ten ticks (0.15 s) loses no particle to
+    /// lifespan yet gains none: the count stays put while every tick is stepped.
     /// </remarks>
     [Test]
-    public void Bursts_WhileTheOwnerIsDormant_AreHeldAndResumeWithoutARebuild()
+    public void Bursts_WhileTheOwnerIsDormant_StopEmittingAndWakeWithoutARebuild()
     {
         ParticleEffects effects = new();
         ParticleBurst beam = new(
@@ -244,6 +247,7 @@ public sealed class ParticleBurstTests
         }
 
         int steps = effects.BurstSteps(1);
+        int before = effects.BurstParticles(1)!.Count;
 
         ParticleBurst dormant = beam with { DormantAt = static at => at is >= 111 and <= 120 };
 
@@ -252,12 +256,54 @@ public sealed class ParticleBurstTests
             effects.Bursts([dormant], Interval, null, tick);
         }
 
-        effects.BurstSteps(1).ShouldBe(steps, "held: not stepped while dormant");
+        effects.BurstSteps(1).ShouldBe(steps + 10, "simulated: Simulate has no dormant check");
+        effects.BurstParticles(1)!.Count.ShouldBe(before, "emission stopped, and nothing old enough to die yet");
 
-        effects.Bursts([beam], Interval, null, tick: 121);
+        // 66 a second is 0.99 a tick, so one tick may owe nothing yet: three must owe two.
+        for (int tick = 121; tick <= 123; tick++)
+        {
+            effects.Bursts([beam], Interval, null, tick);
+        }
 
-        effects.BurstBuilds.ShouldBe(1, "resumed, not built again");
-        effects.BurstSteps(1).ShouldBe(steps + 1, "one tick on from where the clock stood");
+        effects.BurstBuilds.ShouldBe(1, "woken, not built again");
+        effects.BurstParticles(1)!.Count.ShouldBeGreaterThan(before, "StartEmission: born again");
+    }
+
+    /// <remarks>
+    /// **An effect asleep is not simulated and wakes where it stood** — `BuildParticleSimList` skips it
+    /// (particlemgr.cpp:1775) — and above all is not rebuilt: an effect that went unoffered while its owner could not be
+    /// placed was replayed from its dispatch tick, 28,000 ticks for each of two ornament glitters on f12.
+    /// </remarks>
+    [Test]
+    public void Bursts_WhileAsleep_AreNotSteppedAndWakeWithoutARebuild()
+    {
+        ParticleEffects effects = new();
+        ParticleBurst beam = new(
+            1, Beam, new ParticleControlPoint(Vector3.Zero, Vector3.UnitX, Vector3.UnitY, Vector3.UnitZ), 100);
+
+        // Never placed yet: nothing to replay on, so nothing is built.
+        effects.Bursts([beam with { Asleep = true }], Interval, null, tick: 100);
+        effects.BurstCount.ShouldBe(0);
+
+        for (int tick = 100; tick <= 110; tick++)
+        {
+            effects.Bursts([beam], Interval, null, tick);
+        }
+
+        int steps = effects.BurstSteps(1);
+
+        for (int tick = 111; tick <= 500; tick++)
+        {
+            effects.Bursts([beam with { Asleep = true }], Interval, null, tick);
+        }
+
+        effects.BurstSteps(1).ShouldBe(steps, "asleep: not simulated");
+
+        effects.Bursts([beam], Interval, null, tick: 501);
+
+        effects.BurstBuilds.ShouldBe(1, "woken, not built again");
+        effects.ReplaySteps.ShouldBe(0, "and nothing replayed");
+        effects.BurstSteps(1).ShouldBe(steps + 1, "one tick on from where it stood");
     }
 
     /// <remarks>
@@ -622,10 +668,10 @@ public sealed class ParticleBurstTests
 
     /// <remarks>
     /// **A seek gives exactly what playing through gives** — Valve has no seek; a demo player answers one by replaying, so
-    /// the replay walks the same ticks under the same rules: the dormant gap held, the stop, the fade. Compared on the
-    /// particles themselves (count, age, every position), not on a step count, at ticks inside the gap, after the wake, and
-    /// after the stop. The effect moves (`Movement Basic` with gravity), so stepping the gap instead of holding it would
-    /// leave the particles elsewhere.
+    /// the replay walks the same ticks under the same rules: the dormant gap's stopped emission, the wake, the stop, the
+    /// fade. Compared on the particles themselves (count, age, every position), not on a step count, at ticks inside the
+    /// gap, after the wake, and after the stop. The effect moves (`Movement Basic` with gravity), so a replay that emitted
+    /// through the gap, or skipped it, would leave different particles.
     /// </remarks>
     [TestCase(115, TestName = "Bursts_SeekIntoADormantGap_MatchesPlayingThrough")]
     [TestCase(130, TestName = "Bursts_SeekAfterTheWake_MatchesPlayingThrough")]

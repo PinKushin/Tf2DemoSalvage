@@ -1068,6 +1068,13 @@ public sealed class BurstEffects
                 if ((dispatch.Flags & DispatchFromEntity) != 0 &&
                     string.Equals(timeline.Dispatches.Names.Name(dispatch.Name), "ParticleEffect", StringComparison.Ordinal))
                 {
+                    // The walk below stops at the first dispatch not yet fired, which is only right in fire order.
+                    if (_owned.Count > 0 && dispatch.Tick < timeline.Dispatches.All[_owned[^1]].Tick)
+                    {
+                        throw new InvalidOperationException(
+                            string.Create(CultureInfo.InvariantCulture, $"dispatch {index} at tick {dispatch.Tick} is out of fire order"));
+                    }
+
                     _owned.Add(index);
                 }
             }
@@ -1086,7 +1093,8 @@ public sealed class BurstEffects
 
         // **An entity's effect runs until Valve ends it** — a `ParticleEffectStop`, a later RESET dispatch on it, or the
         // owner's deletion (`DispatchStops`) — and is offered until its fade is past, so a seek into the fade builds it fading
-        // exactly as playing through does. **Dormancy hides it, and does not stop it** (`OwnerSetDormantTo`, particle_property.cpp:465).
+        // exactly as playing through does. **Dormancy stops its emission, and does not end it** (`OwnerSetDormantTo`,
+        // particle_property.cpp:465; `CParticleCollection::SetDormant`, particles.obj).
         // In fire order, so the first not yet fired ends the walk.
         foreach (int index in _owned)
         {
@@ -1104,8 +1112,7 @@ public sealed class BurstEffects
 
                 AddParticleEffect(
                     ParticleDispatchKeys + index, dispatch, timeline, systems, _stops[index],
-                    at => dormancy.IsDormant(owner, at),
-                    tick);
+                    at => dormancy.IsDormant(owner, at));
             }
         }
 
@@ -1126,8 +1133,7 @@ public sealed class BurstEffects
         DemoTimeline timeline,
         IReadOnlyDictionary<string, ParticleSystem> systems,
         int? stop = null,
-        Func<int, bool>? dormantAt = null,
-        int tick = 0)
+        Func<int, bool>? dormantAt = null)
     {
         string? name = timeline.Dispatches.ParticleNames.Name(dispatch.HitBox);
         ParticleSystem? definition = name is null ? null : systems.GetValueOrDefault(name);
@@ -1149,15 +1155,23 @@ public sealed class BurstEffects
                     $"{(point is null ? "NOT PLACED" + posed : "placed")}"));
         }
 
-        // A dormant owner is not posed, and its effect is held where it is: offered without a point, which nothing reads.
-        if (definition is not null && point is null && dormantAt?.Invoke(tick) == true)
+        // **An owned effect whose owner is not posed sleeps** rather than going unoffered: unoffered, it would fade, be
+        // retired, and be replayed from its dispatch tick when the owner is posed again — tens of thousands of steps for a
+        // long-lived effect. Its point is a placeholder that a sleeping effect never reads.
+        bool asleep = definition is not null && point is null && dormantAt is not null;
+
+        if (asleep)
         {
             point = ParticleControlPoint.Unoriented(Vector3.Zero);
         }
 
         if (definition is not null && point is { } at)
         {
-            _burstsNow.Add(new ParticleBurst(key, definition, at, dispatch.Tick, DispatchedEnd(dispatch), stop) { DormantAt = dormantAt });
+            _burstsNow.Add(new ParticleBurst(key, definition, at, dispatch.Tick, DispatchedEnd(dispatch), stop)
+            {
+                DormantAt = dormantAt,
+                Asleep = asleep,
+            });
         }
     }
 

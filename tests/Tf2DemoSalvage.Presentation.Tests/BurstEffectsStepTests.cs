@@ -457,7 +457,8 @@ public sealed class BurstEffectsStepTests
         ParticleControlPoint moved = ParticleControlPoint.Unoriented(new Vector3(90f, 0f, 0f));
 
         bursts.StepOver(Frame(timeline, fired), World());
-        bursts.Bursts.ShouldBeEmpty("an entity not posed here starts nothing");
+        bursts.Bursts.ShouldHaveSingleItem().Asleep.ShouldBeTrue(
+            "an entity not posed here sleeps its effect: unoffered, it would be retired and replayed from its dispatch tick");
 
         models.Numbered[(Sentry, 3)] = first;
         bursts.StepOver(Frame(timeline, fired), World());
@@ -502,7 +503,7 @@ public sealed class BurstEffectsStepTests
         (BurstEffects bursts, FakePosedEntities models, _) = Presenter();
 
         bursts.StepOver(Frame(timeline, fired), World());
-        bursts.Bursts.ShouldBeEmpty("standing in for the dormancy refusal");
+        bursts.Bursts.ShouldHaveSingleItem().Asleep.ShouldBeTrue("an owner not posed here sleeps its effect");
 
         models.Posed.Add(Sentry);
         bursts.StepOver(Frame(timeline, fired), World());
