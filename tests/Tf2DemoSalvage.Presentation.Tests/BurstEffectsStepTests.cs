@@ -150,10 +150,25 @@ public sealed class BurstEffectsStepTests
         int fired = timeline.Explosions.All.ShouldHaveSingleItem().Tick;
         (BurstEffects bursts, _, ParticleEffects particles) = Presenter();
 
-        bursts.StepOver(Frame(timeline, fired + 1), World());
+        // An explosion still running: one with nothing in it is finished after its first step and, rightly, not stepped again.
+        Dictionary<string, ParticleSystem> running = new(Systems, StringComparer.Ordinal)
+        {
+            [ExplosionEffects.DefaultEffect] = new ParticleSystem(
+                ExplosionEffects.DefaultEffect,
+                [
+                    new ParticleFunction("emit_continuously", "emitter", new Dictionary<string, DmxValue>(StringComparer.Ordinal)
+                    {
+                        ["emission_rate"] = new(DmxAttributeType.Real, 0d),
+                        ["emission_duration"] = new(DmxAttributeType.Real, 3600d),
+                    }),
+                ],
+                [], [], [], [], new Dictionary<string, DmxValue>(StringComparer.Ordinal)),
+        };
+
+        bursts.StepOver(Frame(timeline, fired + 1), World() with { Systems = running });
         float before = particles.BurstParticles(0)!.Age;
 
-        bursts.StepOver(Frame(timeline, fired + 1) with { ShownTick = fired + 1.5d }, World());
+        bursts.StepOver(Frame(timeline, fired + 1) with { ShownTick = fired + 1.5d }, World() with { Systems = running });
 
         (particles.BurstParticles(0)!.Age - before).ShouldBe(0.5f * timeline.IntervalPerTick, 1e-6f);
         particles.BurstSteps(0).ShouldBe(2, "one tick on landing, then one step for the half");
@@ -446,7 +461,11 @@ public sealed class BurstEffectsStepTests
 
         models.Numbered[(Sentry, 3)] = first;
         bursts.StepOver(Frame(timeline, fired), World());
-        bursts.Bursts.ShouldHaveSingleItem().ShouldBe(new ParticleBurst(ParticleDispatchKeys, Systems["rocketjump_smoke"], first, fired));
+        ParticleBurst offered = bursts.Bursts.ShouldHaveSingleItem();
+
+        // An entity's effect carries its owner's dormancy, asked per tick (owner awake here); the rest is the dispatch's.
+        offered.DormantAt.ShouldNotBeNull()(fired).ShouldBeFalse();
+        (offered with { DormantAt = null }).ShouldBe(new ParticleBurst(ParticleDispatchKeys, Systems["rocketjump_smoke"], first, fired));
 
         models.Numbered[(Sentry, 3)] = moved;
         bursts.StepOver(Frame(timeline, fired + 1), World());

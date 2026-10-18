@@ -35,6 +35,10 @@ public sealed class MeasureLog
         Rebuilds++;
     }
 
+    /// <summary>Adds a line that is neither a rate nor a rebuild — the census — counted as neither.</summary>
+    /// <param name="line">The line.</param>
+    public void AddNote(string line) => _entries.Add((false, "    " + line));
+
     /// <summary>Empties the log for the next measurement.</summary>
     public void Clear()
     {

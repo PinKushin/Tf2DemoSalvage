@@ -422,6 +422,17 @@ public sealed partial class ViewerSession
                 _measured.AddCost(cost);
                 _moments.LastCost = null;
             }
+
+            // **What is alive, once a second, for a leak to show as a count that climbs** (lifetime audit, 2026-10-17).
+            if (_launch.MeasureSeconds is not null)
+            {
+                (int trails, int modelDecals) = _effects.KeptCounts;
+                (long replayTicks, long replaySteps) = _effects.ParticleReplay;
+                _measured.AddNote(string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"{ParticleCensusLine.Format(_shownTick, _effects.ParticleCensus())}; trails {trails}; model decals {modelDecals}" +
+                    $"; replays so far {replayTicks * 1000d / Stopwatch.Frequency:0.#} ms over {replaySteps} steps"));
+            }
         }
 
         // **Counted in seconds of PLAYBACK.** A wall clock would spend the first twenty seconds on

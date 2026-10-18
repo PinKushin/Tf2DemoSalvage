@@ -68,6 +68,19 @@ public sealed class ParticleEffects
     /// <summary>How many one-shots are running.</summary>
     public int BurstCount => _bursts.Count;
 
+    /// <summary>Stopwatch ticks spent replaying rebuilt bursts, ever — a seek's cost, which D217's checkpoints are to carry.</summary>
+    public long ReplayTicks { get; private set; }
+
+    /// <summary>Steps taken replaying rebuilt bursts, ever.</summary>
+    public long ReplaySteps { get; private set; }
+
+    /// <summary>What a finished burst keeps in place of its effect: nothing to draw, nothing to hold.</summary>
+    private static readonly ParticleEffect Spent = new(
+        new ParticleSystem("spent", [], [], [], [], [], new Dictionary<string, DmxValue>(StringComparer.Ordinal)), null, null, 0);
+
+    /// <summary>How many times a burst was built from its start, ever — counted where it is built.</summary>
+    public int BurstBuilds { get; private set; }
+
     /// <summary>How many times one burst has been stepped, for a test or a diagnostic.</summary>
     /// <param name="key">The caller's key for it.</param>
     /// <returns>The step count, or −1 when no burst has that key.</returns>
@@ -383,7 +396,23 @@ public sealed class ParticleEffects
 
             if (rebuild)
             {
+                // **None is made on a dormant owner** (c_particle_system.cpp:189-190): replayed or played, the same answer.
+                if (burst.DormantAt?.Invoke(burst.Tick) == true)
+                {
+                    _bursts.Remove(burst.Key);
+                    continue;
+                }
+
+                // **Replayed from its own tick, whatever its age** — a seek answers what playing through shows, so it walks
+                // the same ticks under the same rules; the replay stops early only once the effect can change no more.
                 running = new RunningBurst(new ParticleEffect(burst.Definition, others, Sheets, SeedFor(burst.Key)), 0, 0d, false);
+                BurstBuilds++;
+            }
+            else if (running.Effect.Finished)
+            {
+                // **Finished and still offered: kept, and not stepped** — `IsFinished` has no particles and will make none
+                // (particles.h:1119); stepping it is work with nothing to show. Kept so the offer does not rebuild it (B415).
+                continue;
             }
 
             // Stryker restore all
@@ -405,6 +434,8 @@ public sealed class ParticleEffects
             // `StopEmission` lands before the frame's `Simulate`, so a step that crosses the stop is split there.
             double stopAt = burst.StopTick is { } stopping ? stopping - burst.Tick : double.MaxValue;
 
+            long replayFrom = System.Diagnostics.Stopwatch.GetTimestamp();
+
             while (reachedTo < wanted)
             {
                 double next = rebuild && Math.Floor(reachedTo) + 1d <= wanted ? Math.Floor(reachedTo) + 1d : wanted;
@@ -413,6 +444,23 @@ public sealed class ParticleEffects
                 {
                     next = stopAt;
                 }
+
+                // **A dormant tick is held**: no simulation, no step counted, the effect's own state untouched. The tick asked
+                // is the one the step simulates INTO — the frame drawn at it, whose owner the snapshot says is dormant.
+                if (burst.DormantAt?.Invoke(burst.Tick + (int)Math.Floor(next)) == true)
+                {
+                    reachedTo = next;
+                    continue;
+                }
+
+                // **Finished can change no more** — no particles and none to come (particles.h:1119) — so the rest of a
+                // replay would step nothing.
+                if (taken > 0 && running.Effect.Finished)
+                {
+                    reachedTo = wanted;
+                    break;
+                }
+
                 int reached = burst.Tick + (int)next;
                 bool past = rebuild && next < wanted && burst.History is not null;
 
@@ -448,6 +496,12 @@ public sealed class ParticleEffects
                 taken++;
             }
 
+            if (rebuild)
+            {
+                ReplayTicks += System.Diagnostics.Stopwatch.GetTimestamp() - replayFrom;
+                ReplaySteps += taken;
+            }
+
             // **A frame that steps nothing still reads its points**: `UpdateNewEffects` calls every effect's `Update`
             // — `UpdateControlPoint` — before it decides what to simulate (particlemgr.cpp:1841-1853), at any frame time.
             bool stillRead = running.StillRead;
@@ -472,11 +526,110 @@ public sealed class ParticleEffects
 
             bool stopped = burst.StopTick is { } stopTick && now >= stopTick;
 
-            _bursts[burst.Key] = running with { Stepped = taken, SimulatedTo = reachedTo, Stopped = stopped, StillRead = stillRead };
+            // **A finished effect keeps only a marker**: its store is let go, its name and place in the census kept, so the
+            // owner's continued offer neither rebuilds it nor holds its buffers.
+            bool spent = running.Effect.Finished;
+
+            _bursts[burst.Key] = running with
+            {
+                Effect = spent ? Spent : running.Effect,
+                Stepped = taken, SimulatedTo = reachedTo, Stopped = stopped, StillRead = stillRead, Tick = burst.Tick,
+                Name = burst.Definition.Name, Unoffered = false,
+                Hidden = burst.DormantAt?.Invoke((int)Math.Floor(now)) == true,
+            };
         }
 
+        FadeUnoffered(now, seconds, seeked);
         Retire();
     }
+
+    /// <summary>
+    /// An effect its caller no longer offers is its owner's emission stopping — `StopEmission`: no particle is born, the
+    /// live ones age out where they are, and <see cref="Retire"/> takes it when it is empty.
+    /// </summary>
+    /// <remarks>
+    /// **It was held frozen instead** — never stepped, never retired, and drawn — so a heal beam whose patient died, or
+    /// any effect whose offer simply ended, stood in the air where its last particles were (owner, 2026-10-17: "drawing
+    /// old beams in the air"). `CWeaponMedigun::UpdateEffects` stops the beam with `StopEmission` when the target changes
+    /// or is gone (`tf_weapon_medigun.cpp:2369-2397`); every other owner that stops offering one does the same here.
+    /// </remarks>
+    /// <param name="now">The tick being shown, fraction included.</param>
+    /// <param name="seconds">Seconds per tick.</param>
+    /// <param name="seeked">Whether this frame is a seek's: what the target tick does not offer is history, not a fade.</param>
+    /// <remarks>
+    /// **A tick at a time**, as `CParticleMgr::UpdateNewEffects` simulates a frame, **on the points it was last offered**,
+    /// which its last step already set: `StopEmission` leaves the effect in its owner's list so its points follow
+    /// (`particle_property.cpp:251`), and an effect no longer offered has nothing newer to follow. A feed whose owner still
+    /// moves keeps offering it, with a stop tick — the dispatches do. **A seek drops them**: arriving at a tick fresh, only
+    /// what that tick offers is built, so a feed must offer a fading effect for as long as it shows (BurstEffects does).
+    /// </remarks>
+    private void FadeUnoffered(double now, float seconds, bool seeked)
+    {
+        _unoffered.Clear();
+
+        foreach (long key in _bursts.Keys)
+        {
+            if (!_offered.Contains(key))
+            {
+                _unoffered.Add(key);
+            }
+        }
+
+        foreach (long key in _unoffered)
+        {
+            if (seeked)
+            {
+                _bursts.Remove(key);
+                continue;
+            }
+
+            RunningBurst running = _bursts[key];
+            double wanted = now - running.Tick;
+            double reached = running.SimulatedTo;
+
+            // Nothing left to fade: the rest of the gap changes nothing, and Retire takes it.
+            while (reached < wanted && !running.Effect.Empty)
+            {
+                double next = Math.Min(Math.Floor(reached) + 1d, wanted);
+
+                running.Effect.Fade((float)((next - reached) * seconds));
+                reached = next;
+            }
+
+            _bursts[key] = running with { SimulatedTo = reached, Stopped = true, Unoffered = true };
+        }
+    }
+
+    /// <summary>How many bursts run, by effect name, and how many of those their caller no longer offers.</summary>
+    /// <remarks>An instrument for leaks: a name whose count climbs, or whose unoffered count never drains, outlives its owner.</remarks>
+    /// <returns>One row per effect name: running, of those no longer offered, and finished markers still held.</returns>
+    public IReadOnlyList<(string Name, int Live, int Unoffered, int Spent)> Census()
+    {
+        Dictionary<string, (int Live, int Unoffered, int Spent)> rows = new(StringComparer.Ordinal);
+
+        foreach (RunningBurst running in _bursts.Values)
+        {
+            (int live, int unoffered, int spent) = rows.GetValueOrDefault(running.Name);
+
+            // A finished effect its owner still offers is a marker: counted apart, since it holds nothing.
+            int orphan = running.Unoffered ? 1 : 0;
+            rows[running.Name] = running.Effect.Finished
+                ? (live, unoffered, spent + 1)
+                : (live + 1, unoffered + orphan, spent);
+        }
+
+        List<(string Name, int Live, int Unoffered, int Spent)> census = new(rows.Count);
+
+        foreach ((string name, (int live, int unoffered, int spent)) in rows)
+        {
+            census.Add((name, live, unoffered, spent));
+        }
+
+        return census;
+    }
+
+    /// <summary>The keys no longer offered on the last call, reused.</summary>
+    private readonly List<long> _unoffered = [];
 
     /// <summary>A model's boxes moved rigidly; the same list when they have not moved.</summary>
     private static IReadOnlyList<ModelHitbox> Carried(IReadOnlyList<ModelHitbox> boxes, Vector3 by)
@@ -533,7 +686,16 @@ public sealed class ParticleEffects
     private readonly List<long> _finished = [];
 
     /// <summary>One running one-shot: how many steps it took, and to how many ticks after it fired, fraction included.</summary>
-    private readonly record struct RunningBurst(ParticleEffect Effect, int Stepped, double SimulatedTo, bool Stopped, bool StillRead = false);
+    private readonly record struct RunningBurst(
+        ParticleEffect Effect,
+        int Stepped,
+        double SimulatedTo,
+        bool Stopped,
+        bool StillRead = false,
+        int Tick = 0,
+        string Name = "",
+        bool Unoffered = false,
+        bool Hidden = false);
 
     /// <summary>Builds every live effect's quads for this frame's camera.</summary>
     /// <param name="eye">Where the camera is — a sprite trail turns about its own length to face it.</param>
@@ -572,7 +734,10 @@ public sealed class ParticleEffects
 
         foreach (RunningBurst running in _bursts.Values)
         {
-            Gather(running.Effect, eye, right, up, materials);
+            if (!running.Hidden)
+            {
+                Gather(running.Effect, eye, right, up, materials);
+            }
         }
 
         return Batches(materials);
@@ -795,4 +960,13 @@ public readonly record struct ParticleBurst(
     /// posing a player for every tick of a replay costs a skeleton each.
     /// </remarks>
     public Func<(IReadOnlyList<ModelHitbox> Boxes, Vector3 PosedAt)?>? Model { get; init; }
+
+    /// <summary>
+    /// Whether the owner was dormant at a tick, or null for an effect with no owner. While dormant the effect is kept,
+    /// neither simulated nor drawn, and not restarted when the owner returns — `CParticleProperty::OwnerSetDormantTo`
+    /// sets `SetDormant` on every effect it owns (particle_property.cpp:465-475); what `CParticleCollection` does with the
+    /// flag is in the closed particles library — *interpolated*: its simulation is skipped, so its own clock stands still
+    /// and it resumes where it stood. Asked for every tick a replay steps, so a seek walks a dormant gap as playing does.
+    /// </summary>
+    public Func<int, bool>? DormantAt { get; init; }
 }

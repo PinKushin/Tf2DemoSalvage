@@ -245,6 +245,15 @@ public sealed class BurstEffects
     /// <summary>Every `CTETFParticleEffect` in the particle window this tick, reused.</summary>
     private readonly List<(int Index, SceneEffectDispatch Dispatch)> _tfParticlesNow = [];
 
+    /// <summary>The timeline <see cref="_stops"/> was computed for.</summary>
+    private DemoTimeline? _stopsOf;
+
+    /// <summary>Each `"ParticleEffect"` dispatch's stop tick (<see cref="DispatchStops"/>), by its index.</summary>
+    private int?[] _stops = [];
+
+    /// <summary>The `"ParticleEffect"` dispatches made from an entity, by index — each runs until Valve ends it.</summary>
+    private readonly List<int> _owned = [];
+
     /// <summary>The view's own: the model set it draws with.</summary>
     /// <param name="particles">The effects these bursts are stepped in.</param>
     /// <param name="models">The posed entities, for attachments and hitboxes.</param>
@@ -1044,11 +1053,59 @@ public sealed class BurstEffects
         TickWindow.Between(
             timeline.Dispatches.All, static dispatch => dispatch.Tick, tick - ParticleDispatchWindowTicks, tick, _particleDispatchesNow);
 
+        // **An entity's effect runs until Valve's own stop reaches it** — `ParticleEffectStop`, or a later dispatch on the
+        // entity with RESET (`DispatchStops`) — so one stopped later than the window is still offered until it is.
+        if (!ReferenceEquals(_stopsOf, timeline))
+        {
+            _stopsOf = timeline;
+            _stops = DispatchStops.Compute(timeline.Dispatches.All, timeline.Dispatches.Names.Name, timeline.Dormancy.DeletedAfter);
+            _owned.Clear();
+
+            for (int index = 0; index < _stops.Length; index++)
+            {
+                SceneEffectDispatch dispatch = timeline.Dispatches.All[index];
+
+                if ((dispatch.Flags & DispatchFromEntity) != 0 &&
+                    string.Equals(timeline.Dispatches.Names.Name(dispatch.Name), "ParticleEffect", StringComparison.Ordinal))
+                {
+                    _owned.Add(index);
+                }
+            }
+        }
+
+        // **An effect from no entity ends by itself** (`CNewParticleEffect::Create( NULL, … )`): offered over the window,
+        // which is only how far back a seek replays it.
         foreach ((int index, SceneEffectDispatch dispatch) in _particleDispatchesNow)
         {
-            if (string.Equals(timeline.Dispatches.Names.Name(dispatch.Name), "ParticleEffect", StringComparison.Ordinal))
+            if ((dispatch.Flags & DispatchFromEntity) == 0 &&
+                string.Equals(timeline.Dispatches.Names.Name(dispatch.Name), "ParticleEffect", StringComparison.Ordinal))
             {
                 AddParticleEffect(ParticleDispatchKeys + index, dispatch, timeline, systems);
+            }
+        }
+
+        // **An entity's effect runs until Valve ends it** — a `ParticleEffectStop`, a later RESET dispatch on it, or the
+        // owner's deletion (`DispatchStops`) — and is offered until its fade is past, so a seek into the fade builds it fading
+        // exactly as playing through does. **Dormancy hides it, and does not stop it** (`OwnerSetDormantTo`, particle_property.cpp:465).
+        // In fire order, so the first not yet fired ends the walk.
+        foreach (int index in _owned)
+        {
+            SceneEffectDispatch dispatch = timeline.Dispatches.All[index];
+
+            if (dispatch.Tick > tick)
+            {
+                break;
+            }
+
+            if (_stops[index] is not { } stop || tick < stop + ParticleDispatchWindowTicks)
+            {
+                int owner = dispatch.Entity;
+                EntityDormancy dormancy = timeline.Dormancy;
+
+                AddParticleEffect(
+                    ParticleDispatchKeys + index, dispatch, timeline, systems, _stops[index],
+                    at => dormancy.IsDormant(owner, at),
+                    tick);
             }
         }
 
@@ -1064,7 +1121,13 @@ public sealed class BurstEffects
 
     /// <summary>One `"ParticleEffect"` dispatch's burst, under a key unique across both sources.</summary>
     private void AddParticleEffect(
-        long key, SceneEffectDispatch dispatch, DemoTimeline timeline, IReadOnlyDictionary<string, ParticleSystem> systems)
+        long key,
+        SceneEffectDispatch dispatch,
+        DemoTimeline timeline,
+        IReadOnlyDictionary<string, ParticleSystem> systems,
+        int? stop = null,
+        Func<int, bool>? dormantAt = null,
+        int tick = 0)
     {
         string? name = timeline.Dispatches.ParticleNames.Name(dispatch.HitBox);
         ParticleSystem? definition = name is null ? null : systems.GetValueOrDefault(name);
@@ -1086,9 +1149,15 @@ public sealed class BurstEffects
                     $"{(point is null ? "NOT PLACED" + posed : "placed")}"));
         }
 
+        // A dormant owner is not posed, and its effect is held where it is: offered without a point, which nothing reads.
+        if (definition is not null && point is null && dormantAt?.Invoke(tick) == true)
+        {
+            point = ParticleControlPoint.Unoriented(Vector3.Zero);
+        }
+
         if (definition is not null && point is { } at)
         {
-            _burstsNow.Add(new ParticleBurst(key, definition, at, dispatch.Tick, DispatchedEnd(dispatch)));
+            _burstsNow.Add(new ParticleBurst(key, definition, at, dispatch.Tick, DispatchedEnd(dispatch), stop) { DormantAt = dormantAt });
         }
     }
 

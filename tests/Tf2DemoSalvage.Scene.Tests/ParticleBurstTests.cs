@@ -104,15 +104,160 @@ public sealed class ParticleBurstTests
     /// caller's window moves past it. The same rule a rocket's trail follows when the rocket explodes: cutting the
     /// effect at the source is the opposite of what an explosion looks like.
     /// </remarks>
+    /// <remarks>
+    /// **With particles in it** (2026-10-17): this used an effect that emits nothing, which was kept only because an
+    /// unoffered effect was frozen rather than run; now that it runs, an empty one is rightly gone.
+    /// </remarks>
     [Test]
     public void Bursts_NoLongerOffered_KeepRunningUntilEmpty()
     {
         ParticleEffects effects = new();
+        ParticleBurst blast = new(
+            1, Beam, new ParticleControlPoint(Vector3.Zero, Vector3.UnitX, Vector3.UnitY, Vector3.UnitZ), 100);
 
-        effects.Bursts([Burst(key: 1, tick: 100)], Interval, null, tick: 100);
-        effects.Bursts([], Interval, null, tick: 101);
+        for (int tick = 100; tick <= 105; tick++)
+        {
+            effects.Bursts([blast], Interval, null, tick);
+        }
+
+        effects.Bursts([], Interval, null, tick: 106);
+        int atEnd = effects.BurstParticles(1)!.Count;
+        // Born from tick 100 to 105, each living 33 ticks: by 136 the first are gone and none has replaced them.
+        effects.Bursts([], Interval, null, tick: 136);
+        int later = effects.BurstParticles(1)!.Count;
 
         effects.BurstCount.ShouldBe(1, "a blast does not stop because the window moved past it");
+
+        // It RUNS, it is not held: a frozen effect keeps every particle, a stopped one only loses them.
+        atEnd.ShouldBeGreaterThan(0, "the control: it had particles when the offer ended");
+        later.ShouldBeLessThan(atEnd, "no particle is born after the offer ends, and the live ones age out");
+    }
+
+    /// <remarks>
+    /// **Offered again after a gap, it continues — one effect, not a second built from its start** (review): a heal beam
+    /// across a moment its patient was not posed. Counted where a burst is built.
+    /// </remarks>
+    [Test]
+    public void Bursts_OfferedAgainAfterAGap_ContinueRatherThanRebuild()
+    {
+        ParticleEffects effects = new();
+        ParticleBurst beam = new(
+            1, Beam, new ParticleControlPoint(Vector3.Zero, Vector3.UnitX, Vector3.UnitY, Vector3.UnitZ), 100);
+
+        for (int tick = 100; tick <= 105; tick++)
+        {
+            effects.Bursts([beam], Interval, null, tick);
+        }
+
+        effects.Bursts([], Interval, null, tick: 106);
+        effects.Bursts([beam], Interval, null, tick: 107);
+
+        effects.BurstBuilds.ShouldBe(1);
+        effects.BurstCount.ShouldBe(1);
+    }
+
+    /// <remarks>
+    /// **A paused frame asks for the same tick again, and a fading effect does not age** — while the frames before the pause,
+    /// the control, do age it. A fade that ran a fixed step per call, not per tick, would fail the second assertion.
+    /// </remarks>
+    [Test]
+    public void Bursts_NoLongerOfferedWhilePaused_DoNotAge()
+    {
+        ParticleEffects effects = new();
+        ParticleBurst beam = new(
+            1, Beam, new ParticleControlPoint(Vector3.Zero, Vector3.UnitX, Vector3.UnitY, Vector3.UnitZ), 100);
+
+        for (int tick = 100; tick <= 120; tick++)
+        {
+            effects.Bursts([beam], Interval, null, tick);
+        }
+
+        effects.Bursts([], Interval, null, tick: 121);
+        float before = effects.BurstParticles(1)!.Age;
+        effects.Bursts([], Interval, null, tick: 125);
+        float paused = effects.BurstParticles(1)!.Age;
+        effects.Bursts([], Interval, null, tick: 125);
+        effects.Bursts([], Interval, null, tick: 125);
+
+        paused.ShouldBeGreaterThan(before, "the control: four played ticks age it");
+        effects.BurstParticles(1)!.Age.ShouldBe(paused);
+    }
+
+    /// <remarks>
+    /// **A fade is simulated a tick at a time** (`CParticleMgr::UpdateNewEffects`, once a frame): ten ticks unoffered in one
+    /// call are ten steps of one tick, not one of ten. The store's last step says which.
+    /// </remarks>
+    [Test]
+    public void Bursts_NoLongerOfferedAcrossTenTicks_FadeOneTickAtATime()
+    {
+        ParticleEffects effects = new();
+        ParticleBurst beam = new(
+            1, Beam, new ParticleControlPoint(Vector3.Zero, Vector3.UnitX, Vector3.UnitY, Vector3.UnitZ), 100);
+
+        for (int tick = 100; tick <= 110; tick++)
+        {
+            effects.Bursts([beam], Interval, null, tick);
+        }
+
+        effects.Bursts([], Interval, null, tick: 120);
+
+        effects.BurstParticles(1)!.LastStep.ShouldBe(Interval, 1e-6f);
+    }
+
+    /// <remarks>
+    /// **At this layer a seek keeps what the target offers and only that** — offered there, stopped and fading, it is
+    /// built fading; no longer offered, it is gone. The feed offers a fading effect for as long as it shows (BurstEffects),
+    /// so a seek into a fade builds it as playing through does.
+    /// </remarks>
+    [TestCase(true, 1)]
+    [TestCase(false, 0)]
+    public void Bursts_ASeekForward_KeepsWhatTheTargetOffers(bool offered, int left)
+    {
+        ParticleEffects effects = new();
+        ParticleBurst beam = new(
+            1, Beam, new ParticleControlPoint(Vector3.Zero, Vector3.UnitX, Vector3.UnitY, Vector3.UnitZ), 100, StopTick: 115);
+
+        for (int tick = 100; tick <= 110; tick++)
+        {
+            effects.Bursts([beam], Interval, null, tick);
+        }
+
+        effects.Bursts(offered ? [beam] : [], Interval, null, tick: 120, seeked: true);
+
+        effects.BurstCount.ShouldBe(left);
+    }
+
+    /// <remarks>
+    /// **A dormant owner's effect is held, hidden, and resumed — not replayed** (`SetDormant`, particle_property.cpp:465-475):
+    /// across ten dormant ticks nothing is built again and nothing is stepped; back, it runs on from where the clock is.
+    /// </remarks>
+    [Test]
+    public void Bursts_WhileTheOwnerIsDormant_AreHeldAndResumeWithoutARebuild()
+    {
+        ParticleEffects effects = new();
+        ParticleBurst beam = new(
+            1, Beam, new ParticleControlPoint(Vector3.Zero, Vector3.UnitX, Vector3.UnitY, Vector3.UnitZ), 100);
+
+        for (int tick = 100; tick <= 110; tick++)
+        {
+            effects.Bursts([beam], Interval, null, tick);
+        }
+
+        int steps = effects.BurstSteps(1);
+
+        ParticleBurst dormant = beam with { DormantAt = static at => at is >= 111 and <= 120 };
+
+        for (int tick = 111; tick <= 120; tick++)
+        {
+            effects.Bursts([dormant], Interval, null, tick);
+        }
+
+        effects.BurstSteps(1).ShouldBe(steps, "held: not stepped while dormant");
+
+        effects.Bursts([beam], Interval, null, tick: 121);
+
+        effects.BurstBuilds.ShouldBe(1, "resumed, not built again");
+        effects.BurstSteps(1).ShouldBe(steps + 1, "one tick on from where the clock stood");
     }
 
     /// <remarks>
@@ -420,6 +565,151 @@ public sealed class ParticleBurstTests
     [TestCase(2L, 0x3C6EF372)]
     public void SeedFor_AnIdentity_IsItsFibonacciHashAndNeverZero(long identity, int expected) =>
         ParticleEffects.SeedFor(identity).ShouldBe(expected);
+
+    /// <remarks>
+    /// **An effect its caller stops offering, unstopped, is the owner's emission stopping** — the medic's beam when its
+    /// patient dies is `UpdateEffects`' `StopEmission` (`tf_weapon_medigun.cpp:2374-2375`): no more particles are born,
+    /// the live ones finish their lives, and the effect goes. Ours was held frozen — never stepped, never retired, drawn
+    /// where its last particles stood: the owner's "old beams in the air". A beam emitting 66 a second, each living half a
+    /// second, offered for ten ticks: a second and a half after the offer ends it is gone. The control is the tick after
+    /// the offer ends, when it is still there and counted as no longer offered.
+    /// </remarks>
+    [Test]
+    public void Bursts_AnEndlessEffectNoLongerOffered_StopsEmittingAndIsGoneWhenItsParticlesDie()
+    {
+        ParticleEffects effects = new();
+        ParticleBurst beam = new(
+            9, Beam, new ParticleControlPoint(Vector3.Zero, Vector3.UnitX, Vector3.UnitY, Vector3.UnitZ), 100);
+
+        for (int tick = 100; tick <= 110; tick++)
+        {
+            effects.Bursts([beam], Interval, null, tick);
+        }
+
+        effects.Bursts([], Interval, null, tick: 111);
+
+        effects.BurstCount.ShouldBe(1, "the control: its particles are still alive");
+        effects.Census().ShouldContain(("test_beam", 1, 1, 0));
+
+        for (int tick = 112; tick <= 210; tick++)
+        {
+            effects.Bursts([], Interval, null, tick);
+        }
+
+        effects.BurstCount.ShouldBe(0);
+    }
+
+    /// <remarks>
+    /// **Finished and still offered is a marker, held without stepping** — the rocket jump smoke an owner never stops
+    /// (`tf_player.cpp:1511`) is offered as long as its owner lives. Its store is let go, and the census counts it apart.
+    /// The control is the step count before it finished.
+    /// </remarks>
+    [Test]
+    public void Bursts_FinishedButStillOffered_AreAMarkerNotSteppedAndCountedApart()
+    {
+        ParticleEffects effects = new();
+        ParticleBurst done = Finished(key: 1, tick: 100);
+
+        effects.Bursts([done], Interval, null, tick: 101);
+        int steps = effects.BurstSteps(1);
+        effects.Bursts([done], Interval, null, tick: 140);
+
+        steps.ShouldBe(1, "the control: it stepped once, and finished");
+        effects.BurstSteps(1).ShouldBe(steps);
+        effects.BurstParticles(1)!.Count.ShouldBe(0);
+        effects.Census().ShouldBe([("test_finished", 0, 0, 1)]);
+    }
+
+    /// <remarks>
+    /// **A seek gives exactly what playing through gives** — Valve has no seek; a demo player answers one by replaying, so
+    /// the replay walks the same ticks under the same rules: the dormant gap held, the stop, the fade. Compared on the
+    /// particles themselves (count, age, every position), not on a step count, at ticks inside the gap, after the wake, and
+    /// after the stop. The effect moves (`Movement Basic` with gravity), so stepping the gap instead of holding it would
+    /// leave the particles elsewhere.
+    /// </remarks>
+    [TestCase(115, TestName = "Bursts_SeekIntoADormantGap_MatchesPlayingThrough")]
+    [TestCase(130, TestName = "Bursts_SeekAfterTheWake_MatchesPlayingThrough")]
+    [TestCase(170, TestName = "Bursts_SeekAfterTheStop_MatchesPlayingThrough")]
+    public void Bursts_SeekToATick_MatchesPlayingThroughToIt(int target)
+    {
+        ParticleBurst burst = new(
+            1, Falling, new ParticleControlPoint(Vector3.Zero, Vector3.UnitX, Vector3.UnitY, Vector3.UnitZ), 100,
+            StopTick: 150)
+        {
+            DormantAt = static at => at is >= 110 and < 125,
+        };
+
+        ParticleEffects played = new();
+
+        for (int tick = 100; tick <= target; tick++)
+        {
+            played.Bursts([burst], Interval, null, tick);
+        }
+
+        ParticleEffects seeked = new();
+        seeked.Bursts([burst], Interval, null, tick: 100);
+        seeked.Bursts([burst], Interval, null, tick: target, seeked: true);
+
+        ParticleStore a = played.BurstParticles(1)!;
+        ParticleStore b = seeked.BurstParticles(1)!;
+
+        a.Count.ShouldBeGreaterThan(0, "the control: there is something to compare");
+        b.Count.ShouldBe(a.Count);
+        b.Age.ShouldBe(a.Age, 1e-5f);
+
+        for (int index = 0; index < a.Count; index++)
+        {
+            Vector3.Distance(a.PositionOf(index), b.PositionOf(index)).ShouldBeLessThan(1e-3f, $"particle {index}");
+        }
+    }
+
+    /// <summary>Emits for ever and falls: each particle lives two seconds under 800 units a second of gravity.</summary>
+    private static ParticleSystem Falling => Beam with
+    {
+        Name = "test_falling",
+        Initializers =
+        [
+            new ParticleFunction("Lifetime Random", "life", new Dictionary<string, DmxValue>(StringComparer.Ordinal)
+            {
+                ["lifetime_min"] = new(DmxAttributeType.Real, 2d),
+                ["lifetime_max"] = new(DmxAttributeType.Real, 2d),
+            }),
+        ],
+        Operators =
+        [
+            new ParticleFunction("Movement Basic", "move", new Dictionary<string, DmxValue>(StringComparer.Ordinal)
+            {
+                ["gravity"] = new(DmxAttributeType.Vector3, Vector: new Vector4(0f, 0f, -800f, 0f)),
+            }),
+            new ParticleFunction("Lifespan Decay", "decay", new Dictionary<string, DmxValue>(StringComparer.Ordinal)),
+        ],
+    };
+
+    /// <summary>A beam's shape: emits for ever, each particle lives half a second.</summary>
+    private static readonly ParticleSystem Beam = new(
+        Name: "test_beam",
+        Emitters:
+        [
+            new ParticleFunction(
+                Function: "emit_continuously",
+                Name: "emitter",
+                Parameters: new Dictionary<string, DmxValue>(StringComparer.Ordinal)
+                {
+                    ["emission_rate"] = new(DmxAttributeType.Real, 66d),
+                }),
+        ],
+        Initializers:
+        [
+            new ParticleFunction("Lifetime Random", "life", new Dictionary<string, DmxValue>(StringComparer.Ordinal)
+            {
+                ["lifetime_min"] = new(DmxAttributeType.Real, 0.5d),
+                ["lifetime_max"] = new(DmxAttributeType.Real, 0.5d),
+            }),
+        ],
+        Operators: [new ParticleFunction("Lifespan Decay", "decay", new Dictionary<string, DmxValue>(StringComparer.Ordinal))],
+        Renderers: [],
+        Children: [],
+        Parameters: new Dictionary<string, DmxValue>(StringComparer.Ordinal));
 
     private static ParticleBurst Burst(long key, int tick, float x = 0f) =>
         new(

@@ -3868,7 +3868,7 @@ public sealed class DemoTimeline
                     decoder.Decode(snapshot.Body.Span, snapshot, snapshot.LengthBits))
                 {
                     entities.Apply(entity);
-                    dormancy.Observe(entity.EntityIndex, entity.UpdateType, command.Tick);
+                    dormancy.Observe(entity.EntityIndex, entity.UpdateType, command.Tick, entity.SerialNumber);
                     pointCameras.Observe(
                         entity.EntityIndex,
                         entities.TryGet(entity.EntityIndex, out EntityState? observed) ? observed?.ClassName ?? string.Empty : string.Empty,
