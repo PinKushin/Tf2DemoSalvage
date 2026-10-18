@@ -96,6 +96,28 @@ public sealed class DispatchStopsTests
         stops[0].ShouldBe(250);
     }
 
+    [Test]
+    public void Compute_AStopBeforeTheOwnersDelete_StopsItAtTheStop()
+    {
+        int?[] stops = DispatchStops.Compute(
+            [FromEntity(100, entity: 7), At(200, Stop, entity: 7)],
+            NameOf,
+            (entity, tick) => entity == 7 && tick < 250 ? 250 : null);
+
+        stops[0].ShouldBe(200);
+    }
+
+    [Test]
+    public void Compute_ADeleteWithNoStop_EndsItAtTheDelete()
+    {
+        int?[] stops = DispatchStops.Compute(
+            [FromEntity(100, entity: 7)],
+            NameOf,
+            (entity, tick) => entity == 7 && tick < 250 ? 250 : null);
+
+        stops[0].ShouldBe(250);
+    }
+
     private static string? NameOf(int name) => name switch
     {
         Effect => "ParticleEffect",

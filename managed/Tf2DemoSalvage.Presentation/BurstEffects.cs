@@ -1087,15 +1087,25 @@ public sealed class BurstEffects
         // **An entity's effect runs until Valve ends it** — a `ParticleEffectStop`, a later RESET dispatch on it, or the
         // owner's deletion (`DispatchStops`) — and is offered until its fade is past, so a seek into the fade builds it fading
         // exactly as playing through does. **Dormancy hides it, and does not stop it** (`OwnerSetDormantTo`, particle_property.cpp:465).
+        // In fire order, so the first not yet fired ends the walk.
         foreach (int index in _owned)
         {
             SceneEffectDispatch dispatch = timeline.Dispatches.All[index];
 
-            if (dispatch.Tick <= tick && (_stops[index] is not { } stop || tick < stop + ParticleDispatchWindowTicks))
+            if (dispatch.Tick > tick)
             {
+                break;
+            }
+
+            if (_stops[index] is not { } stop || tick < stop + ParticleDispatchWindowTicks)
+            {
+                int owner = dispatch.Entity;
+                EntityDormancy dormancy = timeline.Dormancy;
+
                 AddParticleEffect(
                     ParticleDispatchKeys + index, dispatch, timeline, systems, _stops[index],
-                    timeline.Dormancy.IsDormant(dispatch.Entity, tick));
+                    at => dormancy.IsDormant(owner, at),
+                    tick);
             }
         }
 
@@ -1116,7 +1126,8 @@ public sealed class BurstEffects
         DemoTimeline timeline,
         IReadOnlyDictionary<string, ParticleSystem> systems,
         int? stop = null,
-        bool dormant = false)
+        Func<int, bool>? dormantAt = null,
+        int tick = 0)
     {
         string? name = timeline.Dispatches.ParticleNames.Name(dispatch.HitBox);
         ParticleSystem? definition = name is null ? null : systems.GetValueOrDefault(name);
@@ -1138,9 +1149,15 @@ public sealed class BurstEffects
                     $"{(point is null ? "NOT PLACED" + posed : "placed")}"));
         }
 
+        // A dormant owner is not posed, and its effect is held where it is: offered without a point, which nothing reads.
+        if (definition is not null && point is null && dormantAt?.Invoke(tick) == true)
+        {
+            point = ParticleControlPoint.Unoriented(Vector3.Zero);
+        }
+
         if (definition is not null && point is { } at)
         {
-            _burstsNow.Add(new ParticleBurst(key, definition, at, dispatch.Tick, DispatchedEnd(dispatch), stop) { Dormant = dormant });
+            _burstsNow.Add(new ParticleBurst(key, definition, at, dispatch.Tick, DispatchedEnd(dispatch), stop) { DormantAt = dormantAt });
         }
     }
 

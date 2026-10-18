@@ -163,7 +163,10 @@ public sealed partial class FramePresenter
     public (int Trails, int Bursts, int Quads) ParticleCounts => (_particles.Count, _particles.BurstCount, _frameParticles.Quads);
 
     /// <summary>The running bursts by effect name, with how many of each their caller no longer offers — a leak census.</summary>
-    public IReadOnlyList<(string Name, int Live, int Unoffered)> ParticleCensus() => _particles.Census();
+    public IReadOnlyList<(string Name, int Live, int Unoffered, int Spent)> ParticleCensus() => _particles.Census();
+
+    /// <summary>What replaying rebuilt bursts has cost, ever: stopwatch ticks and steps — a seek's price.</summary>
+    public (long Ticks, long Steps) ParticleReplay => (_particles.ReplayTicks, _particles.ReplaySteps);
 
     /// <summary>What else the frame keeps alive, for the same census: projectile trails and decals on models.</summary>
     public (int Trails, int ModelDecals) KeptCounts => (_particles.Count, _decals.ModelDecalCount);

@@ -18,9 +18,14 @@ public sealed class EntityDormancy
     private readonly Dictionary<int, List<int>> _deletes = [];
     private readonly Dictionary<int, int> _serials = [];
 
+    /// <summary>How many ends the entity index has had, for a test or a diagnostic.</summary>
+    /// <param name="entityIndex">The entity index.</param>
+    /// <returns>The count of recorded deletes.</returns>
+    public int DeleteCount(int entityIndex) => _deletes.TryGetValue(entityIndex, out List<int>? deletes) ? deletes.Count : 0;
+
     /// <summary>The first tick after <paramref name="tick"/> the entity at this index was deleted, or null — the end of its life.</summary>
     /// <param name="entityIndex">The entity index.</param>
-    /// <param name="tick">The tick to look after.</param>
+    /// <param name="tick">The tick to look after; a delete AT it is not after it (see the conformance test).</param>
     /// <returns>The delete's tick; an index used again after it is another entity.</returns>
     public int? DeletedAfter(int entityIndex, int tick)
     {
@@ -63,7 +68,11 @@ public sealed class EntityDormancy
                 _deletes[entityIndex] = deletes = [];
             }
 
-            deletes.Add(tick);
+            // Once a tick: a snapshot's delete and the same slot entered under a new serial are one end.
+            if (deletes.Count == 0 || deletes[^1] != tick)
+            {
+                deletes.Add(tick);
+            }
         }
 
         if (update == EntityUpdateType.Leave)

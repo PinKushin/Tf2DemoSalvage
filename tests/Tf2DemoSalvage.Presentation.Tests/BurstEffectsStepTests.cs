@@ -461,7 +461,11 @@ public sealed class BurstEffectsStepTests
 
         models.Numbered[(Sentry, 3)] = first;
         bursts.StepOver(Frame(timeline, fired), World());
-        bursts.Bursts.ShouldHaveSingleItem().ShouldBe(new ParticleBurst(ParticleDispatchKeys, Systems["rocketjump_smoke"], first, fired));
+        ParticleBurst offered = bursts.Bursts.ShouldHaveSingleItem();
+
+        // An entity's effect carries its owner's dormancy, asked per tick (owner awake here); the rest is the dispatch's.
+        offered.DormantAt.ShouldNotBeNull()(fired).ShouldBeFalse();
+        (offered with { DormantAt = null }).ShouldBe(new ParticleBurst(ParticleDispatchKeys, Systems["rocketjump_smoke"], first, fired));
 
         models.Numbered[(Sentry, 3)] = moved;
         bursts.StepOver(Frame(timeline, fired + 1), World());

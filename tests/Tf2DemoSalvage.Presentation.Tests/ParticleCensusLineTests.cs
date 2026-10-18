@@ -11,9 +11,9 @@ public sealed class ParticleCensusLineTests
     {
         string line = ParticleCensusLine.Format(
             30123.4,
-            [("medicgun_beam_red", 5, 4), ("ExplosionCore_Wall", 2, 1), ("muzzle", 9, 0)]);
+            [("medicgun_beam_red", 5, 4, 0), ("ExplosionCore_Wall", 2, 1, 0), ("muzzle", 9, 0, 0), ("rocketjump_smoke", 0, 0, 3)]);
 
         line.ShouldBe(
-            "census at tick 30123: bursts 16 (5 unoffered); muzzle 9/0; medicgun_beam_red 5/4; ExplosionCore_Wall 2/1");
+            "census at tick 30123: bursts 16 (5 unoffered, 3 finished); muzzle 9/0; medicgun_beam_red 5/4; ExplosionCore_Wall 2/1");
     }
 }

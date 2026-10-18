@@ -63,4 +63,38 @@ public sealed class EntityDormancyConformanceTests
         dormancy.DeletedAfter(7, 50).ShouldBeNull();
         dormancy.DeletedAfter(8, 10).ShouldBe(40);
     }
+
+    /// <remarks>
+    /// **The tick of a delete is not after it** — `DeletedAfter(e, t)` answers a delete LATER than t. A temp entity at the
+    /// delete's own tick is fired after the snapshot that deleted its target — *interpolated*: `CL_FireEvents` runs at the
+    /// frame's end, after the packet's entity updates; the engine's order is not in the 2013 SDK — so an effect dispatched at
+    /// that tick names whatever holds the slot then, and the delete before it is no end of that one.
+    /// </remarks>
+    [Test]
+    public void DeletedAfter_AtTheDeletesOwnTick_LooksPastIt()
+    {
+        EntityDormancy dormancy = new();
+
+        dormancy.Observe(7, EntityUpdateType.Delete, 40);
+        dormancy.Observe(7, EntityUpdateType.Delete, 90);
+
+        dormancy.DeletedAfter(7, 39).ShouldBe(40);
+        dormancy.DeletedAfter(7, 40).ShouldBe(90);
+    }
+
+    /// <remarks>A delete and a new-serial enter in one tick are one end, recorded once.</remarks>
+    [Test]
+    public void DeletedAfter_ADeleteAndANewSerialOnOneTick_IsOneEnd()
+    {
+        EntityDormancy dormancy = new();
+
+        dormancy.Observe(7, EntityUpdateType.Enter, 10, serial: 1);
+        dormancy.Observe(7, EntityUpdateType.Delete, 50);
+        dormancy.Observe(7, EntityUpdateType.Enter, 50, serial: 2);
+        dormancy.Observe(7, EntityUpdateType.Delete, 80);
+
+        dormancy.DeletedAfter(7, 10).ShouldBe(50);
+        dormancy.DeletedAfter(7, 50).ShouldBe(80, "had 50 been recorded twice, this would still be 80 — the count below is the test");
+        dormancy.DeleteCount(7).ShouldBe(2);
+    }
 }
