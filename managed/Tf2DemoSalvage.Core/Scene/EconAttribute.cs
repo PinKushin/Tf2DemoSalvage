@@ -161,6 +161,18 @@ public sealed record SceneItem(int EntityIndex, string? ClassName, int? Definiti
     /// firing, 3 secondary (tf_weapon_flamethrower.h:31-38); 0 when unsent.
     /// </summary>
     public int FlameThrowerState { get; init; }
+
+    /// <summary>
+    /// A medigun's `m_flChargeLevel`, 0..1: `DT_LocalTFWeaponMedigunData` to its owner (tf_weapon_medigun.cpp:128), else
+    /// `DT_TFWeaponMedigunDataNonLocal` (:139); 0 when unsent.
+    /// </summary>
+    public float ChargeLevel { get; init; }
+
+    /// <summary>A medigun's `m_bChargeRelease` (tf_weapon_medigun.cpp:152): `IsReleasingCharge()`.</summary>
+    public bool ChargeRelease { get; init; }
+
+    /// <summary>A medigun's `m_nChargeResistType` (tf_weapon_medigun.cpp:154): the Vaccinator's resist.</summary>
+    public int ChargeResistType { get; init; }
 }
 
 /// <summary>Resolving which attribute list answers, as the engine resolves it.</summary>

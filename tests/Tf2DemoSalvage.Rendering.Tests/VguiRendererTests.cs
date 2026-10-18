@@ -21,6 +21,45 @@ public sealed class VguiRendererTests
         data[4].ShouldBe(1f, "red");
     }
 
+    /// <remarks>
+    /// `o.color.rgb = GammaToLinear( v.vColor.rgb )` (vertexlit_and_unlit_generic_vs20.fxc:238), `pow( x, 2.2 )`
+    /// (common_fxc.h), before the frame's sRGB write. Measured against TF2 on cp_process_f12, 2026-10-17: TanLight
+    /// (235 226 202) text reads back 236 227 203 — what pow 2.2 then the sRGB curve gives — where ours, written straight
+    /// to the sRGB view, read 246 242 230.
+    /// </remarks>
+    [Test]
+    public void BuildVertices_AGammaColour_IsLinearisedByPowTwoPointTwo()
+    {
+        VguiQuad quad = new(null, 0f, 0f, 1f, 1f, 0f, 0f, 1f, 1f, 235, 128, 0, 255, 255, 255, 255);
+
+        float[] data = VguiRenderer.BuildVertices([quad], 1, 1);
+
+        data[4].ShouldBe(System.MathF.Pow(235f / 255f, 2.2f), 1e-6f);
+        data[5].ShouldBe(System.MathF.Pow(128f / 255f, 2.2f), 1e-6f);
+        data[6].ShouldBe(0f);
+        data[7].ShouldBe(1f, "alpha is not converted (:239)");
+    }
+
+    [Test]
+    public void DistanceAlphaConstants_NoShape_AreAllZeroSoTheShaderSkipsTheBlock() =>
+        VguiRenderer.DistanceAlphaConstants(null, 1280, 720).ShouldAllBe(value => value == 0f);
+
+    [Test]
+    public void DistanceAlphaConstants_TheAmmoBackground_PacksC5ToC9ThenItsSwitches()
+    {
+        Tf2DemoSalvage.Scene.VguiDistanceAlpha shape = new(
+            Detail: null, FromDetail: true, DetailBlendMode: 8, DetailBlendFactor: 1f,
+            SoftMask: true, SoftStart: 0.45f, SoftEnd: 0.3f, ScaleEdges: false,
+            Outline: true, OutlineColor: (0.7f, 0.7f, 0.5f), OutlineAlpha: 1f,
+            OutlineStart0: 0.3f, OutlineStart1: 0.49f, OutlineEnd0: 0.49f, OutlineEnd1: 0.73f, ScaleOutline: false,
+            Glow: false, GlowColor: (0f, 0f, 0f), GlowAlpha: 0.45f, GlowStart: 0.03f, GlowEnd: 0.5f, GlowX: -0.001f, GlowY: -0.001f);
+
+        float[] data = VguiRenderer.DistanceAlphaConstants(shape, 1024, 768);
+
+        data[..20].ShouldBe(shape.Constants(1024, 768));
+        data[20..].ShouldBe([1f, 1f, 1f, 0f, 0f, 1f, 8f, 1f], "distance alpha, soft, outline, no glow; no detail texture, from detail, multiply, factor 1");
+    }
+
     [Test]
     public void Steps_AModelBetweenQuadsOfOneTexture_SplitsTheRunAtItsPlaceInPaintOrder()
     {

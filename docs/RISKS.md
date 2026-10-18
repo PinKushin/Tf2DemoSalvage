@@ -39776,6 +39776,21 @@ cable that changes material backs only the one it held as a rope (`DemoModelsTes
 reddened it. A builder stamp lands on the same tick as the update's keyframe, so `FactsAt(keyframe)` is never before
 the first stamp.
 
+## B552 — equal-`zpos` HUD labels paint their shadow over the text; TF2 paints the text on top — OPEN, defect
+
+**Measured 2026-10-17 against TF2 on cp_process_f12** (`docs/findings/78-the-stock-hud-against-tf2.md`): `AmmoInClip`
+and `AmmoInClipShadow` share `zpos 5`, the number listed first; TF2 shows TanLight over a one-pixel `Black` shadow, the
+viewer shows the shadow over the number. The scoreboard's team scores (main first, equal `zpos`) match TF2's order too.
+31 stock `.res` pairs are main-first at equal `zpos`, 10 shadow-first (all `zpos 0`, MvM and win panels).
+
+**What the code read says, and why it is not the answer:** `VPanel::SetParent` (vgui2.dll 0x18001c3e0) appends, then
+`SetZPos`; `SetZPos` (0x18001c610) moves only past a strictly out-of-order neighbour; `Panel::PaintTraverse`
+(Panel.cpp:1128) paints children first to last; `CTFHudWeaponAmmo::ApplySchemeSettings` (client x64, the same as the
+SDK's) finds the labels in `.res` order. That predicts what the viewer draws. So the mechanism is somewhere not yet read —
+the surface's text drawing in `vguimatsurface.dll` is the next place. `vgui_drawtree`'s "In Render Order" lists popups
+only (engine.dll `FUN_18022c960`), so it cannot show sibling order. Gated by
+`HudGoldenImageUiTests.Soldier_TheElement_MatchesTf2("ammo", …)`.
+
 ## B551 — a move child was LIT at its local origin, and a grandchild drawn one level deep — FIXED 2026-10-16 (`fix/parented-prop-origin`)
 
 **Reported as "PropsAt draws a child at its local origin", and that half was a misreading.** A timeline test authored a

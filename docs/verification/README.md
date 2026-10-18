@@ -162,6 +162,23 @@ levels and luma by under 0.4; the channel assertion went red, the luma one staye
 
 ---
 
+## Stock-HUD goldens (D222)
+
+Measured 2026-10-17, `HudGoldenImageUiTests`: TF2's modern client, owner's HUD moved out, `cp_process_f12` loaded with
+`map`, 1280x720, against the viewer playing `hudref-cp_process_f12-2026-10-17-pov.dem` (lcor) from the recorder's eye.
+Per element, a 4x2 grid of cell means; the number is the worst channel difference, 0..255.
+
+| Element | Before the fixes | After | What is left |
+|---|---|---|---|
+| Soldier ammo panel | 39.6 | 53.0 | the "4"'s shadow painted over it (B552) |
+| Soldier class and health | 63.2 | 23.1 | the class model about 20 luma darker |
+| Medic ÜberCharge meter | absent | 80.4 | the viewmodel behind the translucent meter, not the meter |
+| Medic class and health | — | 24.8 | the class model |
+| Control: medic meter rectangle in the soldier frame | — | > 12 (passes) | — |
+
+The four TF2 comparisons are `[Explicit]` with those reasons. The regression locks (`regression_lock_ours_*`, the
+viewer against its own fixed render, tolerance 2.0) are what the gate runs.
+
 ## The viewer's frame cost
 
 ### Release runs 340–490 fps; Debug is not a measurement of anything

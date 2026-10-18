@@ -16,6 +16,37 @@ public sealed class VguiModelPanelConformanceTests
 {
     private const int ScreenTall = 1080;
 
+    /// <remarks>
+    /// `CBaseModelPanel::FindSequenceFromActivity` (basemodel_panel.cpp:229-244) walks `CStudioHdr::GetNumSeq()`, the
+    /// VIRTUAL model's sequences: a TF2 class model's own table is `ref` and `ragdoll`, and `ACT_MP_STAND_PRIMARY` lives in
+    /// the included `*_animations.mdl`. Reading the root group alone left the HUD's class portrait in its reference pose,
+    /// weapon at its side (2026-10-17, against TF2's capture on cp_process_f12).
+    /// </remarks>
+    [Test]
+    public void FindSequenceFromActivity_AnActivityInAnIncludedModel_IsItsMergedSequence()
+    {
+        static StudioSequence Sequence(string label, string activity) =>
+            new(Animation: 0, Flags: 0, Label: label, Blend: null, Activity: activity, ActivityWeight: 1);
+
+        List<(int Group, IReadOnlyList<StudioSequence> Sequences)> groups =
+        [
+            (0, [Sequence("ref", ""), Sequence("ragdoll", "ACT_DIERAGDOLL")]),
+            (1, [Sequence("stand_melee", "ACT_MP_STAND_MELEE"), Sequence("stand_primary", "ACT_MP_STAND_PRIMARY")]),
+        ];
+        PropModels.SkinnedModel model = new(
+            Bones: [], Models: [[]], Sequences: StudioSequenceTable.Merge(groups), Groups: groups, PoseParameters: [], MasterPose: []);
+
+        int found = new ActivityProbe().Find(model, "act_mp_stand_primary");
+
+        found.ShouldBe(model.SequenceByLabel("stand_primary"));
+        found.ShouldBeGreaterThan(1, "the root's two come first, so the included one is past them");
+    }
+
+    private sealed class ActivityProbe() : VguiBaseModelPanel(null, null, Cache.None)
+    {
+        public int Find(PropModels.SkinnedModel model, string activity) => Visible ? FindSequenceFromActivity(model, activity) : -2;
+    }
+
     [Test]
     public void Ambient_ANewPanel_IsPoint4OnEveryFaceLikeCreateDefaultLights()
     {

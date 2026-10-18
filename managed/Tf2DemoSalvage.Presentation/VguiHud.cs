@@ -38,6 +38,7 @@ public sealed class VguiHud
         _host = host ?? throw new System.ArgumentNullException(nameof(host));
         PlayerStatus = new TfHudPlayerStatus(Viewport, mdlCache);
         WeaponAmmo = new TfHudWeaponAmmo(Viewport);
+        MedicCharge = new TfHudMedicChargeMeter(Viewport);
         DeathNotice = new TfHudDeathNotice(Viewport);
 
         // The weapon element first, so the icon it picks is the one the crosshair paints in the same frame.
@@ -119,6 +120,9 @@ public sealed class VguiHud
 
     /// <summary>`CTFHudWeaponAmmo`.</summary>
     public TfHudWeaponAmmo WeaponAmmo { get; }
+
+    /// <summary>`CHudMedicChargeMeter`.</summary>
+    public TfHudMedicChargeMeter MedicCharge { get; }
 
     /// <summary>`CBaseViewport`, which the elements are parented to.</summary>
     public HudViewport Viewport { get; } = new();

@@ -78,7 +78,7 @@
 - [A measure needs focus](a-measure-needs-focus.md); [a reference count can depend on fps](a-reference-count-can-depend-on-fps.md); [mutation box gets maps, never demos](mutation-box-gets-maps-never-demos.md).
 - [SourceTV has a local player](sourcetv-has-a-local-player.md); [a POV demo follows the recorder](a-pov-demo-follows-the-recorder-in-everything.md) (D188).
 - [Play fast to find lifecycle bugs](play-fast-to-find-lifecycle-bugs.md) (B418); [an event is taken, not read](an-event-is-taken-not-read.md) (B473); [driving TF2 demo playback](driving-tf2-demo-playback.md); [interp is the watcher's setting](interp-is-the-watchers-setting.md) (D190).
-- [lcor is not in a worktree](lcor-is-not-in-a-worktree.md); [a worktree's lcor is a junction](a-worktree-lcor-is-a-junction.md) — `rm` deletes the original; [$TEMP is shared](temp-is-shared-across-worktrees.md).
+- [lcor is not in a worktree](lcor-is-not-in-a-worktree.md); [a worktree's lcor is a junction](a-worktree-lcor-is-a-junction.md) — `rm` deletes the original; [$TEMP is shared](temp-is-shared-across-worktrees.md); [check the worktree before every git command](check-the-worktree-before-every-git-command.md).
 - [clangd on the SDK](clangd-on-the-sdk.md) — never grep.
 - [Auto-exposure settles](auto-exposure-settles.md) (D192); [read the HDR set](read-the-hdr-set.md); [TF2 barely uses dynamic lights](tf2-barely-uses-dynamic-lights.md) (B425).
 - [A synthetic packet without ServerInfo is protocol 0](a-synthetic-packet-without-serverinfo-is-protocol-0.md) (B443); [an empty schema value is an answer](an-empty-schema-value-is-an-answer.md) (B105).

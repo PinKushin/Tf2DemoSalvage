@@ -49,5 +49,8 @@ public sealed class SceneItemEffectMeterFieldsTests
         item.NumCharges.ShouldBe(3);
         item.PrimaryAmmoType.ShouldBe(4);
         item.FlameThrowerState.ShouldBe(2, "DT_WeaponFlameThrower.m_iWeaponState, FT_STATE_FIRING (tf_weapon_flamethrower.cpp:206)");
+        item.ChargeLevel.ShouldBe(0.625f, "DT_LocalTFWeaponMedigunData.m_flChargeLevel (tf_weapon_medigun.cpp:128), what CHudMedicChargeMeter reads");
+        item.ChargeRelease.ShouldBeTrue("DT_WeaponMedigun.m_bChargeRelease (:152)");
+        item.ChargeResistType.ShouldBe(2, "DT_WeaponMedigun.m_nChargeResistType (:154)");
     }
 }

@@ -647,16 +647,20 @@ public class VguiBaseModelPanel : VguiMdlPanel
     /// activity name matches, case ignored, or −1 (<c>ACT_INVALID</c>).</summary>
     /// <param name="model">The root model.</param>
     /// <param name="activity">The activity name.</param>
-    /// <returns>The sequence, or −1.</returns>
+    /// <returns>The merged sequence, or −1.</returns>
+    /// <remarks>
+    /// Over <c>CStudioHdr::GetNumSeq()</c> — the virtual model, included models' sequences too: a class model's own table
+    /// is <c>ref</c> and <c>ragdoll</c>, and its stand activities live in <c>*_animations.mdl</c>.
+    /// </remarks>
     protected static int FindSequenceFromActivity(PropModels.SkinnedModel model, string? activity)
     {
         ArgumentNullException.ThrowIfNull(model);
 
-        IReadOnlyList<StudioSequence> rootSequences = model.Groups.Count > 0 ? model.Groups[0].Sequences : [];
-
-        for (int index = 0; activity is not null && index < rootSequences.Count; index++)
+        for (int index = 0; activity is not null && index < model.Sequences.Count; index++)
         {
-            if (string.Equals(rootSequences[index].Activity, activity, StringComparison.OrdinalIgnoreCase))
+            if (model.Sequences.At(index) is { } at && at.Group < model.Groups.Count
+                && at.Local < model.Groups[at.Group].Sequences.Count
+                && string.Equals(model.Groups[at.Group].Sequences[at.Local].Activity, activity, StringComparison.OrdinalIgnoreCase))
             {
                 return index;
             }

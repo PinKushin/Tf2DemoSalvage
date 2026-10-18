@@ -881,6 +881,15 @@ internal static class SyntheticPlayer
             Table("base", "DT_TFWeaponBase"), Table("knife", "DT_TFWeaponKnife"), Table("smg", "DT_WeaponChargedSMG"),
             Table("pack", "DT_TFWeaponRocketPack"), Table("cannon", "DT_ParticleCannon"), Table("bottle", "DT_TFPowerupBottle"),
             Table("LocalWeaponData", "DT_LocalWeaponData"), Table("flamethrower", "DT_WeaponFlameThrower"),
+            Table("medigun", "DT_WeaponMedigun"),
+        ]));
+
+        // tf_weapon_medigun.cpp:124-157: the charge in the owner's local table, the release and resist on the weapon's.
+        tables.Add(new SendTable("DT_LocalTFWeaponMedigunData", NeedsDecoder: true, [NoScaleFloat("m_flChargeLevel")]));
+        tables.Add(new SendTable("DT_WeaponMedigun", NeedsDecoder: true,
+        [
+            UnsignedInt("m_bChargeRelease", bits: 1), UnsignedInt("m_nChargeResistType", bits: 2),
+            Table("LocalTFWeaponMedigunData", "DT_LocalTFWeaponMedigunData"),
         ]));
         tables.Add(new SendTable("DT_LocalWeaponData", NeedsDecoder: true, [Int("m_iPrimaryAmmoType", bits: 8)]));
 
@@ -928,6 +937,9 @@ internal static class SyntheticPlayer
                 ["m_usNumCharges"] = PropertyValue.FromInt(3),
                 ["m_iPrimaryAmmoType"] = PropertyValue.FromInt(4),
                 ["m_iWeaponState"] = PropertyValue.FromInt(2),
+                ["m_flChargeLevel"] = PropertyValue.FromFloat(0.625f),
+                ["m_bChargeRelease"] = PropertyValue.FromInt(1),
+                ["m_nChargeResistType"] = PropertyValue.FromInt(2),
             }),
         ];
 

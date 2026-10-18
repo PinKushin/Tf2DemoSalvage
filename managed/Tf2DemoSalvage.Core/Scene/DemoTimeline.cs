@@ -1451,6 +1451,10 @@ public sealed class DemoTimeline
             RocketPackEnabled = item.Integer("DT_TFWeaponRocketPack.m_bEnabled") is > 0,
             NumCharges = item.Integer("DT_TFPowerupBottle.m_usNumCharges") ?? 0,
             FlameThrowerState = item.Integer("DT_WeaponFlameThrower.m_iWeaponState") ?? 0,
+            ChargeLevel = item.Number("DT_LocalTFWeaponMedigunData.m_flChargeLevel")
+                ?? item.Number("DT_TFWeaponMedigunDataNonLocal.m_flChargeLevel") ?? 0f,
+            ChargeRelease = item.Integer("DT_WeaponMedigun.m_bChargeRelease") is > 0,
+            ChargeResistType = item.Integer("DT_WeaponMedigun.m_nChargeResistType") ?? 0,
         };
 
     private sealed partial class Builder
