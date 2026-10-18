@@ -229,6 +229,29 @@ public sealed class CloakRenderTests
         assets.ScreenOverlays[ScreenOverlay.InvulnRed].NormalFrames.Count.ShouldBe(1);
     }
 
+    /// <remarks>
+    /// **Every frame is the file's own, in order** — read now from one fetch of the file rather than one per frame
+    /// (2026-10-18), so the prediction is the file decoded frame by frame: the same count, and each frame's bytes.
+    /// </remarks>
+    [Test]
+    public void ScreenOverlays_JaratesNormalFrames_AreTheFilesFramesInOrder()
+    {
+        MapAssets assets = MapCache.Load();
+        byte[] file = SharedGame.Archives.Read("materials/water/tfwater001_normal.vtf").ShouldNotBeNull();
+        int count = Content.Assets.VtfTexture.Read(file, MapCache.DefaultTextureSize).FrameCount;
+
+        System.Collections.Generic.IReadOnlyList<MapTexture> frames =assets.ScreenOverlays[ScreenOverlay.Urine].NormalFrames;
+
+        frames.Count.ShouldBe(count);
+
+        for (int frame = 0; frame < count; frame++)
+        {
+            MapTexture expected = MapTexture.Of(Content.Assets.VtfTexture.Read(file, MapCache.DefaultTextureSize, frame: frame));
+
+            frames[frame].Image.Top.ToArray().ShouldBe(expected.Image.Top.ToArray(), $"frame {frame}");
+        }
+    }
+
     private static int SpyRed(MapAssets assets)
     {
         int index = Enumerable.Range(0, assets.Materials.Count)

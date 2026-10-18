@@ -55,6 +55,26 @@ public sealed class OffscreenTargetMemoryDiagnostic
         Assert.Pass("reported above");
     }
 
+    /// <remarks>One load with its own log, printed: where a load's time and memory go, phase by phase.</remarks>
+    [Test]
+    public void Load_OneMapWithItsLog_ReportsEachPhase()
+    {
+        byte[] map = MapCache.Bytes("cp_process_f12");
+        RecordingLoggerFactory log = new();
+
+        _ = MapAssets.Load(map, SharedGame.Archives, maximumTextureSize: 256, loggers: log);
+
+        foreach ((string area, _, string message) in log.Lines)
+        {
+            if (message.Contains("took", StringComparison.Ordinal))
+            {
+                TestContext.Out.WriteLine($"PHASE {area}: {message}");
+            }
+        }
+
+        Assert.Pass("reported above");
+    }
+
     /// <remarks>The other half: the same map loaded and dropped, again and again, with no target at all.</remarks>
     [Test]
     [System.Diagnostics.CodeAnalysis.SuppressMessage(
