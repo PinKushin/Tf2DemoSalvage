@@ -236,18 +236,27 @@ public sealed class CloakRenderTests
     [Test]
     public void ScreenOverlays_JaratesNormalFrames_AreTheFilesFramesInOrder()
     {
-        MapAssets assets = MapCache.Load();
-        byte[] file = SharedGame.Archives.Read("materials/water/tfwater001_normal.vtf").ShouldNotBeNull();
-        int count = Content.Assets.VtfTexture.Read(file, MapCache.DefaultTextureSize).FrameCount;
+        // MapCache.Load() decodes at DefaultTextureSize, so the prediction decodes at the same.
+        const int Decoded = MapCache.DefaultTextureSize;
+        MapAssets assets = MapCache.Load(maximumTextureSize: Decoded);
+        Content.Assets.VmtMaterial vmt = Content.Assets.VmtMaterial.Load(
+            SharedGame.Archives.Read("materials/" + ScreenOverlay.Urine + ".vmt").ShouldNotBeNull(), SharedGame.Archives.Read);
+        string normal = vmt.Value("$normalmap").ShouldNotBeNull().Replace('\\', '/');
+        byte[] file = SharedGame.Archives.Read("materials/" + normal + ".vtf").ShouldNotBeNull();
+        int count = Content.Assets.VtfTexture.Read(file, Decoded).FrameCount;
 
-        System.Collections.Generic.IReadOnlyList<MapTexture> frames =assets.ScreenOverlays[ScreenOverlay.Urine].NormalFrames;
+        System.Collections.Generic.IReadOnlyList<MapTexture> frames = assets.ScreenOverlays[ScreenOverlay.Urine].NormalFrames;
 
+        (normal, count > 1).ShouldBe(("water/tfwater001_normal", true), "the control: jarate's normal map is the animated water one");
         frames.Count.ShouldBe(count);
+        frames[0].Image.Top.ToArray().ShouldNotBe(frames[1].Image.Top.ToArray(), "frames 0 and 1 differ, so an order mistake shows");
 
         for (int frame = 0; frame < count; frame++)
         {
-            MapTexture expected = MapTexture.Of(Content.Assets.VtfTexture.Read(file, MapCache.DefaultTextureSize, frame: frame));
+            MapTexture expected = MapTexture.Of(Content.Assets.VtfTexture.Read(file, Decoded, frame: frame));
 
+            (frames[frame].Image.Format, frames[frame].Image.Levels.Count).ShouldBe(
+                (expected.Image.Format, expected.Image.Levels.Count), $"frame {frame}'s format and mips");
             frames[frame].Image.Top.ToArray().ShouldBe(expected.Image.Top.ToArray(), $"frame {frame}");
         }
     }

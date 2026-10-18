@@ -2674,7 +2674,8 @@ public sealed class MapAssets
                 frames.Add(MapTexture.Of(VtfTexture.Read(file, maximumTextureSize, frame: frame)));
             }
 
-            return MapTexture.Of(texture);
+            // Frame 0 is the one already read; the result is discarded, so nothing is built for it.
+            return first;
         });
 
         return frames;
