@@ -72,6 +72,9 @@ not tokens: gates, UI suites, big probes and TF2 loads serialize under run-exclu
 ## 2026-10-18: new week, 2 agents at most (supersedes the 4-5 raise)
 Owner: *"it is a new week so we run like 2 agents at most, the reviews are taking a bunch of tokens so this new sub didnt get me more concerrant agents, it got me better and more reviews though"*. Cap 2 implementers at once; reviews (Sonnet/Fable, API-credit Fable) keep their budget.
 
+## 2026-10-18: new subsystem = fresh agent
+Owner, after the D217 agent (~900k context) was handed unrelated frame-cost work: *"shouldnt those have been put on new agents for fresh context?"*. Same subsystem follow-ups stay with the agent that knows it; a new subsystem gets a fresh agent once a slot frees. **Why:** a big context is paid every turn and helps nothing outside its subsystem.
+
 ## 2026-10-04: corpus/specimen plumbing is sonnet or haiku
 Owner, on an opus agent launched to add gcor specimens for new protocols: *"adding specimens was probably a sonnet or
 haiku job, not a opus job"*. Picking files, manifest entries, era tests, doc updates = bounded-task (sonnet). Opus only
