@@ -3,6 +3,7 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Runtime.CompilerServices;
 using System.Threading;
 
 using Tf2DemoSalvage.Content.Assets;
@@ -63,7 +64,7 @@ internal static class MapCache
     public const int DefaultTextureSize = 64;
 
     /// <summary>One load per distinct request while any test holds it; released once none does (<see cref="WeakMemo{T}"/>).</summary>
-    private static readonly WeakMemo<LoadedMap> Loaded = new();
+    private static readonly WeakMemo<MapAssets> Loaded = new();
 
     /// <summary>The key of <see cref="Load"/> with every default, the request held strongly.</summary>
     private static readonly string DefaultKey = $"{DefaultMap}|{DefaultTextureSize}|||";
@@ -73,7 +74,7 @@ internal static class MapCache
         "Major Code Smell",
         "S4487:Unread \"private\" fields should be removed",
         Justification = "Holding it is the purpose: the strong reference keeps the weak cache's entry alive.")]
-    private static LoadedMap? _default;
+    private static MapAssets? _default;
 
     /// <summary>A cached load: the assets, and everything the load said while producing them.</summary>
     /// <param name="Assets">The map, shared with every other caller asking the same thing.</param>
@@ -167,22 +168,23 @@ internal static class MapCache
         string key = string.Join(
             '|', mapName, maximumTextureSize, Listed(entityModels), Listed(spriteMaterials), Listed(wornModels));
 
-        LoadedMap loaded = Loaded.Get(
+        MapAssets assets = Loaded.Get(
             key,
             () =>
             {
                 RecordingLoggerFactory log = new();
+                MapAssets made = MapAssets.Load(
+                    Bytes(mapName),
+                    archives,
+                    maximumTextureSize,
+                    entityModels,
+                    wornModels,
+                    spriteMaterials,
+                    loggers: log);
 
-                return new LoadedMap(
-                    MapAssets.Load(
-                        Bytes(mapName),
-                        archives,
-                        maximumTextureSize,
-                        entityModels,
-                        wornModels,
-                        spriteMaterials,
-                        loggers: log),
-                    log);
+                Logs.AddOrUpdate(made, log);
+
+                return made;
             });
 
         // **The one request held for the run**: the default map with nothing added, asked by more fixtures than any
@@ -190,11 +192,24 @@ internal static class MapCache
         // cache 2.3 minutes. One map kept is about a gigabyte; nineteen loads of it are about two minutes.
         if (key == DefaultKey)
         {
-            _default = loaded;
+            _default = assets;
         }
 
-        return loaded;
+        return new LoadedMap(assets, Logs.TryGetValue(assets, out RecordingLoggerFactory? said)
+            ? said
+            : throw new InvalidOperationException($"the load of {key} recorded no log"));
     }
+
+    /// <summary>Each load's log, alive exactly as long as its assets.</summary>
+    /// <remarks>
+    /// **Keyed on the assets, not cached beside them**, because callers keep only the assets: a memo of the pair was
+    /// collectable while a test still drew the map, so the next ask loaded a second copy beside the first (review,
+    /// 2026-10-18).
+    /// </remarks>
+    private static readonly ConditionalWeakTable<MapAssets, RecordingLoggerFactory> Logs = new();
+
+    /// <summary>The memo itself, for a test of what it holds.</summary>
+    internal static int LoadsSoFar => Loaded.Loads;
 
     /// <summary>The map's own bytes, for tests reading lumps rather than assets.</summary>
     /// <remarks>

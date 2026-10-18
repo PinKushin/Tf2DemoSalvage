@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
 
 namespace Tf2DemoSalvage.Rendering.Tests;
@@ -31,6 +32,23 @@ internal sealed class WeakMemo<T>
 
     private int _loads;
 
+    /// <summary>How many asks are waiting on a load in flight — for a test that must know the second has arrived.</summary>
+    public int Waiting => Volatile.Read(ref _waiting);
+
+    private int _waiting;
+
+    /// <summary>How many keys the memo still tracks — for a test that dead entries are pruned.</summary>
+    public int Tracked
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _held.Count;
+            }
+        }
+    }
+
     /// <summary>The value for a key: the one still alive, the one being loaded, or a new load.</summary>
     /// <param name="key">Everything that changes the result.</param>
     /// <param name="load">Loads it.</param>
@@ -44,6 +62,12 @@ internal sealed class WeakMemo<T>
             if (_held.TryGetValue(key, out WeakReference<T>? weak) && weak.TryGetTarget(out T? alive))
             {
                 return alive;
+            }
+
+            // A collected entry is pruned, so the table holds only what is alive.
+            foreach (string dead in _held.Where(entry => !entry.Value.TryGetTarget(out _)).Select(entry => entry.Key).ToList())
+            {
+                _held.Remove(dead);
             }
 
             if (!_loading.TryGetValue(key, out loading))
@@ -60,6 +84,7 @@ internal sealed class WeakMemo<T>
         }
 
         T? value = null;
+        Interlocked.Increment(ref _waiting);
 
         try
         {
@@ -68,6 +93,8 @@ internal sealed class WeakMemo<T>
         }
         finally
         {
+            Interlocked.Decrement(ref _waiting);
+
             lock (_gate)
             {
                 if (value is not null)

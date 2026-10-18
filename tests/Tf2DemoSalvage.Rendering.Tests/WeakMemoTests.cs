@@ -57,6 +57,7 @@ public sealed class WeakMemoTests
         Task<object> first = Task.Run(() => memo.Get("a", Load));
         started.Wait(TimeSpan.FromSeconds(30)).ShouldBeTrue();
         Task<object> second = Task.Run(() => memo.Get("a", Load));
+        SpinWait.SpinUntil(() => memo.Waiting == 2, TimeSpan.FromSeconds(30)).ShouldBeTrue("the second ask must be waiting on the first's load before it is released");
         release.Set();
 
         object[] both = await Task.WhenAll(first, second).ConfigureAwait(false);
@@ -74,6 +75,26 @@ public sealed class WeakMemoTests
         object loaded = memo.Get("a", () => new object());
 
         (loaded is not null, memo.Loads).ShouldBe((true, 2));
+    }
+
+    /// <remarks>**A collected entry is pruned** on the next miss, so the table holds only what is alive.</remarks>
+    [Test]
+    [System.Diagnostics.CodeAnalysis.SuppressMessage(
+        "Major Code Smell",
+        "S1215:\"GC.Collect\" should not be called",
+        Justification = "The subject is collection: the test must force one to observe a released value going.")]
+    public void Get_AMissAfterAnEntryWasCollected_PrunesIt()
+    {
+        WeakMemo<object> memo = new();
+        LoadAndDrop(memo);
+
+        GC.Collect();
+        GC.WaitForPendingFinalizers();
+        GC.Collect();
+        object other = memo.Get("b", () => new object());
+
+        memo.Tracked.ShouldBe(1);
+        GC.KeepAlive(other);
     }
 
     [MethodImpl(MethodImplOptions.NoInlining)]
