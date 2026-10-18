@@ -826,6 +826,14 @@ internal sealed unsafe class OffscreenTarget : IDisposable
         }
     }
 
+    /// <summary>The device's reference count after this target's own release — zero when nothing it made outlives it.</summary>
+    /// <remarks>
+    /// **The instrument for a leak that cost the render suite most of its memory** (2026-10-18): a child object never
+    /// released keeps the device alive, and the device keeps every texture uploaded through it. 99 of 117 targets in one
+    /// run of the suite were left with three to eleven references. Carried from the release itself, not recomputed (B243).
+    /// </remarks>
+    internal uint DeviceReferencesLeft { get; private set; }
+
     /// <inheritdoc />
     public void Dispose()
     {
@@ -852,8 +860,12 @@ internal sealed unsafe class OffscreenTarget : IDisposable
         _cableBump.Dispose();
         _texture.Dispose();
         _context.Dispose();
-        _device.Dispose();
 
+        if (_device.Handle is not null)
+        {
+            DeviceReferencesLeft = _device.Release();
+            _device = default;
+        }
     }
 
     private static OffscreenTarget Build(

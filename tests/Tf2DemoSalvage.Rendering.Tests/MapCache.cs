@@ -3,6 +3,7 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Runtime.CompilerServices;
 using System.Threading;
 
 using Tf2DemoSalvage.Content.Assets;
@@ -62,16 +63,18 @@ internal static class MapCache
     /// </remarks>
     public const int DefaultTextureSize = 64;
 
-    /// <summary>
-    /// One <see cref="Lazy{T}"/> per distinct request, so two tests asking at once load once.
-    /// </summary>
-    /// <remarks>
-    /// <c>Lazy</c> rather than <c>GetOrAdd</c> with a factory: <c>ConcurrentDictionary</c> does not
-    /// promise the factory runs only once, and a map load is expensive enough that running it twice
-    /// under contention is exactly what this exists to prevent. The lazy is per key, so a test
-    /// wanting a different map is not blocked behind one wanting this map.
-    /// </remarks>
-    private static readonly ConcurrentDictionary<string, Lazy<LoadedMap>> Loaded = new();
+    /// <summary>One load per distinct request while any test holds it; released once none does (<see cref="WeakMemo{T}"/>).</summary>
+    private static readonly WeakMemo<MapAssets> Loaded = new();
+
+    /// <summary>The key of <see cref="Load"/> with every default, the request held strongly.</summary>
+    private static readonly string DefaultKey = $"{DefaultMap}|{DefaultTextureSize}|||";
+
+    /// <summary>Keeps the default request alive for the run; read by nothing.</summary>
+    [System.Diagnostics.CodeAnalysis.SuppressMessage(
+        "Major Code Smell",
+        "S4487:Unread \"private\" fields should be removed",
+        Justification = "Holding it is the purpose: the strong reference keeps the weak cache's entry alive.")]
+    private static MapAssets? _default;
 
     /// <summary>A cached load: the assets, and everything the load said while producing them.</summary>
     /// <param name="Assets">The map, shared with every other caller asking the same thing.</param>
@@ -165,44 +168,64 @@ internal static class MapCache
         string key = string.Join(
             '|', mapName, maximumTextureSize, Listed(entityModels), Listed(spriteMaterials), Listed(wornModels));
 
-        return Loaded.GetOrAdd(
+        MapAssets assets = Loaded.Get(
             key,
-            _ => new Lazy<LoadedMap>(
-                () =>
-                {
-                    RecordingLoggerFactory log = new();
+            () =>
+            {
+                RecordingLoggerFactory log = new();
+                MapAssets made = MapAssets.Load(
+                    Bytes(mapName),
+                    archives,
+                    maximumTextureSize,
+                    entityModels,
+                    wornModels,
+                    spriteMaterials,
+                    loggers: log);
 
-                    return new LoadedMap(
-                        MapAssets.Load(
-                            Bytes(mapName),
-                            archives,
-                            maximumTextureSize,
-                            entityModels,
-                            wornModels,
-                            spriteMaterials,
-                            loggers: log),
-                        log);
-                },
-                LazyThreadSafetyMode.ExecutionAndPublication))
-            .Value;
+                Logs.AddOrUpdate(made, log);
+
+                return made;
+            });
+
+        // **The one request held for the run**: the default map with nothing added, asked by more fixtures than any
+        // other. Held weakly it was loaded 19 times in one run, 2026-10-18 — most of the 43 reloads that cost the weak
+        // cache 2.3 minutes. One map kept is about a gigabyte; nineteen loads of it are about two minutes.
+        if (key == DefaultKey)
+        {
+            _default = assets;
+        }
+
+        return new LoadedMap(assets, Logs.TryGetValue(assets, out RecordingLoggerFactory? said)
+            ? said
+            : throw new InvalidOperationException($"the load of {key} recorded no log"));
     }
+
+    /// <summary>Each load's log, alive exactly as long as its assets.</summary>
+    /// <remarks>
+    /// **Keyed on the assets, not cached beside them**, because callers keep only the assets: a memo of the pair was
+    /// collectable while a test still drew the map, so the next ask loaded a second copy beside the first (review,
+    /// 2026-10-18).
+    /// </remarks>
+    private static readonly ConditionalWeakTable<MapAssets, RecordingLoggerFactory> Logs = new();
+
+    /// <summary>The memo itself, for a test of what it holds.</summary>
+    internal static int LoadsSoFar => Loaded.Loads;
 
     /// <summary>The map's own bytes, for tests reading lumps rather than assets.</summary>
     /// <remarks>
-    /// Cached separately and for a smaller reason: a BSP is tens of megabytes and several tests
-    /// read one only to pull a lump out of it. Bytes are shared rather than copied, so a caller
-    /// must not write to them — none does, and <see cref="ReadOnlyMemory{T}"/> at the call sites
-    /// keeps it that way.
+    /// Shared for a smaller reason: a BSP is tens of megabytes and several tests read one only to
+    /// pull a lump out of it — and held weakly like the maps, since 26 of them kept for the run
+    /// are most of a gigabyte. Bytes are shared rather than copied, so a caller must not write to
+    /// them — none does, and <see cref="ReadOnlyMemory{T}"/> at the call sites keeps it that way.
     /// </remarks>
-    public static byte[] Bytes(string mapName = DefaultMap) =>
-        MapBytes.GetOrAdd(
-            mapName,
-            name => new Lazy<byte[]>(
-                () => File.ReadAllBytes(RequirePath(name)),
-                LazyThreadSafetyMode.ExecutionAndPublication))
-            .Value;
+    public static byte[] Bytes(string mapName = DefaultMap)
+    {
+        string path = RequirePath(mapName);
 
-    private static readonly ConcurrentDictionary<string, Lazy<byte[]>> MapBytes = new();
+        return MapBytes.Get(mapName, () => File.ReadAllBytes(path));
+    }
+
+    private static readonly WeakMemo<byte[]> MapBytes = new();
 
     /// <summary>Whether a map is installed, for a test that walks several and skips the absent.</summary>
     /// <remarks>
