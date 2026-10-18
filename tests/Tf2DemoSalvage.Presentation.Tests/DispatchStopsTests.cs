@@ -45,6 +45,57 @@ public sealed class DispatchStopsTests
         stops[0].ShouldBeNull();
     }
 
+    [Test]
+    public void Compute_ADispatchAfterAStop_IsNotStoppedByIt()
+    {
+        int?[] stops = DispatchStops.Compute([At(100, Stop, entity: 7), FromEntity(200, entity: 7)], NameOf);
+
+        stops[1].ShouldBeNull();
+    }
+
+    [Test]
+    public void Compute_TwoStops_TheFirstStopsIt()
+    {
+        int?[] stops = DispatchStops.Compute(
+            [FromEntity(100, entity: 7), At(300, Stop, entity: 7), At(400, Stop, entity: 7)], NameOf);
+
+        stops[0].ShouldBe(300);
+    }
+
+    /// <remarks>`PARTICLE_DISPATCH_RESET_PARTICLES` is read only inside the FROM_ENTITY branch (c_particle_system.cpp:189-196).</remarks>
+    [Test]
+    public void Compute_AResetWithoutFromEntity_StopsNothing()
+    {
+        int?[] stops = DispatchStops.Compute(
+            [FromEntity(100, entity: 7), At(200, Effect, entity: 7, flags: 2)], NameOf);
+
+        stops[0].ShouldBeNull();
+    }
+
+    /// <remarks>Effects fire in order within a tick: a stop sent after the effect, on its tick, stops it there.</remarks>
+    [Test]
+    public void Compute_AStopOnTheSameTickAfterIt_StopsItAtThatTick()
+    {
+        int?[] stops = DispatchStops.Compute([FromEntity(100, entity: 7), At(100, Stop, entity: 7)], NameOf);
+
+        stops[0].ShouldBe(100);
+    }
+
+    /// <remarks>
+    /// **The owner deleted ends it, and its index used again is another entity**: a stop sent to the index after the delete
+    /// belongs to the new one. Deleted at 250, the stop at 400 is not this effect's.
+    /// </remarks>
+    [Test]
+    public void Compute_TheOwnerDeletedBeforeAStopToItsIndex_EndsAtTheDelete()
+    {
+        int?[] stops = DispatchStops.Compute(
+            [FromEntity(100, entity: 7), At(400, Stop, entity: 7)],
+            NameOf,
+            (entity, tick) => entity == 7 && tick < 250 ? 250 : null);
+
+        stops[0].ShouldBe(250);
+    }
+
     private static string? NameOf(int name) => name switch
     {
         Effect => "ParticleEffect",

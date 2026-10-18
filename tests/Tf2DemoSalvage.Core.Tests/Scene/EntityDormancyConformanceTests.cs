@@ -41,4 +41,26 @@ public sealed class EntityDormancyConformanceTests
         dormancy.IsDormant(3, 8).ShouldBeFalse();
         dormancy.IsDormant(4, 1000).ShouldBeTrue("a delta does not end dormancy");
     }
+
+    /// <remarks>
+    /// **An entity's end: its delete, or its slot entered under another serial** — `CL_DeleteDLLEntity` or the recreate
+    /// `CL_ParsePacketEntities` makes of a slot whose serial changed. Re-entering the PVS under the same serial is the
+    /// same entity, the control.
+    /// </remarks>
+    [Test]
+    public void DeletedAfter_ADeleteOrANewSerial_EndsTheEntityButAReturnDoesNot()
+    {
+        EntityDormancy dormancy = new();
+
+        dormancy.Observe(7, EntityUpdateType.Enter, 10, serial: 1);
+        dormancy.Observe(7, EntityUpdateType.Leave, 20);
+        dormancy.Observe(7, EntityUpdateType.Enter, 30, serial: 1);
+        dormancy.Observe(7, EntityUpdateType.Enter, 50, serial: 2);
+        dormancy.Observe(8, EntityUpdateType.Enter, 10, serial: 4);
+        dormancy.Observe(8, EntityUpdateType.Delete, 40);
+
+        dormancy.DeletedAfter(7, 10).ShouldBe(50, "the same serial's return is not an end");
+        dormancy.DeletedAfter(7, 50).ShouldBeNull();
+        dormancy.DeletedAfter(8, 10).ShouldBe(40);
+    }
 }

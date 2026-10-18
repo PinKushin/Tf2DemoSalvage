@@ -68,6 +68,9 @@ public sealed class ParticleEffects
     /// <summary>How many one-shots are running.</summary>
     public int BurstCount => _bursts.Count;
 
+    /// <summary>The most ticks a rebuilt burst replays, and the longest gap an unoffered one is faded across rather than dropped.</summary>
+    public const int MaximumReplayTicks = 660;
+
     /// <summary>How many times a burst was built from its start, ever — counted where it is built.</summary>
     public int BurstBuilds { get; private set; }
 
@@ -378,6 +381,18 @@ public sealed class ParticleEffects
                 continue;
             }
 
+            // **A dormant owner's effect is held, not run and not drawn** — and its clock moves on, so the owner's return
+            // resumes it rather than replaying the gap (`SetDormant`, particle_property.cpp:465-475).
+            if (burst.Dormant)
+            {
+                if (_bursts.TryGetValue(burst.Key, out RunningBurst held))
+                {
+                    _bursts[burst.Key] = held with { SimulatedTo = Math.Max(held.SimulatedTo, wanted), Hidden = true, Unoffered = false };
+                }
+
+                continue;
+            }
+
             // Stryker disable all : 'running' is declared by the TryGetValue before a '||' and read after it, so the
             // Logical mutator's switch leaves it unassigned (CS0165) and Safe Mode drops the method — B410.
             bool rebuild = !_bursts.TryGetValue(burst.Key, out RunningBurst running) ||
@@ -386,7 +401,13 @@ public sealed class ParticleEffects
 
             if (rebuild)
             {
-                running = new RunningBurst(new ParticleEffect(burst.Definition, others, Sheets, SeedFor(burst.Key)), 0, 0d, false);
+                // **A replay of at most ten seconds**: an effect its owner keeps running can be minutes old where a seek meets
+                // it, and what it drew longer ago than its particles live has no part in this frame.
+                running = new RunningBurst(
+                    new ParticleEffect(burst.Definition, others, Sheets, SeedFor(burst.Key)),
+                    0,
+                    Math.Max(0d, Math.Floor(wanted) - MaximumReplayTicks),
+                    false);
                 BurstBuilds++;
             }
 
@@ -479,7 +500,7 @@ public sealed class ParticleEffects
             _bursts[burst.Key] = running with
             {
                 Stepped = taken, SimulatedTo = reachedTo, Stopped = stopped, StillRead = stillRead, Tick = burst.Tick,
-                Name = burst.Definition.Name, Unoffered = false, LastAt = burst.At,
+                Name = burst.Definition.Name, Unoffered = false, Hidden = false,
             };
         }
 
@@ -501,10 +522,11 @@ public sealed class ParticleEffects
     /// <param name="seconds">Seconds per tick.</param>
     /// <param name="seeked">Whether this frame is a seek's: what the target tick does not offer is history, not a fade.</param>
     /// <remarks>
-    /// **A tick at a time**, as `CParticleMgr::UpdateNewEffects` simulates a frame, and **on its last control points**:
-    /// `StopEmission` leaves the effect in its owner's list (`particle_property.cpp:251`) so its points still follow — here
-    /// the last ones it was offered, since nothing offers newer. **A seek drops them**: arriving at a tick fresh, only what
-    /// that tick offers is built, so an effect carried across the jump would make the answer depend on the way in.
+    /// **A tick at a time**, as `CParticleMgr::UpdateNewEffects` simulates a frame, **on the points it was last offered**,
+    /// which its last step already set: `StopEmission` leaves the effect in its owner's list so its points follow
+    /// (`particle_property.cpp:251`), and an effect no longer offered has nothing newer to follow. A feed whose owner still
+    /// moves keeps offering it, with a stop tick — the dispatches do. **A seek drops them**: arriving at a tick fresh, only
+    /// what that tick offers is built, so a feed must offer a fading effect for as long as it shows (BurstEffects does).
     /// </remarks>
     private void FadeUnoffered(double now, float seconds, bool seeked)
     {
@@ -530,11 +552,17 @@ public sealed class ParticleEffects
             double wanted = now - running.Tick;
             double reached = running.SimulatedTo;
 
+            // A jump this far is a seek in all but name; fading across it a tick at a time would cost what it shows nothing of.
+            if (wanted - reached > MaximumReplayTicks)
+            {
+                _bursts.Remove(key);
+                continue;
+            }
+
             while (reached < wanted)
             {
                 double next = Math.Min(Math.Floor(reached) + 1d, wanted);
 
-                running.Effect.SetControlPoint(0, running.LastAt);
                 running.Effect.Fade((float)((next - reached) * seconds));
                 reached = next;
             }
@@ -633,7 +661,7 @@ public sealed class ParticleEffects
         int Tick = 0,
         string Name = "",
         bool Unoffered = false,
-        ParticleControlPoint LastAt = default);
+        bool Hidden = false);
 
     /// <summary>Builds every live effect's quads for this frame's camera.</summary>
     /// <param name="eye">Where the camera is — a sprite trail turns about its own length to face it.</param>
@@ -672,7 +700,10 @@ public sealed class ParticleEffects
 
         foreach (RunningBurst running in _bursts.Values)
         {
-            Gather(running.Effect, eye, right, up, materials);
+            if (!running.Hidden)
+            {
+                Gather(running.Effect, eye, right, up, materials);
+            }
         }
 
         return Batches(materials);
@@ -895,4 +926,11 @@ public readonly record struct ParticleBurst(
     /// posing a player for every tick of a replay costs a skeleton each.
     /// </remarks>
     public Func<(IReadOnlyList<ModelHitbox> Boxes, Vector3 PosedAt)?>? Model { get; init; }
+
+    /// <summary>
+    /// Whether the owner is dormant this frame: the effect is kept, neither simulated nor drawn, and not restarted when the
+    /// owner returns — `CParticleProperty::OwnerSetDormantTo` → `SetDormant` (particle_property.cpp:465-475). One not yet
+    /// made is not made: `ParticleEffectCallback` creates nothing on a dormant entity (c_particle_system.cpp:189-190).
+    /// </summary>
+    public bool Dormant { get; init; }
 }

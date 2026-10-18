@@ -13,7 +13,8 @@ namespace Tf2DemoSalvage.Presentation;
 /// // c_particle_system.cpp:193   PARTICLE_DISPATCH_RESET_PARTICLES (particle_parse.h:38): StopEmission() before Create
 /// </code>
 /// An effect from no entity (`PARTICLE_DISPATCH_FROM_ENTITY` clear) is `CNewParticleEffect::Create( NULL, … )` —
-/// nobody's to stop, so it ends by itself. **Not covered**: the owning entity being deleted or going dormant.
+/// nobody's to stop, so it ends by itself. **The owner's deletion ends it too**, and an index used again after it is another
+/// entity whose stops are not this effect's. Dormancy is not a stop: it hides the effect (`OwnerSetDormantTo`).
 /// </remarks>
 public static class DispatchStops
 {
@@ -26,8 +27,13 @@ public static class DispatchStops
     /// <summary>Each dispatch's stop tick, or null for one nothing stops.</summary>
     /// <param name="all">Every dispatch, in fire order.</param>
     /// <param name="nameOf">A dispatch's effect name by its index in the name table.</param>
+    /// <param name="deletedAfter">
+    /// When the entity at an index is deleted after a tick (<see cref="EntityDormancy.DeletedAfter"/>), or null for never: the
+    /// owner going away ends its effects, and a stop sent to the index after that is another entity's.
+    /// </param>
     /// <returns>One entry per dispatch.</returns>
-    public static int?[] Compute(IReadOnlyList<SceneEffectDispatch> all, Func<int, string?> nameOf)
+    public static int?[] Compute(
+        IReadOnlyList<SceneEffectDispatch> all, Func<int, string?> nameOf, Func<int, int, int?>? deletedAfter = null)
     {
         ArgumentNullException.ThrowIfNull(all);
         ArgumentNullException.ThrowIfNull(nameOf);
@@ -45,7 +51,11 @@ public static class DispatchStops
 
             if (string.Equals(name, "ParticleEffect", StringComparison.Ordinal) && owned)
             {
-                stops[index] = nextStop.TryGetValue(dispatch.Entity, out int stop) ? stop : null;
+                int? stopped = nextStop.TryGetValue(dispatch.Entity, out int stop) ? stop : null;
+                int? deleted = deletedAfter?.Invoke(dispatch.Entity, dispatch.Tick);
+
+                // A stop past the owner's deletion was sent to whatever holds the index next.
+                stops[index] = deleted is { } gone && (stopped is null || stopped > gone) ? gone : stopped;
 
                 if ((dispatch.Flags & ResetParticles) != 0)
                 {

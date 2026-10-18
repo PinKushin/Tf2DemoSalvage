@@ -156,7 +156,10 @@ public sealed class ParticleBurstTests
         effects.BurstCount.ShouldBe(1);
     }
 
-    /// <remarks>A paused frame asks for the same tick again: an effect no longer offered does not age while paused.</remarks>
+    /// <remarks>
+    /// **A paused frame asks for the same tick again, and a fading effect does not age** — while the frames before the pause,
+    /// the control, do age it. A fade that ran a fixed step per call, not per tick, would fail the second assertion.
+    /// </remarks>
     [Test]
     public void Bursts_NoLongerOfferedWhilePaused_DoNotAge()
     {
@@ -169,33 +172,90 @@ public sealed class ParticleBurstTests
             effects.Bursts([beam], Interval, null, tick);
         }
 
+        effects.Bursts([], Interval, null, tick: 121);
+        float before = effects.BurstParticles(1)!.Age;
         effects.Bursts([], Interval, null, tick: 125);
-        int paused = effects.BurstParticles(1)!.Count;
+        float paused = effects.BurstParticles(1)!.Age;
+        effects.Bursts([], Interval, null, tick: 125);
         effects.Bursts([], Interval, null, tick: 125);
 
-        effects.BurstParticles(1)!.Count.ShouldBe(paused);
+        paused.ShouldBeGreaterThan(before, "the control: four played ticks age it");
+        effects.BurstParticles(1)!.Age.ShouldBe(paused);
     }
 
     /// <remarks>
-    /// **A seek forward forgets what the target tick does not offer**: arriving fresh, only the offered are built, so one
-    /// carried across the jump would make the picture depend on the way in. The control is the same jump without the seek.
+    /// **A fade is simulated a tick at a time** (`CParticleMgr::UpdateNewEffects`, once a frame): ten ticks unoffered in one
+    /// call are ten steps of one tick, not one of ten. The store's last step says which.
     /// </remarks>
-    [TestCase(false, 1)]
-    [TestCase(true, 0)]
-    public void Bursts_ASeekForwardPastTheOffer_KeepsAnEffectOnlyWhenPlayed(bool seeked, int left)
+    [Test]
+    public void Bursts_NoLongerOfferedAcrossTenTicks_FadeOneTickAtATime()
     {
         ParticleEffects effects = new();
         ParticleBurst beam = new(
             1, Beam, new ParticleControlPoint(Vector3.Zero, Vector3.UnitX, Vector3.UnitY, Vector3.UnitZ), 100);
 
-        for (int tick = 100; tick <= 120; tick++)
+        for (int tick = 100; tick <= 110; tick++)
         {
             effects.Bursts([beam], Interval, null, tick);
         }
 
-        effects.Bursts([], Interval, null, tick: 122, seeked: seeked);
+        effects.Bursts([], Interval, null, tick: 120);
+
+        effects.BurstParticles(1)!.LastStep.ShouldBe(Interval, 1e-6f);
+    }
+
+    /// <remarks>
+    /// **At this layer a seek keeps what the target offers and only that** — offered there, stopped and fading, it is
+    /// built fading; no longer offered, it is gone. The feed offers a fading effect for as long as it shows (BurstEffects),
+    /// so a seek into a fade builds it as playing through does.
+    /// </remarks>
+    [TestCase(true, 1)]
+    [TestCase(false, 0)]
+    public void Bursts_ASeekForward_KeepsWhatTheTargetOffers(bool offered, int left)
+    {
+        ParticleEffects effects = new();
+        ParticleBurst beam = new(
+            1, Beam, new ParticleControlPoint(Vector3.Zero, Vector3.UnitX, Vector3.UnitY, Vector3.UnitZ), 100, StopTick: 115);
+
+        for (int tick = 100; tick <= 110; tick++)
+        {
+            effects.Bursts([beam], Interval, null, tick);
+        }
+
+        effects.Bursts(offered ? [beam] : [], Interval, null, tick: 120, seeked: true);
 
         effects.BurstCount.ShouldBe(left);
+    }
+
+    /// <remarks>
+    /// **A dormant owner's effect is held, hidden, and resumed — not replayed** (`SetDormant`, particle_property.cpp:465-475):
+    /// across ten dormant ticks nothing is built again and nothing is stepped; back, it runs on from where the clock is.
+    /// </remarks>
+    [Test]
+    public void Bursts_WhileTheOwnerIsDormant_AreHeldAndResumeWithoutARebuild()
+    {
+        ParticleEffects effects = new();
+        ParticleBurst beam = new(
+            1, Beam, new ParticleControlPoint(Vector3.Zero, Vector3.UnitX, Vector3.UnitY, Vector3.UnitZ), 100);
+
+        for (int tick = 100; tick <= 110; tick++)
+        {
+            effects.Bursts([beam], Interval, null, tick);
+        }
+
+        int steps = effects.BurstSteps(1);
+
+        for (int tick = 111; tick <= 120; tick++)
+        {
+            effects.Bursts([beam with { Dormant = true }], Interval, null, tick);
+        }
+
+        effects.BurstSteps(1).ShouldBe(steps, "held: not stepped while dormant");
+
+        effects.Bursts([beam], Interval, null, tick: 121);
+
+        effects.BurstBuilds.ShouldBe(1, "resumed, not built again");
+        effects.BurstSteps(1).ShouldBe(steps + 1, "one tick on from where the clock stood");
     }
 
     /// <remarks>
