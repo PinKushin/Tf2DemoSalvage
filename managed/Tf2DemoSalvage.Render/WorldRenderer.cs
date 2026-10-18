@@ -6801,6 +6801,12 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
         _bothSides.Dispose();
         _modelCull.Dispose();
 
+        // **Made on first use and never released, until 2026-10-18**: each kept the device alive, and the device every
+        // texture uploaded through it — the render suite's private bytes reached 26 GB from targets like this one.
+        _bones.Dispose();
+        _modulateBlend.Dispose();
+        _modulateTwiceBlend.Dispose();
+
         // The wireframe twins are states like any other and leak exactly as loudly if forgotten.
         foreach (ComPtr<ID3D11RasterizerState> wire in _wireframeFor.Values)
         {
@@ -6845,6 +6851,10 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
         {
             texture.Dispose();
         }
+
+        // Made afresh by every texture upload and released by none, until 2026-10-18.
+        _flatWhite.Dispose();
+        _flatWhite = default;
 
         _textures.Clear();
         _thumbnails.Clear();

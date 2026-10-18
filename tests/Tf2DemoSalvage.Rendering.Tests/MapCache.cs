@@ -65,6 +65,16 @@ internal static class MapCache
     /// <summary>One load per distinct request while any test holds it; released once none does (<see cref="WeakMemo{T}"/>).</summary>
     private static readonly WeakMemo<LoadedMap> Loaded = new();
 
+    /// <summary>The key of <see cref="Load"/> with every default, the request held strongly.</summary>
+    private static readonly string DefaultKey = $"{DefaultMap}|{DefaultTextureSize}|||";
+
+    /// <summary>Keeps the default request alive for the run; read by nothing.</summary>
+    [System.Diagnostics.CodeAnalysis.SuppressMessage(
+        "Major Code Smell",
+        "S4487:Unread \"private\" fields should be removed",
+        Justification = "Holding it is the purpose: the strong reference keeps the weak cache's entry alive.")]
+    private static LoadedMap? _default;
+
     /// <summary>A cached load: the assets, and everything the load said while producing them.</summary>
     /// <param name="Assets">The map, shared with every other caller asking the same thing.</param>
     /// <param name="Log">Every line the load wrote, with the area that wrote it.</param>
@@ -157,7 +167,7 @@ internal static class MapCache
         string key = string.Join(
             '|', mapName, maximumTextureSize, Listed(entityModels), Listed(spriteMaterials), Listed(wornModels));
 
-        return Loaded.Get(
+        LoadedMap loaded = Loaded.Get(
             key,
             () =>
             {
@@ -174,6 +184,16 @@ internal static class MapCache
                         loggers: log),
                     log);
             });
+
+        // **The one request held for the run**: the default map with nothing added, asked by more fixtures than any
+        // other. Held weakly it was loaded 19 times in one run, 2026-10-18 — most of the 43 reloads that cost the weak
+        // cache 2.3 minutes. One map kept is about a gigabyte; nineteen loads of it are about two minutes.
+        if (key == DefaultKey)
+        {
+            _default = loaded;
+        }
+
+        return loaded;
     }
 
     /// <summary>The map's own bytes, for tests reading lumps rather than assets.</summary>
