@@ -164,6 +164,7 @@ public sealed class LoadedMap
     /// <param name="timeline">The open demo, whose models are loaded with the map.</param>
     /// <param name="textureQuality">The largest texture edge to decode to.</param>
     /// <param name="loggers">Where each stage reports itself, by category (D83).</param>
+    /// <param name="mapName">The level's name, the engine's <c>MapName()</c>, for its own particle manifest (B554); null reads none.</param>
     /// <returns>The map.</returns>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <exception cref="InvalidDataException">The map's faces or lighting would not read.</exception>
@@ -172,7 +173,8 @@ public sealed class LoadedMap
         GameContent game,
         DemoTimeline? timeline,
         int textureQuality,
-        ILoggerFactory loggers)
+        ILoggerFactory loggers,
+        string? mapName = null)
     {
         ArgumentNullException.ThrowIfNull(game);
         ArgumentNullException.ThrowIfNull(loggers);
@@ -418,6 +420,9 @@ public sealed class LoadedMap
                     // defaults to a null logger so tests need not supply one, which means an
                     // omission here costs every asset line in the run and nothing reports it.
                     loggers: loggers,
+
+                    // The level's name, for its own particle manifest (B554).
+                    mapName: mapName,
                     decalMaterials: decalMaterials,
                     effectMaterials: timeline is null ? [] : ImpactEffects.Materials);
             }

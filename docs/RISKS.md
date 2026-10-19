@@ -39877,7 +39877,21 @@ things `UnlitGeneric` does that `VguiRenderer` does not, none reachable by a sto
 - **`$separatedetailuvs`** (unlitgeneric_dx9.cpp:72, :152). The detail is then sampled from the second texture-coordinate
   set; the renderer always samples the base's. Added from the Fable review of `fix/hud-followups` (2026-10-18).
 
-## B554 — a map's own `maps/<name>_particles.txt` is not read, so a map's custom particles are lost — OPEN, gap (owner: fill it)
+## B554 — a map's own `maps/<name>_particles.txt` is not read, so a map's custom particles are lost — FIXED 2026-10-19 (`fix/b554-map-particle-manifest`)
+
+**Fixed.** `ParticleManifest.MapFiles` and `ParticleManifest.Layer`, called from `MapAssets.LoadRocketTrail` with the
+level's name. The engine does more than this entry assumed, and finding 81 has the full account:
+
+- **Three manifests are tried, and the first that loads is used.** In order: pak `particles.txt`, pak
+  `maps/<name>_particles.txt`, then GAME's copy.
+- **Only files directly inside `particles/` are accepted.**
+- **The cap counts accepted entries.** After 64 it warns once and stops reading, so the 65th and everything after it
+  is dropped.
+- **A repeated name is replaced, with case folded** (disassembled, `000dcd90`). The map's pass runs after the stock
+  reload, so the map's definition wins.
+
+Each map's definitions sit on top of the install's set and never write into it. A map without a manifest gets the
+shared instance itself. Tests: `MapParticleManifestTests`.
 
 **Filed 2026-10-19.** `ParticleManifest` reads the game's manifest and deliberately not the map's own file: `ParseParticleEffectsMap`
 (`:175`, the client's `particles.cpp`) layers `maps/<name>_particles.txt` on top, capped at `PARTICLES_MANIFEST_MAX_MAP_ENTRIES`

@@ -274,8 +274,10 @@ public sealed class MapAssetsTests
             return;
         }
 
-        MapAssets first = MapAssets.Load(map, SharedGame.Archives, maximumTextureSize: 16);
-        MapAssets second = MapAssets.Load(map, SharedGame.Archives, maximumTextureSize: 16);
+        // Named, as the viewer names it: f12 ships no particle manifest of its own, so reading for one (B554) must still
+        // hand out the shared instance rather than a copy.
+        MapAssets first = MapAssets.Load(map, SharedGame.Archives, maximumTextureSize: 16, mapName: "cp_process_f12");
+        MapAssets second = MapAssets.Load(map, SharedGame.Archives, maximumTextureSize: 16, mapName: "cp_process_f12");
 
         first.ParticleSystemsByName.Count.ShouldBeGreaterThan(5000, "the control: the definitions were read");
         second.ParticleSystemsByName.ShouldBeSameAs(first.ParticleSystemsByName);

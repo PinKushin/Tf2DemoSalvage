@@ -1187,6 +1187,7 @@ public sealed class MapAssets
     /// <param name="decalMaterials">The materials the game's decals draw with — a Subrect's atlas, not the Subrect (B415).</param>
     /// <param name="effectMaterials">Sprite materials the legacy impact effects draw with, loaded as particle materials.</param>
     /// <param name="shareTextures">Whether materials naming one texture file share its read and decode; false only for a test.</param>
+    /// <param name="mapName">The level's name, the engine's <c>MapName()</c>, for its own particle manifest (B554); null reads none.</param>
     /// <returns>The assets.</returns>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <exception cref="InvalidDataException">The map's lumps are malformed.</exception>
@@ -1216,7 +1217,10 @@ public sealed class MapAssets
 
         // **False only for the test that holds sharing to byte-identical** (finding 80): each material then reads and
         // decodes its own textures, as before.
-        bool shareTextures = true)
+        bool shareTextures = true,
+
+        // **The level's name, the engine's `MapName()`**, for its own particle manifest (B554). Null reads none.
+        string? mapName = null)
     {
         ArgumentNullException.ThrowIfNull(archives);
 
@@ -1455,7 +1459,7 @@ public sealed class MapAssets
         (ParticleSystem? rocketTrail,
          IReadOnlyDictionary<string, ParticleSystem> particleSystems,
          IReadOnlyDictionary<string, ParticleMaterial> particleMaterials) =
-            LoadRocketTrail(assets, pak, archives, maximumTextureSize, particleSystemsUsed ?? [], textures);
+            LoadRocketTrail(assets, pak, archives, maximumTextureSize, particleSystemsUsed ?? [], textures, mapName);
 
         IReadOnlyDictionary<string, EngineSprite> sprites =
             LoadSpriteMaterials(assets, spriteMaterials ?? [], pak, archives, maximumTextureSize, textures);
@@ -2292,12 +2296,11 @@ public sealed class MapAssets
 
     /// <summary>Every particle definition the install's manifest names, read once per install (finding 80).</summary>
     /// <remarks>
-    /// **One copy per process, not one per map.** The definitions come from the install's archives alone, because
-    /// `ParticleManifest` deliberately does not read a map's own `maps/&lt;name&gt;_particles.txt` (`ParseParticleEffectsMap`;
-    /// see its remarks), so every map on one install reads the same ones. **If that gap is ever closed, a map's
-    /// definitions must be keyed per map, not per archives instance.** Keyed by the archives instance, so a different install is a
-    /// different set, dropped with it. The definitions are immutable (`ParticleParameterDictionary`), so no map can write
-    /// into another's.
+    /// **One copy per process, not one per map: the INSTALL's definitions.** Keyed by the archives instance, so a different
+    /// install is a different set, dropped with it. **A map's own `maps/&lt;name&gt;_particles.txt` (B554, closed) is layered per
+    /// map in `LoadRocketTrail`** by `ParticleManifest.Layer`, into a copy and never into this set; a map with no manifest
+    /// gets this instance itself. The definitions are immutable (`ParticleParameterDictionary`), so no map can write into
+    /// another's.
     /// </remarks>
     private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<GameArchives, DefinitionSet> ParticleDefinitions = new();
 
@@ -2339,6 +2342,7 @@ public sealed class MapAssets
     /// The systems whose materials to resolve, on top of the rocket trail. Their children come with them.
     /// </param>
     /// <param name="textures">The load's shared texture files (finding 80).</param>
+    /// <param name="mapName">The level's name, for its own particle manifest (B554); null reads none.</param>
     /// <returns>The rocket trail, every system by name, and every material they need.</returns>
     /// <remarks>
     /// **Driven by `particles/particles_manifest.txt`, which is Valve's own list.** `GetParticleManifest`
@@ -2369,10 +2373,19 @@ public sealed class MapAssets
         GameArchives archives,
         int maximumTextureSize,
         IReadOnlyCollection<string> used,
-        TextureFiles? textures)
+        TextureFiles? textures,
+        string? mapName)
     {
-        (IReadOnlyDictionary<string, ParticleSystem> systems, int files) = ParticleDefinitions.GetValue(archives, ReadDefinitions);
+        (IReadOnlyDictionary<string, ParticleSystem> shared, int files) = ParticleDefinitions.GetValue(archives, ReadDefinitions);
 
+        // **The map's own definitions on top, per map** (B554, finding 81): `ParseParticleEffectsMap` runs after the stock
+        // reload. With no manifest this is `shared` itself, so a map without custom particles copies nothing.
+        Func<string, byte[]?> game = pak.AheadOf(archives.Read);
+        void Warn(string message) => assets.LogWarning("{Message}", message);
+
+        IReadOnlyDictionary<string, ParticleSystem> systems = mapName is { Length: > 0 }
+            ? ParticleManifest.Layer(shared, ParticleManifest.MapFiles(mapName, pak.ReadFile, game, Warn), game, Warn)
+            : shared;
 
         if (systems.Count == 0)
         {
