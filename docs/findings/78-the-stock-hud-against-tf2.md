@@ -57,6 +57,12 @@ Vaccinator dims no chunk while releasing. Which sequence ran is read through a t
 alpha to a value per sequence. Five sabotages each redden one of them: `>=` to `>`, either start deleted,
 `!IsReleasingCharge()` to `true`, the dimming's release clause dropped, `m_bCharged = true` deleted.
 
+**The distance-alpha constants are now held on both sides.** The only fixture was the ammo background, so every
+switch was tested one way and both scale flags were on together: `ShadingConstants_EverySwitchTheOtherWay_PacksTheOpposites`
+flips all five switches, and `Constants_EachScaleFlagAlone_ScalesOnlyItsOwnRange` sets each flag alone and neither
+(vertexlitgeneric_dx9_helper.cpp:1012-1031). Sabotaged: `||` to `&&`, the edge block taken always, and the switches
+pinned each way.
+
 A wrong turn in the instrument, kept: the first `$detailscale` test drew a one-pixel-tall quad, whose V derivative is
 the whole texture per pixel at scale 4, and read the last mip's average (138) instead of a texel. Square target, then
 the texel.

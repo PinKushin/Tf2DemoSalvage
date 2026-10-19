@@ -172,6 +172,37 @@ public sealed class VguiDistanceAlphaConformanceTests
         VguiShading.Read(Tf2DemoSalvage.Content.Assets.VmtMaterial.Parse("\"UnlitGeneric\" { \"$basetexture\" \"x\" }"u8.ToArray()), detail: null)
             .ShouldBeNull();
 
+    /// <remarks>
+    /// The two scale flags each gate their own block (vertexlitgeneric_dx9_helper.cpp:1012-1031): with only
+    /// `$scaleedgesoftnessbasedonscreenres`, the soft edge widens and the outline stays as written; with only
+    /// `$scaleoutlinesoftnessbasedonscreenres`, the reverse. At 1280×720 the scale is 768/720.
+    /// </remarks>
+    [TestCase(true, false)]
+    [TestCase(false, true)]
+    [TestCase(false, false)]
+    public void Constants_EachScaleFlagAlone_ScalesOnlyItsOwnRange(bool edges, bool outline)
+    {
+        Dictionary<string, string> vmt = new(AmmoBlueBg, System.StringComparer.OrdinalIgnoreCase)
+        {
+            ["$scaleedgesoftnessbasedonscreenres"] = edges ? "1" : "0",
+            ["$scaleoutlinesoftnessbasedonscreenres"] = outline ? "1" : "0",
+        };
+        float scale = 768f / 720f;
+        float softMid = 0.375f;
+        float startMid = (0.3f + 0.49f) / 2f;
+        float endMid = (0.49f + 0.73f) / 2f;
+
+        float[] constants = VguiDistanceAlpha.Read(vmt.GetValueOrDefault)!.Constants(1280, 720);
+
+        (float, float) soft = edges ? (softMid + (scale * (0.45f - softMid)), softMid + (scale * (0.3f - softMid))) : (0.45f, 0.3f);
+        (float, float) outer = outline ? (endMid + (scale * (0.73f - endMid)), startMid + (scale * (0.49f - startMid))) : (0.73f, 0.49f);
+
+        constants[8].ShouldBe(soft.Item1, 1e-5f, "soft start");
+        constants[9].ShouldBe(soft.Item2, 1e-5f, "soft end");
+        constants[17].ShouldBe(outer.Item1, 1e-5f, "outline end1");
+        constants[19].ShouldBe(outer.Item2, 1e-5f, "outline start1");
+    }
+
     [Test]
     public void Constants_AtTheNominal1024By768_LeaveTheSoftEdgeAsWritten()
     {

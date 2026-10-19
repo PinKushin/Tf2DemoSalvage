@@ -67,6 +67,27 @@ public sealed class VguiRendererTests
         data[20..].ShouldBe([1f, 1f, 1f, 0f, 0f, 1f, 0f, 0f, 1f, 1f, 0f, 0f], "distance alpha, soft, outline, no glow; no detail texture, from detail");
     }
 
+    /// <remarks>
+    /// Every switch the other way from the ammo background's: glow on, soft mask and outline off, the field from the base,
+    /// a detail present. Together the two tests hold both sides of each of the five.
+    /// </remarks>
+    [Test]
+    public void ShadingConstants_EverySwitchTheOtherWay_PacksTheOpposites()
+    {
+        VguiDistanceAlpha shape = new(
+            FromDetail: false,
+            SoftMask: false, SoftStart: 0.5f, SoftEnd: 0.5f, ScaleEdges: false,
+            Outline: false, OutlineColor: (0f, 0f, 0f), OutlineAlpha: 1f,
+            OutlineStart0: 0f, OutlineStart1: 0f, OutlineEnd0: 0f, OutlineEnd1: 0f, ScaleOutline: false,
+            Glow: true, GlowColor: (0f, 0f, 0f), GlowAlpha: 1f, GlowStart: 0f, GlowEnd: 0f, GlowX: 0f, GlowY: 0f);
+        Tf2DemoSalvage.Content.Assets.TextureImage texel = Tf2DemoSalvage.Content.Assets.TextureImage.Rgba(new byte[4]);
+        MapDetail detail = new(new MapTexture(1, 1, 1, 1, texel, IsTransparent: true), (1f, 1f), 1f, 8, (1f, 1f, 1f));
+
+        float[] data = VguiRenderer.ShadingConstants(new VguiShading(detail, shape), 1024, 768);
+
+        data[20..28].ShouldBe([1f, 0f, 0f, 1f, 1f, 0f, 8f, 1f], "distance alpha, no soft, no outline, glow; a detail, from the base");
+    }
+
     /// <remarks>A `$detail` with no `$distancealpha`: the combine's switch, mode, factor and scale, and no distance alpha.</remarks>
     [Test]
     public void ShadingConstants_ADetailWithoutDistanceAlpha_PacksTheDetailAlone()
