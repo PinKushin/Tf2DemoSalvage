@@ -13,11 +13,6 @@ public interface IDecalUpload
     /// <summary>The decals on entities' models, drawn after each model with its bones (B415); null for none.</summary>
     public ModelDecals? ModelDecals { get; set; }
 
-    /// <summary>A skinned model's own vertices as uploaded, which its batches index; null for one not held.</summary>
-    /// <param name="modelPath">The model.</param>
-    /// <returns>The vertices, or null.</returns>
-    public IReadOnlyList<WorldVertex>? SkinnedVertices(string modelPath);
-
     /// <summary>A model's batches at its first frame, which index its vertices.</summary>
     /// <param name="modelPath">The model.</param>
     /// <returns>Its runs, or empty.</returns>

@@ -5624,38 +5624,7 @@ public sealed class EntityModelSet : Hud.IMdlCache, IPosedEntities
                     // model's faces (vrad.cpp:703) and its samples are already in the same atlas as
                     // the wall's, so passing them is all that separates a lightmapped door from a
                     // flat one. BrushModels fills them; PropModels leaves them at zero.
-                    into.Add(new WorldVertex(
-                        corner.X, corner.Y, corner.Z, corner.U, corner.V,
-                        corner.LightU, corner.LightV, 0f,
-                        LightStep: corner.LightStep,
-                        NormalX: corner.NormalX,
-                        NormalY: corner.NormalY,
-                        NormalZ: corner.NormalZ,
-                        NextX: ahead.X,
-                        NextY: ahead.Y,
-                        NextZ: ahead.Z,
-                        NextNormalX: ahead.NormalX,
-                        NextNormalY: ahead.NormalY,
-                        NextNormalZ: ahead.NormalZ,
-
-                        // **Without these the shader skins by nothing.** A skinned model's
-                        // geometry is uploaded unposed, so the bones are the only thing that
-                        // stands it up - and a vertex with no weights is left exactly where the
-                        // artist modelled it, which for a player is lying along Y. The fields
-                        // existed on the vertex and in the packer and were never filled in here,
-                        // so every player drew in its raw modelling pose while being lit
-                        // correctly, which reads as a lighting change rather than a missing
-                        // transform.
-                        BoneA: corner.Bones.First,
-                        BoneB: corner.Bones.Second,
-                        BoneC: corner.Bones.Third,
-                        WeightA: corner.Weights.First,
-                        WeightB: corner.Weights.Second,
-                        WeightC: corner.Weights.Third,
-                        TangentX: corner.TangentX,
-                        TangentY: corner.TangentY,
-                        TangentZ: corner.TangentZ,
-                        TangentW: corner.TangentW));
+                    into.Add(Packed(corner, ahead));
                 }
 
                 foreach (KeyValuePair<(int Material, int Slot, int Part, int Model),
@@ -5793,6 +5762,71 @@ public sealed class EntityModelSet : Hud.IMdlCache, IPosedEntities
         }
 
         return Add(synthetic);
+    }
+
+    /// <summary>One corner as the packed buffer holds it: model space, blending toward <paramref name="ahead"/>.</summary>
+    /// <remarks>
+    /// **The lightmap coordinates are zero for a studio model and real for a brush entity (B131).** A `.mdl` is lit by its
+    /// own vertex colours in the engine too, and (0, 0) is the atlas's reserved white texel.
+    ///
+    /// **Without the bones and weights the shader skins by nothing.** A skinned model's geometry is uploaded unposed, so
+    /// the bones are the only thing that stands it up; a vertex with no weights stays where the artist modelled it, which
+    /// for a player is lying along Y.
+    /// </remarks>
+    private static WorldVertex Packed(PropVertex corner, PropVertex ahead) =>
+        new(
+            corner.X, corner.Y, corner.Z, corner.U, corner.V,
+            corner.LightU, corner.LightV, 0f,
+            LightStep: corner.LightStep,
+            NormalX: corner.NormalX,
+            NormalY: corner.NormalY,
+            NormalZ: corner.NormalZ,
+            NextX: ahead.X,
+            NextY: ahead.Y,
+            NextZ: ahead.Z,
+            NextNormalX: ahead.NormalX,
+            NextNormalY: ahead.NormalY,
+            NextNormalZ: ahead.NormalZ,
+            BoneA: corner.Bones.First,
+            BoneB: corner.Bones.Second,
+            BoneC: corner.Bones.Third,
+            WeightA: corner.Weights.First,
+            WeightB: corner.Weights.Second,
+            WeightC: corner.Weights.Third,
+            TangentX: corner.TangentX,
+            TangentY: corner.TangentY,
+            TangentZ: corner.TangentZ,
+            TangentW: corner.TangentW);
+
+    /// <summary>A model's first frame as it was packed, rebuilt from its corners and packing order (finding 78).</summary>
+    /// <param name="modelPath">The model.</param>
+    /// <returns>The vertices, in buffer order, or null for a model not packed.</returns>
+    /// <remarks>
+    /// **For a decal on a skinned model, which projects onto the model's own mesh** (`CStudioRender::AddDecal`, B415). The
+    /// renderer kept a copy of every skinned model's packed vertices for that one reader: 623 MB on f12. The set already
+    /// keeps the corners (<see cref="_raw"/>) and the order they were packed in, so the rare decal rebuilds the list.
+    /// </remarks>
+    public IReadOnlyList<WorldVertex>? PackedVertices(string modelPath)
+    {
+        ArgumentNullException.ThrowIfNull(modelPath);
+
+        if (!_raw.TryGetValue(modelPath, out IReadOnlyList<PropVertex>? corners) ||
+            !_packedOrder.TryGetValue(modelPath, out int[]? order) ||
+            !_frames.TryGetValue(modelPath, out PropModels.ModelFrames? model))
+        {
+            return null;
+        }
+
+        IReadOnlyList<PropVertex> onward = model.NextOf(0);
+        WorldVertex[] packed = new WorldVertex[Math.Min(corners.Count, order.Length)];
+
+        for (int at = 0; at < packed.Length; at++)
+        {
+            int corner = order[at];
+            packed[at] = Packed(corners[corner], corner < onward.Count ? onward[corner] : corners[corner]);
+        }
+
+        return packed;
     }
 
     /// <summary>Whether the set has grown since the last upload, however it grew.</summary>

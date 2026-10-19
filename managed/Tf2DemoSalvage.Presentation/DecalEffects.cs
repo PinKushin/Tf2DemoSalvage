@@ -428,7 +428,7 @@ public sealed class DecalEffects
         DecalAssets assets,
         IDecalUpload device)
     {
-        (ModelDecalShot? shot, string refused) = ModelDecalFor(draw, impact, struck, impacts, assets, device);
+        (ModelDecalShot? shot, string refused) = ModelDecalFor(draw, impact, struck, impacts, assets);
 
         // Stryker disable once all : a mutated guard leaves its pattern variables unassigned (CS0165) and Safe Mode drops the method - B410
         if (shot is not { } s)
@@ -490,7 +490,7 @@ public sealed class DecalEffects
 
     /// <summary>The guards between an impact and a decal on the struck model, in the engine's order; the reason when one refuses.</summary>
     private (ModelDecalShot? Shot, string Refused) ModelDecalFor(
-        Func<float, float, float> draw, SceneEffectDispatch impact, ScenePlayer struck, ImpactDecals impacts, DecalAssets assets, IDecalUpload device)
+        Func<float, float, float> draw, SceneEffectDispatch impact, ScenePlayer struck, ImpactDecals impacts, DecalAssets assets)
     {
         if (impact.DamageType == struck.Team)
         {
@@ -530,7 +530,7 @@ public sealed class DecalEffects
         }
 
         // Stryker disable once all : a mutated guard leaves its pattern variables unassigned (CS0165) and Safe Mode drops the method - B410
-        if (_models.SkinningOf(impact.Entity) is not { } pose || device.SkinnedVertices(pose.Model) is not { } vertices)
+        if (_models.SkinningOf(impact.Entity) is not { } pose || _models.PackedVertices(pose.Model) is not { } vertices)
         {
             return (null, "no skinned model");
         }

@@ -63,6 +63,11 @@ public interface IPosedEntities
     /// <returns>The pose, or null when it is not posed here.</returns>
     public (string Model, IReadOnlyList<float[]> Bones, int Body, IReadOnlyList<(int Base, int Count)>? Parts)? SkinningOf(int entity);
 
+    /// <summary>A model's own vertices as packed, which its batches index — what a decal on it projects onto (B415).</summary>
+    /// <param name="modelPath">The model.</param>
+    /// <returns>The vertices, or null for a model not packed.</returns>
+    public IReadOnlyList<WorldVertex>? PackedVertices(string modelPath);
+
     /// <summary>How far a point is from one of an entity's hitboxes, for a log that says why a ray missed.</summary>
     /// <param name="entity">The entity.</param>
     /// <param name="box">The hitbox's index.</param>

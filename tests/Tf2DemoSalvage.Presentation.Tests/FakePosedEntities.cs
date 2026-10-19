@@ -61,6 +61,11 @@ internal sealed class FakePosedEntities : IPosedEntities
     public (string Model, IReadOnlyList<float[]> Bones, int Body, IReadOnlyList<(int Base, int Count)>? Parts)? SkinningOf(int entity) =>
         Skinning.TryGetValue(entity, out (string, IReadOnlyList<float[]>, int, IReadOnlyList<(int Base, int Count)>?) pose) ? pose : null;
 
+    /// <summary>Packed model vertices by path, for a decal on a model.</summary>
+    public Dictionary<string, IReadOnlyList<Tf2DemoSalvage.Scene.WorldVertex>> Vertices { get; } = [];
+
+    public IReadOnlyList<Tf2DemoSalvage.Scene.WorldVertex>? PackedVertices(string modelPath) => Vertices.GetValueOrDefault(modelPath);
+
     public (float Outside, Vector3 FromCentre)? HitboxGap(int entity, int box, Vector3 point) =>
         Posed.Contains(entity) ? (7.5f, new Vector3(1f, 2f, 3f)) : null;
 

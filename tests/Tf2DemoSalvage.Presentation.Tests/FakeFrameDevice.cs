@@ -25,8 +25,6 @@ internal sealed class FakeFrameDevice : IFrameDevice
         set => Decals.ModelDecals = value;
     }
 
-    public IReadOnlyList<WorldVertex>? SkinnedVertices(string modelPath) => Decals.SkinnedVertices(modelPath);
-
     public IReadOnlyList<WorldBatch> ModelBatches(string modelPath) => Decals.ModelBatches(modelPath);
 
     public void UploadShotDecals(

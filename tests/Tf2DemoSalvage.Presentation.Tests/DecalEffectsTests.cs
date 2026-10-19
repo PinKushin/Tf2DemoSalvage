@@ -151,10 +151,10 @@ public sealed class DecalEffectsTests
             Posed = { Victim },
             Fractions = { [Victim] = 0.1f },
             Skinning = { [Victim] = (VictimModel, [Identity], 0, null) },
+            Vertices = { [VictimModel] = Face },
         };
         FakeDecalUpload device = new()
         {
-            Vertices = { [VictimModel] = Face },
             Batches = { [VictimModel] = [new WorldBatch(0, 0, 3)] },
         };
         RecordingLogger log = new();
@@ -256,9 +256,9 @@ public sealed class DecalEffectsTests
     [Test]
     public void StepOver_AnImpactOnAPlayerTheDeviceHoldsNoSkinnedModelOf_LeavesNothing()
     {
-        (DecalEffects decals, FakeDecalUpload device, _, RecordingLogger log) = Presenter();
+        (DecalEffects decals, FakeDecalUpload device, FakePosedEntities models, RecordingLogger log) = Presenter();
 
-        device.Vertices.Clear();
+        models.Vertices.Clear();
         decals.StepOver(Frame(ImpactTick), Content(), device);
 
         decals.ModelDecalCount.ShouldBe(0);

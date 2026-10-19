@@ -314,6 +314,40 @@ evictions, since nothing was evicted on f12. Each is a frame that decoded a soun
 The real-clip digest held through the change. That clip is a 16-bit WAV, so the test now also proves the 16-bit
 storage.
 
+### Fixed: the renderer keeps no copy of skinned models' vertices (2026-10-19)
+
+**The one reader.** `Device3D._skinnedVertices` held every skinned model's packed vertices, 623 MB, for one reader: the
+decal a bullet leaves on a player (`DecalEffects`, through `IDecalUpload.SkinnedVertices`). The model set already keeps
+each model's corners (`_raw`) and the order it packed them in. `EntityModelSet.PackedVertices` now rebuilds the list
+for the rare decal, through the same corner-to-vertex helper the packing uses. The interface member moved from the
+device seam to `IPosedEntities`, and the device copy is gone.
+
+**The tests.**
+- `PackedVerticesTests` builds a model whose two materials interleave, so the packing reorders it. It holds the rebuild
+  to the list the set packed, and fails when the order is ignored.
+- `PackedVerticesRealModelTests` holds the shipped soldier's rebuild to the slice the renderer was handed. That test
+  cannot see the order: the soldier's corners are already grouped by material, and ignoring the order passes there
+  (tried).
+
+**Measured: the live heap fell, private bytes did not.**
+
+| f12 | before (the sound fix) | after |
+|---|---:|---:|
+| live heap, heap-owners walk at 25 s | 4,094 MB (before both fixes) | **3,280 MB** |
+| `Device3D._skinnedVertices` | 623 MB | gone |
+| private at the end, two runs | 8,298–8,305 MB | 8,344–8,353 MB |
+| working set at the end | 5,844–5,854 MB | 5,862–5,887 MB |
+| large allocations / 20 s | 77–78 MB | 118–120 MB (decal rebuilds: `WorldVertex[]` 13 → 49–58) |
+| mean frame | 35.9–36.6 ms | 34.1, 37.6 ms |
+
+The live heap fell by 814 MB, which matches the two fixes (sound 194 + skinned 623). Private bytes did not move,
+because the GC still carries **a 4.1 GB large-object heap of dead arrays** that its next gen2 collection has not
+reached. The tally cannot see those arrays: it starts at the first measured frame, and they are allocated before it,
+during the load and the seek to tick 30000 (183,783 particle replay steps in this run). Until something collects them,
+shrinking the live set does not shrink the process. **The next lever is that pre-measurement churn, or a collection
+after the seek** like the one after the load (D199). The decal rebuild's new 36–45 MB per 20 s is a follow-up:
+memoise the rebuilt list per model that has been struck.
+
 **Item 2, the packed models' CPU copy, is already released.** `EntityModelSet.ReleaseUploaded` (B407) drops the
 729 MB once the map's world is on the device. Every run above ends with "entity model vertices on the CPU 0 in
 0 MB". The 729 MB is real only between the load and the first upload. That makes it part of the load peak, not the
