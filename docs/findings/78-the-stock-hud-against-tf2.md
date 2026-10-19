@@ -63,6 +63,10 @@ flips all five switches, and `Constants_EachScaleFlagAlone_ScalesOnlyItsOwnRange
 (vertexlitgeneric_dx9_helper.cpp:1012-1031). Sabotaged: `||` to `&&`, the edge block taken always, and the switches
 pinned each way.
 
+**The team event is held to firing on a change only.** `Think_TheSameTeamAgain_DoesNotFireTheTeamChange` sets an image
+on a `CTFImagePanel` after the team was sent, thinks on the same team again, and expects the image to stand; a second
+team is its control. Sabotaged with the guard always true: the same-team case reddens.
+
 A wrong turn in the instrument, kept: the first `$detailscale` test drew a one-pixel-tall quad, whose V derivative is
 the whole texture per pixel at scale 4, and read the last mip's average (138) instead of a texel. Square target, then
 the texel.
