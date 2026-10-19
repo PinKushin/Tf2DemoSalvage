@@ -190,6 +190,16 @@ is the refract rebind it existed for.
 Trace after: 366 MB per 20 s. The largest remaining owner is now `WorldRenderer.Pack` from the shot decals at
 161 MB, the other change reverted above. It is real, and was lost in the same noise.
 
+**Fixed next: decal vertices are packed straight into the mapped buffer.** The shot-decal and model-decal passes now do
+this, so no per-frame `float[]` is made.
+
+| f12, `--measure 20`, two runs | large allocations / 20 s | of which `float[]` | mean frame |
+|---|---:|---:|---:|
+| before (the face fix's after) | 306–314 MB | 130–137 MB | 35.2–36.9 ms |
+| after | **217–219 MB** | **41–42 MB** | 36.1–37.4 ms |
+
+The frame-time change is inside the measured noise.
+
 **Item 2, the packed models' CPU copy, is already released.** `EntityModelSet.ReleaseUploaded` (B407) drops the
 729 MB once the map's world is on the device. Every run above ends with "entity model vertices on the CPU 0 in
 0 MB". The 729 MB is real only between the load and the first upload. That makes it part of the load peak, not the

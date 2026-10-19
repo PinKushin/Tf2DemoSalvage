@@ -4908,13 +4908,27 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
     /// The order here IS the input layout above; the two are one decision written twice, and this
     /// is the half that can be checked by counting.
     /// </remarks>
-    private static float[] Pack(IReadOnlyList<WorldVertex> vertices)
+    internal static float[] Pack(IReadOnlyList<WorldVertex> vertices)
     {
         float[] data = new float[vertices.Count * (VertexStride / sizeof(float))];
+        PackInto(vertices, data);
+        return data;
+    }
+
+    /// <summary>The same layout written into memory the caller owns — a mapped buffer, so a per-frame pass allocates nothing.</summary>
+    /// <param name="vertices">The vertices.</param>
+    /// <param name="data">At least <c>Count × stride</c> floats.</param>
+    /// <remarks>
+    /// **Indexed, not <c>foreach</c>**: enumerating an <see cref="IReadOnlyList{T}"/> boxes its enumerator. The shot decals
+    /// packed a new array every frame and copied it: 161 MB of large-object <c>float[]</c> per 20 s of f12 (finding 78).
+    /// </remarks>
+    internal static void PackInto(IReadOnlyList<WorldVertex> vertices, Span<float> data)
+    {
         int at = 0;
 
-        foreach (WorldVertex vertex in vertices)
+        for (int index = 0; index < vertices.Count; index++)
         {
+            WorldVertex vertex = vertices[index];
             data[at++] = vertex.X;
             data[at++] = vertex.Y;
             data[at++] = vertex.Depth;
@@ -4947,8 +4961,6 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             data[at++] = vertex.TangentZ;
             data[at++] = vertex.TangentW;
         }
-
-        return data;
     }
 
     /// <summary>Writes one cube face, leaving its w alone.</summary>
@@ -6385,17 +6397,11 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             SilkMarshal.ThrowHResult(device.CreateBuffer(in description, null, ref _shotDecalBuffer));
         }
 
-        float[] data = Pack(vertices);
         MappedSubresource mapped = default;
 
+        // Packed straight into the mapped buffer: no array per frame (finding 78).
         SilkMarshal.ThrowHResult(context.Map(_shotDecalBuffer, 0, Map.WriteDiscard, 0, ref mapped));
-
-        fixed (float* source = data)
-        {
-            System.Buffer.MemoryCopy(
-                source, mapped.PData, (long)_shotDecalCapacity * VertexStride, sizeof(float) * (long)data.Length);
-        }
-
+        PackInto(vertices, new Span<float>(mapped.PData, _shotDecalCapacity * (VertexStride / sizeof(float))));
         context.Unmap(_shotDecalBuffer, 0);
     }
 
@@ -6455,17 +6461,11 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             SilkMarshal.ThrowHResult(device.CreateBuffer(in description, null, ref _modelDecalBuffer));
         }
 
-        float[] data = Pack(vertices);
         MappedSubresource mapped = default;
 
+        // Packed straight into the mapped buffer: no array per model per frame (finding 78).
         SilkMarshal.ThrowHResult(context.Map(_modelDecalBuffer, 0, Map.WriteDiscard, 0, ref mapped));
-
-        fixed (float* source = data)
-        {
-            System.Buffer.MemoryCopy(
-                source, mapped.PData, (long)_modelDecalCapacity * VertexStride, sizeof(float) * (long)data.Length);
-        }
-
+        PackInto(vertices, new Span<float>(mapped.PData, _modelDecalCapacity * (VertexStride / sizeof(float))));
         context.Unmap(_modelDecalBuffer, 0);
 
         uint stride = VertexStride;
