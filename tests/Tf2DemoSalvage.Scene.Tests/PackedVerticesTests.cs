@@ -50,6 +50,22 @@ public sealed class PackedVerticesTests
     /// large-object garbage per 20 s of f12). A second decal on the same model gets the same list; a level's end lets
     /// it go with the model.
     /// </remarks>
+    /// <remarks>
+    /// **Reserved once for the whole call, then filled** (finding 78: the list's growth by doubling was about 1.45 GB of
+    /// large-object garbage over f12's precache). Three models of four corners: grown model by model, the list ends at a
+    /// capacity of 16 for 12 vertices.
+    /// </remarks>
+    [Test]
+    public void Precache_ThreeModels_ReservesExactlyTheVerticesItPacks()
+    {
+        EntityModelSet models = new() { Geometry = Skinned };
+
+        models.Precache(["models/a.mdl", "models/b.mdl", "models/c.mdl"]);
+
+        models.Vertices.Count.ShouldBe(12, "the control: all three models packed");
+        models.VertexBytes.ShouldBe(12L * System.Runtime.CompilerServices.Unsafe.SizeOf<WorldVertex>());
+    }
+
     [Test]
     public void PackedVertices_ASecondDecalOnTheSameModel_IsTheListTheFirstGot()
     {

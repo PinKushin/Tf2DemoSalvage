@@ -5526,6 +5526,8 @@ public sealed class EntityModelSet : Hud.IMdlCache, IPosedEntities
         ArgumentNullException.ThrowIfNull(load);
 
         bool added = false;
+        List<(SceneProp Prop, PropModels.ModelFrames Model, List<List<WorldBatch>> Frames)> loaded = [];
+        int reserve = 0;
 
         foreach (SceneProp prop in props)
         {
@@ -5563,6 +5565,19 @@ public sealed class EntityModelSet : Hud.IMdlCache, IPosedEntities
                     _swaps[prop.ModelPath] = families;
                 }
 
+            loaded.Add((prop, model, frames));
+            reserve += model.Geometry.Sum(frame => frame.Count);
+        }
+
+        // **Reserved once for every model this call packs, then filled** (finding 78). Grown model by model, the list
+        // doubled its way up, and the arrays it outgrew were 1.45 GB of large-object garbage over f12's precache.
+        if (_vertices.Capacity < _vertices.Count + reserve)
+        {
+            _vertices.Capacity = _vertices.Count + reserve;
+        }
+
+        foreach ((SceneProp prop, PropModels.ModelFrames model, List<List<WorldBatch>> frames) in loaded)
+        {
             List<int> order = [];
 
             for (int slot = 0; slot < model.Geometry.Count; slot++)
@@ -5614,8 +5629,6 @@ public sealed class EntityModelSet : Hud.IMdlCache, IPosedEntities
 
                     into.Add(index);
                 }
-
-                _vertices.EnsureCapacity(_vertices.Count + corners.Count);
 
                 foreach (KeyValuePair<(int Material, int Slot, int Part, int Model), List<int>> group in byMaterial)
                 {
