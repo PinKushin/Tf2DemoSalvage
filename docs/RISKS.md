@@ -40026,6 +40026,16 @@ element; the reporter then crashed describing the live tree, replacing "why `Fin
 reporter. `Describe` now reads the id through `ViewerApplication.ReadAutomationId`, which catches only that exception
 and prints `<no id>`; `ReadAutomationIdTests` holds it. The second test's message was "no File menu".
 
+**A third occurrence, on CI — a DIFFERENT failure shape.** GitHub Actions run `39230763299` (push of main at
+`88259677`, 2026-10-19 09:31 UTC, Windows "Corpus + Audio" job, Viewer UI step) failed
+`Shell_EveryControl_IsReachableByAutomation` (29 s, `ShellUiTests.cs:72`) and
+`StartupSplash_OnceTheMainWindowIsUp_IsGone` (6 s, `StartupSplashUiTests.cs:30`), both with
+`System.Runtime.InteropServices.COMException : Operation timed out. (0x80131505)`, ErrorCode -2146233083, i.e. a UI
+Automation call to the viewer timing out. **It is not the `Describe`/`AutomationId` reporter bug**: no
+`PropertyNotSupportedException` and no `Describe` frame in either stack. The next two pushes (`26962f01`, `a1489309`)
+passed the same job. Same family (UIA tests failing intermittently on a push with no related change); the common cause,
+if there is one, is unknown. *Evidence class: read from the CI log (`gh run view 39230763299 --log-failed`).*
+
 **Not fixed, deliberately:** why the element or the File menu was missing. CLAUDE.md says a flake is a defect, so this
 stays OPEN until a failure shows its real cause in the now-readable tree. No retry loop and no sleep was added:
 synchronise on the condition, never the clock. **Next step:** the next failure of either test prints the whole
