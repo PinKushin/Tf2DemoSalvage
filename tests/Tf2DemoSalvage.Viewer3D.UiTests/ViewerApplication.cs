@@ -1145,11 +1145,32 @@ internal sealed partial class ViewerApplication : IDisposable
         return description.ToString();
     }
 
+    /// <summary>The marker <see cref="Describe"/> prints for an element that carries no AutomationId.</summary>
+    internal const string NoIdMarker = "<no id>";
+
+    /// <summary>Reads an AutomationId, answering <see cref="NoIdMarker"/> for an element that has none.</summary>
+    /// <remarks>
+    /// **FlaUI throws rather than returning null** for an element without the property, and this is the failure
+    /// REPORTER's read: letting it throw replaced "why did Find fail" with "AutomationId is not supported" (B558).
+    /// Only that exception is caught; anything else is a real fault and propagates.
+    /// </remarks>
+    internal static string ReadAutomationId(Func<string?> read)
+    {
+        try
+        {
+            return read() ?? string.Empty;
+        }
+        catch (FlaUI.Core.Exceptions.PropertyNotSupportedException)
+        {
+            return NoIdMarker;
+        }
+    }
+
     private static void Describe(AutomationElement element, int depth, System.Text.StringBuilder into)
     {
         into.Append(' ', depth * 2)
             .Append(element.ControlType)
-            .Append(" id='").Append(element.AutomationId)
+            .Append(" id='").Append(ReadAutomationId(() => element.AutomationId))
             .Append("' name='").Append(element.Name)
             .AppendLine("'");
 

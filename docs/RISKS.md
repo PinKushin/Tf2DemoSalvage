@@ -40012,3 +40012,23 @@ reddens four tests), and a child's drawn size against its own scale alone.
   `pl_badwater_pro_v12.bsp` is not on this machine (not under the game's `tf/maps`, `tf/download/maps`, `tf2ds`, or the
   user profile), so its `parentname` cannot be read, and no sampled tick gives them a parent.
 
+## B558 — two UI tests fail intermittently, and one failure's reporter crashed so the real cause was hidden — OPEN, flake (a defect, not noise)
+
+**Observed:** `ExportThenCompile_OpenDemo_RebuildsItsBytes` and
+`FileDialog_OpenedThroughTheFileMenuByAutomation_LeavesTheKeyBindingsWorking` each failed on SEPARATE runs and
+recurred: in the pose agent's earlier phase-2 runs and again in the first batch-1 phase 2 on 2026-10-18. Each passed
+on rerun every time. *Evidence class: observed in the lead's runs; no failing run was kept with its tree.*
+
+**The reporter bug (FIXED 2026-10-19, from the stack):** the first test's failure was
+`FlaUI.Core.Exceptions.PropertyNotSupportedException: The requested property 'AutomationId' is not supported`,
+thrown from `ViewerApplication.Describe` (via `DescribeTree`, via `Find`). `Find` had already failed to locate its
+element; the reporter then crashed describing the live tree, replacing "why `Find` failed" with a message about the
+reporter. `Describe` now reads the id through `ViewerApplication.ReadAutomationId`, which catches only that exception
+and prints `<no id>`; `ReadAutomationIdTests` holds it. The second test's message was "no File menu".
+
+**Not fixed, deliberately:** why the element or the File menu was missing. CLAUDE.md says a flake is a defect, so this
+stays OPEN until a failure shows its real cause in the now-readable tree. No retry loop and no sleep was added:
+synchronise on the condition, never the clock. **Next step:** the next failure of either test prints the whole
+tree; read it before touching anything. A suspect to test, not a finding: another process on the desktop
+(`docs/memory/parallel-agents-lock-the-gate-too.md`).
+
