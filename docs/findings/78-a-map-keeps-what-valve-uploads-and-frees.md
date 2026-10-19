@@ -399,6 +399,70 @@ and copying it.
 - Private bytes moved by only about 200 MB. The dead large-object heap waits for a gen2 collection, so less churn shows
   first as less garbage, and in private bytes only when the GC compacts.
 
+### The upload copies, and a reserve that measured little (2026-10-19)
+
+Same instrument and run as above. MB per 20 s:
+
+| site | type | after the roster fix | reserve, rented arrays | reserve, view + scratch |
+|---|---|---:|---:|---:|
+| `EntityModelSet.Add` | `WorldVertex[]` | 126 | 104 | 150 (`EnsureCapacity`) |
+| `Device3D.UploadModels` slice | `WorldVertex[]` | 54 | 78 | **0** |
+| `WorldRenderer.UploadModels` pack | `float[]` | 54 | 17 | 17 |
+| large allocations, whole run | | 9,359 MB | 8,888 MB | 8,498 MB |
+| allocated since start | | 52,203 MB | 51,907 MB | 50,836 MB |
+| private bytes at the end | | 8,121 MB | 8,367 MB | 7,959 MB |
+| GC heap at the end (LOH) | | 5,487 (3,930) | 5,738 (4,183) | 5,347 (3,793) |
+
+- **The slice.** A rented array measured worse than a fresh one, because the pool rounds each model up to a power of
+  two. A view over the model set's own list removes the copy outright.
+- **The pack.** It goes into one grow-only scratch array. The 17 MB left is that array's growth.
+- **The reserve.** Counting first, then setting the capacity exactly, took `Add` from 126 to 104 only. `EnsureCapacity`
+  measured worse, at 150. The list is grown by more than one precache call, and each call grows a list that is already
+  large, so a per-call reserve cannot remove the copies. The shipped code keeps the exact reserve. The remaining fix is
+  a list that never copies to grow, such as per-model arrays. That is not built.
+- **Single runs.** Private bytes swing by about 400 MB between runs (8,121 → 8,367 → 7,959), so a single run's private
+  bytes is not evidence of a fix. The allocation columns are steadier.
+- **The post-seek collection is not measured.** At the end, private bytes (7,959 MB) are 2.6 GB above the GC heap
+  (5,347 MB). That gap is native memory and the runtime, not dead managed arrays, so a collection after the seek would
+  not reach it. The dead arrays are inside the GC heap's 3,793 MB LOH; a collection would show as a smaller GC heap,
+  and is left for after the VPK reads.
+
+### Plan: VPK reads into the caller's buffer (not built)
+
+`VpkArchive.ReadFile` is about 264 MB per 20 s, about 2.9 GB over the run. Valve reads a VPK entry straight into the
+caller's buffer. The callers of `GameArchives.Read`, by agent-lsp references: about 40 in production code across
+Scene, Presentation and Content, and about 90 more in tests and probes.
+
+**By bytes, from the trace's stacks.** Only the top three frames were read.
+
+| caller | MB per 20 s | kind |
+|---|---:|---|
+| `MapAssets.Resolve` → `ResolveBump` → `LoadFrame` (VTF) | 83 | (a) decoded, then dropped |
+| `MapAssets.Resolve` → `Decode` (VTF, for `PropModels.Register`) | 45 | (a) |
+| `MapAssets.Resolve` → `LoadFrame` → `Find` | 23 | (a) |
+| `MapAssets.Resolve` → `ResolveDetail` → `Find` | 22 | (a) |
+| the rest | ~90 | not split yet |
+
+- **(a) Consumes the bytes at once:** every texture path in `MapAssets.Resolve`. `VtfTexture` decodes the bytes into
+  its own pixels, and the byte array is dropped.
+- **(b) Retains the array:** none found among the four. Every caller still has to be checked before the allocating
+  overload is narrowed. Material text (`VmtMaterial.Parse`), model files (`PropModels`) and sounds (`SoundCache`
+  decodes into samples) are the next to classify.
+
+**The contract change.** Add `GameArchives.Read(string path, IBufferWriter<byte>)`, or a lease returning an
+`ArrayPool` array with its length, beside the allocating `Read`. A call site in class (a) rents, decodes and returns.
+Class (b) keeps the allocating overload. `VpkArchive.ReadFile` gains the same overload and reads the entry's preload
+and archive bytes straight into the span.
+
+**The steps, one commit each:**
+1. The overload, with a test that it gives the same bytes as the allocating path on a real VPK entry.
+2. `MapAssets.Resolve`'s VTF reads, the biggest (a) caller, with a byte-identical test on a real texture.
+3. The rest of class (a), largest first. Each step reports the MB per run it saves.
+
+**The rounding trap.** `ArrayPool` rounds a request up to a power of two, which measured worse than a fresh array for
+the model slice above. VTFs repeat sizes far more often than models do, so a pool is likelier to win here, but each
+step is measured, never assumed.
+
 ## Plans not yet built
 
 These were drafted for review before the churn work, and are ordered behind it.
