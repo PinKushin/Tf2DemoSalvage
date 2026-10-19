@@ -829,6 +829,15 @@ public sealed class MapAssets
         BlendTextures = [.. BlendTextures.Select(Bare)];
         Bumps = [.. Bumps.Select(bump => bump is { } present ? present with { Texture = Bare(present.Texture)!.Value } : (MapBump?)null)];
         Details = [.. Details.Select(detail => detail is { } present ? present with { Texture = Bare(present.Texture)!.Value } : (MapDetail?)null)];
+
+        // Uploaded in the same pass as the base textures (`UploadWorldTextures`), so the device holds them too (finding 78).
+        AnimatedDetails = AnimatedDetails.ToDictionary(
+            pair => pair.Key,
+            pair => (IReadOnlyList<MapTexture>)[.. pair.Value.Select(frame => Bare(frame)!.Value)],
+            StringComparer.OrdinalIgnoreCase);
+        Cubemaps = [.. Cubemaps.Select(cubemap => cubemap is { } present
+            ? present with { Faces = [.. present.Faces.Select(face => Bare(face)!.Value)] }
+            : (MapCubemap?)null)];
         Released = true;
     }
 
@@ -843,7 +852,7 @@ public sealed class MapAssets
     /// <see cref="LocalReflections"/> instead, chosen per draw), and a cubemap that failed to
     /// decode. The first is much the commonest — on cp_process_final, 51 of 410.
     /// </remarks>
-    public IReadOnlyList<MapCubemap?> Cubemaps { get; }
+    public IReadOnlyList<MapCubemap?> Cubemaps { get; private set; }
 
     /// <summary>
     /// How each material shades the map's own cubemap, null for those that do not ask for it.
@@ -1092,7 +1101,7 @@ public sealed class MapAssets
     public IReadOnlyDictionary<string, IReadOnlyList<MapTexture>> AnimatedDetails
     {
         get;
-        private init;
+        private set;
     } = new Dictionary<string, IReadOnlyList<MapTexture>>();
 
     /// <summary>The proxies each material runs, empty for the great majority that run none.</summary>
