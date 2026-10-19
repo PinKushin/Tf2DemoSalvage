@@ -632,6 +632,45 @@ What `ReleaseUploaded` still leaves, after the census above:
 They are texture bytes, so they are the next candidates if they too go up with the world textures. That is not
 checked yet.
 
+### Item 3, step 1: the bones-versus-bake sweep (2026-10-19)
+
+**The harness: `BakeAgainstBonesDiagnostic`**, `[Explicit]`, reports and asserts nothing.
+- **Inputs.** Every model f12 loads with its demo's models, and bakes with more than one frame, is loaded twice by the
+  production loader: once baked, as today, and once forced onto the GPU-skinned path (`mustSkin`).
+- **Posing.** Both are posed by `EntityModelSet.Instances` at the origin, with the same sequence and cycle, at nine
+  cycles from 0 to 1.
+- **The baked corners** are the draw's own: frame `Frame`, blended toward `NextOf` by `Blend`, as the shader blends.
+- **The skinned corners** are the bind pose moved by the instance's bone matrices, with the shader's `SkinPosition`
+  arithmetic. The control: every model and sequence that agrees reads exactly 0.000.
+
+**The result.** In world units; agreement means within 0.2 units.
+
+| model | sequence | worst | mean | where it differs |
+|---|---:|---:|---:|---|
+| `props_gameplay/door_slide_large_dynamic` | 1, 2 | 108.3 | 1.47 | cycle 0.63 on (15.4), and 0.88 to 1.0 (83.9, 108.3) |
+| `props_gameplay/resupply_locker` | 1, 2 | 54.7 | 1.1–1.2 | mid-blend (3.8–7.7), and cycle 1.0 (54.7) |
+| `w_breadmonster` | 0 | 10.0 | 1.70 | every sampled frame, at blend 0 |
+| `buildables/sentry3_rockets` | 0 | 2.2 | 0.52 | mid-blend only |
+| `cappoint_hologram`, medkits, ammo packs | 0 | 0.04–0.18 | | agree |
+| `w_arrow`, `w_arrow_xmas`, `w_baseball`, `w_repair_claw`, `c_quadball`, the `*_ellis` items | 0 | 0.000 | | identical |
+
+**What the differences are.**
+- **The large ones are the bake's own fault (read from our code).** `ModelFrames.NextOf` wraps every animation:
+  `(offset + 1) % intervals`, looping or not. Over the last interval of a door's opening, the bake blends the open frame
+  toward the closed one, and at cycle 1.0 it draws the locker and the door almost shut (the 54.7 and 108.3 rows). The
+  bone path clamps a non-looping sequence at its end, as Valve's does.
+- **The door's 15.4 at cycle 0.63** is the bake choosing frame 7 where the bone path is between frames 6 and 7. That
+  looks like the bake's frame mapping skipping a frame there. Interpolated: not traced to a line.
+- **Mid-blend differences** (locker 3.8–7.7, sentry rockets 1.1–2.2) are the expected difference in kind. The bake
+  lerps vertex positions between two frames, while the bones interpolate rotations, so a turning part cuts a chord where
+  the bones sweep the arc.
+- **`w_breadmonster` differs at blend 0, on frames the two paths agree on.** So it is neither of the above. The guess
+  is that the bone path runs something the bake does not, such as jiggle or procedural bones. Interpolated, not yet
+  read.
+- **Arrows do not animate**: the sequence is a static pose, so an arrow in flight draws identically either way.
+
+**No model was refused.** Every one the sweep reached loaded on the skinned path with the same corners.
+
 ## Plans not yet built
 
 These were drafted for review before the churn work, and are ordered behind it.
