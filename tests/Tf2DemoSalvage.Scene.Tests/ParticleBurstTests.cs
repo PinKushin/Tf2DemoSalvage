@@ -354,15 +354,19 @@ public sealed class ParticleBurstTests
         ParticleBurst awake = new(1, Beam, Origin, 100) { DormantAt = static _ => false };
         ParticleBurst gap = awake with { DormantAt = static at => at == 103 };
 
-        int Count(ParticleBurst burst)
+        (int Count, int Steps) Run(ParticleBurst burst)
         {
             ParticleEffects effects = new();
             effects.Bursts([burst], Interval, null, tick: 100);
             effects.Bursts([burst], Interval, null, tick: 110);
-            return effects.BurstParticles(1)!.Count;
+            return (effects.BurstParticles(1)!.Count, effects.BurstSteps(1));
         }
 
-        Count(gap).ShouldBeGreaterThan(Count(awake), "the wake inside the frame re-emitted");
+        Run(gap).Count.ShouldBeGreaterThan(Run(awake).Count, "the wake inside the frame re-emitted");
+
+        // Ticks 101-102 awake, 103 dormant, 104-110 awake: three steps, each one dormancy state. Cut AT the change instead
+        // of before it, ticks 101-103 would be one step asked at 103 (dormant) and the frame two steps.
+        Run(gap).Steps.ShouldBe(3);
     }
 
     /// <remarks>
@@ -413,6 +417,66 @@ public sealed class ParticleBurstTests
         }
 
         effects.BurstParticles(1)!.Count.ShouldBeLessThanOrEqualTo(before, "stopped: nothing born, woken or not");
+    }
+
+    /// <remarks>
+    /// **A stop that lands inside a dormant gap does not cancel the wake.** `CParticleCollection::SetDormant`
+    /// (`0x000e5c60`) checks emission-stopped (`+0x69`) only on entering dormancy. The wake branch calls `StartEmission`
+    /// whenever dormant (`+0x68`) is set, and `StartEmission` clears `+0x69`. So the effect, stopped mid-gap, wakes,
+    /// re-emits through `SkipToTime`, and emits again after.
+    /// </remarks>
+    [Test]
+    public void Bursts_AStopInsideADormantGap_StillWakesAndEmits()
+    {
+        ParticleBurst burst = new(1, Beam, Origin, 100, StopTick: 113) { DormantAt = static at => at is >= 112 and < 115 };
+        ParticleEffects effects = new();
+
+        for (int tick = 100; tick <= 114; tick++)
+        {
+            effects.Bursts([burst], Interval, null, tick);
+        }
+
+        int before = effects.BurstParticles(1)!.Count;
+
+        effects.Bursts([burst], Interval, null, tick: 115);
+        int woken = effects.BurstParticles(1)!.Count;
+
+        // At 0.21 s old, 66 a second: SkipToTime births 13 at once.
+        woken.ShouldBeGreaterThanOrEqualTo(before + 13, "the wake's SkipToTime");
+
+        for (int tick = 116; tick <= 120; tick++)
+        {
+            effects.Bursts([burst], Interval, null, tick);
+        }
+
+        effects.BurstParticles(1)!.Count.ShouldBeGreaterThan(woken, "StartEmission cleared the stop: it emits again");
+    }
+
+    /// <remarks>
+    /// **Only the root's own live particles keep an effect awake.** `BuildParticleSimList` reads
+    /// `m_nActiveParticles` (particlemgr.cpp:1775), the top collection's own count; children are simulated with it and
+    /// never sleep separately. A parent that emits nothing, with a child still alive, has a count of 0 and does not
+    /// sleep, however long it goes undrawn.
+    /// </remarks>
+    [Test]
+    public void Bursts_AnUndrawnParentWithNoParticlesAndALiveChild_DoesNotSleep()
+    {
+        ParticleSystem child = Beam with { Name = "test_child" };
+        ParticleSystem parent = Sleepy(Beam) with { Name = "test_parent", Emitters = [], Children = ["test_child"] };
+        Dictionary<string, ParticleSystem> others = new(StringComparer.Ordinal) { ["test_child"] = child };
+        ParticleBurst burst = new(1, parent, Origin, 100);
+        ParticleEffects effects = new();
+
+        effects.Bursts([burst], Interval, others, tick: 100);
+        effects.Bursts([burst], Interval, others, tick: 101);
+
+        for (int tick = 102; tick <= 140; tick++)
+        {
+            effects.Bursts([burst with { Undrawn = true }], Interval, others, tick);
+        }
+
+        effects.BurstParticles(1)!.Count.ShouldBe(0, "the control: the root has none of its own");
+        effects.BurstSteps(1).ShouldBe(40, "stepped every tick: the root's count is 0, so it never sleeps");
     }
 
     private static readonly ParticleControlPoint Origin = new(Vector3.Zero, Vector3.UnitX, Vector3.UnitY, Vector3.UnitZ);

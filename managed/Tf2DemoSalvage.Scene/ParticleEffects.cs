@@ -435,6 +435,7 @@ public sealed class ParticleEffects
             double reachedTo = running.SimulatedTo;
             double nextSleep = running.NextSleep;
             bool wasDormant = running.Dormant;
+            bool stopCleared = running.StopCleared;
 
             // **Undrawn, it follows the points it last had** — the caller could not place it this frame.
             ParticleControlPoint current = burst.Undrawn ? running.LastAt : burst.At;
@@ -473,21 +474,25 @@ public sealed class ParticleEffects
                 bool dormant = burst.DormantAt?.Invoke(burst.Tick + (int)Math.Floor(next)) == true;
 
                 // **Waking is `StartEmission`**: the emitters' `SkipToTime`, and the sleep time set to now plus the no-draw
-                // time. An effect already stopped never went dormant — `SetDormant` returns early on a stopped one — so it
-                // does not wake either.
-                bool stoppedHere = burst.StopTick is { } stopsAt && burst.Tick + reachedTo >= stopsAt;
+                // time. `SetDormant` (`0x000e5c60`) checks emission-stopped (`+0x69`) only on ENTERING dormancy, so an
+                // effect already stopped never goes dormant; once dormant, the wake calls `StartEmission` whatever stopped
+                // since, and that clears the stop.
+                bool stoppedHere = !stopCleared && burst.StopTick is { } stopsAt && burst.Tick + reachedTo >= stopsAt;
 
-                if (wasDormant && !dormant && !stoppedHere)
+                if (wasDormant && !dormant)
                 {
                     running.Effect.StartEmission();
                     nextSleep = reachedTo + noDraw;
+                    stopCleared = burst.StopTick is not null;
+                    stoppedHere = false;
                 }
 
-                wasDormant = dormant && !stoppedHere;
+                wasDormant = dormant && (wasDormant || !stoppedHere);
 
                 // **Asleep, its clock stands**: `BuildParticleSimList` skips an effect at or past `m_flNextSleepTime` while
-                // it has live particles (particlemgr.cpp:1775-1776). Only a draw pushes the time on.
-                if (reachedTo >= nextSleep && !running.Effect.Empty)
+                // `m_nActiveParticles > 0` (particlemgr.cpp:1775-1776) — the root collection's own count; its children
+                // are simulated with it and never sleep apart. Only a draw pushes the time on.
+                if (reachedTo >= nextSleep && running.Effect.Particles.Count > 0)
                 {
                     reachedTo = next;
                     continue;
@@ -522,7 +527,7 @@ public sealed class ParticleEffects
 
                 // A stopped effect only fades: its particles live out their lives and no more are born. **Its points
                 // still follow** — `StopEmission` leaves the effect in the property's list (particle_property.cpp:251).
-                if (dormant || (burst.StopTick is { } stop && burst.Tick + reachedTo >= stop))
+                if (dormant || (!stopCleared && burst.StopTick is { } stop && burst.Tick + reachedTo >= stop))
                 {
                     running.Effect.SetControlPoint(0, at);
                     running.Effect.Fade(step);
@@ -577,7 +582,7 @@ public sealed class ParticleEffects
                 stillRead = false;
             }
 
-            bool stopped = burst.StopTick is { } stopTick && now >= stopTick;
+            bool stopped = !stopCleared && burst.StopTick is { } stopTick && now >= stopTick;
 
             // **A finished effect keeps only a marker**: its store is let go, its name and place in the census kept, so the
             // owner's continued offer neither rebuilds it nor holds its buffers.
@@ -588,7 +593,7 @@ public sealed class ParticleEffects
                 Effect = spent ? Spent : running.Effect,
                 Stepped = taken, SimulatedTo = reachedTo, Stopped = stopped, StillRead = stillRead, Tick = burst.Tick,
                 Name = burst.Definition.Name, Unoffered = false,
-                NextSleep = nextSleep, Dormant = wasDormant, LastAt = current,
+                NextSleep = nextSleep, Dormant = wasDormant, LastAt = current, StopCleared = stopCleared,
             };
         }
 
@@ -776,6 +781,9 @@ public sealed class ParticleEffects
 
         /// <summary>Whether the last step taken was on a dormant tick.</summary>
         public bool Dormant { get; init; }
+
+        /// <summary>Whether a wake's `StartEmission` has cleared the stop that landed while it was dormant.</summary>
+        public bool StopCleared { get; init; }
 
         /// <summary>The control point it was last placed at.</summary>
         public ParticleControlPoint LastAt { get; init; }
