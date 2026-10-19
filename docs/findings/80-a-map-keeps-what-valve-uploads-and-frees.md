@@ -3,6 +3,13 @@
 **The question.** On the f12 demo the viewer peaks at 7.6 GB working set. TF2 plays the same map in about 3 GB.
 What does one loaded map hold, which field holds it, and does Valve keep the same thing?
 
+> **Correction, 2026-10-19: the "about 3 GB" for TF2 was never measured.** It entered this campaign as an estimate in the
+> first census brief and was repeated as the benchmark. Nobody had started TF2 and read its memory. The owner: *"i havent
+> seen real tf2 started to actually profile and see its memory usage yet either"*. Everything below about OUR memory
+> (the owners, the churn, the dead arrays) was measured and stands; "we are 2 to 3 times TF2" has no measurement behind
+> it. The TF2 side is queued (live `map cp_process_f12`, working set, private bytes and per-process GPU memory from
+> Windows' counters, beside the viewer's own on f12); its figure replaces this note when taken.
+
 **Read this first: the map is not most of the 7.6 GB.** The viewer keeps 0.83 GB of managed memory for one map
 (f12). That leaves the GPU, native memory and the demo timeline as the larger share, and this census sees none of
 them. Fixing every row below closes at most about 0.7 GB per map. It matters more where several maps are held at
