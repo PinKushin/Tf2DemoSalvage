@@ -36,7 +36,7 @@ public sealed class AllocationTraceProbe : IProbe
     public string Name => "alloc-trace";
 
     /// <inheritdoc/>
-    public string Summary => "large allocations in a .nettrace by type and allocating frame: alloc-trace <file.nettrace> [frames=3] [all|large] [from-s] [to-s]";
+    public string Summary => "large allocations in a .nettrace by type and allocating frame: alloc-trace <file.nettrace> [frames=3] [all|large] [from-s] [to-s] [thread]";
 
     /// <inheritdoc/>
     public void Run(TextWriter output, IReadOnlyList<string> arguments)
@@ -58,6 +58,7 @@ public sealed class AllocationTraceProbe : IProbe
         // A window in seconds, so a whole-process trace can be read for its playback alone and not its load.
         double from = arguments.Count > 3 ? double.Parse(arguments[3], CultureInfo.InvariantCulture) * 1000d : double.MinValue;
         double to = arguments.Count > 4 ? double.Parse(arguments[4], CultureInfo.InvariantCulture) * 1000d : double.MaxValue;
+        int? only = arguments.Count > 5 ? int.Parse(arguments[5], CultureInfo.InvariantCulture) : null;
         string etlx = TraceLog.CreateFromEventPipeDataFile(arguments[0]);
 
         using TraceLog log = new(etlx);
@@ -65,6 +66,8 @@ public sealed class AllocationTraceProbe : IProbe
 
         Dictionary<(string Type, string Owner), long> bySite = [];
         Dictionary<string, long> byType = [];
+        Dictionary<int, long> byThread = [];
+        Dictionary<(int Thread, string Root), long> byThreadRoot = [];
         double first = double.NaN;
         double last = 0;
         long ticks = 0;
@@ -73,7 +76,7 @@ public sealed class AllocationTraceProbe : IProbe
 
         source.Clr.GCAllocationTick += tick =>
         {
-            if (tick.TimeStampRelativeMSec < from || tick.TimeStampRelativeMSec > to)
+            if (tick.TimeStampRelativeMSec < from || tick.TimeStampRelativeMSec > to || (only is { } wanted && tick.ThreadID != wanted))
             {
                 return;
             }
@@ -100,6 +103,9 @@ public sealed class AllocationTraceProbe : IProbe
             }
 
             byType[type] = byType.GetValueOrDefault(type) + bytes;
+            byThread[tick.ThreadID] = byThread.GetValueOrDefault(tick.ThreadID) + bytes;
+            string root = Root(tick.CallStack());
+            byThreadRoot[(tick.ThreadID, root)] = byThreadRoot.GetValueOrDefault((tick.ThreadID, root)) + bytes;
             bySite[(type, owner)] = bySite.GetValueOrDefault((type, owner)) + bytes;
         };
 
@@ -113,6 +119,15 @@ public sealed class AllocationTraceProbe : IProbe
             $"{ticks} large ticks over {seconds:0.0} s; {Mb(total)} MB, {Mb((long)(total * scale))} MB per 20 s " +
             $"(control: compare with the --measure line's large allocations); unresolved stacks {Mb(unresolved)} MB; " +
             $"all ticks, every heap, {Mb(everything)} MB (control: the viewer's allocated-since-start for a whole-process trace)");
+
+        output.WriteLine("by thread: " + string.Join(", ", byThread.OrderByDescending(pair => pair.Value).Take(6)
+            .Select(pair => $"{pair.Key} {Mb((long)(pair.Value * scale))} MB/20s")));
+
+        // Each thread's allocations by the project frame nearest its root, so a worker is told from the render thread.
+        foreach (((int thread, string root), long at) in byThreadRoot.OrderByDescending(pair => pair.Value).Take(12))
+        {
+            output.WriteLine($"{Mb((long)(at * scale)),8} MB/20s  thread {thread} under {root}");
+        }
 
         foreach ((string type, long bytes) in byType.OrderByDescending(pair => pair.Value).Take(8))
         {
@@ -148,6 +163,24 @@ public sealed class AllocationTraceProbe : IProbe
         }
 
         return string.Join(" <- ", frames);
+    }
+
+    /// <summary>The fourth project frame from the root down: below the message loop or the task plumbing, where work begins.</summary>
+    private static string Root(TraceCallStack? stack)
+    {
+        List<string> ours = [];
+
+        for (TraceCallStack? at = stack; at is not null; at = at.Caller)
+        {
+            string name = at.CodeAddress.FullMethodName;
+
+            if (name.StartsWith("Tf2DemoSalvage.", StringComparison.Ordinal))
+            {
+                ours.Add(name.Split('(')[0]);
+            }
+        }
+
+        return ours.Count == 0 ? "(none of ours)" : ours[Math.Max(0, ours.Count - 4)];
     }
 
     private static string Mb(long bytes) => (bytes / 1048576d).ToString("0", CultureInfo.InvariantCulture);

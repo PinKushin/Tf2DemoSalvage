@@ -7,9 +7,11 @@ milliseconds, and which owners are costs Valve does not pay.
 ## The setup
 
 f12 (`demostf-cp_process_f12-2026-08-08-2207.dem`), tick 30000, `--first-person --measure 20 +fps_max 0`, one viewer
-at a time under `run-exclusive.ps1`, RTX 3060. **What is not drawn** (D129): no projectiles, no ragdolls, skinning
-on the GPU where Valve's is on the processor. Particles ARE drawn and are in the frame below, ranked but not worked
-on. TF2's own reference is 0.8–1.1 ms a frame on cp_badlands (the `tf2-measure` skill), a different map, so an order
+at a time under `run-exclusive.ps1`, RTX 3060. **What is drawn and what is not** (D129): skinning is on the GPU where
+Valve's is on the processor. Corpses ARE simulated (IVP ragdolls, 12 held in these runs, and every corpse in the demo
+recorded on a worker, D181), and particles ARE drawn; both are in the frame below. The `tf2-measure` skill's "no
+projectiles, no particles, no ragdolls" is stale on two counts; projectiles were not checked here. Particles are ranked
+but not worked on. TF2's own reference is 0.8–1.1 ms a frame on cp_badlands (the `tf2-measure` skill), a different map, so an order
 of magnitude rather than a pair.
 
 ## First: the measurement counted the opening seek (instrument, fixed)
@@ -93,7 +95,60 @@ runtime to take its samples, so that share is partly the instrument's own; the r
 24.7) is the number believed. The frames above the poll still name where the thread was.
 
 Inclusive, render thread: the camera upload 60.4%, of which `MomentScene.Pose` 34.4% and `EntityModelSet.Instances`
-32.9%; the particle draw 19.3%; the device draw 13.5%; `Simulate` 11.3%. `System.Buffer.BulkMoveWithWriteBarrier`
-is 20.7% inclusive — copying reference-holding structs — the largest single piece of it under
-`SceneProp.GetHashCode` inside `MomentScene.Build` (4.7%), with `List<StudioBonePose>` growth in
-`SkinnedModel.PoseBetween`/`PoseOf` (6.0%) next.
+32.9%; the particle draw 19.3%; the device draw 13.5%; `Simulate` 11.3%. **Control, against the phase timers of the
+same kind of run:** camera 60.4% against 57–61%, pose 34% against 30–38%, draw 13.5% against 12.6%. The coarse level
+agrees. **The leaves do not carry weight**: a thread reports at its next GC poll, which biases leaves toward code that
+polls (`BulkMoveWithWriteBarrier`, `Array.Copy`), and "who reached PollGC" says where polls were hit, not who
+allocated. Allocation is measured below by its own instrument instead.
+
+## Who allocates: two threads, and the larger is not the render thread
+
+`dotnet-trace --profile gc-verbose` (an allocation tick every ~100 KB, every heap), read by `alloc-trace … all <from>
+<to> [thread]` over 17 s of playback. **Control:** 10,446 MB per 20 s, against the `gc:` line's 11.6 MB × ~880
+frames ≈ 10.2 GB.
+
+| thread | MB per 20 s | under |
+|---|---:|---|
+| the render thread | 3,834 | `FrameSequence.Run` |
+| a pool worker | 6,533 | `CorpseRecord.Run` (D181): `CorpsePhysics.Advance` 3,157, `IkFor` 1,531, `UpdateClientSideAnimations` 661, `IvpRagdoll.State` 428 |
+
+**The worker is steady, not a load tail**: 6,377 MB/20 s over the first 8 s of the window and 6,759 over the last 8.
+Its CPU profile is `CorpseRecord.Run` at 100%: the record of every corpse in the demo, stepped straight through on a
+pool thread, runs for the whole measurement. **And the pause is the worker's clock, not the draw's**: the collector
+paused 2.68 ms × 40.5 fps = 108 ms a second in first person and 1.28 × 84.3 = 108 ms a second in the empty view.
+Drawing nothing halved the frame and left the pause per second unchanged.
+
+By type, every thread: `StudioBonePose[]` 1,339 MB (all on the render thread: `SkinnedModel.PoseOf`/`PoseBetween`,
+`StudioPoseBlend.Expand`), `(Vector3, Quaternion)[]` 1,306 MB (`IvpRagdoll.State`, all on the worker), the `IkFor`
+closure 560 MB and its `(StudioIkRule, …)[]` 508 MB, `SceneProp` copies 430 MB (`UpdateClientSideAnimations` in the
+record).
+
+## Fix 1: a ragdoll's state is written into its own buffer (2026-10-19)
+
+**The engine, read from published source.** `RagdollGetBoneMatrix` has each element's physics object write its matrix
+straight into the caller's bone accessor — `element.pObject->GetPositionMatrix( &pBoneToWorld.GetBoneForWrite(
+boneIndex ) )` (`game/shared/ragdoll_shared.cpp:573`). Nothing is allocated to read a ragdoll's pose.
+
+**Ours.** `IvpRagdoll.State()` built a new `(Vector3, Quaternion)[]` on every call: the live corpse step, the fall
+watch, `PoseIntoAccessor` and the D181 record's `Store` each called it, 1,306 MB per 20 s. Only `Store` keeps a pose.
+
+**The change.** `State()` writes into one array the ragdoll owns and returns it, valid until the next call; `Store`
+copies a pose that moved (`[.. state]`) and keeps sharing the tick before's array for one that held, as it did.
+
+**Tests.** `IvpRagdollTests.State_AskedTwice_AllocatesNothingTheSecondTimeAndReusesItsBuffer` (0 bytes on the second
+call, same array, same values) reddens when `State` allocates a fresh array again.
+`CorpseRecordTests.Run_OneCorpse_RecordsWhatStraightThroughPlayComputes` — the record against straight-through play,
+tick by tick — reddens when `Store` keeps the shared buffer instead of copying it (every tick would read the last
+pose). Animation.Tests 5,339 (5,338 passed, 1 skipped), Scene.Tests 3,151.
+
+**Measured**, f12, Debug, `--measure 20`, two runs a side:
+
+| | mean frame | gc pause / frame | allocated / frame | gen0 + gen1 collections |
+|---|---:|---:|---:|---:|
+| before | 24.70, 22.41 ms | 2.68, 2.61 ms | 11.60, 11.93 MB | 1,580, 1,793 |
+| after | 22.58, 23.10 ms | 2.28, 2.35 ms | 10.42, 10.73 MB | 1,550, 1,560 |
+
+About 1.2 MB a frame and 0.3 ms of pause a frame less; the mean frame moves inside its own noise. **The picture is
+unchanged**: `--shot` at tick 30700, first person, before and after, differ in 48 pixels, all inside the frame-rate
+readout's box (805,2–823,10), which reads a different time every run. No corpse is in that view, so the shot proves
+the scene, not the corpse pose; the record test above is what holds the pose.

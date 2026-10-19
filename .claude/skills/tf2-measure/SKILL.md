@@ -74,9 +74,9 @@ moment cost 2.9 ms = sample, drawlist, models, pose; pose = lighting, simulate, 
 
 ## Quoting a number
 
-**Always say what is NOT being drawn** (D129). This viewer has no projectiles, no particles and no
-ragdolls, and skinning is on the GPU where Valve's runs on the processor — so a rate compared with
-TF2's is comparing a lighter workload, and the gap is worse than the ratio.
+**Always say what is NOT being drawn** (D129). Particles and ragdolls ARE simulated now (finding 82; a
+worker also records every corpse, D181); projectiles unchecked. Skinning is on the GPU where Valve's runs on the
+processor, so a rate compared with TF2's is comparing a lighter workload there.
 
 TF2's own reference, measured on `cp_badlands` with the GPU at ~30%: **893 fps in a room, 1135–1236
 facing a wall — 0.81 to 1.12 ms a frame.** It is CPU-bound and still sub-millisecond. Different map
@@ -90,6 +90,7 @@ Point the camera at nothing and measure again:
 TF2VIEW_CAMERA="1613 -2821 154 89 0"
 ```
 
-An engine's frame collapses when there is nothing to draw. Ours has a floor — `sample`, `drawlist`,
+**Without `--first-person`** — it follows the player and ignores the override (finding 82). An engine's frame
+collapses when there is nothing to draw. Ours has a floor — `sample`, `drawlist`,
 `models` and placement all walk every prop regardless of visibility (B259). If a change is meant to
 reduce work, the empty view is where it shows.
