@@ -220,6 +220,23 @@ other agents' corpus probes, so their frame columns are noisier than the per-reb
 (c) particles were profiled, not changed: 3.1–3.3 ms on f12, 7.5–11.3 on gullywash while another agent's UI suite held the
 machine. `docs/findings/36-the-frame-order.md` §9.
 
+### Particle lifetimes: sleep, dormancy and the wake (2026-10-18, feat/lifetime-audit-2 e4c7fe6b)
+
+The same command at tick 30000 for 30 s of playback, in Release, on a shared machine. The census line comes from
+`--measure`. The replay counter is cumulative from the load; its first value is the seek.
+
+| demo | frames, mean | `camera particles` ms | replay steps, seek → end | live bursts at the seek |
+|---|---|---|---|---|
+| f12 | 446, 67.3 ms | 3.6–13.3 | 155,758 → 184,050 | 35 (329 finished) |
+| gullywash_f9 | 206, 145.7 ms | 5.4–144 | 87,201 → 114,180 | 39 (289 finished) |
+
+On f12 the steps added during play are one ornament glitter, built when its owner is first posed. Before the
+sleep, an effect unoffered while its owner was unposed was replayed again on each return: +161,977 steps over
+60 s. **Gullywash's particle spikes to 40–144 ms are not the wake.** The control was the same run with the wake's
+`StartEmission` call removed: 291 frames at 103.1 ms mean, with particles still at 6–95 ms after a first frame of
+488 ms. So the spikes come from elsewhere, and on this shared machine (capture 21–39 ms) possibly from load. They are
+open, and neither run was on a quiet machine.
+
 **A Debug build measured 150–378 fps with two stalls to 51 and 69**, and those stalls do not exist
 in Release. An "the viewer got slow" report taken from a Debug run is measuring the build
 configuration. Measure Release, or say which one it was.

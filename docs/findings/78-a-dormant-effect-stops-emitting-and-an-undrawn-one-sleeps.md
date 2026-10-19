@@ -134,10 +134,14 @@ own symbol `?SkipToTime@C_OP_InstantaneousEmitter@@…`. So the two tables and t
 So a burst woken within two seconds of its start fires again in full. Ported in the same
 `ParticleEffect.StartEmission`, and tested at 1 s (fires again: 5 then 10) and at 2.5 s (does not: 5).
 
-**Not settled, and named:** whether anything in TF's client sets `g_bDontMakeSkipToTimeTakeForever`. The only
-reference read is the commented-out line in `CParticleMgr::UpdateNewEffects`. The SDK-wide reference search was
-not run, because clangd's index answered nothing and text search over SDK symbols is refused here. If the flag is
-ever set, the re-simulation in the continuous emitter's `SkipToTime` is skipped and a wake births only the span.
+**`g_bDontMakeSkipToTimeTakeForever` is false.**
+
+- *Read from published source:* a search of all of `source-sdk-2013` finds exactly two references, both commented
+  out (`src/game/client/particlemgr.cpp:1827-1828`, the `extern` and the `= true`). No uncommented line sets it.
+  A Valve comment is not its code (B463), so those two lines say only that nothing live assigns it.
+- *Read from the object:* the flag `SkipToTime` tests (`CMP byte ptr [0x00002100], 0x0` at `0x0006738e`) is in
+  the `.bss` section of `builtin_particle_emitters.obj`, which is zero-initialized. So it holds its default of
+  false, and the re-simulation runs.
 
 **Evidence class.** These objects are the SDK's `particles.lib`, not TF2's live `client.dll`. That they match
 the shipped game is an assumption of the same kind as every other read from this library.
