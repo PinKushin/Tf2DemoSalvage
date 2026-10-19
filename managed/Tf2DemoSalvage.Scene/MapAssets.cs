@@ -2663,30 +2663,24 @@ public sealed class MapAssets
         ILogger assets, GameArchives archives, PakFile pak, int maximumTextureSize, string normal, MapTexture first)
     {
         string path = "materials/" + normal + ".vtf";
-        int count = 1;
+        List<MapTexture> frames = [first];
 
-        // The count is the file's; DecodePacked hands back a MapTexture, so read it in the decode.
+        // **One read of the file for every frame** (2026-10-18). This fetched and decoded the whole file once for its
+        // count and again for each frame — 2.8 GB allocated for cp_process_f12's overlays alone, the biggest transient
+        // of the whole map load. The count is the file's; DecodePacked hands back a MapTexture, so frames 1 onward are
+        // read inside the same decode.
         _ = DecodePacked(assets, archives, pak, path, file =>
         {
             VtfTexture texture = VtfTexture.Read(file, maximumTextureSize);
 
-            count = texture.FrameCount;
-            return MapTexture.Of(texture);
-        });
-
-        List<MapTexture> frames = [first];
-
-        for (int frame = 1; frame < count; frame++)
-        {
-            int at = frame;
-
-            if (DecodePacked(assets, archives, pak, path, file => MapTexture.Of(VtfTexture.Read(file, maximumTextureSize, frame: at))) is not { } next)
+            for (int frame = 1; frame < texture.FrameCount; frame++)
             {
-                break;
+                frames.Add(MapTexture.Of(VtfTexture.Read(file, maximumTextureSize, frame: frame)));
             }
 
-            frames.Add(next);
-        }
+            // Frame 0 is the one already read; the result is discarded, so nothing is built for it.
+            return first;
+        });
 
         return frames;
     }

@@ -229,6 +229,43 @@ public sealed class CloakRenderTests
         assets.ScreenOverlays[ScreenOverlay.InvulnRed].NormalFrames.Count.ShouldBe(1);
     }
 
+    /// <remarks>
+    /// **Every frame is the file's own, in order** — read now from one fetch of the file rather than one per frame
+    /// (2026-10-18), so the prediction is the file decoded frame by frame: the same count, and each frame's bytes.
+    /// </remarks>
+    [Test]
+    public void ScreenOverlays_JaratesNormalFrames_AreTheFilesFramesInOrder()
+    {
+        // MapCache.Load() decodes at DefaultTextureSize, so the prediction decodes at the same.
+        const int Decoded = MapCache.DefaultTextureSize;
+        MapAssets assets = MapCache.Load(maximumTextureSize: Decoded);
+        Content.Assets.VmtMaterial vmt = Content.Assets.VmtMaterial.Load(
+            SharedGame.Archives.Read("materials/" + ScreenOverlay.Urine + ".vmt").ShouldNotBeNull(), SharedGame.Archives.Read);
+        string normal = vmt.Value("$normalmap").ShouldNotBeNull().Replace('\\', '/');
+        byte[] file = SharedGame.Archives.Read("materials/" + normal + ".vtf").ShouldNotBeNull();
+        int count = Content.Assets.VtfTexture.Read(file, Decoded).FrameCount;
+
+        System.Collections.Generic.IReadOnlyList<MapTexture> frames = assets.ScreenOverlays[ScreenOverlay.Urine].NormalFrames;
+
+        (normal, count > 1).ShouldBe(("water/tfwater001_normal", true), "the control: jarate's normal map is the animated water one");
+        frames.Count.ShouldBe(count);
+        frames[0].Image.Top.ToArray().ShouldNotBe(frames[1].Image.Top.ToArray(), "frames 0 and 1 differ, so an order mistake shows");
+
+        for (int frame = 0; frame < count; frame++)
+        {
+            MapTexture expected = MapTexture.Of(Content.Assets.VtfTexture.Read(file, Decoded, frame: frame));
+
+            (frames[frame].Image.Format, frames[frame].Image.Levels.Count).ShouldBe(
+                (expected.Image.Format, expected.Image.Levels.Count), $"frame {frame}'s format and mips");
+            // Every level, not only the top. Measured 2026-10-18: at this size the map is widened to Rgba8888 with ONE
+            // level, so there is no lower mip a frame could borrow — a mixed chain would show first as a level count.
+            for (int level = 0; level < expected.Image.Levels.Count; level++)
+            {
+                frames[frame].Image.Levels[level].ToArray().ShouldBe(expected.Image.Levels[level].ToArray(), $"frame {frame}, mip {level}");
+            }
+        }
+    }
+
     private static int SpyRed(MapAssets assets)
     {
         int index = Enumerable.Range(0, assets.Materials.Count)

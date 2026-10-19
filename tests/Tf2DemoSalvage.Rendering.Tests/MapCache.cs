@@ -248,7 +248,12 @@ internal static class MapCache
     /// <c>%LocalAppData%\Tf2DemoSalvage\maps</c>, where seven fixtures were each loading it per TEST (D213).
     /// </remarks>
     public static MapAssets? TryLoad(string mapName, int maximumTextureSize = DefaultTextureSize) =>
-        GameInstall.Root is null || Find(mapName) is null ? null : Load(maximumTextureSize, mapName: mapName);
+        Has(mapName) ? Load(maximumTextureSize, mapName: mapName) : null;
+
+    /// <summary>Whether the game is installed and the map can be found, without loading it — a diagnostic's skip.</summary>
+    /// <param name="mapName">Which map, without folder or extension.</param>
+    /// <returns>True when <see cref="TryLoad"/> would load it.</returns>
+    public static bool Has(string mapName) => GameInstall.Root is not null && Find(mapName) is not null;
 
     private static string? Find(string mapName)
     {

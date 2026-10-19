@@ -55,6 +55,31 @@ public sealed class OffscreenTargetMemoryDiagnostic
         Assert.Pass("reported above");
     }
 
+    /// <remarks>One load with its own log, printed: where a load's time and memory go, phase by phase.</remarks>
+    [Test]
+    public void Load_OneMapWithItsLog_ReportsEachPhase()
+    {
+        if (!MapCache.Has("cp_process_f12"))
+        {
+            Skip.Because("cp_process_f12 or the game is absent");
+        }
+
+        byte[] map = MapCache.Bytes("cp_process_f12");
+        RecordingLoggerFactory log = new();
+
+        _ = MapAssets.Load(map, SharedGame.Archives, maximumTextureSize: 256, loggers: log);
+
+        foreach ((string area, _, string message) in log.Lines)
+        {
+            if (message.Contains("took", StringComparison.Ordinal))
+            {
+                TestContext.Out.WriteLine($"PHASE {area}: {message}");
+            }
+        }
+
+        Assert.Pass("reported above");
+    }
+
     /// <remarks>The other half: the same map loaded and dropped, again and again, with no target at all.</remarks>
     [Test]
     [System.Diagnostics.CodeAnalysis.SuppressMessage(
@@ -63,6 +88,11 @@ public sealed class OffscreenTargetMemoryDiagnostic
         Justification = "The subject is what survives a collection: one is forced before each reading.")]
     public void Load_TheSameMapSixTimesDropped_ReportsTheWorkingSetAfterEach()
     {
+        if (!MapCache.Has(MapCache.DefaultMap))
+        {
+            Skip.Because($"{MapCache.DefaultMap} or the game is absent");
+        }
+
         byte[] map = MapCache.Bytes();
         GameArchives game = SharedGame.Archives;
 
