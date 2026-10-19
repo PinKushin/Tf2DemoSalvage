@@ -699,6 +699,43 @@ restores the old path for a golden comparison from one build.
   38 bones), but that is not a measurement. Posing about a hundred more props through `SetupBones` every frame is a real
   per-frame cost, and it needs quiet runs before it is believed either way.
 
+**Frame time, measured on a quiet machine.** Eight `--measure 20` runs at tick 30000, first person, one viewer at a time
+under `run-exclusive.ps1`, alternating the two paths. No run waited on another lock holder.
+
+| run | bake: mean frame | bake: moment pose | bones: mean frame | bones: moment pose |
+|---|---:|---:|---:|---:|
+| 1 | 40.49 ms | 1.7 ms | 40.85 ms | 1.8 ms |
+| 2 | 40.60 | 1.7 | 41.69 | 1.6 |
+| 3 | 40.60 | 1.7 | 39.40 | 1.7 |
+| 4 | 38.63 | 2.0 | 39.38 | 1.7 |
+| mean | **40.1** | 1.8 | **40.3** | 1.7 |
+
+- **No measurable cost.** The difference is inside the run-to-run spread, and the moment rebuild's pose phase is
+  unchanged. Its split reads "skin 0, setup 0, baked 0" on both paths, with collate taking about 1.1 ms. So the props
+  the bake used to serve cost nothing visible when posed by bones at this scene.
+- **Not measured: p50 and p99.** `--measure` prints a mean, best and worst frame rate, and per-phase means, but no
+  percentiles.
+
+**The two differences left open by the sweep, read from our code.** Both are the bake's.
+- **The door's 15.4 at cycle 0.63.** `ModelFrames.Select` takes the frame from `StudioSequences.FrameFor(phase,
+  Frames, loops)` but the blend from `phase * (Frames - 1)`. The two use different interval counts, so they disagree
+  between frames: at 0.625 of 10 frames the frame is 7, while the blend's own position is 5.625.
+- **The bake ignores `Select`'s own `Next`.** `Select` returns a `Next` that holds a one-shot's last frame. But the
+  frame the shader blends toward is packed into the vertices at load from `NextOf`, which wraps, and `ModelInstance`
+  carries no `Next`. So the held `Next` is computed and never drawn. That is the mechanism behind the door pair, and
+  behind the locker's 54.7.
+- **`w_breadmonster`, not traced.** It differs at blend 0, on frames where the two paths agree on the frame. The
+  candidates are bone-path work the bake never runs (jiggle or procedural bones, or a sequence that blends several
+  animations where the bake poses one). Interpolated, and time-boxed out. It is a projectile carried for a moment, not
+  a fixture of the map.
+
+**The golden pairs** (scratchpad, `item3-pairs`, `item3-locker`; bake on the left, bones on the right):
+- `doorA-6520-pair.png` (f12). The bake draws the door shut with a player in front of it; the bone pose draws it open.
+- The locker pair comes from `20150120_2113_cp_process_final_red_blu.dem`. The locker opens at tick 226 there; on f12
+  it never opens.
+- No arrow pair. The camera at the arrow's position at tick 27075 does not show it, and re-aiming was not trivial. The
+  sweep found arrows identical on both paths.
+
 **Not built, and why:**
 - **Releasing `_raw` saves nothing.** It holds `model.Geometry[0]`, the same list `_frames` holds, so dropping it frees
   no bytes.
