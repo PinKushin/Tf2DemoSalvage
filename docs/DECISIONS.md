@@ -10812,7 +10812,11 @@ situation"*.
 - **Nothing is cut off arbitrarily.** No code is added to refuse a map-less demo, and none already there to survive it is
   removed.
 
-**What this does not decide:** whether the viewer should tell the user, on screen, that the map is missing when the
-download fails (a message is a different change from refusing); that is a question for the day the download path can fail
-visibly.
+**The viewer tells the user when there is no map.** Asked whether a visible message belongs here (a message is a
+different change from refusing), the owner: *"that question's answer is a yes, we should tell the user when theres no map,
+but i think we already do in the status bar"*. What the code shows so far: `MapProvider` builds `"No map for <demo>: <reason>"`
+when the fetch fails (`MapProvider.cs:341`), and `OpeningSequence` and `LaunchOptions` already mention fixing a viewer that
+sat on no map "with nothing said". **Unverified:** that this message reaches the status bar in every path that leaves a demo
+without its map (a failed download, a map the install cannot find, a demo opened from the library); a test that opens a demo
+whose map is absent and reads the status text is the check, and if it is not there it is a defect to fix, not a new decision.
 
