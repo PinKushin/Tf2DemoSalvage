@@ -717,9 +717,14 @@ under `run-exclusive.ps1`, alternating the two paths. No run waited on another l
   percentiles.
 
 **The two differences left open by the sweep, read from our code.** Both are the bake's.
-- **The door's 15.4 at cycle 0.63.** `ModelFrames.Select` takes the frame from `StudioSequences.FrameFor(phase,
-  Frames, loops)` but the blend from `phase * (Frames - 1)`. The two use different interval counts, so they disagree
-  between frames: at 0.625 of 10 frames the frame is 7, while the blend's own position is 5.625.
+- **The door's 15.4 at cycle 0.63.** An earlier version of this paragraph said `FrameFor` and the blend use different
+  interval counts. That was wrong, though it was marked as read: both use `Frames - 1`. The review found the real
+  cause, and the code confirms it (read from our code):
+  - `StudioSequences.FrameFor` rounds a one-shot: `(int)MathF.Round(wrapped * (frames - 1))`
+    (`StudioSequences.cs:473`).
+  - `ModelFrames.Select` floors the blend: `exact - MathF.Floor(exact)` (`PropModels.cs`, `Select`).
+  - So at 0.625 of 10 frames, the frame rounds 5.625 to offset 6 (slot 7, start 1) while the blend is 0.625. The bake
+    draws 6 to 7 at 0.625 where the pose is 5 to 6 at 0.625: a whole frame ahead in the second half of every interval.
 - **The bake ignores `Select`'s own `Next`.** `Select` returns a `Next` that holds a one-shot's last frame. But the
   frame the shader blends toward is packed into the vertices at load from `NextOf`, which wraps, and `ModelInstance`
   carries no `Next`. So the held `Next` is computed and never drawn. That is the mechanism behind the door pair, and
@@ -735,6 +740,35 @@ under `run-exclusive.ps1`, alternating the two paths. No run waited on another l
   it never opens.
 - No arrow pair. The camera at the arrow's position at tick 27075 does not show it, and re-aiming was not trivial. The
   sweep found arrows identical on both paths.
+
+**Review of step 2, and what changed (2026-10-19).**
+- **The one-pose control could not fail.** It asserted over the models left baked, which was empty for the three named
+  models. It now names `w_syringe_proj.mdl`, one sequence of one frame, and asserts that it stays baked with one frame.
+  Sabotage: `wantedFrames >= reachable` reddens it at `syringe.IsSkinned`.
+- **The skin rule missed poses.** A model with several one-frame sequences has several poses, and the bake copied it
+  per sequence; the engine poses it through `SetupBones` like anything else. The rule is now
+  `wantedFrames > reachable || reachable > 1`. On f12 with its demo, 591 entity models load, and exactly one changes
+  class: `c_ubersaw.mdl`, two one-frame sequences, from 2 baked slots to skinned (50 to 51 skinned). Its pose is the
+  same either way. The sweep reads only sequences with two or more frames, so it does not cover this model.
+  Sabotage: dropping `reachable > 1` reddens the test at the ubersaw.
+- **The rule still misses blends.** A blended sequence counts only its first animation's frames, so a pose-parameter
+  model whose first blend is a single frame still bakes one pose. No model on f12 was found in that state; not chased.
+- **Load cost.** A skinned model was still posed once per frame up to the budget at load, and only `skeletons[0]` was
+  read. It now poses one. `Load_ASkinnedDoor_PosesOneSkeletonAtLoad` held 21 skeletons for the door before the fix
+  and holds 1 after.
+
+  The f12 map load, from the `texture-reads` probe:
+
+  | | load | of which posing and baking (`BakeSeconds`) |
+  |---|---:|---:|
+  | before the fix | 16.76 / 12.87 s | 2.86 / 0.89 s |
+  | after | 12.86 / 12.80 s | 0.88 / 0.93 s |
+  | the old bake path (`TF2VIEW_BAKE_ANIMATED=1`) | 13.20 / 16.55 s | 1.05 / 1.18 s |
+
+  The spread between runs is as large as the change. So this is not a measured load-time win, only fewer skeletons
+  posed.
+- **The diagnostic and the switch.** `BakeAgainstBonesDiagnostic` is `[NonParallelizable]` now, and it restores the
+  switch's prior value rather than writing `false`.
 
 **Not built, and why:**
 - **Releasing `_raw` saves nothing.** It holds `model.Geometry[0]`, the same list `_frames` holds, so dropping it frees
@@ -756,7 +790,10 @@ These were drafted for review before the churn work, and are ordered behind it.
    resupply lockers and doors. Route every model with an animation through the existing `SkinnedModel` path instead.
    The model then keeps one bind-pose vertex list plus bone weights, and is posed by bones on the GPU, as player
    classes already are. Valve does this for every studio model (`bone_setup.cpp`). The baked path and its two budgets
-   are then removed, not kept as a fallback.
+   were to be removed. **Superseded by step 2 above, which is current:** the bake is kept, behind the developer
+   switch `TF2VIEW_BAKE_ANIMATED=1` (D210), until the owner has seen the golden pairs. It goes with the switch, and so
+   do the parts that are near-dead now that nothing animated bakes: `NextOf`'s wrap, `Select`'s held `Next`, and the
+   budget clause of the skin rule.
 2. **Share game models across maps.** Load the models `DemoModels.Needed` names for every demo through a cache in
    `GameContent`, keyed by model path. Each map's `MapAssets` then adds only the models its own placements and demo
    name. **The trap:** a map's pakfile can override a model's materials or textures. Geometry and bones depend only

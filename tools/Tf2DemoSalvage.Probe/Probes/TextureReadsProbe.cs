@@ -54,14 +54,22 @@ public sealed class TextureReadsProbe : IProbe
         TextureReadTally tally = new();
         MapAssets.TextureReads = tally;
 
+        byte[] mapBytes = File.ReadAllBytes(path);
+        double bakeBefore = PropModels.BakeSeconds;
+        System.Diagnostics.Stopwatch load = System.Diagnostics.Stopwatch.StartNew();
+
         try
         {
-            _ = LoadedMap.Read(File.ReadAllBytes(path), game, timeline, size, NullLoggerFactory.Instance);
+            _ = LoadedMap.Read(mapBytes, game, timeline, size, NullLoggerFactory.Instance);
         }
         finally
         {
             MapAssets.TextureReads = null;
         }
+
+        output.WriteLine(string.Create(
+            CultureInfo.InvariantCulture,
+            $"map load {load.Elapsed.TotalSeconds:0.00} s, of which model posing and baking {PropModels.BakeSeconds - bakeBefore:0.00} s"));
 
         (long all, long repeats, long laterFrames) = tally.Totals();
         int reads = tally.ByPath.Values.Sum(entry => entry.Reads);

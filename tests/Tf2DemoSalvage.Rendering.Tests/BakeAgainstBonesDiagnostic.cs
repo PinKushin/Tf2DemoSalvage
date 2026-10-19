@@ -22,6 +22,7 @@ namespace Tf2DemoSalvage.Rendering.Tests;
 /// and sequence; asserts nothing, because it is a measurement.
 /// </remarks>
 [Explicit("a measurement over f12's models, minutes long; read its output")]
+[NonParallelizable] // It flips the process-wide BakeAnimated switch; a parallel load would see the bake (finding 80, review item 4).
 public sealed class BakeAgainstBonesDiagnostic
 {
     private const int Cycles = 9;
@@ -48,6 +49,7 @@ public sealed class BakeAgainstBonesDiagnostic
         PakFile pak = PakFile.ReadFrom(map);
         // The bake is the oracle, so it is asked for by name now that bones are the default.
         MapAssets assets;
+        bool prior = PropModels.BakeAnimated;
         PropModels.BakeAnimated = true;
 
         try
@@ -56,7 +58,7 @@ public sealed class BakeAgainstBonesDiagnostic
         }
         finally
         {
-            PropModels.BakeAnimated = false;
+            PropModels.BakeAnimated = prior;
         }
 
         List<(string Model, int Sequence, float Worst, float Mean, int Corners)> rows = [];
