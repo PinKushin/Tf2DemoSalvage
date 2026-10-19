@@ -262,6 +262,10 @@ in any public writeup found:
   core and a six-times-larger glow a hundred units in front of the eye, each gated by its own occlusion query sized
   in SCREEN space at `zFar * 0.999`. Only the main view and monitors draw overlays at all, and a monitor's query is
   never issued, so it sees no sun ([77](77-the-sun-is-two-overlays-at-the-far-plane.md)).
+- **A map keeps what Valve uploads and frees.** f12 keeps 833 MB per map after upload: 329 MB of model vertices
+  baked per animation frame where the engine poses one bind pose, 239 MB of every particle definition as a DMX tree
+  per map where the engine unpacks them once per process, and 127 MB of texture pixels the device already holds.
+  A `CTexture` keeps no texels after `ReconstructTexture` (disassembled) ([78](78-a-map-keeps-what-valve-uploads-and-frees.md)).
 
 ## Conventions used throughout
 
