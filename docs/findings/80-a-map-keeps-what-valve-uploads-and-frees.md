@@ -614,6 +614,24 @@ The 148 MB is now paid once per install, not once per held map. `DmxValue` is a 
 `Vector4` and two lists), so it is most of what remains. Typing operators one by one, as the engine does, is the
 further step, and is not built.
 
+### Item 5, base-texture animation frames: nothing to release on f12 (2026-10-19)
+
+`UploadTextures` uploads each material's `AnimationFrames` beside its base texture, so they would belong in
+`ReleaseUploaded`. But on f12, with the demo's models, all 688 slots are null: 0 animated, 0 frames. The 41 MB this
+review once filed under animation frames was a misattribution. Nothing was built, because a release with no frames to
+empty has no control that can pass: the test written for it failed its own control ("frames hold pixels before").
+
+What `ReleaseUploaded` still leaves, after the census above:
+
+| owner | MB |
+|---|---:|
+| `ScreenOverlays` | 45.4 |
+| `PlacedCubemaps` | 5.2 |
+| `SkyFaces` | 3.3 |
+
+They are texture bytes, so they are the next candidates if they too go up with the world textures. That is not
+checked yet.
+
 ## Plans not yet built
 
 These were drafted for review before the churn work, and are ordered behind it.
