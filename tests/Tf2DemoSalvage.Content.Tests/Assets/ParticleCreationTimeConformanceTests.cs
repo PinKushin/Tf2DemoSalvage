@@ -87,6 +87,38 @@ public sealed class ParticleCreationTimeConformanceTests
     }
 
     /// <remarks>
+    /// **The 4-second cap and the no-draw rewind both bind** — a six-second emitter at 8 a second, no-draw time 1 s,
+    /// woken at 6 s with its 48 made:
+    /// <list type="bullet">
+    /// <item>span = min( 6, 4 ) = 4: 32 born at once, over (2, 6];</item>
+    /// <item>the clock goes back to max( 6 − 1, 2 ) = 5, and ten 0.1 s re-simulation steps follow. The first owes
+    /// floor( 32 + 0.8 ) − 0 = 32, and the whole ten owe 40;</item>
+    /// </list>
+    /// 48 + 32 + 40 = 120. A cap of 1 gives 72, a cap of 100 gives 152, and rewinding to the span start gives 144.
+    /// </remarks>
+    [Test]
+    public void StartEmission_ASixSecondEmitterWokenAtSix_IsCappedAtFourAndRewoundOneSecond()
+    {
+        ParticleSystem system = Continuous(duration: 6d);
+        Dictionary<string, DmxValue> parameters = new(system.Parameters, StringComparer.Ordinal)
+        {
+            ["time to sleep when not drawn"] = new DmxValue(DmxAttributeType.Real, 1d),
+        };
+        ParticleEffect effect = new(system with { Parameters = parameters });
+
+        for (int step = 0; step < 24; step++)
+        {
+            effect.Step(At(0f), Quarter);
+        }
+
+        effect.Particles.Count.ShouldBe(48, "the control: six seconds at 8 a second");
+
+        effect.StartEmission();
+
+        effect.Particles.Count.ShouldBe(120);
+    }
+
+    /// <remarks>
     /// **A burst woken within two seconds of its start fires again; after that it does not.**
     /// `C_OP_InstantaneousEmitter::StartEmission` (`0x00066af0`) restores the owed count from the drawn one. Its
     /// `SkipToTime` (`0x00066b20`) then zeroes it once curtime is past start + 2.0.
