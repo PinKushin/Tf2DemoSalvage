@@ -80,7 +80,10 @@ public sealed class CpuTraceProbe : IProbe
                 continue;
             }
 
-            if (sample.ThreadID != thread)
+            // `under:<method>`: only the samples inside that method, so its callees rank against it alone.
+            if (sample.ThreadID != thread ||
+                (focus is { } under && under.StartsWith("under:", StringComparison.Ordinal) &&
+                 !frames.Exists(name => name.Contains(under[6..], StringComparison.Ordinal))))
             {
                 continue;
             }

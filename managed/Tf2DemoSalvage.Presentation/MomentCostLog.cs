@@ -85,6 +85,10 @@ public sealed class MomentCostLog
     private long _selected;
     private long _hidden;
     private long _unjudged;
+
+    private long _fixed;
+
+    private long _byIdentity;
     private long _playersSampled;
 
     /// <summary>Starts a log.</summary>
@@ -165,6 +169,8 @@ public sealed class MomentCostLog
         _selected += phases.Selected;
         _hidden += phases.Hidden;
         _unjudged += phases.Unjudgeable;
+        _fixed += phases.Counters.CollateFixed;
+        _byIdentity += phases.Counters.CollateByIdentity;
 
         if (++_rebuilds < _every)
         {
@@ -214,7 +220,10 @@ public sealed class MomentCostLog
             + $", draw {_buildsDrawing / (double)over:0.#}, place {_buildsPlacing / (double)over:0.#})"
             + $"; posed {_drawn / (double)over:0.#} of {_selected / (double)over:0.#} selected"
             + $", {_hidden / (double)over:0.#} hidden by pvs"
-            + $", {_unjudged / (double)over:0.#} unjudgeable");
+            + $", {_unjudged / (double)over:0.#} unjudgeable"
+
+            // Finding 82: of the unparented props collated, how many were filed by identity, untouched.
+            + $"; collated unparented {_fixed / (double)over:0.#}, by identity {_byIdentity / (double)over:0.#}");
 
         // Stryker restore all
 
@@ -261,6 +270,8 @@ public sealed class MomentCostLog
         _selected = 0;
         _hidden = 0;
         _unjudged = 0;
+        _fixed = 0;
+        _byIdentity = 0;
         _playersSampled = 0;
 
         return line;

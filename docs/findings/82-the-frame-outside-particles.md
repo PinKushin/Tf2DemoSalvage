@@ -152,3 +152,67 @@ About 1.2 MB a frame and 0.3 ms of pause a frame less; the mean frame moves insi
 unchanged**: `--shot` at tick 30700, first person, before and after, differ in 48 pixels, all inside the frame-rate
 readout's box (805,2–823,10), which reads a different time every run. No corpse is in that view, so the shot proves
 the scene, not the corpse pose; the record test above is what holds the pose.
+
+## Fix 2: a prop's leaf handle lives with the object, as the engine's lives on the entity (2026-10-19)
+
+**Where the empty view's floor is, profiled.** CPU samples of the render thread over 16 s of the empty view, restricted
+to the two pose columns that do not fall with the view (`cpu-trace … under:<method>`): `Collate` was 741 samples and
+`SimulatePass` 841, of 7,545. Inside `Collate`, hashing the `(entity, model path, occurrence)` key was 24.6% and the
+dictionaries keyed on it another 26%. **The leaf gather itself was already the engine's** (B262: `ClientLeafSystem`,
+`BuildRenderablesList` over the view's leaves). What was not the engine's is how a prop finds its own handle.
+
+**The engine, read from published source.** A renderable's handle is held by the entity (`m_hRender`), and
+`CClientLeafSystem::PreRender` touches only the renderables that called `RenderableChanged`
+(`clientleafsystem.cpp:543`, quoted in B259 stage C). An entity that did not move is not visited at all.
+
+**Ours.** Every frame, every drawable prop recomputed its key, hashed a model path to count occurrences, looked up
+its filed box and its handle by that key, and the stale sweep and the handle map walked every key again — about 1,870
+string hashes several times over, to change nothing for 98% of them.
+
+**The control first.** Two counters at the site, carried in the moment-cost line: of the unparented props collated,
+how many were the SAME object the previous collation saw, and how often a key's occurrence was above zero. f12, first
+person: **1,577–1,580 of 1,605–1,618 unparented props a frame are the same object**, because B259 stage C hands an
+unchanged track back as the object it built. **0 repeated keys**, at entity 0 or anywhere else.
+
+**The change.** An unparented prop that arrives as the same object as last frame, whose handle nobody claimed yet this
+frame, is filed by identity: its handle and box are reused with no keyed lookup, no box and no re-link
+(`EntityModelSet.Collate`). Everything else — a new object, a parented prop, the first frame of a level — takes the old
+keyed path, whose occurrence is now the first one no object claimed this frame. Claims, the stale sweep and the
+per-handle map are keyed by the integer handle. `SceneProp` and `ScenePose` are init-only records, so the same object
+cannot have moved; a path's model frames are written once a level and `LevelShutdown`/`Tree` forget every filing.
+
+**One deliberate difference from the keyed path**, which is the engine's side of it: two props sharing entity 0 and a
+model that arrive in the other order keep their own handles; the keyed path paired first-seen with occurrence 0 and
+re-linked both. f12 has no such pair.
+
+**Tests** (Scene.Tests 3,151 → 3,155), each sabotaged:
+
+| test | reddens when |
+|---|---|
+| `Instances_SameObjectsAgainstFreshCopies_DrawTheSameEveryFrame` — a differential, the same frames fed as the same objects and as fresh copies (which never hit the identity path), through moves, a parenting, a parented child that stays the same object while its parent moves, an unparenting, entity-0 twins, a departure and a return | parented props are filed by identity too (the child stops following its parent) |
+| `Instances_ANewTwinBeforeAnOldOne_BothDraw` | the identity path ignores a handle already claimed this frame |
+| `Instances_AfterLevelShutdownWithAnotherModel_FilesFromTheNewOne` (existing, same object across the shutdown) | `LevelShutdown` keeps the identity filings |
+| many existing Scene tests (corpses, worn items, placement) | the stale sweep removes the wrong handles |
+| `Instances_TheSameUnparentedObjectNextFrame_IsFiledByIdentityAndNotRelinked`, `Instances_TwoEntityZeroTwinsSwapped_KeepTheirFilingAndAreNotRelinked` | pin the counter and the twin rule |
+
+A frames-version check was written first and then removed: no sabotage of it could redden anything, because a path's
+frames cannot change within a level, so it guarded nothing.
+
+**Measured**, f12, Debug, `--measure 20`:
+
+| | mean frame | camera | collate | simulate | gc pause |
+|---|---:|---:|---:|---:|---:|
+| first person, before (fix 1's two runs) | 22.58, 23.10 ms | 13.67, 14.08 | 1.1–1.2 | 1.3–1.4 | 2.28, 2.35 |
+| first person, after | **21.99, 21.21** | **12.73, 12.51** | **0.4–0.5** | 1.2–1.3 | 2.27, 2.22 |
+| empty view, before | 11.86 (at 1c190074), 11.32 ms | 6.61, 6.21 | 1.1 | 1.2–1.4 | 1.28, 1.12 |
+| empty view, after | **10.50, 10.61** | **5.49, 5.55** | **0.3–0.4** | 1.2–1.3 | 1.05, 1.09 |
+
+`collate` falls by about 0.7 ms a frame in both views, and the mean frame by about 0.8–1.2 ms. **Golden shots**, tick
+30700, first person and the default spectator view, before and after: 30 and 55 pixels differ, all inside the
+frame-rate readout's box.
+
+**What the empty view still walks**, and it is the next owner: `simulate` 1.2–1.3 ms with nothing posed —
+`SimulatePass` runs placement (`PlacementOf` 14% of it), frame selection (`SelectFor` 12.8%) and a case-folded
+model-path lookup (12.2%) for every prop. The engine computes an absolute transform lazily behind
+`EFL_DIRTY_ABSTRANSFORM` and resolves a model when the entity takes an update, so both are the same divergence this
+fix closed for the collation. Not started here.
