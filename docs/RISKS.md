@@ -39811,7 +39811,8 @@ every one below is *read from published source*.
 - **Where the SDK stops:** the bodies of `VPanel::SetParent`, `VPanel::SetZPos` and the child list are not in it.
   `src/vgui2/src` holds only `VPanel.h`, which declares `_childDar` and `short _zpos` and nothing more.
 
-**Not settled, and not guessed at in code.** One reading would produce TF2's order. It rests on two facts the SDK
+**Not settled, and not guessed at in code. (SUPERSEDED: both facts below were read by disassembly the same day; the account
+that stands is "Settled, 2026-10-18" further down. This paragraph is kept as the question that was asked.)** One reading would produce TF2's order. It rests on two facts the SDK
 cannot supply:
 
 1. That `VPanel::SetParent` calls `SetZPos` with the child's CURRENT z. The entry above says it calls `SetZPos`, but
@@ -39857,7 +39858,7 @@ panel's order was relying on the missing step, which the 31 main-first and 10 sh
 
 ## B553 — a VGUI material's texture transforms, sampler addressing and `$vertexcolor` are not read — OPEN, gap
 
-**Filed 2026-10-18 while porting the detail combine for every VGUI `$detail` material** (finding 78, follow-ups). Three
+**Filed 2026-10-18 while porting the detail combine for every VGUI `$detail` material** (finding 78, follow-ups). Four
 things `UnlitGeneric` does that `VguiRenderer` does not, none reachable by a stock TF2 HUD material as shipped:
 
 - **Texture transforms.** The detail's coordinates are `$detailtexturetransform` scaled by `$detailscale`, or
@@ -39870,6 +39871,8 @@ things `UnlitGeneric` does that `VguiRenderer` does not, none reachable by a sto
   (vertexlit_and_unlit_generic_ps2x.fxc:345) and the vertex alpha only through `g_fVertexAlpha` (:419);
   `ammo_blue_bg.vmt` has `$vertexcolor` commented out. The renderer multiplies by the vertex colour unconditionally.
   Whether `CMatSystemSurface` forces the flag on the materials it draws has not been read — that read comes first.
+- **`$separatedetailuvs`** (unlitgeneric_dx9.cpp:72, :152). The detail is then sampled from the second texture-coordinate
+  set; the renderer always samples the base's. Added from the Fable review of `fix/hud-followups` (2026-10-18).
 
 ## B551 — a move child was LIT at its local origin, and a grandchild drawn one level deep — FIXED 2026-10-16 (`fix/parented-prop-origin`)
 

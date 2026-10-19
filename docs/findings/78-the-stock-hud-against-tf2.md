@@ -77,9 +77,15 @@ in the first, the outline band misses by up to 18 levels. *Arithmetic against th
 **The shadow-over-number order (B552): the SDK narrows it and stops.** Each scheme pass deletes and recreates the
 `.res` controls in file order. Each control is parented BEFORE its settings apply (BuildGroup.cpp:1353, :1358), so
 its `zpos` is set second, by a `SetZPos` on a panel already in the list. Children paint in list order. How
-`VPanel::SetParent` and `SetZPos` move a panel is in vgui2.dll, not in the SDK. The open question and the one reading
-that fits TF2's pixels are written in B552 rather than coded. *Read from published source; the reading is
-interpolated.*
+`VPanel::SetParent` and `SetZPos` move a panel is in vgui2.dll, not in the SDK. *Read from published source.*
+
+**Settled the same day, by disassembly of vgui2.dll (2026-10-18).** The SDK stops at the `VPanel` bodies; the binary does
+not. `VPanel::SetParent` (0x18001c3e0) appends the child, then calls `SetZPos` (vtable slot 15) with the child's CURRENT
+z, `word [this+0x68]`; the constructor (0x18001bbc0) zeroes that z; `SetZPos` (0x18001c610) is a bubble sort over the
+parent's children with strict comparisons (back past a higher z, forward past a lower one, equal never moves). So the shadow
+is appended at z 0, bubbles back past the number, takes its `.res` z of 5 and stops; the number paints last. Ours skips
+the `SetZPos` in `SetParent`, which is the whole difference. *Disassembled.* The fix is a port filed in B552, tests first.
+The earlier line here and in B552 that the reading "is interpolated" is superseded.
 
 A wrong turn in the instrument, kept: the first `$detailscale` test drew a one-pixel-tall quad, whose V derivative is
 the whole texture per pixel at scale 4, and read the last mip's average (138) instead of a texel. Square target, then
