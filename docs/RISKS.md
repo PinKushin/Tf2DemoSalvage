@@ -39830,6 +39830,31 @@ Ours differs at step 1: `VguiPanel.SetParent` appends without any `SetZPos`, so 
 `.res` order put it. **The next read is the disassembly of `VPanel::SetParent` (vgui2.dll 0x18001c3e0): the argument it
 passes to `SetZPos`, and the `VPanel` constructor's `_zpos`.** That is a decompiler question. It is not an SDK one.
 
+**Settled, 2026-10-18, by disassembly of vgui2.dll (client x64, 2026-10-07 build; `evidence: disassembled`).** Both facts hold,
+and the order of `SetZPos`'s moves is now read, not inferred:
+
+- **`VPanel::SetParent` (0x18001c3e0) calls `SetZPos` with the child's current z.** After appending the child to the new
+  parent's list (`_childDar`, `[parent+0x8]`, count `[+0x10]`) it executes `MOVSX EDX, word ptr [RDI+0x68]` then
+  `CALL qword ptr [RAX+0x78]`. `+0x68` is `_zpos`; vtable slot `0x78/8 = 15` is `SetZPos` (the 15th virtual of
+  `VPanel.h`, counting the destructor as 0). Then it tells the parent's client panel (`OnChildAdded`, slot `+0x40` of
+  the object at `+0x130`).
+- **A new `VPanel`'s `_zpos` is 0.** The constructor (0x18001bbc0) zeroes it: `MOV word ptr [RCX+0x68], DX` with `EDX = 0`.
+- **`VPanel::SetZPos` (0x18001c610) is a bubble sort over the parent's child list, with strict comparisons.** It stores
+  the z, finds its own index `i` among the parent's children, then loops: if `i > 0` and `child[i-1].z > this.z` it swaps
+  with the previous one and continues one place back; else if `i < count-1` and `child[i+1].z < this.z` it swaps
+  forward; else it stops. Equal z never moves a panel.
+
+So the reading above is the mechanism: the shadow is appended with z 0, bubbles back past the number (5 > 0), takes its
+`.res` z of 5 and stops (the number, at 5, is not lower), and the number paints after it. The ten shadow-first pairs, all at
+z 0, never move. **The earlier line above, that this "predicts what the viewer draws", was wrong**: it described the
+list after `SetZPos` without the z-0 append, which is the step ours skips.
+
+**The fix is a port, and it is small:** `VguiPanel.SetParent` appends the child and then calls the same `SetZPos` bubble with
+the child's current z, `VguiPanel` constructs with z 0, and `SetZPos` is the bubble above. Tests first: the ammo pair at
+`zpos 5` ends number-last; a pair at `zpos 0` keeps `.res` order; equal z never moves (the strict comparisons); and the
+golden `HudGoldenImageUiTests.Soldier_TheElement_MatchesTf2("ammo", …)`. Nothing else in the HUD changes unless another
+panel's order was relying on the missing step, which the 31 main-first and 10 shadow-first pairs make the census to check.
+
 ## B553 — a VGUI material's texture transforms, sampler addressing and `$vertexcolor` are not read — OPEN, gap
 
 **Filed 2026-10-18 while porting the detail combine for every VGUI `$detail` material** (finding 78, follow-ups). Three
