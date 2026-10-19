@@ -1,0 +1,12 @@
+{
+  "schema": 1,
+  "side": "viewer",
+  "captured": "2026-10-19",
+  "composite": true,
+  "parts": ["locker-288-bake.png (left, BEFORE: baked frames)", "locker-288-bones.png (right, AFTER: posed by bones)"],
+  "demo": "20150120_2113_cp_process_final_red_blu.dem",
+  "demoSha256": "81526b25a11b7e63e03bbafd28324d1e8024ea380b8ea146dc792b8a148ef3fa",
+  "tick": 288,
+  "camera": [4640, 1330, 650, 8, 90],
+  "notes": "A labeled side-by-side of the two shots; each part has its own sidecar with the full record. The locker opens at tick 226 in this demo: the bake draws it shut at tick 288, the bones draw it open with its shelves showing."
+}

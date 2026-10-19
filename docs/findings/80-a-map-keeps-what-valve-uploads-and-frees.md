@@ -734,15 +734,19 @@ under `run-exclusive.ps1`, alternating the two paths. No run waited on another l
   animations where the bake poses one). Interpolated, and time-boxed out. It is a projectile carried for a moment, not
   a fixture of the map.
 
-**The golden pairs** (scratchpad, `item3-pairs`, `item3-locker`; bake on the left, bones on the right):
+**The golden pairs** (committed under `docs/findings/images/80/`, each image beside its `.json` sidecar of how it was taken
+(D226); bake on the left, bones on the right):
 - `doorA-6520-pair.png` (f12). The bake draws the door shut with a player in front of it; the bone pose draws it open.
+  The two shots are `doorA-6520-bake.png` and `doorA-6520-bones.png`; the lead's re-check on main is `door-main-6520.png`.
   **To reproduce it:** demo `demostf-cp_process_f12-2026-08-08-2207.dem`, `--tick 6520`, `TF2VIEW_CAMERA="-2240 -3180 790 5 90"`
   (x y z pitch yaw), `--shot`; the bake is `TF2VIEW_BAKE_ANIMATED=1`, the bones side `=0`. The camera was recorded nowhere
   at the time and was recovered from the capturing agent's transcript (D226 is the fix). **Re-checked 2026-10-19 on main
   `a1489309`, after the review fix that poses one skeleton per skinned model at load (`0a4b6407`):** the bone-posed shot
   matches the earlier one by eye (the door open, the room and the player behind it); one door at one tick, by eye.
-- The locker pair comes from `20150120_2113_cp_process_final_red_blu.dem`. The locker opens at tick 226 there; on f12
-  it never opens.
+- The locker pair (`locker-288-pair.png`, with `locker-288-bake.png` and `locker-288-bones.png`) comes from
+  `20150120_2113_cp_process_final_red_blu.dem`. The locker opens at tick 226 there; on f12 it never opens. The earlier frame
+  (tick 250), the control door B, the earlier door tick (6490) and the arrow shot are not committed: they add nothing the
+  committed pair does not show.
 - No arrow pair. The camera at the arrow's position at tick 27075 does not show it, and re-aiming was not trivial. The
   sweep found arrows identical on both paths.
 

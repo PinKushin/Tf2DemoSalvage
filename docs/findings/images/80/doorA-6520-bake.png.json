@@ -1,0 +1,18 @@
+{
+  "schema": 1,
+  "side": "viewer",
+  "captured": "2026-10-19",
+  "demo": "demostf-cp_process_f12-2026-08-08-2207.dem",
+  "demoSha256": "77e7029ee5a5da0796faf2187012a92f0eb54c94250573786cdde29be8ff0778",
+  "map": "cp_process_f12",
+  "tick": 6520,
+  "camera": [-2240, -3180, 790, 5, 90],
+  "viewport": [984, 551],
+  "convars": {},
+  "gitSha": null,
+  "build": "Debug",
+  "args": ["--tick", "6520", "--shot"],
+  "env": { "TF2VIEW_CAMERA": "-2240 -3180 790 5 90", "TF2VIEW_BAKE_ANIMATED": "1" },
+  "like": null,
+  "notes": "BACKFILLED 2026-10-19 from the capturing agent's transcript and goldens-item3.ps1; the shot was not re-taken. The baked side of the door pair: the door drawn SHUT with a player in front of it (the bake's wrap bug, finding 80). Same build as doorA-6520-bones.png (one build, two env values). NOT RECORDED: the exact commit. Ours only."
+}
