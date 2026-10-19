@@ -107,6 +107,7 @@
 - [Game handles are not personal information](game-handles-are-not-personal-information.md) — fine in committed docs; no history scrub.
 - [A whole timeline can leak the future](a-whole-timeline-can-leak-the-future.md) (D217 step 3).
 - [Log findings to the measurement box log](log-findings-to-the-measurement-box-log.md) — findings go in `PinKushin/MEASUREMENT-BOX-LOG.md`.
+- [A demo without its map fails soft](a-demo-without-its-map-fails-soft.md) (D224).
 - [Index notes](index-notes.md) — decision numbers formerly beside links.
 - [The HUD draws at tone-map scale 1](the-hud-draws-at-tone-map-scale-one.md) — integer HDR resets it before VGUI (viewrender.cpp:2211).
 - [UnlitGeneric has no $detailtint](unlitgeneric-has-no-detailtint.md) — c10 white; check SetupVars before porting a param.

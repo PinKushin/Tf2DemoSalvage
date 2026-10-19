@@ -10790,3 +10790,29 @@ or OpenGL), which is the larger job under either toolkit. Text input, IME and fi
 ImGui; that is part of the port's design. The icon's source already lives outside the WinForms project, at
 `assets/icon.svg`.
 
+## D224 — a demo without its map still opens, soft and not advertised; it is not a supported play mode (2026-10-19)
+
+**The occasion.** During a frame-cost measurement the viewer ran an "empty view" (a free camera aimed at nothing) to
+separate per-draw cost from per-frame fixed cost, and the owner saw a window that drew neither map nor HUD. TF2 will not
+play a demo whose map is missing: it refuses and tells the player to download the map. This viewer opens the demo and shows
+what the demo carries without a map, which is an addition above Valve (`an-addition-above-valve-is-allowed`).
+
+**The owner, in his words.** First, as an opinion: *"i dont think this should be an expected play mode of our viewer, no one
+is going to want to play a demo without a map, but it should be possible for this exact testing reason"*. Then, when asked
+whether to record it as "possible, not advertised, not supported": *"well i mean, lets not cut it off arbitrarily, we auto dl
+the maps so, a regular user should never run into it, and id rather it fail soft then fail hard in a no map available
+situation"*.
+
+**What follows from it.**
+- **It stays possible, and a missing map fails SOFT**: the viewer keeps running and shows what it can, rather than refusing
+  to open the demo or ending in an error. It is the right behavior for the testing it serves (an empty view is a legitimate
+  measurement input, and has no TF2 equivalent to compare with) and for the rare real case.
+- **It is not a supported play mode.** The user guide, README and `--help` do not describe it as a feature, and no test or
+  golden depends on it looking like play. A regular user never meets it, because the maps are downloaded automatically.
+- **Nothing is cut off arbitrarily.** No code is added to refuse a map-less demo, and none already there to survive it is
+  removed.
+
+**What this does not decide:** whether the viewer should tell the user, on screen, that the map is missing when the
+download fails (a message is a different change from refusing); that is a question for the day the download path can fail
+visibly.
+
