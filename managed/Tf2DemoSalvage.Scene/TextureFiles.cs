@@ -18,8 +18,16 @@ namespace Tf2DemoSalvage.Scene;
 /// </remarks>
 internal sealed class TextureFiles
 {
-    private readonly ConcurrentDictionary<string, Lazy<byte[]?>> _files = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, Lazy<byte[]?>> _files = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<(string Path, int Frame), Lazy<VtfTexture>> _decodes = new();
+
+    /// <summary>The key one file goes by, however its name is spelled.</summary>
+    /// <remarks>
+    /// **As `PakFile.Normalise` and the archives treat a path**: case does not matter and `\` is `/`. Both tables key by this,
+    /// so two materials spelling one file two ways share one read and one decode (the review of 2026-10-18 found the
+    /// decodes keyed case-sensitively and neither table folding the slashes). The reader is still given the path as asked.
+    /// </remarks>
+    private static string Key(string path) => path.Replace('\\', '/').ToUpperInvariant();
 
     /// <summary>A file's bytes, read once.</summary>
     /// <param name="path">The path.</param>
@@ -32,7 +40,8 @@ internal sealed class TextureFiles
     /// </remarks>
     public byte[]? File(string path, Func<string, byte[]?> read)
     {
-        Lazy<byte[]?> once = _files.GetOrAdd(path, key => new Lazy<byte[]?>(() => read(key)));
+        string key = Key(path);
+        Lazy<byte[]?> once = _files.GetOrAdd(key, _ => new Lazy<byte[]?>(() => read(path)));
 
         try
         {
@@ -40,7 +49,7 @@ internal sealed class TextureFiles
         }
         catch (Exception)
         {
-            _files.TryRemove(new(path, once));
+            _files.TryRemove(new(key, once));
             throw;
         }
     }
@@ -52,7 +61,8 @@ internal sealed class TextureFiles
     /// <returns>The decode.</returns>
     public VtfTexture Decode(string path, int frame, Func<VtfTexture> decode)
     {
-        Lazy<VtfTexture> once = _decodes.GetOrAdd((path, frame), _ => new Lazy<VtfTexture>(decode));
+        (string, int) key = (Key(path), frame);
+        Lazy<VtfTexture> once = _decodes.GetOrAdd(key, _ => new Lazy<VtfTexture>(decode));
 
         try
         {
@@ -60,7 +70,7 @@ internal sealed class TextureFiles
         }
         catch (Exception)
         {
-            _decodes.TryRemove(new((path, frame), once));
+            _decodes.TryRemove(new(key, once));
             throw;
         }
     }

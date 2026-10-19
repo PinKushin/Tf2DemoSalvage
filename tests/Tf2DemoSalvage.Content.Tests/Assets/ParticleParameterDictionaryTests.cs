@@ -10,7 +10,7 @@ namespace Tf2DemoSalvage.Content.Tests.Assets;
 /// **A dictionary per operator was most of 239 MB per map** (`Entry[]` 184 MB on f12). The reads are by name, a handful
 /// per operator, so sorted keys and a binary search answer them with one array of each instead of a hash table.
 /// </remarks>
-public sealed class ParticleParametersTests
+public sealed class ParticleParameterDictionaryTests
 {
     private static readonly Dictionary<string, DmxValue> Declared = new(System.StringComparer.Ordinal)
     {

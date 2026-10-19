@@ -2292,8 +2292,10 @@ public sealed class MapAssets
 
     /// <summary>Every particle definition the install's manifest names, read once per install (finding 80).</summary>
     /// <remarks>
-    /// **One copy per process, not one per map.** The definitions come from the install's archives alone, never a map's
-    /// pakfile, so every map on one install reads the same ones. Keyed by the archives instance, so a different install is a
+    /// **One copy per process, not one per map.** The definitions come from the install's archives alone, because
+    /// `ParticleManifest` deliberately does not read a map's own `maps/&lt;name&gt;_particles.txt` (`ParseParticleEffectsMap`;
+    /// see its remarks), so every map on one install reads the same ones. **If that gap is ever closed, a map's
+    /// definitions must be keyed per map, not per archives instance.** Keyed by the archives instance, so a different install is a
     /// different set, dropped with it. The definitions are immutable (`ParticleParameterDictionary`), so no map can write
     /// into another's.
     /// </remarks>
