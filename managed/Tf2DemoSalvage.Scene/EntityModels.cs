@@ -679,7 +679,7 @@ public sealed class EntityModelSet : Hud.IMdlCache, IPosedEntities
             float[] delayed = Delayed(prop.FaceOf ?? prop.EntityIndex, weights, seconds);
 
             // The same weights draw the same face: an idle loop's expression holds still for seconds at a time.
-            if (_lastFace.TryGetValue(prop.EntityIndex, out (float[] Weights, float[] Delayed, float[]? Face) last) &&
+            if (_lastFace.TryGetValue(prop.EntityIndex, out (float[] Weights, float[] Delayed, float[]? Face, float[]? Stream) last) &&
                 last.Weights.AsSpan().SequenceEqual(weights) && last.Delayed.AsSpan().SequenceEqual(delayed))
             {
                 face = last.Face;
@@ -695,12 +695,14 @@ public sealed class EntityModelSet : Hud.IMdlCache, IPosedEntities
                     _flexScratch = (new float[model.VertexCount * 3], new float[model.VertexCount * 3]);
                 }
 
-                float[] stream = last.Face is { } kept && kept.Length == order.Length * 6 ? kept : new float[order.Length * 6];
+                // Kept apart from the face, which is null while nothing moves: a face that stops and starts again would
+                // otherwise lose its stream at every stop and allocate a new one at every start.
+                float[] stream = last.Stream is { } kept && kept.Length == order.Length * 6 ? kept : new float[order.Length * 6];
 
                 face = FaceFlex.Deltas(model.Flex, weights, delayed, _flexScratch.Positions, _flexScratch.Normals) is { } deltas
                     ? FaceFlex.InBufferOrder(deltas, model.CornerVertex, order, stream)
                     : null;
-                _lastFace[prop.EntityIndex] = (weights, (float[])delayed.Clone(), face);
+                _lastFace[prop.EntityIndex] = (weights, (float[])delayed.Clone(), face, stream);
             }
         }
         else if (!_restingFace.TryGetValue(RestingKey(prop), out face))
@@ -747,7 +749,7 @@ public sealed class EntityModelSet : Hud.IMdlCache, IPosedEntities
     private readonly Dictionary<int, (float[] Delayed, double Time)> _delays = [];
 
     /// <summary>Each drawing entity's last weights and the face they made, reused while they hold.</summary>
-    private readonly Dictionary<int, (float[] Weights, float[] Delayed, float[]? Face)> _lastFace = [];
+    private readonly Dictionary<int, (float[] Weights, float[] Delayed, float[]? Face, float[]? Stream)> _lastFace = [];
 
     /// <summary>What drives faces: every scene and voice in the recording (B513); null drives none.</summary>
     public FaceSources? Faces { get; set; }
