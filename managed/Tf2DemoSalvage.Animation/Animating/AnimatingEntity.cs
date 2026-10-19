@@ -147,6 +147,9 @@ public sealed class AnimatingEntity
     public bool SetupBones(int boneMask, double currentTime) =>
         SetupBones(boneMask, currentTime, MaximumFollowDepth);
 
+    /// <summary>Whether this frame already has bones readable — a request this frame has been satisfied (finding 82).</summary>
+    public bool BuiltThisFrame => _builtOn == _clock.Frame && _accessor.ReadableBones != 0;
+
     /// <summary>Throws away the cached pose so the next request rebuilds — <c>InvalidateBoneCache</c>.</summary>
     /// <remarks>
     /// **Both lines of the engine's, and both are load-bearing** (<c>c_baseanimating.cpp:3066</c>):

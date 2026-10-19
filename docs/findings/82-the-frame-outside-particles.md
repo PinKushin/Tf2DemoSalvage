@@ -256,3 +256,33 @@ place to look, not a cost.** The patch is kept outside the tree; nothing of it i
   message pump themselves (`Idle`'s own leaf share, the `PeekMessage` it calls). The one possible saving is the panel
   background behind the label, about 0.1 ms, by stopping the label resizing its parent; it would change how the
   readout is laid out, which the task's "the window looks the same" forbids without the owner's eye. Not done.
+
+## The particle phase by direct timers (2026-10-19)
+
+**Why timers and not the profile**: the sampled shares above over-promised once already. So each piece is a
+Stopwatch where it runs, carried to the `--measure` summary's `particle cost a frame:` line (`ParticleCost`,
+`BurstEffects.SearchTicks`/`BurstTicks`, `EntityModelSet.Attachment*`). Attachment queries are counted only from
+outside the animation pass (effects, decals, sounds), with the skeletons each built counted at the build, and a
+rebuild of an entity that already had bones readable this frame counted separately.
+
+**f12, Debug, first person, two runs on a quiet machine, neither waited on the lock:**
+
+| | run 1 | run 2 |
+|---|---:|---:|
+| mean frame | 22.31 ms | 22.24 ms |
+| `camera particles` part, steady seconds | 2.6–5.0 ms | |
+| timeline search for this frame's bursts | **1.55 ms** | **1.47 ms** |
+| starting and stepping the bursts found | 0.69 ms | 0.68 ms |
+| attachment queries a frame | 282.9 | 284.1 |
+| skeletons those queries built | 9.3 | 9.4 |
+| of those, rebuilt after this frame's first build | **0** | **0** |
+| time in those queries' bone setups | 0.94 ms | 0.95 ms |
+
+The attachment queries sit inside the search (the muzzle flashes and beams ask for attachments while they are
+found), so the search's 1.5 ms holds most of the 0.95.
+
+- **No second skeleton.** No query rebuilt bones the frame had already built: the per-frame cache works as the
+  engine's (`c_baseanimating.cpp:2874`, `:2911`). The suspected second divergence is absent.
+- **About nine skeletons a frame are built only to place an effect**, for entities this frame does not draw. Our
+  query asks for `UsedByAnything`. Whether the engine's `GetAttachment` asks for less is the next read.
+- **The search itself is the larger owner**: 1.5 ms a frame to find what the timeline offers this frame.

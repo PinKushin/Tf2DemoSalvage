@@ -1926,6 +1926,18 @@ public sealed class EntityModelSet : Hud.IMdlCache, IPosedEntities
     private float[]? AttachmentMatrix(int entity, Func<IReadOnlyList<StudioAttachment>, int> pick) =>
         InScene(entity) is null ? null : PosedAttachmentMatrix(entity, pick);
 
+    /// <summary>Attachment queries that reached a bone setup, ever (finding 82).</summary>
+    public long AttachmentQueries { get; private set; }
+
+    /// <summary>Skeletons those queries built, counted at the build (finding 82).</summary>
+    public long AttachmentBuilds { get; private set; }
+
+    /// <summary>Queries that built a skeleton the entity had already built this frame (finding 82).</summary>
+    public long AttachmentRebuilds { get; private set; }
+
+    /// <summary>Time spent in those queries' bone setups, in stopwatch ticks (finding 82).</summary>
+    public long AttachmentTicks { get; private set; }
+
     /// <summary>The attachment matrix of an entity posed in the pass in flight, which the scene does not list yet.</summary>
     /// <remarks>For a move child's parent during `Simulate` (B551); everything asked from outside goes through
     /// <see cref="AttachmentMatrix"/>, which refuses an entity that has left the scene.</remarks>
@@ -1944,12 +1956,29 @@ public sealed class EntityModelSet : Hud.IMdlCache, IPosedEntities
         // Stryker restore all
         int point = pick(attachments);
 
-        if (point < 0 || !animating.SetupBones(StudioBoneFlags.UsedByAnything, _simulatedSeconds))
+        if (point < 0)
         {
             return null;
         }
 
-        return AttachmentsOf(entity, animating, attachments)[point];
+        // **Counted where the bones are asked for** (finding 82, B243): how many queries, how many built a skeleton, how
+        // many of those rebuilt one already built this frame, and the time, all carried from this call.
+        long askedAt = System.Diagnostics.Stopwatch.GetTimestamp();
+        int buildsBefore = SkeletonPose.PoseBuilds;
+        bool builtBefore = animating.BuiltThisFrame;
+        bool posed = animating.SetupBones(StudioBoneFlags.UsedByAnything, _simulatedSeconds);
+        int built = SkeletonPose.PoseBuilds - buildsBefore;
+
+        // Only queries from outside the pass — effects, decals, sounds — which is the cost finding 82 is ranking.
+        if (!_simulating)
+        {
+            AttachmentQueries++;
+            AttachmentBuilds += built;
+            AttachmentRebuilds += builtBefore && built > 0 ? 1 : 0;
+            AttachmentTicks += System.Diagnostics.Stopwatch.GetTimestamp() - askedAt;
+        }
+
+        return posed ? AttachmentsOf(entity, animating, attachments)[point] : null;
     }
 
     /// <summary>How far along a ray an entity's posed hitboxes let it get — <c>C_BaseAnimating::TestHitboxes</c>.</summary>

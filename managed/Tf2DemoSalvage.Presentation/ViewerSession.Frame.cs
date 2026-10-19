@@ -180,6 +180,9 @@ public sealed partial class ViewerSession
     /// <summary>The collector's counters when counting began, for the measurement's GC line (finding 82).</summary>
     private GcReading _gcAtStart;
 
+    /// <summary>The particle phase's counters when counting began (finding 82).</summary>
+    private ParticleCost _particlesAtStart;
+
     /// <summary>Prints what <c>--measure</c> gathered and closes.</summary>
     /// <remarks>
     /// **To stdout, because the log is buffered.** Reading the log file while the viewer is still
@@ -260,6 +263,7 @@ public sealed partial class ViewerSession
         if (_framesMeasured > 0)
         {
             _host.Out.WriteLine("  " + GcReading.Now().Since(_gcAtStart, _framesMeasured));
+            _host.Out.WriteLine("  " + _effects.ParticleCost.Since(_particlesAtStart, _framesMeasured));
         }
 
         // The GC's own account beside the process's, read where the measurement ends (finding 80).
@@ -431,6 +435,7 @@ public sealed partial class ViewerSession
                 // And the per-second lines written before counting began, which described the opening (finding 82).
                 _measured.Clear();
                 _gcAtStart = GcReading.Now();
+                _particlesAtStart = _effects.ParticleCost;
             }
 
             _framesMeasured++;
