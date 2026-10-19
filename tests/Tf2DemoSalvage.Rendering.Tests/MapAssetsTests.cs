@@ -281,6 +281,100 @@ public sealed class MapAssetsTests
         second.ParticleSystemsByName.ShouldBeSameAs(first.ParticleSystemsByName);
     }
 
+    /// <remarks>
+    /// **An animated model is posed by its bones, from one bind pose** (finding 80, item 3): the engine poses every studio
+    /// model through `SetupBones`, and a baked frame per animation step was most of f12's 329 MB of model vertices. The
+    /// sweep found the bake wrong where they differ most (a non-looping door blended back toward shut). The control: the
+    /// door and the locker are among the models, and so is a model with one pose, which stays one frame either way.
+    /// </remarks>
+    [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
+    public void Load_AnimatedModels_AreSkinnedFromOneBindPose()
+    {
+        const string Door = "models/props_gameplay/door_slide_large_dynamic.mdl";
+        const string Locker = "models/props_gameplay/resupply_locker.mdl";
+
+        if (F12() is not { } map)
+        {
+            Assert.Ignore("Team Fortress 2 with cp_process_f12 is not installed.");
+            return;
+        }
+
+        // Two models with more than one pose and no frame that moves: the ubersaw's two one-frame sequences, and the
+        // syringe's single one-frame sequence (review items 1 and 6).
+        const string Ubersaw = "models/weapons/c_models/c_ubersaw/c_ubersaw.mdl";
+        const string Syringe = "models/weapons/w_models/w_syringe_proj.mdl";
+
+        MapAssets assets = MapAssets.Load(
+            map, SharedGame.Archives, maximumTextureSize: 16, entityModels: [Door, Locker, "models/items/medkit_small.mdl", Ubersaw, Syringe]);
+
+        foreach (string model in new[] { Door, Locker, "models/items/medkit_small.mdl", Ubersaw })
+        {
+            PropModels.ModelFrames frames = assets.Geometry(model).ShouldNotBeNull(model);
+
+            frames.IsSkinned.ShouldBeTrue(model);
+            frames.Geometry.Count.ShouldBe(1, model);
+        }
+
+        // **The control that can fail** (review item 1): one real model with exactly one pose stays baked, one frame.
+        PropModels.ModelFrames syringe = assets.Geometry(Syringe).ShouldNotBeNull(Syringe);
+        syringe.IsSkinned.ShouldBeFalse("one sequence of one frame is one pose, and the bake keeps it");
+        syringe.Geometry.Count.ShouldBe(1);
+    }
+
+    /// <remarks>
+    /// **Who changes class, said once** (finding 80, review item 6): every entity model f12 and its stock set load, by
+    /// path, with whether it is skinned and how many sequences and geometry slots it has. A listing, not a test.
+    /// </remarks>
+    [Test]
+    [Explicit("a listing; read its output")]
+    public void Load_EveryF12EntityModel_ListsItsClass()
+    {
+        if (F12() is not { } map)
+        {
+            Assert.Ignore("Team Fortress 2 with cp_process_f12 is not installed.");
+            return;
+        }
+
+        // With the demo's models when one is passed: `-- TestRunParameters.Parameter(name=\"demo\", value=\"<f12 .dem>\")`.
+        Core.Scene.DemoTimeline? timeline = TestContext.Parameters.Get("demo") is { Length: > 0 } demo && File.Exists(demo)
+            ? Core.Scene.DemoTimeline.Build(File.ReadAllBytes(demo))
+            : null;
+        MapAssets assets = MapAssets.Load(map, SharedGame.Archives, maximumTextureSize: 16, entityModels: DemoModels.Needed(timeline, SharedGame.Content));
+
+        foreach ((string model, PropModels.ModelFrames frames) in assets.EntityModels.OrderBy(pair => pair.Key, StringComparer.Ordinal))
+        {
+            TestContext.Out.WriteLine(
+                $"{(frames.IsSkinned ? "skinned" : "baked  ")} {frames.SequenceAnimation.Count,3} seq {frames.Geometry.Count,4} slots  {model}");
+        }
+    }
+
+    /// <remarks>
+    /// **A model the GPU poses needs one skeleton at load, not one per frame** (finding 80, review item 2): only
+    /// `skeletons[0]` is read for it, and posing every frame up to the budget was load time reported as baking.
+    /// </remarks>
+    [Test]
+    [NonParallelizable]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
+    public void Load_ASkinnedDoor_PosesOneSkeletonAtLoad()
+    {
+        const string Door = "models/props_gameplay/door_slide_large_dynamic.mdl";
+
+        if (F12() is not { } map)
+        {
+            Assert.Ignore("Team Fortress 2 with cp_process_f12 is not installed.");
+            return;
+        }
+
+        PakFile pak = PakFile.ReadFrom(map);
+        long before = PropModels.SkeletonsPosed;
+        PropModels.ModelFrames? door = PropModels.LoadFrames(
+            Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance, Door, pak, SharedGame.Archives, new MaterialTable(), _ => null);
+
+        door.ShouldNotBeNull().IsSkinned.ShouldBeTrue("the control: the door animates, so it is skinned");
+        (PropModels.SkeletonsPosed - before).ShouldBe(1);
+    }
+
     private static byte[]? F12() =>
         GameFolder is { } game && Path.Combine(game, "maps", "cp_process_f12.bsp") is { } map && File.Exists(map)
             ? File.ReadAllBytes(map)
