@@ -388,6 +388,8 @@ public sealed class ParticleEffects
                 continue;
             }
 
+            double noDraw = ParticleEffect.SleepAfter(burst.Definition) / seconds;
+
             // Stryker disable all : 'running' is declared by the TryGetValue before a '||' and read after it, so the
             // Logical mutator's switch leaves it unassigned (CS0165) and Safe Mode drops the method — B410.
             bool rebuild = !_bursts.TryGetValue(burst.Key, out RunningBurst running) ||
@@ -397,7 +399,9 @@ public sealed class ParticleEffects
             if (rebuild)
             {
                 // **None is made on a dormant owner** (c_particle_system.cpp:189-190): replayed or played, the same answer.
-                if (burst.DormantAt?.Invoke(burst.Tick) == true)
+                // **Nor one the caller cannot place**: with no point to replay on it waits, and is built — replayed from its
+                // own tick — once it can be placed. Only one already running sleeps.
+                if (burst.DormantAt?.Invoke(burst.Tick) == true || burst.Undrawn)
                 {
                     _bursts.Remove(burst.Key);
                     continue;
@@ -405,7 +409,11 @@ public sealed class ParticleEffects
 
                 // **Replayed from its own tick, whatever its age** — a seek answers what playing through shows, so it walks
                 // the same ticks under the same rules; the replay stops early only once the effect can change no more.
-                running = new RunningBurst(new ParticleEffect(burst.Definition, others, Sheets, SeedFor(burst.Key)), 0, 0d, false);
+                // `StartEmission` at creation sets the sleep time to now plus the no-draw time (particles.obj, Ghidra).
+                running = new RunningBurst(new ParticleEffect(burst.Definition, others, Sheets, SeedFor(burst.Key)), 0, 0d, false)
+                {
+                    NextSleep = noDraw, LastAt = burst.At,
+                };
                 BurstBuilds++;
             }
             else if (running.Effect.Finished)
@@ -425,9 +433,15 @@ public sealed class ParticleEffects
             // **Counted by the loop, not assigned from `wanted`** (B243): the count says what was stepped.
             int taken = running.Stepped;
             double reachedTo = running.SimulatedTo;
+            double nextSleep = running.NextSleep;
+            bool wasDormant = running.Dormant;
+
+            // **Undrawn, it follows the points it last had** — the caller could not place it this frame.
+            ParticleControlPoint current = burst.Undrawn ? running.LastAt : burst.At;
 
             // Asked once, and only when there is a step to take: posing a model is not free.
-            (IReadOnlyList<ModelHitbox> Boxes, Vector3 PosedAt)? posed = reachedTo < wanted ? burst.Model?.Invoke() : null;
+            (IReadOnlyList<ModelHitbox> Boxes, Vector3 PosedAt)? posed =
+                reachedTo < wanted && !burst.Undrawn ? burst.Model?.Invoke() : null;
 
             // A rebuild replays whole ticks first, each where its points were then (B527); the last step — the only one a
             // played frame takes — runs to this frame's moment on this frame's points.
@@ -440,14 +454,40 @@ public sealed class ParticleEffects
             {
                 double next = rebuild && Math.Floor(reachedTo) + 1d <= wanted ? Math.Floor(reachedTo) + 1d : wanted;
 
+                // **A played frame stays one step (D221) unless the owner's dormancy changes inside it**: then it is cut at
+                // the tick of the change, so a gap shorter than the frame is not stepped over. Dormancy changes on a
+                // snapshot, which lands on a tick.
+                if (!rebuild && burst.DormantAt is { } asked)
+                {
+                    next = DormancyChange(asked, burst.Tick, reachedTo, wanted);
+                }
+
                 if (reachedTo < stopAt && next > stopAt)
                 {
                     next = stopAt;
                 }
 
-                // **A dormant tick is held**: no simulation, no step counted, the effect's own state untouched. The tick asked
-                // is the one the step simulates INTO — the frame drawn at it, whose owner the snapshot says is dormant.
-                if (burst.DormantAt?.Invoke(burst.Tick + (int)Math.Floor(next)) == true)
+                // **A dormant tick stops emission and still simulates**: `CParticleCollection::SetDormant(true)` is
+                // `StopEmission(false, false, false)`, `SetDormant(false)` is `StartEmission(false)`, and `Simulate` never
+                // asks (particles.obj, Ghidra). The tick asked is the one the step simulates INTO — the frame drawn at it.
+                bool dormant = burst.DormantAt?.Invoke(burst.Tick + (int)Math.Floor(next)) == true;
+
+                // **Waking is `StartEmission`**: the emitters' `SkipToTime`, and the sleep time set to now plus the no-draw
+                // time. An effect already stopped never went dormant — `SetDormant` returns early on a stopped one — so it
+                // does not wake either.
+                bool stoppedHere = burst.StopTick is { } stopsAt && burst.Tick + reachedTo >= stopsAt;
+
+                if (wasDormant && !dormant && !stoppedHere)
+                {
+                    running.Effect.StartEmission();
+                    nextSleep = reachedTo + noDraw;
+                }
+
+                wasDormant = dormant && !stoppedHere;
+
+                // **Asleep, its clock stands**: `BuildParticleSimList` skips an effect at or past `m_flNextSleepTime` while
+                // it has live particles (particlemgr.cpp:1775-1776). Only a draw pushes the time on.
+                if (reachedTo >= nextSleep && !running.Effect.Empty)
                 {
                     reachedTo = next;
                     continue;
@@ -465,7 +505,7 @@ public sealed class ParticleEffects
                 bool past = rebuild && next < wanted && burst.History is not null;
 
                 (ParticleControlPoint at, ParticleControlPoint? second) =
-                    past ? burst.History!(reached) : (burst.At, burst.End);
+                    past ? burst.History!(reached) : (current, burst.End);
 
                 if (second is { } then)
                 {
@@ -482,7 +522,7 @@ public sealed class ParticleEffects
 
                 // A stopped effect only fades: its particles live out their lives and no more are born. **Its points
                 // still follow** — `StopEmission` leaves the effect in the property's list (particle_property.cpp:251).
-                if (burst.StopTick is { } stop && burst.Tick + reachedTo >= stop)
+                if (dormant || (burst.StopTick is { } stop && burst.Tick + reachedTo >= stop))
                 {
                     running.Effect.SetControlPoint(0, at);
                     running.Effect.Fade(step);
@@ -492,8 +532,21 @@ public sealed class ParticleEffects
                     running.Effect.Step(at, step);
                 }
 
+                // A replayed tick is a frame that was drawn: `Render` pushes the sleep time on.
+                if (rebuild && next < wanted)
+                {
+                    nextSleep = Math.Max(nextSleep, next + noDraw);
+                }
+
                 reachedTo = next;
                 taken++;
+            }
+
+            // **This frame's draw** — `CParticleCollection::Render` sets `m_flNextSleepTime` to at least the last simulation
+            // time plus the no-draw time (particles.obj, Ghidra); a frame the caller could not place draws nothing.
+            if (!burst.Undrawn)
+            {
+                nextSleep = Math.Max(nextSleep, wanted + noDraw);
             }
 
             if (rebuild)
@@ -508,13 +561,13 @@ public sealed class ParticleEffects
 
             if (taken == running.Stepped)
             {
-                running.Effect.SetControlPoint(0, burst.At);
+                running.Effect.SetControlPoint(0, current);
 
                 // **The hitboxes once per still, not once per frame**: a still frame's pose is the last one's, so the
                 // first still frame after a step reads them and the rest of the pause has nothing new to read.
-                if (!stillRead && burst.Model?.Invoke() is { } still)
+                if (!stillRead && !burst.Undrawn && burst.Model?.Invoke() is { } still)
                 {
-                    running.Effect.SetHitboxes(0, Carried(still.Boxes, burst.At.At - still.PosedAt));
+                    running.Effect.SetHitboxes(0, Carried(still.Boxes, current.At - still.PosedAt));
                 }
 
                 stillRead = true;
@@ -535,7 +588,7 @@ public sealed class ParticleEffects
                 Effect = spent ? Spent : running.Effect,
                 Stepped = taken, SimulatedTo = reachedTo, Stopped = stopped, StillRead = stillRead, Tick = burst.Tick,
                 Name = burst.Definition.Name, Unoffered = false,
-                Hidden = burst.DormantAt?.Invoke((int)Math.Floor(now)) == true,
+                NextSleep = nextSleep, Dormant = wasDormant, LastAt = current,
             };
         }
 
@@ -628,6 +681,28 @@ public sealed class ParticleEffects
         return census;
     }
 
+    /// <summary>
+    /// Where a played step from <paramref name="from"/> must end so its owner's dormancy is one state throughout: the
+    /// step is asked at the tick it simulates into, so it ends at the last whole tick still in the first tick's state,
+    /// or at <paramref name="to"/> when every tick of the span agrees.
+    /// </summary>
+    private static double DormancyChange(Func<int, bool> dormantAt, int fired, double from, double to)
+    {
+        int first = (int)Math.Floor(from) + 1;
+        int last = (int)Math.Floor(to);
+        bool state = dormantAt(fired + first);
+
+        for (int at = first + 1; at <= last; at++)
+        {
+            if (dormantAt(fired + at) != state)
+            {
+                return at - 1;
+            }
+        }
+
+        return to;
+    }
+
     /// <summary>The keys no longer offered on the last call, reused.</summary>
     private readonly List<long> _unoffered = [];
 
@@ -694,8 +769,17 @@ public sealed class ParticleEffects
         bool StillRead = false,
         int Tick = 0,
         string Name = "",
-        bool Unoffered = false,
-        bool Hidden = false);
+        bool Unoffered = false)
+    {
+        /// <summary>`m_flNextSleepTime`, in ticks after the burst fired.</summary>
+        public double NextSleep { get; init; }
+
+        /// <summary>Whether the last step taken was on a dormant tick.</summary>
+        public bool Dormant { get; init; }
+
+        /// <summary>The control point it was last placed at.</summary>
+        public ParticleControlPoint LastAt { get; init; }
+    }
 
     /// <summary>Builds every live effect's quads for this frame's camera.</summary>
     /// <param name="eye">Where the camera is — a sprite trail turns about its own length to face it.</param>
@@ -734,10 +818,7 @@ public sealed class ParticleEffects
 
         foreach (RunningBurst running in _bursts.Values)
         {
-            if (!running.Hidden)
-            {
-                Gather(running.Effect, eye, right, up, materials);
-            }
+            Gather(running.Effect, eye, right, up, materials);
         }
 
         return Batches(materials);
@@ -962,11 +1043,20 @@ public readonly record struct ParticleBurst(
     public Func<(IReadOnlyList<ModelHitbox> Boxes, Vector3 PosedAt)?>? Model { get; init; }
 
     /// <summary>
-    /// Whether the owner was dormant at a tick, or null for an effect with no owner. While dormant the effect is kept,
-    /// neither simulated nor drawn, and not restarted when the owner returns — `CParticleProperty::OwnerSetDormantTo`
-    /// sets `SetDormant` on every effect it owns (particle_property.cpp:465-475); what `CParticleCollection` does with the
-    /// flag is in the closed particles library — *interpolated*: its simulation is skipped, so its own clock stands still
-    /// and it resumes where it stood. Asked for every tick a replay steps, so a seek walks a dormant gap as playing does.
+    /// Whether the owner was dormant at a tick, or null for an effect with no owner. `CParticleProperty::OwnerSetDormantTo`
+    /// sets `SetDormant` on every effect it owns (particle_property.cpp:465-475), and in the particles library
+    /// `CParticleCollection::SetDormant(true)` is `StopEmission(false, false, false)` and `SetDormant(false)` is
+    /// `StartEmission(false)`; `Simulate` never reads the flag (particles.obj, Ghidra, 2026-10-18). So a dormant tick is
+    /// simulated and drawn with no births, and the wake emits again. Asked for every tick a replay steps.
     /// </summary>
     public Func<int, bool>? DormantAt { get; init; }
+
+    /// <summary>
+    /// Whether nothing draws the effect this frame — its owner is not posed, so it cannot be placed. An undrawn frame
+    /// does not push `m_flNextSleepTime` on (`CParticleCollection::Render` does, particles.obj, Ghidra), so after the
+    /// definition's `time to sleep when not drawn` the effect sleeps while it has live particles
+    /// (`BuildParticleSimList`, particlemgr.cpp:1775-1776). Until then it simulates on the points it last had. One
+    /// never built is not built undrawn: there is no point to replay it on.
+    /// </summary>
+    public bool Undrawn { get; init; }
 }

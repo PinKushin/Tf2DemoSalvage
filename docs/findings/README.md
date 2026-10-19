@@ -267,6 +267,10 @@ in any public writeup found:
   up in the root model instead of the virtual one, and VGUI colours written to the sRGB view without `GammaToLinear`.
   The ammo number's shadow is still painted over it, and the panel tree does not explain why
   ([78](78-the-stock-hud-against-tf2.md)).
+- **A dormant effect stops emitting; an undrawn one sleeps.** In `particles.obj`, `SetDormant` is
+  `StopEmission`/`StartEmission` and `Simulate` never reads the flag. The pause belongs to the sleep clock, which
+  every `Render` pushes forward. Missing that sleep is what replayed effects during plain playback, about 28,000
+  ticks each time ([79](79-a-dormant-effect-stops-emitting-and-an-undrawn-one-sleeps.md)).
 
 ## Conventions used throughout
 

@@ -57,6 +57,59 @@ public sealed class ParticleCreationTimeConformanceTests
         (Xs(effect).Single(), Born(effect).Single()).ShouldBe((4f, 0.375f));
     }
 
+    /// <remarks>
+    /// **Waking re-emits, past the duration and twice** — `C_OP_ContinuousEmitter::SkipToTime( curtime )`, read in the
+    /// disassembly (`0x000670f0`). A half-second emitter at 8 a second has made its 4 by one second. Woken then:
+    /// <list type="bullet">
+    /// <item>the span is the whole second, because the duration does not cap it: 8 born at once, over (0, 1];</item>
+    /// <item>the emitted count is set to 0 and the clock rewound to 0 (max( 1 − 8, 0 )), so the re-simulation's
+    /// first 0.1 s `Emit` owes floor( 8 + 0.8 ) − 0 = 8 again, and the four after it one each;</item>
+    /// <item>past 0.5 the window is shut.</item>
+    /// </list>
+    /// 4 + 8 + 8 + 4 = 24.
+    /// </remarks>
+    [Test]
+    public void StartEmission_AFinishedLimitedEmitter_ReEmitsItsSpanAndAgainInTheReSimulation()
+    {
+        ParticleEffect effect = new(Continuous(duration: 0.5d));
+
+        for (int step = 0; step < 4; step++)
+        {
+            effect.Step(At(0f), Quarter);
+        }
+
+        effect.Particles.Count.ShouldBe(4, "the control: half a second at 8 a second");
+
+        effect.StartEmission();
+
+        effect.Particles.Count.ShouldBe(24);
+        effect.Particles.Age.ShouldBeGreaterThanOrEqualTo(1f, "re-simulated back up to where it was");
+    }
+
+    /// <remarks>
+    /// **A burst woken within two seconds of its start fires again; after that it does not.**
+    /// `C_OP_InstantaneousEmitter::StartEmission` (`0x00066af0`) restores the owed count from the drawn one. Its
+    /// `SkipToTime` (`0x00066b20`) then zeroes it once curtime is past start + 2.0.
+    /// </remarks>
+    [TestCase(4, 10, TestName = "StartEmission_ABurstWokenAtOneSecond_FiresAgain")]
+    [TestCase(10, 5, TestName = "StartEmission_ABurstWokenAtTwoAndAHalfSeconds_DoesNot")]
+    public void StartEmission_ABurstWoken_RefiresOnlyWithinTwoSeconds(int quarters, int expected)
+    {
+        ParticleEffect effect = new(Instantaneous(startTime: 0d, count: 5));
+
+        for (int step = 0; step < quarters; step++)
+        {
+            effect.Step(At(0f), Quarter);
+        }
+
+        effect.Particles.Count.ShouldBe(5, "the control: fired once");
+
+        effect.StartEmission();
+        effect.Step(At(0f), Quarter);
+
+        effect.Particles.Count.ShouldBe(expected);
+    }
+
     [Test]
     public void Step_AnEmitterWhoseDurationEndsMidStep_EmitsUpToItsEnd()
     {

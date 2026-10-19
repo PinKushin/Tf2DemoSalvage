@@ -228,11 +228,14 @@ public sealed class ParticleBurstTests
     }
 
     /// <remarks>
-    /// **A dormant owner's effect is held, hidden, and resumed — not replayed** (`SetDormant`, particle_property.cpp:465-475):
-    /// across ten dormant ticks nothing is built again and nothing is stepped; back, it runs on from where the clock is.
+    /// **A dormant owner's effect stops emitting and keeps simulating; awake, it emits again** — not held, not rebuilt.
+    /// `CParticleCollection::SetDormant(true)` is `StopEmission(false, false, false)` and `SetDormant(false)` is
+    /// `StartEmission(false)` (particles.obj, read in Ghidra 2026-10-18), and `Simulate` has no dormant check at all, so
+    /// the live particles go on aging out. A half-second beam dormant for ten ticks (0.15 s) loses no particle to
+    /// lifespan yet gains none: the count stays put while every tick is stepped.
     /// </remarks>
     [Test]
-    public void Bursts_WhileTheOwnerIsDormant_AreHeldAndResumeWithoutARebuild()
+    public void Bursts_WhileTheOwnerIsDormant_StopEmittingAndWakeWithoutARebuild()
     {
         ParticleEffects effects = new();
         ParticleBurst beam = new(
@@ -244,6 +247,7 @@ public sealed class ParticleBurstTests
         }
 
         int steps = effects.BurstSteps(1);
+        int before = effects.BurstParticles(1)!.Count;
 
         ParticleBurst dormant = beam with { DormantAt = static at => at is >= 111 and <= 120 };
 
@@ -252,13 +256,175 @@ public sealed class ParticleBurstTests
             effects.Bursts([dormant], Interval, null, tick);
         }
 
-        effects.BurstSteps(1).ShouldBe(steps, "held: not stepped while dormant");
+        effects.BurstSteps(1).ShouldBe(steps + 10, "simulated: Simulate has no dormant check");
+        effects.BurstParticles(1)!.Count.ShouldBe(before, "emission stopped, and nothing old enough to die yet");
 
         effects.Bursts([beam], Interval, null, tick: 121);
 
-        effects.BurstBuilds.ShouldBe(1, "resumed, not built again");
-        effects.BurstSteps(1).ShouldBe(steps + 1, "one tick on from where the clock stood");
+        effects.BurstBuilds.ShouldBe(1, "woken, not built again");
+
+        // `SkipToTime` on the wake births the whole 0.3 s the effect has lived, 20 of them, at once — besides re-simulating.
+        effects.BurstParticles(1)!.Count.ShouldBeGreaterThanOrEqualTo(before + 20, "StartEmission: SkipToTime( curtime )");
     }
+
+    /// <remarks>
+    /// **An undrawn effect sleeps once its no-draw time has passed, and wakes where it stood** — `Render` pushes
+    /// `m_flNextSleepTime` to now plus `time to sleep when not drawn`, and `BuildParticleSimList` skips an effect past it
+    /// (particlemgr.cpp:1775). Here that time is 0.15 s, 9.9 ticks: drawn to ten ticks old, it steps ten more undrawn
+    /// ticks and then stands. Drawn again, the frame's `Simulate` runs BEFORE its `Render`, so the first drawn frame still
+    /// sleeps and the next one steps. **Never rebuilt**: unoffered instead, an effect was replayed from its dispatch tick,
+    /// 28,000 ticks for each of two ornament glitters on f12.
+    /// </remarks>
+    [Test]
+    public void Bursts_UndrawnPastTheNoDrawTime_SleepAndWakeWithoutARebuild()
+    {
+        ParticleEffects effects = new();
+        ParticleBurst beam = new(1, Sleepy(Beam), Origin, 100);
+
+        // Never placed yet: nothing to replay on, so nothing is built.
+        effects.Bursts([beam with { Undrawn = true }], Interval, null, tick: 100);
+        effects.BurstCount.ShouldBe(0);
+
+        for (int tick = 100; tick <= 110; tick++)
+        {
+            effects.Bursts([beam], Interval, null, tick);
+        }
+
+        int steps = effects.BurstSteps(1);
+
+        for (int tick = 111; tick <= 500; tick++)
+        {
+            effects.Bursts([beam with { Undrawn = true }], Interval, null, tick);
+        }
+
+        effects.BurstSteps(1).ShouldBe(steps + 10, "simulated through the no-draw time, then asleep");
+
+        effects.Bursts([beam], Interval, null, tick: 501);
+        effects.BurstSteps(1).ShouldBe(steps + 10, "Simulate comes before the Render that wakes it");
+
+        effects.Bursts([beam], Interval, null, tick: 502);
+        effects.BurstSteps(1).ShouldBe(steps + 11, "awake: one tick on from where it stood");
+        effects.BurstBuilds.ShouldBe(1, "and never built again");
+        effects.ReplaySteps.ShouldBe(0);
+    }
+
+    /// <remarks>
+    /// **An effect with no live particles never sleeps** — `BuildParticleSimList` skips only one with
+    /// `m_nActiveParticles > 0`. An emitter that starts at one second has nothing alive before then, so it is simulated
+    /// undrawn well past its no-draw time.
+    /// </remarks>
+    [Test]
+    public void Bursts_UndrawnWithNoLiveParticles_DoNotSleep()
+    {
+        ParticleEffects effects = new();
+        ParticleSystem late = Sleepy(Beam) with
+        {
+            Emitters =
+            [
+                new ParticleFunction("emit_continuously", "emitter", new Dictionary<string, DmxValue>(StringComparer.Ordinal)
+                {
+                    ["emission_rate"] = new(DmxAttributeType.Real, 66d),
+                    ["emission_start_time"] = new(DmxAttributeType.Real, 1d),
+                }),
+            ],
+        };
+        ParticleBurst burst = new(1, late, Origin, 100);
+
+        effects.Bursts([burst], Interval, null, tick: 100);
+        effects.Bursts([burst], Interval, null, tick: 101);
+
+        for (int tick = 102; tick <= 140; tick++)
+        {
+            effects.Bursts([burst with { Undrawn = true }], Interval, null, tick);
+        }
+
+        effects.BurstParticles(1)!.Count.ShouldBe(0, "the control: nothing alive yet");
+        effects.BurstSteps(1).ShouldBe(40, "stepped every tick, though undrawn for far past 9.9 ticks");
+    }
+
+    /// <remarks>
+    /// **A played frame longer than a tick still meets a dormant tick inside it.** One frame of five ticks with the owner
+    /// dormant on the third is cut at each tick, so the gap is met and the wake after it runs `SkipToTime`, which births
+    /// the effect's whole life again at once. Sampled only at the frame's end, the gap would be stepped over and the
+    /// frame would count exactly what an always-awake one does.
+    /// </remarks>
+    [Test]
+    public void Bursts_AFrameLongerThanATick_MeetsADormantTickInside()
+    {
+        ParticleBurst awake = new(1, Beam, Origin, 100) { DormantAt = static _ => false };
+        ParticleBurst gap = awake with { DormantAt = static at => at == 103 };
+
+        int Count(ParticleBurst burst)
+        {
+            ParticleEffects effects = new();
+            effects.Bursts([burst], Interval, null, tick: 100);
+            effects.Bursts([burst], Interval, null, tick: 110);
+            return effects.BurstParticles(1)!.Count;
+        }
+
+        Count(gap).ShouldBeGreaterThan(Count(awake), "the wake inside the frame re-emitted");
+    }
+
+    /// <remarks>
+    /// **The control for the cut: an owner that never goes dormant changes nothing.** A played frame is one
+    /// `Simulate( frametime )` (D221), and the integrator scales by the previous call's length, so ten one-tick steps are
+    /// not one ten-tick step. Asking dormancy must not cut a frame in which it never changes.
+    /// </remarks>
+    [Test]
+    public void Bursts_AFrameLongerThanATickWithAnOwnerAlwaysAwake_IsOneStepAsWithNoOwner()
+    {
+        (int Steps, float Age, int Count) Run(ParticleBurst burst)
+        {
+            ParticleEffects effects = new();
+            effects.Bursts([burst], Interval, null, tick: 100);
+            effects.Bursts([burst], Interval, null, tick: 110);
+            ParticleStore store = effects.BurstParticles(1)!;
+            return (effects.BurstSteps(1), store.Age, store.Count);
+        }
+
+        ParticleBurst none = new(1, Falling, Origin, 100);
+        (int steps, float age, int count) = Run(none);
+
+        Run(none with { DormantAt = static _ => false }).ShouldBe((steps, age, count));
+        steps.ShouldBe(1, "the control: one played frame, one step");
+    }
+
+    /// <remarks>
+    /// **An effect already stopped does not wake** — `CParticleCollection::SetDormant` returns early when emission is
+    /// already stopped (`+0x69`), so it never records itself dormant and never calls `StartEmission`. Without that guard
+    /// the wake after a dormant gap past the stop would run `SkipToTime` and birth the effect's whole life again.
+    /// </remarks>
+    [Test]
+    public void Bursts_ADormantGapAfterTheStop_DoesNotWakeIntoAReEmission()
+    {
+        ParticleBurst stopped = new(1, Beam, Origin, 100, StopTick: 110) { DormantAt = static at => at is >= 112 and < 115 };
+        ParticleEffects effects = new();
+
+        for (int tick = 100; tick <= 111; tick++)
+        {
+            effects.Bursts([stopped], Interval, null, tick);
+        }
+
+        int before = effects.BurstParticles(1)!.Count;
+
+        for (int tick = 112; tick <= 116; tick++)
+        {
+            effects.Bursts([stopped], Interval, null, tick);
+        }
+
+        effects.BurstParticles(1)!.Count.ShouldBeLessThanOrEqualTo(before, "stopped: nothing born, woken or not");
+    }
+
+    private static readonly ParticleControlPoint Origin = new(Vector3.Zero, Vector3.UnitX, Vector3.UnitY, Vector3.UnitZ);
+
+    /// <summary>A system that sleeps 0.15 s after its last draw.</summary>
+    private static ParticleSystem Sleepy(ParticleSystem system) => system with
+    {
+        Parameters = new Dictionary<string, DmxValue>(StringComparer.Ordinal)
+        {
+            ["time to sleep when not drawn"] = new(DmxAttributeType.Real, 0.15d),
+        },
+    };
 
     /// <remarks>
     /// **Scrubbing back before an explosion must remove it, and this is the only test that says so.** The
@@ -622,10 +788,10 @@ public sealed class ParticleBurstTests
 
     /// <remarks>
     /// **A seek gives exactly what playing through gives** — Valve has no seek; a demo player answers one by replaying, so
-    /// the replay walks the same ticks under the same rules: the dormant gap held, the stop, the fade. Compared on the
-    /// particles themselves (count, age, every position), not on a step count, at ticks inside the gap, after the wake, and
-    /// after the stop. The effect moves (`Movement Basic` with gravity), so stepping the gap instead of holding it would
-    /// leave the particles elsewhere.
+    /// the replay walks the same ticks under the same rules: the dormant gap's stopped emission, the wake, the stop, the
+    /// fade. Compared on the particles themselves (count, age, every position), not on a step count, at ticks inside the
+    /// gap, after the wake, and after the stop. The effect moves (`Movement Basic` with gravity), so a replay that emitted
+    /// through the gap, or skipped it, would leave different particles.
     /// </remarks>
     [TestCase(115, TestName = "Bursts_SeekIntoADormantGap_MatchesPlayingThrough")]
     [TestCase(130, TestName = "Bursts_SeekAfterTheWake_MatchesPlayingThrough")]
