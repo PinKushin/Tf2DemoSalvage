@@ -51,6 +51,12 @@ level of `DetailCombine`'s arithmetic. Four details came with it, each from the 
   `ammo_red_bg.vmt`, `character_blue_bg_clipped.vmt`, read from `tf2_misc_dir.vpk`). What the renderer still does not
   read — transforms, VTF addressing, `$vertexcolor` — is B553.
 
+**The charge meter's animation and release paths now have tests** (tf_hud_mediccharge.cpp:239-274): a charge of exactly
+1 starts `HudMedicCharged`, a fall without a release starts `HudMedicChargedStop`, a fall during one does not, and the
+Vaccinator dims no chunk while releasing. Which sequence ran is read through a test script that sets the label's
+alpha to a value per sequence. Five sabotages each redden one of them: `>=` to `>`, either start deleted,
+`!IsReleasingCharge()` to `true`, the dimming's release clause dropped, `m_bCharged = true` deleted.
+
 A wrong turn in the instrument, kept: the first `$detailscale` test drew a one-pixel-tall quad, whose V derivative is
 the whole texture per pixel at scale 4, and read the last mip's average (138) instead of a texel. Square target, then
 the texel.
