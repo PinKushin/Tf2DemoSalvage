@@ -116,6 +116,32 @@ public sealed record DecodedDemo(LoadedDemo Demo, DemoTimeline? Timeline)
         return new DecodedDemo(loaded, timeline) { Bytes = keepBytes ? bytes : ReadOnlyMemory<byte>.Empty };
     }
 
+    /// <summary>Each player as first seen, in the order first seen, over every frame's players.</summary>
+    /// <param name="frames">Each frame's players.</param>
+    /// <returns>The roster.</returns>
+    /// <remarks>
+    /// **One pass, keeping the first of each entity** (finding 78). A grouping of every player of every frame gave the
+    /// same answer and copied all of them: 1.1 GB of large-object garbage during f12's load.
+    /// </remarks>
+    internal static IReadOnlyList<ScenePlayer> Roster(IEnumerable<IReadOnlyList<ScenePlayer>> frames)
+    {
+        HashSet<int> seen = [];
+        List<ScenePlayer> roster = [];
+
+        foreach (IReadOnlyList<ScenePlayer> players in frames)
+        {
+            for (int at = 0; at < players.Count; at++)
+            {
+                if (seen.Add(players[at].EntityIndex))
+                {
+                    roster.Add(players[at]);
+                }
+            }
+        }
+
+        return roster;
+    }
+
     /// <summary>Says what the decode found, once per demo.</summary>
     /// <remarks>
     /// **Information rather than Debug, because this runs once per demo and is the record of what
@@ -147,13 +173,7 @@ public sealed record DecodedDemo(LoadedDemo Demo, DemoTimeline? Timeline)
         // looks like from the outside: a team colour that never arrives shows up as "0 red, 0 blu"
         // the moment the file opens, rather than as grey dots that have to be noticed and then
         // chased through a seven-minute suite.
-        IReadOnlyList<ScenePlayer> roster =
-        [
-            .. timeline.Frames
-                .SelectMany(frame => frame.Players)
-                .GroupBy(player => player.EntityIndex)
-                .Select(group => group.First()),
-        ];
+        IReadOnlyList<ScenePlayer> roster = Roster(timeline.Frames.Select(frame => frame.Players));
 
         demo.LogInformation(
             "{Message}",
