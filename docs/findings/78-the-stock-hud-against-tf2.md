@@ -74,6 +74,13 @@ ammo background's distance alpha over a synthetic 64-texel field rising x/63 and
 the fxc (:296-327) within two levels. Dropping OUTLINE, swapping `MaskRange.x/y` and dropping the glow each redden it;
 in the first, the outline band misses by up to 18 levels. *Arithmetic against the GPU.*
 
+**The shadow-over-number order (B552): the SDK narrows it and stops.** Each scheme pass deletes and recreates the
+`.res` controls in file order. Each control is parented BEFORE its settings apply (BuildGroup.cpp:1353, :1358), so
+its `zpos` is set second, by a `SetZPos` on a panel already in the list. Children paint in list order. How
+`VPanel::SetParent` and `SetZPos` move a panel is in vgui2.dll, not in the SDK. The open question and the one reading
+that fits TF2's pixels are written in B552 rather than coded. *Read from published source; the reading is
+interpolated.*
+
 A wrong turn in the instrument, kept: the first `$detailscale` test drew a one-pixel-tall quad, whose V derivative is
 the whole texture per pixel at scale 4, and read the last mip's average (138) instead of a texel. Square target, then
 the texel.

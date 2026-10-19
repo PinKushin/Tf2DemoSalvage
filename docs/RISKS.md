@@ -39791,6 +39791,45 @@ the surface's text drawing in `vguimatsurface.dll` is the next place. `vgui_draw
 only (engine.dll `FUN_18022c960`), so it cannot show sibling order. Gated by
 `HudGoldenImageUiTests.Soldier_TheElement_MatchesTf2("ammo", …)`.
 
+**The SDK read, 2026-10-18 — what it settles and where it stops.** Quotes in full were taken from `source-sdk-2013`;
+every one below is *read from published source*.
+
+- `CTFHudWeaponAmmo::ApplySchemeSettings` calls `LoadControlSettings( "resource/UI/HudAmmoWeapons.res" )` and then
+  only `FindChildByName`s the labels (tf_hud_ammostatus.cpp:91-100); its constructor creates none (:48-73). Nothing
+  in the file calls `MoveToFront`, `SetZPos` or `SetParent` on a child.
+- `BuildGroup::LoadControlSettings` deletes every control the last load created
+  (`DeleteAllControlsCreatedByControlSettingsFile`, BuildGroup.cpp:998, :1203-1229), then `ApplySettings` (:1001)
+  walks the `.res` keys in file order and, finding no panel of that name, calls `NewControl` (:1239-1284). So the
+  labels are created afresh, main first, on every scheme pass.
+- `NewControl` PARENTS the panel first and applies its settings after: `SetParent( m_pParentPanel )` at :1353,
+  `ApplySettings( controlKeys )` at :1358. `Panel::ApplySettings` sets the `.res` `zpos` with `SetZPos` (Panel.cpp:4519-4522).
+  So when the panel is parented, its z is still the value it was constructed with; the `.res` z arrives second.
+- `Panel::SetParent` and `Panel::SetZPos` forward to `ipanel()` (Panel.cpp:1449-1458, :1515-1518).
+  `Panel::PaintTraverse` paints children in `GetChildren` index order (:1213-1238). No code in `vgui_controls` sorts
+  children by z. `Label::Paint` draws the text and nothing else; `CExLabel` overrides neither paint method
+  (econ_controls.h:177-178).
+- **Where the SDK stops:** the bodies of `VPanel::SetParent`, `VPanel::SetZPos` and the child list are not in it.
+  `src/vgui2/src` holds only `VPanel.h`, which declares `_childDar` and `short _zpos` and nothing more.
+
+**Not settled, and not guessed at in code.** One reading would produce TF2's order. It rests on two facts the SDK
+cannot supply:
+
+1. That `VPanel::SetParent` calls `SetZPos` with the child's CURRENT z. The entry above says it calls `SetZPos`, but
+   not with what value.
+2. That a freshly constructed panel's `_zpos` is 0.
+
+If both hold, the steps are:
+
+- `AmmoInClipShadow` is appended after `AmmoInClip` (z 5) and bubbles BACK past it, because 5 > 0.
+- The `.res` then gives the shadow its own `zpos 5`, and it bubbles FORWARD only past strictly lower neighbours, so it
+  stops in front of `AmmoInClip`.
+- The shadow ends up before the number in the child list, so the number paints last. That is TF2's order.
+- A pair at `zpos 0` would keep `.res` order. That fits the 10 shadow-first pairs, which are all `zpos 0`.
+
+Ours differs at step 1: `VguiPanel.SetParent` appends without any `SetZPos`, so a sibling at equal z stays where
+`.res` order put it. **The next read is the disassembly of `VPanel::SetParent` (vgui2.dll 0x18001c3e0): the argument it
+passes to `SetZPos`, and the `VPanel` constructor's `_zpos`.** That is a decompiler question. It is not an SDK one.
+
 ## B553 — a VGUI material's texture transforms, sampler addressing and `$vertexcolor` are not read — OPEN, gap
 
 **Filed 2026-10-18 while porting the detail combine for every VGUI `$detail` material** (finding 78, follow-ups). Three
