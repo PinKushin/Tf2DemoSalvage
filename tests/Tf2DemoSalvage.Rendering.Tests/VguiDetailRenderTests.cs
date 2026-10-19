@@ -133,6 +133,89 @@ public sealed class VguiDetailRenderTests
         Draw(target, detail, null, [255, 255, 255, 255], (255, 255, 255, 255), width: 16, height: 16, x: 1).Red.ShouldBe(red);
     }
 
+    /// <remarks>
+    /// **An edge, pixel by pixel.** The goldens compare 30-pixel cell means, which a one-pixel outline or a reversed soft
+    /// edge moves by less than their tolerance. This draws `ammo_blue_bg.vmt`'s distance alpha (its values as written —
+    /// the scale flags off, which is what 1024×768 gives) over a synthetic field: a 64-texel detail whose alpha rises
+    /// x/63 across the row, so pixel x reads field value x/63 and the row crosses the glow, soft edge, outline band and
+    /// interior. Each pixel is predicted from `vertexlit_and_unlit_generic_ps2x.fxc:296-327` directly — outline lerp,
+    /// soft mask, then the glow sampled one-thousandth of the texture to the left.
+    /// </remarks>
+    [Test]
+    public void Draw_TheAmmoBackgroundsDistanceAlpha_MatchesTheShaderAcrossAnEdge()
+    {
+        const int Width = 64;
+
+        using OffscreenTarget? target = OffscreenTarget.TryCreate(Width, Width);
+
+        if (target is null)
+        {
+            Assert.Ignore("no Direct3D on this machine");
+            return;
+        }
+
+        VguiDistanceAlpha ammo = new(
+            FromDetail: true, SoftMask: true, SoftStart: 0.45f, SoftEnd: 0.3f, ScaleEdges: false,
+            Outline: true, OutlineColor: (0.7f, 0.7f, 0.5f), OutlineAlpha: 1f,
+            OutlineStart0: 0.3f, OutlineStart1: 0.49f, OutlineEnd0: 0.49f, OutlineEnd1: 0.73f, ScaleOutline: false,
+            Glow: true, GlowColor: (0f, 0f, 0f), GlowAlpha: 0.45f, GlowStart: 0.03f, GlowEnd: 0.5f, GlowX: -0.001f, GlowY: -0.001f);
+        byte[] field = new byte[Width * 4];
+
+        for (int x = 0; x < Width; x++)
+        {
+            (field[x * 4], field[(x * 4) + 1], field[(x * 4) + 2], field[(x * 4) + 3]) = (255, 255, 255, (byte)Math.Round(x * 255.0 / (Width - 1)));
+        }
+
+        MapDetail detail = new(new MapTexture(Width, 1, Width, 1, TextureImage.Rgba(field), IsTransparent: true), (1f, 1f), 1f, DetailCombine.Multiply, (1f, 1f, 1f));
+
+        Draw(target, detail, ammo, [255, 255, 255, 255], (255, 255, 255, 255), width: Width, height: Width);
+
+        float[] c = ammo.Constants(1024, 768);
+        float Field(int x) => field[(Math.Clamp(x, 0, Width - 1) * 4) + 3] / 255f;
+        List<string> wrong = [];
+
+        for (int x = 0; x < Width; x++)
+        {
+            float mask = Field(x);
+
+            // OUTLINE (:296-300): smoothstep(c9.xyzw, c9.wzyx) — rising from start0 to start1, falling from end1 to end0.
+            float outline = SmoothStep(c[16], c[19], mask) * SmoothStep(c[17], c[18], mask);
+            (float r, float g, float b, float a) colour = (Lerp(1f, c[12], outline), Lerp(1f, c[13], outline), Lerp(1f, c[14], outline), Lerp(1f, c[15], outline));
+
+            // SOFT_MASK (:303-307): smoothstep( SOFT_MASK_MIN, SOFT_MASK_MAX ) — c7.y to c7.x.
+            float soft = SmoothStep(c[9], c[8], mask);
+            colour.a *= soft;
+
+            // OUTER_GLOW (:318-327): the field sampled at u + GLOW_UV_OFFSET, a 0.064-texel shift left, bilinear.
+            float shifted = (Field(x - 1) * 0.064f) + (Field(x) * (1f - 0.064f));
+            float glow = SmoothStep(c[2], c[3], shifted);
+            colour = (Lerp(c[4] * glow, colour.r, soft), Lerp(c[5] * glow, colour.g, soft), Lerp(c[6] * glow, colour.b, soft), Lerp(c[7] * glow, colour.a, soft));
+
+            float alpha = Math.Clamp(colour.a, 0f, 1f);
+            (int, int, int) predicted =
+                (SrgbTarget.Encode((colour.r * alpha) + (ClearColour.Red * (1f - alpha))),
+                 SrgbTarget.Encode((colour.g * alpha) + (ClearColour.Green * (1f - alpha))),
+                 SrgbTarget.Encode((colour.b * alpha) + (ClearColour.Blue * (1f - alpha))));
+            (int Red, int Green, int Blue) drawn = target.PixelAt(x, Width / 2);
+
+            if (Separation(drawn, predicted) > 2)
+            {
+                wrong.Add($"x {x} (field {mask:F3}): drew {drawn}, predicted {predicted}");
+            }
+        }
+
+        wrong.ShouldBeEmpty();
+    }
+
+    private static float SmoothStep(float from, float to, float value)
+    {
+        float t = Math.Clamp((value - from) / (to - from), 0f, 1f);
+
+        return t * t * (3f - (2f * t));
+    }
+
+    private static float Lerp(float from, float to, float amount) => from + ((to - from) * amount);
+
     private static MapDetail Detail(int mode) =>
         new(Texture(DetailTexel[0], DetailTexel[1], DetailTexel[2], DetailTexel[3]), (1f, 1f), BlendFactor, mode, (1f, 1f, 1f));
 

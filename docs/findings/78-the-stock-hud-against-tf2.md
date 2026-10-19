@@ -67,6 +67,13 @@ pinned each way.
 on a `CTFImagePanel` after the team was sent, thinks on the same team again, and expects the image to stand; a second
 team is its control. Sabotaged with the guard always true: the same-team case reddens.
 
+**The goldens could not see an edge; an offscreen row can.** The golden comparison's 4×2 cell means are about 30
+pixels square, and a one-pixel outline, the glow or a reversed soft edge moves a cell mean by less than its tolerance;
+the TF2 cases are `[Explicit]` besides. `Draw_TheAmmoBackgroundsDistanceAlpha_MatchesTheShaderAcrossAnEdge` draws the
+ammo background's distance alpha over a synthetic 64-texel field rising x/63 and predicts every pixel of a row from
+the fxc (:296-327) within two levels. Dropping OUTLINE, swapping `MaskRange.x/y` and dropping the glow each redden it;
+in the first, the outline band misses by up to 18 levels. *Arithmetic against the GPU.*
+
 A wrong turn in the instrument, kept: the first `$detailscale` test drew a one-pixel-tall quad, whose V derivative is
 the whole texture per pixel at scale 4, and read the last mip's average (138) instead of a texel. Square target, then
 the texel.
