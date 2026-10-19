@@ -471,9 +471,166 @@ and archive bytes straight into the span.
 2. `MapAssets.Resolve`'s VTF reads, the biggest (a) caller, with a byte-identical test on a real texture.
 3. The rest of class (a), largest first. Each step reports the MB per run it saves.
 
+**The plan's split was wrong, and reading the decoder killed it before any build (2026-10-19).** The four texture
+callers are class (b), not (a). `VtfTexture.Read` keeps a block-compressed texture as slices of the file's own bytes:
+`chain = new(...) { file.Slice(at, bytes) }` and `smallerLevels.Add(file.Slice(faceAt, smallerBytes))` (B149: nothing
+is expanded, so the GPU gets the blocks as stored). The byte array that `ReadFile` returns therefore *is* the texture
+until upload, and `ReleaseUploaded` drops it after. Returning that array to a pool would hand a live texture's bytes to
+the next read. Only the expanded formats drop the file at once.
+
+So most of the 2.9 GB is texture data that lives from load to upload, which is the engine's shape: `CTexture` frees its
+scratch VTF after upload. **What is not the engine's shape:**
+- **No texture is shared between materials.** `Resolve` reads and decodes every material's textures afresh, and nothing
+  in `MapAssets` keys a texture by name. `CTextureManager::FindOrLoadTexture` loads a texture name once and hands every
+  material the same `ITexture`. How many of the 2.9 GB are repeat reads of one name is not measured yet; that is the
+  next number to take.
+- **An animated texture re-reads its whole file once per frame** (`LoadFrame` in the detail, base-texture and water
+  normal frame loops). Each frame keeps its own copy of the same file until upload.
+
+**Measured: 78% of the texture bytes read are repeat reads of a file already read.** The `texture-reads` probe loads f12
+by the production path (`LoadedMap.Read`, with the demo's timeline so its models' materials resolve, as in the viewer, at
+full texture size). It counts each `.vtf` read inside the resolve's own `Find` (`MapAssets.TextureReads`), so the counts
+are carried from the read, not derived. The control: 926 distinct files is what a real map with players must read; an
+empty tally would mean a broken hook.
+
+| f12 | |
+|---|---:|
+| distinct texture files | 926 |
+| reads | 4,796 |
+| bytes read | 2,455.6 MB |
+| bytes read again for a file already read | **1,913.3 MB** |
+| of those, a later frame of an animated texture | 103.1 MB |
+
+The worst repeats:
+
+| file | reads | repeated MB |
+|---|---:|---:|
+| `water/tfwater001_normal.vtf` | 58 (no frames) | 855.0 |
+| `effects/tiledfire/fireLayeredSlowTiled512.vtf` | 935 (240 later frames) | 296.0 |
+| `models/player/medic/medic_normal.vtf` | 22 | 56.0 |
+| `models/player/demo/demoman_normal.vtf` | 19 | 48.0 |
+| `models/player/spy/spy_normal.vtf` | 18 | 45.3 |
+| `festive_lights_red.vtf`, `festive_lights_blue.vtf` | 125 each (50 later frames) | 31.0 each |
+
+- **The 2,455.6 MB read** agrees with the trace's ~2.9 GB for `VpkArchive.ReadFile` over a viewer run, which also
+  reads non-texture files.
+- **Most of the waste is one name read for many materials.** Only 103 MB is the per-frame re-reading of animated files.
+  The water normal map alone is 855 MB: every water material names the same file.
+- **The fire texture** is read 935 times, so its frame loop is multiplied by the number of materials that name it.
+
+**Fixed: one read and one decode per texture file per load (2026-10-19).** `TextureFiles` keys a load's files by path
+and its decodes by path and frame. Every material resolve in the load shares it: brushwork, models, detail sprites,
+particles, sprites and override materials.
+
+- **The key is the name**, as the engine's is: `FindTexture( char const* pTextureName, const char *pTextureGroupName,
+  bool complain = true, int nAdditionalCreationFlags = 0 )` and `IsTextureLoaded( char const* pTextureName )`
+  (`imaterialsystem.h:948-951`). Read from published source.
+- **No case needs a wider key.** A decode here depends on the file, the load's size cap and the frame. The frame is in
+  the key, and the cap is one value per load. Everything a material decides (translucency, additive, tint, modulation)
+  is applied to the `MapTexture` built over the shared decode, never inside the decode.
+- **One fix covered both repeat kinds.** Animated frames read their file once because the file is cached; there was no
+  separate per-frame fix.
+- **Lifetime.** The table lives for one `Load` and is dropped on return, so it holds nothing past `ReleaseUploaded`.
+  Shared frames are slices of one array, and a slot's release only drops that slot's reference.
+- **The wrong turn: a race.** A first version used `GetOrAdd` with a plain factory, and two files were still read
+  twice: the brushwork resolve is a `Parallel.For`, and `GetOrAdd` may run its factory twice in a race. The values are
+  now `Lazy`.
+- **The instrument had the same fault.** The tally was a static field, so a concurrent test's load counted into
+  another test's tally. It is now async-local.
+
+**Tests and sabotage** (`MapAssetsTests`):
+- `Load_ARealMap_ReadsEachTextureFileOnce` reddens with sharing turned off.
+- `Load_SharedTextures_AreByteIdenticalToEachMaterialsOwn` compares every texture, bump, detail and animated-detail
+  slot's RGBA against a load with sharing off. It reddens when the decode key drops the frame.
+
+**Measured on f12:**
+
+| | before | after, two runs |
+|---|---:|---:|
+| `texture-reads`: reads / MB read | 4,796 / 2,455.6 MB | **926 / 542.3 MB** |
+| `VpkArchive.ReadFile`, MB per 20 s | 264 | 97 |
+| large allocations, whole run | 8,498 MB | 6,095 MB |
+| allocated since start | 50,836 MB | 48,468 / 48,362 MB |
+| private bytes at the end | 7,959 MB | 7,487 / 7,498 MB |
+| working set at the end | 5,141 MB | 5,189 / 5,207 MB |
+| GC heap at the end (LOH) | 5,347 (3,793) | 4,872 (3,244) / 4,873 (3,242) |
+| mean frame | 38.3 / 41.3 ms | 42.7 / 40.6 ms |
+
+The frame times overlap, so this measured no frame-time change. The before rows are the earlier runs' numbers, one
+run for the memory rows and two for the frame.
+
+**Fixed: a block texture's upload pins its levels where they lie (2026-10-19).**
+- **The cost.** `CreateBlockTexture` copied every mip of every DXT texture into a new array only to pin it, at 89 MB
+  per 20 s after the texture table landed. It now pins the `ReadOnlyMemory` itself (`Memory.Pin`).
+- **Measured.** The stack is gone from the trace. Large allocations over the run fell from 6,095 to 5,091 MB, and
+  allocated since start from about 48.4 to 47.6 GB. Private bytes held at 7,496 MB on both runs, and the mean frame
+  was 38.5 / 38.1 ms.
+- **The test is the Rendering suite's block-texture renders** (1109 passed). No sabotage reddened a test for it: the
+  call is private and device-bound, and a level pinned from the wrong span would still be valid memory.
+
+**`PropModels.Read`'s 48 MB per 20 s is the baked animation frames themselves** (`List<PropVertex>(cornersPerFrame)`,
+one per frame). That is item 3's subject, the bake that GPU skinning replaces, so it is not fixed separately here.
+
+**The pool lease is therefore not built.** The candidate fixes are a per-load texture cache keyed by name, as
+`CTextureManager` keys it, and one file read per animated texture, shared by its frames. Both keep the bytes alive to
+upload, as now, and both are byte-identical by construction.
+
 **The rounding trap.** `ArrayPool` rounds a request up to a power of two, which measured worse than a fresh array for
 the model slice above. VTFs repeat sizes far more often than models do, so a pool is likelier to win here, but each
 step is measured, never assumed.
+
+### Fixed: particle definitions, one compact copy per install (2026-10-19)
+
+**What changed:**
+- **Parameters.** Each definition's and operator's parameters are a `ParticleParameterDictionary`: names sorted
+  ordinally, with values in a parallel array, read by binary search. It keeps the `IReadOnlyDictionary` contract and
+  the DMX reader's ordinal comparer, so `Number`, `Vector` and `Text`, and their "absent means the caller's default",
+  are unchanged.
+- **Sharing.** The definitions come from the install's archives alone, so `MapAssets` keeps them in a
+  `ConditionalWeakTable` keyed by the `GameArchives` instance. Every map on one install gets the same set, and it is
+  dropped with that install. It lives there rather than in `GameContent` because the archives are the only input, and
+  `MapAssets.Load` already takes them.
+
+**Tests:**
+- `ParticleParameterDictionaryTests`: ordinal lookups and absence. Sabotage: an `OrdinalIgnoreCase` search reddens
+  both tests.
+- `ParticleDefinitionSweepConformanceTests.Read_EveryManifestDefinition_...` sweeps every definition in every manifest
+  file, against the DMX reader's own attribute dictionaries. It covers the definition's parameters and every emitter,
+  initializer, operator, renderer and constraint, each pair by type, number, text, vector, elements and numbers. It
+  passed on the old form first, as the instrument's control. Sabotage: three-letter names read as absent reddens it.
+- `Step_EveryDefinitionARocketReaches_LeavesTheStoreUnchanged` hashes the whole store (SHA-256 over every pair), steps
+  the rocket trail and its children for five seconds, and hashes again.
+- `Load_TwoMapsOnOneInstall_ShareOneSetOfParticleDefinitions`. Sabotage: clearing the table before each load reddens it.
+
+**Measured** (map-memory, f12):
+
+| | before | after |
+|---|---:|---:|
+| `ParticleSystemsByName`, attributed to the map | 239.3 MB (`Entry[]` 184.4) | 148.0 MB (`DmxValue[]` 95.8) |
+| managed heap live after the load | 1,026.0 MB | 934.2 MB |
+| live after `ReleaseUploaded` | 763.2 MB | 671.4 MB |
+
+The 148 MB is now paid once per install, not once per held map. `DmxValue` is a wide struct (a double, a string, a
+`Vector4` and two lists), so it is most of what remains. Typing operators one by one, as the engine does, is the
+further step, and is not built.
+
+### Item 5, base-texture animation frames: nothing to release on f12 (2026-10-19)
+
+`UploadTextures` uploads each material's `AnimationFrames` beside its base texture, so they would belong in
+`ReleaseUploaded`. But on f12, with the demo's models, all 688 slots are null: 0 animated, 0 frames. The 41 MB this
+review once filed under animation frames was a misattribution. Nothing was built, because a release with no frames to
+empty has no control that can pass: the test written for it failed its own control ("frames hold pixels before").
+
+What `ReleaseUploaded` still leaves, after the census above:
+
+| owner | MB |
+|---|---:|
+| `ScreenOverlays` | 45.4 |
+| `PlacedCubemaps` | 5.2 |
+| `SkyFaces` | 3.3 |
+
+They are texture bytes, so they are the next candidates if they too go up with the world textures. That is not
+checked yet.
 
 ## Plans not yet built
 
