@@ -365,6 +365,56 @@ public sealed class ParticleBurstTests
         Count(gap).ShouldBeGreaterThan(Count(awake), "the wake inside the frame re-emitted");
     }
 
+    /// <remarks>
+    /// **The control for the cut: an owner that never goes dormant changes nothing.** A played frame is one
+    /// `Simulate( frametime )` (D221), and the integrator scales by the previous call's length, so ten one-tick steps are
+    /// not one ten-tick step. Asking dormancy must not cut a frame in which it never changes.
+    /// </remarks>
+    [Test]
+    public void Bursts_AFrameLongerThanATickWithAnOwnerAlwaysAwake_IsOneStepAsWithNoOwner()
+    {
+        (int Steps, float Age, int Count) Run(ParticleBurst burst)
+        {
+            ParticleEffects effects = new();
+            effects.Bursts([burst], Interval, null, tick: 100);
+            effects.Bursts([burst], Interval, null, tick: 110);
+            ParticleStore store = effects.BurstParticles(1)!;
+            return (effects.BurstSteps(1), store.Age, store.Count);
+        }
+
+        ParticleBurst none = new(1, Falling, Origin, 100);
+        (int steps, float age, int count) = Run(none);
+
+        Run(none with { DormantAt = static _ => false }).ShouldBe((steps, age, count));
+        steps.ShouldBe(1, "the control: one played frame, one step");
+    }
+
+    /// <remarks>
+    /// **An effect already stopped does not wake** — `CParticleCollection::SetDormant` returns early when emission is
+    /// already stopped (`+0x69`), so it never records itself dormant and never calls `StartEmission`. Without that guard
+    /// the wake after a dormant gap past the stop would run `SkipToTime` and birth the effect's whole life again.
+    /// </remarks>
+    [Test]
+    public void Bursts_ADormantGapAfterTheStop_DoesNotWakeIntoAReEmission()
+    {
+        ParticleBurst stopped = new(1, Beam, Origin, 100, StopTick: 110) { DormantAt = static at => at is >= 112 and < 115 };
+        ParticleEffects effects = new();
+
+        for (int tick = 100; tick <= 111; tick++)
+        {
+            effects.Bursts([stopped], Interval, null, tick);
+        }
+
+        int before = effects.BurstParticles(1)!.Count;
+
+        for (int tick = 112; tick <= 116; tick++)
+        {
+            effects.Bursts([stopped], Interval, null, tick);
+        }
+
+        effects.BurstParticles(1)!.Count.ShouldBeLessThanOrEqualTo(before, "stopped: nothing born, woken or not");
+    }
+
     private static readonly ParticleControlPoint Origin = new(Vector3.Zero, Vector3.UnitX, Vector3.UnitY, Vector3.UnitZ);
 
     /// <summary>A system that sleeps 0.15 s after its last draw.</summary>

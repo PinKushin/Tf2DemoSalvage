@@ -119,5 +119,25 @@ skipped for an effect already stopped, because `SetDormant` returns early on a s
 system, exact: a half-second emitter at 8 a second, woken at one second, goes from 4 particles to 24
 (4 + 8 at once + 8 + 4 in the re-simulation).
 
+**A second, independent route agrees on the slot.** `C_OP_InstantaneousEmitter::StartEmission` (`0x00066af0`)
+ends in `JMP qword ptr [RAX + 0xe8]`. Its own vtable (the `.rdata` block at `0x00065380`, which starts at
+`0x00065388` after its locator) holds at `+0xe8` the address `0x00066b20`. That address carries the object's
+own symbol `?SkipToTime@C_OP_InstantaneousEmitter@@…`. So the two tables and two mangled names agree that
+`+0xe8` is `SkipToTime`.
+
+**And the instantaneous emitter wakes too**, which the first port missed:
+
+- `StartEmission` restores the owed count from the drawn one (`MOV EAX,[R8+4]; MOV [R8],EAX`).
+- Its `SkipToTime` zeroes the count when curtime is past start time + context offset + 2.0 (`ADDSS` against
+  `0x000658a8`, which holds 2.0f).
+
+So a burst woken within two seconds of its start fires again in full. Ported in the same
+`ParticleEffect.StartEmission`, and tested at 1 s (fires again: 5 then 10) and at 2.5 s (does not: 5).
+
+**Not settled, and named:** whether anything in TF's client sets `g_bDontMakeSkipToTimeTakeForever`. The only
+reference read is the commented-out line in `CParticleMgr::UpdateNewEffects`. The SDK-wide reference search was
+not run, because clangd's index answered nothing and text search over SDK symbols is refused here. If the flag is
+ever set, the re-simulation in the continuous emitter's `SkipToTime` is skipped and a wake births only the span.
+
 **Evidence class.** These objects are the SDK's `particles.lib`, not TF2's live `client.dll`. That they match
 the shipped game is an assumption of the same kind as every other read from this library.

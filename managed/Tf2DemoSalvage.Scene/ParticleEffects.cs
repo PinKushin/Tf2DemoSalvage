@@ -452,10 +452,15 @@ public sealed class ParticleEffects
 
             while (reachedTo < wanted)
             {
-                // A played frame longer than a tick is cut at each tick when the owner's dormancy is asked, so a gap shorter
-                // than the frame is not stepped over: dormancy changes on a snapshot, which lands on a tick.
-                bool whole = rebuild || burst.DormantAt is not null;
-                double next = whole && Math.Floor(reachedTo) + 1d <= wanted ? Math.Floor(reachedTo) + 1d : wanted;
+                double next = rebuild && Math.Floor(reachedTo) + 1d <= wanted ? Math.Floor(reachedTo) + 1d : wanted;
+
+                // **A played frame stays one step (D221) unless the owner's dormancy changes inside it**: then it is cut at
+                // the tick of the change, so a gap shorter than the frame is not stepped over. Dormancy changes on a
+                // snapshot, which lands on a tick.
+                if (!rebuild && burst.DormantAt is { } asked)
+                {
+                    next = DormancyChange(asked, burst.Tick, reachedTo, wanted);
+                }
 
                 if (reachedTo < stopAt && next > stopAt)
                 {
@@ -674,6 +679,28 @@ public sealed class ParticleEffects
         }
 
         return census;
+    }
+
+    /// <summary>
+    /// Where a played step from <paramref name="from"/> must end so its owner's dormancy is one state throughout: the
+    /// step is asked at the tick it simulates into, so it ends at the last whole tick still in the first tick's state,
+    /// or at <paramref name="to"/> when every tick of the span agrees.
+    /// </summary>
+    private static double DormancyChange(Func<int, bool> dormantAt, int fired, double from, double to)
+    {
+        int first = (int)Math.Floor(from) + 1;
+        int last = (int)Math.Floor(to);
+        bool state = dormantAt(fired + first);
+
+        for (int at = first + 1; at <= last; at++)
+        {
+            if (dormantAt(fired + at) != state)
+            {
+                return at - 1;
+            }
+        }
+
+        return to;
     }
 
     /// <summary>The keys no longer offered on the last call, reused.</summary>

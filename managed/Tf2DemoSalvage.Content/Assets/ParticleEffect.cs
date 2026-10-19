@@ -220,6 +220,7 @@ public sealed class ParticleEffect
                 int least = (int)emitter.Number("num_to_emit_minimum", -1d);
 
                 _bursts[emitter] = least < 0 ? count : ParticleRandom.Whole(seed, Particles.Query(), 0, least, count);
+                _burstCounts[emitter] = _bursts[emitter];
             }
         }
 
@@ -393,6 +394,16 @@ public sealed class ParticleEffect
             {
                 SkipToTime(emitter);
             }
+            else if (string.Equals(emitter.Function, BurstEmitter, StringComparison.Ordinal))
+            {
+                // `C_OP_InstantaneousEmitter::StartEmission` (`0x00066af0`): owed = the drawn count again, then its own
+                // `SkipToTime( curtime )` (`0x00066b20`, slot +0xe8 of its table at `0x00065388`) cancels it once curtime
+                // is past start time + 2.0 (`ADDSS` against `0x000658a8`, 2.0f). Woken within two seconds of its start,
+                // a burst fires again.
+                float start = (float)emitter.Number("emission_start_time", 0d);
+
+                _bursts[emitter] = Particles.Age > start + BurstRefireWindow ? 0 : _burstCounts[emitter];
+            }
         }
 
         foreach (ParticleEffect child in Children)
@@ -400,6 +411,9 @@ public sealed class ParticleEffect
             child.StartEmission();
         }
     }
+
+    /// <summary>`C_OP_InstantaneousEmitter::SkipToTime`'s window past the start time, 2.0 (`0x000658a8`).</summary>
+    private const float BurstRefireWindow = 2f;
 
     /// <summary>`C_OP_ContinuousEmitter::SkipToTime( curtime )`; see <see cref="StartEmission"/>.</summary>
     private void SkipToTime(ParticleFunction emitter)
@@ -962,6 +976,9 @@ public sealed class ParticleEffect
     /// A single flag would make the second one silently follow the first.
     /// </remarks>
     private readonly Dictionary<ParticleFunction, int> _bursts = [];
+
+    /// <summary>Each burst emitter's drawn count, the context's second word, which `StartEmission` re-arms from.</summary>
+    private readonly Dictionary<ParticleFunction, int> _burstCounts = [];
 
     /// <summary>Whether every burst emitter has fired and has nothing left owing.</summary>
     internal bool BurstsSpent

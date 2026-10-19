@@ -86,6 +86,30 @@ public sealed class ParticleCreationTimeConformanceTests
         effect.Particles.Age.ShouldBeGreaterThanOrEqualTo(1f, "re-simulated back up to where it was");
     }
 
+    /// <remarks>
+    /// **A burst woken within two seconds of its start fires again; after that it does not.**
+    /// `C_OP_InstantaneousEmitter::StartEmission` (`0x00066af0`) restores the owed count from the drawn one. Its
+    /// `SkipToTime` (`0x00066b20`) then zeroes it once curtime is past start + 2.0.
+    /// </remarks>
+    [TestCase(4, 10, TestName = "StartEmission_ABurstWokenAtOneSecond_FiresAgain")]
+    [TestCase(10, 5, TestName = "StartEmission_ABurstWokenAtTwoAndAHalfSeconds_DoesNot")]
+    public void StartEmission_ABurstWoken_RefiresOnlyWithinTwoSeconds(int quarters, int expected)
+    {
+        ParticleEffect effect = new(Instantaneous(startTime: 0d, count: 5));
+
+        for (int step = 0; step < quarters; step++)
+        {
+            effect.Step(At(0f), Quarter);
+        }
+
+        effect.Particles.Count.ShouldBe(5, "the control: fired once");
+
+        effect.StartEmission();
+        effect.Step(At(0f), Quarter);
+
+        effect.Particles.Count.ShouldBe(expected);
+    }
+
     [Test]
     public void Step_AnEmitterWhoseDurationEndsMidStep_EmitsUpToItsEnd()
     {
