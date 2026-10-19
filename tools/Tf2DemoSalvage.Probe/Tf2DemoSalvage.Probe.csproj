@@ -32,6 +32,11 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- Microsoft's EventPipe reader, for alloc-trace's allocation stacks (finding 78). The probe only, never production. -->
+    <PackageReference Include="Microsoft.Diagnostics.Tracing.TraceEvent" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="../../managed/Tf2DemoSalvage.Core/Tf2DemoSalvage.Core.csproj" />
     <ProjectReference Include="../../managed/Tf2DemoSalvage.Content/Tf2DemoSalvage.Content.csproj" />
 
