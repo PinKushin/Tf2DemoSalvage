@@ -34,6 +34,8 @@
   <ItemGroup>
     <!-- Microsoft's EventPipe reader, for alloc-trace's allocation stacks (finding 78). The probe only, never production. -->
     <PackageReference Include="Microsoft.Diagnostics.Tracing.TraceEvent" />
+    <!-- Microsoft's dump reader (ClrMD), for heap-owners' retaining paths (finding 78). The probe only, never production. -->
+    <PackageReference Include="Microsoft.Diagnostics.Runtime" />
   </ItemGroup>
 
   <ItemGroup>
