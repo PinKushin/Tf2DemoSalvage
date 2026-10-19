@@ -5589,17 +5589,16 @@ public sealed class EntityModelSet : Hud.IMdlCache, IPosedEntities
                 // **And by the skinref, for the same reason at draw time** (B229). Two meshes can
                 // share family zero's material and differ in another family, so a run merged
                 // across skinrefs has no single answer to "what paints this at skin 1".
-                Dictionary<(int Material, int Slot, int Part, int Model), List<WorldVertex>>
-                    byMaterial = [];
-
-                // Which corner each grouped vertex came from, in the same grouping (B426).
-                Dictionary<(int Material, int Slot, int Part, int Model), List<int>> cornersOf = [];
+                //
+                // **The grouping holds corner indices, not packed vertices** (finding 78): a list of
+                // packed vertices per group, grown by doubling and then copied into `_vertices`, was
+                // 2.8 GB of large-object garbage over f12's precache. The indices are also which
+                // corner each grouped vertex came from (B426).
+                Dictionary<(int Material, int Slot, int Part, int Model), List<int>> byMaterial = [];
 
                 for (int index = 0; index < corners.Count; index++)
                 {
                     PropVertex corner = corners[index];
-
-                    PropVertex ahead = index < onward.Count ? onward[index] : corner;
 
                     (int Material, int Slot, int Part, int Model) key = (
                         corner.MaterialIndex,
@@ -5607,29 +5606,18 @@ public sealed class EntityModelSet : Hud.IMdlCache, IPosedEntities
                         corner.BodyPart,
                         corner.BodyModel);
 
-                    if (!byMaterial.TryGetValue(key, out List<WorldVertex>? into))
+                    if (!byMaterial.TryGetValue(key, out List<int>? into))
                     {
                         into = [];
                         byMaterial[key] = into;
-                        cornersOf[key] = [];
                     }
 
-                    cornersOf[key].Add(index);
-
-                    // **Model space, untouched.** The shader's model matrix places it.
-                    //
-                    // **The lightmap coordinates are zero for a studio model and real for a brush
-                    // entity (B131).** A `.mdl` is lit by its own vertex colours in the engine too,
-                    // and (0, 0) is the atlas's reserved white texel, so the lightmap term is an
-                    // identity rather than darkness. A door is the opposite case: vrad lights every
-                    // model's faces (vrad.cpp:703) and its samples are already in the same atlas as
-                    // the wall's, so passing them is all that separates a lightmapped door from a
-                    // flat one. BrushModels fills them; PropModels leaves them at zero.
-                    into.Add(Packed(corner, ahead));
+                    into.Add(index);
                 }
 
-                foreach (KeyValuePair<(int Material, int Slot, int Part, int Model),
-                    List<WorldVertex>> group in byMaterial)
+                _vertices.EnsureCapacity(_vertices.Count + corners.Count);
+
+                foreach (KeyValuePair<(int Material, int Slot, int Part, int Model), List<int>> group in byMaterial)
                 {
                     batches.Add(new WorldBatch(
                         group.Key.Material,
@@ -5639,8 +5627,24 @@ public sealed class EntityModelSet : Hud.IMdlCache, IPosedEntities
                         group.Key.Model,
                         MaterialSlot: group.Key.Slot));
 
-                    _vertices.AddRange(group.Value);
-                    order.AddRange(cornersOf[group.Key]);
+                    foreach (int index in group.Value)
+                    {
+                        PropVertex corner = corners[index];
+                        PropVertex ahead = index < onward.Count ? onward[index] : corner;
+
+                        // **Model space, untouched.** The shader's model matrix places it.
+                        //
+                        // **The lightmap coordinates are zero for a studio model and real for a brush
+                        // entity (B131).** A `.mdl` is lit by its own vertex colours in the engine too,
+                        // and (0, 0) is the atlas's reserved white texel, so the lightmap term is an
+                        // identity rather than darkness. A door is the opposite case: vrad lights every
+                        // model's faces (vrad.cpp:703) and its samples are already in the same atlas as
+                        // the wall's, so passing them is all that separates a lightmapped door from a
+                        // flat one. BrushModels fills them; PropModels leaves them at zero.
+                        _vertices.Add(Packed(corner, ahead));
+                    }
+
+                    order.AddRange(group.Value);
                 }
 
                 // **Whether the alternatives survived packing, said once per model.** A model whose
