@@ -613,6 +613,9 @@ public sealed class EntityModelSet : Hud.IMdlCache, IPosedEntities
 
     private readonly List<WorldVertex> _vertices = [];
 
+    /// <summary>The flex deltas' accumulation arrays, reused by every face that changes (finding 78); grown to the model drawn.</summary>
+    private (float[] Positions, float[] Normals) _flexScratch = ([], []);
+
     /// <summary>Every packed model's batches, one list per baked animation frame.</summary>
     /// <remarks>
     /// **A frame is a vertex range, not a transform.** Each of an animated model's frames is
@@ -683,8 +686,19 @@ public sealed class EntityModelSet : Hud.IMdlCache, IPosedEntities
             }
             else
             {
-                face = FaceFlex.Deltas(model.Flex, weights, delayed, model.VertexCount) is { } deltas
-                    ? FaceFlex.InBufferOrder(deltas, model.CornerVertex, order)
+                // **Written into arrays this set keeps, not new ones per frame** (finding 78): a talking face changes every
+                // frame, and three .vvd-sized arrays a face a frame were 2 GB of large-object garbage in 20 s of f12. The
+                // deltas are scratch; the stream is the entity's own, rewritten in place (the renderer uploads per draw).
+                // Grown only: faces of different classes alternate, and an exact size would reallocate at every switch.
+                if (_flexScratch.Positions.Length < model.VertexCount * 3)
+                {
+                    _flexScratch = (new float[model.VertexCount * 3], new float[model.VertexCount * 3]);
+                }
+
+                float[] stream = last.Face is { } kept && kept.Length == order.Length * 6 ? kept : new float[order.Length * 6];
+
+                face = FaceFlex.Deltas(model.Flex, weights, delayed, _flexScratch.Positions, _flexScratch.Normals) is { } deltas
+                    ? FaceFlex.InBufferOrder(deltas, model.CornerVertex, order, stream)
                     : null;
                 _lastFace[prop.EntityIndex] = (weights, (float[])delayed.Clone(), face);
             }

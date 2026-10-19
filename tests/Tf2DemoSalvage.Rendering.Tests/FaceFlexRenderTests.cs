@@ -75,6 +75,33 @@ public sealed class FaceFlexRenderTests
         flexed.ShouldBeInRange(baked - 3, baked + 3, "the tangent takes the normal's delta (common_vs_fxc.h:387)");
     }
 
+    /// <remarks>
+    /// **The face array is reused across frames, written in place** (finding 78: a new one per moving face per frame was
+    /// 1.4 GB of large-object allocations in 20 s of f12). So a draw must upload what the array holds NOW, even when it
+    /// is the same array the last draw uploaded: the same array drawn still and then moved must draw moved.
+    /// </remarks>
+    [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
+    public void Draw_TheSameFaceArrayRewritten_DrawsItsNewContents()
+    {
+        using OffscreenTarget? target = OffscreenTarget.TryCreate(Size, Size);
+
+        if (target is null || Subject() is not { } subject)
+        {
+            Assert.Ignore("no Direct3D, or the game is not installed");
+            return;
+        }
+
+        float[] face = new float[6 * 6];
+
+        int[] still = Picture(target, subject, 0f, (0f, -1f, 0f), (0f, 0f, 0f, 0f, 0f, 0f), reused: face);
+        int[] rewritten = Picture(target, subject, 0f, (0f, -1f, 0f), (20f, 0f, 0f, 0f, 0f, 0f), reused: face);
+        int[] moved = Picture(target, subject, offset: 20f, normal: (0f, -1f, 0f), stream: null);
+
+        still.Zip(moved).Count(pair => Math.Abs(pair.First - pair.Second) > 6).ShouldBeGreaterThan(200, "the control: moving shows");
+        rewritten.Zip(moved).Count(pair => Math.Abs(pair.First - pair.Second) > 2).ShouldBe(0, "the rewritten face, not the stale one");
+    }
+
     private const int Middle = (Centre * Size) + Centre;
 
     private static (MapAssets Assets, int Material, (float U, float V) Texel)? Subject()
@@ -113,7 +140,8 @@ public sealed class FaceFlexRenderTests
         float offset,
         (float X, float Y, float Z) normal,
         (float, float, float, float, float, float)? stream,
-        (float X, float Y, float Z)? tangent = null)
+        (float X, float Y, float Z)? tangent = null,
+        float[]? reused = null)
     {
         (float X, float Y, float Z) t = tangent ?? (1f, 0f, 0f);
 
@@ -138,6 +166,12 @@ public sealed class FaceFlexRenderTests
         float[]? flex = stream is { } s
             ? [.. Enumerable.Range(0, vertices.Count).SelectMany(_ => new[] { s.Item1, s.Item2, s.Item3, s.Item4, s.Item5, s.Item6 })]
             : null;
+
+        if (reused is not null && flex is not null)
+        {
+            flex.CopyTo(reused, 0);
+            flex = reused;
+        }
 
         float[] identity = [1f, 0f, 0f, 0f, 0f, 1f, 0f, 0f, 0f, 0f, 1f, 0f, 0f, 0f, 0f, 1f];
         // Close enough that a 20-unit move is several pixels: the view is about 200 units across 65.

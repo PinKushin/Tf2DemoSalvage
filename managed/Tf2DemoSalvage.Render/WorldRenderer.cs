@@ -2933,10 +2933,14 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
         {
             uint none = 0;
             context.IASetVertexBuffers(FlexSlot, 1, ref _noFlex, in none, in offset);
+
+            // Every model draw starts here (BindPipeline), so the skip below holds within one draw only. A face array is
+            // reused across frames and rewritten in place (finding 78), so the same array can hold a new face next draw.
+            _flexUploaded = null;
             return;
         }
 
-        // A refract copy rebinds the pipeline mid-model; the same face goes back on without a second upload.
+        // A refract copy rebinds the face mid-model; the same face goes back on without a second upload.
         if (ReferenceEquals(flex, _flexUploaded))
         {
             uint again = sizeof(float) * FlexFloats;

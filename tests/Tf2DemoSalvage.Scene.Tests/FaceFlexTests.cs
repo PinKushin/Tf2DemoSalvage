@@ -325,6 +325,36 @@ public sealed class FaceFlexTests
         normals.ShouldBe([0f, 0f, 0f, 0f, 0f, 0.5f]);
     }
 
+    /// <remarks>
+    /// The arrays are reused across faces and frames (finding 78), so a call must start from zero: a 0.5 smile after a
+    /// 1.0 one is the 0.5 smile, not their sum. The dirty first call is what tells cleared from fresh.
+    /// </remarks>
+    [Test]
+    public void Deltas_IntoReusedArrays_StartsFromZeroAndReturnsThem()
+    {
+        float[] positions = new float[6];
+        float[] normals = new float[6];
+
+        _ = FaceFlex.Deltas(Model, [1f], [1f], positions, normals);
+        (float[] moved, float[] turned) = FaceFlex.Deltas(Model, [0.5f], [0.5f], positions, normals).ShouldNotBeNull();
+
+        moved.ShouldBeSameAs(positions);
+        moved.ShouldBe([0f, 0f, 0f, 1f, 0f, 0f]);
+        turned.ShouldBe([0f, 0f, 0f, 0f, 0f, 0.5f]);
+    }
+
+    /// <remarks>A reused stream must lose what an earlier face wrote where this one writes nothing (a corner out of range).</remarks>
+    [Test]
+    public void InBufferOrder_IntoADirtyStream_ClearsWhatItDoesNotWrite()
+    {
+        float[] stream = [9f, 9f, 9f, 9f, 9f, 9f, 9f, 9f, 9f, 9f, 9f, 9f];
+
+        float[] written = FaceFlex.InBufferOrder(([1f, 2f, 3f], [4f, 5f, 6f]), [0], [0, 7], stream);
+
+        written.ShouldBeSameAs(stream);
+        written.ShouldBe([1f, 2f, 3f, 4f, 5f, 6f, 0f, 0f, 0f, 0f, 0f, 0f]);
+    }
+
     [Test]
     public void Deltas_NoWeight_IsNull() => FaceFlex.Deltas(Model, [0f], [0f], vertexCount: 2).ShouldBeNull();
 

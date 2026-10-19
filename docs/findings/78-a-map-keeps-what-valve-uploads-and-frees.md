@@ -155,6 +155,41 @@ this table measures happens after it, during playback.
 about 2.5 GB of working set, at about +2.4 ms a frame (+6%, within twice the noise). That is a trade for the owner to
 judge, not one taken here. The better fix is to stop the churn it compensates for.
 
+### The stacks, and the wrong turn they correct (2026-10-19)
+
+`alloc-trace` (`769733c3`) reads a 20 s `dotnet-trace` capture of the runtime's GC events
+(`Microsoft-Windows-DotNETRuntime:0x1:5`), taken during the same f12 playback. **Control:** the trace summed 2,312 MB
+of large allocations per 20 s. The `--measure` line of that same run said 4,482 MB over 40 s, which is 2,241 per 20 s
+(3% apart). Every stack resolved.
+
+| large allocations per 20 s, by allocating frame (before) | MB |
+|---|---:|
+| `float[]` ← `FaceFlex.InBufferOrder` ← `EntityModelSet.FlexFor` | 1,439 |
+| `float[]` ← `FaceFlex.Deltas` ← `EntityModelSet.FlexFor` | 543 |
+| `float[]` ← `WorldRenderer.Pack` ← `UploadShotDecals` | 99 |
+| `WorldVertex[]` ← `PlacedProp.InWorld` ← decal replay | 85 |
+| `short[]` ← `AudioOutput.Play` / `ToStereo16` | 77 |
+| `float[]` ← `VguiRenderer.BuildVertices` | 26 |
+
+**The wrong turn.** A flex scratch for `Deltas` alone had been tried above, measured, and reverted as moving nothing.
+It covered 543 of the 1,982 MB the flex path allocates. The other 1,439 MB is the per-frame stream from
+`InBufferOrder`, and the run-to-run spread of the tally hid the 543. The trace named both frames at once. **A type is
+not an owner. Only a stack names one.**
+
+**Fixed: a talking face writes into arrays the set keeps.** Every frame a face changed, `FlexFor` allocated three
+`.vvd`-sized arrays. Now the deltas accumulate into one grown-only scratch pair, and the buffer-order stream is the
+entity's own, rewritten in place. That needed a renderer change: `BindFlex` skipped the upload when handed the array it
+uploaded last, so it now forgets that array whenever a draw unbinds its face. The skip then holds within one draw, which
+is the refract rebind it existed for.
+
+| f12, `--measure 20` | large allocations / 20 s | mean frame | peak private |
+|---|---:|---:|---:|
+| before (two runs) | 1,867–1,957 MB | 36.4–38.1 ms | 10,092–10,442 MB |
+| after (two runs) | **306–314 MB** | **35.2–36.9 ms** | 9,326–10,031 MB |
+
+Trace after: 366 MB per 20 s. The largest remaining owner is now `WorldRenderer.Pack` from the shot decals at
+161 MB, the other change reverted above. It is real, and was lost in the same noise.
+
 **Item 2, the packed models' CPU copy, is already released.** `EntityModelSet.ReleaseUploaded` (B407) drops the
 729 MB once the map's world is on the device. Every run above ends with "entity model vertices on the CPU 0 in
 0 MB". The 729 MB is real only between the load and the first upload. That makes it part of the load peak, not the
