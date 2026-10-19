@@ -1,0 +1,21 @@
+{
+  "schema": 1,
+  "side": "tf2",
+  "captured": "2026-10-14",
+  "demo": null,
+  "demoSha256": null,
+  "viewerDemo": "golden_cp_granary2.dem",
+  "viewerDemoSha256": "7ea75ee3004bcd84f7d8b7ee0ee43cd6306d37d3a17738c6155540acfd7353dc",
+  "map": "cp_granary",
+  "tick": null,
+  "camera": [-1982, -794, -294, -1, 61],
+  "viewport": [1280, 720],
+  "convars": {
+    "mat_hdr_level": "2",
+    "fov_desired": "90 (the viewer's equivalent: demo_fov_override 90)",
+    "cl_drawhud": "0",
+    "cl_showfps": "0"
+  },
+  "client": null,
+  "notes": "BACKFILLED 2026-10-19 from tests/Tf2DemoSalvage.Viewer3D.UiTests/Golden.cs and D219; nothing here was re-measured. TF2 loaded the map with `map cp_granary` (no demo played, so no tick); spectator spec_mode 6 placed with spec_goto; 1280x720 windowed; captured through the tf2 MCP screenshot tool (writes nothing to Steam's library); resampled once by GoldenMeasure.Resampled. The viewer side plays the lcor demo `viewerDemo`, recorded in the same TF2 session on the same map. NOT RECORDED at the time: the exact TF2 client build ('the build current that day') and the viewer tick used for the viewer's shot."
+}
