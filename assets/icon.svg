@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+  <!-- Tf2DemoSalvage's own mark: a film reel, its hub a play button. Original artwork in the project's
+       brown-to-gold palette, deliberately not Valve's emblem. -->
+  <defs>
+    <linearGradient id="metal" gradientUnits="userSpaceOnUse" x1="160" y1="244" x2="96" y2="12">
+      <stop offset="0" stop-color="#5d1f0e"/>
+      <stop offset="1" stop-color="#d09737"/>
+    </linearGradient>
+  </defs>
+  <path fill="url(#metal)" fill-rule="evenodd" d="
+    M128 12 A116 116 0 1 0 128.01 12 Z
+    M128 30 A22 22 0 1 0 128.01 30 Z
+    M128 182 A22 22 0 1 0 128.01 182 Z
+    M52 106 A22 22 0 1 0 52.01 106 Z
+    M204 106 A22 22 0 1 0 204.01 106 Z
+    M128 88 A40 40 0 1 0 128.01 88 Z"/>
+  <path fill="url(#metal)" d="M114 106 L152 128 L114 150 Z"/>
+</svg>

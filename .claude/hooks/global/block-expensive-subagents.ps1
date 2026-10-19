@@ -109,6 +109,28 @@ if ($tool -eq 'Agent') {
 if ($tool -eq 'Agent' -and $toolInput.subagent_type -eq 'sabotage-verifier') {
     $allowed = @('sonnet', 'haiku')
 }
+# FABLE AS MERGE REVIEWER ONLY, 2026-10-14. The owner wanted to try Fable as a reviewer of a large branch
+# before merge - a different model reviews with different blind spots - but not as an implementer, the
+# lead, or in workflows (2026-10-09: "fable is far too token heavy"). Asked whether to add this exception
+# or review with sonnet instead: "i wanted to test the fable, so do 1". Bounded by the lead: stopped if it
+# runs toward 2-3M tokens where opus would use half. Only the read-only reviewer type, never Workflow.
+if ($tool -eq 'Agent' -and "$($toolInput.subagent_type)" -eq 'caveman:cavecrew-reviewer') {
+    # OPUS REVIEWS TOO, 2026-10-18 - REVERSES the next line's "never opus". That rule held while the lead ran
+    # on opus: a reviewer must be a DIFFERENT model from the lead. The lead now runs on sonnet, where a sonnet
+    # reviewer is the same model. Owner: "we can change the hook to allow opus review, ... basically just
+    # always a different model". So the allowed set depends on the lead: opus or fable when the lead is sonnet;
+    # sonnet or fable when the lead is opus. The hook cannot see the lead's model, so all three are allowed
+    # and the lead picks one that differs from its own.
+    # Earlier (owner, 2026-10-15: "it shouldnt be on opus it should be on sonnet or fable"): sonnet for small
+    # diffs, fable for large ones; opus was the implementer's model.
+    $allowed = @('sonnet', 'opus', 'fable')
+}
+# ANY MODEL MAY PLAN, 2026-10-15. Asked whether Fable should plan D217 step 4, a design the lead had not
+# found: "of course any agent should be able to be a planner". The Plan agent is read-only, one pass, so
+# a second model's design costs far less than its implementation. Not Workflow.
+if ($tool -eq 'Agent' -and "$($toolInput.subagent_type)" -eq 'Plan') {
+    $allowed = @('sonnet', 'opus', 'fable')
+}
 
 function Deny([string]$reason) {
     @{ hookSpecificOutput = @{
@@ -143,6 +165,16 @@ if ($tool -eq 'Agent') {
               "already-specified changes. General-purpose and unnamed agents are refused (2026-10-03)."))
     }
     if ($byType.ContainsKey($type)) { $allowed = $byType[$type] }
+
+    # CODE-WRITING AGENTS GET A WORKTREE, 2026-10-15. The owner: "you should always be using worktrees,
+    # really, ive learned that with tf2 i think, makes subagents much easier", and then "yea add it to the
+    # hook". A shared checkout means a shared obj/ and a branch a reviewer may be reading mid-edit. The two
+    # types that edit files must ask for isolation. Read-only specialists and reviewers are exempt.
+    $isolation = "$($toolInput.isolation)".ToLowerInvariant()
+    if ($byType.ContainsKey($type) -and $isolation -ne 'worktree' -and $isolation -ne 'remote') {
+        Deny(("Blocked: '$type' agents edit files, so they run in their own worktree. Add " +
+              "isolation: 'worktree' and tell the agent which branch to start from (2026-10-15)."))
+    }
 }
 
 if ($tool -eq 'Agent') {

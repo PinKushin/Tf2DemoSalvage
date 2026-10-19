@@ -461,6 +461,11 @@ internal class MainForm : Form, IViewerWindow, IIdleHost
     private Rectangle _boundsBeforeFullScreen;
     private int _transportIndexBeforeFullScreen;
 
+    /// <summary>The program's own icon, every size of `Assets/icon.ico`, for each window's title bar and taskbar.</summary>
+    internal static readonly Icon ProgramIcon = new(
+        typeof(MainForm).Assembly.GetManifestResourceStream("Tf2DemoSalvage.Viewer3D.icon.ico")
+        ?? throw new InvalidOperationException("the program icon was not embedded"));
+
     /// <summary>Builds the shell. No device is created here; see the remarks on the type.</summary>
     /// <param name="initialPaths">
     /// Files or folders to open at startup, as passed on the command line by a file association.
@@ -553,6 +558,7 @@ internal class MainForm : Form, IViewerWindow, IIdleHost
         // archives are already opened — would leave the keys wrong until a demo was opened.
 
         Text = "TF2 Demo Salvage";
+        Icon = ProgramIcon;
         Name = MainWindowId;
         AccessibleName = "TF2 Demo Salvage viewer";
         Width = 1280;

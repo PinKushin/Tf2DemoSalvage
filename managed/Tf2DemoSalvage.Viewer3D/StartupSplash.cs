@@ -19,11 +19,12 @@ namespace Tf2DemoSalvage.Viewer3D;
 /// </remarks>
 internal sealed class StartupSplash : Form
 {
-    private StartupSplash()
+    internal StartupSplash()
     {
         Name = MainForm.StartupSplashId;
         AccessibleName = "TF2 Demo Salvage is starting";
         Text = "TF2 Demo Salvage - starting";
+        Icon = MainForm.ProgramIcon;
         FormBorderStyle = FormBorderStyle.FixedSingle;
         ControlBox = false;
         ShowInTaskbar = true;
