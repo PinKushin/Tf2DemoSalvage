@@ -40012,6 +40012,18 @@ reddens four tests), and a child's drawn size against its own scale alone.
   `pl_badwater_pro_v12.bsp` is not on this machine (not under the game's `tf/maps`, `tf/download/maps`, `tf2ds`, or the
   user profile), so its `parentname` cannot be read, and no sampled tick gives them a parent.
 
+## B559 — the class portrait in the HUD is off TF2's by 15 to 20 per channel after the HUD fixes, cause unknown — OPEN
+
+**Measured 2026-10-19** (`HudGoldenImageUiTests`, 4x2 grid, tolerance 12, each cell's mean R/G/B, our frame against
+TF2's golden, `cp_process_f12`, 1280x720): the soldier's "class and health" worst cell **15.1** (23.1 on 2026-10-17,
+63.2 before the fixes), the medic's **20.2** (24.8 before). The same run's ammo case is 10.8 and passes (B552). The model's brightness is closer
+than it was (the helmet and launcher cells 125 against 101 before; the residual is now within about 15, with some
+cells darker and some lighter than TF2's, e.g. soldier 120.3 against 135.4 on one and 124.9 against 120.9 on another). **Unknown cause:** pose, framing and background match, so
+what remains is shading (lighting, ambient, tone-map or the model's material) or a rendering difference of the
+portrait's own scene; none has been isolated. *Evidence class: measured on one demo and one tick per class.* Both
+cases stay `[Explicit]` until the cause is found; the three `RegressionLock_` cases hold the current render
+meanwhile (regenerated 2026-10-19).
+
 ## B558 — two UI tests fail intermittently, and one failure's reporter crashed so the real cause was hidden — OPEN, flake (a defect, not noise)
 
 **Observed:** `ExportThenCompile_OpenDemo_RebuildsItsBytes` and
