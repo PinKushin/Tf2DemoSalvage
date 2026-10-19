@@ -286,3 +286,23 @@ found), so the search's 1.5 ms holds most of the 0.95.
 - **About nine skeletons a frame are built only to place an effect**, for entities this frame does not draw. Our
   query asks for `UsedByAnything`. Whether the engine's `GetAttachment` asks for less is the next read.
 - **The search itself is the larger owner**: 1.5 ms a frame to find what the timeline offers this frame.
+
+## Fix 3: an attachment asks for the attachment bones (2026-10-19, parity)
+
+**The engine, read from published source.** `GetAttachment` calls `CalcAttachments`, which is
+`SetupBones( NULL, -1, BONE_USED_BY_ATTACHMENT, gpGlobals->curtime )` (`c_baseanimating.cpp:2088-2094`), and
+`SetupBones_AttachmentHelper` then fills every attachment from the bones (`:2055-2086`). `SetupBones` widens a request
+by what is already readable and by last frame's mask (`:2920`, ported in `AnimatingEntity.SetupBones`).
+
+**Ours** asked `UsedByAnything` (`EntityModelSet.PosedAttachmentMatrix`). Now `UsedByAttachment`.
+
+**Test**: `AttachmentQueryTests.AttachmentPosition_OnAnEntityNothingDrew_BuildsOnlyTheAttachmentBones` — an entity
+the undrawn pass held but built nothing for, queried once, reads `UsedByAttachment` (0x200) readable; red before the
+change at 0x7FF00, the whole mask. Scene.Tests 3,156.
+
+**Measured, and it buys nothing here**: attachments 0.96 / 0.90 ms a frame and 9.4 skeletons built after, against
+0.94 / 0.95 and 9.3–9.4 before; search 1.81 / 1.44 ms, mean frame 22.64 / 22.28 ms. That is the engine's widening at
+work: the entities these queries build were drawn on an earlier frame, so last frame's mask makes the build whole
+anyway. Kept because it is the engine's request, and the same where it costs nothing (the owner's rule). **Golden
+shots**, first person at ticks 30350 and 30480 (heal beams and overheal particles on screen), before and after: 56
+and 48 pixels differ, all inside the frame-rate readout's box.

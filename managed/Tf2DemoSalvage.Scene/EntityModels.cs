@@ -1926,6 +1926,9 @@ public sealed class EntityModelSet : Hud.IMdlCache, IPosedEntities
     private float[]? AttachmentMatrix(int entity, Func<IReadOnlyList<StudioAttachment>, int> pick) =>
         InScene(entity) is null ? null : PosedAttachmentMatrix(entity, pick);
 
+    /// <summary>An entity's readable bones by usage bit, for a test of what a query built; 0 for one not held.</summary>
+    internal int ReadableBonesOf(int entity) => _entities.TryGetValue(entity, out AnimatingEntity? animating) ? animating.ReadableBones : 0;
+
     /// <summary>Attachment queries that reached a bone setup, ever (finding 82).</summary>
     public long AttachmentQueries { get; private set; }
 
@@ -1966,7 +1969,11 @@ public sealed class EntityModelSet : Hud.IMdlCache, IPosedEntities
         long askedAt = System.Diagnostics.Stopwatch.GetTimestamp();
         int buildsBefore = SkeletonPose.PoseBuilds;
         bool builtBefore = animating.BuiltThisFrame;
-        bool posed = animating.SetupBones(StudioBoneFlags.UsedByAnything, _simulatedSeconds);
+        // **`CalcAttachments` is `SetupBones( NULL, -1, BONE_USED_BY_ATTACHMENT, gpGlobals->curtime )`** (finding 82,
+        // `c_baseanimating.cpp:2088-2094`): an attachment asks for the attachment bones, and `SetupBones` widens that by
+        // what is readable and by last frame's mask (`:2920`). This asked for every bone, so an entity nothing drew this
+        // frame had its whole skeleton built to place one effect.
+        bool posed = animating.SetupBones(StudioBoneFlags.UsedByAttachment, _simulatedSeconds);
         int built = SkeletonPose.PoseBuilds - buildsBefore;
 
         // Only queries from outside the pass — effects, decals, sounds — which is the cost finding 82 is ranking.
