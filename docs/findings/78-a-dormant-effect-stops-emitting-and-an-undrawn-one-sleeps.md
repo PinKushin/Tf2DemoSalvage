@@ -65,11 +65,22 @@ frame after that still sleeps, because `Simulate` runs before `Render`, and the 
 An effect that has never been built is not built undrawn, because there is no point to replay it on. It
 is built when it can first be placed, which happens once per seek.
 
-**Still interpolated:** while undrawn the effect follows the points it last had. Valve reads the
-attachment from a model it has not drawn, and we do not pose an undrawn model to read it.
+**Still interpolated:**
 
-A played frame longer than a tick is now cut at each tick whenever the owner's dormancy is asked.
-Before, dormancy was sampled only at the frame's end, so a dormant tick inside a long frame was stepped over.
+- **Points while undrawn.** An undrawn effect follows the points it last had. Valve reads the attachment from a
+  model it has not drawn, and we do not pose an undrawn model to read it.
+- **Off-camera effects never sleep.** "Not posed" is not "not rendered". An effect whose owner is posed but which
+  the camera never sees sleeps after its no-draw time in the engine, because only `Render` pushes
+  `m_flNextSleepTime` forward. Ours keeps simulating, because we mark undrawn only an effect we cannot place.
+
+**A played frame is one step (D221) unless the owner's dormancy changes inside it.** Then the frame is cut at the
+last tick before the change, so each piece has one dormancy state. Before this, dormancy was sampled only at the
+frame's end, so a dormant tick inside a long frame was stepped over.
+
+**This cut is a named departure.** The engine applies `SetDormant` per packet, then runs one
+`Simulate(frametime)`, so a wake's `SkipToTime` runs at the frame's start curtime. Ours runs it at the gap's own
+tick and splits the frame there. The order of a change inside a frame is kept, at the cost of one frame becoming
+several steps.
 
 ## Changed as a result
 
@@ -114,10 +125,20 @@ emitted count at 0 and owe the whole total again. TF leaves the flag false: its 
 `CParticleMgr::UpdateNewEffects` is commented out (particlemgr.cpp:1826-1829). The flag is the only input the
 disassembly could not settle. Valve's own commented-out line names the cost, so the TF2 run was not needed.
 
-**Ported**: `ParticleEffect.StartEmission`, which `ParticleEffects` calls when an owner wakes. Waking is
-skipped for an effect already stopped, because `SetDormant` returns early on a stopped one. Measured on a synthetic
-system, exact: a half-second emitter at 8 a second, woken at one second, goes from 4 particles to 24
-(4 + 8 at once + 8 + 4 in the re-simulation).
+**Ported**: `ParticleEffect.StartEmission`, which `ParticleEffects` calls when an owner wakes.
+
+`SetDormant` checks emission-stopped (`+0x69`) only on entering dormancy. So the latch follows that rule:
+
+- An effect already stopped when its owner goes dormant never goes dormant, and does not wake.
+- A stop that lands inside the gap does not cancel the wake. `StartEmission` clears `+0x69`, so the effect
+  emits again afterwards.
+
+Measured on synthetic systems, exact:
+
+- A half-second emitter at 8 a second, woken at one second, goes from 4 particles to 24
+  (4 + 8 at once + 8 + 4 in the re-simulation).
+- A six-second emitter with a no-draw time of 1 s, woken at six seconds, goes from 48 to 120: the 4 s cap gives
+  32 at once, and the rewind to 5 s gives 40 in the re-simulation.
 
 **A second, independent route agrees on the slot.** `C_OP_InstantaneousEmitter::StartEmission` (`0x00066af0`)
 ends in `JMP qword ptr [RAX + 0xe8]`. Its own vtable (the `.rdata` block at `0x00065380`, which starts at
@@ -128,7 +149,9 @@ own symbol `?SkipToTime@C_OP_InstantaneousEmitter@@…`. So the two tables and t
 **And the instantaneous emitter wakes too**, which the first port missed:
 
 - `StartEmission` restores the owed count from the drawn one (`MOV EAX,[R8+4]; MOV [R8],EAX`).
-- Its `SkipToTime` zeroes the count when curtime is past start time + context offset + 2.0 (`ADDSS` against
+- Its `SkipToTime` zeroes the count when curtime is past start time + context offset + 2.0. The context offset
+  (`ctx[2]`) is zeroed by `InitializeContextData` (`0x00066b40`, `MOV dword [R8+8], 0`) and is never written by `Emit`;
+  only `Restart` sets it. So for an effect that has not restarted, the test is start + 2.0 (`ADDSS` against
   `0x000658a8`, which holds 2.0f).
 
 So a burst woken within two seconds of its start fires again in full. Ported in the same
