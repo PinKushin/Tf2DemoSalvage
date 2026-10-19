@@ -1,5 +1,8 @@
 # 80: A map keeps what Valve uploads and frees
 
+> Every `--measure` frame time and per-20-s allocation figure below includes about 8 s of the opening seek; see
+> [82](82-the-frame-outside-particles.md).
+
 **The question.** On the f12 demo the viewer peaks at 7.6 GB working set. TF2 plays the same map in about 3 GB.
 What does one loaded map hold, which field holds it, and does Valve keep the same thing?
 

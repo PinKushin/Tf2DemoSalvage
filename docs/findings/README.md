@@ -281,6 +281,10 @@ in any public writeup found:
   directly inside `particles/`, keeps the first 64 accepted, and runs after the stock reload. A repeated name is
   replaced, not kept, with case folded (disassembled, `AddParticleSystem`), so the map's definition wins
   ([81](81-a-map-brings-its-own-particles.md)).
+- **The frame outside particles.** `--measure` had counted the opening seek: about 8 of its 20 seconds on f12 were
+  three frames of about 2 s each, so the "38–41 ms" frame was 23 ms, and the HUD suspect was the seek. Release is no
+  faster than Debug (Debug is compiled optimized). The collector pauses 2.7 ms a frame recovering 11.6 MB allocated a
+  frame, where Valve allocates nothing per frame ([82](82-the-frame-outside-particles.md)).
 
 ## Conventions used throughout
 

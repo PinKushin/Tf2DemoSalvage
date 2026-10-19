@@ -1248,6 +1248,31 @@ public sealed class ViewerSessionTests
     }
 
     [Test]
+    public async Task RenderFrame_OnAMeasureRunWithAnOpeningTick_CountsNoFrameBeforeTheSeekAndTheOneAfterIt()
+    {
+        // Finding 82: the opening seek and the frame whose interval holds its tail are not playback. Every frame is the
+        // fixed clock's half second, so two seconds is four counted frames, and the close comes two frames after the seek.
+        using Rig rig = Build(WriteDemo("opened"), "--measure", "2", "--autoplay", "--tick", "7");
+        rig.Session.PlanStartup();
+        rig.Session.WindowShown();
+        (await rig.Session.Loading.ConfigureAwait(false)).Loaded.ShouldBeTrue();
+
+        int frames = 0;
+        int? appliedAt = null;
+
+        for (; frames < 200 && rig.Window.Count("Close") == 0; frames++)
+        {
+            rig.Session.RenderFrame();
+            appliedAt ??= rig.Log.Count("opening state applied at tick 7") > 0 ? frames : null;
+        }
+
+        appliedAt.ShouldNotBeNull();
+        frames.ShouldBe(appliedAt.Value + 1 + 1 + 4, "the seek frame, the one after it, then four counted");
+        rig.Out.ToString().ShouldContain("; 4 frames, mean 500.00 ms");
+        rig.Out.ToString().ShouldContain(", between ");
+    }
+
+    [Test]
     public async Task RenderFrame_OnAMeasureRunWithThenSeek_PrintsPlaybackThenPausesSeeksAndMeasuresAgain()
     {
         using Rig rig = Build(WriteDemo("twice"), "--measure", "1", "--then-seek", "300", "--autoplay");

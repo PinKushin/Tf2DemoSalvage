@@ -36,7 +36,7 @@ public sealed class AllocationTraceProbe : IProbe
     public string Name => "alloc-trace";
 
     /// <inheritdoc/>
-    public string Summary => "large allocations in a .nettrace by type and allocating frame: alloc-trace <file.nettrace> [frames=3]";
+    public string Summary => "large allocations in a .nettrace by type and allocating frame: alloc-trace <file.nettrace> [frames=3] [all|large] [from-s] [to-s]";
 
     /// <inheritdoc/>
     public void Run(TextWriter output, IReadOnlyList<string> arguments)
@@ -51,6 +51,13 @@ public sealed class AllocationTraceProbe : IProbe
         }
 
         int depth = arguments.Count > 1 ? int.Parse(arguments[1], CultureInfo.InvariantCulture) : 3;
+
+        // `all`: the small-object ticks too, which is where a per-frame churn of short lists lives (finding 82).
+        bool every = arguments.Count > 2 && arguments[2] == "all";
+
+        // A window in seconds, so a whole-process trace can be read for its playback alone and not its load.
+        double from = arguments.Count > 3 ? double.Parse(arguments[3], CultureInfo.InvariantCulture) * 1000d : double.MinValue;
+        double to = arguments.Count > 4 ? double.Parse(arguments[4], CultureInfo.InvariantCulture) * 1000d : double.MaxValue;
         string etlx = TraceLog.CreateFromEventPipeDataFile(arguments[0]);
 
         using TraceLog log = new(etlx);
@@ -66,9 +73,14 @@ public sealed class AllocationTraceProbe : IProbe
 
         source.Clr.GCAllocationTick += tick =>
         {
+            if (tick.TimeStampRelativeMSec < from || tick.TimeStampRelativeMSec > to)
+            {
+                return;
+            }
+
             everything += tick.AllocationAmount64;
 
-            if (tick.AllocationKind != GCAllocationKind.Large)
+            if (tick.AllocationKind != GCAllocationKind.Large && !every)
             {
                 return;
             }
