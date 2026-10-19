@@ -29,6 +29,32 @@ glyph, then ONE pixel of 42 39 37 (the scheme's `Black`, 46 43 42) at the bottom
 drawn under the number, offset down and right by one. Ours had the number's 1-pixel rim at its top and left and the
 shadow's colour everywhere else. The scoreboard's team scores, also main-first at equal `zpos`, show the same in TF2.
 
+## Follow-ups, 2026-10-18
+
+**The detail combine is every `$detail` material's, not distance alpha's.** The first port ran `TextureCombine` inside
+`#if DISTANCEALPHA` and only for mode 8, the one the HUD backgrounds use. The shader runs it under `#if DETAILTEXTURE`
+(vertexlit_and_unlit_generic_ps2x.fxc:262-279) for any mode, and modes 5 and 6 after the colour multiply
+(`TextureCombinePostLighting`, :423-426). Now ported whole, sharing one HLSL transcription with the world shader
+(`DetailCombineShader`), and drawn through `VguiDetailRenderTests`: all twelve modes read back off the GPU within one
+level of `DetailCombine`'s arithmetic. Four details came with it, each from the source rather than the screen:
+
+- **`$detailtint` does nothing on a VGUI material.** `UnlitGeneric` declares no `$detailtint` parameter and its
+  `SetupVars` never assigns `m_nDetailTint`, which the vars' constructor memsets to -1 (unlitgeneric_dx9.cpp:72-89,
+  vertexlitgeneric_dx9_helper.h:28); the helper then sets c10 to white (vertexlitgeneric_dx9_helper.cpp:988-993).
+  Porting the tint as asked would have been a divergence. *Read from published source.*
+- **The mode is the VMT's.** LightmappedGeneric forces an ssbump detail to mode 10 or 11; the vertexlit helper reads
+  `$detailblendmode` as written (:422). The world's resolved `MapDetail.Mode` is therefore not the VGUI one.
+- **The mask is read before the combine.** With `$distancealpha` from the base, `distAlphaMask = baseColor.a` comes at
+  :258, before modes 3, 4, 8 and 9 rewrite alpha at :277.
+- **Mod2x reads the detail raw**, every other mode through the sRGB curve (:607-608). The upload had been sRGB always.
+- **`$detailscale` defaults to 4** (unlitgeneric_dx9.cpp:20). Every shipped HUD background sets 1 (`ammo_blue_bg.vmt`,
+  `ammo_red_bg.vmt`, `character_blue_bg_clipped.vmt`, read from `tf2_misc_dir.vpk`). What the renderer still does not
+  read — transforms, VTF addressing, `$vertexcolor` — is B553.
+
+A wrong turn in the instrument, kept: the first `$detailscale` test drew a one-pixel-tall quad, whose V derivative is
+the whole texture per pixel at scale 4, and read the last mip's average (138) instead of a texel. Square target, then
+the texel.
+
 ## Wrong turns, kept
 
 - **"The shadow is translucent."** Our "4" read 118 114 113 inside, between Black and TanLight, which looked like a

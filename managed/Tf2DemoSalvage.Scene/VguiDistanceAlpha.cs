@@ -12,10 +12,10 @@ namespace Tf2DemoSalvage.Scene;
 /// sets the four defaults; every other unset float is 0, per <c>a-shader-param-default-string-is-not-applied</c>). The
 /// shader's use of them is `vertexlit_and_unlit_generic_ps2x.fxc:257-327`, drawn in the VGUI renderer.
 /// </remarks>
-/// <param name="Detail">The `$detail` texture, or null.</param>
-/// <param name="FromDetail">`$distancealphafromdetail`: the field is the detail's alpha rather than the base's.</param>
-/// <param name="DetailBlendMode">`$detailblendmode`.</param>
-/// <param name="DetailBlendFactor">`$detailblendfactor`, 1 unless set (:87).</param>
+/// <param name="FromDetail">
+/// `$distancealphafromdetail`: the field is the detail's alpha rather than the base's. The detail itself is
+/// <see cref="VguiShading.Detail"/>, which a material without `$distancealpha` combines too.
+/// </param>
 /// <param name="SoftMask">`$softedges`.</param>
 /// <param name="SoftStart">`$edgesoftnessstart`, 0.5 unless set (:156).</param>
 /// <param name="SoftEnd">`$edgesoftnessend`, 0.5 unless set (:157).</param>
@@ -36,10 +36,7 @@ namespace Tf2DemoSalvage.Scene;
 /// <param name="GlowX">`$glowx`, the glow's texture offset.</param>
 /// <param name="GlowY">`$glowy`.</param>
 public sealed record VguiDistanceAlpha(
-    MapTexture? Detail,
     bool FromDetail,
-    int DetailBlendMode,
-    float DetailBlendFactor,
     bool SoftMask,
     float SoftStart,
     float SoftEnd,
@@ -62,9 +59,8 @@ public sealed record VguiDistanceAlpha(
 {
     /// <summary>The material's distance-alpha parameters, or null when it does not set `$distancealpha`.</summary>
     /// <param name="value">A VMT key's value, or null when the material does not name it.</param>
-    /// <param name="detail">The material's resolved `$detail` texture, or null.</param>
     /// <returns>The parameters, or null.</returns>
-    public static VguiDistanceAlpha? Read(Func<string, string?> value, MapTexture? detail = null)
+    public static VguiDistanceAlpha? Read(Func<string, string?> value)
     {
         ArgumentNullException.ThrowIfNull(value);
 
@@ -74,10 +70,7 @@ public sealed record VguiDistanceAlpha(
         }
 
         return new VguiDistanceAlpha(
-            detail,
             Flag(value, "$distancealphafromdetail"),
-            (int)Number(value, "$detailblendmode", 0f),
-            Number(value, "$detailblendfactor", 1f),
             Flag(value, "$softedges"),
             Number(value, "$edgesoftnessstart", 0.5f),
             Number(value, "$edgesoftnessend", 0.5f),

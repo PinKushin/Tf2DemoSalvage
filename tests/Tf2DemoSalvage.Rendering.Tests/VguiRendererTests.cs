@@ -1,3 +1,5 @@
+using System.Linq;
+
 using Tf2DemoSalvage.Scene.Hud;
 
 namespace Tf2DemoSalvage.Rendering.Tests;
@@ -41,23 +43,54 @@ public sealed class VguiRendererTests
     }
 
     [Test]
-    public void DistanceAlphaConstants_NoShape_AreAllZeroSoTheShaderSkipsTheBlock() =>
-        VguiRenderer.DistanceAlphaConstants(null, 1280, 720).ShouldAllBe(value => value == 0f);
+    public void ShadingConstants_NoShading_AreZeroButAUnitDetailScale()
+    {
+        float[] data = VguiRenderer.ShadingConstants(null, 1280, 720);
+
+        data[..28].ShouldAllBe(value => value == 0f);
+        data[28..].ShouldBe([1f, 1f, 0f, 0f]);
+    }
 
     [Test]
-    public void DistanceAlphaConstants_TheAmmoBackground_PacksC5ToC9ThenItsSwitches()
+    public void ShadingConstants_TheAmmoBackground_PacksC5ToC9ThenItsSwitches()
     {
-        Tf2DemoSalvage.Scene.VguiDistanceAlpha shape = new(
-            Detail: null, FromDetail: true, DetailBlendMode: 8, DetailBlendFactor: 1f,
+        VguiDistanceAlpha shape = new(
+            FromDetail: true,
             SoftMask: true, SoftStart: 0.45f, SoftEnd: 0.3f, ScaleEdges: false,
             Outline: true, OutlineColor: (0.7f, 0.7f, 0.5f), OutlineAlpha: 1f,
             OutlineStart0: 0.3f, OutlineStart1: 0.49f, OutlineEnd0: 0.49f, OutlineEnd1: 0.73f, ScaleOutline: false,
             Glow: false, GlowColor: (0f, 0f, 0f), GlowAlpha: 0.45f, GlowStart: 0.03f, GlowEnd: 0.5f, GlowX: -0.001f, GlowY: -0.001f);
 
-        float[] data = VguiRenderer.DistanceAlphaConstants(shape, 1024, 768);
+        float[] data = VguiRenderer.ShadingConstants(new VguiShading(null, shape), 1024, 768);
 
         data[..20].ShouldBe(shape.Constants(1024, 768));
-        data[20..].ShouldBe([1f, 1f, 1f, 0f, 0f, 1f, 8f, 1f], "distance alpha, soft, outline, no glow; no detail texture, from detail, multiply, factor 1");
+        data[20..].ShouldBe([1f, 1f, 1f, 0f, 0f, 1f, 0f, 0f, 1f, 1f, 0f, 0f], "distance alpha, soft, outline, no glow; no detail texture, from detail");
+    }
+
+    /// <remarks>A `$detail` with no `$distancealpha`: the combine's switch, mode, factor and scale, and no distance alpha.</remarks>
+    [Test]
+    public void ShadingConstants_ADetailWithoutDistanceAlpha_PacksTheDetailAlone()
+    {
+        Tf2DemoSalvage.Content.Assets.TextureImage texel = Tf2DemoSalvage.Content.Assets.TextureImage.Rgba(new byte[4]);
+        MapDetail detail = new(new MapTexture(1, 1, 1, 1, texel, IsTransparent: true), (4f, 2f), 0.5f, 5, (1f, 1f, 1f));
+
+        float[] data = VguiRenderer.ShadingConstants(new VguiShading(detail, null), 1024, 768);
+
+        data[..24].ShouldAllBe(value => value == 0f);
+        data[24..].ShouldBe([1f, 0f, 5f, 0.5f, 4f, 2f, 0f, 0f]);
+    }
+
+    /// <remarks>The packer and the HLSL `Shading` cbuffer must agree on its size, or the upload over- or under-runs it.</remarks>
+    [Test]
+    public void ShadingConstants_TheirCount_IsTheShadersCbufferSize()
+    {
+        string source = VguiRenderer.ShaderSourceText;
+        int open = source.IndexOf("cbuffer Shading", System.StringComparison.Ordinal);
+        string body = source[open..source.IndexOf("};", open, System.StringComparison.Ordinal)];
+        int float4s = body.Split('\n').Count(line => line.TrimStart().StartsWith("float4 ", System.StringComparison.Ordinal));
+
+        (float4s * 4).ShouldBe(VguiRenderer.ConstantFloats);
+        VguiRenderer.ShadingConstants(null, 1, 1).Length.ShouldBe(VguiRenderer.ConstantFloats);
     }
 
     [Test]

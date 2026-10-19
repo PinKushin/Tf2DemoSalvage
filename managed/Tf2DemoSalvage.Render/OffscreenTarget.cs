@@ -676,6 +676,23 @@ internal sealed unsafe class OffscreenTarget : IDisposable
 
     private BloomRenderer? _bloom;
 
+    private VguiRenderer? _vgui;
+
+    /// <summary>Draws a VGUI draw list over what this target holds, through the HUD's own renderer and shader.</summary>
+    /// <param name="list">The quads.</param>
+    /// <param name="resolve">A material name to its texture.</param>
+    public void DrawVgui(VguiDrawList list, Func<string, MapTexture?> resolve)
+    {
+        _vgui ??= VguiRenderer.Create(_device, _context);
+
+        Viewport viewport = new(0f, 0f, _width, _height, 0f, 1f);
+
+        _context.RSSetViewports(1, in viewport);
+        _context.OMSetRenderTargets(1, ref _view, ref Unsafe.NullRef<ID3D11DepthStencilView>());
+
+        _vgui.Draw(_device, _context, list, resolve, _width, _height);
+    }
+
     /// <summary>Blooms what this target holds, as <c>Device3D</c> does before the HUD (B514).</summary>
     /// <param name="amount">The vertical blur's <c>$bloomamount</c>.</param>
     public void DrawBloom(float amount)
@@ -845,6 +862,7 @@ internal sealed unsafe class OffscreenTarget : IDisposable
         _points?.Dispose();
         _occlusion?.Dispose();
         _bloom?.Dispose();
+        _vgui?.Dispose();
         _detail?.Dispose();
         _detailSheet.Dispose();
         _sprites?.Dispose();

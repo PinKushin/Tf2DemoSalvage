@@ -39791,6 +39791,22 @@ the surface's text drawing in `vguimatsurface.dll` is the next place. `vgui_draw
 only (engine.dll `FUN_18022c960`), so it cannot show sibling order. Gated by
 `HudGoldenImageUiTests.Soldier_TheElement_MatchesTf2("ammo", …)`.
 
+## B553 — a VGUI material's texture transforms, sampler addressing and `$vertexcolor` are not read — OPEN, gap
+
+**Filed 2026-10-18 while porting the detail combine for every VGUI `$detail` material** (finding 78, follow-ups). Three
+things `UnlitGeneric` does that `VguiRenderer` does not, none reachable by a stock TF2 HUD material as shipped:
+
+- **Texture transforms.** The detail's coordinates are `$detailtexturetransform` scaled by `$detailscale`, or
+  `$basetexturetransform` scaled by it when the former is undefined (vertexlitgeneric_dx9_helper.cpp:983-986); the base
+  takes `$basetexturetransform` (:977). The renderer applies `$detailscale` alone and no transform. The HUD's
+  `$detail` materials set `$detailscale 1` and no transform.
+- **Addressing.** Every VGUI texture is sampled with one clamped sampler; the engine takes each texture's own VTF
+  clamp flags. A detail with a scale above 1 tiles in TF2 and clamps here.
+- **`$vertexcolor`.** The pixel shader multiplies by the vertex colour only `if( bDiffuseLighting || bVertexColor )`
+  (vertexlit_and_unlit_generic_ps2x.fxc:345) and the vertex alpha only through `g_fVertexAlpha` (:419);
+  `ammo_blue_bg.vmt` has `$vertexcolor` commented out. The renderer multiplies by the vertex colour unconditionally.
+  Whether `CMatSystemSurface` forces the flag on the materials it draws has not been read — that read comes first.
+
 ## B551 — a move child was LIT at its local origin, and a grandchild drawn one level deep — FIXED 2026-10-16 (`fix/parented-prop-origin`)
 
 **Reported as "PropsAt draws a child at its local origin", and that half was a misreading.** A timeline test authored a
