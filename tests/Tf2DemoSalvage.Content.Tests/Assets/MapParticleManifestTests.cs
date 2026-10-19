@@ -124,6 +124,23 @@ public sealed class MapParticleManifestTests
         warnings.Count.ShouldBe(2, "one for the rejected entry, one for the cap");
     }
 
+    /// <remarks>
+    /// **Six past the cap, so stopping and going on differ** (`:205-210`, `break`): with 65 only one entry is dropped and
+    /// both read the same. Kills `return false` → `return true` (the walk goes on, warning per dropped entry).
+    /// </remarks>
+    [Test]
+    public void MapFiles_SeventyValidEntries_KeepsSixtyFourAndWarnsAboutTheCapOnce()
+    {
+        List<string> warnings = [];
+        string[] valid = [.. Enumerable.Range(1, 70).Select(index => $"particles/p{index}.pcf")];
+
+        IReadOnlyList<string> files = ParticleManifest.MapFiles(
+            Map, Reader(new() { [MapManifest] = Manifest(valid) }), _ => null, warnings.Add);
+
+        files.ShouldBe(valid[..ParticleManifest.MaximumMapEntries]);
+        warnings.Count.ShouldBe(1);
+    }
+
     /// <remarks>A malformed manifest must not throw out of the load; whatever the reader yields is what is read.</remarks>
     [Test]
     public void MapFiles_AMalformedManifest_DoesNotThrow()
@@ -211,6 +228,30 @@ public sealed class MapParticleManifestTests
                 ["particles/garbage.pcf"] = "not a dmx file",
                 ["particles/good.pcf"] = Pcf(("good_fx", "good")),
             }),
+            warnings.Add);
+
+        layered.ContainsKey("good_fx").ShouldBeTrue();
+        warnings.Count.ShouldBe(2);
+    }
+
+    /// <remarks>
+    /// **A missing file, then one whose read throws, then a good one: the good one is still read.** Kills `continue` →
+    /// `break` in the `InvalidDataException` catch, which the throw-only test below cannot tell from going on.
+    /// </remarks>
+    [Test]
+    public void Layer_AMissingThenAThrowingThenAGoodFile_StillReadsTheGoodOne()
+    {
+        List<string> warnings = [];
+
+        IReadOnlyDictionary<string, ParticleSystem> layered = ParticleManifest.Layer(
+            Stock(),
+            ["particles/missing.pcf", "particles/throws.pcf", "particles/good.pcf"],
+            path => path switch
+            {
+                "particles/throws.pcf" => throw new System.IO.InvalidDataException("bad entry"),
+                "particles/good.pcf" => Pcf(("good_fx", "good")),
+                _ => null,
+            },
             warnings.Add);
 
         layered.ContainsKey("good_fx").ShouldBeTrue();
