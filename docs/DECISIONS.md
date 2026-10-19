@@ -10841,3 +10841,38 @@ which the workflow itself names as the fix. CI stays free of LFS bandwidth (`lfs
 
 **Not decided here:** which skipped tests are worth converting, and the new numbers. They come from the measurement.
 
+## D226 — every golden shot carries a sidecar of what it depended on; TF2's capture comes first and ours matches it (2026-10-19)
+
+**The owner, in his words.** After a door comparison could not be reproduced because its camera was recorded nowhere (the lead
+dug it out of an agent's transcript, and once took the wrong demo): *"is there a hook we can make that forces all the relevant
+info to be captured with a golden shot?"* Then, on the order: *"and does them TF2 first, since TF2 can't pause properly and
+still be controlled"* (`docs/memory/driving-tf2-demo-playback.md`: TF2 cannot rewind, a paused demo stops answering RCON,
+a seek lands within a few ticks of the request). And: *"go ahead"*.
+
+**What is decided.**
+1. **The instrument writes the record.** A viewer `--shot <path>` also writes `<path>.json`, and a TF2 capture is accompanied by
+   one from its session notes. A hook alone sees a command line, not what the viewer used, so the values are carried from
+   where they were used (the instrument rule: never recompute a reported value by a second route, B243).
+2. **TF2 first, ours matches.** TF2 is the constrained side; its sidecar records what it ACTUALLY did (the tick `demoui` read,
+   not the one requested; the camera `spec_pos` read back; the ConVars read back after the session). The viewer takes
+   `--like <tf2 sidecar>` and sets its tick, camera, viewport and `mat_*` values from it. A viewer shot with no TF2 sidecar to
+   match is "ours only", labeled so, and cannot be paired.
+3. **A hook enforces it** once the viewer writes sidecars (a hook that required them before would block every `--shot` run):
+   a `--shot` command without its sidecar is refused with what is missing; a comparison pair is refused unless the TF2 sidecar
+   exists, the viewer sidecar names it (`like`), and the demo hashes agree. It lives in `~/.claude/hooks/` with its reasoning in
+   the script header; the owner said to go ahead, so it is wired by the lead.
+
+**The sidecar format** (`<image>.json`; unknown fields are kept, missing required ones are refused):
+- common: `schema` (1), `side` (`"viewer"` or `"tf2"`), `captured` (UTC time), `demo` (file name) and `demoSha256`, `map`,
+  `tick` (the tick the capture ACTUALLY showed, in the viewer's numbering), `camera` (`[x, y, z, pitch, yaw]`), `viewport`
+  (`[w, h]`), `convars` (name to value, read back from that side), `notes` (free text).
+- viewer only: `gitSha`, `build` (Debug or Release), `args`, `env` (every `TF2VIEW_*` set), `like` (the TF2 sidecar's file name
+  and its sha256, or null for "ours only").
+- tf2 only: `client` (the build), `demoTickRequested`, `playbackPercent` read from `demoui`, `sv_allow_wait_command`, and
+  `cheatsUsed` (the ConVars it touched and their restored values).
+
+**Order of work.** The viewer sidecar and `--like` (an implementer, with tests: a shot writes a sidecar with the fields filled;
+`--like` reproduces tick, camera and viewport from a TF2 sidecar), then the hook, then the TF2-side sidecar in the tf2 MCP
+session notes. **Not decided here:** whether a golden TEST (the `HudGoldenImageUiTests` family) should read the sidecar to
+set its own capture instead of constants; that is a later step once the files exist.
+
