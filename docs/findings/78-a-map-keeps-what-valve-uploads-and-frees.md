@@ -200,6 +200,15 @@ this, so no per-frame `float[]` is made.
 
 The frame-time change is inside the measured noise.
 
+**Fixed next: a decal shot on a static prop projects onto a reused world copy.** Each shot used to get a new copy of the
+prop's triangles. `DecalEffects` now keeps one grown-only array, and `PlacedProp.InWorld` writes into it. The
+projection copies the corners it keeps, so the array is free again at the next shot.
+
+| f12, `--measure 20`, two runs | large allocations / 20 s | of which `WorldVertex[]` | mean frame |
+|---|---:|---:|---:|
+| before (the decal fix's after) | 217–219 MB | 77–78 MB | 36.1–37.4 ms |
+| after | **152–153 MB** | **13 MB** | 36.1–36.5 ms |
+
 **Item 2, the packed models' CPU copy, is already released.** `EntityModelSet.ReleaseUploaded` (B407) drops the
 729 MB once the map's world is on the device. Every run above ends with "entity model vertices on the CPU 0 in
 0 MB". The 729 MB is real only between the load and the first upload. That makes it part of the load peak, not the

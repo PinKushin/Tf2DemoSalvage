@@ -1181,6 +1181,24 @@ public sealed class DecalEffects
         device.UploadShotDecals(_decalVertices, _decalBatches, _entityDecalBatches);
     }
 
+    /// <summary>The prop corners a decal shot projects onto, reused across shots and only grown (finding 78).</summary>
+    private WorldVertex[] _propInWorld = [];
+
+    /// <summary>
+    /// A static prop's triangles in the world, written into <see cref="_propInWorld"/>: valid until the next call, which is
+    /// all <c>DecalReplay</c> asks, since the projection copies the corners it keeps. A new copy per shot was 33 MB of
+    /// large-object garbage per 20 s of f12 (finding 78).
+    /// </summary>
+    private ArraySegment<WorldVertex> PropInWorld(PlacedProp placed)
+    {
+        if (_propInWorld.Length < placed.Shape.Positions.Length)
+        {
+            _propInWorld = new WorldVertex[placed.Shape.Positions.Length];
+        }
+
+        return new ArraySegment<WorldVertex>(_propInWorld, 0, placed.InWorld(_propInWorld));
+    }
+
     /// <summary>The world's decal replay, made on first use once a map and a timeline are loaded.</summary>
     private DecalReplay? DecalReplayOf()
     {
@@ -1198,7 +1216,7 @@ public sealed class DecalEffects
             index => timeline.Decals.Names.Name(index) is { } name ? impacts.Materials.Resolve(name) : null,
             loaded.Doors.Of,
             new StaticPropDecalSource(
-                prop => assets.PlacedProps.TryGetValue(prop, out PlacedProp placed) ? placed.InWorld() : null,
+                prop => assets.PlacedProps.TryGetValue(prop, out PlacedProp placed) ? PropInWorld(placed) : (IReadOnlyList<WorldVertex>?)null,
                 material => assets.DecalMaterials.TryGetValue(material.ModelMaterial ?? material.Draws ?? material.Name, out int index)
                     ? index
                     : -1),
