@@ -2,12 +2,12 @@ using Tf2DemoSalvage.Presentation;
 
 namespace Tf2DemoSalvage.Presentation.Tests;
 
-/// <summary>The memory line `--measure` prints at its end: the GC's own account beside the process's (finding 78).</summary>
+/// <summary>The memory line `--measure` prints at its end: the GC's own account beside the process's (finding 80).</summary>
 public sealed class GcMemoryLineTests
 {
     /// <remarks>
     /// Distinct values in every slot, so no column can stand in for another. Committed minus live minus fragmented is the
-    /// GC's slack, the number finding 78 inferred from a region walk and this line exists to read.
+    /// GC's slack, the number finding 80 inferred from a region walk and this line exists to read.
     /// </remarks>
     [Test]
     public void Format_DistinctValues_ReportsEachAndTheSlack()

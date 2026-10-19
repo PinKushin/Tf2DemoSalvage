@@ -5,7 +5,7 @@ using Tf2DemoSalvage.SdkReference;
 
 namespace Tf2DemoSalvage.Rendering.Tests;
 
-/// <summary>A real skinned model's packed vertices, rebuilt after the set let its copy go (finding 78).</summary>
+/// <summary>A real skinned model's packed vertices, rebuilt after the set let its copy go (finding 80).</summary>
 /// <remarks>
 /// The decal on a player now projects onto <see cref="EntityModelSet.PackedVertices"/> instead of a copy the renderer kept
 /// (623 MB on f12). On the shipped soldier, the rebuild must be exactly the slice the renderer was handed: the model's own

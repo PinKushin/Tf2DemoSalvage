@@ -7,7 +7,7 @@ using System.Linq;
 
 namespace Tf2DemoSalvage.Presentation;
 
-/// <summary>Large-object-heap allocations by type, from the runtime's own sampled ticks, for `--measure` (finding 78).</summary>
+/// <summary>Large-object-heap allocations by type, from the runtime's own sampled ticks, for `--measure` (finding 80).</summary>
 /// <remarks>
 /// **Why it exists:** at the end of a measured f12 run the GC reported a 6.5 GB large-object heap against a live heap a
 /// third that size. Something allocates large arrays and drops them. A heap dump cannot name it, because by then the

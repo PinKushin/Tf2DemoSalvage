@@ -161,7 +161,7 @@ public sealed class MapAssetsTests
     /// <remarks>
     /// **Both go up in the same pass as the base textures** (`UploadWorldTextures`), so B407's release covers them too:
     /// a CPU copy of a texture the device holds is one Valve does not keep (`CTexture::ReconstructTexture` frees its
-    /// scratch VTF, finding 78). cp_process_f12 because it animates detail textures and bakes cubemaps; its own load,
+    /// scratch VTF, finding 80). cp_process_f12 because it animates detail textures and bakes cubemaps; its own load,
     /// since releasing a shared one would empty it for every other test.
     /// </remarks>
     [Test]

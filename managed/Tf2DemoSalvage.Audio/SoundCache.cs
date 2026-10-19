@@ -23,7 +23,7 @@ public readonly record struct PrecacheResult(int Named, int Decoded, double Seco
 /// <param name="Sounds">Sounds held.</param>
 /// <param name="WaveBytes">Bytes of decoded samples from WAV files.</param>
 /// <param name="Mp3Bytes">Bytes of decoded samples from MP3 files.</param>
-/// <param name="Misses">Decodes outside a precache, each one inside the frame that asked (finding 78).</param>
+/// <param name="Misses">Decodes outside a precache, each one inside the frame that asked (finding 80).</param>
 public readonly record struct SoundCacheHeld(int Sounds, long WaveBytes, long Mp3Bytes, int Misses);
 
 /// <summary>Decoded sound samples, kept so a name is read and decoded once.</summary>
@@ -62,7 +62,7 @@ public sealed class SoundCache
     /// </remarks>
     public const double StallSeconds = 0.03;
 
-    /// <summary>The most decoded sample bytes held at once; past it the least recently used sound is let go (finding 78).</summary>
+    /// <summary>The most decoded sample bytes held at once; past it the least recently used sound is let go (finding 80).</summary>
     /// <remarks>
     /// **Interpolated: the engine's figure is not in the SDK.** Chosen conservatively, twice what the f12 demo holds once its
     /// WAVs are 16-bit (about 260 MB), so an ordinary match evicts nothing and plays exactly as before; it bounds a demo that
@@ -117,7 +117,7 @@ public sealed class SoundCache
     /// <summary>How many distinct names the install could not supply.</summary>
     public int Unopened => _unopened;
 
-    /// <summary>What is held now, and the decodes playback paid for since the level began (finding 78).</summary>
+    /// <summary>What is held now, and the decodes playback paid for since the level began (finding 80).</summary>
     public SoundCacheHeld Held => _held;
 
     private SoundCacheHeld _held;

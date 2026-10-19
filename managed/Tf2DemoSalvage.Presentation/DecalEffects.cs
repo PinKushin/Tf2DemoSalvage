@@ -1181,13 +1181,13 @@ public sealed class DecalEffects
         device.UploadShotDecals(_decalVertices, _decalBatches, _entityDecalBatches);
     }
 
-    /// <summary>The prop corners a decal shot projects onto, reused across shots and only grown (finding 78).</summary>
+    /// <summary>The prop corners a decal shot projects onto, reused across shots and only grown (finding 80).</summary>
     private WorldVertex[] _propInWorld = [];
 
     /// <summary>
     /// A static prop's triangles in the world, written into <see cref="_propInWorld"/>: valid until the next call, which is
     /// all <c>DecalReplay</c> asks, since the projection copies the corners it keeps. A new copy per shot was 33 MB of
-    /// large-object garbage per 20 s of f12 (finding 78).
+    /// large-object garbage per 20 s of f12 (finding 80).
     /// </summary>
     private ArraySegment<WorldVertex> PropInWorld(PlacedProp placed)
     {

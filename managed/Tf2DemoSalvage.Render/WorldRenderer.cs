@@ -2449,7 +2449,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
     /// <summary>A writable copy of a material's constants, reused across binds.</summary>
     private float[] _contentsScratch = [];
 
-    /// <summary>One model's packed floats on their way into its immutable buffer; grown only (finding 78).</summary>
+    /// <summary>One model's packed floats on their way into its immutable buffer; grown only (finding 80).</summary>
     private float[] _modelPackScratch = [];
 
     /// <summary>Copies a material's constants into the reused buffer, unless they are already there.</summary>
@@ -2938,7 +2938,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             context.IASetVertexBuffers(FlexSlot, 1, ref _noFlex, in none, in offset);
 
             // Every model draw starts here (BindPipeline), so the skip below holds within one draw only. A face array is
-            // reused across frames and rewritten in place (finding 78), so the same array can hold a new face next draw.
+            // reused across frames and rewritten in place (finding 80), so the same array can hold a new face next draw.
             _flexUploaded = null;
             return;
         }
@@ -4923,7 +4923,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
     /// <param name="data">At least <c>Count × stride</c> floats.</param>
     /// <remarks>
     /// **Indexed, not <c>foreach</c>**: enumerating an <see cref="IReadOnlyList{T}"/> boxes its enumerator. The shot decals
-    /// packed a new array every frame and copied it: 161 MB of large-object <c>float[]</c> per 20 s of f12 (finding 78).
+    /// packed a new array every frame and copied it: 161 MB of large-object <c>float[]</c> per 20 s of f12 (finding 80).
     /// </remarks>
     internal static void PackInto(IReadOnlyList<WorldVertex> vertices, Span<float> data)
     {
@@ -6402,7 +6402,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
 
         MappedSubresource mapped = default;
 
-        // Packed straight into the mapped buffer: no array per frame (finding 78).
+        // Packed straight into the mapped buffer: no array per frame (finding 80).
         SilkMarshal.ThrowHResult(context.Map(_shotDecalBuffer, 0, Map.WriteDiscard, 0, ref mapped));
         PackInto(vertices, new Span<float>(mapped.PData, _shotDecalCapacity * (VertexStride / sizeof(float))));
         context.Unmap(_shotDecalBuffer, 0);
@@ -6466,7 +6466,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
 
         MappedSubresource mapped = default;
 
-        // Packed straight into the mapped buffer: no array per model per frame (finding 78).
+        // Packed straight into the mapped buffer: no array per model per frame (finding 80).
         SilkMarshal.ThrowHResult(context.Map(_modelDecalBuffer, 0, Map.WriteDiscard, 0, ref mapped));
         PackInto(vertices, new Span<float>(mapped.PData, _modelDecalCapacity * (VertexStride / sizeof(float))));
         context.Unmap(_modelDecalBuffer, 0);
@@ -7007,7 +7007,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
                 continue;
             }
 
-            // **Packed into one grow-only scratch array** (finding 78): a fresh one per model was 54 MB of large-object
+            // **Packed into one grow-only scratch array** (finding 80): a fresh one per model was 54 MB of large-object
             // garbage per 20 s of f12. The immutable buffer copies its initial data, so the array is free again at once.
             // A rented one was tried first and measured worse, since the pool rounds each model up to a power of two.
             int floats = model.Vertices.Count * (VertexStride / sizeof(float));

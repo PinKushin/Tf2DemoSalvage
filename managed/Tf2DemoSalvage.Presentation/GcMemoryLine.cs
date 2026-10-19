@@ -4,9 +4,9 @@ using System.Globalization;
 
 namespace Tf2DemoSalvage.Presentation;
 
-/// <summary>The memory line `--measure` prints when it ends: the GC's own account beside the process's (finding 78).</summary>
+/// <summary>The memory line `--measure` prints when it ends: the GC's own account beside the process's (finding 80).</summary>
 /// <remarks>
-/// **Read, not inferred.** Finding 78 identified a 6 GB private allocation as the GC's from its growth alone, and
+/// **Read, not inferred.** Finding 80 identified a 6 GB private allocation as the GC's from its growth alone, and
 /// estimated "committed but not live" as that allocation minus a heap dump taken seconds apart. This line reports the
 /// GC's committed, live and fragmented bytes as one reading (<c>GC.GetGCMemoryInfo</c>), taken with no forced
 /// collection so it shows what the process actually holds. The slack is committed minus live minus fragmented.

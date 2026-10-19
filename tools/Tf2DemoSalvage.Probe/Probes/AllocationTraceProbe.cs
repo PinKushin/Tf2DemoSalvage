@@ -10,7 +10,7 @@ using Microsoft.Diagnostics.Tracing.Parsers.Clr;
 
 namespace Tf2DemoSalvage.Probe.Probes;
 
-/// <summary>Large-object allocations in an EventPipe trace, by type and by the frame that allocated them (finding 78).</summary>
+/// <summary>Large-object allocations in an EventPipe trace, by type and by the frame that allocated them (finding 80).</summary>
 /// <remarks>
 /// **Why it exists:** the viewer's own `--measure` line names the TYPE behind 1.7–1.9 GB of large <c>float[]</c> per 20 s
 /// of playback, but not the code. An in-process listener cannot see the stack, since runtime events reach it on another

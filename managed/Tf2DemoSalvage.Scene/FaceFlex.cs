@@ -86,7 +86,7 @@ public static class FaceFlex
     /// <param name="data">The model's tables.</param>
     /// <param name="weights">Descriptor weights.</param>
     /// <param name="delayed">Delayed descriptor weights.</param>
-    /// <param name="positions">Three floats per <c>.vvd</c> vertex; reused, so a moving face allocates nothing (finding 78).</param>
+    /// <param name="positions">Three floats per <c>.vvd</c> vertex; reused, so a moving face allocates nothing (finding 80).</param>
     /// <param name="normals">The same for the normals.</param>
     /// <returns>The two arrays, or null when the weights move nothing.</returns>
     public static (float[] Positions, float[] Normals)? Deltas(
@@ -128,7 +128,7 @@ public static class FaceFlex
         return InBufferOrder(deltas, cornerVertex, packedOrder, new float[packedOrder.Count * 6]);
     }
 
-    /// <summary>The same, written into the caller's stream, which is cleared first — one per face, reused (finding 78).</summary>
+    /// <summary>The same, written into the caller's stream, which is cleared first — one per face, reused (finding 80).</summary>
     /// <param name="deltas">From <see cref="Deltas(StudioFlexData, float[], float[], int)"/>.</param>
     /// <param name="cornerVertex">Each corner's <c>.vvd</c> vertex, in the model's corner order.</param>
     /// <param name="packedOrder">Each buffer vertex's corner.</param>

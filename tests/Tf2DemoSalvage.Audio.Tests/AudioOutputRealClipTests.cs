@@ -8,12 +8,12 @@ using Tf2DemoSalvage.SdkReference;
 
 namespace Tf2DemoSalvage.Audio.Tests;
 
-/// <summary>The stereo conversion on a real game clip, held to the bytes it produced before it stopped allocating (finding 78).</summary>
+/// <summary>The stereo conversion on a real game clip, held to the bytes it produced before it stopped allocating (finding 80).</summary>
 /// <remarks>
 /// **The oracle is recorded, not recomputed.** The digest below was printed on 2026-10-19 by the allocating
 /// <c>ToStereo16</c> as it stood before the change: 149,282 shorts of <c>concrete_impact_bullet1.wav</c> at gains 0.8 and
 /// 0.3. The conversion now writes into a reused buffer, since a new array per sound started was 90 MB of <c>short[]</c> per
-/// 20 s of f12 (finding 78). The sound must not change, so the new path must reproduce those bytes exactly, and must allocate nothing doing so.
+/// 20 s of f12 (finding 80). The sound must not change, so the new path must reproduce those bytes exactly, and must allocate nothing doing so.
 /// </remarks>
 public sealed class AudioOutputRealClipTests
 {
@@ -32,7 +32,7 @@ public sealed class AudioOutputRealClipTests
 
         SoundSample sample = SoundSampleReader.Read(file).Sample.ShouldNotBeNull();
 
-        // The clip is a 16-bit WAV, so this also holds the 16-bit storage (finding 78) to the float conversion's bytes.
+        // The clip is a 16-bit WAV, so this also holds the 16-bit storage (finding 80) to the float conversion's bytes.
         sample.Pcm16.IsEmpty.ShouldBeFalse();
         short[] into = new short[(sample.FrameCount * 2) + 10];
         into.AsSpan().Fill(1234);

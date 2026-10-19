@@ -6,7 +6,7 @@ using Tf2DemoSalvage.Core.Scene;
 
 namespace Tf2DemoSalvage.Scene.Tests;
 
-/// <summary>The roster a demo's load reports: each player as first seen, in the order first seen (finding 78).</summary>
+/// <summary>The roster a demo's load reports: each player as first seen, in the order first seen (finding 80).</summary>
 /// <remarks>
 /// **The report grouped every player of every frame** to take the first of each: 96,589 frames times 13 players on f12,
 /// 1.1 GB of large-object garbage traced to <c>DecodedDemo.Report</c> during the load. One pass over the frames, keeping

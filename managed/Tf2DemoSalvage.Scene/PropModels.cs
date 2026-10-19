@@ -122,7 +122,7 @@ public readonly record struct PlacedProp(PropShape Shape, PropTransform Transfor
         return placed;
     }
 
-    /// <summary>The same triangles written into a caller's array, at least as long as the shape (finding 78).</summary>
+    /// <summary>The same triangles written into a caller's array, at least as long as the shape (finding 80).</summary>
     /// <param name="placed">Where to write; a reused buffer, so a decal shot on a prop allocates no world copy.</param>
     /// <returns>How many corners were written, from the start of <paramref name="placed"/>.</returns>
     public int InWorld(WorldVertex[] placed)

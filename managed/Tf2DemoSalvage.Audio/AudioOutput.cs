@@ -147,7 +147,7 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
     /// <summary>How many sounds are still playing.</summary>
     public int Playing => _playing.Count;
 
-    /// <summary>The interleaved stereo a sound is converted into before OpenAL copies it; reused (finding 78).</summary>
+    /// <summary>The interleaved stereo a sound is converted into before OpenAL copies it; reused (finding 80).</summary>
     private short[] _stereo = [];
 
     /// <summary>Plays one sound, already mixed and already attenuated.</summary>
@@ -214,7 +214,7 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
         //
         // Splitting them puts the half that must follow the listener — the scalar attenuation —
         // where it can be set per frame, and leaves the stereo image where it costs nothing.
-        // **Into a buffer this output keeps** (finding 78): OpenAL copies on `BufferData`, so the interleaved samples are
+        // **Into a buffer this output keeps** (finding 80): OpenAL copies on `BufferData`, so the interleaved samples are
         // scratch, and a new array per sound started was 90 MB of short[] per 20 s of f12. Grown, never shrunk; `Play`
         // is not reentrant, as the voices list beside it already requires.
         if (_stereo.Length < sample.FrameCount * 2)
@@ -532,7 +532,7 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
         return stereo;
     }
 
-    /// <summary>The same conversion written into a caller's buffer, at least two shorts a frame (finding 78).</summary>
+    /// <summary>The same conversion written into a caller's buffer, at least two shorts a frame (finding 80).</summary>
     /// <param name="sample">The decoded sound.</param>
     /// <param name="leftGain">Gain for the left ear.</param>
     /// <param name="rightGain">Gain for the right ear.</param>

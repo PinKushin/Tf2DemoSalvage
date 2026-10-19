@@ -2,7 +2,7 @@ using Tf2DemoSalvage.Presentation;
 
 namespace Tf2DemoSalvage.Presentation.Tests;
 
-/// <summary>Where large allocations come from during `--measure`, by type (finding 78).</summary>
+/// <summary>Where large allocations come from during `--measure`, by type (finding 80).</summary>
 public sealed class AllocationTallyTests
 {
     /// <remarks>

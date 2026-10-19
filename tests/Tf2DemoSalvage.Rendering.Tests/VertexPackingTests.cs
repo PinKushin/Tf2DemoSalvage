@@ -3,7 +3,7 @@ using System.Collections.Generic;
 
 namespace Tf2DemoSalvage.Rendering.Tests;
 
-/// <summary>The vertex layout writer, into a caller's memory (finding 78).</summary>
+/// <summary>The vertex layout writer, into a caller's memory (finding 80).</summary>
 /// <remarks>
 /// **Measured with `alloc-trace`:** 161 MB of large <c>float[]</c> per 20 s of f12 playback came from
 /// <c>UploadShotDecals</c> packing every frame's decal vertices into a new array before copying it into the mapped

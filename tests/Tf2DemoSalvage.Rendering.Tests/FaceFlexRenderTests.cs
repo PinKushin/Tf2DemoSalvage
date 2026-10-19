@@ -76,7 +76,7 @@ public sealed class FaceFlexRenderTests
     }
 
     /// <remarks>
-    /// **The face array is reused across frames, written in place** (finding 78: a new one per moving face per frame was
+    /// **The face array is reused across frames, written in place** (finding 80: a new one per moving face per frame was
     /// 1.4 GB of large-object allocations in 20 s of f12). So a draw must upload what the array holds NOW, even when it
     /// is the same array the last draw uploaded: the same array drawn still and then moved must draw moved.
     /// </remarks>

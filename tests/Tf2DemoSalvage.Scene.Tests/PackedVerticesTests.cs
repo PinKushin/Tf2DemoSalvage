@@ -3,7 +3,7 @@ using System.Linq;
 
 namespace Tf2DemoSalvage.Scene.Tests;
 
-/// <summary>A packed model's vertices rebuilt from what the set keeps, for a decal on a skinned model (finding 78).</summary>
+/// <summary>A packed model's vertices rebuilt from what the set keeps, for a decal on a skinned model (finding 80).</summary>
 /// <remarks>
 /// **Why it exists.** `Device3D` kept its own copy of every skinned model's packed vertices for one reader, the decal a
 /// bullet leaves on a player. That was 623 MB on f12. The set already keeps each model's corners and its packing order,
@@ -46,12 +46,12 @@ public sealed class PackedVerticesTests
     }
 
     /// <remarks>
-    /// **Rebuilt once per model struck, not once per decal** (finding 78: rebuilding per decal was about 40 MB of
+    /// **Rebuilt once per model struck, not once per decal** (finding 80: rebuilding per decal was about 40 MB of
     /// large-object garbage per 20 s of f12). A second decal on the same model gets the same list; a level's end lets
     /// it go with the model.
     /// </remarks>
     /// <remarks>
-    /// **Reserved once for the whole call, then filled** (finding 78: the list's growth by doubling was about 1.45 GB of
+    /// **Reserved once for the whole call, then filled** (finding 80: the list's growth by doubling was about 1.45 GB of
     /// large-object garbage over f12's precache). Three models of four corners: grown model by model, the list ends at a
     /// capacity of 16 for 12 vertices.
     /// </remarks>

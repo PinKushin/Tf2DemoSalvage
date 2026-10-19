@@ -249,7 +249,7 @@ public sealed partial class ViewerSession
                 $"particles now: {trails} trails, {bursts} bursts, {quads} quads last frame"));
         }
 
-        // The GC's own account beside the process's, read where the measurement ends (finding 78).
+        // The GC's own account beside the process's, read where the measurement ends (finding 80).
         // Stryker disable once all : a mutated interpolated string cannot bind to its handler (CS1620) and Safe Mode drops the method - B410
         _host.Out.WriteLine(string.Create(
             CultureInfo.InvariantCulture,
@@ -260,7 +260,7 @@ public sealed partial class ViewerSession
             _host.Out.WriteLine("  " + allocations.Tally.Report(8));
         }
 
-        // Everything this process allocated since it started, every heap: the control for a whole-process trace (finding 78).
+        // Everything this process allocated since it started, every heap: the control for a whole-process trace (finding 80).
         // Stryker disable once all : a mutated interpolated string cannot bind to its handler (CS1620) and Safe Mode drops the method - B410
         _host.Out.WriteLine(string.Create(
             CultureInfo.InvariantCulture, $"  allocated since start: {GC.GetTotalAllocatedBytes() / 1048576d:0} MB"));
@@ -402,7 +402,7 @@ public sealed partial class ViewerSession
         {
             _frameSeconds += _clock.LastFrameSeconds;
 
-            // The large-allocation tally counts the measured frames only, not the load before them (finding 78).
+            // The large-allocation tally counts the measured frames only, not the load before them (finding 80).
             if (_framesMeasured == 0 && _launch.MeasureSeconds is not null)
             {
                 _allocations ??= new AllocationTickListener();

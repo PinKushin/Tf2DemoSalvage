@@ -8,7 +8,7 @@ using System.Runtime.InteropServices;
 
 namespace Tf2DemoSalvage.Probe.Probes;
 
-/// <summary>Another process's memory, region by region, sampled until it exits (finding 78).</summary>
+/// <summary>Another process's memory, region by region, sampled until it exits (finding 80).</summary>
 /// <remarks>
 /// **This counts the whole process, which a census of one object graph cannot see.** The viewer keeps 0.83 GB for a map
 /// out of a 7.6 GB working set. This probe walks the viewer's address space with <c>VirtualQueryEx</c> and sums the

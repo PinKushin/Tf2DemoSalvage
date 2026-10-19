@@ -24,7 +24,7 @@ public sealed class PlacedPropTests
     }
 
     /// <remarks>
-    /// **Written into a reused array** (finding 78: a new world copy per decal shot on a prop was 33 MB of large-object
+    /// **Written into a reused array** (finding 80: a new world copy per decal shot on a prop was 33 MB of large-object
     /// garbage per 20 s of f12). The same corners as the allocating form, into an array a larger earlier prop left dirty,
     /// with the count of what this prop wrote, and no allocation.
     /// </remarks>

@@ -120,7 +120,7 @@ public sealed record DecodedDemo(LoadedDemo Demo, DemoTimeline? Timeline)
     /// <param name="frames">Each frame's players.</param>
     /// <returns>The roster.</returns>
     /// <remarks>
-    /// **One pass, keeping the first of each entity** (finding 78). A grouping of every player of every frame gave the
+    /// **One pass, keeping the first of each entity** (finding 80). A grouping of every player of every frame gave the
     /// same answer and copied all of them: 1.1 GB of large-object garbage during f12's load.
     /// </remarks>
     internal static IReadOnlyList<ScenePlayer> Roster(IEnumerable<IReadOnlyList<ScenePlayer>> frames)

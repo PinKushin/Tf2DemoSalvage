@@ -1,4 +1,4 @@
-# 78: A map keeps what Valve uploads and frees
+# 80: A map keeps what Valve uploads and frees
 
 **The question.** On the f12 demo the viewer peaks at 7.6 GB working set. TF2 plays the same map in about 3 GB.
 What does one loaded map hold, which field holds it, and does Valve keep the same thing?

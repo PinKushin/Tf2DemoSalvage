@@ -177,7 +177,7 @@ public sealed class SoundCacheTests
     }
 
     /// <remarks>
-    /// **What the cache holds, and how often playback paid for a decode** (finding 78: the cache retained 650 MB on f12).
+    /// **What the cache holds, and how often playback paid for a decode** (finding 80: the cache retained 650 MB on f12).
     /// The bytes are the decoded samples it keeps, split by the container they came from, because only a WAV can be held
     /// as 16-bit exactly. A miss is a decode outside a precache, which is a freeze in the frame that asked. One precached
     /// one-sample WAV and one asked for during play: two held, two bytes each (a WAV is held as 16-bit), one miss.
@@ -195,7 +195,7 @@ public sealed class SoundCacheTests
     }
 
     /// <remarks>
-    /// **The cache is bounded, least recently used out first** (finding 78). A cap of three one-sample WAVs (two bytes each)
+    /// **The cache is bounded, least recently used out first** (finding 80). A cap of three one-sample WAVs (two bytes each)
     /// holds three: asking for a fourth evicts the one used longest ago, and asking for that one again decodes it again, as
     /// a miss, to the identical samples. The one asked for most recently survives.
     /// </remarks>

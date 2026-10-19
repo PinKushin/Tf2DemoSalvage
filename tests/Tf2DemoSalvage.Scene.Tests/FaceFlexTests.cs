@@ -326,7 +326,7 @@ public sealed class FaceFlexTests
     }
 
     /// <remarks>
-    /// The arrays are reused across faces and frames (finding 78), so a call must start from zero: a 0.5 smile after a
+    /// The arrays are reused across faces and frames (finding 80), so a call must start from zero: a 0.5 smile after a
     /// 1.0 one is the 0.5 smile, not their sum. The dirty first call is what tells cleared from fresh.
     /// </remarks>
     [Test]

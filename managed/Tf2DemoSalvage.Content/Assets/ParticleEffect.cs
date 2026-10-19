@@ -245,7 +245,7 @@ public sealed class ParticleEffect
 
         // **The cycle guard is the chain of names above, not a copy of the lookup without them.** The copy was the
         // whole game's 9,050 systems once per child: 342 MB of large-object allocations in twenty seconds of f12
-        // (finding 78). Same rule: a child naming this system or any ancestor is not resolved.
+        // (finding 80). Same rule: a child naming this system or any ancestor is not resolved.
         Ancestry path = new(system.Name, ancestors);
 
         foreach (string named in system.Children)

@@ -8,7 +8,7 @@ using Microsoft.Diagnostics.Runtime;
 
 namespace Tf2DemoSalvage.Probe.Probes;
 
-/// <summary>A full dump's live managed heap, by the field that retains it (finding 78).</summary>
+/// <summary>A full dump's live managed heap, by the field that retains it (finding 80).</summary>
 /// <remarks>
 /// **Why it exists:** a gcdump names types, and a type is not an owner. This walks the dump's real roots breadth first
 /// with ClrMD. It charges every object once, to the first path that reaches it. The label is the nearest field of one of

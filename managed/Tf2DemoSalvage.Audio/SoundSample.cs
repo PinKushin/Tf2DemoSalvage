@@ -51,7 +51,7 @@ public readonly record struct SoundSample(
     /// The samples as the WAV holds them, 16-bit, when that is all the source ever had; then <see cref="Samples"/> is empty.
     /// </summary>
     /// <remarks>
-    /// **Half the memory, and exactly the same sound** (finding 78: the cache held 387 MB of WAV samples as float on f12). A
+    /// **Half the memory, and exactly the same sound** (finding 80: the cache held 387 MB of WAV samples as float on f12). A
     /// 16-bit or 8-bit PCM sample divided by 32,768 is exactly representable as a float, so <see cref="SampleAt"/> gives back
     /// the very value the float path stored. MP3 stays float: NLayer decodes to float, which has more precision than 16 bits.
     /// </remarks>
@@ -167,7 +167,7 @@ public static class SoundSampleReader
         {
             // Loops carried through from the wave's `cue ` chunk: an ambient that does not loop
             // plays once and the map falls silent (B169).
-            // Held as 16-bit: the file's own precision, exactly (finding 78).
+            // Held as 16-bit: the file's own precision, exactly (finding 80).
             16 => SoundSampleResult.Decoded(
                 new SoundSample(wave.SampleRate, wave.Channels, ReadOnlyMemory<float>.Empty, wave.Loops) { Pcm16 = Sixteen(wave.Data.Span) }),
             8 => SoundSampleResult.Decoded(

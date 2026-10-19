@@ -416,7 +416,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
             // **Offsets are global and the set may have let go of what was uploaded before** (B407), so the slice starts at
             // `lowest - VertexBase`. A model not yet uploaded is always in what the set still holds.
             //
-            // **A view, not a copy** (finding 78): a fresh array per model was 54 MB of large-object garbage per 20 s of
+            // **A view, not a copy** (finding 80): a fresh array per model was 54 MB of large-object garbage per 20 s of
             // f12, read once by the renderer's packing and then dropped below. The view is dropped with it.
             Slice own = new(models.Vertices, lowest - models.VertexBase, highest - lowest);
 
@@ -447,7 +447,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         // again after creating its buffer — its own skip is keyed on the buffer — and keeping the copy held 412 MB on f12, a
         // second copy of `EntityModelSet`'s list. After the call rather than before, so a failed upload leaves them to retry.
         //
-        // **Skinned models' too** (finding 78): they were kept for a decal on a player, 623 MB on f12, and the model set now
+        // **Skinned models' too** (finding 80): they were kept for a decal on a player, 623 MB on f12, and the model set now
         // rebuilds a model's packed vertices from the corners it keeps (`IPosedEntities.PackedVertices`).
         foreach (string path in fresh)
         {
@@ -455,7 +455,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         }
     }
 
-    /// <summary>A run of the model set's vertices, read in place by the upload (finding 78).</summary>
+    /// <summary>A run of the model set's vertices, read in place by the upload (finding 80).</summary>
     private sealed class Slice(IReadOnlyList<WorldVertex> source, int start, int count) : IReadOnlyList<WorldVertex>
     {
         public int Count => count;

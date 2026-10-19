@@ -613,7 +613,7 @@ public sealed class EntityModelSet : Hud.IMdlCache, IPosedEntities
 
     private readonly List<WorldVertex> _vertices = [];
 
-    /// <summary>The flex deltas' accumulation arrays, reused by every face that changes (finding 78); grown to the model drawn.</summary>
+    /// <summary>The flex deltas' accumulation arrays, reused by every face that changes (finding 80); grown to the model drawn.</summary>
     private (float[] Positions, float[] Normals) _flexScratch = ([], []);
 
     /// <summary>Every packed model's batches, one list per baked animation frame.</summary>
@@ -686,7 +686,7 @@ public sealed class EntityModelSet : Hud.IMdlCache, IPosedEntities
             }
             else
             {
-                // **Written into arrays this set keeps, not new ones per frame** (finding 78): a talking face changes every
+                // **Written into arrays this set keeps, not new ones per frame** (finding 80): a talking face changes every
                 // frame, and three .vvd-sized arrays a face a frame were 2 GB of large-object garbage in 20 s of f12. The
                 // deltas are scratch; the stream is the entity's own, rewritten in place (the renderer uploads per draw).
                 // Grown only: faces of different classes alternate, and an exact size would reallocate at every switch.
@@ -5569,7 +5569,7 @@ public sealed class EntityModelSet : Hud.IMdlCache, IPosedEntities
             reserve += model.Geometry.Sum(frame => frame.Count);
         }
 
-        // **Reserved once for every model this call packs, then filled** (finding 78). Grown model by model, the list
+        // **Reserved once for every model this call packs, then filled** (finding 80). Grown model by model, the list
         // doubled its way up, and the arrays it outgrew were 1.45 GB of large-object garbage over f12's precache.
         // Exact, not `EnsureCapacity`: doubling measured worse on f12 (150 against 104 MB per 20 s), because several
         // precache calls each grow a list that is already large.
@@ -5607,7 +5607,7 @@ public sealed class EntityModelSet : Hud.IMdlCache, IPosedEntities
                 // share family zero's material and differ in another family, so a run merged
                 // across skinrefs has no single answer to "what paints this at skin 1".
                 //
-                // **The grouping holds corner indices, not packed vertices** (finding 78): a list of
+                // **The grouping holds corner indices, not packed vertices** (finding 80): a list of
                 // packed vertices per group, grown by doubling and then copied into `_vertices`, was
                 // 2.8 GB of large-object garbage over f12's precache. The indices are also which
                 // corner each grouped vertex came from (B426).
@@ -5818,7 +5818,7 @@ public sealed class EntityModelSet : Hud.IMdlCache, IPosedEntities
             TangentZ: corner.TangentZ,
             TangentW: corner.TangentW);
 
-    /// <summary>A model's first frame as it was packed, rebuilt from its corners and packing order (finding 78).</summary>
+    /// <summary>A model's first frame as it was packed, rebuilt from its corners and packing order (finding 80).</summary>
     /// <param name="modelPath">The model.</param>
     /// <returns>The vertices, in buffer order, or null for a model not packed.</returns>
     /// <remarks>
@@ -5831,7 +5831,7 @@ public sealed class EntityModelSet : Hud.IMdlCache, IPosedEntities
         ArgumentNullException.ThrowIfNull(modelPath);
 
         // Once per model struck, kept until the level lets its models go: a rebuild per decal was ~40 MB of large-object
-        // garbage per 20 s of f12 (finding 78).
+        // garbage per 20 s of f12 (finding 80).
         if (_packedRebuilt.TryGetValue(modelPath, out WorldVertex[]? rebuilt))
         {
             return rebuilt;
@@ -5857,7 +5857,7 @@ public sealed class EntityModelSet : Hud.IMdlCache, IPosedEntities
         return packed;
     }
 
-    /// <summary>The packed vertices rebuilt for models a decal has struck, by path (finding 78).</summary>
+    /// <summary>The packed vertices rebuilt for models a decal has struck, by path (finding 80).</summary>
     private readonly Dictionary<string, WorldVertex[]> _packedRebuilt = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>Whether the set has grown since the last upload, however it grew.</summary>

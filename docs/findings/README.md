@@ -266,7 +266,7 @@ in any public writeup found:
   of the viewer's 7.6 GB. 329 MB is model vertices, baked once per animation frame for unskinned models, where the
   engine poses one bind pose. 239 MB is every particle definition, held as a DMX tree per map, where the engine
   types them once per process. About 127 MB is texture pixels the device already holds. A `CTexture` keeps no
-  texels after `ReconstructTexture` (disassembled) ([78](78-a-map-keeps-what-valve-uploads-and-frees.md)).
+  texels after `ReconstructTexture` (disassembled) ([80](80-a-map-keeps-what-valve-uploads-and-frees.md)).
 
 ## Conventions used throughout
 

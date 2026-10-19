@@ -830,7 +830,7 @@ public sealed class MapAssets
         Bumps = [.. Bumps.Select(bump => bump is { } present ? present with { Texture = Bare(present.Texture)!.Value } : (MapBump?)null)];
         Details = [.. Details.Select(detail => detail is { } present ? present with { Texture = Bare(present.Texture)!.Value } : (MapDetail?)null)];
 
-        // Uploaded in the same pass as the base textures (`UploadWorldTextures`), so the device holds them too (finding 78).
+        // Uploaded in the same pass as the base textures (`UploadWorldTextures`), so the device holds them too (finding 80).
         AnimatedDetails = AnimatedDetails.ToDictionary(
             pair => pair.Key,
             pair => (IReadOnlyList<MapTexture>)[.. pair.Value.Select(frame => Bare(frame)!.Value)],

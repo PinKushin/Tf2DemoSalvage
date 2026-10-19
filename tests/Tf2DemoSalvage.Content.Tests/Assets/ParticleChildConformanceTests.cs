@@ -111,7 +111,7 @@ public sealed class ParticleChildConformanceTests
     [Test]
     public void Children_AgainstTheWholeGamesLookup_DoNotCopyIt()
     {
-        // **Measured in the viewer (finding 78):** 342 MB of large-object allocations in twenty seconds of f12 were copies of
+        // **Measured in the viewer (finding 80):** 342 MB of large-object allocations in twenty seconds of f12 were copies of
         // the 9,050-system lookup, one per child resolved, made to drop the parent's name. A copy of a 20,000-entry
         // dictionary is over 600 KB, so a child resolved against one must allocate far less than that; the grandchild
         // cycle must still end, as the test above holds.
