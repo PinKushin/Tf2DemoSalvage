@@ -35,6 +35,10 @@
 
   <ItemGroup Label="Runtime">
     <PackageVersion Include="Microsoft.Extensions.Logging" Version="10.0.12" />
+    <!-- Read by tools/Tf2DemoSalvage.Probe only (alloc-trace, finding 80): allocation stacks from an EventPipe trace. -->
+    <PackageVersion Include="Microsoft.Diagnostics.Tracing.TraceEvent" Version="4.0.0" />
+    <!-- Read by tools/Tf2DemoSalvage.Probe only (heap-owners, finding 80): a full dump's live set by retaining path. -->
+    <PackageVersion Include="Microsoft.Diagnostics.Runtime" Version="4.2.751201" />
     <PackageVersion Include="Microsoft.Extensions.Logging.Console" Version="10.0.12" />
 
     <!-- Abstractions alone, for Tf2DemoSalvage.Logging and for anything that only needs ILogger.

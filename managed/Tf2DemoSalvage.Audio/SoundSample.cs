@@ -41,11 +41,29 @@ public readonly record struct SoundSample(
     /// </remarks>
     public TimeSpan Duration =>
         SampleRate > 0 && Channels > 0
-            ? TimeSpan.FromSeconds((double)Samples.Length / Channels / SampleRate)
+            ? TimeSpan.FromSeconds((double)SampleCount / Channels / SampleRate)
             : TimeSpan.Zero;
 
     /// <summary>Number of frames, one per instant regardless of channel count.</summary>
-    public int FrameCount => Channels > 0 ? Samples.Length / Channels : 0;
+    public int FrameCount => Channels > 0 ? SampleCount / Channels : 0;
+
+    /// <summary>
+    /// The samples as the WAV holds them, 16-bit, when that is all the source ever had; then <see cref="Samples"/> is empty.
+    /// </summary>
+    /// <remarks>
+    /// **Half the memory, and exactly the same sound** (finding 80: the cache held 387 MB of WAV samples as float on f12). A
+    /// 16-bit or 8-bit PCM sample divided by 32,768 is exactly representable as a float, so <see cref="SampleAt"/> gives back
+    /// the very value the float path stored. MP3 stays float: NLayer decodes to float, which has more precision than 16 bits.
+    /// </remarks>
+    public ReadOnlyMemory<short> Pcm16 { get; init; }
+
+    /// <summary>How many samples there are, across channels, whichever form holds them.</summary>
+    public int SampleCount => Pcm16.IsEmpty ? Samples.Length : Pcm16.Length;
+
+    /// <summary>One sample, normalised to −1…1, whichever form holds it.</summary>
+    /// <param name="index">The interleaved index.</param>
+    /// <returns>The sample.</returns>
+    public float SampleAt(int index) => Pcm16.IsEmpty ? Samples.Span[index] : Pcm16.Span[index] / 32768f;
 }
 
 /// <summary>The outcome of trying to decode a sound, including why it was refused.</summary>
@@ -149,12 +167,11 @@ public static class SoundSampleReader
         {
             // Loops carried through from the wave's `cue ` chunk: an ambient that does not loop
             // plays once and the map falls silent (B169).
+            // Held as 16-bit: the file's own precision, exactly (finding 80).
             16 => SoundSampleResult.Decoded(
-                new SoundSample(
-                    wave.SampleRate, wave.Channels, Sixteen(wave.Data.Span), wave.Loops)),
+                new SoundSample(wave.SampleRate, wave.Channels, ReadOnlyMemory<float>.Empty, wave.Loops) { Pcm16 = Sixteen(wave.Data.Span) }),
             8 => SoundSampleResult.Decoded(
-                new SoundSample(
-                    wave.SampleRate, wave.Channels, Eight(wave.Data.Span), wave.Loops)),
+                new SoundSample(wave.SampleRate, wave.Channels, ReadOnlyMemory<float>.Empty, wave.Loops) { Pcm16 = Eight(wave.Data.Span) }),
             _ => SoundSampleResult.Refused($"unsupported bit depth {wave.BitsPerSample}"),
         };
     }
@@ -165,13 +182,13 @@ public static class SoundSampleReader
     /// magnitude of the most negative sample; dividing by 32767 lets that one value reach −1.000031
     /// and clip. The asymmetry is in the format, not in the arithmetic.
     /// </remarks>
-    private static float[] Sixteen(ReadOnlySpan<byte> data)
+    private static short[] Sixteen(ReadOnlySpan<byte> data)
     {
-        float[] samples = new float[data.Length / 2];
+        short[] samples = new short[data.Length / 2];
 
         for (int i = 0; i < samples.Length; i++)
         {
-            samples[i] = BinaryPrimitives.ReadInt16LittleEndian(data[(i * 2)..]) / 32768f;
+            samples[i] = BinaryPrimitives.ReadInt16LittleEndian(data[(i * 2)..]);
         }
 
         return samples;
@@ -183,13 +200,14 @@ public static class SoundSampleReader
     /// reader treating it as signed produces audio that is inverted and offset — audible as a click
     /// and a hum rather than as an error.
     /// </remarks>
-    private static float[] Eight(ReadOnlySpan<byte> data)
+    private static short[] Eight(ReadOnlySpan<byte> data)
     {
-        float[] samples = new float[data.Length];
+        short[] samples = new short[data.Length];
 
+        // (x − 128) / 128 is (x − 128) · 256 / 32768: the same float, held in 16 bits.
         for (int i = 0; i < data.Length; i++)
         {
-            samples[i] = (data[i] - 128) / 128f;
+            samples[i] = (short)((data[i] - 128) * 256);
         }
 
         return samples;

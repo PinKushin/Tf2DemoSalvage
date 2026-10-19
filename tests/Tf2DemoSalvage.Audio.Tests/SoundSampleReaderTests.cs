@@ -39,10 +39,10 @@ public sealed class SoundSampleReaderTests
 
         sample.SampleRate.ShouldBe(22050);
         sample.Channels.ShouldBe(1);
-        sample.Samples.Span[0].ShouldBe(0f);
-        sample.Samples.Span[1].ShouldBe(32767f / 32768f, 0.000001);
-        sample.Samples.Span[2].ShouldBe(-1f, "the most negative sample reaches exactly -1");
-        sample.Samples.Span[3].ShouldBe(-0.5f, 0.000001);
+        sample.SampleAt(0).ShouldBe(0f);
+        sample.SampleAt(1).ShouldBe(32767f / 32768f, 0.000001);
+        sample.SampleAt(2).ShouldBe(-1f, "the most negative sample reaches exactly -1");
+        sample.SampleAt(3).ShouldBe(-0.5f, 0.000001);
     }
 
     [Test]
@@ -55,12 +55,12 @@ public sealed class SoundSampleReaderTests
             SoundSampleReaderTests.WaveBytes(8, 1, 11025, [0, 128, 255, 64]));
 
         result.Refusal.ShouldBeNull();
-        ReadOnlySpan<float> samples = result.Sample!.Value.Samples.Span;
+        SoundSample sample = result.Sample!.Value;
 
-        samples[0].ShouldBe(-1f, "byte 0 is full negative, not silence");
-        samples[1].ShouldBe(0f, "byte 128 is the centre");
-        samples[2].ShouldBe(255f / 128f - 1f, 0.000001);
-        samples[3].ShouldBe(-0.5f, 0.000001);
+        sample.SampleAt(0).ShouldBe(-1f, "byte 0 is full negative, not silence");
+        sample.SampleAt(1).ShouldBe(0f, "byte 128 is the centre");
+        sample.SampleAt(2).ShouldBe(255f / 128f - 1f, 0.000001);
+        sample.SampleAt(3).ShouldBe(-0.5f, 0.000001);
     }
 
     [Test]
@@ -74,10 +74,10 @@ public sealed class SoundSampleReaderTests
         SoundSample sample = result.Sample!.Value;
 
         sample.Channels.ShouldBe(2);
-        sample.Samples.Length.ShouldBe(4, "four samples");
+        sample.SampleCount.ShouldBe(4, "four samples");
         sample.FrameCount.ShouldBe(2, "but only two frames");
-        sample.Samples.Span[0].ShouldBeGreaterThan(0f, "left of frame 0");
-        sample.Samples.Span[1].ShouldBeLessThan(0f, "right of frame 0");
+        sample.SampleAt(0).ShouldBeGreaterThan(0f, "left of frame 0");
+        sample.SampleAt(1).ShouldBeLessThan(0f, "right of frame 0");
     }
 
     [Test]

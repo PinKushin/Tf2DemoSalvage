@@ -423,7 +423,7 @@ public sealed class SoundscapeSystem(
         {
             audio.LogWarning(
                 "{Message}",
-                $"soundscape loop '{voice.Wave}' started no voice: {opened.Samples.Length} samples, {opened.SampleRate} Hz, {opened.Channels} channels");
+                $"soundscape loop '{voice.Wave}' started no voice: {opened.SampleCount} samples, {opened.SampleRate} Hz, {opened.Channels} channels");
         }
 
         _voices.Add(voice.Key);

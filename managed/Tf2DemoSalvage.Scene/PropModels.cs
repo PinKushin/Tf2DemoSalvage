@@ -118,8 +118,18 @@ public readonly record struct PlacedProp(PropShape Shape, PropTransform Transfor
     public WorldVertex[] InWorld()
     {
         WorldVertex[] placed = new WorldVertex[Shape.Positions.Length];
+        _ = InWorld(placed);
+        return placed;
+    }
 
-        for (int at = 0; at < placed.Length; at++)
+    /// <summary>The same triangles written into a caller's array, at least as long as the shape (finding 80).</summary>
+    /// <param name="placed">Where to write; a reused buffer, so a decal shot on a prop allocates no world copy.</param>
+    /// <returns>How many corners were written, from the start of <paramref name="placed"/>.</returns>
+    public int InWorld(WorldVertex[] placed)
+    {
+        ArgumentNullException.ThrowIfNull(placed);
+
+        for (int at = 0; at < Shape.Positions.Length; at++)
         {
             Vector3 position = Shape.Positions[at];
             Vector3 corner = Shape.Normals[at];
@@ -130,7 +140,7 @@ public readonly record struct PlacedProp(PropShape Shape, PropTransform Transfor
             placed[at] = new WorldVertex(x, y, z, 0f, 0f, 0f, 0f, 1f, NormalX: normal.X, NormalY: normal.Y, NormalZ: normal.Z);
         }
 
-        return placed;
+        return Shape.Positions.Length;
     }
 }
 

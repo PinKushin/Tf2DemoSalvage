@@ -428,7 +428,7 @@ public sealed class DecalEffects
         DecalAssets assets,
         IDecalUpload device)
     {
-        (ModelDecalShot? shot, string refused) = ModelDecalFor(draw, impact, struck, impacts, assets, device);
+        (ModelDecalShot? shot, string refused) = ModelDecalFor(draw, impact, struck, impacts, assets);
 
         // Stryker disable once all : a mutated guard leaves its pattern variables unassigned (CS0165) and Safe Mode drops the method - B410
         if (shot is not { } s)
@@ -490,7 +490,7 @@ public sealed class DecalEffects
 
     /// <summary>The guards between an impact and a decal on the struck model, in the engine's order; the reason when one refuses.</summary>
     private (ModelDecalShot? Shot, string Refused) ModelDecalFor(
-        Func<float, float, float> draw, SceneEffectDispatch impact, ScenePlayer struck, ImpactDecals impacts, DecalAssets assets, IDecalUpload device)
+        Func<float, float, float> draw, SceneEffectDispatch impact, ScenePlayer struck, ImpactDecals impacts, DecalAssets assets)
     {
         if (impact.DamageType == struck.Team)
         {
@@ -530,7 +530,7 @@ public sealed class DecalEffects
         }
 
         // Stryker disable once all : a mutated guard leaves its pattern variables unassigned (CS0165) and Safe Mode drops the method - B410
-        if (_models.SkinningOf(impact.Entity) is not { } pose || device.SkinnedVertices(pose.Model) is not { } vertices)
+        if (_models.SkinningOf(impact.Entity) is not { } pose || _models.PackedVertices(pose.Model) is not { } vertices)
         {
             return (null, "no skinned model");
         }
@@ -1181,6 +1181,24 @@ public sealed class DecalEffects
         device.UploadShotDecals(_decalVertices, _decalBatches, _entityDecalBatches);
     }
 
+    /// <summary>The prop corners a decal shot projects onto, reused across shots and only grown (finding 80).</summary>
+    private WorldVertex[] _propInWorld = [];
+
+    /// <summary>
+    /// A static prop's triangles in the world, written into <see cref="_propInWorld"/>: valid until the next call, which is
+    /// all <c>DecalReplay</c> asks, since the projection copies the corners it keeps. A new copy per shot was 33 MB of
+    /// large-object garbage per 20 s of f12 (finding 80).
+    /// </summary>
+    private ArraySegment<WorldVertex> PropInWorld(PlacedProp placed)
+    {
+        if (_propInWorld.Length < placed.Shape.Positions.Length)
+        {
+            _propInWorld = new WorldVertex[placed.Shape.Positions.Length];
+        }
+
+        return new ArraySegment<WorldVertex>(_propInWorld, 0, placed.InWorld(_propInWorld));
+    }
+
     /// <summary>The world's decal replay, made on first use once a map and a timeline are loaded.</summary>
     private DecalReplay? DecalReplayOf()
     {
@@ -1198,7 +1216,7 @@ public sealed class DecalEffects
             index => timeline.Decals.Names.Name(index) is { } name ? impacts.Materials.Resolve(name) : null,
             loaded.Doors.Of,
             new StaticPropDecalSource(
-                prop => assets.PlacedProps.TryGetValue(prop, out PlacedProp placed) ? placed.InWorld() : null,
+                prop => assets.PlacedProps.TryGetValue(prop, out PlacedProp placed) ? PropInWorld(placed) : (IReadOnlyList<WorldVertex>?)null,
                 material => assets.DecalMaterials.TryGetValue(material.ModelMaterial ?? material.Draws ?? material.Name, out int index)
                     ? index
                     : -1),

@@ -215,6 +215,9 @@ public sealed partial class ViewerSession
     /// <summary>Frames counted into <see cref="_frameSeconds"/> since the last printed measurement.</summary>
     private int _framesMeasured;
 
+    /// <summary>The runtime's large-allocation ticks over a measurement; made when the first measured frame is counted.</summary>
+    private AllocationTickListener? _allocations;
+
     /// <summary>The measured frames' phases, summed, for a paused measurement that writes no per-second line.</summary>
     private FramePhases _phasesMeasured;
 
@@ -245,6 +248,28 @@ public sealed partial class ViewerSession
                 $"advance {each(sum.Advance):0.00}, capture {each(sum.Capture):0.00}, hud {each(sum.Hud):0.00}, draw {each(sum.Draw):0.00}; " +
                 $"particles now: {trails} trails, {bursts} bursts, {quads} quads last frame"));
         }
+
+        // The GC's own account beside the process's, read where the measurement ends (finding 80).
+        // Stryker disable once all : a mutated interpolated string cannot bind to its handler (CS1620) and Safe Mode drops the method - B410
+        _host.Out.WriteLine(string.Create(
+            CultureInfo.InvariantCulture,
+            $"  {GcMemoryLine.Now()}; entity model vertices on the CPU {_presenter.Models.Vertices.Count:N0} in {_presenter.Models.VertexBytes / 1048576d:F0} MB"));
+
+        if (_allocations is { } allocations)
+        {
+            _host.Out.WriteLine("  " + allocations.Tally.Report(8));
+        }
+
+        // Everything this process allocated since it started, every heap: the control for a whole-process trace (finding 80).
+        // Stryker disable once all : a mutated interpolated string cannot bind to its handler (CS1620) and Safe Mode drops the method - B410
+        _host.Out.WriteLine(string.Create(
+            CultureInfo.InvariantCulture, $"  allocated since start: {GC.GetTotalAllocatedBytes() / 1048576d:0} MB"));
+
+        // Stryker disable once all : a mutated interpolated string cannot bind to its handler (CS1620) and Safe Mode drops the method - B410
+        Audio.SoundCacheHeld sounds = _presenter.SoundsHeld;
+        _host.Out.WriteLine(string.Create(
+            CultureInfo.InvariantCulture,
+            $"  sound cache: {sounds.Sounds} sounds, WAV {sounds.WaveBytes / 1048576d:0} MB, MP3 {sounds.Mp3Bytes / 1048576d:0} MB held; {sounds.Misses} decodes in play"));
 
         _framesMeasured = 0;
         _phasesMeasured = default;
@@ -376,6 +401,14 @@ public sealed partial class ViewerSession
         if (onScreen && _wasOnScreen)
         {
             _frameSeconds += _clock.LastFrameSeconds;
+
+            // The large-allocation tally counts the measured frames only, not the load before them (finding 80).
+            if (_framesMeasured == 0 && _launch.MeasureSeconds is not null)
+            {
+                _allocations ??= new AllocationTickListener();
+                _allocations.Tally.Clear();
+            }
+
             _framesMeasured++;
             _phasesMeasured = new FramePhases(
                 _phasesMeasured.Sound + phases.Sound,

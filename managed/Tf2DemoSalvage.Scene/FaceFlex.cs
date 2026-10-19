@@ -79,8 +79,25 @@ public static class FaceFlex
     {
         ArgumentNullException.ThrowIfNull(data);
 
-        float[] positions = new float[vertexCount * 3];
-        float[] normals = new float[vertexCount * 3];
+        return Deltas(data, weights, delayed, new float[vertexCount * 3], new float[vertexCount * 3]);
+    }
+
+    /// <summary>The same, accumulated into the caller's arrays, which are cleared first and returned when anything moved.</summary>
+    /// <param name="data">The model's tables.</param>
+    /// <param name="weights">Descriptor weights.</param>
+    /// <param name="delayed">Delayed descriptor weights.</param>
+    /// <param name="positions">Three floats per <c>.vvd</c> vertex; reused, so a moving face allocates nothing (finding 80).</param>
+    /// <param name="normals">The same for the normals.</param>
+    /// <returns>The two arrays, or null when the weights move nothing.</returns>
+    public static (float[] Positions, float[] Normals)? Deltas(
+        StudioFlexData data, float[] weights, float[] delayed, float[] positions, float[] normals)
+    {
+        ArgumentNullException.ThrowIfNull(data);
+        ArgumentNullException.ThrowIfNull(positions);
+        ArgumentNullException.ThrowIfNull(normals);
+
+        Array.Clear(positions);
+        Array.Clear(normals);
 
         return StudioFlexRules.Accumulate(data, weights, delayed, positions, normals) > 0 ? (positions, normals) : null;
     }
@@ -99,17 +116,33 @@ public static class FaceFlex
     }
 
     /// <summary>Spreads per-vertex deltas over the uploaded buffer's order: six floats per buffer vertex.</summary>
-    /// <param name="deltas">From <see cref="Deltas"/>.</param>
+    /// <param name="deltas">From <see cref="Deltas(StudioFlexData, float[], float[], int)"/>.</param>
     /// <param name="cornerVertex">Each corner's <c>.vvd</c> vertex, in the model's corner order.</param>
     /// <param name="packedOrder">Each buffer vertex's corner.</param>
     /// <returns>Position delta then normal delta for every buffer vertex.</returns>
     public static float[] InBufferOrder(
         (float[] Positions, float[] Normals) deltas, IReadOnlyList<int> cornerVertex, IReadOnlyList<int> packedOrder)
     {
-        ArgumentNullException.ThrowIfNull(cornerVertex);
         ArgumentNullException.ThrowIfNull(packedOrder);
 
-        float[] stream = new float[packedOrder.Count * 6];
+        return InBufferOrder(deltas, cornerVertex, packedOrder, new float[packedOrder.Count * 6]);
+    }
+
+    /// <summary>The same, written into the caller's stream, which is cleared first — one per face, reused (finding 80).</summary>
+    /// <param name="deltas">From <see cref="Deltas(StudioFlexData, float[], float[], int)"/>.</param>
+    /// <param name="cornerVertex">Each corner's <c>.vvd</c> vertex, in the model's corner order.</param>
+    /// <param name="packedOrder">Each buffer vertex's corner.</param>
+    /// <param name="stream">Six floats per buffer vertex.</param>
+    /// <returns><paramref name="stream"/>.</returns>
+    public static float[] InBufferOrder(
+        (float[] Positions, float[] Normals) deltas, IReadOnlyList<int> cornerVertex, IReadOnlyList<int> packedOrder, float[] stream)
+    {
+        ArgumentNullException.ThrowIfNull(cornerVertex);
+        ArgumentNullException.ThrowIfNull(packedOrder);
+        ArgumentNullException.ThrowIfNull(stream);
+
+        Array.Clear(stream);
+
 
         for (int at = 0; at < packedOrder.Count; at++)
         {

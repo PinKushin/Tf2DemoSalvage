@@ -147,6 +147,9 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
     /// <summary>How many sounds are still playing.</summary>
     public int Playing => _playing.Count;
 
+    /// <summary>The interleaved stereo a sound is converted into before OpenAL copies it; reused (finding 80).</summary>
+    private short[] _stereo = [];
+
     /// <summary>Plays one sound, already mixed and already attenuated.</summary>
     /// <param name="sample">The decoded sound.</param>
     /// <param name="leftPan">The left ear's share of the image, from <see cref="SoundGain.Pan"/>.</param>
@@ -184,7 +187,7 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
 
-        if (sample.Samples.Length == 0 || sample.SampleRate <= 0 || sample.Channels <= 0)
+        if (sample.SampleCount == 0 || sample.SampleRate <= 0 || sample.Channels <= 0)
         {
             return 0;
         }
@@ -211,9 +214,17 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
         //
         // Splitting them puts the half that must follow the listener — the scalar attenuation —
         // where it can be set per frame, and leaves the stereo image where it costs nothing.
-        short[] stereo = ToStereo16(sample, leftPan, rightPan);
+        // **Into a buffer this output keeps** (finding 80): OpenAL copies on `BufferData`, so the interleaved samples are
+        // scratch, and a new array per sound started was 90 MB of short[] per 20 s of f12. Grown, never shrunk; `Play`
+        // is not reentrant, as the voices list beside it already requires.
+        if (_stereo.Length < sample.FrameCount * 2)
+        {
+            _stereo = new short[sample.FrameCount * 2];
+        }
 
-        if (stereo.Length == 0)
+        int written = ToStereo16(sample, leftPan, rightPan, _stereo);
+
+        if (written == 0)
         {
             return 0;
         }
@@ -221,13 +232,13 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
         uint buffer = _al.GenBuffer();
         uint source = _al.GenSource();
 
-        fixed (short* data = stereo)
+        fixed (short* data = _stereo)
         {
             _al.BufferData(
                 buffer,
                 BufferFormat.Stereo16,
                 data,
-                stereo.Length * sizeof(short),
+                written * sizeof(short),
                 sample.SampleRate);
         }
 
@@ -511,28 +522,49 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
     /// </remarks>
     internal static short[] ToStereo16(SoundSample sample, float leftGain, float rightGain)
     {
-        ReadOnlySpan<float> samples = sample.Samples.Span;
-        int frames = sample.FrameCount;
-
-        if (frames <= 0)
+        if (sample.FrameCount <= 0)
         {
             return [];
         }
 
-        short[] stereo = new short[frames * 2];
+        short[] stereo = new short[sample.FrameCount * 2];
+        _ = ToStereo16(sample, leftGain, rightGain, stereo);
+        return stereo;
+    }
+
+    /// <summary>The same conversion written into a caller's buffer, at least two shorts a frame (finding 80).</summary>
+    /// <param name="sample">The decoded sound.</param>
+    /// <param name="leftGain">Gain for the left ear.</param>
+    /// <param name="rightGain">Gain for the right ear.</param>
+    /// <param name="stereo">Where to write; reused, so starting a sound allocates no array.</param>
+    /// <returns>How many shorts were written, from the start of <paramref name="stereo"/>.</returns>
+    internal static int ToStereo16(SoundSample sample, float leftGain, float rightGain, Span<short> stereo)
+    {
+        ReadOnlySpan<float> samples = sample.Samples.Span;
+        ReadOnlySpan<short> pcm = sample.Pcm16.Span;
+        bool held16 = !sample.Pcm16.IsEmpty;
+        int frames = sample.FrameCount;
+
+        if (frames <= 0)
+        {
+            return 0;
+        }
+
+        // A WAV held as 16-bit is read back as the float the float path stored: exactly s / 32768 (SoundSample.Pcm16).
+        float At(ReadOnlySpan<float> asFloat, ReadOnlySpan<short> asShort, int index) => held16 ? asShort[index] / 32768f : asFloat[index];
 
         for (int frame = 0; frame < frames; frame++)
         {
             // A mono source feeds both ears and the two gains do the panning; a stereo source
             // already carries its own image and each side is only scaled.
-            float left = samples[frame * sample.Channels];
-            float right = sample.Channels > 1 ? samples[(frame * sample.Channels) + 1] : left;
+            float left = At(samples, pcm, frame * sample.Channels);
+            float right = sample.Channels > 1 ? At(samples, pcm, (frame * sample.Channels) + 1) : left;
 
             stereo[frame * 2] = ToPcm(left * leftGain);
             stereo[(frame * 2) + 1] = ToPcm(right * rightGain);
         }
 
-        return stereo;
+        return frames * 2;
     }
 
     private static short ToPcm(float value) =>

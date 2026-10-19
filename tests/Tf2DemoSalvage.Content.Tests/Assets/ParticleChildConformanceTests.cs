@@ -108,6 +108,33 @@ public sealed class ParticleChildConformanceTests
         effect.Children[0].Children.ShouldBeEmpty();
     }
 
+    [Test]
+    public void Children_AgainstTheWholeGamesLookup_DoNotCopyIt()
+    {
+        // **Measured in the viewer (finding 80):** 342 MB of large-object allocations in twenty seconds of f12 were copies of
+        // the 9,050-system lookup, one per child resolved, made to drop the parent's name. A copy of a 20,000-entry
+        // dictionary is over 600 KB, so a child resolved against one must allocate far less than that; the grandchild
+        // cycle must still end, as the test above holds.
+        Dictionary<string, ParticleSystem> file = new(System.StringComparer.OrdinalIgnoreCase)
+        {
+            ["a"] = Emitting("a", ["b"]),
+            ["b"] = Emitting("b", ["a"]),
+        };
+
+        for (int index = 0; index < 20_000; index++)
+        {
+            file["filler" + index.ToString(System.Globalization.CultureInfo.InvariantCulture)] = file["b"];
+        }
+
+        _ = new ParticleEffect(file["a"], file);
+        long before = System.GC.GetAllocatedBytesForCurrentThread();
+        ParticleEffect effect = new(file["a"], file);
+        long allocated = System.GC.GetAllocatedBytesForCurrentThread() - before;
+
+        effect.Children[0].Children.ShouldBeEmpty();
+        allocated.ShouldBeLessThan(100_000);
+    }
+
     /// <summary>A system that emits steadily, with the given children by name.</summary>
     private static ParticleSystem Emitting(string named, IReadOnlyList<string> children) =>
         new(

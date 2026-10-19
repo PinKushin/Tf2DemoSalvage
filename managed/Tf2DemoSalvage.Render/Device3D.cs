@@ -418,13 +418,10 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
 
             // **Offsets are global and the set may have let go of what was uploaded before** (B407), so the slice starts at
             // `lowest - VertexBase`. A model not yet uploaded is always in what the set still holds.
-            WorldVertex[] own = new WorldVertex[highest - lowest];
-            int from = lowest - models.VertexBase;
-
-            for (int at = 0; at < own.Length; at++)
-            {
-                own[at] = models.Vertices[from + at];
-            }
+            //
+            // **A view, not a copy** (finding 80): a fresh array per model was 54 MB of large-object garbage per 20 s of
+            // f12, read once by the renderer's packing and then dropped below. The view is dropped with it.
+            Slice own = new(models.Vertices, lowest - models.VertexBase, highest - lowest);
 
             List<IReadOnlyList<WorldBatch>> rebased = [];
 
@@ -452,19 +449,32 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         // **The vertices are dropped from the cache once the renderer holds them** (B407): it never reads a model's vertices
         // again after creating its buffer — its own skip is keyed on the buffer — and keeping the copy held 412 MB on f12, a
         // second copy of `EntityModelSet`'s list. After the call rather than before, so a failed upload leaves them to retry.
+        //
+        // **Skinned models' too** (finding 80): they were kept for a decal on a player, 623 MB on f12, and the model set now
+        // rebuilds a model's packed vertices from the corners it keeps (`IPosedEntities.PackedVertices`).
         foreach (string path in fresh)
         {
-            // **A skinned model's vertices are kept** (B415): a decal is projected onto them when a bullet lands, as
-            // `CStudioRender::AddDecal` reads the model's own mesh. Players are the skinned models, and there are nine.
-            IReadOnlyList<WorldVertex> vertices = _packedModels[path].Vertices;
-
-            if (vertices.Count > 0 && vertices[0].WeightA > 0f)
-            {
-                _skinnedVertices[path] = vertices;
-            }
-
             _packedModels[path] = _packedModels[path] with { Vertices = [] };
         }
+    }
+
+    /// <summary>A run of the model set's vertices, read in place by the upload (finding 80).</summary>
+    private sealed class Slice(IReadOnlyList<WorldVertex> source, int start, int count) : IReadOnlyList<WorldVertex>
+    {
+        public int Count => count;
+
+        public WorldVertex this[int index] =>
+            (uint)index < (uint)count ? source[start + index] : throw new ArgumentOutOfRangeException(nameof(index));
+
+        public IEnumerator<WorldVertex> GetEnumerator()
+        {
+            for (int index = 0; index < count; index++)
+            {
+                yield return source[start + index];
+            }
+        }
+
+        System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() => GetEnumerator();
     }
 
     /// <summary>Writes the next presented frame to a PNG.</summary>
@@ -2239,15 +2249,6 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
     /// <summary>The decals on entities' models, drawn after each model with its bones (B415); null for none.</summary>
     public ModelDecals? ModelDecals { get; set; }
 
-    /// <summary>Each skinned model's packed vertices, kept for decal projection — see <see cref="SkinnedVertices"/>.</summary>
-    private readonly Dictionary<string, IReadOnlyList<WorldVertex>> _skinnedVertices = new(StringComparer.OrdinalIgnoreCase);
-
-    /// <summary>A skinned model's own vertices as uploaded, which its batches index; null for one not held.</summary>
-    /// <param name="modelPath">The model.</param>
-    /// <returns>The vertices, or null.</returns>
-    public IReadOnlyList<WorldVertex>? SkinnedVertices(string modelPath) =>
-        _skinnedVertices.GetValueOrDefault(modelPath);
-
     /// <summary>A model's batches at its first frame, which index its vertices.</summary>
     /// <param name="modelPath">The model.</param>
     /// <returns>Its runs, or empty.</returns>
@@ -3203,7 +3204,6 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         // The renderer's buffers went with it, so the slices that fed them must go too — otherwise
         // a path from the previous map resolves to geometry nothing holds any more.
         _packedModels.Clear();
-        _skinnedVertices.Clear();
     }
 
     /// <summary>Whether a textured map is loaded.</summary>

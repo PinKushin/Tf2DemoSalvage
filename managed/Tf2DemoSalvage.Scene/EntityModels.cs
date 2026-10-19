@@ -613,6 +613,9 @@ public sealed class EntityModelSet : Hud.IMdlCache, IPosedEntities
 
     private readonly List<WorldVertex> _vertices = [];
 
+    /// <summary>The flex deltas' accumulation arrays, reused by every face that changes (finding 80); grown to the model drawn.</summary>
+    private (float[] Positions, float[] Normals) _flexScratch = ([], []);
+
     /// <summary>Every packed model's batches, one list per baked animation frame.</summary>
     /// <remarks>
     /// **A frame is a vertex range, not a transform.** Each of an animated model's frames is
@@ -683,8 +686,19 @@ public sealed class EntityModelSet : Hud.IMdlCache, IPosedEntities
             }
             else
             {
-                face = FaceFlex.Deltas(model.Flex, weights, delayed, model.VertexCount) is { } deltas
-                    ? FaceFlex.InBufferOrder(deltas, model.CornerVertex, order)
+                // **Written into arrays this set keeps, not new ones per frame** (finding 80): a talking face changes every
+                // frame, and three .vvd-sized arrays a face a frame were 2 GB of large-object garbage in 20 s of f12. The
+                // deltas are scratch; the stream is the entity's own, rewritten in place (the renderer uploads per draw).
+                // Grown only: faces of different classes alternate, and an exact size would reallocate at every switch.
+                if (_flexScratch.Positions.Length < model.VertexCount * 3)
+                {
+                    _flexScratch = (new float[model.VertexCount * 3], new float[model.VertexCount * 3]);
+                }
+
+                float[] stream = last.Face is { } kept && kept.Length == order.Length * 6 ? kept : new float[order.Length * 6];
+
+                face = FaceFlex.Deltas(model.Flex, weights, delayed, _flexScratch.Positions, _flexScratch.Normals) is { } deltas
+                    ? FaceFlex.InBufferOrder(deltas, model.CornerVertex, order, stream)
                     : null;
                 _lastFace[prop.EntityIndex] = (weights, (float[])delayed.Clone(), face);
             }
@@ -5450,6 +5464,7 @@ public sealed class EntityModelSet : Hud.IMdlCache, IPosedEntities
         _lastFace.Clear();
         _swaps.Clear();
         _raw.Clear();
+        _packedRebuilt.Clear();
         _packedOrder.Clear();
         _bakedByEntity.Clear();
 
@@ -5511,6 +5526,8 @@ public sealed class EntityModelSet : Hud.IMdlCache, IPosedEntities
         ArgumentNullException.ThrowIfNull(load);
 
         bool added = false;
+        List<(SceneProp Prop, PropModels.ModelFrames Model, List<List<WorldBatch>> Frames)> loaded = [];
+        int reserve = 0;
 
         foreach (SceneProp prop in props)
         {
@@ -5548,6 +5565,21 @@ public sealed class EntityModelSet : Hud.IMdlCache, IPosedEntities
                     _swaps[prop.ModelPath] = families;
                 }
 
+            loaded.Add((prop, model, frames));
+            reserve += model.Geometry.Sum(frame => frame.Count);
+        }
+
+        // **Reserved once for every model this call packs, then filled** (finding 80). Grown model by model, the list
+        // doubled its way up, and the arrays it outgrew were 1.45 GB of large-object garbage over f12's precache.
+        // Exact, not `EnsureCapacity`: doubling measured worse on f12 (150 against 104 MB per 20 s), because several
+        // precache calls each grow a list that is already large.
+        if (_vertices.Capacity < _vertices.Count + reserve)
+        {
+            _vertices.Capacity = _vertices.Count + reserve;
+        }
+
+        foreach ((SceneProp prop, PropModels.ModelFrames model, List<List<WorldBatch>> frames) in loaded)
+        {
             List<int> order = [];
 
             for (int slot = 0; slot < model.Geometry.Count; slot++)
@@ -5574,17 +5606,16 @@ public sealed class EntityModelSet : Hud.IMdlCache, IPosedEntities
                 // **And by the skinref, for the same reason at draw time** (B229). Two meshes can
                 // share family zero's material and differ in another family, so a run merged
                 // across skinrefs has no single answer to "what paints this at skin 1".
-                Dictionary<(int Material, int Slot, int Part, int Model), List<WorldVertex>>
-                    byMaterial = [];
-
-                // Which corner each grouped vertex came from, in the same grouping (B426).
-                Dictionary<(int Material, int Slot, int Part, int Model), List<int>> cornersOf = [];
+                //
+                // **The grouping holds corner indices, not packed vertices** (finding 80): a list of
+                // packed vertices per group, grown by doubling and then copied into `_vertices`, was
+                // 2.8 GB of large-object garbage over f12's precache. The indices are also which
+                // corner each grouped vertex came from (B426).
+                Dictionary<(int Material, int Slot, int Part, int Model), List<int>> byMaterial = [];
 
                 for (int index = 0; index < corners.Count; index++)
                 {
                     PropVertex corner = corners[index];
-
-                    PropVertex ahead = index < onward.Count ? onward[index] : corner;
 
                     (int Material, int Slot, int Part, int Model) key = (
                         corner.MaterialIndex,
@@ -5592,60 +5623,16 @@ public sealed class EntityModelSet : Hud.IMdlCache, IPosedEntities
                         corner.BodyPart,
                         corner.BodyModel);
 
-                    if (!byMaterial.TryGetValue(key, out List<WorldVertex>? into))
+                    if (!byMaterial.TryGetValue(key, out List<int>? into))
                     {
                         into = [];
                         byMaterial[key] = into;
-                        cornersOf[key] = [];
                     }
 
-                    cornersOf[key].Add(index);
-
-                    // **Model space, untouched.** The shader's model matrix places it.
-                    //
-                    // **The lightmap coordinates are zero for a studio model and real for a brush
-                    // entity (B131).** A `.mdl` is lit by its own vertex colours in the engine too,
-                    // and (0, 0) is the atlas's reserved white texel, so the lightmap term is an
-                    // identity rather than darkness. A door is the opposite case: vrad lights every
-                    // model's faces (vrad.cpp:703) and its samples are already in the same atlas as
-                    // the wall's, so passing them is all that separates a lightmapped door from a
-                    // flat one. BrushModels fills them; PropModels leaves them at zero.
-                    into.Add(new WorldVertex(
-                        corner.X, corner.Y, corner.Z, corner.U, corner.V,
-                        corner.LightU, corner.LightV, 0f,
-                        LightStep: corner.LightStep,
-                        NormalX: corner.NormalX,
-                        NormalY: corner.NormalY,
-                        NormalZ: corner.NormalZ,
-                        NextX: ahead.X,
-                        NextY: ahead.Y,
-                        NextZ: ahead.Z,
-                        NextNormalX: ahead.NormalX,
-                        NextNormalY: ahead.NormalY,
-                        NextNormalZ: ahead.NormalZ,
-
-                        // **Without these the shader skins by nothing.** A skinned model's
-                        // geometry is uploaded unposed, so the bones are the only thing that
-                        // stands it up - and a vertex with no weights is left exactly where the
-                        // artist modelled it, which for a player is lying along Y. The fields
-                        // existed on the vertex and in the packer and were never filled in here,
-                        // so every player drew in its raw modelling pose while being lit
-                        // correctly, which reads as a lighting change rather than a missing
-                        // transform.
-                        BoneA: corner.Bones.First,
-                        BoneB: corner.Bones.Second,
-                        BoneC: corner.Bones.Third,
-                        WeightA: corner.Weights.First,
-                        WeightB: corner.Weights.Second,
-                        WeightC: corner.Weights.Third,
-                        TangentX: corner.TangentX,
-                        TangentY: corner.TangentY,
-                        TangentZ: corner.TangentZ,
-                        TangentW: corner.TangentW));
+                    into.Add(index);
                 }
 
-                foreach (KeyValuePair<(int Material, int Slot, int Part, int Model),
-                    List<WorldVertex>> group in byMaterial)
+                foreach (KeyValuePair<(int Material, int Slot, int Part, int Model), List<int>> group in byMaterial)
                 {
                     batches.Add(new WorldBatch(
                         group.Key.Material,
@@ -5655,8 +5642,24 @@ public sealed class EntityModelSet : Hud.IMdlCache, IPosedEntities
                         group.Key.Model,
                         MaterialSlot: group.Key.Slot));
 
-                    _vertices.AddRange(group.Value);
-                    order.AddRange(cornersOf[group.Key]);
+                    foreach (int index in group.Value)
+                    {
+                        PropVertex corner = corners[index];
+                        PropVertex ahead = index < onward.Count ? onward[index] : corner;
+
+                        // **Model space, untouched.** The shader's model matrix places it.
+                        //
+                        // **The lightmap coordinates are zero for a studio model and real for a brush
+                        // entity (B131).** A `.mdl` is lit by its own vertex colours in the engine too,
+                        // and (0, 0) is the atlas's reserved white texel, so the lightmap term is an
+                        // identity rather than darkness. A door is the opposite case: vrad lights every
+                        // model's faces (vrad.cpp:703) and its samples are already in the same atlas as
+                        // the wall's, so passing them is all that separates a lightmapped door from a
+                        // flat one. BrushModels fills them; PropModels leaves them at zero.
+                        _vertices.Add(Packed(corner, ahead));
+                    }
+
+                    order.AddRange(group.Value);
                 }
 
                 // **Whether the alternatives survived packing, said once per model.** A model whose
@@ -5780,6 +5783,82 @@ public sealed class EntityModelSet : Hud.IMdlCache, IPosedEntities
 
         return Add(synthetic);
     }
+
+    /// <summary>One corner as the packed buffer holds it: model space, blending toward <paramref name="ahead"/>.</summary>
+    /// <remarks>
+    /// **The lightmap coordinates are zero for a studio model and real for a brush entity (B131).** A `.mdl` is lit by its
+    /// own vertex colours in the engine too, and (0, 0) is the atlas's reserved white texel.
+    ///
+    /// **Without the bones and weights the shader skins by nothing.** A skinned model's geometry is uploaded unposed, so
+    /// the bones are the only thing that stands it up; a vertex with no weights stays where the artist modelled it, which
+    /// for a player is lying along Y.
+    /// </remarks>
+    private static WorldVertex Packed(PropVertex corner, PropVertex ahead) =>
+        new(
+            corner.X, corner.Y, corner.Z, corner.U, corner.V,
+            corner.LightU, corner.LightV, 0f,
+            LightStep: corner.LightStep,
+            NormalX: corner.NormalX,
+            NormalY: corner.NormalY,
+            NormalZ: corner.NormalZ,
+            NextX: ahead.X,
+            NextY: ahead.Y,
+            NextZ: ahead.Z,
+            NextNormalX: ahead.NormalX,
+            NextNormalY: ahead.NormalY,
+            NextNormalZ: ahead.NormalZ,
+            BoneA: corner.Bones.First,
+            BoneB: corner.Bones.Second,
+            BoneC: corner.Bones.Third,
+            WeightA: corner.Weights.First,
+            WeightB: corner.Weights.Second,
+            WeightC: corner.Weights.Third,
+            TangentX: corner.TangentX,
+            TangentY: corner.TangentY,
+            TangentZ: corner.TangentZ,
+            TangentW: corner.TangentW);
+
+    /// <summary>A model's first frame as it was packed, rebuilt from its corners and packing order (finding 80).</summary>
+    /// <param name="modelPath">The model.</param>
+    /// <returns>The vertices, in buffer order, or null for a model not packed.</returns>
+    /// <remarks>
+    /// **For a decal on a skinned model, which projects onto the model's own mesh** (`CStudioRender::AddDecal`, B415). The
+    /// renderer kept a copy of every skinned model's packed vertices for that one reader: 623 MB on f12. The set already
+    /// keeps the corners (<see cref="_raw"/>) and the order they were packed in, so the rare decal rebuilds the list.
+    /// </remarks>
+    public IReadOnlyList<WorldVertex>? PackedVertices(string modelPath)
+    {
+        ArgumentNullException.ThrowIfNull(modelPath);
+
+        // Once per model struck, kept until the level lets its models go: a rebuild per decal was ~40 MB of large-object
+        // garbage per 20 s of f12 (finding 80).
+        if (_packedRebuilt.TryGetValue(modelPath, out WorldVertex[]? rebuilt))
+        {
+            return rebuilt;
+        }
+
+        if (!_raw.TryGetValue(modelPath, out IReadOnlyList<PropVertex>? corners) ||
+            !_packedOrder.TryGetValue(modelPath, out int[]? order) ||
+            !_frames.TryGetValue(modelPath, out PropModels.ModelFrames? model))
+        {
+            return null;
+        }
+
+        IReadOnlyList<PropVertex> onward = model.NextOf(0);
+        WorldVertex[] packed = new WorldVertex[Math.Min(corners.Count, order.Length)];
+
+        for (int at = 0; at < packed.Length; at++)
+        {
+            int corner = order[at];
+            packed[at] = Packed(corners[corner], corner < onward.Count ? onward[corner] : corners[corner]);
+        }
+
+        _packedRebuilt[modelPath] = packed;
+        return packed;
+    }
+
+    /// <summary>The packed vertices rebuilt for models a decal has struck, by path (finding 80).</summary>
+    private readonly Dictionary<string, WorldVertex[]> _packedRebuilt = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>Whether the set has grown since the last upload, however it grew.</summary>
     /// <remarks>

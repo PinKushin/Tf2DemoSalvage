@@ -271,6 +271,11 @@ in any public writeup found:
   `StopEmission`/`StartEmission` and `Simulate` never reads the flag. The pause belongs to the sleep clock, which
   every `Render` pushes forward. Missing that sleep is what replayed effects during plain playback, about 28,000
   ticks each time ([79](79-a-dormant-effect-stops-emitting-and-an-undrawn-one-sleeps.md)).
+- **A map keeps what Valve uploads and frees.** f12 keeps 833 MB of managed memory per map after upload, a small part
+  of the viewer's 7.6 GB. 329 MB is model vertices, baked once per animation frame for unskinned models, where the
+  engine poses one bind pose. 239 MB is every particle definition, held as a DMX tree per map, where the engine
+  types them once per process. About 127 MB is texture pixels the device already holds. A `CTexture` keeps no
+  texels after `ReconstructTexture` (disassembled) ([80](80-a-map-keeps-what-valve-uploads-and-frees.md)).
 
 ## Conventions used throughout
 

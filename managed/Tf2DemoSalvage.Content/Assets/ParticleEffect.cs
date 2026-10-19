@@ -200,6 +200,23 @@ public sealed class ParticleEffect
         IReadOnlyDictionary<string, ParticleSystem>? others = null,
         Func<ParticleSystem, IReadOnlyList<SheetSequence>?>? sheets = null,
         int seed = 0)
+        : this(system, others, sheets, seed, ancestors: null)
+    {
+    }
+
+    /// <summary>The names above this collection, nearest first: a child naming one of them is the cycle the guard ends.</summary>
+    private sealed record Ancestry(string Name, Ancestry? Parent)
+    {
+        public bool Contains(string named) =>
+            string.Equals(Name, named, StringComparison.OrdinalIgnoreCase) || (Parent?.Contains(named) ?? false);
+    }
+
+    private ParticleEffect(
+        ParticleSystem system,
+        IReadOnlyDictionary<string, ParticleSystem>? others,
+        Func<ParticleSystem, IReadOnlyList<SheetSequence>?>? sheets,
+        int seed,
+        Ancestry? ancestors)
     {
         ArgumentNullException.ThrowIfNull(system);
 
@@ -227,15 +244,20 @@ public sealed class ParticleEffect
         List<ParticleEffect> children = [];
         int running = seed;
 
+        // **The cycle guard is the chain of names above, not a copy of the lookup without them.** The copy was the
+        // whole game's 9,050 systems once per child: 342 MB of large-object allocations in twenty seconds of f12
+        // (finding 80). Same rule: a child naming this system or any ancestor is not resolved.
+        Ancestry path = new(system.Name, ancestors);
+
         foreach (string named in system.Children)
         {
             running = running == 0 ? 0 : unchecked(running + ChildSeedStep);
 
             if (others is not null &&
-                !string.Equals(named, system.Name, StringComparison.OrdinalIgnoreCase) &&
+                !path.Contains(named) &&
                 others.TryGetValue(named, out ParticleSystem? child))
             {
-                children.Add(new ParticleEffect(child, Without(others, system.Name), sheets, running));
+                children.Add(new ParticleEffect(child, others, sheets, running, path));
             }
         }
 
@@ -244,17 +266,6 @@ public sealed class ParticleEffect
 
     /// <summary>What each entry of a seeded definition's `children` adds to the seed — the <c>0x81</c> in its <c>lea</c>.</summary>
     private const int ChildSeedStep = 0x81;
-
-    /// <summary>The same lookup with one name removed, so a cycle cannot recurse for ever.</summary>
-    private static Dictionary<string, ParticleSystem> Without(
-        IReadOnlyDictionary<string, ParticleSystem> systems, string named)
-    {
-        Dictionary<string, ParticleSystem> rest = new(systems, StringComparer.OrdinalIgnoreCase);
-
-        rest.Remove(named);
-
-        return rest;
-    }
 
     /// <summary>How many of this system's operators this project implements.</summary>
     /// <returns>The count, against <see cref="ParticleSystem.Operators"/>.</returns>

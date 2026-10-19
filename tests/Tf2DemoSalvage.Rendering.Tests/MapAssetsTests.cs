@@ -158,6 +158,40 @@ public sealed class MapAssetsTests
         assets.Details.ShouldAllBe(detail => detail == null || detail.Value.Texture.Image.IsEmpty);
     }
 
+    /// <remarks>
+    /// **Both go up in the same pass as the base textures** (`UploadWorldTextures`), so B407's release covers them too:
+    /// a CPU copy of a texture the device holds is one Valve does not keep (`CTexture::ReconstructTexture` frees its
+    /// scratch VTF, finding 80). cp_process_f12 because it animates detail textures and bakes cubemaps; its own load,
+    /// since releasing a shared one would empty it for every other test.
+    /// </remarks>
+    [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
+    public void ReleaseUploaded_AnimatedDetailsAndCubemaps_EmptiesEveryFrameAndFace()
+    {
+        if (GameFolder is not { } game || Path.Combine(game, "maps", "cp_process_f12.bsp") is not { } map || !File.Exists(map))
+        {
+            Assert.Ignore("Team Fortress 2 with cp_process_f12 is not installed.");
+            return;
+        }
+
+        // With the models every viewer load carries: their materials are what animate a detail texture on this map.
+        MapAssets assets = MapAssets.Load(
+            File.ReadAllBytes(map), SharedGame.Archives, maximumTextureSize: 64, entityModels: DemoModels.Needed(null, SharedGame.Content));
+        int animated = assets.AnimatedDetails.Count;
+        int cubemaps = assets.Cubemaps.Count;
+
+        // The control: pixels are there before, or emptying them would prove nothing.
+        assets.AnimatedDetails.Values.SelectMany(frames => frames).Count(frame => !frame.Image.IsEmpty).ShouldBeGreaterThan(0);
+        assets.Cubemaps.Count(cubemap => cubemap is { } present && present.Faces.Any(face => !face.Image.IsEmpty)).ShouldBeGreaterThan(0);
+
+        assets.ReleaseUploaded();
+
+        assets.AnimatedDetails.Count.ShouldBe(animated);
+        assets.Cubemaps.Count.ShouldBe(cubemaps);
+        assets.AnimatedDetails.Values.SelectMany(frames => frames).ShouldAllBe(frame => frame.Image.IsEmpty);
+        assets.Cubemaps.ShouldAllBe(cubemap => cubemap == null || cubemap.Value.Faces.All(face => face.Image.IsEmpty));
+    }
+
     [Test]
     [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void MapAssets_ARealMap_ResolvesAlmostEveryMaterial()
