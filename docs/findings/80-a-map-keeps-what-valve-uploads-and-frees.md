@@ -471,6 +471,26 @@ and archive bytes straight into the span.
 2. `MapAssets.Resolve`'s VTF reads, the biggest (a) caller, with a byte-identical test on a real texture.
 3. The rest of class (a), largest first. Each step reports the MB per run it saves.
 
+**The plan's split was wrong, and reading the decoder killed it before any build (2026-10-19).** The four texture
+callers are class (b), not (a). `VtfTexture.Read` keeps a block-compressed texture as slices of the file's own bytes:
+`chain = new(...) { file.Slice(at, bytes) }` and `smallerLevels.Add(file.Slice(faceAt, smallerBytes))` (B149: nothing
+is expanded, so the GPU gets the blocks as stored). The byte array that `ReadFile` returns therefore *is* the texture
+until upload, and `ReleaseUploaded` drops it after. Returning that array to a pool would hand a live texture's bytes to
+the next read. Only the expanded formats drop the file at once.
+
+So most of the 2.9 GB is texture data that lives from load to upload, which is the engine's shape: `CTexture` frees its
+scratch VTF after upload. **What is not the engine's shape:**
+- **No texture is shared between materials.** `Resolve` reads and decodes every material's textures afresh, and nothing
+  in `MapAssets` keys a texture by name. `CTextureManager::FindOrLoadTexture` loads a texture name once and hands every
+  material the same `ITexture`. How many of the 2.9 GB are repeat reads of one name is not measured yet; that is the
+  next number to take.
+- **An animated texture re-reads its whole file once per frame** (`LoadFrame` in the detail, base-texture and water
+  normal frame loops). Each frame keeps its own copy of the same file until upload.
+
+**The pool lease is therefore not built.** The candidate fixes are a per-load texture cache keyed by name, as
+`CTextureManager` keys it, and one file read per animated texture, shared by its frames. Both keep the bytes alive to
+upload, as now, and both are byte-identical by construction.
+
 **The rounding trap.** `ArrayPool` rounds a request up to a power of two, which measured worse than a fresh array for
 the model slice above. VTFs repeat sizes far more often than models do, so a pool is likelier to win here, but each
 step is measured, never assumed.
