@@ -74,7 +74,7 @@ public sealed class SoundCacheTests
         // A record struct, so "the same sample" is the decode the two share, which is what a stop matches on.
         one.ShouldNotBeNull();
         two.ShouldNotBeNull();
-        two.Value.Samples.Equals(one.Value.Samples).ShouldBe(expectedReads == 1);
+        two.Value.Pcm16.Equals(one.Value.Pcm16).ShouldBe(expectedReads == 1);
     }
 
     [Test]
@@ -176,6 +176,53 @@ public sealed class SoundCacheTests
         reads.Count.ShouldBe(1);
     }
 
+    /// <remarks>
+    /// **What the cache holds, and how often playback paid for a decode** (finding 78: the cache retained 650 MB on f12).
+    /// The bytes are the decoded samples it keeps, split by the container they came from, because only a WAV can be held
+    /// as 16-bit exactly. A miss is a decode outside a precache, which is a freeze in the frame that asked. One precached
+    /// one-sample WAV and one asked for during play: two held, two bytes each (a WAV is held as 16-bit), one miss.
+    /// </remarks>
+    [Test]
+    public void Held_APrecachedSoundAndOneAskedForInPlay_CountsBytesByContainerAndOneMiss()
+    {
+        SoundCache cache = Cache([]);
+
+        cache.Precache(["ambient/indoors.wav"]);
+        cache.Sample("ambient/outdoors.wav");
+        cache.Sample("ambient/outdoors.wav");
+
+        cache.Held.ShouldBe(new SoundCacheHeld(Sounds: 2, WaveBytes: 4, Mp3Bytes: 0, Misses: 1));
+    }
+
+    /// <remarks>
+    /// **The cache is bounded, least recently used out first** (finding 78). A cap of three one-sample WAVs (two bytes each)
+    /// holds three: asking for a fourth evicts the one used longest ago, and asking for that one again decodes it again, as
+    /// a miss, to the identical samples. The one asked for most recently survives.
+    /// </remarks>
+    [Test]
+    public void Sample_PastTheCap_EvictsTheLeastRecentlyUsedAndRedecodesItIdentically()
+    {
+        List<string> reads = [];
+        SoundCache cache = Cache(reads, capacityBytes: 6);
+
+        short[] first = cache.Sample("a.wav")!.Value.Pcm16.ToArray();
+        cache.Sample("b.wav");
+        cache.Sample("c.wav");
+        cache.Sample("a.wav");
+        cache.Sample("d.wav");
+
+        cache.Held.Sounds.ShouldBe(3, "b, the least recently used, went");
+        reads.Clear();
+
+        cache.Sample("a.wav");
+        reads.ShouldBeEmpty("a was used recently and stayed");
+
+        cache.Sample("b.wav")!.Value.Pcm16.ToArray().ShouldBe(first);
+        reads.ShouldBe(["sound/b.wav"], "b was evicted, so it is read again");
+        cache.Held.Misses.ShouldBe(5, "a, b, c and d once each, and b again");
+        cache.Held.WaveBytes.ShouldBe(6);
+    }
+
     [Test]
     public void Sample_WithNoName_Refuses()
     {
@@ -193,8 +240,9 @@ public sealed class SoundCacheTests
     /// <summary>A cache over an install that answers a one-sample wave for whatever it has.</summary>
     /// <param name="reads">Records every path asked for, in order.</param>
     /// <param name="has">Which paths exist; everything, by default.</param>
-    private static SoundCache Cache(List<string> reads, Func<string, bool>? has = null) =>
-        new(NullLogger.Instance)
+    /// <param name="capacityBytes">The cache's cap.</param>
+    private static SoundCache Cache(List<string> reads, Func<string, bool>? has = null, long capacityBytes = SoundCache.CapacityBytes) =>
+        new(NullLogger.Instance, capacityBytes)
         {
             Read = path =>
             {

@@ -361,6 +361,9 @@ public sealed partial class ViewerPresenter : IDisposable
     /// <summary>The model set, for the window's frame reporter and its map projection.</summary>
     public EntityModelSet Models => _models;
 
+    /// <summary>What the sound cache holds and how many decodes playback paid for, for `--measure` (finding 78).</summary>
+    public SoundCacheHeld SoundsHeld => _sounds.Held;
+
     /// <summary>The moment scene, for the window's draw.</summary>
     public MomentScene Moment => _moment;
 

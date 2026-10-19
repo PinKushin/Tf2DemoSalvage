@@ -889,7 +889,7 @@ public sealed partial class SoundPresenter(
                 "{Message}",
                 string.Create(
                     CultureInfo.InvariantCulture,
-                    $"sound started no voice tick {sound.Tick} {sound.Name} : {opened.Samples.Length} samples, {opened.SampleRate} Hz, {opened.Channels} channels"));
+                    $"sound started no voice tick {sound.Tick} {sound.Name} : {opened.SampleCount} samples, {opened.SampleRate} Hz, {opened.Channels} channels"));
         }
 
         if (music && !opened.Loops && started != 0)

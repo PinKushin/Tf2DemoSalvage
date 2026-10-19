@@ -260,6 +260,12 @@ public sealed partial class ViewerSession
             _host.Out.WriteLine("  " + allocations.Tally.Report(8));
         }
 
+        // Stryker disable once all : a mutated interpolated string cannot bind to its handler (CS1620) and Safe Mode drops the method - B410
+        Audio.SoundCacheHeld sounds = _presenter.SoundsHeld;
+        _host.Out.WriteLine(string.Create(
+            CultureInfo.InvariantCulture,
+            $"  sound cache: {sounds.Sounds} sounds, WAV {sounds.WaveBytes / 1048576d:0} MB, MP3 {sounds.Mp3Bytes / 1048576d:0} MB held; {sounds.Misses} decodes in play"));
+
         _framesMeasured = 0;
         _phasesMeasured = default;
 

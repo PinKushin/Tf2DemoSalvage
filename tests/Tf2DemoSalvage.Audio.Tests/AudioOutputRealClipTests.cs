@@ -31,6 +31,9 @@ public sealed class AudioOutputRealClipTests
         }
 
         SoundSample sample = SoundSampleReader.Read(file).Sample.ShouldNotBeNull();
+
+        // The clip is a 16-bit WAV, so this also holds the 16-bit storage (finding 78) to the float conversion's bytes.
+        sample.Pcm16.IsEmpty.ShouldBeFalse();
         short[] into = new short[(sample.FrameCount * 2) + 10];
         into.AsSpan().Fill(1234);
 

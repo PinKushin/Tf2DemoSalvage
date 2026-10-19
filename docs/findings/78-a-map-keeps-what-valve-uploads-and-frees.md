@@ -287,6 +287,33 @@ asked for was not needed: `dotnet-dump` is not installed here, and ClrMD's attac
 in any census: 1.27 GB together, more than items 3 and 4 combined. Row 1 matches the 1.25 GB the `timeline-heap` probe
 measured. That earlier census was right.
 
+### Fixed: the sound cache holds WAVs as 16-bit, and is bounded (2026-10-19)
+
+**What it held.** The new `--measure` line gave the split: 590 sounds, **WAV 387 MB and MP3 66 MB, both decoded to
+float**. The heap walk's 650 MB adds the dictionary, the cache's own entries, and MP3 decode buffers sized past their
+fill.
+
+**WAVs are now held as 16-bit.** That is the file's own precision. A 16-bit or 8-bit PCM sample over 32,768 is exactly
+representable as a float, so the samples reach the mixer bit for bit as before.
+
+**MP3 stays float. This is the "stop on that kind" case.** NLayer decodes to float, which carries more precision than
+16 bits, so quantising it would change what is heard.
+
+**The cache is bounded** at `SoundCache.CapacityBytes`, 512 MB, least recently used out first. **The cap is
+interpolated**, because the engine's figure is not in the SDK. It is twice what f12 now holds, so an ordinary match
+evicts nothing.
+
+| f12, `--measure 20` | WAV held | MP3 held | private at end | working set at end | decodes in play | mean frame |
+|---|---:|---:|---:|---:|---:|---:|
+| before | 387 MB | 66 MB | 8,493–8,514 MB | 6,052–6,060 MB | 35 | 36.6–38.5 ms |
+| after, two runs | **194 MB** | 66 MB | **8,298–8,305 MB** | **5,844–5,854 MB** | 33–35 | 35.9–36.6 ms |
+
+**The 33–35 decodes in play** are sounds the precache did not name, played for the first time. They are not
+evictions, since nothing was evicted on f12. Each is a frame that decoded a sound.
+
+The real-clip digest held through the change. That clip is a 16-bit WAV, so the test now also proves the 16-bit
+storage.
+
 **Item 2, the packed models' CPU copy, is already released.** `EntityModelSet.ReleaseUploaded` (B407) drops the
 729 MB once the map's world is on the device. Every run above ends with "entity model vertices on the CPU 0 in
 0 MB". The 729 MB is real only between the load and the first upload. That makes it part of the load peak, not the

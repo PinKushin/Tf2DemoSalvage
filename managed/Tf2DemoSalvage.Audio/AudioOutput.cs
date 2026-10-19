@@ -187,7 +187,7 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
 
-        if (sample.Samples.Length == 0 || sample.SampleRate <= 0 || sample.Channels <= 0)
+        if (sample.SampleCount == 0 || sample.SampleRate <= 0 || sample.Channels <= 0)
         {
             return 0;
         }
@@ -541,6 +541,8 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
     internal static int ToStereo16(SoundSample sample, float leftGain, float rightGain, Span<short> stereo)
     {
         ReadOnlySpan<float> samples = sample.Samples.Span;
+        ReadOnlySpan<short> pcm = sample.Pcm16.Span;
+        bool held16 = !sample.Pcm16.IsEmpty;
         int frames = sample.FrameCount;
 
         if (frames <= 0)
@@ -548,12 +550,15 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
             return 0;
         }
 
+        // A WAV held as 16-bit is read back as the float the float path stored: exactly s / 32768 (SoundSample.Pcm16).
+        float At(ReadOnlySpan<float> asFloat, ReadOnlySpan<short> asShort, int index) => held16 ? asShort[index] / 32768f : asFloat[index];
+
         for (int frame = 0; frame < frames; frame++)
         {
             // A mono source feeds both ears and the two gains do the panning; a stereo source
             // already carries its own image and each side is only scaled.
-            float left = samples[frame * sample.Channels];
-            float right = sample.Channels > 1 ? samples[(frame * sample.Channels) + 1] : left;
+            float left = At(samples, pcm, frame * sample.Channels);
+            float right = sample.Channels > 1 ? At(samples, pcm, (frame * sample.Channels) + 1) : left;
 
             stereo[frame * 2] = ToPcm(left * leftGain);
             stereo[(frame * 2) + 1] = ToPcm(right * rightGain);

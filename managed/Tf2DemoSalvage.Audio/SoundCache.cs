@@ -19,6 +19,13 @@ namespace Tf2DemoSalvage.Audio;
 /// </remarks>
 public readonly record struct PrecacheResult(int Named, int Decoded, double Seconds);
 
+/// <summary>What the cache holds, by the container each sound came from, and how many decodes playback paid for.</summary>
+/// <param name="Sounds">Sounds held.</param>
+/// <param name="WaveBytes">Bytes of decoded samples from WAV files.</param>
+/// <param name="Mp3Bytes">Bytes of decoded samples from MP3 files.</param>
+/// <param name="Misses">Decodes outside a precache, each one inside the frame that asked (finding 78).</param>
+public readonly record struct SoundCacheHeld(int Sounds, long WaveBytes, long Mp3Bytes, int Misses);
+
 /// <summary>Decoded sound samples, kept so a name is read and decoded once.</summary>
 /// <remarks>
 /// **The engine owns the sample cache, and the client reaches it through an interface.**
@@ -55,14 +62,29 @@ public sealed class SoundCache
     /// </remarks>
     public const double StallSeconds = 0.03;
 
+    /// <summary>The most decoded sample bytes held at once; past it the least recently used sound is let go (finding 78).</summary>
+    /// <remarks>
+    /// **Interpolated: the engine's figure is not in the SDK.** Chosen conservatively, twice what the f12 demo holds once its
+    /// WAVs are 16-bit (about 260 MB), so an ordinary match evicts nothing and plays exactly as before; it bounds a demo that
+    /// would otherwise keep every sound it ever heard. A sound evicted and asked for again is decoded again, in the frame, and
+    /// counted in <see cref="SoundCacheHeld.Misses"/>.
+    /// </remarks>
+    public const long CapacityBytes = 512L * 1024 * 1024;
+
+    private readonly long _capacity;
+    private readonly LinkedList<string> _recency = [];
+    private readonly Dictionary<string, (LinkedListNode<string> Node, long Bytes, bool Wave)> _sizes = new(StringComparer.Ordinal);
+
     /// <summary>Creates an empty cache.</summary>
     /// <param name="audio">Where misses and slow decodes are reported.</param>
+    /// <param name="capacityBytes">The most decoded bytes held at once; <see cref="CapacityBytes"/> unless a test says otherwise.</param>
     /// <exception cref="ArgumentNullException"><paramref name="audio"/> is null.</exception>
-    public SoundCache(ILogger audio)
+    public SoundCache(ILogger audio, long capacityBytes = CapacityBytes)
     {
         ArgumentNullException.ThrowIfNull(audio);
 
         _audio = audio;
+        _capacity = capacityBytes;
     }
 
     /// <summary>Where files come from, set when the game's archives are opened.</summary>
@@ -86,11 +108,19 @@ public sealed class SoundCache
 
         Read = read;
         _cache.Clear();
+        _recency.Clear();
+        _sizes.Clear();
         _unopened = 0;
+        _held = default;
     }
 
     /// <summary>How many distinct names the install could not supply.</summary>
     public int Unopened => _unopened;
+
+    /// <summary>What is held now, and the decodes playback paid for since the level began (finding 78).</summary>
+    public SoundCacheHeld Held => _held;
+
+    private SoundCacheHeld _held;
 
     /// <summary>Decodes a named sound, once.</summary>
     /// <param name="name">The name as the demo carries it, soundchars and all.</param>
@@ -106,10 +136,21 @@ public sealed class SoundCache
 
         if (_cache.TryGetValue(key, out SoundSample? cached))
         {
+            if (_sizes.TryGetValue(key, out (LinkedListNode<string> Node, long Bytes, bool Wave) held))
+            {
+                _recency.Remove(held.Node);
+                _recency.AddFirst(held.Node);
+            }
+
             return cached;
         }
 
         SoundSample? sample = null;
+
+        if (!_precaching)
+        {
+            _held = _held with { Misses = _held.Misses + 1 };
+        }
 
         // **Timed because this is a file read and a decode INSIDE the frame.** A sound reaches here
         // once, the first time it plays — so every new sound in a match pays a VPK read plus a full
@@ -131,6 +172,13 @@ public sealed class SoundCache
                 SoundSampleResult result = SoundSampleReader.Read(opened.Bytes);
 
                 sample = result.Sample;
+
+                if (sample is { } decoded)
+                {
+                    long bytes = ((long)decoded.Samples.Length * sizeof(float)) + ((long)decoded.Pcm16.Length * sizeof(short));
+                    bool wave = opened.Bytes.Length >= 4 && opened.Bytes[0] == (byte)'R' && opened.Bytes[1] == (byte)'I';
+                    Hold(key, bytes, wave);
+                }
 
                 if (!result.Succeeded)
                 {
@@ -177,6 +225,30 @@ public sealed class SoundCache
 
         return sample;
     }
+
+    /// <summary>Counts a decoded sound as held, then lets the least recently used go until the cap holds again.</summary>
+    private void Hold(string key, long bytes, bool wave)
+    {
+        _sizes[key] = (_recency.AddFirst(key), bytes, wave);
+        Count(bytes, wave, sign: 1);
+
+        while (_held.WaveBytes + _held.Mp3Bytes > _capacity && _recency.Last is { } oldest && oldest.Value != key)
+        {
+            (_, long gone, bool goneWave) = _sizes[oldest.Value];
+            _recency.RemoveLast();
+            _sizes.Remove(oldest.Value);
+            _cache.Remove(oldest.Value);
+            Count(gone, goneWave, sign: -1);
+        }
+    }
+
+    private void Count(long bytes, bool wave, int sign) =>
+        _held = _held with
+        {
+            Sounds = _held.Sounds + sign,
+            WaveBytes = _held.WaveBytes + (wave ? sign * bytes : 0),
+            Mp3Bytes = _held.Mp3Bytes + (wave ? 0 : sign * bytes),
+        };
 
     /// <summary>Decodes a whole list of names ahead of playback.</summary>
     /// <param name="names">Every sound worth having ready.</param>
