@@ -483,7 +483,9 @@ public sealed class ParticleEffects
                 {
                     running.Effect.StartEmission();
                     nextSleep = reachedTo + noDraw;
-                    stopCleared = burst.StopTick is not null;
+                    // Only a stop already landed is cleared; one still to come stops the effect when it arrives. Same basis
+                    // as `stoppedHere`: the time the step starts from, which is where the wake runs.
+                    stopCleared = burst.StopTick is { } landed && burst.Tick + reachedTo >= landed;
                     stoppedHere = false;
                 }
 

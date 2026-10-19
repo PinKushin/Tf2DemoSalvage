@@ -453,6 +453,32 @@ public sealed class ParticleBurstTests
     }
 
     /// <remarks>
+    /// **A wake before the stop does not cancel the stop.** `StartEmission` clears a stop that has already landed;
+    /// a `ParticleEffectStop` that arrives after the wake still stops the effect. Woken at 115 with its stop at 200, it
+    /// emits between them, and after 200 its half-second particles all die within 33 ticks with none born.
+    /// </remarks>
+    [Test]
+    public void Bursts_AWakeBeforeTheStop_StillStopsAtTheStop()
+    {
+        ParticleBurst burst = new(1, Beam, Origin, 100, StopTick: 200) { DormantAt = static at => at is >= 110 and < 115 };
+        ParticleEffects effects = new();
+
+        for (int tick = 100; tick <= 199; tick++)
+        {
+            effects.Bursts([burst], Interval, null, tick);
+        }
+
+        effects.BurstParticles(1)!.Count.ShouldBeGreaterThan(0, "the control: emitting between the wake and the stop");
+
+        for (int tick = 200; tick <= 240; tick++)
+        {
+            effects.Bursts([burst], Interval, null, tick);
+        }
+
+        (effects.BurstParticles(1)?.Count ?? 0).ShouldBe(0, "stopped at 200 and faded: nothing born after it");
+    }
+
+    /// <remarks>
     /// **Only the root's own live particles keep an effect awake.** `BuildParticleSimList` reads
     /// `m_nActiveParticles` (particlemgr.cpp:1775), the top collection's own count; children are simulated with it and
     /// never sleep separately. A parent that emits nothing, with a child still alive, has a count of 0 and does not
