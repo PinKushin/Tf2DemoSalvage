@@ -39877,6 +39877,25 @@ things `UnlitGeneric` does that `VguiRenderer` does not, none reachable by a sto
 - **`$separatedetailuvs`** (unlitgeneric_dx9.cpp:72, :152). The detail is then sampled from the second texture-coordinate
   set; the renderer always samples the base's. Added from the Fable review of `fix/hud-followups` (2026-10-18).
 
+## B554 — a map's own `maps/<name>_particles.txt` is not read, so a map's custom particles are lost — OPEN, gap (owner: fill it)
+
+**Filed 2026-10-19.** `ParticleManifest` reads the game's manifest and deliberately not the map's own file: `ParseParticleEffectsMap`
+(`:175`, the client's `particles.cpp`) layers `maps/<name>_particles.txt` on top, capped at `PARTICLES_MANIFEST_MAX_MAP_ENTRIES`
+= 64 (Valve's own comment: the cap exists because people *"drop bogus manifests into download directory to DoS rival community
+maps"*). A map that ships custom particles, in its pakfile, therefore loses them here. The omission is stated in
+`ParticleManifest`'s remarks and was never filed as a defect.
+
+**The owner's decision, 2026-10-19**, when told the gap existed and that the per-install cache of definitions (finding 80)
+would have to become per map if it were closed: *"Yes it's a gap, we need to fill, even if it doesn't come up much"*. The reason
+is the project's rule, not frequency: a divergence from Valve is a defect whatever its reach (D89, D129, D131).
+
+**What closing it needs:** read the map's `maps/<name>_particles.txt` from its pakfile first (the pak mounts ahead of the
+VPKs, so a map may also override a stock definition), apply the 64-entry cap exactly as `ParseParticleEffectsMap` does, read
+the `.pcf` files it names from the pak, and key the resulting definitions PER MAP, not per archives instance. The per-install
+shared set in `MapAssets` (finding 80) stays for the game's definitions; a map's own are layered on top without writing into
+the shared ones. Tests first, synthetic: a map pak with its own manifest and a `.pcf` shows the effect, the 65th entry is
+ignored, a pak override wins over a stock definition of the same name, and two maps on one install do not see each other's.
+
 ## B551 — a move child was LIT at its local origin, and a grandchild drawn one level deep — FIXED 2026-10-16 (`fix/parented-prop-origin`)
 
 **Reported as "PropsAt draws a child at its local origin", and that half was a misreading.** A timeline test authored a
