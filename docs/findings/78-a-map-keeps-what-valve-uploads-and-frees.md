@@ -209,6 +209,17 @@ projection copies the corners it keeps, so the array is free again at the next s
 | before (the decal fix's after) | 217–219 MB | 77–78 MB | 36.1–37.4 ms |
 | after | **152–153 MB** | **13 MB** | 36.1–36.5 ms |
 
+**Fixed next: a sound is converted to 16-bit stereo in a buffer the output keeps.** OpenAL copies the samples when the
+buffer is created, so the conversion is scratch. The sound is unchanged: on a real clip, the new path reproduces
+byte for byte the digest that the old conversion printed before the change.
+
+| f12, `--measure 20` | large allocations / 20 s | of which `short[]` | mean frame |
+|---|---:|---:|---:|
+| before (the prop-decal fix's after) | 152–153 MB | 72 MB | 36.1–36.5 ms |
+| after, three runs | **67–87 MB** | **0** | 34.1, 36.6, (59.9) ms |
+
+The 59.9 ms run overlapped my own builds of Core and Presentation. The third run was taken alone to replace it.
+
 **Item 2, the packed models' CPU copy, is already released.** `EntityModelSet.ReleaseUploaded` (B407) drops the
 729 MB once the map's world is on the device. Every run above ends with "entity model vertices on the CPU 0 in
 0 MB". The 729 MB is real only between the load and the first upload. That makes it part of the load peak, not the
