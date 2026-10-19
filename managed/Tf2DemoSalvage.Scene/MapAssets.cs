@@ -2775,6 +2775,10 @@ public sealed class MapAssets
             parsed.SpriteBlending);
     }
 
+    /// <summary>When set, every texture file a material resolve reads is counted here, at the read (finding 80); null by default.</summary>
+    /// <remarks>A measurement hook for the texture-reads probe, not a feature: nothing in the viewer sets it.</remarks>
+    public static TextureReadTally? TextureReads { get; set; }
+
     /// <summary>A VGUI material's texture, as `CMatSystemSurface::DrawSetTextureFile` finds it.</summary>
     /// <param name="assets">Where an unresolved material is reported.</param>
     /// <param name="material">The name under `materials/`, such as `vgui/hud/8x800corner1`.</param>
@@ -2824,11 +2828,20 @@ public sealed class MapAssets
         // **Only the model path draws a `Refract` slot** (B506); every other caller keeps what it had.
         bool model = false)
     {
-        byte[]? Find(string path)
+        byte[]? Find(string path) => FindFor(path, laterFrame: false);
+
+        byte[]? FindFor(string path, bool laterFrame)
         {
             try
             {
-                return pak.ReadFile(path) ?? archives.Read(path);
+                byte[]? found = pak.ReadFile(path) ?? archives.Read(path);
+
+                if (found is not null && TextureReads is { } tally && path.EndsWith(".vtf", StringComparison.OrdinalIgnoreCase))
+                {
+                    tally.Record(path, found.Length, laterFrame);
+                }
+
+                return found;
             }
             catch (Exception failure) when (failure is IOException or InvalidDataException)
             {
@@ -3443,7 +3456,7 @@ public sealed class MapAssets
 
             // Stryker disable once : a mutant that empties the guard body leaves 'file'
             // unassigned (CS0165), and Safe Mode then drops every mutation in this method — B410.
-            if (Find("materials/" + bare + ".vtf") is not { } file)
+            if (FindFor("materials/" + bare + ".vtf", laterFrame: frame > 0) is not { } file)
             {
                 return null;
             }

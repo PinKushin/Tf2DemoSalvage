@@ -487,6 +487,37 @@ scratch VTF after upload. **What is not the engine's shape:**
 - **An animated texture re-reads its whole file once per frame** (`LoadFrame` in the detail, base-texture and water
   normal frame loops). Each frame keeps its own copy of the same file until upload.
 
+**Measured: 78% of the texture bytes read are repeat reads of a file already read.** The `texture-reads` probe loads f12
+by the production path (`LoadedMap.Read`, with the demo's timeline so its models' materials resolve, as in the viewer, at
+full texture size). It counts each `.vtf` read inside the resolve's own `Find` (`MapAssets.TextureReads`), so the counts
+are carried from the read, not derived. The control: 926 distinct files is what a real map with players must read; an
+empty tally would mean a broken hook.
+
+| f12 | |
+|---|---:|
+| distinct texture files | 926 |
+| reads | 4,796 |
+| bytes read | 2,455.6 MB |
+| bytes read again for a file already read | **1,913.3 MB** |
+| of those, a later frame of an animated texture | 103.1 MB |
+
+The worst repeats:
+
+| file | reads | repeated MB |
+|---|---:|---:|
+| `water/tfwater001_normal.vtf` | 58 (no frames) | 855.0 |
+| `effects/tiledfire/fireLayeredSlowTiled512.vtf` | 935 (240 later frames) | 296.0 |
+| `models/player/medic/medic_normal.vtf` | 22 | 56.0 |
+| `models/player/demo/demoman_normal.vtf` | 19 | 48.0 |
+| `models/player/spy/spy_normal.vtf` | 18 | 45.3 |
+| `festive_lights_red.vtf`, `festive_lights_blue.vtf` | 125 each (50 later frames) | 31.0 each |
+
+- **The 2,455.6 MB read** agrees with the trace's ~2.9 GB for `VpkArchive.ReadFile` over a viewer run, which also
+  reads non-texture files.
+- **Most of the waste is one name read for many materials.** Only 103 MB is the per-frame re-reading of animated files.
+  The water normal map alone is 855 MB: every water material names the same file.
+- **The fire texture** is read 935 times, so its frame loop is multiplied by the number of materials that name it.
+
 **The pool lease is therefore not built.** The candidate fixes are a per-load texture cache keyed by name, as
 `CTextureManager` keys it, and one file read per animated texture, shared by its frames. Both keep the bytes alive to
 upload, as now, and both are byte-identical by construction.
