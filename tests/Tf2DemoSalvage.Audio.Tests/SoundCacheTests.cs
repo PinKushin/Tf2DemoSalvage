@@ -223,6 +223,19 @@ public sealed class SoundCacheTests
         cache.Held.WaveBytes.ShouldBe(6);
     }
 
+    /// <remarks>A miss is a decode in the frame; a name the install cannot open decodes nothing, so it is no miss (finding 80).</remarks>
+    [Test]
+    public void Held_ANameTheInstallCannotOpen_IsNoMiss()
+    {
+        SoundCache cache = Cache([], has: path => !path.Contains("missing", StringComparison.Ordinal));
+
+        cache.Sample("missing.wav");
+        cache.Sample("present.wav");
+
+        cache.Unopened.ShouldBe(1, "the control: the missing name was asked for");
+        cache.Held.Misses.ShouldBe(1);
+    }
+
     [Test]
     public void Sample_WithNoName_Refuses()
     {
