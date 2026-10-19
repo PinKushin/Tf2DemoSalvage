@@ -579,6 +579,41 @@ upload, as now, and both are byte-identical by construction.
 the model slice above. VTFs repeat sizes far more often than models do, so a pool is likelier to win here, but each
 step is measured, never assumed.
 
+### Fixed: particle definitions, one compact copy per install (2026-10-19)
+
+**What changed:**
+- **Parameters.** Each definition's and operator's parameters are a `ParticleParameterDictionary`: names sorted
+  ordinally, with values in a parallel array, read by binary search. It keeps the `IReadOnlyDictionary` contract and
+  the DMX reader's ordinal comparer, so `Number`, `Vector` and `Text`, and their "absent means the caller's default",
+  are unchanged.
+- **Sharing.** The definitions come from the install's archives alone, so `MapAssets` keeps them in a
+  `ConditionalWeakTable` keyed by the `GameArchives` instance. Every map on one install gets the same set, and it is
+  dropped with that install. It lives there rather than in `GameContent` because the archives are the only input, and
+  `MapAssets.Load` already takes them.
+
+**Tests:**
+- `ParticleParameterDictionaryTests`: ordinal lookups and absence. Sabotage: an `OrdinalIgnoreCase` search reddens
+  both tests.
+- `ParticleDefinitionSweepConformanceTests.Read_EveryManifestDefinition_...` sweeps every definition in every manifest
+  file, against the DMX reader's own attribute dictionaries. It covers the definition's parameters and every emitter,
+  initializer, operator, renderer and constraint, each pair by type, number, text, vector, elements and numbers. It
+  passed on the old form first, as the instrument's control. Sabotage: three-letter names read as absent reddens it.
+- `Step_EveryDefinitionARocketReaches_LeavesTheStoreUnchanged` hashes the whole store (SHA-256 over every pair), steps
+  the rocket trail and its children for five seconds, and hashes again.
+- `Load_TwoMapsOnOneInstall_ShareOneSetOfParticleDefinitions`. Sabotage: clearing the table before each load reddens it.
+
+**Measured** (map-memory, f12):
+
+| | before | after |
+|---|---:|---:|
+| `ParticleSystemsByName`, attributed to the map | 239.3 MB (`Entry[]` 184.4) | 148.0 MB (`DmxValue[]` 95.8) |
+| managed heap live after the load | 1,026.0 MB | 934.2 MB |
+| live after `ReleaseUploaded` | 763.2 MB | 671.4 MB |
+
+The 148 MB is now paid once per install, not once per held map. `DmxValue` is a wide struct (a double, a string, a
+`Vector4` and two lists), so it is most of what remains. Typing operators one by one, as the engine does, is the
+further step, and is not built.
+
 ## Plans not yet built
 
 These were drafted for review before the churn work, and are ordered behind it.

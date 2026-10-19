@@ -260,6 +260,27 @@ public sealed class MapAssetsTests
         }
     }
 
+    /// <remarks>
+    /// **One copy of the particle definitions per install, not per map** (finding 80: 239 MB per held map on f12). They are
+    /// read from the install alone, so two loads on one install must hand out the same instance.
+    /// </remarks>
+    [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
+    public void Load_TwoMapsOnOneInstall_ShareOneSetOfParticleDefinitions()
+    {
+        if (F12() is not { } map)
+        {
+            Assert.Ignore("Team Fortress 2 with cp_process_f12 is not installed.");
+            return;
+        }
+
+        MapAssets first = MapAssets.Load(map, SharedGame.Archives, maximumTextureSize: 16);
+        MapAssets second = MapAssets.Load(map, SharedGame.Archives, maximumTextureSize: 16);
+
+        first.ParticleSystemsByName.Count.ShouldBeGreaterThan(5000, "the control: the definitions were read");
+        second.ParticleSystemsByName.ShouldBeSameAs(first.ParticleSystemsByName);
+    }
+
     private static byte[]? F12() =>
         GameFolder is { } game && Path.Combine(game, "maps", "cp_process_f12.bsp") is { } map && File.Exists(map)
             ? File.ReadAllBytes(map)

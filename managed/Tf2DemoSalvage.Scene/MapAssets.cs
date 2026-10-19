@@ -2290,6 +2290,44 @@ public sealed class MapAssets
         return null;
     }
 
+    /// <summary>Every particle definition the install's manifest names, read once per install (finding 80).</summary>
+    /// <remarks>
+    /// **One copy per process, not one per map.** The definitions come from the install's archives alone, never a map's
+    /// pakfile, so every map on one install reads the same ones. Keyed by the archives instance, so a different install is a
+    /// different set, dropped with it. The definitions are immutable (`ParticleParameterDictionary`), so no map can write
+    /// into another's.
+    /// </remarks>
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<GameArchives, DefinitionSet> ParticleDefinitions = new();
+
+    /// <summary>The definitions and how many files they came from.</summary>
+    private sealed record DefinitionSet(IReadOnlyDictionary<string, ParticleSystem> Systems, int Files);
+
+    private static DefinitionSet ReadDefinitions(GameArchives archives)
+    {
+        Dictionary<string, ParticleSystem> systems = new(StringComparer.OrdinalIgnoreCase);
+        int files = 0;
+
+        foreach (string path in ParticleManifest.Files(archives.Read))
+        {
+            // Stryker disable once : a mutant that empties the guard body leaves 'file' unassigned, CS0165 — B410.
+            if (archives.Read(path) is not { Length: > 0 } file)
+            {
+                continue;
+            }
+
+            files++;
+
+            // **Earlier files win, which is the manifest's own order.** `ReadParticleConfigFile` is called down
+            // the list, and a name declared twice keeps whichever the engine saw first.
+            foreach ((string named, ParticleSystem one) in ParticleSystems.Read(file))
+            {
+                systems.TryAdd(named, one);
+            }
+        }
+
+        return new DefinitionSet(systems, files);
+    }
+
     /// <summary>Reads every particle system the game precaches, and the materials they name (B373, B415).</summary>
     /// <param name="assets">Where the load is reported.</param>
     /// <param name="pak">The map's own embedded files, searched before the game's.</param>
@@ -2331,29 +2369,8 @@ public sealed class MapAssets
         IReadOnlyCollection<string> used,
         TextureFiles? textures)
     {
-        Dictionary<string, ParticleSystem> systems = new(StringComparer.OrdinalIgnoreCase);
-        int files = 0;
+        (IReadOnlyDictionary<string, ParticleSystem> systems, int files) = ParticleDefinitions.GetValue(archives, ReadDefinitions);
 
-        foreach (string path in ParticleManifest.Files(archives.Read))
-        {
-            // Stryker disable once : a mutant that empties the guard body leaves 'file' unassigned, CS0165 — B410.
-            if (archives.Read(path) is not { Length: > 0 } file)
-            {
-                continue;
-            }
-
-            files++;
-
-            // **Earlier files win, which is the manifest's own order.** `ReadParticleConfigFile` is called down
-            // the list, and a name declared twice keeps whichever the engine saw first.
-            foreach ((string named, ParticleSystem one) in ParticleSystems.Read(file))
-            {
-                if (!systems.ContainsKey(named))
-                {
-                    systems[named] = one;
-                }
-            }
-        }
 
         if (systems.Count == 0)
         {

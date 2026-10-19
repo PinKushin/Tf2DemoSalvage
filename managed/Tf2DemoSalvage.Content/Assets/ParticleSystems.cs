@@ -138,7 +138,7 @@ public static class ParticleSystems
                 Functions(elements, element, "operators"),
                 Functions(elements, element, "renderers"),
                 ChildNames(elements, element),
-                element.Attributes)
+                ParticleParameterDictionary.Of(element.Attributes))
             {
                 Constraints = Functions(elements, element, "constraints"),
             };
@@ -847,7 +847,9 @@ public static class ParticleSystems
                     ? function
                     : string.Empty,
                 element.Name,
-                element.Attributes));
+
+                // Compact, not the reader's dictionary (finding 80): one hash table per operator was most of the store.
+                ParticleParameterDictionary.Of(element.Attributes)));
         }
 
         return functions;
