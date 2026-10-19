@@ -39912,6 +39912,24 @@ the name map (`000dcd90`). That is not modelled here: children are resolved by n
 would lose it as its parent's child. Tests:
 `Layer_TwoFilesDeclaringOneName_TheLaterWins` and `Read_ANameDeclaredTwiceInOneFile_KeepsTheSecond`.
 
+## B557 — particle density against TF2 is unmeasured: the owner thinks we draw them a bit dense — OPEN, suspicion (needs TF2 goldens)
+
+**Filed 2026-10-19.** While the frame-cost work was about to profile the particle cost, the owner: *"it will need golden images
+i think for that, i think we are drawing the particles a bit dense, but idk, we did fix that medibeam and particals lifetime
+stufff earlier"*. A hunch, not a measurement: no particle golden exists (`tests/**/Goldens` holds the world, the sun and the
+HUD only), so density against TF2 has never been compared. A perf change to the particle code can be held to "pixel-identical
+to our own previous output" (that is what the frame-cost step 3 does), but that cannot say whether ours matches TF2.
+
+**What closing the question needs:** TF2's own capture of a few persistent effects at one camera and one setting (the
+`take-the-golden-shot-dont-ask` method: the tf2 MCP, `ent_create info_particle_system` with a stock effect name on a listen
+server, or the heal beam and overheal pluses in a modern demo the live client plays; never an old demo, never a paused demo,
+read every ConVar before changing it and restore it), the same effect placed in our viewer at the same camera, and a measure
+per cell of the effect's region (mean colour and the count of non-background pixels), as D222's HUD goldens do. Particles are
+random, so compare statistics over several frames, not pixels. The lead takes the TF2 side (a shared fixture); the viewer side
+may need a way to place a named effect at a point (a synthetic burst, as `ParticleBurstTests` builds them). If a density gap is
+found, the cause is read from the engine (`CParticleCollection` emission, `SkipToTime`'s wake emission, finding 79) before
+anything is changed.
+
 ## B556 — does every path that leaves a demo without its map say so in the status bar? — OPEN, unverified (check, then fix if silent)
 
 **Filed 2026-10-19 from D224.** The owner decided the viewer tells the user when there is no map, and believes the status bar
