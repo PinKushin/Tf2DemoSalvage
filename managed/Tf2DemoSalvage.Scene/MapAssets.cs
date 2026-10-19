@@ -607,6 +607,7 @@ public sealed class MapAssets
     /// putting it in the shared table would add an entry nothing indexes and shift nothing else,
     /// which is a needless disturbance of an order that is load-bearing everywhere else.
     /// </remarks>
+    /// <param name="textures">The load's shared texture files (finding 80).</param>
     private static (IReadOnlyList<BspDetailProp> Props, IReadOnlyList<BspDetailSprite> Rectangles,
         MapTexture? Sheet, IReadOnlyList<string> Models) LoadDetailSprites(
         ILogger assets,
@@ -614,7 +615,8 @@ public sealed class MapAssets
         IReadOnlyList<BspEntity> entities,
         PakFile pak,
         GameArchives archives,
-        int maximumTextureSize)
+        int maximumTextureSize,
+        TextureFiles? textures)
     {
         IReadOnlyList<BspDetailProp> objects;
         IReadOnlyList<BspDetailSprite> sprites;
@@ -647,7 +649,7 @@ public sealed class MapAssets
         // sheet is a different colour entirely.
         string name = BspEntities.DetailSpriteMaterial(entities);
 
-        ResolvedMaterial material = Resolve(assets, name, pak, archives, maximumTextureSize);
+        ResolvedMaterial material = Resolve(assets, name, pak, archives, maximumTextureSize, textures: textures);
 
         if (material.Texture is not { } sheet)
         {
@@ -718,12 +720,14 @@ public sealed class MapAssets
     /// guess — see `docs/memory/sentinels-conflate-unknown-with-answer.md` for the case against
     /// inventing one.
     /// </remarks>
+    /// <param name="textures">The load's shared texture files (finding 80).</param>
     private static Dictionary<string, int> LoadOverrideMaterials(
         ILogger assets,
         MaterialTable table,
         PakFile pak,
         GameArchives archives,
-        int maximumTextureSize)
+        int maximumTextureSize,
+        TextureFiles? textures)
     {
         Dictionary<string, int> loaded = new(StringComparer.OrdinalIgnoreCase);
 
@@ -732,7 +736,7 @@ public sealed class MapAssets
             // `report: false` because a machine without TF2 misses all of them, and one warning per
             // map load per material would bury the failures that matter.
             ResolvedMaterial material =
-                Resolve(assets, path, pak, archives, maximumTextureSize, report: false);
+                Resolve(assets, path, pak, archives, maximumTextureSize, report: false, textures: textures);
 
             if (material.Texture is null)
             {
@@ -1182,6 +1186,7 @@ public sealed class MapAssets
     /// <param name="loggers">Where loading reports what it could not use, or null for nowhere.</param>
     /// <param name="decalMaterials">The materials the game's decals draw with — a Subrect's atlas, not the Subrect (B415).</param>
     /// <param name="effectMaterials">Sprite materials the legacy impact effects draw with, loaded as particle materials.</param>
+    /// <param name="shareTextures">Whether materials naming one texture file share its read and decode; false only for a test.</param>
     /// <returns>The assets.</returns>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <exception cref="InvalidDataException">The map's lumps are malformed.</exception>
@@ -1207,9 +1212,15 @@ public sealed class MapAssets
         Func<LightmapAtlas, IReadOnlyDictionary<string, PropModels.ModelFrames>>? brushModels = null,
         ILoggerFactory? loggers = null,
         IReadOnlyCollection<string>? decalMaterials = null,
-        IReadOnlyCollection<string>? effectMaterials = null)
+        IReadOnlyCollection<string>? effectMaterials = null,
+
+        // **False only for the test that holds sharing to byte-identical** (finding 80): each material then reads and
+        // decodes its own textures, as before.
+        bool shareTextures = true)
     {
         ArgumentNullException.ThrowIfNull(archives);
+
+        TextureFiles? textures = shareTextures ? new TextureFiles() : null;
 
         // **A factory rather than a logger, because this reaches into PropModels and EntityModels**
         // and both report under their own areas (D83). Optional with a null-object default: most
@@ -1261,7 +1272,7 @@ public sealed class MapAssets
         Parallel.For(0, materials.Count, index =>
             found[index] = Resolve(
                 assets, materials[index].Name, pak, archives, maximumTextureSize,
-                report: true, animatedDetails));
+                report: true, animatedDetails, textures: textures));
 
         for (int index = 0; index < found.Length; index++)
         {
@@ -1353,7 +1364,7 @@ public sealed class MapAssets
             {
                 table.Add(
                     new BspMaterial(bottom, (1f, 1f, 1f), 0, 0),
-                    Resolve(assets, bottom, pak, archives, maximumTextureSize, report: true, animatedDetails));
+                    Resolve(assets, bottom, pak, archives, maximumTextureSize, report: true, animatedDetails, textures: textures));
             }
         }
 
@@ -1379,7 +1390,7 @@ public sealed class MapAssets
         ResolvedMaterial? ResolveProp(string path)
         {
             ResolvedMaterial? resolved = Resolve(
-                assets, path, pak, archives, maximumTextureSize, report: false, animatedDetails, model: true);
+                assets, path, pak, archives, maximumTextureSize, report: false, animatedDetails, model: true, textures: textures);
 
             if (resolved is { } material)
             {
@@ -1431,7 +1442,7 @@ public sealed class MapAssets
 
         (IReadOnlyList<BspDetailProp> detailProps, IReadOnlyList<BspDetailSprite> detailRectangles,
             MapTexture? detailSheet, IReadOnlyList<string> detailModelNames) =
-            LoadDetailSprites(assets, map, entities, pak, archives, maximumTextureSize);
+            LoadDetailSprites(assets, map, entities, pak, archives, maximumTextureSize, textures);
 
         propTiming.Dispose();
 
@@ -1444,10 +1455,10 @@ public sealed class MapAssets
         (ParticleSystem? rocketTrail,
          IReadOnlyDictionary<string, ParticleSystem> particleSystems,
          IReadOnlyDictionary<string, ParticleMaterial> particleMaterials) =
-            LoadRocketTrail(assets, pak, archives, maximumTextureSize, particleSystemsUsed ?? []);
+            LoadRocketTrail(assets, pak, archives, maximumTextureSize, particleSystemsUsed ?? [], textures);
 
         IReadOnlyDictionary<string, EngineSprite> sprites =
-            LoadSpriteMaterials(assets, spriteMaterials ?? [], pak, archives, maximumTextureSize);
+            LoadSpriteMaterials(assets, spriteMaterials ?? [], pak, archives, maximumTextureSize, textures);
 
         // **The legacy impact effects' materials join the particle materials** (B415): flecks, dust and sparks are
         // sprite quads drawn through the same batches, and a material there is looked up by the same name.
@@ -1471,7 +1482,7 @@ public sealed class MapAssets
                 : 1f;
 
             allParticleMaterials[name] = new ParticleMaterial(
-                Resolve(assets, name, pak, archives, maximumTextureSize).Texture, frames, how, alpha)
+                Resolve(assets, name, pak, archives, maximumTextureSize, textures: textures).Texture, frames, how, alpha)
             {
                 Overbright = OverbrightOf(vmt),
                 Size = SizeOf(vmt),
@@ -1650,7 +1661,7 @@ public sealed class MapAssets
         // corpse's gold and ice, which no map and no model names, so nothing above would ever pull
         // them in (B325).
         Dictionary<string, int> overrides =
-            LoadOverrideMaterials(assets, table, pak, archives, maximumTextureSize);
+            LoadOverrideMaterials(assets, table, pak, archives, maximumTextureSize, textures);
 
         // **And now the props and models, which the census could not see (B81).** Reported
         // separately from the brushwork rather than merged into it: the two are drawn by different
@@ -2287,6 +2298,7 @@ public sealed class MapAssets
     /// <param name="used">
     /// The systems whose materials to resolve, on top of the rocket trail. Their children come with them.
     /// </param>
+    /// <param name="textures">The load's shared texture files (finding 80).</param>
     /// <returns>The rocket trail, every system by name, and every material they need.</returns>
     /// <remarks>
     /// **Driven by `particles/particles_manifest.txt`, which is Valve's own list.** `GetParticleManifest`
@@ -2316,7 +2328,8 @@ public sealed class MapAssets
         PakFile pak,
         GameArchives archives,
         int maximumTextureSize,
-        IReadOnlyCollection<string> used)
+        IReadOnlyCollection<string> used,
+        TextureFiles? textures)
     {
         Dictionary<string, ParticleSystem> systems = new(StringComparer.OrdinalIgnoreCase);
         int files = 0;
@@ -2423,7 +2436,7 @@ public sealed class MapAssets
             VmtMaterial? stated = ReadVmt(named, pak, archives);
 
             materials[named] = new ParticleMaterial(
-                Resolve(assets, named, pak, archives, maximumTextureSize).Texture, frames, how)
+                Resolve(assets, named, pak, archives, maximumTextureSize, textures: textures).Texture, frames, how)
             {
                 // SpriteCard's own multiplier, which the medigun's beam states as 3 (B523).
                 Overbright = OverbrightOf(stated),
@@ -2503,12 +2516,14 @@ public sealed class MapAssets
     /// a missing glow, not a missing surface — the same judgement `ParticleEffects` already makes,
     /// and the opposite of what a world brush wants.
     /// </remarks>
+    /// <param name="textures">The load's shared texture files (finding 80).</param>
     private static Dictionary<string, EngineSprite> LoadSpriteMaterials(
         ILogger assets,
         IReadOnlyCollection<string> paths,
         PakFile pak,
         GameArchives archives,
-        int maximumTextureSize)
+        int maximumTextureSize,
+        TextureFiles? textures)
     {
         Dictionary<string, EngineSprite> sprites =
             new(StringComparer.OrdinalIgnoreCase);
@@ -2536,7 +2551,7 @@ public sealed class MapAssets
 
             // Stryker disable once : a mutant that empties the guard body leaves 'texture'
             // unassigned (CS0165), and Safe Mode then drops every mutation in this method — B410.
-            if (Resolve(assets, named, pak, archives, maximumTextureSize).Texture is not { } texture)
+            if (Resolve(assets, named, pak, archives, maximumTextureSize, textures: textures).Texture is not { } texture)
             {
                 // A `Refract` material names no colour texture: it warps the frame through its normal map (B476).
                 if (RefractSprite(assets, named, pak, archives, maximumTextureSize) is { } refract)
@@ -2776,8 +2791,18 @@ public sealed class MapAssets
     }
 
     /// <summary>When set, every texture file a material resolve reads is counted here, at the read (finding 80); null by default.</summary>
-    /// <remarks>A measurement hook for the texture-reads probe, not a feature: nothing in the viewer sets it.</remarks>
-    public static TextureReadTally? TextureReads { get; set; }
+    /// <remarks>
+    /// A measurement hook for the texture-reads probe, not a feature: nothing in the viewer sets it. **Async-local**, so a
+    /// load counts only into the tally its own caller set, and another load running at the same time cannot add to it;
+    /// a static field let a concurrent test's load inflate the counts.
+    /// </remarks>
+    public static TextureReadTally? TextureReads
+    {
+        get => TextureReadsHere.Value;
+        set => TextureReadsHere.Value = value;
+    }
+
+    private static readonly System.Threading.AsyncLocal<TextureReadTally?> TextureReadsHere = new();
 
     /// <summary>A VGUI material's texture, as `CMatSystemSurface::DrawSetTextureFile` finds it.</summary>
     /// <param name="assets">Where an unresolved material is reported.</param>
@@ -2826,22 +2851,38 @@ public sealed class MapAssets
         ConcurrentDictionary<string, IReadOnlyList<MapTexture>>? animatedDetails = null,
 
         // **Only the model path draws a `Refract` slot** (B506); every other caller keeps what it had.
-        bool model = false)
+        bool model = false,
+
+        // **One load's texture files and decodes, shared by every material that names them** (finding 80).
+        TextureFiles? textures = null)
     {
         byte[]? Find(string path) => FindFor(path, laterFrame: false);
+
+        byte[]? ReadNow(string path, bool laterFrame)
+        {
+            byte[]? found = pak.ReadFile(path) ?? archives.Read(path);
+
+            if (found is not null && TextureReads is { } tally && path.EndsWith(".vtf", StringComparison.OrdinalIgnoreCase))
+            {
+                tally.Record(path, found.Length, laterFrame);
+            }
+
+            return found;
+        }
+
+        // A texture's decode, shared through the load's table when there is one; the same call as before when not.
+        VtfTexture Decoded(string path, byte[] file, int frame) =>
+            textures is null
+                ? VtfTexture.Read(file, maximumTextureSize, face: 0, frame)
+                : textures.Decode(path, frame, () => VtfTexture.Read(file, maximumTextureSize, face: 0, frame));
 
         byte[]? FindFor(string path, bool laterFrame)
         {
             try
             {
-                byte[]? found = pak.ReadFile(path) ?? archives.Read(path);
-
-                if (found is not null && TextureReads is { } tally && path.EndsWith(".vtf", StringComparison.OrdinalIgnoreCase))
-                {
-                    tally.Record(path, found.Length, laterFrame);
-                }
-
-                return found;
+                return textures is not null && path.EndsWith(".vtf", StringComparison.OrdinalIgnoreCase)
+                    ? textures.File(path, file => ReadNow(file, laterFrame))
+                    : ReadNow(path, laterFrame);
             }
             catch (Exception failure) when (failure is IOException or InvalidDataException)
             {
@@ -3463,7 +3504,7 @@ public sealed class MapAssets
 
             try
             {
-                return VtfTexture.Read(file, maximumTextureSize, face: 0, frame);
+                return Decoded("materials/" + bare + ".vtf", file, frame);
             }
             catch (InvalidDataException failure)
             {
@@ -3499,7 +3540,7 @@ public sealed class MapAssets
 
             try
             {
-                VtfTexture decoded = VtfTexture.Read(file, maximumTextureSize);
+                VtfTexture decoded = Decoded("materials/" + bare + ".vtf", file, frame: 0);
 
                 // **The texture's own flag outranks the material's mode.** Valve's helper forces
                 // 10 or 11 when the detail is a self-shadowing bump map, whatever
@@ -3563,7 +3604,7 @@ public sealed class MapAssets
 
             try
             {
-                VtfTexture decoded = VtfTexture.Read(vtf, maximumTextureSize);
+                VtfTexture decoded = Decoded("materials/" + bare + ".vtf", vtf, frame: 0);
 
                 // **Names every material that will be BLENDED, and which key decided it.** A prop
                 // drawn with alpha blending when it should be opaque looks like a lighting fault,

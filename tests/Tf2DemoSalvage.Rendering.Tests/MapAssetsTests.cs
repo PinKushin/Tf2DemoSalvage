@@ -192,6 +192,79 @@ public sealed class MapAssetsTests
         assets.Cubemaps.ShouldAllBe(cubemap => cubemap == null || cubemap.Value.Faces.All(face => face.Image.IsEmpty));
     }
 
+    /// <remarks>
+    /// **A texture file is read once per load, however many materials name it** (finding 80): `IMaterialSystem::FindTexture`
+    /// takes a name, and `IsTextureLoaded( char const* pTextureName )` asks by name alone (`imaterialsystem.h:948-951`). On
+    /// f12 the water normal map alone was read 58 times, 855 MB. The tally counts inside the resolve's own read.
+    /// </remarks>
+    [Test]
+    [NonParallelizable]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
+    public void Load_ARealMap_ReadsEachTextureFileOnce()
+    {
+        if (F12() is not { } map)
+        {
+            Assert.Ignore("Team Fortress 2 with cp_process_f12 is not installed.");
+            return;
+        }
+
+        TextureReadTally tally = new();
+        MapAssets.TextureReads = tally;
+
+        try
+        {
+            _ = MapAssets.Load(map, SharedGame.Archives, maximumTextureSize: 64, entityModels: DemoModels.Needed(null, SharedGame.Content));
+        }
+        finally
+        {
+            MapAssets.TextureReads = null;
+        }
+
+        tally.ByPath.Count.ShouldBeGreaterThan(300, "the control: a real map reads hundreds of textures");
+        tally.ByPath.Where(pair => pair.Value.Reads > 1).Select(pair => pair.Key).ShouldBeEmpty();
+    }
+
+    /// <remarks>
+    /// **Sharing changes no pixel** (finding 80). The decode depends on the file, the load's size cap and the frame, and on
+    /// nothing a material decides, so a shared decode must be byte for byte the one each material made for itself.
+    /// </remarks>
+    [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
+    public void Load_SharedTextures_AreByteIdenticalToEachMaterialsOwn()
+    {
+        if (F12() is not { } map)
+        {
+            Assert.Ignore("Team Fortress 2 with cp_process_f12 is not installed.");
+            return;
+        }
+
+        string[] models = [.. DemoModels.Needed(null, SharedGame.Content)];
+        MapAssets own = MapAssets.Load(map, SharedGame.Archives, maximumTextureSize: 64, entityModels: models, shareTextures: false);
+        MapAssets shared = MapAssets.Load(map, SharedGame.Archives, maximumTextureSize: 64, entityModels: models);
+
+        static byte[] Pixels(MapTexture? texture) => texture is { } present ? present.Image.ToRgba(present.Width, present.Height).ToArray() : [];
+
+        shared.Textures.Count.ShouldBe(own.Textures.Count);
+        shared.Textures.Count(texture => texture is not null).ShouldBeGreaterThan(300, "the control: textures resolved");
+
+        for (int slot = 0; slot < own.Textures.Count; slot++)
+        {
+            Pixels(shared.Textures[slot]).ShouldBe(Pixels(own.Textures[slot]), $"texture slot {slot}");
+            Pixels(shared.Bumps[slot]?.Texture).ShouldBe(Pixels(own.Bumps[slot]?.Texture), $"bump slot {slot}");
+            Pixels(shared.Details[slot]?.Texture).ShouldBe(Pixels(own.Details[slot]?.Texture), $"detail slot {slot}");
+        }
+
+        foreach ((string name, System.Collections.Generic.IReadOnlyList<MapTexture> frames) in own.AnimatedDetails)
+        {
+            shared.AnimatedDetails[name].Select(frame => Pixels(frame)).ShouldBe(frames.Select(frame => Pixels(frame)), name);
+        }
+    }
+
+    private static byte[]? F12() =>
+        GameFolder is { } game && Path.Combine(game, "maps", "cp_process_f12.bsp") is { } map && File.Exists(map)
+            ? File.ReadAllBytes(map)
+            : null;
+
     [Test]
     [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void MapAssets_ARealMap_ResolvesAlmostEveryMaterial()

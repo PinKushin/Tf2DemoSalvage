@@ -518,6 +518,47 @@ The worst repeats:
   The water normal map alone is 855 MB: every water material names the same file.
 - **The fire texture** is read 935 times, so its frame loop is multiplied by the number of materials that name it.
 
+**Fixed: one read and one decode per texture file per load (2026-10-19).** `TextureFiles` keys a load's files by path
+and its decodes by path and frame. Every material resolve in the load shares it: brushwork, models, detail sprites,
+particles, sprites and override materials.
+
+- **The key is the name**, as the engine's is: `FindTexture( char const* pTextureName, const char *pTextureGroupName,
+  bool complain = true, int nAdditionalCreationFlags = 0 )` and `IsTextureLoaded( char const* pTextureName )`
+  (`imaterialsystem.h:948-951`). Read from published source.
+- **No case needs a wider key.** A decode here depends on the file, the load's size cap and the frame. The frame is in
+  the key, and the cap is one value per load. Everything a material decides (translucency, additive, tint, modulation)
+  is applied to the `MapTexture` built over the shared decode, never inside the decode.
+- **One fix covered both repeat kinds.** Animated frames read their file once because the file is cached; there was no
+  separate per-frame fix.
+- **Lifetime.** The table lives for one `Load` and is dropped on return, so it holds nothing past `ReleaseUploaded`.
+  Shared frames are slices of one array, and a slot's release only drops that slot's reference.
+- **The wrong turn: a race.** A first version used `GetOrAdd` with a plain factory, and two files were still read
+  twice: the brushwork resolve is a `Parallel.For`, and `GetOrAdd` may run its factory twice in a race. The values are
+  now `Lazy`.
+- **The instrument had the same fault.** The tally was a static field, so a concurrent test's load counted into
+  another test's tally. It is now async-local.
+
+**Tests and sabotage** (`MapAssetsTests`):
+- `Load_ARealMap_ReadsEachTextureFileOnce` reddens with sharing turned off.
+- `Load_SharedTextures_AreByteIdenticalToEachMaterialsOwn` compares every texture, bump, detail and animated-detail
+  slot's RGBA against a load with sharing off. It reddens when the decode key drops the frame.
+
+**Measured on f12:**
+
+| | before | after, two runs |
+|---|---:|---:|
+| `texture-reads`: reads / MB read | 4,796 / 2,455.6 MB | **926 / 542.3 MB** |
+| `VpkArchive.ReadFile`, MB per 20 s | 264 | 97 |
+| large allocations, whole run | 8,498 MB | 6,095 MB |
+| allocated since start | 50,836 MB | 48,468 / 48,362 MB |
+| private bytes at the end | 7,959 MB | 7,487 / 7,498 MB |
+| working set at the end | 5,141 MB | 5,189 / 5,207 MB |
+| GC heap at the end (LOH) | 5,347 (3,793) | 4,872 (3,244) / 4,873 (3,242) |
+| mean frame | 38.3 / 41.3 ms | 42.7 / 40.6 ms |
+
+The frame times overlap, so this measured no frame-time change. The before rows are the earlier runs' numbers, one
+run for the memory rows and two for the frame.
+
 **The pool lease is therefore not built.** The candidate fixes are a per-load texture cache keyed by name, as
 `CTextureManager` keys it, and one file read per animated texture, shared by its frames. Both keep the bytes alive to
 upload, as now, and both are byte-identical by construction.
