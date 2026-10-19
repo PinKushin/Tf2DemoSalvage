@@ -100,5 +100,14 @@ the texel.
 ## Residual, measured
 
 - The class portrait's model is about 20 luma darker than TF2's at the helmet (cell means 125 against 101) while the
-  pose, framing and background match. The panel's light rig is `CPotteryWheelPanel`'s (potterywheelpanel.cpp:741-758);
-  not yet compared.
+  pose, framing and background match. **Compared 2026-10-18:**
+  - **The light rig is not the cause.** `HudPlayerClass.res` (read from `tf2_misc_dir.vpk`) gives `classmodelpanel` no
+    `lights` block, so the rig is `CreateDefaultLights`'s: an ambient cube of 0.4 on all six faces, and one white
+    directional light down (potterywheelpanel.cpp:316-333). Ours is the same. Neither `CBaseModelPanel` nor
+    `CTFPlayerModelPanel` adds a light.
+  - **The tone-map scale is the cause.** `CViewRender::Render` resets the scale to 1 under integer HDR after
+    post-processing and before the 2D section (viewrender.cpp:2211-2216). `CPotteryWheelPanel::Paint` and
+    `CMDLPanel::OnPaint3D` set none of their own. The viewer drew the panel's model at the scene's exposure. Now
+    `Device3D.ToneMapScaleAfterPostProcessing` resets it there, and the capture log still reports the scene's scale.
+  - The gap measured fits this: (101/125)^2.2 ≈ 0.63, a typical exposure scale. *Arithmetic.* Whether the portrait
+    now reads 125 is the class-portrait golden's to show; the UI suite was not run here.

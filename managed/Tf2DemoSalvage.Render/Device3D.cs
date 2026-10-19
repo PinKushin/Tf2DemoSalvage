@@ -139,6 +139,9 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
 
     /// <summary>The bloom amount the last frame was drawn with, 0 when bloom was off; for the capture log (B243).</summary>
     private float _drawnBloom;
+
+    /// <summary>The tone-map scale the last frame's scene was drawn with, before the HUD's reset; for the capture log (B243).</summary>
+    private float _drawnScale = 1f;
     private ComPtr<ID3D11RenderTargetView> _backBufferView;
 
     /// <summary>A plain-UNORM view of the back buffer: the bloom is added to the stored gamma values (B514).</summary>
@@ -534,7 +537,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
                             description.Width,
                             description.Height,
                             new FileInfo(path).Length / 1024,
-                            _world?.LinearLightScale ?? 1f,
+                            _drawnScale,
                             _drawnBloom,
                             _drawnSettled,
                             PostProcessingReport);
@@ -1718,6 +1721,11 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
                 {
                     DrawBloom(bloom);
                 }
+
+                // **The scale the HUD draws under is not the scene's** (viewrender.cpp:2211-2216): reset to 1 under integer
+                // HDR before the 2D section, so a HUD panel's model draws unexposed. The scene's is kept for the capture log.
+                _drawnScale = _world.LinearLightScale;
+                _world.LinearLightScale = ToneMapScaleAfterPostProcessing(_world.HdrType, _world.LinearLightScale);
             }
             else
             {
@@ -1791,6 +1799,16 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
             SaveBackBuffer(file);
         }
     }
+
+    /// <summary>
+    /// The tone-map scale after post-processing, which the HUD is drawn under: `CViewRender::Render` resets it to 1 under
+    /// integer HDR before the 2D section (viewrender.cpp:2211-2216).
+    /// </summary>
+    /// <param name="hdr">The HDR type in use.</param>
+    /// <param name="scale">The scale the scene was drawn at.</param>
+    /// <returns>The scale from here to the end of the frame.</returns>
+    internal static float ToneMapScaleAfterPostProcessing(Content.Bsp.HdrType hdr, float scale) =>
+        hdr == Content.Bsp.HdrType.IntegerHdr ? 1f : scale;
 
     /// <summary>One frame of auto-exposure: histogram (when a read-back is ready), goal, walk (B514).</summary>
     private void UpdateExposure()
@@ -2485,8 +2503,9 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
             // `CBaseModelPanel::PostPaint3D` its particles through the same materials on the same frame buffer
             // (potterywheelpanel.cpp:842-905, basemodel_panel.cpp:904-912; `render_texture` 0), so the shader's path is
             // the material's there as here. They kept the linear target until 2026-10-11, with the texture already
-            // uploaded raw for this path — read as linear light, which is neither. *Interpolated*: that the tone-map
-            // scale in force while the HUD paints is the frame's, as this renderer's panel models assume.
+            // uploaded raw for this path — read as linear light, which is neither. While the HUD paints, the tone-map
+            // scale is 1 under integer HDR (viewrender.cpp:2211-2216, `ToneMapScaleAfterPostProcessing`), for these as
+            // for the panel's models.
             if (gammaSpace)
             {
                 _particleSprites.SetColourScale(SpriteLightScale.For(gammaSpace: true, _world?.LinearLightScale ?? 1f, overbright));
