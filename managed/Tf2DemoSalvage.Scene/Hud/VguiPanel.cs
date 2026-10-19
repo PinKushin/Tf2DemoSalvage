@@ -311,6 +311,10 @@ public class VguiPanel
         }
 
         parent._children.Add(this);
+
+        // VPanel::SetParent (vgui2.dll 0x18001c3e0) re-runs SetZPos with the CURRENT z (B552): a z-0 newcomer sinks
+        // behind any higher-z sibling, and the .res zpos applied afterwards stops in front of an equal one.
+        ZPos = _zPos;
         Proportional = parent.Proportional;
         parent.OnChildAdded(this);
     }

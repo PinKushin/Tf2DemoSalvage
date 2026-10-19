@@ -39776,7 +39776,10 @@ cable that changes material backs only the one it held as a rope (`DemoModelsTes
 reddened it. A builder stamp lands on the same tick as the update's keyframe, so `FactsAt(keyframe)` is never before
 the first stamp.
 
-## B552 — equal-`zpos` HUD labels paint their shadow over the text; TF2 paints the text on top — OPEN, defect
+## B552 — equal-`zpos` HUD labels paint their shadow over the text; TF2 paints the text on top — FIXED, 2026-10-18 (`VguiPanel.SetParent` re-runs `ZPos` with the current z)
+
+**Fixed on `fix/b552-sibling-order`** (`VguiPanelSiblingOrderTests`). End-to-end check, run by the lead:
+`HudGoldenImageUiTests.Soldier_TheElement_MatchesTf2("ammo")`.
 
 **Measured 2026-10-17 against TF2 on cp_process_f12** (`docs/findings/78-the-stock-hud-against-tf2.md`): `AmmoInClip`
 and `AmmoInClipShadow` share `zpos 5`, the number listed first; TF2 shows TanLight over a one-pixel `Black` shadow, the

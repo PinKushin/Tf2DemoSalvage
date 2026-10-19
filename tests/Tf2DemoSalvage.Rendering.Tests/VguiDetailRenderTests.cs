@@ -141,8 +141,14 @@ public sealed class VguiDetailRenderTests
     /// interior. Each pixel is predicted from `vertexlit_and_unlit_generic_ps2x.fxc:296-327` directly — outline lerp,
     /// soft mask, then the glow sampled one-thousandth of the texture to the left.
     /// </remarks>
-    [Test]
-    public void Draw_TheAmmoBackgroundsDistanceAlpha_MatchesTheShaderAcrossAnEdge()
+    /// <remarks>
+    /// At `$detailscale` 2 the mask and the glow both sample the SCALED detail uv, and the glow offset is added to that
+    /// scaled uv unscaled; only the left half of the row is compared, where the scaled uv stays inside the texture and no
+    /// addressing mode is assumed.
+    /// </remarks>
+    [TestCase(1f)]
+    [TestCase(2f)]
+    public void Draw_TheAmmoBackgroundsDistanceAlpha_MatchesTheShaderAcrossAnEdge(float scale)
     {
         const int Width = 64;
 
@@ -166,17 +172,29 @@ public sealed class VguiDetailRenderTests
             (field[x * 4], field[(x * 4) + 1], field[(x * 4) + 2], field[(x * 4) + 3]) = (255, 255, 255, (byte)Math.Round(x * 255.0 / (Width - 1)));
         }
 
-        MapDetail detail = new(new MapTexture(Width, 1, Width, 1, TextureImage.Rgba(field), IsTransparent: true), (1f, 1f), 1f, DetailCombine.Multiply, (1f, 1f, 1f));
+        MapDetail detail = new(new MapTexture(Width, 1, Width, 1, TextureImage.Rgba(field), IsTransparent: true), (scale, scale), 1f, DetailCombine.Multiply, (1f, 1f, 1f));
 
         Draw(target, detail, ammo, [255, 255, 255, 255], (255, 255, 255, 255), width: Width, height: Width);
 
         float[] c = ammo.Constants(1024, 768);
         float Field(int x) => field[(Math.Clamp(x, 0, Width - 1) * 4) + 3] / 255f;
+
+        // Bilinear read at a position in texels from the texture's left edge.
+        float Sample(float texels)
+        {
+            float p = texels - 0.5f;
+            int i = (int)MathF.Floor(p);
+            float f = p - i;
+
+            return (Field(i) * (1f - f)) + (Field(i + 1) * f);
+        }
+
         List<string> wrong = [];
 
-        for (int x = 0; x < Width; x++)
+        for (int x = 0; x < (int)(Width / scale); x++)
         {
-            float mask = Field(x);
+            float detailTexels = scale * (x + 0.5f);
+            float mask = Sample(detailTexels);
 
             // OUTLINE (:296-300): smoothstep(c9.xyzw, c9.wzyx) — rising from start0 to start1, falling from end1 to end0.
             float outline = SmoothStep(c[16], c[19], mask) * SmoothStep(c[17], c[18], mask);
@@ -187,7 +205,7 @@ public sealed class VguiDetailRenderTests
             colour.a *= soft;
 
             // OUTER_GLOW (:318-327): the field sampled at u + GLOW_UV_OFFSET, a 0.064-texel shift left, bilinear.
-            float shifted = (Field(x - 1) * 0.064f) + (Field(x) * (1f - 0.064f));
+            float shifted = Sample(detailTexels - 0.064f);
             float glow = SmoothStep(c[2], c[3], shifted);
             colour = (Lerp(c[4] * glow, colour.r, soft), Lerp(c[5] * glow, colour.g, soft), Lerp(c[6] * glow, colour.b, soft), Lerp(c[7] * glow, colour.a, soft));
 

@@ -114,14 +114,18 @@ public sealed class TfHudMedicChargeMeterConformanceTests
         LabelAlpha(meter, viewport, context).ShouldBe(Untouched, "the control: no sequence below 1");
     }
 
-    /// <remarks>`else if ( !pMedigun->IsReleasingCharge() )` (:269-273): once charged, the meter stops when the charge is no longer being released.</remarks>
-    [Test]
-    public void Think_AChargeThatFellWithoutBeingReleased_StartsHudMedicChargedStop()
+    /// <remarks>
+    /// `else if ( !pMedigun->IsReleasingCharge() )` (:269-276): once charged, ANY changed charge while not releasing stops
+    /// it, with no comparison to 1, so a charge that is still at or above 1 stops it too.
+    /// </remarks>
+    [TestCase(0.5f)]
+    [TestCase(1.5f)]
+    public void Think_AChangedChargeNotReleasingAfterCharged_StartsHudMedicChargedStop(float secondCharge)
     {
         (TfHudMedicChargeMeter meter, HudViewport viewport, VguiContext context) = Animated();
 
         meter.Think(State(active: MedigunSlot, charge: 1f), viewport);
-        meter.Think(State(active: MedigunSlot, charge: 0.5f), viewport);
+        meter.Think(State(active: MedigunSlot, charge: secondCharge), viewport);
 
         LabelAlpha(meter, viewport, context).ShouldBe(ChargedStop);
     }
