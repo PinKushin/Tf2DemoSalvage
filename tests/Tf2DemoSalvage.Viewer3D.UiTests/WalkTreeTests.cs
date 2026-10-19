@@ -37,6 +37,32 @@ public sealed class WalkTreeTests
         tree.ShouldContain("tree unreadable after 2 lines: TimeoutException: Operation timed out.");
     }
 
+    // Chosen: the tolerant read is a tiny static helper over a Func, so no FlaUI element is needed; the tests compose it
+    // into `describe` exactly as DescribeTree's lambda does.
+    private static string DescribeWithId(string node, Func<string, string?> readId) =>
+        $"{node} id='{ViewerApplication.ReadOrNoIdMarker(() => readId(node))}'";
+
+    private static readonly FlaUI.Core.Identifiers.PropertyId AutomationIdProperty = new(30011, "AutomationId");
+
+    [Test]
+    public void WalkTree_OneElementHasNoAutomationId_ShowsTheMarkerAndStillListsTheRest() =>
+        ViewerApplication.WalkTree(
+            () => "window",
+            node => DescribeWithId(node, n => n == "menu"
+                ? throw new FlaUI.Core.Exceptions.PropertyNotSupportedException(AutomationIdProperty)
+                : n),
+            node => Tree[node]).ShouldBe(
+                $"window id='window'{Environment.NewLine}  menu id='{ViewerApplication.NoIdMarker}'{Environment.NewLine}" +
+                $"    file id='file'{Environment.NewLine}  status id='status'{Environment.NewLine}");
+
+    [Test]
+    public void WalkTree_AnIdReadThrowsAnythingElse_StillEndsTheWalkWithTheUnreadableTail() =>
+        ViewerApplication.WalkTree(
+            () => "window",
+            node => DescribeWithId(node, n => n == "menu" ? throw new TimeoutException("timed out") : n),
+            node => Tree[node]).ShouldBe(
+                $"window id='window'{Environment.NewLine}tree unreadable after 1 lines: TimeoutException: timed out");
+
     [Test]
     public void WalkTree_TheRootReadThrows_ReportsItAfterZeroLines() =>
         Walk(node => node, () => throw new InvalidOperationException("no window"))

@@ -1140,8 +1140,30 @@ internal sealed partial class ViewerApplication : IDisposable
     /// </remarks>
     public string DescribeTree() => WalkTree<AutomationElement>(
         () => Window,
-        element => $"{element.ControlType} id='{element.AutomationId}' name='{element.Name}'",
+        element => $"{element.ControlType} id='{ReadOrNoIdMarker(() => element.AutomationId)}' name='{element.Name}'",
         element => element.FindAllChildren());
+
+    /// <summary>What <see cref="ReadOrNoIdMarker"/> answers for an element that carries no AutomationId.</summary>
+    internal const string NoIdMarker = "<no id>";
+
+    /// <summary>Reads an AutomationId, answering <see cref="NoIdMarker"/> for an element that has none.</summary>
+    /// <remarks>
+    /// **The main path; <see cref="WalkTree{T}"/>'s catch is the safety net.** FlaUI throws
+    /// `PropertyNotSupportedException` rather than returning null for an element without the property, and that is
+    /// common in WinForms and was B558's first failure. Only that exception is tolerated here, so the walk goes on
+    /// and lists the element's siblings and children; any other exception ends the walk at the outer catch.
+    /// </remarks>
+    internal static string ReadOrNoIdMarker(Func<string?> read)
+    {
+        try
+        {
+            return read() ?? string.Empty;
+        }
+        catch (FlaUI.Core.Exceptions.PropertyNotSupportedException)
+        {
+            return NoIdMarker;
+        }
+    }
 
     /// <summary>Walks a tree into one line per node, depth-first, indented two spaces a level.</summary>
     /// <param name="root">Reads the root; inside the walk, so that a throw from it is reported rather than raised.</param>
@@ -1161,7 +1183,10 @@ internal sealed partial class ViewerApplication : IDisposable
 
         void Walk(T node, int depth)
         {
-            description.Append(' ', depth * 2).AppendLine(describe(node));
+            // Described BEFORE the indent is written, so a throw leaves no stray indent in front of the tail.
+            string line = describe(node);
+
+            description.Append(' ', depth * 2).AppendLine(line);
             lines++;
 
             // Depth-capped: a WinForms tree is shallow, and an unbounded walk on a failure path is a
