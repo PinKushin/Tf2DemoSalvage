@@ -10820,3 +10820,24 @@ sat on no map "with nothing said". **Unverified:** that this message reaches the
 without its map (a failed download, a map the install cannot find, a demo opened from the library); a test that opens a demo
 whose map is absent and reads the status text is the check, and if it is not there it is a defect to fix, not a new decision.
 
+## D225 — CI runs more of the suite and holds a higher floor, now that the pace has slowed (2026-10-19)
+
+**The owner, in his words.** First as thinking: *"id kinda like to up the tests that can run on CI, and the floor boosted, the
+floor wasnt hard because we are integrating and writting and moving fast, but now iits slowed down a bit"*. Asked whether it
+was a decision or a brainstorm: *"thinking, but probably turning into a decision idk"*. Then, about when to do the work and
+the memory experiment below: *"do it once the running agents are done"*, and, correcting which one he meant: *"i meant the ci
+stuff but it works for both"*. That makes it a decision to do the CI work, after the agents running on 2026-10-19 finish.
+
+**Why the floors were loose, and why that can change.** The floors guard only a DROP, and while the project was integrating
+fast a tight floor failed every push; the workflow's own comments record floors that sat far below the real count and caught
+nothing. The pace has slowed, so a floor can sit at the measured number again (the project rule: *"a floor must track the
+number it guards"*, `docs/memory/read-the-trx-total-not-the-console.md`).
+
+**What the work is** (the plan, not yet started): measure from the last green CI run, per project, how many tests are skipped
+and why (no game install, no demos, no GPU, Windows only); convert the cheapest skips to synthetic fixtures (D38: synthetic
+first) so CI can run them; raise each count and coverage floor to the number measured on CI (a CI floor has to be measured
+on CI, never copied from a local run); and make the workflow read its floors from `build/gate.sh` so the two stop drifting,
+which the workflow itself names as the fix. CI stays free of LFS bandwidth (`lfs: false`, the blob cache).
+
+**Not decided here:** which skipped tests are worth converting, and the new numbers. They come from the measurement.
+
