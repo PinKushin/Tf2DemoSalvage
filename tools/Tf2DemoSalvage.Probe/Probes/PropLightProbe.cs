@@ -56,7 +56,7 @@ public sealed class PropLightProbe : IProbe
 
         byte[] bytes = File.ReadAllBytes(path);
         MapLevel level = MapLevel.Read(bytes, NullLogger.Instance);
-        MapAssets assets = MapAssets.Load(bytes, GameArchives.Open(folder), 64);
+        MapAssets assets = MapAssets.Load(bytes, GameArchives.Open(folder), 64, mapName: path);
         IReadOnlyList<string> materials = [.. BspMaterials.Read(bytes).Select(material => material.Name)];
         IReadOnlyList<BspStaticProp> lump = BspStaticProps.Read(bytes);
 

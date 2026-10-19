@@ -67,7 +67,7 @@ public sealed class IdTargetProbe : IProbe
         }
 
         GameContent game = GameContent.Open(folder, NullLoggerFactory.Instance);
-        LoadedMap map = LoadedMap.Read(File.ReadAllBytes(mapPath), game, timeline, 256, NullLoggerFactory.Instance);
+        LoadedMap map = LoadedMap.Read(File.ReadAllBytes(mapPath), game, timeline, 256, NullLoggerFactory.Instance, mapPath);
         IdTargets targets = new(new BulletStrikes(new EntityModelSet(), NullLogger.Instance), NullLogger.Instance);
 
         int from = arguments.Count > 2 ? int.Parse(arguments[2], CultureInfo.InvariantCulture) : timeline.FirstTick;

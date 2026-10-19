@@ -157,7 +157,7 @@ public sealed class CycleProbe : IProbe
             game = GameContent.Open(folder, NullLoggerFactory.Instance);
 
             LoadedMap map = LoadedMap.Read(
-                File.ReadAllBytes(mapPath), game, timeline, 0, NullLoggerFactory.Instance);
+                File.ReadAllBytes(mapPath), game, timeline, 0, NullLoggerFactory.Instance, mapPath);
 
             if (map.Assets is { } assets)
             {

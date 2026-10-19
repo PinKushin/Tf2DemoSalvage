@@ -96,7 +96,7 @@ public sealed class AutoplayProbe : IProbe
         new WeaponPropModels().Resolve(props, players, game.Weapons.For, game.Weapons.WorldDisplayModel);
 
         LoadedMap map = LoadedMap.Read(
-            File.ReadAllBytes(mapPath), game, timeline, 0, NullLoggerFactory.Instance);
+            File.ReadAllBytes(mapPath), game, timeline, 0, NullLoggerFactory.Instance, mapPath);
 
         if (map.Assets is not { } assets)
         {

@@ -227,7 +227,7 @@ public sealed class LevelSystems
         // **A map load no longer depends on which VIEW is on** (B219). It took a `colourByClass`
         // flag until 2026-08-27, because the category view's colours were baked into the geometry —
         // which is what made switching the view a reload, and what let it throw the models away.
-        LoadedMap map = LoadedMap.Read(bytes, game, timeline, textureQuality, _loggers);
+        LoadedMap map = LoadedMap.Read(bytes, game, timeline, textureQuality, _loggers, mapName);
 
         // **The payload, assigned before the walk.** Valve's hooks take no arguments because a
         // system reads globals; ours are handed their data here and then told the level has begun.

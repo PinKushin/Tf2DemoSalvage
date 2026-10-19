@@ -59,7 +59,7 @@ public sealed class EffectEntityProbe : IProbe
 
         DemoTimeline timeline = DemoTimeline.Build(File.ReadAllBytes(path));
         GameContent game = GameContent.Open(folder, NullLoggerFactory.Instance);
-        LoadedMap map = LoadedMap.Read(File.ReadAllBytes(mapPath), game, timeline, 256, NullLoggerFactory.Instance);
+        LoadedMap map = LoadedMap.Read(File.ReadAllBytes(mapPath), game, timeline, 256, NullLoggerFactory.Instance, mapPath);
 
         double tick = arguments.Count > 2
             ? double.Parse(arguments[2], CultureInfo.InvariantCulture)

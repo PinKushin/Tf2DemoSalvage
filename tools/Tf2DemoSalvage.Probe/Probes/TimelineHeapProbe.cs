@@ -79,7 +79,7 @@ public sealed class TimelineHeapProbe : IProbe
             && locator.FindGameFolder() is { } folder)
         {
             GameContent game = GameContent.Open(folder, NullLoggerFactory.Instance);
-            map = LoadedMap.Read(File.ReadAllBytes(mapPath), game, timeline, 0, NullLoggerFactory.Instance);
+            map = LoadedMap.Read(File.ReadAllBytes(mapPath), game, timeline, 0, NullLoggerFactory.Instance, mapPath);
             // What the viewer's "memory after load" line read before D199: the heap as the LAST collection left it, of
             // whatever kind, counting every dead object no full collection had reached. The viewer now collects first.
             GCMemoryInfo asLogged = GC.GetGCMemoryInfo();

@@ -39877,6 +39877,74 @@ things `UnlitGeneric` does that `VguiRenderer` does not, none reachable by a sto
 - **`$separatedetailuvs`** (unlitgeneric_dx9.cpp:72, :152). The detail is then sampled from the second texture-coordinate
   set; the renderer always samples the base's. Added from the Fable review of `fix/hud-followups` (2026-10-18).
 
+## B555 — a particle name declared twice kept the FIRST definition; the engine keeps the last — FIXED 2026-10-19 (`fix/b554-map-particle-manifest`)
+
+**Found while reading the engine for B554** (finding 81). `CParticleSystemDictionary::AddParticleSystem` (`particles.obj`
+`000dcd90`, disassembled) looks the name up, case folded (`000db680`), destroys the old definition and stores the new.
+`ReadParticleDefinitions` (`000e5150`) calls it once per entry of the root's `particleSystemDefinitions` ARRAY, in array
+order (a root that is itself a definition is added alone), and `ParseParticleEffects` reads the
+manifest's files in order (`particle_parse.cpp:104-107`). **The later definition wins, both within a file and across
+files.** This project kept the first in both places. `ParticleSystems.Read` skipped a name it already held.
+`MapAssets.ReadDefinitions` used `TryAdd` under a comment saying "earlier files win", which was an interpolation and is
+now gone.
+
+**Fixed:** `ParticleSystems.Read` assigns, and walks the root's array rather than the whole element table (a review
+of `746de4c8` caught that the element table was walked; array order and element order agree on a file whose array
+lists its definitions as stored, which is what the earlier test wrote). The install's set is built by `ParticleManifest.Layer` over an empty base,
+the same call a map's own files go through. Its warnings for a missing or unreadable file are logged on every load, as
+the engine warns on every level. **This changes stock behaviour, and it is visible on stock.**
+`ParticleDuplicateNamesDiagnostic` (`[Explicit]`, run 2026-10-19 on the owner's install) measured 107 files and 9,290
+names. 54 names are declared in more than one file, and **30 of those differ between the files**:
+
+- `ExplosionCore_MidAir` and four `Explosions_MA_*` now come from `bigboom.pcf`, not `explosion.pcf`.
+- The eleven `_unusual_parent_*` now come from `weapon_unusual_energyorb.pcf`, the last of four.
+- `blood_decap` and `taunt_gasblast_steam` now come from `halloween.pcf`.
+- The two `halloween_boss_foot_*_customcolor` now come from `scary_ghost.pcf`.
+- `mini_firework*` now come from `mvm.pcf`.
+- The three `speech_medic*` now come from `item_fx.pcf`.
+- The three `target_break*` now come from `training.pcf`.
+- The two `taunt_flip_land*` now come from `taunt_fx.pcf`.
+
+No name is declared twice inside one file. In 73 files the array's order differs from the element table's, but in every
+case it is a permutation of the same set, so walking the array changes nothing on stock. One definition sets
+`preventNameBasedLookup` (`taunt_fx.pcf:taunt_pyro_balloon_explosion_stars`). The engine keeps such a definition out of
+the name map (`000dcd90`). That is not modelled here: children are resolved by name, so dropping it from the dictionary
+would lose it as its parent's child. Tests:
+`Layer_TwoFilesDeclaringOneName_TheLaterWins` and `Read_ANameDeclaredTwiceInOneFile_KeepsTheSecond`.
+
+## B554 — a map's own `maps/<name>_particles.txt` is not read, so a map's custom particles are lost — FIXED 2026-10-19 (`87e5e0b4`, `fix/b554-map-particle-manifest`)
+
+**Fixed.** `ParticleManifest.MapFiles` and `ParticleManifest.Layer`, called from `MapAssets.LoadRocketTrail` with the
+level's name. The engine does more than this entry assumed, and finding 81 has the full account:
+
+- **Three manifests are tried, and the first that loads is used.** In order: pak `particles.txt`, pak
+  `maps/<name>_particles.txt`, then GAME's copy.
+- **Only files directly inside `particles/` are accepted.**
+- **The cap counts accepted entries.** After 64 it warns once and stops reading, so the 65th and everything after it
+  is dropped.
+- **A repeated name is replaced, with case folded** (disassembled, `000dcd90`). The map's pass runs after the stock
+  reload, so the map's definition wins.
+
+Each map's definitions sit on top of the install's set and never write into it. A map without a manifest gets the
+shared instance itself. Tests: `MapParticleManifestTests`.
+
+**Filed 2026-10-19.** `ParticleManifest` reads the game's manifest and deliberately not the map's own file: `ParseParticleEffectsMap`
+(`:175`, the client's `particles.cpp`) layers `maps/<name>_particles.txt` on top, capped at `PARTICLES_MANIFEST_MAX_MAP_ENTRIES`
+= 64 (Valve's own comment: the cap exists because people *"drop bogus manifests into download directory to DoS rival community
+maps"*). A map that ships custom particles, in its pakfile, therefore loses them here. The omission is stated in
+`ParticleManifest`'s remarks and was never filed as a defect.
+
+**The owner's decision, 2026-10-19**, when told the gap existed and that the per-install cache of definitions (finding 80)
+would have to become per map if it were closed: *"Yes it's a gap, we need to fill, even if it doesn't come up much"*. The reason
+is the project's rule, not frequency: a divergence from Valve is a defect whatever its reach (D89, D129, D131).
+
+**What closing it needs:** read the map's `maps/<name>_particles.txt` from its pakfile first (the pak mounts ahead of the
+VPKs, so a map may also override a stock definition), apply the 64-entry cap exactly as `ParseParticleEffectsMap` does, read
+the `.pcf` files it names from the pak, and key the resulting definitions PER MAP, not per archives instance. The per-install
+shared set in `MapAssets` (finding 80) stays for the game's definitions; a map's own are layered on top without writing into
+the shared ones. Tests first, synthetic: a map pak with its own manifest and a `.pcf` shows the effect, the 65th entry is
+ignored, a pak override wins over a stock definition of the same name, and two maps on one install do not see each other's.
+
 ## B551 — a move child was LIT at its local origin, and a grandchild drawn one level deep — FIXED 2026-10-16 (`fix/parented-prop-origin`)
 
 **Reported as "PropsAt draws a child at its local origin", and that half was a misreading.** A timeline test authored a

@@ -276,6 +276,11 @@ in any public writeup found:
   engine poses one bind pose. 239 MB is every particle definition, held as a DMX tree per map, where the engine
   types them once per process. About 127 MB is texture pixels the device already holds. A `CTexture` keeps no
   texels after `ReconstructTexture` (disassembled) ([80](80-a-map-keeps-what-valve-uploads-and-frees.md)).
+- **A map brings its own particles.** `ParseParticleEffectsMap` tries three manifests and uses the first that loads:
+  pak `particles.txt`, then pak `maps/<name>_particles.txt`, then the GAME path's copy. It accepts files only from
+  directly inside `particles/`, keeps the first 64 accepted, and runs after the stock reload. A repeated name is
+  replaced, not kept, with case folded (disassembled, `AddParticleSystem`), so the map's definition wins
+  ([81](81-a-map-brings-its-own-particles.md)).
 
 ## Conventions used throughout
 

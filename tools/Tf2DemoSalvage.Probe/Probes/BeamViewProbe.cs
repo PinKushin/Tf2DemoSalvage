@@ -59,7 +59,7 @@ public sealed class BeamViewProbe : IProbe
 
         DemoTimeline timeline = DemoTimeline.Build(File.ReadAllBytes(path));
         GameContent game = GameContent.Open(folder, NullLoggerFactory.Instance);
-        LoadedMap map = LoadedMap.Read(File.ReadAllBytes(mapPath), game, timeline, 256, NullLoggerFactory.Instance);
+        LoadedMap map = LoadedMap.Read(File.ReadAllBytes(mapPath), game, timeline, 256, NullLoggerFactory.Instance, mapPath);
 
         List<SceneProp> props = [];
         timeline.PropsAt(Number(arguments[2]), props);

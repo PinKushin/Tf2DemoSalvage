@@ -65,7 +65,7 @@ public sealed class DarkMaterialsProbe : IProbe
 
         ReadOnlyMemory<byte> map = File.ReadAllBytes(path);
         GameArchives archives = GameArchives.Open(folder);
-        MapAssets assets = MapAssets.Load(map, archives, 0);
+        MapAssets assets = MapAssets.Load(map, archives, 0, mapName: path);
 
         List<(string Name, double Luminance, long Pixels)> report = [];
 
