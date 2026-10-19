@@ -84,6 +84,7 @@ public sealed class MapMemoryProbe : IProbe
 
         output.WriteLine($"control: managed heap live after load minus before = {Mb(after - before)} MB");
         output.WriteLine($"control: {WithPixels(assets)} base texture slots hold pixels");
+        output.WriteLine($"base texture formats: {Formats(assets)}");
 
         Report(output, "AS LOADED", map, assets, game, bytes, gameBefore);
         ReportModels(output, assets);
@@ -181,8 +182,22 @@ public sealed class MapMemoryProbe : IProbe
         {
             string top = string.Join(", ", byType.OrderByDescending(pair => pair.Value).Take(3)
                 .Select(pair => $"{pair.Key.Name} {Mb(pair.Value)}"));
-            output.WriteLine($"{Mb(owned),9} MB  {path,-60} {top}");
+            PropModels.ModelFrames frames = assets.EntityModels[path];
+            output.WriteLine(
+                $"{Mb(owned),9} MB  {path,-60} {top}; skinned {frames.Skinned is not null}, {frames.Geometry.Count} vertex lists " +
+                $"of {(frames.Geometry.Count > 0 ? frames.Geometry.Min(list => list.Count) : 0)}-{(frames.Geometry.Count > 0 ? frames.Geometry.Max(list => list.Count) : 0)} vertices");
         }
+    }
+
+    /// <summary>What the base textures are in memory: block-compressed or decoded, and how large the largest is.</summary>
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static string Formats(MapAssets assets)
+    {
+        List<MapTexture> present = [.. assets.Textures.OfType<MapTexture>().Where(texture => !texture.Image.IsEmpty)];
+        MapTexture largest = present.MaxBy(texture => texture.Width * texture.Height);
+        string formats = string.Join(", ", present.GroupBy(texture => texture.Image.Format)
+            .OrderByDescending(group => group.Count()).Select(group => $"{group.Key} {group.Count()}"));
+        return $"{formats}; largest decoded {largest.Width}x{largest.Height} (authored {largest.MappingWidth}x{largest.MappingHeight})";
     }
 
     private static IEnumerable<(string Name, object? Value)> FieldsOf(object root, string prefix)
@@ -225,7 +240,8 @@ public sealed class MapMemoryProbe : IProbe
 
         foreach ((string owner, long owned, Dictionary<Type, long> byType) in rows.OrderByDescending(row => row.Bytes))
         {
-            if (owned < 1 << 20)
+            // Every lump owner is printed however small: "is collision or vis kept" needs its row even at 0.1 MB.
+            if (owned < 1 << 20 && !owner.StartsWith("Level.", StringComparison.Ordinal))
             {
                 continue;
             }
