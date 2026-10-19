@@ -39877,7 +39877,23 @@ things `UnlitGeneric` does that `VguiRenderer` does not, none reachable by a sto
 - **`$separatedetailuvs`** (unlitgeneric_dx9.cpp:72, :152). The detail is then sampled from the second texture-coordinate
   set; the renderer always samples the base's. Added from the Fable review of `fix/hud-followups` (2026-10-18).
 
-## B554 — a map's own `maps/<name>_particles.txt` is not read, so a map's custom particles are lost — FIXED 2026-10-19 (`fix/b554-map-particle-manifest`)
+## B555 — a particle name declared twice kept the FIRST definition; the engine keeps the last — FIXED 2026-10-19 (`fix/b554-map-particle-manifest`)
+
+**Found while reading the engine for B554** (finding 81). `CParticleSystemDictionary::AddParticleSystem` (`particles.obj`
+`000dcd90`, disassembled) looks the name up, case folded (`000db680`), destroys the old definition and stores the new.
+`ReadParticleDefinitions` (`000e5150`) calls it once per element, in file order, and `ParseParticleEffects` reads the
+manifest's files in order (`particle_parse.cpp:104-107`). **The later definition wins, both within a file and across
+files.** This project kept the first in both places. `ParticleSystems.Read` skipped a name it already held.
+`MapAssets.ReadDefinitions` used `TryAdd` under a comment saying "earlier files win", which was an interpolation and is
+now gone.
+
+**Fixed:** `ParticleSystems.Read` assigns. The install's set is built by `ParticleManifest.Layer` over an empty base,
+the same call a map's own files go through. Its warnings for a missing or unreadable file are logged on every load, as
+the engine warns on every level. **This changes stock behaviour**: any name declared by more than one shipped file now
+resolves to the later one. How many names that affects has not been counted. Tests:
+`Layer_TwoFilesDeclaringOneName_TheLaterWins` and `Read_ANameDeclaredTwiceInOneFile_KeepsTheSecond`.
+
+## B554 — a map's own `maps/<name>_particles.txt` is not read, so a map's custom particles are lost — FIXED 2026-10-19 (`87e5e0b4`, `fix/b554-map-particle-manifest`)
 
 **Fixed.** `ParticleManifest.MapFiles` and `ParticleManifest.Layer`, called from `MapAssets.LoadRocketTrail` with the
 level's name. The engine does more than this entry assumed, and finding 81 has the full account:

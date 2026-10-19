@@ -2305,32 +2305,20 @@ public sealed class MapAssets
     private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<GameArchives, DefinitionSet> ParticleDefinitions = new();
 
     /// <summary>The definitions and how many files they came from.</summary>
-    private sealed record DefinitionSet(IReadOnlyDictionary<string, ParticleSystem> Systems, int Files);
+    /// <summary>The definitions, how many manifest entries named them, and what the read warned about.</summary>
+    private sealed record DefinitionSet(IReadOnlyDictionary<string, ParticleSystem> Systems, int Files, IReadOnlyList<string> Warnings);
 
+    /// <remarks>
+    /// **Later files win** (B555): `ReadParticleConfigFile` runs down the manifest and each `AddParticleSystem` REPLACES a
+    /// name it holds (`particles.obj` `000dcd90`, disassembled). This said "earlier files win", an interpolation the
+    /// disassembly killed. The same <see cref="ParticleManifest.Layer"/> a map's own files go through, over an empty base.
+    /// </remarks>
     private static DefinitionSet ReadDefinitions(GameArchives archives)
     {
-        Dictionary<string, ParticleSystem> systems = new(StringComparer.OrdinalIgnoreCase);
-        int files = 0;
+        List<string> warnings = [];
+        IReadOnlyList<string> named = ParticleManifest.Files(archives.Read);
 
-        foreach (string path in ParticleManifest.Files(archives.Read))
-        {
-            // Stryker disable once : a mutant that empties the guard body leaves 'file' unassigned, CS0165 — B410.
-            if (archives.Read(path) is not { Length: > 0 } file)
-            {
-                continue;
-            }
-
-            files++;
-
-            // **Earlier files win, which is the manifest's own order.** `ReadParticleConfigFile` is called down
-            // the list, and a name declared twice keeps whichever the engine saw first.
-            foreach ((string named, ParticleSystem one) in ParticleSystems.Read(file))
-            {
-                systems.TryAdd(named, one);
-            }
-        }
-
-        return new DefinitionSet(systems, files);
+        return new DefinitionSet(ParticleManifest.Layer(EmptySystems, named, archives.Read, warnings.Add), named.Count, warnings);
     }
 
     /// <summary>Reads every particle system the game precaches, and the materials they name (B373, B415).</summary>
@@ -2376,12 +2364,20 @@ public sealed class MapAssets
         TextureFiles? textures,
         string? mapName)
     {
-        (IReadOnlyDictionary<string, ParticleSystem> shared, int files) = ParticleDefinitions.GetValue(archives, ReadDefinitions);
+        (IReadOnlyDictionary<string, ParticleSystem> shared, int files, IReadOnlyList<string> stockWarnings) =
+            ParticleDefinitions.GetValue(archives, ReadDefinitions);
+
+        void Warn(string message) => assets.LogWarning("{Message}", message);
+
+        // The stock read's warnings, on every load: the engine re-reads the manifest per level (`ReloadParticleEffects`).
+        foreach (string warning in stockWarnings)
+        {
+            Warn(warning);
+        }
 
         // **The map's own definitions on top, per map** (B554, finding 81): `ParseParticleEffectsMap` runs after the stock
         // reload. With no manifest this is `shared` itself, so a map without custom particles copies nothing.
         Func<string, byte[]?> game = pak.AheadOf(archives.Read);
-        void Warn(string message) => assets.LogWarning("{Message}", message);
 
         IReadOnlyDictionary<string, ParticleSystem> systems = mapName is { Length: > 0 }
             ? ParticleManifest.Layer(shared, ParticleManifest.MapFiles(mapName, pak.ReadFile, game, Warn), game, Warn)
@@ -2489,7 +2485,7 @@ public sealed class MapAssets
             "{Message}",
             string.Create(
                 System.Globalization.CultureInfo.InvariantCulture,
-                $"particles: {files} manifest files, {systems.Count} systems, " +
+                $"particles: {files} manifest entries, {systems.Count} systems, " +
                 $"{wanted.Count} wanted, {materials.Count} materials; rocket trail " +
                 $"'{trail?.Name ?? "MISSING"}' material '{material}' " +
                 $"{(own.Sheet is null ? "did NOT resolve" : "resolved")}, " +

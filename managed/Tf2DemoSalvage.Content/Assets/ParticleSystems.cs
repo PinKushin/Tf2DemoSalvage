@@ -113,8 +113,9 @@ public static class ParticleSystems
     /// <returns>Its systems, by name.</returns>
     /// <remarks>
     /// **Keyed by name because that is how the game asks**: `ParticleProp()->Create( "rockettrail",
-    /// … )` carries a name and nothing else. A file declaring the same name twice keeps the first,
-    /// which matches a lookup built by insertion.
+    /// … )` carries a name and nothing else. **A file declaring the same name twice keeps the SECOND**, case folded:
+    /// `ReadParticleDefinitions` hands each element to `AddParticleSystem` in order, which replaces a name it already
+    /// holds (`particles.obj` `000e5150`, `000dcd90`, disassembled; B555).
     /// </remarks>
     public static IReadOnlyDictionary<string, ParticleSystem> Read(ReadOnlySpan<byte> file)
     {
@@ -126,7 +127,7 @@ public static class ParticleSystems
         {
             DmxElement element = elements[index];
 
-            if (element.Type != DefinitionType || systems.ContainsKey(element.Name))
+            if (element.Type != DefinitionType)
             {
                 continue;
             }

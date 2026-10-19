@@ -230,11 +230,43 @@ public sealed class MapParticleManifestTests
         warnings.Count.ShouldBe(1);
     }
 
+    /// <remarks>
+    /// **B555: the install's own manifest, two files declaring one name — the LATER one wins.** `ParseParticleEffects`
+    /// reads down the list (`particle_parse.cpp:104-107`) and each `AddParticleSystem` replaces (`000dcd90`). The stock
+    /// set is built by this same call over an empty base. Kills `TryAdd`.
+    /// </remarks>
+    [Test]
+    public void Layer_TwoFilesDeclaringOneName_TheLaterWins()
+    {
+        IReadOnlyDictionary<string, ParticleSystem> layered = ParticleManifest.Layer(
+            new Dictionary<string, ParticleSystem>(),
+            ["particles/first.pcf", "particles/second.pcf"],
+            Reader(new()
+            {
+                ["particles/first.pcf"] = Pcf(("shared_fx", "first")),
+                ["particles/second.pcf"] = Pcf(("shared_fx", "second")),
+            }),
+            _ => { });
+
+        Material(layered["shared_fx"]).ShouldBe("second");
+    }
+
+    /// <remarks>
+    /// **B555 inside one file too**: `ReadParticleDefinitions` calls `AddParticleSystem` for each element of
+    /// `particleSystemDefinitions` in order (`000e5150`), so a name declared twice keeps the second. Kills the
+    /// `ContainsKey` skip in `ParticleSystems.Read`.
+    /// </remarks>
+    [Test]
+    public void Read_ANameDeclaredTwiceInOneFile_KeepsTheSecond()
+    {
+        Material(ParticleSystems.Read(Pcf(("twice_fx", "first"), ("TWICE_FX", "second")))["twice_fx"]).ShouldBe("second");
+    }
+
     // ---- fixtures ----
 
     private static IReadOnlyDictionary<string, ParticleSystem> Stock() => ParticleSystems.Read(Pcf(("stock_fx", "stock")));
 
-    private static string Material(ParticleSystem system) => system.Parameters["material"].Text ?? string.Empty;
+    private static string Material(ParticleSystem system) => SyntheticPcf.Material(system);
 
     private static int Hash(IReadOnlyDictionary<string, ParticleSystem> systems)
     {
@@ -256,37 +288,5 @@ public sealed class MapParticleManifestTests
     private static Func<string, byte[]?> Reader(Dictionary<string, object> files) =>
         path => files.TryGetValue(path, out object? one) ? one as byte[] ?? Encoding.UTF8.GetBytes((string)one) : null;
 
-    /// <summary>A binary DMX `.pcf` declaring one definition per pair, each with a text `material`.</summary>
-    /// <remarks>The layout `ParticleSystemsConformanceTests.Build` writes, measured from TF2's own files.</remarks>
-    private static byte[] Pcf(params (string Name, string Material)[] definitions)
-    {
-        List<byte> file = [.. Encoding.ASCII.GetBytes("<!-- dmx encoding binary 2 format pcf 1 -->\n"), 0];
-        string[] strings = ["DmeParticleSystemDefinition", "material"];
-
-        file.AddRange(BitConverter.GetBytes((ushort)strings.Length));
-
-        foreach (string one in strings)
-        {
-            file.AddRange([.. Encoding.UTF8.GetBytes(one), 0]);
-        }
-
-        file.AddRange(BitConverter.GetBytes(definitions.Length));
-
-        foreach ((string name, _) in definitions)
-        {
-            file.AddRange(BitConverter.GetBytes((ushort)0));
-            file.AddRange([.. Encoding.UTF8.GetBytes(name), 0]);
-            file.AddRange(new byte[16]);
-        }
-
-        foreach ((_, string material) in definitions)
-        {
-            file.AddRange(BitConverter.GetBytes(1));
-            file.AddRange(BitConverter.GetBytes((ushort)1));
-            file.Add((byte)DmxAttributeType.Text);
-            file.AddRange([.. Encoding.UTF8.GetBytes(material), 0]);
-        }
-
-        return [.. file];
-    }
+    private static byte[] Pcf(params (string Name, string Material)[] definitions) => SyntheticPcf.Of(definitions);
 }
