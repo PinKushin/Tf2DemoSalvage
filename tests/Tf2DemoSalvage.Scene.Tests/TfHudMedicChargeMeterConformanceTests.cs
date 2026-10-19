@@ -90,14 +90,96 @@ public sealed class TfHudMedicChargeMeterConformanceTests
         (meter.FindChildByName("ChargeMeter")!.Visible, meter.FindChildByName("ChargeMeter1")!.Visible).ShouldBe((false, true));
     }
 
-    private static HudState State(int active, float charge = 0f)
+    /// <remarks>
+    /// `if ( flCharge >= 1.0 )` starts `HudMedicCharged` (:263-267) — at exactly 1, which a strict comparison would miss.
+    /// Each sequence in the test script sets the charge label's alpha to its own value, so which one ran is readable.
+    /// </remarks>
+    [Test]
+    public void Think_AChargeOfExactlyOne_StartsHudMedicCharged()
+    {
+        (TfHudMedicChargeMeter meter, HudViewport viewport, VguiContext context) = Animated();
+
+        meter.Think(State(active: MedigunSlot, charge: 1f), viewport);
+
+        LabelAlpha(meter, viewport, context).ShouldBe(Charged);
+    }
+
+    [Test]
+    public void Think_BelowAFullCharge_StartsNothing()
+    {
+        (TfHudMedicChargeMeter meter, HudViewport viewport, VguiContext context) = Animated();
+
+        meter.Think(State(active: MedigunSlot, charge: 0.99f), viewport);
+
+        LabelAlpha(meter, viewport, context).ShouldBe(Untouched, "the control: no sequence below 1");
+    }
+
+    /// <remarks>`else if ( !pMedigun->IsReleasingCharge() )` (:269-273): once charged, the meter stops when the charge is no longer being released.</remarks>
+    [Test]
+    public void Think_AChargeThatFellWithoutBeingReleased_StartsHudMedicChargedStop()
+    {
+        (TfHudMedicChargeMeter meter, HudViewport viewport, VguiContext context) = Animated();
+
+        meter.Think(State(active: MedigunSlot, charge: 1f), viewport);
+        meter.Think(State(active: MedigunSlot, charge: 0.5f), viewport);
+
+        LabelAlpha(meter, viewport, context).ShouldBe(ChargedStop);
+    }
+
+    /// <remarks>While the charge drains through a release, the charged sequence keeps running: no `HudMedicChargedStop`.</remarks>
+    [Test]
+    public void Think_AChargeFallingWhileReleased_KeepsHudMedicCharged()
+    {
+        (TfHudMedicChargeMeter meter, HudViewport viewport, VguiContext context) = Animated();
+
+        meter.Think(State(active: MedigunSlot, charge: 1f), viewport);
+        meter.Think(State(active: MedigunSlot, charge: 0.5f, releasing: true), viewport);
+
+        LabelAlpha(meter, viewport, context).ShouldBe(Charged);
+    }
+
+    /// <remarks>
+    /// `if( flProgress &lt; 1.f &amp;&amp; !pMedigun-&gt;IsReleasingCharge() )` dims a part-full chunk (:239-242); during a
+    /// release none is dimmed.
+    /// </remarks>
+    [Test]
+    public void Think_TheVaccinatorReleasing_DimsNoChunk()
+    {
+        (TfHudMedicChargeMeter meter, HudViewport viewport) = Built(mode: 3f);
+
+        meter.Think(State(active: MedigunSlot, charge: 0.625f, releasing: true), viewport);
+
+        meter.FindChildByName("ChargeMeter3")!.FgColor.ShouldBe(((byte)255, (byte)255, (byte)255, (byte)255));
+    }
+
+    private const float Untouched = 255f;
+    private const float Charged = 10f;
+    private const float ChargedStop = 20f;
+
+    private static float LabelAlpha(TfHudMedicChargeMeter meter, HudViewport viewport, VguiContext context)
+    {
+        viewport.Animations.UpdateAnimations(10f, context);
+
+        return meter.FindChildByName("ChargeLabel")!.GetFloat("alpha");
+    }
+
+    private static (TfHudMedicChargeMeter Meter, HudViewport Viewport, VguiContext Context) Animated()
+    {
+        (TfHudMedicChargeMeter meter, HudViewport viewport, VguiContext context) = BuiltWithContext(mode: 0f);
+
+        viewport.Animations.SetScriptFile(viewport, "scripts/medic.txt", wipeAll: true, context).ShouldBeTrue();
+
+        return (meter, viewport, context);
+    }
+
+    private static HudState State(int active, float charge = 0f, bool releasing = false)
     {
         EconAttributeWire none = new([], [], HasValidItemId: false);
         ScenePlayer player = new(1, 0f, 0f, 0f, Team: 3, Health: 150, PlayerClass: Medic, ActiveWeapon: active)
         {
             Items =
             [
-                new SceneItem(MedigunSlot, "CWeaponMedigun", 29, none, IsWeapon: true) { ChargeLevel = charge },
+                new SceneItem(MedigunSlot, "CWeaponMedigun", 29, none, IsWeapon: true) { ChargeLevel = charge, ChargeRelease = releasing },
                 new SceneItem(BonesawSlot, "CTFBonesaw", 8, none, IsWeapon: true),
                 new SceneItem(SyringeSlot, "CTFSyringeGun", 17, none, IsWeapon: true),
             ],
@@ -108,9 +190,22 @@ public sealed class TfHudMedicChargeMeterConformanceTests
 
     private static (TfHudMedicChargeMeter Meter, HudViewport Viewport) Built(float mode = 0f)
     {
+        (TfHudMedicChargeMeter meter, HudViewport viewport, _) = BuiltWithContext(mode);
+
+        return (meter, viewport);
+    }
+
+    private static (TfHudMedicChargeMeter Meter, HudViewport Viewport, VguiContext Context) BuiltWithContext(float mode)
+    {
         KeyValuesTree scheme = KeyValuesTree.Load(Encoding.UTF8.GetBytes("Scheme { Borders { } Fonts { } }"), "scheme.res", _ => null);
         VguiScheme colours = VguiScheme.Load(scheme);
-        Dictionary<string, byte[]> files = new() { ["resource/UI/HudMedicCharge.res"] = Encoding.UTF8.GetBytes(Res) };
+        Dictionary<string, byte[]> files = new()
+        {
+            ["resource/UI/HudMedicCharge.res"] = Encoding.UTF8.GetBytes(Res),
+            ["scripts/medic.txt"] = Encoding.UTF8.GetBytes(
+                $"event HudMedicCharged\n{{\n\tAnimate ChargeLabel Alpha {Charged} Linear 0.0 0.0\n}}\n" +
+                $"event HudMedicChargedStop\n{{\n\tAnimate ChargeLabel Alpha {ChargedStop} Linear 0.0 0.0\n}}\n"),
+        };
         VguiContext context = new(colours, VguiBorders.Load(scheme, colours, 480), scheme.Find("Fonts")!, 640, 480, "english")
         {
             Surface = new TextRecorder(),
@@ -124,6 +219,6 @@ public sealed class TfHudMedicChargeMeterConformanceTests
 
         meter.PerformApplySchemeSettings(context);
 
-        return (meter, viewport);
+        return (meter, viewport, context);
     }
 }

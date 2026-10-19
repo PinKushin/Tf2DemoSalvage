@@ -110,6 +110,29 @@ public sealed class TfControlsConformanceTests
         panel.LocalTeam.ShouldBe(3);
     }
 
+    /// <remarks>
+    /// `localplayer_changeteam` is an EVENT: the engine fires it when the team changes, not every frame (tf_imagepanel.cpp:79,
+    /// `UpdateBGImage` only from `FireGameEvent`). An image set on the panel since then — by the element that owns it —
+    /// stands until the team really changes; a per-frame resend would put the team background back over it every frame.
+    /// The second case is the control: a different team does fire, and replaces it.
+    /// </remarks>
+    [TestCase(3, "vgui/other")]
+    [TestCase(2, "vgui/red")]
+    public void Think_TheSameTeamAgain_DoesNotFireTheTeamChange(int secondTeam, string texture)
+    {
+        (VguiContext context, TextRecorder surface) = Context();
+        HudViewport viewport = new();
+        TfImagePanel panel = new(viewport, "Bg");
+
+        panel.ApplySettings(Block("\"teambg_2\" \"red\" \"teambg_3\" \"blue\"", "Bg"), context);
+        viewport.Think(new HudState { Team = 3 });
+        panel.SetImage("other");
+        viewport.Think(new HudState { Team = secondTeam });
+        panel.PaintBackground(surface, context);
+
+        surface.Calls.ShouldContain($"texture {texture}");
+    }
+
     [TestCase("CExLabel", typeof(TfExLabel))]
     [TestCase("CTFImagePanel", typeof(TfImagePanel))]
     public void Create_TfControls_AreRegistered(string name, System.Type type) =>

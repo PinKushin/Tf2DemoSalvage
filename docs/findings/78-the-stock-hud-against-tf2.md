@@ -29,6 +29,62 @@ glyph, then ONE pixel of 42 39 37 (the scheme's `Black`, 46 43 42) at the bottom
 drawn under the number, offset down and right by one. Ours had the number's 1-pixel rim at its top and left and the
 shadow's colour everywhere else. The scoreboard's team scores, also main-first at equal `zpos`, show the same in TF2.
 
+## Follow-ups, 2026-10-18
+
+**The detail combine is every `$detail` material's, not distance alpha's.** The first port ran `TextureCombine` inside
+`#if DISTANCEALPHA` and only for mode 8, the one the HUD backgrounds use. The shader runs it under `#if DETAILTEXTURE`
+(vertexlit_and_unlit_generic_ps2x.fxc:262-279) for any mode, and modes 5 and 6 after the colour multiply
+(`TextureCombinePostLighting`, :423-426). Now ported whole, sharing one HLSL transcription with the world shader
+(`DetailCombineShader`), and drawn through `VguiDetailRenderTests`: all twelve modes read back off the GPU within one
+level of `DetailCombine`'s arithmetic. Four details came with it, each from the source rather than the screen:
+
+- **`$detailtint` does nothing on a VGUI material.** `UnlitGeneric` declares no `$detailtint` parameter and its
+  `SetupVars` never assigns `m_nDetailTint`, which the vars' constructor memsets to -1 (unlitgeneric_dx9.cpp:72-89,
+  vertexlitgeneric_dx9_helper.h:28); the helper then sets c10 to white (vertexlitgeneric_dx9_helper.cpp:988-993).
+  Porting the tint as asked would have been a divergence. *Read from published source.*
+- **The mode is the VMT's.** LightmappedGeneric forces an ssbump detail to mode 10 or 11; the vertexlit helper reads
+  `$detailblendmode` as written (:422). The world's resolved `MapDetail.Mode` is therefore not the VGUI one.
+- **The mask is read before the combine.** With `$distancealpha` from the base, `distAlphaMask = baseColor.a` comes at
+  :258, before modes 3, 4, 8 and 9 rewrite alpha at :277.
+- **Mod2x reads the detail raw**, every other mode through the sRGB curve (:607-608). The upload had been sRGB always.
+- **`$detailscale` defaults to 4** (unlitgeneric_dx9.cpp:20). Every shipped HUD background sets 1 (`ammo_blue_bg.vmt`,
+  `ammo_red_bg.vmt`, `character_blue_bg_clipped.vmt`, read from `tf2_misc_dir.vpk`). What the renderer still does not
+  read — transforms, VTF addressing, `$vertexcolor` — is B553.
+
+**The charge meter's animation and release paths now have tests** (tf_hud_mediccharge.cpp:239-274): a charge of exactly
+1 starts `HudMedicCharged`, a fall without a release starts `HudMedicChargedStop`, a fall during one does not, and the
+Vaccinator dims no chunk while releasing. Which sequence ran is read through a test script that sets the label's
+alpha to a value per sequence. Five sabotages each redden one of them: `>=` to `>`, either start deleted,
+`!IsReleasingCharge()` to `true`, the dimming's release clause dropped, `m_bCharged = true` deleted.
+
+**The distance-alpha constants are now held on both sides.** The only fixture was the ammo background, so every
+switch was tested one way and both scale flags were on together: `ShadingConstants_EverySwitchTheOtherWay_PacksTheOpposites`
+flips all five switches, and `Constants_EachScaleFlagAlone_ScalesOnlyItsOwnRange` sets each flag alone and neither
+(vertexlitgeneric_dx9_helper.cpp:1012-1031). Sabotaged: `||` to `&&`, the edge block taken always, and the switches
+pinned each way.
+
+**The team event is held to firing on a change only.** `Think_TheSameTeamAgain_DoesNotFireTheTeamChange` sets an image
+on a `CTFImagePanel` after the team was sent, thinks on the same team again, and expects the image to stand; a second
+team is its control. Sabotaged with the guard always true: the same-team case reddens.
+
+**The goldens could not see an edge; an offscreen row can.** The golden comparison's 4×2 cell means are about 30
+pixels square, and a one-pixel outline, the glow or a reversed soft edge moves a cell mean by less than its tolerance;
+the TF2 cases are `[Explicit]` besides. `Draw_TheAmmoBackgroundsDistanceAlpha_MatchesTheShaderAcrossAnEdge` draws the
+ammo background's distance alpha over a synthetic 64-texel field rising x/63 and predicts every pixel of a row from
+the fxc (:296-327) within two levels. Dropping OUTLINE, swapping `MaskRange.x/y` and dropping the glow each redden it;
+in the first, the outline band misses by up to 18 levels. *Arithmetic against the GPU.*
+
+**The shadow-over-number order (B552): the SDK narrows it and stops.** Each scheme pass deletes and recreates the
+`.res` controls in file order. Each control is parented BEFORE its settings apply (BuildGroup.cpp:1353, :1358), so
+its `zpos` is set second, by a `SetZPos` on a panel already in the list. Children paint in list order. How
+`VPanel::SetParent` and `SetZPos` move a panel is in vgui2.dll, not in the SDK. The open question and the one reading
+that fits TF2's pixels are written in B552 rather than coded. *Read from published source; the reading is
+interpolated.*
+
+A wrong turn in the instrument, kept: the first `$detailscale` test drew a one-pixel-tall quad, whose V derivative is
+the whole texture per pixel at scale 4, and read the last mip's average (138) instead of a texel. Square target, then
+the texel.
+
 ## Wrong turns, kept
 
 - **"The shadow is translucent."** Our "4" read 118 114 113 inside, between Black and TanLight, which looked like a
@@ -44,5 +100,14 @@ shadow's colour everywhere else. The scoreboard's team scores, also main-first a
 ## Residual, measured
 
 - The class portrait's model is about 20 luma darker than TF2's at the helmet (cell means 125 against 101) while the
-  pose, framing and background match. The panel's light rig is `CPotteryWheelPanel`'s (potterywheelpanel.cpp:741-758);
-  not yet compared.
+  pose, framing and background match. **Compared 2026-10-18:**
+  - **The light rig is not the cause.** `HudPlayerClass.res` (read from `tf2_misc_dir.vpk`) gives `classmodelpanel` no
+    `lights` block, so the rig is `CreateDefaultLights`'s: an ambient cube of 0.4 on all six faces, and one white
+    directional light down (potterywheelpanel.cpp:316-333). Ours is the same. Neither `CBaseModelPanel` nor
+    `CTFPlayerModelPanel` adds a light.
+  - **The tone-map scale is the cause.** `CViewRender::Render` resets the scale to 1 under integer HDR after
+    post-processing and before the 2D section (viewrender.cpp:2211-2216). `CPotteryWheelPanel::Paint` and
+    `CMDLPanel::OnPaint3D` set none of their own. The viewer drew the panel's model at the scene's exposure. Now
+    `Device3D.ToneMapScaleAfterPostProcessing` resets it there, and the capture log still reports the scene's scale.
+  - The gap measured fits this: (101/125)^2.2 ≈ 0.63, a typical exposure scale. *Arithmetic.* Whether the portrait
+    now reads 125 is the class-portrait golden's to show; the UI suite was not run here.
