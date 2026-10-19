@@ -348,6 +348,9 @@ shrinking the live set does not shrink the process. **The next lever is that pre
 after the seek** like the one after the load (D199). The decal rebuild's new 36–45 MB per 20 s is a follow-up:
 memoise the rebuilt list per model that has been struck.
 
+**The rebuild is now memoised per struck model**, and released with the level's models. Large allocations per 20 s
+went from 118–120 to **88–90 MB** (`WorldVertex[]` 49–58 → 21–22). Mean frame 35.2–35.7 ms, private bytes 8,311–8,315 MB.
+
 **Item 2, the packed models' CPU copy, is already released.** `EntityModelSet.ReleaseUploaded` (B407) drops the
 729 MB once the map's world is on the device. Every run above ends with "entity model vertices on the CPU 0 in
 0 MB". The 729 MB is real only between the load and the first upload. That makes it part of the load peak, not the

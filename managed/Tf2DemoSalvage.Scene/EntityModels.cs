@@ -5464,6 +5464,7 @@ public sealed class EntityModelSet : Hud.IMdlCache, IPosedEntities
         _lastFace.Clear();
         _swaps.Clear();
         _raw.Clear();
+        _packedRebuilt.Clear();
         _packedOrder.Clear();
         _bakedByEntity.Clear();
 
@@ -5810,6 +5811,13 @@ public sealed class EntityModelSet : Hud.IMdlCache, IPosedEntities
     {
         ArgumentNullException.ThrowIfNull(modelPath);
 
+        // Once per model struck, kept until the level lets its models go: a rebuild per decal was ~40 MB of large-object
+        // garbage per 20 s of f12 (finding 78).
+        if (_packedRebuilt.TryGetValue(modelPath, out WorldVertex[]? rebuilt))
+        {
+            return rebuilt;
+        }
+
         if (!_raw.TryGetValue(modelPath, out IReadOnlyList<PropVertex>? corners) ||
             !_packedOrder.TryGetValue(modelPath, out int[]? order) ||
             !_frames.TryGetValue(modelPath, out PropModels.ModelFrames? model))
@@ -5826,8 +5834,12 @@ public sealed class EntityModelSet : Hud.IMdlCache, IPosedEntities
             packed[at] = Packed(corners[corner], corner < onward.Count ? onward[corner] : corners[corner]);
         }
 
+        _packedRebuilt[modelPath] = packed;
         return packed;
     }
+
+    /// <summary>The packed vertices rebuilt for models a decal has struck, by path (finding 78).</summary>
+    private readonly Dictionary<string, WorldVertex[]> _packedRebuilt = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>Whether the set has grown since the last upload, however it grew.</summary>
     /// <remarks>

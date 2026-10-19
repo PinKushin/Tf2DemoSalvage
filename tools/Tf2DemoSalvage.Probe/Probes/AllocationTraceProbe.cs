@@ -62,9 +62,12 @@ public sealed class AllocationTraceProbe : IProbe
         double last = 0;
         long ticks = 0;
         long unresolved = 0;
+        long everything = 0;
 
         source.Clr.GCAllocationTick += tick =>
         {
+            everything += tick.AllocationAmount64;
+
             if (tick.AllocationKind != GCAllocationKind.Large)
             {
                 return;
@@ -96,7 +99,8 @@ public sealed class AllocationTraceProbe : IProbe
 
         output.WriteLine(
             $"{ticks} large ticks over {seconds:0.0} s; {Mb(total)} MB, {Mb((long)(total * scale))} MB per 20 s " +
-            $"(control: compare with the --measure line's large allocations); unresolved stacks {Mb(unresolved)} MB");
+            $"(control: compare with the --measure line's large allocations); unresolved stacks {Mb(unresolved)} MB; " +
+            $"all ticks, every heap, {Mb(everything)} MB (control: the viewer's allocated-since-start for a whole-process trace)");
 
         foreach ((string type, long bytes) in byType.OrderByDescending(pair => pair.Value).Take(8))
         {

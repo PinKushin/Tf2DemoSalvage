@@ -260,6 +260,11 @@ public sealed partial class ViewerSession
             _host.Out.WriteLine("  " + allocations.Tally.Report(8));
         }
 
+        // Everything this process allocated since it started, every heap: the control for a whole-process trace (finding 78).
+        // Stryker disable once all : a mutated interpolated string cannot bind to its handler (CS1620) and Safe Mode drops the method - B410
+        _host.Out.WriteLine(string.Create(
+            CultureInfo.InvariantCulture, $"  allocated since start: {GC.GetTotalAllocatedBytes() / 1048576d:0} MB"));
+
         // Stryker disable once all : a mutated interpolated string cannot bind to its handler (CS1620) and Safe Mode drops the method - B410
         Audio.SoundCacheHeld sounds = _presenter.SoundsHeld;
         _host.Out.WriteLine(string.Create(

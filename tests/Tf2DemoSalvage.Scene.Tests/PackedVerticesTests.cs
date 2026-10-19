@@ -44,4 +44,20 @@ public sealed class PackedVerticesTests
         packed.Select(vertex => vertex.X).ShouldBe([1f, 7f, 4f, 1.5f], "the control: packing reordered the corners");
         models.PackedVertices(Path).ShouldBe(packed);
     }
+
+    /// <remarks>
+    /// **Rebuilt once per model struck, not once per decal** (finding 78: rebuilding per decal was about 40 MB of
+    /// large-object garbage per 20 s of f12). A second decal on the same model gets the same list; a level's end lets
+    /// it go with the model.
+    /// </remarks>
+    [Test]
+    public void PackedVertices_ASecondDecalOnTheSameModel_IsTheListTheFirstGot()
+    {
+        EntityModelSet models = new() { Geometry = Skinned };
+
+        models.Precache([Path]);
+        IReadOnlyList<WorldVertex>? first = models.PackedVertices(Path);
+
+        models.PackedVertices(Path).ShouldBeSameAs(first);
+    }
 }
