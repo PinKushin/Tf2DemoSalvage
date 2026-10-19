@@ -216,3 +216,43 @@ frame-rate readout's box.
 model-path lookup (12.2%) for every prop. The engine computes an absolute transform lazily behind
 `EFL_DIRTY_ABSTRANSFORM` and resolves a model when the entity takes an update, so both are the same divergence this
 fix closed for the collation. Not started here.
+
+## Tried and not kept: resolving a prop's model and placement once per object (2026-10-19)
+
+**The engine, read from published source.** `CalcAbsolutePosition` returns at once while `EFL_DIRTY_ABSTRANSFORM` is
+clear (`c_baseentity.cpp:4360`), and a model is set when the entity takes an update. So the animation pass's
+per-prop placement and model-path lookups looked like the same divergence fix 2 closed.
+
+**What was built.** Each prop object held its resolved `ModelFrames`, baked batches and, while unparented, its
+placement matrix, redone when the model set changed (an `Add` that added, `LevelShutdown`). Five tests, each
+sabotaged red: a counter that the same object resolves nothing, an update and a level change resolve once, a sweep
+forgets objects no longer asked for, and the fix-2 differential upgraded to a skinned model compared bone by bone,
+which reddened when parented props kept their placement.
+
+**What it measured: nothing.** `simulate` in the empty view read 1.3–1.5 ms after, against 1.2–1.3 before, inside
+the noise of a machine shared with other agents' viewers that run. **The first version used a
+`ConditionalWeakTable` and was worse, not neutral: the GC pause went from 2.3 to 17.8 ms a frame**, because every
+collection scans its dependent handles. That is a measurement worth keeping on its own.
+
+**Why the profile promised more than there was.** The 12% "case-folded hash" and 14% `PlacementOf` were leaf and
+inclusive shares under the sampler that suspends threads at their GC polls (the instrument note above), and inside
+a pass where 35% of samples were polls. The shares were real places, not real milliseconds. **The lesson, filed for
+the next profile here: rank by a direct timer before building, and treat a sampled share inside `SimulatePass` as a
+place to look, not a cost.** The patch is kept outside the tree; nothing of it is committed.
+
+## `between`: what repaints between frames (2026-10-19)
+
+**The instrument**: `cpu-trace … under:Control.WndProc` and `under:ViewerSession.Idle` over 16 s of the empty view.
+
+- **Window painting is 271 of 7,545 render-thread samples, 3.6%, about 0.4 ms of the 1.5 ms `between`.** 70% of it
+  is one `Label`'s paint — the transport's tick readout (`TransportBar.UpdateTickLabel`) — with the transport
+  panel's own background (`ScrollableControl.OnPaintBackground`, 25%) and the scrub bar's value (`TrackBar.set_Value`,
+  7%) after it.
+- **None of it is a repeated repaint.** `ShowTick` runs every frame, but `TrackBar.Value` and `Control.Text` both
+  return early when the value is unchanged, so a repaint happens only when the TICK changes — 66 times a second,
+  which at 50–90 frames a second is most frames. That is the readout showing new content, not the same picture
+  painted again. Valve's demo UI updates its tick readout every frame too, in VGUI inside its own frame.
+- **So there is no redundant repaint to remove**, and the remaining ~1.1 ms of `between` is the idle loop and
+  message pump themselves (`Idle`'s own leaf share, the `PeekMessage` it calls). The one possible saving is the panel
+  background behind the label, about 0.1 ms, by stopping the label resizing its parent; it would change how the
+  readout is laid out, which the task's "the window looks the same" forbids without the owner's eye. Not done.
