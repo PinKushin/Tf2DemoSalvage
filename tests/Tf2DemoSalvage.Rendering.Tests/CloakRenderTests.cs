@@ -257,7 +257,12 @@ public sealed class CloakRenderTests
 
             (frames[frame].Image.Format, frames[frame].Image.Levels.Count).ShouldBe(
                 (expected.Image.Format, expected.Image.Levels.Count), $"frame {frame}'s format and mips");
-            frames[frame].Image.Top.ToArray().ShouldBe(expected.Image.Top.ToArray(), $"frame {frame}");
+            // Every level, not only the top. Measured 2026-10-18: at this size the map is widened to Rgba8888 with ONE
+            // level, so there is no lower mip a frame could borrow — a mixed chain would show first as a level count.
+            for (int level = 0; level < expected.Image.Levels.Count; level++)
+            {
+                frames[frame].Image.Levels[level].ToArray().ShouldBe(expected.Image.Levels[level].ToArray(), $"frame {frame}, mip {level}");
+            }
         }
     }
 

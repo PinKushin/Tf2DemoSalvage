@@ -59,6 +59,11 @@ public sealed class OffscreenTargetMemoryDiagnostic
     [Test]
     public void Load_OneMapWithItsLog_ReportsEachPhase()
     {
+        if (!MapCache.Has("cp_process_f12"))
+        {
+            Skip.Because("cp_process_f12 or the game is absent");
+        }
+
         byte[] map = MapCache.Bytes("cp_process_f12");
         RecordingLoggerFactory log = new();
 
@@ -83,6 +88,11 @@ public sealed class OffscreenTargetMemoryDiagnostic
         Justification = "The subject is what survives a collection: one is forced before each reading.")]
     public void Load_TheSameMapSixTimesDropped_ReportsTheWorkingSetAfterEach()
     {
+        if (!MapCache.Has(MapCache.DefaultMap))
+        {
+            Skip.Because($"{MapCache.DefaultMap} or the game is absent");
+        }
+
         byte[] map = MapCache.Bytes();
         GameArchives game = SharedGame.Archives;
 
