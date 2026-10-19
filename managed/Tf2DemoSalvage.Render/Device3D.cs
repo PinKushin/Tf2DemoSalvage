@@ -377,7 +377,6 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         // for the life of a map, and `ClearWorld` empties this with the buffers it feeds.
         Dictionary<string, PackedModel> packed = new(StringComparer.OrdinalIgnoreCase);
         List<string> fresh = [];
-        List<WorldVertex[]> leases = [];
 
         foreach (string path in models.Paths)
         {
@@ -417,19 +416,9 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
             // **Offsets are global and the set may have let go of what was uploaded before** (B407), so the slice starts at
             // `lowest - VertexBase`. A model not yet uploaded is always in what the set still holds.
             //
-            // **Rented, and returned once the renderer has made its buffer** (finding 78): a fresh array per model was
-            // 54 MB of large-object garbage per 20 s of f12, read once and then dropped below.
-            int count = highest - lowest;
-            WorldVertex[] rented = System.Buffers.ArrayPool<WorldVertex>.Shared.Rent(count);
-            int from = lowest - models.VertexBase;
-
-            for (int at = 0; at < count; at++)
-            {
-                rented[at] = models.Vertices[from + at];
-            }
-
-            ArraySegment<WorldVertex> own = new(rented, 0, count);
-            leases.Add(rented);
+            // **A view, not a copy** (finding 78): a fresh array per model was 54 MB of large-object garbage per 20 s of
+            // f12, read once by the renderer's packing and then dropped below. The view is dropped with it.
+            Slice own = new(models.Vertices, lowest - models.VertexBase, highest - lowest);
 
             List<IReadOnlyList<WorldBatch>> rebased = [];
 
@@ -464,12 +453,25 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         {
             _packedModels[path] = _packedModels[path] with { Vertices = [] };
         }
+    }
 
-        // After the cache stops pointing at them; a failed upload above never returns them, and the GC has them instead.
-        foreach (WorldVertex[] lease in leases)
+    /// <summary>A run of the model set's vertices, read in place by the upload (finding 78).</summary>
+    private sealed class Slice(IReadOnlyList<WorldVertex> source, int start, int count) : IReadOnlyList<WorldVertex>
+    {
+        public int Count => count;
+
+        public WorldVertex this[int index] =>
+            (uint)index < (uint)count ? source[start + index] : throw new ArgumentOutOfRangeException(nameof(index));
+
+        public IEnumerator<WorldVertex> GetEnumerator()
         {
-            System.Buffers.ArrayPool<WorldVertex>.Shared.Return(lease);
+            for (int index = 0; index < count; index++)
+            {
+                yield return source[start + index];
+            }
         }
+
+        System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() => GetEnumerator();
     }
 
     /// <summary>Writes the next presented frame to a PNG.</summary>

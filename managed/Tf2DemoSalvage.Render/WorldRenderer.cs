@@ -2449,6 +2449,9 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
     /// <summary>A writable copy of a material's constants, reused across binds.</summary>
     private float[] _contentsScratch = [];
 
+    /// <summary>One model's packed floats on their way into its immutable buffer; grown only (finding 78).</summary>
+    private float[] _modelPackScratch = [];
+
     /// <summary>Copies a material's constants into the reused buffer, unless they are already there.</summary>
     /// <remarks>
     /// **The stored array is the material's resting state and must never be written**, which is
@@ -7004,10 +7007,17 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
                 continue;
             }
 
-            // **Packed into a rented array** (finding 78): a fresh one per model was 54 MB of large-object garbage per 20 s
-            // of f12. The buffer is immutable and copies its initial data, so the array goes back once it is created.
+            // **Packed into one grow-only scratch array** (finding 78): a fresh one per model was 54 MB of large-object
+            // garbage per 20 s of f12. The immutable buffer copies its initial data, so the array is free again at once.
+            // A rented one was tried first and measured worse, since the pool rounds each model up to a power of two.
             int floats = model.Vertices.Count * (VertexStride / sizeof(float));
-            float[] data = System.Buffers.ArrayPool<float>.Shared.Rent(floats);
+
+            if (_modelPackScratch.Length < floats)
+            {
+                _modelPackScratch = new float[floats];
+            }
+
+            float[] data = _modelPackScratch;
             PackInto(model.Vertices, data);
 
             BufferDesc description = new()
@@ -7031,7 +7041,6 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
                     device.CreateBuffer(in description, in initial, ref buffer));
             }
 
-            System.Buffers.ArrayPool<float>.Shared.Return(data);
             _modelBuffers[path] = buffer;
         }
 

@@ -5571,6 +5571,8 @@ public sealed class EntityModelSet : Hud.IMdlCache, IPosedEntities
 
         // **Reserved once for every model this call packs, then filled** (finding 78). Grown model by model, the list
         // doubled its way up, and the arrays it outgrew were 1.45 GB of large-object garbage over f12's precache.
+        // Exact, not `EnsureCapacity`: doubling measured worse on f12 (150 against 104 MB per 20 s), because several
+        // precache calls each grow a list that is already large.
         if (_vertices.Capacity < _vertices.Count + reserve)
         {
             _vertices.Capacity = _vertices.Count + reserve;
