@@ -108,14 +108,23 @@ public static class ParticleSystems
     /// <summary>The element type a child reference uses.</summary>
     private const string ChildType = "DmeParticleChild";
 
+    /// <summary>The root's array of definitions, <c>"particleSystemDefinitions"</c> (<c>000e5150</c>).</summary>
+    private const string DefinitionsAttribute = "particleSystemDefinitions";
+
     /// <summary>Reads every particle system a file declares.</summary>
     /// <param name="file">The whole <c>.pcf</c>.</param>
     /// <returns>Its systems, by name.</returns>
     /// <remarks>
     /// **Keyed by name because that is how the game asks**: `ParticleProp()->Create( "rockettrail",
-    /// … )` carries a name and nothing else. **A file declaring the same name twice keeps the SECOND**, case folded:
-    /// `ReadParticleDefinitions` hands each element to `AddParticleSystem` in order, which replaces a name it already
-    /// holds (`particles.obj` `000e5150`, `000dcd90`, disassembled; B555).
+    /// … )` carries a name and nothing else.
+    ///
+    /// **What is read is the ROOT, as `ReadParticleDefinitions` reads it** (`particles.obj` `000e5150`, disassembled):
+    /// a root that is itself a `DmeParticleSystemDefinition` is the only one added; otherwise each element its
+    /// `particleSystemDefinitions` array names, in ARRAY order, and nothing the array omits. The root is element 0,
+    /// which is what every shipped file's `untitled` element is (measured; the unserializer's choice of root is closed).
+    /// **A name declared twice keeps the later in that order**, case folded: `AddParticleSystem` replaces a name it
+    /// already holds (`000dcd90`; B555). Each element `AddParticleSystem` is handed is type-checked again there, so an
+    /// array entry that is not a definition adds nothing.
     /// </remarks>
     public static IReadOnlyDictionary<string, ParticleSystem> Read(ReadOnlySpan<byte> file)
     {
@@ -123,14 +132,30 @@ public static class ParticleSystems
 
         Dictionary<string, ParticleSystem> systems = new(StringComparer.OrdinalIgnoreCase);
 
-        for (int index = 0; index < elements.Count; index++)
+        if (elements.Count == 0)
         {
-            DmxElement element = elements[index];
+            return systems;
+        }
 
-            if (element.Type != DefinitionType)
+        IReadOnlyList<int> added = [];
+
+        if (elements[0].Type == DefinitionType)
+        {
+            added = [0];
+        }
+        else if (elements[0].Attributes.TryGetValue(DefinitionsAttribute, out DmxValue array) && array.Elements is { } named)
+        {
+            added = named;
+        }
+
+        foreach (int index in added)
+        {
+            if (index < 0 || index >= elements.Count || elements[index].Type != DefinitionType)
             {
                 continue;
             }
+
+            DmxElement element = elements[index];
 
             systems[element.Name] = new ParticleSystem(
                 element.Name,

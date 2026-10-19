@@ -73,7 +73,7 @@ public sealed class MapMemoryProbe : IProbe
         output.WriteLine($"control: GameContent before the load = {Mb(gameBefore)} MB");
 
         long before = Settled();
-        LoadedMap map = LoadedMap.Read(bytes, game, timeline: null, size, NullLoggerFactory.Instance);
+        LoadedMap map = LoadedMap.Read(bytes, game, timeline: null, size, NullLoggerFactory.Instance, path);
         long after = Settled();
 
         if (map.Assets is not { } assets)

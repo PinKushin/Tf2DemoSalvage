@@ -74,7 +74,7 @@ public sealed class WorldGeometryProbe : IProbe
         byte[] bytes = File.ReadAllBytes(path);
 
         GameContent game = GameContent.Open(folder, NullLoggerFactory.Instance);
-        LoadedMap loaded = LoadedMap.Read(bytes, game, timeline: null, 0, NullLoggerFactory.Instance);
+        LoadedMap loaded = LoadedMap.Read(bytes, game, timeline: null, 0, NullLoggerFactory.Instance, path);
 
         if (loaded.Assets is not { } assets)
         {

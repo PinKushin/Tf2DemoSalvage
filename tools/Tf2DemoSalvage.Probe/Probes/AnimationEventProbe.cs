@@ -84,7 +84,7 @@ public sealed class AnimationEventProbe : IProbe
         // `<class>_animations.mdl` — so reading the root model answers "no events" for every player
         // in every demo. The first run of this probe did exactly that and reported zero.
         LoadedMap map = LoadedMap.Read(
-            File.ReadAllBytes(mapPath), game, timeline, 0, NullLoggerFactory.Instance);
+            File.ReadAllBytes(mapPath), game, timeline, 0, NullLoggerFactory.Instance, mapPath);
 
         if (map.Assets is not { } assets)
         {

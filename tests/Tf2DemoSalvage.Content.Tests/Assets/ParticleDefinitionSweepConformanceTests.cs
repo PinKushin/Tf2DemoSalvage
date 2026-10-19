@@ -39,7 +39,8 @@ public sealed class ParticleDefinitionSweepConformanceTests
 
             HashSet<string> seen = new(StringComparer.OrdinalIgnoreCase);
 
-            // The first definition of a name is the one kept, so a later duplicate is not this system's oracle.
+            // A repeated name keeps the LATER one (B555), but no shipped file repeats one (ParticleDuplicateNamesDiagnostic),
+            // so the first met is the only one; the guard only skips what the dictionary could not hold twice.
             foreach (DmxElement definition in elements.Where(element => element.Type == "DmeParticleSystemDefinition"))
             {
                 if (!seen.Add(definition.Name) || !systems.TryGetValue(definition.Name, out ParticleSystem? system))

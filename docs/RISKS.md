@@ -39881,16 +39881,35 @@ things `UnlitGeneric` does that `VguiRenderer` does not, none reachable by a sto
 
 **Found while reading the engine for B554** (finding 81). `CParticleSystemDictionary::AddParticleSystem` (`particles.obj`
 `000dcd90`, disassembled) looks the name up, case folded (`000db680`), destroys the old definition and stores the new.
-`ReadParticleDefinitions` (`000e5150`) calls it once per element, in file order, and `ParseParticleEffects` reads the
+`ReadParticleDefinitions` (`000e5150`) calls it once per entry of the root's `particleSystemDefinitions` ARRAY, in array
+order (a root that is itself a definition is added alone), and `ParseParticleEffects` reads the
 manifest's files in order (`particle_parse.cpp:104-107`). **The later definition wins, both within a file and across
 files.** This project kept the first in both places. `ParticleSystems.Read` skipped a name it already held.
 `MapAssets.ReadDefinitions` used `TryAdd` under a comment saying "earlier files win", which was an interpolation and is
 now gone.
 
-**Fixed:** `ParticleSystems.Read` assigns. The install's set is built by `ParticleManifest.Layer` over an empty base,
+**Fixed:** `ParticleSystems.Read` assigns, and walks the root's array rather than the whole element table (a review
+of `746de4c8` caught that the element table was walked; array order and element order agree on a file whose array
+lists its definitions as stored, which is what the earlier test wrote). The install's set is built by `ParticleManifest.Layer` over an empty base,
 the same call a map's own files go through. Its warnings for a missing or unreadable file are logged on every load, as
-the engine warns on every level. **This changes stock behaviour**: any name declared by more than one shipped file now
-resolves to the later one. How many names that affects has not been counted. Tests:
+the engine warns on every level. **This changes stock behaviour, and it is visible on stock.**
+`ParticleDuplicateNamesDiagnostic` (`[Explicit]`, run 2026-10-19 on the owner's install) measured 107 files and 9,290
+names. 54 names are declared in more than one file, and **30 of those differ between the files**:
+
+- `ExplosionCore_MidAir` and four `Explosions_MA_*` now come from `bigboom.pcf`, not `explosion.pcf`.
+- The eleven `_unusual_parent_*` now come from `weapon_unusual_energyorb.pcf`, the last of four.
+- `blood_decap` and `taunt_gasblast_steam` now come from `halloween.pcf`.
+- The two `halloween_boss_foot_*_customcolor` now come from `scary_ghost.pcf`.
+- `mini_firework*` now come from `mvm.pcf`.
+- The three `speech_medic*` now come from `item_fx.pcf`.
+- The three `target_break*` now come from `training.pcf`.
+- The two `taunt_flip_land*` now come from `taunt_fx.pcf`.
+
+No name is declared twice inside one file. In 73 files the array's order differs from the element table's, but in every
+case it is a permutation of the same set, so walking the array changes nothing on stock. One definition sets
+`preventNameBasedLookup` (`taunt_fx.pcf:taunt_pyro_balloon_explosion_stars`). The engine keeps such a definition out of
+the name map (`000dcd90`). That is not modelled here: children are resolved by name, so dropping it from the dictionary
+would lose it as its parent's child. Tests:
 `Layer_TwoFilesDeclaringOneName_TheLaterWins` and `Read_ANameDeclaredTwiceInOneFile_KeepsTheSecond`.
 
 ## B554 — a map's own `maps/<name>_particles.txt` is not read, so a map's custom particles are lost — FIXED 2026-10-19 (`87e5e0b4`, `fix/b554-map-particle-manifest`)

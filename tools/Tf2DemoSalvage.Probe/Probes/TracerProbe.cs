@@ -55,7 +55,7 @@ public sealed class TracerProbe : IProbe
 
         DemoTimeline timeline = DemoTimeline.Build(File.ReadAllBytes(path));
         GameContent game = GameContent.Open(folder, NullLoggerFactory.Instance);
-        LoadedMap map = LoadedMap.Read(File.ReadAllBytes(mapPath), game, timeline, 256, NullLoggerFactory.Instance);
+        LoadedMap map = LoadedMap.Read(File.ReadAllBytes(mapPath), game, timeline, 256, NullLoggerFactory.Instance, mapPath);
 
         IReadOnlyList<ShotTracer> tracers = map.Tracers;
         IReadOnlyList<SceneShot> shots = timeline.Shots.All;

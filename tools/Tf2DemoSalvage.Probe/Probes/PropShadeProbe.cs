@@ -57,7 +57,7 @@ public sealed class PropShadeProbe : IProbe
         byte[] bytes = File.ReadAllBytes(path);
         GameArchives archives = GameArchives.Open(folder);
         PakFile pak = PakFile.ReadFrom(bytes);
-        MapAssets assets = MapAssets.Load(bytes, archives, 64);
+        MapAssets assets = MapAssets.Load(bytes, archives, 64, mapName: path);
         LevelLighting lighting = LevelLighting.From(MapLevel.Read(bytes, NullLogger.Instance), NullLogger.Instance);
 
         BspEntity? sky = BspEntities.ReadFrom(bytes).FirstOrDefault(

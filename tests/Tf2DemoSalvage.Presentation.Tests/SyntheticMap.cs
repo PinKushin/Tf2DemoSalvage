@@ -28,5 +28,5 @@ internal static class SyntheticMap
     /// <param name="timeline">The demo opened with it, or null.</param>
     /// <param name="lumps">Lump payloads by index; none is a header alone.</param>
     public static LoadedMap Read(DemoTimeline? timeline = null, IReadOnlyDictionary<int, byte[]>? lumps = null) =>
-        LoadedMap.Read(SyntheticBsp.Build(lumps ?? new Dictionary<int, byte[]>()), NoInstall(), timeline, textureQuality: 0, NullLoggerFactory.Instance);
+        LoadedMap.Read(SyntheticBsp.Build(lumps ?? new Dictionary<int, byte[]>()), NoInstall(), timeline, textureQuality: 0, NullLoggerFactory.Instance, "synthetic");
 }

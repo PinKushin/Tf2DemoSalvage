@@ -48,7 +48,7 @@ public sealed class WorldCullingProbe : IProbe
         }
 
         byte[] bytes = File.ReadAllBytes(path);
-        MapAssets assets = MapAssets.Load(bytes, GameArchives.Open(folder), maximumTextureSize: 64);
+        MapAssets assets = MapAssets.Load(bytes, GameArchives.Open(folder), maximumTextureSize: 64, mapName: path);
         MapLevel level = MapLevel.Read(bytes, NullLogger.Instance);
 
         MapWorld world = MapWorldBuilder.Build(

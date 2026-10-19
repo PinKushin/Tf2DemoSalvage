@@ -194,6 +194,70 @@ public static class ParticleManifest
         return string.Equals(folder, MapFolder, StringComparison.OrdinalIgnoreCase);
     }
 
+    /// <summary>The names the level load's two manifest passes are handed (finding 81).</summary>
+    /// <param name="level">The level as the demo or a path names it: <c>cp_x</c>, <c>workshop/cp_x.ugc123</c>, or a <c>.bsp</c> path.</param>
+    /// <returns>
+    /// <c>Reload</c>: <c>Q_FileBase</c>, after the last separator and up to the LAST dot (<c>particle_parse.cpp:159</c>,
+    /// <c>V_FileBase</c> at <c>strtools.cpp:1850</c>). <c>LevelInit</c>: the engine's cut before
+    /// <c>LevelInitPreEntity</c>, after the last <c>\</c> or <c>/</c> and up to the FIRST dot (<c>engine.dll</c>
+    /// <c>FUN_18008dd50</c>, disassembled).
+    /// </returns>
+    /// <exception cref="ArgumentNullException"><paramref name="level"/> is null.</exception>
+    public static (string Reload, string LevelInit) MapNames(string level)
+    {
+        ArgumentNullException.ThrowIfNull(level);
+
+        string file = level[(level.LastIndexOfAny(['/', '\\']) + 1)..];
+        string withExtension = file.EndsWith(".bsp", StringComparison.OrdinalIgnoreCase) ? file : file + ".bsp";
+        int first = file.IndexOf('.', StringComparison.Ordinal);
+
+        return (withExtension[..withExtension.LastIndexOf('.')], first < 0 ? file : file[..first]);
+    }
+
+    /// <summary>What a level load leaves in the dictionary: both manifest passes around the stock reload (B554).</summary>
+    /// <param name="shared">The install's definitions, which are never written into.</param>
+    /// <param name="level">The level's name, as <see cref="MapNames"/> takes it.</param>
+    /// <param name="readPak">Opens a path in the map's pakfile alone, or answers null.</param>
+    /// <param name="readGame">Opens a path through <c>"GAME"</c>, the pakfile first.</param>
+    /// <param name="warn">Where each pass's warnings go.</param>
+    /// <returns><paramref name="shared"/> itself when neither pass adds anything; otherwise a copy.</returns>
+    /// <remarks>
+    /// **`LevelInitPreEntity` (<c>cdll_client_int.cpp:1605-1619</c>, read):** <c>ReloadParticleEffects</c> reads the map's
+    /// manifest under its <c>Reload</c> name and THEN every stock file (<c>particle_parse.cpp:161,166</c>), which takes back
+    /// every stock name; then <c>ParseParticleEffectsMap</c> runs again under the <c>LevelInit</c> name. So the first
+    /// pass leaves only names the install does not define, and the second pass wins over everything. On an ordinary map
+    /// both names are the same file and the second pass is the whole answer.
+    /// </remarks>
+    /// <exception cref="ArgumentNullException">An argument is null.</exception>
+    public static IReadOnlyDictionary<string, ParticleSystem> Level(
+        IReadOnlyDictionary<string, ParticleSystem> shared,
+        string level,
+        Func<string, byte[]?> readPak,
+        Func<string, byte[]?> readGame,
+        Action<string> warn)
+    {
+        ArgumentNullException.ThrowIfNull(shared);
+
+        (string reload, string levelInit) = MapNames(level);
+
+        IReadOnlyDictionary<string, ParticleSystem> first = Layer(shared, MapFiles(reload, readPak, readGame, warn), readGame, warn);
+
+        if (!ReferenceEquals(first, shared))
+        {
+            // The stock reload: every name the install defines is the install's again.
+            Dictionary<string, ParticleSystem> restocked = new(first, StringComparer.OrdinalIgnoreCase);
+
+            foreach ((string name, ParticleSystem one) in shared)
+            {
+                restocked[name] = one;
+            }
+
+            first = restocked;
+        }
+
+        return Layer(first, MapFiles(levelInit, readPak, readGame, warn), readGame, warn);
+    }
+
     /// <summary>A map's definitions layered over the install's, never written into them (B554).</summary>
     /// <param name="shared">The install's definitions (finding 80's per-install set).</param>
     /// <param name="files">What <see cref="MapFiles"/> accepted.</param>

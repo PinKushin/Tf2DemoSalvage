@@ -141,12 +141,116 @@ public sealed class MapParticleManifestTests
         warnings.Count.ShouldBe(1);
     }
 
-    /// <remarks>A malformed manifest must not throw out of the load; whatever the reader yields is what is read.</remarks>
+    /// <remarks>
+    /// **A manifest cut off inside a quoted value keeps every entry, the cut one running to the end of the file, and
+    /// nothing is warned.** The unclosed quote reads to end of file because `KeyValuesTokens` is `ReadToken` (B524). This
+    /// predicts the stream reader's whole answer; whether `KeyValues::LoadFromFile` then refuses the unbalanced file and
+    /// falls through to the next candidate is not modelled (finding 81). A reader change that drops or invents an entry
+    /// is seen.
+    /// </remarks>
     [Test]
-    public void MapFiles_AMalformedManifest_DoesNotThrow()
+    public void MapFiles_AManifestCutOffInsideAValue_KeepsTheCutEntryToTheEndOfTheFile()
     {
-        Should.NotThrow(() => ParticleManifest.MapFiles(
-            Map, Reader(new() { [MapManifest] = "{{{ \"file\" \"particles/a.pcf\" }}}} \"" }), _ => null, _ => { }));
+        List<string> warnings = [];
+
+        ParticleManifest.MapFiles(
+                Map,
+                Reader(new() { [MapManifest] = "m\n{\n\t\"file\" \"particles/a.pcf\"\n\t\"file\" \"particles/b" }),
+                _ => null,
+                warnings.Add)
+            .ShouldBe(["particles/a.pcf", "particles/b"]);
+        warnings.ShouldBeEmpty();
+    }
+
+    /// <remarks>
+    /// **A `file` key that opens a block is rejected as outside `particles/`, and its contents are not entries.**
+    /// `sub->GetString()` on a block is the default `""` (`KeyValues::GetString`, `KeyValues.cpp:1409-1460`, the
+    /// `default:` case), `V_StripFilename("")` leaves it empty, and the folder test warns (`particle_parse.cpp:226`). The
+    /// loop walks direct subkeys only, so the block's own `file` is never seen.
+    /// </remarks>
+    [Test]
+    public void MapFiles_AFileKeyOpeningABlock_IsWarnedAndItsContentsAreNotEntries()
+    {
+        List<string> warnings = [];
+
+        ParticleManifest.MapFiles(
+                Map,
+                Reader(new()
+                {
+                    [MapManifest] = "m\n{\n\t\"file\"\n\t{\n\t\t\"file\" \"particles/inner.pcf\"\n\t}\n\t\"file\" \"particles/a.pcf\"\n}\n",
+                }),
+                _ => null,
+                warnings.Add)
+            .ShouldBe(["particles/a.pcf"]);
+        warnings.Count.ShouldBe(1);
+    }
+
+    // ---- the two passes a level load makes ----
+
+    /// <remarks>
+    /// **The two passes are handed two different names.** `ReloadParticleEffects` takes `Q_FileBase` of the level name
+    /// (`particle_parse.cpp:159`): after the last separator, up to the LAST dot (`V_FileBase`, `strtools.cpp:1850`).
+    /// `LevelInitPreEntity`'s name comes from the engine's own cut (`engine.dll` `FUN_18008dd50`, disassembled): after the
+    /// last `\` or `/`, up to the FIRST dot (its `.` search is a forward scan, `18031a82c`). A workshop level splits them.
+    /// </remarks>
+    [TestCase("cp_custom", "cp_custom", "cp_custom")]
+    [TestCase("workshop/cp_x.ugc123", "cp_x.ugc123", "cp_x")]
+    [TestCase("maps/workshop/cp_x.ugc123.bsp", "cp_x.ugc123", "cp_x")]
+    [TestCase("maps\\koth_y.bsp", "koth_y", "koth_y")]
+    [TestCase("F:\\Team Fortress 2\\tf\\maps\\cp_y.bsp", "cp_y", "cp_y")]
+    public void MapNames_ALevel_GivesEachPassItsName(string level, string reload, string levelInit)
+    {
+        ParticleManifest.MapNames(level).ShouldBe((reload, levelInit));
+    }
+
+    /// <remarks>
+    /// **An ordinary map: the second pass runs after the stock reload, so its definition of a stock name wins**
+    /// (`cdll_client_int.cpp:1607,1619`).
+    /// </remarks>
+    [Test]
+    public void Level_AnOrdinaryMapsDefinitionOfAStockName_Wins()
+    {
+        IReadOnlyDictionary<string, ParticleSystem> layered = ParticleManifest.Level(
+            Stock(), "cp_custom", _ => null,
+            Reader(new()
+            {
+                [MapManifest] = Manifest("particles/custom.pcf"),
+                ["particles/custom.pcf"] = Pcf(("stock_fx", "map")),
+            }),
+            _ => { });
+
+        Material(layered["stock_fx"]).ShouldBe("map");
+    }
+
+    /// <remarks>
+    /// **A workshop map whose manifest only the FIRST pass finds**: that pass runs BEFORE the stock reload
+    /// (`particle_parse.cpp:161,166`), so the stock reload takes back every stock name and only the map's own names
+    /// survive; the second pass looks for `maps/cp_x_particles.txt`, which is not there. Kills a single pass under either
+    /// name.
+    /// </remarks>
+    [Test]
+    public void Level_AWorkshopManifestOnlyTheFirstPassFinds_KeepsItsOwnNamesAndLosesStockOnes()
+    {
+        IReadOnlyDictionary<string, ParticleSystem> layered = ParticleManifest.Level(
+            Stock(), "workshop/cp_x.ugc123", _ => null,
+            Reader(new()
+            {
+                ["maps/cp_x.ugc123_particles.txt"] = Manifest("particles/custom.pcf"),
+                ["particles/custom.pcf"] = Pcf(("stock_fx", "map"), ("unique_fx", "map")),
+            }),
+            _ => { });
+
+        Material(layered["stock_fx"]).ShouldBe("stock");
+        Material(layered["unique_fx"]).ShouldBe("map");
+    }
+
+    /// <remarks>The memory rule (finding 80), through both passes: no manifest is the shared instance itself.</remarks>
+    [Test]
+    public void Level_NoManifest_ReturnsTheSharedSetItself()
+    {
+        IReadOnlyDictionary<string, ParticleSystem> shared = Stock();
+
+        ParticleManifest.Level(shared, "workshop/cp_x.ugc123", _ => null, _ => null, _ => { }).ShouldBeSameAs(shared);
     }
 
     // ---- layering ----
@@ -301,6 +405,38 @@ public sealed class MapParticleManifestTests
     public void Read_ANameDeclaredTwiceInOneFile_KeepsTheSecond()
     {
         Material(ParticleSystems.Read(Pcf(("twice_fx", "first"), ("TWICE_FX", "second")))["twice_fx"]).ShouldBe("second");
+    }
+
+    /// <remarks>
+    /// **"Later" is the ROOT's `particleSystemDefinitions` ARRAY order, not the element table's.**
+    /// `ReadParticleDefinitions` (`000e5150`, disassembled) unserializes the root, reads its
+    /// `particleSystemDefinitions` attribute (type 0xf, an element array) and adds each in array order. Array `[B, A]`
+    /// over elements stored `A, B`, both named alike: the engine keeps A's. Kills walking the element table.
+    /// </remarks>
+    [Test]
+    public void Read_ArrayOrderDiffersFromElementOrder_TheArraysLaterWins()
+    {
+        Material(ParticleSystems.Read(SyntheticPcf.Rooted([1, 0], ("same_fx", "a"), ("same_fx", "b")))["same_fx"])
+            .ShouldBe("a");
+    }
+
+    /// <remarks>
+    /// **A definition the root's array does not name is not read.** Same reading as above; kills walking every element.
+    /// </remarks>
+    [Test]
+    public void Read_ADefinitionTheArrayOmits_IsNotRead()
+    {
+        ParticleSystems.Read(SyntheticPcf.Rooted([0], ("named_fx", "a"), ("orphan_fx", "b"))).Keys.ShouldBe(["named_fx"]);
+    }
+
+    /// <remarks>
+    /// **A root that IS a definition is added once and the read returns** (`000e5150`: the type compare against
+    /// `DmeParticleSystemDefinition`, then `AddParticleSystem( root )` and `return 1`). Elements after it are not read.
+    /// </remarks>
+    [Test]
+    public void Read_ARootThatIsADefinition_IsTheOnlyOneRead()
+    {
+        ParticleSystems.Read(SyntheticPcf.RootIsADefinition(("root_fx", "a"), ("after_fx", "b"))).Keys.ShouldBe(["root_fx"]);
     }
 
     // ---- fixtures ----

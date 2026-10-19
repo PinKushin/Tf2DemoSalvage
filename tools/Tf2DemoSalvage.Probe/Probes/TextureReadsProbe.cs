@@ -56,7 +56,7 @@ public sealed class TextureReadsProbe : IProbe
 
         try
         {
-            _ = LoadedMap.Read(File.ReadAllBytes(path), game, timeline, size, NullLoggerFactory.Instance);
+            _ = LoadedMap.Read(File.ReadAllBytes(path), game, timeline, size, NullLoggerFactory.Instance, path);
         }
         finally
         {

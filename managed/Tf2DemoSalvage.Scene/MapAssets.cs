@@ -2380,7 +2380,7 @@ public sealed class MapAssets
         Func<string, byte[]?> game = pak.AheadOf(archives.Read);
 
         IReadOnlyDictionary<string, ParticleSystem> systems = mapName is { Length: > 0 }
-            ? ParticleManifest.Layer(shared, ParticleManifest.MapFiles(mapName, pak.ReadFile, game, Warn), game, Warn)
+            ? ParticleManifest.Level(shared, mapName, pak.ReadFile, game, Warn)
             : shared;
 
         if (systems.Count == 0)
