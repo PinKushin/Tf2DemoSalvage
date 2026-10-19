@@ -39912,6 +39912,16 @@ the name map (`000dcd90`). That is not modelled here: children are resolved by n
 would lose it as its parent's child. Tests:
 `Layer_TwoFilesDeclaringOneName_TheLaterWins` and `Read_ANameDeclaredTwiceInOneFile_KeepsTheSecond`.
 
+## B556 — does every path that leaves a demo without its map say so in the status bar? — OPEN, unverified (check, then fix if silent)
+
+**Filed 2026-10-19 from D224.** The owner decided the viewer tells the user when there is no map, and believes the status bar
+already does. `MapProvider` builds `"No map for <demo>: <reason>"` when a fetch fails (`MapProvider.cs:341`); nothing yet shows
+that the text reaches the status bar from each way a demo can end up without its map: a failed download, a map the install
+cannot find, a demo opened from the library, a demo opened from the command line (`LaunchOptions` once left the viewer "on no
+map with nothing said"). **The check:** one test per path that opens a demo whose map is absent and reads the status text; a
+path that says nothing is a defect and is fixed in the view's presentation layer (D214: the view is thin; the message belongs
+in Presentation, with its test). Not a new decision: D224 already says yes.
+
 ## B554 — a map's own `maps/<name>_particles.txt` is not read, so a map's custom particles are lost — FIXED 2026-10-19 (`87e5e0b4`, `fix/b554-map-particle-manifest`)
 
 **Fixed.** `ParticleManifest.MapFiles` and `ParticleManifest.Layer`, called from `MapAssets.LoadRocketTrail` with the
