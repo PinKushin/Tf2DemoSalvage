@@ -220,6 +220,49 @@ byte for byte the digest that the old conversion printed before the change.
 
 The 59.9 ms run overlapped my own builds of Core and Presentation. The third run was taken alone to replace it.
 
+### The re-census after the four fixes (2026-10-19): what the "4.5 GB LOH" is
+
+**After all four fixes**, large allocations fell from 1,867–2,241 MB to 67–87 MB per 20 s of playback. The GC's
+end-of-run reading still showed a large-object heap of 3.6–4.4 GB. The question was whether that memory is HELD.
+
+**It is mostly not held.** A `dotnet-gcdump` taken 25 s into playback (private 8,502 MB at that moment) forces a full
+collection and lists what survives. Every surviving object of large-object size comes to about 0.15 GB together:
+
+| type | MB |
+|---|---:|
+| 7 × `WorldVertex[]` | 23 |
+| `TimelineFrame[]` | 20 |
+| 2 × `byte[]` | 18 |
+| 2 × `float[]` | 12 |
+| `DemoViewCommand[]` | 11 |
+| VPK directories | 7 |
+
+The GC's 3.6–4.4 GB "LOH" was therefore **dead arrays awaiting a gen2 collection**, plus free LOH space it had not
+returned. That is the residue of the load and of the churn now removed. It is not a holder. The gcdump's live total
+is 4.29 GB in 6.4 million objects, almost all of them small-object-heap objects.
+
+**What the whole process now holds:**
+
+| f12, Debug | baseline | after the four fixes |
+|---|---:|---:|
+| private bytes at the end of playback | 10,689 MB | 8,494–8,733 MB |
+| working set at the end of playback | 8,170 MB | 6,015–6,249 MB |
+| peak private bytes (at the upload) | 10,092–10,689 MB | 9,326–11,129 MB |
+
+The control is the same as before: the walk and private bytes agree within 110 MB. The upload peak did not move. It is
+the load's transient plus the 2.2–2.5 GB of native upload memory (slice B above), and none of the fixes touched it.
+
+**Naming owners of the 4.3 GB live set by retaining path is not done.** Two routes failed:
+
+1. **TraceEvent 4.0.0 has no heap-graph reader.** Its assembly carries the `GCHeapDump` name and no `MemoryGraph`, so a
+   gcdump cannot be read for retaining paths with the approved package.
+2. **An in-process by-field walk was tried and abandoned.** It used the D217 `StateCopy.Footprint` over the viewer's
+   session. It drove the viewer's private bytes to 40 GB, through the walk's own visited set and the boxing on
+   millions of objects, before it was stopped. The code was removed; its two emptied files await deletion.
+
+The route that would answer it is a full dump (`dotnet-dump collect`) read by ClrMD (`Microsoft.Diagnostics.Runtime`),
+which walks real roots. That is a second diagnostic package, so it is asked, not assumed.
+
 **Item 2, the packed models' CPU copy, is already released.** `EntityModelSet.ReleaseUploaded` (B407) drops the
 729 MB once the map's world is on the device. Every run above ends with "entity model vertices on the CPU 0 in
 0 MB". The 729 MB is real only between the load and the first upload. That makes it part of the load peak, not the
