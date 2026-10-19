@@ -41,6 +41,13 @@ public sealed class HudGoldenImageUiTests
     /// block). **Class and health: worst 15.1 on 2026-10-19** (23.1 on 2026-10-17, 63.2 before the fixes): pose, framing
     /// and background match, and the model's brightness is closer, 125 against 101 before and now within about 15
     /// (B559). Still red, so still `[Explicit]`.
+    ///
+    /// **What the ammo case is, and is not.** Its headroom is 1.2 (10.8 against 12) over cell MEANS that include the
+    /// map behind the translucent panel, so it is a world-shading lock as much as a HUD test: the HUD tone-map scale
+    /// alone moved this cell before. **It catches** the B552 regression (removing the `ZPos` re-run in
+    /// `VguiPanel.SetParent` puts the worst back to about 53) and a lost or mis-scaled panel. **It misses** a 1-pixel
+    /// shadow offset and a wrong glyph of similar ink, which move no cell mean. So a red here reads as "which side
+    /// moved", the HUD or the world behind it (compare the cells beside the number), not as "B552 is back".
     /// </remarks>
     [TestCase("ammo", 1150, 640, 1265, 705)]
     [TestCase("class and health", 0, 585, 200, 705, Explicit = true, Reason = "red: worst cell 15.1 against 12, the class model's brightness, unknown cause (B559)")]
@@ -65,6 +72,14 @@ public sealed class HudGoldenImageUiTests
     /// so the backgrounds, team colour, pose, gamma and ÜberCharge meter cannot quietly come undone while the TF2
     /// comparisons above are red for the reasons they state. A tighter tolerance, because the viewer repeats itself
     /// to the printed digit (D219).
+    ///
+    /// **Regenerated 2026-10-19**, because the old images were captured before B552 and the HUD tone-map fix and were
+    /// stale (ammo worst 57.8 against them). **The recipe**: the viewer exactly as `Compare` runs it, at 1280x720
+    /// (`TF2VIEW_VIEWPORT_SIZE=1280x720`), `+volume 0 &lt;the lcor demo&gt; --tick N --shot out.png --first-person
+    /// +cl_showfps 0`, with N = `SoldierTick` (1830) for the soldier image and `MedicTick` (4600) for the medic one,
+    /// the output copied over `Goldens/Hud/regression_lock_ours_hud_soldier.png` and `…_medic.png`. **Both images were
+    /// looked at by eye before being kept**: the ammo "4 20" drawn over its shadow, the soldier and medic portraits
+    /// present, the HUD whole (the medic's meter at 0%).
     /// </summary>
     [TestCase("regression_lock_ours_hud_soldier.png", SoldierTick, "ammo", 1150, 640, 1265, 705)]
     [TestCase("regression_lock_ours_hud_soldier.png", SoldierTick, "class and health", 0, 585, 200, 705)]
