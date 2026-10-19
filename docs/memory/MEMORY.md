@@ -1,3 +1,4 @@
+- [Credits queue](credits-queue.md) — API-credit jobs: drop JSON in F:\credits-queue\pending; owner runs the runner.
 - [Gate once per batch](gate-once-per-batch.md) — touched projects between rounds; one implementer until UI runs beside phase 1.
 - [Accessibility here is for tests](accessibility-here-is-for-tests.md) — TF2 needs sight; keep deaf/motor/colour support; PBJ needs all.
 - [Design for what the user sees during it](design-for-what-the-user-sees-during-it.md) — scrub needs live feedback (D217).
