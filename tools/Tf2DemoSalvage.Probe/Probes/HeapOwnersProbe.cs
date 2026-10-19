@@ -26,7 +26,7 @@ public sealed class HeapOwnersProbe : IProbe
     public string Name => "heap-owners";
 
     /// <inheritdoc/>
-    public string Summary => "a full dump's live heap by retaining field, two owners deep: heap-owners <file.dmp> [rows=40]";
+    public string Summary => "a dump's or a running process's live heap by retaining field, two owners deep: heap-owners <file.dmp|pid> [rows=40]";
 
     /// <inheritdoc/>
     public void Run(TextWriter output, IReadOnlyList<string> arguments)
@@ -34,7 +34,9 @@ public sealed class HeapOwnersProbe : IProbe
         ArgumentNullException.ThrowIfNull(output);
         ArgumentNullException.ThrowIfNull(arguments);
 
-        if (arguments.Count == 0 || !File.Exists(arguments[0]))
+        bool live = arguments.Count > 0 && int.TryParse(arguments[0], NumberStyles.None, CultureInfo.InvariantCulture, out _);
+
+        if (arguments.Count == 0 || (!live && !File.Exists(arguments[0])))
         {
             output.WriteLine(Summary);
             return;
@@ -42,7 +44,10 @@ public sealed class HeapOwnersProbe : IProbe
 
         int rows = arguments.Count > 1 ? int.Parse(arguments[1], CultureInfo.InvariantCulture) : 40;
 
-        using DataTarget target = DataTarget.LoadDump(arguments[0]);
+        // A process id attaches to the running process, suspended for the walk, so no dump file is ever written.
+        using DataTarget target = live
+            ? DataTarget.AttachToProcess(int.Parse(arguments[0], CultureInfo.InvariantCulture), suspend: true)
+            : DataTarget.LoadDump(arguments[0]);
         using ClrRuntime runtime = target.ClrVersions[0].CreateRuntime();
         ClrHeap heap = runtime.Heap;
 

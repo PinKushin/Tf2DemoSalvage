@@ -263,6 +263,30 @@ the load's transient plus the 2.2–2.5 GB of native upload memory (slice B abov
 The route that would answer it is a full dump (`dotnet-dump collect`) read by ClrMD (`Microsoft.Diagnostics.Runtime`),
 which walks real roots. That is a second diagnostic package, so it is asked, not assumed.
 
+### The live set by retaining path (2026-10-19, ClrMD)
+
+**The instrument.** `heap-owners` (`c6e58dfb`) attaches to the running viewer through ClrMD and suspends it for the walk,
+so no dump file is written. It starts from the real GC roots and walks breadth first. Each object is charged once, to
+the nearest field of one of this project's types on its first path.
+
+The walk ran 25 s into f12 playback, at 8,495 MB private. It reached 6,457,785 objects, **4,094 MB in total**. The
+control is the gcdump's live total of 4,290 MB at the same point of a different run, 4.6% apart. The full dump the plan
+asked for was not needed: `dotnet-dump` is not installed here, and ClrMD's attach reads the same heap.
+
+| # | retained by | MB | what Valve keeps | the fix it points at |
+|---|---|---:|---|---|
+| 1 | `TimelineFrames` frames and their `ScenePlayer[]`, `SceneTeam[]` and detail arrays: one whole frame per tick, 96,589 of them | ~800 | none; the demo is read as it plays (interp) | D217's windows. The frames are the precomputed timeline the viewer samples. |
+| 2 | **`SoundCache._cache`**: every decoded sound, kept for the life of the session as `float` samples | **650** | a bounded sound cache of the files' own 16-bit PCM (interp; `snd_*` is not in the SDK) | Store 16-bit (half), and bound the cache LRU. |
+| 3 | **`Device3D._skinnedVertices`**: the renderer's CPU copy of every skinned vertex | **623** | none: skinned meshes live on the GPU (src, `studiorender` design; interp for the exact buffer) | Drop it after upload, as B407 did for the rigid models. Find what reads it first. |
+| 4 | `EntityModelSet._raw` (305) and `ModelFrames.Geometry` (272): each model's raw `PropVertex` list, then its baked per-frame lists | 577 | one bind-pose VVD in an evictable cache | Item 3 (one bind pose, no frames), plus releasing `_raw` once packed. |
+| 5 | `ParticleFunction.Parameters` and related: the DMX dictionaries | ~196 | typed definitions, once per process | Item 4. |
+| 6 | Prop tracks' histories: `_keyframes` 85, `_simulation` 91, `_animation` 55, `_poseParameters` 47 | ~280 | the client keeps a short interpolation history per entity, not the whole demo (src, `InterpolatedVar`) | The timeline's design (D217), not a leak. |
+| 7 | the rest above 30 MB: skinned models 69; GameArchives 48; screen-overlay frames 44; `MapAssets.AnimationFrames` 41 (not released after upload); static-prop colours 42; physics ledge trees 47; corpse record 33 | ~324 | | `AnimationFrames` joins `ReleaseUploaded`, if it is uploaded with the textures. |
+
+**What this overturns.** The earlier map census charged row 4 and row 7's model data to the map. Rows 2 and 3 were not
+in any census: 1.27 GB together, more than items 3 and 4 combined. Row 1 matches the 1.25 GB the `timeline-heap` probe
+measured. That earlier census was right.
+
 **Item 2, the packed models' CPU copy, is already released.** `EntityModelSet.ReleaseUploaded` (B407) drops the
 729 MB once the map's world is on the device. Every run above ends with "entity model vertices on the CPU 0 in
 0 MB". The 729 MB is real only between the load and the first upload. That makes it part of the load peak, not the
