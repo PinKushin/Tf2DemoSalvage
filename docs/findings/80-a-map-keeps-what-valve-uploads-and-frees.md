@@ -559,6 +559,18 @@ particles, sprites and override materials.
 The frame times overlap, so this measured no frame-time change. The before rows are the earlier runs' numbers, one
 run for the memory rows and two for the frame.
 
+**Fixed: a block texture's upload pins its levels where they lie (2026-10-19).**
+- **The cost.** `CreateBlockTexture` copied every mip of every DXT texture into a new array only to pin it, at 89 MB
+  per 20 s after the texture table landed. It now pins the `ReadOnlyMemory` itself (`Memory.Pin`).
+- **Measured.** The stack is gone from the trace. Large allocations over the run fell from 6,095 to 5,091 MB, and
+  allocated since start from about 48.4 to 47.6 GB. Private bytes held at 7,496 MB on both runs, and the mean frame
+  was 38.5 / 38.1 ms.
+- **The test is the Rendering suite's block-texture renders** (1109 passed). No sabotage reddened a test for it: the
+  call is private and device-bound, and a level pinned from the wrong span would still be valid memory.
+
+**`PropModels.Read`'s 48 MB per 20 s is the baked animation frames themselves** (`List<PropVertex>(cornersPerFrame)`,
+one per frame). That is item 3's subject, the bake that GPU skinning replaces, so it is not fixed separately here.
+
 **The pool lease is therefore not built.** The candidate fixes are a per-load texture cache keyed by name, as
 `CTextureManager` keys it, and one file read per animated texture, shared by its frames. Both keep the bytes alive to
 upload, as now, and both are byte-identical by construction.

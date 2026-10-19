@@ -8022,19 +8022,21 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
 
         // **Pinned together and supplied at creation**, because an immutable texture takes its data
         // once. One entry per mip, in the order Direct3D numbers them: subresource zero is the top.
-        GCHandle[] pins = new GCHandle[levels];
+        //
+        // **Pinned where they lie, not copied first** (finding 80): a copy of every level of every block texture was
+        // 89 MB of large-object garbage per 20 s of f12, made only to have an array to pin.
+        System.Buffers.MemoryHandle[] pins = new System.Buffers.MemoryHandle[levels];
         SubresourceData[] data = new SubresourceData[levels];
 
         try
         {
             for (int level = 0; level < levels; level++)
             {
-                byte[] bytes = image.Levels[level].ToArray();
-                pins[level] = GCHandle.Alloc(bytes, GCHandleType.Pinned);
+                pins[level] = image.Levels[level].Pin();
 
                 data[level] = new SubresourceData
                 {
-                    PSysMem = (void*)pins[level].AddrOfPinnedObject(),
+                    PSysMem = pins[level].Pointer,
                     SysMemPitch = (uint)BlockPitch(image.Format, width, level),
                 };
             }
@@ -8055,12 +8057,9 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
         }
         finally
         {
-            foreach (GCHandle pin in pins)
+            foreach (System.Buffers.MemoryHandle pin in pins)
             {
-                if (pin.IsAllocated)
-                {
-                    pin.Free();
-                }
+                pin.Dispose();
             }
         }
     }
