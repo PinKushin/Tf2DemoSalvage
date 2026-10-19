@@ -63,6 +63,56 @@ public sealed class AudioOutputDeviceTests
         return output;
     }
 
+    /// <summary>A cache whose install holds two different 16-bit WAVs, long enough to still be playing when stopped.</summary>
+    private static SoundCache TwoWaves(long capacityBytes = SoundCache.CapacityBytes)
+    {
+        byte[] first = SoundCacheTests.WaveBytes(16, 1, 22050, new byte[22050 * 2]);
+        byte[] second = SoundCacheTests.WaveBytes(16, 1, 22050, [.. Enumerable.Repeat((byte)7, 22050 * 2)]);
+
+        return new SoundCache(Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance, capacityBytes)
+        {
+            Read = path => path.EndsWith("a.wav", StringComparison.Ordinal) ? first : second,
+        };
+    }
+
+    /// <remarks>
+    /// **A stop names one sfx, and only a voice playing that sfx matches** (`S_AlterChannel`, FUN_18002aa20; B416, B545).
+    /// Every WAV is held as 16-bit with its float memory empty, so an identity on the float memory matched the first WAV
+    /// voice on the channel whatever it played (finding 80). CHAN_STATIC, so both play at once.
+    /// </remarks>
+    [Test]
+    public void Silence_TwoWavesOnOneStaticChannel_StopsTheOneNamed()
+    {
+        using AudioOutput output = Open();
+        IAudioSink sink = output;
+        SoundCache cache = TwoWaves();
+
+        int first = output.Play(cache.Sample("a.wav")!.Value, 1f, 1f, entity: 1, channel: 6);
+        int second = output.Play(cache.Sample("b.wav")!.Value, 1f, 1f, entity: 1, channel: 6);
+
+        sink.Silence(1, 6, cache.Sample("b.wav")!.Value).ShouldBe(second);
+        output.SetVoiceGain(first, 0.5f).ShouldBeTrue("the other wave plays on");
+    }
+
+    /// <remarks>
+    /// **An evicted sound is the same sfx when it decodes again** (finding 80). A voice still playing a sound the cache let
+    /// go must stop when the demo names it, though the stop's sample is a fresh decode in new memory.
+    /// </remarks>
+    [Test]
+    public void Silence_ASoundEvictedWhilePlaying_StillStopsItsVoice()
+    {
+        using AudioOutput output = Open();
+        IAudioSink sink = output;
+        SoundCache cache = TwoWaves(capacityBytes: 22050 * 2);
+
+        output.Play(cache.Sample("b.wav")!.Value, 1f, 1f, entity: 1, channel: 6);
+        int voice = output.Play(cache.Sample("a.wav")!.Value, 1f, 1f, entity: 1, channel: 6);
+        cache.Sample("b.wav");
+        cache.Held.Sounds.ShouldBe(1, "the control: the cap holds one, so a was evicted for b");
+
+        sink.Silence(1, 6, cache.Sample("a.wav")!.Value).ShouldBe(voice);
+    }
+
     [Test]
     public void Play_ASample_CountsAsPlaying()
     {

@@ -44,10 +44,23 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
     private readonly List<Voice> _playing = [];
 
     /// <summary>One sound in flight.</summary>
-    /// <remarks>`Samples` names the sound it plays, as the engine's `ch->sfx` does — one cached decode per name.</remarks>
-    /// <remarks>`Id` is the voice's own handle, as the engine's channel index is: two CHAN_AUTO sounds on one entity are two
-    /// channels (`SND_PickDynamicChannel`, engine.dll FUN_18002a330, never matches a CHAN_AUTO request to a busy channel).</remarks>
-    private readonly record struct Voice(uint Source, uint Buffer, int Entity, int Channel, ReadOnlyMemory<float> Samples, int Id);
+    /// <remarks>
+    /// `Sound` names what it plays, as the engine's `ch->sfx` does. `Id` is the voice's own handle, as the engine's channel
+    /// index is: two CHAN_AUTO sounds on one entity are two channels (`SND_PickDynamicChannel`, engine.dll FUN_18002a330,
+    /// never matches a CHAN_AUTO request to a busy channel).
+    /// </remarks>
+    private readonly record struct Voice(uint Source, uint Buffer, int Entity, int Channel, SoundSample Sound, int Id)
+    {
+        /// <summary>Whether this voice plays <paramref name="sample"/>'s sfx.</summary>
+        /// <remarks>
+        /// **By the cache's sfx key** (finding 80): a WAV's float memory is empty, so every WAV matched on memory, and an
+        /// evicted sound decodes again to new memory. A sample from no cache has only its memory to go by.
+        /// </remarks>
+        public bool Plays(SoundSample sample) =>
+            Sound.Key is not null || sample.Key is not null
+                ? string.Equals(Sound.Key, sample.Key, StringComparison.Ordinal)
+                : Sound.Samples.Equals(sample.Samples) && Sound.Pcm16.Equals(sample.Pcm16);
+    }
 
     /// <summary>The next voice handle; 0 is reserved for "nothing started".</summary>
     private int _nextVoice = 1;
@@ -279,7 +292,7 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
 
         int id = NextVoice();
 
-        Voice started = new(source, buffer, entity, channel, sample.Samples, id);
+        Voice started = new(source, buffer, entity, channel, sample, id);
         _playing.Add(started);
         _byId[id] = started;
 
@@ -618,7 +631,7 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
         {
             Voice voice = _playing[index];
 
-            if (voice.Entity != entity || voice.Channel != channel || !voice.Samples.Equals(sample.Samples))
+            if (voice.Entity != entity || voice.Channel != channel || !voice.Plays(sample))
             {
                 index++;
                 continue;

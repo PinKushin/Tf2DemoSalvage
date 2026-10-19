@@ -147,11 +147,6 @@ public sealed class SoundCache
 
         SoundSample? sample = null;
 
-        if (!_precaching)
-        {
-            _held = _held with { Misses = _held.Misses + 1 };
-        }
-
         // **Timed because this is a file read and a decode INSIDE the frame.** A sound reaches here
         // once, the first time it plays — so every new sound in a match pays a VPK read plus a full
         // decode on the UI thread, and a voice line is an MP3. That is a "once per sound" cost
@@ -169,9 +164,15 @@ public sealed class SoundCache
 
             if (SoundFile.Open("sound/" + parsed.Path, read) is { } opened)
             {
+                // A miss is a decode in the frame, so a name the install cannot open is none (finding 80).
+                if (!_precaching)
+                {
+                    _held = _held with { Misses = _held.Misses + 1 };
+                }
+
                 SoundSampleResult result = SoundSampleReader.Read(opened.Bytes);
 
-                sample = result.Sample;
+                sample = result.Sample is { } fresh ? fresh with { Key = key } : null;
 
                 if (sample is { } decoded)
                 {
