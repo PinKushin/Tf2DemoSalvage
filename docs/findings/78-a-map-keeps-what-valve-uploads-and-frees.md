@@ -94,6 +94,72 @@ The map census above accounts for only part of the third.
   committed 4,017 MB after a forced collection.
 - Who owns B. That needs a native heap trace (ETW `HeapAlloc` stacks), which was not run.
 
+## The GC's own account, and what it overturned (2026-10-19)
+
+**`--measure` now prints the GC's view** (`8f595683`): `GC.GetGCMemoryInfo()` at the end of the measurement, with
+no forced collection, plus the large-object allocations of the measured frames by type. Each run below is the
+same setup as above (f12, tick 30000, Debug, `--measure 20`, under the lock), with the region walk as the control.
+Walk and private bytes agreed within 70 MB in every run.
+
+**The inference above was wrong in kind.** It read A2 (about 3 GB) as "committed but not live", meaning slack. The
+GC's own reading at the end of the baseline run:
+
+- committed 8,072 MB;
+- heap 8,061 MB;
+- fragmented 1 MB;
+- slack 9 MB;
+- **large-object heap 6,497 MB**, against 1,562 MB in gen2.
+
+The memory is not slack. It is the **large-object heap holding dead arrays** that no gen2 collection has yet
+reclaimed. The dump above saw 3.1 GB because `dotnet-gcdump` forces exactly that collection. The cause is
+allocation churn on the LOH during playback: 1.9–2.4 GB of large arrays in 20 seconds.
+
+| large allocations over 20 s of playback (baseline) | MB |
+|---|---:|
+| `float[]` | 1,666–1,859 |
+| `Dictionary<string, ParticleSystem>` entries | 321–352 |
+| `WorldVertex[]` | 77 |
+| `short[]` | 59–74 |
+| `byte[]` | 17 |
+
+**The particle lookup copies are fixed** (commit below). `ParticleEffect` copied the whole game's 9,050-system lookup
+once per child it resolved, to drop the parent's name as a cycle guard. It now carries the chain of ancestor names.
+Measured after the fix: 0 MB, where the baseline runs showed 321–352 MB.
+
+**The `float[]` owner is not found.** Two candidates were fixed, measured and reverted, because neither moved it:
+
+- decal vertex packing written straight into the mapped buffer;
+- a reused flex-delta scratch.
+
+`float[]` stayed at 1,666–1,781 MB with each. Naming the owner needs allocation stacks. The in-process listener
+cannot give them, because runtime events arrive on another thread. The next step is a `dotnet-trace` gc-verbose
+trace read with TraceEvent, which is a package this repository does not reference. That is asked, not assumed.
+
+**The GC levers**, one run each. Run-to-run spread on unchanged code was ±1 GB private and ±2 ms. Settings were
+set through environment variables. Where a kept one would live is said beside it.
+
+| run | peak private (MB) | working set at end | LOH at end | mean frame (ms) | where it would go |
+|---|---:|---:|---:|---:|---|
+| baseline | 10,689 | 8,203 | 6,497 | 39.8 | — |
+| `GCConserveMemory=5` | 9,344 | 6,736 | 3,228 | 41.2 | the viewer `.csproj`: `<RuntimeHostConfigurationOption Include="System.GC.ConserveMemory" Value="N" />`, which lands in `tf2demoview.runtimeconfig.json` |
+| `GCConserveMemory=9` | 8,329 | 5,700 | 3,597 | 42.2 | as above |
+| `gcConcurrent=0` | 10,467 | 7,654 | 6,021 | **54.7** | `<ConcurrentGarbageCollection>false` — rejected, +15 ms |
+| `TieredPGO=0` | 9,894 | 6,878 | 3,920 | 38.0 | `<TieredPGO>false` — no memory effect beyond noise |
+| particle fix, run 1 / 2 | 9,961 / 10,346 | 6,977 / 7,868 | 3,926 / 6,128 | 40.3 / 39.0 | (code) |
+
+`GCHeapAffinitizeMask` applies only to server GC, which the viewer does not use (workstation, concurrent), so it has
+nothing to act on. The compacting collection after the map load already exists (D199, `ViewerPresenter`). The churn
+this table measures happens after it, during playback.
+
+**`ConserveMemory=9` is the one lever that clearly moves memory.** It cuts about 2.4 GB of peak private bytes and
+about 2.5 GB of working set, at about +2.4 ms a frame (+6%, within twice the noise). That is a trade for the owner to
+judge, not one taken here. The better fix is to stop the churn it compensates for.
+
+**Item 2, the packed models' CPU copy, is already released.** `EntityModelSet.ReleaseUploaded` (B407) drops the
+729 MB once the map's world is on the device. Every run above ends with "entity model vertices on the CPU 0 in
+0 MB". The 729 MB is real only between the load and the first upload. That makes it part of the load peak, not the
+playback peak.
+
 ## What Valve does with a texture after upload (disassembled)
 
 `CTexture::ReconstructTexture` in TF2's x64 `materialsystem.dll` runs four steps:
