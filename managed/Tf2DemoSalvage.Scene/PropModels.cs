@@ -742,6 +742,14 @@ public static class PropModels
     /// </remarks>
     private static long BakeTicks;
 
+    /// <summary>Whether animated models are baked frame by frame as before item 3, rather than posed by their bones.</summary>
+    /// <remarks>
+    /// **For comparing the two pictures only** (finding 80): `TF2VIEW_BAKE_ANIMATED=1` keeps the old path so a golden pair
+    /// can be taken from one build. The default, false, is the engine's: every animated model is posed by `SetupBones`.
+    /// </remarks>
+    internal static bool BakeAnimated { get; set; } =
+        Environment.GetEnvironmentVariable("TF2VIEW_BAKE_ANIMATED") == "1";
+
     /// <summary>How long posing and baking model frames has taken this run.</summary>
     /// <remarks>
     /// **Baking is this project's one deliberate deviation from Valve**: small props and model
@@ -935,6 +943,7 @@ public static class PropModels
             // Counted across every sequence the merged table can reach, not the base model's own
             // animations - which is the whole point of merging it.
             long wantedFrames = 0;
+            long reachable = 0;
 
             for (int sequence = 0; sequence < table.Count; sequence++)
             {
@@ -943,6 +952,7 @@ public static class PropModels
                     continue;
                 }
 
+                reachable++;
                 wantedFrames += Math.Max(
                     1,
                     StudioAnimation.Frames(
@@ -978,8 +988,15 @@ public static class PropModels
             //
             // The guard is still right for the budget path: skinning a single-bone model to save
             // frames buys nothing, because one bone cannot deform anything.
+            //
+            // **And any model that animates is posed by its bones, from one bind pose** (finding 80, item 3), as the engine
+            // poses every studio model through `SetupBones`. A frame baked per animation step was most of f12's 329 MB of
+            // model vertices, and the bones-versus-bake sweep found the bake wrong where the two differ most: `NextOf`
+            // wraps a non-looping door's last interval back toward shut. The bake stays for a model with one pose, and for
+            // the comparison (`BakeAnimated`).
+            bool animates = wantedFrames > reachable;
             bool skin = bones.Count > 0 &&
-                (mustSkin || (wantedFrames > affordable && bones.Count > 1));
+                (mustSkin || (animates && !BakeAnimated) || (wantedFrames > affordable && bones.Count > 1));
 
             // **The face, for a model the GPU poses** (B513): the deltas are in the unposed model space the shader
             // skins from, which a baked frame is not.

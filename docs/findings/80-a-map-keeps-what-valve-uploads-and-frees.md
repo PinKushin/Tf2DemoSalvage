@@ -671,6 +671,41 @@ checked yet.
 
 **No model was refused.** Every one the sweep reached loaded on the skinned path with the same corners.
 
+### Item 3, step 2: animated models are posed by their bones (2026-10-19)
+
+**The change.** `PropModels` now skins every model that animates (`wantedFrames > reachable`) instead of baking a
+frame per animation step. The bake is kept: it still serves a model with one pose, and `TF2VIEW_BAKE_ANIMATED=1`
+restores the old path for a golden comparison from one build.
+- **Test.** `Load_AnimatedModels_AreSkinnedFromOneBindPose`: the door, the locker and a medkit are skinned with one
+  geometry slot, and nothing unskinned holds more than one frame. It was red on the old condition.
+- **Suites.** Scene 3147, Presentation 1178, Rendering 1111 passed with 47 skipped.
+
+**Measured on f12.** Census, then four viewer runs alternating the two paths on one build:
+
+| | bake | bones |
+|---|---:|---:|
+| `Assets.EntityModels` (map-memory) | 329.0 MB (`PropVertex[]` 231.8) | **196.6 MB** (`PropVertex[]` 99.4) |
+| live heap after load (map-memory) | 934.2 MB | 801.9 MB |
+| private bytes at the end | 7,378 / 7,370 MB | **6,045 / 6,087 MB** |
+| working set at the end | 5,044 / 5,090 MB | 4,035 / 4,072 MB |
+| GC heap at the end (LOH) | 4,749 (3,226) / 4,754 (3,223) | 3,713 (2,196) / 3,759 (2,221) |
+| allocated since start | 44,816 / 45,727 MB | 42,025 / 46,523 MB |
+| mean frame | 70.7 / 51.1 ms | 168.5 / 38.4 ms |
+
+- **Memory: a clear result.** Private bytes fell 1.3 GB, mostly the dead large-object heap the bake's frames left
+  behind.
+- **The frame time is not measured.** The four runs range from 38 to 169 ms, against 38 ms in quiet runs earlier the
+  same day, because the machine was busy with other runs. One run per side landed near the quiet figure (51 bake,
+  38 bones), but that is not a measurement. Posing about a hundred more props through `SetupBones` every frame is a real
+  per-frame cost, and it needs quiet runs before it is believed either way.
+
+**Not built, and why:**
+- **Releasing `_raw` saves nothing.** It holds `model.Geometry[0]`, the same list `_frames` holds, so dropping it frees
+  no bytes.
+- **Sharing game models across maps** needs geometry split from materials. A `ModelFrames` carries material indices
+  into the map's own table (`PropVertex.MaterialIndex`, and the per-family `SkinSwaps`), so it cannot be shared
+  without a per-map material layer. That is a separate structural change.
+
 ## Plans not yet built
 
 These were drafted for review before the churn work, and are ordered behind it.

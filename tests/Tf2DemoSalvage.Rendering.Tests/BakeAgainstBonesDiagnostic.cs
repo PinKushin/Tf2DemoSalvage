@@ -46,7 +46,18 @@ public sealed class BakeAgainstBonesDiagnostic
 
         byte[] map = File.ReadAllBytes(path);
         PakFile pak = PakFile.ReadFrom(map);
-        MapAssets assets = MapAssets.Load(map, SharedGame.Archives, maximumTextureSize: 16, entityModels: DemoModels.Needed(timeline, SharedGame.Content));
+        // The bake is the oracle, so it is asked for by name now that bones are the default.
+        MapAssets assets;
+        PropModels.BakeAnimated = true;
+
+        try
+        {
+            assets = MapAssets.Load(map, SharedGame.Archives, maximumTextureSize: 16, entityModels: DemoModels.Needed(timeline, SharedGame.Content));
+        }
+        finally
+        {
+            PropModels.BakeAnimated = false;
+        }
 
         List<(string Model, int Sequence, float Worst, float Mean, int Corners)> rows = [];
         List<string> unskinnable = [];

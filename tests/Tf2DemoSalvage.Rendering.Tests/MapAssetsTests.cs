@@ -281,6 +281,38 @@ public sealed class MapAssetsTests
         second.ParticleSystemsByName.ShouldBeSameAs(first.ParticleSystemsByName);
     }
 
+    /// <remarks>
+    /// **An animated model is posed by its bones, from one bind pose** (finding 80, item 3): the engine poses every studio
+    /// model through `SetupBones`, and a baked frame per animation step was most of f12's 329 MB of model vertices. The
+    /// sweep found the bake wrong where they differ most (a non-looping door blended back toward shut). The control: the
+    /// door and the locker are among the models, and so is a model with one pose, which stays one frame either way.
+    /// </remarks>
+    [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
+    public void Load_AnimatedModels_AreSkinnedFromOneBindPose()
+    {
+        const string Door = "models/props_gameplay/door_slide_large_dynamic.mdl";
+        const string Locker = "models/props_gameplay/resupply_locker.mdl";
+
+        if (F12() is not { } map)
+        {
+            Assert.Ignore("Team Fortress 2 with cp_process_f12 is not installed.");
+            return;
+        }
+
+        MapAssets assets = MapAssets.Load(map, SharedGame.Archives, maximumTextureSize: 16, entityModels: [Door, Locker, "models/items/medkit_small.mdl"]);
+
+        foreach (string model in new[] { Door, Locker, "models/items/medkit_small.mdl" })
+        {
+            PropModels.ModelFrames frames = assets.Geometry(model).ShouldNotBeNull(model);
+
+            frames.IsSkinned.ShouldBeTrue(model);
+            frames.Geometry.Count.ShouldBe(1, model);
+        }
+
+        assets.EntityModels.Values.Where(frames => !frames.IsSkinned).ShouldAllBe(frames => frames.Geometry.Count == 1);
+    }
+
     private static byte[]? F12() =>
         GameFolder is { } game && Path.Combine(game, "maps", "cp_process_f12.bsp") is { } map && File.Exists(map)
             ? File.ReadAllBytes(map)
