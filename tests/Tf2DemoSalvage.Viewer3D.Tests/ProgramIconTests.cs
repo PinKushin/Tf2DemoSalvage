@@ -14,12 +14,16 @@ namespace Tf2DemoSalvage.Viewer3D.Tests;
 public sealed class ProgramIconTests
 {
     /// <remarks>
-    /// 256 is checked by <see cref="ProgramIcon_Directory_ListsEverySizeFrom16To256"/> instead: GDI+'s
-    /// <see cref="Icon"/> does not decode the PNG-compressed entry that size uses, while Windows' own loader does.
+    /// 256 is checked by <see cref="ProgramIcon_Directory_ListsEverySizeFrom16To256"/> instead: every entry is
+    /// PNG-compressed, but <see cref="Icon"/>'s size lookup passes over the width-0 entry the 256 uses, so asking for 256
+    /// returns the 128 entry (measured in review, 2026-10-18).
     /// </remarks>
     [TestCase(16)]
+    [TestCase(24)]
     [TestCase(32)]
     [TestCase(48)]
+    [TestCase(64)]
+    [TestCase(128)]
     public void ProgramIcon_AtEachSize_HasThatSizeDrawn(int size)
     {
         using Icon sized = new(MainForm.ProgramIcon, size, size);
@@ -29,7 +33,9 @@ public sealed class ProgramIconTests
         Color ring = pixels.GetPixel(size / 2, size * 21 / 256);
         Color hole = pixels.GetPixel(size / 2, size * 52 / 256);
 
-        ring.A.ShouldBe((byte)255);
+        // Not exactly 255: at 24 px the ring's 18-unit band straddles two pixel rows, so the sampled row is ~75% covered
+        // (measured: 191). A blank or hole-filled icon reads 0.
+        ring.A.ShouldBeGreaterThan((byte)128);
         ring.R.ShouldBeGreaterThan(ring.B, "the ring is the brown-to-gold gradient, warm rather than blue");
         hole.A.ShouldBe((byte)0);
     }
@@ -61,5 +67,13 @@ public sealed class ProgramIconTests
         using MainForm form = new();
 
         form.Icon.ShouldBeSameAs(MainForm.ProgramIcon);
+    }
+
+    [Test]
+    public void StartupSplash_WhenBuilt_WearsTheProgramIcon()
+    {
+        using StartupSplash splash = new();
+
+        splash.Icon.ShouldBeSameAs(MainForm.ProgramIcon);
     }
 }
