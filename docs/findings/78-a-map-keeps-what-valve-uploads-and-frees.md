@@ -356,6 +356,99 @@ went from 118–120 to **88–90 MB** (`WorldVertex[]` 49–58 → 21–22). Mea
 0 MB". The 729 MB is real only between the load and the first upload. That makes it part of the load peak, not the
 playback peak.
 
+### The churn from process start, by owner (2026-10-19)
+
+**The instrument.** `dotnet-trace` on the viewer from process start: f12, seek to tick 30000, `--measure 20`, under
+`run-exclusive.ps1`. `alloc-trace` reads the large-object ticks by allocating stack. **The control** is the trace's
+total over every tick, against the GC's own `GC.GetTotalAllocatedBytes`, which the `--measure` line prints as "allocated
+since start". Before the fixes, those were 54,770 MB against 54,631 MB, so the trace sees the whole allocation stream.
+
+**The finding.** One map load and a 20 s measurement allocate about **52 GB**, 9–12 GB of it large objects. The dead
+large-object heap that private bytes carry is this load and seek churn. Valve loads a map without anything like it.
+
+| site | type | before, MB per 20 s | after, MB per 20 s |
+|---|---|---:|---:|
+| `VpkArchive.ReadFile` | `byte[]` | 268 | 258 |
+| `EntityModelSet.Add` (precache) | `WorldVertex[]` | 255 | 126 |
+| `CreateBlockTexture` | `byte[]` | 91 | 88 |
+| `Device3D.UploadModels` | `WorldVertex[]` | 56 | 54 |
+| `WorldRenderer.Pack` in `UploadModels` | `float[]` | 56 | 54 |
+| `PropModels.Read` | `PropVertex[]` | 48 | 51 |
+| `DecodedDemo.Report` roster | `ScenePlayer[]` | 103 | gone |
+| MP3 decode | `float[]` | 24 | 23 |
+
+"Per 20 s" is the probe's normalisation: the whole run's bytes are divided by its length, so multiply by about 11.1
+(before, 221.7 s) or 11.5 (after, 230.3 s) for the whole run.
+
+| whole run | before (221.7 s) | after (230.3 s) |
+|---|---:|---:|
+| large allocations | 12,071 MB | 9,359 MB |
+| allocated since start | 54,631 MB | 52,203 MB |
+| private bytes at the end | ~8.3 GB | 8,121 MB |
+| working set at the end | ~5.85 GB | 5,672 MB |
+| live GC heap at the end | | 5,487 MB (LOH 3,930) |
+
+**The fixes.** The roster is one pass instead of grouping every player of every frame. Packing groups corner indices
+and writes each vertex straight into the model set's list, instead of building a list of packed vertices per material
+and copying it.
+
+**Caveats.**
+- The "before" rows for the smaller owners are rounded back from earlier whole-run totals divided by 11.085. Only the
+  roster and packing rows were read off the stacks on both sides.
+- The "after" trace's all-tick total was not re-read, so the after column's control is the GC counter alone.
+- Private bytes moved by only about 200 MB. The dead large-object heap waits for a gen2 collection, so less churn shows
+  first as less garbage, and in private bytes only when the GC compacts.
+
+## Plans not yet built
+
+These were drafted for review before the churn work, and are ordered behind it.
+
+### Plan (a): entity models, once per process and one pose each
+
+**Design, in two steps that land separately.**
+
+1. **Stop baking frames.** Today an unskinned animated model stores one full vertex list per animation frame
+   (`PropModels`: `MaximumBakedFrames` 64, `MaximumBakedCorners` 2,000,000). That covers breadmonster, ammo packs,
+   resupply lockers and doors. Route every model with an animation through the existing `SkinnedModel` path instead.
+   The model then keeps one bind-pose vertex list plus bone weights, and is posed by bones on the GPU, as player
+   classes already are. Valve does this for every studio model (`bone_setup.cpp`). The baked path and its two budgets
+   are then removed, not kept as a fallback.
+2. **Share game models across maps.** Load the models `DemoModels.Needed` names for every demo through a cache in
+   `GameContent`, keyed by model path. Each map's `MapAssets` then adds only the models its own placements and demo
+   name. **The trap:** a map's pakfile can override a model's materials or textures. Geometry and bones depend only
+   on the model's files, so those are shared; material resolution stays per map. The cache must also refuse to share
+   a model the map's pak itself ships.
+
+**Tests.** Conformance first: for breadmonster and a door, posing the bind pose by bones at cycle c reproduces the
+frame the bake would have produced at c, vertex by vertex within float tolerance, with the bake as the oracle before
+it is deleted. Then `ModelFrames.Geometry.Count == 1` and `Skinned` for every animated model; two `LoadedMap.Read`
+calls on different maps share `models/player/scout.mdl`'s geometry; a map whose pak overrides a material resolves its
+own. Output-level: a resupply locker opening and an arrow in flight match golden captures taken before the change.
+
+**Risk the owner could see.** Animation becomes continuous instead of snapping to sampled frames: closer to Valve, but
+visibly different on doors and lockers. A model whose bone weights the skinning path has never read could draw in its
+bind pose or exploded; the sweep exists to catch that. Getting the pak trap wrong draws a custom map's model with the
+stock material.
+
+**Bytes.** On f12, about 300 MB of the 329 MB entity-model row.
+
+### Plan (b): particle definitions, one typed copy per process
+
+**Design.**
+1. Move the load of every `.pcf` definition out of `MapAssets.LoadRocketTrail` into a lazily built, immutable
+   `GameContent.ParticleSystems`, forced before the content is shared. `MapAssets` keeps only its per-demo material
+   uploads.
+2. Replace each operator's `IReadOnlyDictionary<string, DmxValue>` with interned names and one sorted `DmxValue[]`
+   per operator, searched by binary search. `ParticleFunction.Number`, `Vector` and `Text` keep their "absent means
+   the caller's default" contract, so nothing above them changes.
+
+**Tests.** Two `MapAssets` loads return the same `ParticleSystemsByName` instance. A conformance sweep reads every
+parameter of every system through both forms, with the old reader as the oracle, before it is deleted. An absent
+parameter still returns the caller's default. Output-level: an explosion and a medigun beam on f12 match golden
+captures. The store is hashed before and after a demo plays, since sharing would leak any write across maps.
+
+**Bytes.** 239 MB per held map down to one copy per process, plus what the compact form saves (not measured).
+
 ## What Valve does with a texture after upload (disassembled)
 
 `CTexture::ReconstructTexture` in TF2's x64 `materialsystem.dll` runs four steps:
