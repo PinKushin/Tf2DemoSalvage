@@ -7004,11 +7004,15 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
                 continue;
             }
 
-            float[] data = Pack(model.Vertices);
+            // **Packed into a rented array** (finding 78): a fresh one per model was 54 MB of large-object garbage per 20 s
+            // of f12. The buffer is immutable and copies its initial data, so the array goes back once it is created.
+            int floats = model.Vertices.Count * (VertexStride / sizeof(float));
+            float[] data = System.Buffers.ArrayPool<float>.Shared.Rent(floats);
+            PackInto(model.Vertices, data);
 
             BufferDesc description = new()
             {
-                ByteWidth = (uint)((long)data.Length * sizeof(float)),
+                ByteWidth = (uint)((long)floats * sizeof(float)),
 
                 // Immutable is now the ACCURATE flag rather than an obstacle. It promises the
                 // contents never change after creation, which is true of one model's geometry and
@@ -7027,6 +7031,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
                     device.CreateBuffer(in description, in initial, ref buffer));
             }
 
+            System.Buffers.ArrayPool<float>.Shared.Return(data);
             _modelBuffers[path] = buffer;
         }
 

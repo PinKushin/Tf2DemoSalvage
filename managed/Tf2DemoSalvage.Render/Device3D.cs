@@ -377,6 +377,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         // for the life of a map, and `ClearWorld` empties this with the buffers it feeds.
         Dictionary<string, PackedModel> packed = new(StringComparer.OrdinalIgnoreCase);
         List<string> fresh = [];
+        List<WorldVertex[]> leases = [];
 
         foreach (string path in models.Paths)
         {
@@ -415,13 +416,20 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
 
             // **Offsets are global and the set may have let go of what was uploaded before** (B407), so the slice starts at
             // `lowest - VertexBase`. A model not yet uploaded is always in what the set still holds.
-            WorldVertex[] own = new WorldVertex[highest - lowest];
+            //
+            // **Rented, and returned once the renderer has made its buffer** (finding 78): a fresh array per model was
+            // 54 MB of large-object garbage per 20 s of f12, read once and then dropped below.
+            int count = highest - lowest;
+            WorldVertex[] rented = System.Buffers.ArrayPool<WorldVertex>.Shared.Rent(count);
             int from = lowest - models.VertexBase;
 
-            for (int at = 0; at < own.Length; at++)
+            for (int at = 0; at < count; at++)
             {
-                own[at] = models.Vertices[from + at];
+                rented[at] = models.Vertices[from + at];
             }
+
+            ArraySegment<WorldVertex> own = new(rented, 0, count);
+            leases.Add(rented);
 
             List<IReadOnlyList<WorldBatch>> rebased = [];
 
@@ -455,6 +463,12 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         foreach (string path in fresh)
         {
             _packedModels[path] = _packedModels[path] with { Vertices = [] };
+        }
+
+        // After the cache stops pointing at them; a failed upload above never returns them, and the GC has them instead.
+        foreach (WorldVertex[] lease in leases)
+        {
+            System.Buffers.ArrayPool<WorldVertex>.Shared.Return(lease);
         }
     }
 
