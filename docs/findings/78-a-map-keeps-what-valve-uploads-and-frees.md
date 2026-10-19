@@ -35,7 +35,7 @@ TF2's x64 binaries (Ghidra, output on D:); **meas** = measured by the probe; **i
 | 4 | `Assets.ScreenOverlays`, **game**: CPU pixels for jarate, bleed and similar overlays | 45.4 | no CPU texels, as for every texture (below) | dis; meas | **Not safe to release as things stand.** `WorldRenderer.DrawScreenOverlay` uploads each overlay lazily on first draw and drops the upload in `ReleaseScreenOverlays`, so it still needs the pixels. Upload eagerly with the world, then release, and load once per process. |
 | 5 | `Assets.Lightmaps`: atlas `Byte[]` 24.5 MB plus `Single[]` 17.3 MB of decoded style samples, on top of `Level.LightSamples` 8.6 MB | 43.2 + 8.6 | The lighting lump (3.75 MB on f12, `ColorRGBExp32`, 4 B a luxel) for `R_BuildLightMap`, plus GPU pages | meas (lump sizes); interp (residency). `Mod_LoadLighting` is called from `CModelLoader::Map_LoadModel` at `engine.dll` 0x1800fffcb; its body was not read. | Keep the samples once, in lump form. Do not keep a whole CPU copy of the packed atlas. Rebuild a face's rect in scratch. |
 | 6 | `Assets.StaticModelColours`: static-prop vertex lighting as `float[]`, 16 B per vertex, on the CPU | 42.0 | `.vhv` RGBA8, 4 B per vertex, in a pooled GPU vertex buffer (`CPooledVBAllocator_ColorMesh` under `CManagedDataCacheClient<CColorMeshData>`) | dis (strings and RTTI); src (`hardwareverts.h`) | Store 4 B per vertex. Drop the CPU copy after upload. |
-| 7 | `Assets.AnimatedDetails` 38.4 + `Assets.Cubemaps` 26.9: CPU pixels `ReleaseUploaded` leaves in place | 65.3 | no CPU texels | dis; uploader read | **The one candidate for a safe fix.** Both are uploaded inside `UploadWorldTextures` (`WorldRenderer.cs` around 3264 and 3579), the same pass as the base textures, so B407's release, and its reload on a lost upload, covers them. Not built yet. |
+| 7 | `Assets.AnimatedDetails` 38.4 + `Assets.Cubemaps` 26.9: CPU pixels `ReleaseUploaded` leaves in place | 65.3 | no CPU texels | dis; uploader read | **Fixed in `fe48ec49`.** Both are uploaded inside `UploadWorldTextures` (`WorldRenderer.cs` around 3264 and 3579), the same pass as the base textures, so B407's release, and its reload on a lost upload, covers them. |
 | 8 | `LightWarps` 5.8, `PlacedCubemaps` 5.2, `SkyFaces` 3.3, `BlendModulations` 2.3: CPU pixels not released | 16.6 | no CPU texels | dis | Each needs its uploader read first. `SkyFaces` goes up through `SetSkyFaces`. |
 | 9 | `Assets.PlacedProps`: `Vector3[]` model shapes for static-prop decals (B421) | 12.4 | decals project onto the model's own vertices | interp | Check whether this duplicates row 1. |
 | 10 | lumps: `Surfaces` 9.6, `Ambient` 3.5, `Displacements` 2.6, `Entities` 1.6, `Terrain` 1.1, `Leaves` 0.9, **`Visibility` 0.5**, **`StaticProps` collision 0.4**, `Normals` 0.3, the rest under 0.1 | 20.5 | The engine keeps surfaces, leaves, vis, collision, displacement collision and the entity lump for the life of the map | interp (`Mod_Load*` strings; bodies not read) | Near parity. Low priority. |
@@ -44,6 +44,55 @@ TF2's x64 binaries (Ghidra, output on D:); **meas** = measured by the probe; **i
 Rows 1, 2, 4, 6, 7 and 8 come to about 740 MB. Of that, about 580 MB (rows 1-game, 2 and 4) is the same on every
 map. **Textures stay block-compressed** in memory and on upload: f12 holds 412 DXT1, 270 DXT5 and 4 RGBA8888, as
 Valve uploads them (meas).
+
+## The whole process: where the viewer's 9 GB of private bytes go
+
+**The setup.** The viewer is a Debug build, which is what the owner runs (D176). It played the f12 demo
+(`demostf-cp_process_f12-2026-08-08-2207.dem`) from tick 30000 with `--first-person --measure 20 +fps_max 0`, under
+`run-exclusive.ps1`, on an RTX 3060, a discrete GPU. Several instruments ran alongside it:
+
+- **`process-memory tf2demoview 5`** walked the process with `VirtualQueryEx` every 5 s and summed the committed bytes
+  by region type.
+- **`\GPU Process Memory(pid_*)` counters** gave dedicated and shared GPU memory.
+- **`dotnet-gcdump`** was taken the moment private bytes passed 6 GB.
+- **Two in-process probes** ran on the same demo: `timeline-heap --map` and `timeline-windows … cost`.
+
+**The control.** At the peak, the walk counted 8,906 MB of committed private memory, against the process's own
+8,972 MB of private bytes (0.7% apart). Every 5-second sample agreed within about 65 MB. The slices below are slices
+of the walk.
+
+**How memory rises.** The timeline build takes 283 s in Debug and climbs to 1.5 GB private. Uploading the map and
+models then lifts private bytes from 4.5 to 8.7 GB within 5 seconds (22:55:41 to 22:55:46). The peak during
+playback is 8,972 MB private and 6,495 MB working set.
+
+| # | slice at the peak | MB | what Valve keeps | evidence | the fix it points at |
+|---|---|---:|---|---|---|
+| A | **One private allocation that grows with the managed heap**: 6,234 MB committed | 6,234 | — | meas; identified as the GC's region reservation by its growth (interp) | — |
+| A1 | the live managed heap, after the full collection `dotnet-gcdump` forces | 3,121 | | meas (gcdump) | |
+| A2 | **committed but not live**: A minus A1, which the GC holds after garbage it has not returned | ~3,100 | nothing analogous | meas − meas | Find the allocation churn that leaves it, using the load's phase timers as `5dc4a9be` did. GC settings (`GCConserveMemory`, `RetainVM`) are an owner decision, not a parity fix. |
+| A1a | the demo timeline, built whole | 1,249 | the engine streams the demo and keeps no timeline at all | meas (`timeline-heap`, Release) | D217's checkpointed windows. The checkpoints themselves retain 718 MB (`timeline-windows … cost`: `entities._entities` 124 MB, `frames` ScenePlayer[] 78 MB, …). Which of the two the viewer holds at this point was not separated. |
+| A1b | the map, the game content and this demo's models, after `ReleaseUploaded` (texture quality 0) | 1,441 | the table above | meas (`timeline-heap --map`) | Rows 1–8 above. With this demo's models the entity-model row is larger than the 329 MB measured without a demo. |
+| A1c | **the packed entity-model set's CPU vertices**: 4,737,795 vertices in 729 MB (`viewer` log "entity model vertices"). The gcdump's largest single object is a 382 MB `WorldVertex[]`. | 729 | the hardware mesh lives on the GPU; the VVD stays in an evictable cache | meas (log, gcdump); src (`imdlcache.h`) | Keep no CPU copy once the vertices are on the device. Today the set re-uploads WHOLE when it grows ("STALL uploading … because the model set grew"), which is why it keeps them. An append-only device buffer would remove the reason. This is the second copy of the same models as row 1. |
+| B | **native private memory in about 600 allocations under 64 MB**: it jumps from 92 to 1,791 MB in the 5 s of texture and model upload, and reaches 2,500 | 2,500 | Source's D3D9 textures are most likely `D3DPOOL_MANAGED`, which keeps a system-memory copy of each (interp, not read: shaderapidx9 is not in the SDK) | meas (walk, timing); interp (owner: the D3D11 runtime and driver) | Find out which D3D11 creation path keeps a CPU-side copy: textures created with initial data, staging resources never released, deferred destruction. It is the same order as the GPU's 2.2 GB, which suggests a mirror. |
+| C | other private allocations of 64 MB or more, apart from A | ~170 | | meas | — |
+| — | mapped files 225, images 371 | (not private) | | meas | — |
+| — | **GPU dedicated memory** (VRAM, outside the working set on this discrete card) | 2,226 | | meas (counters) | Not a working-set cost here. On an integrated GPU it would be. |
+
+**What the slices say.** The owner's "something very wrong" is three things, in this order:
+
+1. About 3 GB of GC heap committed but not live.
+2. About 2.5 GB of native memory that appears exactly when we upload.
+3. A live managed heap of 3–4 GB. That heap is the timeline (1.2 GB), the map with its game content (1.4 GB) and a
+   second CPU copy of every packed model vertex (0.7 GB).
+
+The map census above accounts for only part of the third.
+
+**What this does not settle.**
+
+- That allocation A is the GC's is an interpolation from its growth. A `GC.GetGCMemoryInfo().TotalCommittedBytes`
+  printed by the viewer itself would prove it, and the viewer's own "memory after load" line already reports
+  committed 4,017 MB after a forced collection.
+- Who owns B. That needs a native heap trace (ETW `HeapAlloc` stacks), which was not run.
 
 ## What Valve does with a texture after upload (disassembled)
 
