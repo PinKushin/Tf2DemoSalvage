@@ -314,6 +314,18 @@ evictions, since nothing was evicted on f12. Each is a frame that decoded a soun
 The real-clip digest held through the change. That clip is a 16-bit WAV, so the test now also proves the 16-bit
 storage.
 
+**A wrong turn, caught in review: the change broke the sound's identity.** A voice named its sound by the sample's
+float memory, as `ch->sfx` names the engine's. Once WAVs were held as 16-bit, every WAV's float memory was empty and
+equal to every other's. A stop on an entity's `CHAN_STATIC` therefore matched the first WAV voice there, whatever it
+played. Eviction broke the same identity the other way: an evicted sound decodes again to new memory, so a stop for a
+sound still playing matched nothing. A sample now carries the sfx key the cache decoded it under (`SoundSample.Key`),
+and a voice matches on that. `AudioOutputDeviceTests` holds both cases with two reader-built WAVs.
+
+**Should eviction skip a sound a voice is still playing? No, here.** OpenAL copies the samples into its buffer at
+`BufferData`, so the voice never reads the cache again, and eviction only costs a fresh decode if the sound is asked for
+again. Whether Valve's cache pins a sound while a channel mixes it is not in the SDK: the wave data cache is engine
+code. Interpolated, and not decompiled.
+
 ### Fixed: the renderer keeps no copy of skinned models' vertices (2026-10-19)
 
 **The one reader.** `Device3D._skinnedVertices` held every skinned model's packed vertices, 623 MB, for one reader: the

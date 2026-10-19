@@ -171,7 +171,7 @@ public sealed class SoundCache
             {
                 SoundSampleResult result = SoundSampleReader.Read(opened.Bytes);
 
-                sample = result.Sample;
+                sample = result.Sample is { } fresh ? fresh with { Key = key } : null;
 
                 if (sample is { } decoded)
                 {

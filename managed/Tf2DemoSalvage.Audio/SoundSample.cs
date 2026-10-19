@@ -57,6 +57,13 @@ public readonly record struct SoundSample(
     /// </remarks>
     public ReadOnlyMemory<short> Pcm16 { get; init; }
 
+    /// <summary>The sfx this sample was decoded for, as <see cref="SoundCache"/> keys it; null for one built outside a cache.</summary>
+    /// <remarks>
+    /// **This is the sound's identity, as `ch->sfx` is the engine's** (finding 80). The memory cannot be: every WAV's
+    /// <see cref="Samples"/> is empty, so all WAVs compared equal, and an evicted sound decodes again to new memory.
+    /// </remarks>
+    public string? Key { get; init; }
+
     /// <summary>How many samples there are, across channels, whichever form holds them.</summary>
     public int SampleCount => Pcm16.IsEmpty ? Samples.Length : Pcm16.Length;
 
