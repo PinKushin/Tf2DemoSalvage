@@ -11,8 +11,9 @@ namespace Tf2DemoSalvage.Scene.Tests;
 /// A static prop is filed with the leaf system once and reached only through the in-view gather (finding 83 item 1).
 /// </summary>
 /// <remarks>
-/// **What the engine does, from published source.** <c>CClientLeafSystem::AddRenderable</c> takes a static prop with
-/// <c>RENDER_FLAGS_STATIC_PROP</c> at level load (<c>clientleafsystem.cpp:660-666</c>); it is never on the client entity
+/// **What the engine does, from published source** (lines checked against `F:/src/source-sdk-2013`, 2026-10-20).
+/// <c>CClientLeafSystem::CreateRenderableHandle( pRenderable, bIsStaticProp )</c> (<c>clientleafsystem.cpp:642</c>) gives a
+/// static prop <c>RENDER_FLAGS_STATIC_PROP</c> at level load (<c>:660-666</c>); it is never on the client entity
 /// list, so <c>SimulateEntities</c> (<c>cdll_client_int.cpp:2010-2015</c>) never visits one, and it is drawn only when
 /// <c>BuildRenderablesList</c> collates its leaf (<c>clientleafsystem.cpp:1813</c>), through <c>DrawStaticProps</c>
 /// (<c>viewrender.cpp:4041</c>). So with no entities and the camera facing away, no per-prop pass visits a static
@@ -106,6 +107,64 @@ public sealed class StaticPropGatherConformanceTests
 
         models.StaticPropsFiled.ShouldBe(2);
         instances.ShouldHaveSingleItem();
+    }
+
+    /// <remarks>
+    /// **A skip's frame reports the cull of its entities and nothing else** (B504), as it did when static props were
+    /// simply left off its draw list. The entity is in front of the camera in a leaf the view does not list (visibility);
+    /// the static prop is behind the camera (frustum). Only the entity is counted, and as a visibility cull.
+    /// </remarks>
+    [Test]
+    public void Instances_OnASkipFrame_CountsOnlyTheEntitysCull()
+    {
+        EntityModelSet models = new()
+        {
+            Tree = EntityModelsTests.SplitAtZeroAboveIsLeafOne(),
+            StaticProps = [PropModels.StaticModel(new BspStaticProp("models/props/crate.mdl", -500f, 0f, -200f, 0f, 0f, 0f, 1f), 0)],
+            GathersStaticProps = false,
+        };
+        List<ModelInstance> instances = [];
+        SceneProp[] entity = [new(5, "models/props/crate.mdl", SceneModelKind.Studio, new ScenePose { X = 500f, Z = 100f }, null)];
+
+        models.Add(entity, Boxed);
+        models.Instances(entity, instances, frustum: LookingAlongX(), views: new RenderableViews([0], null, default));
+
+        models.Culled.ShouldBe(1);
+        models.CulledByVisibility.ShouldBe(1);
+    }
+
+    /// <remarks>
+    /// A level shutdown clears the packed models, so the next `Add` packs the static props again and the next pass files
+    /// them with real boxes. A second demo on the same map takes this route.
+    /// </remarks>
+    [Test]
+    public void Instances_AfterLevelShutdown_PacksAndFilesTheStaticPropsAgain()
+    {
+        EntityModelSet models = Level(Static(0, x: 500f));
+        List<ModelInstance> instances = [];
+
+        models.Instances([], instances, frustum: LookingAlongX());
+        models.LevelShutdown();
+        models.Add([], Boxed);
+        models.Instances([], instances, frustum: LookingAlongX());
+
+        models.StaticPropsFiled.ShouldBe(2);
+        instances.ShouldHaveSingleItem();
+    }
+
+    [Test]
+    public void Instances_StaticPropsReplacedMidLevel_DrawsTheNewModel()
+    {
+        EntityModelSet models = Level(Static(0, x: 500f));
+        List<ModelInstance> instances = [];
+
+        models.Instances([], instances, frustum: LookingAlongX());
+        models.StaticProps =
+            [PropModels.StaticModel(new BspStaticProp("models/props/barrel.mdl", 600f, 0f, 0f, 0f, 0f, 0f, 1f), 0)];
+        models.Add([], Boxed);
+        models.Instances([], instances, frustum: LookingAlongX());
+
+        instances.ShouldHaveSingleItem().ModelPath.ShouldBe("models/props/barrel.mdl");
     }
 
     private static EntityModelSet Level(params SceneProp[] statics)

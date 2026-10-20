@@ -6288,7 +6288,7 @@ public sealed class EntityModelSet : Hud.IMdlCache, IPosedEntities
         // is missing and why.
         bool world = string.Equals(pass, WorldPass, StringComparison.Ordinal);
 
-        _tally.Begin(props.Count + (world && GathersStaticProps ? _staticProps.Count : 0), pass);
+        _tally.Begin(props.Count + (world && GathersStaticProps ? _drawableStatics : 0), pass);
 
         // **Collated before anything is posed, in collation order** (B254, B262): `BuildRenderablesList` over each
         // view's leaves, the frustum test inside it, and only what a view collates reaches `DrawModel` and so
@@ -7269,7 +7269,7 @@ public sealed class EntityModelSet : Hud.IMdlCache, IPosedEntities
 
         // **Carried from the collation, not re-derived** (B243): what no view collated, split by whether the frustum
         // or the leaf list turned it away. The static props count only on a frame that gathers them.
-        int offered = byHandle.Count + (GathersStaticProps ? _staticByHandle.Count : 0);
+        int offered = byHandle.Count + _staticByHandle.Count;
         Culled = Math.Max(offered - collated, 0);
         CulledByVisibility = Math.Max(Culled - _mainCollated.FrustumRejected, 0);
         Unjudgeable = _mainCollated.Unplaced;
@@ -7295,13 +7295,7 @@ public sealed class EntityModelSet : Hud.IMdlCache, IPosedEntities
         {
             if (!byHandle.TryGetValue(handle, out (SceneProp Prop, (float, float, float, float, float, float) Box) filed))
             {
-                // A static prop's handle: filed once at load and reached only here (finding 83 item 1). A skip's frame
-                // simulates entities alone (B504), so it gathers none.
-                if (!GathersStaticProps)
-                {
-                    continue;
-                }
-
+                // A static prop's handle: filed once at load and reached only here (finding 83 item 1).
                 filed = _staticByHandle[handle];
                 _staticsInView.Add(filed.Prop);
             }
@@ -7315,8 +7309,9 @@ public sealed class EntityModelSet : Hud.IMdlCache, IPosedEntities
 
     /// <summary>The map's static props, handed over once a level (B426, D198).</summary>
     /// <remarks>
-    /// **Registered with the leaf system ONCE, as the engine does** (finding 83 item 1). A static prop is added with
-    /// <c>RENDER_FLAGS_STATIC_PROP</c> at level load (<c>clientleafsystem.cpp:660-666</c>), is never dirty and never on
+    /// **Registered with the leaf system ONCE, as the engine does** (finding 83 item 1). A static prop's handle is made with
+    /// <c>RENDER_FLAGS_STATIC_PROP</c> at level load (<c>CreateRenderableHandle</c>, <c>clientleafsystem.cpp:642</c>,
+    /// <c>:660-666</c>), is never dirty and never on
     /// the client entity list, and is reached only by the in-view gather (<c>BuildRenderablesList</c>, drawn through
     /// <c>DrawStaticProps</c>, <c>viewrender.cpp:4041</c>). So no per-entity pass visits one: only the props a view
     /// collates are simulated, lit and placed, in <see cref="Instances"/>. Packed by the first <see cref="Add(IReadOnlyList{SceneProp}, Func{string, PropModels.ModelFrames?})"/>
@@ -7329,6 +7324,7 @@ public sealed class EntityModelSet : Hud.IMdlCache, IPosedEntities
         {
             ArgumentNullException.ThrowIfNull(value);
             _staticProps = value;
+            _drawableStatics = value.Count(CanDraw);
             _staticsPacked = false;
             UnfileStaticProps();
         }
@@ -7345,6 +7341,9 @@ public sealed class EntityModelSet : Hud.IMdlCache, IPosedEntities
 
     private IReadOnlyList<SceneProp> _staticProps = [];
     private bool _staticsPacked;
+
+    // The static props a pass files — the drawable ones — so the tally is asked for what the handles count.
+    private int _drawableStatics;
     private bool _staticsFiled;
     private readonly Dictionary<int, (SceneProp Prop, (float, float, float, float, float, float) Box)> _staticByHandle = [];
     private readonly Dictionary<int, SceneProp> _staticByEntity = [];
@@ -7353,6 +7352,14 @@ public sealed class EntityModelSet : Hud.IMdlCache, IPosedEntities
     /// <summary>Files every drawable static prop with the leaf system, once its models are packed.</summary>
     private void FileStaticProps()
     {
+        // **A skip's frame collates entities alone** (B504), so its cull counts only them, as when static props rode the
+        // draw list and a skip left them off it. Out of the tree for the skip, filed again by the first frame that draws.
+        if (!GathersStaticProps)
+        {
+            RemoveStaticHandles();
+            return;
+        }
+
         if (_staticsFiled || !_staticsPacked)
         {
             return;
@@ -7381,14 +7388,23 @@ public sealed class EntityModelSet : Hud.IMdlCache, IPosedEntities
     {
         if (removing)
         {
-            foreach (int handle in _staticByHandle.Keys)
-            {
-                _leafSystem.RemoveRenderable(handle);
-            }
+            RemoveStaticHandles();
         }
 
         _staticByHandle.Clear();
         _staticByEntity.Clear();
+        _staticsFiled = false;
+    }
+
+    /// <summary>Takes the static props' handles out of the current leaf system, keeping the level's list by entity.</summary>
+    private void RemoveStaticHandles()
+    {
+        foreach (int handle in _staticByHandle.Keys)
+        {
+            _leafSystem.RemoveRenderable(handle);
+        }
+
+        _staticByHandle.Clear();
         _staticsFiled = false;
     }
 
