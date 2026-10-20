@@ -111,6 +111,9 @@ public static class ViewerHelp
           TF2VIEW_STEAM_ROOT         The only Steam folder discovery looks in (tests).
           TF2VIEW_PICK               "x y": log what lies under that pixel of a --shot.
           TF2VIEW_SEEK_THROUGH       "60000 5000": ticks a --shot seeks through before its own.
+          TF2VIEW_FIXED_FRAME        "0.0125": playback advances this many seconds every frame.
+          TF2VIEW_PLAY_SHOTS         "<folder> 30100 30200": with --autoplay --measure, capture
+                                     each tick on the first frame PLAYED at or past it.
           TF2VIEW_VIEWPORT_SIZE      "1280x720": WIDTHxHEIGHT of the 3D view; the window grows
                                      around it, at any display scaling. Wins over the window size.
           TF2VIEW_WARP               Draw through WARP, reproducing a machine with no GPU.

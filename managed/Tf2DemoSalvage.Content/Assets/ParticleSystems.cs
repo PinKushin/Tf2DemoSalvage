@@ -826,10 +826,22 @@ public static class ParticleSystems
     /// <summary>The attribute an initializer names its control point by; 0 when it leaves it out.</summary>
     private const string ControlPointNumber = "control_point_number";
 
-    /// <summary>`max_particles`, the collection's size — what an emitter's room is measured against.</summary>
+    /// <summary>`m_nMaxAllowedParticles`, the collection's size — what an emitter's room is measured against.</summary>
     /// <param name="system">The definition.</param>
-    /// <returns>The cap, unbounded when undeclared.</returns>
-    internal static int MaxParticles(ParticleSystem system) => (int)Number(system, "max_particles", int.MaxValue);
+    /// <returns>`min( max_particles, 5000 )`, with `max_particles` 1000 when undeclared.</returns>
+    /// <remarks>
+    /// `max_particles` unpacks at definition +0x238 with the default `"1000"` (the unpack table at `0x9e00`,
+    /// `particles.obj`), and `CParticleCollection::InitStorage` stores `min( it, 5000 )` at +0x64 —
+    /// `MAX_PARTICLES_IN_A_SYSTEM` (`particles.h:134`). It was unbounded when undeclared, which nothing in the engine is.
+    /// </remarks>
+    internal static int MaxParticles(ParticleSystem system) =>
+        Math.Min((int)Number(system, "max_particles", DefaultMaxParticles), MaxParticlesInASystem);
+
+    /// <summary>`max_particles`' unpack default, `"1000"`.</summary>
+    private const int DefaultMaxParticles = 1000;
+
+    /// <summary>`MAX_PARTICLES_IN_A_SYSTEM` on the PC, `particles.h:134`.</summary>
+    private const int MaxParticlesInASystem = 5000;
 
     /// <summary>A number the definition itself declares, or <paramref name="otherwise"/> when it does not.</summary>
     internal static double Declared(ParticleSystem system, string named, double otherwise) => Number(system, named, otherwise);

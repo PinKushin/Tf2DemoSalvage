@@ -30,11 +30,14 @@ public sealed class RocketTrailOutputTests
     private const float IntervalPerTick = 0.015f;
 
     /// <remarks>
-    /// **The first tick draws three puffs where it drew two.** `SimulateFirstFrame` makes the initial particle on the
-    /// rocket before the emitter runs (B491), and the emitter adds `floor( 0.015 · 150 )` = 2, dated half and whole way
-    /// through the step (B470). The initial one is born at time 0 inside `rockettrail`'s 1.2-unit sphere around the
-    /// rocket, and one step of its launch moves it well under a unit more. They reach the renderer: the batches carry six
-    /// corners per particle drawn.
+    /// **The first tick draws the initial puff alone; the next adds two.** The trail's creation frame is
+    /// `Simulate( 0.0f )` — `ProcessPSystem` on the first-frame flag (particlemgr.cpp:1572-1575, set at construction,
+    /// particles_new.cpp:53; the older binding the same, :135 and :1977-1980), read from published source — and
+    /// `CParticleCollection::Simulate` runs `SimulateFirstFrame` and then stops at its `dt >= 1e-22` test (particles.obj,
+    /// disassembly): the initial particle, born at 0 inside `rockettrail`'s 1.2-unit sphere, and nothing emitted (B557 row 6).
+    /// **The expectation this replaced was our older model's**, which stepped the creation frame: "three puffs where it
+    /// drew two" is that model, not the engine. The second tick is the first simulated one: the emitter adds
+    /// `floor( 0.015 · 150 )` = 2, dated half and whole way through the step (B470). Six corners per particle drawn.
     /// </remarks>
     [Test]
     public void Update_ARocketsFirstTick_DrawsItsInitialPuffOnTheRocket()
@@ -58,7 +61,12 @@ public sealed class RocketTrailOutputTests
 
         ParticleStore puffs = effects.TrailEffect(Rocket).ShouldNotBeNull().Particles;
 
-        puffs.Count.ShouldBe(3, "one initial particle and two emitted");
+        (puffs.Count, puffs.AgeOf(0)).ShouldBe((1, 0f), "the creation frame: the initial particle, nothing simulated");
+        Vector3.Distance(puffs.PositionOf(0), here.At).ShouldBeLessThan(2f, "inside the 1.2-unit sphere");
+
+        effects.Update([(Rocket, here, null, 1)], trail, IntervalPerTick, assets.ParticleSystemsByName, FirstTick + 1);
+
+        puffs.Count.ShouldBe(3, "one initial particle and two emitted on the first simulated tick");
         Enumerable.Range(0, puffs.Count).Select(puffs.AgeOf).ShouldBe([0.015f, 0.0075f, 0f], "born at 0, then spread across the step");
         Vector3.Distance(puffs.PositionOf(0), here.At).ShouldBeLessThan(2f, "inside the 1.2-unit sphere, one step on");
 

@@ -1,0 +1,18 @@
+{
+  "schema": 1,
+  "side": "viewer",
+  "captured": "2026-10-20",
+  "demo": "demostf-cp_process_f12-2026-08-08-2207.dem",
+  "demoSha256": "77e7029ee5a5da0796faf2187012a92f0eb54c94250573786cdde29be8ff0778",
+  "map": "cp_process_f12",
+  "tick": 18350,
+  "camera": [-3280, -1152, 637, 15, 225],
+  "viewport": [1280, 720],
+  "convars": { "cl_showfps": "0" },
+  "gitSha": "main e05064db + 55deabf5 | fix/particle-caller-parity 55deabf5",
+  "build": "Debug",
+  "args": ["--tick", "18000", "--measure", "45", "+cl_showfps", "0"],
+  "env": { "TF2VIEW_CAMERA": "-3280 -1152 637 15 225", "TF2VIEW_AUTOPLAY": "1", "TF2VIEW_FIXED_FRAME": "0.0125", "TF2VIEW_PLAY_SHOTS": "<folder> 18050 ... 19350", "TF2VIEW_VIEWPORT_SIZE": "1280x720" },
+  "like": null,
+  "notes": "Side by side: main | branch | |difference| x8. Played into, not sought (finding 84). The rocket explosion of tick 18348 two ticks old: on the branch the fireball is a frame younger, smaller and less spread, because its creation frame now simulates nothing (B557 row 6). 366,621 pixels differ. The main side's run overlapped another agent's build (void by the hygiene rule); a second main run under load agreed with it pixel for pixel at this tick."
+}

@@ -1,0 +1,18 @@
+{
+  "schema": 1,
+  "side": "viewer",
+  "captured": "2026-10-20",
+  "demo": "demostf-cp_process_f12-2026-08-08-2207.dem",
+  "demoSha256": "77e7029ee5a5da0796faf2187012a92f0eb54c94250573786cdde29be8ff0778",
+  "map": "cp_process_f12",
+  "tick": 31250,
+  "camera": "first person (recorder)",
+  "viewport": [1280, 720],
+  "convars": { "cl_showfps": "0" },
+  "gitSha": "main e05064db + 55deabf5 | fix/particle-caller-parity 55deabf5",
+  "build": "Debug",
+  "args": ["--tick", "30000", "--first-person", "--measure", "70", "+cl_showfps", "0"],
+  "env": { "TF2VIEW_AUTOPLAY": "1", "TF2VIEW_FIXED_FRAME": "0.0125", "TF2VIEW_PLAY_SHOTS": "<folder> 30050 ... 31350", "TF2VIEW_VIEWPORT_SIZE": "1280x720" },
+  "like": null,
+  "notes": "Side by side: main | branch | |difference| x8. A rocket explosion just in front of the recorder: on the branch its flash and streaks are a frame behind main's. 181,016 pixels differ. Both runs clean (no build or launcher CPU before or after). Attributed to B557 row 6: a build with row 6 reverted matches main here pixel for pixel."
+}

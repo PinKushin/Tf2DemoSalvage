@@ -128,8 +128,10 @@ public sealed class ParticleEffectsTests
         // **The tick has to MOVE**, because the simulation advances on demo time rather than on
         // calls: a viewer parked on one tick advances nothing, which is what a paused engine does
         // (B375). Passing the same tick twice here would step the trail not at all.
+        // The creation frame simulates nothing (B557 row 6), so the trail is laid by the two frames after it.
         effects.Update([Rocket(0f)], Trail(), 1f / 66f, null, 1);
-        effects.Update([Rocket(100f)], Trail(), 1f / 66f, null, 2);
+        effects.Update([Rocket(0f)], Trail(), 1f / 66f, null, 2);
+        effects.Update([Rocket(100f)], Trail(), 1f / 66f, null, 3);
 
         effects.Count.ShouldBe(1);
 
@@ -216,7 +218,9 @@ public sealed class ParticleEffectsTests
         // dense puff the comparison against real TF2 showed (B375).
         ParticleEffects effects = new();
 
+        // Made on tick 1, which simulates nothing (B557 row 6); tick 2 lays the first.
         effects.Update([Rocket(0f)], Trail(), 1f / 66f, null, 1);
+        effects.Update([Rocket(0f)], Trail(), 1f / 66f, null, 2);
 
         int laid = Count(effects);
 
@@ -225,7 +229,7 @@ public sealed class ParticleEffectsTests
         // Twenty more calls on the SAME tick, as a still frame makes.
         for (int again = 0; again < 20; again++)
         {
-            effects.Update([Rocket(0f)], Trail(), 1f / 66f, null, 1);
+            effects.Update([Rocket(0f)], Trail(), 1f / 66f, null, 2);
         }
 
         Count(effects).ShouldBe(laid);
@@ -288,8 +292,10 @@ public sealed class ParticleEffectsTests
     {
         ParticleEffects effects = new();
 
+        // Made on tick 1, which simulates nothing (B557 row 6); its first tick of puffs is tick 2's.
         effects.Update([Rocket(0f)], Trail(perSecond: 132d), 1f / 66f, null, 1);
-        effects.Update([Rocket(66f)], Trail(perSecond: 132d), 1f / 66f, null, 2);
+        effects.Update([Rocket(0f)], Trail(perSecond: 132d), 1f / 66f, null, 2);
+        effects.Update([Rocket(66f)], Trail(perSecond: 132d), 1f / 66f, null, 3);
 
         List<DetailSpriteVertex> corners = Corners(effects);
         List<float> centres = [];
@@ -389,7 +395,9 @@ public sealed class ParticleEffectsTests
                         ["lifetime_max"] = new DmxValue(DmxAttributeType.Real, 1d),
                     }),
             ],
-            [],
+
+            // The real `rockettrail`'s killer: only an operator ends a particle (B557 row 3).
+            [new ParticleFunction("Lifespan Decay", "decay", none)],
 
             // **A renderer, because every system that draws declares one and the real `rockettrail` declares
             // this one.** The fixture had none and relied on `Gather` drawing a system with no renderer as if it

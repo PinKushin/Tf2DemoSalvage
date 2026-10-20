@@ -39934,6 +39934,17 @@ may need a way to place a named effect at a point (a synthetic burst, as `Partic
 found, the cause is read from the engine (`CParticleCollection` emission, `SkipToTime`'s wake emission, finding 79) before
 anything is changed.
 
+**2026-10-20, the caller read against `particlemgr.cpp` (finding 82, last section; `fix/particle-caller-parity`).** Fixed:
+the collection holds `min( max_particles, 5000 )` with `max_particles` 1000 by default; only an operator kills a particle
+(no age reap of our own — 821 shipped systems that make particles declare no killer and are meant to hold them; 23 more
+declare operator names only TF2's `client.dll` defines, unread, and keep an age reap as a stand-in); an
+effect's creation frame simulates nothing; an asleep burst that moved takes the bounds-only `Simulate`; a rate-0
+continuous emitter makes no more. **None of these touches the density question on f12**: births are 2,872 a second
+after against 2,763–2,871 before, and every top system declares a killer. Still open: the TF2 goldens above; trails
+never sleep (no undrawn signal); `HasMoved` compares every point, not the definition's read mask; the TF2-only operator
+names (`alpha_fade`, `lifespan_decay`, ...) want reading in `client.dll`; which on-screen effects the no-killer change
+alters (worn halos, glows) is unmeasured — the owner's eye.
+
 ## B556 — does every path that leaves a demo without its map say so in the status bar? — OPEN, unverified (check, then fix if silent)
 
 **Filed 2026-10-19 from D224.** The owner decided the viewer tells the user when there is no map, and believes the status bar

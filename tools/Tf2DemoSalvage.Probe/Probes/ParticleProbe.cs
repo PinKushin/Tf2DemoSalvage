@@ -231,6 +231,120 @@ public sealed class ParticleProbe : IProbe
             return;
         }
 
+        // **Which systems can kill a particle at all** (B557 row 3). `CParticleCollection::Simulate` has no age kill: a
+        // particle dies only through an operator that writes the kill list (+0x276c), and in `particles.lib` six do —
+        // `C_OP_Decay`, `C_OP_VelocityDecay`, `C_OP_Cull`, `C_OP_PlaneCull`, `C_OP_ModelCull`, `C_OP_FadeAndKill`.
+        if (filter.Equals("killers", StringComparison.OrdinalIgnoreCase))
+        {
+            GameArchives store = GameArchives.Open(game);
+            Dictionary<string, ParticleSystem> loaded = new(StringComparer.OrdinalIgnoreCase);
+
+            foreach (string path in ParticleManifest.Files(store.Read))
+            {
+                if (store.Read(path) is { Length: > 0 } raw)
+                {
+                    foreach ((string one, ParticleSystem declared) in ParticleSystems.Read(raw))
+                    {
+                        loaded.TryAdd(one, declared);
+                    }
+                }
+            }
+
+            IReadOnlyDictionary<string, IParticleOperator> known = ParticleOperators.All();
+            int none = 0;
+            int implemented = 0;
+            int unimplemented = 0;
+            int noneThatMake = 0;
+            int unread = 0;
+            List<string>? makers = null;
+            Dictionary<string, int> makerOperators = new(StringComparer.Ordinal);
+            Dictionary<string, int> uses = new(StringComparer.Ordinal);
+
+            foreach (string killer in ParticleEffect.Killers)
+            {
+                uses[killer] = 0;
+            }
+
+            foreach (ParticleSystem system in loaded.Values)
+            {
+                List<string> declared = [.. system.Operators.Select(one => one.Function).Where(ParticleEffect.Killers.Contains)];
+
+                foreach (string one in declared)
+                {
+                    uses[one]++;
+                }
+
+                if (declared.Count == 0)
+                {
+                    none++;
+
+                    // The ones that make particles at all: an emitter, or initial particles.
+                    if (system.Emitters.Count > 0 ||
+                        (system.Parameters.TryGetValue("initial_particles", out DmxValue initial) && initial.Number > 0d))
+                    {
+                        noneThatMake++;
+                        (makers ??= []).Add(system.Name);
+
+                        if (system.Operators.Any(one => ParticleEffect.NotInTheSdkLibrary.Contains(one.Function)))
+                        {
+                            unread++;
+                        }
+
+                        foreach (string one in system.Operators.Select(function => function.Function))
+                        {
+                            makerOperators[one] = makerOperators.GetValueOrDefault(one) + 1;
+                        }
+                    }
+                }
+                else if (declared.Any(known.ContainsKey))
+                {
+                    implemented++;
+                }
+                else
+                {
+                    unimplemented++;
+                }
+            }
+
+            output.WriteLine(string.Create(
+                CultureInfo.InvariantCulture,
+                $"  {loaded.Count} systems: {none} declare no killer, {implemented} an implemented one, " +
+                $"{unimplemented} only unimplemented ones; of the {none}, {noneThatMake} make particles, " +
+                $"{unread} of those declaring an operator the SDK library does not define (kept on the stand-in reap)"));
+
+            output.WriteLine($"    e.g. {string.Join(", ", (makers ?? []).Order(StringComparer.Ordinal).Take(25))}");
+
+            // `emission_rate` unpacks with the default "100" (`DmxElementUnpackInit<C_OP_ContinuousEmitter>`, +0x40), and
+            // `ParticleEffect` reads an undeclared rate as 0: how many continuous emitters leave it out.
+            int emitters = loaded.Values.SelectMany(one => one.Emitters).Count(one => one.Function == "emit_continuously");
+            int rateless = loaded.Values.SelectMany(one => one.Emitters)
+                .Count(one => one.Function == "emit_continuously" && !one.Parameters.ContainsKey("emission_rate"));
+
+            output.WriteLine($"    emit_continuously: {emitters}, {rateless} of them declaring no emission_rate");
+
+            // The operators those systems declare: a name the 2013 `particles.lib` does not know may kill in TF2's own.
+            output.WriteLine("    their operators: " + string.Join(" | ", makerOperators
+                .OrderByDescending(one => one.Value)
+                .Select(one => string.Create(CultureInfo.InvariantCulture, $"{one.Key} {one.Value}"))));
+
+            foreach ((string killer, int count) in uses.OrderByDescending(one => one.Value))
+            {
+                output.WriteLine(string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"    {count,5}  {killer}{(known.ContainsKey(killer) ? string.Empty : "  (not implemented)")}"));
+            }
+
+            foreach (string named in arguments.Skip(1))
+            {
+                if (loaded.TryGetValue(named, out ParticleSystem? asked))
+                {
+                    output.WriteLine($"    {named}: [{string.Join(", ", asked.Operators.Select(one => one.Function))}]");
+                }
+            }
+
+            return;
+        }
+
         // **One burst run through the PRODUCTION path, tick by tick** (B415). `ParticleEffects.Bursts` then `Build`,
         // exactly as `MainForm.StepExplosions` and `DrawParticles` call them, with every child's live count and
         // every material's corner count printed. Built because a picture of an explosion showed one small streak

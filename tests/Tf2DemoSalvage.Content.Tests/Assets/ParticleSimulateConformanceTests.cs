@@ -180,6 +180,38 @@ public sealed class ParticleSimulateConformanceTests
         (afterOne, effect.Finished).ShouldBe((false, true));
     }
 
+    /// <remarks>
+    /// `HasMoved` (`0x000e1410`) compares a point with its previous position, which `Simulate` stores at the end of a call;
+    /// `Simulate( dt, true )` stores them and `m_flPreviousDt` and advances no time (B557 row 9).
+    /// </remarks>
+    [Test]
+    public void SimulateBoundsOnly_AfterAMove_KeepsTheTimeAndSettlesThePoints()
+    {
+        ParticleEffect effect = new(Defined());
+
+        effect.Step(Oriented(Vector3.Zero), 0.05f);
+        bool still = effect.HasMoved();
+        effect.SetControlPoint(0, Oriented(new Vector3(3f, 0f, 0f)));
+        bool moved = effect.HasMoved();
+        effect.SimulateBoundsOnly(0.2f);
+
+        (still, moved, effect.HasMoved(), effect.Particles.Age, effect.Particles.PreviousStep)
+            .ShouldBe((false, true, false, 0.05f, 0.2f));
+    }
+
+    /// <remarks>`HasMoved` then asks every child (`0x000e1410`, the loop over +0x22b8): a child's point alone moving counts.</remarks>
+    [Test]
+    public void HasMoved_OnlyAChildsPointMoved_IsTrue()
+    {
+        Dictionary<string, ParticleSystem> others = new(StringComparer.OrdinalIgnoreCase) { ["kid"] = Defined() with { Name = "kid" } };
+        ParticleEffect effect = new(Defined() with { Children = ["kid"] }, others);
+
+        effect.Step(Oriented(Vector3.Zero), 0.05f);
+        effect.Children[0].SetControlPoint(0, Oriented(new Vector3(3f, 0f, 0f)));
+
+        (effect.Children.Count, effect.HasMoved()).ShouldBe((1, true));
+    }
+
     /// <summary>Four particles at once, two a frame, one at a time, each living a tenth of a second, in whole-call steps.</summary>
     private static ParticleSystem Capped() =>
         new(
@@ -198,7 +230,8 @@ public sealed class ParticleSimulateConformanceTests
                     ["lifetime_max"] = new DmxValue(DmxAttributeType.Real, 0.1d),
                 }),
             ],
-            [],
+            // Its one particle must die for the cap to free: only an operator kills (B557 row 3).
+            [new ParticleFunction("Lifespan Decay", "decay", new Dictionary<string, DmxValue>(StringComparer.Ordinal))],
             [],
             [],
             new Dictionary<string, DmxValue>(StringComparer.Ordinal)

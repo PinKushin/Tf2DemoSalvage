@@ -66,6 +66,9 @@ public sealed partial class ViewerSession
     /// </remarks>
     private readonly PlaybackPresenter _playback;
 
+    /// <summary>The ticks a script asked captured while playing, or null; see <see cref="PlayedCaptures"/>.</summary>
+    private readonly PlayedCaptures? _playedCaptures;
+
     /// <summary>Where a second of frames went, counted and reported once a second.</summary>
     /// <remarks>
     /// **Was nine fields and two methods in this window** (B188, D90): the frame count, the longest

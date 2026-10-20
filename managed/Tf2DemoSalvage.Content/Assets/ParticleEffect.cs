@@ -135,6 +135,12 @@ public sealed class ParticleEffect
                     continue;
                 }
 
+                // `C_OP_ContinuousEmitter::MayCreateMoreParticles` (`0x00067430`): a rate not above 0 makes no more.
+                if (emitter.Number("emission_rate", DefaultEmissionRate) <= 0d)
+                {
+                    continue;
+                }
+
                 float duration = (float)emitter.Number("emission_duration", 0d);
 
                 if (duration <= 0f ||
@@ -155,6 +161,9 @@ public sealed class ParticleEffect
             return true;
         }
     }
+
+    /// <summary>`emission_rate`'s unpack default, `"100"` (`DmxElementUnpackInit&lt;C_OP_ContinuousEmitter&gt;`, +0x40).</summary>
+    private const double DefaultEmissionRate = 100d;
 
     /// <summary>The steady emitter, named once.</summary>
     private const string ContinuousEmitter = "emit_continuously";
@@ -233,6 +242,22 @@ public sealed class ParticleEffect
         Particles = new ParticleStore { Seed = seed };
         _operators = ParticleOperators.All();
         _sheet = sheets?.Invoke(system);
+
+        bool killsUnimplemented = false;
+        bool killsImplemented = false;
+
+        foreach (ParticleFunction one in system.Operators)
+        {
+            if (Killers.Contains(one.Function))
+            {
+                killsImplemented |= _operators.ContainsKey(one.Function);
+                killsUnimplemented |= !_operators.ContainsKey(one.Function);
+            }
+
+            killsUnimplemented |= NotInTheSdkLibrary.Contains(one.Function);
+        }
+
+        _reapsForAKillerNotImplemented = killsUnimplemented && !killsImplemented;
 
         // **`InitializeContextData`, at `Init`, before any particle** (B472, B495): a burst's count is drawn from the
         // collection's query stream when the collection is made. A minimum of −1 means the count is exact, and it is what
@@ -438,7 +463,7 @@ public sealed class ParticleEffect
     /// <summary>`C_OP_ContinuousEmitter::SkipToTime( curtime )`; see <see cref="StartEmission"/>.</summary>
     private void SkipToTime(ParticleFunction emitter)
     {
-        float rate = (float)emitter.Number("emission_rate", 0d);
+        float rate = (float)emitter.Number("emission_rate", DefaultEmissionRate);
         float duration = (float)emitter.Number("emission_duration", 0d);
         float from = (float)emitter.Number("emission_start_time", 0d);
         float now = Particles.Age;
@@ -678,7 +703,88 @@ public sealed class ParticleEffect
             _settled.Clear();
         }
 
-        Particles.Reap();
+        // **No age kill of our own** (B557 row 3): `CParticleCollection::Simulate` has none, and a particle dies only by an
+        // operator that writes the kill list — the implemented ones reap inside `Operate`. A system whose only killers are
+        // ones not implemented here is reaped at the lifetime instead, a STAND-IN so our gap does not make them immortal.
+        if (_reapsForAKillerNotImplemented)
+        {
+            Particles.Reap();
+        }
+    }
+
+    /// <summary>
+    /// The operators that can end a particle — the six in `builtin_particle_ops.obj` that write the kill list (+0x276c):
+    /// `C_OP_Decay`, `C_OP_VelocityDecay`, `C_OP_Cull`, `C_OP_PlaneCull`, `C_OP_ModelCull`, `C_OP_FadeAndKill`.
+    /// </summary>
+    public static IReadOnlySet<string> Killers { get; } = new HashSet<string>(StringComparer.Ordinal)
+    {
+        "Lifespan Decay", "Lifespan Minimum Velocity Decay", "Cull Random", "Cull when crossing plane",
+        "Cull relative to model", "Alpha Fade and Decay",
+    };
+
+    /// <summary>
+    /// Operator names shipped `.pcf` files declare that the SDK's 2013 `particles.lib` does not define, though TF2's own
+    /// `client.dll` carries them — so whether they kill is unread, and a system declaring one keeps the stand-in reap.
+    /// </summary>
+    /// <remarks>Found by `particles killers` over the systems with no known killer; absent from `builtin_particle_ops.obj`'s strings.</remarks>
+    public static IReadOnlySet<string> NotInTheSdkLibrary { get; } = new HashSet<string>(StringComparer.Ordinal)
+    {
+        "alpha_fade", "alpha_fade_in_random", "alpha_fade_out_random", "basic_movement", "radius_scale",
+        "oscillate_vector", "oscillate_scalar", "postion_lock_to_controlpoint", "rotation_spin", "rotation_spin yaw",
+        "lifespan_decay",
+    };
+
+    /// <summary>Whether this system kills only through operators this project does not implement; see <see cref="SubStep"/>.</summary>
+    private readonly bool _reapsForAKillerNotImplemented;
+
+    /// <summary>`CParticleCollection::HasMoved` (`0x000e1410`): a control point away from its previous position, or a child's.</summary>
+    /// <returns>Whether this effect or any child moved since its last simulation.</returns>
+    /// <remarks>
+    /// The engine asks only the points the definition reads (its mask at definition +0x20); this project keeps no such
+    /// mask, so every point set is asked — an APPROXIMATION, wider than the engine's.
+    /// </remarks>
+    public bool HasMoved()
+    {
+        for (int number = 0; number < _points.Count; number++)
+        {
+            if (_points[number].At != _previous[number])
+            {
+                return true;
+            }
+        }
+
+        foreach (ParticleEffect child in Children)
+        {
+            if (child.HasMoved())
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>`Simulate( dt, true )`: an asleep effect that moved — no time, no emission, no operator (B557 row 9).</summary>
+    /// <param name="seconds">The frame's time.</param>
+    /// <remarks>
+    /// Read in `particles.obj`: with `updateBboxOnly` the sub-step loop is skipped, and still every child is given the
+    /// same call, `m_flPreviousDt` is set to `dt` and the previous control points to the present ones. The bounds are not
+    /// kept here.
+    /// </remarks>
+    public void SimulateBoundsOnly(float seconds)
+    {
+        if (seconds < ShortestStep || !_previousSet)
+        {
+            return;
+        }
+
+        foreach (ParticleEffect child in Children)
+        {
+            child.SimulateBoundsOnly(seconds);
+        }
+
+        Particles.EndCall(seconds);
+        RememberPoints();
     }
 
     /// <summary>`UpdatePrevControlPoints`: every control point's position, kept as its previous one.</summary>
@@ -771,7 +877,7 @@ public sealed class ParticleEffect
     /// </remarks>
     private void EmitContinuously(ParticleFunction emitter, float seconds)
     {
-        float rate = (float)emitter.Number("emission_rate", 0d);
+        float rate = (float)emitter.Number("emission_rate", DefaultEmissionRate);
         float duration = (float)emitter.Number("emission_duration", 0d);
         float from = (float)emitter.Number("emission_start_time", 0d);
         float now = Particles.Age;

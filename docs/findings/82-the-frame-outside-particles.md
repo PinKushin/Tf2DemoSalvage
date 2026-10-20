@@ -367,3 +367,87 @@ work: the entities these queries build were drawn on an earlier frame, so last f
 anyway. Kept because it is the engine's request, and the same where it costs nothing (the owner's rule). **Golden
 shots**, first person at ticks 30350 and 30480 (heal beams and overheal particles on screen), before and after: 56
 and 48 pixels differ, all inside the frame-rate readout's box.
+
+## The particle caller against `CParticleMgr`, and what `particles.lib` says about death (2026-10-20, B557)
+
+An engine read set Valve's open caller code (`particlemgr.cpp`) and the published declarations (`particles.h`) beside
+ours in 17 rows; five differed. Each was read first — in the SDK where it is published, otherwise in the disassembly of
+the SDK's `particles.lib` (Ghidra, output under `D:`) — then fixed or left alone.
+
+**Row 1, the collection size (read from the binary).** The definition unpack table (`0x9e00`, `particles.obj`) gives
+`max_particles` the default `"1000"` at definition +0x238; `CParticleCollection::InitStorage` stores `min( it, 5000 )`
+at +0x64 (`m_nMaxAllowedParticles`), and `Init` does not write it again. Ours was unbounded when undeclared and had
+no ceiling. **Fixed.**
+
+**Row 3, who kills a particle (read from the binary) — the consequential one.** What we believed: a particle dies at
+its lifetime, because ours reaped by age after every sub-step. `CParticleCollection::Simulate` has no age test: a
+particle dies only when an operator writes the kill list (+0x276c), applied after that operator. A search of every
+`builtin_*` object for that displacement finds six operators, all in `builtin_particle_ops.obj`: `C_OP_Decay`
+("Lifespan Decay"), `C_OP_VelocityDecay`, `C_OP_Cull`, `C_OP_PlaneCull`, `C_OP_ModelCull`, `C_OP_FadeAndKill` ("Alpha
+Fade and Decay"); `C_OP_Decay` among the hits is the control. `C_OP_Decay` kills at `lifetime <= curtime − creation`
+or `lifetime <= 0`, the comparison `ParticleStore.Reap` already made.
+
+**The shipped data then decided the fix**, by the new probe `particles killers` over the manifest's 9,291 systems:
+
+| | systems |
+|---|---:|
+| no killer at all | 1,610 — 844 of them make particles (halos, glows, rainbow stars, enemy tags) |
+| an implemented killer (Lifespan Decay 5,199 uses, Alpha Fade and Decay 3,183) | 7,681 |
+| only killers this project does not implement (plane 37, model 6, random 1 uses) | 0 |
+
+**A second instrument check found the census incomplete.** Printing the operators of the 844 showed names the SDK's
+2013 `particles.lib` does not define — `alpha_fade`, `lifespan_decay`, `basic_movement`, `radius_scale`,
+`oscillate_vector` and six more (absent from `builtin_particle_ops.obj`'s strings) — which TF2's own `client.dll`
+carries. Whether those kill is unread: the 2013 library cannot speak for them. **23 of the 844** declare one.
+
+**Fixed**: no age reap of our own; the two implemented killers reap. A system whose only killers are not implemented,
+or that declares one of those unread names, keeps an age reap as a labelled stand-in (`ParticleEffect.Killers`,
+`NotInTheSdkLibrary`): 23 systems. The other 821 are, by the library's own code, designed to hold their particles;
+ours killed them at their drawn lifetime (one second where the system has no `Lifetime Random`). **The f12 window's
+systems are not among them** — asked by name of the same probe: the top twelve by births, `xms_ornament_glitter`
+(Lifespan Decay), the overheal pluses, `rocketbackblast`, the muzzle flashes (Alpha Fade and Decay), the tracer
+(Lifespan Decay); `medicgun_beam_*` and `ExplosionCore_Wall` are emitter-less parents. So the f12 numbers cannot move by
+row 3; births a second could not have shown it anyway (an immortal particle adds no birth). Which on-screen effects do
+change is unmeasured: a held halo or glow on a worn item is the candidate, and the owner's eye is the check.
+
+**`emission_rate`'s default is `"100"`**, read from `DmxElementUnpackInit<C_OP_ContinuousEmitter>` (rate at +0x40,
+duration +0x38, start time +0x3c — which also confirms the offsets `MayCreateMoreParticles` reads, below); ours reads an
+undeclared rate as 0. The same probe counts **0 of 7,203** shipped continuous emitters that leave it out, which I first
+took as reason to leave it; the review's point killed that: a map's pakfile manifest (B554) is read too and can omit
+it, and after row 17 an omitted rate made the effect finished at once. **Fixed**: one `DefaultEmissionRate`, 100.
+
+**Row 6, the creation frame (read from published source).** `ProcessPSystem` gives an effect's first frame
+`Simulate( 0.0f )` (`particlemgr.cpp:1572-1575`; the flag is set in `particles_new.cpp:53`). Ours stepped and emitted
+the creation frame's whole elapsed time. **Fixed** for a burst that fired since the last frame and a trail whose rocket
+started since the last frame; one met later than that (a seek, the opening, a burst first placeable later) still
+replays from its own tick, our D221 addition. **A wrong turn, killed by the suite**: the first version zero-stepped
+every first offer on an unflagged frame and fifteen Scene tests failed — several reach a burst part way through
+without a seek flag — which is what showed the real rule: the event must have fallen inside the frame.
+
+**Row 9, sleep (published source and the binary).** Past its sleep time with live particles, an effect is skipped
+unless `HasMoved()` (`particlemgr.cpp:1775-1791`), and then gets `Simulate( dt, true )`: read in `particles.obj`,
+bounds-only skips the sub-steps but still recurses into children and stores `m_flPreviousDt` and the previous control
+points. `HasMoved` (`0x000e1410`) compares each point in the definition's read mask with its previous position.
+**Fixed for bursts**, with one approximation: this project keeps no read mask, so every set point is compared.
+**Trails still never sleep**: nothing tells a trail it went undrawn, so there is no input to sleep on.
+
+**Row 17, removal (the binary) — the proposed fix was wrong.** The read flagged trails dropped on `Empty` rather than
+`IsFinished`. `C_OP_ContinuousEmitter::MayCreateMoreParticles` (`0x00067430`) is false once stopped (context +0x10) and
+false at a rate not above 0, true at a zero duration, else `curtime − dt <= start + duration`. The trail branch runs
+only after the rocket is gone, with emission stopped, so there `Empty` IS `IsFinished`; swapping in our `Finished`
+would have kept every faded trail forever, because it does not model the stopped flag and reads a zero duration as
+forever. **Not changed.** What the read did expose: `Finished` treated a rate-0 emitter as forever. **Fixed.**
+
+**Measured, f12, Debug, first person, tick 30000, `--measure 20`**: particles born a second **2,872.1 after**, against
+2,871 and 2,763 before (the section above — same base, same setup, not re-run); `rocketjump_smoke` 1,181.9 against
+1,181. Mean frame 21.93 ms over 912 frames. **Golden shot**, the explosion at tick 18363 with
+`TF2VIEW_CAMERA="-3280 -1152 637 15 225"`: before and after are byte-identical, frame-rate readout included, which the
+pairs above never were. Checked rather than assumed: the before and after `Tf2DemoSalvage.Content.dll` and `.Scene.dll`
+differ (MD5), so the after shot ran the new code. A `--shot` reaches its tick by seek, which replays (row 6 does not
+apply), and the explosion's systems all declare a killer (row 3 does not). Still a weak control: the shot was not shown
+to change for any edit. The heal-beam pair: before taken at tick 30480,
+after not taken, to stay within four viewer runs.
+
+**Not changed**: row 8 (a seek's replay steps a tick at a time — D221, ours, kept), rows 10–14 (closed emitter and
+`Simulate` arithmetic, already ported from the disassembly in earlier findings), row 15 (early retirement is off by
+default in TF), row 16 (`ParticleThrottleScaling`, closed, not read here).
