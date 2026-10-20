@@ -199,6 +199,19 @@ public sealed class ParticleSimulateConformanceTests
             .ShouldBe((false, true, false, 0.05f, 0.2f));
     }
 
+    /// <remarks>`HasMoved` then asks every child (`0x000e1410`, the loop over +0x22b8): a child's point alone moving counts.</remarks>
+    [Test]
+    public void HasMoved_OnlyAChildsPointMoved_IsTrue()
+    {
+        Dictionary<string, ParticleSystem> others = new(StringComparer.OrdinalIgnoreCase) { ["kid"] = Defined() with { Name = "kid" } };
+        ParticleEffect effect = new(Defined() with { Children = ["kid"] }, others);
+
+        effect.Step(Oriented(Vector3.Zero), 0.05f);
+        effect.Children[0].SetControlPoint(0, Oriented(new Vector3(3f, 0f, 0f)));
+
+        (effect.Children.Count, effect.HasMoved()).ShouldBe((1, true));
+    }
+
     /// <summary>Four particles at once, two a frame, one at a time, each living a tenth of a second, in whole-call steps.</summary>
     private static ParticleSystem Capped() =>
         new(
