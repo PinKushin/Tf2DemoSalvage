@@ -222,13 +222,22 @@ parent within rounding (0.57 = 0.15 + 0.05 + 0.04 + 0.31 + zeros).
 | first window (34 fps) | 2.35 | 1.12 | — | — | 0 | 0.63 | 0 |
 | last window (76 fps) | 0.57 | 0.15 | 0.05 | 0.04 | 0 | 0.31 | 0 |
 
-**What killed "1-4.5 ms, unattributed":** the large figures are the cold windows: the same work at 34 fps cost four times
-what it costs at 76, falling as the run warms. In the empty view, where the camera holds still, `setcamera` is 0.01-0.02
-ms, so the cull gate fires only on a move and nothing is rebuilt without a change. Every part is per moved view, and
-Valve does the same per view: `BuildWorldLists` on every render, and the detail mesh rebuilt every frame
-(`detailobjectsystem.cpp`, see `Device3D.RebuildDetailSprites`'s remark). The largest part, `detail` (0.3 ms), is
-parity, and there is no GPU upload of unchanged data to make conditional (`upload` reads 0). **Not checked, filed:**
-whether the engine skips re-marking the PVS while the view stays in one cluster (`R_MarkLeaves` keeps `r_oldviewcluster`);
+**What this run shows of "1-4.5 ms":** in it `setcamera` falls from 2.35 to 0.57 ms as the run warms (the same work at 34
+fps costs four times what it costs at 76). Whether the release-candidate figure came from early windows is not known: its
+logs were not kept, so that figure stays unexplained. In the empty view, where the camera holds still, `setcamera` is
+0.01-0.02 ms. The cull gate fires only on a move, and nothing is rebuilt without a change. There is also no GPU upload of
+unchanged data to make conditional: `upload` reads 0.
+
+**A divergence in the largest part, `detail` (0.3 ms), found and not fixed (no runs left to measure a fix).** Valve
+rebuilds per view, as we do. But `CDetailObjectSystem::BuildDetailObjectRenderLists` (`detailobjectsystem.cpp:2789`,
+read from published source) reaches props only through `EnumerateLeavesInSphere(CurrentViewOrigin(), cl_detaildist)`
+(`:2839`). `EnumerateLeaf` (`:2742`) then takes only that leaf's props drawn in this world-list build
+(`DrawDetailObjectsInLeaf(leaf, m_BuildWorldListNumber, …)`, `:2749`). `DetailModels.Build` and `DetailSprites.Build`
+instead walk **every** detail prop on the map on every move, and test distance per prop. The fix is to drive both from
+the leaves within `cl_detaildist` of the eye that this view's cull reached.
+
+**Not checked, interpolated:** whether the engine skips re-marking the PVS while the view stays in one cluster. The
+memory of `R_MarkLeaves` keeping `r_oldviewcluster` is the engine's and is not in the SDK, so it is unverified.
 `WorldVisibility.Leaves` tests the PVS again on every move. That is at most `batches`' 0.15 ms.
 
 **The D181 corpse record's allocation** (`dotnet-trace --profile gc-verbose`, `alloc-trace … all <window> any
@@ -239,6 +248,10 @@ and 4,291 in B, the same window.
 |---|---:|---:|
 | the worker thread, all of it | 5,884 | 4,908 |
 | under `CorpsePhysics.Advance` | 2,738 | 1,947 |
+
+**The noise floor:** code this work did not touch also moved between the two traces (`IkFor` 1,578 → 1,477,
+`UpdateClientSideAnimations` 650 → 617). So about 100-185 MB of the worker's −976 is window-to-window noise. The −791
+under `CorpsePhysics.Advance` clears that floor.
 
 What came out, each with a test in `IvpCorpseStepDifferentialTests`:
 
@@ -254,11 +267,13 @@ What came out, each with a test in `IvpCorpseStepDifferentialTests`:
 **Bit-identity** is pinned by `Simulate_ACorpseDroppedOnAFloor_EveryPoseHashesAsBefore`. It runs a two-element corpse
 kicked onto a slab for 200 ticks, hashes every pose bit, and was captured before any of these changes. Control: impacts
 are above zero. Sabotage: gravity -800.0001 reddens it. Over ticks 20-199 that test's step allocates 973,928 bytes before
-and 841,992 after, and the second figure is held as a ceiling.
+and 841,992 after, and the second figure is held as a ceiling. **That golden drives `IvpRagdollWorld` directly, so the
+`CorpsePhysics` working-set reuse and `PoseHook` have no before/after differential of their own.** They are covered only
+by the existing record-against-live tests, where both sides run the new code.
 
 **The frame.** GC pause: 1.97 → 1.83 ms a frame in first person (9.63 → 9.20 MB a frame), 0.89 → 0.80 in the empty view.
 Last window: 76 → 80 fps in first person and 146 → 154 fps in the empty view. With one run each and windows that move by
-±10 fps, that difference is within run-to-run spread.
+±10 fps, both the fps and the GC differences are within run-to-run spread.
 
 **Left, by size, under `CorpsePhysics.Advance` in B:** `IvpMotionCache`'s `IvpMatrix?[21]` slots (337 MB; the engine
 keeps them in the searcher's storage) together with the cache and `IvpSearchSide` objects (134 + 65 MB) made per search

@@ -112,3 +112,4 @@
 - [Index notes](index-notes.md) — decision numbers formerly beside links.
 - [The HUD draws at tone-map scale 1](the-hud-draws-at-tone-map-scale-one.md) — integer HDR resets it before VGUI (viewrender.cpp:2211).
 - [UnlitGeneric has no $detailtint](unlitgeneric-has-no-detailtint.md) — c10 white; check SetupVars before porting a param.
+- [A capturing cache factory allocates on a hit](a-capturing-cache-factory-allocates-on-a-hit.md) — closure made at scope entry; IvpTestSurface boxes are IVP-frame (Y up).
