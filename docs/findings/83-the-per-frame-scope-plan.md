@@ -69,6 +69,28 @@ ticks 30480 and 30700). Nothing here is proposed that Valve does not do.
   `ResolvedFor(...).Skinned` test, and since fix 2 the collation reuses its handle by identity, so the saving is
   mostly the visibility filters, `PlaceFrame`, `UpdateClientSideAnimations` and those two residual visits. Time
   each pass's static-prop share with a carried counter before building; if it is under ~1 ms, item 4 goes first.
+- **Done (2026-10-20, `feat/static-props-once`).** The count-first step was skipped: the owner's experiment (empty
+  view, frame 8.7–9.0 → 5.8–6.8 ms with static props dropped entirely) had already settled the rank.
+  `EntityModelSet.StaticProps` is packed by the first `Add` after it is set, filed with the leaf system by the first
+  world pass after that, and filed again only for a new list, tree or level. Only the props a view collates run
+  `SimulatePass`'s two halves (`SimulateEach`/`SettleEach`, same code as before), so a static prop in view is drawn
+  exactly as it was. The moment's draw list no longer holds static props, so the visibility filters, `PlaceFrame` and
+  `UpdateClientSideAnimations` never visit one. Conformance: `StaticPropGatherConformanceTests` (facing away, 0
+  visits; facing two of three, those two; filed once over several frames; an entity as the control).
+  - **Measured** (f12, tick 30000, Debug, three runs, one before, two after; the machine was shared with another
+    agent's probe and the first seconds of each after run are contended, so the quiet windows are what is quoted).
+    Empty view (`TF2VIEW_CAMERA="1613 -2821 154 89 0"`): frame 7.7–9.0 → 6.5–8.5 ms; `simulate` 1.2–1.4 → 0.5–0.7;
+    `drawlist` 0.4–0.6 → 0.1–0.2; `advance` 1.1–1.2 → 0.8–0.9; `camera` 4.7–5.3 → 2.9–4.4; selected 1,865 → none of
+    the static props. First person after: `simulate` 0.5–0.7 (finding 82: 1.2–1.4), `drawlist` 0.4–0.7 (was 1.4–1.6),
+    frame 13–16 ms in its quiet seconds.
+  - **Output.** Golden shots before and after, same build settings: first person at tick 30000, and a free camera
+    (`1613 -2821 154 5 90`) showing the map's trees. Both pairs are identical pixel for pixel outside the fps overlay
+    (rows 2–11, x 697–824, the frame-time text).
+  - **Engine read (CLOSED source, `engine.dll` `0x1800f1bd0`).** The static prop's per-draw function sets up lighting
+    only: the ambient cube and the local lights, with no sequence, cycle or animation step. Ours still runs the simulate
+    half for an in-view static prop, so a static prop with an autoplay or realtime sequence animates here and not in
+    the engine. That was true before this change. It is not fixed here because the task required identical output,
+    and it should be filed separately.
 
 ### 2. Particle creation becomes event-driven, like the client's `engine->FireEvents()`
 
