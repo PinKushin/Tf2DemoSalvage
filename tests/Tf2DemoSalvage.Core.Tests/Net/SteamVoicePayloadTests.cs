@@ -250,6 +250,32 @@ public sealed class SteamVoicePayloadTests
     }
 
     [Test]
+    public void TryDecode_AnInjectorPacketWithItsOwnCrcRoutine_IsSteamVoice()
+    {
+        // plasmatech8/tf2-demo-external-comms-injector writes one frame per packet: steamid, 0B rate,
+        // 06 with a single chunk, no FFFF, CRC32 from a bit loop (poly EDB88320) rather than a
+        // library. An independent encoder agreeing with our reader is the control no corpus demo
+        // can give, since the corpus has no ground truth for what was meant.
+        byte[] body = [.. BitConverter.GetBytes(SteamId), 0x0B, 0xC0, 0x5D, 0x06, 0x07, 0x00, .. Opus(0, [0x68, 0x11, 0x22])];
+        uint crc = 0xFFFFFFFF;
+        foreach (byte b in body)
+        {
+            crc ^= b;
+            for (int bit = 0; bit < 8; bit++)
+            {
+                crc = (crc >> 1) ^ (0xEDB88320u & (0u - (crc & 1)));
+            }
+        }
+
+        byte[] payload = [.. body, .. BitConverter.GetBytes(~crc)];
+
+        SteamVoicePayload.TryDecode(payload, out VoicePacket? packet).ShouldBeTrue();
+        packet.Codec.ShouldBe(SteamVoiceCodec.Opus);
+        packet.Chunks.Count.ShouldBe(1);
+        packet.IsTerminated.ShouldBeFalse();
+    }
+
+    [Test]
     public void TryDecode_WholeSpeexFrames_AreNotSteamVoice()
     {
         // Two 28-byte frames, the 2007 shape, which do not frame as Steam Voice at all.
