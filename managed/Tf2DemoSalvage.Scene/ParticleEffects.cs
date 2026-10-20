@@ -532,6 +532,16 @@ public sealed class ParticleEffects
                 // are simulated with it and never sleep apart. Only a draw pushes the time on.
                 if (reachedTo >= nextSleep && running.Effect.Particles.Count > 0)
                 {
+                    // **Unless it moved** (B557 row 9): then `Simulate( dt, true )`, bounds only — the frame's time and
+                    // the previous points kept, nothing simulated (particlemgr.cpp:1785-1789). The points are read first,
+                    // as `Update` reads them before `BuildParticleSimList` (:1841-1853).
+                    running.Effect.SetControlPoint(0, current);
+
+                    if (running.Effect.HasMoved())
+                    {
+                        running.Effect.SimulateBoundsOnly((float)((next - reachedTo) * seconds));
+                    }
+
                     reachedTo = next;
                     continue;
                 }

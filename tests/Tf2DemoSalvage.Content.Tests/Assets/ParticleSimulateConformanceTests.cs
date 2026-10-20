@@ -180,6 +180,25 @@ public sealed class ParticleSimulateConformanceTests
         (afterOne, effect.Finished).ShouldBe((false, true));
     }
 
+    /// <remarks>
+    /// `HasMoved` (`0x000e1410`) compares a point with its previous position, which `Simulate` stores at the end of a call;
+    /// `Simulate( dt, true )` stores them and `m_flPreviousDt` and advances no time (B557 row 9).
+    /// </remarks>
+    [Test]
+    public void SimulateBoundsOnly_AfterAMove_KeepsTheTimeAndSettlesThePoints()
+    {
+        ParticleEffect effect = new(Defined());
+
+        effect.Step(Oriented(Vector3.Zero), 0.05f);
+        bool still = effect.HasMoved();
+        effect.SetControlPoint(0, Oriented(new Vector3(3f, 0f, 0f)));
+        bool moved = effect.HasMoved();
+        effect.SimulateBoundsOnly(0.2f);
+
+        (still, moved, effect.HasMoved(), effect.Particles.Age, effect.Particles.PreviousStep)
+            .ShouldBe((false, true, false, 0.05f, 0.2f));
+    }
+
     /// <summary>Four particles at once, two a frame, one at a time, each living a tenth of a second, in whole-call steps.</summary>
     private static ParticleSystem Capped() =>
         new(

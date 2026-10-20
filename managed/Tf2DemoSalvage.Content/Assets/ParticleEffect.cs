@@ -714,6 +714,56 @@ public sealed class ParticleEffect
     /// <summary>Whether this system kills only through operators this project does not implement; see <see cref="SubStep"/>.</summary>
     private readonly bool _reapsForAKillerNotImplemented;
 
+    /// <summary>`CParticleCollection::HasMoved` (`0x000e1410`): a control point away from its previous position, or a child's.</summary>
+    /// <returns>Whether this effect or any child moved since its last simulation.</returns>
+    /// <remarks>
+    /// The engine asks only the points the definition reads (its mask at definition +0x20); this project keeps no such
+    /// mask, so every point set is asked — an APPROXIMATION, wider than the engine's.
+    /// </remarks>
+    public bool HasMoved()
+    {
+        for (int number = 0; number < _points.Count; number++)
+        {
+            if (_points[number].At != _previous[number])
+            {
+                return true;
+            }
+        }
+
+        foreach (ParticleEffect child in Children)
+        {
+            if (child.HasMoved())
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>`Simulate( dt, true )`: an asleep effect that moved — no time, no emission, no operator (B557 row 9).</summary>
+    /// <param name="seconds">The frame's time.</param>
+    /// <remarks>
+    /// Read in `particles.obj`: with `updateBboxOnly` the sub-step loop is skipped, and still every child is given the
+    /// same call, `m_flPreviousDt` is set to `dt` and the previous control points to the present ones. The bounds are not
+    /// kept here.
+    /// </remarks>
+    public void SimulateBoundsOnly(float seconds)
+    {
+        if (seconds < ShortestStep || !_previousSet)
+        {
+            return;
+        }
+
+        foreach (ParticleEffect child in Children)
+        {
+            child.SimulateBoundsOnly(seconds);
+        }
+
+        Particles.EndCall(seconds);
+        RememberPoints();
+    }
+
     /// <summary>`UpdatePrevControlPoints`: every control point's position, kept as its previous one.</summary>
     private void RememberPoints()
     {

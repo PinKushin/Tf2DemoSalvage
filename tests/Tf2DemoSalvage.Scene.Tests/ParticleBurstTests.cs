@@ -505,6 +505,45 @@ public sealed class ParticleBurstTests
         effects.BurstSteps(1).ShouldBe(40, "stepped every tick: the root's count is 0, so it never sleeps");
     }
 
+    /// <remarks>
+    /// **Asleep, an effect that moved still takes a bounds-only `Simulate`** (B557 row 9): `BuildParticleSimList` keeps an
+    /// effect past its sleep time when `HasMoved()` (particlemgr.cpp:1785-1789), and `Simulate( dt, true )` skips the
+    /// sub-steps but still stores `m_flPreviousDt = dt` and the previous control points (particles.obj). `HasMoved`
+    /// compares each control point the definition reads with its previous position (`0x000e1410`). Asleep after tick 120,
+    /// the effect is shown two ticks a frame: with its end point moving, the frame's two-tick `dt` is stored; held still,
+    /// the last awake step's one tick stays.
+    /// </remarks>
+    [TestCase(true, 2f)]
+    [TestCase(false, 1f)]
+    public void Bursts_AsleepWithAMovedPoint_StoreTheFramesTimeWithoutSimulating(bool moving, float expectedTicks)
+    {
+        ParticleEffects effects = new();
+        ParticleBurst beam = new(1, Sleepy(Beam), Origin, 100);
+
+        for (int tick = 100; tick <= 110; tick++)
+        {
+            effects.Bursts([beam], Interval, null, tick);
+        }
+
+        for (int tick = 111; tick <= 140; tick++)
+        {
+            effects.Bursts([beam with { Undrawn = true }], Interval, null, tick);
+        }
+
+        int steps = effects.BurstSteps(1);
+        float age = effects.BurstParticles(1)!.Age;
+
+        for (int tick = 142; tick <= 150; tick += 2)
+        {
+            ParticleControlPoint end = moving ? new(new Vector3(tick, 0f, 0f), Vector3.UnitX, Vector3.UnitY, Vector3.UnitZ) : Origin;
+
+            effects.Bursts([beam with { Undrawn = true, End = end }], Interval, null, tick);
+        }
+
+        (effects.BurstSteps(1), effects.BurstParticles(1)!.Age).ShouldBe((steps, age), "asleep: nothing simulated");
+        effects.BurstParticles(1)!.PreviousStep.ShouldBe(expectedTicks * Interval, 1e-6f);
+    }
+
     private static readonly ParticleControlPoint Origin = new(Vector3.Zero, Vector3.UnitX, Vector3.UnitY, Vector3.UnitZ);
 
     /// <summary>A system that sleeps 0.15 s after its last draw.</summary>
