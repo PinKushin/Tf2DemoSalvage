@@ -158,7 +158,12 @@ public sealed partial class ViewerSession : IFrameSteps, ILoadView, ICameraView,
         // A fixed step a frame when a script asks (TF2VIEW_FIXED_FRAME), so two builds play the same moments.
         _playback = new PlaybackPresenter(
             transport, (IElapsedTime?)FixedStepTime.Parse(host.Environment("TF2VIEW_FIXED_FRAME")) ?? host.Clock());
-        _playedCaptures = PlayedCaptures.Parse(host.Environment("TF2VIEW_PLAY_SHOTS"));
+        _playedCaptures = PlayedCaptures.Parse(host.Environment("TF2VIEW_PLAY_SHOTS"), out string? refused);
+
+        if (refused is not null)
+        {
+            _log.LogWarning("{Message}", refused);
+        }
 
         // **What a load fills is composed by its owner** (D214), in the order the window's constructor built them.
         _settingsOwner = settings;

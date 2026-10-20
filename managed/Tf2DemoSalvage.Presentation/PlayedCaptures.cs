@@ -16,12 +16,18 @@ public sealed class PlayedCaptures
 {
     private readonly Queue<int> _ticks;
 
+    /// <summary>The capture asked for last frame, whose PNG the device has written by now; see <see cref="SidecarDue"/>.</summary>
+    private string? _asked;
+
     private PlayedCaptures(string folder, IEnumerable<int> ticks)
     {
         Folder = folder;
         List<int> sorted = [.. ticks];
         sorted.Sort();
         _ticks = new Queue<int>(sorted);
+
+        // The sidecar is written straight to the folder; the PNG writer would make it only a frame later.
+        Directory.CreateDirectory(folder);
     }
 
     /// <summary>Where the captures go.</summary>
@@ -29,18 +35,24 @@ public sealed class PlayedCaptures
 
     /// <summary>Reads the variable.</summary>
     /// <param name="value">"folder tick tick ...", or null.</param>
-    /// <returns>The list, or null when unset or naming no tick.</returns>
-    public static PlayedCaptures? Parse(string? value)
+    /// <param name="problem">Why a value that names ticks was refused, for the caller's warning; null otherwise.</param>
+    /// <returns>The list, or null when unset, naming no tick, or holding a token that is not a whole tick of 0 or more.</returns>
+    /// <remarks>A folder with a space in it cannot be named: its second word is refused as a tick, and said so.</remarks>
+    public static PlayedCaptures? Parse(string? value, out string? problem)
     {
+        problem = null;
         string[] parts = (value ?? string.Empty).Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
         List<int> ticks = [];
 
         for (int index = 1; index < parts.Length; index++)
         {
-            if (int.TryParse(parts[index], NumberStyles.Integer, CultureInfo.InvariantCulture, out int tick))
+            if (!int.TryParse(parts[index], NumberStyles.None, CultureInfo.InvariantCulture, out int tick))
             {
-                ticks.Add(tick);
+                problem = $"TF2VIEW_PLAY_SHOTS: '{parts[index]}' is not a tick (a whole number, 0 or more), so nothing is captured";
+                return null;
             }
+
+            ticks.Add(tick);
         }
 
         return ticks.Count == 0 ? null : new PlayedCaptures(parts[0], ticks);
@@ -49,6 +61,7 @@ public sealed class PlayedCaptures
     /// <summary>The capture this frame owes, or null: the earliest listed tick at or before the moment shown.</summary>
     /// <param name="shown">The moment shown, fraction included.</param>
     /// <returns>The file to write, named by the listed tick; one a frame, so ticks a long frame skipped follow on the next.</returns>
+    /// <remarks>Ask <see cref="SidecarDue"/> first each frame: this arms the next frame's sidecar.</remarks>
     public string? Due(double shown)
     {
         if (_ticks.Count == 0 || _ticks.Peek() > shown)
@@ -56,7 +69,24 @@ public sealed class PlayedCaptures
             return null;
         }
 
-        return Path.Combine(Folder, string.Create(CultureInfo.InvariantCulture, $"play-{_ticks.Dequeue()}.png"));
+        _asked = Path.Combine(Folder, string.Create(CultureInfo.InvariantCulture, $"play-{_ticks.Dequeue()}.png"));
+
+        return _asked;
+    }
+
+    /// <summary>The capture whose sidecar this frame owes, once: the one asked for on the frame before.</summary>
+    /// <returns>Its PNG's path, or null.</returns>
+    /// <remarks>
+    /// **The device writes a capture on the NEXT present** (`Device3D`), after another played step, so a sidecar written
+    /// beside the request described the frame before the picture. Written the frame after, it reads the tick and camera of
+    /// the frame the PNG shows (D226: a TF2 capture is paired by that tick).
+    /// </remarks>
+    public string? SidecarDue()
+    {
+        string? owed = _asked;
+        _asked = null;
+
+        return owed;
     }
 }
 

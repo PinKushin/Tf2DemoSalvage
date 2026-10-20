@@ -457,11 +457,16 @@ public sealed partial class ViewerSession
 
         _wasOnScreen = onScreen;
 
-        // **Captures while playing** (TF2VIEW_PLAY_SHOTS): the frame just drawn, at the first frame at or past a listed tick.
+        // **Captures while playing** (TF2VIEW_PLAY_SHOTS), at the first frame at or past a listed tick. The device writes the
+        // PNG on the next present, so its sidecar is written here on that next frame, from the state of the frame it shows.
+        if (_playedCaptures?.SidecarDue() is { } written)
+        {
+            WriteSidecar(written);
+        }
+
         if (onScreen && _transport.Playing && _playedCaptures?.Due(_shownTick) is { } played)
         {
             CaptureViewport(played);
-            WriteSidecar(played);
         }
 
         // **The log's own meter, always smoothed**, fed the frame time the on-screen one gets. The on-screen meter answers

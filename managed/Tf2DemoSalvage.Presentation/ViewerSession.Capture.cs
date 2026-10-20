@@ -267,7 +267,8 @@ public sealed partial class ViewerSession
     /// <remarks>
     /// **Every value is carried, not recomputed** (B243): the camera is the one the last frame handed the device, the
     /// tick the one last shown, the viewport the window's, the ConVars the settings in force. The PNG itself is written
-    /// on the next present, which changes none of those on a capture run: the camera is placed and the clock paused.
+    /// on the next present, which changes none of those on a `--shot` run: the camera is placed and the clock paused. A
+    /// capture taken while PLAYING is not paused, so its sidecar is written a frame later (<see cref="PlayedCaptures.SidecarDue"/>).
     /// </remarks>
     private void WriteSidecar(string shot)
     {
