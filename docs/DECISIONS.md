@@ -10882,7 +10882,7 @@ set its own capture instead of constants; that is a later step once the files ex
 1. **ConVars: only those that differ from their declared default.** *"only the ones that differ from defaults"*. The sidecar was
    listing about 47, mostly defaults. `--like` still applies every ConVar a TF2 sidecar names.
 2. **`--like` on a demo-hash mismatch warns and still shoots**, recording the reason in `notes`: the TF2 sidecar's `demoSha256`
-   is compared with the demo actually opened. The owner did not follow the hash point (*"i dont really get 2 and 3, but
+   is compared with the demo actually opened. The owner did not follow the hash point (*"I don't really get 2 and 3, but
    probably?"*), so this is the lead's default for what he approved; the comparison is also what the hook in item 3 will enforce.
 3. **`gitSha` gets `-dirty`** when the working tree is not clean at the moment of the shot (same "probably"). It describes the
    tree at shot time, while the sha names the commit at build time; they can disagree, which is acceptable for a record of the shot.
@@ -10895,8 +10895,8 @@ set its own capture instead of constants; that is a later step once the files ex
 **What was found.** `gh release list` shows 45 releases, 16 published (beta.1 to beta.15, the last on 2026-10-04) and 29 still
 DRAFTS (beta.16 to beta.44). Anyone downloading from the public repo got the 2026-10-04 build. The cause was a comment and a
 habit: `release.yml` (commit `d8f65d34`, 2026-10-01, made by an assistant session under the owner's git name) said *"the owner
-reviews the draft and presses Publish by hand"*. The owner, 2026-10-20: *"ive never punbliished by hand sso no idea where that
-came from lol"* and, asked whether this was deliberate: *"its a bug and somehing i didnt know aboiut"*.
+reviews the draft and presses Publish by hand"*. The owner, 2026-10-20: *"I've never published by hand so no idea where that
+came from lol"* and, asked whether this was deliberate: *"it's a bug and something I didn't know about"*.
 
 **What is decided.** The owner: *"do the publishing is yours"* (the lead publishes) and, on the 29 old drafts, the lead's
 recommendation was taken after he first said *"publish them"* and then withdrew it: **publish only `0.1.0-beta.45`**. Its notes
