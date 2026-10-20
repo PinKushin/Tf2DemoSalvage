@@ -85,9 +85,10 @@ public sealed class AllocationTraceProbe : IProbe
                 return;
             }
 
-            string root = Root(tick.CallStack());
+            // Walked here only when filtering; otherwise once, below, for the ticks kept.
+            string? root = under is null ? null : Root(tick.CallStack());
 
-            if (under is not null && !root.Contains(under, StringComparison.Ordinal))
+            if (under is not null && !root!.Contains(under, StringComparison.Ordinal))
             {
                 return;
             }
@@ -115,6 +116,7 @@ public sealed class AllocationTraceProbe : IProbe
 
             byType[type] = byType.GetValueOrDefault(type) + bytes;
             byThread[tick.ThreadID] = byThread.GetValueOrDefault(tick.ThreadID) + bytes;
+            root ??= Root(tick.CallStack());
             byThreadRoot[(tick.ThreadID, root)] = byThreadRoot.GetValueOrDefault((tick.ThreadID, root)) + bytes;
             bySite[(type, owner)] = bySite.GetValueOrDefault((type, owner)) + bytes;
         };
