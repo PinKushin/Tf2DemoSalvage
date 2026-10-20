@@ -457,6 +457,13 @@ public sealed partial class ViewerSession
 
         _wasOnScreen = onScreen;
 
+        // **Captures while playing** (TF2VIEW_PLAY_SHOTS): the frame just drawn, at the first frame at or past a listed tick.
+        if (onScreen && _transport.Playing && _playedCaptures?.Due(_shownTick) is { } played)
+        {
+            CaptureViewport(played);
+            WriteSidecar(played);
+        }
+
         // **The log's own meter, always smoothed**, fed the frame time the on-screen one gets. The on-screen meter answers
         // nothing while `cl_showfps` is 0 — Valve's rule for drawing it — and with no TF2 install it is never built, so a
         // log that borrowed its reading went silent on a fresh profile and `--measure` counted 0 samples on CI.
