@@ -34,7 +34,7 @@ sections below cover every change since, one per version.
 - **Demo voice plays.** Voice chat recorded in a demo is heard through five voice channels, as TF2 plays it; a sixth
   speaker at once is dropped, as in the game. `voice_scale` and `voice_enable` are read. Not yet ported: the
   lowering of other sounds while someone speaks and the speaking indicator (B549, see *Known gaps*).
-  **TODO(owner): not checked by ear in a played demo; add to *What has been verified* if you listen.**
+  Not checked by ear in a played demo.
 - **`snd_musicvolume` lowers music**, as TF2 does: the sounds with a `#` in their name and no distance falloff,
   including map soundscapes, and a change reaches music already playing (B545).
 - **Animated props draw their real pose.** A door or a resupply locker that animates is now posed by its bones
@@ -69,21 +69,20 @@ sections below cover every change since, one per version.
   - A map load reads each texture file once, particle definitions are one compact copy per TF2 install
     (managed heap after a load, 1,026.0 to 934.2 MB), and a block texture's upload no longer copies its mip levels.
   - **The load's peak did not move**: the upload still peaks at 9.3-11.1 GB private bytes in those runs.
-    **TODO(owner): re-measure the six-versus-six figures under *Requirements* before changing them.**
+    The six-versus-six figures under *Requirements* have not been re-measured.
 - **A map's own particle file is read** (`maps/<name>_particles.txt`, or `particles.txt` in the map), so a community
   map's custom effects appear, as in TF2 (B554, finding 81). **A particle declared twice keeps the later
   definition**, which TF2 does and the viewer did not, so 30 stock effects now come from a different file than
   before: `ExplosionCore_MidAir` and four `Explosions_MA_*` (now `bigboom.pcf`), the eleven `_unusual_parent_*`
   (now `weapon_unusual_energyorb.pcf`), `blood_decap`, `taunt_gasblast_steam`, `mini_firework*`, the three
-  `speech_medic*` and others (B555). **TODO(owner): not compared on screen in a demo.**
+  `speech_medic*` and others (B555). Not compared on screen in a demo.
 - **The stock HUD is closer to TF2's** (finding 78; it applies when you do not pass `--hud`): the ammo and
   class backgrounds take their shape, soft edge and outline from the game's masks instead of flat blocks; the
   class background follows your team (it was red for a BLU player); the class model stands in its activity pose;
   HUD colors are gamma-corrected, which TF2's tan text needs; the ammo number paints over its shadow (B552); and
   a medic gets the ÜberCharge meter. The class portrait is drawn at tone-map scale 1, which accounts for its being
   about 20 luma darker than TF2's. The ammo golden is live (B552); the class and ÜberCharge goldens stay
-  Explicit (B559). **TODO(owner): whether the portrait now matches is the golden's to show, and no UI suite
-  result is recorded for the final tree.**
+  Explicit (B559): whether the portrait now matches TF2's is for those goldens to show.
 - **The program has its own icon**, a film reel with a play hub in brown and gold, replacing the Windows default.
 - **Developer options.** `--measure` also prints the GC's own memory and the large allocations by type.
   `--windows` (in `--help`) walks the demo into 2-second checkpoints and logs, per seek, what a window cost and
@@ -609,15 +608,19 @@ Each claim below is a measurement, not an expectation.
 - **Memory and speed (beta.45):** every figure is in *Unreleased*'s memory and playback bullets
   with its run (f12, Debug viewer, `--measure 20`); sources are finding 80 and the merge commits named there.
   Not measured: a Release viewer's memory, p50 and p99 frame time (`--measure` prints means), and the six-versus-six
-  match of *Requirements*. **TODO(owner): merge-gate counts and the UI suite result for beta.45 are not recorded
-  in the merge commits since beta.44, and this pass ran neither; fill them in from the final gate.**
+  match of *Requirements*.
+- **Merge gate (beta.45):** all twelve assemblies passed (core 2661, cli 75, logging 17, fonts 5, animation 5339,
+  scene 3173, audio 366, presentation 1227, content 1814, corpus 230, rendering 1178, viewer 152), with the UI suite at
+  82 of 82 passed and six `[Explicit]` goldens not run (the two class-and-health portraits, the ÜberCharge meter, the
+  lakeside sun, granary at level 0, and the golden-measure diagnostic). Presentation then gained 3 test cases and passed
+  1230 of 1230. CI on the pushed commit was green.
 - **Static props filed once (beta.45):** conformance tests cover the gather (facing away visits none, facing two
   of three visits those two, filed once over several frames, an entity as control). Golden shots before and after
   on f12 at tick 30000 (first person, and a free camera on the map's trees) are identical pixel for pixel outside
   the frame-time text (finding 83). Measured on one machine, shared at the time.
 - **Capture companion file and `--like` (beta.45):** covered by tests of the written fields and of `--like`
   refusing a bad camera and a path-valued demo; the five committed TF2 goldens carry backfilled companions
-  (D226). **TODO(owner): not run against a live TF2 capture in this pass.**
+  (D226). Not run against a live TF2 capture yet.
 - **Merge gate (beta.43):** all twelve assemblies passed (core 2481, cli 75, logging 17, fonts 5, animation 5338,
   scene 2995, audio 295, presentation 988, content 1768, corpus 224, rendering 1128, viewer 135), and the UI suite
   passed 54 of 54. The paused-frame fix is checked by a conformance test written from the game's published source
