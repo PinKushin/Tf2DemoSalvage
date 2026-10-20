@@ -50,17 +50,19 @@ public sealed record IvpLedgeSide(
     /// </remarks>
     public static IvpLedgeSide FromLedge(PhysicsLedge ledge, IvpMatrix current, (double X, double Y, double Z) corePosition)
     {
-        if (!Compacts.TryGetValue(ledge.Points, out Compact? compact))
-        {
-            compact = Compacts.GetValue(
-                ledge.Points,
-                _ => new Compact(
-                    [.. ledge.Points.Select(point => (point.X, point.Y, point.Z))],
-                    new IvpLedgeTopology(ledge.Triangles, ledge.EdgeOffsets, ledge.PierceTriangles, ledge.MaterialIndices)));
-        }
+        // **The miss in a method of its own**: a lambda capturing `ledge` here made its closure on EVERY call, hit or miss —
+        // 281 MB per 20 s of f12's corpse record (finding 83).
+        Compact compact = Compacts.TryGetValue(ledge.Points, out Compact? found) ? found : CompactOf(ledge);
 
         return new(compact.Points, compact.Topology, current, corePosition);
     }
+
+    private static Compact CompactOf(PhysicsLedge ledge) =>
+        Compacts.GetValue(
+            ledge.Points,
+            _ => new Compact(
+                [.. ledge.Points.Select(point => (point.X, point.Y, point.Z))],
+                new IvpLedgeTopology(ledge.Triangles, ledge.EdgeOffsets, ledge.PierceTriangles, ledge.MaterialIndices)));
 
     /// <summary>A ledge's own half of a side — its points and topology, which never change — built once per ledge.</summary>
     /// <remarks>

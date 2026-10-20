@@ -95,7 +95,16 @@ public sealed class IvpObjectCache
             Rotation = Compose(Rotation, turn);
             Matrix = IvpMatrix.FromRotation(Rotation, Matrix.Translation);
         }
+
+        Refreshes++;
     }
+
+    /// <summary>How many times <see cref="Refresh"/> has written the cache — not a field the engine keeps.</summary>
+    /// <remarks>
+    /// **So a side built on this cache can be kept until the cache changes** (finding 83): the engine builds a side per synapse on
+    /// the stack and allocates nothing; a side here is an immutable record, so one built from the same refresh is the same values.
+    /// </remarks>
+    public int Refreshes { get; private set; }
 
     /// <summary>The object's rotation composed onto the core's, as <c>FUN_180080a60</c> inlines it.</summary>
     /// <remarks>

@@ -990,7 +990,17 @@ public sealed class IvpSimulation
 
         IvpObjectCache cache = collisionObject.CacheFor(Collisions);
 
-        return IvpLedgeSide.FromLedge(standing, cache.Matrix, cache.CorePosition);
+        // The side built last on this ledge from this refresh of this cache is the same values (finding 83).
+        if (collisionObject.LastSide is { } last &&
+            ReferenceEquals(last.Ledge, standing.Points) && ReferenceEquals(last.Cache, cache) && last.Refreshes == cache.Refreshes)
+        {
+            return last.Side;
+        }
+
+        IvpLedgeSide side = IvpLedgeSide.FromLedge(standing, cache.Matrix, cache.CorePosition);
+
+        collisionObject.LastSide = (standing.Points, cache, cache.Refreshes, side);
+        return side;
     }
 
     /// <summary>The minimize the pipeline's two mindist walks take — <c>FUN_180095cb0</c>.</summary>

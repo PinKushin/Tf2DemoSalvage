@@ -43,9 +43,15 @@ public sealed class IvpCorpseStepDifferentialTests
         ragdoll.Kill(new Vector3(300f, 0f, -200f), forceBone: 1);
 
         ulong hash = 14695981039346656037UL;
+        long allocatedFrom = 0;
 
         for (int tick = 0; tick < Ticks; tick++)
         {
+            if (tick == 20)
+            {
+                allocatedFrom = GC.GetAllocatedBytesForCurrentThread();
+            }
+
             world.Simulate(1f / 66f);
 
             foreach ((Vector3 position, Quaternion orientation) in ragdoll.State())
@@ -54,8 +60,34 @@ public sealed class IvpCorpseStepDifferentialTests
             }
         }
 
+        // **A ceiling, measured**: 973,928 bytes over ticks 20-199 before a side was kept per refresh, 841,992 after (finding 83).
+        // A ceiling rather than an equality, so taking out another allocation passes and putting one back does not.
+        (GC.GetAllocatedBytesForCurrentThread() - allocatedFrom).ShouldBeLessThanOrEqualTo(841_992L, "the step's allocation, ticks 20-199");
         world.Simulation.Environment.Impacts.ShouldBeGreaterThan(0, $"the control: the corpse struck the floor; root at {ragdoll.State()[0].Position}");
         hash.ShouldBe(1606571577950495611UL,"the poses' bits as they were before the allocation work");
+    }
+
+    /// <remarks>
+    /// **A side on a ledge already compacted allocates the side and nothing else** — the closure for the miss was made on every
+    /// call (281 MB per 20 s on f12). *The control* is a bare `new IvpLedgeSide` of the same pieces, measured the same way.
+    /// </remarks>
+    [Test]
+    public void FromLedge_ALedgeAlreadyCompacted_AllocatesOnlyTheSide()
+    {
+        PhysicsLedge ledge = Tf2DemoSalvage.Probe.Oracle.IvpTestCube.Ledges(4f)[0];
+        IvpMatrix current = IvpMatrix.FromRotation((0f, 0f, 0f, 1f), (0d, 0d, 0d));
+        IvpLedgeSide first = IvpLedgeSide.FromLedge(ledge, current, (0d, 0d, 0d));
+        _ = new IvpLedgeSide(first.Points, first.Topology, current, (0d, 0d, 0d));
+
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        _ = new IvpLedgeSide(first.Points, first.Topology, current, (0d, 0d, 0d));
+        long bare = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        before = GC.GetAllocatedBytesForCurrentThread();
+        _ = IvpLedgeSide.FromLedge(ledge, current, (0d, 0d, 0d));
+        long made = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        made.ShouldBe(bare);
     }
 
     private static ulong Mix(ulong hash, params float[] values)
