@@ -1155,6 +1155,12 @@ public sealed class IvpRagdoll
     /// <param name="written">Marked for every bone the ragdoll drove.</param>
     public void PoseIntoAccessor(BoneAccessor into, BoneBitList written) => Body.PoseInto(State(), into, written);
 
+    /// <summary><see cref="PoseIntoAccessor"/> as one delegate made once, so a caller that hands it over every tick allocates nothing.</summary>
+    /// <remarks>Converting the method group made a delegate on every corpse step, 52 MB per 20 s of f12's corpse record (finding 83).</remarks>
+    public Action<BoneAccessor, BoneBitList> PoseHook => _poseHook ??= PoseIntoAccessor;
+
+    private Action<BoneAccessor, BoneBitList>? _poseHook;
+
     /// <summary>How many friction contacts hold the corpse's bodies — an instrument, the contacts each body's share files.</summary>
     public int Contacts
     {
