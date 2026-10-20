@@ -79,10 +79,15 @@ ticks 30480 and 30700). Nothing here is proposed that Valve does not do.
   visits; facing two of three, those two; filed once over several frames; an entity as the control).
   - **Measured** (f12, tick 30000, Debug, three runs, one before, two after; the machine was shared with another
     agent's probe and the first seconds of each after run are contended, so the quiet windows are what is quoted).
-    Empty view (`TF2VIEW_CAMERA="1613 -2821 154 89 0"`): frame 7.7–9.0 → 6.5–8.5 ms; `simulate` 1.2–1.4 → 0.5–0.7;
-    `drawlist` 0.4–0.6 → 0.1–0.2; `advance` 1.1–1.2 → 0.8–0.9; `camera` 4.7–5.3 → 2.9–4.4; selected 1,865 → none of
-    the static props. First person after: `simulate` 0.5–0.7 (finding 82: 1.2–1.4), `drawlist` 0.4–0.7 (was 1.4–1.6),
-    frame 13–16 ms in its quiet seconds.
+    Empty view (`TF2VIEW_CAMERA="1613 -2821 154 89 0"`), every window not discarded: frame before 7.7–9.0 ms, after
+    6.5, 7.2, 8.4, 8.4, 8.5, 9.7, 10.3 ms. Discarded: the after run's first eight windows (21–95 ms, `sound` up to 14.8
+    and `camera` up to 29), which ran beside the other agent's probe. The phases match the owner's experiment:
+    `simulate` 1.2–1.4 → 0.5–0.7, `drawlist` 0.4–0.6 → 0.1–0.2, `advance` 1.1–1.2 → 0.8–0.9, `camera` 4.7–5.3 →
+    2.9–4.6. **The frame total does not cleanly reach his 5.8–6.8 ms**: it overlaps the bottom of that range in two
+    windows, and contention is the likely reason, which was not shown. The `posed N of M selected` lines were cut from
+    the captured output, so how the selected count changed is not reported. First person after: `simulate` 0.5–0.7
+    (finding 82: 1.2–1.4), `drawlist` 0.4–0.7 (was 1.4–1.6), and a frame of 13–16 ms in its quiet windows. There is no
+    first-person before-run, so that frame has no comparison.
   - **Output.** Golden shots before and after, same build settings: first person at tick 30000, and a free camera
     (`1613 -2821 154 5 90`) showing the map's trees. Both pairs are identical pixel for pixel outside the fps overlay
     (rows 2–11, x 697–824, the frame-time text).
