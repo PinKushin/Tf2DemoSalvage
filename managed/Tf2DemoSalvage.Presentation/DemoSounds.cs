@@ -109,10 +109,11 @@ public static class DemoSounds
             // selective would only move the hitch to the next doorway.
             PrecacheResult result = cache.Precache(
                 ToPrecache(
-                    timeline.SoundsToPrecache().Concat(
+                    // **The surfaces' sounds FIRST, as the engine precaches them at level init before the demo's**: the
+                    // cache lets its least recently used go, so near the cap a step wave goes before a timeline sound.
+                    SurfaceWaves(game.Surfaces, scripts).Concat(timeline.SoundsToPrecache()).Concat(
                         emitted.Select(sound => sound.Name)
                             .Concat(ScriptWaves(emitted, scripts))
-                            .Concat(SurfaceWaves(game.Surfaces, scripts))
                             .Distinct(StringComparer.OrdinalIgnoreCase)),
                     soundscape));
 
