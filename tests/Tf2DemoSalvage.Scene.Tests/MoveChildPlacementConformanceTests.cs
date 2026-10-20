@@ -353,6 +353,81 @@ public sealed class MoveChildPlacementConformanceTests
     }
 
     /// <summary>
+    /// **A model is resolved when the entity takes an update, not every frame** (finding 82): the engine's `SetModel` runs
+    /// from `PostDataUpdate`, and the same object is the not-updated case. Asked again, the same object resolves nothing;
+    /// a new object (an update) and a level whose models were read again resolve once each. Counted at the resolution.
+    /// </summary>
+    [Test]
+    public void Instances_TheSameObjectNextFrame_ResolvesItsModelOnce()
+    {
+        SceneProp prop = new(1, ParentModel, SceneModelKind.Studio, new ScenePose { X = 1f });
+
+        EntityModelSet models = new();
+        models.Add([prop], _ => Baked());
+        models.Instances([prop], [], seconds: 1d);
+        int resolved = models.ModelsResolved;
+
+        models.Instances([prop], [], seconds: 2d);
+        models.ModelsResolved.ShouldBe(resolved, "the same object: nothing resolved again");
+
+        models.Instances([prop with { Pose = new ScenePose { X = 5f } }], [], seconds: 3d);
+        models.ModelsResolved.ShouldBe(resolved + 1, "an update resolves once");
+
+        models.Add([new SceneProp(3, ChildModel, SceneModelKind.Studio, new ScenePose())], _ => Baked());
+        models.Instances([prop], [], seconds: 4d);
+        models.ModelsResolved.ShouldBe(resolved + 2, "models read since: resolved again");
+
+        models.LevelShutdown();
+        models.Instances([prop], [], seconds: 5d);
+        models.ModelsResolved.ShouldBe(resolved + 3, "a level shut down: nothing it resolved survives, before any model is read");
+    }
+
+    /// <summary>
+    /// **A resolution is dropped once its object is no longer asked for** (finding 82): every prop update is a new object,
+    /// so a resolution kept for ever would grow without bound over a match — and one kept long promotes a frame's garbage
+    /// into the older generations, which measured as a higher GC pause. Held for one world pass.
+    /// </summary>
+    [Test]
+    public void Instances_AnObjectNotAskedForThroughASweep_IsForgotten()
+    {
+        SceneProp gone = new(1, ParentModel, SceneModelKind.Studio, new ScenePose { X = 1f });
+        SceneProp stays = new(2, ParentModel, SceneModelKind.Studio, new ScenePose { X = 2f });
+
+        EntityModelSet models = new();
+        models.Add([gone, stays], _ => Baked());
+        models.Instances([gone, stays], [], seconds: 1d);
+        models.ResolutionsHeld.ShouldBe(2, "the control: both resolved");
+
+        for (int pass = 0; pass < 300; pass++)
+        {
+            models.Instances([stays], [], seconds: 2d + pass);
+        }
+
+        models.ResolutionsHeld.ShouldBe(1);
+    }
+
+    /// <summary>
+    /// **A model added after a prop was first seen is drawn the frame it arrives** (finding 82) — the same object, resolved
+    /// while its model was missing, must not keep the miss.
+    /// </summary>
+    [Test]
+    public void Instances_AModelAddedAfterThePropWasSeen_IsDrawnThatFrame()
+    {
+        SceneProp prop = new(1, ParentModel, SceneModelKind.Studio, new ScenePose());
+
+        EntityModelSet models = new();
+        List<ModelInstance> before = [];
+        models.Instances([prop], before, seconds: 1d);
+
+        models.Add([prop], _ => Baked());
+        List<ModelInstance> after = [];
+        models.Instances([prop], after, seconds: 2d);
+
+        before.ShouldBeEmpty("the control: no model yet");
+        after.Count.ShouldBe(1);
+    }
+
+    /// <summary>
     /// **Two props sharing entity 0 and a model keep their own handles when they arrive in the other order** (finding 82) —
     /// the engine's handle is the entity's, so the order it is enumerated in decides nothing. The keyed path paired the
     /// first-seen with occurrence 0, so a swap re-linked both; this is the one place the two paths differ, and why the
@@ -429,7 +504,8 @@ public sealed class MoveChildPlacementConformanceTests
 
         EntityModelSet same = new();
         EntityModelSet fresh = new();
-        PropModels.ModelFrames model = Baked() with { HeaderBounds = new StudioBox(-1f, -2f, -3f, 4f, 5f, 6f) };
+        // Skinned, so the animation pass places each one too (`PlacementOf`), not only the collation.
+        PropModels.ModelFrames model = WithMuzzle() with { HeaderBounds = new StudioBox(-1f, -2f, -3f, 4f, 5f, 6f) };
         same.Add([parent, alone, twinA], _ => model);
         fresh.Add([parent, alone, twinA], _ => model);
 
@@ -444,8 +520,7 @@ public sealed class MoveChildPlacementConformanceTests
             same.Instances(frames[at], drawnSame, seconds: at + 1d);
             fresh.Instances(copies, drawnFresh, seconds: at + 1d);
 
-            drawnSame.Select(static model => (model.EntityIndex, model.ModelPath, model.WorldBounds)).ShouldBe(
-                drawnFresh.Select(static model => (model.EntityIndex, model.ModelPath, model.WorldBounds)), $"frame {at}");
+            drawnSame.Select(Drawn).ShouldBe(drawnFresh.Select(Drawn), $"frame {at}");
         }
 
         same.CollatedByIdentity.ShouldBeGreaterThan(0, "the control: the identity path ran");
@@ -636,6 +711,11 @@ public sealed class MoveChildPlacementConformanceTests
 
         return drawn.Single(instance => instance.ModelPath == ChildModel);
     }
+
+    /// <summary>Everything a drawn instance says about where it is: identity, box, placement and every bone, as text.</summary>
+    private static string Drawn(ModelInstance model) =>
+        $"{model.EntityIndex} {model.ModelPath} {model.WorldBounds} [{string.Join(",", model.Matrix)}] " +
+        string.Join(" | ", (model.Bones ?? []).Select(static bone => string.Join(",", bone)));
 
     /// <summary>One bone and one attachment, <c>muzzle</c>, a unit along the bone's X with no turn of its own.</summary>
     private static PropModels.ModelFrames WithMuzzle() =>

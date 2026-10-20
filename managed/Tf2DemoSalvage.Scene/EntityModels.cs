@@ -597,6 +597,82 @@ public sealed class EntityModelSet : Hud.IMdlCache, IPosedEntities
 
     private Dictionary<SceneProp, FiledObject> _filedNow = new(ReferenceEqualityComparer.Instance);
 
+    /// <summary>Model resolutions done, ever: one per object per generation of the model set (finding 82).</summary>
+    /// <remarks>Counted where the resolution happens, so it reports what the code did (B243).</remarks>
+    public int ModelsResolved { get; private set; }
+
+    /// <summary>What a prop object's model resolved to, and its placement while unparented — held by the object (finding 82).</summary>
+    /// <remarks>
+    /// **The engine resolves a model when the entity takes an update** — `SetModel` from `PostDataUpdate` — and keeps the
+    /// absolute transform until `EFL_DIRTY_ABSTRANSFORM` says it moved (`CalcAbsolutePosition` returns at once when the flag is clear, `c_baseentity.cpp:4360`).
+    /// A prop object is immutable and the sample hands an unchanged track back as the same object (B259 stage C), so a
+    /// new object IS the update and the dirty flag.
+    ///
+    /// **A plain dictionary swept for objects not seen lately, not a `ConditionalWeakTable`.** The weak table was tried
+    /// first and measured: its dependent handles are scanned by every collection, and the collector's pause went from
+    /// 2.3 to 17.8 ms a frame on f12.
+    ///
+    /// **And swept every frame of every set, the corpse record's included.** The first dictionary version measured worse —
+    /// GC pause about 1 ms a frame higher on f12, in each of three alternating pairs, GC heap 4.5 GB against 3.8 — because
+    /// only the world collation swept it, and the D181 record's private set has none: it held every corpse object of every
+    /// tick it had recorded. Two maps swapped each frame keep only the objects asked for this frame and the last.
+    /// </remarks>
+    private Dictionary<SceneProp, ResolvedModel> _resolved = new(ReferenceEqualityComparer.Instance);
+
+    /// <summary>The previous world pass's resolutions, which an object still current moves out of when it is asked.</summary>
+    private Dictionary<SceneProp, ResolvedModel> _resolvedLast = new(ReferenceEqualityComparer.Instance);
+
+    /// <summary>Forgets every resolution not asked for since the last world pass (finding 82).</summary>
+    private void SweepResolved()
+    {
+        (_resolvedLast, _resolved) = (_resolved, _resolvedLast);
+        _resolved.Clear();
+    }
+
+    /// <summary>How many prop objects hold a resolution now — a level, for the sweep's test (finding 82).</summary>
+    public int ResolutionsHeld => _resolved.Count + _resolvedLast.Count;
+
+    /// <summary>Bumped whenever the model set gains or loses a model, so a resolution against the old set is redone.</summary>
+    private int _modelsGeneration;
+
+    /// <summary>One object's resolution: the generation it was made in, its frames and baked batches, its placement.</summary>
+    private sealed class ResolvedModel
+    {
+        public int Generation { get; set; } = -1;
+
+        public PropModels.ModelFrames? Frames { get; set; }
+
+        public List<List<WorldBatch>>? Batches { get; set; }
+
+        /// <summary>The unparented placement, the 3×4 `PlacementOf` writes; null until asked or for a parented prop.</summary>
+        public float[]? Placement { get; set; }
+    }
+
+    /// <summary>The prop object's model, resolved once per generation (finding 82).</summary>
+    private ResolvedModel ResolvedFor(SceneProp prop)
+    {
+        if (!_resolved.TryGetValue(prop, out ResolvedModel? resolved))
+        {
+            if (!_resolvedLast.Remove(prop, out resolved))
+            {
+                resolved = new ResolvedModel();
+            }
+
+            _resolved[prop] = resolved;
+        }
+
+        if (resolved.Generation != _modelsGeneration)
+        {
+            resolved.Generation = _modelsGeneration;
+            resolved.Frames = _frames.GetValueOrDefault(prop.ModelPath);
+            resolved.Batches = _byModel.GetValueOrDefault(prop.ModelPath);
+            resolved.Placement = null;
+            ModelsResolved++;
+        }
+
+        return resolved;
+    }
+
     /// <summary>One object's filing: its key, its leaf handle and its box.</summary>
     private readonly record struct FiledObject(
         (int Entity, string Model, int Occurrence) Key, int Handle, (float, float, float, float, float, float) Box);
@@ -1282,7 +1358,7 @@ public sealed class EntityModelSet : Hud.IMdlCache, IPosedEntities
             // Stryker disable all : a mutant that empties the guard body, or that short-circuits
             // past the TryGetValue, leaves 'skinned' unassigned below (CS0165), and Safe Mode then
             // drops every mutation in this method — B410.
-            if (!_frames.TryGetValue(prop.ModelPath, out PropModels.ModelFrames? entry) ||
+            if (ResolvedFor(prop).Frames is not { } entry ||
                 entry.Skinned is not { } skinned)
             {
                 continue;
@@ -1648,8 +1724,11 @@ public sealed class EntityModelSet : Hud.IMdlCache, IPosedEntities
             // entity follows its parent's transform regardless. Merging the two would either draw
             // hats on invisible players or delete props hung on invisible movers, and this project
             // has now done the second one for real.
-            if (IsDrawable(prop.Kind) &&
-                Batches(prop.ModelPath, SelectFor(prop, seconds).Frame).Count > 0)
+            // The object's own resolution, so no path is hashed (finding 82); `Batches`' clamp, from the batches it holds.
+            ResolvedModel model = ResolvedFor(prop);
+
+            if (IsDrawable(prop.Kind) && model.Batches is { Count: > 0 } baked &&
+                baked[Math.Clamp(SelectWith(model.Frames, prop, seconds).Frame, 0, baked.Count - 1)].Count > 0)
             {
                 _drawnPlacements[prop.EntityIndex] = placed;
             }
@@ -4219,6 +4298,16 @@ public sealed class EntityModelSet : Hud.IMdlCache, IPosedEntities
             _placements[prop.EntityIndex] = placement;
         }
 
+        // **An unparented object's placement is its own pose, which cannot change** (finding 82): computed once and copied
+        // in, the engine's clear `EFL_DIRTY_ABSTRANSFORM`. A parented one follows its parent and is composed every time.
+        ResolvedModel resolved = ResolvedFor(prop);
+
+        if (prop.AttachedTo is null && resolved.Placement is { } known)
+        {
+            known.CopyTo(placement, 0);
+            return placement;
+        }
+
         ScenePose pose = Absolute(prop, AnimatingEntity.MaximumFollowDepth);
 
         // **Through MatrixConvention, because the two forms are not the same shape OR the same
@@ -4231,6 +4320,11 @@ public sealed class EntityModelSet : Hud.IMdlCache, IPosedEntities
                 new PropTransform(
                     pose.X, pose.Y, pose.Z, pose.Pitch, pose.Yaw, pose.Roll, pose.Scale).ToMatrix())
             .CopyTo(placement, 0);
+
+        if (prop.AttachedTo is null)
+        {
+            resolved.Placement = [.. placement];
+        }
 
         return placement;
     }
@@ -5402,8 +5496,14 @@ public sealed class EntityModelSet : Hud.IMdlCache, IPosedEntities
     {
         ArgumentNullException.ThrowIfNull(prop);
 
+        return SelectWith(_frames.GetValueOrDefault(prop.ModelPath), prop, seconds);
+    }
+
+    /// <summary><see cref="SelectFor"/> with the model already resolved.</summary>
+    private static (int Frame, int Next, float Blend) SelectWith(PropModels.ModelFrames? frames, SceneProp prop, double seconds)
+    {
         return
-        _frames.TryGetValue(prop.ModelPath, out PropModels.ModelFrames? frames)
+        frames is not null
             ? frames.Select(
                 prop.Pose.Sequence,
                 prop.Pose.Cycle,
@@ -5522,6 +5622,9 @@ public sealed class EntityModelSet : Hud.IMdlCache, IPosedEntities
         // A path's frames are written once a level (`Add` skips a path it has), so the level is what can change them, and
         // nothing filed by identity outlives it (finding 82).
         _filedLast.Clear();
+        _modelsGeneration++;
+        _resolved.Clear();
+        _resolvedLast.Clear();
         _restingFace.Clear();
         _faces.Clear();
         _delays.Clear();
@@ -5796,6 +5899,12 @@ public sealed class EntityModelSet : Hud.IMdlCache, IPosedEntities
                     : $"extents {prop.ModelPath}: x {spanX:0.#} y {spanY:0.#} z {spanZ:0.#} " +
                       $"(z from {minimumZ:0.#} to {maximumZ:0.#}), " +
                       $"tallest axis {Tallest(spanX, spanY, spanZ)}, {frames.Count} baked frames");
+        }
+
+        // A model the set did not have may be one an object already resolved as missing (finding 82).
+        if (added)
+        {
+            _modelsGeneration++;
         }
 
         return added;
@@ -6951,6 +7060,8 @@ public sealed class EntityModelSet : Hud.IMdlCache, IPosedEntities
             return;
         }
 
+        SweepResolved();
+
         // Each handle claimed this frame and what it draws, filled as the walk claims it.
         Dictionary<int, (SceneProp Prop, (float, float, float, float, float, float) Box)> byHandleNow = _propByHandle;
         byHandleNow.Clear();
@@ -7221,6 +7332,10 @@ public sealed class EntityModelSet : Hud.IMdlCache, IPosedEntities
 
         UpdateClientSideAnimations(corpses);
         _boneFrames.Advance();
+
+        // This set's frame has no world collation to sweep its resolutions, and every tick's corpse is a new object (finding
+        // 82): without this the record's set held every object of the demo, 0.7 GB on f12, and the pause rose with it.
+        SweepResolved();
         Simulate(corpses, seconds);
         AdvanceCorpses(corpses, seconds);
     }

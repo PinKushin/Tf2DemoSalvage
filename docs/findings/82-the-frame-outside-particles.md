@@ -217,6 +217,34 @@ model-path lookup (12.2%) for every prop. The engine computes an absolute transf
 `EFL_DIRTY_ABSTRANSFORM` and resolves a model when the entity takes an update, so both are the same divergence this
 fix closed for the collation. Not started here.
 
+## Fix 4: a prop's model and placement are resolved once per object (2026-10-19, parity; supersedes the next section)
+
+The owner's rule, which reverses the "not kept" below: *"if its parity but worse we need to figure out why, if its
+parity but the same we use it"*. So the patch went back on and was measured on a quiet machine, all runs first
+person, f12, Debug, tick 30000, `--measure 20`, binaries built from `58edf0fd` (before) and `58edf0fd` + the patch
+(after) into separate folders, run alternating; no run waited on the lock.
+
+| pair | before: mean / gc pause | after: mean / gc pause |
+|---|---:|---:|
+| 1 | 22.99 / 2.35 ms | 25.98 / 3.30 ms |
+| 2 (both slow) | 31.10 / 3.20 | 33.31 / 4.24 |
+| 3 | 22.55 / 2.30 | 24.27 / 3.17 |
+| 4 | 22.09 / 2.26 | — (stopped) |
+
+**Measurably worse, every pair: +1.7 to +3.0 ms a frame, +0.9 to +1.0 ms of GC pause.** The cause, found from the
+summary's own memory line: GC heap 4,543 MB against 3,800, and `Entry[SceneProp, ResolvedModel][]` 47 MB of large
+allocations. The resolutions were swept only by the world collation, and the D181 corpse record drives a private
+`EntityModelSet` that never collates: every tick hands it a new corpse object, so it held every corpse object of the
+demo. **Fixed by sweeping in `AdvanceCorpsesAlone` too, and by holding a resolution for one frame** (two maps swapped
+each frame, not a sweep every 256). Test: `CorpseRecordTests.AdvanceCorpsesAlone_ThreeHundredTicksOfNewObjects_HoldsOnlyTheLastTwo`,
+red without the record's sweep.
+
+**After the fix, one pair** (the machine was busier by then; both sides alike): after 40.25 ms / 4.29 ms pause, before
+41.85 / 4.52, GC heap 3,761 MB on both. The same within the pair, so kept. The direct `simulate` timer could not
+separate them at this noise. **Golden shots** recreated from the named builds, first person at ticks 30480 (heal beam,
+overheal particles) and 30700: differences only on the frame-rate readout's line (1,180 px in 685,2–973,12 at 30480,
+whose readout text differs in width; 62 px in 697,2–823,10 at 30700). Scene.Tests 3,160.
+
 ## Tried and not kept: resolving a prop's model and placement once per object (2026-10-19)
 
 **The engine, read from published source.** `CalcAbsolutePosition` returns at once while `EFL_DIRTY_ABSTRANSFORM` is

@@ -49,6 +49,27 @@ public sealed class CorpseRecordTests
     }
 
     /// <remarks>
+    /// **The record's set forgets what it resolved, tick by tick** (finding 82): it has no world collation, and every
+    /// tick hands it a new corpse object, so a resolution kept until a collation swept it was kept for the whole demo —
+    /// 0.7 GB of heap on f12 and a GC pause about 1 ms a frame higher. Three hundred ticks hold the last two.
+    /// </remarks>
+    [Test]
+    public void AdvanceCorpsesAlone_ThreeHundredTicksOfNewObjects_HoldsOnlyTheLastTwo()
+    {
+        EntityModelSet models = new() { Geometry = _ => CorpsePhysicsWiringTests.Frames() };
+        SceneProp first = CorpsePhysicsWiringTests.Corpse() with { FirstTick = Death };
+        models.Add([first], _ => CorpsePhysicsWiringTests.Frames());
+
+        for (int tick = Death; tick < Death + 300; tick++)
+        {
+            models.CurrentTick = tick;
+            models.AdvanceCorpsesAlone([first with { }], tick * (double)models.IntervalPerTick);
+        }
+
+        models.ResolutionsHeld.ShouldBeLessThanOrEqualTo(2);
+    }
+
+    /// <remarks>
     /// **A seek anywhere the record has reached reads it: no world is built and nothing is stepped**, and the corpse stands where
     /// the record says.
     /// </remarks>
