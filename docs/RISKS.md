@@ -40125,3 +40125,41 @@ synchronise on the condition, never the clock. **Next step:** the next failure o
 tree; read it before touching anything. A suspect to test, not a finding: another process on the desktop
 (`docs/memory/parallel-agents-lock-the-gate-too.md`).
 
+**Update 2026-10-20: the first failure with the readable tree names a candidate (*measured*, one instance).** CI run
+`39478390153` (Dependabot's NuGet branch, hosted `windows-latest`), step *Viewer UI*, 2 failed of 82:
+`ExportThenCompile_OpenDemo_RebuildsItsBytes` (`COMException: Operation timed out (0x80131505)` from `FindAllDescendants`
+in `FillDialog`, `ExportCompileUiTests.cs:277`) and `FillDialog_ForegroundTakenByAnotherAppAfterItOpens_StillExports`
+(*the stand-in app never showed a window*, `ViewerApplication.StartStandInWindow:601`). The window dump the reporter now prints
+shows, beside the viewer, a **Windows system dialog open on the runner's desktop**: `#32770 'System Properties' pid=864`
+with the text *"Windows created a temporary paging file on your computer because of a problem that occurred with your paging
+file configuration when you started your computer…"*. A modal like that sits in front of everything and starves UIA calls and
+new top-level windows, which is exactly the shape of both failures. **Candidate cause: memory pressure on the hosted runner**
+(our viewer's load peak is 9-11 GB private bytes, finding 80) tripping Windows' low-virtual-memory notice. **Not established:**
+the earlier failing run `39230763299` has no such dialog in its log (it predates the dump, or it was another cause), so this
+is one instance. **Test:** on the next failure, check for the dialog; log the runner's free RAM and page file at the start of
+each UI test class; and see whether the failures follow the heavy tests (the two that fail open the viewer with a demo). If it
+holds, the fix is the memory work (finding 80, the ~2.5 GB native memory) and not the tests; do not retry, skip or lengthen
+timeouts to hide it.
+
+## B561 — do particles keep stepping while TF2 is paused? The binaries say no; the owner remembers rocket trails moving — OPEN (2026-10-20)
+
+**Two positions, both recorded.** *The binaries (read in the `engine.dll` and particles-library disassembly, queue job
+`q-ghidra-pause`):* under a demo pause the client's frame time is 0 on both branches of `CClientState::GetFrameTime`
+(`0x1800a2d40`: with insimulation forced true and the client tick not advancing, `(clientTick - oldtickcount) * interval` is
+0; otherwise `IsPaused() ? 0 : m_frameTime`), `_Host_RunFrame` (`0x1801a4840`) advances `host_remainder` only when
+`!demoplayer->IsPlaybackPaused()`, and `CParticleCollection::Simulate` (particles.obj `0xe62e0`) does NOTHING below a dt of
+about 1e-22: no `m_flCurTime` advance, no emitter, no operator, no forced minimum step. A recorded `svc_SetPause` takes
+the same path (`0x180069fa0`, `m_bPaused`). So a paused demo freezes every particle system (this is RISKS item 3 of the
+overheal entry, now upgraded from "interpolated" to read in disassembly). *The exception:* `host_timescale 0` fails the
+`> 0` test at `0x1801a00f1`, so time is unscaled and particles step at real speed; `demo_timescale 0` with a positive
+`host_timescale` gives frametime 0 without any pause flag. *The owner's memory:* rocket trails and fire tails keep moving and
+drawing on a TF2 pause, i.e. not frozen. The two disagree, and the weakest link in the binary reading is one step: that the
+shipped `client.dll` passes `gpGlobals->frametime` into `ParticleMgr()->Simulate` (read from the SDK source, `cdll_client_int.cpp:2234`,
+not from the shipped binary; `client.dll` is not in the Ghidra project). A pause done with `host_timescale 0`, or a camera move
+that re-orients camera-facing sprites and ropes, would also read as motion.
+**What settles it:** the live TF2 test planned in the TF2 session: play a demo with a rocket in flight, `demo_pause` with the
+camera held still, shots at pause +0 and +3 s (longer than the trail's lifetime); identical = frozen, dissolving or piling up
+at the rocket = stepping; repeat with `host_timescale 0` and `0.01`. Several effect categories, not only trails. Until then the
+viewer keeps its current behaviour (a paused frame steps no particles). Evidence classes: D (engine.dll), L (particles lib,
+not the live client), S (published SDK), I (interpolated: the server tick stays frozen under a server pause).
+

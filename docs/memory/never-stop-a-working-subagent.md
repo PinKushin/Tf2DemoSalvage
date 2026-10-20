@@ -18,4 +18,6 @@ OUT'"*.
 - Stopping is acceptable only right after spawning, before real work (a few hundred tokens).
 - If one was stopped by mistake, resume it with SendMessage (context is kept) rather than relaunching.
 
+**But an agent that is only WAITING is not working** (owner, 2026-10-20, after the original frame-cost agent stayed flagged up for a day, the lead twice called it idle/finished, and the owner had to stop its background loops himself: *"the loops were not finished I STOPPED THEM when you should have after I mentioned the agent was still up"*). When the owner says an agent is still up: list its live processes (`dotnet`, `tf2demoview`, `pwsh`, `bash` loops, pmux sessions) and its worktree, stop the stale watcher/loop tasks with TaskStop, and only then say what its state is. Background A/B loops left running can also contaminate other agents' measurements. Never answer "it's idle" without having looked.
+
 Related: [[one-subagent-and-prefer-cheap-models]].
