@@ -77,17 +77,13 @@ internal static class Program
 
         // **`--like` becomes the switches it stands for before anything reads them** (D226): the camera and view size
         // are process variables read at construction, so they are set here, first.
-        try
+        if (ShotSidecar.Expand(args, System.IO.File.ReadAllText, Environment.SetEnvironmentVariable, ViewerHost.Process, loggers.CreateLogger("viewer"))
+            is not { } expanded)
         {
-            args = ShotSidecar.Expand(args, System.IO.File.ReadAllText, Environment.SetEnvironmentVariable);
-        }
-        catch (Exception refused) when (refused is FormatException or System.IO.IOException or UnauthorizedAccessException)
-        {
-            loggers.CreateLogger("viewer").LogError(refused, "{Message}", $"--like: {refused.Message}");
-            Console.Error.WriteLine($"--like: {refused.Message}");
-            Environment.ExitCode = 1;
             return;
         }
+
+        args = expanded;
 
         // **Before anything else is built, because being first is its whole job** (D182). WinForms' own initialisation must
         // come before any window, the splash's included, so it moved up from beside the form.

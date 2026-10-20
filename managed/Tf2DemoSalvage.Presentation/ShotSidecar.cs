@@ -6,6 +6,8 @@ using System.Linq;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 
+using Microsoft.Extensions.Logging;
+
 namespace Tf2DemoSalvage.Presentation;
 
 /// <summary>A TF2-side sidecar named by <c>--like</c>: its file name and its sha256 (D226).</summary>
@@ -403,6 +405,34 @@ public static class ShotSidecar
         }
 
         return [.. expanded];
+    }
+
+    /// <summary><see cref="Expand(string[], Func{string, string}, Action{string, string})"/>, with a sidecar it cannot use reported rather than thrown.</summary>
+    /// <param name="arguments">The command line.</param>
+    /// <param name="readFile">Reads the sidecar.</param>
+    /// <param name="setEnvironment">Sets a process variable, before anything reads it.</param>
+    /// <param name="host">The process: the refusal goes to its standard error and sets its exit code to 1.</param>
+    /// <param name="log">Where the refusal is logged.</param>
+    /// <returns>The arguments to run with, or null when the run must stop.</returns>
+    public static string[]? Expand(string[] arguments, Func<string, string> readFile, Action<string, string> setEnvironment, ViewerHost host, ILogger log)
+    {
+        ArgumentNullException.ThrowIfNull(host);
+        ArgumentNullException.ThrowIfNull(log);
+
+        try
+        {
+            return Expand(arguments, readFile, setEnvironment);
+        }
+        catch (Exception refused) when (refused is FormatException or IOException or UnauthorizedAccessException)
+        {
+            // **Said once to each place a user might be looking, and the run stops**: a capture taken without the sidecar's
+            // values would be a picture of something else, labelled as the TF2 one.
+            log.LogError(refused, "{Message}", $"--like: {refused.Message}");
+            host.Error.WriteLine($"--like: {refused.Message}");
+            host.SetExitCode(1);
+
+            return null;
+        }
     }
 
     /// <summary>The 3D view's size variable; the window reads it (its declaration is the view's).</summary>

@@ -235,6 +235,62 @@ public sealed class ShotSidecarTests
         expanded[^1].ShouldBe(Path.Combine("shots", "f12.dem"));
     }
 
+    private static (ViewerHost Host, StringWriter Error, List<int> Exits) Process()
+    {
+        StringWriter error = new();
+        List<int> exits = [];
+
+        return (new ViewerHost(TextWriter.Null, error, exits.Add, _ => null, () => new FixedTime(0)), error, exits);
+    }
+
+    /// <remarks>The view keeps one call (D214); the refusal it used to write itself is reported here (review).</remarks>
+    [Test]
+    public void Expand_ASidecarItCannotUse_ReportsItExitsWith1AndStops()
+    {
+        (ViewerHost host, StringWriter error, List<int> exits) = Process();
+        using RecordingLoggers log = new();
+
+        string[]? expanded = ShotSidecar.Expand(
+            ["--like", "bad.json"],
+            _ => """{ "demo": "a.dem", "tick": 1, "camera": [null, 0, 0, 0, 0], "viewport": [1, 1] }""",
+            (_, _) => { },
+            host,
+            log.CreateLogger("viewer"));
+
+        expanded.ShouldBeNull();
+        exits.ShouldBe([1]);
+        error.ToString().ShouldBe("--like: the sidecar lacks or misspells camera" + Environment.NewLine);
+        log.Count("[viewer] --like: the sidecar lacks or misspells camera").ShouldBe(1);
+    }
+
+    [Test]
+    public void Expand_ASidecarThatCannotBeRead_ReportsItExitsWith1AndStops()
+    {
+        (ViewerHost host, StringWriter error, List<int> exits) = Process();
+        using RecordingLoggers log = new();
+
+        ShotSidecar.Expand(["--like", "gone.json"], _ => throw new FileNotFoundException("gone.json is not there"), (_, _) => { }, host, log.CreateLogger("viewer"))
+            .ShouldBeNull();
+
+        exits.ShouldBe([1]);
+        error.ToString().ShouldContain("--like: gone.json is not there");
+    }
+
+    /// <remarks>The control: a usable sidecar expands as before, and says nothing.</remarks>
+    [Test]
+    public void Expand_ASidecarItCanUse_ReturnsTheExpansionAndReportsNothing()
+    {
+        (ViewerHost host, StringWriter error, List<int> exits) = Process();
+        using RecordingLoggers log = new();
+
+        string[]? expanded = ShotSidecar.Expand(["x.dem", "--like", "tf2.json"], _ => Tf2Sidecar, (_, _) => { }, host, log.CreateLogger("viewer"));
+
+        expanded.ShouldNotBeNull()[..2].ShouldBe(["--tick", "6520"]);
+        exits.ShouldBeEmpty();
+        error.ToString().ShouldBeEmpty();
+        log.Lines.ShouldBeEmpty();
+    }
+
     [Test]
     public void Expand_WithoutLike_ReturnsTheArgumentsUntouched()
     {

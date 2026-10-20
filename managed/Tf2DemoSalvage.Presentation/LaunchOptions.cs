@@ -42,7 +42,7 @@ namespace Tf2DemoSalvage.Presentation;
 /// </param>
 /// <param name="Windows">`--windows`: run the window cache beside the whole timeline and check it on every seek (D217).</param>
 /// <param name="Like">`--like`: the TF2-side sidecar this run reproduces, recorded in its own sidecar (D226); its values
-/// were already expanded into the other options by <see cref="ShotSidecar.Expand"/>.</param>
+/// were already expanded into the other options by <see cref="ShotSidecar.Expand(string[], Func{string, string}, Action{string, string})"/>.</param>
 /// <param name="Hud">The HUD to draw — a folder or `.vpk` laid out as in `tf/custom` — or null for TF2's stock HUD (D193).</param>
 public readonly record struct LaunchOptions(
     ViewerSettings Settings,
