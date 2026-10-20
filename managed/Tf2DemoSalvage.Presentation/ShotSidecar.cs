@@ -151,7 +151,9 @@ public static class ShotSidecar
     /// <summary>Reads what <c>--like</c> needs from a sidecar.</summary>
     /// <param name="text">The sidecar.</param>
     /// <returns>Its demo, tick, camera, viewport and ConVars.</returns>
-    /// <exception cref="FormatException">It is not JSON, or lacks a field; the message names every one missing.</exception>
+    /// <exception cref="FormatException">
+    /// It is not JSON, or lacks a field (the message names every one missing), or its demo is a path rather than a file name.
+    /// </exception>
     public static ShotLike Read(string text)
     {
         JsonObject json;
@@ -178,6 +180,13 @@ public static class ShotSidecar
         if (missing.Count > 0)
         {
             throw new FormatException($"the sidecar lacks or misspells {string.Join(", ", missing)}");
+        }
+
+        // **A file name and nothing else**: `Expand` joins it to the sidecar's folder, and a rooted or UNC value would
+        // replace that folder outright (an SMB path opened before anyone sees the name), and `..` would leave it.
+        if (!string.Equals(Path.GetFileName(demo), demo, StringComparison.Ordinal))
+        {
+            throw new FormatException($"demo must be a file name, not \"{demo}\"");
         }
 
         Dictionary<string, string> convars = new(StringComparer.Ordinal);

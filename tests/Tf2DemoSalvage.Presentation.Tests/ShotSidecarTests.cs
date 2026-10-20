@@ -139,6 +139,26 @@ public sealed class ShotSidecarTests
         refused.Message.ShouldContain("camera");
     }
 
+    private static string SidecarNamingDemo(string demo) =>
+        new JsonObject { ["demo"] = demo, ["tick"] = 1, ["camera"] = new JsonArray(0, 0, 0, 0, 0), ["viewport"] = new JsonArray(1, 1) }
+            .ToJsonString();
+
+    /// <remarks>A rooted or UNC demo replaces the sidecar's folder in `Path.Combine`, and `..` leaves it (review, high).</remarks>
+    [TestCase(@"C:\Users\x\x.dem")]
+    [TestCase(@"\\evil\share\x.dem")]
+    [TestCase(@"..\x.dem")]
+    [TestCase("sub/x.dem")]
+    public void Read_ADemoThatIsAPath_RefusesIt(string demo)
+    {
+        Should.Throw<FormatException>(() => ShotSidecar.Read(SidecarNamingDemo(demo))).Message.ShouldContain("demo must be a file name");
+    }
+
+    [Test]
+    public void Read_ADemoThatIsAFileName_TakesIt()
+    {
+        ShotSidecar.Read(SidecarNamingDemo("x.dem")).Demo.ShouldBe("x.dem");
+    }
+
     [Test]
     public void Expand_WithLike_PrependsTickAndConvarsAndSetsCameraAndViewport()
     {
