@@ -4476,10 +4476,29 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         // mode first, and in practice it hangs or leaves the display in the switched mode.
         if (IsExclusiveFullScreen)
         {
-            if (_swapChain.QueryInterface(out ComPtr<IDXGISwapChain1> windowed) >= 0)
+            // Reported rather than dropped: a failure here leaves the display in exclusive mode as
+            // the swap chain goes, which is the hang or stuck mode the comment above describes, and
+            // without a line naming the HRESULT it arrives with nothing to explain it. Teardown
+            // carries on either way, since there is nothing else left to try.
+            int queried = _swapChain.QueryInterface(out ComPtr<IDXGISwapChain1> windowed);
+
+            if (queried < 0)
             {
-                windowed.SetFullscreenState(new Silk.NET.Core.Bool32(false), (IDXGIOutput*)null);
+                _render.LogError(
+                    "could not leave exclusive full screen before release: QueryInterface(IDXGISwapChain1) returned 0x{HResult:X8}",
+                    queried);
+            }
+            else
+            {
+                int left = windowed.SetFullscreenState(new Silk.NET.Core.Bool32(false), (IDXGIOutput*)null);
                 windowed.Dispose();
+
+                if (left < 0)
+                {
+                    _render.LogError(
+                        "could not leave exclusive full screen before release: SetFullscreenState returned 0x{HResult:X8}",
+                        left);
+                }
             }
 
             IsExclusiveFullScreen = false;
