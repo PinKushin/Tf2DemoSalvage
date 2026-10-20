@@ -50,11 +50,17 @@ public sealed class ParticleEffects
     /// <summary>The live effects, by the entity they follow.</summary>
     private readonly Dictionary<int, ParticleEffect> _running = [];
 
+    /// <summary>The trails made on a played frame, which are never replayed from their rocket's start.</summary>
+    private readonly HashSet<int> _playedFrom = [];
+
     /// <summary>The entities that still exist this tick, reused to avoid allocating per frame.</summary>
     private readonly HashSet<int> _alive = [];
 
     /// <summary>The one-shots, by their caller's key. See <see cref="Bursts"/>.</summary>
     private readonly Dictionary<long, RunningBurst> _bursts = [];
+
+    /// <summary>The moment <see cref="Bursts"/> last showed; NaN before the first call, which no burst fired after.</summary>
+    private double _burstShown = double.NaN;
 
     /// <summary>The tick <see cref="Bursts"/> last advanced to, so a backward seek can be recognised.</summary>
     private int _burstTick;
@@ -203,16 +209,20 @@ public sealed class ParticleEffects
         // replay below, from the projectile's start — rather than stepping it on today's point: every trail is dropped
         // and rebuilt, our addition as the bursts' is (D221).
         double advanced = now - _tick;
+        double previous = _tick;
 
         _tick = now;
 
-        if (seeked || advanced < 0d || advanced > 200d)
+        bool played = !(seeked || advanced < 0d || advanced > 200d);
+
+        if (!played)
         {
             // **A seek throws every trail away, as `Bursts` does** (B420): backwards, or too far forwards to replay.
             // A trail whose rocket is gone fades only by ticks played forward, and a seek plays none — so kept, it
             // stayed for good and was gathered on every paused frame, and a later rocket reusing its entity index
             // inherited its particles. The rockets still flying replay their own from where they started, below.
             _running.Clear();
+            _playedFrom.Clear();
             advanced = 0d;
         }
 
@@ -231,6 +241,16 @@ public sealed class ParticleEffects
                 // Entity indices are reused, so the trail is identified by its entity AND the tick its track began.
                 effect = new ParticleEffect(definition, others, Sheets, SeedFor(((long)(tick - ticks) << 32) | (uint)entity));
                 _running[entity] = effect;
+
+                // **Made in the frame its rocket appeared, it simulates nothing of that frame** (B557 row 6):
+                // `Simulate( 0.0f )` on the first frame (particlemgr.cpp:1572-1575), and it is never replayed. A rocket that
+                // started before the last frame was met mid-flight — a seek, or the opening — and replays below (B375).
+                if (played && tick - ticks > previous)
+                {
+                    _playedFrom.Add(entity);
+                    effect.Step(at, 0f);
+                    continue;
+                }
             }
 
             // **Replay when the trail is EMPTY, not only on the frame it was created.** Keying it
@@ -247,7 +267,7 @@ public sealed class ParticleEffects
             // `m_vInitialVelocity` and nothing accelerates it, so interpolating spawn to now is the
             // path rather than an approximation of it. It would NOT be for anything that arcs,
             // which is why this takes the two ends rather than assuming them.
-            if (effect.Empty && from is { } start && ticks > 0)
+            if (effect.Empty && from is { } start && ticks > 0 && !_playedFrom.Contains(entity))
             {
                 for (int step = 1; step <= ticks; step++)
                 {
@@ -305,6 +325,7 @@ public sealed class ParticleEffects
         foreach (int entity in finished ?? [])
         {
             _running.Remove(entity);
+            _playedFrom.Remove(entity);
         }
     }
 
@@ -376,6 +397,10 @@ public sealed class ParticleEffects
         _burstTick = tick;
         _offered.Clear();
 
+        double previousShown = _burstShown;
+
+        _burstShown = now;
+
         foreach (ParticleBurst burst in live)
         {
             _offered.Add(burst.Key);
@@ -433,6 +458,17 @@ public sealed class ParticleEffects
             // **Counted by the loop, not assigned from `wanted`** (B243): the count says what was stepped.
             int taken = running.Stepped;
             double reachedTo = running.SimulatedTo;
+
+            // **The creation frame simulates nothing of its own time** (B557 row 6): `ProcessPSystem` gives a new effect
+            // `Simulate( 0.0f )` and clears its first-frame flag (particlemgr.cpp:1572-1575), and the next frame simulates
+            // its whole frame time. Only for a burst that fired since the last frame, offered on a played one: one met
+            // later than that — a seek, the opening, a window that moved — is replayed from its tick as before (D221).
+            if (rebuild && !seeked && burst.Tick > previousShown)
+            {
+                running.Effect.Step(burst.At, 0f);
+                reachedTo = wanted;
+            }
+
             double nextSleep = running.NextSleep;
             bool wasDormant = running.Dormant;
             bool stopCleared = running.StopCleared;
