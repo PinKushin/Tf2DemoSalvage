@@ -395,9 +395,13 @@ public sealed class ParticleEffects
             _bursts.Clear();
         }
 
-        if (seeked || tick < _burstTick)
+        // A clock that went backwards landed as surely as a flagged seek did.
+        bool landedHere = seeked || tick < _burstTick;
+
+        if (landedHere)
         {
             _spent.Clear();
+            _landedAt = tick;
         }
 
         _burstTick = tick;
@@ -423,7 +427,12 @@ public sealed class ParticleEffects
             // and only a new dispatch makes another. An entity's stopless dispatch is offered for the rest of the demo, so
             // an owner unposed for a frame dropped them all, and posed again replayed each from its own tick: 90 rocket-jump
             // smokes, a 248 ms frame on f12 every few seconds (finding 84).
-            if (_spent.Contains(burst.Key))
+            //
+            // **And playing makes one only once it has fired since the landing** (`ParticleEffectCallback` creates an effect
+            // at its dispatch and never later, c_particle_system.cpp:181-224): an older one is the landing seek's to build,
+            // and one it could not place stays unbuilt. Built when its owner was first posed instead, a player out of view at
+            // the seek had every past rocket-jump smoke replayed from its own tick in one frame (finding 84).
+            if (_spent.Contains(burst.Key) || (!landedHere && burst.Tick < _landedAt && !_bursts.ContainsKey(burst.Key)))
             {
                 continue;
             }
@@ -829,6 +838,9 @@ public sealed class ParticleEffects
     /// </summary>
     private readonly HashSet<long> _spent = [];
 
+    /// <summary>The tick playback last landed on by a seek; before any, no burst is too old to build.</summary>
+    private int _landedAt = int.MinValue;
+
     /// <summary>The keys offered on the last call, reused.</summary>
     private readonly HashSet<long> _offered = [];
 
@@ -1074,6 +1086,7 @@ public sealed class ParticleEffects
         _running.Clear();
         _bursts.Clear();
         _spent.Clear();
+        _landedAt = int.MinValue;
         _burstTick = 0;
 
         // And the clocks the creation-frame rule reads (B557 row 6): a new demo's first frame is an opening, not a played one.

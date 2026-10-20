@@ -200,6 +200,34 @@ public sealed class ParticleBurstTests
     }
 
     /// <remarks>
+    /// **Playing makes an effect only when it fires** — `ParticleEffectCallback` creates one at its dispatch, on a
+    /// non-dormant owner, and never later (c_particle_system.cpp:181-224). A burst older than where playback last landed
+    /// is the landing seek's to build (D221); one the seek could not place stays unbuilt. Built on the first frame its
+    /// owner was posed instead, every past rocket-jump smoke of a player out of view at the seek was replayed from its own
+    /// tick: 90 of them, 23,559 steps, 248 ms in one frame on f12 (finding 84). The control: a burst that fires after the
+    /// landing, unplaceable on its first frame, is still built once it can be placed.
+    /// </remarks>
+    [Test]
+    public void Bursts_OlderThanTheLandingAndUnplacedThere_AreNotBuiltWhilePlaying()
+    {
+        ParticleEffects effects = new();
+        ParticleBurst old = new(1, Beam, Origin, 100);
+        ParticleBurst fresh = new(2, Beam, Origin, 205);
+
+        effects.Bursts([old with { Undrawn = true }], Interval, null, tick: 200, seeked: true);
+
+        for (int tick = 201; tick <= 210; tick++)
+        {
+            ParticleBurst late = tick == 205 ? fresh with { Undrawn = true } : fresh;
+            effects.Bursts(tick < 205 ? [old] : [old, late], Interval, null, tick);
+        }
+
+        effects.BurstSteps(1).ShouldBe(-1, "fired before the landing and unplaced there: never built by playing");
+        effects.BurstSteps(2).ShouldBe(5, "the control: fired after the landing, built once placed, stepped to now");
+        effects.BurstBuilds.ShouldBe(1);
+    }
+
+    /// <remarks>
     /// **A paused frame asks for the same tick again, and a fading effect does not age** — while the frames before the pause,
     /// the control, do age it. A fade that ran a fixed step per call, not per tick, would fail the second assertion.
     /// </remarks>
