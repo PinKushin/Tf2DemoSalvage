@@ -19,8 +19,13 @@ The viewer is a beta. What is known to differ from the game is listed in `RELEAS
 - **File picker:** File > Open demo (Ctrl+O). You can select several `.dem` files at once.
 - **Command line:** `tf2demoview <demo.dem> [more.dem ...] [options]`. `tf2demoview --help` lists every
   option.
-- **Library:** TODO(owner): no demo library is described in `ViewerHelp.cs`, `README.md` or
-  `RELEASE-NOTES.md` on this branch. Say what it is, or remove this entry.
+- **Playlist:** the **Open folder** button chooses a folder of demos, and the list at the right of the window
+  shows every `.dem` in it, with subfolders, sorted by folder and then name. Nothing is copied or imported: a demo
+  stays where you keep it. You can open several folders at once. Double-click a demo, or press Enter on it, to
+  load it. Type in the search box above the list to narrow it by demo name or folder. A folder that cannot be
+  read is skipped and written to the log. Folders named like the game's asset folders (`materials`, `models`,
+  `sound`, `maps`, `cfg`, `custom`, `download`, `replay` and similar) are not searched, so you can point it at
+  a TF2 install without it walking the game's files.
 
 If the file is not a demo, `--shot` and `--measure` exit with code 1 and print the reason on standard error.
 
@@ -29,8 +34,14 @@ If the file is not a demo, `--shot` and `--measure` exit with code 1 and print t
 - **O** plays and pauses. **Home** returns to normal speed.
 - `--autoplay` starts playing as soon as the demo loads.
 - `--tick <n>` seeks to a tick before the first frame is drawn.
-- TODO(owner): the on-screen seek controls and the keys or commands for faster and slower playback are not
-  recorded in the sources for this guide. Name them here.
+- **The playback bar** along the bottom of the window has, left to right: jump to start (`|<`), slower (`<<`),
+  Play, faster (`>>`), jump to end (`>|`), a speed slider, a scrub bar and a tick readout. Drag the scrub bar to
+  seek. `<<` steps the speed down, through one quarter speed and into reverse. `>>` steps it up to a maximum of
+  eight times. The speed slider sets any speed in between: right of center plays forward, left plays backward,
+  and the center is the slowest speed in either direction.
+- There is no default key for faster, slower, single-step or jump to start or end. Use the buttons. While the
+  scrub bar or the speed slider has focus, it takes the arrow keys, **Home**, **End**, **Page Up** and
+  **Page Down** for itself, so **Home** moves that slider instead of resetting the speed.
 
 Seeking forward replays the skipped ticks, and a rewind restarts from the beginning, as the game does. A seek
 also silences every sound except the loops. Both are listed in `RELEASE-NOTES.md` under *Known gaps*.
@@ -57,11 +68,41 @@ bindings are used as they are. The viewer uses Source's own names for keys (`SPA
 `MOUSE1`) and for actions (`+forward`, `+jump`, `+moveup`). It ignores every command it does not implement,
 so a long config does no harm (`docs/DECISIONS.md` D69).
 
-Without a config, the defaults apply. These are the ones listed above, plus **F5** screenshot, **F8** frame
-rate, **F11** full screen and **Ctrl+O** open demo. The full table is `KeyBindings.Defaults` in
-`managed/Tf2DemoSalvage.Presentation/ViewerAction.cs`.
+Without a config, the defaults apply. A bind in your config replaces the default for that action. A key you
+`unbind` keeps its default. The defaults are:
 
-TODO(owner): say where the viewer looks for a config, if that is not already obvious to a user.
+| Key | Action (Source's name) |
+|---|---|
+| `SPACE` | `+jump`: switch camera mode |
+| `MOUSE1`, `MOUSE2` | `+attack`, `+attack2`: next and previous player |
+| `CTRL+e`, `CTRL+b` | `firstperson`, `thirdperson` |
+| `CTRL+r` | `resetcamera` |
+| `w`, `s`, `a`, `d` | `+forward`, `+back`, `+moveleft`, `+moveright` |
+| `'`, `/` | `+moveup`, `+movedown` |
+| `SHIFT` | `+speed`: slows the free camera |
+| `TAB` | `+showscores` |
+| `o` | `demo_togglepause`: play and pause |
+| `HOME` | `resetspeed`: normal speed, forward |
+| `CTRL+o` | `opendemo` |
+| `F11` | `togglefullscreen` |
+| `F5` | `screenshot` |
+| `F8` | `cl_showfps` |
+| `CTRL+p` | `cl_showpos` |
+| `F9` | `mat_surfacecolours` |
+| `F3`, `F4` | `mat_normalmaps`, `mat_bumpbasis` |
+| `CTRL+w`, `CTRL+f`, `CTRL+x` | `mat_wireframe`, `mat_drawflat`, `mat_luxels` |
+| `CTRL+l`, `CTRL+t` | `mat_leafvis`, `mat_showlowresimage` |
+| `CTRL+0`, `CTRL+1`, `CTRL+2` | `mat_fullbright 0`, `mat_fullbright 1`, `mat_fullbright 2` |
+
+**Where the viewer looks for your config.** It reads `cfg/config_default.cfg`, then `cfg/config.cfg`, then
+`cfg/autoexec.cfg`, in that order, so each overrides the one before it. It looks in your TF2 `tf` folder,
+including a `.vpk` under `tf/custom` that holds those files, as mastercomfig ships. It also looks in a `custom`
+folder beside `tf2demoview.exe`, which is searched first. There you can use the same `cfg/` layout, or drop a
+`config.cfg` or `autoexec.cfg` straight into `custom`. A file that is missing is normal. If none is found, the
+built-in bindings apply. The log lists the files read and each bind it applied.
+
+A command the viewer does not implement is ignored, and the key stays free for whatever else uses it. A key you
+bind to a command the viewer does not implement loses its default action.
 
 You can set a cvar for one run only, as in Source: `tf2demoview <demo> +fps_max 0`. Anything in
 `settings.cfg` works this way.
@@ -72,8 +113,6 @@ You can set a cvar for one run only, as in Source: `tf2demoview <demo> +fps_max 
 
 - Press **F5**. Files go to the folder named by `cl_screenshot_folder` in `settings.cfg`.
 - `--shot <path>` saves one frame to `<path>` and exits. `--tick <n>` picks the moment.
-- `--like` and the `.png.json` file written beside a screenshot: TODO(owner): neither is in `ViewerHelp.cs`
-  on this branch, so this guide does not describe them. Add them once they land.
 
 ## Where logs and settings live
 
@@ -107,10 +146,11 @@ viewer ships no game files.
 plays, without the game's maps and models. File > TF2 folder sets the folder.
 
 **The map is missing.** If your install lacks the map, the viewer downloads it to
-`%LOCALAPPDATA%\Tf2DemoSalvage\maps`. A downloaded map is cached by name, not by checksum. TODO(owner): D224
-and B556, the status message for a demo whose map is missing, are not in `docs/DECISIONS.md` or
-`docs/RISKS.md` on this branch. Add what the viewer shows and says, and note that it is unverified on every
-path.
+`%LOCALAPPDATA%\Tf2DemoSalvage\maps`. A downloaded map is cached by name, not by checksum. If the map cannot be
+had, the status bar says so (`Map <name> is not installed`, or the reason the download failed), the demo still
+loads, and the world is not drawn. If the viewer found no TF2 install at all, the status bar says that instead:
+maps and models cannot be loaded, the demo still plays, and a map in the viewer's own maps folder is still used.
+If the map file is there but cannot be read, the status bar says `Map <name> could not be read` and why.
 
 **A demo will not open.** A file that is not a demo exits with the reason on standard error when you use
 `--shot` or `--measure`. Demos recorded in late June 2011 were malformed by the game itself and may not decode.
