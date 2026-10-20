@@ -182,6 +182,7 @@ public sealed partial class ViewerSession : IFrameSteps, ILoadView, ICameraView,
         // What the options say of the settings, the game folder, the spectator, the lighting and the HUD is applied by
         // the presenter that owns each (`ViewerPresenter.ReadLaunch`).
         _launch = _presenter.ReadLaunch(arguments);
+        _arguments = arguments;
 
         // **`--look` and `--zoom` were parsed and read by nobody** (B226). The overhead placement is the map view's
         // successor, so they reshape what it frames.

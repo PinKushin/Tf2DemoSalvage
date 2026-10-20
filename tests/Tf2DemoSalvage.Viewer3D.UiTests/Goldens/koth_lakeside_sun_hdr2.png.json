@@ -1,0 +1,22 @@
+{
+  "schema": 1,
+  "side": "tf2",
+  "captured": "2026-10-14",
+  "demo": null,
+  "demoSha256": null,
+  "viewerDemo": "golden_koth_lakeside.dem",
+  "viewerDemoSha256": "325ff5d2c94ab069ecf1105c4de475d5049af34591202ee27ac347056a1f5f01",
+  "map": "koth_lakeside_final",
+  "tick": null,
+  "camera": [0, -152, 600, -35, 235],
+  "viewport": [1280, 720],
+  "convars": {
+    "mat_hdr_level": "2",
+    "mat_hdr_tonemapscale": "0.7 (read, not set)",
+    "fov_desired": "90 (the viewer's equivalent: demo_fov_override 90)",
+    "cl_drawhud": "0",
+    "cl_showfps": "0"
+  },
+  "client": null,
+  "notes": "BACKFILLED 2026-10-19 from Golden.cs and D219; nothing here was re-measured. The sun and its glow above the temple, looking up into it, bloom on (the B378 camera). Loaded with `map koth_lakeside_final`; spectator spec_mode 6, spec_goto; 1280x720 windowed; tf2 MCP screenshot; resampled once. Two TF2 captures in one session were identical to the measure. NOT RECORDED at the time: the exact TF2 client build and the viewer tick."
+}

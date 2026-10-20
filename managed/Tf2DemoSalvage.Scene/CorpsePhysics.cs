@@ -315,6 +315,7 @@ public sealed class CorpsePhysics
             }
 
             IvpRagdoll ragdoll = _running[corpse.EntityIndex].Ragdoll;
+            // Read, never kept: `Place` copies the one body it needs and the root is a value (finding 82).
             (Vector3 Position, Quaternion Orientation)[] state = ragdoll.State();
 
             _roots[corpse.EntityIndex] = state[0].Position;
@@ -467,9 +468,9 @@ public sealed class CorpsePhysics
     /// <summary>The pose each corpse was last shown from the record with, by entity index.</summary>
     private readonly Dictionary<int, (Vector3, Quaternion)[]> _shown = [];
 
-    /// <summary>A running corpse's pose now, as <see cref="IvpRagdoll.State"/> reports it — what <see cref="CorpseRecord"/> stores.</summary>
+    /// <summary>A running corpse's pose now, in the ragdoll's own buffer — what <see cref="CorpseRecord"/> compares and copies.</summary>
     /// <param name="entity">The index the corpse is drawn under.</param>
-    /// <returns>The pose, or null when that corpse is not in the world.</returns>
+    /// <returns>The pose, valid until the ragdoll is read again; null when that corpse is not in the world.</returns>
     internal (Vector3 Position, Quaternion Orientation)[]? StateOf(int entity) =>
         _running.TryGetValue(entity, out (IvpRagdoll Ragdoll, int) live) ? live.Ragdoll.State() : null;
 

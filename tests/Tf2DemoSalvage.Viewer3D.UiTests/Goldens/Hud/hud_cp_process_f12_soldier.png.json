@@ -1,0 +1,23 @@
+{
+  "schema": 1,
+  "side": "tf2",
+  "captured": "2026-10-17",
+  "demo": null,
+  "demoSha256": null,
+  "viewerDemo": "hudref-cp_process_f12-2026-10-17-pov.dem",
+  "viewerDemoSha256": "4b09bcd105d286289ec392393217360489733b73735fbb0ccba5fbb98d144a5e",
+  "map": "cp_process_f12",
+  "tick": null,
+  "viewerTick": 1830,
+  "camera": null,
+  "viewport": [1280, 720],
+  "convars": {
+    "cl_savescreenshotstosteam": "0",
+    "crosshair": "1",
+    "viewmodel_fov": "54",
+    "tf_use_min_viewmodels": "0",
+    "r_drawviewmodel": "1"
+  },
+  "client": "the modern client, 2026-10-17",
+  "notes": "BACKFILLED 2026-10-19 from tests/Tf2DemoSalvage.Viewer3D.UiTests/HudGoldenImageUiTests.cs and D222; nothing here was re-measured. BLU soldier at full health (ammo 4 in the clip, 20 in reserve, 200 health). TF2 had cp_process_f12 loaded with `map`, the owner's HUD moved out of tf/custom (D222), 1280x720. The viewer side plays the POV demo recorded in that session from the recorder's own eye (`--first-person +cl_showfps 0`) at `viewerTick`; `camera` is null because a first-person view has no free camera. NOT RECORDED: the TF2 client build number, and TF2's own tick (a live map has none)."
+}

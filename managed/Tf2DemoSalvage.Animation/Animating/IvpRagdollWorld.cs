@@ -1096,11 +1096,25 @@ public sealed class IvpRagdoll
     /// `FUN_180073b80`: the core interpolated to `env+0x188` (<see cref="IvpRigidBody.TransformAt"/>), turned into a matrix, and
     /// the object's offset put into the world through it. A frame on the fixed-step path leaves the clock almost a step past the
     /// last PSI, so what is reported is nearly where the next PSI will put the body.
+    ///
+    /// **Written into this ragdoll's own buffer, valid until the next call** (finding 82). The engine writes straight into its
+    /// caller's storage: <c>RagdollGetBoneMatrix</c> has each element's object write its matrix into the bone accessor,
+    /// <c>element.pObject->GetPositionMatrix( &amp;pBoneToWorld.GetBoneForWrite( boneIndex ) )</c> (<c>ragdoll_shared.cpp:573</c>),
+    /// and nothing is allocated. A fresh array per call was 1.3 GB of garbage per 20 s of f12. A caller that keeps a pose copies it.
     /// </remarks>
     public (Vector3 Position, Quaternion Orientation)[] State()
     {
-        (Vector3 Position, Quaternion Orientation)[] state = new (Vector3, Quaternion)[_bodies.Length];
+        _current ??= new (Vector3, Quaternion)[_bodies.Length];
 
+        StateInto(_current);
+
+        return _current;
+    }
+
+    private (Vector3 Position, Quaternion Orientation)[]? _current;
+
+    private void StateInto((Vector3 Position, Quaternion Orientation)[] state)
+    {
         for (int index = 0; index < _bodies.Length; index++)
         {
             IvpRigidBody body = _bodies[index];
@@ -1114,8 +1128,6 @@ public sealed class IvpRagdoll
             // The inverse of `Rotation`: an IVP axis `(x, y, z)` is the Source axis `(x, z, −y)`.
             state[index] = (new Vector3(x, y, z), new Quaternion((float)qx, (float)qz, (float)-qy, (float)qw));
         }
-
-        return state;
     }
 
     /// <summary>Where an object's core stands and how the object sits inside it — <c>FUN_180073df0</c>, for every object.</summary>

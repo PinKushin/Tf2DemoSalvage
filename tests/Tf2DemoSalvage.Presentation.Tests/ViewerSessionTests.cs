@@ -28,11 +28,19 @@ public sealed class ViewerSessionTests
 
     private string _folder = string.Empty;
 
+    /// <summary>How many times a session asked whether the tree is dirty; the rig's tree always is.</summary>
+    private int _dirtyReads;
+
+    /// <summary>The configuration the rig's process claims; a test sets it before <c>Build</c>.</summary>
+    private string _hostBuild = "Debug";
+
     [SetUp]
     public void CreateFolder()
     {
         _folder = Path.Combine(Path.GetTempPath(), "tf2salvage-tests", Path.GetRandomFileName());
         _gameFolder = null;
+        _dirtyReads = 0;
+        _hostBuild = "Debug";
         Directory.CreateDirectory(Path.Combine(_folder, "maps"));
         File.WriteAllBytes(Path.Combine(_folder, "maps", Map + ".bsp"), SyntheticBsp.Build(new Dictionary<int, byte[]>()));
     }
@@ -139,7 +147,16 @@ public sealed class ViewerSessionTests
             log,
             arguments,
             new FpsPanelTests.SolidGdi(),
-            new ViewerHost(output, error, exits.Add, name => environment.GetValueOrDefault(name), () => new FixedTime(frameSeconds)),
+            new ViewerHost(output, error, exits.Add, name => environment.GetValueOrDefault(name), () => new FixedTime(frameSeconds))
+            {
+                Build = _hostBuild,
+                TreeDirty = () =>
+                {
+                    _dirtyReads++;
+
+                    return true;
+                },
+            },
             maps,
             owner);
 
@@ -1140,6 +1157,134 @@ public sealed class ViewerSessionTests
         rig.Window.Count("Close posted").ShouldBe(1);
     }
 
+    [TestCase("Debug")]
+    [TestCase("Release")]
+    public async Task RenderFrame_OnACaptureRun_WritesTheD226SidecarBesideTheShotInEveryBuild(string build)
+    {
+        _hostBuild = build;
+        string shot = Path.Combine(_folder, "out.png");
+        string demo = WriteDemo("shot");
+        using Rig rig = Build(demo, "--shot", shot, "--tick", "40", "+mat_phong", "0").WithDevice();
+        rig.Session.PlanStartup();
+        rig.Session.WindowShown();
+        (await rig.Session.Loading.ConfigureAwait(false)).Loaded.ShouldBeTrue();
+
+        Frames(rig.Session, 104);
+
+        System.Text.Json.Nodes.JsonObject json =
+            System.Text.Json.Nodes.JsonNode.Parse(await File.ReadAllTextAsync(shot + ".json").ConfigureAwait(false))!.AsObject();
+        json["side"]!.GetValue<string>().ShouldBe("viewer");
+        json["demo"]!.GetValue<string>().ShouldBe("shot.dem");
+        json["demoSha256"]!.GetValue<string>().ShouldBe(
+            Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(await File.ReadAllBytesAsync(demo).ConfigureAwait(false))));
+        json["map"]!.GetValue<string>().ShouldBe(Map);
+        json["tick"]!.GetValue<int>().ShouldBe(40);
+        json["camera"].ShouldBeNull("this device holds no world, so no frame handed it a camera: null, not a guess");
+        json["viewport"]!.ToJsonString().ShouldBe($"[{rig.Window.Viewport.Width},{rig.Window.Viewport.Height}]");
+        json["args"]!.AsArray().Select(arg => arg!.GetValue<string>()).ShouldBe(
+            ["shot.dem", "--shot", "out.png", "--tick", "40", "+mat_phong", "0"], "no user paths: file names only");
+        json["convars"]!["mat_phong"]!.GetValue<string>().ShouldBe("0", "read back, so the +cvar given is the value recorded");
+        json["convars"]!.AsObject().ContainsKey("mat_specular").ShouldBeFalse("at its default 1, so not recorded");
+        json["gitSha"]!.GetValue<string>().ShouldEndWith("-dirty");
+        _dirtyReads.ShouldBe(1, "read once, at the shot");
+        (await File.ReadAllLinesAsync(shot + ".json").ConfigureAwait(false)).ShouldContain(line => line.Contains("\"+mat_phong\"", StringComparison.Ordinal));
+        json["like"].ShouldBeNull();
+    }
+
+    /// <remarks>
+    /// The sidecar's camera is the one a device holding a world was handed, carried (B243): the session rig's own device
+    /// holds none, so a frame is drawn over one that does, the route `LastViewing_AfterAFrame_IsTheCameraTheDeviceWasGiven`
+    /// proves is the presenter's.
+    /// </remarks>
+    [Test]
+    public async Task RenderFrame_OnACaptureRunAfterAFrameWithAWorld_WritesTheCameraTheDeviceWasGiven()
+    {
+        string shot = Path.Combine(_folder, "out.png");
+        using Rig rig = Build(WriteDemo("shot"), "--shot", shot, "--tick", "40").WithDevice();
+        rig.Session.PlanStartup();
+        rig.Session.WindowShown();
+        (await rig.Session.Loading.ConfigureAwait(false)).Loaded.ShouldBeTrue();
+        FakeViewerDevice world = new();
+        rig.Session.Presenter.UploadCameraOver(world, new FakeFrameDevice(), flyTicks: 0, exposureSeconds: 0f, surfaceColours: false);
+
+        Frames(rig.Session, 104);
+
+        FreeCamera handed = world.Camera.Camera.ShouldNotBeNull();
+        System.Text.Json.Nodes.JsonObject json =
+            System.Text.Json.Nodes.JsonNode.Parse(await File.ReadAllTextAsync(shot + ".json").ConfigureAwait(false))!.AsObject();
+        json["camera"]!.AsArray().Select(n => n!.GetValue<float>()).ShouldBe(
+            [handed.Origin.X, handed.Origin.Y, handed.Origin.Z, handed.Angles.Pitch, handed.Angles.Yaw]);
+        json["camera"]!.AsArray().ShouldContain(n => n!.GetValue<float>() != 0f, "a camera of zeros could not tell a carried one from a default");
+    }
+
+    [Test]
+    public async Task RenderFrame_LikeASidecarOfAnotherDemo_WarnsAndNotesItButStillShoots()
+    {
+        string shot = Path.Combine(_folder, "out.png");
+        string like = Path.Combine(_folder, "tf2.png.json");
+        await File.WriteAllTextAsync(
+            like,
+            """{ "demo": "shot.dem", "demoSha256": "00", "tick": 40, "camera": [0, 0, 0, 0, 0], "viewport": [8, 8] }""")
+            .ConfigureAwait(false);
+        using Rig rig = Build(WriteDemo("shot"), "--like", like, "--shot", shot, "--tick", "40").WithDevice();
+        rig.Session.PlanStartup();
+        rig.Session.WindowShown();
+        (await rig.Session.Loading.ConfigureAwait(false)).Loaded.ShouldBeTrue();
+
+        Frames(rig.Session, 104);
+
+        rig.Device.Captured.ShouldBe([shot]);
+        rig.Log.Count("is not the demo tf2.png.json was taken of").ShouldBe(1);
+        System.Text.Json.Nodes.JsonObject json =
+            System.Text.Json.Nodes.JsonNode.Parse(await File.ReadAllTextAsync(shot + ".json").ConfigureAwait(false))!.AsObject();
+        json["notes"]!.GetValue<string>().ShouldContain("demoSha256 00");
+        json["like"]!["file"]!.GetValue<string>().ShouldBe("tf2.png.json");
+    }
+
+    [TestCase("Debug", true)]
+    [TestCase("Release", false)]
+    public async Task CaptureViewportToFile_TheScreenshotKey_WritesASidecarOnlyInADebugBuild(string build, bool written)
+    {
+        _hostBuild = build;
+        using Rig rig = Build(new ViewerSettings { FrameRateLimit = 0, ScreenshotFolder = _folder }, 0.5, WriteDemo("key")).WithDevice();
+        rig.Session.PlanStartup();
+        rig.Session.WindowShown();
+        (await rig.Session.Loading.ConfigureAwait(false)).Loaded.ShouldBeTrue();
+
+        rig.Session.CaptureViewportToFile();
+
+        string png = rig.Device.Captured.ShouldHaveSingleItem();
+        Path.GetDirectoryName(png).ShouldBe(_folder);
+        File.Exists(png + ".json").ShouldBe(written);
+    }
+
+    [Test]
+    public async Task CaptureViewportToFile_PastTheLimit_PrunesAShotWithItsSidecarAndKeepsAKeptShotsSidecar()
+    {
+        // One more old shot than the limit, each with its sidecar: the oldest must go, PNG and sidecar together.
+        List<string> old = [];
+
+        for (int age = 0; age <= Captures.Kept; age++)
+        {
+            string png = Path.Combine(_folder, Captures.Name(new DateTime(2000, 1, 1, 0, 0, 0, DateTimeKind.Local).AddMinutes(age)));
+            await File.WriteAllBytesAsync(png, [1]).ConfigureAwait(false);
+            await File.WriteAllTextAsync(png + ".json", "{}").ConfigureAwait(false);
+            old.Add(png);
+        }
+
+        using Rig rig = Build(new ViewerSettings { FrameRateLimit = 0, ScreenshotFolder = _folder }, 0.5, WriteDemo("prune")).WithDevice();
+        rig.Session.PlanStartup();
+        rig.Session.WindowShown();
+        (await rig.Session.Loading.ConfigureAwait(false)).Loaded.ShouldBeTrue();
+
+        rig.Session.CaptureViewportToFile();
+
+        File.Exists(old[0]).ShouldBeFalse("the oldest is past the limit");
+        File.Exists(old[0] + ".json").ShouldBeFalse("a pruned shot leaves no orphan sidecar");
+        File.Exists(old[^1]).ShouldBeTrue();
+        File.Exists(old[^1] + ".json").ShouldBeTrue("a kept shot keeps its sidecar");
+    }
+
     [Test]
     public async Task RenderFrame_OnACaptureRunWhileThePostProcessingWalks_WaitsAndSaysWhatItWaitsOn()
     {
@@ -1245,6 +1390,31 @@ public sealed class ViewerSessionTests
         printed.ShouldContain("  phases, mean ms: sound ");
         rig.Window.Told.ShouldContain("Close now");
         rig.Window.Count("Close posted").ShouldBe(0);
+    }
+
+    [Test]
+    public async Task RenderFrame_OnAMeasureRunWithAnOpeningTick_CountsNoFrameBeforeTheSeekAndTheOneAfterIt()
+    {
+        // Finding 82: the opening seek and the frame whose interval holds its tail are not playback. Every frame is the
+        // fixed clock's half second, so two seconds is four counted frames, and the close comes two frames after the seek.
+        using Rig rig = Build(WriteDemo("opened"), "--measure", "2", "--autoplay", "--tick", "7");
+        rig.Session.PlanStartup();
+        rig.Session.WindowShown();
+        (await rig.Session.Loading.ConfigureAwait(false)).Loaded.ShouldBeTrue();
+
+        int frames = 0;
+        int? appliedAt = null;
+
+        for (; frames < 200 && rig.Window.Count("Close") == 0; frames++)
+        {
+            rig.Session.RenderFrame();
+            appliedAt ??= rig.Log.Count("opening state applied at tick 7") > 0 ? frames : null;
+        }
+
+        appliedAt.ShouldNotBeNull();
+        frames.ShouldBe(appliedAt.Value + 1 + 1 + 4, "the seek frame, the one after it, then four counted");
+        rig.Out.ToString().ShouldContain("; 4 frames, mean 500.00 ms");
+        rig.Out.ToString().ShouldContain(", between ");
     }
 
     [Test]

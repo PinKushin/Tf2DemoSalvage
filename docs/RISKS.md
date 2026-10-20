@@ -6573,8 +6573,8 @@ if ( !m_bAbortFreezeCam && m_hRagdoll &&
 ```
 
 **That exception is gated on `m_hRagdoll`.** The body is re-shown only once a corpse exists to
-justify it, so with no ragdolls built (B58) the condition is false for every death this project can
-render and the engine's own answer for our situation is that the effect stays on. So `Drawn` is
+justify it, so with no ragdolls built (B58; built since, see the heading of B58 below) the condition is false for every death this project could
+render at the time and the engine's own answer for our situation is that the effect stays on. So `Drawn` is
 `IsDrawn && alive` today, and becomes `IsDrawn` alone when B58 lands. The `&& alive` is a
 placeholder for a ragdoll, not a second opinion about death.
 
@@ -19441,6 +19441,10 @@ turning in sub-millisecond frames — it is CPU-bound, and comfortably. This pro
 bone transforms onto the GPU precisely to spend less on the processor than the engine does, so the
 comparison is not "we are 3x slower"; it is that we are slower **on the axis where we were supposed
 to be structurally ahead**, while drawing no projectiles, no particles and no ragdolls.
+
+*Corrected 2026-10-20: that was true when written (2026-09). Ragdolls are simulated and drawn since B58 and
+particles since D221, and projectiles are drawn (owner observation, not traced to code), so the workload is no longer lighter by those. The gap is
+therefore not flattered by a lighter workload.*
 
 **Against our own empty-view measurement of 3.3 ms, the gap facing a wall is about 4x.**
 
@@ -36170,8 +36174,8 @@ cycle) changed both event hashes. **Measured:** forward 909 frames, 5,758 and 5,
 frames, 1,657 and 1,698 ms (3.3 ms) → 783–899 ms (1.6–1.8 ms). *Interpolated:* the forward frames' higher remainder
 (sampling, draw list, pose rest) is taken to be first-use cost, since the back skip runs the same frames warm. *A cost:*
 a skip no longer carries transitions across it, so the landing frame blends from the sequence seen before the seek, as
-every seek did before B504. Tests: `MomentSceneTests.Build_EntitiesOnly_LeavesTheStaticPropsOut` (sabotaged: the
-static props kept — reddened), `SequenceHashTests`.
+every seek did before B504. Tests: `MomentSceneTests.Pose_EntitiesOnly_LeavesTheStaticPropsOut` (renamed from
+`Build_…` by finding 83 item 1, which took static props off the draw list; sabotaged: the static props kept — reddened), `SequenceHashTests`.
 
 ## B505 — within a tick, scheduled and live script sounds of one script were dealt scheduled-first, not in the client's order — FIXED 2026-10-05
 
@@ -39912,6 +39916,34 @@ the name map (`000dcd90`). That is not modelled here: children are resolved by n
 would lose it as its parent's child. Tests:
 `Layer_TwoFilesDeclaringOneName_TheLaterWins` and `Read_ANameDeclaredTwiceInOneFile_KeepsTheSecond`.
 
+## B557 — particle density against TF2 is unmeasured: the owner thinks we draw them a bit dense — OPEN, suspicion (needs TF2 goldens)
+
+**Filed 2026-10-19.** While the frame-cost work was about to profile the particle cost, the owner: *"it will need golden images
+i think for that, i think we are drawing the particles a bit dense, but idk, we did fix that medibeam and particals lifetime
+stufff earlier"*. A hunch, not a measurement: no particle golden exists (`tests/**/Goldens` holds the world, the sun and the
+HUD only), so density against TF2 has never been compared. A perf change to the particle code can be held to "pixel-identical
+to our own previous output" (that is what the frame-cost step 3 does), but that cannot say whether ours matches TF2.
+
+**What closing the question needs:** TF2's own capture of a few persistent effects at one camera and one setting (the
+`take-the-golden-shot-dont-ask` method: the tf2 MCP, `ent_create info_particle_system` with a stock effect name on a listen
+server, or the heal beam and overheal pluses in a modern demo the live client plays; never an old demo, never a paused demo,
+read every ConVar before changing it and restore it), the same effect placed in our viewer at the same camera, and a measure
+per cell of the effect's region (mean colour and the count of non-background pixels), as D222's HUD goldens do. Particles are
+random, so compare statistics over several frames, not pixels. The lead takes the TF2 side (a shared fixture); the viewer side
+may need a way to place a named effect at a point (a synthetic burst, as `ParticleBurstTests` builds them). If a density gap is
+found, the cause is read from the engine (`CParticleCollection` emission, `SkipToTime`'s wake emission, finding 79) before
+anything is changed.
+
+## B556 — does every path that leaves a demo without its map say so in the status bar? — OPEN, unverified (check, then fix if silent)
+
+**Filed 2026-10-19 from D224.** The owner decided the viewer tells the user when there is no map, and believes the status bar
+already does. `MapProvider` builds `"No map for <demo>: <reason>"` when a fetch fails (`MapProvider.cs:341`); nothing yet shows
+that the text reaches the status bar from each way a demo can end up without its map: a failed download, a map the install
+cannot find, a demo opened from the library, a demo opened from the command line (`LaunchOptions` once left the viewer "on no
+map with nothing said"). **The check:** one test per path that opens a demo whose map is absent and reads the status text; a
+path that says nothing is a defect and is fixed in the view's presentation layer (D214: the view is thin; the message belongs
+in Presentation, with its test). Not a new decision: D224 already says yes.
+
 ## B554 — a map's own `maps/<name>_particles.txt` is not read, so a map's custom particles are lost — FIXED 2026-10-19 (`87e5e0b4`, `fix/b554-map-particle-manifest`)
 
 **Fixed.** `ParticleManifest.MapFiles` and `ParticleManifest.Layer`, called from `MapAssets.LoadRocketTrail` with the
@@ -40011,4 +40043,74 @@ reddens four tests), and a child's drawn size against its own scale alone.
   (then the engine draws them there too) or the handle fails to resolve here. **Not answerable yet**: the map
   `pl_badwater_pro_v12.bsp` is not on this machine (not under the game's `tf/maps`, `tf/download/maps`, `tf2ds`, or the
   user profile), so its `parentname` cannot be read, and no sampled tick gives them a parent.
+
+## B560 — a static prop in view is animated here, and the engine's static-prop draw has no animation step — OPEN
+
+**Read, CLOSED source** (`engine.dll` `0x1800f1bd0`, 2026-10-20). This is the per-draw function the existing B426 code
+cites for an unbaked static prop. It sets up lighting only: the ambient cube and up to four local lights
+(`FUN_1801ba590`/`FUN_1801b9cd0`), the lighting-origin override, and the debug fullbright path. It has no sequence,
+cycle, autoplay or bone step. The published client side agrees: a static prop is never on the entity list
+(`SimulateEntities`, `cdll_client_int.cpp:2010-2015`). **Ours:** since finding 83 item 1, a static prop the gather
+reaches still runs `SimulateEach`. A skinned static prop with an autoplay or realtime sequence, or one with a nonzero
+sequence, is therefore advanced and posed through bones, and its animation events are walked. Before finding 83, every
+static prop did this every frame, so the divergence is older than that change; it was kept there because that change
+required identical output. *Evidence class: decompiled engine + published source; no demo or map measured for how many
+static props it affects.* **Fix direction:** an in-view static prop takes its pose without the simulate half, at its
+lump sequence and cycle 0. That needs a golden pair on a map with such a prop, because it changes output.
+
+**Two notes from the same change (finding 83 item 1), not divergences:**
+- **Bones of an unviewed static prop.** `TraceHitboxes`, `PosedHitboxes`, the attachment queries and decal bone lookups
+  answer null for a static prop no view reached this frame, where they used to answer for every one. The engine traces
+  and decals a static prop through `IStaticPropMgr` by index (`TraceRayAgainstStaticProp`, `AddDecalToStaticProp`,
+  `IStaticPropMgr.h:47`, `:64`), never by bones, so null is closer to the engine than before. Pinned by
+  `AttachmentQueryTests.TraceHitboxes_OnAStaticProp_AnswersOnlyWhenAViewReachedIt`.
+- **`TranslateEraSequences` no longer sees static props**, because it walks the moment's draw list. It keys on model
+  path and era. An old-era demo whose static prop uses a model the era table lists would have had its lump sequence
+  translated before and not now. A static prop's sequence comes from the map, not the network, so not translating it is
+  arguably correct. Not measured; f12 is modern-era and cannot show it.
+
+## B559 — the class portrait in the HUD is off TF2's by 15 to 20 per channel after the HUD fixes, cause unknown — OPEN
+
+**Measured 2026-10-19** (`HudGoldenImageUiTests`, 4x2 grid, tolerance 12, each cell's mean R/G/B, our frame against
+TF2's golden, `cp_process_f12`, 1280x720): the soldier's "class and health" worst cell **15.1** (23.1 on 2026-10-17,
+63.2 before the fixes), the medic's **20.2** (24.8 before). The same run's ammo case is 10.8 and passes (B552). The model's brightness is closer
+than it was (the helmet and launcher cells 125 against 101 before; the residual is now within about 15, with some
+cells darker and some lighter than TF2's, e.g. soldier 120.3 against 135.4 on one and 124.9 against 120.9 on another). **Unknown cause:** pose, framing and background match (**by eye at 3x, a judgement from 2026-10-17, not measured**), so
+what remains is shading (lighting, ambient, tone-map or the model's material) or a rendering difference of the
+portrait's own scene; none has been isolated. *Evidence class: measured on one demo and one tick per class.* Both
+cases stay `[Explicit]` until the cause is found; the three `RegressionLock_` cases hold the current render
+meanwhile (regenerated 2026-10-19).
+
+## B558 — two UI tests fail intermittently, and one failure's reporter crashed so the real cause was hidden — OPEN, flake (a defect, not noise)
+
+**Observed:** `ExportThenCompile_OpenDemo_RebuildsItsBytes` and
+`FileDialog_OpenedThroughTheFileMenuByAutomation_LeavesTheKeyBindingsWorking` each failed on SEPARATE runs and
+recurred: in the pose agent's earlier phase-2 runs and again in the first batch-1 phase 2 on 2026-10-18. Each passed
+on rerun every time. *Evidence class: observed in the lead's runs; no failing run was kept with its tree.*
+
+**The reporter bug (FIXED 2026-10-19, from the stack; widened after review):** the first test's failure was
+`FlaUI.Core.Exceptions.PropertyNotSupportedException: The requested property 'AutomationId' is not supported`,
+thrown from `ViewerApplication.Describe` (via `DescribeTree`, via `Find`). `Find` had already failed to locate its
+element; the reporter then crashed describing the live tree, replacing "why `Find` failed" with a message about the
+reporter. **Fixed at the root** (a review found a per-read catch covered one read of four): `DescribeTree` walks through
+`ViewerApplication.WalkTree`, which catches ANY exception from the walk and APPENDS
+`tree unreadable after N lines: {type}: {message}` to the lines gathered, so "No element with automation id X"
+always survives (the catch records the exception, it is not silent); `WalkTreeTests` holds it. The second test's
+message was "no File menu".
+
+**A third occurrence, on CI — a DIFFERENT failure shape.** GitHub Actions run `39230763299` (push of main at
+`88259677`, 2026-10-19 09:31 UTC, Windows "Corpus + Audio" job, Viewer UI step) failed
+`Shell_EveryControl_IsReachableByAutomation` (29 s, `ShellUiTests.cs:72`) and
+`StartupSplash_OnceTheMainWindowIsUp_IsGone` (6 s, `StartupSplashUiTests.cs:30`), both with
+`System.Runtime.InteropServices.COMException : Operation timed out. (0x80131505)`, ErrorCode -2146233083, i.e. a UI
+Automation call to the viewer timing out. **It is not the `Describe`/`AutomationId` reporter bug**: no
+`PropertyNotSupportedException` and no `Describe` frame in either stack. The next two pushes (`26962f01`, `a1489309`)
+passed the same job. Same family (UIA tests failing intermittently on a push with no related change); the common cause,
+if there is one, is unknown. *Evidence class: read from the CI log (`gh run view 39230763299 --log-failed`).*
+
+**Not fixed, deliberately:** why the element or the File menu was missing. CLAUDE.md says a flake is a defect, so this
+stays OPEN until a failure shows its real cause in the now-readable tree. No retry loop and no sleep was added:
+synchronise on the condition, never the clock. **Next step:** the next failure of either test prints the whole
+tree; read it before touching anything. A suspect to test, not a finding: another process on the desktop
+(`docs/memory/parallel-agents-lock-the-gate-too.md`).
 

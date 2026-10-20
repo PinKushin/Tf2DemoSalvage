@@ -74,6 +74,12 @@ public sealed partial class ViewerPresenter
     /// <summary>The open demo's path, or null.</summary>
     public string? DemoPath => _demo?.Path;
 
+    /// <summary>The map the open demo names, or null.</summary>
+    public string? MapName => _demo?.MapName;
+
+    /// <summary>The camera the last frame was drawn from, as handed to the device; null before one had a world (D226).</summary>
+    public FreeCamera? LastViewing => _lastViewing;
+
     /// <summary>Whether the open demo has a timeline to show.</summary>
     public bool HasTimeline => _timeline is not null;
 

@@ -7130,6 +7130,8 @@ the GPU, while valve still does some things on the CPU."*
 
 **Both halves of that are right and they compound.**
 
+*(Corrected 2026-10-20, owner: "no we have ragdolls and projectiles". The next paragraph was true when written, 2026-09. Ragdolls are simulated and drawn since B58 and particles since D221; the owner sees projectiles drawn (observation, not traced to code). Kept as written because the conclusion about the architecture, not the list, is what this decision records.)*
+
 **We draw less.** No projectiles, no particles, no ragdolls — 299 of them decoded and undrawn in a
 single demo (B254 finding 4) — no muzzle flashes, no shell ejection, none of
 `DoAnimationEvents`. Every one of those is work TF2 is doing inside its 1.67 ms frame and we are not.
@@ -10789,4 +10791,119 @@ requirement (accessibility here serves tests).
 or OpenGL), which is the larger job under either toolkit. Text input, IME and file dialogs need a native helper under
 ImGui; that is part of the port's design. The icon's source already lives outside the WinForms project, at
 `assets/icon.svg`.
+
+## D224 — a demo without its map still opens, soft and not advertised; it is not a supported play mode (2026-10-19)
+
+**The occasion.** During a frame-cost measurement the viewer ran an "empty view" (a free camera aimed at nothing) to
+separate per-draw cost from per-frame fixed cost, and the owner saw a window that drew neither map nor HUD. TF2 will not
+play a demo whose map is missing: it refuses and tells the player to download the map. This viewer opens the demo and shows
+what the demo carries without a map, which is an addition above Valve (`an-addition-above-valve-is-allowed`).
+
+**The owner, in his words.** First, as an opinion: *"i dont think this should be an expected play mode of our viewer, no one
+is going to want to play a demo without a map, but it should be possible for this exact testing reason"*. Then, when asked
+whether to record it as "possible, not advertised, not supported": *"well i mean, lets not cut it off arbitrarily, we auto dl
+the maps so, a regular user should never run into it, and id rather it fail soft then fail hard in a no map available
+situation"*.
+
+**What follows from it.**
+- **It stays possible, and a missing map fails SOFT**: the viewer keeps running and shows what it can, rather than refusing
+  to open the demo or ending in an error. It is the right behavior for the testing it serves (an empty view is a legitimate
+  measurement input, and has no TF2 equivalent to compare with) and for the rare real case.
+- **It is not a supported play mode.** The user guide, README and `--help` do not describe it as a feature, and no test or
+  golden depends on it looking like play. A regular user never meets it, because the maps are downloaded automatically.
+- **Nothing is cut off arbitrarily.** No code is added to refuse a map-less demo, and none already there to survive it is
+  removed.
+
+**The viewer tells the user when there is no map.** Asked whether a visible message belongs here (a message is a
+different change from refusing), the owner: *"that question's answer is a yes, we should tell the user when theres no map,
+but i think we already do in the status bar"*. What the code shows so far: `MapProvider` builds `"No map for <demo>: <reason>"`
+when the fetch fails (`MapProvider.cs:341`), and `OpeningSequence` and `LaunchOptions` already mention fixing a viewer that
+sat on no map "with nothing said". **Unverified:** that this message reaches the status bar in every path that leaves a demo
+without its map (a failed download, a map the install cannot find, a demo opened from the library); a test that opens a demo
+whose map is absent and reads the status text is the check, and if it is not there it is a defect to fix, not a new decision.
+
+## D225 — CI runs more of the suite and holds a higher floor, now that the pace has slowed (2026-10-19)
+
+**The owner, in his words.** First as thinking: *"id kinda like to up the tests that can run on CI, and the floor boosted, the
+floor wasnt hard because we are integrating and writting and moving fast, but now iits slowed down a bit"*. Asked whether it
+was a decision or a brainstorm: *"thinking, but probably turning into a decision idk"*. Then, about when to do the work and
+the memory experiment below: *"do it once the running agents are done"*, and, correcting which one he meant: *"i meant the ci
+stuff but it works for both"*. That makes it a decision to do the CI work, after the agents running on 2026-10-19 finish.
+
+**Why the floors were loose, and why that can change.** The floors guard only a DROP, and while the project was integrating
+fast a tight floor failed every push; the workflow's own comments record floors that sat far below the real count and caught
+nothing. The pace has slowed, so a floor can sit at the measured number again (the project rule: *"a floor must track the
+number it guards"*, `docs/memory/read-the-trx-total-not-the-console.md`).
+
+**What the work is** (the plan, not yet started): measure from the last green CI run, per project, how many tests are skipped
+and why (no game install, no demos, no GPU, Windows only); convert the cheapest skips to synthetic fixtures (D38: synthetic
+first) so CI can run them; raise each count and coverage floor to the number measured on CI (a CI floor has to be measured
+on CI, never copied from a local run); and make the workflow read its floors from `build/gate.sh` so the two stop drifting,
+which the workflow itself names as the fix. CI stays free of LFS bandwidth (`lfs: false`, the blob cache).
+
+**Not decided here:** which skipped tests are worth converting, and the new numbers. They come from the measurement.
+
+## D226 — every golden shot carries a sidecar of what it depended on; TF2's capture comes first and ours matches it (2026-10-19)
+
+**The owner, in his words.** After a door comparison could not be reproduced because its camera was recorded nowhere (the lead
+dug it out of an agent's transcript, and once took the wrong demo): *"is there a hook we can make that forces all the relevant
+info to be captured with a golden shot?"* Then, on the order: *"and does them TF2 first, since TF2 can't pause properly and
+still be controlled"* (`docs/memory/driving-tf2-demo-playback.md`: TF2 cannot rewind, a paused demo stops answering RCON,
+a seek lands within a few ticks of the request). And: *"go ahead"*.
+
+**What is decided.**
+1. **The instrument writes the record.** A viewer `--shot <path>` also writes `<path>.json`, and a TF2 capture is accompanied by
+   one from its session notes. A hook alone sees a command line, not what the viewer used, so the values are carried from
+   where they were used (the instrument rule: never recompute a reported value by a second route, B243).
+2. **TF2 first, ours matches.** TF2 is the constrained side; its sidecar records what it ACTUALLY did (the tick `demoui` read,
+   not the one requested; the camera `spec_pos` read back; the ConVars read back after the session). The viewer takes
+   `--like <tf2 sidecar>` and sets its tick, camera, viewport and `mat_*` values from it. A viewer shot with no TF2 sidecar to
+   match is "ours only", labeled so, and cannot be paired.
+3. **A hook enforces it** once the viewer writes sidecars (a hook that required them before would block every `--shot` run):
+   a `--shot` command without its sidecar is refused with what is missing; a comparison pair is refused unless the TF2 sidecar
+   exists, the viewer sidecar names it (`like`), and the demo hashes agree. It lives in `~/.claude/hooks/` with its reasoning in
+   the script header; the owner said to go ahead, so it is wired by the lead.
+
+**The sidecar format** (`<image>.json`; unknown fields are kept, missing required ones are refused):
+- common: `schema` (1), `side` (`"viewer"` or `"tf2"`), `captured` (UTC time), `demo` (file name) and `demoSha256`, `map`,
+  `tick` (the tick the capture ACTUALLY showed, in the viewer's numbering), `camera` (`[x, y, z, pitch, yaw]`), `viewport`
+  (`[w, h]`), `convars` (name to value, read back from that side), `notes` (free text).
+- viewer only: `gitSha`, `build` (Debug or Release), `args`, `env` (every `TF2VIEW_*` set), `like` (the TF2 sidecar's file name
+  and its sha256, or null for "ours only").
+- tf2 only: `client` (the build), `demoTickRequested`, `playbackPercent` read from `demoui`, `sv_allow_wait_command`, and
+  `cheatsUsed` (the ConVars it touched and their restored values).
+
+**Order of work.** The viewer sidecar and `--like` (an implementer, with tests: a shot writes a sidecar with the fields filled;
+`--like` reproduces tick, camera and viewport from a TF2 sidecar), then the hook, then the TF2-side sidecar in the tf2 MCP
+session notes. **Not decided here:** whether a golden TEST (the `HudGoldenImageUiTests` family) should read the sidecar to
+set its own capture instead of constants; that is a later step once the files exist.
+
+**Refinements, 2026-10-20, after the first implementation and a Fable review.** Owner's words in quotes.
+1. **ConVars: only those that differ from their declared default.** *"only the ones that differ from defaults"*. The sidecar was
+   listing about 47, mostly defaults. `--like` still applies every ConVar a TF2 sidecar names.
+2. **`--like` on a demo-hash mismatch warns and still shoots**, recording the reason in `notes`: the TF2 sidecar's `demoSha256`
+   is compared with the demo actually opened. The owner did not follow the hash point (*"i dont really get 2 and 3, but
+   probably?"*), so this is the lead's default for what he approved; the comparison is also what the hook in item 3 will enforce.
+3. **`gitSha` gets `-dirty`** when the working tree is not clean at the moment of the shot (same "probably"). It describes the
+   tree at shot time, while the sha names the commit at build time; they can disagree, which is acceptable for a record of the shot.
+4. **The F12-key hand screenshot writes a sidecar only in a Debug build**: *"have it write the sidecar only in debug"*, after
+   the lead explained that the F12 meant the key and not the f12 demo. `--shot` writes one in every build, because the golden
+   tests and the hook depend on it. The screenshot tidy-up deletes a shot's `.png.json` with its PNG.
+
+## D227 — the lead publishes each release after checking it; betas 16-44 were never published (2026-10-20)
+
+**What was found.** `gh release list` shows 45 releases, 16 published (beta.1 to beta.15, the last on 2026-10-04) and 29 still
+DRAFTS (beta.16 to beta.44). Anyone downloading from the public repo got the 2026-10-04 build. The cause was a comment and a
+habit: `release.yml` (commit `d8f65d34`, 2026-10-01, made by an assistant session under the owner's git name) said *"the owner
+reviews the draft and presses Publish by hand"*. The owner, 2026-10-20: *"ive never punbliished by hand sso no idea where that
+came from lol"* and, asked whether this was deliberate: *"its a bug and somehing i didnt know aboiut"*.
+
+**What is decided.** The owner: *"do the publishing is yours"* (the lead publishes) and, on the 29 old drafts, the lead's
+recommendation was taken after he first said *"publish them"* and then withdrew it: **publish only `0.1.0-beta.45`**. Its notes
+(`RELEASE-NOTES.md` already holds one section per version, so they cover everything since beta.15) open with a line saying that
+betas 16-44 were never published. The old drafts stay drafts; the owner can have them published later.
+
+**The workflow still only creates a DRAFT**, because the lead looks at it first: the zip is attached, the title and notes are
+right, the gate and CI are green. Then `gh release edit <tag> --draft=false` (it stays a prerelease). The false comment in
+`release.yml` is replaced.
 

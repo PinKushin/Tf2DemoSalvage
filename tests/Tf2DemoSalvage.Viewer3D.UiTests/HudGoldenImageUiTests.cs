@@ -35,26 +35,35 @@ public sealed class HudGoldenImageUiTests
     /// <summary>The BLU soldier at full health: the ammo panel (4 in the clip, 20 in reserve) and the class portrait with
     /// its health cross.</summary>
     /// <remarks>
-    /// Measured 2026-10-17 after the background, team, pose and gamma fixes. **Ammo: worst cell 53.0**, every one of
-    /// them under the "4" — its shadow is painted over it (B552); before the fixes 39.6 (a flat block, the shadow
-    /// over a lighter number). **Class and health: worst 23.1**, the model's helmet and launcher (125 against 101):
-    /// pose, framing and background now match and the model is darker (finding 78's residual); before, 63.2.
+    /// Measured 2026-10-17 after the background, team, pose and gamma fixes, and again 2026-10-19 after B552 and the HUD
+    /// tone-map scale. **Ammo: worst cell now 10.8, under the tolerance of 12, and this case holds B552** (the shadow
+    /// painted over the "4"); it was 53.0 on 2026-10-17, every cell under the "4", and 39.6 before the fixes (a flat
+    /// block). **Class and health: worst 15.1 on 2026-10-19** (23.1 on 2026-10-17, 63.2 before the fixes): pose, framing
+    /// and background match, and the model's brightness is closer, 125 against 101 before and now within about 15
+    /// (B559). Still red, so still `[Explicit]`.
+    ///
+    /// **What the ammo case is, and is not.** Its headroom is 1.2 (10.8 against 12) over cell MEANS that include the
+    /// map behind the translucent panel, so it is a world-shading lock as much as a HUD test: the HUD tone-map scale
+    /// alone moved this cell before. **It catches** the B552 regression (removing the `ZPos` re-run in
+    /// `VguiPanel.SetParent` puts the worst back to about 53) and a lost or mis-scaled panel. **It misses** a 1-pixel
+    /// shadow offset and a wrong glyph of similar ink, which move no cell mean. So a red here reads as "which side
+    /// moved", the HUD or the world behind it (compare the cells beside the number), not as "B552 is back".
     /// </remarks>
-    [TestCase("ammo", 1150, 640, 1265, 705, Explicit = true, Reason = "red: the ammo number's shadow is painted over it (B552)")]
-    [TestCase("class and health", 0, 585, 200, 705, Explicit = true, Reason = "red: the class model is about 20 luma darker than TF2's (finding 78)")]
+    [TestCase("ammo", 1150, 640, 1265, 705)]
+    [TestCase("class and health", 0, 585, 200, 705, Explicit = true, Reason = "red: worst cell 15.1 against 12, the class model's brightness, unknown cause (B559)")]
     public void Soldier_TheElement_MatchesTf2(string element, int x0, int y0, int x1, int y1) =>
         Measure("hud_cp_process_f12_soldier.png", SoldierTick, element, new Rectangle(x0, y0, x1 - x0, y1 - y0));
 
     /// <summary>The BLU medic holding the medigun: the ÜberCharge meter at 0%, and the class portrait.</summary>
     /// <remarks>
-    /// Measured 2026-10-17. **Meter: worst cell 80.4**, and not the meter's: its shape, outline, label and bar match
-    /// TF2's by eye at 3x, and the cells that differ are where TF2's first-person medigun hand sits behind the
-    /// translucent background and ours does not — the viewmodels differ, which a HUD golden cannot isolate. Before the
-    /// port there was no meter at all (the control below measures that absence). **Class and health: worst 24.8**, the
-    /// model again.
+    /// Measured 2026-10-17, and again 2026-10-19. **Meter: worst cell 80.4, now 74.3**, and not the meter's: its shape,
+    /// outline, label and bar match TF2's by eye at 3x, and the cells that differ are where TF2's first-person medigun
+    /// hand sits behind the translucent background and ours does not — the viewmodels differ, which a HUD golden cannot
+    /// isolate. Before the port there was no meter at all (the control below measures that absence). **Class and
+    /// health: worst 24.8, now 20.2**, the model again (B559, unknown cause).
     /// </remarks>
-    [TestCase("ubercharge meter", 1078, 630, 1262, 702, Explicit = true, Reason = "red from the viewmodel behind it, not the meter (finding 78)")]
-    [TestCase("class and health", 0, 585, 200, 705, Explicit = true, Reason = "red: the class model is about 20 luma darker than TF2's (finding 78)")]
+    [TestCase("ubercharge meter", 1078, 630, 1262, 702, Explicit = true, Reason = "red: worst cell 74.3 from the viewmodel behind it, not the meter (finding 78)")]
+    [TestCase("class and health", 0, 585, 200, 705, Explicit = true, Reason = "red: worst cell 20.2 against 12, the class model's brightness, unknown cause (B559)")]
     public void Medic_TheElement_MatchesTf2(string element, int x0, int y0, int x1, int y1) =>
         Measure("hud_cp_process_f12_medic.png", MedicTick, element, new Rectangle(x0, y0, x1 - x0, y1 - y0));
 
@@ -63,6 +72,14 @@ public sealed class HudGoldenImageUiTests
     /// so the backgrounds, team colour, pose, gamma and ÜberCharge meter cannot quietly come undone while the TF2
     /// comparisons above are red for the reasons they state. A tighter tolerance, because the viewer repeats itself
     /// to the printed digit (D219).
+    ///
+    /// **Regenerated 2026-10-19**, because the old images were captured before B552 and the HUD tone-map fix and were
+    /// stale (ammo worst 57.8 against them). **The recipe**: the viewer exactly as `Compare` runs it, at 1280x720
+    /// (`TF2VIEW_VIEWPORT_SIZE=1280x720`), `+volume 0 &lt;the lcor demo&gt; --tick N --shot out.png --first-person
+    /// +cl_showfps 0`, with N = `SoldierTick` (1830) for the soldier image and `MedicTick` (4600) for the medic one,
+    /// the output copied over `Goldens/Hud/regression_lock_ours_hud_soldier.png` and `…_medic.png`. **Both images were
+    /// looked at by eye before being kept**: the ammo "4 20" drawn over its shadow, the soldier and medic portraits
+    /// present, the HUD whole (the medic's meter at 0%).
     /// </summary>
     [TestCase("regression_lock_ours_hud_soldier.png", SoldierTick, "ammo", 1150, 640, 1265, 705)]
     [TestCase("regression_lock_ours_hud_soldier.png", SoldierTick, "class and health", 0, 585, 200, 705)]

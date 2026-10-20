@@ -36,6 +36,25 @@ public sealed class IvpRagdollTests
         ragdoll.Body.Elements.Count.ShouldBe(2);
     }
 
+    /// <remarks>
+    /// **The engine writes into its caller's storage** (`RagdollGetBoneMatrix`, `ragdoll_shared.cpp:573`), so asking again
+    /// allocates nothing and answers in the same buffer (finding 82).
+    /// </remarks>
+    [Test]
+    public void State_AskedTwice_AllocatesNothingTheSecondTimeAndReusesItsBuffer()
+    {
+        IvpRagdoll ragdoll = Ragdoll(out _, out _, TurnedChild());
+        (Vector3 Position, Quaternion Orientation)[] first = ragdoll.State();
+
+        long before = System.GC.GetAllocatedBytesForCurrentThread();
+        (Vector3 Position, Quaternion Orientation)[] second = ragdoll.State();
+        long allocated = System.GC.GetAllocatedBytesForCurrentThread() - before;
+
+        allocated.ShouldBe(0L);
+        second.ShouldBeSameAs(first);
+        second[1].Position.X.ShouldBe(3f, 1e-4f);
+    }
+
     /// <remarks>**What comes back is the bone in Source**, the start pose exactly, the turn included.</remarks>
     [Test]
     public void State_BeforeAnyStep_ReportsEachBoneWhereItStartedInSource()

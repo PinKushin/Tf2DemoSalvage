@@ -50,7 +50,11 @@ public static class FileRetention
     /// job for the cleaning. A file that vanished between the listing and the delete is the
     /// ordinary concurrent case and is the same non-event.
     /// </remarks>
-    public static void Keep(string folder, string pattern, int keep)
+    /// <param name="companion">
+    /// A suffix naming a file that belongs to each one — a shot's <c>.json</c> sidecar (D226) — deleted with it, so a
+    /// pruned file leaves no orphan; null for none.
+    /// </param>
+    public static void Keep(string folder, string pattern, int keep, string? companion = null)
     {
         ArgumentNullException.ThrowIfNull(folder);
         ArgumentNullException.ThrowIfNull(pattern);
@@ -78,6 +82,11 @@ public static class FileRetention
                 try
                 {
                     File.Delete(present[index]);
+
+                    if (companion is not null)
+                    {
+                        File.Delete(present[index] + companion);
+                    }
                 }
                 catch (Exception failure) when (
                     failure is IOException or UnauthorizedAccessException)

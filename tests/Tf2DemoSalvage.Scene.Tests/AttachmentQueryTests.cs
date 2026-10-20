@@ -27,6 +27,27 @@ public sealed class AttachmentQueryTests
     /// <summary><c>CONTENTS_HITBOX</c>, <c>bspflags.h</c>.</summary>
     private const int ContentsHitbox = 0x40000000;
 
+    /// <summary>
+    /// **An attachment asks for the attachment bones and nothing more** (finding 82): `GetAttachment` calls
+    /// `CalcAttachments`, which is `SetupBones( NULL, -1, BONE_USED_BY_ATTACHMENT, gpGlobals->curtime )`
+    /// (`c_baseanimating.cpp:2088-2094`). An entity in the scene that nothing drew this frame, and that was never built
+    /// before, is built for exactly that mask; the widening by last frame's mask (`:2920`) has nothing to add.
+    /// </summary>
+    [Test]
+    public void AttachmentPosition_OnAnEntityNothingDrew_BuildsOnlyTheAttachmentBones()
+    {
+        EntityModelSet models = new() { PosesUndrawn = false };
+        SceneProp[] props = [Subject()];
+
+        models.Add(props, _ => Model());
+        models.Instances(props, [], seconds: 0d, pass: EntityModelSet.UndrawnPass);
+        models.ReadableBonesOf(Entity).ShouldBe(0, "the control: the undrawn pass built nothing");
+
+        models.AttachmentPosition(Entity, "muzzle").ShouldNotBeNull().Y.ShouldBe(201f, 1e-3f);
+
+        models.ReadableBonesOf(Entity).ShouldBe(StudioBoneFlags.UsedByAttachment);
+    }
+
     [Test]
     public void AttachmentPosition_ByName_IsTheBoneTimesTheLocalOffset()
     {
@@ -110,6 +131,44 @@ public sealed class AttachmentQueryTests
             Entity, new Vector3(90f, 200f, 300f), new Vector3(20f, 0f, 0f), ContentsHitbox);
 
         fraction.ShouldNotBeNull().ShouldBe(0.4f, 1e-4f);
+    }
+
+    /// <remarks>
+    /// **A static prop no view reached this frame has no posed hitboxes** (finding 83 item 1). It is filed with the leaf
+    /// system and simulated only when a view collates it, so a bullet strike against one that is off screen answers
+    /// null, and `BulletStrikes` falls back to its unposed rule. The engine traces a static prop through its collision
+    /// model by index, never its hitboxes — `IStaticPropMgr::TraceRayAgainstStaticProp` (`IStaticPropMgr.h:47`), and a
+    /// decal goes on one through `AddDecalToStaticProp` (`:64`); here that is `StaticPropCollision` — so this is not a
+    /// loss of parity. The control: the same prop in view stops the ray at its face.
+    /// </remarks>
+    [TestCase(true, 0.4f)]
+    [TestCase(false, null)]
+    public void TraceHitboxes_OnAStaticProp_AnswersOnlyWhenAViewReachedIt(bool viewed, float? expected)
+    {
+        SceneProp placed = PropModels.StaticModel(
+            new Content.Bsp.BspStaticProp("models/props_gameplay/resupply_locker.mdl", 100f, 200f, 300f, 0f, 90f, 0f, 1f), 0);
+        EntityModelSet models = new() { StaticProps = [placed] };
+
+        models.Add([], _ => Model() with { HeaderBounds = new StudioBox(-4f, -4f, -4f, 4f, 4f, 4f) });
+        models.Instances(
+            [],
+            [],
+            seconds: 0d,
+            frustum: viewed
+                ? default
+                : ViewFrustum.Perspective((0f, 0f, 0f), (-1f, 0f, 0f), (0f, 1f, 0f), (0f, 0f, 1f), 1f, 10000f, 90f, 60f));
+
+        float? fraction = models.TraceHitboxes(
+            placed.EntityIndex, new Vector3(90f, 200f, 300f), new Vector3(20f, 0f, 0f), ContentsHitbox);
+
+        if (expected is { } stops)
+        {
+            fraction.ShouldNotBeNull().ShouldBe(stops, 1e-4f);
+        }
+        else
+        {
+            fraction.ShouldBeNull();
+        }
     }
 
     /// <summary>
@@ -207,20 +266,21 @@ public sealed class AttachmentQueryTests
         actual.Z.ShouldBe(expected.Z, 1e-3f);
     }
 
+    /// <summary>The subject at (100, 200, 300), yaw 90.</summary>
+    private static SceneProp Subject() =>
+        new(
+            Entity,
+            "models/props_gameplay/resupply_locker.mdl",
+            ScenePropTrack.Classify("models/props_gameplay/resupply_locker.mdl"),
+            new ScenePose { X = 100f, Y = 200f, Z = 300f, Yaw = 90f },
+            null);
+
     /// <summary>The subject, posed by one pass.</summary>
     private static EntityModelSet Posed()
     {
         EntityModelSet models = new();
 
-        SceneProp[] props =
-        [
-            new(
-                Entity,
-                "models/props_gameplay/resupply_locker.mdl",
-                ScenePropTrack.Classify("models/props_gameplay/resupply_locker.mdl"),
-                new ScenePose { X = 100f, Y = 200f, Z = 300f, Yaw = 90f },
-                null),
-        ];
+        SceneProp[] props = [Subject()];
 
         models.Add(props, _ => Model());
         models.Instances(props, [], seconds: 0d);

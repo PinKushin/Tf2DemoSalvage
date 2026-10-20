@@ -323,6 +323,15 @@ public sealed class BurstEffects
                 frame.Scripts?.Entries));
     }
 
+    /// <summary>Frames that searched the timeline for what to offer, ever (finding 82).</summary>
+    internal long Searches { get; private set; }
+
+    /// <summary>Time spent searching the timeline for this frame's bursts, in stopwatch ticks (finding 82).</summary>
+    internal long SearchTicks { get; private set; }
+
+    /// <summary>Time spent starting and stepping the bursts found, in stopwatch ticks (finding 82).</summary>
+    internal long BurstTicks { get; private set; }
+
     /// <summary>The same, over what the frame's map and game hold as data, which a test can supply (D214).</summary>
     /// <param name="frame">What this frame is stepped against; its map, game and scripts are not read here.</param>
     /// <param name="world">What they hold.</param>
@@ -346,6 +355,10 @@ public sealed class BurstEffects
 
         int tick = frame.Tick;
         FreeCamera viewing = frame.Viewing;
+
+        // **Timed, both halves, where they run** (finding 82, B243): finding what the timeline offers this frame, and
+        // stepping the bursts it found.
+        long searchingAt = System.Diagnostics.Stopwatch.GetTimestamp();
 
         timeline.Explosions.Between(tick - ExplosionWindowTicks, tick, _blastsNow);
 
@@ -390,6 +403,10 @@ public sealed class BurstEffects
         AddHealBeams(timeline, tick, systems);
         AddOverheals(timeline, tick, systems);
 
+        long steppingAt = System.Diagnostics.Stopwatch.GetTimestamp();
+        SearchTicks += steppingAt - searchingAt;
+        Searches++;
+
         _particles.Bursts(
             _burstsNow,
             timeline.IntervalPerTick,
@@ -397,6 +414,8 @@ public sealed class BurstEffects
             tick,
             frame.ShownTick,
             frame.Seeked);
+
+        BurstTicks += System.Diagnostics.Stopwatch.GetTimestamp() - steppingAt;
 
         return _whizzes;
     }

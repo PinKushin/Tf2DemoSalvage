@@ -1,0 +1,21 @@
+{
+  "schema": 1,
+  "side": "tf2",
+  "captured": "2026-10-15",
+  "demo": null,
+  "demoSha256": null,
+  "viewerDemo": "golden_cp_granary2.dem",
+  "viewerDemoSha256": "7ea75ee3004bcd84f7d8b7ee0ee43cd6306d37d3a17738c6155540acfd7353dc",
+  "map": "cp_granary",
+  "tick": null,
+  "camera": [-1982, -794, -294, -1, 61],
+  "viewport": [1280, 720],
+  "convars": {
+    "mat_hdr_level": "0",
+    "fov_desired": "90 (the viewer's equivalent: demo_fov_override 90)",
+    "cl_drawhud": "0",
+    "cl_showfps": "0"
+  },
+  "client": null,
+  "notes": "BACKFILLED 2026-10-19 from Golden.cs and D219; nothing here was re-measured. Retaken 2026-10-15 AFTER `map cp_granary` at mat_hdr_level 0, because the first level-0 capture was a live switch from level 2 and does not match a loaded map (D219); the superseded capture is cp_granary_yard_hdr0.png, read by nothing. Otherwise captured like cp_granary_yard_hdr2.png (spec_mode 6, spec_goto, 1280x720 windowed, tf2 MCP screenshot, resampled once). NOT RECORDED at the time: the exact TF2 client build and the viewer tick."
+}

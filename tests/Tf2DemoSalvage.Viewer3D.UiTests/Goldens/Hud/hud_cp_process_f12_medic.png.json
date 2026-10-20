@@ -1,0 +1,23 @@
+{
+  "schema": 1,
+  "side": "tf2",
+  "captured": "2026-10-17",
+  "demo": null,
+  "demoSha256": null,
+  "viewerDemo": "hudref-cp_process_f12-2026-10-17-pov.dem",
+  "viewerDemoSha256": "4b09bcd105d286289ec392393217360489733b73735fbb0ccba5fbb98d144a5e",
+  "map": "cp_process_f12",
+  "tick": null,
+  "viewerTick": 4600,
+  "camera": null,
+  "viewport": [1280, 720],
+  "convars": {
+    "cl_savescreenshotstosteam": "0",
+    "crosshair": "1",
+    "viewmodel_fov": "54",
+    "tf_use_min_viewmodels": "0",
+    "r_drawviewmodel": "1"
+  },
+  "client": "the modern client, 2026-10-17",
+  "notes": "BACKFILLED 2026-10-19 from HudGoldenImageUiTests.cs and D222; nothing here was re-measured. BLU medic holding the medigun: the ÜberCharge meter at 0% and the class portrait. Captured like hud_cp_process_f12_soldier.png. The cells that differ most are where TF2's first-person medigun hand sits behind the translucent meter background and ours does not (the viewmodels differ). NOT RECORDED: the TF2 client build number and TF2's own tick."
+}

@@ -742,7 +742,7 @@ public sealed class EntityModelsTests
     /// descends or files, and skips a leaf whose contents are solid. A tree of planes alone has no boxes to overlap,
     /// so every renderable would be filed nowhere and the control would collate nothing.
     /// </remarks>
-    private static BspLeafTree SplitAtZeroAboveIsLeafOne()
+    internal static BspLeafTree SplitAtZeroAboveIsLeafOne()
     {
         const short Reach = 4096;
 
