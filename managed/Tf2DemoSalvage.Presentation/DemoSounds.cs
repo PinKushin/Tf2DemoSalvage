@@ -6,6 +6,7 @@ using System.Linq;
 
 using Microsoft.Extensions.Logging;
 
+using Tf2DemoSalvage.Animation.Animating;
 using Tf2DemoSalvage.Audio;
 using Tf2DemoSalvage.Core.Scene;
 using Tf2DemoSalvage.Scene;
@@ -111,6 +112,7 @@ public static class DemoSounds
                     timeline.SoundsToPrecache().Concat(
                         emitted.Select(sound => sound.Name)
                             .Concat(ScriptWaves(emitted, scripts))
+                            .Concat(SurfaceWaves(game.Surfaces, scripts))
                             .Distinct(StringComparer.OrdinalIgnoreCase)),
                     soundscape));
 
@@ -152,6 +154,35 @@ public static class DemoSounds
 
         return sounds
             .Select(static sound => sound.WaveDraw?.Script)
+            .OfType<string>()
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .SelectMany(script => scripts.TryGetValue(script, out SoundScriptEntry entry) ? entry.Waves : [])
+            .Distinct(StringComparer.OrdinalIgnoreCase);
+    }
+
+    /// <summary>Every wave of every script a surface names — what `PrecachePhysicsSounds` precaches at level init.</summary>
+    /// <param name="surfaces">The game's surface properties, or null.</param>
+    /// <param name="scripts">The loaded scripts, or null.</param>
+    /// <returns>Each wave once, in surface, then key, then wave order.</returns>
+    /// <remarks>
+    /// `physics_shared.cpp:1034-1053` walks every surface and passes each of its sound names to `PrecacheScriptSound`, which
+    /// precaches every wave (B503). A step, a bullet impact or a corpse's knock on a surface is the client's own sound, so no demo
+    /// message names it: left out, each decoded inside the frame that first played it (finding 84). The keys are the ones this
+    /// viewer reads and plays; `rolling`, `breaksound` and `strainsound` are not read yet.
+    /// </remarks>
+    public static IEnumerable<string> SurfaceWaves(VphysicsSurfaceProps? surfaces, IReadOnlyDictionary<string, SoundScriptEntry>? scripts)
+    {
+        if (surfaces is null || scripts is null)
+        {
+            return [];
+        }
+
+        return surfaces.Surfaces
+            .SelectMany(static surface => new[]
+            {
+                surface.Sounds.StepLeft, surface.Sounds.StepRight, surface.Sounds.BulletImpact, surface.Sounds.ImpactHard,
+                surface.Sounds.ImpactSoft, surface.Sounds.ScrapeRough, surface.Sounds.ScrapeSmooth,
+            })
             .OfType<string>()
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .SelectMany(script => scripts.TryGetValue(script, out SoundScriptEntry entry) ? entry.Waves : [])
