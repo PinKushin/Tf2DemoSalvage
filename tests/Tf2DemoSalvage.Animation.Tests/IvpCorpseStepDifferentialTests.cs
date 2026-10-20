@@ -21,6 +21,62 @@ public sealed class IvpCorpseStepDifferentialTests
     [Test]
     public void Simulate_ACorpseDroppedOnAFloor_EveryPoseHashesAsBefore()
     {
+        (IvpRagdollWorld world, IvpRagdoll ragdoll) = Dropped();
+
+        ulong hash = 14695981039346656037UL;
+        long allocatedFrom = 0;
+
+        for (int tick = 0; tick < Ticks; tick++)
+        {
+            if (tick == 20)
+            {
+                allocatedFrom = GC.GetAllocatedBytesForCurrentThread();
+            }
+
+            world.Simulate(1f / 66f);
+
+            foreach ((Vector3 position, Quaternion orientation) in ragdoll.State())
+            {
+                hash = Mix(hash, position.X, position.Y, position.Z, orientation.X, orientation.Y, orientation.Z, orientation.W);
+            }
+        }
+
+        long physics = GC.GetAllocatedBytesForCurrentThread() - allocatedFrom - NonPhysics(ragdoll, Ticks - 20);
+
+        // **A ceiling on the physics' OWN allocation**, the loop's bytes less a control loop of the same 180 ticks' hashing and
+        // State() reads without the step (the runtime's and the hash's, which the physics does not own). Measured:
+        // 819,888-821,832 bytes after a side was kept per refresh, varying with test order; about 950,000 before (973,928 for the
+        // whole loop). The ceiling sits ~3.5% above, below the old figure, so putting the per-look side back reddens it and a few
+        // KB of runtime drift does not.
+        physics.ShouldBeLessThanOrEqualTo(850_000L, "the step's own allocation, ticks 20-199");
+
+        // The hook a corpse's entity is handed every step is one delegate, not one per step (52 MB per 20 s on f12).
+        ragdoll.PoseHook.ShouldBeSameAs(ragdoll.PoseHook);
+        world.Simulation.Environment.Impacts.ShouldBeGreaterThan(0, $"the control: the corpse struck the floor; root at {ragdoll.State()[0].Position}");
+        hash.ShouldBe(1606571577950495611UL,"the poses' bits as they were before the allocation work");
+    }
+
+    /// <summary>The bytes the loop's non-physics work allocates over <paramref name="ticks"/> ticks: State() and the hash.</summary>
+    private static long NonPhysics(IvpRagdoll ragdoll, int ticks)
+    {
+        ulong hash = 0;
+        long from = GC.GetAllocatedBytesForCurrentThread();
+
+        for (int tick = 0; tick < ticks; tick++)
+        {
+            foreach ((Vector3 position, Quaternion orientation) in ragdoll.State())
+            {
+                hash = Mix(hash, position.X, position.Y, position.Z, orientation.X, orientation.Y, orientation.Z, orientation.W);
+            }
+        }
+
+        long spent = GC.GetAllocatedBytesForCurrentThread() - from;
+        GC.KeepAlive(hash);
+        return spent;
+    }
+
+    private static (IvpRagdollWorld World, IvpRagdoll Ragdoll) Dropped()
+    {
         IvpRagdollWorld world = new(
             1f / 66f,
             new Vector3(0f, 0f, -800f),
@@ -42,31 +98,29 @@ public sealed class IvpCorpseStepDifferentialTests
             [(Vector3.Zero, Quaternion.Identity), (new Vector3(0f, 6f, 10f), Quaternion.Identity)]);
         ragdoll.Kill(new Vector3(300f, 0f, -200f), forceBone: 1);
 
-        ulong hash = 14695981039346656037UL;
-        long allocatedFrom = 0;
+        return (world, ragdoll);
+    }
 
+    /// <remarks>
+    /// **A frozen object keeps no side** (review of finding 83's reuse): `Freeze` drops the object's cache, and the side built on
+    /// that cache must go with it, or every settled corpse pins a dead cache and a side for its life. *The control*: before
+    /// the freeze the landed root did hold a side.
+    /// </remarks>
+    [Test]
+    public void Freeze_ALandedCorpsesUnit_LeavesNoSideOnItsObjects()
+    {
+        (IvpRagdollWorld world, IvpRagdoll ragdoll) = Dropped();
         for (int tick = 0; tick < Ticks; tick++)
         {
-            if (tick == 20)
-            {
-                allocatedFrom = GC.GetAllocatedBytesForCurrentThread();
-            }
-
             world.Simulate(1f / 66f);
-
-            foreach ((Vector3 position, Quaternion orientation) in ragdoll.State())
-            {
-                hash = Mix(hash, position.X, position.Y, position.Z, orientation.X, orientation.Y, orientation.Z, orientation.W);
-            }
         }
 
-        // **A ceiling, measured**: 973,928 bytes over ticks 20-199 before a side was kept per refresh, 841,992 after (finding 83).
-        // A ceiling rather than an equality, so taking out another allocation passes and putting one back does not.
-        (GC.GetAllocatedBytesForCurrentThread() - allocatedFrom).ShouldBeLessThanOrEqualTo(841_992L, "the step's allocation, ticks 20-199");
-        // The hook a corpse's entity is handed every step is one delegate, not one per step (52 MB per 20 s on f12).
-        ragdoll.PoseHook.ShouldBeSameAs(ragdoll.PoseHook);
-        world.Simulation.Environment.Impacts.ShouldBeGreaterThan(0, $"the control: the corpse struck the floor; root at {ragdoll.State()[0].Position}");
-        hash.ShouldBe(1606571577950495611UL,"the poses' bits as they were before the allocation work");
+        IvpRigidBody root = ragdoll.Bodies[0];
+        root.Objects.ShouldContain(made => made.LastSide != null, "the control: the landed corpse's root built a side");
+
+        root.Unit!.Freeze(world.Simulation.Environment, world.Simulation.Now);
+
+        root.Objects.ShouldAllBe(made => made.Cache == null && made.LastSide == null);
     }
 
     /// <remarks>
