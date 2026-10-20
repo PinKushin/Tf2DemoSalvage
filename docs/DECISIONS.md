@@ -10876,3 +10876,15 @@ a seek lands within a few ticks of the request). And: *"go ahead"*.
 session notes. **Not decided here:** whether a golden TEST (the `HudGoldenImageUiTests` family) should read the sidecar to
 set its own capture instead of constants; that is a later step once the files exist.
 
+**Refinements, 2026-10-20, after the first implementation and a Fable review.** Owner's words in quotes.
+1. **ConVars: only those that differ from their declared default.** *"only the ones that differ from defaults"*. The sidecar was
+   listing about 47, mostly defaults. `--like` still applies every ConVar a TF2 sidecar names.
+2. **`--like` on a demo-hash mismatch warns and still shoots**, recording the reason in `notes`: the TF2 sidecar's `demoSha256`
+   is compared with the demo actually opened. The owner did not follow the hash point (*"i dont really get 2 and 3, but
+   probably?"*), so this is the lead's default for what he approved; the comparison is also what the hook in item 3 will enforce.
+3. **`gitSha` gets `-dirty`** when the working tree is not clean at the moment of the shot (same "probably"). It describes the
+   tree at shot time, while the sha names the commit at build time; they can disagree, which is acceptable for a record of the shot.
+4. **The F12-key hand screenshot writes a sidecar only in a Debug build**: *"have it write the sidecar only in debug"*, after
+   the lead explained that the F12 meant the key and not the f12 demo. `--shot` writes one in every build, because the golden
+   tests and the hook depend on it. The screenshot tidy-up deletes a shot's `.png.json` with its PNG.
+
