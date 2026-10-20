@@ -1,4 +1,5 @@
 using System;
+using System.Buffers.Binary;
 using System.Collections.Generic;
 using System.IO;
 
@@ -109,7 +110,7 @@ public static class IvpLedgeTreeReplay
 
         Array.Fill(nodeOffsets, -1);
         Array.Fill(ledgeOffsets, -1);
-        BitConverter.TryWriteBytes(surface.AsSpan(LedgeTreeOffset), tree);
+        BinaryPrimitives.WriteInt32LittleEndian(surface.AsSpan(LedgeTreeOffset), tree);
 
         if (nodes == 0 || Place(kinds, surface, 0, tree, nodeOffsets) != nodes)
         {
@@ -123,20 +124,20 @@ public static class IvpLedgeTreeReplay
 
             for (int lane = 0; lane < 3; lane++)
             {
-                BitConverter.TryWriteBytes(surface.AsSpan(at + 8 + (lane * 4)), IvpImpactReplay.Whole32(inputs, "center" + suffix, (index * 3) + lane));
+                BinaryPrimitives.WriteInt32LittleEndian(surface.AsSpan(at + 8 + (lane * 4)), IvpImpactReplay.Whole32(inputs, "center" + suffix, (index * 3) + lane));
             }
 
-            BitConverter.TryWriteBytes(surface.AsSpan(at + 0x14), IvpImpactReplay.Whole32(inputs, "radius" + suffix, index));
-            BitConverter.TryWriteBytes(surface.AsSpan(at + 0x18), IvpImpactReplay.Whole32(inputs, "box" + suffix, index) & 0xffffff);
+            BinaryPrimitives.WriteInt32LittleEndian(surface.AsSpan(at + 0x14), IvpImpactReplay.Whole32(inputs, "radius" + suffix, index));
+            BinaryPrimitives.WriteInt32LittleEndian(surface.AsSpan(at + 0x18), IvpImpactReplay.Whole32(inputs, "box" + suffix, index) & 0xffffff);
 
             if (kind != Inner)
             {
                 int back = backs is null ? Unused : (int)backs[index];
 
                 ledgeOffsets[index] = ledge;
-                BitConverter.TryWriteBytes(surface.AsSpan(at + 4), ledge - at);
-                BitConverter.TryWriteBytes(surface.AsSpan(ledge + 4), (back == Unused ? at : nodeOffsets[back]) - ledge);
-                BitConverter.TryWriteBytes(surface.AsSpan(ledge + 8), kind == InnerWithLedge ? 1 : 0);
+                BinaryPrimitives.WriteInt32LittleEndian(surface.AsSpan(at + 4), ledge - at);
+                BinaryPrimitives.WriteInt32LittleEndian(surface.AsSpan(ledge + 4), (back == Unused ? at : nodeOffsets[back]) - ledge);
+                BinaryPrimitives.WriteInt32LittleEndian(surface.AsSpan(ledge + 8), kind == InnerWithLedge ? 1 : 0);
                 ledge += stubSize;
             }
         }
@@ -247,7 +248,7 @@ public static class IvpLedgeTreeReplay
             return -1;
         }
 
-        BitConverter.TryWriteBytes(surface.AsSpan(at), (right - index) * NodeSize);
+        BinaryPrimitives.WriteInt32LittleEndian(surface.AsSpan(at), (right - index) * NodeSize);
 
         return Place(kinds, surface, right, at + ((right - index) * NodeSize), offsets);
     }

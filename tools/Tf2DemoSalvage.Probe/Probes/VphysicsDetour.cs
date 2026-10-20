@@ -1,4 +1,5 @@
 using System;
+using System.Buffers.Binary;
 using System.Runtime.InteropServices;
 
 namespace Tf2DemoSalvage.Probe.Probes;
@@ -40,7 +41,7 @@ internal sealed partial class VphysicsDetour : IDisposable
 
         patch[0] = 0x48;
         patch[1] = 0xB8;
-        BitConverter.TryWriteBytes(patch.AsSpan(2), (long)Marshal.GetFunctionPointerForDelegate(_callback));
+        BinaryPrimitives.WriteInt64LittleEndian(patch.AsSpan(2), (long)Marshal.GetFunctionPointerForDelegate(_callback));
         patch[10] = 0xFF;
         patch[11] = 0xE0;
         Write(patch);

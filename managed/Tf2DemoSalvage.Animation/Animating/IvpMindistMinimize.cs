@@ -836,7 +836,7 @@ public static class IvpMindistMinimize
                 _mindist.Length = -_mindist.ExtraRadius;
 
                 (double X, double Y, double Z) sideways = IvpVector.Perpendicular(along);
-                IvpVector.TryScaleToUnitLength(ref sideways, IvpVector.FiveSteps);
+                _ = IvpVector.TryScaleToUnitLength(ref sideways, IvpVector.FiveSteps);
 
                 // Written in the edge's frame and not turned into the world: the engine does not.
                 _mindist.Normal = ((float)sideways.X, (float)sideways.Y, (float)sideways.Z);
@@ -903,7 +903,7 @@ public static class IvpMindistMinimize
 
             (float X, float Y, float Z) origin = sf.StartOf(f);
             (double X, double Y, double Z) normal = sf.FaceNormal(f);
-            IvpVector.TryScaleToUnitLength(ref normal);
+            _ = IvpVector.TryScaleToUnitLength(ref normal);
 
             (double X, double Y, double Z) world = sf.Current.Rotate(normal);
             (double X, double Y, double Z) up = sp.Current.RotateInverse(world);

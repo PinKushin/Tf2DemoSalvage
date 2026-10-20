@@ -120,7 +120,7 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
             //
             // Ignored on failure rather than checked: a machine with OpenAL installed system-wide
             // needs nothing from us, and one with neither is handled by the catches below.
-            NativeLibraryResolver.TryLoadOpenAl();
+            _ = NativeLibraryResolver.TryLoadOpenAl();
 
             AL al = AL.GetApi();
             ALContext alc = ALContext.GetApi();
@@ -721,7 +721,8 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
 
         try
         {
-            NativeLibraryResolver.TryLoadOpenAl();
+            // Ignored for TryCreate's reason.
+            _ = NativeLibraryResolver.TryLoadOpenAl();
 
             // OpenAL Soft by name: the loopback is its extension, and a system router need not export it.
             AL al = AL.GetApi(soft: true);
