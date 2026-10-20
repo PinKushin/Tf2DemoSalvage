@@ -167,6 +167,9 @@ public sealed class ShotSidecarTests
     [TestCase(@"\\evil\share\x.dem")]
     [TestCase(@"..\x.dem")]
     [TestCase("sub/x.dem")]
+    [TestCase("..")]
+    [TestCase(".")]
+    [TestCase("C:x.dem")]
     public void Read_ADemoThatIsAPath_RefusesIt(string demo)
     {
         Should.Throw<FormatException>(() => ShotSidecar.Read(SidecarNamingDemo(demo))).Message.ShouldContain("demo must be a file name");
