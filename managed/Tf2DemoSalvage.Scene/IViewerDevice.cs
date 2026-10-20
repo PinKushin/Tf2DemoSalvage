@@ -67,6 +67,9 @@ public interface IViewerDevice
     /// <param name="surfaceColours">Whether the surface-colour view is on.</param>
     public void SetCamera(FreeCamera camera, bool surfaceColours = false);
 
+    /// <summary>The parts of the last <see cref="SetCamera"/>, in stopwatch ticks, each timed inside it where it ran (B243).</summary>
+    public IReadOnlyList<(string Part, long Ticks)> SetCameraParts { get; }
+
     /// <summary>The frustum of the camera last set: the one the world cull and the draw use.</summary>
     public ViewFrustum Frustum { get; }
 

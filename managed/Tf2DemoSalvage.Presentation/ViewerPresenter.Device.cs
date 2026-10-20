@@ -21,6 +21,9 @@ public sealed partial class ViewerPresenter
     /// <summary>The camera the last frame was set up with, for <see cref="Pick"/>.</summary>
     private FreeCamera? _lastViewing;
 
+    /// <summary>The rate line's name for each of the device's <see cref="IViewerDevice.SetCameraParts"/>, built once.</summary>
+    private readonly System.Collections.Generic.Dictionary<string, string> _setCameraNames = new(StringComparer.Ordinal);
+
     /// <summary>Takes the device, gives it every setting a new device takes, and tells the scene where packed geometry goes.</summary>
     /// <param name="device">The device, just created.</param>
     /// <param name="specularOff">Unticks the menu's Reflections item, which is what switches `mat_specular` off.</param>
@@ -111,6 +114,19 @@ public sealed partial class ViewerPresenter
         {
             parts.Add("camera view", deviceAt - viewAt);
             parts.Add("camera setcamera", posingAt - deviceAt);
+
+            // The device's own split of that, as it timed it (B243).
+            foreach ((string part, long ticks) in device.SetCameraParts)
+            {
+                if (!_setCameraNames.TryGetValue(part, out string? name))
+                {
+                    name = "camera setcamera " + part;
+                    _setCameraNames.Add(part, name);
+                }
+
+                parts.Add(name, ticks);
+            }
+
             parts.Add("camera pose", particlesAt - posingAt);
             parts.Add("camera particles", particledAt - particlesAt);
         }
