@@ -96,7 +96,12 @@ public sealed class ParticleEffectConformanceTests
         // effects birth at once. Eight effects of one system, each emitting one particle a step for 5,000 steps: an
         // unsynchronised read-modify-write loses some of the 40,000 or throws out of the dictionary.
         string name = "births-on-eight-threads-" + Guid.NewGuid().ToString("N");
-        ParticleSystem system = System("emission_rate", 66d) with { Name = name };
+        // With `Lifespan Decay`: without a killer the particles live on and the 1,000 cap stops births (B557 rows 1, 3).
+        ParticleSystem system = System("emission_rate", 66d) with
+        {
+            Name = name,
+            Operators = [new ParticleFunction("Lifespan Decay", "decay", Empty)],
+        };
         ParticleEffect[] effects = [.. Enumerable.Range(0, 8).Select(_ => new ParticleEffect(system))];
 
         Parallel.ForEach(effects, new ParallelOptions { MaxDegreeOfParallelism = 8 }, effect =>
