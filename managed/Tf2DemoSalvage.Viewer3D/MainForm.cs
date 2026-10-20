@@ -812,7 +812,7 @@ internal class MainForm : Form, IViewerWindow, IIdleHost
     public const string WindowPositionVariable = "TF2VIEW_WINDOW_POS";
 
     /// <summary>Environment variable pinning the 3D view's client size, as WIDTHxHEIGHT; the window grows around it.</summary>
-    public const string ViewportSizeVariable = "TF2VIEW_VIEWPORT_SIZE";
+    public const string ViewportSizeVariable = ShotSidecar.ViewportSizeVariable;
 
     // **`CameraVariable` was declared HERE as well, and this copy was read by nothing** — removed
     // 2026-08-29. `FreeCameraController` declares the same name and is the only place that reads

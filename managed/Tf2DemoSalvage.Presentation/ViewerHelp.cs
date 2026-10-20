@@ -58,7 +58,15 @@ public static class ViewerHelp
           --tick <n>                 Seek here before drawing.
           --shot <path>              Save one frame to path, then exit. Exits 1, with the reason
                                      on stderr, if the file is not a demo.
-          --spectate <who>           First-person a specific player: a NAME, a Steam id
+                                     Also writes <path>.json beside it: the demo and its
+                                     sha256, map, tick, camera, viewport, settings, build and
+                                     command line (file names only), as D226 lays out.
+          --like <shot.png.json>     Reproduce a TF2-side capture from its sidecar: takes its
+                                     tick, camera, view size and cvars (and its demo, from
+                                     beside the sidecar, when none is named). A --tick or
+                                     +cvar given too still wins; the camera and view
+                                     size variables below do not. The --shot sidecar names it.
+          --spectate <who>          First-person a specific player: a NAME, a Steam id
                                     ([U:1:n], STEAM_0:y:z or 7656...), a user id or an
                                     entity index. A name matches case-insensitively, exactly
                                     first and then by part. A point-of-view demo ignores this
