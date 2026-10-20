@@ -235,8 +235,17 @@ public sealed class MomentScene : IGameSystemPerFrame
         }
     } = LevelLighting.Unlit(NullLogger.Instance);
 
-    /// <summary>The map's static props drawn as models every moment, set when a map is read (B426).</summary>
-    public IReadOnlyList<SceneProp> StaticProps { get; set; } = [];
+    /// <summary>The map's static props drawn as models, set when a map is read (B426).</summary>
+    /// <remarks>
+    /// **Handed to the model set once, never put on the draw list** (finding 83 item 1): the engine registers a
+    /// static prop with the leaf system at level load and reaches it only through the in-view gather, so none of
+    /// this class's per-entity passes — the visibility filters, `PlaceFrame`, `UpdateClientSideAnimations` — visits one.
+    /// </remarks>
+    public IReadOnlyList<SceneProp> StaticProps
+    {
+        get => _models.StaticProps;
+        set => _models.StaticProps = value;
+    }
 
     /// <summary>Whether a moment is built for simulation alone — a skip's frame (B504) — and so holds entities only.</summary>
     public bool EntitiesOnly { get; set; }
@@ -336,13 +345,11 @@ public sealed class MomentScene : IGameSystemPerFrame
         _drawn.Clear();
         _drawn.AddRange(props);
 
-        // The map's unbaked static props, drawn as models (B426, `engine.dll` `0x1800f1bd0`) — not entities, so a frame that
-        // only simulates (a skip's, B504) leaves them out: `SimulateEntities` walks the client entity list, which a
-        // `CStaticProp` is never on.
-        if (!EntitiesOnly)
-        {
-            _drawn.AddRange(StaticProps);
-        }
+        // The map's unbaked static props, drawn as models (B426, `engine.dll` `0x1800f1bd0`) — not entities, so they are
+        // not on this list at all: the model set gathers the ones in view from the leaf system (finding 83 item 1). A
+        // frame that only simulates (a skip's, B504) gathers none: `SimulateEntities` walks the client entity list, which
+        // a `CStaticProp` is never on.
+        _models.GathersStaticProps = !EntitiesOnly;
 
         // **A weapon's model comes from its ITEM, and some weapons network no model index at all.**
         // `CEconEntity::SetModel` resolves `pItem->GetPlayerDisplayModel( iClass, team )` —
@@ -757,7 +764,8 @@ public sealed class MomentScene : IGameSystemPerFrame
             Viewmodel: viewmodelTicks,
             Counters: pose,
             Drawn: posed,
-            Selected: _drawn.Count,
+            // The static props are offered to the gather beside the list (finding 83 item 1), and its cull counts them.
+            Selected: _drawn.Count + (_models.GathersStaticProps ? StaticProps.Count : 0),
             Hidden: hidden,
             Unjudgeable: unjudged,
             Undrawn: undrawnTicks);
