@@ -89,7 +89,9 @@ public static class ShotSidecar
     {
         ArgumentNullException.ThrowIfNull(value);
 
-        string name = value.IndexOfAny(['/', '\\']) < 0 ? value : Path.GetFileName(value);
+        // **Both separators, by hand, on every platform**: `Path.GetFileName` knows only the running platform's, so on
+        // Linux (where CI runs the tests) `..\..\Users\x\y.dem` would pass through whole.
+        string name = value[(value.AsSpan().LastIndexOfAny('/', '\\') + 1)..];
 
         return name.Length > 0 ? name : value;
     }
@@ -189,7 +191,8 @@ public static class ShotSidecar
 
         // **A file name and nothing else**: `Expand` joins it to the sidecar's folder, and a rooted or UNC value would
         // replace that folder outright (an SMB path opened before anyone sees the name), and `..` would leave it.
-        if (!string.Equals(Path.GetFileName(demo), demo, StringComparison.Ordinal))
+        // Both separators and a drive colon are refused by hand: `Path.GetFileName` would let a Windows path through on Linux.
+        if (demo.AsSpan().IndexOfAny('/', '\\', ':') >= 0 || demo is "." or "..")
         {
             throw new FormatException($"demo must be a file name, not \"{demo}\"");
         }
