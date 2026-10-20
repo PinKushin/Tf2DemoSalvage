@@ -172,6 +172,12 @@ first hypothesis (a blocking gen2 GC of a ~3.5 GB heap) is dead.
   measured run afterwards (19:07) moved the counter +20 steps over ticks 30528–30595, against +23,500 before. That run's
   timings are void, since another agent's build overlapped it; the count is not a timing. **The instrument rule this
   adds: print a double you are comparing as its bits, or with an invariant culture, never as `{value}` to a console.**
+- **What the bound reads, after the second review.** Only the lifetime writers the viewer runs: `Lifetime Random`,
+  with its keys defaulting as the initializer's do; `Lifetime From Sequence`, by the sheet; and `move particles
+  between 2 control points` and a `remap initial scalar` onto the life, both unbounded. A child is bounded from its
+  parent's start, because this viewer does not apply a child's `delay` (`ParticleChildrenInfo_t::m_flDelay`,
+  `particles.h:2125`); that gap is older than this finding (B562). A replay treats undrawn ticks as drawn where the
+  engine would sleep the effect (B563); the sleep rule for the bound waits on that audit.
 - **Row 6 (`fix/particle-caller-parity`) and this rule, on one burst.** A burst fired after the landing but
   unplaceable on its creation frame is built later by a replay from its own tick. So it takes one step of simulation
   more than a burst created on its own frame, which row 6 makes simulate nothing. Chosen, since the replay is what a
@@ -196,7 +202,10 @@ first hypothesis (a blocking gen2 GC of a ~3.5 GB heap) is dead.
   sounds in 19 ms` without the surface set and `precached 948 of 949 sounds in 85 ms` with it (113 ms in another run,
   763 ms once with a cold disk). Held after playback: 593 sounds and 260 MB without the set, 926 sounds and 277 MB
   with it (WAV 211 MB, MP3 66 MB), far under the 512 MB cap. The surface sounds are precached first, as the engine
-  does at level init, so near the cap the cache would let a step wave go before a demo sound.
+  does at level init. The order matters only once the cap is reached, and the engine has no cap: `SoundCache` lets the
+  least recently used go from the back, so the first precached would be the first evicted, a step wave before a demo
+  sound. They are also precached on the load worker now, behind the B146 barrier; before, the worker had no scripts
+  and the 385 surface names decoded in `Apply` on the UI thread.
 - **What is left, and it is now most of the jitter.** In the 19:07 run (timings void, see above) seven decodes on first
   play took 170–402 ms: `player/invulnerable_on.wav`, `grenade_launcher_drum_start` and `_close`,
   `stickybomblauncher_boltback`, a near-miss whiz, `vo/null.mp3` and `draw_primary`. Earlier the same:
