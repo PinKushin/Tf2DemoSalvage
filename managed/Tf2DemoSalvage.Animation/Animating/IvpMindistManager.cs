@@ -53,6 +53,17 @@ public sealed class IvpCollisionObject
     /// <summary>The object's cache, <c>+0x70</c>, or null before it is first asked for.</summary>
     public IvpObjectCache? Cache { get; set; }
 
+    /// <summary>
+    /// The last side built on this object — its ledge (by the point list a side's compact half is keyed on), the cache it stood on
+    /// and that cache's refresh — not a field the engine keeps.
+    /// </summary>
+    /// <remarks>
+    /// **The engine builds a side per synapse on its stack**; a side here is an immutable record, so one built on the same ledge from
+    /// the same refresh of the same cache holds the same values, and is handed back rather than built again (finding 83: 486 MB per
+    /// 20 s of f12's corpse record).
+    /// </remarks>
+    internal (IReadOnlyList<System.Numerics.Vector3> Ledge, IvpObjectCache Cache, int Refreshes, IvpLedgeSide Side)? LastSide { get; set; }
+
     /// <summary>The object's cache, made and refreshed as asked — <c>FUN_18008c420</c>.</summary>
     /// <param name="environment">The object's environment.</param>
     /// <returns>The cache.</returns>

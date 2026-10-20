@@ -69,6 +69,12 @@ public sealed class CorpsePhysics
     private readonly Dictionary<int, int> _contacts = [];
     private readonly Dictionary<int, int> _born = [];
     private readonly Dictionary<int, Vector3> _seeded = [];
+
+    /// <summary><see cref="Advance"/>'s and <see cref="Retire"/>'s working sets, owned so a step allocates none of them.</summary>
+    private readonly HashSet<int> _seededNow = [];
+    private readonly HashSet<int> _asked = [];
+    private readonly List<int> _retiring = [];
+    private int[] _births = [];
     private readonly Dictionary<int, (float X, float Y, float Z)> _blows = [];
     private readonly Dictionary<int, (int Tick, int Contacts, (double X, double Y, double Z) At)> _fell = [];
     private readonly Dictionary<int, (double X, double Y, double Z)> _touched = [];
@@ -226,8 +232,9 @@ public sealed class CorpsePhysics
 
         bool unreachable = _world is null || tick < _worldTick;
 
-        foreach (CorpseRequest corpse in corpses)
+        for (int index = 0; index < corpses.Count; index++)
         {
+            CorpseRequest corpse = corpses[index];
             int birth = BirthOf(corpse, tick);
             unreachable |= birth < _worldTick && !IsRunning(corpse, birth);
         }
@@ -239,7 +246,13 @@ public sealed class CorpsePhysics
 
         // **Each birth decided once, after the rebuild is**: a corpse with no recorded death keeps its seed tick only while it is in the
         // world, so a rebuild seeds it now — the replay must start from the births the corpses will actually be given.
-        int[] births = new int[corpses.Count];
+        // Owned and refilled, made again only when the count changes (finding 83): one writer, nothing kept past this call.
+        if (_births.Length != corpses.Count)
+        {
+            _births = new int[corpses.Count];
+        }
+
+        int[] births = _births;
         int earliest = int.MaxValue;
 
         for (int index = 0; index < births.Length; index++)
@@ -248,7 +261,8 @@ public sealed class CorpsePhysics
             earliest = Math.Min(earliest, births[index]);
         }
 
-        HashSet<int> seeded = [];
+        HashSet<int> seeded = _seededNow;
+        seeded.Clear();
 
         if (unreachable)
         {
@@ -329,7 +343,7 @@ public sealed class CorpsePhysics
                 continue;
             }
 
-            entity.Ragdoll = ragdoll.PoseIntoAccessor;
+            entity.Ragdoll = ragdoll.PoseHook;
 
             // **`C_ClientRagdoll::LastBoneChangedTime()` returns the physics update time** (`c_baseanimating.cpp:587`), which
             // `CRagdoll::VPhysicsUpdate` advances only while the body moves — so a stepped corpse's pose is rebuilt, and one asked
@@ -366,14 +380,17 @@ public sealed class CorpsePhysics
             return;
         }
 
-        HashSet<int> asked = [];
+        // Both owned and cleared rather than made per call (finding 83: 54 MB per 20 s of f12's corpse record).
+        HashSet<int> asked = _asked;
+        asked.Clear();
 
-        foreach (CorpseRequest corpse in corpses)
+        for (int index = 0; index < corpses.Count; index++)
         {
-            asked.Add(corpse.EntityIndex);
+            asked.Add(corpses[index].EntityIndex);
         }
 
-        List<int> retiring = [];
+        List<int> retiring = _retiring;
+        retiring.Clear();
 
         foreach ((int entity, _) in _running)
         {

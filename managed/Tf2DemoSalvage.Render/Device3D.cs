@@ -2891,6 +2891,11 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
     {
         ArgumentNullException.ThrowIfNull(camera);
 
+        // **Timed here, where each part runs, and carried to the rate line** (B243): `camera setcamera` was one number
+        // over the view setup, the constant upload, the world cull and the detail rebuild (finding 83).
+        long startAt = Stopwatch.GetTimestamp();
+        long batchesAt = 0, overlaysAt = 0, skyAt = 0, culledAt = 0;
+
         _frustum = camera.Frustum();
 
         // The main view the static props' screen fades measure through (B432), from the same camera.
@@ -2905,7 +2910,11 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         // The monitor view rides on the main one's setup (`DrawMonitors( GetView( STEREO_EYE_MONO ) )`, B511).
         _monitorView = MonitorCamera is { } pointCamera ? MonitorView.Camera(pointCamera, camera) : null;
 
+        long viewAt = Stopwatch.GetTimestamp();
+
         SetCamera(camera.ToMatrix(), surfaceColours);
+
+        long uploadAt = Stopwatch.GetTimestamp();
 
         // **The world's own cull, from the same camera and in the same call.** Null when the map
         // carried no visibility data, which the renderer reads as "draw the batches you already
@@ -2936,6 +2945,8 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
             _world.VisibleBatches = _culling?.Batches(
                 camera.Origin.X, camera.Origin.Y, camera.Origin.Z, _frustum, _world.IsTwoSidedMaterial);
 
+            batchesAt = Stopwatch.GetTimestamp();
+
             (float X, float Y, float Z) overlayEye = (camera.Origin.X, camera.Origin.Y, camera.Origin.Z);
 
             // **The same view's blended surfaces, by leaf place**, for the translucent interleave (B426) — a surface
@@ -2957,6 +2968,8 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
                 overlayEye,
                 _world.IsBlendedMaterial,
                 _culling is { } groups ? groups.SortGroup : null) ?? [];
+
+            overlaysAt = Stopwatch.GetTimestamp();
 
             // **The sky view is its OWN view, with its own eye, frustum and visibility.** Valve
             // builds it as a separate `CSkyboxView` and calls `ViewSetupVis` at the sky camera's
@@ -2998,14 +3011,32 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
 
             ReportWorldCull();
 
+            skyAt = Stopwatch.GetTimestamp();
+
             // The water views, from the same cull (B62); the main view's fog may be the volume's.
             PlanWater(camera);
             ReapplyCamera();
+
+            culledAt = Stopwatch.GetTimestamp();
+        }
+        else
+        {
+            batchesAt = overlaysAt = skyAt = culledAt = uploadAt;
         }
 
         // **Outside the cull gate, because it turns on a different thing**: the eye and the view direction (the fast
         // lane's behind-the-eye cull, B435), not the lens.
         RebuildDetailSprites((camera.Origin.X, camera.Origin.Y, camera.Origin.Z), _translucentForward);
+
+        long detailAt = Stopwatch.GetTimestamp();
+
+        _setCameraParts[0] = ("view", viewAt - startAt);
+        _setCameraParts[1] = ("upload", uploadAt - viewAt);
+        _setCameraParts[2] = ("batches", batchesAt - uploadAt);
+        _setCameraParts[3] = ("overlays", overlaysAt - batchesAt);
+        _setCameraParts[4] = ("sky", skyAt - overlaysAt);
+        _setCameraParts[5] = ("water", culledAt - skyAt);
+        _setCameraParts[6] = ("detail", detailAt - culledAt);
     }
 
 
@@ -3042,6 +3073,13 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         // map keeps the wrong projection until the user next moves.
         _worldCamera = (matrix, surfaceColours);
     }
+
+    /// <summary>The parts of the last <see cref="SetCamera(FreeCamera, bool)"/>, refilled in place, so a frame allocates nothing.</summary>
+    private readonly (string Part, long Ticks)[] _setCameraParts =
+        [("view", 0), ("upload", 0), ("batches", 0), ("overlays", 0), ("sky", 0), ("water", 0), ("detail", 0)];
+
+    /// <inheritdoc/>
+    public IReadOnlyList<(string Part, long Ticks)> SetCameraParts => _setCameraParts;
 
     /// <summary>Whether the world draws in wireframe — Valve's <c>mat_wireframe</c>.</summary>
     /// <remarks>

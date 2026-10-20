@@ -64,6 +64,8 @@ internal sealed class FakeViewerDevice : IViewerDevice
 
     public int? ObserverTarget { get => null; set => Note(nameof(ObserverTarget), value?.ToString(CultureInfo.InvariantCulture) ?? "nobody"); }
 
+    public IReadOnlyList<(string Part, long Ticks)> SetCameraParts { get; set; } = [];
+
     public ViewFrustum Frustum => default;
 
     public RenderableViews Views => default;

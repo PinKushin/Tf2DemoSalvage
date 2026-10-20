@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 
 using Tf2DemoSalvage.Render;
@@ -20,6 +21,9 @@ public sealed partial class ViewerPresenter
 
     /// <summary>The camera the last frame was set up with, for <see cref="Pick"/>.</summary>
     private FreeCamera? _lastViewing;
+
+    /// <summary>The rate line's name for each of the device's <see cref="IViewerDevice.SetCameraParts"/>, built once.</summary>
+    private readonly Dictionary<string, string> _setCameraNames = new(StringComparer.Ordinal);
 
     /// <summary>Takes the device, gives it every setting a new device takes, and tells the scene where packed geometry goes.</summary>
     /// <param name="device">The device, just created.</param>
@@ -110,7 +114,26 @@ public sealed partial class ViewerPresenter
         if (_effects.Parts is { } parts)
         {
             parts.Add("camera view", deviceAt - viewAt);
+            // `posingAt - deviceAt` also covers the six `device.*` feed writes before `SetCamera`, so it exceeds the seven parts' sum by microseconds.
             parts.Add("camera setcamera", posingAt - deviceAt);
+
+            // The device's own split of that, as it timed it (B243). Indexed, because a foreach over the interface
+            // allocates an enumerator on every measured frame.
+            IReadOnlyList<(string Part, long Ticks)> split = device.SetCameraParts;
+
+            for (int at = 0; at < split.Count; at++)
+            {
+                (string part, long ticks) = split[at];
+
+                if (!_setCameraNames.TryGetValue(part, out string? name))
+                {
+                    name = "camera setcamera " + part;
+                    _setCameraNames.Add(part, name);
+                }
+
+                parts.Add(name, ticks);
+            }
+
             parts.Add("camera pose", particlesAt - posingAt);
             parts.Add("camera particles", particledAt - particlesAt);
         }

@@ -387,6 +387,9 @@ public sealed class IvpSimulationUnit
                 environment.Refile?.Invoke(collisionObject);
                 collisionObject.Hull.Settle(now);
                 collisionObject.Cache = null;
+
+                // The side built on the dropped cache goes with it, or a settled corpse pins both for its life (finding 83).
+                collisionObject.LastSide = null;
             }
         }
 

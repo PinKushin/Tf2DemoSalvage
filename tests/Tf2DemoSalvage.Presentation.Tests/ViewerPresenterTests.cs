@@ -617,6 +617,35 @@ public sealed class ViewerPresenterTests
         }
     }
 
+    /// <remarks>
+    /// **`camera setcamera` is split by the device's own timers, carried** (B243): the parts the device measured inside
+    /// its `SetCamera` reach the rate line under `camera setcamera` and the part's name, as the device timed them, never re-timed here.
+    /// </remarks>
+    [Test]
+    public void UploadCameraOver_WithTheDevicesSetCameraParts_ReportsEachUnderSetCamera()
+    {
+        WriteMap();
+        (ViewerPresenter loader, _, _) = Loader();
+        Questions asked = new();
+        long threeMs = System.Diagnostics.Stopwatch.Frequency * 3 / 1000;
+        FakeViewerDevice device = new() { SetCameraParts = [("cull", threeMs), ("detail", threeMs * 2)] };
+        FrameParts parts = new();
+
+        using (loader)
+        {
+            loader.AttachWindow(asked.Window(loader), new FpsPanelTests.SolidGdi());
+            loader.LoadDemo(WriteDemo("camera")).Loaded.ShouldBeTrue();
+            loader.FrameParts = parts;
+
+            loader.UploadCameraOver(device, new FakeFrameDevice(), flyTicks: 0, exposureSeconds: 0f, surfaceColours: false);
+            parts.Frame();
+
+            string report = parts.Report();
+            report.ShouldContain("camera setcamera cull 3,");
+            report.ShouldContain("camera setcamera detail 6");
+        }
+    }
+
     /// <remarks>A sidecar's camera is the one the device was handed, carried, never a second reading (D226, B243).</remarks>
     [Test]
     public void LastViewing_AfterAFrame_IsTheCameraTheDeviceWasGiven()
