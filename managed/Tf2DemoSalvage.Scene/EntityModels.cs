@@ -597,9 +597,8 @@ public sealed class EntityModelSet : Hud.IMdlCache, IPosedEntities
 
     private Dictionary<SceneProp, FiledObject> _filedNow = new(ReferenceEqualityComparer.Instance);
 
-    /// <summary>One object's filing: its key, its leaf handle and its box.</summary>
-    private readonly record struct FiledObject(
-        (int Entity, string Model, int Occurrence) Key, int Handle, (float, float, float, float, float, float) Box);
+    /// <summary>One object's filing: its leaf handle and its box.</summary>
+    private readonly record struct FiledObject(int Handle, (float, float, float, float, float, float) Box);
 
     /// <summary>What per-prop reporting has cost, ever.</summary>
     public long ReportTicks { get; set; }
@@ -7055,7 +7054,7 @@ public sealed class EntityModelSet : Hud.IMdlCache, IPosedEntities
 
             if (fixedProp)
             {
-                _filedNow[prop] = new FiledObject(key, handle, box);
+                _filedNow[prop] = new FiledObject(handle, box);
             }
 
             byHandleNow[handle] = (prop, box);
