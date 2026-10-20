@@ -378,8 +378,11 @@ internal sealed partial class ViewerSession
         {
             try
             {
+                // Killed outright, then waited for: a stray left by an earlier run has no reason to
+                // exit by itself. A survivor of the second kill throws TimeoutException, which the
+                // catches below do not take, so the setup fails naming it rather than logging it gone.
                 stray.Kill(entireProcessTree: true);
-                stray.WaitForExit(10_000);
+                _ = ProcessExit.AwaitOrKill(stray, TimeSpan.FromSeconds(10));
 
                 ViewerApplication.Log($"killed a stray viewer, process {stray.Id}");
             }
