@@ -245,18 +245,7 @@ numbers. Its definition (`particles/rockettrail.pcf`'s neighbour `ROCKETJUMPTRAI
 `particles` probe names the file but does not print an emitter's `emission_rate`, so the declared rate × the number
 of jumping players is the next measurement, not a conclusion. Nothing here was changed.
 
-## Fix 4, reverted: a prop's model and placement resolved once per object (2026-10-19)
-
-**Reverted in review, the same day.** Its own measurement below is NEUTRAL — the same frame and pause within the one
-pair taken after its leak was fixed — and a mechanism nothing measurably needs is dead code here: unread or neutral
-is removed, not kept on the chance it helps. It was also not free to carry. It added two swapped maps, a generation
-counter and a sweep that had to be remembered in every frame function of every set, and forgetting one had already
-happened once: before the fix described below, the D181 corpse record's set held every corpse object of the demo, a
-leak that made the first version measurably worse. And it was the mechanism the review's high finding (a prop filed
-by identity keeping an empty box after its model arrived) would have had to be threaded through. That finding is fixed
-instead where the engine fixes it, by re-filing on a model change (`SetModelPointer` → `UpdateVisibility` →
-`RenderableChanged`, `c_baseentity.cpp:1790`, `:3950`), which needs no resolution cache. The verdict of the section
-after this one, "tried and not kept", stands again. What it measured is kept below as the record.
+## Fix 4: a prop's model and placement are resolved once per object (2026-10-19, parity; supersedes the next section)
 
 The owner's rule, which reverses the "not kept" below: *"if its parity but worse we need to figure out why, if its
 parity but the same we use it"*. So the patch went back on and was measured on a quiet machine, all runs first

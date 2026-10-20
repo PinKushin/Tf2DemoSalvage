@@ -353,7 +353,61 @@ public sealed class MoveChildPlacementConformanceTests
     }
 
     /// <summary>
-    /// **A model added after a prop was first seen is drawn the frame it arrives** (finding 82) — the same object, filed
+    /// **A model is resolved when the entity takes an update, not every frame** (finding 82): the engine's `SetModel` runs
+    /// from `PostDataUpdate`, and the same object is the not-updated case. Asked again, the same object resolves nothing;
+    /// a new object (an update) and a level whose models were read again resolve once each. Counted at the resolution.
+    /// </summary>
+    [Test]
+    public void Instances_TheSameObjectNextFrame_ResolvesItsModelOnce()
+    {
+        SceneProp prop = new(1, ParentModel, SceneModelKind.Studio, new ScenePose { X = 1f });
+
+        EntityModelSet models = new();
+        models.Add([prop], _ => Baked());
+        models.Instances([prop], [], seconds: 1d);
+        int resolved = models.ModelsResolved;
+
+        models.Instances([prop], [], seconds: 2d);
+        models.ModelsResolved.ShouldBe(resolved, "the same object: nothing resolved again");
+
+        models.Instances([prop with { Pose = new ScenePose { X = 5f } }], [], seconds: 3d);
+        models.ModelsResolved.ShouldBe(resolved + 1, "an update resolves once");
+
+        models.Add([new SceneProp(3, ChildModel, SceneModelKind.Studio, new ScenePose())], _ => Baked());
+        models.Instances([prop], [], seconds: 4d);
+        models.ModelsResolved.ShouldBe(resolved + 2, "models read since: resolved again");
+
+        models.LevelShutdown();
+        models.Instances([prop], [], seconds: 5d);
+        models.ModelsResolved.ShouldBe(resolved + 3, "a level shut down: nothing it resolved survives, before any model is read");
+    }
+
+    /// <summary>
+    /// **A resolution is dropped once its object is no longer asked for** (finding 82): every prop update is a new object,
+    /// so a resolution kept for ever would grow without bound over a match — and one kept long promotes a frame's garbage
+    /// into the older generations, which measured as a higher GC pause. Held for one world pass.
+    /// </summary>
+    [Test]
+    public void Instances_AnObjectNotAskedForThroughASweep_IsForgotten()
+    {
+        SceneProp gone = new(1, ParentModel, SceneModelKind.Studio, new ScenePose { X = 1f });
+        SceneProp stays = new(2, ParentModel, SceneModelKind.Studio, new ScenePose { X = 2f });
+
+        EntityModelSet models = new();
+        models.Add([gone, stays], _ => Baked());
+        models.Instances([gone, stays], [], seconds: 1d);
+        models.ResolutionsHeld.ShouldBe(2, "the control: both resolved");
+
+        for (int pass = 0; pass < 300; pass++)
+        {
+            models.Instances([stays], [], seconds: 2d + pass);
+        }
+
+        models.ResolutionsHeld.ShouldBe(1);
+    }
+
+    /// <summary>
+    /// **A model added after a prop was first seen is drawn the frame it arrives** (finding 82) — the same object, resolved
     /// while its model was missing, must not keep the miss. Its box too: the engine's `SetModelPointer` reaches
     /// `RenderableChanged` through `UpdateVisibility` (`c_baseentity.cpp:1790`, `:3950`), so the object is filed again with
     /// the model's box, the box a set that had the model from the start files it with.
@@ -667,6 +721,7 @@ public sealed class MoveChildPlacementConformanceTests
         return drawn.Single(instance => instance.ModelPath == ChildModel);
     }
 
+    /// <summary>Everything a drawn instance says about where it is: identity, box, placement and every bone, as text.</summary>
     private static string Drawn(ModelInstance model) =>
         $"{model.EntityIndex} {model.ModelPath} {model.WorldBounds} [{string.Join(",", model.Matrix)}] " +
         string.Join(" | ", (model.Bones ?? []).Select(static bone => string.Join(",", bone)));
