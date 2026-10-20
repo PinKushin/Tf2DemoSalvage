@@ -177,6 +177,15 @@ public sealed partial class ViewerSession
     /// <summary>Whether the previous frame had a loaded demo on screen — the first frame after a load is not counted.</summary>
     private bool _wasOnScreen;
 
+    /// <summary>The collector's counters when counting began, for the measurement's GC line (finding 82).</summary>
+    private GcReading _gcAtStart;
+
+    /// <summary>The particle phase's counters when counting began (finding 82).</summary>
+    private ParticleCost _particlesAtStart;
+
+    /// <summary>Particles born by system when counting began (finding 82, B557).</summary>
+    private Dictionary<string, long> _birthsAtStart = new(StringComparer.Ordinal);
+
     /// <summary>Prints what <c>--measure</c> gathered and closes.</summary>
     /// <remarks>
     /// **To stdout, because the log is buffered.** Reading the log file while the viewer is still
@@ -236,7 +245,10 @@ public sealed partial class ViewerSession
 
         if (_framesMeasured > 0)
         {
-            // The same phases the per-second line names, as means over every measured frame.
+            // The same phases the per-second line names, as means over every measured frame. `between` is the mean frame
+            // the clock used less the mean of `FrameSequence`'s own total: everything outside the sequence — the idle
+            // loop, the message pump, this method's own reporting (finding 82). Valid as a mean only, since the clock
+            // is stamped mid-sequence.
             double each(double total) => total * 1000d / Stopwatch.Frequency / _framesMeasured;
             FramePhases sum = _phasesMeasured;
             (int trails, int bursts, int quads) = _effects.ParticleCounts;
@@ -245,8 +257,17 @@ public sealed partial class ViewerSession
             _host.Out.WriteLine(string.Create(
                 CultureInfo.InvariantCulture,
                 $"  phases, mean ms: sound {each(sum.Sound):0.00}, camera {each(sum.Camera):0.00}, project {each(sum.Project):0.00}, " +
-                $"advance {each(sum.Advance):0.00}, capture {each(sum.Capture):0.00}, hud {each(sum.Hud):0.00}, draw {each(sum.Draw):0.00}; " +
+                $"advance {each(sum.Advance):0.00}, capture {each(sum.Capture):0.00}, hud {each(sum.Hud):0.00}, draw {each(sum.Draw):0.00}, " +
+                $"between {(_frameSeconds * 1000d / _framesMeasured) - each(sum.Total):0.00}; " +
                 $"particles now: {trails} trails, {bursts} bursts, {quads} quads last frame"));
+        }
+
+        // What the collector cost over the counted frames, from its own counters (finding 82).
+        if (_framesMeasured > 0)
+        {
+            _host.Out.WriteLine("  " + GcReading.Now().Since(_gcAtStart, _framesMeasured));
+            _host.Out.WriteLine("  " + _effects.ParticleCost.Since(_particlesAtStart, _framesMeasured));
+            _host.Out.WriteLine("  " + ParticleBirths.Since(_birthsAtStart, Tf2DemoSalvage.Content.Assets.ParticleEffect.BirthsBySystem, _frameSeconds, 12));
         }
 
         // The GC's own account beside the process's, read where the measurement ends (finding 80).
@@ -381,6 +402,9 @@ public sealed partial class ViewerSession
         // cannot be asked what order it does things in.
         GarbageReading frameBegan = GarbageReading.FromRuntime();
 
+        // Read BEFORE the sequence, because its first step is the one that applies the opening (finding 82).
+        bool openedBefore = _opening.Applied;
+
         FramePhases phases = FrameSequence.Run(this);
 
         _frames.Drawing(phases.Draw);
@@ -396,7 +420,11 @@ public sealed partial class ViewerSession
         // counting those frames spent `--measure 20` — and gate phase 3's whole run — on a demo still decoding. **And not the first
         // frame after**: the render loop is held off while the map is read, so that frame's duration is the whole wait, and counted it
         // was the entire measurement in one sample.
-        bool onScreen = _presenter.HasDemo && _presenter.LoadsInFlight == 0;
+        //
+        // **Nor the opening** (finding 82): the frame that seeks to `--tick` and the one after it, whose interval holds
+        // that seek's tail, are the opening state, not playback. Counted, they were about 8 of `--measure 20`'s seconds
+        // on f12 — three frames of about two seconds each — and every mean before 2026-10-19 carried them.
+        bool onScreen = _presenter.HasDemo && _presenter.LoadsInFlight == 0 && openedBefore;
 
         if (onScreen && _wasOnScreen)
         {
@@ -407,6 +435,12 @@ public sealed partial class ViewerSession
             {
                 _allocations ??= new AllocationTickListener();
                 _allocations.Tally.Clear();
+
+                // And the per-second lines written before counting began, which described the opening (finding 82).
+                _measured.Clear();
+                _gcAtStart = GcReading.Now();
+                _particlesAtStart = _effects.ParticleCost;
+                _birthsAtStart = new(Tf2DemoSalvage.Content.Assets.ParticleEffect.BirthsBySystem, StringComparer.Ordinal);
             }
 
             _framesMeasured++;

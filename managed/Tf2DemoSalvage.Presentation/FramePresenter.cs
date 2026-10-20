@@ -168,6 +168,19 @@ public sealed partial class FramePresenter
     /// <summary>What replaying rebuilt bursts has cost, ever: stopwatch ticks and steps — a seek's price.</summary>
     public (long Ticks, long Steps) ParticleReplay => (_particles.ReplayTicks, _particles.ReplaySteps);
 
+    /// <summary>
+    /// The particle phase's direct counters, ever (finding 82): the bursts' timeline search and stepping, and the attachment
+    /// queries that set up bones outside the pass — each carried from where it ran.
+    /// </summary>
+    public ParticleCost ParticleCost => new(
+        _bursts.Searches,
+        _bursts.SearchTicks,
+        _bursts.BurstTicks,
+        _models.AttachmentQueries,
+        _models.AttachmentBuilds,
+        _models.AttachmentRebuilds,
+        _models.AttachmentTicks);
+
     /// <summary>What else the frame keeps alive, for the same census: projectile trails and decals on models.</summary>
     public (int Trails, int ModelDecals) KeptCounts => (_particles.Count, _decals.ModelDecalCount);
 

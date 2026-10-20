@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Numerics;
 
@@ -43,6 +44,14 @@ public sealed class ParticleEffect
     /// same number the code that read the initializer here used to return.
     /// </remarks>
     private const float DefaultLifetime = 1f;
+
+    /// <summary>Particles born, by system name, by every effect in this process — an instrument, read by `--measure` (finding 82, B557).</summary>
+    /// <remarks>
+    /// **Counted at the birth**, the one place a particle is made, so it is what was emitted and not a second reckoning
+    /// of what should have been. Process-wide, so concurrent: production steps effects on the render thread only, but
+    /// `Content.Tests` steps them from fixtures running in parallel.
+    /// </remarks>
+    public static ConcurrentDictionary<string, long> BirthsBySystem { get; } = new(StringComparer.Ordinal);
 
     /// <summary>The definition this is an instance of.</summary>
     public ParticleSystem System { get; }
@@ -860,7 +869,11 @@ public sealed class ParticleEffect
     }
 
     /// <summary>Adds one particle at its creation time, on control point 0 as it was then; no initializer has run.</summary>
-    private void BirthAt(float born) => ParticleSystems.Birth(System, Particles, PointsAt(born)[0].At, DefaultLifetime, born);
+    private void BirthAt(float born)
+    {
+        ParticleSystems.Birth(System, Particles, PointsAt(born)[0].At, DefaultLifetime, born);
+        BirthsBySystem.AddOrUpdate(System.Name, 1L, static (_, born) => born + 1);
+    }
 
     /// <summary>`InitializeNewParticles( first, count )`: every initializer over the particles born since <paramref name="first"/>.</summary>
     /// <remarks>

@@ -24,7 +24,11 @@ the build output rather than a grep of it (`error S` is not `error CS`).
 
 - **`--measure <seconds>` counts PLAYBACK, not wall clock.** A run timed from process start spends
   its first twenty seconds on archives and the map, so a "forty second" measurement was two seconds
-  of frames — and the thin sample was reported as a result before anyone noticed.
+  of frames — and the thin sample was reported as a result before anyone noticed. **The window starts after the
+  opening seek** (finding 82): until 2026-10-19 it counted the `--tick` seek, about 8 of 20 seconds on f12. Control:
+  ticks advanced should be about 66.7 × seconds.
+- **`between`** is time outside the frame sequence (idle loop, message pump); **`gc:`** is the runtime's own pause,
+  collections and allocation per frame — a pause lands in whichever phase allocated, so no phase names it.
 - **It prints to stdout because the log is BUFFERED.** Reading the log while the viewer runs shows
   asset loading and nothing else. That was misread twice, once as the viewer having exited on its
   own.
@@ -88,6 +92,7 @@ Point the camera at nothing and measure again:
 TF2VIEW_CAMERA="1613 -2821 154 89 0"
 ```
 
-An engine's frame collapses when there is nothing to draw. Ours has a floor — `sample`, `drawlist`,
+**Without `--first-person`** — it follows the player and ignores the override (finding 82). An engine's frame
+collapses when there is nothing to draw. Ours has a floor — `sample`, `drawlist`,
 `models` and placement all walk every prop regardless of visibility (B259). If a change is meant to
 reduce work, the empty view is where it shows.
