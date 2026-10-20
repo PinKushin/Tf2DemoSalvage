@@ -1,0 +1,92 @@
+using System;
+using System.Collections.Generic;
+using System.Numerics;
+
+using Tf2DemoSalvage.Content.Assets;
+
+namespace Tf2DemoSalvage.Content.Tests.Assets;
+
+/// <summary>Who ends a particle's life (B557 row 3).</summary>
+/// <remarks>
+/// Read in the disassembly of the SDK's `particles.lib`: `CParticleCollection::Simulate` (`particles.obj`) runs the
+/// emitters and operators and applies the kill list (+0x276c) after an operator that wrote it — and has no age test of
+/// its own. In `builtin_particle_ops.obj` exactly six operators write that list: `C_OP_Decay` ("Lifespan Decay"),
+/// `C_OP_VelocityDecay`, `C_OP_Cull`, `C_OP_PlaneCull`, `C_OP_ModelCull` and `C_OP_FadeAndKill` ("Alpha Fade and Decay").
+/// `C_OP_Decay` kills a particle when <c>lifetime &lt;= curtime − creation</c> or <c>lifetime &lt;= 0</c>. So a
+/// particle in a system that declares none of them outlives its lifetime, held until the collection is full.
+/// </remarks>
+[TestFixture]
+public sealed class ParticleKillConformanceTests
+{
+    private static readonly ParticleControlPoint Origin = ParticleControlPoint.Unoriented(Vector3.Zero);
+
+    [Test]
+    public void Step_NoOperatorThatKills_KeepsEveryParticlePastItsLifetime()
+    {
+        ParticleEffect effect = new(System());
+
+        for (int step = 0; step < 200; step++)
+        {
+            effect.Step(Origin, seconds: 1f / 66f);
+        }
+
+        // 66 a second for 200/66 s with a one-second life: every one born is still there.
+        effect.Particles.Count.ShouldBe(200);
+    }
+
+    [Test]
+    public void Step_LifespanDecay_KillsAParticleAtItsLifetime()
+    {
+        ParticleEffect effect = new(System("Lifespan Decay"));
+
+        for (int step = 0; step < 200; step++)
+        {
+            effect.Step(Origin, seconds: 1f / 66f);
+        }
+
+        // One second's worth, 66, give or take the step a particle dies on.
+        effect.Particles.Count.ShouldBeInRange(65, 67);
+    }
+
+    /// <remarks>
+    /// **A stand-in, not parity**: `Cull Random` kills in the engine and is not implemented here, so its particles are
+    /// ended at their lifetime rather than left immortal by our gap.
+    /// </remarks>
+    [Test]
+    public void Step_OnlyAKillerNotImplemented_EndsParticlesAtTheirLifetime()
+    {
+        ParticleEffect effect = new(System("Cull Random"));
+
+        for (int step = 0; step < 200; step++)
+        {
+            effect.Step(Origin, seconds: 1f / 66f);
+        }
+
+        effect.Particles.Count.ShouldBeInRange(65, 67);
+    }
+
+    private static readonly Dictionary<string, DmxValue> Empty = new(StringComparer.Ordinal);
+
+    private static ParticleSystem System(params string[] operators) =>
+        new(
+            "trail",
+            [
+                new ParticleFunction("emit_continuously", "emit",
+                    new Dictionary<string, DmxValue>(StringComparer.Ordinal)
+                    {
+                        ["emission_rate"] = new DmxValue(DmxAttributeType.Real, 66d),
+                    }),
+            ],
+            [
+                new ParticleFunction("Lifetime Random", "life",
+                    new Dictionary<string, DmxValue>(StringComparer.Ordinal)
+                    {
+                        ["lifetime_min"] = new DmxValue(DmxAttributeType.Real, 1d),
+                        ["lifetime_max"] = new DmxValue(DmxAttributeType.Real, 1d),
+                    }),
+            ],
+            [.. Array.ConvertAll(operators, one => new ParticleFunction(one, one, Empty))],
+            [],
+            [],
+            Empty);
+}

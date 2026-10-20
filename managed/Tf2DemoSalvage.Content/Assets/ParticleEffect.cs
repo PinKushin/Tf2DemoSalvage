@@ -234,6 +234,20 @@ public sealed class ParticleEffect
         _operators = ParticleOperators.All();
         _sheet = sheets?.Invoke(system);
 
+        bool killsUnimplemented = false;
+        bool killsImplemented = false;
+
+        foreach (ParticleFunction one in system.Operators)
+        {
+            if (Killers.Contains(one.Function))
+            {
+                killsImplemented |= _operators.ContainsKey(one.Function);
+                killsUnimplemented |= !_operators.ContainsKey(one.Function);
+            }
+        }
+
+        _reapsForAKillerNotImplemented = killsUnimplemented && !killsImplemented;
+
         // **`InitializeContextData`, at `Init`, before any particle** (B472, B495): a burst's count is drawn from the
         // collection's query stream when the collection is made. A minimum of −1 means the count is exact, and it is what
         // every emitter in the explosion path declares; any minimum of 0 or more draws `RandomInt` in
@@ -678,8 +692,27 @@ public sealed class ParticleEffect
             _settled.Clear();
         }
 
-        Particles.Reap();
+        // **No age kill of our own** (B557 row 3): `CParticleCollection::Simulate` has none, and a particle dies only by an
+        // operator that writes the kill list — the implemented ones reap inside `Operate`. A system whose only killers are
+        // ones not implemented here is reaped at the lifetime instead, a STAND-IN so our gap does not make them immortal.
+        if (_reapsForAKillerNotImplemented)
+        {
+            Particles.Reap();
+        }
     }
+
+    /// <summary>
+    /// The operators that can end a particle — the six in `builtin_particle_ops.obj` that write the kill list (+0x276c):
+    /// `C_OP_Decay`, `C_OP_VelocityDecay`, `C_OP_Cull`, `C_OP_PlaneCull`, `C_OP_ModelCull`, `C_OP_FadeAndKill`.
+    /// </summary>
+    public static IReadOnlySet<string> Killers { get; } = new HashSet<string>(StringComparer.Ordinal)
+    {
+        "Lifespan Decay", "Lifespan Minimum Velocity Decay", "Cull Random", "Cull when crossing plane",
+        "Cull relative to model", "Alpha Fade and Decay",
+    };
+
+    /// <summary>Whether this system kills only through operators this project does not implement; see <see cref="SubStep"/>.</summary>
+    private readonly bool _reapsForAKillerNotImplemented;
 
     /// <summary>`UpdatePrevControlPoints`: every control point's position, kept as its previous one.</summary>
     private void RememberPoints()

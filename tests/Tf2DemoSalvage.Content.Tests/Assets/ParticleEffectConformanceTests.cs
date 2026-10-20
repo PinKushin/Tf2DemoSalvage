@@ -54,7 +54,11 @@ public sealed class ParticleEffectConformanceTests
     {
         // The reap, and the control is that SOME survive: an effect that removed everything would
         // pass a bare "count stops growing" assertion.
-        ParticleEffect effect = new(System("emission_rate", 66d));
+        // With `Lifespan Decay`, the operator that does the killing (B557 row 3: `Simulate` has no age kill).
+        ParticleEffect effect = new(System("emission_rate", 66d) with
+        {
+            Operators = [new ParticleFunction("Lifespan Decay", "decay", Empty)],
+        });
 
         for (int step = 0; step < 200; step++)
         {

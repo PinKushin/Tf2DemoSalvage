@@ -389,7 +389,9 @@ public sealed class ParticleEffectsTests
                         ["lifetime_max"] = new DmxValue(DmxAttributeType.Real, 1d),
                     }),
             ],
-            [],
+
+            // The real `rockettrail`'s killer: only an operator ends a particle (B557 row 3).
+            [new ParticleFunction("Lifespan Decay", "decay", none)],
 
             // **A renderer, because every system that draws declares one and the real `rockettrail` declares
             // this one.** The fixture had none and relied on `Gather` drawing a system with no renderer as if it

@@ -780,6 +780,13 @@ public sealed class ParticleBurstTests
                             ["emission_rate"] = new(DmxAttributeType.Real, 132d),
                         }),
                 ],
+
+                // Its particles must die for a stopped effect to empty: only an operator kills (B557 row 3).
+                Operators =
+                [
+                    .. LongLived.Operators,
+                    new ParticleFunction("Lifespan Decay", "decay", new Dictionary<string, DmxValue>(StringComparer.Ordinal)),
+                ],
             },
             new ParticleControlPoint(Vector3.Zero, Vector3.UnitX, Vector3.UnitY, Vector3.UnitZ),
             tick,

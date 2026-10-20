@@ -198,7 +198,8 @@ public sealed class ParticleSimulateConformanceTests
                     ["lifetime_max"] = new DmxValue(DmxAttributeType.Real, 0.1d),
                 }),
             ],
-            [],
+            // Its one particle must die for the cap to free: only an operator kills (B557 row 3).
+            [new ParticleFunction("Lifespan Decay", "decay", new Dictionary<string, DmxValue>(StringComparer.Ordinal))],
             [],
             [],
             new Dictionary<string, DmxValue>(StringComparer.Ordinal)
