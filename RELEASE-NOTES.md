@@ -5,6 +5,65 @@
 - **`TF2VIEW_VIEWPORT_SIZE`** (`"1280x720"`, WIDTHxHEIGHT) sizes the 3D view itself; the window grows around it,
   so the view is that size at any display scaling. A value that does not parse is logged and ignored. For scripted
   captures; `--help` lists it.
+- **Demo voice plays.** Voice chat recorded in a demo is heard through five voice channels, as TF2 plays it; a sixth
+  speaker at once is dropped, as in the game. `voice_scale` and `voice_enable` are read. Not yet ported: the
+  lowering of other sounds while someone speaks and the speaking indicator (B549, see *Known gaps*).
+  **TODO(owner): not checked by ear in a played demo; add to *What has been verified* if you listen.**
+- **`snd_musicvolume` lowers music**, as TF2 does: the sounds with a `#` in their name and no distance falloff,
+  including map soundscapes, and a change reaches music already playing (B545).
+- **Animated props draw their real pose.** A door or a resupply locker that animates is now posed by its bones
+  instead of from one stored copy per animation step. Before, the last step of a one-shot animation blended toward
+  the closed pose, so on f12 a door at tick 6520 drew shut where TF2 draws it open (finding 80). The change is
+  not measurable in frame time: eight 20-second runs on f12 at tick 30000 averaged 40.1 ms (before) and 40.3 ms
+  (after). A few props still differ slightly; see *Known gaps*.
+- **A building or prop shows its state at the moment you are watching**, not the demo's last one. Its model, item,
+  class, team, parent, owner and attachments are read for the current tick. On f12 a sentry (entity 457) drew its
+  end-of-demo level 3 at tick 66600, where it was level 1 (B548).
+- **Parts that move with a door are placed and lit where the door puts them.** Every child of a `func_door` on
+  badwater, upward and vigil was lit from its own offset, and a grandchild was drawn only one level deep (B551).
+- **Effects end where TF2 ends them.** An effect whose owner went dormant now stops emitting and fades, and one
+  nothing is drawing sleeps, as TF2's particle code does, where they used to hang in the air and pile up. On f12,
+  60 seconds from tick 30000, live effects stayed between 8 and 41 where they had climbed from 65 to 199, and the
+  mean frame was 22 ms against 82 (merge `3315abde`; finding 79). **TODO(owner): machine and build of that run are
+  not recorded in the commit.** A seek replays the effects as playing does (D221).
+- **Particles step once per frame on that frame's own points and time**, as TF2 does (D221, B539).
+- **Smoother playback on a busy scene.** A dead player's physics was rebuilt every frame: 48.7 ms a rebuild, about 1 ms
+  now. Below that, TF2's HUD texture sizes are read once, and a first-person arm nobody can see is not posed. On
+  f12 the frame rate went from 31-37 to 51-72 fps on a shared machine, and the HUD's part from 5-8 ms to about
+  1 ms (merge `32f75941`). **TODO(owner): build and machine not recorded; one run each side.**
+- **Less memory on a map.** Measured on f12, a Debug viewer, `--measure 20` (finding 80); run-to-run spread is
+  about 400 MB, and the figures are one change each, not a sum:
+  - A map's screen overlays decode their animated normal map once, not once per frame: the load's transient peak
+    fell from 2,245 to 940 MB, the viewer's peak working set from 9.3 to 7.6 GB and peak private bytes from 11.1 to
+    9.5 GB.
+  - The allocation fixes behind finding 80's "after the four fixes" re-census (particle lookups, face flex
+    arrays, decals, sound conversion; the finding lists each) took the large allocations of 20 seconds of playback from 1,867-2,241 MB to 67-87 MB; private bytes at the end of
+    playback went from 10,689 to 8,494-8,733 MB and the working set from 8,170 to 6,015-6,249 MB.
+  - Sounds are held as 16-bit, and the sound cache is capped at 512 MB, least recently used out first (the cap is
+    our figure; TF2's is not in the SDK). WAV memory 387 to 194 MB; private bytes at the end 8,493-8,514 to
+    8,298-8,305 MB.
+  - Animated props from bones (above): private bytes at the end 7,378 and 7,370 MB before, 6,045 and 6,087 after.
+  - A map load reads each texture file once, particle definitions are one compact copy per TF2 install
+    (managed heap after a load, 1,026.0 to 934.2 MB), and a block texture's upload no longer copies its mip levels.
+  - **The load's peak did not move**: the upload still peaks at 9.3-11.1 GB private bytes in those runs.
+    **TODO(owner): re-measure the six-versus-six figures under *Requirements* before changing them.**
+- **A map's own particle file is read** (`maps/<name>_particles.txt`, or `particles.txt` in the map), so a community
+  map's custom effects appear, as in TF2 (B554, finding 81). **A particle declared twice keeps the later
+  definition**, which TF2 does and the viewer did not, so 30 stock effects now come from a different file than
+  before: `ExplosionCore_MidAir` and four `Explosions_MA_*` (now `bigboom.pcf`), the eleven `_unusual_parent_*`
+  (now `weapon_unusual_energyorb.pcf`), `blood_decap`, `taunt_gasblast_steam`, `mini_firework*`, the three
+  `speech_medic*` and others (B555). **TODO(owner): not compared on screen in a demo.**
+- **The stock HUD is closer to TF2's** (finding 78; it applies when you do not pass `--hud`): the ammo and
+  class backgrounds take their shape, soft edge and outline from the game's masks instead of flat blocks; the
+  class background follows your team (it was red for a BLU player); the class model stands in its activity pose;
+  HUD colors are gamma-corrected, which TF2's tan text needs; the ammo number paints over its shadow (B552); and
+  a medic gets the ÜberCharge meter. The class portrait is drawn at tone-map scale 1, which accounts for its being
+  about 20 luma darker than TF2's. **TODO(owner): whether the portrait now matches is the golden's to show, and
+  the UI suite was not run for this pass.**
+- **The program has its own icon**, a film reel with a play hub in brown and gold, replacing the Windows default.
+- **Developer options.** `--measure` also prints the GC's own memory and the large allocations by type.
+  `--windows` (in `--help`) walks the demo into 2-second checkpoints and logs, per seek, what a window cost and
+  whether it matched; nothing drawn changes (D217).
 
 ## Changes in 0.1.0-beta.44
 
@@ -523,6 +582,11 @@ writes no log file; send its console output.
 
 Each claim below is a measurement, not an expectation.
 
+- **Memory and speed (beta.45):** every figure is in *Unreleased*'s memory and playback bullets
+  with its run (f12, Debug viewer, `--measure 20`); sources are finding 80 and the merge commits named there.
+  Not measured: a Release viewer's memory, p50 and p99 frame time (`--measure` prints means), and the six-versus-six
+  match of *Requirements*. **TODO(owner): merge-gate counts and the UI suite result for beta.45 are not recorded
+  here; this pass ran neither.**
 - **Merge gate (beta.43):** all twelve assemblies passed (core 2481, cli 75, logging 17, fonts 5, animation 5338,
   scene 2995, audio 295, presentation 988, content 1768, corpus 224, rendering 1128, viewer 135), and the UI suite
   passed 54 of 54. The paused-frame fix is checked by a conformance test written from the game's published source
@@ -641,7 +705,15 @@ Things a user is likely to notice. Each has an entry in `docs/RISKS.md` in the r
 - **The heal glow beside a running patient is partly fixed** (B538, B539): the beam's arc toward the aim still
   differs from the game's, and the haze is fainter, with fewer pluses along the beam.
 - **`mat_hdr_level 3` is drawn as 2** (B537).
-- **`voice_scale` is accepted but not applied yet**: the viewer does not play demo voice yet (B545).
+- **Demo voice is partly ported** (B549): TF2 lowers every other sound while someone speaks and shows a speaking
+  indicator, and the viewer does neither. A voice's position is fixed when it starts, the output device resamples
+  where the game does it itself, `cl_voice_filter` is not offered, and after a seek voice resumes at the next packet.
+- **A seek silences every sound** and brings back only the loops (B550). TF2's demo skip keeps what is playing, so
+  a song heard before a seek is gone after it.
+- **Some HUD materials' texture transforms, addressing modes and `$vertexcolor` are not read** (B553).
+- **Two animated props still differ from the game's pose** (finding 80): `w_breadmonster` (cause not traced) and
+  a model whose first blended animation is a single frame, which still draws one pose. No such model was found on
+  f12. A pakfile that ships a particle file under a stock path is also not modeled (finding 81).
 - **`snd_musicvolume` lowers music but never ducks it** (B545). It applies to the sounds TF2 treats as music,
   which are `#` sounds with no distance falloff, including map soundscapes. A change takes effect on music that
   is already playing. TF2 also turns music down briefly while someone speaks, and the viewer does not.
