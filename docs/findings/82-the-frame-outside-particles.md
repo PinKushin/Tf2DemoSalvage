@@ -412,7 +412,9 @@ change is unmeasured: a held halo or glow on a worn item is the candidate, and t
 
 **`emission_rate`'s default is `"100"`**, read from `DmxElementUnpackInit<C_OP_ContinuousEmitter>` (rate at +0x40,
 duration +0x38, start time +0x3c — which also confirms the offsets `MayCreateMoreParticles` reads, below); ours reads an
-undeclared rate as 0. Not changed: the same probe counts **0 of 7,203** shipped continuous emitters that leave it out.
+undeclared rate as 0. The same probe counts **0 of 7,203** shipped continuous emitters that leave it out, which I first
+took as reason to leave it; the review's point killed that: a map's pakfile manifest (B554) is read too and can omit
+it, and after row 17 an omitted rate made the effect finished at once. **Fixed**: one `DefaultEmissionRate`, 100.
 
 **Row 6, the creation frame (read from published source).** `ProcessPSystem` gives an effect's first frame
 `Simulate( 0.0f )` (`particlemgr.cpp:1572-1575`; the flag is set in `particles_new.cpp:53`). Ours stepped and emitted
