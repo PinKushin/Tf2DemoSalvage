@@ -206,3 +206,68 @@ from 1.0-1.1 to 0.7 ms (empty view); `camera` fell by 1.5-2.5 ms in both. One "a
 (a single stall) and is left out. **Against TF2** (400-600 fps in the owner's recollection, unmeasured; 893-1236 fps on
 `cp_badlands`, finding 82): still far short. The leftovers are the `camera` phase, `setcamera` (1-4.5 ms, unattributed),
 the particle step (about 2 ms even with nothing in view) and a collector pause of about 2.3 ms a frame.
+
+## `setcamera` attributed, and the corpse record's allocation cut (2026-10-20)
+
+Measured; one machine; Debug viewer; f12 tick 30000, `--measure 20 +fps_max 0`, last one-second window of each run. Six
+runs allowed, so the order was A first person, A traced, A empty view, then B first person, B empty view, B traced —
+**not alternated**. A is `d089b7ad` (the split below, no fix); B is `bc44895c`.
+
+**`setcamera` is now split where it runs** (`Device3D.SetCamera` times each part and hands them over as
+`IViewerDevice.SetCameraParts`; the rate line prints `camera setcamera <part>`, B243). The control: the parts sum to the
+parent within rounding (0.57 = 0.15 + 0.05 + 0.04 + 0.31 + zeros).
+
+| A, first person | total | batches | overlays | sky | water | detail | view, upload |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| first window (34 fps) | 2.35 | 1.12 | — | — | 0 | 0.63 | 0 |
+| last window (76 fps) | 0.57 | 0.15 | 0.05 | 0.04 | 0 | 0.31 | 0 |
+
+**What killed "1-4.5 ms, unattributed":** the large figures are the cold windows: the same work at 34 fps cost four times
+what it costs at 76, falling as the run warms. In the empty view, where the camera holds still, `setcamera` is 0.01-0.02
+ms, so the cull gate fires only on a move and nothing is rebuilt without a change. Every part is per moved view, and
+Valve does the same per view: `BuildWorldLists` on every render, and the detail mesh rebuilt every frame
+(`detailobjectsystem.cpp`, see `Device3D.RebuildDetailSprites`'s remark). The largest part, `detail` (0.3 ms), is
+parity, and there is no GPU upload of unchanged data to make conditional (`upload` reads 0). **Not checked, filed:**
+whether the engine skips re-marking the PVS while the view stays in one cluster (`R_MarkLeaves` keeps `r_oldviewcluster`);
+`WorldVisibility.Leaves` tests the PVS again on every move. That is at most `batches`' 0.15 ms.
+
+**The D181 corpse record's allocation** (`dotnet-trace --profile gc-verbose`, `alloc-trace … all <window> any
+CorpsePhysics.Advance`; the probe now takes that root filter). Control: the render thread's share is 4,160 MB/20 s in A
+and 4,291 in B, the same window.
+
+| MB per 20 s | A | B |
+|---|---:|---:|
+| the worker thread, all of it | 5,884 | 4,908 |
+| under `CorpsePhysics.Advance` | 2,738 | 1,947 |
+
+What came out, each with a test in `IvpCorpseStepDifferentialTests`:
+
+- **The closure in `IvpLedgeSide.FromLedge`** (`<>c__DisplayClass22_0`, 281 MB). The table factory captured `ledge`, so a
+  closure was made on every call, cache hit or miss. Now the miss is in a method of its own.
+- **A fresh `IvpLedgeSide` on every pair look** (486 MB). The engine builds the side on its stack. Here the collision
+  object keeps the last side, keyed by the ledge's point list, the cache it stood on and that cache's new `Refreshes`
+  count. The record is immutable, so a side handed back holds the same values.
+- **Per-step working sets in `CorpsePhysics`** (`Retire`'s two collections, 54 MB; the births array, the seeded set and an
+  interface enumerator) **and a new delegate per corpse per step** (`PoseIntoAccessor`, 52 MB). The collections are now
+  owned and cleared. `IvpRagdoll.PoseHook` is one delegate.
+
+**Bit-identity** is pinned by `Simulate_ACorpseDroppedOnAFloor_EveryPoseHashesAsBefore`. It runs a two-element corpse
+kicked onto a slab for 200 ticks, hashes every pose bit, and was captured before any of these changes. Control: impacts
+are above zero. Sabotage: gravity -800.0001 reddens it. Over ticks 20-199 that test's step allocates 973,928 bytes before
+and 841,992 after, and the second figure is held as a ceiling.
+
+**The frame.** GC pause: 1.97 → 1.83 ms a frame in first person (9.63 → 9.20 MB a frame), 0.89 → 0.80 in the empty view.
+Last window: 76 → 80 fps in first person and 146 → 154 fps in the empty view. With one run each and windows that move by
+±10 fps, that difference is within run-to-run spread.
+
+**Left, by size, under `CorpsePhysics.Advance` in B:** `IvpMotionCache`'s `IvpMatrix?[21]` slots (337 MB; the engine
+keeps them in the searcher's storage) together with the cache and `IvpSearchSide` objects (134 + 65 MB) made per search
+in `IvpSimulation.Searchable`; `IvpContactRecord.Build` (162 MB); and the friction solve's `double[]` (135 MB). **Outside
+it, in `EntityModels.cs`, which another job was splitting, so not touched:**
+
+- `IkFor`'s closure (`DisplayClass283_0`, 554 MB) and `Predicate` (267 MB). The captured `shared` of
+  `errors.RemoveAll(held => held.Item1.Chain == shared.Chain)` makes a closure on every rule, and a Predicate whenever
+  the remove runs. A hand-written compaction loop makes neither.
+- The caller's `List<(StudioIkRule, …)> asked = []` per prop per tick (the 500 MB `ValueTuple`4[]` growth). It is kept as
+  `posed.IkErrors`, so the fix is a per-entity list owned by the posed entity, or copy-on-keep.
+- `UpdateClientSideAnimations`' `SceneProp` copies (382 MB).
