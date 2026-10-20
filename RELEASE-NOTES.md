@@ -23,15 +23,11 @@
   badwater, upward and vigil was lit from its own offset, and a grandchild was drawn only one level deep (B551).
 - **Effects end where TF2 ends them.** An effect whose owner went dormant now stops emitting and fades, and one
   nothing is drawing sleeps, as TF2's particle code does, where they used to hang in the air and pile up. On f12,
-  60 seconds from tick 30000, live effects stayed between 8 and 41 where they had climbed from 65 to 199, and the
-  mean frame was 22 ms against 82 (merge `3315abde`; finding 79). **TODO(owner): machine and build of that run are
-  not recorded in the commit.** A seek replays the effects as playing does (D221).
+  60 seconds from tick 30000, live effects stayed between 8 and 41 where they had climbed from 65 to 199
+  (merge `3315abde`; finding 79). A seek replays the effects as playing does (D221).
 - **Particles step once per frame on that frame's own points and time**, as TF2 does (D221, B539).
 - **Smoother playback on a busy scene.** A dead player's physics was rebuilt every frame: 48.7 ms a rebuild, about 1 ms
-  now. Below that, TF2's HUD texture sizes are read once, and a first-person arm nobody can see is not posed. On
-  f12 the frame rate went from 31-37 to 51-72 fps on a shared machine, and the HUD's part from 5-8 ms to about
-  1 ms (merge `32f75941`). **TODO(owner): build and machine not recorded; one run each side.**
-- **Less memory on a map.** Measured on f12, a Debug viewer, `--measure 20` (finding 80); run-to-run spread is
+  now. Below that, TF2's HUD texture sizes are read once, and a first-person arm nobody can see is not posed.- **Less memory on a map.** Measured on f12, a Debug viewer, `--measure 20` (finding 80); run-to-run spread is
   about 400 MB, and the figures are one change each, not a sum:
   - A map's screen overlays decode their animated normal map once, not once per frame: the load's transient peak
     fell from 2,245 to 940 MB, the viewer's peak working set from 9.3 to 7.6 GB and peak private bytes from 11.1 to
