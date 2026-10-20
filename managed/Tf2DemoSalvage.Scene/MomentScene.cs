@@ -764,7 +764,8 @@ public sealed class MomentScene : IGameSystemPerFrame
             Viewmodel: viewmodelTicks,
             Counters: pose,
             Drawn: posed,
-            Selected: _drawn.Count,
+            // The static props are offered to the gather beside the list (finding 83 item 1), and its cull counts them.
+            Selected: _drawn.Count + (_models.GathersStaticProps ? StaticProps.Count : 0),
             Hidden: hidden,
             Unjudgeable: unjudged,
             Undrawn: undrawnTicks);

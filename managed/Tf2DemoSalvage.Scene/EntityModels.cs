@@ -7409,13 +7409,12 @@ public sealed class EntityModelSet : Hud.IMdlCache, IPosedEntities
         try
         {
             SimulateEach(_staticsInView, seconds, WalksEvents && !Paused);
+            SettleEach(_staticsInView, seconds);
         }
         finally
         {
             _simulating = false;
         }
-
-        SettleEach(_staticsInView, seconds);
 
         foreach (SceneProp prop in _staticsInView)
         {

@@ -36174,8 +36174,8 @@ cycle) changed both event hashes. **Measured:** forward 909 frames, 5,758 and 5,
 frames, 1,657 and 1,698 ms (3.3 ms) → 783–899 ms (1.6–1.8 ms). *Interpolated:* the forward frames' higher remainder
 (sampling, draw list, pose rest) is taken to be first-use cost, since the back skip runs the same frames warm. *A cost:*
 a skip no longer carries transitions across it, so the landing frame blends from the sequence seen before the seek, as
-every seek did before B504. Tests: `MomentSceneTests.Build_EntitiesOnly_LeavesTheStaticPropsOut` (sabotaged: the
-static props kept — reddened), `SequenceHashTests`.
+every seek did before B504. Tests: `MomentSceneTests.Pose_EntitiesOnly_LeavesTheStaticPropsOut` (renamed from
+`Build_…` by finding 83 item 1, which took static props off the draw list; sabotaged: the static props kept — reddened), `SequenceHashTests`.
 
 ## B505 — within a tick, scheduled and live script sounds of one script were dealt scheduled-first, not in the client's order — FIXED 2026-10-05
 
