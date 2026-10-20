@@ -1,0 +1,32 @@
+name: A demo that won't play or looks wrong
+description: A demo fails to open, stops partway, or renders very differently from TF2
+labels: [demo-compat, needs-demo]
+body:
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: The name of the release zip you downloaded, for example 0.1.0-beta.45.
+    validations:
+      required: true
+  - type: input
+    id: demo
+    attributes:
+      label: The demo
+      description: A download link, or the file name and SHA-256. The demo is what lets this be reproduced.
+    validations:
+      required: true
+  - type: input
+    id: map
+    attributes:
+      label: Map and when it was recorded
+      description: The map name and the approximate date, or the TF2 build if you know it.
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happens
+      description: An error message, where it stops, or what is wrong on screen (and what TF2 shows instead).
+    validations:
+      required: true

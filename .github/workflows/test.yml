@@ -448,6 +448,13 @@ jobs:
       # first version ran them as three statements under `set -e`, so Cli failing meant Content's
       # number was never printed — one run told me about one assembly. A gate that stops at the
       # first problem makes every diagnosis serial.
+      # **The Cli branch floor was re-baselined 83 -> 82 on 2026-10-20 by the coverlet 10.1.0 bump, and that is a
+      # change of MEASUREMENT, not of tests.** Same code and same tests: line coverage stayed 82.2%, branch coverage
+      # went 86.5% -> 82.6%. The 10.1.0 release notes list "Fix Regression in branch coverage for lambda expressions"
+      # (#1938) and "'is' with 'or' in pattern matching, branch coverage is lower than normal" (#1979): branches in
+      # lambdas and `or` patterns that were not counted before are counted now, and the CLI has some no test covers.
+      # Core (86.3%) and Content (64.5%) did not move. The real work is covering those CLI branches and raising this
+      # back above 86; it is filed in the handoff, not chased by lowering anything else.
       - name: Check the coverage
         run: |
           failed=0
@@ -456,7 +463,7 @@ jobs:
             Tf2DemoSalvage.Core 90 85 || failed=1
           ./build/assert-coverage.sh \
             "$(find coverage/cli -name coverage.cobertura.xml | head -1)" \
-            tf2demosalvage 78 83 || failed=1
+            tf2demosalvage 78 82 || failed=1
           ./build/assert-coverage.sh \
             "$(find coverage/content -name coverage.cobertura.xml | head -1)" \
             Tf2DemoSalvage.Content 53 45 || failed=1
@@ -466,7 +473,7 @@ jobs:
       # .trx.** The notes above say twice to "confirm against the next green run's .trx and tighten
       # if it disagrees" — and until 2026-09-09 no green run uploaded one, so every floor here that
       # was not read off a FAILED run stayed arithmetic and drifted. A .trx is a few hundred KB.
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
         if: always()
         with:
           name: unit-trx
@@ -702,7 +709,7 @@ jobs:
 
       # `always()` for the same reason as the unit job's copy above: the floors in this step are
       # only checkable against a green run's .trx, and a green run used to upload none.
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
         if: always()
         with:
           name: corpus-trx
@@ -718,7 +725,7 @@ jobs:
       # `if: failure()` and `if-no-files-found: ignore` deliberately: a green run needs no forensics,
       # and a job that fails BEFORE the viewer ever launches has no log to gather — which must not
       # turn into a second, misleading failure on top of the first.
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
         if: failure()
         with:
           name: viewer-logs

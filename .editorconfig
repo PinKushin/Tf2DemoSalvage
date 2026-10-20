@@ -139,6 +139,16 @@ dotnet_diagnostic.CA1848.severity = none    # use LoggerMessage delegates
 [managed/**/*.cs]
 dotnet_diagnostic.S3267.severity = none     # loops to LINQ — allocates in decode and draw paths
 
+[{managed,tools}/**/*.cs]
+# CA1806 (error, above) on methods whose answer is a failure signal but that the analyzer does not
+# know about: a bounded wait, an OpenAL call that fails by return value, and every bool Try* this
+# project declares. Not for tests, where the classification found thousands of fluent discards.
+# Bare names match every overload of every type; the M: entries are documentation IDs, used where
+# a bare "Wait" would also catch unrelated APIs. There is no wildcard, so a new Try* method has to
+# be added here by name. TryGetValue is left out on purpose: the bare name would also catch the
+# BCL's, which is discarded deliberately as a default-if-absent read.
+dotnet_code_quality.CA1806.additional_use_results_methods = M:System.Diagnostics.Process.WaitForExit(System.Int32)|M:System.Diagnostics.Process.WaitForExit(System.TimeSpan)|M:System.Threading.ManualResetEventSlim.Wait(System.Int32)|M:System.Threading.ManualResetEventSlim.Wait(System.TimeSpan)|MakeContextCurrent|CloseDevice|TryWriteBytes|TryScaleToUnitLength|TryRead|TryLoad|TryGet|TryCreate|TryWrite|TryVectorBody|TryStuckOffset|TrySkipDictionaries|TryReadVector|TryReadQuoted|TryReadByteBody|TryLoadOpenAl|TryLightOnCpu|TryHoldBack|TryGrapple|TryFirst|TryFind|TryDecode|TryByName|TryAt
+
 [tests/**/*.cs]
 # Tests legitimately construct and discard, and use non-localized literals everywhere.
 dotnet_diagnostic.CA1707.severity = none    # Method_Scenario_Expected naming has underscores

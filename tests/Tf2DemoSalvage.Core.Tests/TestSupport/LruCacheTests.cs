@@ -103,6 +103,7 @@ public sealed class LruCacheTests
 
         gate.Release();
         JoinAll([first, .. late]);
+        gate.HeldUntilReleased.ShouldBeTrue("the build gave up waiting for its release");
 
         builds.ShouldBe(1);
         got.Distinct(ReferenceEqualityComparer.Instance).Count().ShouldBe(1);
@@ -136,6 +137,7 @@ public sealed class LruCacheTests
 
         gate.Release();
         JoinAll([first, second]);
+        gate.HeldUntilReleased.ShouldBeTrue("the build gave up waiting for its release");
 
         builds.Of("a").ShouldBe(1, "a was evicted while it was still building, so it was built twice");
         secondA.ShouldBeSameAs(firstA);
@@ -281,10 +283,17 @@ public sealed class LruCacheTests
         private readonly ManualResetEventSlim _started = new();
         private readonly ManualResetEventSlim _released = new();
 
+        /// <summary>
+        /// Whether <see cref="Hold"/> was released rather than timing out. Recorded, not asserted
+        /// where it happens: <see cref="Hold"/> runs on a bare thread, where a failed assertion is
+        /// an unhandled exception that takes the test host down. Read after the join.
+        /// </summary>
+        public bool HeldUntilReleased { get; private set; }
+
         public object Hold()
         {
             _started.Set();
-            _released.Wait(Tripwire);
+            HeldUntilReleased = _released.Wait(Tripwire);
             return new object();
         }
 

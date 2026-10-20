@@ -122,13 +122,13 @@ public sealed class AudioOutputMixTests
         // Two overlapping lifetimes is the smallest arrangement that reproduces it, and it asserts
         // rather than merely surviving: a process-wide teardown taken by the FIRST output is
         // observable as the SECOND one no longer working.
-        if (AudioOutput.TryCreate() is not { } first)
+        if (AudioOutput.TryCreate(Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance) is not { } first)
         {
             Assert.Ignore("no audio device on this machine, so the device path cannot be exercised");
             return;
         }
 
-        AudioOutput? second = AudioOutput.TryCreate();
+        AudioOutput? second = AudioOutput.TryCreate(Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance);
 
         second.ShouldNotBeNull("a second output must open while the first is still alive");
 
@@ -144,7 +144,7 @@ public sealed class AudioOutputMixTests
 
         // And a third must still open afterwards: if the library were unloaded, `TryCreate` would
         // catch `DllNotFoundException` and hand back null, which is silence with no explanation.
-        AudioOutput? third = AudioOutput.TryCreate();
+        AudioOutput? third = AudioOutput.TryCreate(Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance);
 
         third.ShouldNotBeNull("the device must still open after every earlier output was disposed");
         third.Dispose();
