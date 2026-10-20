@@ -1,0 +1,44 @@
+name: Bug report
+description: Something is wrong, slow, or draws differently from real TF2
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for testing. A security problem (a crafted file that crashes or breaks out of the program) should be
+        reported privately instead: use the **Security** tab, **Report a vulnerability**.
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: The name of the release zip you downloaded, for example 0.1.0-beta.45.
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you saw, and what you expected (or what TF2 does).
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: How to see it
+      description: The demo (a link, or its file name and SHA-256), the tick, and what you did.
+    validations:
+      required: false
+  - type: textarea
+    id: sidecar
+    attributes:
+      label: Capture companion file
+      description: If you took a screenshot with `--shot`, paste the contents of the `.png.json` next to it.
+      render: json
+    validations:
+      required: false
+  - type: input
+    id: system
+    attributes:
+      label: Windows version and graphics card
+    validations:
+      required: false

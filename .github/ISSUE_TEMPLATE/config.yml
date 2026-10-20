@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Question or how do I
+    url: https://github.com/PinKushin/Tf2DemoSalvage/discussions
+    about: Questions and ideas go in Discussions so Issues stay for bugs.
+  - name: Security problem
+    url: https://github.com/PinKushin/Tf2DemoSalvage/security/advisories/new
+    about: Report a vulnerability privately; see SECURITY.md.
