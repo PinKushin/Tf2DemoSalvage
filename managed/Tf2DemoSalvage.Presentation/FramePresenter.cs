@@ -252,7 +252,9 @@ public sealed partial class FramePresenter
                 viewing,
                 frame.ViewportWidth,
                 frame.ViewportHeight,
-                _moment.Drawn,
+
+                // The static props are off the draw list now (finding 83 item 1); a pick still names them, entities first.
+                [.. _moment.Drawn, .. _moment.StaticProps],
                 _lastParticles,
                 _bursts.Bursts,
                 _particles));

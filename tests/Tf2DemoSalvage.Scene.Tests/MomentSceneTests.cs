@@ -430,11 +430,11 @@ public sealed class MomentSceneTests
 
     /// <remarks>
     /// **A skip's frame simulates entities only** (B504): `SimulateEntities` walks the client entity list, and a
-    /// `CStaticProp` is never on it — so a moment built for one leaves the map's static props out of the list it poses.
+    /// `CStaticProp` is never on it — so a moment built for one draws none of the map's static props.
     /// </remarks>
     [TestCase(false, 1)]
     [TestCase(true, 0)]
-    public void Build_EntitiesOnly_LeavesTheStaticPropsOut(bool entitiesOnly, int drawn)
+    public void Pose_EntitiesOnly_LeavesTheStaticPropsOut(bool entitiesOnly, int drawn)
     {
         MomentScene scene = Posable();
         scene.StaticProps =
@@ -442,8 +442,26 @@ public sealed class MomentSceneTests
         scene.EntitiesOnly = entitiesOnly;
 
         scene.Build([], [], Info());
+        scene.Pose(Info());
 
-        scene.Drawn.Count.ShouldBe(drawn);
+        scene.Instances.Count.ShouldBe(drawn);
+    }
+
+    /// <remarks>
+    /// **A static prop is never on the entity draw list** (finding 83 item 1): the engine files it with the leaf system
+    /// at level load and reaches it only through the in-view gather, so the moment's visibility filters, `PlaceFrame`
+    /// and `UpdateClientSideAnimations` — every one of which walks this list — visit none. The control: the entity is on it.
+    /// </remarks>
+    [Test]
+    public void Build_WithAStaticPropAndAnEntity_ListsOnlyTheEntity()
+    {
+        MomentScene scene = Posable();
+        scene.StaticProps =
+            [PropModels.StaticModel(new Content.Bsp.BspStaticProp("models/props/crate.mdl", 0f, 0f, 100f, 0f, 0f, 0f, 1f), 0)];
+
+        scene.Build([], [Prop("models/props/crate.mdl", entity: 5)], Info());
+
+        scene.Drawn.Select(prop => prop.EntityIndex).ShouldBe([5]);
     }
 
     /// <remarks>
