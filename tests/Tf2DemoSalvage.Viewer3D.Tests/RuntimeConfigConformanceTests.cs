@@ -13,16 +13,39 @@ namespace Tf2DemoSalvage.Viewer3D.Tests;
 [TestFixture]
 public sealed class RuntimeConfigConformanceTests
 {
-    [Test]
-    public void RuntimeConfig_ForTheViewer_LeavesQuickJitOn()
+    /// <remarks>Tiering, quick JIT and dynamic PGO each absent from the viewer's runtimeconfig, or at their default, true.</remarks>
+    [TestCase("System.Runtime.TieredCompilation.QuickJit")]
+    [TestCase("System.Runtime.TieredCompilation")]
+    [TestCase("System.Runtime.TieredPGO")]
+    public void RuntimeConfig_ForTheViewer_LeavesTieringAtItsDefault(string setting)
     {
+        // The viewer's own file, copied beside the tests by the project reference; reading it is the proof it arrived.
         string path = Path.Combine(TestContext.CurrentContext.TestDirectory, "tf2demoview.runtimeconfig.json");
 
         using JsonDocument config = JsonDocument.Parse(File.ReadAllText(path));
         JsonElement properties = config.RootElement.GetProperty("runtimeOptions").GetProperty("configProperties");
 
-        bool quickJit = !properties.TryGetProperty("System.Runtime.TieredCompilation.QuickJit", out JsonElement set) || set.GetBoolean();
+        bool on = !properties.TryGetProperty(setting, out JsonElement set) || set.GetBoolean();
 
-        quickJit.ShouldBeTrue();
+        on.ShouldBeTrue();
+    }
+
+    /// <remarks>ReadyToRun was measured too and made the first seconds of playback worse (finding 84): no build file sets it.</remarks>
+    [Test]
+    public void BuildFiles_ForTheViewer_DoNotPublishReadyToRun()
+    {
+        DirectoryInfo? root = new(TestContext.CurrentContext.TestDirectory);
+
+        while (root is not null && !File.Exists(Path.Combine(root.FullName, "Tf2DemoSalvage.slnx")))
+        {
+            root = root.Parent;
+        }
+
+        root.ShouldNotBeNull("the repository root, found by its solution file");
+
+        foreach (string file in new[] { "Directory.Build.props", Path.Combine("managed", "Tf2DemoSalvage.Viewer3D", "Tf2DemoSalvage.Viewer3D.csproj") })
+        {
+            File.ReadAllText(Path.Combine(root.FullName, file)).ShouldNotContain("PublishReadyToRun", Case.Insensitive, file);
+        }
     }
 }
