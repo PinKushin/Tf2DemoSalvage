@@ -180,6 +180,9 @@ public sealed partial class ViewerSession
     /// <summary>The collector's counters when counting began, for the measurement's GC line (finding 82).</summary>
     private GcReading _gcAtStart;
 
+    /// <summary>The JIT's counters when counting began, for the measurement's JIT line (finding 84).</summary>
+    private JitReading _jitAtStart;
+
     /// <summary>The particle phase's counters when counting began (finding 82).</summary>
     private ParticleCost _particlesAtStart;
 
@@ -266,6 +269,7 @@ public sealed partial class ViewerSession
         if (_framesMeasured > 0)
         {
             _host.Out.WriteLine("  " + GcReading.Now().Since(_gcAtStart, _framesMeasured));
+            _host.Out.WriteLine("  " + JitReading.Now().Since(_jitAtStart));
             _host.Out.WriteLine("  " + _effects.ParticleCost.Since(_particlesAtStart, _framesMeasured));
             _host.Out.WriteLine("  " + ParticleBirths.Since(_birthsAtStart, Tf2DemoSalvage.Content.Assets.ParticleEffect.BirthsBySystem, _frameSeconds, 12));
         }
@@ -439,6 +443,7 @@ public sealed partial class ViewerSession
                 // And the per-second lines written before counting began, which described the opening (finding 82).
                 _measured.Clear();
                 _gcAtStart = GcReading.Now();
+                _jitAtStart = JitReading.Now();
                 _particlesAtStart = _effects.ParticleCost;
                 _birthsAtStart = new(Tf2DemoSalvage.Content.Assets.ParticleEffect.BirthsBySystem, StringComparer.Ordinal);
             }

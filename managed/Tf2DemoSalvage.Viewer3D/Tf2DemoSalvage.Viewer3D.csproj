@@ -19,6 +19,13 @@
          assets/icon.svg, which any front end can use; this .ico is that drawing at 16 to 256 px for
          Windows alone. -->
     <ApplicationIcon>Assets\icon.ico</ApplicationIcon>
+
+    <!-- **Optimized from the first call, as the engine's native code is** (finding 84). Quick JIT ran every method
+         at tier 0 until the tiering worker promoted it, so the first five to eight seconds of each playback ran two
+         to three times slower in every phase. Off, a method the framework did not precompile is compiled optimized
+         the first time it runs; precompiled framework code still tiers up. The cost is longer compiles, mostly
+         during the load. -->
+    <TieredCompilationQuickJit>false</TieredCompilationQuickJit>
   </PropertyGroup>
 
   <ItemGroup>
