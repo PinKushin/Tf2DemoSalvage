@@ -87,6 +87,16 @@ public sealed class ShotSidecarTests
         ShotSidecar.Private("-2240 -3180 790 5 90").ShouldBe("-2240 -3180 790 5 90");
     }
 
+    /// <remarks>A relative path names folders too; a sidecar is meant to be posted publicly (review).</remarks>
+    [TestCase(@"..\..\Users\x\demos\y.dem", "y.dem")]
+    [TestCase("sub/out.png", "out.png")]
+    [TestCase("/", "/")]
+    [TestCase(@"\", @"\")]
+    public void Private_AValueWithADirectorySeparator_KeepsOnlyTheFileName(string value, string expected)
+    {
+        ShotSidecar.Private(value).ShouldBe(expected);
+    }
+
     [Test]
     public void Read_ATf2Sidecar_TakesDemoTickCameraViewportAndConvars()
     {

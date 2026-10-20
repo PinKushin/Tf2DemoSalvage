@@ -81,14 +81,17 @@ public static class ShotSidecar
     /// <returns><c>&lt;shot&gt;.json</c>.</returns>
     public static string PathFor(string shot) => shot + ".json";
 
-    /// <summary>A value with any rooted path reduced to its file name: no user's folders go in a sidecar.</summary>
-    /// <param name="value">An argument or an environment value.</param>
-    /// <returns>The value, or its file name when it is a rooted path.</returns>
+    /// <summary>A value holding any directory separator reduced to its file name: no user's folders go in a sidecar.</summary>
+    /// <param name="value">An argument, an environment value or a ConVar's value.</param>
+    /// <returns>The value, or its file name when it names a folder; a lone separator (a key name) is kept.</returns>
+    /// <remarks>**Relative paths too**: `..\..\Users\x\demos\y.dem` names folders as surely as a rooted one does.</remarks>
     public static string Private(string value)
     {
         ArgumentNullException.ThrowIfNull(value);
 
-        return value.IndexOfAny(Path.GetInvalidPathChars()) < 0 && Path.IsPathRooted(value) ? Path.GetFileName(value) : value;
+        string name = value.IndexOfAny(['/', '\\']) < 0 ? value : Path.GetFileName(value);
+
+        return name.Length > 0 ? name : value;
     }
 
     /// <summary>A file's sha256, lower-case hex.</summary>
