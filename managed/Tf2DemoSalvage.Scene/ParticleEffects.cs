@@ -45,7 +45,7 @@ public sealed class ParticleEffects
     private const string AnimatedSprites = "render_animated_sprites";
 
     /// <summary>The demo tick this last advanced to, so a still advances nothing.</summary>
-    private double _tick;
+    private double _tick = double.NaN;
 
     /// <summary>The live effects, by the entity they follow.</summary>
     private readonly Dictionary<int, ParticleEffect> _running = [];
@@ -213,7 +213,8 @@ public sealed class ParticleEffects
 
         _tick = now;
 
-        bool played = !(seeked || advanced < 0d || advanced > 200d);
+        // NaN before the first call: the opening is not a played frame, whatever tick it opens on.
+        bool played = !(seeked || double.IsNaN(advanced) || advanced < 0d || advanced > 200d);
 
         if (!played)
         {

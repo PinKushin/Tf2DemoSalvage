@@ -71,6 +71,32 @@ public sealed class ParticleCallerConformanceTests
         effects.TrailEffect(7)!.Particles.Age.ShouldBe(Interval * 0.75f, 1e-6f, "the second frame's own time; no replay on it");
     }
 
+    /// <remarks>The opening is not a played frame: a rocket fired at 50 and met at 120 replays along its path (B375).</remarks>
+    [Test]
+    public void Update_TheOpeningFrameEarlyInADemo_ReplaysATrailMetInFlight()
+    {
+        ParticleEffects effects = new();
+        ParticleSystem trail = Emitting(key: 1, tick: 0).Definition;
+
+        effects.Update([(7, Along(70f), Along(0f), 70)], trail, Interval, null, 120, 120d);
+
+        effects.TrailEffect(7)!.Particles.Age.ShouldBe(70 * Interval, 1e-4f, "seventy ticks replayed");
+    }
+
+    /// <remarks>The trail twin of the burst seek control: a seek's frame is not played, so a trail met on it replays.</remarks>
+    [Test]
+    public void Update_ATrailFirstSeenOnASeek_ReplaysFromItsRocketsStart()
+    {
+        ParticleEffects effects = new();
+        ParticleSystem trail = Emitting(key: 1, tick: 0).Definition;
+
+        effects.Update([], trail, Interval, null, 0, 0.5d);
+        // Started on tick 1, after the last frame — so only the seek flag tells this frame from a creation frame.
+        effects.Update([(7, Along(5f), Along(0f), 2)], trail, Interval, null, 3, 3.25d, seeked: true);
+
+        effects.TrailEffect(7)!.Particles.Age.ShouldBe(2 * Interval, 1e-6f, "two ticks replayed from the rocket's start");
+    }
+
     private static ParticleControlPoint Along(float x) =>
         new(new Vector3(x, 0f, 0f), Vector3.UnitX, Vector3.UnitY, Vector3.UnitZ);
 
