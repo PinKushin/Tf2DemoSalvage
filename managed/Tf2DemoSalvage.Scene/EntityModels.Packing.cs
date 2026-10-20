@@ -540,4 +540,75 @@ public sealed partial class EntityModelSet
             DropVertices();
         }
     }
+
+    /// <summary>Every packed model's triangles, in model space.</summary>
+    /// <remarks>
+    /// Uploaded once. The vertices never move again — that is the whole point of the arrangement.
+    /// </remarks>
+    public IReadOnlyList<WorldVertex> Vertices => _vertices;
+
+    /// <summary>The global offset of <see cref="Vertices"/>' first element — how many were let go after upload (B407).</summary>
+    /// <remarks>A batch's <c>FirstVertex</c> is global; its vertices are at <c>FirstVertex - VertexBase</c> in <see cref="Vertices"/>.</remarks>
+    public int VertexBase { get; private set; }
+
+    /// <summary>Whether an upload lets go of the vertices it sent — armed once the map's world is on the device.</summary>
+    private bool _releaseOnUpload;
+
+    /// <summary>Lets go of every vertex the device holds, now and after each later upload (B407).</summary>
+    /// <remarks>
+    /// **655 MB on f12, read only to slice each model once for its GPU buffer.** Armed by the window once the map's own copies
+    /// are released too, because a failed world upload clears the renderer and its model buffers together, and the retry then
+    /// reads the map again — whose level shutdown resets this set. Before that nothing is dropped, so a failed first upload can
+    /// still retry from here. Offsets stay global, so batches already recorded keep meaning what they meant.
+    /// </remarks>
+    public void ReleaseUploaded()
+    {
+        _releaseOnUpload = true;
+
+        if (!Grown)
+        {
+            DropVertices();
+        }
+    }
+
+    private void DropVertices()
+    {
+        VertexBase += _vertices.Count;
+        _vertices.Clear();
+        _vertices.TrimExcess();
+    }
+
+    /// <summary>Bytes the vertex list's backing array holds, filled or not — for the memory report (B407).</summary>
+    public long VertexBytes => (long)_vertices.Capacity * System.Runtime.CompilerServices.Unsafe.SizeOf<WorldVertex>();
+
+    /// <summary>How many distinct models have been packed.</summary>
+    public int Count => _byModel.Count;
+
+    /// <summary>Every packed model's path.</summary>
+    public IEnumerable<string> Paths => _byModel.Keys;
+
+    /// <summary>The batches for one model, or empty when it is not packed.</summary>
+    /// <param name="modelPath">The model's path.</param>
+    /// <returns>One run per material, indexing into <see cref="Vertices"/>.</returns>
+    public IReadOnlyList<WorldBatch> Batches(string modelPath) => Batches(modelPath, 0);
+
+    /// <summary>The batches for one model at one baked frame.</summary>
+    /// <param name="modelPath">The model's path.</param>
+    /// <param name="frame">Which baked frame; clamped into what was packed.</param>
+    /// <returns>One run per material, indexing into <see cref="Vertices"/>.</returns>
+    /// <remarks>
+    /// **Clamped rather than refused.** A demo can name a sequence whose frame count differs from
+    /// the model on this machine — a later game version, or a model replaced by a mod — and
+    /// holding the last frame is a better answer than drawing nothing.
+    /// </remarks>
+    public IReadOnlyList<WorldBatch> Batches(string modelPath, int frame)
+    {
+        if (!_byModel.TryGetValue(modelPath, out List<List<WorldBatch>>? frames) ||
+            frames.Count == 0)
+        {
+            return [];
+        }
+
+        return frames[Math.Clamp(frame, 0, frames.Count - 1)];
+    }
 }
