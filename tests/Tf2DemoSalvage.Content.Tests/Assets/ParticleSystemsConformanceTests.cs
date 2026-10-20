@@ -110,6 +110,37 @@ public sealed class ParticleSystemsConformanceTests
         store.Count.ShouldBe(2);
     }
 
+    /// <remarks>
+    /// `max_particles` is unpacked at definition +0x238 with the default string `"1000"` (the unpack table at
+    /// `0x9e00` in `particles.obj`), and `CParticleCollection::InitStorage` sets `m_nMaxAllowedParticles` (+0x64) to
+    /// `min( m_nMaxParticles, 5000 )` — `MAX_PARTICLES_IN_A_SYSTEM`, `particles.h:134`.
+    /// </remarks>
+    [TestCase(null, 1000)]
+    [TestCase(9000d, 5000)]
+    [TestCase(5000d, 5000)]
+    [TestCase(3d, 3)]
+    public void Spawn_UntilRefused_StopsAtTheEngineCollectionSize(double? declared, int expected)
+    {
+        Dictionary<string, DmxValue> parameters = new(StringComparer.Ordinal);
+
+        if (declared is { } cap)
+        {
+            parameters["max_particles"] = new DmxValue(DmxAttributeType.Whole, cap);
+        }
+
+        ParticleSystem system = new("trail", [], [], [], [], [], parameters);
+        ParticleStore store = new();
+
+        int made = 0;
+
+        while (Spawn(system, store) >= 0 && made <= 6000)
+        {
+            made++;
+        }
+
+        made.ShouldBe(expected);
+    }
+
     [Test]
     public void Read_AChild_IsNamedRatherThanInlined()
     {
