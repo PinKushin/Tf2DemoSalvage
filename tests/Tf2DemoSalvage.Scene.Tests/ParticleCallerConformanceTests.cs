@@ -83,6 +83,20 @@ public sealed class ParticleCallerConformanceTests
         effects.TrailEffect(7)!.Particles.Age.ShouldBe(70 * Interval, 1e-4f, "seventy ticks replayed");
     }
 
+    /// <remarks>A new demo's opening is an opening too: `Clear` forgets the last demo's clock, so its first frame replays.</remarks>
+    [Test]
+    public void Update_TheOpeningAfterClear_ReplaysATrailMetInFlight()
+    {
+        ParticleEffects effects = new();
+        ParticleSystem trail = Emitting(key: 1, tick: 0).Definition;
+
+        effects.Update([], trail, Interval, null, 40, 40d);
+        effects.Clear();
+        effects.Update([(7, Along(50f), Along(0f), 50)], trail, Interval, null, 100, 100d);
+
+        effects.TrailEffect(7)!.Particles.Age.ShouldBe(50 * Interval, 1e-4f, "fifty ticks replayed, not a creation frame");
+    }
+
     /// <remarks>The trail twin of the burst seek control: a seek's frame is not played, so a trail met on it replays.</remarks>
     [Test]
     public void Update_ATrailFirstSeenOnASeek_ReplaysFromItsRocketsStart()

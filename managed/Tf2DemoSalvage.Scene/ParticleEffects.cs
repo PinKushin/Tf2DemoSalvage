@@ -1053,6 +1053,11 @@ public sealed class ParticleEffects
         _running.Clear();
         _bursts.Clear();
         _burstTick = 0;
+
+        // And the clocks the creation-frame rule reads (B557 row 6): a new demo's first frame is an opening, not a played one.
+        _tick = double.NaN;
+        _burstShown = double.NaN;
+        _playedFrom.Clear();
     }
 }
 
