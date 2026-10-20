@@ -1233,6 +1233,33 @@ public sealed class ViewerSessionTests
     }
 
     [Test]
+    public async Task CaptureViewportToFile_PastTheLimit_PrunesAShotWithItsSidecarAndKeepsAKeptShotsSidecar()
+    {
+        // One more old shot than the limit, each with its sidecar: the oldest must go, PNG and sidecar together.
+        List<string> old = [];
+
+        for (int age = 0; age <= Captures.Kept; age++)
+        {
+            string png = Path.Combine(_folder, Captures.Name(new DateTime(2000, 1, 1, 0, 0, 0, DateTimeKind.Local).AddMinutes(age)));
+            await File.WriteAllBytesAsync(png, [1]).ConfigureAwait(false);
+            await File.WriteAllTextAsync(png + ".json", "{}").ConfigureAwait(false);
+            old.Add(png);
+        }
+
+        using Rig rig = Build(new ViewerSettings { FrameRateLimit = 0, ScreenshotFolder = _folder }, 0.5, WriteDemo("prune")).WithDevice();
+        rig.Session.PlanStartup();
+        rig.Session.WindowShown();
+        (await rig.Session.Loading.ConfigureAwait(false)).Loaded.ShouldBeTrue();
+
+        rig.Session.CaptureViewportToFile();
+
+        File.Exists(old[0]).ShouldBeFalse("the oldest is past the limit");
+        File.Exists(old[0] + ".json").ShouldBeFalse("a pruned shot leaves no orphan sidecar");
+        File.Exists(old[^1]).ShouldBeTrue();
+        File.Exists(old[^1] + ".json").ShouldBeTrue("a kept shot keeps its sidecar");
+    }
+
+    [Test]
     public async Task RenderFrame_OnACaptureRunWhileThePostProcessingWalks_WaitsAndSaysWhatItWaitsOn()
     {
         using Rig rig = Build(WriteDemo("walks"), "--shot", Path.Combine(_folder, "out.png")).WithDevice();

@@ -449,7 +449,8 @@ public sealed partial class ViewerSession
         // what `Captures.Name` produces, and it did so only because the same prefix was typed in
         // two places — a disagreement would prune nothing, silently, since deleting zero files looks
         // exactly like having nothing to delete.
-        FileRetention.Keep(folder, Captures.Pattern, Captures.Kept);
+        // **A shot's sidecar goes with it**, so pruning leaves no orphan `.png.json` (D226).
+        FileRetention.Keep(folder, Captures.Pattern, Captures.Kept, ShotSidecar.PathFor(string.Empty));
     }
 
     /// <summary>The demo named on the command line, opened once the window is up; null when none was.</summary>
