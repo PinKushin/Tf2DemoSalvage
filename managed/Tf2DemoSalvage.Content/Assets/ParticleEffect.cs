@@ -135,6 +135,12 @@ public sealed class ParticleEffect
                     continue;
                 }
 
+                // `C_OP_ContinuousEmitter::MayCreateMoreParticles` (`0x00067430`): a rate not above 0 makes no more.
+                if (emitter.Number("emission_rate", 0d) <= 0d)
+                {
+                    continue;
+                }
+
                 float duration = (float)emitter.Number("emission_duration", 0d);
 
                 if (duration <= 0f ||

@@ -65,6 +65,30 @@ public sealed class ParticleKillConformanceTests
         effect.Particles.Count.ShouldBeInRange(65, 67);
     }
 
+    /// <remarks>
+    /// `C_OP_ContinuousEmitter::MayCreateMoreParticles` (`0x00067430`, `builtin_particle_emitters.obj`): false when the
+    /// context's stopped flag (+0x10) is set or the rate (+0x40) is not above 0; true for a zero duration; otherwise
+    /// <c>curtime − dt &lt;= start + duration</c>. So an empty system whose only emitter has rate 0 is finished
+    /// (`IsFinished`, particles.h:1119); the control at rate 66 is not, because a zero duration is forever.
+    /// </remarks>
+    [TestCase(0d, true)]
+    [TestCase(66d, false)]
+    public void Finished_EmptyWithAContinuousEmitter_IsDecidedByTheRate(double rate, bool expected)
+    {
+        ParticleSystem system = System() with
+        {
+            Emitters =
+            [
+                new ParticleFunction("emit_continuously", "emit", new Dictionary<string, DmxValue>(StringComparer.Ordinal)
+                {
+                    ["emission_rate"] = new DmxValue(DmxAttributeType.Real, rate),
+                }),
+            ],
+        };
+
+        new ParticleEffect(system).Finished.ShouldBe(expected);
+    }
+
     private static readonly Dictionary<string, DmxValue> Empty = new(StringComparer.Ordinal);
 
     private static ParticleSystem System(params string[] operators) =>

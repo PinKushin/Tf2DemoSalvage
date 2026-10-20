@@ -1029,7 +1029,11 @@ public sealed class ParticleBurstTests
             new ParticleControlPoint(Vector3.Zero, Vector3.UnitX, Vector3.UnitY, Vector3.UnitZ),
             tick);
 
-    /// <summary>A system that emits at no rate for an hour, so it is never finished and never grows.</summary>
+    /// <summary>A system that emits a particle a minute for an hour, so it is never finished and barely grows.</summary>
+    /// <remarks>
+    /// The rate was 0, and a continuous emitter at rate 0 may create no more (`MayCreateMoreParticles`, `0x00067430`), so
+    /// the engine would call that system finished at once (B557 row 17).
+    /// </remarks>
     private static readonly ParticleSystem LongLived = new(
         Name: "test_burst",
         Emitters:
@@ -1039,7 +1043,7 @@ public sealed class ParticleBurstTests
                 Name: "emitter",
                 Parameters: new Dictionary<string, DmxValue>(StringComparer.Ordinal)
                 {
-                    ["emission_rate"] = new(DmxAttributeType.Real, 0d),
+                    ["emission_rate"] = new(DmxAttributeType.Real, 1d / 60d),
                     ["emission_duration"] = new(DmxAttributeType.Real, 3600d),
                 }),
         ],
