@@ -217,6 +217,34 @@ model-path lookup (12.2%) for every prop. The engine computes an absolute transf
 `EFL_DIRTY_ABSTRANSFORM` and resolves a model when the entity takes an update, so both are the same divergence this
 fix closed for the collation. Not started here.
 
+## Particles born a second on f12, for B557 (2026-10-19)
+
+**The instrument**: `ParticleEffect.BirthsBySystem`, counted at the birth (`BirthAt`, the one place a particle is
+made — continuous, burst and initial particles all pass through it), read by `--measure`'s `particles born a second:`
+line over the counted playback. **Not counted apart**: births during a seek's replay inside the window, which this
+window does not contain after the opening fix.
+
+f12, first person, tick 30000, two runs: **2,871 and 2,763 born a second in all.** By system, run 1 (run 2 within
+10%):
+
+| system | born a second |
+|---|---:|
+| rocketjump_smoke | 1,181 |
+| medicgun_beam_blue_trail_stage1 | 151 |
+| medicgun_beam_red_trail_stage1 | 117 |
+| rockettrail | 115 |
+| rockettrail_burst, rockettrail_fire | 96 each |
+| medicgun_beam_blue_trail_stage2 / stage3 | 83 / 77 |
+| Explosion_Debris001 | 76 |
+| blood_spray_red_01_far | 65 |
+| medicgun_beam_red_trail_stage2 | 64 |
+| blood_impact_red_01_chunk | 61 |
+
+**`rocketjump_smoke` is 41% of every particle born.** That is the one to compare first when B557 has TF2's own
+numbers. Its definition (`particles/rockettrail.pcf`'s neighbour `ROCKETJUMPTRAIL.PCF`) was not read here: the
+`particles` probe names the file but does not print an emitter's `emission_rate`, so the declared rate × the number
+of jumping players is the next measurement, not a conclusion. Nothing here was changed.
+
 ## Fix 4: a prop's model and placement are resolved once per object (2026-10-19, parity; supersedes the next section)
 
 The owner's rule, which reverses the "not kept" below: *"if its parity but worse we need to figure out why, if its

@@ -183,6 +183,9 @@ public sealed partial class ViewerSession
     /// <summary>The particle phase's counters when counting began (finding 82).</summary>
     private ParticleCost _particlesAtStart;
 
+    /// <summary>Particles born by system when counting began (finding 82, B557).</summary>
+    private Dictionary<string, long> _birthsAtStart = new(StringComparer.Ordinal);
+
     /// <summary>Prints what <c>--measure</c> gathered and closes.</summary>
     /// <remarks>
     /// **To stdout, because the log is buffered.** Reading the log file while the viewer is still
@@ -264,6 +267,7 @@ public sealed partial class ViewerSession
         {
             _host.Out.WriteLine("  " + GcReading.Now().Since(_gcAtStart, _framesMeasured));
             _host.Out.WriteLine("  " + _effects.ParticleCost.Since(_particlesAtStart, _framesMeasured));
+            _host.Out.WriteLine("  " + ParticleBirths.Since(_birthsAtStart, Tf2DemoSalvage.Content.Assets.ParticleEffect.BirthsBySystem, _frameSeconds, 12));
         }
 
         // The GC's own account beside the process's, read where the measurement ends (finding 80).
@@ -436,6 +440,7 @@ public sealed partial class ViewerSession
                 _measured.Clear();
                 _gcAtStart = GcReading.Now();
                 _particlesAtStart = _effects.ParticleCost;
+                _birthsAtStart = new(Tf2DemoSalvage.Content.Assets.ParticleEffect.BirthsBySystem, StringComparer.Ordinal);
             }
 
             _framesMeasured++;
