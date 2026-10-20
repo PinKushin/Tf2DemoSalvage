@@ -40044,3 +40044,48 @@ reddens four tests), and a child's drawn size against its own scale alone.
   `pl_badwater_pro_v12.bsp` is not on this machine (not under the game's `tf/maps`, `tf/download/maps`, `tf2ds`, or the
   user profile), so its `parentname` cannot be read, and no sampled tick gives them a parent.
 
+## B559 — the class portrait in the HUD is off TF2's by 15 to 20 per channel after the HUD fixes, cause unknown — OPEN
+
+**Measured 2026-10-19** (`HudGoldenImageUiTests`, 4x2 grid, tolerance 12, each cell's mean R/G/B, our frame against
+TF2's golden, `cp_process_f12`, 1280x720): the soldier's "class and health" worst cell **15.1** (23.1 on 2026-10-17,
+63.2 before the fixes), the medic's **20.2** (24.8 before). The same run's ammo case is 10.8 and passes (B552). The model's brightness is closer
+than it was (the helmet and launcher cells 125 against 101 before; the residual is now within about 15, with some
+cells darker and some lighter than TF2's, e.g. soldier 120.3 against 135.4 on one and 124.9 against 120.9 on another). **Unknown cause:** pose, framing and background match (**by eye at 3x, a judgement from 2026-10-17, not measured**), so
+what remains is shading (lighting, ambient, tone-map or the model's material) or a rendering difference of the
+portrait's own scene; none has been isolated. *Evidence class: measured on one demo and one tick per class.* Both
+cases stay `[Explicit]` until the cause is found; the three `RegressionLock_` cases hold the current render
+meanwhile (regenerated 2026-10-19).
+
+## B558 — two UI tests fail intermittently, and one failure's reporter crashed so the real cause was hidden — OPEN, flake (a defect, not noise)
+
+**Observed:** `ExportThenCompile_OpenDemo_RebuildsItsBytes` and
+`FileDialog_OpenedThroughTheFileMenuByAutomation_LeavesTheKeyBindingsWorking` each failed on SEPARATE runs and
+recurred: in the pose agent's earlier phase-2 runs and again in the first batch-1 phase 2 on 2026-10-18. Each passed
+on rerun every time. *Evidence class: observed in the lead's runs; no failing run was kept with its tree.*
+
+**The reporter bug (FIXED 2026-10-19, from the stack; widened after review):** the first test's failure was
+`FlaUI.Core.Exceptions.PropertyNotSupportedException: The requested property 'AutomationId' is not supported`,
+thrown from `ViewerApplication.Describe` (via `DescribeTree`, via `Find`). `Find` had already failed to locate its
+element; the reporter then crashed describing the live tree, replacing "why `Find` failed" with a message about the
+reporter. **Fixed at the root** (a review found a per-read catch covered one read of four): `DescribeTree` walks through
+`ViewerApplication.WalkTree`, which catches ANY exception from the walk and APPENDS
+`tree unreadable after N lines: {type}: {message}` to the lines gathered, so "No element with automation id X"
+always survives (the catch records the exception, it is not silent); `WalkTreeTests` holds it. The second test's
+message was "no File menu".
+
+**A third occurrence, on CI — a DIFFERENT failure shape.** GitHub Actions run `39230763299` (push of main at
+`88259677`, 2026-10-19 09:31 UTC, Windows "Corpus + Audio" job, Viewer UI step) failed
+`Shell_EveryControl_IsReachableByAutomation` (29 s, `ShellUiTests.cs:72`) and
+`StartupSplash_OnceTheMainWindowIsUp_IsGone` (6 s, `StartupSplashUiTests.cs:30`), both with
+`System.Runtime.InteropServices.COMException : Operation timed out. (0x80131505)`, ErrorCode -2146233083, i.e. a UI
+Automation call to the viewer timing out. **It is not the `Describe`/`AutomationId` reporter bug**: no
+`PropertyNotSupportedException` and no `Describe` frame in either stack. The next two pushes (`26962f01`, `a1489309`)
+passed the same job. Same family (UIA tests failing intermittently on a push with no related change); the common cause,
+if there is one, is unknown. *Evidence class: read from the CI log (`gh run view 39230763299 --log-failed`).*
+
+**Not fixed, deliberately:** why the element or the File menu was missing. CLAUDE.md says a flake is a defect, so this
+stays OPEN until a failure shows its real cause in the now-readable tree. No retry loop and no sleep was added:
+synchronise on the condition, never the clock. **Next step:** the next failure of either test prints the whole
+tree; read it before touching anything. A suspect to test, not a finding: another process on the desktop
+(`docs/memory/parallel-agents-lock-the-gate-too.md`).
+

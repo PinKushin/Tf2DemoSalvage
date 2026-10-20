@@ -1138,32 +1138,84 @@ internal sealed partial class ViewerApplication : IDisposable
     /// WAS there - whether the id is wrong, the control never got a handle, or the window found
     /// was a dialog rather than the shell. The tree answers all three at once.
     /// </remarks>
-    public string DescribeTree()
+    public string DescribeTree() => WalkTree<AutomationElement>(
+        () => Window,
+        element => $"{element.ControlType} id='{ReadOrNoIdMarker(() => element.AutomationId)}' name='{element.Name}'",
+        element => element.FindAllChildren());
+
+    /// <summary>What <see cref="ReadOrNoIdMarker"/> answers for an element that carries no AutomationId.</summary>
+    internal const string NoIdMarker = "<no id>";
+
+    /// <summary>Reads an AutomationId, answering <see cref="NoIdMarker"/> for an element that has none.</summary>
+    /// <remarks>
+    /// **The main path; <see cref="WalkTree{T}"/>'s catch is the safety net.** FlaUI throws
+    /// `PropertyNotSupportedException` rather than returning null for an element without the property, and that is
+    /// common in WinForms and was B558's first failure. Only that exception is tolerated here, so the walk goes on
+    /// and lists the element's siblings and children; any other exception ends the walk at the outer catch.
+    /// </remarks>
+    internal static string ReadOrNoIdMarker(Func<string> read)
     {
-        System.Text.StringBuilder description = new();
-        Describe(Window, 0, description);
-        return description.ToString();
+        try
+        {
+            return read();
+        }
+        catch (FlaUI.Core.Exceptions.PropertyNotSupportedException)
+        {
+            return NoIdMarker;
+        }
     }
 
-    private static void Describe(AutomationElement element, int depth, System.Text.StringBuilder into)
+    /// <summary>Walks a tree into one line per node, depth-first, indented two spaces a level.</summary>
+    /// <param name="root">Reads the root; inside the walk, so that a throw from it is reported rather than raised.</param>
+    /// <param name="describe">One node's line.</param>
+    /// <param name="children">One node's children.</param>
+    /// <remarks>
+    /// **This is the failure REPORTER, and the reporter must never replace the failure it reports** (B558). It sits
+    /// in the message of "No element with automation id X"; any UIA read can throw (an element without an
+    /// AutomationId, a `COMException` 0x80131505 timeout, as in CI run 39230763299), and a throw here used to replace
+    /// that message with its own. So the walk is caught as a whole, and **the catch is not silent**: it APPENDS
+    /// `tree unreadable after N lines: {type}: {message}` to the lines gathered so far.
+    /// </remarks>
+    internal static string WalkTree<T>(Func<T> root, Func<T, string> describe, Func<T, IEnumerable<T>> children)
     {
-        into.Append(' ', depth * 2)
-            .Append(element.ControlType)
-            .Append(" id='").Append(element.AutomationId)
-            .Append("' name='").Append(element.Name)
-            .AppendLine("'");
+        System.Text.StringBuilder description = new();
+        int lines = 0;
 
-        // Depth-capped: a WinForms tree is shallow, and an unbounded walk on a failure path is a
-        // second failure waiting to happen.
-        if (depth >= 6)
+        void Walk(T node, int depth)
         {
-            return;
+            // Described BEFORE the indent is written, so a throw leaves no stray indent in front of the tail.
+            string line = describe(node);
+
+            description.Append(' ', depth * 2).AppendLine(line);
+            lines++;
+
+            // Depth-capped: a WinForms tree is shallow, and an unbounded walk on a failure path is a
+            // second failure waiting to happen.
+            if (depth >= 6)
+            {
+                return;
+            }
+
+            foreach (T child in children(node))
+            {
+                Walk(child, depth + 1);
+            }
         }
 
-        foreach (AutomationElement child in element.FindAllChildren())
+        try
         {
-            Describe(child, depth + 1, into);
+            Walk(root(), 0);
         }
+#pragma warning disable CA1031 // The reporter must survive any UIA fault; the exception is recorded in the output, not swallowed.
+        catch (Exception ex)
+#pragma warning restore CA1031
+        {
+            description.Append(string.Create(
+                System.Globalization.CultureInfo.InvariantCulture,
+                $"tree unreadable after {lines} lines: {ex.GetType().Name}: {ex.Message}"));
+        }
+
+        return description.ToString();
     }
 
     /// <inheritdoc />
