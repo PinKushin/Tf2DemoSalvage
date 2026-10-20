@@ -31,8 +31,7 @@ public sealed class PairDiffProbe : IProbe
 
         if (arguments.Count == 4 && arguments[0] == "--sbs")
         {
-            SideBySide(arguments[1], arguments[2], arguments[3]);
-            output.WriteLine($"wrote {arguments[3]}");
+            output.WriteLine(SideBySide(arguments[1], arguments[2], arguments[3]));
             return;
         }
 
@@ -101,10 +100,17 @@ public sealed class PairDiffProbe : IProbe
         return (pixels, pixels == 0 ? "identical" : $"box ({x0},{y0})-({x1},{y1})", max);
     }
 
-    private static void SideBySide(string aPath, string bPath, string outPath)
+    private static string SideBySide(string aPath, string bPath, string outPath)
     {
         GoldenCompareProbe.Image a = GoldenCompareProbe.Image.Read(aPath);
         GoldenCompareProbe.Image b = GoldenCompareProbe.Image.Read(bPath);
+
+        // `b` is indexed by `a`'s geometry: smaller would throw, larger would composite misaligned rows.
+        if (a.Width != b.Width || a.Height != b.Height)
+        {
+            return $"size {a.Width}x{a.Height} against {b.Width}x{b.Height}: nothing written";
+        }
+
         int width = a.Width * 3;
         byte[] rgba = new byte[width * a.Height * 4];
 
@@ -127,5 +133,7 @@ public sealed class PairDiffProbe : IProbe
         }
 
         PngWriter.Write(outPath, width, a.Height, rgba);
+
+        return $"wrote {outPath}";
     }
 }
