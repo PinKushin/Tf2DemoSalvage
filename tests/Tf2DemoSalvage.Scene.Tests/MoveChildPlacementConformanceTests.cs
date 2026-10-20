@@ -408,23 +408,32 @@ public sealed class MoveChildPlacementConformanceTests
 
     /// <summary>
     /// **A model added after a prop was first seen is drawn the frame it arrives** (finding 82) — the same object, resolved
-    /// while its model was missing, must not keep the miss.
+    /// while its model was missing, must not keep the miss. Its box too: the engine's `SetModelPointer` reaches
+    /// `RenderableChanged` through `UpdateVisibility` (`c_baseentity.cpp:1790`, `:3950`), so the object is filed again with
+    /// the model's box, the box a set that had the model from the start files it with.
     /// </summary>
     [Test]
     public void Instances_AModelAddedAfterThePropWasSeen_IsDrawnThatFrame()
     {
-        SceneProp prop = new(1, ParentModel, SceneModelKind.Studio, new ScenePose());
+        SceneProp prop = new(1, ParentModel, SceneModelKind.Studio, new ScenePose { X = 7f });
 
         EntityModelSet models = new();
         List<ModelInstance> before = [];
         models.Instances([prop], before, seconds: 1d);
 
-        models.Add([prop], _ => Baked());
+        models.Add([prop], _ => Baked() with { HeaderBounds = new StudioBox(-1f, -2f, -3f, 4f, 5f, 6f) });
         List<ModelInstance> after = [];
         models.Instances([prop], after, seconds: 2d);
 
+        EntityModelSet fresh = new();
+        fresh.Add([prop], _ => Baked() with { HeaderBounds = new StudioBox(-1f, -2f, -3f, 4f, 5f, 6f) });
+        List<ModelInstance> expected = [];
+        fresh.Instances([prop], expected, seconds: 2d);
+
         before.ShouldBeEmpty("the control: no model yet");
         after.Count.ShouldBe(1);
+        expected[0].WorldBounds.MinX.ShouldBe(6f, "the control: the fresh set files the model's box");
+        after[0].WorldBounds.ShouldBe(expected[0].WorldBounds);
     }
 
     /// <summary>

@@ -5905,6 +5905,12 @@ public sealed class EntityModelSet : Hud.IMdlCache, IPosedEntities
         if (added)
         {
             _modelsGeneration++;
+
+            // **Nothing filed by identity outlives a model it was filed without**: the engine's `SetModelPointer` calls
+            // `UpdateVisibility`, whose `AddToLeafSystem` raises `RenderableChanged` for an existing handle
+            // (`c_baseentity.cpp:1790`, `:3950`), and `PreRender` re-files it. Every object takes the keyed path once, and that
+            // path re-files exactly the ones whose frames changed (finding 82).
+            _filedLast.Clear();
         }
 
         return added;
