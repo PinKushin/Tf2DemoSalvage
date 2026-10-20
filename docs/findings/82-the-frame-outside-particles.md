@@ -395,11 +395,24 @@ or `lifetime <= 0`, the comparison `ParticleStore.Reap` already made.
 | an implemented killer (Lifespan Decay 5,199 uses, Alpha Fade and Decay 3,183) | 7,681 |
 | only killers this project does not implement (plane 37, model 6, random 1 uses) | 0 |
 
-**Fixed**: no age reap of our own; the two implemented killers reap, and a system whose only killers are not
-implemented would keep an age reap as a labelled stand-in (none ships). The 844 are designed to hold their particles,
-which ours killed after a second (the default one-second life of a system with no `Lifetime Random`). **Every f12 top-12
-system declares Alpha Fade and Decay**, so f12's numbers do not move; the effects that should change are a held glow or
-halo, which this window does not show (arithmetic, not measured on screen).
+**A second instrument check found the census incomplete.** Printing the operators of the 844 showed names the SDK's
+2013 `particles.lib` does not define — `alpha_fade`, `lifespan_decay`, `basic_movement`, `radius_scale`,
+`oscillate_vector` and six more (absent from `builtin_particle_ops.obj`'s strings) — which TF2's own `client.dll`
+carries. Whether those kill is unread: the 2013 library cannot speak for them. **23 of the 844** declare one.
+
+**Fixed**: no age reap of our own; the two implemented killers reap. A system whose only killers are not implemented,
+or that declares one of those unread names, keeps an age reap as a labelled stand-in (`ParticleEffect.Killers`,
+`NotInTheSdkLibrary`): 23 systems. The other 821 are, by the library's own code, designed to hold their particles;
+ours killed them at their drawn lifetime (one second where the system has no `Lifetime Random`). **The f12 window's
+systems are not among them** — asked by name of the same probe: the top twelve by births, `xms_ornament_glitter`
+(Lifespan Decay), the overheal pluses, `rocketbackblast`, the muzzle flashes (Alpha Fade and Decay), the tracer
+(Lifespan Decay); `medicgun_beam_*` and `ExplosionCore_Wall` are emitter-less parents. So the f12 numbers cannot move by
+row 3; births a second could not have shown it anyway (an immortal particle adds no birth). Which on-screen effects do
+change is unmeasured: a held halo or glow on a worn item is the candidate, and the owner's eye is the check.
+
+**`emission_rate`'s default is `"100"`**, read from `DmxElementUnpackInit<C_OP_ContinuousEmitter>` (rate at +0x40,
+duration +0x38, start time +0x3c — which also confirms the offsets `MayCreateMoreParticles` reads, below); ours reads an
+undeclared rate as 0. Not changed: the same probe counts **0 of 7,203** shipped continuous emitters that leave it out.
 
 **Row 6, the creation frame (read from published source).** `ProcessPSystem` gives an effect's first frame
 `Simulate( 0.0f )` (`particlemgr.cpp:1572-1575`; the flag is set in `particles_new.cpp:53`). Ours stepped and emitted
@@ -426,9 +439,11 @@ forever. **Not changed.** What the read did expose: `Finished` treated a rate-0 
 **Measured, f12, Debug, first person, tick 30000, `--measure 20`**: particles born a second **2,872.1 after**, against
 2,871 and 2,763 before (the section above — same base, same setup, not re-run); `rocketjump_smoke` 1,181.9 against
 1,181. Mean frame 21.93 ms over 912 frames. **Golden shot**, the explosion at tick 18363 with
-`TF2VIEW_CAMERA="-3280 -1152 637 15 225"`: before and after are byte-identical. Expected — a `--shot` reaches its tick
-by seek, which replays (row 6 does not apply), and the explosion's systems all declare a killer (row 3 does not) — and
-a weak control, since the shot was not shown to change for any edit. The heal-beam pair: before taken at tick 30480,
+`TF2VIEW_CAMERA="-3280 -1152 637 15 225"`: before and after are byte-identical, frame-rate readout included, which the
+pairs above never were. Checked rather than assumed: the before and after `Tf2DemoSalvage.Content.dll` and `.Scene.dll`
+differ (MD5), so the after shot ran the new code. A `--shot` reaches its tick by seek, which replays (row 6 does not
+apply), and the explosion's systems all declare a killer (row 3 does not). Still a weak control: the shot was not shown
+to change for any edit. The heal-beam pair: before taken at tick 30480,
 after not taken, to stay within four viewer runs.
 
 **Not changed**: row 8 (a seek's replay steps a tick at a time — D221, ours, kept), rows 10–14 (closed emitter and

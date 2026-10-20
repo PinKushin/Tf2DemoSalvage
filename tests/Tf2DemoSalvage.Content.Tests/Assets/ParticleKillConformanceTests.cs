@@ -50,12 +50,14 @@ public sealed class ParticleKillConformanceTests
 
     /// <remarks>
     /// **A stand-in, not parity**: `Cull Random` kills in the engine and is not implemented here, so its particles are
-    /// ended at their lifetime rather than left immortal by our gap.
+    /// ended at their lifetime rather than left immortal by our gap. `alpha_fade` is a name TF2's `client.dll` carries and
+    /// the SDK's `particles.lib` does not define, so whether it kills is unread: the same stand-in.
     /// </remarks>
-    [Test]
-    public void Step_OnlyAKillerNotImplemented_EndsParticlesAtTheirLifetime()
+    [TestCase("Cull Random")]
+    [TestCase("alpha_fade")]
+    public void Step_OnlyAKillerNotImplemented_EndsParticlesAtTheirLifetime(string killer)
     {
-        ParticleEffect effect = new(System("Cull Random"));
+        ParticleEffect effect = new(System(killer));
 
         for (int step = 0; step < 200; step++)
         {

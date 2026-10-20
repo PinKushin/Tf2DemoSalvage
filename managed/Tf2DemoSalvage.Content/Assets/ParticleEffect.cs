@@ -250,6 +250,8 @@ public sealed class ParticleEffect
                 killsImplemented |= _operators.ContainsKey(one.Function);
                 killsUnimplemented |= !_operators.ContainsKey(one.Function);
             }
+
+            killsUnimplemented |= NotInTheSdkLibrary.Contains(one.Function);
         }
 
         _reapsForAKillerNotImplemented = killsUnimplemented && !killsImplemented;
@@ -715,6 +717,18 @@ public sealed class ParticleEffect
     {
         "Lifespan Decay", "Lifespan Minimum Velocity Decay", "Cull Random", "Cull when crossing plane",
         "Cull relative to model", "Alpha Fade and Decay",
+    };
+
+    /// <summary>
+    /// Operator names shipped `.pcf` files declare that the SDK's 2013 `particles.lib` does not define, though TF2's own
+    /// `client.dll` carries them — so whether they kill is unread, and a system declaring one keeps the stand-in reap.
+    /// </summary>
+    /// <remarks>Found by `particles killers` over the systems with no known killer; absent from `builtin_particle_ops.obj`'s strings.</remarks>
+    public static IReadOnlySet<string> NotInTheSdkLibrary { get; } = new HashSet<string>(StringComparer.Ordinal)
+    {
+        "alpha_fade", "alpha_fade_in_random", "alpha_fade_out_random", "basic_movement", "radius_scale",
+        "oscillate_vector", "oscillate_scalar", "postion_lock_to_controlpoint", "rotation_spin", "rotation_spin yaw",
+        "lifespan_decay",
     };
 
     /// <summary>Whether this system kills only through operators this project does not implement; see <see cref="SubStep"/>.</summary>
