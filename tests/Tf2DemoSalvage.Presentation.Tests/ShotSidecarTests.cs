@@ -139,6 +139,15 @@ public sealed class ShotSidecarTests
         refused.Message.ShouldContain("camera");
     }
 
+    [Test]
+    public void Read_ACameraWithANullNumber_RefusesNamingCamera()
+    {
+        FormatException refused = Should.Throw<FormatException>(
+            () => ShotSidecar.Read("""{ "demo": "a.dem", "tick": 1, "camera": [null, 0, 0, 0, 0], "viewport": [1, 1] }"""));
+
+        refused.Message.ShouldContain("camera");
+    }
+
     private static string SidecarNamingDemo(string demo) =>
         new JsonObject { ["demo"] = demo, ["tick"] = 1, ["camera"] = new JsonArray(0, 0, 0, 0, 0), ["viewport"] = new JsonArray(1, 1) }
             .ToJsonString();

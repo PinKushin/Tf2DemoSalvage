@@ -345,7 +345,10 @@ public static class ShotSidecar
 
     private static double[] Numbers(JsonNode node, int count)
     {
-        double[] read = node.AsArray().Select(n => n!.GetValue<double>()).ToArray();
+        // **A null or a string is a misspelling like any other**, refused inside `Field`'s catch rather than as an NRE past it.
+        double[] read = node.AsArray()
+            .Select(n => n is JsonValue v && v.TryGetValue(out double d) ? d : throw new FormatException($"{n?.ToJsonString() ?? "null"} is not a number"))
+            .ToArray();
 
         return read.Length == count ? read : throw new FormatException($"{count} numbers wanted, {read.Length} given");
     }
