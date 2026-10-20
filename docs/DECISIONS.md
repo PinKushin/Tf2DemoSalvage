@@ -10890,3 +10890,20 @@ set its own capture instead of constants; that is a later step once the files ex
    the lead explained that the F12 meant the key and not the f12 demo. `--shot` writes one in every build, because the golden
    tests and the hook depend on it. The screenshot tidy-up deletes a shot's `.png.json` with its PNG.
 
+## D227 — the lead publishes each release after checking it; betas 16-44 were never published (2026-10-20)
+
+**What was found.** `gh release list` shows 45 releases, 16 published (beta.1 to beta.15, the last on 2026-10-04) and 29 still
+DRAFTS (beta.16 to beta.44). Anyone downloading from the public repo got the 2026-10-04 build. The cause was a comment and a
+habit: `release.yml` (commit `d8f65d34`, 2026-10-01, made by an assistant session under the owner's git name) said *"the owner
+reviews the draft and presses Publish by hand"*. The owner, 2026-10-20: *"ive never punbliished by hand sso no idea where that
+came from lol"* and, asked whether this was deliberate: *"its a bug and somehing i didnt know aboiut"*.
+
+**What is decided.** The owner: *"do the publishing is yours"* (the lead publishes) and, on the 29 old drafts, the lead's
+recommendation was taken after he first said *"publish them"* and then withdrew it: **publish only `0.1.0-beta.45`**. Its notes
+(`RELEASE-NOTES.md` already holds one section per version, so they cover everything since beta.15) open with a line saying that
+betas 16-44 were never published. The old drafts stay drafts; the owner can have them published later.
+
+**The workflow still only creates a DRAFT**, because the lead looks at it first: the zip is attached, the title and notes are
+right, the gate and CI are green. Then `gh release edit <tag> --draft=false` (it stays a prerelease). The false comment in
+`release.yml` is replaced.
+

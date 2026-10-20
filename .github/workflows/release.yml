@@ -1,5 +1,7 @@
-# Builds the win-x64 zip for a `v*` tag and attaches it to a DRAFT GitHub release. Nothing is
-# published: the owner reviews the draft and presses Publish by hand.
+# Builds the win-x64 zip for a `v*` tag and attaches it to a DRAFT GitHub release. The workflow
+# publishes nothing; the lead reviews the draft (zip attached, notes right) and publishes it with
+# `gh release edit <tag> --draft=false` (D227). An earlier comment here said the owner presses
+# Publish by hand: that was never his rule, and betas 16-44 sat unpublished because of it.
 #
 # Tag-only on purpose. A release is built from exactly the commit the tag names, and the tag must
 # equal `v` + <Version> in Directory.Build.props, the version's only home, so a mistyped tag fails
