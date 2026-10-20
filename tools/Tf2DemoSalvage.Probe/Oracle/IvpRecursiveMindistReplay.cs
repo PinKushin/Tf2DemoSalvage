@@ -1,4 +1,5 @@
 using System;
+using System.Buffers.Binary;
 using System.Collections.Generic;
 using System.IO;
 
@@ -427,7 +428,7 @@ public static class IvpRecursiveMindistReplay
         return fields;
     }
 
-    private static void Write(byte[] bytes, int at, int value) => BitConverter.TryWriteBytes(bytes.AsSpan(at), value);
+    private static void Write(byte[] bytes, int at, int value) => BinaryPrimitives.WriteInt32LittleEndian(bytes.AsSpan(at), value);
 
     /// <summary>The case's outer delegator: slot 0 takes a mindist out of the pair, slot 2 names each change, slot 3 answers the case's count.</summary>
     private sealed class Outer(List<IvpCollision> pair, List<int> events, Dictionary<PhysicsLedgeTreeNode, int>[] lanes, int answer) : IIvpCollisionDelegator

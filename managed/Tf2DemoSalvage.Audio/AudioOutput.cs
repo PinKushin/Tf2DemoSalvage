@@ -2,6 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 
+using Microsoft.Extensions.Logging;
+
 using Silk.NET.OpenAL;
 
 namespace Tf2DemoSalvage.Audio;
@@ -79,23 +81,34 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
 
     private bool _disposed;
 
-    private AudioOutput(AL al, ALContext alc, Device* device, Context* context)
+    /// <summary>Where an ALC call that fails without throwing is reported.</summary>
+    private readonly ILogger _log;
+
+    private AudioOutput(AL al, ALContext alc, Device* device, Context* context, ILogger log)
     {
         _al = al;
         _alc = alc;
         _device = device;
         _context = context;
+        _log = log;
     }
 
     /// <summary>Opens the default output, or answers null when there is none.</summary>
+    /// <param name="log">
+    /// Where an ALC call that fails by return value is reported. **Those fail silently otherwise**:
+    /// a context that never became current leaves every later AL call failing with no exception,
+    /// so the viewer would run "with sound" and play nothing.
+    /// </param>
     /// <returns>The output, or <c>null</c> when no device could be opened.</returns>
     /// <remarks>
     /// Every failure path answers null rather than throwing, including the native library being
     /// absent: `Silk.NET.OpenAL.Soft.Native` ships `openal32.dll`, but a trimmed deployment or an
     /// unusual RID can still leave it missing, and that is not a reason to refuse to show a demo.
     /// </remarks>
-    public static AudioOutput? TryCreate()
+    public static AudioOutput? TryCreate(ILogger log)
     {
+        ArgumentNullException.ThrowIfNull(log);
+
         try
         {
             // **The shipped library is loaded by absolute path first, and without this a machine
@@ -107,7 +120,7 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
             //
             // Ignored on failure rather than checked: a machine with OpenAL installed system-wide
             // needs nothing from us, and one with neither is handled by the catches below.
-            NativeLibraryResolver.TryLoadOpenAl();
+            _ = NativeLibraryResolver.TryLoadOpenAl();
 
             AL al = AL.GetApi();
             ALContext alc = ALContext.GetApi();
@@ -123,18 +136,22 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
 
             if (context is null)
             {
-                alc.CloseDevice(device);
+                CloseDevice(alc, device, log);
                 return null;
             }
 
-            alc.MakeContextCurrent(context);
+            if (!alc.MakeContextCurrent(context))
+            {
+                ReleaseUncurrent(alc, device, context, log, "alcMakeContextCurrent");
+                return null;
+            }
 
-            return new AudioOutput(al, alc, device, context);
+            return new AudioOutput(al, alc, device, context, log);
         }
         catch (DllNotFoundException)
         {
-            // Reported by the caller rather than here: this type has no log, and a viewer that
-            // cannot open an audio device should say so once at startup rather than per sound.
+            // Reported by the caller rather than here: a viewer that cannot open an audio device
+            // should say so once at startup rather than per sound, and the caller's line does.
             return null;
         }
         catch (EntryPointNotFoundException)
@@ -690,6 +707,7 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
 
     /// <summary>A device that renders into memory rather than a speaker (`ALC_SOFT_loopback`), for a test that reads the mix.</summary>
     /// <param name="rate">Frames a second.</param>
+    /// <param name="log">Where an ALC call that fails by return value is reported, as for <see cref="TryCreate"/>.</param>
     /// <returns>The output, or null when the library has no loopback.</returns>
     /// <remarks>
     /// **Its context is made current for this THREAD only** (`ALC_EXT_thread_local_context`, which OpenAL Soft has), so
@@ -697,11 +715,14 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
     /// process's context is taken and the previous one put back on dispose. Failures answer null as <see cref="TryCreate"/>
     /// does, so a test ignores rather than errors.
     /// </remarks>
-    internal static AudioOutput? TryCreateLoopback(int rate)
+    internal static AudioOutput? TryCreateLoopback(int rate, ILogger log)
     {
+        ArgumentNullException.ThrowIfNull(log);
+
         try
         {
-            NativeLibraryResolver.TryLoadOpenAl();
+            // Ignored for TryCreate's reason.
+            _ = NativeLibraryResolver.TryLoadOpenAl();
 
             // OpenAL Soft by name: the loopback is its extension, and a system router need not export it.
             AL al = AL.GetApi(soft: true);
@@ -726,7 +747,7 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
 
             if (context is null)
             {
-                alc.CloseDevice(device);
+                CloseDevice(alc, device, log);
                 return null;
             }
 
@@ -737,16 +758,27 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
             if (setThreadContext is not null && getThreadContext is not null)
             {
                 previous = getThreadContext();
-                _ = setThreadContext(context);
+
+                // ALC_TRUE is 1; a failure leaves the thread's context as it was.
+                if (setThreadContext(context) == 0)
+                {
+                    ReleaseUncurrent(alc, device, context, log, "alcSetThreadContext");
+                    return null;
+                }
             }
             else
             {
                 setThreadContext = null;
                 previous = alc.GetCurrentContext();
-                alc.MakeContextCurrent(context);
+
+                if (!alc.MakeContextCurrent(context))
+                {
+                    ReleaseUncurrent(alc, device, context, log, "alcMakeContextCurrent");
+                    return null;
+                }
             }
 
-            return new AudioOutput(al, alc, device, context)
+            return new AudioOutput(al, alc, device, context, log)
             {
                 _render = render,
                 _setThreadContext = setThreadContext,
@@ -820,22 +852,50 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
         // thread's context alone, since `alcSetThreadContext` only reaches the calling thread.
         if (_setThreadContext is not null)
         {
-            if (_getThreadContext() == _context)
+            if (_getThreadContext() == _context && _setThreadContext(_previous) == 0)
             {
-                _ = _setThreadContext(_previous);
+                // A failed set leaves the current context unchanged (the ALC rules), so this output's own context is still current.
+                _log.LogError("alcSetThreadContext could not put back the context this output found; this output's context stays current on that thread");
             }
         }
-        else if (_alc.GetCurrentContext() == _context)
+        else if (_alc.GetCurrentContext() == _context && !_alc.MakeContextCurrent(_previous))
         {
-            _alc.MakeContextCurrent(_previous);
+            // A failed make-current leaves the current context unchanged (the ALC rules), so this output's own context is still current.
+            _log.LogError("alcMakeContextCurrent could not put back the context this output found; this output's context stays current in the process");
         }
 
         _alc.DestroyContext(_context);
-        _alc.CloseDevice(_device);
+        CloseDevice(_alc, _device, _log);
 
         _al.Dispose();
         _alc.Dispose();
 
         _disposed = true;
+    }
+
+    /// <summary>Closes a device, reporting a refusal rather than dropping it.</summary>
+    /// <remarks>
+    /// `alcCloseDevice` answers false while the device still has contexts, or for a device it does not know. Nothing
+    /// can be done about it at this point, but a device left open keeps the endpoint busy, and the line says why.
+    /// </remarks>
+    private static void CloseDevice(ALContext alc, Device* device, ILogger log)
+    {
+        if (!alc.CloseDevice(device))
+        {
+            log.LogWarning("alcCloseDevice refused to close the audio device; it stays open until the process exits");
+        }
+    }
+
+    /// <summary>Reports a context that could not be made current, and releases it and its device.</summary>
+    /// <remarks>
+    /// **The failure path, not a warning.** No context being current makes every later AL call fail without an
+    /// exception, so an output returned from here would look open and play nothing. Null instead, which the caller
+    /// already reports as "no audio device", and the line here says which call refused.
+    /// </remarks>
+    private static void ReleaseUncurrent(ALContext alc, Device* device, Context* context, ILogger log, string call)
+    {
+        log.LogError("{Call} refused the context just created; audio output is not opened", call);
+        alc.DestroyContext(context);
+        CloseDevice(alc, device, log);
     }
 }

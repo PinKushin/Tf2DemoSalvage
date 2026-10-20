@@ -1241,6 +1241,15 @@ internal sealed partial class ViewerApplication : IDisposable
             {
                 Log($"WARNING: viewer {_application.ProcessId} did not exit when asked; killing it");
                 _application.Kill();
+
+                // **Checked, because FlaUI's Kill cannot fail out loud**: it wraps Process.Kill
+                // and an unbounded WaitForExit in a catch that discards everything, so a viewer
+                // that refused to die returns from it looking like one that did. Logged, not
+                // thrown: this is Dispose, and the next fixture's launch is what it would break.
+                if (!_application.HasExited)
+                {
+                    Log($"ERROR: viewer {_application.ProcessId} is still running after it was killed");
+                }
             }
         }
         catch (InvalidOperationException)
