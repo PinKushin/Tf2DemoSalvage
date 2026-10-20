@@ -68,6 +68,8 @@ jobs:
         uses: github/codeql-action/init@24c54180a607b1449ed407dd24f251e4e9147c8d  # v4.38.3
         with:
           languages: csharp
+          # Three quality rules this project contradicts on purpose are filtered out here (reasons in the file).
+          config-file: ./.github/codeql/codeql-config.yml
           # security-and-quality over the default security-only: this repo already treats every
           # warning as a defect, so the quality queries cost nothing it was not going to fix.
           queries: security-and-quality

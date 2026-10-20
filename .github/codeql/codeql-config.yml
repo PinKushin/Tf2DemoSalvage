@@ -1,0 +1,22 @@
+# CodeQL query filters for .github/workflows/codeql.yml (the `config-file:` input of the init step).
+#
+# security-and-quality stays on; these three QUALITY rules are excluded because each one contradicts a rule the
+# project set on purpose. The 41 alerts they raised were dismissed as won't-fix on 2026-10-20 (owner approved);
+# excluding the rules keeps new code from raising them again.
+#
+#   cs/equality-on-floats        Exact float equality is the engine's own comparison (a declared 0, a 0.5 default,
+#                                an equal min/max); an epsilon would change which branch Valve's code takes.
+#   cs/linq/missed-where         Loops stay loops: LINQ allocates in decode and draw paths. The equivalent Sonar rule
+#                                (S3267) is off in .editorconfig for the same reason.
+#   cs/missed-ternary-operator   if/else is kept where each branch carries its own engine citation; the owner does not
+#                                want the conditional-expression style (IDE0046/IDE0045 stay off).
+#
+# cs/coupled-types is NOT excluded: it names a real design smell (DemoTimeline.cs), tracked as a refactor note.
+name: tf2demosalvage-codeql
+query-filters:
+  - exclude:
+      id: cs/equality-on-floats
+  - exclude:
+      id: cs/linq/missed-where
+  - exclude:
+      id: cs/missed-ternary-operator
