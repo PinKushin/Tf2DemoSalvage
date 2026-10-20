@@ -91,6 +91,28 @@ public sealed class ParticleKillConformanceTests
         new ParticleEffect(system).Finished.ShouldBe(expected);
     }
 
+    /// <remarks>
+    /// `emission_rate` unpacks with the default `"100"` (`DmxElementUnpackInit&lt;C_OP_ContinuousEmitter&gt;`, +0x40). A
+    /// map's pakfile manifest (B554) can ship a system that leaves it out: it emits 100 a second and is not finished.
+    /// </remarks>
+    [Test]
+    public void Step_AContinuousEmitterDeclaringNoRate_EmitsAHundredASecondAndIsNotFinished()
+    {
+        ParticleEffect effect = new(System() with
+        {
+            Emitters = [new ParticleFunction("emit_continuously", "emit", Empty)],
+        });
+
+        bool finished = effect.Finished;
+
+        for (int step = 0; step < 66; step++)
+        {
+            effect.Step(Origin, seconds: 1f / 66f);
+        }
+
+        (finished, effect.Particles.Count).ShouldBe((false, 100));
+    }
+
     private static readonly Dictionary<string, DmxValue> Empty = new(StringComparer.Ordinal);
 
     private static ParticleSystem System(params string[] operators) =>

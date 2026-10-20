@@ -136,7 +136,7 @@ public sealed class ParticleEffect
                 }
 
                 // `C_OP_ContinuousEmitter::MayCreateMoreParticles` (`0x00067430`): a rate not above 0 makes no more.
-                if (emitter.Number("emission_rate", 0d) <= 0d)
+                if (emitter.Number("emission_rate", DefaultEmissionRate) <= 0d)
                 {
                     continue;
                 }
@@ -161,6 +161,9 @@ public sealed class ParticleEffect
             return true;
         }
     }
+
+    /// <summary>`emission_rate`'s unpack default, `"100"` (`DmxElementUnpackInit&lt;C_OP_ContinuousEmitter&gt;`, +0x40).</summary>
+    private const double DefaultEmissionRate = 100d;
 
     /// <summary>The steady emitter, named once.</summary>
     private const string ContinuousEmitter = "emit_continuously";
@@ -460,7 +463,7 @@ public sealed class ParticleEffect
     /// <summary>`C_OP_ContinuousEmitter::SkipToTime( curtime )`; see <see cref="StartEmission"/>.</summary>
     private void SkipToTime(ParticleFunction emitter)
     {
-        float rate = (float)emitter.Number("emission_rate", 0d);
+        float rate = (float)emitter.Number("emission_rate", DefaultEmissionRate);
         float duration = (float)emitter.Number("emission_duration", 0d);
         float from = (float)emitter.Number("emission_start_time", 0d);
         float now = Particles.Age;
@@ -874,7 +877,7 @@ public sealed class ParticleEffect
     /// </remarks>
     private void EmitContinuously(ParticleFunction emitter, float seconds)
     {
-        float rate = (float)emitter.Number("emission_rate", 0d);
+        float rate = (float)emitter.Number("emission_rate", DefaultEmissionRate);
         float duration = (float)emitter.Number("emission_duration", 0d);
         float from = (float)emitter.Number("emission_start_time", 0d);
         float now = Particles.Age;
