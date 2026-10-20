@@ -224,6 +224,25 @@ public sealed class ParticleBurstTests
     }
 
     /// <remarks>
+    /// **A bound asked without the children is not kept for the call that has them** (review): `others` is an input to the
+    /// bound, so a child that cannot be resolved makes it unbounded only while it cannot be.
+    /// </remarks>
+    [Test]
+    public void Bursts_ABoundAskedWithoutTheChildren_IsAskedAgainWhenTheyArrive()
+    {
+        ParticleSystem parent = Timed with { Name = "test_parent", Children = ["test_child"] };
+        Dictionary<string, ParticleSystem> others = new(StringComparer.Ordinal) { ["test_child"] = Once with { Name = "test_child" } };
+        ParticleEffects effects = new();
+        ParticleBurst old = new(1, parent, Origin, 100);
+
+        effects.Bursts([old with { Undrawn = true }], Interval, null, tick: 3000, seeked: true);
+        effects.Bursts([old with { Undrawn = true }], Interval, null, tick: 3001);
+        effects.Bursts([old], Interval, others, tick: 3002);
+
+        effects.BurstSteps(1).ShouldBe(-1, "44 s old against a 16.5 s life once the child is known: not built");
+    }
+
+    /// <remarks>
     /// **Inside its life, it IS built when its owner appears** (review): out of the camera's view is not dormant — dormancy
     /// follows the recording's PVS — so the engine made this effect at its dispatch and it is running when the owner comes
     /// into view. Here the owner is unplaceable at the seek and placeable one second later; the burst emits for two

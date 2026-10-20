@@ -449,6 +449,7 @@ public sealed class ParticleEffects
             bool rebuild = !_bursts.TryGetValue(burst.Key, out RunningBurst running) ||
                 seeked ||
                 running.SimulatedTo > wanted;
+
             if (rebuild)
             {
                 // **None is made on a dormant owner** (c_particle_system.cpp:189-190): replayed or played, the same answer.
@@ -845,8 +846,17 @@ public sealed class ParticleEffects
     /// <summary>Each definition's <see cref="ParticleEffect.MaximumLife"/>, asked once: 470 bursts are offered a frame on f12.</summary>
     private readonly Dictionary<ParticleSystem, double> _lives = new(ReferenceEqualityComparer.Instance);
 
+    /// <summary>The children <see cref="_lives"/> were bounded with: they are an input, so another set asks again.</summary>
+    private IReadOnlyDictionary<string, ParticleSystem>? _livesOthers;
+
     private double LifeOf(ParticleSystem system, IReadOnlyDictionary<string, ParticleSystem>? others)
     {
+        if (!ReferenceEquals(others, _livesOthers))
+        {
+            _lives.Clear();
+            _livesOthers = others;
+        }
+
         if (!_lives.TryGetValue(system, out double life))
         {
             // The same sheets the effect itself reads: `Lifetime From Sequence` is bounded by them (rocketjump_flame).
