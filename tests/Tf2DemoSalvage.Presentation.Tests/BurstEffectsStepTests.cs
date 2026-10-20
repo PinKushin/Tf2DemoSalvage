@@ -158,7 +158,8 @@ public sealed class BurstEffectsStepTests
                 [
                     new ParticleFunction("emit_continuously", "emitter", new Dictionary<string, DmxValue>(StringComparer.Ordinal)
                     {
-                        ["emission_rate"] = new(DmxAttributeType.Real, 0d),
+                        // Not 0: a rate-0 emitter may create no more, so the engine finishes it at once (B557 row 17).
+                        ["emission_rate"] = new(DmxAttributeType.Real, 1d / 60d),
                         ["emission_duration"] = new(DmxAttributeType.Real, 3600d),
                     }),
                 ],
