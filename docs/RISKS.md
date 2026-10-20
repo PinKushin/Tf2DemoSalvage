@@ -6573,8 +6573,8 @@ if ( !m_bAbortFreezeCam && m_hRagdoll &&
 ```
 
 **That exception is gated on `m_hRagdoll`.** The body is re-shown only once a corpse exists to
-justify it, so with no ragdolls built (B58) the condition is false for every death this project can
-render and the engine's own answer for our situation is that the effect stays on. So `Drawn` is
+justify it, so with no ragdolls built (B58; built since, see the heading of B58 below) the condition is false for every death this project could
+render at the time and the engine's own answer for our situation is that the effect stays on. So `Drawn` is
 `IsDrawn && alive` today, and becomes `IsDrawn` alone when B58 lands. The `&& alive` is a
 placeholder for a ragdoll, not a second opinion about death.
 
@@ -19441,6 +19441,10 @@ turning in sub-millisecond frames — it is CPU-bound, and comfortably. This pro
 bone transforms onto the GPU precisely to spend less on the processor than the engine does, so the
 comparison is not "we are 3x slower"; it is that we are slower **on the axis where we were supposed
 to be structurally ahead**, while drawing no projectiles, no particles and no ragdolls.
+
+*Corrected 2026-10-20: that was true when written (2026-09). Ragdolls are simulated and drawn since B58 and
+particles since D221, and projectiles are drawn (owner observation, not traced to code), so the workload is no longer lighter by those. The gap is
+therefore not flattered by a lighter workload.*
 
 **Against our own empty-view measurement of 3.3 ms, the gap facing a wall is about 4x.**
 
