@@ -123,7 +123,12 @@ public static class ShotSidecar
         return json.ToJsonString(Indented);
     }
 
-    private static readonly JsonSerializerOptions Indented = new() { WriteIndented = true };
+    /// <summary>Indented, and `+mat_phong` written as typed rather than as `+` (a file read by people, not HTML).</summary>
+    private static readonly JsonSerializerOptions Indented = new()
+    {
+        WriteIndented = true,
+        Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+    };
 
     private static JsonObject Map(IReadOnlyDictionary<string, string> values)
     {

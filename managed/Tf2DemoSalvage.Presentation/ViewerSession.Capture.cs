@@ -279,16 +279,13 @@ public sealed partial class ViewerSession
 
         Dictionary<string, string> convars = new(StringComparer.Ordinal);
 
-        // ponytail: read back from the config writer's own lines (`[// ]command value`), so every setting it knows is
-        // here without a second list; a prose comment whose first word has an underscore would slip in. A settings
-        // enumeration on ViewerSettings is the upgrade if that ever happens.
-        foreach (string line in _settingsOwner.Current.Write().Split('\n'))
+        // **Read back through the one route the frame reads them by** (`ClientConVar`): every declared client ConVar
+        // this viewer holds a value for, from its settings, a `+name value` or the watcher's TF2 configs.
+        foreach (Core.Net.EngineConVar declared in Core.Net.EngineConVars.All)
         {
-            string[] parts = line.Trim().TrimStart('/').Trim().Split(' ', 2);
-
-            if (parts.Length == 2 && parts[0].Contains('_', StringComparison.Ordinal) && !parts[0].Contains(':', StringComparison.Ordinal))
+            if (!declared.Replicated && ClientConVar(declared.Name) is { } value)
             {
-                convars[parts[0]] = ShotSidecar.Private(parts[1].Trim().Trim('"'));
+                convars[declared.Name] = ShotSidecar.Private(value);
             }
         }
 

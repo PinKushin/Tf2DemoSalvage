@@ -1145,7 +1145,7 @@ public sealed class ViewerSessionTests
     {
         string shot = Path.Combine(_folder, "out.png");
         string demo = WriteDemo("shot");
-        using Rig rig = Build(demo, "--shot", shot, "--tick", "40").WithDevice();
+        using Rig rig = Build(demo, "--shot", shot, "--tick", "40", "+mat_phong", "0").WithDevice();
         rig.Session.PlanStartup();
         rig.Session.WindowShown();
         (await rig.Session.Loading.ConfigureAwait(false)).Loaded.ShouldBeTrue();
@@ -1162,7 +1162,10 @@ public sealed class ViewerSessionTests
         json["tick"]!.GetValue<int>().ShouldBe(40);
         json["camera"].ShouldBeNull("this device holds no world, so no frame handed it a camera: null, not a guess");
         json["viewport"]!.ToJsonString().ShouldBe($"[{rig.Window.Viewport.Width},{rig.Window.Viewport.Height}]");
-        json["args"]!.ToJsonString().ShouldBe("""["shot.dem","--shot","out.png","--tick","40"]""", "no user paths: file names only");
+        json["args"]!.AsArray().Select(arg => arg!.GetValue<string>()).ShouldBe(
+            ["shot.dem", "--shot", "out.png", "--tick", "40", "+mat_phong", "0"], "no user paths: file names only");
+        json["convars"]!["mat_phong"]!.GetValue<string>().ShouldBe("0", "read back, so the +cvar given is the value recorded");
+        (await File.ReadAllLinesAsync(shot + ".json").ConfigureAwait(false)).ShouldContain(line => line.Contains("\"+mat_phong\"", StringComparison.Ordinal));
         json["like"].ShouldBeNull();
     }
 
