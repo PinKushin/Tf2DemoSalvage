@@ -1191,6 +1191,32 @@ public sealed class ViewerSessionTests
         json["like"].ShouldBeNull();
     }
 
+    /// <remarks>
+    /// The sidecar's camera is the one a device holding a world was handed, carried (B243): the session rig's own device
+    /// holds none, so a frame is drawn over one that does, the route `LastViewing_AfterAFrame_IsTheCameraTheDeviceWasGiven`
+    /// proves is the presenter's.
+    /// </remarks>
+    [Test]
+    public async Task RenderFrame_OnACaptureRunAfterAFrameWithAWorld_WritesTheCameraTheDeviceWasGiven()
+    {
+        string shot = Path.Combine(_folder, "out.png");
+        using Rig rig = Build(WriteDemo("shot"), "--shot", shot, "--tick", "40").WithDevice();
+        rig.Session.PlanStartup();
+        rig.Session.WindowShown();
+        (await rig.Session.Loading.ConfigureAwait(false)).Loaded.ShouldBeTrue();
+        FakeViewerDevice world = new();
+        rig.Session.Presenter.UploadCameraOver(world, new FakeFrameDevice(), flyTicks: 0, exposureSeconds: 0f, surfaceColours: false);
+
+        Frames(rig.Session, 104);
+
+        FreeCamera handed = world.Camera.Camera.ShouldNotBeNull();
+        System.Text.Json.Nodes.JsonObject json =
+            System.Text.Json.Nodes.JsonNode.Parse(await File.ReadAllTextAsync(shot + ".json").ConfigureAwait(false))!.AsObject();
+        json["camera"]!.AsArray().Select(n => n!.GetValue<float>()).ShouldBe(
+            [handed.Origin.X, handed.Origin.Y, handed.Origin.Z, handed.Angles.Pitch, handed.Angles.Yaw]);
+        json["camera"]!.AsArray().ShouldContain(n => n!.GetValue<float>() != 0f, "a camera of zeros could not tell a carried one from a default");
+    }
+
     [Test]
     public async Task RenderFrame_LikeASidecarOfAnotherDemo_WarnsAndNotesItButStillShoots()
     {
