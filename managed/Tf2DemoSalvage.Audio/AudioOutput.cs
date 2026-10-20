@@ -854,12 +854,14 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
         {
             if (_getThreadContext() == _context && _setThreadContext(_previous) == 0)
             {
-                _log.LogError("alcSetThreadContext could not put back the context this output found; that thread has none current");
+                // A failed set leaves the current context unchanged (the ALC rules), so this output's own context is still current.
+                _log.LogError("alcSetThreadContext could not put back the context this output found; this output's context stays current on that thread");
             }
         }
         else if (_alc.GetCurrentContext() == _context && !_alc.MakeContextCurrent(_previous))
         {
-            _log.LogError("alcMakeContextCurrent could not put back the context this output found; the process has none current");
+            // A failed make-current leaves the current context unchanged (the ALC rules), so this output's own context is still current.
+            _log.LogError("alcMakeContextCurrent could not put back the context this output found; this output's context stays current in the process");
         }
 
         _alc.DestroyContext(_context);
