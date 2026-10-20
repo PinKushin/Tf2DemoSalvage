@@ -113,6 +113,16 @@ You can set a cvar for one run only, as in Source: `tf2demoview <demo> +fps_max 
 
 - Press **F5**. Files go to the folder named by `cl_screenshot_folder` in `settings.cfg`.
 - `--shot <path>` saves one frame to `<path>` and exits. `--tick <n>` picks the moment.
+- **The companion file.** `--shot out.png` also writes `out.png.json` beside the picture. It records the demo's
+  file name and sha256, the map, the tick, the camera, the view size, the settings that differ from their
+  defaults, the build and the command line (file names only), so you can rebuild the capture later. The
+  screenshot key writes a companion only in a Debug build, so a release build's key writes just the picture.
+  Deleting a screenshot from the viewer's tidy-up deletes its companion too.
+- **Reproduce a TF2 capture.** `--like <shot.png.json>` takes the tick, camera, view size and console variables
+  from the companion file of a TF2-side capture, and its demo too, from the file's folder, when you name none.
+  A `--tick` or `+cvar` you pass still wins; the camera and view-size environment variables do not. If the demo
+  you open is not the one the file names (different sha256), the viewer warns and still shoots. A file with a
+  bad camera, or one whose demo is a path rather than a file name, is refused with the reason.
 
 ## Where logs and settings live
 
@@ -147,8 +157,10 @@ plays, without the game's maps and models. File > TF2 folder sets the folder.
 
 **The map is missing.** If your install lacks the map, the viewer downloads it to
 `%LOCALAPPDATA%\Tf2DemoSalvage\maps`. A downloaded map is cached by name, not by checksum. If the map cannot be
-had, the status bar says so (`Map <name> is not installed`, or the reason the download failed), the demo still
-loads, and the world is not drawn. If the viewer found no TF2 install at all, the status bar says that instead:
+had, the demo still opens, the world is not drawn, and the status bar says why (`Map <name> is not installed`,
+or the reason the download failed). TF2 itself refuses such a demo. The status-bar message is unverified on
+every route that can end without a map (B556, `RELEASE-NOTES.md` *Known gaps*), so a silent bar does not prove
+the map loaded. If the viewer found no TF2 install at all, the status bar says that instead:
 maps and models cannot be loaded, the demo still plays, and a map in the viewer's own maps folder is still used.
 If the map file is there but cannot be read, the status bar says `Map <name> could not be read` and why.
 
