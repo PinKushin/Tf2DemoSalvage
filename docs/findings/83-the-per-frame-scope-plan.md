@@ -17,22 +17,29 @@ Evidence classes: Valve column read from published source unless marked CLOSED; 
 | Valve loop (file:line) | Valve scope | ours (file:line) | our scope | cost (finding 82) | verdict |
 |---|---|---|---|---|---|
 | `CClientLeafSystem::PreRender` (`clientleafsystem.cpp:528`, flag cleared `:592`) | **changed** — `m_DirtyRenderables`, set by `RenderableChanged` (`:1283`) / `AddRenderable` (`:711`) | `EntityModelSet.Collate` (`EntityModels.cs:7042`) → `ClientLeafSystem.Collate` (`ClientLeafSystem.cs:303`) | every prop; since fix 2, an unchanged unparented object skips the keyed relink | collate 0.4–0.5 (was 1.1); empty 0.3–0.4 | **we walk everything** (cheaply now); the visit itself remains |
-| `BuildRenderablesList` / `CollateRenderablesInLeaf` (report §2, scope note at `:1918`) | **in view** — the view's leaf list | the same leaf gather (B262) inside `ClientLeafSystem` | in view | inside collate | **same** |
+| `BuildRenderablesList` / `CollateRenderablesInLeaf` (`clientleafsystem.cpp:1813`, `:1574`) | **in view** — the view's leaf list | the same leaf gather (B262) inside `ClientLeafSystem` | in view | inside collate | **same** |
 | static props: `RENDER_FLAGS_STATIC_PROP` renderables (`clientleafsystem.cpp:660-666`), drawn by `staticpropmgr->DrawStaticProps` (`viewrender.cpp:4041/4047`) | added once at level load; never dirty; never on the entity list. **Body CLOSED** (`staticpropmgr.cpp` not in the tree) | `MomentScene.Build` appends `StaticProps` to `_drawn` every moment (`MomentScene.cs:344`) | **every static prop, every frame**, through every pass below | part of every column below; the static-prop count of the 1,870 is not measured | **we rebuild what Valve keeps** |
 | `SimulateEntities` → `C_BaseEntity::Simulate` loop (`cdll_client_int.cpp:2010-2015`); `C_BaseAnimating::Simulate` (`c_baseanimating.cpp:5155`) does `DoAnimationEvents` and little else | **every entity** (`C_BaseEntityIterator`) — but not static props, and cheap per entity | `EntityModelSet.Simulate`/`SimulatePass` (`EntityModels.cs:1305`, `:1322`): per prop a model resolution, `EntityFor`, cycle advance, events, placement | every prop of the pass, **static props included** | simulate 1.2–1.4; empty 1.2–1.3 | **we walk everything** — Valve's set is entities only, and its per-entity work is the events |
 | `C_BaseAnimating::UpdateClientSideAnimations` (`c_baseanimating.cpp:6368`); membership set `:4692`, `:6312`, cleared `:4696`, `:2301` | **list** — `g_ClientSideAnimationList`, entries with `FCLIENTANIM_SEQUENCE_CYCLE` | `EntityModelSet.UpdateClientSideAnimations` (`EntityModels.cs:5178`), called on `_drawn` and `_undrawn` (`MomentScene.cs:843`, `:847`) | the whole draw list, static props included; a class-name compare and a `with` copy per corpse | not timed apart (inside the camera phase); 661 MB/20 s of `SceneProp` copies on the corpse worker (finding 82) | **we walk everything** |
 | `ProcessInterpolatedList` (`c_baseentity.cpp:3123`), list joined `:2834`, left `:2928` | **list** — `g_InterpolationList` | B259 stage C's lerp list and wake queue | list | `advance` 2.6 (not split) | **same** (B259 closed this one) |
-| `ProcessTeleportList` (`c_baseentity.cpp:3079`), set `:2643` | **list** | not located on this branch | — | — | not assessed |
-| `UpdatePVSNotifiers` (report §1, scope note `:369`) | **list** — PVS notifiers | `CulledByVisibility` judged per prop inside `Instances` | every prop | inside drawlist/collate | **we walk everything** (small) |
-| `UpdateVisibility` (report §4, `:2618`) | **changed** — event sites only (`SetDormant`, `OnDataChanged`, `PostDataUpdate`) | the visibility filters, rerun each moment over `_drawn`: first-person, weapon, disguise, respawn-room, vision (`MomentScene.cs:485-541`), plus `PlaceFrame` (`EntityModels.cs:4403`) indexing every prop | every prop, static props included | drawlist 1.4–1.6 | **we rebuild what Valve keeps** |
-| `ProcessOnDataChangedEvents` (report §1, `:425`) | **changed** — `g_DataChangedEvents` | `SceneProp`/`ScenePose` init-only records, re-handed each tick; B259 stage C hands unchanged tracks back as the same object | changed, mostly (fix 2's counter: 1,577–1,580 of 1,605–1,618 unparented props are the same object) | — | **same in shape**; the consumers above do not yet use it |
-| `CClientThinkList::PerformThinkFunctions` (report §7, `:3939`) | **list** — due entries of `m_ThinkEntries` | `MomentScene.ThinkDynamicLights(props, …)` (`MomentScene.cs:331`) and per-system steps | every prop for the lights | not timed | **we walk everything** (unmeasured) |
+| `InterpolateServerEntities`'s all-entity `Interp_UpdateInterpolationAmounts` loop (`c_baseentity.cpp:3246-3251`) | **every entity, but only on the frame `IsSimulatingOnAlternateTicks()`/`IsEngineThreaded()` changes** | none | — | — | **same** (nothing to do per frame) |
+| `ProcessTeleportList` (`c_baseentity.cpp:3056`), set `:2643`, cleared `:3079` | **list** — `g_TeleportList` | per track, inside its sample (`ScenePropTrack.LastNoInterpolationParity`, `ScenePropTrack.cs:1392`) | not established; inside the sample | inside `advance` 2.6 | not assessed: whether the sample visits only listed tracks was not read |
+| `IGameSystem::UpdateAllSystems` / `PreRenderAllSystems` (`igamesystem.cpp:301-320`) | **every registered system** (a handful, not entities) | `LevelSystems` and the per-system steps in `FrameSequence` | per system | — | **same** in shape |
+| `C_BaseAnimating::InvalidateBoneCaches` (`c_baseanimating.cpp:3151`) | **one counter**, `g_iModelBoneCounter++` | `_boneFrames.Advance()` (`EntityModels.cs`, in `Instances`) | one counter | — | **same** |
+| `engine->FireEvents()`, `tempents->Update()`, `beams->UpdateTempEntBeams()` (`cdll_client_int.cpp:2215-2221`) | **queued events, fired once**; live temp entities and beams. How a TE reaches the queue is engine-side, **CLOSED** (`src/engine` has no `.cpp`) | `BurstEffects.StepOver` search (below) | a timeline window every frame | search 1.5 | see the particle-creation row |
+| `PhysicsSimulate()` (`cdll_client_int.cpp:2208`); `C_PhysPropClientside` (`physpropclientside.cpp:233`, think `:404`) | the client physics objects | `CorpsePhysics.Advance` (`CorpsePhysics.cs:207`) on the frame; the D181 record on a pool worker | live corpses; the record walks every corpse of the demo | 6,533 MB/20 s allocated on the worker; the GC pause is 108 ms a second either view | **we do work Valve does not** (the whole-demo record is D181's own choice, not a Valve loop) |
+| `C_BaseEntity::AddVisibleEntities` (`cdll_client_int.cpp:2254`) | **list** — client-created unacknowledged predictables only | none | — | — | **same** (nothing to do) |
+| `ShouldDraw` (`c_baseentity.cpp:1437`) | **per renderable reached by the in-view gather** | `prop.Pose.RenderMode == None` and the tally inside `Instances` | in view | inside place | **same** |
+| `UpdatePVSNotifiers` (`cdll_client_int.cpp:2070-2134`) | **list** — PVS notifiers | `CulledByVisibility` judged per prop inside `Instances` | every prop | inside drawlist/collate | **we walk everything** (small) |
+| `UpdateVisibility` (`c_baseanimating.cpp:3161`) | **changed** — event sites only: `SetDormant` (`c_baseentity.cpp:4021`), `OnDataChanged` CREATED (`:3319`), `PostDataUpdate` (`:2649`, `:2655`) | the visibility filters, rerun each moment over `_drawn`: first-person, weapon, disguise, respawn-room, vision (`MomentScene.cs:485-541`), plus `PlaceFrame` (`EntityModels.cs:4403`) indexing every prop | every prop, static props included | drawlist 1.4–1.6 | **we rebuild what Valve keeps** |
+| `ProcessOnDataChangedEvents` (`cdll_client_int.cpp:2020-2067`) | **changed** — `g_DataChangedEvents` | `SceneProp`/`ScenePose` init-only records, re-handed each tick; B259 stage C hands unchanged tracks back as the same object | changed, mostly (fix 2's counter: 1,577–1,580 of 1,605–1,618 unparented props are the same object) | — | **same in shape**; the consumers above do not yet use it |
+| `CClientThinkList::PerformThinkFunctions` (`client_thinklist.cpp:186-266`) | **list** — due entries of `m_ThinkEntries` (entries exist only after `SetNextClientThink` ≠ `CLIENT_THINK_NEVER`, `:71`) | `MomentScene.ThinkDynamicLights(props, …)` (`MomentScene.cs:331`) and per-system steps | every prop for the lights | not timed | **we walk everything** (unmeasured) |
 | `C_BaseAnimating::SetupBones` (`c_baseanimating.cpp:2796`), last frame's mask (`:2920`), `ThreadedBoneSetup` over `g_PreviousBoneSetups` (`:2782`) | **per caller** — draw and attachment queries | `Instances`' setup on posed props; attachment queries (fix 3) | per caller; no second build per frame (finding 82: 0 rebuilt) | setup 0.6–1.2; attachments ~0.95 | **same** |
-| bone pose storage: `RagdollGetBoneMatrix` writes into the caller's accessor (`ragdoll_shared.cpp:573`) | no allocation | `SkinnedModel.PoseOf`/`PoseBetween`, `StudioPoseBlend.Expand` allocate `StudioBonePose[]` | per posed prop | 1,339 MB/20 s; GC pause 2.2–2.4 ms a frame overall | **we rebuild what Valve keeps** (storage, not scope) |
+| bone pose storage: `SetupBones` builds into stack arrays `Vector pos[MAXSTUDIOBONES]; Quaternion q[MAXSTUDIOBONES];` (`c_baseanimating.cpp:2965-2966`) and writes the entity's own cached bone array | no allocation | `SkinnedModel.PoseOf`/`PoseBetween`, `StudioPoseBlend.Expand` allocate `StudioBonePose[]` | per posed prop | 1,339 MB/20 s; GC pause 2.2–2.4 ms a frame overall | **we rebuild what Valve keeps** (storage, not scope) |
 | model lighting: per drawn model, light cache budgeted per frame (`LightcacheGet`, `Lighting.Frame`) | **in view** | `Lighting.ModelLightingAt` per instance inside `Instances` | in view | lighting 1.0–1.8 | **same** in scope; per-call cost not read |
 | flex / place / baked: done in `DrawModel` for drawn models | **in view** | `FlexFor` (`EntityModels.cs:763`), place, baked inside `Instances` | in view | place 1.1–2.3 (flex 0.8–1.7), baked 0.4–0.9 | **same** in scope; per-call cost not read |
 | `CParticleMgr::UpdateAllEffects` (`particlemgr.cpp:1938`); `CNewParticleEffect::Update` on every effect (`:1844`); `ProcessPSystem` only on `BuildParticleSimList` survivors (not asleep, or moved); sleep via `m_flNextSleepTime` (`particles.h:1324`, written `particles_new.cpp:536`, read `particlemgr.cpp:1775`) | **list**, minus sleeping effects. **The sleep rule's other writers and `CParticleCollection::Simulate` are CLOSED** (`src/particles` absent) | `ParticleEffects` (`ParticleEffects.cs:29`) steps every running trail and burst; `ParticleEffect.Step` (`ParticleEffect.cs:369`) | every live effect, every frame | particles 3.6–8.4; **2.2 empty** | **we walk everything** — the "not drawn → sleep" half is Valve's, its exact rule is CLOSED |
-| particle *creation*: effects arrive as `TE_*`/`DispatchParticleEffect` messages when their packet is processed (report §1, data-change events) | **changed** — at arrival | `BurstEffects.StepOver` (`BurstEffects.cs:339`): every frame searches the timeline windows (`Explosions.Between`, tracers, blood, splashes, muzzle flashes, dispatches, heal beams, overheals, `:363-404`) and rebuilds `_burstsNow` | every frame, a window of the timeline | search 1.5 a frame | **we rebuild what Valve keeps** |
+| particle *creation*: the client fires queued events once a frame (`engine->FireEvents()`, `cdll_client_int.cpp:2215`); the receive path of a `TE_*`/`DispatchParticleEffect` into that queue is **not read** (engine-side, CLOSED here) | **queued, fired once** as far as the client half shows | `BurstEffects.StepOver` (`BurstEffects.cs:339`): every frame searches the timeline windows (`Explosions.Between`, tracers, blood, splashes, muzzle flashes, dispatches, heal beams, overheals, `:363-404`) and rebuilds `_burstsNow` | every frame, a window of the timeline | search 1.5 a frame | **we rebuild what Valve keeps** |
 | `CViewRender::SetupVis` (`viewrender.cpp:1895`) / `BuildWorldRenderLists` (`:3498`, `g_WorldListCache` `:3513`) | **in view**, with a world-list cache | `WorldRenderer.SetCamera` (`WorldRenderer.cs:4388`) | in view | setcamera 1.0–4.5 | **not assessed**: what inside `SetCamera` costs 1–4.5 ms is not attributed; read before planning |
 
 ## The plan, ordered by milliseconds removed per unit of risk
@@ -55,11 +62,20 @@ ticks 30480 and 30700). Nothing here is proposed that Valve does not do.
   from the leaf system instead.
 - **Ambiguous, CLOSED.** What `staticpropmgr` does per frame for fade and lighting is not in the tree. Port only
   the client-side half that is readable (registration, never dirty); keep our fade as it is.
-- **Measure.** First: how many of the 1,870 are static props (a probe over the level, not the desktop). The
-  saving is bounded by that share of drawlist 1.4 + simulate 1.3 + collate 0.4.
+- **Measure, and this gates the rank.** First: how many of the 1,870 are `map.Assets.StaticModels`
+  (`LevelSystems.cs:235`) — a probe over the level, not the desktop. cp_process_f12 has 1,353 static prop
+  placements (finding 76), so the share is plausibly most of the 1,870, but that is interpolated, not measured.
+  **The ceiling is smaller than the columns suggest**: a static prop leaves `SimulatePass` at its first
+  `ResolvedFor(...).Skinned` test, and since fix 2 the collation reuses its handle by identity, so the saving is
+  mostly the visibility filters, `PlaceFrame`, `UpdateClientSideAnimations` and those two residual visits. Time
+  each pass's static-prop share with a carried counter before building; if it is under ~1 ms, item 4 goes first.
 
-### 2. Particle creation becomes event-driven, like `TE_*` messages processed at their packet
+### 2. Particle creation becomes event-driven, like the client's `engine->FireEvents()`
 
+- **Valve's side, as far as it is read.** The client fires its queued events once a frame
+  (`cdll_client_int.cpp:2215`); how a temp entity or particle dispatch enters that queue is engine-side and
+  CLOSED here. Read it (`engine.dll`, decompiler on D:) before porting, so the "once at arrival" rule is
+  observed, not assumed.
 - **Change.** Offer a burst once, at the tick its event is crossed, instead of re-searching the timeline windows
   every frame and rebuilding `_burstsNow` (`BurstEffects.cs:363-404`). A seek still replays from its checkpoint
   (D217).
@@ -68,7 +84,9 @@ ticks 30480 and 30700). Nothing here is proposed that Valve does not do.
   and a counter shows zero searches on frames where no tick boundary was crossed.
 - **What it could break.** The windows exist for effects whose start is before the current tick (a frame lands
   mid-window after a seek, `ExplosionWindowTicks`), and heal beams/overheals, which are states, not events
-  (`docs/memory/a-loop-is-state-not-an-event.md`) — those stay per-frame, as Valve's beam is an entity effect.
+  (`docs/memory/a-loop-is-state-not-an-event.md`) — those stay per-frame here. How Valve drives the medigun
+  beam per frame (a `ClientThink`, a particle property, or other) is **not read**: none of the report's §7
+  `ClientThink` overrides is the medigun.
 - **Measure.** search 1.5 ms a frame now; the event share of it versus the state share (beams) is not split.
 
 ### 3. The animation list, like `g_ClientSideAnimationList`
@@ -83,10 +101,11 @@ ticks 30480 and 30700). Nothing here is proposed that Valve does not do.
   creation (`ForceClientSideAnimationOn`, `:6312`). The `with` copy per corpse is the allocation to remove with it.
 - **Measure.** Not timed apart today; add the timer first (B243: carried from the loop).
 
-### 4. Pose storage written in place, like `RagdollGetBoneMatrix` into the caller's accessor
+### 4. Pose storage written in place, like `SetupBones`' stack arrays and cached bone array
 
-- **Change.** `PoseOf`/`PoseBetween`/`StudioPoseBlend.Expand` write into a buffer the entity owns instead of a
-  new `StudioBonePose[]`, the same shape as finding 82's fix 1.
+- **Change.** `PoseOf`/`PoseBetween`/`StudioPoseBlend.Expand` write into scratch the pass owns and the entity's
+  own bone array, as `SetupBones` builds into `pos[MAXSTUDIOBONES]`/`q[MAXSTUDIOBONES]` on the stack
+  (`c_baseanimating.cpp:2965-2966`), instead of a new `StudioBonePose[]` — the shape of finding 82's fix 1.
 - **Conformance test first.** Asked twice for the same prop, the second call allocates 0 bytes and reuses the
   buffer (the `IvpRagdollTests` pattern); a differential against the allocating version, bone by bone.
 - **What it could break.** Any caller that keeps a returned pose past the next call (the corpse record's
@@ -98,7 +117,7 @@ ticks 30480 and 30700). Nothing here is proposed that Valve does not do.
 
 - **Change.** The moment's visibility filters (`MomentScene.cs:485-541`) rerun only for props whose inputs
   changed (their pose object, the round state, the viewer's vision flags, the followed player), like
-  `UpdateVisibility` called from `SetDormant`/`OnDataChanged`/`PostDataUpdate` (report §4).
+  `UpdateVisibility` called from `SetDormant`/`OnDataChanged`/`PostDataUpdate` (`c_baseentity.cpp:4021`, `:3319`, `:2649`).
 - **Conformance test first.** One per filter: an unchanged prop with unchanged inputs is not re-judged
   (a counter); a change to each input re-judges exactly the props it governs.
 - **What it could break.** Filters whose inputs are global per frame (first-person depends on the camera mode,
