@@ -1,0 +1,18 @@
+{
+  "schema": 1,
+  "side": "viewer",
+  "captured": "2026-10-19",
+  "demo": "20150120_2113_cp_process_final_red_blu.dem",
+  "demoSha256": "81526b25a11b7e63e03bbafd28324d1e8024ea380b8ea146dc792b8a148ef3fa",
+  "map": "cp_process_final",
+  "tick": 288,
+  "camera": [4640, 1330, 650, 8, 90],
+  "viewport": [984, 551],
+  "convars": {},
+  "gitSha": null,
+  "build": "Debug",
+  "args": ["--tick", "288", "--shot"],
+  "env": { "TF2VIEW_CAMERA": "4640 1330 650 8 90", "TF2VIEW_BAKE_ANIMATED": "0" },
+  "like": null,
+  "notes": "BACKFILLED 2026-10-19 from the capturing agent's transcript; the shot was not re-taken. The bone-posed side of the locker pair: the resupply locker open with its shelves showing (it opens at tick 226 in this 2015 demo; on f12 it never opens). The map name is read from the demo file name, not from the demo header. NOT RECORDED: the exact commit. Ours only."
+}

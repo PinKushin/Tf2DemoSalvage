@@ -1,0 +1,12 @@
+{
+  "schema": 1,
+  "side": "viewer",
+  "captured": "2026-10-19",
+  "composite": true,
+  "parts": ["doorA-6520-bake.png (left, BEFORE: baked frames)", "doorA-6520-bones.png (right, AFTER: posed by bones)"],
+  "demo": "demostf-cp_process_f12-2026-08-08-2207.dem",
+  "demoSha256": "77e7029ee5a5da0796faf2187012a92f0eb54c94250573786cdde29be8ff0778",
+  "tick": 6520,
+  "camera": [-2240, -3180, 790, 5, 90],
+  "notes": "A labeled side-by-side of the two shots; each part has its own sidecar with the full record. Finding 80 describes what it shows: the bake draws the door shut with a player in front of it, the bones draw it open."
+}
