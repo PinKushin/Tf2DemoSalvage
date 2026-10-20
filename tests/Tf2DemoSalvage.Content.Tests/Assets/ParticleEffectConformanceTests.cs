@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Numerics;
+using System.Threading.Tasks;
 
 using Tf2DemoSalvage.Content.Assets;
 
@@ -81,6 +83,27 @@ public sealed class ParticleEffectConformanceTests
         }
 
         effect.Particles.Count.ShouldBe(5);
+    }
+
+    [Test]
+    public void BirthsBySystem_EffectsSteppedOnEightThreads_CountsEveryBirth()
+    {
+        // **The tally is process-wide and this assembly runs its fixtures in parallel** (finding 82, B557), so two
+        // effects birth at once. Eight effects of one system, each emitting one particle a step for 5,000 steps: an
+        // unsynchronised read-modify-write loses some of the 40,000 or throws out of the dictionary.
+        string name = "births-on-eight-threads-" + Guid.NewGuid().ToString("N");
+        ParticleSystem system = System("emission_rate", 66d) with { Name = name };
+        ParticleEffect[] effects = [.. Enumerable.Range(0, 8).Select(_ => new ParticleEffect(system))];
+
+        Parallel.ForEach(effects, new ParallelOptions { MaxDegreeOfParallelism = 8 }, effect =>
+        {
+            for (int step = 0; step < 5_000; step++)
+            {
+                effect.Step(ParticleControlPoint.Unoriented(Vector3.Zero), seconds: 1f / 66f);
+            }
+        });
+
+        ParticleEffect.BirthsBySystem[name].ShouldBe(40_000L);
     }
 
     [Test]
