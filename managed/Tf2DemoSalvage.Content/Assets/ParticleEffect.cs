@@ -542,13 +542,21 @@ public sealed class ParticleEffect
     /// reads the sheet — and a child not supplied make the life unbounded. An effect older than this has finished, so a
     /// caller may decline to build it (finding 84); one asleep is not covered, since its clock stands.
     /// </remarks>
-    public static double MaximumLife(ParticleSystem system, IReadOnlyDictionary<string, ParticleSystem>? others) =>
-        MaximumLife(system, others, depth: 0);
+    /// <param name="sheets">The sheet each system's material carries, as <see cref="ParticleEffect"/> takes it; null for none.</param>
+    public static double MaximumLife(
+        ParticleSystem system,
+        IReadOnlyDictionary<string, ParticleSystem>? others,
+        Func<ParticleSystem, IReadOnlyList<SheetSequence>?>? sheets = null) =>
+        MaximumLife(system, others, sheets, depth: 0);
 
     /// <summary>How deep a child chain is followed before it is called unbounded — a cycle in the data would never end.</summary>
     private const int DeepestChild = 16;
 
-    private static double MaximumLife(ParticleSystem system, IReadOnlyDictionary<string, ParticleSystem>? others, int depth)
+    private static double MaximumLife(
+        ParticleSystem system,
+        IReadOnlyDictionary<string, ParticleSystem>? others,
+        Func<ParticleSystem, IReadOnlyList<SheetSequence>?>? sheets,
+        int depth)
     {
         ArgumentNullException.ThrowIfNull(system);
 
@@ -592,6 +600,24 @@ public sealed class ParticleEffect
             {
                 lifetime = initializer.Number("lifetime_max", DefaultLifetime);
             }
+            else if (string.Equals(initializer.Function, "Lifetime From Sequence", StringComparison.Ordinal))
+            {
+                // `C_INIT_SequenceLifeTime`, as ParticleSystems runs it: with a rate and a sheet, a sequence's span over the
+                // rate, or 1 for a zero span; otherwise nothing, and the earlier lifetime stands.
+                double rate = initializer.Number("Frames Per Second", 30d);
+
+                if (rate != 0d && sheets?.Invoke(system) is { } sheet)
+                {
+                    double longest = 1d;
+
+                    foreach (SheetSequence sequence in sheet)
+                    {
+                        longest = Math.Max(longest, sequence.TotalTime / rate);
+                    }
+
+                    lifetime = Math.Max(lifetime, longest);
+                }
+            }
             else if (initializer.Function.Contains("Lifetime", StringComparison.OrdinalIgnoreCase))
             {
                 return double.PositiveInfinity;
@@ -607,7 +633,7 @@ public sealed class ParticleEffect
                 return double.PositiveInfinity;
             }
 
-            life = Math.Max(life, MaximumLife(child, others, depth + 1));
+            life = Math.Max(life, MaximumLife(child, others, sheets, depth + 1));
         }
 
         return life + SleepAfter(system);

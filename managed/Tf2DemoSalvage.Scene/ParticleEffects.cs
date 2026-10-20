@@ -449,7 +449,6 @@ public sealed class ParticleEffects
             bool rebuild = !_bursts.TryGetValue(burst.Key, out RunningBurst running) ||
                 seeked ||
                 running.SimulatedTo > wanted;
-
             if (rebuild)
             {
                 // **None is made on a dormant owner** (c_particle_system.cpp:189-190): replayed or played, the same answer.
@@ -850,7 +849,8 @@ public sealed class ParticleEffects
     {
         if (!_lives.TryGetValue(system, out double life))
         {
-            _lives[system] = life = ParticleEffect.MaximumLife(system, others);
+            // The same sheets the effect itself reads: `Lifetime From Sequence` is bounded by them (rocketjump_flame).
+            _lives[system] = life = ParticleEffect.MaximumLife(system, others, Sheets);
         }
 
         return life;
