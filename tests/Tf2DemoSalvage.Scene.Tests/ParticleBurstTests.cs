@@ -200,32 +200,133 @@ public sealed class ParticleBurstTests
     }
 
     /// <remarks>
-    /// **Playing makes an effect only when it fires** — `ParticleEffectCallback` creates one at its dispatch, on a
-    /// non-dormant owner, and never later (c_particle_system.cpp:181-224). A burst older than where playback last landed
-    /// is the landing seek's to build (D221); one the seek could not place stays unbuilt. Built on the first frame its
-    /// owner was posed instead, every past rocket-jump smoke of a player out of view at the seek was replayed from its own
-    /// tick: 90 of them, 23,559 steps, 248 ms in one frame on f12 (finding 84). The control: a burst that fires after the
-    /// landing, unplaceable on its first frame, is still built once it can be placed.
+    /// **An effect past its definition's whole life is not built by playing** — it would have finished, and the engine
+    /// never re-creates a finished effect (`IsFinished`, particles.h:1119). A player out of view at the seek, posed eight
+    /// seconds later, had every past rocket-jump smoke replayed from its own tick in one frame: 90 bursts, all long
+    /// finished, 23,559 steps, 248 ms on f12 (finding 84). Here: one particle of half a second from an instantaneous
+    /// emitter, and the default eight-second sleep, so 8.5 s of life; met 900 ticks (13.6 s) after it fired.
     /// </remarks>
     [Test]
-    public void Bursts_OlderThanTheLandingAndUnplacedThere_AreNotBuiltWhilePlaying()
+    public void Bursts_PastTheirWholeLifeWhenTheirOwnerAppears_AreNotBuilt()
     {
         ParticleEffects effects = new();
-        ParticleBurst old = new(1, Beam, Origin, 100);
-        ParticleBurst fresh = new(2, Beam, Origin, 205);
+        ParticleBurst old = new(1, Once, Origin, 100);
 
-        effects.Bursts([old with { Undrawn = true }], Interval, null, tick: 200, seeked: true);
+        effects.Bursts([old with { Undrawn = true }], Interval, null, tick: 1000, seeked: true);
 
-        for (int tick = 201; tick <= 210; tick++)
+        for (int tick = 1001; tick <= 1010; tick++)
         {
-            ParticleBurst late = tick == 205 ? fresh with { Undrawn = true } : fresh;
-            effects.Bursts(tick < 205 ? [old] : [old, late], Interval, null, tick);
+            effects.Bursts([old], Interval, null, tick);
         }
 
-        effects.BurstSteps(1).ShouldBe(-1, "fired before the landing and unplaced there: never built by playing");
-        effects.BurstSteps(2).ShouldBe(5, "the control: fired after the landing, built once placed, stepped to now");
+        effects.BurstSteps(1).ShouldBe(-1, "past its whole life: never built");
+        effects.ReplaySteps.ShouldBe(0, "and nothing replayed");
+    }
+
+    /// <remarks>
+    /// **Inside its life, it IS built when its owner appears** (review): out of the camera's view is not dormant — dormancy
+    /// follows the recording's PVS — so the engine made this effect at its dispatch and it is running when the owner comes
+    /// into view. Here the owner is unplaceable at the seek and placeable one second later; the burst emits for two
+    /// seconds, so at 1.15 s old it is still emitting, inside its 10.5 s bound.
+    /// </remarks>
+    [Test]
+    public void Bursts_InsideTheirLifeWhenTheirOwnerAppearsAfterTheSeek_AreBuiltFromTheirOwnTick()
+    {
+        ParticleEffects effects = new();
+        ParticleBurst young = new(1, Timed, Origin, 990);
+
+        effects.Bursts([young with { Undrawn = true }], Interval, null, tick: 1000, seeked: true);
+
+        for (int tick = 1001; tick <= 1066; tick++)
+        {
+            effects.Bursts([tick < 1066 ? young with { Undrawn = true } : young], Interval, null, tick);
+        }
+
+        effects.BurstBuilds.ShouldBe(1);
+        effects.BurstSteps(1).ShouldBe(76, "replayed from tick 990 to 1066");
+    }
+
+    /// <remarks>
+    /// **A held effect is never skipped by its age, because asleep its clock stands** — `BuildParticleSimList` skips an
+    /// effect past `m_flNextSleepTime` (particlemgr.cpp:1775), so one undrawn for minutes is still alive, mid-life, when
+    /// drawn again. The age bound is for an effect that is NOT running. Here a 0.65 s life (half-second particle, 0.15 s
+    /// sleep) undrawn for 195 ticks: drawn again at 3 s old, it wakes and steps, built once.
+    /// </remarks>
+    [Test]
+    public void Bursts_HeldAndAsleepPastTheirLifeBound_WakeAndAreBuiltOnce()
+    {
+        ParticleEffects effects = new();
+        ParticleBurst puff = new(1, Sleepy(Once), Origin, 100);
+
+        for (int tick = 100; tick <= 105; tick++)
+        {
+            effects.Bursts([puff], Interval, null, tick);
+        }
+
+        for (int tick = 106; tick <= 300; tick++)
+        {
+            effects.Bursts([puff with { Undrawn = true }], Interval, null, tick);
+        }
+
+        effects.Bursts([puff], Interval, null, tick: 301);
+        int asleep = effects.BurstSteps(1);
+        effects.Bursts([puff], Interval, null, tick: 302);
+
+        effects.BurstParticles(1)!.Count.ShouldBe(1, "the precondition: its one particle is alive, frozen mid-life");
+        effects.BurstSteps(1).ShouldBe(asleep + 1, "awake: stepped though it is older than its life bound");
         effects.BurstBuilds.ShouldBe(1);
     }
+
+    /// <remarks>
+    /// **A burst fired after the landing but unplaceable on its creation frame is built later by a replay from its own
+    /// tick** — so it takes one more step of simulation than a burst created on its own frame, which simulates nothing
+    /// there (`fix/particle-caller-parity`, row 6). Chosen and pinned here: the replay is what a seek into that moment
+    /// shows, and the difference is one frame (finding 84).
+    /// </remarks>
+    [Test]
+    public void Bursts_FiredAfterTheLandingAndUnplacedOnTheirFirstFrame_AreReplayedFromTheirTickOncePlaced()
+    {
+        ParticleEffects effects = new();
+        ParticleBurst fresh = new(1, Once, Origin, 205);
+
+        effects.Bursts([], Interval, null, tick: 200, seeked: true);
+
+        for (int tick = 201; tick < 205; tick++)
+        {
+            effects.Bursts([], Interval, null, tick);
+        }
+
+        effects.Bursts([fresh with { Undrawn = true }], Interval, null, tick: 205);
+
+        for (int tick = 206; tick <= 210; tick++)
+        {
+            effects.Bursts([fresh], Interval, null, tick);
+        }
+
+        effects.BurstSteps(1).ShouldBe(5, "built at 206 by replaying tick 205 to 206, then one step a frame to 210");
+        effects.BurstBuilds.ShouldBe(1);
+    }
+
+    /// <summary>A beam that emits for two seconds, then lets its half-second particles run out.</summary>
+    private static ParticleSystem Timed => Beam with
+    {
+        Name = "test_timed",
+        Emitters = [new ParticleFunction("emit_continuously", "emitter", new Dictionary<string, DmxValue>(StringComparer.Ordinal)
+        {
+            ["emission_rate"] = new(DmxAttributeType.Real, 66d),
+            ["emission_duration"] = new(DmxAttributeType.Real, 2d),
+        })],
+    };
+
+    /// <summary>One particle of half a second, from an instantaneous emitter: 0.5 s of particles, then the sleep time.</summary>
+    private static ParticleSystem Once => Beam with
+    {
+        Name = "test_once",
+        Emitters = [new ParticleFunction("emit_instantaneously", "emit", new Dictionary<string, DmxValue>(StringComparer.Ordinal)
+        {
+            ["num_to_emit"] = new(DmxAttributeType.Whole, 1d),
+        })],
+    };
 
     /// <remarks>
     /// **A paused frame asks for the same tick again, and a fading effect does not age** — while the frames before the pause,

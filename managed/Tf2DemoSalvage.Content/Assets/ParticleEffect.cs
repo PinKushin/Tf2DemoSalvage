@@ -529,6 +529,90 @@ public sealed class ParticleEffect
     public static double SleepAfter(ParticleSystem system) =>
         ParticleSystems.Declared(system, "time to sleep when not drawn", 8d);
 
+    /// <summary>
+    /// The longest an effect of this definition can be alive, drawn throughout: its last emission, plus the longest particle
+    /// lifetime, plus the no-draw time — the quantities <see cref="Finished"/> and <see cref="SleepAfter"/> read.
+    /// </summary>
+    /// <param name="system">The definition.</param>
+    /// <param name="others">Every system that could be a child, by name; null for none.</param>
+    /// <returns>Seconds, or <see cref="double.PositiveInfinity"/> when any part is forever or cannot be bounded here.</returns>
+    /// <remarks>
+    /// **An upper bound, and an unknown is forever**: a continuous emitter with no duration emits for ever (the sentinel
+    /// <see cref="Finished"/> reads); an emitter or a lifetime initializer this does not bound — `Lifetime From Sequence`
+    /// reads the sheet — and a child not supplied make the life unbounded. An effect older than this has finished, so a
+    /// caller may decline to build it (finding 84); one asleep is not covered, since its clock stands.
+    /// </remarks>
+    public static double MaximumLife(ParticleSystem system, IReadOnlyDictionary<string, ParticleSystem>? others) =>
+        MaximumLife(system, others, depth: 0);
+
+    /// <summary>How deep a child chain is followed before it is called unbounded — a cycle in the data would never end.</summary>
+    private const int DeepestChild = 16;
+
+    private static double MaximumLife(ParticleSystem system, IReadOnlyDictionary<string, ParticleSystem>? others, int depth)
+    {
+        ArgumentNullException.ThrowIfNull(system);
+
+        if (depth > DeepestChild)
+        {
+            return double.PositiveInfinity;
+        }
+
+        double emitted = 0d;
+
+        foreach (ParticleFunction emitter in system.Emitters)
+        {
+            double start = emitter.Number("emission_start_time", 0d);
+
+            if (string.Equals(emitter.Function, ContinuousEmitter, StringComparison.Ordinal))
+            {
+                double duration = emitter.Number("emission_duration", 0d);
+
+                if (duration <= 0d)
+                {
+                    return double.PositiveInfinity;
+                }
+
+                emitted = Math.Max(emitted, start + duration);
+            }
+            else if (string.Equals(emitter.Function, BurstEmitter, StringComparison.Ordinal))
+            {
+                emitted = Math.Max(emitted, start);
+            }
+            else
+            {
+                return double.PositiveInfinity;
+            }
+        }
+
+        double lifetime = DefaultLifetime;
+
+        foreach (ParticleFunction initializer in system.Initializers)
+        {
+            if (string.Equals(initializer.Function, "Lifetime Random", StringComparison.Ordinal))
+            {
+                lifetime = initializer.Number("lifetime_max", DefaultLifetime);
+            }
+            else if (initializer.Function.Contains("Lifetime", StringComparison.OrdinalIgnoreCase))
+            {
+                return double.PositiveInfinity;
+            }
+        }
+
+        double life = emitted + lifetime;
+
+        foreach (string name in system.Children)
+        {
+            if (others is null || !others.TryGetValue(name, out ParticleSystem? child))
+            {
+                return double.PositiveInfinity;
+            }
+
+            life = Math.Max(life, MaximumLife(child, others, depth + 1));
+        }
+
+        return life + SleepAfter(system);
+    }
+
     /// <summary>The shortest step `CParticleCollection::Simulate` simulates — its <c>dt &gt;= 1e-22</c>.</summary>
     private const double ShortestStep = 1e-22;
 

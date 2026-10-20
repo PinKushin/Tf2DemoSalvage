@@ -401,7 +401,6 @@ public sealed class ParticleEffects
         if (landedHere)
         {
             _spent.Clear();
-            _landedAt = tick;
         }
 
         _burstTick = tick;
@@ -428,12 +427,18 @@ public sealed class ParticleEffects
             // an owner unposed for a frame dropped them all, and posed again replayed each from its own tick: 90 rocket-jump
             // smokes, a 248 ms frame on f12 every few seconds (finding 84).
             //
-            // **And playing makes one only once it has fired since the landing** (`ParticleEffectCallback` creates an effect
-            // at its dispatch and never later, c_particle_system.cpp:181-224): an older one is the landing seek's to build,
-            // and one it could not place stays unbuilt. Built when its owner was first posed instead, a player out of view at
-            // the seek had every past rocket-jump smoke replayed from its own tick in one frame (finding 84).
-            if (_spent.Contains(burst.Key) || (!landedHere && burst.Tick < _landedAt && !_bursts.ContainsKey(burst.Key)))
+            // **And one past its definition's whole life is not built by playing**: it would have finished. Out of view is
+            // not dormant, so the engine made it at its dispatch, and one inside its life IS built, replayed from its own
+            // tick. A held one is never skipped: asleep, its clock stands. Built anyway, a player out of view at the seek had
+            // every past rocket-jump smoke, all long finished, replayed in one frame (finding 84).
+            if (_spent.Contains(burst.Key))
             {
+                continue;
+            }
+
+            if (!landedHere && !_bursts.ContainsKey(burst.Key) && wanted * seconds > LifeOf(burst.Definition, others))
+            {
+                _spent.Add(burst.Key);
                 continue;
             }
 
@@ -838,8 +843,18 @@ public sealed class ParticleEffects
     /// </summary>
     private readonly HashSet<long> _spent = [];
 
-    /// <summary>The tick playback last landed on by a seek; before any, no burst is too old to build.</summary>
-    private int _landedAt = int.MinValue;
+    /// <summary>Each definition's <see cref="ParticleEffect.MaximumLife"/>, asked once: 470 bursts are offered a frame on f12.</summary>
+    private readonly Dictionary<ParticleSystem, double> _lives = new(ReferenceEqualityComparer.Instance);
+
+    private double LifeOf(ParticleSystem system, IReadOnlyDictionary<string, ParticleSystem>? others)
+    {
+        if (!_lives.TryGetValue(system, out double life))
+        {
+            _lives[system] = life = ParticleEffect.MaximumLife(system, others);
+        }
+
+        return life;
+    }
 
     /// <summary>The keys offered on the last call, reused.</summary>
     private readonly HashSet<long> _offered = [];
@@ -1086,7 +1101,7 @@ public sealed class ParticleEffects
         _running.Clear();
         _bursts.Clear();
         _spent.Clear();
-        _landedAt = int.MinValue;
+        _lives.Clear();
         _burstTick = 0;
 
         // And the clocks the creation-frame rule reads (B557 row 6): a new demo's first frame is an opening, not a played one.
