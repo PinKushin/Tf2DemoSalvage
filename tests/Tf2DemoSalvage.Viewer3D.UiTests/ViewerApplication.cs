@@ -1153,11 +1153,11 @@ internal sealed partial class ViewerApplication : IDisposable
     /// common in WinForms and was B558's first failure. Only that exception is tolerated here, so the walk goes on
     /// and lists the element's siblings and children; any other exception ends the walk at the outer catch.
     /// </remarks>
-    internal static string ReadOrNoIdMarker(Func<string?> read)
+    internal static string ReadOrNoIdMarker(Func<string> read)
     {
         try
         {
-            return read() ?? string.Empty;
+            return read();
         }
         catch (FlaUI.Core.Exceptions.PropertyNotSupportedException)
         {
