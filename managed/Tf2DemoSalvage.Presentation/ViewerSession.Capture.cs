@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -10,6 +11,7 @@ using Microsoft.Extensions.Logging;
 
 using Tf2DemoSalvage.Logging;
 using Tf2DemoSalvage.Render;
+using Tf2DemoSalvage.Scene;
 
 namespace Tf2DemoSalvage.Presentation;
 
@@ -149,6 +151,7 @@ public sealed partial class ViewerSession
             case OpeningStep.Capture when _opening.TakeShotPath() is { } path:
                 Pick();
                 CaptureViewport(path);
+                WriteSidecar(path);
                 _window.Close(posted: true);
                 break;
 
@@ -256,6 +259,90 @@ public sealed partial class ViewerSession
         // keeps paying for.
     }
 
+    /// <summary>The command line as given, for the sidecar's <c>args</c>.</summary>
+    private readonly IReadOnlyList<string> _arguments;
+
+    /// <summary>Writes the D226 sidecar beside a <c>--shot</c>: what this capture depended on, read from where it was used.</summary>
+    /// <param name="shot">The PNG's path.</param>
+    /// <remarks>
+    /// **Every value is carried, not recomputed** (B243): the camera is the one the last frame handed the device, the
+    /// tick the one last shown, the viewport the window's, the ConVars the settings in force. The PNG itself is written
+    /// on the next present, which changes none of those on a capture run: the camera is placed and the clock paused.
+    /// </remarks>
+    private void WriteSidecar(string shot)
+    {
+        System.Reflection.Assembly built = typeof(ViewerSession).Assembly;
+        string? version = System.Reflection.CustomAttributeExtensions
+            .GetCustomAttribute<System.Reflection.AssemblyInformationalVersionAttribute>(built)?.InformationalVersion;
+        int plus = version?.IndexOf('+', StringComparison.Ordinal) ?? -1;
+        string? demo = _presenter.DemoPath;
+
+        // **Hashed once, and that one value is both recorded and compared** (B243).
+        string? demoSha = demo is null ? null : ShotSidecar.Sha256(demo);
+        string notes = string.Empty;
+        ShotLikeRef? likeRef = null;
+
+        if (_launch.Like is { } like)
+        {
+            string likeText = File.ReadAllText(like);
+            likeRef = new ShotLikeRef(Path.GetFileName(like), ShotSidecar.Sha256(like));
+
+            // **A different demo warns and is noted, and the shot is still taken** (owner, on D226: "probably").
+            if (ShotSidecar.Read(likeText).DemoSha256 is { } theirs && !string.Equals(theirs, demoSha, StringComparison.OrdinalIgnoreCase))
+            {
+                notes = $"demo differs from the TF2 side: demoSha256 {theirs} in {likeRef.File}, {demoSha} here";
+                _log.LogWarning("{Message}", $"the demo opened ({demoSha}) is not the demo {likeRef.File} was taken of ({theirs})");
+            }
+        }
+
+        Dictionary<string, string> convars = new(StringComparer.Ordinal);
+
+        // **Read back through the one route the frame reads them by** (`ClientConVar`), and only those that differ from
+        // their declared default (owner: "only the ones that differ from defaults").
+        foreach (Core.Net.EngineConVar declared in Core.Net.EngineConVars.All)
+        {
+            if (!declared.Replicated && ClientConVar(declared.Name) is { } value && ShotSidecar.DiffersFromDefault(value, declared.Default))
+            {
+                convars[declared.Name] = ShotSidecar.Private(value);
+            }
+        }
+
+        Dictionary<string, string> env = new(StringComparer.Ordinal);
+
+        foreach (string name in _host.VariableNames())
+        {
+            if (name.StartsWith("TF2VIEW_", StringComparison.Ordinal) && _host.Environment(name) is { } value)
+            {
+                env[name] = ShotSidecar.Private(value);
+            }
+        }
+
+        FreeCamera? eye = _presenter.LastViewing;
+
+        ShotRecord record = new(
+            DateTimeOffset.UtcNow,
+            demo is null ? null : Path.GetFileName(demo),
+            demoSha,
+            _presenter.MapName,
+            (int)Math.Round(_shownTick),
+            eye is { } e ? (e.Origin.X, e.Origin.Y, e.Origin.Z, e.Angles.Pitch, e.Angles.Yaw) : null,
+            _window.Viewport,
+            convars,
+            // **The tree is asked once, here, and the answer carried** (owner: "-dirty" when uncommitted).
+            ShotSidecar.GitSha(plus < 0 ? null : version![(plus + 1)..], _host.TreeDirty()),
+            _host.Build,
+            [.. _arguments.Select(ShotSidecar.Private)],
+            env,
+            likeRef)
+        {
+            Notes = notes,
+        };
+
+        string path = ShotSidecar.PathFor(shot);
+        File.WriteAllText(path, ShotSidecar.Json(record));
+        _log.LogInformation("{Message}", $"sidecar written beside the shot: {Path.GetFileName(path)}");
+    }
+
     /// <summary>`TF2VIEW_PICK="x y"`: logs what lies under that pixel of the shot — <see cref="PickReport"/>.</summary>
     private void Pick()
     {
@@ -332,7 +419,14 @@ public sealed partial class ViewerSession
     {
         string folder = CaptureFolder;
 
-        CaptureViewport(Path.Combine(folder, Captures.Name(DateTime.Now)));
+        string shot = Path.Combine(folder, Captures.Name(DateTime.Now));
+        CaptureViewport(shot);
+
+        // **The screenshot key's sidecar is a Debug build's only** (owner); `--shot` writes one in every build.
+        if (_host.IsDebug)
+        {
+            WriteSidecar(shot);
+        }
 
         // **Captures had no retention of any kind until 2026-08-19**, when 233 of them were found
         // occupying 203 MB — the single largest thing the viewer had written to the owner's disk,
@@ -355,7 +449,8 @@ public sealed partial class ViewerSession
         // what `Captures.Name` produces, and it did so only because the same prefix was typed in
         // two places — a disagreement would prune nothing, silently, since deleting zero files looks
         // exactly like having nothing to delete.
-        FileRetention.Keep(folder, Captures.Pattern, Captures.Kept);
+        // **A shot's sidecar goes with it**, so pruning leaves no orphan `.png.json` (D226).
+        FileRetention.Keep(folder, Captures.Pattern, Captures.Kept, ShotSidecar.PathFor(string.Empty));
     }
 
     /// <summary>The demo named on the command line, opened once the window is up; null when none was.</summary>

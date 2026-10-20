@@ -617,6 +617,27 @@ public sealed class ViewerPresenterTests
         }
     }
 
+    /// <remarks>A sidecar's camera is the one the device was handed, carried, never a second reading (D226, B243).</remarks>
+    [Test]
+    public void LastViewing_AfterAFrame_IsTheCameraTheDeviceWasGiven()
+    {
+        WriteMap();
+        (ViewerPresenter loader, _, _) = Loader();
+        Questions asked = new();
+        FakeViewerDevice device = new();
+
+        using (loader)
+        {
+            loader.AttachWindow(asked.Window(loader), new FpsPanelTests.SolidGdi());
+            loader.LoadDemo(WriteDemo("camera")).Loaded.ShouldBeTrue();
+            loader.LastViewing.ShouldBeNull("no frame has been drawn");
+
+            loader.UploadCameraOver(device, new FakeFrameDevice(), flyTicks: 0, exposureSeconds: 0f, surfaceColours: false);
+
+            loader.LastViewing.ShouldBeSameAs(device.Camera.Camera);
+        }
+    }
+
     /// <remarks>
     /// **The pose asks the device whether a monitor draws, before posing and once** (B511). What the answer does to the
     /// followed player is `MomentSceneTests.Pose_InFirstPersonWithAMonitorOrNot_BuildsTheFollowedPlayerOnlyForOne`; this is

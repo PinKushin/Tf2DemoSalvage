@@ -75,6 +75,16 @@ internal static class Program
             return;
         }
 
+        // **`--like` becomes the switches it stands for before anything reads them** (D226): the camera and view size
+        // are process variables read at construction, so they are set here, first.
+        if (ShotSidecar.Expand(args, System.IO.File.ReadAllText, Environment.SetEnvironmentVariable, ViewerHost.Process, loggers.CreateLogger("viewer"))
+            is not { } expanded)
+        {
+            return;
+        }
+
+        args = expanded;
+
         // **Before anything else is built, because being first is its whole job** (D182). WinForms' own initialisation must
         // come before any window, the splash's included, so it moved up from beside the form.
         ApplicationConfiguration.Initialize();
