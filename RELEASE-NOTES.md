@@ -1,6 +1,32 @@
-# Tf2DemoSalvage 0.1.0-beta.44
+# Tf2DemoSalvage 0.1.0-beta.45
 
 ## Unreleased
+
+## 0.1.0-beta.45 (2026-10-20)
+
+Betas 0.1.0-beta.16 to 0.1.0-beta.44 were never published, so this is the first public build since beta.15. The
+sections below cover every change since, one per version.
+
+- **`--shot` writes a companion file beside the picture.** `--shot out.png` also writes `out.png.json`: the demo's
+  file name and its sha256, the map, the tick, the camera, the view size, the settings that differ from their
+  defaults, the build and the command line (file names only). You can rebuild a capture from it later (D226).
+  Deleting a screenshot from the viewer's tidy-up deletes its companion too. The F12 key writes one only in a
+  Debug build.
+- **`--like <shot.png.json>` reproduces a TF2 capture.** Give it the companion file of a TF2-side capture and the
+  viewer takes its tick, camera, view size and console variables, and its demo too, from the file's folder, when
+  you name none. A `--tick` or `+cvar` you pass still wins; the camera and view-size environment variables do not.
+  If the demo you open is not the one the file names (different sha256), the viewer warns and still shoots. A
+  file with a bad camera, or one whose demo is a path rather than a file name, is refused with the reason.
+- **Static props are no longer walked every frame.** A map's static props (1,353 on `cp_process_f12`) are filed
+  once and only the ones in view are posed; the picture is identical pixel for pixel in the two golden pairs
+  taken (finding 83, item 1). Measured on one machine, on f12 at tick 30000 in a Debug viewer, looking at nothing
+  (`TF2VIEW_CAMERA="1613 -2821 154 89 0"`): the simulate phase fell from 1.2-1.4 ms to 0.5-0.7 ms a frame and
+  the draw-list phase from 0.4-0.6 ms to 0.1-0.2 ms. The whole frame ranged 7.7-9.0 ms before and 6.0-9.4 ms
+  after, with other work on the machine, so quote the phases, not the frame. A static prop you look at is still
+  animated when it has an animation, which the game does not do (B560).
+- **A demo whose map is missing still opens**, and the status bar says why (D224). The viewer fetches a map it
+  lacks, so you should rarely see this. TF2 itself refuses such a demo. **Unverified:** that the message reaches
+  the status bar on every path (see *Known gaps*).
 
 - **`TF2VIEW_VIEWPORT_SIZE`** (`"1280x720"`, WIDTHxHEIGHT) sizes the 3D view itself; the window grows around it,
   so the view is that size at any display scaling. A value that does not parse is logged and ignored. For scripted
@@ -27,7 +53,8 @@
   (merge `3315abde`; finding 79). A seek replays the effects as playing does (D221).
 - **Particles step once per frame on that frame's own points and time**, as TF2 does (D221, B539).
 - **Smoother playback on a busy scene.** A dead player's physics was rebuilt every frame: 48.7 ms a rebuild, about 1 ms
-  now. Below that, TF2's HUD texture sizes are read once, and a first-person arm nobody can see is not posed.- **Less memory on a map.** Measured on f12, a Debug viewer, `--measure 20` (finding 80); run-to-run spread is
+  now. Below that, TF2's HUD texture sizes are read once, and a first-person arm nobody can see is not posed.
+- **Less memory on a map.** Measured on f12, a Debug viewer, `--measure 20` (finding 80); run-to-run spread is
   about 400 MB, and the figures are one change each, not a sum:
   - A map's screen overlays decode their animated normal map once, not once per frame: the load's transient peak
     fell from 2,245 to 940 MB, the viewer's peak working set from 9.3 to 7.6 GB and peak private bytes from 11.1 to
@@ -54,8 +81,9 @@
   class background follows your team (it was red for a BLU player); the class model stands in its activity pose;
   HUD colors are gamma-corrected, which TF2's tan text needs; the ammo number paints over its shadow (B552); and
   a medic gets the ÜberCharge meter. The class portrait is drawn at tone-map scale 1, which accounts for its being
-  about 20 luma darker than TF2's. **TODO(owner): whether the portrait now matches is the golden's to show, and
-  the UI suite was not run for this pass.**
+  about 20 luma darker than TF2's. The ammo golden is live (B552); the class and ÜberCharge goldens stay
+  Explicit (B559). **TODO(owner): whether the portrait now matches is the golden's to show, and no UI suite
+  result is recorded for the final tree.**
 - **The program has its own icon**, a film reel with a play hub in brown and gold, replacing the Windows default.
 - **Developer options.** `--measure` also prints the GC's own memory and the large allocations by type.
   `--windows` (in `--help`) walks the demo into 2-second checkpoints and logs, per seek, what a window cost and
@@ -582,7 +610,14 @@ Each claim below is a measurement, not an expectation.
   with its run (f12, Debug viewer, `--measure 20`); sources are finding 80 and the merge commits named there.
   Not measured: a Release viewer's memory, p50 and p99 frame time (`--measure` prints means), and the six-versus-six
   match of *Requirements*. **TODO(owner): merge-gate counts and the UI suite result for beta.45 are not recorded
-  here; this pass ran neither.**
+  in the merge commits since beta.44, and this pass ran neither; fill them in from the final gate.**
+- **Static props filed once (beta.45):** conformance tests cover the gather (facing away visits none, facing two
+  of three visits those two, filed once over several frames, an entity as control). Golden shots before and after
+  on f12 at tick 30000 (first person, and a free camera on the map's trees) are identical pixel for pixel outside
+  the frame-time text (finding 83). Measured on one machine, shared at the time.
+- **Capture companion file and `--like` (beta.45):** covered by tests of the written fields and of `--like`
+  refusing a bad camera and a path-valued demo; the five committed TF2 goldens carry backfilled companions
+  (D226). **TODO(owner): not run against a live TF2 capture in this pass.**
 - **Merge gate (beta.43):** all twelve assemblies passed (core 2481, cli 75, logging 17, fonts 5, animation 5338,
   scene 2995, audio 295, presentation 988, content 1768, corpus 224, rendering 1128, viewer 135), and the UI suite
   passed 54 of 54. The paused-frame fix is checked by a conformance test written from the game's published source
@@ -695,6 +730,11 @@ Each claim below is a measurement, not an expectation.
 
 Things a user is likely to notice. Each has an entry in `docs/RISKS.md` in the repository.
 
+- **The "no map" message is unverified** (B556, D224). When a demo's map cannot be fetched or found, the viewer
+  is meant to say so in the status bar. No test has opened a demo with its map absent by each route (a failed
+  download, a map the install lacks, the library, the command line), so on some route the bar may say nothing.
+- **A static prop in view animates when it has an animation**, which the game's static-prop draw never does
+  (B560). This was so before beta.45.
 - **A sun glow seen through a water reflection or a monitor** is not tested separately for being covered (B378).
 - **The spectator HUD is not complete** (B546): the control-point lock row, the target ID's health number and the
   overheal color of a player card's health still differ from the game's.
