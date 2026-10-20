@@ -395,6 +395,11 @@ public sealed class ParticleEffects
             _bursts.Clear();
         }
 
+        if (seeked || tick < _burstTick)
+        {
+            _spent.Clear();
+        }
+
         _burstTick = tick;
         _offered.Clear();
 
@@ -411,6 +416,15 @@ public sealed class ParticleEffects
             if (wanted < 0d)
             {
                 // Offered before it fires. Nothing to show yet, and starting it would run it early.
+                continue;
+            }
+
+            // **Finished while playing, it is gone** — `CParticleMgr` removes an effect once `IsFinished` (particles.h:1119)
+            // and only a new dispatch makes another. An entity's stopless dispatch is offered for the rest of the demo, so
+            // an owner unposed for a frame dropped them all, and posed again replayed each from its own tick: 90 rocket-jump
+            // smokes, a 248 ms frame on f12 every few seconds (finding 84).
+            if (_spent.Contains(burst.Key))
+            {
                 continue;
             }
 
@@ -805,8 +819,15 @@ public sealed class ParticleEffects
         foreach (long key in _finished)
         {
             _bursts.Remove(key);
+            _spent.Add(key);
         }
     }
+
+    /// <summary>
+    /// The bursts retired finished since the last seek: playing never builds one again, as the engine never re-creates an effect
+    /// it removed (finding 84). A seek forgets them, since it rebuilds from the offer.
+    /// </summary>
+    private readonly HashSet<long> _spent = [];
 
     /// <summary>The keys offered on the last call, reused.</summary>
     private readonly HashSet<long> _offered = [];
@@ -1052,6 +1073,7 @@ public sealed class ParticleEffects
     {
         _running.Clear();
         _bursts.Clear();
+        _spent.Clear();
         _burstTick = 0;
 
         // And the clocks the creation-frame rule reads (B557 row 6): a new demo's first frame is an opening, not a played one.

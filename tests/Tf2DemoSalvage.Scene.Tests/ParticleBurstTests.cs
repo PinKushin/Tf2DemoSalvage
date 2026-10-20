@@ -157,6 +157,49 @@ public sealed class ParticleBurstTests
     }
 
     /// <remarks>
+    /// **A finished effect is gone, and playing never makes it again** — `CParticleMgr` removes an effect once
+    /// `IsFinished` (particles.h:1119), and only a new dispatch creates one. An entity's dispatch with no stop is offered
+    /// for the rest of the demo, so when its owner was unposed for a frame and posed again, every finished rocket-jump
+    /// smoke that player ever made was replayed from its own tick: 90 bursts, 23,559 steps, a 248 ms frame on f12, every
+    /// few seconds (finding 84). **A seek still rebuilds**, which is our addition (D221) — the control.
+    /// </remarks>
+    [Test]
+    public void Bursts_FinishedThenOfferedAgainWhilePlaying_AreNeverBuiltAgain()
+    {
+        ParticleEffects effects = new();
+        ParticleSystem once = Beam with
+        {
+            Name = "test_once",
+            Emitters = [new ParticleFunction("emit_instantaneously", "emit", new Dictionary<string, DmxValue>(StringComparer.Ordinal)
+            {
+                ["num_to_emit"] = new(DmxAttributeType.Whole, 1d),
+            })],
+        };
+        ParticleBurst puff = new(1, once, Origin, 100);
+
+        for (int tick = 100; tick <= 200; tick++)
+        {
+            effects.Bursts([puff], Interval, null, tick);
+        }
+
+        // The precondition: it ran out on its own, and an unoffered finished effect is let go.
+        effects.BurstParticles(1)!.Count.ShouldBe(0, "one particle of 33 ticks is long gone by tick 200");
+        effects.Bursts([], Interval, null, tick: 201);
+        effects.BurstCount.ShouldBe(0);
+
+        for (int tick = 202; tick <= 210; tick++)
+        {
+            effects.Bursts([puff], Interval, null, tick);
+        }
+
+        effects.BurstBuilds.ShouldBe(1, "played frames never rebuild what finished");
+        effects.ReplaySteps.ShouldBe(0, "and nothing was replayed");
+
+        effects.Bursts([puff], Interval, null, tick: 150, seeked: true);
+        effects.BurstBuilds.ShouldBe(2, "the control: a seek still rebuilds it");
+    }
+
+    /// <remarks>
     /// **A paused frame asks for the same tick again, and a fading effect does not age** — while the frames before the pause,
     /// the control, do age it. A fade that ran a fixed step per call, not per tick, would fail the second assertion.
     /// </remarks>
