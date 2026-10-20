@@ -13,3 +13,8 @@
 // watching a defect appear on screen cannot tell which test produced it. Asked for by the owner
 // while watching this suite; see TestNameInTitleAttribute.
 [assembly: Tf2DemoSalvage.Viewer3D.UiTests.TestNameInTitle]
+
+// **The machine's free memory is logged before every test** (B558): the first UI failure with a readable window dump
+// showed a Windows paging-file warning dialog open on the hosted runner, and the log said nothing about how much memory
+// the runner had. See MachineMemoryLogAttribute.
+[assembly: Tf2DemoSalvage.Viewer3D.UiTests.MachineMemoryLog]
