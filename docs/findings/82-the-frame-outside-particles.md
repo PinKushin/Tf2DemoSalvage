@@ -258,8 +258,10 @@ instead where the engine fixes it, by re-filing on a model change (`SetModelPoin
 `RenderableChanged`, `c_baseentity.cpp:1790`, `:3950`), which needs no resolution cache. The verdict of the section
 after this one, "tried and not kept", stands again. What it measured is kept below as the record.
 
-The owner's rule, which reverses the "not kept" below: *"if its parity but worse we need to figure out why, if its
-parity but the same we use it"*. So the patch went back on and was measured on a quiet machine, all runs first
+What follows is the record as it stood before the revert. The owner's rule, which at the time reversed the "not kept"
+below: *"if its parity but worse we need to figure out why, if its parity but the same we use it"*. The review task
+that followed directed the revert for this mechanism on the neutral-is-dead rule, so that direction is the current
+one here. So the patch went back on and was measured on a quiet machine, all runs first
 person, f12, Debug, tick 30000, `--measure 20`, binaries built from `58edf0fd` (before) and `58edf0fd` + the patch
 (after) into separate folders, run alternating; no run waited on the lock.
 
@@ -305,7 +307,8 @@ collection scans its dependent handles. That is a measurement worth keeping on i
 inclusive shares under the sampler that suspends threads at their GC polls (the instrument note above), and inside
 a pass where 35% of samples were polls. The shares were real places, not real milliseconds. **The lesson, filed for
 the next profile here: rank by a direct timer before building, and treat a sampled share inside `SimulatePass` as a
-place to look, not a cost.** The patch is kept outside the tree; nothing of it is committed.
+place to look, not a cost.** The patch was kept outside the tree at first; it was later committed as `8320ea31` (fix 4 above) and reverted in
+`fca2f245`.
 
 ## `between`: what repaints between frames (2026-10-19)
 
