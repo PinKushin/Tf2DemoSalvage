@@ -59,7 +59,9 @@ A file that is not a demo prints one line, `error: <path>: <reason>`, and exits 
 **Reporting a bug.** The viewer writes one log per run to `%LOCALAPPDATA%\Tf2DemoSalvage` (named
 `viewer-<date>-<time>-<process id>.log`; the newest 50 are kept). Send the newest log, the demo's
 file name (and the demo itself if you can), and what you did and saw. The command-line tool writes
-no log file; send its console output.
+no log file; send its console output. Open an issue from the **Issues** tab (the forms ask for exactly
+that); questions go in **Discussions**, and a security problem goes through **Security** > **Report a
+vulnerability** (see `SECURITY.md`).
 
 ## Status
 
