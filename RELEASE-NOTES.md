@@ -1,10 +1,8 @@
 # Tf2DemoSalvage 0.1.0-beta.45
 
-## Unreleased
+## Changes in 0.1.0-beta.45
 
-## 0.1.0-beta.45 (2026-10-20)
-
-Betas 0.1.0-beta.16 to 0.1.0-beta.44 were never published, so this is the first public build since beta.15. The
+Released 2026-10-20. Betas 0.1.0-beta.16 to 0.1.0-beta.44 were never published, so this is the first public build since beta.15. The
 sections below cover every change since, one per version.
 
 - **`--shot` writes a companion file beside the picture.** `--shot out.png` also writes `out.png.json`: the demo's
@@ -605,7 +603,7 @@ writes no log file; send its console output.
 
 Each claim below is a measurement, not an expectation.
 
-- **Memory and speed (beta.45):** every figure is in *Unreleased*'s memory and playback bullets
+- **Memory and speed (beta.45):** every figure is in this section's memory and playback bullets
   with its run (f12, Debug viewer, `--measure 20`); sources are finding 80 and the merge commits named there.
   Not measured: a Release viewer's memory, p50 and p99 frame time (`--measure` prints means), and the six-versus-six
   match of *Requirements*.
