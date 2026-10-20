@@ -114,6 +114,7 @@ public sealed partial class ViewerPresenter
         if (_effects.Parts is { } parts)
         {
             parts.Add("camera view", deviceAt - viewAt);
+            // `posingAt - deviceAt` also covers the six `device.*` feed writes before `SetCamera`, so it exceeds the seven parts' sum by microseconds.
             parts.Add("camera setcamera", posingAt - deviceAt);
 
             // The device's own split of that, as it timed it (B243). Indexed, because a foreach over the interface
