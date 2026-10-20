@@ -108,6 +108,10 @@ ticks 30480 and 30700). Nothing here is proposed that Valve does not do.
     pushed `CulledByVisibility` to 0. That is the same handle churn the old build had when a skip left them off the
     draw list. The tally is asked for the drawable static props, which is what the handles count. The level-change
     repack and a mid-level list swap are pinned by tests that go red when either `_staticsPacked = false` is deleted.
+  - **Measured after rebasing onto `merge/batch-5`** (2026-10-20, the same empty view, the desktop free). Frame in the
+    quiet windows: 6.0, 6.3, 6.6, 6.7, 7.3, 7.4, 8.3, 8.6, 8.7, 9.4 ms. Not quoted: three windows of 15.8–46 ms, one
+    with `sound` 28.9, and the first window, which was loading. Phases: `simulate` 0.5–0.7, `drawlist` 0.2, `advance`
+    0.7–0.9, `camera` 2.9–4.2. This run reaches the owner's 5.8–6.8 ms in five windows.
 
 ### 2. Particle creation becomes event-driven, like the client's `engine->FireEvents()`
 
