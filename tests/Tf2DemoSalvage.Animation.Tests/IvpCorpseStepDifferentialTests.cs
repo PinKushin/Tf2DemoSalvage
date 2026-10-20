@@ -63,6 +63,8 @@ public sealed class IvpCorpseStepDifferentialTests
         // **A ceiling, measured**: 973,928 bytes over ticks 20-199 before a side was kept per refresh, 841,992 after (finding 83).
         // A ceiling rather than an equality, so taking out another allocation passes and putting one back does not.
         (GC.GetAllocatedBytesForCurrentThread() - allocatedFrom).ShouldBeLessThanOrEqualTo(841_992L, "the step's allocation, ticks 20-199");
+        // The hook a corpse's entity is handed every step is one delegate, not one per step (52 MB per 20 s on f12).
+        ragdoll.PoseHook.ShouldBeSameAs(ragdoll.PoseHook);
         world.Simulation.Environment.Impacts.ShouldBeGreaterThan(0, $"the control: the corpse struck the floor; root at {ragdoll.State()[0].Position}");
         hash.ShouldBe(1606571577950495611UL,"the poses' bits as they were before the allocation work");
     }
