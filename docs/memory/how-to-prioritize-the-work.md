@@ -1,0 +1,16 @@
+---
+name: how-to-prioritize-the-work
+description: Order of work: bugs first, then the biggest MEASURED fps or memory win a user feels, then parity, housekeeping in the gaps; re-rank each batch; two local agents plus the credits queue.
+metadata:
+  type: feedback
+---
+
+Owner, 2026-10-20: *"FPS fixes especially, get pushed fast, bug and fps fixes get fixed first and fast"*, *"we need memory down and fps up"*, *"with so much stuff going on, how do we prioritize"* ("and remember it all").
+
+**Rule:** (1) bugs, (2) fps and memory wins a user FEELS, biggest measured gain per effort first, (3) parity/visible changes (they wait for a comparison shot, not for him), (4) housekeeping (analyzer sweeps, formatting, docs, memory cleanup, refactors) in the gaps between batches. When something new arrives ask in order: is it a bug? does a user feel it? is the gain measured (ms or MB)? can it ship alone? Tie-break by what unblocks other work. A fps/bug fix is released as soon as it is merged and green ([[the-lead-publishes-releases]]).
+
+**State on 2026-10-20 (the ranked list; re-rank at the end of every batch):** 0 the ignored `WaitForExit`/audio-context bug (`fix/ignored-results`); 1 the startup ramp (frame rate 40 -> 70 fps over the first ~20 s; a `.NET Tiered Compilation` worker is busy for 5 s; the TC=0 "falsification" was a weak control; likely fix ReadyToRun packaging); 2 event-driven bursts (~1.5 ms, finding 83 item 2); 3 per-frame garbage (poses in place, the corpse record; ~2.3 ms GC pause, ~10 MB/frame); 4 the `camera` phase (8-9 ms, needs a fresh ranking on the current build); 5 the ~2.5 GB unexplained native memory at map load; 6 the particle branch (waits for the differential comparison shots); 7 detail props (0.3 ms) and the paused-particles question; 8 the analyzer sweep (D228), formatting, docs, memory cleanup.
+
+**Keep agent branches current** (owner, 2026-10-20, on the repo's "always suggest updating pull request branches" setting: *"I figured it might matter for using multiple agents to make sure they rebase when main merges"*). Agents work on local worktree branches, not PRs, so the GitHub button does not apply; the rule is in every brief: rebase onto `origin/main` first, rebase again and rerun the touched tests just before reporting, and name the `main` commit the branch sits on. The lead dry-runs the merge (`git merge-tree`) before the gate. Dependabot PRs: `@dependabot rebase`, never the Update-branch button.
+
+**Capacity:** two local agents at a time (they share the desktop; builds and runs under `run-exclusive.ps1`, a run that overlapped a build or other load is void), the credits queue for bugs, reviews and read-only work (about $65 left on 2026-10-20, ~$2.80 a job; large writes go local when it runs out). Related: [[one-subagent-and-prefer-cheap-models]], [[when-to-call-the-advisor]].
