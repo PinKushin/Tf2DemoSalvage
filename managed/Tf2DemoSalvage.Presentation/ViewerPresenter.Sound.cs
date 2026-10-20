@@ -42,7 +42,7 @@ public sealed partial class ViewerPresenter
         // sound card, and neither does a machine with audio disabled — a viewer that refused to
         // start over that would be worse than one that draws in silence. Reported either way, so
         // "there is no sound" and "the sound is not working" are distinguishable in the log.
-        _audio = AudioOutput.TryCreate();
+        _audio = AudioOutput.TryCreate(_audioLog);
 
         _audioLog.LogInformation(
             "{Message}",

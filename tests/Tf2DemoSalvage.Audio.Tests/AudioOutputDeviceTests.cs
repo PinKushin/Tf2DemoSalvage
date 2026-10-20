@@ -54,7 +54,7 @@ public sealed class AudioOutputDeviceTests
 
     private static AudioOutput Open()
     {
-        if (AudioOutput.TryCreate() is not { } output)
+        if (AudioOutput.TryCreate(Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance) is not { } output)
         {
             Assert.Ignore("no OpenAL device could be opened, not even the null one");
             throw new InvalidOperationException("unreachable: Assert.Ignore throws");
@@ -347,7 +347,7 @@ public sealed class AudioOutputDeviceTests
     /// <summary>The mix itself, rendered into memory by `ALC_SOFT_loopback`: the instrument for `volume`.</summary>
     private static AudioOutput OpenLoopback()
     {
-        if (AudioOutput.TryCreateLoopback(44100) is not { } output)
+        if (AudioOutput.TryCreateLoopback(44100, Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance) is not { } output)
         {
             Assert.Ignore("this OpenAL has no loopback device");
             throw new InvalidOperationException("unreachable: Assert.Ignore throws");
