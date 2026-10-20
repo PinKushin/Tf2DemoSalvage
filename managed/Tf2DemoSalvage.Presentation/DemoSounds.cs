@@ -109,8 +109,10 @@ public static class DemoSounds
             // selective would only move the hitch to the next doorway.
             PrecacheResult result = cache.Precache(
                 ToPrecache(
-                    // **The surfaces' sounds FIRST, as the engine precaches them at level init before the demo's**: the
-                    // cache lets its least recently used go, so near the cap a step wave goes before a timeline sound.
+                    // **The surfaces' sounds FIRST, as the engine precaches them at level init before the demo's.** The
+                    // order matters only at the cache's cap, which the engine does not have: `SoundCache` lets the least
+                    // recently used go, so the first precached are the first evicted — a step wave before a timeline
+                    // sound. f12 holds 277 MB of 512 (finding 84).
                     SurfaceWaves(game.Surfaces, scripts).Concat(timeline.SoundsToPrecache()).Concat(
                         emitted.Select(sound => sound.Name)
                             .Concat(ScriptWaves(emitted, scripts))

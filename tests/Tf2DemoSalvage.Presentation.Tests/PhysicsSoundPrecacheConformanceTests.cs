@@ -24,7 +24,7 @@ namespace Tf2DemoSalvage.Presentation.Tests;
 public sealed class PhysicsSoundPrecacheConformanceTests
 {
     [Test]
-    public void SurfaceWaves_EverySurfaceSoundScript_NamesEveryWaveOnce()
+    public void SurfaceWaves_SevenOfTheTenSurfaceSoundKeys_NameEveryWaveOnce()
     {
         VphysicsSurface tile = new("tile", default, hasSecondFriction: false)
         {
