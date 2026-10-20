@@ -159,6 +159,46 @@ public sealed class ShotSidecarTests
         ShotSidecar.Read(SidecarNamingDemo("x.dem")).Demo.ShouldBe("x.dem");
     }
 
+    private static string System32(string program) => Path.Combine(Environment.SystemDirectory, program);
+
+    /// <remarks>A git that blocks (a hook, a prompt, a slow disk) must not hold `--shot` open past the timeout (review).</remarks>
+    [Test]
+    [Platform("Win")]
+    public void SaysAnything_AProgramThatOutlivesTheTimeout_IsKilledAndAnswersFalse()
+    {
+        System.Diagnostics.Stopwatch clock = System.Diagnostics.Stopwatch.StartNew();
+
+        ShotSidecar.SaysAnything(System32("PING.EXE"), ["-n", "15", "127.0.0.1"], 500).ShouldBeFalse();
+
+        clock.Elapsed.ShouldBeLessThan(TimeSpan.FromSeconds(5), "ping runs fourteen seconds; the answer comes at the timeout");
+    }
+
+    /// <remarks>The control for the timeout, and for the pipe: more output than a pipe buffers still comes back true.</remarks>
+    [Test]
+    [Platform("Win")]
+    public void SaysAnything_AProgramPrintingMoreThanAPipeHolds_AnswersTrue()
+    {
+        string big = Path.GetTempFileName();
+
+        try
+        {
+            File.WriteAllText(big, new string('x', 200_000));
+
+            ShotSidecar.SaysAnything(System32("cmd.exe"), ["/c", "type", big], 10_000).ShouldBeTrue();
+        }
+        finally
+        {
+            File.Delete(big);
+        }
+    }
+
+    [Test]
+    [Platform("Win")]
+    public void SaysAnything_AProgramThatPrintsThenFails_AnswersFalse()
+    {
+        ShotSidecar.SaysAnything(System32("cmd.exe"), ["/c", "echo x& exit 1"], 10_000).ShouldBeFalse();
+    }
+
     [Test]
     public void Expand_WithLike_PrependsTickAndConvarsAndSetsCameraAndViewport()
     {

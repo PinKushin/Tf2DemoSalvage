@@ -230,7 +230,12 @@ public static class ShotSidecar
     /// <summary>Whether the git working tree holding a folder has uncommitted changes: <c>git status --porcelain</c> says anything.</summary>
     /// <param name="folder">A folder inside the tree; the viewer's own, so the tree is the one it was built from.</param>
     /// <returns>False when git is absent or the folder is in no tree, since then there is no tree to be dirty.</returns>
-    /// <remarks>Fixed arguments, nothing from the user reaches the command line. Ignored files (bin/, obj/) do not count.</remarks>
+    /// <remarks>
+    /// Fixed arguments, nothing from the user reaches the command line. Ignored files (bin/, obj/) do not count. **The tree
+    /// asked is the one around the folder given**, <see cref="AppContext.BaseDirectory"/> in the viewer: a release copied
+    /// into some unrelated dirty repository reports <c>-dirty</c> for that repository, not for the build. A git that has
+    /// not answered in ten seconds is killed and the tree called clean.
+    /// </remarks>
     public static bool WorkingTreeDirty(string folder)
     {
         // **Resolved to an absolute path first** (S4036): the PATH entry that holds git.exe, named outright, so the
@@ -246,27 +251,57 @@ public static class ShotSidecar
             return false;
         }
 
+        return SaysAnything(found, ["-C", folder, "status", "--porcelain"], GitTimeoutMilliseconds);
+    }
+
+    /// <summary>How long git is given before it is killed and the tree called clean.</summary>
+    private const int GitTimeoutMilliseconds = 10_000;
+
+    /// <summary>Whether a program exits 0 within the time given, having printed anything: the launch under <see cref="WorkingTreeDirty"/>.</summary>
+    /// <param name="executable">The program, by absolute path.</param>
+    /// <param name="arguments">Its fixed arguments.</param>
+    /// <param name="timeoutMilliseconds">How long it is given before it is killed and the answer is false.</param>
+    /// <returns>True when it exited 0 in time with output on stdout.</returns>
+    /// <remarks>**Separate so a test can hand it a program that hangs**, a `Process` having no stand-in.</remarks>
+    internal static bool SaysAnything(string executable, IEnumerable<string> arguments, int timeoutMilliseconds)
+    {
+        System.Diagnostics.ProcessStartInfo start = new(executable)
+        {
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+        };
+
+        foreach (string argument in arguments)
+        {
+            start.ArgumentList.Add(argument);
+        }
+
         try
         {
-            using System.Diagnostics.Process git = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(found)
-            {
-                ArgumentList = { "-C", folder, "status", "--porcelain" },
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-                CreateNoWindow = true,
-            }) ?? throw new InvalidOperationException("git did not start");
+            using System.Diagnostics.Process git = System.Diagnostics.Process.Start(start) ?? throw new InvalidOperationException("git did not start");
 
-            string output = git.StandardOutput.ReadToEnd();
-            git.StandardError.ReadToEnd();
+            // **Both streams drained while it runs, and the wait is what is timed**: reading stdout to its end first left
+            // the timeout dead behind it, and waiting before reading deadlocks once a dirty tree's list fills the pipe.
+            // stderr stays redirected so git's "not a git repository" never lands on the viewer's own stderr.
+            System.Threading.Tasks.Task<string> output = git.StandardOutput.ReadToEndAsync();
+            _ = git.StandardError.ReadToEndAsync();
+
+            if (!git.WaitForExit(timeoutMilliseconds))
+            {
+                git.Kill(entireProcessTree: true);
+
+                return false;
+            }
 
             // **The exit code is checked before the output is believed**: outside a tree git prints nothing and fails.
-            return git.WaitForExit(10_000) && git.ExitCode == 0 && output.Length > 0;
+            return git.ExitCode == 0 && output.GetAwaiter().GetResult().Length > 0;
         }
         catch (System.ComponentModel.Win32Exception absent)
         {
             // The git found would not start: treated as no tree, and said where a debugger listens.
-            System.Diagnostics.Trace.TraceWarning($"git at {found} did not start for gitSha: {absent.Message}");
+            System.Diagnostics.Trace.TraceWarning($"git at {executable} did not start for gitSha: {absent.Message}");
 
             return false;
         }
