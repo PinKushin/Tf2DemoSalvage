@@ -252,6 +252,11 @@ parity but the same we use it"*. So the patch went back on and was measured on a
 person, f12, Debug, tick 30000, `--measure 20`, binaries built from `58edf0fd` (before) and `58edf0fd` + the patch
 (after) into separate folders, run alternating; no run waited on the lock.
 
+**Review, 2026-10-20:** a cross-model review (and the lead's own reading) recommended dropping this fix as "neutral, so dead".
+It was reverted for a short time and then restored, because the owner's rule above decides it: parity and the same means
+use it. The review's real finding, a prop filed while its model was missing keeping an empty box, is fixed separately
+(`Add` clears the identity filing; test `Instances_AModelAddedAfterThePropWasSeen_IsDrawnThatFrame`).
+
 | pair | before: mean / gc pause | after: mean / gc pause |
 |---|---:|---:|
 | 1 | 22.99 / 2.35 ms | 25.98 / 3.30 ms |
