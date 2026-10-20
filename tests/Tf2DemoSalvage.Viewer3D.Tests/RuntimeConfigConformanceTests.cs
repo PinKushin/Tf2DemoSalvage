@@ -3,26 +3,26 @@ using System.Text.Json;
 
 namespace Tf2DemoSalvage.Viewer3D.Tests;
 
-/// <summary>
-/// The viewer's code runs optimized from its first call, as the engine's native code does: no tier-0 warm-up for
-/// playback to pay (finding 84).
-/// </summary>
+/// <summary>The viewer runs with the runtime's default tiering: quick JIT on (finding 84).</summary>
 /// <remarks>
-/// **Measured, not assumed**: with quick JIT on, the render thread ran unoptimized tier-0 code for the first five to
-/// eight seconds of every playback while the `.NET Tiered Compilation Worker` thread was busy, and every phase,
-/// the HUD included, ran two to three times slower until it went quiet (finding 84).
+/// **Turning quick JIT off was measured, and it lost** (finding 84, three runs per side of the published package on f12):
+/// it removed the tier-0 warm-up of the first seconds of playback, but loading took 46 s longer (decode 216 s against
+/// 169 s) and steady playback ran about 17% slower (53 against 64 fps). This pins the default so the trade is not
+/// re-made without new numbers.
 /// </remarks>
 [TestFixture]
 public sealed class RuntimeConfigConformanceTests
 {
     [Test]
-    public void RuntimeConfig_ForTheViewer_TurnsQuickJitOff()
+    public void RuntimeConfig_ForTheViewer_LeavesQuickJitOn()
     {
         string path = Path.Combine(TestContext.CurrentContext.TestDirectory, "tf2demoview.runtimeconfig.json");
 
         using JsonDocument config = JsonDocument.Parse(File.ReadAllText(path));
         JsonElement properties = config.RootElement.GetProperty("runtimeOptions").GetProperty("configProperties");
 
-        properties.GetProperty("System.Runtime.TieredCompilation.QuickJit").GetBoolean().ShouldBeFalse();
+        bool quickJit = !properties.TryGetProperty("System.Runtime.TieredCompilation.QuickJit", out JsonElement set) || set.GetBoolean();
+
+        quickJit.ShouldBeTrue();
     }
 }

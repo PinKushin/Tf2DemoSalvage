@@ -20,12 +20,11 @@
          Windows alone. -->
     <ApplicationIcon>Assets\icon.ico</ApplicationIcon>
 
-    <!-- **Optimized from the first call, as the engine's native code is** (finding 84). Quick JIT ran every method
-         at tier 0 until the tiering worker promoted it, so the first five to eight seconds of each playback ran two
-         to three times slower in every phase. Off, a method the framework did not precompile is compiled optimized
-         the first time it runs; precompiled framework code still tiers up. The cost is longer compiles, mostly
-         during the load. -->
-    <TieredCompilationQuickJit>false</TieredCompilationQuickJit>
+    <!-- **Quick JIT stays ON: turning it off was measured and lost** (finding 84). Off, it removed the tier-0 warm-up of
+         the first seconds of playback, but the published package then loaded 46 s slower on f12 (decode 216 s against
+         169 s) and played about 17% slower at steady state (53 against 64 fps), since our methods no longer collect
+         dynamic PGO. ReadyToRun loaded like the default and made the first seconds worse. Held by
+         RuntimeConfigConformanceTests; re-measure before changing either. -->
   </PropertyGroup>
 
   <ItemGroup>
