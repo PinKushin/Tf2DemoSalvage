@@ -19443,7 +19443,7 @@ comparison is not "we are 3x slower"; it is that we are slower **on the axis whe
 to be structurally ahead**, while drawing no projectiles, no particles and no ragdolls.
 
 *Corrected 2026-10-20: that was true when written (2026-09). Ragdolls are simulated and drawn since B58 and
-particles since D221, so the workload is no longer lighter by those. Projectiles are unchecked. The gap is
+particles since D221, and projectiles are drawn (owner observation, not traced to code), so the workload is no longer lighter by those. The gap is
 therefore not flattered by a lighter workload.*
 
 **Against our own empty-view measurement of 3.3 ms, the gap facing a wall is about 4x.**
