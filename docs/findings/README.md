@@ -289,10 +289,11 @@ in any public writeup found:
   the changed, the visible), against ours. Valve walks every entity only in `SimulateEntities`, and static props are
   never on it; we walk every prop, static props included, in five passes. A plan, ordered by milliseconds per risk
   ([83](83-the-per-frame-scope-plan.md)).
-- **The first seconds and the periodic stalls.** The ramp over the first seconds of playback was tier-0 code: the
-  tiered-JIT worker was the one thread busy early, and quick JIT is now off. The stall every few seconds was a
-  player's every past rocket-jump smoke replayed in one frame when he was first posed after a seek, plus surface
-  sounds the precache missed. Frames over 100 ms per minute went from 12 to 1. No gen2 collection was involved
+- **The first seconds and the periodic stalls.** The ramp over the first seconds of playback is tier-0 code: the
+  tiered-JIT worker was the one thread busy early. Turning quick JIT off cost the package 46 s of load and about 17%
+  of steady frame rate, so it was reverted, and the ramp is open. The stall every few seconds was a player's every
+  past rocket-jump smoke replayed in one frame when he was first posed after a seek, plus surface sounds the precache
+  missed. Frames over 100 ms per minute went from 12 to 1. No gen2 collection was involved
   ([84](84-the-first-seconds-are-tier-zero.md)).
 
 ## Conventions used throughout

@@ -12,8 +12,9 @@ quoted from one run, not a mean over runs.
 
 **The cause (measured).** The tiered JIT. Until the `.NET Tiered Compilation Worker` thread promoted it, the render
 thread ran unoptimized tier-0 code. The worker was the one thread that was busy early and idle late, and the frame rate
-stepped up in the second it went quiet. **The fix:** `TieredCompilationQuickJit=false` in the viewer's project. Our
-methods are then compiled optimized on their first call, as the engine's native code always is.
+stepped up in the second it went quiet. **The fix tried, `TieredCompilationQuickJit=false`, was measured and
+reverted.** In the published package it loaded 46 s slower and played about 17% slower at steady state, and it was
+not faster early either (see *Before and after, the ramp*). The ramp's cause stands; its fix is open.
 
 ## How it was found, wrong turns included
 
@@ -71,10 +72,9 @@ methods compiled during the first 20 s of playback** with quick JIT on.
 optimized from its first call. `TieredCompilationQuickJit=false` gives that to everything the framework did not
 precompile. The framework's ReadyToRun code is already optimized and still tiers up in the background.
 
-**The trade, named.** Methods compiled optimized on first call cost more JIT time, mostly during the load, and our own
-methods no longer collect the dynamic-PGO profile that tier 0 would have gathered. Whether steady state moves is
-measured below. A ReadyToRun or composite build of our own assemblies would remove the first-call JIT cost entirely.
-That is a publish-time change, filed and not done.
+**The trade, named, then measured.** Methods compiled optimized on first call cost more JIT time, and our own
+methods no longer collect the dynamic-PGO profile that tier 0 would have gathered. The measurement below says that
+loss dominates: the decode and the frame both got slower. That PGO is the mechanism is interpolated, not shown.
 
 ## The instrument that stays
 
@@ -82,14 +82,35 @@ That is a publish-time change, filed and not done.
 counted window (B243: carried from the runtime, not estimated). `JitReadingTests` includes a control: a method
 compiled between two readings must show.
 
-## Before and after, the ramp: NOT MEASURED
+## Before and after, the ramp: the fix lost, and was reverted
 
-The fix (`f1652da6`) is justified by runs 1–8 alone: the worker named, the ramp following it, and TC=0 removing the
-warm-up. **No valid before/after pair of the ramp exists.** Run 9 (quick JIT on, its own build folder) overlapped
-another agent's compiler and the Epic Games launcher, at 97% machine load, and is void: 11–44 fps where every quiet
-baseline read 29–61. Its `jit:` line still counts: 7,648 methods compiled during 20 s of playback, against 237–569 in
-three later 60 s runs with quick JIT off. That is a count, not a frame rate. Measuring the ramp before and after is
-left open; the stalls below took priority.
+**A wrong turn, kept.** The quick-JIT fix was committed on runs 1–8 alone: the worker named, the ramp following it,
+and TC=0 removing the warm-up. The first before-run (run 9) overlapped another agent's compiler and the Epic Games
+launcher at 97% load and was void. The review asked for the load cost, and measuring it reversed the decision.
+
+**Published package, as `build/package.ps1` makes it** (`dotnet publish -c Release -r win-x64 --self-contained`; it
+does not publish ReadyToRun), f12 tick 30000 first person, `--measure 20`. Three runs per variant, alternating, every
+run quiet before and after (no build CPU, load at most 15%), medians quoted. One machine.
+
+| variant | timeline decode | start → first frame | peak working set / private | fps, playback s 2–7 | fps, s 9–19 |
+|---|---:|---:|---|---:|---:|
+| P0, quick JIT on (`main`) | **169 s** (169.0, 169.1, 191.8) | **198 s** | 4.89 / 6.56 GB | ~47 | **~64** |
+| P1, quick JIT off | 216 s (212.8, 215.6, 220.2) | 242 s | 4.93 / 6.64 GB | ~43 | ~53 |
+| P2, quick JIT on + `PublishReadyToRun` | 172 s (171.6, 172.5, 176.1) | 195 s | 4.89 / 6.56 GB | ~29 | ~66 |
+
+- **Quick JIT off costs 46 s of load (+22%) and about 17% of steady frame rate**, and it is not faster in the first
+  seconds either (43 against 47). Memory does not move. **Reverted**; `RuntimeConfigConformanceTests` now pins the
+  default so the trade is not re-made without new numbers.
+- **ReadyToRun is not the ramp fix.** It loads like the default and ends a little faster (66 against 64), but its
+  first seconds are much worse (about 29 fps). Why ReadyToRun code starts slower here was not looked into.
+- **Debug builds agree** on the load direction (two valid quick-on runs against three quick-off, one voided for build
+  CPU): decode 170.5 and 190.2 s against 206.3, 218.3 and 226.6 s.
+- **Not this setting:** f12's decode took 170–250 s in every one of these runs, against 54–55 s in other agents' runs
+  earlier the same day. What differs there was not looked into.
+- **The fps columns are read from the log's per-second lines**, after `first frame after the opening state`. The
+  stdout capture was empty under a background job, which a control caught: the out files were 0 bytes.
+
+The `jit:` instrument stays. The ramp is open.
 
 ## The periodic stalls
 
@@ -129,11 +150,34 @@ first hypothesis (a blocking gen2 GC of a ~3.5 GB heap) is dead.
 - **A wrong fix, kept here.** The first fix (`23827fd8`) remembered bursts that `Retire` let go after finishing in
   play. Its unit test was valid, but the measured run still jumped +23,577 steps at the same tick. These bursts were
   never retired; they had never been built.
-- **The engine's rule (read from published source).** `ParticleEffectCallback` creates an effect when its dispatch
-  arrives, on a non-dormant owner, and never later (`c_particle_system.cpp:181-224`). **The fix** (`59c84ab2`): while
-  playing, a burst is built only if it fired at or after the tick playback last landed on; an older one is the
-  landing seek's to build (D221). The first fix stays, since it covers a burst that finishes and drops out of the
-  offer after the seek.
+- **A second wrong fix, caught in review.** The next fix ("playing builds a burst only if it fired since the last
+  seek") skipped any burst older than the landing that the seek had not built. That dropped an in-flight burst whose
+  owner was merely out of our camera's view at the seek, for its whole remaining life. **Out of view is not dormant**:
+  dormancy follows the recording's PVS, so the engine made that effect at its dispatch (`c_particle_system.cpp:194`).
+  Seek while a rocket-jumping Soldier is behind the camera, turn to him a second later, and there was no smoke.
+  The 248 ms stall had been 90 bursts that were *all long finished*, so the rule was wider than the evidence.
+- **The fix, by arithmetic** ("skip a burst by its age past its whole life"). On a played frame, a burst that is not
+  held is skipped, and marked spent, only when its age exceeds `ParticleEffect.MaximumLife`: the last emission, plus
+  the longest particle lifetime, plus the no-draw time. Those are the quantities `Finished` and `SleepAfter` read. An
+  unbounded part means never skipped: emitting for ever, `Lifetime From Sequence`, or a child not supplied. One inside
+  its life is built, replayed from its own tick. **A held burst is never skipped**, since asleep its clock stands
+  (`particlemgr.cpp:1775`), so it can be alive past the bound. The first fix's set stays, for a burst that finishes
+  and drops out of the offer after the seek.
+- **A third turn: the bound was infinite, and the console said 8.** On f12 the age rule at first did nothing: the
+  replay counter still jumped +23,689 steps near tick 30543. A throwaway print gave `rocketjump_smoke` a life of "8",
+  and the skip's three terms all printed true, yet the burst was rebuilt. Printing the comparison itself, and the
+  bound's raw bits, settled it: `7ff0000000000000`, +infinity. A code-page console renders `∞` as `8`. The cause was
+  `rocketjump_flame`, a child, using `Lifetime From Sequence`, which the bound had treated as unknown. Now it is
+  bounded by the sheet, as `C_INIT_SequenceLifeTime` computes it: the longest span over "Frames Per Second", or 1. A
+  measured run afterwards (19:07) moved the counter +20 steps over ticks 30528–30595, against +23,500 before. That run's
+  timings are void, since another agent's build overlapped it; the count is not a timing. **The instrument rule this
+  adds: print a double you are comparing as its bits, or with an invariant culture, never as `{value}` to a console.**
+- **Row 6 (`fix/particle-caller-parity`) and this rule, on one burst.** A burst fired after the landing but
+  unplaceable on its creation frame is built later by a replay from its own tick. So it takes one step of simulation
+  more than a burst created on its own frame, which row 6 makes simulate nothing. Chosen, since the replay is what a
+  seek into that moment shows, and pinned by
+  `Bursts_FiredAfterTheLandingAndUnplacedOnTheirFirstFrame_AreReplayedFromTheirTickOncePlaced`. Otherwise the two
+  rules are disjoint.
 - **Not changed.** The opening seek itself replays every one of those ancient bursts it can place: 321 rebuilds,
   about 3 ms each, plus two `xms_ornament_glitter` replays of about 27,000 steps (70 ms each). That is seek cost, not a
   playback stall, and it is left for a separate change.
@@ -148,7 +192,15 @@ first hypothesis (a blocking gen2 GC of a ~3.5 GB heap) is dead.
 - **The fix** (`58abb759`) adds every surface sound this viewer reads. `rolling`, `breaksound` and `strainsound` are
   not parsed yet and nothing plays them.
 - **Measured.** `decodes in play` (the cache's own miss counter) fell from 33–38 to 13.
-- **What is left.** The rest are viewmodel animation-event sounds: `weapons/draw_primary.wav`,
+- **And its cost.** The second precache pass, which carries the client's own sounds, reads `precached 563 of 564
+  sounds in 19 ms` without the surface set and `precached 948 of 949 sounds in 85 ms` with it (113 ms in another run,
+  763 ms once with a cold disk). Held after playback: 593 sounds and 260 MB without the set, 926 sounds and 277 MB
+  with it (WAV 211 MB, MP3 66 MB), far under the 512 MB cap. The surface sounds are precached first, as the engine
+  does at level init, so near the cap the cache would let a step wave go before a demo sound.
+- **What is left, and it is now most of the jitter.** In the 19:07 run (timings void, see above) seven decodes on first
+  play took 170–402 ms: `player/invulnerable_on.wav`, `grenade_launcher_drum_start` and `_close`,
+  `stickybomblauncher_boltback`, a near-miss whiz, `vo/null.mp3` and `draw_primary`. Earlier the same:
+  viewmodel animation-event sounds: `weapons/draw_primary.wav`,
   `draw_secondary.wav`, `grenade_launcher_drum_close.wav` and `stickybomblauncher_boltback.wav`, plus a near-miss whiz.
   The engine precaches a model's animation-event sounds when the model is precached (its model-sounds cache; this is
   interpolated, not read here). Not done.
@@ -172,7 +224,7 @@ Frames over 100 ms per minute, f12 tick 30000, first person, Debug, `--measure 6
 |---|---|---|---:|---|---:|
 | A | `f1652da6` + print | quiet; checked after | 12 | 1 / 4 / 5 | 33–38 (earlier runs) |
 | B | + sound fix + print | quiet; checked after | 5 | 1 / 1 / 2 | — |
-| C | + both burst fixes (`59c84ab2`) | quiet before; **100% load after (other agents' builds)**, void | 1 (the frame after the seek) | 0 / 0 / 0 | 13 |
+| C | + both burst fixes (the landing rule, since replaced) | quiet before; **100% load after (other agents' builds)**, void | 1 (the frame after the seek) | 0 / 0 / 0 | 13 |
 | D | same build as C | quiet before (16%) and after (10%, no build CPU) | **1** (112 ms, the frame after the seek) | 0 / 0 / 0 | 13 |
 
 **So, 12 → 1 frames over 100 ms per minute.** The one left in C and D is the frame that ends the opening seek, which
