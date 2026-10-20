@@ -70,9 +70,11 @@ moment cost 2.9 ms = sample, drawlist, models, pose; pose = lighting, simulate, 
 
 ## Quoting a number
 
-**Always say what is NOT being drawn** (D129). This viewer has no projectiles, no particles and no
-ragdolls, and skinning is on the GPU where Valve's runs on the processor — so a rate compared with
-TF2's is comparing a lighter workload, and the gap is worse than the ratio.
+**Always say what is NOT being drawn** (D129), and check it against the code the day you measure: the
+2026-09 list ("no particles, no ragdolls") went stale. Ragdolls are simulated and drawn (B58) and particles
+are drawn (D221), so the workload is no longer lighter by those. Skinning is on the GPU where Valve's runs
+on the processor. Muzzle flashes, shell ejection and `DoAnimationEvents` were undrawn when D129 was written
+and are unchecked since; projectiles are unchecked.
 
 TF2's own reference, measured on `cp_badlands` with the GPU at ~30%: **893 fps in a room, 1135–1236
 facing a wall — 0.81 to 1.12 ms a frame.** It is CPU-bound and still sub-millisecond. Different map

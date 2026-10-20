@@ -221,7 +221,7 @@ returning empty because the pattern is wrong.
 | `AccumulateLayers` | `:1902` | partial — `StudioGestureWeights` exists; layers are not accumulated |
 | `CalcAutoplaySequences` | `:1957` region | **absent** |
 | `CalcBoneAdj` (bone controllers) | `:1957` region | **absent** — the parser never reads `bonecontrollerindex` |
-| `UnragdollBlend` | `:1873` | not applicable — no ragdolls yet |
+| `UnragdollBlend` | `:1873` | not applicable — no ragdolls yet *(at the time of this audit; ragdolls are built since, B58, so recheck this row)* |
 | IK: `m_pIk->Init` / `UpdateTargets` / `CalculateIKLocks` / `SolveDependencies` | `:2969`–`:2998` | **absent.** The parser never reads `ikchainindex`. Feet do not plant |
 | `CalcProceduralBone`, incl. jiggle | `:1527`, `:1546` | **absent** |
 | `BuildTransformations` parent concat | `:1595` | present, but from rest locals for merged models — §2 |

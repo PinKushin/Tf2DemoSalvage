@@ -7130,6 +7130,8 @@ the GPU, while valve still does some things on the CPU."*
 
 **Both halves of that are right and they compound.**
 
+*(Corrected 2026-10-20, owner: "no we have ragdolls and projectiles". The next paragraph was true when written, 2026-09. Ragdolls are simulated and drawn since B58 and particles since D221; projectiles are unchecked. Kept as written because the conclusion about the architecture, not the list, is what this decision records.)*
+
 **We draw less.** No projectiles, no particles, no ragdolls — 299 of them decoded and undrawn in a
 single demo (B254 finding 4) — no muzzle flashes, no shell ejection, none of
 `DoAnimationEvents`. Every one of those is work TF2 is doing inside its 1.67 ms frame and we are not.
