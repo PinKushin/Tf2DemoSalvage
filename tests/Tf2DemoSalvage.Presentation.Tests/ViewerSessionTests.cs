@@ -1141,6 +1141,32 @@ public sealed class ViewerSessionTests
     }
 
     [Test]
+    public async Task RenderFrame_OnACaptureRun_WritesTheD226SidecarBesideTheShot()
+    {
+        string shot = Path.Combine(_folder, "out.png");
+        string demo = WriteDemo("shot");
+        using Rig rig = Build(demo, "--shot", shot, "--tick", "40").WithDevice();
+        rig.Session.PlanStartup();
+        rig.Session.WindowShown();
+        (await rig.Session.Loading.ConfigureAwait(false)).Loaded.ShouldBeTrue();
+
+        Frames(rig.Session, 104);
+
+        System.Text.Json.Nodes.JsonObject json =
+            System.Text.Json.Nodes.JsonNode.Parse(await File.ReadAllTextAsync(shot + ".json").ConfigureAwait(false))!.AsObject();
+        json["side"]!.GetValue<string>().ShouldBe("viewer");
+        json["demo"]!.GetValue<string>().ShouldBe("shot.dem");
+        json["demoSha256"]!.GetValue<string>().ShouldBe(
+            Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(await File.ReadAllBytesAsync(demo).ConfigureAwait(false))));
+        json["map"]!.GetValue<string>().ShouldBe(Map);
+        json["tick"]!.GetValue<int>().ShouldBe(40);
+        json["camera"].ShouldBeNull("this device holds no world, so no frame handed it a camera: null, not a guess");
+        json["viewport"]!.ToJsonString().ShouldBe($"[{rig.Window.Viewport.Width},{rig.Window.Viewport.Height}]");
+        json["args"]!.ToJsonString().ShouldBe("""["shot.dem","--shot","out.png","--tick","40"]""", "no user paths: file names only");
+        json["like"].ShouldBeNull();
+    }
+
+    [Test]
     public async Task RenderFrame_OnACaptureRunWhileThePostProcessingWalks_WaitsAndSaysWhatItWaitsOn()
     {
         using Rig rig = Build(WriteDemo("walks"), "--shot", Path.Combine(_folder, "out.png")).WithDevice();

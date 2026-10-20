@@ -41,6 +41,8 @@ namespace Tf2DemoSalvage.Presentation;
 /// long again, printing both (B420's scenario). Null for a single measurement.
 /// </param>
 /// <param name="Windows">`--windows`: run the window cache beside the whole timeline and check it on every seek (D217).</param>
+/// <param name="Like">`--like`: the TF2-side sidecar this run reproduces, recorded in its own sidecar (D226); its values
+/// were already expanded into the other options by <see cref="ShotSidecar.Expand"/>.</param>
 /// <param name="Hud">The HUD to draw — a folder or `.vpk` laid out as in `tf/custom` — or null for TF2's stock HUD (D193).</param>
 public readonly record struct LaunchOptions(
     ViewerSettings Settings,
@@ -60,7 +62,8 @@ public readonly record struct LaunchOptions(
     double? PlaybackSpeed = null,
     int? ThenSeek = null,
     string? Hud = null,
-    bool Windows = false);
+    bool Windows = false,
+    string? Like = null);
 
 /// <summary>Reads the viewer's launch options.</summary>
 /// <remarks>
@@ -115,6 +118,12 @@ public static class LaunchOptionsReader
             if (argument == "--shot" && pending.Count > 0)
             {
                 read = read with { ShotPath = pending.Dequeue() };
+                continue;
+            }
+
+            if (argument == ShotSidecar.LikeOption && pending.Count > 0)
+            {
+                read = read with { Like = pending.Dequeue() };
                 continue;
             }
 

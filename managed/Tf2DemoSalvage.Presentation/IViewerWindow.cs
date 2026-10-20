@@ -1,5 +1,7 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 
 namespace Tf2DemoSalvage.Presentation;
 
@@ -122,13 +124,19 @@ public sealed record ViewerHost(
     Func<string, string?> Environment,
     Func<IElapsedTime> Clock)
 {
+    /// <summary>The names of every process variable set, for a sidecar's <c>env</c> (D226); none unless given.</summary>
+    public Func<IEnumerable<string>> VariableNames { get; init; } = static () => [];
+
     /// <summary>The real process.</summary>
     public static ViewerHost Process { get; } = new(
         Console.Out,
         Console.Error,
         static code => System.Environment.ExitCode = code,
         System.Environment.GetEnvironmentVariable,
-        static () => new StopwatchTime());
+        static () => new StopwatchTime())
+    {
+        VariableNames = static () => System.Environment.GetEnvironmentVariables().Keys.Cast<string>(),
+    };
 }
 
 /// <summary>One key press, in terms no toolkit owns.</summary>

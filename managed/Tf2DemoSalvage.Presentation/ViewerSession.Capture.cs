@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -10,6 +11,7 @@ using Microsoft.Extensions.Logging;
 
 using Tf2DemoSalvage.Logging;
 using Tf2DemoSalvage.Render;
+using Tf2DemoSalvage.Scene;
 
 namespace Tf2DemoSalvage.Presentation;
 
@@ -149,6 +151,7 @@ public sealed partial class ViewerSession
             case OpeningStep.Capture when _opening.TakeShotPath() is { } path:
                 Pick();
                 CaptureViewport(path);
+                WriteSidecar(path);
                 _window.Close(posted: true);
                 break;
 
@@ -254,6 +257,72 @@ public sealed partial class ViewerSession
         // should mean for a free camera — fly to a point, at what distance — is a question for
         // whoever reimplements them, and inventing an answer here would be the guess this project
         // keeps paying for.
+    }
+
+    /// <summary>The command line as given, for the sidecar's <c>args</c>.</summary>
+    private readonly IReadOnlyList<string> _arguments;
+
+    /// <summary>Writes the D226 sidecar beside a <c>--shot</c>: what this capture depended on, read from where it was used.</summary>
+    /// <param name="shot">The PNG's path.</param>
+    /// <remarks>
+    /// **Every value is carried, not recomputed** (B243): the camera is the one the last frame handed the device, the
+    /// tick the one last shown, the viewport the window's, the ConVars the settings in force. The PNG itself is written
+    /// on the next present, which changes none of those on a capture run: the camera is placed and the clock paused.
+    /// </remarks>
+    private void WriteSidecar(string shot)
+    {
+        System.Reflection.Assembly built = typeof(ViewerSession).Assembly;
+        string? version = System.Reflection.CustomAttributeExtensions
+            .GetCustomAttribute<System.Reflection.AssemblyInformationalVersionAttribute>(built)?.InformationalVersion;
+        int plus = version?.IndexOf('+', StringComparison.Ordinal) ?? -1;
+        string? demo = _presenter.DemoPath;
+
+        Dictionary<string, string> convars = new(StringComparer.Ordinal);
+
+        // ponytail: read back from the config writer's own lines (`[// ]command value`), so every setting it knows is
+        // here without a second list; a prose comment whose first word has an underscore would slip in. A settings
+        // enumeration on ViewerSettings is the upgrade if that ever happens.
+        foreach (string line in _settingsOwner.Current.Write().Split('\n'))
+        {
+            string[] parts = line.Trim().TrimStart('/').Trim().Split(' ', 2);
+
+            if (parts.Length == 2 && parts[0].Contains('_', StringComparison.Ordinal) && !parts[0].Contains(':', StringComparison.Ordinal))
+            {
+                convars[parts[0]] = ShotSidecar.Private(parts[1].Trim().Trim('"'));
+            }
+        }
+
+        Dictionary<string, string> env = new(StringComparer.Ordinal);
+
+        foreach (string name in _host.VariableNames())
+        {
+            if (name.StartsWith("TF2VIEW_", StringComparison.Ordinal) && _host.Environment(name) is { } value)
+            {
+                env[name] = ShotSidecar.Private(value);
+            }
+        }
+
+        FreeCamera? eye = _presenter.LastViewing;
+
+        ShotRecord record = new(
+            DateTimeOffset.UtcNow,
+            demo is null ? null : Path.GetFileName(demo),
+            demo is null ? null : ShotSidecar.Sha256(demo),
+            _presenter.MapName,
+            (int)Math.Round(_shownTick),
+            eye is { } e ? (e.Origin.X, e.Origin.Y, e.Origin.Z, e.Angles.Pitch, e.Angles.Yaw) : null,
+            _window.Viewport,
+            convars,
+            plus < 0 ? null : version![(plus + 1)..],
+            System.Reflection.CustomAttributeExtensions
+                .GetCustomAttribute<System.Reflection.AssemblyConfigurationAttribute>(built)?.Configuration,
+            [.. _arguments.Select(ShotSidecar.Private)],
+            env,
+            _launch.Like is { } like ? new ShotLikeRef(Path.GetFileName(like), ShotSidecar.Sha256(like)) : null);
+
+        string path = ShotSidecar.PathFor(shot);
+        File.WriteAllText(path, ShotSidecar.Json(record));
+        _log.LogInformation("{Message}", $"sidecar written beside the shot: {Path.GetFileName(path)}");
     }
 
     /// <summary>`TF2VIEW_PICK="x y"`: logs what lies under that pixel of the shot — <see cref="PickReport"/>.</summary>
