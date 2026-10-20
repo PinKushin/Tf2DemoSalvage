@@ -538,28 +538,31 @@ public sealed class ParticleEffect
     /// <returns>Seconds, or <see cref="double.PositiveInfinity"/> when any part is forever or cannot be bounded here.</returns>
     /// <remarks>
     /// **An upper bound, and an unknown is forever**: a continuous emitter with no duration emits for ever (the sentinel
-    /// <see cref="Finished"/> reads); an emitter or a lifetime initializer this does not bound — `Lifetime From Sequence`
-    /// reads the sheet — and a child not supplied make the life unbounded. An effect older than this has finished, so a
-    /// caller may decline to build it (finding 84); one asleep is not covered, since its clock stands.
+    /// <see cref="Finished"/> reads); an emitter this does not bound, a lifetime written from positions or remapped, and a
+    /// child not supplied make the life unbounded. An effect older than this has finished, so a caller may decline to build
+    /// it (finding 84); one asleep is not covered, since its clock stands.
     /// </remarks>
     /// <param name="sheets">The sheet each system's material carries, as <see cref="ParticleEffect"/> takes it; null for none.</param>
     public static double MaximumLife(
         ParticleSystem system,
         IReadOnlyDictionary<string, ParticleSystem>? others,
-        Func<ParticleSystem, IReadOnlyList<SheetSequence>?>? sheets = null) =>
-        MaximumLife(system, others, sheets, depth: 0);
+        Func<ParticleSystem, IReadOnlyList<SheetSequence>?>? sheets = null)
+    {
+        ArgumentNullException.ThrowIfNull(system);
+
+        return Lived(system, others, sheets, depth: 0) + SleepAfter(system);
+    }
 
     /// <summary>How deep a child chain is followed before it is called unbounded — a cycle in the data would never end.</summary>
     private const int DeepestChild = 16;
 
-    private static double MaximumLife(
+    /// <summary>The last emission plus the longest particle life — drawn throughout, the root's sleep apart; a child's own sleep is added.</summary>
+    private static double Lived(
         ParticleSystem system,
         IReadOnlyDictionary<string, ParticleSystem>? others,
         Func<ParticleSystem, IReadOnlyList<SheetSequence>?>? sheets,
         int depth)
     {
-        ArgumentNullException.ThrowIfNull(system);
-
         if (depth > DeepestChild)
         {
             return double.PositiveInfinity;
@@ -594,11 +597,24 @@ public sealed class ParticleEffect
 
         double lifetime = DefaultLifetime;
 
+        // **Every lifetime writer ParticleSystems runs, and no other** (review): an initializer the viewer does not run writes
+        // no lifetime here, so the bound is the viewer's.
         foreach (ParticleFunction initializer in system.Initializers)
         {
             if (string.Equals(initializer.Function, "Lifetime Random", StringComparison.Ordinal))
             {
-                lifetime = initializer.Number("lifetime_max", DefaultLifetime);
+                // `C_INIT_RandomLifeTime` as ParticleSystems reads it: `lifetime_min` defaults to the life as it stands,
+                // `lifetime_max` to `lifetime_min`, and the draw lies between them either way round.
+                double least = initializer.Number("lifetime_min", lifetime);
+
+                lifetime = Math.Max(least, initializer.Number("lifetime_max", least));
+            }
+            else if (string.Equals(initializer.Function, "move particles between 2 control points", StringComparison.Ordinal) ||
+                (string.Equals(initializer.Function, "remap initial scalar", StringComparison.Ordinal) &&
+                    (int)initializer.Number("output field", 3d) == LifeDurationField))
+            {
+                // Distance over speed, and a remap onto the life: neither has a bound in the definition.
+                return double.PositiveInfinity;
             }
             else if (string.Equals(initializer.Function, "Lifetime From Sequence", StringComparison.Ordinal))
             {
@@ -618,10 +634,6 @@ public sealed class ParticleEffect
                     lifetime = Math.Max(lifetime, longest);
                 }
             }
-            else if (initializer.Function.Contains("Lifetime", StringComparison.OrdinalIgnoreCase))
-            {
-                return double.PositiveInfinity;
-            }
         }
 
         double life = emitted + lifetime;
@@ -633,11 +645,14 @@ public sealed class ParticleEffect
                 return double.PositiveInfinity;
             }
 
-            life = Math.Max(life, MaximumLife(child, others, sheets, depth + 1));
+            life = Math.Max(life, Lived(child, others, sheets, depth + 1) + SleepAfter(child));
         }
 
-        return life + SleepAfter(system);
+        return life;
     }
+
+    /// <summary>`PARTICLE_ATTRIBUTE_LIFE_DURATION`, the life's field number (`particles.h:63`), as a remap names it.</summary>
+    private const int LifeDurationField = 1;
 
     /// <summary>The shortest step `CParticleCollection::Simulate` simulates — its <c>dt &gt;= 1e-22</c>.</summary>
     private const double ShortestStep = 1e-22;
