@@ -127,6 +127,20 @@ public sealed record ViewerHost(
     /// <summary>The names of every process variable set, for a sidecar's <c>env</c> (D226); none unless given.</summary>
     public Func<IEnumerable<string>> VariableNames { get; init; } = static () => [];
 
+    /// <summary>Whether the build's working tree holds uncommitted changes, for a sidecar's <c>gitSha</c>; false unless given.</summary>
+    public Func<bool> TreeDirty { get; init; } = static () => false;
+
+    /// <summary>The configuration this was built in (Debug, Release), from the assembly; a sidecar's <c>build</c>.</summary>
+    /// <remarks>
+    /// **Also the gate for the screenshot key's sidecar, which only a Debug build writes** (owner). The codebase had no
+    /// Debug switch of its own; this is the MSBuild configuration the assembly already records, one value for both uses.
+    /// </remarks>
+    public string? Build { get; init; } = System.Reflection.CustomAttributeExtensions
+        .GetCustomAttribute<System.Reflection.AssemblyConfigurationAttribute>(typeof(ViewerHost).Assembly)?.Configuration;
+
+    /// <summary>Whether this is a Debug build.</summary>
+    public bool IsDebug => string.Equals(Build, "Debug", StringComparison.Ordinal);
+
     /// <summary>The real process.</summary>
     public static ViewerHost Process { get; } = new(
         Console.Out,
@@ -136,6 +150,7 @@ public sealed record ViewerHost(
         static () => new StopwatchTime())
     {
         VariableNames = static () => System.Environment.GetEnvironmentVariables().Keys.Cast<string>(),
+        TreeDirty = static () => ShotSidecar.WorkingTreeDirty(AppContext.BaseDirectory),
     };
 }
 

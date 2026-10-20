@@ -100,6 +100,36 @@ public sealed class ShotSidecarTests
     }
 
     [Test]
+    public void Read_ATf2Sidecar_TakesItsDemoHash()
+    {
+        ShotSidecar.Read(Tf2Sidecar).DemoSha256.ShouldBe("77e7");
+    }
+
+    [TestCase("1200.000000", "1200", false)]
+    [TestCase("0", "1", true)]
+    [TestCase("1", "1", false)]
+    [TestCase("tf", "tf", false)]
+    [TestCase("custom", "", true)]
+    public void DiffersFromDefault_AValueAndItsDeclaredDefault_ComparesNumbersAsNumbers(string value, string declared, bool differs)
+    {
+        ShotSidecar.DiffersFromDefault(value, declared).ShouldBe(differs);
+    }
+
+    [TestCase("a1489309", false, "a1489309")]
+    [TestCase("a1489309", true, "a1489309-dirty")]
+    [TestCase(null, true, null)]
+    public void GitSha_ACommitAndTheTreeState_MarksADirtyTree(string? sha, bool dirty, string? expected)
+    {
+        ShotSidecar.GitSha(sha, dirty).ShouldBe(expected);
+    }
+
+    [Test]
+    public void Json_WithNotes_WritesThem()
+    {
+        JsonNode.Parse(ShotSidecar.Json(Record() with { Notes = "demo differs" }))!["notes"]!.GetValue<string>().ShouldBe("demo differs");
+    }
+
+    [Test]
     public void Read_WithoutCameraOrTick_RefusesNamingBoth()
     {
         FormatException refused = Should.Throw<FormatException>(

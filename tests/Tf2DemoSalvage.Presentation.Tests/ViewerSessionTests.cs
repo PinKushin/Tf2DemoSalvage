@@ -28,11 +28,19 @@ public sealed class ViewerSessionTests
 
     private string _folder = string.Empty;
 
+    /// <summary>How many times a session asked whether the tree is dirty; the rig's tree always is.</summary>
+    private int _dirtyReads;
+
+    /// <summary>The configuration the rig's process claims; a test sets it before <c>Build</c>.</summary>
+    private string _hostBuild = "Debug";
+
     [SetUp]
     public void CreateFolder()
     {
         _folder = Path.Combine(Path.GetTempPath(), "tf2salvage-tests", Path.GetRandomFileName());
         _gameFolder = null;
+        _dirtyReads = 0;
+        _hostBuild = "Debug";
         Directory.CreateDirectory(Path.Combine(_folder, "maps"));
         File.WriteAllBytes(Path.Combine(_folder, "maps", Map + ".bsp"), SyntheticBsp.Build(new Dictionary<int, byte[]>()));
     }
@@ -139,7 +147,16 @@ public sealed class ViewerSessionTests
             log,
             arguments,
             new FpsPanelTests.SolidGdi(),
-            new ViewerHost(output, error, exits.Add, name => environment.GetValueOrDefault(name), () => new FixedTime(frameSeconds)),
+            new ViewerHost(output, error, exits.Add, name => environment.GetValueOrDefault(name), () => new FixedTime(frameSeconds))
+            {
+                Build = _hostBuild,
+                TreeDirty = () =>
+                {
+                    _dirtyReads++;
+
+                    return true;
+                },
+            },
             maps,
             owner);
 
@@ -1140,9 +1157,11 @@ public sealed class ViewerSessionTests
         rig.Window.Count("Close posted").ShouldBe(1);
     }
 
-    [Test]
-    public async Task RenderFrame_OnACaptureRun_WritesTheD226SidecarBesideTheShot()
+    [TestCase("Debug")]
+    [TestCase("Release")]
+    public async Task RenderFrame_OnACaptureRun_WritesTheD226SidecarBesideTheShotInEveryBuild(string build)
     {
+        _hostBuild = build;
         string shot = Path.Combine(_folder, "out.png");
         string demo = WriteDemo("shot");
         using Rig rig = Build(demo, "--shot", shot, "--tick", "40", "+mat_phong", "0").WithDevice();
@@ -1165,8 +1184,52 @@ public sealed class ViewerSessionTests
         json["args"]!.AsArray().Select(arg => arg!.GetValue<string>()).ShouldBe(
             ["shot.dem", "--shot", "out.png", "--tick", "40", "+mat_phong", "0"], "no user paths: file names only");
         json["convars"]!["mat_phong"]!.GetValue<string>().ShouldBe("0", "read back, so the +cvar given is the value recorded");
+        json["convars"]!.AsObject().ContainsKey("mat_specular").ShouldBeFalse("at its default 1, so not recorded");
+        json["gitSha"]!.GetValue<string>().ShouldEndWith("-dirty");
+        _dirtyReads.ShouldBe(1, "read once, at the shot");
         (await File.ReadAllLinesAsync(shot + ".json").ConfigureAwait(false)).ShouldContain(line => line.Contains("\"+mat_phong\"", StringComparison.Ordinal));
         json["like"].ShouldBeNull();
+    }
+
+    [Test]
+    public async Task RenderFrame_LikeASidecarOfAnotherDemo_WarnsAndNotesItButStillShoots()
+    {
+        string shot = Path.Combine(_folder, "out.png");
+        string like = Path.Combine(_folder, "tf2.png.json");
+        await File.WriteAllTextAsync(
+            like,
+            """{ "demo": "shot.dem", "demoSha256": "00", "tick": 40, "camera": [0, 0, 0, 0, 0], "viewport": [8, 8] }""")
+            .ConfigureAwait(false);
+        using Rig rig = Build(WriteDemo("shot"), "--like", like, "--shot", shot, "--tick", "40").WithDevice();
+        rig.Session.PlanStartup();
+        rig.Session.WindowShown();
+        (await rig.Session.Loading.ConfigureAwait(false)).Loaded.ShouldBeTrue();
+
+        Frames(rig.Session, 104);
+
+        rig.Device.Captured.ShouldBe([shot]);
+        rig.Log.Count("is not the demo tf2.png.json was taken of").ShouldBe(1);
+        System.Text.Json.Nodes.JsonObject json =
+            System.Text.Json.Nodes.JsonNode.Parse(await File.ReadAllTextAsync(shot + ".json").ConfigureAwait(false))!.AsObject();
+        json["notes"]!.GetValue<string>().ShouldContain("demoSha256 00");
+        json["like"]!["file"]!.GetValue<string>().ShouldBe("tf2.png.json");
+    }
+
+    [TestCase("Debug", true)]
+    [TestCase("Release", false)]
+    public async Task CaptureViewportToFile_TheScreenshotKey_WritesASidecarOnlyInADebugBuild(string build, bool written)
+    {
+        _hostBuild = build;
+        using Rig rig = Build(new ViewerSettings { FrameRateLimit = 0, ScreenshotFolder = _folder }, 0.5, WriteDemo("key")).WithDevice();
+        rig.Session.PlanStartup();
+        rig.Session.WindowShown();
+        (await rig.Session.Loading.ConfigureAwait(false)).Loaded.ShouldBeTrue();
+
+        rig.Session.CaptureViewportToFile();
+
+        string png = rig.Device.Captured.ShouldHaveSingleItem();
+        Path.GetDirectoryName(png).ShouldBe(_folder);
+        File.Exists(png + ".json").ShouldBe(written);
     }
 
     [Test]

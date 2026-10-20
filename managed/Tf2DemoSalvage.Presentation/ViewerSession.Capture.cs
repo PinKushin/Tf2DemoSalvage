@@ -277,13 +277,31 @@ public sealed partial class ViewerSession
         int plus = version?.IndexOf('+', StringComparison.Ordinal) ?? -1;
         string? demo = _presenter.DemoPath;
 
+        // **Hashed once, and that one value is both recorded and compared** (B243).
+        string? demoSha = demo is null ? null : ShotSidecar.Sha256(demo);
+        string notes = string.Empty;
+        ShotLikeRef? likeRef = null;
+
+        if (_launch.Like is { } like)
+        {
+            string likeText = File.ReadAllText(like);
+            likeRef = new ShotLikeRef(Path.GetFileName(like), ShotSidecar.Sha256(like));
+
+            // **A different demo warns and is noted, and the shot is still taken** (owner, on D226: "probably").
+            if (ShotSidecar.Read(likeText).DemoSha256 is { } theirs && !string.Equals(theirs, demoSha, StringComparison.OrdinalIgnoreCase))
+            {
+                notes = $"demo differs from the TF2 side: demoSha256 {theirs} in {likeRef.File}, {demoSha} here";
+                _log.LogWarning("{Message}", $"the demo opened ({demoSha}) is not the demo {likeRef.File} was taken of ({theirs})");
+            }
+        }
+
         Dictionary<string, string> convars = new(StringComparer.Ordinal);
 
-        // **Read back through the one route the frame reads them by** (`ClientConVar`): every declared client ConVar
-        // this viewer holds a value for, from its settings, a `+name value` or the watcher's TF2 configs.
+        // **Read back through the one route the frame reads them by** (`ClientConVar`), and only those that differ from
+        // their declared default (owner: "only the ones that differ from defaults").
         foreach (Core.Net.EngineConVar declared in Core.Net.EngineConVars.All)
         {
-            if (!declared.Replicated && ClientConVar(declared.Name) is { } value)
+            if (!declared.Replicated && ClientConVar(declared.Name) is { } value && ShotSidecar.DiffersFromDefault(value, declared.Default))
             {
                 convars[declared.Name] = ShotSidecar.Private(value);
             }
@@ -304,18 +322,21 @@ public sealed partial class ViewerSession
         ShotRecord record = new(
             DateTimeOffset.UtcNow,
             demo is null ? null : Path.GetFileName(demo),
-            demo is null ? null : ShotSidecar.Sha256(demo),
+            demoSha,
             _presenter.MapName,
             (int)Math.Round(_shownTick),
             eye is { } e ? (e.Origin.X, e.Origin.Y, e.Origin.Z, e.Angles.Pitch, e.Angles.Yaw) : null,
             _window.Viewport,
             convars,
-            plus < 0 ? null : version![(plus + 1)..],
-            System.Reflection.CustomAttributeExtensions
-                .GetCustomAttribute<System.Reflection.AssemblyConfigurationAttribute>(built)?.Configuration,
+            // **The tree is asked once, here, and the answer carried** (owner: "-dirty" when uncommitted).
+            ShotSidecar.GitSha(plus < 0 ? null : version![(plus + 1)..], _host.TreeDirty()),
+            _host.Build,
             [.. _arguments.Select(ShotSidecar.Private)],
             env,
-            _launch.Like is { } like ? new ShotLikeRef(Path.GetFileName(like), ShotSidecar.Sha256(like)) : null);
+            likeRef)
+        {
+            Notes = notes,
+        };
 
         string path = ShotSidecar.PathFor(shot);
         File.WriteAllText(path, ShotSidecar.Json(record));
@@ -398,7 +419,14 @@ public sealed partial class ViewerSession
     {
         string folder = CaptureFolder;
 
-        CaptureViewport(Path.Combine(folder, Captures.Name(DateTime.Now)));
+        string shot = Path.Combine(folder, Captures.Name(DateTime.Now));
+        CaptureViewport(shot);
+
+        // **The screenshot key's sidecar is a Debug build's only** (owner); `--shot` writes one in every build.
+        if (_host.IsDebug)
+        {
+            WriteSidecar(shot);
+        }
 
         // **Captures had no retention of any kind until 2026-08-19**, when 233 of them were found
         // occupying 203 MB — the single largest thing the viewer had written to the owner's disk,

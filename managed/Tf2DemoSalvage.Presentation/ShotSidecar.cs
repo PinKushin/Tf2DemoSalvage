@@ -40,7 +40,11 @@ public sealed record ShotRecord(
     string? Build,
     IReadOnlyList<string> Args,
     IReadOnlyDictionary<string, string> Env,
-    ShotLikeRef? Like);
+    ShotLikeRef? Like)
+{
+    /// <summary>Free text: what the capture found worth saying, such as a demo that is not the TF2 side's.</summary>
+    public string Notes { get; init; } = string.Empty;
+}
 
 /// <summary>What <c>--like</c> takes from a TF2-side sidecar.</summary>
 /// <param name="Demo">The demo's file name.</param>
@@ -48,12 +52,14 @@ public sealed record ShotRecord(
 /// <param name="Camera">The camera TF2 read back.</param>
 /// <param name="Viewport">TF2's view size.</param>
 /// <param name="Convars">The ConVars TF2 read back.</param>
+/// <param name="DemoSha256">The demo TF2 played, by hash; null when the sidecar does not say.</param>
 public sealed record ShotLike(
     string Demo,
     int Tick,
     (float X, float Y, float Z, float Pitch, float Yaw) Camera,
     (int Width, int Height) Viewport,
-    IReadOnlyDictionary<string, string> Convars);
+    IReadOnlyDictionary<string, string> Convars,
+    string? DemoSha256 = null);
 
 /// <summary>The D226 sidecar: <c>&lt;shot&gt;.json</c> written beside every <c>--shot</c>, and read back by <c>--like</c>.</summary>
 /// <remarks>
@@ -112,7 +118,7 @@ public static class ShotSidecar
             ["camera"] = shot.Camera is { } c ? new JsonArray(c.X, c.Y, c.Z, c.Pitch, c.Yaw) : null,
             ["viewport"] = new JsonArray(shot.Viewport.Width, shot.Viewport.Height),
             ["convars"] = Map(shot.Convars),
-            ["notes"] = string.Empty,
+            ["notes"] = shot.Notes,
             ["gitSha"] = shot.GitSha,
             ["build"] = shot.Build,
             ["args"] = new JsonArray(shot.Args.Select(a => (JsonNode?)JsonValue.Create(a)).ToArray()),
@@ -189,7 +195,86 @@ public static class ShotSidecar
             tick,
             (camera![0], camera[1], camera[2], camera[3], camera[4]),
             ((int)viewport![0], (int)viewport[1]),
-            convars);
+            convars,
+            json["demoSha256"] is JsonValue hash && hash.TryGetValue(out string? sha) ? sha : null);
+    }
+
+    /// <summary>Whether a ConVar's value is not its declared default; numbers compare as numbers, so "1200.000000" is "1200".</summary>
+    /// <param name="value">The value held.</param>
+    /// <param name="declared">The declaration's default string.</param>
+    /// <returns>True when the sidecar should record it.</returns>
+    public static bool DiffersFromDefault(string value, string declared)
+    {
+        ArgumentNullException.ThrowIfNull(value);
+        ArgumentNullException.ThrowIfNull(declared);
+
+        if (double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out double held)
+            && double.TryParse(declared, NumberStyles.Float, CultureInfo.InvariantCulture, out double fallback))
+        {
+            // A tolerance rather than `!=` (S1244); a ConVar's value is written to six places at most.
+            return Math.Abs(held - fallback) > 1e-6;
+        }
+
+        return !string.Equals(value, declared, StringComparison.Ordinal);
+    }
+
+    /// <summary>Whether the git working tree holding a folder has uncommitted changes: <c>git status --porcelain</c> says anything.</summary>
+    /// <param name="folder">A folder inside the tree; the viewer's own, so the tree is the one it was built from.</param>
+    /// <returns>False when git is absent or the folder is in no tree, since then there is no tree to be dirty.</returns>
+    /// <remarks>Fixed arguments, nothing from the user reaches the command line. Ignored files (bin/, obj/) do not count.</remarks>
+    public static bool WorkingTreeDirty(string folder)
+    {
+        // **Resolved to an absolute path first** (S4036): the PATH entry that holds git.exe, named outright, so the
+        // process started is the one found and not whatever a working-directory lookup would add.
+        string? found = (System.Environment.GetEnvironmentVariable("PATH") ?? string.Empty)
+            .Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries)
+            .Select(entry => Path.Combine(entry.Trim('"'), OperatingSystem.IsWindows() ? "git.exe" : "git"))
+            .FirstOrDefault(candidate => Path.IsPathRooted(candidate) && File.Exists(candidate));
+
+        if (found is null)
+        {
+            // No git on this machine: there is no tree to call dirty, and the sidecar keeps the bare commit.
+            return false;
+        }
+
+        try
+        {
+            using System.Diagnostics.Process git = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(found)
+            {
+                ArgumentList = { "-C", folder, "status", "--porcelain" },
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+            }) ?? throw new InvalidOperationException("git did not start");
+
+            string output = git.StandardOutput.ReadToEnd();
+            git.StandardError.ReadToEnd();
+
+            // **The exit code is checked before the output is believed**: outside a tree git prints nothing and fails.
+            return git.WaitForExit(10_000) && git.ExitCode == 0 && output.Length > 0;
+        }
+        catch (System.ComponentModel.Win32Exception absent)
+        {
+            // The git found would not start: treated as no tree, and said where a debugger listens.
+            System.Diagnostics.Trace.TraceWarning($"git at {found} did not start for gitSha: {absent.Message}");
+
+            return false;
+        }
+    }
+
+    /// <summary>The commit as a sidecar records it: <c>-dirty</c> when the tree held uncommitted changes.</summary>
+    /// <param name="sha">The commit the build recorded, or null.</param>
+    /// <param name="dirty">Whether the working tree was dirty at the shot.</param>
+    /// <returns>The value, or null when no commit was recorded.</returns>
+    public static string? GitSha(string? sha, bool dirty)
+    {
+        if (sha is null || !dirty)
+        {
+            return sha;
+        }
+
+        return sha + "-dirty";
     }
 
     private static T? Field<T>(JsonObject json, string name, List<string> missing, Func<JsonNode, T> read)
