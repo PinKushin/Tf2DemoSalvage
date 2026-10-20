@@ -187,3 +187,22 @@ ticks 30480 and 30700). Nothing here is proposed that Valve does not do.
   promised more than a patch delivered ("tried and not kept"), and its lesson stands — rank by a direct timer.
 - `SimulateEntities` walks **every entity** in Valve too. Item 1 removes the static props from our walk; it does
   not make the entity walk list-driven, because Valve's is not.
+
+## The release candidate against the fixed instrument (2026-10-20)
+
+Alternating before, after, before, after, per view; f12 (`demostf-cp_process_f12-2026-08-08-2207.dem`), tick 30000, Debug
+viewer, `--measure 20 +fps_max 0`, one machine with nothing else running (the owner was asleep, no agent building or
+measuring, CI remote). **Before is `1c190074`** (yesterday's main plus the `--measure` fix of finding 82, so both sides count
+playback and not the opening seek); **after is `dbcbdfab`**, the beta.45 tag. The frame rate climbs inside each run as caches
+warm, so the number quoted is the last one-second window of each run:
+
+| view | before | after |
+|---|---|---|
+| first person | 64 and 70 fps (14.8 and 14.4 ms) | 88 and 80 fps (11.1 and 12.3 ms) |
+| empty view (camera `1613 -2821 154 89 0`) | 107 and 115 fps | 140 and 156 fps |
+
+About +25-30% in first person and +30-40% in the empty view. `advance` fell from 2.2 to 1.0-1.2 ms (first person) and
+from 1.0-1.1 to 0.7 ms (empty view); `camera` fell by 1.5-2.5 ms in both. One "after" window reported a 237 ms frame
+(a single stall) and is left out. **Against TF2** (400-600 fps in the owner's recollection, unmeasured; 893-1236 fps on
+`cp_badlands`, finding 82): still far short. The leftovers are the `camera` phase, `setcamera` (1-4.5 ms, unattributed),
+the particle step (about 2 ms even with nothing in view) and a collector pause of about 2.3 ms a frame.
