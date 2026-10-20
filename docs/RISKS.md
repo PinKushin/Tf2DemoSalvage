@@ -40044,6 +40044,31 @@ reddens four tests), and a child's drawn size against its own scale alone.
   `pl_badwater_pro_v12.bsp` is not on this machine (not under the game's `tf/maps`, `tf/download/maps`, `tf2ds`, or the
   user profile), so its `parentname` cannot be read, and no sampled tick gives them a parent.
 
+## B560 — a static prop in view is animated here, and the engine's static-prop draw has no animation step — OPEN
+
+**Read, CLOSED source** (`engine.dll` `0x1800f1bd0`, 2026-10-20). This is the per-draw function the existing B426 code
+cites for an unbaked static prop. It sets up lighting only: the ambient cube and up to four local lights
+(`FUN_1801ba590`/`FUN_1801b9cd0`), the lighting-origin override, and the debug fullbright path. It has no sequence,
+cycle, autoplay or bone step. The published client side agrees: a static prop is never on the entity list
+(`SimulateEntities`, `cdll_client_int.cpp:2010-2015`). **Ours:** since finding 83 item 1, a static prop the gather
+reaches still runs `SimulateEach`. A skinned static prop with an autoplay or realtime sequence, or one with a nonzero
+sequence, is therefore advanced and posed through bones, and its animation events are walked. Before finding 83, every
+static prop did this every frame, so the divergence is older than that change; it was kept there because that change
+required identical output. *Evidence class: decompiled engine + published source; no demo or map measured for how many
+static props it affects.* **Fix direction:** an in-view static prop takes its pose without the simulate half, at its
+lump sequence and cycle 0. That needs a golden pair on a map with such a prop, because it changes output.
+
+**Two notes from the same change (finding 83 item 1), not divergences:**
+- **Bones of an unviewed static prop.** `TraceHitboxes`, `PosedHitboxes`, the attachment queries and decal bone lookups
+  answer null for a static prop no view reached this frame, where they used to answer for every one. The engine traces
+  and decals a static prop through `IStaticPropMgr` by index (`TraceRayAgainstStaticProp`, `AddDecalToStaticProp`,
+  `IStaticPropMgr.h:47`, `:64`), never by bones, so null is closer to the engine than before. Pinned by
+  `AttachmentQueryTests.TraceHitboxes_OnAStaticProp_AnswersOnlyWhenAViewReachedIt`.
+- **`TranslateEraSequences` no longer sees static props**, because it walks the moment's draw list. It keys on model
+  path and era. An old-era demo whose static prop uses a model the era table lists would have had its lump sequence
+  translated before and not now. A static prop's sequence comes from the map, not the network, so not translating it is
+  arguably correct. Not measured; f12 is modern-era and cannot show it.
+
 ## B559 — the class portrait in the HUD is off TF2's by 15 to 20 per channel after the HUD fixes, cause unknown — OPEN
 
 **Measured 2026-10-19** (`HudGoldenImageUiTests`, 4x2 grid, tolerance 12, each cell's mean R/G/B, our frame against

@@ -94,8 +94,20 @@ ticks 30480 and 30700). Nothing here is proposed that Valve does not do.
   - **Engine read (CLOSED source, `engine.dll` `0x1800f1bd0`).** The static prop's per-draw function sets up lighting
     only: the ambient cube and the local lights, with no sequence, cycle or animation step. Ours still runs the simulate
     half for an in-view static prop, so a static prop with an autoplay or realtime sequence animates here and not in
-    the engine. That was true before this change. It is not fixed here because the task required identical output,
-    and it should be filed separately.
+    the engine. That was true before this change. It is not fixed here because the task required identical output.
+    Filed as **B560**.
+  - **What changed for an off-screen static prop.** Only a gathered static prop has an animating entity, so
+    `TraceHitboxes` and `PosedHitboxes` (and the attachment queries) answer null for one no view reached this frame;
+    before, every static prop was simulated every frame and answered. A bullet strike on an unviewed static prop falls
+    to `BulletStrikes`' unposed rule. This is parity, not a loss: the engine traces a static prop through its collision
+    model by index (`IStaticPropMgr::TraceRayAgainstStaticProp`, `IStaticPropMgr.h:47`) and decals one through
+    `AddDecalToStaticProp` (`:64`), never through hitboxes, and its draw (`0x1800f1bd0`, above) builds no bones.
+    Pinned by `TraceHitboxes_OnAStaticProp_AnswersOnlyWhenAViewReachedIt`.
+  - **Review fixes (2026-10-20).** A skip frame (B504) now takes the static props out of the leaf tree and files them
+    again on the next drawn frame, so its cull counts entities only. Before this fix, statics the frustum rejected
+    pushed `CulledByVisibility` to 0. That is the same handle churn the old build had when a skip left them off the
+    draw list. The tally is asked for the drawable static props, which is what the handles count. The level-change
+    repack and a mid-level list swap are pinned by tests that go red when either `_staticsPacked = false` is deleted.
 
 ### 2. Particle creation becomes event-driven, like the client's `engine->FireEvents()`
 
