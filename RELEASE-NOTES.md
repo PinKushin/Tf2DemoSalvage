@@ -771,11 +771,13 @@ Things a user is likely to notice. Each has an entry in `docs/RISKS.md` in the r
 - **The first twenty seconds or so of playback run slower than steady state** while the runtime optimizes the viewer's
   code. Turning that off made loading much slower and playback slower too, so it was reverted. Still open.
 - **Frame rate is not yet where we want it.** On the author's f12 first-person test it is roughly 65 to 69 frames per
-  second, far below the game itself. This is the current priority.
+  second. The game itself, playing the same recording from the same player's view at the same size on the same machine, ran
+  at about 190 frames per second, so the viewer is about 2.5 to 3 times slower (the author's measurement, one recording and
+  one player; treat the ratio as an estimate; see `docs/measurements/2026-10-21-tf2-vs-viewer-f12.md`). This is the current
+  priority.
 - **A sound's first play can still stall for a few hundred milliseconds on a busy machine.** The cause of that wait
-  is not yet understood.
-- **The viewer's frame rate has not yet been compared with the game's** on the same recording at the same moment.
-  That measurement is planned.
+  is not yet understood; the game itself logged a blocked first sound read of about 170 ms on the same machine, so it may
+  be the disk or the system and not the viewer.
 
 - **The "no map" message is unverified** (B556, D224). When a demo's map cannot be fetched or found, the viewer
   is meant to say so in the status bar. No test has opened a demo with its map absent by each route (a failed
