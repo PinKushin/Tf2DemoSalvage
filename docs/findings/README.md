@@ -315,6 +315,12 @@ in any public writeup found:
   went from 4.0 to 2.2 MB a frame and every heap from 7.7 to 5.1; the first-person frame went from 16.5–17.1 to
   14.5–15.3 ms, and the empty view from 7.3 to 5.6. With a heartbeat thread beside each stall, none of the remaining
   100–190 ms stalls was a process-wide stop ([88](88-bytes-per-frame-and-the-between.md)).
+- **The struct copies were the collector.** `BulkMoveWithWriteBarrier`'s 17% of the render thread had no leaf time of its
+  own. It was a GC poll site, so the wait for the collector landed there. Three allocations behind that collector are
+  gone: a sorted copy of the roster six times a frame, three arrays per terrain triangle in the sun trace, and an empty
+  dictionary per activity lookup. The render thread went from 1.85–1.89 to 1.20 MB a frame over 60 s, and frames over
+  100 ms from 2–7 to 0 in two clean runs ([89](89-the-struct-copies-were-the-collector.md),
+  measurements/2026-10-21-struct-copies-and-allocations.md).
 
 ## Conventions used throughout
 
