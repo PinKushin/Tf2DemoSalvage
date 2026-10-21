@@ -273,7 +273,7 @@ draw**; particle cost 1.28 ms a frame searching the timeline for offers and 0.41
 | D1 | the sleep time is pushed only when the effect is drawn: collated for a view by leaf, frustum and `FxBlend` | pushed at simulate time whenever the burst can be **placed** (its owner posed); every placed effect counts as drawn | **fixed** (`fix: a particle effect is drawn when a view collates it`) |
 | D2 | every effect sleeps | a projectile trail (`Update`) has no sleep at all | **fixed**, same commit |
 | D3 | a frame simulates at most 0.1 s | a played frame stepped however long | **fixed** (`fix: a particle frame simulates at most 0.1 s`) |
-| D4 | an effect undrawn since creation sleeps at creation plus the no-draw time | a replay treats every replayed tick as drawn (B565) | open, the owner's choice (below) |
+| D4 | an effect undrawn since creation sleeps at creation plus the no-draw time | a replay treats every replayed tick as drawn (B565) | **decided: kept as is** (the owner, below) |
 | D5 | a skipped effect that moved updates its bounds only | not modelled; it changes bounds and nothing drawn | not done, by choice |
 
 **D1, decided and done.** The coordinator chose the engine-shaped route: particle effects collated beside the entities.
@@ -306,10 +306,12 @@ effects outside the view are affected, so nothing on screen changes, except that
 than its no-draw time now appears where it stood, mid-life, when the camera turns to it. No golden pair was taken for
 that.
 
-**D4 is the owner's, with the trade named.** A seek's replay is ours (D221), and nobody knows what the camera saw before
-the seek. Replayed as drawn (as now), a long effect is fully simulated: about 70 ms for each `xms_ornament_glitter`.
-Replayed as undrawn, it sleeps 8 s after creation and the replay is cheap, but an effect born more than 8 s before the
-seek is then shown frozen mid-life. Neither is the engine.
+**D4, decided by the owner: *"Keep A"* (2026-10-20).** A seek's replay is ours (D221), and nobody knows what the camera
+saw before the seek. **Kept, option A:** replayed as drawn, as now, so a long effect appears at its true age, at about
+70 ms for each `xms_ornament_glitter` at the jump. **Rejected, option B:** replayed as undrawn, it would sleep eight
+seconds after creation and the replay would be cheap, but an effect older than eight seconds at the seek would show frozen
+at age eight. The reason is the lead's recommendation, which the owner accepted without adding his own: A matches what
+continuous playing usually shows, and it is the current behaviour. Neither is the engine (B565).
 
 **The age bound is next, and was not changed here.** With sleep modelled, the age skip can apply only to an effect whose
 emission and lifetime fit within its root's sleep, since only those finish before they could sleep; for the rest the
