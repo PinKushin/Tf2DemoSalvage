@@ -85,9 +85,24 @@ public static class SpectatorTarget
     /// </remarks>
     public static ScenePlayer? Choose(IReadOnlyList<ScenePlayer> players)
     {
-        IReadOnlyList<ScenePlayer> playing = Observable(players);
+        ArgumentNullException.ThrowIfNull(players);
 
-        return playing.Count == 0 ? null : playing[0];
+        // The first of `Observable` without building it: the view asks several times a frame, and
+        // the sorted copy of the roster was 0.32 MB a frame (finding 89). Strict `<` keeps the
+        // first of equal indices, as the stable `OrderBy` did.
+        int best = -1;
+
+        for (int i = 0; i < players.Count; i++)
+        {
+            ScenePlayer player = players[i];
+
+            if (CanObserve(player) && (best < 0 || player.EntityIndex < players[best].EntityIndex))
+            {
+                best = i;
+            }
+        }
+
+        return best < 0 ? null : players[best];
     }
 
     /// <summary>Everyone a spectator can actually reach, in cycling order.</summary>

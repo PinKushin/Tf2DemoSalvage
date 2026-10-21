@@ -60,6 +60,27 @@ public sealed class SpectatorTargetTests
     }
 
     [Test]
+    public void Choose_CalledEveryFrame_AllocatesNothing()
+    {
+        // Finding 89: the view asks six times a frame, and a filtered, sorted copy of the roster was
+        // 0.32 MB a frame. The engine walks its player slots in place.
+        List<ScenePlayer> players =
+        [
+            Player(entity: 7, team: 2, playerClass: 3, health: 200),
+            Player(entity: 1, team: 1, playerClass: null, health: 1),
+            Player(entity: 4, team: 3, playerClass: 5, health: 150),
+        ];
+        SpectatorTarget.Choose(players);
+
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        ScenePlayer? chosen = SpectatorTarget.Choose(players);
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        allocated.ShouldBe(0);
+        chosen.ShouldNotBeNull().EntityIndex.ShouldBe(4);
+    }
+
+    [Test]
     public void Choose_WhenOnlySpectatorsArePresent_IsNobody()
     {
         // The first seconds of a competitive match are exactly this: SourceTV connected and nobody
