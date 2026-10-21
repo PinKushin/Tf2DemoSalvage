@@ -298,6 +298,43 @@ public sealed class PropertyBagTests
         seen.ShouldAllBe(described => described == expected);
     }
 
+    /// <remarks>
+    /// **Enumerating allocates nothing** (B562): every pattern scan over an entity — bone controllers, pose parameters,
+    /// layers — walks the bag several times per entity per packet, and an iterator object per walk was the f12 build's
+    /// extra 55 s. Thawed and frozen, both chunks read, so the struct enumerator is the path measured.
+    /// </remarks>
+    [Test]
+    public void Enumerate_ThawedOrFrozen_AllocatesNothing()
+    {
+        PropertyBag bag = Filled();
+
+        foreach (bool frozen in new[] { false, true })
+        {
+            if (frozen)
+            {
+                bag.Freeze();
+            }
+
+            Sum(bag);
+            long before = GC.GetAllocatedBytesForCurrentThread();
+            // 3 × (0 + … + 39), k3 overwritten from 9 to −3, and one for each of the five non-integers.
+            long sum = Sum(bag);
+            (GC.GetAllocatedBytesForCurrentThread() - before, sum).ShouldBe((0L, 2333L), $"frozen {frozen}");
+        }
+
+        static long Sum(PropertyBag bag)
+        {
+            long sum = 0;
+
+            foreach ((string _, PropertyValue value) in bag)
+            {
+                sum += value.Kind == PropertyValueKind.Int ? value.AsInt : 1;
+            }
+
+            return sum;
+        }
+    }
+
     /// <remarks>**Clear after a freeze restarts the order on the bag alone**; the frozen form keeps every key.</remarks>
     [Test]
     public void Clear_AfterFreeze_ThenSet_RestartsOnlyTheBag()
