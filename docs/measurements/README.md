@@ -10,7 +10,7 @@ question, and the question comes before the method used to answer it.** This fol
 1. `## Observation` - what was seen that raised the question (a number someone quoted, a stall in a log, a screenshot). Say whose
    observation it is and how it was made; an estimate is called an estimate.
 2. `## Question` - what we want to know, in a form a measurement can answer.
-3. `## Method` - the exact commands and settings, and the instrument's `## Control`: what it was asked for that must be present or
+3. `## Method` - which observation would answer the question, then the exact commands and settings; and the instrument's `## Control`: what it was asked for that must be present or
    known, so a silent instrument is distinguishable from an empty subject.
 4. `## Environment` - machine, resolution, load before and after, the commits or builds the run used.
 5. `## Result` - the measured values, with the raw output pointed to or pasted, never summarised away.
