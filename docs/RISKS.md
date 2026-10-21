@@ -40055,7 +40055,7 @@ reddens four tests), and a child's drawn size against its own scale alone.
   `pl_badwater_pro_v12.bsp` is not on this machine (not under the game's `tf/maps`, `tf/download/maps`, `tf2ds`, or the
   user profile), so its `parentname` cannot be read, and no sampled tick gives them a parent.
 
-## B563 — a burst's replay treats every replayed tick as drawn; the engine would have put the effect to sleep — OPEN
+## B565 — a burst's replay treats every replayed tick as drawn; the engine would have put the effect to sleep — OPEN
 
 **Read** (review of finding 84, from `particlemgr.cpp:1775` and `ParticleEffects.Bursts`). `BuildParticleSimList` skips
 an effect at or past `m_flNextSleepTime` while it has live particles, so one nobody draws stops being simulated
@@ -40067,14 +40067,14 @@ effect whose emission and lifetime outlast its sleep. *Evidence class: published
 measured.* **Audited** (finding 84, *The sleep and wake audit*): this is D4 there. The wider gap is D1, that ours counts
 a placed effect as drawn where the engine counts one collated for a view; both are open.
 
-## B562 — a child system's `delay` is not applied when its parent spawns it — OPEN
+## B564 — a child system's `delay` is not applied when its parent spawns it — OPEN
 
 **Read** (`ParticleChildrenInfo_t::m_flDelay`, `particles.h:2125`). A definition's child entry carries a delay before the
 child starts. This viewer's child spawning starts every child with its parent. `ParticleEffect.MaximumLife` is consistent
 with that: it bounds a child from the parent's start, as the viewer runs it. The gap predates finding 84. *Evidence
 class: published header read; how many TF2 systems declare a nonzero child delay was not counted.*
 
-## B561 — the surface precache names 7 of the 10 sound keys `PrecachePhysicsSounds` precaches — OPEN
+## B563 — the surface precache names 7 of the 10 sound keys `PrecachePhysicsSounds` precaches — OPEN
 
 **Read** (`physics_shared.cpp:1034-1053`). The engine precaches each surface's `stepleft`, `stepright`, `impactsoft`,
 `impacthard`, `scrapesmooth`, `scraperough`, `bulletimpact`, `rolling`, `breaksound` and `strainsound`. Our surface

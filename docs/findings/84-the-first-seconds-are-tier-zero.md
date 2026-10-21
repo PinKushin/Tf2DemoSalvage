@@ -176,8 +176,8 @@ first hypothesis (a blocking gen2 GC of a ~3.5 GB heap) is dead.
   with its keys defaulting as the initializer's do; `Lifetime From Sequence`, by the sheet; and `move particles
   between 2 control points` and a `remap initial scalar` onto the life, both unbounded. A child is bounded from its
   parent's start, because this viewer does not apply a child's `delay` (`ParticleChildrenInfo_t::m_flDelay`,
-  `particles.h:2125`); that gap is older than this finding (B562). A replay treats undrawn ticks as drawn where the
-  engine would sleep the effect (B563); the sleep rule for the bound waits on that audit.
+  `particles.h:2125`); that gap is older than this finding (B564). A replay treats undrawn ticks as drawn where the
+  engine would sleep the effect (B565); the sleep rule for the bound waits on that audit.
 - **Row 6 (`fix/particle-caller-parity`) and this rule, on one burst.** A burst fired after the landing but
   unplaceable on its creation frame is built later by a replay from its own tick. So it takes one step of simulation
   more than a burst created on its own frame, which row 6 makes simulate nothing. Chosen, since the replay is what a
@@ -273,7 +273,7 @@ draw**; particle cost 1.28 ms a frame searching the timeline for offers and 0.41
 | D1 | the sleep time is pushed only when the effect is drawn: collated for a view by leaf, frustum and `FxBlend` | pushed at simulate time whenever the burst can be **placed** (its owner posed); every placed effect counts as drawn | **open, needs a decision** (below) |
 | D2 | every effect sleeps | a projectile trail (`Update`) has no sleep at all | open; follows D1 |
 | D3 | a frame simulates at most 0.1 s | a played frame stepped however long | **fixed** (`fix: a particle frame simulates at most 0.1 s`) |
-| D4 | an effect undrawn since creation sleeps at creation plus the no-draw time | a replay treats every replayed tick as drawn (B563) | open, the owner's choice (below) |
+| D4 | an effect undrawn since creation sleeps at creation plus the no-draw time | a replay treats every replayed tick as drawn (B565) | open, the owner's choice (below) |
 | D5 | a skipped effect that moved updates its bounds only | not modelled; it changes bounds and nothing drawn | not done, by choice |
 
 **D1 needs a decision, not a guess.** Our particle gather culls nothing: every effect is gathered for every frame and
