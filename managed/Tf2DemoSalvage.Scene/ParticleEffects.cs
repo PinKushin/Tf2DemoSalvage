@@ -80,6 +80,9 @@ public sealed class ParticleEffects
     /// <summary>Steps taken replaying rebuilt bursts, ever.</summary>
     public long ReplaySteps { get; private set; }
 
+    /// <summary>The most one frame simulates — `if( flTimeDelta &gt; 0.1f ) flTimeDelta = 0.1f;` (particlemgr.cpp:1947).</summary>
+    private const float FrameStepLimit = 0.1f;
+
     /// <summary>Effects held, summed over every call of <see cref="Bursts"/> and <see cref="Update"/> — alive per frame.</summary>
     public long Alive { get; private set; }
 
@@ -239,8 +242,8 @@ public sealed class ParticleEffects
             advanced = 0d;
         }
 
-        // A played frame is one step, however long.
-        float last = (float)(advanced * seconds);
+        // A played frame is one step, of at most 0.1 s (`UpdateAllEffects`, particlemgr.cpp:1947).
+        float last = MathF.Min((float)(advanced * seconds), FrameStepLimit);
 
         _alive.Clear();
 
@@ -533,6 +536,10 @@ public sealed class ParticleEffects
             long replayFrom = System.Diagnostics.Stopwatch.GetTimestamp();
             bool sleptHere = false;
 
+            // **A played frame simulates at most 0.1 s**, its pieces together: `UpdateAllEffects` clamps the frame time
+            // (particlemgr.cpp:1947) and hands it to `UpdateNewEffects` (:1995). A replay is not a frame.
+            float budget = rebuild ? float.MaxValue : FrameStepLimit;
+
             while (reachedTo < wanted)
             {
                 double next = rebuild && Math.Floor(reachedTo) + 1d <= wanted ? Math.Floor(reachedTo) + 1d : wanted;
@@ -618,7 +625,8 @@ public sealed class ParticleEffects
                     running.Effect.SetHitboxes(0, Carried(model.Boxes, at.At - model.PosedAt));
                 }
 
-                float step = (float)((next - reachedTo) * seconds);
+                float step = MathF.Min((float)((next - reachedTo) * seconds), budget);
+                budget -= step;
 
                 // A stopped effect only fades: its particles live out their lives and no more are born. **Its points
                 // still follow** — `StopEmission` leaves the effect in the property's list (particle_property.cpp:251).

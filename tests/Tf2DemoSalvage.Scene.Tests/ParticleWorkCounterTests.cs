@@ -88,6 +88,32 @@ public sealed class ParticleWorkCounterTests
         effects.Gathered.ShouldBe(1, "the emitting one; the empty one has nothing to draw");
     }
 
+    /// <remarks>
+    /// **A frame's step is at most 0.1 s** — `CParticleMgr::UpdateAllEffects` clamps the frame time
+    /// (`if( flTimeDelta > 0.1f ) flTimeDelta = 0.1f;`, particlemgr.cpp:1947) and passes it to `UpdateNewEffects` (:1995).
+    /// A 20-tick frame (0.3 s) ages the effect's own clock by 0.1 s; nothing adds the rest back.
+    /// </remarks>
+    [Test]
+    public void Step_AFrameLongerThanATenthOfASecond_AgesTheEffectATenth()
+    {
+        ParticleEffects effects = new();
+        ParticleBurst beam = new(1, Beam(sleep: 8d), Origin, 100);
+
+        effects.Bursts([beam], Interval, null, tick: 100);
+        effects.Bursts([beam], Interval, null, tick: 101);
+        effects.Bursts([beam], Interval, null, tick: 121);
+
+        effects.BurstEffect(1)!.Particles.Age.ShouldBe(Interval + 0.1f, 1e-5f);
+
+        // A trail's frame, the same clamp.
+        ParticleEffects trails = new();
+        ParticleSystem smoke = Beam(sleep: 8d);
+        trails.Update([(7, Origin, null, 0)], smoke, Interval, tick: 0);
+        trails.Update([(7, Origin, null, 0)], smoke, Interval, tick: 20);
+
+        trails.TrailEffect(7)!.Particles.Age.ShouldBe(0.1f, 1e-5f);
+    }
+
     private static ParticleSystem Beam(double sleep) => new(
         Name: "test_beam",
         Emitters:

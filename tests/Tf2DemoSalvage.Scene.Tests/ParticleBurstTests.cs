@@ -876,8 +876,12 @@ public sealed class ParticleBurstTests
         // Its emitter runs for ever, so it is never FINISHED; stopped and empty is what lets it go.
         ParticleEffects effects = new();
 
-        effects.Bursts([Emitting(key: 1, tick: 100, stop: 110)], Interval, null, tick: 110);
-        effects.Bursts([Emitting(key: 1, tick: 100, stop: 110)], Interval, null, tick: 300);
+        // Played a tick at a time: a frame simulates at most 0.1 s (particlemgr.cpp:1947), so one 190-tick frame would not.
+        for (int tick = 110; tick <= 300; tick++)
+        {
+            effects.Bursts([Emitting(key: 1, tick: 100, stop: 110)], Interval, null, tick);
+        }
+
         effects.Bursts([], Interval, null, tick: 301);
 
         effects.BurstCount.ShouldBe(0);

@@ -127,7 +127,9 @@ public sealed class ParticleFrameClockConformanceTests
         ParticleEffects ticked = new();
         ParticleBurst burst = Emitting(key: 1, tick: 100) with { StopTick = 110 };
 
+        // Frames of six ticks (0.09 s), under the 0.1 s a frame simulates at most; the second crosses the stop.
         split.Bursts([burst], Interval, null, 100, 100d);
+        split.Bursts([burst], Interval, null, 106, 106d);
         split.Bursts([burst], Interval, null, 112, 112d);
         ticked.Bursts([burst], Interval, null, 112, 112d, seeked: true);
 
