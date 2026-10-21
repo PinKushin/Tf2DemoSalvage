@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Runtime.InteropServices;
 
 namespace Tf2DemoSalvage.Content.Assets;
 
@@ -406,10 +407,31 @@ public sealed class StudioBlendGrid
     public (int[] Animations, float[] Weights) ThreeWay(
         int x, int y, float settingX, float settingY)
     {
+        int[] animations = new int[3];
+        float[] weights = new float[3];
+
+        ThreeWayInto(x, y, settingX, settingY, animations, weights);
+
+        return (animations, weights);
+    }
+
+    /// <summary><see cref="ThreeWay"/> into storage the caller owns, which may be on the stack.</summary>
+    /// <param name="x">The cell column.</param>
+    /// <param name="y">The cell row.</param>
+    /// <param name="settingX">How far past <paramref name="x"/>.</param>
+    /// <param name="settingY">How far past <paramref name="y"/>.</param>
+    /// <param name="animations">Receives the three animation indices.</param>
+    /// <param name="weights">Receives the weight of each.</param>
+    /// <remarks>
+    /// <c>Calc3WayBlendIndices</c> writes into the caller's <c>pAnimIndices</c> and <c>pWeight</c> (finding 87): a
+    /// pose asked of a grid allocates nothing.
+    /// </remarks>
+    public void ThreeWayInto(
+        int x, int y, float settingX, float settingY, Span<int> animations, Span<float> weights)
+    {
         bool even = ((x + y) & 0x1) == 0;
 
         int x1, y1, x2, y2, x3, y3;
-        float[] weights = new float[3];
 
         if (even)
         {
@@ -441,12 +463,9 @@ public sealed class StudioBlendGrid
             weights[1] = 1f - settingX - settingY;
         }
 
-        int[] animations =
-        [
-            Animation(x + x1, y + y1),
-            Animation(x + x2, y + y2),
-            Animation(x + x3, y + y3),
-        ];
+        animations[0] = Animation(x + x1, y + y1);
+        animations[1] = Animation(x + x2, y + y2);
+        animations[2] = Animation(x + x3, y + y3);
 
         // Valve clamps the diagonal term to zero and gives the remainder to the third corner, so
         // the three always sum to one however the arithmetic rounded.
@@ -456,8 +475,6 @@ public sealed class StudioBlendGrid
         }
 
         weights[2] = 1f - weights[0] - weights[1];
-
-        return (animations, weights);
     }
 }
 
@@ -524,13 +541,83 @@ public static class StudioPoseBlend
         ArgumentNullException.ThrowIfNull(first);
         ArgumentNullException.ThrowIfNull(second);
 
-        StudioBonePose[] left = additive
-            ? ExpandIdentity(bones, first)
-            : Expand(bones, first);
+        StudioBonePose[] left = new StudioBonePose[bones.Count];
+        StudioBonePose[] right = new StudioBonePose[bones.Count];
 
-        StudioBonePose[] right = additive
-            ? ExpandIdentity(bones, second)
-            : Expand(bones, second);
+        BlendSpans(bones, first, second, s, additive, left, right);
+
+        return left;
+    }
+
+    /// <summary>
+    /// <see cref="Blend"/> into storage the caller owns: the same pose, written into <paramref name="into"/>.
+    /// </summary>
+    /// <param name="bones">The skeleton both poses belong to.</param>
+    /// <param name="first">The pose at weight <c>1 - s</c>.</param>
+    /// <param name="second">The pose at weight <paramref name="s"/>.</param>
+    /// <param name="s">How far toward <paramref name="second"/>, from zero to one.</param>
+    /// <param name="additive">Whether the two are deltas; see <see cref="Blend"/>.</param>
+    /// <param name="into">Receives the blend, one entry per bone; its contents before the call are discarded.</param>
+    /// <param name="scratch">Holds <paramref name="second"/> expanded while the blend runs.</param>
+    /// <returns><paramref name="into"/>.</returns>
+    /// <exception cref="ArgumentNullException">An argument is null.</exception>
+    /// <exception cref="ArgumentException">
+    /// <paramref name="into"/> or <paramref name="scratch"/> is one of the poses being read, or they are the same list.
+    /// </exception>
+    /// <remarks>
+    /// The shape of the engine's <c>BlendBones</c>, which blends into the caller's <c>q1</c>/<c>pos1</c> through
+    /// arrays taken from <c>CBoneSetupMemoryPool</c> (<c>bone_setup.cpp:49-79</c>) rather than allocating (finding 87).
+    /// Writing into a list that is also being read would expand over its own input, so that is refused.
+    /// </remarks>
+    internal static IReadOnlyList<StudioBonePose> BlendInto(
+        IReadOnlyList<StudioBone> bones,
+        IReadOnlyList<StudioBonePose> first,
+        IReadOnlyList<StudioBonePose> second,
+        float s,
+        bool additive,
+        List<StudioBonePose> into,
+        List<StudioBonePose> scratch)
+    {
+        ArgumentNullException.ThrowIfNull(bones);
+        ArgumentNullException.ThrowIfNull(first);
+        ArgumentNullException.ThrowIfNull(second);
+        ArgumentNullException.ThrowIfNull(into);
+        ArgumentNullException.ThrowIfNull(scratch);
+
+        if (ReferenceEquals(into, first) || ReferenceEquals(into, second) || ReferenceEquals(scratch, first) ||
+            ReferenceEquals(scratch, second) || ReferenceEquals(into, scratch))
+        {
+            throw new ArgumentException("A blend cannot write into a pose it reads.", nameof(into));
+        }
+
+        CollectionsMarshal.SetCount(into, bones.Count);
+        CollectionsMarshal.SetCount(scratch, bones.Count);
+
+        BlendSpans(bones, first, second, s, additive, CollectionsMarshal.AsSpan(into), CollectionsMarshal.AsSpan(scratch));
+
+        return into;
+    }
+
+    /// <summary>The body of <see cref="Blend"/>: expands both poses and blends the second into the first.</summary>
+    private static void BlendSpans(
+        IReadOnlyList<StudioBone> bones,
+        IReadOnlyList<StudioBonePose> first,
+        IReadOnlyList<StudioBonePose> second,
+        float s,
+        bool additive,
+        Span<StudioBonePose> left,
+        Span<StudioBonePose> right)
+    {
+        if (additive)
+        {
+            ExpandIdentityInto(first, left);
+            ExpandIdentityInto(second, right);
+        }
+        else
+        {
+            ExpandInto(bones, first, left);
+            ExpandInto(bones, second, right);
+        }
 
         float weightFirst = 1f - s;
 
@@ -564,8 +651,6 @@ public static class StudioPoseBlend
                     (p.Z * weightFirst) + (q.Z * s),
                     (p.W * weightFirst) + (q.W * s))));
         }
-
-        return left;
     }
 
     /// <summary>Layers a gesture over a base pose additively, the way a delta sequence composites.</summary>
@@ -732,20 +817,20 @@ public static class StudioPoseBlend
     {
         StudioBonePose[] full = new StudioBonePose[bones.Count];
 
+        ExpandIdentityInto(pose, full);
+
+        return full;
+    }
+
+    /// <summary><see cref="ExpandIdentity"/> into storage the caller owns, one entry per bone.</summary>
+    private static void ExpandIdentityInto(IReadOnlyList<StudioBonePose> pose, Span<StudioBonePose> full)
+    {
         for (int bone = 0; bone < full.Length; bone++)
         {
             full[bone] = new StudioBonePose(bone, (0f, 0f, 0f), (0f, 0f, 0f, 1f));
         }
 
-        foreach (StudioBonePose moved in pose)
-        {
-            if (moved.Bone >= 0 && moved.Bone < full.Length)
-            {
-                full[moved.Bone] = moved with { Bone = moved.Bone };
-            }
-        }
-
-        return full;
+        Overlay(pose, full);
     }
 
     /// <summary>Fills in the bones an animation did not mention, from the skeleton's rest pose.</summary>
@@ -754,20 +839,38 @@ public static class StudioPoseBlend
     {
         StudioBonePose[] full = new StudioBonePose[bones.Count];
 
-        for (int bone = 0; bone < bones.Count; bone++)
-        {
-            full[bone] = new StudioBonePose(bone, bones[bone].Position, bones[bone].Rotation);
-        }
-
-        foreach (StudioBonePose moved in pose)
-        {
-            if (moved.Bone >= 0 && moved.Bone < full.Length)
-            {
-                full[moved.Bone] = moved with { Bone = moved.Bone };
-            }
-        }
+        ExpandInto(bones, pose, full);
 
         return full;
+    }
+
+    /// <summary><see cref="Expand"/> into storage the caller owns, one entry per bone.</summary>
+    private static void ExpandInto(
+        IReadOnlyList<StudioBone> bones, IReadOnlyList<StudioBonePose> pose, Span<StudioBonePose> full)
+    {
+        for (int bone = 0; bone < full.Length; bone++)
+        {
+            StudioBone rest = bones[bone];
+
+            full[bone] = new StudioBonePose(bone, rest.Position, rest.Rotation);
+        }
+
+        Overlay(pose, full);
+    }
+
+    /// <summary>Writes each bone a pose names over the expanded one. Indexed rather than enumerated, so an interface
+    /// list is read without boxing an enumerator.</summary>
+    private static void Overlay(IReadOnlyList<StudioBonePose> pose, Span<StudioBonePose> full)
+    {
+        for (int entry = 0; entry < pose.Count; entry++)
+        {
+            StudioBonePose moved = pose[entry];
+
+            if (moved.Bone >= 0 && moved.Bone < full.Length)
+            {
+                full[moved.Bone] = moved;
+            }
+        }
     }
 
     /// <summary>Negates one quaternion when the two point opposite ways round.</summary>

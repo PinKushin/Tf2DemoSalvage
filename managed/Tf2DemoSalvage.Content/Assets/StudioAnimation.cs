@@ -328,14 +328,42 @@ public static class StudioAnimation
     {
         ArgumentNullException.ThrowIfNull(bones);
 
+        List<StudioBonePose> poses = [];
+
+        PoseInto(file, bones, animation, frame, poses, []);
+
+        return poses;
+    }
+
+    /// <summary><see cref="Pose"/> into storage the caller owns (finding 87).</summary>
+    /// <param name="file">The <c>.mdl</c>'s bytes.</param>
+    /// <param name="bones">The skeleton, for rest values and compression scales.</param>
+    /// <param name="animation">Which local animation to read.</param>
+    /// <param name="frame">Which frame of it.</param>
+    /// <param name="poses">Receives what <see cref="Pose"/> returns; cleared first.</param>
+    /// <param name="chain">Holds the animation's bone chain while it is read; cleared first.</param>
+    /// <returns><paramref name="poses"/>.</returns>
+    /// <exception cref="ArgumentNullException">An argument is null.</exception>
+    internal static List<StudioBonePose> PoseInto(
+        ReadOnlyMemory<byte> file,
+        IReadOnlyList<StudioBone> bones,
+        int animation,
+        int frame,
+        List<StudioBonePose> poses,
+        List<(int Bone, int Flags, int At)> chain)
+    {
+        ArgumentNullException.ThrowIfNull(bones);
+        ArgumentNullException.ThrowIfNull(poses);
+        ArgumentNullException.ThrowIfNull(chain);
+
+        poses.Clear();
+
         ReadOnlySpan<byte> bytes = file.Span;
 
         if (animation < 0 || animation >= Count(file) || bones.Count == 0)
         {
-            return [];
+            return poses;
         }
-
-        List<StudioBonePose> poses = [];
 
         // **A delta animation is seeded from NOTHING, not from the rest pose** (B284).
         // `CalcVirtualAnimation` (`bone_setup.cpp:933`) branches on the ANIMATION's own flags
@@ -351,8 +379,11 @@ public static class StudioAnimation
         // twisted body, where the absolute reading had given a flat one.
         bool additive = IsDelta(file, animation);
 
-        foreach ((int bone, int flags, int payload) in
-            Chain(bytes, bones, animation, frame, out int wanted))
+        Chain(bytes, bones, animation, frame, chain, out int wanted);
+
+        poses.EnsureCapacity(chain.Count);
+
+        foreach ((int bone, int flags, int payload) in chain)
         {
             poses.Add(ReadBone(bytes[payload..], bones[bone], bone, flags, wanted, additive));
         }
@@ -496,11 +527,12 @@ public static class StudioAnimation
         IReadOnlyList<StudioBone> bones,
         int animation,
         int frame,
+        List<(int Bone, int Flags, int At)> chain,
         out int wanted)
     {
         wanted = 0;
 
-        List<(int Bone, int Flags, int At)> chain = [];
+        chain.Clear();
 
         if (animation < 0 || bones.Count == 0)
         {
@@ -608,7 +640,7 @@ public static class StudioAnimation
 
         List<(int Bone, int Flags, int Payload)> tracks = [];
 
-        foreach ((int bone, int flags, int at) in Chain(file.Span, bones, animation, frame, out _))
+        foreach ((int bone, int flags, int at) in Chain(file.Span, bones, animation, frame, [], out _))
         {
             tracks.Add((bone, flags, at));
         }

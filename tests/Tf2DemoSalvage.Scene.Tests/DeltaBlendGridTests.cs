@@ -69,6 +69,28 @@ public sealed class DeltaBlendGridTests
         root.Position.Y.ShouldBe(RestHeight, Tolerance);
     }
 
+    /// <remarks>
+    /// **The grid's whole path, built in the skeleton's own storage** (finding 87): three corners, each read at two
+    /// frames and blended, then blended together. The first call sizes the workspace; the second must allocate nothing,
+    /// and must still be the pose a fresh build gives.
+    /// </remarks>
+    [Test]
+    public void LocalsInto_ASecondPoseOfAGridBetweenFrames_AllocatesNothingAndEqualsLocals()
+    {
+        PropModels.SkinnedModel model = Grid(delta: false);
+        StudioPoseWorkspace workspace = new();
+        float[] poseValues = [0.5f];
+
+        model.LocalsInto(0, 0, 0.25f, poseValues, workspace);
+
+        long before = System.GC.GetAllocatedBytesForCurrentThread();
+        IReadOnlyList<StudioBonePose> pose = model.LocalsInto(0, 0, 0.25f, poseValues, workspace);
+        long allocated = System.GC.GetAllocatedBytesForCurrentThread() - before;
+
+        allocated.ShouldBe(0L);
+        pose.ShouldBe(model.Locals(0, 0, 0.25f, poseValues));
+    }
+
     /// <summary>The rest rotation's X, chosen large enough that no rounding could reach it.</summary>
     private const float RestRotationX = 0.5f;
 

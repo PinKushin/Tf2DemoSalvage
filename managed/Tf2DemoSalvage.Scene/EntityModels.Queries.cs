@@ -502,7 +502,7 @@ public sealed partial class EntityModelSet
         EntitiesBuilt++;
 
         AnimatingEntity animating = new(
-            new SkeletonPose(skinned.Bones, skinned.Locals), _boneFrames, _loggers);
+            new SkeletonPose(skinned.Bones, skinned.LocalsInto), _boneFrames, _loggers);
 
         _entities[prop.EntityIndex] = animating;
         _entityModels[prop.EntityIndex] = prop.ModelPath;
