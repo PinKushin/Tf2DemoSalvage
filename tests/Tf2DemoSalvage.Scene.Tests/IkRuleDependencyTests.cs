@@ -123,6 +123,28 @@ public sealed class IkRuleDependencyTests
         allocated.ShouldBeLessThan(216L, "216 bytes is the call with the capturing predicate and its delegate");
     }
 
+    /// <remarks>
+    /// **The list is the skeleton's, made once** (finding 87): the second simulate gets the first one's list back, empty,
+    /// and allocates nothing for it.
+    /// </remarks>
+    [Test]
+    public void ReusedIkErrors_ASecondSimulate_GetsTheSameListEmptyAndAllocatesNothing()
+    {
+        Tf2DemoSalvage.Animation.Animating.SkeletonPose posed = new([], (_, _, _, _) => []);
+
+        List<(StudioIkRule, Vector3, Quaternion, float)> first = EntityModelSet.ReusedIkErrors(posed);
+        first.Add(Held(chain: 0));
+
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        List<(StudioIkRule, Vector3, Quaternion, float)> second = EntityModelSet.ReusedIkErrors(posed);
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        second.ShouldBeSameAs(first);
+        second.ShouldBeEmpty();
+        posed.IkErrors.ShouldBeSameAs(second);
+        allocated.ShouldBe(0L);
+    }
+
     private static (StudioIkRule, Vector3, Quaternion, float) Held(int chain) =>
         (new StudioIkRule(
             Type: StudioIkRuleType.Self, Chain: chain, Bone: 0, Slot: 0, Height: 0f, Radius: 0f, Floor: 0f,
