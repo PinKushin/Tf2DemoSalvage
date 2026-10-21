@@ -323,6 +323,11 @@ public sealed class BurstEffects
                 frame.Scripts?.Entries));
     }
 
+    /// <summary>The rate line's parts under `--measure`, else null.</summary>
+    internal FrameParts? Parts { get; set; }
+
+    private long Part(string name, long since) => FrameParts.Lap(Parts, name, since);
+
     /// <summary>Frames that searched the timeline for what to offer, ever (finding 82).</summary>
     internal long Searches { get; private set; }
 
@@ -391,17 +396,28 @@ public sealed class BurstEffects
                 blast.Tick));
         }
 
+        // Each offerer timed where it runs, under `camera particles bursts` (finding 86, B243).
+        long partAt = Part("camera particles bursts explosions", searchingAt);
         AddTracers(tick, systems, new Vector3(viewing.Origin.X, viewing.Origin.Y, viewing.Origin.Z));
+        partAt = Part("camera particles bursts tracers", partAt);
         AddBlood(timeline, tick, systems, viewing);
+        partAt = Part("camera particles bursts blood", partAt);
         AddSplashes(tick, systems);
+        partAt = Part("camera particles bursts splashes", partAt);
         AddSentryMuzzleFlashes(timeline, tick, systems);
+        partAt = Part("camera particles bursts sentries", partAt);
         AddParticleDispatches(timeline, tick, systems);
+        partAt = Part("camera particles bursts dispatches", partAt);
         AddWeaponMuzzleFlashes(timeline, tick, systems);
+        partAt = Part("camera particles bursts muzzles", partAt);
 
         DrawnPlayers(frame.Players, tick);
+        partAt = Part("camera particles bursts players", partAt);
 
         AddHealBeams(timeline, tick, systems);
+        partAt = Part("camera particles bursts beams", partAt);
         AddOverheals(timeline, tick, systems);
+        _ = Part("camera particles bursts overheals", partAt);
 
         long steppingAt = System.Diagnostics.Stopwatch.GetTimestamp();
         SearchTicks += steppingAt - searchingAt;
@@ -415,7 +431,9 @@ public sealed class BurstEffects
             frame.ShownTick,
             frame.Seeked);
 
-        BurstTicks += System.Diagnostics.Stopwatch.GetTimestamp() - steppingAt;
+        long steppedAt = System.Diagnostics.Stopwatch.GetTimestamp();
+        BurstTicks += steppedAt - steppingAt;
+        Parts?.Add("camera particles bursts step", steppedAt - steppingAt);
 
         return _whizzes;
     }

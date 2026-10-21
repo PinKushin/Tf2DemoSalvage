@@ -295,17 +295,7 @@ public sealed partial class FramePresenter
     public FrameParts? Parts { get; set; }
 
     /// <summary>Adds the time since <paramref name="since"/> to a part and returns now, to time the next; nothing unmeasured.</summary>
-    internal long Part(string name, long since)
-    {
-        if (Parts is not { } parts)
-        {
-            return 0;
-        }
-
-        long now = System.Diagnostics.Stopwatch.GetTimestamp();
-        parts.Add(name, now - since);
-        return now;
-    }
+    internal long Part(string name, long since) => FrameParts.Lap(Parts, name, since);
 
     /// <summary>A VGUI material's texture, from the install — `DrawSetTextureFile`.</summary>
     private MapTexture? ResolveVguiMaterial(string material) =>
