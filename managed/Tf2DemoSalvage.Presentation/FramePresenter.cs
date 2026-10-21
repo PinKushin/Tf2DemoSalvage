@@ -323,7 +323,7 @@ public sealed partial class FramePresenter
 
         _lights.Step(new LightStyleFrame(_frame.Timeline, _frame.Loaded, tick, _moment.WorldLights, _moment.Drawn, _walk), device);
 
-        partAt = Part("camera particles lights", partAt);
+        partAt = Part("camera particles/lights", partAt);
 
         // With the tracers' player pass, after the model pass has posed this frame's hitboxes.
         // A client bullet's landing sound comes back for the sound presenter: presenters do not reach sideways (D92).
@@ -332,7 +332,7 @@ public sealed partial class FramePresenter
             _sound.Emit(landed);
         }
 
-        partAt = Part("camera particles decals", partAt);
+        partAt = Part("camera particles/decals", partAt);
 
         _sound.StepClientSounds(
             new ClientSoundFrame(
@@ -348,14 +348,14 @@ public sealed partial class FramePresenter
                 _frame.DemoFrameSeconds),
             _models);
 
-        partAt = Part("camera particles sounds", partAt);
+        partAt = Part("camera particles/sounds", partAt);
 
         ImpactFrame impacts = new(
             _frame.Timeline, _frame.Loaded, tick, BulletSceneNow, viewing, _frame.ViewportWidth, _styleScale, _walk);
 
         _impacts.Step(impacts);
 
-        partAt = Part("camera particles impacts", partAt);
+        partAt = Part("camera particles/impacts", partAt);
 
         IReadOnlyList<ParticleBatch> batches = [];
 
@@ -381,7 +381,7 @@ public sealed partial class FramePresenter
 
         bool trails = _frameParticles.Trails(particles);
 
-        partAt = Part("camera particles trails", partAt);
+        partAt = Part("camera particles/trails", partAt);
 
         if (trails)
         {
@@ -412,7 +412,7 @@ public sealed partial class FramePresenter
 
             _seekPending = false;
 
-            partAt = Part("camera particles bursts", partAt);
+            partAt = Part("camera particles/bursts", partAt);
 
             EffectEntityFrame strips = new(
                 _frame.Timeline, _frame.Loaded, tick, viewing, _moment.Drawn, _frame.ViewportWidth, _moment.ViewerVisionFlags);
@@ -420,7 +420,7 @@ public sealed partial class FramePresenter
             batches = _frameParticles.Build(
                 particles, device, (forward, right, up, sees) => _effectEntities.Build(strips, forward, right, up, sees));
 
-            partAt = Part("camera particles build", partAt);
+            partAt = Part("camera particles/build", partAt);
         }
 
         batches = _impacts.With(batches, impacts);
@@ -428,6 +428,6 @@ public sealed partial class FramePresenter
 
         device.SetParticles(batches);
 
-        _ = Part("camera particles hand", partAt);
+        _ = Part("camera particles/hand", partAt);
     }
 }

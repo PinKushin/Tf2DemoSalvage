@@ -225,6 +225,45 @@ public sealed class ParticleBurstTests
     }
 
     /// <remarks>
+    /// **A dormant owner's empty effect is not gone** (finding 86, review item 1): `IsFinished` (`0xe3c60`) answers false
+    /// while the dormant flag `SetDormant` writes is set, so the engine keeps it and `SetDormant(false)` re-emits it. Here
+    /// one particle of 33 ticks is emitted at tick 100, and the owner is dormant over ticks 110–200, so the effect is empty
+    /// and dormant by tick 180. Not gone then, and still stepped a tick at a time, so the wake reaches the effect itself.
+    /// Before this fix it became the finished marker at tick 133, inside the dormancy, and was never stepped again.
+    /// </remarks>
+    [Test]
+    public void IsGone_AnEmptyBurstWhoseOwnerIsDormant_IsFalseAndItIsStillStepped()
+    {
+        ParticleEffects effects = new();
+        ParticleSystem once = Beam with
+        {
+            Name = "test_once",
+            Emitters = [new ParticleFunction("emit_instantaneously", "emit", new Dictionary<string, DmxValue>(StringComparer.Ordinal)
+            {
+                ["num_to_emit"] = new(DmxAttributeType.Whole, 1d),
+            })],
+        };
+        ParticleBurst puff = new ParticleBurst(1, once, Origin, 100) with { DormantAt = static at => at is >= 110 and <= 200 };
+
+        for (int tick = 100; tick <= 180; tick++)
+        {
+            effects.Bursts([puff], Interval, null, tick);
+        }
+
+        effects.BurstParticles(1)!.Count.ShouldBe(0, "the precondition: its one particle is gone");
+        bool gone = effects.IsGone(1);
+        int steps = effects.BurstSteps(1);
+
+        for (int tick = 181; tick <= 190; tick++)
+        {
+            effects.Bursts([puff], Interval, null, tick);
+        }
+
+        // Still the effect and still stepped, so the wake's `StartEmission` reaches it; as a finished marker it was frozen.
+        (gone, effects.BurstSteps(1) - steps).ShouldBe((false, 10));
+    }
+
+    /// <remarks>
     /// **Cut short by the offer is not finished** (Fable review, item 1). An unoffered burst is faded as if `StopEmission`
     /// had run, but for a stopless dispatch whose owner was unposed the engine never stopped it. Here a two-second emitter,
     /// half a second old, is unoffered for a second: faded empty and retired. Offered again at 1.5 s, inside its life, it is
