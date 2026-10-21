@@ -59,6 +59,10 @@ Check 'console net_graph 1, no entry: denied'              (Run $b 'net_graph 1'
 Check 'console with // exploratory: note'                  (Run $b 'net_graph 1 // exploratory' 'mcp__tf2__console') 'note'
 Check 'non-measuring probe: allowed silently'              (Run $b 'dotnet run --project tools/Tf2DemoSalvage.Probe -c Release -- carried x.dem 5') 'allow'
 Check 'tf2demoview without --shot/--measure: allowed'      (Run $b 'tf2demoview.exe f12.dem --tick 5') 'allow'
+Check 'tf2demoview --shot is evidence, not a figure: allowed' (Run $b 'pwsh run-exclusive.ps1 tf2demoview.exe f12.dem --tick 5 --shot out.png') 'allow'
+Check '--measure inside a quoted string: allowed'          (Run $b 'echo "tf2demoview f12.dem --measure 20"') 'allow'
+Check '--measure in a grep: allowed'                       (Run $b 'grep -rn "tf2demoview .* --measure" docs') 'allow'
+Check 'control: --measure, no entry: denied'               (Run $b $measure) 'deny'
 Put $b ($withMethod -replace '(?s)(## Result\s*\n)\(.*?\)', '$1median 312 fps') -Commit
 Check 'entry already has a Result: denied'                 (Run $b $measure) 'deny'
 
@@ -77,6 +81,33 @@ Put $c ($done -replace 'Confirmed: ratio 4.6x.', 'TF2 is faster.')
 Check 'Prediction stated, Verdict lacks the word: denied'  (Run $c 'git commit -m "docs: x"') 'deny'
 Put $c ($done -replace 'median 250-450 fps', 'median 250-500 fps')
 Check 'Prediction edited after first commit: denied'       (Run $c 'git commit -m "docs: x"') 'deny'
+
+# Freeze line = the first commit carrying a filled Result; baseline = the committed version before it.
+$g = New-Repo 'g2b'
+Put $g $withMethod -Commit
+$ctl2 = $withMethod -replace 'Run each side twice', 'Run each side twice, back to back'
+Put $g $ctl2
+Check 'Control edited before any Result (uncommitted): allowed' (Run $g 'git commit -m "docs: x"') 'allow'
+Put $g $ctl2 -Commit
+Check 'Control edited and committed before any Result: allowed' (Run $g 'git commit -m "docs: x"') 'allow'
+$ran = $ctl2 -replace '(?s)(## Result\s*\n)\(.*?\)', '$1median 312 fps' -replace '(?s)(## Verdict\s*\n)\(.*?\)', '$1Confirmed: ratio 4.6x.'
+Put $g $ran -Commit
+Check 'Result committed, sections as baseline: allowed'    (Run $g 'git commit -m "docs: x"') 'allow'
+Put $g ($ran -replace 'back to back', 'an hour apart')
+Check 'Control edited after the Result commit: denied'     (Run $g 'git commit -m "docs: x"') 'deny'
+Put $g ($ran -replace 'back to back', 'an hour apart') -Commit
+Check 'same edit once committed: still denied'             (Run $g 'git commit -m "docs: x"') 'deny'
+$k = New-Repo 'g2c'
+Put $k $ran -Commit
+Put $k ($ran -replace 'back to back', 'an hour apart')
+Check 'Result in the very first commit: no baseline, allowed' (Run $k 'git commit -m "docs: x"') 'allow'
+
+# The real f12 entry, its history replayed commit by commit (Control was edited before the run, in 1f10ce4e).
+$real = New-Repo 'g2real'
+foreach ($sha in '42e4ee37', '66539d53', '1f10ce4e', '4193c95f') {
+    Put $real ((& git -C $repo show "${sha}:$rel") -join "`n") -Commit
+}
+Check 'real f12 entry history: commit allowed'             (Run $real 'git commit -m "docs: x"') 'allow'
 Put $c ($done -replace 'Run each side twice', 'Run each side once')
 Check 'Control edited after first commit: denied'          (Run $c 'git commit -m "docs: x"') 'deny'
 

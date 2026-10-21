@@ -9,7 +9,7 @@
 #
 # THREE GATES, all PreToolUse, each decided from the payload plus `git` in the payload's cwd:
 #
-# 1. PRE-RUN (Bash|PowerShell|mcp__tf2__console). A measuring command - `tf2demoview ... --measure|--shot`,
+# 1. PRE-RUN (Bash|PowerShell|mcp__tf2__console). A measuring command - `tf2demoview ... --measure`,
 #    `dotnet-trace collect|report`, a measuring Probe (`Tf2DemoSalvage.Probe ... -- timeline-cost|timeline-heap|
 #    sample-cost|map-memory|process-memory|voice-memory|sound-read|voice-roundtrip`), or a console line turning on
 #    `cl_showfps`/`net_graph` or running `timedemo` - is denied unless some docs/measurements/*.md is COMMITTED (read
@@ -18,16 +18,17 @@
 #    compares against. `# measurement: docs/measurements/<file>.md` (`// measurement:` in the TF2 console) names the
 #    file; without it any open file will do. Hypothesis and Prediction are OPTIONAL: a missing one is a note, not a
 #    refusal. ESCAPE: `# exploratory` (`// exploratory` in the console, Source's comment, so the cvar still parses).
-#    An exploratory number is not an observation and may not be quoted as a figure in a doc.
-#    NOISE, said plainly: `--shot` is the routine screenshot path for visual diagnosis, gated because the brief asked;
-#    expect to type `# exploratory` on most screenshots.
+#    An exploratory number is not an observation and may not be quoted as a figure in a doc. `--shot` is NOT gated:
+#    a screenshot is evidence, not a figure (lead's review, 2026-10-21).
 #
 # 2. CLOSE THE LOOP (`git commit`, `git push`, `gh release`). Denied while any docs/measurements/*.md in the working
 #    tree has a filled Result and a placeholder Verdict; while a file that states a Prediction has a Verdict that does
-#    not say confirmed, falsified or inconclusive; or while a section that was FILLED when the file was first committed
-#    (Observation, Question, Hypothesis, Prediction, Falsified if, Control, Method) differs now from that first form.
-#    A section that was a placeholder at first commit may be filled later (the f12 entry's Method was). An open file
-#    with no Result yet does not block commits - the lead commits other work while a run is pending.
+#    not say confirmed, falsified or inconclusive; or while a section that was FILLED before the run (Observation,
+#    Question, Hypothesis, Prediction, Falsified if, Control, Method) differs now from its pre-run form. THE RUN is the
+#    first committed version with a filled Result; the pre-run form is the committed version before it (or HEAD,
+#    while the Result exists only in the working copy). Before that, edits are free: the f12 entry's Control was
+#    corrected before its run. A section that was a placeholder before the run may be filled later. A Result in the
+#    very first commit has no pre-run form and is not checked. An open file with no Result does not block commits.
 #
 # 3. TEST THE DECISION (`git commit` whose message subject starts `fix:` or `perf:`). Denied unless the commit
 #    touches tests/ (staged, or named in a `git add` in the same command) or the message carries both `Tested by:`
@@ -61,7 +62,7 @@ $searchy = $cmd -match '^\s*(git|grep|rg|gh|cat|echo|sed|head|tail|less)\b'
 $measures = if ($console) { $cmd -match '\b(cl_showfps|net_graph)\s+"?[1-9]|\btimedemo\b' }
             elseif ($searchy) { $false }
             else {
-                $unquoted -match 'tf2demoview\S*\s[^\n]*--(measure|shot)\b' -or
+                $unquoted -match 'tf2demoview\S*\s[^\n]*--measure\b' -or
                 $unquoted -match '\bdotnet-trace\s+(collect|report)\b' -or
                 $unquoted -match 'Tf2DemoSalvage\.Probe\b[^\n]*\s--\s+(timeline-cost|timeline-heap|sample-cost|map-memory|process-memory|voice-memory|sound-read|voice-roundtrip)\b'
             }
@@ -144,14 +145,25 @@ foreach ($f in $files) {
     elseif ((Test-Filled $now 'Result') -and (Test-Filled $now 'Prediction') -and $now['Verdict'] -notmatch '(?i)\b(confirmed|falsified|inconclusive)\b') {
         $why += "$r states a Prediction, so its Verdict must say confirmed, falsified or inconclusive"
     }
-    $first = (& git -C $root log --diff-filter=A --format=%H -- $r 2>$null | Select-Object -Last 1)
-    if (-not $first) { continue }
+    # The freeze line is the RUN, not the first commit: the first committed version with a filled Result. The
+    # baseline is the committed version just before it. Before any Result is committed, a filled working copy is
+    # judged against HEAD; with no Result anywhere, pre-run edits are free. (The first version froze at first commit,
+    # and refused the f12 entry, whose Control was corrected before its run.)
     # cat-file, not show: `git show <40-hex>:<path>` stats the argument as a file first and dies with "Filename too
     # long" under a deep worktree, which silently read every first form as empty (caught by this hook's own control).
-    $then = Get-Sections ((& git -C $root cat-file -p "${first}:$r" 2>$null) -join "`n")
+    $history = @(& git -C $root log --reverse --format=%H -- $r 2>$null)
+    $base = $null; $ranAt = $null
+    for ($i = 0; $i -lt $history.Count; $i++) {
+        $v = Get-Sections ((& git -C $root cat-file -p "$($history[$i]):$r" 2>$null) -join "`n")
+        if (Test-Filled $v 'Result') { $ranAt = $i; break }
+        $base = $history[$i]
+    }
+    if ($null -eq $ranAt -and -not (Test-Filled $now 'Result')) { continue }   # not run yet
+    if (-not $base) { continue }   # Result in the very first commit (or never committed): nothing before the run
+    $then = Get-Sections ((& git -C $root cat-file -p "${base}:$r" 2>$null) -join "`n")
     foreach ($n in $frozen) {
         if ((Test-Filled $then $n) -and (-not $now.ContainsKey($n) -or $now[$n].Trim() -cne $then[$n].Trim())) {
-            $why += "$r changed '## $n' after it was first committed ($($first.Substring(0, 8)))"
+            $why += "$r changed '## $n' since its last pre-run commit ($($base.Substring(0, 8)))"
         }
     }
 }

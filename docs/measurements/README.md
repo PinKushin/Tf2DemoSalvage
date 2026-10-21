@@ -46,14 +46,14 @@ is not edited into the right answer; the verdict says how wrong it was.
 Two project hooks hold this. Each script's header carries its reasoning, and each has a `*.sequence-test.ps1` with controls.
 
 - `tf2-measurement-gate.ps1` (PreToolUse, Bash/PowerShell/`mcp__tf2__console`):
-  - **Before a measuring command**: a COMMITTED file here must have Observation, Question, Method and Control filled, and Result still empty. Measuring commands are `tf2demoview --measure|--shot`, `dotnet-trace collect|report`, a measuring Probe, and `cl_showfps 1`, `net_graph 1` or `timedemo` in the TF2 console.
+  - **Before a measuring command**: a COMMITTED file here must have Observation, Question, Method and Control filled, and Result still empty. Measuring commands are `tf2demoview --measure` (not `--shot`: a screenshot is evidence, not a figure), `dotnet-trace collect|report`, a measuring Probe, and `cl_showfps 1`, `net_graph 1` or `timedemo` in the TF2 console.
     - `# measurement: <file>` picks the file.
     - `# exploratory` skips the gate (`// exploratory` in the console), and its numbers may not be quoted.
     - A missing Prediction is only a note.
   - **Before `git commit`, `git push` or `gh release`**:
     - a filled Result needs a Verdict;
     - a file with a Prediction needs confirmed, falsified or inconclusive in its Verdict;
-    - no section that was filled at first commit may differ now.
+    - once the run is committed (the first commit with a filled Result), no section filled before it may differ from the commit just before the run. Edits before the run are free.
   - **A `fix:` or `perf:` commit**:
     - needs tests/ staged, or `Tested by:` plus `Observed:`, or `No-test: <reason>`;
     - `perf:` also cites its `docs/measurements/` file.
