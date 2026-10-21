@@ -1,6 +1,21 @@
-# Tf2DemoSalvage 0.1.0-beta.45
+# Tf2DemoSalvage 0.1.0-beta.46
 
 ## Unreleased
+
+## Changes in 0.1.0-beta.46
+
+Released 2026-10-21.
+
+- **Large demos open faster.** Building the timeline for a 58 MB match (the `cp_process_f12` recording) went from about
+  170 seconds to about 100 seconds on the author's machine, with the same memory use.
+- **Fewer hitches during playback.** Surface sounds (footsteps, impacts, scrapes) are decoded while the demo loads
+  instead of the first time they play. Rocket-jump smoke effects that had already finished are no longer rebuilt all at
+  once after the camera moves.
+- **Particle effects follow the game's rules for what is drawn and what sleeps.** An effect that is out of view is not
+  drawn and goes to sleep after a few seconds, as in TF2, and one frame of particle simulation is limited to 0.1
+  seconds, as in the game. On the author's f12 test the picture is unchanged: the comparison images differ only by the
+  frame-rate counter and nine pixels that are off by two shades out of 255.
+- **Developer option.** `--measure` prints new lines for JIT compilation and for particle work per frame.
 
 ## Changes in 0.1.0-beta.45
 
@@ -732,6 +747,11 @@ Each claim below is a measurement, not an expectation.
 ## Known gaps
 
 Things a user is likely to notice. Each has an entry in `docs/RISKS.md` in the repository.
+
+- **The first twenty seconds or so of playback run slower than steady state** while the runtime optimizes the viewer's
+  code. Turning that off made loading much slower and playback slower too, so it was reverted. Still open.
+- **Frame rate is not yet where we want it.** On the author's f12 first-person test it is roughly 70 frames per
+  second, far below the game itself. This is the current priority.
 
 - **The "no map" message is unverified** (B556, D224). When a demo's map cannot be fetched or found, the viewer
   is meant to say so in the status bar. No test has opened a demo with its map absent by each route (a failed
