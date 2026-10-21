@@ -200,6 +200,33 @@ public sealed class ParticleBurstTests
     }
 
     /// <remarks>
+    /// **Cut short by the offer is not finished** (Fable review, item 1). An unoffered burst is faded as if `StopEmission`
+    /// had run, but for a stopless dispatch whose owner was unposed the engine never stopped it. Here a two-second emitter,
+    /// half a second old, is unoffered for a second: faded empty and retired. Offered again at 1.5 s, inside its life, it is
+    /// replayed from its own tick, as before finding 84, and is emitting: the engine shows its last half second of emission.
+    /// </remarks>
+    [Test]
+    public void Bursts_CutShortByTheOfferAndOfferedAgainInsideTheirLife_AreBuiltFromTheirOwnTick()
+    {
+        ParticleEffects effects = new();
+        ParticleBurst beam = new(1, Timed, Origin, 100);
+
+        for (int tick = 100; tick <= 210; tick++)
+        {
+            effects.Bursts(tick is > 133 and < 200 ? [] : [beam], Interval, null, tick);
+
+            if (tick == 199)
+            {
+                effects.BurstCount.ShouldBe(0, "the precondition: faded empty and retired");
+            }
+        }
+
+        effects.BurstBuilds.ShouldBe(2);
+        effects.BurstSteps(1).ShouldBe(110, "replayed from tick 100 to 200, then a step a frame to 210");
+        effects.BurstParticles(1)!.Count.ShouldBeGreaterThan(0, "1.6 s into a 2 s emission");
+    }
+
+    /// <remarks>
     /// **An effect past its definition's whole life is not built by playing** — it would have finished, and the engine
     /// never re-creates a finished effect (`IsFinished`, particles.h:1119). A player out of view at the seek, posed eight
     /// seconds later, had every past rocket-jump smoke replayed from its own tick in one frame: 90 bursts, all long
