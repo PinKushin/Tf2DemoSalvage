@@ -242,6 +242,7 @@ public sealed class ParticleEffects
             _running.Clear();
             _playedFrom.Clear();
             _trailSleep.Clear();
+            _orphans.Clear();
             advanced = 0d;
         }
 
@@ -254,6 +255,18 @@ public sealed class ParticleEffects
             projectiles)
         {
             _alive.Add(entity);
+
+            // **A projectile on an index whose last one is gone is a new projectile** (Fable review, item 3): the orphan
+            // trail is dropped rather than inherited, which one asleep with live particles would otherwise be for good
+            // (B420). The engine deletes the entity and its effect stops; the new one gets its own.
+            // ponytail: drops that orphan's remaining particles; key trails by (entity, start) if a fading tail must outlive
+            // its index's reuse.
+            if (_orphans.Remove(entity))
+            {
+                _running.Remove(entity);
+                _playedFrom.Remove(entity);
+                _trailSleep.Remove(entity);
+            }
 
             if (!_running.TryGetValue(entity, out ParticleEffect? effect))
             {
@@ -309,8 +322,15 @@ public sealed class ParticleEffects
 
             if (last > 0f && TrailAsleep(entity, effect, now))
             {
-                // Asleep, it is not simulated and its clock stands; its point is still read (particlemgr.cpp:1841-1853).
+                // Asleep, it is not simulated and its clock stands; its point is still read (particlemgr.cpp:1841-1853),
+                // and one that moved simulates its bounds only (particlemgr.cpp:1785-1789), as a burst's does (B557 row 9).
                 effect.SetControlPoint(0, at);
+
+                if (effect.HasMoved())
+                {
+                    effect.SimulateBoundsOnly(last);
+                }
+
                 Slept++;
             }
             else if (last > 0f)
@@ -335,6 +355,8 @@ public sealed class ParticleEffects
             {
                 continue;
             }
+
+            _orphans.Add(entity);
 
             if (last > 0f && TrailAsleep(entity, effect, now))
             {
@@ -361,6 +383,7 @@ public sealed class ParticleEffects
             _running.Remove(entity);
             _playedFrom.Remove(entity);
             _trailSleep.Remove(entity);
+            _orphans.Remove(entity);
         }
 
         Alive += _running.Count;
@@ -730,7 +753,7 @@ public sealed class ParticleEffects
             {
                 Effect = spent ? Spent : running.Effect,
                 Stepped = taken, SimulatedTo = reachedTo, Stopped = stopped, StillRead = stillRead, Tick = burst.Tick,
-                Name = burst.Definition.Name, Unoffered = false,
+                Name = burst.Definition.Name, Unoffered = false, CutShort = false,
                 NextSleep = nextSleep, Dormant = wasDormant, LastAt = current, StopCleared = stopCleared,
             };
         }
@@ -793,7 +816,10 @@ public sealed class ParticleEffects
                 reached = next;
             }
 
-            _bursts[key] = running with { SimulatedTo = reached, Stopped = true, Unoffered = true };
+            // Cut short when the offer ended before its own stop or its end: the first unoffered frame decides.
+            bool cutShort = running.Unoffered ? running.CutShort : !running.Stopped && !running.Effect.Finished;
+
+            _bursts[key] = running with { SimulatedTo = reached, Stopped = true, Unoffered = true, CutShort = cutShort };
         }
     }
 
@@ -894,8 +920,15 @@ public sealed class ParticleEffects
 
         foreach (long key in _finished)
         {
+            // **Only one that ended on its own definition is spent** (Fable review, item 1): one the offer cut short was
+            // faded by us, not stopped by the engine, so offered again inside its life it is built — and past it, the age
+            // skip in `Bursts` declines it.
+            if (!_bursts[key].CutShort)
+            {
+                _spent.Add(key);
+            }
+
             _bursts.Remove(key);
-            _spent.Add(key);
         }
     }
 
@@ -956,6 +989,12 @@ public sealed class ParticleEffects
 
         /// <summary>The control point it was last placed at.</summary>
         public ParticleControlPoint LastAt { get; init; }
+
+        /// <summary>
+        /// Whether the offer ended while it was still running on its own definition, so its fade is ours and not its end:
+        /// retired, it may be offered again and built (Fable review, item 1).
+        /// </summary>
+        public bool CutShort { get; init; }
     }
 
     /// <summary>Builds every live effect's quads for this frame's camera.</summary>
@@ -1156,6 +1195,12 @@ public sealed class ParticleEffects
     private void FileEffect(long key, ParticleEffect effect)
     {
         (Vector3 min, Vector3 max) = effect.Bounds();
+
+        // **An empty effect's box is control point 0 alone, a point, and the engine culls it** (Fable review, item 4). This
+        // leaf system holds a box with no volume as unplaced — never culled — so the point is padded to one that links.
+        min = Vector3.Min(min, max - PointPad);
+        max = Vector3.Max(max, min + (2f * PointPad));
+
         (float, float, float, float, float, float) box = (min.X, min.Y, min.Z, max.X, max.Y, max.Z);
 
         if (_handleOfEffect.TryGetValue(key, out int handle))
@@ -1181,6 +1226,9 @@ public sealed class ParticleEffects
         }
     }
 
+    /// <summary>Half the least extent an effect's filed box has on each axis, in world units.</summary>
+    private static readonly Vector3 PointPad = new(0.5f);
+
     /// <summary>A trail's key among the bursts': its entity in the top half, which no burst key reaches.</summary>
     private static long TrailKey(int entity) => (1L << 62) | (uint)entity;
 
@@ -1196,6 +1244,9 @@ public sealed class ParticleEffects
 
     /// <summary>Each trail's sleep time, in ticks, as a burst's <see cref="RunningBurst.NextSleep"/> is.</summary>
     private readonly Dictionary<int, double> _trailSleep = [];
+
+    /// <summary>The trails whose projectile is gone: a projectile that appears on one of these indices is a new one.</summary>
+    private readonly HashSet<int> _orphans = [];
 
     private ClientLeafSystem? _effectLeaves;
     private BspLeafTree? _effectTree;
@@ -1357,6 +1408,7 @@ public sealed class ParticleEffects
 
         // And the effects' sleep and filing (finding 84, D1): a new map's tree files them afresh.
         _trailSleep.Clear();
+        _orphans.Clear();
         _handleOfEffect.Clear();
         _keyOfHandle.Clear();
         _effectLeaves = null;

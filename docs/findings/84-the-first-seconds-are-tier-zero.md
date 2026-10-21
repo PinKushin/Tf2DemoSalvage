@@ -274,7 +274,7 @@ draw**; particle cost 1.28 ms a frame searching the timeline for offers and 0.41
 | D2 | every effect sleeps | a projectile trail (`Update`) has no sleep at all | **fixed**, same commit |
 | D3 | a frame simulates at most 0.1 s | a played frame stepped however long | **fixed** (`fix: a particle frame simulates at most 0.1 s`) |
 | D4 | an effect undrawn since creation sleeps at creation plus the no-draw time | a replay treats every replayed tick as drawn (B565) | **decided: kept as is** (the owner, below) |
-| D5 | a skipped effect that moved updates its bounds only | not modelled; it changes bounds and nothing drawn | not done, by choice |
+| D5 | a skipped effect that moved updates its bounds only | the bursts did (B557 row 9); a trail did not | **fixed** for trails too (`fix: four review findings`, below) |
 
 **D1, decided and done.** The coordinator chose the engine-shaped route: particle effects collated beside the entities.
 The world pass now keeps the views it collated by (`EntityModelSet.WorldView`: main and sky leaf lists, both frustums,
@@ -313,7 +313,47 @@ seconds after creation and the replay would be cheap, but an effect older than e
 at age eight. The reason is the lead's recommendation, which the owner accepted without adding his own: A matches what
 continuous playing usually shows, and it is the current behaviour. Neither is the engine (B565).
 
-**The age bound is next, and was not changed here.** With sleep modelled, the age skip can apply only to an effect whose
-emission and lifetime fit within its root's sleep, since only those finish before they could sleep; for the rest the
-bound is unbounded (review item 1, still held).
+**The age bound stays as it is, and the review that asked to narrow it was wrong under D4.** The engine would hold an
+effect undrawn since creation asleep at creation plus the no-draw time, frozen mid-life, so the review (item 2 of the
+batch-11 review, earlier item 1) asked to skip by age only an effect that empties before it could sleep, and to build the
+rest. Built, though, such an effect is replayed from its own tick, and **the replay treats every tick as drawn** — the
+owner's D4 decision, option A — so it runs to its end and finishes: the same empty frame, at the cost of a replay. The
+frozen remainder is what option B would show, and B was rejected. Read from our code (`Bursts`: a rebuild pushes the sleep
+on every replayed tick) and the bound's own definition (`MaximumLife` = last emission + longest life + no-draw time, past
+which a drawn replay has finished). No code change.
+
+## The batch-11 review (2026-10-21)
+
+The merged batch (`merge/batch-11`, `2ef31153`) passed the gate and a Fable review returned six findings. Each was read
+against our code and the engine before anything changed; four were real and are fixed in one commit
+(`fix: four review findings on the particle sleep and retire paths`), each test red before the fix and red again under its
+own sabotage:
+
+| item | finding | verdict | what changed |
+|---|---|---|---|
+| 1 | `Retire` spent every retired burst, but it retires only unoffered ones, and an unoffered burst was faded as if `StopEmission` ran; a stopless dispatch whose owner was unposed was never stopped by the engine, so one cut short inside its life was never rebuilt | **real** | a burst unoffered before its own stop or end is marked cut short and is not spent when retired; offered again inside its life it is replayed from its own tick, and past it the age skip declines it |
+| 2 | narrow the age skip to effects that empty before they could sleep | **wrong under D4**, above | nothing |
+| 3 | an orphan trail asleep with particles is never stepped, so never empty, so held for good under its entity index, and the next projectile on that index inherited it (B420) | **real** | a projectile on an index whose last projectile is gone drops the orphan and gets its own effect |
+| 4 | an empty effect files a point box, which this leaf system holds as unplaced: never linked, never culled, collated in every main view, so its sleep was pushed every frame | **real** | the filed box is padded to at least one unit an axis, so it links and culls; one in view is still found |
+| 5 | the surface precache names 7 of 10 keys | already B563 | left |
+| 6 | an asleep trail that moved only had its point set; the engine sends it to a bounds-only simulate (`particlemgr.cpp:1787-1791`) | **real** | `SimulateBoundsOnly`, as the burst path already did |
+
+**Item 3's ceiling** (marked `ponytail:` in the code): the orphan's remaining particles vanish when its index is reused,
+where the engine would let them fade beside the new trail. Keying trails by entity and track start would keep both; the
+trail feed's track-start count is not reliable for that today (callers pass 0 for "no history").
+
+**Item 1 and the stalls.** A cut-short burst inside its life is replayed again when its owner is posed again, which is
+what the stalls were made of; only those inside their life bound now, where before finding 84 it was every one. **After
+the fix** (f12 tick 30000, first person, `--measure 60`, one run, quiet at the gate and in the in-lock check): mean frame
+14.54 ms, `camera` 7.85 ms, bursts 0.35 ms a frame; 367.4 effects alive, 22.7 steps, 0 asleep, 12.3 handed to the draw —
+the D1 row above within one run's noise. The count of frames over 100 ms was not re-taken with the stall instrument.
+
+**The output-level check, after the fix.** f12 shot by HEAD (collated) and by a throwaway that passes no view (every
+effect drawn), same arguments both sides, plus HEAD shot twice as the control, at first person ticks 30000, 30540 and
+31000 and a free camera (`-3700 -2300 760 20 200`) at 30540. Every pair differs only in the fps text (x 781-823, y 2-10),
+which the control shows too, except first person 30540: 9 pixels more, one cluster at x 450-453, y 265-270, at most 2 of
+255 in a channel — the same cluster before this fix. A culled effect would leave a hole, not a 2-level shade; the cause is
+**interpolated** as blend rounding from a different draw order, not traced. **An earlier run of this comparison was the
+instrument's fault:** it gave the all-drawn side `--like`, which carries a free camera only, so it lost `--first-person`
+and shot from inside the recorder's head (345,914 pixels differing).
 

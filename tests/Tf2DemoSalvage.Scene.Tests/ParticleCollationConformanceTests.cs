@@ -114,15 +114,94 @@ public sealed class ParticleCollationConformanceTests
         effects.TrailEffect(2)!.Particles.Age.ShouldBe(9 * Interval, 1e-4f);
     }
 
+    /// <remarks>
+    /// **An empty effect's box is a point, and the engine culls a point** (Fable review, item 4). Emission starts one second
+    /// in, so for 66 ticks the effect has no particles and its box is control point 0 alone. Filed unplaced, it was
+    /// collated by every main view and its sleep pushed every frame. Culled, as the engine culls it, the one behind the
+    /// camera is past its sleep (9.9 ticks) when its first particle is born, and stands from there: 68 steps — the start at
+    /// 66, a tick of emission at 66 a second to make one particle, and one more tick, measured and not derived (likely float
+    /// accumulation of the 1/66 steps; interpolated). Unculled it was 100. The one in view is still found and steps all 100.
+    /// </remarks>
+    [Test]
+    public void Build_AnEmptyEffectBehindTheView_IsCulledAndSleepsOnItsFirstParticles()
+    {
+        ParticleEffects effects = new();
+        ParticleSystem late = Sleepy(start: 1d);
+        ParticleBurst seen = new(1, late, At(-100f), 100);
+        ParticleBurst behind = new(2, late, At(100f), 100);
+
+        for (int tick = 100; tick <= 200; tick++)
+        {
+            effects.Bursts([seen, behind], Interval, null, tick);
+            effects.Build(Vector3.Zero, Vector3.UnitY, Vector3.UnitZ, NoMaterials, Looking);
+        }
+
+        effects.BurstSteps(1).ShouldBe(100, "in view, so drawn and pushed every frame");
+        effects.BurstSteps(2).ShouldBe(68,"culled while empty, so asleep the moment it has particles");
+    }
+
+    /// <remarks>
+    /// **A projectile reusing an entity index gets a trail of its own** (Fable review, item 3). The trail behind the camera
+    /// sleeps from tick 10 with live particles, its rocket gone at tick 20, so it is never stepped and never empties. A new
+    /// track on the same index at tick 30 is a new projectile: it must not inherit the orphan's particles (B420).
+    /// </remarks>
+    [Test]
+    public void Update_ANewTrackOnTheIndexOfASleepingOrphan_GetsANewEffect()
+    {
+        ParticleEffects effects = new();
+        ParticleSystem smoke = Sleepy();
+        ParticleEffect? orphan = null;
+
+        for (int tick = 0; tick <= 31; tick++)
+        {
+            (int, ParticleControlPoint, ParticleControlPoint?, int)[] flying = tick switch
+            {
+                <= 20 => [(1, At(100f), null, tick)],
+                >= 30 => [(1, At(-100f), null, tick - 30)],
+                _ => [],
+            };
+
+            effects.Update(flying, smoke, Interval, tick: tick);
+            effects.Build(Vector3.Zero, Vector3.UnitY, Vector3.UnitZ, NoMaterials, Looking);
+            orphan ??= tick == 20 ? effects.TrailEffect(1) : null;
+        }
+
+        orphan.ShouldNotBeNull().Particles.Count.ShouldBeGreaterThan(0, "the control: asleep with particles");
+        effects.TrailEffect(1).ShouldNotBeSameAs(orphan);
+        effects.TrailEffect(1)!.Particles.Age.ShouldBe(Interval, 1e-4f, "made at tick 30, one tick old");
+    }
+
+    /// <remarks>
+    /// **An asleep trail that moved has its bounds simulated** (Fable review, item 6): `Simulate( dt, true )` for an effect
+    /// past its sleep time whose points moved (particlemgr.cpp:1785-1789), as a burst's sleep already does (B557 row 9). It
+    /// sets the previous points to the present, so the trail no longer reads as moved; its clock still stands.
+    /// </remarks>
+    [Test]
+    public void Update_AnAsleepTrailThatMoved_SimulatesItsBoundsOnly()
+    {
+        ParticleEffects effects = new();
+        ParticleSystem smoke = Sleepy();
+
+        for (int tick = 0; tick <= 20; tick++)
+        {
+            effects.Update([(2, At(100f + tick), null, tick)], smoke, Interval, tick: tick);
+            effects.Build(Vector3.Zero, Vector3.UnitY, Vector3.UnitZ, NoMaterials, Looking);
+        }
+
+        effects.TrailEffect(2)!.HasMoved().ShouldBeFalse();
+        effects.TrailEffect(2)!.Particles.Age.ShouldBe(9 * Interval, 1e-4f, "asleep: the clock stands");
+    }
+
     private static ParticleControlPoint At(float x) => new(new Vector3(x, 0f, 0f), Vector3.UnitX, Vector3.UnitY, Vector3.UnitZ);
 
-    private static ParticleSystem Sleepy() => new(
+    private static ParticleSystem Sleepy(double start = 0d) => new(
         Name: "test_sleepy",
         Emitters:
         [
             new ParticleFunction("emit_continuously", "emitter", new Dictionary<string, DmxValue>(StringComparer.Ordinal)
             {
                 ["emission_rate"] = new(DmxAttributeType.Real, 66d),
+                ["emission_start_time"] = new(DmxAttributeType.Real, start),
             }),
         ],
         Initializers:
