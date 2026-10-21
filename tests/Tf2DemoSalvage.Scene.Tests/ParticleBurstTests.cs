@@ -200,6 +200,31 @@ public sealed class ParticleBurstTests
     }
 
     /// <remarks>
+    /// **What playing will never touch again, asked by the caller before it builds an offer** (finding 86): `ProcessPSystem`
+    /// sets the remove flag once `IsFinished` (particlemgr.cpp:1581-1584), so the engine spends nothing more on it, where
+    /// the caller re-offered every finished stopless dispatch of the demo every frame — 1,169 a frame at tick 90000 on f12.
+    /// Gone while finished and offered, gone once retired, and not gone after a seek rebuilt it — the control.
+    /// </remarks>
+    [Test]
+    public void IsGone_AFinishedBurstWhilePlaying_IsTrueUntilASeekRebuildsIt()
+    {
+        ParticleEffects effects = new();
+        ParticleBurst done = Finished(key: 1, tick: 100);
+
+        ParticleBurst running = Burst(key: 2, tick: 100);
+
+        effects.IsGone(1).ShouldBeFalse("never offered: nothing is known of it");
+        effects.Bursts([done, running], Interval, null, tick: 100);
+        effects.Bursts([done, running], Interval, null, tick: 101);
+        effects.IsGone(1).ShouldBeTrue("finished and still offered");
+        effects.IsGone(2).ShouldBeFalse("the control: a running burst");
+        effects.Bursts([running], Interval, null, tick: 102);
+        effects.IsGone(1).ShouldBeTrue("retired as spent");
+        effects.Bursts([running], Interval, null, tick: 100, seeked: true);
+        effects.IsGone(1).ShouldBeFalse("a seek forgets what was spent");
+    }
+
+    /// <remarks>
     /// **Cut short by the offer is not finished** (Fable review, item 1). An unoffered burst is faded as if `StopEmission`
     /// had run, but for a stopless dispatch whose owner was unposed the engine never stopped it. Here a two-second emitter,
     /// half a second old, is unoffered for a second: faded empty and retired. Offered again at 1.5 s, inside its life, it is

@@ -932,6 +932,14 @@ public sealed class ParticleEffects
         }
     }
 
+    /// <summary>Whether a played frame will do nothing more with this burst: finished, or retired as spent (finding 86).</summary>
+    /// <param name="key">The burst's key.</param>
+    /// <returns>True when offering it again on a played frame would only be skipped; a seek can still rebuild it.</returns>
+    /// <remarks>`ProcessPSystem` sets the remove flag once `IsFinished` (particlemgr.cpp:1581-1584), and the engine spends
+    /// nothing more on the effect; the caller asks this before building an offer.</remarks>
+    public bool IsGone(long key) =>
+        _spent.Contains(key) || (_bursts.TryGetValue(key, out RunningBurst running) && running.Effect.Finished);
+
     /// <summary>
     /// The bursts retired finished since the last seek: playing never builds one again, as the engine never re-creates an effect
     /// it removed (finding 84). A seek forgets them, since it rebuilds from the offer.

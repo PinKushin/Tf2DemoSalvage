@@ -254,6 +254,9 @@ public sealed class BurstEffects
     /// <summary>The `"ParticleEffect"` dispatches made from an entity, by index — each runs until Valve ends it.</summary>
     private readonly List<int> _owned = [];
 
+    /// <summary>The tick the owned dispatches were last offered at, so a clock gone back offers the finished ones again.</summary>
+    private int _ownedTick = int.MinValue;
+
     /// <summary>The view's own: the model set it draws with.</summary>
     /// <param name="particles">The effects these bursts are stepped in.</param>
     /// <param name="models">The posed entities, for attachments and hitboxes.</param>
@@ -1133,6 +1136,15 @@ public sealed class BurstEffects
         // exactly as playing through does. **Dormancy stops its emission, and does not end it** (`OwnerSetDormantTo`,
         // particle_property.cpp:465; `CParticleCollection::SetDormant`, particles.obj).
         // In fire order, so the first not yet fired ends the walk.
+        //
+        // **A finished one is not offered while playing** (finding 86): `ProcessPSystem` flags an effect for removal once
+        // `IsFinished` (particlemgr.cpp:1581-1584) and nothing reads its owner again. Offered, it cost an attachment query
+        // and a burst every frame for the rest of the demo, to be skipped. A seek, or a clock gone back, offers it again,
+        // since that frame rebuilds from the offer (D221).
+        bool played = !_frame.Seeked && tick >= _ownedTick;
+
+        _ownedTick = tick;
+
         foreach (int index in _owned)
         {
             SceneEffectDispatch dispatch = timeline.Dispatches.All[index];
@@ -1140,6 +1152,11 @@ public sealed class BurstEffects
             if (dispatch.Tick > tick)
             {
                 break;
+            }
+
+            if (played && _particles.IsGone(ParticleDispatchKeys + index))
+            {
+                continue;
             }
 
             if (_stops[index] is not { } stop || tick < stop + ParticleDispatchWindowTicks)

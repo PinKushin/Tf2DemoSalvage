@@ -43,16 +43,25 @@ public sealed class BurstEffectsStepTests
 
     private static readonly string[] EffectNames = [string.Empty, "ParticleEffect", SentryMuzzleFlash.EffectName, "Impact"];
 
-    private static readonly string[] ParticleNames = [string.Empty, "rocketjump_smoke", "not_loaded"];
+    private static readonly string[] ParticleNames = [string.Empty, "rocketjump_smoke", "not_loaded", "test_finished"];
 
+    /// <summary>The dispatched system emits for ever, so an offer outlives its first step; every other one has no emitter and finishes at once.</summary>
     private static readonly Dictionary<string, ParticleSystem> Systems = new[]
     {
         ExplosionEffects.DefaultEffect, "bullet_tracer01_red", BloodEffects.Impact, BloodEffects.Spray, BloodEffects.SprayFar,
         "water_bulletsplash01", SentryMuzzleFlash.Level1, SentryMuzzleFlash.Level2, "rocketjump_smoke", "muzzle_scattergun",
-        WeaponMuzzleFlashes.BackblastSystem,
+        WeaponMuzzleFlashes.BackblastSystem, "test_finished",
     }.ToDictionary(
         static name => name,
-        static name => new ParticleSystem(name, [], [], [], [], [], new Dictionary<string, DmxValue>(StringComparer.Ordinal)),
+        static name => new ParticleSystem(
+            name,
+            name == "rocketjump_smoke"
+                ? [new ParticleFunction("emit_continuously", "emit", new Dictionary<string, DmxValue>(StringComparer.Ordinal)
+                {
+                    ["emission_rate"] = new DmxValue(DmxAttributeType.Real, 10f),
+                })]
+                : [],
+            [], [], [], [], new Dictionary<string, DmxValue>(StringComparer.Ordinal)),
         StringComparer.Ordinal);
 
     private static readonly Dictionary<string, byte[]> Files = new(StringComparer.Ordinal)
@@ -494,6 +503,46 @@ public sealed class BurstEffectsStepTests
         bursts.StepOver(Frame(timeline, fired + 2), World());
 
         bursts.Bursts.ShouldHaveSingleItem().At.At.ShouldBe(new Vector3(90f, 0f, 0f));
+    }
+
+    /// <remarks>
+    /// **A finished entity effect is not offered again while playing** (finding 86): `ProcessPSystem` flags a finished
+    /// effect for removal (particlemgr.cpp:1581-1584), and nothing updates its control points after that. A stopless
+    /// dispatch was re-offered every frame for the rest of the demo, each with an attachment query and a new burst — 434 a
+    /// frame at tick 30000 on f12, 1,169 at 90000. **A seek still offers it**, since a seek rebuilds from the offer (D221).
+    /// </remarks>
+    [Test]
+    public void StepOver_AnEntityParticleFinishedWhilePlaying_IsNoLongerOfferedUntilASeek()
+    {
+        DemoTimeline timeline = Timeline(Effect(
+            100,
+            "CTEEffectDispatch",
+            Number("m_iEffectName", 1),
+            Number("m_nHitBox", 3),
+            Number("m_fFlags", 1),
+            Number("m_nDamageType", 4),
+            Number("entindex", Sentry),
+            Number("m_nAttachmentIndex", 3)));
+        int fired = timeline.Dispatches.All[0].Tick;
+        (BurstEffects bursts, FakePosedEntities models, ParticleEffects particles) = Presenter();
+        models.Numbered[(Sentry, 3)] = ParticleControlPoint.Unoriented(new Vector3(70f, 0f, 0f));
+
+        bursts.StepOver(Frame(timeline, fired), World());
+        bursts.Bursts.ShouldHaveSingleItem("the control: offered when it fires");
+        bursts.StepOver(Frame(timeline, fired + 1), World());
+        particles.IsGone(ParticleDispatchKeys).ShouldBeTrue("the precondition: a system with no emitter finishes at once");
+
+        bursts.StepOver(Frame(timeline, fired + 2), World());
+        bursts.Bursts.ShouldBeEmpty();
+
+        bursts.StepOver(Frame(timeline, fired + 2) with { Seeked = true }, World());
+        bursts.Bursts.ShouldHaveSingleItem("a seek rebuilds from the offer");
+
+        bursts.StepOver(Frame(timeline, fired + 4), World());
+        bursts.StepOver(Frame(timeline, fired + 5), World());
+        bursts.Bursts.ShouldBeEmpty("finished again while playing");
+        bursts.StepOver(Frame(timeline, fired + 3), World());
+        bursts.Bursts.ShouldHaveSingleItem("a clock gone back lands as surely as a seek");
     }
 
     [Test]
