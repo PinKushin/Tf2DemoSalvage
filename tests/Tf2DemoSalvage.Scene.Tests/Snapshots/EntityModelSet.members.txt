@@ -397,4 +397,5 @@ Tf2DemoSalvage.Scene.EntityModelSet|property|ViewOrigin|()|System.Nullable`1[Sys
 Tf2DemoSalvage.Scene.EntityModelSet|property|ViewmodelEye|()|System.Nullable`1[System.ValueTuple`3[System.Single,System.Single,System.Single]]|get=True|set=True
 Tf2DemoSalvage.Scene.EntityModelSet|property|ViewmodelProjection|()|System.Nullable`1[Tf2DemoSalvage.Scene.ViewmodelProjection]|get=True|set=True
 Tf2DemoSalvage.Scene.EntityModelSet|property|WalksEvents|()|System.Boolean|get=True|set=True
+Tf2DemoSalvage.Scene.EntityModelSet|property|WorldView|()|Tf2DemoSalvage.Scene.CollationView|get=True|set=True
 Tf2DemoSalvage.Scene.EntityModelSet|property|WornLightTicks|()|System.Int64|get=True|set=True

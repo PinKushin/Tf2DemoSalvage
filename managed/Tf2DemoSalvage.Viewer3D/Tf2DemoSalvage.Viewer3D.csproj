@@ -19,6 +19,12 @@
          assets/icon.svg, which any front end can use; this .ico is that drawing at 16 to 256 px for
          Windows alone. -->
     <ApplicationIcon>Assets\icon.ico</ApplicationIcon>
+
+    <!-- **Quick JIT stays ON: turning it off was measured and lost** (finding 84). Off, it removed the tier-0 warm-up of
+         the first seconds of playback, but the published package then loaded 46 s slower on f12 (decode 216 s against
+         169 s) and played about 17% slower at steady state (53 against 64 fps), since our methods no longer collect
+         dynamic PGO. ReadyToRun loaded like the default and made the first seconds worse. Held by
+         RuntimeConfigConformanceTests; re-measure before changing either. -->
   </PropertyGroup>
 
   <ItemGroup>

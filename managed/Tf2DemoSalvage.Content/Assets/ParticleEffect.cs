@@ -180,6 +180,42 @@ public sealed class ParticleEffect
     /// </remarks>
     public IReadOnlyList<ParticleEffect> Children { get; }
 
+    /// <summary>The effect's world box: its particles and its children's, each grown by its radius, holding control point 0.</summary>
+    /// <returns>The box's two corners; with no particles anywhere, control point 0 alone.</returns>
+    /// <remarks>
+    /// What the leaf system files the effect by (finding 84, D1). `BloatBoundsUsingControlPoint` keeps control point 0
+    /// inside the box, and a collection with no particles is its sort origin (particles_new.cpp:351-361). **The radius is
+    /// interpolated**: the per-particle growth happens inside the closed `particles.lib`.
+    /// </remarks>
+    public (Vector3 Min, Vector3 Max) Bounds()
+    {
+        Vector3 point = ControlPoint(0).At;
+        Vector3 min = new(float.MaxValue);
+        Vector3 max = new(float.MinValue);
+
+        Grow(this, ref min, ref max);
+
+        return min.X > max.X ? (point, point) : (Vector3.Min(min, point), Vector3.Max(max, point));
+    }
+
+    private static void Grow(ParticleEffect effect, ref Vector3 min, ref Vector3 max)
+    {
+        ParticleStore store = effect.Particles;
+
+        for (int index = 0; index < store.Count; index++)
+        {
+            Vector3 reach = new(store.Radius[index]);
+
+            min = Vector3.Min(min, store.Position[index] - reach);
+            max = Vector3.Max(max, store.Position[index] + reach);
+        }
+
+        foreach (ParticleEffect child in effect.Children)
+        {
+            Grow(child, ref min, ref max);
+        }
+    }
+
     /// <summary>Starts an instance of one system.</summary>
     /// <param name="system">The definition.</param>
     /// <param name="others">
@@ -528,6 +564,131 @@ public sealed class ParticleEffect
     /// <returns>The no-draw time, in seconds.</returns>
     public static double SleepAfter(ParticleSystem system) =>
         ParticleSystems.Declared(system, "time to sleep when not drawn", 8d);
+
+    /// <summary>
+    /// The longest an effect of this definition can be alive, drawn throughout: its last emission, plus the longest particle
+    /// lifetime, plus the no-draw time — the quantities <see cref="Finished"/> and <see cref="SleepAfter"/> read.
+    /// </summary>
+    /// <param name="system">The definition.</param>
+    /// <param name="others">Every system that could be a child, by name; null for none.</param>
+    /// <returns>Seconds, or <see cref="double.PositiveInfinity"/> when any part is forever or cannot be bounded here.</returns>
+    /// <remarks>
+    /// **An upper bound, and an unknown is forever**: a continuous emitter with no duration emits for ever (the sentinel
+    /// <see cref="Finished"/> reads); an emitter this does not bound, a lifetime written from positions or remapped, and a
+    /// child not supplied make the life unbounded. An effect older than this has finished, so a caller may decline to build
+    /// it (finding 84); one asleep is not covered, since its clock stands.
+    /// </remarks>
+    /// <param name="sheets">The sheet each system's material carries, as <see cref="ParticleEffect"/> takes it; null for none.</param>
+    public static double MaximumLife(
+        ParticleSystem system,
+        IReadOnlyDictionary<string, ParticleSystem>? others,
+        Func<ParticleSystem, IReadOnlyList<SheetSequence>?>? sheets = null)
+    {
+        ArgumentNullException.ThrowIfNull(system);
+
+        return Lived(system, others, sheets, depth: 0) + SleepAfter(system);
+    }
+
+    /// <summary>How deep a child chain is followed before it is called unbounded — a cycle in the data would never end.</summary>
+    private const int DeepestChild = 16;
+
+    /// <summary>The last emission plus the longest particle life — drawn throughout, the root's sleep apart; a child's own sleep is added.</summary>
+    private static double Lived(
+        ParticleSystem system,
+        IReadOnlyDictionary<string, ParticleSystem>? others,
+        Func<ParticleSystem, IReadOnlyList<SheetSequence>?>? sheets,
+        int depth)
+    {
+        if (depth > DeepestChild)
+        {
+            return double.PositiveInfinity;
+        }
+
+        double emitted = 0d;
+
+        foreach (ParticleFunction emitter in system.Emitters)
+        {
+            double start = emitter.Number("emission_start_time", 0d);
+
+            if (string.Equals(emitter.Function, ContinuousEmitter, StringComparison.Ordinal))
+            {
+                double duration = emitter.Number("emission_duration", 0d);
+
+                if (duration <= 0d)
+                {
+                    return double.PositiveInfinity;
+                }
+
+                emitted = Math.Max(emitted, start + duration);
+            }
+            else if (string.Equals(emitter.Function, BurstEmitter, StringComparison.Ordinal))
+            {
+                emitted = Math.Max(emitted, start);
+            }
+            else
+            {
+                return double.PositiveInfinity;
+            }
+        }
+
+        double lifetime = DefaultLifetime;
+
+        // **Every lifetime writer ParticleSystems runs, and no other** (review): an initializer the viewer does not run writes
+        // no lifetime here, so the bound is the viewer's.
+        foreach (ParticleFunction initializer in system.Initializers)
+        {
+            if (string.Equals(initializer.Function, "Lifetime Random", StringComparison.Ordinal))
+            {
+                // `C_INIT_RandomLifeTime` as ParticleSystems reads it: `lifetime_min` defaults to the life as it stands,
+                // `lifetime_max` to `lifetime_min`, and the draw lies between them either way round.
+                double least = initializer.Number("lifetime_min", lifetime);
+
+                lifetime = Math.Max(least, initializer.Number("lifetime_max", least));
+            }
+            else if (string.Equals(initializer.Function, "move particles between 2 control points", StringComparison.Ordinal) ||
+                (string.Equals(initializer.Function, "remap initial scalar", StringComparison.Ordinal) &&
+                    (int)initializer.Number("output field", 3d) == LifeDurationField))
+            {
+                // Distance over speed, and a remap onto the life: neither has a bound in the definition.
+                return double.PositiveInfinity;
+            }
+            else if (string.Equals(initializer.Function, "Lifetime From Sequence", StringComparison.Ordinal))
+            {
+                // `C_INIT_SequenceLifeTime`, as ParticleSystems runs it: with a rate and a sheet, a sequence's span over the
+                // rate, or 1 for a zero span; otherwise nothing, and the earlier lifetime stands.
+                double rate = initializer.Number("Frames Per Second", 30d);
+
+                if (rate != 0d && sheets?.Invoke(system) is { } sheet)
+                {
+                    double longest = 1d;
+
+                    foreach (SheetSequence sequence in sheet)
+                    {
+                        longest = Math.Max(longest, sequence.TotalTime / rate);
+                    }
+
+                    lifetime = Math.Max(lifetime, longest);
+                }
+            }
+        }
+
+        double life = emitted + lifetime;
+
+        foreach (string name in system.Children)
+        {
+            if (others is null || !others.TryGetValue(name, out ParticleSystem? child))
+            {
+                return double.PositiveInfinity;
+            }
+
+            life = Math.Max(life, Lived(child, others, sheets, depth + 1) + SleepAfter(child));
+        }
+
+        return life;
+    }
+
+    /// <summary>`PARTICLE_ATTRIBUTE_LIFE_DURATION`, the life's field number (`particles.h:63`), as a remap names it.</summary>
+    private const int LifeDurationField = 1;
 
     /// <summary>The shortest step `CParticleCollection::Simulate` simulates — its <c>dt &gt;= 1e-22</c>.</summary>
     private const double ShortestStep = 1e-22;

@@ -861,8 +861,11 @@ public sealed partial class ViewerPresenter : IDisposable
 
                     // Same timing, same reason, and the audio path is where the cost actually
                     // landed once the model stalls were gone. **No emitted sounds yet**: those join
-                    // the schedule in `Apply`, which precaches them itself.
-                    DemoSounds.Precache(_sounds, decoded.Timeline, game, _soundscape, _audioLog, emitted: [], scripts: null);
+                    // the schedule in `Apply`, which precaches them itself. **The scripts ARE here**:
+                    // the map read above set the level's (`LevelSystems.Load`, on this thread), so the
+                    // surfaces' sounds — 385 more names, 85–763 ms on f12 — decode on this worker,
+                    // behind the barrier, rather than in `Apply` on the UI thread (finding 84).
+                    DemoSounds.Precache(_sounds, decoded.Timeline, game, _soundscape, _audioLog, emitted: [], _sound.Scripts?.Entries);
 
                     return drawn;
                 }, _shutdown).ConfigureAwait(false);
@@ -1086,7 +1089,8 @@ public sealed partial class ViewerPresenter : IDisposable
         IReadOnlyList<SceneSound> emitted = _demoSystems.AddEffectSounds(_game, DecalEffects.Landings(_loaded, _game, _timeline));
 
         // Cheap to call twice for the same reason models are: `Sample` returns the cached decode,
-        // so on the async path this finds the work already done.
+        // so on the async path this finds the timeline's and the surfaces' sounds already done and
+        // decodes only the emitted ones, which the worker could not know yet.
         DemoSounds.Precache(_sounds, _timeline, _game, _soundscape, _audioLog, emitted, _sound.Scripts?.Entries);
 
         // **After the map and the models, because the pass reads both** (D181): the environment is the map's, and a corpse's
