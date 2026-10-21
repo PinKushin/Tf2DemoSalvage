@@ -40073,6 +40073,10 @@ reason of his own: A matches what continuous playing usually shows, and it is th
 B:** replay as undrawn, so an effect never seen sleeps eight seconds after creation; cheap, but an effect older than eight
 seconds at the seek would show frozen at age eight. A seek's replay is ours (D221) and neither option is the engine's.
 
+**A consequence, 2026-10-21:** the batch-11 review asked to narrow the age skip so that an effect undrawn since creation
+is built and shown frozen. Under option A a built one is replayed as drawn and finishes, so the skip changes nothing on
+screen and stays (finding 84, *The batch-11 review*). Revisit both together if B is ever chosen.
+
 ## B564 — a child system's `delay` is not applied when its parent spawns it — OPEN
 
 **Read** (`ParticleChildrenInfo_t::m_flDelay`, `particles.h:2125`). A definition's child entry carries a delay before the
