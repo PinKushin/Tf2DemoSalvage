@@ -1,3 +1,4 @@
+- [A measurement hook checks the record, not the science](a-measurement-hook-checks-the-record-not-the-science.md) — pre-run file, verdict, fix:/perf: names its test; `git cat-file` not `git show sha:path`.
 - [Credits queue](credits-queue.md) — API-credit jobs: drop JSON in F:\credits-queue\pending; owner runs the runner.
 - [Gate once per batch](gate-once-per-batch.md) — touched projects between rounds; one implementer until UI runs beside phase 1.
 - [The lead publishes releases](the-lead-publishes-releases.md) — draft by workflow, lead checks and publishes; D227.
