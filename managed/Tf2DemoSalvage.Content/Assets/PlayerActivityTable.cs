@@ -88,7 +88,11 @@ public static class PlayerActivityTable
     public static IReadOnlyDictionary<string, string> For(PlayerActivityOverride table) =>
         Tables.TryGetValue(table, out Dictionary<string, string>? rows)
             ? rows
-            : new Dictionary<string, string>(StringComparer.Ordinal);
+            : NoRows;
+
+    /// <summary>The answer for a player with no table of its own: one shared and empty, because a new one per lookup
+    /// was 185 MB per 20 s on the corpse worker (finding 89).</summary>
+    private static readonly IReadOnlyDictionary<string, string> NoRows = new Dictionary<string, string>(StringComparer.Ordinal);
 
     /// <summary>`CTFPlayerAnimState::TranslateActivity` (`tf_playeranimstate.cpp:124-153`), past the swim.</summary>
     /// <param name="activity">The generic activity the anim state asked for.</param>

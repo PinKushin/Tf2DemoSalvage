@@ -40055,7 +40055,28 @@ reddens four tests), and a child's drawn size against its own scale alone.
   `pl_badwater_pro_v12.bsp` is not on this machine (not under the game's `tf/maps`, `tf/download/maps`, `tf2ds`, or the
   user profile), so its `parentname` cannot be read, and no sampled tick gives them a parent.
 
-## B573 — per-frame struct copies with references are a fifth of the render thread — OPEN
+## B574 — per-frame allocations behind the collector: three fixed, the rest ranked — PARTLY FIXED (2026-10-21)
+
+**Fixed** (finding 89, measurements/2026-10-21-struct-copies-and-allocations.md):
+- `SpectatorTarget.Choose` sorted a filtered copy of the roster six times a frame.
+- `DisplacementSweep.EdgePlanes` built three arrays per terrain triangle under the sun trace.
+- `PlayerActivityTable.For` built an empty dictionary for every player with no table of its own.
+
+Render thread, 60 s: 1.85–1.89 → 1.20 MB a frame. Every heap: 3.09–3.20 → 2.40 MB a frame (finding 89).
+
+**Open, ranked, MB per 20 s:**
+- On the corpse worker: `CorpsePhysics.Advance` 1,364; a corpse's `SceneProp`/`ScenePose` copy each tick in
+  `UpdateClientSideAnimations` 306, made even when the sequence is unchanged; `PoseLayer[]` 273; `Nullable<IvpMatrix>[]`
+  241, from `IvpVertexFaceSearch.Search` and `IvpRootFinder.March`; `PlacementOf`'s `float[]` 172.
+- On the render thread: the heal-beam closure 173 and `VguiRenderer.BuildVertices` 99.
+- Also seen, not sized: `PlayerAnimation.For`'s `declared` closure on every call, and `SceneProp` hashed as a whole record
+  as a dictionary key in `MomentScene.Build` (1.4% of the render thread, CPU).
+
+## B573 — per-frame struct copies with references are a fifth of the render thread — REREAD (2026-10-21)
+
+**Update, finding 89.** The share is the collector's wait, not copying. `BulkMoveWithWriteBarrier` has 0.0% leaf time.
+Its time is `PollGCWorker` beneath it: a long reference-holding copy is a GC poll site. Passing by reference would move
+the wait, not remove it. What removes it is allocation, which is B574. The copy sites are listed in finding 89 (1).
 
 **Measured** (finding 88, CPU sample of the render thread): `Buffer.BulkMoveWithWriteBarrier` is 18.3% inclusive in first
 person and 24.8% in the empty view. That is a copy of a struct holding references, which needs a write barrier for
