@@ -102,7 +102,7 @@ public static class FramePacer
     /// message before drawing.
     /// </summary>
     /// <param name="endedBy">The message that ended the last burst; <c>0</c> when the queue emptied.</param>
-    /// <param name="drew">Whether that burst drew a frame.</param>
+    /// <param name="automation">Whether a UI Automation client is attached to the process.</param>
     /// <returns>True to wait <see cref="TrafficWaitSeconds"/> for a follow-up message.</returns>
     /// <remarks>
     /// A cross-thread call (COM into this STA, which is how UI Automation reaches the window) arrives
@@ -111,17 +111,16 @@ public static class FramePacer
     /// excluded: a mouse move is not followed by another within a millisecond, so waiting would only
     /// cost frames. <c>0</c> means the queue emptied, so nothing is in flight.
     ///
-    /// **A paint after a drawn frame is excluded too** (finding 88). The transport bar repaints after every frame, so
+    /// **Only while a UI Automation client is attached** (finding 88). The transport bar repaints after every frame, so
     /// WM_PAINT ended every render burst and the millisecond's wait ran on every frame: 1.0-1.5 ms of the 'between'
-    /// bucket, measured by timing <c>Idle</c> against <c>RenderFrame</c>. That paint is the frame's own. **A paint
-    /// that ended a burst which drew nothing still waits**: it follows a cross-thread call whose handler invalidated
-    /// the window (a UIA call that sets the transport bar), and the next call is about to arrive.
+    /// bucket, measured by timing <c>Idle</c> against <c>RenderFrame</c>, for a caller that is not there. With a client
+    /// attached the rule is the original one, a frame's own paint included. **The narrower rule tried first** (wait
+    /// after a paint only when its burst drew no frame) passed on a hardware device and timed
+    /// <c>ExportCompileUiTests</c> out on CI's 68 ms software frames, so which paint a call chain ends in is not
+    /// something this decides.
     /// </remarks>
-    public static bool AwaitsTraffic(uint endedBy, bool drew) =>
-        endedBy is not (0 or (>= 0x0100 and <= 0x0109) or (>= 0x0200 and <= 0x020E)) && !(endedBy == WmPaint && drew);
-
-    /// <summary><c>WM_PAINT</c>.</summary>
-    private const uint WmPaint = 0x000F;
+    public static bool AwaitsTraffic(uint endedBy, bool automation) =>
+        automation && endedBy is not (0 or (>= 0x0100 and <= 0x0109) or (>= 0x0200 and <= 0x020E));
 
     /// <summary>How long to wait for the next cross-thread message before drawing.</summary>
     public const double TrafficWaitSeconds = 0.001;

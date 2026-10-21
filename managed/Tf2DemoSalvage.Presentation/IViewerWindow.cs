@@ -105,6 +105,9 @@ public interface IIdleHost
 
     /// <summary>Gives the rest of this thread's time slice away.</summary>
     public void Yield();
+
+    /// <summary>Whether a UI Automation client is attached to this process, so cross-thread calls may follow a reply.</summary>
+    public bool AutomationListening { get; }
 }
 
 /// <summary>The process a session runs in: its two streams, its exit code, its environment and its clocks.</summary>

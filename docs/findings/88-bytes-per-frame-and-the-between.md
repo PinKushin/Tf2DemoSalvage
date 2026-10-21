@@ -110,6 +110,23 @@ The remaining `between` (0.3–0.6 ms) is the WinForms dispatch of that repaint:
 | `between` / mean frame, empty view | 1.34 / 7.32 ms | 0.30 / 6.18 ms |
 | allocated a frame (every heap / render thread) | 7.55 / 3.95 MB | 7.35 / 3.96 MB |
 
+**The kept form failed on CI**: `ExportCompileUiTests.ExportThenCompile_OpenDemo_RebuildsItsBytes` timed out in a UIA
+call (`0x80131505`, from `StatusText()`) at CI's software frames. It had passed locally on hardware.
+
+**Fix 1 as it now stands: the wait is gated on a UI Automation client.** With a client attached, the original rule
+applies, a frame's own paint included. With none attached, the loop never waits for traffic.
+- **The signal is a `WM_GETOBJECT` to the main window, latched for the process's life.** That message is how any UIA or
+  MSAA client asks the window for its provider.
+- **`UiaClientsAreListening` was tried first and measured useless here.** It read true for a whole ordinary `--measure`
+  run on the development machine, with no client of ours running, so the 1 ms came back (`between` 1.62 ms).
+- **No `WM_GETOBJECT` arrived in a measure run.** The log said "the traffic wait is off", and `between` was 0.65, 0.58
+  and (empty view) 0.36 ms.
+- **The full UI suite passed**: 84 tests, 76 passed, 8 skipped. The gate turned on in 9 of its 16 viewer logs (by the log
+  line).
+- **A local reproduction was attempted and failed.** Main's code was run with each drawn frame held 68, 150 and 300 ms
+  (a sleep, on a parked branch, not merged). The frame hold took effect, at 75 ms frames for the 68 ms hold. The test
+  passed every time. So the frame time alone does not reproduce the CI failure, and CI remains the judge of the gate.
+
 The table is the first form. The kept form measured `between` 0.53 ms and a mean frame of 14.67 ms in one first-person
 run on the final tree, so it keeps the saving.
 

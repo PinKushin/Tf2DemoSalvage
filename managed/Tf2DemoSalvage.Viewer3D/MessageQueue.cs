@@ -71,6 +71,30 @@ internal static partial class MessageQueue
         return false;
     }
 
+    /// <summary>Whether a UI Automation client has reached this window, so cross-thread calls may follow a reply.</summary>
+    /// <remarks>
+    /// The gate on the traffic wait (finding 88): the wait serves a UIA client's one-call-after-the-reply pattern, and
+    /// costs every frame a millisecond when no client exists.
+    ///
+    /// **A <c>WM_GETOBJECT</c> to the main window, ever, not <c>UiaClientsAreListening</c>.** The latter was measured
+    /// true for the whole of an ordinary `--measure` run on the development machine, with no UIA client of ours
+    /// running: something system-wide listens for events. The gate read "on" and the 1 ms came back (`between` 1.62
+    /// ms). A <c>WM_GETOBJECT</c> is how any UIA or MSAA client asks this window for its provider, and none arrived in
+    /// that run. **Latched for the process's life**, because a client caches a provider and need not ask again.
+    /// </remarks>
+    /// <returns>True once a client has asked.</returns>
+    public static bool AutomationListening() => _objectRequested;
+
+    /// <summary>Records a <c>WM_GETOBJECT</c> the window received.</summary>
+    /// <remarks>Called on the window's own thread, the one that reads it, so a plain write is enough.</remarks>
+    public static void ObjectRequested() => _objectRequested = true;
+
+    /// <summary><c>WM_GETOBJECT</c>.</summary>
+    public const int WmGetObject = 0x003D;
+
+    /// <summary>Whether the window has answered a <c>WM_GETOBJECT</c>.</summary>
+    private static bool _objectRequested;
+
     /// <summary>Look at the message without taking it off the queue.</summary>
     private const uint PeekNoRemove = 0;
 
