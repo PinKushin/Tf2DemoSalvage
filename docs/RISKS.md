@@ -40084,7 +40084,8 @@ read its exposure? Does a particle's attachment set up bones for an entity outsi
 
 **Measured** (finding 88). `FramePacer.AwaitsTraffic` waited up to 1 ms for a follow-up cross-thread call after any burst
 ended by a message that was not input. The transport bar repaints after every frame, so `WM_PAINT` ended all 1,082 of
-1,082 bursts. Timed: 1.55 ms a frame inside `Idle` and outside the frame. **Fixed**: a paint does not await traffic.
+1,082 bursts. Timed: 1.55 ms a frame inside `Idle` and outside the frame. **Fixed**: a paint awaits traffic only when
+its burst drew no frame, which is the paint after a served UIA call; the frame's own paint does not.
 `between` went from 1.56–1.59 to 0.54–0.59 ms in first person and from 1.34 to 0.30 in the empty view. The mean frame
 went from 16.5–17.1 to 15.4–15.8 ms, and the empty view from 7.3 to 6.2 ms.
 

@@ -313,8 +313,8 @@ in any public writeup found:
   was a 1 ms spin waiting for UI Automation traffic, run every frame because the transport bar's own repaint ended every
   render burst. Bone poses now build in storage each skeleton owns, as `CBoneSetupMemoryPool` does. The render thread
   went from 4.0 to 2.2 MB a frame and every heap from 7.7 to 5.1; the first-person frame went from 16.5–17.1 to
-  14.5–15.3 ms, and the empty view from 7.3 to 5.6. A heartbeat thread shows the remaining 100–190 ms stalls are the
-  render thread's own, not a process-wide pause ([88](88-bytes-per-frame-and-the-between.md)).
+  14.5–15.3 ms, and the empty view from 7.3 to 5.6. With a heartbeat thread beside each stall, none of the remaining
+  100–190 ms stalls was a process-wide stop ([88](88-bytes-per-frame-and-the-between.md)).
 
 ## Conventions used throughout
 

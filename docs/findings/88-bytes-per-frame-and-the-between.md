@@ -14,6 +14,10 @@ from? What is the unnamed `between` bucket? And can the largest allocation sourc
 - Each window is the last 25 s of the trace with the first 5 s dropped (tier-0 JIT, finding 84). Only the render thread
   is shown, picked by id (the thread under `ViewerSession.Idle` / `FrameSequence.Run`).
 - Every run took the machine-wide lock and sampled load inside it, before and after. Traces live under `D:\n87-traces`.
+- **Void runs.** Finding 86's rule was applied: a run is void when it drew clearly fewer frames, or showed a clearly
+  higher `between`, than its sibling runs. One run was voided and rerun (fix 2's first run: load 22% after, 1,211 frames
+  against 1,363). Several others started at 21–36% load, among them fix 1's first run, fix 3's first run, the second
+  final 60 s run and fix 2's empty-view run. Their frame counts and `between` sit with their siblings, so they were kept.
 - **Controls.** The allocation trace's total was 9,419 MB per 20 s. The `gc:` line gave 7.95 MB × 1,177 frames ≈
   9.36 GB. The render thread came to 4,851 MB per 20 s, or 4.1 MB a frame, against the new per-thread figure of
   3.99 MB. The CPU profile's `RenderFrame` is 89% of the render thread's samples, and the frame takes the rest of them
@@ -85,9 +89,14 @@ So 1.55 ms a frame sat in `Idle`, outside the frame and outside every call it ma
 `FramePacer.AwaitsTraffic` → `ArrivesWithin(0.001)`. That is a spin of up to 1 ms, waiting for a follow-up cross-thread
 COM call, and it runs whenever the last burst was ended by a message that is not input.
 - The transport bar repaints after every frame, so `WM_PAINT` ended every burst, and the spin ran on every frame.
-- A paint is the window's own, never a UI Automation call.
-- *Read in our code*: the wait exists for UIA's one-call-after-the-reply pattern (`FramePacer.AwaitsTraffic`'s remarks).
-- **Fix 1** excludes `WM_PAINT`.
+- *Read in our code*: the wait exists for UIA's one-call-after-the-reply pattern (`FramePacer.AwaitsTraffic`'s remarks;
+  commit `643373a5`, a `FindFirst` timeout at CI's 68 ms software frames).
+- **Fix 1, first form: exclude every `WM_PAINT`.** Gate phase 1 reddened
+  `Idle_AfterAPaintEndedTheLastBurst_WaitsForTrafficAndYieldsWhenItComes`. A paint can be part of a UIA chain: the call
+  is served with no frame drawn, its handler invalidates the window, and that paint ends the burst while the next call
+  is on its way.
+- **Fix 1 as kept:** a paint waits for traffic only when its burst drew no frame. The frame's own paint does not wait;
+  the paint after a served call still does.
 
 The remaining `between` (0.3–0.6 ms) is the WinForms dispatch of that repaint: `TransportBar.ShowTick` sets the
 `TrackBar` value and a `Label`'s text on every frame. The engine's frame has no equivalent; B572 files it.
@@ -101,8 +110,18 @@ The remaining `between` (0.3–0.6 ms) is the WinForms dispatch of that repaint:
 | `between` / mean frame, empty view | 1.34 / 7.32 ms | 0.30 / 6.18 ms |
 | allocated a frame (every heap / render thread) | 7.55 / 3.95 MB | 7.35 / 3.96 MB |
 
-Test: `FramePacerTests.AwaitsTraffic_AfterAPaint_DoesNotWait`, red before the change. No output can change. The UIA suite
-is the check that the traffic wait still serves UI Automation (gate phase 2).
+The table is the first form. The kept form measured `between` 0.53 ms and a mean frame of 14.67 ms in one first-person
+run on the final tree, so it keeps the saving.
+
+Tests:
+- `FramePacerTests.AwaitsTraffic_AfterAPaintThatEndedADrawnFrame_DoesNotWait` and `…WithNoFrame_Waits`.
+- `ViewerSessionTests.Idle_AfterAPaintEndedABurstThatDrew_DoesNotWaitForTraffic` and
+  `…ThatServedACall_WaitsForTraffic`.
+- The old test now uses `WM_USER` as its non-input message.
+- Sabotages: ignoring `drew` reddens the two waiting tests; inverting the burst's flag reddens the drawn-paint test.
+
+No output can change. **The UI suite (gate phase 2) is the local check that the wait still serves UI Automation**, on a
+hardware device. The failure the wait was added for appeared at CI's 68 ms software frames, so CI is the stronger check.
 
 ## Fix 2: a skeleton poses in storage it owns
 
@@ -128,7 +147,7 @@ corner, and the grid's own blends. So was the bone chain, and the three-way weig
 | render thread a frame | 3.96, 3.93 MB | 2.25, 2.21 MB |
 | every heap a frame | 7.35, 7.36 MB | 5.34, 5.53 MB |
 | collector's pause a frame | 1.49, 1.51 ms | 1.27, 1.20 ms |
-| mean frame, first person | 15.81, 15.43 ms | 14.68 ms (the other run was void: load 22% after) |
+| mean frame, first person | 15.81, 15.43 ms | 14.68, 15.26 ms (a third run, load 22% after, was void and rerun) |
 | empty view: render thread / mean frame | 1.77 MB / 6.18 ms | 0.87 MB / 5.78 ms |
 
 **Equivalence.**
@@ -220,30 +239,49 @@ The stall is now timed from the previous frame's end to this one's, by stamps ar
   the suspensions' 5.335 s.
   - So a process-wide pause lands in whichever phase is running. A phase name alone cannot tell "ours" from "the whole
     process stopped". The heartbeat can.
-- **A CPU burner did NOT starve the viewer.** 48 busy threads at High priority, for about 12 s, on this 12-thread machine.
-  The per-second frame rate barely moved (61–98 fps, against 70–130 before it), and no gap appeared. A starvation gap was
-  therefore not shown. The suspension stands in as the proof that a pause is visible.
-- **With nothing wrong**, five 60 s runs on the final binary (three below, plus the burner run and the suspension run
-  outside its three suspensions) recorded no gap at all.
+- **The CPU-load control was not delivered.** The run used 48 busy threads at High priority for about 12 s, on this
+  12-thread machine. The per-second frame rate barely moved (61–98 fps, against 70–130 before it), and no gap appeared.
+  - Nothing sampled the load inside the burn window, so whether the burner even saturated the machine is unknown.
+  - A thread waking from a wait can also be scheduled ahead of a CPU-bound one. So the heartbeat may not see the kind of
+    contention that slows a busy render thread.
+  - So a missing gap rules out a process-wide stop: a suspension, a collector suspension, or paging. **It does not rule
+    out CPU contention.** The suspension control shows only that a process-wide stop is visible.
+- **With nothing wrong**, every 60 s run on the final tree recorded no gap: the three below, the burner run, and the
+  suspension run outside its three suspensions.
 
-| run | binary | frames over 100 ms | heartbeat gaps | sound `STALL decoding` lines |
-|---|---|---:|---:|---|
-| quiet, 10:38 (first instrument) | `c6c0b636`, before the rebase onto `47db39e3` | 8, three of them 413–426 ms | 0 | 2: `bulletLtoR13.wav` and `bulletLtoR08.wav`, 396 ms each |
-| final 1 | `d2002271` | 0 | 0 | none |
-| final 2 | `d2002271` | 4: 126, 126, 182, 182 ms | 0 | none |
-| final 3 | `d2002271` | 3: 190, 125, 128 ms | 0 | none |
+"Before" is main (`Merge branch 'worktree-agent-a5caa403305d771af' into merge/batch-14`) with only this finding's three
+instrument commits cherry-picked onto it. It has the same instrument, the same exclusion, and main's precache, so the
+fixes are the only difference. "After" is this branch. All six runs were after the Defender exclusion.
 
-- **How stable.** 0, 4 and 3 on one binary. Every stall in the final runs is under 200 ms. Each has a collector pause of
-  0–7 ms inside it, and none has a gap: the time is the render thread's own, not the process's. The phases are
-  `camera` or `between`, where `between` now means the window's dispatch.
-- **The ~395 ms sound stalls survived the Defender exclusion.** Two of them came in the 10:38 run, 9.3 s apart. They lined
-  up with two of its three 413–426 ms frames, which were 9.3 s apart as well. No heartbeat gap came with any of them, so
+| run | frames over 100 ms | the largest | heartbeat gaps | sound read `STALL` lines |
+|---|---:|---|---:|---|
+| before 1 (load 40% at start) | 7 | 415 ms (`hud`), 189 (`sound`), 164 | 0 | 1: `vo/null.mp3`, read 172.7 ms |
+| before 2 | 3 | 133 ms | 0 | none |
+| before 3 | 3 | 294 ms (`between`) | 0 | none |
+| after 1 | 0 | — | 0 | none |
+| after 2 | 4 | 182 ms (`camera`) | 0 | none |
+| after 3 | 3 | 190 ms (`between`) | 0 | none |
+
+Means over the 60 s, before → after: frame 13.2–14.0 → 11.06–11.13 ms; render thread 3.30–3.31 → 1.85 MB a frame;
+every heap 5.08–5.22 → 3.07–3.08 MB; collector's pause 1.00–1.08 → 0.62–0.63 ms. The 60 s window plays to tick 34000,
+so its frame is lighter than the 20 s window's.
+
+- **How stable.** Before: 7, 3, 3. After: 0, 4, 3. The count barely moves. The size does: before, the largest were 415
+  and 294 ms; after, every stall is under 200 ms.
+- **None has a heartbeat gap.** A process-wide stop is ruled out. CPU contention is not (above).
+- Each stall's collector pause was 0–10 ms, so the collector is not the cause either.
+- The phase that held them is mostly `camera` or `between`, where `between` is now the window's dispatch.
+- **An earlier run on the pre-rebase tree, before the instrument was fixed**, had 8 frames over 100 ms (three of 413–426
+  ms) and two 396 ms `bulletLtoR` read stalls, with no gap. That run was taken after the exclusion.
+- **The ~395 ms sound stalls survived the Defender exclusion.** Two of them came in that earlier run, 9.3 s apart. They
+  lined up with two of its three 413–426 ms frames, which were 9.3 s apart as well. A 173 ms read of `vo/null.mp3` came
+  in "before 1". No heartbeat gap came with any of them, so
   the process was not paused: only the render thread waited, which agrees with finding 87's 0.0 ms of thread CPU.
   - The traces and the TF2 install are on `D:`, which is excluded.
   - So real-time scanning of the archive read is not shown to be the cause. It is not ruled out either, because the viewer
     and its build output under `C:\Users\…` are not excluded.
-- **They are gone in the final runs, and that does not settle the cause.** That binary is rebased onto main's model-sound
-  precache (finding 87, `a12ac8c1`), which removed eight of the twelve misses. The other four, the near-miss whiz among
+- **They are gone in the after runs, and that does not settle the cause.** Both sides carry main's model-sound precache
+  (finding 87), which removed eight of the twelve misses. The other four, the near-miss whiz among
   them, still miss and are still read on the render thread (B568). Those reads logged no `STALL`, so each took under the
   30 ms threshold. Finding 87's run 6 showed the same thing on a quiet machine before any exclusion. So "a slow read on a
   busy machine, a fast one on a quiet machine" is still the observation. These three runs being fast fits the exclusion,
