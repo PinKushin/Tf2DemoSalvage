@@ -289,6 +289,10 @@ in any public writeup found:
   the changed, the visible), against ours. Valve walks every entity only in `SimulateEntities`, and static props are
   never on it; we walk every prop, static props included, in five passes. A plan, ordered by milliseconds per risk
   ([83](83-the-per-frame-scope-plan.md)).
+- **The load time was an enumerator.** D217 step 3 costs no frame time. The 55 s it added to f12's build was
+  `PropertyBag`'s iterator-method enumerator, walked by every entity's pattern scans, where the dictionary it replaced
+  had a struct one. A struct enumerator takes the build from 170 s to about 100 s, with every seek identical and the
+  heap unchanged ([85](85-the-load-time-was-an-enumerator.md)).
 
 ## Conventions used throughout
 

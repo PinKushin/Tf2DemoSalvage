@@ -40163,3 +40163,21 @@ at the rocket = stepping; repeat with `host_timescale 0` and `0.01`. Several eff
 viewer keeps its current behaviour (a paused frame steps no particles). Evidence classes: D (engine.dll), L (particles lib,
 not the live client), S (published SDK), I (interpolated: the server tick stays frozen under a server pause).
 
+## B562 — D217 step 3 added ~55 s to f12's timeline build — CAUSE FIXED, a remainder accepted (2026-10-20)
+
+**Measured:** `DemoTimeline.Build` on f12 took 104.1 s at `0277578c` and 160.5 s at `cecd3963`, the D217 step 3 / D220
+merge, and stayed flat after that. The machine was not paging. **Per frame, step 3 costs nothing.** Under `--measure`,
+`cecd3963` is no slower than its parent in first person or in an empty view.
+
+**Cause:** a sampled trace put 49 of the 74 extra seconds in the entity pattern scans (`BoneControllers`,
+`PoseParameters`, `AnimationLayers`). They walked `PropertyBag` through an iterator-method enumerator, where the
+`Dictionary` it replaced had a struct one. The checkpoints, the trim and the bag packing cost nothing here, because a
+straight build does none of them. The figures are in finding 85.
+
+**Fixed** by a struct enumerator. f12 goes from 170.5 to 99.5 s on a quiet machine, against 96.3 s at `0277578c`. The
+retained heap is unchanged (736 MB). `timeline-fingerprint` and `timeline-windows` give identical results before and
+after (0 of 120 seeks differ), and a window's decode-forward goes from 105 to 70 ms. Held by
+`PropertyBagTests.Enumerate_ThawedOrFrozen_AllocatesNothing`. A few seconds above `0277578c` remain (more exclusive time in the scans and in
+`Builder.Run`). The owner has accepted the load time as it stands, so the other options are not built: checkpoints
+behind the viewer, and a parallel walk. Evidence: measured (trace and wall time).
+
