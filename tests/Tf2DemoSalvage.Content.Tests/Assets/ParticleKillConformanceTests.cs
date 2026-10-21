@@ -88,7 +88,47 @@ public sealed class ParticleKillConformanceTests
             ],
         };
 
-        new ParticleEffect(system).Finished.ShouldBe(expected);
+        ParticleEffect effect = new(system);
+        effect.Step(Origin, 0f);
+
+        effect.Finished.ShouldBe(expected);
+    }
+
+    /// <remarks>
+    /// **`CParticleCollection::IsFinished` (particles.obj `0xe3c60`) asks, in order: the first-frame flag (+0x2720 bit 0),
+    /// the active particles (+0x38), the dormant flag (+0x68), then each emitter's `MayCreateMoreParticles` (vtable +0xd0)
+    /// and each child's `IsFinished`** (read by the coordinator in Ghidra, 2026-10-21). Every check can only answer "not
+    /// finished", so the order decides nothing a caller sees; these pin each of the three that were missing or new.
+    /// A system with no emitter is the subject: once simulated it is finished, the control.
+    /// </remarks>
+    [Test]
+    public void Finished_BeforeItsFirstSimulate_IsFalseAndAfterItTrue()
+    {
+        ParticleEffect effect = new(System() with { Emitters = [] });
+
+        bool before = effect.Finished;
+        effect.Step(Origin, 0f);
+
+        (before, effect.Finished).ShouldBe((false, true), "`Simulate( 0.0f )` on the first frame clears the flag (particlemgr.cpp:1572-1575)");
+    }
+
+    /// <remarks>
+    /// **A dormant effect is never finished**: `SetDormant(true)` (`0xe5c60`) stops emission and sets +0x68, which
+    /// `IsFinished` reads before the emitters; `SetDormant(false)` starts emission and clears it. So an empty effect whose
+    /// owner left the PVS waits, and re-emits when he returns, where reading the emitters alone would have let it go.
+    /// </remarks>
+    [Test]
+    public void Finished_EmptyAndDormant_IsFalseUntilItWakes()
+    {
+        ParticleEffect effect = new(System() with { Emitters = [] });
+        effect.Step(Origin, 0f);
+
+        bool awake = effect.Finished;
+        effect.Dormant = true;
+        bool dormant = effect.Finished;
+        effect.Dormant = false;
+
+        (awake, dormant, effect.Finished).ShouldBe((true, false, true));
     }
 
     /// <remarks>

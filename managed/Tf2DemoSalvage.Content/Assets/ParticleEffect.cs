@@ -98,6 +98,10 @@ public sealed class ParticleEffect
         }
     }
 
+    /// <summary>Whether the owner is dormant: `CParticleCollection::SetDormant` (`0xe5c60`) writes +0x68, which `IsFinished` reads.</summary>
+    /// <remarks>Set by whoever steps the effect; it does not stop emission itself, which the caller's `Fade` does.</remarks>
+    public bool Dormant { get; set; }
+
     /// <summary>Whether this effect has run out of particles AND will make no more.</summary>
     /// <remarks>
     /// **Emptiness alone is not finishedness, and the engine says so in the declaration itself**:
@@ -116,7 +120,19 @@ public sealed class ParticleEffect
     {
         get
         {
+            // `CParticleCollection::IsFinished` (`0xe3c60`), in its order: the first-frame flag, the particles, the dormant
+            // flag, then the emitters and the children. Each can only say "not finished".
+            if (!_previousSet)
+            {
+                return false;
+            }
+
             if (!Empty)
+            {
+                return false;
+            }
+
+            if (Dormant)
             {
                 return false;
             }

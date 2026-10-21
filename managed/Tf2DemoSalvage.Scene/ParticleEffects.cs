@@ -97,8 +97,18 @@ public sealed class ParticleEffects
     public long Gathered { get; private set; }
 
     /// <summary>What a finished burst keeps in place of its effect: nothing to draw, nothing to hold.</summary>
-    private static readonly ParticleEffect Spent = new(
-        new ParticleSystem("spent", [], [], [], [], [], new Dictionary<string, DmxValue>(StringComparer.Ordinal)), null, null, 0);
+    private static readonly ParticleEffect Spent = SpentMarker();
+
+    /// <summary>The marker, simulated once so `IsFinished`'s first-frame flag is clear and it reads finished.</summary>
+    private static ParticleEffect SpentMarker()
+    {
+        ParticleEffect spent = new(
+            new ParticleSystem("spent", [], [], [], [], [], new Dictionary<string, DmxValue>(StringComparer.Ordinal)), null, null, 0);
+
+        spent.Step(ParticleControlPoint.Unoriented(Vector3.Zero), 0f);
+
+        return spent;
+    }
 
     /// <summary>How many times a burst was built from its start, ever — counted where it is built.</summary>
     public int BurstBuilds { get; private set; }
@@ -630,6 +640,10 @@ public sealed class ParticleEffects
                 }
 
                 wasDormant = dormant && (wasDormant || !stoppedHere);
+
+                // **`SetDormant` writes the flag `IsFinished` reads** (`0xe5c60`, `0xe3c60`): a dormant effect is never
+                // finished, so an empty one waits for its owner rather than being let go (finding 86, review item 1).
+                running.Effect.Dormant = wasDormant;
 
                 // **Asleep, its clock stands**: `BuildParticleSimList` skips an effect at or past `m_flNextSleepTime` while
                 // `m_nActiveParticles > 0` (particlemgr.cpp:1775-1776) — the root collection's own count; its children
