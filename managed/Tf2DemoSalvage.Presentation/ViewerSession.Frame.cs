@@ -211,8 +211,20 @@ public sealed partial class ViewerSession
                 ? string.Create(CultureInfo.InvariantCulture, $"measured {_frameSeconds:0.#} seconds paused at {_launch.ThenSeek} after the seek, {_measured.Samples} samples ({_measured.Rebuilds} rebuild reports)")
                 : MeasuredPlaybackHeading());
 
+        _heartbeat?.Dispose();
+        _heartbeat = null;
+
         _window.Close(posted: false);
     }
+
+    /// <summary>A measurement's stalls and heartbeat gaps (finding 87); made when its first frame is counted.</summary>
+    private PauseLedger? _pauses;
+
+    /// <summary>When <see cref="_pauses"/> began, in Stopwatch ticks.</summary>
+    private long _pausesFrom;
+
+    /// <summary>The thread beating into <see cref="_pauses"/>, stopped when the measurement prints.</summary>
+    private Heartbeat? _heartbeat;
 
     /// <summary>
     /// The heading <c>PlaybackUiTests</c> parses: seconds played, rate reports, rebuild reports, and the tick
@@ -272,6 +284,11 @@ public sealed partial class ViewerSession
         if (_framesMeasured > 0)
         {
             _host.Out.WriteLine("  " + GcReading.Now().Since(_gcAtStart, _framesMeasured));
+
+            if (_pauses is { } pauses)
+            {
+                _host.Out.WriteLine("  " + pauses.Report(_pausesFrom));
+            }
             _host.Out.WriteLine("  " + JitReading.Now().Since(_jitAtStart));
             _host.Out.WriteLine("  " + _effects.ParticleCost.Since(_particlesAtStart, _framesMeasured));
             _host.Out.WriteLine("  " + _effects.ParticleWork.Since(_particleWorkAtStart, _framesMeasured));
@@ -451,6 +468,23 @@ public sealed partial class ViewerSession
                 _particlesAtStart = _effects.ParticleCost;
                 _particleWorkAtStart = _effects.ParticleWork;
                 _birthsAtStart = new(Tf2DemoSalvage.Content.Assets.ParticleEffect.BirthsBySystem, StringComparer.Ordinal);
+
+                // Each stall beside whether a do-nothing thread stopped too (finding 87): `--measure` only.
+                _pauses = new PauseLedger(Stopwatch.Frequency);
+                _pausesFrom = Stopwatch.GetTimestamp();
+                _heartbeat = new Heartbeat(_pauses);
+            }
+
+            if (_pauses is { } pauses)
+            {
+                // The frame clock's own interval, which is stamped mid-sequence, so a stall is placed within a frame.
+                long frameTicks = (long)(_clock.LastFrameSeconds * Stopwatch.Frequency);
+
+                pauses.Frame(
+                    Stopwatch.GetTimestamp(),
+                    frameTicks,
+                    PauseLedger.LargestPhase(phases, frameTicks),
+                    (GarbageReading.FromRuntime().Paused - frameBegan.Paused).TotalMilliseconds);
             }
 
             _framesMeasured++;

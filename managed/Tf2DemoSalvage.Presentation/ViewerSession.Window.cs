@@ -661,5 +661,7 @@ public sealed partial class ViewerSession : IFrameSteps, ILoadView, ICameraView,
         StopBackgroundWork();
         ReleaseDevice();
         ReleaseServices(static _ => { });
+        _heartbeat?.Dispose();
+        _heartbeat = null;
     }
 }
