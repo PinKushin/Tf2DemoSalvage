@@ -309,6 +309,12 @@ in any public writeup found:
   that ran no CPU: 0.2 ms on a quiet machine, ~395 ms on a busy one. They were a viewmodel's animation-event sounds,
   which the engine precaches with the model (`ModelSoundsCache`) and we never did. Misses per minute on f12 went
   12 → 4 ([87](87-the-sound-stall-was-a-blocked-read.md)).
+- **Bytes a frame, and the 'between'.** `--measure` now reports the render thread's bytes a frame. The 1.5 ms `between`
+  was a 1 ms spin waiting for UI Automation traffic, run every frame because the transport bar's own repaint ended every
+  render burst. Bone poses now build in storage each skeleton owns, as `CBoneSetupMemoryPool` does. The render thread
+  went from 4.0 to 2.2 MB a frame and every heap from 7.7 to 5.1; the first-person frame went from 16.5–17.1 to
+  14.5–15.3 ms, and the empty view from 7.3 to 5.6. A heartbeat thread shows the remaining 100–190 ms stalls are the
+  render thread's own, not a process-wide pause ([88](88-bytes-per-frame-and-the-between.md)).
 
 ## Conventions used throughout
 
