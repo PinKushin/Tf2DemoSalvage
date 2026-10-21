@@ -40055,6 +40055,23 @@ reddens four tests), and a child's drawn size against its own scale alone.
   `pl_badwater_pro_v12.bsp` is not on this machine (not under the game's `tf/maps`, `tf/download/maps`, `tf2ds`, or the
   user profile), so its `parentname` cannot be read, and no sampled tick gives them a parent.
 
+## B568 — four first-play sounds still read from the VPK inside a frame — OPEN
+
+**Measured** (finding 87, f12 tick 30000, first person, 60 s). After the model sounds were precached, four sounds still
+miss the precache and are read on the render thread at first play: `player/invulnerable_on.wav` and `_off.wav` (Über
+condition), `vo/null.mp3` (a response line) and a near-miss whiz `>weapons/fx/nearmiss/bulletLtoR*.wav` (tracer). Each
+costs 0.2–1 ms on a quiet machine. On a busy one, a synchronous read blocks for up to about 395 ms with no CPU on our
+thread: one 169 ms stall in the after run.
+
+**The engine** precaches each of these with the system that plays it: the player's condition sounds, the response
+system's scenes, and the tracer's script through the weapon. None of those was read for this entry, so where each one
+lives is *interpolated*. **Two related gaps:**
+
+- A model packed during play would need its animation-event sounds precached at pack time. On f12 the precache packs
+  every model, so it did not arise.
+- The `hud` and `draw` phases showed the same ~398 ms constant in two runs. A first file read in those paths is
+  probably the same wait (*interpolated*).
+
 ## B567 — per-frame allocations the engine does not make: bone poses, IK error lists, prop copies, sky traces — OPEN
 
 **Measured** (finding 86, an allocation trace over 20 s of f12 at tick 30000, first person, with a control total). After

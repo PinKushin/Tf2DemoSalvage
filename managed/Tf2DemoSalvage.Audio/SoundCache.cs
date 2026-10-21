@@ -152,7 +152,12 @@ public sealed class SoundCache
         // decode on the UI thread, and a voice line is an MP3. That is a "once per sound" cost
         // wearing the clothes of a cache, and it lands wherever in playback the sound happens to
         // first occur.
+        //
+        // **The read and the decode are timed apart** (finding 87): the line used to say "decoding" for both, and the
+        // ~395 ms stalls it reported were the file read, blocked, with the decode under a millisecond.
         long readAt = Stopwatch.GetTimestamp();
+        long openedAt = readAt;
+        long decodedAt = readAt;
 
         if (Read is { } read)
         {
@@ -162,7 +167,11 @@ public sealed class SoundCache
             // does not exist.
             SoundName parsed = SoundName.Parse(name);
 
-            if (SoundFile.Open("sound/" + parsed.Path, read) is { } opened)
+            (byte[] Bytes, string Path)? openedResult = SoundFile.Open("sound/" + parsed.Path, read);
+            openedAt = Stopwatch.GetTimestamp();
+            decodedAt = openedAt;
+
+            if (openedResult is { } opened)
             {
                 // A miss is a decode in the frame, so a name the install cannot open is none (finding 80).
                 if (!_precaching)
@@ -171,6 +180,7 @@ public sealed class SoundCache
                 }
 
                 SoundSampleResult result = SoundSampleReader.Read(opened.Bytes);
+                decodedAt = Stopwatch.GetTimestamp();
 
                 sample = result.Sample is { } fresh ? fresh with { Key = key } : null;
 
@@ -218,8 +228,9 @@ public sealed class SoundCache
                 "{Message}",
                 string.Create(
                     CultureInfo.InvariantCulture,
-                    $"STALL decoding '{name}' took {readSeconds * 1000d:0} ms " +
-                    $"({sample?.FrameCount ?? 0} frames); this frame is a freeze"));
+                    $"STALL reading '{name}' took {readSeconds * 1000d:0} ms " +
+                    $"(read {(openedAt - readAt) * 1000d / Stopwatch.Frequency:0.0} ms, decode {(decodedAt - openedAt) * 1000d / Stopwatch.Frequency:0.0} ms; " +
+                    $"{sample?.FrameCount ?? 0} frames); this frame is a freeze"));
 
             // Stryker restore all
         }

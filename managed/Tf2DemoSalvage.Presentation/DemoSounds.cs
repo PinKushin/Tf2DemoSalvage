@@ -8,6 +8,7 @@ using Microsoft.Extensions.Logging;
 
 using Tf2DemoSalvage.Animation.Animating;
 using Tf2DemoSalvage.Audio;
+using Tf2DemoSalvage.Content.Assets;
 using Tf2DemoSalvage.Core.Scene;
 using Tf2DemoSalvage.Scene;
 
@@ -50,6 +51,7 @@ public static class DemoSounds
     /// the timeline cannot list because no demo message names it. Empty until the schedule has them.
     /// </param>
     /// <param name="scripts">The loaded scripts, whose every wave a script sound may deal is precached; null for none.</param>
+    /// <param name="modelEvents">The packed models' animation events, whose sounds are precached with the model (<see cref="ModelWaves"/>).</param>
     /// <exception cref="ArgumentNullException">A collaborator is null.</exception>
     /// <remarks>
     /// **This was `MainForm.PrecacheSounds`** (B188, D90). Nothing about deciding which sounds a
@@ -83,9 +85,11 @@ public static class DemoSounds
         SoundscapeSystem soundscape,
         ILogger audio,
         IReadOnlyList<SceneSound> emitted,
-        IReadOnlyDictionary<string, SoundScriptEntry>? scripts)
+        IReadOnlyDictionary<string, SoundScriptEntry>? scripts,
+        IEnumerable<StudioEvent> modelEvents)
     {
         ArgumentNullException.ThrowIfNull(cache);
+        ArgumentNullException.ThrowIfNull(modelEvents);
         ArgumentNullException.ThrowIfNull(soundscape);
         ArgumentNullException.ThrowIfNull(audio);
         ArgumentNullException.ThrowIfNull(emitted);
@@ -113,7 +117,9 @@ public static class DemoSounds
                     // order matters only at the cache's cap, which the engine does not have: `SoundCache` lets the least
                     // recently used go, so the first precached are the first evicted — a step wave before a timeline
                     // sound. f12 holds 277 MB of 512 (finding 84).
-                    SurfaceWaves(game.Surfaces, scripts).Concat(timeline.SoundsToPrecache()).Concat(
+                    // **Then the packed models' event sounds**, as `PrecacheModelComponents` does with each model (finding 87):
+                    // a viewmodel's draw and reload are the client's own sounds, so no demo message names them.
+                    SurfaceWaves(game.Surfaces, scripts).Concat(ModelWaves(modelEvents, scripts)).Concat(timeline.SoundsToPrecache()).Concat(
                         emitted.Select(sound => sound.Name)
                             .Concat(ScriptWaves(emitted, scripts))
                             .Distinct(StringComparer.OrdinalIgnoreCase)),
@@ -158,6 +164,33 @@ public static class DemoSounds
         return sounds
             .Select(static sound => sound.WaveDraw?.Script)
             .OfType<string>()
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .SelectMany(script => scripts.TryGetValue(script, out SoundScriptEntry entry) ? entry.Waves : [])
+            .Distinct(StringComparer.OrdinalIgnoreCase);
+    }
+
+    /// <summary>Every wave of every script a model's client sound events name — the model's sound list, precached with it.</summary>
+    /// <param name="events">The packed models' animation events.</param>
+    /// <param name="scripts">The loaded scripts, or null.</param>
+    /// <returns>Each wave once, in event then wave order.</returns>
+    /// <remarks>
+    /// `CModelSoundsCache::BuildAnimationEventSoundList` (`ModelSoundsCache.cpp:131-218`) adds the options of every
+    /// `CL_EVENT_SOUND` as a script, and `PrecacheSoundList` precaches each one's waves (B503). Only the event this viewer
+    /// plays (<see cref="SoundPresenter.PlaySoundEvent"/>); the list's other cases are HL2's footsteps, NPC script events and
+    /// the new event system's server sounds, which nothing here fires.
+    /// </remarks>
+    public static IEnumerable<string> ModelWaves(IEnumerable<StudioEvent> events, IReadOnlyDictionary<string, SoundScriptEntry>? scripts)
+    {
+        ArgumentNullException.ThrowIfNull(events);
+
+        if (scripts is null)
+        {
+            return [];
+        }
+
+        return events
+            .Where(static one => one.Id == SoundPresenter.PlaySoundEvent && one.Options.Length > 0)
+            .Select(static one => one.Options)
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .SelectMany(script => scripts.TryGetValue(script, out SoundScriptEntry entry) ? entry.Waves : [])
             .Distinct(StringComparer.OrdinalIgnoreCase);

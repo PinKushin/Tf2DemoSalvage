@@ -865,7 +865,7 @@ public sealed partial class ViewerPresenter : IDisposable
                     // the map read above set the level's (`LevelSystems.Load`, on this thread), so the
                     // surfaces' sounds — 385 more names, 85–763 ms on f12 — decode on this worker,
                     // behind the barrier, rather than in `Apply` on the UI thread (finding 84).
-                    DemoSounds.Precache(_sounds, decoded.Timeline, game, _soundscape, _audioLog, emitted: [], _sound.Scripts?.Entries);
+                    DemoSounds.Precache(_sounds, decoded.Timeline, game, _soundscape, _audioLog, emitted: [], _sound.Scripts?.Entries, _models.AnimationEvents());
 
                     return drawn;
                 }, _shutdown).ConfigureAwait(false);
@@ -1091,7 +1091,7 @@ public sealed partial class ViewerPresenter : IDisposable
         // Cheap to call twice for the same reason models are: `Sample` returns the cached decode,
         // so on the async path this finds the timeline's and the surfaces' sounds already done and
         // decodes only the emitted ones, which the worker could not know yet.
-        DemoSounds.Precache(_sounds, _timeline, _game, _soundscape, _audioLog, emitted, _sound.Scripts?.Entries);
+        DemoSounds.Precache(_sounds, _timeline, _game, _soundscape, _audioLog, emitted, _sound.Scripts?.Entries, _models.AnimationEvents());
 
         // **After the map and the models, because the pass reads both** (D181): the environment is the map's, and a corpse's
         // bones come from its model.

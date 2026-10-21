@@ -215,7 +215,8 @@ first hypothesis (a blocking gen2 GC of a ~3.5 GB heap) is dead.
   interpolated, not read here). Not done.
 - **An oddity, not explained.** Five decodes of different files and sizes (13,856 to 45,824 frames) each took
   396–398 ms. A time that does not vary with the work is not decode time. Nothing in `SoundFile.Open` waits, so the
-  time is inside the content reader or the decode, and which one was not shown.
+  time is inside the content reader or the decode, and which one was not shown. **Shown in finding 87:** it is the
+  read, blocked; the model-sound precache is done there too.
 
 ### The HUD stalls: the window, not the demo (interpolated)
 
