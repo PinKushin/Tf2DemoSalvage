@@ -242,10 +242,12 @@ public static class DisplacementSweep
         ref float exit,
         ref bool entered)
     {
-        (float X, float Y, float Z)[] on = [triangle.A, triangle.B, triangle.C];
-        (float X, float Y, float Z)[] off = [triangle.C, triangle.A, triangle.B];
+        // Spans, so the three live on the stack: as arrays they were 0.3 MB a frame under the light cache's
+        // sun trace (finding 89), where `SweepAABBTriIntersect` holds them in registers.
+        ReadOnlySpan<(float X, float Y, float Z)> on = [triangle.A, triangle.B, triangle.C];
+        ReadOnlySpan<(float X, float Y, float Z)> off = [triangle.C, triangle.A, triangle.B];
 
-        (float X, float Y, float Z)[] edges =
+        ReadOnlySpan<(float X, float Y, float Z)> edges =
         [
             (triangle.B.X - triangle.A.X, triangle.B.Y - triangle.A.Y, triangle.B.Z - triangle.A.Z),
             (triangle.C.X - triangle.B.X, triangle.C.Y - triangle.B.Y, triangle.C.Z - triangle.B.Z),
