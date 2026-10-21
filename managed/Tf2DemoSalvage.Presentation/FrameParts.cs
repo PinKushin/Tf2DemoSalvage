@@ -34,6 +34,23 @@ public sealed class FrameParts
         _parts.Add((name, ticks));
     }
 
+    /// <summary>Adds the time since <paramref name="since"/> to a part and returns now, to time the next; nothing unmeasured.</summary>
+    /// <param name="parts">The parts, or null when not measuring.</param>
+    /// <param name="name">The part, as printed.</param>
+    /// <param name="since">The timestamp the part began at.</param>
+    /// <returns>Now, or 0 when not measuring.</returns>
+    public static long Lap(FrameParts? parts, string name, long since)
+    {
+        if (parts is null)
+        {
+            return 0;
+        }
+
+        long now = Stopwatch.GetTimestamp();
+        parts.Add(name, now - since);
+        return now;
+    }
+
     /// <summary>Counts one drawn frame.</summary>
     public void Frame() => _frames++;
 

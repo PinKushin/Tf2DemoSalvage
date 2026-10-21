@@ -299,6 +299,12 @@ in any public writeup found:
   `PropertyBag`'s iterator-method enumerator, walked by every entity's pattern scans, where the dictionary it replaced
   had a struct one. A struct enumerator takes the build from 170 s to about 100 s, with every seek identical and the
   heap unchanged ([85](85-the-load-time-was-an-enumerator.md)).
+- **The camera phase, ranked.** In steady seconds, `camera` is 9.4 ms of a 14 ms first-person frame. The part no
+  counter named was the burst search: every stopless entity particle fired since the demo began was re-offered each
+  frame, 434 at tick 30000 and 1,169 at 90000, where Valve stops updating an effect once it is finished. A capturing
+  lambda in the IK clear was the largest single allocation. Both are fixed, and `camera` is now 8.5 ms. Frames over
+  100 ms: 1 per minute in two runs of three (the frame that ends the seek), with one unexplained run of 9
+  ([86](86-the-camera-phase-ranked.md)).
 
 ## Conventions used throughout
 

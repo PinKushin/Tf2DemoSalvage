@@ -254,6 +254,9 @@ public sealed class BurstEffects
     /// <summary>The `"ParticleEffect"` dispatches made from an entity, by index — each runs until Valve ends it.</summary>
     private readonly List<int> _owned = [];
 
+    /// <summary>The tick the owned dispatches were last offered at, so a clock gone back offers the finished ones again.</summary>
+    private int _ownedTick = int.MinValue;
+
     /// <summary>The view's own: the model set it draws with.</summary>
     /// <param name="particles">The effects these bursts are stepped in.</param>
     /// <param name="models">The posed entities, for attachments and hitboxes.</param>
@@ -323,6 +326,11 @@ public sealed class BurstEffects
                 frame.Scripts?.Entries));
     }
 
+    /// <summary>The rate line's parts under `--measure`, else null.</summary>
+    internal FrameParts? Parts { get; set; }
+
+    private long Part(string name, long since) => FrameParts.Lap(Parts, name, since);
+
     /// <summary>Frames that searched the timeline for what to offer, ever (finding 82).</summary>
     internal long Searches { get; private set; }
 
@@ -391,17 +399,28 @@ public sealed class BurstEffects
                 blast.Tick));
         }
 
+        // Each offerer timed where it runs, under `camera particles bursts` (finding 86, B243).
+        long partAt = Part("camera particles bursts explosions", searchingAt);
         AddTracers(tick, systems, new Vector3(viewing.Origin.X, viewing.Origin.Y, viewing.Origin.Z));
+        partAt = Part("camera particles bursts tracers", partAt);
         AddBlood(timeline, tick, systems, viewing);
+        partAt = Part("camera particles bursts blood", partAt);
         AddSplashes(tick, systems);
+        partAt = Part("camera particles bursts splashes", partAt);
         AddSentryMuzzleFlashes(timeline, tick, systems);
+        partAt = Part("camera particles bursts sentries", partAt);
         AddParticleDispatches(timeline, tick, systems);
+        partAt = Part("camera particles bursts dispatches", partAt);
         AddWeaponMuzzleFlashes(timeline, tick, systems);
+        partAt = Part("camera particles bursts muzzles", partAt);
 
         DrawnPlayers(frame.Players, tick);
+        partAt = Part("camera particles bursts players", partAt);
 
         AddHealBeams(timeline, tick, systems);
+        partAt = Part("camera particles bursts beams", partAt);
         AddOverheals(timeline, tick, systems);
+        _ = Part("camera particles bursts overheals", partAt);
 
         long steppingAt = System.Diagnostics.Stopwatch.GetTimestamp();
         SearchTicks += steppingAt - searchingAt;
@@ -415,7 +434,9 @@ public sealed class BurstEffects
             frame.ShownTick,
             frame.Seeked);
 
-        BurstTicks += System.Diagnostics.Stopwatch.GetTimestamp() - steppingAt;
+        long steppedAt = System.Diagnostics.Stopwatch.GetTimestamp();
+        BurstTicks += steppedAt - steppingAt;
+        Parts?.Add("camera particles bursts step", steppedAt - steppingAt);
 
         return _whizzes;
     }
@@ -1115,6 +1136,15 @@ public sealed class BurstEffects
         // exactly as playing through does. **Dormancy stops its emission, and does not end it** (`OwnerSetDormantTo`,
         // particle_property.cpp:465; `CParticleCollection::SetDormant`, particles.obj).
         // In fire order, so the first not yet fired ends the walk.
+        //
+        // **A finished one is not offered while playing** (finding 86): `ProcessPSystem` flags an effect for removal once
+        // `IsFinished` (particlemgr.cpp:1581-1584) and nothing reads its owner again. Offered, it cost an attachment query
+        // and a burst every frame for the rest of the demo, to be skipped. A seek, or a clock gone back, offers it again,
+        // since that frame rebuilds from the offer (D221).
+        bool played = !_frame.Seeked && tick >= _ownedTick;
+
+        _ownedTick = tick;
+
         foreach (int index in _owned)
         {
             SceneEffectDispatch dispatch = timeline.Dispatches.All[index];
@@ -1122,6 +1152,11 @@ public sealed class BurstEffects
             if (dispatch.Tick > tick)
             {
                 break;
+            }
+
+            if (played && _particles.IsGone(ParticleDispatchKeys + index))
+            {
+                continue;
             }
 
             if (_stops[index] is not { } stop || tick < stop + ParticleDispatchWindowTicks)

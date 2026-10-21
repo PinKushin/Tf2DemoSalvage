@@ -725,8 +725,19 @@ public sealed partial class EntityModelSet
             // rotation, not the same answer as blending the two.
             if (asked > 0.999f && shared.Type != StudioIkRuleType.Unlatch)
             {
-                errors.RemoveAll(held => held.Item1.Chain == shared.Chain);
+                // In place, as the engine's `RemoveAll` on its own vector: a lambda capturing `shared` made a closure at
+                // the top of every rule's iteration, the largest allocation on f12 (finding 86).
+                int kept = 0;
 
+                for (int held = 0; held < errors.Count; held++)
+                {
+                    if (errors[held].Item1.Chain != shared.Chain)
+                    {
+                        errors[kept++] = errors[held];
+                    }
+                }
+
+                errors.RemoveRange(kept, errors.Count - kept);
                 if (shared.Type == StudioIkRuleType.Release)
                 {
                     continue;

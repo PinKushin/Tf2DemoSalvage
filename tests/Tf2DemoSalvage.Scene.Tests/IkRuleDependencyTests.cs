@@ -97,6 +97,31 @@ public sealed class IkRuleDependencyTests
         errors[0].Item4.ShouldBe(1f, 1e-4f);
     }
 
+    /// <remarks>
+    /// **The clear allocates no closure** (finding 86): `m_ikChainRule.Element( ikrule.chain ).RemoveAll( )` empties a vector the
+    /// context owns. Ours removed with a lambda capturing the rule, and C# makes that closure at the top of every rule's
+    /// loop body whether or not the clear runs — 652 MB per 20 s on f12's corpse worker, the largest single allocation.
+    /// Measured on the second call, so the first call's one-time work (JIT, the model's rule cache) is not counted.
+    /// </remarks>
+    [Test]
+    public void IkFor_ARepeatCallThatClearsAChain_AllocatesNoClosure()
+    {
+        PropModels.SkinnedModel model = Model(StudioIkRuleType.Self);
+        List<(StudioIkRule, Vector3, Quaternion, float)> errors = new(4) { Held(chain: 0) };
+
+        EntityModelSet.IkFor(model, 0, 0.5f, 1f, [], errors);
+        errors.Clear();
+        errors.Add(Held(chain: 0));
+
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        EntityModelSet.IkFor(model, 0, 0.5f, 1f, [], errors);
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        errors.Count.ShouldBe(1, "the control: the self cleared chain 0 and was added");
+        // 216 bytes with the closure (measured by putting it back); what is left is `BlendedAnimations`' one-corner array.
+        allocated.ShouldBe(24L, "the 24 bytes of `BlendedAnimations`' `[(animation, 1f)]`, and no closure");
+    }
+
     private static (StudioIkRule, Vector3, Quaternion, float) Held(int chain) =>
         (new StudioIkRule(
             Type: StudioIkRuleType.Self, Chain: chain, Bone: 0, Slot: 0, Height: 0f, Radius: 0f, Floor: 0f,
