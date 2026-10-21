@@ -40214,3 +40214,16 @@ after (0 of 120 seeks differ), and a window's decode-forward goes from 105 to 70
 `Builder.Run`). The owner has accepted the load time as it stands, so the other options are not built: checkpoints
 behind the viewer, and a parallel walk. Evidence: measured (trace and wall time).
 
+**How it was found:** a bisection over the first-parent merges (`DemoTimeline.Build` on f12, release build, one run per
+commit under the machine lock; a timing probe copied into each worktree and not committed; free RAM 13-16 GB throughout):
+beta.44 107 s, `ea95a1fa` 94.5 s, `6fe47ae0` 119.8 s, `0277578c` (B549) **104.1 s**, `cecd3963` (D217 step 3 and D220,
+10-16 11:15) **160.5 s**, then 157-165 s on every later commit through `main` 2fb6598c. Single runs, about ±10 s. D217 step 3
+had recorded seek-window milliseconds and heap size as its trades and never the load time, so nobody had accepted the cost.
+**Owner direction, 2026-10-20:** *"If it's just in decode, I don't mind us being longer there. I care about fps itself. We can
+parallelize [the walk] and do the first option [building the later checkpoints behind the viewer], almost certainly."* (typos
+fixed and the two references spelled out in brackets, at his request; "the first option" is the first of the three listed above.)
+So the order is: first find out whether D217 step 3 costs anything per frame or per seek during playback (fps is the priority);
+load time is acceptable as it stands, and building the later checkpoints behind the viewer plus parallelizing independent work is
+the preferred route if it is straightforward and every seek still equals playing. His reason for accepting the load cost is that
+fps matters more to him. (The cause turned out to be one enumerator, fixed, so neither option was needed.)
+
