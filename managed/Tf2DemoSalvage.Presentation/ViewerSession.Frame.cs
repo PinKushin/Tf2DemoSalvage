@@ -220,6 +220,9 @@ public sealed partial class ViewerSession
     /// <summary>A measurement's stalls and heartbeat gaps (finding 87); made when its first frame is counted.</summary>
     private PauseLedger? _pauses;
 
+    /// <summary>When the last frame's sequence ended, in Stopwatch ticks; zero before the first.</summary>
+    private long _lastSequenceEnded;
+
     /// <summary>When <see cref="_pauses"/> began, in Stopwatch ticks.</summary>
     private long _pausesFrom;
 
@@ -430,7 +433,9 @@ public sealed partial class ViewerSession
         // Read BEFORE the sequence, because its first step is the one that applies the opening (finding 82).
         bool openedBefore = _opening.Applied;
 
+        long sequenceBegan = Stopwatch.GetTimestamp();
         FramePhases phases = FrameSequence.Run(this);
+        long sequenceEnded = Stopwatch.GetTimestamp();
 
         _frames.Drawing(phases.Draw);
 
@@ -475,15 +480,17 @@ public sealed partial class ViewerSession
                 _heartbeat = new Heartbeat(_pauses);
             }
 
-            if (_pauses is { } pauses)
+            if (_pauses is { } pauses && _lastSequenceEnded != 0)
             {
-                // The frame clock's own interval, which is stamped mid-sequence, so a stall is placed within a frame.
-                long frameTicks = (long)(_clock.LastFrameSeconds * Stopwatch.Frequency);
+                // From the last frame's end to this one's, by this method's own stamps: this frame's phases, and the
+                // time since the last frame ended as `between`. The frame clock is stamped mid-sequence, so its interval
+                // straddles two frames' phases and named the wrong one.
+                long frameTicks = sequenceEnded - _lastSequenceEnded;
 
                 pauses.Frame(
-                    Stopwatch.GetTimestamp(),
+                    sequenceEnded,
                     frameTicks,
-                    PauseLedger.LargestPhase(phases, frameTicks),
+                    PauseLedger.LargestPhase(phases, (sequenceBegan - _lastSequenceEnded) + phases.Total),
                     (GarbageReading.FromRuntime().Paused - frameBegan.Paused).TotalMilliseconds);
             }
 
@@ -500,6 +507,7 @@ public sealed partial class ViewerSession
         }
 
         _wasOnScreen = onScreen;
+        _lastSequenceEnded = sequenceEnded;
 
         // **Captures while playing** (TF2VIEW_PLAY_SHOTS), at the first frame at or past a listed tick. The device writes the
         // PNG on the next present, so its sidecar is written here on that next frame, from the state of the frame it shows.
