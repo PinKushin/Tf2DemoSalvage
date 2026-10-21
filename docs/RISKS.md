@@ -40055,6 +40055,28 @@ reddens four tests), and a child's drawn size against its own scale alone.
   `pl_badwater_pro_v12.bsp` is not on this machine (not under the game's `tf/maps`, `tf/download/maps`, `tf2ds`, or the
   user profile), so its `parentname` cannot be read, and no sampled tick gives them a parent.
 
+## B567 — per-frame allocations the engine does not make: bone poses, IK error lists, prop copies, sky traces — OPEN
+
+**Measured** (finding 86, an allocation trace over 20 s of f12 at tick 30000, first person, with a control total). After
+fix 2 there, the process still allocates about 7.8 MB a frame, and the collector pauses about 1.55 ms a frame:
+- `StudioBonePose[]`, 1,635 MB per 20 s, from `PoseOf`, `PoseBetween` and `StudioPoseBlend.Expand`.
+- `IkFor`'s error tuples, 585 MB: a new list for every prop, every simulate (`EntityModels.Simulation.cs`, `asked`).
+- `SceneProp` copies, 427 MB: `UpdateClientSideAnimations` in the corpse record.
+- `(float, float, float)[]`, 353 MB under `LevelLighting.SunFrom`, on a light-cache build.
+
+The engine builds bones into stack arrays and into vectors it owns (`c_baseanimating.cpp:2965-2966`; the IK context's
+`m_ikChainRule`, `bone_setup.cpp:3319`), so it allocates nothing per frame. *Evidence class: measured on ours, published
+source for Valve.* The first and largest, the bone poses, is finding 83's plan item 4. The other three are listed in
+finding 86. None of them changes output.
+
+## B566 — every finished entity particle was re-offered every frame for the rest of the demo — FIXED (2026-10-21)
+
+**Read** (`particlemgr.cpp:1581-1584`, `:1777`, `:1844-1853`; `particle_property.cpp:544-547`). The engine flags a
+finished effect for removal and stops updating it. **Ours** re-offered every stopless entity dispatch ever fired, each
+frame: 434 a frame at tick 30000 on f12 and 1,169 at 90000. Each offer cost an attachment query, a closure and a burst,
+and `ParticleEffects` then skipped it. **Fixed** in finding 86, fix 1: `ParticleEffects.IsGone` is asked before the
+offer is built on a played frame. Dispatches cost 0.66–0.68 → 0.24–0.26 ms a frame at tick 30000.
+
 ## B565 — a burst's replay treats every replayed tick as drawn; the engine would have put the effect to sleep — DECIDED (option A kept)
 
 **Read** (review of finding 84, from `particlemgr.cpp:1775` and `ParticleEffects.Bursts`). `BuildParticleSimList` skips
