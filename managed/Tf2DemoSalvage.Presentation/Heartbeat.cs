@@ -6,7 +6,7 @@ namespace Tf2DemoSalvage.Presentation;
 
 /// <summary>A thread that wakes every millisecond and tells a <see cref="PauseLedger"/> each time it could not.</summary>
 /// <remarks>
-/// **`--measure` only** (finding 87). It does no work, so when it misses its wake by more than
+/// **`--measure` only** (finding 88). It does no work, so when it misses its wake by more than
 /// <see cref="PauseLedger.GapMilliseconds"/> the whole process, or the machine, was stopped: a collector suspension, CPU
 /// starvation, the scheduler, paging. A frame stall with no gap beside it was the render thread's own.
 ///

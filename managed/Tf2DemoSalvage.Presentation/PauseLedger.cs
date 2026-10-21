@@ -8,7 +8,7 @@ namespace Tf2DemoSalvage.Presentation;
 
 /// <summary>A measurement's slow frames beside its heartbeat gaps, so each stall says whether the whole process stopped.</summary>
 /// <remarks>
-/// **The question it answers** (finding 87): a stall of about 400 ms appeared in sound reads, in the HUD and in the draw.
+/// **The question it answers** (finding 88, after finding 87's observation): a stall of about 400 ms appeared in sound reads, in the HUD and in the draw.
 /// A stall that lands in a different phase every time is either ours in each place, or a pause from outside the frame:
 /// CPU starvation, the scheduler, memory pressure, a collector suspension. A thread that only sleeps a millisecond at a
 /// time stops too in the second case and not in the first, so a heartbeat gap over the same interval is the evidence.

@@ -1893,7 +1893,7 @@ public static class PropModels
         /// </returns>
         /// <exception cref="ArgumentNullException">An argument is null.</exception>
         /// <remarks>
-        /// **Nothing allocated per pose, as the engine's bone setup allocates nothing** (finding 87): every frame read
+        /// **Nothing allocated per pose, as the engine's bone setup allocates nothing** (finding 88): every frame read
         /// and every blend lands in a list the workspace keeps, the way <c>CBoneSetupMemoryPool</c> hands
         /// <c>CalcPose</c> its arrays (<c>bone_setup.cpp:49-79</c>). Each grid corner has its own slot, so a corner
         /// being read never overwrites one being blended.

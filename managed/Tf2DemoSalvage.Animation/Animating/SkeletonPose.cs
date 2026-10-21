@@ -89,7 +89,7 @@ public sealed class SkeletonPose : IBonePose
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <remarks>
     /// **One workspace per skeleton**, as the engine's bones are set up in storage the entity's setup owns rather than
-    /// allocated per pose (finding 87). Per skeleton rather than per model, because a model is posed by two threads.
+    /// allocated per pose (finding 88). Per skeleton rather than per model, because a model is posed by two threads.
     /// </remarks>
     public SkeletonPose(
         IReadOnlyList<StudioBone> bones,

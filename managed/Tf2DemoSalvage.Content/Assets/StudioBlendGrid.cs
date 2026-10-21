@@ -423,7 +423,7 @@ public sealed class StudioBlendGrid
     /// <param name="animations">Receives the three animation indices.</param>
     /// <param name="weights">Receives the weight of each.</param>
     /// <remarks>
-    /// <c>Calc3WayBlendIndices</c> writes into the caller's <c>pAnimIndices</c> and <c>pWeight</c> (finding 87): a
+    /// <c>Calc3WayBlendIndices</c> writes into the caller's <c>pAnimIndices</c> and <c>pWeight</c> (finding 88): a
     /// pose asked of a grid allocates nothing.
     /// </remarks>
     public void ThreeWayInto(
@@ -566,7 +566,7 @@ public static class StudioPoseBlend
     /// </exception>
     /// <remarks>
     /// The shape of the engine's <c>BlendBones</c>, which blends into the caller's <c>q1</c>/<c>pos1</c> through
-    /// arrays taken from <c>CBoneSetupMemoryPool</c> (<c>bone_setup.cpp:49-79</c>) rather than allocating (finding 87).
+    /// arrays taken from <c>CBoneSetupMemoryPool</c> (<c>bone_setup.cpp:49-79</c>) rather than allocating (finding 88).
     /// Writing into a list that is also being read would expand over its own input, so that is refused.
     /// </remarks>
     internal static IReadOnlyList<StudioBonePose> BlendInto(

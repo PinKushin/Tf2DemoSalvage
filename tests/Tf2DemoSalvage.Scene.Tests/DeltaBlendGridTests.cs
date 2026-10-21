@@ -70,7 +70,7 @@ public sealed class DeltaBlendGridTests
     }
 
     /// <remarks>
-    /// **The grid's whole path, built in the skeleton's own storage** (finding 87): three corners, each read at two
+    /// **The grid's whole path, built in the skeleton's own storage** (finding 88): three corners, each read at two
     /// frames and blended, then blended together. The first call sizes the workspace; the second must allocate nothing,
     /// and must still be the pose a fresh build gives.
     /// </remarks>

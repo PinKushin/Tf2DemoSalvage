@@ -17,7 +17,7 @@ public sealed partial class EntityModelSet
     /// <remarks>
     /// **The engine's IK context owns its rule lists** (<c>m_ikChainRule</c>, emptied by <c>RemoveAll</c> in
     /// <c>AddDependencies</c>, <c>bone_setup.cpp:3319</c>) and allocates nothing per frame. A new list for every prop on
-    /// every simulate was 448 MB per 20 s of f12, most of it on the corpse worker (finding 87, B567). Nothing reads
+    /// every simulate was 448 MB per 20 s of f12, most of it on the corpse worker (finding 88, B567). Nothing reads
     /// <c>IkErrors</c> past the build that follows its simulate, so reusing it changes no answer.
     /// </remarks>
     internal static List<(StudioIkRule, Vector3, Quaternion, float)> ReusedIkErrors(SkeletonPose posed)

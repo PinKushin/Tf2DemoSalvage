@@ -108,7 +108,7 @@ public static class FramePacer
     /// excluded: a mouse move is not followed by another within a millisecond, so waiting would only
     /// cost frames. <c>0</c> means the queue emptied, so nothing is in flight.
     ///
-    /// **A paint is excluded too** (finding 87). The transport bar repaints after every frame, so WM_PAINT ended every
+    /// **A paint is excluded too** (finding 88). The transport bar repaints after every frame, so WM_PAINT ended every
     /// render burst and the millisecond's wait ran on every frame: 1.0-1.5 ms of the 'between' bucket, measured by
     /// timing <c>Idle</c> against <c>RenderFrame</c>. A paint is the window's own, never a cross-thread call.
     /// </remarks>

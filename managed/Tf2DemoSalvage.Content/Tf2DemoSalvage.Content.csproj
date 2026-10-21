@@ -22,7 +22,7 @@
   <ItemGroup>
     <InternalsVisibleTo Include="Tf2DemoSalvage.Content.Tests" />
     <!-- StudioPoseWorkspace's lists and the *Into pose calls: concrete lists on purpose, so a pose is written in
-         place with no wrapper, which keeps them off the public surface CA1002 guards (finding 87). -->
+         place with no wrapper, which keeps them off the public surface CA1002 guards (finding 88). -->
     <InternalsVisibleTo Include="Tf2DemoSalvage.Scene" />
   </ItemGroup>
 

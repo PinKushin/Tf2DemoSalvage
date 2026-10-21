@@ -124,7 +124,7 @@ public sealed class IkRuleDependencyTests
     }
 
     /// <remarks>
-    /// **The list is the skeleton's, made once** (finding 87): the second simulate gets the first one's list back, empty,
+    /// **The list is the skeleton's, made once** (finding 88): the second simulate gets the first one's list back, empty,
     /// and allocates nothing for it.
     /// </remarks>
     [Test]

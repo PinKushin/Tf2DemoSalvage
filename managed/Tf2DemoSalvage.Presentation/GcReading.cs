@@ -17,7 +17,7 @@ namespace Tf2DemoSalvage.Presentation;
 /// <param name="ThisThread">
 /// Bytes allocated so far by the thread that took the reading, from <see cref="GC.GetAllocatedBytesForCurrentThread"/>.
 /// The viewer reads on the render thread, so this is the frame's own allocation, apart from the corpse worker's
-/// (finding 87: the target metric for removing per-frame allocation).
+/// (finding 88: the target metric for removing per-frame allocation).
 /// </param>
 public readonly record struct GcReading(TimeSpan Pause, int Gen0, int Gen1, int Gen2, long Allocated, long ThisThread)
 {

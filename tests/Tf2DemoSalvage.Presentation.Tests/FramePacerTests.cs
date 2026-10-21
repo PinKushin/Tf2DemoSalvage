@@ -30,7 +30,7 @@ public sealed class FramePacerTests
     [Test]
     public void AwaitsTraffic_AfterAPaint_DoesNotWait() =>
         // WM_PAINT (0x000F): the transport bar repaints after every frame, so a paint ended every render burst and
-        // the 1 ms wait ran every frame (finding 87, the 'between' bucket). A paint is never a COM call.
+        // the 1 ms wait ran every frame (finding 88, the 'between' bucket). A paint is never a COM call.
         FramePacer.AwaitsTraffic(0x000F).ShouldBeFalse();
 
     [Test]

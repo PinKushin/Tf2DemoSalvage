@@ -335,7 +335,7 @@ public static class StudioAnimation
         return poses;
     }
 
-    /// <summary><see cref="Pose"/> into storage the caller owns (finding 87).</summary>
+    /// <summary><see cref="Pose"/> into storage the caller owns (finding 88).</summary>
     /// <param name="file">The <c>.mdl</c>'s bytes.</param>
     /// <param name="bones">The skeleton, for rest values and compression scales.</param>
     /// <param name="animation">Which local animation to read.</param>

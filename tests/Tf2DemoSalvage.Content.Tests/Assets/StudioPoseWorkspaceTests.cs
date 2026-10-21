@@ -12,7 +12,7 @@ namespace Tf2DemoSalvage.Content.Tests.Assets;
 /// </summary>
 /// <remarks>
 /// **Two properties, each with its own test.** The pose built in reused storage is the pose built fresh, exactly; and the
-/// second call into the same storage allocates nothing (finding 87, B567: 1.7 GB of bone poses per 20 s of f12 before).
+/// second call into the same storage allocates nothing (finding 88, B567: 1.7 GB of bone poses per 20 s of f12 before).
 /// The first is read on a real player model, every animation, because a list reused across calls can only leak a
 /// previous call's bones when the calls differ in which bones they name, and a synthetic fixture names one.
 /// </remarks>

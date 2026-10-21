@@ -4,7 +4,7 @@ namespace Tf2DemoSalvage.Content.Assets;
 
 /// <summary>Bone-pose storage that one skeleton owns and reuses on every pose it builds.</summary>
 /// <remarks>
-/// **The engine allocates nothing to pose a model** (finding 87, B567). <c>CBoneSetupMemoryPool</c>
+/// **The engine allocates nothing to pose a model** (finding 88, B567). <c>CBoneSetupMemoryPool</c>
 /// (<c>bone_setup.cpp:49-79</c>) hands out <c>MAXSTUDIOBONES</c>-sized arrays from a free list and takes them back when
 /// the blend is done, so a frame's poses reuse the same storage. This project built every intermediate pose as a fresh
 /// array or list: 1.7 GB per 20 s of f12 at tick 30000, a third of the render thread's allocation.

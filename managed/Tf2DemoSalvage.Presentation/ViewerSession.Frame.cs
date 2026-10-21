@@ -217,7 +217,7 @@ public sealed partial class ViewerSession
         _window.Close(posted: false);
     }
 
-    /// <summary>A measurement's stalls and heartbeat gaps (finding 87); made when its first frame is counted.</summary>
+    /// <summary>A measurement's stalls and heartbeat gaps (finding 88); made when its first frame is counted.</summary>
     private PauseLedger? _pauses;
 
     /// <summary>When the last frame's sequence ended, in Stopwatch ticks; zero before the first.</summary>
@@ -474,9 +474,10 @@ public sealed partial class ViewerSession
                 _particleWorkAtStart = _effects.ParticleWork;
                 _birthsAtStart = new(Tf2DemoSalvage.Content.Assets.ParticleEffect.BirthsBySystem, StringComparer.Ordinal);
 
-                // Each stall beside whether a do-nothing thread stopped too (finding 87): `--measure` only.
+                // Each stall beside whether a do-nothing thread stopped too (finding 88): `--measure` only.
                 _pauses = new PauseLedger(Stopwatch.Frequency);
                 _pausesFrom = Stopwatch.GetTimestamp();
+                _heartbeat?.Dispose();
                 _heartbeat = new Heartbeat(_pauses);
             }
 
