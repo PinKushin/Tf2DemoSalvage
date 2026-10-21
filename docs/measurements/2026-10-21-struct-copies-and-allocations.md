@@ -22,7 +22,8 @@ unedited in `2026-10-21-struct-copies-and-allocations/`. Nothing in Method was c
 - CPU: `dotnet-trace collect --profile dotnet-sampled-thread-time` over the Debug viewer, `--tick 30000 --first-person
   --measure 25 +fps_max 0`, read by the probe `cpu-trace <trace> 230 252 <render thread>` with leaf filters
   `BulkMoveWithWriteBarrier` and `PollGC` (four frames above each leaf).
-- Allocation: the same run with `--profile gc-verbose`, read by `alloc-trace <trace> 4|7 all 200 220 any|<thread>`.
+- Allocation: a separate run of the same command with `--profile gc-verbose`, read by
+  `alloc-trace <trace> 4|7 all 200 220 any|<thread>`.
 - Timing: `--measure 20` (first person twice per commit, empty view `TF2VIEW_CAMERA="1613 -2821 154 89 0"` once at each
   end), and `--measure 60` three times per side for the stalls. Each commit is built in the same locked script that runs
   it (scratch `series.ps1`/`run.ps1`), and the CPU load is sampled inside the lock before and after each run.
@@ -36,7 +37,7 @@ unedited in `2026-10-21-struct-copies-and-allocations/`. Nothing in Method was c
 - `cpu-trace`: the render thread is the one whose top leaf is `Device3D.DrawFrame` and whose `EntityModelSet.Instances`
   is ~29% inclusive, as in finding 88. A `BulkMoveWithWriteBarrier` that is a real copy must show as a leaf.
 - `alloc-trace`: the `ScenePlayer[]` from `SpectatorTarget.Observable` and `SunFrom`'s tuple arrays, both named in B567,
-  must appear; the render thread's MB per 20 s ÷ frames should be near the `--measure` line's render-thread bytes.
+  must appear; the render thread's MB per 20 s / frames should be near the `--measure` line's render-thread bytes.
 - `pair-diff`: main shot twice is the control; a difference outside the fps text box (y 2-10) in the control would make
   the comparison useless.
 
