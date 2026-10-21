@@ -40168,4 +40168,9 @@ large demo.
 (`dotnet-trace` sampled thread time was used for the earlier decode review). **Options for the owner**, not decided: build
 checkpoints off the critical path (the viewer opens on the first window and the rest are built behind it), parallelize the
 walk, or lower the checkpoint density. Whatever is chosen must keep every seek identical to playing (B527, B438, B449).
+**Owner direction, 2026-10-20:** *"if its just in decode, i dont mind us being longer there, i care about fps itself, we can
+parallelize and do the first thing almost certainly though"*. So the order is: first find out whether D217 step 3 costs
+anything per frame or per seek during playback (fps is the priority); load time is acceptable as it stands, and the first
+option (checkpoints built behind the viewer) plus parallelizing independent work is the preferred route if it is straightforward
+and every seek still equals playing. No reason was given for accepting the load cost beyond fps taking priority.
 
