@@ -70,6 +70,30 @@ public sealed class ParticleCollationConformanceTests
     }
 
     /// <remarks>
+    /// **Whether a view decides is the frame's, not the instance's** (lead's review): a frame drawn with no view pushes
+    /// every effect's sleep time, as before, whatever an earlier frame did. Here a view-given frame, then `Clear` (a new
+    /// demo), then twenty seconds of frames with none: the effect behind the camera is stepped on every one of them.
+    /// </remarks>
+    [Test]
+    public void Build_WithNoViewAfterAViewAndAClear_PushesEverySleepAgain()
+    {
+        ParticleEffects effects = new();
+        ParticleBurst behind = new(2, Sleepy(), At(100f), 100);
+
+        effects.Bursts([behind], Interval, null, tick: 100);
+        effects.Build(Vector3.Zero, Vector3.UnitY, Vector3.UnitZ, NoMaterials, Looking);
+        effects.Clear();
+
+        for (int tick = 100; tick <= 100 + 1320; tick++)
+        {
+            effects.Bursts([behind], Interval, null, tick);
+            effects.Build(Vector3.Zero, Vector3.UnitY, Vector3.UnitZ, NoMaterials);
+        }
+
+        effects.BurstSteps(2).ShouldBe(1320, "drawn on every frame with no view, so never asleep");
+    }
+
+    /// <remarks>
     /// **A trail sleeps the same way**, by this frame's time against its sleep time, as `BuildParticleSimList` tests
     /// `flNow` (particlemgr.cpp:1775). Created at tick 0, the one behind steps at ticks 1 to 9 and is asleep at tick 10 (its
     /// sleep at 9.9): its own clock stands at nine ticks. The seen one is drawn every frame and ages all forty.

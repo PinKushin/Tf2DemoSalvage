@@ -995,9 +995,12 @@ public sealed class ParticleEffects
             corners.Clear();
         }
 
+        // **The frame's, not the instance's** (lead's review): whether a view decided this frame's draw, which the next
+        // frame's simulation reads, as the engine's simulate reads what the last frame's render pushed.
+        _collating = view is not null;
+
         if (view is not null)
         {
-            _collating = true;
             CollateEffects(view);
         }
 
@@ -1183,7 +1186,7 @@ public sealed class ParticleEffects
 
     private static readonly Func<int, LeafRenderGroup> OpaqueEffect = static _ => LeafRenderGroup.Opaque;
 
-    /// <summary>Whether a view was ever given: from then on only a draw pushes an effect's sleep time.</summary>
+    /// <summary>Whether the last frame's draw was decided by a view: then only that draw pushed an effect's sleep time.</summary>
     private bool _collating;
 
     /// <summary>The last frame's simulation time, in ticks, and a tick's length — what a draw pushes the sleep time from.</summary>
@@ -1358,6 +1361,7 @@ public sealed class ParticleEffects
         _keyOfHandle.Clear();
         _effectLeaves = null;
         _effectTree = null;
+        _collating = false;
     }
 }
 
