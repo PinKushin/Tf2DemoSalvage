@@ -12,7 +12,7 @@ namespace Tf2DemoSalvage.Rendering.Tests;
 /// **The output-level half of the particle follow-ups.** The chain is `MainForm`'s: the rocket's frame from
 /// <see cref="AngleVectors"/>, <see cref="ParticleEffects.Update"/> with the install's own `rockettrail` as
 /// <see cref="MapAssets"/> loads it, and
-/// <see cref="ParticleEffects.Build(Vector3, Vector3, Vector3, IReadOnlyDictionary{string, ParticleMaterial})"/>.
+/// <see cref="ParticleEffects.Build(Vector3, Vector3, Vector3, IReadOnlyDictionary{string, ParticleMaterial}, CollationView)"/>.
 ///
 /// **The rocket is written down, not read from a recording** (D213): z1800's entity 573, a `CTFProjectile_Rocket`, as
 /// `moment-dump z1800 17318 573` printed it on 2026-10-11 — the only things this test takes from it are where it is,
