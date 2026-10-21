@@ -180,6 +180,42 @@ public sealed class ParticleEffect
     /// </remarks>
     public IReadOnlyList<ParticleEffect> Children { get; }
 
+    /// <summary>The effect's world box: its particles and its children's, each grown by its radius, holding control point 0.</summary>
+    /// <returns>The box's two corners; with no particles anywhere, control point 0 alone.</returns>
+    /// <remarks>
+    /// What the leaf system files the effect by (finding 84, D1). `BloatBoundsUsingControlPoint` keeps control point 0
+    /// inside the box, and a collection with no particles is its sort origin (particles_new.cpp:351-361). **The radius is
+    /// interpolated**: the per-particle growth happens inside the closed `particles.lib`.
+    /// </remarks>
+    public (Vector3 Min, Vector3 Max) Bounds()
+    {
+        Vector3 point = ControlPoint(0).At;
+        Vector3 min = new(float.MaxValue);
+        Vector3 max = new(float.MinValue);
+
+        Grow(this, ref min, ref max);
+
+        return min.X > max.X ? (point, point) : (Vector3.Min(min, point), Vector3.Max(max, point));
+    }
+
+    private static void Grow(ParticleEffect effect, ref Vector3 min, ref Vector3 max)
+    {
+        ParticleStore store = effect.Particles;
+
+        for (int index = 0; index < store.Count; index++)
+        {
+            Vector3 reach = new(store.Radius[index]);
+
+            min = Vector3.Min(min, store.Position[index] - reach);
+            max = Vector3.Max(max, store.Position[index] + reach);
+        }
+
+        foreach (ParticleEffect child in effect.Children)
+        {
+            Grow(child, ref min, ref max);
+        }
+    }
+
     /// <summary>Starts an instance of one system.</summary>
     /// <param name="system">The definition.</param>
     /// <param name="others">

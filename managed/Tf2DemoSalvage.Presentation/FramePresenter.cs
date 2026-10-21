@@ -364,7 +364,8 @@ public sealed partial class FramePresenter
             _frame.ViewportHeight,
             _frame.DoPixelVisibility,
             _frame.ShownTick,
-            seeked);
+            seeked,
+            _models.WorldView);
 
         if (_frameParticles.Trails(particles))
         {

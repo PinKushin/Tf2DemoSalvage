@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Numerics;
 
 using Tf2DemoSalvage.Content.Assets;
+using Tf2DemoSalvage.Content.Bsp;
 
 namespace Tf2DemoSalvage.Scene;
 
@@ -92,7 +93,7 @@ public sealed class ParticleEffects
     /// <summary>Played frames on which a burst stood asleep, once per burst per frame (`BuildParticleSimList`'s skip).</summary>
     public long Slept { get; private set; }
 
-    /// <summary>Effects with particles handed to the draw by the scene's <see cref="Build(Vector3, Vector3, Vector3, IReadOnlyDictionary{string, ParticleMaterial})"/>.</summary>
+    /// <summary>Effects with particles handed to the draw by the scene's <see cref="Build(Vector3, Vector3, Vector3, IReadOnlyDictionary{string, ParticleMaterial}, CollationView)"/>.</summary>
     public long Gathered { get; private set; }
 
     /// <summary>What a finished burst keeps in place of its effect: nothing to draw, nothing to hold.</summary>
@@ -227,6 +228,7 @@ public sealed class ParticleEffects
         double previous = _tick;
 
         _tick = now;
+        _seconds = seconds;
 
         // NaN before the first call: the opening is not a played frame, whatever tick it opens on.
         bool played = !(seeked || double.IsNaN(advanced) || advanced < 0d || advanced > 200d);
@@ -239,6 +241,7 @@ public sealed class ParticleEffects
             // inherited its particles. The rockets still flying replay their own from where they started, below.
             _running.Clear();
             _playedFrom.Clear();
+            _trailSleep.Clear();
             advanced = 0d;
         }
 
@@ -257,6 +260,9 @@ public sealed class ParticleEffects
                 // Entity indices are reused, so the trail is identified by its entity AND the tick its track began.
                 effect = new ParticleEffect(definition, others, Sheets, SeedFor(((long)(tick - ticks) << 32) | (uint)entity));
                 _running[entity] = effect;
+
+                // `StartEmission` at creation: asleep at now plus the no-draw time unless a draw pushes it on (finding 84).
+                _trailSleep[entity] = now + (ParticleEffect.SleepAfter(definition) / seconds);
 
                 // **Made in the frame its rocket appeared, it simulates nothing of that frame** (B557 row 6):
                 // `Simulate( 0.0f )` on the first frame (particlemgr.cpp:1572-1575), and it is never replayed. A rocket that
@@ -301,7 +307,13 @@ public sealed class ParticleEffects
                 continue;
             }
 
-            if (last > 0f)
+            if (last > 0f && TrailAsleep(entity, effect, now))
+            {
+                // Asleep, it is not simulated and its clock stands; its point is still read (particlemgr.cpp:1841-1853).
+                effect.SetControlPoint(0, at);
+                Slept++;
+            }
+            else if (last > 0f)
             {
                 effect.Step(at, last);
                 Steps++;
@@ -324,7 +336,11 @@ public sealed class ParticleEffects
                 continue;
             }
 
-            if (last > 0f)
+            if (last > 0f && TrailAsleep(entity, effect, now))
+            {
+                Slept++;
+            }
+            else if (last > 0f)
             {
                 effect.Fade(last);
                 Steps++;
@@ -344,10 +360,18 @@ public sealed class ParticleEffects
         {
             _running.Remove(entity);
             _playedFrom.Remove(entity);
+            _trailSleep.Remove(entity);
         }
 
         Alive += _running.Count;
     }
+
+    /// <summary>
+    /// Whether a trail sits out this frame: collated by a view, at or past its sleep time with live particles of its own —
+    /// `BuildParticleSimList`'s skip, `flNow` against `m_flNextSleepTime` (particlemgr.cpp:1775).
+    /// </summary>
+    private bool TrailAsleep(int entity, ParticleEffect effect, double now) =>
+        _collating && _trailSleep.TryGetValue(entity, out double sleepAt) && now >= sleepAt && effect.Particles.Count > 0;
 
     /// <summary>Steps every one-shot, starting one for each that is offered and not already running.</summary>
     /// <param name="live">
@@ -399,6 +423,10 @@ public sealed class ParticleEffects
         ArgumentNullException.ThrowIfNull(live);
 
         double now = shown ?? tick;
+
+        // The frame's simulation time and tick, which a draw in `Build` pushes the sleep time from.
+        _burstNow = now;
+        _seconds = seconds;
 
         // **A seek backwards throws every burst away rather than trying to unwind one.** Each is then rebuilt
         // below from whatever the caller still offers, so the answer at this tick does not depend on how the
@@ -651,8 +679,9 @@ public sealed class ParticleEffects
             }
 
             // **This frame's draw** — `CParticleCollection::Render` sets `m_flNextSleepTime` to at least the last simulation
-            // time plus the no-draw time (particles.obj, Ghidra); a frame the caller could not place draws nothing.
-            if (!burst.Undrawn)
+            // time plus the no-draw time (particles.obj, Ghidra); a frame the caller could not place draws nothing. **Only
+            // with no view to collate by**: given one, `Build` pushes it for what the view collated (finding 84, D1).
+            if (!_collating && !burst.Undrawn)
             {
                 nextSleep = Math.Max(nextSleep, wanted + noDraw);
             }
@@ -945,12 +974,19 @@ public sealed class ParticleEffects
     /// materials** — smoke, burst and fire — and an additive glow cannot share a draw call with
     /// translucent smoke. The returned list and its corner lists are REUSED between frames, so a
     /// caller that needs them after the next `Build` must copy.
+    ///
+    /// **Given the views, only what they collate is drawn, and only drawing keeps an effect awake** (finding 84, D1): each
+    /// effect is filed by its box in a leaf system over the same tree and collated with the same leaf lists and frustums as
+    /// the entities; a collated one is drawn and has its sleep time pushed on, as `CParticleCollection::Render` does; the
+    /// rest sleep once past it. With no view (no device, a test) every effect is drawn, as before.
     /// </remarks>
+    /// <param name="view">The views this frame collated by; null to draw every effect.</param>
     public IReadOnlyList<ParticleBatch> Build(
         Vector3 eye,
         Vector3 right,
         Vector3 up,
-        IReadOnlyDictionary<string, ParticleMaterial> materials)
+        IReadOnlyDictionary<string, ParticleMaterial> materials,
+        CollationView? view = null)
     {
         ArgumentNullException.ThrowIfNull(materials);
 
@@ -959,16 +995,54 @@ public sealed class ParticleEffects
             corners.Clear();
         }
 
-        foreach (ParticleEffect effect in _running.Values)
+        if (view is not null)
         {
+            _collating = true;
+            CollateEffects(view);
+        }
+
+        foreach ((int entity, ParticleEffect effect) in _running)
+        {
+            if (view is not null && !_drawnKeys.Contains(TrailKey(entity)))
+            {
+                continue;
+            }
+
+            if (view is not null)
+            {
+                // `Render`: the sleep time at least this frame's simulation time plus the no-draw time.
+                _trailSleep[entity] = Math.Max(
+                    _trailSleep.GetValueOrDefault(entity), _tick + (ParticleEffect.SleepAfter(effect.System) / _seconds));
+            }
+
             Gathered += effect.Empty ? 0 : 1;
             Gather(effect, eye, right, up, materials);
         }
 
-        foreach (RunningBurst running in _bursts.Values)
+        _pushed.Clear();
+
+        foreach ((long key, RunningBurst running) in _bursts)
         {
+            if (view is not null && !_drawnKeys.Contains(key))
+            {
+                continue;
+            }
+
+            if (view is not null)
+            {
+                _pushed.Add(key);
+            }
+
             Gathered += running.Effect.Empty ? 0 : 1;
             Gather(running.Effect, eye, right, up, materials);
+        }
+
+        foreach (long key in _pushed)
+        {
+            RunningBurst running = _bursts[key];
+            double noDraw = ParticleEffect.SleepAfter(running.Effect.System) / _seconds;
+
+            _bursts[key] = running with { NextSleep = Math.Max(running.NextSleep, (_burstNow - running.Tick) + noDraw) };
         }
 
         return Batches(materials);
@@ -976,7 +1050,7 @@ public sealed class ParticleEffects
 
     /// <summary>
     /// Builds the quads of effects someone else owns — a model panel's `m_particleList`, rendered by
-    /// `CBaseModelPanel::PostPaint3D` (basemodel_panel.cpp:904-912) — the way <see cref="Build(Vector3, Vector3, Vector3, IReadOnlyDictionary{string, ParticleMaterial})"/>
+    /// `CBaseModelPanel::PostPaint3D` (basemodel_panel.cpp:904-912) — the way <see cref="Build(Vector3, Vector3, Vector3, IReadOnlyDictionary{string, ParticleMaterial}, CollationView)"/>
     /// builds this scene's.
     /// </summary>
     /// <param name="effects">The effects to draw.</param>
@@ -1007,6 +1081,130 @@ public sealed class ParticleEffects
 
         return Batches(materials);
     }
+
+    /// <summary>Files every live effect by its box and collates the views' leaves — what the scene's `Build` draws.</summary>
+    /// <remarks>
+    /// `CNewParticleEffect` is a renderable of the one leaf system (`DetectChanges` re-links it when its box moves,
+    /// particles_new.cpp:370-404), collated as the entities are (clientleafsystem.cpp:1574-1716): a listed leaf, then the
+    /// frustum. Ours files it by its box every frame and re-links only on a change, as the entities' does.
+    /// </remarks>
+    private void CollateEffects(CollationView view)
+    {
+        if (_effectLeaves is null || !ReferenceEquals(_effectTree, view.Tree))
+        {
+            _effectTree = view.Tree;
+            _effectLeaves = view.Tree is { IsEmpty: false } tree
+                ? new ClientLeafSystem(tree.LeafCount, tree.EnumerateLeavesInBox)
+                : new ClientLeafSystem(1, static (_, _, into) => into.Add(0));
+            _everyEffectLeaf = new int[view.Tree is { IsEmpty: false } listed ? listed.LeafCount : 1];
+
+            for (int leaf = 0; leaf < _everyEffectLeaf.Length; leaf++)
+            {
+                _everyEffectLeaf[leaf] = leaf;
+            }
+
+            _handleOfEffect.Clear();
+        }
+
+        _filedKeys.Clear();
+
+        foreach ((int entity, ParticleEffect effect) in _running)
+        {
+            FileEffect(TrailKey(entity), effect);
+        }
+
+        foreach ((long key, RunningBurst running) in _bursts)
+        {
+            if (!ReferenceEquals(running.Effect, Spent))
+            {
+                FileEffect(key, running.Effect);
+            }
+        }
+
+        _staleKeys.Clear();
+
+        foreach (long key in _handleOfEffect.Keys)
+        {
+            if (!_filedKeys.Contains(key))
+            {
+                _staleKeys.Add(key);
+            }
+        }
+
+        foreach (long key in _staleKeys)
+        {
+            _effectLeaves.RemoveRenderable(_handleOfEffect[key]);
+            _handleOfEffect.Remove(key);
+        }
+
+        _effectLeaves.PreRender();
+        _effectLeaves.BuildRenderablesList(view.Views.MainLeaves ?? _everyEffectLeaf, view.Frustum, OpaqueEffect, _effectsMain);
+
+        _drawnKeys.Clear();
+        AddDrawn(_effectsMain);
+
+        if (view.Views.SkyLeaves is { Count: > 0 } sky)
+        {
+            _effectLeaves.BuildRenderablesList(sky, view.Views.SkyFrustum, OpaqueEffect, _effectsSky, includeUnplaced: false);
+            AddDrawn(_effectsSky);
+        }
+    }
+
+    private void FileEffect(long key, ParticleEffect effect)
+    {
+        (Vector3 min, Vector3 max) = effect.Bounds();
+        (float, float, float, float, float, float) box = (min.X, min.Y, min.Z, max.X, max.Y, max.Z);
+
+        if (_handleOfEffect.TryGetValue(key, out int handle))
+        {
+            _effectLeaves!.RenderableChanged(handle, box);
+        }
+        else
+        {
+            handle = _effectLeaves!.AddRenderable(box);
+            _handleOfEffect[key] = handle;
+        }
+
+        // A freed handle is reused, so the key it answers for is written every time.
+        _keyOfHandle[handle] = key;
+        _filedKeys.Add(key);
+    }
+
+    private void AddDrawn(CollatedRenderables collated)
+    {
+        foreach ((int handle, _, _) in collated.Entries)
+        {
+            _drawnKeys.Add(_keyOfHandle[handle]);
+        }
+    }
+
+    /// <summary>A trail's key among the bursts': its entity in the top half, which no burst key reaches.</summary>
+    private static long TrailKey(int entity) => (1L << 62) | (uint)entity;
+
+    private static readonly Func<int, LeafRenderGroup> OpaqueEffect = static _ => LeafRenderGroup.Opaque;
+
+    /// <summary>Whether a view was ever given: from then on only a draw pushes an effect's sleep time.</summary>
+    private bool _collating;
+
+    /// <summary>The last frame's simulation time, in ticks, and a tick's length — what a draw pushes the sleep time from.</summary>
+    private double _burstNow;
+
+    private float _seconds = 1f / 66f;
+
+    /// <summary>Each trail's sleep time, in ticks, as a burst's <see cref="RunningBurst.NextSleep"/> is.</summary>
+    private readonly Dictionary<int, double> _trailSleep = [];
+
+    private ClientLeafSystem? _effectLeaves;
+    private BspLeafTree? _effectTree;
+    private int[] _everyEffectLeaf = [0];
+    private readonly Dictionary<long, int> _handleOfEffect = [];
+    private readonly Dictionary<int, long> _keyOfHandle = [];
+    private readonly HashSet<long> _filedKeys = [];
+    private readonly List<long> _staleKeys = [];
+    private readonly HashSet<long> _drawnKeys = [];
+    private readonly List<long> _pushed = [];
+    private readonly CollatedRenderables _effectsMain = new();
+    private readonly CollatedRenderables _effectsSky = new();
 
     /// <summary>This frame's non-empty material groups as batches.</summary>
     private List<ParticleBatch> Batches(IReadOnlyDictionary<string, ParticleMaterial> materials)
@@ -1153,6 +1351,13 @@ public sealed class ParticleEffects
         _tick = double.NaN;
         _burstShown = double.NaN;
         _playedFrom.Clear();
+
+        // And the effects' sleep and filing (finding 84, D1): a new map's tree files them afresh.
+        _trailSleep.Clear();
+        _handleOfEffect.Clear();
+        _keyOfHandle.Clear();
+        _effectLeaves = null;
+        _effectTree = null;
     }
 }
 

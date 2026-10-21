@@ -81,6 +81,9 @@ public sealed partial class EntityModelSet
 
     private readonly HashSet<int> _inView = [];
 
+    /// <summary>The last world pass's views, which the particle effects collate by; null before the first.</summary>
+    public CollationView? WorldView { get; private set; }
+
     public int Posed { get; private set; }
 
     /// <summary>The renderables of the world pass, kept per leaf across frames — <c>CClientLeafSystem</c> (B262).</summary>
@@ -269,6 +272,9 @@ public sealed partial class EntityModelSet
         _leafSystem.PreRender();
 
         IReadOnlyList<int> mainLeaves = views.MainLeaves ?? _everyLeaf;
+
+        // What this frame's views were, for the particle effects to collate by the same (finding 84, D1).
+        WorldView = new CollationView(frustum, views, _tree);
 
         _leafSystem.BuildRenderablesList(mainLeaves, frustum, Opaque, _mainCollated);
 

@@ -24,6 +24,7 @@ namespace Tf2DemoSalvage.Presentation;
 /// <param name="DoPixelVisibility">`r_dopixelvisibility`.</param>
 /// <param name="ShownTick">The moment the frame showed, fraction included, which the trails are stepped to (D221); null for <paramref name="Tick"/>.</param>
 /// <param name="Seeked">Whether this frame landed by a seek, the frame's one skip decision — a transport jump, never a long frame (`FrameSkip`, D221).</param>
+/// <param name="View">The views the world pass collated by, which the effects are collated by too (finding 84, D1); null draws every effect.</param>
 public readonly record struct ParticleFrame(
     DemoTimeline? Timeline,
     LoadedMap? Loaded,
@@ -34,7 +35,8 @@ public readonly record struct ParticleFrame(
     int ViewportHeight,
     bool DoPixelVisibility,
     double? ShownTick = null,
-    bool Seeked = false);
+    bool Seeked = false,
+    CollationView? View = null);
 
 /// <summary>What a loaded map holds that a frame's particles read, as data (D214): a test supplies it by hand.</summary>
 /// <param name="RocketTrail">The rocket trail's definition, or null when the map loaded none.</param>
@@ -266,7 +268,8 @@ public sealed class FrameParticles
             new Vector3(viewing.Origin.X, viewing.Origin.Y, viewing.Origin.Z),
             new Vector3(rx, ry, rz),
             new Vector3(ux, uy, uz),
-            map?.ParticleMaterials ?? NoParticleMaterials);
+            map?.ParticleMaterials ?? NoParticleMaterials,
+            frame.View);
 
         Quads = 0;
 
