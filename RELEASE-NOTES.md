@@ -1,6 +1,26 @@
-# Tf2DemoSalvage 0.1.0-beta.46
+# Tf2DemoSalvage 0.1.0-beta.47
 
 ## Unreleased
+
+## Changes in 0.1.0-beta.47
+
+Released 2026-10-21.
+
+- **The viewer draws faster.** In first person on the author's `cp_process_f12` recording, a frame went from about
+  16.5-17.1 ms to about 14.5-15.3 ms, and with nothing in view from about 7.3 ms to about 5.6 ms. The largest single
+  part was a one-millisecond wait after every frame that served only accessibility and test tools. It now runs only
+  when such a tool is attached to the window.
+- **Less memory churn per frame.** Memory allocated per frame fell from about 7.7 MB to about 5.1 MB over all threads
+  (the render thread from about 4.0 MB to 2.2 MB), because skeleton poses and inverse-kinematics lists are reused.
+  This also shortens the collector's pauses.
+- **Fewer playback hitches from sounds.** Weapon draw and reload sounds are loaded while the demo loads instead of
+  the first time they play. On that recording, misses during play fell from 12 a minute to 4.
+- **A saved screenshot appears only when the whole image is on disk**, so a tool or a file watcher can no longer pick
+  up a half-written PNG.
+- **A particle effect whose owner is out of view for a while and then returns is no longer lost.** Before, it stayed
+  gone until you scrubbed.
+- **Developer options.** `--measure` also prints the memory allocated per frame by the render thread, and lists
+  stalls beside whether the whole process paused.
 
 ## Changes in 0.1.0-beta.46
 
@@ -750,8 +770,12 @@ Things a user is likely to notice. Each has an entry in `docs/RISKS.md` in the r
 
 - **The first twenty seconds or so of playback run slower than steady state** while the runtime optimizes the viewer's
   code. Turning that off made loading much slower and playback slower too, so it was reverted. Still open.
-- **Frame rate is not yet where we want it.** On the author's f12 first-person test it is roughly 70 frames per
+- **Frame rate is not yet where we want it.** On the author's f12 first-person test it is roughly 65 to 69 frames per
   second, far below the game itself. This is the current priority.
+- **A sound's first play can still stall for a few hundred milliseconds on a busy machine.** The cause of that wait
+  is not yet understood.
+- **The viewer's frame rate has not yet been compared with the game's** on the same recording at the same moment.
+  That measurement is planned.
 
 - **The "no map" message is unverified** (B556, D224). When a demo's map cannot be fetched or found, the viewer
   is meant to say so in the status bar. No test has opened a demo with its map absent by each route (a failed
