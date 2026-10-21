@@ -36,12 +36,15 @@ public sealed partial class ViewerSession
 
         // A cross-thread caller (UI Automation, over COM) sends its next call right after our reply.
         // Serve it before drawing, or each call waits a whole frame.
-        if (FramePacer.AwaitsTraffic(_idleEndedBy) && host.ArrivesWithin(FramePacer.TrafficWaitSeconds))
+        if (FramePacer.AwaitsTraffic(_idleEndedBy, _burstDrew) && host.ArrivesWithin(FramePacer.TrafficWaitSeconds))
         {
             _idleEndedBy = host.Waiting() ?? 0;
+            _burstDrew = false;
             _frames.Yielded();
             return;
         }
+
+        bool drew = false;
 
         do
         {
@@ -65,6 +68,7 @@ public sealed partial class ViewerSession
                 // fast an empty loop spins — 186 "frames a second" with every duration at zero.
                 if (RenderFrame())
                 {
+                    drew = true;
                     _frames.Drew(
                         _clock.LastFrameSeconds,
                         new FrameView(
@@ -91,8 +95,12 @@ public sealed partial class ViewerSession
         while (waiting is null);
 
         _idleEndedBy = waiting.Value;
+        _burstDrew = drew;
         _frames.Yielded();
     }
+
+    /// <summary>Whether the burst that <see cref="_idleEndedBy"/> ended drew a frame: its paint is then the frame's own (finding 88).</summary>
+    private bool _burstDrew;
 
     /// <summary>Names the Windows messages worth recognising in a render report.</summary>
     /// <remarks>
