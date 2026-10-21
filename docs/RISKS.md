@@ -40152,3 +40152,20 @@ at the rocket = stepping; repeat with `host_timescale 0` and `0.01`. Several eff
 viewer keeps its current behaviour (a paused frame steps no particles). Evidence classes: D (engine.dll), L (particles lib,
 not the live client), S (published SDK), I (interpolated: the server tick stays frozen under a server pause).
 
+## B562 — building the timeline on f12 went from ~105 s to ~160 s when D217 step 3 landed — OPEN (2026-10-20)
+
+**Measured by bisection** (`DemoTimeline.Build` on `demostf-cp_process_f12-2026-08-08-2207.dem`, release build, one run per
+commit under the machine lock; a probe copied into each worktree, never committed; machine free RAM 13–16 GB throughout, so
+not paging). beta.44 107 s, `ea95a1fa` 94.5 s, `6fe47ae0` 119.8 s, `0277578c` (B549) **104.1 s**, `cecd3963` (D217 step 3 and
+D220, 10-16 11:15) **160.5 s**, then 157–165 s on every later commit through `main` 2fb6598c (10-19 evening, 10-20 morning,
+midday, afternoon). The step is +56 s (+54%) at one merge and flat afterwards. Single runs, so ±10 s of noise (the 119.8 s run
+sat between the groups); the two groups are 50 s apart, far outside it. Evidence class: M (measured on the corpus).
+**What the decision recorded.** D217 step 3 reports f12's checkpoint build ("walk") at 174-257 s, and the load-time cost of
+building checkpoints is not among its stated trades; its figures are seek-window milliseconds and heap size (f12 heap
+2,948 → 681 MB). So this is the price of the memory win, and nobody recorded accepting it. It adds ~1 minute to opening a
+large demo.
+**Not yet known:** whether the cost is the checkpoint copies, the packed property bags, or `Backfill`; a trace would say
+(`dotnet-trace` sampled thread time was used for the earlier decode review). **Options for the owner**, not decided: build
+checkpoints off the critical path (the viewer opens on the first window and the rest are built behind it), parallelize the
+walk, or lower the checkpoint density. Whatever is chosen must keep every seek identical to playing (B527, B438, B449).
+
