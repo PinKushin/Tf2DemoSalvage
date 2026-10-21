@@ -746,11 +746,11 @@ public sealed class ViewerSessionTests
     }
 
     [Test]
-    public void Idle_AfterAPaintEndedTheLastBurst_WaitsForTrafficAndYieldsWhenItComes()
+    public void Idle_AfterACallEndedTheLastBurst_WaitsForTrafficAndYieldsWhenItComes()
     {
         using Rig rig = Build();
         FakeIdleHost host = new();
-        host.Queue.Enqueue(0x000F);
+        host.Queue.Enqueue(0x0400);
         rig.Session.Idle(host);
         int looksAfterFirst = host.Looks;
         host.Waits.ShouldBeEmpty("the first burst follows nothing, so it waits for nothing");
@@ -760,6 +760,45 @@ public sealed class ViewerSessionTests
 
         host.Waits.ShouldBe([FramePacer.TrafficWaitSeconds]);
         (host.Looks - looksAfterFirst).ShouldBe(1, "it looks once to learn what arrived, and draws nothing");
+    }
+
+    /// <remarks>
+    /// **The frame's own paint does not wait** (finding 88): the transport bar repaints after every frame, and waiting
+    /// a millisecond after each was 1.0-1.5 ms of every frame.
+    /// </remarks>
+    [Test]
+    public void Idle_AfterAPaintEndedABurstThatDrew_DoesNotWaitForTraffic()
+    {
+        using Rig rig = Build();
+        FakeIdleHost host = new();
+        host.Queue.Enqueue(0x000F);
+        rig.Session.Idle(host);
+        host.Arrives = true;
+        host.Queue.Enqueue(0x0200);
+
+        rig.Session.Idle(host);
+
+        host.Waits.ShouldBeEmpty("the paint followed a drawn frame, so it is the frame's own");
+    }
+
+    /// <remarks>
+    /// **A paint inside a call chain still waits**: the call was served without a frame, its handler invalidated the
+    /// window, and the next call follows the reply.
+    /// </remarks>
+    [Test]
+    public void Idle_AfterAPaintEndedABurstThatServedACall_WaitsForTraffic()
+    {
+        using Rig rig = Build();
+        FakeIdleHost host = new();
+        host.Queue.Enqueue(0x0400);
+        host.Queue.Enqueue(0x000F);
+        rig.Session.Idle(host);                 // draws; the call ends the burst
+        host.Arrives = true;
+        rig.Session.Idle(host);                 // serves the call without a frame; its paint ends the burst
+
+        rig.Session.Idle(host);
+
+        host.Waits.ShouldBe([FramePacer.TrafficWaitSeconds, FramePacer.TrafficWaitSeconds]);
     }
 
     [Test]

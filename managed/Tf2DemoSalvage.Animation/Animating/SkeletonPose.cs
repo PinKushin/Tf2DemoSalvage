@@ -80,6 +80,24 @@ public sealed class SkeletonPose : IBonePose
     private readonly Func<int, int, float, IReadOnlyList<float>, IReadOnlyList<StudioBonePose>>
         _animation;
 
+    /// <summary>Creates a pose source whose animation builds into pose storage this skeleton owns.</summary>
+    /// <param name="bones">The skeleton, as <see cref="StudioBones.Read"/> returned it.</param>
+    /// <param name="animation">
+    /// As the other constructor's, given this skeleton's own <see cref="StudioPoseWorkspace"/> to build in. What it
+    /// returns is read before the next call, so a pose held in the workspace is never overwritten while in use.
+    /// </param>
+    /// <exception cref="ArgumentNullException">An argument is null.</exception>
+    /// <remarks>
+    /// **One workspace per skeleton**, as the engine's bones are set up in storage the entity's setup owns rather than
+    /// allocated per pose (finding 88). Per skeleton rather than per model, because a model is posed by two threads.
+    /// </remarks>
+    public SkeletonPose(
+        IReadOnlyList<StudioBone> bones,
+        Func<int, int, float, IReadOnlyList<float>, StudioPoseWorkspace, IReadOnlyList<StudioBonePose>> animation)
+        : this(bones, WithOwnWorkspace(animation))
+    {
+    }
+
     /// <summary>Creates a pose source over one model's skeleton.</summary>
     /// <param name="bones">The skeleton, as <see cref="StudioBones.Read"/> returned it.</param>
     /// <param name="animation">
@@ -118,6 +136,17 @@ public sealed class SkeletonPose : IBonePose
         {
             _local[bone] = new float[12];
         }
+    }
+
+    /// <summary>Binds an animation to a workspace of its own, made once.</summary>
+    private static Func<int, int, float, IReadOnlyList<float>, IReadOnlyList<StudioBonePose>> WithOwnWorkspace(
+        Func<int, int, float, IReadOnlyList<float>, StudioPoseWorkspace, IReadOnlyList<StudioBonePose>> animation)
+    {
+        ArgumentNullException.ThrowIfNull(animation);
+
+        StudioPoseWorkspace workspace = new();
+
+        return (sequence, frame, fraction, poseValues) => animation(sequence, frame, fraction, poseValues, workspace);
     }
 
     /// <summary>Diagnostic: what every skeleton has spent decoding and blending animation.</summary>

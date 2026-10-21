@@ -1879,9 +1879,30 @@ public static class PropModels
         /// blend rather than beside it.
         /// </remarks>
         public IReadOnlyList<StudioBonePose> Locals(
-            int sequence, int frame, float fraction, IReadOnlyList<float> poseValues)
+            int sequence, int frame, float fraction, IReadOnlyList<float> poseValues) =>
+            LocalsInto(sequence, frame, fraction, poseValues, new StudioPoseWorkspace());
+
+        /// <summary><see cref="Locals(int, int, float, IReadOnlyList{float})"/> built in storage the caller owns.</summary>
+        /// <param name="sequence">The merged sequence number.</param>
+        /// <param name="frame">The frame the cycle landed on.</param>
+        /// <param name="fraction">How far from it toward the next — the engine's <c>s</c>.</param>
+        /// <param name="poseValues">Every pose parameter, normalised.</param>
+        /// <param name="workspace">The skeleton's own pose storage.</param>
+        /// <returns>
+        /// The same pose <c>Locals</c> returns, held in <paramref name="workspace"/>: valid until the next call with it.
+        /// </returns>
+        /// <exception cref="ArgumentNullException">An argument is null.</exception>
+        /// <remarks>
+        /// **Nothing allocated per pose, as the engine's bone setup allocates nothing** (finding 88): every frame read
+        /// and every blend lands in a list the workspace keeps, the way <c>CBoneSetupMemoryPool</c> hands
+        /// <c>CalcPose</c> its arrays (<c>bone_setup.cpp:49-79</c>). Each grid corner has its own slot, so a corner
+        /// being read never overwrites one being blended.
+        /// </remarks>
+        public IReadOnlyList<StudioBonePose> LocalsInto(
+            int sequence, int frame, float fraction, IReadOnlyList<float> poseValues, StudioPoseWorkspace workspace)
         {
             ArgumentNullException.ThrowIfNull(poseValues);
+            ArgumentNullException.ThrowIfNull(workspace);
 
             // Stryker disable all : a mutant that empties the guard body leaves 'where'
             // unassigned below (CS0170 on its 'Group'/'Local' fields), and Safe Mode then drops
@@ -1898,7 +1919,7 @@ public static class PropModels
 
             if (chosen.Blend is not { Blends: true } grid || poseValues.Count == 0)
             {
-                return PoseBetween(where.Group, chosen.Animation, frame, fraction);
+                return PoseBetween(where.Group, chosen.Animation, frame, fraction, workspace, 0);
             }
 
             // The owning group's map, because paramindex is local to it. An unknown group gets an
@@ -1911,7 +1932,10 @@ public static class PropModels
             (int x, float settingX) = grid.Locate(0, PoseParameters, poseValues, map);
             (int y, float settingY) = grid.Locate(1, PoseParameters, poseValues, map);
 
-            (int[] animations, float[] weights) = grid.ThreeWay(x, y, settingX, settingY);
+            Span<int> animations = stackalloc int[3];
+            Span<float> weights = stackalloc float[3];
+
+            grid.ThreeWayInto(x, y, settingX, settingY, animations, weights);
 
             // **The grid is a SECOND densifying step and it has to seed the same way the frame
             // blend does** (B298). Blending two sparse corner poses means naming every bone,
@@ -1931,7 +1955,7 @@ public static class PropModels
             bool additive = StudioAnimation.IsDelta(Models[where.Group], animations[0]);
 
             IReadOnlyList<StudioBonePose> pose =
-                PoseBetween(where.Group, animations[0], frame, fraction);
+                PoseBetween(where.Group, animations[0], frame, fraction, workspace, 0);
 
             // **On the diagonal the middle corner drops out**, and the remaining two are blended
             // by their share of what is left rather than by weight[2] outright.
@@ -1941,29 +1965,33 @@ public static class PropModels
 
                 return share <= 0f
                     ? pose
-                    : StudioPoseBlend.Blend(
-                        Bones, pose, PoseBetween(where.Group, animations[2], frame, fraction),
-                        weights[2] / share, additive);
+                    : StudioPoseBlend.BlendInto(
+                        Bones, pose, PoseBetween(where.Group, animations[2], frame, fraction, workspace, 2),
+                        weights[2] / share, additive, workspace.Grid[0], workspace.Scratch);
             }
 
             float pair = weights[0] + weights[1];
 
             if (pair > 0f)
             {
-                pose = StudioPoseBlend.Blend(
+                pose = StudioPoseBlend.BlendInto(
                     Bones,
                     pose,
-                    PoseBetween(where.Group, animations[1], frame, fraction),
+                    PoseBetween(where.Group, animations[1], frame, fraction, workspace, 1),
                     weights[1] / pair,
-                    additive);
+                    additive,
+                    workspace.Grid[0],
+                    workspace.Scratch);
             }
 
-            return StudioPoseBlend.Blend(
+            return StudioPoseBlend.BlendInto(
                 Bones,
                 pose,
-                PoseBetween(where.Group, animations[2], frame, fraction),
+                PoseBetween(where.Group, animations[2], frame, fraction, workspace, 2),
                 weights[2],
-                additive);
+                additive,
+                workspace.Grid[1],
+                workspace.Scratch);
         }
 
         /// <summary>`Studio_CPS`: a sequence's cycles a second, blended by the pose parameters.</summary>
@@ -2123,6 +2151,8 @@ public static class PropModels
         /// <param name="animation">The animation index within that group.</param>
         /// <param name="frame">The frame the cycle landed on.</param>
         /// <param name="fraction">How far from it toward the next, the engine's <c>s</c>.</param>
+        /// <param name="workspace">The skeleton's pose storage the result is built in.</param>
+        /// <param name="slot">Which grid corner this is, so two corners never share storage.</param>
         /// <returns>The blended bone poses.</returns>
         /// <remarks>
         /// **<c>CalcPoseSingle</c> never samples one frame** (<c>bone_setup.cpp:915</c>): it takes
@@ -2141,16 +2171,16 @@ public static class PropModels
         /// single-frame pose holder and for the last frame of a one-shot.
         /// </remarks>
         private IReadOnlyList<StudioBonePose> PoseBetween(
-            int group, int animation, int frame, float fraction)
+            int group, int animation, int frame, float fraction, StudioPoseWorkspace workspace, int slot)
         {
-            IReadOnlyList<StudioBonePose> pose = PoseOf(group, animation, frame);
+            List<StudioBonePose> pose = PoseOf(group, animation, frame, workspace, workspace.Frame[slot]);
 
             if (fraction <= 0f || pose.Count == 0)
             {
                 return pose;
             }
 
-            IReadOnlyList<StudioBonePose> next = PoseOf(group, animation, frame + 1);
+            List<StudioBonePose> next = PoseOf(group, animation, frame + 1, workspace, workspace.Next[slot]);
 
             // **A frame past the end reads as nothing, and holding is the right answer there.**
             // `StudioAnimation.Pose` answers empty for a frame the animation does not have, and
@@ -2164,27 +2194,32 @@ public static class PropModels
             // over its head.
             return next.Count == 0
                 ? pose
-                : StudioPoseBlend.Blend(
+                : StudioPoseBlend.BlendInto(
                     BonesOf(group),
                     pose,
                     next,
                     fraction,
-                    StudioAnimation.IsDelta(Models[group], animation));
+                    StudioAnimation.IsDelta(Models[group], animation),
+                    workspace.Between[slot],
+                    workspace.Scratch);
         }
 
-        private IReadOnlyList<StudioBonePose> PoseOf(int group, int animation, int frame)
+        private List<StudioBonePose> PoseOf(
+            int group, int animation, int frame, StudioPoseWorkspace workspace, List<StudioBonePose> into)
         {
             IReadOnlyList<StudioBone> owner = BonesOf(group);
 
-            IReadOnlyList<StudioBonePose> pose =
-                StudioAnimation.Pose(Models[group], owner, animation, frame);
-
             if (group == 0 || Remaps(group) is not { } remap)
             {
-                return pose;
+                return StudioAnimation.PoseInto(Models[group], owner, animation, frame, into, workspace.Chain);
             }
 
-            List<StudioBonePose> renumbered = new(pose.Count);
+            List<StudioBonePose> pose =
+                StudioAnimation.PoseInto(Models[group], owner, animation, frame, workspace.Raw, workspace.Chain);
+
+            List<StudioBonePose> renumbered = into;
+
+            renumbered.Clear();
 
             foreach (StudioBonePose moved in pose)
             {

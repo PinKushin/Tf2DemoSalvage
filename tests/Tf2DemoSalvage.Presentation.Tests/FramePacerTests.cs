@@ -16,16 +16,28 @@ public sealed class FramePacerTests
     public void AwaitsTraffic_AfterACrossThreadCall_Waits() =>
         // WM_USER (0x0400): how COM delivers a call into this STA, which is what UI Automation sends,
         // one call after each reply. Rendering a slow frame between them timed CI's FindFirst out.
-        FramePacer.AwaitsTraffic(0x0400).ShouldBeTrue();
+        FramePacer.AwaitsTraffic(0x0400, drew: true).ShouldBeTrue();
 
     [Test]
     public void AwaitsTraffic_AfterInputOrNothing_DoesNotWait()
     {
-        FramePacer.AwaitsTraffic(0).ShouldBeFalse();       // the queue emptied; nothing is in flight
-        FramePacer.AwaitsTraffic(0x0200).ShouldBeFalse();  // WM_MOUSEMOVE
-        FramePacer.AwaitsTraffic(0x0100).ShouldBeFalse();  // WM_KEYDOWN
-        FramePacer.AwaitsTraffic(0x020E).ShouldBeFalse();  // WM_MOUSEHWHEEL, the last mouse message
+        FramePacer.AwaitsTraffic(0, drew: true).ShouldBeFalse();       // the queue emptied; nothing is in flight
+        FramePacer.AwaitsTraffic(0x0200, drew: true).ShouldBeFalse();  // WM_MOUSEMOVE
+        FramePacer.AwaitsTraffic(0x0100, drew: true).ShouldBeFalse();  // WM_KEYDOWN
+        FramePacer.AwaitsTraffic(0x020E, drew: true).ShouldBeFalse();  // WM_MOUSEHWHEEL, the last mouse message
     }
+
+    [Test]
+    public void AwaitsTraffic_AfterAPaintThatEndedADrawnFrame_DoesNotWait() =>
+        // WM_PAINT (0x000F): the transport bar repaints after every frame, so a paint ended every render burst and
+        // the 1 ms wait ran every frame (finding 88, the 'between' bucket). That paint is the frame's own.
+        FramePacer.AwaitsTraffic(0x000F, drew: true).ShouldBeFalse();
+
+    [Test]
+    public void AwaitsTraffic_AfterAPaintThatEndedABurstWithNoFrame_Waits() =>
+        // The paint a cross-thread call's handler causes: the burst served the call and drew nothing, and the next
+        // call follows the reply.
+        FramePacer.AwaitsTraffic(0x000F, drew: false).ShouldBeTrue();
 
     [Test]
     public void IsDue_WithNoLimitSet_IsAlwaysDue()

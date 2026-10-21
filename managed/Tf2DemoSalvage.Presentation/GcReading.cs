@@ -14,11 +14,17 @@ namespace Tf2DemoSalvage.Presentation;
 /// <param name="Gen1">Generation 1 collections so far.</param>
 /// <param name="Gen2">Generation 2 collections so far.</param>
 /// <param name="Allocated">Bytes allocated so far, every heap.</param>
-public readonly record struct GcReading(TimeSpan Pause, int Gen0, int Gen1, int Gen2, long Allocated)
+/// <param name="ThisThread">
+/// Bytes allocated so far by the thread that took the reading, from <see cref="GC.GetAllocatedBytesForCurrentThread"/>.
+/// The viewer reads on the render thread, so this is the frame's own allocation, apart from the corpse worker's
+/// (finding 88: the target metric for removing per-frame allocation).
+/// </param>
+public readonly record struct GcReading(TimeSpan Pause, int Gen0, int Gen1, int Gen2, long Allocated, long ThisThread)
 {
-    /// <summary>The counters now.</summary>
+    /// <summary>The counters now. Read both ends on the same thread, or <see cref="ThisThread"/> means nothing.</summary>
     public static GcReading Now() =>
-        new(GC.GetTotalPauseDuration(), GC.CollectionCount(0), GC.CollectionCount(1), GC.CollectionCount(2), GC.GetTotalAllocatedBytes());
+        new(GC.GetTotalPauseDuration(), GC.CollectionCount(0), GC.CollectionCount(1), GC.CollectionCount(2), GC.GetTotalAllocatedBytes(),
+            GC.GetAllocatedBytesForCurrentThread());
 
     /// <summary>The cost between an earlier reading and this one, per frame.</summary>
     /// <param name="start">The earlier reading.</param>
@@ -36,6 +42,7 @@ public readonly record struct GcReading(TimeSpan Pause, int Gen0, int Gen1, int 
         return string.Create(
             CultureInfo.InvariantCulture,
             $"gc: paused {(Pause - start.Pause).TotalMilliseconds / frames:0.00} ms a frame; collections gen0 {gen0}, gen1 {gen1}, gen2 {gen2}; " +
-            $"allocated {(Allocated - start.Allocated) / 1048576d / frames:0.00} MB a frame");
+            $"allocated {(Allocated - start.Allocated) / 1048576d / frames:0.00} MB a frame; " +
+            $"render thread {(ThisThread - start.ThisThread) / frames:N0} bytes a frame");
     }
 }

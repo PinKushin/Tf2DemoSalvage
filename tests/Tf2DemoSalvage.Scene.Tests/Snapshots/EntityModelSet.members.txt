@@ -238,6 +238,7 @@ Tf2DemoSalvage.Scene.EntityModelSet|method|ReportPosedSize|Private|(System.Strin
 Tf2DemoSalvage.Scene.EntityModelSet|method|ResolvedFor|Private|(Tf2DemoSalvage.Core.Scene.SceneProp)|Tf2DemoSalvage.Scene.EntityModelSet+ResolvedModel
 Tf2DemoSalvage.Scene.EntityModelSet|method|RestartsTheCycle|Private static|(System.String)|System.Boolean
 Tf2DemoSalvage.Scene.EntityModelSet|method|RestingKey|Private static|(Tf2DemoSalvage.Core.Scene.SceneProp)|System.String
+Tf2DemoSalvage.Scene.EntityModelSet|method|ReusedIkErrors|Assembly static|(Tf2DemoSalvage.Animation.Animating.SkeletonPose)|System.Collections.Generic.List`1[System.ValueTuple`4[Tf2DemoSalvage.Content.Assets.StudioIkRule,System.Numerics.Vector3,System.Numerics.Quaternion,System.Single]]
 Tf2DemoSalvage.Scene.EntityModelSet|method|Scaled|Private static|(Tf2DemoSalvage.Content.Assets.StudioBox,System.Single)|Tf2DemoSalvage.Content.Assets.StudioBox
 Tf2DemoSalvage.Scene.EntityModelSet|method|SelectFor|Public|(Tf2DemoSalvage.Core.Scene.SceneProp,System.Double)|System.ValueTuple`3[System.Int32,System.Int32,System.Single]
 Tf2DemoSalvage.Scene.EntityModelSet|method|SelectWith|Private static|(Tf2DemoSalvage.Scene.PropModels+ModelFrames,Tf2DemoSalvage.Core.Scene.SceneProp,System.Double)|System.ValueTuple`3[System.Int32,System.Int32,System.Single]

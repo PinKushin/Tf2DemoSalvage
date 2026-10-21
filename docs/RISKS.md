@@ -40055,6 +40055,40 @@ reddens four tests), and a child's drawn size against its own scale alone.
   `pl_badwater_pro_v12.bsp` is not on this machine (not under the game's `tf/maps`, `tf/download/maps`, `tf2ds`, or the
   user profile), so its `parentname` cannot be read, and no sampled tick gives them a parent.
 
+## B573 — per-frame struct copies with references are a fifth of the render thread — OPEN
+
+**Measured** (finding 88, CPU sample of the render thread): `Buffer.BulkMoveWithWriteBarrier` is 18.3% inclusive in first
+person and 24.8% in the empty view. That is a copy of a struct holding references, which needs a write barrier for
+every reference it moves: `StudioBone` (about 136 bytes, with a name and two `ReadOnlyMemory`) read by value through
+`IReadOnlyList`, and the scene records (`SceneProp`, `ScenePlayer`) copied by `with` and into lists. Beside it,
+`SceneProp.GetHashCode` (1.8%) hashes the whole record as a dictionary key. The engine indexes its studio structs by
+pointer and copies none of these. *Interpolated*: which copies dominate is not split. A sampler attributes the copy to
+whatever is on top of the stack, and that is a runtime helper. The next step is an allocation-free census by caller,
+`cpu-trace … BulkMove` with callers.
+
+## B572 — the empty view's floor: model decals, particle offers, exposure readback, the log flush, the transport bar — OPEN
+
+**Measured** (finding 88, empty view, 5.9 ms frame, render-thread sample). The work that runs with nothing drawn:
+- `DecalEffects.StepModelDecals` is a leaf at 5.7%, about 0.34 ms. It is its own loop over the model decals, every frame.
+- `BurstEffects.StepOver` is 15.4%. Within it, `PosedAttachmentMatrix` (4.3%) sets up the bones of entities nobody sees,
+  to place their effects.
+- `ExposureHistogram.TryRead` is 4.6%, a GPU readback every frame.
+- `StreamWriter.Flush` is 2.1%, a synchronous log flush on the render thread.
+- `TransportBar.ShowTick` sets a `TrackBar` value and a `Label`'s text every frame. The repaint that follows is the 0.3–0.6
+  ms left in `between` after B571, and 3% of the samples.
+
+**Not changed:** each wants the engine read first. Does the studio decal path skip an unseen model? When does the engine
+read its exposure? Does a particle's attachment set up bones for an entity outside the view?
+
+## B571 — a paint made the render loop wait a millisecond for UI Automation traffic, every frame — FIXED (2026-10-21)
+
+**Measured** (finding 88). `FramePacer.AwaitsTraffic` waited up to 1 ms for a follow-up cross-thread call after any burst
+ended by a message that was not input. The transport bar repaints after every frame, so `WM_PAINT` ended all 1,082 of
+1,082 bursts. Timed: 1.55 ms a frame inside `Idle` and outside the frame. **Fixed**: a paint awaits traffic only when
+its burst drew no frame, which is the paint after a served UIA call; the frame's own paint does not.
+`between` went from 1.56–1.59 to 0.54–0.59 ms in first person and from 1.34 to 0.30 in the empty view. The mean frame
+went from 16.5–17.1 to 15.4–15.8 ms, and the empty view from 7.3 to 6.2 ms.
+
 ## B570 — the second sound precache runs on the UI thread and re-decodes whatever the cap evicted — OPEN
 
 **Measured** (finding 87, review item 1). `ViewerPresenter` calls `DemoSounds.Precache` twice: on the load worker, and
@@ -40092,7 +40126,21 @@ the render thread (finding 87, option c), after the engine's sound data-cache pa
 - The `hud` and `draw` phases showed the same ~398 ms constant in two runs. A first file read in those paths is
   probably the same wait (*interpolated*).
 
-## B567 — per-frame allocations the engine does not make: bone poses, IK error lists, prop copies, sky traces — OPEN
+## B567 — per-frame allocations the engine does not make: bone poses, IK error lists, prop copies, sky traces — PARTLY FIXED
+
+**Update, 2026-10-21 (finding 88).**
+- **The bone poses are fixed.** Each skeleton owns a `StudioPoseWorkspace`, the shape of `CBoneSetupMemoryPool`.
+- **The IK error list is fixed.** It is the skeleton's own, emptied each simulate.
+- **The result.** On the render thread, 3.95–4.02 → 2.18–2.23 MB a frame. Every heap, 7.55–7.79 → 5.04–5.09 MB. The
+  collector's pause, 1.50–1.60 → 1.08–1.13 ms.
+- **Left, first person, MB per 20 s** (the trace's total is 6,788):
+  - On the corpse worker: `SceneProp` copies 439, and the `Dictionary<string, string>` 279 under
+    `UpdateClientSideAnimations`; `PoseLayer[]` 401 (`AutoLayersFor`, `SimulateEach`); `float[]` 275 (`PlacementOf`,
+    `ToBoneMatrix`); `Nullable<IvpMatrix>[]` 279 (`IvpRootFinder.March`).
+  - On the render thread: `SunFrom`'s `(float, float, float)[]` 478; `ScenePlayer[]` 432 from
+    `SpectatorTarget.Observable`, with six callers a frame; the heal-beam closure 264; `VguiRenderer.BuildVertices` 143.
+  - Each is under 0.35 MB a frame.
+
 
 **Measured** (finding 86, an allocation trace over 20 s of f12 at tick 30000, first person, with a control total). After
 fix 2 there, the process still allocates about 7.8 MB a frame, and the collector pauses about 1.55 ms a frame:

@@ -625,7 +625,7 @@ public class VguiModelPanel : VguiEditablePanel
         return x;
     }
 
-    private AnimatingEntity NewEntity(PropModels.SkinnedModel model) => new(new SkeletonPose(model.Bones, model.Locals), _clock);
+    private AnimatingEntity NewEntity(PropModels.SkinnedModel model) => new(new SkeletonPose(model.Bones, model.LocalsInto), _clock);
 
     private static float Float(KeyValuesTree tree, string name, float fallback) =>
         tree.Find(name)?.Value is { } value && float.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out float parsed)
