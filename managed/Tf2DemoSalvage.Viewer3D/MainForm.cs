@@ -1481,6 +1481,21 @@ internal class MainForm : Form, IViewerWindow, IIdleHost
     /// <inheritdoc/>
     void IIdleHost.Yield() => Thread.Yield();
 
+    /// <inheritdoc/>
+    bool IIdleHost.AutomationListening => MessageQueue.AutomationListening();
+
+    /// <summary>Notes a UI Automation request for the window's provider, for the traffic wait's gate (finding 88).</summary>
+    /// <param name="m">The message.</param>
+    protected override void WndProc(ref Message m)
+    {
+        if (m.Msg == MessageQueue.WmGetObject)
+        {
+            MessageQueue.ObjectRequested();
+        }
+
+        base.WndProc(ref m);
+    }
+
     private void KeepOverlayOnTheViewport(object? sender, LayoutEventArgs e) =>
         _overlay?.PositionOver(_viewport);
 

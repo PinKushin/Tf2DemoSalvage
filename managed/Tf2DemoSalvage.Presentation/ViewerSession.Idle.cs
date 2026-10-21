@@ -36,15 +36,21 @@ public sealed partial class ViewerSession
 
         // A cross-thread caller (UI Automation, over COM) sends its next call right after our reply.
         // Serve it before drawing, or each call waits a whole frame.
-        if (FramePacer.AwaitsTraffic(_idleEndedBy, _burstDrew) && host.ArrivesWithin(FramePacer.TrafficWaitSeconds))
+        bool automation = host.AutomationListening;
+
+        // Said when it changes, so a log shows whether the traffic wait was on (finding 88).
+        if (automation != _automationWas)
+        {
+            _automationWas = automation;
+            _log.LogInformation("{Message}", automation ? "UI Automation client attached: the traffic wait is on" : "no UI Automation client: the traffic wait is off");
+        }
+
+        if (FramePacer.AwaitsTraffic(_idleEndedBy, automation) && host.ArrivesWithin(FramePacer.TrafficWaitSeconds))
         {
             _idleEndedBy = host.Waiting() ?? 0;
-            _burstDrew = false;
             _frames.Yielded();
             return;
         }
-
-        bool drew = false;
 
         do
         {
@@ -68,7 +74,6 @@ public sealed partial class ViewerSession
                 // fast an empty loop spins — 186 "frames a second" with every duration at zero.
                 if (RenderFrame())
                 {
-                    drew = true;
                     _frames.Drew(
                         _clock.LastFrameSeconds,
                         new FrameView(
@@ -95,12 +100,8 @@ public sealed partial class ViewerSession
         while (waiting is null);
 
         _idleEndedBy = waiting.Value;
-        _burstDrew = drew;
         _frames.Yielded();
     }
-
-    /// <summary>Whether the burst that <see cref="_idleEndedBy"/> ended drew a frame: its paint is then the frame's own (finding 88).</summary>
-    private bool _burstDrew;
 
     /// <summary>Names the Windows messages worth recognising in a render report.</summary>
     /// <remarks>
@@ -150,6 +151,9 @@ public sealed partial class ViewerSession
 
     /// <summary>The last `engine_no_focus_sleep` a measurement said it ignored, so the line is written once per value.</summary>
     private int _focusSleepIgnored;
+
+    /// <summary>Whether a UI Automation client was attached at the last idle decision; null before the first.</summary>
+    private bool? _automationWas;
 
     /// <summary>The message that last ended a render burst.</summary>
     private uint _idleEndedBy;

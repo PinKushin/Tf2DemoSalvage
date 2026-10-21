@@ -357,6 +357,7 @@ public static class StudioAnimation
         ArgumentNullException.ThrowIfNull(chain);
 
         poses.Clear();
+        chain.Clear();
 
         ReadOnlySpan<byte> bytes = file.Span;
 

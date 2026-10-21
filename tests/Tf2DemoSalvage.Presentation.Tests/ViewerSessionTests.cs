@@ -763,42 +763,41 @@ public sealed class ViewerSessionTests
     }
 
     /// <remarks>
-    /// **The frame's own paint does not wait** (finding 88): the transport bar repaints after every frame, and waiting
-    /// a millisecond after each was 1.0-1.5 ms of every frame.
+    /// **With a UI Automation client attached, a paint waits, the frame's own included** (finding 88): the rule before
+    /// finding 88, restored after narrowing it timed a CI UI test out.
     /// </remarks>
     [Test]
-    public void Idle_AfterAPaintEndedABurstThatDrew_DoesNotWaitForTraffic()
+    public void Idle_AfterAPaintWithAnAutomationClient_WaitsForTraffic()
     {
         using Rig rig = Build();
-        FakeIdleHost host = new();
+        FakeIdleHost host = new() { AutomationListening = true };
         host.Queue.Enqueue(0x000F);
         rig.Session.Idle(host);
         host.Arrives = true;
-        host.Queue.Enqueue(0x0200);
 
         rig.Session.Idle(host);
 
-        host.Waits.ShouldBeEmpty("the paint followed a drawn frame, so it is the frame's own");
+        host.Waits.ShouldBe([FramePacer.TrafficWaitSeconds]);
     }
 
     /// <remarks>
-    /// **A paint inside a call chain still waits**: the call was served without a frame, its handler invalidated the
-    /// window, and the next call follows the reply.
+    /// **With no UI Automation client, nothing waits** (finding 88): the transport bar repaints after every frame, and
+    /// waiting a millisecond after each was 1.0-1.5 ms of every frame for a caller that does not exist.
     /// </remarks>
     [Test]
-    public void Idle_AfterAPaintEndedABurstThatServedACall_WaitsForTraffic()
+    public void Idle_WithNoAutomationClient_NeverWaitsForTraffic()
     {
         using Rig rig = Build();
-        FakeIdleHost host = new();
+        FakeIdleHost host = new() { AutomationListening = false };
         host.Queue.Enqueue(0x0400);
         host.Queue.Enqueue(0x000F);
-        rig.Session.Idle(host);                 // draws; the call ends the burst
+        rig.Session.Idle(host);
         host.Arrives = true;
-        rig.Session.Idle(host);                 // serves the call without a frame; its paint ends the burst
 
         rig.Session.Idle(host);
+        rig.Session.Idle(host);
 
-        host.Waits.ShouldBe([FramePacer.TrafficWaitSeconds, FramePacer.TrafficWaitSeconds]);
+        host.Waits.ShouldBeEmpty("a call or a paint is only followed by traffic when a client is attached");
     }
 
     [Test]

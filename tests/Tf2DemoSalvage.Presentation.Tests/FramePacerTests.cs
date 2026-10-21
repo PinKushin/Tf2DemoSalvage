@@ -16,28 +16,32 @@ public sealed class FramePacerTests
     public void AwaitsTraffic_AfterACrossThreadCall_Waits() =>
         // WM_USER (0x0400): how COM delivers a call into this STA, which is what UI Automation sends,
         // one call after each reply. Rendering a slow frame between them timed CI's FindFirst out.
-        FramePacer.AwaitsTraffic(0x0400, drew: true).ShouldBeTrue();
+        FramePacer.AwaitsTraffic(0x0400, automation: true).ShouldBeTrue();
 
     [Test]
     public void AwaitsTraffic_AfterInputOrNothing_DoesNotWait()
     {
-        FramePacer.AwaitsTraffic(0, drew: true).ShouldBeFalse();       // the queue emptied; nothing is in flight
-        FramePacer.AwaitsTraffic(0x0200, drew: true).ShouldBeFalse();  // WM_MOUSEMOVE
-        FramePacer.AwaitsTraffic(0x0100, drew: true).ShouldBeFalse();  // WM_KEYDOWN
-        FramePacer.AwaitsTraffic(0x020E, drew: true).ShouldBeFalse();  // WM_MOUSEHWHEEL, the last mouse message
+        FramePacer.AwaitsTraffic(0, automation: true).ShouldBeFalse();       // the queue emptied; nothing is in flight
+        FramePacer.AwaitsTraffic(0x0200, automation: true).ShouldBeFalse();  // WM_MOUSEMOVE
+        FramePacer.AwaitsTraffic(0x0100, automation: true).ShouldBeFalse();  // WM_KEYDOWN
+        FramePacer.AwaitsTraffic(0x020E, automation: true).ShouldBeFalse();  // WM_MOUSEHWHEEL, the last mouse message
     }
 
     [Test]
-    public void AwaitsTraffic_AfterAPaintThatEndedADrawnFrame_DoesNotWait() =>
-        // WM_PAINT (0x000F): the transport bar repaints after every frame, so a paint ended every render burst and
-        // the 1 ms wait ran every frame (finding 88, the 'between' bucket). That paint is the frame's own.
-        FramePacer.AwaitsTraffic(0x000F, drew: true).ShouldBeFalse();
+    public void AwaitsTraffic_AfterAPaintWithAnAutomationClient_Waits() =>
+        // WM_PAINT (0x000F) with a UIA client attached: the original rule, a frame's own paint included, because a
+        // call served without a frame also ends in a paint, and the next call follows the reply. Narrowing this to
+        // "paints that drew no frame" timed ExportCompileUiTests out on CI's 68 ms software frames (finding 88).
+        FramePacer.AwaitsTraffic(0x000F, automation: true).ShouldBeTrue();
 
     [Test]
-    public void AwaitsTraffic_AfterAPaintThatEndedABurstWithNoFrame_Waits() =>
-        // The paint a cross-thread call's handler causes: the burst served the call and drew nothing, and the next
-        // call follows the reply.
-        FramePacer.AwaitsTraffic(0x000F, drew: false).ShouldBeTrue();
+    public void AwaitsTraffic_WithNoAutomationClient_NeverWaits()
+    {
+        // No UIA client, no cross-thread traffic to wait for: the transport bar's paint after every frame cost the
+        // 1 ms wait on every frame (finding 88, the 'between' bucket).
+        FramePacer.AwaitsTraffic(0x000F, automation: false).ShouldBeFalse();
+        FramePacer.AwaitsTraffic(0x0400, automation: false).ShouldBeFalse();
+    }
 
     [Test]
     public void IsDue_WithNoLimitSet_IsAlwaysDue()

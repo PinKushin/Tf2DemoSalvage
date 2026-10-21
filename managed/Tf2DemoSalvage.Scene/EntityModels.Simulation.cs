@@ -15,8 +15,9 @@ public sealed partial class EntityModelSet
     /// <param name="posed">The skeleton the errors are gathered for.</param>
     /// <returns>The list <paramref name="posed"/> holds as its <c>IkErrors</c>, empty.</returns>
     /// <remarks>
-    /// **The engine's IK context owns its rule lists** (<c>m_ikChainRule</c>, emptied by <c>RemoveAll</c> in
-    /// <c>AddDependencies</c>, <c>bone_setup.cpp:3319</c>) and allocates nothing per frame. A new list for every prop on
+    /// **The engine's IK context owns its rule lists** (<c>m_ikChainRule</c>, emptied each setup by
+    /// <c>CIKContext::Init</c>, <c>bone_setup.cpp:3229</c>; one chain is cleared by a full-strength rule in
+    /// <c>AddDependencies</c>, <c>:3319</c>) and allocates nothing per frame. A new list for every prop on
     /// every simulate was 448 MB per 20 s of f12, most of it on the corpse worker (finding 88, B567). Nothing reads
     /// <c>IkErrors</c> past the build that follows its simulate, so reusing it changes no answer.
     /// </remarks>
@@ -32,6 +33,7 @@ public sealed partial class EntityModelSet
 
         return held;
     }
+
     /// <summary>Whether a pose walks animation events — false for a pass the engine never makes, such as a decal replay.</summary>
     /// <remarks>
     /// The walk's state is the previous frame's cycle (`m_flPrevEventCycle`), so a pass of our own that walked would move

@@ -115,6 +115,10 @@ internal sealed class FakeIdleHost : IIdleHost
     public int Looks { get; private set; }
 
     /// <inheritdoc/>
+    /// <remarks>True by default, so the traffic tests written before the gate keep their meaning.</remarks>
+    public bool AutomationListening { get; set; } = true;
+
+    /// <inheritdoc/>
     public bool ArrivesWithin(double seconds)
     {
         Waits.Add(seconds);
