@@ -118,8 +118,9 @@ public sealed class IkRuleDependencyTests
         long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
 
         errors.Count.ShouldBe(1, "the control: the self cleared chain 0 and was added");
-        // 216 bytes with the closure (measured by putting it back); what is left is `BlendedAnimations`' one-corner array.
-        allocated.ShouldBe(24L, "the 24 bytes of `BlendedAnimations`' `[(animation, 1f)]`, and no closure");
+        // The bound is the call WITH the closure, measured by putting it back: 216 bytes. Anything under it has no closure;
+        // what is left is not this method's (`BlendedAnimations`' one-corner array), so it is not pinned here.
+        allocated.ShouldBeLessThan(216L, "216 bytes is the call with the capturing predicate and its delegate");
     }
 
     private static (StudioIkRule, Vector3, Quaternion, float) Held(int chain) =>
