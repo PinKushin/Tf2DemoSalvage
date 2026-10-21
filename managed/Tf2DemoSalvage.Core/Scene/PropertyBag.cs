@@ -312,33 +312,75 @@ internal sealed class PropertyBag : IReadOnlyDictionary<string, PropertyValue>
         return false;
     }
 
-    /// <inheritdoc/>
-    public IEnumerator<KeyValuePair<string, PropertyValue>> GetEnumerator()
-    {
-        // The hottest reader in a build — every pattern scan over an entity walks this — so each chunk is resolved once,
-        // not once per value, and the map's struct enumerator is used directly (D217 step 4, part 3 review).
-        int count = Count;
-        int held = -1;
-        (PropertyValue Value, long Sequence)[] values = [];
+    /// <summary>The bag's entries in insertion order, by a struct enumerator: <c>foreach</c> over the bag allocates nothing.</summary>
+    /// <returns>The enumerator.</returns>
+    /// <remarks>
+    /// **The hottest reader in a build** — every pattern scan over an entity walks this — so it is a struct over the map's
+    /// own struct enumerator, each chunk resolved once rather than once per value. An iterator method here cost the f12
+    /// build 55 s of its 170 (B562): an object per walk, and an interface call per key, where the dictionary it replaced
+    /// had neither.
+    /// </remarks>
+    public Enumerator GetEnumerator() => new(this);
 
-        foreach ((string key, int slot) in Slots)
-        {
-            if (slot >= count)
-            {
-                yield break;
-            }
-
-            if (slot >> ChunkBits != held)
-            {
-                held = slot >> ChunkBits;
-                values = ChunkValues(held);
-            }
-
-            yield return new KeyValuePair<string, PropertyValue>(key, values[slot & (ChunkSize - 1)].Value);
-        }
-    }
+    IEnumerator<KeyValuePair<string, PropertyValue>> IEnumerable<KeyValuePair<string, PropertyValue>>.GetEnumerator() => GetEnumerator();
 
     IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
+
+    /// <summary>Walks the visible slots in order; see <see cref="GetEnumerator"/>.</summary>
+    public struct Enumerator : IEnumerator<KeyValuePair<string, PropertyValue>>
+    {
+        private readonly PropertyBag _bag;
+        private readonly int _count;
+        private Dictionary<string, int>.Enumerator _slots;
+        private int _held;
+        private (PropertyValue Value, long Sequence)[] _values;
+
+        internal Enumerator(PropertyBag bag)
+        {
+            _bag = bag;
+            _count = bag.Count;
+            _slots = bag.Slots.GetEnumerator();
+            _held = -1;
+            _values = [];
+            Current = default;
+        }
+
+        /// <inheritdoc/>
+        public KeyValuePair<string, PropertyValue> Current { readonly get; private set; }
+
+        readonly object IEnumerator.Current => Current;
+
+        /// <inheritdoc/>
+        public bool MoveNext()
+        {
+            if (!_slots.MoveNext())
+            {
+                return false;
+            }
+
+            (string key, int slot) = _slots.Current;
+
+            if (slot >= _count)
+            {
+                return false;
+            }
+
+            if (slot >> ChunkBits != _held)
+            {
+                _held = slot >> ChunkBits;
+                _values = _bag.ChunkValues(_held);
+            }
+
+            Current = new KeyValuePair<string, PropertyValue>(key, _values[slot & (ChunkSize - 1)].Value);
+            return true;
+        }
+
+        /// <inheritdoc/>
+        public void Reset() => throw new NotSupportedException("A property bag's enumeration is not restarted.");
+
+        /// <inheritdoc/>
+        public void Dispose() => _slots.Dispose();
+    }
 
     private (PropertyValue Value, long Sequence) Read(int slot) => ChunkValues(slot >> ChunkBits)[slot & (ChunkSize - 1)];
 
