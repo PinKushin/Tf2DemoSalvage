@@ -108,6 +108,7 @@ lock, with load and a process snapshot taken before and after inside it.
 | 1 (05:42) | before | uncertain: began minutes after another agent's UI gate, no process snapshot taken; load 26% before, 1.5–3% after | 936 | 12 (inferred: same set as run 6) | **6**: 444, 408, 404, 176, 425, 412 | 12 |
 | 6 (06:18) | before | quiet (snapshot: steam only) | 936 | **12**, each 0.2–1.1 ms | 0 | 5 |
 | after (06:41) | after | quiet at the gate; another agent's gate had just finished | **1,372** | **4** | 1: `vo/null.mp3`, 186 ms | 4 |
+| after review (08:12) | + client-fire filter, rebased on `7f5cb984` | quiet (load 4–6% before, 2–4% after; steam only) | 1,372 | **4**, each 0.3–0.8 ms | 0 | 3 (all `camera`) |
 
 - **Misses per minute: 12 → 4.** That count is deterministic and is the fix's effect. Every weapon animation-event
   sound left the list: `draw_primary`, `draw_secondary`, `grenade_launcher_drum_start`/`_open`/`_load`/`_close` and
