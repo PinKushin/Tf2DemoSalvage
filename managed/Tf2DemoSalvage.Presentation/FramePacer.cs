@@ -107,9 +107,16 @@ public static class FramePacer
     /// call cost a frame: at CI's 68 ms software frames, a FindFirst timed out (0x80131505). Input is
     /// excluded: a mouse move is not followed by another within a millisecond, so waiting would only
     /// cost frames. <c>0</c> means the queue emptied, so nothing is in flight.
+    ///
+    /// **A paint is excluded too** (finding 87). The transport bar repaints after every frame, so WM_PAINT ended every
+    /// render burst and the millisecond's wait ran on every frame: 1.0-1.5 ms of the 'between' bucket, measured by
+    /// timing <c>Idle</c> against <c>RenderFrame</c>. A paint is the window's own, never a cross-thread call.
     /// </remarks>
     public static bool AwaitsTraffic(uint endedBy) =>
-        endedBy != 0 && endedBy is not (>= 0x0100 and <= 0x0109 or >= 0x0200 and <= 0x020E);
+        endedBy is not (0 or WmPaint or (>= 0x0100 and <= 0x0109) or (>= 0x0200 and <= 0x020E));
+
+    /// <summary><c>WM_PAINT</c>.</summary>
+    private const uint WmPaint = 0x000F;
 
     /// <summary>How long to wait for the next cross-thread message before drawing.</summary>
     public const double TrafficWaitSeconds = 0.001;
