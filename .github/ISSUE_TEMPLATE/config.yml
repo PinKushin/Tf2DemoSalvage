@@ -3,6 +3,9 @@ contact_links:
   - name: Question or how do I
     url: https://github.com/PinKushin/Tf2DemoSalvage/discussions
     about: Questions and ideas go in Discussions so Issues stay for bugs.
+  - name: Chat on Discord
+    url: https://discord.gg/8wbXjXrAHR
+    about: Talk with the project and see each release announced; bugs still go in Issues.
   - name: Security problem
     url: https://github.com/PinKushin/Tf2DemoSalvage/security/advisories/new
     about: Report a vulnerability privately; see SECURITY.md.
