@@ -80,6 +80,18 @@ public sealed class ParticleEffects
     /// <summary>Steps taken replaying rebuilt bursts, ever.</summary>
     public long ReplaySteps { get; private set; }
 
+    /// <summary>Effects held, summed over every call of <see cref="Bursts"/> and <see cref="Update"/> — alive per frame.</summary>
+    public long Alive { get; private set; }
+
+    /// <summary>Steps taken on played frames, bursts and trails, counted at each step; a replay's are <see cref="ReplaySteps"/>.</summary>
+    public long Steps { get; private set; }
+
+    /// <summary>Played frames on which a burst stood asleep, once per burst per frame (`BuildParticleSimList`'s skip).</summary>
+    public long Slept { get; private set; }
+
+    /// <summary>Effects with particles handed to the draw by the scene's <see cref="Build(Vector3, Vector3, Vector3, IReadOnlyDictionary{string, ParticleMaterial})"/>.</summary>
+    public long Gathered { get; private set; }
+
     /// <summary>What a finished burst keeps in place of its effect: nothing to draw, nothing to hold.</summary>
     private static readonly ParticleEffect Spent = new(
         new ParticleSystem("spent", [], [], [], [], [], new Dictionary<string, DmxValue>(StringComparer.Ordinal)), null, null, 0);
@@ -289,6 +301,7 @@ public sealed class ParticleEffects
             if (last > 0f)
             {
                 effect.Step(at, last);
+                Steps++;
             }
             else
             {
@@ -311,6 +324,7 @@ public sealed class ParticleEffects
             if (last > 0f)
             {
                 effect.Fade(last);
+                Steps++;
             }
 
             // **`Empty` and not `Particles.Count`**, because a parent is not finished while a child
@@ -328,6 +342,8 @@ public sealed class ParticleEffects
             _running.Remove(entity);
             _playedFrom.Remove(entity);
         }
+
+        Alive += _running.Count;
     }
 
     /// <summary>Steps every one-shot, starting one for each that is offered and not already running.</summary>
@@ -515,6 +531,7 @@ public sealed class ParticleEffects
             double stopAt = burst.StopTick is { } stopping ? stopping - burst.Tick : double.MaxValue;
 
             long replayFrom = System.Diagnostics.Stopwatch.GetTimestamp();
+            bool sleptHere = false;
 
             while (reachedTo < wanted)
             {
@@ -572,6 +589,7 @@ public sealed class ParticleEffects
                     }
 
                     reachedTo = next;
+                    sleptHere = true;
                     continue;
                 }
 
@@ -636,6 +654,12 @@ public sealed class ParticleEffects
                 ReplayTicks += System.Diagnostics.Stopwatch.GetTimestamp() - replayFrom;
                 ReplaySteps += taken;
             }
+            else
+            {
+                // A played frame's work, counted where it ran (B243); a rebuild's is the replay counter's.
+                Steps += taken - running.Stepped;
+                Slept += sleptHere ? 1 : 0;
+            }
 
             // **A frame that steps nothing still reads its points**: `UpdateNewEffects` calls every effect's `Update`
             // — `UpdateControlPoint` — before it decides what to simulate (particlemgr.cpp:1841-1853), at any frame time.
@@ -676,6 +700,7 @@ public sealed class ParticleEffects
 
         FadeUnoffered(now, seconds, seeked);
         Retire();
+        Alive += _bursts.Count;
     }
 
     /// <summary>
@@ -928,11 +953,13 @@ public sealed class ParticleEffects
 
         foreach (ParticleEffect effect in _running.Values)
         {
+            Gathered += effect.Empty ? 0 : 1;
             Gather(effect, eye, right, up, materials);
         }
 
         foreach (RunningBurst running in _bursts.Values)
         {
+            Gathered += running.Effect.Empty ? 0 : 1;
             Gather(running.Effect, eye, right, up, materials);
         }
 

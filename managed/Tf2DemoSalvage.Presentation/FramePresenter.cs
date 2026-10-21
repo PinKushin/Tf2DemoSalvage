@@ -181,6 +181,9 @@ public sealed partial class FramePresenter
         _models.AttachmentRebuilds,
         _models.AttachmentTicks);
 
+    /// <summary>The particle phase's work, ever (finding 84), carried from `ParticleEffects` where each was counted.</summary>
+    public ParticleWork ParticleWork => new(_particles.Alive, _particles.Steps, _particles.Slept, _particles.Gathered);
+
     /// <summary>What else the frame keeps alive, for the same census: projectile trails and decals on models.</summary>
     public (int Trails, int ModelDecals) KeptCounts => (_particles.Count, _decals.ModelDecalCount);
 
