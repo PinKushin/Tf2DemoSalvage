@@ -2,6 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using Microsoft.Extensions.Logging;
+
+using Tf2DemoSalvage.Content.Assets;
 using Tf2DemoSalvage.Core.Scene;
 
 namespace Tf2DemoSalvage.Scene;
@@ -430,6 +432,20 @@ public sealed partial class EntityModelSet
 
         return Add(synthetic);
     }
+
+    /// <summary>Every animation event of every sequence of every model packed, for the precache of what they name.</summary>
+    /// <returns>The events, model by model, through each model's merged sequence table.</returns>
+    /// <remarks>
+    /// **What `CModelSoundsCache::BuildAnimationEventSoundList` walks** (`game/shared/ModelSoundsCache.cpp:131-218`), which
+    /// the server's `PrecacheModelComponents` reaches for every model it precaches (`game/server/baseentity.cpp:5250-5412`):
+    /// so a viewmodel's draw and reload sounds are ready before the first frame plays them (finding 87). An interim stand-in
+    /// for the client's route, the demo's soundprecache table (B568). Read on the thread that packed, after packing.
+    /// </remarks>
+    public IEnumerable<StudioEvent> AnimationEvents() =>
+        _frames.Values
+            .Select(static frames => frames.Skinned)
+            .OfType<PropModels.SkinnedModel>()
+            .SelectMany(static skinned => Enumerable.Range(0, skinned.Sequences.Count).SelectMany(skinned.Events));
 
     /// <summary>One corner as the packed buffer holds it: model space, blending toward <paramref name="ahead"/>.</summary>
     /// <remarks>

@@ -305,6 +305,10 @@ in any public writeup found:
   lambda in the IK clear was the largest single allocation. Both are fixed, and `camera` is now 8.5 ms. Frames over
   100 ms: 1 per minute in two runs of three (the frame that ends the seek), with one unexplained run of 9
   ([86](86-the-camera-phase-ranked.md)).
+- **The sound stall was a blocked read.** The ~395 ms "decoding" stalls were a synchronous VPK read on the render thread
+  that ran no CPU: 0.2 ms on a quiet machine, ~395 ms on a busy one. They were a viewmodel's animation-event sounds,
+  which the engine precaches with the model (`ModelSoundsCache`) and we never did. Misses per minute on f12 went
+  12 → 4 ([87](87-the-sound-stall-was-a-blocked-read.md)).
 
 ## Conventions used throughout
 

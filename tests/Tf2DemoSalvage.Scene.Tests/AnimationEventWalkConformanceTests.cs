@@ -72,6 +72,19 @@ public sealed class AnimationEventWalkConformanceTests
         Fired(models, 0.7d).ShouldBe(["half"], "and the next walks (0, 0.7]");
     }
 
+    /// <remarks>
+    /// What a model's sound precache walks (`CModelSoundsCache::BuildAnimationEventSoundList`,
+    /// `game/shared/ModelSoundsCache.cpp:131-218`): every event of every sequence of every model packed, without posing
+    /// anything. The control is the same set before the model is packed.
+    /// </remarks>
+    [Test]
+    public void AnimationEvents_OfAPackedModel_AreEverySequencesEventsWithoutPosing()
+    {
+        new EntityModelSet().AnimationEvents().ShouldBeEmpty("nothing packed, nothing to walk");
+
+        Loaded().AnimationEvents().Select(static one => one.Options).ShouldBe(["zero", "half"]);
+    }
+
     /// <summary>Poses the prop at a demo time and takes what its walk fired, by the events' options.</summary>
     private static string[] Fired(EntityModelSet models, double seconds)
     {

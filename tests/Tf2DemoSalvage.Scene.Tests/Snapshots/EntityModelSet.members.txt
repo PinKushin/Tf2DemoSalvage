@@ -159,6 +159,7 @@ Tf2DemoSalvage.Scene.EntityModelSet|method|AdvanceCorpses|Private|(System.Collec
 Tf2DemoSalvage.Scene.EntityModelSet|method|Advance|Private|(Tf2DemoSalvage.Core.Scene.SceneProp,System.Double,System.Double,System.Double)|System.Double
 Tf2DemoSalvage.Scene.EntityModelSet|method|AllFrames|Public|(System.String)|System.Collections.Generic.IReadOnlyList`1[System.Collections.Generic.IReadOnlyList`1[Tf2DemoSalvage.Scene.WorldBatch]]
 Tf2DemoSalvage.Scene.EntityModelSet|method|AnimationEvents|Private|(Tf2DemoSalvage.Core.Scene.SceneProp,Tf2DemoSalvage.Scene.PropModels+SkinnedModel,System.Int32,System.Single)|System.Void
+Tf2DemoSalvage.Scene.EntityModelSet|method|AnimationEvents|Public|()|System.Collections.Generic.IEnumerable`1[Tf2DemoSalvage.Content.Assets.StudioEvent]
 Tf2DemoSalvage.Scene.EntityModelSet|method|AttachmentMatrix|Private|(System.Int32,System.Func`2[System.Collections.Generic.IReadOnlyList`1[Tf2DemoSalvage.Content.Assets.StudioAttachment],System.Int32])|System.Single[]
 Tf2DemoSalvage.Scene.EntityModelSet|method|AttachmentPoint|Public|(System.Int32,System.Int32)|System.Nullable`1[Tf2DemoSalvage.Content.Assets.ParticleControlPoint]
 Tf2DemoSalvage.Scene.EntityModelSet|method|AttachmentPoint|Public|(System.Int32,System.String)|System.Nullable`1[Tf2DemoSalvage.Content.Assets.ParticleControlPoint]
