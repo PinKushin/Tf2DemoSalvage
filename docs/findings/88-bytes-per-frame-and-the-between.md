@@ -168,7 +168,8 @@ corner, and the grid's own blends. So was the bone chain, and the three-way weig
 ## Fix 3: the IK error list is the skeleton's
 
 `SimulateEach` made a new error list for every prop on every simulate, mostly on the corpse worker. The engine's IK context
-owns `m_ikChainRule` and empties it (`bone_setup.cpp:3319`). `ReusedIkErrors` returns the skeleton's own list, emptied.
+owns `m_ikChainRule` and empties it at each setup, in `CIKContext::Init` (`bone_setup.cpp:3229`). An earlier version of
+this line cited `:3319`, which is the clear of a single chain in `AddDependencies` by a full-strength rule. `ReusedIkErrors` returns the skeleton's own list, emptied.
 Nothing reads `IkErrors` past the build that follows its simulate.
 
 | f12 tick 30000, steady 20 s | before (2 runs) | after (2 runs) |
