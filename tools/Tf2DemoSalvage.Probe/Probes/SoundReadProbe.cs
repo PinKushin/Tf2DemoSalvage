@@ -28,7 +28,7 @@ public sealed class SoundReadProbe : IProbe
 
     /// <inheritdoc/>
     public string Summary =>
-        "a sound's first and second read through the install, read and decode timed apart: sound-read <name>...";
+        "a sound's first and second read through the install (no map pakfile, so a map-only sound is not seen), read and decode timed apart: sound-read <name>...";
 
     /// <inheritdoc/>
     public void Run(TextWriter output, IReadOnlyList<string> arguments)

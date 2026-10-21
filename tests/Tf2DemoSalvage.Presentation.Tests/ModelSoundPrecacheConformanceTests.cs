@@ -7,15 +7,18 @@ using Tf2DemoSalvage.Content.Assets;
 namespace Tf2DemoSalvage.Presentation.Tests;
 
 /// <summary>
-/// **A model's animation-event sounds are precached with the model** — `CBaseEntity::PrecacheModelComponents`
-/// (`game/server/baseentity.cpp:5250-5412`, the client's copy is `C_BaseEntity`'s) asks `g_ModelSoundsCache` for the
-/// model's list on PC, and `CModelSoundsCache::BuildAnimationEventSoundList` (`game/shared/ModelSoundsCache.cpp:131-218`)
+/// **The SERVER precaches a model's animation-event sounds with the model**, and this list stands in for that until the
+/// client's own route — the demo's `soundprecache` table — can be precached here (finding 87, B568).
+/// `CBaseEntity::PrecacheModelComponents` (`game/server/baseentity.cpp:5250-5412`) asks `g_ModelSoundsCache` for the
+/// model's list on PC; the client's `PrecacheScriptSound` only looks an index up (`SoundEmitterSystem.cpp:1427-1434`), and
+/// the client receives the waves through the table. The list is built by `CModelSoundsCache::BuildAnimationEventSoundList` (`game/shared/ModelSoundsCache.cpp:131-218`)
 /// builds it by walking every sequence's events:
 /// <code>
 /// case CL_EVENT_SOUND:   // Old-style client .dll animation event
 ///     FindOrAddScriptSound( sounds, pEvent-&gt;pszOptions() );
 /// </code>
-/// and `PrecacheSoundList` precaches each script, which is every wave (B503).
+/// and `PrecacheSoundList` precaches each script, which is every wave (B503). `FindOrAddScriptSound` (`:112-124`) keeps
+/// only a name `GetSoundIndex` finds, so a raw wave or an empty option adds nothing, silently.
 /// </summary>
 /// <remarks>
 /// Measured (finding 87): with these left out, a viewmodel's draw and reload sounds decoded on the render thread the first
@@ -39,13 +42,18 @@ public sealed class ModelSoundPrecacheConformanceTests
             new(0.1f, ClientSound, 0, "Weapon_Pipe.DrumOpen"),
 
             // The controls: a footstep and a particle event are not sounds this list names, an empty option names
-            // nothing (the engine warns), and a script the install does not have resolves to nothing.
+            // nothing, a raw wave is not a script, and a script the install does not have resolves to nothing.
             // Each names a script of its own, so leaking one in would show.
             new(0.2f, SoundPresenter.FootstepEvent, 0, "Other.Footstep"),
             new(0.2f, ClientSound + 1, 0, "Other.Particle"),
             new(0.2f, ClientSound - 1, 0, "Other.Below"),
+
+            // A new-system event numbered 5004 without `AE_TYPE_CLIENT` is the server's: the client never fires it
+            // (`StudioEvent.FiresOnTheClient`), so nothing here would play its waves.
+            new(0.2f, ClientSound, StudioEvent.NewSystemType, "Other.Server"),
             new(0.3f, ClientSound, 0, string.Empty),
             new(0.4f, ClientSound, 0, "Missing.Script"),
+            new(0.4f, ClientSound, 0, "weapons/raw.wav"),
         ];
 
         Dictionary<string, SoundScriptEntry> scripts = new(StringComparer.OrdinalIgnoreCase)
@@ -55,6 +63,7 @@ public sealed class ModelSoundPrecacheConformanceTests
             ["Other.Footstep"] = Script("Other.Footstep", "player/footstep.wav"),
             ["Other.Particle"] = Script("Other.Particle", "other/particle.wav"),
             ["Other.Below"] = Script("Other.Below", "other/below.wav"),
+            ["Other.Server"] = Script("Other.Server", "other/server.wav"),
         };
 
         DemoSounds.ModelWaves(events, scripts).ShouldBe(["weapons/drum_open1.wav", "weapons/drum_open2.wav", "weapons/drum_close.wav"]);

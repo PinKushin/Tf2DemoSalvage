@@ -437,9 +437,9 @@ public sealed partial class EntityModelSet
     /// <returns>The events, model by model, through each model's merged sequence table.</returns>
     /// <remarks>
     /// **What `CModelSoundsCache::BuildAnimationEventSoundList` walks** (`game/shared/ModelSoundsCache.cpp:131-218`), which
-    /// `PrecacheModelComponents` reaches for every model it precaches (`game/server/baseentity.cpp:5250-5412`): so a
-    /// viewmodel's draw and reload sounds are ready before the first frame plays them (finding 87). Read on the thread that
-    /// packed, after packing.
+    /// the server's `PrecacheModelComponents` reaches for every model it precaches (`game/server/baseentity.cpp:5250-5412`):
+    /// so a viewmodel's draw and reload sounds are ready before the first frame plays them (finding 87). An interim stand-in
+    /// for the client's route, the demo's soundprecache table (B568). Read on the thread that packed, after packing.
     /// </remarks>
     public IEnumerable<StudioEvent> AnimationEvents() =>
         _frames.Values
