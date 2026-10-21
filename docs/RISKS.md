@@ -40055,6 +40055,24 @@ reddens four tests), and a child's drawn size against its own scale alone.
   `pl_badwater_pro_v12.bsp` is not on this machine (not under the game's `tf/maps`, `tf/download/maps`, `tf2ds`, or the
   user profile), so its `parentname` cannot be read, and no sampled tick gives them a parent.
 
+## B570 — the second sound precache runs on the UI thread and re-decodes whatever the cap evicted — OPEN
+
+**Measured** (finding 87, review item 1). `ViewerPresenter` calls `DemoSounds.Precache` twice: on the load worker, and
+again in `Apply` on the UI thread for the emitted sounds. Its comment says the second call is "cheap … `Sample` returns
+the cached decode". That stops being true once the first pass exceeds `SoundCache.CapacityBytes`: everything evicted is
+decoded again, on the UI thread. With the whole `soundprecache` table queued, that pass took 38.8 s (one run, which the
+lock flagged as possibly overlapped). f12 today holds about 277 MB, under the 512 MB cap, so it does not fire. Anything
+that grows the precache toward the cap walks toward it.
+
+## B569 — a raw `.wav`/`.mp3` name in a sound script slot is dropped at play; the engine plays it — OPEN
+
+**Read** (review item 2). `CSoundEmitterSystem::EmitSound` plays a name containing `.wav` or `.mp3`, or starting with
+`!`, directly (`SoundEmitterSystem.cpp:556-559`). `PrecacheScriptSound` precaches it directly too (`:397-410`; note that
+`.wav` is matched case-insensitively and `.mp3` case-sensitively). `EntitySounds.Emit` resolves a name only as a
+script, so a raw name, such as an animation event's options or a client sound, plays nothing. The model precache list
+dropping a raw name is the engine's own behaviour (`FindOrAddScriptSound`, `ModelSoundsCache.cpp:112-124`), so that half
+is not a divergence. *Evidence class: published source; not measured on a demo.*
+
 ## B568 — four first-play sounds still read from the VPK inside a frame — OPEN
 
 **Measured** (finding 87, f12 tick 30000, first person, 60 s). After the model sounds were precached, four sounds still
@@ -40063,9 +40081,11 @@ condition), `vo/null.mp3` (a response line) and a near-miss whiz `>weapons/fx/ne
 costs 0.2–1 ms on a quiet machine. On a busy one, a synchronous read blocks for up to about 395 ms with no CPU on our
 thread: one 169 ms stall in the after run.
 
-**The engine** precaches each of these with the system that plays it: the player's condition sounds, the response
-system's scenes, and the tracer's script through the weapon. None of those was read for this entry, so where each one
-lives is *interpolated*. **Two related gaps:**
+**The engine's client gets all four from the demo's `soundprecache` table** (measured on f12: 6,713 names, all twelve
+first-play misses in it). The model walk that fixed the other eight is the server's route, an interim stand-in.
+**Precaching the whole table through `SoundCache` was measured and reverted:** 45.8 s on the worker, then a 38.8 s second
+pass on the UI thread past the 512 MB cap (B570). **The fix to do:** the table as the registry, with a first-play decode off
+the render thread (finding 87, option c), after the engine's sound data-cache path is read. **Two related gaps:**
 
 - A model packed during play would need its animation-event sounds precached at pack time. On f12 the precache packs
   every model, so it did not arise.

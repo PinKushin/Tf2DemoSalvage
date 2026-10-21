@@ -63,7 +63,11 @@ taken where it happened and carried to the line (B243).
 
 ## What the engine does (read from published source)
 
-- **A model's sounds are precached with the model.**
+**Corrected after review (below): everything in this section is the SERVER.** The client's
+`C_BaseEntity::PrecacheScriptSound` only looks an index up (`SoundEmitterSystem.cpp:1427-1434`). The client receives
+these waves, and every other server precache, through the `soundprecache` string table the demo carries.
+
+- **A model's sounds are precached with the model, on the server.**
   - `CBaseEntity::PrecacheModelComponents` (`game/server/baseentity.cpp:5250-5412`, `C_BaseEntity` on the client) takes
     the model's entry from `g_ModelSoundsCache` on PC and calls `PrecacheSoundList()`.
   - `CModelSoundsCache::BuildAnimationEventSoundList` (`game/shared/ModelSoundsCache.cpp:131-218`) builds that entry by
@@ -85,8 +89,9 @@ demo message names them, and each was read from the VPK inside the frame that fi
 `EntityModelSet.AnimationEvents()` walks every packed model's merged sequence table, as `BuildAnimationEventSoundList`
 does. `DemoSounds.ModelWaves` turns the events this viewer plays (`CL_EVENT_SOUND`, 5004, the one `SoundPresenter` fires)
 into every wave of each named script. `DemoSounds.Precache` adds those waves after the surfaces' and before the
-timeline's, on the load worker, after `DemoModels.Precache` has packed the models. That is the engine's order: models,
-then their sounds, at level init.
+timeline's, on the load worker, after `DemoModels.Precache` has packed the models. That is the server's order (models,
+then their sounds); the client takes the result from the `soundprecache` table, so this is an interim stand-in (review
+item 1, below). Since the review it also takes only events the client fires.
 
 **Ported narrowly.** The other cases in the list are HL2's footsteps, NPC script events and new-system server sounds.
 Nothing in this viewer fires them, so they precache nothing here, and this one event is the whole port.
@@ -114,15 +119,59 @@ lock, with load and a process snapshot taken before and after inside it.
 
 ## What still misses, and where the engine precaches it (B568)
 
-| sound | path that plays it | engine's precache |
+| sound | path that plays it | in f12's `soundprecache`? (measured, review item 1) |
 |---|---|---|
-| `player/invulnerable_on.wav`, `_off.wav` | a player condition (Über) | `C_TFPlayer`'s precache of its condition sounds (not read here) |
-| `vo/null.mp3` | a voice/response line | the response system's scenes (not read here) |
-| `>weapons/fx/nearmiss/bulletLtoR*.wav` | a tracer's near-miss whiz | the tracer effect's script, precached by the weapon (not read here) |
+| `player/invulnerable_on.wav`, `_off.wav` | a player condition (Über) | yes |
+| `vo/null.mp3` | a voice/response line | yes |
+| `>weapons/fx/nearmiss/bulletLtoR*.wav` | a tracer's near-miss whiz | yes, eleven of them |
 
-None of them is a one-line addition to a list this viewer already builds, so they are filed rather than guessed at.
+All four are in the table the client receives. Honouring that table is option (c) below.
 Models packed during play (the `STALL reading models` path) would also need their sounds precached at pack time; on
 f12 every model is packed by the precache, so this did not arise.
+
+## The review of `50d192b1`, and the table the demo already carries
+
+A neutral review returned five findings. Each was checked against the code and the SDK before anything changed.
+
+| item | finding | verdict | what changed |
+|---|---|---|---|
+| 1 | the client never walks models; it gets the server's precaches through `soundprecache`, which the demo carries and nothing precaches | **right on the route and the facts; its fix is blocked** (below) | the model walk is kept and labelled an interim stand-in for the server's route (B568) |
+| 2 | `PrecacheScriptSound` precaches a raw `.wav`/`.mp3` directly, and `ModelWaves` drops one | **wrong for `ModelWaves`.** The model list goes through `FindOrAddScriptSound` (`ModelSoundsCache.cpp:112-124`), which keeps only a name `GetSoundIndex` finds, so the engine drops a raw wave here too. The raw branch (`SoundEmitterSystem.cpp:397-410`) is for other callers. **Right for play:** `EmitSound` plays a raw name (`:556-559`), and `EntitySounds.Emit` does not | test comment corrected; the play half filed as B569 |
+| 3 | `ModelWaves` ignores the event's type | **real** | `ModelWaves` takes only events `StudioEvent.FiresOnTheClient()` passes; the test's server-typed 5004 event was red before the change |
+| 4 | the test comment says the engine warns on an empty option | **real, the comment was wrong.** The warning is in the `AE_CL_PLAYSOUND` case; `CL_EVENT_SOUND` and `FindOrAddScriptSound` drop an empty name silently | comment corrected |
+| 5 | `SoundReadProbe` reads without the map's pakfile | **real** | the probe's summary now says so |
+
+**Item 1, measured.** A throwaway probe printed f12's `soundprecache` through the production timeline. It holds **6,713
+names**, including all twelve first-play misses:
+
+- the eight weapon sounds (`draw_primary`, `draw_secondary`, four `grenade_launcher_drum_*`, two
+  `stickybomblauncher_bolt*`);
+- `player/invulnerable_on.wav` and `_off.wav`;
+- eleven `>weapons/fx/nearmiss/bulletLtoR*.wav`;
+- `vo/null.mp3`.
+
+The control, `rocket_shoot`, returned four entries. So the table is the client's list, and it covers B568 as well.
+
+**Precaching the whole table, as the review asked, does not work with this cache.** The table's entries were added ahead
+of the demo's sounds, and the result was measured in one run. The lock flagged "4 bash running" during that run, so its
+seconds are indicative only. The conclusion rests on the count.
+
+- The first pass decoded 7,673 of 7,691 names in **45.8 s** on the worker.
+- The second pass, which runs in `Apply` **on the UI thread**, took **38.8 s**.
+- f12 held 277 MB for about 926 sounds, so 7,673 sounds are several times the 512 MB cap. The cache evicted, and the
+  second pass decoded again whatever had been let go (B570).
+
+The change was reverted. The engine does not decode the whole table up front either. That the client registers each entry
+and loads the data on demand, off the render thread, is *interpolated*: that part of the engine is closed and was not
+read.
+
+**The options, with numbers:**
+
+- **(a)** The model walk, kept as an interim. It removes 8 of the 12 misses, adds 436 sounds and costs about 3.1 s on the
+  worker.
+- **(c)** Make the table the registry: decode a first play off the render thread and start the sound late rather than
+  freezing the frame. That is engine-shaped, covers B568, and replaces (a). It needs the engine's sound data-cache path
+  read first (Ghidra).
 
 ## Evidence classes
 
