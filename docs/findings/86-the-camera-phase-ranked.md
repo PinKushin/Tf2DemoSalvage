@@ -20,7 +20,9 @@ Below the `camera` phase, `pose` was already split by the moment's line and `set
 particles` was one number holding 1.3–1.8 ms that no counter named, in the empty view as well as first person. That
 part is now timed at each step of `FramePresenter.DrawOver` (lights, decals, sounds, impacts, trails, bursts, build,
 hand). The burst search inside `bursts` is timed at each offerer (explosions, tracers, blood, splashes, sentries,
-dispatches, muzzles, players, beams, overheals, step). Every timer is read where its step runs and carried to the rate
+dispatches, muzzles, players, beams, overheals, step). **A `/` in a printed name nests it** (`camera particles/bursts/
+dispatches` is inside `camera particles/bursts`, which is inside `camera particles`), so the printed parts are not to be
+added across levels; the review found the first version printed them flat, where they summed to more than the phase. Every timer is read where its step runs and carried to the rate
 line (B243). `FrameParts.Lap` replaces the two copies of the timing helper.
 
 ## The ranked table, before any fix (steady seconds, ms a frame)
@@ -108,7 +110,9 @@ ends the opening seek, and a seek frame takes the old path.
 Tests: `ParticleBurstTests.IsGone_AFinishedBurstWhilePlaying_IsTrueUntilASeekRebuildsIt` (red against a stub that
 answers false). `BurstEffectsStepTests.StepOver_AnEntityParticleFinishedWhilePlaying_IsNoLongerOfferedUntilASeek` was
 red three times: against the stub; with the seek and clock guard replaced by an always-true expression; and with the
-clock half alone disabled (`tick >= Math.Min(_ownedTick, tick)`). **The seek half has no sabotage of its own.**
+clock half alone disabled (`tick >= Math.Min(_ownedTick, tick)`). **The seek half, sabotaged alone** after the review
+(`!_frame.Seeked` dropped), reddens the seek step at fired + 2: no burst is offered where one is expected. An earlier
+draft of this finding said the seek half had no sabotage of its own; the review was right that it reddens.
 Two older tests in that file had used a no-emitter system as the stand-in for a dispatched effect, so it finished on
 its first step. Their offers are now of a system that emits continuously, and the new test uses its own no-emitter
 system.
@@ -129,6 +133,45 @@ and 24 without. The 24 is `BlendedAnimations`' `[(animation, 1f)]` for a plain s
 | empty view: allocated / pause / mean | 3.79 MB / 0.67 / 7.37 ms | 3.53 MB / 0.65 / 7.26 ms |
 
 No output can change: it is the same list operation.
+
+## Review fix: a dormant effect is not finished (parity)
+
+**The review's finding, confirmed in our code before fixing.** `ParticleEffect.Finished` never looked at dormancy, and
+the engine's `CParticleCollection::IsFinished` (particles.obj `0xe3c60`, read in Ghidra by the coordinator) does. It
+asks, in order: the first-frame flag (+0x2720 bit 0), the active particles (+0x38), the dormant flag (+0x68, written by
+`SetDormant` `0xe5c60`), then each emitter's `MayCreateMoreParticles` and each child's `IsFinished`. So an empty effect
+whose owner is dormant is not finished, and `SetDormant(false)` re-emits it.
+
+**The defect is older than fix 1.** Before fix 1, an effect that finished while dormant became the `Spent` marker,
+which is kept and never stepped, so it never woke either. Fix 1 made it unoffered and retired as spent. Both hide the
+re-emission the engine shows.
+
+**Fixed at the root:**
+- `ParticleEffect` carries `Dormant`, which `ParticleEffects` sets each step from the same `wasDormant` it already kept.
+- `Finished` asks the engine's checks in the engine's order. The first-frame check is new too: `!_previousSet`, cleared
+  by the first `Simulate`, which is also what `Simulate( 0.0f )` does on the engine's creation frame.
+- Every caller then reads the engine's answer. The spent marker, the replay's early stop, `Retire`, the census and
+  `IsGone` all ask `Finished`. The age gate does not, since it asks a definition's whole life.
+- `Spent`, the marker itself, is now simulated once at creation so that it still reads finished.
+
+**Tests**, each red under its own sabotage:
+- `Finished_BeforeItsFirstSimulate_IsFalseAndAfterItTrue`: red before the first-frame check existed.
+- `Finished_EmptyAndDormant_IsFalseUntilItWakes`: red with the dormant check disabled.
+- `IsGone_AnEmptyBurstWhoseOwnerIsDormant_IsFalseAndItIsStillStepped`: one particle of 33 ticks, the owner dormant
+  over ticks 110–200. At tick 180 the effect is empty and not gone, and it is stepped once a tick through 190, so the
+  wake reaches the effect itself. Both sabotages read `(True, 0)`: gone, and frozen as the marker. One sabotage disabled
+  the dormant check; the other stopped `ParticleEffects` setting the flag.
+  - **A wrong turn:** the first version asserted that the wake emits again. It failed with the fix in place: an
+    instantaneous emitter refires only inside two seconds of its start (`C_OP_InstantaneousEmitter::SkipToTime`), and
+    that existing rule decides re-emission, not this fix. Its two sabotages had been "red" against a test that could not
+    pass.
+
+`Finished_EmptyWithAContinuousEmitter_IsDecidedByTheRate` now simulates once before asking: a never-simulated effect is
+not finished, as in the engine. **The order of checks is not observable from outside**, because every check can only
+answer "not finished"; it is written in the engine's order and cited, and no test can tell the orders apart.
+
+The IK test's bound is now the closure's own: under 216 bytes, the call with the capturing predicate. It no longer pins
+`BlendedAnimations`' 24-byte array, which that test does not own.
 
 ## After both fixes (steady seconds, first person, two runs)
 

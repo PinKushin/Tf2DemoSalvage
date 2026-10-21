@@ -399,28 +399,29 @@ public sealed class BurstEffects
                 blast.Tick));
         }
 
-        // Each offerer timed where it runs, under `camera particles bursts` (finding 86, B243).
-        long partAt = Part("camera particles bursts explosions", searchingAt);
+        // Each offerer timed where it runs, under `camera particles/bursts`; a `/` in a part's name nests it inside the
+        // part before it, so nested parts are not added together (finding 86, B243).
+        long partAt = Part("camera particles/bursts/explosions", searchingAt);
         AddTracers(tick, systems, new Vector3(viewing.Origin.X, viewing.Origin.Y, viewing.Origin.Z));
-        partAt = Part("camera particles bursts tracers", partAt);
+        partAt = Part("camera particles/bursts/tracers", partAt);
         AddBlood(timeline, tick, systems, viewing);
-        partAt = Part("camera particles bursts blood", partAt);
+        partAt = Part("camera particles/bursts/blood", partAt);
         AddSplashes(tick, systems);
-        partAt = Part("camera particles bursts splashes", partAt);
+        partAt = Part("camera particles/bursts/splashes", partAt);
         AddSentryMuzzleFlashes(timeline, tick, systems);
-        partAt = Part("camera particles bursts sentries", partAt);
+        partAt = Part("camera particles/bursts/sentries", partAt);
         AddParticleDispatches(timeline, tick, systems);
-        partAt = Part("camera particles bursts dispatches", partAt);
+        partAt = Part("camera particles/bursts/dispatches", partAt);
         AddWeaponMuzzleFlashes(timeline, tick, systems);
-        partAt = Part("camera particles bursts muzzles", partAt);
+        partAt = Part("camera particles/bursts/muzzles", partAt);
 
         DrawnPlayers(frame.Players, tick);
-        partAt = Part("camera particles bursts players", partAt);
+        partAt = Part("camera particles/bursts/players", partAt);
 
         AddHealBeams(timeline, tick, systems);
-        partAt = Part("camera particles bursts beams", partAt);
+        partAt = Part("camera particles/bursts/beams", partAt);
         AddOverheals(timeline, tick, systems);
-        _ = Part("camera particles bursts overheals", partAt);
+        _ = Part("camera particles/bursts/overheals", partAt);
 
         long steppingAt = System.Diagnostics.Stopwatch.GetTimestamp();
         SearchTicks += steppingAt - searchingAt;
@@ -436,7 +437,7 @@ public sealed class BurstEffects
 
         long steppedAt = System.Diagnostics.Stopwatch.GetTimestamp();
         BurstTicks += steppedAt - steppingAt;
-        Parts?.Add("camera particles bursts step", steppedAt - steppingAt);
+        Parts?.Add("camera particles/bursts/step", steppedAt - steppingAt);
 
         return _whizzes;
     }
