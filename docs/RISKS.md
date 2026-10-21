@@ -40064,7 +40064,8 @@ from the burst's own tick, and every replayed tick pushes the sleep time on (`ne
 noDraw)`), as if each had been drawn. So an effect undrawn since creation is replayed to its end and can finish, where
 the engine would hold it asleep, mid-life, until it is drawn. The age skip (finding 84) then makes that permanent for an
 effect whose emission and lifetime outlast its sleep. *Evidence class: published source and our code read; no demo
-measured.* **Being audited** against the engine's sleep and wake rule (the coordinator's Ghidra read of `particles.obj`).
+measured.* **Audited** (finding 84, *The sleep and wake audit*): this is D4 there. The wider gap is D1, that ours counts
+a placed effect as drawn where the engine counts one collated for a view; both are open.
 
 ## B562 — a child system's `delay` is not applied when its parent spawns it — OPEN
 

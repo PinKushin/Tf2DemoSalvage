@@ -241,3 +241,55 @@ Frames over 100 ms per minute, f12 tick 30000, first person, Debug, `--measure 6
 what the owner reported is 7 → 0 (particles and sound). That rests on one quiet run each way plus B, so it is a count,
 not a rate. Seconds without a stall also read cleaner: D's per-second means were 54–81 fps.
 
+## The sleep and wake audit (2026-10-20, in progress)
+
+**The engine, read from published source** (with the coordinator's Ghidra read of `particles.obj` for `Render`):
+
+- **The skip.** `BuildParticleSimList` skips an effect when `flNow >= m_flNextSleepTime && m_nActiveParticles > 0`
+  (`particlemgr.cpp:1775`), the root collection's own count; children simulate with it. `flNow` is this frame's
+  `curtime`, set at the top of `UpdateNewEffects` (:1833). A skipped effect is not simulated unless `HasMoved()`, which
+  sends it to a bounds-only simulate (:1787-1791). Nothing adds a skipped frame back: the collection's clock moves only
+  inside `Simulate`.
+- **The frame's step.** `UpdateAllEffects` clamps the frame time to 0.1 s (:1947) and passes it to `UpdateNewEffects`
+  (:1995); `ProcessPSystem` simulates every listed collection with it (:1579), and a new one's first frame with 0 (:1574).
+- **What pushes the sleep time.** Only drawing: `CParticleCollection::Render` (Ghidra) and the too-far early-out of
+  `CNewParticleEffect::DrawModel`, which still pushes it "or they won't follow their attachment points"
+  (`particles_new.cpp:528-538`). `DrawModel` is reached only for a renderable the leaf system collected for a view:
+  its world box in a leaf of the view's world list, inside the frustum (`CullBox`, or the area frustum under
+  `r_PortalTestEnts`), with nonzero `FxBlend` (`clientleafsystem.cpp:1574-1716`). Occlusion is tested only for studio
+  models. `cl_maxrenderable_dist` does not apply in TF2: its test is inside `#ifdef INVASION_CLIENT_DLL`
+  (:1659-1676).
+
+**Measured first** (f12 tick 30000, first person, `--measure 60`, the new `particle work` line; one run; its
+after-check sampled a job queued behind the lock, not the playback window, so its milliseconds stand): 368.4 effects
+held a frame (most of them finished markers), **22.2 steps a frame, 0 asleep, 21.9 effects with particles handed to the
+draw**; particle cost 1.28 ms a frame searching the timeline for offers and 0.41 ms starting and stepping bursts; the
+`camera` phase 9.0 ms. So stepping is at most 0.41 ms a frame here, and sleep can save at most part of that.
+
+**Divergences, and what was done:**
+
+| | engine | ours | status |
+|---|---|---|---|
+| D1 | the sleep time is pushed only when the effect is drawn: collated for a view by leaf, frustum and `FxBlend` | pushed at simulate time whenever the burst can be **placed** (its owner posed); every placed effect counts as drawn | **open, needs a decision** (below) |
+| D2 | every effect sleeps | a projectile trail (`Update`) has no sleep at all | open; follows D1 |
+| D3 | a frame simulates at most 0.1 s | a played frame stepped however long | **fixed** (`fix: a particle frame simulates at most 0.1 s`) |
+| D4 | an effect undrawn since creation sleeps at creation plus the no-draw time | a replay treats every replayed tick as drawn (B563) | open, the owner's choice (below) |
+| D5 | a skipped effect that moved updates its bounds only | not modelled; it changes bounds and nothing drawn | not done, by choice |
+
+**D1 needs a decision, not a guess.** Our particle gather culls nothing: every effect is gathered for every frame and
+view (`ParticleEffects.Build`), so "drawn" in the engine's sense does not exist here yet. Modelling it needs each effect's
+world box tested against the view's world-list leaves and frustum. This viewer has that collation twice, in `Device3D`
+and in the `EntityModels` collation partial (`ClientLeafSystem`), and the particle gather is in `FrameParticles`, which
+has the camera but neither. Two routes: register particle effects in a leaf system beside the entities (the engine's
+shape, but it touches the collation partial another job is splitting), or answer the box question inside the particle
+path from the map's leaves and the view's frustum. Which one is the coordinator's call.
+
+**D4 is the owner's, with the trade named.** A seek's replay is ours (D221), and nobody knows what the camera saw before
+the seek. Replayed as drawn (as now), a long effect is fully simulated: about 70 ms for each `xms_ornament_glitter`.
+Replayed as undrawn, it sleeps 8 s after creation and the replay is cheap, but an effect born more than 8 s before the
+seek is then shown frozen mid-life. Neither is the engine.
+
+**The age bound waits on D1.** Once sleep is modelled, the age skip can apply only to an effect whose emission and
+lifetime fit within its root's sleep, since only those finish before they could sleep; for the rest the bound is
+unbounded (review item 1, held).
+
