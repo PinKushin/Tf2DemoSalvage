@@ -1,6 +1,9 @@
 using System;
+using System.Collections.Generic;
 using System.Drawing;
 using System.IO;
+using System.Linq;
+using System.Threading;
 
 namespace Tf2DemoSalvage.Viewer3D.Tests;
 
@@ -124,6 +127,88 @@ public sealed class PngWriterTests
         finally
         {
             File.Delete(path);
+        }
+    }
+
+    [Test]
+    public void Write_TheFinalName_NeverAppearsBeforeTheWholeImageIsOnDisk()
+    {
+        // CI failure on main: a UI test waits for a new picture to APPEAR and opens it at once, and found a file that
+        // held the eight signature bytes ("Parameter is not valid"). The writer created the file first and compressed
+        // the image second, so for as long as the compression took the final name held a stub that anything watching the
+        // folder could see. The image is large and noisy so the compression takes long enough to be caught.
+        const int Width = 1600;
+        const int Height = 900;
+
+        byte[] rgba = new byte[Width * Height * 4];
+        uint state = 2463534242;
+
+        for (int i = 0; i < rgba.Length; i++)
+        {
+            state ^= state << 13;
+            state ^= state >> 17;
+            state ^= state << 5;
+            rgba[i] = (byte)state;
+        }
+
+        string folder = Path.Combine(Path.GetTempPath(), $"pngwriter-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(folder);
+
+        string path = Path.Combine(folder, "shot.png");
+        List<string> sightings = [];
+        object gate = new();
+
+        void Look(object sender, FileSystemEventArgs seen)
+        {
+            if (!string.Equals(seen.Name, "shot.png", StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            string verdict;
+
+            try
+            {
+                using Bitmap opened = new(seen.FullPath);
+
+                verdict = opened.Width == Width && opened.Height == Height ? "whole" : "wrong size";
+            }
+            catch (Exception failure) when (failure is ArgumentException or IOException or System.Runtime.InteropServices.ExternalException)
+            {
+                verdict = $"not a complete image ({failure.GetType().Name})";
+            }
+
+            lock (gate)
+            {
+                sightings.Add(verdict);
+            }
+        }
+
+        try
+        {
+            using FileSystemWatcher watcher = new(folder);
+
+            watcher.Created += Look;
+            watcher.Renamed += (sender, seen) => Look(sender, seen);
+            watcher.EnableRaisingEvents = true;
+
+            PngWriter.Write(path, Width, Height, rgba);
+
+            // Synchronize on the condition, not the clock: the watcher delivers on its own thread, so wait until it has
+            // reported the final name at least once.
+            SpinWait.SpinUntil(() => { lock (gate) { return sightings.Count > 0; } }, TimeSpan.FromSeconds(20))
+                .ShouldBeTrue("the watcher never saw the final name");
+
+            lock (gate)
+            {
+                sightings.ShouldAllBe(verdict => verdict == "whole", string.Join("; ", sightings));
+            }
+
+            Directory.GetFiles(folder).Select(Path.GetFileName).ShouldBe(["shot.png"], "no temporary file is left behind");
+        }
+        finally
+        {
+            Directory.Delete(folder, recursive: true);
         }
     }
 

@@ -66,12 +66,31 @@ public static class PngWriter
             Directory.CreateDirectory(folder);
         }
 
-        using FileStream file = File.Create(path);
+        // **The final name appears only when the whole image is on disk** (CI failure on main: a reader that waits for a
+        // new picture to appear opened a file holding only the eight signature bytes, because the file was created first
+        // and the image compressed second). Compressed before anything is created, written under a temporary name in the
+        // same folder, then moved into place: a move within one folder is atomic, so a reader sees no file or the whole one.
+        byte[] pixels = Compress(width, height, rgba);
+        string temporary = $"{path}.{Guid.NewGuid():N}.tmp";
 
-        file.Write(Signature);
-        WriteChunk(file, "IHDR", Header(width, height));
-        WriteChunk(file, "IDAT", Compress(width, height, rgba));
-        WriteChunk(file, "IEND", []);
+        try
+        {
+            using (FileStream file = new(temporary, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+            {
+                file.Write(Signature);
+                WriteChunk(file, "IHDR", Header(width, height));
+                WriteChunk(file, "IDAT", pixels);
+                WriteChunk(file, "IEND", []);
+            }
+
+            File.Move(temporary, path, overwrite: true);
+        }
+        catch (Exception failure) when (failure is IOException or UnauthorizedAccessException)
+        {
+            // The partial temporary file is not a picture; remove it, then let the caller see why.
+            File.Delete(temporary);
+            throw;
+        }
     }
 
     /// <summary>The IHDR chunk's payload.</summary>
