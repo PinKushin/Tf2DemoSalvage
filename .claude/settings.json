@@ -27,6 +27,30 @@
         ]
       },
       {
+        "matcher": "Bash|PowerShell|mcp__tf2__console",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "pwsh -NoProfile -File \"${CLAUDE_PROJECT_DIR}/.claude/hooks/tf2-measurement-gate.ps1\"",
+            "shell": "powershell",
+            "timeout": 20,
+            "statusMessage": "checking a measurement has its record"
+          }
+        ]
+      },
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "pwsh -NoProfile -File \"${CLAUDE_PROJECT_DIR}/.claude/hooks/tf2-measurement-cited.ps1\"",
+            "shell": "powershell",
+            "timeout": 15,
+            "statusMessage": "checking release-note figures cite an observation"
+          }
+        ]
+      },
+      {
         "matcher": "Edit|Write",
         "hooks": [
           {
@@ -56,6 +80,18 @@
             "shell": "powershell",
             "timeout": 15,
             "statusMessage": "checking engine flags were looked up"
+          }
+        ]
+      },
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "pwsh -NoProfile -File \"${CLAUDE_PROJECT_DIR}/.claude/hooks/tf2-measurement-cited.ps1\"",
+            "shell": "powershell",
+            "timeout": 15,
+            "statusMessage": "checking doc figures cite an observation"
           }
         ]
       }
