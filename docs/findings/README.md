@@ -321,6 +321,12 @@ in any public writeup found:
   dictionary per activity lookup. The render thread went from 1.85–1.89 to 1.20 MB a frame over 60 s, and frames over
   100 ms from 2–7 to 0 in two clean runs ([89](89-the-struct-copies-were-the-collector.md),
   measurements/2026-10-21-struct-copies-and-allocations.md).
+- **A fix that the caller undid.** Seven more allocations are gone: per-search motion caches, per-frame layer lists,
+  placement matrices, a heal-beam closure built for every beam in the demo, and the HUD's vertex array. The corpse copy
+  needed a second fix, because the corpse record re-fed each original every tick, so the first fix never fired. The
+  render thread went from 1.21-1.26 to 0.94-1.01 MB a frame and every heap from 2.50-2.98 to 1.54-1.83. The effect on
+  stalls is inconclusive on a loaded machine ([90](90-a-fix-that-the-caller-undid.md),
+  measurements/2026-10-21-corpse-and-beam-allocations.md).
 
 ## Conventions used throughout
 
