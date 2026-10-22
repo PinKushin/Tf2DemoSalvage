@@ -826,8 +826,12 @@ public sealed partial class SoundPresenter(
                     $"stopped while loading '{sound.Name}' (tick {sound.Tick.ToString(CultureInfo.InvariantCulture)})");
             }
 
-            // The sfx is found by name and nothing is loaded for it: a sound not held cannot be playing.
-            if (sound.Name.Length > 0 && (Held ?? sample)(sound.Name) is { } named)
+            // **The stop matches the SFX, not its data.** A channel holds its `CSfxTable` and `S_AlterChannel` matches
+            // `ch->sfx` (FUN_18002aa20, B416) whether or not the wave is resident, and loads nothing. The sink matches by
+            // `SoundSample.Key`, the sfx key (B545), so a sound the cap let go while it plays is stopped by a key-only
+            // sample instead of being read again.
+            if (sound.Name.Length > 0 &&
+                ((Held ?? sample)(sound.Name) ?? new SoundSample(0, 0, Array.Empty<float>()) { Key = SoundName.SfxKey(sound.Name) }) is { } named)
             {
                 // The sink names the one voice it stopped — the first in start order, as `S_AlterChannel` stops one — so
                 // what is followed forgets exactly that voice. A sink without handles answers 0, and the stop is

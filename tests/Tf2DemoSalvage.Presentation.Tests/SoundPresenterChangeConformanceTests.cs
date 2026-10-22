@@ -170,9 +170,20 @@ public sealed class SoundPresenterChangeConformanceTests
             _playing.Remove((entity, channel));
         }
 
+        /// <remarks>
+        /// Records a stop only when it matches what plays on that entity and channel, as a real sink does: a stop now
+        /// reaches the sink by sfx key even for a sound with no data (a key-only sample), and matching nothing is what
+        /// `S_AlterChannel` finding no channel looks like (finding 90).
+        /// </remarks>
         public int Silence(int entity, int channel, SoundSample sample)
         {
-            Stopped.Add((entity, channel, nameOf(sample)));
+            string name = sample.Samples.Length == 0 ? sample.Key ?? string.Empty : nameOf(sample);
+
+            if (_playing.TryGetValue((entity, channel), out string? playing) && playing == name)
+            {
+                Stopped.Add((entity, channel, name));
+            }
+
             return 0;
         }
     }

@@ -116,7 +116,16 @@ sound is not started (`late sound '<name>' ... did not arrive`). Each late start
   its read would have started and never stopped. Tests: `Update_AStopWhileItsSoundLoads_CancelsOnlyThatSound` (with
   another sound and another channel as controls), `Update_AStopOfASoundNotHeld_AsksNothingToLoad`. On f12
   (`docs/measurements/2026-10-22-sound-stops-load-nothing-f12.md`) the Uber pair no longer loads: 4 -> 2 off-frame loads,
-  1,336 -> 1,334 held, starts still late. *Not read:* why the Über's own start falls before tick 30000 on f12; the seek's re-establishing pass does not
+  1,336 -> 1,334 held, starts still late.
+- **That change regressed one case, caught in review** (`fd31d8d2`): a sound the 512 MB cap evicted while a voice of it
+  still played had no held sample, so the stop never reached the sink and the voice played on. The engine keeps the sfx,
+  not the data: a channel holds its `CSfxTable` and `S_AlterChannel` matches `ch->sfx` whether or not the wave is
+  resident (FUN_18002aa20, B416). The sink already matches by `SoundSample.Key`, the sfx key (B545), so a stop with no
+  held sample now sends a key-only sample: the voice is matched and silenced, and nothing is read
+  (`Update_AStopOfAPlayingSoundTheCapEvicted_SilencesItBySfxAndReadsNothing`, red before the fix). The fake sink in
+  `SoundPresenterChangeConformanceTests` now records a stop only when it matches what plays, as the real one does, since
+  a stop of an unopenable name now reaches the sink and matches nothing. f12 holds 1,334 sounds under the cap and
+  evicts nothing, so its measurement is unchanged by this and was not re-run. *Not read:* why the Über's own start falls before tick 30000 on f12; the seek's re-establishing pass does not
   restart one-shots, which is the existing rule.
 - The before run was the busier machine (68 frames over 100 ms against 16), so its frame times are not a comparison.
 
