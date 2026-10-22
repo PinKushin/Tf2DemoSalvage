@@ -82,4 +82,27 @@ under it (met). R1/R2 `camera` agree within 2.4% (met). Ticks and content: both 
 decals) and particles (met). Pose control: `camera pose` 4.04/3.87 against `moment cost` 3.9-4.6 a rebuild, so the pose
 column IS the moment rebuild and question (2) leaves under 1 ms unnamed; no extra timer added.
 
+**Mean frame** (frame-weighted over the same steady lines, `parts.ps1` in the folder): R1 11.86 ms, R2 11.99 ms, T1 12.03 ms.
+The first reading of this script printed 0.00 for all three (its regex stopped at the comma in `(0 worst, 9606 best)`);
+fixed and re-read before anything was ranked.
+
+**T1** (`T1.txt`, load 16/8/4% / 11/9/12%): camera 7.24 ms of 12.03 (60.2%). Render thread 17308, 208-224 s of a
+226.5 s trace, 8,028 samples (`T1-17308.txt`). **Trace control:** `UploadCameraOver` 59.9% inclusive against 60.2%; met.
+Inclusive, under the camera: `MomentScene.Pose` 33.0%, `EntityModelSet.Instances` 31.3%, `FramePresenter.DrawOver`
+(particles) 18.6%, `Device3D.SetCamera` 7.9%, `BurstEffects.StepOver` 7.0%, `SkeletonPose.Build` 6.8%, `ModelLighting.For`
+6.2%, `FrameParticles.BuildOver` 5.2%, `FlexFor` 4.0%, `DecalEffects.StepModelDecals` 2.6% (2.3% of it its own body, a
+leaf), `ExposureHistogram.TryRead` 2.6% (outside camera). `BulkMoveWithWriteBarrier` is 22.0% inclusive; every one of its
+samples has `PollGCWorker` as its leaf (`T1-17308-bulkmove.txt`), so whether that is time in the copy or the sampler's
+charge at its safe point is B574's open question, not settled here. Under `Instances` (`T1-17308-instances.txt`) the light
+cache's build lambda is 9.2% of `Instances`, with `SunFrom` (the sky trace) inside it.
+
 ## Verdict
+
+**The `camera` phase is a long tail; no single named part is above 0.8 ms.** Of about 7.1 ms: pose 3.9-4.0 (place
+0.7-0.8, about half of it the flex already cut in finding 92; simulate 0.5; drawlist 0.4-0.5; lighting 0.2-0.5; baked,
+setup, collate, sample, viewmodel 0.2-0.4 each), particles 2.4 (bursts 0.9-1.0, build 0.65, decals 0.52), setcamera 0.7.
+The exposure count (B575) is not inside `camera` at all. **The largest part found doing work the engine does not do is
+`StepModelDecals`' own body** (a 2.3% leaf, about 0.3 ms a frame): it walks every client bullet of the match (12,518 on
+f12) and every entity impact, each frame, to keep those that landed since the last frame; the engine places a decal when
+its event arrives. That is the first item taken (`2026-10-22-model-decal-window.md`). Second, to be settled before it is
+believed: the light cache's builds (a counter first, since the engine's throttle allows two a frame) and B574's copies.
