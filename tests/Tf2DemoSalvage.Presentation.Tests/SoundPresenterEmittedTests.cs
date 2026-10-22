@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using Microsoft.Extensions.Logging.Abstractions;
 
 using Tf2DemoSalvage.Audio;
+using Tf2DemoSalvage.Core.Net;
 using Tf2DemoSalvage.Core.Scene;
 
 namespace Tf2DemoSalvage.Presentation.Tests;
@@ -176,6 +177,62 @@ public sealed class SoundPresenterEmittedTests
         loaded.ShouldBeEmpty();
     }
 
+    /// <remarks>
+    /// **A stop matches the sfx, not its wave data** (review of `fd31d8d2`). A channel holds its `CSfxTable` and
+    /// `S_AlterChannel` matches `ch->sfx` (FUN_18002aa20, B416, B545), whether or not the data is resident. So a sound
+    /// started, then let go by the cache's cap while it plays, is still stopped, by its sfx key, and nothing is read.
+    /// </remarks>
+    [Test]
+    public void Update_AStopOfAPlayingSoundTheCapEvicted_SilencesItBySfxAndReadsNothing()
+    {
+        List<string> reads = [];
+        SoundCache cache = new(NullLogger.Instance, capacityBytes: 2)
+        {
+            Read = path =>
+            {
+                reads.Add(path);
+                return OneSampleWave;
+            },
+        };
+        cache.Precache([Wave]);
+
+        SoundPresenter presenter = new(
+            new SoundscapeSystem(new ActiveLoops(), _ => null, NullLogger.Instance),
+            new ActiveLoops(),
+            cache.Sample,
+            NullLogger.Instance)
+        {
+            Held = cache.HeldSample,
+            Loading = cache.Loading,
+            Schedule = new SoundSchedule([]),
+        };
+        Recording sink = new();
+        SceneSound started = Impact(at: 100f);
+
+        presenter.Update(sink, 40, (0f, 0f, 0f), (0f, -1f, 0f), now: 0d);
+        presenter.Emit(started);
+        presenter.Update(sink, 41, (0f, 0f, 0f), (0f, -1f, 0f), now: 0.015d);
+        sink.Played.ShouldHaveSingleItem("the control: it started from the precache");
+
+        cache.Precache(["weapons/other.wav"]);
+        cache.HeldSample(Wave).ShouldBeNull("the control: the cap let it go");
+        reads.Clear();
+
+        presenter.Emit(started with { Tick = 42, IsStop = true });
+        presenter.Update(sink, 42, (0f, 0f, 0f), (0f, -1f, 0f), now: 0.03d);
+
+        sink.Stopped.ShouldHaveSingleItem().ShouldBe((started.EntityIndex, started.Channel, SoundName.SfxKey(Wave)));
+        reads.ShouldBeEmpty();
+    }
+
+    /// <summary>A 16-bit mono RIFF/WAVE of one sample, written from the format: two bytes held.</summary>
+    private static byte[] OneSampleWave =>
+    [
+        (byte)'R', (byte)'I', (byte)'F', (byte)'F', 38, 0, 0, 0, (byte)'W', (byte)'A', (byte)'V', (byte)'E',
+        (byte)'f', (byte)'m', (byte)'t', (byte)' ', 16, 0, 0, 0, 1, 0, 1, 0, 0x22, 0x56, 0, 0, 0x44, 0xAC, 0, 0, 2, 0, 16, 0,
+        (byte)'d', (byte)'a', (byte)'t', (byte)'a', 2, 0, 0, 0, 1, 0,
+    ];
+
     /// <summary>The control: a sound that is not loading and will not open plays nothing, now or later.</summary>
     [Test]
     public void Update_AfterEmitOfASoundThatWillNotOpen_NeverPlaysIt()
@@ -284,11 +341,17 @@ public sealed class SoundPresenterEmittedTests
 
         public int Reclaim() => 0;
 
+        public List<(int Entity, int Channel, string? Key)> Stopped { get; } = [];
+
         public void Silence(int entity, int channel)
         {
-            // Nothing is tracked per channel here, and no stop is scheduled in these tests.
+            // Nothing is tracked per channel here; a stop arrives through the sample overload below.
         }
 
-        public int Silence(int entity, int channel, SoundSample sample) => 0;
+        public int Silence(int entity, int channel, SoundSample sample)
+        {
+            Stopped.Add((entity, channel, sample.Key));
+            return 0;
+        }
     }
 }
