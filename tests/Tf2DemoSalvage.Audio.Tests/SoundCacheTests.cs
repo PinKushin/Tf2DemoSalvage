@@ -303,6 +303,21 @@ public sealed class SoundCacheTests
         cache.Unopened.ShouldBe(1);
     }
 
+    /// <remarks>A precache that decodes a name while its play-time load is in flight holds it once; the late load is dropped.</remarks>
+    [Test]
+    public void Sample_AnOffFrameLoadArrivingAfterAPrecacheHeldIt_IsNotHeldTwice()
+    {
+        List<Action> jobs = [];
+        SoundCache cache = Cache([], offFrame: jobs.Add);
+
+        cache.Sample("a.wav");
+        cache.Precache(["a.wav"]);
+        jobs[0]();
+        cache.Sample("a.wav").ShouldNotBeNull();
+
+        cache.Held.ShouldBe(new SoundCacheHeld(Sounds: 1, WaveBytes: 2, Mp3Bytes: 0, Misses: 0, OffFrame: 0));
+    }
+
     [Test]
     public void Precache_WithAnOffFrameLoader_StillDecodesOnTheCaller()
     {

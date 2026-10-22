@@ -78,7 +78,8 @@ these waves, and every other server precache, through the `soundprecache` string
   - The event switch in `PrecacheModelComponents` itself is the X360 path (`if ( IsX360() )`). PC reads the cache.
 - **Sounds are precached before play, and a late one is an error.** `CBaseEntity::PrecacheSound` asserts *"too late"*
   outside `IsPrecacheAllowed()` (`SoundEmitterSystem.cpp:1497`). Nothing in the engine decodes a sound on the render
-  thread at first play.
+  thread at first play. **Corrected (finding 90): too strong.** The engine's mixer has a blocking path and a deferred
+  one (`snd_async_fullyasync`, engine.dll FUN_18004bc10); which one the stock client takes for these sounds is not known.
 
 **The divergence.** `DemoSounds.Precache` named the timeline's sounds, the client's emitted ones, the surfaces' and the
 soundscapes'. It named no model's sounds. A viewmodel's draw and reload are the client's own animation events, so no

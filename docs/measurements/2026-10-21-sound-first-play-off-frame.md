@@ -72,12 +72,13 @@ loaded off the frame '>weapons/fx/nearmiss/bulletLtoR11.wav' (read 1.3 ms, decod
 
 - **Deviation from Method:** the `sound cache:` line was not given an off-frame field; the off-frame count was read from
   the five `loaded off the frame` lines, each logged where the load was taken in.
-- The first precache names 1,320 against 1,372 because a name is now listed once per sfx key (two spellings of one sfx
-  were counted twice before); the cache holds the same 1,337 sounds in both runs. The second precache names 12 against
+- The first precache names 1,320 against 1,372. A name is now listed once per sfx key, and the concatenated lists were
+  never de-duplicated against one another; which duplicates made the 52 is *not established*. The cache holds the same
+  1,337 sounds in both runs. The second precache names 12 against
   1,394 (B570).
 
 ## Verdict
 
-**Confirmed.** Decodes paid on the render thread during play went 5 → 0, and the same five first plays were loaded off
-the frame instead; three of those reads took 111-402 ms on this machine and would each have been a frozen frame. The
+**Confirmed.** Decodes paid on the render thread during play went 5 → 0, and five first plays were loaded off the frame
+instead (that they are the same five is inferred: the before log names only the one over the stall threshold); three of those reads took 111-402 ms on this machine and would each have been a frozen frame. The
 control held: the cache held 1,337 sounds in both runs. The second precache now lists 12 names, not 1,394.

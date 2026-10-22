@@ -314,6 +314,13 @@ public sealed class SoundCache
 
             Loaded loaded = arrived.Loaded;
             _pending.Remove(loaded.Key);
+
+            // A precache decoded it while this load was in flight: held already, so holding it again would count it twice.
+            if (_cache.ContainsKey(loaded.Key))
+            {
+                continue;
+            }
+
             Keep(loaded);
 
             if (loaded.Opened)

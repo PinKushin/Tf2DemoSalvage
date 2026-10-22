@@ -40142,7 +40142,10 @@ Measured on f12: `docs/measurements/2026-10-21-sound-first-play-off-frame.md`.
   started while its load is pending is lost for that start, and the soundscape logs it as "would not open".
 - **The `soundprecache` table is still not consulted**: the deferral covers any miss, so it would change no outcome.
   The model walk stays.
-- **Corrected:** this entry's "the engine does not decode at first play" — the engine has a blocking path too (finding 90).
+- **Corrected:** finding 87's "Nothing in the engine decodes a sound on the render thread at first play". The engine
+  has a blocking path too (finding 90).
+- **A guard added after review:** a play-time load that arrives after a precache already held the name is dropped, so
+  it is not held twice (`Sample_AnOffFrameLoadArrivingAfterAPrecacheHeldIt_IsNotHeldTwice`).
 
 The original entry follows.
 

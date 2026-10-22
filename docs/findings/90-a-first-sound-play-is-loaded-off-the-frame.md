@@ -8,8 +8,8 @@ and a near-miss whiz. On a busy machine one such read blocked for ~170-395 ms (f
 ## What the engine does (read from the shipped engine.dll, Ghidra on D:)
 
 - **`S_PrecacheSound`** (FUN_18002cab0, `snd_dma.cpp:0x4da` by its telemetry label) finds the sfx (FUN_18002b290,
-  `S_FindName`) and calls `S_LoadSound(sfx, NULL)` (FUN_18002c350). That creates the sfx's audio source; it is what the
-  client does for each `soundprecache` entry. Whether the source's sample data is read there or later is not settled by
+  `S_FindName`) and calls `S_LoadSound(sfx, NULL)` (FUN_18002c350). That creates the sfx's audio source. That the client calls it for each `soundprecache` entry is *interpolated*: the
+  string-table side that calls it was not read. Whether the source's sample data is read there or later is not settled by
   this read.
 - **The mixer's readiness check** (FUN_18004bc10) reads `snd_async_fullyasync` (registered with default `"0"`, help *"All
   playback is fully async (sound doesn't play until data arrives)."*). When the source is an async-load one (its vtable
@@ -52,7 +52,9 @@ loop or a re-established loop whose sample the cap evicted — is lost for that 
 | before (`e1ec318a`) | 5 | 1 (`vo/null.mp3`, 171 ms) | — | 1,394 |
 | after (`60f4606a`) | **0** | 0 | **5** | **12** |
 
-- **The five moved, they did not vanish**: `invulnerable_off` (read 367.8 ms), `invulnerable_on` (402.2 ms),
+- **The count moved, it did not vanish**: 5 in play before, 5 off the frame after. The before log names only the one miss
+  over the 30 ms threshold, so that the before five are these five is *inferred* (they match finding 87's list). After:
+  `invulnerable_off` (read 367.8 ms), `invulnerable_on` (402.2 ms),
   `vo/null.mp3` (1.1 ms), `bulletLtoR08` (111.5 ms), `bulletLtoR11` (1.3 ms). Three of those reads would each have
   frozen a frame; now they wait on a pool thread.
 - The before run was the busier machine (68 frames over 100 ms against 16), so its frame times are not a comparison.
