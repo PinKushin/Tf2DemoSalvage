@@ -235,6 +235,26 @@ public sealed class BurstEffectsTests
         }
     }
 
+    /// <remarks>
+    /// **A beam that is not live costs nothing** (B574): the history closure was allocated at the top of every
+    /// iteration over all of the demo's beams (1,211 on f12), live or not — 173 MB per 20 s on the render thread
+    /// (finding 89's measurement file). A frame where none is live must allocate nothing.
+    /// </remarks>
+    [Test]
+    public void AddHealBeams_EveryBeamOutsideItsLife_AllocatesNothing()
+    {
+        (BurstEffects bursts, _) = Drawn(500);
+        SceneHealBeam[] beams = [Healing(100, 200), Healing(600), Healing(100, 300)];
+        bursts.AddHealBeams(beams, null, NobodyPlayed, NoCustom, paused: false, healTargetMarker: false, 500, Systems);
+
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        bursts.AddHealBeams(beams, null, NobodyPlayed, NoCustom, paused: false, healTargetMarker: false, 500, Systems);
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        allocated.ShouldBe(0);
+        bursts.Bursts.ShouldBeEmpty();
+    }
+
     [Test]
     public void AddHealBeams_ABeamMetBySeek_IsSteppedFromTwoSecondsBackAndKeepsThatUntilASeekBackward()
     {
