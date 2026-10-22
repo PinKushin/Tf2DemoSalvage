@@ -57,7 +57,7 @@ public sealed partial class EntityModelSet
     /// Demo time, for a layer whose sequence carries <c>STUDIO_REALTIME</c> and therefore takes its
     /// cycle from the clock rather than from the parent's (B309).
     /// </param>
-    /// <returns>A layer per autolayer whose envelope is open, in file order.</returns>
+    /// <param name="layers">Appended with a layer per autolayer whose envelope is open, in file order.</param>
     /// <remarks>
     /// **Two passes over one array, and every autolayer belongs to exactly one of them.**
     /// `AddSequenceLayers` (<c>bone_setup.cpp:2125</c>) skips a layer carrying `STUDIO_AL_LOCAL`;
@@ -80,7 +80,7 @@ public sealed partial class EntityModelSet
     /// where the cycle-driven case remaps it into the window. One flag changing the meaning of five
     /// values is the part most likely to be read past.
     /// </remarks>
-    private static List<PoseLayer> AutoLayersFor(
+    private static void AutoLayersFor(
         PropModels.SkinnedModel skinned,
         int sequence,
         float cycle,
@@ -88,15 +88,14 @@ public sealed partial class EntityModelSet
         IReadOnlyList<float> values,
         bool local,
         int budget,
-        double seconds)
+        double seconds,
+        List<PoseLayer> layers)
     {
-        List<PoseLayer> layers = [];
-
         // `if (!(seqdesc.flags & STUDIO_LOCAL)) return;` — the local pass is gated on the SEQUENCE,
         // so a sequence declaring local autolayers without the flag has layers nothing applies.
         if (budget <= 0 || (local && !skinned.IsLocal(sequence)))
         {
-            return layers;
+            return;
         }
 
         foreach (StudioAutoLayer entry in skinned.AutoLayersOf(sequence))
@@ -231,19 +230,17 @@ public sealed partial class EntityModelSet
             // `AccumulatePose` and that calls both passes again. Bounded rather than trusted: the
             // recursion is over data from a file, and a model whose layers cycle would not
             // terminate.
-            layers.AddRange(
-                AutoLayersFor(
-                    skinned,
-                    target,
-                    layerCycle,
-                    layerWeight,
-                    values,
-                    local: false,
-                    budget - 1,
-                    seconds));
+            AutoLayersFor(
+                skinned,
+                target,
+                layerCycle,
+                layerWeight,
+                values,
+                local: false,
+                budget - 1,
+                seconds,
+                layers);
         }
-
-        return layers;
     }
 
     /// <summary>Where a pose-driven autolayer sits in its parameter's own range.</summary>
@@ -276,7 +273,7 @@ public sealed partial class EntityModelSet
     /// <summary>The sequences a model plays on its own, off the clock.</summary>
     /// <param name="skinned">The model.</param>
     /// <param name="seconds">Demo time now, which is Valve's <c>flRealTime</c>.</param>
-    /// <returns>A layer per autoplay sequence, at full weight.</returns>
+    /// <param name="layers">Appended with a layer per autoplay sequence, at full weight.</param>
     /// <remarks>
     /// **`CalcAutoplaySequences`, <c>bone_setup.cpp:4457</c>**, whose whole body is:
     ///
@@ -312,10 +309,8 @@ public sealed partial class EntityModelSet
     /// **Weight is a literal 1.0 and never fades.** There is no queue, no lifetime and no
     /// auto-kill: an autoplay sequence is on for as long as the model is drawn.
     /// </remarks>
-    private static List<PoseLayer> AutoplayFor(PropModels.SkinnedModel skinned, double seconds)
+    private static void AutoplayFor(PropModels.SkinnedModel skinned, double seconds, List<PoseLayer> layers)
     {
-        List<PoseLayer> layers = [];
-
         foreach (int sequence in skinned.AutoplaySequences())
         {
             float rate = skinned.CyclesPerSecond(sequence);
@@ -342,8 +337,6 @@ public sealed partial class EntityModelSet
                 Post: skinned.IsPost(sequence),
                 Locks: skinned.LocksOf(sequence)));
         }
-
-        return layers;
     }
 
     /// <summary>Keeps an entity's outgoing sequences alive while they fade.</summary>
