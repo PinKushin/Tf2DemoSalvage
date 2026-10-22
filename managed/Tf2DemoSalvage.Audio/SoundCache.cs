@@ -287,7 +287,10 @@ public sealed class SoundCache
     /// <param name="name">The name as the demo carries it.</param>
     /// <returns>The sample, or null when none is held (not decoded, loading, evicted or failed).</returns>
     /// <exception cref="ArgumentNullException"><paramref name="name"/> is null.</exception>
-    /// <remarks>What a stop asks: `S_AlterChannel` finds the sfx by name and loads nothing (B416, finding 90).</remarks>
+    /// <remarks>
+    /// What a stop asks: `S_AlterChannel` finds the sfx by name and loads nothing (B416, finding 90). It does not move the
+    /// sound in the eviction order, on purpose: the engine's stop touches the sfx, not the data.
+    /// </remarks>
     public SoundSample? HeldSample(string name)
     {
         ArgumentNullException.ThrowIfNull(name);

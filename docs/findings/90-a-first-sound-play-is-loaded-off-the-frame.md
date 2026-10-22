@@ -125,7 +125,14 @@ sound is not started (`late sound '<name>' ... did not arrive`). Each late start
   (`Update_AStopOfAPlayingSoundTheCapEvicted_SilencesItBySfxAndReadsNothing`, red before the fix). The fake sink in
   `SoundPresenterChangeConformanceTests` now records a stop only when it matches what plays, as the real one does, since
   a stop of an unopenable name now reaches the sink and matches nothing. f12 holds 1,334 sounds under the cap and
-  evicts nothing, so its measurement is unchanged by this and was not re-run. *Not read:* why the Über's own start falls before tick 30000 on f12; the seek's re-establishing pass does not
+  evicts nothing, so its measurement is unchanged by this and was not re-run.
+- **And a stop acts on ONE channel** (second review). It had removed a waiting start AND silenced a playing voice; but
+  `S_AlterChannel` returns after its first hit (FUN_18002aa20). The playing voices and the waiting starts are one channel
+  set in start order, and a voice already playing started before any waiting one, so the sink is asked first and a
+  waiting start is cancelled only when nothing playing matched (for a sink without handles, when the by-name loop and
+  music match found nothing). Test: `Update_AStopWithOneVoicePlayingAndOneWaiting_StopsOnlyThePlayingOne`, red before.
+  `SoundPresenter.Held` now defaults to "nothing held" instead of falling back to the opening delegate, so no presenter
+  loads on a stop; three test helpers that relied on the fallback now pass their own held lookup. *Not read:* why the Über's own start falls before tick 30000 on f12; the seek's re-establishing pass does not
   restart one-shots, which is the existing rule.
 - The before run was the busier machine (68 frames over 100 ms against 16), so its frame times are not a comparison.
 

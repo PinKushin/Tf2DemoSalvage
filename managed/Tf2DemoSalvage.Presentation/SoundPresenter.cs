@@ -62,8 +62,9 @@ public sealed partial class SoundPresenter(
     /// <summary>Whether a sound <c>sample</c> answered null for is still on its way (<c>SoundCache.Loading</c>); never, by default.</summary>
     public Func<string, bool> Loading { get; init; } = static _ => false;
 
-    /// <summary>What a stop asks for: a sample already held, loading nothing (<c>SoundCache.HeldSample</c>); the opening delegate when unset.</summary>
-    public Func<string, SoundSample?>? Held { get; init; }
+    /// <summary>What a stop asks for: a sample already held, loading nothing (<c>SoundCache.HeldSample</c>); nothing is held by default.</summary>
+    /// <remarks>Never the opening delegate: a stop loads nothing, as `S_AlterChannel` finds the sfx and reads no data.</remarks>
+    public Func<string, SoundSample?> Held { get; init; } = static _ => null;
 
     /// <summary>Sounds started while their sample was loading, started again each pass until it arrives (finding 90).</summary>
     /// <remarks>
@@ -811,9 +812,42 @@ public sealed partial class SoundPresenter(
         {
             _outcome = StartOutcome.Stop;
 
-            // **A channel still waiting for its data is a channel**: it stays in the engine's active set (FUN_18003f2c0), so
-            // `S_AlterChannel` matches it and frees it (FUN_18002aa20) — one, the first match (finding 90).
-            int waiting = sound.Name.Length == 0
+            if (sound.Name.Length == 0)
+            {
+                return;
+            }
+
+            // **The stop matches the SFX, not its data.** A channel holds its `CSfxTable` and `S_AlterChannel` matches
+            // `ch->sfx` (FUN_18002aa20, B416) whether or not the wave is resident, and loads nothing. The sink matches by
+            // `SoundSample.Key`, the sfx key (B545), so a sound the cap let go while it plays is stopped by a key-only
+            // sample instead of being read again.
+            SoundSample named = Held(sound.Name) ?? new SoundSample(0, 0, Array.Empty<float>()) { Key = SoundName.SfxKey(sound.Name) };
+
+            // **One channel, the first in start order** — `S_AlterChannel` returns after its first hit (FUN_18002aa20). A
+            // voice playing started before any start still waiting for its data, so the sink is asked first. The sink
+            // names the voice it stopped; one without handles answers 0, and the stop is matched here by name instead.
+            int stopped = output.Silence(sound.EntityIndex, sound.Channel, named);
+            bool hit = stopped != 0;
+
+            if (hit)
+            {
+                loops.ForgetVoice(stopped);
+                _music.Remove(stopped);
+            }
+            else if (!output.HandsOutVoices)
+            {
+                hit = loops.Forget(sound.EntityIndex, sound.Channel, sound.Name);
+
+                if (MusicVoice(sound.EntityIndex, sound.Channel, sound.Name) is { } matched)
+                {
+                    _music.Remove(matched);
+                    hit = true;
+                }
+            }
+
+            // **A channel still waiting for its data is a channel too**: it stays in the engine's active set
+            // (FUN_18003f2c0), so when nothing playing matched, the stop frees the first waiting one (finding 90).
+            int waiting = hit
                 ? -1
                 : _late.FindIndex(late => late.Sound.EntityIndex == sound.EntityIndex && late.Sound.Channel == sound.Channel &&
                     SoundName.SameSfx(late.Sound.Name, sound.Name));
@@ -826,33 +860,6 @@ public sealed partial class SoundPresenter(
                     $"stopped while loading '{sound.Name}' (tick {sound.Tick.ToString(CultureInfo.InvariantCulture)})");
             }
 
-            // **The stop matches the SFX, not its data.** A channel holds its `CSfxTable` and `S_AlterChannel` matches
-            // `ch->sfx` (FUN_18002aa20, B416) whether or not the wave is resident, and loads nothing. The sink matches by
-            // `SoundSample.Key`, the sfx key (B545), so a sound the cap let go while it plays is stopped by a key-only
-            // sample instead of being read again.
-            if (sound.Name.Length > 0 &&
-                ((Held ?? sample)(sound.Name) ?? new SoundSample(0, 0, Array.Empty<float>()) { Key = SoundName.SfxKey(sound.Name) }) is { } named)
-            {
-                // The sink names the one voice it stopped — the first in start order, as `S_AlterChannel` stops one — so
-                // what is followed forgets exactly that voice. A sink without handles answers 0, and the stop is
-                // matched here by name instead.
-                int stopped = output.Silence(sound.EntityIndex, sound.Channel, named);
-
-                if (stopped != 0)
-                {
-                    loops.ForgetVoice(stopped);
-                    _music.Remove(stopped);
-                }
-                else if (!output.HandsOutVoices)
-                {
-                    loops.Forget(sound.EntityIndex, sound.Channel, sound.Name);
-
-                    if (MusicVoice(sound.EntityIndex, sound.Channel, sound.Name) is { } matched)
-                    {
-                        _music.Remove(matched);
-                    }
-                }
-            }
             return;
         }
 
