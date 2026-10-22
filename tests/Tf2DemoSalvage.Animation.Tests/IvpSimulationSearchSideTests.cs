@@ -26,4 +26,26 @@ public sealed class IvpSimulationSearchSideTests
         searched.Motion.Current.ShouldBe(atNow);
         searched.Motion.At(0, 0d).ShouldBe(atNow);
     }
+
+    /// <remarks>
+    /// **The simulation's two searches share the storage it owns** (B574): a side built into a held cache is that cache,
+    /// rebuilt for this side, not a new one.
+    /// </remarks>
+    [Test]
+    public void Searchable_IntoAHeldCache_RebuildsThatCache()
+    {
+        IvpMatrix atNow = IvpMatrix.FromRotation((0d, 0d, 0d, 1d), (1d, 2d, 3d));
+        IvpRigidBody core = new();
+        IvpMotionCache held = new(core, IvpMatrix.FromRotation((0d, 0d, 0d, 1d), (9d, 9d, 9d)), resting: false);
+        IvpLedgeSide side = new(
+            [(0f, 0f, 0f), (1f, 0f, 0f), (0f, 1f, 0f)],
+            new IvpLedgeTopology([(0, 1, 2)], [(0, 0, 0)], [0], [0]),
+            atNow,
+            (1d, 2d, 3d));
+
+        IvpSearchSide searched = IvpSimulation.Searchable(side, core, held);
+
+        searched.Motion.ShouldBeSameAs(held);
+        held.Current.ShouldBe(atNow);
+    }
 }

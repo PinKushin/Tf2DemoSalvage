@@ -22,11 +22,11 @@ public sealed class IvpMotionCache
     /// <summary>The start and twenty lattice ticks: the refinement gives up at a tick total of 20.</summary>
     public const int SlotCount = 21;
 
-    private readonly IvpRigidBody _body;
-    private readonly IvpMatrix _current;
-    private readonly bool _resting;
-    /// <summary>The slots, made on the first fill — the engine's sit in the searcher's own storage; a cache here is made per search, and a
-    /// resting body's is never read.</summary>
+    private IvpRigidBody _body;
+    private IvpMatrix _current;
+    private bool _resting;
+    /// <summary>The slots, made on the first fill and kept across <see cref="Rebuild"/> — the engine's sit in the searcher's own
+    /// storage (B574); a resting body's are never read.</summary>
     private IvpMatrix?[]? _slots;
 
     /// <summary>Builds the cache for a body, as <c>FUN_1800a0800</c> does.</summary>
@@ -41,6 +41,26 @@ public sealed class IvpMotionCache
         _body = body;
         _current = current;
         _resting = resting;
+    }
+
+    /// <summary>Builds the cache again for a new search, as <c>FUN_1800a0800</c> does over the searcher's own storage.</summary>
+    /// <param name="body">The body whose transforms fill the slots.</param>
+    /// <param name="current">The body's current matrix, which slot 0 is.</param>
+    /// <param name="resting">Whether the body is not moving, so every slot is <paramref name="current"/>.</param>
+    /// <exception cref="ArgumentNullException"><paramref name="body"/> is null.</exception>
+    /// <remarks>Every slot past 0 is emptied, so nothing the last search filled is read by this one (B574).</remarks>
+    public void Rebuild(IvpRigidBody body, IvpMatrix current, bool resting)
+    {
+        ArgumentNullException.ThrowIfNull(body);
+
+        _body = body;
+        _current = current;
+        _resting = resting;
+
+        if (_slots is not null)
+        {
+            Array.Clear(_slots);
+        }
     }
 
     /// <summary>The body's current matrix — the cache object's <c>+0x40</c>, which slot 0 points at.</summary>
