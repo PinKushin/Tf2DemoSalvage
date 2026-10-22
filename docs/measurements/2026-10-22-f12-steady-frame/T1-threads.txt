@@ -1,0 +1,25 @@
+Machine busy (exclusive) — held by: PID 45532 — dotnet test tests/Tf2DemoSalvage.Viewer3D.UiTests --logger trx;LogFileName=p2b11.trx --results-directory C:/Users/pinku/AppData/Local/Temp/p2b11 — started 01:56:52
+Waiting up to 30 minutes...
+trace lasts 231.0 s
+thread 17520: 115405 samples; top leaf 53851 Tf2DemoSalvage.Render.Device3D.DrawFrame(float32,float32,float32,class System.Collections.Generic.IReadOnlyList`1<value class System.ValueTuple`3<float32,float32,float32>>,class System.Collections.Generic.IReadOnlyList`1<value class System.ValueTuple`2<value class System.ValueTuple`3<float32,float32,float32>,value class System.ValueTuple`3<float32,float32,float32>>>,class System.Collections.Generic.IReadOnlyList`1<value class Tf2DemoSalvage.Render.ScenePoint>,class System.Collections.Generic.IReadOnlyList`1<value class Tf2DemoSalvage.Scene.ModelInstance>,class System.Collections.Generic.IReadOnlyList`1<value class Tf2DemoSalvage.Scene.ModelInstance>,float32[],class Tf2DemoSalvage.Scene.Hud.VguiDrawList)
+thread 11668: 115204 samples; top leaf 115202 ?
+thread 12200: 114655 samples; top leaf 114653 System.Threading.WaitHandle.WaitOneNoCheck(int32,bool,class System.Object,value class WaitHandleWaitSourceMap)
+thread 14780: 114655 samples; top leaf 53814 System.Threading.Thread.<PollGC>g__PollGCWorker|70_0()
+thread 25540: 21290 samples; top leaf 10289 Interop+Kernel32.GetQueuedCompletionStatus(int,unsigned int32&,unsigned int&,int&,int32)
+thread 7872: 21288 samples; top leaf 21236 Interop+Kernel32.GetQueuedCompletionStatus(int,unsigned int32&,unsigned int&,int&,int32)
+thread 16396: 10034 samples; top leaf 10029 Interop+Kernel32.GetQueuedCompletionStatus(int,unsigned int32&,unsigned int&,int&,int32)
+thread 25812: 10028 samples; top leaf 10025 Interop+Kernel32.GetQueuedCompletionStatus(int,unsigned int32&,unsigned int&,int&,int32)
+thread 31812: 10026 samples; top leaf 10026 Interop+Kernel32.GetQueuedCompletionStatus(int,unsigned int32&,unsigned int&,int&,int32)
+thread 23200: 9854 samples; top leaf 9217 System.Threading.Thread.Sleep(int32)
+thread 29392: 9660 samples; top leaf 6196 System.Threading.WaitHandle.WaitOne(int32)
+thread 12840: 9304 samples; top leaf 9273 Interop+Kernel32.GetQueuedCompletionStatus(int,unsigned int32&,unsigned int&,int&,int32)
+thread 43352: 9304 samples; top leaf 9273 Interop+Kernel32.GetQueuedCompletionStatus(int,unsigned int32&,unsigned int&,int&,int32)
+thread 33556: 9295 samples; top leaf 9272 Interop+Kernel32.GetQueuedCompletionStatus(int,unsigned int32&,unsigned int&,int&,int32)
+thread 21224: 9295 samples; top leaf 9273 Interop+Kernel32.GetQueuedCompletionStatus(int,unsigned int32&,unsigned int&,int&,int32)
+thread 42084: 9292 samples; top leaf 9272 Interop+Kernel32.GetQueuedCompletionStatus(int,unsigned int32&,unsigned int&,int&,int32)
+thread 45052: 9291 samples; top leaf 9272 Interop+Kernel32.GetQueuedCompletionStatus(int,unsigned int32&,unsigned int&,int&,int32)
+thread 372: 9290 samples; top leaf 9273 Interop+Kernel32.GetQueuedCompletionStatus(int,unsigned int32&,unsigned int&,int&,int32)
+thread 20024: 9290 samples; top leaf 9273 Interop+Kernel32.GetQueuedCompletionStatus(int,unsigned int32&,unsigned int&,int&,int32)
+thread 21736: 9290 samples; top leaf 9273 Interop+Kernel32.GetQueuedCompletionStatus(int,unsigned int32&,unsigned int&,int&,int32)
+thread 11756: 591 samples; top leaf 495 Windows.Win32.PInvoke.WaitMessage()
+thread 8036: 3 samples; top leaf 1 System.Reflection.Emit.DynamicResolver+DestroyScout.Finalize()
