@@ -40055,6 +40055,37 @@ reddens four tests), and a child's drawn size against its own scale alone.
   `pl_badwater_pro_v12.bsp` is not on this machine (not under the game's `tf/maps`, `tf/download/maps`, `tf2ds`, or the
   user profile), so its `parentname` cannot be read, and no sampled tick gives them a parent.
 
+## B580 — every detail prop on the map is walked on every camera move — OPEN
+
+**Read** (finding 97, from finding 83's reading of `detailobjectsystem.cpp:2839`, `:2749`): the engine reaches detail
+props only through `EnumerateLeavesInSphere(CurrentViewOrigin(), cl_detaildist)`, and only in leaves of this view's
+world-list build. **Ours:** `DetailSprites.Build` / `DetailModels.Build` loop over every detail prop of the map
+(`DetailSprites.cs:240`) and test distance per prop. **Measured:** `camera setcamera detail` 0.26-0.28 ms a frame in
+first person (measurements/2026-10-22-f12-camera-breakdown.md), an upper bound. Nothing visible: same picture, more work.
+
+## B579 — the HUD's event feed walks every game event and user message of the match, every frame — OPEN
+
+**Read** (finding 97): a user message is dispatched once on arrival (`CUserMessages::DispatchUserMessage`,
+`usermessages.cpp:151-189`), a game event once through `FireGameEvent`. **Ours:** `HudEventFeed.Advance` walks all of
+`timeline.GameEvents` and all of `timeline.UserMessages` each frame to keep the ones in `(last, tick]`. **Measured:**
+`hud events` 0.27-0.28 ms a frame (raw lines of measurements/2026-10-22-f12-camera-breakdown.md), an upper bound (it holds
+`Resolve` too). The shape of finding 93's model-decal walk. Nothing visible.
+
+## B578 — the moment's visibility filters rerun over the whole draw list every frame — OPEN
+
+**Read** (finding 83 item 5, re-checked as not done in finding 97): `UpdateVisibility` runs at its event sites
+(`SetDormant`, `OnDataChanged`, `PostDataUpdate`). **Ours:** the first-person, weapon, disguise, respawn-room and vision
+filters judge every prop each moment. **Measured:** `drawlist` 0.4-0.5 ms per rebuild, an upper bound (not split from
+`PlayerProps.Add`). Split the part before fixing. Nothing visible.
+
+## B577 — particle bursts are re-searched from the timeline and rebuilt every frame — OPEN
+
+**Read** (finding 83 item 2, not done; finding 97): the client fires queued events once a frame and an effect is
+created once, on arrival (receive path CLOSED, read it first). **Ours:** `BurstEffects.StepOver` searches each kind's
+tick window and rebuilds `_burstsNow` every frame (`BurstEffects.cs:371-424`). **Measured:** `bursts` minus `step`
+0.55-0.63 ms a frame; beams and overheals (0.21-0.23) are state and stay per frame, so the event share is 0.33-0.40, an
+upper bound. Nothing visible.
+
 ## B576 — a talking face rewrote every slot of its model's flex stream, every changing frame — FIXED (2026-10-22)
 
 **Measured** (finding 92, measurements/2026-10-22-f12-steady-frame.md): `EntityModelSet.FlexFor` 6.0% of the render

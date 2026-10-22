@@ -351,6 +351,11 @@ in any public writeup found:
   does is at most 1.3-2.3 ms of 12 ms. Native code is estimated at 0.1-0.2 ms beyond a C# span/SIMD rewrite. C# first,
   benchmark-gated ([96](96-where-native-code-could-help.md), from the T1 trace in
   measurements/2026-10-22-f12-camera-breakdown.md).
+- **The engine does the same work for less, not less work.** Stage by stage against the engine's frame, the places it
+  caches, skips or waits for a change and we do not hold at most 1.8-2.1 ms of a 12 ms frame (bursts, visibility
+  filters, the HUD event feed, detail props; B577-B580), estimated at 0.6-1.2 ms to fix. The unsplit `draw` phase
+  (2.1 ms) is the one stage not seen into ([97](97-the-per-frame-pipeline-against-the-engines.md),
+  measurements/2026-10-22-f12-camera-breakdown.md).
 
 ## Conventions used throughout
 
