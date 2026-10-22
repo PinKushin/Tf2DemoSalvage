@@ -130,13 +130,28 @@ public readonly record struct PropTransform
     /// Row major with the translation in the last row, matching the camera matrix and the
     /// <c>row_major</c> declaration in the shader.
     /// </remarks>
-    public float[] ToMatrix() =>
-    [
-        _scale * _m00, _scale * _m10, _scale * _m20, 0f,
-        _scale * _m01, _scale * _m11, _scale * _m21, 0f,
-        _scale * _m02, _scale * _m12, _scale * _m22, 0f,
-        _originX, _originY, _originZ, 1f,
-    ];
+    public float[] ToMatrix()
+    {
+        float[] matrix = new float[16];
+        WriteMatrix(matrix);
+        return matrix;
+    }
+
+    /// <summary><see cref="ToMatrix"/> into storage the caller owns, so a per-frame placement allocates nothing (B574).</summary>
+    /// <param name="matrix">Sixteen floats, written row major.</param>
+    /// <exception cref="ArgumentException"><paramref name="matrix"/> is shorter than sixteen floats.</exception>
+    public void WriteMatrix(Span<float> matrix)
+    {
+        if (matrix.Length < 16)
+        {
+            throw new ArgumentException("a model matrix is sixteen floats", nameof(matrix));
+        }
+
+        matrix[0] = _scale * _m00; matrix[1] = _scale * _m10; matrix[2] = _scale * _m20; matrix[3] = 0f;
+        matrix[4] = _scale * _m01; matrix[5] = _scale * _m11; matrix[6] = _scale * _m21; matrix[7] = 0f;
+        matrix[8] = _scale * _m02; matrix[9] = _scale * _m12; matrix[10] = _scale * _m22; matrix[11] = 0f;
+        matrix[12] = _originX; matrix[13] = _originY; matrix[14] = _originZ; matrix[15] = 1f;
+    }
 
     /// <summary>A transform from Valve's <c>matrix3x4_t</c>, row major, translation in column three, at scale 1.</summary>
     /// <param name="matrix">Twelve floats; the 3×3 part must be a rotation, as a bone or attachment matrix is.</param>

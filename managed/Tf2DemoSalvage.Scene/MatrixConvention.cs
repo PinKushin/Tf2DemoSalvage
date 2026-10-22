@@ -90,6 +90,25 @@ internal static class MatrixConvention
         ];
     }
 
+    /// <summary>A placement straight into a <c>matrix3x4_t</c> the caller owns — <see cref="ToBoneMatrix(IReadOnlyList{float})"/> of its <see cref="Content.Bsp.PropTransform.ToMatrix"/>, without either array (B574).</summary>
+    /// <param name="placement">The placement.</param>
+    /// <param name="into">Twelve floats, row-major, translation in column 3.</param>
+    /// <exception cref="ArgumentException"><paramref name="into"/> is shorter than twelve floats.</exception>
+    public static void ToBoneMatrix(Content.Bsp.PropTransform placement, Span<float> into)
+    {
+        if (into.Length < 12)
+        {
+            throw new ArgumentException("A matrix3x4_t is twelve floats.", nameof(into));
+        }
+
+        Span<float> model = stackalloc float[16];
+        placement.WriteMatrix(model);
+
+        into[0] = model[0]; into[1] = model[4]; into[2] = model[8]; into[3] = model[12];
+        into[4] = model[1]; into[5] = model[5]; into[6] = model[9]; into[7] = model[13];
+        into[8] = model[2]; into[9] = model[6]; into[10] = model[10]; into[11] = model[14];
+    }
+
     /// <summary>Two row-vector 4×4s, applied left to right.</summary>
     /// <param name="first">Applied first.</param>
     /// <param name="second">Applied second.</param>

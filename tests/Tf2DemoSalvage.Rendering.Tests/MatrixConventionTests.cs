@@ -19,6 +19,28 @@ namespace Tf2DemoSalvage.Rendering.Tests;
 /// </remarks>
 public sealed class MatrixConventionTests
 {
+    /// <remarks>
+    /// **An entity's placement is written into the bone matrix it owns** (B574): `PlacementOf` built a 16-float model
+    /// matrix and a 12-float copy of it for every parented prop every frame, 172 MB per 20 s on f12's corpse worker
+    /// (finding 89's measurement file). The engine's `matrix3x4_t` is a local. The written matrix must be the two-step
+    /// one's, float for float, and writing it must allocate nothing.
+    /// </remarks>
+    [Test]
+    public void ToBoneMatrix_APlacementIntoASpan_IsTheArrayFormAndAllocatesNothing()
+    {
+        Content.Bsp.PropTransform placement = new(120f, -48f, 16f, 25f, -110f, 40f, 1.5f);
+        float[] expected = MatrixConvention.ToBoneMatrix(placement.ToMatrix());
+        float[] written = new float[12];
+        MatrixConvention.ToBoneMatrix(placement, written);
+
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        MatrixConvention.ToBoneMatrix(placement, written);
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        allocated.ShouldBe(0);
+        written.ShouldBe(expected);
+    }
+
     [Test]
     public void ToModelMatrix_ATranslation_MovesFromColumnThreeToRowThree()
     {
