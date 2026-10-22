@@ -335,6 +335,10 @@ in any public writeup found:
   CPU work. A sampled `PollGCWorker` leaf is mostly the sampler's own suspension, not the collector, which reopens finding
   89's reading. A talking face no longer rewrites the two thirds of its flex stream no flex reaches; no output changes
   ([92](92-the-steady-frame-is-the-processors.md), measurements/2026-10-22-f12-steady-frame.md and 2026-10-22-flex-spread.md).
+- **The camera phase is a long tail.** No part of `camera` is above 0.8 ms. The model decals no longer walk the whole match
+  each frame (0.53 → 0.19 ms). The dynamic-light merge never runs on f12, and a struct copy's sampled share proved not to
+  be its cost. The finding ends with a design note on which parts could run on other threads with identical output
+  ([93](93-the-camera-phase-is-a-long-tail.md)).
 
 ## Conventions used throughout
 

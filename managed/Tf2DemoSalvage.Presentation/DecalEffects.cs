@@ -164,6 +164,15 @@ public sealed class DecalEffects
     /// <summary>The server's impacts on entities, found once per timeline.</summary>
     private IReadOnlyList<(int Index, SceneEffectDispatch Dispatch)>? _entityImpacts;
 
+    /// <summary>The impact and bullet lists last checked for tick order, and whether each was in it.</summary>
+    private object? _impactsOrderOf;
+
+    private bool _impactsInOrder;
+
+    private object? _bulletsOrderOf;
+
+    private bool _bulletsInOrder;
+
     /// <summary>The tick model decals were last brought up to; a step back clears them.</summary>
     private int _modelDecalTick = int.MinValue;
 
@@ -223,6 +232,9 @@ public sealed class DecalEffects
 
     /// <summary>How many model decals are held, for an instrument.</summary>
     internal int ModelDecalCount => _modelDecals.Count;
+
+    /// <summary>How many server impacts and client bullets the last model-decal step looked at, counted in its loops.</summary>
+    internal (int Impacts, int Bullets) ModelDecalExamined { get; private set; }
 
     /// <summary>Forgets what belonged to the map that is going: its decal pool and its walk.</summary>
     public void ClearMap()
@@ -359,8 +371,22 @@ public sealed class DecalEffects
             ClearOnChange(player);
         }
 
-        foreach ((int index, SceneEffectDispatch impact) in EntityImpacts(timeline))
+        // **Only the landings of this window are looked at** (`measurements/2026-10-22-model-decal-window.md`): the engine
+        // places a decal as its event arrives, and walking the whole match each frame to find this frame's (12,518 client
+        // bullets on f12) is a cost it never pays. Both lists are in tick order, so the window is found by search; a list
+        // that is not is walked whole, which visits the same items in the same order, since the guards below still run.
+        IReadOnlyList<(int Index, SceneEffectDispatch Dispatch)> entityImpacts = EntityImpacts(timeline);
+        (int firstImpact, int impactsEnd) = Landed(
+            entityImpacts, static impact => impact.Dispatch.Tick, ref _impactsOrderOf, ref _impactsInOrder, from, tick);
+        (int firstBullet, int bulletsEnd) = Landed(
+            loaded.Impacts, static bullet => bullet.Tick, ref _bulletsOrderOf, ref _bulletsInOrder, from, tick);
+
+        ModelDecalExamined = (impactsEnd - firstImpact, bulletsEnd - firstBullet);
+
+        for (int at = firstImpact; at < impactsEnd; at++)
         {
+            (int index, SceneEffectDispatch impact) = entityImpacts[at];
+
             // Stryker disable once all : a mutated guard leaves its pattern variables unassigned (CS0165) and Safe Mode drops the method - B410
             if (impact.Tick <= from || impact.Tick > tick || Holder(players, impact.Entity) is not { } struck)
             {
@@ -381,8 +407,10 @@ public sealed class DecalEffects
         // a bullet a teammate stopped is silent, an enemy's sounds on him, and only a miss sounds on the world behind.
         int flesh = _content.Surfaces?.GetSurfaceIndex("flesh") ?? -1;
 
-        foreach (ShotImpact bullet in loaded.Impacts)
+        for (int at = firstBullet; at < bulletsEnd; at++)
         {
+            ShotImpact bullet = loaded.Impacts[at];
+
             // Into water: a splash and nothing else — no impact sound, no decal on whoever stood in it (`BulletWater`).
             if (bullet.FromServer || bullet.WaterEntry is not null || bullet.Tick <= from || bullet.Tick > tick)
             {
@@ -417,6 +445,48 @@ public sealed class DecalEffects
                 assets,
                 device);
         }
+    }
+
+    /// <summary>The <c>[first, end)</c> of a list's landings in <c>(after, through]</c>, or all of it when it is out of tick order.</summary>
+    /// <remarks>Whether a list is in order is found once per list, the first time it is asked for.</remarks>
+    private static (int First, int End) Landed<T>(
+        IReadOnlyList<T> items, Func<T, int> tickOf, ref object? orderOf, ref bool inOrder, int after, int through)
+    {
+        if (!ReferenceEquals(orderOf, items))
+        {
+            orderOf = items;
+            inOrder = true;
+
+            for (int at = 1; at < items.Count && inOrder; at++)
+            {
+                inOrder = tickOf(items[at - 1]) <= tickOf(items[at]);
+            }
+        }
+
+        return inOrder ? (FirstAfter(items, tickOf, after), FirstAfter(items, tickOf, through)) : (0, items.Count);
+    }
+
+    /// <summary>The index of the first item of a tick-ordered list whose tick is after this one.</summary>
+    private static int FirstAfter<T>(IReadOnlyList<T> items, Func<T, int> tickOf, int tick)
+    {
+        int low = 0;
+        int high = items.Count;
+
+        while (low < high)
+        {
+            int middle = (low + high) >>> 1;
+
+            if (tickOf(items[middle]) <= tick)
+            {
+                low = middle + 1;
+            }
+            else
+            {
+                high = middle;
+            }
+        }
+
+        return low;
     }
 
     /// <summary>Puts one impact's decal on the struck player's model, or logs why not.</summary>

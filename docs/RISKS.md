@@ -40079,6 +40079,11 @@ collector's pause is 6-7% of the frame, so most of that leaf is the sampler's su
 B573's reading ("the copies' time is the collector") rested on it; whether the copies cost time of their own is open again.
 The fixes below stand on their own allocation tests.
 
+**Settled by manipulation for one site, 2026-10-22** (`measurements/2026-10-22-burst-copy.md`). The trace gave
+`ParticleEffects.Bursts`' walk of the bursts 1.7% of the frame (about 0.2 ms), all of it under `BulkMoveWithWriteBarrier`.
+Walking those bursts by reference moved its timer 0.017 ms. So a copy site's sampled share is the sampler's charge, not
+evidence of cost; remove a copy only on its own timer or an allocation count.
+
 **Fixed** (finding 89, measurements/2026-10-21-struct-copies-and-allocations.md):
 - `SpectatorTarget.Choose` sorted a filtered copy of the roster six times a frame.
 - `DisplacementSweep.EdgePlanes` built three arrays per terrain triangle under the sun trace.

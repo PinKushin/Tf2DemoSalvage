@@ -334,6 +334,37 @@ public sealed class DecalEffectsTests
     }
 
     [Test]
+    public void StepOver_AMatchOfBulletsOutsideTheFramesWindow_ExaminesOnlyTheOneThatLandedInIt()
+    {
+        (DecalEffects decals, FakeDecalUpload device, _, _) = Presenter();
+
+        // The first frame's window is (192, 200]: a thousand on its open edge, the frame's own pellet, one a tick after.
+        ShotImpact[] bullets =
+        [
+            .. Enumerable.Range(1, 1000).Select(static shot => Pellet() with { Shot = shot, Tick = BulletTick - 8 }),
+            Pellet(),
+            Pellet() with { Shot = 2000, Tick = BulletTick + 1 },
+        ];
+
+        IReadOnlyList<SceneSound> heard = decals.StepOver(Frame(BulletTick), Content(bullets), device);
+
+        heard.ShouldBe(FleshSounds(0));
+        decals.ModelDecalCount.ShouldBe(1);
+        decals.ModelDecalExamined.ShouldBe((0, 1), "the server's impact and every other bullet are outside the window");
+    }
+
+    [Test]
+    public void StepOver_BulletsOutOfTickOrder_AreAllExaminedAndTheFramesStillLands()
+    {
+        (DecalEffects decals, FakeDecalUpload device, _, _) = Presenter();
+
+        decals.StepOver(Frame(BulletTick), Content([Pellet(), Pellet() with { Shot = 1, Tick = BulletTick - 50 }]), device);
+
+        decals.ModelDecalCount.ShouldBe(1);
+        decals.ModelDecalExamined.ShouldBe((0, 2), "a list out of tick order cannot be searched, so it is walked whole");
+    }
+
+    [Test]
     public void StepOver_AClientBulletInASeeksReplay_DecalsAndIsNotHeard()
     {
         (DecalEffects decals, FakeDecalUpload device, _, _) = Presenter();
