@@ -40057,7 +40057,7 @@ reddens four tests), and a child's drawn size against its own scale alone.
 
 ## B576 — a talking face rewrote every slot of its model's flex stream, every changing frame — FIXED (2026-10-22)
 
-**Measured** (finding 90, measurements/2026-10-22-f12-steady-frame.md): `EntityModelSet.FlexFor` 6.0% of the render
+**Measured** (finding 92, measurements/2026-10-22-f12-steady-frame.md): `EntityModelSet.FlexFor` 6.0% of the render
 thread's steady samples on f12, `FaceFlex.InBufferOrder` 3.4% of it. The spread cleared and rewrote all 26,922 soldier
 slots though a laugh reaches 8,105; the rest were already zero. **Fixed:** only the slots a flex can reach are written
 (`FaceFlex.FlexedCorners`, `IntoFlexedSlots`); no output changes, and the face demo tests print B513's exact counts.
@@ -40066,7 +40066,7 @@ the noise. **Left:** those demo tests assert only lower bounds, and half the slo
 
 ## B575 — the exposure histogram is counted pixel by pixel on the processor, every frame — OPEN
 
-**Measured** (finding 90): `ExposureHistogram.TryRead` is 3.9% of the render thread as a leaf on f12. The readback does not
+**Measured** (finding 92): `ExposureHistogram.TryRead` is 3.9% of the render thread as a leaf on f12. The readback does not
 block (`MapFlag.DONotWait`); the cost is the CPU walking a sixteenth of the exposure region's pixels each frame. Valve counts
 with GPU occlusion queries, one bin per frame (`viewpostprocess.cpp:551-613`, read from published source), so its processor
 does no per-pixel work. Also part of B572's empty-view floor. Not started: the counting belongs on the GPU (a query or a
@@ -40074,7 +40074,7 @@ reduction), and the staggering of bins (`ExposureHistogram`'s *Interpolated* not
 
 ## B574 — per-frame allocations behind the collector: ten fixed, the rest ranked — PARTLY FIXED (2026-10-21)
 
-**Reopened in part, 2026-10-22 (finding 90 (3)).** `PollGCWorker` is 42% of the render thread's leaf samples while the
+**Reopened in part, 2026-10-22 (finding 92 (3)).** `PollGCWorker` is 42% of the render thread's leaf samples while the
 collector's pause is 6-7% of the frame, so most of that leaf is the sampler's suspension at safe points, not the collector.
 B573's reading ("the copies' time is the collector") rested on it; whether the copies cost time of their own is open again.
 The fixes below stand on their own allocation tests.

@@ -1,4 +1,4 @@
-# 90. The steady frame is the processor's, and a face rewrote slots no flex reaches (2026-10-22)
+# 92. The steady frame is the processor's, and a face rewrote slots no flex reaches (2026-10-22)
 
 **The question.** On f12 (`demostf-cp_process_f12-2026-08-08-2207`, tick 30000, first person, 1280x720) the viewer's
 steady frame is about 14-15 ms and TF2's on the same scene about 5 ms

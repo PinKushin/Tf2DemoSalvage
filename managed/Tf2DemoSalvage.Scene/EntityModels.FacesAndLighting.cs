@@ -60,7 +60,7 @@ public sealed partial class EntityModelSet
                 // Kept apart from the face, which is null while nothing moves: a face that stops and starts again would
                 // otherwise lose its stream at every stop and allocate a new one at every start.
                 //
-                // **Only the slots a flex can move are written** (finding 90): the stream starts at zero and nothing else
+                // **Only the slots a flex can move are written** (finding 92): the stream starts at zero and nothing else
                 // writes it, so the rest stays zero — which holds only for the model whose slots wrote it, so a stream
                 // left by another model (a class change) is not reused.
                 FlexedCorners corners = FlexedCornersOf(prop.ModelPath, model, order);
@@ -118,7 +118,7 @@ public sealed partial class EntityModelSet
     /// <summary>Each drawing entity's last weights and the face they made, reused while they hold.</summary>
     private readonly Dictionary<int, (float[] Weights, float[] Delayed, float[]? Face, float[]? Stream, FlexedCorners? Corners)> _lastFace = [];
 
-    /// <summary>Per model, the buffer slots its flexes can move (finding 90).</summary>
+    /// <summary>Per model, the buffer slots its flexes can move (finding 92).</summary>
     private readonly Dictionary<string, FlexedCorners> _flexedCorners = new(StringComparer.OrdinalIgnoreCase);
 
     private FlexedCorners FlexedCornersOf(string modelPath, PropModels.ModelFrames model, int[] order)

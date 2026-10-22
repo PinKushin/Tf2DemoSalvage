@@ -124,4 +124,4 @@ and `hud`. The largest single method doing work the engine does not do is `FlexF
 deltas into buffer order rewrote every slot of the model each changing frame, though no flex reaches most of them (the
 engine's accumulation walks only the named vertices, finding 75; the spread is ours). Next is the exposure count on the
 processor (3.9%; Valve counts with GPU occlusion queries, `viewpostprocess.cpp:551-613`). The first is fixed and the second
-filed in finding 90.
+filed in finding 92.

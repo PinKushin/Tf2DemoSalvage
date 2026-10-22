@@ -368,7 +368,7 @@ public sealed class FaceFlexTests
     }
 
     /// <remarks>
-    /// The list is the buffer vertices whose <c>.vvd</c> vertex any of the model's flexes moves (finding 90). The model's
+    /// The list is the buffer vertices whose <c>.vvd</c> vertex any of the model's flexes moves (finding 92). The model's
     /// one flex moves vertex 1, which corners 0 and 2 carry, at buffer slots 1 and 0.
     /// </remarks>
     [Test]

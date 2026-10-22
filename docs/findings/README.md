@@ -334,7 +334,7 @@ in any public writeup found:
 - **The steady frame is the processor's.** The viewer's own GPU engine is 6-10% busy on f12 first person; the frame is
   CPU work. A sampled `PollGCWorker` leaf is mostly the sampler's own suspension, not the collector, which reopens finding
   89's reading. A talking face no longer rewrites the two thirds of its flex stream no flex reaches; no output changes
-  ([90](90-the-steady-frame-is-the-processors.md), measurements/2026-10-22-f12-steady-frame.md and 2026-10-22-flex-spread.md).
+  ([92](92-the-steady-frame-is-the-processors.md), measurements/2026-10-22-f12-steady-frame.md and 2026-10-22-flex-spread.md).
 
 ## Conventions used throughout
 

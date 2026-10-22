@@ -172,12 +172,12 @@ public static class FaceFlex
         return stream;
     }
 
-    /// <summary>The buffer slots a flex of this model can move, each with its <c>.vvd</c> vertex's offset (finding 90).</summary>
+    /// <summary>The buffer slots a flex of this model can move, each with its <c>.vvd</c> vertex's offset (finding 92).</summary>
     /// <remarks>
     /// **The engine's accumulation walks only the vertices a flex names** (`R_StudioFlexVerts`, studiorender
     /// `0x18001eb90`, read for finding 75; `StudioFlexRules.Accumulate` is that loop). The spread into buffer order is
     /// ours, and a full walk of it wrote zeros into every slot no flex reaches, every changing frame. A stream that starts
-    /// at zero and is only ever written here keeps them, so the output is the same (finding 90).
+    /// at zero and is only ever written here keeps them, so the output is the same (finding 92).
     /// </remarks>
     /// <param name="data">The model's tables.</param>
     /// <param name="cornerVertex">Each corner's <c>.vvd</c> vertex, in the model's corner order.</param>
