@@ -40064,6 +40064,13 @@ slots though a laugh reaches 8,105; the rest were already zero. **Fixed:** only 
 `flex` column 0.83-0.86 → 0.50 ms per rebuild (measurements/2026-10-22-flex-spread.md); the steady frame's change is inside
 the noise. **Left:** those demo tests assert only lower bounds, and half the slots written passed them all.
 
+## B577 — the frame is drawn on the game thread; TF2 queues its material system to a render thread — OPEN (2026-10-22)
+
+**Read** (finding 98): TF2 ships `mat_queue_mode -1` (`tf/cfg/low.cfg:153`, `ultra.cfg:177`; modes in
+`imaterialsystem.h:225-230`, help text in `materialsystem.dll`: "2=queued multithreaded"). `FrameSequence.Run` runs
+`Draw` serially, which is mode 0 only. Estimated 1-1.5 ms of the f12 frame (not measured); may add one frame of
+latency, which needs the owner's say. Design and plan in finding 98; first step a Ghidra read of what -1 resolves to.
+
 ## B575 — the exposure histogram is counted pixel by pixel on the processor, every frame — FIXED (2026-10-22)
 
 **Fixed** (finding 95, `measurements/2026-10-22-exposure-queries.md`): the shape is replaced, not patched. The engine's

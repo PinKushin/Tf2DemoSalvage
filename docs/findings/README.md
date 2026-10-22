@@ -351,6 +351,9 @@ in any public writeup found:
   does is at most 1.3-2.3 ms of 12 ms. Native code is estimated at 0.1-0.2 ms beyond a C# span/SIMD rewrite. C# first,
   benchmark-gated ([96](96-where-native-code-could-help.md), from the T1 trace in
   measurements/2026-10-22-f12-camera-breakdown.md).
+- **TF2 draws on a second thread and we draw on one.** It ships `mat_queue_mode -1` and queues material-system calls
+  to a render thread; we have only its mode 0 (B577). Only `draw` can move, not `hud`: an estimated 1-1.5 ms of 13.4,
+  and possibly one frame of latency, still to be read in `materialsystem.dll` ([98](98-the-queued-material-system.md)).
 
 ## Conventions used throughout
 
