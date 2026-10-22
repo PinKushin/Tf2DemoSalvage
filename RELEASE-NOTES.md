@@ -1,6 +1,24 @@
-# Tf2DemoSalvage 0.1.0-beta.47
+# Tf2DemoSalvage 0.1.0-beta.48
 
-## Unreleased
+## Changes in 0.1.0-beta.48
+
+Released 2026-10-22.
+
+- **A sound no longer freezes a frame the first time it plays.** A sound that was not loaded yet used to be read from
+  the game files and decoded in the middle of a frame. It now loads in the background and starts as soon as it is
+  ready, which is how TF2 treats a sound whose data has not arrived. On the author's `cp_process_f12` recording, over
+  60 seconds of playback, sounds read or decoded on the render thread went from 5 to 0 (finding 90).
+  The one hitch the game's own log flagged, a 171 ms stall on a voice line, is gone (finding 90). The trade: such a
+  sound starts 1 to 28 simulation ticks late the first time it is heard (finding 90), and a stop that arrives while it
+  is still loading now cancels it. A stop for a sound that was never loaded no longer loads it.
+- **Less memory churn per frame.** Seven more per-frame allocations are gone (corpse physics, corpse animation
+  copies, layer lists, placement matrices, the healing beam and the HUD's vertex array). On the same recording the
+  render thread went from 1.21-1.26 MB to 0.94-1.01 MB allocated per frame (finding 91), and all threads together
+  from 2.50-2.98 MB to 1.54-1.83 MB per frame (finding 91), with fewer garbage-collection passes in 60 seconds
+  (1,631-1,903 to 945-1,124, finding 91). Frame times did not change measurably, so this release makes no frame-rate
+  claim for it.
+- **Developer notes.** Findings 90 and 91 and risks B568, B570 and B574 in the repository's `docs` folder record how
+  these were measured.
 
 ## Changes in 0.1.0-beta.47
 
