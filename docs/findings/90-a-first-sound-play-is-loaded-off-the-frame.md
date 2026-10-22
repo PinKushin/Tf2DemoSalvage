@@ -35,13 +35,47 @@ and a near-miss whiz. On a busy machine one such read blocked for ~170-395 ms (f
   making the table the registry would change no outcome here. `DemoSounds.ModelWaves` stays: without it eight weapon
   sounds would become silent first plays instead of precached ones.
 
-## The divergence this leaves (filed in B568)
+## The first version dropped the play; review sent it back (`60f4606a` → `a76b5acf`)
 
-**A deferred first play is dropped, not started late.** The engine's channel waits for its data and then mixes; ours
-answers silence for that one play and has the sample for the next. On f12 that is the first Über on/off, the first
-`vo/null.mp3` (silent by name) and one near-miss whiz per run. A loop asked for while its load is pending — a soundscape
-loop or a re-established loop whose sample the cap evicted — is lost for that start too, and the soundscape logs it as
-"would not open". On f12 every soundscape wave is precached and nothing is evicted, so this did not arise.
+**What was wrong.** `60f4606a` answered silence for the deferred play and kept the sample for the next one. On f12
+that silenced the first Über on/off and a near-miss whiz each run, and a loop asked for while loading was lost for that
+start ("would not open"). The coordinator refused it as a parity divergence: the engine plays the sound late.
+
+**What the engine does with a channel whose data has not arrived** (read from engine.dll):
+
+- The mix list builder (FUN_18003f2c0, called from `MIX_PaintChannels`, `snd_mix.cpp`) asks each active channel's mixer
+  through vtable slot `+0x60`. When that answers false, the channel is taken out of THIS pass's list (the `goto` that
+  removes the list entry), without `S_FreeChannel` (FUN_1800449d0) and without the `SkipSamples` slot (`+0x10`) that
+  `MIX_MixChannelsToPaintbuffer` (FUN_18003f7f0) calls for a quiet channel. The channel stays in the active set.
+- **So the sound starts late, from its first sample, on the pass its data arrives**, with the channel's own parameters
+  (the volume, pitch and entity `S_StartSound` gave it; position is respatialized every pass anyway). There is no
+  timeout in either function. *Read from the decompiler view; slot `+0x60` being `IsReadyToMix` is interpolated from
+  its use.*
+
+**The fix.** `SoundPresenter` keeps a sound whose sample is still loading (`SoundCache.Loading`) and starts it again at
+the next pass, before that pass's new sounds, until it arrives: from the sample's start, with the `SceneSound` it was
+asked for with (volume, pitch, channel, entity; position recomputed against the listener as every start is). A seek
+empties the list, as it stops every channel. A loop started while loading becomes a loop once it starts. The
+soundscape does not mark a loading loop as started, so its next pass asks again. A load that fails is reported and the
+sound is not started (`late sound '<name>' ... did not arrive`). Each late start logs `late start '<name>'`.
+
+## A load that throws, and what runs on two threads (review items 2 and 3)
+
+- **A pool load catches every exception** (`SoundCache.LoadCaught`): on a pool thread nothing is above it, and an
+  unhandled one ends the process. It is logged with the sound's name and held as a failed sound, so it is neither
+  "loading" forever nor asked for again (`Sample_AnOffFrameLoadThatThrows_IsLoggedByNameAndMarkedFailed`).
+- **What a pool load touches**, read in the code: `SoundFile.Open`, `GameArchives.Read`, `VpkArchive.ReadFile` (immutable
+  directory, a new `FileStream` per read), `PakFile.ReadFile` (immutable entry table over read-only memory; `Inflate`
+  makes new streams per call; `ValveLzma.Decode` has no static fields), and `SoundSampleReader` (the WAV path has no
+  static state). **Safe without a lock.**
+- **NLayer 2.0.1 is not shown safe.** Reflection over the shipped `NLayer.dll` lists static fields that are not
+  read-only: `Huffman._llCache`, `Huffman._llCacheMaxBits`, `FrameBase._totalAllocation`,
+  `LayerDecoderBase.DEWINDOW_TABLE`, `SYNTH_COS64_TABLE`, `LayerIIIDecoder.GAIN_TAB` and two `HybridMDCT` tables. Some
+  may be set once in a static constructor; that was not read. **So MP3 decodes take one lock** (`SoundSampleReader`'s
+  `Mp3Gate`): the load worker's precache and the pool never decode two MP3s at once.
+- **The test** `Sample_TwoOffFrameLoadsAtOnce_BothArriveIntact` runs two loads on the real pool, rendezvousing their
+  reads on a barrier so they provably overlap, and checks each arrives with its own sample rate. It uses WAVs: there is
+  no MP3 fixture, so the MP3 lock is held by reading, not by a test.
 
 ## Before and after
 
@@ -57,6 +91,10 @@ loop or a re-established loop whose sample the cap evicted — is lost for that 
   `invulnerable_off` (read 367.8 ms), `invulnerable_on` (402.2 ms),
   `vo/null.mp3` (1.1 ms), `bulletLtoR08` (111.5 ms), `bulletLtoR11` (1.3 ms). Three of those reads would each have
   frozen a frame; now they wait on a pool thread.
+- **After the late start** (`a76b5acf`, `docs/measurements/2026-10-21-sound-late-start-f12.md`, load 16%/10%): 0
+  decodes in play, 5 loaded off the frame, and all 3 that were STARTS started late, 1 to 28 ticks after they were asked
+  for (`vo/null.mp3`, `bulletLtoR13` after a 398 ms read on the pool, `bulletLtoR08`). None was dropped. The two
+  `invulnerable` loads came from a stop or a re-established one-shot, neither of which starts a sound (*inferred*).
 - The before run was the busier machine (68 frames over 100 ms against 16), so its frame times are not a comparison.
 
 ## Evidence classes

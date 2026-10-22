@@ -322,7 +322,7 @@ in any public writeup found:
   100 ms from 2–7 to 0 in two clean runs ([89](89-the-struct-copies-were-the-collector.md),
   measurements/2026-10-21-struct-copies-and-allocations.md).
 - **A first sound play is loaded off the frame.** A play-time miss is read and decoded on the thread pool, the shape of
-  the engine's deferred mixer path; that one play is silent, where the engine starts it late. On f12, decodes in play
+  the engine's deferred mixer path, and the sound starts late when it arrives, as the engine's waiting channel does. On f12, decodes in play
   went 5 → 0 and the same five were loaded off the frame; a second precache lists only new names, 12 not 1,394
   ([90](90-a-first-sound-play-is-loaded-off-the-frame.md), measurements/2026-10-21-sound-first-play-off-frame.md).
 

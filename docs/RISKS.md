@@ -40133,13 +40133,16 @@ script, so a raw name, such as an animation event's options or a client sound, p
 dropping a raw name is the engine's own behaviour (`FindOrAddScriptSound`, `ModelSoundsCache.cpp:112-124`), so that half
 is not a divergence. *Evidence class: published source; not measured on a demo.*
 
-## B568 — four first-play sounds still read from the VPK inside a frame — FIXED, one divergence left
+## B568 — four first-play sounds still read from the VPK inside a frame — FIXED
 
 **Update, 2026-10-21 (finding 90).** A play-time miss is read and decoded on the thread pool (`SoundCache.OffFrame`) and
 taken in at the next `Sample`, the shape of the engine's deferred path (engine.dll FUN_18004bc10, `snd_async_fullyasync`).
 Measured on f12: `docs/measurements/2026-10-21-sound-first-play-off-frame.md`.
-- **Left, a divergence:** the deferred play is DROPPED; the engine's channel waits for the data and mixes late. A loop
-  started while its load is pending is lost for that start, and the soundscape logs it as "would not open".
+- **The play is late, not dropped** (after review): the engine leaves a not-ready channel out of each mix pass until it
+  is ready (engine.dll FUN_18003f2c0), so the sound starts from its first sample when its data arrives. `SoundPresenter`
+  and the soundscape do the same (`docs/measurements/2026-10-21-sound-late-start-f12.md`). The first version dropped it.
+- **A load that throws is caught on the pool thread**, logged by name and held as failed. MP3 decodes are serialized,
+  because NLayer 2.0.1 has mutable statics.
 - **The `soundprecache` table is still not consulted**: the deferral covers any miss, so it would change no outcome.
   The model walk stays.
 - **Corrected:** finding 87's "Nothing in the engine decodes a sound on the render thread at first play". The engine
