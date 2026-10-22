@@ -347,6 +347,10 @@ in any public writeup found:
 - **The exposure histogram is one occlusion query a frame over seventeen entries, and the goal is pushed every frame.**
   Replacing the processor's read-back with the engine's shape moved the scale by at most 0.27%, only after a reset, and
   the frame by about 1% ([95](95-the-histogram-is-seventeen-queries.md), measurements/2026-10-22-exposure-queries.md).
+- **No single routine earns native code yet.** No render-thread self time is above 3.2%, and arithmetic the engine also
+  does is at most 1.3-2.3 ms of 12 ms. Native code is estimated at 0.1-0.2 ms beyond a C# span/SIMD rewrite. C# first,
+  benchmark-gated ([96](96-where-native-code-could-help.md), from the T1 trace in
+  measurements/2026-10-22-f12-camera-breakdown.md).
 
 ## Conventions used throughout
 
