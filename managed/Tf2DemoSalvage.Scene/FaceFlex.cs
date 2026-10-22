@@ -171,7 +171,92 @@ public static class FaceFlex
 
         return stream;
     }
+
+    /// <summary>The buffer slots a flex of this model can move, each with its <c>.vvd</c> vertex's offset (finding 90).</summary>
+    /// <remarks>
+    /// **The engine's accumulation walks only the vertices a flex names** (`R_StudioFlexVerts`, studiorender
+    /// `0x18001eb90`, read for finding 75; `StudioFlexRules.Accumulate` is that loop). The spread into buffer order is
+    /// ours, and a full walk of it wrote zeros into every slot no flex reaches, every changing frame. A stream that starts
+    /// at zero and is only ever written here keeps them, so the output is the same (finding 90).
+    /// </remarks>
+    /// <param name="data">The model's tables.</param>
+    /// <param name="cornerVertex">Each corner's <c>.vvd</c> vertex, in the model's corner order.</param>
+    /// <param name="packedOrder">Each buffer vertex's corner.</param>
+    /// <returns>The slots, ascending, and three times their vertex.</returns>
+    public static FlexedCorners FlexedCorners(StudioFlexData data, IReadOnlyList<int> cornerVertex, IReadOnlyList<int> packedOrder)
+    {
+        ArgumentNullException.ThrowIfNull(data);
+        ArgumentNullException.ThrowIfNull(cornerVertex);
+        ArgumentNullException.ThrowIfNull(packedOrder);
+
+        HashSet<int> moved = [];
+
+        foreach (StudioMeshFlex flex in data.Flexes)
+        {
+            foreach (StudioVertAnim anim in flex.Vertices)
+            {
+                moved.Add(anim.Vertex);
+            }
+        }
+
+        List<int> at = [];
+        List<int> from = [];
+
+        for (int slot = 0; slot < packedOrder.Count; slot++)
+        {
+            int corner = packedOrder[slot];
+
+            if (corner >= 0 && corner < cornerVertex.Count && cornerVertex[corner] >= 0 && moved.Contains(cornerVertex[corner]))
+            {
+                at.Add(slot);
+                from.Add(cornerVertex[corner] * 3);
+            }
+        }
+
+        return new FlexedCorners([.. at], [.. from]);
+    }
+
+    /// <summary>Writes the deltas into only the slots a flex can move; the rest of the stream is left as it is.</summary>
+    /// <param name="deltas">From <see cref="Deltas(StudioFlexData, float[], float[], float[], float[])"/>.</param>
+    /// <param name="corners">From <see cref="FlexedCorners(StudioFlexData, IReadOnlyList{int}, IReadOnlyList{int})"/>.</param>
+    /// <param name="stream">Six floats per buffer vertex, zero wherever <paramref name="corners"/> does not reach.</param>
+    /// <returns><paramref name="stream"/>.</returns>
+    public static float[] IntoFlexedSlots((float[] Positions, float[] Normals) deltas, FlexedCorners corners, float[] stream)
+    {
+        ArgumentNullException.ThrowIfNull(corners);
+        ArgumentNullException.ThrowIfNull(stream);
+
+        ReadOnlySpan<float> positions = deltas.Positions;
+        ReadOnlySpan<float> normals = deltas.Normals;
+        ReadOnlySpan<int> at = corners.At;
+        ReadOnlySpan<int> from = corners.From;
+
+        for (int index = 0; index < at.Length; index++)
+        {
+            int source = from[index];
+
+            if (source + 2 >= positions.Length || source + 2 >= normals.Length)
+            {
+                continue;
+            }
+
+            int to = at[index] * 6;
+            stream[to] = positions[source];
+            stream[to + 1] = positions[source + 1];
+            stream[to + 2] = positions[source + 2];
+            stream[to + 3] = normals[source];
+            stream[to + 4] = normals[source + 1];
+            stream[to + 5] = normals[source + 2];
+        }
+
+        return stream;
+    }
 }
+
+/// <summary>The buffer slots a model's flexes can move (<see cref="FaceFlex.FlexedCorners"/>).</summary>
+/// <param name="At">Each slot, ascending.</param>
+/// <param name="From">Three times the slot's <c>.vvd</c> vertex.</param>
+public sealed record FlexedCorners(int[] At, int[] From);
 
 /// <summary>
 /// One TF2 player's <c>C_BaseFlex</c> state, stepped once per frame: <c>SetupGlobalWeights</c> as it runs for a player

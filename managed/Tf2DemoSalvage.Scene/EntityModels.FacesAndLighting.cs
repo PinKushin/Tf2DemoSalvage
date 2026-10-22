@@ -41,7 +41,7 @@ public sealed partial class EntityModelSet
             float[] delayed = Delayed(prop.FaceOf ?? prop.EntityIndex, weights, seconds);
 
             // The same weights draw the same face: an idle loop's expression holds still for seconds at a time.
-            if (_lastFace.TryGetValue(prop.EntityIndex, out (float[] Weights, float[] Delayed, float[]? Face, float[]? Stream) last) &&
+            if (_lastFace.TryGetValue(prop.EntityIndex, out (float[] Weights, float[] Delayed, float[]? Face, float[]? Stream, FlexedCorners? Corners) last) &&
                 last.Weights.AsSpan().SequenceEqual(weights) && last.Delayed.AsSpan().SequenceEqual(delayed))
             {
                 face = last.Face;
@@ -59,12 +59,17 @@ public sealed partial class EntityModelSet
 
                 // Kept apart from the face, which is null while nothing moves: a face that stops and starts again would
                 // otherwise lose its stream at every stop and allocate a new one at every start.
-                float[] stream = last.Stream is { } kept && kept.Length == order.Length * 6 ? kept : new float[order.Length * 6];
+                //
+                // **Only the slots a flex can move are written** (finding 90): the stream starts at zero and nothing else
+                // writes it, so the rest stays zero — which holds only for the model whose slots wrote it, so a stream
+                // left by another model (a class change) is not reused.
+                FlexedCorners corners = FlexedCornersOf(prop.ModelPath, model, order);
+                float[] stream = last.Stream is { } kept && ReferenceEquals(last.Corners, corners) ? kept : new float[order.Length * 6];
 
                 face = FaceFlex.Deltas(model.Flex, weights, delayed, _flexScratch.Positions, _flexScratch.Normals) is { } deltas
-                    ? FaceFlex.InBufferOrder(deltas, model.CornerVertex, order, stream)
+                    ? FaceFlex.IntoFlexedSlots(deltas, corners, stream)
                     : null;
-                _lastFace[prop.EntityIndex] = (weights, (float[])delayed.Clone(), face, stream);
+                _lastFace[prop.EntityIndex] = (weights, (float[])delayed.Clone(), face, stream, corners);
             }
         }
         else if (!_restingFace.TryGetValue(RestingKey(prop), out face))
@@ -111,7 +116,21 @@ public sealed partial class EntityModelSet
     private readonly Dictionary<int, (float[] Delayed, double Time)> _delays = [];
 
     /// <summary>Each drawing entity's last weights and the face they made, reused while they hold.</summary>
-    private readonly Dictionary<int, (float[] Weights, float[] Delayed, float[]? Face, float[]? Stream)> _lastFace = [];
+    private readonly Dictionary<int, (float[] Weights, float[] Delayed, float[]? Face, float[]? Stream, FlexedCorners? Corners)> _lastFace = [];
+
+    /// <summary>Per model, the buffer slots its flexes can move (finding 90).</summary>
+    private readonly Dictionary<string, FlexedCorners> _flexedCorners = new(StringComparer.OrdinalIgnoreCase);
+
+    private FlexedCorners FlexedCornersOf(string modelPath, PropModels.ModelFrames model, int[] order)
+    {
+        if (!_flexedCorners.TryGetValue(modelPath, out FlexedCorners? corners))
+        {
+            corners = FaceFlex.FlexedCorners(model.Flex, model.CornerVertex, order);
+            _flexedCorners[modelPath] = corners;
+        }
+
+        return corners;
+    }
 
     /// <summary>What drives faces: every scene and voice in the recording (B513); null drives none.</summary>
     public FaceSources? Faces { get; set; }

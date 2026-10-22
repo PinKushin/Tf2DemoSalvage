@@ -1,0 +1,183 @@
+  Determining projects to restore...
+  All projects are up-to-date for restore.
+  Tf2DemoSalvage.SdkReference -> C:\Users\pinku\source\repos\PinKushin\Tf2DemoSalvage\.claude\worktrees\agent-a0614ee3fef56b067\tests\Tf2DemoSalvage.SdkReference\bin\Debug\net10.0\Tf2DemoSalvage.SdkReference.dll
+  Tf2DemoSalvage.Core -> C:\Users\pinku\source\repos\PinKushin\Tf2DemoSalvage\.claude\worktrees\agent-a0614ee3fef56b067\managed\Tf2DemoSalvage.Core\bin\Debug\net10.0\Tf2DemoSalvage.Core.dll
+  Tf2DemoSalvage.GameSystems -> C:\Users\pinku\source\repos\PinKushin\Tf2DemoSalvage\.claude\worktrees\agent-a0614ee3fef56b067\managed\Tf2DemoSalvage.GameSystems\bin\Debug\net10.0\Tf2DemoSalvage.GameSystems.dll
+  Tf2DemoSalvage.Logging -> C:\Users\pinku\source\repos\PinKushin\Tf2DemoSalvage\.claude\worktrees\agent-a0614ee3fef56b067\managed\Tf2DemoSalvage.Logging\bin\Debug\net10.0\Tf2DemoSalvage.Logging.dll
+  Tf2DemoSalvage.Content -> C:\Users\pinku\source\repos\PinKushin\Tf2DemoSalvage\.claude\worktrees\agent-a0614ee3fef56b067\managed\Tf2DemoSalvage.Content\bin\Debug\net10.0\Tf2DemoSalvage.Content.dll
+  Tf2DemoSalvage.Animation -> C:\Users\pinku\source\repos\PinKushin\Tf2DemoSalvage\.claude\worktrees\agent-a0614ee3fef56b067\managed\Tf2DemoSalvage.Animation\bin\Debug\net10.0\Tf2DemoSalvage.Animation.dll
+  Tf2DemoSalvage.Audio -> C:\Users\pinku\source\repos\PinKushin\Tf2DemoSalvage\.claude\worktrees\agent-a0614ee3fef56b067\managed\Tf2DemoSalvage.Audio\bin\Debug\net10.0\Tf2DemoSalvage.Audio.dll
+  Tf2DemoSalvage.Scene -> C:\Users\pinku\source\repos\PinKushin\Tf2DemoSalvage\.claude\worktrees\agent-a0614ee3fef56b067\managed\Tf2DemoSalvage.Scene\bin\Debug\net10.0\Tf2DemoSalvage.Scene.dll
+  Tf2DemoSalvage.Render -> C:\Users\pinku\source\repos\PinKushin\Tf2DemoSalvage\.claude\worktrees\agent-a0614ee3fef56b067\managed\Tf2DemoSalvage.Render\bin\Debug\net10.0\Tf2DemoSalvage.Render.dll
+  Tf2DemoSalvage.Presentation -> C:\Users\pinku\source\repos\PinKushin\Tf2DemoSalvage\.claude\worktrees\agent-a0614ee3fef56b067\managed\Tf2DemoSalvage.Presentation\bin\Debug\net10.0\Tf2DemoSalvage.Presentation.dll
+  Tf2DemoSalvage.Rendering.Tests -> C:\Users\pinku\source\repos\PinKushin\Tf2DemoSalvage\.claude\worktrees\agent-a0614ee3fef56b067\tests\Tf2DemoSalvage.Rendering.Tests\bin\Debug\net10.0\Tf2DemoSalvage.Rendering.Tests.dll
+Test run for C:\Users\pinku\source\repos\PinKushin\Tf2DemoSalvage\.claude\worktrees\agent-a0614ee3fef56b067\tests\Tf2DemoSalvage.Rendering.Tests\bin\Debug\net10.0\Tf2DemoSalvage.Rendering.Tests.dll (.NETCoreApp,Version=v10.0)
+A total of 1 test files matched the specified pattern.
+C:\Users\pinku\source\repos\PinKushin\Tf2DemoSalvage\.claude\worktrees\agent-a0614ee3fef56b067\tests\Tf2DemoSalvage.Rendering.Tests\bin\Debug\net10.0\Tf2DemoSalvage.Rendering.Tests.dll
+NUnit Adapter 6.3.1.0: Test execution started
+Running selected tests in C:\Users\pinku\source\repos\PinKushin\Tf2DemoSalvage\.claude\worktrees\agent-a0614ee3fef56b067\tests\Tf2DemoSalvage.Rendering.Tests\bin\Debug\net10.0\Tf2DemoSalvage.Rendering.Tests.dll
+   NUnit3TestExecutor discovered 87 of 87 NUnit test cases using Current Discovery mode, Non-Explicit run
+6 distinct images across the six cube faces
+
+301 faces decoded across 43 cubemaps
+
+  Passed BrushEntityFaces_NoModels_StillBuildsEveryFace [49 ms]
+  Passed TheStaticWorld_ExcludesABrushEntitysFaces [49 ms]
+  Passed CubemapFaces_ABakedCubemap_ReportsSeven [72 ms]
+  Passed CubemapFaces_TheLastFace_ReachesTheLastByte [46 ms]
+  Passed CubemapFaces_TheSeventhFace_SitsAtTheEndOfTheFile [52 ms]
+  Passed CubemapFaces_TheSixCubeFaces_DifferFromEachOther [50 ms]
+  Standard Output Messages:
+ 6 distinct images across the six cube faces
+
+
+  Passed CubemapFaces_EveryBakedCubemap_DecodesEveryFace [109 ms]
+  Standard Output Messages:
+ 301 faces decoded across 43 cubemaps
+
+
+  Passed ASubmodel_TakesOnlyItsOwnFaces [14 ms]
+  Passed Build_ASubmodelFace_TakesItsLightmapCoordinatesFromTheAtlas [6 ms]
+  Passed CubemapFaces_TheSpheremap_IsNotOneOfTheSix [48 ms]
+  Passed PackAll_ABumpedFace_PutsEachSetWhereItsStepPointsTo [5 ms]
+  Passed PackAll_ABumpedFace_StepsExactlyOneLightmapAlong [< 1 ms]
+  Passed PackAll_ABumpedFaceAndAnUnbumpedOne_DoNotOverlap [2 ms]
+  Passed PackAll_WithNoBumpedFaces_StepsNowhere [10 ms]
+  Passed DecalCullMode_OursIsBackFaces_AsTheEnginesDefaultCullMode [6 ms]
+  Passed Envmap_TheCubeFaceOrder_IsPositiveAndNegativeXyz [< 1 ms]
+  Passed Envmap_TheSpheremap_IsNotUploadedAsASeventhFace [3 ms]
+6 distinct images across the six faces
+
+  Passed CubemapLoading_TheSixFaces_DifferFromEachOther [6 s]
+  Standard Output Messages:
+ 6 distinct images across the six faces
+
+
+  Passed CubemapLoading_EveryCarriedCubemap_HasSixDecodedFaces [6 s]
+  Passed AddFlexAnimation_AControllerTheModelLacks_ResolvesToControllerZero [< 1 ms]
+  Passed EventThink_AnEvent_IsTestedAtTheFramesStartTime [< 1 ms]
+  Passed ClientSideAnimation_LatchesEveryFrameAtTheAnimTimeThenAdvancesIt [2 ms]
+  Passed FlexWeight_IsALatchedAnimationVariable [1 ms]
+  Passed InitPhonemeMappings_ATfPlayer_ReadsItsClassPhonemesFile [1 ms]
+  Passed InterpolatedVar_KeepsThreeEntriesBeyondTheWindowAndExtrapolatesAQuarterSecond [1 ms]
+  Passed OnRenderStart_InterpolatesBeforeTheClientSideLatch [1 ms]
+  Passed Instance_ACorpseWhosePlayerRespawned_DrawsItsOwnUnsetFaceNotThePlayers [6 s]
+  Passed ProcessSceneEvents_TheFlexPass_DecaysEveryControllerPerCall [< 1 ms]
+soldier at 1204: 8105 of 26922 buffer vertices move, the furthest 1.791 units; at rest 398, 0.254
+
+  Passed Instance_ASoldierLaughing_CarriesAFaceThatMovesItsVertices [3 s]
+  Standard Output Messages:
+ soldier at 1204: 8105 of 26922 buffer vertices move, the furthest 1.791 units; at rest 398, 0.254
+
+
+medic at 61145: 3785 of 24864 buffer vertices differ from the control
+
+  Passed ResetFlexWeights_ATfPlayer_StartsEachControllerAtZeroInItsRange [< 1 ms]
+  Passed RunFlexDelay_TheDelayedWeights_DecayTowardTheCurrent [< 1 ms]
+  Passed SetupWeights_AWornItemAndACorpse_DrawTheirPlayersFace [1 ms]
+  Passed SoundInfo_TheSpeakerEntity_IsReadOnEveryProtocolAndClearedByAStop [< 1 ms]
+  Passed StartEvent_AnEventNamedNull_IsIgnored [< 1 ms]
+  Passed TfRagdoll_APlayerAliveAgain_LeavesTheCorpseItsOwnFace [< 1 ms]
+  Passed UpdateClientSideAnimations_WalksTheWholeList_NotWhatIsDrawn [< 1 ms]
+  Passed UseHWMorphModels_InThisBuild_IsAlwaysFalse [< 1 ms]
+  Passed Instance_AMedicPlayingAFlexAnimation_MovesVerticesTheControlDoesNot [3 s]
+  Standard Output Messages:
+ medic at 61145: 3785 of 24864 buffer vertices differ from the control
+
+
+273 pixels change when the stream moves the quad
+
+  Passed Draw_APositionDelta_MovesTheVerticesAsIfTheyStoodThere [8 s]
+  Standard Output Messages:
+ 273 pixels change when the stream moves the quad
+
+
+scout at 58270: speaking 4168 vertices, furthest 0.603; without the sentence 1824, 0.371; 2548 differ
+
+flexed 409, baked 409, normal alone 426, still 351
+
+  Passed Instance_AScoutSpeakingACachedLine_MovesItsMouthBeyondTheSameMomentWithoutTheSentence [84 ms]
+  Standard Output Messages:
+ scout at 58270: speaking 4168 vertices, furthest 0.603; without the sentence 1824, 0.371; 2548 differ
+
+
+  Passed Draw_ANormalDelta_TurnsTheNormalAndTheTangentTogether [9 s]
+  Standard Output Messages:
+ flexed 409, baked 409, normal alone 426, still 351
+
+
+  Passed TurningToFaceSomething_BringsItToTheMiddle [< 1 ms]
+  Passed Pack_AnUnlitFace_GetsAnEmptyRectangle [1 ms]
+  Passed Pack_EachFacesPixelsLandUnderItsOwnRectangle [< 1 ms]
+  Passed Assign_ALargerFaceOfTheSameMaterial_IsPackedFirst [1 ms]
+  Passed Rebuild_ABumpLitFaceWithADynamicLight_NormalizesTheDirectionalSetsAfterAddingIt [3 ms]
+  Passed Assign_UnlitFaces_TakeAWhiteSortIdPerMaterialAfterTheLitOnes [< 1 ms]
+  Passed Recompose_AStyleNoFaceUses_ReportsNothing [2 ms]
+  Passed Recompose_AStyleThatChanged_RewritesTheFacesTexelsAndReportsItsRectangle [< 1 ms]
+  Passed Draw_TheSameFaceArrayRewritten_DrawsItsNewContents [4 s]
+angled 102, drawn 91; at 45 degrees 78, drawn 67
+
+  Passed MapOutline_AFaceWithOneVertex_ProducesNoSegments [3 ms]
+  Passed MapOutline_ATwoPointFace_IsASingleSegment [5 ms]
+  Passed MapOutline_NoFaces_GivesAnEmptyOutline [< 1 ms]
+  Passed Build_ANonDisplacementFace_IsWhiteWithBlendZero [9 ms]
+  Passed Build_LightmapCoordinatesLandInsideTheFacesAtlasRectangle [1 ms]
+  Passed ReleaseUploaded_AnimatedDetailsAndCubemaps_EmptiesEveryFrameAndFace [3 s]
+  Passed OverlayFaceList_AsVbspBuildsIt_TestsNothingAboutOrientation [3 ms]
+  Passed ClipFaceToOverlay_AFaceAtAnAngleToTheBasis_StillProducesAFragment [1 s]
+  Standard Output Messages:
+ angled 102, drawn 91; at 45 degrees 78, drawn 67
+
+
+  Passed ForTranslucentLeaves_AFaceRunAndALeafsDisplacements_DrawTheirOverlaysAfterThem [9 ms]
+  Passed ClipFaceToOverlay_AFaceOutsideTheBand_IsNotMarked [2 ms]
+  Passed ClipFaceToOverlay_AWallSplitInTwo_GivesBothHalvesTheSameBandHeight [1 ms]
+  Passed Order_AFragmentOnAFaceTheWorldDoesNotDraw_IsNeverDrawn [3 ms]
+  Passed ClipFaceToOverlay_EveryCorner_LiesOnTheFaceItMarks [< 1 ms]
+  Passed Order_WithNoWalk_QueuesEveryFaceInBufferOrder [< 1 ms]
+  Passed Batches_AWaterLeafsFaces_CarryTheirSortGroup [14 ms]
+  Passed BlendedRuns_ATranslucentFaceWithOverlays_IsItsOwnRunNamingIt [1 ms]
+  Passed SortGroup_ByTheLeavesAFaceIsIn_IsAboveUnderOrIntersectingWater [1 ms]
+  Passed Surfaces_ANoCullLeafFace_IsDrawnFacingAway [< 1 ms]
+  Passed CullFor_AMirroredModel_CullsFrontFacesInstead [1 ms]
+  Passed Surfaces_ANodeFaceInAWaterLeaf_IsDrawnWhicheverSideItFaces [< 1 ms]
+  Passed CullFor_AnOrdinaryModel_CullsBackFaces [< 1 ms]
+  Passed Batches_ForAdjacentFacesOfOneMaterial_MergeIntoOneRun [3 ms]
+  Passed Surfaces_FromTheBackSide_DrawThePlaneBackNodeFaceAndSkipFacesTurnedAway [< 1 ms]
+  Passed Batches_ForAFaceInTwoLeaves_DrawsItOnce [< 1 ms]
+  Passed Batches_ForAFaceNoLeafNames_DrawsItWhenItsBoxIsInView [2 ms]
+  Passed Batches_ForAFaceNoLeafNames_DropsItWhenItsBoxIsBehindTheCamera [< 1 ms]
+  Passed Batches_OnASecondCall_ForgetsTheFirstCallsFaces [< 1 ms]
+  Passed Batches_WhenALeafNamesADroppedFace_IgnoresIt [< 1 ms]
+  Passed Batches_WithACulledFaceBetweenTwoVisibleOnes_LeavesAGap [3 ms]
+  Passed BlendedByLeaf_AFaceInTwoLeaves_JoinsTheNearerOneOnly [1 ms]
+  Passed BlendedByLeaf_TwoFacesInOneLeaf_AreDrawnLastFirst [< 1 ms]
+  Passed CanCull_WithoutSpansOrFacesOrLeaves_IsFalse [< 1 ms]
+head from yaw 0: 3457 drawn, 34 change with the face
+head from yaw 90: 3445 drawn, 114 change with the face
+head from yaw 180: 2463 drawn, 11 change with the face
+head from yaw 270: 2193 drawn, 0 change with the face
+
+2FORT SKY EXPECTED 158,185,205 DRAWN (158, 185, 205) AT A QUARTER (83, 98, 109)
+
+  Passed Render_ASoldierLaughing_DrawsADifferentFaceFromTheSameBonesWithoutIt [18 s]
+  Standard Output Messages:
+ head from yaw 0: 3457 drawn, 34 change with the face
+ head from yaw 90: 3445 drawn, 114 change with the face
+ head from yaw 180: 2463 drawn, 11 change with the face
+ head from yaw 270: 2193 drawn, 0 change with the face
+
+
+  Passed LeafFaces_ForALeafOnDisk_ComeFromOffsetsTwentyAndTwentyTwo [< 1 ms]
+  Passed Sdk_ALeaf_CarriesItsClusterCullBoxAndFaceRange [2 ms]
+  Passed Batches_ForACameraInsideTheMap_CoverEveryDrawnFaceOfEveryVisibleLeaf [2 s]
+  Passed DrawSky_Ctf2fortUnderIntegerHdr_IsTheRgbsFaceTimesEight [3 s]
+  Standard Output Messages:
+ 2FORT SKY EXPECTED 158,185,205 DRAWN (158, 185, 205) AT A QUARTER (83, 98, 109)
+
+
+
+Test Run Successful.
+Total tests: 87
+     Passed: 87
+ Total time: 27.4502 Seconds

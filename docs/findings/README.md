@@ -331,6 +331,10 @@ in any public writeup found:
   render thread went from 1.21-1.26 to 0.94-1.01 MB a frame and every heap from 2.50-2.98 to 1.54-1.83. The effect on
   stalls is inconclusive on a loaded machine ([91](91-a-fix-that-the-caller-undid.md),
   measurements/2026-10-21-corpse-and-beam-allocations.md).
+- **The steady frame is the processor's.** The viewer's own GPU engine is 6-10% busy on f12 first person; the frame is
+  CPU work. A sampled `PollGCWorker` leaf is mostly the sampler's own suspension, not the collector, which reopens finding
+  89's reading. A talking face no longer rewrites the two thirds of its flex stream no flex reaches; no output changes
+  ([90](90-the-steady-frame-is-the-processors.md), measurements/2026-10-22-f12-steady-frame.md and 2026-10-22-flex-spread.md).
 
 ## Conventions used throughout
 

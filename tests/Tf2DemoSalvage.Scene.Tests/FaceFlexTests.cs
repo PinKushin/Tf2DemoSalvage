@@ -367,6 +367,38 @@ public sealed class FaceFlexTests
         stream.ShouldBe([1f, 2f, 3f, 4f, 5f, 6f, 1f, 2f, 3f, 4f, 5f, 6f, 0f, 0f, 0f, 0f, 0f, 0f]);
     }
 
+    /// <remarks>
+    /// The list is the buffer vertices whose <c>.vvd</c> vertex any of the model's flexes moves (finding 90). The model's
+    /// one flex moves vertex 1, which corners 0 and 2 carry, at buffer slots 1 and 0.
+    /// </remarks>
+    [Test]
+    public void FlexedCorners_AModelWhoseFlexMovesOneVertex_ListsOnlyTheBufferSlotsCarryingIt()
+    {
+        FlexedCorners map = FaceFlex.FlexedCorners(Model, [1, 0, 1], [2, 0, 1]);
+
+        map.At.ShouldBe([0, 1]);
+        map.From.ShouldBe([3, 3]);
+    }
+
+    /// <remarks>
+    /// The decision under test: a slot no flex can move is never walked. Its sentinel survives, which a full walk would
+    /// have overwritten with zero; and every slot it does write matches the full walk's value.
+    /// </remarks>
+    [Test]
+    public void IntoFlexedSlots_AStreamWithAnUnflexedSlot_WritesTheFullWalksValuesAndLeavesTheRestUntouched()
+    {
+        (float[], float[]) deltas = ([0f, 0f, 0f, 1f, 2f, 3f], [0f, 0f, 0f, 4f, 5f, 6f]);
+        float[] full = FaceFlex.InBufferOrder(deltas, [1, 0, 1], [2, 0, 1]);
+        float[] stream = new float[18];
+        stream.AsSpan(12).Fill(9f);
+
+        float[] written = FaceFlex.IntoFlexedSlots(deltas, FaceFlex.FlexedCorners(Model, [1, 0, 1], [2, 0, 1]), stream);
+
+        written.ShouldBeSameAs(stream);
+        written.ShouldBe([1f, 2f, 3f, 4f, 5f, 6f, 1f, 2f, 3f, 4f, 5f, 6f, 9f, 9f, 9f, 9f, 9f, 9f]);
+        written[..12].ShouldBe(full[..12]);
+    }
+
     private static SceneTaunt Scene(SceneExpression expression) =>
         new([], -1f, -1f) { Expressions = [expression], Duration = 5f };
 
