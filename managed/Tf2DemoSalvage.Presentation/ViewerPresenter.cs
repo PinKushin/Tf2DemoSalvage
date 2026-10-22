@@ -255,6 +255,7 @@ public sealed partial class ViewerPresenter : IDisposable
         _sound = new SoundPresenter(_soundscape, _loops, _sounds.Sample, _audioLog)
         {
             Loading = _sounds.Loading,
+            Held = _sounds.HeldSample,
             ClientSoundLog = _renderLog,
             MusicVolume = () => _settingsOwner.MusicVolume,
         };

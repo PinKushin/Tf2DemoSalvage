@@ -111,6 +111,71 @@ public sealed class SoundPresenterEmittedTests
         gain.ShouldBeGreaterThan(0f);
     }
 
+    /// <remarks>
+    /// **A stop cancels a sound still waiting for its data** (review of finding 90). The engine's not-ready channel stays
+    /// in the active set (FUN_18003f2c0), so `S_AlterChannel` matches it by entity, channel and sfx and frees it
+    /// (FUN_18002aa20, B416). Emitted, stopped two ticks later while loading, then the load lands: nothing plays.
+    /// The second and third cases are the controls: a stop naming another sound, or another channel, cancels nothing.
+    /// </remarks>
+    [TestCase(Wave, 0, 0)]
+    [TestCase("weapons/other.wav", 0, 1)]
+    [TestCase(Wave, 5, 1)]
+    public void Update_AStopWhileItsSoundLoads_CancelsOnlyThatSound(string stopName, int stopChannel, int expectedPlays)
+    {
+        SoundSample hit = new(SampleRate: 22050, Channels: 1, Samples: new float[] { 0.5f, -0.5f });
+        bool arrived = false;
+        SoundPresenter presenter = new(
+            new SoundscapeSystem(new ActiveLoops(), _ => null, NullLogger.Instance),
+            new ActiveLoops(),
+            name => arrived && string.Equals(name, Wave, StringComparison.Ordinal) ? hit : null,
+            NullLogger.Instance)
+        {
+            Loading = name => !arrived && string.Equals(name, Wave, StringComparison.Ordinal),
+            Schedule = new SoundSchedule([]),
+        };
+        Recording sink = new();
+        SceneSound started = Impact(at: 100f);
+
+        presenter.Update(sink, 40, (0f, 0f, 0f), (0f, -1f, 0f), now: 0d);
+        presenter.Emit(started);
+        presenter.Update(sink, 41, (0f, 0f, 0f), (0f, -1f, 0f), now: 0.015d);
+        presenter.Emit(started with { Tick = 43, Name = stopName, Channel = stopChannel, IsStop = true });
+        presenter.Update(sink, 43, (0f, 0f, 0f), (0f, -1f, 0f), now: 0.045d);
+
+        arrived = true;
+        presenter.Update(sink, 44, (0f, 0f, 0f), (0f, -1f, 0f), now: 0.06d);
+        presenter.Update(sink, 45, (0f, 0f, 0f), (0f, -1f, 0f), now: 0.075d);
+
+        sink.Played.Count.ShouldBe(expectedPlays);
+    }
+
+    /// <summary>A stop asks only what is held, so a stop of a sound never loaded starts no load (review of finding 90).</summary>
+    [Test]
+    public void Update_AStopOfASoundNotHeld_AsksNothingToLoad()
+    {
+        List<string> loaded = [];
+        SoundPresenter presenter = new(
+            new SoundscapeSystem(new ActiveLoops(), _ => null, NullLogger.Instance),
+            new ActiveLoops(),
+            name =>
+            {
+                loaded.Add(name);
+                return null;
+            },
+            NullLogger.Instance)
+        {
+            Held = _ => null,
+            Schedule = new SoundSchedule([]),
+        };
+        Recording sink = new();
+
+        presenter.Update(sink, 40, (0f, 0f, 0f), (0f, -1f, 0f), now: 0d);
+        presenter.Emit(Impact(at: 100f) with { IsStop = true });
+        presenter.Update(sink, 41, (0f, 0f, 0f), (0f, -1f, 0f), now: 0.015d);
+
+        loaded.ShouldBeEmpty();
+    }
+
     /// <summary>The control: a sound that is not loading and will not open plays nothing, now or later.</summary>
     [Test]
     public void Update_AfterEmitOfASoundThatWillNotOpen_NeverPlaysIt()
