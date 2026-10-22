@@ -73,7 +73,8 @@ public sealed class AutoExposure
     /// <summary>The per-frame cap on the walk under <c>mat_tonemap_algorithm 1</c>.</summary>
     public const float MaximumStep = 1f / 64f;
 
-    private const int History = 10;
+    /// <summary><c>s_MovingAverageToneMapScale</c>'s length: frames, since the goal is pushed every frame.</summary>
+    public const int History = 10;
 
     /// <summary>The seventeen bin edges, computed once: a counter over a million pixels cannot afford the powers.</summary>
     private static readonly float[] Edges = [.. System.Linq.Enumerable.Range(0, Bins + 1).Select(i => MathF.Pow(i / (float)Bins, 1.5f))];
@@ -126,14 +127,16 @@ public sealed class AutoExposure
     /// <param name="counts">Sixteen counts.</param>
     /// <param name="percentBright">The percentage, 0-100.</param>
     /// <param name="snapTarget">A target percentage to hold at if the border is in its bin, or negative for none.</param>
-    /// <returns>The location, 0-1, or -1 for an empty histogram.</returns>
-    public static float LocationOfPercentBrightPixels(ReadOnlySpan<int> counts, float percentBright, float snapTarget = -1f)
+    /// <param name="valid">Each bin's <c>ContainsValidData</c>; empty for all of them.</param>
+    /// <returns>The location, 0-1, or -1 for an empty histogram or a walk that reaches a bin not yet counted.</returns>
+    public static float LocationOfPercentBrightPixels(
+        ReadOnlySpan<int> counts, float percentBright, float snapTarget = -1f, ReadOnlySpan<bool> valid = default)
     {
         long total = 0;
 
-        foreach (int count in counts[..Bins])
+        for (int bin = 0; bin < Bins; bin++)
         {
-            total += count;
+            total += valid.IsEmpty || valid[bin] ? counts[bin] : 0;
         }
 
         if (total == 0)
@@ -146,6 +149,11 @@ public sealed class AutoExposure
 
         for (int bin = Bins - 1; bin >= 0; bin--)
         {
+            if (!valid.IsEmpty && !valid[bin])
+            {
+                return -1f;
+            }
+
             float needed = (percentBright / 100f) - pixelsTested;
             float share = counts[bin] / (float)total;
             float range = BinMax(bin) - BinMin(bin);
@@ -172,10 +180,11 @@ public sealed class AutoExposure
     /// <summary><c>GetTargetTonemapScalar</c>: the scale this histogram asks for, before clamping.</summary>
     /// <param name="counts">Sixteen counts of a frame drawn at <paramref name="lastScale"/>.</param>
     /// <param name="lastScale">The scale the frame was drawn at.</param>
+    /// <param name="valid">Each bin's <c>ContainsValidData</c>; empty for all of them.</param>
     /// <returns>The target.</returns>
-    public static float TargetScalar(ReadOnlySpan<int> counts, float lastScale)
+    public static float TargetScalar(ReadOnlySpan<int> counts, float lastScale, ReadOnlySpan<bool> valid = default)
     {
-        float location = LocationOfPercentBrightPixels(counts, PercentBrightPixels, PercentTarget);
+        float location = LocationOfPercentBrightPixels(counts, PercentBrightPixels, PercentTarget, valid);
 
         if (location < 0f)
         {
@@ -183,7 +192,7 @@ public sealed class AutoExposure
         }
 
         float target = (PercentTarget / 100f) / MathF.Max(0.0001f, location);
-        float average = LocationOfPercentBrightPixels(counts, 50f);
+        float average = LocationOfPercentBrightPixels(counts, 50f, valid: valid);
 
         if (average > 0f)
         {
@@ -211,9 +220,11 @@ public sealed class AutoExposure
     /// <param name="counts">The histogram of the frame just drawn at <see cref="Current"/>.</param>
     /// <param name="range">The exposure range.</param>
     /// <param name="seconds">Seconds since the last update.</param>
-    public void Update(ReadOnlySpan<int> counts, (float Min, float Max) range, float seconds)
+    /// <param name="valid">Each bin's <c>ContainsValidData</c>; empty for all of them.</param>
+    /// <remarks>Run EVERY frame, measured or not (`:1614-1622`): the ten-entry history is ten frames (B575).</remarks>
+    public void Update(ReadOnlySpan<int> counts, (float Min, float Max) range, float seconds, ReadOnlySpan<bool> valid = default)
     {
-        float target = Math.Clamp(TargetScalar(counts, Current), range.Min, range.Max);
+        float target = Math.Clamp(TargetScalar(counts, Current, valid), range.Min, range.Max);
         target = MathF.Max(0.001f, target);
 
         Goal = target;

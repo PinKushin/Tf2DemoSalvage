@@ -344,6 +344,9 @@ in any public writeup found:
   pose counters, cross-tree follow chains and the draw loop's reach block threaded bone setup (the model caches, first
   named as the blocker, turned out to be concurrent already) ([94](94-threads-buy-little-of-the-camera.md),
   measurements/2026-10-22-threaded-particles.md).
+- **The exposure histogram is one occlusion query a frame over seventeen entries, and the goal is pushed every frame.**
+  Replacing the processor's read-back with the engine's shape moved the scale by at most 0.27%, only after a reset, and
+  the frame by about 1% ([95](95-the-histogram-is-seventeen-queries.md), measurements/2026-10-22-exposure-queries.md).
 
 ## Conventions used throughout
 

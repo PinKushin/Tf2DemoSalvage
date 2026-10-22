@@ -160,21 +160,29 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
     /// paused, exactly as TF2's does (<see cref="AutoExposure.Walk"/>) — so a capture gives it time
     /// (<see cref="ExposureSeconds"/>) and waits here, or it photographs the reset value of 1 (B520).
     /// </remarks>
-    public bool PostProcessingSettled => _bloomAmount.Settled && (!ExposureWalks || _exposure.Settled);
+    /// <remarks>
+    /// The exposure also waits for every bin to be counted again since the last reset, and a full history of goals
+    /// since: the engine's counts survive a reset (B575), so a goal from them is of a frame drawn at the old scale.
+    /// </remarks>
+    public bool PostProcessingSettled => _bloomAmount.Settled && (!ExposureWalks || ExposureSettled);
+
+    private bool ExposureSettled => _exposure.Settled && _histogramSystem.FramesFresh >= AutoExposure.History;
 
     /// <summary>The values <see cref="PostProcessingSettled"/> read, for the log of a capture that is waiting on it.</summary>
     public string PostProcessingReport => string.Create(
         System.Globalization.CultureInfo.InvariantCulture,
-        $"bloom settled {_bloomAmount.Settled} at {_bloomAmount.Current:0.####}; exposure walks {ExposureWalks}, settled {_exposure.Settled}, at {_exposure.Current:0.####} toward {_exposure.Goal:0.####}");
+        $"bloom settled {_bloomAmount.Settled} at {_bloomAmount.Current:0.####}; exposure walks {ExposureWalks}, settled {ExposureSettled} (bins fresh {_histogramSystem.FramesFresh} frames), at {_exposure.Current:0.####} toward {_exposure.Goal:0.####}");
 
     /// <summary>Whether the exposure is being measured at all: integer HDR, and not forced.</summary>
     private bool ExposureWalks => _world is { HdrType: Content.Bsp.HdrType.IntegerHdr } && ForceToneMapScale <= 0f;
 
     private readonly AutoExposure _exposure = new();
 
-    private readonly ExposureHistogram _histogram = new();
+    private ExposureHistogram? _histogram;
 
-    private readonly int[] _exposureCounts = new int[AutoExposure.Bins];
+    private readonly LuminanceHistogramSystem _histogramSystem = new();
+
+    private readonly bool[] _exposureValid = new bool[AutoExposure.Bins];
 
     private int? _observerTarget;
 
@@ -192,7 +200,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         {
             if (value != _observerTarget)
             {
-                _exposure.Reset(1f);
+                ResetToneMapping();
             }
 
             _observerTarget = value;
@@ -1820,7 +1828,17 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
     internal static float ToneMapScaleAfterPostProcessing(Content.Bsp.HdrType hdr, float scale) =>
         hdr == Content.Bsp.HdrType.IntegerHdr ? 1f : scale;
 
-    /// <summary>One frame of auto-exposure: histogram (when a read-back is ready), goal, walk (B514).</summary>
+    /// <summary><c>ResetToneMapping( 1.0 )</c>: the scale and its average, not the bins' counts (`viewpostprocess.cpp:1121-1126`).</summary>
+    private void ResetToneMapping()
+    {
+        _exposure.Reset(1f);
+        _histogramSystem.MarkStale();
+    }
+
+    /// <summary>
+    /// One frame of <c>DoPreBloomTonemapping</c> (`viewpostprocess.cpp:1614-1622`): the histogram's queries, then the
+    /// goal from whatever counts it holds, EVERY frame, then the walk (B575, B514).
+    /// </summary>
     private void UpdateExposure()
     {
         if (!ExposureWalks)
@@ -1832,22 +1850,29 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
 
         try
         {
-            _histogram.Capture(_device, _context, back, _width, _height);
+            _histogram ??= ExposureHistogram.Create(_device);
+            _histogram.Measure(_device, _context, back, _backBufferView, _width, _height, _histogramSystem);
         }
         finally
         {
             back.Dispose();
         }
 
-        if (_histogram.TryRead(_context, _exposureCounts))
+        Viewport viewport = new(0f, 0f, _width, _height, 0f, 1f);
+        _context.RSSetViewports(1, in viewport);
+        _context.OMSetRenderTargets(1u, _backBufferView.GetAddressOf(), _depthView);
+        WorldRenderer.ResetBlend(_context);
+
+        for (int bin = 0; bin < AutoExposure.Bins; bin++)
         {
-            _exposure.Update(
-                _exposureCounts, AutoExposure.Range(Tonemap.UseMin, Tonemap.Min, Tonemap.UseMax, Tonemap.Max), ExposureSeconds);
+            _exposureValid[bin] = _histogramSystem.IsValid(bin);
         }
-        else
-        {
-            _exposure.Walk(ExposureSeconds);
-        }
+
+        _exposure.Update(
+            _histogramSystem.Counts,
+            AutoExposure.Range(Tonemap.UseMin, Tonemap.Min, Tonemap.UseMax, Tonemap.Max),
+            ExposureSeconds,
+            _exposureValid);
     }
 
     /// <summary>Runs <see cref="BloomRenderer"/> over the back buffer, then puts the frame's target and viewport back.</summary>
@@ -3237,7 +3262,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         _world = null;
 
         // `ResetToneMapping( 1.0 )` in `LevelInitPreEntity` (B514).
-        _exposure.Reset(1f);
+        ResetToneMapping();
 
         // The renderer's buffers went with it, so the slices that fed them must go too — otherwise
         // a path from the previous map resolves to geometry nothing holds any more.
@@ -4534,7 +4559,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         _backBufferView.Dispose();
         _gammaView.Dispose();
         _bloom?.Dispose();
-        _histogram.Dispose();
+        _histogram?.Dispose();
         _swapChain.Dispose();
         _context.Dispose();
         _device.Dispose();

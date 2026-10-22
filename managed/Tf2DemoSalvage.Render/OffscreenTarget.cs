@@ -717,6 +717,27 @@ internal sealed unsafe class OffscreenTarget : IDisposable
         }
     }
 
+    private ExposureHistogram? _exposure;
+
+    /// <summary>Runs the exposure histogram's queries over what this target holds, as <c>Device3D</c> does each frame (B575).</summary>
+    /// <param name="frames">How many frames to run; each waits for the answers it asks for.</param>
+    /// <returns>The histogram's states and counts after them.</returns>
+    public LuminanceHistogramSystem MeasureExposure(int frames)
+    {
+        _exposure ??= ExposureHistogram.Create(_device);
+        _exposure.Wait = true;
+
+        LuminanceHistogramSystem system = new();
+
+        for (int frame = 0; frame < frames; frame++)
+        {
+            _exposure.Measure(_device, _context, _texture, _view, _width, _height, system);
+        }
+
+        WorldRenderer.ResetBlend(_context);
+        return system;
+    }
+
     /// <summary>
     /// Saves what has been drawn as a PNG, so a person can look at what a test verified.
     /// </summary>
@@ -862,6 +883,7 @@ internal sealed unsafe class OffscreenTarget : IDisposable
         _points?.Dispose();
         _occlusion?.Dispose();
         _bloom?.Dispose();
+        _exposure?.Dispose();
         _vgui?.Dispose();
         _detail?.Dispose();
         _detailSheet.Dispose();

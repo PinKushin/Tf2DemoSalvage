@@ -124,6 +124,35 @@ public sealed class AutoExposureConformanceTests
         (0.3f * exposure.Current).ShouldBeInRange(AutoExposure.BinMin(11), AutoExposure.BinMax(11));
     }
 
+    /// <remarks>
+    /// `:636-639`, walking from the bright end: <c>if ( !CurHistogram[i].ContainsValidData() ) return -1.0f;</c>, and
+    /// `:683-686` a -1 "pretend we're at the target", so the scale asked for is the last one (B575).
+    /// </remarks>
+    [Test]
+    public void TargetScalar_TheBrightestBinNotYetCounted_IsTheLastScale()
+    {
+        bool[] valid = [.. System.Linq.Enumerable.Repeat(true, AutoExposure.Bins)];
+        valid[15] = false;
+
+        AutoExposure.TargetScalar(Frame(15), 0.8f, valid).ShouldBe(0.8f, 1e-6f);
+    }
+
+    /// <remarks>
+    /// The walk stops at the bin it needs, so a bin below it that has not answered is never looked at; and the total is
+    /// of valid bins only (`:619-626`), so pixels in a bin that has not answered do not count (B575).
+    /// </remarks>
+    [Test]
+    public void TargetScalar_ADarkBinNotYetCounted_IsIgnoredInTheTotalAndTheWalk()
+    {
+        bool[] valid = [.. System.Linq.Enumerable.Repeat(true, AutoExposure.Bins)];
+        valid[0] = false;
+        int[] counts = Frame(15);
+        counts[0] = 1000;
+
+        AutoExposure.TargetScalar(counts, 1f, valid).ShouldBe(AutoExposure.TargetScalar(Frame(15), 1f), 1e-6f);
+        AutoExposure.TargetScalar(counts, 1f).ShouldNotBe(AutoExposure.TargetScalar(Frame(15), 1f), "the control: counted, they move it");
+    }
+
     /// <remarks>Ours, not Valve's: what a still capture waits for (B520). An empty history has no goal to have reached.</remarks>
     [Test]
     public void Settled_RightAfterAReset_IsFalse()

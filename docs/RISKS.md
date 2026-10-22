@@ -40064,7 +40064,21 @@ slots though a laugh reaches 8,105; the rest were already zero. **Fixed:** only 
 `flex` column 0.83-0.86 → 0.50 ms per rebuild (measurements/2026-10-22-flex-spread.md); the steady frame's change is inside
 the noise. **Left:** those demo tests assert only lower bounds, and half the slots written passed them all.
 
-## B575 — the exposure histogram is counted pixel by pixel on the processor, every frame — OPEN
+## B575 — the exposure histogram is counted pixel by pixel on the processor, every frame — FIXED (2026-10-22)
+
+**Fixed** (finding 95, `measurements/2026-10-22-exposure-queries.md`): the shape is replaced, not patched. The engine's
+structure, read from published source: seventeen entries under algorithm 1 (sixteen bins and an all-pixels bucket that
+queues but is never read, `viewpostprocess.cpp:391`, `:543-545`, `:885-892`); ONE query a frame (`:392`), INITIAL
+entries in index order, else the oldest finished (`:551-612`); an entry read no sooner than `m_frame_queued + 2`, not
+waiting, and re-asked rather than re-issued on -1 (`:566-583`); valid only once answered (`:405-408`), and a walk
+reaching an invalid bin answers -1 (`:636-639`); target and goal history EVERY frame (`:1614-1622`); bin states survive
+`ResetToneMapping` (`:1121-1126`). The query is `dev/lumcompare`: alpha test GREATER 0 on `step(min,L)*step(L,max)`, no
+colour writes, no stencil (`screenspace_general.cpp:185-193`, shipped VMT, `:49`). `LuminanceHistogramSystem` (was
+`HistogramRing`) is that state machine; `ExposureHistogram` issues the D3D11 queries. **Visible behaviour change**: each
+bin is 3-19 frames old, so after a reset the exposure starts walking a little later; on f12 at most 0.27% of the scale,
+gone within ~400 ticks. Frame cost: 0.10-0.19 ms lower, about 1% (measurements/2026-10-22-exposure-queries.md). **Not established**: an unclamped map (f12 sits on its
+controller's ceiling); whether `GetNumPixelsRendered` flushes (closed, *interpolated* as not); and the sibling, bloom
+keeping its own copy of the frame where the engine shares one (`s_bScreenEffectTextureIsUpdated`, `:1607-1612`).
 
 **Measured** (finding 92): `ExposureHistogram.TryRead` is 3.9% of the render thread as a leaf on f12. The readback does not
 block (`MapFlag.DONotWait`); the cost is the CPU walking a sixteenth of the exposure region's pixels each frame. Valve counts
