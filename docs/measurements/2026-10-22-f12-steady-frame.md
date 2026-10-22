@@ -47,6 +47,11 @@ Runs: A1, A2 at 1280x720; B1 at 320x180; then interleaved B2, A3, B3, A4 (added 
 Trace: the same command at 1280x720 under `dotnet-trace collect --profile dotnet-sampled-thread-time -o T1.nettrace --
 <exe> <demo> ...`, read with the probe `cpu-trace T1.nettrace <from> <to> <render thread> 60` over the steady window.
 
+GPU (added after the size pair proved unresolvable under load, before any Result was written): runs C1 at 1280x720 and C2
+at 320x180, each with the Windows counter `\GPU Engine(pid_<viewer>_*engtype_3D)\Utilization Percentage` summed and
+sampled every 0.5 s for the viewer's own PID. A GPU-bound frame reads near 100%; a CPU-bound one well under. **Control:**
+C2 has 1/16 of the pixels, so its reading must be lower than C1's; if it is not, the counter is not seeing the viewer's work.
+
 Trace control: the render thread is the one whose inclusive top is the frame loop and which holds `EntityModelSet.Instances`;
 its inclusive share for the `camera`-phase methods should be roughly the `--measure` camera share (within a factor of 1.5)
 or the sample is not of the frame the timers saw.
