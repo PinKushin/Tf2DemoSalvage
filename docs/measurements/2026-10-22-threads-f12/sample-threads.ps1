@@ -17,11 +17,22 @@ public static class Nt {
     try { IntPtr v; return NtQueryInformationThread(h, 9, out v, IntPtr.Size, IntPtr.Zero) == 0 ? v.ToInt64() : -2; }
     finally { CloseHandle(h); }
   }
+  [DllImport("kernel32.dll")] static extern int GetThreadDescription(IntPtr h, out IntPtr d);
+  [DllImport("kernel32.dll")] static extern IntPtr LocalFree(IntPtr p);
+  public static string Name(int tid) { // SetThreadDescription name, "" when none
+    IntPtr h = OpenThread(0x1000, false, tid); // THREAD_QUERY_LIMITED_INFORMATION
+    if (h == IntPtr.Zero) return "?";
+    try { IntPtr d; if (GetThreadDescription(h, out d) < 0) return "?"; string s = Marshal.PtrToStringUni(d); LocalFree(d); return s.Replace(",", ";"); }
+    finally { CloseHandle(h); }
+  }
 }
 '@
 $p = if ($ProcessId) { Get-Process -Id $ProcessId } else { Get-Process $ProcName | Select-Object -First 1 }
-$mods = $p.Modules | ForEach-Object { [pscustomobject]@{ N = $_.ModuleName; B = $_.BaseAddress.ToInt64(); E = $_.BaseAddress.ToInt64() + $_.ModuleMemorySize } }
-function ModOf([long]$a) { foreach ($m in $mods) { if ($a -ge $m.B -and $a -lt $m.E) { return "$($m.N)+0x{0:x}" -f ($a - $m.B) } }; return 'unknown' }
+function Mods { $p.Refresh(); $p.Modules | ForEach-Object { [pscustomobject]@{ N = $_.ModuleName; B = $_.BaseAddress.ToInt64(); E = $_.BaseAddress.ToInt64() + $_.ModuleMemorySize } } }
+$script:mods = Mods
+function Find([long]$a) { foreach ($m in $script:mods) { if ($a -ge $m.B -and $a -lt $m.E) { return "$($m.N)+0x{0:x}" -f ($a - $m.B) } }; return $null }
+# A module loaded after the last snapshot (a driver DLL, say) is found by taking the snapshot again.
+function ModOf([long]$a) { $n = Find $a; if (-not $n) { $script:mods = Mods; $n = Find $a }; if ($n) { $n } else { 'unknown:0x{0:x}' -f $a } }
 $starts = @{}
 't,tid,cpu_ms,start' | Set-Content $Out
 $sw = [Diagnostics.Stopwatch]::StartNew()
@@ -29,7 +40,7 @@ while ($sw.Elapsed.TotalSeconds -lt $Seconds -and -not $p.HasExited) {
   $p.Refresh(); $t = '{0:F3}' -f $sw.Elapsed.TotalSeconds
   $rows = foreach ($th in $p.Threads) {
     try { $ms = $th.TotalProcessorTime.TotalMilliseconds } catch { Write-Warning "thread $($th.Id) gone: $_"; continue }
-    if (-not $starts.ContainsKey($th.Id)) { $starts[$th.Id] = ModOf ([Nt]::Start($th.Id)) }
+    if (-not $starts.ContainsKey($th.Id)) { $starts[$th.Id] = (ModOf ([Nt]::Start($th.Id))) + ' ' + [Nt]::Name($th.Id) }
     "$t,$($th.Id),$ms,$($starts[$th.Id])"
   }
   $rows | Add-Content $Out
