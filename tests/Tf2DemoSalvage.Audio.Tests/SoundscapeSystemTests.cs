@@ -117,6 +117,36 @@ public sealed class SoundscapeSystemTests
         asked.ShouldBe(1);
     }
 
+    /// <remarks>
+    /// **A loop whose wave is still loading starts when it arrives** (finding 90): the engine keeps the channel and leaves it
+    /// out of each pass's mix until its mixer is ready (engine.dll FUN_18003f2c0, mixer slot +0x60), so it is late, not lost.
+    /// </remarks>
+    [Test]
+    public void Update_AWaveStillLoading_StartsTheLoopOnceItArrives()
+    {
+        Sink sink = new();
+        bool arrived = false;
+        SoundscapeSystem system = Playing(opens: true);
+        SoundscapeSystem loading = new(
+            new ActiveLoops(),
+            _ => arrived ? new SoundSample(44100, 1, new float[441]) : null,
+            NullLogger.Instance)
+        {
+            Catalog = system.Catalog,
+            Placements = system.Placements,
+            Loading = _ => !arrived,
+        };
+
+        loading.Update(sink, Origin, Right, now: 1d);
+        sink.Played.ShouldBeEmpty("still loading");
+
+        arrived = true;
+        loading.Update(sink, Origin, Right, now: 1.5d);
+        loading.Update(sink, Origin, Right, now: 2d);
+
+        sink.Played.ShouldHaveSingleItem();
+    }
+
     [Test]
     public void Update_AfterLevelShutdown_PlaysNothingNew()
     {

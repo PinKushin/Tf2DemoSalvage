@@ -247,11 +247,14 @@ public sealed partial class ViewerPresenter : IDisposable
         // **Given its collaborators rather than reaching for them**, which is what lets it be
         // tested without a window: the loops it shares with one-shot playback, the decode cache,
         // and somewhere to report. Its map-dependent state arrives when a map is read.
-        _sounds = new SoundCache(_audioLog);
+        // A first play in the frame is read and decoded on the pool, not the render thread (B568, finding 90).
+        _sounds = new SoundCache(_audioLog) { OffFrame = static work => System.Threading.ThreadPool.QueueUserWorkItem(_ => work()) };
         // `snd_musicvolume` is asked for on every pass, so the first frame and a live change both read the setting (B545).
-        _soundscape = new SoundscapeSystem(_loops, _sounds.Sample, _audioLog) { MusicVolume = () => _settingsOwner.MusicVolume };
+        // A sound asked for while it loads plays late, when it arrives (finding 90).
+        _soundscape = new SoundscapeSystem(_loops, _sounds.Sample, _audioLog) { MusicVolume = () => _settingsOwner.MusicVolume, Loading = _sounds.Loading };
         _sound = new SoundPresenter(_soundscape, _loops, _sounds.Sample, _audioLog)
         {
+            Loading = _sounds.Loading,
             ClientSoundLog = _renderLog,
             MusicVolume = () => _settingsOwner.MusicVolume,
         };
@@ -1088,9 +1091,8 @@ public sealed partial class ViewerPresenter : IDisposable
         // because that is what opens the install whose scripts name them.
         IReadOnlyList<SceneSound> emitted = _demoSystems.AddEffectSounds(_game, DecalEffects.Landings(_loaded, _game, _timeline));
 
-        // Cheap to call twice for the same reason models are: `Sample` returns the cached decode,
-        // so on the async path this finds the timeline's and the surfaces' sounds already done and
-        // decodes only the emitted ones, which the worker could not know yet.
+        // Cheap to call twice: `SoundCache.Precache` skips every name an earlier precache of this level listed, evicted or
+        // not, so on the async path this decodes only the emitted ones, which the worker could not know yet (B570).
         DemoSounds.Precache(_sounds, _timeline, _game, _soundscape, _audioLog, emitted, _sound.Scripts?.Entries, _models.AnimationEvents());
 
         // **After the map and the models, because the pass reads both** (D181): the environment is the map's, and a corpse's

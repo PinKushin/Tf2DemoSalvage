@@ -59,6 +59,34 @@ public sealed partial class SoundPresenter(
     Func<string, SoundSample?> sample,
     ILogger audio) : IGameSystem
 {
+    /// <summary>Whether a sound <c>sample</c> answered null for is still on its way (<c>SoundCache.Loading</c>); never, by default.</summary>
+    public Func<string, bool> Loading { get; init; } = static _ => false;
+
+    /// <summary>Sounds started while their sample was loading, started again each pass until it arrives (finding 90).</summary>
+    /// <remarks>
+    /// **Late, not lost, because the engine's channel is.** `S_StartSound` made the channel; each mix pass leaves a channel
+    /// whose mixer is not ready out of that pass's list without freeing it or skipping its samples (engine.dll
+    /// FUN_18003f2c0, mixer slot +0x60), so it plays from its first sample, with the parameters it started with, from the
+    /// pass its data arrives. A seek stops every channel, so it empties this too.
+    /// </remarks>
+    private readonly List<(SceneSound Sound, bool Reestablishing)> _late = [];
+
+    /// <summary>Where the last <see cref="Start"/> ended, set at the branch that decided it.</summary>
+    private StartOutcome _outcome;
+
+    /// <summary>True while the late sounds are being started again, so their first wait is logged once.</summary>
+    private bool _retrying;
+
+    private enum StartOutcome
+    {
+        Started,
+        Stop,
+        NotOpened,
+        Waiting,
+        OneShotNotReestablished,
+        Silenced,
+    }
+
     /// <summary>`snd_musicvolume`, asked every pass: the engine recomputes each channel's gain every mix (FUN_1800292f0, B545).</summary>
     public Func<float> MusicVolume { get; init; } = static () => 1f;
 
@@ -329,6 +357,7 @@ public sealed partial class SoundPresenter(
             // that no longer existed. The map's room tone died at the first seek and never came
             // back, with nothing reported anywhere.
             soundscape.Clear();
+            _late.Clear();
         }
 
         long advanced = Stopwatch.GetTimestamp();
@@ -350,6 +379,39 @@ public sealed partial class SoundPresenter(
         soundscape.Update(output, listener, right, now, recorded);
 
         long soundscaped = Stopwatch.GetTimestamp();
+
+        // The late ones first: they were started on an earlier pass than anything below.
+        if (_late.Count > 0)
+        {
+            (SceneSound Sound, bool Reestablishing)[] waiting = [.. _late];
+            _late.Clear();
+
+            _retrying = true;
+
+            foreach ((SceneSound sound, bool again) in waiting)
+            {
+                Start(output, sound, listener, right, again);
+
+                // The outcome Start reached, carried from where it decided (B243), not re-derived here.
+                string? said = _outcome switch
+                {
+                    StartOutcome.Started => "late start",
+                    StartOutcome.OneShotNotReestablished => "late one-shot not re-established",
+                    StartOutcome.NotOpened => "late sound did not arrive; not started",
+                    StartOutcome.Silenced => "late sound silent at its distance; not started",
+                    _ => null,
+                };
+
+                if (said is not null)
+                {
+                    audio.LogInformation(
+                        "{Message}",
+                        $"{said} '{sound.Name}' (tick {sound.Tick.ToString(CultureInfo.InvariantCulture)}) at tick {tick.ToString(CultureInfo.InvariantCulture)}");
+                }
+            }
+
+            _retrying = false;
+        }
 
         // **Re-establishing, not replaying.** `Advance` carries EVENTS, and a looping ambient is
         // state: cp_process starts six `)ambient/machine_hum.wav` at tick 4 and does not mention
@@ -692,6 +754,9 @@ public sealed partial class SoundPresenter(
         (float X, float Y, float Z) right,
         bool reestablishing)
     {
+        // Every branch that does not start the sound overwrites this.
+        _outcome = StartOutcome.Started;
+
         // **A stop silences a channel rather than starting anything, and dropping it is audible.**
         // Measured: 15 of movement-test-pov-cp_process's 89 sounds are stops, and they name the
         // looping ones — doors/door_metal_rusty_move five times against eight starts,
@@ -741,6 +806,8 @@ public sealed partial class SoundPresenter(
         // channel, so a stop naming another sound, or one that cannot load, stops nothing.
         if (sound.IsStop)
         {
+            _outcome = StartOutcome.Stop;
+
             if (sound.Name.Length > 0 && sample(sound.Name) is { } named)
             {
                 // The sink names the one voice it stopped — the first in start order, as `S_AlterChannel` stops one — so
@@ -763,6 +830,12 @@ public sealed partial class SoundPresenter(
                     }
                 }
             }
+            else if (sound.Name.Length > 0 && Loading(sound.Name))
+            {
+                // Nothing can be playing a sound that has not loaded, so the stop stops nothing, as `S_AlterChannel`
+                // matching no channel (finding 90).
+                audio.LogInformation("{Message}", $"stop of '{sound.Name}' (tick {sound.Tick.ToString(CultureInfo.InvariantCulture)}) while it loads: nothing to stop");
+            }
 
             return;
         }
@@ -771,6 +844,22 @@ public sealed partial class SoundPresenter(
         // unassigned (CS0165), and Safe Mode then drops every mutation in this method — B410.
         if (sound.Name.Length == 0 || sample(sound.Name) is not { } opened)
         {
+            _outcome = StartOutcome.NotOpened;
+
+            if (sound.Name.Length > 0 && Loading(sound.Name))
+            {
+                _outcome = StartOutcome.Waiting;
+
+                if (!_retrying)
+                {
+                    audio.LogInformation(
+                        "{Message}",
+                        $"waiting for '{sound.Name}' (tick {sound.Tick.ToString(CultureInfo.InvariantCulture)}, {(reestablishing ? "re-established" : "started")})");
+                }
+
+                _late.Add((sound, reestablishing));
+            }
+
             return;
         }
 
@@ -780,6 +869,7 @@ public sealed partial class SoundPresenter(
         // on arrival would be the seek-replay stutter `Advance` refuses to make.
         if (reestablishing && !opened.Loops)
         {
+            _outcome = StartOutcome.OneShotNotReestablished;
             return;
         }
 
@@ -829,6 +919,7 @@ public sealed partial class SoundPresenter(
             // This is the drop that can silence everything: a one-shot whose gain came out zero is
             // discarded here, so a wrong gain curve removes nearly all sound and reports nothing.
             _silenced++;
+            _outcome = StartOutcome.Silenced;
             ReportAudioOutput();
 
             if (audio.IsEnabled(LogLevel.Debug))

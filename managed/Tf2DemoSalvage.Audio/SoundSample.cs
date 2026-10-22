@@ -228,6 +228,19 @@ public static class SoundSampleReader
     /// </remarks>
     private static SoundSampleResult FromMp3(ReadOnlyMemory<byte> file)
     {
+        // **One MP3 decode at a time** (finding 90): NLayer 2.0.1 keeps static fields that are not read-only —
+        // `Huffman._llCache`, `_llCacheMaxBits`, `FrameBase._totalAllocation` and the synthesis tables — listed by reflection
+        // over the shipped assembly. Sounds now decode on the load worker and the pool at once, so the library is serialized.
+        lock (Mp3Gate)
+        {
+            return FromMp3Unserialized(file);
+        }
+    }
+
+    private static readonly System.Threading.Lock Mp3Gate = new();
+
+    private static SoundSampleResult FromMp3Unserialized(ReadOnlyMemory<byte> file)
+    {
         try
         {
             using MemoryStream stream = new(file.ToArray(), writable: false);

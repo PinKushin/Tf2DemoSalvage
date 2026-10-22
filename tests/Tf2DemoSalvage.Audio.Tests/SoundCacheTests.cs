@@ -236,6 +236,246 @@ public sealed class SoundCacheTests
         cache.Held.Misses.ShouldBe(1);
     }
 
+    /// <remarks>
+    /// **A first play in the frame reads nothing on the caller** (B568, finding 90). The engine's mixer under
+    /// `snd_async_fullyasync` or an async-load source does not mix a sound until its data arrives, and kicks the load
+    /// instead (engine.dll FUN_18004bc10). So the first ask answers silence and hands one load away; the answer arrives on
+    /// the next ask after the load ran, counted off the frame and not as a decode in play.
+    /// </remarks>
+    [Test]
+    public void Sample_InPlayWithAnOffFrameLoader_ReadsNothingOnTheCallerAndAnswersOnceLoaded()
+    {
+        List<string> reads = [];
+        List<Action> jobs = [];
+        SoundCache cache = Cache(reads, offFrame: jobs.Add);
+
+        cache.Sample("a.wav").ShouldBeNull();
+        reads.ShouldBeEmpty("the caller's thread read nothing");
+        jobs.Count.ShouldBe(1);
+
+        jobs[0]();
+
+        cache.Sample("a.wav").ShouldNotBeNull();
+        reads.ShouldBe(["sound/a.wav"]);
+        cache.Held.ShouldBe(new SoundCacheHeld(Sounds: 1, WaveBytes: 2, Mp3Bytes: 0, Misses: 0, OffFrame: 1));
+    }
+
+    [Test]
+    public void Sample_AskedAgainWhileItsLoadIsPending_QueuesNoSecondLoad()
+    {
+        List<Action> jobs = [];
+        SoundCache cache = Cache([], offFrame: jobs.Add);
+
+        cache.Sample("a.wav");
+        cache.Sample("a.wav").ShouldBeNull("still loading");
+
+        jobs.Count.ShouldBe(1);
+    }
+
+    /// <remarks>A load started on one level must not land in the next: a pakfile can shadow the path (B485).</remarks>
+    [Test]
+    public void Sample_ALoadFinishingAfterANewLevel_IsNotKept()
+    {
+        List<Action> jobs = [];
+        SoundCache cache = Cache([], offFrame: jobs.Add);
+
+        cache.Sample("a.wav");
+        cache.Level(_ => OneSample);
+        jobs[0]();
+
+        cache.Sample("a.wav").ShouldBeNull("the old level's load was dropped, so this asks again");
+        jobs.Count.ShouldBe(2);
+        cache.Held.OffFrame.ShouldBe(0);
+    }
+
+    [Test]
+    public void Sample_AnOffFrameLoadTheInstallCannotOpen_IsCountedOnceAndNotRetried()
+    {
+        List<Action> jobs = [];
+        SoundCache cache = Cache([], has: _ => false, offFrame: jobs.Add);
+
+        cache.Sample("gone.wav");
+        jobs[0]();
+        cache.Sample("gone.wav").ShouldBeNull();
+        cache.Sample("gone.wav").ShouldBeNull();
+
+        jobs.Count.ShouldBe(1);
+        cache.Unopened.ShouldBe(1);
+    }
+
+    /// <remarks>A precache that decodes a name while its play-time load is in flight holds it once; the late load is dropped.</remarks>
+    [Test]
+    public void Sample_AnOffFrameLoadArrivingAfterAPrecacheHeldIt_IsNotHeldTwice()
+    {
+        List<Action> jobs = [];
+        SoundCache cache = Cache([], offFrame: jobs.Add);
+
+        cache.Sample("a.wav");
+        cache.Precache(["a.wav"]);
+        jobs[0]();
+        cache.Sample("a.wav").ShouldNotBeNull();
+
+        cache.Held.ShouldBe(new SoundCacheHeld(Sounds: 1, WaveBytes: 2, Mp3Bytes: 0, Misses: 0, OffFrame: 0));
+    }
+
+    [Test]
+    public void Loading_WhileItsLoadIsPending_IsTrueUntilTheLoadIsTakenIn()
+    {
+        List<Action> jobs = [];
+        SoundCache cache = Cache([], offFrame: jobs.Add);
+
+        cache.Loading("a.wav").ShouldBeFalse("nothing asked for yet");
+        cache.Sample("a.wav");
+        cache.Loading("a.wav").ShouldBeTrue();
+
+        jobs[0]();
+
+        cache.Loading("a.wav").ShouldBeFalse();
+        cache.Sample("a.wav").ShouldNotBeNull();
+    }
+
+    /// <remarks>
+    /// **A load that throws on the pool thread is caught there** (finding 90): uncaught, it ends the process. It is logged
+    /// with the sound's name and remembered as failed, so it is neither "loading" forever nor asked for again.
+    /// </remarks>
+    [Test]
+    public void Sample_AnOffFrameLoadThatThrows_IsLoggedByNameAndMarkedFailed()
+    {
+        List<Action> jobs = [];
+        List<string> lines = [];
+        SoundCache cache = new(new Recorder(lines))
+        {
+            OffFrame = jobs.Add,
+            Read = _ => throw new InvalidOperationException("broken archive"),
+        };
+
+        cache.Sample("weapons/bad.wav");
+        Should.NotThrow(jobs[0]);
+
+        cache.Sample("weapons/bad.wav").ShouldBeNull();
+        cache.Loading("weapons/bad.wav").ShouldBeFalse();
+        cache.Sample("weapons/bad.wav").ShouldBeNull();
+        jobs.Count.ShouldBe(1, "a failed sound is not retried");
+        lines.ShouldContain(line => line.Contains("weapons/bad.wav", StringComparison.Ordinal) && line.Contains("broken archive", StringComparison.Ordinal));
+    }
+
+    /// <remarks>
+    /// **Two loads on the pool at once both arrive** (finding 90). The read rendezvous on a barrier, so the test fails if the
+    /// two did not overlap; each is a different file, so a crossed result would show as the wrong sample rate.
+    /// </remarks>
+    [Test]
+    public void Sample_TwoOffFrameLoadsAtOnce_BothArriveIntact()
+    {
+        using global::System.Threading.Barrier together = new(2);
+        using global::System.Threading.CountdownEvent done = new(2);
+        bool overlapped = true;
+
+        SoundCache cache = new(NullLogger.Instance)
+        {
+            OffFrame = work => global::System.Threading.ThreadPool.QueueUserWorkItem(_ =>
+            {
+                work();
+                done.Signal();
+            }),
+            Read = path =>
+            {
+                overlapped &= together.SignalAndWait(TimeSpan.FromSeconds(10));
+
+                return WaveBytes(16, 1, path.Contains("low", StringComparison.Ordinal) ? 11025 : 44100, [0x01, 0x00]);
+            },
+        };
+
+        cache.Sample("low.wav");
+        cache.Sample("high.wav");
+        done.Wait(TimeSpan.FromSeconds(10)).ShouldBeTrue();
+
+        overlapped.ShouldBeTrue("the two reads ran at the same time");
+        cache.Sample("low.wav")!.Value.SampleRate.ShouldBe(11025);
+        cache.Sample("high.wav")!.Value.SampleRate.ShouldBe(44100);
+    }
+
+    /// <remarks>
+    /// **The MP3 decoder under the same overlap** (finding 90): NLayer keeps mutable statics, so its decodes are
+    /// serialized. Several loads start on the real pool together, each a different frame count so a crossed or damaged
+    /// result shows as the wrong length. Whether removing the lock reddens this is recorded in finding 90.
+    /// </remarks>
+    [Test]
+    public void Sample_SeveralOffFrameMp3LoadsAtOnce_EachArrivesWithItsOwnFrames()
+    {
+        const int Loads = 8;
+        using global::System.Threading.Barrier together = new(Loads);
+        using global::System.Threading.CountdownEvent done = new(Loads);
+        bool overlapped = true;
+
+        SoundCache cache = new(NullLogger.Instance)
+        {
+            OffFrame = work => global::System.Threading.ThreadPool.QueueUserWorkItem(_ =>
+            {
+                work();
+                done.Signal();
+            }),
+            Read = path =>
+            {
+                if (!path.EndsWith(".mp3", StringComparison.Ordinal))
+                {
+                    return null;
+                }
+
+                overlapped &= together.SignalAndWait(TimeSpan.FromSeconds(10));
+
+                return SyntheticMp3.Silent(FramesOf(path), stereo: true);
+            },
+        };
+
+        for (int load = 0; load < Loads; load++)
+        {
+            cache.Sample($"v{load}.mp3");
+        }
+
+        done.Wait(TimeSpan.FromSeconds(20)).ShouldBeTrue();
+        overlapped.ShouldBeTrue("every read ran at the same time");
+
+        for (int load = 0; load < Loads; load++)
+        {
+            cache.Sample($"v{load}.mp3")!.Value.FrameCount.ShouldBe(FramesOf($"sound/v{load}.mp3") * SyntheticMp3.SamplesPerFrame);
+        }
+
+        static int FramesOf(string path) => 40 + (10 * (path[^5] - '0'));
+    }
+
+    [Test]
+    public void Precache_WithAnOffFrameLoader_StillDecodesOnTheCaller()
+    {
+        // The control for the deferral: a precache is the load worker's, outside any frame, and must arrive complete.
+        List<Action> jobs = [];
+        SoundCache cache = Cache([], offFrame: jobs.Add);
+
+        cache.Precache(["a.wav"]).Decoded.ShouldBe(1);
+
+        jobs.ShouldBeEmpty();
+        cache.Sample("a.wav").ShouldNotBeNull();
+    }
+
+    /// <remarks>
+    /// **A second precache decodes only names no earlier precache of the level listed** (B570). It runs on the UI thread
+    /// in `ViewerPresenter.Apply`; past the cap, re-asking for the first pass's names re-decoded every evicted one there.
+    /// A cap of two one-sample WAVs, three precached, then the same three and one more: only the new one is read.
+    /// </remarks>
+    [Test]
+    public void Precache_ASecondPassAfterTheCapEvicted_ReadsOnlyTheNewName()
+    {
+        List<string> reads = [];
+        SoundCache cache = Cache(reads, capacityBytes: 4);
+
+        cache.Precache(["a.wav", "b.wav", "c.wav"]);
+        reads.Count.ShouldBe(3, "the control: the first pass read all three");
+        reads.Clear();
+
+        cache.Precache(["a.wav", "b.wav", "c.wav", "d.wav"]);
+
+        reads.ShouldBe(["sound/d.wav"]);
+    }
+
     [Test]
     public void Sample_WithNoName_Refuses()
     {
@@ -254,9 +494,12 @@ public sealed class SoundCacheTests
     /// <param name="reads">Records every path asked for, in order.</param>
     /// <param name="has">Which paths exist; everything, by default.</param>
     /// <param name="capacityBytes">The cache's cap.</param>
-    private static SoundCache Cache(List<string> reads, Func<string, bool>? has = null, long capacityBytes = SoundCache.CapacityBytes) =>
+    /// <param name="offFrame">Where an in-play load is handed; null keeps it on the caller.</param>
+    private static SoundCache Cache(
+        List<string> reads, Func<string, bool>? has = null, long capacityBytes = SoundCache.CapacityBytes, Action<Action>? offFrame = null) =>
         new(NullLogger.Instance, capacityBytes)
         {
+            OffFrame = offFrame,
             Read = path =>
             {
                 reads.Add(path);
@@ -264,6 +507,22 @@ public sealed class SoundCacheTests
                 return has is null || has(path) ? OneSample : null;
             },
         };
+
+    /// <summary>Keeps every formatted line.</summary>
+    private sealed class Recorder(List<string> lines) : Microsoft.Extensions.Logging.ILogger
+    {
+        public IDisposable? BeginScope<TState>(TState state)
+            where TState : notnull => null;
+
+        public bool IsEnabled(Microsoft.Extensions.Logging.LogLevel logLevel) => true;
+
+        public void Log<TState>(
+            Microsoft.Extensions.Logging.LogLevel logLevel,
+            Microsoft.Extensions.Logging.EventId eventId,
+            TState state,
+            Exception? exception,
+            Func<TState, Exception?, string> formatter) => lines.Add(formatter(state, exception));
+    }
 
     /// <summary>A minimal 16-bit mono RIFF/WAVE carrying a single sample.</summary>
     private static byte[] OneSample => WaveBytes(16, 1, 22050, [0x01, 0x00]);

@@ -40,6 +40,9 @@ public sealed class SoundscapeSystem(
     /// <inheritdoc/>
     public string Name => "soundscape";
 
+    /// <summary>Whether a wave <c>sample</c> answered null for is still on its way (<see cref="SoundCache.Loading"/>); never, by default.</summary>
+    public Func<string, bool> Loading { get; init; } = static _ => false;
+
     /// <summary>Forgets the level's placements, its tree and everything currently sounding.</summary>
     /// <remarks>
     /// **`LevelShutdownPreEntity` rather than the post half, because these ARE the entity data.**
@@ -387,6 +390,13 @@ public sealed class SoundscapeSystem(
         // unassigned (CS0165), and Safe Mode then drops every mutation in this method — B410.
         if (sample(voice.Wave) is not { } opened)
         {
+            // Still loading: not started, so the next pass asks again and the loop starts when it arrives — late, as the
+            // engine's channel waits out a mixer that is not ready (engine.dll FUN_18003f2c0, finding 90).
+            if (Loading(voice.Wave))
+            {
+                return;
+            }
+
             // Remembered as started even when it could not be opened, so a missing file is looked
             // up once rather than every frame of a three-second fade.
             audio.LogWarning("{Message}", $"soundscape loop '{voice.Wave}' would not open");
