@@ -1,0 +1,61 @@
+=== shots-serial1
+
+measured 40 seconds of playback, 38 samples (29 rebuild reports), ending at tick 32535; 3040 frames, mean 13.16 ms
+      census at tick 30213: bursts 44 (5 unoffered, 9 finished); bullet_scattergun_tracer01_blue 14/0; 
+bullet_scattergun_tracer01_red 5/0; blood_impact_red_01 4/1; muzzle_pipelauncher 4/2; muzzle_scattergun 4/2; 
+xms_ornament_glitter 3/0; trails 1; model decals 75; replays so far 2572.6 ms over 155591 steps; dynamic light draws 
+so far 0 of 61531, re-ranked 0, 0 ms
+      census at tick 30252: bursts 33 (7 unoffered, 14 finished); bullet_scattergun_tracer01_blue 5/0; 
+bullet_scattergun_tracer01_red 4/0; blood_impact_red_01 3/2; muzzle_pipelauncher 3/0; muzzle_pistol 3/3; 
+muzzle_scattergun 3/2; trails 1; model decals 75; replays so far 2572.6 ms over 155591 steps; dynamic light draws so 
+far 0 of 76448, re-ranked 0, 0 ms
+      census at tick 30293: bursts 17 (4 unoffered, 17 finished); medicgun_beam_blue 3/0; xms_ornament_glitter 3/0; 
+blood_impact_red_01 2/2; overhealedplayer_blue_pluses 2/0; rocketbackblast 2/1; medicgun_beam_red 1/0; trails 2; model 
+decals 75; replays so far 2572.6 ms over 155591 steps; dynamic light draws so far 0 of 91735, re-ranked 0, 0 ms
+      census at tick 30333: bursts 15 (3 unoffered, 2 finished); rocketbackblast 4/2; medicgun_beam_blue 3/0; 
+xms_ornament_glitter 3/0; overhealedplayer_blue_pluses 2/0; ExplosionCore_Wall 1/0; medicgun_beam_red 1/1; trails 4; 
+model decals 75; replays so far 2572.6 ms over 155591 steps; dynamic light draws so far 0 of 107984, re-ranked 0, 0 ms
+      census at tick 30392: bursts 16 (3 unoffered, 0 finished); ExplosionCore_Wall 4/0; rocketbackblast 3/3; 
+xms_ornament_glitter 3/0; medicgun_beam_blue 2/0; overhealedplayer_blue_pluses 2/0; medicgun_beam_red 1/0; trails 3; 
+model decals 75; replays so far 2572.6 ms over 155591 steps; dynamic light draws so far 0 of 131422, re-ranked 0, 0 ms
+=== shots-w8
+measured 40 seconds of playback, 39 samples (28 rebuild reports), ending at tick 32365; 2836 frames, mean 14.11 ms
+      census at tick 30227: bursts 40 (5 unoffered, 12 finished); bullet_scattergun_tracer01_blue 10/0; 
+bullet_scattergun_tracer01_red 5/0; blood_impact_red_01 4/2; muzzle_scattergun 4/3; xms_ornament_glitter 3/0; 
+blood_spray_red_01_far 2/0; trails 1; model decals 75; replays so far 2527 ms over 155591 steps; dynamic light draws 
+so far 0 of 67111, re-ranked 0, 0 ms
+      census at tick 30258: bursts 33 (7 unoffered, 15 finished); bullet_scattergun_tracer01_blue 5/0; 
+blood_impact_red_01 3/2; bullet_scattergun_tracer01_red 3/0; muzzle_pipelauncher 3/0; muzzle_pistol 3/3; 
+muzzle_scattergun 3/2; trails 2; model decals 75; replays so far 2527 ms over 155591 steps; dynamic light draws so far 
+0 of 78901, re-ranked 0, 0 ms
+      census at tick 30298: bursts 17 (4 unoffered, 12 finished); medicgun_beam_blue 3/0; xms_ornament_glitter 3/0; 
+blood_impact_red_01 2/2; overhealedplayer_blue_pluses 2/0; rocketbackblast 2/1; ExplosionCore_Wall 1/0; trails 2; 
+model decals 75; replays so far 2527 ms over 155591 steps; dynamic light draws so far 0 of 93671, re-ranked 0, 0 ms
+      census at tick 30337: bursts 15 (3 unoffered, 1 finished); rocketbackblast 4/2; medicgun_beam_blue 3/0; 
+xms_ornament_glitter 3/0; overhealedplayer_blue_pluses 2/0; ExplosionCore_Wall 1/0; medicgun_beam_red 1/1; trails 4; 
+model decals 75; replays so far 2527 ms over 155591 steps; dynamic light draws so far 0 of 109747, re-ranked 0, 0 ms
+      census at tick 30397: bursts 17 (2 unoffered, 0 finished); ExplosionCore_Wall 4/0; xms_ornament_glitter 3/0; 
+medicgun_beam_blue 2/0; muzzle_pipelauncher 2/0; overhealedplayer_blue_pluses 2/0; rocketbackblast 2/2; trails 3; 
+model decals 75; replays so far 2527 ms over 155591 steps; dynamic light draws so far 0 of 133320, re-ranked 0, 0 ms
+=== shots-serial2
+measured 40 seconds of playback, 39 samples (31 rebuild reports), ending at tick 32612; 3132 frames, mean 12.77 ms
+      census at tick 30213: bursts 45 (5 unoffered, 9 finished); bullet_scattergun_tracer01_blue 14/0; 
+bullet_scattergun_tracer01_red 5/0; blood_impact_red_01 4/1; muzzle_pipelauncher 4/2; muzzle_scattergun 4/2; 
+xms_ornament_glitter 3/0; trails 1; model decals 75; replays so far 2634 ms over 155591 steps; dynamic light draws so 
+far 0 of 61866, re-ranked 0, 0 ms
+      census at tick 30252: bursts 33 (7 unoffered, 14 finished); bullet_scattergun_tracer01_blue 5/0; 
+bullet_scattergun_tracer01_red 4/0; blood_impact_red_01 3/2; muzzle_pipelauncher 3/0; muzzle_pistol 3/3; 
+muzzle_scattergun 3/2; trails 1; model decals 75; replays so far 2634 ms over 155591 steps; dynamic light draws so far 
+0 of 76448, re-ranked 0, 0 ms
+      census at tick 30293: bursts 17 (4 unoffered, 17 finished); medicgun_beam_blue 3/0; xms_ornament_glitter 3/0; 
+blood_impact_red_01 2/2; overhealedplayer_blue_pluses 2/0; rocketbackblast 2/1; medicgun_beam_red 1/0; trails 2; model 
+decals 75; replays so far 2634 ms over 155591 steps; dynamic light draws so far 0 of 91735, re-ranked 0, 0 ms
+      census at tick 30333: bursts 15 (3 unoffered, 2 finished); rocketbackblast 4/2; medicgun_beam_blue 3/0; 
+xms_ornament_glitter 3/0; overhealedplayer_blue_pluses 2/0; ExplosionCore_Wall 1/0; medicgun_beam_red 1/1; trails 4; 
+model decals 75; replays so far 2634 ms over 155591 steps; dynamic light draws so far 0 of 107984, re-ranked 0, 0 ms
+      census at tick 30393: bursts 18 (3 unoffered, 0 finished); ExplosionCore_Wall 4/0; rocketbackblast 3/3; 
+xms_ornament_glitter 3/0; medicgun_beam_blue 2/0; muzzle_pipelauncher 2/0; overhealedplayer_blue_pluses 2/0; trails 3; 
+model decals 75; replays so far 2634 ms over 155591 steps; dynamic light draws so far 0 of 132055, re-ranked 0, 0 ms
+
+
+[exited with code 0]

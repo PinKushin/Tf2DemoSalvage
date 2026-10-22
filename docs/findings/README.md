@@ -339,6 +339,11 @@ in any public writeup found:
   each frame (0.53 → 0.19 ms). The dynamic-light merge never runs on f12, and a struct copy's sampled share proved not to
   be its cost. The finding ends with a design note on which parts could run on other threads with identical output
   ([93](93-the-camera-phase-is-a-long-tail.md)).
+- **Threading the particles saved about a seventh of the estimate, and bone setup cannot be threaded as it stands.** The played
+  bursts step on workers with byte-identical output (step 0.36 → 0.28 ms); the threaded build does not move. Static
+  pose counters, cross-tree follow chains and the draw loop's reach block threaded bone setup (the model caches, first
+  named as the blocker, turned out to be concurrent already) ([94](94-threads-buy-little-of-the-camera.md),
+  measurements/2026-10-22-threaded-particles.md).
 
 ## Conventions used throughout
 
