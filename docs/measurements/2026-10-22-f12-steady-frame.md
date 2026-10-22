@@ -40,7 +40,16 @@ TF2VIEW_AUTOPLAY=1 TF2VIEW_VIEWPORT_SIZE=<size> pwsh C:/Users/pinku/source/repos
   --tick 30000 --first-person --measure 20 +fps_max 0
 ```
 
-Runs: A1, A2 at 1280x720; B1 at 320x180. Raw outputs in `2026-10-22-f12-steady-frame/`.
+Runs: A1, A2 at 1280x720; B1 at 320x180; then interleaved B2, A3, B3, A4 (added after A2 broke the 15% control under
+30-50% background load, before any Result was written). Each run samples CPU load (3 x 2 s) before and after. Raw outputs in
+`2026-10-22-f12-steady-frame/`; the steady figure is the per-second samples after the first five, frame-weighted.
+
+Trace: the same command at 1280x720 under `dotnet-trace collect --profile dotnet-sampled-thread-time -o T1.nettrace --
+<exe> <demo> ...`, read with the probe `cpu-trace T1.nettrace <from> <to> <render thread> 60` over the steady window.
+
+Trace control: the render thread is the one whose inclusive top is the frame loop and which holds `EntityModelSet.Instances`;
+its inclusive share for the `camera`-phase methods should be roughly the `--measure` camera share (within a factor of 1.5)
+or the sample is not of the frame the timers saw.
 
 ## Control
 
