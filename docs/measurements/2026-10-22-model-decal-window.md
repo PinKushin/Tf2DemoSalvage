@@ -65,3 +65,14 @@ Those runs are the comparison, and they are **not interleaved**.
 unchanged. `camera` fell from 6.99-7.16 to 6.50-6.65, and the frame from 11.86-11.99 to 10.96-11.29. The frame's drop is
 larger than the decal saving and is inside run-to-run noise, so it is not claimed. An interleaved before/after from a
 correct before binary remains to be done.
+
+## Second pair: interleaved, from a built-in-place base (method fixed before running)
+
+**Why.** The first pair's before binary was void. **Method:** the base is built in its own worktree, `F:/tdsb` at
+`a43b12b4`, so it runs from a normal tree, not from a copied `bin`. Each run rebuilds both trees (`dotnet build
+managed/Tf2DemoSalvage.Viewer3D`) in the same command and then runs one of them. The order is B1 A1 A2 B2 B3 A3 (ABBA, so
+a drift in load hits both sides alike). The command, load sampling and steady window are as above. Raw output goes in
+`2026-10-22-model-decal-window/P-*.txt`. **Control:** every run, base and change, must print `camera particles/decals`
+and the census `model decals 75`. A base run without the parts is void, as in the first pair. The base runs must also
+agree with R1/R2 of the breakdown within 15% on `decals` (0.52-0.53).
+**Prediction:** `decals` base 0.45-0.60, change 0.15-0.25. The difference of the means is 0.25-0.40 ms.
