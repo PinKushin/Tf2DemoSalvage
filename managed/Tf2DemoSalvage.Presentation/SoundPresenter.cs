@@ -59,6 +59,18 @@ public sealed partial class SoundPresenter(
     Func<string, SoundSample?> sample,
     ILogger audio) : IGameSystem
 {
+    /// <summary>Whether a sound <c>sample</c> answered null for is still on its way (<c>SoundCache.Loading</c>); never, by default.</summary>
+    public Func<string, bool> Loading { get; init; } = static _ => false;
+
+    /// <summary>Sounds started while their sample was loading, started again each pass until it arrives (finding 90).</summary>
+    /// <remarks>
+    /// **Late, not lost, because the engine's channel is.** `S_StartSound` made the channel; each mix pass leaves a channel
+    /// whose mixer is not ready out of that pass's list without freeing it or skipping its samples (engine.dll
+    /// FUN_18003f2c0, mixer slot +0x60), so it plays from its first sample, with the parameters it started with, from the
+    /// pass its data arrives. A seek stops every channel, so it empties this too.
+    /// </remarks>
+    private readonly List<(SceneSound Sound, bool Reestablishing)> _late = [];
+
     /// <summary>`snd_musicvolume`, asked every pass: the engine recomputes each channel's gain every mix (FUN_1800292f0, B545).</summary>
     public Func<float> MusicVolume { get; init; } = static () => 1f;
 
@@ -329,6 +341,7 @@ public sealed partial class SoundPresenter(
             // that no longer existed. The map's room tone died at the first seek and never came
             // back, with nothing reported anywhere.
             soundscape.Clear();
+            _late.Clear();
         }
 
         long advanced = Stopwatch.GetTimestamp();
@@ -350,6 +363,30 @@ public sealed partial class SoundPresenter(
         soundscape.Update(output, listener, right, now, recorded);
 
         long soundscaped = Stopwatch.GetTimestamp();
+
+        // The late ones first: they were started on an earlier pass than anything below.
+        if (_late.Count > 0)
+        {
+            (SceneSound Sound, bool Reestablishing)[] waiting = [.. _late];
+            _late.Clear();
+
+            foreach ((SceneSound sound, bool again) in waiting)
+            {
+                int stillWaiting = _late.Count;
+
+                Start(output, sound, listener, right, again);
+
+                // Said where it is decided (B243): no longer waiting, and the sample is there, is a late start.
+                if (_late.Count == stillWaiting)
+                {
+                    audio.LogInformation(
+                        "{Message}",
+                        sample(sound.Name) is null
+                            ? $"late sound '{sound.Name}' (tick {sound.Tick.ToString(CultureInfo.InvariantCulture)}) did not arrive; not started"
+                            : $"late start '{sound.Name}' (tick {sound.Tick.ToString(CultureInfo.InvariantCulture)}) at tick {tick.ToString(CultureInfo.InvariantCulture)}");
+                }
+            }
+        }
 
         // **Re-establishing, not replaying.** `Advance` carries EVENTS, and a looping ambient is
         // state: cp_process starts six `)ambient/machine_hum.wav` at tick 4 and does not mention
@@ -771,6 +808,11 @@ public sealed partial class SoundPresenter(
         // unassigned (CS0165), and Safe Mode then drops every mutation in this method — B410.
         if (sound.Name.Length == 0 || sample(sound.Name) is not { } opened)
         {
+            if (sound.Name.Length > 0 && Loading(sound.Name))
+            {
+                _late.Add((sound, reestablishing));
+            }
+
             return;
         }
 

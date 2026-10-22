@@ -258,20 +258,41 @@ public sealed class SoundCache
     }
 
     /// <summary><see cref="Load"/> off the owner's thread, where an exception would end the process rather than reach a caller.</summary>
-    /// <remarks>The caught set is `DemoSounds.Precache`'s, plus the file read's own: a bad file costs that sound only.</remarks>
+    /// <remarks>
+    /// **Every exception, deliberately, and only here.** On the caller a failure reaches `DemoSounds.Precache`'s narrow
+    /// catch; on a pool thread nothing is above this, and an unhandled exception there ends the process. So it is caught,
+    /// carried back as a refusal naming the sound (logged by <see cref="Keep"/>), and the name is held as failed: not
+    /// pending, and not asked for again.
+    /// </remarks>
+#pragma warning disable CA1031 // A pool thread has no caller to rethrow to: uncaught, any exception ends the process (above).
     private static Loaded LoadCaught(string name, string key, Func<string, byte[]?> read)
     {
         try
         {
             return Load(name, key, read);
         }
-        catch (Exception failure) when (
-            failure is InvalidDataException or ArgumentException or KeyNotFoundException or IOException)
+        catch (Exception failure)
         {
             long now = Stopwatch.GetTimestamp();
 
-            return new Loaded(name, key, name, Opened: true, null, 0, false, $"{name}: {failure.Message}", now, now, now);
+            return new Loaded(
+                name, key, name, Opened: true, null, 0, false,
+                $"loading '{name}' off the frame failed: {failure.GetType().Name}: {failure.Message}", now, now, now);
         }
+    }
+#pragma warning restore CA1031
+
+    /// <summary>Whether a load of <paramref name="name"/> handed to <see cref="OffFrame"/> has not been taken in yet.</summary>
+    /// <param name="name">The name as the demo carries it.</param>
+    /// <returns>True while the sound is on its way; false once it arrived, failed, or was never asked for.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="name"/> is null.</exception>
+    public bool Loading(string name)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+
+        Drain();
+
+        return _pending.Contains(SoundName.SfxKey(name));
     }
 
     /// <summary>Takes in a load: the cache entry, the cap, and what is worth saying about it.</summary>
@@ -323,10 +344,13 @@ public sealed class SoundCache
 
             Keep(loaded);
 
-            if (loaded.Opened)
+            // A failure or a missing file was reported by Keep; only an arrival is counted and named here.
+            if (loaded.Sample is not { } arrivedSample)
             {
-                _held = _held with { OffFrame = _held.OffFrame + 1 };
+                continue;
             }
+
+            _held = _held with { OffFrame = _held.OffFrame + 1 };
 
             // Stryker disable all : the String mutator cannot bind to string.Create's handler (CS1620) — B410.
             _audio.LogInformation(
@@ -334,7 +358,7 @@ public sealed class SoundCache
                 string.Create(
                     CultureInfo.InvariantCulture,
                     $"loaded off the frame '{loaded.Name}' (read {(loaded.OpenedAt - loaded.ReadAt) * 1000d / Stopwatch.Frequency:0.0} ms, " +
-                    $"decode {(loaded.DecodedAt - loaded.OpenedAt) * 1000d / Stopwatch.Frequency:0.0} ms; {loaded.Sample?.FrameCount ?? 0} frames)"));
+                    $"decode {(loaded.DecodedAt - loaded.OpenedAt) * 1000d / Stopwatch.Frequency:0.0} ms; {arrivedSample.FrameCount} frames)"));
 
             // Stryker restore all
         }

@@ -250,9 +250,11 @@ public sealed partial class ViewerPresenter : IDisposable
         // A first play in the frame is read and decoded on the pool, not the render thread (B568, finding 90).
         _sounds = new SoundCache(_audioLog) { OffFrame = static work => System.Threading.ThreadPool.QueueUserWorkItem(_ => work()) };
         // `snd_musicvolume` is asked for on every pass, so the first frame and a live change both read the setting (B545).
-        _soundscape = new SoundscapeSystem(_loops, _sounds.Sample, _audioLog) { MusicVolume = () => _settingsOwner.MusicVolume };
+        // A sound asked for while it loads plays late, when it arrives (finding 90).
+        _soundscape = new SoundscapeSystem(_loops, _sounds.Sample, _audioLog) { MusicVolume = () => _settingsOwner.MusicVolume, Loading = _sounds.Loading };
         _sound = new SoundPresenter(_soundscape, _loops, _sounds.Sample, _audioLog)
         {
+            Loading = _sounds.Loading,
             ClientSoundLog = _renderLog,
             MusicVolume = () => _settingsOwner.MusicVolume,
         };

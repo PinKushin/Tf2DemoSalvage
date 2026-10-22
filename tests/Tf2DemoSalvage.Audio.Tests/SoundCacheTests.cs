@@ -319,6 +319,82 @@ public sealed class SoundCacheTests
     }
 
     [Test]
+    public void Loading_WhileItsLoadIsPending_IsTrueUntilTheLoadIsTakenIn()
+    {
+        List<Action> jobs = [];
+        SoundCache cache = Cache([], offFrame: jobs.Add);
+
+        cache.Loading("a.wav").ShouldBeFalse("nothing asked for yet");
+        cache.Sample("a.wav");
+        cache.Loading("a.wav").ShouldBeTrue();
+
+        jobs[0]();
+
+        cache.Loading("a.wav").ShouldBeFalse();
+        cache.Sample("a.wav").ShouldNotBeNull();
+    }
+
+    /// <remarks>
+    /// **A load that throws on the pool thread is caught there** (finding 90): uncaught, it ends the process. It is logged
+    /// with the sound's name and remembered as failed, so it is neither "loading" forever nor asked for again.
+    /// </remarks>
+    [Test]
+    public void Sample_AnOffFrameLoadThatThrows_IsLoggedByNameAndMarkedFailed()
+    {
+        List<Action> jobs = [];
+        List<string> lines = [];
+        SoundCache cache = new(new Recorder(lines))
+        {
+            OffFrame = jobs.Add,
+            Read = _ => throw new InvalidOperationException("broken archive"),
+        };
+
+        cache.Sample("weapons/bad.wav");
+        Should.NotThrow(jobs[0]);
+
+        cache.Sample("weapons/bad.wav").ShouldBeNull();
+        cache.Loading("weapons/bad.wav").ShouldBeFalse();
+        cache.Sample("weapons/bad.wav").ShouldBeNull();
+        jobs.Count.ShouldBe(1, "a failed sound is not retried");
+        lines.ShouldContain(line => line.Contains("weapons/bad.wav", StringComparison.Ordinal) && line.Contains("broken archive", StringComparison.Ordinal));
+    }
+
+    /// <remarks>
+    /// **Two loads on the pool at once both arrive** (finding 90). The read rendezvous on a barrier, so the test fails if the
+    /// two did not overlap; each is a different file, so a crossed result would show as the wrong sample rate.
+    /// </remarks>
+    [Test]
+    public void Sample_TwoOffFrameLoadsAtOnce_BothArriveIntact()
+    {
+        using global::System.Threading.Barrier together = new(2);
+        using global::System.Threading.CountdownEvent done = new(2);
+        bool overlapped = true;
+
+        SoundCache cache = new(NullLogger.Instance)
+        {
+            OffFrame = work => global::System.Threading.ThreadPool.QueueUserWorkItem(_ =>
+            {
+                work();
+                done.Signal();
+            }),
+            Read = path =>
+            {
+                overlapped &= together.SignalAndWait(TimeSpan.FromSeconds(10));
+
+                return WaveBytes(16, 1, path.Contains("low", StringComparison.Ordinal) ? 11025 : 44100, [0x01, 0x00]);
+            },
+        };
+
+        cache.Sample("low.wav");
+        cache.Sample("high.wav");
+        done.Wait(TimeSpan.FromSeconds(10)).ShouldBeTrue();
+
+        overlapped.ShouldBeTrue("the two reads ran at the same time");
+        cache.Sample("low.wav")!.Value.SampleRate.ShouldBe(11025);
+        cache.Sample("high.wav")!.Value.SampleRate.ShouldBe(44100);
+    }
+
+    [Test]
     public void Precache_WithAnOffFrameLoader_StillDecodesOnTheCaller()
     {
         // The control for the deferral: a precache is the load worker's, outside any frame, and must arrive complete.
@@ -382,6 +458,22 @@ public sealed class SoundCacheTests
                 return has is null || has(path) ? OneSample : null;
             },
         };
+
+    /// <summary>Keeps every formatted line.</summary>
+    private sealed class Recorder(List<string> lines) : Microsoft.Extensions.Logging.ILogger
+    {
+        public IDisposable? BeginScope<TState>(TState state)
+            where TState : notnull => null;
+
+        public bool IsEnabled(Microsoft.Extensions.Logging.LogLevel logLevel) => true;
+
+        public void Log<TState>(
+            Microsoft.Extensions.Logging.LogLevel logLevel,
+            Microsoft.Extensions.Logging.EventId eventId,
+            TState state,
+            Exception? exception,
+            Func<TState, Exception?, string> formatter) => lines.Add(formatter(state, exception));
+    }
 
     /// <summary>A minimal 16-bit mono RIFF/WAVE carrying a single sample.</summary>
     private static byte[] OneSample => WaveBytes(16, 1, 22050, [0x01, 0x00]);

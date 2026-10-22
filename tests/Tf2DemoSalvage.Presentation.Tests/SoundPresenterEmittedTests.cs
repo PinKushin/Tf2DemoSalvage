@@ -73,6 +73,67 @@ public sealed class SoundPresenterEmittedTests
         sink.Played.ShouldHaveSingleItem().Sample.ShouldBe(hit);
     }
 
+    /// <remarks>
+    /// **A sound whose sample is still loading plays late, once, when it arrives** (finding 90). The engine keeps the
+    /// channel S_StartSound made and leaves it out of each pass's mix until the mixer reports ready (engine.dll
+    /// FUN_18003f2c0: mixer slot +0x60 false removes it from that pass's list without freeing it, and no samples are
+    /// skipped), so it starts from its first sample at arrival with the parameters it was started with.
+    /// </remarks>
+    [Test]
+    public void Update_AfterEmitWhileItsSampleLoads_PlaysItOnceWhenItArrives()
+    {
+        SoundSample hit = new(SampleRate: 22050, Channels: 1, Samples: new float[] { 0.5f, -0.5f });
+        bool arrived = false;
+        SoundPresenter presenter = new(
+            new SoundscapeSystem(new ActiveLoops(), _ => null, NullLogger.Instance),
+            new ActiveLoops(),
+            name => arrived && string.Equals(name, Wave, StringComparison.Ordinal) ? hit : null,
+            NullLogger.Instance)
+        {
+            Loading = name => !arrived && string.Equals(name, Wave, StringComparison.Ordinal),
+            Schedule = new SoundSchedule([]),
+        };
+        Recording sink = new();
+
+        presenter.Update(sink, 40, (0f, 0f, 0f), (0f, -1f, 0f), now: 0d);
+        presenter.Emit(Impact(at: 100f));
+        presenter.Update(sink, 41, (0f, 0f, 0f), (0f, -1f, 0f), now: 0.015d);
+        presenter.Update(sink, 42, (0f, 0f, 0f), (0f, -1f, 0f), now: 0.03d);
+        sink.Played.ShouldBeEmpty("still loading");
+
+        arrived = true;
+        presenter.Update(sink, 43, (0f, 0f, 0f), (0f, -1f, 0f), now: 0.045d);
+        presenter.Update(sink, 44, (0f, 0f, 0f), (0f, -1f, 0f), now: 0.06d);
+
+        (SoundSample sample, float gain, _, int channel) = sink.Played.ShouldHaveSingleItem();
+        sample.ShouldBe(hit);
+        channel.ShouldBe(0);
+        gain.ShouldBeGreaterThan(0f);
+    }
+
+    /// <summary>The control: a sound that is not loading and will not open plays nothing, now or later.</summary>
+    [Test]
+    public void Update_AfterEmitOfASoundThatWillNotOpen_NeverPlaysIt()
+    {
+        SoundPresenter presenter = new(
+            new SoundscapeSystem(new ActiveLoops(), _ => null, NullLogger.Instance),
+            new ActiveLoops(),
+            _ => null,
+            NullLogger.Instance)
+        {
+            Loading = _ => false,
+            Schedule = new SoundSchedule([]),
+        };
+        Recording sink = new();
+
+        presenter.Update(sink, 40, (0f, 0f, 0f), (0f, -1f, 0f), now: 0d);
+        presenter.Emit(Impact(at: 100f));
+        presenter.Update(sink, 41, (0f, 0f, 0f), (0f, -1f, 0f), now: 0.015d);
+        presenter.Update(sink, 42, (0f, 0f, 0f), (0f, -1f, 0f), now: 0.03d);
+
+        sink.Played.ShouldBeEmpty();
+    }
+
     /// <summary>`ImpactCallback`'s camera gate holds for an emitted sound as for a scheduled one.</summary>
     [Test]
     public void Update_AfterEmitBeyondItsGate_PlaysNothing()
