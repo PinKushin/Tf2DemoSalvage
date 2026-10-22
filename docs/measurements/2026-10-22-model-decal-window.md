@@ -76,3 +76,24 @@ a drift in load hits both sides alike). The command, load sampling and steady wi
 and the census `model decals 75`. A base run without the parts is void, as in the first pair. The base runs must also
 agree with R1/R2 of the breakdown within 15% on `decals` (0.52-0.53).
 **Prediction:** `decals` base 0.45-0.60, change 0.15-0.25. The difference of the means is 0.25-0.40 ms.
+
+### Second pair: result
+
+All six runs had load at or under 14%. Every run printed `camera particles/decals` and the census `model decals 75`
+(controls met). Base `decals` 0.49-0.59, within 15% of R1/R2's 0.52-0.53 (control met).
+
+| run | build | camera | particles/decals | frame ms | load before / after |
+|---|---|---:|---:|---:|---|
+| B1 | base | 7.08 | 0.51 | 11.16 | 14/3/5 / 12/8/10 |
+| A1 | change | 6.54 | 0.18 | 12.51 | 6/4/9 / 2/6/7 |
+| A2 | change | 6.54 | 0.19 | 11.40 | 9/5/4 / 9/6/5 |
+| B2 | base | 7.01 | 0.59 | 11.59 | 9/5/4 / 8/6/8 |
+| B3 | base | 6.82 | 0.49 | 11.59 | 3/5/7 / 4/7/5 |
+| A3 | change | 6.62 | 0.19 | 11.38 | 11/9/4 / 12/9/8 |
+
+### Second pair: verdict
+
+**Prediction confirmed on an interleaved pair.** `decals` base mean 0.53, change 0.19: a 0.34 ms saving, with the ranges
+disjoint (0.49-0.59 against 0.18-0.19). `camera` base 6.82-7.08, change 6.54-6.62: 0.40 ms lower on the means, also
+disjoint. The whole frame does not resolve the saving: base 11.16-11.59, change 11.38-12.51. A1 is the slowest run, so
+no frame figure is claimed.
