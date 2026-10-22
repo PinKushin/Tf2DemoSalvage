@@ -1,0 +1,13 @@
+Waiting for shared runs to finish: PID 8960 — shared — C:/Program Files/Git/bin/bash.exe build/gate.sh — started 01:41:07
+
+Provider Name                           Keywords            Level               Enabled By
+Microsoft-DotNETCore-SampleProfiler     0x0000F00000000000  Informational(4)    --profile
+
+Launching: C:\Users\pinku\source\repos\PinKushin\Tf2DemoSalvage\.claude\worktrees\agent-a0614ee3fef56b067/managed/Tf2DemoSalvage.Viewer3D/bin/Debug/net10.0-windows/tf2demoview.exe C:/Users/pinku/source/repos/PinKushin/Tf2DemoSalvage/tools/corpus/local/demostf-cp_process_f12-2026-08-08-2207.dem --tick 30000 --first-person --measure 20 +fps_max 0 
+Process        : C:\Users\pinku\source\repos\PinKushin\Tf2DemoSalvage\.claude\worktrees\agent-a0614ee3fef56b067\managed\Tf2DemoSalvage.Viewer3D\bin\Debug\net10.0-windows\tf2demoview.exe
+Output File    : C:\Users\pinku\AppData\Local\Temp\claude\m1\T1.nettrace
+
+
+Trace completed.
+Process exited with code '0'.
+load before 73% after 60%

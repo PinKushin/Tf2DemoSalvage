@@ -67,6 +67,61 @@ or the sample is not of the frame the timers saw.
 
 ## Environment
 
+- Machine: RTX 3060, i5-10600K. Debug viewer built from `47be9006`/`c942fd56` (the record's own commits on top of main
+  `e1ec318a`; no code change), every run through `run-exclusive.ps1`.
+- Load (3 x 2 s samples, before / after each run, last line of each raw file): B2 36/65%, A3 60/16%, B3 11/29%,
+  A4 94/30%, C1 32/75%, C2 62/69%, T1 73/60%. A1, A2 and B1 had no per-run sample; a spot read between them was 30-38%
+  (owner's own processes). Other agents' gates and UI suites held the lock between runs, never during one.
+
 ## Result
 
+Steady = per-second samples after the first five, frame-weighted (`sum.ps1` over each raw file). Phases in ms a frame.
+
+| run | view | steady ms (fps) | camera | draw | advance | hud | sound |
+|---|---|---:|---:|---:|---:|---:|---:|
+| A1 | 1280x720 | 14.16 (70.6) | 8.36 | 2.81 | 1.17 | 1.13 | 0.27 |
+| A2 | 1280x720 | 20.77 (48.2) | 12.85 | 3.65 | 1.52 | 1.70 | 0.56 |
+| A3 | 1280x720 | 19.35 (51.7) | 11.58 | 3.67 | 1.49 | 1.54 | 0.40 |
+| A4 | 1280x720 | 15.48 (64.6) | 9.40 | 2.90 | 1.30 | 1.17 | 0.30 |
+| C1 | 1280x720 | 15.63 (64.0) | 9.45 | 2.92 | 1.28 | 1.22 | 0.32 |
+| B1 | 320x180 | 17.24 (58.0) | 10.84 | 2.53 | 1.45 | 1.39 | 0.43 |
+| B2 | 320x180 | 13.12 (76.2) | 8.26 | 2.02 | 1.13 | 1.13 | 0.21 |
+| B3 | 320x180 | 14.46 (69.2) | 9.07 | 2.22 | 1.28 | 1.21 | 0.28 |
+| C2 | 320x180 | 13.56 (73.8) | 8.24 | 2.24 | 1.16 | 1.07 | 0.22 |
+
+Ticks advanced: A1 ends at 31331, B1 31338, A2 31321 (about 66.6 a second over 20 s; control met).
+
+**GPU, the viewer's own 3D engine** (`C1-gpu.txt`, `C2-gpu.txt`; the counter sampled about every 1.5 s, not 0.5, because
+the read itself is slow): over the last playing seconds C1 read 6.3-10.2% and C2 6.0-9.0%. Control met: the 1/16 view reads
+lower.
+
+**CPU sample T1** (render thread 17520, 212-229 s of a 231 s trace, 8,258 samples; `T1-17520.txt`). Inclusive:
+`UploadCameraOver` 60.2%, `MomentScene.Pose` 33.6%, `EntityModelSet.Instances` 31.7%, `Device3D.DrawFrame` 18.6%,
+`BurstEffects.StepOver` 8.0%, `SkeletonPose.Build` 6.9%, **`EntityModelSet.FlexFor` 6.0%** (of it `FaceFlex.InBufferOrder`
+3.4%, `FaceFlex.Deltas` 0.6% leaf), `ModelLighting.For` 5.8%, `Device3D.UpdateExposure` 4.0% (`ExposureHistogram.TryRead`
+3.9%, a leaf: the CPU's per-pixel count of the read-back region), `DecalEffects.StepModelDecals` 2.3%.
+`PollGCWorker` is 42.3% of leaves; by its callers (`T1-17520-pollgc.txt`) it is a long tail of loop safe points, the
+largest `Instances` 3.7% and `ModelLighting.For` 2.7%, so it is charged to the frames above it and ranked by inclusive share.
+**Trace control:** `UploadCameraOver` (the `camera` phase) 60.2% against `camera`'s 59-62% of the frame in the A runs; met.
+
+**Deviations from the Method:**
+1. The A/B pair control (15%) failed: A runs spread 14.16-20.77 ms, B runs 13.12-17.24, with the load. The size test cannot
+   resolve under this load, and the GPU pair was added (before any Result) to answer it instead.
+2. T1's `--measure` lines were not captured (`dotnet-trace` does not pass the child's output through without
+   `--show-child-io`), so its window cannot be tied to its own phase timings; the control above uses the A runs instead.
+3. A1, A2 and B1 have no per-run load sample.
+4. Post hoc, not predicted: `draw/camera` is 0.31-0.34 in every 1280x720 run and 0.23-0.27 in every 320x180 run, so about
+   0.6-0.7 ms of `draw` scales with pixels.
+
 ## Verdict
+
+**H1 holds on the direct instrument and is inconclusive on the predicted one: the frame is CPU-bound.** The viewer's 3D
+engine is busy 6-10% of the time at 1280x720 (falsifying a GPU-bound frame), while the size pair was void under load and
+cannot confirm the 10% figure. Prediction 1 (13-17 ms at 1280x720) held in the three runs under 75% load and failed in two
+heavy-load runs; prediction 3 (`camera` at least 60%) held at 59-62%, on its edge. The steady 14-15.5 ms goes 8.4-9.5 to
+`camera` (pose about a third of the render thread, particles, set-camera), 2.8-2.9 to `draw`, about 1.2 each to `advance`
+and `hud`. The largest single method doing work the engine does not do is `FlexFor` (6.0% inclusive), whose spread of the
+deltas into buffer order rewrote every slot of the model each changing frame, though no flex reaches most of them (the
+engine's accumulation walks only the named vertices, finding 75; the spread is ours). Next is the exposure count on the
+processor (3.9%; Valve counts with GPU occlusion queries, `viewpostprocess.cpp:551-613`). The first is fixed and the second
+filed in finding 90.
