@@ -1,4 +1,4 @@
-# Which path asked for the Über sounds on f12 (finding 90, B568)
+# Which path asked for the Uber sounds on f12 (finding 90, B568)
 
 ## Observation
 
@@ -28,7 +28,7 @@ Inferred last time: a stop, or a re-established one-shot. Falsified if they are 
 
 - `vo/null.mp3` and the near-miss whizzes started late in the earlier run; they must log `waiting for ... started` and
   then `late start` here. If they do not, the instrument is broken.
-- If the Über sounds log no `SoundPresenter` line at all, the request came from outside it, which is an answer too, but
+- If the Uber sounds log no `SoundPresenter` line at all, the request came from outside it, which is an answer too, but
   only once the control has fired.
 
 ## Environment
