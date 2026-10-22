@@ -40144,6 +40144,8 @@ Measured on f12: `docs/measurements/2026-10-21-sound-first-play-off-frame.md`.
 - **A load that throws is caught on the pool thread**, logged by name and held as failed. MP3 decodes are serialized,
   because NLayer 2.0.1 has mutable statics. An authored-MP3 overlap test exists but stays green without the lock, so it
   does not prove the lock (finding 90).
+- **The two Über sounds with no late start were STOPS** (observed, `docs/measurements/2026-10-21-uber-sounds-path-f12.md`):
+  a stop with nothing playing stops nothing, as in the engine. Nothing the engine plays is dropped.
 - **The `soundprecache` table is still not consulted**: the deferral covers any miss, so it would change no outcome.
   The model walk stays.
 - **Corrected:** finding 87's "Nothing in the engine decodes a sound on the render thread at first play". The engine

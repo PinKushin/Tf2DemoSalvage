@@ -101,7 +101,14 @@ sound is not started (`late sound '<name>' ... did not arrive`). Each late start
 - **After the late start** (`a76b5acf`, `docs/measurements/2026-10-21-sound-late-start-f12.md`, load 16%/10%): 0
   decodes in play, 5 loaded off the frame, and all 3 that were STARTS started late, 1 to 28 ticks after they were asked
   for (`vo/null.mp3`, `bulletLtoR13` after a 398 ms read on the pool, `bulletLtoR08`). None was dropped. The two
-  `invulnerable` loads came from a stop or a re-established one-shot, neither of which starts a sound (*inferred*).
+  `invulnerable` loads were inferred then to come from a stop or a re-established one-shot.
+- **Observed since** (`docs/measurements/2026-10-21-uber-sounds-path-f12.md`): both were STOPS at tick 30097, just after
+  the seek, and nothing asked to start them in the 60 s. The instrument records `Start`'s outcome at the branch that
+  decides it and was proved by its control (the two sounds that do start logged `waiting` then `late start`). A stop
+  with no channel playing its sound stops nothing, in the engine too (`S_AlterChannel` finding no match, engine.dll
+  FUN_18002aa20, B416). **No divergence.** The instrument also stops a re-established one-shot from logging `late
+  start`. *Not read:* why the Über's own start falls before tick 30000 on f12; the seek's re-establishing pass does not
+  restart one-shots, which is the existing rule.
 - The before run was the busier machine (68 frames over 100 ms against 16), so its frame times are not a comparison.
 
 ## Evidence classes
