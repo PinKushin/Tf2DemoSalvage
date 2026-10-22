@@ -40097,6 +40097,11 @@ the noise. **Left:** those demo tests assert only lower bounds, and half the slo
 
 ## B581 — the frame is drawn on the game thread; TF2 queues its material system to a render thread — OPEN (2026-10-22)
 
+**Scope warning (owner, 2026-10-22):** *"since it wasn't obvious to us from the beginning like it should have been, this might
+end up being a massive rewrite"*. The viewer's per-frame path is one serial chain; a render thread needs a frame snapshot and
+hand-off, and the engine also runs a worker pool started at boot. Parity audits did not cover scheduling until finding 98; see
+`docs/memory/parity-includes-how-the-engine-schedules-work.md` and D228.
+
 **Read** (finding 98): TF2 ships `mat_queue_mode -1` (`tf/cfg/low.cfg:153`, `ultra.cfg:177`; modes in
 `imaterialsystem.h:225-230`, help text in `materialsystem.dll`: "2=queued multithreaded"). `FrameSequence.Run` runs
 `Draw` serially, which is mode 0 only. Estimated 1-1.5 ms of the f12 frame (not measured); may add one frame of
