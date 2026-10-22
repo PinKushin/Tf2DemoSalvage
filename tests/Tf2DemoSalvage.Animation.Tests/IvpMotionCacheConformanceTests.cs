@@ -151,8 +151,8 @@ public sealed class IvpMotionCacheConformanceTests
     }
 
     /// <remarks>
-    /// **A search reuses its storage, as the engine's searcher does** (B574): a cache built per search was 236 MB of
-    /// slot arrays and 89 MB of caches per 20 s on the corpse worker of f12 (finding 89's measurement file).
+    /// **A search reuses its storage, as the engine's searcher does** (B574): a cache built per search was 265 MB of
+    /// slot arrays per 20 s on the corpse worker of f12 (measurements/2026-10-21-corpse-and-beam-allocations.md).
     /// </remarks>
     [Test]
     public void Rebuild_ThenFill_AllocatesNothing()

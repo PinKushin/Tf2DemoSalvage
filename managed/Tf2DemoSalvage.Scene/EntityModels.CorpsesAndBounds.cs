@@ -96,8 +96,9 @@ public sealed partial class EntityModelSet
         UpdateClientSideAnimations(corpses);
         _boneFrames.Advance();
 
-        // This set's frame has no world collation to sweep its resolutions, and every tick's corpse is a new object (finding
-        // 82): without this the record's set held every object of the demo, 0.7 GB on f12, and the pause rose with it.
+        // This set's frame has no world collation to sweep its resolutions, and a corpse whose sequence changes is a new object
+        // (finding 82; the record hands each corpse back as it was resolved since finding 90, so an unchanged one is the same
+        // object): without this the record's set held every object of the demo, 0.7 GB on f12, and the pause rose with it.
         SweepResolved();
         Simulate(corpses, seconds);
         AdvanceCorpses(corpses, seconds);
