@@ -236,6 +236,106 @@ public sealed class SoundCacheTests
         cache.Held.Misses.ShouldBe(1);
     }
 
+    /// <remarks>
+    /// **A first play in the frame reads nothing on the caller** (B568, finding 90). The engine's mixer under
+    /// `snd_async_fullyasync` or an async-load source does not mix a sound until its data arrives, and kicks the load
+    /// instead (engine.dll FUN_18004bc10). So the first ask answers silence and hands one load away; the answer arrives on
+    /// the next ask after the load ran, counted off the frame and not as a decode in play.
+    /// </remarks>
+    [Test]
+    public void Sample_InPlayWithAnOffFrameLoader_ReadsNothingOnTheCallerAndAnswersOnceLoaded()
+    {
+        List<string> reads = [];
+        List<Action> jobs = [];
+        SoundCache cache = Cache(reads, offFrame: jobs.Add);
+
+        cache.Sample("a.wav").ShouldBeNull();
+        reads.ShouldBeEmpty("the caller's thread read nothing");
+        jobs.Count.ShouldBe(1);
+
+        jobs[0]();
+
+        cache.Sample("a.wav").ShouldNotBeNull();
+        reads.ShouldBe(["sound/a.wav"]);
+        cache.Held.ShouldBe(new SoundCacheHeld(Sounds: 1, WaveBytes: 2, Mp3Bytes: 0, Misses: 0, OffFrame: 1));
+    }
+
+    [Test]
+    public void Sample_AskedAgainWhileItsLoadIsPending_QueuesNoSecondLoad()
+    {
+        List<Action> jobs = [];
+        SoundCache cache = Cache([], offFrame: jobs.Add);
+
+        cache.Sample("a.wav");
+        cache.Sample("a.wav").ShouldBeNull("still loading");
+
+        jobs.Count.ShouldBe(1);
+    }
+
+    /// <remarks>A load started on one level must not land in the next: a pakfile can shadow the path (B485).</remarks>
+    [Test]
+    public void Sample_ALoadFinishingAfterANewLevel_IsNotKept()
+    {
+        List<Action> jobs = [];
+        SoundCache cache = Cache([], offFrame: jobs.Add);
+
+        cache.Sample("a.wav");
+        cache.Level(_ => OneSample);
+        jobs[0]();
+
+        cache.Sample("a.wav").ShouldBeNull("the old level's load was dropped, so this asks again");
+        jobs.Count.ShouldBe(2);
+        cache.Held.OffFrame.ShouldBe(0);
+    }
+
+    [Test]
+    public void Sample_AnOffFrameLoadTheInstallCannotOpen_IsCountedOnceAndNotRetried()
+    {
+        List<Action> jobs = [];
+        SoundCache cache = Cache([], has: _ => false, offFrame: jobs.Add);
+
+        cache.Sample("gone.wav");
+        jobs[0]();
+        cache.Sample("gone.wav").ShouldBeNull();
+        cache.Sample("gone.wav").ShouldBeNull();
+
+        jobs.Count.ShouldBe(1);
+        cache.Unopened.ShouldBe(1);
+    }
+
+    [Test]
+    public void Precache_WithAnOffFrameLoader_StillDecodesOnTheCaller()
+    {
+        // The control for the deferral: a precache is the load worker's, outside any frame, and must arrive complete.
+        List<Action> jobs = [];
+        SoundCache cache = Cache([], offFrame: jobs.Add);
+
+        cache.Precache(["a.wav"]).Decoded.ShouldBe(1);
+
+        jobs.ShouldBeEmpty();
+        cache.Sample("a.wav").ShouldNotBeNull();
+    }
+
+    /// <remarks>
+    /// **A second precache decodes only names no earlier precache of the level listed** (B570). It runs on the UI thread
+    /// in `ViewerPresenter.Apply`; past the cap, re-asking for the first pass's names re-decoded every evicted one there.
+    /// A cap of two one-sample WAVs, three precached, then the same three and one more: only the new one is read.
+    /// </remarks>
+    [Test]
+    public void Precache_ASecondPassAfterTheCapEvicted_ReadsOnlyTheNewName()
+    {
+        List<string> reads = [];
+        SoundCache cache = Cache(reads, capacityBytes: 4);
+
+        cache.Precache(["a.wav", "b.wav", "c.wav"]);
+        reads.Count.ShouldBe(3, "the control: the first pass read all three");
+        reads.Clear();
+
+        cache.Precache(["a.wav", "b.wav", "c.wav", "d.wav"]);
+
+        reads.ShouldBe(["sound/d.wav"]);
+    }
+
     [Test]
     public void Sample_WithNoName_Refuses()
     {
@@ -254,9 +354,12 @@ public sealed class SoundCacheTests
     /// <param name="reads">Records every path asked for, in order.</param>
     /// <param name="has">Which paths exist; everything, by default.</param>
     /// <param name="capacityBytes">The cache's cap.</param>
-    private static SoundCache Cache(List<string> reads, Func<string, bool>? has = null, long capacityBytes = SoundCache.CapacityBytes) =>
+    /// <param name="offFrame">Where an in-play load is handed; null keeps it on the caller.</param>
+    private static SoundCache Cache(
+        List<string> reads, Func<string, bool>? has = null, long capacityBytes = SoundCache.CapacityBytes, Action<Action>? offFrame = null) =>
         new(NullLogger.Instance, capacityBytes)
         {
+            OffFrame = offFrame,
             Read = path =>
             {
                 reads.Add(path);

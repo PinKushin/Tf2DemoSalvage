@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
+using System.IO;
 
 using Microsoft.Extensions.Logging;
 
@@ -24,7 +25,8 @@ public readonly record struct PrecacheResult(int Named, int Decoded, double Seco
 /// <param name="WaveBytes">Bytes of decoded samples from WAV files.</param>
 /// <param name="Mp3Bytes">Bytes of decoded samples from MP3 files.</param>
 /// <param name="Misses">Decodes outside a precache, each one inside the frame that asked (finding 80).</param>
-public readonly record struct SoundCacheHeld(int Sounds, long WaveBytes, long Mp3Bytes, int Misses);
+/// <param name="OffFrame">First plays loaded through <see cref="SoundCache.OffFrame"/> instead, outside any frame (finding 90).</param>
+public readonly record struct SoundCacheHeld(int Sounds, long WaveBytes, long Mp3Bytes, int Misses, int OffFrame = 0);
 
 /// <summary>Decoded sound samples, kept so a name is read and decoded once.</summary>
 /// <remarks>
@@ -112,6 +114,11 @@ public sealed class SoundCache
         _sizes.Clear();
         _unopened = 0;
         _held = default;
+
+        // A load still in flight belongs to the level that asked; its result is dropped when it arrives.
+        _generation++;
+        _pending.Clear();
+        _listed.Clear();
     }
 
     /// <summary>How many distinct names the install could not supply.</summary>
@@ -134,6 +141,8 @@ public sealed class SoundCache
         // so a stop matching the sample matches exactly what `S_AlterChannel` matches.
         string key = SoundName.SfxKey(name);
 
+        Drain();
+
         if (_cache.TryGetValue(key, out SoundSample? cached))
         {
             if (_sizes.TryGetValue(key, out (LinkedListNode<string> Node, long Bytes, bool Wave) held))
@@ -145,79 +154,41 @@ public sealed class SoundCache
             return cached;
         }
 
-        SoundSample? sample = null;
-
-        // **Timed because this is a file read and a decode INSIDE the frame.** A sound reaches here
-        // once, the first time it plays — so every new sound in a match pays a VPK read plus a full
-        // decode on the UI thread, and a voice line is an MP3. That is a "once per sound" cost
-        // wearing the clothes of a cache, and it lands wherever in playback the sound happens to
-        // first occur.
-        //
-        // **The read and the decode are timed apart** (finding 87): the line used to say "decoding" for both, and the
-        // ~395 ms stalls it reported were the file read, blocked, with the decode under a millisecond.
-        long readAt = Stopwatch.GetTimestamp();
-        long openedAt = readAt;
-        long decodedAt = readAt;
-
-        if (Read is { } read)
+        if (Read is not { } read)
         {
-            // **The soundchars come off first.** A precached name carries Valve's prefixes — ')'
-            // for spatialised, '#' for a stream, '*' and the rest — and they are instructions to
-            // the engine rather than part of the path. Left on, every one of them is a file that
-            // does not exist.
-            SoundName parsed = SoundName.Parse(name);
+            _cache[key] = null;
 
-            (byte[] Bytes, string Path)? openedResult = SoundFile.Open("sound/" + parsed.Path, read);
-            openedAt = Stopwatch.GetTimestamp();
-            decodedAt = openedAt;
-
-            if (openedResult is { } opened)
-            {
-                // A miss is a decode in the frame, so a name the install cannot open is none (finding 80).
-                if (!_precaching)
-                {
-                    _held = _held with { Misses = _held.Misses + 1 };
-                }
-
-                SoundSampleResult result = SoundSampleReader.Read(opened.Bytes);
-                decodedAt = Stopwatch.GetTimestamp();
-
-                sample = result.Sample is { } fresh ? fresh with { Key = key } : null;
-
-                if (sample is { } decoded)
-                {
-                    long bytes = ((long)decoded.Samples.Length * sizeof(float)) + ((long)decoded.Pcm16.Length * sizeof(short));
-                    bool wave = opened.Bytes.Length >= 4 && opened.Bytes[0] == (byte)'R' && opened.Bytes[1] == (byte)'I';
-                    Hold(key, bytes, wave);
-                }
-
-                if (!result.Succeeded)
-                {
-                    _audio.LogWarning("{Message}", $"{opened.Path}: {result.Refusal}");
-                }
-            }
-            else
-            {
-                // **Counted and named, once per sound rather than once per play.** The cache means
-                // a name reaches here exactly once, so this is a list of what the install could not
-                // supply rather than a stream of the same failure. Silence with no explanation is
-                // the outcome this exists to prevent.
-                //
-                // Stays a warning rather than dropping to Debug with the per-frame lines: it fires
-                // at most once per distinct name and names a real gap in the install, which is the
-                // opposite of the per-frame volume B191 was about.
-                _unopened++;
-
-                _audio.LogWarning(
-                    "{Message}",
-                    $"could not open '{parsed.Path}' (from '{name}'); " +
-                    $"{_unopened.ToString(CultureInfo.InvariantCulture)} unopened so far");
-            }
+            return null;
         }
 
-        _cache[key] = sample;
+        // **A first play in the frame is loaded off it** (B568, finding 90), when the viewer gives a place to load. The
+        // engine's mixer, for an async-load source or under `snd_async_fullyasync`, does not mix a sound whose data has not
+        // arrived; it kicks the load and answers "not ready" (engine.dll FUN_18004bc10). This answers silence for that
+        // play: the engine would start it late, which this does not (the divergence is in finding 90).
+        if (!_precaching && OffFrame is { } offFrame)
+        {
+            if (_pending.Add(key))
+            {
+                int generation = _generation;
+                offFrame(() => _arrived.Enqueue((generation, LoadCaught(name, key, read))));
+            }
 
-        double readSeconds = (Stopwatch.GetTimestamp() - readAt) / (double)Stopwatch.Frequency;
+            return null;
+        }
+
+        // **Timed because this is a file read and a decode on the caller**: in play, inside the frame, which is what the
+        // STALL line below reports. The read and the decode are timed apart (finding 87): the ~395 ms stalls were the read.
+        Loaded loaded = Load(name, key, read);
+
+        // A miss is a decode in the frame, so a name the install cannot open is none (finding 80).
+        if (loaded.Opened && !_precaching)
+        {
+            _held = _held with { Misses = _held.Misses + 1 };
+        }
+
+        Keep(loaded);
+
+        double readSeconds = (loaded.DecodedAt - loaded.ReadAt) / (double)Stopwatch.Frequency;
 
         if (readSeconds > StallSeconds && !_precaching)
         {
@@ -229,13 +200,137 @@ public sealed class SoundCache
                 string.Create(
                     CultureInfo.InvariantCulture,
                     $"STALL reading '{name}' took {readSeconds * 1000d:0} ms " +
-                    $"(read {(openedAt - readAt) * 1000d / Stopwatch.Frequency:0.0} ms, decode {(decodedAt - openedAt) * 1000d / Stopwatch.Frequency:0.0} ms; " +
-                    $"{sample?.FrameCount ?? 0} frames); this frame is a freeze"));
+                    $"(read {(loaded.OpenedAt - loaded.ReadAt) * 1000d / Stopwatch.Frequency:0.0} ms, decode {(loaded.DecodedAt - loaded.OpenedAt) * 1000d / Stopwatch.Frequency:0.0} ms; " +
+                    $"{loaded.Sample?.FrameCount ?? 0} frames); this frame is a freeze"));
 
             // Stryker restore all
         }
 
-        return sample;
+        return loaded.Sample;
+    }
+
+    /// <summary>Where a first play during playback is loaded; null loads it on the caller, inside the frame.</summary>
+    /// <remarks>
+    /// The work handed here only reads and decodes, touching nothing of the cache; its result is taken in on the owner's
+    /// thread at the next <see cref="Sample"/>, so the cache stays single-threaded. The read path must be safe to call
+    /// from another thread (`GameArchives`, `PakFile` and `VpkArchive` read immutable state and open a stream per read).
+    /// </remarks>
+    public Action<Action>? OffFrame { get; init; }
+
+    private readonly HashSet<string> _pending = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _listed = new(StringComparer.Ordinal);
+    private readonly System.Collections.Concurrent.ConcurrentQueue<(int Generation, Loaded Loaded)> _arrived = new();
+    private int _generation;
+
+    /// <summary>One read and decode, with when each half ended; touches nothing shared.</summary>
+    private readonly record struct Loaded(
+        string Name, string Key, string Path, bool Opened, SoundSample? Sample, long Bytes, bool Wave, string? Refusal,
+        long ReadAt, long OpenedAt, long DecodedAt);
+
+    private static Loaded Load(string name, string key, Func<string, byte[]?> read)
+    {
+        long readAt = Stopwatch.GetTimestamp();
+
+        // **The soundchars come off first.** A precached name carries Valve's prefixes — ')' for spatialised, '#' for a
+        // stream, '*' and the rest — and they are instructions to the engine rather than part of the path.
+        SoundName parsed = SoundName.Parse(name);
+
+        (byte[] Bytes, string Path)? openedResult = SoundFile.Open("sound/" + parsed.Path, read);
+        long openedAt = Stopwatch.GetTimestamp();
+
+        if (openedResult is not { } opened)
+        {
+            return new Loaded(name, key, parsed.Path, Opened: false, null, 0, false, null, readAt, openedAt, openedAt);
+        }
+
+        SoundSampleResult result = SoundSampleReader.Read(opened.Bytes);
+        long decodedAt = Stopwatch.GetTimestamp();
+
+        SoundSample? sample = result.Sample is { } fresh ? fresh with { Key = key } : null;
+        long bytes = sample is { } decoded
+            ? ((long)decoded.Samples.Length * sizeof(float)) + ((long)decoded.Pcm16.Length * sizeof(short))
+            : 0;
+        bool wave = opened.Bytes.Length >= 4 && opened.Bytes[0] == (byte)'R' && opened.Bytes[1] == (byte)'I';
+
+        return new Loaded(
+            name, key, parsed.Path, Opened: true, sample, bytes, wave, result.Succeeded ? null : $"{opened.Path}: {result.Refusal}",
+            readAt, openedAt, decodedAt);
+    }
+
+    /// <summary><see cref="Load"/> off the owner's thread, where an exception would end the process rather than reach a caller.</summary>
+    /// <remarks>The caught set is `DemoSounds.Precache`'s, plus the file read's own: a bad file costs that sound only.</remarks>
+    private static Loaded LoadCaught(string name, string key, Func<string, byte[]?> read)
+    {
+        try
+        {
+            return Load(name, key, read);
+        }
+        catch (Exception failure) when (
+            failure is InvalidDataException or ArgumentException or KeyNotFoundException or IOException)
+        {
+            long now = Stopwatch.GetTimestamp();
+
+            return new Loaded(name, key, name, Opened: true, null, 0, false, $"{name}: {failure.Message}", now, now, now);
+        }
+    }
+
+    /// <summary>Takes in a load: the cache entry, the cap, and what is worth saying about it.</summary>
+    private void Keep(Loaded loaded)
+    {
+        _cache[loaded.Key] = loaded.Sample;
+
+        if (loaded.Sample is not null)
+        {
+            Hold(loaded.Key, loaded.Bytes, loaded.Wave);
+        }
+
+        if (loaded.Refusal is { } refusal)
+        {
+            _audio.LogWarning("{Message}", refusal);
+        }
+
+        if (!loaded.Opened)
+        {
+            // **Counted and named, once per sound rather than once per play**: the cache means a name reaches here once,
+            // so this lists what the install could not supply. A warning, not Debug: at most once per name (B191).
+            _unopened++;
+
+            _audio.LogWarning(
+                "{Message}",
+                $"could not open '{loaded.Path}' (from '{loaded.Name}'); " +
+                $"{_unopened.ToString(CultureInfo.InvariantCulture)} unopened so far");
+        }
+    }
+
+    /// <summary>Takes in every load finished off the frame for this level; one finished for an earlier level is dropped.</summary>
+    private void Drain()
+    {
+        while (_arrived.TryDequeue(out (int Generation, Loaded Loaded) arrived))
+        {
+            if (arrived.Generation != _generation)
+            {
+                continue;
+            }
+
+            Loaded loaded = arrived.Loaded;
+            _pending.Remove(loaded.Key);
+            Keep(loaded);
+
+            if (loaded.Opened)
+            {
+                _held = _held with { OffFrame = _held.OffFrame + 1 };
+            }
+
+            // Stryker disable all : the String mutator cannot bind to string.Create's handler (CS1620) — B410.
+            _audio.LogInformation(
+                "{Message}",
+                string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"loaded off the frame '{loaded.Name}' (read {(loaded.OpenedAt - loaded.ReadAt) * 1000d / Stopwatch.Frequency:0.0} ms, " +
+                    $"decode {(loaded.DecodedAt - loaded.OpenedAt) * 1000d / Stopwatch.Frequency:0.0} ms; {loaded.Sample?.FrameCount ?? 0} frames)"));
+
+            // Stryker restore all
+        }
     }
 
     /// <summary>Counts a decoded sound as held, then lets the least recently used go until the cap holds again.</summary>
@@ -291,6 +386,14 @@ public sealed class SoundCache
         {
             foreach (string name in names)
             {
+                // **A name an earlier precache of this level listed is skipped** (B570): past the cap it may have been
+                // evicted, and the second precache runs on the UI thread, so asking again re-decoded it there. Evicted
+                // and asked for in play, it loads like any first play.
+                if (!_listed.Add(SoundName.SfxKey(name)))
+                {
+                    continue;
+                }
+
                 named++;
 
                 if (Sample(name) is not null)
