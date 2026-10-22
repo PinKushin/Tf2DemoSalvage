@@ -40111,7 +40111,11 @@ waits only when its burst drew no frame) timed a UIA call out on CI and was repl
 `between` went from 1.56–1.59 to 0.54–0.59 ms in first person and from 1.34 to 0.30 in the empty view. The mean frame
 went from 16.5–17.1 to 15.4–15.8 ms, and the empty view from 7.3 to 6.2 ms.
 
-## B570 — the second sound precache runs on the UI thread and re-decodes whatever the cap evicted — OPEN
+## B570 — the second sound precache runs on the UI thread and re-decodes whatever the cap evicted — FIXED
+
+**Fixed, 2026-10-21 (finding 90).** `SoundCache.Precache` skips every name an earlier precache of the level listed, so the
+second pass decodes only names it is the first to list and cannot walk past the cap on the UI thread
+(`Precache_ASecondPassAfterTheCapEvicted_ReadsOnlyTheNewName`). The original entry follows.
 
 **Measured** (finding 87, review item 1). `ViewerPresenter` calls `DemoSounds.Precache` twice: on the load worker, and
 again in `Apply` on the UI thread for the emitted sounds. Its comment says the second call is "cheap … `Sample` returns
@@ -40129,7 +40133,18 @@ script, so a raw name, such as an animation event's options or a client sound, p
 dropping a raw name is the engine's own behaviour (`FindOrAddScriptSound`, `ModelSoundsCache.cpp:112-124`), so that half
 is not a divergence. *Evidence class: published source; not measured on a demo.*
 
-## B568 — four first-play sounds still read from the VPK inside a frame — OPEN
+## B568 — four first-play sounds still read from the VPK inside a frame — FIXED, one divergence left
+
+**Update, 2026-10-21 (finding 90).** A play-time miss is read and decoded on the thread pool (`SoundCache.OffFrame`) and
+taken in at the next `Sample`, the shape of the engine's deferred path (engine.dll FUN_18004bc10, `snd_async_fullyasync`).
+Measured on f12: `docs/measurements/2026-10-21-sound-first-play-off-frame.md`.
+- **Left, a divergence:** the deferred play is DROPPED; the engine's channel waits for the data and mixes late. A loop
+  started while its load is pending is lost for that start, and the soundscape logs it as "would not open".
+- **The `soundprecache` table is still not consulted**: the deferral covers any miss, so it would change no outcome.
+  The model walk stays.
+- **Corrected:** this entry's "the engine does not decode at first play" — the engine has a blocking path too (finding 90).
+
+The original entry follows.
 
 **Measured** (finding 87, f12 tick 30000, first person, 60 s). After the model sounds were precached, four sounds still
 miss the precache and are read on the render thread at first play: `player/invulnerable_on.wav` and `_off.wav` (Über
