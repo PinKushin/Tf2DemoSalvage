@@ -382,6 +382,9 @@ public sealed class SoundPresenterMusicVolumeTests
         {
             Schedule = new SoundSchedule(sounds),
             MusicVolume = musicVolume,
+
+            // A stop asks what is held and loads nothing: here, what an earlier start decoded.
+            Held = name => samples.TryGetValue(Tf2DemoSalvage.Core.Net.SoundName.SfxKey(name), out SoundSample sample) ? sample : null,
         };
 
         return (presenter, new Sink { Loops = loops });

@@ -101,7 +101,13 @@ public sealed class SoundPresenterChangeConformanceTests
             new SoundscapeSystem(new ActiveLoops(), _ => null, NullLogger.Instance),
             new ActiveLoops(),
             name => samples.TryGetValue(name, out SoundSample sample) ? sample : null,
-            NullLogger.Instance) { Schedule = new SoundSchedule(sounds) };
+            NullLogger.Instance)
+        {
+            Schedule = new SoundSchedule(sounds),
+
+            // Everything these tests open stays held; a stop asks what is held and loads nothing.
+            Held = name => samples.TryGetValue(name, out SoundSample sample) ? sample : null,
+        };
 
         Recording sink = new(sample => sample.Samples.Span[0] > 0.3f ? Loop : Other);
 
@@ -134,6 +140,7 @@ public sealed class SoundPresenterChangeConformanceTests
         {
             Played.Add(nameOf(sample));
             _playing[(entity, channel)] = nameOf(sample);
+            _playingSamples[(entity, channel)] = sample;
             return 0;
         }
 
@@ -177,14 +184,18 @@ public sealed class SoundPresenterChangeConformanceTests
         /// </remarks>
         public int Silence(int entity, int channel, SoundSample sample)
         {
-            string name = sample.Samples.Length == 0 ? sample.Key ?? string.Empty : nameOf(sample);
-
-            if (_playing.TryGetValue((entity, channel), out string? playing) && playing == name)
+            // Matched as `AudioOutput`'s voice matches (`Voice.Plays`): by sfx key when either side has one, else by data.
+            if (_playing.ContainsKey((entity, channel)) && _playingSamples.TryGetValue((entity, channel), out SoundSample playing) &&
+                (playing.Key is not null || sample.Key is not null
+                    ? string.Equals(playing.Key, sample.Key, StringComparison.Ordinal)
+                    : playing.Samples.Equals(sample.Samples) && playing.Pcm16.Equals(sample.Pcm16)))
             {
-                Stopped.Add((entity, channel, name));
+                Stopped.Add((entity, channel, nameOf(playing)));
             }
 
             return 0;
         }
+
+        private readonly Dictionary<(int, int), SoundSample> _playingSamples = [];
     }
 }

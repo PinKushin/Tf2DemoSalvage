@@ -179,8 +179,9 @@ public sealed class ScriptWaveDeckConformanceTests
         presenter.Update(sink, 40, Listener, Right, now: 0.6d);
 
         // The deal at 10 took a; the patch read the deck and found only b; the deal at 25 took b, emptying the deck — so
-        // a fresh pick at 30 would reset it and find a. The stop names b, the wave its start is playing.
-        played.ShouldBe(["a.wav", "b.wav", "b.wav", "b.wav"]);
+        // a fresh pick at 30 would reset it and find a. The stop names b, the wave its start is playing; it asks what is
+        // held rather than opening, so it adds nothing here (finding 90).
+        played.ShouldBe(["a.wav", "b.wav", "b.wav"]);
         sink.Silenced.ShouldBe(["b.wav"]);
     }
 
@@ -593,7 +594,11 @@ public sealed class ScriptWaveDeckConformanceTests
                 played.Add(name);
                 return Sample(name);
             },
-            NullLogger.Instance);
+            NullLogger.Instance)
+        {
+            // A stop asks what is held, which records no play: every wave here is held once dealt.
+            Held = static name => Sample(name),
+        };
 
         string waves = string.Concat(Array.ConvertAll([.. entry.Waves], wave => $"\t\t\"wave\" \"{wave}\"\n"));
         byte[] manifest = System.Text.Encoding.UTF8.GetBytes("\"game_sounds_manifest\"\n{\n\t\"precache_file\" \"scripts/test.txt\"\n}\n");

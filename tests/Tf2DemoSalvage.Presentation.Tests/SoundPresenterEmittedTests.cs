@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -223,6 +224,98 @@ public sealed class SoundPresenterEmittedTests
 
         sink.Stopped.ShouldHaveSingleItem().ShouldBe((started.EntityIndex, started.Channel, SoundName.SfxKey(Wave)));
         reads.ShouldBeEmpty();
+    }
+
+    /// <remarks>
+    /// **A stop acts on ONE channel** (second review of `fd31d8d2`). `S_AlterChannel` returns after its first hit
+    /// (FUN_18002aa20). The voice already playing started before the one waiting for its data, so in start order it is
+    /// the first match: the stop silences it and the waiting start survives and plays when its data lands.
+    /// </remarks>
+    [Test]
+    public void Update_AStopWithOneVoicePlayingAndOneWaiting_StopsOnlyThePlayingOne()
+    {
+        List<Action> jobs = [];
+        SoundCache cache = new(NullLogger.Instance, capacityBytes: 2)
+        {
+            OffFrame = jobs.Add,
+            Read = _ => OneSampleWave,
+        };
+        cache.Precache([Wave]);
+
+        SoundPresenter presenter = new(
+            new SoundscapeSystem(new ActiveLoops(), _ => null, NullLogger.Instance),
+            new ActiveLoops(),
+            cache.Sample,
+            NullLogger.Instance)
+        {
+            Held = cache.HeldSample,
+            Loading = cache.Loading,
+            Schedule = new SoundSchedule([]),
+        };
+        Voiced sink = new();
+        SceneSound started = Impact(at: 100f);
+
+        presenter.Update(sink, 40, (0f, 0f, 0f), (0f, -1f, 0f), now: 0d);
+        presenter.Emit(started);
+        presenter.Update(sink, 41, (0f, 0f, 0f), (0f, -1f, 0f), now: 0.015d);
+        cache.Precache(["weapons/other.wav"]);
+        presenter.Emit(started with { Tick = 42 });
+        presenter.Update(sink, 42, (0f, 0f, 0f), (0f, -1f, 0f), now: 0.03d);
+        jobs.Count.ShouldBe(1, "the control: the second start waits for its data");
+
+        presenter.Emit(started with { Tick = 43, IsStop = true });
+        presenter.Update(sink, 43, (0f, 0f, 0f), (0f, -1f, 0f), now: 0.045d);
+        jobs[0]();
+        presenter.Update(sink, 44, (0f, 0f, 0f), (0f, -1f, 0f), now: 0.06d);
+
+        sink.Playing.ShouldBe([2], "voice 1 was stopped; the waiting start became voice 2");
+    }
+
+    /// <summary>A sink that hands out voices and stops one by sfx key, as <c>AudioOutput</c> does.</summary>
+    private sealed class Voiced : IAudioSink
+    {
+        private readonly List<(int Voice, int Entity, int Channel, string? Key)> _voices = [];
+        private int _next;
+
+        public List<int> Playing => [.. _voices.Select(static voice => voice.Voice)];
+
+        public float MasterGain { get; set; } = 1f;
+
+        public bool HandsOutVoices => true;
+
+        public int Play(SoundSample sample, float leftPan, float rightPan, float gain, float pitch, int entity, int channel)
+        {
+            _voices.Add((++_next, entity, channel, sample.Key));
+            return _next;
+        }
+
+        public bool SetVoiceGain(int voice, float gain) => true;
+
+        public bool SetVoicePitch(int voice, float pitch) => true;
+
+        public bool SetGain(int entity, int channel, float gain) => true;
+
+        public bool SetPitch(int entity, int channel, float pitch) => true;
+
+        public void SilenceAll() => _voices.Clear();
+
+        public int Reclaim() => 0;
+
+        public void Silence(int entity, int channel) => _voices.RemoveAll(voice => voice.Entity == entity && voice.Channel == channel);
+
+        public int Silence(int entity, int channel, SoundSample sample)
+        {
+            int at = _voices.FindIndex(voice => voice.Entity == entity && voice.Channel == channel && voice.Key == sample.Key);
+
+            if (at < 0)
+            {
+                return 0;
+            }
+
+            int stopped = _voices[at].Voice;
+            _voices.RemoveAt(at);
+            return stopped;
+        }
     }
 
     /// <summary>A 16-bit mono RIFF/WAVE of one sample, written from the format: two bytes held.</summary>
