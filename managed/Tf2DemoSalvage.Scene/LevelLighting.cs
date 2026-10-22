@@ -155,6 +155,7 @@ public sealed class LevelLighting
     private PointLighting WithDynamicLights(PointLighting lit, DynamicLights dynamic, BspLeafTree tree, float x, float y, float z)
     {
         dynamic.ModelLights(_dynamic);
+        _dynamicChecked++;
 
         if (_dynamic.Count == 0)
         {
@@ -175,15 +176,18 @@ public sealed class LevelLighting
         }
     }
 
+    private long _dynamicChecked;
     private long _dynamicAsked;
     private long _dynamicMerged;
     private long _dynamicTicks;
 
     /// <summary>
-    /// Since the map loaded: model draws that saw a dynamic light, how many of them re-ranked the lights, and the
-    /// stopwatch ticks those draws spent here. Each count is taken where the work runs.
+    /// Since the map loaded: model draws that asked for dynamic lights (the instrument's control), those that saw one,
+    /// how many of them re-ranked the lights, and the stopwatch ticks the ones that saw one spent here. Each count is
+    /// taken where the work runs.
     /// </summary>
-    public (long Asked, long Merged, long Ticks) DynamicMerges => (_dynamicAsked, _dynamicMerged, _dynamicTicks);
+    public (long Checked, long Asked, long Merged, long Ticks) DynamicMerges =>
+        (_dynamicChecked, _dynamicAsked, _dynamicMerged, _dynamicTicks);
 
     private PointLighting WithDynamicLightsFrom(PointLighting lit, BspLeafTree tree, float x, float y, float z)
     {

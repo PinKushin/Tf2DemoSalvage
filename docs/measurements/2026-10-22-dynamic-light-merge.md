@@ -29,6 +29,21 @@ lines, divided by the frames between them (from the per-second lines). One run, 
 
 ## Environment
 
+Debug viewer, RTX 3060, i5-10600K. D1 at `12f8c617`, load 7/6/3 / 6/7/11%. D2 at the same commit plus a control count
+(`Checked`), load 4/8/8 / 8/5/11%.
+
 ## Result
 
+- **D1:** every census line from tick 30075 to 31281 reads `dynamic light draws so far 0, re-ranked 0, 0 ms`. **The
+  control failed:** a zero could not be told from an instrument that is never reached. So, before D2, the count of draws
+  that ASK for dynamic lights (`Checked`, at the method's first line) was added.
+- **D2:** at tick 30080, `0 of 6065`. At tick 31288, `0 of 331621`, re-ranked 0, 0 ms. The method was asked 331,621
+  times in the window and no dynamic light reached a model in any of them.
+
 ## Verdict
+
+**The copy is real code but costs nothing on this scene.** Across the 20 s window no dynamic light that lights models is
+alive, so `WithDynamicLights` returns at its count check every time, and the world-light copy never runs. No fix is made.
+There is nothing to measure it against, and a change here could not be checked on f12. **Open, and not a performance
+question:** whether TF2 itself makes a model-lighting dynamic light anywhere in this window (rocket and grenade muzzle
+effects are in the census) is a parity question for `DynamicLights`. It is not answered here.
