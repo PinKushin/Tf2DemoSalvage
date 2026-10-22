@@ -39,6 +39,29 @@ raw in `2026-10-22-burst-copy/`.
 
 ## Environment
 
+Debug, RTX 3060, i5-10600K. Load before / after: B1 19/16/18 / 8/6/8, A1 11/12/7 / 10/7/11, A2 10/6/7 / 5/7/8,
+B2 5/8/13 / 4/7/5, B3 4/6/20 / 10/3/6, A3 7/3/5 / 4/6/9.
+
 ## Result
 
+| run | build | bursts/step ms | last census |
+|---|---|---:|---|
+| B1 | base | 0.36 | t31282, bursts 26 |
+| A1 | by reference | 0.35 | t31282, bursts 26 |
+| A2 | by reference | 0.35 | t31282, bursts 26 |
+| B2 | base | 0.37 | t31288, bursts 26 |
+| B3 | base | 0.36 | t31262, bursts 30 |
+| A3 | by reference | 0.34 | t31285, bursts 26 |
+
+Controls: every run prints `bursts/step`. Base 0.36-0.37 against R1/R2's 0.35/0.36 (met). The census is 26 bursts except
+B3, whose last line fell 20 ticks earlier at 30 (same offers, read mid-change; not a different scene).
+
 ## Verdict
+
+**The arithmetic reading holds; the trace's reading is falsified for this site.** Base mean 0.363, change 0.347: 0.017 ms,
+at the timers' resolution and far under the 0.2 ms the trace's 1.7% share predicted. The trace charged about 0.2 ms to a
+copy that costs a few hundredths at most. So at this site the `BulkMoveWithWriteBarrier` samples (every one with a
+`PollGCWorker` leaf) are the sampler's suspension at a safe point, not copy time. **For B574:** a struct-copy site's share
+in the sampled trace is not evidence of its cost, and a copy site is worth removing only when its own timer, or an
+allocation count, says so. The change was not kept, since it measured as nothing. The source is restored exactly
+(`git status` clean on `managed/`).
