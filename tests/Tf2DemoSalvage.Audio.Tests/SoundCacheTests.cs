@@ -394,6 +394,55 @@ public sealed class SoundCacheTests
         cache.Sample("high.wav")!.Value.SampleRate.ShouldBe(44100);
     }
 
+    /// <remarks>
+    /// **The MP3 decoder under the same overlap** (finding 90): NLayer keeps mutable statics, so its decodes are
+    /// serialized. Several loads start on the real pool together, each a different frame count so a crossed or damaged
+    /// result shows as the wrong length. Whether removing the lock reddens this is recorded in finding 90.
+    /// </remarks>
+    [Test]
+    public void Sample_SeveralOffFrameMp3LoadsAtOnce_EachArrivesWithItsOwnFrames()
+    {
+        const int Loads = 8;
+        using global::System.Threading.Barrier together = new(Loads);
+        using global::System.Threading.CountdownEvent done = new(Loads);
+        bool overlapped = true;
+
+        SoundCache cache = new(NullLogger.Instance)
+        {
+            OffFrame = work => global::System.Threading.ThreadPool.QueueUserWorkItem(_ =>
+            {
+                work();
+                done.Signal();
+            }),
+            Read = path =>
+            {
+                if (!path.EndsWith(".mp3", StringComparison.Ordinal))
+                {
+                    return null;
+                }
+
+                overlapped &= together.SignalAndWait(TimeSpan.FromSeconds(10));
+
+                return SyntheticMp3.Silent(FramesOf(path), stereo: true);
+            },
+        };
+
+        for (int load = 0; load < Loads; load++)
+        {
+            cache.Sample($"v{load}.mp3");
+        }
+
+        done.Wait(TimeSpan.FromSeconds(20)).ShouldBeTrue();
+        overlapped.ShouldBeTrue("every read ran at the same time");
+
+        for (int load = 0; load < Loads; load++)
+        {
+            cache.Sample($"v{load}.mp3")!.Value.FrameCount.ShouldBe(FramesOf($"sound/v{load}.mp3") * SyntheticMp3.SamplesPerFrame);
+        }
+
+        static int FramesOf(string path) => 40 + (10 * (path[^5] - '0'));
+    }
+
     [Test]
     public void Precache_WithAnOffFrameLoader_StillDecodesOnTheCaller()
     {

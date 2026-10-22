@@ -74,8 +74,15 @@ sound is not started (`late sound '<name>' ... did not arrive`). Each late start
   may be set once in a static constructor; that was not read. **So MP3 decodes take one lock** (`SoundSampleReader`'s
   `Mp3Gate`): the load worker's precache and the pool never decode two MP3s at once.
 - **The test** `Sample_TwoOffFrameLoadsAtOnce_BothArriveIntact` runs two loads on the real pool, rendezvousing their
-  reads on a barrier so they provably overlap, and checks each arrives with its own sample rate. It uses WAVs: there is
-  no MP3 fixture, so the MP3 lock is held by reading, not by a test.
+  reads on a barrier so they provably overlap, and checks each arrives with its own sample rate. It uses WAVs.
+- **The MP3 version, on an authored specimen.** `SyntheticMp3` writes MPEG-1 Layer III frames from the format alone
+  (valid headers, zeroed side info and main data; no Valve bytes). NLayer decodes them to the exact rate, channels and
+  sample count put there (`SyntheticMp3Tests`); it refuses a single frame, measured, so the builder uses two or more.
+  `Sample_SeveralOffFrameMp3LoadsAtOnce_EachArrivesWithItsOwnFrames` overlaps eight MP3 loads on the real pool, each a
+  different frame count.
+- **That test does NOT prove the lock.** With the lock removed it passed six runs of six. Silent frames have zero
+  `part2_3_length`, so they likely never reach the Huffman decode whose cache is the static at risk (*interpolated*). The
+  lock rests on the reflection reading above; the test is kept as a regression for the concurrent path.
 
 ## Before and after
 

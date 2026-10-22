@@ -163,8 +163,9 @@ public sealed class SoundCache
 
         // **A first play in the frame is loaded off it** (B568, finding 90), when the viewer gives a place to load. The
         // engine's mixer, for an async-load source or under `snd_async_fullyasync`, does not mix a sound whose data has not
-        // arrived; it kicks the load and answers "not ready" (engine.dll FUN_18004bc10). This answers silence for that
-        // play: the engine would start it late, which this does not (the divergence is in finding 90).
+        // arrived; it kicks the load and answers "not ready" (engine.dll FUN_18004bc10). This answers null and
+        // `Loading` answers true until the load is taken in; `SoundPresenter` and the soundscape then start the sound late,
+        // as the engine's waiting channel does (FUN_18003f2c0, finding 90).
         if (!_precaching && OffFrame is { } offFrame)
         {
             if (_pending.Add(key))
