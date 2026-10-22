@@ -17,7 +17,11 @@ each with a zero-allocation or reuse test that was red first.
 
 ## Method
 
-- Before: `e1ec318a` (a detached worktree at `D:\n90-base`). After: this branch's last fix commit.
+- Before: `e1ec318a` (a detached worktree at `D:\n90-base`). After: `6d252479`, the six fixes. After2: `58d77031`,
+  a seventh fix added once the after trace showed the corpse copy still made (the corpse record re-fed each corpse's
+  original record every tick). After2 is the whole and is the side compared for question 2.
+- Scratch script `series.ps1 <root> <label> D:\n90-traces`, one locked call per side; raw output stays on
+  `D:\n90-traces` (traces are 80+ MB each, too large for the repo); the `--measure` lines are pasted below.
 - Each side built with `MSBUILDDISABLENODEREUSE=1 dotnet build managed/Tf2DemoSalvage.Viewer3D` (Debug) in the same
   locked command that runs it.
 - Allocation: `dotnet-trace collect --profile gc-verbose` over `tf2demoview <f12> --tick 30000 --first-person
