@@ -39,6 +39,29 @@ folder). Raw output in `2026-10-22-model-decal-window/`.
 
 ## Environment
 
+RTX 3060, i5-10600K, Debug. Load before / after: Before1 9/3/4 / 4/8/8, After1 11/7/4 / 10/7/6, Before2 5/5/2 / 7/2/20,
+After2 9/3/8 / 9/6/4.
+
 ## Result
 
+| run | camera | particles/decals | frame ms | census |
+|---|---:|---:|---:|---|
+| Before1 (scratch copy) | 11.09 | absent | 49.76 | tick 31241, model decals 75 |
+| After1 | 6.65 | 0.19 | 10.96 | tick 31286, model decals 75 |
+| Before2 (scratch copy) | 10.65 | absent | 17.84 | tick 31292, model decals 75 |
+| After2 | 6.50 | 0.19 | 11.29 | tick 31278, model decals 75 |
+
+**Deviation: the before runs are void.** The copy of the base build run from the scratch directory printed no `particles/*`
+parts at all, and a camera and frame far above every base run on this branch. So it did not behave like the base build, and
+the instrument control (the same `Part` in both builds) failed. No before figure is taken from it. The base build's own
+runs, R1 and R2 of `2026-10-22-f12-camera-breakdown.md`, came from the same binary path, the same command and a similar
+load (4-22%), about an hour earlier. They read `decals` 0.52 and 0.53, `camera` 7.16 and 6.99, and frame 11.86 and 11.99.
+Those runs are the comparison, and they are **not interleaved**.
+
 ## Verdict
+
+**Prediction confirmed, against the non-interleaved base runs:** `camera particles/decals` fell from 0.52-0.53 to
+0.19 ms (-0.33 to -0.34), inside the predicted 0.2-0.4. The census reports 75 model decals in every run, so the output is
+unchanged. `camera` fell from 6.99-7.16 to 6.50-6.65, and the frame from 11.86-11.99 to 10.96-11.29. The frame's drop is
+larger than the decal saving and is inside run-to-run noise, so it is not claimed. An interleaved before/after from a
+correct before binary remains to be done.
