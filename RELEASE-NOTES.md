@@ -1,5 +1,7 @@
 # Tf2DemoSalvage 0.1.0-beta.48
 
+## Unreleased
+
 ## Changes in 0.1.0-beta.48
 
 Released 2026-10-22.
