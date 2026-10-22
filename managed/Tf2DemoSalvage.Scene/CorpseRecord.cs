@@ -168,24 +168,43 @@ public sealed class CorpseRecord
         models.Add(all, geometry);
 
         List<SceneProp> alive = [];
+        List<int> aliveIndex = [];
+
+        // **Each corpse as the last tick resolved it** (B574): its sequence is resolved in place, and a corpse handed in
+        // fresh from its record every tick was copied whole every tick to write the same sequence again.
+        SceneProp[] resolved = new SceneProp[_corpses.Length];
+
+        for (int index = 0; index < _corpses.Length; index++)
+        {
+            resolved[index] = _corpses[index].Corpse;
+        }
 
         for (int tick = first; tick <= last; tick++)
         {
             token.ThrowIfCancellationRequested();
 
             alive.Clear();
+            aliveIndex.Clear();
 
-            foreach (RecordedCorpse recorded in _corpses)
+            for (int index = 0; index < _corpses.Length; index++)
             {
+                RecordedCorpse recorded = _corpses[index];
+
                 if (recorded.Corpse.FirstTick <= tick && tick <= recorded.LastTick)
                 {
-                    alive.Add(recorded.Corpse);
+                    alive.Add(resolved[index]);
+                    aliveIndex.Add(index);
                 }
             }
 
             // **The live path's own clock**: a moment's seconds are its absolute tick times the interval (`MomentInfo.Seconds`).
             models.CurrentTick = tick;
             models.AdvanceCorpsesAlone(alive, tick * (double)intervalPerTick);
+
+            for (int at = 0; at < alive.Count; at++)
+            {
+                resolved[aliveIndex[at]] = alive[at];
+            }
 
             foreach (SceneProp corpse in alive)
             {

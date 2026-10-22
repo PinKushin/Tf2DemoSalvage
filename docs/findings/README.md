@@ -325,6 +325,12 @@ in any public writeup found:
   the engine's deferred mixer path, and the sound starts late when it arrives, as the engine's waiting channel does. On f12, decodes in play
   went 5 → 0 and the same five were loaded off the frame; a second precache lists only new names, 12 not 1,394
   ([90](90-a-first-sound-play-is-loaded-off-the-frame.md), measurements/2026-10-21-sound-first-play-off-frame.md).
+- **A fix that the caller undid.** Seven more allocations are gone: per-search motion caches, per-frame layer lists,
+  placement matrices, a heal-beam closure built for every beam in the demo, and the HUD's vertex array. The corpse copy
+  needed a second fix, because the corpse record re-fed each original every tick, so the first fix never fired. The
+  render thread went from 1.21-1.26 to 0.94-1.01 MB a frame and every heap from 2.50-2.98 to 1.54-1.83. The effect on
+  stalls is inconclusive on a loaded machine ([91](91-a-fix-that-the-caller-undid.md),
+  measurements/2026-10-21-corpse-and-beam-allocations.md).
 
 ## Conventions used throughout
 

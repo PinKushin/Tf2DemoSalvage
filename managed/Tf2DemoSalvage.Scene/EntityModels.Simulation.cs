@@ -282,17 +282,21 @@ public sealed partial class EntityModelSet
             // 1.0 under a comment admitting the weight is wrong for IK). For the main sequence that
             // pose IS the base here, so a local layer at full weight over it is exact — see B294
             // for the case this does not reproduce.
-            List<PoseLayer> composed =
-                AutoLayersFor(
-                    skinned, sequence, phase, 1f, poseValues, local: true, LayerDepth, seconds);
+            //
+            // **Into the skeleton's own list, emptied and refilled** (B574): the engine accumulates into the bone
+            // setup's arrays, and a new list here each frame was the corpse worker's `PoseLayer[]` churn. Every reader
+            // of `Layers` reads it within the frame.
+            List<PoseLayer> composed = posed.Layers as List<PoseLayer> ?? [];
+            composed.Clear();
+            AutoLayersFor(
+                skinned, sequence, phase, 1f, poseValues, local: true, LayerDepth, seconds, composed);
 
             // **Then `AddSequenceLayers` for the main sequence, before the transitions.**
             // `AccumulatePose` runs it as its last step (`:2449`), and `StandardBlendingRules` calls
             // `AccumulatePose` for the main sequence before `MaintainSequenceTransitions` — so the
             // main sequence's own layers land ahead of anything fading out behind it.
-            composed.AddRange(
-                AutoLayersFor(
-                    skinned, sequence, phase, 1f, poseValues, local: false, LayerDepth, seconds));
+            AutoLayersFor(
+                skinned, sequence, phase, 1f, poseValues, local: false, LayerDepth, seconds, composed);
 
             composed.AddRange(TransitionsFor(prop, skinned, sequence, phase, seconds));
 
@@ -302,7 +306,7 @@ public sealed partial class EntityModelSet
             // (`c_baseanimating.cpp:1996`, after `AccumulateLayers` and before `CalcBoneAdj`) —
             // B291. Order matters because each accumulates onto the result of the last: a flag
             // that autoplays goes over whatever the body settled on, not underneath it.
-            composed.AddRange(AutoplayFor(skinned, seconds));
+            AutoplayFor(skinned, seconds, composed);
 
             posed.Layers = composed;
 

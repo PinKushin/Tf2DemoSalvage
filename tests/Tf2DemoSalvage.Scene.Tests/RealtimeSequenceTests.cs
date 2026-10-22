@@ -183,6 +183,30 @@ public sealed class RealtimeSequenceTests
     }
 
     /// <remarks>
+    /// **A skeleton's layer list is its own, refilled each pose** (B574): the engine accumulates layers into the bone
+    /// setup's own arrays, and a new list per prop per frame was 273 MB of `PoseLayer[]` per 20 s on f12's corpse
+    /// worker (finding 89's measurement file). The second pose must hand back the same list, holding the same layer at
+    /// the new time.
+    /// </remarks>
+    [Test]
+    public void Pose_ASecondFrame_RefillsTheSameLayerList()
+    {
+        EntityModelSet models = new() { Geometry = _ => Layered() };
+        MomentScene scene = new(models, new ViewmodelScene(), new RecordingLogger());
+        SceneProp cabinet = Held(cycle: 0.9f);
+        scene.Build([], [cabinet], At(3.25d));
+        scene.Pose(At(3.25d));
+        IReadOnlyList<PoseLayer> first = models.LayersOf(cabinet.EntityIndex).ShouldNotBeNull();
+
+        scene.Build([], [cabinet], At(3.5d));
+        scene.Pose(At(3.5d));
+
+        IReadOnlyList<PoseLayer> second = models.LayersOf(cabinet.EntityIndex).ShouldNotBeNull();
+        second.ShouldBeSameAs(first);
+        second.ShouldContain(layer => layer.Sequence == LayeredTarget && layer.Frame == 15, "frac(3.5) of the clock");
+    }
+
+    /// <remarks>
     /// **The fourth site, and it was found by asking where else `AccumulatePose` runs** rather than
     /// by reading `CalcPoseSingle` again. `MaintainSequenceTransitions` ends with
     /// <c>boneSetup.AccumulatePose( pos, q, blend-&gt;m_nSequence, flCycle, … )</c>

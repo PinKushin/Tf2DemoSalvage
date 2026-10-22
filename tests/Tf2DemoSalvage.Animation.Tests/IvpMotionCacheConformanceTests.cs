@@ -120,6 +120,57 @@ public sealed class IvpMotionCacheConformanceTests
     }
 
     /// <remarks>
+    /// **A rebuilt cache is a new search's cache** (B574): the engine's slots sit in the searcher's own storage and
+    /// `FUN_1800a0800` nulls them for every search, so a slot filled by the last search must not be read by the next.
+    /// Slot 3 filled at 0.015 is height 4.5; after a rebuild, slot 3 asked at 0.05 is height 8.
+    /// </remarks>
+    [Test]
+    public void Rebuild_AfterASlotWasFilled_FillsItAgainAtTheNewTime()
+    {
+        IvpRigidBody body = Rising();
+        IvpMotionCache cache = new(body, Marker, resting: false);
+        cache.At(3, 0.015d);
+
+        cache.Rebuild(body, Marker, resting: false);
+
+        cache.At(3, 0.05d).Translation.Z.ShouldBe(8d, 1e-5d);
+    }
+
+    /// <remarks>A rebuild takes the new current matrix and the new resting state.</remarks>
+    [Test]
+    public void Rebuild_WithANewCurrentAndResting_ReadsTheNewCurrentAtEveryTick()
+    {
+        IvpMatrix other = IvpMatrix.FromRotation((0f, 0f, 0f, 1f), (4d, 5d, 6d));
+        IvpMotionCache cache = new(Rising(), Marker, resting: false);
+        cache.At(3, 0.015d);
+
+        cache.Rebuild(Rising(), other, resting: true);
+
+        cache.Current.ShouldBe(other);
+        cache.At(3, 0.015d).ShouldBe(other);
+    }
+
+    /// <remarks>
+    /// **A search reuses its storage, as the engine's searcher does** (B574): a cache built per search was 265 MB of
+    /// slot arrays per 20 s on the corpse worker of f12 (measurements/2026-10-21-corpse-and-beam-allocations.md).
+    /// </remarks>
+    [Test]
+    public void Rebuild_ThenFill_AllocatesNothing()
+    {
+        IvpRigidBody body = Rising();
+        IvpMotionCache cache = new(body, Marker, resting: false);
+        cache.At(3, 0.015d);
+
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        cache.Rebuild(body, Marker, resting: false);
+        IvpMatrix filled = cache.At(3, 0.05d);
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        allocated.ShouldBe(0);
+        filled.Translation.Z.ShouldBe(8d, 1e-5d);
+    }
+
+    /// <remarks>
     /// **The engine does not bound the index**; its interval is a single simulation step, a handful of
     /// ticks, so slot 21 is never asked for. Past the last slot the engine's storage would be overrun, and
     /// the port refuses instead of reading beside the cache.

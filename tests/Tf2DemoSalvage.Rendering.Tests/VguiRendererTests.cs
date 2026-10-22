@@ -24,6 +24,31 @@ public sealed class VguiRendererTests
     }
 
     /// <remarks>
+    /// **The vertices are written into the buffer the draw maps** (B574): a new array per frame was 99 MB per 20 s on
+    /// the render thread (finding 89's measurement file), and the engine's mesh builder writes into its locked buffer.
+    /// Into a span, the floats must be the array form's and nothing may be allocated.
+    /// </remarks>
+    [Test]
+    public void BuildVertices_IntoASpan_IsTheArrayFormAndAllocatesNothing()
+    {
+        VguiQuad[] quads =
+        [
+            new(null, 0f, 0f, 50f, 25f, 0f, 0f, 1f, 1f, 255, 0, 0, 10, 20, 30, 40),
+            new(null, 10f, 5f, 20f, 15f, 0f, 0f, 1f, 1f, 235, 128, 7, 255, 255, 255, 255),
+        ];
+        float[] expected = VguiRenderer.BuildVertices(quads, 100, 50);
+        float[] written = new float[expected.Length];
+        VguiRenderer.BuildVertices(quads, 100, 50, written);
+
+        long before = System.GC.GetAllocatedBytesForCurrentThread();
+        VguiRenderer.BuildVertices(quads, 100, 50, written);
+        long allocated = System.GC.GetAllocatedBytesForCurrentThread() - before;
+
+        allocated.ShouldBe(0);
+        written.ShouldBe(expected);
+    }
+
+    /// <remarks>
     /// `o.color.rgb = GammaToLinear( v.vColor.rgb )` (vertexlit_and_unlit_generic_vs20.fxc:238), `pow( x, 2.2 )`
     /// (common_fxc.h), before the frame's sRGB write. Measured against TF2 on cp_process_f12, 2026-10-17: TanLight
     /// (235 226 202) text reads back 236 227 203 — what pow 2.2 then the sRGB curve gives — where ours, written straight

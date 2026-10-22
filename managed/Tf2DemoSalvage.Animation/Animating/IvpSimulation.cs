@@ -35,6 +35,12 @@ public sealed class IvpSimulation
     private int _timeCode = 1;
     private int _marginDecay;
 
+    /// <summary>The two motion caches every time-of-impact search is handed, rebuilt per search — the searcher's own storage (B574).</summary>
+    private readonly IvpMotionCache _motionA = new(new IvpRigidBody(), default, resting: true);
+
+    /// <inheritdoc cref="_motionA"/>
+    private readonly IvpMotionCache _motionB = new(new IvpRigidBody(), default, resting: true);
+
     /// <summary>Starts a simulation with one gravity controller, as an environment's <c>+0x0</c> holds one.</summary>
     /// <param name="environment">The environment: its step, limits, anomaly manager and materials.</param>
     /// <param name="gravity">The acceleration the gravity controller carries, in this project's own units.</param>
@@ -1052,9 +1058,9 @@ public sealed class IvpSimulation
         // **Synapse A's side is ITS record's**, which is record 1 when the flags' bit 8 says so. *This passed record 0's side for synapse A
         // always*; two cubes of twelve triangles each could not tell, and a two-triangle virtual ledge indexed past its end.
         bool recordOneIsA = mindist.SynapseA != 0;
-        IvpSearchSide sideA = recordOneIsA ? Searchable(second, secondCore) : Searchable(first, firstCore);
-        IvpSearchSide sideB = recordOneIsA ? Searchable(first, firstCore) : Searchable(second, secondCore);
 
+        // The sides are built into the held caches inside the search, not before it, so whatever the scheduler does
+        // around the search — a filing that reaches another pair's Examine — cannot rebuild them under it (B574).
         LastOutcome = IvpPairScheduler.Examine(
             mindist,
             Scheduled(firstCore),
@@ -1066,9 +1072,9 @@ public sealed class IvpSimulation
                 context,
                 state,
                 mindist.Synapse(mindist.SynapseA),
-                sideA,
+                recordOneIsA ? Searchable(second, secondCore, _motionA) : Searchable(first, firstCore, _motionA),
                 mindist.Synapse(mindist.SynapseA ^ 1),
-                sideB));
+                recordOneIsA ? Searchable(first, firstCore, _motionB) : Searchable(second, secondCore, _motionB)));
 
         _marginDecay = scheduler.MarginDecayCounter;
         Examined?.Invoke(mindist, LastOutcome.Value);
@@ -1096,6 +1102,15 @@ public sealed class IvpSimulation
             side.Topology,
             new IvpMotionCache(core, side.Current, resting: core.Immovable),
             IvpRangeManager.Bounds(core));
+
+    /// <summary>One side built into a cache the simulation holds — the searcher's own storage, rebuilt per search (B574).</summary>
+    /// <remarks>Safe because the search runs inside <see cref="IvpPairScheduler.Examine"/>, which calls it synchronously and keeps
+    /// nothing, and no search starts another.</remarks>
+    internal static IvpSearchSide Searchable(IvpLedgeSide side, IvpRigidBody core, IvpMotionCache held)
+    {
+        held.Rebuild(core, side.Current, resting: core.Immovable);
+        return new(side.Points, side.Topology, held, IvpRangeManager.Bounds(core));
+    }
 
     /// <summary>
     /// What a far pair is filed with — the objects' own hull managers, and what their slot 1 hands the pair back to

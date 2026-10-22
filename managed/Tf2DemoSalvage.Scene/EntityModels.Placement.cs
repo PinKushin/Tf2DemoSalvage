@@ -106,10 +106,10 @@ public sealed partial class EntityModelSet
         // hand is what threw `Destination array was not long enough` on the first frame of
         // playback — and the length was the lucky half, since a transpose of the same size would
         // have drawn a plausible wrong pose instead of failing.
+        // Written into the entity's own array, as the engine's `matrix3x4_t` is a local (B574).
         MatrixConvention.ToBoneMatrix(
-                new PropTransform(
-                    pose.X, pose.Y, pose.Z, pose.Pitch, pose.Yaw, pose.Roll, pose.Scale).ToMatrix())
-            .CopyTo(placement, 0);
+            new PropTransform(pose.X, pose.Y, pose.Z, pose.Pitch, pose.Yaw, pose.Roll, pose.Scale),
+            placement);
 
         if (prop.AttachedTo is null)
         {

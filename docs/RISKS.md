@@ -40055,7 +40055,7 @@ reddens four tests), and a child's drawn size against its own scale alone.
   `pl_badwater_pro_v12.bsp` is not on this machine (not under the game's `tf/maps`, `tf/download/maps`, `tf2ds`, or the
   user profile), so its `parentname` cannot be read, and no sampled tick gives them a parent.
 
-## B574 — per-frame allocations behind the collector: three fixed, the rest ranked — PARTLY FIXED (2026-10-21)
+## B574 — per-frame allocations behind the collector: ten fixed, the rest ranked — PARTLY FIXED (2026-10-21)
 
 **Fixed** (finding 89, measurements/2026-10-21-struct-copies-and-allocations.md):
 - `SpectatorTarget.Choose` sorted a filtered copy of the roster six times a frame.
@@ -40064,11 +40064,19 @@ reddens four tests), and a child's drawn size against its own scale alone.
 
 Render thread, 60 s: 1.85–1.89 → 1.20 MB a frame. Every heap: 3.09–3.20 → 2.40 MB a frame (finding 89).
 
-**Open, ranked, MB per 20 s:**
-- On the corpse worker: `CorpsePhysics.Advance` 1,364; a corpse's `SceneProp`/`ScenePose` copy each tick in
-  `UpdateClientSideAnimations` 306, made even when the sequence is unchanged; `PoseLayer[]` 273; `Nullable<IvpMatrix>[]`
-  241, from `IvpVertexFaceSearch.Search` and `IvpRootFinder.March`; `PlacementOf`'s `float[]` 172.
-- On the render thread: the heal-beam closure 173 and `VguiRenderer.BuildVertices` 99.
+**Fixed, second pass** (finding 91, measurements/2026-10-21-corpse-and-beam-allocations.md): the time-of-impact
+motion caches, the corpse copy (two fixes: the copy, then the corpse record re-feeding each original), the layer lists,
+the placement matrices, the heal-beam closure and the HUD vertex array. Render thread, 60 s: 1.21-1.26 -> 0.94-1.01 MB a
+frame. Every heap: 2.50-2.98 -> 1.54-1.83. Frames over 100 ms: inconclusive on a loaded machine (finding 91).
+
+**Open, ranked, MB per 20 s** (after2 trace, measurement file above):
+- On the corpse worker, under `CorpsePhysics.Advance` (1,355 in a window that did 22% more corpse work): a long IVP tail.
+  `IvpContactRecord` 156 (`IvpPairDamping.Bank`), the solver's `double[]` 131 (`IvpComplementaritySolver`,
+  `IvpFrictionSystem`), `IvpLedgeSide` 119, `IvpRigidBody[]` 77, the topology iterators `Walk`/`EndingAt` 73 + 65, then
+  under 45 each. Each wants its engine shape read before it changes (who owns the record, the solver's matrices).
+  Also `UpdateClientSideAnimations` 100, not broken down.
+- On the render thread: `Device3D.File`'s closure `<>c__DisplayClass323_0` 150, `StudioDecalProjection.Influences`
+  136, `DrawTally.NotDrawable`'s strings, the `ScenePlayer` enumerators 68.
 - Also seen, not sized: `PlayerAnimation.For`'s `declared` closure on every call, and `SceneProp` hashed as a whole record
   as a dictionary key in `MomentScene.Build` (1.4% of the render thread, CPU).
 

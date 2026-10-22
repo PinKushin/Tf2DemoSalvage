@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 
 using Tf2DemoSalvage.Core.Scene;
@@ -222,6 +223,29 @@ public sealed class UpdateClientSideAnimationsTests
         models.UpdateClientSideAnimations(drawn);
 
         drawn[0].Pose.Sequence.ShouldBe(1, "'ragdoll', the ACT_DIERAGDOLL sequence");
+    }
+
+    /// <remarks>
+    /// **A corpse already in its resting sequence is not copied again** (B574): the engine's `SetSequence` writes one
+    /// field in place, and a `with` of the whole prop each tick was 306 MB per 20 s on f12's corpse worker (finding 89's
+    /// measurement file). The second pass must find the same sequence and allocate nothing.
+    /// </remarks>
+    [Test]
+    public void UpdateClientSideAnimations_ACorpseAlreadyResting_AllocatesNothing()
+    {
+        EntityModelSet models = new();
+        models.Add([Corpse(death: null)], Corpses);
+        List<SceneProp> drawn = [Corpse(death: null)];
+        models.UpdateClientSideAnimations(drawn);
+        SceneProp settled = drawn[0];
+
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        models.UpdateClientSideAnimations(drawn);
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        allocated.ShouldBe(0);
+        drawn[0].ShouldBeSameAs(settled);
+        drawn[0].Pose.Sequence.ShouldBe(1);
     }
 
     /// <remarks>

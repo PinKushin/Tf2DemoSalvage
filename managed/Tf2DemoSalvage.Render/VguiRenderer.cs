@@ -305,7 +305,7 @@ internal sealed unsafe class VguiRenderer : IDisposable
         if (quads.Count > 0)
         {
             EnsureCapacity(device, quads.Count);
-            Upload(context, BuildVertices(quads, viewportWidth, viewportHeight));
+            Upload(context, quads, viewportWidth, viewportHeight);
         }
 
         // A 3D paint changes shaders, buffers and viewport, so the quads' own state is bound again after each.
@@ -420,10 +420,24 @@ internal sealed unsafe class VguiRenderer : IDisposable
         ArgumentNullException.ThrowIfNull(quads);
 
         float[] data = new float[quads.Count * VerticesPerQuad * FloatsPerVertex];
+        BuildVertices(quads, viewportWidth, viewportHeight, data);
+        return data;
+    }
+
+    /// <summary><see cref="BuildVertices(IReadOnlyList{VguiQuad}, int, int)"/> into storage the caller owns — the mapped vertex buffer (B574).</summary>
+    /// <param name="quads">The quads.</param>
+    /// <param name="viewportWidth">Render target width.</param>
+    /// <param name="viewportHeight">Render target height.</param>
+    /// <param name="data">At least six vertices of eight floats per quad.</param>
+    internal static void BuildVertices(IReadOnlyList<VguiQuad> quads, int viewportWidth, int viewportHeight, Span<float> data)
+    {
+        ArgumentNullException.ThrowIfNull(quads);
+
         int at = 0;
 
-        foreach (VguiQuad quad in quads)
+        for (int index = 0; index < quads.Count; index++)
         {
+            VguiQuad quad = quads[index];
             float left = (quad.X0 / viewportWidth * 2f) - 1f;
             float right = (quad.X1 / viewportWidth * 2f) - 1f;
             float top = 1f - (quad.Y0 / viewportHeight * 2f);
@@ -455,14 +469,12 @@ internal sealed unsafe class VguiRenderer : IDisposable
             Append(data, ref at, right, bottom, quad.S1, quad.T1, red, green, blue, quad.AlphaBottomRight);
             Append(data, ref at, left, bottom, quad.S0, quad.T1, red, green, blue, quad.AlphaBottomLeft);
         }
-
-        return data;
     }
 
     /// <summary>`GammaToLinear` (common_fxc.h): <c>pow( x, 2.2 )</c>.</summary>
     private static float GammaToLinear(byte channel) => MathF.Pow(channel / 255f, 2.2f);
 
-    private static void Append(float[] data, ref int at, float x, float y, float s, float t, float red, float green, float blue, byte alpha)
+    private static void Append(Span<float> data, ref int at, float x, float y, float s, float t, float red, float green, float blue, byte alpha)
     {
         data[at++] = x;
         data[at++] = y;
@@ -548,15 +560,18 @@ internal sealed unsafe class VguiRenderer : IDisposable
         return entry;
     }
 
-    private void Upload(ComPtr<ID3D11DeviceContext> context, float[] vertices)
+    /// <summary>Writes the quads' vertices straight into the mapped buffer, as the engine's mesh builder writes into its locked one (B574).</summary>
+    private void Upload(ComPtr<ID3D11DeviceContext> context, IReadOnlyList<VguiQuad> quads, int viewportWidth, int viewportHeight)
     {
         MappedSubresource mapped = default;
         SilkMarshal.ThrowHResult(context.Map(_vertices, 0, Map.WriteDiscard, 0, ref mapped));
 
-        fixed (float* source = vertices)
-        {
-            System.Buffer.MemoryCopy(source, mapped.PData, vertices.Length * sizeof(float), vertices.Length * sizeof(float));
-        }
+        // EnsureCapacity sized the buffer for at least this many quads.
+        BuildVertices(
+            quads,
+            viewportWidth,
+            viewportHeight,
+            new Span<float>(mapped.PData, quads.Count * VerticesPerQuad * FloatsPerVertex));
 
         context.Unmap(_vertices, 0);
     }

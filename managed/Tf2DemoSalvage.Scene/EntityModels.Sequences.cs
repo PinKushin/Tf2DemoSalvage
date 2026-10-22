@@ -272,10 +272,14 @@ public sealed partial class EntityModelSet
             // label and never by activity.
             if (string.Equals(prop.ClassName, RagdollProps.RagdollClassName, StringComparison.Ordinal))
             {
-                drawn[index] = prop with
+                // Copied only when the sequence changes — `SetSequence` writes one field, and a settled corpse's
+                // whole-prop copy every tick was the corpse worker's second-largest allocation (B574).
+                int sequence = CorpseSequence(prop);
+
+                if (sequence != prop.Pose.Sequence)
                 {
-                    Pose = prop.Pose with { Sequence = CorpseSequence(prop) },
-                };
+                    drawn[index] = prop with { Pose = prop.Pose with { Sequence = sequence } };
+                }
 
                 continue;
             }
@@ -329,7 +333,11 @@ public sealed partial class EntityModelSet
             if (chosen >= 0)
             {
                 chosen = MainSequence(prop, chosen);
-                drawn[index] = prop with { Pose = prop.Pose with { Sequence = chosen } };
+
+                if (chosen != prop.Pose.Sequence)
+                {
+                    drawn[index] = prop with { Pose = prop.Pose with { Sequence = chosen } };
+                }
             }
         }
     }

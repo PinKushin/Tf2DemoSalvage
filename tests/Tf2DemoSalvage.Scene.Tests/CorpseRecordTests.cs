@@ -111,6 +111,51 @@ public sealed class CorpseRecordTests
         models.Corpses.Steps.ShouldBe(100 - Death);
     }
 
+    /// <remarks>
+    /// **Each corpse carries its own resolved prop to its next tick** (B574, finding 91): the record hands a corpse back as
+    /// the last tick resolved it, so its sequence is not copied whole every tick. Two corpses far apart, the second
+    /// listed first and dying later, so the alive list's order and its indices into the record differ for five ticks:
+    /// a write-back to the wrong corpse moves one onto the other's prop. The record must equal straight-through play of
+    /// the same two, whose drawn list keeps what each tick resolved, as the live frame's does.
+    /// </remarks>
+    [Test]
+    public void Run_TwoCorpsesDyingApart_RecordsWhatStraightThroughPlayComputes()
+    {
+        SceneProp early = CorpsePhysicsWiringTests.Corpse() with { FirstTick = Death };
+        SceneProp late = early with
+        {
+            EntityIndex = early.EntityIndex + 1,
+            FirstTick = Death + 5,
+            Pose = early.Pose with { X = early.Pose.X + 2000f },
+        };
+
+        CorpseRecord record = new([new RecordedCorpse(late, End), new RecordedCorpse(early, End)]);
+        record.Run(_ => CorpsePhysicsWiringTests.Frames(), createWorld: null, surfaces: new([]), intervalPerTick: 1f / 66f, CancellationToken.None);
+
+        EntityModelSet live = new() { Geometry = _ => CorpsePhysicsWiringTests.Frames() };
+        live.Add([early, late], _ => CorpsePhysicsWiringTests.Frames());
+        List<SceneProp> drawn = [early];
+
+        for (int tick = Death; tick <= End; tick++)
+        {
+            if (tick == late.FirstTick)
+            {
+                drawn.Insert(0, late);
+            }
+
+            live.CurrentTick = tick;
+            live.UpdateClientSideAnimations(drawn);
+            live.Instances(drawn, [], seconds: tick * (double)live.IntervalPerTick);
+
+            foreach (SceneProp corpse in drawn)
+            {
+                record.TryGet(corpse.EntityIndex, corpse.FirstTick!.Value, tick, out (Vector3 Position, Quaternion Orientation)[]? state)
+                    .ShouldBeTrue($"the record covers entity {corpse.EntityIndex} at tick {tick}");
+                state![0].Position.ShouldBe(live.Corpses.Roots[corpse.EntityIndex], $"entity {corpse.EntityIndex} at tick {tick}");
+            }
+        }
+    }
+
     /// <summary>A record run to completion over one corpse, living from its death to <see cref="End"/>.</summary>
     private static CorpseRecord Recorded(SceneProp corpse)
     {

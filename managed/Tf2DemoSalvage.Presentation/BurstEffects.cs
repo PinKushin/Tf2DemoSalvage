@@ -817,7 +817,7 @@ public sealed class BurstEffects
             Vector3? medicDrawn = beam.Owner is { } owner && _playersNow.TryGetValue(owner, out Vector3 drawn) ? drawn : null;
             float medicYaw = beam.Owner is { } healer ? _yawsNow.GetValueOrDefault(healer) : 0f;
             Func<int, (ParticleControlPoint At, ParticleControlPoint? End)> history =
-                then => HealBeamThen(playedAt(then), beam, muzzle, medicDrawn, medicYaw, patient);
+                HealBeamHistory(playedAt, beam, muzzle, medicDrawn, medicYaw, patient);
 
             (ParticleControlPoint at, ParticleControlPoint? far) = paused ? history(tick) : (muzzle, patient);
 
@@ -831,6 +831,20 @@ public sealed class BurstEffects
             }
         }
     }
+
+    /// <summary>A live beam's <see cref="HealBeamThen"/> as a burst's history.</summary>
+    /// <remarks>
+    /// Its own method because a lambda in the loop body captured the loop's locals, so the compiler allocated the
+    /// closure at the top of EVERY iteration over all the demo's beams, live or not (B574).
+    /// </remarks>
+    private static Func<int, (ParticleControlPoint At, ParticleControlPoint? End)> HealBeamHistory(
+        Func<int, Dictionary<int, ScenePlayer>> playedAt,
+        SceneHealBeam beam,
+        ParticleControlPoint muzzle,
+        Vector3? medicDrawn,
+        float medicYaw,
+        ParticleControlPoint patient) =>
+        then => HealBeamThen(playedAt(then), beam, muzzle, medicDrawn, medicYaw, patient);
 
     /// <summary>Control point 0 of a beam — the medigun's `muzzle` as `CEconEntity::GetAttachment` answers it (B539).</summary>
     /// <remarks>
