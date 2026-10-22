@@ -62,6 +62,9 @@ public sealed partial class SoundPresenter(
     /// <summary>Whether a sound <c>sample</c> answered null for is still on its way (<c>SoundCache.Loading</c>); never, by default.</summary>
     public Func<string, bool> Loading { get; init; } = static _ => false;
 
+    /// <summary>What a stop asks for: a sample already held, loading nothing (<c>SoundCache.HeldSample</c>); the opening delegate when unset.</summary>
+    public Func<string, SoundSample?>? Held { get; init; }
+
     /// <summary>Sounds started while their sample was loading, started again each pass until it arrives (finding 90).</summary>
     /// <remarks>
     /// **Late, not lost, because the engine's channel is.** `S_StartSound` made the channel; each mix pass leaves a channel
@@ -808,7 +811,23 @@ public sealed partial class SoundPresenter(
         {
             _outcome = StartOutcome.Stop;
 
-            if (sound.Name.Length > 0 && sample(sound.Name) is { } named)
+            // **A channel still waiting for its data is a channel**: it stays in the engine's active set (FUN_18003f2c0), so
+            // `S_AlterChannel` matches it and frees it (FUN_18002aa20) — one, the first match (finding 90).
+            int waiting = sound.Name.Length == 0
+                ? -1
+                : _late.FindIndex(late => late.Sound.EntityIndex == sound.EntityIndex && late.Sound.Channel == sound.Channel &&
+                    SoundName.SameSfx(late.Sound.Name, sound.Name));
+
+            if (waiting >= 0)
+            {
+                _late.RemoveAt(waiting);
+                audio.LogInformation(
+                    "{Message}",
+                    $"stopped while loading '{sound.Name}' (tick {sound.Tick.ToString(CultureInfo.InvariantCulture)})");
+            }
+
+            // The sfx is found by name and nothing is loaded for it: a sound not held cannot be playing.
+            if (sound.Name.Length > 0 && (Held ?? sample)(sound.Name) is { } named)
             {
                 // The sink names the one voice it stopped — the first in start order, as `S_AlterChannel` stops one — so
                 // what is followed forgets exactly that voice. A sink without handles answers 0, and the stop is
@@ -830,13 +849,6 @@ public sealed partial class SoundPresenter(
                     }
                 }
             }
-            else if (sound.Name.Length > 0 && Loading(sound.Name))
-            {
-                // Nothing can be playing a sound that has not loaded, so the stop stops nothing, as `S_AlterChannel`
-                // matching no channel (finding 90).
-                audio.LogInformation("{Message}", $"stop of '{sound.Name}' (tick {sound.Tick.ToString(CultureInfo.InvariantCulture)}) while it loads: nothing to stop");
-            }
-
             return;
         }
 

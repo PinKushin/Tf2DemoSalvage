@@ -318,6 +318,22 @@ public sealed class SoundCacheTests
         cache.Held.ShouldBe(new SoundCacheHeld(Sounds: 1, WaveBytes: 2, Mp3Bytes: 0, Misses: 0, OffFrame: 0));
     }
 
+    /// <remarks>`Held` answers what is decoded and loads nothing: `S_AlterChannel` finds the sfx by name (review of finding 90).</remarks>
+    [Test]
+    public void HeldSample_ANameNotDecoded_IsNullAndStartsNoLoad()
+    {
+        List<string> reads = [];
+        List<Action> jobs = [];
+        SoundCache cache = Cache(reads, offFrame: jobs.Add);
+
+        cache.HeldSample("a.wav").ShouldBeNull();
+        jobs.ShouldBeEmpty();
+        reads.ShouldBeEmpty();
+
+        cache.Precache(["a.wav"]);
+        cache.HeldSample("a.wav").ShouldNotBeNull("the control: a decoded name is held");
+    }
+
     [Test]
     public void Loading_WhileItsLoadIsPending_IsTrueUntilTheLoadIsTakenIn()
     {

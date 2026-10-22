@@ -283,6 +283,20 @@ public sealed class SoundCache
     }
 #pragma warning restore CA1031
 
+    /// <summary>The decoded sample for <paramref name="name"/> if one is held now; never reads or loads anything.</summary>
+    /// <param name="name">The name as the demo carries it.</param>
+    /// <returns>The sample, or null when none is held (not decoded, loading, evicted or failed).</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="name"/> is null.</exception>
+    /// <remarks>What a stop asks: `S_AlterChannel` finds the sfx by name and loads nothing (B416, finding 90).</remarks>
+    public SoundSample? HeldSample(string name)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+
+        Drain();
+
+        return _cache.TryGetValue(SoundName.SfxKey(name), out SoundSample? held) ? held : null;
+    }
+
     /// <summary>Whether a load of <paramref name="name"/> handed to <see cref="OffFrame"/> has not been taken in yet.</summary>
     /// <param name="name">The name as the demo carries it.</param>
     /// <returns>True while the sound is on its way; false once it arrived, failed, or was never asked for.</returns>

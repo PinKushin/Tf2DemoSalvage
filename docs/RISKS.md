@@ -40154,6 +40154,9 @@ Measured on f12: `docs/measurements/2026-10-21-sound-first-play-off-frame.md`.
   does not prove the lock (finding 90).
 - **The two Über sounds with no late start were STOPS** (observed, `docs/measurements/2026-10-21-uber-sounds-path-f12.md`):
   a stop with nothing playing stops nothing, as in the engine. Nothing the engine plays is dropped.
+- **A stop loads nothing and cancels a sound still loading** (review, finding 90): it asks `SoundCache.HeldSample`, and
+  removes the matching waiting late start, as `S_AlterChannel` frees the not-ready channel. f12:
+  `docs/measurements/2026-10-22-sound-stops-load-nothing-f12.md`.
 - **The `soundprecache` table is still not consulted**: the deferral covers any miss, so it would change no outcome.
   The model walk stays.
 - **Corrected:** finding 87's "Nothing in the engine decodes a sound on the render thread at first play". The engine

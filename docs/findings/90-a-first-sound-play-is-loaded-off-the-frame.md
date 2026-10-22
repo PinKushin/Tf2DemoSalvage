@@ -106,8 +106,17 @@ sound is not started (`late sound '<name>' ... did not arrive`). Each late start
   the seek, and nothing asked to start them in the 60 s. The instrument records `Start`'s outcome at the branch that
   decides it and was proved by its control (the two sounds that do start logged `waiting` then `late start`). A stop
   with no channel playing its sound stops nothing, in the engine too (`S_AlterChannel` finding no match, engine.dll
-  FUN_18002aa20, B416). **No divergence.** The instrument also stops a re-established one-shot from logging `late
-  start`. *Not read:* why the Über's own start falls before tick 30000 on f12; the seek's re-establishing pass does not
+  FUN_18002aa20, B416). **No divergence** in what is heard. The instrument also stops a re-established one-shot from logging `late
+  start`.
+- **But the stop LOADED them, and that was ours** (cross-model review): a stop asked the opening delegate, which queued a
+  368-402 ms pool read for a sound nothing plays. `S_AlterChannel` finds the sfx by name and loads nothing, so a stop
+  now asks `SoundCache.HeldSample`, which reads nothing. And **a stop cancels a sound still loading**: the waiting
+  channel is in the engine's active set (FUN_18003f2c0), so `S_AlterChannel` matches and frees it (FUN_18002aa20). The
+  first waiting late start with the same entity, channel and sfx is removed; before, a loop started and stopped inside
+  its read would have started and never stopped. Tests: `Update_AStopWhileItsSoundLoads_CancelsOnlyThatSound` (with
+  another sound and another channel as controls), `Update_AStopOfASoundNotHeld_AsksNothingToLoad`. On f12
+  (`docs/measurements/2026-10-22-sound-stops-load-nothing-f12.md`) the Uber pair no longer loads: 4 -> 2 off-frame loads,
+  1,336 -> 1,334 held, starts still late. *Not read:* why the Über's own start falls before tick 30000 on f12; the seek's re-establishing pass does not
   restart one-shots, which is the existing rule.
 - The before run was the busier machine (68 frames over 100 ms against 16), so its frame times are not a comparison.
 
