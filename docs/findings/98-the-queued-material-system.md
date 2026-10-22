@@ -74,7 +74,7 @@ N+1's simulation. Read-backs are not available in that mode; anything needing on
 **Our frame is serial on one thread.** `FrameSequence.Run` (`managed/Tf2DemoSalvage.Presentation/FrameSequence.cs:111-143`)
 runs shot, simulate, camera, sound, project, `BuildOverlay` (`hud`) and `Draw` in order, and `Draw` ends in
 `Device3D.DrawAndPresent` on the same thread. That is the engine's mode 0 only. **We have no mode 2**, and TF2 ships
-with -1. Filed as **B577**.
+with -1. Filed as **B581**.
 
 ## (3) The candidates, against our code
 

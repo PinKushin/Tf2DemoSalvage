@@ -352,8 +352,13 @@ in any public writeup found:
   benchmark-gated ([96](96-where-native-code-could-help.md), from the T1 trace in
   measurements/2026-10-22-f12-camera-breakdown.md).
 - **TF2 draws on a second thread and we draw on one.** It ships `mat_queue_mode -1` and queues material-system calls
-  to a render thread; we have only its mode 0 (B577). Only `draw` can move, not `hud`: an estimated 1-1.5 ms of 13.4,
+  to a render thread; we have only its mode 0 (B581). Only `draw` can move, not `hud`: an estimated 1-1.5 ms of 13.4,
   and possibly one frame of latency, still to be read in `materialsystem.dll` ([98](98-the-queued-material-system.md)).
+- **The engine does the same work for less, not less work.** Stage by stage against the engine's frame, the places it
+  caches, skips or waits for a change and we do not hold at most 1.8-2.1 ms of a 12 ms frame (bursts, visibility
+  filters, the HUD event feed, detail props; B578-B581), estimated at 0.6-1.2 ms to fix. The unsplit `draw` phase
+  (2.1 ms) is the one stage not seen into ([97](97-the-per-frame-pipeline-against-the-engines.md),
+  measurements/2026-10-22-f12-camera-breakdown.md).
 
 ## Conventions used throughout
 
