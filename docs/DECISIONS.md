@@ -10907,3 +10907,22 @@ betas 16-44 were never published. The old drafts stay drafts; the owner can have
 right, the gate and CI are green. Then `gh release edit <tag> --draft=false` (it stays a prerelease). The false comment in
 `release.yml` is replaced.
 
+## D228 — match the engine's queued material system (render on a second thread) as parity; no offloading beyond parity yet (2026-10-22)
+
+**The question.** Finding 98 found that TF2 queues its material-system calls to a render thread (`mat_queue_mode -1`) and we draw on
+the game thread (B581). The owner asked whether this should be made parity if we can.
+
+**What is decided.** The owner, 2026-10-22: *"yes, I approve that change"* — build the queued/threaded rendering as the engine's
+`mat_queue_mode` does, keeping today's serial path as the engine's mode 0. His conditions: *"I'm not against going better than Valve
+in the offloading to other threads, like the HUD could be if we figure out how, but don't force anything, let's just get parity
+first."* So: parity first; offloading more than the engine does (the HUD, for one) is allowed later if the output is identical,
+and is not done as part of this.
+
+**What he believes about latency, and what is not yet known.** *"I don't think TF2 has a frame of latency, Source would be horrible
+with a frame of latency, 1.6 had none, so I think if they have a +1 frame it's not held, but probably predicted or something or
+able to be turned off, or not in the real game world, I don't know."* This is his expectation, said with *"I don't know"*; it is
+not an established fact. The engine's actual queue depth and what blocks the game thread are in the closed `materialsystem.dll`
+(finding 98 could not read them from the SDK). The first step of the work is the Ghidra read that settles it; what the engine does
+is what we match. If matching it would make free-camera or mouse-look respond a frame later than they do now, that is reported and
+the owner decides before it becomes the default.
+
