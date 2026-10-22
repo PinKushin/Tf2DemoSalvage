@@ -560,10 +560,12 @@ public sealed partial class ViewerSession
             {
                 (int trails, int modelDecals) = _effects.KeptCounts;
                 (long replayTicks, long replaySteps) = _effects.ParticleReplay;
+                (long Asked, long Merged, long Ticks) merges = _presenter.Map?.Lighting.DynamicMerges ?? default;
                 _measured.AddNote(string.Create(
                     CultureInfo.InvariantCulture,
                     $"{ParticleCensusLine.Format(_shownTick, _effects.ParticleCensus())}; trails {trails}; model decals {modelDecals}" +
-                    $"; replays so far {replayTicks * 1000d / Stopwatch.Frequency:0.#} ms over {replaySteps} steps"));
+                    $"; replays so far {replayTicks * 1000d / Stopwatch.Frequency:0.#} ms over {replaySteps} steps" +
+                    $"; dynamic light draws so far {merges.Asked}, re-ranked {merges.Merged}, {merges.Ticks * 1000d / Stopwatch.Frequency:0.##} ms"));
             }
         }
 

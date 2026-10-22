@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Globalization;
 using System.Linq;
 using System.Numerics;
@@ -160,6 +161,32 @@ public sealed class LevelLighting
             return lit;
         }
 
+        long started = Stopwatch.GetTimestamp();
+
+        try
+        {
+            _dynamicAsked++;
+
+            return WithDynamicLightsFrom(lit, tree, x, y, z);
+        }
+        finally
+        {
+            _dynamicTicks += Stopwatch.GetTimestamp() - started;
+        }
+    }
+
+    private long _dynamicAsked;
+    private long _dynamicMerged;
+    private long _dynamicTicks;
+
+    /// <summary>
+    /// Since the map loaded: model draws that saw a dynamic light, how many of them re-ranked the lights, and the
+    /// stopwatch ticks those draws spent here. Each count is taken where the work runs.
+    /// </summary>
+    public (long Asked, long Merged, long Ticks) DynamicMerges => (_dynamicAsked, _dynamicMerged, _dynamicTicks);
+
+    private PointLighting WithDynamicLightsFrom(PointLighting lit, BspLeafTree tree, float x, float y, float z)
+    {
         int from = tree.ClusterAt(x, y, z);
         bool anyCluster = _visibility is not { HasData: true };
         List<BspWorldLight> lights = [.. _worldLights];
@@ -179,6 +206,8 @@ public sealed class LevelLighting
         {
             return lit;
         }
+
+        _dynamicMerged++;
 
         // Keyed on the point's own leaf and lit at its cell's point, as LightingAt does.
         int leaf = tree.LeafAt(x, y, z);
