@@ -141,14 +141,10 @@ public sealed unsafe class BloomRenderer : IDisposable
         BloomRenderer bloom = this;
         using D3DCompiler compiler = D3DCompiler.GetApi();
 
-        ComPtr<ID3D10Blob> code = Compile(compiler, "VsFull", "vs_5_0");
-        SilkMarshal.ThrowHResult(device.CreateVertexShader(
-            code.GetBufferPointer(), code.GetBufferSize(), ref Unsafe.NullRef<ID3D11ClassLinkage>(), ref bloom._vertex));
-        code.Dispose();
-
-        bloom._downsample = Pixel(device, compiler, "PsDownsample");
-        bloom._blur = Pixel(device, compiler, "PsBlur");
-        bloom._add = Pixel(device, compiler, "PsAdd");
+        bloom._vertex = Vertex(device, compiler, ShaderSource, "VsFull");
+        bloom._downsample = Pixel(device, compiler, ShaderSource, "PsDownsample");
+        bloom._blur = Pixel(device, compiler, ShaderSource, "PsBlur");
+        bloom._add = Pixel(device, compiler, ShaderSource, "PsAdd");
 
         BufferDesc buffer = new()
         {
@@ -331,9 +327,21 @@ public sealed unsafe class BloomRenderer : IDisposable
         _size = default;
     }
 
-    private static ComPtr<ID3D11PixelShader> Pixel(ComPtr<ID3D11Device> device, D3DCompiler compiler, string entry)
+    /// <summary>Compiles one vertex shader out of an HLSL source.</summary>
+    internal static ComPtr<ID3D11VertexShader> Vertex(ComPtr<ID3D11Device> device, D3DCompiler compiler, string hlsl, string entry)
     {
-        ComPtr<ID3D10Blob> code = Compile(compiler, entry, "ps_5_0");
+        ComPtr<ID3D10Blob> code = Compile(compiler, hlsl, entry, "vs_5_0");
+        ComPtr<ID3D11VertexShader> shader = default;
+        SilkMarshal.ThrowHResult(device.CreateVertexShader(
+            code.GetBufferPointer(), code.GetBufferSize(), ref Unsafe.NullRef<ID3D11ClassLinkage>(), ref shader));
+        code.Dispose();
+        return shader;
+    }
+
+    /// <summary>Compiles one pixel shader out of an HLSL source.</summary>
+    internal static ComPtr<ID3D11PixelShader> Pixel(ComPtr<ID3D11Device> device, D3DCompiler compiler, string hlsl, string entry)
+    {
+        ComPtr<ID3D10Blob> code = Compile(compiler, hlsl, entry, "ps_5_0");
         ComPtr<ID3D11PixelShader> shader = default;
         SilkMarshal.ThrowHResult(device.CreatePixelShader(
             code.GetBufferPointer(), code.GetBufferSize(), ref Unsafe.NullRef<ID3D11ClassLinkage>(), ref shader));
@@ -341,9 +349,9 @@ public sealed unsafe class BloomRenderer : IDisposable
         return shader;
     }
 
-    private static ComPtr<ID3D10Blob> Compile(D3DCompiler compiler, string entry, string profile)
+    private static ComPtr<ID3D10Blob> Compile(D3DCompiler compiler, string hlsl, string entry, string profile)
     {
-        byte[] source = System.Text.Encoding.ASCII.GetBytes(ShaderSource);
+        byte[] source = System.Text.Encoding.ASCII.GetBytes(hlsl);
         ComPtr<ID3D10Blob> code = default;
         ComPtr<ID3D10Blob> errors = default;
 
@@ -356,7 +364,7 @@ public sealed unsafe class BloomRenderer : IDisposable
             {
                 string message = errors.Handle is null ? $"0x{result:X8}" : SilkMarshal.PtrToString((nint)errors.GetBufferPointer()) ?? string.Empty;
                 errors.Dispose();
-                throw new InvalidOperationException($"bloom shader {entry}: {message}");
+                throw new InvalidOperationException($"post-processing shader {entry}: {message}");
             }
         }
 
