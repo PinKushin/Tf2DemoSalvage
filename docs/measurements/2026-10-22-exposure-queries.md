@@ -62,6 +62,63 @@ them: mean luma of a 4x3 grid of regions, tolerance 1.0, and each channel's regi
 
 ## Environment
 
+RTX 3060, i5-10600K, Debug viewers as in Method, every run through `run-exclusive.ps1`. Load (3 x 2 s) before / after:
+EO1 22/4/11 / 7/4/9, EN1 22/3/4 / 26/22/31, EO2 27/22/30 / 5/8/9, EN2 8/8/5 / 8/11/5, O1 4/5/6 / 4/13/11,
+N1 12/5/5 / 8/2/6, O2 6/8/13 / 6/11/3, N2 10/7/3 / 11/8/6. The 20-30% samples around EN1/EO2 were this session's gate
+phase 1 waiting on the shared lock; the exclusive runs themselves do not overlap it. Each exposure run reached tick ~30500
+in its 12 s (captures cost ~280 ms a frame), so 9 or 10 of the 15 shots were taken; the comparison uses those both have.
+
 ## Result
 
+**Frame cost** (`measured 20 seconds of playback ...` line of each run):
+
+| run | build | frames | mean ms |
+|---|---|---|---|
+| O1 | old | 1545 | 12.95 |
+| N1 | new | 1567 | 12.76 |
+| O2 | old | 1533 | 13.05 |
+| N2 | new | 1545 | 12.95 |
+
+O1 and O2 agree within 1%, so both pairs stand. New is lower by 0.19 and 0.10 ms.
+
+**Tone-map scale per shot** (capture log, "drawn with tone-map scale"):
+
+| tick | EO1 | EO2 | EN1 | EN2 |
+|---|---|---|---|---|
+| 30050 | 0.84768903 | 0.84768903 | 0.8453814 | 0.8453814 |
+| 30100 | 0.7574098 | 0.7574098 | 0.7565128 | 0.7565128 |
+| 30150 | 0.7223166 | 0.7223166 | 0.72196794 | 0.72196794 |
+| 30200 | 0.7086754 | 0.7086754 | 0.70853984 | 0.70853984 |
+| 30250 | 0.7033728 | 0.7033728 | 0.7033201 | 0.7033201 |
+| 30300 | 0.7013116 | 0.7013116 | 0.7012911 | 0.7012911 |
+| 30350 | 0.7005102 | 0.7005102 | 0.7005022 | 0.7005022 |
+| 30400 | 0.7001987 | 0.7001987 | 0.7001956 | 0.7001956 |
+| 30450 | 0.7000778 | 0.7000778 | 0.7000766 | 0.7000766 |
+| 30500 | - | 0.70003074 | - | 0.70003027 |
+
+Control: old against old is identical to the last digit (fixed frame time makes it deterministic), so the tolerance the
+plan defined is zero. New against new is identical too. New against old: 0.0023 (0.27%) at the first shot, shrinking to
+0.0000012 by 30450. The scale is not 1 at any shot (the instrument's control holds) and every run logged its shots.
+
+**Pictures**, worst 4x3 region (luma / one channel, 0..255), `compare.py` in the session scratch:
+
+| pair | worst luma | worst channel | at |
+|---|---|---|---|
+| EO1 vs EO2 (control) | 1.22 | 2.06 | 30050 (0.72 / 0.86 at 30200) |
+| EN1 vs EN2 (control) | 0.27 | 0.33 | 30200 |
+| EO1 vs EN1 | 1.50 | 1.83 | 30200 |
+| EO2 vs EN2 | 1.95 | 2.35 | 30200 (1.21 / 2.04 at 30050) |
+
+Every other shot of every pair is under 0.31 luma / 0.46 channel.
+
 ## Verdict
+
+**Frame cost: confirmed, small.** New is below old in both pairs, by 0.10-0.19 ms (about 1%), less than the 3.9% the leaf
+held in finding 92; the pair-to-pair spread (O1 against O2) is 0.10 ms, so the size is barely above noise.
+**Exposure equivalence: falsified as pre-registered** (tolerance zero, and every new sample differs), **by at most 0.27%
+of the scale, all of it in the transient after the reset and decaying to 1e-6**: the engine's shape counts each bin up to
+nineteen frames late and its first full histogram needs about twenty frames, where the old path's needed three, so the walk
+down from 1 starts slightly later. That is the stated behaviour change, not a defect. The pictures differ by no more than
+old differs from old on the same shots (two shots where old-vs-old itself exceeds `GoldenImageUiTests`' 1.0, because
+playback content is not deterministic). Not shown here: f12's controller pins the range at 0.5-0.7 and the scale settles
+on the 0.7 ceiling, so steady-state agreement is forced by the clamp; an unclamped map was not measured.
