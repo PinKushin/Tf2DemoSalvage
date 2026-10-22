@@ -41,8 +41,45 @@ addition is recorded here before R3 runs.
 - Ticks advanced about 66.7 x 20; the run reports particles and model decals (a run with no demo loaded reports none).
 - R1 and R2 agree within 15% on `camera`, or the pair is void and repeated with the load recorded.
 
+**Trace T1, added after R1/R2 and before it runs** (the cross-check the timers cannot give: what inside the largest
+parts is spent where). The same command under
+`dotnet-trace collect --profile dotnet-sampled-thread-time --show-child-io -o T1.nettrace -- <exe> <args>`, read with
+`Probe cpu-trace T1.nettrace <from> <to> <render thread> 80` over the steady window. **Trace control:** the inclusive share
+of `UploadCameraOver` must be within a factor of 1.5 of `camera`'s share of the frame on T1's own `--measure` lines.
+
 ## Environment
 
+- Machine: RTX 3060, i5-10600K. Debug viewer built from `062b4562` (this record on `311a765d`; no code change). Every run
+  through `run-exclusive.ps1`.
+- Load (3 x 2 s, before / after): R1 12/13/4% / 15/22/7%; R2 6/7/6% / 3/20/8%. The lightest load of any f12 run so far.
+
 ## Result
+
+Steady = 13 per-second lines after the first five, frame-weighted (`parts.ps1`, scratch; raw in the folder). ms a frame.
+
+| part | R1 | R2 |
+|---|---:|---:|
+| **camera** (phase column) | **7.16** | **6.99** |
+| camera view | 0.02 | 0.01 |
+| camera setcamera | 0.74 | 0.68 |
+| ... batches / overlays / sky / detail / water | 0.19 / 0.12 / 0.13 / 0.28 / 0 | 0.17 / 0.11 / 0.13 / 0.26 / 0 |
+| **camera pose** | **4.04** | **3.87** |
+| **camera particles** | **2.37** | **2.42** |
+| ... bursts (of which step / muzzles / dispatches / beams / overheals) | 0.91 (0.35 / 0.15 / 0.15 / 0.12 / 0.11) | 0.99 (0.36 / 0.23 / 0.16 / 0.11 / 0.10) |
+| ... build | 0.66 | 0.65 |
+| ... decals | 0.52 | 0.53 |
+| ... trails / lights / hand / sounds / impacts | 0.09 / 0.07 / 0.05 / 0.04 / 0.03 | 0.08 / 0.06 / 0.05 / 0.03 / 0.03 |
+| other phases: draw / advance / hud / sound | 2.25 / 1.10 / 1.04 / 0.21 | 2.11 / 1.07 / 0.99 / 0.20 |
+
+**The pose, from the `moment cost` lines** (each a mean over 100 rebuilds, one rebuild a frame; the last two of R2):
+4.6 and 3.9 ms = sample 0.3, drawlist 0.4-0.5, models 0.1, pose 3.0-3.7, viewmodel 0.3; the inner pose = lighting
+0.2-0.5, simulate 0.5, setup 0.3-0.4, anim 0.1-0.2, collate 0.2, baked 0.3-0.4, **place 0.7-0.8** (build 0.62-0.74, of
+which flex 0.34-0.45, binds 0.2), rest 0.3. Posed 26-29 of about 1,870 selected; about 1,300-1,370 hidden by the PVS.
+
+**Controls.** Sum: R1 0.02 + 0.74 + 4.04 + 2.37 = 7.17 against 7.16; R2 6.98 against 6.99 (met). Sub-split: particles'
+eight parts sum to 2.37 and 2.42, exactly their parent; setcamera's to 0.72 and 0.67, under it; bursts' to 0.90 and 0.97,
+under it (met). R1/R2 `camera` agree within 2.4% (met). Ticks and content: both runs print a decal census (75 model
+decals) and particles (met). Pose control: `camera pose` 4.04/3.87 against `moment cost` 3.9-4.6 a rebuild, so the pose
+column IS the moment rebuild and question (2) leaves under 1 ms unnamed; no extra timer added.
 
 ## Verdict
