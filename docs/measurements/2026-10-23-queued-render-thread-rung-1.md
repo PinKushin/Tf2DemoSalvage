@@ -41,6 +41,23 @@ phase columns and the residual, not the frame mean (same-mode spread up to 3.3 m
 **Verdict rule.** Mode 2 saves less than ~0.8 ms against mode 0 → stop and report with numbers; read the wait ledger first
 (an early `Lock` on the overlapped path collapses the overlap and is fixable).
 
+## The render thread's draw, frame-weighted (added 2026-10-23)
+
+**Method.** Binary `6bf94387`: `--measure`'s phase line now carries `render thread draw`, which is the queue's own drawing
+ticks summed over the same measured frames as the phases and divided by their count, so it is comparable with mode 0's
+`draw`. Order B A A B. Each run started only after three consecutive load samples were all under 25%.
+
+| # | mode | load % | frames | mean ms | draw (game thread) | render thread draw |
+|---|---|---|---|---|---|---|
+| 1 | 2 | 22 17 7 | 1697 | 11.79 | 0.58 | 2.16 |
+| 2 | 0 | 21 15 4 | 1499 | 13.34 | 2.12 | (0, control) |
+| 3 | 0 | 17 15 18 | 1461 | 13.69 | 2.16 | (0, control) |
+| 4 | 2 | 12 16 13 | 1667 | 12.00 | 0.72 | 2.29 |
+
+- **The draw is not materially slower on the worker**: 2.16-2.29 ms against serial's 2.12-2.16, at most +0.17 ms. The
+  snapshot record's +0.9 ms slowdown came with its 3.4 MB copy, and is absent without it.
+- The saving reproduces: 1.34-1.90 ms, mean 1.62, on this quiet set.
+
 ## Equivalence (added 2026-10-23, after the timing runs, at the coordinator's request)
 
 **Method.** `TF2VIEW_FRAME_HASH=1` and `TF2VIEW_FIXED_FRAME=0.015`, so playback advances one tick a frame and both modes
