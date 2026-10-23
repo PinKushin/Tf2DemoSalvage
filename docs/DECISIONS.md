@@ -10926,3 +10926,10 @@ not an established fact. The engine's actual queue depth and what blocks the gam
 is what we match. If matching it would make free-camera or mouse-look respond a frame later than they do now, that is reported and
 the owner decides before it becomes the default.
 
+**Follow-up, 2026-10-22 (finding 99, read from the binary).** The Ghidra read settled it: TF2's queue is one frame deep
+(two double-buffered contexts; the game thread waits at `EndFrame` only if the previous frame's draw is still running) and
+adds **no held frame**: input-to-screen is game time plus render time, as in serial mode, so the owner's expectation holds.
+`-1` resolves to threaded mode on 2 or more physical cores. A design that held frame N until N+1 was built would be a
+divergence. The render thread still needs a frame snapshot first (the prototype in finding 98 section 7 measured at most
+about 0.5 ms without one), and the saving estimate stays 1-2 ms of 13.4, not the whole gap.
+
