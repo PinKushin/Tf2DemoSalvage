@@ -3438,7 +3438,9 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
 
         long viewAt = Stopwatch.GetTimestamp();
 
-        RecordWorldCamera(camera.ToMatrix(), surfaceColours);
+        // **Remembered here, recorded below** (review of rung 2): the record reads the half's water fog, which `PlanWater`
+        // rewrites in the cull branch, so recording here would ship the half's PREVIOUS view's fog until overwritten.
+        RememberWorldCamera(camera.ToMatrix(), surfaceColours);
 
         long uploadAt = Stopwatch.GetTimestamp();
 
@@ -3558,7 +3560,9 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         }
         else
         {
-            // A skip keeps this half's own runs, sky and water decision, made for this same view; the draw installs them.
+            // A skip keeps this half's own runs, sky and water decision, made for this same view; the draw installs them,
+            // and the fog the record reads is that decision's.
+            RecordCamera(half);
             batchesAt = overlaysAt = skyAt = culledAt = uploadAt;
         }
 
@@ -3606,6 +3610,16 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
     /// it writes only the half just flipped to. Building the renderer is the one shared write, made once, so only that drains.</summary>
     private void RecordWorldCamera(float[] matrix, bool surfaceColours)
     {
+        RememberWorldCamera(matrix, surfaceColours);
+
+        // Recorded, not sent: the draw handed this half sends it (finding 98 §9 step 2).
+        RecordCamera(Half);
+    }
+
+    /// <summary>Builds the renderer if needed and remembers the camera on the current half, without recording it: the
+    /// FreeCamera overload records once, AFTER its water plan, so no record ever carries the half's previous view's fog.</summary>
+    private void RememberWorldCamera(float[] matrix, bool surfaceColours)
+    {
         if (_world is null)
         {
             Lock();
@@ -3616,9 +3630,6 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         // CHANGE rather than per frame, so anything that overwrites it has to restore it or the
         // map keeps the wrong projection until the user next moves.
         Half.WorldCamera = (matrix, surfaceColours);
-
-        // Recorded, not sent: the draw handed this half sends it (finding 98 §9 step 2).
-        RecordCamera(Half);
     }
 
     /// <summary>Builds the world renderer if there is none, with the switches it does not own.</summary>
