@@ -554,3 +554,92 @@ on the game thread) and `SetCamera`'s monitor view.
 
 *Left:* the mode-0 hash runs and pixel shots against the step-2e binary (f12 plus `b511_boardwalk_mirror.dem` at 1900 for
 the monitor), the mode-2 verifier, then steps 5-7.
+
+**Steps 3-4 verified, then step 5, 2026-10-23 (branch `feat/queued-render-thread-rung-2g`).**
+
+*Steps 3-4, verified against step 2e* (`f809924e`, built in `D:/r2base2e`). Same commands as step 2, two runs per binary.
+The instruments said "regression" first, and it was the instrument again:
+
+- Each binary agreed with itself on the mode-0 cull hash (2e vs 2e 190/190, 2f vs 2f 168/168). 2e against 2f agreed on
+  only 42-52 of 168-206 ticks. The mode-2 verifier on 2f reported **519 changed frames** in its 20 s, every one in the
+  cull's world and overlay pieces.
+- *Read, then settled*: `CullPart` and `CullPieces` hashed `_world.VisibleBatches`/`SkyBatches`/`Overlays`/
+  `TranslucentLeaves`, which are the renderer's lists. Since step 3 the renderer holds a half's lists only from
+  `ReplayUploads`, at the draw's start. So at the hand-off it still held the previous frame's lists, and after the draw
+  it held this frame's. They now hash the handed half's own lists, the objects the renderer is given. *Measured after
+  the fix* (step-5 binary, below): cull equal to 2e on every tick, and the verifier at 0.
+- *Pixels* (542,184 px; 2e twice as the control, then 2f): at 30000 the control is 18 and 2f is 23,811 against both.
+  At 33000 the control is 27,058 and 2f is 29 against one of them. At 31500 both are under 61. **Every pixel differing by
+  more than 8 lies in rows 0-36** (the top HUD bar and the `cl_showfps` counter) in the 2f pairs and in the control pair
+  alike. The 3D view is identical. The mirror at 1900 (third person, camera `-1168 700 101 0 90`): control 72, 2f 12 and
+  70. The earlier session's `mirror-new.png` has a different viewport size and could not be compared. The 2e control
+  shows the monitor's own camera view and 2f matches it.
+- So steps 3-4 changed nothing visible, and their verifier "change" was the hash.
+
+*Step 5: the wait moved to the pose's entry.* `IViewerDevice.FinishDrawBeforePose` (`Device3D` →
+`Queue.FinishPreviousDraw`, named in the ledger as itself) is called first in `ViewerPresenter.PoseOver`. That one call
+covers the camera stage's pose and `ProjectWorld`'s pose on a frame whose camera upload returned early. It is timed as
+the `camera wait` part, carried from `PoseOver`. `FrameSequence` no longer waits: `IFrameSteps.FinishPreviousDraw` and
+the flight path's drain are gone. So `SetCamera` (the cull) now runs while the previous frame draws.
+
+The hazards, each settled before the move:
+
+- **(a) the no-flip hand-off.** `ViewHalves.Flip` now picks the half NOT last handed, where it used to toggle. A second
+  `SetCamera` in one frame (the flight path's upload, then `PlaceCamera`'s) would have toggled back onto the half in
+  flight. `HandOff` drains first when `CullWasHanded`, that is when no flip happened since the last hand-off
+  (`UploadCamera`'s early return, `DrawAndPresent`), so it never stamps the feeds of the half being drawn. On every
+  other frame the drain is free, because the pose already waited. Tests: `Flip_TwiceAfterAHandOff_StaysOffTheHandedHalf`
+  and `CullWasHanded_WithNoFlipSinceTheHandOff_IsTrueAndAFlipClearsIt`. Sabotage: a toggling `Flip` reddened the first;
+  `CullWasHanded` always false reddened the second.
+- **(b) `PlanWater` reads `_waterLod.Current`.** *Read and proved*: `_waterLod`'s only writer is `EnterMap`, in
+  `UploadWorldTextures` after its `Lock()`, and no draw-time code reads or writes it. The same holds for `PlanWater`'s
+  other reads (`_water`, `_waters` and `_materialNames` are set only there; `_skyRoom` and `DrawSkybox` only behind a
+  `Lock()`).
+- **(c) the locked `Specular`/`Phong`/`Fullbright`/`Debug` setters.** *Kept locked; read and proved*: they are console
+  switches (`ViewerSession.Switches`), never called per frame (none appears in the wait ledger below). Their `Lock()`
+  drains first, so `RecordCamera(Half)` writes an idle half. The next `SetCamera` records the live values again into
+  the half it hands.
+- **(d) not on the list: the culling twins share one row cache.** Every `WorldCulling.Twin()` is built from the map's
+  one `BspVisibility`, and its decompressed-row cache was a plain `Dictionary` filled on first use. With the cull
+  overlapping the draw, the game thread's cull and the render thread's `MonitorCull` insert into it concurrently. It is
+  a `ConcurrentDictionary` now. Test: `Visible_FromFourThreadsAtOnce_AnswersAsOneThreadDoes`, red first with the
+  dictionary's own "concurrent update … corrupted its state" exception. The rest of the twin was read: tree, PVS bytes,
+  leaf faces and spans are immutable, and every scratch list (`VisibleWorld`'s, `WorldVisibility`'s) is per instance.
+
+*Public `Device3D` members, re-audited.* `SetCamera(FreeCamera)` and the six feed setters take no lock and write only
+game-thread fields or the flipped-to half. `FinishDrawBeforePose` is the wait. `HandOff` drains when the half was last
+handed. Every other public member takes `Lock()` first or only reads.
+
+*Tests* (each red first for the predicted reason):
+
+- `UploadCameraOver_InModeTwoWithAFrameInFlight_OverlapsSetCameraButNotThePose` lost `[Explicit]`. It read
+  `posed in flight True` before the move.
+- `Run_InModeTwo_OverlapsTheStagesUpToTheCamerasPose` replaces `…OverlapsOnlyTheStagesBeforeTheCamera`: `PlaceCamera`
+  now runs in flight.
+- The exact-order test now carries `FinishDrawBeforePose` between `SetCamera` and the pose.
+- *Sabotage*, the wait moved after the pose: both `UploadCameraOver` order tests reddened (Presentation 1276/1278).
+- *Gate phase 1*: twelve assemblies, 0 failed, all at or above their floors (presentation 1278, rendering 1235,
+  content 1845).
+
+*Measured on the step-5 binary* (`2a5e5699`; f12 from 30000, first person, `TF2VIEW_FIXED_FRAME=0.015`; loads 3-19%):
+
+- **Mode-2 verifier, 40 s, the cull overlapping the draw: `queue verify: 962000 frames checked, 0 changed`.**
+- *Wait ledger*: `queue wait FinishDrawBeforePose` on 39 of the 40 rate lines. Besides it, `ReplaySkip` and
+  `UploadModels` once each: the seek's replay and a "model set grew" upload, both pre-existing drains. No
+  `FinishPreviousDraw` is left.
+- *Mode-0 hashes*, two runs against the two 2e runs. Cull equal on every common tick in all pairs (190/190, 199/199,
+  202/202). Pose differs only inside 30177-30188; the control pairs show the same window (2e vs 2e 30177-30183, step 5
+  vs step 5 30185-30188).
+- **The half selection, broken on purpose** (the `Flip()` in `SetCamera` removed, so the cull writes the half in flight):
+  the verifier reported 37 changed frames in the first seconds after the seek (cull world and detail pieces), and the
+  viewer died with `InvalidOperationException: Collection was modified`. That was the draw enumerating a list the game
+  thread was culling into. **Now that frames overlap, the verifier sees a wrong half**, which step 4's note said no
+  instrument could. Restored with the inverse edit and rebuilt; the clean run above is the restored binary.
+
+*Left:* step 6's remaining question and step 7.
+
+- Whether the gate's "previous frame saw another view" condition can go, since each half now holds its own decision.
+- The quiet-gated ABBA measurement of the saving on f12 (step 7). Not measured here, by instruction.
+- Then rung 3: double-buffer the pose, particles and HUD, so the wait can move to the hand-off as `EndFrame`'s does.
+- *Not covered by any run here*: mode 2 on a monitor map. On f12 the `MonitorCull`/`BspVisibility` overlap never
+  happens; (d) rests on the threaded unit test and the reading.
