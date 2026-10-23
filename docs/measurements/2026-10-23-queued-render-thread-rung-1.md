@@ -41,6 +41,52 @@ phase columns and the residual, not the frame mean (same-mode spread up to 3.3 m
 **Verdict rule.** Mode 2 saves less than ~0.8 ms against mode 0 → stop and report with numbers; read the wait ledger first
 (an early `Lock` on the overlapped path collapses the overlap and is fixable).
 
+## Equivalence (added 2026-10-23, after the timing runs, at the coordinator's request)
+
+**Method.** `TF2VIEW_FRAME_HASH=1` and `TF2VIEW_FIXED_FRAME=0.015`, so playback advances one tick a frame and both modes
+show the same ticks. The device logs, for every presented frame, the tick the game thread handed with it and four FNV-1a
+hashes. Three cover what the draw read at the hand-off:
+
+- **pose**: every model, viewmodel and monitor-only instance's path, entity, frame, body and alpha, plus its matrix, bones,
+  flex and baked colours, and the viewmodel camera;
+- **particles**: every particle corner;
+- **rest**: the leaf lines, the VGUI quad and model-draw counts, and the screen overlay.
+
+The fourth, **image**, is the back buffer read back after the frame's own Present.
+
+Same f12 command as above, `--measure 6`, four runs: A1 A2 in mode 0, B1 B2 in mode 2. Loads read beforehand were 7-26%.
+Each tick ≥ 30000 is compared once, by its first frame.
+
+**The first attempt measured nothing, and is kept as the wrong turn.** It hashed with `HashCode`, which .NET seeds per
+process, so no value could match across runs and two mode-0 runs agreed on 0 frames. That was the instrument, not the
+viewer. The in-process queue verifier above is unaffected, because it compares two hashes from one process.
+
+| pair | frames | pose equal | particles equal | rest equal | image equal |
+|---|---|---|---|---|---|
+| A1 vs A2 (mode 0 floor) | 183 | 183 | 171 | 169 | 0 |
+| B1 vs B2 (mode 2 floor) | 197 | 197 | 184 | 187 | 0 |
+| A1 vs B1 | 188 | 188 | 177 | 160 | 0 |
+| A1 vs B2 | 188 | 188 | 176 | 161 | 0 |
+| A2 vs B1 | 183 | 183 | 171 | 162 | 0 |
+| A2 vs B2 | 183 | 183 | 173 | 163 | 0 |
+
+**What this shows, and what it cannot.**
+
+- **The pose is deterministic run to run, and mode 2 equals mode 0 on every compared frame (183-188 of them).** That
+  covers every model, viewmodel and monitor-only instance at a frame's tick: matrices, bones, flex, baked colours and the
+  viewmodel camera. It is the input the render thread could have corrupted, and it is bit-identical.
+- **Particles are not reproducible even in mode 0** (171/183). Mode 2 sits inside that floor (171-177 of 183-188), so
+  nothing here distinguishes the modes.
+- **`rest` differs a little more across modes than within one:** 160-163 equal across modes against 169-187 within one. By
+  elimination this is the VGUI quad count: the leaf lines are off and the overlay is fixed. Mode 2 runs at a different frame
+  time, and frame-time-driven HUD content is a candidate cause. That is *not established*: the counts were not split
+  further.
+- **Image equivalence cannot be shown on this build.** Two mode-0 runs never produce the same pixels on any frame (0 of
+  183), which matches the floor agent's finding. Comparing mode 2 against that floor is meaningless.
+- The 200-frame target was 183-197 compared frames, because `--measure 6` reaches about 190 played ticks past 30000.
+- Not done: a synthetic-scene image variant. The synthetic evidence is `FrameSequenceTests.Run_InModeTwo_*`, which covers
+  ordering, not pixels.
+
 ## Results
 
 **Deviations from the record, stated.** Binary: `6a73f54f` (the record's `46275fc9` plus a verifier log line only). Two other

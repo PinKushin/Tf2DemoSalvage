@@ -562,7 +562,68 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         _captureTo = path;
     }
 
-    private void SaveBackBuffer(string path)
+    private void SaveBackBuffer(string path) =>
+        ReadBackBuffer((width, height, mapped) => WritePngAndLog(path, width, height, mapped), path);
+
+    private void WritePngAndLog(string path, int width, int height, MappedSubresource mapped)
+    {
+        WritePng(_render, path, width, height, mapped);
+
+        // **A capture said nothing at all until 2026-08-20.** Pressing F12 and getting
+        // no file is indistinguishable from pressing it and missing the key, which is
+        // the silent fallback this project bans everywhere else — and it cost a
+        // capture run that reported success and produced nothing. The size is here
+        // because a zero-byte PNG is the other way this fails quietly.
+        // Guarded: `new FileInfo(path).Length` is a filesystem call, which is exactly
+        // the kind of argument CA1873 exists to keep out of a disabled log.
+        if (_render.IsEnabled(LogLevel.Information))
+        {
+            _render.LogInformation(
+                "wrote {File}, {Width}x{Height}, {Kilobytes} KB, drawn with tone-map scale {Scale}, bloom {Bloom}, post-processing settled {PostProcessingSettled}; after it: {PostProcessing}",
+                Path.GetFileName(path),
+                width,
+                height,
+                new FileInfo(path).Length / 1024,
+                _drawnScale,
+                _drawnBloom,
+                _drawnSettled,
+                PostProcessingReport);
+        }
+    }
+
+    /// <summary>`TF2VIEW_FRAME_HASH=1`: log every presented frame's pixel hash and its draw-input hash, for the mode 0/2 equivalence (B581).</summary>
+    /// <remarks>An instrument, not a user control: a read-back every frame. Each line carries the tick the game thread handed with the frame.</remarks>
+    public const string FrameHashVariable = "TF2VIEW_FRAME_HASH";
+
+    private static readonly bool FrameHash = Environment.GetEnvironmentVariable(FrameHashVariable) == "1";
+
+    /// <summary>The tick the next handed frame shows, for <see cref="FrameHashVariable"/>'s lines; set by the game thread before the draw.</summary>
+    public double FrameLabel { get; set; }
+
+    private void LogFrameHash(double label, (long Pose, long Particles, long Other) inputs)
+    {
+        long image = 0;
+
+        ReadBackBuffer(
+            (width, height, mapped) =>
+            {
+                StableHash hash = new();
+
+                for (int y = 0; y < height; y++)
+                {
+                    hash.Bytes(new ReadOnlySpan<byte>((byte*)mapped.PData + ((uint)y * mapped.RowPitch), width * 4));
+                }
+
+                image = hash.Result;
+            },
+            "frame hash");
+
+        _render.LogInformation("{Message}", string.Create(
+            System.Globalization.CultureInfo.InvariantCulture, $"frame hash at {label:0.####}: pose {inputs.Pose:x16} particles {inputs.Particles:x16} rest {inputs.Other:x16} image {image:x16}"));
+    }
+
+    /// <summary>Copies the back buffer to a staging texture and hands its mapped rows to <paramref name="read"/>.</summary>
+    private void ReadBackBuffer(Action<int, int, MappedSubresource> read, string what)
     {
         ComPtr<ID3D11Texture2D> back = default;
 
@@ -592,28 +653,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
 
                 try
                 {
-                    WritePng(_render, path, (int)description.Width, (int)description.Height, mapped);
-
-                    // **A capture said nothing at all until 2026-08-20.** Pressing F12 and getting
-                    // no file is indistinguishable from pressing it and missing the key, which is
-                    // the silent fallback this project bans everywhere else — and it cost a
-                    // capture run that reported success and produced nothing. The size is here
-                    // because a zero-byte PNG is the other way this fails quietly.
-                    // Guarded: `new FileInfo(path).Length` is a filesystem call, which is exactly
-                    // the kind of argument CA1873 exists to keep out of a disabled log.
-                    if (_render.IsEnabled(LogLevel.Information))
-                    {
-                        _render.LogInformation(
-                            "wrote {File}, {Width}x{Height}, {Kilobytes} KB, drawn with tone-map scale {Scale}, bloom {Bloom}, post-processing settled {PostProcessingSettled}; after it: {PostProcessing}",
-                            Path.GetFileName(path),
-                            description.Width,
-                            description.Height,
-                            new FileInfo(path).Length / 1024,
-                            _drawnScale,
-                            _drawnBloom,
-                            _drawnSettled,
-                            PostProcessingReport);
-                    }
+                    read((int)description.Width, (int)description.Height, mapped);
                 }
                 finally
                 {
@@ -628,7 +668,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         catch (Exception failure) when (failure is InvalidOperationException or System.IO.IOException)
         {
             // A capture that fails costs a picture, not the frame the user is watching.
-            _render.LogWarning(failure, "capturing the viewport to {Path}", path);
+            _render.LogWarning(failure, "reading back the viewport for {What}", what);
         }
         finally
         {
@@ -2974,7 +3014,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         // while the window thread waits in a drain is the deadlock DXGI documents for full screen.
         Submit(
             () => DrawFrame(red, green, blue, [], mapLines, [], models, viewmodels, viewmodelCamera, vgui),
-            () => DrawInputHash(mapLines, models, viewmodels, viewmodelCamera, vgui));
+            () => DrawInputParts(mapLines, models, viewmodels, viewmodelCamera, vgui));
 
     /// <summary>`TF2VIEW_QUEUE_VERIFY=1`: hash what a queued frame draws at the hand-off and again after the draw, and log a mismatch.</summary>
     /// <remarks>An instrument for the validation run, not a user control: it costs about what a full copy did (3.4 MB a frame on f12).</remarks>
@@ -2989,9 +3029,33 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
     private long _queueChecked;
     private long _queueChanged;
 
-    private void Submit(Action draw, Func<int> inputs)
+    private void Submit(Action draw, Func<(long Pose, long Particles, long Other)> parts)
     {
+        long inputs()
+        {
+            (long pose, long particles, long rest) = parts();
+
+            return pose ^ (particles * 31) ^ (rest * 961);
+        }
+
         bool queued = !IsExclusiveFullScreen;
+
+        if (FrameHash)
+        {
+            // Both hashes for the frame as handed: its inputs now, on the game thread; its pixels after its own Present.
+            double label = FrameLabel;
+            (long Pose, long Particles, long Other) handedParts = parts();
+
+            Queue.Submit(
+                () =>
+                {
+                    draw();
+                    LogFrameHash(label, handedParts);
+                },
+                queued);
+
+            return;
+        }
 
         if (!QueueVerify || Queue.Mode != MaterialThreadMode.QueuedThreaded || !queued)
         {
@@ -3000,14 +3064,14 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
             return;
         }
 
-        int handed = inputs();
+        long handed = inputs();
 
         Queue.Submit(
             () =>
             {
                 draw();
 
-                int after = inputs();
+                long after = inputs();
 
                 long checkedNow = System.Threading.Interlocked.Increment(ref _queueChecked);
 
@@ -3026,90 +3090,117 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
             queued);
     }
 
-    /// <summary>Everything a queued frame reads that a game-thread stage could rewrite, by content.</summary>
-    private int DrawInputHash(
+    /// <summary>Everything a queued frame reads that a game-thread stage could rewrite, by content, in three parts so a difference names its source.</summary>
+    /// <remarks>
+    /// **By content only, and not `HashCode`**: `HashCode` is seeded per process, so its values never match between two
+    /// runs, and a record struct's own hash folds in array references. Pose: per instance its path, entity, frame, body,
+    /// alpha and every float array, local lights by count. Particles: every corner by value. Rest: the leaf lines, the
+    /// VGUI's quad and model-draw counts, the screen overlay.
+    /// </remarks>
+    private (long Pose, long Particles, long Other) DrawInputParts(
         IReadOnlyList<((float X, float Y, float Z) From, (float X, float Y, float Z) To)> mapLines,
         IReadOnlyList<ModelInstance>? models,
         IReadOnlyList<ModelInstance>? viewmodels,
         float[]? viewmodelCamera,
         VguiDrawList? vgui)
     {
-        HashCode hash = new();
+        StableHash pose = new();
 
-        foreach (((float X, float Y, float Z) From, (float X, float Y, float Z) To) line in mapLines)
-        {
-            hash.Add(line);
-        }
+        AddInstances(ref pose, models);
+        AddInstances(ref pose, viewmodels);
+        AddInstances(ref pose, MonitorOnlyModels);
+        pose.Floats(viewmodelCamera);
 
-        AddInstances(ref hash, models);
-        AddInstances(ref hash, viewmodels);
-        AddInstances(ref hash, MonitorOnlyModels);
-        AddFloats(ref hash, viewmodelCamera);
-
-        if (vgui is not null)
-        {
-            foreach (VguiQuad quad in vgui.Quads)
-            {
-                hash.Add(quad);
-            }
-
-            hash.Add(vgui.Models.Count);
-        }
+        StableHash particles = new();
 
         foreach ((ComPtr<ID3D11ShaderResourceView> _, SpriteBlend blend, SpriteDepth depth, IReadOnlyList<DetailSpriteVertex> corners, RefractMaterial? _, MapTexture? _, bool _, float _, bool _) in _particleBatches)
         {
-            hash.Add(blend);
-            hash.Add(depth);
+            particles.Value((int)blend);
+            particles.Value((int)depth);
 
             foreach (DetailSpriteVertex corner in corners)
             {
-                hash.Add(corner);
+                particles.Value(corner);
             }
         }
 
-        hash.Add(ScreenOverlay);
+        StableHash rest = new();
 
-        return hash.ToHashCode();
+        foreach (((float X, float Y, float Z) From, (float X, float Y, float Z) To) line in mapLines)
+        {
+            rest.Value(line);
+        }
+
+        rest.Value(vgui?.Quads.Count ?? -1);
+        rest.Value(vgui?.Models.Count ?? -1);
+        rest.Text(ScreenOverlay?.ToString());
+
+        return (pose.Result, particles.Result, rest.Result);
     }
 
-    private static void AddInstances(ref HashCode hash, IReadOnlyList<ModelInstance>? instances)
+    private static void AddInstances(ref StableHash hash, IReadOnlyList<ModelInstance>? instances)
     {
         if (instances is null)
         {
+            hash.Value(-1);
+
             return;
         }
 
         foreach (ModelInstance instance in instances)
         {
-            hash.Add(instance);
-            AddFloats(ref hash, instance.Matrix);
-            AddFloats(ref hash, instance.Flex);
-            AddFloats(ref hash, instance.BakedColours);
+            hash.Text(instance.ModelPath);
+            hash.Value((instance.EntityIndex, instance.Frame, instance.Body, instance.Alpha));
+            hash.Floats(instance.Matrix);
+            hash.Floats(instance.Flex);
+            hash.Floats(instance.BakedColours);
+            hash.Value(instance.Locals?.Count ?? -1);
 
             if (instance.Bones is { } bones)
             {
                 foreach (float[] bone in bones)
                 {
-                    AddFloats(ref hash, bone);
-                }
-            }
-
-            if (instance.Locals is { } locals)
-            {
-                foreach (LocalLight local in locals)
-                {
-                    hash.Add(local);
+                    hash.Floats(bone);
                 }
             }
         }
     }
 
-    private static void AddFloats(ref HashCode hash, float[]? values)
+    /// <summary>FNV-1a over bytes: the same value for the same content in any process.</summary>
+    private struct StableHash()
     {
-        if (values is not null)
+        public long Result { get; private set; } = unchecked((long)14695981039346656037UL);
+
+        public void Bytes(ReadOnlySpan<byte> bytes)
         {
-            hash.AddBytes(System.Runtime.InteropServices.MemoryMarshal.AsBytes(values.AsSpan()));
+            ulong value = (ulong)Result;
+
+            foreach (byte b in bytes)
+            {
+                value = (value ^ b) * 1099511628211UL;
+            }
+
+            Result = (long)value;
         }
+
+        public void Value<T>(T value)
+            where T : unmanaged =>
+            Bytes(System.Runtime.InteropServices.MemoryMarshal.AsBytes(new ReadOnlySpan<T>(in value)));
+
+        public void Floats(float[]? values)
+        {
+            if (values is null)
+            {
+                Value(-1);
+
+                return;
+            }
+
+            Bytes(System.Runtime.InteropServices.MemoryMarshal.AsBytes(values.AsSpan()));
+        }
+
+        public void Text(string? text) =>
+            Bytes(System.Runtime.InteropServices.MemoryMarshal.AsBytes((text ?? "\0").AsSpan()));
     }
 
     /// <summary>Sets the view the world is drawn through, and the volume it culls against.</summary>

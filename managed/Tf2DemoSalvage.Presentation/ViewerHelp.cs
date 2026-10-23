@@ -122,6 +122,8 @@ public static class ViewerHelp
           TF2VIEW_WARP               Draw through WARP, reproducing a machine with no GPU.
           TF2VIEW_QUEUE_VERIFY       "1": with mat_queue_mode 2, log any frame whose inputs changed
                                      while the render thread drew it (slow; validation only).
+          TF2VIEW_FRAME_HASH         "1": log every frame's tick, draw-input and pixel hashes, to
+                                     compare runs (a read-back a frame; validation only).
           TF2VIEW_WINDOW_POS         "85,78": window position, X,Y.
           TF2VIEW_WINDOW_SIZE        "1576x889": WIDTHxHEIGHT of the WINDOW. At 100% scaling the
                                      frame adds 296x169, so 1576x889 gives a 1280x720 viewport.
