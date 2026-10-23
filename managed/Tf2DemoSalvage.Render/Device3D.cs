@@ -632,7 +632,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
     /// <summary>The tick the next handed frame shows, for <see cref="FrameHashVariable"/>'s lines; set by the game thread before the draw.</summary>
     public double FrameLabel { get; set; }
 
-    private void LogFrameHash(double label, (long Pose, long Particles, long Other) inputs)
+    private void LogFrameHash(double label, (long Pose, long Particles, long Other, long Cull) inputs)
     {
         long image = 0;
 
@@ -651,7 +651,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
             "frame hash");
 
         _render.LogInformation("{Message}", string.Create(
-            System.Globalization.CultureInfo.InvariantCulture, $"frame hash at {label:0.####}: pose {inputs.Pose:x16} particles {inputs.Particles:x16} rest {inputs.Other:x16} image {image:x16}"));
+            System.Globalization.CultureInfo.InvariantCulture, $"frame hash at {label:0.####}: pose {inputs.Pose:x16} particles {inputs.Particles:x16} rest {inputs.Other:x16} cull {inputs.Cull:x16} image {image:x16}"));
     }
 
     /// <summary>Copies the back buffer to a staging texture and hands its mapped rows to <paramref name="read"/>.</summary>
@@ -3085,13 +3085,13 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
     private long _queueChecked;
     private long _queueChanged;
 
-    private void Submit(Action draw, Func<(long Pose, long Particles, long Other)> parts)
+    private void Submit(Action draw, Func<(long Pose, long Particles, long Other, long Cull)> parts)
     {
         long inputs()
         {
-            (long pose, long particles, long rest) = parts();
+            (long pose, long particles, long rest, long cull) = parts();
 
-            return pose ^ (particles * 31) ^ (rest * 961);
+            return pose ^ (particles * 31) ^ (rest * 961) ^ (cull * 29791);
         }
 
         bool queued = !IsExclusiveFullScreen;
@@ -3100,7 +3100,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         {
             // Both hashes for the frame as handed: its inputs now, on the game thread; its pixels after its own Present.
             double label = FrameLabel;
-            (long Pose, long Particles, long Other) handedParts = parts();
+            (long Pose, long Particles, long Other, long Cull) handedParts = parts();
 
             Queue.Submit(
                 () =>
@@ -3153,7 +3153,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
     /// alpha and every float array, local lights by count. Particles: every corner by value. Rest: the leaf lines, the
     /// VGUI's quad and model-draw counts, the screen overlay.
     /// </remarks>
-    private (long Pose, long Particles, long Other) DrawInputParts(
+    private (long Pose, long Particles, long Other, long Cull) DrawInputParts(
         IReadOnlyList<((float X, float Y, float Z) From, (float X, float Y, float Z) To)> mapLines,
         IReadOnlyList<ModelInstance>? models,
         IReadOnlyList<ModelInstance>? viewmodels,
@@ -3191,7 +3191,47 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         rest.Value(vgui?.Models.Count ?? -1);
         rest.Text(ScreenOverlay?.ToString());
 
-        return (pose.Result, particles.Result, rest.Result);
+        return (pose.Result, particles.Result, rest.Result, CullPart());
+    }
+
+    /// <summary>What `SetCamera`'s cull handed the draw: a pure function of the camera, so it must match exactly between
+    /// modes and runs (rung 2's equivalence, B581). The world, sky and overlay runs, the translucent leaves, the detail
+    /// sprites, the sky decision and whether a water view was planned.</summary>
+    private long CullPart()
+    {
+        StableHash cull = new();
+
+        AddBatches(ref cull, _world?.VisibleBatches);
+        AddBatches(ref cull, _world?.SkyBatches);
+        AddBatches(ref cull, _world?.Overlays);
+        cull.Value(_world?.TranslucentLeaves is null ? -1 : 1);
+        cull.Value((int)_skyVisible);
+        cull.Value(_waterDraw is null ? 0 : 1);
+        cull.Value(_detailCorners.Count);
+
+        foreach (DetailSpriteVertex corner in _detailCorners)
+        {
+            cull.Value(corner);
+        }
+
+        return cull.Result;
+    }
+
+    private static void AddBatches(ref StableHash hash, IReadOnlyList<WorldBatch>? batches)
+    {
+        if (batches is null)
+        {
+            hash.Value(-1);
+
+            return;
+        }
+
+        hash.Value(batches.Count);
+
+        for (int at = 0; at < batches.Count; at++)
+        {
+            hash.Value((batches[at].MaterialIndex, batches[at].FirstVertex, batches[at].VertexCount));
+        }
     }
 
     private static void AddInstances(ref StableHash hash, IReadOnlyList<ModelInstance>? instances)
