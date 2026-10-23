@@ -160,3 +160,18 @@ our renderer already has. A is the fallback only if the snapshot proves unbuilda
    — the conformance test's thread-id assertion must redden.
 7. **Measure after**, ABBA on f12, with the render thread's time reported in its own column and the game thread's
    `draw` named as the hand-off wait.
+
+## (7) Follow-up, 2026-10-22: the prototype stopped it at the checkpoint
+
+**Measured** (`docs/measurements/2026-10-22-render-thread-prototype.md`): `Draw` on a worker joined at the next frame's
+start, the only safe join point in today's code, saves only the gap between frames (~0.5 ms). The game thread waits on
+the worker for 1.9-2.1 ms of a 2.2-2.8 ms draw. Joining later, so that simulate, camera and hud overlap the draw,
+crashed in the first second on a shared list. Finding 98's blocker is real: **any saving above ~0.5 ms needs the
+snapshot first, and what the snapshot copy costs is still unmeasured.** Steps 3-7 were not started. The prototype's
+code (a throwaway `TF2VIEW_PROTO_RENDER_THREAD` switch in `FrameSequence.cs`) is NOT on main; it is on the branch
+`feat/queued-material-system` and should be removed before anything from it merges.
+
+**Step 1 (the Ghidra read) was not done.** The session's Ghidra MCP bridge connected to `tf2materialsystem` but
+registered its 214 analysis tools after this agent's tool list was fixed, so no read tool was callable. The
+headless-script and HTTP routes are closed by the binary-reads hook. Three things are still interpolated: what -1
+resolves to, when `EndFrame` waits, and how many frames are in flight.
