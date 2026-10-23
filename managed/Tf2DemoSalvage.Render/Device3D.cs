@@ -3123,15 +3123,14 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
     private long _queueChecked;
     private long _queueChanged;
 
+    private static long Fold((long Pose, long Particles, long Other, long Cull) parts) =>
+        parts.Pose ^ (parts.Particles * 31) ^ (parts.Other * 961) ^ (parts.Cull * 29791);
+
+    private static string Changed(long handed, long after) =>
+        handed == after ? "same" : string.Create(System.Globalization.CultureInfo.InvariantCulture, $"{handed:x16}->{after:x16}");
+
     private void Submit(Action draw, Func<(long Pose, long Particles, long Other, long Cull)> parts)
     {
-        long inputs()
-        {
-            (long pose, long particles, long rest, long cull) = parts();
-
-            return pose ^ (particles * 31) ^ (rest * 961) ^ (cull * 29791);
-        }
-
         bool queued = !IsExclusiveFullScreen;
 
         if (FrameHash)
@@ -3158,21 +3157,30 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
             return;
         }
 
-        long handed = inputs();
+        (long Pose, long Particles, long Other, long Cull) handed = parts();
+        double handedLabel = FrameLabel;
+        long[] handedPieces = CullPieces();
 
         Queue.Submit(
             () =>
             {
                 draw();
 
-                long after = inputs();
+                (long Pose, long Particles, long Other, long Cull) after = parts();
+                long[] afterPieces = CullPieces();
 
                 long checkedNow = System.Threading.Interlocked.Increment(ref _queueChecked);
 
                 if (after != handed)
                 {
+                    // **Each part named on its own** (finding 98 §9): one folded hash said a frame changed, not what.
                     System.Threading.Interlocked.Increment(ref _queueChanged);
-                    _render.LogError("{Message}", $"queue verify: the frame's inputs changed while it was drawn ({handed:x8} -> {after:x8})");
+                    _render.LogError("{Message}", string.Create(
+                        System.Globalization.CultureInfo.InvariantCulture,
+                        $"queue verify: the frame's inputs changed while it was drawn at {handedLabel:0.####} ({Fold(handed):x8} -> {Fold(after):x8}): " +
+                        $"pose {Changed(handed.Pose, after.Pose)} particles {Changed(handed.Particles, after.Particles)} " +
+                        $"rest {Changed(handed.Other, after.Other)} cull {Changed(handed.Cull, after.Cull)} " +
+                        $"(world/sky/overlays/leaves/sky decision/water/detail: {string.Join(' ', handedPieces.Zip(afterPieces, Changed))})"));
                 }
 
                 // The control: a verifier that checked nothing proves nothing, so the count is reported as it grows.
@@ -3222,7 +3230,12 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
 
         foreach (((float X, float Y, float Z) From, (float X, float Y, float Z) To) line in mapLines)
         {
-            rest.Value(line);
+            rest.Value(line.From.X);
+            rest.Value(line.From.Y);
+            rest.Value(line.From.Z);
+            rest.Value(line.To.X);
+            rest.Value(line.To.Y);
+            rest.Value(line.To.Z);
         }
 
         rest.Value(vgui?.Quads.Count ?? -1);
@@ -3239,9 +3252,9 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
     {
         StableHash cull = new();
 
-        AddBatches(ref cull, _world?.VisibleBatches);
-        AddBatches(ref cull, _world?.SkyBatches);
-        AddBatches(ref cull, _world?.Overlays);
+        cull.Batches(_world?.VisibleBatches);
+        cull.Batches(_world?.SkyBatches);
+        cull.Batches(_world?.Overlays);
         cull.Value(_world?.TranslucentLeaves is null ? -1 : 1);
         cull.Value((int)_skyVisible);
         cull.Value(_waterDraw is null ? 0 : 1);
@@ -3255,21 +3268,29 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         return cull.Result;
     }
 
-    private static void AddBatches(ref StableHash hash, IReadOnlyList<WorldBatch>? batches)
+    /// <summary>The cull part's pieces, in a fixed order — world, sky, overlays, translucent leaves, sky decision, water,
+    /// detail — so a verifier mismatch names the one that moved (finding 98 §9).</summary>
+    private long[] CullPieces()
     {
-        if (batches is null)
-        {
-            hash.Value(-1);
+        StableHash detail = new();
 
-            return;
+        detail.Value(_detailCorners.Count);
+
+        foreach (DetailSpriteVertex corner in _detailCorners)
+        {
+            detail.Value(corner);
         }
 
-        hash.Value(batches.Count);
-
-        for (int at = 0; at < batches.Count; at++)
-        {
-            hash.Value((batches[at].MaterialIndex, batches[at].FirstVertex, batches[at].VertexCount));
-        }
+        return
+        [
+            StableHash.OfBatches(_world?.VisibleBatches),
+            StableHash.OfBatches(_world?.SkyBatches),
+            StableHash.OfBatches(_world?.Overlays),
+            _world?.TranslucentLeaves is null ? -1 : 1,
+            (int)_skyVisible,
+            _waterDraw is null ? 0 : 1,
+            detail.Result,
+        ];
     }
 
     private static void AddInstances(ref StableHash hash, IReadOnlyList<ModelInstance>? instances)
@@ -3284,7 +3305,11 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         foreach (ModelInstance instance in instances)
         {
             hash.Text(instance.ModelPath);
-            hash.Value((instance.EntityIndex, instance.Frame, instance.Body, instance.Alpha));
+            // Field by field: a `ValueTuple`'s bytes are not its fields' (StableHash).
+            hash.Value(instance.EntityIndex);
+            hash.Value(instance.Frame);
+            hash.Value(instance.Body);
+            hash.Value(instance.Alpha);
             hash.Floats(instance.Matrix);
             hash.Floats(instance.Flex);
             hash.Floats(instance.BakedColours);
@@ -3298,43 +3323,6 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
                 }
             }
         }
-    }
-
-    /// <summary>FNV-1a over bytes: the same value for the same content in any process.</summary>
-    private struct StableHash()
-    {
-        public long Result { get; private set; } = unchecked((long)14695981039346656037UL);
-
-        public void Bytes(ReadOnlySpan<byte> bytes)
-        {
-            ulong value = (ulong)Result;
-
-            foreach (byte b in bytes)
-            {
-                value = (value ^ b) * 1099511628211UL;
-            }
-
-            Result = (long)value;
-        }
-
-        public void Value<T>(T value)
-            where T : unmanaged =>
-            Bytes(System.Runtime.InteropServices.MemoryMarshal.AsBytes(new ReadOnlySpan<T>(in value)));
-
-        public void Floats(float[]? values)
-        {
-            if (values is null)
-            {
-                Value(-1);
-
-                return;
-            }
-
-            Bytes(System.Runtime.InteropServices.MemoryMarshal.AsBytes(values.AsSpan()));
-        }
-
-        public void Text(string? text) =>
-            Bytes(System.Runtime.InteropServices.MemoryMarshal.AsBytes((text ?? "\0").AsSpan()));
     }
 
     /// <summary>Sets the view the world is drawn through, and the volume it culls against.</summary>

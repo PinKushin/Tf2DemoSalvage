@@ -288,6 +288,30 @@ runs of this branch and on one run of `301facbb`, the commit before `ViewHalf`. 
 part (`d31fbe20`), so the likeliest reading is that the cull part exposed a game-thread write the earlier parts did not
 cover. *Interpolated*: the part that changed was not split out.
 
+**Settled, 2026-10-23 (branch `feat/queued-render-thread-rung-2c`): the changed frame was the instrument, not a race.**
+The wrong turns, kept, because each looked like a write:
+
+- *Split by part* (the verifier now logs pose, particles, rest and cull separately, and the cull's seven pieces): only
+  the cull changed, always on the first played frame (tick 6 of the opening state, label `6.6667`), never the pose. The
+  "model set grew" stall beside it is `UploadModels`' `Lock` waiting for that frame's draw, not a writer.
+- *A monitor pass rewriting the main list* (the aliasing below): no monitor pass ran on f12.
+- *Another thread culling*: a stack stamp on `SetCamera`, `WorldCulling.Batches` and `SkyRunsFrom` saw thread 2 only;
+  nothing was in flight at the hand-off.
+- *Then the control that decided it*: the hand-off copied the world and overlay lists, compared the copy element by
+  element with the live list (equal) and hashed both twice. The copy hashed to one value on the first call and another
+  on every later call, on both threads, the same pattern every run. Same content, two hashes.
+
+The batches were hashed as a `ValueTuple<int, int, int>`'s raw bytes. `ValueTuple` is auto-layout, and its bytes are
+not its fields': `StableHashTests.Batches_TwoRuns_HashToTheFnvOfTheirCountAndFieldBytes` predicted the exact FNV over
+the fields and was red on the tuple version. *Not established*: why the bytes vary between calls (padding is the
+reading, `docs/memory/padding-is-not-zero.md`; tiered compilation off did not stop it). The hash moved to
+`StableHash.cs` and writes every field on its own, the pose tuple and the leaf lines included. *Measured* after the fix:
+`queue verify: 784500 frames checked, 0 changed` on f12, mode 2, the opening frame included.
+
+**Consequence for every earlier hash comparison**: the pose and rest parts hashed tuples the same way, so the pose
+part's "pre-existing, timing-dependent" late divergence above may be this instrument too. *Not yet re-measured.*
+Every hash value from before this commit is incomparable with one after it; the baseline for step 2 is this commit.
+
 **Not covered: monitor frames, and the halves change them.** `DrawMonitorPass` caches
 `_monitorCull = (pointCamera, Culling?.Batches(...))`, which holds the culling's reused main list.
 
