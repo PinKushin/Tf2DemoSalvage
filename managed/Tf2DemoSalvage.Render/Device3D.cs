@@ -39,7 +39,31 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
     /// Off by default, matching the setting: it adds latency, and a driver that disables it
     /// globally ignores the request anyway.
     /// </remarks>
-    public bool VerticalSync { get; set; }
+    public bool VerticalSync { get; set { Lock(); field = value; } }
+
+    /// <summary>The material system's queue: in mode 2 the frame is drawn on its thread (B581, D228).</summary>
+    /// <remarks>
+    /// **Every public member that touches the immediate context or state the draw reads takes <see cref="Lock"/> first**,
+    /// the engine's `CMaterialSystem::Lock` (finding 99 section 5): it waits for the frame in flight, and is free when
+    /// there is none and on the render thread itself. Exempt, by name: <see cref="IViewerDevice.DrawScene"/>, which
+    /// hands off; and the cull answers the pose reads (<see cref="Frustum"/>, <see cref="Views"/>, <see cref="Eye"/>,
+    /// <see cref="ScreenView"/>, <see cref="DrawsMonitor"/>), which only <see cref="SetCamera(FreeCamera, bool)"/> writes.
+    /// </remarks>
+    public QueuedRenderThread Queue { get; } = new();
+
+    /// <summary>`mat_queue_mode`, resolved to a mode on this machine as `EndFrame` does.</summary>
+    public int QueueMode
+    {
+        get;
+        set
+        {
+            field = value;
+            Queue.Mode = MaterialQueueMode.ResolveHere(value);
+        }
+    }
+
+    /// <summary>Waits for the frame in flight, if any (the engine's `Lock`).</summary>
+    private void Lock([System.Runtime.CompilerServices.CallerMemberName] string caller = "") => Queue.Lock(caller);
 
 
     /// <summary>Back buffers. Two is the minimum a flip-model swap chain accepts.</summary>
@@ -95,6 +119,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
     public void SetOcclusionProxies(IReadOnlyList<PixelVisibilityProxy> proxies)
     {
         ArgumentNullException.ThrowIfNull(proxies);
+        Lock();
 
         _occlusionProxies = proxies;
     }
@@ -102,7 +127,12 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
     /// <summary>What an entity's proxy counted in the last frame that drew it.</summary>
     /// <param name="entity">The entity.</param>
     /// <returns>Pixels that passed the depth test and pixels on screen, or null where none was ever counted.</returns>
-    public (int Pixels, int Possible)? OcclusionResult(int entity) => _occlusion?.Result(_context, entity);
+    public (int Pixels, int Possible)? OcclusionResult(int entity)
+    {
+        Lock();
+
+        return _occlusion?.Result(_context, entity);
+    }
 
     /// <summary>Each model's own vertices and rebased runs, built once per model (D86).</summary>
     /// <remarks>
@@ -121,6 +151,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
     public void SetVguiResolver(Func<string, MapTexture?> resolve)
     {
         ArgumentNullException.ThrowIfNull(resolve);
+        Lock();
 
         // A new resolver can answer differently (a new map's pakfile), so what the old one uploaded goes.
         _vgui?.Dispose();
@@ -152,7 +183,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
     private readonly BloomAmount _bloomAmount = new();
 
     /// <summary>The map's <c>env_tonemap_controller</c> overrides in force (B514), set per frame beside the fog.</summary>
-    public Core.Scene.SceneTonemap Tonemap { get; set; }
+    public Core.Scene.SceneTonemap Tonemap { get; set { Lock(); field = value; } }
 
     /// <summary>Whether the post-processing has settled, which a comparison capture waits for (D192).</summary>
     /// <remarks>
@@ -164,14 +195,30 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
     /// The exposure also waits for every bin to be counted again since the last reset, and a full history of goals
     /// since: the engine's counts survive a reset (B575), so a goal from them is of a frame drawn at the old scale.
     /// </remarks>
-    public bool PostProcessingSettled => _bloomAmount.Settled && (!ExposureWalks || ExposureSettled);
+    public bool PostProcessingSettled
+    {
+        get
+        {
+            Lock();
+
+            return _bloomAmount.Settled && (!ExposureWalks || ExposureSettled);
+        }
+    }
 
     private bool ExposureSettled => _exposure.Settled && _histogramSystem.FramesFresh >= AutoExposure.History;
 
     /// <summary>The values <see cref="PostProcessingSettled"/> read, for the log of a capture that is waiting on it.</summary>
-    public string PostProcessingReport => string.Create(
+    public string PostProcessingReport => LockThen(() => string.Create(
         System.Globalization.CultureInfo.InvariantCulture,
-        $"bloom settled {_bloomAmount.Settled} at {_bloomAmount.Current:0.####}; exposure walks {ExposureWalks}, settled {ExposureSettled} (bins fresh {_histogramSystem.FramesFresh} frames), at {_exposure.Current:0.####} toward {_exposure.Goal:0.####}");
+        $"bloom settled {_bloomAmount.Settled} at {_bloomAmount.Current:0.####}; exposure walks {ExposureWalks}, settled {ExposureSettled} (bins fresh {_histogramSystem.FramesFresh} frames), at {_exposure.Current:0.####} toward {_exposure.Goal:0.####}"));
+
+    /// <summary>Takes <see cref="Lock"/>, then answers.</summary>
+    private T LockThen<T>(Func<T> answer, [System.Runtime.CompilerServices.CallerMemberName] string caller = "")
+    {
+        Lock(caller);
+
+        return answer();
+    }
 
     /// <summary>Whether the exposure is being measured at all: integer HDR, and not forced.</summary>
     private bool ExposureWalks => _world is { HdrType: Content.Bsp.HdrType.IntegerHdr } && ForceToneMapScale <= 0f;
@@ -187,10 +234,10 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
     private int? _observerTarget;
 
     /// <summary>The tone-map scale the main view draws at now, <c>LINEAR_LIGHT_SCALE</c> (B514).</summary>
-    public float ToneMapScale => _exposure.Current;
+    public float ToneMapScale => LockThen(() => _exposure.Current);
 
     /// <summary>The game time this frame advanced: what the material system's exposure walk is given (zero when paused).</summary>
-    public float ExposureSeconds { get; set; }
+    public float ExposureSeconds { get; set { Lock(); field = value; } }
 
     /// <summary>The player the view follows, or null; a change resets the exposure as <c>SetObserverTarget</c> does.</summary>
     public int? ObserverTarget
@@ -198,6 +245,8 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         get => _observerTarget;
         set
         {
+            Lock();
+
             if (value != _observerTarget)
             {
                 ResetToneMapping();
@@ -221,7 +270,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
     private ComPtr<ID3D11Texture2D> _depthBuffer;
 
     /// <summary>The local player's screen overlay for the next frame, or null for none.</summary>
-    public ScreenOverlayMaterial? ScreenOverlay { get; set; }
+    public ScreenOverlayMaterial? ScreenOverlay { get; set { Lock(); field = value; } }
     private ComPtr<ID3D11DepthStencilState> _depthOn;
     private ComPtr<ID3D11DepthStencilState> _depthOff;
 
@@ -360,6 +409,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         ArgumentNullException.ThrowIfNull(models);
+        Lock();
 
         // **Created here rather than skipped, like every other entry point.** This read
         // "if (_world is null) return;", and MainForm calls it only when a model is packed for the
@@ -505,6 +555,10 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
 
+        // The frame in flight reads this before its Present, so it would photograph itself instead of the next one: a
+        // read-back is a mode-0 operation in the engine (`viewpostprocess.cpp:1479-1486`), and this drains first.
+        Lock();
+
         _captureTo = path;
     }
 
@@ -626,8 +680,11 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
     /// agree until one is changed.
     /// </remarks>
     public void DrawAndPresent(
-        float red, float green, float blue, IReadOnlyList<ScenePoint> points) =>
+        float red, float green, float blue, IReadOnlyList<ScenePoint> points)
+    {
+        Lock();
         DrawFrame(red, green, blue, [], [], points);
+    }
 
     /// <summary>Draws the first-person models in their own pass, as the engine does.</summary>
     /// <param name="viewmodels">The posed arms and weapon, or null when there are none.</param>
@@ -1094,28 +1151,28 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
 
     /// <summary>The <c>point_camera</c> whose view <c>_rt_Camera</c> shows this frame, or null for none (B511).</summary>
     /// <remarks>Set beside the fog before <see cref="SetCamera(FreeCamera, bool)"/>, which builds the view from it.</remarks>
-    public Tf2DemoSalvage.Core.Scene.ScenePointCamera? MonitorCamera { get; set; }
+    public Tf2DemoSalvage.Core.Scene.ScenePointCamera? MonitorCamera { get; set { Lock(); field = value; } }
 
     /// <summary>Whether the monitor pass runs — Valve's <c>cl_drawmonitors</c>, default 1 (`viewrender.cpp:168`).</summary>
-    public bool DrawMonitors { get; set; } = true;
+    public bool DrawMonitors { get; set { Lock(); field = value; } } = true;
 
     /// <summary>Valve's <c>mat_disable_bloom</c>, default 0 (`viewpostprocess.cpp:57`): no bloom pass.</summary>
-    public bool DisableBloom { get; set; }
+    public bool DisableBloom { get; set { Lock(); field = value; } }
 
     /// <summary>
     /// Valve's <c>mat_force_tonemap_scale</c>, default 0 (`viewpostprocess.cpp:1128`): above zero, the tone-map
     /// scale is reset to exactly this every frame and the histogram is not consulted (`SetToneMapScale`, `:1143-1148`).
     /// </summary>
-    public float ForceToneMapScale { get; set; }
+    public float ForceToneMapScale { get; set { Lock(); field = value; } }
 
     /// <summary>Valve's <c>cl_drawhud</c>, default 1: whether the HUD pass runs.</summary>
-    public bool DrawHud { get; set; } = true;
+    public bool DrawHud { get; set { Lock(); field = value; } } = true;
 
     /// <summary>
     /// What the main view hides and a monitor draws: the local player, whom TF2 force-draws for the pass
     /// (<c>ForceTempForceDraw</c>, `viewrender.cpp:3266-3287`).
     /// </summary>
-    public IReadOnlyList<ModelInstance> MonitorOnlyModels { get; set; } = [];
+    public IReadOnlyList<ModelInstance> MonitorOnlyModels { get; set { Lock(); field = value; } } = [];
 
     /// <summary>This frame's monitor view, from <see cref="MonitorCamera"/> and the main view.</summary>
     private FreeCamera? _monitorView;
@@ -1907,6 +1964,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
     public void Resize(int width, int height)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
+        Lock();
 
         if (width <= 0 || height <= 0)
         {
@@ -1949,6 +2007,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         ArgumentNullException.ThrowIfNull(assets);
+        Lock();
 
         _world ??= WorldRenderer.Create(_device, _loggers);
         _world.UploadMap(_device, _context, world.Vertices, world.Batches, assets);
@@ -1960,6 +2019,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
     public void UploadWorldTextures(MapAssets assets)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
+        Lock();
 
         _world ??= WorldRenderer.Create(_device, _loggers);
         _world.UploadTextures(_device, _context, assets);
@@ -2088,6 +2148,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
     public void UploadWorldGeometry(MapWorld world)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
+        Lock();
 
         _world ??= WorldRenderer.Create(_device, _loggers);
         _world.UploadGeometry(_device, world.Vertices, world.Batches);
@@ -2112,6 +2173,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         IReadOnlyList<WorldVertex> vertices, IReadOnlyList<WorldBatch> batches, IReadOnlyList<WorldBatch> entityBatches)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
+        Lock();
 
         _world?.UploadShotDecals(_device, _context, vertices, batches, entityBatches);
     }
@@ -2149,6 +2211,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         set
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
+            Lock();
 
             _draw3dSky = value;
 
@@ -2170,6 +2233,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
     public void SetSkyCamera(((float X, float Y, float Z) Origin, float Scale)? skyCamera)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
+        Lock();
 
         _skyRoom = skyCamera;
     }
@@ -2185,6 +2249,8 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         get => _worldFog;
         set
         {
+            Lock();
+
             if (_worldFog == value)
             {
                 return;
@@ -2211,6 +2277,8 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         get => _skyFog;
         set
         {
+            Lock();
+
             if (_skyFog != value)
             {
                 _render.LogInformation("{Message}", $"sky fog: {value?.ToString() ?? "none"}");
@@ -2266,18 +2334,18 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
     /// Read as a bool, because Valve reads it as one: `r_skybox.GetBool()` at
     /// <c>viewrender.cpp:1426</c>, <c>:2849</c> and <c>:4982</c>, unlike `r_3dsky`'s `GetInt()`.
     /// </remarks>
-    public bool DrawSkybox { get; set; } = true;
+    public bool DrawSkybox { get; set { Lock(); field = value; } } = true;
 
     /// <summary>The corner light a mod2x decal carries in this pipeline — the world decal pass's figure.</summary>
     public const float DecalModulateLight = WorldRenderer.ModulateTwiceLight;
 
     /// <summary>The decals on entities' models, drawn after each model with its bones (B415); null for none.</summary>
-    public ModelDecals? ModelDecals { get; set; }
+    public ModelDecals? ModelDecals { get; set { Lock(); field = value; } }
 
     /// <summary>A model's batches at its first frame, which index its vertices.</summary>
     /// <param name="modelPath">The model.</param>
     /// <returns>Its runs, or empty.</returns>
-    public IReadOnlyList<WorldBatch> ModelBatches(string modelPath) => _world?.ModelBatches(modelPath) ?? [];
+    public IReadOnlyList<WorldBatch> ModelBatches(string modelPath) => LockThen(() => _world?.ModelBatches(modelPath) ?? []);
 
     /// <summary>Gives the 2D skybox its six faces, replacing whichever it had.</summary>
     /// <param name="faces">
@@ -2289,6 +2357,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
     {
         ArgumentNullException.ThrowIfNull(faces);
         ObjectDisposedException.ThrowIf(_disposed, this);
+        Lock();
 
         foreach (ComPtr<ID3D11ShaderResourceView> held in _skyTextures)
         {
@@ -2344,6 +2413,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         ArgumentNullException.ThrowIfNull(rectangles);
         ArgumentNullException.ThrowIfNull(models);
         ObjectDisposedException.ThrowIf(_disposed, this);
+        Lock();
 
         _detailSheet.Dispose();
         _detailSheet = default;
@@ -2404,6 +2474,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
     public void SetParticles(IReadOnlyList<ParticleBatch> batches)
     {
         ArgumentNullException.ThrowIfNull(batches);
+        Lock();
 
         _particleBatches.Clear();
         Drawable(batches, _particleBatches);
@@ -2818,7 +2889,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
     /// `CDetailObjectSystem::Init` (`detailobjectsystem.cpp:371`) before any map loads, which is
     /// what lets a config value survive a map that overrode it.
     /// </remarks>
-    public float DetailDistance { get; set; } = 1200f;
+    public float DetailDistance { get; set { Lock(); field = value; } } = 1200f;
 
     /// <summary><c>cl_detailfade</c> — how wide the band they fade across is.</summary>
     /// <remarks>
@@ -2826,7 +2897,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
     /// in" );</c> — `detailobjectsystem.cpp:53`. The engine's `m_flDefaultFadeStart`; the same
     /// distinction <see cref="DetailDistance"/> draws applies.
     /// </remarks>
-    public float DetailFadeWidth { get; set; } = 400f;
+    public float DetailFadeWidth { get; set { Lock(); field = value; } } = 400f;
 
     /// <summary>The two distances actually in force, after the loaded map has had its say.</summary>
     /// <remarks>
@@ -2856,6 +2927,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
     public void SetWorldCulling(WorldCulling? culling)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
+        Lock();
 
         _culling = culling;
         _reportedWorldCull = false;
@@ -2895,7 +2967,144 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         VguiDrawList? vgui) =>
         // The fill and the markers are empty, always: the first was dead by construction and the second went with the
         // orthographic camera (D98). Both parameters stay until this signature is revised, which is a change to the render seam.
-        DrawFrame(red, green, blue, [], mapLines, [], models, viewmodels, viewmodelCamera, vgui);
+        //
+        // **The hand-off** (B581, D228): in mode 2 the frame is drawn on the queue's thread and this returns at once, after
+        // the previous frame's draw (if still running) finished, as `EndFrame` does. Exclusive full screen draws here,
+        // as the engine's `EndFrame` drops to mode 0 for a shader API that cannot take it: a Present on the render thread
+        // while the window thread waits in a drain is the deadlock DXGI documents for full screen.
+        Submit(
+            () => DrawFrame(red, green, blue, [], mapLines, [], models, viewmodels, viewmodelCamera, vgui),
+            () => DrawInputHash(mapLines, models, viewmodels, viewmodelCamera, vgui));
+
+    /// <summary>`TF2VIEW_QUEUE_VERIFY=1`: hash what a queued frame draws at the hand-off and again after the draw, and log a mismatch.</summary>
+    /// <remarks>An instrument for the validation run, not a user control: it costs about what a full copy did (3.4 MB a frame on f12).</remarks>
+    public const string QueueVerifyVariable = "TF2VIEW_QUEUE_VERIFY";
+
+    private static readonly bool QueueVerify = Environment.GetEnvironmentVariable(QueueVerifyVariable) == "1";
+
+    /// <summary>Frames the queue verifier checked, and how many changed under the draw.</summary>
+    public (long Checked, long Changed) QueueVerified =>
+        (System.Threading.Interlocked.Read(ref _queueChecked), System.Threading.Interlocked.Read(ref _queueChanged));
+
+    private long _queueChecked;
+    private long _queueChanged;
+
+    private void Submit(Action draw, Func<int> inputs)
+    {
+        bool queued = !IsExclusiveFullScreen;
+
+        if (!QueueVerify || Queue.Mode != MaterialThreadMode.QueuedThreaded || !queued)
+        {
+            Queue.Submit(draw, queued);
+
+            return;
+        }
+
+        int handed = inputs();
+
+        Queue.Submit(
+            () =>
+            {
+                draw();
+
+                int after = inputs();
+
+                System.Threading.Interlocked.Increment(ref _queueChecked);
+
+                if (after != handed)
+                {
+                    System.Threading.Interlocked.Increment(ref _queueChanged);
+                    _render.LogError("{Message}", $"queue verify: the frame's inputs changed while it was drawn ({handed:x8} -> {after:x8})");
+                }
+            },
+            queued);
+    }
+
+    /// <summary>Everything a queued frame reads that a game-thread stage could rewrite, by content.</summary>
+    private int DrawInputHash(
+        IReadOnlyList<((float X, float Y, float Z) From, (float X, float Y, float Z) To)> mapLines,
+        IReadOnlyList<ModelInstance>? models,
+        IReadOnlyList<ModelInstance>? viewmodels,
+        float[]? viewmodelCamera,
+        VguiDrawList? vgui)
+    {
+        HashCode hash = new();
+
+        foreach (((float X, float Y, float Z) From, (float X, float Y, float Z) To) line in mapLines)
+        {
+            hash.Add(line);
+        }
+
+        AddInstances(ref hash, models);
+        AddInstances(ref hash, viewmodels);
+        AddInstances(ref hash, MonitorOnlyModels);
+        AddFloats(ref hash, viewmodelCamera);
+
+        if (vgui is not null)
+        {
+            foreach (VguiQuad quad in vgui.Quads)
+            {
+                hash.Add(quad);
+            }
+
+            hash.Add(vgui.Models.Count);
+        }
+
+        foreach ((ComPtr<ID3D11ShaderResourceView> _, SpriteBlend blend, SpriteDepth depth, IReadOnlyList<DetailSpriteVertex> corners, RefractMaterial? _, MapTexture? _, bool _, float _, bool _) in _particleBatches)
+        {
+            hash.Add(blend);
+            hash.Add(depth);
+
+            foreach (DetailSpriteVertex corner in corners)
+            {
+                hash.Add(corner);
+            }
+        }
+
+        hash.Add(ScreenOverlay);
+
+        return hash.ToHashCode();
+    }
+
+    private static void AddInstances(ref HashCode hash, IReadOnlyList<ModelInstance>? instances)
+    {
+        if (instances is null)
+        {
+            return;
+        }
+
+        foreach (ModelInstance instance in instances)
+        {
+            hash.Add(instance);
+            AddFloats(ref hash, instance.Matrix);
+            AddFloats(ref hash, instance.Flex);
+            AddFloats(ref hash, instance.BakedColours);
+
+            if (instance.Bones is { } bones)
+            {
+                foreach (float[] bone in bones)
+                {
+                    AddFloats(ref hash, bone);
+                }
+            }
+
+            if (instance.Locals is { } locals)
+            {
+                foreach (LocalLight local in locals)
+                {
+                    hash.Add(local);
+                }
+            }
+        }
+    }
+
+    private static void AddFloats(ref HashCode hash, float[]? values)
+    {
+        if (values is not null)
+        {
+            hash.AddBytes(System.Runtime.InteropServices.MemoryMarshal.AsBytes(values.AsSpan()));
+        }
+    }
 
     /// <summary>Sets the view the world is drawn through, and the volume it culls against.</summary>
     /// <param name="camera">The camera the frame is seen through.</param>
@@ -2915,6 +3124,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
     public void SetCamera(FreeCamera camera, bool surfaceColours = false)
     {
         ArgumentNullException.ThrowIfNull(camera);
+        Lock();
 
         // **Timed here, where each part runs, and carried to the rate line** (B243): `camera setcamera` was one number
         // over the view setup, the constant upload, the world cull and the detail rebuild (finding 83).
@@ -3082,6 +3292,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
     public void SetCamera(float[] matrix, bool surfaceColours = false)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
+        Lock();
 
         _world ??= WorldRenderer.Create(_device, _loggers);
 
@@ -3119,6 +3330,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
 
         set
         {
+            Lock();
             _wireframe = value;
 
             if (_world is not null)
@@ -3143,6 +3355,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
 
         set
         {
+            Lock();
             _specular = value;
 
             // Re-sent immediately rather than left for the next SetCamera. Clearing the remembered
@@ -3177,6 +3390,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
 
         set
         {
+            Lock();
             _phong = value;
             ReapplyCamera();
         }
@@ -3197,6 +3411,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
 
         set
         {
+            Lock();
             _fullbright = value;
             ReapplyCamera();
         }
@@ -3211,6 +3426,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
 
         set
         {
+            Lock();
             _drawWorld = value;
 
             if (_world is not null)
@@ -3223,7 +3439,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
     private bool _drawWorld = true;
 
     /// <summary>Whether static props and models draw — Valve's <c>r_drawentities</c>.</summary>
-    public bool DrawEntities { get; set; } = true;
+    public bool DrawEntities { get; set { Lock(); field = value; } } = true;
 
     /// <summary>Valve's per-surface debug visualisations — see <see cref="DebugModes"/>.</summary>
     public DebugModes Debug
@@ -3232,6 +3448,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
 
         set
         {
+            Lock();
             _debug = value;
             ReapplyCamera();
         }
@@ -3257,6 +3474,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
     public void ClearWorld()
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
+        Lock();
 
         _world?.Dispose();
         _world = null;
@@ -3276,8 +3494,11 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
     /// <param name="pixels">The whole atlas.</param>
     /// <param name="width">Its width in texels.</param>
     /// <param name="regions">What was rebuilt.</param>
-    public void UpdateLightmap(byte[] pixels, int width, IReadOnlyList<AtlasRegion> regions) =>
+    public void UpdateLightmap(byte[] pixels, int width, IReadOnlyList<AtlasRegion> regions)
+    {
+        Lock();
         _world?.UpdateLightmap(_context, pixels, width, regions);
+    }
 
     /// <summary>Whether the swap chain currently owns the display exclusively.</summary>
     public bool IsExclusiveFullScreen { get; private set; }
@@ -3300,6 +3521,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
     public bool SetExclusiveFullScreen(bool enabled)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
+        Lock();
 
         if (IsExclusiveFullScreen == enabled)
         {
@@ -4495,6 +4717,9 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         {
             return;
         }
+
+        // Teardown is a full drain: the frame in flight holds the context and every resource released below.
+        Queue.Dispose();
 
         // **Mandatory, and not merely tidy.** Releasing a swap chain while it holds the display
         // exclusively is undefined: DXGI documents that the swap chain must be returned to windowed

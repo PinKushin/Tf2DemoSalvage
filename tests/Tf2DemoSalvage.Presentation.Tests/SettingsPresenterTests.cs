@@ -261,6 +261,7 @@ public sealed class SettingsPresenterTests
             ThreeDimensionalSky = 0,
             DetailDistance = 100f,
             DetailFade = 50f,
+            MaterialQueueMode = 2,
         });
         FakeViewerDevice device = new();
 
@@ -268,7 +269,7 @@ public sealed class SettingsPresenterTests
 
         device.Set.ShouldBe(
         [
-            "VerticalSync True", "Phong False", "DrawMonitors False", "DisableBloom True", "ForceToneMapScale 1.5", "DrawHud False",
+            "VerticalSync True", "QueueMode 2", "Phong False", "DrawMonitors False", "DisableBloom True", "ForceToneMapScale 1.5", "DrawHud False",
             "specular off", "fullbright 2",
             "Draw3dSky 0", "DetailDistance 100", "DetailFadeWidth 50",
         ]);
@@ -284,7 +285,8 @@ public sealed class SettingsPresenterTests
 
         device.Set.ShouldNotContain("specular off");
         device.Set.ShouldNotContain("fullbright 0");
-        device.Set.Count.ShouldBe(9);
+        device.Set.Count.ShouldBe(10);
+        device.Set.ShouldContain("QueueMode 0", "mat_queue_mode ships off (D228)");
     }
 
     [Test]

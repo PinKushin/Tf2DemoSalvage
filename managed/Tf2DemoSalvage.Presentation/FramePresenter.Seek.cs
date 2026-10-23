@@ -42,8 +42,17 @@ public sealed partial class FramePresenter
     /// <param name="show">Shows a tick as the window shows it, and answers what the window knows afterwards.</param>
     /// <param name="jumps">How many times the transport has jumped — a move is a skip only when this changed (D221).</param>
     /// <exception cref="ArgumentNullException"><paramref name="show"/> is null.</exception>
-    public void ShowMoment(in ViewFrame frame, double tick, Device3D? device, Func<double, ViewFrame> show, int jumps) =>
+    public void ShowMoment(in ViewFrame frame, double tick, Device3D? device, Func<double, ViewFrame> show, int jumps)
+    {
+        _seekQueue = device?.Queue;
         ShowMomentOver(frame, tick, device, show, HasHud ? SkipHudFrame : null, jumps);
+    }
+
+    /// <summary>
+    /// The render thread a replay drains before it poses (B581): a seek's replays pose the ticks they cross, rewriting the
+    /// bones, flex streams and instance lists the frame in flight is drawing. Null over a stand-in device.
+    /// </summary>
+    private QueuedRenderThread? _seekQueue;
 
     /// <summary>The same, over any device (D214).</summary>
     /// <param name="frame">What the window knows of the frame.</param>
@@ -183,6 +192,8 @@ public sealed partial class FramePresenter
             return;
         }
 
+        _seekQueue?.Lock();
+
         long began = Stopwatch.GetTimestamp();
         // Stryker disable once all : a mutated guard leaves its pattern variables unassigned (CS0165) and Safe Mode drops the method - B410
         bool back = from is not { } was || target < was;
@@ -317,6 +328,8 @@ public sealed partial class FramePresenter
         {
             return;
         }
+
+        _seekQueue?.Lock();
 
         TimeSpan lookback = Stopwatch.GetElapsedTime(lookingBack);
         TimeSpan building = TimeSpan.Zero;

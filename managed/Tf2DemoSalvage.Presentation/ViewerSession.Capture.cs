@@ -124,6 +124,14 @@ public sealed partial class ViewerSession
             return;
         }
 
+        // **Nothing left to do, so nothing asked of the device** (B581): the settle test below reads the device, which in
+        // `mat_queue_mode 2` waits for the frame in flight, and it ran every frame for the rest of a session whose
+        // opening was long over — the sequence answers `Nothing` from here on regardless.
+        if (_opening.Finished)
+        {
+            return;
+        }
+
         // **A capture waits for the post-processing to settle** (D192, B514): the bloom amount walks to the map's
         // value at 5% a frame from 1, so the opening's 45 frames would photograph it 10% high.
         if (_opening.Applied && _device is { PostProcessingSettled: false } unsettled)

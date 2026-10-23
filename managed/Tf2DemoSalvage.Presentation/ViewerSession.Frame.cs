@@ -533,6 +533,29 @@ public sealed partial class ViewerSession
 
         _presenter.FrameParts?.Frame();
 
+        // **The render thread's own time and every drain that waited** (B581), carried from the queue where each was
+        // timed; in mode 0 the queue never waits and draws nothing of its own, so neither part appears.
+        if (_ownedDevice?.Queue is { } queue)
+        {
+            long rendered = queue.TakeRenderTicks();
+
+            foreach ((string caller, long ticks) in queue.TakeWaits())
+            {
+                if (!_queueWaitParts.TryGetValue(caller, out string? part))
+                {
+                    part = "queue wait " + caller;
+                    _queueWaitParts[caller] = part;
+                }
+
+                _presenter.FrameParts?.Add(part, ticks);
+            }
+
+            if (rendered > 0)
+            {
+                _presenter.FrameParts?.Add("queue render thread", rendered);
+            }
+        }
+
         if (_frameRateLog.Report(_loggedRate.Sample(_clock.LastFrameSeconds), phases, _frameSeconds) is { } logged)
         {
             // The parts of `camera` and `hud`, over the same frames as the line they follow. Nested: `hud frame` holds
@@ -631,6 +654,12 @@ public sealed partial class ViewerSession
     /// built at all (`cdll_client_int.cpp:1308`).
     /// </remarks>
     public void Simulate() => _playback.Advance();
+
+    /// <inheritdoc/>
+    public void FinishPreviousDraw() => _ownedDevice?.Queue.Lock();
+
+    /// <summary>`queue wait {caller}` part names, made once per caller rather than per frame.</summary>
+    private readonly System.Collections.Generic.Dictionary<string, string> _queueWaitParts = new(StringComparer.Ordinal);
 
     /// <summary>Work out where the eye is and hand the camera to the GPU.</summary>
     /// <remarks>

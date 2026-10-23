@@ -32,6 +32,7 @@ public sealed class FrameSequenceTests
         [
             "TakeShot",
             "Simulate",
+            "FinishPreviousDraw",
             "PlaceCamera",
             "UpdateListener",
             "ProjectWorld",
@@ -69,6 +70,11 @@ public sealed class FrameSequenceTests
         public void Simulate()
         {
             // Nothing advances: the viewer is paused at the opening tick.
+        }
+
+        public void FinishPreviousDraw()
+        {
+            // Serial: nothing is in flight.
         }
 
         public void PlaceCamera() => _posed = _state;
@@ -126,6 +132,7 @@ public sealed class FrameSequenceTests
     [TestCase("TakeShot", nameof(FramePhases.Capture))]
     [TestCase("BuildOverlay", nameof(FramePhases.Hud))]
     [TestCase("Draw", nameof(FramePhases.Draw))]
+    [TestCase("FinishPreviousDraw", nameof(FramePhases.Draw))]
     public void Run_WithOneSlowStageOfSeven_ChargesTheTimeToThatStagesColumn(
         string stage, string column)
     {
@@ -166,6 +173,102 @@ public sealed class FrameSequenceTests
         FrameSequence.Run(steps);
 
         steps.Drawn.List.ShouldNotBeNull().ShouldBeSameAs(steps.Built.List);
+    }
+
+    /// <remarks>
+    /// **The queued frame's contract (B581, D228 rung 1)**: the previous frame's draw overlaps the shot and simulate stages
+    /// of the next, and no stage from the camera on — the cull, the particles, the pose, the HUD, which write what the
+    /// draw reads — runs while it is in flight. Deterministic: the in-flight draw is held on a gate that only the drain
+    /// itself opens, so a stage that ran before the drain sees the frame in flight however fast the machine is.
+    /// </remarks>
+    [Test]
+    public void Run_InModeTwo_OverlapsOnlyTheStagesBeforeTheCamera()
+    {
+        using QueuedSteps steps = new(Render.MaterialThreadMode.QueuedThreaded);
+
+        FrameSequence.Run(steps);
+        steps.InFlightAt.Clear();
+        FrameSequence.Run(steps);
+        steps.Queue.Lock();
+
+        steps.InFlightAt.ShouldBe(
+        [
+            ("TakeShot", true),
+            ("Simulate", true),
+            ("PlaceCamera", false),
+            ("UpdateListener", false),
+            ("ProjectWorld", false),
+            ("BuildOverlay", false),
+        ]);
+    }
+
+    /// <remarks>Mode 0 is today's serial path: the draw runs on the thread that ran the frame (`MATERIAL_SINGLE_THREADED`).</remarks>
+    [Test]
+    public void Run_InModeZero_DrawsOnTheCallingThread()
+    {
+        using QueuedSteps steps = new(Render.MaterialThreadMode.SingleThreaded);
+
+        FrameSequence.Run(steps);
+
+        steps.DrewOn.ShouldBe(Environment.CurrentManagedThreadId);
+    }
+
+    /// <summary>Steps whose draw goes through a real render queue and is held until a drain opens the gate.</summary>
+    private sealed class QueuedSteps : IFrameSteps, IDisposable
+    {
+        private readonly System.Threading.ManualResetEventSlim _gate = new();
+
+        public QueuedSteps(Render.MaterialThreadMode mode)
+        {
+            Queue = new Render.QueuedRenderThread { Mode = mode };
+            Queue.Waiting = _ => _gate.Set();
+        }
+
+        public Render.QueuedRenderThread Queue { get; }
+
+        /// <summary>Each stage, and whether a draw was in flight when it ran.</summary>
+        public List<(string Stage, bool InFlight)> InFlightAt { get; } = [];
+
+        /// <summary>The thread the last draw ran on.</summary>
+        public int DrewOn { get; private set; } = -1;
+
+        public void TakeShot() => Note("TakeShot");
+
+        public void Simulate() => Note("Simulate");
+
+        public void FinishPreviousDraw() => Queue.Lock();
+
+        public void PlaceCamera() => Note("PlaceCamera");
+
+        public void UpdateListener() => Note("UpdateListener");
+
+        public void ProjectWorld() => Note("ProjectWorld");
+
+        public FrameOverlay BuildOverlay()
+        {
+            Note("BuildOverlay");
+            return default;
+        }
+
+        public void Draw(FrameOverlay overlay) =>
+            Queue.Submit(() =>
+            {
+                DrewOn = Environment.CurrentManagedThreadId;
+
+                if (Queue.Mode == Render.MaterialThreadMode.QueuedThreaded)
+                {
+                    _gate.Wait();
+                }
+            });
+
+        public void Dispose()
+        {
+            _gate.Set();
+            Queue.Dispose();
+            _gate.Dispose();
+        }
+
+        private void Note(string stage) => InFlightAt.Add((stage, Queue.InFlight));
     }
 
     [Test]
@@ -217,6 +320,8 @@ public sealed class FrameSequenceTests
         public FrameOverlay Drawn { get; private set; }
 
         public void Simulate() => Mark("Simulate");
+
+        public void FinishPreviousDraw() => Mark("FinishPreviousDraw");
 
         public void PlaceCamera() => Mark("PlaceCamera");
 

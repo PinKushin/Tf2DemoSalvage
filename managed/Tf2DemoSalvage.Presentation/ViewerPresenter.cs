@@ -506,6 +506,9 @@ public sealed partial class ViewerPresenter : IDisposable
     /// </remarks>
     private void ClearMap()
     {
+        // A map change replaces state the frame in flight draws from: a full drain first (B581, finding 99 section 5).
+        _device?.Queue.Lock();
+
         _loaded = null;
 
         _effects.ClearMap();

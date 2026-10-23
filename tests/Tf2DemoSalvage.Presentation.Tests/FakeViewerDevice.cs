@@ -34,6 +34,8 @@ internal sealed class FakeViewerDevice : IViewerDevice
 
     public bool VerticalSync { get => false; set => Note(nameof(VerticalSync), value); }
 
+    public int QueueMode { get => 0; set => Note(nameof(QueueMode), value); }
+
     public bool Phong { get => false; set => Note(nameof(Phong), value); }
 
     public bool DrawMonitors { get => false; set => Note(nameof(DrawMonitors), value); }

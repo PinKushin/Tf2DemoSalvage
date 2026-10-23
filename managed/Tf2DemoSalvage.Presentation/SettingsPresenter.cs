@@ -437,6 +437,9 @@ public sealed class SettingsPresenter
 
         device.VerticalSync = _settings.VerticalSync;
 
+        // `mat_queue_mode` (B581, D228): which thread draws. Off (0) unless the config or `+mat_queue_mode` says otherwise.
+        device.QueueMode = _settings.MaterialQueueMode;
+
         // **`mat_phong` from the config, applied where `mat_vsync` is and for the same reason.**
         // `SetRenderToggle` no-ops while there is no device, so a config read before this point
         // reaches nothing — and `Device3D._phong` defaults to ON, so `mat_phong 0` would be
