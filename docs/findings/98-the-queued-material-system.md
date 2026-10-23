@@ -440,3 +440,41 @@ setters read `Cull`. The frame-hash and verifier cull parts hash the handed half
   with water, a 3D sky and detail sprites, with two shots from the step-1 binary first as the control. If that control
   differs, say so and rely on the recorder's tests. The rebuilt-baseline method above (a second worktree at the parent
   commit, same command) is the control for the hash runs.
+
+**Step 2 done, 2026-10-23 (branch `feat/queued-render-thread-rung-2e`, `c839e604`).** The game thread no longer sends
+the world camera. `SetCamera(float[])`, the gate after `PlanWater`, and the `WorldFog`, `Specular`, `Phong`,
+`Fullbright` and `Debug` setters call `RecordCamera(half)`. That stores a `CameraUpload` (matrix, colours, specular,
+fullbright, debug, phong, fog: values captured when recorded, last one wins) in the half. `ViewHalves.Begin` hands
+`half.TakeCamera()` to `Device3D.ReplayUploads`, which sends it once. The same replay now does the detail sprite upload,
+with `TakeDetailUpload` moved alongside it, so the one buffer follows draw order. `RebuildDetailSprites` only builds.
+`Begin` runs before `DrawFrame`, so the replay comes before `LinearLightScale` is set, and it sees the same end-of-frame
+scale the old game-thread send saw. Every draw-time `ReapplyCamera(Drawn/view)` restore is still an immediate send.
+
+- *Tests:* three new `ViewHalvesTests` (ten in all). Sabotage, each restored with the inverse edit:
+  - replaying the OTHER half's recording reddened `Job_ForTheHalfACameraWasRecordedInto_ReplaysItOnceBeforeTheDraw`,
+    `Job_ForTheOtherHalf_ReplaysNoneOfThisHalfsCamera` and `RecordCamera_TwiceBeforeTheDraw_ReplaysTheLastValues`;
+  - running the replay after the draw (that is, after `LinearLightScale`) reddened
+    `Job_ForTheHalfACameraWasRecordedInto_…`, `Job_WhenRun_ReplaysTheHandedHalfsUploadsBeforeTheDraw` and
+    `Job_RunAfterTheNextFrameFlipped_…`;
+  - never replaying the camera reddened `Job_ForTheHalfACameraWasRecordedInto_…` and `RecordCamera_TwiceBeforeTheDraw_…`.
+- *Read, not tested:* which `Device3D` call sites record and which send immediately. No test constructs a `Device3D`.
+- *Pixels, measured* (the instrument for uploads). Step 1 (`fa42d9e0`, built in `D:/r2s1`) and step 2 were run the
+  same way: `f12.dem --tick T --first-person --shot`, two step-1 shots then one step-2 shot per tick, at 542,184 px:
+
+  | tick | step 1 vs step 1 (control) | step 1 vs step 2 |
+  |---|---|---|
+  | 30000 | 12 | 34, 46 |
+  | 31500 | 21,534 | 62, 21,546 |
+  | 33000 | 60 | 28, 32 |
+
+  Each step-2 shot is within the control's own noise of one of the step-1 shots. A wrong camera, fog or detail buffer
+  would change most of the frame, so this rules those out. It cannot resolve a difference smaller than roughly 60
+  pixels.
+- *Hashes, mode 0* (same command as step 1's, two runs per binary), first frame per tick, about 205 common ticks: cull
+  agrees on every tick in all six pairs. Pose agrees on 202-206 ticks and differs only inside 30180-30183. The control
+  pairs show the same (step 1 vs step 1: 203/206, at 30180-30182; step 2 vs step 2: 202/204). The window sits about
+  ten ticks later than step 1's recorded 30169-30179, with the same size and the same control behaviour.
+- *Mode 2:* `queue verify: 884000 frames checked, 0 changed` (f12, `--measure 20`).
+
+*Left:* steps 3-7 as listed above, unchanged. The game thread now records into the half; nothing is sent from it, and
+every remaining shared write is a step-4 feed setter or the `Lock()` the step-4 note removes.
