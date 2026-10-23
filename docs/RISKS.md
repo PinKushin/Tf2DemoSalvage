@@ -40106,6 +40106,20 @@ slots though a laugh reaches 8,105; the rest were already zero. **Fixed:** only 
 `flex` column 0.83-0.86 → 0.50 ms per rebuild (measurements/2026-10-22-flex-spread.md); the steady frame's change is inside
 the noise. **Left:** those demo tests assert only lower bounds, and half the slots written passed them all.
 
+## B582 — the viewer UI suite flakes on CI's slow software frames, in about 1 run in 6 — OPEN (2026-10-23)
+
+**Observed**, `main` runs of the Test workflow, 2026-10-22/23 (12 runs listed, 3 cancelled by newer pushes): three runs went
+red on a UI-suite test and the next run, or a re-run of the same commit, went green with no code change in between:
+`ExportThenCompile_OpenDemo_RebuildsItsBytes` (UI Automation timeout 0x80131505, beta.47's wave; the WM_GETOBJECT latch
+fixed that one path), `FillDialog_ForegroundTakenByAnotherAppAfterItOpens_StillExports` (run 39877888846 on `9528572c`, a
+docs-only commit, so not caused by code) and `Shell_EveryControl_IsReachableByAutomation` (run 39931508044 on `fd6ed0a6`, UI
+Automation `FindFirst` timed out; re-run of the failed job: green, 0 non-notice annotations). The same trees were green in
+both local gate phases. **Common shape:** a cross-process UI Automation call or a foreground check running against a viewer
+whose frames are slow on the hosted runner. **Not yet done:** read what the viewer's UI thread was doing in the failing runs
+(the viewer log is in the job's artifacts if the upload step keeps it), and decide whether the tests' own timeouts are what
+is too short or the viewer starves its message pump (finding for B571's wait gate). Owner's rule: a flake is a defect, never
+noise; a re-run is an observation here, not a fix.
+
 ## B581 — the frame is drawn on the game thread; TF2 queues its material system to a render thread — OPEN (2026-10-22)
 
 **Scope warning (owner, 2026-10-22):** *"since it wasn't obvious to us from the beginning like it should have been, this might
