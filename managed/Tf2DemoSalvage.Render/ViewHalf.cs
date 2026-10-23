@@ -39,15 +39,6 @@ internal sealed class ViewHalf
     /// <summary>The 3D skybox room's runs.</summary>
     public IReadOnlyList<WorldBatch> SkyBatches { get; set; } = [];
 
-    /// <summary>Drops the runs so the next camera culls again: a new map, or materials whose kinds the runs were gathered by.</summary>
-    public void DropRuns()
-    {
-        CulledFor = null;
-        VisibleBatches = null;
-        TranslucentLeaves = null;
-        Overlays = null;
-    }
-
     /// <summary>Hands this half's runs to the world renderer, which draws from them.</summary>
     /// <param name="world">The renderer.</param>
     public void InstallInto(WorldRenderer world)

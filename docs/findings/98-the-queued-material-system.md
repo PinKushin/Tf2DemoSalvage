@@ -288,8 +288,26 @@ runs of this branch and on one run of `301facbb`, the commit before `ViewHalf`. 
 part (`d31fbe20`), so the likeliest reading is that the cull part exposed a game-thread write the earlier parts did not
 cover. *Interpolated*: the part that changed was not split out.
 
+**Not covered: monitor frames, and the halves change them.** `DrawMonitorPass` caches
+`_monitorCull = (pointCamera, Culling?.Batches(...))`, which holds the culling's reused main list.
+
+- *Before the halves*, the main runs and the monitor's runs shared that one list. The next main cull overwrote it, so
+  the monitor drew the main view's runs. That is a pre-existing aliasing bug.
+- *Now* the cached reference points into one half. On that half's frames the monitor draws this frame's runs; on the
+  other half's frames it draws the previous frame's.
+
+Neither instrument sees this. The cull part is taken before the monitor pass, and the image hash matches on no frames.
+The f12 logs mention no monitor at all, so the equivalence above most likely covers zero monitor frames. *Not
+measured*: no `MonitorCamera` feed was checked for.
+
+The fix is a third `Twin()` for the monitor, and rung 2 needs it anyway. It changes mode-0 output on monitor frames,
+away from the buggy baseline, so it is the lead's call. It is step 0 below.
+
 *Left, in order:*
 
+0. Give the monitor cull its own `WorldCulling.Twin()`, so `_monitorCull` never aliases a half's main list. Decide
+   first: this changes mode-0 output on monitor maps. Also log the four parts separately on a verifier mismatch, to
+   find which one the pre-existing changed frame is.
 1. Move into the half everything the gate still writes once:
    - `_skyVisible`, `_eye`, `_placed`, `_skyFrustum`, `_skyEye` and `_skyCamera`;
    - `_waterDraw` (a closure reading `_eye` and `_skybox` while it draws), `_waterMainFog` and `_simpleViewDraws`;
@@ -309,7 +327,9 @@ cover. *Interpolated*: the part that changed was not split out.
 4. Move the feed setters into the half without their `Lock`: `WorldFog`, `SkyFog`, `MonitorCamera`, `Tonemap`,
    `ExposureSeconds` and `ObserverTarget`. The tone-mapping reset in `ObserverTarget` becomes a flag the draw applies.
    Then drop `Lock` from both `SetCamera`s. Any lock left behind just moves the wait.
-5. Move the wait to the pose's entry and remove `[Explicit]` from the pending test. Then sabotage: break the half
+5. Move the wait to the pose's entry and remove `[Explicit]` from the pending test. The presenter sees only
+   `IViewerDevice`, which has no drain, so this step also adds a device member the presenter calls at the pose's entry.
+   `FakeViewerDevice` must route that member to `Queue.FinishPreviousDraw()`, or the test stays red for a wiring reason. Then sabotage: break the half
    selection and watch the verifier and the test redden.
 6. Cull-hash runs: two mode-0 runs as the control, then mode 2. Then the mode-2 wait ledger.
 7. A measurement record, then a quiet-gated ABBA run on f12.
