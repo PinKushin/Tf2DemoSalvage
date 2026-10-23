@@ -359,6 +359,10 @@ in any public writeup found:
   filters, the HUD event feed, detail props; B578-B581), estimated at 0.6-1.2 ms to fix. The unsplit `draw` phase
   (2.1 ms) is the one stage not seen into ([97](97-the-per-frame-pipeline-against-the-engines.md),
   measurements/2026-10-22-f12-camera-breakdown.md).
+- **The viewer's busy helper threads were the opening, not the frame.** The 30-36% pool worker is the one-off corpse record
+  pass and the 15-16% runtime thread is tiered JIT; both fall under 1.5% after the first ~10 s of playback, leaving the render
+  thread and the driver at 114-116% of a core, and no gen2 collection ran
+  ([100](100-the-helper-threads-were-the-opening.md), measurements/2026-10-22-viewer-helper-threads.md).
 
 ## Conventions used throughout
 

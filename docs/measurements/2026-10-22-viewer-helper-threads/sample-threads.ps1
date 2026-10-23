@@ -20,7 +20,7 @@ public static class Nt {
   [DllImport("kernel32.dll")] static extern int GetThreadDescription(IntPtr h, out IntPtr d);
   [DllImport("kernel32.dll")] static extern IntPtr LocalFree(IntPtr p);
   public static string Name(int tid) {
-    IntPtr h = OpenThread(0x1000, false, tid);
+    IntPtr h = OpenThread(0x0800, false, tid); // THREAD_QUERY_LIMITED_INFORMATION (the earlier sampler asked 0x1000, THREAD_RESUME, and read "?")
     if (h == IntPtr.Zero) return "?";
     try { IntPtr d; if (GetThreadDescription(h, out d) < 0) return "?"; string s = Marshal.PtrToStringUni(d); LocalFree(d); return s.Replace(",", ";"); }
     finally { CloseHandle(h); }

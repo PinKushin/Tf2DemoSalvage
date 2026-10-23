@@ -12,7 +12,8 @@ if ($Trace) {
   # Wait on the condition (the heartbeat thread's name in the sampler's CSV), not a fixed delay.
   while (-not $p.HasExited -and -not ((Test-Path $csv) -and (Select-String -Path $csv -Pattern 'measure heartbeat' -Quiet))) { Start-Sleep 1 }
   "heartbeat seen at $(Get-Date -Format HH:mm:ss.fff)"
-  Start-Sleep 10
+  # Deviation from the record (see Result): run A showed the busy pool worker ends ~10 s after the heartbeat, so the
+  # trace starts at the heartbeat to catch it, not 10 s after.
   "trace start $(Get-Date -Format HH:mm:ss.fff); load $((Get-CimInstance Win32_Processor).LoadPercentage)%"
   dotnet-trace collect -p $p.Id --providers Microsoft-DotNETCore-SampleProfiler --duration 00:00:00:15 -o "$Out/$Name.nettrace" --format Speedscope
 }
