@@ -1314,10 +1314,35 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
     /// </remarks>
     /// <summary>A half's context uploads, played when its draw begins (finding 98 §9 step 2).</summary>
     /// <param name="half">The half about to draw.</param>
-    private static void ReplayUploads(ViewHalf half)
+    /// <param name="camera">The camera recorded for it since its last draw, or null.</param>
+    /// <remarks>**Before `DrawFrame` sets `LinearLightScale`**: the camera upload writes that scale, and the game-thread
+    /// upload this replaces saw the previous frame's end value, which is what the scale still holds here.</remarks>
+    private void ReplayUploads(ViewHalf half, CameraUpload? camera)
     {
-        // Nothing recorded yet: the camera and detail uploads still go to the context from the game thread (step 2).
-        _ = half;
+        if (_world is not null && camera is { } c)
+        {
+            _world.SetCamera(_device, _context, c.Matrix, c.Colours, c.Specular, c.Fullbright, c.Debug, c.Phong, c.Fog);
+        }
+
+        // **The device has one detail buffer and each half its own quads**: sent in DRAW order, when it holds another key's.
+        if (_detailSprites is not null && _views.TakeDetailUpload(half))
+        {
+            _detailSprites.Upload(_device, _context, half.DetailCorners);
+        }
+    }
+
+    /// <summary>Records <paramref name="half"/>'s world camera for its draw to send: the game-thread side of
+    /// <see cref="ReapplyCamera"/>, whose draw-time restores stay immediate.</summary>
+    /// <param name="half">The half being culled.</param>
+    private void RecordCamera(ViewHalf half)
+    {
+        if (_world is null || half.WorldCamera is not { } camera)
+        {
+            return;
+        }
+
+        half.RecordCamera(new CameraUpload(
+            camera.Matrix, camera.Colours, _specular, _fullbright, _debug, _phong, half.WaterMainFog ?? WorldFog));
     }
 
     /// <param name="half">The half whose camera to send: <see cref="Drawn"/> during a draw, <see cref="Half"/> otherwise.</param>
@@ -2360,7 +2385,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
             // A transition, so it is logged once per change rather than per frame.
             _render.LogInformation("{Message}", $"world fog: {value?.ToString() ?? "none"}");
 
-            ReapplyCamera(Half);
+            RecordCamera(Half);
         }
     }
 
@@ -2798,13 +2823,8 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
     /// </remarks>
     private void RebuildDetailSprites(ViewHalf half, (float X, float Y, float Z) eye, (float X, float Y, float Z) forward)
     {
+        // Built here; sent by the draw handed this half (`ReplayUploads`).
         BuildDetailSprites(half, eye, forward);
-
-        // **The device has one detail buffer and each half its own quads**: sent when it holds another key's.
-        if (_detailSprites is not null && _views.TakeDetailUpload(half))
-        {
-            _detailSprites.Upload(_device, _context, half.DetailCorners);
-        }
     }
 
     private void BuildDetailSprites(ViewHalf half, (float X, float Y, float Z) eye, (float X, float Y, float Z) forward)
@@ -3484,7 +3504,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
 
             // The water views, from the same cull (B62); the main view's fog may be the volume's.
             PlanWater(half, camera);
-            ReapplyCamera(half);
+            RecordCamera(half);
 
             // Kept with the runs, so a later frame on this half that skips the cull restores this decision (B581 rung 2).
             half.VisibleBatches = _world.VisibleBatches;
@@ -3547,13 +3567,13 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         _world.Wireframe = _wireframe;
         _world.DrawWorld = _drawWorld;
 
-        _world.SetCamera(
-            _device, _context, matrix, surfaceColours, _specular, _fullbright, _debug, _phong, Half.WaterMainFog ?? WorldFog);
-
         // Remembered so the viewmodel pass can put it back. The world's camera is set on a view
         // CHANGE rather than per frame, so anything that overwrites it has to restore it or the
         // map keeps the wrong projection until the user next moves.
         Half.WorldCamera = (matrix, surfaceColours);
+
+        // Recorded, not sent: the draw handed this half sends it (finding 98 §9 step 2).
+        RecordCamera(Half);
     }
 
     /// <summary>The view the previous <see cref="SetCamera(FreeCamera, bool)"/> was given, culled or not.</summary>
@@ -3611,8 +3631,8 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
             // Re-sent immediately rather than left for the next SetCamera. Clearing the remembered
             // camera was the previous approach and it did the opposite of what it read as: it
             // forgot the camera, so nothing re-sent anything and the change waited for an unrelated
-            // event.
-            ReapplyCamera(Half);
+            // event. Recorded for the next draw, which sends it first (finding 98 §9 step 2).
+            RecordCamera(Half);
         }
     }
 
@@ -3642,7 +3662,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         {
             Lock();
             _phong = value;
-            ReapplyCamera(Half);
+            RecordCamera(Half);
         }
     }
 
@@ -3663,7 +3683,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         {
             Lock();
             _fullbright = value;
-            ReapplyCamera(Half);
+            RecordCamera(Half);
         }
     }
 
@@ -3700,7 +3720,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         {
             Lock();
             _debug = value;
-            ReapplyCamera(Half);
+            RecordCamera(Half);
         }
     }
 

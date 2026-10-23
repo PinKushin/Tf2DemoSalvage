@@ -9,8 +9,9 @@ namespace Tf2DemoSalvage.Render;
 /// once the wait moves past the camera (finding 98 §9 step 5) the next frame's cull is in the other half while this
 /// frame draws; a draw that read <see cref="Cull"/> would read the next frame's view.
 /// </remarks>
-/// <param name="replay">Plays a half's recorded context uploads, at the start of its draw (step 2).</param>
-internal sealed class ViewHalves(Action<ViewHalf> replay)
+/// <param name="replay">Plays a half's context uploads at the start of its draw (step 2), with the camera recorded for
+/// it since its last draw, or null.</param>
+internal sealed class ViewHalves(Action<ViewHalf, CameraUpload?> replay)
 {
     // An empty half until the first draw begins: every draw begins its own half first, so nothing draws from this one.
     private static ViewHalf Initial => new();
@@ -36,7 +37,7 @@ internal sealed class ViewHalves(Action<ViewHalf> replay)
     public void Begin(ViewHalf half)
     {
         Drawn = half;
-        replay(half);
+        replay(half, half.TakeCamera());
     }
 
     /// <summary>The draw job for <paramref name="half"/>, which begins it when it runs.</summary>

@@ -101,6 +101,22 @@ internal sealed class ViewHalf
     /// <summary>The same, as instances the model pass draws.</summary>
     public List<ModelInstance> DetailModelInstances { get; } = [];
 
+    private CameraUpload? _pendingCamera;
+
+    /// <summary>Records the world camera for this half's draw to send, replacing any recorded since its last draw.</summary>
+    /// <param name="upload">The values, captured now on the game thread.</param>
+    public void RecordCamera(CameraUpload upload) => _pendingCamera = upload;
+
+    /// <summary>The camera recorded since this half's last draw, which this forgets.</summary>
+    /// <returns>The values, or null when nothing was recorded.</returns>
+    public CameraUpload? TakeCamera()
+    {
+        CameraUpload? taken = _pendingCamera;
+        _pendingCamera = null;
+
+        return taken;
+    }
+
     /// <summary>Hands this half's runs to the world renderer, which draws from them.</summary>
     /// <param name="world">The renderer.</param>
     public void InstallInto(WorldRenderer world)
@@ -129,3 +145,15 @@ internal sealed class ViewHalf
         SimpleViewDraws = WorldRenderer.AllWaterDraws;
     }
 }
+
+/// <summary>A world camera upload as the game thread decided it, sent when its half's draw begins (finding 98 §9 step 2).</summary>
+/// <param name="Matrix">The view-projection, sixteen floats.</param>
+/// <param name="Colours">Flat category colours instead of textures.</param>
+/// <param name="Specular"><c>mat_specular</c>.</param>
+/// <param name="Fullbright"><c>mat_fullbright</c>.</param>
+/// <param name="Debug">The debug views.</param>
+/// <param name="Phong"><c>mat_phong</c>.</param>
+/// <param name="Fog">The main view's fog.</param>
+internal readonly record struct CameraUpload(
+    float[] Matrix, bool Colours, bool Specular, Fullbright Fullbright, DebugModes Debug, bool Phong,
+    Tf2DemoSalvage.Core.Scene.SceneFog? Fog);

@@ -17,7 +17,7 @@ public sealed class ViewHalvesTests
     [Test]
     public void Job_RunAfterTheNextFrameFlipped_DrawsTheHalfItWasHanded()
     {
-        ViewHalves halves = new(_ => { });
+        ViewHalves halves = new((_, _) => { });
 
         halves.Flip();
         ViewHalf handed = halves.Cull;
@@ -36,7 +36,7 @@ public sealed class ViewHalvesTests
     public void Job_WhenRun_ReplaysTheHandedHalfsUploadsBeforeTheDraw()
     {
         List<object> order = [];
-        ViewHalves halves = new(order.Add);
+        ViewHalves halves = new((half, _) => order.Add(half));
 
         halves.Flip();
         ViewHalf handed = halves.Cull;
@@ -52,7 +52,7 @@ public sealed class ViewHalvesTests
     public void Begin_WithAHalf_ReplaysItAndDrawsFromIt()
     {
         ViewHalf? replayed = null;
-        ViewHalves halves = new(half => replayed = half);
+        ViewHalves halves = new((half, _) => replayed = half);
 
         halves.Flip();
         halves.Begin(halves.Cull);
@@ -64,7 +64,7 @@ public sealed class ViewHalvesTests
     [Test]
     public void TakeDetailUpload_ARevisitAfterTheOtherHalfsView_UploadsAgain()
     {
-        ViewHalves halves = new(_ => { });
+        ViewHalves halves = new((_, _) => { });
         ViewHalf a = halves.Both[0];
         ViewHalf b = halves.Both[1];
 
@@ -80,7 +80,7 @@ public sealed class ViewHalvesTests
     [Test]
     public void TakeDetailUpload_BothHalvesBuiltForOneKey_UploadsOnce()
     {
-        ViewHalves halves = new(_ => { });
+        ViewHalves halves = new((_, _) => { });
         ViewHalf a = halves.Both[0];
         ViewHalf b = halves.Both[1];
 
@@ -95,7 +95,7 @@ public sealed class ViewHalvesTests
     [Test]
     public void TakeDetailUpload_WithNothingBuilt_IsFalse()
     {
-        ViewHalves halves = new(_ => { });
+        ViewHalves halves = new((_, _) => { });
 
         halves.TakeDetailUpload(halves.Both[0]).ShouldBeFalse();
     }
@@ -103,7 +103,7 @@ public sealed class ViewHalvesTests
     [Test]
     public void TakeDetailUpload_AfterForgetDetailUpload_IsTrue()
     {
-        ViewHalves halves = new(_ => { });
+        ViewHalves halves = new((_, _) => { });
         ViewHalf a = halves.Both[0];
 
         a.DetailBuiltFor = Key(1f);
@@ -112,6 +112,54 @@ public sealed class ViewHalvesTests
 
         halves.TakeDetailUpload(a).ShouldBeTrue();
     }
+
+    [Test]
+    public void Job_ForTheHalfACameraWasRecordedInto_ReplaysItOnceBeforeTheDraw()
+    {
+        List<object> order = [];
+        ViewHalves halves = new((_, camera) => order.Add(camera?.Matrix ?? (object)"none"));
+        ViewHalf a = halves.Cull;
+        float[] matrix = new float[16];
+
+        a.RecordCamera(Upload(matrix));
+        halves.Job(a, () => order.Add("draw"))();
+        halves.Job(a, () => order.Add("draw"))();
+
+        // The draw is where `DrawFrame` sets `LinearLightScale`, which the camera upload writes into the constant buffer.
+        order.ShouldBe([matrix, "draw", "none", "draw"]);
+    }
+
+    [Test]
+    public void Job_ForTheOtherHalf_ReplaysNoneOfThisHalfsCamera()
+    {
+        CameraUpload? replayed = default;
+        ViewHalves halves = new((_, camera) => replayed = camera);
+        ViewHalf a = halves.Cull;
+
+        a.RecordCamera(Upload(new float[16]));
+        halves.Flip();
+        halves.Job(halves.Cull, () => { })();
+
+        replayed.ShouldBeNull();
+    }
+
+    [Test]
+    public void RecordCamera_TwiceBeforeTheDraw_ReplaysTheLastValues()
+    {
+        CameraUpload? replayed = default;
+        ViewHalves halves = new((_, camera) => replayed = camera);
+        ViewHalf a = halves.Cull;
+        float[] last = new float[16];
+
+        a.RecordCamera(Upload(new float[16]));
+        a.RecordCamera(Upload(last) with { Specular = false });
+        halves.Begin(a);
+
+        replayed.ShouldBe(Upload(last) with { Specular = false });
+    }
+
+    private static CameraUpload Upload(float[] matrix) =>
+        new(matrix, Colours: false, Specular: true, Fullbright.Off, DebugModes.None, Phong: true, Fog: null);
 
     private static (float X, float Y, float Z, float Distance, float Fade, (float, float, float) Forward) Key(float x) =>
         (x, 0f, 0f, 1200f, 0f, (1f, 0f, 0f));
