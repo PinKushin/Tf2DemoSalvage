@@ -388,7 +388,39 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
             _height = height,
         };
         created.CreateBackBufferView();
+        created.TakeAltEnterFromDxgi(handle);
         return created;
+    }
+
+    /// <summary>`DXGI_MWA_NO_ALT_ENTER`: DXGI stops toggling full screen itself on Alt+Enter.</summary>
+    private const uint NoAltEnter = 2;
+
+    /// <summary>Stops DXGI's own Alt+Enter toggle (review finding 1).</summary>
+    /// <remarks>
+    /// **Left on, DXGI switches full screen INSIDE the next `Present`**, which in mode 2 runs on the render thread while
+    /// the window thread waits in a drain, or takes `Resize`'s drain on the `WM_SIZE` the switch posts: a hang. In mode 0
+    /// it left <see cref="IsExclusiveFullScreen"/> stale, since only <see cref="SetExclusiveFullScreen"/> sets it. Full
+    /// screen goes only through the viewer's own toggle, which drains. The call must be made on the factory that created
+    /// the swap chain (its parent); a factory from `CreateDXGIFactory` is another object and the call would do nothing.
+    ///
+    /// **`DXGI_MWA_NO_WINDOW_CHANGES` is deliberately not set**: it stops DXGI watching the message queue altogether, so
+    /// losing focus in exclusive full screen would no longer hand the display back. That is a change to what a mode-0 user
+    /// sees, and the hang is Alt+Enter's.
+    /// </remarks>
+    private void TakeAltEnterFromDxgi(nint handle)
+    {
+        int result = _swapChain.GetParent(out ComPtr<IDXGIFactory> factory);
+
+        if (result >= 0)
+        {
+            result = factory.MakeWindowAssociation(handle, NoAltEnter);
+            factory.Dispose();
+        }
+
+        if (result < 0)
+        {
+            _render.LogError("could not take Alt+Enter from DXGI: 0x{HResult:X8}", result);
+        }
     }
 
     /// <summary>Clears the back buffer and presents it.</summary>

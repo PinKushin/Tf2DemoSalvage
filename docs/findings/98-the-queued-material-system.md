@@ -223,3 +223,11 @@ is -1.
   `SubmitScene`, since a display class for captured parameters is allocated at method entry and an early return in the
   same method would not have saved it. **Not tested**: no test can construct a `Device3D` (it needs a window), so the
   zero-allocation claim rests on that structure (no capture remains in `DrawScene`), not on a measurement.
+- *DXGI's own Alt+Enter.* The swap chain allows mode switches and nothing called `MakeWindowAssociation`, so Alt+Enter
+  made DXGI switch full screen inside the next `Present`: on the render thread in mode 2 while the window thread waited
+  (a hang), and in mode 0 leaving `IsExclusiveFullScreen` stale. `Device3D.Create` now passes `DXGI_MWA_NO_ALT_ENTER`
+  to the swap chain's parent factory. **Alt+Enter now does nothing**; the viewer has no Alt+Enter binding (no hardcoded
+  controls), and its own full-screen toggle, which drains through `SetExclusiveFullScreen`, is unchanged.
+  `DXGI_MWA_NO_WINDOW_CHANGES` was NOT set, against the review's suggestion: it stops DXGI giving the display back when
+  exclusive full screen loses focus, a mode-0 change. So a focus loss can still leave `IsExclusiveFullScreen` stale, as
+  before. **Not tested**: DXGI cannot read the flags back, and no test owns a window.
