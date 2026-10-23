@@ -19,7 +19,12 @@ public sealed class BspVisibilityTests
     [Test]
     public void Visible_FromFourThreadsAtOnce_AnswersAsOneThreadDoes()
     {
-        const int Clusters = 4096;
+        // **Built to make the race likely, because the cache's TryGetValue fast path means only FIRST touches contend.**
+        // Each round reads a fresh instance (an empty cache), every reader waits at a barrier so they all miss together,
+        // and the cluster count is large enough that the dictionary resizes many times mid-insert.
+        const int Clusters = 1 << 15;
+        const int Rounds = 8;
+        int readerCount = Math.Max(4, Environment.ProcessorCount);
         byte[] row = new byte[Clusters / 8];
 
         for (int at = 0; at < row.Length; at++)
@@ -36,30 +41,52 @@ public sealed class BspVisibilityTests
             expected[from] = reference.Visible(from, (from * 11) % Clusters);
         }
 
-        BspVisibility shared = BspVisibility.FromLump(lump);
         int wrong = 0;
-        Task[] readers = new Task[4];
+        int faults = 0;
 
-        for (int thread = 0; thread < readers.Length; thread++)
+        for (int round = 0; round < Rounds; round++)
         {
-            // Odd strides over a power of two: every thread visits every cluster, each in its own order.
-            int stride = (thread * 2) + 1;
+            BspVisibility shared = BspVisibility.FromLump(lump);
+            using Barrier start = new(readerCount);
+            Task[] readers = new Task[readerCount];
 
-            readers[thread] = Task.Run(() =>
+            for (int thread = 0; thread < readers.Length; thread++)
             {
-                for (int step = 0; step < Clusters; step++)
-                {
-                    int from = (step * stride) % Clusters;
+                // Odd strides over a power of two: every thread visits every cluster, each in its own order.
+                int stride = (thread * 2) + 1;
 
-                    if (shared.Visible(from, (from * 11) % Clusters) != expected[from])
+                readers[thread] = Task.Factory.StartNew(
+                    () =>
                     {
-                        Interlocked.Increment(ref wrong);
-                    }
-                }
-            });
+                        start.SignalAndWait();
+
+                        try
+                        {
+                            for (int step = 0; step < Clusters; step++)
+                            {
+                                int from = (step * stride) % Clusters;
+
+                                if (shared.Visible(from, (from * 11) % Clusters) != expected[from])
+                                {
+                                    Interlocked.Increment(ref wrong);
+                                }
+                            }
+                        }
+                        catch (Exception exception) when (exception is IndexOutOfRangeException or InvalidOperationException or NullReferenceException)
+                        {
+                            // A plain Dictionary torn mid-resize throws these; counted so the failure names itself.
+                            Interlocked.Increment(ref faults);
+                        }
+                    },
+                    CancellationToken.None,
+                    TaskCreationOptions.LongRunning,
+                    TaskScheduler.Default);
+            }
+
+            Task.WaitAll(readers, TimeSpan.FromSeconds(60)).ShouldBeTrue("a corrupted dictionary can loop for ever");
         }
 
-        Task.WaitAll(readers, TimeSpan.FromSeconds(30)).ShouldBeTrue("a corrupted dictionary can loop for ever");
+        faults.ShouldBe(0);
         wrong.ShouldBe(0);
     }
 }
