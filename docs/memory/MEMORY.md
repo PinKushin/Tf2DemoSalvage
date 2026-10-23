@@ -118,4 +118,5 @@
 - [The HUD draws at tone-map scale 1](the-hud-draws-at-tone-map-scale-one.md) — integer HDR resets it before VGUI (viewrender.cpp:2211).
 - [UnlitGeneric has no $detailtint](unlitgeneric-has-no-detailtint.md) — c10 white; check SetupVars before porting a param.
 - [A capturing cache factory allocates on a hit](a-capturing-cache-factory-allocates-on-a-hit.md) — closure made at scope entry; IvpTestSurface boxes are IVP-frame (Y up).
+- [Parity and fps gains need no ask](parity-and-fps-gains-need-no-ask.md) — pre-approved; report cost and proceed; still ask on visible changes (2026-10-22).
 - [Parity includes how the engine schedules work](parity-includes-how-the-engine-schedules-work.md) — audits cover threads/queues/pools, not only what is drawn; may force a large rewrite (2026-10-22).
