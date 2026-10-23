@@ -286,29 +286,13 @@ public sealed partial class EntityModelSet
             // **Into the skeleton's own list, emptied and refilled** (B574): the engine accumulates into the bone
             // setup's arrays, and a new list here each frame was the corpse worker's `PoseLayer[]` churn. Every reader
             // of `Layers` reads it within the frame.
-            List<PoseLayer> composed = posed.Layers as List<PoseLayer> ?? [];
-            composed.Clear();
-            AutoLayersFor(
-                skinned, sequence, phase, 1f, poseValues, local: true, LayerDepth, seconds, composed);
-
-            // **Then `AddSequenceLayers` for the main sequence, before the transitions.**
-            // `AccumulatePose` runs it as its last step (`:2449`), and `StandardBlendingRules` calls
-            // `AccumulatePose` for the main sequence before `MaintainSequenceTransitions` — so the
-            // main sequence's own layers land ahead of anything fading out behind it.
-            AutoLayersFor(
-                skinned, sequence, phase, 1f, poseValues, local: false, LayerDepth, seconds, composed);
-
-            composed.AddRange(TransitionsFor(prop, skinned, sequence, phase, seconds));
-
-            composed.AddRange(LayersFor(prop, skinned, seconds));
-
-            // **`CalcAutoplaySequences` LAST of the three, which is where the engine runs it**
-            // (`c_baseanimating.cpp:1996`, after `AccumulateLayers` and before `CalcBoneAdj`) —
-            // B291. Order matters because each accumulates onto the result of the last: a flag
-            // that autoplays goes over whatever the body settled on, not underneath it.
-            AutoplayFor(skinned, seconds, composed);
-
-            posed.Layers = composed;
+            // **The layers and IK rules are built when the bones are** (finding 102): `StandardBlendingRules` runs inside
+            // `SetupBones` (`c_baseanimating.cpp:1953`, `:2796`), so an entity nobody draws or asks for builds none this
+            // frame. Only `TransitionsFor` runs here, because its queue watches every frame's sequence for a change and
+            // moving it would change what an entity re-entering the view blends — a divergence kept, not ported (D131).
+            PendingBlend pending = PendingFor(prop.EntityIndex, animating);
+            pending.Transitions = TransitionsFor(prop, skinned, sequence, phase, seconds);
+            pending.Set(prop, skinned, sequence, phase, poseValues, seconds);
 
 
             // **`DoAnimationEvents`, and it has to be HERE** (B275). The walk asks what the cycle
@@ -435,26 +419,6 @@ public sealed partial class EntityModelSet
             // sequences — `stand_PRIMARY` layers `PRIMARY_aimmatrix_idle`, `run_PRIMARY` layers
             // `PRIMARY_aimmatrix_run` — and every solving IK rule in the game lives on them. Read
             // from the main sequence alone, IK finds nothing but releases for ever.
-            List<(StudioIkRule, Vector3, Quaternion, float)> asked = ReusedIkErrors(posed);
-
-            if (posed.IkChains.Count > 0)
-            {
-                IkFor(skinned, sequence, phase, 1f, poseValues, asked);
-
-                foreach (PoseLayer layer in composed)
-                {
-                    IkFor(
-                        skinned,
-                        layer.Sequence,
-                        FractionOf(skinned, layer),
-                        layer.Weight,
-                        poseValues,
-                        asked);
-                }
-            }
-
-            posed.IkErrors = asked;
-
             // **The placement, which is what makes the built bones WORLD space.** A merged item
             // takes its wearer's bones and those already carry the wearer's placement, so nothing
             // downstream has to know where a wearer stands — see D88 and finding 35 section 7a.
@@ -626,5 +590,67 @@ public sealed partial class EntityModelSet
                 $"attached {prop.ModelPath} to {attachment.Name} " +
                 $"(point {point}, bone {attachment.Bone}) on {wearerModel}");
         }
+    }
+
+    /// <summary>What each entity's next build blends, as this frame's simulate left it (finding 102).</summary>
+    private readonly Dictionary<int, PendingBlend> _pendingBlends = [];
+
+    /// <summary>The entity's pending blend, made once with the hook that builds it on the entity's next bone setup.</summary>
+    private PendingBlend PendingFor(int entityIndex, AnimatingEntity animating)
+    {
+        if (!_pendingBlends.TryGetValue(entityIndex, out PendingBlend? pending) || pending.Entity != animating)
+        {
+            pending = new PendingBlend(animating);
+            PendingBlend made = pending;
+            animating.BeforeBuild = () => BuildBlend(made);
+            _pendingBlends[entityIndex] = pending;
+        }
+
+        return pending;
+    }
+
+    /// <summary>`StandardBlendingRules`' inputs for one entity, in its order (`c_baseanimating.cpp:1986-1996`), once a frame.</summary>
+    private void BuildBlend(PendingBlend pending)
+    {
+        if (!pending.Ready || pending.Entity.Pose is not SkeletonPose posed)
+        {
+            return;
+        }
+
+        pending.Ready = false;
+
+        (SceneProp prop, PropModels.SkinnedModel skinned, int sequence, float phase, float[] poseValues, double seconds) =
+            (pending.Prop!, pending.Skinned!, pending.Sequence, pending.Phase, pending.Parameters!, pending.Seconds);
+
+        // **`AddLocalLayers` FIRST, at weight one** (`bone_setup.cpp:2439`), into the skeleton's own list (B574).
+        List<PoseLayer> composed = posed.Layers as List<PoseLayer> ?? [];
+        composed.Clear();
+        AutoLayersFor(skinned, sequence, phase, 1f, poseValues, local: true, LayerDepth, seconds, composed);
+
+        // **Then `AddSequenceLayers` for the main sequence, before the transitions** (`:2449`).
+        AutoLayersFor(skinned, sequence, phase, 1f, poseValues, local: false, LayerDepth, seconds, composed);
+
+        composed.AddRange(pending.Transitions);
+        composed.AddRange(LayersFor(prop, skinned, seconds));
+
+        // **`CalcAutoplaySequences` LAST of the three** (`c_baseanimating.cpp:1996`), B291.
+        AutoplayFor(skinned, seconds, composed);
+
+        posed.Layers = composed;
+
+        // **Every accumulated sequence contributes its IK rules, not just the main one** (B297).
+        List<(StudioIkRule, Vector3, Quaternion, float)> asked = ReusedIkErrors(posed);
+
+        if (posed.IkChains.Count > 0)
+        {
+            IkFor(skinned, sequence, phase, 1f, poseValues, asked);
+
+            foreach (PoseLayer layer in composed)
+            {
+                IkFor(skinned, layer.Sequence, FractionOf(skinned, layer), layer.Weight, poseValues, asked);
+            }
+        }
+
+        posed.IkErrors = asked;
     }
 }
