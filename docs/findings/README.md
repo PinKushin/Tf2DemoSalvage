@@ -371,6 +371,11 @@ in any public writeup found:
   and 7% of the additive one, which never reads it. A flat pose is estimated (a ceiling) at about 1 ms of a 6-8 ms
   gap; native code is not indicated
   ([101](101-where-the-main-thread-goes.md), measurements/2026-10-22-pose-blend-glue.md).
+- **The empty view's floor is mostly work the engine also does.** Of ~5 ms with nothing in view, the one large whole-set
+  walk the engine skips was building every entity's layers, autoplay and IK rules outside `SetupBones`
+  (`c_baseanimating.cpp:1953`, `:2796`). It now runs at bone setup: `simulate` 0.5-0.6 → 0.3-0.4 ms. Attachment bone
+  setups and effect control points are parity (`:2094`, `particlemgr.cpp:1841`)
+  ([102](102-the-empty-view-floor-stage-by-stage.md), measurements/2026-10-23-blend-at-bone-setup-f12.md).
 
 ## Conventions used throughout
 

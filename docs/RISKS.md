@@ -19697,6 +19697,17 @@ stepped a call (56 ns/prop, was 939 at B259's start). In the viewer, first perso
 seconds: `sample` 0.4–0.5 → **0.1–0.2 ms** (0.08 of which is players, untouched), `advance`
 0.7 → **0.4–0.5**, frame 329–426 → **351–395 fps**, best 615 → **640**.
 
+### B259 on 2026-10-23: the four passes now, and a fifth that was fixed
+
+**Re-measured on f12, empty view** (finding 102, `measurements/2026-10-23-empty-view-floor-quiet.md`): `sample` 0.3,
+`drawlist` 0.1-0.2, `models` 0.1, `pose` 0.7 = `simulate` 0.5 + `collate` 0.2, with posed 0 of ~1,882. The static props
+are no longer walked. A fifth whole-set walk sat inside `simulate`: every skinned entity's layers, autoplay and IK rules
+were built whether or not its bones were set up. They are now built at bone setup, as `StandardBlendingRules` is in the
+engine (`f61c7602`, `simulate` 0.5-0.6 → 0.3-0.4 ms; `measurements/2026-10-23-blend-at-bone-setup-f12.md`). What
+`simulate` still does for every entity — the cycle advance and events — is `UpdateClientSideAnimations`, which the engine
+does for every entity too. **Still open:** `sample`, `drawlist` and `collate` walk every entity (~230 on f12), not only
+those that changed; together about 0.6 ms.
+
 ## B260 — why we do not get Valve's performance "doing it the way they do" — OPEN
 
 **The owner's question, and it is the right one:** *"we should be copying valve, why cant we gets
@@ -40195,6 +40206,28 @@ whatever is on top of the stack, and that is a runtime helper. The next step is 
 
 **Not changed:** each wants the engine read first. Does the studio decal path skip an unseen model? When does the engine
 read its exposure? Does a particle's attachment set up bones for an entity outside the view?
+
+**Update, 2026-10-23 (finding 102).** The engine was read and the floor broken down again by stage:
+- **Answered: a particle's attachment does set up bones out of view.** `CalcAttachments` is a `SetupBones`
+  (`c_baseanimating.cpp:2094`), and every effect's control points are updated every frame (`particlemgr.cpp:1841-1853`).
+  The ~8 attachment builds a frame are parity.
+- **The exposure readback** was fixed in B575.
+- **Model decals** are windowed to this frame's landings. What remains is the client-bullet hitbox trace, which every
+  client runs. Taken as parity.
+- **Fixed: the blend inputs for every entity.** Layers, autoplay and IK rules were built in `Simulate` for every skinned
+  entity. The engine builds them in `SetupBones` (`StandardBlendingRules`, `c_baseanimating.cpp:1953`). They now run at
+  the first bone request (`f61c7602`): `simulate` 0.5-0.6 → 0.3-0.4 ms empty
+  (`measurements/2026-10-23-blend-at-bone-setup-f12.md`).
+- **Kept divergence (a trade):** `TransitionsFor` still runs for every entity in `Simulate`. The engine runs
+  `MaintainSequenceTransitions` only inside `StandardBlendingRules`, so an entity out of view misses a sequence change.
+  Moving it changes what an entity re-entering view blends. It was kept for picture equivalence against work the engine
+  skips; it is cheap and not separately timed.
+- **Still open, each small:** the dispatch offers walk every entity-owned dispatch fired so far, every frame
+  (`BurstEffects.AddParticleDispatches`, `_owned`; the whole `dispatches` part is 0.10-0.17 ms). `HudChat` paints 0.34 ms
+  with nothing visible (not read against `RichText::Paint`). `particles/build` 0.26-0.32 ms with nothing handed to the
+  draw (not split). The transport bar repaint and the log flush are unchanged.
+- **The shot does not reproduce itself:** two base `--shot`s at one tick differed on 63 and 41,710 pixels, so a fix's
+  picture equivalence cannot be shown by hash until that is found.
 
 ## B571 — a paint made the render loop wait a millisecond for UI Automation traffic, every frame — FIXED (2026-10-21)
 

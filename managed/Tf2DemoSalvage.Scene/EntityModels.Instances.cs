@@ -47,6 +47,9 @@ public sealed partial class EntityModelSet
     /// </remarks>
     public double CurrentTick { get; set; }
 
+    /// <summary>The bone-clock frame the last world pass ran on (finding 102).</summary>
+    private long _worldBoneFrame;
+
     /// <summary>Where each model stands at this moment.</summary>
     /// <param name="props">What exists at this tick.</param>
     /// <param name="into">Filled with one entry per drawable entity; cleared first.</param>
@@ -114,6 +117,12 @@ public sealed partial class EntityModelSet
         // bones on demand while drawing. State first is what lets a merge reach an entity the draw
         // loop has not got to yet.
         _boneFrames.Advance();
+
+        // The world pass's bone frame, for an instrument read after the viewmodel and undrawn passes have advanced it.
+        if (string.Equals(pass, WorldPass, StringComparison.Ordinal))
+        {
+            _worldBoneFrame = _boneFrames.Frame;
+        }
 
         // **Timed as a phase because it IS one** — Valve's first of two
         // (`cdll_client_int.cpp:2206-2210`) — and because everything else in the pose path has now

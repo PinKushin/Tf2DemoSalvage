@@ -55,6 +55,14 @@ public sealed class AnimatingEntity
     /// </remarks>
     public Action<BoneAccessor, BoneBitList>? Ragdoll { get; set; }
 
+    /// <summary>Builds what the pose blends — layers, autoplay, IK rules — just before a build, or null for nothing.</summary>
+    /// <remarks>
+    /// `StandardBlendingRules`' inputs, which the engine assembles inside `SetupBones` (`c_baseanimating.cpp:1953`); a
+    /// delegate for the same reason <see cref="Ragdoll"/> is one: this layer must not know where the layers come from.
+    /// Called on every build, so it must be idempotent within a frame.
+    /// </remarks>
+    public Action? BeforeBuild { get; set; }
+
     /// <summary>Creates an entity over a model's pose source.</summary>
     /// <param name="pose">What knows how to blend and transform this model's bones.</param>
     /// <param name="clock">Which frame the caches belong to; shared across one scene.</param>
@@ -150,6 +158,11 @@ public sealed class AnimatingEntity
     /// <summary>Whether this frame already has bones readable — a request this frame has been satisfied (finding 82).</summary>
     public bool BuiltThisFrame => _builtOn == _clock.Frame && _accessor.ReadableBones != 0;
 
+    /// <summary>Whether bones are readable from a build on or after a given bone-clock frame — for a pass that the clock has moved past.</summary>
+    /// <param name="frame">The bone-clock frame the question is about.</param>
+    /// <returns>True when the last build was on that frame or later.</returns>
+    public bool BuiltSince(long frame) => _builtOn >= frame && _accessor.ReadableBones != 0;
+
     /// <summary>The bones readable now, by usage bit — <c>m_BoneAccessor.GetReadableBones()</c>.</summary>
     public int ReadableBones => _accessor.ReadableBones;
 
@@ -227,6 +240,11 @@ public sealed class AnimatingEntity
 
     private bool SetupBones(int boneMask, double currentTime, int budget)
     {
+        // **The blend inputs, built on the first request and only on a request** — `StandardBlendingRules` is called from
+        // `SetupBones` (`c_baseanimating.cpp:1953`, `:2796`), so an entity nobody draws or asks for builds no layers this
+        // frame. Ahead of every guard, because what the pose was handed is read even of a model that builds no bone.
+        BeforeBuild?.Invoke();
+
         if (_pose.BoneCount == 0)
         {
             return false;

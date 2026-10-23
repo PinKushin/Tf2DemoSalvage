@@ -118,6 +118,7 @@ Tf2DemoSalvage.Scene.EntityModelSet|field|_packedOrder|Private readonly|System.C
 Tf2DemoSalvage.Scene.EntityModelSet|field|_packedRebuilt|Private readonly|System.Collections.Generic.Dictionary`2[System.String,Tf2DemoSalvage.Scene.WorldVertex[]]
 Tf2DemoSalvage.Scene.EntityModelSet|field|_parentOf|Private|System.Func`2[System.Int32,Tf2DemoSalvage.Core.Scene.SceneProp]
 Tf2DemoSalvage.Scene.EntityModelSet|field|_parentPlacements|Private readonly|System.Collections.Generic.Dictionary`2[System.Int32,Tf2DemoSalvage.Content.Bsp.PropTransform]
+Tf2DemoSalvage.Scene.EntityModelSet|field|_pendingBlends|Private readonly|System.Collections.Generic.Dictionary`2[System.Int32,Tf2DemoSalvage.Scene.PendingBlend]
 Tf2DemoSalvage.Scene.EntityModelSet|field|_placements|Private readonly|System.Collections.Generic.Dictionary`2[System.Int32,System.Single[]]
 Tf2DemoSalvage.Scene.EntityModelSet|field|_posedSize|Private readonly|System.Collections.Generic.Dictionary`2[System.String,System.String]
 Tf2DemoSalvage.Scene.EntityModelSet|field|_propByHandle|Private readonly|System.Collections.Generic.Dictionary`2[System.Int32,System.ValueTuple`2[Tf2DemoSalvage.Core.Scene.SceneProp,System.ValueTuple`6[System.Single,System.Single,System.Single,System.Single,System.Single,System.Single]]]
@@ -151,6 +152,7 @@ Tf2DemoSalvage.Scene.EntityModelSet|field|_transitions|Private readonly|System.C
 Tf2DemoSalvage.Scene.EntityModelSet|field|_tree|Private|Tf2DemoSalvage.Content.Bsp.BspLeafTree
 Tf2DemoSalvage.Scene.EntityModelSet|field|_vertices|Private readonly|System.Collections.Generic.List`1[Tf2DemoSalvage.Scene.WorldVertex]
 Tf2DemoSalvage.Scene.EntityModelSet|field|_walked|Private readonly|System.Collections.Generic.HashSet`1[System.Int32]
+Tf2DemoSalvage.Scene.EntityModelSet|field|_worldBoneFrame|Private|System.Int64
 Tf2DemoSalvage.Scene.EntityModelSet|method|Absolute|Private|(Tf2DemoSalvage.Core.Scene.SceneProp,System.Int32)|Tf2DemoSalvage.Core.Scene.ScenePose
 Tf2DemoSalvage.Scene.EntityModelSet|method|ActiveAt|Private static|(Tf2DemoSalvage.Scene.PropModels+SkinnedModel,System.Int32,Tf2DemoSalvage.Core.Scene.SceneGesture,System.Double)|System.Boolean
 Tf2DemoSalvage.Scene.EntityModelSet|method|Add|Public|(System.Collections.Generic.IReadOnlyList`1[Tf2DemoSalvage.Core.Scene.SceneProp])|System.Boolean
@@ -177,6 +179,7 @@ Tf2DemoSalvage.Scene.EntityModelSet|method|Batches|Public|(System.String,System.
 Tf2DemoSalvage.Scene.EntityModelSet|method|BeginFaces|Private|(System.Collections.Generic.IReadOnlyList`1[Tf2DemoSalvage.Core.Scene.SceneProp],System.Double)|System.Void
 Tf2DemoSalvage.Scene.EntityModelSet|method|BoneNamed|Private|(Tf2DemoSalvage.Scene.PropModels+SkinnedModel,System.String,System.String)|System.Int32
 Tf2DemoSalvage.Scene.EntityModelSet|method|BreakPiecesOf|Public|(System.String)|System.Collections.Generic.IReadOnlyList`1[Tf2DemoSalvage.Content.Assets.PhysicsBreakPiece]
+Tf2DemoSalvage.Scene.EntityModelSet|method|BuildBlend|Private|(Tf2DemoSalvage.Scene.PendingBlend)|System.Void
 Tf2DemoSalvage.Scene.EntityModelSet|method|CanDraw|Public static|(Tf2DemoSalvage.Core.Scene.SceneProp)|System.Boolean
 Tf2DemoSalvage.Scene.EntityModelSet|method|Collate|Private|(System.Collections.Generic.IReadOnlyList`1[Tf2DemoSalvage.Core.Scene.SceneProp],Tf2DemoSalvage.Scene.ViewFrustum,Tf2DemoSalvage.Scene.RenderableViews,System.String)|System.Void
 Tf2DemoSalvage.Scene.EntityModelSet|method|CorpseSequence|Private|(Tf2DemoSalvage.Core.Scene.SceneProp)|System.Int32
@@ -221,6 +224,7 @@ Tf2DemoSalvage.Scene.EntityModelSet|method|PackModels|Private|(System.Collection
 Tf2DemoSalvage.Scene.EntityModelSet|method|PackedVertices|Public|(System.String)|System.Collections.Generic.IReadOnlyList`1[Tf2DemoSalvage.Scene.WorldVertex]
 Tf2DemoSalvage.Scene.EntityModelSet|method|Packed|Private static|(Tf2DemoSalvage.Scene.PropVertex,Tf2DemoSalvage.Scene.PropVertex)|Tf2DemoSalvage.Scene.WorldVertex
 Tf2DemoSalvage.Scene.EntityModelSet|method|ParentOf|Private|(System.Int32)|Tf2DemoSalvage.Core.Scene.SceneProp
+Tf2DemoSalvage.Scene.EntityModelSet|method|PendingFor|Private|(System.Int32,Tf2DemoSalvage.Animation.Animating.AnimatingEntity)|Tf2DemoSalvage.Scene.PendingBlend
 Tf2DemoSalvage.Scene.EntityModelSet|method|PlaceFrame|Public|(System.Collections.Generic.IEnumerable`1[Tf2DemoSalvage.Core.Scene.SceneProp])|System.Void
 Tf2DemoSalvage.Scene.EntityModelSet|method|Placed|Private static|(Tf2DemoSalvage.Core.Scene.SceneProp,Tf2DemoSalvage.Content.Assets.StudioBox)|System.ValueTuple`6[System.Single,System.Single,System.Single,System.Single,System.Single,System.Single]
 Tf2DemoSalvage.Scene.EntityModelSet|method|Placed|Private|(Tf2DemoSalvage.Core.Scene.SceneProp)|System.ValueTuple`6[System.Single,System.Single,System.Single,System.Single,System.Single,System.Single]
