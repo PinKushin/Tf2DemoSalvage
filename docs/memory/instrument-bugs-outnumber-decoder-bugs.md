@@ -474,3 +474,11 @@ Constant world offset (~64 units at 282 and at 409 away) was the tell: an eye-he
 Hulls are wider than bodies: sort candidates by the ray's distance from the hull's middle, shoot the smallest.
 `Healer: <name>` is not the target ID; a looked-at healer shows only that panel. Exclude the healer's entity.
 One `TF2VIEW_PICK` line names the viewer's eye and ray (`from (...) along (...)`): the control for any such probe.
+
+## A content hash over a ValueTuple's raw bytes is not a function of the content
+
+The queue verifier's "1 changed frame per run" (finding 98 §9) cost a session chasing writers: a monitor pass, a
+second culling thread, a loader. **The control that ended it: copy the list, compare element by element (equal), hash
+both twice** — the same content hashed to two values. `StableHash.Value<T>` over a `ValueTuple` (auto-layout) hashes
+bytes that are not the fields'. **How to apply:** hash fields one by one; before chasing a writer behind a changed
+hash, hash an equal copy twice.
