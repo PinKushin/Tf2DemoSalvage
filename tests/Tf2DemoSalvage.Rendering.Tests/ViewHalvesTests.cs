@@ -158,6 +158,59 @@ public sealed class ViewHalvesTests
         replayed.ShouldBe(Upload(last) with { Specular = false });
     }
 
+    [Test]
+    public void Job_RunAfterTheNextHandOffFedOtherValues_ReadsTheFeedsItsHalfWasHanded()
+    {
+        DrawFeeds? seen = null;
+        ViewHalves halves = new((half, _) => seen = half.Feeds);
+
+        ViewHalf handed = halves.Hand(Feeds(specular: false, exposure: 0.25f));
+        Action job = halves.Job(handed, () => { });
+
+        // The next frame's setters and hand-off, on the game thread, before the render thread runs the job (step 5's overlap).
+        halves.Flip();
+        _ = halves.Hand(Feeds(specular: true, exposure: 0.5f));
+        job();
+
+        seen.ShouldBe(Feeds(specular: false, exposure: 0.25f));
+    }
+
+    [Test]
+    public void Hand_AfterAResetRequest_CarriesItToTheNextHandOffOnly()
+    {
+        ViewHalves halves = new((_, _) => { });
+
+        halves.RequestToneMappingReset();
+        bool first = halves.Hand(Feeds(specular: true, exposure: 0f)).Feeds.ResetToneMapping;
+
+        halves.Flip();
+        bool second = halves.Hand(Feeds(specular: true, exposure: 0f)).Feeds.ResetToneMapping;
+
+        (first, second).ShouldBe((true, false));
+    }
+
+    [Test]
+    public void Job_ForAHalfHandedBeforeAResetRequest_ReplaysNoReset()
+    {
+        List<bool> resets = [];
+        ViewHalves halves = new((half, _) => resets.Add(half.Feeds.ResetToneMapping));
+
+        ViewHalf handed = halves.Hand(Feeds(specular: true, exposure: 0f));
+        Action job = halves.Job(handed, () => { });
+
+        // The next frame's observer change arrives while this frame waits to draw: it belongs to the next frame.
+        halves.RequestToneMappingReset();
+        job();
+        halves.Flip();
+        halves.Job(halves.Hand(Feeds(specular: true, exposure: 0f)), () => { })();
+
+        resets.ShouldBe([false, true]);
+    }
+
+    private static DrawFeeds Feeds(bool specular, float exposure) =>
+        new(specular, Fullbright.Off, DebugModes.None, Phong: true, WorldFog: null, SkyFog: null, MonitorCamera: null,
+            Tonemap: default, ExposureSeconds: exposure, ResetToneMapping: false);
+
     private static CameraUpload Upload(float[] matrix) =>
         new(matrix, Colours: false, Specular: true, Fullbright.Off, DebugModes.None, Phong: true, Fog: null);
 

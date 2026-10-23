@@ -380,6 +380,9 @@ public sealed partial class ViewerSession
         {
             // The view, and nothing else. Flight only happens in the free camera, where the map's
             // screen-space projection is not what is being drawn (B98).
+            // **Drained first** (finding 98 §9 step 4): this runs outside `PlaceCamera`, and the camera's setters no longer
+            // lock, so nothing else here waits for a frame in flight before the pose.
+            FinishPreviousDraw();
             UploadCamera();
         }
     }

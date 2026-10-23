@@ -101,6 +101,9 @@ internal sealed class ViewHalf
     /// <summary>The same, as instances the model pass draws.</summary>
     public List<ModelInstance> DetailModelInstances { get; } = [];
 
+    /// <summary>The per-frame feeds and material switches this half's draw reads, taken at its hand-off (finding 98 §9 step 4).</summary>
+    public DrawFeeds Feeds { get; set; }
+
     private CameraUpload? _pendingCamera;
 
     /// <summary>Records the world camera for this half's draw to send, replacing any recorded since its last draw.</summary>
@@ -157,3 +160,23 @@ internal sealed class ViewHalf
 internal readonly record struct CameraUpload(
     float[] Matrix, bool Colours, bool Specular, Fullbright Fullbright, DebugModes Debug, bool Phong,
     Tf2DemoSalvage.Core.Scene.SceneFog? Fog);
+
+/// <summary>What the game thread fed the device for one frame, as the draw of that frame reads it (finding 98 §9 step 4).</summary>
+/// <remarks>Taken whole at the hand-off (<see cref="ViewHalves.Hand"/>), so a setter for the next frame never reaches a draw
+/// already handed: the device's own fields are the game thread's, and the draw reads only this.</remarks>
+/// <param name="Specular"><c>mat_specular</c>.</param>
+/// <param name="Fullbright"><c>mat_fullbright</c>.</param>
+/// <param name="Debug">The debug views.</param>
+/// <param name="Phong"><c>mat_phong</c>.</param>
+/// <param name="WorldFog">The world's fog.</param>
+/// <param name="SkyFog">The 3D sky's fog.</param>
+/// <param name="MonitorCamera">The monitor's <c>point_camera</c>, or null.</param>
+/// <param name="Tonemap">The <c>env_tonemap_controller</c> overrides.</param>
+/// <param name="ExposureSeconds">The game time the exposure walks by.</param>
+/// <param name="ResetToneMapping">The followed player changed since the last hand-off: the draw resets the tone mapping
+/// first, as <c>SetObserverTarget</c>'s <c>ResetToneMapping( 1.0 )</c> did on the game thread.</param>
+internal readonly record struct DrawFeeds(
+    bool Specular, Fullbright Fullbright, DebugModes Debug, bool Phong,
+    Tf2DemoSalvage.Core.Scene.SceneFog? WorldFog, Tf2DemoSalvage.Core.Scene.SceneFog? SkyFog,
+    Tf2DemoSalvage.Core.Scene.ScenePointCamera? MonitorCamera, Tf2DemoSalvage.Core.Scene.SceneTonemap Tonemap,
+    float ExposureSeconds, bool ResetToneMapping);

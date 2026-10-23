@@ -32,6 +32,24 @@ internal sealed class ViewHalves(Action<ViewHalf, CameraUpload?> replay)
     /// <summary>Starts a new frame's cull in the other half.</summary>
     public void Flip() => _cull ^= 1;
 
+    private bool _resetToneMapping;
+
+    /// <summary>Asks the next handed frame's draw to reset the tone mapping before anything else.</summary>
+    public void RequestToneMappingReset() => _resetToneMapping = true;
+
+    /// <summary>The hand-off: <see cref="Cull"/>, carrying <paramref name="feeds"/> and any reset asked for since the last.</summary>
+    /// <param name="feeds">The game thread's feeds now; its own <see cref="DrawFeeds.ResetToneMapping"/> is ignored.</param>
+    /// <returns>The half to draw.</returns>
+    public ViewHalf Hand(DrawFeeds feeds)
+    {
+        ViewHalf half = Cull;
+
+        half.Feeds = feeds with { ResetToneMapping = _resetToneMapping };
+        _resetToneMapping = false;
+
+        return half;
+    }
+
     /// <summary>Starts drawing <paramref name="half"/>: its uploads replayed, then it is what the draw reads.</summary>
     /// <param name="half">The half handed at the hand-off.</param>
     public void Begin(ViewHalf half)

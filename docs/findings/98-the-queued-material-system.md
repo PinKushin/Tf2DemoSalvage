@@ -478,3 +478,79 @@ scale the old game-thread send saw. Every draw-time `ReapplyCamera(Drawn/view)` 
 
 *Left:* steps 3-7 as listed above, unchanged. The game thread now records into the half; nothing is sent from it, and
 every remaining shared write is a step-4 feed setter or the `Lock()` the step-4 note removes.
+
+**Steps 3 and 4, 2026-10-23 (branch `feat/queued-render-thread-rung-2f`).** The wait stays at `FinishPreviousDraw`, before
+`PlaceCamera`. Nothing overlaps yet.
+
+*A correction to the step-3 list, kept.* That list said "`Views` and the leaf-system collation run on the game thread".
+Only `Views` does. The device's `CollateRenderables` is called from `DrawFrame` (the call after the 2D sky), so it runs on
+the render thread in mode 2, and it read `Culling`, which was the `Cull` half. Reading the call site settled it.
+
+*Step 3: who reads what.* Draw-time readers read `Drawn` (the half the draw was handed); game-thread readers read `Cull`.
+
+| reader | thread | reads |
+|---|---|---|
+| `SetCamera(FreeCamera)` cull, `PlanWater`, `RebuildDetailSprites`, `ReportWorldCull` | game | `Cull` (`half.Culling`, the half's own lists) |
+| `Frustum`, `ScreenView`, `Eye`, `Views`, `DrawsMonitor` (pose inputs) | game | `Cull` |
+| `RecordCamera` (from `SetCamera`, Specular/Phong/Fullbright/Debug setters) | game | live `_specular`…`_phong`, `WorldFog` |
+| `ReplayUploads` (at `Begin`): tone-mapping reset, **install of the half's runs into the renderer**, camera, detail buffer | draw | handed half |
+| `CollateRenderables` main leaves | draw | `Drawn.Culling` (was `Cull`) |
+| translucent interleave: `worldLeaves`, `HasTranslucentAtPlace`, `HasDetailAtPlace`, `DrawDetailStep` | draw | `Drawn.Culling`, `Drawn.TranslucentLeaves` (were `Cull` / the renderer) |
+| 3D sky gate and camera | draw | `Drawn.SkyBatches`, `Drawn.Feeds` (switches, `SkyFog`) |
+| `ReapplyCamera(Drawn)` after the 3D sky, water views, water intersection, monitor, viewmodels, HUD model panels | draw | `Drawn.Feeds` (was the live `_specular`/`_phong`/`_fullbright`/`_debug` and `WorldFog`) |
+| viewmodel pass, HUD panel camera | draw | `Drawn.Feeds` |
+| `DrawMonitorPass` | draw | `Drawn.MonitorView`, `Drawn.Feeds.MonitorCamera`/`WorldFog` |
+| water refraction fog | draw | `Drawn.WaterMainFog ?? Drawn.Feeds.WorldFog` |
+| bloom and exposure walk | draw | `Drawn.Feeds.Tonemap`, `.ExposureSeconds` |
+
+**The cull no longer writes the renderer.** `SetCamera` used to write `_world.VisibleBatches`/`TranslucentLeaves`/`Overlays`/
+`SkyBatches` and copy them into the half; a skip installed the half. Now it writes only the half, and `ReplayUploads`
+installs the handed half into the renderer when the draw begins. That is the same lists in mode 0: every invalidation
+(`SetWorldCulling`, `UploadWorldGeometry`, `DropMaterialRuns` with `ReleaseTextures`) clears the halves and the renderer
+alike. `SetCamera(float[])` no longer copies `mat_wireframe`/`r_drawworld` into the renderer every frame. `EnsureWorld`,
+now used by all five creation sites, gives a new renderer the values, and the setters keep an existing one in step.
+
+*Step 4: the feeds.* `DrawFeeds` (in `ViewHalf.cs`) holds specular, fullbright, debug, phong, the world fog, the sky fog,
+the monitor camera, the tone map, the exposure seconds and a tone-mapping reset flag. `HandOff()` stamps it on `Cull`
+through `ViewHalves.Hand` at all three hand-offs: the direct path, `SubmitScene` and `DrawAndPresent`.
+
+- `WorldFog`, `SkyFog`, `MonitorCamera`, `Tonemap`, `ExposureSeconds` and `ObserverTarget` take no lock. Each is now a game-thread field
+  that the draw does not read.
+- `ObserverTarget`'s `ResetToneMapping` became `ViewHalves.RequestToneMappingReset`. The next hand-off carries it and the
+  draw applies it first in `ReplayUploads`. In mode 0 this gives the same values, because nothing reads the exposure between
+  `UploadCamera` and the draw (the capture's settle test runs in `TakeShot`, at the frame's start). *Read, not tested*: no
+  f12 moment where the followed player changes was measured.
+- `WorldFog` no longer calls `RecordCamera(Half)`. It ran before the flip, so it recorded into the PREVIOUS frame's
+  half, and that half's next cull overwrote the record unread. `SetCamera` records the camera with the current fog for its own half.
+- `SetCamera(FreeCamera)` takes no lock. It calls a private `RecordWorldCamera`, which locks only to build the renderer the first time.
+  **The public `SetCamera(float[])` keeps its `Lock()`, against the step-4 note**: `WorldPresenter` calls it alone on a
+  world upload. It does not flip there, so `Half` is the half last handed, which may be the one in flight.
+- **A drain was added at the flight path** (`ViewerSession` `Fly` → `UploadCamera`, outside `PlaceCamera`). The removed
+  locks were its only wait before the pose.
+
+*Public members, re-audited.* Every public `Device3D` member except the eight above still takes `Lock()` first, or only
+reads. Those eight are game-thread fields the draw no longer reads, plus `Cull`-half writes after the flip. The grep for
+`WorldFog|SkyFog|MonitorCamera|Tonemap|ExposureSeconds|_specular|_phong|_fullbright|_debug` now finds draw-time reads
+only through `Feeds`. The live fields are read only in `HandOff`, `RecordCamera`, `PlanWater` (the `WaterDraw`'s fog, built
+on the game thread) and `SetCamera`'s monitor view.
+
+*Tests:* three more `ViewHalvesTests` (13 in all). Sabotage, each restored:
+
+- `Begin` replaying `Cull` reddened `Job_RunAfterTheNextHandOffFedOtherValues_ReadsTheFeedsItsHalfWasHanded` and
+  `Job_WhenRun_ReplaysTheHandedHalfsUploadsBeforeTheDraw`.
+- `Hand` not clearing the reset reddened `Hand_AfterAResetRequest_CarriesItToTheNextHandOffOnly`.
+- **The device-level sabotage asked for**, `DrawMonitorPass` reading `Half.MonitorView`: Rendering.Tests 1167/1214 (47
+  skipped) and Presentation.Tests 1278/1278 stayed green. **No instrument can see a draw-time reader on `Cull` until step 5**:
+  `Cull` is the drawn half during every draw, the verifier does not hash feeds, and no test constructs a `Device3D`.
+
+*Step-5 preconditions found here:*
+
+- `HandOff` writes `Cull.Feeds` before `Queue.Submit`'s wait. That is safe only while `Cull` is never the half in flight, and it
+  stops being true on a frame that hands off without a `SetCamera` flip (`UploadCamera`'s early return, `DrawAndPresent`).
+  Stamp after the wait, or flip at the hand-off.
+- `PlanWater` reads `_waterLod.Current` on the game thread. Check whether the draw writes `_waterLod`.
+- `Specular`/`Phong`/`Fullbright`/`Debug` still lock and `RecordCamera(Half)`. Under overlap, between frames, that is the
+  handed half's pending camera, which is harmless because `Begin` already took it, but it is a write to the drawn half.
+
+*Left:* the mode-0 hash runs and pixel shots against the step-2e binary (f12 plus `b511_boardwalk_mirror.dem` at 1900 for
+the monitor), the mode-2 verifier, then steps 5-7.
