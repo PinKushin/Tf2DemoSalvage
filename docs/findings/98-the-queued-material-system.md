@@ -327,11 +327,23 @@ measured*: no `MonitorCamera` feed was checked for.
 The fix is a third `Twin()` for the monitor, and rung 2 needs it anyway. It changes mode-0 output on monitor frames,
 away from the buggy baseline, so it is the lead's call. It is step 0 below.
 
+**Step 0 done, 2026-10-23 (decided: yes, it fixes a divergence).** `MonitorCull` (`managed/Tf2DemoSalvage.Render/
+MonitorCull.cs`) holds the monitor's own `Twin()`, keyed on the camera as the old cache was, and is rebuilt by
+`SetWorldCulling`. **What mode 0 now draws differently, on monitor maps only: the monitor shows its own camera's
+world.** *Measured* on `b511_boardwalk_mirror.dem` at tick 1900, the same `--shot` before and after: the three
+mirrors showed the soldier against black, because they drew the main view's runs, culled from the player looking at
+the stage, which hold nothing behind him; after, they show the room's back wall behind him, as the engine's
+`ViewDrawScene` from the camera does. The soldier, which the `MonitorCaptureUiTests` region measures, is unchanged.
+Tests: `MonitorCullTests` (four). Sabotage (`MonitorCull` culling through the main view's culling instead of a twin)
+reddened `Batches_AfterTheMainViewCullsSomethingElse_StillHoldTheMonitorsOwnRuns` and
+`Batches_OnTheMonitorsFirstCull_LeaveTheMainViewsRunsStanding`. *Read, not tested*: the `Device3D` wiring, which no
+test can construct. The old cull also rewrote the main culling's `VisibleByLeaf`, which the entity cull reads; the twin
+ends that too.
+
 *Left, in order:*
 
-0. Give the monitor cull its own `WorldCulling.Twin()`, so `_monitorCull` never aliases a half's main list. Decide
-   first: this changes mode-0 output on monitor maps. Also log the four parts separately on a verifier mismatch, to
-   find which one the pre-existing changed frame is.
+0. ~~Give the monitor cull its own `WorldCulling.Twin()`; log the parts separately on a verifier mismatch.~~ Done
+   (above): the changed frame was the hash, and the monitor has `MonitorCull`.
 1. Move into the half everything the gate still writes once:
    - `_skyVisible`, `_eye`, `_placed`, `_skyFrustum`, `_skyEye` and `_skyCamera`;
    - `_waterDraw` (a closure reading `_eye` and `_skybox` while it draws), `_waterMainFog` and `_simpleViewDraws`;
@@ -358,4 +370,4 @@ away from the buggy baseline, so it is the lead's call. It is step 0 below.
 6. Cull-hash runs: two mode-0 runs as the control, then mode 2. Then the mode-2 wait ledger.
 7. A measurement record, then a quiet-gated ABBA run on f12.
 
-Before step 5, find the pre-existing verifier change above. Otherwise it will be blamed on the overlap.
+The pre-existing verifier change is found (the instrument, above), so a change after step 5 is the overlap's.

@@ -1250,7 +1250,8 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
     private FreeCamera? _monitorView;
 
     /// <summary>The world's cull from the monitor's camera, kept while that camera does not move.</summary>
-    private (Tf2DemoSalvage.Core.Scene.ScenePointCamera? For, IReadOnlyList<WorldBatch>? Batches) _monitorCull;
+    /// <remarks>Its own culling, a twin of the main view's, so neither rewrites the other's runs (finding 98 §9 step 0).</remarks>
+    private MonitorCull _monitorCull = new(null);
 
     /// <summary><c>DrawMonitors</c> (`viewrender.cpp:2074-2081`, `:3240-3287`): before the main view, when a material binds the target.</summary>
     private void DrawMonitorPass(IReadOnlyList<ModelInstance> models, Viewport viewport)
@@ -1265,16 +1266,13 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
 
         // **The world from the CAMERA's eye**: `ViewDrawScene` builds the monitor view's own visible set, and the main
         // view's frustum would leave out exactly what a mirror shows — everything behind the player.
-        if (_monitorCull.For != pointCamera)
-        {
-            _monitorCull = (pointCamera, Culling?.Batches(
-                view.Origin.X, view.Origin.Y, view.Origin.Z, view.Frustum(), world.IsTwoSidedMaterial));
-        }
+        IReadOnlyList<WorldBatch>? monitorBatches = _monitorCull.Batches(
+            pointCamera, view.Origin.X, view.Origin.Y, view.Origin.Z, view.Frustum(), world.IsTwoSidedMaterial);
 
         IReadOnlyList<WorldBatch>? mainBatches = world.VisibleBatches;
         List<ModelInstance> drawn = [.. models, .. MonitorOnlyModels];
 
-        world.VisibleBatches = _monitorCull.Batches;
+        world.VisibleBatches = monitorBatches;
 
         world.DrawMonitor(
             _context,
@@ -3033,6 +3031,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
 
         _halves[0].Culling = culling;
         _halves[1].Culling = culling?.Twin();
+        _monitorCull = new MonitorCull(culling);
         _reportedWorldCull = false;
 
         // **A new map is a new leaf system** (`LevelInitPreEntity`): every handle names the old tree's leaves.
