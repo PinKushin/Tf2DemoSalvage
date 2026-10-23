@@ -218,3 +218,8 @@ is -1.
   exclusive full screen, `ClearState`/`Flush` and every release were skipped. The queue's `Dispose` now drains without
   throwing and `Device3D.Dispose` logs `TakeFailure()`. Test: `Dispose_AfterADrawThrew_DoesNotThrowAndKeepsTheFailure`
   (queue level; the `Device3D` half has no test device and is read, not tested). Sabotage (rethrowing drain) reddened it.
+- *Mode 0's cost.* `DrawScene` built two delegates and two display classes every frame whatever the mode. Mode 0 (and
+  no `TF2VIEW_FRAME_HASH`) now calls `FinishPreviousDraw` and `DrawFrame` directly; the lambdas moved to a separate
+  `SubmitScene`, since a display class for captured parameters is allocated at method entry and an early return in the
+  same method would not have saved it. **Not tested**: no test can construct a `Device3D` (it needs a window), so the
+  zero-allocation claim rests on that structure (no capture remains in `DrawScene`), not on a measurement.

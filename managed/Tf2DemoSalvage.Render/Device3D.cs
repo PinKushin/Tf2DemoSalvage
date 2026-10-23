@@ -3004,6 +3004,30 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         IReadOnlyList<ModelInstance>? models,
         IReadOnlyList<ModelInstance>? viewmodels,
         float[]? viewmodelCamera,
+        VguiDrawList? vgui)
+    {
+        // **Mode 0 builds no closure** (review finding 4): its frame is drawn here, as before the queue existed. The
+        // lambdas live in `SubmitScene`, not behind an early return, because C# allocates a method's display class for
+        // captured parameters at ENTRY: an early return in the same method would still pay it every frame.
+        if (Queue.Mode != MaterialThreadMode.QueuedThreaded && !FrameHash)
+        {
+            Queue.FinishPreviousDraw();
+            DrawFrame(red, green, blue, [], mapLines, [], models, viewmodels, viewmodelCamera, vgui);
+
+            return;
+        }
+
+        SubmitScene(red, green, blue, mapLines, models, viewmodels, viewmodelCamera, vgui);
+    }
+
+    private void SubmitScene(
+        float red,
+        float green,
+        float blue,
+        IReadOnlyList<((float X, float Y, float Z) From, (float X, float Y, float Z) To)> mapLines,
+        IReadOnlyList<ModelInstance>? models,
+        IReadOnlyList<ModelInstance>? viewmodels,
+        float[]? viewmodelCamera,
         VguiDrawList? vgui) =>
         // The fill and the markers are empty, always: the first was dead by construction and the second went with the
         // orthographic camera (D98). Both parameters stay until this signature is revised, which is a change to the render seam.
