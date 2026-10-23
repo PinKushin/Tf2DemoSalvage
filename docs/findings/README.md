@@ -366,6 +366,11 @@ in any public writeup found:
   pass and the 15-16% runtime thread is tiered JIT; both fall under 1.5% after the first ~10 s of playback, leaving the render
   thread and the driver at 114-116% of a core, and no gen2 collection ran
   ([100](100-the-helper-threads-were-the-opening.md), measurements/2026-10-22-viewer-helper-threads.md).
+- **Managed glue is one layout choice, not the gap.** On real soldier inputs, reading a large bone struct through
+  `IReadOnlyList` per bone is 62% of the ordinary bone blend (flat arrays 2.6x faster, bitwise equal, at the C# floor)
+  and 7% of the additive one, which never reads it. A flat pose is estimated (a ceiling) at about 1 ms of a 6-8 ms
+  gap; native code is not indicated
+  ([101](101-where-the-main-thread-goes.md), measurements/2026-10-22-pose-blend-glue.md).
 
 ## Conventions used throughout
 
