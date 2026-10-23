@@ -309,8 +309,20 @@ reading, `docs/memory/padding-is-not-zero.md`; tiered compilation off did not st
 `queue verify: 784500 frames checked, 0 changed` on f12, mode 2, the opening frame included.
 
 **Consequence for every earlier hash comparison**: the pose and rest parts hashed tuples the same way, so the pose
-part's "pre-existing, timing-dependent" late divergence above may be this instrument too. *Not yet re-measured.*
-Every hash value from before this commit is incomparable with one after it; the baseline for step 2 is this commit.
+part's "pre-existing, timing-dependent" late divergence above may be this instrument too. Every hash value from before
+this commit is incomparable with one after it.
+
+*Re-measured* at `058feadd` (step 0 included), two mode-0 runs, `TF2VIEW_FRAME_HASH=1 TF2VIEW_FIXED_FRAME=0.015`, f12
+from 30000, `--measure 6`, loads 5-8%, first frame per tick, 191 common ticks: **cull 191/191, pose 189/191,
+particles 180/191, rest 4/191.**
+
+- The pose no longer diverges to the end of the run: it differs at 30168 and 30169 only and agrees after. So the
+  persistent half of the old late divergence was the tuple hash. A two-tick difference at 30168 remains: real,
+  run-to-run in mode 0, cause not looked for.
+- Rest differs almost everywhere in mode 0, as rung 1 found (the VGUI quad count rides with the frame rate); it was
+  never a control.
+- **These two runs are the step-2 baseline**: compare step 2's mode-0 runs against them on cull and pose, with this
+  pair's 189/191 as the floor.
 
 **Not covered: monitor frames, and the halves change them.** `DrawMonitorPass` caches
 `_monitorCull = (pointCamera, Culling?.Batches(...))`, which holds the culling's reused main list.
@@ -343,7 +355,10 @@ ends that too.
 *Left, in order:*
 
 0. ~~Give the monitor cull its own `WorldCulling.Twin()`; log the parts separately on a verifier mismatch.~~ Done
-   (above): the changed frame was the hash, and the monitor has `MonitorCull`.
+   (above): the changed frame was the hash, and the monitor has `MonitorCull`. Steps 1-7 are untouched as of
+   `058feadd`; with step 0 in, `DrawMonitorPass` is no longer on step 3's list of `Culling` readers (it reads
+   `_monitorCull`, which only `SetWorldCulling` replaces), but it still reads `_monitorView` and the main
+   `world.VisibleBatches` it swaps back, which step 1 moves into the half.
 1. Move into the half everything the gate still writes once:
    - `_skyVisible`, `_eye`, `_placed`, `_skyFrustum`, `_skyEye` and `_skyCamera`;
    - `_waterDraw` (a closure reading `_eye` and `_skybox` while it draws), `_waterMainFog` and `_simpleViewDraws`;
