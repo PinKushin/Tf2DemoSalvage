@@ -77,6 +77,20 @@ public sealed class ModelScaleIkTests
         models.IkWork.Chained.ShouldBe(1, "a scale indistinguishable from one is not scaled");
     }
 
+    /// <remarks>
+    /// **Read after a viewmodel pass, as a probe reads it** (finding 102): that pass advances the bone clock, and the world
+    /// entity built in the world pass must still be counted (B243).
+    /// </remarks>
+    [Test]
+    public void IkWork_AfterAViewmodelPass_StillCountsTheWorldEntity()
+    {
+        EntityModelSet models = Posed(scale: 1f);
+
+        models.Instances([], [], seconds: 0d, pass: EntityModelSet.ViewmodelPass);
+
+        models.IkWork.Chained.ShouldBe(1);
+    }
+
     /// <summary>Poses one prop at the given model scale and hands back the set.</summary>
     private static EntityModelSet Posed(float scale)
     {

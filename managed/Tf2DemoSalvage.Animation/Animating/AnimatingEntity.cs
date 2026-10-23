@@ -158,6 +158,11 @@ public sealed class AnimatingEntity
     /// <summary>Whether this frame already has bones readable — a request this frame has been satisfied (finding 82).</summary>
     public bool BuiltThisFrame => _builtOn == _clock.Frame && _accessor.ReadableBones != 0;
 
+    /// <summary>Whether bones are readable from a build on or after a given bone-clock frame — for a pass that the clock has moved past.</summary>
+    /// <param name="frame">The bone-clock frame the question is about.</param>
+    /// <returns>True when the last build was on that frame or later.</returns>
+    public bool BuiltSince(long frame) => _builtOn >= frame && _accessor.ReadableBones != 0;
+
     /// <summary>The bones readable now, by usage bit — <c>m_BoneAccessor.GetReadableBones()</c>.</summary>
     public int ReadableBones => _accessor.ReadableBones;
 
