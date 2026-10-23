@@ -175,3 +175,11 @@ code (a throwaway `TF2VIEW_PROTO_RENDER_THREAD` switch in `FrameSequence.cs`) is
 registered its 214 analysis tools after this agent's tool list was fixed, so no read tool was callable. The
 headless-script and HTTP routes are closed by the binary-reads hook. Three things are still interpolated: what -1
 resolves to, when `EndFrame` waits, and how many frames are in flight.
+
+## (8) Follow-up, 2026-10-22: the snapshot's cost (D228 step A)
+
+**Measured** (`docs/measurements/2026-10-22-frame-snapshot-cost.md`): copying everything the draw reads costs
+1.19-1.38 ms a frame (3.4 MB), and 0.80-0.87 ms of that is the face-flex streams. That is half the possible saving or
+more, so the full-copy design stopped at checkpoint 1. If the flex and particle buffers were double-buffered instead, the
+copy left would be 0.19-0.32 ms. The cull inside `SetCamera` stays on the game thread; its outputs are state to
+double-buffer. The owner decides whether to build that shape.
