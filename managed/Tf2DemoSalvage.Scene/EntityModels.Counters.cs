@@ -300,7 +300,9 @@ public sealed partial class EntityModelSet
                 // Stryker disable once : a mutant that empties the guard body leaves 'posed'
                 // unassigned (CS0165), and Safe Mode then drops every mutation in this method —
                 // B410.
-                if (animating.Pose is not SkeletonPose posed)
+                // **Only what was built this frame** (finding 102): the rules are gathered at bone setup, so an entity the
+                // frame never set up still holds its last build's, which this would otherwise report as current (B243).
+                if (animating.Pose is not SkeletonPose posed || !animating.BuiltThisFrame)
                 {
                     continue;
                 }
