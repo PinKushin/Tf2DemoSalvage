@@ -388,7 +388,39 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
             _height = height,
         };
         created.CreateBackBufferView();
+        created.TakeAltEnterFromDxgi(handle);
         return created;
+    }
+
+    /// <summary>`DXGI_MWA_NO_ALT_ENTER`: DXGI stops toggling full screen itself on Alt+Enter.</summary>
+    private const uint NoAltEnter = 2;
+
+    /// <summary>Stops DXGI's own Alt+Enter toggle (review finding 1).</summary>
+    /// <remarks>
+    /// **Left on, DXGI switches full screen INSIDE the next `Present`**, which in mode 2 runs on the render thread while
+    /// the window thread waits in a drain, or takes `Resize`'s drain on the `WM_SIZE` the switch posts: a hang. In mode 0
+    /// it left <see cref="IsExclusiveFullScreen"/> stale, since only <see cref="SetExclusiveFullScreen"/> sets it. Full
+    /// screen goes only through the viewer's own toggle, which drains. The call must be made on the factory that created
+    /// the swap chain (its parent); a factory from `CreateDXGIFactory` is another object and the call would do nothing.
+    ///
+    /// **`DXGI_MWA_NO_WINDOW_CHANGES` is deliberately not set**: it stops DXGI watching the message queue altogether, so
+    /// losing focus in exclusive full screen would no longer hand the display back. That is a change to what a mode-0 user
+    /// sees, and the hang is Alt+Enter's.
+    /// </remarks>
+    private void TakeAltEnterFromDxgi(nint handle)
+    {
+        int result = _swapChain.GetParent(out ComPtr<IDXGIFactory> factory);
+
+        if (result >= 0)
+        {
+            result = factory.MakeWindowAssociation(handle, NoAltEnter);
+            factory.Dispose();
+        }
+
+        if (result < 0)
+        {
+            _render.LogError("could not take Alt+Enter from DXGI: 0x{HResult:X8}", result);
+        }
     }
 
     /// <summary>Clears the back buffer and presents it.</summary>
@@ -3004,6 +3036,30 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         IReadOnlyList<ModelInstance>? models,
         IReadOnlyList<ModelInstance>? viewmodels,
         float[]? viewmodelCamera,
+        VguiDrawList? vgui)
+    {
+        // **Mode 0 builds no closure** (review finding 4): its frame is drawn here, as before the queue existed. The
+        // lambdas live in `SubmitScene`, not behind an early return, because C# allocates a method's display class for
+        // captured parameters at ENTRY: an early return in the same method would still pay it every frame.
+        if (Queue.Mode != MaterialThreadMode.QueuedThreaded && !FrameHash)
+        {
+            Queue.FinishPreviousDraw();
+            DrawFrame(red, green, blue, [], mapLines, [], models, viewmodels, viewmodelCamera, vgui);
+
+            return;
+        }
+
+        SubmitScene(red, green, blue, mapLines, models, viewmodels, viewmodelCamera, vgui);
+    }
+
+    private void SubmitScene(
+        float red,
+        float green,
+        float blue,
+        IReadOnlyList<((float X, float Y, float Z) From, (float X, float Y, float Z) To)> mapLines,
+        IReadOnlyList<ModelInstance>? models,
+        IReadOnlyList<ModelInstance>? viewmodels,
+        float[]? viewmodelCamera,
         VguiDrawList? vgui) =>
         // The fill and the markers are empty, always: the first was dead by construction and the second went with the
         // orthographic camera (D98). Both parameters stay until this signature is revised, which is a change to the render seam.
@@ -4817,6 +4873,12 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
 
         // Teardown is a full drain: the frame in flight holds the context and every resource released below.
         Queue.Dispose();
+
+        // A failed last frame is reported, not thrown: a throw here skipped leaving full screen and every release below.
+        if (Queue.TakeFailure() is { } failure)
+        {
+            _render.LogError(failure, "the last queued frame failed before teardown");
+        }
 
         // **Mandatory, and not merely tidy.** Releasing a swap chain while it holds the display
         // exclusively is undefined: DXGI documents that the swap chain must be returned to windowed

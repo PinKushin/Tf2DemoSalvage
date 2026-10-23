@@ -61,16 +61,15 @@ public sealed class QueuedRenderThread : IDisposable
         ArgumentNullException.ThrowIfNull(draw);
         ObjectDisposedException.ThrowIf(_disposed, this);
 
+        // `EndFrame`'s one wait: the previous frame's job, only if it is still pending or running.
+        FinishPreviousDraw();
+
         if (Mode != MaterialThreadMode.QueuedThreaded || !queued || OnRenderThread)
         {
-            Lock();
             draw();
 
             return;
         }
-
-        // `EndFrame`'s one wait: the previous frame's job, only if it is still pending or running.
-        Lock();
 
         _thread ??= Start();
         _job = draw;
@@ -78,7 +77,24 @@ public sealed class QueuedRenderThread : IDisposable
         _work.Release();
     }
 
-    /// <summary>Waits until no frame is in flight — the engine's `Lock`, a full drain — and rethrows what the last one threw.</summary>
+    /// <summary>Waits for the frame in flight, then rethrows what it threw: the draw's own failure point, as in mode 0.</summary>
+    /// <param name="caller">Who asked, for the wait ledger.</param>
+    public void FinishPreviousDraw([CallerMemberName] string caller = "")
+    {
+        Lock(caller);
+
+        if (Interlocked.Exchange(ref _failure, null) is { } failure)
+        {
+            failure.Throw();
+        }
+    }
+
+    /// <summary>A failure no <see cref="FinishPreviousDraw"/> took, for whoever tears down after the last frame.</summary>
+    /// <returns>The exception, or null when the last frame drew cleanly.</returns>
+    public Exception? TakeFailure() => Interlocked.Exchange(ref _failure, null)?.SourceException;
+
+    /// <summary>Waits until no frame is in flight — the engine's `Lock`, a full drain. Never throws the frame's failure:
+    /// that stays pending for <see cref="FinishPreviousDraw"/>, so it is not blamed on whichever setter drained first.</summary>
     /// <param name="caller">Who asked, for the wait ledger.</param>
     /// <remarks>Free when idle and on the render thread itself, so a device call the draw makes never waits on its own frame.</remarks>
     public void Lock([CallerMemberName] string caller = "")
@@ -99,11 +115,6 @@ public sealed class QueuedRenderThread : IDisposable
             {
                 _waits.Add((caller, Stopwatch.GetTimestamp() - at));
             }
-        }
-
-        if (Interlocked.Exchange(ref _failure, null) is { } failure)
-        {
-            failure.Throw();
         }
     }
 
@@ -167,7 +178,7 @@ public sealed class QueuedRenderThread : IDisposable
     [System.Diagnostics.CodeAnalysis.SuppressMessage(
         "Design",
         "CA1031:Do not catch general exception types",
-        Justification = "Not swallowed: every exception is captured and rethrown on the game thread at its next Lock.")]
+        Justification = "Not swallowed: every exception is captured and rethrown on the game thread at its next FinishPreviousDraw, or handed to teardown by TakeFailure.")]
     private void Run()
     {
         while (true)
@@ -187,7 +198,7 @@ public sealed class QueuedRenderThread : IDisposable
             }
             catch (Exception failure)
             {
-                // Carried to the game thread, which rethrows it at its next Lock: a thread that died here would leave
+                // Carried to the game thread, which rethrows it at its next draw: a thread that died here would leave
                 // the game thread waiting for ever.
                 _failure = ExceptionDispatchInfo.Capture(failure);
             }

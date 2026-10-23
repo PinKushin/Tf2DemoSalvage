@@ -236,7 +236,7 @@ public sealed class FrameSequenceTests
 
         public void Simulate() => Note("Simulate");
 
-        public void FinishPreviousDraw() => Queue.Lock();
+        public void FinishPreviousDraw() => Queue.FinishPreviousDraw();
 
         public void PlaceCamera() => Note("PlaceCamera");
 

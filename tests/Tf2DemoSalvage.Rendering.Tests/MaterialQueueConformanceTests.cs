@@ -143,32 +143,51 @@ public sealed class MaterialQueueConformanceTests
         queue.TakeWaits().ShouldContain(wait => wait.Caller == "CaptureNextFrame" && wait.Ticks >= 0);
     }
 
+    /// <remarks>Bounded, so a broken guard FAILS rather than hanging the run: the inner `Lock` would wait on its own
+    /// frame for ever. Not disposed on failure, since `Dispose` drains and would hang the same way; the thread is a
+    /// background one and does not hold the process.</remarks>
     [Test]
     public void Lock_OnTheRenderThread_DoesNotWaitForItself()
     {
-        using QueuedRenderThread queue = new() { Mode = MaterialThreadMode.QueuedThreaded };
-        bool returned = false;
+        QueuedRenderThread queue = new() { Mode = MaterialThreadMode.QueuedThreaded };
+        using ManualResetEventSlim returned = new();
 
         queue.Submit(() =>
         {
             queue.Lock();
-            returned = true;
+            returned.Set();
         });
-        queue.Lock();
 
-        returned.ShouldBeTrue();
+        returned.Wait(TimeSpan.FromSeconds(10)).ShouldBeTrue();
+        queue.Dispose();
     }
 
     /// <remarks>A draw that throws must not kill the thread and leave the game thread waiting for ever.</remarks>
     [Test]
-    public void Lock_AfterADrawThrew_RethrowsOnTheGameThread()
+    public void FinishPreviousDraw_AfterADrawThrew_RethrowsOnceOnTheGameThread()
     {
         using QueuedRenderThread queue = new() { Mode = MaterialThreadMode.QueuedThreaded };
 
         queue.Submit(static () => throw new InvalidOperationException("drawn badly"));
 
-        Should.Throw<InvalidOperationException>(() => queue.Lock()).Message.ShouldBe("drawn badly");
+        Should.Throw<InvalidOperationException>(() => queue.FinishPreviousDraw()).Message.ShouldBe("drawn badly");
+        queue.FinishPreviousDraw();
+    }
+
+    /// <remarks>The failure surfaces at the draw, as in mode 0, not at whichever setter happened to drain first.</remarks>
+    [Test]
+    public void Lock_AfterADrawThrew_DrainsWithoutThrowingAndTheNextSubmitRethrows()
+    {
+        using QueuedRenderThread queue = new() { Mode = MaterialThreadMode.QueuedThreaded };
+        bool drewAgain = false;
+
+        queue.Submit(static () => throw new InvalidOperationException("drawn badly"));
+
         queue.Lock();
+        queue.Mode = MaterialThreadMode.SingleThreaded;
+
+        Should.Throw<InvalidOperationException>(() => queue.Submit(() => drewAgain = true)).Message.ShouldBe("drawn badly");
+        drewAgain.ShouldBeFalse();
     }
 
     /// <remarks>Leaving mode 2 drains first (`0x180016050`, "Forcing queued mode off!").</remarks>
@@ -208,6 +227,20 @@ public sealed class MaterialQueueConformanceTests
         queue.Dispose();
 
         finished.ShouldBeTrue();
+    }
+
+    /// <remarks>Teardown after a failed frame must still reach its cleanup: `Device3D.Dispose` leaves exclusive full
+    /// screen and releases the device after this, so a throw here skipped all of it. The failure is kept for the log.</remarks>
+    [Test]
+    public void Dispose_AfterADrawThrew_DoesNotThrowAndKeepsTheFailure()
+    {
+        QueuedRenderThread queue = new() { Mode = MaterialThreadMode.QueuedThreaded };
+
+        queue.Submit(static () => throw new InvalidOperationException("drawn badly"));
+
+        Should.NotThrow(queue.Dispose);
+        queue.TakeFailure().ShouldBeOfType<InvalidOperationException>().Message.ShouldBe("drawn badly");
+        queue.TakeFailure().ShouldBeNull();
     }
 
     /// <remarks>The render thread's own time, carried from where it ran, for `--measure`'s column.</remarks>

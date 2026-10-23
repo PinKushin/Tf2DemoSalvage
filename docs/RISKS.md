@@ -40149,6 +40149,8 @@ The wait can then move to the hand-off, which is parity.
 - a test for the seek drain (the wiring needs a real `Device3D`);
 - a frame-weighted render-thread column.
 
+**Review fixes, 2026-10-23:** finding 98 section 9, "Review fixes".
+
 ## B575 — the exposure histogram is counted pixel by pixel on the processor, every frame — FIXED (2026-10-22)
 
 **Fixed** (finding 95, `measurements/2026-10-22-exposure-queries.md`): the shape is replaced, not patched. The engine's
