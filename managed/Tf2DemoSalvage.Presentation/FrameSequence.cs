@@ -37,6 +37,16 @@ public interface IFrameSteps
     /// <remarks>Valve: `IGameSystem::UpdateAllSystems( frametime )`, `cdll_client_int.cpp:1308`.</remarks>
     public void Simulate();
 
+    /// <summary>Wait for the previous frame's draw if it is still running on the render thread (`mat_queue_mode 2`).</summary>
+    /// <remarks>
+    /// **Not where the engine waits, and named as the divergence it is** (B581). `CMaterialSystem::EndFrame` waits for
+    /// frame N-1 only at the hand-off of frame N, so the whole of frame N's game work overlaps N-1's draw (finding 99
+    /// section 2). Here the wait sits before the camera, the first stage that writes what the draw reads (the cull, the
+    /// particles, the pose), because those are not yet double-buffered: only the gap between frames, the shot stage and
+    /// the simulation overlap the draw. Free in mode 0.
+    /// </remarks>
+    public void FinishPreviousDraw();
+
     /// <summary>Work out where the eye is and hand the camera to the GPU.</summary>
     /// <remarks>Valve: `ComputeCameraVariables( viewEye.origin, viewEye.angles, ... )`, `view.cpp:779`.</remarks>
     public void PlaceCamera();
@@ -121,6 +131,9 @@ public static class FrameSequence
         // A capture it asks for is still of THIS frame's draw: `CaptureNextFrame` fires on present.
         long capture = Time(steps.TakeShot);
         long advance = Time(steps.Simulate);
+
+        // The game thread's share of a queued draw is this wait plus the hand-off; it is charged to `draw` (B581).
+        long drawWait = Time(steps.FinishPreviousDraw);
         long camera = Time(steps.PlaceCamera);
         long sound = Time(steps.UpdateListener);
         long project = Time(steps.ProjectWorld);
@@ -129,7 +142,7 @@ public static class FrameSequence
         FrameOverlay overlay = steps.BuildOverlay();
         long hud = Stopwatch.GetTimestamp() - hudAt;
 
-        long draw = Time(() => steps.Draw(overlay));
+        long draw = Time(() => steps.Draw(overlay)) + drawWait;
 
         return new FramePhases(
             Sound: sound,

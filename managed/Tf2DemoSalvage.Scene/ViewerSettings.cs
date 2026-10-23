@@ -346,6 +346,10 @@ public sealed record ViewerSettings
     /// </remarks>
     public const string PhongCommand = "mat_phong";
 
+    /// <summary>Command name for the material system's thread mode — Valve's <c>mat_queue_mode</c> (B581, D228).</summary>
+    /// <remarks>Config-only, as TF2 gives it no bind; read once, when the device is made.</remarks>
+    public const string MaterialQueueModeCommand = "mat_queue_mode";
+
     /// <summary>The convar that swaps the local medic's beam for its `_targeted` variant.</summary>
     public const string HealTargetMarkerCommand = "hud_medichealtargetmarker";
 
@@ -604,6 +608,13 @@ public sealed record ViewerSettings
     /// On by default, as the game has it.
     /// </remarks>
     public int ThreeDimensionalSky { get; init; } = SkyboxView.DrawsByDefault;
+
+    /// <summary>`mat_queue_mode`: 0 (the default here) draws on the game thread, 2 on a render thread, -1 as the engine picks.</summary>
+    /// <remarks>
+    /// **0 by default where TF2's is -1**, on purpose: the render thread ships off until it is measured and the owner turns
+    /// it on (D228). Kept as written, like `r_3dsky`: the engine maps any value itself (`MaterialQueueMode.Resolve`).
+    /// </remarks>
+    public int MaterialQueueMode { get; init; }
 
     /// <summary>How far detail props are drawn, in world units.</summary>
     /// <remarks>
@@ -1226,6 +1237,11 @@ public sealed record ViewerSettings
             settings = settings with { ThreeDimensionalSky = sky };
         }
 
+        if (Read(values, MaterialQueueModeCommand) is { } queueMode)
+        {
+            settings = settings with { MaterialQueueMode = queueMode };
+        }
+
 
         // **Zero is accepted and negative is not**, which is the same rule the frame rate limit
         // keeps and for the same reason: `low.cfg` ships `cl_detaildist 0` and it means "draw no
@@ -1339,6 +1355,7 @@ public sealed record ViewerSettings
         (ShowFrameRateCommand, s => Int(s.ShowFrameRate)),
         (ShowPositionCommand, s => Int(s.ShowPosition)),
         (ThreeDimensionalSkyCommand, s => Int(s.ThreeDimensionalSky)),
+        (MaterialQueueModeCommand, s => Int(s.MaterialQueueMode)),
         (DetailDistanceCommand, s => EngineFloat(s.DetailDistance)),
         (DetailFadeCommand, s => EngineFloat(s.DetailFade)),
         (InterpCommand, s => EngineFloat(s.Interp.Interp)),

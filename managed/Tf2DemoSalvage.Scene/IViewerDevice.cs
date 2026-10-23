@@ -32,6 +32,9 @@ public interface IViewerDevice
     /// <summary>`cl_drawhud`.</summary>
     public bool DrawHud { get; set; }
 
+    /// <summary>`mat_queue_mode`: 0 draws on the game thread, 2 on a render thread, -1 the engine's default for this machine.</summary>
+    public int QueueMode { get; set; }
+
     /// <summary>`r_3dsky`.</summary>
     public int Draw3dSky { get; set; }
 

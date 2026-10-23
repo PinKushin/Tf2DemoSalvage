@@ -251,6 +251,9 @@ public sealed partial class ViewerSession
     /// <summary>The measured frames' phases, summed, for a paused measurement that writes no per-second line.</summary>
     private FramePhases _phasesMeasured;
 
+    /// <summary>The render thread's drawing time over the measured frames, in stopwatch ticks (B581).</summary>
+    private long _renderMeasured;
+
     /// <summary>Whether <c>--then-seek</c> has already paused and seeked, so the second measurement is running.</summary>
     private bool _seekedForMeasure;
 
@@ -280,6 +283,7 @@ public sealed partial class ViewerSession
                 $"  phases, mean ms: sound {each(sum.Sound):0.00}, camera {each(sum.Camera):0.00}, project {each(sum.Project):0.00}, " +
                 $"advance {each(sum.Advance):0.00}, capture {each(sum.Capture):0.00}, hud {each(sum.Hud):0.00}, draw {each(sum.Draw):0.00}, " +
                 $"between {(_frameSeconds * 1000d / _framesMeasured) - each(sum.Total):0.00}; " +
+                $"render thread draw {each(_renderMeasured):0.00} (mode 2 only, frame-weighted like the phases); " +
                 $"particles now: {trails} trails, {bursts} bursts, {quads} quads last frame"));
         }
 
@@ -322,6 +326,7 @@ public sealed partial class ViewerSession
 
         _framesMeasured = 0;
         _phasesMeasured = default;
+        _renderMeasured = 0;
 
         foreach (string line in _measured.Lines)
         {
@@ -437,6 +442,10 @@ public sealed partial class ViewerSession
         FramePhases phases = FrameSequence.Run(this);
         long sequenceEnded = Stopwatch.GetTimestamp();
 
+        // The render thread's drawing time since the last frame, carried from the queue (B581); zero in mode 0, whose draw
+        // is timed as the `draw` phase itself.
+        long rendered = _ownedDevice?.Queue.TakeRenderTicks() ?? 0;
+
         _frames.Drawing(phases.Draw);
 
         StallReport.Frame(phases, _renderLog, frameBegan, GarbageReading.FromRuntime());
@@ -505,6 +514,7 @@ public sealed partial class ViewerSession
                 _phasesMeasured.Hud + phases.Hud,
                 _phasesMeasured.Draw + phases.Draw,
                 _phasesMeasured.Total + phases.Total);
+            _renderMeasured += rendered;
         }
 
         _wasOnScreen = onScreen;
@@ -532,6 +542,27 @@ public sealed partial class ViewerSession
         }
 
         _presenter.FrameParts?.Frame();
+
+        // **The render thread's own time and every drain that waited** (B581), carried from the queue where each was
+        // timed; in mode 0 the queue never waits and draws nothing of its own, so neither part appears.
+        if (_ownedDevice?.Queue is { } queue)
+        {
+            foreach ((string caller, long ticks) in queue.TakeWaits())
+            {
+                if (!_queueWaitParts.TryGetValue(caller, out string? part))
+                {
+                    part = "queue wait " + caller;
+                    _queueWaitParts[caller] = part;
+                }
+
+                _presenter.FrameParts?.Add(part, ticks);
+            }
+
+            if (rendered > 0)
+            {
+                _presenter.FrameParts?.Add("queue render thread", rendered);
+            }
+        }
 
         if (_frameRateLog.Report(_loggedRate.Sample(_clock.LastFrameSeconds), phases, _frameSeconds) is { } logged)
         {
@@ -631,6 +662,12 @@ public sealed partial class ViewerSession
     /// built at all (`cdll_client_int.cpp:1308`).
     /// </remarks>
     public void Simulate() => _playback.Advance();
+
+    /// <inheritdoc/>
+    public void FinishPreviousDraw() => _ownedDevice?.Queue.Lock();
+
+    /// <summary>`queue wait {caller}` part names, made once per caller rather than per frame.</summary>
+    private readonly System.Collections.Generic.Dictionary<string, string> _queueWaitParts = new(StringComparer.Ordinal);
 
     /// <summary>Work out where the eye is and hand the camera to the GPU.</summary>
     /// <remarks>
@@ -736,6 +773,12 @@ public sealed partial class ViewerSession
             _log.LogInformation(
                 "{Message}",
                 $"first frame after the opening state draws the camera placed at tick {_cameraPlacedAtTick:0}");
+        }
+
+        // The tick this frame shows, for TF2VIEW_FRAME_HASH's lines (B581): carried with the frame, never re-read.
+        if (_ownedDevice is { } device)
+        {
+            device.FrameLabel = _shownTick;
         }
 
         DrawScene(overlay);

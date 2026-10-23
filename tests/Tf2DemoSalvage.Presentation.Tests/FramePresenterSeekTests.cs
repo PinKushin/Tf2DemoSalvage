@@ -97,6 +97,12 @@ public sealed class FramePresenterSeekTests
 
         private int _jumps;
 
+        /// <summary>A render queue the seek is given, or null for none (B581).</summary>
+        public Render.QueuedRenderThread? Queue { get; init; }
+
+        /// <summary>Whether a frame was in flight on <see cref="Queue"/> each time a tick was shown.</summary>
+        public List<bool> InFlight { get; } = [];
+
         /// <summary>Shows a moment; <paramref name="jump"/> is whether the transport jumped there, which is what a skip is (D221).</summary>
         public void Show(double tick, bool hud = true, IDecalUpload? device = null, double demoFrameSeconds = 0d, bool jump = true) =>
             Frames.ShowMomentOver(
@@ -105,6 +111,7 @@ public sealed class FramePresenterSeekTests
                 device,
                 shown =>
                 {
+                    InFlight.Add(Queue?.InFlight ?? false);
                     Shown.Add(shown);
                     Held.Add((Models.HoldsCorpses, Moment.EntitiesOnly, Models.SimulatesOnly, Moments.PlayersOnly, Models.WalksEvents, Frames.Replaying));
                     Paused.Add(Models.Paused);
@@ -118,7 +125,8 @@ public sealed class FramePresenterSeekTests
                         InHudFrame?.Invoke(through);
                     }
                     : null,
-                jump ? ++_jumps : _jumps);
+                jump ? ++_jumps : _jumps,
+                Queue);
 
         private static ViewFrame Frame(double shown, double demoFrameSeconds) =>
             new(Timeline, null, null, (int)shown, shown, false, false, null, 1280, 720, 0.016f, demoFrameSeconds, true, true, true, 2048, 50);
@@ -140,6 +148,41 @@ public sealed class FramePresenterSeekTests
         seek.Paused.Count.ShouldBeGreaterThan(2, "the control: the seek ran skip frames");
         seek.Paused.Take(seek.Paused.Count - 1).Distinct().ShouldBe([false], "IsPlaybackPaused is false while skipping");
         seek.Paused[^1].ShouldBeTrue("the frame the skip lands on is a paused frame: frametime zero");
+    }
+
+    /// <remarks>
+    /// **A seek drains the render thread before its replay poses** (B581): the skip frames rewrite the bones, flex and
+    /// instance lists the frame in flight draws. Deterministic: the in-flight draw is held on a gate only the drain opens,
+    /// so a skip frame shown before the drain sees the frame in flight however fast the machine is.
+    /// </remarks>
+    [Test]
+    public void ShowMomentOver_ASeekInModeTwo_DrainsTheFrameInFlightBeforeItsFirstSkipFrame()
+    {
+        using System.Threading.ManualResetEventSlim gate = new();
+        using Render.QueuedRenderThread queue = new() { Mode = Render.MaterialThreadMode.QueuedThreaded };
+        string? drainedBy = null;
+
+        queue.Waiting = caller =>
+        {
+            drainedBy ??= caller;
+            gate.Set();
+        };
+
+        try
+        {
+            Seeking seek = new() { Queue = queue };
+
+            queue.Submit(gate.Wait);
+            seek.Show(500d);
+
+            seek.InFlight.Count.ShouldBeGreaterThan(2, "the control: the seek ran skip frames");
+            seek.InFlight.ShouldAllBe(inFlight => !inFlight);
+            drainedBy.ShouldBe("ReplaySkip");
+        }
+        finally
+        {
+            gate.Set();
+        }
     }
 
     [Test]

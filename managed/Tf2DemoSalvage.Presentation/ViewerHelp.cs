@@ -101,6 +101,9 @@ public static class ViewerHelp
                                      command line uses a folder for one run without saving it.
           cl_game_folder_ask 0       Stop asking for the tf folder at startup.
           cl_screenshot_folder <path> Where --shot and the screenshot key write.
+          mat_queue_mode <n>         Which thread draws, as TF2's: 0 (the default here) the main
+                                     thread, 2 a second render thread, -1 the engine's choice
+                                     (2 on a machine with two or more cores). Read at startup.
 
         ENVIRONMENT (scripts, CI and debugging only; nothing a user needs)
           TF2_FOLDER                 A tf folder that beats both cl_game_folder and Steam.
@@ -117,6 +120,10 @@ public static class ViewerHelp
           TF2VIEW_VIEWPORT_SIZE      "1280x720": WIDTHxHEIGHT of the 3D view; the window grows
                                      around it, at any display scaling. Wins over the window size.
           TF2VIEW_WARP               Draw through WARP, reproducing a machine with no GPU.
+          TF2VIEW_QUEUE_VERIFY       "1": with mat_queue_mode 2, log any frame whose inputs changed
+                                     while the render thread drew it (slow; validation only).
+          TF2VIEW_FRAME_HASH         "1": log every frame's tick, draw-input and pixel hashes, to
+                                     compare runs (a read-back a frame; validation only).
           TF2VIEW_WINDOW_POS         "85,78": window position, X,Y.
           TF2VIEW_WINDOW_SIZE        "1576x889": WIDTHxHEIGHT of the WINDOW. At 100% scaling the
                                      frame adds 296x169, so 1576x889 gives a 1280x720 viewport.
