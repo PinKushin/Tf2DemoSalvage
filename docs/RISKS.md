@@ -40107,6 +40107,9 @@ hand-off, and the engine also runs a worker pool started at boot. Parity audits 
 `Draw` serially, which is mode 0 only. Estimated 1-1.5 ms of the f12 frame (not measured); may add one frame of
 latency, which needs the owner's say. Design and plan in finding 98; first step a Ghidra read of what -1 resolves to.
 
+**Read from the binary** (finding 99): `-1` is mode 2 on 2+ physical cores; one frame in flight (two queued contexts,
+`EndFrame` waits on the previous frame's play); no held frame, so no added latency to match. Remaining: the snapshot.
+
 ## B575 — the exposure histogram is counted pixel by pixel on the processor, every frame — FIXED (2026-10-22)
 
 **Fixed** (finding 95, `measurements/2026-10-22-exposure-queries.md`): the shape is replaced, not patched. The engine's

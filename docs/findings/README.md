@@ -354,6 +354,9 @@ in any public writeup found:
 - **TF2 draws on a second thread and we draw on one.** It ships `mat_queue_mode -1` and queues material-system calls
   to a render thread; we have only its mode 0 (B581). Only `draw` can move, not `hud`: an estimated 1-1.5 ms of 13.4,
   and possibly one frame of latency, still to be read in `materialsystem.dll` ([98](98-the-queued-material-system.md)).
+- **TF2's queue is one frame deep and holds no frame.** In `materialsystem.dll`, `-1` is mode 2 on 2+ physical cores;
+  `EndFrame` waits for the previous frame's play, swaps two queued contexts and hands the new one to a one-thread
+  `MatQueue` pool, which presents as soon as it finishes; `Lock` is a full drain ([99](99-the-queue-in-materialsystem-dll.md)).
 - **The engine does the same work for less, not less work.** Stage by stage against the engine's frame, the places it
   caches, skips or waits for a change and we do not hold at most 1.8-2.1 ms of a 12 ms frame (bursts, visibility
   filters, the HUD event feed, detail props; B578-B581), estimated at 0.6-1.2 ms to fix. The unsplit `draw` phase
