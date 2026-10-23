@@ -639,7 +639,13 @@ handed. Every other public member takes `Lock()` first or only reads.
 *Left:* step 6's remaining question and step 7.
 
 - Whether the gate's "previous frame saw another view" condition can go, since each half now holds its own decision.
-- The quiet-gated ABBA measurement of the saving on f12 (step 7). Not measured here, by instruction.
+- The quiet-gated ABBA measurement of the saving on f12 (step 7). Not measured here, by instruction. **The columns
+  moved**: the wait is now in `camera` (its part `camera wait`, and `queue wait FinishDrawBeforePose` in the ledger),
+  not `draw`. So rung 1's "`draw` drops to 0.66-0.73 ms" (measurements/2026-10-23-queued-render-thread-rung-1.md) and its `queue wait FinishPreviousDraw` are not comparable
+  column for column; compare the frame time.
 - Then rung 3: double-buffer the pose, particles and HUD, so the wait can move to the hand-off as `EndFrame`'s does.
-- *Not covered by any run here*: mode 2 on a monitor map. On f12 the `MonitorCull`/`BspVisibility` overlap never
-  happens; (d) rests on the threaded unit test and the reading.
+- *Mode 2 on the monitor map*, `b511_boardwalk_mirror.dem` from 1900, 20 s, verifier on: `17000 frames checked,
+  0 changed`, no exception, `camera wait` on the rate line. **Not established**: that the monitor pass drew in those
+  frames. The log names no monitor, and the verifier's cull part does not cover `MonitorCull`. Step 0's shot from the
+  same opening view drew the mirrors, so it most likely did (*interpolated*). (d) still rests mainly on the threaded
+  unit test and the reading.
