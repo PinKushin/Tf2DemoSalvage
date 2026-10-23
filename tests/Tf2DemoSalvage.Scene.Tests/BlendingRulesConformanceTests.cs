@@ -36,7 +36,10 @@ public sealed class BlendingRulesConformanceTests
             "StandardBlendingRules runs inside SetupBones, which a culled entity never reaches");
     }
 
-    /// <remarks>The control: the same entity in view builds its autoplay layer, so the observation can tell the two apart.</remarks>
+    /// <remarks>
+    /// The control: the same entity in view builds its autoplay layer, so the observation can tell the two apart. Green
+    /// before the change too, as is the next test; only the first test here was red before it.
+    /// </remarks>
     [Test]
     public void Instances_TheSameEntityInView_BuildsItsAutoplayLayer()
     {
@@ -65,11 +68,52 @@ public sealed class BlendingRulesConformanceTests
         models.LayersOf(4).ShouldNotBeNull().Select(layer => layer.Sequence).ShouldBe([Autoplaying]);
     }
 
-    private static SceneProp Prop(float x) =>
+    /// <remarks>
+    /// **Culled at 0.5 s, then drawn at 1.5 s: the layer is the later frame's**, built from that frame's inputs and not the
+    /// pending ones of the frame that never set up. The prediction is exact: a model set that only ever drew at 1.5.
+    /// </remarks>
+    [Test]
+    public void Instances_CulledThenDrawn_BuildsTheDrawnFramesAutoplayLayer()
+    {
+        SceneProp behind = Prop(x: -5000f);
+        SceneProp ahead = Prop(x: 500f);
+        EntityModelSet models = Loaded(behind);
+        EntityModelSet control = Loaded(ahead);
+
+        models.Instances([behind], [], seconds: 0.5d, frustum: LookingAlongX());
+        models.Instances([ahead], [], seconds: 1.75d, frustum: LookingAlongX());
+        control.Instances([ahead], [], seconds: 1.75d, frustum: LookingAlongX());
+
+        PoseLayer expected = control.LayersOf(4).ShouldNotBeNull().Single();
+        PoseLayer layer = models.LayersOf(4).ShouldNotBeNull().Single();
+
+        layer.Frame.ShouldBe(expected.Frame);
+        layer.FrameFraction.ShouldBe(expected.FrameFraction);
+    }
+
+    /// <remarks>
+    /// **A new model on the same index is a new animating entity, and the hook moves with it.** Without re-hooking, the
+    /// new entity has no hook and builds no layers.
+    /// </remarks>
+    [Test]
+    public void Instances_AModelChangeOnAnIndex_StillBuildsTheLayers()
+    {
+        SceneProp first = Prop(x: 500f);
+        SceneProp second = Prop(x: 500f, model: "models/props_gameplay/resupply_locker_b.mdl");
+        EntityModelSet models = new() { Geometry = _ => Frames() };
+
+        models.Add([first, second], _ => Frames());
+        models.Instances([first], [], seconds: 0.5d, frustum: LookingAlongX());
+        models.Instances([second], [], seconds: 0.6d, frustum: LookingAlongX());
+
+        models.LayersOf(4).ShouldNotBeNull().Select(layer => layer.Sequence).ShouldBe([Autoplaying]);
+    }
+
+    private static SceneProp Prop(float x, string model = "models/props_gameplay/resupply_locker.mdl") =>
         new(
             4,
-            "models/props_gameplay/resupply_locker.mdl",
-            ScenePropTrack.Classify("models/props_gameplay/resupply_locker.mdl"),
+            model,
+            ScenePropTrack.Classify(model),
             new ScenePose { X = x, Sequence = 0, Cycle = 0f },
             null,
             ClientSideAnimated: true);

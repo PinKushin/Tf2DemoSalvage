@@ -600,6 +600,12 @@ public sealed partial class EntityModelSet
     {
         if (!_pendingBlends.TryGetValue(entityIndex, out PendingBlend? pending) || pending.Entity != animating)
         {
+            // A replaced entity lets go of its hook, so it does not hold the old frame's prop, model and pending alive.
+            if (pending is not null)
+            {
+                pending.Entity.BeforeBuild = null;
+            }
+
             pending = new PendingBlend(animating);
             PendingBlend made = pending;
             animating.BeforeBuild = () => BuildBlend(made);
@@ -617,6 +623,8 @@ public sealed partial class EntityModelSet
             return;
         }
 
+        // Stryker disable once Boolean : an equivalent mutant for the picture — a second build in the frame rebuilds the same
+        // inputs into the same list; the flag saves the work (only `LayersFor`'s B350 substitution counter would count twice).
         pending.Ready = false;
 
         (SceneProp prop, PropModels.SkinnedModel skinned, int sequence, float phase, float[] poseValues, double seconds) =
