@@ -4818,6 +4818,12 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         // Teardown is a full drain: the frame in flight holds the context and every resource released below.
         Queue.Dispose();
 
+        // A failed last frame is reported, not thrown: a throw here skipped leaving full screen and every release below.
+        if (Queue.TakeFailure() is { } failure)
+        {
+            _render.LogError(failure, "the last queued frame failed before teardown");
+        }
+
         // **Mandatory, and not merely tidy.** Releasing a swap chain while it holds the display
         // exclusively is undefined: DXGI documents that the swap chain must be returned to windowed
         // mode first, and in practice it hangs or leaves the display in the switched mode.

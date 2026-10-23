@@ -214,3 +214,7 @@ is -1.
   setter, `ClearMap`, the occlusion read) with a stack that blamed that caller. Now `Lock` only drains, and the failure
   is rethrown by `FinishPreviousDraw` and by `Submit`, the draw's own point, as in mode 0. Test:
   `Lock_AfterADrawThrew_DrainsWithoutThrowingAndTheNextSubmitRethrows`. Sabotage (rethrow put back in `Lock`) reddened it.
+- *Teardown after a failed frame.* `Device3D.Dispose` began with `Queue.Dispose()`, whose drain rethrew, so leaving
+  exclusive full screen, `ClearState`/`Flush` and every release were skipped. The queue's `Dispose` now drains without
+  throwing and `Device3D.Dispose` logs `TakeFailure()`. Test: `Dispose_AfterADrawThrew_DoesNotThrowAndKeepsTheFailure`
+  (queue level; the `Device3D` half has no test device and is read, not tested). Sabotage (rethrowing drain) reddened it.

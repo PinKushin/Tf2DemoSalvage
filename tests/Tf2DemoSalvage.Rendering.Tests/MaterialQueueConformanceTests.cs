@@ -229,6 +229,20 @@ public sealed class MaterialQueueConformanceTests
         finished.ShouldBeTrue();
     }
 
+    /// <remarks>Teardown after a failed frame must still reach its cleanup: `Device3D.Dispose` leaves exclusive full
+    /// screen and releases the device after this, so a throw here skipped all of it. The failure is kept for the log.</remarks>
+    [Test]
+    public void Dispose_AfterADrawThrew_DoesNotThrowAndKeepsTheFailure()
+    {
+        QueuedRenderThread queue = new() { Mode = MaterialThreadMode.QueuedThreaded };
+
+        queue.Submit(static () => throw new InvalidOperationException("drawn badly"));
+
+        Should.NotThrow(queue.Dispose);
+        queue.TakeFailure().ShouldBeOfType<InvalidOperationException>().Message.ShouldBe("drawn badly");
+        queue.TakeFailure().ShouldBeNull();
+    }
+
     /// <remarks>The render thread's own time, carried from where it ran, for `--measure`'s column.</remarks>
     [Test]
     public void TakeRenderTicks_AfterAQueuedDraw_IsPositiveThenZero()
