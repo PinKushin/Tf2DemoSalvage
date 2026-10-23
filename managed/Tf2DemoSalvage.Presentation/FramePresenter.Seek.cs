@@ -42,11 +42,8 @@ public sealed partial class FramePresenter
     /// <param name="show">Shows a tick as the window shows it, and answers what the window knows afterwards.</param>
     /// <param name="jumps">How many times the transport has jumped — a move is a skip only when this changed (D221).</param>
     /// <exception cref="ArgumentNullException"><paramref name="show"/> is null.</exception>
-    public void ShowMoment(in ViewFrame frame, double tick, Device3D? device, Func<double, ViewFrame> show, int jumps)
-    {
-        _seekQueue = device?.Queue;
-        ShowMomentOver(frame, tick, device, show, HasHud ? SkipHudFrame : null, jumps);
-    }
+    public void ShowMoment(in ViewFrame frame, double tick, Device3D? device, Func<double, ViewFrame> show, int jumps) =>
+        ShowMomentOver(frame, tick, device, show, HasHud ? SkipHudFrame : null, jumps, device?.Queue);
 
     /// <summary>
     /// The render thread a replay drains before it poses (B581): a seek's replays pose the ticks they cross, rewriting the
@@ -61,10 +58,19 @@ public sealed partial class FramePresenter
     /// <param name="show">Shows a tick, and answers what the window knows afterwards.</param>
     /// <param name="skipHudFrame">One skip frame of the HUD, or null.</param>
     /// <param name="jumps">How many times the transport has jumped.</param>
+    /// <param name="queue">The render thread a replay drains before it poses, or null.</param>
     internal void ShowMomentOver(
-        in ViewFrame frame, double tick, IDecalUpload? device, Func<double, ViewFrame> show, Action<DemoTimeline, int>? skipHudFrame, int jumps = 0)
+        in ViewFrame frame,
+        double tick,
+        IDecalUpload? device,
+        Func<double, ViewFrame> show,
+        Action<DemoTimeline, int>? skipHudFrame,
+        int jumps = 0,
+        QueuedRenderThread? queue = null)
     {
         ArgumentNullException.ThrowIfNull(show);
+
+        _seekQueue = queue;
 
         _jumpsNow = jumps;
         _frame = frame;
