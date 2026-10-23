@@ -143,20 +143,23 @@ public sealed class MaterialQueueConformanceTests
         queue.TakeWaits().ShouldContain(wait => wait.Caller == "CaptureNextFrame" && wait.Ticks >= 0);
     }
 
+    /// <remarks>Bounded, so a broken guard FAILS rather than hanging the run: the inner `Lock` would wait on its own
+    /// frame for ever. Not disposed on failure, since `Dispose` drains and would hang the same way; the thread is a
+    /// background one and does not hold the process.</remarks>
     [Test]
     public void Lock_OnTheRenderThread_DoesNotWaitForItself()
     {
-        using QueuedRenderThread queue = new() { Mode = MaterialThreadMode.QueuedThreaded };
-        bool returned = false;
+        QueuedRenderThread queue = new() { Mode = MaterialThreadMode.QueuedThreaded };
+        using ManualResetEventSlim returned = new();
 
         queue.Submit(() =>
         {
             queue.Lock();
-            returned = true;
+            returned.Set();
         });
-        queue.Lock();
 
-        returned.ShouldBeTrue();
+        returned.Wait(TimeSpan.FromSeconds(10)).ShouldBeTrue();
+        queue.Dispose();
     }
 
     /// <remarks>A draw that throws must not kill the thread and leave the game thread waiting for ever.</remarks>
