@@ -40,3 +40,47 @@ phase columns and the residual, not the frame mean (same-mode spread up to 3.3 m
 
 **Verdict rule.** Mode 2 saves less than ~0.8 ms against mode 0 → stop and report with numbers; read the wait ledger first
 (an early `Lock` on the overlapped path collapses the overlap and is fixable).
+
+## Results
+
+**Deviations from the record, stated.** Binary: `6a73f54f` (the record's `46275fc9` plus a verifier log line only). Two other
+agents measured on the machine during the session. The first A1/B1 pair (13.48 / 12.71 ms) ran at 65-70% load and is
+discarded. One B2 attempt is discarded at 14.49 ms: two seconds held 14-17 ms waits and every phase, including the camera,
+was slower, which is the machine. Another B2 attempt exited 1 with no output. While investigating it, this agent stopped a
+tf2demoview process by PID believing it was its own orphan. It was probably another agent's run; that is reported, not
+hidden. "Load before" was sampled before the lock wait, so it describes the queue, not the run. A2 was sampled at 93-100%
+while another run held the lock. Its numbers match A1 within 0.15 ms and it is kept, flagged.
+
+**Validation run V** (mode 2, `TF2VIEW_QUEUE_VERIFY=1`, load 37%). The log read `queue verify: 715000 frames checked, 0
+changed` by the end. That count includes the loading screen's frames. During playback the count rose about 500 every 6 s,
+which is every played frame. **No queued frame's inputs changed while it was drawn.** The only lock that waited in any mode-2
+run was `FinishPreviousDraw`: nothing on the overlapped path touched the device.
+
+| # | mode | load before % | frames | mean ms | draw (game thread) | between | camera | advance | frame - phases |
+|---|---|---|---|---|---|---|---|---|---|
+| A1 | 0 | 27-45 | 1464 | 13.66 | 2.15 | 0.45 | 8.64 | 1.21 | 0.00 |
+| B1 | 2 | 18-45 | 1677 | 11.93 | 0.73 | 0.43 | 8.24 | 1.33 | 0.00 |
+| B2 | 2 | 29-57 | 1729 | 11.57 | 0.66 | 0.40 | 8.08 | 1.29 | 0.00 |
+| A2 | 0 | 93-100 (flagged) | 1481 | 13.51 | 2.15 | 0.52 | 8.45 | 1.20 | 0.00 |
+
+`frame - phases`: each row's phases plus `between` sum to its mean within 0.01 ms. Mode 0 prints no `queue` part (control a).
+
+Mode 2 per-second parts:
+
+- B1: `queue render thread` 1.26-7.48 ms, with 2.83 the unweighted mean of the seconds; `queue wait FinishPreviousDraw` 0.02-5.56, with 1.05 the unweighted mean.
+- B2: render thread 1.20-7.21 ms (2.62); wait 0.04-4.84 ms (0.94).
+
+These per-second means are unweighted by frames, so they are not directly comparable with the frame-weighted `draw` of mode 0.
+
+**Results.**
+
+- **Mode 2 saves 1.73-1.94 ms a frame on f12**: 11.57-11.93 ms against 13.51-13.66, about 13%, or 74 → 85 fps. That is at the
+  top of the 1.0-1.6 ms prediction. **The checkpoint passes.**
+- The game thread's `draw` falls from 2.15 ms to 0.66-0.73, which is the wait plus the hand-off.
+- `camera` read 0.2-0.6 ms lower in mode 2 than in mode 0. This is observed, not explained. A candidate, untested: the camera
+  no longer runs straight after a draw that evicted its cache.
+- **Is the draw slower on the render thread? Not settled.** The render thread's per-second mean (2.6-2.8, unweighted)
+  is above serial's frame-weighted 2.15. The two are different averages, and the overlap of the first seconds, which are
+  heavier, inflates the first. A frame-weighted render-thread column is needed to answer it. The snapshot record's
+  0.9 ms slowdown, with a 3.4 MB copy, is not present at that size: the frame saving exceeds the whole serial draw
+  minus the remaining wait.

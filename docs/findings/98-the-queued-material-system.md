@@ -183,3 +183,27 @@ resolves to, when `EndFrame` waits, and how many frames are in flight.
 more, so the full-copy design stopped at checkpoint 1. If the flex and particle buffers were double-buffered instead, the
 copy left would be 0.19-0.32 ms. The cull inside `SetCamera` stays on the game thread; its outputs are state to
 double-buffer. The owner decides whether to build that shape.
+
+## (9) Follow-up, 2026-10-23: rung 1, no snapshot at all, saves 1.7-1.9 ms
+
+**The wrong turn, kept.** The plan ranked the double-buffers by copy cost and put the flex streams first. That ranking
+assumed the engine's wait at `EndFrame`. Read against the code, the flex streams are written by the pose in `ProjectWorld`,
+after the camera. So with the wait placed before the camera, *nothing on the overlapped path writes anything the draw reads*.
+No buffer is double-buffered or copied in rung 1. The task's order would have built the most expensive part first for a
+stage that does not yet overlap. (*Read from our code*: `MomentPresenter.Show` only selects, `MomentPresenter.PoseNow` poses
+after the camera, and `EntityModels.AdvanceCorpses` is called only from the pose. A seek's replays DO pose, so they drain
+first.)
+
+**Measured** (`measurements/2026-10-23-queued-render-thread-rung-1.md`, ABBA, same binary):
+
+- Mode 2 runs at 11.57-11.93 ms against 13.51-13.66 for mode 0, on f12 first person.
+- The game thread's `draw` drops to 0.66-0.73 ms.
+- The verifier hashes every queued frame's inputs at the hand-off and again after the draw: 0 mismatches.
+- The overlap is the gap between frames plus `Simulate`. That is more than the prototype's 0.5 ms, because the wait moved
+  from the start of the frame to before the camera, past the simulation.
+
+**What the owner would see at mode 2:** nothing but the frame rate. Screenshots and `--shot` drain first. While the opening
+countdown runs, a pending capture's settle test reads the device each frame, so a queued capture waits on the draw, as the
+engine's read-backs need mode 0. Exclusive full screen draws serially. There is no held frame: frame N is presented as soon
+as its draw finishes, as in the engine (finding 99 section 4). It ships off: `mat_queue_mode` defaults to 0 here, where TF2's
+is -1.

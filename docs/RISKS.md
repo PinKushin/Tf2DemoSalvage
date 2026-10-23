@@ -40110,6 +40110,34 @@ latency, which needs the owner's say. Design and plan in finding 98; first step 
 **Read from the binary** (finding 99): `-1` is mode 2 on 2+ physical cores; one frame in flight (two queued contexts,
 `EndFrame` waits on the previous frame's play); no held frame, so no added latency to match. Remaining: the snapshot.
 
+**Rung 1 built, 2026-10-23 (branch `feat/queued-render-thread`, OFF by default).** What it does:
+
+- `mat_queue_mode 2` draws on one `MatQueue`-style thread (`QueuedRenderThread`), one frame in flight.
+- `-1` resolves as the engine does: threaded on 2+ physical cores.
+- Every public `Device3D` member takes the engine's `Lock`, a full drain. The drain also runs on seek replays, map changes,
+  captures, teardown and leaving mode 2.
+
+**Still a divergence.** The game thread waits before `PlaceCamera`, not at the hand-off as `EndFrame` does. Only the gap,
+the shot stage and `Simulate` overlap the draw.
+
+**Measured** (`measurements/2026-10-23-queued-render-thread-rung-1.md`): on f12, 11.57-11.93 ms against 13.51-13.66 in mode
+0, a saving of 1.7-1.9 ms. A verifier run checked every played frame and found 0 of them with inputs changed while drawn.
+
+**Next rung.** Double-buffer what `PlaceCamera`, `ProjectWorld` and `BuildOverlay` write and the draw reads:
+
+- the cull fields in `Device3D.SetCamera`;
+- the particle batches;
+- the pose's matrices, bones and flex;
+- the VGUI list.
+
+The wait can then move to the hand-off, which is parity.
+
+**Not done:**
+
+- the 200-frame f12 image-hash equivalence;
+- a test for the seek drain (the wiring needs a real `Device3D`);
+- a frame-weighted render-thread column.
+
 ## B575 — the exposure histogram is counted pixel by pixel on the processor, every frame — FIXED (2026-10-22)
 
 **Fixed** (finding 95, `measurements/2026-10-22-exposure-queries.md`): the shape is replaced, not patched. The engine's
