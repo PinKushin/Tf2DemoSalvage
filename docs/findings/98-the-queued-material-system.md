@@ -420,3 +420,23 @@ setters read `Cull`. The frame-hash and verifier cull parts hash the handed half
   The pose's two-to-eleven-tick run near 30170 is in the control too, so it is the known run-to-run difference, not this
   change. The cull hash cannot see which half the draw reads (both are equal here); that rests on the sabotage above.
 - *Mode 2:* `queue verify: 853000 frames checked, 0 changed` (f12, `--measure 20`, same flags).
+
+**What step 2 must do, exactly (not started as of `fa42d9e0`).** The hook is in place: `ViewHalves` calls
+`Device3D.ReplayUploads(half)` at `Begin`, before `DrawFrame`; it is empty today.
+
+- Record, do not send, the GAME-THREAD uploads only: the `_world.SetCamera` in `SetCamera(float[])`, the gate's
+  `ReapplyCamera(half)` after `PlanWater`, the `WorldFog`/`Specular`/`Phong`/`Fullbright`/`Debug` setters'
+  `ReapplyCamera(Half)`, and the `_detailSprites.Upload` in `RebuildDetailSprites` (move its `TakeDetailUpload` with
+  it: what the buffer holds follows draw order, not cull order). Record VALUES (matrix, colours, specular, fullbright,
+  debug, phong, fog), last one wins per half; replay one `_world.SetCamera`.
+- The draw-time `ReapplyCamera(Drawn/view)` restores stay immediate sends (after the 3D sky, the water views, the
+  monitor, the viewmodel pass, the HUD model panels); a recorder there would draw the map through the sky or viewmodel
+  camera.
+- Replay before `DrawFrame` sets `_world.LinearLightScale`: `WorldRenderer.SetCamera` writes that scale into the
+  constant buffer, and the old game-thread upload saw the previous frame's end value.
+- Test the recorder as a pure type: values captured at record time, last wins, each half replays its own.
+- **The hashes cannot see GPU uploads**, so step 2's mode-0 hash runs come back equal whether it is right or wrong.
+  The instrument for it is a `--shot` pixel comparison, step-1 binary against step-2 binary, at fixed ticks on a map
+  with water, a 3D sky and detail sprites, with two shots from the step-1 binary first as the control. If that control
+  differs, say so and rely on the recorder's tests. The rebuilt-baseline method above (a second worktree at the parent
+  commit, same command) is the control for the hash runs.
