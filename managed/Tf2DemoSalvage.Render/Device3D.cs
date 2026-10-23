@@ -3406,6 +3406,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
     /// </remarks>
     public void SetCamera(FreeCamera camera, bool surfaceColours = false)
     {
+        ObjectDisposedException.ThrowIf(_disposed, this);
         ArgumentNullException.ThrowIfNull(camera);
 
         // **No lock** (finding 98 §9 step 4): everything below writes the game thread's own half and fields; the draw
