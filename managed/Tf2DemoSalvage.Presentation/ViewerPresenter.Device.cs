@@ -103,8 +103,7 @@ public sealed partial class ViewerPresenter
         // **The pose begins with the wait for the frame in flight**, timed on its own (B581 rung 2, finding 98 §9 step 5):
         // `SetCamera` above wrote only its own view half, so it overlapped the draw; the pose rewrites what the draw reads.
         long waitAt = Stopwatch.GetTimestamp();
-        long waited = PoseOver(device);
-        long posingAt = waitAt + waited;
+        long posingAt = PoseOver(device);
 
         long particlesAt = Stopwatch.GetTimestamp();
 
@@ -118,7 +117,7 @@ public sealed partial class ViewerPresenter
             parts.Add("camera view", deviceAt - viewAt);
             // `posingAt - deviceAt` also covers the six `device.*` feed writes before `SetCamera`, so it exceeds the seven parts' sum by microseconds.
             parts.Add("camera setcamera", waitAt - deviceAt);
-            parts.Add("camera wait", waited);
+            parts.Add("camera wait", posingAt - waitAt);
 
             // The device's own split of that, as it timed it (B243). Indexed, because a foreach over the interface
             // allocates an enumerator on every measured frame.
@@ -176,21 +175,20 @@ public sealed partial class ViewerPresenter
     internal Action? Posed { get; set; }
 
     /// <summary><see cref="PoseNow"/> over a device a test can read.</summary>
-    /// <returns>How long the wait for the frame in flight took, in stopwatch ticks, carried to the `camera wait` part.</returns>
+    /// <returns>The timestamp read when the wait for the frame in flight ended and the pose began, carried to the
+    /// `camera wait` and `camera pose` parts (B243).</returns>
     /// <remarks>**The one wait before the pose, for both callers** (finding 98 §9 step 5): the camera stage, and
     /// `ProjectWorld`'s pose on a frame whose camera upload returned early.</remarks>
     internal long PoseOver(IViewerDevice device)
     {
-        long at = Stopwatch.GetTimestamp();
-
         device.FinishDrawBeforePose();
 
-        long waited = Stopwatch.GetTimestamp() - at;
+        long posingAt = Stopwatch.GetTimestamp();
 
         _moments.PoseNow(device.Frustum, device.Views, device.Eye, device.ScreenView, device.DrawsMonitor);
         Posed?.Invoke();
 
-        return waited;
+        return posingAt;
     }
 
     /// <summary>Hands this frame's scene to the device.</summary>

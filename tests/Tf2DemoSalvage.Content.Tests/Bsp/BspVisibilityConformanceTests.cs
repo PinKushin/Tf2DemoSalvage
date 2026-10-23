@@ -74,7 +74,7 @@ public sealed class BspVisibilityConformanceTests
     /// lump, which is the detail a reader gets wrong first and which produces a plausible wrong
     /// answer rather than a failure.
     /// </remarks>
-    private static byte[] Lump(int clusters, params byte[][] rows)
+    internal static byte[] Lump(int clusters, params byte[][] rows)
     {
         List<byte> lump = [];
         int table = 4 + (clusters * 8);
@@ -248,57 +248,5 @@ public sealed class BspVisibilityConformanceTests
         visibility.Visible(0, -1).ShouldBeFalse();
         visibility.Visible(0, 999).ShouldBeFalse();
         visibility.Visible(999, 0).ShouldBeFalse();
-    }
-
-    /// <remarks>
-    /// **Not Valve's behaviour but ours: one lump, read from two threads at once** (B581 rung 2). Every
-    /// `WorldCulling.Twin()` shares the map's one <see cref="BspVisibility"/>, and its row cache fills on first use, so
-    /// the game thread's cull and the render thread's monitor cull insert into it concurrently. A plain dictionary
-    /// corrupts or throws under that. Every answer is compared with a serial reading of a second, untouched instance.
-    /// </remarks>
-    [Test]
-    public void Visible_FromFourThreadsAtOnce_AnswersAsOneThreadDoes()
-    {
-        const int Clusters = 4096;
-        byte[] row = new byte[Clusters / 8];
-
-        for (int at = 0; at < row.Length; at++)
-        {
-            row[at] = (byte)((at * 37) ^ (at >> 2));
-        }
-
-        byte[] lump = Lump(Clusters, row);
-        BspVisibility reference = BspVisibility.FromLump(lump);
-        bool[] expected = new bool[Clusters];
-
-        for (int from = 0; from < Clusters; from++)
-        {
-            expected[from] = reference.Visible(from, (from * 11) % Clusters);
-        }
-
-        BspVisibility shared = BspVisibility.FromLump(lump);
-        int wrong = 0;
-
-        System.Threading.Tasks.Task[] readers = new System.Threading.Tasks.Task[4];
-
-        for (int thread = 0; thread < readers.Length; thread++)
-        {
-            int stride = (thread * 2) + 1;
-
-            readers[thread] = System.Threading.Tasks.Task.Run(() =>
-            {
-                for (int step = 0; step < Clusters; step++)
-                {
-                    int from = (step * stride) % Clusters;
-                    if (shared.Visible(from, (from * 11) % Clusters) != expected[from])
-                    {
-                        System.Threading.Interlocked.Increment(ref wrong);
-                    }
-                }
-            });
-        }
-
-        System.Threading.Tasks.Task.WaitAll(readers, TimeSpan.FromSeconds(30)).ShouldBeTrue("a corrupted dictionary can loop for ever");
-        wrong.ShouldBe(0);
     }
 }
