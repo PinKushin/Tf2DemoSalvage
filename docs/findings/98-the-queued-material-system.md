@@ -231,3 +231,87 @@ is -1.
   `DXGI_MWA_NO_WINDOW_CHANGES` was NOT set, against the review's suggestion: it stops DXGI giving the display back when
   exclusive full screen loses focus, a mode-0 change. So a focus loss can still leave `IsExclusiveFullScreen` stale, as
   before. **Not tested**: DXGI cannot read the flags back, and no test owns a window.
+
+**Rung 2, first step, 2026-10-23 (branch `feat/queued-render-thread-rung-2b`).** Rung 2 moves the drain from before
+`PlaceCamera` to the pose's entry, so `SetCamera` (0.7-1.8 ms, measurements/2026-10-23-queued-render-thread-rung-1.md)
+overlaps the frame in flight. That does not fit one
+session. This step builds the data structure and leaves the drain where it was.
+
+*Done:*
+
+- `ViewHalf` (`managed/Tf2DemoSalvage.Render/ViewHalf.cs`). Each half holds its own `WorldCulling` (via the new
+  `WorldCulling.Twin()`), its own `OverlayRenderLists`, its own `CulledFor`, and its own runs: visible, translucent
+  leaves, overlays and sky. `SetCamera` flips the half at entry and culls into it. A half that skips installs its own
+  lists into the renderer.
+- The cull now also reruns when the *previous* frame saw a different view. Two wrong turns got here:
+  - *First:* each half kept its own copy of the sky and water decision and restored it on a skip.
+  - *Then:* sabotage showed that restore was unobservable. Restoring the *other* half gave a cull part identical to
+    baseline on all 188 compared ticks. It turned out the restore only matters when a view is revisited two frames
+    apart (A, B, A).
+  - *Now:* the extra condition makes every skip follow a frame of the same view, so the device's single sky, water and
+    fog state is already right for it. A still camera still culls once per half, then skips.
+- Invalidation clears both halves:
+  - `SetWorldCulling`: runs dropped, culling and twin set.
+  - `UploadWorldGeometry`: one overlay queue per half.
+  - The `Draw3dSky` setter: `CulledFor` dropped.
+  - B426, the material upload (`UploadWorld`, `UploadWorldTextures`): `DropMaterialRuns` drops the translucent leaves
+    and overlays. These mirror what `WorldRenderer.ReleaseTextures` nulls in the renderer.
+- Tests:
+  - `Twin_OfASkyMap_CullsAsTheOriginalDoes` and `Twin_CullingNothing_LeavesTheOriginalsRunsStanding`. Sabotage
+    (`Twin` returning `this`) reddened the second.
+  - `UploadCameraOver_InModeTwoWithAFrameInFlight_OverlapsSetCameraButNotThePose`, the pending rung-2 contract.
+    It is `[Explicit]` and red today for the predicted reason: the device read `SetCamera in flight True` … `posed in
+    flight True`, because nothing drains inside `UploadCameraOver` yet.
+
+*Equivalence* (`TF2VIEW_FRAME_HASH=1`, `TF2VIEW_FIXED_FRAME=0.015`, f12 from tick 30000, `--measure 6`; each tick
+compared once by its first frame):
+
+- Baseline, at `d31fbe20`:
+  - two mode-0 runs agreed on cull and pose at 187/187 ticks;
+  - mode 2 agreed with each of them at 183/183.
+- After the change, cull equal on every compared tick:
+  - fin-A1 vs fin-A2: 197/197;
+  - baseline vs new mode 0: 188/188 and 187/187;
+  - new mode 0 vs new mode 2: 200/200;
+  - baseline mode 0 vs new mode 2: 188/188.
+- The pose part diverges over a late run of ticks in some runs, for example from 30167 to the end of one run. It does
+  this on the baseline binary too (two more `301facbb` runs diverge from 30179 and from 30181). So it is pre-existing
+  and timing-dependent, and *not* this change. Rung 1's 183-188/183-188 pose equality happened to end before it.
+
+**The serial cull part cannot tell one half from the other.** While the drain stays before `PlaceCamera`, both halves
+hold the same contents for the same view. So a wrong half selection draws identical pixels and an identical cull part.
+The twin's unit test is the only control that reddens until frames overlap.
+
+*Found, pre-existing:* the queue verifier reports **1 changed** frame in about 805,000 on f12 mode 2. It shows up on two
+runs of this branch and on one run of `301facbb`, the commit before `ViewHalf`. In all three the after-draw hash was
+`797b7875ed158fa` and the change came at a "model set grew" upload stall. Rung 1's 715,000-frame 0 predates the cull
+part (`d31fbe20`), so the likeliest reading is that the cull part exposed a game-thread write the earlier parts did not
+cover. *Interpolated*: the part that changed was not split out.
+
+*Left, in order:*
+
+1. Move into the half everything the gate still writes once:
+   - `_skyVisible`, `_eye`, `_placed`, `_skyFrustum`, `_skyEye` and `_skyCamera`;
+   - `_waterDraw` (a closure reading `_eye` and `_skybox` while it draws), `_waterMainFog` and `_simpleViewDraws`;
+   - `_frustum`, `_screenView`, `_translucentEye`/`Forward`, `_monitorView` and `_worldCamera`;
+   - the detail sprites: `_detailBuiltFor`, the instances, `_detailCorners` and `_detailLeaves`.
+2. Record the immediate-context uploads into the half and replay them at the start of the draw:
+   - `_world.SetCamera` from `SetCamera(float[])`;
+   - `ReapplyCamera`, called by `PlanWater` and by the Specular and Phong setters;
+   - `_detailSprites.Upload`.
+3. Split the readers of `Half`/`Culling` into game-thread readers and draw-time readers. Each draw-time reader must
+   read the half its frame installed, because `_cullHalf` flips at the next `SetCamera`. Known draw-time readers:
+   - `DrawMonitorPass`. Its `Culling.Batches` call reuses the culling's main list, as it did before the halves;
+   - `DrawDetailStep` and `HasDetailAtPlace`;
+   - the translucent interleave (`HasTranslucentAtPlace`, `_world.TranslucentLeaves`).
+
+   `Views` and the leaf-system collation run on the game thread.
+4. Move the feed setters into the half without their `Lock`: `WorldFog`, `SkyFog`, `MonitorCamera`, `Tonemap`,
+   `ExposureSeconds` and `ObserverTarget`. The tone-mapping reset in `ObserverTarget` becomes a flag the draw applies.
+   Then drop `Lock` from both `SetCamera`s. Any lock left behind just moves the wait.
+5. Move the wait to the pose's entry and remove `[Explicit]` from the pending test. Then sabotage: break the half
+   selection and watch the verifier and the test redden.
+6. Cull-hash runs: two mode-0 runs as the control, then mode 2. Then the mode-2 wait ledger.
+7. A measurement record, then a quiet-gated ABBA run on f12.
+
+Before step 5, find the pre-existing verifier change above. Otherwise it will be blamed on the overlap.

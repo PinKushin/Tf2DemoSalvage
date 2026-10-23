@@ -40151,6 +40151,10 @@ The wait can then move to the hand-off, which is parity.
 
 **Review fixes, 2026-10-23:** finding 98 section 9, "Review fixes".
 
+**Rung 2, first step, 2026-10-23 (branch `feat/queued-render-thread-rung-2b`):** `ViewHalf`, a twin culling per half,
+and both-half invalidation, with the drain left where it was. What is left, in order, and the verifier's one
+pre-existing changed frame: finding 98 section 9, "Rung 2, first step".
+
 ## B575 — the exposure histogram is counted pixel by pixel on the processor, every frame — FIXED (2026-10-22)
 
 **Fixed** (finding 95, `measurements/2026-10-22-exposure-queries.md`): the shape is replaced, not patched. The engine's

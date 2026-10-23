@@ -1267,7 +1267,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         // view's frustum would leave out exactly what a mirror shows — everything behind the player.
         if (_monitorCull.For != pointCamera)
         {
-            _monitorCull = (pointCamera, _culling?.Batches(
+            _monitorCull = (pointCamera, Culling?.Batches(
                 view.Origin.X, view.Origin.Y, view.Origin.Z, view.Frustum(), world.IsTwoSidedMaterial));
         }
 
@@ -1711,7 +1711,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
                 // (`viewrender.cpp:4465`), not `DrawWorld`. A static prop behind glass was painted over it (B426).
                 // A culled map draws it leaf by leaf between the translucent models below; one that cannot be
                 // culled has no leaves to interleave by and draws it all here.
-                TranslucentLeafRuns? worldLeaves = _culling is not null ? _world.TranslucentLeaves : null;
+                TranslucentLeafRuns? worldLeaves = Culling is not null ? _world.TranslucentLeaves : null;
 
                 if (worldLeaves is null)
                 {
@@ -2083,6 +2083,18 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
 
         _world ??= WorldRenderer.Create(_device, _loggers);
         _world.UploadMap(_device, _context, world.Vertices, world.Batches, assets);
+        DropMaterialRuns();
+    }
+
+    /// <summary>The material upload's invalidation (B426), in both halves: the renderer drops its translucent runs and
+    /// overlays, gathered by the material kinds it just released, and either half could cull next.</summary>
+    private void DropMaterialRuns()
+    {
+        foreach (ViewHalf half in _halves)
+        {
+            half.TranslucentLeaves = null;
+            half.Overlays = null;
+        }
     }
 
     /// <summary>Uploads a map's textures, without touching its geometry.</summary>
@@ -2095,6 +2107,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
 
         _world ??= WorldRenderer.Create(_device, _loggers);
         _world.UploadTextures(_device, _context, assets);
+        DropMaterialRuns();
 
         _water = assets.Water;
         _waters = assets.Waters;
@@ -2133,7 +2146,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         _waterMainFog = null;
         _simpleViewDraws = WorldRenderer.AllWaterDraws;
 
-        if (_culling is not { CanCull: true } culling || _water.Volumes.Count == 0)
+        if (Culling is not { CanCull: true } culling || _water.Volumes.Count == 0)
         {
             return;
         }
@@ -2226,12 +2239,15 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         _world.UploadGeometry(_device, world.Vertices, world.Batches);
 
         // Queued per view from the walk, in SetCamera (B457); null until then.
-        _overlays = new OverlayRenderLists(world.OverlayFragments, world.FaceSpans);
+        // One queue per view half, because each reuses the lists it returns (B581 rung 2).
+        foreach (ViewHalf half in _halves)
+        {
+            half.OverlayLists = new OverlayRenderLists(world.OverlayFragments, world.FaceSpans);
+            half.Overlays = null;
+        }
+
         _world.Overlays = null;
     }
-
-    /// <summary>The map's overlay fragments, queued per view (B457).</summary>
-    private OverlayRenderLists? _overlays;
 
     /// <summary>The vertex light a mod2x decal's corners carry — the reasoning is on the renderer's own constant.</summary>
     public const float ModulateTwiceLight = WorldRenderer.ModulateTwiceLight;
@@ -2250,8 +2266,19 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         _world?.UploadShotDecals(_device, _context, vertices, batches, entityBatches);
     }
 
-    /// <summary>How this map decides what of the world to draw, or null to draw all of it.</summary>
-    private WorldCulling? _culling;
+    /// <summary>The two view halves `SetCamera` alternates between (B581 rung 2, <see cref="ViewHalf"/>).</summary>
+    private readonly ViewHalf[] _halves = [new(), new()];
+
+    /// <summary>Which half the current frame culls into and draws from.</summary>
+    /// <remarks>Flipped at the start of each <see cref="SetCamera(FreeCamera, bool)"/>, so one frame's every reader, cull to draw,
+    /// sees one half. Sound while the drain stays before `PlaceCamera`: the frame in flight is finished before the flip.
+    /// Moving the drain later means splitting these readers into game-thread and draw-time ones (finding 98 §9).</remarks>
+    private int _cullHalf;
+
+    private ViewHalf Half => _halves[_cullHalf];
+
+    /// <summary>How this map decides what of the world to draw, or null to draw all of it: the current half's.</summary>
+    private WorldCulling? Culling => Half.Culling;
 
     /// <summary>The map's <c>sky_camera</c>, or null when it declares none.</summary>
     private ((float X, float Y, float Z) Origin, float Scale)? _skyRoom;
@@ -2288,8 +2315,11 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
             _draw3dSky = value;
 
             // The cull is only rerun on a view change, so a toggle flipped while the camera is
-            // still would otherwise not take effect until the user next moved.
-            _culledFor = null;
+            // still would otherwise not take effect until the user next moved. Both halves: either could cull next.
+            foreach (ViewHalf half in _halves)
+            {
+                half.CulledFor = null;
+            }
         }
     }
 
@@ -3001,7 +3031,8 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         ObjectDisposedException.ThrowIf(_disposed, this);
         Lock();
 
-        _culling = culling;
+        _halves[0].Culling = culling;
+        _halves[1].Culling = culling?.Twin();
         _reportedWorldCull = false;
 
         // **A new map is a new leaf system** (`LevelInitPreEntity`): every handle names the old tree's leaves.
@@ -3018,6 +3049,13 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         {
             _leafSystem = OneLeaf();
             _everyLeaf = [];
+        }
+
+        // Both halves: either could draw next.
+        foreach (ViewHalf half in _halves)
+        {
+            half.VisibleBatches = null;
+            half.TranslucentLeaves = null;
         }
 
         if (_world is not null)
@@ -3324,6 +3362,11 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         long startAt = Stopwatch.GetTimestamp();
         long batchesAt = 0, overlaysAt = 0, skyAt = 0, culledAt = 0;
 
+        // **This frame's view half** (B581 rung 2): the other may still be what the frame in flight draws from.
+        _cullHalf ^= 1;
+
+        ViewHalf half = Half;
+
         _frustum = camera.Frustum();
 
         // The main view the static props' screen fades measure through (B432), from the same camera.
@@ -3364,13 +3407,20 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
              camera.Angles, camera.FieldOfView, camera.NearZ, camera.FarZ, camera.Aspect);
 
         // **Also when the translucent runs were dropped** by a material upload, which the view did not change (B426).
-        if (_world is not null &&
-            (_culledFor != view || _world.VisibleBatches is null || _world.Overlays is null ||
-             (_world.TranslucentLeaves is null && _culling is { CanCull: true })))
-        {
-            _culledFor = view;
+        // **And when the PREVIOUS frame saw another view** (B581 rung 2): the cull gate also writes the device's sky and
+        // water decision, which the other half's frame may have rewritten for its view. Skipping only after a frame of
+        // this same view keeps that decision right without a per-half copy of it; a still camera still culls once per half.
+        bool sameAsPrevious = _previousView == view;
 
-            _world.VisibleBatches = _culling?.Batches(
+        _previousView = view;
+
+        if (_world is not null &&
+            (!sameAsPrevious || half.CulledFor != view || half.VisibleBatches is null || half.Overlays is null ||
+             (half.TranslucentLeaves is null && Culling is { CanCull: true })))
+        {
+            half.CulledFor = view;
+
+            _world.VisibleBatches = Culling?.Batches(
                 camera.Origin.X, camera.Origin.Y, camera.Origin.Z, _frustum, _world.IsTwoSidedMaterial);
 
             batchesAt = Stopwatch.GetTimestamp();
@@ -3379,9 +3429,9 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
 
             // **The same view's blended surfaces, by leaf place**, for the translucent interleave (B426) — a surface
             // carrying overlays in a run of its own, its overlays drawn straight after it (0x1800e4fd0, B457).
-            _world.TranslucentLeaves = _culling?.BlendedRuns(_world.IsBlendedMaterial, _overlays is { } separate ? separate.HasOverlays : null);
+            _world.TranslucentLeaves = Culling?.BlendedRuns(_world.IsBlendedMaterial, half.OverlayLists is { } separate ? separate.HasOverlays : null);
 
-            if (_world.TranslucentLeaves is { } leaves && _overlays is { } perSurface)
+            if (_world.TranslucentLeaves is { } leaves && half.OverlayLists is { } perSurface)
             {
                 leaves.OverlaysAfter = perSurface.ForTranslucentLeaves(leaves, overlayEye);
             }
@@ -3390,12 +3440,12 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
             // cannot be walked queues every face in buffer order.
             bool walked = _world.VisibleBatches is not null;
 
-            _world.Overlays = _overlays?.Order(
-                walked ? _culling?.Surfaces : null,
-                walked ? _culling?.Displacements : null,
+            _world.Overlays = half.OverlayLists?.Order(
+                walked ? Culling?.Surfaces : null,
+                walked ? Culling?.Displacements : null,
                 overlayEye,
                 _world.IsBlendedMaterial,
-                _culling is { } groups ? groups.SortGroup : null) ?? [];
+                Culling is { } groups ? groups.SortGroup : null) ?? [];
 
             overlaysAt = Stopwatch.GetTimestamp();
 
@@ -3411,7 +3461,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
             // **`r_3dsky`'s three states, decided exactly where Valve decides them** — the gate is
             // `PreRender3dSkyboxWorld` and the visibility it tests is taken from the MAIN view's
             // eye, before the sky camera's offset is applied.
-            _skyVisible = _culling?.SkyVisibleFrom(
+            _skyVisible = Culling?.SkyVisibleFrom(
                 camera.Origin.X, camera.Origin.Y, camera.Origin.Z) ?? SkyboxVisibility.None;
 
             // The 2D box is centred here. Kept from the same camera the cull used, so the sky and
@@ -3419,7 +3469,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
             _eye = (camera.Origin.X, camera.Origin.Y, camera.Origin.Z);
             _placed = true;
 
-            if (_skyRoom is { } room && _culling is { } cull &&
+            if (_skyRoom is { } room && Culling is { } cull &&
                 SkyboxView.Draws(Draw3dSky, _skyVisible, cull.SkyArea))
             {
                 FreeCamera sky = SkyboxView.CameraFor(camera, room.Origin, room.Scale);
@@ -3445,10 +3495,22 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
             PlanWater(camera);
             ReapplyCamera();
 
+            // Kept with the runs, so a later frame on this half that skips the cull restores this decision (B581 rung 2).
+            half.VisibleBatches = _world.VisibleBatches;
+            half.TranslucentLeaves = _world.TranslucentLeaves;
+            half.Overlays = _world.Overlays;
+            half.SkyBatches = _world.SkyBatches;
+
             culledAt = Stopwatch.GetTimestamp();
         }
         else
         {
+            // A skip means the previous frame saw this same view, so the device's sky and water decision is already this
+            // view's; only the runs come back, so the draw reads this half's lists and never the other's.
+            if (_world is not null)
+            {
+                half.InstallInto(_world);
+            }
             batchesAt = overlaysAt = skyAt = culledAt = uploadAt;
         }
 
@@ -3502,6 +3564,10 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         // map keeps the wrong projection until the user next moves.
         _worldCamera = (matrix, surfaceColours);
     }
+
+    /// <summary>The view the previous <see cref="SetCamera(FreeCamera, bool)"/> was given, culled or not.</summary>
+    private ((float X, float Y, float Z) Origin, (float Pitch, float Yaw, float Roll) Angles,
+             float Fov, float Near, float Far, float Aspect)? _previousView;
 
     /// <summary>The parts of the last <see cref="SetCamera(FreeCamera, bool)"/>, refilled in place, so a frame allocates nothing.</summary>
     private readonly (string Part, long Ticks)[] _setCameraParts =
@@ -3868,7 +3934,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
     {
         get
         {
-            if (_culling is not { CanCull: true } culling || _culledFor is null)
+            if (Culling is not { CanCull: true } culling || Half.CulledFor is null)
             {
                 return default;
             }
@@ -3913,7 +3979,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
     /// sprite this view" draws the same pixels.
     /// </remarks>
     private bool HasDetailAtPlace(int place) =>
-        _detailSprites is not null && _culling is { } culling && _detailLeaves.Has(culling.LeafAt(place));
+        _detailSprites is not null && Culling is { } culling && _detailLeaves.Has(culling.LeafAt(place));
 
     /// <summary>The planner's glass question, bound once (B435).</summary>
     private Func<int, bool>? _hasTranslucentAtPlace;
@@ -3929,7 +3995,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
     /// </remarks>
     private void DrawDetailStep(InterleaveStep step)
     {
-        if (_detailSprites is null || _culling is not { } culling || _worldCamera is not { } camera)
+        if (_detailSprites is null || Culling is not { } culling || _worldCamera is not { } camera)
         {
             return;
         }
@@ -3983,10 +4049,6 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         // The sprite pass owns its state; the models' depth state goes back after it, as after a world leaf.
         _context.OMSetDepthStencilState(_depthReadOnly, 0);
     }
-
-    /// <summary>The view the current visible set was computed for, so a still camera pays nothing.</summary>
-    private ((float X, float Y, float Z) Origin, (float Pitch, float Yaw, float Roll) Angles,
-             float Fov, float Near, float Far, float Aspect)? _culledFor;
 
     /// <summary>Whether the opaque draw order has been reported.</summary>
     private bool _reportedDrawOrder;
@@ -4051,7 +4113,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
             return;
         }
 
-        if (_culling is null || !_culling.CanCull)
+        if (Culling is null || !Culling.CanCull)
         {
             _reportedWorldCull = true;
 
@@ -4077,14 +4139,14 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
             + "{Runs} runs against {Batches} batches, {Unreachable} spans have no leaf and are "
             + "boxed instead; sky area {SkyArea} contributes {SkyRuns} runs, r_3dsky {Setting} "
             + "with {Visible} from the eye",
-            _culling.LeafCount,
-            _culling.TotalLeaves,
-            _culling.Corners.Drawn,
-            _culling.Corners.Total,
+            Culling.LeafCount,
+            Culling.TotalLeaves,
+            Culling.Corners.Drawn,
+            Culling.Corners.Total,
             visible.Count,
             _world.BatchCount,
-            _culling.UnreachableSpans,
-            _culling.SkyArea,
+            Culling.UnreachableSpans,
+            Culling.SkyArea,
             _world.SkyBatches.Count,
             _draw3dSky,
             _skyVisible);
@@ -4238,7 +4300,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
 
         if (_everyLeaf.Length > 0)
         {
-            leaves = _culling is { MainLeaves.Count: > 0 } culling ? culling.MainLeaves : _everyLeaf;
+            leaves = Culling is { MainLeaves.Count: > 0 } culling ? culling.MainLeaves : _everyLeaf;
         }
 
         _leafSystem.BuildRenderablesList(leaves, _frustum, _groupOf ??= GroupOf, _collated);
