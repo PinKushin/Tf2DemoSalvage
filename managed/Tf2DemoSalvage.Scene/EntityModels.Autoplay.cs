@@ -787,6 +787,9 @@ public sealed partial class EntityModelSet
     /// gesture resolves to a sequence only if the model has that activity, so asking the model a
     /// second time answers what COULD have been layered rather than what was. This is the list the
     /// pose actually accumulated.
+    ///
+    /// **As last BUILT, not as of this frame** (finding 102): the layers are built at bone setup, so an entity the frame
+    /// never set up still answers its last build's list, which may be from an earlier frame.
     /// </remarks>
     /// <summary>One entity's duck-jump offset, in units, or null when it has no skeleton.</summary>
     /// <remarks>

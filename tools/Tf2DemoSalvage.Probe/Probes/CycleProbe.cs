@@ -331,9 +331,10 @@ public sealed class CycleProbe : IProbe
                 // **The layers the SKELETON was handed** (B282), not the gestures the timeline
                 // collected. A gesture that resolves to no sequence on this model is dropped
                 // exactly as the engine drops it, so the two counts differ legitimately and only
-                // the second one says whether anything was drawn.
+                // the second one says whether anything was drawn. **As last built** (finding 102): an entity not set up
+                // this frame reports its last build's layers.
                 + $"  gestures {(asDrawn?.Pose.Gestures?.Count ?? 0).ToString(CultureInfo.InvariantCulture)}"
-                + $"  layers {(models?.LayersOf(entity)?.Count ?? 0).ToString(CultureInfo.InvariantCulture)}"
+                + $"  layers(last built) {(models?.LayersOf(entity)?.Count ?? 0).ToString(CultureInfo.InvariantCulture)}"
 
                 // Each gesture's activity and how old it is, because "resolved to no sequence on
                 // this model" and "expired and auto-killed" both show as zero layers and want
