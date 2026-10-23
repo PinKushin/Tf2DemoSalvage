@@ -608,12 +608,53 @@ public sealed class ViewerPresenterTests
                 "WorldFog none", "SkyFog none", "MonitorCamera none", "Tonemap default",
                 "ExposureSeconds 0.25", "ObserverTarget nobody",
                 nameof(IViewerDevice.SetCamera),
+                nameof(IViewerDevice.FinishDrawBeforePose),
                 "DrawsMonitor read True",
                 "posed",
                 nameof(IFrameDevice.SetParticles),
             ]);
             device.Camera.SurfaceColours.ShouldBeTrue();
             device.Camera.Camera.ShouldNotBeNull();
+        }
+    }
+
+    /// <remarks>
+    /// **Rung 2's contract (B581, D228): SetCamera overlaps the frame in flight, the pose does not.** The cull writes only
+    /// its own view half, so it may run while the previous frame draws from the other; the pose rewrites bones, flex and
+    /// instance lists the draw reads, so the drain sits at its entry. Deterministic: the in-flight draw is held on a gate
+    /// only the drain opens. The drain is <see cref="IViewerDevice.FinishDrawBeforePose"/>, at the pose's entry (finding 98
+    /// §9 step 5); before it moved there, this read `posed in flight True`.
+    /// </remarks>
+    [Test]
+    public void UploadCameraOver_InModeTwoWithAFrameInFlight_OverlapsSetCameraButNotThePose()
+    {
+        WriteMap();
+        (ViewerPresenter loader, _, _) = Loader();
+        Questions asked = new();
+        using System.Threading.ManualResetEventSlim gate = new();
+        using Render.QueuedRenderThread queue = new() { Mode = Render.MaterialThreadMode.QueuedThreaded };
+        FakeViewerDevice device = new() { Queue = queue };
+
+        queue.Waiting = _ => gate.Set();
+
+        using (loader)
+        {
+            loader.AttachWindow(asked.Window(loader), new FpsPanelTests.SolidGdi());
+            loader.LoadDemo(WriteDemo("camera")).Loaded.ShouldBeTrue();
+
+            try
+            {
+                queue.Submit(gate.Wait);
+                loader.Posed = () => device.Mark($"posed in flight {queue.InFlight}");
+                loader.UploadCameraOver(device, new FakeFrameDevice(), flyTicks: 0, exposureSeconds: 0f, surfaceColours: false);
+
+                device.Set.ShouldContain("SetCamera in flight True", "the control: the frame was in flight at the cull");
+                device.Set.ShouldContain("posed in flight False");
+            }
+            finally
+            {
+                gate.Set();
+            }
         }
     }
 

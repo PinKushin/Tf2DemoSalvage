@@ -49,8 +49,12 @@ public sealed class BspVisibility
     /// **One row per cluster the caller actually asks about**, rather than the whole lump up front.
     /// A soundscape pass asks for the listener's cluster and no other, so on a map with thousands
     /// of clusters this decompresses one row of a few hundred bytes rather than all of them.
+    ///
+    /// **Concurrent, because two threads cull through one lump** (B581 rung 2): every `WorldCulling.Twin()` shares this
+    /// instance, and the game thread's cull overlaps the render thread's monitor cull. A row is a pure function of the
+    /// lump, so two threads decompressing the same one and one winning the insert is harmless.
     /// </remarks>
-    private readonly Dictionary<int, byte[]> _rows = [];
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<int, byte[]> _rows = new();
 
     private BspVisibility(ReadOnlyMemory<byte> lump, int clusters)
     {
@@ -151,11 +155,7 @@ public sealed class BspVisibility
             return cached;
         }
 
-        byte[] row = Decompress(cluster);
-
-        _rows[cluster] = row;
-
-        return row;
+        return _rows.GetOrAdd(cluster, Decompress(cluster));
     }
 
     /// <summary>Valve's <c>DecompressVis</c>, with its clamp and its refusal.</summary>

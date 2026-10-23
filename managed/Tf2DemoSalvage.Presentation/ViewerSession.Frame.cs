@@ -379,7 +379,8 @@ public sealed partial class ViewerSession
         if (_camera.Fly(_console.Intent, seconds))
         {
             // The view, and nothing else. Flight only happens in the free camera, where the map's
-            // screen-space projection is not what is being drawn (B98).
+            // screen-space projection is not what is being drawn (B98). Not drained here (finding 98 §9 step 5): the upload
+            // waits at its own pose, and the cull before it lands on the half not last handed, whatever drew.
             UploadCamera();
         }
     }
@@ -662,9 +663,6 @@ public sealed partial class ViewerSession
     /// built at all (`cdll_client_int.cpp:1308`).
     /// </remarks>
     public void Simulate() => _playback.Advance();
-
-    /// <inheritdoc/>
-    public void FinishPreviousDraw() => _ownedDevice?.Queue.FinishPreviousDraw();
 
     /// <summary>`queue wait {caller}` part names, made once per caller rather than per frame.</summary>
     private readonly System.Collections.Generic.Dictionary<string, string> _queueWaitParts = new(StringComparer.Ordinal);

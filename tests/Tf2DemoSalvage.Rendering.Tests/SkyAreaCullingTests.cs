@@ -1,7 +1,5 @@
-using System;
 using System.Collections.Generic;
-
-using Tf2DemoSalvage.Content.Bsp;
+using System.Linq;
 
 namespace Tf2DemoSalvage.Rendering.Tests;
 
@@ -91,60 +89,33 @@ public sealed class SkyAreaCullingTests
         main[0].MaterialIndex.ShouldBe(7, "and they are the WORLD's material, not the sky's");
     }
 
-    /// <summary>A two-leaf map: leaf 1 in area 0 with face 0, leaf 2 in area 1 with face 1.</summary>
-    private static WorldCulling Culled(int skyArea)
+    /// <remarks>The twin is one view half's culling (B581 rung 2): the same map, so the same answers, sky area included.</remarks>
+    [Test]
+    public void Twin_OfASkyMap_CullsAsTheOriginalDoes()
     {
-        // Leaf 0 is the solid leaf every tree carries; the two real ones follow it.
-        byte[] leaves = new byte[32 * 3];
+        WorldCulling twin = Culled(skyArea: 1).Twin();
 
-        Leaf(leaves, leaf: 1, area: 0, firstFace: 0, faces: 1);
-        Leaf(leaves, leaf: 2, area: 1, firstFace: 1, faces: 1);
-
-        // **A real node, because this fixture walks the TREE where the other leaf tests index it
-        // directly.** An all-zero node lump gives node 0 two children both numbered 0 — itself —
-        // and the descent never terminates. It does not fail, it HANGS, which reads as a slow
-        // build rather than as a broken fixture: the first run of this sat for ten minutes with an
-        // empty log while the build beside it succeeded in seconds.
-        //
-        // `plane` splits on z; a child written as `-leaf - 1` names a leaf rather than a node.
-        byte[] plane = new byte[20];
-
-        BitConverter.TryWriteBytes(plane.AsSpan(8), 1f);
-
-        byte[] node = new byte[32];
-
-        BitConverter.TryWriteBytes(node.AsSpan(4), -2);
-        BitConverter.TryWriteBytes(node.AsSpan(8), -3);
-
-        BspLeafTree tree = BspLeafTree.FromLumps(node, plane, leaves);
-
-        byte[] faceList = new byte[4];
-
-        BitConverter.TryWriteBytes(faceList.AsSpan(0), (ushort)0);
-        BitConverter.TryWriteBytes(faceList.AsSpan(2), (ushort)1);
-
-        WorldFaceSpan[] spans =
-        [
-            new(0, FirstVertex: 0, VertexCount: 3, MaterialIndex: 7, Category: default),
-            new(1, FirstVertex: 3, VertexCount: 3, MaterialIndex: 9, Category: default),
-        ];
-
-        return new WorldCulling(tree, BspVisibility.None, BspLeafFaces.FromLump(faceList), spans)
-        {
-            SkyArea = skyArea,
-        };
+        twin.SkyArea.ShouldBe(1);
+        twin.Batches(0f, 0f, 0f, Everything()).ShouldNotBeNull().Single().MaterialIndex.ShouldBe(7);
+        twin.SkyRunsFrom(0f, 0f, 0f, Everything()).Single().MaterialIndex.ShouldBe(9);
     }
 
-    /// <summary>Writes one <c>dleaf_t</c>: the packed area at 6, the face range at 20 and 22.</summary>
-    private static void Leaf(byte[] lump, int leaf, int area, int firstFace, int faces)
+    /// <remarks>
+    /// **The point of a twin: its culls never rewrite the original's lists** (B581 rung 2). One half's cull for the next
+    /// frame runs while the other half's runs are being drawn; through one object it would empty them under the draw.
+    /// </remarks>
+    [Test]
+    public void Twin_CullingNothing_LeavesTheOriginalsRunsStanding()
     {
-        int at = leaf * 32;
+        WorldCulling culling = Culled(skyArea: -1);
+        IReadOnlyList<WorldBatch> main = culling.Batches(0f, 0f, 0f, Everything()).ShouldNotBeNull();
+        WorldCulling twin = culling.Twin();
 
-        BitConverter.TryWriteBytes(lump.AsSpan(at + 6), (short)(area & 0x1FF));
-        BitConverter.TryWriteBytes(lump.AsSpan(at + 20), (ushort)firstFace);
-        BitConverter.TryWriteBytes(lump.AsSpan(at + 22), (ushort)faces);
+        (twin.Batches(0f, 0f, 0f, ViewFrustum.Nothing)?.Count ?? 0).ShouldBe(0, "the control: this cull, through one object, would empty the list");
+        main.Count.ShouldBe(2);
     }
 
-    /// <summary>A frustum that accepts everything, so the area is the only filter under test.</summary>
-    private static ViewFrustum Everything() => default;
+    private static WorldCulling Culled(int skyArea) => TwoFaceMap.Culling(skyArea);
+
+    private static ViewFrustum Everything() => TwoFaceMap.Everything();
 }

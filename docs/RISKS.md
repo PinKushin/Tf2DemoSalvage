@@ -40142,8 +40142,9 @@ latency, which needs the owner's say. Design and plan in finding 98; first step 
 - Every public `Device3D` member takes the engine's `Lock`, a full drain. The drain also runs on seek replays, map changes,
   captures, teardown and leaving mode 2.
 
-**Still a divergence.** The game thread waits before `PlaceCamera`, not at the hand-off as `EndFrame` does. Only the gap,
-the shot stage and `Simulate` overlap the draw.
+**Still a divergence.** The game thread waits at the pose's entry inside `PlaceCamera` (rung 2, branch
+`feat/queued-render-thread-rung-2g`), not at the hand-off as `EndFrame` does. The gap, the shot stage, `Simulate` and the
+cull overlap the draw; the pose, particles and HUD do not (finding 98 §9).
 
 **Measured** (`measurements/2026-10-23-queued-render-thread-rung-1.md`): on f12, 11.57-11.93 ms against 13.51-13.66 in mode
 0, a saving of 1.7-1.9 ms. A verifier run checked every played frame and found 0 of them with inputs changed while drawn.
@@ -40164,6 +40165,10 @@ The wait can then move to the hand-off, which is parity.
 - a frame-weighted render-thread column.
 
 **Review fixes, 2026-10-23:** finding 98 section 9, "Review fixes".
+
+**Rung 2, first step, 2026-10-23 (branch `feat/queued-render-thread-rung-2b`):** `ViewHalf`, a twin culling per half,
+and both-half invalidation, with the drain left where it was. What is left, in order, and the verifier's one
+pre-existing changed frame: finding 98 section 9, "Rung 2, first step".
 
 ## B575 — the exposure histogram is counted pixel by pixel on the processor, every frame — FIXED (2026-10-22)
 

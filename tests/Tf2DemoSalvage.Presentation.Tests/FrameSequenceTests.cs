@@ -32,7 +32,6 @@ public sealed class FrameSequenceTests
         [
             "TakeShot",
             "Simulate",
-            "FinishPreviousDraw",
             "PlaceCamera",
             "UpdateListener",
             "ProjectWorld",
@@ -70,11 +69,6 @@ public sealed class FrameSequenceTests
         public void Simulate()
         {
             // Nothing advances: the viewer is paused at the opening tick.
-        }
-
-        public void FinishPreviousDraw()
-        {
-            // Serial: nothing is in flight.
         }
 
         public void PlaceCamera() => _posed = _state;
@@ -132,7 +126,6 @@ public sealed class FrameSequenceTests
     [TestCase("TakeShot", nameof(FramePhases.Capture))]
     [TestCase("BuildOverlay", nameof(FramePhases.Hud))]
     [TestCase("Draw", nameof(FramePhases.Draw))]
-    [TestCase("FinishPreviousDraw", nameof(FramePhases.Draw))]
     public void Run_WithOneSlowStageOfSeven_ChargesTheTimeToThatStagesColumn(
         string stage, string column)
     {
@@ -176,13 +169,15 @@ public sealed class FrameSequenceTests
     }
 
     /// <remarks>
-    /// **The queued frame's contract (B581, D228 rung 1)**: the previous frame's draw overlaps the shot and simulate stages
-    /// of the next, and no stage from the camera on — the cull, the particles, the pose, the HUD, which write what the
-    /// draw reads — runs while it is in flight. Deterministic: the in-flight draw is held on a gate that only the drain
-    /// itself opens, so a stage that ran before the drain sees the frame in flight however fast the machine is.
+    /// **The queued frame's contract (B581, D228 rung 2)**: the previous frame's draw overlaps the shot and simulate stages
+    /// of the next and the camera stage up to its pose, and nothing after it — the particles, the HUD, which write what
+    /// the draw reads. The sequence itself no longer waits: the wait is the pose's own, inside `PlaceCamera`
+    /// (`ViewerPresenter.PoseOver`, held by `ViewerPresenterTests.UploadCameraOver_InModeTwoWithAFrameInFlight_…`), which
+    /// these steps stand in for by draining at the end of theirs. Deterministic: the in-flight draw is held on a gate that
+    /// only the drain itself opens, so a stage that ran before the drain sees the frame in flight however fast the machine is.
     /// </remarks>
     [Test]
-    public void Run_InModeTwo_OverlapsOnlyTheStagesBeforeTheCamera()
+    public void Run_InModeTwo_OverlapsTheStagesUpToTheCamerasPose()
     {
         using QueuedSteps steps = new(Render.MaterialThreadMode.QueuedThreaded);
 
@@ -195,7 +190,7 @@ public sealed class FrameSequenceTests
         [
             ("TakeShot", true),
             ("Simulate", true),
-            ("PlaceCamera", false),
+            ("PlaceCamera", true),
             ("UpdateListener", false),
             ("ProjectWorld", false),
             ("BuildOverlay", false),
@@ -236,9 +231,12 @@ public sealed class FrameSequenceTests
 
         public void Simulate() => Note("Simulate");
 
-        public void FinishPreviousDraw() => Queue.FinishPreviousDraw();
-
-        public void PlaceCamera() => Note("PlaceCamera");
+        /// <summary>The cull, then the pose's drain, as `UploadCameraOver` runs them.</summary>
+        public void PlaceCamera()
+        {
+            Note("PlaceCamera");
+            Queue.FinishPreviousDraw();
+        }
 
         public void UpdateListener() => Note("UpdateListener");
 
@@ -320,8 +318,6 @@ public sealed class FrameSequenceTests
         public FrameOverlay Drawn { get; private set; }
 
         public void Simulate() => Mark("Simulate");
-
-        public void FinishPreviousDraw() => Mark("FinishPreviousDraw");
 
         public void PlaceCamera() => Mark("PlaceCamera");
 

@@ -474,3 +474,20 @@ Constant world offset (~64 units at 282 and at 409 away) was the tell: an eye-he
 Hulls are wider than bodies: sort candidates by the ray's distance from the hull's middle, shoot the smallest.
 `Healer: <name>` is not the target ID; a looked-at healer shows only that panel. Exclude the healer's entity.
 One `TF2VIEW_PICK` line names the viewer's eye and ray (`from (...) along (...)`): the control for any such probe.
+
+## A content hash over a ValueTuple's raw bytes is not a function of the content
+
+The queue verifier's "1 changed frame per run" (finding 98 §9) cost a session chasing writers: a monitor pass, a
+second culling thread, a loader. **The control that ended it: copy the list, compare element by element (equal), hash
+both twice** — the same content hashed to two values. `StableHash.Value<T>` over a `ValueTuple` (auto-layout) hashes
+bytes that are not the fields'. **How to apply:** hash fields one by one; before chasing a writer behind a changed
+hash, hash an equal copy twice.
+
+## A hash must read the object the work was handed, not a copy that is filled later
+
+Rung 2 step 3 stopped the cull writing the renderer and installed the half into it at the draw's start. The verifier's
+cull hash still read `_world.VisibleBatches`, the renderer's lists. So at the hand-off it hashed the PREVIOUS frame's
+lists, and it reported 519 changed frames and a 75% mode-0 mismatch against the parent binary, with every list
+correct (finding 98 §9). **How to apply:** when a change moves where data lives, re-point every instrument that reads
+it in the same commit, and say which object each hash reads. A "changed" result that appears exactly when the
+storage moved is the instrument until shown otherwise.

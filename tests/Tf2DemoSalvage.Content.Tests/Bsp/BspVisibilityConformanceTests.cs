@@ -74,7 +74,7 @@ public sealed class BspVisibilityConformanceTests
     /// lump, which is the detail a reader gets wrong first and which produces a plausible wrong
     /// answer rather than a failure.
     /// </remarks>
-    private static byte[] Lump(int clusters, params byte[][] rows)
+    internal static byte[] Lump(int clusters, params byte[][] rows)
     {
         List<byte> lump = [];
         int table = 4 + (clusters * 8);

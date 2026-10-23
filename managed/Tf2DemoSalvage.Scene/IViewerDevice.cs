@@ -70,6 +70,11 @@ public interface IViewerDevice
     /// <param name="surfaceColours">Whether the surface-colour view is on.</param>
     public void SetCamera(FreeCamera camera, bool surfaceColours = false);
 
+    /// <summary>Waits for the frame in flight, if one is (`mat_queue_mode 2`): called at the pose's entry, because the pose
+    /// rewrites the bones, flex and instance lists the draw reads, while <see cref="SetCamera"/> writes only its own view
+    /// half and so overlaps the draw (B581 rung 2, finding 98 §9 step 5). Free in mode 0.</summary>
+    public void FinishDrawBeforePose();
+
     /// <summary>The parts of the last <see cref="SetCamera"/>, in stopwatch ticks, each timed inside it where it ran (B243).</summary>
     public IReadOnlyList<(string Part, long Ticks)> SetCameraParts { get; }
 
