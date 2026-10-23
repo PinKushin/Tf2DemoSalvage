@@ -100,9 +100,11 @@ public sealed partial class ViewerPresenter
         // player and the view models (cdll_client_int.cpp:2184) before `ParticleMgr()->Simulate` (`:2234`) reads
         // them. Stepped first, every followed point read the LAST frame's pose, and the first frame after a seek read
         // a viewmodel posed for no camera at all. `ProjectWorld`'s own call then finds the moment posed and returns.
-        long posingAt = Stopwatch.GetTimestamp();
-
-        PoseOver(device);
+        // **The pose begins with the wait for the frame in flight**, timed on its own (B581 rung 2, finding 98 §9 step 5):
+        // `SetCamera` above wrote only its own view half, so it overlapped the draw; the pose rewrites what the draw reads.
+        long waitAt = Stopwatch.GetTimestamp();
+        long waited = PoseOver(device);
+        long posingAt = waitAt + waited;
 
         long particlesAt = Stopwatch.GetTimestamp();
 
@@ -115,7 +117,8 @@ public sealed partial class ViewerPresenter
         {
             parts.Add("camera view", deviceAt - viewAt);
             // `posingAt - deviceAt` also covers the six `device.*` feed writes before `SetCamera`, so it exceeds the seven parts' sum by microseconds.
-            parts.Add("camera setcamera", posingAt - deviceAt);
+            parts.Add("camera setcamera", waitAt - deviceAt);
+            parts.Add("camera wait", waited);
 
             // The device's own split of that, as it timed it (B243). Indexed, because a foreach over the interface
             // allocates an enumerator on every measured frame.
@@ -161,7 +164,7 @@ public sealed partial class ViewerPresenter
     {
         if (_device is { } device)
         {
-            PoseOver(device);
+            _ = PoseOver(device);
         }
         else
         {
@@ -173,10 +176,21 @@ public sealed partial class ViewerPresenter
     internal Action? Posed { get; set; }
 
     /// <summary><see cref="PoseNow"/> over a device a test can read.</summary>
-    internal void PoseOver(IViewerDevice device)
+    /// <returns>How long the wait for the frame in flight took, in stopwatch ticks, carried to the `camera wait` part.</returns>
+    /// <remarks>**The one wait before the pose, for both callers** (finding 98 §9 step 5): the camera stage, and
+    /// `ProjectWorld`'s pose on a frame whose camera upload returned early.</remarks>
+    internal long PoseOver(IViewerDevice device)
     {
+        long at = Stopwatch.GetTimestamp();
+
+        device.FinishDrawBeforePose();
+
+        long waited = Stopwatch.GetTimestamp() - at;
+
         _moments.PoseNow(device.Frustum, device.Views, device.Eye, device.ScreenView, device.DrawsMonitor);
         Posed?.Invoke();
+
+        return waited;
     }
 
     /// <summary>Hands this frame's scene to the device.</summary>

@@ -767,9 +767,20 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
 
     /// <summary>The hand-off: the half the game thread culled, carrying the feeds it set for this frame (finding 98 §9 step 4).</summary>
     /// <returns>The half the draw reads.</returns>
-    private ViewHalf HandOff() => _views.Hand(new DrawFeeds(
-        _specular, _fullbright, _debug, _phong, _worldFog, _skyFog, MonitorCamera, Tonemap, ExposureSeconds,
-        ResetToneMapping: false));
+    /// <remarks>**Drains first when no `SetCamera` flipped since the last hand-off** (finding 98 §9 step 5): the half is
+    /// then the one last handed, which may still be drawing, and this writes its feeds. Free on every other frame, whose
+    /// pose already drained.</remarks>
+    private ViewHalf HandOff()
+    {
+        if (_views.CullWasHanded)
+        {
+            Lock();
+        }
+
+        return _views.Hand(new DrawFeeds(
+            _specular, _fullbright, _debug, _phong, _worldFog, _skyFog, MonitorCamera, Tonemap, ExposureSeconds,
+            ResetToneMapping: false));
+    }
 
     /// <summary>Draws the first-person models in their own pass, as the engine does.</summary>
     /// <param name="viewmodels">The posed arms and weapon, or null when there are none.</param>
@@ -3293,14 +3304,17 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
     /// modes and runs (rung 2's equivalence, B581). The world, sky and overlay runs, the translucent leaves, the detail
     /// sprites, the sky decision and whether a water view was planned.</summary>
     /// <param name="half">The half the frame was handed, read both at the hand-off and after the draw.</param>
-    private long CullPart(ViewHalf half)
+    private static long CullPart(ViewHalf half)
     {
         StableHash cull = new();
 
-        cull.Batches(_world?.VisibleBatches);
-        cull.Batches(_world?.SkyBatches);
-        cull.Batches(_world?.Overlays);
-        cull.Value(_world?.TranslucentLeaves is null ? -1 : 1);
+        // **The half's lists, never the renderer's** (finding 98 §9 step 5): since step 3 the renderer holds a half's
+        // lists only from `ReplayUploads`, at the draw's start, so at the hand-off it still held the PREVIOUS frame's and
+        // the verifier read every frame as changed under the draw (519 on f12).
+        cull.Batches(half.VisibleBatches);
+        cull.Batches(half.SkyBatches);
+        cull.Batches(half.Overlays);
+        cull.Value(half.TranslucentLeaves is null ? -1 : 1);
         cull.Value((int)half.SkyVisible);
         cull.Value(half.WaterDraw is null ? 0 : 1);
         cull.Value(half.DetailCorners.Count);
@@ -3316,7 +3330,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
     /// <summary>The cull part's pieces, in a fixed order — world, sky, overlays, translucent leaves, sky decision, water,
     /// detail — so a verifier mismatch names the one that moved (finding 98 §9).</summary>
     /// <param name="half">The half the frame was handed.</param>
-    private long[] CullPieces(ViewHalf half)
+    private static long[] CullPieces(ViewHalf half)
     {
         StableHash detail = new();
 
@@ -3329,10 +3343,10 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
 
         return
         [
-            StableHash.OfBatches(_world?.VisibleBatches),
-            StableHash.OfBatches(_world?.SkyBatches),
-            StableHash.OfBatches(_world?.Overlays),
-            _world?.TranslucentLeaves is null ? -1 : 1,
+            StableHash.OfBatches(half.VisibleBatches),
+            StableHash.OfBatches(half.SkyBatches),
+            StableHash.OfBatches(half.Overlays),
+            half.TranslucentLeaves is null ? -1 : 1,
             (int)half.SkyVisible,
             half.WaterDraw is null ? 0 : 1,
             detail.Result,
@@ -3371,6 +3385,10 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         }
     }
 
+    /// <inheritdoc/>
+    /// <remarks>Named in the wait ledger as itself, so its `queue wait` part is a column of its own.</remarks>
+    public void FinishDrawBeforePose() => Queue.FinishPreviousDraw(nameof(FinishDrawBeforePose));
+
     /// <summary>Sets the view the world is drawn through, and the volume it culls against.</summary>
     /// <param name="camera">The camera the frame is seen through.</param>
     /// <param name="surfaceColours">Whether to draw flat category colours instead of textures.</param>
@@ -3391,7 +3409,8 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         ArgumentNullException.ThrowIfNull(camera);
 
         // **No lock** (finding 98 §9 step 4): everything below writes the game thread's own half and fields; the draw
-        // installs that half's runs into the renderer when it begins. The wait is `FinishPreviousDraw`, before the camera.
+        // installs that half's runs into the renderer when it begins. The wait is `FinishDrawBeforePose`, after this, so
+        // this cull runs while the previous frame draws (step 5): the flip below never lands on the half last handed.
 
         // **Timed here, where each part runs, and carried to the rate line** (B243): `camera setcamera` was one number
         // over the view setup, the constant upload, the world cull and the detail rebuild (finding 83).

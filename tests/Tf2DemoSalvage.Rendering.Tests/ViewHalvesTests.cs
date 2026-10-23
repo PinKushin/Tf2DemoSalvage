@@ -207,6 +207,41 @@ public sealed class ViewHalvesTests
         resets.ShouldBe([false, true]);
     }
 
+    /// <remarks>**A second `SetCamera` in one frame** (the flight path's upload, then `PlaceCamera`'s): with the wait at the
+    /// pose (step 5) the first frame may still be drawing, so a flip that toggled would cull into it.</remarks>
+    [Test]
+    public void Flip_TwiceAfterAHandOff_StaysOffTheHandedHalf()
+    {
+        ViewHalves halves = new((_, _) => { });
+
+        halves.Flip();
+        ViewHalf handed = halves.Hand(Feeds(specular: true, exposure: 0f));
+
+        halves.Flip();
+        halves.Flip();
+
+        halves.Cull.ShouldNotBeSameAs(handed);
+        halves.CullWasHanded.ShouldBeFalse();
+    }
+
+    /// <remarks>**A frame handed without a flip** (`UploadCamera`'s early return, `DrawAndPresent`) hands the half last
+    /// handed again, which may still be drawing: the device drains before it stamps that half's feeds.</remarks>
+    [Test]
+    public void CullWasHanded_WithNoFlipSinceTheHandOff_IsTrueAndAFlipClearsIt()
+    {
+        ViewHalves halves = new((_, _) => { });
+
+        bool beforeAnyHandOff = halves.CullWasHanded;
+
+        halves.Flip();
+        _ = halves.Hand(Feeds(specular: true, exposure: 0f));
+        bool unflipped = halves.CullWasHanded;
+
+        halves.Flip();
+
+        (beforeAnyHandOff, unflipped, halves.CullWasHanded).ShouldBe((false, true, false));
+    }
+
     private static DrawFeeds Feeds(bool specular, float exposure) =>
         new(specular, Fullbright.Off, DebugModes.None, Phong: true, WorldFog: null, SkyFog: null, MonitorCamera: null,
             Tonemap: default, ExposureSeconds: exposure, ResetToneMapping: false);

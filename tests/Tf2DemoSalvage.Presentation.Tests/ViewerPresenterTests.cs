@@ -608,6 +608,7 @@ public sealed class ViewerPresenterTests
                 "WorldFog none", "SkyFog none", "MonitorCamera none", "Tonemap default",
                 "ExposureSeconds 0.25", "ObserverTarget nobody",
                 nameof(IViewerDevice.SetCamera),
+                nameof(IViewerDevice.FinishDrawBeforePose),
                 "DrawsMonitor read True",
                 "posed",
                 nameof(IFrameDevice.SetParticles),
@@ -621,14 +622,10 @@ public sealed class ViewerPresenterTests
     /// **Rung 2's contract (B581, D228): SetCamera overlaps the frame in flight, the pose does not.** The cull writes only
     /// its own view half, so it may run while the previous frame draws from the other; the pose rewrites bones, flex and
     /// instance lists the draw reads, so the drain sits at its entry. Deterministic: the in-flight draw is held on a gate
-    /// only the drain opens.
-    ///
-    /// **PENDING, so `[Explicit]`**: red today for the predicted reason — nothing drains inside `UploadCameraOver` (the
-    /// wait is still `FinishPreviousDraw`, before `PlaceCamera`), so the pose reads `in flight True`. Finding 98 §9 lists
-    /// the steps before it may lose the attribute: the view halves first, then the wait moves to the pose entry.
+    /// only the drain opens. The drain is <see cref="IViewerDevice.FinishDrawBeforePose"/>, at the pose's entry (finding 98
+    /// §9 step 5); before it moved there, this read `posed in flight True`.
     /// </remarks>
     [Test]
-    [Explicit("pending B581 rung 2: red until the wait moves from before PlaceCamera to the pose entry (finding 98 §9)")]
     public void UploadCameraOver_InModeTwoWithAFrameInFlight_OverlapsSetCameraButNotThePose()
     {
         WriteMap();

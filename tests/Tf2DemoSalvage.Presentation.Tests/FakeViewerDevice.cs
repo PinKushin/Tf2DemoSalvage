@@ -102,6 +102,13 @@ internal sealed class FakeViewerDevice : IViewerDevice
         Camera = (camera, surfaceColours);
     }
 
+    /// <summary>Drains <see cref="Queue"/>, as the device does, and writes the call down.</summary>
+    public void FinishDrawBeforePose()
+    {
+        Queue?.FinishPreviousDraw();
+        _set.Add(nameof(FinishDrawBeforePose));
+    }
+
     public void DrawScene(
         float red,
         float green,

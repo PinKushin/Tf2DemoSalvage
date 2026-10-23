@@ -37,18 +37,15 @@ public interface IFrameSteps
     /// <remarks>Valve: `IGameSystem::UpdateAllSystems( frametime )`, `cdll_client_int.cpp:1308`.</remarks>
     public void Simulate();
 
-    /// <summary>Wait for the previous frame's draw if it is still running on the render thread (`mat_queue_mode 2`).</summary>
-    /// <remarks>
-    /// **Not where the engine waits, and named as the divergence it is** (B581). `CMaterialSystem::EndFrame` waits for
-    /// frame N-1 only at the hand-off of frame N, so the whole of frame N's game work overlaps N-1's draw (finding 99
-    /// section 2). Here the wait sits before the camera, the first stage that writes what the draw reads (the cull, the
-    /// particles, the pose), because those are not yet double-buffered: only the gap between frames, the shot stage and
-    /// the simulation overlap the draw. Free in mode 0.
-    /// </remarks>
-    public void FinishPreviousDraw();
-
     /// <summary>Work out where the eye is and hand the camera to the GPU.</summary>
-    /// <remarks>Valve: `ComputeCameraVariables( viewEye.origin, viewEye.angles, ... )`, `view.cpp:779`.</remarks>
+    /// <remarks>
+    /// Valve: `ComputeCameraVariables( viewEye.origin, viewEye.angles, ... )`, `view.cpp:779`.
+    ///
+    /// **In `mat_queue_mode 2` this is where the previous frame's draw is waited for, at the pose inside it** (B581,
+    /// finding 98 §9 step 5): the cull before the pose writes only its own view half and overlaps the draw. Not where the
+    /// engine waits: `CMaterialSystem::EndFrame` waits for frame N-1 only at the hand-off of frame N (finding 99 section
+    /// 2); the pose, the particles and the HUD are not yet double-buffered.
+    /// </remarks>
     public void PlaceCamera();
 
     /// <summary>Put the ears where the eye is, and play what is due.</summary>
@@ -132,8 +129,7 @@ public static class FrameSequence
         long capture = Time(steps.TakeShot);
         long advance = Time(steps.Simulate);
 
-        // The game thread's share of a queued draw is this wait plus the hand-off; it is charged to `draw` (B581).
-        long drawWait = Time(steps.FinishPreviousDraw);
+        // A queued draw's wait is inside the camera stage, at its pose, and has its own `camera wait` part (B581 rung 2).
         long camera = Time(steps.PlaceCamera);
         long sound = Time(steps.UpdateListener);
         long project = Time(steps.ProjectWorld);
@@ -142,7 +138,7 @@ public static class FrameSequence
         FrameOverlay overlay = steps.BuildOverlay();
         long hud = Stopwatch.GetTimestamp() - hudAt;
 
-        long draw = Time(() => steps.Draw(overlay)) + drawWait;
+        long draw = Time(() => steps.Draw(overlay));
 
         return new FramePhases(
             Sound: sound,

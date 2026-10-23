@@ -29,8 +29,17 @@ internal sealed class ViewHalves(Action<ViewHalf, CameraUpload?> replay)
     /// <summary>The half the draw running now was handed.</summary>
     public ViewHalf Drawn { get; private set; } = Initial;
 
-    /// <summary>Starts a new frame's cull in the other half.</summary>
-    public void Flip() => _cull ^= 1;
+    // The half last handed, or -1 before any: the one a frame in flight may be drawing.
+    private int _handed = -1;
+
+    /// <summary>Starts a new frame's cull in the half NOT last handed.</summary>
+    /// <remarks>**Not a toggle** (finding 98 §9 step 5): a second `SetCamera` in one frame (the flight path's, then
+    /// `PlaceCamera`'s) would toggle back onto the half still drawing, now that the cull overlaps the draw.</remarks>
+    public void Flip() => _cull = _handed < 0 ? _cull ^ 1 : _handed ^ 1;
+
+    /// <summary>Whether <see cref="Cull"/> is the half last handed, which may still be drawing: true on a frame handed
+    /// without a flip (`UploadCamera`'s early return, `DrawAndPresent`), where the device drains before it writes it.</summary>
+    public bool CullWasHanded => _cull == _handed;
 
     private bool _resetToneMapping;
 
@@ -44,6 +53,7 @@ internal sealed class ViewHalves(Action<ViewHalf, CameraUpload?> replay)
     {
         ViewHalf half = Cull;
 
+        _handed = _cull;
         half.Feeds = feeds with { ResetToneMapping = _resetToneMapping };
         _resetToneMapping = false;
 
