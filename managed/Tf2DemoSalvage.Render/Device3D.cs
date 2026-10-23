@@ -297,6 +297,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         _device = device;
         _context = context;
         _swapChain = swapChain;
+        _views = new ViewHalves(ReplayUploads);
     }
 
     /// <summary>Creates a device and swap chain bound to a window.</summary>
@@ -755,6 +756,9 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         float red, float green, float blue, IReadOnlyList<ScenePoint> points)
     {
         Lock();
+
+        // A draw like any other: of the half the game thread last culled (finding 98 §9 step 1).
+        _views.Begin(Half);
         DrawFrame(red, green, blue, [], [], points);
     }
 
@@ -969,7 +973,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
             _device,
             _context,
             camera,
-            _worldCamera?.Colours ?? false,
+            Drawn.WorldCamera?.Colours ?? false,
             _specular,
             _fullbright,
             _debug,
@@ -1065,7 +1069,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         Viewport whole = new(0f, 0f, _width, _height, 0f, 1f);
         _context.RSSetViewports(1, in whole);
 
-        ReapplyCamera();
+        ReapplyCamera(Drawn);
     }
 
     /// <summary>
@@ -1092,7 +1096,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
 
         _context.RSSetViewports(1, in panel);
         _context.ClearDepthStencilView(_depthView, (uint)ClearFlag.Depth, 1f, 0);
-        _world.SetCamera(_device, _context, draw.Camera, _worldCamera?.Colours ?? false, _specular, _fullbright, _debug, _phong);
+        _world.SetCamera(_device, _context, draw.Camera, Drawn.WorldCamera?.Colours ?? false, _specular, _fullbright, _debug, _phong);
         _context.OMSetDepthStencilState(_depthOn, 0);
 
         foreach (ModelInstance instance in draw.Models)
@@ -1137,7 +1141,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
 
         _context.RSSetViewports(1, in whole);
         _context.OMSetDepthStencilState(_depthOff, 0);
-        ReapplyCamera();
+        ReapplyCamera(Drawn);
     }
 
     /// <summary>When the viewmodel pass last reported, so it cannot report per frame.</summary>
@@ -1217,10 +1221,6 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
     /// </remarks>
     private bool _viewmodelWasDrawing = true;
 
-    /// <summary>The last world camera set, so the viewmodel pass can put it back.</summary>
-    /// <remarks>Carried a `HeightCut` until 2026-08-26 (B213).</remarks>
-    private (float[] Matrix, bool Colours)? _worldCamera;
-
     /// <summary>The <c>point_camera</c> whose view <c>_rt_Camera</c> shows this frame, or null for none (B511).</summary>
     /// <remarks>Set beside the fog before <see cref="SetCamera(FreeCamera, bool)"/>, which builds the view from it.</remarks>
     public Tf2DemoSalvage.Core.Scene.ScenePointCamera? MonitorCamera { get; set { Lock(); field = value; } }
@@ -1246,9 +1246,6 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
     /// </summary>
     public IReadOnlyList<ModelInstance> MonitorOnlyModels { get; set { Lock(); field = value; } } = [];
 
-    /// <summary>This frame's monitor view, from <see cref="MonitorCamera"/> and the main view.</summary>
-    private FreeCamera? _monitorView;
-
     /// <summary>The world's cull from the monitor's camera, kept while that camera does not move.</summary>
     /// <remarks>Its own culling, a twin of the main view's, so neither rewrites the other's runs (finding 98 §9 step 0).</remarks>
     private MonitorCull _monitorCull = new(null);
@@ -1256,7 +1253,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
     /// <summary><c>DrawMonitors</c> (`viewrender.cpp:2074-2081`, `:3240-3287`): before the main view, when a material binds the target.</summary>
     private void DrawMonitorPass(IReadOnlyList<ModelInstance> models, Viewport viewport)
     {
-        if (!DrawMonitors || _world is not { HasCameraTarget: true } world || _monitorView is not { } view ||
+        if (!DrawMonitors || _world is not { HasCameraTarget: true } world || Drawn.MonitorView is not { } view ||
             MonitorCamera is not { } pointCamera)
         {
             return;
@@ -1292,7 +1289,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
                 _context.RSSetViewports(1, in viewport);
                 _context.OMSetRenderTargets(1u, _backBufferView.GetAddressOf(), _depthView);
                 _context.OMSetDepthStencilState(_depthOn, 0);
-                ReapplyCamera();
+                ReapplyCamera(Drawn);
             });
     }
 
@@ -1315,9 +1312,18 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
     /// The modes are read from the fields rather than captured, so there is one place they come
     /// from and adding another cannot be forgotten here.
     /// </remarks>
-    private void ReapplyCamera()
+    /// <summary>A half's context uploads, played when its draw begins (finding 98 §9 step 2).</summary>
+    /// <param name="half">The half about to draw.</param>
+    private static void ReplayUploads(ViewHalf half)
     {
-        if (_world is null || _worldCamera is not { } restore)
+        // Nothing recorded yet: the camera and detail uploads still go to the context from the game thread (step 2).
+        _ = half;
+    }
+
+    /// <param name="half">The half whose camera to send: <see cref="Drawn"/> during a draw, <see cref="Half"/> otherwise.</param>
+    private void ReapplyCamera(ViewHalf half)
+    {
+        if (_world is null || half.WorldCamera is not { } restore)
         {
             return;
         }
@@ -1331,7 +1337,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
             _fullbright,
             _debug,
             _phong,
-            _waterMainFog ?? WorldFog);
+            half.WaterMainFog ?? WorldFog);
     }
 
     /// <summary>Draws one model instance, whole or one half of it.</summary>
@@ -1406,7 +1412,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
     private void DrawWaterViewEntities(WaterView view)
     {
         _ = view;
-        DrawViewEntities(_waterViewModels, _translucentEye, _translucentForward);
+        DrawViewEntities(_waterViewModels, Drawn.TranslucentEye, Drawn.TranslucentForward);
     }
 
     /// <summary>A secondary view's renderables — a water view's or the monitor's — opaque then translucent, sorted along its axis.</summary>
@@ -1553,11 +1559,13 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
                 // `r_3dsky` is an int, which is Valve's own asymmetry — and cheat-gated where the
                 // other is not, because turning the 3D room off is a preference and turning the sky
                 // off is seeing through the world.
+                ViewHalf view = Drawn;
+
                 if (DrawSkybox && _skybox is { HasSky: true } flatSky &&
-                    _skyVisible != SkyboxVisibility.None && _worldCamera is { } through)
+                    view.SkyVisible != SkyboxVisibility.None && view.WorldCamera is { } through)
                 {
                     // `sky_ps2x.fxc` ends in `FinalOutput( ..., TONEMAP_SCALE_LINEAR, ... )`: the sky takes the scale like any surface (B519).
-                    flatSky.Draw(_device, _context, _eye, through.Matrix, SkyReach, _world.LinearLightScale);
+                    flatSky.Draw(_device, _context, view.Eye, through.Matrix, SkyReach, _world.LinearLightScale);
                 }
 
                 _context.OMSetDepthStencilState(_depthOn, 0);
@@ -1573,11 +1581,11 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
                 // batches here until static props became model draws (B426), and gates the models now.
                 IReadOnlyList<ModelInstance> drawn = DrawEntities ? models ?? [] : [];
 
-                if (DrawEntities && _detailModelInstances.Count > 0)
+                if (DrawEntities && view.DetailModelInstances.Count > 0)
                 {
                     _allModels.Clear();
                     _allModels.AddRange(drawn);
-                    _allModels.AddRange(_detailModelInstances);
+                    _allModels.AddRange(view.DetailModelInstances);
                     drawn = _allModels;
                 }
 
@@ -1601,13 +1609,13 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
                 // records what it set as the world's camera, so using it here would make
                 // `ReapplyCamera` put the SKY view back and leave the map drawn through it until
                 // the user next moved. The viewmodel pass avoids the same trap the same way.
-                if (_skyCamera is { } skyView && _world.SkyBatches.Count > 0)
+                if (view.SkyCamera is { } skyView && _world.SkyBatches.Count > 0)
                 {
                     _world.SetCamera(
                         _device,
                         _context,
                         skyView,
-                        _worldCamera?.Colours ?? false,
+                        view.WorldCamera?.Colours ?? false,
                         _specular,
                         _fullbright,
                         _debug,
@@ -1627,12 +1635,12 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
                             _depthView, (uint)ClearFlag.Depth, 1f, 0);
                     }
 
-                    ReapplyCamera();
+                    ReapplyCamera(view);
                 }
 
                 // **The water views before the main one** (B62) — DrawWorldAndEntities' AddViewToScene order:
                 // the reflection and refraction render into their targets, then this view draws.
-                if (_waterDraw is { } water)
+                if (view.WaterDraw is { } water)
                 {
                     _waterViewModels = DrawEntities ? models ?? [] : [];
 
@@ -1644,13 +1652,13 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
                             _context.RSSetViewports(1, in viewport);
                             _context.OMSetRenderTargets(1u, _backBufferView.GetAddressOf(), _depthView);
                             _context.OMSetDepthStencilState(_depthOn, 0);
-                            ReapplyCamera();
+                            ReapplyCamera(view);
                         });
                 }
                 else
                 {
                     // A simple view still draws only its sides of the water (CSimpleWorldView::Setup, viewrender.cpp:5710).
-                    _world.ViewDraws = _simpleViewDraws;
+                    _world.ViewDraws = view.SimpleViewDraws;
                 }
 
                 _world.Draw(_context);
@@ -1716,14 +1724,14 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
                     _world.DrawTranslucentWorld(_context);
 
                     // No leaves to interleave the grass by either: all of it, after the translucent world (B434).
-                    if (_detailSprites is not null && _worldCamera is { } grassCamera)
+                    if (_detailSprites is not null && view.WorldCamera is { } grassCamera)
                     {
                         _detailSprites.Draw(_device, _context, grassCamera.Matrix);
                     }
                 }
 
                 // `BeginTranslucentDetailRendering` (`viewrender.cpp:4564`): every leaf's sprite cursor rewound.
-                _detailLeaves.Begin();
+                view.DetailLeaves.Begin();
 
                 // **The see-through parts of models, after every solid one.** A hologram, a glass
                 // visor and a cloaked spy all have to blend against what is behind them, so they
@@ -1751,7 +1759,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
                 {
                     _translucentDraw.Add((
                         worldLeaves is null ? 0 : place,
-                        TranslucentOrder.Along(instance, _translucentEye, _translucentForward),
+                        TranslucentOrder.Along(instance, view.TranslucentEye, view.TranslucentForward),
                         (instance, twoPass)));
                 }
 
@@ -1800,16 +1808,16 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
 
                 // **The intersection view, after the main one** (viewrender.cpp:5958-5961): the water side of a near
                 // plane that crosses the surface, under the volume's height fog.
-                if (_waterDraw is { } crossing && _world.DrawWaterIntersection(_context, crossing))
+                if (view.WaterDraw is { } crossing && _world.DrawWaterIntersection(_context, crossing))
                 {
                     _context.OMSetDepthStencilState(_depthOn, 0);
-                    ReapplyCamera();
+                    ReapplyCamera(view);
                 }
 
                 // **"issue the pixel visibility tests"** (viewrender.cpp:1446-1450, B378): at the end of the main view,
                 // against its finished depth and before the viewmodels, which the engine draws after the view and which
                 // write the nearest tenth of this buffer.
-                if (_occlusionProxies.Count > 0 && _worldCamera is { } occlusionCamera)
+                if (_occlusionProxies.Count > 0 && view.WorldCamera is { } occlusionCamera)
                 {
                     _occlusion ??= OcclusionQueries.Create(_device);
                     _occlusion.Issue(_device, _context, _occlusionProxies, occlusionCamera.Matrix);
@@ -1834,7 +1842,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
                 // **After the models rather than before them, unlike the grass**, because a
                 // particle is not standing on the ground: it hangs in the air among the models and
                 // must be depth-tested against them, which needs their depth already written.
-                if (_worldCamera is { } particleCamera)
+                if (view.WorldCamera is { } particleCamera)
                 {
                     DrawParticleBatches(particleCamera.Matrix);
                 }
@@ -1885,7 +1893,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
             // so it has to be occluded by that geometry or it says nothing about where the wall is.
             // A player marker is the opposite: it stands in for somebody you cannot see, and hiding
             // it behind the wall they are behind would defeat the whole point of drawing it.
-            if (mapLines.Count > 0 && _worldCamera is { } lineCamera)
+            if (mapLines.Count > 0 && Drawn.WorldCamera is { } lineCamera)
             {
                 _worldLines ??= WorldLineRenderer.Create(_device);
 
@@ -2088,7 +2096,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
     /// overlays, gathered by the material kinds it just released, and either half could cull next.</summary>
     private void DropMaterialRuns()
     {
-        foreach (ViewHalf half in _halves)
+        foreach (ViewHalf half in _views.Both)
         {
             half.TranslucentLeaves = null;
             half.Overlays = null;
@@ -2110,9 +2118,11 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         _water = assets.Water;
         _waters = assets.Waters;
         _materialNames = [.. assets.Materials.Select(material => material.Name)];
-        _waterDraw = null;
-        _waterMainFog = null;
-        _simpleViewDraws = WorldRenderer.AllWaterDraws;
+
+        foreach (ViewHalf half in _views.Both)
+        {
+            half.ClearWater();
+        }
 
         // The view keeps the last map's distances unless this one places a water_lod_control.
         _waterLod.EnterMap(assets.WaterLod);
@@ -2123,12 +2133,6 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
     private IReadOnlyList<MapWater?> _waters = [];
     private string[] _materialNames = [];
 
-    /// <summary>This view's water views, or null when the frame is one simple view (B62).</summary>
-    private WaterDraw? _waterDraw;
-
-    /// <summary>The visible volume's own fog, which the main view draws under from inside it — <c>SetFogVolumeState( fogInfo, false )</c>.</summary>
-    private Tf2DemoSalvage.Core.Scene.SceneFog? _waterMainFog;
-
     /// <summary>
     /// <c>CViewRender::DrawWorldAndEntities</c> for this camera (B62): the visible fog volume, its material's
     /// <c>WaterRenderInfo</c> and the views it needs.
@@ -2138,11 +2142,11 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
     /// within the frustum, so the walk's separate frustum test passes everything (the engine tests the node box
     /// against the frustum at 0x1800e0fac; a leaf in the visible set has passed the same test).
     /// </remarks>
-    private void PlanWater(FreeCamera camera)
+    /// <param name="half">The half the plan is for: its water views, the main view's fog, and the sky eye they draw around.</param>
+    /// <param name="camera">The half's camera.</param>
+    private void PlanWater(ViewHalf half, FreeCamera camera)
     {
-        _waterDraw = null;
-        _waterMainFog = null;
-        _simpleViewDraws = WorldRenderer.AllWaterDraws;
+        half.ClearWater();
 
         if (Culling is not { CanCull: true } culling || _water.Volumes.Count == 0)
         {
@@ -2171,14 +2175,14 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
 
         WaterView main = views.First(view => view.Target == WaterViewTarget.BackBuffer);
 
-        _simpleViewDraws = main.Draw;
+        half.SimpleViewDraws = main.Draw;
 
         // From inside the volume the main view draws under its own fog: SetFogVolumeState( fogInfo, false ), the bottom
         // material's (engine.dll 0x1800e0cd0).
         if (main.Fog == WaterViewFog.Volume &&
             WaterViews.VolumeFogFor(Water(material), fog.WaterHeight, useHeightFog: false) is { } inside)
         {
-            _waterMainFog = new(inside.Start, inside.End, inside.Color.Red, inside.Color.Green, inside.Color.Blue, inside.MaxDensity);
+            half.WaterMainFog = new(inside.Start, inside.End, inside.Color.Red, inside.Color.Green, inside.Color.Blue, inside.MaxDensity);
         }
 
         if (info.CheapWater)
@@ -2199,13 +2203,15 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
             Aspect = camera.Aspect,
         };
 
-        _waterDraw = new WaterDraw(
+        // **The half's eye, not the device's**: the closure runs while this half draws, by when the other half may hold the
+        // next frame's (finding 98 §9 step 1).
+        half.WaterDraw = new WaterDraw(
             views, material, fog.WaterHeight, camera.ToMatrix(), reflected.ToMatrix(), WorldFog,
             through =>
             {
                 if (DrawSkybox && _skybox is { HasSky: true } sky)
                 {
-                    sky.Draw(_device, _context, _eye, through, SkyReach, _world?.LinearLightScale ?? 1f);
+                    sky.Draw(_device, _context, half.Eye, through, SkyReach, _world?.LinearLightScale ?? 1f);
                 }
             },
             DrawWaterViewEntities)
@@ -2216,9 +2222,6 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
 
     /// <summary>The view's cheap-water distances for this viewer's life (B62).</summary>
     private readonly WaterLodSession _waterLod = new();
-
-    /// <summary>The main view's draw flags when it is a <c>CSimpleWorldView</c>.</summary>
-    private ViewDraws _simpleViewDraws = WorldRenderer.AllWaterDraws;
 
     /// <summary>Uploads a map's projected geometry, keeping the textures already resident.</summary>
     /// <param name="world">The triangles and their material batches.</param>
@@ -2238,7 +2241,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
 
         // Queued per view from the walk, in SetCamera (B457); null until then.
         // One queue per view half, because each reuses the lists it returns (B581 rung 2).
-        foreach (ViewHalf half in _halves)
+        foreach (ViewHalf half in _views.Both)
         {
             half.OverlayLists = new OverlayRenderLists(world.OverlayFragments, world.FaceSpans);
             half.Overlays = null;
@@ -2264,28 +2267,24 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         _world?.UploadShotDecals(_device, _context, vertices, batches, entityBatches);
     }
 
-    /// <summary>The two view halves `SetCamera` alternates between (B581 rung 2, <see cref="ViewHalf"/>).</summary>
-    private readonly ViewHalf[] _halves = [new(), new()];
+    /// <summary>The two view halves `SetCamera` alternates between (B581 rung 2, <see cref="ViewHalves"/>).</summary>
+    private readonly ViewHalves _views;
 
-    /// <summary>Which half the current frame culls into and draws from.</summary>
-    /// <remarks>Flipped at the start of each <see cref="SetCamera(FreeCamera, bool)"/>, so one frame's every reader, cull to draw,
-    /// sees one half. Sound while the drain stays before `PlaceCamera`: the frame in flight is finished before the flip.
-    /// Moving the drain later means splitting these readers into game-thread and draw-time ones (finding 98 §9).</remarks>
-    private int _cullHalf;
+    /// <summary>The half the game thread's current frame culls into, flipped at the start of each
+    /// <see cref="SetCamera(FreeCamera, bool)"/>.</summary>
+    /// <remarks>**Game-thread readers only.** The draw reads <see cref="Drawn"/>, the half its frame was handed, because
+    /// this one is the next frame's once the wait moves past the camera (finding 98 §9 step 5). <see cref="Culling"/> is
+    /// still read through this one at draw time: step 3.</remarks>
+    private ViewHalf Half => _views.Cull;
 
-    private ViewHalf Half => _halves[_cullHalf];
+    /// <summary>The half the draw running now was handed.</summary>
+    private ViewHalf Drawn => _views.Drawn;
 
     /// <summary>How this map decides what of the world to draw, or null to draw all of it: the current half's.</summary>
     private WorldCulling? Culling => Half.Culling;
 
     /// <summary>The map's <c>sky_camera</c>, or null when it declares none.</summary>
     private ((float X, float Y, float Z) Origin, float Scale)? _skyRoom;
-
-    /// <summary>This frame's sky view, or null when there is no sky room to draw.</summary>
-    private float[]? _skyCamera;
-
-    /// <summary>What the eye's leaf could see this frame, for the log.</summary>
-    private SkyboxVisibility _skyVisible;
 
     /// <summary>Whether and when the 3D skybox draws — Valve's <c>r_3dsky</c>.</summary>
     /// <remarks>
@@ -2314,7 +2313,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
 
             // The cull is only rerun on a view change, so a toggle flipped while the camera is
             // still would otherwise not take effect until the user next moved. Both halves: either could cull next.
-            foreach (ViewHalf half in _halves)
+            foreach (ViewHalf half in _views.Both)
             {
                 half.CulledFor = null;
             }
@@ -2361,7 +2360,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
             // A transition, so it is logged once per change rather than per frame.
             _render.LogInformation("{Message}", $"world fog: {value?.ToString() ?? "none"}");
 
-            ReapplyCamera();
+            ReapplyCamera(Half);
         }
     }
 
@@ -2396,12 +2395,6 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
     /// <summary>The 2D skybox, drawn around the eye.</summary>
     private SkyboxRenderer? _skybox;
 
-    /// <summary>Where the camera stands, for the sky box that is centred on it.</summary>
-    private (float X, float Y, float Z) _eye;
-
-    /// <summary>Whether a camera has been uploaded, so <see cref="Eye"/> means something.</summary>
-    private bool _placed;
-
     /// <summary><c>CurrentViewOrigin()</c> — where this frame is being drawn from.</summary>
     /// <remarks>
     /// **The same field the frustum, the world cull and the 2D sky already read**, exposed rather
@@ -2412,7 +2405,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
     /// the first frame is placed — and not the map origin. A consumer that read `(0, 0, 0)` there
     /// would measure every distance from the corner of the world.
     /// </remarks>
-    public (float X, float Y, float Z)? Eye => _placed ? _eye : null;
+    public (float X, float Y, float Z)? Eye => Half.Placed ? Half.Eye : null;
 
     /// <summary>How far from the eye the sky box sits.</summary>
     /// <remarks>
@@ -2521,17 +2514,19 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         _detailProps = props;
         _detailRectangles = rectangles;
         _detailModelNames = models;
-        _detailModelInstances.Clear();
-        _detailModelsPlaced.Clear();
 
         // **Set before the early return below, not after it.** A map with no detail props still
         // has a controller, and the next map's props would otherwise be drawn at this one's
         // distance — the stale-pairing fault `SetWorldCulling` documents.
         _detailController = controller;
 
-        _detailCorners.Clear();
-        _detailLeaves.Clear();
-        _detailBuiltFor = null;
+        // Both halves: either could draw next.
+        foreach (ViewHalf half in _views.Both)
+        {
+            half.ClearDetail();
+        }
+
+        _views.ForgetDetailUpload();
 
         if (props.Count == 0 || rectangles.Count == 0 || sheet is null)
         {
@@ -2681,8 +2676,8 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
                 }
 
                 _particleSprites.SetRefract(
-                    refract, normal, _world.UpdateRefractTexture(_context, target), tint, _waterMainFog ?? WorldFog,
-                    new System.Numerics.Vector3(_translucentEye.X, _translucentEye.Y, _translucentEye.Z));
+                    refract, normal, _world.UpdateRefractTexture(_context, target), tint, Drawn.WaterMainFog ?? WorldFog,
+                    new System.Numerics.Vector3(Drawn.TranslucentEye.X, Drawn.TranslucentEye.Y, Drawn.TranslucentEye.Z));
             }
             else
             {
@@ -2770,21 +2765,10 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
     private ComPtr<ID3D11ShaderResourceView> _detailSheet;
     private IReadOnlyList<BspDetailProp> _detailProps = [];
     private IReadOnlyList<BspDetailSprite> _detailRectangles = [];
-    private readonly List<DetailSpriteVertex> _detailCorners = [];
-
-    /// <summary>The uploaded sprite quads by BSP leaf, with the translucent pass's per-leaf cursor (B434).</summary>
-    private readonly DetailSpriteLeaves _detailLeaves = new();
-    private (float X, float Y, float Z, float Distance, float Fade, (float, float, float) Forward)? _detailBuiltFor;
     private (float FadeStart, float FadeEnd)? _detailController;
 
     /// <summary>The map's detail model dictionary — one path per entry (B363).</summary>
     private IReadOnlyList<string> _detailModelNames = [];
-
-    /// <summary>This view's detail models, rebuilt with the sprites and drawn with the models.</summary>
-    private readonly List<DetailModelInstance> _detailModelsPlaced = [];
-
-    /// <summary>The same, as instances the model pass can draw.</summary>
-    private readonly List<ModelInstance> _detailModelInstances = [];
 
     /// <summary>Every model this frame draws: the scene's, then the map's detail models.</summary>
     /// <remarks>
@@ -2812,7 +2796,18 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
     /// **The view direction enters it too** (B435): the fast lane drops a group of four sprites all behind the eye
     /// plane (`BuildOutSortedSprites`, `detailobjectsystem.cpp:2164`), so turning changes which are built.
     /// </remarks>
-    private void RebuildDetailSprites((float X, float Y, float Z) eye, (float X, float Y, float Z) forward)
+    private void RebuildDetailSprites(ViewHalf half, (float X, float Y, float Z) eye, (float X, float Y, float Z) forward)
+    {
+        BuildDetailSprites(half, eye, forward);
+
+        // **The device has one detail buffer and each half its own quads**: sent when it holds another key's.
+        if (_detailSprites is not null && _views.TakeDetailUpload(half))
+        {
+            _detailSprites.Upload(_device, _context, half.DetailCorners);
+        }
+    }
+
+    private void BuildDetailSprites(ViewHalf half, (float X, float Y, float Z) eye, (float X, float Y, float Z) forward)
     {
         // **The fade is part of the key, not just the eye.** A config setting `cl_detaildist` while
         // the camera stands still would otherwise change nothing until it next moved, which reads
@@ -2823,12 +2818,12 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         (float X, float Y, float Z, float Distance, float Fade, (float, float, float) Forward) key =
             (eye.X, eye.Y, eye.Z, live.Distance, live.Fade, forward);
 
-        if (_detailProps.Count == 0 || _detailBuiltFor == key)
+        if (_detailProps.Count == 0 || half.DetailBuiltFor == key)
         {
             return;
         }
 
-        _detailBuiltFor = key;
+        half.DetailBuiltFor = key;
 
         DetailFade fade = DetailFade.For(live.Distance, live.Fade);
 
@@ -2836,27 +2831,25 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         // detail models and no sprites at all — `SetDetailProps` leaves `_detailSprites` null when
         // the sheet does not resolve — and gating the models on a sprite sheet would draw none of
         // them on exactly that map. They are separate populations of one lump.
-        RebuildDetailModels(eye, fade);
+        RebuildDetailModels(half, eye, fade);
 
         if (_detailSprites is null)
         {
             return;
         }
 
-        _detailCorners.Clear();
+        half.DetailCorners.Clear();
 
         DetailSprites.Frame frame = DetailSprites.Build(
             _detailProps,
             _detailRectangles,
             eye,
             fade,
-            _detailCorners,
-            _detailLeaves,
+            half.DetailCorners,
+            half.DetailLeaves,
             forward);
 
-        _detailSprites.Upload(_device, _context, _detailCorners);
-
-        ReportDetailSprites(frame);
+        ReportDetailSprites(half, frame);
     }
 
     /// <summary>Rebuilds the detail MODELS for an eye that has moved (B363).</summary>
@@ -2870,19 +2863,19 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
     /// are: the fade is <see cref="LiveDetailFade"/>, which is the config's value after the map's
     /// `env_detail_controller` has had its say, and that pair lives on this side.
     /// </remarks>
-    private void RebuildDetailModels((float X, float Y, float Z) eye, DetailFade fade)
+    private void RebuildDetailModels(ViewHalf half, (float X, float Y, float Z) eye, DetailFade fade)
     {
         if (_detailModelNames.Count == 0 || _detailProps.Count == 0)
         {
             return;
         }
 
-        _detailModelsPlaced.Clear();
-        _detailModelInstances.Clear();
+        half.DetailModelsPlaced.Clear();
+        half.DetailModelInstances.Clear();
 
-        DetailModels.Frame frame = DetailModels.Build(_detailProps, eye, fade, _detailModelsPlaced);
+        DetailModels.Frame frame = DetailModels.Build(_detailProps, eye, fade, half.DetailModelsPlaced);
 
-        foreach (DetailModelInstance placed in _detailModelsPlaced)
+        foreach (DetailModelInstance placed in half.DetailModelsPlaced)
         {
             if (placed.Model < 0 || placed.Model >= _detailModelNames.Count)
             {
@@ -2891,7 +2884,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
                 continue;
             }
 
-            _detailModelInstances.Add(new ModelInstance(
+            half.DetailModelInstances.Add(new ModelInstance(
                 _detailModelNames[placed.Model],
                 new PropTransform(
                     placed.Origin.X, placed.Origin.Y, placed.Origin.Z,
@@ -3029,8 +3022,8 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         ObjectDisposedException.ThrowIf(_disposed, this);
         Lock();
 
-        _halves[0].Culling = culling;
-        _halves[1].Culling = culling?.Twin();
+        _views.Both[0].Culling = culling;
+        _views.Both[1].Culling = culling?.Twin();
         _monitorCull = new MonitorCull(culling);
         _reportedWorldCull = false;
 
@@ -3051,7 +3044,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         }
 
         // Both halves: either could draw next.
-        foreach (ViewHalf half in _halves)
+        foreach (ViewHalf half in _views.Both)
         {
             half.VisibleBatches = null;
             half.TranslucentLeaves = null;
@@ -3081,6 +3074,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         if (Queue.Mode != MaterialThreadMode.QueuedThreaded && !FrameHash)
         {
             Queue.FinishPreviousDraw();
+            _views.Begin(Half);
             DrawFrame(red, green, blue, [], mapLines, [], models, viewmodels, viewmodelCamera, vgui);
 
             return;
@@ -3097,7 +3091,11 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         IReadOnlyList<ModelInstance>? models,
         IReadOnlyList<ModelInstance>? viewmodels,
         float[]? viewmodelCamera,
-        VguiDrawList? vgui) =>
+        VguiDrawList? vgui)
+    {
+        // **The half is taken now, at the hand-off** (finding 98 §9 step 1): the draw begins it on whichever thread runs it.
+        ViewHalf half = Half;
+
         // The fill and the markers are empty, always: the first was dead by construction and the second went with the
         // orthographic camera (D98). Both parameters stay until this signature is revised, which is a change to the render seam.
         //
@@ -3106,8 +3104,10 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         // as the engine's `EndFrame` drops to mode 0 for a shader API that cannot take it: a Present on the render thread
         // while the window thread waits in a drain is the deadlock DXGI documents for full screen.
         Submit(
-            () => DrawFrame(red, green, blue, [], mapLines, [], models, viewmodels, viewmodelCamera, vgui),
-            () => DrawInputParts(mapLines, models, viewmodels, viewmodelCamera, vgui));
+            half,
+            _views.Job(half, () => DrawFrame(red, green, blue, [], mapLines, [], models, viewmodels, viewmodelCamera, vgui)),
+            () => DrawInputParts(half, mapLines, models, viewmodels, viewmodelCamera, vgui));
+    }
 
     /// <summary>`TF2VIEW_QUEUE_VERIFY=1`: hash what a queued frame draws at the hand-off and again after the draw, and log a mismatch.</summary>
     /// <remarks>An instrument for the validation run, not a user control: it costs about what a full copy did (3.4 MB a frame on f12).</remarks>
@@ -3128,7 +3128,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
     private static string Changed(long handed, long after) =>
         handed == after ? "same" : string.Create(System.Globalization.CultureInfo.InvariantCulture, $"{handed:x16}->{after:x16}");
 
-    private void Submit(Action draw, Func<(long Pose, long Particles, long Other, long Cull)> parts)
+    private void Submit(ViewHalf half, Action draw, Func<(long Pose, long Particles, long Other, long Cull)> parts)
     {
         bool queued = !IsExclusiveFullScreen;
 
@@ -3158,7 +3158,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
 
         (long Pose, long Particles, long Other, long Cull) handed = parts();
         double handedLabel = FrameLabel;
-        long[] handedPieces = CullPieces();
+        long[] handedPieces = CullPieces(half);
 
         Queue.Submit(
             () =>
@@ -3166,7 +3166,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
                 draw();
 
                 (long Pose, long Particles, long Other, long Cull) after = parts();
-                long[] afterPieces = CullPieces();
+                long[] afterPieces = CullPieces(half);
 
                 long checkedNow = System.Threading.Interlocked.Increment(ref _queueChecked);
 
@@ -3199,6 +3199,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
     /// VGUI's quad and model-draw counts, the screen overlay.
     /// </remarks>
     private (long Pose, long Particles, long Other, long Cull) DrawInputParts(
+        ViewHalf half,
         IReadOnlyList<((float X, float Y, float Z) From, (float X, float Y, float Z) To)> mapLines,
         IReadOnlyList<ModelInstance>? models,
         IReadOnlyList<ModelInstance>? viewmodels,
@@ -3241,13 +3242,14 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         rest.Value(vgui?.Models.Count ?? -1);
         rest.Text(ScreenOverlay?.ToString());
 
-        return (pose.Result, particles.Result, rest.Result, CullPart());
+        return (pose.Result, particles.Result, rest.Result, CullPart(half));
     }
 
     /// <summary>What `SetCamera`'s cull handed the draw: a pure function of the camera, so it must match exactly between
     /// modes and runs (rung 2's equivalence, B581). The world, sky and overlay runs, the translucent leaves, the detail
     /// sprites, the sky decision and whether a water view was planned.</summary>
-    private long CullPart()
+    /// <param name="half">The half the frame was handed, read both at the hand-off and after the draw.</param>
+    private long CullPart(ViewHalf half)
     {
         StableHash cull = new();
 
@@ -3255,11 +3257,11 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         cull.Batches(_world?.SkyBatches);
         cull.Batches(_world?.Overlays);
         cull.Value(_world?.TranslucentLeaves is null ? -1 : 1);
-        cull.Value((int)_skyVisible);
-        cull.Value(_waterDraw is null ? 0 : 1);
-        cull.Value(_detailCorners.Count);
+        cull.Value((int)half.SkyVisible);
+        cull.Value(half.WaterDraw is null ? 0 : 1);
+        cull.Value(half.DetailCorners.Count);
 
-        foreach (DetailSpriteVertex corner in _detailCorners)
+        foreach (DetailSpriteVertex corner in half.DetailCorners)
         {
             cull.Value(corner);
         }
@@ -3269,13 +3271,14 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
 
     /// <summary>The cull part's pieces, in a fixed order — world, sky, overlays, translucent leaves, sky decision, water,
     /// detail — so a verifier mismatch names the one that moved (finding 98 §9).</summary>
-    private long[] CullPieces()
+    /// <param name="half">The half the frame was handed.</param>
+    private long[] CullPieces(ViewHalf half)
     {
         StableHash detail = new();
 
-        detail.Value(_detailCorners.Count);
+        detail.Value(half.DetailCorners.Count);
 
-        foreach (DetailSpriteVertex corner in _detailCorners)
+        foreach (DetailSpriteVertex corner in half.DetailCorners)
         {
             detail.Value(corner);
         }
@@ -3286,8 +3289,8 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
             StableHash.OfBatches(_world?.SkyBatches),
             StableHash.OfBatches(_world?.Overlays),
             _world?.TranslucentLeaves is null ? -1 : 1,
-            (int)_skyVisible,
-            _waterDraw is null ? 0 : 1,
+            (int)half.SkyVisible,
+            half.WaterDraw is null ? 0 : 1,
             detail.Result,
         ];
     }
@@ -3350,23 +3353,23 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         long batchesAt = 0, overlaysAt = 0, skyAt = 0, culledAt = 0;
 
         // **This frame's view half** (B581 rung 2): the other may still be what the frame in flight draws from.
-        _cullHalf ^= 1;
+        _views.Flip();
 
         ViewHalf half = Half;
 
-        _frustum = camera.Frustum();
+        half.Frustum = camera.Frustum();
 
         // The main view the static props' screen fades measure through (B432), from the same camera.
-        _screenView = camera.ScreenView(_height);
+        half.ScreenView = camera.ScreenView(_height);
 
         // For the translucent back-to-front sort: the same two values the engine hands
         // `SortEntities` as vecRenderOrigin and vecRenderForward, read from the same camera the
         // frustum came from — one camera or the cull lies, and so would the sort.
-        _translucentEye = camera.Origin;
-        _translucentForward = camera.Basis().Forward;
+        half.TranslucentEye = camera.Origin;
+        half.TranslucentForward = camera.Basis().Forward;
 
         // The monitor view rides on the main one's setup (`DrawMonitors( GetView( STEREO_EYE_MONO ) )`, B511).
-        _monitorView = MonitorCamera is { } pointCamera ? MonitorView.Camera(pointCamera, camera) : null;
+        half.MonitorView = MonitorCamera is { } pointCamera ? MonitorView.Camera(pointCamera, camera) : null;
 
         long viewAt = Stopwatch.GetTimestamp();
 
@@ -3394,9 +3397,10 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
              camera.Angles, camera.FieldOfView, camera.NearZ, camera.FarZ, camera.Aspect);
 
         // **Also when the translucent runs were dropped** by a material upload, which the view did not change (B426).
-        // **And when the PREVIOUS frame saw another view** (B581 rung 2): the cull gate also writes the device's sky and
-        // water decision, which the other half's frame may have rewritten for its view. Skipping only after a frame of
-        // this same view keeps that decision right without a per-half copy of it; a still camera still culls once per half.
+        // **And when the PREVIOUS frame saw another view** (B581 rung 2). Added when the sky and water decision was the
+        // device's, which the other half's frame could rewrite; it is each half's own now (finding 98 §9 step 1), so this
+        // is no longer needed for correctness. Kept so mode 0 culls on exactly the frames it did; removing it is for the
+        // step 6-7 measurements to decide. A still camera still culls once per half.
         bool sameAsPrevious = _previousView == view;
 
         _previousView = view;
@@ -3408,7 +3412,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
             half.CulledFor = view;
 
             _world.VisibleBatches = Culling?.Batches(
-                camera.Origin.X, camera.Origin.Y, camera.Origin.Z, _frustum, _world.IsTwoSidedMaterial);
+                camera.Origin.X, camera.Origin.Y, camera.Origin.Z, half.Frustum, _world.IsTwoSidedMaterial);
 
             batchesAt = Stopwatch.GetTimestamp();
 
@@ -3448,39 +3452,39 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
             // **`r_3dsky`'s three states, decided exactly where Valve decides them** — the gate is
             // `PreRender3dSkyboxWorld` and the visibility it tests is taken from the MAIN view's
             // eye, before the sky camera's offset is applied.
-            _skyVisible = Culling?.SkyVisibleFrom(
+            half.SkyVisible = Culling?.SkyVisibleFrom(
                 camera.Origin.X, camera.Origin.Y, camera.Origin.Z) ?? SkyboxVisibility.None;
 
             // The 2D box is centred here. Kept from the same camera the cull used, so the sky and
             // the world cannot disagree about where the viewer is standing.
-            _eye = (camera.Origin.X, camera.Origin.Y, camera.Origin.Z);
-            _placed = true;
+            half.Eye = (camera.Origin.X, camera.Origin.Y, camera.Origin.Z);
+            half.Placed = true;
 
             if (_skyRoom is { } room && Culling is { } cull &&
-                SkyboxView.Draws(Draw3dSky, _skyVisible, cull.SkyArea))
+                SkyboxView.Draws(Draw3dSky, half.SkyVisible, cull.SkyArea))
             {
                 FreeCamera sky = SkyboxView.CameraFor(camera, room.Origin, room.Scale);
 
-                _skyFrustum = sky.Frustum();
-                _skyEye = (sky.Origin.X, sky.Origin.Y, sky.Origin.Z);
+                half.SkyFrustum = sky.Frustum();
+                half.SkyEye = (sky.Origin.X, sky.Origin.Y, sky.Origin.Z);
                 _world.SkyBatches = cull.SkyRunsFrom(
-                    sky.Origin.X, sky.Origin.Y, sky.Origin.Z, _skyFrustum);
+                    sky.Origin.X, sky.Origin.Y, sky.Origin.Z, half.SkyFrustum);
 
-                _skyCamera = _world.SkyBatches.Count > 0 ? sky.ToMatrix() : null;
+                half.SkyCamera = _world.SkyBatches.Count > 0 ? sky.ToMatrix() : null;
             }
             else
             {
                 _world.SkyBatches = [];
-                _skyCamera = null;
+                half.SkyCamera = null;
             }
 
-            ReportWorldCull();
+            ReportWorldCull(half);
 
             skyAt = Stopwatch.GetTimestamp();
 
             // The water views, from the same cull (B62); the main view's fog may be the volume's.
-            PlanWater(camera);
-            ReapplyCamera();
+            PlanWater(half, camera);
+            ReapplyCamera(half);
 
             // Kept with the runs, so a later frame on this half that skips the cull restores this decision (B581 rung 2).
             half.VisibleBatches = _world.VisibleBatches;
@@ -3492,8 +3496,8 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         }
         else
         {
-            // A skip means the previous frame saw this same view, so the device's sky and water decision is already this
-            // view's; only the runs come back, so the draw reads this half's lists and never the other's.
+            // A skip keeps this half's own sky and water decision, made for this same view; only the runs go back into the
+            // renderer, so the draw reads this half's lists and never the other's.
             if (_world is not null)
             {
                 half.InstallInto(_world);
@@ -3503,7 +3507,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
 
         // **Outside the cull gate, because it turns on a different thing**: the eye and the view direction (the fast
         // lane's behind-the-eye cull, B435), not the lens.
-        RebuildDetailSprites((camera.Origin.X, camera.Origin.Y, camera.Origin.Z), _translucentForward);
+        RebuildDetailSprites(half, (camera.Origin.X, camera.Origin.Y, camera.Origin.Z), half.TranslucentForward);
 
         long detailAt = Stopwatch.GetTimestamp();
 
@@ -3544,12 +3548,12 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         _world.DrawWorld = _drawWorld;
 
         _world.SetCamera(
-            _device, _context, matrix, surfaceColours, _specular, _fullbright, _debug, _phong, _waterMainFog ?? WorldFog);
+            _device, _context, matrix, surfaceColours, _specular, _fullbright, _debug, _phong, Half.WaterMainFog ?? WorldFog);
 
         // Remembered so the viewmodel pass can put it back. The world's camera is set on a view
         // CHANGE rather than per frame, so anything that overwrites it has to restore it or the
         // map keeps the wrong projection until the user next moves.
-        _worldCamera = (matrix, surfaceColours);
+        Half.WorldCamera = (matrix, surfaceColours);
     }
 
     /// <summary>The view the previous <see cref="SetCamera(FreeCamera, bool)"/> was given, culled or not.</summary>
@@ -3608,7 +3612,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
             // camera was the previous approach and it did the opposite of what it read as: it
             // forgot the camera, so nothing re-sent anything and the change waited for an unrelated
             // event.
-            ReapplyCamera();
+            ReapplyCamera(Half);
         }
     }
 
@@ -3638,7 +3642,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         {
             Lock();
             _phong = value;
-            ReapplyCamera();
+            ReapplyCamera(Half);
         }
     }
 
@@ -3659,7 +3663,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         {
             Lock();
             _fullbright = value;
-            ReapplyCamera();
+            ReapplyCamera(Half);
         }
     }
 
@@ -3696,7 +3700,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         {
             Lock();
             _debug = value;
-            ReapplyCamera();
+            ReapplyCamera(Half);
         }
     }
 
@@ -3895,21 +3899,20 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
     ///
     /// Unbuilt before the first camera is set, and an unbuilt frustum culls nothing.
     /// </remarks>
-    public ViewFrustum Frustum => _frustum;
+    public ViewFrustum Frustum => Half.Frustum;
 
     /// <summary>The main view for <c>ComputePixelWidthOfSphere</c> (B432); null before a camera is set.</summary>
-    public Core.Scene.ScreenFadeView? ScreenView => _screenView;
+    public Core.Scene.ScreenFadeView? ScreenView => Half.ScreenView;
 
     /// <inheritdoc/>
     /// <remarks>
-    /// **`DrawMonitorPass`'s own refusals, all of them**: `MonitorCamera` is fed and `SetCamera` builds `_monitorView` before
-    /// the pose (`UploadCameraOver`), so the answer here is the one the draw will reach. `cl_drawmonitors` cannot change
-    /// between the two: settings arrive through the message pump, and pose and draw run inside one `RenderFrame`.
+    /// **`DrawMonitorPass`'s own refusals, all of them**: `MonitorCamera` is fed and `SetCamera` builds the half's monitor
+    /// view before the pose (`UploadCameraOver`), so the answer here is the one the draw of that half will reach.
+    /// `cl_drawmonitors` cannot change between the two: settings arrive through the message pump, and pose and draw run
+    /// inside one `RenderFrame`.
     /// </remarks>
     public bool DrawsMonitor =>
-        DrawMonitors && _world is { HasCameraTarget: true } && _monitorView is not null && MonitorCamera is not null;
-
-    private Core.Scene.ScreenFadeView? _screenView;
+        DrawMonitors && _world is { HasCameraTarget: true } && Half.MonitorView is not null && MonitorCamera is not null;
 
     /// <summary>The views' leaf lists the scene collates its renderables over (B254, B262).</summary>
     /// <remarks>
@@ -3926,25 +3929,11 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
                 return default;
             }
 
-            IReadOnlyList<int>? sky = _skyCamera is not null ? culling.SkyLeaves : null;
+            IReadOnlyList<int>? sky = Half.SkyCamera is not null ? culling.SkyLeaves : null;
 
-            return new RenderableViews(culling.MainLeaves, sky, _skyFrustum);
+            return new RenderableViews(culling.MainLeaves, sky, Half.SkyFrustum);
         }
     }
-
-    private ViewFrustum _skyFrustum;
-
-    private ViewFrustum _frustum;
-
-    /// <summary>The view origin and forward axis the translucent sort measures against.</summary>
-    /// <remarks>
-    /// Captured in <see cref="SetCamera(FreeCamera, bool)"/> from the same camera as
-    /// <see cref="_frustum"/> — the engine's <c>vecRenderOrigin</c> and <c>vecRenderForward</c>,
-    /// which <c>SortEntities</c> takes from the view being rendered.
-    /// </remarks>
-    private (float X, float Y, float Z) _translucentEye;
-
-    private (float X, float Y, float Z) _translucentForward = (1f, 0f, 0f);
 
     /// <summary>The translucent pass's reusable sort buffer: survivors with their view distance.</summary>
     private readonly List<(int Leaf, float Along, (ModelInstance Instance, bool TwoPass) Entry)>
@@ -3966,7 +3955,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
     /// sprite this view" draws the same pixels.
     /// </remarks>
     private bool HasDetailAtPlace(int place) =>
-        _detailSprites is not null && Culling is { } culling && _detailLeaves.Has(culling.LeafAt(place));
+        _detailSprites is not null && Culling is { } culling && Drawn.DetailLeaves.Has(culling.LeafAt(place));
 
     /// <summary>The planner's glass question, bound once (B435).</summary>
     private Func<int, bool>? _hasTranslucentAtPlace;
@@ -3982,7 +3971,9 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
     /// </remarks>
     private void DrawDetailStep(InterleaveStep step)
     {
-        if (_detailSprites is null || Culling is not { } culling || _worldCamera is not { } camera)
+        ViewHalf view = Drawn;
+
+        if (_detailSprites is null || Culling is not { } culling || view.WorldCamera is not { } camera)
         {
             return;
         }
@@ -3999,11 +3990,11 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
             (float x, float y, float z) = instance.Origin ??
                 (WorldSpaceBounds.IsPlaced(instance.WorldBounds)
                     ? ((minX + maxX) * 0.5f, (minY + maxY) * 0.5f, (minZ + maxZ) * 0.5f)
-                    : _translucentEye);
+                    : view.TranslucentEye);
 
-            x -= _translucentEye.X;
-            y -= _translucentEye.Y;
-            z -= _translucentEye.Z;
+            x -= view.TranslucentEye.X;
+            y -= view.TranslucentEye.Y;
+            z -= view.TranslucentEye.Z;
             nearest = (x * x) + (y * y) + (z * z);
         }
 
@@ -4012,12 +4003,12 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         // An entity split is one `RenderTranslucentDetailObjectsInLeaf`: the fast lane first (`:2637`), then the ordinary.
         if (step.Kind != InterleaveKind.Detail)
         {
-            DrawDetailRun(camera, _detailLeaves.Take(leaf, nearest, fast: true));
+            DrawDetailRun(camera, view.DetailLeaves.Take(leaf, nearest, fast: true));
         }
 
         if (step.Kind != InterleaveKind.DetailFast)
         {
-            DrawDetailRun(camera, _detailLeaves.Take(leaf, nearest, fast: false));
+            DrawDetailRun(camera, view.DetailLeaves.Take(leaf, nearest, fast: false));
         }
     }
 
@@ -4054,7 +4045,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
     /// from the vertex list (B243). The corner count is the one derived number and it is stated as
     /// what it is: six per quad.
     /// </remarks>
-    private void ReportDetailSprites(DetailSprites.Frame frame)
+    private void ReportDetailSprites(ViewHalf half, DetailSprites.Frame frame)
     {
         if (!_render.IsEnabled(LogLevel.Debug))
         {
@@ -4076,7 +4067,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
             $"detail sprites: {frame.Built} quads of {_detailProps.Count} props " +
             $"({frame.Fast} fast, {frame.Aligned} turned toward the eye, {frame.Faded} beyond {LiveDetailFade.Distance:0}" +
             $"{(_detailController is null ? string.Empty : ", the map's own")}), " +
-            $"{_detailCorners.Count} corners");
+            $"{half.DetailCorners.Count} corners");
     }
 
     private long _reportedDetailAt;
@@ -4093,7 +4084,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
     /// leaf count equal to the map's total means the frustum or the PVS is inert; and runs equal to
     /// the uploaded batch count means the gather kept every face.
     /// </remarks>
-    private void ReportWorldCull()
+    private void ReportWorldCull(ViewHalf half)
     {
         if (_reportedWorldCull || _world is null)
         {
@@ -4136,7 +4127,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
             Culling.SkyArea,
             _world.SkyBatches.Count,
             _draw3dSky,
-            _skyVisible);
+            half.SkyVisible);
 
         // **B262's first number is already reported, by `opaque draw order` below** — "152 of 152
         // models kept". A second line saying the same thing from its own counters is the fault
@@ -4290,7 +4281,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
             leaves = Culling is { MainLeaves.Count: > 0 } culling ? culling.MainLeaves : _everyLeaf;
         }
 
-        _leafSystem.BuildRenderablesList(leaves, _frustum, _groupOf ??= GroupOf, _collated);
+        _leafSystem.BuildRenderablesList(leaves, Drawn.Frustum, _groupOf ??= GroupOf, _collated);
 
         File(_sceneMain, _opaqueDraw, _translucentEntries, merge: true);
         File(_sceneSky, _skyOpaque, _skyTranslucent, merge: false);
@@ -4441,7 +4432,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
 
         foreach ((int place, ModelInstance instance, bool twoPass) in _skyTranslucent)
         {
-            _skyTranslucentDraw.Add((place, TranslucentOrder.Along(instance, _skyEye, _translucentForward), (instance, twoPass)));
+            _skyTranslucentDraw.Add((place, TranslucentOrder.Along(instance, Drawn.SkyEye, Drawn.TranslucentForward), (instance, twoPass)));
         }
 
         TranslucentOrder.Sort(_skyTranslucentDraw);
@@ -4459,7 +4450,6 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
     }
 
     private readonly List<(int Leaf, float Along, (ModelInstance Instance, bool TwoPass) Entry)> _skyTranslucentDraw = [];
-    private (float X, float Y, float Z) _skyEye;
 
     /// <summary>Draws one collated opaque renderable, then its decals.</summary>
     /// <param name="instance">The renderable.</param>
@@ -4907,7 +4897,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
 
         // **Says whether the FRUSTUM WAS BUILT, not only how many survived it** (B241). The count
         // alone cannot distinguish a cull that ran and kept everything from a cull that never ran:
-        // `Culled` returns false outright when `_frustum.IsBuilt` is false, so an unbuilt frustum
+        // `Culled` returns false outright when the frustum's `IsBuilt` is false, so an unbuilt frustum
         // and a scene entirely on screen produce the identical line.
         //
         // A UI test asserted `kept < offered` for exactly this and passed for months on a scene
@@ -4919,7 +4909,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
             ordered.Count,
             offered.Count,
             statics,
-            _frustum.IsBuilt ? "built" : "UNBUILT",
+            Drawn.Frustum.IsBuilt ? "built" : "UNBUILT",
             string.Join('/', perBucket));
 
         // **Which models were dropped, by name and by box.** A count says the cull ran; it cannot

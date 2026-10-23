@@ -359,7 +359,7 @@ ends that too.
    `058feadd`; with step 0 in, `DrawMonitorPass` is no longer on step 3's list of `Culling` readers (it reads
    `_monitorCull`, which only `SetWorldCulling` replaces), but it still reads `_monitorView` and the main
    `world.VisibleBatches` it swaps back, which step 1 moves into the half.
-1. Move into the half everything the gate still writes once:
+1. (Done, below.) Move into the half everything the gate still writes once:
    - `_skyVisible`, `_eye`, `_placed`, `_skyFrustum`, `_skyEye` and `_skyCamera`;
    - `_waterDraw` (a closure reading `_eye` and `_skybox` while it draws), `_waterMainFog` and `_simpleViewDraws`;
    - `_frustum`, `_screenView`, `_translucentEye`/`Forward`, `_monitorView` and `_worldCamera`;
@@ -386,3 +386,37 @@ ends that too.
 7. A measurement record, then a quiet-gated ABBA run on f12.
 
 The pre-existing verifier change is found (the instrument, above), so a change after step 5 is the overlap's.
+
+**Step 1 done, 2026-10-23 (branch `feat/queued-render-thread-rung-2d`).** Everything the gate wrote once now lives in
+`ViewHalf`: the sky decision and eye, the sky frustum, eye and matrix, the water plan (its sky closure reads the half's
+eye), the main frustum, screen view, translucent eye and forward, the monitor view, the world camera and the detail
+sprites and models. A new `ViewHalves` (`managed/Tf2DemoSalvage.Render/ViewHalves.cs`) holds the two halves, the
+game thread's `Cull` half and the draw's `Drawn` half. `SubmitScene` takes the half at the hand-off and the job begins
+it (`ViewHalves.Job`); mode 0's direct path and `DrawAndPresent` begin `Cull` before `DrawFrame`. Every draw-time
+reader reads `Drawn`; the game-thread answers (`Frustum`, `ScreenView`, `Eye`, `Views`, `DrawsMonitor`) and the
+setters read `Cull`. The frame-hash and verifier cull parts hash the handed half.
+
+- *The detail buffer.* The device has one sprite buffer and each half its own quads, so an A, B, A revisit would draw
+  B's quads through A's leaf ranges. `ViewHalves.TakeDetailUpload` uploads when the buffer holds quads built for another
+  key. Keyed on the build key, not the half, because the build is a pure function of the key and the props, so a still
+  camera uploads once. Cost: a still camera now BUILDS the detail sprites once per half, one extra build when it stops.
+- *Kept on purpose:* the gate's "previous frame saw another view" condition. It is no longer needed for correctness
+  (each half has its own decision) but keeps mode 0 culling on exactly the frames it did. Dropping it is for steps 6-7.
+- *Tests:* `ViewHalvesTests` (seven). Sabotage 1, `Job` beginning `Cull` instead of the handed half, reddened
+  `Job_RunAfterTheNextFrameFlipped_DrawsTheHalfItWasHanded` and `Job_WhenRun_ReplaysTheHandedHalfsUploadsBeforeTheDraw`.
+  Sabotage 2, `TakeDetailUpload` recording nothing, reddened `TakeDetailUpload_ARevisitAfterTheOtherHalfsView_UploadsAgain`
+  and `TakeDetailUpload_BothHalvesBuiltForOneKey_UploadsOnce`. *Read, not tested:* the `Device3D` wiring (`Begin(Half)`
+  on the direct path, `Job(half, …)` in `SubmitScene`); no test constructs a `Device3D`, and a wrong half there reddens
+  nothing while the wait stays before the camera, because both halves then hold the same view.
+- *Equivalence, measured.* The two step-2 baseline logs above could not be reproduced: they are
+  `viewer-20261023-082812-39196.log` and `viewer-20261023-083057-1008.log` (191/189, as recorded), but they show no
+  `fps_max` on their command line and every first-person run here diverged from them on the pose from the first tick,
+  so their exact command is unknown. The control was rebuilt instead: the baseline commit `f8c768fc` built in a
+  separate worktree and run with the same command as the change (`TF2VIEW_FRAME_HASH=1 TF2VIEW_FIXED_FRAME=0.015
+  TF2VIEW_AUTOPLAY=1`, f12 `--tick 30000 --first-person --measure 6 +fps_max 0 +mat_queue_mode 0`, loads 3-22%):
+  - baseline vs baseline: 204 ticks, cull 204/204, pose 201/204 (differs 30171-30173);
+  - step 1 vs step 1: cull 200/200, pose 189/200 (differs 30169-30179);
+  - baseline vs step 1, all four pairs: cull 200/200, pose 191-198/200, differing only inside 30169-30179.
+  The pose's two-to-eleven-tick run near 30170 is in the control too, so it is the known run-to-run difference, not this
+  change. The cull hash cannot see which half the draw reads (both are equal here); that rests on the sabotage above.
+- *Mode 2:* `queue verify: 853000 frames checked, 0 changed` (f12, `--measure 20`, same flags).

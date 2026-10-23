@@ -1,5 +1,7 @@
 using System.Collections.Generic;
 
+using Tf2DemoSalvage.Content.Bsp;
+
 namespace Tf2DemoSalvage.Render;
 
 /// <summary>One half of the view state `SetCamera` hands the draw: its own culling, its own runs, and what the cull decided
@@ -11,9 +13,9 @@ namespace Tf2DemoSalvage.Render;
 /// return: through one object, a cull for frame N+1 would rewrite frame N's runs under its draw.
 ///
 /// **Each half remembers the view it culled for**, so a still camera still pays nothing: each half culls once, then both
-/// skip. **Not here yet**: the sky decision, the water plan (`_waterDraw` reads `_eye` while it draws), the frustums, the
-/// camera upload and the detail sprites, which the device still keeps once. They stay right because a half skips only
-/// after a frame of the same view (`Device3D.SetCamera`); moving the drain later needs them here (finding 98 §9).
+/// skip. **Everything else `SetCamera` decides lives here too** (finding 98 §9 step 1): the sky decision, the water
+/// plan, the frustums and eyes, the world camera and the detail sprites, so the draw reads only the half it was handed
+/// (<see cref="ViewHalves.Job"/>).
 /// </remarks>
 internal sealed class ViewHalf
 {
@@ -39,6 +41,66 @@ internal sealed class ViewHalf
     /// <summary>The 3D skybox room's runs.</summary>
     public IReadOnlyList<WorldBatch> SkyBatches { get; set; } = [];
 
+    /// <summary>What the eye's leaf could see of the sky.</summary>
+    public SkyboxVisibility SkyVisible { get; set; }
+
+    /// <summary>Where the cull's camera stood: the 2D sky's centre.</summary>
+    public (float X, float Y, float Z) Eye { get; set; }
+
+    /// <summary>Whether this half has culled for a camera, so <see cref="Eye"/> means something.</summary>
+    public bool Placed { get; set; }
+
+    /// <summary>The sky view's frustum.</summary>
+    public ViewFrustum SkyFrustum { get; set; }
+
+    /// <summary>The sky view's eye, for its translucent sort.</summary>
+    public (float X, float Y, float Z) SkyEye { get; set; }
+
+    /// <summary>The sky view's matrix, or null when there is no sky room to draw.</summary>
+    public float[]? SkyCamera { get; set; }
+
+    /// <summary>The water views, or null when the frame is one simple view (B62).</summary>
+    public WaterDraw? WaterDraw { get; set; }
+
+    /// <summary>The visible volume's own fog the main view draws under from inside it.</summary>
+    public Tf2DemoSalvage.Core.Scene.SceneFog? WaterMainFog { get; set; }
+
+    /// <summary>The main view's draw flags when it is a <c>CSimpleWorldView</c>.</summary>
+    public ViewDraws SimpleViewDraws { get; set; } = WorldRenderer.AllWaterDraws;
+
+    /// <summary>The main view's frustum.</summary>
+    public ViewFrustum Frustum { get; set; }
+
+    /// <summary>The main view the static props' screen fades measure through (B432).</summary>
+    public Core.Scene.ScreenFadeView? ScreenView { get; set; }
+
+    /// <summary>The translucent sort's eye: <c>vecRenderOrigin</c>.</summary>
+    public (float X, float Y, float Z) TranslucentEye { get; set; }
+
+    /// <summary>The translucent sort's axis: <c>vecRenderForward</c>.</summary>
+    public (float X, float Y, float Z) TranslucentForward { get; set; } = (1f, 0f, 0f);
+
+    /// <summary>The monitor's view, or null for none (B511).</summary>
+    public FreeCamera? MonitorView { get; set; }
+
+    /// <summary>The world camera the draw sends and every pass restores.</summary>
+    public (float[] Matrix, bool Colours)? WorldCamera { get; set; }
+
+    /// <summary>What the detail sprites were last built for.</summary>
+    public (float X, float Y, float Z, float Distance, float Fade, (float, float, float) Forward)? DetailBuiltFor { get; set; }
+
+    /// <summary>The detail sprites' quads.</summary>
+    public List<DetailSpriteVertex> DetailCorners { get; } = [];
+
+    /// <summary>The quads by BSP leaf, with the translucent pass's per-leaf cursor (B434).</summary>
+    public DetailSpriteLeaves DetailLeaves { get; } = new();
+
+    /// <summary>This view's detail models as placed.</summary>
+    public List<DetailModelInstance> DetailModelsPlaced { get; } = [];
+
+    /// <summary>The same, as instances the model pass draws.</summary>
+    public List<ModelInstance> DetailModelInstances { get; } = [];
+
     /// <summary>Hands this half's runs to the world renderer, which draws from them.</summary>
     /// <param name="world">The renderer.</param>
     public void InstallInto(WorldRenderer world)
@@ -47,5 +109,23 @@ internal sealed class ViewHalf
         world.TranslucentLeaves = TranslucentLeaves;
         world.Overlays = Overlays;
         world.SkyBatches = SkyBatches;
+    }
+
+    /// <summary>Forgets the detail sprites and models, for a new map's props.</summary>
+    public void ClearDetail()
+    {
+        DetailCorners.Clear();
+        DetailLeaves.Clear();
+        DetailModelsPlaced.Clear();
+        DetailModelInstances.Clear();
+        DetailBuiltFor = null;
+    }
+
+    /// <summary>Forgets the water plan, for a new map's materials.</summary>
+    public void ClearWater()
+    {
+        WaterDraw = null;
+        WaterMainFog = null;
+        SimpleViewDraws = WorldRenderer.AllWaterDraws;
     }
 }
