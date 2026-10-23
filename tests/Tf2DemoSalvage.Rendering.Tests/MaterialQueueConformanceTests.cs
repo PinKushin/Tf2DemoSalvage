@@ -164,14 +164,30 @@ public sealed class MaterialQueueConformanceTests
 
     /// <remarks>A draw that throws must not kill the thread and leave the game thread waiting for ever.</remarks>
     [Test]
-    public void Lock_AfterADrawThrew_RethrowsOnTheGameThread()
+    public void FinishPreviousDraw_AfterADrawThrew_RethrowsOnceOnTheGameThread()
     {
         using QueuedRenderThread queue = new() { Mode = MaterialThreadMode.QueuedThreaded };
 
         queue.Submit(static () => throw new InvalidOperationException("drawn badly"));
 
-        Should.Throw<InvalidOperationException>(() => queue.Lock()).Message.ShouldBe("drawn badly");
+        Should.Throw<InvalidOperationException>(() => queue.FinishPreviousDraw()).Message.ShouldBe("drawn badly");
+        queue.FinishPreviousDraw();
+    }
+
+    /// <remarks>The failure surfaces at the draw, as in mode 0, not at whichever setter happened to drain first.</remarks>
+    [Test]
+    public void Lock_AfterADrawThrew_DrainsWithoutThrowingAndTheNextSubmitRethrows()
+    {
+        using QueuedRenderThread queue = new() { Mode = MaterialThreadMode.QueuedThreaded };
+        bool drewAgain = false;
+
+        queue.Submit(static () => throw new InvalidOperationException("drawn badly"));
+
         queue.Lock();
+        queue.Mode = MaterialThreadMode.SingleThreaded;
+
+        Should.Throw<InvalidOperationException>(() => queue.Submit(() => drewAgain = true)).Message.ShouldBe("drawn badly");
+        drewAgain.ShouldBeFalse();
     }
 
     /// <remarks>Leaving mode 2 drains first (`0x180016050`, "Forcing queued mode off!").</remarks>

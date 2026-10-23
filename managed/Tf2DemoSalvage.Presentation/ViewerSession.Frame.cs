@@ -664,7 +664,7 @@ public sealed partial class ViewerSession
     public void Simulate() => _playback.Advance();
 
     /// <inheritdoc/>
-    public void FinishPreviousDraw() => _ownedDevice?.Queue.Lock();
+    public void FinishPreviousDraw() => _ownedDevice?.Queue.FinishPreviousDraw();
 
     /// <summary>`queue wait {caller}` part names, made once per caller rather than per frame.</summary>
     private readonly System.Collections.Generic.Dictionary<string, string> _queueWaitParts = new(StringComparer.Ordinal);

@@ -207,3 +207,10 @@ countdown runs, a pending capture's settle test reads the device each frame, so 
 engine's read-backs need mode 0. Exclusive full screen draws serially. There is no held frame: frame N is presented as soon
 as its draw finishes, as in the engine (finding 99 section 4). It ships off: `mat_queue_mode` defaults to 0 here, where TF2's
 is -1.
+
+**Review fixes, 2026-10-23** (an independent thread-safety review of rung 1; each verified in the code before it was fixed):
+
+- *Where a render-thread failure surfaces.* `Lock` used to rethrow it, so it came out of whichever drain ran first (a
+  setter, `ClearMap`, the occlusion read) with a stack that blamed that caller. Now `Lock` only drains, and the failure
+  is rethrown by `FinishPreviousDraw` and by `Submit`, the draw's own point, as in mode 0. Test:
+  `Lock_AfterADrawThrew_DrainsWithoutThrowingAndTheNextSubmitRethrows`. Sabotage (rethrow put back in `Lock`) reddened it.
