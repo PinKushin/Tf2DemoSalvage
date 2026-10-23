@@ -3009,12 +3009,18 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
 
                 int after = inputs();
 
-                System.Threading.Interlocked.Increment(ref _queueChecked);
+                long checkedNow = System.Threading.Interlocked.Increment(ref _queueChecked);
 
                 if (after != handed)
                 {
                     System.Threading.Interlocked.Increment(ref _queueChanged);
                     _render.LogError("{Message}", $"queue verify: the frame's inputs changed while it was drawn ({handed:x8} -> {after:x8})");
+                }
+
+                // The control: a verifier that checked nothing proves nothing, so the count is reported as it grows.
+                if (checkedNow % 500 == 0)
+                {
+                    _render.LogInformation("{Message}", $"queue verify: {checkedNow} frames checked, {System.Threading.Interlocked.Read(ref _queueChanged)} changed");
                 }
             },
             queued);
