@@ -618,6 +618,50 @@ public sealed class ViewerPresenterTests
     }
 
     /// <remarks>
+    /// **Rung 2's contract (B581, D228): SetCamera overlaps the frame in flight, the pose does not.** The cull writes only
+    /// its own view half, so it may run while the previous frame draws from the other; the pose rewrites bones, flex and
+    /// instance lists the draw reads, so the drain sits at its entry. Deterministic: the in-flight draw is held on a gate
+    /// only the drain opens.
+    ///
+    /// **PENDING, so `[Explicit]`**: red today for the predicted reason — nothing drains inside `UploadCameraOver` (the
+    /// wait is still `FinishPreviousDraw`, before `PlaceCamera`), so the pose reads `in flight True`. Finding 98 §9 lists
+    /// the steps before it may lose the attribute: the view halves first, then the wait moves to the pose entry.
+    /// </remarks>
+    [Test]
+    [Explicit("pending B581 rung 2: red until the wait moves from before PlaceCamera to the pose entry (finding 98 §9)")]
+    public void UploadCameraOver_InModeTwoWithAFrameInFlight_OverlapsSetCameraButNotThePose()
+    {
+        WriteMap();
+        (ViewerPresenter loader, _, _) = Loader();
+        Questions asked = new();
+        using System.Threading.ManualResetEventSlim gate = new();
+        using Render.QueuedRenderThread queue = new() { Mode = Render.MaterialThreadMode.QueuedThreaded };
+        FakeViewerDevice device = new() { Queue = queue };
+
+        queue.Waiting = _ => gate.Set();
+
+        using (loader)
+        {
+            loader.AttachWindow(asked.Window(loader), new FpsPanelTests.SolidGdi());
+            loader.LoadDemo(WriteDemo("camera")).Loaded.ShouldBeTrue();
+
+            try
+            {
+                queue.Submit(gate.Wait);
+                loader.Posed = () => device.Mark($"posed in flight {queue.InFlight}");
+                loader.UploadCameraOver(device, new FakeFrameDevice(), flyTicks: 0, exposureSeconds: 0f, surfaceColours: false);
+
+                device.Set.ShouldContain("SetCamera in flight True", "the control: the frame was in flight at the cull");
+                device.Set.ShouldContain("posed in flight False");
+            }
+            finally
+            {
+                gate.Set();
+            }
+        }
+    }
+
+    /// <remarks>
     /// **`camera setcamera` is split by the device's own timers, carried** (B243): the parts the device measured inside
     /// its `SetCamera` reach the rate line under `camera setcamera` and the part's name, as the device timed them, never re-timed here.
     /// </remarks>

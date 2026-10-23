@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 
 using Tf2DemoSalvage.Content.Bsp;
 
@@ -89,6 +90,32 @@ public sealed class SkyAreaCullingTests
 
         main.Count.ShouldBe(1, "the main runs survive the sky pass being built");
         main[0].MaterialIndex.ShouldBe(7, "and they are the WORLD's material, not the sky's");
+    }
+
+    /// <remarks>The twin is one view half's culling (B581 rung 2): the same map, so the same answers, sky area included.</remarks>
+    [Test]
+    public void Twin_OfASkyMap_CullsAsTheOriginalDoes()
+    {
+        WorldCulling twin = Culled(skyArea: 1).Twin();
+
+        twin.SkyArea.ShouldBe(1);
+        twin.Batches(0f, 0f, 0f, Everything()).ShouldNotBeNull().Single().MaterialIndex.ShouldBe(7);
+        twin.SkyRunsFrom(0f, 0f, 0f, Everything()).Single().MaterialIndex.ShouldBe(9);
+    }
+
+    /// <remarks>
+    /// **The point of a twin: its culls never rewrite the original's lists** (B581 rung 2). One half's cull for the next
+    /// frame runs while the other half's runs are being drawn; through one object it would empty them under the draw.
+    /// </remarks>
+    [Test]
+    public void Twin_CullingNothing_LeavesTheOriginalsRunsStanding()
+    {
+        WorldCulling culling = Culled(skyArea: -1);
+        IReadOnlyList<WorldBatch> main = culling.Batches(0f, 0f, 0f, Everything()).ShouldNotBeNull();
+        WorldCulling twin = culling.Twin();
+
+        (twin.Batches(0f, 0f, 0f, ViewFrustum.Nothing)?.Count ?? 0).ShouldBe(0, "the control: this cull, through one object, would empty the list");
+        main.Count.ShouldBe(2);
     }
 
     /// <summary>A two-leaf map: leaf 1 in area 0 with face 0, leaf 2 in area 1 with face 1.</summary>

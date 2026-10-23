@@ -74,9 +74,20 @@ public sealed class WorldCulling
         }
 
         _worldCorners = corners;
+        _made = (pvs, leafFaces, spans);
     }
 
     private readonly int _worldCorners;
+    private readonly (BspVisibility Pvs, BspLeafFaces LeafFaces, IReadOnlyList<WorldFaceSpan> Spans) _made;
+
+    /// <summary>A second culling of the same map with working state of its own: one per view half (B581 rung 2).</summary>
+    /// <returns>A culling that answers every query as this one would, whose returned lists this one never touches.</returns>
+    /// <remarks>
+    /// **Every list a cull returns is reused by the next call on the same object** (the constructor's second
+    /// `VisibleWorld` says why), so a cull for frame N+1 run while frame N draws would rewrite N's runs under the draw.
+    /// Rebuilt from the map's own inputs rather than copied: once per map, and nothing mutable can be shared by mistake.
+    /// </remarks>
+    public WorldCulling Twin() => new(_tree, _made.Pvs, _made.LeafFaces, _made.Spans) { SkyArea = SkyArea };
 
     /// <summary>The map's tree, for the fog volume walk (B62).</summary>
     public BspLeafTree Tree => _tree;

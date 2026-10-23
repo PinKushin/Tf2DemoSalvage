@@ -93,9 +93,12 @@ internal sealed class FakeViewerDevice : IViewerDevice
 
     public IReadOnlyList<ModelInstance> MonitorOnlyModels { get => []; set => Note(nameof(MonitorOnlyModels), value.Count); }
 
+    /// <summary>A render queue whose in-flight state <see cref="SetCamera"/> writes down, or null for none (B581 rung 2).</summary>
+    public Render.QueuedRenderThread? Queue { get; init; }
+
     public void SetCamera(FreeCamera camera, bool surfaceColours = false)
     {
-        _set.Add(nameof(SetCamera));
+        _set.Add(Queue is null ? nameof(SetCamera) : string.Create(CultureInfo.InvariantCulture, $"{nameof(SetCamera)} in flight {Queue.InFlight}"));
         Camera = (camera, surfaceColours);
     }
 
