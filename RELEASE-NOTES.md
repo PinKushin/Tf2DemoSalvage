@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- **The viewer now draws on a second thread by default**, as TF2 does. `mat_queue_mode` defaults to TF2's own `-1`:
+  on a machine with two or more physical CPU cores each frame is drawn on a second thread, and on one core it is drawn
+  on the main thread as before. On the author's `cp_process_f12` recording this was measured at about 14% faster.
+  Frame time: 13.04 ms to 11.25 ms (finding 98, measurements/2026-10-23-queued-render-thread-rung-2.md).
+  To get the old behaviour back, set `mat_queue_mode 0` in `settings.cfg`, or use `+mat_queue_mode 0` for one run.
+  A `settings.cfg` saved by an earlier version keeps following the default, because the viewer writes defaults as
+  comments.
+
 ## Changes in 0.1.0-beta.49
 
 Released 2026-10-23.

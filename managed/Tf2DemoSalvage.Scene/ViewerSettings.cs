@@ -609,12 +609,11 @@ public sealed record ViewerSettings
     /// </remarks>
     public int ThreeDimensionalSky { get; init; } = SkyboxView.DrawsByDefault;
 
-    /// <summary>`mat_queue_mode`: 0 (the default here) draws on the game thread, 2 on a render thread, -1 as the engine picks.</summary>
+    /// <summary>`mat_queue_mode`: 0 draws on the game thread, 2 on a render thread, -1 (the default, as TF2's) as the engine picks.</summary>
     /// <remarks>
-    /// **0 by default where TF2's is -1**, on purpose: the render thread ships off until it is measured and the owner turns
-    /// it on (D228). Kept as written, like `r_3dsky`: the engine maps any value itself (`MaterialQueueMode.Resolve`).
+    /// TF2's own default (D229). Kept as written, like `r_3dsky`: the engine maps any value itself (`MaterialQueueMode.Resolve`).
     /// </remarks>
-    public int MaterialQueueMode { get; init; }
+    public int MaterialQueueMode { get; init; } = -1;
 
     /// <summary>How far detail props are drawn, in world units.</summary>
     /// <remarks>

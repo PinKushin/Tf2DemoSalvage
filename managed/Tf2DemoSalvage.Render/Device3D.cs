@@ -58,7 +58,11 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         set
         {
             field = value;
-            Queue.Mode = MaterialQueueMode.ResolveHere(value);
+            int cores = MaterialQueueMode.PhysicalCores();
+            Queue.Mode = MaterialQueueMode.Resolve(value, cores);
+
+            // The mode USED, and the core count it was resolved from: what a UI or CI run actually drew in (D229).
+            _render.LogInformation("mat_queue_mode {Value}: {Mode} on {Cores} physical cores", value, Queue.Mode, cores);
         }
     }
 

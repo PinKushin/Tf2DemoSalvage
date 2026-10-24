@@ -286,7 +286,7 @@ public sealed class SettingsPresenterTests
         device.Set.ShouldNotContain("specular off");
         device.Set.ShouldNotContain("fullbright 0");
         device.Set.Count.ShouldBe(10);
-        device.Set.ShouldContain("QueueMode 0", "mat_queue_mode ships off (D228)");
+        device.Set.ShouldContain("QueueMode -1", "mat_queue_mode defaults to the engine's -1 (D229)");
     }
 
     [Test]

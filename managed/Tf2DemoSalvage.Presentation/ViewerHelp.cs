@@ -101,9 +101,9 @@ public static class ViewerHelp
                                      command line uses a folder for one run without saving it.
           cl_game_folder_ask 0       Stop asking for the tf folder at startup.
           cl_screenshot_folder <path> Where --shot and the screenshot key write.
-          mat_queue_mode <n>         Which thread draws, as TF2's: 0 (the default here) the main
-                                     thread, 2 a second render thread, -1 the engine's choice
-                                     (2 on a machine with two or more cores). Read at startup.
+          mat_queue_mode <n>         Which thread draws, as TF2's: 0 the main thread, 2 a second
+                                     render thread, -1 (the default) the engine's choice: 2 on a
+                                     machine with two or more physical cores. Read at startup.
 
         ENVIRONMENT (scripts, CI and debugging only; nothing a user needs)
           TF2_FOLDER                 A tf folder that beats both cl_game_folder and Steam.

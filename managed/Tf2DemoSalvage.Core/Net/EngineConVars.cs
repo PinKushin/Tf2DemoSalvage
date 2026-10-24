@@ -194,10 +194,9 @@ public static class EngineConVars
         new("r_drawviewmodel", "1", Replicated: false, Cheat: false),                        // viewrender.cpp:116
         new("mat_phong", "1", Replicated: false, Cheat: false),                              // engine; help
 
-        // **"0", where the engine's is "-1"** (materialsystem.dll's registration, the default string at 0x1800b69b4,
-        // finding 99): the render thread ships OFF until it is measured and the owner turns it on (D228). -1 still
-        // resolves as the engine does, threaded on 2+ physical cores (`MaterialQueueMode.Resolve`).
-        new("mat_queue_mode", "0", Replicated: false, Cheat: false),
+        // materialsystem.dll's registration, the default string at 0x1800b69b4 (finding 99; D229): threaded on 2+
+        // physical cores (`MaterialQueueMode.Resolve`).
+        new("mat_queue_mode", "-1", Replicated: false, Cheat: false),
         new("cl_drawmonitors", "1", Replicated: false, Cheat: false),                        // viewrender.cpp:168
         new("cl_flipviewmodels", "0", Replicated: false, Cheat: false, UserInfo: true),      // c_baseviewmodel.cpp:44
         new("tf_use_min_viewmodels", "0", Replicated: false, Cheat: false),                  // tf/tf_viewmodel.cpp:125

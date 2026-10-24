@@ -49,6 +49,20 @@ public sealed class MaterialQueueConformanceTests
     public void Resolve_TheDefault_IsThreadedOnTwoPhysicalCores(int cvar, int physicalCores, MaterialThreadMode expected) =>
         MaterialQueueMode.Resolve(cvar, physicalCores).ShouldBe(expected);
 
+    /// <remarks>The engine's default string is "-1" (`0x1800b69b4`, finding 99); ours matches it (D229).</remarks>
+    [Test]
+    public void Default_InTheDeclarationAndTheSettings_IsTheEnginesMinusOne()
+    {
+        Tf2DemoSalvage.Core.Net.EngineConVars.ByName(MaterialQueueMode.Command).Default.ShouldBe("-1");
+        new ViewerSettings().MaterialQueueMode.ShouldBe(-1);
+    }
+
+    /// <remarks>So the default draws threaded on a 2+ physical core machine and serially on one (D229).</remarks>
+    [TestCase(1, MaterialThreadMode.SingleThreaded)]
+    [TestCase(2, MaterialThreadMode.QueuedThreaded)]
+    public void Resolve_TheShippedDefault_IsThreadedOnTwoPhysicalCores(int physicalCores, MaterialThreadMode expected) =>
+        MaterialQueueMode.Resolve(new ViewerSettings().MaterialQueueMode, physicalCores).ShouldBe(expected);
+
     [Test]
     public void Submit_InModeZero_RunsOnTheCallingThread()
     {

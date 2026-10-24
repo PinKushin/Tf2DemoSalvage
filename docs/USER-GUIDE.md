@@ -107,9 +107,11 @@ bind to a command the viewer does not implement loses its default action.
 You can set a cvar for one run only, as in Source: `tf2demoview <demo> +fps_max 0`. Anything in
 `settings.cfg` works this way.
 
-`mat_queue_mode 2` draws each frame on a second thread, as TF2's own setting of that name does. It is off by default
-(`0`). On the author's recording it made frames about 14% faster. Set it in `settings.cfg`, or for one run with
-`tf2demoview <demo> +mat_queue_mode 2`. Screenshots wait for the second thread to finish its frame.
+`mat_queue_mode` picks which thread draws each frame, as TF2's own setting of that name does. The default, `-1`, is
+TF2's: on a machine with two or more physical CPU cores the viewer draws on a second thread (mode `2`), and on one core
+it draws on the main thread (mode `0`). On the author's recording the second thread made frames about 14% faster. To go
+back to drawing on the main thread, put `mat_queue_mode 0` in `settings.cfg`, or for one run use
+`tf2demoview <demo> +mat_queue_mode 0`. Screenshots wait for the second thread to finish its frame.
 
 `--hud <folder or .vpk>` draws a HUD laid out as in `tf/custom`. Without it the viewer draws TF2's stock HUD.
 

@@ -10933,3 +10933,17 @@ adds **no held frame**: input-to-screen is game time plus render time, as in ser
 divergence. The render thread still needs a frame snapshot first (the prototype in finding 98 section 7 measured at most
 about 0.5 ms without one), and the saving estimate stays 1-2 ms of 13.4, not the whole gap.
 
+## D229 — `mat_queue_mode` defaults to TF2's -1: threaded rendering on 2 or more physical cores (2026-10-23)
+
+**What is decided.** The owner, 2026-10-23: *"and yes make our default the same as tf2's so we use as many cores as we
+have available"*. Beta.49 shipped `mat_queue_mode` defaulting to 0, which D228 held back until the queue was measured.
+It now defaults to the engine's own `-1` (the default string at `0x1800b69b4`, finding 99).
+
+**Why.** The engine's default is parity, and parity and fps gains are pre-approved. The measurement that held it back
+is now done: 13.04 to 11.25 ms on f12 (`measurements/2026-10-23-queued-render-thread-rung-2.md`).
+
+**What changes for users.** On a machine with 2 or more PHYSICAL cores, the viewer draws each frame on a second thread
+by default. On one core it draws serially, as before. `+mat_queue_mode 0`, or the same line in `settings.cfg`, brings
+back the old behaviour. A `settings.cfg` saved earlier holds the default only as a comment, so it follows the new
+default. The engine's other fall-backs to 0, `-threads` among them, are in finding 98 section 10.
+

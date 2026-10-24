@@ -40166,6 +40166,9 @@ The wait can then move to the hand-off, which is parity.
 
 **Review fixes, 2026-10-23:** finding 98 section 9, "Review fixes".
 
+**ON by default, 2026-10-23 (D229):** `mat_queue_mode` defaults to `-1`, so mode 2 runs on 2+ physical cores and the UI
+suite runs in it. The engine's other fall-backs to 0 are in finding 98 section 10.
+
 **Rung 2, first step, 2026-10-23 (branch `feat/queued-render-thread-rung-2b`):** `ViewHalf`, a twin culling per half,
 and both-half invalidation, with the drain left where it was. What is left, in order, and the verifier's one
 pre-existing changed frame: finding 98 section 9, "Rung 2, first step".

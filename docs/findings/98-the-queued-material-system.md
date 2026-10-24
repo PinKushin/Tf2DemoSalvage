@@ -205,8 +205,8 @@ first.)
 **What the owner would see at mode 2:** nothing but the frame rate. Screenshots and `--shot` drain first. While the opening
 countdown runs, a pending capture's settle test reads the device each frame, so a queued capture waits on the draw, as the
 engine's read-backs need mode 0. Exclusive full screen draws serially. There is no held frame: frame N is presented as soon
-as its draw finishes, as in the engine (finding 99 section 4). It ships off: `mat_queue_mode` defaults to 0 here, where TF2's
-is -1.
+as its draw finishes, as in the engine (finding 99 section 4). It shipped off (default 0) in beta.49; the default is TF2's
+-1 since D229.
 
 **Review fixes, 2026-10-23** (an independent thread-safety review of rung 1; each verified in the code before it was fixed):
 
@@ -649,3 +649,21 @@ handed. Every other public member takes `Lock()` first or only reads.
   frames. The log names no monitor, and the verifier's cull part does not cover `MonitorCull`. Step 0's shot from the
   same opening view drew the mirrors, so it most likely did (*interpolated*). (d) still rests mainly on the threaded
   unit test and the reading.
+
+## (10) Follow-up, 2026-10-23: the default is -1 (D229), and the engine's fall-backs to 0
+
+`mat_queue_mode` now defaults to the engine's `-1`, so a machine with 2 or more physical cores draws in mode 2. The
+device logs the mode it USED and the count it resolved from (`mat_queue_mode -1: QueuedThreaded on 6 physical cores`).
+The engine drops back to 0 in the cases finding 99 section 1 lists. Here is each one against this viewer:
+
+- *Exclusive full screen*: served serially by `Device3D` (section 9). *Read from our code.*
+- *`-threads <n>` (1 or less turns threading off)*: **a gap, left.** The viewer takes no engine-style `-x` arguments,
+  only `+cvar` and `--flag`. *Read from `LaunchOptions`*: `-threads` is warned about and ignored, and the `1` after it
+  is taken as a demo path. The user's off switch is `+mat_queue_mode 0`, or the same line in `settings.cfg`.
+- *The shader API's capability veto*: no counterpart. Every D3D11 device this viewer creates can be driven from one
+  other thread under the queue's lock. *Read, not tested.*
+- *The force-off flag and the deferred-call list*: these are the engine's own sync points. Here, `Lock` and the
+  drains in section 9 serve them.
+- *Alt-tab (the shader API not active)*: **no counterpart.** Nothing in `Render` or `Presentation` changes mode when
+  the window is minimized or occluded, so mode 2 keeps running. *Read, not tested.* Nothing seen goes wrong because of
+  it.

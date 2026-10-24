@@ -23,8 +23,8 @@ public enum MaterialThreadMode
 /// (`0x180014bc0`) re-reads it. `-2` → 2, `1` → 0, `0` and `2` pass through, and any other negative value — `-1`, the
 /// engine's default string at `0x1800b69b4` — is the default `AllowThreading` (`0x180010f90`) stored: threaded on two or
 /// more PHYSICAL processors (`CPUInformation::m_nPhysicalProcessors`), single-threaded below that.
-/// **Not read:** what a positive value above 2 does; answered here as 0. `-threads 1` and the shader API's capability veto
-/// have no counterpart in this viewer.
+/// **Not read:** what a positive value above 2 does; answered here as 0. The engine's other fall-backs to 0, against this
+/// viewer: finding 98 section 10.
 /// </remarks>
 public static class MaterialQueueMode
 {
@@ -45,11 +45,6 @@ public static class MaterialQueueMode
         < 0 => physicalCores >= 2 ? MaterialThreadMode.QueuedThreaded : MaterialThreadMode.SingleThreaded,
         _ => MaterialThreadMode.SingleThreaded,
     };
-
-    /// <summary>The mode a value asks for on this machine.</summary>
-    /// <param name="value">The cvar.</param>
-    /// <returns>The mode.</returns>
-    public static MaterialThreadMode ResolveHere(int value) => Resolve(value, PhysicalCores());
 
     /// <summary>Physical processor cores, as `GetCPUInformation().m_nPhysicalProcessors` counts them.</summary>
     /// <returns>The count; the logical count when the system will not say.</returns>
