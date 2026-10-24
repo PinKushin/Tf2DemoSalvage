@@ -60,6 +60,17 @@ public sealed class ModelReports
         _reportedFrames.Clear();
     }
 
+    /// <summary>Whether this pass reports at all, read once per pass by <see cref="BeginPass"/>.</summary>
+    private bool _reporting = true;
+
+    /// <summary>Reads the Debug level once for a draw pass, so a disabled level skips the keying too.</summary>
+    /// <remarks>
+    /// **The guard covers the WORK, not the line** (B586, the B191 rule). Each report below keys a
+    /// dictionary or set before it writes, per prop per frame; with Debug off that was paid for a line
+    /// nobody keeps. One read here guards all three for every prop in the pass.
+    /// </remarks>
+    public void BeginPass() => _reporting = _render.IsEnabled(LogLevel.Debug);
+
     /// <summary>Where a brush entity actually lands, every time it moves.</summary>
     /// <param name="prop">The prop.</param>
     /// <param name="seconds">Demo time, so the trace reads against the demo's own keyframes.</param>
@@ -79,7 +90,7 @@ public sealed class ModelReports
     {
         ArgumentNullException.ThrowIfNull(prop);
 
-        if (prop.Kind != SceneModelKind.Brush)
+        if (!_reporting || prop.Kind != SceneModelKind.Brush)
         {
             return;
         }
@@ -129,7 +140,7 @@ public sealed class ModelReports
     {
         ArgumentNullException.ThrowIfNull(prop);
 
-        if (!_reportedLight.Add(prop.EntityIndex))
+        if (!_reporting || !_reportedLight.Add(prop.EntityIndex))
         {
             return;
         }
@@ -176,7 +187,7 @@ public sealed class ModelReports
     {
         ArgumentNullException.ThrowIfNull(prop);
 
-        if (!_reportedFrames.Add(prop.ModelPath))
+        if (!_reporting || !_reportedFrames.Add(prop.ModelPath))
         {
             return;
         }

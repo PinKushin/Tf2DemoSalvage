@@ -89,6 +89,7 @@ public sealed partial class EntityModelSet
         ArgumentNullException.ThrowIfNull(into);
 
         into.Clear();
+        _reports.BeginPass();
         Culled = 0;
         CulledByVisibility = 0;
         Unjudgeable = 0;

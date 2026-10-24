@@ -163,6 +163,45 @@ public sealed class ModelReportsTests
         reports.FirstTime("models/x.mdl#skin").ShouldBeTrue();
     }
 
+    [Test]
+    public void BeginPass_WithDebugOff_KeysNothingSoEachReportStillPrintsOnceEnabled()
+    {
+        // **The guard covers the WORK, not the line** (B586, B191). With Debug off a pass must not
+        // fill the dedup sets — so once Debug is on, each first report still prints. Keyed before the
+        // guard, all three would read as already-reported and print nothing.
+        RecordingLogger log = new() { DebugOff = true };
+        ModelReports reports = new(log);
+
+        reports.BeginPass();
+        reports.Lit(Prop(entity: 7), Light(), skin: 0);
+        reports.Animating(Prop(entity: 7), frame: 0, frames: 4, blend: 0f);
+        reports.BrushMoved(Prop(entity: 80, kind: SceneModelKind.Brush, z: 640f), 0d);
+
+        log.DebugOff = false;
+        reports.BeginPass();
+        reports.Lit(Prop(entity: 7), Light(), skin: 0);
+        reports.Animating(Prop(entity: 7), frame: 0, frames: 4, blend: 0f);
+        reports.BrushMoved(Prop(entity: 80, kind: SceneModelKind.Brush, z: 640f), 0d);
+
+        log.Count("lit ").ShouldBe(1);
+        log.Count("animating").ShouldBe(1);
+        log.Count("brush").ShouldBe(1);
+    }
+
+    [Test]
+    public void BeginPass_WithDebugOn_ReportsAsBefore()
+    {
+        // The control: enabled, the pass reports exactly as an unguarded call does.
+        RecordingLogger log = new();
+        ModelReports reports = new(log);
+
+        reports.BeginPass();
+        reports.Lit(Prop(entity: 7), Light(), skin: 0);
+        reports.Lit(Prop(entity: 7), Light(), skin: 0);
+
+        log.Count("#7").ShouldBe(1);
+    }
+
     private static ModelLight Light() => new(default(AmbientCube), null, 0f, 0f, 0f, []);
 
     private static SceneProp Prop(
