@@ -40149,7 +40149,7 @@ probes each is microseconds (arithmetic). Wiring held by `EntityModelsTests.Inst
 `ModelReports.cs:78-95`, `:128-135`, `:175-182`). This violates the B191 rule: the guard covers the WORK, not the log line.
 **Fix shape:** one `IsEnabled` read per Instances call. **Estimate (ESTIMATE, code-read): ~0.15-0.3 ms.**
 
-## B585 — the instance build allocates per prop per frame — FIXED 2026-10-24, NULL RESULT (`perf/b586-b585`)
+## B585 — the instance build allocates per prop per frame — NULL RESULT 2026-10-24, CODE REVERTED (`8b839017`; the cache measured slower, so only the record stays)
 
 **The premise was half wrong (read from code):** `ModelInstance` is a `readonly record struct` (`EntityModels.cs:112`) and
 allocates nothing; only `ToMatrix()`'s `float[16]` does, and only for props that survive the cull (~246 collated on f12,
