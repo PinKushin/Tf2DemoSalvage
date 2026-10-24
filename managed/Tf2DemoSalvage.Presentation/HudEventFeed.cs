@@ -36,20 +36,7 @@ public sealed class HudEventFeed
     {
         ArgumentNullException.ThrowIfNull(timeline);
 
-        int? last = _lastTick;
-        (bool reset, IReadOnlyList<SceneGameEvent> events) = Advance(timeline.GameEvents, Interval(timeline), tick);
-        int from = reset ? tick - WindowReach.FeedTicks(Settings, Interval(timeline)) : last!.Value;
-        List<SceneUserMessage> messages = [];
-
-        foreach (SceneUserMessage message in timeline.UserMessages)
-        {
-            if (message.Tick > from && message.Tick <= tick)
-            {
-                messages.Add(message);
-            }
-        }
-
-        return (reset, events, messages);
+        return Advance(timeline.GameEvents, timeline.UserMessages, Interval(timeline), tick);
     }
 
     /// <summary>The events to deliver this frame from a stream, and whether the HUD must be emptied first.</summary>
@@ -59,7 +46,27 @@ public sealed class HudEventFeed
     /// <returns>Whether this is a seek, and the events in order.</returns>
     public (bool Reset, IReadOnlyList<SceneGameEvent> Events) Advance(IReadOnlyList<SceneGameEvent> events, float interval, int tick)
     {
+        (bool reset, IReadOnlyList<SceneGameEvent> crossed, _) = Advance(events, [], interval, tick);
+
+        return (reset, crossed);
+    }
+
+    /// <summary>The events and user messages to deliver this frame, and whether the HUD must be emptied first.</summary>
+    /// <param name="events">Every event, in stream order.</param>
+    /// <param name="messages">Every user message, in stream order.</param>
+    /// <param name="interval">Seconds per tick.</param>
+    /// <param name="tick">The tick now shown.</param>
+    /// <returns>Whether this is a seek, and the items crossed, each in stream order.</returns>
+    /// <remarks>
+    /// **Only the window is looked at** (B579): the engine hands each to the HUD once, on arrival
+    /// (`usermessages.cpp:151-189`), so walking the whole match each frame is a cost it never pays. A tick-ordered list's
+    /// window is found by search; one out of order is walked whole, the same items in the same order (<see cref="LandedWindow"/>).
+    /// </remarks>
+    public (bool Reset, IReadOnlyList<SceneGameEvent> Events, IReadOnlyList<SceneUserMessage> UserMessages) Advance(
+        IReadOnlyList<SceneGameEvent> events, IReadOnlyList<SceneUserMessage> messages, float interval, int tick)
+    {
         ArgumentNullException.ThrowIfNull(events);
+        ArgumentNullException.ThrowIfNull(messages);
 
         int windowTicks = WindowReach.FeedTicks(Settings, interval);
         bool reset = _lastTick is not { } last || tick < last || tick - last > windowTicks;
@@ -67,17 +74,42 @@ public sealed class HudEventFeed
 
         _lastTick = tick;
 
-        List<SceneGameEvent> crossed = [];
+        List<SceneGameEvent> crossed = Crossed(events, static fired => fired.Tick, ref _eventsOrderOf, ref _eventsInOrder, from, tick, out int eventsExamined);
+        List<SceneUserMessage> arrived = Crossed(messages, static message => message.Tick, ref _messagesOrderOf, ref _messagesInOrder, from, tick, out int messagesExamined);
 
-        foreach (SceneGameEvent fired in events)
+        Examined = eventsExamined + messagesExamined;
+
+        return (reset, crossed, arrived);
+    }
+
+    /// <summary>How many events and user messages the last <see cref="Advance(DemoTimeline, int)"/> looked at.</summary>
+    public int Examined { get; private set; }
+
+    private object? _eventsOrderOf;
+    private bool _eventsInOrder;
+    private object? _messagesOrderOf;
+    private bool _messagesInOrder;
+
+    /// <summary>The items of a list in <c>(from, tick]</c>, in list order.</summary>
+    private static List<T> Crossed<T>(
+        IReadOnlyList<T> items, Func<T, int> tickOf, ref object? orderOf, ref bool inOrder, int from, int tick, out int examined)
+    {
+        (int first, int end) = LandedWindow.Landed(items, tickOf, ref orderOf, ref inOrder, from, tick);
+        List<T> crossed = [];
+
+        examined = end - first;
+
+        for (int at = first; at < end; at++)
         {
-            if (fired.Tick > from && fired.Tick <= tick)
+            int itemTick = tickOf(items[at]);
+
+            if (itemTick > from && itemTick <= tick)
             {
-                crossed.Add(fired);
+                crossed.Add(items[at]);
             }
         }
 
-        return (reset, crossed);
+        return crossed;
     }
 
     /// <summary>Each event with the world its listener reads: the players and rules at its tick, and the local player.</summary>
