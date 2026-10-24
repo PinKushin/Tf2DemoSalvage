@@ -98,19 +98,46 @@ build B's last run of a subject; read as machine load, and excluded below rather
 - **`reports`** reads 0 or 0.1 per line (one decimal) in every build; A's mean is 0.006 ms. **The column is below its own
   resolution in the before build**, so B586 has nothing to remove that this instrument can see.
 - **Allocation**: gummo A 1.30-1.39, M 1.35-1.36, B 1.29-1.36 MB a frame; empty 0.64-0.66 throughout. No fall.
-- **Why B585 cannot show (arithmetic)**: the moment line says `posed 25 of 1852.8 selected` and `posed 36 of 1879.3` first
-  person, `posed 0 of 1861` on the empty view. A culled prop never reaches `ToMatrix`, so the matrices were ~30-40 × 88 B
-  ≈ 3 KB a frame, a quarter of a percent of 1.35 MB. The code-read figure counted every prop; the cull runs first.
+- ~~Why B585 cannot show: `posed` ~30 props~~ **Withdrawn, see "Added after" below**: `posed` counts props that reached
+  bone setup, not instances built.
 - **Queue safety (B)**: `+mat_queue_mode 2`, `TF2VIEW_QUEUE_VERIFY=1`, gummo first person, log
   `viewer-20261024-121558-19948.log`: mode confirmed `QueuedThreaded`, final `queue verify: 839000 frames checked, 0
   changed`, no `inputs changed while it was drawn` line. The verifier hashes `instance.Matrix` among the inputs
   (`Device3D.cs` `hash.Floats(instance.Matrix)`); **no positive control was run** (a build that writes a matrix in place).
 
+**Added after the table above (deviations, after a review).**
+
+1. **The instance count was first read from the wrong counter.** `posed` is props that reached bone setup; static props
+   never do, yet they reach the reports and the matrix. The carried figure is the moment line's own `collated unparented`,
+   246.1-247.0 in every run, both subjects (read where the cull produced it). So the matrices were about 246 × 88 B ≈
+   22 KB a frame (*arithmetic*), 1.6% of 1.35 MB and under the same-build allocation spread (0.09 MB).
+2. **B585's own timer, `place … lookups = matrix`, was not parsed at first.** Read now, per run (ms): A 0.0118, 0.0113,
+   0.0118; M 0.0112, 0.0094, 0.0118; B 0.0218, 0.0235, 0.0229 (t09), 0.0200 (verify run, mode 2). **The change DOUBLED
+   its own stage**: a dictionary probe plus a seven-float record compare costs more than allocating 64 bytes. +0.01 ms, under
+   any frame resolution, but the sign is wrong.
+3. **Control rerun for the two excluded B runs** (both were B's last run of a subject, a pattern), same script and gate,
+   order B A B per subject:
+
+| run | build | subject | end tick | frames | mean ms | alloc MB/frame | moment | place | matrix |
+|---|---|---|---:|---:|---:|---:|---:|---:|---:|
+| t21 | B | gummo | 31347 | 2117 | 9.45 | 1.28 | 4.58 | 0.81 | 0.0212 |
+| t22 | A | gummo | 31347 | 2127 | 9.40 | 1.30 | 4.46 | 0.78 | 0.0106 |
+| t23 | B | gummo | 31347 | 2135 | 9.37 | 1.29 | 4.44 | 0.79 | 0.0212 |
+| t24 | B | empty | 31347 | 5402 | 3.70 | 0.65 | 1.06 | 0 | 0 |
+| t25 | A | empty | 31347 | 5244 | 3.81 | 0.66 | 1.10 | 0 | 0 |
+| t26 | B | empty | 31342 | 5188 | 3.86 | 0.66 | 1.09 | 0 | 0 |
+
+   B is clean and inside A's range on both subjects, so t09/t18 were load, and B has four clean runs a subject. The
+   `matrix` doubling reproduces (0.0212 against 0.0106).
+4. **What the verifier covers**: `AddInstances` (`Device3D.cs:3365-3395`) hashes `Matrix` and every bone array, and the
+   pose waits for the previous draw (`queue wait FinishDrawBeforePose` on every rate line), which is why the in-place
+   `_skinning` bones are safe and why an in-place matrix pool would have been too.
+
 ## Verdict
 
-**Null result on both, and both code-read estimates were wrong.** B586 (estimate 0.15-0.3 ms): `reports` was already
-0.006 ms before the change — the three dedup probes run only for the ~30 props that survive the cull, not 1,850. B585
-(estimate 0.2-0.4 ms, 560 KB): `ModelInstance` is a struct, and the matrices of ~30 posed props are ~3 KB a frame; no
-column moved beyond same-build spread. The prediction was falsified on allocation ("does not fall at all"). Both changes are
-kept as correct and harmless (B586 is the B191 rule; B585 is race-free by construction and passes the queue verifier), not
-as speed-ups.
+**Null result on the frame for both, and both code-read estimates were wrong.** B586 (estimate 0.15-0.3 ms): `reports`
+is below its own resolution (one decimal, 0 or 0.1 per line) in the BEFORE build; ~246 instances × three probes is a few
+microseconds (*arithmetic*). B585 (estimate 0.2-0.4 ms, 560 KB): `ModelInstance` is a struct and the matrices were ~22 KB
+a frame; allocation did not move, falsifying the prediction, and **its own `matrix` timer doubled, 0.011 → 0.021 ms.**
+B586 is kept as the B191 rule. **B585 is a measured regression on its own stage and gains nothing; the recommendation is to
+drop commit `94217782`** (left on the branch for the owner's call, not reverted).
