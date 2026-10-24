@@ -40081,7 +40081,7 @@ so whether 2-3 traces carry 5.8% (a slow trace) or the share is GC-poll bias is 
 `SunFrom` into `--measure`, then, if the undrawn pass is the cost, give that pass no lighting (it feeds hitboxes and
 decals, not a draw) with a test that its instances are unchanged where they are read. Finding 97 §7.
 
-## B593 — `ScenePropTrack.At` copied the whole pose about six times to read nine numbers — FIXED (2026-10-24)
+## B593 — `ScenePropTrack.At` copied the whole pose about six times to read nine numbers — CODE REVERTED before release (2026-10-24; the saving was 0.03 ms in `advance` (measurements/2026-10-24-burst-walk-and-pose-copies.md), and review found the no-bracket fallback not bit-identical: it ran `LoopingLerp(c,c,t)` where main ran `LoopingCurve(c,c,c,t)`, which can differ by an ulp. Not worth a parity risk. To retry, keep the third sample.)
 
 **Evidence class: read from code; profile share** (2.5% G / 4.9% E of samples in `BulkMoveWithWriteBarrier` under `At`).
 `moving`, `toward` and `previous` were `with` copies of the arrival pose for readers of three angles and three positions, and
