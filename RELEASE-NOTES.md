@@ -1,6 +1,21 @@
-# Tf2DemoSalvage 0.1.0-beta.48
+# Tf2DemoSalvage 0.1.0-beta.49
 
-## Unreleased
+## Changes in 0.1.0-beta.49
+
+Released 2026-10-23.
+
+- **New setting: `mat_queue_mode`.** Set it to 2 to draw each frame on a second thread, as TF2 does with its own setting
+  of that name. It is off by default, so the viewer behaves as before. It was measured on the author's `cp_process_f12`
+  recording, in first person at 1280x720, over repeated alternating runs on a quiet machine.
+  Frame time: 13.04 ms to 11.25 ms, 76.7 to 88.9 fps, about 14% faster (finding 98, measurements/2026-10-23-queued-render-thread-rung-2.md).
+  TF2 turns this on by itself when the machine has two or more physical CPU cores; the viewer does not yet, and a later
+  release may make it the default after more testing.
+- **Screenshots, `--shot` and seeking wait for the second thread** to finish its frame before they read anything.
+- **Mirrors and monitors show their own camera's view.** On maps such as Boardwalk they used to draw the main view's
+  geometry, so the room behind the player showed as black (finding 98).
+- **Alt+Enter no longer starts DXGI's own full screen switch**, which could hang the viewer in the threaded mode. Full
+  screen still works through the viewer's own control.
+- **Developer note.** `--measure` prints two new parts, `camera wait` and `queue render thread`.
 
 ## Changes in 0.1.0-beta.48
 
