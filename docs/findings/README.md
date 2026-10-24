@@ -376,6 +376,11 @@ in any public writeup found:
   (`c_baseanimating.cpp:1953`, `:2796`). It now runs at bone setup: `simulate` 0.5-0.6 → 0.3-0.4 ms. Attachment bone
   setups and effect control points are parity (`:2094`, `particlemgr.cpp:1841`)
   ([102](102-the-empty-view-floor-stage-by-stage.md), measurements/2026-10-23-blend-at-bone-setup-f12.md).
+- **Threaded particles are a fork-join over the step alone.** `r_threaded_particles 1` runs `ProcessPSystem` on the
+  pool with the game thread helping, joined inside `UpdateNewEffects`; creation, control points, sleep and the mesh
+  build stay serial (`particlemgr.cpp:1824-1904`). Ours maps to `bursts/step` (0.28-0.36 ms), already threaded once for
+  0.08 ms (94); the rest of the ~2 ms is serial in the engine too or B577
+  ([103](103-threaded-particles-are-a-fork-join-inside-simulate.md)).
 
 ## Conventions used throughout
 
