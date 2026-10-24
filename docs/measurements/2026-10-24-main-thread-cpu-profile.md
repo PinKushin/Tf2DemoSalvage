@@ -16,8 +16,9 @@ Where do the main thread's samples land, by method, inclusive and exclusive? Do 
   `run-exclusive.ps1 -Shared`. 0 warnings.
 - Viewer: `TF2VIEW_AUTOPLAY=1 TF2VIEW_VIEWPORT_SIZE=1280x720 tf2demoview.exe D:/measure-f12/f12.dem --tick 30000
   --spectate gummo --first-person --measure 180 +fps_max 0`. It was launched by `Start-Process` inside
-  `run-exclusive.ps1`, with stdout redirected. Quiet gate first: three `Win32_Processor.LoadPercentage` samples, all
-  under 15%.
+  `run-exclusive.ps1`, with stdout redirected. A quiet gate of three `Win32_Processor.LoadPercentage` samples ran before
+  each run. The loads were recorded only for the earlier runs (P2: 3/9/6%); for G, E and M0 the script's output was
+  cut and **the loads were not captured**.
 - Trace: `dotnet-trace 10.0.745401`, attached by PID 230 s after launch for 25 s:
   `collect --profile dotnet-sampled-thread-time --providers Microsoft-Windows-DotNETRuntime:0x18:5 --buffersize 1024
   --duration 00:00:00:25`, with `DOTNET_EventPipeThreadSamplingRate=10` set in the viewer's environment.
@@ -45,14 +46,18 @@ Where do the main thread's samples land, by method, inclusive and exclusive? Do 
    About 20% "Missing Symbol" remained in the load-time traces, all threads pooled. In the playback traces the main
    thread resolved all but `?!?` native frames.
 3. **The default 1 kHz sampling roughly doubles the frame.** The traced seconds ran at **15.3 ms** against 8.4 ms
-   untraced in the same run (P2). `DOTNET_EventPipeThreadSamplingRate=10` did **not** remove it: G's traced seconds
-   ran at **16.4 ms** against 8.6 ms in seconds 20-45 of the same run.
+   untraced in the same run (P2). `DOTNET_EventPipeThreadSamplingRate=10` took effect but did **not** remove the
+   perturbation. The median gap between main-thread sample instants is 16.7 ms in G against 2.0 ms in P2, and
+   speedscope events fell from 169k to 21k. Yet G's traced seconds still ran at **16.4 ms**, against 8.6 ms in
+   seconds 20-45 and 10.1 ms in seconds 100-170 of the same run.
    - The phases sum to ~10.2 ms of that 16.4, so ~6 ms per frame is outside every timer: the runtime suspension the
      sampler imposes.
    - The sampler cannot see that time, so its shares are shares of the ~10 ms of real work.
    - The real work is inflated too. In the traced seconds `camera pose` was 4.39 ms against 3.26 untraced, and
      `camera particles` 2.52 against 1.52.
-   - **Every share below is of a perturbed frame.** The ranking is usable; the absolute milliseconds are not.
+   - **Every share below is of a perturbed frame.** The phase split holds within the timers' own spread (Control). The
+   method ranking leans toward allocation-heavy and GC-polling code, and absolute milliseconds cannot be read from
+   it.
 4. **About 44% of main-thread samples end in `Thread.PollGCWorker`.** The sampler stops a thread at a GC safe
    point, so code with explicit polls is over-represented in EXCLUSIVE time. The main case is
    `Buffer.BulkMoveWithWriteBarrier`, which polls between chunks.
@@ -65,17 +70,23 @@ Where do the main thread's samples land, by method, inclusive and exclusive? Do 
 - **Phase shares against `--measure`'s timers, same seconds.** Timer shares are of the phase sum (sound + camera +
   advance + hud). Sampled shares are inclusive, of main-thread samples.
 
-| phase (timer, ms in traced seconds) | G timer share | G sampled | E timer share | E sampled |
-|---|---|---|---|---|
-| camera (`PlaceCamera`) 8.44 / E 1.99 | 83% | 79.5% | 59% | 58.8% |
-| camera pose (`MomentScene.Pose`) 4.39 / 0.57 | 43% | 41.1% | 17% | 17.0% |
-| camera setcamera (`Device3D.SetCamera`) 1.45 / 0.00 | 14.3% | 13.8% | 0% | 0.3% |
-| camera particles (`FramePresenter.DrawOver`) 2.52 / 1.39 | 24.8% | 23.7% | 41.5% | 40.5% |
-| hud (`ViewerPresenter.BuildOverlay`) 0.70 / 0.60 | 6.9% | 7.2% | 18% | 16.3% |
-| advance (`ViewerSession.Simulate`) 0.81 / 0.60 | 8.0% | 7.6% | 18% | 16.4% |
-| sound (`ViewerSession.UpdateListener`) 0.22 / 0.16 | 2.2% | 2.0% | 4.8% | 0.0% (inlined; under 5 samples) |
+| phase (sampled frame) | G timer, traced s 50-73 | G timer, untraced s 20-45 | G timer, untraced s 100-170 | **G sampled** | E timer, traced | **E sampled** | M0 sampled |
+|---|---|---|---|---|---|---|---|
+| camera (`PlaceCamera`) | 83% | 81% | 78% | **79.5%** | 59% | **58.8%** | 64.3% |
+| camera pose (`MomentScene.Pose`) | 43% | 42% | 40% | **41.1%** | 17% | **17.0%** | 34.2% |
+| camera setcamera (`Device3D.SetCamera`) | 14.3% | 18.1% | 12.1% | **13.8%** | 0% | **0.3%** | 12.3% |
+| camera particles (`FramePresenter.DrawOver`) | 24.8% | 19.5% | 24.8% | **23.7%** | 41.5% | **40.5%** | 17.6% |
+| hud (`ViewerPresenter.BuildOverlay`) | 6.9% | 8.5% | 9.8% | **7.2%** | 18% | **16.3%** | 7.0% |
+| advance (`ViewerSession.Simulate`) | 8.0% | 9.1% | 10.0% | **7.6%** | 18% | **16.4%** | 6.6% |
+| sound (`UpdateListener`; `PlaySounds` in E) | 2.2% | 1.4% | 1.8% | **2.0%** | 4.8% | **4.1%** | — |
+| draw submission (`ViewerSession.Draw`) | ~0 | ~0 | ~0 | **0.1%** | ~0 | **0.1%** | 15.3% (run timer 17.5%) |
+| other (message loop, `WmPaint`, idle; 100% minus `RenderFrame`) | — | — | — | **3.5%** | — | **4.3%** | 3.8% |
 
-  Agreement is within about 2 points everywhere except E's sound, where the sample count is too small to read.
+  Timer shares are of sound + camera + advance + hud. The untraced shares move by up to 6 points from one window of
+  the same run to another: setcamera reads 18.1% in seconds 20-45 and 12.1% in 100-170. Every G sampled share falls
+  inside that spread. The exceptions are hud and advance, which read 1-2 points below all three timer windows.
+  So the disagreement is no larger than the timers' own second-to-second variation. The sampler is still biased
+  toward GC-poll sites (fault 4), and this check cannot see a bias that small.
 - **The empty view shrinks the profile as it should.** `SetCamera` goes from 13.8% to 0.3% and `MomentScene.Pose` from
   41.1% to 17.0%. Particles remain, at 1.39 ms; they do not depend on what is in view. Untraced frames: E 3.47 ms,
   G 8.18 ms.
@@ -91,11 +102,13 @@ things are not being drawn or run (D129):
 
 - skinning, which runs on the GPU;
 - muzzle flashes and shell ejection, unchecked;
-- decode, which has finished by the traced window (no `DemoTimeline.Build` samples in G).
+- decode, which has finished by the traced window. G has zero `DemoTimeline.Build`/`Builder.Run` frame opens on any
+  thread; E has one.
 
-## Result: G, main thread, 24,996 ms, ~2,500 samples at 10 ms
+## Result: G, main thread, 24,996 ms, ~1,500 distinct sample instants
 
-Signatures are stripped, and `Tf2DemoSalvage.` is dropped from names. One sample is ~0.04%.
+Signatures are stripped, and `Tf2DemoSalvage.` is dropped from names. A speedscope event marks a stack change, so the
+true sample count is at least 1,473. One sample is at most ~0.07%.
 
 ### Top 40 inclusive (below the message loop)
 
@@ -190,5 +203,19 @@ draws nothing, but it carries fault 4's bias, so it is a lead to time and not a 
 - **The pose is all `EntityModelSet.Instances`.** Bones (`SkeletonPose.Build` + `SetupBones`) are ~12%. Lighting
   (`ModelLighting.For` → `LevelLighting.Entry` → `SunFrom`) is ~9%, and `SunFrom` alone is 5.8% exclusive. Flex is
   ~5%. Each figure is a share of the perturbed frame.
+- **Leads to time, ranked by inclusive share, not by `BulkMove` exclusive.** Each needs a stage timer before it is
+  called a cost.
+  1. `EntityModelSet.Instances` posing (39% inclusive): bones `SkeletonPose.Build` 12.5%, then lighting.
+  2. `LevelLighting.SunFrom` (`managed/Tf2DemoSalvage.Scene/LevelLighting.cs:782`): 5.8% exclusive, the sky-visibility
+     test for every lit model.
+  3. `foreach` by value over `List<ParticleBurst>` (`managed/Tf2DemoSalvage.Scene/ParticleEffects.cs:493`; the record
+     struct is at `:1465`): 2.7% in G and 5.4% in E, copying a reference-heavy struct per element.
+  4. `ScenePropTrack.At` (`managed/Tf2DemoSalvage.Core/Scene/ScenePropTrack.cs:2177`): 2.5% in G and 4.9% in E, a
+     write-barrier copy, called from `MomentPresenter.Show`, `DemoTimeline.AdvanceSample`, `BulletStrikes.End` and
+     `SoundPresenter.Stepper`.
+  5. An Information log line per first-person muzzle flash, flushed per line on the main thread
+     (`managed/Tf2DemoSalvage.Presentation/BurstEffects.cs:1049`): 1.5%. It is the same shape as the B191 stall.
+  - Not a lead yet: `Stopwatch.GetTimestamp` under `Instances` (3.4%). It was not checked whether it runs only under
+    `--measure`; if so, it is instrument overhead.
 - **Not settled:** absolute ms per method. A sampler that roughly doubles the frame cannot give them. The way to get
   them is a stage timer on each lead, or an ETW kernel-sampled profile (which needs elevation; not attempted).
