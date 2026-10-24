@@ -135,3 +135,16 @@ timer and two runs a side; a frame-level difference under ~0.5 ms is inside run-
 A read of `main` @ `01faad62` filed eight more per-frame costs as **B583-B590** in `docs/RISKS.md`. Their code-read
 estimates sum to roughly **2.3-3.9 ms** of the ~13 ms frame. That sum is **unmeasured** (ESTIMATE): it must be measured,
 with stage timers or the benchmark harness on branch `perf/where-main-thread-goes`, before any of the eight is called a cause.
+
+## (7) The main thread sampled, 2026-10-24 (measured)
+
+A `dotnet-trace` sample of the main thread on f12 with gummo in first person agrees with `--measure`'s phase timers
+within ~2 points (measurements/2026-10-24-main-thread-cpu-profile.md). The empty-view control and the
+`mat_queue_mode 0` control move it as expected.
+
+- **The timers already account for the frame.** `camera` (pose, setcamera, particles) is ~80% of the work.
+- **Mode 2 has no main-thread wait**, measured: 0.4% of samples.
+- **The pose is all `EntityModelSet.Instances`.** Bones are ~12%; lighting is ~9%, with `LevelLighting.SunFrom` alone
+  at 5.8% exclusive.
+- **These are shares, not milliseconds.** The sampler roughly doubles the frame (fault 3 in that document).
+  B583-B590's estimates still need stage timers.
