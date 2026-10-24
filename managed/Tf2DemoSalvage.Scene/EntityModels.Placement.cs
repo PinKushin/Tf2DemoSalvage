@@ -255,4 +255,30 @@ public sealed partial class EntityModelSet
 
     /// <summary>Each entity's skinning matrices, reused between frames.</summary>
     private readonly Dictionary<int, float[][]> _skinning = [];
+
+    /// <summary>Each entity's last transform and the matrix built for it (B585).</summary>
+    private readonly Dictionary<int, (PropTransform Transform, float[] Matrix)> _matrices = [];
+
+    /// <summary>The instance matrix for <paramref name="transform"/>: the entity's last one when it has not moved.</summary>
+    /// <param name="entity">The entity index.</param>
+    /// <param name="transform">Where it stands this pass.</param>
+    /// <returns>An array nobody writes after this returns it.</returns>
+    /// <remarks>
+    /// **Copy on change, never written in place** (B585). The engine reuses a POD entry per frame, which is safe for it
+    /// because its draw is done before the entry is refilled; here the queued render thread may still be drawing the last
+    /// frame's array, so a moved entity gets a NEW array and the old one stays as it was. Most instances are static props,
+    /// which never move, so they stop allocating. Correct whatever the key collides with: a hit is an equal transform.
+    /// </remarks>
+    private float[] MatrixFor(int entity, PropTransform transform)
+    {
+        if (_matrices.TryGetValue(entity, out (PropTransform Transform, float[] Matrix) last) && last.Transform == transform)
+        {
+            return last.Matrix;
+        }
+
+        float[] matrix = transform.ToMatrix();
+        _matrices[entity] = (transform, matrix);
+
+        return matrix;
+    }
 }
