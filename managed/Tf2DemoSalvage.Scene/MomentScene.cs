@@ -1635,10 +1635,16 @@ public sealed class MomentScene : IGameSystemPerFrame
         // knowing who that is: `MomentInfo.Followed` is null in first person because the viewer
         // follows the recording's own camera, and a viewmodel that names no owner cannot be asked.
         // A count of materials cannot tell those apart; this can.
+        //
+        // **When the SKIN changes, not whenever the viewmodel does** (B595). `scene.Changed` fires on every sequence
+        // change, and each line is a flushed file write on this thread — 90-118 ms a line on f12, every one of the
+        // in-play `viewmodel` stalls. B191's ruling: stop writing lines nobody asked for, keep the flush.
         long skinLogAt = Stopwatch.GetTimestamp();
 
-        if (scene.Changed && scene.Props.Count > 0)
+        if (scene.Changed && scene.Props.Count > 0 && scene.Props[0].Pose.Skin != _lastViewmodelSkin)
         {
+            _lastViewmodelSkin = scene.Props[0].Pose.Skin;
+
             _render.LogInformation(
                 "{Message}",
                 $"viewmodel skin: {scene.Props[0].Pose.Skin}");
@@ -1671,6 +1677,9 @@ public sealed class MomentScene : IGameSystemPerFrame
 
     /// <summary>The last <see cref="AddViewmodel"/>'s split; zero when it returned early (B595).</summary>
     private ViewmodelSplit _viewmodelSplit;
+
+    /// <summary>The viewmodel skin last logged, so the line is written once per skin (B595).</summary>
+    private int? _lastViewmodelSkin;
 
     /// <summary>Says once when players are being drawn with nothing to dress them from.</summary>
     /// <remarks>
