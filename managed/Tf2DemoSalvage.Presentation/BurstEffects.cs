@@ -257,6 +257,18 @@ public sealed class BurstEffects
     /// <summary>The tick the owned dispatches were last offered at, so a clock gone back offers the finished ones again.</summary>
     private int _ownedTick = int.MinValue;
 
+    /// <summary>
+    /// The owned dispatches fired and not yet let go, in fire order (B577): what the walk over <see cref="_owned"/> would
+    /// still offer. A played frame only appends what fired and drops what is gone or past its fade, both for good.
+    /// </summary>
+    private readonly List<int> _liveOwned = [];
+
+    /// <summary>The next index into <see cref="_owned"/> not yet fired into <see cref="_liveOwned"/>.</summary>
+    private int _ownedFired;
+
+    /// <summary>Walks every owned dispatch from the first each frame, as before B577: the reference a test compares with.</summary>
+    internal bool WalkEveryOwnedDispatch { get; set; }
+
     /// <summary>The view's own: the model set it draws with.</summary>
     /// <param name="particles">The effects these bursts are stepped in.</param>
     /// <param name="models">The posed entities, for attachments and hitboxes.</param>
@@ -1115,6 +1127,8 @@ public sealed class BurstEffects
             _stopsOf = timeline;
             _stops = DispatchStops.Compute(timeline.Dispatches.All, timeline.Dispatches.Names.Name, timeline.Dormancy.DeletedAfter);
             _owned.Clear();
+            _liveOwned.Clear();
+            _ownedFired = 0;
 
             for (int index = 0; index < _stops.Length; index++)
             {
@@ -1160,30 +1174,50 @@ public sealed class BurstEffects
 
         _ownedTick = tick;
 
-        foreach (int index in _owned)
+        // **Each frame visits only what is live, not every owned dispatch since the first** (B577): the engine creates an
+        // effect once, when its dispatch arrives (`C_TEEffectDispatch::PostDataUpdate`, c_te_effect_dispatch.cpp:146-154),
+        // and updates only the effects it holds (`CParticleProperty::UpdateParticleEffect`, particle_property.cpp:507-519).
+        // Both drops are for good while playing: gone stays gone until a landed frame clears `_spent`, and a tick past the
+        // fade only grows. A landed frame — or a new timeline, which cleared `_owned` — starts again from the first.
+        if (!played || WalkEveryOwnedDispatch)
         {
-            SceneEffectDispatch dispatch = timeline.Dispatches.All[index];
+            _liveOwned.Clear();
+            _ownedFired = 0;
+        }
 
-            if (dispatch.Tick > tick)
-            {
-                break;
-            }
+        while (_ownedFired < _owned.Count && timeline.Dispatches.All[_owned[_ownedFired]].Tick <= tick)
+        {
+            _liveOwned.Add(_owned[_ownedFired++]);
+        }
+
+        int kept = 0;
+
+        for (int live = 0; live < _liveOwned.Count; live++)
+        {
+            int index = _liveOwned[live];
 
             if (played && _particles.IsGone(ParticleDispatchKeys + index))
             {
                 continue;
             }
 
-            if (_stops[index] is not { } stop || tick < stop + ParticleDispatchWindowTicks)
+            if (_stops[index] is { } stop && tick >= stop + ParticleDispatchWindowTicks)
             {
-                int owner = dispatch.Entity;
-                EntityDormancy dormancy = timeline.Dormancy;
-
-                AddParticleEffect(
-                    ParticleDispatchKeys + index, dispatch, timeline, systems, _stops[index],
-                    at => dormancy.IsDormant(owner, at));
+                continue;
             }
+
+            _liveOwned[kept++] = index;
+
+            SceneEffectDispatch dispatch = timeline.Dispatches.All[index];
+            int owner = dispatch.Entity;
+            EntityDormancy dormancy = timeline.Dormancy;
+
+            AddParticleEffect(
+                ParticleDispatchKeys + index, dispatch, timeline, systems, _stops[index],
+                at => dormancy.IsDormant(owner, at));
         }
+
+        _liveOwned.RemoveRange(kept, _liveOwned.Count - kept);
 
         // `C_TETFParticleEffect::PostDataUpdate` is the same dispatch, built on the client.
         TickWindow.Between(

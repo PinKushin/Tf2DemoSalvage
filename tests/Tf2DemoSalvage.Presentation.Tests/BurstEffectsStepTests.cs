@@ -775,4 +775,97 @@ public sealed class BurstEffectsStepTests
 
         bursts.Bursts.Count.ShouldBe(expected);
     }
+
+    /// <remarks>
+    /// **B577: visiting only the live owned dispatches offers exactly what the walk from the first did**, frame by frame,
+    /// in order, and leaves the effects in the same state. The reference is the same presenter with
+    /// <see cref="BurstEffects.WalkEveryOwnedDispatch"/> set, run through its own <see cref="ParticleEffects"/> so the
+    /// finished-effect feedback (`IsGone` read from the frame before) is real on both sides. A fixed pseudo-random
+    /// playback: several frames a tick, same-tick dispatches, RESET stops, owners posed and unposed, seeks back and
+    /// forward, and a clock gone back without a seek flag.
+    /// </remarks>
+    [Test]
+    public void StepOver_LiveOwnedDispatchesOverAPlayback_OfferWhatTheWalkFromTheFirstOffered()
+    {
+        // A fixed linear congruential sequence, so a failure names a reproducible case.
+        uint state = 577;
+        int Next(int below)
+        {
+            state = (state * 1664525u) + 1013904223u;
+
+            return (int)(state >> 8) % below;
+        }
+
+        List<SyntheticEffects.Effect> effects = [];
+        int[] owners = [Sentry, Sentry + 1, Sentry + 2];
+
+        for (int tick = 100; tick < 1600; tick += Next(25))
+        {
+            int owner = owners[Next(owners.Length)];
+            int flags = Next(4) switch { 0 => 0, 1 => 3, _ => 1 };
+
+            effects.Add(Effect(
+                tick,
+                "CTEEffectDispatch",
+                Number("m_iEffectName", 1),
+                Number("m_nHitBox", Next(2) == 0 ? 1 : 3),
+                Number("m_fFlags", flags),
+                Number("m_nDamageType", Next(2) == 0 ? 4 : 3),
+                Number("entindex", owner),
+                Number("m_nAttachmentIndex", 3)));
+        }
+
+        DemoTimeline timeline = Timeline([.. effects]);
+        (BurstEffects reference, FakePosedEntities referenceModels, ParticleEffects referenceParticles) = Presenter();
+        (BurstEffects live, FakePosedEntities liveModels, ParticleEffects liveParticles) = Presenter();
+        reference.WalkEveryOwnedDispatch = true;
+
+        int at = 90;
+        int offered = 0;
+
+        for (int frame = 0; frame < 3000; frame++)
+        {
+            int roll = Next(100);
+            bool seeked = roll < 2;
+
+            at = roll switch
+            {
+                < 1 => Math.Max(90, at - 1 - Next(400)),
+                < 2 => at + 1 + Next(400),
+                < 3 => Math.Max(90, at - 1 - Next(30)),
+                < 50 => at,
+                _ => at + 1,
+            };
+
+            if (Next(20) == 0)
+            {
+                int owner = owners[Next(owners.Length)];
+                ParticleControlPoint point = ParticleControlPoint.Unoriented(new Vector3(owner, frame, 0f));
+
+                foreach (FakePosedEntities models in (FakePosedEntities[])[referenceModels, liveModels])
+                {
+                    if (!models.Numbered.Remove((owner, 3)))
+                    {
+                        models.Numbered[(owner, 3)] = point;
+                    }
+                }
+            }
+
+            BurstFrame step = Frame(timeline, at) with { Seeked = seeked };
+
+            reference.StepOver(step, World());
+            live.StepOver(step, World());
+
+            live.Bursts.Select(Comparable).ShouldBe(reference.Bursts.Select(Comparable), $"frame {frame} at tick {at}");
+            liveParticles.Census().ShouldBe(referenceParticles.Census(), $"frame {frame} at tick {at}");
+            offered += live.Bursts.Count;
+        }
+
+        (liveParticles.BurstBuilds, liveParticles.ReplaySteps, liveParticles.Steps, liveParticles.Slept).ShouldBe(
+            (referenceParticles.BurstBuilds, referenceParticles.ReplaySteps, referenceParticles.Steps, referenceParticles.Slept));
+        offered.ShouldBeGreaterThan(1000, "the control: the playback offers owned effects at all");
+        referenceParticles.BurstBuilds.ShouldBeGreaterThan(50, "the control: effects are built and rebuilt");
+
+        static ParticleBurst Comparable(ParticleBurst burst) => burst with { DormantAt = null };
+    }
 }

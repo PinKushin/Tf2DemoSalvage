@@ -40074,7 +40074,12 @@ world-list build. **Ours:** `DetailSprites.Build` / `DetailModels.Build` loop ov
 (`DetailSprites.cs:240`) and test distance per prop. **Measured:** `camera setcamera detail` 0.26-0.28 ms a frame in
 first person (measurements/2026-10-22-f12-camera-breakdown.md), an upper bound. Nothing visible: same picture, more work.
 
-## B579 — the HUD's event feed walks every game event and user message of the match, every frame — OPEN
+## B579 — the HUD's event feed walks every game event and user message of the match, every frame — FIXED (2026-10-23)
+
+**Fixed:** `HudEventFeed.Advance` finds the `(last, tick]` window of each tick-ordered list by binary search
+(`LandedWindow`, shared with the model decals). A list out of order is walked whole. Equivalence with the full walk is
+tested over seeks, repeats, window edges, duplicates and an unordered list. `hud events` on the f12 empty view fell from
+0.13-0.20 ms to 0-0.02 ms (measurements/2026-10-23-hud-event-feed-window.md); first person is not measured yet.
 
 **Read** (finding 97): a user message is dispatched once on arrival (`CUserMessages::DispatchUserMessage`,
 `usermessages.cpp:151-189`), a game event once through `FireGameEvent`. **Ours:** `HudEventFeed.Advance` walks all of
@@ -40096,6 +40101,18 @@ created once, on arrival (receive path CLOSED, read it first). **Ours:** `BurstE
 tick window and rebuilds `_burstsNow` every frame (`BurstEffects.cs:371-424`). **Measured:** `bursts` minus `step`
 0.55-0.63 ms a frame; beams and overheals (0.21-0.23) are state and stay per frame, so the event share is 0.33-0.40, an
 upper bound. Nothing visible.
+
+**Split (2026-10-23, measurements/2026-10-22-f12-steady-frame/ A3, B2, B3, C1):** the event share is `dispatches` 0.17-0.23 ms and `muzzles`
+0.18-0.27 ms. The other five kinds total about 0.04 ms and were left alone. **Reading picked:** what
+`ParticleEffects.Bursts` accepts is unchanged. An unoffered key is its `StopEmission`, and a followed point is re-read every
+frame by the engine too (`particle_property.cpp:507-527`), so the divergence is finding events by walking history, not
+the offer itself. **Done:** the owned dispatches are kept in a live list instead of being walked from the first each
+frame (`2ec8bd21`). Offers are identical: an equivalence test over 3,000 frames checks ordered offers, census and
+counters, and two sabotages redden it. **Measured** (`measurements/2026-10-23-owned-dispatch-live-list.md`): `dispatches`
+did not move (0.20 ms median before and after, on both scenes). The walk was not the cost; the per-live-offer work is,
+and it is not split yet. **Left:** split `dispatches` into its attachment queries, dormancy closures and the 660-tick
+entity-less window. Muzzles: skip the finished flashes as dispatches already do (finding 86), which changes the offers
+and the census by design and needs a state-equivalence test, not an offer one.
 
 ## B576 — a talking face rewrote every slot of its model's flex stream, every changing frame — FIXED (2026-10-22)
 

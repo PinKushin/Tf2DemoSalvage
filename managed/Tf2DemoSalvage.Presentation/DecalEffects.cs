@@ -376,9 +376,9 @@ public sealed class DecalEffects
         // bullets on f12) is a cost it never pays. Both lists are in tick order, so the window is found by search; a list
         // that is not is walked whole, which visits the same items in the same order, since the guards below still run.
         IReadOnlyList<(int Index, SceneEffectDispatch Dispatch)> entityImpacts = EntityImpacts(timeline);
-        (int firstImpact, int impactsEnd) = Landed(
+        (int firstImpact, int impactsEnd) = LandedWindow.Landed(
             entityImpacts, static impact => impact.Dispatch.Tick, ref _impactsOrderOf, ref _impactsInOrder, from, tick);
-        (int firstBullet, int bulletsEnd) = Landed(
+        (int firstBullet, int bulletsEnd) = LandedWindow.Landed(
             loaded.Impacts, static bullet => bullet.Tick, ref _bulletsOrderOf, ref _bulletsInOrder, from, tick);
 
         ModelDecalExamined = (impactsEnd - firstImpact, bulletsEnd - firstBullet);
@@ -445,48 +445,6 @@ public sealed class DecalEffects
                 assets,
                 device);
         }
-    }
-
-    /// <summary>The <c>[first, end)</c> of a list's landings in <c>(after, through]</c>, or all of it when it is out of tick order.</summary>
-    /// <remarks>Whether a list is in order is found once per list, the first time it is asked for.</remarks>
-    private static (int First, int End) Landed<T>(
-        IReadOnlyList<T> items, Func<T, int> tickOf, ref object? orderOf, ref bool inOrder, int after, int through)
-    {
-        if (!ReferenceEquals(orderOf, items))
-        {
-            orderOf = items;
-            inOrder = true;
-
-            for (int at = 1; at < items.Count && inOrder; at++)
-            {
-                inOrder = tickOf(items[at - 1]) <= tickOf(items[at]);
-            }
-        }
-
-        return inOrder ? (FirstAfter(items, tickOf, after), FirstAfter(items, tickOf, through)) : (0, items.Count);
-    }
-
-    /// <summary>The index of the first item of a tick-ordered list whose tick is after this one.</summary>
-    private static int FirstAfter<T>(IReadOnlyList<T> items, Func<T, int> tickOf, int tick)
-    {
-        int low = 0;
-        int high = items.Count;
-
-        while (low < high)
-        {
-            int middle = (low + high) >>> 1;
-
-            if (tickOf(items[middle]) <= tick)
-            {
-                low = middle + 1;
-            }
-            else
-            {
-                high = middle;
-            }
-        }
-
-        return low;
     }
 
     /// <summary>Puts one impact's decal on the struck player's model, or logs why not.</summary>
