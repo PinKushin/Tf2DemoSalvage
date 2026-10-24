@@ -2241,23 +2241,11 @@ public sealed class ScenePropTrack
             : 0f;
 
         // The pose pair the angle slerp and the position curve read, built from the history rather than
-        // from a keyframe: a history entry is the six interpolated floats and nothing else.
-        // **Aliased because `from` is a LINQ contextual keyword**, so `from with { … }` at the start of
-        // a statement parses as a query expression. The state local keeps its name — it is read fifty
-        // times below — and this is the one place the parser needs a different one.
-        ScenePose shape = from;
-
-        ScenePose moving = shape with
-        {
-            X = olderEntry[0], Y = olderEntry[1], Z = olderEntry[2],
-            Pitch = olderEntry[3], Yaw = olderEntry[4], Roll = olderEntry[5],
-        };
-
-        ScenePose toward = shape with
-        {
-            X = newerEntry[0], Y = newerEntry[1], Z = newerEntry[2],
-            Pitch = newerEntry[3], Yaw = newerEntry[4], Roll = newerEntry[5],
-        };
+        // from a keyframe: a history entry is the six interpolated floats and nothing else. **Six floats,
+        // not a pose**: each `with` here copied the whole reference-holding pose through a write barrier
+        // for three readers that take three numbers each (B593, profile 2026-10-24).
+        HistoryEntry moving = new(olderEntry);
+        HistoryEntry toward = new(newerEntry);
 
         (float pitch, float yaw, float roll) = SlerpAngles(moving, toward, fraction);
 
@@ -2280,13 +2268,7 @@ public sealed class ScenePropTrack
         // per-component loop. `null` is its empty-older-interval case and means linear.
         Span<float> oldestEntry = stackalloc float[SimulationComponents];
 
-        ScenePose? previous = _simulation.TimeFixup(pair, oldestEntry)
-            ? (shape with
-            {
-                X = oldestEntry[0], Y = oldestEntry[1], Z = oldestEntry[2],
-                Pitch = oldestEntry[3], Yaw = oldestEntry[4], Roll = oldestEntry[5],
-            })
-            : null;
+        HistoryEntry? previous = _simulation.TimeFixup(pair, oldestEntry) ? new HistoryEntry(oldestEntry) : null;
 
         // **The animation-latched pair take the OTHER clock, which is a second lookup** (B274).
         // `OnLatchInterpolatedVariables` is called once per latch group and stamps each with its own
@@ -2303,9 +2285,9 @@ public sealed class ScenePropTrack
         // registers `m_flCycle` unconditionally (`c_baseanimating.cpp:896`), so the history always
         // exists — and when the clocks agree its changetimes are the arrival ticks, which is the answer
         // the shared path was trying to reach.
-        (ScenePose animationFrom, ScenePose animationTo, ScenePose? animationPrevious,
+        (CycleSample animationFrom, CycleSample animationTo, CycleSample? animationPrevious,
             float animationFraction) =
-            AnimationNeighbours(target, (int)Math.Floor(tick), shape, moving, toward, previous, fraction);
+            AnimationNeighbours(target, (int)Math.Floor(tick), from, fraction);
 
         // **A client-side-animated entity's cycle is NOT interpolated, and the engine enforces that
         // structurally rather than with a test** (B276).
@@ -2511,7 +2493,7 @@ public sealed class ScenePropTrack
             // **From their OWN history, bracketed on their own changetimes** (B382). One `AddVar` means
             // one `CInterpolatedVar`, and asking the cycle's pair for them was the merge B382 undoes.
             PoseParameters = PoseBetween(
-                shape.PoseParameters,
+                from.PoseParameters,
                 _poseParameters.Bracket(target, (int)Math.Floor(tick)),
                 animationFraction),
 
@@ -2574,7 +2556,7 @@ public sealed class ScenePropTrack
     /// a tangent, so the spline drops to the two-point form rather than curving through it.
     /// </remarks>
     private static float InterpolateCycle(
-        ScenePose? previous, ScenePose from, ScenePose to, float fraction)
+        CycleSample? previous, CycleSample from, CycleSample to, float fraction)
     {
         if (from.Sequence != to.Sequence)
         {
@@ -2765,10 +2747,7 @@ public sealed class ScenePropTrack
     /// <summary>The pair the ANIMATION history puts either side of a moment.</summary>
     /// <param name="target">The moment being drawn.</param>
     /// <param name="arrivedBy">The tick being played, bounding the reach as <see cref="At(double)"/> does.</param>
-    /// <param name="shape">The state fields, which this fills a cycle and a sequence into.</param>
-    /// <param name="from">What the simulation clock chose, used when the animation clock cannot.</param>
-    /// <param name="to">Its later neighbour.</param>
-    /// <param name="previous">The older sample the spline wants, on the simulation clock.</param>
+    /// <param name="shape">The arrival pose, whose cycle and sequence every end holds when the animation clock cannot answer.</param>
     /// <param name="fraction">How far between the simulation pair.</param>
     /// <returns>The animation pair, its older sample, and how far between them the moment is.</returns>
     /// <remarks>
@@ -2784,13 +2763,17 @@ public sealed class ScenePropTrack
     /// last. Holding the caller's pair there gives the behaviour this had before the second clock
     /// existed, which is the right thing for an entity whose animation is not moving.
     /// </remarks>
-    private (ScenePose From, ScenePose To, ScenePose? Previous, float Fraction) AnimationNeighbours(
-        double target, int arrivedBy, ScenePose shape,
-        ScenePose from, ScenePose to, ScenePose? previous, float fraction)
+    private (CycleSample From, CycleSample To, CycleSample? Previous, float Fraction) AnimationNeighbours(
+        double target, int arrivedBy, in ScenePose shape, float fraction)
     {
         if (_animation.Bracket(target, arrivedBy) is not { } pair)
         {
-            return (from, to, previous, fraction);
+            // No animation entry: every end carries the arrival pose's own cycle and sequence. With all ends equal a
+            // third sample changes nothing (the curve and the lerp of one value are that value), so none is passed;
+            // a sabotage that dropped it reddened no test, and that is why (B593).
+            CycleSample held = new(shape.Cycle, shape.Sequence);
+
+            return (held, held, null, fraction);
         }
 
         int fromTick = _animation.ChangeTimeAt(pair.Older);
@@ -2814,22 +2797,21 @@ public sealed class ScenePropTrack
         // rather than splining through nothing.
         Span<float> oldestCycle = stackalloc float[CycleComponents];
 
-        ScenePose? older = _animation.TimeFixup(pair, oldestCycle)
-            ? Animated(shape, pair.Oldest, oldestCycle[0])
+        CycleSample? older = _animation.TimeFixup(pair, oldestCycle)
+            ? Animated(pair.Oldest, oldestCycle[0])
             : null;
 
         return (
-            Animated(shape, pair.Older, _animation.ValuesAt(pair.Older)[0]),
-            Animated(shape, pair.Newer, _animation.ValuesAt(pair.Newer)[0]),
+            Animated(pair.Older, _animation.ValuesAt(pair.Older)[0]),
+            Animated(pair.Newer, _animation.ValuesAt(pair.Newer)[0]),
             older,
             animationFraction);
     }
 
-    /// <summary>One end of the cycle blend, as a pose carrying the state fields around it.</summary>
-    /// <param name="shape">The state fields, which are not interpolated and come from arrival.</param>
+    /// <summary>One end of the cycle blend: its cycle and the sequence it was recorded under.</summary>
     /// <param name="index">Which animation entry, for the sequence it was recorded under.</param>
     /// <param name="cycle">The cycle, which may be a respaced sample rather than a stored one.</param>
-    /// <returns>The pose the cycle blend reads.</returns>
+    /// <returns>The two numbers the cycle blend reads.</returns>
     /// <remarks>
     /// **The sequence comes from the STORED entry, never from a respaced one.** It is not a component the
     /// engine interpolates — a value between two sequence numbers names an animation neither end was
@@ -2840,12 +2822,37 @@ public sealed class ScenePropTrack
     /// history and their own width, so putting them on a pose per end would allocate an array per end per
     /// entity per frame. <see cref="PoseBetween"/> reads them from that history directly.
     /// </remarks>
-    private ScenePose Animated(ScenePose shape, int index, float cycle) =>
-        shape with
+    private CycleSample Animated(int index, float cycle) =>
+        new(cycle, (int)_animation.ValuesAt(index)[CycleSequence]);
+
+    /// <summary>One end of the cycle blend (B593): all <see cref="InterpolateCycle"/> reads of a pose.</summary>
+    private readonly record struct CycleSample(float Cycle, int Sequence);
+
+    /// <summary>One simulation history entry (B593): all the angle slerp and the position curve read of a pose.</summary>
+    private readonly struct HistoryEntry
+    {
+        public HistoryEntry(ReadOnlySpan<float> entry)
         {
-            Cycle = cycle,
-            Sequence = (int)_animation.ValuesAt(index)[CycleSequence],
-        };
+            X = entry[0];
+            Y = entry[1];
+            Z = entry[2];
+            Pitch = entry[3];
+            Yaw = entry[4];
+            Roll = entry[5];
+        }
+
+        public float X { get; }
+
+        public float Y { get; }
+
+        public float Z { get; }
+
+        public float Pitch { get; }
+
+        public float Yaw { get; }
+
+        public float Roll { get; }
+    }
 
 
     /// <summary>Which pose parameters of this entity's model wrap, by index.</summary>
@@ -3095,7 +3102,7 @@ public sealed class ScenePropTrack
     /// other way.
     /// </remarks>
     private static (float Pitch, float Yaw, float Roll) SlerpAngles(
-        ScenePose from, ScenePose to, float fraction)
+        in HistoryEntry from, in HistoryEntry to, float fraction)
     {
         if (SameBits(from.Pitch, to.Pitch) &&
             SameBits(from.Yaw, to.Yaw) &&

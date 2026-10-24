@@ -40066,6 +40066,45 @@ reddens four tests), and a child's drawn size against its own scale alone.
   `pl_badwater_pro_v12.bsp` is not on this machine (not under the game's `tf/maps`, `tf/download/maps`, `tf2ds`, or the
   user profile), so its `parentname` cannot be read, and no sampled tick gives them a parent.
 
+## B594 — `LevelLighting.SunFrom`'s 5.8% is not explained by how often it runs; the first-person undrawn pass lights a model nothing draws — OPEN (2026-10-24)
+
+**Evidence class: read from code; the share is the profile's** (`docs/measurements/2026-10-24-main-thread-cpu-profile.md`,
+5.8% exclusive, an upper bound under its fault 4). **The engine caches, and so do we already.** The model light cache is
+`LightcacheGet` in the closed `engine.dll` (`0x1801b9cd0`, read in disassembly for B514/`LightCache<T>`): 200 entries keyed
+on a 32×32×128 cell and the leaf, at most `lightcache_maxmiss` (2) builds a frame after the first 60. `LevelLighting.Entry`
+is that port, and `SunFrom` runs only inside a miss's build (`Entry`'s factory) — so at most 2 a frame from the world and
+viewmodel passes, and static props are memoised per origin (`StaticPropLightingAt`). **The one uncached caller:**
+`MomentScene` (`MomentScene.cs:701-702`) hands the first-person undrawn pass `Lighting.LightingAt` and `Lighting.SunAt`
+directly, so the spectated player's own model, which is never drawn, gets an uncached leaf test and sky trace every frame;
+the engine computes no lighting for a model it does not draw. **Not measured:** no counter of `SunFrom` calls a frame exists,
+so whether 2-3 traces carry 5.8% (a slow trace) or the share is GC-poll bias is open. **Next:** a call counter carried from
+`SunFrom` into `--measure`, then, if the undrawn pass is the cost, give that pass no lighting (it feeds hitboxes and
+decals, not a draw) with a test that its instances are unchanged where they are read. Finding 97 §7.
+
+## B593 — `ScenePropTrack.At` copied the whole pose about six times to read nine numbers — FIXED (2026-10-24)
+
+**Evidence class: read from code; profile share** (2.5% G / 4.9% E of samples in `BulkMoveWithWriteBarrier` under `At`).
+`moving`, `toward` and `previous` were `with` copies of the arrival pose for readers of three angles and three positions, and
+`AnimationNeighbours`'s `Animated` made three more for a cycle and a sequence. Now a six-float `HistoryEntry` and a
+`CycleSample`; the returned pose, the signature and every caller are unchanged (`ref readonly` was asked for, but `At`
+returns a pose it has just built, so there is nothing to ref). **Equivalence:** Core.Tests 2625 passed unchanged; swapping
+the animation pair reddens four `At` tests. **Measured: `advance` −0.03 ms in both views, all three pairs; frame null**
+(`docs/measurements/2026-10-24-burst-walk-and-pose-copies.md`).
+
+## B592 — `ParticleEffects.Bursts` walked its offered list by value — FIXED (2026-10-24)
+
+**Evidence class: profile share** (2.7% G / 5.4% E under `List<ParticleBurst>.Enumerator`). Now by `ref readonly` over
+`CollectionsMarshal.AsSpan`. **Equivalence:** the B577 playback test folds every frame's census and step counters into a
+fingerprint recorded from the by-value walk; skipping the last burst reddens it. **Measured: a null result**, `camera`
+unmoved in both views (same record as B593); the profile share was GC-poll bias or far below a millisecond.
+
+## B591 — an Information log line per first-person muzzle flash, flushed on the main thread — FIXED (2026-10-24)
+
+**Evidence class: profile share** (1.5% under `FileLogWriter.Write`), the B191 shape. The viewer's file logger is
+Information in every build (`Program.cs:45`), so the line now sits at Debug behind `IsEnabled(Debug)`, which guards the
+string's construction too. Control: 113 such lines per 30 s run before, 0 after, in both views. **Measured: frame
+8.65 → 8.56 ms gummo, 3.44 → 3.38 empty, faster in all six pairs** (`docs/measurements/2026-10-24-muzzle-flash-log-line.md`).
+
 ## B590 — baked-frame selection is computed twice per prop per frame — OPEN (2026-10-24)
 
 **Evidence class: read from code, not measured** (Fable read of `main` @ `01faad62`). **Ours:** `SettleEach`

@@ -490,8 +490,19 @@ public sealed class ParticleEffects
 
         _burstShown = now;
 
-        foreach (ParticleBurst burst in live)
+        // By reference, not `foreach`: a by-value walk copied the whole reference-holding struct per element through a
+        // write barrier (B592, profile 2026-10-24). The caller's list is not changed while this runs.
+        ReadOnlySpan<ParticleBurst> offered = live switch
         {
+            List<ParticleBurst> list => System.Runtime.InteropServices.CollectionsMarshal.AsSpan(list),
+            ParticleBurst[] array => array,
+            _ => [.. live],
+        };
+
+        for (int each = 0; each < offered.Length; each++)
+        {
+            ref readonly ParticleBurst burst = ref offered[each];
+
             _offered.Add(burst.Key);
 
             double wanted = now - burst.Tick;

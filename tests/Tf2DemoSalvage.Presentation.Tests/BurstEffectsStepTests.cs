@@ -4,6 +4,8 @@ using System.Linq;
 using System.Numerics;
 using System.Text;
 
+using Microsoft.Extensions.Logging;
+
 using Tf2DemoSalvage.Audio;
 using Tf2DemoSalvage.Content.Assets;
 using Tf2DemoSalvage.Core.Scene;
@@ -688,6 +690,9 @@ public sealed class BurstEffectsStepTests
 
     private const int Viewmodel = 60;
 
+    /// <summary>What the by-value walk produced over the B577 playback (B592); see its use.</summary>
+    private const ulong PlaybackFingerprint = 3714805257722811873ul;
+
     /// <summary>
     /// A timeline whose viewmodel, the scout's and holding his scattergun, raises its own muzzle flash parity at tick
     /// 100 — the first-person flash, which the server sends in the viewmodel's counter and to its owner alone (B415).
@@ -735,6 +740,53 @@ public sealed class BurstEffectsStepTests
         bursts.Bursts.ShouldHaveSingleItem().ShouldBe(
             new ParticleBurst(WeaponFlashKeys, Systems["muzzle_scattergun"], OnTheHands, 100),
             "GetAppropriateWorldOrViewModel: the viewmodel's weapon, not the world model");
+    }
+
+    /// <remarks>
+    /// B591: the per-flash line is a diagnostic, written at Debug and only when Debug is enabled — an Information line
+    /// per first-person shot was flushed per line on the main thread (the B191 shape, profile 2026-10-24).
+    /// </remarks>
+    [Test]
+    public void StepOver_AViewmodelFlashWithDebugEnabled_LogsItsLineAtDebug()
+    {
+        RecordingLogger log = new();
+        FakePosedEntities models = new();
+        BurstEffects bursts = new(new ParticleEffects(), models, new BulletStrikes(models, new RecordingLogger()), log);
+
+        models.Named[(ViewmodelScene.WeaponEntityIndex, "muzzle")] = OnTheHands;
+        bursts.StepOver(Frame(FiringInFirstPerson, 100, firstPerson: true, followed: Scout), World());
+
+        log.Lines.Where(static line => line.Message.Contains("viewmodel muzzle flash", StringComparison.Ordinal))
+            .ShouldHaveSingleItem().Level.ShouldBe(LogLevel.Debug);
+    }
+
+    /// <remarks>B591, the guard covers the WORK: below Debug the logger is never called, so the string is never built.</remarks>
+    [Test]
+    public void StepOver_AViewmodelFlashWithDebugDisabled_NeverCallsTheLogger()
+    {
+        InformationOnly log = new();
+        FakePosedEntities models = new();
+        BurstEffects bursts = new(new ParticleEffects(), models, new BulletStrikes(models, new RecordingLogger()), log);
+
+        models.Named[(ViewmodelScene.WeaponEntityIndex, "muzzle")] = OnTheHands;
+        bursts.StepOver(Frame(FiringInFirstPerson, 100, firstPerson: true, followed: Scout), World());
+
+        bursts.Bursts.Count.ShouldBe(1, "the control: the flash was offered");
+        log.Calls.ShouldBe(0);
+    }
+
+    /// <summary>Enabled at Information and above; counts every <see cref="ILogger.Log{TState}"/> call whatever its level.</summary>
+    private sealed class InformationOnly : ILogger
+    {
+        public int Calls { get; private set; }
+
+        public IDisposable? BeginScope<TState>(TState state)
+            where TState : notnull => null;
+
+        public bool IsEnabled(LogLevel logLevel) => logLevel >= LogLevel.Information;
+
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter) =>
+            Calls++;
     }
 
     [Test]
@@ -822,6 +874,16 @@ public sealed class BurstEffectsStepTests
 
         int at = 90;
         int offered = 0;
+        ulong fingerprint = 14695981039346656037ul;
+
+        // FNV-1a over every frame's census and counters, so one number records the whole playback.
+        void Fold(string text)
+        {
+            foreach (char c in text)
+            {
+                fingerprint = (fingerprint ^ c) * 1099511628211ul;
+            }
+        }
 
         for (int frame = 0; frame < 3000; frame++)
         {
@@ -859,7 +921,13 @@ public sealed class BurstEffectsStepTests
             live.Bursts.Select(Comparable).ShouldBe(reference.Bursts.Select(Comparable), $"frame {frame} at tick {at}");
             liveParticles.Census().ShouldBe(referenceParticles.Census(), $"frame {frame} at tick {at}");
             offered += live.Bursts.Count;
+            Fold(string.Join(';', liveParticles.Census()));
+            Fold($"{liveParticles.BurstBuilds},{liveParticles.ReplaySteps},{liveParticles.Steps},{liveParticles.Slept}");
         }
+
+        // B592: the whole playback's census and step counters, recorded from `ParticleEffects.Bursts` while it still
+        // walked its list with a by-value `foreach`; the by-reference walk must reproduce it exactly.
+        fingerprint.ShouldBe(PlaybackFingerprint, "the census and counters the by-value walk produced");
 
         (liveParticles.BurstBuilds, liveParticles.ReplaySteps, liveParticles.Steps, liveParticles.Slept).ShouldBe(
             (referenceParticles.BurstBuilds, referenceParticles.ReplaySteps, referenceParticles.Steps, referenceParticles.Slept));
