@@ -341,6 +341,12 @@ public sealed partial class ViewerSession
             _host.Out.WriteLine(string.Create(
                 CultureInfo.InvariantCulture,
                 $"  main thread jit: {jitNow.MainJitMethods - _countersAtStart.MainJitMethods} methods, {(jitNow.MainJit - _countersAtStart.MainJit).TotalMilliseconds:0.0} ms compiling"));
+            // Stryker disable once all : a mutated interpolated string cannot bind to its handler (CS1620) and Safe Mode drops the method - B410
+            _host.Out.WriteLine(string.Create(
+                CultureInfo.InvariantCulture,
+                $"  first uses in play: models packed {jitNow.Models.Packed - _countersAtStart.Models.Packed}, {(jitNow.Models.PackTicks - _countersAtStart.Models.PackTicks) * 1000d / Stopwatch.Frequency:0.0} ms" +
+                $"; baked built {jitNow.Models.Baked - _countersAtStart.Models.Baked}, {(jitNow.Models.BakedTicks - _countersAtStart.Models.BakedTicks) * 1000d / Stopwatch.Frequency:0.0} ms" +
+                $"; before play: models packed {_countersAtStart.Models.Packed}, baked built {_countersAtStart.Models.Baked}"));
             _host.Out.WriteLine("  " + _effects.ParticleCost.Since(_particlesAtStart, _framesMeasured));
             _host.Out.WriteLine("  " + _effects.ParticleWork.Since(_particleWorkAtStart, _framesMeasured));
             _host.Out.WriteLine("  " + ParticleBirths.Since(_birthsAtStart, Tf2DemoSalvage.Content.Assets.ParticleEffect.BirthsBySystem, _frameSeconds, 12));

@@ -211,6 +211,11 @@ public static class StallReport
                 $", models {Ms(phases.Models):0.#}" +
                 $", pose {Ms(phases.Pose):0.#}" +
                 $" (lighting {lighting:0.#}, viewmodel {viewmodel:0.#}" +
+                $" [simulate {Ms(phases.ViewmodelCounters.Simulate):0.#}, setup {Ms(phases.ViewmodelCounters.Setup):0.#}" +
+                $", anim {Ms(phases.ViewmodelCounters.Animation):0.#}, place {Ms(phases.ViewmodelCounters.Place):0.#}" +
+                $", lighting {Ms(phases.ViewmodelCounters.Lighting):0.#}, collate {Ms(phases.ViewmodelCounters.Collate):0.#}" +
+                $", reports {Ms(phases.ViewmodelCounters.Report):0.#}, built {phases.ViewmodelCounters.Built.ToString(CultureInfo.InvariantCulture)}" +
+                $", pose builds {phases.ViewmodelCounters.PoseBuilds.ToString(CultureInfo.InvariantCulture)}]" +
                 $", simulate {simulate:0.#}" +
                 $", wornlight {wornLight:0.#}" +
                 $", reports {reports:0.#}" +

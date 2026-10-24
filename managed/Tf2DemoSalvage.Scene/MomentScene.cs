@@ -27,6 +27,7 @@ namespace Tf2DemoSalvage.Scene;
 /// <param name="Hidden">How many the visibility half rejected, of those the frustum kept.</param>
 /// <param name="Undrawn">The pass over props posed for a decal but never drawn, whole — its counters are not differenced.</param>
 /// <param name="DrawListParts">The four parts of <paramref name="DrawList"/> (B578).</param>
+/// <param name="ViewmodelCounters">The pose counters across the viewmodel alone (B595).</param>
 /// <param name="Selected">
 /// How many props <c>Build</c> chose, before the frustum rejected any (B254). The ratio against
 /// <paramref name="Drawn"/> is the measurement; either number alone says nothing about the cull.
@@ -66,7 +67,10 @@ public readonly record struct MomentPhases(
     long Undrawn = 0,
 
     // The parts of `DrawList` (B578), stamped where each runs; they partition it.
-    DrawListParts DrawListParts = default)
+    DrawListParts DrawListParts = default,
+
+    // The pose counters differenced across the viewmodel alone (B595), so a `viewmodel` stall names its part.
+    EntityModelSet.PoseCounters ViewmodelCounters = default)
 {
     /// <summary>The part of <see cref="Pose"/> no timer covers, by subtraction — the one formula every report reads.</summary>
     /// <remarks>
@@ -767,10 +771,12 @@ public sealed class MomentScene : IGameSystemPerFrame
         // landing in the "bones" column — which is arrived at by subtraction, and a derived column
         // inherits every error of the ones it is derived from (B191).
         long viewmodelAt = Stopwatch.GetTimestamp();
+        EntityModelSet.PoseCounters viewmodelBefore = _models.Counters;
 
         AddViewmodel(_posing, info);
 
         long viewmodelTicks = Stopwatch.GetTimestamp() - viewmodelAt;
+        EntityModelSet.PoseCounters viewmodelCounters = _models.Counters.Since(viewmodelBefore);
         long posedAt = Stopwatch.GetTimestamp();
 
         ReportWeapons();
@@ -798,7 +804,8 @@ public sealed class MomentScene : IGameSystemPerFrame
             Selected: _drawn.Count + (_models.GathersStaticProps ? StaticProps.Count : 0),
             Hidden: hidden,
             Unjudgeable: unjudged,
-            Undrawn: undrawnTicks);
+            Undrawn: undrawnTicks,
+            ViewmodelCounters: viewmodelCounters);
     }
 
     /// <summary>The client thinks that allocate dynamic lights this moment (B425), at the moment's time.</summary>
