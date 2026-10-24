@@ -100,7 +100,6 @@ public sealed partial class EntityModelSet
         _parentPlacements.Clear();
         _propsByEntity.Clear();
         _skinning.Clear();
-        _matrices.Clear();
         _inView.Clear();
         _eventStates.Clear();
         _clientCycles.Clear();

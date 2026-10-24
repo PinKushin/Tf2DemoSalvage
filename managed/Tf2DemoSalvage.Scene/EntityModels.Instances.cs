@@ -726,7 +726,7 @@ public sealed partial class EntityModelSet
             long boundAt = System.Diagnostics.Stopwatch.GetTimestamp();
             PlaceBindsTicks += boundAt - buildingAt;
 
-            float[] matrix = MatrixFor(prop.EntityIndex, transform);
+            float[] matrix = transform.ToMatrix();
             long matrixAt = System.Diagnostics.Stopwatch.GetTimestamp();
             PlaceMatrixTicks += matrixAt - boundAt;
             IReadOnlyDictionary<int, int>? swap = SkinSwap(prop.ModelPath, skin);
@@ -869,9 +869,7 @@ public sealed partial class EntityModelSet
 
                 into.Add(new ModelInstance(
                     attachment,
-
-                    // The item's own matrix: same transform, and never written after it is published (B585).
-                    matrix,
+                    transform.ToMatrix(),
                     light,
                     sun,
                     frame,
