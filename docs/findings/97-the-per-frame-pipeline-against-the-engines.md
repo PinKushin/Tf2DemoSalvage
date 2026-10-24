@@ -81,6 +81,8 @@ removes; none is a sampled share.
 | 6 | (83 item 3) | client-side animation pass over the draw list | 0.1-0.2 (anim) | under 0.1 | — |
 | 7 | B584 | `ForActivity` scanned every sequence per call; the engine hashes once (`studio.cpp:1684`) | 0.78-0.80 (pose setup) | 0.6-1.0 (code-read) | **FIXED; the estimate was 2-3x high**: alone, `setup` → 0.69-0.70, `models` 0.10 → 0, frame −0.2 to −0.35 (`measurements/2026-10-24-b583-b584-model-lookups.md`) |
 | 8 | B583 | the draw loop probed the model maps by path six times a prop; the engine holds the pointer | — (no own timer) | 1.0-1.5 (code-read) | **PARTLY FIXED; null result**: no timed stage moved against the B584-only build (`measurements/2026-10-24-b583-b584-model-lookups.md`) |
+| 9 | B586 | three reports keyed per prop before the Debug check | 0.006 (reports, before) | 0.15-0.3 (code-read) | **FIXED; null result**: the reports run after the cull, for ~30 props, not ~1,850 (`measurements/2026-10-24-b586-b585-report-guard-and-matrices.md`) |
+| 10 | B585 | a `float[16]` per instance; the engine reuses POD entries | — (gc alloc 1.30-1.39 MB/frame) | 0.2-0.4 (code-read) | **FIXED copy-on-change; null result**: `ModelInstance` is a struct and only ~30 culled-in props build a matrix, ~3 KB a frame, arithmetic from the measured posed count (`measurements/2026-10-24-b586-b585-report-guard-and-matrices.md`) |
 
 **Total: the divergences live in at most 1.8-2.1 ms of a 12 ms frame (*arithmetic*, sum of upper bounds); the fixes
 are estimated at 0.6-1.2 ms together.** That is 5-10% of the frame. TF2's frame is about 4.8 ms; closing the 2.4-2.8x
