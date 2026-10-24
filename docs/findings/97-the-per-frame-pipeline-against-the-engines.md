@@ -127,3 +127,9 @@ timer and two runs a side; a frame-level difference under ~0.5 ms is inside run-
 - The `hud` means are unweighted means of per-second lines (*arithmetic*); the camera parts are frame-weighted. They
   are not mixed in any sum above.
 - The PVS re-mark on a cluster change (`r_oldviewcluster`) is the engine's from memory, not the SDK: interpolated.
+
+## (6) A later read of the main thread, 2026-10-24 (read from code, not measured)
+
+A read of `main` @ `01faad62` filed eight more per-frame costs as **B583-B590** in `docs/RISKS.md`. Their code-read
+estimates sum to roughly **2.3-3.9 ms** of the ~13 ms frame. That sum is **unmeasured** (ESTIMATE): it must be measured,
+with stage timers or the benchmark harness on branch `perf/where-main-thread-goes`, before any of the eight is called a cause.

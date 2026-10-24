@@ -40066,6 +40066,68 @@ reddens four tests), and a child's drawn size against its own scale alone.
   `pl_badwater_pro_v12.bsp` is not on this machine (not under the game's `tf/maps`, `tf/download/maps`, `tf2ds`, or the
   user profile), so its `parentname` cannot be read, and no sampled tick gives them a parent.
 
+## B590 — baked-frame selection is computed twice per prop per frame — OPEN (2026-10-24)
+
+**Evidence class: read from code, not measured** (Fable read of `main` @ `01faad62`). **Ours:** `SettleEach`
+(`EntityModels.Simulation.cs:482-485`) and the instance build (`EntityModels.Instances.cs:232`, `:263`) each compute the
+baked-frame selection for the same prop. **Engine:** one selection per entity, held on the entity. **Fix shape:** store the
+selection on `ResolvedModel` or a per-entity slot. **Estimate (ESTIMATE, code-read): ~0.1 ms**, a nit.
+
+## B589 — per-player per-frame list allocations in the blend inputs — OPEN (2026-10-24)
+
+**Evidence class: read from code, not measured.** **Ours:** `EntityModels.Layers.cs:141`, `:494-495`, `:654-658`;
+`EntityModels.Autoplay.cs:388`, `:481`, `:484`, `:532`; `PropModels.cs:2058`, `:2061`; `EntityModels.CorpsesAndBounds.cs:272`
+allocate lists per player per frame. Same pattern as B574. **Engine:** fixed-size arrays on the stack or the entity.
+**Fix shape:** reuse a per-entity buffer, as B574 did. **Estimate (ESTIMATE, code-read): ~0.05-0.15 ms.**
+
+## B588 — rocket trails are searched for on the timeline every frame, where the engine creates them once — OPEN (2026-10-24)
+
+**Evidence class: read from code, not measured.** **Ours:** `Presentation/FrameParticles.cs:192` and `:413-434`: `TrackAt`
+linearly scans every `timeline.Props` track for every drawn rocket every frame, though born/age are only used when
+`effect.Empty` (`ParticleEffects.cs:315`). **Engine:** `CreateTrails` runs once from `OnDataChanged(DATA_UPDATE_CREATED)`.
+This is a parity divergence in WHEN the work happens. **Fix shape:** resolve once at creation. **Estimate (ESTIMATE,
+code-read): ~0.05-0.15 ms, spiking in fights.**
+
+## B587 — finding 101's 136-byte `StudioBone` copy recurs in five more per-bone loops — OPEN (2026-10-24)
+
+**Evidence class: read from code, not measured.** **Ours:** `Animation/Animating/SkeletonPose.cs:325`, `:328`, `:824-828`,
+`:961`, `:1100`, `:618`, `:644-653`, and `BoneMergeCache.cs:242`, `:262`, `:298` (`SpreadOf` runs before the log-level test
+at `:248`). **Engine:** bones are read in place. **Fix shape:** `ref readonly` indexing into `_boneArray`. **Estimate
+(ESTIMATE, code-read): ~0.15-0.3 ms.**
+
+## B586 — three diagnostic calls per prop per frame do keying work before any `IsEnabled` check — OPEN (2026-10-24)
+
+**Evidence class: read from code, not measured.** **Ours:** `BrushMoved`, `Lit` (`_reportedLight.Add`) and `Animating`
+(`_reportedFrames.Add(prop.ModelPath)`; the caller evaluates `AllFrames(...).Count` first, `EntityModels.Instances.cs:360-371`;
+`ModelReports.cs:78-95`, `:128-135`, `:175-182`). This violates the B191 rule: the guard covers the WORK, not the log line.
+**Fix shape:** one `IsEnabled` read per Instances call. **Estimate (ESTIMATE, code-read): ~0.15-0.3 ms.**
+
+## B585 — the instance build allocates per prop per frame — OPEN (2026-10-24)
+
+**Evidence class: read from code, not measured.** **Ours:** `transform.ToMatrix()` allocates a `float[16]`
+(`EntityModels.Instances.cs:723`, `:866`) and `new ModelInstance(...)` (~250 B) per prop, about 560 KB a frame. **Engine:** a
+POD `CEntry` array reused per frame, and a stack `matrix3x4_t`. **Fix shape:** pool `ModelInstance` per entity like
+`_skinning` pools bones (`EntityModels.Placement.cs:238-249`). **Estimate (ESTIMATE, code-read): ~0.2-0.4 ms.**
+
+## B584 — `ForActivity` is a linear string scan, run 2-6 times per player per frame — OPEN (2026-10-24)
+
+**Evidence class: read from code, not measured.** **Ours:** `PropModels.cs:2393-2429` scans every merged sequence with
+`OrdinalIgnoreCase`; callers `PlayerAnimation.cs:118-132`, `EntityModels.Layers.cs:201-203`, `:288`, `:314`, `:345`,
+`EntityModels.Sequences.cs:375-376`; `PlayerActivityTable.Translate` builds strings and each call allocates a `Func` closure
+(`:118`). **Engine:** `SelectWeightedSequence` goes through `CStudioHdr`'s `m_ActivityToSequence` hash (`studio.cpp`), O(1) on
+an int. **Fix shape:** a `Dictionary<string,int>` (best weight) built once per `SkinnedModel`. **Estimate (ESTIMATE,
+code-read): ~0.6-1.0 ms.**
+
+## B583 — about ten string-keyed dictionary probes per prop per frame, keyed on the model path — OPEN (2026-10-24)
+
+**Evidence class: read from code, not measured.** **Ours:** `EntityModels.Instances.cs:232`, `:263`, `:328`, `:369`, `:379`,
+`:625`, `:726-727`, `:844`; `EntityModels.Simulation.cs:147`, `:458`, `:482-485`; `EntityModels.FacesAndLighting.cs:440`;
+`EntityModels.Autoplay.cs:681-683`. `_frames.TryGetValue(prop.ModelPath)` runs 4x in the draw loop; `AllFrames()` (`:369`) is
+evaluated eagerly for a report that early-outs; `_swaps` and `EntityTint` are also keyed by path. About 1,600 props.
+**Engine:** keys off the entity's cached model pointer (`GetModelPtr`), no hashing per frame. **Fix shape:**
+`ResolvedModel` (`ResolvedFor(prop)`, `Simulation.cs:147`) already carries Frames and Batches by object; the draw loop reads
+it once. **Estimate (ESTIMATE, code-read): ~1.0-1.5 ms.**
+
 ## B580 — every detail prop on the map was walked on every camera move — FIXED 2026-10-23 (`fix/detail-reach-and-visibility`)
 
 **Read** (`detailobjectsystem.cpp:2839-2841`, `EnumerateLeaf` `:2742-2781`, read): the engine reaches detail props only
