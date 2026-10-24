@@ -40081,6 +40081,17 @@ so whether 2-3 traces carry 5.8% (a slow trace) or the share is GC-poll bias is 
 `SunFrom` into `--measure`, then, if the undrawn pass is the cost, give that pass no lighting (it feeds hitboxes and
 decals, not a draw) with a test that its instances are unchanged where they are read. Finding 97 §7.
 
+**Measured 2026-10-24 — the undrawn half is a NULL result** (`docs/measurements/2026-10-24-b594-undrawn-pass-sun.md`).
+f12 gummo first person (same record): undrawn pass 0.025 ms, 6 props, **0 instances, 0 sun calls** — f12's map has no monitor, so
+B511's `DrawsMonitor` gate returns before lighting; the uncached pair is never reached. World pass: 0.02-2.0 sun calls a
+frame. Empty view: all 0 (control). The engine read agrees (`DrawMonitors`, `viewrender.cpp:3240-3293`: the local player
+is posed only for an active, non-dormant `point_camera`), and our gate is that lazy posing already. **Still open:**
+(a) why ≤2 `SunFrom` calls a frame carry 5.8% — time one trace, or treat as profile bias; (b) on a map WITH a monitor,
+the undrawn pass lights uncached and so without dynamic lights (`LightingAt` skips `WithDynamicLights`), where the
+engine's monitor draw goes through the light cache — a small parity divergence in what a monitor shows, not a cost; fix
+by passing `ModelLightingAt`/`ModelSunAt` with a monitor-map test. (c) we pose him whenever a monitor exists, not only
+when the monitor's view collates him — engine-exact would cull him by the monitor frustum; negligible at 6 props.
+
 ## B593 — `ScenePropTrack.At` copied the whole pose about six times to read nine numbers — CODE REVERTED before release (2026-10-24; the saving was 0.03 ms in `advance` (measurements/2026-10-24-burst-walk-and-pose-copies.md), and review found the no-bracket fallback not bit-identical: it ran `LoopingLerp(c,c,t)` where main ran `LoopingCurve(c,c,c,t)`, which can differ by an ulp. Not worth a parity risk. To retry, keep the third sample.)
 
 **Evidence class: read from code; profile share** (2.5% G / 4.9% E of samples in `BulkMoveWithWriteBarrier` under `At`).

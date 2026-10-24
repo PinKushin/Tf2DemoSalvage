@@ -191,9 +191,11 @@ public sealed class MomentSceneTests
         MomentInfo info = Info() with { FirstPerson = true, Followed = 3, EyeCamera = Eye() };
 
         scene.Build([], [Prop("models/props/crate.mdl", entity: 3), Prop("models/props/crate.mdl", entity: 5)], info);
-        scene.Pose(info, monitor: monitor);
+        MomentPhases phases = scene.Pose(info, monitor: monitor);
 
         scene.UndrawnInstances.Count.ShouldBe(monitor ? 1 : 0);
+        phases.UndrawnCensus.Props.ShouldBe(1, "B594's census counts what the pass was handed either way");
+        phases.UndrawnCensus.Instances.ShouldBe(monitor ? 1 : 0);
         scene.Instances.Count.ShouldBe(1, "the control: the world pass draws the other one either way");
     }
 

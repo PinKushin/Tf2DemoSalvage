@@ -177,3 +177,8 @@ equivalence test and timed in Release: interleaved, three runs a side, gummo fir
   `LightCache<T>`, from `LightcacheGet` at `engine.dll` `0x1801b9cd0`: at most 2 builds a frame.
   - The one uncached caller is the first-person undrawn pass, which lights a model nothing draws.
   - Whether that pass carries the 5.8% needs a call counter first. It is OPEN.
+  - **Counted, and it does not** (`docs/measurements/2026-10-24-b594-undrawn-pass-sun.md`): on f12 gummo first person
+    the pass gets 6 props, builds 0 instances and makes 0 sun calls, in 0.025 ms. f12 has no monitor, so B511's gate
+    returns before any lighting — the uncached caller is never called. The world pass makes 0.02-2.0 sun calls a frame.
+    The wrong turn worth keeping: a code-read estimate of 0.2-0.4 ms, from reading the call and not its gate. The first
+    counter run read all zeros, world included — the record was dropped by `MomentPresenter`'s `with` copy.

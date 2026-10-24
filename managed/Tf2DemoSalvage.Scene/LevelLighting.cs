@@ -114,6 +114,9 @@ public sealed class LevelLighting
     /// <summary>`r_framecount`: advance once per rendered frame, before the frame's models are lit.</summary>
     public int Frame { get; set; }
 
+    /// <summary>Since the map loaded: calls into the sun's leaf test and sky trace, counted inside it (B594).</summary>
+    public long SunCalls { get; private set; }
+
     /// <summary>A light style a world light answers to changed: every cache entry is relit where it was built when next used.</summary>
     public void StylesChanged() => _styleVersion++;
 
@@ -782,6 +785,8 @@ public sealed class LevelLighting
     private SunLight? SunFrom(
         BspWorldLight sun, Func<(float X, float Y, float Z), (float X, float Y, float Z), bool> strikesSky, float x, float y, float z)
     {
+        SunCalls++;
+
         if (_leaves is { } tree && !tree.AdmitsSkyLight(x, y, z))
         {
             return null;
