@@ -40119,8 +40119,8 @@ last `(PropTransform, float[])` and reuses the array on an equal transform; a mo
 is never written, so the queued render thread cannot see a matrix change under it. Attachments share their item's array.
 Tests: `EntityModelsTests.Instances_AnUnmovedProp*`, `Instances_APropThatMoved*` (in-place sabotage reddens it). Mode-2 run
 with `TF2VIEW_QUEUE_VERIFY=1`: 0 changed (no positive control). **Measured: null on the frame and allocation, and a
-REGRESSION on its own timer** — `place lookups matrix` 0.011 → 0.021 ms, reproduced in a control rerun
-(measurements/2026-10-24-b586-b585-report-guard-and-matrices.md). The probe and record compare cost more than 64 bytes.
+REGRESSION on its own timer** — `place lookups matrix` 0.011 → 0.021 ms, reproduced in a control rerun (measurements/2026-10-24-b586-b585-report-guard-and-matrices.md)
+(see 2026-10-24-b586-b585-report-guard-and-matrices.md). The probe and record compare cost more than 64 bytes.
 **Recommendation: drop commit `94217782`**; left for the owner's call.
 
 **Bones are safe in place, and so would a matrix pool be:** the verifier hashes every bone array (`Device3D.cs:3365-3395`)
