@@ -40109,24 +40109,41 @@ at `:248`). **Engine:** bones are read in place. **Fix shape:** `ref readonly` i
 POD `CEntry` array reused per frame, and a stack `matrix3x4_t`. **Fix shape:** pool `ModelInstance` per entity like
 `_skinning` pools bones (`EntityModels.Placement.cs:238-249`). **Estimate (ESTIMATE, code-read): ~0.2-0.4 ms.**
 
-## B584 — `ForActivity` is a linear string scan, run 2-6 times per player per frame — OPEN (2026-10-24)
+## B584 — `ForActivity` is a linear string scan, run 2-6 times per player per frame — FIXED 2026-10-24 (`perf/b583-b584-prop-lookups`)
 
-**Evidence class: read from code, not measured.** **Ours:** `PropModels.cs:2393-2429` scans every merged sequence with
-`OrdinalIgnoreCase`; callers `PlayerAnimation.cs:118-132`, `EntityModels.Layers.cs:201-203`, `:288`, `:314`, `:345`,
-`EntityModels.Sequences.cs:375-376`; `PlayerActivityTable.Translate` builds strings and each call allocates a `Func` closure
-(`:118`). **Engine:** `SelectWeightedSequence` goes through `CStudioHdr`'s `m_ActivityToSequence` hash (`studio.cpp`), O(1) on
-an int. **Fix shape:** a `Dictionary<string,int>` (best weight) built once per `SkinnedModel`. **Estimate (ESTIMATE,
-code-read): ~0.6-1.0 ms.**
+**Was** (read from code): `SkinnedModel.ForActivity` scanned every merged sequence with `OrdinalIgnoreCase` on each call.
+**Engine** (`studio.cpp:1684`, read): `CActivityToSequenceMapping::Initialize` hashes the activities once per header.
+**Fixed** (`488b9bad`): a map built on first ask, same rule as the scan (highest weight; first of a tie; weight ≤ 0 never
+chosen), rebuilt if a `with` copy replaces `Sequences` or `Groups`. Held by `ForActivityMapTests`: equal to the old scan on
+200 generated models × 7 names (duplicates, mixed case, weights −2..3, missing names); three sabotages (`>=`, ordinal
+comparer, no staleness check) each turned it red. **Measured** (`measurements/2026-10-24-b583-b584-model-lookups.md`):
+B584 alone (build M), gummo first person: `pose setup` 0.78-0.80 → 0.69-0.70 ms, `models` (`Pack`) 0.10 → 0.00-0.02, about
+0.25 MB a frame less allocation, frame −0.2 to −0.35 ms (measurements/2026-10-24-b583-b584-model-lookups.md). The code-read
+estimate of 0.6-1.0 ms was 2-3x high on the frame.
 
-## B583 — about ten string-keyed dictionary probes per prop per frame, keyed on the model path — OPEN (2026-10-24)
+**Divergence kept, now named:** the engine weights a sequence by `iabs(actweight)` and turns a weight of 0 into 1
+(`studio.cpp:1728`, `:1822-1829`), so a negative or zero weight is still selectable there; ours refuses weight ≤ 0, as the
+scan did. Behaviour unchanged on purpose. Whether any shipped model has such a weight on an activity we ask for: not checked.
+The highest-weight pick in place of Valve's random draw is the already-recorded divergence.
 
-**Evidence class: read from code, not measured.** **Ours:** `EntityModels.Instances.cs:232`, `:263`, `:328`, `:369`, `:379`,
-`:625`, `:726-727`, `:844`; `EntityModels.Simulation.cs:147`, `:458`, `:482-485`; `EntityModels.FacesAndLighting.cs:440`;
-`EntityModels.Autoplay.cs:681-683`. `_frames.TryGetValue(prop.ModelPath)` runs 4x in the draw loop; `AllFrames()` (`:369`) is
-evaluated eagerly for a report that early-outs; `_swaps` and `EntityTint` are also keyed by path. About 1,600 props.
-**Engine:** keys off the entity's cached model pointer (`GetModelPtr`), no hashing per frame. **Fix shape:**
-`ResolvedModel` (`ResolvedFor(prop)`, `Simulation.cs:147`) already carries Frames and Batches by object; the draw loop reads
-it once. **Estimate (ESTIMATE, code-read): ~1.0-1.5 ms.**
+**Not done:** the callers still build activity strings and a `Func` closure per call (`PlayerActivityTable.Translate`,
+`PlayerAnimation.cs:118`).
+
+## B583 — about ten string-keyed dictionary probes per prop per frame, keyed on the model path — PARTLY FIXED 2026-10-24 (`perf/b583-b584-prop-lookups`)
+
+**Was** (read from code): the `Instances` draw loop probed `_frames`/`_byModel` on `prop.ModelPath` six times per prop
+(`SelectFor`, `Batches`, the colour-mesh refusal, `AllFrames`, the skinned entry, body parts). **Engine:** the cached model
+pointer. **Fixed** (`698d2716`): the loop takes `ResolvedFor(prop)` once and reads `Frames` and `Batches` from it. Held by the
+existing resolution tests: making `ResolvedFor` never re-resolve reddened
+`Instances_AModelAddedAfterThePropWasSeen_IsDrawnThatFrame` and `Instances_TheSameObjectNextFrame_ResolvesItsModelOnce`.
+**Survivor:** replacing the per-frame clamp with frame 0 in the empty-batches check left Scene.Tests green; the old
+`Batches(path, frame)` path was equally untested (needs a model with an empty baked frame). **Measured: a null result** (measurements/2026-10-24-b583-b584-model-lookups.md): against the B584-only build, no timed
+stage moves and the empty view overlaps; a 0.2-0.3 ms first-person frame difference has no stage under it and is not
+claimed. The code-read estimate of 1.0-1.5 ms was wrong; the loop visits only the collated props, not all ~1,600 (*read from
+code*). **Not checked:** a frame-hash comparison on a real demo (B580's method); held only by the unit tests.
+
+**Not done:** `SkinSwap` and `EntityTint` (`Instances.cs` `swap` part, 0.02-0.05 ms, measurements/2026-10-24-b583-b584-model-lookups.md run t00), the once-per-model report
+probe (`:464`), `Simulation.cs:458`, `FacesAndLighting.cs:440` and `Autoplay.cs:681-683` are still keyed by path.
 
 ## B580 — every detail prop on the map was walked on every camera move — FIXED 2026-10-23 (`fix/detail-reach-and-visibility`)
 

@@ -229,7 +229,12 @@ public sealed partial class EntityModelSet
 
         foreach ((SceneProp prop, int place, int? bucket, bool inSky, (float, float, float, float, float, float)? collatedBox) in _ordered)
         {
-            (int frame, int _, float blend) = SelectFor(prop, seconds);
+            // **The model is read by object, once** (B583), as the engine reads `GetModelPtr`: this loop probed
+            // `_frames` and `_byModel` on the path six times per prop, and the resolution already holds both.
+            ResolvedModel resolved = ResolvedFor(prop);
+            PropModels.ModelFrames? frames = resolved.Frames;
+
+            (int frame, int _, float blend) = SelectWith(frames, prop, seconds);
 
             int skin = prop.Pose.Skin;
 
@@ -260,7 +265,8 @@ public sealed partial class EntityModelSet
                 continue;
             }
 
-            if (Batches(prop.ModelPath, frame).Count == 0)
+            // `Batches(path, frame)`'s clamp, on the resolved frames.
+            if (resolved.Batches is not { Count: > 0 } packed || packed[Math.Clamp(frame, 0, packed.Count - 1)].Count == 0)
             {
                 _tally.NoGeometry(prop.ModelPath);
                 continue;
@@ -325,8 +331,8 @@ public sealed partial class EntityModelSet
 
             bool fullyLit =
                 prop.EntityIndex >= PropModels.FirstStaticPropEntityIndex &&
-                _frames.TryGetValue(prop.ModelPath, out PropModels.ModelFrames? propFrames) &&
-                StaticPropVertexLighting.RefusesColourMesh(propFrames.StudioFlags);
+                frames is not null &&
+                StaticPropVertexLighting.RefusesColourMesh(frames.StudioFlags);
 
             float[]? baked = fullyLit ? null : BakedColoursOf(prop, pose, lit.X, lit.Y, lit.Z);
 
@@ -366,7 +372,7 @@ public sealed partial class EntityModelSet
                 _reports.Lit(prop, lit, skin);
             }
 
-            _reports.Animating(prop, frame, AllFrames(prop.ModelPath).Count, blend);
+            _reports.Animating(prop, frame, packed.Count, blend);
 
             ReportTicks += System.Diagnostics.Stopwatch.GetTimestamp() - reportedAt;
 
@@ -376,8 +382,7 @@ public sealed partial class EntityModelSet
             // side.
             IReadOnlyList<float[]>? bones = null;
 
-            if (_frames.TryGetValue(prop.ModelPath, out PropModels.ModelFrames? entry) &&
-                entry.Skinned is { } skinned &&
+            if (frames?.Skinned is { } skinned &&
                 _entities.TryGetValue(prop.EntityIndex, out AnimatingEntity? animating))
             {
                 // **One call, and it builds this entity's parents too if it merges onto any.**
@@ -622,7 +627,7 @@ public sealed partial class EntityModelSet
             // **Hoisted out of the argument list**, because two arguments now want it: the body
             // parts and the two-pass flag are both facts about the MODEL rather than the entity.
             // Looking it up twice would be two dictionary probes per model per frame for one answer.
-            _ = _frames.TryGetValue(prop.ModelPath, out PropModels.ModelFrames? parts);
+            PropModels.ModelFrames? parts = frames;
 
             // **`C_BaseEntity::ComputeFxBlend`, once per entity per frame** (B221). The engine
             // computes this on the entity and caches it by frame count; here the frame IS this

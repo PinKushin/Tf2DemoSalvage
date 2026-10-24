@@ -79,6 +79,8 @@ removes; none is a sampled share.
 | 4 | B580 | every detail prop on the map walked on every move | 0.26-0.28 (setcamera detail) | 0.1-0.2 | **FIXED; the estimate was low**: the same timer read 0.54-0.55 before the fix and 0.002 after, and the frame fell 0.8 ms (`measurements/2026-10-23-b580-detail-reach.md`) |
 | 5 | (83 item 7) | leaf-system visit over every entity | 0.2 (collate) | under 0.1 | an identity relink is already cheap |
 | 6 | (83 item 3) | client-side animation pass over the draw list | 0.1-0.2 (anim) | under 0.1 | — |
+| 7 | B584 | `ForActivity` scanned every sequence per call; the engine hashes once (`studio.cpp:1684`) | 0.78-0.80 (pose setup) | 0.6-1.0 (code-read) | **FIXED; the estimate was 2-3x high**: alone, `setup` → 0.69-0.70, `models` 0.10 → 0, frame −0.2 to −0.35 (`measurements/2026-10-24-b583-b584-model-lookups.md`) |
+| 8 | B583 | the draw loop probed the model maps by path six times a prop; the engine holds the pointer | — (no own timer) | 1.0-1.5 (code-read) | **PARTLY FIXED; null result**: no timed stage moved against the B584-only build (`measurements/2026-10-24-b583-b584-model-lookups.md`) |
 
 **Total: the divergences live in at most 1.8-2.1 ms of a 12 ms frame (*arithmetic*, sum of upper bounds); the fixes
 are estimated at 0.6-1.2 ms together.** That is 5-10% of the frame. TF2's frame is about 4.8 ms; closing the 2.4-2.8x
