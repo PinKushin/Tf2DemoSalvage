@@ -54,3 +54,34 @@ the 15x gap between scenes is far outside that.
 **The prediction missed.** `filters` is the largest part on gummo (0.29-0.32 ms), not `players`, and over the 0.2 ms
 threshold. It is 0.02 ms in the empty view, which runs every filter except the first-person block, so about 0.27 ms is
 inside `if (info.FirstPerson && info.Followed …)` in `MomentScene.Build`. Split next (B578).
+
+## Second split, and the fix (same day)
+
+A nested `first person` part was added inside `filters` (`DrawListParts.FirstPerson`, a stamp after the first-person
+block, carried like the others). One gummo run on that build (load 11/5/5), 15 report lines: `filters` 0.30-0.40,
+`first person` 0.27-0.37. The block is the whole cost.
+
+**Cause:** `HashSet<SceneProp> kept = [.. seen]`. `SceneProp` is a `sealed record`, so the default comparer hashed and
+compared every member of every prop on each add and each `Contains`. **Fix:** `ReferenceEqualityComparer`. The output
+cannot change: the drawn list is `seen` itself, which no set touches, and `_undrawn` could differ only for two distinct
+value-equal props, which get the same verdict from `FirstPersonVisibility`, so both are in `seen` or neither is.
+
+**Interleaved before/after** (`D:/measure-f12/b578-before`, `b578-after`, same commands; whole-window means over every
+report line, n = 14-18; ticks end at 31,277-31,288 in every run):
+
+| run | load | drawlist | filters | first person | gc paused ms/frame |
+|---|---|---|---|---|---|
+| before gummo | 25/3/43 (one sample over the gate) | 0.557 | 0.346 | 0.323 | 0.36 |
+| before empty | 7/9/10 | 0.172 | 0.025 | 0 | 0.13 |
+| after gummo | 2/5/15 | 0.219 | 0.059 | 0.039 | 0.33 |
+| after empty | 9/6/5 | 0.156 | 0.022 | 0 | 0.12 |
+| before gummo | 5/8/7 | 0.456 | 0.300 | 0.279 | 0.34 |
+| before empty | 15/2/16 | 0.178 | 0.024 | 0.001 | 0.14 |
+| after gummo | 6/5/4 | 0.212 | 0.059 | 0.041 | 0.32 |
+| after empty | 3/4/5 | 0.144 | 0.020 | 0 | 0.11 |
+
+`first person` 0.28-0.32 → 0.04 ms and `drawlist` 0.46-0.56 → 0.21-0.22 on gummo; the empty view does not run the block
+and does not move. Every part is now under 0.2 ms, so the change-driven per-entity rewrite is not warranted by cost.
+
+**Reading picked:** the first-person verdict depends on the followed target and the first-person toggle, view state no
+entity event carries, so re-judging it each moment was not what cost time; the record hash was.

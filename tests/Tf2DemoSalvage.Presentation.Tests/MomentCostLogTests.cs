@@ -42,13 +42,14 @@ public sealed class MomentCostLogTests
         MomentPhases phases = Posing(0) with
         {
             DrawList = 10 * Millisecond,
-            DrawListParts = new DrawListParts(1 * Millisecond, 2 * Millisecond, 3 * Millisecond, 4 * Millisecond),
+            DrawListParts = new DrawListParts(1 * Millisecond, 2 * Millisecond, 3 * Millisecond, 4 * Millisecond, 1 * Millisecond),
         };
 
         _ = log.Report(phases, sampleTicks: 0);
-        string? line = log.Report(phases with { DrawListParts = phases.DrawListParts with { Filters = 6 * Millisecond } }, 0);
+        string? line = log.Report(
+            phases with { DrawListParts = phases.DrawListParts with { Filters = 6 * Millisecond, FirstPerson = 2 * Millisecond } }, 0);
 
-        Assert.That(line, Does.Contain("drawlist 10 (prepare 1, players 2, place 3, filters 5)"));
+        Assert.That(line, Does.Contain("drawlist 10 (prepare 1, players 2, place 3, filters 5 (first person 1.5))"));
     }
 
     [Test]

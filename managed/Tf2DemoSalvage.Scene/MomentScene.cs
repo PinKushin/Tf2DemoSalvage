@@ -92,9 +92,10 @@ public readonly record struct MomentPhases(
 /// <param name="Players">The vision flags and <c>PlayerProps.Add</c>.</param>
 /// <param name="Place">`PlaceFrame` over every prop.</param>
 /// <param name="Filters">The first-person, weapon, disguise, respawn-room and vision filters.</param>
+/// <param name="FirstPerson">The first-person block inside <paramref name="Filters"/>, nested, not a fifth addend.</param>
 /// <remarks>Each part is the difference of two stamps taken in sequence, so the four sum to <c>DrawList</c> exactly; they
 /// are carried from where they ran, never recomputed (B243).</remarks>
-public readonly record struct DrawListParts(long Prepare, long Players, long Place, long Filters);
+public readonly record struct DrawListParts(long Prepare, long Players, long Place, long Filters, long FirstPerson = 0);
 
 /// <summary>Assembles what one moment of a demo draws.</summary>
 /// <remarks>
@@ -509,7 +510,9 @@ public sealed class MomentScene : IGameSystemPerFrame
             // player into a monitor's view (`ForceTempForceDraw`, `viewrender.cpp:3266-3287`), so a mirror shows all of
             // him (B511). Holstered weapons stay hidden there too, by the same rule as everywhere.
             IReadOnlyList<SceneProp> seen = FirstPersonVisibility.Visible(_drawn, looking);
-            HashSet<SceneProp> kept = [.. seen];
+            // **By reference** (B578): `SceneProp` is a record, so a default set hashed and compared every member of
+            // every prop, 0.3 ms a moment on f12 first person. The question is "is this the same prop", not "an equal one".
+            HashSet<SceneProp> kept = new(seen, ReferenceEqualityComparer.Instance);
 
             foreach (SceneProp prop in _drawn)
             {
@@ -522,6 +525,8 @@ public sealed class MomentScene : IGameSystemPerFrame
             DrawList.KeepOnly(_undrawn, WeaponVisibility.Visible(_undrawn));
             DrawList.KeepOnly(_drawn, seen);
         }
+
+        long firstPersonAt = Stopwatch.GetTimestamp();
 
         // **Every camera, not just first person.** `C_BaseCombatWeapon::ShouldDraw` hides a player's
         // holstered weapons from everybody — it is a property of the weapon rather than of who is
@@ -591,7 +596,8 @@ public sealed class MomentScene : IGameSystemPerFrame
                 Prepare: preparedAt - momentAt,
                 Players: playersAt - preparedAt,
                 Place: placedAt - playersAt,
-                Filters: rolesAt - placedAt));
+                Filters: rolesAt - placedAt,
+                FirstPerson: firstPersonAt - placedAt));
     }
 
     /// <summary>Poses what <see cref="Build"/> selected, and produces the instances.</summary>

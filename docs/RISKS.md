@@ -40107,6 +40107,12 @@ tested over seeks, repeats, window edges, duplicates and an unordered list. `hud
 filters judge every prop each moment. **Measured:** `drawlist` 0.4-0.5 ms per rebuild, an upper bound (not split from
 `PlayerProps.Add`). Split the part before fixing. Nothing visible.
 
+**Split and cost fixed (2026-10-24, measurements/2026-10-24-drawlist-parts.md):** on f12 gummo first person `filters`
+was 0.29-0.35 ms and its first-person block 0.28-0.32 of it; the empty view's filters 0.02. The block's
+`HashSet<SceneProp>` hashed the whole record per prop; by reference it is 0.04 ms (`drawlist` 0.46-0.56 → 0.21-0.22),
+output identical by construction. **Left:** the structural divergence (verdicts per moment, not at the change) stands,
+but every part is now under 0.2 ms, so it is open for parity, not cost.
+
 ## B577 — particle bursts are re-searched from the timeline and rebuilt every frame — OPEN
 
 **Read** (finding 83 item 2, not done; finding 97): the client fires queued events once a frame and an effect is

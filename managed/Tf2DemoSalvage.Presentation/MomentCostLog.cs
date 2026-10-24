@@ -45,6 +45,7 @@ public sealed class MomentCostLog
     private long _drawPlayers;
     private long _drawPlace;
     private long _drawFilters;
+    private long _drawFirstPerson;
     private long _models;
     private long _pose;
     private long _weapons;
@@ -130,6 +131,7 @@ public sealed class MomentCostLog
         _drawPlayers += phases.DrawListParts.Players;
         _drawPlace += phases.DrawListParts.Place;
         _drawFilters += phases.DrawListParts.Filters;
+        _drawFirstPerson += phases.DrawListParts.FirstPerson;
         _models += phases.Models;
         _pose += phases.Pose;
         _weapons += phases.Weapons;
@@ -198,7 +200,8 @@ public sealed class MomentCostLog
             + $" = sample {Mean(_sample, over):0.#} (players {Mean(_playersSampled, over):0.##})"
             + $", drawlist {Mean(_drawList, over):0.#}"
             + $" (prepare {Mean(_drawPrepare, over):0.##}, players {Mean(_drawPlayers, over):0.##}"
-            + $", place {Mean(_drawPlace, over):0.##}, filters {Mean(_drawFilters, over):0.##})"
+            + $", place {Mean(_drawPlace, over):0.##}, filters {Mean(_drawFilters, over):0.##}"
+            + $" (first person {Mean(_drawFirstPerson, over):0.##}))"
             + $", models {Mean(_models, over):0.#}"
             + $", pose {Mean(_pose, over):0.#}"
             + $", weapons {Mean(_weapons, over):0.#}"
@@ -247,6 +250,7 @@ public sealed class MomentCostLog
         _drawPlayers = 0;
         _drawPlace = 0;
         _drawFilters = 0;
+        _drawFirstPerson = 0;
         _models = 0;
         _pose = 0;
         _weapons = 0;
