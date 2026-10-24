@@ -105,7 +105,10 @@ Fix order (each starts with the conformance test that pins the engine's trigger,
 3. **B577, bursts offered once**: finding 83 item 2's plan stands; the receive path is CLOSED and should be read
    first. Verify: the per-kind `bursts/*` timers and an offer count of exactly one per event.
 4. **B580, detail props through the leaves near the eye.** Verify: `setcamera detail`, and golden shots identical.
-5. **B578, visibility at the change.** Verify: `drawlist`, split first.
+5. **B578, visibility at the change.** Verify: `drawlist`, split first. **Split, 2026-10-24 (measured):** the cost was
+   not the five verdicts but a value-hashed `HashSet<SceneProp>` in the first-person block, 0.28-0.32 ms; by reference
+   0.04 (`measurements/2026-10-24-drawlist-parts.md`). A wrong turn kept on purpose: the plan read the cost as
+   re-judging per moment, and the empty view, which runs four of the five filters for 0.02 ms, is what refuted it.
 
 **Expected saving, all four: 0.6-1.2 ms (ESTIMATE)**, conservative because finding 94's threading estimate was seven
 times too high and finding 93's decal fix moved its own timer and not visibly the frame. Each verifies only on its own
