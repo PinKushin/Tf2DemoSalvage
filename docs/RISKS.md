@@ -40066,13 +40066,26 @@ reddens four tests), and a child's drawn size against its own scale alone.
   `pl_badwater_pro_v12.bsp` is not on this machine (not under the game's `tf/maps`, `tf/download/maps`, `tf2ds`, or the
   user profile), so its `parentname` cannot be read, and no sampled tick gives them a parent.
 
-## B580 — every detail prop on the map is walked on every camera move — OPEN
+## B580 — every detail prop on the map was walked on every camera move — FIXED 2026-10-23 (`fix/detail-reach-and-visibility`)
 
-**Read** (finding 97, from finding 83's reading of `detailobjectsystem.cpp:2839`, `:2749`): the engine reaches detail
-props only through `EnumerateLeavesInSphere(CurrentViewOrigin(), cl_detaildist)`, and only in leaves of this view's
-world-list build. **Ours:** `DetailSprites.Build` / `DetailModels.Build` loop over every detail prop of the map
-(`DetailSprites.cs:240`) and test distance per prop. **Measured:** `camera setcamera detail` 0.26-0.28 ms a frame in
-first person (measurements/2026-10-22-f12-camera-breakdown.md), an upper bound. Nothing visible: same picture, more work.
+**Read** (`detailobjectsystem.cpp:2839-2841`, `EnumerateLeaf` `:2742-2781`, read): the engine reaches detail props only
+through `EnumerateLeavesInSphere(CurrentViewOrigin(), cl_detaildist)`, in leaves of this view's world-list build. **Ours
+was:** `DetailSprites.Build` / `DetailModels.Build` looped over all 18,841 of f12's props on every move.
+
+**Fixed:** `DetailReach` groups the lump into leaf runs once per map, boxed by origins and fast-sprite anchors. A build
+visits only the runs whose box is within `sqrt(MaximumSquared)` (conservative by a unit), and each run start restarts the
+fast lane's group of four, so the output is the whole walk's. Held by `DetailReachTests`: 200 views on a synthetic map,
+corners and models equal to the whole walk. Two sabotages each turned it red: dropping the runs within 64 units, and
+joining groups across a skipped run. **Measured** (measurements/2026-10-23-b580-detail-reach.md): the `cull` hash was equal
+before and after on every compared f12 tick (170-191 per pair), with the floor holding, and the mode-2 verifier saw 0
+changed. Gummo first person (same record): `setcamera detail` 0.54-0.55 → 0.002 ms, frame 12.96-13.31 → 11.99-12.61 ms
+(measurements/2026-10-23-b580-detail-reach.md). The empty view
+does not rebuild detail at all (still camera).
+
+**Not done:** (1) The "drawn this view" half of the engine's reach (`DrawDetailObjectsInLeaf` by `BuildWorldListsNumber`)
+would change the emitted corners, because a prop in an undrawn leaf is emitted today. It is left for a parity change of its
+own. (2) The engine's sphere radius is bare `cl_detaildist`, not divided by the FOV factor, so a zoomed view's larger fade
+maximum is not cut here. (3) The corner-count control was not logged (debug level).
 
 ## B579 — the HUD's event feed walks every game event and user message of the match, every frame — FIXED (2026-10-23)
 

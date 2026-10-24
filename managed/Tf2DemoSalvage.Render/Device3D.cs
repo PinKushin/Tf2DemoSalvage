@@ -2577,6 +2577,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
 
         _detailProps = props;
         _detailRectangles = rectangles;
+        _detailReach = new DetailReach(props, rectangles);
         _detailModelNames = models;
 
         // **Set before the early return below, not after it.** A map with no detail props still
@@ -2828,6 +2829,9 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
     private DetailSpriteRenderer? _detailSprites;
     private ComPtr<ID3D11ShaderResourceView> _detailSheet;
     private IReadOnlyList<BspDetailProp> _detailProps = [];
+
+    /// <summary>The detail props by leaf run, so a rebuild visits only the runs near the eye (B580).</summary>
+    private DetailReach? _detailReach;
     private IReadOnlyList<BspDetailSprite> _detailRectangles = [];
     private (float FadeStart, float FadeEnd)? _detailController;
 
@@ -2906,7 +2910,8 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
             fade,
             half.DetailCorners,
             half.DetailLeaves,
-            forward);
+            forward,
+            reach: _detailReach);
 
         ReportDetailSprites(half, frame);
     }
@@ -2932,7 +2937,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         half.DetailModelsPlaced.Clear();
         half.DetailModelInstances.Clear();
 
-        DetailModels.Frame frame = DetailModels.Build(_detailProps, eye, fade, half.DetailModelsPlaced);
+        DetailModels.Frame frame = DetailModels.Build(_detailProps, eye, fade, half.DetailModelsPlaced, _detailReach);
 
         foreach (DetailModelInstance placed in half.DetailModelsPlaced)
         {

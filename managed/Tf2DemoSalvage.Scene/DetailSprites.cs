@@ -194,6 +194,8 @@ public static class DetailSprites
     /// <param name="leaves">Cleared, then given each quad's leaf and squared distance in emission order; or null.</param>
     /// <param name="forward">The view direction, for the fast lane's behind-the-eye cull; null culls nothing.</param>
     /// <param name="fastSprites"><c>cl_fastdetailsprites</c>.</param>
+    /// <param name="reach">The map's runs, to visit only those near the eye (B580); null walks every prop. The quads are
+    /// the same either way; <see cref="Frame.Faded"/> counts only props in runs visited.</param>
     /// <returns>What was built, dropped and turned.</returns>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <remarks>
@@ -219,7 +221,8 @@ public static class DetailSprites
         IList<DetailSpriteVertex> into,
         DetailSpriteLeaves? leaves = null,
         (float X, float Y, float Z)? forward = null,
-        bool fastSprites = FastDetailSprites)
+        bool fastSprites = FastDetailSprites,
+        DetailReach? reach = null)
     {
         ArgumentNullException.ThrowIfNull(objects);
         ArgumentNullException.ThrowIfNull(sprites);
@@ -235,66 +238,80 @@ public static class DetailSprites
         // The fast lane's group of four (`BuildOutSortedSprites`, `detailobjectsystem.cpp:2157-2165`), restarted at
         // every leaf change as `UnserializeModels` pads it (`:1794`).
         List<(int Index, float Squared, byte Alpha, bool Culled)> group = [];
-        int groupLeaf = int.MinValue;
+        int runs = reach?.Runs ?? 1;
 
-        for (int index = 0; index < objects.Count; index++)
+        for (int run = 0; run < runs; run++)
         {
-            BspDetailProp prop = objects[index];
-
-            if (prop.Leaf != groupLeaf)
-            {
-                faded += EmitGroup(group, visible);
-                groupLeaf = prop.Leaf;
-            }
-
-            if (prop.Type != DetailPropType.Sprite ||
-                prop.DetailModel < 0 || prop.DetailModel >= sprites.Count)
+            if (reach is not null && !reach.Near(run, eye, fade.MaximumSquared))
             {
                 continue;
             }
 
-            if (IsFast(prop, fastSprites))
+            // A run is one leaf, so its start is a leaf change: forced here, because a skipped run between two runs
+            // of one leaf would otherwise join their groups of four.
+            int groupLeaf = int.MinValue;
+
+            (int first, int end) = reach?.Range(run) ?? (0, objects.Count);
+
+            for (int index = first; index < end; index++)
             {
-                (float X, float Y, float Z) anchor = Anchor(prop, sprites[prop.DetailModel]);
-                float ax = anchor.X - eye.X;
-                float ay = anchor.Y - eye.Y;
-                float az = anchor.Z - eye.Z;
-                float distance = (ax * ax) + (ay * ay) + (az * az);
+                BspDetailProp prop = objects[index];
 
-                // `TestSignSIMD( OrSIMD( ofsDotFwd, CmpGtSIMD( distanceSquared, maxsqdist ) ) )`: the sign bit of the
-                // dot (so -0 counts) or beyond the maximum.
-                bool culled = forward is { } ahead &&
-                    (float.IsNegative((ax * ahead.X) + (ay * ahead.Y) + (az * ahead.Z)) ||
-                     distance > fade.MaximumSquared);
-
-                group.Add((index, distance, FastAlpha(fade, distance), culled));
-
-                if (group.Count == 4)
+                if (prop.Leaf != groupLeaf)
                 {
                     faded += EmitGroup(group, visible);
+                    groupLeaf = prop.Leaf;
                 }
 
-                continue;
+                if (prop.Type != DetailPropType.Sprite ||
+                    prop.DetailModel < 0 || prop.DetailModel >= sprites.Count)
+                {
+                    continue;
+                }
+
+                if (IsFast(prop, fastSprites))
+                {
+                    (float X, float Y, float Z) anchor = Anchor(prop, sprites[prop.DetailModel]);
+                    float ax = anchor.X - eye.X;
+                    float ay = anchor.Y - eye.Y;
+                    float az = anchor.Z - eye.Z;
+                    float distance = (ax * ax) + (ay * ay) + (az * az);
+
+                    // `TestSignSIMD( OrSIMD( ofsDotFwd, CmpGtSIMD( distanceSquared, maxsqdist ) ) )`: the sign bit of
+                    // the dot (so -0 counts) or beyond the maximum.
+                    bool culled = forward is { } ahead &&
+                        (float.IsNegative((ax * ahead.X) + (ay * ahead.Y) + (az * ahead.Z)) ||
+                         distance > fade.MaximumSquared);
+
+                    group.Add((index, distance, FastAlpha(fade, distance), culled));
+
+                    if (group.Count == 4)
+                    {
+                        faded += EmitGroup(group, visible);
+                    }
+
+                    continue;
+                }
+
+                float x = prop.Origin.X - eye.X;
+                float y = prop.Origin.Y - eye.Y;
+                float z = prop.Origin.Z - eye.Z;
+
+                float squared = (x * x) + (y * y) + (z * z);
+
+                byte alpha = fade.Alpha(squared);
+
+                if (alpha == 0)
+                {
+                    // **Counted apart from "not a sprite", because they are different events.** A model
+                    // detail prop is a thing this path does not draw; a faded one is a sprite the view
+                    // put out of range, and only the second number moves when the camera does.
+                    faded++;
+                    continue;
+                }
+
+                visible.Add((index, squared, alpha, false));
             }
-
-            float x = prop.Origin.X - eye.X;
-            float y = prop.Origin.Y - eye.Y;
-            float z = prop.Origin.Z - eye.Z;
-
-            float squared = (x * x) + (y * y) + (z * z);
-
-            byte alpha = fade.Alpha(squared);
-
-            if (alpha == 0)
-            {
-                // **Counted apart from "not a sprite", because they are different events.** A model
-                // detail prop is a thing this path does not draw; a faded one is a sprite the view
-                // put out of range, and only the second number moves when the camera does.
-                faded++;
-                continue;
-            }
-
-            visible.Add((index, squared, alpha, false));
         }
 
         faded += EmitGroup(group, visible);

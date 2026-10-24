@@ -39,6 +39,12 @@ public sealed class MomentCostLog
     private long _sample;
     private long _total;
     private long _drawList;
+
+    // The parts of `drawlist` (B578), carried from `MomentScene.Build`.
+    private long _drawPrepare;
+    private long _drawPlayers;
+    private long _drawPlace;
+    private long _drawFilters;
     private long _models;
     private long _pose;
     private long _weapons;
@@ -120,6 +126,10 @@ public sealed class MomentCostLog
         _playersSampled += playerTicks;
         _total += phases.Total;
         _drawList += phases.DrawList;
+        _drawPrepare += phases.DrawListParts.Prepare;
+        _drawPlayers += phases.DrawListParts.Players;
+        _drawPlace += phases.DrawListParts.Place;
+        _drawFilters += phases.DrawListParts.Filters;
         _models += phases.Models;
         _pose += phases.Pose;
         _weapons += phases.Weapons;
@@ -187,6 +197,8 @@ public sealed class MomentCostLog
             $"moment cost, mean over {over} rebuilds: {Mean(_total + _sample, over):0.#} ms"
             + $" = sample {Mean(_sample, over):0.#} (players {Mean(_playersSampled, over):0.##})"
             + $", drawlist {Mean(_drawList, over):0.#}"
+            + $" (prepare {Mean(_drawPrepare, over):0.##}, players {Mean(_drawPlayers, over):0.##}"
+            + $", place {Mean(_drawPlace, over):0.##}, filters {Mean(_drawFilters, over):0.##})"
             + $", models {Mean(_models, over):0.#}"
             + $", pose {Mean(_pose, over):0.#}"
             + $", weapons {Mean(_weapons, over):0.#}"
@@ -231,6 +243,10 @@ public sealed class MomentCostLog
         _sample = 0;
         _total = 0;
         _drawList = 0;
+        _drawPrepare = 0;
+        _drawPlayers = 0;
+        _drawPlace = 0;
+        _drawFilters = 0;
         _models = 0;
         _pose = 0;
         _weapons = 0;

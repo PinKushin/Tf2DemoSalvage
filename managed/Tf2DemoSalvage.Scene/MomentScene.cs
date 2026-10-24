@@ -26,6 +26,7 @@ namespace Tf2DemoSalvage.Scene;
 /// <param name="Unjudgeable">How many the cull could not judge, for want of render bounds.</param>
 /// <param name="Hidden">How many the visibility half rejected, of those the frustum kept.</param>
 /// <param name="Undrawn">The pass over props posed for a decal but never drawn, whole — its counters are not differenced.</param>
+/// <param name="DrawListParts">The four parts of <paramref name="DrawList"/> (B578).</param>
 /// <param name="Selected">
 /// How many props <c>Build</c> chose, before the frustum rejected any (B254). The ratio against
 /// <paramref name="Drawn"/> is the measurement; either number alone says nothing about the cull.
@@ -62,7 +63,10 @@ public readonly record struct MomentPhases(
 
     // How many the cull could not judge for want of render bounds (B254).
     int Unjudgeable = 0,
-    long Undrawn = 0)
+    long Undrawn = 0,
+
+    // The parts of `DrawList` (B578), stamped where each runs; they partition it.
+    DrawListParts DrawListParts = default)
 {
     /// <summary>The part of <see cref="Pose"/> no timer covers, by subtraction — the one formula every report reads.</summary>
     /// <remarks>
@@ -82,6 +86,15 @@ public readonly record struct MomentPhases(
     /// </remarks>
     public long Unaccounted => Total - DrawList - Models - Pose - Weapons;
 }
+
+/// <summary>The four contiguous parts of <see cref="MomentPhases.DrawList"/> (B578), in Stopwatch ticks.</summary>
+/// <param name="Prepare">Dynamic lights, weapon models, the per-prop delegates, canteen skins.</param>
+/// <param name="Players">The vision flags and <c>PlayerProps.Add</c>.</param>
+/// <param name="Place">`PlaceFrame` over every prop.</param>
+/// <param name="Filters">The first-person, weapon, disguise, respawn-room and vision filters.</param>
+/// <remarks>Each part is the difference of two stamps taken in sequence, so the four sum to <c>DrawList</c> exactly; they
+/// are carried from where they ran, never recomputed (B243).</remarks>
+public readonly record struct DrawListParts(long Prepare, long Players, long Place, long Filters);
 
 /// <summary>Assembles what one moment of a demo draws.</summary>
 /// <remarks>
@@ -462,6 +475,8 @@ public sealed class MomentScene : IGameSystemPerFrame
         // `Appearance`, which the player prop already asks for its model and weapon suffix.
         // `GetVisionFilterFlags` of the local player (c_tf_player.cpp:8028-8105): what the recorder's gear opts into,
         // plus Halloween while the holiday is active. Asked before the players join, of the gear already listed.
+        long preparedAt = Stopwatch.GetTimestamp();
+
         int viewerFlags = VisionVisibility.ViewerFlags(_drawn, info.Recorder, VisionGrantedBy) | info.HolidayVisionFlags;
 
         ViewerVisionFlags = viewerFlags;
@@ -470,9 +485,13 @@ public sealed class MomentScene : IGameSystemPerFrame
             players, _drawn, Appearance, _models,
             (viewerFlags & VisionVisibility.HalloweenFlag) == VisionVisibility.HalloweenFlag);
 
+        long playersAt = Stopwatch.GetTimestamp();
+
         // **Every prop of the moment, before any visibility rule removes one** (B551): a move child's parent is its
         // parent whether or not it is drawn, and the passes below each see only their share.
         _models.PlaceFrame(_drawn);
+
+        long placedAt = Stopwatch.GetTimestamp();
 
         // **The engine does not draw the player whose eyes you are using**, and cosmetics merge onto
         // their wearer's bones, so the hat goes with them. Without this the first-person view is the
@@ -567,7 +586,12 @@ public sealed class MomentScene : IGameSystemPerFrame
             Weapons: 0,
             Viewmodel: 0,
             Counters: default,
-            Drawn: _drawn.Count);
+            Drawn: _drawn.Count,
+            DrawListParts: new DrawListParts(
+                Prepare: preparedAt - momentAt,
+                Players: playersAt - preparedAt,
+                Place: placedAt - playersAt,
+                Filters: rolesAt - placedAt));
     }
 
     /// <summary>Poses what <see cref="Build"/> selected, and produces the instances.</summary>
