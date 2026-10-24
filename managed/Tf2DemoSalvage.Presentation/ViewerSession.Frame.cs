@@ -223,6 +223,39 @@ public sealed partial class ViewerSession
     /// <summary>When the last frame's sequence ended, in Stopwatch ticks; zero before the first.</summary>
     private long _lastSequenceEnded;
 
+    /// <summary>The running counters at the last frame boundary, for the ledger's slow-frame detail (B595).</summary>
+    private FrameCounters _lastCounters;
+
+    /// <summary>The same at the measurement's start.</summary>
+    private FrameCounters _countersAtStart;
+
+    /// <summary>Whether <see cref="_lastCounters"/> holds a boundary of this measurement.</summary>
+    private bool _counted;
+
+    /// <summary>Every running counter a slow frame is differenced over, read now on this — the main — thread.</summary>
+    private FrameCounters ReadCounters() => new(
+        System.Runtime.JitInfo.GetCompiledMethodCount(currentThread: true),
+        System.Runtime.JitInfo.GetCompilationTime(currentThread: true),
+        System.Runtime.JitInfo.GetCompilationTime(),
+        GC.GetTotalPauseDuration(),
+        _presenter.CameraSpent,
+        _presenter.SoundsHeld.Misses,
+        _presenter.Models.Vertices.Count,
+        Tf2DemoSalvage.Content.Assets.ParticleEffect.BirthsBySystem.Count);
+
+    /// <summary>A slow frame's whole phase split and its counters' deltas, built only for a slow frame.</summary>
+    // Stryker disable once all : a mutated interpolated string cannot bind to its handler (CS1620) and Safe Mode drops the method - B410
+    private string SlowFrameDetail(in FramePhases phases, long between, in FrameCounters counters)
+    {
+        double ms(long ticks) => ticks * 1000d / Stopwatch.Frequency;
+
+        return string.Create(
+            CultureInfo.InvariantCulture,
+            $"between {ms(between):0.0}, sound {ms(phases.Sound):0.0}, camera {ms(phases.Camera):0.0}, project {ms(phases.Project):0.0}" +
+            $", advance {ms(phases.Advance):0.0}, hud {ms(phases.Hud):0.0}, draw {ms(phases.Draw):0.0}" +
+            $", unaccounted {ms(phases.Unaccounted):0.0}; {counters.Since(_lastCounters, Stopwatch.Frequency)}");
+    }
+
     /// <summary>When <see cref="_pauses"/> began, in Stopwatch ticks.</summary>
     private long _pausesFrom;
 
@@ -297,6 +330,13 @@ public sealed partial class ViewerSession
                 _host.Out.WriteLine("  " + pauses.Report(_pausesFrom));
             }
             _host.Out.WriteLine("  " + JitReading.Now().Since(_jitAtStart));
+
+            // The share of that compiled on THIS thread, which is the share that lands inside frames (B595).
+            FrameCounters jitNow = ReadCounters();
+            // Stryker disable once all : a mutated interpolated string cannot bind to its handler (CS1620) and Safe Mode drops the method - B410
+            _host.Out.WriteLine(string.Create(
+                CultureInfo.InvariantCulture,
+                $"  main thread jit: {jitNow.MainJitMethods - _countersAtStart.MainJitMethods} methods, {(jitNow.MainJit - _countersAtStart.MainJit).TotalMilliseconds:0.0} ms compiling"));
             _host.Out.WriteLine("  " + _effects.ParticleCost.Since(_particlesAtStart, _framesMeasured));
             _host.Out.WriteLine("  " + _effects.ParticleWork.Since(_particleWorkAtStart, _framesMeasured));
             _host.Out.WriteLine("  " + ParticleBirths.Since(_birthsAtStart, Tf2DemoSalvage.Content.Assets.ParticleEffect.BirthsBySystem, _frameSeconds, 12));
@@ -486,23 +526,37 @@ public sealed partial class ViewerSession
 
                 // Each stall beside whether a do-nothing thread stopped too (finding 88): `--measure` only.
                 _pauses = new PauseLedger(Stopwatch.Frequency);
+                _counted = false;
+                _countersAtStart = ReadCounters();
                 _pausesFrom = Stopwatch.GetTimestamp();
                 _heartbeat?.Dispose();
                 _heartbeat = new Heartbeat(_pauses);
             }
 
-            if (_pauses is { } pauses && _lastSequenceEnded != 0)
+            if (_pauses is { } pauses)
             {
-                // From the last frame's end to this one's, by this method's own stamps: this frame's phases, and the
-                // time since the last frame ended as `between`. The frame clock is stamped mid-sequence, so its interval
-                // straddles two frames' phases and named the wrong one.
-                long frameTicks = sequenceEnded - _lastSequenceEnded;
+                // The counters at this boundary, over the SAME window as the frame's length (B595): read at entry, the
+                // pause excluded `between`, so a stall mostly between could not have shown a collection.
+                FrameCounters counters = ReadCounters();
 
-                pauses.Frame(
-                    sequenceEnded,
-                    frameTicks,
-                    PauseLedger.LargestPhase(phases, (sequenceBegan - _lastSequenceEnded) + phases.Total),
-                    (GarbageReading.FromRuntime().Paused - frameBegan.Paused).TotalMilliseconds);
+                if (_lastSequenceEnded != 0 && _counted)
+                {
+                    // From the last frame's end to this one's, by this method's own stamps: this frame's phases, and the
+                    // time since the last frame ended as `between`. The frame clock is stamped mid-sequence, so its interval
+                    // straddles two frames' phases and named the wrong one.
+                    long frameTicks = sequenceEnded - _lastSequenceEnded;
+                    long between = sequenceBegan - _lastSequenceEnded;
+
+                    pauses.Frame(
+                        sequenceEnded,
+                        frameTicks,
+                        PauseLedger.LargestPhase(phases, between + phases.Total),
+                        (counters.GcPaused - _lastCounters.GcPaused).TotalMilliseconds,
+                        pauses.IsSlow(frameTicks) ? SlowFrameDetail(phases, between, counters) : string.Empty);
+                }
+
+                _lastCounters = counters;
+                _counted = true;
             }
 
             _framesMeasured++;

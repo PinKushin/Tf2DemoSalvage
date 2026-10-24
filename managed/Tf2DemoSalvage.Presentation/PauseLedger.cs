@@ -26,20 +26,33 @@ public sealed class PauseLedger(long frequency)
     /// <summary>A heartbeat interval counts as a gap past this, in milliseconds.</summary>
     public const double GapMilliseconds = 50d;
 
-    private readonly List<(long End, long Length, string Phase, double PausedMs)> _stalls = [];
+    /// <summary>A frame counts as slow past this, in milliseconds: counted, summed and listed with its detail (B595).</summary>
+    public const double SlowMilliseconds = 50d;
+
+    private readonly List<(long End, long Length, string Phase, double PausedMs, string Detail)> _stalls = [];
     private readonly List<(long End, long Length)> _gaps = [];
     private readonly Lock _gate = new();
+    private long _slowTicks;
+    private int _slowCount;
 
-    /// <summary>Records a frame if it was a stall.</summary>
+    /// <summary>Whether a frame this long is slow, so a caller builds its detail only then.</summary>
+    /// <param name="length">The frame, in ticks.</param>
+    /// <returns>True past <see cref="SlowMilliseconds"/>.</returns>
+    public bool IsSlow(long length) => Ms(length) > SlowMilliseconds;
+
+    /// <summary>Records a frame if it was slow.</summary>
     /// <param name="end">When the frame ended, in ticks.</param>
     /// <param name="length">How long it took, in ticks.</param>
     /// <param name="phase">The phase that held most of it.</param>
-    /// <param name="pausedMs">The collector's pause inside the frame's sequence, in milliseconds.</param>
-    public void Frame(long end, long length, string phase, double pausedMs)
+    /// <param name="pausedMs">The collector's pause over the same interval, in milliseconds.</param>
+    /// <param name="detail">What the frame's own counters said, carried from where they were read; printed as given.</param>
+    public void Frame(long end, long length, string phase, double pausedMs, string detail = "")
     {
-        if (Ms(length) > StallMilliseconds)
+        if (IsSlow(length))
         {
-            _stalls.Add((end, length, phase, pausedMs));
+            _slowCount++;
+            _slowTicks += length;
+            _stalls.Add((end, length, phase, pausedMs, detail));
         }
     }
 
@@ -72,22 +85,31 @@ public sealed class PauseLedger(long frequency)
         StringBuilder text = new();
         HashSet<int> matched = [];
 
-        text.Append(CultureInfo.InvariantCulture, $"pauses: {_stalls.Count} frames over {StallMilliseconds:0} ms, {gaps.Count} heartbeat gaps over {GapMilliseconds:0} ms");
+        int stalls = _stalls.FindAll(stall => Ms(stall.Length) > StallMilliseconds).Count;
 
-        foreach ((long end, long length, string phase, double paused) in _stalls)
+        text.Append(CultureInfo.InvariantCulture, $"pauses: {stalls} frames over {StallMilliseconds:0} ms, {gaps.Count} heartbeat gaps over {GapMilliseconds:0} ms");
+        text.Append(CultureInfo.InvariantCulture, $"; {_slowCount} frames over {SlowMilliseconds:0} ms, {Ms(_slowTicks):0} ms in them");
+
+        foreach ((long end, long length, string phase, double paused, string detail) in _stalls)
         {
             int overlap = gaps.FindIndex(gap => gap.End - gap.Length < end && end - length < gap.End);
+            string kind = Ms(length) > StallMilliseconds ? "stall" : "slow";
 
-            text.Append(CultureInfo.InvariantCulture, $"\n  stall at {Seconds(end - start):0.000} s: {Ms(length):0} ms, mostly {phase}, gc paused {paused:0} ms; ");
+            text.Append(CultureInfo.InvariantCulture, $"\n  {kind} at {Seconds(end - start):0.000} s: {Ms(length):0} ms, mostly {phase}, gc paused {paused:0} ms; ");
 
             if (overlap >= 0)
             {
                 matched.Add(overlap);
                 text.Append(CultureInfo.InvariantCulture, $"heartbeat gap {Ms(gaps[overlap].Length):0} ms ending {Seconds(gaps[overlap].End - start):0.000} s");
             }
-            else
+            else if (kind == "stall")
             {
                 text.Append("no heartbeat gap");
+            }
+
+            if (detail.Length > 0)
+            {
+                text.Append(kind == "stall" || overlap >= 0 ? "; " : string.Empty).Append(detail);
             }
         }
 
