@@ -211,7 +211,9 @@ public static class StallReport
                 $", models {Ms(phases.Models):0.#}" +
                 $", pose {Ms(phases.Pose):0.#}" +
                 $" (lighting {lighting:0.#}, viewmodel {viewmodel:0.#}" +
-                $" [simulate {Ms(phases.ViewmodelCounters.Simulate):0.#}, setup {Ms(phases.ViewmodelCounters.Setup):0.#}" +
+                $" [resolve {Ms(phases.ViewmodelSplit.Resolve):0.#}, build {Ms(phases.ViewmodelSplit.Build):0.#}" +
+                $", add {Ms(phases.ViewmodelSplit.Add):0.#}, instances {Ms(phases.ViewmodelSplit.Instances):0.#}, rest {Ms(phases.ViewmodelSplit.Rest):0.#}, skin log {Ms(phases.ViewmodelSplit.SkinLog):0.#}" +
+                $"; simulate {Ms(phases.ViewmodelCounters.Simulate):0.#}, setup {Ms(phases.ViewmodelCounters.Setup):0.#}" +
                 $", anim {Ms(phases.ViewmodelCounters.Animation):0.#}, place {Ms(phases.ViewmodelCounters.Place):0.#}" +
                 $", lighting {Ms(phases.ViewmodelCounters.Lighting):0.#}, collate {Ms(phases.ViewmodelCounters.Collate):0.#}" +
                 $", reports {Ms(phases.ViewmodelCounters.Report):0.#}, built {phases.ViewmodelCounters.Built.ToString(CultureInfo.InvariantCulture)}" +

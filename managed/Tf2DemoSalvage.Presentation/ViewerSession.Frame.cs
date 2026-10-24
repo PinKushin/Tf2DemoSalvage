@@ -346,7 +346,8 @@ public sealed partial class ViewerSession
                 CultureInfo.InvariantCulture,
                 $"  first uses in play: models packed {jitNow.Models.Packed - _countersAtStart.Models.Packed}, {(jitNow.Models.PackTicks - _countersAtStart.Models.PackTicks) * 1000d / Stopwatch.Frequency:0.0} ms" +
                 $"; baked built {jitNow.Models.Baked - _countersAtStart.Models.Baked}, {(jitNow.Models.BakedTicks - _countersAtStart.Models.BakedTicks) * 1000d / Stopwatch.Frequency:0.0} ms" +
-                $"; before play: models packed {_countersAtStart.Models.Packed}, baked built {_countersAtStart.Models.Baked}"));
+                $"; before play: models packed {_countersAtStart.Models.Packed}, {_countersAtStart.Models.PackTicks * 1000d / Stopwatch.Frequency:0.0} ms" +
+                $"; baked built {_countersAtStart.Models.Baked}, {_countersAtStart.Models.BakedTicks * 1000d / Stopwatch.Frequency:0.0} ms"));
             _host.Out.WriteLine("  " + _effects.ParticleCost.Since(_particlesAtStart, _framesMeasured));
             _host.Out.WriteLine("  " + _effects.ParticleWork.Since(_particleWorkAtStart, _framesMeasured));
             _host.Out.WriteLine("  " + ParticleBirths.Since(_birthsAtStart, Tf2DemoSalvage.Content.Assets.ParticleEffect.BirthsBySystem, _frameSeconds, 12));
