@@ -40066,6 +40066,30 @@ reddens four tests), and a child's drawn size against its own scale alone.
   `pl_badwater_pro_v12.bsp` is not on this machine (not under the game's `tf/maps`, `tf/download/maps`, `tf2ds`, or the
   user profile), so its `parentname` cannot be read, and no sampled tick gives them a parent.
 
+## B595 — f12 first-person hitches of 50-190 ms are pose (viewmodel, baked), particles at start, the render-thread wait and `between`; not JIT — OPEN (2026-10-24)
+
+**Evidence class: measured** (`docs/measurements/2026-10-24-b595-frame-stalls-and-jit.md`, 15 runs × 60 s, five JIT variants).
+`--measure` now lists every frame over 50 ms with its whole phase split and the main thread's own counters, differenced
+over the frame's own window (`PauseLedger`, `FrameCounters`). **JIT is ruled out as a cause**: every slow frame after the
+first shows 0 main-thread JIT, and `DOTNET_TieredCompilation=0` and ReadyToRun both still stall. Main-thread JIT is
+~255 ms a run and lands in the opening frames. **Ranked by measured stall time:**
+
+1. **`camera pose`, 17 frames, 46-133 ms.** The same frame's `SLOW MOMENT` names `viewmodel` (42-128 ms) or `baked`
+   (19-49 ms). Both look like first-use builds: a viewmodel's first pose, and a static prop's colour mesh baked on first
+   sight. The engine does both up front: weapons precache their view model (`CBaseCombatWeapon::Precache`,
+   `game/shared/basecombatweapon_shared.cpp`; **citation to verify**), and static-prop lighting is computed at level load
+   (closed `engine.dll`; **unread**). Several pose stalls print no `SLOW MOMENT`, so part of `PoseOver` is outside
+   `MomentScene.Build`'s timers. **Next:** a first-use counter in the viewmodel and baked paths, then precache both at load
+   (`precache-what-the-engine-precaches.md`).
+2. **`camera particles`, 8 frames, 30-173 ms**, mostly the first measured frame (t ≈ 0.19 s) of every run, once beside a
+   147 ms GC pause, and in ReadyToRun beside 64-139 ms of other-thread JIT. Not split further yet.
+3. **`between`, 6 frames, 48-133 ms**, with nothing counted. **Next:** time the idle loop and the message pump.
+4. **`camera wait`, 5 frames, 57-95 ms**, the main thread blocked on the render thread's frame in flight. **Next:** carry
+   the render thread's per-frame time into the slow-frame line.
+
+Run 2 of the interleaved grid held 29 of 37 slow frames across every variant, unexplained (the quiet gate was 4-11%).
+Finding 97 row 11.
+
 ## B594 — `LevelLighting.SunFrom`'s 5.8% is not explained by how often it runs; the first-person undrawn pass lights a model nothing draws — OPEN (2026-10-24)
 
 **Evidence class: read from code; the share is the profile's** (`docs/measurements/2026-10-24-main-thread-cpu-profile.md`,
