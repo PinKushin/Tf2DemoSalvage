@@ -40102,6 +40102,18 @@ tick window and rebuilds `_burstsNow` every frame (`BurstEffects.cs:371-424`). *
 0.55-0.63 ms a frame; beams and overheals (0.21-0.23) are state and stay per frame, so the event share is 0.33-0.40, an
 upper bound. Nothing visible.
 
+**Split (2026-10-23, measurements/2026-10-22-f12-steady-frame/ A3, B2, B3, C1):** the event share is `dispatches` 0.17-0.23 ms and `muzzles`
+0.18-0.27 ms. The other five kinds total about 0.04 ms and were left alone. **Reading picked:** what
+`ParticleEffects.Bursts` accepts is unchanged. An unoffered key is its `StopEmission`, and a followed point is re-read every
+frame by the engine too (`particle_property.cpp:507-527`), so the divergence is finding events by walking history, not
+the offer itself. **Done:** the owned dispatches are kept in a live list instead of being walked from the first each
+frame (`2ec8bd21`). Offers are identical: an equivalence test over 3,000 frames checks ordered offers, census and
+counters, and two sabotages redden it. **Measured** (`measurements/2026-10-23-owned-dispatch-live-list.md`): `dispatches`
+did not move (0.20 ms median before and after, on both scenes). The walk was not the cost; the per-live-offer work is,
+and it is not split yet. **Left:** split `dispatches` into its attachment queries, dormancy closures and the 660-tick
+entity-less window. Muzzles: skip the finished flashes as dispatches already do (finding 86), which changes the offers
+and the census by design and needs a state-equivalence test, not an offer one.
+
 ## B576 — a talking face rewrote every slot of its model's flex stream, every changing frame — FIXED (2026-10-22)
 
 **Measured** (finding 92, measurements/2026-10-22-f12-steady-frame.md): `EntityModelSet.FlexFor` 6.0% of the render

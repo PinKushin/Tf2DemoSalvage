@@ -41,4 +41,28 @@ The figures read are the per-second `bursts/dispatches`, `bursts/muzzles`, `burs
 
 ## Result
 
+Run order per scene: b1, a1, b2, a2. The quiet gate refused 38 times in all, and every run started under 25% load. Raw
+outputs were kept in the session scratch directory and not committed. The figures below are per-second lines: min-max,
+then the median.
+
+| run | load before / after | end tick | `bursts/dispatches` | `bursts/muzzles` | `bursts/step` | `camera particles` med |
+|---|---|---:|---|---|---|---:|
+| empty b1 | 23,15,14 / 44 | 31,282 | 0.12-0.54, 0.20 | 0.07-0.67, 0.26 | 0.32 | 1.64 |
+| empty a1 | 24,16,11 / 46 | 31,283 | 0.11-0.65, 0.21 | 0.08-0.48, 0.24 | 0.31 | 1.72 |
+| empty b2 | 8,7,13 / 17 | 31,282 | 0.13-0.54, 0.21 | 0.08-0.71, 0.24 | 0.32 | 1.72 |
+| empty a2 | 14,17,16 / 52 | 31,280 | 0.12-0.61, 0.21 | 0.08-1.27, 0.24 | 0.35 | 1.82 |
+| gummo b1 | 14,6,11 / 27 | 31,288 | 0.12-0.63, 0.21 | 0.09-0.40, 0.21 | 0.38 | 2.67 |
+| gummo a1 | 17,18,19 / 12 | 31,292 | 0.11-0.75, 0.20 | 0.11-0.67, 0.25 | 0.36 | 2.58 |
+| gummo b2 | 11,12,11 / 30 | 31,289 | 0.12-0.73, 0.20 | 0.10-0.40, 0.21 | 0.38 | 2.78 |
+| gummo a2 | 15,13,16 / 20 | 31,284 | 0.11-0.55, 0.19 | 0.09-0.39, 0.22 | 0.35 | 2.81 |
+
+Controls: every run played about 1,280-1,290 ticks, and `bursts/dispatches` was non-zero in both before runs.
+
 ## Verdict
+
+**Falsified. `bursts/dispatches` does not move:** the medians are 0.20-0.21 ms before and 0.19-0.21 ms after on both
+scenes, inside each build's own spread. The walk from the first owned dispatch was not where the time went at tick 30000.
+What remains is the per-frame work on the live offers: an attachment query for each, a dormancy closure allocated for
+each, a `ParticleBurst` for each, and the walk over the 660-tick window of entity-less dispatches with a name lookup per
+dispatch. Which of these costs the time is **not split**. The change stays, as an O(match) → O(live) fix that changes no
+offer, but it saves nothing measurable here.
