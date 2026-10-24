@@ -60,7 +60,10 @@ public sealed class RecordingLogger : ILogger
     /// result depend on configuration rather than on the code under test — and the question here is
     /// always whether the line was WRITTEN, not whether a sink would have kept it.
     /// </remarks>
-    public bool IsEnabled(LogLevel logLevel) => true;
+    public bool IsEnabled(LogLevel logLevel) => !(DebugOff && logLevel <= LogLevel.Debug);
+
+    /// <summary>Reports Debug and below disabled, for a test of a guard that skips the WORK (B586).</summary>
+    public bool DebugOff { get; set; }
 
     /// <inheritdoc/>
     public void Log<TState>(
@@ -71,6 +74,12 @@ public sealed class RecordingLogger : ILogger
         Func<TState, Exception?, string> formatter)
     {
         ArgumentNullException.ThrowIfNull(formatter);
+
+        // A real sink drops a disabled level; only a DebugOff recorder has one.
+        if (!IsEnabled(logLevel))
+        {
+            return;
+        }
 
         _lines.Add((logLevel, formatter(state, exception)));
     }

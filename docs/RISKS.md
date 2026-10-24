@@ -40134,14 +40134,38 @@ code-read): ~0.05-0.15 ms, spiking in fights.**
 at `:248`). **Engine:** bones are read in place. **Fix shape:** `ref readonly` indexing into `_boneArray`. **Estimate
 (ESTIMATE, code-read): ~0.15-0.3 ms.**
 
-## B586 — three diagnostic calls per prop per frame do keying work before any `IsEnabled` check — OPEN (2026-10-24)
+## B586 — three diagnostic calls per prop per frame do keying work before any `IsEnabled` check — FIXED 2026-10-24, NULL RESULT (`perf/b586-b585`)
+
+**Fixed:** `ModelReports.BeginPass` reads `IsEnabled(Debug)` once per `Instances` call; the three reports return before
+keying when it is off (`ModelReportsTests.BeginPass_*`). **Measured null** (`docs/measurements/2026-10-24-b586-b585-report-guard-and-matrices.md`):
+`reports` was below its one-decimal resolution BEFORE the change, frame unchanged (measurements/2026-10-24-b586-b585-report-guard-and-matrices.md).
+The estimate was wrong because the reports run after the cull, for ~246 collated instances (measured), not ~1,850; three
+probes each is microseconds (arithmetic). Wiring held by `EntityModelsTests.Instances_APassWithDebugOff_*`. The "`AllFrames(...).Count` first" below is stale: the caller passes `packed.Count`.
+
+**Original filing:**
 
 **Evidence class: read from code, not measured.** **Ours:** `BrushMoved`, `Lit` (`_reportedLight.Add`) and `Animating`
 (`_reportedFrames.Add(prop.ModelPath)`; the caller evaluates `AllFrames(...).Count` first, `EntityModels.Instances.cs:360-371`;
 `ModelReports.cs:78-95`, `:128-135`, `:175-182`). This violates the B191 rule: the guard covers the WORK, not the log line.
 **Fix shape:** one `IsEnabled` read per Instances call. **Estimate (ESTIMATE, code-read): ~0.15-0.3 ms.**
 
-## B585 — the instance build allocates per prop per frame — OPEN (2026-10-24)
+## B585 — the instance build allocates per prop per frame — FIXED 2026-10-24, NULL RESULT (`perf/b586-b585`)
+
+**The premise was half wrong (read from code):** `ModelInstance` is a `readonly record struct` (`EntityModels.cs:112`) and
+allocates nothing; only `ToMatrix()`'s `float[16]` does, and only for props that survive the cull (~246 collated on f12,
+measured, so ~22 KB a frame by arithmetic, not 560 KB). **Fixed as copy-on-change, not a pool:** `EntityModelSet.MatrixFor` keeps each entity's
+last `(PropTransform, float[])` and reuses the array on an equal transform; a moved entity gets a NEW array and the old one
+is never written, so the queued render thread cannot see a matrix change under it. Attachments share their item's array.
+Tests: `EntityModelsTests.Instances_AnUnmovedProp*`, `Instances_APropThatMoved*` (in-place sabotage reddens it). Mode-2 run
+with `TF2VIEW_QUEUE_VERIFY=1`: 0 changed (no positive control). **Measured: null on the frame and allocation, and a
+REGRESSION on its own timer** — `place lookups matrix` 0.011 → 0.021 ms, reproduced in a control rerun (measurements/2026-10-24-b586-b585-report-guard-and-matrices.md)
+(see 2026-10-24-b586-b585-report-guard-and-matrices.md). The probe and record compare cost more than 64 bytes.
+**Recommendation: drop commit `94217782`**; left for the owner's call.
+
+**Bones are safe in place, and so would a matrix pool be:** the verifier hashes every bone array (`Device3D.cs:3365-3395`)
+and the pose waits for the previous draw (`FinishDrawBeforePose`), so `_skinning`'s in-place reuse is covered.
+
+**Original filing:**
 
 **Evidence class: read from code, not measured.** **Ours:** `transform.ToMatrix()` allocates a `float[16]`
 (`EntityModels.Instances.cs:723`, `:866`) and `new ModelInstance(...)` (~250 B) per prop, about 560 KB a frame. **Engine:** a

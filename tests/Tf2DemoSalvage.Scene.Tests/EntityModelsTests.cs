@@ -79,6 +79,63 @@ public sealed class EntityModelsTests
     }
 
     [Test]
+    public void Instances_AnUnmovedPropOnTheNextPass_ReusesItsMatrixWithTheSameContents()
+    {
+        // **B585: the engine reuses its entries; an unmoved prop allocates no new matrix.** The
+        // contents still equal a fresh `ToMatrix()`, which is the equivalence that matters.
+        EntityModelSet models = new();
+        List<ModelInstance> instances = [];
+        SceneProp[] props = [Prop("models/props/crate.mdl", x: 10f, y: 5f, yaw: 30f, entity: 7)];
+
+        models.Add(props, OneTriangle);
+        models.Instances(props, instances);
+        float[] first = instances[0].Matrix;
+        models.Instances(props, instances);
+
+        instances[0].Matrix.ShouldBeSameAs(first);
+        instances[0].Matrix.ShouldBe(new PropTransform(10f, 5f, 0f, 0f, 30f, 0f, 1f).ToMatrix());
+    }
+
+    [Test]
+    public void Instances_APassWithDebugOff_KeysNoReportSoTheNextEnabledPassPrints()
+    {
+        // **The wiring of B586**: `Instances` must read the level for its pass. Without that read the
+        // disabled pass keys the model and the enabled one says nothing.
+        RecordingLoggerFactory loggers = new();
+        loggers.Recorder.DebugOff = true;
+        EntityModelSet models = new(loggers);
+        List<ModelInstance> instances = [];
+        SceneProp[] props = [Prop("models/props/crate.mdl", entity: 7)];
+
+        models.Add(props, OneTriangle);
+        models.Instances(props, instances);
+        loggers.Recorder.DebugOff = false;
+        models.Instances(props, instances);
+
+        loggers.Recorder.Count("animating").ShouldBe(1);
+    }
+
+    [Test]
+    public void Instances_APropThatMoved_GetsANewMatrixAndLeavesTheOldOneUntouched()
+    {
+        // **Never written in place** (B585): the queued render thread may still be drawing the
+        // previous frame's array, so a moved prop must get a NEW one and the old must not change.
+        EntityModelSet models = new();
+        List<ModelInstance> instances = [];
+
+        models.Add([Prop("models/props/crate.mdl", x: 10f, entity: 7)], OneTriangle);
+        models.Instances([Prop("models/props/crate.mdl", x: 10f, entity: 7)], instances);
+        float[] first = instances[0].Matrix;
+        float[] firstContents = [.. first];
+
+        models.Instances([Prop("models/props/crate.mdl", x: 20f, entity: 7)], instances);
+
+        instances[0].Matrix.ShouldNotBeSameAs(first);
+        instances[0].Matrix[12].ShouldBe(20f, 1e-4f);
+        first.ShouldBe(firstContents);
+    }
+
+    [Test]
     public void AnInstanceWhoseModelDidNotLoad_IsNotDrawn()
     {
         // Otherwise the renderer sets a matrix and draws nothing, once per frame per missing
