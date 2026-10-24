@@ -1,7 +1,17 @@
-# Tf2DemoSalvage 0.1.0-beta.49
+# Tf2DemoSalvage 0.1.0-beta.50
 
 ## Unreleased
 
+## Changes in 0.1.0-beta.50
+
+Released 2026-10-24.
+
+- **Detail props (grass and small sprites) cost almost nothing to place.** Like TF2, the viewer now reaches only the
+  detail props in the leaves near the camera instead of every prop in the map. The drawn detail is unchanged.
+  On `cp_process_f12`, first person: detail step 0.55 ms to 0.002 ms a frame (measurements/2026-10-23-b580-detail-reach.md).
+  Whole frame about 13.1 ms to about 12.3 ms (measurements/2026-10-23-b580-detail-reach.md).
+- **The HUD event feed no longer walks the whole match every frame.** What the HUD shows is unchanged.
+  Empty view: its stage 0.13-0.20 ms to 0-0.02 ms a frame (measurements/2026-10-23-hud-event-feed-window.md).
 - **The viewer now draws on a second thread by default**, as TF2 does. `mat_queue_mode` defaults to TF2's own `-1`:
   on a machine with two or more physical CPU cores each frame is drawn on a second thread, and on one core it is drawn
   on the main thread as before. On the author's `cp_process_f12` recording this was measured at about 14% faster.
