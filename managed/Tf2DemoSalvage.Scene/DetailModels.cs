@@ -102,6 +102,7 @@ public static class DetailModels
     /// <param name="eye">Where the view is, in world units.</param>
     /// <param name="fade">The distance fade for this view.</param>
     /// <param name="into">Where the placed models are appended.</param>
+    /// <param name="reach">The map's runs, to visit only those near the eye (B580); null walks every prop.</param>
     /// <returns>What was built, for the report.</returns>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <remarks>
@@ -119,7 +120,8 @@ public static class DetailModels
         IReadOnlyList<BspDetailProp> objects,
         (float X, float Y, float Z) eye,
         DetailFade fade,
-        IList<DetailModelInstance> into)
+        IList<DetailModelInstance> into,
+        DetailReach? reach = null)
     {
         ArgumentNullException.ThrowIfNull(objects);
         ArgumentNullException.ThrowIfNull(into);
@@ -129,42 +131,54 @@ public static class DetailModels
         int aligned = 0;
         int translucent = 0;
 
-        for (int index = 0; index < objects.Count; index++)
+        int runs = reach?.Runs ?? 1;
+
+        for (int run = 0; run < runs; run++)
         {
-            BspDetailProp prop = objects[index];
-
-            if (prop.Type != DetailPropType.Model)
+            if (reach is not null && !reach.Near(run, eye, fade.MaximumSquared))
             {
                 continue;
             }
 
-            float dx = prop.Origin.X - eye.X;
-            float dy = prop.Origin.Y - eye.Y;
-            float dz = prop.Origin.Z - eye.Z;
+            (int first, int end) = reach?.Range(run) ?? (0, objects.Count);
 
-            byte alpha = fade.Alpha((dx * dx) + (dy * dy) + (dz * dz));
-
-            if (alpha == 0)
+            for (int index = first; index < end; index++)
             {
-                faded++;
-                continue;
+                BspDetailProp prop = objects[index];
+
+                if (prop.Type != DetailPropType.Model)
+                {
+                    continue;
+                }
+
+                float dx = prop.Origin.X - eye.X;
+                float dy = prop.Origin.Y - eye.Y;
+                float dz = prop.Origin.Z - eye.Z;
+
+                byte alpha = fade.Alpha((dx * dx) + (dy * dy) + (dz * dz));
+
+                if (alpha == 0)
+                {
+                    faded++;
+                    continue;
+                }
+
+                (float Pitch, float Yaw, float Roll) angles = DetailSprites.Facing(prop, eye);
+
+                if (prop.Orientation is 1 or 2)
+                {
+                    aligned++;
+                }
+
+                if (alpha < 255)
+                {
+                    translucent++;
+                }
+
+                into.Add(new DetailModelInstance(
+                    prop.DetailModel, prop.Origin, angles, alpha, prop.Lighting));
+                built++;
             }
-
-            (float Pitch, float Yaw, float Roll) angles = DetailSprites.Facing(prop, eye);
-
-            if (prop.Orientation is 1 or 2)
-            {
-                aligned++;
-            }
-
-            if (alpha < 255)
-            {
-                translucent++;
-            }
-
-            into.Add(new DetailModelInstance(
-                prop.DetailModel, prop.Origin, angles, alpha, prop.Lighting));
-            built++;
         }
 
         return new Frame(built, faded, aligned, translucent);
