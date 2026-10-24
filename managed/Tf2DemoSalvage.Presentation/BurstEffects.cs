@@ -1035,8 +1035,10 @@ public sealed class BurstEffects
             ParticleControlPoint? point = FlashPoint(flash);
             WeaponMuzzleFlash what = _weaponMuzzles.For(flash.Item, flash.Team);
 
-            // One line per first-person flash, the first frame it is offered: what started, or why nothing did.
-            if (flash.Viewmodel is not null && _viewmodelFlashesLogged.Add(index))
+            // One line per first-person flash, the first frame it is offered: what started, or why nothing did. Debug, and
+            // guarded so the string is never built otherwise: at Information it was flushed per shot on the main thread
+            // (B591, the B191 shape).
+            if (flash.Viewmodel is not null && _renderLog.IsEnabled(LogLevel.Debug) && _viewmodelFlashesLogged.Add(index))
             {
                 // Stryker disable once all : a mutated interpolated string cannot bind to its handler (CS1620) and Safe Mode drops the method - B410
                 string where = point is { } p
@@ -1046,7 +1048,7 @@ public sealed class BurstEffects
                         $"no muzzle (first person {_frame.FirstPerson}, followed {_frame.Followed}, owner {flash.Owner})");
 
                 // Stryker disable once all : a mutated interpolated string cannot bind to its handler (CS1620) and Safe Mode drops the method - B410
-                _renderLog.LogInformation(
+                _renderLog.LogDebug(
                     "{Message}",
                     string.Create(
                         CultureInfo.InvariantCulture,
