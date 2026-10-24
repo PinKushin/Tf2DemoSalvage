@@ -97,6 +97,25 @@ public sealed class EntityModelsTests
     }
 
     [Test]
+    public void Instances_APassWithDebugOff_KeysNoReportSoTheNextEnabledPassPrints()
+    {
+        // **The wiring of B586**: `Instances` must read the level for its pass. Without that read the
+        // disabled pass keys the model and the enabled one says nothing.
+        RecordingLoggerFactory loggers = new();
+        loggers.Recorder.DebugOff = true;
+        EntityModelSet models = new(loggers);
+        List<ModelInstance> instances = [];
+        SceneProp[] props = [Prop("models/props/crate.mdl", entity: 7)];
+
+        models.Add(props, OneTriangle);
+        models.Instances(props, instances);
+        loggers.Recorder.DebugOff = false;
+        models.Instances(props, instances);
+
+        loggers.Recorder.Count("animating").ShouldBe(1);
+    }
+
+    [Test]
     public void Instances_APropThatMoved_GetsANewMatrixAndLeavesTheOldOneUntouched()
     {
         // **Never written in place** (B585): the queued render thread may still be drawing the
