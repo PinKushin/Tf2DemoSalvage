@@ -40099,7 +40099,7 @@ at `:248`). **Engine:** bones are read in place. **Fix shape:** `ref readonly` i
 
 **Fixed:** `ModelReports.BeginPass` reads `IsEnabled(Debug)` once per `Instances` call; the three reports return before
 keying when it is off (`ModelReportsTests.BeginPass_*`). **Measured null** (`docs/measurements/2026-10-24-b586-b585-report-guard-and-matrices.md`):
-`reports` was 0.006 ms BEFORE the change, frame unchanged (same measurements file). The estimate was wrong because the reports run after the cull,
+`reports` was 0.006 ms BEFORE the change, frame unchanged (measurements/2026-10-24-b586-b585-report-guard-and-matrices.md). The estimate was wrong because the reports run after the cull,
 for ~30 posed props, not ~1,850. The "`AllFrames(...).Count` first" below is stale: the caller passes `packed.Count`.
 
 **Original filing:**
