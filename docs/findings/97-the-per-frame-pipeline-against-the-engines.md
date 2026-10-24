@@ -135,3 +135,30 @@ timer and two runs a side; a frame-level difference under ~0.5 ms is inside run-
 A read of `main` @ `01faad62` filed eight more per-frame costs as **B583-B590** in `docs/RISKS.md`. Their code-read
 estimates sum to roughly **2.3-3.9 ms** of the ~13 ms frame. That sum is **unmeasured** (ESTIMATE): it must be measured,
 with stage timers or the benchmark harness on branch `perf/where-main-thread-goes`, before any of the eight is called a cause.
+
+## (8) Four profile leads timed, 2026-10-24 (measured)
+
+Section (7), on branch `docs/main-thread-cpu-profile`, is the main-thread profile
+(`measurements/2026-10-24-main-thread-cpu-profile.md`), which named four leads by share. Each was changed with an
+equivalence test and timed in Release: interleaved, three runs a side, gummo first person and the empty view. Records:
+`measurements/2026-10-24-muzzle-flash-log-line.md` and `measurements/2026-10-24-burst-walk-and-pose-copies.md`.
+
+- **B591, the muzzle-flash log line, is the only frame-level gain, and a small one.** The frame went from 8.65 to
+  8.56 ms in gummo and from 3.44 to 3.38 ms in the empty view, faster in all six pairs
+  (measurements/2026-10-24-muzzle-flash-log-line.md).
+  - The control was the log itself: 113 lines a run before, 0 after.
+  - The empty view paid the cost too, because the line was written before the first-person check. So it was not the
+    null control the record predicted.
+- **B593, the pose copies in `ScenePropTrack.At`, saved 0.03 ms in `advance`** in every pair and both views
+  (measurements/2026-10-24-burst-walk-and-pose-copies.md). That is real at the timer's resolution, and it does not show
+  in the frame.
+- **B592, the burst walk by value, is a null result.** The profile put 2.7-5.4% of samples under
+  `List<ParticleBurst>.Enumerator`. None of it showed in `camera`, even in the empty view
+  (measurements/2026-10-24-burst-walk-and-pose-copies.md).
+  - **This is the lesson to keep:** an exclusive share on a write-barrier copy is mostly the sampler's GC-poll bias
+    (fault 4), not cost.
+  - The two copy leads were worth about 0 and 0.03 ms.
+- **B594, `LevelLighting.SunFrom`, was not changed, because the engine's caching is already ported.** That is
+  `LightCache<T>`, from `LightcacheGet` at `engine.dll` `0x1801b9cd0`: at most 2 builds a frame.
+  - The one uncached caller is the first-person undrawn pass, which lights a model nothing draws.
+  - Whether that pass carries the 5.8% needs a call counter first. It is OPEN.

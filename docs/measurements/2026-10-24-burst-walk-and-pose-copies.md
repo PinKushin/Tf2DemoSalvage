@@ -34,8 +34,11 @@ signature and every caller are unchanged.
 ## Method
 
 As `2026-10-24-muzzle-flash-log-line.md`: Release builds through `run-exclusive.ps1 -Shared`, copied to the scratchpad;
-three labels interleaved in one bench — `a1` (B591 only, the BEFORE for both), `a2` (+B592), `a3` (+B592 +B593) — three
-rounds, gummo first person and the empty view, `--measure 30`, quiet gate recorded per run.
+labels interleaved in one bench with that record's — `a1` (B591 only, the BEFORE) and `m593` (+B592 +B593, commit
+`fd33bc3f`) — three rounds, gummo first person and the empty view, `--measure 30`, quiet gate recorded per run.
+**Changed from the plan:** B592 and B593 were measured together, not as separate `a2`/`a3` binaries, and are told
+apart by their stage timers (`camera` for B592's particles, `advance` for B593's `AdvanceSample`). The whole-run
+`camera particles` part is not in the summary lines, so the `camera` phase stands in for it.
 
 ## Control
 
@@ -50,4 +53,19 @@ rounds, gummo first person and the empty view, `--measure 30`, quiet gate record
 
 ## Result
 
-(filled in after the runs)
+| view | timer | a1 (3 runs) | m593 (3 runs) | mean change |
+|---|---|---|---|---|
+| gummo | frame | 8.52, 8.60, 8.55 | 8.69, 8.59, 8.59 | +0.07 (null) |
+| gummo | camera | 6.63, 6.67, 6.62 | 6.83, 6.62, 6.66 | +0.06 (null; the 6.83 run alone) |
+| gummo | **advance** | 0.72, 0.72, 0.72 | 0.69, 0.69, 0.69 | **−0.03, all three pairs** |
+| empty | frame | 3.37, 3.41, 3.35 | 3.41, 3.37, 3.38 | +0.01 (null) |
+| empty | camera | 1.83, 1.87, 1.82 | 1.88, 1.84, 1.86 | +0.02 (null) |
+| empty | **advance** | 0.57, 0.57, 0.56 | 0.54, 0.54, 0.54 | **−0.03, all three pairs** |
+
+- **B593 is a real but small gain in `advance`:** 0.03 ms in both views, in every pair, at the timer's resolution. That
+  is the stage it was predicted to show in. It does not reach the frame.
+- **B592 is a null result.** The `camera` phase did not move outside its spread in either view, including the empty view
+  where particles are the largest share. The profile's 2.7-5.4% under the enumerator was GC-poll bias (its fault 4), or a
+  cost far below a millisecond. The change stays, because it is equivalent by test and it is no larger than what it
+  replaced.
+- One m593 gummo run (round 3) had a 34% load sample in its quiet gate; it was not the outlier (8.59 ms).

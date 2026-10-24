@@ -39,4 +39,21 @@ outcome**. The empty view has no first-person flashes, so it must not move (the 
 
 ## Result
 
-(filled in after the runs)
+Release, branch `perf/main-thread-cpu-items` @ `fd33bc3f` (AFTER = `a1`; BEFORE = `b1`, the same tree with the two
+`BurstEffects.cs` edits reverted). Interleaved b1/a1/m593 in one bench (m593 is the next record's), three rounds, 30 s
+of playback each, quiet-gate loads 1-15% except one 34% sample on round 3's m593 gummo run.
+
+| view | b1 frame ms (3 runs) | a1 frame ms (3 runs) | mean b1 → a1 |
+|---|---|---|---|
+| gummo first person | 8.60, 8.79, 8.56 | 8.52, 8.60, 8.55 | **8.65 → 8.56 (−0.09)** |
+| empty | 3.45, 3.44, 3.42 | 3.37, 3.41, 3.35 | **3.44 → 3.38 (−0.06)** |
+
+- **Output-level control, the result that can fail:** the viewer log held **113** `viewmodel muzzle flash` lines per
+  b1 run and **0** per a1 run, in both views.
+- **The empty view was not the control I predicted.** It logged the same 113 lines: the line is written for every
+  viewmodel flash before the first-person check, so the empty view pays it too. The "must not move" prediction was wrong
+  for that reason, and both views moving by about the same amount is consistent with it.
+- a1 is faster in all six b1/a1 pairs, by 0.04-0.19 ms. The size is at the prediction's ceiling and inside a single
+  run's spread, so read it as **about 0.05-0.1 ms, small but consistent**, not as a precise figure. The phase split shows
+  it spread across `camera` and `hud`, with no one timer carrying it, which is what a flushed write that lands wherever
+  the next frame runs would look like.
