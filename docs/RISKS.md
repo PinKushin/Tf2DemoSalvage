@@ -40066,6 +40066,41 @@ reddens four tests), and a child's drawn size against its own scale alone.
   `pl_badwater_pro_v12.bsp` is not on this machine (not under the game's `tf/maps`, `tf/download/maps`, `tf2ds`, or the
   user profile), so its `parentname` cannot be read, and no sampled tick gives them a parent.
 
+## B584 — `ForActivity` is a linear string scan, run 2-6 times per player per frame — FIXED 2026-10-24 (`perf/b583-b584-prop-lookups`)
+
+**Was** (read from code): `SkinnedModel.ForActivity` scanned every merged sequence with `OrdinalIgnoreCase` on each call.
+**Engine** (`studio.cpp:1684`, read): `CActivityToSequenceMapping::Initialize` hashes the activities once per header.
+**Fixed** (`488b9bad`): a map built on first ask, same rule as the scan (highest weight; first of a tie; weight ≤ 0 never
+chosen), rebuilt if a `with` copy replaces `Sequences` or `Groups`. Held by `ForActivityMapTests`: equal to the old scan on
+200 generated models × 7 names (duplicates, mixed case, weights −2..3, missing names); three sabotages (`>=`, ordinal
+comparer, no staleness check) each turned it red. **Measured** (`measurements/2026-10-24-b583-b584-model-lookups.md`):
+gummo first person, `pose setup` 0.78-0.80 → 0.67-0.68 ms (measurements/2026-10-24-b583-b584-model-lookups.md). The
+code-read estimate of 0.6-1.0 ms was about 6x high.
+
+**Divergence kept, now named:** the engine weights a sequence by `iabs(actweight)` and turns a weight of 0 into 1
+(`studio.cpp:1728`, `:1822-1829`), so a negative or zero weight is still selectable there; ours refuses weight ≤ 0, as the
+scan did. Behaviour unchanged on purpose. Whether any shipped model has such a weight on an activity we ask for: not checked.
+The highest-weight pick in place of Valve's random draw is the already-recorded divergence.
+
+**Not done:** the callers still build activity strings and a `Func` closure per call (`PlayerActivityTable.Translate`,
+`PlayerAnimation.cs:118`).
+
+## B583 — about ten string-keyed dictionary probes per prop per frame, keyed on the model path — PARTLY FIXED 2026-10-24 (`perf/b583-b584-prop-lookups`)
+
+**Was** (read from code): the `Instances` draw loop probed `_frames`/`_byModel` on `prop.ModelPath` six times per prop
+(`SelectFor`, `Batches`, the colour-mesh refusal, `AllFrames`, the skinned entry, body parts). **Engine:** the cached model
+pointer. **Fixed** (`698d2716`): the loop takes `ResolvedFor(prop)` once and reads `Frames` and `Batches` from it. Held by the
+existing resolution tests: making `ResolvedFor` never re-resolve reddened
+`Instances_AModelAddedAfterThePropWasSeen_IsDrawnThatFrame` and `Instances_TheSameObjectNextFrame_ResolvesItsModelOnce`.
+**Survivor:** replacing the per-frame clamp with frame 0 in the empty-batches check left Scene.Tests green; the old
+`Batches(path, frame)` path was equally untested (needs a model with an empty baked frame). **Measured** (same record):
+`models` 0.11-0.13 → 0.00 ms first person and 0.10 → 0.00-0.01 on the empty view (measurements/2026-10-24-b583-b584-model-lookups.md);
+the frame fell 0.59 ms first person and 0.27 ms empty for both changes together (measurements/2026-10-24-b583-b584-model-lookups.md),
+more than the timed stages moved (unexplained). The code-read estimate of 1.0-1.5 ms was high.
+
+**Not done:** `SkinSwap` and `EntityTint` (`Instances.cs` `swap` part, 0.02-0.05 ms, measurements/2026-10-24-b583-b584-model-lookups.md run t00), the once-per-model report
+probe (`:464`), `Simulation.cs:458`, `FacesAndLighting.cs:440` and `Autoplay.cs:681-683` are still keyed by path.
+
 ## B580 — every detail prop on the map was walked on every camera move — FIXED 2026-10-23 (`fix/detail-reach-and-visibility`)
 
 **Read** (`detailobjectsystem.cpp:2839-2841`, `EnumerateLeaf` `:2742-2781`, read): the engine reaches detail props only
