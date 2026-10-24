@@ -2394,14 +2394,42 @@ public static class PropModels
         {
             ArgumentNullException.ThrowIfNull(activity);
 
-            int best = -1;
-            int bestWeight = 0;
+            // B584: the scan below runs once per model, into a map; the engine's equivalent is
+            // CActivityToSequenceMapping::Initialize (studio.cpp:1684), built once per header.
+            // A benign race: two threads may both build it, and either answer is the same. The map
+            // remembers the tables it was built from, because a `with` copy carries this field and
+            // may replace Sequences or Groups (tests do).
+            ActivityMap? held = _activities;
+
+            if (held is null || !ReferenceEquals(held.Sequences, Sequences) || !ReferenceEquals(held.Groups, Groups))
+            {
+                held = new ActivityMap(Sequences, Groups, BuildActivities());
+                _activities = held;
+            }
+
+            return held.Map.TryGetValue(activity, out int sequence) ? sequence : -1;
+        }
+
+        /// <summary>An activity map and the tables it was built from.</summary>
+        private sealed record ActivityMap(
+            StudioSequenceTable Sequences,
+            IReadOnlyList<(int Group, IReadOnlyList<StudioSequence> Sequences)> Groups,
+            Dictionary<string, int> Map);
+
+        /// <summary>The activity map <see cref="ForActivity"/> reads, built once.</summary>
+        private ActivityMap? _activities;
+
+        /// <summary>Every activity's best sequence, by the scan <see cref="ForActivity"/> used to run per call.</summary>
+        /// <returns>Activity name (any case) to merged sequence number.</returns>
+        private Dictionary<string, int> BuildActivities()
+        {
+            Dictionary<string, int> map = new(StringComparer.OrdinalIgnoreCase);
+            Dictionary<string, int> weights = new(StringComparer.OrdinalIgnoreCase);
 
             for (int sequence = 0; sequence < Sequences.Count; sequence++)
             {
                 // Stryker disable all : a mutant that empties the guard body leaves 'where'
-                // unassigned below (CS0170 on its 'Group'/'Local' fields), and Safe Mode then
-                // drops every mutation in this method — B410.
+                // unassigned below (CS0170), and Safe Mode then drops every mutation here — B410.
                 if (Sequences.At(sequence) is not { } where ||
                     where.Group >= Groups.Count ||
                     where.Local >= Groups[where.Group].Sequences.Count)
@@ -2412,20 +2440,17 @@ public static class PropModels
                 // Stryker restore all
                 StudioSequence candidate = Groups[where.Group].Sequences[where.Local];
 
-                if (candidate.ActivityWeight <= 0 ||
-                    !string.Equals(candidate.Activity, activity, StringComparison.OrdinalIgnoreCase))
+                // Strictly greater, so the FIRST sequence of the highest weight wins a tie,
+                // exactly as the per-call scan did.
+                if (candidate.ActivityWeight > 0 &&
+                    candidate.ActivityWeight > weights.GetValueOrDefault(candidate.Activity))
                 {
-                    continue;
-                }
-
-                if (candidate.ActivityWeight > bestWeight)
-                {
-                    bestWeight = candidate.ActivityWeight;
-                    best = sequence;
+                    weights[candidate.Activity] = candidate.ActivityWeight;
+                    map[candidate.Activity] = sequence;
                 }
             }
 
-            return best;
+            return map;
         }
 
         /// <summary>How fast the animation behind a sequence advances, in cycles a second.</summary>
