@@ -34,6 +34,23 @@ public sealed class MomentCostLogTests
             Counters: default,
             Drawn: 0);
 
+    /// <remarks>B578: the four parts of drawlist, each distinct, averaged over two rebuilds and printed in order.</remarks>
+    [Test]
+    public void Report_WithDrawListParts_PrintsEachPartsMean()
+    {
+        MomentCostLog log = new(every: 2);
+        MomentPhases phases = Posing(0) with
+        {
+            DrawList = 10 * Millisecond,
+            DrawListParts = new DrawListParts(1 * Millisecond, 2 * Millisecond, 3 * Millisecond, 4 * Millisecond),
+        };
+
+        _ = log.Report(phases, sampleTicks: 0);
+        string? line = log.Report(phases with { DrawListParts = phases.DrawListParts with { Filters = 6 * Millisecond } }, 0);
+
+        Assert.That(line, Does.Contain("drawlist 10 (prepare 1, players 2, place 3, filters 5)"));
+    }
+
     [Test]
     public void Report_BeforeTheCountIsReached_SaysNothing()
     {
