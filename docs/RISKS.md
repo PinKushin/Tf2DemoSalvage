@@ -40074,8 +40074,9 @@ reddens four tests), and a child's drawn size against its own scale alone.
 chosen), rebuilt if a `with` copy replaces `Sequences` or `Groups`. Held by `ForActivityMapTests`: equal to the old scan on
 200 generated models × 7 names (duplicates, mixed case, weights −2..3, missing names); three sabotages (`>=`, ordinal
 comparer, no staleness check) each turned it red. **Measured** (`measurements/2026-10-24-b583-b584-model-lookups.md`):
-gummo first person, `pose setup` 0.78-0.80 → 0.67-0.68 ms (measurements/2026-10-24-b583-b584-model-lookups.md). The
-code-read estimate of 0.6-1.0 ms was about 6x high.
+B584 alone (build M), gummo first person: `pose setup` 0.78-0.80 → 0.69-0.70 ms, `models` (`Pack`) 0.10 → 0.00-0.02, about
+0.25 MB a frame less allocation, frame −0.2 to −0.35 ms (measurements/2026-10-24-b583-b584-model-lookups.md). The code-read
+estimate of 0.6-1.0 ms was 2-3x high on the frame.
 
 **Divergence kept, now named:** the engine weights a sequence by `iabs(actweight)` and turns a weight of 0 into 1
 (`studio.cpp:1728`, `:1822-1829`), so a negative or zero weight is still selectable there; ours refuses weight ≤ 0, as the
@@ -40093,10 +40094,10 @@ pointer. **Fixed** (`698d2716`): the loop takes `ResolvedFor(prop)` once and rea
 existing resolution tests: making `ResolvedFor` never re-resolve reddened
 `Instances_AModelAddedAfterThePropWasSeen_IsDrawnThatFrame` and `Instances_TheSameObjectNextFrame_ResolvesItsModelOnce`.
 **Survivor:** replacing the per-frame clamp with frame 0 in the empty-batches check left Scene.Tests green; the old
-`Batches(path, frame)` path was equally untested (needs a model with an empty baked frame). **Measured** (same record):
-`models` 0.11-0.13 → 0.00 ms first person and 0.10 → 0.00-0.01 on the empty view (measurements/2026-10-24-b583-b584-model-lookups.md);
-the frame fell 0.59 ms first person and 0.27 ms empty for both changes together (measurements/2026-10-24-b583-b584-model-lookups.md),
-more than the timed stages moved (unexplained). The code-read estimate of 1.0-1.5 ms was high.
+`Batches(path, frame)` path was equally untested (needs a model with an empty baked frame). **Measured: a null result** (measurements/2026-10-24-b583-b584-model-lookups.md): against the B584-only build, no timed
+stage moves and the empty view overlaps; a 0.2-0.3 ms first-person frame difference has no stage under it and is not
+claimed. The code-read estimate of 1.0-1.5 ms was wrong; the loop visits only the collated props, not all ~1,600 (*read from
+code*). **Not checked:** a frame-hash comparison on a real demo (B580's method); held only by the unit tests.
 
 **Not done:** `SkinSwap` and `EntityTint` (`Instances.cs` `swap` part, 0.02-0.05 ms, measurements/2026-10-24-b583-b584-model-lookups.md run t00), the once-per-model report
 probe (`:464`), `Simulation.cs:458`, `FacesAndLighting.cs:440` and `Autoplay.cs:681-683` are still keyed by path.
