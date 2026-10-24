@@ -417,6 +417,18 @@ public sealed partial class EntityModelSet : Hud.IMdlCache, IPosedEntities
     /// <summary>What a static prop's colour mesh and its full-lighting state have cost, ever.</summary>
     public long BakedTicks { get; set; }
 
+    /// <summary>Static props whose colour mesh was built (a cache miss in <c>BakedColoursOf</c>), ever (B595).</summary>
+    public int BakedBuilds { get; private set; }
+
+    /// <summary>What those builds cost, ever, in stopwatch ticks (B595).</summary>
+    public long BakedBuildTicks { get; private set; }
+
+    /// <summary>Model paths packed for the first time, ever (B595).</summary>
+    public int ModelsPacked { get; private set; }
+
+    /// <summary>What the packing calls that packed anything cost, ever, in stopwatch ticks (B595).</summary>
+    public long PackTicks { get; private set; }
+
     /// <summary>What placing, fading and building each drawn instance has cost, ever — the loop after the skin.</summary>
     public long PlaceTicks { get; set; }
 

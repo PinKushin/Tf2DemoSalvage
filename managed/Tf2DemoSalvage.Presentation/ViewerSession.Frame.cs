@@ -240,8 +240,12 @@ public sealed partial class ViewerSession
         GC.GetTotalPauseDuration(),
         _presenter.CameraSpent,
         _presenter.SoundsHeld.Misses,
-        _presenter.Models.Vertices.Count,
-        Tf2DemoSalvage.Content.Assets.ParticleEffect.BirthsBySystem.Count);
+        Tf2DemoSalvage.Content.Assets.ParticleEffect.BirthsBySystem.Count,
+        new ModelFirstUses(
+            _presenter.Models.ModelsPacked,
+            _presenter.Models.PackTicks,
+            _presenter.Models.BakedBuilds,
+            _presenter.Models.BakedBuildTicks));
 
     /// <summary>A slow frame's whole phase split and its counters' deltas, built only for a slow frame.</summary>
     // Stryker disable once all : a mutated interpolated string cannot bind to its handler (CS1620) and Safe Mode drops the method - B410

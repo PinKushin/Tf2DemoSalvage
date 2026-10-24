@@ -15,7 +15,7 @@ public readonly record struct CameraTotals(long View, long SetCamera, long Wait,
 /// <remarks>
 /// **Every value is the producer's own running total, differenced** (B243): the JIT's per-thread and process counters
 /// (<see cref="System.Runtime.JitInfo"/>), the collector's pause, the camera's timers where they ran, the sound cache's
-/// in-frame decode count, the CPU vertex count models are loaded into, and how many particle systems have ever been born.
+/// in-frame decode count, the model set's packs and colour-mesh builds (the CPU vertex count was dead under GPU skinning), and how many particle systems have ever been born.
 /// Read at the same instant as the ledger's frame boundary, so a frame's window and its counters' window are one window
 /// — the stall that read "mostly between, gc paused 0 ms" had its pause read over a window that excluded between.
 /// </remarks>
@@ -25,8 +25,8 @@ public readonly record struct CameraTotals(long View, long SetCamera, long Wait,
 /// <param name="GcPaused">The collector's total pause so far.</param>
 /// <param name="Camera">The camera's pieces so far.</param>
 /// <param name="SoundDecodes">Sound decodes inside a frame so far.</param>
-/// <param name="ModelVertices">Entity model vertices held on the CPU.</param>
 /// <param name="ParticleSystems">Distinct particle systems ever born.</param>
+/// <param name="Models">Model paths packed and static-prop colour meshes built, with their ticks, from the model set.</param>
 public readonly record struct FrameCounters(
     long MainJitMethods,
     TimeSpan MainJit,
@@ -34,8 +34,8 @@ public readonly record struct FrameCounters(
     TimeSpan GcPaused,
     CameraTotals Camera,
     int SoundDecodes,
-    int ModelVertices,
-    int ParticleSystems)
+    int ParticleSystems,
+    ModelFirstUses Models)
 {
     /// <summary>What ran between an earlier reading and this one.</summary>
     /// <param name="start">The earlier reading.</param>
@@ -53,7 +53,16 @@ public readonly record struct FrameCounters(
             $"; camera view {ms(Camera.View - start.Camera.View):0.0} setcamera {ms(Camera.SetCamera - start.Camera.SetCamera):0.0}" +
             $" wait {ms(Camera.Wait - start.Camera.Wait):0.0} pose {ms(Camera.Pose - start.Camera.Pose):0.0}" +
             $" particles {ms(Camera.Particles - start.Camera.Particles):0.0}" +
-            $"; first uses: sound decodes {SoundDecodes - start.SoundDecodes}, model vertices +{ModelVertices - start.ModelVertices}" +
+            $"; first uses: sound decodes {SoundDecodes - start.SoundDecodes}" +
+            $", models packed +{Models.Packed - start.Models.Packed} {ms(Models.PackTicks - start.Models.PackTicks):0.0} ms" +
+            $", baked built +{Models.Baked - start.Models.Baked} {ms(Models.BakedTicks - start.Models.BakedTicks):0.0} ms" +
             $", particle systems +{ParticleSystems - start.ParticleSystems}");
     }
 }
+
+/// <summary>The model set's first-use running totals (B595).</summary>
+/// <param name="Packed">Model paths packed.</param>
+/// <param name="PackTicks">Ticks spent in packing calls that packed something.</param>
+/// <param name="Baked">Static-prop colour meshes built.</param>
+/// <param name="BakedTicks">Ticks spent building them.</param>
+public readonly record struct ModelFirstUses(int Packed, long PackTicks, int Baked, long BakedTicks);

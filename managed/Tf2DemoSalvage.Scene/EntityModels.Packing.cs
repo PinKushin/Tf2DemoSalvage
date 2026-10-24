@@ -147,6 +147,9 @@ public sealed partial class EntityModelSet
         ArgumentNullException.ThrowIfNull(props);
         ArgumentNullException.ThrowIfNull(load);
 
+        long packAt = System.Diagnostics.Stopwatch.GetTimestamp();
+        int before = _byModel.Count;
+
         bool added = PackModels(props, load);
 
         // **The static props once a level, after the moment's own** — the order they were packed in when they rode the
@@ -155,6 +158,12 @@ public sealed partial class EntityModelSet
         {
             _staticsPacked = true;
             added |= PackModels(_staticProps, load);
+        }
+
+        if (added)
+        {
+            ModelsPacked += _byModel.Count - before;
+            PackTicks += System.Diagnostics.Stopwatch.GetTimestamp() - packAt;
         }
 
         return added;
