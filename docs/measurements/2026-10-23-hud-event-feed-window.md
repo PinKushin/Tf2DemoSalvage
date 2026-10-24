@@ -37,4 +37,23 @@ The figure read is the `hud events` stage's per-second lines, and the frame mean
 
 ## Result
 
+Builds were copied to `D:/measure-f12/b579-before` and `b579-after` (the scratch path was too long for `Start-Process`).
+Raw outputs were kept in the session scratch directory and not committed. Order: b1, a1, b2, a2.
+
+| run | frames | mean ms | load before / after | `hud events` per-second lines, ms |
+|---|---:|---:|---|---|
+| empty b1 | 3,857 | 5.19 | 18,21,20 / 9 | 0.13-0.17, median 0.14 |
+| empty a1 | 3,897 | 5.13 | 19,23,7 / 5 | 0-0.01, median 0 |
+| empty b2 | 3,619 | 5.53 | 15,15,10 / 25 | 0.13-0.20, median 0.15 |
+| empty a2 | 2,371 | 8.45 | 7,17,11 / **90** | 0-0.02, median 0.01 |
+
+Every run ended near tick 31,345, about 1,330 ticks of playback (the control passes). `hud events` was present and
+non-zero in both before runs (control passes). **Gummo first person: not measured.** The quiet gate refused all four
+runs (load 20-100%: another workload started), so no figure was taken.
+
 ## Verdict
+
+**Confirmed on the empty view:** `hud events` falls from 0.13-0.20 ms to 0-0.02 ms, about 0.13 ms. That is far outside
+either build's own spread (0.07 ms before, 0.02 ms after), and the drop holds even in a2, which was loaded by the end.
+The saving is below the prediction's 0.1-0.25 band midpoint, but inside the band. The frame mean is not claimed: it is
+inside the run-to-run spread (5.13-8.45 ms). The first-person scene is still open.
