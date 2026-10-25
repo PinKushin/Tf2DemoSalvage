@@ -50,6 +50,10 @@ public sealed partial class EntityModelSet
     /// <summary>The bone-clock frame the last world pass ran on (finding 102).</summary>
     private long _worldBoneFrame;
 
+    /// <summary>Each instance list's matrices, rewritten in place when that list is rebuilt (B585, <see cref="InstanceMatrices"/>).</summary>
+    private readonly Dictionary<ICollection<ModelInstance>, InstanceMatrices> _matrices =
+        new(ReferenceEqualityComparer.Instance);
+
     /// <summary>Where each model stands at this moment.</summary>
     /// <param name="props">What exists at this tick.</param>
     /// <param name="into">Filled with one entry per drawable entity; cleared first.</param>
@@ -89,6 +93,14 @@ public sealed partial class EntityModelSet
         ArgumentNullException.ThrowIfNull(into);
 
         into.Clear();
+
+        if (!_matrices.TryGetValue(into, out InstanceMatrices? matrices))
+        {
+            matrices = new InstanceMatrices();
+            _matrices[into] = matrices;
+        }
+
+        matrices.Reset();
         _reports.BeginPass();
         Culled = 0;
         CulledByVisibility = 0;
@@ -726,7 +738,7 @@ public sealed partial class EntityModelSet
             long boundAt = System.Diagnostics.Stopwatch.GetTimestamp();
             PlaceBindsTicks += boundAt - buildingAt;
 
-            float[] matrix = transform.ToMatrix();
+            float[] matrix = matrices.Next(transform);
             long matrixAt = System.Diagnostics.Stopwatch.GetTimestamp();
             PlaceMatrixTicks += matrixAt - boundAt;
             IReadOnlyDictionary<int, int>? swap = SkinSwap(prop.ModelPath, skin);
@@ -869,7 +881,7 @@ public sealed partial class EntityModelSet
 
                 into.Add(new ModelInstance(
                     attachment,
-                    transform.ToMatrix(),
+                    matrices.Next(transform),
                     light,
                     sun,
                     frame,
