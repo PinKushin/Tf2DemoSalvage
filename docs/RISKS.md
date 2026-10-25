@@ -40178,7 +40178,20 @@ engine's monitor draw goes through the light cache — a small parity divergence
 by passing `ModelLightingAt`/`ModelSunAt` with a monitor-map test. (c) we pose him whenever a monitor exists, not only
 when the monitor's view collates him — engine-exact would cull him by the monitor frustum; negligible at 6 props.
 
-## B593 — `ScenePropTrack.At` copied the whole pose about six times to read nine numbers — CODE REVERTED before release (2026-10-24; the saving was 0.03 ms in `advance` (measurements/2026-10-24-burst-walk-and-pose-copies.md), and review found the no-bracket fallback not bit-identical: it ran `LoopingLerp(c,c,t)` where main ran `LoopingCurve(c,c,c,t)`, which can differ by an ulp. Not worth a parity risk. To retry, keep the third sample.)
+## B593 — `ScenePropTrack.At` copied the whole pose about six times to read nine numbers — REOPENED and FIXED bit-identical (2026-10-25; first cut reverted 2026-10-24: the saving was 0.03 ms in `advance` (measurements/2026-10-24-burst-walk-and-pose-copies.md), and review found the no-bracket fallback not bit-identical: it ran `LoopingLerp(c,c,t)` where main ran `LoopingCurve(c,c,c,t)`, which can differ by an ulp. Not worth a parity risk. To retry, keep the third sample.)
+
+**The redo keeps the third sample.** What main's fallback passed: `previous` was `shape with { six floats }`, so its
+`Cycle`/`Sequence` are the arrival pose's — always equal to `from`'s and `to`'s — and it is present exactly when the
+simulation `TimeFixup` succeeded. The fallback now returns `held` as the third sample under that same condition, so
+`InterpolateCycle` takes the same branch on the same three values. **The revert was right, not too cautious:** Hermite
+through three equal cycles differs from the lerp of two by an ulp in about 19% of random (cycle, fraction) pairs
+(ten million measured). **The fallback is reachable only after `TrimBefore`** (the first `Add` always appends both
+histories at one arrival tick) — the first cut's "all ends equal" equivalent-mutant reasoning was wrong about the
+values and silent about reach. **Equivalence:** `ScenePropTrackAtBitIdentityTests` folds every output bit of 8000
+seeded tracks (both clocks independent, stillness, sequence changes, wrapping cycles, repeated changetimes, trims) into
+an FNV-1a fingerprint recorded from main's 077d0175 `At`; the copy-free version matches it, and the first cut's fallback
+gives a different hash. Copies removed, by reading the diff: `moving`, `toward`, `previous` and the three `Animated` —
+all six; none kept.
 
 **Evidence class: read from code; profile share** (2.5% G / 4.9% E of samples in `BulkMoveWithWriteBarrier` under `At`).
 `moving`, `toward` and `previous` were `with` copies of the arrival pose for readers of three angles and three positions, and
