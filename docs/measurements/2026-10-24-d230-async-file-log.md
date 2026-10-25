@@ -30,3 +30,23 @@ line. A PowerShell driver kills it with `Process.Kill` 400-1500 ms after launch 
 `lost = (kill time - start) in ms - last number on disk`. 30 kills per arm, interleaved; `sync` is the pre-D230 writer
 (held stream, `AutoFlush`), `async` the real `FileLogWriter`. `freeze` stops the logging thread at line 500 and is
 killed 1.5-2.5 s later.
+
+## Results
+
+### Hard kill (measured; run BEFORE the prediction above was written, so the hard-kill prediction is not blind)
+
+| writer | kills | lines lost (= ms) |
+|---|---|---|
+| sync (pre-D230) | 30 | 0 in 29; one reads -6, clock skew between parent and child |
+| async | 29 valid | median 1; 24 runs 0-2, three 4-7, two 55-56 (the kill landed inside a slow flush) |
+| freeze, then kill | 10 | 0 in all 10: the log was current at the freeze |
+
+Async kill 30 is void: it was killed before it created its folder and the driver reused the previous run's row.
+Raw rows: scratchpad `kills-1/kills.csv`. The loss window is the lines queued at the kill: about 1 ms usually, and as
+long as one slow flush (about 55 ms here) at worst.
+
+### f12 grid — VOID, not yet run
+
+Stopped after run 1. Another agent's measurement held the machine (`run-exclusive` named PID 26616); the quiet gate
+failed both run-1 entries after 30 tries (CPU 39-100%). Nothing from it is used. **Still to run** on a quiet machine,
+with these same arm folders.
