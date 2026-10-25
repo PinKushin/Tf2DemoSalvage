@@ -38,9 +38,13 @@ public sealed class FileLogWriter : IDisposable
     private readonly string _folder;
     private readonly int _kept;
 
+    [ThreadStatic]
+    private static LogWriteTiming _threadTiming;
+
     private StreamWriter? _writer;
     private bool _failed;
     private bool _disposed;
+    private LogWriteTiming _timing;
 
     /// <summary>Opens a log for this run.</summary>
     /// <param name="folder">Where logs are written.</param>
@@ -95,6 +99,22 @@ public sealed class FileLogWriter : IDisposable
         }
     }
 
+    /// <summary>Every line written into this file so far, from every thread: its lock wait and its write-and-flush (B595).</summary>
+    public LogWriteTiming Timing
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _timing;
+            }
+        }
+    }
+
+    /// <summary>The same, for lines the calling thread wrote, into any writer (B595).</summary>
+    /// <remarks>Per thread so the viewer's main thread can difference it over one frame.</remarks>
+    public static LogWriteTiming ThreadTiming => _threadTiming;
+
     /// <summary>Writes one already-formatted line.</summary>
     /// <param name="line">The line, without a trailing newline.</param>
     /// <remarks>
@@ -119,6 +139,8 @@ public sealed class FileLogWriter : IDisposable
             Debug.WriteLine(line);
         }
 
+        long asked = Stopwatch.GetTimestamp();
+
         lock (_gate)
         {
             if (_failed || _disposed || _writer is not { } writer)
@@ -126,9 +148,16 @@ public sealed class FileLogWriter : IDisposable
                 return;
             }
 
+            long entered = Stopwatch.GetTimestamp();
+
             try
             {
                 writer.WriteLine(line);
+
+                // Measured here, where the wait and the flush happen, never recomputed by a caller (B243, B595).
+                LogWriteTiming one = LogWriteTiming.One(entered - asked, Stopwatch.GetTimestamp() - entered);
+                _timing += one;
+                CountOnThisThread(one);
             }
             catch (Exception failure) when (
                 failure is IOException or UnauthorizedAccessException or ArgumentException
@@ -156,6 +185,8 @@ public sealed class FileLogWriter : IDisposable
             _writer = null;
         }
     }
+
+    private static void CountOnThisThread(LogWriteTiming one) => _threadTiming += one;
 
     private void Begin(string? banner)
     {

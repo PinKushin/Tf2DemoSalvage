@@ -146,6 +146,7 @@ internal static class Program
         // than the provider being reached for from inside.
         shell.Session.SetLogVerbosity = level => logs.Minimum = level;
         shell.Session.ApplyLogVerbosity();
+        shell.Session.LogTiming = () => logs.Timing;
 
         // **Three lines that split the last unmeasured stretch of the shutdown** (B402). The form's
         // own log reaches `shutdown: the base returned` and the process still dies, so what is left

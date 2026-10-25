@@ -27,6 +27,7 @@ public readonly record struct CameraTotals(long View, long SetCamera, long Wait,
 /// <param name="SoundDecodes">Sound decodes inside a frame so far.</param>
 /// <param name="ParticleSystems">Distinct particle systems ever born.</param>
 /// <param name="Models">Model paths packed and static-prop colour meshes built, with their ticks, from the model set.</param>
+/// <param name="Log">The reading thread's log writes, timed by the writer itself.</param>
 public readonly record struct FrameCounters(
     long MainJitMethods,
     TimeSpan MainJit,
@@ -35,7 +36,8 @@ public readonly record struct FrameCounters(
     CameraTotals Camera,
     int SoundDecodes,
     int ParticleSystems,
-    ModelFirstUses Models)
+    ModelFirstUses Models,
+    Logging.LogWriteTiming Log)
 {
     /// <summary>What ran between an earlier reading and this one.</summary>
     /// <param name="start">The earlier reading.</param>
@@ -56,7 +58,8 @@ public readonly record struct FrameCounters(
             $"; first uses: sound decodes {SoundDecodes - start.SoundDecodes}" +
             $", models packed +{Models.Packed - start.Models.Packed} {ms(Models.PackTicks - start.Models.PackTicks):0.0} ms" +
             $", baked built +{Models.Baked - start.Models.Baked} {ms(Models.BakedTicks - start.Models.BakedTicks):0.0} ms" +
-            $", particle systems +{ParticleSystems - start.ParticleSystems}");
+            $", particle systems +{ParticleSystems - start.ParticleSystems}" +
+            $"; log {Log - start.Log}");
     }
 }
 

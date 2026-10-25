@@ -229,6 +229,9 @@ public sealed partial class ViewerSession
     /// <summary>The same at the measurement's start.</summary>
     private FrameCounters _countersAtStart;
 
+    /// <summary>Every thread's log writes at the measurement's start (B595).</summary>
+    private Logging.LogWriteTiming _logAtStart;
+
     /// <summary>Whether <see cref="_lastCounters"/> holds a boundary of this measurement.</summary>
     private bool _counted;
 
@@ -245,7 +248,8 @@ public sealed partial class ViewerSession
             _presenter.Models.ModelsPacked,
             _presenter.Models.PackTicks,
             _presenter.Models.BakedBuilds,
-            _presenter.Models.BakedBuildTicks));
+            _presenter.Models.BakedBuildTicks),
+        Logging.FileLogWriter.ThreadTiming);
 
     /// <summary>A slow frame's whole phase split and its counters' deltas, built only for a slow frame.</summary>
     // Stryker disable once all : a mutated interpolated string cannot bind to its handler (CS1620) and Safe Mode drops the method - B410
@@ -348,6 +352,10 @@ public sealed partial class ViewerSession
                 $"; baked built {jitNow.Models.Baked - _countersAtStart.Models.Baked}, {(jitNow.Models.BakedTicks - _countersAtStart.Models.BakedTicks) * 1000d / Stopwatch.Frequency:0.0} ms" +
                 $"; before play: models packed {_countersAtStart.Models.Packed}, {_countersAtStart.Models.PackTicks * 1000d / Stopwatch.Frequency:0.0} ms" +
                 $"; baked built {_countersAtStart.Models.Baked}, {_countersAtStart.Models.BakedTicks * 1000d / Stopwatch.Frequency:0.0} ms"));
+            // The writer's own timing of every line in the window (B595): the main thread's, then every thread's.
+            _host.Out.WriteLine(
+                "  log writes: main thread " + (jitNow.Log - _countersAtStart.Log) +
+                (LogTiming is { } logTiming ? "; all threads " + (logTiming() - _logAtStart) : string.Empty));
             _host.Out.WriteLine("  " + _effects.ParticleCost.Since(_particlesAtStart, _framesMeasured));
             _host.Out.WriteLine("  " + _effects.ParticleWork.Since(_particleWorkAtStart, _framesMeasured));
             _host.Out.WriteLine("  " + ParticleBirths.Since(_birthsAtStart, Tf2DemoSalvage.Content.Assets.ParticleEffect.BirthsBySystem, _frameSeconds, 12));
@@ -539,6 +547,7 @@ public sealed partial class ViewerSession
                 _pauses = new PauseLedger(Stopwatch.Frequency);
                 _counted = false;
                 _countersAtStart = ReadCounters();
+                _logAtStart = LogTiming?.Invoke() ?? default;
                 _pausesFrom = Stopwatch.GetTimestamp();
                 _heartbeat?.Dispose();
                 _heartbeat = new Heartbeat(_pauses);
