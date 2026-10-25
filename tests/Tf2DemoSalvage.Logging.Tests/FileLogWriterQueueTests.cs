@@ -95,17 +95,24 @@ public sealed class FileLogWriterQueueTests
         writer.Write("first");
         sink.Entered.Wait(Patience).ShouldBeTrue();
 
-        Task writes = Task.Run(() =>
+        try
         {
-            for (int i = 0; i < 1_000; i++)
+            Task writes = Task.Run(() =>
             {
-                writer.Write("more");
-            }
-        });
+                for (int i = 0; i < 1_000; i++)
+                {
+                    writer.Write("more");
+                }
+            });
 
-        writes.Wait(Patience).ShouldBeTrue();
-        sink.Release.IsSet.ShouldBeFalse();
-        sink.Release.Set();
+            writes.Wait(Patience).ShouldBeTrue("a write waited on the stalled sink");
+            sink.Release.IsSet.ShouldBeFalse();
+        }
+        finally
+        {
+            // Released either way, so a failure here is a red test rather than a hung host.
+            sink.Release.Set();
+        }
     }
 
     [Test]
@@ -172,6 +179,26 @@ public sealed class FileLogWriterQueueTests
             Assert.That(writer.Timing.Writes, Is.EqualTo(3));
             Assert.That(writer.Timing.WaitTicks, Is.Zero, "the writer enqueues nothing");
         });
+    }
+
+    [Test]
+    public void Write_AfterDispose_IsANoOpThatNeitherThrowsNorBlocks()
+    {
+        // A component that logs during its own late dispose, after the log closed, must cost nothing.
+        StringWriter sink = new();
+        FileLogWriter writer = new(sink, capacity: 64, background: true);
+        writer.Write("before");
+        writer.Dispose();
+
+        Task late = Task.Run(() =>
+        {
+            writer.Write("after");
+            writer.Flush(Patience);
+            writer.Dispose();
+        });
+
+        late.Wait(Patience).ShouldBeTrue();
+        sink.ToString().ShouldBe("before" + Environment.NewLine);
     }
 
     private static string NewFolder() => Path.Combine(Path.GetTempPath(), $"tf2ds-logqueue-{Guid.NewGuid():N}");

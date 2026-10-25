@@ -22,6 +22,7 @@
     <Project Path="tests/Tf2DemoSalvage.Corpus.Tests/Tf2DemoSalvage.Corpus.Tests.csproj" />
     <Project Path="tests/Tf2DemoSalvage.Fonts.Tests/Tf2DemoSalvage.Fonts.Tests.csproj" />
     <Project Path="tests/Tf2DemoSalvage.Fuzz/Tf2DemoSalvage.Fuzz.csproj" />
+    <Project Path="tests/Tf2DemoSalvage.Logging.KillHelper/Tf2DemoSalvage.Logging.KillHelper.csproj" />
     <Project Path="tests/Tf2DemoSalvage.Logging.Tests/Tf2DemoSalvage.Logging.Tests.csproj" />
     <Project Path="tests/Tf2DemoSalvage.Presentation.Tests/Tf2DemoSalvage.Presentation.Tests.csproj" />
     <Project Path="tests/Tf2DemoSalvage.Rendering.Tests/Tf2DemoSalvage.Rendering.Tests.csproj" />
