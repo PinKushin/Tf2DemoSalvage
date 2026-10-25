@@ -249,7 +249,9 @@ public sealed partial class ViewerSession
             _presenter.Models.PackTicks,
             _presenter.Models.BakedBuilds,
             _presenter.Models.BakedBuildTicks),
-        Logging.FileLogWriter.ThreadTiming);
+        Logging.FileLogWriter.ThreadTiming,
+        Tf2DemoSalvage.Content.Assets.GameArchives.ThreadReads,
+        Tf2DemoSalvage.Content.Assets.ArchiveReadTiming.ProcessPageFaults());
 
     /// <summary>A slow frame's whole phase split and its counters' deltas, built only for a slow frame.</summary>
     // Stryker disable once all : a mutated interpolated string cannot bind to its handler (CS1620) and Safe Mode drops the method - B410
@@ -352,6 +354,9 @@ public sealed partial class ViewerSession
                 $"; baked built {jitNow.Models.Baked - _countersAtStart.Models.Baked}, {(jitNow.Models.BakedTicks - _countersAtStart.Models.BakedTicks) * 1000d / Stopwatch.Frequency:0.0} ms" +
                 $"; before play: models packed {_countersAtStart.Models.Packed}, {_countersAtStart.Models.PackTicks * 1000d / Stopwatch.Frequency:0.0} ms" +
                 $"; baked built {_countersAtStart.Models.Baked}, {_countersAtStart.Models.BakedTicks * 1000d / Stopwatch.Frequency:0.0} ms"));
+            _host.Out.WriteLine(
+                "  main thread archive reads: " + (jitNow.Reads - _countersAtStart.Reads) +
+                "; process page faults " + (jitNow.PageFaults - _countersAtStart.PageFaults).ToString(CultureInfo.InvariantCulture));
             // The writer's own timing of the window (B595, D230): the main thread's enqueues ("wait"), then the
             // writer thread's batches, then its queue over the whole run.
             _host.Out.WriteLine(
