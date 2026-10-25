@@ -25,7 +25,7 @@
 - [BSP lumps are compressed](bsp-lumps-are-compressed.md); [vrad key arithmetic ≠ the lump](vrad-key-arithmetic-is-not-the-lump.md).
 - [UI tests run every time](ui-tests-run-every-time.md); [take the desktop lock](take-the-desktop-lock-dont-defer.md); [announce before launching](announce-before-launching.md).
 - [A UIA-expanded menu eats later keys](a-uia-expanded-menu-eats-later-keys.md); [UI tests use no real input unless forced](ui-tests-use-no-real-input-unless-forced.md); [a test can outlive its design](a-test-can-outlive-its-design.md).
-- [Instrument bugs outnumber decoder bugs](instrument-bugs-outnumber-decoder-bugs.md) — absence needs a control (B443); [denominator decides loss](the-denominator-decides-what-can-be-lost.md); [logs are the debugger](logs-are-the-debugger.md).
+- [Instrument bugs outnumber decoder bugs](instrument-bugs-outnumber-decoder-bugs.md) — absence needs a control (B443); [denominator decides loss](the-denominator-decides-what-can-be-lost.md); [logs are the debugger](logs-are-the-debugger.md); [logging on a background thread](logging-goes-on-a-background-thread.md) (D230).
 - [One place or it drifts](one-place-or-it-drifts.md); [key a lookup on the question](key-a-lookup-on-the-question.md).
 - [Most of a decoder is untested](most-of-a-decoder-is-untested.md); [boundaries find what tests cannot](boundaries-find-what-tests-cannot.md); [a grouped sabotage can redden for the wrong reason](a-grouped-sabotage-can-redden-for-the-wrong-reason.md).
 - [Sentinels conflate unknown with answer](sentinels-conflate-unknown-with-answer.md); [a neutral default must be neutral](a-neutral-default-must-be-neutral.md).
