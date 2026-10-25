@@ -7,7 +7,8 @@ namespace Tf2DemoSalvage.Content.Assets;
 /// <param name="Reads">Calls made.</param>
 /// <param name="Ticks">Stopwatch ticks spent inside them.</param>
 /// <param name="SlowReads">Calls that took longer than <see cref="SlowMilliseconds"/>.</param>
-public readonly partial record struct ArchiveReadTiming(long Reads, long Ticks, long SlowReads)
+/// <param name="LastSlowPath">The path of the latest slow call, carried from it; kept by a difference.</param>
+public readonly partial record struct ArchiveReadTiming(long Reads, long Ticks, long SlowReads, string? LastSlowPath = null)
 {
     /// <summary>The threshold a read must exceed to count as slow.</summary>
     public const double SlowMilliseconds = 5d;
@@ -15,10 +16,13 @@ public readonly partial record struct ArchiveReadTiming(long Reads, long Ticks, 
     /// <summary>This reading with one more call of <paramref name="ticks"/> added.</summary>
     /// <param name="ticks">The call's length in Stopwatch ticks.</param>
     /// <returns>The new total.</returns>
-    public ArchiveReadTiming Add(long ticks) => new(
-        Reads + 1,
-        Ticks + ticks,
-        SlowReads + (ticks * 1000d / System.Diagnostics.Stopwatch.Frequency > SlowMilliseconds ? 1 : 0));
+    /// <param name="path">The path the call read.</param>
+    public ArchiveReadTiming Add(long ticks, string path)
+    {
+        bool slow = ticks * 1000d / System.Diagnostics.Stopwatch.Frequency > SlowMilliseconds;
+
+        return new(Reads + 1, Ticks + ticks, SlowReads + (slow ? 1 : 0), slow ? path : LastSlowPath);
+    }
 
     /// <summary>The calls between an earlier reading and this one.</summary>
     /// <param name="left">This reading.</param>
@@ -30,13 +34,14 @@ public readonly partial record struct ArchiveReadTiming(long Reads, long Ticks, 
     /// <param name="earlier">The earlier reading.</param>
     /// <returns>The difference.</returns>
     public ArchiveReadTiming Subtract(ArchiveReadTiming earlier) =>
-        new(Reads - earlier.Reads, Ticks - earlier.Ticks, SlowReads - earlier.SlowReads);
+        new(Reads - earlier.Reads, Ticks - earlier.Ticks, SlowReads - earlier.SlowReads,
+            SlowReads > earlier.SlowReads ? LastSlowPath : null);
 
     /// <inheritdoc/>
     // Stryker disable once all : a mutated interpolated string cannot bind to its handler (CS1620) and Safe Mode drops the method - B410
     public override string ToString() => string.Create(
         CultureInfo.InvariantCulture,
-        $"{Reads} reads {Ticks * 1000d / System.Diagnostics.Stopwatch.Frequency:0.0} ms, {SlowReads} over {SlowMilliseconds:0} ms");
+        $"{Reads} reads {Ticks * 1000d / System.Diagnostics.Stopwatch.Frequency:0.0} ms, {SlowReads} over {SlowMilliseconds:0} ms{(LastSlowPath is null ? string.Empty : " (last: " + LastSlowPath + ")")}");
 
     /// <summary>The process's page faults so far, soft and hard together, from <c>GetProcessMemoryInfo</c>; 0 off Windows.</summary>
     /// <returns>The count.</returns>

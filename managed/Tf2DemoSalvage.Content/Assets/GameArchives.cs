@@ -362,11 +362,11 @@ public sealed class GameArchives
         }
         finally
         {
-            CountRead(System.Diagnostics.Stopwatch.GetTimestamp() - began);
+            CountRead(System.Diagnostics.Stopwatch.GetTimestamp() - began, path);
         }
     }
 
-    private static void CountRead(long ticks) => _threadReads = _threadReads.Add(ticks);
+    private static void CountRead(long ticks, string path) => _threadReads = _threadReads.Add(ticks, path);
 
     /// <summary>This thread's <see cref="Read"/> calls so far, timed where they ran (B595 part 5).</summary>
     /// <remarks>Per thread, so the main thread's reading is the main thread's own reads; differenced per frame by the reader.</remarks>
