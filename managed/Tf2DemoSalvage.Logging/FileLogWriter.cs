@@ -218,7 +218,10 @@ public sealed class FileLogWriter : IDisposable
         try
         {
             Drain();
-            return true;
+
+            // True only when the lines reached a sink: not after a sink failure (lines left queued), and not after
+            // Dispose or a file that never opened (nothing written at all).
+            return !_failed && _writer is not null;
         }
         finally
         {

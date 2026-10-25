@@ -225,6 +225,55 @@ public sealed class FileLogWriterQueueTests
         writer.Write("b");
     }
 
+    [Test]
+    public void Flush_WhenTheSinkFailsMidDrain_ReturnsFalse()
+    {
+        using FileLogWriter writer = new(new ThrowingSink(), capacity: 64, background: false);
+        writer.Write("a");
+
+        writer.Flush(Patience).ShouldBeFalse("the line never reached the sink");
+    }
+
+    [Test]
+    public void Flush_AfterDispose_ReturnsFalse()
+    {
+        FileLogWriter writer = new(new StringWriter(), capacity: 64, background: true);
+        writer.Dispose();
+
+        writer.Flush(Patience).ShouldBeFalse("a closed log writes nothing");
+    }
+
+    [Test]
+    public void Flush_WhenTheFileNeverOpened_ReturnsFalse()
+    {
+        string folder = NewFolder();
+        Directory.CreateDirectory(folder);
+        string blocked = Path.Combine(folder, "a-file");
+        File.WriteAllText(blocked, "not a directory");
+
+        try
+        {
+            using FileLogWriter writer = new(blocked, "never");
+            writer.Write("a");
+
+            writer.Flush(Patience).ShouldBeFalse();
+        }
+        finally
+        {
+            Directory.Delete(folder, recursive: true);
+        }
+    }
+
+    [Test]
+    public void Flush_WithEverythingWritten_ReturnsTrue()
+    {
+        // The control for the three above: a working sink with nothing left reports true.
+        using FileLogWriter writer = new(new StringWriter(), capacity: 64, background: true);
+        writer.Write("a");
+
+        writer.Flush(Patience).ShouldBeTrue();
+    }
+
     private static bool WaitFor(Func<bool> condition)
     {
         Stopwatch waited = Stopwatch.StartNew();
