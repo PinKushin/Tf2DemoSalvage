@@ -37,7 +37,12 @@ empty name, read and missed.
 
 ## Before / after (measured: 5 interleaved 60 s runs, f12 tick 30000, gummo first person, Debug, quiet gate each run)
 
-BEFORE is this branch with the two precache calls absent; both carry the instrument and the VGUI decode share.
+BEFORE was built from `6d4a692a` (instrument + VGUI decode share) plus the uncommitted first `TfWeaponData` cache with its
+manifest precache call commented out; it has neither `FaceSources.PrecacheLengths` nor `WeaponMuzzleFlashes.Precache`. No
+commit reproduces it exactly. AFTER is `a92b2ab2`. **Load-time cost of the face-length precache (measured, viewer log, the
+five after runs): 51.5-65.9 ms warm**, on the load thread. The weapon-script precache runs on the main thread in the
+first `BurstEffects.Step` (two files per schema item class); its cost and whether that frame is before `--measure`'s
+counting were **not measured** — the 0 in-play reads show only that it was not counted.
 
 | run | before mean ms | before reads in play | before > 50 / > 100 | after mean ms | after reads | after > 50 / > 100 |
 |---|---|---|---|---|---|---|
