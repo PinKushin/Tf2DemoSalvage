@@ -213,7 +213,197 @@ public sealed class FileLogWriterQueueTests
         sink.ToString().ShouldBe("before" + Environment.NewLine);
     }
 
+    [Test]
+    public void Write_WhenTheSinkThrowsAnUnlistedType_AbandonsTheLogAndTheProcessSurvives()
+    {
+        // NotSupportedException is not one of the IO types Drain used to catch; unhandled on the writer
+        // thread it would end the process, which "failure to log never fails the caller" forbids.
+        using FileLogWriter writer = new(new ThrowingSink(), capacity: 64, background: true);
+        writer.Write("a");
+
+        WaitFor(() => writer.Failed).ShouldBeTrue("the writer gave up on the sink");
+        writer.Write("b");
+    }
+
+    [Test]
+    public void Flush_WhenTheSinkFailsMidDrain_ReturnsFalse()
+    {
+        using FileLogWriter writer = new(new ThrowingSink(), capacity: 64, background: false);
+        writer.Write("a");
+
+        writer.Flush(Patience).ShouldBeFalse("the line never reached the sink");
+    }
+
+    [Test]
+    public void Flush_AfterDispose_ReturnsFalse()
+    {
+        FileLogWriter writer = new(new StringWriter(), capacity: 64, background: true);
+        writer.Dispose();
+
+        writer.Flush(Patience).ShouldBeFalse("a closed log writes nothing");
+    }
+
+    [Test]
+    public void Flush_WhenTheFileNeverOpened_ReturnsFalse()
+    {
+        string folder = NewFolder();
+        Directory.CreateDirectory(folder);
+        string blocked = Path.Combine(folder, "a-file");
+        File.WriteAllText(blocked, "not a directory");
+
+        try
+        {
+            using FileLogWriter writer = new(blocked, "never");
+            writer.Write("a");
+
+            writer.Flush(Patience).ShouldBeFalse();
+        }
+        finally
+        {
+            Directory.Delete(folder, recursive: true);
+        }
+    }
+
+    [Test]
+    public void Flush_WithEverythingWritten_ReturnsTrue()
+    {
+        // The control for the three above: a working sink with nothing left reports true.
+        using FileLogWriter writer = new(new StringWriter(), capacity: 64, background: true);
+        writer.Write("a");
+
+        writer.Flush(Patience).ShouldBeTrue();
+    }
+
+    [Test]
+    public void Flush_WhileAProducerKeepsWriting_Returns()
+    {
+        // The worst producer: one new line for every line drained, as a chatty thread during ProcessExit can be.
+        // A drain that reads until the queue is empty never empties it.
+        FeedingSink sink = new();
+        using FileLogWriter writer = new(sink, capacity: 1 << 16, background: false);
+        sink.Feed = writer;
+        writer.Write("first");
+
+        Task flush = Task.Run(() => writer.Flush(Patience));
+
+        bool returned = flush.Wait(Patience);
+        sink.Stop = true;
+        returned.ShouldBeTrue("the drain chased the producer instead of taking what was queued");
+    }
+
+    [Test]
+    public void Flush_WithAWriterThread_NeverWritesOnTheCallingThread()
+    {
+        // A crash handler's Flush must not do disk IO itself: with the writer thread idle and the disk stalled, an
+        // inline drain hangs the handler past its timeout. So every write must come from the writer thread.
+        ThreadRecordingSink sink = new();
+        using FileLogWriter writer = new(sink, capacity: 1 << 16, background: true);
+
+        for (int i = 0; i < 50; i++)
+        {
+            writer.Write(i.ToString(CultureInfo.InvariantCulture));
+            writer.Flush(Patience).ShouldBeTrue();
+        }
+
+        sink.Threads.ShouldBe(["file log writer"]);
+    }
+
+    [Test]
+    public void Flush_WhileTheSinkIsStalled_ReturnsFalseWithinItsTimeout()
+    {
+        using StalledSink sink = new();
+        using FileLogWriter writer = new(sink, capacity: 64, background: true);
+
+        try
+        {
+            _ = Task.Run(() => writer.Write("a"));
+            sink.Entered.Wait(Patience).ShouldBeTrue();
+            writer.Write("b");
+
+            Stopwatch took = Stopwatch.StartNew();
+            Task<bool> flush = Task.Run(() => writer.Flush(TimeSpan.FromMilliseconds(200)));
+
+            flush.Wait(Patience).ShouldBeTrue("Flush outlived its own timeout by seconds");
+            flush.Result.ShouldBeFalse();
+            took.ElapsedMilliseconds.ShouldBeLessThan(1_000);
+        }
+        finally
+        {
+            sink.Release.Set();
+        }
+    }
+
+    private static bool WaitFor(Func<bool> condition)
+    {
+        Stopwatch waited = Stopwatch.StartNew();
+
+        while (!condition())
+        {
+            if (waited.Elapsed > Patience)
+            {
+                return false;
+            }
+
+            Thread.SpinWait(10_000);
+        }
+
+        return true;
+    }
+
     private static string NewFolder() => Path.Combine(Path.GetTempPath(), $"tf2ds-logqueue-{Guid.NewGuid():N}");
+
+    /// <summary>A sink that records the name of every thread that wrote to it.</summary>
+    private sealed class ThreadRecordingSink : TextWriter
+    {
+        private readonly HashSet<string> _threads = [];
+
+        public override Encoding Encoding => Encoding.UTF8;
+
+        public string[] Threads
+        {
+            get
+            {
+                lock (_threads)
+                {
+                    return [.. _threads];
+                }
+            }
+        }
+
+        public override void Write(char value)
+        {
+            lock (_threads)
+            {
+                _threads.Add(Thread.CurrentThread.Name ?? "(unnamed)");
+            }
+        }
+    }
+
+    /// <summary>A sink that queues another line for every line it is given, until stopped.</summary>
+    private sealed class FeedingSink : TextWriter
+    {
+        public FileLogWriter? Feed { get; set; }
+
+        public volatile bool Stop;
+
+        public override Encoding Encoding => Encoding.UTF8;
+
+        public override void WriteLine(string? value)
+        {
+            if (!Stop)
+            {
+                Feed?.Write("more");
+            }
+        }
+    }
+
+    /// <summary>A sink that throws a type no IO path names: an encoder fallback, a custom writer.</summary>
+    private sealed class ThrowingSink : TextWriter
+    {
+        public override Encoding Encoding => Encoding.UTF8;
+
+        public override void Write(char value) => throw new NotSupportedException("this sink cannot write");
+    }
 
     /// <summary>A sink whose first write blocks until released: a disk that stopped answering.</summary>
     private sealed class StalledSink : TextWriter

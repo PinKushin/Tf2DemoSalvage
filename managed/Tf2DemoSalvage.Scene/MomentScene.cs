@@ -1655,8 +1655,8 @@ public sealed class MomentScene : IGameSystemPerFrame
         // A count of materials cannot tell those apart; this can.
         //
         // **When the SKIN changes, not whenever the viewmodel does** (B595). `scene.Changed` fires on every sequence
-        // change, and each line is a flushed file write on this thread — 90-118 ms a line on f12, every one of the
-        // in-play `viewmodel` stalls. B191's ruling: stop writing lines nobody asked for, keep the flush.
+        // change, and each line WAS a flushed file write on this thread — 90-118 ms a line on f12, every one of the
+        // in-play `viewmodel` stalls. The flush is off this thread since D230; the line stays once per skin for volume.
         long skinLogAt = Stopwatch.GetTimestamp();
 
         if (scene.Changed && scene.Props.Count > 0 && scene.Props[0].Pose.Skin != _lastViewmodelSkin)
@@ -1702,6 +1702,9 @@ public sealed class MomentScene : IGameSystemPerFrame
     /// `ViewmodelScene` forgets its own last report, so a skin that returns is logged again. A new demo
     /// builds a new presenter and so a new scene. Compares <c>Props[0]</c> only, which is always the main hand:
     /// `ViewmodelScene` appends the off-hand after it, and the two share a team's skin family.
+    /// **Deliberately NOT cleared by the early return above** (first person off, `DrawViewmodel` off): the line
+    /// reports a skin CHANGE, and toggling V does not change the skin, so writing it again on the way back would be
+    /// the noise B595 removed.
     /// </remarks>
     private int? _lastViewmodelSkin;
 
