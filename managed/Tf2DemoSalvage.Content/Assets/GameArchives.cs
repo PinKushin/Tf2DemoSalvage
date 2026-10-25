@@ -362,8 +362,7 @@ public sealed class GameArchives
         }
         finally
         {
-            CountRead(System.Diagnostics.Stopwatch.GetTimestamp() - began, path);
-        }
+            CountRead(System.Diagnostics.Stopwatch.GetTimestamp() - began, path);        }
     }
 
     private static void CountRead(long ticks, string path) => _threadReads = _threadReads.Add(ticks, path);

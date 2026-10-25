@@ -293,11 +293,14 @@ public sealed class HudTextures
         }
     }
 
-    /// <summary>`SetupNewHudTexture` (hud.cpp:708) for a font icon: its font, and its size measured now and never again.</summary>
+    /// <summary>`SetupNewHudTexture` (hud.cpp:708): a font icon's font and size measured now and never again; a texture icon's texture loaded now.</summary>
     private static void SetUp(HudTexture texture, VguiContext context)
     {
         if (!texture.RenderUsingFont)
         {
+            // hud.cpp:722-726 `DrawSetTextureFile` then `DrawGetTextureSize`, at `CHud::Init`: the kill feed's sheets load with
+            // the HUD. Asked at the first kill instead, the read stalled `hud` 224-361 ms on a cold disk (B595 part 5).
+            _ = context.Surface?.DrawGetTextureSize(texture.TextureFile);
             return;
         }
 

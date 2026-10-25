@@ -68,7 +68,15 @@ internal sealed class TextRecorder : IVguiSurface
     /// <summary>Each polygon's corners with their texture coordinates, rounded: "50,0/0.5,0 100,0/1,0".</summary>
     public List<string> Polygons { get; } = [];
 
-    public (int Wide, int Tall) DrawGetTextureSize(string texture) => (64, 64);
+    public (int Wide, int Tall) DrawGetTextureSize(string texture)
+    {
+        SizesAsked.Add(texture);
+
+        return (64, 64);
+    }
+
+    /// <summary>Every texture <see cref="DrawGetTextureSize"/> was asked for, in order.</summary>
+    public List<string> SizesAsked { get; } = [];
 
     public void DrawSetTextFont(VguiFontAmalgam font)
     {

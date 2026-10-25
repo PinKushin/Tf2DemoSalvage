@@ -63,6 +63,19 @@ public sealed class HudTexturesConformanceTests
         plus.Rc.ShouldBe((0, 0, 10, 12));
     }
 
+    /// <summary>
+    /// `SetupNewHudTexture` (hud.cpp:722-726) runs `DrawSetTextureFile` and `DrawGetTextureSize` for each texture icon at
+    /// `CHud::Init`, so the kill feed's sheets are loaded with the HUD, not at the first kill (B595 part 5: 224-361 ms
+    /// `hud` stalls were these reads on a cold disk).
+    /// </summary>
+    [Test]
+    public void Load_TextureIcons_AskEachTextureSizeAtLoad()
+    {
+        Loaded(out TextRecorder surface);
+
+        surface.SizesAsked.ShouldBe(["sprites/qi_center", "sprites/first", "HUD/d_images", "HUD/dneg_images"], ignoreOrder: true);
+    }
+
     [Test]
     public void DrawSelf_ATextureIcon_InsetsHalfATexel()
     {

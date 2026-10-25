@@ -40138,6 +40138,20 @@ a disk stall reaching other main-thread file reads (interpolated; timing not che
 not the log: disk-bound `hud`/`pose` reads, the `camera wait` stalls, and the start-up frames.
 Trade: a hard kill loses the queued lines, median 1 ms, worst 55 ms of 29 kills (measurements/2026-10-24-d230-async-file-log.md).
 
+**Part 5, the cold-disk `hud` stalls are kill-feed sheets read at first draw. FIXED for the HUD sheets**
+(`docs/measurements/2026-10-25-b595-sync-io-in-hud-and-pose.md`, branch `perf/b595-sync-io-instrument`). `GameArchives.Read`
+now times itself per thread, and `--measure` carries the main thread's reads and the process's page faults per slow frame.
+Measured over 5 quiet runs and 3 runs under a disk-0 load: 48 main-thread reads in play, 7-8 ms warm (measurements/2026-10-25-b595-sync-io-in-hud-and-pose.md). In the first, cold run
+two `hud` stalls of 371 and 233 ms were **361 and 224 ms of archive reads**, 3 reads each, with ordinary fault counts (measurements/2026-10-25-b595-sync-io-in-hud-and-pose.md). The
+reads were `d_images_v2`/`_v3` (vmt, vtf, vmt) at the first kill drawn with each sheet. Engine: `CHud::Init`
+(`hud.cpp:457-474`) runs every icon through `SetupNewHudTexture` (`:708-733`, `DrawSetTextureFile` + `DrawGetTextureSize`),
+so the engine loads them with the HUD. Our `HudTextures.SetUp` ported only the font half. Now it asks the size at load,
+held by `Load_TextureIcons_AskEachTextureSizeAtLoad`. Output: in-play main-thread reads went 45 → 33 per 20 s, with no HUD
+sheet among them. The disk-0 load caused no stall, because the reads are on disk 1 (F:). **Open:** VO `.mp3` and
+`tf_weapon_*` script reads are still in play on the main thread (the same class, about 0.1-0.3 ms warm, measurements/2026-10-25-b595-sync-io-in-hud-and-pose.md). The D230 run-4
+stalls during a disk-0 stall are **not explained**: that disk holds no file the frame reads. The `camera wait` stalls and
+the start-up frames are also still open.
+
 ## B594 — `LevelLighting.SunFrom`'s 5.8% is not explained by how often it runs; the first-person undrawn pass lights a model nothing draws — OPEN (2026-10-24)
 
 **Evidence class: read from code; the share is the profile's** (`docs/measurements/2026-10-24-main-thread-cpu-profile.md`,
