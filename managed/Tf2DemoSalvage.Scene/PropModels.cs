@@ -2444,7 +2444,8 @@ public static class PropModels
                 StudioSequence candidate = Groups[where.Group].Sequences[where.Local];
 
                 // The engine's tuple weight: iabs(actweight), and 0 becomes 1 (studio.cpp:1822-1829),
-                // so weight 0 and negative weights are selectable. An empty name has no activity
+                // so weight 0 and negative weights are selectable. The tuple path is the live one:
+                // STUDIO_SEQUENCE_ACTIVITY_LOOKUPS_ARE_SLOW is 0 (studio.h:33, animation.cpp:238-268). An empty name has no activity
                 // (animation.cpp:146, studio.cpp:1723). Strictly greater, so the FIRST sequence of
                 // the highest weight wins a tie — deterministic where the engine rolls RandomInt.
                 int weight = Math.Max(1, Math.Abs(candidate.ActivityWeight));

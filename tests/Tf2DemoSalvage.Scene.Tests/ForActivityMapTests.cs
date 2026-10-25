@@ -24,7 +24,7 @@ public sealed class ForActivityMapTests
     private static readonly string[] Names = ["ACT_MP_RUN", "act_mp_run", "ACT_MP_STAND_IDLE", "ACT_DIERAGDOLL", "", "Act_Mp_Run_Melee"];
 
     [Test]
-    public void ForActivity_OnRandomModels_EqualsTheOldScanForEveryName()
+    public void ForActivity_OnRandomModels_EqualsTheEngineWeightedScanForEveryName()
     {
         // A fixed linear congruential sequence rather than Random: the same 200 models every run.
         uint state = 584;
