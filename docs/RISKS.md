@@ -40068,6 +40068,13 @@ reddens four tests), and a child's drawn size against its own scale alone.
 
 ## B595 — f12 first-person hitches of 50-190 ms are pose (viewmodel, baked), particles at start, the render-thread wait and `between`; not JIT — OPEN (2026-10-24)
 
+**Review notes on the instruments (batch 28, read from code, none measured; all diagnostics-only):** `_lastViewmodelSkin`
+(`MomentScene.cs` ~1661) is never reset on a seek or a new demo and compares only `Props[0]`, so a second demo with the same skin
+writes no `viewmodel skin:` line; `LevelLighting.SunCalls` is a plain increment, right only while `SunFrom` stays on the main
+thread; `PauseLedger._stalls` is never trimmed; `ReadCounters()` reads a `ConcurrentDictionary.Count` every frame under
+`--measure`; the `LogWriteTiming` update in `FileLogWriter` sits inside the write `try` (it cannot throw, but belongs outside so
+the instrument cannot affect durability).
+
 **Evidence class: measured** (`docs/measurements/2026-10-24-b595-frame-stalls-and-jit.md`, 15 runs × 60 s, five JIT variants).
 `--measure` now lists every frame over 50 ms with its whole phase split and the main thread's own counters, differenced
 over the frame's own window (`PauseLedger`, `FrameCounters`). **JIT is ruled out as a cause**: every slow frame after the
