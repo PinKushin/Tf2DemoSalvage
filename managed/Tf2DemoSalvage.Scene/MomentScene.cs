@@ -729,8 +729,11 @@ public sealed class MomentScene : IGameSystemPerFrame
         if (_undrawn.Count > 0)
         {
             // Its own pass, read after the world's counters, so it is posed and in the scene for a decal but never drawn.
+            // A monitor draws it as an ordinary model, so it lights through the light cache with dynamic lights, as the
+            // world pass does (model draws pass LightcacheGet flags 0xf, `0x1800f1bd0` → `0x1801b9cd0`).
             _models.Instances(
-                _undrawn, _undrawnInstances, Lighting.LightingAt, Lighting.SunAt, info.Seconds, pass: EntityModelSet.UndrawnPass);
+                _undrawn, _undrawnInstances, Lighting.ModelLightingAt, Lighting.ModelSunAt, info.Seconds,
+                pass: EntityModelSet.UndrawnPass);
         }
         long undrawnTicks = Stopwatch.GetTimestamp() - undrawnAt;
         UndrawnCensus census = new(

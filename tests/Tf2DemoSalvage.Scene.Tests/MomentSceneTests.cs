@@ -199,6 +199,33 @@ public sealed class MomentSceneTests
         scene.Instances.Count.ShouldBe(1, "the control: the world pass draws the other one either way");
     }
 
+    /// <remarks>
+    /// **A monitor's draw of the followed player is an ordinary model draw**, so it lights through the light cache with
+    /// flags `0xf` (`0x1800f1bd0` → `LightcacheGet` `0x1801b9cd0`), dynamic lights included (`0x1801b7a10`), exactly as
+    /// the world pass does — not through the uncached point lookup. The recorder's fireball beside him is the probe.
+    /// </remarks>
+    [Test]
+    public void Pose_TheMonitorsFollowedPlayerBesideTheRecordersFireball_TakesItAsALocalLight()
+    {
+        MomentScene scene = Posable();
+        scene.Lighting = LevelLightingTests.Lit([]);
+        SceneProp fireball = new(
+            300, "models/empty.mdl", SceneModelKind.Studio, new ScenePose { Z = 60f }, OwnedBy: 9,
+            ClassName: "CTFProjectile_BallOfFire");
+        SceneProp followed = Prop("models/props/crate.mdl", entity: 3) with { Pose = new ScenePose { Z = 20f } };
+        MomentInfo info = Info() with { FirstPerson = true, Followed = 3, Recorder = 9, EyeCamera = Eye() };
+
+        // Entity 5 is a drawn crate far from the fireball: the world pass loads the model the undrawn pass shares.
+        SceneProp far = Prop("models/props/crate.mdl", entity: 5) with { Pose = new ScenePose { X = 5000f, Z = 20f } };
+
+        scene.Build([], [followed, far, fireball], info);
+        scene.Pose(info, monitor: true);
+
+        scene.Drawn.Select(prop => prop.EntityIndex).ShouldBe([5, 300], ignoreOrder: true);
+        scene.UndrawnInstances.Count.ShouldBe(1);
+        scene.UndrawnInstances[0].Locals!.Count.ShouldBe(1);
+    }
+
     [Test]
     public void Build_InThirdPerson_DrawsEveryPlayer()
     {
