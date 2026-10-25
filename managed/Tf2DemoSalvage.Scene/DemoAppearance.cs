@@ -176,6 +176,14 @@ public static class DemoAppearance
             },
         };
 
+        // Before play, as `S_PrecacheSound` creates each source at level load (B595 part 6).
+        long lengthsFrom = System.Diagnostics.Stopwatch.GetTimestamp();
+        appearance.Faces.PrecacheLengths();
+        log.LogInformation(
+            "{Message}",
+            "face sound lengths read before play in " +
+            System.Diagnostics.Stopwatch.GetElapsedTime(lengthsFrom).TotalMilliseconds.ToString("0.0", CultureInfo.InvariantCulture) + " ms");
+
         // **The role each held weapon is DRAWN with, asked of the appearance the scene will use**, so
         // the report cannot say one table while the pose gets another — the script's answer alone
         // says PRIMARY for every demoman's grenade launcher, which the engine animates as a secondary.

@@ -324,6 +324,15 @@ public sealed class BurstEffects
         {
             _readOf = frame.Game;
             _read = frame.Game is { } content ? content.Archives.Read : null;
+
+            // The weapon scripts with the game, before play, as `C_World::Precache` reads them (B595 part 6).
+            _weaponMuzzles = null;
+
+            if (_read is { } read)
+            {
+                _weaponMuzzles = new WeaponMuzzleFlashes(read, frame.Game?.Weapons.Items);
+                _weaponMuzzles.Precache();
+            }
         }
 
         return StepOver(

@@ -48,10 +48,38 @@ public sealed class WeaponMuzzleFlashesConformanceTests
         flash.Backblast.ShouldBeFalse();
     }
 
-    private static WeaponMuzzleFlashes Resolver()
+    /// <remarks>
+    /// `C_World::Precache` → `CPrecacheRegister::Precache` reads every registered weapon's script before play (B595 part 6).
+    /// The manifest is TF2's shipped one, which names only the steadycam, so the schema's item classes must carry it.
+    /// </remarks>
+    [Test]
+    public void Precache_ThenFor_ReadsNothingInPlayAndAnswersAsTheLazyRead()
+    {
+        List<string> reads = [];
+        WeaponMuzzleFlashes precached = Resolver(reads);
+        WeaponMuzzleFlash lazy = Resolver().For(200, Red);
+
+        precached.Precache();
+        reads.ShouldContain("scripts/tf_weapon_scattergun.txt", "the control: the precache read the script");
+        reads.Clear();
+
+        precached.For(200, Red).ShouldBe(lazy);
+        precached.For(513, Red);
+
+        reads.ShouldBeEmpty();
+    }
+
+    private static WeaponMuzzleFlashes Resolver(List<string>? reads = null)
     {
         Dictionary<string, byte[]> files = new()
         {
+            ["scripts/weapon_manifest.txt"] = Encoding.UTF8.GetBytes(
+                """
+                weapon_manifest
+                {
+                    "file" "scripts/weapon_ifm_steadycam.txt"
+                }
+                """),
             ["scripts/tf_weapon_scattergun.txt"] = Encoding.UTF8.GetBytes(
                 """
                 WeaponData
@@ -81,6 +109,10 @@ public sealed class WeaponMuzzleFlashesConformanceTests
             }
             """));
 
-        return new WeaponMuzzleFlashes(path => files.GetValueOrDefault(path), items);
+        return new WeaponMuzzleFlashes(path =>
+        {
+            reads?.Add(path);
+            return files.GetValueOrDefault(path);
+        }, items);
     }
 }
