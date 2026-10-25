@@ -52,6 +52,8 @@ internal sealed class FakeViewerDevice : IViewerDevice
 
     public float DetailFadeWidth { get => 0f; set => Note(nameof(DetailFadeWidth), value); }
 
+    public float DetailFovFactor { get; set; } = float.NaN;
+
     public bool HasWorld { get; set; } = true;
 
     public SceneFog? WorldFog { get => null; set => Note(nameof(WorldFog), value is null ? "none" : "set"); }

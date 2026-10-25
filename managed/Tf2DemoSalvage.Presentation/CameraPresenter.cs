@@ -310,12 +310,17 @@ public sealed class CameraPresenter
     /// `curtime` is the SERVER's — `m_flFOVTime` is stamped on its clock — so the tick is the last `net_Tick`.
     /// **Interpolated:** the tick's own time, where the engine's render clock sits between ticks.
     /// </remarks>
-    public ViewFov ViewFovNow()
+    public ViewFov ViewFovNow() => _spectator.Fov(_window().Tick, _effectiveMode, _settings.DemoFovOverride, CurTimeNow());
+
+    /// <summary>The local player's `GetFOVDistanceAdjustFactor()` this frame — <see cref="SpectatorView.DistanceFactor"/>.</summary>
+    public float DistanceFactorNow() => _spectator.DistanceFactor(_window().Tick, _settings.DemoFovOverride, CurTimeNow());
+
+    private float CurTimeNow()
     {
         int tick = _window().Tick;
         float interval = _timeline is { IntervalPerTick: > 0f } timeline ? timeline.IntervalPerTick : (float)ScenePropTrack.Tf2TickInterval;
 
-        return _spectator.Fov(tick, _effectiveMode, _settings.DemoFovOverride, (_timeline?.ServerTickAt(tick) ?? tick) * interval);
+        return (_timeline?.ServerTickAt(tick) ?? tick) * interval;
     }
 
     /// <summary>Enters or leaves the first-person view, saying why when it cannot be entered.</summary>

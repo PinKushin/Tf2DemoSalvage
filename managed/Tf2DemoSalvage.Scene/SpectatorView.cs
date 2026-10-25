@@ -112,6 +112,14 @@ public readonly record struct CameraRefusal(string Message, string Status);
 /// <param name="Default">`default_fov`.</param>
 public readonly record struct ViewFov(float World, int Default)
 {
+    /// <summary>`CBasePlayer::GetFOVDistanceAdjustFactor` (`baseplayer_shared.cpp:1786-1799`).</summary>
+    /// <param name="localFov">The local player's `GetFOV()`.</param>
+    /// <param name="defaultFov">His `GetDefaultFOV()`.</param>
+    /// <returns><c>localFOV / defaultFOV</c>; 1 when they are equal or the default is below 0.001.</returns>
+    /// <remarks>The engine's `localFOV == defaultFOV` early-out is left out: the ratio of equal values is exactly 1 too.</remarks>
+    public static float DistanceAdjustFactor(float localFov, int defaultFov) =>
+        defaultFov < 0.001f ? 1f : localFov / defaultFov;
+
     /// <summary>`fovViewmodel = GetViewModelFOV() - ( default_fov - fov )` (view.cpp:725): the viewmodel follows a zoom.</summary>
     /// <param name="viewmodelFov">`GetViewModelFOV()`.</param>
     public float Viewmodel(float viewmodelFov) => viewmodelFov - (Default - World);
@@ -826,6 +834,28 @@ public sealed class SpectatorView
             default:
                 return new ViewFov(defaultFov, defaultFov);
         }
+    }
+
+    /// <summary>The local player's `GetFOVDistanceAdjustFactor()` this tick — <see cref="ViewFov.DistanceAdjustFactor"/>.</summary>
+    /// <param name="tick">The tick being drawn.</param>
+    /// <param name="demoOverride">`demo_fov_override`, which `GetFOV()` applies (c_baseplayer.cpp:2444).</param>
+    /// <param name="curTime">`gpGlobals->curtime`, for the zoom lerp.</param>
+    /// <returns>The factor; 1 for a SourceTV demo, whose local player is the spectator.</returns>
+    /// <remarks>
+    /// **The LOCAL player's, not the view's** (`detailobjectsystem.cpp:2813-2818`: `C_BasePlayer::GetLocalPlayer()`), which
+    /// during playback is the recorder. Interpolated for SourceTV: its spectator is taken as never zoomed.
+    /// </remarks>
+    public float DistanceFactor(int tick, float demoOverride, float curTime)
+    {
+        if (Eyes is not { HasRecordedView: true } eyes || PlayerAt(eyes, tick, eyes.RecorderEntityIndex) is not { } recorder)
+        {
+            return 1f;
+        }
+
+        ScenePlayer? ByIndex(int index) => PlayerAt(eyes, tick, index);
+
+        return ViewFov.DistanceAdjustFactor(
+            PlayerFov.Get(recorder, ByIndex, isLocal: true, demoOverride, curTime), PlayerFov.Default(recorder, ByIndex));
     }
 
     /// <summary>`ConVar default_fov( "default_fov", "75", FCVAR_CHEAT )` (clientmode_tf.cpp:113).</summary>

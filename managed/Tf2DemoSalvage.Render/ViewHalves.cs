@@ -18,7 +18,7 @@ internal sealed class ViewHalves(Action<ViewHalf, CameraUpload?> replay)
 
     private readonly ViewHalf[] _halves = [new(), new()];
     private int _cull;
-    private (float X, float Y, float Z, float Distance, float Fade, (float, float, float) Forward)? _detailOnDevice;
+    private (float X, float Y, float Z, float Distance, float Fade, float Factor, (float, float, float) Forward)? _detailOnDevice;
 
     /// <summary>Both halves, for invalidation: either could cull next.</summary>
     public IReadOnlyList<ViewHalf> Both => _halves;

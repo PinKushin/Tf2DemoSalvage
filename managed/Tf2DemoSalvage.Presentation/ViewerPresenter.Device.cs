@@ -227,6 +227,9 @@ public sealed partial class ViewerPresenter
         // The followed player, whom a monitor view force-draws though the main view does not (B511).
         device.MonitorOnlyModels = _moment.UndrawnInstances;
 
+        // The local player's FOV distance factor, which divides the detail fade when he zooms (B580).
+        device.DetailFovFactor = _camera.DistanceFactorNow();
+
         device.DrawScene(
             red,
             green,
