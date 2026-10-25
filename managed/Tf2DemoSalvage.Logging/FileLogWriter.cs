@@ -304,8 +304,13 @@ public sealed class FileLogWriter : IDisposable
 
         try
         {
+            // **At most what was queued when this drain began.** Producers keep running during ProcessExit and an
+            // unhandled exception, and a drain that read until the queue was empty could chase a chatty thread for
+            // ever. Lines queued after this point are the next batch's, or the writer thread's.
+            int budget = _queue.Reader.Count;
+
             // Checked per line, so the note lands where the gap is: drops happen while a batch is mid-write.
-            while (_queue.Reader.TryRead(out string? line))
+            while (budget-- > 0 && _queue.Reader.TryRead(out string? line))
             {
                 Interlocked.Decrement(ref _pending);
 

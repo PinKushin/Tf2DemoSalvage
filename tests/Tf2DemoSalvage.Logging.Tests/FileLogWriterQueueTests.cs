@@ -274,6 +274,23 @@ public sealed class FileLogWriterQueueTests
         writer.Flush(Patience).ShouldBeTrue();
     }
 
+    [Test]
+    public void Flush_WhileAProducerKeepsWriting_Returns()
+    {
+        // The worst producer: one new line for every line drained, as a chatty thread during ProcessExit can be.
+        // A drain that reads until the queue is empty never empties it.
+        FeedingSink sink = new();
+        using FileLogWriter writer = new(sink, capacity: 1 << 16, background: false);
+        sink.Feed = writer;
+        writer.Write("first");
+
+        Task flush = Task.Run(() => writer.Flush(Patience));
+
+        bool returned = flush.Wait(Patience);
+        sink.Stop = true;
+        returned.ShouldBeTrue("the drain chased the producer instead of taking what was queued");
+    }
+
     private static bool WaitFor(Func<bool> condition)
     {
         Stopwatch waited = Stopwatch.StartNew();
@@ -292,6 +309,24 @@ public sealed class FileLogWriterQueueTests
     }
 
     private static string NewFolder() => Path.Combine(Path.GetTempPath(), $"tf2ds-logqueue-{Guid.NewGuid():N}");
+
+    /// <summary>A sink that queues another line for every line it is given, until stopped.</summary>
+    private sealed class FeedingSink : TextWriter
+    {
+        public FileLogWriter? Feed { get; set; }
+
+        public volatile bool Stop;
+
+        public override Encoding Encoding => Encoding.UTF8;
+
+        public override void WriteLine(string? value)
+        {
+            if (!Stop)
+            {
+                Feed?.Write("more");
+            }
+        }
+    }
 
     /// <summary>A sink that throws a type no IO path names: an encoder fallback, a custom writer.</summary>
     private sealed class ThrowingSink : TextWriter
