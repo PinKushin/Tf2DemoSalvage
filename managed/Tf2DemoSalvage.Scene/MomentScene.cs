@@ -1654,8 +1654,8 @@ public sealed class MomentScene : IGameSystemPerFrame
         // A count of materials cannot tell those apart; this can.
         //
         // **When the SKIN changes, not whenever the viewmodel does** (B595). `scene.Changed` fires on every sequence
-        // change, and each line is a flushed file write on this thread — 90-118 ms a line on f12, every one of the
-        // in-play `viewmodel` stalls. B191's ruling: stop writing lines nobody asked for, keep the flush.
+        // change, and each line WAS a flushed file write on this thread — 90-118 ms a line on f12, every one of the
+        // in-play `viewmodel` stalls. The flush is off this thread since D230; the line stays once per skin for volume.
         long skinLogAt = Stopwatch.GetTimestamp();
 
         if (scene.Changed && scene.Props.Count > 0 && scene.Props[0].Pose.Skin != _lastViewmodelSkin)
@@ -1696,6 +1696,12 @@ public sealed class MomentScene : IGameSystemPerFrame
     private ViewmodelSplit _viewmodelSplit;
 
     /// <summary>The viewmodel skin last logged, so the line is written once per skin (B595).</summary>
+    /// <remarks>
+    /// **Deliberately NOT cleared when the viewmodel goes away** — first person off, `DrawViewmodel` off, the early
+    /// return above. The line reports a skin CHANGE, and toggling V does not change the skin, so writing it again on
+    /// the way back would be the noise B595 removed. Known consequence (RISKS B595 review notes): a seek or a second
+    /// demo with the same skin writes no line either.
+    /// </remarks>
     private int? _lastViewmodelSkin;
 
     /// <summary>Says once when players are being drawn with nothing to dress them from.</summary>
