@@ -68,7 +68,7 @@ jobs:
 
       - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68  # v6.0.0
         with:
-          dotnet-version: '10.0.x'
+          dotnet-version: '10.0.402' # TEMP-PIN: unpin to '10.0.x' on 2026-10-26 (10.0.403 not downloadable yet)
 
       - run: dotnet tool restore
 
@@ -118,7 +118,7 @@ jobs:
 
       - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68  # v6.0.0
         with:
-          dotnet-version: '10.0.x'
+          dotnet-version: '10.0.402' # TEMP-PIN: unpin to '10.0.x' on 2026-10-26 (10.0.403 not downloadable yet)
 
       - run: dotnet tool restore
 
@@ -168,7 +168,7 @@ jobs:
 
       - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68  # v6.0.0
         with:
-          dotnet-version: '10.0.x'
+          dotnet-version: '10.0.402' # TEMP-PIN: unpin to '10.0.x' on 2026-10-26 (10.0.403 not downloadable yet)
 
       - run: dotnet tool restore
 
@@ -222,7 +222,7 @@ jobs:
 
       - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68  # v6.0.0
         with:
-          dotnet-version: '10.0.x'
+          dotnet-version: '10.0.402' # TEMP-PIN: unpin to '10.0.x' on 2026-10-26 (10.0.403 not downloadable yet)
 
       - run: dotnet tool restore
 
@@ -286,7 +286,7 @@ jobs:
 
       - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68  # v6.0.0
         with:
-          dotnet-version: '10.0.x'
+          dotnet-version: '10.0.402' # TEMP-PIN: unpin to '10.0.x' on 2026-10-26 (10.0.403 not downloadable yet)
 
       # Only the projects whose tests read TF2_FOLDER (grep tests/); Scene and Animation do not.
       - if: contains(fromJSON('["Presentation","Rendering","Content","Audio"]'), matrix.project)
@@ -344,7 +344,7 @@ jobs:
 
       - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68  # v6.0.0
         with:
-          dotnet-version: '10.0.x'
+          dotnet-version: '10.0.402' # TEMP-PIN: unpin to '10.0.x' on 2026-10-26 (10.0.403 not downloadable yet)
 
       # Linux projects only; Viewer3D is Windows and the action is bash/apt.
       - if: runner.os == 'Linux' && (contains(inputs.project, 'Presentation') || contains(inputs.project, 'Rendering') || contains(inputs.project, 'Content') || contains(inputs.project, 'Audio'))

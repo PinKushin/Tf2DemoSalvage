@@ -10980,3 +10980,24 @@ That is better than the synchronous log, which stopped writing when the thread t
 only the lines queued at the instant of the kill. A normal close goes through `Dispose`, and the viewer's shutdown is
 short, so only End Task on a hung viewer is a true hard kill.
 
+## D231 — CI pins .NET SDK 10.0.402 for a day while 10.0.403 cannot be downloaded (2026-10-25)
+
+**What happened.** CI run `ab5648ce` failed on both jobs in the install step, not in any test: the runner's installer
+could not fetch SDK 10.0.403 or runtime 10.0.14 (`dotnet_install: Error: Could not find .NET Core SDK with version =
+10.0.403`; the blob download from `dotnetorigin.blob.core.windows.net` failed). Two reruns failed the same way. The
+workflows ask for `10.0.x`, so they follow whatever Microsoft lists as newest, and the listing ran ahead of the files.
+The last green runs used SDK 10.0.402 and runtime 10.0.13. Locally, both gate phases had passed.
+
+**The owner, 2026-10-25, when told CI was red for that reason and that the options were to wait or to pin:**
+*"pin the older one for now, we will unpin tomorrow, and get it green to merge and release and keep working."* When
+the assistant had instead paused everything over the red CI, the owner said it had *"stopped all work for this bs"*.
+
+**Decision.** Every `setup-dotnet` step in `.github/workflows/` uses `dotnet-version: '10.0.402'`, each line marked
+`TEMP-PIN` with the unpin date, 2026-10-26. To unpin: replace `'10.0.402' # TEMP-PIN...` with `'10.0.x'` in
+`test.yml`, `codeql.yml`, `release.yml`, `fuzz.yml` and `mutation.yml`, and watch the next run's install step. The
+reasoning for pinning rather than waiting was the owner's: keep merging and releasing while a Microsoft rollout
+finishes. The cost of a pin is that someone has to remember to remove it, which is why each line carries the date.
+
+**Not a defect in the repo.** This is the same class as `docs/memory/runner-migration-notices-are-not-defects.md`: an
+upstream change, observed by rerunning, not a fault to fix in the code.
+
