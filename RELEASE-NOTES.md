@@ -1,6 +1,18 @@
-# Tf2DemoSalvage 0.1.0-beta.51
+# Tf2DemoSalvage 0.1.0-beta.52
 
 ## Unreleased
+
+## Changes in 0.1.0-beta.52
+
+Released 2026-10-25.
+
+- **The kill feed no longer stalls the first time it draws a kill.** TF2 loads the HUD's texture sheets when the HUD starts, and the viewer now does the same.
+  Before, the main thread read each sheet from disk at the first kill drawn with it.
+  Cold disk, one run: 361.1 ms and 223.9 ms of file reading inside two stalls (`docs/measurements/2026-10-25-b595-sync-io-in-hud-and-pose.md`).
+  Warm disk, `cp_process_f12`: main-thread file reads in play went from 45 to 33 over 20 s, none of them a HUD sheet (`docs/measurements/2026-10-25-b595-sync-io-in-hud-and-pose.md`).
+- **The first-person view builds its draw list faster.** A set of props was compared member by member; it now compares by reference. What is drawn does not change.
+  `cp_process_f12`, first person, `drawlist` per frame: 0.56 and 0.46 ms before, 0.22 and 0.21 ms after (`docs/measurements/2026-10-24-drawlist-parts.md`).
+  The filter part: 0.30-0.35 ms before, 0.06 ms after (`docs/measurements/2026-10-24-drawlist-parts.md`). This was in beta.51 and was left out of its notes.
 
 ## Changes in 0.1.0-beta.51
 
