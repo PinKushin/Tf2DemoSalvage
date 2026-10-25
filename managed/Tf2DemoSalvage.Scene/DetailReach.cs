@@ -15,9 +15,13 @@ namespace Tf2DemoSalvage.Scene;
 /// props' own origins and fast-sprite anchors rather than by the BSP leaf's bounds. Every prop sits inside its leaf, so
 /// the box is the leaf's tighter subset; and it is a run rather than a leaf because a run boundary is where
 /// <see cref="DetailSprites.Build"/> restarts the fast lane's group of four, which keeps the built quads identical to
-/// the whole-list walk. The radius is <c>sqrt(MaximumSquared)</c>, not the engine's bare <c>cl_detaildist</c>: the two
-/// agree at the default FOV, and a zoomed view's larger fade maximum keeps today's output (the engine's sphere would
-/// cut it; not changed here).
+/// the whole-list walk. The radius is the engine's bare <c>cl_detaildist</c> (<see cref="DetailFade.Radius"/>), which
+/// a zoomed FOV factor does not scale, so a zoomed view's larger fade maximum is cut at the sphere as the engine's is.
+///
+/// **Interpolated, not exact, when zoomed:** the engine reaches whole BSP LEAVES whose region touches the sphere, and
+/// a run box is its leaf's tighter subset, so a prop past the sphere in a leaf that touches it is drawn by the engine
+/// and not here. At factor 1 the fade maximum equals the sphere and the two agree exactly. Porting
+/// <c>EnumerateLeavesInSphere</c> beside <see cref="BspLeafTree.EnumerateLeavesInBox"/> closes it (B580 residual).
 /// </remarks>
 public sealed class DetailReach
 {
@@ -72,20 +76,23 @@ public sealed class DetailReach
     /// <summary>The props of one run, as a half-open index range.</summary>
     public (int Start, int End) Range(int run) => (_start[run], _end[run]);
 
-    /// <summary>Whether any prop of a run can be within <paramref name="maximumSquared"/> of the eye.</summary>
+    /// <summary>Whether any prop of a run can be within <paramref name="radius"/> of the eye.</summary>
+    /// <param name="run">The run.</param>
+    /// <param name="eye">The view origin.</param>
+    /// <param name="radius"><see cref="DetailFade.Radius"/>, the engine's bare <c>cl_detaildist</c>.</param>
     /// <remarks>
     /// Conservative by a unit and a part in 10^5, so float rounding of the per-prop distance can never put a drawn prop
     /// outside a skipped run; a run reached in error builds nothing, as it did before.
     /// </remarks>
-    public bool Near(int run, (float X, float Y, float Z) eye, float maximumSquared)
+    public bool Near(int run, (float X, float Y, float Z) eye, float radius)
     {
         int at = run * 6;
         float dx = Gap(eye.X, _box[at], _box[at + 3]);
         float dy = Gap(eye.Y, _box[at + 1], _box[at + 4]);
         float dz = Gap(eye.Z, _box[at + 2], _box[at + 5]);
-        float radius = MathF.Sqrt(MathF.Max(maximumSquared, 0f)) * 1.00001f + 1f;
+        float reach = (MathF.Max(radius, 0f) * 1.00001f) + 1f;
 
-        return (dx * dx) + (dy * dy) + (dz * dz) <= radius * radius;
+        return (dx * dx) + (dy * dy) + (dz * dz) <= reach * reach;
     }
 
     private static float Gap(float value, float min, float max) => MathF.Max(MathF.Max(min - value, value - max), 0f);
