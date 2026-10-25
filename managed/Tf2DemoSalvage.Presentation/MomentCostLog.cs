@@ -67,6 +67,7 @@ public sealed class MomentCostLog
     private long _place;
     private long _advance;
     private long _undrawn;
+    private UndrawnCensus _census;
     private int _corpseRebuilds;
     private long _buildsSimulating;
     private long _buildsDrawing;
@@ -150,6 +151,10 @@ public sealed class MomentCostLog
         _place += phases.Counters.Place;
         _advance += phases.Counters.Advance;
         _undrawn += phases.Undrawn;
+        UndrawnCensus c = phases.UndrawnCensus;
+        _census = new(
+            _census.SunWorld + c.SunWorld, _census.SunUndrawn + c.SunUndrawn, _census.Props + c.Props,
+            _census.Instances + c.Instances);
         _corpseRebuilds += phases.Counters.CorpseRebuilds;
         _buildsSimulating += phases.Counters.BuildsSimulating;
         _buildsDrawing += phases.Counters.BuildsDrawing;
@@ -221,7 +226,9 @@ public sealed class MomentCostLog
             + $", baked {Mean(_baked, over):0.#}"
             + $", place {Mean(_place, over):0.#}"
             + $" (compose {Mean(_placeCompose, over):0.##}, fade {Mean(_placeFade, over):0.##}, build {Mean(_placeBuild, over):0.##} of which binds {Mean(_placeBinds, over):0.##}, lookups {Mean(_placeLookups, over):0.##} = matrix {Mean(_placeMatrix, over):0.##}, swap {Mean(_placeSwap, over):0.##}, flex {Mean(_placeFlex, over):0.##})"
-            + $", undrawn {Mean(_undrawn, over):0.#}"
+            + $", undrawn {Mean(_undrawn, over):0.###} ({_census.Props / (double)over:0.#} props"
+            + $", {_census.Instances / (double)over:0.#} instances, sun {_census.SunUndrawn / (double)over:0.##}"
+            + $" vs world {_census.SunWorld / (double)over:0.##})"
             + $", advance {Mean(_advance, over):0.#}"
             + $" (corpses {Mean(_corpses, over):0.#} over {_corpseSteps / (double)over:0.#} steps, {_corpsesHeld} held"
             + $", {_corpseRebuilds} rebuilt in {Mean(_corpseBuilding, over):0.#})"
@@ -269,6 +276,7 @@ public sealed class MomentCostLog
         _place = 0;
         _advance = 0;
         _undrawn = 0;
+        _census = default;
         _corpseRebuilds = 0;
         _buildsSimulating = 0;
         _buildsDrawing = 0;

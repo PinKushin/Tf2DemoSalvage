@@ -356,6 +356,9 @@ public sealed class MomentPresenter
             // three fields above were fixed for, one field short of finished.
             Unjudgeable = posing.Unjudgeable,
             Undrawn = posing.Undrawn,
+
+            // B594's census: the first run of it read all zeros, world sun included, because this list omitted it.
+            UndrawnCensus = posing.UndrawnCensus,
         };
 
         _ledger.Posed(phases.Pose);

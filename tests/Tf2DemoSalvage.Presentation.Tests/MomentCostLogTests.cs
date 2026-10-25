@@ -165,7 +165,7 @@ public sealed class MomentCostLogTests
         Assert.That(line, Does.Contain("baked 2,"));
         Assert.That(line, Does.Contain("place 3 ("));
         Assert.That(line, Does.Contain("advance 9"));
-        Assert.That(line, Does.Contain("undrawn 6,"));
+        Assert.That(line, Does.Contain("undrawn 6 ("));
         Assert.That(line, Does.Contain("rest 39"));
     }
 

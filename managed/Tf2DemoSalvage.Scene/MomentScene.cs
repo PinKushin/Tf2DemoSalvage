@@ -38,6 +38,7 @@ public readonly record struct ViewmodelSplit(long Resolve, long Build, long Add,
 /// <param name="DrawListParts">The four parts of <paramref name="DrawList"/> (B578).</param>
 /// <param name="ViewmodelCounters">The pose counters across the viewmodel alone (B595).</param>
 /// <param name="ViewmodelSplit">The viewmodel's time by step, stamped where each runs (B595).</param>
+/// <param name="UndrawnCensus">Sun calls per pass and the undrawn pass's props and instances (B594).</param>
 /// <param name="Selected">
 /// How many props <c>Build</c> chose, before the frustum rejected any (B254). The ratio against
 /// <paramref name="Drawn"/> is the measurement; either number alone says nothing about the cull.
@@ -83,7 +84,10 @@ public readonly record struct MomentPhases(
     EntityModelSet.PoseCounters ViewmodelCounters = default,
 
     // Where the viewmodel's own time went, stamped in `AddViewmodel` (B595).
-    ViewmodelSplit ViewmodelSplit = default)
+    ViewmodelSplit ViewmodelSplit = default,
+
+    // The sun traces and the undrawn pass's output this moment (B594), counted where each runs.
+    UndrawnCensus UndrawnCensus = default)
 {
     /// <summary>The part of <see cref="Pose"/> no timer covers, by subtraction — the one formula every report reads.</summary>
     /// <remarks>
@@ -113,6 +117,13 @@ public readonly record struct MomentPhases(
 /// <remarks>Each part is the difference of two stamps taken in sequence, so the four sum to <c>DrawList</c> exactly; they
 /// are carried from where they ran, never recomputed (B243).</remarks>
 public readonly record struct DrawListParts(long Prepare, long Players, long Place, long Filters, long FirstPerson = 0);
+
+/// <summary>B594's census: `LevelLighting.SunCalls` differenced across each pass, and what the undrawn pass produced.</summary>
+/// <param name="SunWorld">Sun calls during the world pass (through the light cache).</param>
+/// <param name="SunUndrawn">Sun calls during the first-person undrawn pass.</param>
+/// <param name="Props">Props handed to the undrawn pass.</param>
+/// <param name="Instances">Instances it built, which only a monitor view draws (B511).</param>
+public readonly record struct UndrawnCensus(long SunWorld, long SunUndrawn, int Props, int Instances);
 
 /// <summary>Assembles what one moment of a demo draws.</summary>
 /// <remarks>
@@ -692,6 +703,8 @@ public sealed class MomentScene : IGameSystemPerFrame
         // `r_framecount` for the light cache: its miss budget is per frame (`LightcacheGet`, `0x1801b9cd0`).
         Lighting.Frame++;
 
+        long sunBefore = Lighting.SunCalls;
+
         _models.Instances(
             _drawn, _instances, Lighting.ModelLightingAt, Lighting.ModelSunAt, info.Seconds, frustum,
             views);
@@ -710,6 +723,7 @@ public sealed class MomentScene : IGameSystemPerFrame
         // the first-person player and his cosmetics, "posed 5" on f12 — and never the world's.
         int posed = _models.Posed;
 
+        long sunWorld = Lighting.SunCalls - sunBefore;
         long undrawnAt = Stopwatch.GetTimestamp();
 
         if (_undrawn.Count > 0)
@@ -719,6 +733,8 @@ public sealed class MomentScene : IGameSystemPerFrame
                 _undrawn, _undrawnInstances, Lighting.LightingAt, Lighting.SunAt, info.Seconds, pass: EntityModelSet.UndrawnPass);
         }
         long undrawnTicks = Stopwatch.GetTimestamp() - undrawnAt;
+        UndrawnCensus census = new(
+            sunWorld, Lighting.SunCalls - sunBefore - sunWorld, _undrawn.Count, UndrawnInstances.Count);
 
         // **Where the SOLVER put each corpse, which is the only thing that can aim a camera at
         // one** (B58). A corpse's wire position is where it died; after physics it is somewhere
@@ -819,7 +835,8 @@ public sealed class MomentScene : IGameSystemPerFrame
             Unjudgeable: unjudged,
             Undrawn: undrawnTicks,
             ViewmodelCounters: viewmodelCounters,
-            ViewmodelSplit: _viewmodelSplit);
+            ViewmodelSplit: _viewmodelSplit,
+            UndrawnCensus: census);
     }
 
     /// <summary>The client thinks that allocate dynamic lights this moment (B425), at the moment's time.</summary>
