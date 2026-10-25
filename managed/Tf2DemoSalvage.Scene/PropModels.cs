@@ -2387,8 +2387,11 @@ public static class PropModels
         /// replay the same way twice, and a random pick would make a screenshot unreproducible and a
         /// test flaky by design. Recorded as a deliberate divergence rather than parity.
         ///
-        /// A weight of zero is never chosen even when the activity name matches, which is Valve's
-        /// rule and the reason the comparison is strictly greater than zero.
+        /// The weight compared is the engine's tuple weight, <c>iabs(actweight)</c> with 0 raised to 1
+        /// (`studio.cpp:1822-1829`), so a sequence of weight 0 or below IS chosen when it is the
+        /// only one; the engine skips only a sequence with no activity name. Not modelled: the
+        /// engine keeps the CURRENT sequence when its weight is negative (`animation.cpp:291-297`),
+        /// which needs a current sequence this call does not take.
         /// </remarks>
         public int ForActivity(string activity)
         {
@@ -2440,12 +2443,16 @@ public static class PropModels
                 // Stryker restore all
                 StudioSequence candidate = Groups[where.Group].Sequences[where.Local];
 
-                // Strictly greater, so the FIRST sequence of the highest weight wins a tie,
-                // exactly as the per-call scan did.
-                if (candidate.ActivityWeight > 0 &&
-                    candidate.ActivityWeight > weights.GetValueOrDefault(candidate.Activity))
+                // The engine's tuple weight: iabs(actweight), and 0 becomes 1 (studio.cpp:1822-1829),
+                // so weight 0 and negative weights are selectable. An empty name has no activity
+                // (animation.cpp:146, studio.cpp:1723). Strictly greater, so the FIRST sequence of
+                // the highest weight wins a tie — deterministic where the engine rolls RandomInt.
+                int weight = Math.Max(1, Math.Abs(candidate.ActivityWeight));
+
+                if (candidate.Activity.Length > 0 &&
+                    weight > weights.GetValueOrDefault(candidate.Activity))
                 {
-                    weights[candidate.Activity] = candidate.ActivityWeight;
+                    weights[candidate.Activity] = weight;
                     map[candidate.Activity] = sequence;
                 }
             }
@@ -3030,7 +3037,7 @@ public static class PropModels
 
         /// <summary>How strongly a merged sequence claims its activity — <c>actweight</c>.</summary>
         /// <param name="sequence">The merged sequence number.</param>
-        /// <returns>Its weight; zero means it is never chosen for that activity.</returns>
+        /// <returns>Its raw <c>actweight</c>; <see cref="ForActivity"/> compares its absolute value with 0 raised to 1.</returns>
         /// <remarks>
         /// **`SelectWeightedSequence` picks among ties in proportion to this**, so two sequences
         /// claiming one activity is normal and which one runs is a weighting question rather than

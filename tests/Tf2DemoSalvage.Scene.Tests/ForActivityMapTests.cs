@@ -11,9 +11,12 @@ namespace Tf2DemoSalvage.Scene.Tests;
 /// answer exactly what the per-call scan it replaced answered.
 /// </summary>
 /// <remarks>
-/// The oracle <see cref="Scan"/> is the pre-B584 body verbatim (one group, so the group guard is
-/// moot): highest weight, strictly greater so the first of a tie wins, weight at or below zero never
-/// chosen, names compared ignoring case.
+/// The oracle <see cref="Scan"/> is the engine's tuple weight (`studio.cpp:1822-1829`: abs, 0 becomes
+/// 1) under our deterministic pick: highest weight, strictly greater so the first of a tie wins, an
+/// empty activity name never chosen, names compared ignoring case. The engine rolls
+/// <c>RandomInt</c> over those weights (`animation.cpp:308-335`); we take the heaviest instead so a
+/// demo replays the same way twice, which is what the engine's own <c>SelectHeaviestSequence</c>
+/// (`animation.cpp:413-437`) does apart from its weight-0 rule.
 /// </remarks>
 [TestFixture]
 public sealed class ForActivityMapTests
@@ -60,12 +63,18 @@ public sealed class ForActivityMapTests
         built.ForActivity("Act_A").ShouldBe(1);
     }
 
+    /// <summary>
+    /// Conformance: `studio.cpp:1822-1829` stores each tuple's weight as <c>iabs(actweight)</c> and
+    /// turns 0 into 1 ("We can't have weights of 0"), and `animation.cpp:329-335` walks those tuples,
+    /// so a sequence of weight 0 or below IS selectable. Only an empty activity name is not one
+    /// (`animation.cpp:146`, `studio.cpp:1723`).
+    /// </summary>
     [Test]
-    public void ForActivity_OnlyWeightlessCandidates_IsMinusOne()
+    public void ForActivity_OnlyWeightZeroOrNegativeCandidates_PicksTheHeaviestByAbsoluteWeight()
     {
-        PropModels.SkinnedModel built = Build([("ACT_A", 0), ("ACT_A", -1)]);
-
-        built.ForActivity("ACT_A").ShouldBe(-1);
+        Build([("ACT_A", 0), ("ACT_A", -1)]).ForActivity("ACT_A").ShouldBe(0);
+        Build([("ACT_A", 0), ("ACT_A", -3), ("ACT_A", 2)]).ForActivity("ACT_A").ShouldBe(1);
+        Build([("", 5)]).ForActivity("").ShouldBe(-1);
     }
 
     [Test]
@@ -89,10 +98,12 @@ public sealed class ForActivityMapTests
         {
             (string candidate, int weight) = sequences[sequence];
 
-            if (weight <= 0 || !string.Equals(candidate, activity, StringComparison.OrdinalIgnoreCase))
+            if (candidate.Length == 0 || !string.Equals(candidate, activity, StringComparison.OrdinalIgnoreCase))
             {
                 continue;
             }
+
+            weight = Math.Max(1, Math.Abs(weight));
 
             if (weight > bestWeight)
             {
