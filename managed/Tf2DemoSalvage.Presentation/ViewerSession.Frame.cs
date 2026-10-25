@@ -243,7 +243,7 @@ public sealed partial class ViewerSession
         GC.GetTotalPauseDuration(),
         _presenter.CameraSpent,
         _presenter.SoundsHeld.Misses,
-        Tf2DemoSalvage.Content.Assets.ParticleEffect.BirthsBySystem.Count,
+        Tf2DemoSalvage.Content.Assets.ParticleEffect.SystemsBorn,
         new ModelFirstUses(
             _presenter.Models.ModelsPacked,
             _presenter.Models.PackTicks,
