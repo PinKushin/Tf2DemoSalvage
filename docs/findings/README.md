@@ -381,6 +381,11 @@ in any public writeup found:
   build stay serial (`particlemgr.cpp:1824-1904`). Ours maps to `bursts/step` (0.28-0.36 ms), already threaded once for
   0.08 ms (94); the rest of the ~2 ms is serial in the engine too or B577
   ([103](103-threaded-particles-are-a-fork-join-inside-simulate.md)).
+- **Visibility is cached for only some rules.** `UpdateVisibility` caches leaf membership at dormancy, creation, a flip
+  of the entity's own `ShouldDraw`, a parent change, the owner's weapon switch, and a disguise flip. The followed player,
+  his weapon in eye and the respawn-room wall are judged in `DrawModel` every frame. Disguise and vision read the
+  viewer's team and vision flags, and those have no trigger, so the engine's verdict there can be stale
+  ([104](104-when-the-engine-judges-visibility.md), B578).
 
 ## Conventions used throughout
 

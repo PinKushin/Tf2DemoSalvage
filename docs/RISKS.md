@@ -40352,6 +40352,18 @@ was 0.29-0.35 ms and its first-person block 0.28-0.32 of it; the empty view's fi
 output identical by construction. **Left:** the structural divergence (verdicts per moment, not at the change) stands,
 but every part is now under 0.2 ms, so it is open for parity, not cost.
 
+**Re-read, 2026-10-25 (finding 104).** The premise was too wide. Three of the five filters are judged **per frame in
+the engine too**, in `DrawModel`: the followed player (`c_baseplayer.cpp:1445-1456`), his weapon under an in-eye
+observer (`c_basecombatweapon.cpp:481-493`, *"this may change without notification"*), and the respawn-room visualizer
+(`c_func_respawnroom.cpp:48-64`). `FirstPersonVisibility` and `RespawnRoomVisibility` are parity as they are. Only
+weapon, disguise and vision are cached (`UpdateVisibility`). Every input `WeaponVisibility` reads has a trigger, so
+there per-moment judging gives the same drawn set. Disguise (the viewer's team) and vision (the viewer's vision flags)
+read inputs the engine has **no trigger for**, so its verdict there can be stale until the item's own next update.
+**Stopped for the owner:** either keep the answer (judge per moment, never stale), or copy the structure (judge at the
+trigger sites and keep the stale frames, with a history rebuilt on seek). The two give different drawn sets. The cost
+ceiling is about 0.02 ms (measurements/2026-10-24-drawlist-parts.md, empty view `filters`), so neither reading is
+expected to save frame time. No code changed; no timed run taken.
+
 ## B577 — particle bursts are re-searched from the timeline and rebuilt every frame — OPEN
 
 **Read** (finding 83 item 2, not done; finding 97): the client fires queued events once a frame and an effect is
