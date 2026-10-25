@@ -184,3 +184,19 @@ equivalence test and timed in Release: interleaved, three runs a side, gummo fir
     returns before any lighting — the uncached caller is never called. The world pass makes 0.02-2.0 sun calls a frame.
     The wrong turn worth keeping: a code-read estimate of 0.2-0.4 ms, from reading the call and not its gate. The first
     counter run read all zeros, world included — the record was dropped by `MomentPresenter`'s `with` copy.
+  - **The parity half was fixed 2026-10-25:** on a map with a monitor the pass now lights through the light cache with
+    dynamic lights, as the engine's monitor draw does (B594 (b)). Read from code and the disassembly already cited;
+    held by a synthetic test, not by a monitor-map shot.
+
+**Four visible divergences closed on 2026-10-25, with the owner's approval (`fix/four-parity-divergences`)** — each read
+from the SDK before the test, each red before the code:
+
+- **B584's weight ≤ 0 was a refusal the engine does not make.** `iabs(actweight)` with 0 raised to 1
+  (`studio.cpp:1822-1829`); the slow loop that does not raise 0 is compiled out (`studio.h:33` sets its switch to 0).
+  The wrong turn worth keeping: the old comment called the refusal "Valve's rule"; it was the rule of a branch that is
+  never built.
+- **B580's sphere is bare `cl_detaildist`.** Reading it found that production never passes the FOV factor at all, so the
+  zoomed case it guards is not reachable yet, and that the engine's sphere admits whole leaves, which a run box under-reaches
+  when zoomed (interpolated; filed as B580's residuals).
+- **B598, the zoomed local player**, is hidden from every view, a monitor's included, because the zoom test returns
+  before the base `ShouldDraw` that a monitor's force-draw reaches (`c_tf_player.cpp:8014-8020`).

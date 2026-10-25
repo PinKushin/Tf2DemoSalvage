@@ -40066,6 +40066,20 @@ reddens four tests), and a child's drawn size against its own scale alone.
   `pl_badwater_pro_v12.bsp` is not on this machine (not under the game's `tf/maps`, `tf/download/maps`, `tf2ds`, or the
   user profile), so its `parentname` cannot be read, and no sampled tick gives them a parent.
 
+## B598 — the zoomed local player and his gear were drawn; the engine hides them from every view — FIXED 2026-10-25 (`fix/four-parity-divergences`)
+
+**Read:** `C_TFPlayer::ShouldDraw` returns false for `this == GetLocalTFPlayer()` in `TF_COND_ZOOMED`
+(`c_tf_player.cpp:8014-8020`), BEFORE `BaseClass::ShouldDraw`, so a monitor's `ForceTempForceDraw` (`viewrender.cpp:3266-3287`,
+which reaches only `C_BasePlayer::ShouldDraw`) cannot bring him back. `C_TFWearable::ShouldDraw` hides his cosmetics by
+the same test (`tf_item_wearable.cpp:338-340`); `C_BaseCombatWeapon::ShouldDraw` hides his weapon because the owner does
+not draw (`c_basecombatweapon.cpp:427-431`). It is per entity, so every camera — third person, free, monitor — is
+affected. **Data:** bit 1 of `m_Shared.m_nPlayerCond` (`PlayerConditions.Zoomed`, already decoded for the gesture context).
+The local player is the recorder; a SourceTV recording's is the spectator, never zoomed (`MomentInfo.Recorder` null), so
+nobody is hidden there. **Fixed:** `ZoomVisibility.Hidden` names the zoomed recorder and `MomentScene` removes him, his
+attached props and his owned weapons (`FirstPersonVisibility.Visible`'s set) from the drawn and the monitor lists.
+Held by two `MomentSceneTests` (synthetic): the zoomed cases were red before, the not-zoomed and SourceTV controls green.
+**Not checked:** a POV demo where the recorder scopes, seen in third person.
+
 ## B596 — is the Debug build part of the viewer-vs-TF2 f12 gap? No: Debug and Release are the same program — CLOSED (2026-10-24)
 
 **Evidence class: measured, with a code reading it confirms** (`docs/measurements/2026-10-24-debug-vs-release-f12.md`).
@@ -40175,7 +40189,10 @@ is posed only for an active, non-dormant `point_camera`), and our gate is that l
 (a) why ≤2 `SunFrom` calls a frame carry 5.8% — time one trace, or treat as profile bias; (b) on a map WITH a monitor,
 the undrawn pass lights uncached and so without dynamic lights (`LightingAt` skips `WithDynamicLights`), where the
 engine's monitor draw goes through the light cache — a small parity divergence in what a monitor shows, not a cost; fix
-by passing `ModelLightingAt`/`ModelSunAt` with a monitor-map test. (c) we pose him whenever a monitor exists, not only
+by passing `ModelLightingAt`/`ModelSunAt` with a monitor-map test — **(b) FIXED 2026-10-25** (`fix/four-parity-divergences`):
+the pass now takes the cached pair; `Pose_TheMonitorsFollowedPlayerBesideTheRecordersFireball_TakesItAsALocalLight`
+(synthetic) was red on the old call. No `b511_boardwalk_mirror.dem` shot: the machine was busy (`tf2demoview` running), and
+no TF2 reference capture exists. (c) we pose him whenever a monitor exists, not only
 when the monitor's view collates him — engine-exact would cull him by the monitor frustum; negligible at 6 props.
 
 ## B593 — `ScenePropTrack.At` copied the whole pose about six times to read nine numbers — CODE REVERTED before release (2026-10-24; the saving was 0.03 ms in `advance` (measurements/2026-10-24-burst-walk-and-pose-copies.md), and review found the no-bracket fallback not bit-identical: it ran `LoopingLerp(c,c,t)` where main ran `LoopingCurve(c,c,c,t)`, which can differ by an ulp. Not worth a parity risk. To retry, keep the third sample.)
@@ -40281,10 +40298,15 @@ B584 alone (build M), gummo first person: `pose setup` 0.78-0.80 → 0.69-0.70 m
 0.25 MB a frame less allocation, frame −0.2 to −0.35 ms (measurements/2026-10-24-b583-b584-model-lookups.md). The code-read
 estimate of 0.6-1.0 ms was 2-3x high on the frame.
 
-**Divergence kept, now named:** the engine weights a sequence by `iabs(actweight)` and turns a weight of 0 into 1
-(`studio.cpp:1728`, `:1822-1829`), so a negative or zero weight is still selectable there; ours refuses weight ≤ 0, as the
-scan did. Behaviour unchanged on purpose. Whether any shipped model has such a weight on an activity we ask for: not checked.
-The highest-weight pick in place of Valve's random draw is the already-recorded divergence.
+**Weight ≤ 0 FIXED 2026-10-25 (`fix/four-parity-divergences`, owner-approved):** the map now weighs each sequence as the
+engine's tuple list does — `iabs(actweight)`, 0 raised to 1 (`studio.cpp:1822-1829`) — and skips only an empty activity
+name (`animation.cpp:146`, `studio.cpp:1723`). The tuple path is the live one: `STUDIO_SEQUENCE_ACTIVITY_LOOKUPS_ARE_SLOW`
+is 0 (`studio.h:33`), so the slow loop at `animation.cpp:239-266`, which never raises 0, is compiled out.
+`ForActivityMapTests` reddened on the old rule and on a sabotage that drops the `abs`. **Still divergent, both named:**
+(1) the engine rolls `RandomInt` over the weights (`animation.cpp:308-335`); ours takes the heaviest, first of a tie, so a
+demo replays the same way twice — the engine's own `SelectHeaviestSequence` (`animation.cpp:413-437`) is that rule apart
+from its weight-0 refusal. Random would need a decision from the owner. (2) The engine keeps the CURRENT sequence when its
+weight is negative (`animation.cpp:291-297`); `ForActivity` takes no current sequence, so this is not modelled.
 
 **Not done:** the callers still build activity strings and a `Func` closure per call (`PlayerActivityTable.Translate`,
 `PlayerAnimation.cs:118`).
@@ -40323,8 +40345,19 @@ does not rebuild detail at all (still camera).
 
 **Not done:** (1) The "drawn this view" half of the engine's reach (`DrawDetailObjectsInLeaf` by `BuildWorldListsNumber`)
 would change the emitted corners, because a prop in an undrawn leaf is emitted today. It is left for a parity change of its
-own. (2) The engine's sphere radius is bare `cl_detaildist`, not divided by the FOV factor, so a zoomed view's larger fade
-maximum is not cut here. (3) The corner-count control was not logged (debug level).
+own. (2) ~~The engine's sphere radius is bare `cl_detaildist`~~ — **FIXED 2026-10-25** (`fix/four-parity-divergences`):
+`DetailFade.Radius` carries bare `cl_detaildist` (`detailobjectsystem.cpp:2839-2841`) and `DetailReach.Near` takes it,
+while the FOV factor still divides only the fade (`:2821-2836`, matched by `DetailFade.For`). Held by
+`Build_ZoomedPropBeyondTheSphereInsideTheFade_IsNotReached`, red when `sqrt(MaximumSquared)` is passed instead. Default
+FOV: the radius equals `sqrt(MaximumSquared)` (factor 1), so the existing 200-view equivalence test is unchanged; the f12
+cull-hash comparison was NOT re-run (no viewer runs this pass). **Two residuals found reading it:** (a) the production
+caller `Device3D.BuildDetailSprites` calls `DetailFade.For` with NO factor, so the zoomed fade (`GetFOVDistanceAdjustFactor`)
+is unwired and no zoomed view differs from the default today — the radius change has no drawn effect until it is wired;
+(b) the engine visits whole BSP leaves whose region touches the sphere (tools copy `bsplib.cpp:3518-3548`, runtime walk in
+closed `engine.dll`, not disassembled), and a run box is its leaf's tighter subset, so when zoomed a prop past the sphere in
+a leaf that touches it is the engine's and not ours (interpolated). Exact at factor 1. Fix: port `EnumerateLeavesInSphere`
+beside `BspLeafTree.EnumerateLeavesInBox` (disassemble the `CEngineBSPTree` vtable's next slot for its deltas, as B262 did).
+(3) The corner-count control was not logged (debug level).
 
 ## B579 — the HUD's event feed walks every game event and user message of the match, every frame — FIXED (2026-10-23)
 
