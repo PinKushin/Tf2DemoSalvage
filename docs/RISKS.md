@@ -40308,6 +40308,16 @@ demo replays the same way twice — the engine's own `SelectHeaviestSequence` (`
 from its weight-0 refusal. Random would need a decision from the owner. (2) The engine keeps the CURRENT sequence when its
 weight is negative (`animation.cpp:291-297`); `ForActivity` takes no current sequence, so this is not modelled.
 
+**Owner, 2026-10-25, on (1):** *"can we make it do both? have an extra setting or something? if not then deterministic,
+unless it costs a bunch of memory or fps."* **Stopped at a design, not built (read from code):** the engine calls
+`SelectWeightedSequence` EVERY frame (`multiplayer_animstate.cpp:1170`) but keeps the result only when its activity differs
+from the current sequence's (`:1171-1172`), so a random pick happens once per activity change and then holds. Our
+`ForActivity` is a stateless per-frame lookup (`PlayerAnimation.cs:118-132`, `EntityModels.Sequences.cs:224`,
+`EntityModels.Layers.cs`), so a random mode bolted onto it would re-roll every frame and flicker between variants. The
+setting needs per-entity "current main sequence" state first — the same state (2) needs — and, to keep a seek
+reproducible, a pick seeded from (entity, activity, the tick the activity began) rather than a running RNG. Memory is not the
+blocker (a candidate list per activity is a few ints per sequence); the missing state is. Deterministic stays the only mode.
+
 **Not done:** the callers still build activity strings and a `Func` closure per call (`PlayerActivityTable.Translate`,
 `PlayerAnimation.cs:118`).
 
@@ -40350,13 +40360,23 @@ own. (2) ~~The engine's sphere radius is bare `cl_detaildist`~~ — **FIXED 2026
 while the FOV factor still divides only the fade (`:2821-2836`, matched by `DetailFade.For`). Held by
 `Build_ZoomedPropBeyondTheSphereInsideTheFade_IsNotReached`, red when `sqrt(MaximumSquared)` is passed instead. Default
 FOV: the radius equals `sqrt(MaximumSquared)` (factor 1), so the existing 200-view equivalence test is unchanged; the f12
-cull-hash comparison was NOT re-run (no viewer runs this pass). **Two residuals found reading it:** (a) the production
-caller `Device3D.BuildDetailSprites` calls `DetailFade.For` with NO factor, so the zoomed fade (`GetFOVDistanceAdjustFactor`)
-is unwired and no zoomed view differs from the default today — the radius change has no drawn effect until it is wired;
+cull-hash comparison was NOT re-run (no viewer runs this pass). **Two residuals found reading it:** (a) ~~the zoomed fade was unwired~~ — **wired 2026-10-25** (`f7598155`): `SpectatorView.DistanceFactor` takes the
+recorder's `GetFOV()/GetDefaultFOV()` (`baseplayer_shared.cpp:1786-1799`, `PlayerFov`), 1 for SourceTV (interpolated:
+its spectator taken as never zoomed); the presenter hands it to `IViewerDevice.DetailFovFactor` each frame and
+`Device3D` passes it to `DetailFade.For` and keys the rebuild on it. Held by `FovDistanceFactorConformanceTests` and
+`DrawSceneOver_…`; no viewer run;
 (b) the engine visits whole BSP leaves whose region touches the sphere (tools copy `bsplib.cpp:3518-3548`, runtime walk in
 closed `engine.dll`, not disassembled), and a run box is its leaf's tighter subset, so when zoomed a prop past the sphere in
 a leaf that touches it is the engine's and not ours (interpolated). Exact at factor 1. Fix: port `EnumerateLeavesInSphere`
 beside `BspLeafTree.EnumerateLeavesInBox` (disassemble the `CEngineBSPTree` vtable's next slot for its deltas, as B262 did).
+**Design for the owner (2026-10-25), not built because it needs that disassembly session:** the `ISpatialQuery` order
+(`bsplib.cpp:3410-3416`: LeafCount, AtPoint, InBox, InSphere, AlongRay) puts the sphere walk in slot 3 of vtable
+`0x18038e768`; the box walk there differed from the tools copy by a solid-contents cutoff, a node-box overlap test and no
+epsilon, so the sphere walk is expected to differ the same way and must be READ, not assumed. Then: `BspLeafTree` gains
+`EnumerateLeavesInSphere(center, radius, into)`; `DetailReach` keeps each run's `Leaf` and, per build, reaches a run when
+its leaf is in that frame's walked set (the tree reaches the device through `WorldCulling.Tree`); the per-prop
+`Alpha` test stays. Test: two leaves, a zoomed prop past the sphere in a leaf that touches it (drawn) and one in a leaf
+outside it (not drawn); at factor 1 nothing changes.
 (3) The corner-count control was not logged (debug level).
 
 ## B579 — the HUD's event feed walks every game event and user message of the match, every frame — FIXED (2026-10-23)
