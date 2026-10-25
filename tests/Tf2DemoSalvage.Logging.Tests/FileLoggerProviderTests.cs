@@ -33,11 +33,16 @@ public sealed class FileLoggerProviderTests
     /// That is not a test artefact. Reading the log of a RUNNING viewer is the normal case: the UI
     /// suite counts lines in it to decide what the viewer did, and diagnosing a live session means
     /// tailing it. A reader this strict would have made both impossible while proving nothing.
+    ///
+    /// **Drained first** (D230): lines reach the file from a background thread, so a reader in the
+    /// same instant as the write would otherwise race it. A live tail sees them one batch later.
     /// </remarks>
-    private static string[] ReadLines(string path)
+    private static string[] ReadLines(FileLoggerProvider provider)
     {
+        provider.Flush(TimeSpan.FromSeconds(10)).ShouldBeTrue();
+
         using FileStream file = new(
-            path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+            provider.Path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
 
         using StreamReader reader = new(file);
 
@@ -83,7 +88,7 @@ public sealed class FileLoggerProviderTests
 
         provider.CreateLogger("assets").LogInformation("entity palette: 673 classes");
 
-        string line = ReadLines(provider.Path)[^1];
+        string line = ReadLines(provider)[^1];
 
         // HH:mm:ss.fff, five columns of level, then [area] and the message.
         line.ShouldMatch(@"^\d{2}:\d{2}:\d{2}\.\d{3}      \[assets\] entity palette: 673 classes$");
@@ -96,7 +101,7 @@ public sealed class FileLoggerProviderTests
 
         provider.CreateLogger("render").LogWarning("shader would not compile");
 
-        ReadLines(provider.Path)[^1]
+        ReadLines(provider)[^1]
             .ShouldMatch(@"^\d{2}:\d{2}:\d{2}\.\d{3} WARN \[render\] shader would not compile$");
     }
 
@@ -112,7 +117,7 @@ public sealed class FileLoggerProviderTests
             new InvalidDataException("checksum 818143611 does not match"),
             "reading sp_510.vhv");
 
-        string line = ReadLines(provider.Path)[^1];
+        string line = ReadLines(provider)[^1];
 
         line.ShouldContain("reading sp_510.vhv: InvalidDataException: checksum 818143611 does not match");
         line.ShouldNotContain("   at ");
@@ -150,8 +155,9 @@ public sealed class FileLoggerProviderTests
     {
         // The behaviour this asserts is "the file is readable WHILE open", which an
         // open-append-close writer also satisfies — so this is not sensitive to the fix on its own.
-        // What it does catch is a writer that never flushes: AutoFlush is on precisely because this
-        // project debugs by log and a buffered tail lost in a crash is the part worth having.
+        // What it does catch is a writer that never flushes: the drain flushes after every batch
+        // (D230) because this project debugs by log and a buffered tail lost in a crash is the part
+        // worth having.
         using FileLoggerProvider provider = new(_folder, "viewer");
 
         ILogger logger = provider.CreateLogger("render");
@@ -161,7 +167,7 @@ public sealed class FileLoggerProviderTests
             logger.LogInformation("a frame was drawn");
         }
 
-        ReadLines(provider.Path).Length.ShouldBe(500, "every line must be flushed as written");
+        ReadLines(provider).Length.ShouldBe(500, "every line must be flushed as written");
     }
 
     [Test]
@@ -199,7 +205,7 @@ public sealed class FileLoggerProviderTests
         assets.LogInformation("entity palette: 673 classes");
         assets.LogWarning("material TOOLSHURT.vmt was not found");
 
-        string[] lines = ReadLines(provider.Path);
+        string[] lines = ReadLines(provider);
 
         // The progress line is gone and the degraded fallback survives, which is the split that
         // makes a quiet production log still worth reading when something is wrong.
@@ -211,7 +217,7 @@ public sealed class FileLoggerProviderTests
         provider.Minimum = LogLevel.Information;
         assets.LogInformation("now audible again");
 
-        ReadLines(provider.Path).Length.ShouldBe(2);
+        ReadLines(provider).Length.ShouldBe(2);
     }
 
     [Test]
@@ -224,7 +230,7 @@ public sealed class FileLoggerProviderTests
         // test for exactly that reason.
         provider.CreateLogger("map").Time("loading cp_process_f12.bsp").Dispose();
 
-        ReadLines(provider.Path)[^1]
+        ReadLines(provider)[^1]
             .ShouldMatch(@"\[map\] loading cp_process_f12\.bsp took \d+\.\d{2}s$");
     }
 
@@ -245,6 +251,6 @@ public sealed class FileLoggerProviderTests
 
         logger.LogDebug("a per-frame detail");
 
-        ReadLines(provider.Path).ShouldBeEmpty("nothing below Information reaches the file");
+        ReadLines(provider).ShouldBeEmpty("nothing below Information reaches the file");
     }
 }

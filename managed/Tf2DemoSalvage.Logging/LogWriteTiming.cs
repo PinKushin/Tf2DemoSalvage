@@ -4,10 +4,14 @@ using System.Globalization;
 namespace Tf2DemoSalvage.Logging;
 
 /// <summary>What writing log lines has cost, summed, in stopwatch ticks (B595).</summary>
+/// <remarks>
+/// Since D230 the two readings use different fields: the CALLER's (<c>FileLogWriter.ThreadTiming</c>) has the enqueue in
+/// <c>WaitTicks</c> and zero flush; the WRITER's (<c>FileLogWriter.Timing</c>) has zero wait and counts batches.
+/// </remarks>
 /// <param name="Writes">Lines written.</param>
-/// <param name="WaitTicks">Time spent waiting for the writer's lock.</param>
-/// <param name="FlushTicks">Time spent in the write itself, which with <c>AutoFlush</c> includes the flush.</param>
-/// <param name="SlowWrites">Writes whose wait plus flush exceeded <see cref="SlowMilliseconds"/>.</param>
+/// <param name="WaitTicks">The caller's enqueue; zero on the writer's reading.</param>
+/// <param name="FlushTicks">The writer's write-and-flush of each batch; zero on the caller's reading.</param>
+/// <param name="SlowWrites">Enqueues, or batches, whose wait plus flush exceeded <see cref="SlowMilliseconds"/>.</param>
 public readonly record struct LogWriteTiming(long Writes, long WaitTicks, long FlushTicks, long SlowWrites)
 {
     /// <summary>The threshold a write must exceed to count as slow.</summary>

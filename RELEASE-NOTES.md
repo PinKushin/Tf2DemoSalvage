@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- **The viewer's log file is now written in the background (D230).** Writing it used to pause playback for up to about a
+  tenth of a second now and then (`docs/measurements/2026-10-24-d230-async-file-log.md`). A log on disk lags by a fraction of a second while the viewer runs, and it is complete
+  after a normal close or a crash the viewer can report. Ending a frozen viewer with Task Manager still leaves its log current up to the freeze
+  (see *Known gaps*).
+
 ## Changes in 0.1.0-beta.50
 
 Released 2026-10-24.
@@ -822,6 +827,10 @@ Each claim below is a measurement, not an expectation.
 ## Known gaps
 
 Things a user is likely to notice. Each has an entry in `docs/RISKS.md` in the repository.
+
+- **Ending the viewer with Task Manager can lose the last moment of its log**, usually about a millisecond of lines and
+  at worst about 55 ms (`docs/measurements/2026-10-24-d230-async-file-log.md`). A normal close, or a crash the viewer can report, loses nothing; a crash that takes the process down without warning
+  is the same as Task Manager.
 
 - **The first twenty seconds or so of playback run slower than steady state** while the runtime optimizes the viewer's
   code. Turning that off made loading much slower and playback slower too, so it was reverted. Still open.

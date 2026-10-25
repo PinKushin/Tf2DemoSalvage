@@ -743,7 +743,7 @@ public sealed class MomentScene : IGameSystemPerFrame
         // **Once per fall, not once per rebuild.** `Fell` keeps every fall for the life of the
         // simulation, and this walked all of it on every rebuild: two corpses on f12 wrote the same
         // two warnings hundreds of times a second, and the log's per-line flush (`FileLogWriter`,
-        // B191) then held the render thread for 131-396 ms at a time — the mid-playback hitches,
+        // B191; off the caller since D230) then held the render thread for 131-396 ms at a time — the mid-playback hitches,
         // measured as pose "rest" landing exactly in the gap between two of these lines.
         foreach ((int entity, (int tick, int contacts, (double X, double Y, double Z) at))
             in _models.Corpses.Fell)

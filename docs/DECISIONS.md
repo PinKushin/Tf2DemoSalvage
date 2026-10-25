@@ -10947,3 +10947,36 @@ by default. On one core it draws serially, as before. `+mat_queue_mode 0`, or th
 back the old behaviour. A `settings.cfg` saved earlier holds the default only as a comment, so it follows the new
 default. The engine's other fall-backs to 0, `-threads` among them, are in finding 98 section 10.
 
+## D230 — the viewer's file log is written by a background thread; the caller only enqueues (2026-10-24)
+
+**What is decided.** The owner, 2026-10-24: *"async the f\*\*\*ing out of it, background thread should be where
+basically all logging is done nowadays. It's even better there architecturally since it can run independently of the
+main CPU core locking up and the program itself locking up."* Settled; not to be relitigated.
+
+`FileLogWriter.Write` puts the line on a bounded queue and returns. One named background thread (`file log writer`)
+writes the queue in order and flushes once per drained batch. `Flush(timeout)` drains on the calling thread; the three
+crash handlers in `Program.cs` (`ThreadException`, `UnhandledException`, `UnobservedTaskException`) and
+`AppDomain.ProcessExit` call it, and `Dispose`, which runs last in `Main`, drains and closes. Timestamps are taken when
+the line is formatted, before the enqueue. This supersedes the per-line `AutoFlush` that B191 kept.
+
+**Why it follows.** B595 part 3 (`measurements/2026-10-24-b595-log-writer-stalls.md`) measured 6 of 7 frames over 100 ms
+as the main thread blocked on the per-line flush (lock wait ~0; flush 9.7-291.9 ms a run on the main thread, ~320 writes
+a run). With the file log held at Warning, frames over 100 ms went 7 to 0 over 5 interleaved 60 s runs. Only a writer
+thread takes the main thread off the disk whichever line is slow; demoting lines one at a time (B191, B591) never could.
+
+**The queue: bounded at 65,536 lines, drop-oldest, counted.** The main thread must never wait on disk or on a full
+queue, so blocking is out. Unbounded is out too, because a disk that stops answering would then grow memory without
+limit. Dropping the OLDEST keeps the tail, which is the part B191 kept `AutoFlush` for. Each gap is written into the file
+as `(N log lines dropped here: the queue was full)` where it happened. `--measure` prints the dropped count and the
+queue's high-water mark.
+
+**The trade, named.** A hard kill that skips the handlers (End Task on a hung viewer, a native crash that takes the
+process without unwinding) loses the lines still queued at that moment. Measured in
+`measurements/2026-10-24-d230-async-file-log.md`. The owner's reasoning on it, 2026-10-24: *"When users hard kill,
+it's normally because of a freeze, meaning you more than likely have the up-to-date logs. That's a very edge case, and
+it probably only really shadows weird glitches, like a program that crashes when ended by Task Manager."* Why that
+follows: the writer thread keeps draining while the main thread is frozen, so a freeze leaves the current log on disk.
+That is better than the synchronous log, which stopped writing when the thread that wrote it hung. The loss window is
+only the lines queued at the instant of the kill. A normal close goes through `Dispose`, and the viewer's shutdown is
+short, so only End Task on a hung viewer is a true hard kill.
+

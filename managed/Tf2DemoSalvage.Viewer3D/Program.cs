@@ -111,20 +111,36 @@ internal static class Program
         // **The stack goes in the message** because the file logger keeps only type and message for
         // an exception (caught ones need no more). A paint that threw here drew WinForms' red X on
         // the menu and status bars, and a log without the stack could not say which control.
+        // **Each drains the file log synchronously after its line** (D230): the log is written by a
+        // background thread, and a terminating process does not wait for it.
+        TimeSpan drain = TimeSpan.FromSeconds(2);
+
         Application.ThreadException += (_, thread) =>
+        {
             crashes.LogError(
                 "{Message}: {Stack}", "unhandled exception on the UI thread", thread.Exception.ToString());
+            logs.Flush(drain);
+        };
 
         AppDomain.CurrentDomain.UnhandledException += (_, domain) =>
+        {
             crashes.LogError(
                 domain.ExceptionObject as Exception,
                 "{Message}",
                 $"unhandled exception, terminating {domain.IsTerminating}");
+            logs.Flush(drain);
+        };
 
         // **And the one that would otherwise stay invisible.** A fire-and-forget `Task` that
         // faults reaches neither handler above; it surfaces only when the finaliser collects it.
         System.Threading.Tasks.TaskScheduler.UnobservedTaskException += (_, task) =>
+        {
             crashes.LogError(task.Exception, "{Message}", "a background task faulted unobserved");
+            logs.Flush(drain);
+        };
+
+        // An exit that skips the `using` below (Environment.Exit, a test killing the window) still drains.
+        AppDomain.CurrentDomain.ProcessExit += (_, _) => logs.Flush(drain);
 
         // Passed straight through: double-clicking a .dem, selecting several and pressing enter,
         // or dropping a folder on the executable all arrive here as paths, and all go through the
@@ -147,6 +163,7 @@ internal static class Program
         shell.Session.SetLogVerbosity = level => logs.Minimum = level;
         shell.Session.ApplyLogVerbosity();
         shell.Session.LogTiming = () => logs.Timing;
+        shell.Session.LogQueue = () => logs.QueueReading;
 
         // **Three lines that split the last unmeasured stretch of the shutdown** (B402). The form's
         // own log reaches `shutdown: the base returned` and the process still dies, so what is left
