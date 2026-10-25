@@ -171,6 +171,45 @@ public sealed class FileLoggerProviderTests
     }
 
     [Test]
+    public void Log_ThreeShortLines_ReachTheFileWithoutAnyoneAskingForAFlush()
+    {
+        // **The test above can no longer see a writer that never flushes**, because ReadLines drains first (D230).
+        // This one never calls Flush: it polls the file as a person tailing it would. Three short lines sit well
+        // inside a StreamWriter's buffer, so they reach the file only if the writer thread flushes its batch.
+        using FileLoggerProvider provider = new(_folder, "viewer");
+        ILogger logger = provider.CreateLogger("render");
+
+        logger.LogInformation("one");
+        logger.LogInformation("two");
+        logger.LogInformation("three");
+
+        System.Diagnostics.Stopwatch waited = System.Diagnostics.Stopwatch.StartNew();
+        int seen = 0;
+
+        while ((seen = ReadLinesAsTheyAre(provider.Path).Length) < 3 && waited.Elapsed < TimeSpan.FromSeconds(10))
+        {
+            System.Threading.Thread.SpinWait(100_000);
+        }
+
+        seen.ShouldBe(3, "the writer thread must flush every batch, not only when asked");
+    }
+
+    private static string[] ReadLinesAsTheyAre(string path)
+    {
+        using FileStream file = new(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+        using StreamReader reader = new(file);
+
+        List<string> lines = [];
+
+        while (reader.ReadLine() is { } line)
+        {
+            lines.Add(line);
+        }
+
+        return [.. lines];
+    }
+
+    [Test]
     public void Log_WhenTheFolderCannotBeWritten_CostsItsLinesAndNothingElse()
     {
         // **The priority this whole type is built around.** A viewer that refuses to open a demo
