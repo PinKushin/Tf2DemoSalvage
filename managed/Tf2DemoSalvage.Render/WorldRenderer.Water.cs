@@ -580,7 +580,7 @@ internal sealed unsafe partial class WorldRenderer
 
         MappedSubresource mapped = default;
 
-        SilkMarshal.ThrowHResult(context.Map(_waterBuffer, 0, Map.WriteDiscard, 0, ref mapped));
+        SubmitCounters.Upload(); SilkMarshal.ThrowHResult(context.Map(_waterBuffer, 0, Map.WriteDiscard, 0, ref mapped));
 
         fixed (float* source = _waterContents)
         {
@@ -655,7 +655,7 @@ internal sealed unsafe partial class WorldRenderer
         if ((passes & WaterPass.ReflectionRefraction) != 0)
         {
             context.PSSetShader(_waterShader, ref Unsafe.NullRef<ComPtr<ID3D11ClassInstance>>(), 0);
-            context.Draw((uint)batch.VertexCount, (uint)batch.FirstVertex);
+            SubmitCounters.Draw(); context.Draw((uint)batch.VertexCount, (uint)batch.FirstVertex);
             expensive++;
         }
 
@@ -670,7 +670,7 @@ internal sealed unsafe partial class WorldRenderer
             }
 
             context.PSSetShader(_cheapWaterShader, ref Unsafe.NullRef<ComPtr<ID3D11ClassInstance>>(), 0);
-            context.Draw((uint)batch.VertexCount, (uint)batch.FirstVertex);
+            SubmitCounters.Draw(); context.Draw((uint)batch.VertexCount, (uint)batch.FirstVertex);
             ResetBlend(context);
             cheap++;
         }
@@ -952,7 +952,7 @@ internal sealed unsafe partial class WorldRenderer
 
         MappedSubresource mapped = default;
 
-        SilkMarshal.ThrowHResult(context.Map(_refractModelConstants, 0, Map.WriteDiscard, 0, ref mapped));
+        SubmitCounters.Upload(); SilkMarshal.ThrowHResult(context.Map(_refractModelConstants, 0, Map.WriteDiscard, 0, ref mapped));
 
         float* into = (float*)mapped.PData;
         RefractMaterial material = refract.Material;
@@ -1040,7 +1040,7 @@ internal sealed unsafe partial class WorldRenderer
 
         MappedSubresource mapped = default;
 
-        SilkMarshal.ThrowHResult(context.Map(_refractModelConstants, 0, Map.WriteDiscard, 0, ref mapped));
+        SubmitCounters.Upload(); SilkMarshal.ThrowHResult(context.Map(_refractModelConstants, 0, Map.WriteDiscard, 0, ref mapped));
 
         float* into = (float*)mapped.PData;
 
@@ -1073,7 +1073,7 @@ internal sealed unsafe partial class WorldRenderer
         context.PSSetConstantBuffers(5, 1, ref _refractModelConstants);
         context.PSSetShaderResources(13, 1, ref _refractModelFrame);
 
-        context.Draw((uint)batch.VertexCount, (uint)batch.FirstVertex);
+        SubmitCounters.Draw(); context.Draw((uint)batch.VertexCount, (uint)batch.FirstVertex);
 
         // A bound input cannot be an output, and the next batch draws with the material's own state and shader.
         ComPtr<ID3D11ShaderResourceView> none = default;
@@ -1141,7 +1141,7 @@ internal sealed unsafe partial class WorldRenderer
         context.PSSetShaderResources(0, 1, ref source);
         context.PSSetSamplers(0, 1, ref _clampSampler);
         ResetBlend(context);
-        context.Draw(3, 0);
+        SubmitCounters.Draw(); context.Draw(3, 0);
 
         // The world's pipeline back: its shaders and samplers.
         ComPtr<ID3D11ShaderResourceView> none = default;

@@ -352,7 +352,7 @@ public sealed unsafe class DetailSpriteRenderer : IDisposable
 
         MappedSubresource mapped = default;
 
-        SilkMarshal.ThrowHResult(context.Map(_refractConstants, 0, Map.WriteDiscard, 0, ref mapped));
+        SubmitCounters.Upload(); SilkMarshal.ThrowHResult(context.Map(_refractConstants, 0, Map.WriteDiscard, 0, ref mapped));
 
         float* into = (float*)mapped.PData;
 
@@ -571,6 +571,7 @@ public sealed unsafe class DetailSpriteRenderer : IDisposable
 
         MappedSubresource mapped = default;
 
+        SubmitCounters.Upload();
         SilkMarshal.ThrowHResult(
             context.Map(_vertices, 0, Map.WriteDiscard, 0, ref mapped));
 
@@ -704,7 +705,7 @@ public sealed unsafe class DetailSpriteRenderer : IDisposable
             0);
         context.RSSetState(_noCull);
 
-        context.Draw((uint)cornerCount, (uint)firstCorner);
+        SubmitCounters.Draw(); context.Draw((uint)cornerCount, (uint)firstCorner);
 
         if (_refract is not null)
         {
@@ -883,7 +884,7 @@ public sealed unsafe class DetailSpriteRenderer : IDisposable
 
         MappedSubresource mapped = default;
 
-        SilkMarshal.ThrowHResult(context.Map(_camera, 0, Map.WriteDiscard, 0, ref mapped));
+        SubmitCounters.Upload(); SilkMarshal.ThrowHResult(context.Map(_camera, 0, Map.WriteDiscard, 0, ref mapped));
 
         fixed (float* first = viewProjection)
         {

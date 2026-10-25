@@ -255,7 +255,7 @@ public sealed unsafe class BloomRenderer : IDisposable
         context.OMSetRenderTargets(1, ref output, default(ComPtr<ID3D11DepthStencilView>));
 
         MappedSubresource mapped = default;
-        SilkMarshal.ThrowHResult(context.Map(_constants, 0, Map.WriteDiscard, 0, ref mapped));
+        SubmitCounters.Upload(); SilkMarshal.ThrowHResult(context.Map(_constants, 0, Map.WriteDiscard, 0, ref mapped));
         float* into = (float*)mapped.PData;
         (into[0], into[1], into[2], into[3]) = (source.X, source.Y, source.Scale, 0f);
         (into[4], into[5], into[6], into[7]) = (step.X, step.Y, 0f, 0f);
@@ -263,7 +263,7 @@ public sealed unsafe class BloomRenderer : IDisposable
 
         context.PSSetShader(shader, ref Unsafe.NullRef<ComPtr<ID3D11ClassInstance>>(), 0);
         context.PSSetShaderResources(0, 1, ref input);
-        context.Draw(3, 0);
+        SubmitCounters.Draw(); context.Draw(3, 0);
     }
 
     private void EnsureTargets(ComPtr<ID3D11Device> device, int width, int height)

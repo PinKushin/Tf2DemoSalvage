@@ -2909,7 +2909,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
         }
 
         MappedSubresource mapped = default;
-        SilkMarshal.ThrowHResult(context.Map(_flexStream, 0, Map.WriteDiscard, 0, ref mapped));
+        SubmitCounters.Upload(); SilkMarshal.ThrowHResult(context.Map(_flexStream, 0, Map.WriteDiscard, 0, ref mapped));
 
         fixed (float* from = flex)
         {
@@ -4345,7 +4345,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             context.PSSetShaderResources(4, 1, ref bump);
             context.PSSetShaderResources(5, 1, ref reflection);
             BindBlendModulation(context, batch.MaterialIndex);
-            context.Draw((uint)batch.VertexCount, (uint)batch.FirstVertex);
+            SubmitCounters.Draw(); context.Draw((uint)batch.VertexCount, (uint)batch.FirstVertex);
         }
     }
 
@@ -4469,6 +4469,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
 
         MappedSubresource mapped = default;
 
+        SubmitCounters.Upload();
         SilkMarshal.ThrowHResult(
             context.Map(_camera, 0, Map.WriteDiscard, 0, ref mapped));
 
@@ -4633,7 +4634,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
         // sun's, and every lamp slot past what was supplied.
         MappedSubresource mapped = default;
 
-        SilkMarshal.ThrowHResult(context.Map(_model, 0, Map.WriteDiscard, 0, ref mapped));
+        SubmitCounters.Upload(); SilkMarshal.ThrowHResult(context.Map(_model, 0, Map.WriteDiscard, 0, ref mapped));
 
         Span<float> contents = new(mapped.PData, ModelConstants);
 
@@ -4972,7 +4973,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
         // slot stays zero".
         MappedSubresource mapped = default;
 
-        SilkMarshal.ThrowHResult(context.Map(_bones, 0, Map.WriteDiscard, 0, ref mapped));
+        SubmitCounters.Upload(); SilkMarshal.ThrowHResult(context.Map(_bones, 0, Map.WriteDiscard, 0, ref mapped));
 
         Span<float> contents = new(mapped.PData, BoneConstants);
 
@@ -5993,7 +5994,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
 
         MappedSubresource mapped = default;
 
-        SilkMarshal.ThrowHResult(context.Map(_material, 0, Map.WriteDiscard, 0, ref mapped));
+        SubmitCounters.Upload(); SilkMarshal.ThrowHResult(context.Map(_material, 0, Map.WriteDiscard, 0, ref mapped));
 
         // **Sized from the array rather than from a literal.** It was a hardcoded sixteen floats,
         // which silently truncates the moment the buffer grows — and it grew, by five float4s of
@@ -6341,7 +6342,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
         MappedSubresource mapped = default;
 
         // Packed straight into the mapped buffer: no array per frame (finding 80).
-        SilkMarshal.ThrowHResult(context.Map(_shotDecalBuffer, 0, Map.WriteDiscard, 0, ref mapped));
+        SubmitCounters.Upload(); SilkMarshal.ThrowHResult(context.Map(_shotDecalBuffer, 0, Map.WriteDiscard, 0, ref mapped));
         PackInto(vertices, new Span<float>(mapped.PData, _shotDecalCapacity * (VertexStride / sizeof(float))));
         context.Unmap(_shotDecalBuffer, 0);
     }
@@ -6405,7 +6406,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
         MappedSubresource mapped = default;
 
         // Packed straight into the mapped buffer: no array per model per frame (finding 80).
-        SilkMarshal.ThrowHResult(context.Map(_modelDecalBuffer, 0, Map.WriteDiscard, 0, ref mapped));
+        SubmitCounters.Upload(); SilkMarshal.ThrowHResult(context.Map(_modelDecalBuffer, 0, Map.WriteDiscard, 0, ref mapped));
         PackInto(vertices, new Span<float>(mapped.PData, _modelDecalCapacity * (VertexStride / sizeof(float))));
         context.Unmap(_modelDecalBuffer, 0);
 
@@ -6519,7 +6520,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
         context.PSSetShaderResources(3, 1, ref detail);
         context.PSSetShaderResources(4, 1, ref bump);
         BindBlendModulation(context, batch.MaterialIndex);
-        context.Draw((uint)batch.VertexCount, (uint)batch.FirstVertex);
+        SubmitCounters.Draw(); context.Draw((uint)batch.VertexCount, (uint)batch.FirstVertex);
     }
 
     /// <summary>Binds a material's <c>$blendmodulatetexture</c> to slot 15, null handle included.</summary>
@@ -6633,7 +6634,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             context.PSSetShaderResources(4, 1, ref bump);
         }
 
-        context.Draw((uint)batch.VertexCount, (uint)batch.FirstVertex);
+        SubmitCounters.Draw(); context.Draw((uint)batch.VertexCount, (uint)batch.FirstVertex);
     }
 
     /// <summary>The visible translucent and additive world runs by leaf place, or null to draw them all at once.</summary>
@@ -7608,7 +7609,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
 
             if (cloakPass is null || CloakPass.DrawsStandardPass(cloaked.Factor))
             {
-                context.Draw((uint)batch.VertexCount, (uint)batch.FirstVertex);
+                SubmitCounters.Draw(); context.Draw((uint)batch.VertexCount, (uint)batch.FirstVertex);
             }
 
             if (cloakPass is not null && frameCopied && CloakPass.DrawsCloakPass(cloaked.Factor))
@@ -8254,7 +8255,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
         // Level zero is uploaded; the rest are generated from it.
         fixed (byte* first = pixels)
         {
-            context.UpdateSubresource(texture, 0, (Box*)null, first, (uint)(width * 4), 0u);
+            SubmitCounters.Upload(); context.UpdateSubresource(texture, 0, (Box*)null, first, (uint)(width * 4), 0u);
         }
 
         ComPtr<ID3D11ShaderResourceView> view = default;
@@ -8294,7 +8295,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             {
                 Box box = new((uint)x, (uint)y, 0u, (uint)(x + regionWidth), (uint)(y + regionHeight), 1u);
 
-                context.UpdateSubresource(texture, 0, in box, atlas + (((y * width) + x) * 4), (uint)(width * 4), 0u);
+                SubmitCounters.Upload(); context.UpdateSubresource(texture, 0, in box, atlas + (((y * width) + x) * 4), (uint)(width * 4), 0u);
             }
         }
 

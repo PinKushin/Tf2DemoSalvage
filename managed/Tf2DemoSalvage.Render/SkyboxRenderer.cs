@@ -391,7 +391,7 @@ public sealed unsafe class SkyboxRenderer : IDisposable
             context.VSSetConstantBuffers(CameraSlot, 1, ref _camera);
             context.PSSetConstantBuffers(CameraSlot, 1, ref _camera);
             context.PSSetShaderResources(0, 1, ref bound);
-            context.Draw(SkyboxGeometry.CornersPerFace, (uint)(face * SkyboxGeometry.CornersPerFace));
+            SubmitCounters.Draw(); context.Draw(SkyboxGeometry.CornersPerFace, (uint)(face * SkyboxGeometry.CornersPerFace));
         }
     }
 
@@ -529,7 +529,7 @@ public sealed unsafe class SkyboxRenderer : IDisposable
     private void Upload(ComPtr<ID3D11DeviceContext> context, float[] vertices)
     {
         MappedSubresource mapped = default;
-        SilkMarshal.ThrowHResult(context.Map(_vertices, 0, Map.WriteDiscard, 0, ref mapped));
+        SubmitCounters.Upload(); SilkMarshal.ThrowHResult(context.Map(_vertices, 0, Map.WriteDiscard, 0, ref mapped));
 
         fixed (float* source = vertices)
         {
@@ -571,7 +571,7 @@ public sealed unsafe class SkyboxRenderer : IDisposable
         ];
 
         MappedSubresource mapped = default;
-        SilkMarshal.ThrowHResult(context.Map(_camera, 0, Map.WriteDiscard, 0, ref mapped));
+        SubmitCounters.Upload(); SilkMarshal.ThrowHResult(context.Map(_camera, 0, Map.WriteDiscard, 0, ref mapped));
 
         fixed (float* source = contents)
         {

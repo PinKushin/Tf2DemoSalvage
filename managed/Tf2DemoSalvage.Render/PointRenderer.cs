@@ -196,7 +196,7 @@ internal sealed unsafe class PointRenderer : IDisposable
         Upload(context, vertices);
 
         Bind(context, D3DPrimitiveTopology.D3DPrimitiveTopologyLinelist);
-        context.Draw((uint)(segments.Count * 2), 0);
+        SubmitCounters.Draw(); context.Draw((uint)(segments.Count * 2), 0);
     }
 
     /// <summary>Draws filled triangles into the bound render target.</summary>
@@ -246,7 +246,7 @@ internal sealed unsafe class PointRenderer : IDisposable
         Upload(context, vertices);
 
         Bind(context, D3DPrimitiveTopology.D3DPrimitiveTopologyTrianglelist);
-        context.Draw((uint)usable, 0);
+        SubmitCounters.Draw(); context.Draw((uint)usable, 0);
     }
 
     /// <summary>Draws the points into the bound render target.</summary>
@@ -276,7 +276,7 @@ internal sealed unsafe class PointRenderer : IDisposable
         Upload(context, vertices);
 
         Bind(context, D3DPrimitiveTopology.D3DPrimitiveTopologyTrianglelist);
-        context.Draw((uint)(points.Count * VerticesPerPoint), 0);
+        SubmitCounters.Draw(); context.Draw((uint)(points.Count * VerticesPerPoint), 0);
     }
 
     /// <summary>Copies vertices into the dynamic buffer.</summary>
@@ -287,7 +287,7 @@ internal sealed unsafe class PointRenderer : IDisposable
     private void Upload(ComPtr<ID3D11DeviceContext> context, float[] vertices)
     {
         MappedSubresource mapped = default;
-        SilkMarshal.ThrowHResult(context.Map(_vertices, 0, Map.WriteDiscard, 0, ref mapped));
+        SubmitCounters.Upload(); SilkMarshal.ThrowHResult(context.Map(_vertices, 0, Map.WriteDiscard, 0, ref mapped));
 
         fixed (float* source = vertices)
         {
