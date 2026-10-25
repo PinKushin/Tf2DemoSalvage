@@ -1,11 +1,19 @@
-# Tf2DemoSalvage 0.1.0-beta.50
+# Tf2DemoSalvage 0.1.0-beta.51
 
 ## Unreleased
+
+## Changes in 0.1.0-beta.51
+
+Released 2026-10-25.
 
 - **The viewer's log file is now written in the background (D230).** Writing it used to pause playback for up to about a
   tenth of a second now and then (`docs/measurements/2026-10-24-d230-async-file-log.md`). A log on disk lags by a fraction of a second while the viewer runs, and it is complete
   after a normal close or a crash the viewer can report. Ending a frozen viewer with Task Manager still leaves its log current up to the freeze
   (see *Known gaps*).
+  Main-thread time spent writing the log, per 60 s run on `cp_process_f12`: 5.6-691.1 ms before, 0.0 ms after (`docs/measurements/2026-10-24-d230-async-file-log.md`).
+- **Two repeated log lines are quieter.** The viewmodel skin line is written once per skin change, and the muzzle-flash
+  line is written only at Debug level. Each used to be flushed to disk from the frame (`docs/measurements/2026-10-24-b595-first-use-builds.md`,
+  `docs/measurements/2026-10-24-muzzle-flash-log-line.md`). What is drawn does not change.
 
 ## Changes in 0.1.0-beta.50
 
