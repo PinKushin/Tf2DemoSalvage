@@ -1,6 +1,4 @@
-using System;
 using System.Diagnostics;
-using System.IO;
 
 using Tf2DemoSalvage.Logging;
 
@@ -32,31 +30,5 @@ public sealed class LogWriteTimingTests
         Assert.That(late - early, Is.EqualTo(new LogWriteTiming(3, 40, 40, 1)));
     }
 
-    [Test]
-    public void Write_ThreeLines_CountsThreeOnTheWriterAndTheCallingThread()
-    {
-        string folder = Path.Combine(Path.GetTempPath(), $"tf2ds-logtiming-{Guid.NewGuid():N}");
-        LogWriteTiming threadBefore = FileLogWriter.ThreadTiming;
-
-        try
-        {
-            using FileLogWriter writer = new(folder, "timing");
-            writer.Write("a");
-            writer.Write("b");
-            writer.Write("c");
-
-            LogWriteTiming thread = FileLogWriter.ThreadTiming - threadBefore;
-            Assert.Multiple(() =>
-            {
-                Assert.That(writer.Timing.Writes, Is.EqualTo(3));
-                Assert.That(writer.Timing.FlushTicks, Is.Positive);
-                Assert.That(thread.Writes, Is.EqualTo(3));
-                Assert.That(thread.FlushTicks, Is.EqualTo(writer.Timing.FlushTicks));
-            });
-        }
-        finally
-        {
-            Directory.Delete(folder, recursive: true);
-        }
-    }
+    // The writer's caller-side and drain-side split (D230): FileLogWriterQueueTests.Write_ThreeLines_TimesTheCallerApartFromTheWriter.
 }

@@ -352,10 +352,12 @@ public sealed partial class ViewerSession
                 $"; baked built {jitNow.Models.Baked - _countersAtStart.Models.Baked}, {(jitNow.Models.BakedTicks - _countersAtStart.Models.BakedTicks) * 1000d / Stopwatch.Frequency:0.0} ms" +
                 $"; before play: models packed {_countersAtStart.Models.Packed}, {_countersAtStart.Models.PackTicks * 1000d / Stopwatch.Frequency:0.0} ms" +
                 $"; baked built {_countersAtStart.Models.Baked}, {_countersAtStart.Models.BakedTicks * 1000d / Stopwatch.Frequency:0.0} ms"));
-            // The writer's own timing of every line in the window (B595): the main thread's, then every thread's.
+            // The writer's own timing of the window (B595, D230): the main thread's enqueues ("wait"), then the
+            // writer thread's batches, then its queue over the whole run.
             _host.Out.WriteLine(
-                "  log writes: main thread " + (jitNow.Log - _countersAtStart.Log) +
-                (LogTiming is { } logTiming ? "; all threads " + (logTiming() - _logAtStart) : string.Empty));
+                "  log writes: main thread enqueue " + (jitNow.Log - _countersAtStart.Log) +
+                (LogTiming is { } logTiming ? "; writer thread " + (logTiming() - _logAtStart) : string.Empty) +
+                (LogQueue is { } logQueue ? "; " + logQueue() : string.Empty));
             _host.Out.WriteLine("  " + _effects.ParticleCost.Since(_particlesAtStart, _framesMeasured));
             _host.Out.WriteLine("  " + _effects.ParticleWork.Since(_particleWorkAtStart, _framesMeasured));
             _host.Out.WriteLine("  " + ParticleBirths.Since(_birthsAtStart, Tf2DemoSalvage.Content.Assets.ParticleEffect.BirthsBySystem, _frameSeconds, 12));

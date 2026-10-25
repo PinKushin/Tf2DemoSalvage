@@ -4,6 +4,7 @@ using System.Globalization;
 using System.IO;
 using System.Text;
 using System.Threading;
+using System.Threading.Channels;
 
 namespace Tf2DemoSalvage.Logging;
 
@@ -24,9 +25,12 @@ namespace Tf2DemoSalvage.Logging;
 /// - **A held stream with `AutoFlush`, not open-append-close per line.** One five-minute run wrote
 ///   450,157 lines into a 37 MB file, every one a separate open and close. The owner was blunt about
 ///   it: *"THATS A BAD AI CHOICE, that should be using the async version, non blocking"* — and a
-///   held handle beats an asynchronous open, because the expensive part IS the open. `AutoFlush`
-///   stays on because this project debugs by log and a buffered tail lost in a crash is exactly the
-///   part worth having.
+///   held handle beats an asynchronous open, because the expensive part IS the open.
+/// - **The caller enqueues; one background thread writes and flushes (D230).** The per-line flush
+///   was the main thread's last 100 ms stalls (B595 part 3: 6 of 7 frames over 100 ms). The writer
+///   flushes after every drained batch, so durability is unchanged except for lines still queued at
+///   a hard kill; `Flush` and `Dispose` drain synchronously and the viewer's crash handlers call it.
+///   A frozen main thread no longer stops the log either, since the writer keeps draining.
 /// - **Failure to log never fails the caller.** A locked or unwritable file costs its lines and
 ///   nothing else. A viewer that refuses to open a demo because it cannot write a log has the
 ///   priority backwards.
@@ -34,17 +38,29 @@ namespace Tf2DemoSalvage.Logging;
 /// </remarks>
 public sealed class FileLogWriter : IDisposable
 {
+    /// <summary>Lines the queue holds before the oldest is dropped: minutes of the busiest log measured (~13 lines/s, B595).</summary>
+    private const int DefaultCapacity = 1 << 16;
+
+    private static readonly TimeSpan CloseTimeout = TimeSpan.FromSeconds(2);
+
+    /// <summary>Held by whoever drains: the writer thread or a synchronous <see cref="Flush"/>. Never by <see cref="Write"/>.</summary>
     private readonly Lock _gate = new();
-    private readonly string _folder;
+    private readonly Lock _timingGate = new();
+    private readonly string _folder = string.Empty;
     private readonly int _kept;
+    private readonly Channel<string> _queue;
+    private readonly Thread? _thread;
 
     [ThreadStatic]
     private static LogWriteTiming _threadTiming;
 
-    private StreamWriter? _writer;
-    private bool _failed;
-    private bool _disposed;
+    private TextWriter? _writer;
+    private volatile bool _failed;
     private LogWriteTiming _timing;
+    private long _dropped;
+    private long _droppedUnreported;
+    private int _pending;
+    private int _highWater;
 
     /// <summary>Opens a log for this run.</summary>
     /// <param name="folder">Where logs are written.</param>
@@ -66,8 +82,28 @@ public sealed class FileLogWriter : IDisposable
                 CultureInfo.InvariantCulture,
                 $"{prefix}-{DateTime.Now:yyyyMMdd-HHmmss}-{Environment.ProcessId}.log"));
 
+        _queue = NewQueue(DefaultCapacity);
         Begin(banner);
+        _thread = StartWriter();
     }
+
+    /// <summary>A writer over a sink the caller supplies, for tests: a stalled disk, a small queue, or no writer thread.</summary>
+    /// <param name="sink">Where lines go.</param>
+    /// <param name="capacity">Lines held before the oldest is dropped.</param>
+    /// <param name="background">Whether a writer thread drains; without one only <see cref="Flush"/> does.</param>
+    internal FileLogWriter(TextWriter sink, int capacity, bool background)
+    {
+        Path = string.Empty;
+        _writer = sink;
+        _queue = NewQueue(capacity);
+        _thread = background ? StartWriter() : null;
+    }
+
+    /// <summary>Lines dropped because the queue was full, oldest first, over this writer's life.</summary>
+    public long Dropped => Interlocked.Read(ref _dropped);
+
+    /// <summary>The most lines the queue has held at once.</summary>
+    public int HighWater => Volatile.Read(ref _highWater);
 
     /// <summary>Where this run's log is written.</summary>
     public string Path { get; }
@@ -88,31 +124,29 @@ public sealed class FileLogWriter : IDisposable
     /// Exposed so a caller can say so once rather than discovering it from an empty file. Nothing
     /// depends on it to decide whether to log — that is this type's business.
     /// </remarks>
-    public bool Failed
-    {
-        get
-        {
-            lock (_gate)
-            {
-                return _failed;
-            }
-        }
-    }
+    public bool Failed => _failed;
 
-    /// <summary>Every line written into this file so far, from every thread: its lock wait and its write-and-flush (B595).</summary>
+    /// <summary>The DRAINING side: lines written into this file and each batch's write-and-flush (B595, D230).</summary>
+    /// <remarks>
+    /// `WaitTicks` is always zero here; `SlowWrites` counts batches over the threshold. Under its own
+    /// lock, not the drain's, because the drain can hold that for a whole slow flush.
+    /// </remarks>
     public LogWriteTiming Timing
     {
         get
         {
-            lock (_gate)
+            lock (_timingGate)
             {
                 return _timing;
             }
         }
     }
 
-    /// <summary>The same, for lines the calling thread wrote, into any writer (B595).</summary>
-    /// <remarks>Per thread so the viewer's main thread can difference it over one frame.</remarks>
+    /// <summary>The CALLING side, for lines this thread wrote into any writer: `WaitTicks` is the enqueue (B595, D230).</summary>
+    /// <remarks>
+    /// Per thread so the viewer's main thread can difference it over one frame. `FlushTicks` is
+    /// always zero, because the caller no longer touches the disk — a non-zero one would mean it does.
+    /// </remarks>
     public static LogWriteTiming ThreadTiming => _threadTiming;
 
     /// <summary>Writes one already-formatted line.</summary>
@@ -139,54 +173,169 @@ public sealed class FileLogWriter : IDisposable
             Debug.WriteLine(line);
         }
 
+        if (_failed)
+        {
+            return;
+        }
+
         long asked = Stopwatch.GetTimestamp();
 
-        lock (_gate)
+        // Never waits: the queue drops its OLDEST line when full (D230), and after Dispose this returns false.
+        if (_queue.Writer.TryWrite(line))
         {
-            if (_failed || _disposed || _writer is not { } writer)
-            {
-                return;
-            }
+            int pending = Interlocked.Increment(ref _pending);
+            int high = Volatile.Read(ref _highWater);
 
-            long entered = Stopwatch.GetTimestamp();
-
-            try
+            while (pending > high)
             {
-                writer.WriteLine(line);
+                int seen = Interlocked.CompareExchange(ref _highWater, pending, high);
 
-                // Measured here, where the wait and the flush happen, never recomputed by a caller (B243, B595).
-                LogWriteTiming one = LogWriteTiming.One(entered - asked, Stopwatch.GetTimestamp() - entered);
-                _timing += one;
-                CountOnThisThread(one);
-            }
-            catch (Exception failure) when (
-                failure is IOException or UnauthorizedAccessException or ArgumentException
-                    or ObjectDisposedException)
-            {
-                // Stop trying rather than throwing on every line afterwards.
-                _failed = true;
-                _writer = null;
+                if (seen == high)
+                {
+                    break;
+                }
+
+                high = seen;
             }
         }
-    }
 
-    /// <summary>Closes the file.</summary>
-    public void Dispose()
-    {
-        lock (_gate)
-        {
-            if (_disposed)
-            {
-                return;
-            }
-
-            _disposed = true;
-            _writer?.Dispose();
-            _writer = null;
-        }
+        // Measured here, where the enqueue happens, never recomputed by a caller (B243, B595).
+        CountOnThisThread(LogWriteTiming.One(Stopwatch.GetTimestamp() - asked, 0));
     }
 
     private static void CountOnThisThread(LogWriteTiming one) => _threadTiming += one;
+
+    /// <summary>Drains every queued line to disk on the calling thread, for crash and exit handlers.</summary>
+    /// <param name="timeout">How long to wait for a drain already in progress.</param>
+    /// <returns>Whether the queue was drained; false when the writer was stuck past the timeout.</returns>
+    public bool Flush(TimeSpan timeout)
+    {
+        if (!_gate.TryEnter(timeout))
+        {
+            return false;
+        }
+
+        try
+        {
+            Drain();
+            return true;
+        }
+        finally
+        {
+            _gate.Exit();
+        }
+    }
+
+    /// <summary>Drains what is queued and closes the file.</summary>
+    public void Dispose()
+    {
+        if (!_queue.Writer.TryComplete())
+        {
+            return;
+        }
+
+        bool joined = _thread?.Join(CloseTimeout) ?? true;
+
+        if (!joined || !_gate.TryEnter(CloseTimeout))
+        {
+            // ponytail: a writer stuck on the disk past two seconds keeps the file; the process is ending anyway.
+            return;
+        }
+
+        try
+        {
+            Drain();
+            _writer?.Dispose();
+            _writer = null;
+        }
+        finally
+        {
+            _gate.Exit();
+        }
+    }
+
+    private Channel<string> NewQueue(int capacity) => Channel.CreateBounded<string>(
+        new BoundedChannelOptions(capacity)
+        {
+            FullMode = BoundedChannelFullMode.DropOldest,
+            SingleReader = false,
+            SingleWriter = false,
+        },
+        _ =>
+        {
+            Interlocked.Increment(ref _dropped);
+            Interlocked.Increment(ref _droppedUnreported);
+            Interlocked.Decrement(ref _pending);
+        });
+
+    private Thread StartWriter()
+    {
+        Thread thread = new(Run) { IsBackground = true, Name = "file log writer" };
+        thread.Start();
+        return thread;
+    }
+
+    /// <summary>The writer thread: wait for lines, drain them all, flush once, repeat until the queue completes.</summary>
+    private void Run()
+    {
+        // Blocking is this thread's whole job, so waiting synchronously on the channel is right here.
+        while (_queue.Reader.WaitToReadAsync().AsTask().GetAwaiter().GetResult())
+        {
+            lock (_gate)
+            {
+                Drain();
+            }
+        }
+    }
+
+    /// <summary>Writes every queued line in queue order and flushes once. Caller holds <see cref="_gate"/>.</summary>
+    private void Drain()
+    {
+        int lines = 0;
+        long started = Stopwatch.GetTimestamp();
+
+        try
+        {
+            // Checked per line, so the note lands where the gap is: drops happen while a batch is mid-write.
+            while (_queue.Reader.TryRead(out string? line))
+            {
+                Interlocked.Decrement(ref _pending);
+
+                if (Interlocked.Exchange(ref _droppedUnreported, 0) is var dropped and > 0)
+                {
+                    _writer?.WriteLine(string.Create(
+                        CultureInfo.InvariantCulture, $"({dropped} log lines dropped here: the queue was full)"));
+                }
+
+                _writer?.WriteLine(line);
+                lines++;
+            }
+
+            if (lines == 0)
+            {
+                return;
+            }
+
+            _writer?.Flush();
+        }
+        catch (Exception failure) when (
+            failure is IOException or UnauthorizedAccessException or ArgumentException
+                or ObjectDisposedException)
+        {
+            // Stop trying rather than failing on every line afterwards; Write sees this and stops queueing.
+            _failed = true;
+            _writer = null;
+            return;
+        }
+
+        long spent = Stopwatch.GetTimestamp() - started;
+        LogWriteTiming batch = LogWriteTiming.One(0, spent) with { Writes = lines };
+
+        lock (_timingGate)
+        {
+            _timing += batch;
+        }
+    }
 
     private void Begin(string? banner)
     {
@@ -212,21 +361,16 @@ public sealed class FileLogWriter : IDisposable
                     FileShare.ReadWrite | FileShare.Delete),
                 Encoding.UTF8)
             {
-                // **Stays on, and the cost of it is now measured** (B191). Turning it off cut the
-                // stalls from 15 to 2 over four minutes and the sink column from 110-125 ms to
-                // 0-1.7 — so the per-line flush IS what blocks. It stays anyway, because the ruling
-                // on it was the owner's and the reason still holds: this project debugs by log and
-                // a buffered tail lost in a crash is exactly the part worth having.
-                //
-                // The fix is therefore to stop WRITING lines nobody asked for rather than to stop
-                // flushing them: per-frame detail belongs at Debug, which `developer 0` does not
-                // admit, so a production run never pays this.
-                AutoFlush = true,
+                // **Off since D230: the writer thread flushes after every drained batch instead.** It
+                // was on per line (B191) because a buffered tail lost in a crash is the part worth
+                // having, and that still holds — the batch flush keeps it, off the main thread.
+                AutoFlush = false,
             };
 
             if (banner is not null)
             {
                 _writer.WriteLine(banner);
+                _writer.Flush();
             }
 
             // After the write, not before — see the type remarks. Pruning first races every sibling

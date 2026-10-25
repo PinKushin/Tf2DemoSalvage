@@ -90,6 +90,15 @@ public sealed class FileLoggerProvider : ILoggerProvider
     /// <summary>The writer's own account of what its lines cost, every thread (B595).</summary>
     public LogWriteTiming Timing => _writer.Timing;
 
+    /// <summary>The writer's queue: lines dropped full, and the most held at once (D230), as one clause.</summary>
+    public string QueueReading => string.Create(
+        CultureInfo.InvariantCulture, $"queue: {_writer.Dropped} dropped, high water {_writer.HighWater}");
+
+    /// <summary>Drains every queued line to disk on the calling thread; for crash and exit handlers (D230).</summary>
+    /// <param name="timeout">How long to wait for a drain already in progress.</param>
+    /// <returns>Whether the queue was drained.</returns>
+    public bool Flush(TimeSpan timeout) => _writer.Flush(timeout);
+
     /// <inheritdoc/>
     public ILogger CreateLogger(string categoryName) =>
         _loggers.GetOrAdd(categoryName ?? string.Empty, name => new FileLogger(name, _writer, this));
