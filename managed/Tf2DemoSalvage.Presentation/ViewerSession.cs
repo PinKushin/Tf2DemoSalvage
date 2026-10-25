@@ -103,6 +103,9 @@ public sealed partial class ViewerSession
     /// </remarks>
     public Action<LogLevel>? SetLogVerbosity { get; set; }
 
+    /// <summary>Reads the file log's own write timing, every thread, for <c>--measure</c> (B595); <c>null</c> when nothing logs to a file.</summary>
+    public Func<Tf2DemoSalvage.Logging.LogWriteTiming>? LogTiming { get; set; }
+
     /// <summary>Applies <c>developer</c> to the log, if anything is listening.</summary>
     /// <remarks>
     /// Called at startup and whenever the setting changes. 0 is the ordinary log, 1 admits the

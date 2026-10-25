@@ -87,6 +87,9 @@ public sealed class FileLoggerProvider : ILoggerProvider
     /// <summary>Whether writing has been abandoned after an IO failure.</summary>
     public bool Failed => _writer.Failed;
 
+    /// <summary>The writer's own account of what its lines cost, every thread (B595).</summary>
+    public LogWriteTiming Timing => _writer.Timing;
+
     /// <inheritdoc/>
     public ILogger CreateLogger(string categoryName) =>
         _loggers.GetOrAdd(categoryName ?? string.Empty, name => new FileLogger(name, _writer, this));

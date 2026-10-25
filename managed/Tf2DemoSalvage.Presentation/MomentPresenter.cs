@@ -334,6 +334,8 @@ public sealed class MomentPresenter
             Pose = posing.Pose,
             Weapons = posing.Weapons,
             Viewmodel = posing.Viewmodel,
+            ViewmodelCounters = posing.ViewmodelCounters,
+            ViewmodelSplit = posing.ViewmodelSplit,
             Counters = posing.Counters,
 
             // **From the POSE's record, because only the pose has seen the frustum.** Taking these

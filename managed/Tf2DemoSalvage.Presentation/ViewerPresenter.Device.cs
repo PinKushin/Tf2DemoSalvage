@@ -51,6 +51,9 @@ public sealed partial class ViewerPresenter
         _device = null;
     }
 
+    /// <summary>Every camera upload's pieces so far, in stopwatch ticks, timed where they ran (B595).</summary>
+    public CameraTotals CameraSpent { get; private set; }
+
     /// <summary>Sends the current view to the device, without rebuilding anything.</summary>
     /// <param name="flyTicks">How long the flight that asked for this took, for the stall report; zero from the frame.</param>
     /// <param name="exposureSeconds">Game time the exposure walks by: the demo's frame time, or a tick's worth for a pending capture (B520).</param>
@@ -139,6 +142,14 @@ public sealed partial class ViewerPresenter
             parts.Add("camera pose", particlesAt - posingAt);
             parts.Add("camera particles", particledAt - particlesAt);
         }
+
+        // Running totals, so a stalled frame can be told its own share by differencing two frame boundaries (B595).
+        CameraSpent = new CameraTotals(
+            CameraSpent.View + (deviceAt - viewAt),
+            CameraSpent.SetCamera + (waitAt - deviceAt),
+            CameraSpent.Wait + (posingAt - waitAt),
+            CameraSpent.Pose + (particlesAt - posingAt),
+            CameraSpent.Particles + (particledAt - particlesAt));
 
         // **Each piece named, because the `camera` column alone held 102 and 410 ms stalls** on f12
         // in seconds with no collection, and it is four unrelated pieces of work.

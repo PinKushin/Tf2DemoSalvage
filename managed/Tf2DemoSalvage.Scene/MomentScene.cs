@@ -14,6 +14,15 @@ using Tf2DemoSalvage.GameSystems;
 
 namespace Tf2DemoSalvage.Scene;
 
+/// <summary>The viewmodel's time by step, in stopwatch ticks (B595).</summary>
+/// <param name="Resolve">From entry to the scene build: the holder, the weapon lookups, the bob.</param>
+/// <param name="Build">`ViewmodelScene.Build`.</param>
+/// <param name="Add">Packing and uploading new models.</param>
+/// <param name="Instances">`EntityModelSet.Instances` on the viewmodel pass.</param>
+/// <param name="Rest">The rest after the add — the debug lines, the projection, the camera — by subtraction.</param>
+/// <param name="SkinLog">The `viewmodel skin` information line alone, stamped around its call.</param>
+public readonly record struct ViewmodelSplit(long Resolve, long Build, long Add, long Instances, long Rest, long SkinLog);
+
 /// <summary>Where one scene rebuild spent its time, so a slow moment names a phase.</summary>
 /// <param name="Total">The whole rebuild.</param>
 /// <param name="DrawList">Building the draw list and applying every visibility rule.</param>
@@ -27,6 +36,8 @@ namespace Tf2DemoSalvage.Scene;
 /// <param name="Hidden">How many the visibility half rejected, of those the frustum kept.</param>
 /// <param name="Undrawn">The pass over props posed for a decal but never drawn, whole — its counters are not differenced.</param>
 /// <param name="DrawListParts">The four parts of <paramref name="DrawList"/> (B578).</param>
+/// <param name="ViewmodelCounters">The pose counters across the viewmodel alone (B595).</param>
+/// <param name="ViewmodelSplit">The viewmodel's time by step, stamped where each runs (B595).</param>
 /// <param name="Selected">
 /// How many props <c>Build</c> chose, before the frustum rejected any (B254). The ratio against
 /// <paramref name="Drawn"/> is the measurement; either number alone says nothing about the cull.
@@ -66,7 +77,13 @@ public readonly record struct MomentPhases(
     long Undrawn = 0,
 
     // The parts of `DrawList` (B578), stamped where each runs; they partition it.
-    DrawListParts DrawListParts = default)
+    DrawListParts DrawListParts = default,
+
+    // The pose counters differenced across the viewmodel alone (B595), so a `viewmodel` stall names its part.
+    EntityModelSet.PoseCounters ViewmodelCounters = default,
+
+    // Where the viewmodel's own time went, stamped in `AddViewmodel` (B595).
+    ViewmodelSplit ViewmodelSplit = default)
 {
     /// <summary>The part of <see cref="Pose"/> no timer covers, by subtraction — the one formula every report reads.</summary>
     /// <remarks>
@@ -767,10 +784,12 @@ public sealed class MomentScene : IGameSystemPerFrame
         // landing in the "bones" column — which is arrived at by subtraction, and a derived column
         // inherits every error of the ones it is derived from (B191).
         long viewmodelAt = Stopwatch.GetTimestamp();
+        EntityModelSet.PoseCounters viewmodelBefore = _models.Counters;
 
         AddViewmodel(_posing, info);
 
         long viewmodelTicks = Stopwatch.GetTimestamp() - viewmodelAt;
+        EntityModelSet.PoseCounters viewmodelCounters = _models.Counters.Since(viewmodelBefore);
         long posedAt = Stopwatch.GetTimestamp();
 
         ReportWeapons();
@@ -798,7 +817,9 @@ public sealed class MomentScene : IGameSystemPerFrame
             Selected: _drawn.Count + (_models.GathersStaticProps ? StaticProps.Count : 0),
             Hidden: hidden,
             Unjudgeable: unjudged,
-            Undrawn: undrawnTicks);
+            Undrawn: undrawnTicks,
+            ViewmodelCounters: viewmodelCounters,
+            ViewmodelSplit: _viewmodelSplit);
     }
 
     /// <summary>The client thinks that allocate dynamic lights this moment (B425), at the moment's time.</summary>
@@ -1251,6 +1272,9 @@ public sealed class MomentScene : IGameSystemPerFrame
 
     private void AddViewmodel(IReadOnlyList<ScenePlayer> players, in MomentInfo info)
     {
+        long enteredAt = Stopwatch.GetTimestamp();
+        _viewmodelSplit = default;
+
         // **Reported once when first person is on and the source is missing, because that pair is a
         // WIRING fault rather than an ordinary state.** A viewer with no demo open legitimately has
         // no source and must not throw — but it is also not in first person. When it is, an unset
@@ -1480,6 +1504,8 @@ public sealed class MomentScene : IGameSystemPerFrame
             eye = _viewmodelBob.Add(eye);
         }
 
+        long buildAt = Stopwatch.GetTimestamp();
+
         ViewmodelSceneResult scene =
             _viewmodels.Build(
                 source,
@@ -1500,6 +1526,8 @@ public sealed class MomentScene : IGameSystemPerFrame
                 // B515: the watcher's `cl_flipviewmodels`, and each item's own `flip_viewmodel`.
                 info.FlipViewModels,
                 item => Weapons.Items?.FlipsViewmodel(item) ?? false);
+
+        long addAt = Stopwatch.GetTimestamp();
 
         if (scene.Props.Count == 0)
         {
@@ -1554,6 +1582,8 @@ public sealed class MomentScene : IGameSystemPerFrame
         _viewmodelProps.AddRange(scene.Props);
         _models.TranslateEraSequences(_viewmodelProps);
 
+        long instancesAt = Stopwatch.GetTimestamp();
+
         if (scene.Changed)
         {
             // **Names each prop, because the count says two and cannot say two of WHAT.** The merged
@@ -1584,6 +1614,8 @@ public sealed class MomentScene : IGameSystemPerFrame
 
         // **One call for all of them, because Instances CLEARS the list it is given.** Posing the
         // arms and then the weapon into the same list threw the arms away and drew the gun alone.
+        long poseAt = Stopwatch.GetTimestamp();
+
         _models.Instances(
             _viewmodelProps,
             _viewmodelInstances,
@@ -1596,17 +1628,29 @@ public sealed class MomentScene : IGameSystemPerFrame
             // working cull reported as a broken one.
             pass: EntityModelSet.ViewmodelPass);
 
+        long posed = Stopwatch.GetTimestamp() - poseAt;
+
         // **Who owns the viewmodel and what team they are on, once per change** (B242). The skin
         // family is decided from the OWNER, and every wrong answer so far has been about not
         // knowing who that is: `MomentInfo.Followed` is null in first person because the viewer
         // follows the recording's own camera, and a viewmodel that names no owner cannot be asked.
         // A count of materials cannot tell those apart; this can.
-        if (scene.Changed && scene.Props.Count > 0)
+        //
+        // **When the SKIN changes, not whenever the viewmodel does** (B595). `scene.Changed` fires on every sequence
+        // change, and each line is a flushed file write on this thread — 90-118 ms a line on f12, every one of the
+        // in-play `viewmodel` stalls. B191's ruling: stop writing lines nobody asked for, keep the flush.
+        long skinLogAt = Stopwatch.GetTimestamp();
+
+        if (scene.Changed && scene.Props.Count > 0 && scene.Props[0].Pose.Skin != _lastViewmodelSkin)
         {
+            _lastViewmodelSkin = scene.Props[0].Pose.Skin;
+
             _render.LogInformation(
                 "{Message}",
                 $"viewmodel skin: {scene.Props[0].Pose.Skin}");
         }
+
+        long skinLog = Stopwatch.GetTimestamp() - skinLogAt;
 
         if (scene.Changed)
         {
@@ -1625,7 +1669,17 @@ public sealed class MomentScene : IGameSystemPerFrame
             FieldOfView = info.ViewmodelFieldOfView,
             NearZ = ViewmodelPass.NearPlane,
         };
+
+        long endedAt = Stopwatch.GetTimestamp();
+        _viewmodelSplit = new ViewmodelSplit(
+            buildAt - enteredAt, addAt - buildAt, instancesAt - addAt, posed, endedAt - instancesAt - posed - skinLog, skinLog);
     }
+
+    /// <summary>The last <see cref="AddViewmodel"/>'s split; zero when it returned early (B595).</summary>
+    private ViewmodelSplit _viewmodelSplit;
+
+    /// <summary>The viewmodel skin last logged, so the line is written once per skin (B595).</summary>
+    private int? _lastViewmodelSkin;
 
     /// <summary>Says once when players are being drawn with nothing to dress them from.</summary>
     /// <remarks>

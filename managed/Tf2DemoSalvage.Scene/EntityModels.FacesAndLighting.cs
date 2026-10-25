@@ -355,6 +355,23 @@ public sealed partial class EntityModelSet
             return built;
         }
 
+        long buildAt = System.Diagnostics.Stopwatch.GetTimestamp();
+        built = BuildBakedColours(prop, pose, x, y, z);
+
+        if (_bakedByEntity.ContainsKey(prop.EntityIndex))
+        {
+            BakedBuilds++;
+            BakedBuildTicks += System.Diagnostics.Stopwatch.GetTimestamp() - buildAt;
+        }
+
+        return built;
+    }
+
+    /// <summary><see cref="BakedColoursOf"/>'s miss: builds and caches, except when nothing lights the prop.</summary>
+    private float[]? BuildBakedColours(SceneProp prop, ScenePose pose, float x, float y, float z)
+    {
+        float[]? built;
+
         if (StaticPropColours.TryGetValue(prop.EntityIndex, out float[]? byCorner))
         {
             // A `.vhv` mesh `FUN_1800f1550` never wrote takes the CPU bake (B436); with none, the prop is lit per draw.

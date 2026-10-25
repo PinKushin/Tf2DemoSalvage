@@ -40066,6 +40066,46 @@ reddens four tests), and a child's drawn size against its own scale alone.
   `pl_badwater_pro_v12.bsp` is not on this machine (not under the game's `tf/maps`, `tf/download/maps`, `tf2ds`, or the
   user profile), so its `parentname` cannot be read, and no sampled tick gives them a parent.
 
+## B595 — f12 first-person hitches of 50-190 ms are pose (viewmodel, baked), particles at start, the render-thread wait and `between`; not JIT — OPEN (2026-10-24)
+
+**Evidence class: measured** (`docs/measurements/2026-10-24-b595-frame-stalls-and-jit.md`, 15 runs × 60 s, five JIT variants).
+`--measure` now lists every frame over 50 ms with its whole phase split and the main thread's own counters, differenced
+over the frame's own window (`PauseLedger`, `FrameCounters`). **JIT is ruled out as a cause**: every slow frame after the
+first shows 0 main-thread JIT, and `DOTNET_TieredCompilation=0` and ReadyToRun both still stall. Main-thread JIT is
+~255 ms a run and lands in the opening frames. **Ranked by measured stall time:**
+
+1. **`camera pose`, 17 frames, 46-133 ms. Not first-use builds** (`docs/measurements/2026-10-24-b595-first-use-builds.md`,
+   carried counters). In play on f12, **0 models are packed** (all 735 pack before the window, in 455-527 ms), and
+   434 static-prop colour meshes are built for **~20 ms in all**, never in a slow frame. **The `viewmodel` stalls were a
+   log line.** Split by step, 90-118 ms sat after `Instances` in `viewmodel skin: N`. It is an Information line,
+   written on every sequence change (~123 a minute), and each write is flushed on the main thread: B191's mechanism.
+   **FIXED** (`4f754a26`): the line is now written when the skin changes, per B191's ruling to keep the flush and drop
+   the line. That is a diagnostic change; nothing drawn changes. The interleaved before/after grid could not show the
+   saving, because the slow flush did not recur that hour (0 ms in every before run). The latency is environmental, and
+   the log path is the Claude package's virtualised LocalAppData. **Part 1's `baked 19-49 ms` was a misattribution**: those
+   `SLOW MOMENT` lines are warm-up before the window opens, and the column also covers per-draw full lighting. The engine
+   citation, verified: `CBaseCombatWeapon::Precache`, `basecombatweapon_shared.cpp:248-318`, *"Precache models (preload to
+   avoid hitch)"*. We already pack everything up front, so no precache move is needed. **Still open:** pose stalls with no
+   `SLOW MOMENT` line (113 ms, after-run 3) are in `PoseOver` outside `MomentScene.Build`'s timers. Separately, the
+   ~400 ms of warm-up `SLOW MOMENT`s before the window (`baked` first fills and corpses `advance` 127-139 ms) are seen by a
+   user after load but not counted by `--measure`.
+2. **`camera particles`, 8 frames, 30-173 ms**, mostly the first measured frame (t ≈ 0.19 s) of every run, once beside a
+   147 ms GC pause, and in ReadyToRun beside 64-139 ms of other-thread JIT. Not split further yet.
+3. **`between`, 6 frames, 48-133 ms**, with nothing counted. **Next:** time the idle loop and the message pump.
+4. **`camera wait`, 5 frames, 57-95 ms**, the main thread blocked on the render thread's frame in flight. **Next:** carry
+   the render thread's per-frame time into the slow-frame line.
+
+Run 2 of the interleaved grid held 29 of 37 slow frames across every variant, unexplained (the quiet gate was 4-11%).
+Finding 97 row 11.
+
+**Part 3, measured: most of the remaining 100 ms stalls are the file log's flush** (`docs/measurements/2026-10-24-b595-log-writer-stalls.md`,
+5 × 2 interleaved runs). `FileLogWriter` now times its own lock wait and flush and `--measure` carries them per slow frame.
+(measurements/2026-10-24-b595-log-writer-stalls.md) Normal: 17 frames > 50 ms (1,442 ms), 7 > 100 ms. Log at Warning: 6 (325 ms), 0 > 100 ms. In 6 of the 7 frames over
+100 ms the writer itself measured 80-126 ms of flush on the main thread, landing in pose, sound or `between`. Lock wait is
+~0, so the cost is the flush, not contention. Not the log: two `camera wait` stalls (110, 166 ms) and the 50-58 ms
+start-up frames. **Fix is the owner's call** (keep flush-per-line or not). The options are in the record: an async writer
+thread flushed by the crash handlers (recommended), flushing every N ms, or demoting hot lines.
+
 ## B594 — `LevelLighting.SunFrom`'s 5.8% is not explained by how often it runs; the first-person undrawn pass lights a model nothing draws — OPEN (2026-10-24)
 
 **Evidence class: read from code; the share is the profile's** (`docs/measurements/2026-10-24-main-thread-cpu-profile.md`,

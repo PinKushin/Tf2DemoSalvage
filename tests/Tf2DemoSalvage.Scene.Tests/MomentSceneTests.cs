@@ -1063,8 +1063,35 @@ public sealed class MomentSceneTests
             "arms and weapon — the followed player must still be findable when the pose runs");
     }
 
+    /// <summary>
+    /// **The skin line is written when the skin CHANGES, not when the viewmodel does** (B595). `scene.Changed` fires on
+    /// every sequence change, and each line is a flushed file write on the main thread: measured 90-118 ms a line on
+    /// f12 (`docs/measurements/2026-10-24-b595-first-use-builds.md`). B191's ruling: stop writing lines nobody asked for.
+    /// </summary>
+    [Test]
+    public void Pose_ViewmodelSequenceChangesWithTheSameSkin_LogsTheSkinOnce()
+    {
+        RecordingLogger log = new();
+        MomentScene scene = Posable(log);
+        MomentInfo info = Info() with { FirstPerson = true, Followed = 3, EyeCamera = Eye(), DrawViewmodel = true };
+
+        foreach (int sequence in new[] { 0, 1, 2 })
+        {
+            scene.Viewmodels = new FakeViewmodels
+            {
+                MainHand = new SceneViewmodel(
+                    "models/weapons/c_models/c_soldier_arms.mdl", Sequence: sequence, PlaybackRate: 1f, OwnerEntityIndex: 3, Slot: SceneViewmodel.MainHand),
+            };
+
+            scene.Build([Soldier(entity: 3)], [], info);
+            scene.Pose(info);
+        }
+
+        log.Count("viewmodel skin").ShouldBe(1);
+    }
+
     /// <summary>A scene whose model set can actually produce an instance.</summary>
-    private static MomentScene Posable()
+    private static MomentScene Posable(RecordingLogger? log = null)
     {
         EntityModelSet models = new()
         {
@@ -1085,7 +1112,7 @@ public sealed class MomentSceneTests
                 [true]),
         };
 
-        return new MomentScene(models, new ViewmodelScene(), new RecordingLogger())
+        return new MomentScene(models, new ViewmodelScene(), log ?? new RecordingLogger())
         {
             Upload = new Uploads(),
             Appearance = new Appearance(),
