@@ -40098,6 +40098,14 @@ first shows 0 main-thread JIT, and `DOTNET_TieredCompilation=0` and ReadyToRun b
 Run 2 of the interleaved grid held 29 of 37 slow frames across every variant, unexplained (the quiet gate was 4-11%).
 Finding 97 row 11.
 
+**Part 3, measured: most of the remaining 100 ms stalls are the file log's flush** (`docs/measurements/2026-10-24-b595-log-writer-stalls.md`,
+5 × 2 interleaved runs). `FileLogWriter` now times its own lock wait and flush and `--measure` carries them per slow frame.
+(measurements/2026-10-24-b595-log-writer-stalls.md) Normal: 17 frames > 50 ms (1,442 ms), 7 > 100 ms. Log at Warning: 6 (325 ms), 0 > 100 ms. In 6 of the 7 frames over
+100 ms the writer itself measured 80-126 ms of flush on the main thread, landing in pose, sound or `between`. Lock wait is
+~0, so the cost is the flush, not contention. Not the log: two `camera wait` stalls (110, 166 ms) and the 50-58 ms
+start-up frames. **Fix is the owner's call** (keep flush-per-line or not). The options are in the record: an async writer
+thread flushed by the crash handlers (recommended), flushing every N ms, or demoting hot lines.
+
 ## B594 — `LevelLighting.SunFrom`'s 5.8% is not explained by how often it runs; the first-person undrawn pass lights a model nothing draws — OPEN (2026-10-24)
 
 **Evidence class: read from code; the share is the profile's** (`docs/measurements/2026-10-24-main-thread-cpu-profile.md`,
