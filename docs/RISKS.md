@@ -40339,7 +40339,7 @@ tested over seeks, repeats, window edges, duplicates and an unordered list. `hud
 `hud events` 0.27-0.28 ms a frame (raw lines of measurements/2026-10-22-f12-camera-breakdown.md), an upper bound (it holds
 `Resolve` too). The shape of finding 93's model-decal walk. Nothing visible.
 
-## B578 — the moment's visibility filters rerun over the whole draw list every frame — OPEN
+## B578 — the moment's visibility filters rerun over the whole draw list every frame — CLOSED by decision D232 (parity by answer; structural caching deliberately not done)
 
 **Read** (finding 83 item 5, re-checked as not done in finding 97): `UpdateVisibility` runs at its event sites
 (`SetDormant`, `OnDataChanged`, `PostDataUpdate`). **Ours:** the first-person, weapon, disguise, respawn-room and vision

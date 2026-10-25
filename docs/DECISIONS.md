@@ -11001,3 +11001,33 @@ finishes. The cost of a pin is that someone has to remember to remove it, which 
 **Not a defect in the repo.** This is the same class as `docs/memory/runner-migration-notices-are-not-defects.md`: an
 upstream change, observed by rerunning, not a fault to fix in the code.
 
+## D232 — the cached visibility filters match the engine's answer, not its structure (2026-10-25)
+
+**Context.** B578 (`docs/RISKS.md`) filed that the viewer judges five visibility filters over the whole draw list every
+moment, where the engine caches its verdicts and re-judges at trigger points (`UpdateVisibility`). Finding 104 re-read
+the engine and found the premise too wide: **three of the five are judged every frame in the engine too**, in
+`DrawModel` — the followed player (`c_baseplayer.cpp:1445-1456`), his weapon under an in-eye observer
+(`c_basecombatweapon.cpp:481-493`), and the respawn-room visualizer (`c_func_respawnroom.cpp:48-64`). Caching those
+three would have CREATED a divergence, not removed one. Only the holstered weapon, the disguise and the vision filters
+are cached by the engine.
+
+**The question the owner was asked.** For those three: match the engine's ANSWER (judge every moment, so the drawn set
+is the engine's wherever the engine is not stale), or its STRUCTURE (judge only at the engine's trigger points, keep
+stale verdicts where no trigger fires, and rebuild a history on every seek).
+
+**The owner chose "Same answer"**, the recommended option: keep judging every moment. The owner gave no further reason.
+
+**Why it follows (the assistant's recorded reasoning, not the owner's words).** Judging every moment draws exactly what
+the engine draws wherever the engine is not stale. The engine's stale cases (a viewer team change, a vision-flag change:
+neither has a trigger) are quirks of a live game, not behaviour to reproduce in a viewer that rebuilds scenes per moment
+and seeks. The measured cost is at most about 0.02 ms (`measurements/2026-10-24-drawlist-parts.md`), so the structure
+would buy nothing in frame time.
+
+**The earlier push in this thread (typos fixed).** The owner had asked for the caching on performance grounds: *"that
+has to have a fps increase by not checking every frame, there is no way a frame check isn't heavy"*. **The measured
+answer:** the filters cost 0.06 ms after the comparer fix (the `HashSet<SceneProp>` hashing the whole record, now by
+reference), and the whole drawlist 0.22 ms. A per-frame check was not heavy.
+
+**Corrective finding.** B578 was drawn too wide, as above. `FirstPersonVisibility` and `RespawnRoomVisibility` are
+parity as they are. B578 is closed by this decision; see finding 104.
+
