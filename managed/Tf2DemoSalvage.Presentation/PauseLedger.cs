@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Linq;
 using System.Text;
 using System.Threading;
 
@@ -29,7 +30,16 @@ public sealed class PauseLedger(long frequency)
     /// <summary>A frame counts as slow past this, in milliseconds: counted, summed and listed with its detail (B595).</summary>
     public const double SlowMilliseconds = 50d;
 
+    /// <summary>Slow frames stored with their detail: the first this many, then <see cref="WorstKept"/> more by duration.</summary>
+    public const int FirstKept = 200;
+
+    /// <summary>After <see cref="FirstKept"/>, the longest this many are kept, replacing the shortest of them.</summary>
+    public const int WorstKept = 50;
+
+    // Totals (_slowCount, _slowTicks, _stallCount) are exact for every frame; only the detail is capped, so a long run cannot grow this without bound.
     private readonly List<(long End, long Length, string Phase, double PausedMs, string Detail)> _stalls = [];
+    private readonly List<(long End, long Length, string Phase, double PausedMs, string Detail)> _worst = [];
+    private int _stallCount;
     private readonly List<(long End, long Length)> _gaps = [];
     private readonly Lock _gate = new();
     private long _slowTicks;
@@ -52,7 +62,39 @@ public sealed class PauseLedger(long frequency)
         {
             _slowCount++;
             _slowTicks += length;
-            _stalls.Add((end, length, phase, pausedMs, detail));
+
+            if (Ms(length) > StallMilliseconds)
+            {
+                _stallCount++;
+            }
+
+            (long, long, string, double, string) entry = (end, length, phase, pausedMs, detail);
+
+            if (_stalls.Count < FirstKept)
+            {
+                _stalls.Add(entry);
+            }
+            else if (_worst.Count < WorstKept)
+            {
+                _worst.Add(entry);
+            }
+            else
+            {
+                int shortest = 0;
+
+                for (int index = 1; index < _worst.Count; index++)
+                {
+                    if (_worst[index].Length < _worst[shortest].Length)
+                    {
+                        shortest = index;
+                    }
+                }
+
+                if (length > _worst[shortest].Length)
+                {
+                    _worst[shortest] = entry;
+                }
+            }
         }
     }
 
@@ -85,12 +127,19 @@ public sealed class PauseLedger(long frequency)
         StringBuilder text = new();
         HashSet<int> matched = [];
 
-        int stalls = _stalls.FindAll(stall => Ms(stall.Length) > StallMilliseconds).Count;
+        // Listed in time order: the first FirstKept, then the worst of the rest.
+        List<(long End, long Length, string Phase, double PausedMs, string Detail)> listed =_stalls.Concat(_worst).OrderBy(stall => stall.End).ToList();
+        int stalls = _stallCount;
 
         text.Append(CultureInfo.InvariantCulture, $"pauses: {stalls} frames over {StallMilliseconds:0} ms, {gaps.Count} heartbeat gaps over {GapMilliseconds:0} ms");
         text.Append(CultureInfo.InvariantCulture, $"; {_slowCount} frames over {SlowMilliseconds:0} ms, {Ms(_slowTicks):0} ms in them");
 
-        foreach ((long end, long length, string phase, double paused, string detail) in _stalls)
+        if (_slowCount > listed.Count)
+        {
+            text.Append(CultureInfo.InvariantCulture, $"; {_slowCount - listed.Count} not listed");
+        }
+
+        foreach ((long end, long length, string phase, double paused, string detail) in listed)
         {
             int overlap = gaps.FindIndex(gap => gap.End - gap.Length < end && end - length < gap.End);
             string kind = Ms(length) > StallMilliseconds ? "stall" : "slow";
