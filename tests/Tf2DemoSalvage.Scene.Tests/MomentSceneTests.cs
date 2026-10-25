@@ -226,6 +226,48 @@ public sealed class MomentSceneTests
         scene.UndrawnInstances[0].Locals!.Count.ShouldBe(1);
     }
 
+    /// <remarks>
+    /// **The zoomed LOCAL player is hidden from every view** (B598): `C_TFPlayer::ShouldDraw` returns false for
+    /// `this == GetLocalTFPlayer()` in `TF_COND_ZOOMED` (`c_tf_player.cpp:8014-8020`), `C_TFWearable::ShouldDraw` hides
+    /// his cosmetics by the same test (`tf_item_wearable.cpp:338-340`), and `C_BaseCombatWeapon::ShouldDraw` hides his
+    /// weapon because its owner does not draw (`c_basecombatweapon.cpp:427-431`). The local player is the recorder; a
+    /// SourceTV recording's is the spectator, never zoomed, so nobody is hidden there.
+    /// </remarks>
+    [TestCase(3, true, false)]
+    [TestCase(3, false, true)]
+    [TestCase(null, true, true)]
+    public void Build_TheRecorderZoomedOrNot_HidesHimAndHisCosmeticsOnlyWhenZoomed(int? recorder, bool zoomed, bool drawn)
+    {
+        MomentScene scene = Scene();
+        ScenePlayer sniper = Soldier(entity: 3) with { Conditions = zoomed ? new(1 << 1, 0, 0, 0, 0) : default };
+        SceneProp hat = new(40, "models/props/crate.mdl", SceneModelKind.Studio, new ScenePose(), AttachedTo: 3);
+
+        scene.Build([sniper, Soldier(entity: 4)], [hat], Info() with { Recorder = recorder });
+
+        int[] entities = [.. scene.Drawn.Select(prop => prop.EntityIndex)];
+        entities.Contains(3).ShouldBe(drawn);
+        entities.Contains(40).ShouldBe(drawn);
+        entities.ShouldContain(4, "the control: another player is drawn either way");
+    }
+
+    /// <remarks>
+    /// **And a monitor does not bring him back**: `ForceTempForceDraw` (`viewrender.cpp:3266-3287`) only reaches
+    /// `C_BasePlayer::ShouldDraw`, and the zoom test above returns before `BaseClass::ShouldDraw` is called.
+    /// </remarks>
+    [TestCase(true, 0)]
+    [TestCase(false, 1)]
+    public void Pose_InFirstPersonWithAMonitorWhileZoomedOrNot_HandsTheMonitorNothingWhenZoomed(bool zoomed, int props)
+    {
+        MomentScene scene = Posable();
+        ScenePlayer sniper = Soldier(entity: 3) with { Conditions = zoomed ? new(1 << 1, 0, 0, 0, 0) : default };
+        MomentInfo info = Info() with { FirstPerson = true, Followed = 3, Recorder = 3, EyeCamera = Eye() };
+
+        scene.Build([sniper], [], info);
+        MomentPhases phases = scene.Pose(info, monitor: true);
+
+        phases.UndrawnCensus.Props.ShouldBe(props);
+    }
+
     [Test]
     public void Build_InThirdPerson_DrawsEveryPlayer()
     {

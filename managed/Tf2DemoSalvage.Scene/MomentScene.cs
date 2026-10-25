@@ -554,6 +554,13 @@ public sealed class MomentScene : IGameSystemPerFrame
             DrawList.KeepOnly(_drawn, seen);
         }
 
+        // **A zoomed local player is hidden from every view, a monitor's too** (B598, ZoomVisibility).
+        if (ZoomVisibility.Hidden(players, info.Recorder) is { } zoomed)
+        {
+            DrawList.KeepOnly(_drawn, FirstPersonVisibility.Visible(_drawn, zoomed));
+            DrawList.KeepOnly(_undrawn, FirstPersonVisibility.Visible(_undrawn, zoomed));
+        }
+
         long firstPersonAt = Stopwatch.GetTimestamp();
 
         // **Every camera, not just first person.** `C_BaseCombatWeapon::ShouldDraw` hides a player's
