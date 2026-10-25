@@ -96,7 +96,9 @@ ms`. The log provider is the first `using` in `Main`, so it is closed last.
 
 With timestamps, digits and `SLOW FRAME`/`SLOW MOMENT` lines removed: main 4,203 lines, async 4,202. The 177
 differences are lines whose content depends on timing, not order. Prop positions sampled at a different moment, and one
-`SLOW CAMERA` warning that only one run crossed. The lines that both runs write appear in the same order. Runs 2-5 were
+`SLOW CAMERA` warning that only one run crossed. **Order was not checked by this instrument**: `Compare-Object
+-SyncWindow 50` compares within a window and does not report a reordering inside it. Order is held by the unit tests
+`Dispose_TenThousandLines_AllOnDiskInOrder` and `Write_FromFourThreads_KeepsEachThreadsOrderAndEveryLine`. Runs 2-5 were
 not compared.
 
 ### Forced exception (measured; the control cannot fail, so this does not prove the handler's `Flush` matters)

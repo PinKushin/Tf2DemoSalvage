@@ -22,7 +22,7 @@ namespace Tf2DemoSalvage.Logging;
 ///   suite computed its deletions from a snapshot its siblings had not written into yet: each
 ///   trimmed to the limit, then each added one. Measured 2026-08-19 — 207 files against a limit of
 ///   50, and 929 MB.
-/// - **A held stream with `AutoFlush`, not open-append-close per line.** One five-minute run wrote
+/// - **A held stream, not open-append-close per line.** One five-minute run wrote
 ///   450,157 lines into a 37 MB file, every one a separate open and close. The owner was blunt about
 ///   it: *"THATS A BAD AI CHOICE, that should be using the async version, non blocking"* — and a
 ///   held handle beats an asynchronous open, because the expensive part IS the open.
@@ -165,7 +165,7 @@ public sealed class FileLogWriter : IDisposable
         //
         // **This was NOT the stall, and the honest record matters more than the tidy story.** It
         // was changed first on the theory that it was, and the stall continued unchanged: sink
-        // still read 110-125 ms over a full run afterwards. The flush below is what blocks. Kept
+        // still read 110-125 ms over a full run afterwards. The per-line flush was what blocked, and D230 moved it to the writer thread. Kept
         // because taking a system-wide mutex for an absent listener is worth not doing, not because
         // it fixed anything.
         if (Debugger.IsAttached)
