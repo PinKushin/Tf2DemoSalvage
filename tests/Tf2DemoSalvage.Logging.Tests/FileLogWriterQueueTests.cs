@@ -291,6 +291,48 @@ public sealed class FileLogWriterQueueTests
         returned.ShouldBeTrue("the drain chased the producer instead of taking what was queued");
     }
 
+    [Test]
+    public void Flush_WithAWriterThread_NeverWritesOnTheCallingThread()
+    {
+        // A crash handler's Flush must not do disk IO itself: with the writer thread idle and the disk stalled, an
+        // inline drain hangs the handler past its timeout. So every write must come from the writer thread.
+        ThreadRecordingSink sink = new();
+        using FileLogWriter writer = new(sink, capacity: 1 << 16, background: true);
+
+        for (int i = 0; i < 50; i++)
+        {
+            writer.Write(i.ToString(CultureInfo.InvariantCulture));
+            writer.Flush(Patience).ShouldBeTrue();
+        }
+
+        sink.Threads.ShouldBe(["file log writer"]);
+    }
+
+    [Test]
+    public void Flush_WhileTheSinkIsStalled_ReturnsFalseWithinItsTimeout()
+    {
+        using StalledSink sink = new();
+        using FileLogWriter writer = new(sink, capacity: 64, background: true);
+
+        try
+        {
+            _ = Task.Run(() => writer.Write("a"));
+            sink.Entered.Wait(Patience).ShouldBeTrue();
+            writer.Write("b");
+
+            Stopwatch took = Stopwatch.StartNew();
+            Task<bool> flush = Task.Run(() => writer.Flush(TimeSpan.FromMilliseconds(200)));
+
+            flush.Wait(Patience).ShouldBeTrue("Flush outlived its own timeout by seconds");
+            flush.Result.ShouldBeFalse();
+            took.ElapsedMilliseconds.ShouldBeLessThan(1_000);
+        }
+        finally
+        {
+            sink.Release.Set();
+        }
+    }
+
     private static bool WaitFor(Func<bool> condition)
     {
         Stopwatch waited = Stopwatch.StartNew();
@@ -309,6 +351,33 @@ public sealed class FileLogWriterQueueTests
     }
 
     private static string NewFolder() => Path.Combine(Path.GetTempPath(), $"tf2ds-logqueue-{Guid.NewGuid():N}");
+
+    /// <summary>A sink that records the name of every thread that wrote to it.</summary>
+    private sealed class ThreadRecordingSink : TextWriter
+    {
+        private readonly HashSet<string> _threads = [];
+
+        public override Encoding Encoding => Encoding.UTF8;
+
+        public string[] Threads
+        {
+            get
+            {
+                lock (_threads)
+                {
+                    return [.. _threads];
+                }
+            }
+        }
+
+        public override void Write(char value)
+        {
+            lock (_threads)
+            {
+                _threads.Add(Thread.CurrentThread.Name ?? "(unnamed)");
+            }
+        }
+    }
 
     /// <summary>A sink that queues another line for every line it is given, until stopped.</summary>
     private sealed class FeedingSink : TextWriter

@@ -58,6 +58,11 @@ public sealed class FileLogWriter : IDisposable
     private volatile bool _failed;
     private LogWriteTiming _timing;
     private long _dropped;
+
+    /// <summary>Lines accepted by the queue, and lines finished with: flushed to the sink or dropped. Flush waits on these.</summary>
+    private long _enqueued;
+    private long _done;
+    private readonly object _progress = new();
     private long _droppedUnreported;
     private int _pending;
     private int _highWater;
@@ -183,6 +188,7 @@ public sealed class FileLogWriter : IDisposable
         // Never waits: the queue drops its OLDEST line when full (D230), and after Dispose this returns false.
         if (_queue.Writer.TryWrite(line))
         {
+            Interlocked.Increment(ref _enqueued);
             int pending = Interlocked.Increment(ref _pending);
             int high = Volatile.Read(ref _highWater);
 
@@ -205,11 +211,22 @@ public sealed class FileLogWriter : IDisposable
 
     private static void CountOnThisThread(LogWriteTiming one) => _threadTiming += one;
 
-    /// <summary>Drains every queued line to disk on the calling thread, for crash and exit handlers.</summary>
-    /// <param name="timeout">How long to wait for a drain already in progress.</param>
-    /// <returns>Whether the queue was drained; false when the writer was stuck past the timeout.</returns>
+    /// <summary>Waits until every line queued before the call is on disk, for crash and exit handlers.</summary>
+    /// <param name="timeout">The longest this call may take.</param>
+    /// <returns>Whether those lines reached the sink; false on a timeout, a sink failure, or a closed log.</returns>
+    /// <remarks>
+    /// **The calling thread never does the disk IO while a writer thread is alive.** It waits, bounded by
+    /// <paramref name="timeout"/>, for the writer thread to report those lines done. Draining inline instead meant a
+    /// stalled disk with an idle writer thread, the common state, hung a crash handler past its two seconds.
+    /// Inline only when no writer thread exists: none was made, or it has stopped.
+    /// </remarks>
     public bool Flush(TimeSpan timeout)
     {
+        if (_thread is { IsAlive: true })
+        {
+            return AwaitWriter(timeout);
+        }
+
         if (!_gate.TryEnter(timeout))
         {
             return false;
@@ -227,6 +244,30 @@ public sealed class FileLogWriter : IDisposable
         {
             _gate.Exit();
         }
+    }
+
+    /// <summary>Waits for the writer thread to finish every line enqueued before now, or for the timeout.</summary>
+    private bool AwaitWriter(TimeSpan timeout)
+    {
+        long target = Interlocked.Read(ref _enqueued);
+        Stopwatch waited = Stopwatch.StartNew();
+
+        lock (_progress)
+        {
+            while (Interlocked.Read(ref _done) < target && !_failed)
+            {
+                TimeSpan left = timeout - waited.Elapsed;
+
+                if (left <= TimeSpan.Zero)
+                {
+                    return false;
+                }
+
+                Monitor.Wait(_progress, left);
+            }
+        }
+
+        return !_failed && _writer is not null;
     }
 
     /// <summary>Drains what is queued and closes the file.</summary>
@@ -268,6 +309,7 @@ public sealed class FileLogWriter : IDisposable
         {
             Interlocked.Increment(ref _dropped);
             Interlocked.Increment(ref _droppedUnreported);
+            Interlocked.Increment(ref _done);
             Interlocked.Decrement(ref _pending);
         });
 
@@ -287,6 +329,12 @@ public sealed class FileLogWriter : IDisposable
             lock (_gate)
             {
                 Drain();
+            }
+
+            // After the counts moved, under the same lock AwaitWriter checks them in, so no wake-up is lost.
+            lock (_progress)
+            {
+                Monitor.PulseAll(_progress);
             }
 
             if (_failed)
@@ -330,6 +378,9 @@ public sealed class FileLogWriter : IDisposable
             }
 
             _writer?.Flush();
+
+            // Done only once flushed; a failure on the way leaves them undone, so a waiting Flush reports false.
+            Interlocked.Add(ref _done, lines);
         }
 #pragma warning disable CA1031 // Any sink failure abandons the log: on the writer thread an escaped exception would end the process.
         catch (Exception failure)
