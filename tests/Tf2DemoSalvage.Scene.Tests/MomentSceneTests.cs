@@ -1092,6 +1092,26 @@ public sealed class MomentSceneTests
         log.Count("viewmodel skin").ShouldBe(1);
     }
 
+    /// <summary>A viewmodel that goes away (death, a seek onto a dead player) and returns with the same skin is a new viewmodel (B595 review).</summary>
+    [Test]
+    public void Pose_SameSkinAfterTheViewmodelWentAway_LogsTheSkinAgain()
+    {
+        RecordingLogger log = new();
+        MomentScene scene = Posable(log);
+        MomentInfo info = Info() with { FirstPerson = true, Followed = 3, EyeCamera = Eye(), DrawViewmodel = true };
+        SceneViewmodel hands = new(
+            "models/weapons/c_models/c_soldier_arms.mdl", Sequence: 0, PlaybackRate: 1f, OwnerEntityIndex: 3, Slot: SceneViewmodel.MainHand);
+
+        foreach (SceneViewmodel? main in new SceneViewmodel?[] { hands, null, hands })
+        {
+            scene.Viewmodels = new FakeViewmodels { MainHand = main };
+            scene.Build([Soldier(entity: 3)], [], info);
+            scene.Pose(info);
+        }
+
+        log.Count("viewmodel skin").ShouldBe(2);
+    }
+
     /// <summary>A scene whose model set can actually produce an instance.</summary>
     private static MomentScene Posable(RecordingLogger? log = null)
     {

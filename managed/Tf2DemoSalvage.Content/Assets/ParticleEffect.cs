@@ -53,6 +53,11 @@ public sealed class ParticleEffect
     /// </remarks>
     public static ConcurrentDictionary<string, long> BirthsBySystem { get; } = new(StringComparer.Ordinal);
 
+    private static int _systemsBorn;
+
+    /// <summary>How many distinct systems are in <see cref="BirthsBySystem"/>, kept beside it so a per-frame read takes no bucket lock (B595 review).</summary>
+    public static int SystemsBorn => global::System.Threading.Volatile.Read(ref _systemsBorn);
+
     /// <summary>The definition this is an instance of.</summary>
     public ParticleSystem System { get; }
 
@@ -1155,7 +1160,15 @@ public sealed class ParticleEffect
     private void BirthAt(float born)
     {
         ParticleSystems.Birth(System, Particles, PointsAt(born)[0].At, DefaultLifetime, born);
-        BirthsBySystem.AddOrUpdate(System.Name, 1L, static (_, born) => born + 1);
+        // TryAdd is atomic, so exactly one caller sees a system's first birth and counts it.
+        if (BirthsBySystem.TryAdd(System.Name, 1L))
+        {
+            global::System.Threading.Interlocked.Increment(ref _systemsBorn);
+        }
+        else
+        {
+            BirthsBySystem.AddOrUpdate(System.Name, 1L, static (_, born) => born + 1);
+        }
     }
 
     /// <summary>`InitializeNewParticles( first, count )`: every initializer over the particles born since <paramref name="first"/>.</summary>

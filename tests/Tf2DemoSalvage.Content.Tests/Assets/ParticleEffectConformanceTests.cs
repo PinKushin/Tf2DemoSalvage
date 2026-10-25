@@ -90,6 +90,32 @@ public sealed class ParticleEffectConformanceTests
     }
 
     [Test]
+    public void SystemsBorn_TwoNewSystemsBornTwiceEach_RisesByTwo()
+    {
+        long before = ParticleEffect.SystemsBorn;
+        ParticleSystem[] systems =
+        [
+            System("emission_rate", 66d) with { Name = "systems-born-" + Guid.NewGuid().ToString("N") },
+            System("emission_rate", 66d) with { Name = "systems-born-" + Guid.NewGuid().ToString("N") },
+        ];
+
+        foreach (ParticleSystem system in systems)
+        {
+            ParticleEffect effect = new(system);
+
+            for (int step = 0; step < 4; step++)
+            {
+                effect.Step(ParticleControlPoint.Unoriented(Vector3.Zero), seconds: 1f / 66f);
+            }
+        }
+
+        // Fixtures run in parallel and may birth other systems meanwhile, so at least two, and the dictionary names both.
+        (ParticleEffect.SystemsBorn - before).ShouldBeGreaterThanOrEqualTo(2);
+        ParticleEffect.BirthsBySystem.Keys.ShouldContain(systems[0].Name);
+        ParticleEffect.BirthsBySystem.Keys.ShouldContain(systems[1].Name);
+    }
+
+    [Test]
     public void BirthsBySystem_EffectsSteppedOnEightThreads_CountsEveryBirth()
     {
         // **The tally is process-wide and this assembly runs its fixtures in parallel** (finding 82, B557), so two

@@ -1572,6 +1572,7 @@ public sealed class MomentScene : IGameSystemPerFrame
             }
 
             _lastAlive = alive;
+            _lastViewmodelSkin = null;
             ViewmodelCamera = null;
             return;
         }
@@ -1696,6 +1697,12 @@ public sealed class MomentScene : IGameSystemPerFrame
     private ViewmodelSplit _viewmodelSplit;
 
     /// <summary>The viewmodel skin last logged, so the line is written once per skin (B595).</summary>
+    /// <remarks>
+    /// Cleared when the viewmodel goes away (death, no weapon, a seek onto either), the same moment
+    /// `ViewmodelScene` forgets its own last report, so a skin that returns is logged again. A new demo
+    /// builds a new presenter and so a new scene. Compares <c>Props[0]</c> only, which is always the main hand:
+    /// `ViewmodelScene` appends the off-hand after it, and the two share a team's skin family.
+    /// </remarks>
     private int? _lastViewmodelSkin;
 
     /// <summary>Says once when players are being drawn with nothing to dress them from.</summary>

@@ -53,6 +53,25 @@ public sealed class PauseLedgerTests
     }
 
     [Test]
+    public void Report_MoreSlowFramesThanItStores_KeepsExactTotalsAndTheWorstAndSaysHowManyAreUnlisted()
+    {
+        PauseLedger ledger = new(1000);
+
+        for (int frame = 0; frame < 300; frame++)
+        {
+            ledger.Frame(end: 1000 + (frame * 100), length: 60, phase: "draw", pausedMs: 0);
+        }
+
+        ledger.Frame(end: 100_000, length: 500, phase: "camera", pausedMs: 0); // the 301st, and the worst
+
+        string report = ledger.Report(start: 0);
+
+        report.ShouldStartWith("pauses: 1 frames over 100 ms, 0 heartbeat gaps over 50 ms; 301 frames over 50 ms, 18500 ms in them; 51 not listed");
+        report.ShouldContain("stall at 100.000 s: 500 ms, mostly camera");
+        report.Split('\n').Length.ShouldBe(1 + 250);
+    }
+
+    [Test]
     public void IsSlow_AtAndPastFiftyMilliseconds_IsFalseThenTrue()
     {
         PauseLedger ledger = new(1000);
