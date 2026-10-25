@@ -40161,8 +40161,12 @@ first frame; 6 were muzzle-flash weapon scripts. The engine has both before play
 `weapon_manifest.txt` names only the steadycam, so the schema's item classes stand for the registered set (interpolated).
 The HUD's load-time sheet decode is now the one its first draw uses (`VguiMaterialLoads`); before, each sheet was decoded
 twice (read from code, not timed). The mean did not move beyond spread. Two after-runs had 15 and 48 `camera` frames over
-50 ms with 0 reads, B595's open pose/wait class (measurements/2026-10-25-b595-part6-main-thread-reads-in-play.md). **Still open:** pose, `camera wait`, the start-up frames, and whether
-precaching more at load makes those likelier (not ruled out).
+50 ms with 0 reads, B595's open pose/wait class (measurements/2026-10-25-b595-part6-main-thread-reads-in-play.md).
+**Follow-up, 8 interleaved runs (same file):** the first-frame weapon precache ends 10.3-15.5 s before `--measure`'s
+window in every run, so it is never counted; the slow frames track machine load, not the build (both binaries 1-176
+frames > 50 ms under an unnamed load, 0-2 in the quiet pair; measurements/2026-10-25-b595-part6-main-thread-reads-in-play.md), and the after build had fewer early ones in 4 of 6 loaded
+pairs. Verdict: the known pose/particle stalls amplified by contention, not the precache and not load shifted to
+start-up. Real-demo test: `CorpusMainThreadReadsInPlayTests`. **Still open:** pose, `camera wait`, the start-up frames.
 
 ## B594 — `LevelLighting.SunFrom`'s 5.8% is not explained by how often it runs; the first-person undrawn pass lights a model nothing draws — OPEN (2026-10-24)
 

@@ -60,6 +60,46 @@ counting were **not measured** — the 0 in-play reads show only that it was not
   to 19 ms) clustered at 2-3 s. That is B595's open pose/wait class, not reads. Whether loading more before play
   (heap, LOH) makes it likelier is **not ruled out**; two of five runs is not enough to call it either way.
 
+## Follow-up: where the weapon precache lands, and the slow frames (2026-10-25, 8 interleaved runs)
+
+**Instrument.** `BurstEffects` carries the precache's own stopwatch ticks and end timestamp; `--measure` prints
+`weapon scripts precached in N ms, ending T ms from the window's start` (negative = before) and appends `weapon precache N`
+to a slow frame it ended in. The window starts at the first frame with the demo on screen, no load in flight, the opening
+applied, and the previous frame also on screen (`ViewerSession.Frame.cs`, `onScreen && _wasOnScreen`).
+
+**Measured: the precache takes 26.4-739.1 ms (seven runs 26-61 ms, one 739 ms), ending 10.3-15.5 s BEFORE the window in
+all 9 after-runs.** It is never in a counted frame, so it cannot be the after-runs' slow frames.
+
+**Runs.** BEFORE `D:/measure-f12/b595p6-before` (built from `f2c25eb3`, Presentation.dll md5 a37d7515…), AFTER
+`D:/measure-f12/b595p6-after` (built from `39acc0ce`, Presentation.dll md5 05d25e8b…, Scene.dll 6d887109…), Debug,
+`D:/measure-f12/f12.dem --tick 30000 --spectate gummo --first-person --measure 60 +fps_max 0`, B/A alternating, no other
+`tf2demoview` process before any run. Slow-frame times are seconds from the window's start; "early" is < 5 s.
+
+| run | before mean ms | > 50 / > 100 | early / later | reads | after mean ms | > 50 / > 100 | early / later | reads |
+|---|---|---|---|---|---|---|---|---|
+| 1 | 13.68 | 20 / 5 | 5 / 10 | 36 | 14.11 | 56 / 2 | 16 / 38 | 0 |
+| 2 | 26.38 | 176 / 8 | 30 / 138 | 36 | 13.57 | 15 / 1 | 10 / 4 | 0 |
+| 3 | 20.65 | 81 / 3 | 14 / 64 | 36 | 11.57 | 15 / 1 | 1 / 13 | 0 |
+| 4 | 9.70 | 4 / 1 | 0 / 3 | 36 | 14.85 | 13 / 1 | 6 / 6 | 0 |
+| 5 | 21.40 | 125 / 9 | 6 / 110 | 36 | 10.56 | 18 / 2 | 4 / 12 | 0 |
+| 6 | 12.93 | 27 / 1 | 1 / 25 | 36 | 9.77 | 3 / 0 | 0 / 3 | 0 |
+| 7 | 10.33 | 2 / 0 | 0 / 2 | 36 | 9.23 | 0 / 0 | 0 / 0 | 0 |
+| 8 | 9.00 | 1 / 0 | 1 / 0 | 36 | 9.04 | 0 / 0 | 0 / 0 | 0 |
+
+Early / later count the `slow at` lines the run printed, which are fewer than its > 50 total (why it lists fewer was not read).
+Ranges: before mean 9.00-26.38, > 50 ms 1-176; after mean 9.04-14.85, > 50 ms 0-56. Listed slow frames are "mostly
+camera" on both sides (before 348 of 410, after 104 of 113). The phase split moves with the load, not the build: before run 2's
+camera mean is 20.20 ms against 7.09 in run 8; in the quiet pair (runs 7-8) every phase agrees within 0.9 ms.
+
+**Verdict.** The machine was loaded in runs 1-6 by something that is not a viewer (means up to 2.9× the quiet runs', on
+both binaries; the process check looks only for `tf2demoview`/`--measure`, so the load is unnamed — interpolated: other
+agents' builds or tests). Under that load BOTH builds produce many `camera` (pose/particles) frames over 50 ms, bunched
+at the start or not depending on the run. (i) the precache is ruled out by measurement. (iii) is not supported: the
+after build has fewer early slow frames than before in 4 of the 6 loaded pairs, and 0 in the quiet pair. (ii) fits: the
+known B595 pose/particle stalls, whose count is set by machine contention. The previous 15 and 48 were this.
+Not ruled out: a small effect of either sign that machine load of this size hides; only the quiet pair is a clean
+comparison, and it is one pair.
+
 ## Not measured
 
 The coordinator's (a)/(b) (count of `ResolveVguiMaterial` decodes per sheet, the first kill-feed draw's `hud` ms before
