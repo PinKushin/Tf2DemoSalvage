@@ -232,6 +232,26 @@ public sealed partial class ViewerSession
     /// <summary>Every thread's log writes at the measurement's start (B595).</summary>
     private Logging.LogWriteTiming _logAtStart;
 
+    /// <summary>Each main-thread archive read since the measurement began: path, ms and the first callers outside the archive (B595 part 6).</summary>
+    private readonly List<string> _readsInPlay = [];
+
+    /// <summary>Records one main-thread read with its call site; runs only under <c>--measure</c>.</summary>
+    private void RecordReadInPlay(string path, long ticks)
+    {
+        List<string> callers = [];
+
+        foreach (StackFrame frame in new StackTrace(1, false).GetFrames())
+        {
+            if (frame.GetMethod() is { DeclaringType: { } type } method
+                && type != typeof(Tf2DemoSalvage.Content.Assets.GameArchives) && callers.Count < 4)
+            {
+                callers.Add(type.Name + "." + method.Name);
+            }
+        }
+
+        _readsInPlay.Add(string.Create(CultureInfo.InvariantCulture, $"{path} {ticks * 1000d / Stopwatch.Frequency:0.00} ms <- {string.Join(" <- ", callers)}"));
+    }
+
     /// <summary>Whether <see cref="_lastCounters"/> holds a boundary of this measurement.</summary>
     private bool _counted;
 
@@ -357,6 +377,11 @@ public sealed partial class ViewerSession
             _host.Out.WriteLine(
                 "  main thread archive reads: " + (jitNow.Reads - _countersAtStart.Reads) +
                 "; process page faults " + (jitNow.PageFaults - _countersAtStart.PageFaults).ToString(CultureInfo.InvariantCulture));
+            foreach (string read in _readsInPlay)
+            {
+                _host.Out.WriteLine("    read in play: " + read);
+            }
+
             // The writer's own timing of the window (B595, D230): the main thread's enqueues ("wait"), then the
             // writer thread's batches, then its queue over the whole run.
             _host.Out.WriteLine(
@@ -554,6 +579,8 @@ public sealed partial class ViewerSession
                 _pauses = new PauseLedger(Stopwatch.Frequency);
                 _counted = false;
                 _countersAtStart = ReadCounters();
+                _readsInPlay.Clear();
+                Tf2DemoSalvage.Content.Assets.GameArchives.ThreadReadObserver = RecordReadInPlay;
                 _logAtStart = LogTiming?.Invoke() ?? default;
                 _pausesFrom = Stopwatch.GetTimestamp();
                 _heartbeat?.Dispose();

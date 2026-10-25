@@ -127,6 +127,9 @@ public sealed partial class FramePresenter
     /// <summary>The device the VGUI resolver was last handed to.</summary>
     private Device3D? _vguiResolverDevice;
 
+    /// <summary>VGUI textures decoded at HUD load, held for the renderer's first draw (B595 part 6).</summary>
+    private VguiMaterialLoads<MapTexture>? _vguiLoads;
+
     /// <summary>Whether the HUD is handling a seek's replayed events, which <see cref="PlayHudSound"/> keeps silent.</summary>
     private bool _hudReplaying;
 
@@ -191,12 +194,14 @@ public sealed partial class FramePresenter
         }
 
         // TF2's stock HUD by default (D193): a HUD in `custom/` is the user's to choose, not one the viewer picks up.
+        // One decode per sheet: the load-time size query keeps the texture and the renderer's first draw takes it (B595 part 6).
+        _vguiLoads ??= new VguiMaterialLoads<MapTexture>(ResolveVguiMaterial, HudArchives);
         _vguiHost ??= new VguiSurfaceHost(
             path => HudArchives()?.Read(path),
             path => HudArchives()?.FullPathOnDisk(path),
             window.Gdi,
             new VguiTextureSizes(
-                material => ResolveVguiMaterial(material) is { } texture ? (texture.MappingWidth, texture.MappingHeight) : (0, 0),
+                material => _vguiLoads.Load(material) is { } texture ? (texture.MappingWidth, texture.MappingHeight) : (0, 0),
                 HudArchives).Size);
         _vguiHud ??= new VguiHud(_vguiHost, _models);
         _vguiHud.Parts = Parts;
@@ -204,7 +209,7 @@ public sealed partial class FramePresenter
 
         if (device is not null && !ReferenceEquals(device, _vguiResolverDevice))
         {
-            device.SetVguiResolver(ResolveVguiMaterial);
+            device.SetVguiResolver(_vguiLoads.Take);
             _vguiResolverDevice = device;
         }
 

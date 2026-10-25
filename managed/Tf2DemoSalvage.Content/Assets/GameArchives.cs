@@ -362,10 +362,26 @@ public sealed class GameArchives
         }
         finally
         {
-            CountRead(System.Diagnostics.Stopwatch.GetTimestamp() - began, path);        }
+            CountRead(System.Diagnostics.Stopwatch.GetTimestamp() - began, path);
+        }
     }
 
-    private static void CountRead(long ticks, string path) => _threadReads = _threadReads.Add(ticks, path);
+    private static void CountRead(long ticks, string path)
+    {
+        _threadReads = _threadReads.Add(ticks, path);
+        ThreadReadObserver?.Invoke(path, ticks);
+    }
+
+    /// <summary>Called on this thread after each <see cref="Read"/> with its path and Stopwatch ticks; null by default.</summary>
+    /// <remarks>Per thread, so `--measure` can name the main thread's reads in play and the call site (B595 part 6).</remarks>
+    public static Action<string, long>? ThreadReadObserver
+    {
+        get => _threadReadObserver;
+        set => _threadReadObserver = value;
+    }
+
+    [ThreadStatic]
+    private static Action<string, long>? _threadReadObserver;
 
     /// <summary>This thread's <see cref="Read"/> calls so far, timed where they ran (B595 part 5).</summary>
     /// <remarks>Per thread, so the main thread's reading is the main thread's own reads; differenced per frame by the reader.</remarks>
