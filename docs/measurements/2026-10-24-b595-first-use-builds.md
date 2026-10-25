@@ -39,7 +39,7 @@ like, since part 1 ran the same way.
 | probe | commit | frames > 50 ms / ms | first uses in play | before play |
 |---|---|---|---|---|
 | 1 | `0bd80d71` | 2 / 253 (both `between`) | (no total yet) | — |
-| 2 | `80e90697`- | 7 / 559 | models packed **0**; baked built **434, 20.5 ms** | packed 735, baked 188 |
+| 2 | `80e90697` (pre-commit build) | 7 / 559 | models packed **0**; baked built **434, 20.5 ms** | packed 735, baked 188 |
 | 3 | `80e90697` | 6 / 656 | packed 0; baked 434, 19.2 ms | packed 735, baked 188 |
 
 - **Models**: all 735 paths pack before the measurement opens; in play, 0. The viewmodel's models are not a first use
@@ -74,3 +74,35 @@ by about three a run but stays non-zero. Run-to-run spread in the total is large
 Method: `before` = the inverse edit's build, `after` = `4f754a26`, both Debug copies in the scratchpad; runs
 interleaved before/after × 3; per run: frames > 50 ms, ms in them, how many have `pose` as their largest camera piece,
 `SLOW MOMENT` lines naming `skin log` > 10 ms.
+
+### Before/after results
+
+**A first grid is void.** `cp -n` into a `before` folder that was already in the scratchpad kept a stale binary from an
+earlier session: mean 19-20 ms, no `pauses:` line, 46 sound decodes. The folder's DLLs were dated 23:18 against 19:40
+for the build. Rerun with a fresh `vbefore` (DLLs 20:15, same sizes as `after`). That grid, interleaved, CPU 8-25% before
+each run:
+
+| run | variant | mean ms | frames > 50 ms / ms in them | pose-largest | `viewmodel skin` lines written | in-play `SLOW MOMENT` |
+|---|---|---|---|---:|---:|---|
+| 1 | before | 9.37 | 1 / 56 | 0 | 124 | none |
+| 1 | after | 9.33 | 1 / 51 | 0 | 1 | none |
+| 2 | before | 9.27 | 1 / 53 | 0 | 124 | none |
+| 2 | after | 9.17 | 1 / 52 | 0 | 1 | none |
+| 3 | before | 9.30 | 5 / 500 (2 `between`, 1 `wait`, 2 particles at start) | 0 | 122 | none |
+| 3 | after | 9.34 | 3 / 287 (1 **pose 113 ms**, 1 `wait`, 1 particles at start) | 1 | 1 | none |
+
+**The prediction cannot be confirmed from this grid.** The fix cut the skin line from 122-124 writes a minute to 1, as
+designed. But in this grid no write was slow: every before-run `SLOW MOMENT` reads `skin log 0`, and no before run had a
+pose stall. The slow flush that cost 90-118 ms a line in probes 2-5, about an hour earlier, did not recur. Its latency is
+environmental and bursty (see the virtualised log path above), so a grid in a quiet hour shows nothing. Frames over 50 ms:
+before 1-5 (53-500 ms), after 1-3 (51-287 ms). That is inside the run-to-run spread.
+
+**A pose stall the fix does not touch.** After, run 3: a 113 ms `pose` at 21.9 s with **no `SLOW MOMENT` line**, so it
+lies in `PoseOver` outside `MomentScene.Build`'s timers. Part 1 saw the same shape. It is still unattributed.
+
+**Warm-up, before the window opens, is in every run.** All twelve logs hold the same four `SLOW MOMENT` lines in the
+first ~5 s: 206-209, 44-52, 70-80 and 240-256 ms, with `baked` 47-54, 17-19, 47-52 and 89-101 ms and `advance`
+(corpses) 127-139 ms in the last. A user sees these right after a load, but `--measure` does not count them. The new
+counters split the `baked` part: the colour-mesh build before play is **188 meshes in 21-29 ms in all**. The rest of
+`baked` is the per-draw full-lighting and dynamic-light calls on their first fills, so precaching the mesh would buy under
+30 ms of the ~400 ms of warm-up. Model packing before play is **735 paths in 455-527 ms**.

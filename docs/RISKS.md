@@ -40074,13 +40074,21 @@ over the frame's own window (`PauseLedger`, `FrameCounters`). **JIT is ruled out
 first shows 0 main-thread JIT, and `DOTNET_TieredCompilation=0` and ReadyToRun both still stall. Main-thread JIT is
 ~255 ms a run and lands in the opening frames. **Ranked by measured stall time:**
 
-1. **`camera pose`, 17 frames, 46-133 ms.** The same frame's `SLOW MOMENT` names `viewmodel` (42-128 ms) or `baked`
-   (19-49 ms). Both look like first-use builds: a viewmodel's first pose, and a static prop's colour mesh baked on first
-   sight. The engine does both up front: weapons precache their view model (`CBaseCombatWeapon::Precache`,
-   `game/shared/basecombatweapon_shared.cpp`; **citation to verify**), and static-prop lighting is computed at level load
-   (closed `engine.dll`; **unread**). Several pose stalls print no `SLOW MOMENT`, so part of `PoseOver` is outside
-   `MomentScene.Build`'s timers. **Next:** a first-use counter in the viewmodel and baked paths, then precache both at load
-   (`precache-what-the-engine-precaches.md`).
+1. **`camera pose`, 17 frames, 46-133 ms. Not first-use builds** (`docs/measurements/2026-10-24-b595-first-use-builds.md`,
+   carried counters). In play on f12, **0 models are packed** (all 735 pack before the window, in 455-527 ms), and
+   434 static-prop colour meshes are built for **~20 ms in all**, never in a slow frame. **The `viewmodel` stalls were a
+   log line.** Split by step, 90-118 ms sat after `Instances` in `viewmodel skin: N`. It is an Information line,
+   written on every sequence change (~123 a minute), and each write is flushed on the main thread: B191's mechanism.
+   **FIXED** (`4f754a26`): the line is now written when the skin changes, per B191's ruling to keep the flush and drop
+   the line. That is a diagnostic change; nothing drawn changes. The interleaved before/after grid could not show the
+   saving, because the slow flush did not recur that hour (0 ms in every before run). The latency is environmental, and
+   the log path is the Claude package's virtualised LocalAppData. **Part 1's `baked 19-49 ms` was a misattribution**: those
+   `SLOW MOMENT` lines are warm-up before the window opens, and the column also covers per-draw full lighting. The engine
+   citation, verified: `CBaseCombatWeapon::Precache`, `basecombatweapon_shared.cpp:248-318`, *"Precache models (preload to
+   avoid hitch)"*. We already pack everything up front, so no precache move is needed. **Still open:** pose stalls with no
+   `SLOW MOMENT` line (113 ms, after-run 3) are in `PoseOver` outside `MomentScene.Build`'s timers. Separately, the
+   ~400 ms of warm-up `SLOW MOMENT`s before the window (`baked` first fills and corpses `advance` 127-139 ms) are seen by a
+   user after load but not counted by `--measure`.
 2. **`camera particles`, 8 frames, 30-173 ms**, mostly the first measured frame (t ≈ 0.19 s) of every run, once beside a
    147 ms GC pause, and in ReadyToRun beside 64-139 ms of other-thread JIT. Not split further yet.
 3. **`between`, 6 frames, 48-133 ms**, with nothing counted. **Next:** time the idle loop and the message pump.
