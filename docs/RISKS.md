@@ -40066,6 +40066,21 @@ reddens four tests), and a child's drawn size against its own scale alone.
   `pl_badwater_pro_v12.bsp` is not on this machine (not under the game's `tf/maps`, `tf/download/maps`, `tf2ds`, or the
   user profile), so its `parentname` cannot be read, and no sampled tick gives them a parent.
 
+## B596 — is the Debug build part of the viewer-vs-TF2 f12 gap? No: Debug and Release are the same program — CLOSED (2026-10-24)
+
+**Evidence class: measured, with a code reading it confirms** (`docs/measurements/2026-10-24-debug-vs-release-f12.md`).
+Every viewer number against TF2's 4.8 ms (`measurements/2026-10-22-tf2-vs-viewer-f12.md`) came from the Debug build the owner runs. **Read:** `Optimize=true` in every
+configuration (D176); no `#if DEBUG`, `[Conditional]` or `Debug.Assert` in `managed/`; the one `Debug.WriteLine` is gated
+on `Debugger.IsAttached`; `IsDebug` only gates the F12 sidecar; `DebuggableAttribute` is mode 2 in both; the runtime
+configs differ only by Release's `MetadataUpdater.IsSupported=false`. **Measured**, 30 s, f12 gummo first person,
+1280x720: Debug 9.18 ms (8.58-9.81, n=5) against Release 9.38 (8.62-9.79, n=6); empty view 3.54 against 3.69;
+allocation 1.15 against 1.18 MB a frame. Two Debug runs under outside load were excluded post hoc (stated in the record).
+The configuration carries at most ~0.3 ms of the ~4.5 ms gap at this resolution. **The release zip** (`package.ps1`:
+self-contained, no ReadyToRun, no trimming) ships the same library assemblies byte for byte and the same 10.0.13 runtime
+and JIT, so it is the same program again; not measured separately. **What would reopen it:** a `#if DEBUG` or
+`[Conditional("DEBUG")]` on a per-frame path, a project overriding `Optimize`, or `package.ps1` gaining ReadyToRun or
+trimming (finding 84 measured ReadyToRun as worse at start).
+
 ## B595 — f12 first-person hitches of 50-190 ms are pose (viewmodel, baked), particles at start, the render-thread wait and `between`; not JIT — OPEN (2026-10-24)
 
 **Review notes on the instruments (batch 28, read from code, none measured; all diagnostics-only):** `_lastViewmodelSkin`
