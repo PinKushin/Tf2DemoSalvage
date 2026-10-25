@@ -330,8 +330,11 @@ public sealed class BurstEffects
 
             if (_read is { } read)
             {
+                long began = System.Diagnostics.Stopwatch.GetTimestamp();
                 _weaponMuzzles = new WeaponMuzzleFlashes(read, frame.Game?.Weapons.Items);
                 _weaponMuzzles.Precache();
+                PrecachedAt = System.Diagnostics.Stopwatch.GetTimestamp();
+                PrecacheTicks = PrecachedAt - began;
             }
         }
 
@@ -360,6 +363,12 @@ public sealed class BurstEffects
 
     /// <summary>Time spent starting and stepping the bursts found, in stopwatch ticks (finding 82).</summary>
     internal long BurstTicks { get; private set; }
+
+    /// <summary>The last weapon-script precache's duration and its end, in stopwatch ticks; zero until one ran (B595 part 6).</summary>
+    internal long PrecacheTicks { get; private set; }
+
+    /// <inheritdoc cref="PrecacheTicks"/>
+    internal long PrecachedAt { get; private set; }
 
     /// <summary>The same, over what the frame's map and game hold as data, which a test can supply (D214).</summary>
     /// <param name="frame">What this frame is stepped against; its map, game and scripts are not read here.</param>
