@@ -213,7 +213,44 @@ public sealed class FileLogWriterQueueTests
         sink.ToString().ShouldBe("before" + Environment.NewLine);
     }
 
+    [Test]
+    public void Write_WhenTheSinkThrowsAnUnlistedType_AbandonsTheLogAndTheProcessSurvives()
+    {
+        // NotSupportedException is not one of the IO types Drain used to catch; unhandled on the writer
+        // thread it would end the process, which "failure to log never fails the caller" forbids.
+        using FileLogWriter writer = new(new ThrowingSink(), capacity: 64, background: true);
+        writer.Write("a");
+
+        WaitFor(() => writer.Failed).ShouldBeTrue("the writer gave up on the sink");
+        writer.Write("b");
+    }
+
+    private static bool WaitFor(Func<bool> condition)
+    {
+        Stopwatch waited = Stopwatch.StartNew();
+
+        while (!condition())
+        {
+            if (waited.Elapsed > Patience)
+            {
+                return false;
+            }
+
+            Thread.SpinWait(10_000);
+        }
+
+        return true;
+    }
+
     private static string NewFolder() => Path.Combine(Path.GetTempPath(), $"tf2ds-logqueue-{Guid.NewGuid():N}");
+
+    /// <summary>A sink that throws a type no IO path names: an encoder fallback, a custom writer.</summary>
+    private sealed class ThrowingSink : TextWriter
+    {
+        public override Encoding Encoding => Encoding.UTF8;
+
+        public override void Write(char value) => throw new NotSupportedException("this sink cannot write");
+    }
 
     /// <summary>A sink whose first write blocks until released: a disk that stopped answering.</summary>
     private sealed class StalledSink : TextWriter

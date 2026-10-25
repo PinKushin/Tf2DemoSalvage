@@ -285,6 +285,11 @@ public sealed class FileLogWriter : IDisposable
             {
                 Drain();
             }
+
+            if (_failed)
+            {
+                return;
+            }
         }
     }
 
@@ -318,11 +323,14 @@ public sealed class FileLogWriter : IDisposable
 
             _writer?.Flush();
         }
-        catch (Exception failure) when (
-            failure is IOException or UnauthorizedAccessException or ArgumentException
-                or ObjectDisposedException)
+#pragma warning disable CA1031 // Any sink failure abandons the log: on the writer thread an escaped exception would end the process.
+        catch (Exception failure)
+#pragma warning restore CA1031
         {
-            // Stop trying rather than failing on every line afterwards; Write sees this and stops queueing.
+            // Every type, not only IO's: a NotSupportedException, an EncoderFallbackException or a custom sink's own
+            // exception, unhandled here, would take the process — and failure to log never fails the caller. Recorded
+            // in Failed; Write sees it and stops queueing, and the writer thread stops.
+            Debug.WriteLine($"file log abandoned: {failure.GetType().Name}: {failure.Message}");
             _failed = true;
             _writer = null;
             return;
