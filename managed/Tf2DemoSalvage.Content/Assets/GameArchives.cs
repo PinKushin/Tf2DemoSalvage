@@ -354,6 +354,28 @@ public sealed class GameArchives
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
 
+        long began = System.Diagnostics.Stopwatch.GetTimestamp();
+
+        try
+        {
+            return ReadUntimed(path);
+        }
+        finally
+        {
+            CountRead(System.Diagnostics.Stopwatch.GetTimestamp() - began, path);        }
+    }
+
+    private static void CountRead(long ticks, string path) => _threadReads = _threadReads.Add(ticks, path);
+
+    /// <summary>This thread's <see cref="Read"/> calls so far, timed where they ran (B595 part 5).</summary>
+    /// <remarks>Per thread, so the main thread's reading is the main thread's own reads; differenced per frame by the reader.</remarks>
+    public static ArchiveReadTiming ThreadReads => _threadReads;
+
+    [ThreadStatic]
+    private static ArchiveReadTiming _threadReads;
+
+    private byte[]? ReadUntimed(string path)
+    {
         // `CBaseFileSystem::FixUpPath` runs `V_RemoveDotSlashes` on every open: the stock HUD's `vgui/../hud/health_bg`
         // is found as `hud/health_bg`, and a path climbing above the root is found nowhere.
         if (RemoveDotSlashes(path) is not { } fixedPath)

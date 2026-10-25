@@ -28,6 +28,8 @@ public readonly record struct CameraTotals(long View, long SetCamera, long Wait,
 /// <param name="ParticleSystems">Distinct particle systems ever born.</param>
 /// <param name="Models">Model paths packed and static-prop colour meshes built, with their ticks, from the model set.</param>
 /// <param name="Log">The reading thread's log writes, timed by the writer itself.</param>
+/// <param name="Reads">The reading thread's <c>GameArchives.Read</c> calls, timed by the call itself (B595 part 5).</param>
+/// <param name="PageFaults">The process's page faults so far (every thread; <c>GetProcessMemoryInfo</c>).</param>
 public readonly record struct FrameCounters(
     long MainJitMethods,
     TimeSpan MainJit,
@@ -37,7 +39,9 @@ public readonly record struct FrameCounters(
     int SoundDecodes,
     int ParticleSystems,
     ModelFirstUses Models,
-    Logging.LogWriteTiming Log)
+    Logging.LogWriteTiming Log,
+    Content.Assets.ArchiveReadTiming Reads,
+    long PageFaults)
 {
     /// <summary>What ran between an earlier reading and this one.</summary>
     /// <param name="start">The earlier reading.</param>
@@ -59,7 +63,8 @@ public readonly record struct FrameCounters(
             $", models packed +{Models.Packed - start.Models.Packed} {ms(Models.PackTicks - start.Models.PackTicks):0.0} ms" +
             $", baked built +{Models.Baked - start.Models.Baked} {ms(Models.BakedTicks - start.Models.BakedTicks):0.0} ms" +
             $", particle systems +{ParticleSystems - start.ParticleSystems}" +
-            $"; log {Log - start.Log}");
+            $"; log {Log - start.Log}" +
+            $"; archive reads {Reads - start.Reads}; page faults {PageFaults - start.PageFaults}");
     }
 }
 
