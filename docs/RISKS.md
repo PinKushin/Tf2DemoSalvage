@@ -40113,6 +40113,16 @@ Finding 97 row 11.
 start-up frames. **Fix is the owner's call** (keep flush-per-line or not). The options are in the record: an async writer
 thread flushed by the crash handlers (recommended), flushing every N ms, or demoting hot lines.
 
+**Part 4, the log stall is FIXED by D230** (branch `perf/b595-async-file-log`): the file log is written by a background
+thread, and the main thread only enqueues. Measured over 5 × 2 interleaved runs.
+Main-thread log flush 5.6-691.1 ms a run before, 0.0 ms after (measurements/2026-10-24-d230-async-file-log.md).
+Enqueue 1.6-2.1 ms a run for about 313 lines (measurements/2026-10-24-d230-async-file-log.md).
+Frames > 50 ms: main 12 (1,256 ms, 7 > 100), async 4 (1,420 ms), all in one run (measurements/2026-10-24-d230-async-file-log.md).
+Those 4 are `hud`/`pose` stalls with no log time, beside 10.5 s of writer flush (measurements/2026-10-24-d230-async-file-log.md):
+a disk stall reaching other main-thread file reads (interpolated; timing not checked). **B595 stays OPEN** for what is
+not the log: disk-bound `hud`/`pose` reads, the `camera wait` stalls, and the start-up frames.
+Trade: a hard kill loses the queued lines, median 1 ms, worst 55 ms of 29 kills (measurements/2026-10-24-d230-async-file-log.md).
+
 ## B594 — `LevelLighting.SunFrom`'s 5.8% is not explained by how often it runs; the first-person undrawn pass lights a model nothing draws — OPEN (2026-10-24)
 
 **Evidence class: read from code; the share is the profile's** (`docs/measurements/2026-10-24-main-thread-cpu-profile.md`,

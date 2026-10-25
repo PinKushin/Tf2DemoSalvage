@@ -92,7 +92,9 @@ public sealed class FileLogWriterQueueTests
     {
         using StalledSink sink = new();
         using FileLogWriter writer = new(sink, capacity: 1 << 16, background: true);
-        writer.Write("first");
+
+        // Off the test thread: a writer that drained on its caller would stall right here.
+        _ = Task.Run(() => writer.Write("first"));
         sink.Entered.Wait(Patience).ShouldBeTrue();
 
         try
@@ -120,12 +122,22 @@ public sealed class FileLogWriterQueueTests
     {
         using StalledSink sink = new();
         FileLogWriter writer = new(sink, capacity: 4, background: true);
-        writer.Write("0");
+        _ = Task.Run(() => writer.Write("0"));
         sink.Entered.Wait(Patience).ShouldBeTrue();
 
-        for (int i = 1; i <= 10; i++)
+        // On a task with a deadline, so a Write that waits on the stalled sink is a red test, not a hung host.
+        Task writes = Task.Run(() =>
         {
-            writer.Write(i.ToString(CultureInfo.InvariantCulture));
+            for (int i = 1; i <= 10; i++)
+            {
+                writer.Write(i.ToString(CultureInfo.InvariantCulture));
+            }
+        });
+
+        if (!writes.Wait(Patience))
+        {
+            sink.Release.Set();
+            Assert.Fail("a write waited on the stalled sink");
         }
 
         writer.Dropped.ShouldBe(6);
