@@ -40202,6 +40202,22 @@ sheet among them. The disk-0 load caused no stall, because the reads are on disk
 stalls during a disk-0 stall are **not explained**: that disk holds no file the frame reads. The `camera wait` stalls and
 the start-up frames are also still open.
 
+**Part 6, the last main-thread reads in play are FIXED: 36 → 0 a minute on f12**
+(`docs/measurements/2026-10-25-b595-part6-main-thread-reads-in-play.md`, 5 interleaved runs, warm). `--measure` now names
+each main-thread read in play with its callers. 30 were `FaceSources`' channel lengths (VO `.mp3`s), read at a face's
+first frame; 6 were muzzle-flash weapon scripts. The engine has both before play: a sound's source is made at
+`S_PrecacheSound` (finding 90), and `C_World::Precache` runs `CPrecacheRegister::Precache`, which precaches every
+`PRECACHE_WEAPON_REGISTER` class and reads its script (c_world.cpp:161-176, basecombatweapon_shared.cpp:258). TF2's
+`weapon_manifest.txt` names only the steadycam, so the schema's item classes stand for the registered set (interpolated).
+The HUD's load-time sheet decode is now the one its first draw uses (`VguiMaterialLoads`); before, each sheet was decoded
+twice (read from code, not timed). The mean did not move beyond spread. Two after-runs had 15 and 48 `camera` frames over
+50 ms with 0 reads, B595's open pose/wait class (measurements/2026-10-25-b595-part6-main-thread-reads-in-play.md).
+**Follow-up, 8 interleaved runs (same file):** the first-frame weapon precache ends 10.3-15.5 s before `--measure`'s
+window in every run, so it is never counted; the slow frames track machine load, not the build (both binaries 1-176
+frames > 50 ms under an unnamed load, 0-2 in the quiet pair; measurements/2026-10-25-b595-part6-main-thread-reads-in-play.md), and the after build had fewer early ones in 4 of 6 loaded
+pairs. Verdict: the known pose/particle stalls amplified by contention, not the precache and not load shifted to
+start-up. Real-demo test: `CorpusMainThreadReadsInPlayTests`. **Still open:** pose, `camera wait`, the start-up frames.
+
 ## B594 — `LevelLighting.SunFrom`'s 5.8% is not explained by how often it runs; the first-person undrawn pass lights a model nothing draws — OPEN (2026-10-24)
 
 **Evidence class: read from code; the share is the profile's** (`docs/measurements/2026-10-24-main-thread-cpu-profile.md`,

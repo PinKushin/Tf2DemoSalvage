@@ -232,6 +232,26 @@ public sealed partial class ViewerSession
     /// <summary>Every thread's log writes at the measurement's start (B595).</summary>
     private Logging.LogWriteTiming _logAtStart;
 
+    /// <summary>Each main-thread archive read since the measurement began: path, ms and the first callers outside the archive (B595 part 6).</summary>
+    private readonly List<string> _readsInPlay = [];
+
+    /// <summary>Records one main-thread read with its call site; runs only under <c>--measure</c>.</summary>
+    private void RecordReadInPlay(string path, long ticks)
+    {
+        List<string> callers = [];
+
+        foreach (StackFrame frame in new StackTrace(1, false).GetFrames())
+        {
+            if (frame.GetMethod() is { DeclaringType: { } type } method
+                && type != typeof(Tf2DemoSalvage.Content.Assets.GameArchives) && callers.Count < 4)
+            {
+                callers.Add(type.Name + "." + method.Name);
+            }
+        }
+
+        _readsInPlay.Add(string.Create(CultureInfo.InvariantCulture, $"{path} {ticks * 1000d / Stopwatch.Frequency:0.00} ms <- {string.Join(" <- ", callers)}"));
+    }
+
     /// <summary>Whether <see cref="_lastCounters"/> holds a boundary of this measurement.</summary>
     private bool _counted;
 
@@ -259,11 +279,17 @@ public sealed partial class ViewerSession
     {
         double ms(long ticks) => ticks * 1000d / Stopwatch.Frequency;
 
+        // The weapon-script precache, when it ended inside this frame (B595 part 6).
+        (long precacheTicks, long precachedAt) = _effects.WeaponScriptPrecache;
+        string precache = precachedAt > _lastSequenceEnded
+            ? string.Create(CultureInfo.InvariantCulture, $", weapon precache {ms(precacheTicks):0.0}")
+            : string.Empty;
+
         return string.Create(
             CultureInfo.InvariantCulture,
             $"between {ms(between):0.0}, sound {ms(phases.Sound):0.0}, camera {ms(phases.Camera):0.0}, project {ms(phases.Project):0.0}" +
             $", advance {ms(phases.Advance):0.0}, hud {ms(phases.Hud):0.0}, draw {ms(phases.Draw):0.0}" +
-            $", unaccounted {ms(phases.Unaccounted):0.0}; {counters.Since(_lastCounters, Stopwatch.Frequency)}");
+            $", unaccounted {ms(phases.Unaccounted):0.0}{precache}; {counters.Since(_lastCounters, Stopwatch.Frequency)}");
     }
 
     /// <summary>When <see cref="_pauses"/> began, in Stopwatch ticks.</summary>
@@ -362,6 +388,17 @@ public sealed partial class ViewerSession
             _host.Out.WriteLine(
                 "  main thread archive reads: " + (jitNow.Reads - _countersAtStart.Reads) +
                 "; process page faults " + (jitNow.PageFaults - _countersAtStart.PageFaults).ToString(CultureInfo.InvariantCulture));
+            foreach (string read in _readsInPlay)
+            {
+                _host.Out.WriteLine("    read in play: " + read);
+            }
+
+            // Where the first-frame weapon-script precache landed against the window (B595 part 6): negative is before it.
+            (long precacheTicks, long precachedAt) = _effects.WeaponScriptPrecache;
+            _host.Out.WriteLine(string.Create(
+                CultureInfo.InvariantCulture,
+                $"  weapon scripts precached in {precacheTicks * 1000d / Stopwatch.Frequency:0.0} ms, ending {(precachedAt - _pausesFrom) * 1000d / Stopwatch.Frequency:0.0} ms from the window's start"));
+
             // The writer's own timing of the window (B595, D230): the main thread's enqueues ("wait"), then the
             // writer thread's batches, then its queue over the whole run.
             _host.Out.WriteLine(
@@ -560,6 +597,8 @@ public sealed partial class ViewerSession
                 _counted = false;
                 _countersAtStart = ReadCounters();
                 _ownedDevice?.TakePassReport();
+                _readsInPlay.Clear();
+                Tf2DemoSalvage.Content.Assets.GameArchives.ThreadReadObserver = RecordReadInPlay;
                 _logAtStart = LogTiming?.Invoke() ?? default;
                 _pausesFrom = Stopwatch.GetTimestamp();
                 _heartbeat?.Dispose();

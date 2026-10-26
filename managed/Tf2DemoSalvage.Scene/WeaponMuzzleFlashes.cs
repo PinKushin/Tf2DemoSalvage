@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Linq;
 
 using Tf2DemoSalvage.Content.Assets;
 
@@ -53,6 +54,30 @@ public sealed class WeaponMuzzleFlashes(Func<string, byte[]?> readFile, ItemSche
     };
 
     private readonly Dictionary<string, WeaponScript?> _scripts = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Reads every weapon's script before play, as `C_World::Precache` does (B595 part 6).</summary>
+    /// <remarks>
+    /// `C_World::Precache` (c_world.cpp:161-176) runs `W_Precache` — the manifest, which TF2 ships listing only
+    /// `weapon_ifm_steadycam` — and then `CPrecacheRegister::Precache`, which `UTIL_PrecacheOther`s every
+    /// `PRECACHE_WEAPON_REGISTER` class (precache_register.h:15, cdll_util.cpp:474-494): each weapon's `Precache` reads its
+    /// script (`ReadWeaponDataFromFileForSlot`, basecombatweapon_shared.cpp:258). The registered set is source, not data;
+    /// **interpolated**: every `item_class` the schema names stands for it (a weapon's `item_class` is its entity class).
+    /// A class neither names is still read on its first flash.
+    /// </remarks>
+    public void Precache()
+    {
+        IEnumerable<string> classes = items is null
+            ? []
+            : items.DefinitionIndices.Select(items.ItemClass).OfType<string>().Where(name => name.Length > 0);
+
+        foreach (string name in WeaponScript.Manifest(readFile).Concat(classes))
+        {
+            if (!_scripts.ContainsKey(name))
+            {
+                _scripts[name] = WeaponScript.Read(readFile, name);
+            }
+        }
+    }
 
     /// <summary>What a weapon's flash starts.</summary>
     /// <param name="item">The weapon's item definition.</param>

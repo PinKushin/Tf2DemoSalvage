@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 
 namespace Tf2DemoSalvage.Content.Assets;
 
@@ -43,6 +44,36 @@ public sealed class WeaponScript
 
     /// <summary>The whole script, for a probe or a dump. Decrypted.</summary>
     public ReadOnlyMemory<byte> Text => _text;
+
+    /// <summary>
+    /// The bare names `scripts/weapon_manifest.txt` lists — what `PrecacheFileWeaponInfoDatabase` (weapon_parse.cpp:163-194)
+    /// reads before play, called from `C_World::Precache` → `W_Precache` (c_world.cpp:149, 173). Empty without a manifest.
+    /// </summary>
+    /// <param name="readFile">Opens a path out of the game's content, or answers null.</param>
+    /// <returns>Each `file` entry's `Q_FileBase`, in the manifest's order.</returns>
+    public static IReadOnlyList<string> Manifest(Func<string, byte[]?> readFile)
+    {
+        ArgumentNullException.ThrowIfNull(readFile);
+
+        const string path = "scripts/weapon_manifest.txt";
+
+        if (readFile(path) is not { } bytes)
+        {
+            return [];
+        }
+
+        List<string> names = [];
+
+        foreach (KeyValuesTree entry in KeyValuesTree.Load(bytes, path, _ => null).Children)
+        {
+            if (string.Equals(entry.Name, "file", StringComparison.OrdinalIgnoreCase) && entry.Value is { Length: > 0 } file)
+            {
+                names.Add(System.IO.Path.GetFileNameWithoutExtension(file));
+            }
+        }
+
+        return names;
+    }
 
     /// <summary>Reads one weapon script by name.</summary>
     /// <param name="readFile">Opens a path out of the game's content, or answers null.</param>

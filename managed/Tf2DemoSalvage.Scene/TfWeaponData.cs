@@ -42,6 +42,21 @@ public sealed class TfWeaponData(Func<string, byte[]?> read)
     private static readonly string[] ObjectNames = ["OBJ_DISPENSER", "OBJ_TELEPORTER", "OBJ_SENTRYGUN", "OBJ_ATTACHMENT_SAPPER"];
     private readonly Dictionary<(string ServerClass, int PlayerClass), (bool DrawCrosshair, IReadOnlyList<Hud.HudTexture> Icons)> _hud = [];
 
+    // Each weapon script by bare name, a miss as null: `m_WeaponInfoDatabase`, one parse per name.
+    private readonly Dictionary<string, KeyValuesTree?> _scripts = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>The weapon script of that bare name, parsed once for every question asked of it; null when neither form exists.</summary>
+    private KeyValuesTree? Script(string name)
+    {
+        if (!_scripts.TryGetValue(name, out KeyValuesTree? data))
+        {
+            data = WeaponScript.Read(read, name) is { } script ? KeyValuesTree.Load(script.Text.ToArray(), name, _ => null) : null;
+            _scripts[name] = data;
+        }
+
+        return data;
+    }
+
     /// <summary>A weapon's script: its `clip_size` and its primary ammo type.</summary>
     /// <param name="serverClass">The weapon's server class, such as `CTFScatterGun`.</param>
     /// <param name="playerClass">Who holds it, for the per-class script names.</param>
@@ -64,13 +79,11 @@ public sealed class TfWeaponData(Func<string, byte[]?> read)
 
         foreach (string candidate in WeaponScriptName.Candidates(serverClass, playerClass))
         {
-            if (WeaponScript.Read(read, candidate) is not { } script)
+            // Parsed as KeyValues rather than scanned: the shipped scripts write some keys bare — `clip_size 4`.
+            if (Script(candidate) is not { } data)
             {
                 continue;
             }
-
-            // Parsed as KeyValues rather than scanned: the shipped scripts write some keys bare — `clip_size 4`.
-            KeyValuesTree data = KeyValuesTree.Load(script.Text.ToArray(), candidate, _ => null);
 
             string? ammo = data.Find("primary_ammo")?.Value;
 
@@ -105,12 +118,10 @@ public sealed class TfWeaponData(Func<string, byte[]?> read)
 
         foreach (string candidate in WeaponScriptName.Candidates(serverClass, playerClass))
         {
-            if (WeaponScript.Read(read, candidate) is not { } script)
+            if (Script(candidate) is not { } data)
             {
                 continue;
             }
-
-            KeyValuesTree data = KeyValuesTree.Load(script.Text.ToArray(), candidate, _ => null);
 
             found = (Int(data.Find("DrawCrosshair")?.Value, 1) > 0, Hud.HudTextures.Parse(data));
             break;

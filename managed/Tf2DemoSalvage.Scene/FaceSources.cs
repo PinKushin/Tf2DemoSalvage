@@ -305,6 +305,26 @@ public sealed class FaceSources
         return voices;
     }
 
+    /// <summary>Reads, now, the length of every sound the recording starts that the cache does not count (B595 part 6).</summary>
+    /// <remarks>
+    /// The engine knows a sound's length from its audio source, which `S_PrecacheSound` creates for each precached sound
+    /// at level load (`S_LoadSound`, engine.dll FUN_18002cab0, finding 90). Read lazily, the first frame a face asked read
+    /// the file on the main thread in play — 28 VO lines a minute on f12. Answers do not change: the same reads, earlier.
+    /// </remarks>
+    public void PrecacheLengths()
+    {
+        foreach (List<(SceneSound Sound, double Start)> sounds in _voices.Values)
+        {
+            foreach ((SceneSound sound, _) in sounds)
+            {
+                if (!sound.IsStop && !sound.ChangesVolume && !sound.ChangesPitch)
+                {
+                    _ = LengthOf(SoundPath(sound.Name));
+                }
+            }
+        }
+    }
+
     /// <summary>How many times <see cref="Voices"/> walked the recording rather than answering from what it kept, ever.</summary>
     public int Walks { get; private set; }
 

@@ -168,6 +168,9 @@ public sealed partial class FramePresenter
     /// <summary>What replaying rebuilt bursts has cost, ever: stopwatch ticks and steps — a seek's price.</summary>
     public (long Ticks, long Steps) ParticleReplay => (_particles.ReplayTicks, _particles.ReplaySteps);
 
+    /// <summary>The last weapon-script precache's stopwatch ticks and end timestamp, carried from where it ran (B595 part 6).</summary>
+    public (long Ticks, long At) WeaponScriptPrecache => (_bursts.PrecacheTicks, _bursts.PrecachedAt);
+
     /// <summary>
     /// The particle phase's direct counters, ever (finding 82): the bursts' timeline search and stepping, and the attachment
     /// queries that set up bones outside the pass — each carried from where it ran.
