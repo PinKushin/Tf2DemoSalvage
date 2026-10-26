@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
 
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -227,6 +229,44 @@ public sealed class LevelSystemsTests
 
         opened.ShouldBe(1, "the install is located once, however many maps are read");
         again.ShouldBeSameAs(first);
+    }
+
+    /// <summary>
+    /// The presenter's first calls race: the async demo load calls `Install` in `Task.Run` while the UI thread may call it
+    /// for a map or a synchronous load. Two concurrent first calls must open (and precache) the install once.
+    /// </summary>
+    [Test]
+    public void Install_TwoConcurrentFirstCalls_OpensOnceAndAnswersTheSameContent()
+    {
+        int opened = 0;
+        using ManualResetEventSlim firstInside = new();
+        using ManualResetEventSlim release = new();
+        LevelSystems systems = Systems();
+
+        string? Locate()
+        {
+            if (Interlocked.Increment(ref opened) == 1)
+            {
+                firstInside.Set();
+                release.Wait(TimeSpan.FromSeconds(10)).ShouldBeTrue("the test releases the first open");
+            }
+
+            return null;
+        }
+
+        Task<GameContent> first = Task.Run(() => systems.Install(Locate));
+        firstInside.Wait(TimeSpan.FromSeconds(10)).ShouldBeTrue("the first call reached the open");
+
+        Task<GameContent> second = Task.Run(() => systems.Install(Locate));
+
+        // Ungated, the second call reaches its own open at once; gated, it waits on the first and this times out.
+        SpinWait.SpinUntil(() => Volatile.Read(ref opened) == 2, TimeSpan.FromMilliseconds(500));
+        release.Set();
+
+        GameContent[] answers = Task.WhenAll(first, second).GetAwaiter().GetResult();
+
+        opened.ShouldBe(1, "the install is opened, and its scripts precached, by one call only");
+        answers[1].ShouldBeSameAs(answers[0]);
     }
 
     [Test]

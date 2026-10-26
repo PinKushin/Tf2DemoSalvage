@@ -196,19 +196,29 @@ public sealed class LevelSystems
     {
         ArgumentNullException.ThrowIfNull(locate);
 
-        if (_game is { } already)
+        // **Gated, because the first calls race** (batch-31 review 2): the async demo load calls this in `Task.Run` while
+        // the UI thread calls it for a map or a synchronous load. Ungated, both opened the install and both precached,
+        // the second writing the weapon scripts' plain dictionary while the first still did. A later caller waits for the
+        // first open rather than starting its own; neither `locate` nor `OpenGame` touches the window, so no deadlock.
+        lock (_installGate)
         {
-            return already;
+            if (_game is { } already)
+            {
+                return already;
+            }
+
+            GameContent game = GameContent.Open(locate(), _loggers);
+
+            OpenGame(game);
+
+            _game = game;
+
+            return game;
         }
-
-        GameContent game = GameContent.Open(locate(), _loggers);
-
-        OpenGame(game);
-
-        _game = game;
-
-        return game;
     }
+
+    /// <summary>Serialises <see cref="Install"/>'s first open.</summary>
+    private readonly System.Threading.Lock _installGate = new();
 
     /// <summary>Reads a level and tells every system about it.</summary>
     /// <param name="bytes">The BSP.</param>
