@@ -184,3 +184,30 @@ equivalence test and timed in Release: interleaved, three runs a side, gummo fir
     returns before any lighting — the uncached caller is never called. The world pass makes 0.02-2.0 sun calls a frame.
     The wrong turn worth keeping: a code-read estimate of 0.2-0.4 ms, from reading the call and not its gate. The first
     counter run read all zeros, world included — the record was dropped by `MomentPresenter`'s `with` copy.
+
+## (9) Where the garbage comes from, 2026-10-25 (measured)
+
+The engine allocates nothing per frame in steady state; the viewer allocated ~1.04-1.2 MB a frame on f12 gummo first
+person, and the .NET collector's pause for it was 0.20-0.27 ms a frame (measurements/2026-10-25-b585-matrix-pool.md).
+A `GCAllocationTick` trace attributed it by
+type, call site and thread (measurements/2026-10-25-allocation-attribution.md):
+
+- **81% is the main thread and 18% the queued render thread.** `--measure`'s `render thread … bytes a frame` column was
+  the main thread's own, mislabelled since the queue gave the viewer a real render thread (B600). A brief that read it
+  as the render thread's went looking on the wrong thread.
+- **No single big allocator; three kinds of small one in hot loops.** Closures and delegates were 17.5% of the bytes,
+  compiler iterators 10.2%, boxed enumerators 10.0%: a lambda capturing a local per call (even on a cache hit), a
+  `yield` per vertex, a `foreach` over an interface-typed `List`. The engine's C++ has none of these costs, so a direct
+  port of a loop can add garbage the original never had.
+- **The three largest sites went** (B599, measurements/2026-10-25-b599-three-allocation-sites.md): the decal
+  projection's per-vertex iterator, `Device3D.Classify`'s capturing cache factory per instance on the render thread,
+  and `DetailSprites.Build`'s per-frame lists. Allocation fell 0.30 MB a frame (−26%) in gummo, gen0 collections −28%,
+  the gc pause ~0.045 ms a frame; the frame mean did not separate from the run spread (measurements/2026-10-25-b599-three-allocation-sites.md).
+- **The model decals are projected again every frame, in the empty view too**, with a `Projected[]` per call on the
+  large-object heap (93 MB per 200 s). Whether the engine keeps a decal's projected vertices or re-projects is not
+  read yet; it decides whether the fix is a pool or a cache.
+- **Two instrument facts learned on the way.** The queue verifier's `frames checked` counts every frame handed to the
+  queue since the device was made, ~730,000-850,000 of them the loading overlay, so it says nothing about the measured
+  frames. And `TF2VIEW_FRAME_HASH` with `TF2VIEW_FIXED_FRAME` is not deterministic run to run in its image, particle and
+  HUD hashes (an A-against-A control differs on 99%, 7% and 0.6% of labels); only its pose and cull hashes agree, so
+  it cannot by itself show a change bit-identical.

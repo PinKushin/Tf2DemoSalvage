@@ -18,12 +18,12 @@ public sealed class TranslucencyCacheTests
     public void For_TwoEntitiesOfOneModel_AsksTheMaterialsOnce()
     {
         TranslucencyCache cache = new();
-        int asked = 0;
+        int[] asked = [0];
 
-        cache.For("a.mdl", () => { asked++; return true; }).ShouldBeTrue();
-        cache.For("a.mdl", () => { asked++; return false; }).ShouldBeTrue();
+        cache.For("a.mdl", asked, static count => { count[0]++; return true; }).ShouldBeTrue();
+        cache.For("a.mdl", asked, static count => { count[0]++; return false; }).ShouldBeTrue();
 
-        asked.ShouldBe(1);
+        asked[0].ShouldBe(1);
     }
 
     /// <remarks>The control: another model is its own flag.</remarks>
@@ -31,11 +31,33 @@ public sealed class TranslucencyCacheTests
     public void For_AnotherModel_AsksAgain()
     {
         TranslucencyCache cache = new();
-        int asked = 0;
+        int[] asked = [0];
 
-        cache.For("a.mdl", () => { asked++; return true; });
-        cache.For("b.mdl", () => { asked++; return false; }).ShouldBeFalse();
+        cache.For("a.mdl", asked, static count => { count[0]++; return true; });
+        cache.For("b.mdl", asked, static count => { count[0]++; return false; }).ShouldBeFalse();
 
-        asked.ShouldBe(2);
+        asked[0].ShouldBe(2);
+    }
+
+    /// <remarks>
+    /// B599: the render thread asks this once per collated instance per frame, so a hit must cost nothing. The state is
+    /// a value tuple like <c>Device3D.Classify</c>'s; the miss before it is the control that the ask is reachable.
+    /// </remarks>
+    [Test]
+    public void For_AHitWithItsStateHandedIn_AllocatesNothing()
+    {
+        TranslucencyCache cache = new();
+        (string Path, int Frame) state = ("a.mdl", 3);
+
+        // One static lambda, as at the call site: its delegate is made once, at its first use, which is the miss.
+        System.Func<(string Path, int Frame), bool> ask = static asked => asked.Frame == 3;
+        cache.For("a.mdl", state, ask).ShouldBeTrue();
+
+        long before = System.GC.GetAllocatedBytesForCurrentThread();
+        bool hit = cache.For("a.mdl", state with { Frame = 4 }, ask);
+        long allocated = System.GC.GetAllocatedBytesForCurrentThread() - before;
+
+        hit.ShouldBeTrue();
+        allocated.ShouldBe(0);
     }
 }

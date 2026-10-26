@@ -491,3 +491,13 @@ lists, and it reported 519 changed frames and a 75% mode-0 mismatch against the 
 correct (finding 98 §9). **How to apply:** when a change moves where data lives, re-point every instrument that reads
 it in the same commit, and say which object each hash reads. A "changed" result that appears exactly when the
 storage moved is the instrument until shown otherwise.
+
+## A label outlives the thread it named; a counter outlives the window it was read for (B600, 2026-10-25)
+
+`--measure`'s `render thread … bytes a frame` is `GC.GetAllocatedBytesForCurrentThread` read in `RenderFrame`, on the
+main thread; the label predates the queue's real render thread, and a brief went hunting the queue for bytes the main
+thread made (an allocation trace: main 942,000 a frame against the column's 880,360). The queue verifier's `frames
+checked` is cumulative from device creation, so 851,000 "checked" were ~848,000 loading-overlay frames and ~2,600
+measured ones. And `TF2VIEW_FRAME_HASH` with a fixed frame is not deterministic A against A in its image, particle and
+HUD hashes. **How to apply:** before quoting a column, read which thread and which interval the code takes it on; run
+the A-against-A control before believing an A-against-C differential (measurements/2026-10-25-b599-three-allocation-sites.md).

@@ -40066,6 +40066,44 @@ reddens four tests), and a child's drawn size against its own scale alone.
   `pl_badwater_pro_v12.bsp` is not on this machine (not under the game's `tf/maps`, `tf/download/maps`, `tf2ds`, or the
   user profile), so its `parentname` cannot be read, and no sampled tick gives them a parent.
 
+## B600 — `--measure`'s `render thread … bytes a frame` is the MAIN thread's allocation, mislabelled since the queue — OPEN (2026-10-25)
+
+**Evidence class: measured, with the code reading it confirms.** `GcReading.Now()` takes
+`GC.GetAllocatedBytesForCurrentThread` from `ViewerSession.RenderFrame` (`ViewerSession.Frame.cs:336`, `:547`), which
+runs on the WinForms thread; its doc comment ("the viewer reads on the render thread") predates the queued render
+thread `MatQueue` (B581). The allocation trace agrees: the main thread's ticks were 942,000 bytes a traced frame
+against the column's 880,360, and the real render thread carries a further ~205 KB a frame the column never shows
+(measurements/2026-10-25-allocation-attribution.md). Earlier records that read the column as the render thread's
+(the B585 brief, finding 88's "target metric") read the game thread's. **Fix when next touched:** rename the column
+(`main thread … bytes a frame`), correct the remark, and add the queue thread's own bytes, read on that thread by
+`QueuedRenderThread.Run` and carried out like `TakeRenderTicks` (B243: never derived). `GcReadingTests` holds the
+text; about a hundred committed measurement transcripts quote the old label, which is why it was filed rather than
+renamed in passing.
+
+## B599 — about 1.2 MB a frame of garbage on f12, three-quarters of it per-element closures, iterators, boxed enumerators and per-frame lists — OPEN, top three sites FIXED (2026-10-25)
+
+**Evidence class: measured** (measurements/2026-10-25-allocation-attribution.md, `GCAllocationTick` traces of f12
+gummo first person and the empty view, controls in the record). The engine allocates nothing per frame in steady
+state; the .NET gc pause, 0.20-0.27 ms a frame (measurements/2026-10-25-b585-matrix-pool.md), is ours. Main thread
+81% of the bytes, the queued render thread 18% (measurements/2026-10-25-allocation-attribution.md).
+
+**Fixed (branch `perf/render-thread-allocations`, measurements/2026-10-25-b599-three-allocation-sites.md):**
+`StudioDecalProjection.Vertex`'s `yield` iterator per vertex (9.9%), `Device3D.Classify`'s capturing
+`TranslucencyCache.For` factory per collated instance on the render thread (8.9%), `DetailSprites.Build`'s two lists
+and capturing comparison per frame (8.6%).
+
+**Still open, largest first (G, KB a frame):** `ImpactParticles.WithImpactEffects` vertex and batch arrays (~80; the
+empty view's largest site); `EconAttributes.Resolve` and `MomentScene.Build`'s attribute lambdas, a `HashSet`, list and
+dictionary per weapon per frame (~90); `OcclusionQueries.Count`'s `float[]` on the render thread (~46);
+`DrawTally.NotDrawable` building a key string per undrawable prop per frame (~43; 9% of the empty view);
+`EffectEntities.BuildEffectEntities` (~39); `EntityModelSet.AttachmentsOf`, `PropTransform.ToMatrix`,
+`MatrixConvention.To*Matrix` fresh `float[]`s (~58 together); `WorldRenderer.DrawModel`'s boxed enumerator and closure
+on the render thread (~26); `WorldDecals.Placed` (~30). All per traced frame, from the same record. `StudioDecalProjection.Project` also takes a `Projected[]` per
+call that goes to the large-object heap (93 MB per 200 s), and model decals are re-projected every frame, which is a
+structural question (does the engine re-project, or keep the decal's vertices?) and not an allocation one. The pattern
+to look for: a `foreach` over an interface-typed `List` (boxes the enumerator), a lambda capturing a local on a hot
+path (`docs/memory/a-capturing-cache-factory-allocates-on-a-hit.md`), `yield`, and a list made per call.
+
 ## B596 — is the Debug build part of the viewer-vs-TF2 f12 gap? No: Debug and Release are the same program — CLOSED (2026-10-24)
 
 **Evidence class: measured, with a code reading it confirms** (`docs/measurements/2026-10-24-debug-vs-release-f12.md`).
