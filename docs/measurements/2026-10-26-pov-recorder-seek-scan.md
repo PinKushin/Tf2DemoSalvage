@@ -112,3 +112,38 @@ carried from packet N into N+1 differs from the per-probe route; and reuse withi
 a packet — at most about 16% of the probes. Not built; reported to the lead with these numbers. What a bit-identical saving
 would have to target instead is the per-probe setup (`PlayersAt` of every player at the packet, a second `PlayersAt` in
 `StunFadeUnknown`, `MovementWorld.At`) — not yet split, so not claimed.
+
+## Follow-up plan: the owner's hybrid (B602) and the bounded rewind — recorded before the runs
+
+**Owner decisions, 2026-10-26** (relayed by the lead): (1) the seek scan answers the viewed recorder by the cheap route by
+default and runs prediction only where the cheap speed is close enough to an activity threshold that its error could flip
+the activity, the margin justified by measurement; (2) `DemoPlayer.Restart`'s start-point loop is bounded by the packet index.
+
+**What the engine reads.** Speed reaches the main activity at one threshold: `MOVING_MINIMUM_SPEED` 0.5
+(`multiplayer_animstate.cpp:33`), `>` in `HandleMoving` (`:938`; TF `tf_playeranimstate.cpp:1302`, `:1314`) and `<` in
+`HandleDucking` (`tf_playeranimstate.cpp:1351`). TF2 has no walk (`multiplayer_animstate.cpp:935`). So the gate is one band,
+`|cheap − 0.5| ≤ margin` (`RecorderActivityGate`).
+
+**Which cheap route.** The brief names the track route (0.49 ms mean a seek above). The networked `m_vecVelocity` costs the
+same, is already the exact route's own answer wherever prediction declines (31.6% of probes above), and is not lagged by
+the interpolation window as a differenced track is. Both are measured; the one needing the smaller margin is used, and if
+that is the networked one it is reported as a deviation from the brief's word.
+
+**Probe `recorder-speed-gate`** (`RecorderGate` over the production wiring, as `recorder-seek-scan`):
+
+- *Fit*: the exact route's recorder probes on 300 landings placed as `seek-scan` places them (`recorder-speed-gate <demo> 300`). Per viewed, living probe: |exact − networked| and
+  |exact − track| — mean, median, p99, max — and, the number that sets the margin, the largest |cheap − 0.5| among probes
+  where cheap and exact fall on different sides of 0.5.
+- *Margin*: that largest value, times a headroom factor of at least 4 and at least 10 u/s; written into
+  `RecorderActivityGate.Margin` with this record cited.
+- *Test*, on 300 landings disjoint from the fit (half a stride on): each route's recorder-probe ms a seek (mean, max), probe
+  count, and how many landings chose a different recorder main sequence than the exact route; and per probe, how many of
+  the hybrid's answers are on another side of 0.5 than exact. **Prediction: 0 mismatches for the hybrid**; the networked
+  and track routes alone > 0 somewhere (the control that the comparison can fail); hybrid ms between cheap and exact.
+- *Sabotage*: margin 0 in the fit's sweep must report > 0 probes decided wrong.
+
+**Probe `demo-player-rewind`**: one `DemoPlayer` played to the end, then asked 40 earlier landings; ms of each rewind and
+commands re-read (`DemoPlayer.CommandsRead`, carried). Run on the commit before the bound and on the bound. Control: each
+rewound answer equals a fresh player's. Prediction: before, up to ~118k commands (from the start to the landing); after, ≤ 50.
+
+**Conditions**: `-c Release`, `run-exclusive.ps1 -Shared`, only after the lead's "go", with three CPU samples under 25%.

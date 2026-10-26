@@ -376,9 +376,13 @@ public sealed class DemoPlayer
         _read = from - 1;
     }
 
+    /// <summary>Commands read so far, rewinds' re-reads included: what a rewind costs, for a test and the rewind probe.</summary>
+    internal long CommandsRead { get; private set; }
+
     /// <summary>What <c>ReadPacket</c> does with one command.</summary>
     private void ReadPacket(int index)
     {
+        CommandsRead++;
         DemoViewCommand command = _commands[index];
 
         if (command.Type == DemoCommandType.SyncTick)
