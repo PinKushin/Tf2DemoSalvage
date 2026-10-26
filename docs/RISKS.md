@@ -40246,6 +40246,17 @@ nothing), the existing zoomed-and-following-himself and decal tests, and `Pose_S
 as the control. Sabotage: leaving the undrawn list unfiltered reddened two tests, posing the hidden pass three. The monitor
 census (`UndrawnCensus.Props`) now counts only the monitor's list, so it reads 0 while he follows himself zoomed.
 
+**Corrected 2026-10-26 (batch-33 review): a skipped pass kept the previous frame's props.** The undrawn and hidden passes
+are skipped on an empty list (the viewmodel's when first person is off), and each kept its last scene; `InScene` answers
+from the FIRST pass holding an entity and `undrawn` was created before `hidden`. So a first-person recorder who then zoomed
+answered `SkinningOf` with his stale undrawn prop (model, body, skin), one who left while zoomed stayed in the scene for
+good, and `hidden` was never emptied when the zoom ended. `EntityModelSet.BeginScenes`, called by `MomentScene.Pose`
+before the world pass, empties every pass's scene, so a pass that does not run this frame holds nothing. Held by
+`Pose_TheRecorderZoomChangingInFirstPerson_AnswersSkinningFromTheCurrentProp` (zoom after a first-person frame, and unzoom
+after a zoomed one; the class changes between frames so the model tells the props apart) and
+`Pose_TheRecorderLeavingWhileZoomed_IsNoLongerInTheScene`; removing the call reddened exactly those three cases. Decal
+bones are unaffected: `SkinningOf` takes the bones from the entity's own `AnimatingEntity`, the pass only names the prop.
+
 ## B596 — is the Debug build part of the viewer-vs-TF2 f12 gap? No: Debug and Release are the same program — CLOSED (2026-10-24)
 
 **Evidence class: measured, with a code reading it confirms** (`docs/measurements/2026-10-24-debug-vs-release-f12.md`).
