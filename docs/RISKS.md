@@ -40248,6 +40248,16 @@ thread. **Next:** per-draw maps on the model path to one per-frame constant buff
 buffer (parity check first: which renderables the engine gives a pixel-visibility handle); the vertex control; the empty
 view with a free camera (`TF2VIEW_CAMERA` is ignored under `--first-person`, so that condition was void).
 
+**The face upload, 2026-10-26** (finding 98 section 13; measurements/2026-10-26-b597-face-cache.md). The largest
+OpaqueModels span was `Flex`: 0.27 ms and 3.16 MB a frame for about 5.4 faces (measured, record above), each re-sent
+whole every draw. The engine
+does the same. `SetupWeights` (`c_baseflex.cpp:1147-1156`) and `R_StudioFlexMeshGroup` (studiorender `0x1800124f0`,
+disassembly) rebuild the flex stream per mesh group per draw with no change test, and there is no flex LOD (only
+`r_flex`/`r_randomflex` ship). A cache that skips an unchanged face was built and identity-tested, then measured: under
+1% of faces held still for a frame, so it saved nothing and was **reverted (D236)**. **Open:** the bytes. Each upload
+sends a model's whole stream, about 580 KB, yet a flex reaches about a third of a soldier's slots (finding 92 section 4).
+A bit-identical ranged or compacted upload is next (measurements/2026-10-26-b597-flex-extent.md).
+
 ## B598 — the zoomed local player and his gear were drawn; the engine hides them from every view — FIXED 2026-10-25 (`fix/four-parity-divergences`)
 
 **Read:** `C_TFPlayer::ShouldDraw` returns false for `this == GetLocalTFPlayer()` in `TF_COND_ZOOMED`

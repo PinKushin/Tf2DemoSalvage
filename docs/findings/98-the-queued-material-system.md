@@ -686,7 +686,7 @@ The queue's job is CPU submission, not waiting on the GPU (`Present` costs it 0.
 whether OpaqueModels' flat 0.85 ms of GPU time is vertex work or submission pacing. If it is vertex work, the GPU alone is
 over 1 ms at 720p.
 
-## (13) Follow-up, 2026-10-26: the face upload is kept on the device until the face changes (B597)
+## (13) Follow-up, 2026-10-26: keeping a face on the device until it changes saves nothing — no face holds still (B597)
 
 Section 12 (branch `perf/model-pass-constant-ring`) split OpaqueModels into spans. The largest was the face: `Flex`,
 0.27-0.28 ms and 3.16 MB a frame (measurements/2026-10-26-b597-constant-ring-and-occlusion.md). A lap there is every
@@ -710,7 +710,7 @@ model's stream is about 27,000 vertices x 24 bytes, so 3.16 MB is about five who
 **So the engine re-sends every face on every draw, as we did.** Skipping a face whose floats have not changed is an
 addition above Valve, allowed when the output is the same.
 
-**The change** (`FaceStreams`):
+**The change tried** (`FaceStreams`, `e784275c` + `f1f94056`, **reverted in `7e3490ec`, D236**):
 - Each face array carries the stamp of the write its floats came from (`ModelInstance.FlexWritten`). The stamp is taken
   from one counter: on `FlexFor`'s weight-equality miss, which is where the stream is rewritten in place, and once per
   resting face.
@@ -729,4 +729,12 @@ addition above Valve, allowed when the output is the same.
   scene's half: 66 held, 65 changed. Every re-pose at the same time held, and every new tick changed.
 - Sabotage: keeping the stamp on a rewrite reddened the second test. Skipping regardless of stamp reddened the first.
 
-**Numbers:** measurements/2026-10-26-b597-face-cache.md.
+**What it measured — the wrong premise** (measurements/2026-10-26-b597-face-cache.md): f12 draws about 5.4 faces a
+frame, and **under 1%** of them held still since the previous frame. Every one was re-sent, about 580 KB each. Flex CPU
+was 0.277-0.295 ms against 0.270-0.277, and the frame 9.51-9.77 against 9.54-9.60 (measurements/2026-10-26-b597-face-cache.md), so the ranges
+overlap. The weights
+are taken at the continuous render time (the interpolated `m_flexWeight`, the blink, `RunFlexDelay` on `frametime`),
+and TF2's idle scenes animate the face continuously. The prediction (30-70% held) assumed faces change at the tick rate.
+They change at the frame rate, as the engine's per-draw recompute does. **Lesson:** count what changes before caching
+on "unchanged". The count needed one viewer run, while the cache took a branch. The owner reverted it (D236). The lever
+left is the bytes per face, not the number of faces.

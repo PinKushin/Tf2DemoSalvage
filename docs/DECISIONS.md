@@ -11096,3 +11096,23 @@ every packet, which a sweep of real demos showed the era specimens fail (opening
 does not need it, so it was dropped and the start moved past the body's first packet instead. How many real demos are
 simple, and what a rewind costs on each path: `measurements/2026-10-26-pov-recorder-seek-scan.md`.
 
+## D236 — the face cache is reverted: on f12 no face holds still for a frame (2026-10-26)
+
+**The question.** B597's largest model-pass span is the face upload (0.27 ms, 3.16 MB a frame on f12). The first lever
+tried was to skip the upload of a face whose floats had not changed since its last draw: a stamp per write carried on
+`ModelInstance.FlexWritten`, and a device buffer per face re-sent only on a new stamp (`perf/b597-flex-upload`, `e784275c`
+and `f1f94056`). The output was identical: a six-frame pixel A/B, a scene test, and `0 changed` from the queue verifier.
+
+**Measured** (`measurements/2026-10-26-b597-face-cache.md`, eight interleaved runs, none discarded): **under 1%** of the
+5.4 faces drawn a frame held still since the previous frame. Flex CPU was 0.277-0.295 ms with the cache against
+0.270-0.277 without it, and the frame's high end was 9.77 ms against 9.60. The weights are taken at the continuous
+render time, and TF2's idle scenes move the face continuously. The engine also recomputes them on every draw
+(`c_baseflex.cpp:1147-1156`), so these faces really do differ from frame to frame.
+
+**The decision — the owner's, relayed by the lead:** *"Revert (Recommended)"*: revert the stamp, `FaceStreams` and the
+per-face buffers in a commit of their own, so the measurement history stays readable (`7e3490ec`). The owner gave no
+reasoning beyond choosing that option, and the numbers above are what he was shown. The spans that told held faces from
+uploaded ones were reverted too, because they mean nothing without the cache. **What follows instead** is the bytes:
+each upload sends a model's whole stream, yet a flex reaches only about a third of a soldier's slots (finding 92 section
+4). That work is measured and decided in `measurements/2026-10-26-b597-flex-extent.md`.
+
