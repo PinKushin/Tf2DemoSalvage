@@ -21,15 +21,45 @@ namespace Tf2DemoSalvage.Core.Tests.Scene;
 /// </remarks>
 public sealed class ScenePropTrackAtBitIdentityTests
 {
-    /// <summary>Main's fingerprint at 077d0175.</summary>
-    private const ulong Expected = 0x17B4E77030C3A479UL;
+    /// <summary>Main's fingerprint at 077d0175 on Windows x64, where the viewer ships.</summary>
+    private const ulong ExpectedWindowsX64 = 0x17B4E77030C3A479UL;
+
+    /// <summary>
+    /// The same fingerprint computed on Linux x64 (CI), by BOTH the pre-B593 code (run 40287828599 on branch
+    /// ci-probe/b593-linux-old) and the copy-free code (run 40285862681): 0x373E7F84708C0B4C each. It differs
+    /// from the Windows value because the platform math library rounds some sin/cos/atan2 results differently,
+    /// so one hash cannot hold on both; old == new on each platform is what the test proves.
+    /// </summary>
+    private const ulong ExpectedLinuxX64 = 0x373E7F84708C0B4CUL;
 
     [Test]
     public void At_SeededHistories_MatchMainsFingerprintBitForBit()
     {
+        ulong? expected = ExpectedForThisPlatform();
+
+        if (expected is null)
+        {
+            Assert.Ignore("No fingerprint of main's At was recorded on this platform; the math library differs per platform.");
+        }
+
         ulong actual = Fingerprint();
 
-        actual.ShouldBe(Expected, $"0x{actual:X16}");
+        actual.ShouldBe(expected.Value, $"0x{actual:X16}");
+    }
+
+    private static ulong? ExpectedForThisPlatform()
+    {
+        if (System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture != System.Runtime.InteropServices.Architecture.X64)
+        {
+            return null;
+        }
+
+        if (OperatingSystem.IsWindows())
+        {
+            return ExpectedWindowsX64;
+        }
+
+        return OperatingSystem.IsLinux() ? ExpectedLinuxX64 : null;
     }
 
     private static ulong Fingerprint()
