@@ -315,10 +315,17 @@ public sealed class MovementWorld
     }
 
     /// <summary>
-    /// A player box swept against a world-aligned box, as <c>CM_ClipBoxToBrush</c> clips one brush: the box grown by the
-    /// player's, the slab test stopping <c>DIST_EPSILON</c> short; from inside, startsolid, and allsolid as well when it
-    /// never gets out.
+    /// A player box swept against a world-aligned box: Source's <c>IntersectRayWithBox</c> with
+    /// <c>flTolerance = DIST_EPSILON</c> (<c>public/collisionutils.cpp:1130-1252</c>), the box grown by the player's.
     /// </summary>
+    /// <remarks>
+    /// Faces in the published order, −x, −y, −z, then +x, +y, +z (<c>:1144-1155</c>), because an entry inside the epsilon is
+    /// clamped to 0 before <c>f &gt; t1</c> and so the FIRST face to reach 0 is the one kept (<c>:1176-1189</c>). A hit is
+    /// <c>t1 &lt; t2 &amp;&amp; t1 &gt;= 0</c> (<c>:1201</c>), with no lower bound. Starting inside is startsolid at fraction 0
+    /// with plane normal (1, 0, 0) and <c>plane.dist = startpos[0]</c>, allsolid when <c>t2 &lt;= 0 || t2 &gt;= 1</c>
+    /// (<c>:1240-1250</c>) — so a recorder who starts inside a building is held there, as the engine holds him.
+    /// *Interpolated:* that the engine's SOLID_BBOX clip passes <c>DIST_EPSILON</c> is in the unshipped enginetrace.
+    /// </remarks>
     internal static BspTrace? Sweep(Vector3 start, Vector3 end, Vector3 mins, Vector3 maxs, MovementBox box)
     {
         Vector3 min = box.Min - maxs;
@@ -326,57 +333,57 @@ public sealed class MovementWorld
         Vector3 delta = end - start;
         float enter = -1f;
         float leave = 1f;
-        Vector3 normal = Vector3.Zero;
-        bool startsOut = false;
-        bool getsOut = false;
+        int side = -1;
+        bool startSolid = true;
 
-        for (int axis = 0; axis < 3; axis++)
+        for (int face = 0; face < 6; face++)
         {
-            // The two planes of this slab: distance outside each at the start and the end.
-            foreach ((float startDistance, float sign) in new[] { (start[axis] - max[axis], 1f), (min[axis] - start[axis], -1f) })
+            int axis = face % 3;
+            float d1 = face >= 3 ? start[axis] - max[axis] : min[axis] - start[axis];
+            float d2 = face >= 3 ? d1 + delta[axis] : d1 - delta[axis];
+
+            if (d1 > 0f && d2 > 0f)
             {
-                float endDistance = startDistance + (sign * delta[axis]);
+                return null;
+            }
 
-                startsOut |= startDistance > 0f;
-                getsOut |= endDistance > 0f;
+            if (d1 <= 0f && d2 <= 0f)
+            {
+                continue;
+            }
 
-                if (startDistance > 0f && endDistance >= 0f)
+            if (d1 > 0f)
+            {
+                startSolid = false;
+            }
+
+            if (d1 > d2)
+            {
+                float fraction = MathF.Max(d1 - DistEpsilon, 0f) / (d1 - d2);
+
+                if (fraction > enter)
                 {
-                    return null;
+                    enter = fraction;
+                    side = face;
                 }
-
-                if (startDistance <= 0f && endDistance <= 0f)
-                {
-                    continue;
-                }
-
-                if (startDistance > endDistance)
-                {
-                    float fraction = (startDistance - DistEpsilon) / (startDistance - endDistance);
-
-                    if (fraction > enter)
-                    {
-                        enter = fraction;
-                        normal = Vector3.Zero;
-                        normal[axis] = sign;
-                    }
-                }
-                else
-                {
-                    leave = MathF.Min(leave, (startDistance + DistEpsilon) / (startDistance - endDistance));
-                }
+            }
+            else
+            {
+                leave = MathF.Min(leave, (d1 + DistEpsilon) / (d1 - d2));
             }
         }
 
-        if (!startsOut)
+        if (enter < leave && enter >= 0f)
         {
-            return getsOut
-                ? new BspTrace(1f, -1, default, AllSolid: false, BrushEntity: box.Entity, StartSolid: true)
-                : new BspTrace(0f, -1, default, AllSolid: true, BrushEntity: box.Entity, StartSolid: true);
+            Vector3 normal = Vector3.Zero;
+            normal[side % 3] = side >= 3 ? 1f : -1f;
+
+            return new BspTrace(enter, -1, (normal.X, normal.Y, normal.Z), AllSolid: false, BrushEntity: box.Entity);
         }
 
-        return enter < leave && enter > -1f
-            ? new BspTrace(MathF.Max(0f, enter), -1, (normal.X, normal.Y, normal.Z), AllSolid: false, BrushEntity: box.Entity)
+        return startSolid
+            ? new BspTrace(
+                0f, -1, (1f, 0f, 0f), AllSolid: leave <= 0f || leave >= 1f, Distance: start.X, BrushEntity: box.Entity, StartSolid: true)
             : null;
     }
 }

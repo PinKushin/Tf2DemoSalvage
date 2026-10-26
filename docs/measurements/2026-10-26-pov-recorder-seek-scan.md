@@ -294,6 +294,28 @@ shape. In 48.1% (1 of 72,686 agreeing), an unswept hull at the restored origin a
 prop holds the hull one step on (agreeing: 0.1%). That points at static prop collision, or at the flag `MapLevel.Trace`
 drops, as the next cause. Not hunted.
 
+### Source's clip
+
+**Environment:** the owner's desktop, 2026-10-26, branch `fix/source-brush-clip` from `30790a30`, `-c Release`,
+`run-exclusive.ps1` (exclusive; the lead's gate had finished). Counts only. Both probes were run at the brush-clip commit
+(`5cd81704`) and at the box-sweep commit on top of it (`6384277d`, unchanged by the test commit after it).
+
+| etf2l-12025 | `30790a30` (above) | `5cd81704` brush clip | `6384277d` + box sweep |
+|---|---:|---:|---:|
+| `recorder-prediction-gaps`: still against the server over 100 u/s | 2,376 | 2,369 | 2,369 |
+| within 1 u/s, of 83,267 | 65,636 (78.9%) | 65,661 (78.9%) | 65,661 (78.9%) |
+| mean \|Δv\| xy | 10.492 | 10.492 | 10.492 |
+| `recorder-speed-gate … 300`: flips / viewed living probes | 724 / 33,368 (2.2%) | 721 / 34,040 (2.1%) | 721 / 34,040 (2.1%) |
+| flips siding with the next packet's networked speed | 675 | 672 | 672 |
+
+**Every change is the brush clip's; the box sweep moved nothing here**, and the probe's own tags say why rather than leaving
+it an absence: "origin start-in building" is 8 of the 2,369 at `6384277d` and 0 of the agreeing gaps, so the start-inside
+case the box fix changes barely occurs on this demo. The probe has no tag for starting inside an enemy, so that case is not
+counted. The scan grew by 672 viewed probes, and with it the exact
+route's test-half probes to 41,804 (22.5 ms a seek, 180.9 ms at most — one run, and another agent's build shared the
+machine for part of it, so not a result). The remainder is
+unchanged in shape: 23.4% start inside world geometry at the restored origin, the map-build question above.
+
 There are more probes after the fix. The scan goes back to the recorder's last activity change, and wrongly zeroed ticks
 no longer break up a run. **This is a cost consequence:** on the same landings, the exact route's test-half probes went from
 26,536 to 41,236 (+55%) and the fit's from 21,794 to 35,561. The per-seek milliseconds above (14.05 / 85.85) are therefore

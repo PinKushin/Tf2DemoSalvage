@@ -186,6 +186,23 @@ public sealed record MapLevel(
         hit.Texinfo < Texinfo.Count &&
         (Texinfo[hit.Texinfo].Flags & SurfaceProperties.Sky) != 0;
 
+    /// <summary>`VEC_HULL_MAX.x`: the player hull's half width, the cube <see cref="GroundTrace"/> sweeps.</summary>
+    private const float GroundHalfWidth = 24f;
+
+    /// <summary>How far <see cref="GroundTrace"/> looks down.</summary>
+    private const float GroundProbe = 64f;
+
+    /// <summary>`C_BasePlayer::GetGroundSurface`'s trace: a hull-wide cube from a player's feet, 64 down.</summary>
+    /// <param name="feet">The player's origin.</param>
+    /// <param name="brushes">The brush entities standing then — a door underfoot is ground.</param>
+    /// <returns>The trace. A player at rest stands `DIST_EPSILON` above the floor, so it is entered at fraction 0.</returns>
+    public BspTrace GroundTrace((float X, float Y, float Z) feet, IReadOnlyList<SolidBrush> brushes)
+    {
+        (float X, float Y, float Z) from = (feet.X, feet.Y, feet.Z + GroundHalfWidth);
+
+        return Trace(from, (from.X, from.Y, from.Z - GroundProbe), GroundHalfWidth, brushes);
+    }
+
     /// <summary><see cref="Sweep"/>, with what the brushes say about what stopped it — `trace_t` (B415).</summary>
     /// <param name="from">Where the box's centre starts.</param>
     /// <param name="to">Where it would end unobstructed.</param>

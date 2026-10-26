@@ -902,7 +902,7 @@ public sealed class BspLeafTree
             : (extents.X * MathF.Abs(normalX)) + (extents.Y * MathF.Abs(normalY)) + (extents.Z * MathF.Abs(normalZ));
 
     /// <summary>Where a sweep has got to, and the side it struck.</summary>
-    /// <remarks>`AllSolid` is set by any brush the sweep starts and ends inside, as `CM_ClipBoxToBrush` sets it.</remarks>
+    /// <remarks>`AllSolid` is set by any brush the sweep starts inside and leaves at or before 0, or never.</remarks>
     private struct TraceHit
     {
         public float Fraction;
@@ -937,6 +937,8 @@ public sealed class BspLeafTree
         ref TraceHit hit,
         int depth)
     {
+        // Quake 2's `if (trace_trace.fraction <= p1f) return;` (cmodel.c:1239), *interpolated to Source*: once an entry inside
+        // the epsilon has set 0, no further leaf is clipped, so a brush there the sweep starts inside is not seen.
         if (depth > MaximumTreeDepth || startFraction >= hit.Fraction)
         {
             return;
@@ -1092,13 +1094,16 @@ public sealed class BspLeafTree
     /// <code>
     ///   d1 = DotProduct( p1, plane->normal ) - dist;
     ///   d2 = DotProduct( p2, plane->normal ) - dist;
-    ///   if (d1 > 0 &amp;&amp; d2 >= 0) return;        // in front of this plane throughout: no hit (Quake 2: d2 >= d1)
+    ///   if (d1 > 0 &amp;&amp; d2 > 0) return;         // in front of this plane throughout: no hit
     ///   if (d1 &lt;= 0 &amp;&amp; d2 &lt;= 0) continue;    // inside this plane throughout: says nothing
-    ///   if (d1 > d2)  … entering, keep the LATEST …
-    ///   else          … leaving,  keep the EARLIEST …
+    ///   if (d1 > d2)  … entering: f = max(d1 - ε, 0) / (d1 - d2), keep the LATEST, first side on a tie …
+    ///   else          … leaving:  f = (d1 + ε) / (d1 - d2), keep the EARLIEST …
     /// </code>
     ///
-    /// Quake 2's <c>qcommon/cmodel.c:989-1096</c> (id Software's GPL release), checked line by line on 2026-10-26 (B604).
+    /// **Source's published form**, <c>IntersectRayWithBox</c> and <c>IntersectRayWithOBB</c>
+    /// (<c>public/collisionutils.cpp:1130-1202</c>, <c>:1465-1685</c>, <c>flTolerance = DIST_EPSILON</c>), read 2026-10-26.
+    /// *Interpolated to the brush clip*, whose <c>engine/cmodel.cpp</c> the SDK does not ship; Quake 2's
+    /// <c>qcommon/cmodel.c:989-1096</c>, the ancestor, differs in four epsilon branches and is not followed (B604).
     ///
     /// **The box is folded into the plane distance**, not into the geometry: <c>dist</c> is pushed
     /// out by the box's projection onto the normal, so a swept box becomes a swept point. That is
@@ -1187,9 +1192,6 @@ public sealed class BspLeafTree
         // is already embedded, which is a different answer from hitting a surface on the way.
         bool startsOutside = false;
 
-        // `getout`: whether it ends outside any plane. Starting AND ending inside is `allsolid`.
-        bool getsOut = false;
-
         for (int side = 0; side < sides; side++)
         {
             int sideAt = (firstSide + side) * BrushSideStride;
@@ -1222,16 +1224,9 @@ public sealed class BspLeafTree
                 startsOutside = true;
             }
 
-            if (end > 0f)
-            {
-                getsOut = true;
-            }
-
-            // Outside this plane for the whole sweep: a convex volume cannot be entered at all. **Not Quake 2's test**, which
-            // is `d1 > 0 && d2 >= d1` (`cmodel.c:1052`) and so also stops a box inside DIST_EPSILON closing on the face
-            // without reaching it. Taking Quake 2's form was measured against the server and made B604's count worse, by 7
-            // gaps of 2,376, so it was not kept; what Source's unpublished cmodel.cpp has here is not read.
-            if (start > 0f && end >= 0f)
+            // In front of this plane for the whole sweep: a convex volume cannot be entered at all. Source's form,
+            // `d1 > 0 && d2 > 0` (collisionutils.cpp:1158, :1610) — not Quake 2's `d2 >= d1` (cmodel.c:1052).
+            if (start > 0f && end > 0f)
             {
                 return;
             }
@@ -1242,18 +1237,15 @@ public sealed class BspLeafTree
                 continue;
             }
 
+            // Past both returns the two have strictly opposite signs, so the span is never zero.
             float span = start - end;
-
-            if (MathF.Abs(span) < 1e-9f)
-            {
-                continue;
-            }
 
             if (start > end)
             {
-                // Crossing inwards: the brush is entered at the LATEST such crossing, and that side is the lead
-                // side whose surface the trace reports.
-                float crossing = (start - DistanceEpsilon) / span;
+                // Crossing inwards: the brush is entered at the LATEST such crossing, and that side is the lead side whose
+                // surface the trace reports. **The numerator is clamped BEFORE the compare** (:1176-1189): an entry inside
+                // the epsilon is 0, and at a corner where two are, `>` keeps the FIRST side, not the least-negative raw one.
+                float crossing = MathF.Max(start - DistanceEpsilon, 0f) / span;
 
                 if (crossing > enters)
                 {
@@ -1272,26 +1264,30 @@ public sealed class BspLeafTree
 
         if (!startsOutside)
         {
-            // Began inside this brush: `startsolid`, and a fraction of zero, "it got nowhere". **Quake 2 sets only the
-            // flags** (`cmodel.c:1077-1083`) and leaves the fraction to the other brushes, and what Source's unpublished
-            // cmodel.cpp does is not read. It is a filed divergence (RISKS B604): taking Quake 2's form changed B604's count
-            // by 22 of 2,369, so it is not that bug, and it reaches every world trace, so it is not changed here.
+            // Began inside this brush: `startsolid`, fraction 0, plane normal (1, 0, 0); `allsolid` when it is left at or
+            // before the start or not at all, `t2 <= 0 || t2 >= 1` (collisionutils.cpp:1240-1250, :1672-1678). Leaving at
+            // or before 0 is a start inside the epsilon of a face, moving out. *Interpolated:* Quake 2 sets only the
+            // flags (`cmodel.c:1077-1083`); Source's brush clip is in the unshipped cmodel.cpp.
             hit.Fraction = 0f;
             hit.Texinfo = -1;
+            // `plane.dist = startpos[0]`: the start's x, exact for a line; for a box it is the centre's, since this API is
+            // handed the centre and not the ray's `m_StartOffset`.
+            (hit.NormalX, hit.NormalY, hit.NormalZ) = (1f, 0f, 0f);
+            hit.Distance = fromX;
             hit.StartSolid = true;
-            hit.AllSolid |= !getsOut;
+            hit.AllSolid |= leaves <= 0f || leaves >= 1f;
             return;
         }
 
-        // The sweep is inside a convex brush only between the last plane it enters and the first it leaves. **A negative
-        // entry is kept, as zero** (B604): Quake 2's `CM_ClipBoxToBrush` (`qcommon/cmodel.c:1084-1090`, the ancestor of
-        // the unpublished `engine/cmodel.cpp`) has `if (enterfrac < leavefrac)`, then `if (enterfrac > -1 && enterfrac <
-        // trace->fraction)`, then `if (enterfrac < 0) enterfrac = 0;`. The entry goes negative when the start is nearer the face than DIST_EPSILON — where every
-        // movement trace leaves a player resting against a wall or slope — and refusing it let the box into the brush.
-        // The fraction is of the whole ray, so it needs no mapping.
-        if (enters < leaves && enters > -1f && enters < hit.Fraction)
+        // The sweep is inside a convex brush only between the last plane it enters and the first it leaves:
+        // `t1 < t2 && t1 >= 0` (collisionutils.cpp:1201, :1651), on the CLAMPED entry — so an entry inside the epsilon is
+        // kept at 0 however short the step (B604), and is missed when the sweep leaves another plane at or before 0.
+        // Quake 2's `CM_ClipBoxToBrush` (`qcommon/cmodel.c:1084-1090`) compares the raw entry and bounds it at −1; that bound
+        // let a step shorter than the gap into the brush. *Interpolated:* the published form is Source's box and OBB clips,
+        // the brush clip itself is in the unshipped `engine/cmodel.cpp`. The fraction is of the whole ray.
+        if (enters < leaves && enters >= 0f && enters < hit.Fraction)
         {
-            hit.Fraction = MathF.Max(0f, enters);
+            hit.Fraction = enters;
             hit.Texinfo = leadTexinfo;
             (hit.NormalX, hit.NormalY, hit.NormalZ) = leadNormal;
             hit.Distance = leadDistance;

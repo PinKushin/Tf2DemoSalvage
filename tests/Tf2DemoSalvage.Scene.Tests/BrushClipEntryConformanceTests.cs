@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.Numerics;
 
 using Tf2DemoSalvage.Content.Bsp;
@@ -9,17 +10,19 @@ using static Tf2DemoSalvage.Scene.Tests.RotatedBrushTraceConformanceTests;
 namespace Tf2DemoSalvage.Scene.Tests;
 
 /// <summary>
-/// <c>CM_ClipBoxToBrush</c>'s entry fraction for a box that starts closer to a brush than <c>DIST_EPSILON</c> (B604).
+/// The brush clip's entry fraction for a box that starts closer to a brush than <c>DIST_EPSILON</c> (B604).
 /// </summary>
 /// <remarks>
-/// **Read from published source, the engine's ancestor:** Quake 2's <c>CM_ClipBoxToBrush</c> (<c>qcommon/cmodel.c:989-1096</c>,
-/// id Software's GPL release, read verbatim) takes an entering crossing as <c>f = (d1-DIST_EPSILON) / (d1-d2)</c> (<c>:1061</c>), which is negative when the start is
-/// nearer the face than the epsilon, and keeps it: <c>if (enterfrac &gt; -1 &amp;&amp; enterfrac &lt; trace-&gt;fraction)</c>,
-/// then <c>if (enterfrac &lt; 0) enterfrac = 0;</c> (<c>:1086-1089</c>). *Interpolated to Source*, whose <c>cmodel.cpp</c> the
-/// SDK does not ship; this project's own box sweep (<see cref="MovementWorld.Sweep"/>) already followed it. A movement trace
+/// **Read from Source's published clips, interpolated to the brush clip:** <c>IntersectRayWithBox</c> and
+/// <c>IntersectRayWithOBB</c> (<c>public/collisionutils.cpp:1176-1189</c>, <c>:1624-1637</c>, called with
+/// <c>flTolerance = DIST_EPSILON</c>) take an entering crossing as <c>f = d1 - tol; if (f &lt; 0) f = 0; f /= (d1-d2)</c> and
+/// accept it on <c>t1 &lt; t2 &amp;&amp; t1 &gt;= 0</c> (<c>:1201</c>, <c>:1651</c>) — clamped before any comparison, and with
+/// no lower bound. The engine's own <c>CM_ClipBoxToBrush</c> is in <c>engine/cmodel.cpp</c>, which the SDK does not ship;
+/// Quake 2's (<c>qcommon/cmodel.c:1084-1090</c>) bounds the raw entry at −1, and that bound is NOT taken. A movement trace
 /// ends <c>DIST_EPSILON</c> short of what it hits, so a player resting against a wall or a slope starts every trace inside the
 /// epsilon; refused, the crossing let him pass into the brush, and <c>TryPlayerMove</c>'s unswept re-trace at the end then
-/// zeroed his velocity (<c>gamemovement.cpp:2636-2649</c>) — a running recorder drawn standing (B604).
+/// zeroed his velocity (<c>gamemovement.cpp:2636-2649</c>) — a running recorder drawn standing (B604). The full set of
+/// branches is <c>Tf2DemoSalvage.Content.Tests.Bsp.BrushClipConformanceTests</c>.
 /// </remarks>
 public sealed class BrushClipEntryConformanceTests
 {
@@ -34,7 +37,7 @@ public sealed class BrushClipEntryConformanceTests
     [Test]
     public void TraceHull_ABoxNearerABrushThanTheEpsilonMovingIntoIt_StopsWhereItStands()
     {
-        // d1 = 0.01, d2 = −8: (0.01 − 1/32) / 8.01 is −0.0027, above −1, so it is kept and clamped to 0.
+        // d1 = 0.01, d2 = −8: max(0.01 − 1/32, 0) / 8.01 is 0, and `t1 >= 0` keeps it.
         BspTrace trace = Level().TraceHull(
             (WithinEpsilon, 0f, 0f), (20f, 0f, 0f), Mins, Maxs, BspLeafTree.MaskPlayerSolid, [Slab(0f, 0f, 0f)]).ShouldNotBeNull();
 
@@ -52,12 +55,36 @@ public sealed class BrushClipEntryConformanceTests
     }
 
     [Test]
-    public void TraceHull_AnEntryAtOrBelowMinusOne_IsNotKept()
+    public void TraceHull_AStepShorterThanTheGapToTheFace_StopsWhereItStands()
     {
-        // The lower bound, cmodel.c:1086: from d1 = 0.001 to d2 = −0.01 the crossing is (0.001 − 1/32) / 0.011 = −2.75, and
-        // a sweep that short is left to go.
-        Level().TraceHull((28.001f, 0f, 0f), (27.99f, 0f, 0f), Mins, Maxs, BspLeafTree.MaskPlayerSolid, [Slab(0f, 0f, 0f)])
-            .ShouldNotBeNull().Fraction.ShouldBe(1f);
+        // From d1 = 0.001 to d2 = −0.01: the raw crossing (0.001 − 1/32) / 0.011 = −2.75 was refused under Quake 2's −1 bound
+        // and the box let into the slab; Source clamps the numerator first, 0 / 0.011 = 0.
+        BspTrace trace = Level().TraceHull(
+            (28.001f, 0f, 0f), (27.99f, 0f, 0f), Mins, Maxs, BspLeafTree.MaskPlayerSolid, [Slab(0f, 0f, 0f)]).ShouldNotBeNull();
+
+        trace.Fraction.ShouldBe(0f);
+        trace.Normal.ShouldBe((1f, 0f, 0f));
+    }
+
+    /// <remarks>
+    /// The footstep surface's trace (<see cref="MapLevel.GroundTrace"/>, `C_BasePlayer::GetGroundSurface`): a player at rest
+    /// stands `DIST_EPSILON` above the floor, or a rounding nearer, so the cube starts inside the epsilon of the floor's top
+    /// face. Exactly ε gives a raw entry of 0, which every form of the clip keeps; nearer gives a negative raw entry, which
+    /// the clip before B604 refused, and the probe then ran its whole 64 units and found no surface.
+    /// </remarks>
+    [TestCase(0.03125f, TestName = "GroundTrace_FeetRestingAnEpsilonAboveAFloor_HitsTheFloorAtZero")]
+    [TestCase(0.02f, TestName = "GroundTrace_FeetNearerTheFloorThanTheEpsilon_HitsTheFloorAtZero")]
+    public void GroundTrace_FeetJustAboveAFloor_HitsTheFloorAtZero(float height)
+    {
+        MapLevel level = new(
+            null, null, null, new Dictionary<int, string>(), TfGameMovementConformanceTests.HalfSpace(0f, 0f, 1f, 0f), null, null,
+            [], [], [], [], null, default);
+
+        BspTrace trace = level.GroundTrace((0f, 0f, height), []);
+
+        trace.Fraction.ShouldBe(0f);
+        trace.Texinfo.ShouldBe(0);
+        trace.Normal.ShouldBe((0f, 0f, 1f));
     }
 
     [Test]

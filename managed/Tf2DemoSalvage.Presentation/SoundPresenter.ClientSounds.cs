@@ -157,12 +157,6 @@ public sealed partial class SoundPresenter
     /// <summary>TF2's footstep event, answered by `C_TFPlayer::FireEvent`.</summary>
     public const int FootstepEvent = 7001;
 
-    /// <summary>`VEC_HULL_MAX.x`: the player hull's half width, the cube `GetGroundSurface` sweeps.</summary>
-    private const float HullHalfWidth = 24f;
-
-    /// <summary>How far `GetGroundSurface` looks down.</summary>
-    private const float GroundProbe = 64f;
-
     private readonly Footsteps _footsteps = new();
 
     /// <summary>The last ground trace, for the footstep log.</summary>
@@ -421,8 +415,7 @@ public sealed partial class SoundPresenter
         }
 
         // `MASK_PLAYERSOLID_BRUSHONLY` keeps brush entities — a door underfoot is ground.
-        (float X, float Y, float Z) from = (player.X, player.Y, player.Z + HullHalfWidth);
-        BspTrace trace = level.Trace(from, (from.X, from.Y, from.Z - GroundProbe), HullHalfWidth, loaded.Doors.At(_frame.Tick));
+        BspTrace trace = level.GroundTrace((player.X, player.Y, player.Z), loaded.Doors.At(_frame.Tick));
 
         _lastGround = trace;
 
