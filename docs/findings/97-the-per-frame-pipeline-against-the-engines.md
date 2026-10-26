@@ -195,6 +195,15 @@ from the SDK before the test, each red before the code:
   (`studio.cpp:1822-1829`); the slow loop that does not raise 0 is compiled out (`studio.h:33` sets its switch to 0).
   The wrong turn worth keeping: the old comment called the refusal "Valve's rule"; it was the rule of a branch that is
   never built.
+- **The heaviest pick itself was the divergence, and it was defended with the wrong function** (D233, the same day).
+  The deterministic rule had been called engine-matching because it equals `SelectHeaviestSequence`
+  (`animation.cpp:413-437`) — a function the player path never calls. The player path calls `SelectWeightedSequence`
+  every frame (`multiplayer_animstate.cpp:1170`), which rolls `RandomInt` over the weights (`animation.cpp:308-335`), and
+  keeps the roll only when the activity changed (`:1171-1172`): random once, then held — which is reproducible enough that
+  the "a random pick flickers" objection was about a stateless port, not about the engine. Ported with the hold, the
+  negative-weight keep (`:291-297`) and one addition, a seed from (entity, activity, tick begun) so a seek repeats itself.
+  Measured (`measurements/2026-10-25-d233-activity-tuples-cost.md`, read with the probe): only 19 of 1,339 activities on
+  the f12 model set have more than one candidate, so the change is visible on few animations.
 - **B580's sphere is bare `cl_detaildist`.** Reading it found that production never passes the FOV factor at all, so the
   zoomed case it guards is not reachable yet, and that the engine's sphere admits whole leaves, which a run box under-reaches
   when zoomed (interpolated; filed as B580's residuals).

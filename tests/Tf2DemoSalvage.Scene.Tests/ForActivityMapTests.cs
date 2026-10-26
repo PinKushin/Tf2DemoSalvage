@@ -1,8 +1,5 @@
 using System;
-using System.Collections.Generic;
 using System.Linq;
-
-using Tf2DemoSalvage.Content.Assets;
 
 namespace Tf2DemoSalvage.Scene.Tests;
 
@@ -12,11 +9,10 @@ namespace Tf2DemoSalvage.Scene.Tests;
 /// </summary>
 /// <remarks>
 /// The oracle <see cref="Scan"/> is the engine's tuple weight (`studio.cpp:1822-1829`: abs, 0 becomes
-/// 1) under our deterministic pick: highest weight, strictly greater so the first of a tie wins, an
-/// empty activity name never chosen, names compared ignoring case. The engine rolls
-/// <c>RandomInt</c> over those weights (`animation.cpp:308-335`); we take the heaviest instead so a
-/// demo replays the same way twice, which is what the engine's own <c>SelectHeaviestSequence</c>
-/// (`animation.cpp:413-437`) does apart from its weight-0 rule.
+/// 1), heaviest first, first of a tie, empty name never chosen, names compared ignoring case.
+/// <c>ForActivity</c> answers "does this model declare the activity, and with what" for the existence
+/// checks (`HandleDucking`'s crouch-walk test, `TranslateActivity`'s declared rows); a PLAYER's main
+/// sequence is rolled by weight instead — <see cref="SelectWeightedSequenceConformanceTests"/> (D233).
 /// </remarks>
 [TestFixture]
 public sealed class ForActivityMapTests
@@ -115,27 +111,6 @@ public sealed class ForActivityMapTests
         return best;
     }
 
-    private static PropModels.SkinnedModel Build((string Activity, int Weight)[] named)
-    {
-        List<StudioSequence> sequences =
-        [
-            .. named.Select((sequence, index) => new StudioSequence(
-                Animation: index,
-                Flags: 0,
-                Label: $"seq{index}",
-                Blend: null,
-                Activity: sequence.Activity,
-                ActivityWeight: sequence.Weight)),
-        ];
-
-        List<(int Group, IReadOnlyList<StudioSequence> Sequences)> groups = [(0, sequences)];
-
-        return new PropModels.SkinnedModel(
-            Bones: [],
-            Models: [[]],
-            Sequences: StudioSequenceTable.Merge(groups),
-            Groups: groups,
-            PoseParameters: [],
-            MasterPose: []);
-    }
+    private static PropModels.SkinnedModel Build((string Activity, int Weight)[] named) =>
+        SyntheticSkinnedModel.WithWeights(named);
 }

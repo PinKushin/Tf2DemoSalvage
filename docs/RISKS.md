@@ -40318,8 +40318,24 @@ setting needs per-entity "current main sequence" state first — the same state 
 reproducible, a pick seeded from (entity, activity, the tick the activity began) rather than a running RNG. Memory is not the
 blocker (a candidate list per activity is a few ints per sequence); the missing state is. Deterministic stays the only mode.
 
-**Not done:** the callers still build activity strings and a `Func` closure per call (`PlayerActivityTable.Translate`,
-`PlayerAnimation.cs:118`).
+**(1) and (2) FIXED 2026-10-25 (`feat/engine-random-sequence-pick`, D233) — the deterministic pick is DROPPED, no setting.**
+Owner: *"it sounds to me like we can drop the deterministic, because it doesn't really help anything, it's just a straight
+divergence."* A player's main sequence is now `SkinnedModel.SelectWeightedSequence`, a port of
+`CActivityToSequenceMapping::SelectWeightedSequence` (`animation.cpp:277-335`: keep a current sequence of negative weight,
+else walk `RandomInt( 0, total - 1 )` over the tuples), rolled only when the activity changes and then held
+(`multiplayer_animstate.cpp:1170-1172`), with `animDesired < 0` → 0 unrolled (`:1174-1177`). The state is the existing
+`_mainSequences` entry, now carrying the last tick: a clock that runs back (a seek) forgets the hold; `LevelShutdown` clears
+it. **The one addition:** the roll is `ActivityPickSeed(entity, activity, tick the activity began)`, so a seek or replay shows
+the same pick; it changes which value comes up, not the distribution. Held by `SelectWeightedSequenceConformanceTests`
+(14: slot walk, negative-weight keep with controls, distribution within 0.01, hold, re-roll keyed on the tick, replay,
+seek back, zero allocation); sabotaged — negative keep, seek reset, hold, walk `>=`, seed without tick — each reddened its
+test. **Cost** (`measurements/2026-10-25-d233-activity-tuples-cost.md`): about 140 KB more retained over 64 models; a pick
+50 ns against a lookup's 48 ns; the held pass allocates 0 B (was 88 B, the closure below — fixed with it).
+**Not ported, still heaviest:** gestures (`EntityModels.Layers.cs`), the corpse rest (`EntityModels.Sequences.cs` `CorpseSequence`),
+the HUD class panel (`VguiModelPanel.cs`), and `SequenceFor`'s callers (the corpse's copied activity). A forward seek keeps
+a hold whose activity is unchanged at the landing tick (linear play might have re-rolled in between).
+
+**Not done:** the callers still build activity strings per call (`PlayerActivityTable.Translate`).
 
 ## B583 — about ten string-keyed dictionary probes per prop per frame, keyed on the model path — PARTLY FIXED 2026-10-24 (`perf/b583-b584-prop-lookups`)
 

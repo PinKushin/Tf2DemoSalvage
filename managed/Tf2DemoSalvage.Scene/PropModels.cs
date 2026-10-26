@@ -2381,22 +2381,87 @@ public static class PropModels
         /// guessing that a class named its running animation <c>run_PRIMARY</c>, which is true for
         /// TF2's player models by convention and is not what makes the engine find it.
         ///
-        /// **Weighted, because several sequences answer to one activity.** Valve picks among them in
-        /// proportion to <c>actweight</c>, so a model with three idle variants does not always show
-        /// the first. This takes the HIGHEST weight rather than sampling at random: a demo has to
-        /// replay the same way twice, and a random pick would make a screenshot unreproducible and a
-        /// test flaky by design. Recorded as a deliberate divergence rather than parity.
+        /// **The heaviest, for questions that are not the pick.** Whether a model declares an activity
+        /// (`HandleDucking`'s crouch-walk test, a replacement row) and the callers not yet ported
+        /// (gestures, the corpse rest, the HUD panel) read this. A player's MAIN sequence is rolled
+        /// by <see cref="SelectWeightedSequence"/> and held, as the engine does (D233).
         ///
         /// The weight compared is the engine's tuple weight, <c>iabs(actweight)</c> with 0 raised to 1
         /// (`studio.cpp:1822-1829`), so a sequence of weight 0 or below IS chosen when it is the
-        /// only one; the engine skips only a sequence with no activity name. Not modelled: the
-        /// engine keeps the CURRENT sequence when its weight is negative (`animation.cpp:291-297`),
-        /// which needs a current sequence this call does not take.
+        /// only one; the engine skips only a sequence with no activity name.
         /// </remarks>
         public int ForActivity(string activity)
         {
             ArgumentNullException.ThrowIfNull(activity);
 
+            return Activities().TryGetValue(activity, out ActivityTuples? tuples) ? tuples.Heaviest : -1;
+        }
+
+        /// <summary>`CActivityToSequenceMapping::SelectWeightedSequence` (`animation.cpp:277-335`).</summary>
+        /// <param name="activity">The activity's name.</param>
+        /// <param name="current">The sequence playing now, or −1.</param>
+        /// <param name="random">The roll; reduced modulo the activity's total weight, as `RandomInt( 0, total - 1 )`.</param>
+        /// <returns>A merged sequence number, or −1 when no sequence answers to the activity.</returns>
+        /// <remarks>
+        /// The current sequence is KEPT when it answers to the activity with a negative `actweight` (`:291-297`);
+        /// otherwise the roll walks the tuples, each weighing <c>iabs(actweight)</c> with 0 raised to 1
+        /// (`studio.cpp:1822-1829`), in sequence order (`:329-335`). A player's main sequence comes from here
+        /// (D233); <see cref="ForActivity"/>'s heaviest answer is for the existence checks.
+        /// </remarks>
+        public int SelectWeightedSequence(string activity, int current, uint random)
+        {
+            ArgumentNullException.ThrowIfNull(activity);
+
+            if (current >= 0 && ActivityWeightOf(current) < 0 &&
+                string.Equals(ActivityOf(current), activity, StringComparison.OrdinalIgnoreCase))
+            {
+                return current;
+            }
+
+            if (!Activities().TryGetValue(activity, out ActivityTuples? tuples))
+            {
+                return -1;
+            }
+
+            int value = (int)(random % (uint)tuples.Total);
+            int index = 0;
+
+            while (value >= tuples.Weights[index])
+            {
+                value -= tuples.Weights[index];
+                index++;
+            }
+
+            return tuples.Sequences[index];
+        }
+
+        /// <summary>"Does this model declare the activity", as one delegate per model rather than a closure per frame.</summary>
+        /// <remarks>
+        /// The main-sequence pass asks it every frame for every player, and a fresh lambda was its only allocation (88
+        /// bytes a player a frame, measured by `SelectWeightedSequenceConformanceTests`). Kept with the model it was made
+        /// for, because a `with` copy carries this field and the delegate captures the original.
+        /// </remarks>
+        internal Func<string, bool> Declares
+        {
+            get
+            {
+                (SkinnedModel Owner, Func<string, bool> Ask)? held = _declares;
+
+                if (held is not { } known || !ReferenceEquals(known.Owner, this))
+                {
+                    known = (this, name => ForActivity(name) >= 0);
+                    _declares = known;
+                }
+
+                return known.Ask;
+            }
+        }
+
+        private (SkinnedModel Owner, Func<string, bool> Ask)? _declares;
+
+        /// <summary>The map, built on first use and rebuilt if a `with` copy replaced the tables.</summary>
+        private Dictionary<string, ActivityTuples> Activities()
+        {
             // B584: the scan below runs once per model, into a map; the engine's equivalent is
             // CActivityToSequenceMapping::Initialize (studio.cpp:1684), built once per header.
             // A benign race: two threads may both build it, and either answer is the same. The map
@@ -2410,24 +2475,28 @@ public static class PropModels
                 _activities = held;
             }
 
-            return held.Map.TryGetValue(activity, out int sequence) ? sequence : -1;
+            return held.Map;
         }
+
+        /// <summary>One activity's tuples, in sequence order, as `CActivityToSequenceMapping` stores them.</summary>
+        private sealed record ActivityTuples(int[] Sequences, int[] Weights, int Total, int Heaviest);
 
         /// <summary>An activity map and the tables it was built from.</summary>
         private sealed record ActivityMap(
             StudioSequenceTable Sequences,
             IReadOnlyList<(int Group, IReadOnlyList<StudioSequence> Sequences)> Groups,
-            Dictionary<string, int> Map);
+            Dictionary<string, ActivityTuples> Map);
 
         /// <summary>The activity map <see cref="ForActivity"/> reads, built once.</summary>
         private ActivityMap? _activities;
 
-        /// <summary>Every activity's best sequence, by the scan <see cref="ForActivity"/> used to run per call.</summary>
-        /// <returns>Activity name (any case) to merged sequence number.</returns>
-        private Dictionary<string, int> BuildActivities()
+        /// <summary>Every activity's tuples and heaviest sequence.</summary>
+        /// <returns>Activity name (any case) to its tuples.</returns>
+        private Dictionary<string, ActivityTuples> BuildActivities()
         {
             Dictionary<string, int> map = new(StringComparer.OrdinalIgnoreCase);
             Dictionary<string, int> weights = new(StringComparer.OrdinalIgnoreCase);
+            Dictionary<string, (List<int> Sequences, List<int> Weights)> tuples = new(StringComparer.OrdinalIgnoreCase);
 
             for (int sequence = 0; sequence < Sequences.Count; sequence++)
             {
@@ -2450,15 +2519,42 @@ public static class PropModels
                 // the highest weight wins a tie — deterministic where the engine rolls RandomInt.
                 int weight = Math.Max(1, Math.Abs(candidate.ActivityWeight));
 
-                if (candidate.Activity.Length > 0 &&
-                    weight > weights.GetValueOrDefault(candidate.Activity))
+                if (candidate.Activity.Length == 0)
+                {
+                    continue;
+                }
+
+                if (!tuples.TryGetValue(candidate.Activity, out (List<int> Sequences, List<int> Weights) list))
+                {
+                    list = ([], []);
+                    tuples[candidate.Activity] = list;
+                }
+
+                list.Sequences.Add(sequence);
+                list.Weights.Add(weight);
+
+                if (weight > weights.GetValueOrDefault(candidate.Activity))
                 {
                     weights[candidate.Activity] = weight;
                     map[candidate.Activity] = sequence;
                 }
             }
 
-            return map;
+            Dictionary<string, ActivityTuples> built = new(StringComparer.OrdinalIgnoreCase);
+
+            foreach ((string activity, (List<int> Sequences, List<int> Weights) list) in tuples)
+            {
+                int total = 0;
+
+                foreach (int weight in list.Weights)
+                {
+                    total += weight;
+                }
+
+                built[activity] = new ActivityTuples([.. list.Sequences], [.. list.Weights], total, map[activity]);
+            }
+
+            return built;
         }
 
         /// <summary>How fast the animation behind a sequence advances, in cycles a second.</summary>

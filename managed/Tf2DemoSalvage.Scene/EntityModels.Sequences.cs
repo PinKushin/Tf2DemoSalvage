@@ -291,8 +291,14 @@ public sealed partial class EntityModelSet
                 continue;
             }
 
-            int chosen = SequenceFor(
-                prop.ModelPath,
+            // Stryker disable once : as above, an emptied guard leaves 'skinned' unassigned — B410.
+            if (!_frames.TryGetValue(prop.ModelPath, out PropModels.ModelFrames? frames) || frames.Skinned is not { } skinned)
+            {
+                continue;
+            }
+
+            int chosen = PlayerAnimation.ForOrMissing(
+                skinned,
                 speed,
                 prop.Pose.Flags,
 
@@ -326,24 +332,51 @@ public sealed partial class EntityModelSet
                 // TF's HandleDucking and HandleMoving inputs (B437).
                 posture: prop.Pose.Posture);
 
-            // **A negative answer is left alone rather than written.** -1 means "this model has no
-            // such sequence", and storing it would replace a working sequence with one that decodes
-            // to nothing — a model frozen on frame zero, which reads as a broken animation rather
-            // than as a failed lookup.
-            if (chosen >= 0)
-            {
-                chosen = MainSequence(prop, chosen);
+            // **`if ( animDesired < 0 ) animDesired = 0;`** (`multiplayer_animstate.cpp:1174-1177`): a failed lookup is
+            // sequence 0 outright, and only a real answer is rolled by weight.
+            chosen = MainSequence(prop, skinned, Math.Max(0, chosen), roll: chosen >= 0);
 
-                if (chosen != prop.Pose.Sequence)
-                {
-                    drawn[index] = prop with { Pose = prop.Pose with { Sequence = chosen } };
-                }
+            if (chosen != prop.Pose.Sequence)
+            {
+                drawn[index] = prop with { Pose = prop.Pose with { Sequence = chosen } };
             }
         }
     }
 
-    /// <summary>Each player's main sequence as `ComputeMainSequence` last left it.</summary>
-    private readonly Dictionary<int, int> _mainSequences = [];
+    /// <summary>Each player's main sequence as `ComputeMainSequence` last left it, and the last tick it was asked.</summary>
+    /// <remarks>
+    /// The tick detects a seek back — the clock running backwards forgets the hold, as <c>EnsureFace</c> does for a face —
+    /// and is the "tick the activity began" the next roll is keyed on (D233).
+    /// </remarks>
+    private readonly Dictionary<int, (int Sequence, double Tick)> _mainSequences = [];
+
+    /// <summary>The roll for a player entering an activity: the engine's `RandomInt`, reproducible per demo (D233).</summary>
+    /// <param name="entity">The player's entity index.</param>
+    /// <param name="activity">The activity entered, compared ignoring case as the activity map does.</param>
+    /// <param name="tick">The demo tick the activity began.</param>
+    /// <returns>A 32-bit value; <see cref="PropModels.SkinnedModel.SelectWeightedSequence"/> reduces it by the total weight.</returns>
+    /// <remarks>
+    /// **The one addition over the engine**, whose `RandomInt` differs every client run. A viewer seeks and replays, and
+    /// an unseeded roll would re-pick on every seek; a hash of (entity, activity, tick) makes the same moment show the
+    /// same variant. It decides which value comes up, never how often each comes up — the distribution test holds that.
+    /// The per-demo part is the tick and entity themselves; no other seed is mixed in. SplitMix64's finaliser over an
+    /// FNV-1a of the upper-cased name: allocation-free and stable across runs, which `HashCode` is not.
+    /// </remarks>
+    internal static uint ActivityPickSeed(int entity, string activity, long tick)
+    {
+        ulong name = 14695981039346656037UL;
+
+        foreach (char c in activity)
+        {
+            name = (name ^ char.ToUpperInvariant(c)) * 1099511628211UL;
+        }
+
+        ulong z = name ^ ((ulong)(uint)entity << 32) ^ (ulong)tick;
+        z = (z ^ (z >> 30)) * 0xBF58476D1CE4E5B9UL;
+        z = (z ^ (z >> 27)) * 0x94D049BB133111EBUL;
+        z ^= z >> 31;
+        return (uint)z;
+    }
 
     /// <summary>Players whose next <see cref="Advance"/> starts the cycle at zero.</summary>
     private readonly HashSet<int> _restartCycles = [];
@@ -364,19 +397,25 @@ public sealed partial class EntityModelSet
     /// (`multiplayer_animstate.cpp:1168`). A sequence change bumps `m_nResetEventsParity`, which restarts the event walk
     /// at cycle 0 while the cycle runs on, so the next frame fires every event up to it — the engine's own burst,
     /// which only an activity change may cause (B172).
+    ///
+    /// **The roll is kept only on an activity change, so it happens once and then holds** (D233): `desired` is the
+    /// heaviest answer, which stands for its activity; on a change the sequence is rolled by weight from
+    /// <see cref="ActivityPickSeed"/> keyed on this tick. A clock that ran back is a seek, and forgets the hold.
     /// </remarks>
-    private int MainSequence(SceneProp prop, int desired)
+    private int MainSequence(SceneProp prop, PropModels.SkinnedModel skinned, int desired, bool roll)
     {
-        if (_mainSequences.TryGetValue(prop.EntityIndex, out int current) &&
-            current != desired &&
-            _frames.TryGetValue(prop.ModelPath, out PropModels.ModelFrames? frames) &&
-            frames.Skinned is { } skinned)
+        bool held = _mainSequences.TryGetValue(prop.EntityIndex, out (int Sequence, double Tick) last) &&
+            CurrentTick >= last.Tick;
+        int current = held ? last.Sequence : -1;
+        string wanted = skinned.ActivityOf(desired);
+
+        if (held)
         {
             string was = skinned.ActivityOf(current);
-            string wanted = skinned.ActivityOf(desired);
 
-            if (was.Length > 0 && string.Equals(was, wanted, StringComparison.OrdinalIgnoreCase))
+            if (current == desired || (was.Length > 0 && string.Equals(was, wanted, StringComparison.OrdinalIgnoreCase)))
             {
+                _mainSequences[prop.EntityIndex] = (current, CurrentTick);
                 return current;
             }
 
@@ -388,7 +427,12 @@ public sealed partial class EntityModelSet
             }
         }
 
-        _mainSequences[prop.EntityIndex] = desired;
+        if (roll && wanted.Length > 0)
+        {
+            desired = skinned.SelectWeightedSequence(wanted, current, ActivityPickSeed(prop.EntityIndex, wanted, (long)CurrentTick));
+        }
+
+        _mainSequences[prop.EntityIndex] = (desired, CurrentTick);
         return desired;
     }
 

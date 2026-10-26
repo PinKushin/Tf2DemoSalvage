@@ -11001,3 +11001,30 @@ finishes. The cost of a pin is that someone has to remember to remove it, which 
 **Not a defect in the repo.** This is the same class as `docs/memory/runner-migration-notices-are-not-defects.md`: an
 upstream change, observed by rerunning, not a fault to fix in the code.
 
+## D233 — player animation picks a sequence the way the engine does; the deterministic pick is dropped (2026-10-25)
+
+**The question.** Where a model has several sequences for one activity, does a player's main sequence take the heaviest
+(first of a tie) every time, or the engine's random weighted pick, held until the activity changes?
+
+**The owner's words:**
+
+1. *"the random mode seems to be more parity actually than how you implied it"*
+2. *"it sounds to me like we can drop the deterministic, because it doesn't really help anything, it's just a straight
+   divergence"*
+3. *"it's really this divergence gains us nothing real, it's a bad divergence"*
+
+**The assistant's mistake, stated plainly.** It had called the deterministic pick the engine-matching one because it
+equals `SelectHeaviestSequence` (`animation.cpp:413-437`) — a different function from the one the player path calls,
+`SelectWeightedSequence` (`multiplayer_animstate.cpp:1170`, `animation.cpp:277-335`) — and had defaulted to it. It had also
+argued that a random pick would flicker; that was true only of a stateless port, because the engine keeps the roll only
+when the activity changed (`multiplayer_animstate.cpp:1171-1172`), so it rolls once and holds.
+
+**The decision.** Engine behaviour only, no setting: rolled by weight on an activity change and held; a current sequence
+of negative weight kept (`animation.cpp:291-297`); a failed lookup is sequence 0, unrolled (`:1174-1177`). **The one
+addition** is the seed: the roll comes from (entity, activity, the tick the activity began) rather than a running RNG, so a
+seek or replay shows the same pick. It changes which value comes up, not how often each does.
+
+**Why it follows.** A setting that switches to a divergence keeps the divergence alive and gains nothing; the seed is the
+only part a viewer needs that the engine does not (the engine never seeks). Implementation, tests and cost: RISKS B584,
+`measurements/2026-10-25-d233-activity-tuples-cost.md`.
+

@@ -102,7 +102,26 @@ internal static class PlayerAnimation
         PlayerActivityOverride table = PlayerActivityOverride.None,
         int? competitiveWinnerClass = null,
         IReadOnlyDictionary<string, string>? item = null,
-        TfPosture posture = default)
+        TfPosture posture = default) =>
+        Math.Max(0, ForOrMissing(model, speed, flags, alive, slot, jumping, waterLevel, table, competitiveWinnerClass, item, posture));
+
+    /// <summary>As <see cref="For(PropModels.SkinnedModel, float, int?, bool, string, PlayerActivity?, int?, PlayerActivityOverride, int?, IReadOnlyDictionary{string, string}?, TfPosture)"/>, but −1 where the engine's lookup failed.</summary>
+    /// <remarks>
+    /// The main-sequence pass needs to tell `animDesired &lt; 0` apart from a real answer: only a real one is
+    /// rolled by weight, while a failed one is sequence 0 outright (`multiplayer_animstate.cpp:1174-1177`, D233).
+    /// </remarks>
+    internal static int ForOrMissing(
+        PropModels.SkinnedModel model,
+        float speed,
+        int? flags,
+        bool alive,
+        string slot,
+        PlayerActivity? jumping,
+        int? waterLevel,
+        PlayerActivityOverride table,
+        int? competitiveWinnerClass,
+        IReadOnlyDictionary<string, string>? item,
+        TfPosture posture)
     {
         ArgumentNullException.ThrowIfNull(model);
 
@@ -115,7 +134,7 @@ internal static class PlayerAnimation
         // water level was decoded, so nobody in any recording ever swam.
         bool waistDeep = waterLevel >= PlayerActivityState.WaistDeepWaterLevel;
 
-        Func<string, bool> declared = name => model.ForActivity(name) >= 0;
+        Func<string, bool> declared = model.Declares;
 
         // **TF's HandleDucking asks THIS model for the translated crouch walk** (`tf_playeranimstate.cpp:1343-1347`); the
         // rest of the posture — `IsLoser()`, `IsAiming()`, the air dash, the deployed hold — the decode carried.
@@ -129,9 +148,7 @@ internal static class PlayerAnimation
 
         // **`if ( animDesired < 0 ) animDesired = 0;`** (`multiplayer_animstate.cpp:1174-1177`) — the engine's one
         // fallback. Sequence 0 is the merged model's first sequence, whatever that is.
-        int wanted = model.ForActivity(Translate(activity, slot, table, competitiveWinnerClass, item, declared));
-
-        return wanted >= 0 ? wanted : 0;
+        return model.ForActivity(Translate(activity, slot, table, competitiveWinnerClass, item, declared));
     }
 
     /// <summary>The activity a model is asked for: <c>CalcMainActivity</c>'s answer through `TranslateActivity`.</summary>
