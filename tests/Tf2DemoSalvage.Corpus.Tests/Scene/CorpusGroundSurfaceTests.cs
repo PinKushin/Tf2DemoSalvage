@@ -69,10 +69,23 @@ public sealed class CorpusGroundSurfaceTests
         }
 
         DemoTimeline timeline = DemoTimeline.Build(File.ReadAllBytes(Corpus.Demo("rgl-pug-2026-08-10-pov")));
+        byte[] map = File.ReadAllBytes(mapPath);
+
+        // **The map it was recorded on, or no verdict.** The locator may hand back a downloaded build of the same name; on
+        // another build the floor is elsewhere and the rate means nothing. The demo's MapHash is the engine's own MD5 of it.
+        string recorded = timeline.MapHash is { } hash ? Convert.ToHexString([.. hash]) : "none";
+        string located = Convert.ToHexString(BspMapChecksum.OfMap(map).Md5);
+
+        if (located != recorded)
+        {
+            Assert.Ignore($"{mapPath} hashes {located}, the demo was recorded on {recorded}: not the map it was recorded on");
+            return;
+        }
+
         int recorder = timeline.RecorderEntityIndex ?? -1;
         GameContent content = GameContent.Open(game, NullLoggerFactory.Instance);
 
-        Probe probe = Sample(timeline, File.ReadAllBytes(mapPath), content, player => player.EntityIndex == recorder);
+        Probe probe = Sample(timeline, map, content, player => player.EntityIndex == recorder);
 
         TestContext.Out.WriteLine($"the recorder, entity {recorder}: {probe.Report}");
 
