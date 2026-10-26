@@ -72,6 +72,10 @@ public static class SubmitSpans
     private static long _last;
 
     /// <summary>Whether laps are taken; set by the profiler for the length of a profiled frame.</summary>
+    /// <remarks>
+    /// Not volatile, deliberately: the profiler sets it in <c>BeginFrame</c> and clears it in <c>EndFrame</c> on the drawing
+    /// thread, the same thread that laps, so no other thread reads it.
+    /// </remarks>
     public static bool On { get; set; }
 
     /// <summary>Ticks so far, per span.</summary>
