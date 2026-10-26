@@ -102,105 +102,6 @@ public sealed class FaceFlexRenderTests
         rewritten.Zip(moved).Count(pair => Math.Abs(pair.First - pair.Second) > 2).ShouldBe(0, "the rewritten face, not the stale one");
     }
 
-    /// <summary>
-    /// **The face cache draws, frame by frame, exactly what uploading every face on every draw draws** (B597): two
-    /// renderers that differ only in the cache are handed the same sequence — a face, the same array rewritten under a new
-    /// stamp, held, a second array drawn twice, a frame boundary that releases the first array's buffer, and the first
-    /// array drawn again — and every pixel of every frame must match.
-    /// </summary>
-    /// <remarks>
-    /// One frame cannot test a cache: the first draw of anything uploads. **The control** that the cache is live: the array
-    /// rewritten under its OLD stamp draws the old face through the cache and the new one without it — the contract that
-    /// the stamp, not the floats, decides (the scene's half of that contract is
-    /// <c>FaceFlexAnimationDemoTests.FlexWritten_AMedicPlayingAFlexAnimation_ChangesExactlyWhenItsFaceDoes</c>).
-    /// </remarks>
-    [Test]
-    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
-    public void Draw_AFaceSequenceThroughTheCache_IsPixelIdenticalToUploadingEveryDraw()
-    {
-        using OffscreenTarget? cached = OffscreenTarget.TryCreate(Size, Size);
-        using OffscreenTarget? uploading = OffscreenTarget.TryCreate(Size, Size);
-
-        if (cached is null || uploading is null || Subject() is not { } subject)
-        {
-            Assert.Ignore("no Direct3D, or the game is not installed");
-            return;
-        }
-
-        uploading.WithoutFaceCache();
-
-        (float, float, float, float, float, float) still = (0f, 0f, 0f, 0f, 0f, 0f);
-        (float, float, float, float, float, float) right = (20f, 0f, 0f, 0f, 0f, 0f);
-        (float, float, float, float, float, float) left = (-20f, 0f, 0f, 0f, 0f, 0f);
-
-        // Each target its own arrays, as each renderer would be handed its scene's.
-        Dictionary<OffscreenTarget, (float[] Face, float[] Resting)> arrays = new()
-        {
-            [cached] = (new float[6 * 6], new float[6 * 6]),
-            [uploading] = (new float[6 * 6], new float[6 * 6]),
-        };
-
-        int[] Frame(OffscreenTarget target, bool resting, (float, float, float, float, float, float) stream, long written)
-        {
-            float[] array = resting ? arrays[target].Resting : arrays[target].Face;
-            Picture(target, subject, 0f, (0f, -1f, 0f), stream, reused: array, written: written);
-            return Exact(target);
-        }
-
-        (string Name, Func<OffscreenTarget, int[]> Draw)[] sequence =
-        [
-            ("a face", target => Frame(target, false, still, 1)),
-            ("the array rewritten, a new stamp", target => Frame(target, false, right, 2)),
-            ("held", target => Frame(target, false, right, 2)),
-            ("a second array", target => Frame(target, true, left, 3)),
-            ("the second array again, as a second instance would", target => Frame(target, true, left, 3)),
-            ("after a boundary that released the first array's buffer", target =>
-            {
-                target.ReleaseUndrawnFaces();
-                target.ReleaseUndrawnFaces();
-                return Frame(target, false, right, 2);
-            }),
-        ];
-
-        List<int[]> frames = [];
-
-        foreach ((string name, Func<OffscreenTarget, int[]> draw) in sequence)
-        {
-            int[] through = draw(cached);
-            int[] uploaded = draw(uploading);
-
-            through.Zip(uploaded).Count(pair => pair.First != pair.Second).ShouldBe(0, name);
-            frames.Add(through);
-        }
-
-        frames[0].Zip(frames[1]).Count(pair => pair.First != pair.Second).ShouldBeGreaterThan(200, "the control: the faces differ");
-        frames[1].Zip(frames[3]).Count(pair => pair.First != pair.Second).ShouldBeGreaterThan(200, "the control: so do the arrays");
-
-        // The control that the cache is live: rewritten under the stamp it was last drawn with.
-        int[] stale = Frame(cached, false, left, 2);
-        int[] fresh = Frame(uploading, false, left, 2);
-
-        stale.Zip(frames[1]).Count(pair => pair.First != pair.Second).ShouldBe(0, "the cache keeps the stamp's face");
-        stale.Zip(fresh).Count(pair => pair.First != pair.Second).ShouldBeGreaterThan(200, "the control: uploading shows the new one");
-    }
-
-    /// <summary>Every pixel of the target, its channels packed, for an exact comparison.</summary>
-    private static int[] Exact(OffscreenTarget target)
-    {
-        int[] pixels = new int[Size * Size];
-
-        for (int y = 0; y < Size; y++)
-        {
-            for (int x = 0; x < Size; x++)
-            {
-                (int r, int g, int b) = target.PixelAt(x, y);
-                pixels[(y * Size) + x] = (r << 16) | (g << 8) | b;
-            }
-        }
-
-        return pixels;
-    }
-
     private const int Middle = (Centre * Size) + Centre;
 
     private static (MapAssets Assets, int Material, (float U, float V) Texel)? Subject()
@@ -240,8 +141,7 @@ public sealed class FaceFlexRenderTests
         (float X, float Y, float Z) normal,
         (float, float, float, float, float, float)? stream,
         (float X, float Y, float Z)? tangent = null,
-        float[]? reused = null,
-        long written = 0)
+        float[]? reused = null)
     {
         (float X, float Y, float Z) t = tangent ?? (1f, 0f, 0f);
 
@@ -289,8 +189,7 @@ public sealed class FaceFlexRenderTests
             bothSides: true,
             sun: new SunLight(1f, 1f, 1f, -0.48f, 0.58f, -0.66f),
             bones: [IdentityBone],
-            flex: flex,
-            flexWritten: written);
+            flex: flex);
 
         int[] sums = new int[Size * Size];
 

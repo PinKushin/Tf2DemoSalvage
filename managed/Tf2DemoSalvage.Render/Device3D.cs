@@ -1092,8 +1092,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
                 cloak: instance.Cloak,
 
                 // Always null on a viewmodel, passed so the draw sites stay one shape (B513).
-                flex: instance.Flex,
-                flexWritten: instance.FlexWritten);
+                flex: instance.Flex);
         }
 
         // **Both of the pass's changes are put back, and forgetting the camera was a real defect.**
@@ -1166,8 +1165,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
                 burn: instance.Burn,
                 urine: instance.Urine,
                 cloak: instance.Cloak,
-                flex: instance.Flex,
-                flexWritten: instance.FlexWritten);
+                flex: instance.Flex);
         }
 
         // `CBaseModelPanel::PostPaint3D` renders the panel's particles after its models, under its camera
@@ -1476,8 +1474,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
             cloak: instance.Cloak,
 
             // The face, added before skinning (B513).
-            flex: instance.Flex,
-                flexWritten: instance.FlexWritten);
+            flex: instance.Flex);
     }
 
     /// <summary>The frame's models, for the water views that draw entities.</summary>
@@ -1599,9 +1596,6 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
 
         // Closed at the throw if the draw throws, so a measurement's last frame is counted abandoned before its report.
         using PassFrame profiledFrame = PassProfiler.Begin(profile, _context);
-
-        // A frame boundary for the face cache: a face not drawn last frame gives its buffer back (B597).
-        _world?.ReleaseUndrawnFaces();
 
         float* colour = stackalloc float[4] { red, green, blue, 1f };
         _context.ClearRenderTargetView(_backBufferView, colour);
@@ -3439,7 +3433,6 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
             hash.Value(instance.Alpha);
             hash.Floats(instance.Matrix);
             hash.Floats(instance.Flex);
-            hash.Value(instance.FlexWritten);
             hash.Floats(instance.BakedColours);
             hash.Value(instance.Locals?.Count ?? -1);
 

@@ -109,7 +109,6 @@ public readonly record struct FiredAnimationEvent(
 /// <param name="InSky">Whether the 3D skybox view collated it, so the sky pass draws it.</param>
 /// <param name="Cloak">What <c>spy_invis</c> and <c>invis</c> write into <c>$cloakfactor</c> for this entity.</param>
 /// <param name="Flex">The face's position and normal deltas per buffer vertex, or null (B513).</param>
-/// <param name="FlexWritten">When the scene wrote <paramref name="Flex"/>'s floats; 0 is unknown and always uploads (B597).</param>
 public readonly record struct ModelInstance(
     string ModelPath,
     float[] Matrix,
@@ -248,12 +247,7 @@ public readonly record struct ModelInstance(
 
     // **The face** (B513): a position delta then a normal delta per vertex of the model's buffer, in its order, which the
     // shader adds before skinning (`ApplyMorph`, common_vs_fxc.h:384-387). Null for a model with no flex this frame.
-    float[]? Flex = null,
-
-    // **When the scene last wrote <see cref="Flex"/>'s floats** (B597): the same array with the same stamp holds the same
-    // floats, so the renderer keeps its last upload of it. 0 means unknown — always uploaded — which is what a caller that
-    // builds a face by hand gets, so a reused array rewritten in place cannot draw stale.
-    long FlexWritten = 0);
+    float[]? Flex = null);
 
 /// <summary>
 /// The views collation walks — <c>m_pWorldListInfo->m_pLeafList</c> per view (B262).
