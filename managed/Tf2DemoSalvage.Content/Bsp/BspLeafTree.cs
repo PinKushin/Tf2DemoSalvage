@@ -1270,7 +1270,10 @@ public sealed class BspLeafTree
             // flags (`cmodel.c:1077-1083`); Source's brush clip is in the unshipped cmodel.cpp.
             hit.Fraction = 0f;
             hit.Texinfo = -1;
+            // `plane.dist = startpos[0]`: the start's x, exact for a line; for a box it is the centre's, since this API is
+            // handed the centre and not the ray's `m_StartOffset`.
             (hit.NormalX, hit.NormalY, hit.NormalZ) = (1f, 0f, 0f);
+            hit.Distance = fromX;
             hit.StartSolid = true;
             hit.AllSolid |= leaves <= 0f || leaves >= 1f;
             return;

@@ -308,8 +308,10 @@ drops, as the next cause. Not hunted.
 | `recorder-speed-gate … 300`: flips / viewed living probes | 724 / 33,368 (2.2%) | 721 / 34,040 (2.1%) | 721 / 34,040 (2.1%) |
 | flips siding with the next packet's networked speed | 675 | 672 | 672 |
 
-**Every change is the brush clip's; the box sweep moved nothing here.** Starting inside a building or an enemy is rare on this
-demo ("origin start-in building": 8 of the 2,369 at `6384277d`). The scan grew by 672 viewed probes, and with it the exact
+**Every change is the brush clip's; the box sweep moved nothing here**, and the probe's own tags say why rather than leaving
+it an absence: "origin start-in building" is 8 of the 2,369 at `6384277d` and 0 of the agreeing gaps, so the start-inside
+case the box fix changes barely occurs on this demo. The probe has no tag for starting inside an enemy, so that case is not
+counted. The scan grew by 672 viewed probes, and with it the exact
 route's test-half probes to 41,804 (22.5 ms a seek, 180.9 ms at most — one run, and another agent's build shared the
 machine for part of it, so not a result). The remainder is
 unchanged in shape: 23.4% start inside world geometry at the restored origin, the map-build question above.

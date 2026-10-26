@@ -87,13 +87,15 @@ public sealed class BrushClipConformanceTests
     [Test]
     public void Trace_StartingDeepInsideAndLeaving_IsStartSolidOnlyWithTheConventionalNormal()
     {
-        // The control: leave (−4 + ε) / −10 = 0.397 is between 0 and 1. Fraction 0 and plane normal (1, 0, 0).
-        BspTrace trace = Single(Cube()).Trace(0f, 0f, 0f, 10f, 0f, 0f, Point);
+        // The control: leave (−3 + ε) / −9 = 0.330 is between 0 and 1. Fraction 0, plane normal (1, 0, 0) and plane.dist
+        // startpos[0] — the start's x, which a particle's TestForPlane turns into its collision plane.
+        BspTrace trace = Single(Cube()).Trace(1f, 0f, 0f, 10f, 0f, 0f, Point);
 
         trace.StartSolid.ShouldBeTrue();
         trace.AllSolid.ShouldBeFalse();
         trace.Fraction.ShouldBe(0f);
         trace.Normal.ShouldBe((1f, 0f, 0f));
+        trace.Distance.ShouldBe(1f);
         trace.Texinfo.ShouldBe(-1);
     }
 

@@ -333,7 +333,9 @@ synthetic test red under sabotage:
   says a great deal, two files over. The probe is the control on whether that interpolation helps: see
   measurements/2026-10-26-pov-recorder-seek-scan.md, "Source's clip".
 - **And the footstep probe, read on a real match, mostly starts solid** (*measured*, RISKS B605). It was assumed that the
-  clip change would move step surfaces on every demo. Measured on a SourceTV match, it moved 4 samples of 3,993, and those 4
-  belong to the B604 clamp, not to this change. 3,320 of the 3,993 start solid under every form of the clip, because a SourceTV
+  clip change would move step surfaces on every demo. Measured on a SourceTV match against the clip of before B604's clamp,
+  about 8 samples of 3,993 changed: 4 went from no surface to one, and the surface named matched the floor underfoot in 8 more
+  (631 → 639). That they are the clamp's and not this change's is *arithmetic* (for a 64-unit probe the two rules differ only
+  at a corner tie), not measured against `30790a30`. 3,320 of the 3,993 start solid under every form of the clip, because a SourceTV
   origin sits exactly on the floor plane and `d1 = 0` is not outside. Predicting the effect from the arithmetic was right
   about direction and wrong about size.
