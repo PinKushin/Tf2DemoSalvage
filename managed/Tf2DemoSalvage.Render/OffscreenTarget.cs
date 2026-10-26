@@ -563,6 +563,7 @@ internal sealed unsafe class OffscreenTarget : IDisposable
     /// <param name="cloak">What the invisibility proxies bind for the model; nobody cloaked by default.</param>
     /// <param name="bones">Row-major 3x4 bone matrices to skin the vertices by, or null for an unskinned draw.</param>
     /// <param name="flex">Position and normal deltas per vertex, added before skinning, or null (B513).</param>
+    /// <param name="flexWritten">When <paramref name="flex"/>'s floats were written; 0 always uploads (B597).</param>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <remarks>
     /// **The model path is not the world path and the difference has hidden a defect.** Every
@@ -592,7 +593,8 @@ internal sealed unsafe class OffscreenTarget : IDisposable
         IReadOnlyList<LocalLight>? locals = null,
         CloakBind cloak = default,
         IReadOnlyList<float[]>? bones = null,
-        float[]? flex = null)
+        float[]? flex = null,
+        long flexWritten = 0)
     {
         ArgumentNullException.ThrowIfNull(vertices);
         ArgumentNullException.ThrowIfNull(batches);
@@ -661,8 +663,18 @@ internal sealed unsafe class OffscreenTarget : IDisposable
         _world.DrawModel(
             _context, Posed, model, _world.ModelBatches(Posed), light, sun, bones: bones?.Count ?? 0, bothSides: bothSides,
             origin: origin, locals: locals, overrideMaterial: overrideMaterial, bakedColours: bakedColours, cloak: cloak,
-            flex: flex);
+            flex: flex, flexWritten: flexWritten);
     }
+
+    /// <summary>Makes this target's renderer upload every face on every draw, for an A/B against the face cache (B597).</summary>
+    internal void WithoutFaceCache()
+    {
+        _world ??= WorldRenderer.Create(_device, _loggers);
+        _world.FaceCacheAllowed = false;
+    }
+
+    /// <summary>A frame boundary for the face cache: releases the faces not drawn since the last one (B597).</summary>
+    internal void ReleaseUndrawnFaces() => _world?.ReleaseUndrawnFaces();
 
     /// <summary>Draws a screen overlay over what this target holds, as <c>Device3D</c> does after the world.</summary>
     /// <param name="overlay">The overlay material.</param>

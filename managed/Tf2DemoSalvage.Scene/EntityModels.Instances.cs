@@ -746,7 +746,7 @@ public sealed partial class EntityModelSet
             (float MinX, float MinY, float MinZ, float MaxX, float MaxY, float MaxZ) bounds = collatedBox ?? WorldBoxFor(prop);
             long swappedAt = System.Diagnostics.Stopwatch.GetTimestamp();
             PlaceSwapTicks += swappedAt - matrixAt;
-            float[]? flex = FlexFor(prop, parts, seconds);
+            (float[]? flex, long flexWritten) = FlexFor(prop, parts, seconds);
             PlaceLookupsTicks += System.Diagnostics.Stopwatch.GetTimestamp() - boundAt;
             PlaceFlexTicks += System.Diagnostics.Stopwatch.GetTimestamp() - swappedAt;
 
@@ -814,7 +814,8 @@ public sealed partial class EntityModelSet
                 SizeBucket: bucket,
                 InSky: inSky,
                 Cloak: cloak,
-                Flex: flex));
+                Flex: flex,
+                FlexWritten: flexWritten));
 
             long instancedAt = System.Diagnostics.Stopwatch.GetTimestamp();
             PlaceBuildTicks += instancedAt - buildingAt;

@@ -16,8 +16,14 @@ public enum SubmitSpan
     /// <summary>`BindPipeline`, the model's vertex buffer and its colour stream.</summary>
     PipelineBinds,
 
-    /// <summary>`BindFlex`: the face's deltas, uploaded or the null stream.</summary>
+    /// <summary>`BindFlex` for a model with no face: the null stream bound.</summary>
     Flex,
+
+    /// <summary>`BindFlex` for a face whose stamp the device already holds: its kept buffer bound, nothing sent (B597).</summary>
+    FlexCached,
+
+    /// <summary>`BindFlex` for a face with a new stamp, a new array or no stamp: mapped, copied and bound (B597).</summary>
+    FlexUpload,
 
     /// <summary>`SetModel`: the model constants mapped, written and bound.</summary>
     ModelConstants,

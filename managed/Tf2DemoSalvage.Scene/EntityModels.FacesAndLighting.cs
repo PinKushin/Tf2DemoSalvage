@@ -12,7 +12,7 @@ namespace Tf2DemoSalvage.Scene;
 public sealed partial class EntityModelSet
 {
     /// <summary>Per model with flexes, the face it wears in no scene — null when that moves nothing (B513).</summary>
-    private readonly Dictionary<string, float[]?> _restingFace = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, (float[]? Face, long Written)> _restingFace = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>How many instances were given a moving face, since the set was made (B513).</summary>
     /// <remarks>Counted where the stream is attached to the instance, so it reports what the draw USES (B243).</remarks>
@@ -24,15 +24,17 @@ public sealed partial class EntityModelSet
     /// playing back, because <c>C_SceneEntity::StopPlayback</c> clears the actor's scene events. A scene running
     /// alongside another on the same actor is not tracked (B513 remainder).
     /// </remarks>
-    private float[]? FlexFor(SceneProp prop, PropModels.ModelFrames? model, double seconds)
+    /// <returns>The face, or null, and the stamp of the write its floats are from (<see cref="ModelInstance.FlexWritten"/>).</returns>
+    private (float[]? Face, long Written) FlexFor(SceneProp prop, PropModels.ModelFrames? model, double seconds)
     {
         if (model is null || !model.Flex.HasVertexAnimation || model.CornerVertex.Count == 0 ||
             !_packedOrder.TryGetValue(prop.ModelPath, out int[]? order))
         {
-            return null;
+            return (null, 0);
         }
 
         float[]? face;
+        long written;
 
         if (FaceDriving(prop, seconds) is { } global)
         {
@@ -41,16 +43,17 @@ public sealed partial class EntityModelSet
             float[] delayed = Delayed(prop.FaceOf ?? prop.EntityIndex, weights, seconds);
 
             // The same weights draw the same face: an idle loop's expression holds still for seconds at a time.
-            if (_lastFace.TryGetValue(prop.EntityIndex, out (float[] Weights, float[] Delayed, float[]? Face, float[]? Stream, FlexedCorners? Corners) last) &&
+            if (_lastFace.TryGetValue(prop.EntityIndex, out LastFace last) &&
                 last.Weights.AsSpan().SequenceEqual(weights) && last.Delayed.AsSpan().SequenceEqual(delayed))
             {
                 face = last.Face;
+                written = last.Written;
             }
             else
             {
                 // **Written into arrays this set keeps, not new ones per frame** (finding 80): a talking face changes every
                 // frame, and three .vvd-sized arrays a face a frame were 2 GB of large-object garbage in 20 s of f12. The
-                // deltas are scratch; the stream is the entity's own, rewritten in place (the renderer uploads per draw).
+                // deltas are scratch; the stream is the entity's own, rewritten in place (the renderer re-sends it on a new stamp).
                 // Grown only: faces of different classes alternate, and an exact size would reallocate at every switch.
                 if (_flexScratch.Positions.Length < model.VertexCount * 3)
                 {
@@ -69,10 +72,17 @@ public sealed partial class EntityModelSet
                 face = FaceFlex.Deltas(model.Flex, weights, delayed, _flexScratch.Positions, _flexScratch.Normals) is { } deltas
                     ? FaceFlex.IntoFlexedSlots(deltas, corners, stream)
                     : null;
-                _lastFace[prop.EntityIndex] = (weights, (float[])delayed.Clone(), face, stream, corners);
+
+                // **A new stamp for every rewrite of the stream** (B597): the renderer re-sends an array only on a new one.
+                written = ++_faceWrites;
+                _lastFace[prop.EntityIndex] = new LastFace(weights, (float[])delayed.Clone(), face, stream, corners, written);
             }
         }
-        else if (!_restingFace.TryGetValue(RestingKey(prop), out face))
+        else if (_restingFace.TryGetValue(RestingKey(prop), out (float[]? Face, long Written) resting))
+        {
+            (face, written) = resting;
+        }
+        else
         {
             // **No face of its own**: a bone-merged item whose parent is not a player is a C_BaseFlex at its zeroed
             // controllers (each at its minimum, `c_baseflex.cpp:1222`); anything else is a C_BaseAnimating, whose
@@ -86,7 +96,10 @@ public sealed partial class EntityModelSet
             face = FaceFlex.Deltas(model.Flex, weights, weights, model.VertexCount) is { } deltas
                 ? FaceFlex.InBufferOrder(deltas, model.CornerVertex, order)
                 : null;
-            _restingFace[RestingKey(prop)] = face;
+
+            // Written once and never again, so its one stamp holds for every instance that wears it.
+            written = ++_faceWrites;
+            _restingFace[RestingKey(prop)] = (face, written);
         }
 
         if (face is not null)
@@ -94,8 +107,11 @@ public sealed partial class EntityModelSet
             FlexedInstances++;
         }
 
-        return face;
+        return (face, written);
     }
+
+    /// <summary>The last stamp handed out; every write of a face's floats takes the next (B597). Never reset.</summary>
+    private long _faceWrites;
 
     private static string RestingKey(SceneProp prop) => (IsCBaseFlex(prop) ? "1:" : "0:") + prop.ModelPath;
 
@@ -116,7 +132,11 @@ public sealed partial class EntityModelSet
     private readonly Dictionary<int, (float[] Delayed, double Time)> _delays = [];
 
     /// <summary>Each drawing entity's last weights and the face they made, reused while they hold.</summary>
-    private readonly Dictionary<int, (float[] Weights, float[] Delayed, float[]? Face, float[]? Stream, FlexedCorners? Corners)> _lastFace = [];
+    private readonly Dictionary<int, LastFace> _lastFace = [];
+
+    /// <summary>An entity's last weights, the face they made, the stream it was written into and the stamp of that write.</summary>
+    private readonly record struct LastFace(
+        float[] Weights, float[] Delayed, float[]? Face, float[]? Stream, FlexedCorners? Corners, long Written);
 
     /// <summary>Per model, the buffer slots its flexes can move (finding 92).</summary>
     private readonly Dictionary<string, FlexedCorners> _flexedCorners = new(StringComparer.OrdinalIgnoreCase);
