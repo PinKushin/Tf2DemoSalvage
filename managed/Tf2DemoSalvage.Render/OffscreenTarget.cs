@@ -835,16 +835,6 @@ internal sealed unsafe class OffscreenTarget : IDisposable
         _points.DrawLines(_device, _context, segments, red, green, blue);
     }
 
-    /// <summary>Whether the model draws went through the constant rings (B597); false before any model draw.</summary>
-    internal bool UsesConstantRing => _world?.UsesConstantRing ?? false;
-
-    /// <summary>Makes this target's renderer keep the discard-per-draw constant buffers, for an A/B against the rings (B597).</summary>
-    internal void WithoutConstantRing()
-    {
-        _world ??= WorldRenderer.Create(_device, _loggers);
-        _world.RingAllowed = false;
-    }
-
     /// <summary>Every pixel's bytes, hashed row by row: the whole image, for an identity between two draws.</summary>
     internal long ImageHash()
     {

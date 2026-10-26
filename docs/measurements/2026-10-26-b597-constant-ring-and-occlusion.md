@@ -203,6 +203,15 @@ each of World and OpaqueModels**, which R (rings off, occlusion on) avoids.
   741500 frames checked, 0 changed`, no `inputs changed` line (`v1-B-verify.txt`). Positive control: the existing unit test
   that overwrites a handed-off matrix after `Submit` (B599 record).
 
+## Decision after the record (2026-10-26)
+
+**The owner: *"Revert, keep occlusion"*** (D235). The rings, their tests, `TF2VIEW_CONSTANT_RING` and the `--measure`
+ring line are removed; the occlusion batching, `SubmitSpans` and a byte-identical test of the occlusion change stay
+(`OcclusionQueriesRenderTests`: the scene above with 64 proxies issued between the world and the models, against none).
+`WorldRenderer.cs` and `Device3D.cs` are again exactly as at `c0584951` (A). The shipped state is condition R, measured
+above: Occlusion 0.174-0.192 ms, render thread −0.19 to −0.21 ms against A matched by load (that figure is B against A;
+R carries the rings' ~0.01 ms less).
+
 ## Verdict
 
 - **Prediction on the spans: confirmed.** The constant maps are 9% of OpaqueModels. The rest is per-draw managed work

@@ -59,10 +59,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
     /// <summary>The passes profiled since the last call, as report lines, and a fresh ledger; empty before any profiled frame.</summary>
     /// <returns>The report.</returns>
     /// <remarks>ponytail: the ledger is swapped without a drain, so a frame in flight may land in either; one frame in a measurement.</remarks>
-    public string TakePassReport() =>
-        _profiler is null
-            ? string.Empty
-            : _profiler.TakeLedger().Report(_width, _height) + $"\n    constant rings: {_world?.RingStatus ?? "no world"}";
+    public string TakePassReport() => _profiler?.TakeLedger().Report(_width, _height) ?? string.Empty;
 
     /// <summary>`mat_queue_mode`, resolved to a mode on this machine as `EndFrame` does.</summary>
     public int QueueMode

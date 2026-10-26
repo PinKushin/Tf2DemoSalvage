@@ -1997,50 +1997,6 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
     /// <summary>The bone matrices skinning the current draw.</summary>
     private ComPtr<ID3D11Buffer> _bones;
 
-    /// <summary>
-    /// The model, bone and material constants written by window and bound by offset (B597), or null where the device
-    /// cannot, and then the three buffers above are discarded per draw as before. One ring per slot (see ConstantRing).
-    /// </summary>
-    private ConstantRing? _modelRing;
-    private ConstantRing? _boneRing;
-    private ConstantRing? _materialRing;
-
-    /// <summary>`TF2VIEW_CONSTANT_RING=0`: the discard-per-draw buffers even where the device offers the ring, for an A/B.</summary>
-    private static readonly bool RingWanted =
-        Environment.GetEnvironmentVariable("TF2VIEW_CONSTANT_RING") != "0";
-
-    /// <summary>Constants in each ring: 1 MB, sixteen times the largest window.</summary>
-    internal const int RingConstants = 65536;
-
-    /// <summary>Whether every one of the three slots is written through its ring, for a test's control.</summary>
-    internal bool UsesConstantRing => _modelRing is not null && _boneRing is not null && _materialRing is not null;
-
-    /// <summary>Whether this renderer may use the rings; a test turns it off before the first draw for an A/B.</summary>
-    internal bool RingAllowed { get; set; } = RingWanted;
-
-    private ConstantRing? Ring(ComPtr<ID3D11DeviceContext> context)
-    {
-        if (!RingAllowed)
-        {
-            RingStatus = "off: TF2VIEW_CONSTANT_RING=0 or a test";
-            return null;
-        }
-
-        ComPtr<ID3D11Device> device = default;
-
-        context.GetDevice(ref device);
-
-        ConstantRing? ring = ConstantRing.TryCreate(device, context, RingConstants, out string why);
-
-        device.Dispose();
-        RingStatus = why;
-
-        return ring;
-    }
-
-    /// <summary>Whether the constants go through the rings, and why not when they do not; for `--measure`'s report.</summary>
-    public string RingStatus { get; private set; } = "not yet made";
-
     private Dictionary<string, IReadOnlyList<IReadOnlyList<WorldBatch>>> _modelBatches =
         new(StringComparer.OrdinalIgnoreCase);
     private ComPtr<ID3D11SamplerState> _wrapSampler;
@@ -4680,7 +4636,13 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
         // into it. WriteDiscard memory arrives UNDEFINED, so the clear below is load-bearing: the
         // layout relies on unwritten slots reading as zero — the cube's "is this real" flag, the
         // sun's, and every lamp slot past what was supplied.
-        Span<float> contents = MapConstants(context, _modelRing, _model, ModelConstants);
+        MappedSubresource mapped = default;
+
+        SubmitCounters.Upload(); SilkMarshal.ThrowHResult(context.Map(_model, 0, Map.WriteDiscard, 0, ref mapped));
+
+        Span<float> contents = new(mapped.PData, ModelConstants);
+
+        contents.Clear();
 
         matrix.AsSpan(0, 16).CopyTo(contents);
 
@@ -4732,6 +4694,8 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
         // four each for the sun, its direction, the frame blend and the skinning switch.
         WriteLocalLights(contents, locals);
 
+        context.Unmap(_model, 0);
+
         // **Both stages, because both read it now.** The vertex shader takes the matrix and the
         // pixel shader takes the ambient cube. This was bound to the vertex stage alone, with a
         // comment saying the pixel shader had no use for it - true when the buffer held only a
@@ -4741,57 +4705,9 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
         // "is this real" flag reads false and every model draws exactly as it did before. Two
         // captures of the same view came back byte for byte identical, which is the only reason
         // it was noticed. The camera buffer made this same mistake once and cost a session.
-        UnmapAndBind(context, _modelRing, ref _model, 2, pixel: true);
+        context.VSSetConstantBuffers(2, 1, ref _model);
+        context.PSSetConstantBuffers(2, 1, ref _model);
         SubmitSpans.Lap(SubmitSpan.ModelConstants, sizeof(float) * ModelConstants);
-    }
-
-    /// <summary>
-    /// Maps a draw's constants: the next window of the slot's ring, or the slot's own buffer discarded. Either way ZEROED
-    /// over what the shader may read — the layouts rely on unwritten slots reading as zero, and discarded memory is undefined.
-    /// </summary>
-    private static Span<float> MapConstants(
-        ComPtr<ID3D11DeviceContext> context, ConstantRing? ring, ComPtr<ID3D11Buffer> buffer, int floats)
-    {
-        if (ring is not null)
-        {
-            return ring.Map(floats);
-        }
-
-        MappedSubresource mapped = default;
-
-        SubmitCounters.Upload(); SilkMarshal.ThrowHResult(context.Map(buffer, 0, Map.WriteDiscard, 0, ref mapped));
-
-        Span<float> contents = new(mapped.PData, floats);
-
-        contents.Clear();
-
-        return contents;
-    }
-
-    /// <summary>Ends <see cref="MapConstants"/> and binds what it wrote to the vertex slot, and the pixel one when asked.</summary>
-    private static void UnmapAndBind(
-        ComPtr<ID3D11DeviceContext> context, ConstantRing? ring, ref ComPtr<ID3D11Buffer> buffer, uint slot, bool pixel)
-    {
-        if (ring is not null)
-        {
-            ring.Unmap();
-            ring.BindVertex(slot);
-
-            if (pixel)
-            {
-                ring.BindPixel(slot);
-            }
-
-            return;
-        }
-
-        context.Unmap(buffer, 0);
-        context.VSSetConstantBuffers(slot, 1, ref buffer);
-
-        if (pixel)
-        {
-            context.PSSetConstantBuffers(slot, 1, ref buffer);
-        }
     }
 
     /// <summary>Where the lamp arrays start in the model constants.</summary>
@@ -5027,7 +4943,6 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
 
         _model = buffer;
         device.Dispose();
-        _modelRing = Ring(context);
     }
 
     /// <summary>Uploads the bone matrices for one skinned model.</summary>
@@ -5062,7 +4977,13 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
         // WriteDiscard memory is undefined, a model's unused bone slots must not carry the
         // previous model's skeleton, and the short-matrix `continue` below has always meant "this
         // slot stays zero".
-        Span<float> contents = MapConstants(context, _boneRing, _bones, BoneConstants);
+        MappedSubresource mapped = default;
+
+        SubmitCounters.Upload(); SilkMarshal.ThrowHResult(context.Map(_bones, 0, Map.WriteDiscard, 0, ref mapped));
+
+        Span<float> contents = new(mapped.PData, BoneConstants);
+
+        contents.Clear();
 
         for (int bone = 0; bone < matrices.Count && bone < MaxBones; bone++)
         {
@@ -5076,7 +4997,8 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             matrix.AsSpan(0, 12).CopyTo(contents.Slice(bone * 12, 12));
         }
 
-        UnmapAndBind(context, _boneRing, ref _bones, 3, pixel: false);
+        context.Unmap(_bones, 0);
+        context.VSSetConstantBuffers(3, 1, ref _bones);
         SubmitSpans.Lap(SubmitSpan.Bones, sizeof(float) * BoneConstants);
     }
 
@@ -5105,7 +5027,6 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
 
         _bones = buffer;
         device.Dispose();
-        _boneRing = Ring(context);
     }
 
     private void EnsureMaterialBuffer(ComPtr<ID3D11DeviceContext> context)
@@ -5142,7 +5063,6 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
 
         _material = buffer;
         device.Dispose();
-        _materialRing = Ring(context);
     }
 
     /// <summary>Uploads one material's detail constants before its draw.</summary>
@@ -6085,14 +6005,23 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
                 + "and the named offsets have not");
         }
 
-        Span<float> target = MapConstants(context, _materialRing, _material, contents.Length);
+        MappedSubresource mapped = default;
+
+        SubmitCounters.Upload(); SilkMarshal.ThrowHResult(context.Map(_material, 0, Map.WriteDiscard, 0, ref mapped));
 
         // **Sized from the array rather than from a literal.** It was a hardcoded sixteen floats,
         // which silently truncates the moment the buffer grows — and it grew, by five float4s of
         // texture transform and modulation. A short copy leaves the tail as whatever the previous
         // material wrote, which is the kind of fault that looks like one surface borrowing
         // another's scroll.
-        contents.CopyTo(target);
+        fixed (float* source = contents)
+        {
+            System.Buffer.MemoryCopy(
+                source,
+                mapped.PData,
+                sizeof(float) * contents.Length,
+                sizeof(float) * contents.Length);
+        }
 
         // **The category goes in after the copy, because it belongs to the BATCH** (B219). Two
         // batches of the same material can be different categories — a texture on a wall and on a
@@ -6123,6 +6052,8 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             //
             // The offset is derived from the struct rather than from the array's length, so
             // appending another float4 cannot move it again.
+            float* target = (float*)mapped.PData;
+
             target[CategoryColourRed] = colour.Red;
             target[CategoryColourRed + 1] = colour.Green;
             target[CategoryColourRed + 2] = colour.Blue;
@@ -6132,13 +6063,16 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
         // **An overlay's distance fade, per draw** (lump 60). The engine writes it into the
         // fragment's vertex alpha; this multiplies it into the same `modulation.a` that `$alpha`
         // drives, which the shader already folds into the output alpha.
-        target[ModulationAlpha] *= alpha;
+        ((float*)mapped.PData)[ModulationAlpha] *= alpha;
+
+        context.Unmap(_material, 0);
+        context.PSSetConstantBuffers(1, 1, ref _material);
 
         // **And to the vertex stage, which now reads it too.** The texture transforms are applied
         // to the coordinate in the vertex shader, as they are in the engine. The remark above this
         // method said this buffer was pixel-only and named the session that cost — so it is bound
         // to both rather than left to be discovered again.
-        UnmapAndBind(context, _materialRing, ref _material, 1, pixel: true);
+        context.VSSetConstantBuffers(1, 1, ref _material);
         SubmitSpans.Lap(SubmitSpan.MaterialMap, sizeof(float) * contents.Length);
     }
 
@@ -6816,9 +6750,6 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
         _depthWrite.Dispose();
         ReleaseMap();
         _material.Dispose();
-        _materialRing?.Dispose();
-        _modelRing?.Dispose();
-        _boneRing?.Dispose();
         _camera.Dispose();
         _model.Dispose();
         ReleaseModelBuffers();

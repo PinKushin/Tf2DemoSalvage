@@ -11096,3 +11096,21 @@ every packet, which a sweep of real demos showed the era specimens fail (opening
 does not need it, so it was dropped and the start moved past the body's first packet instead. How many real demos are
 simple, and what a rewind costs on each path: `measurements/2026-10-26-pov-recorder-seek-scan.md`.
 
+## D235 — the model constants stay discarded per draw; the D3D11.1 constant rings are reverted, the occlusion batching kept (2026-10-26)
+
+**The question.** B597 put the opaque models' 5 µs a draw on their two buffer maps, an interpolation, and the obvious
+fix was the D3D11.1 one: write constants into a ring mapped `WRITE_NO_OVERWRITE` and bind each draw by offset. Built on
+`perf/model-pass-constant-ring` (per-slot rings for the model, bone and material constants) beside a second change, the
+occlusion proxies in one upload a frame.
+
+**What was measured** (measurements/2026-10-26-b597-constant-ring-and-occlusion.md). The three constant maps are 0.10 ms,
+about 9%, of the pass's 1.14-1.15 ms; the face upload, per-batch binds, model proxies, cubemap search and string-keyed
+reports are the rest. Matched by load, the rings cost **+0.011 to +0.017 ms** in OpaqueModels and +0.011 to +0.013 in the
+world; the occlusion batching took the Occlusion pass from 0.37 to 0.18 ms and the render thread down 0.19-0.21 ms.
+
+**The decision — the owner's, relayed by the coordinator:** *"Revert, keep occlusion".* No reasoning beyond that was given;
+it was given against those numbers: the rings were a second code path that measured slightly slower, aimed at a cost that
+turned out to be 9% of the pass. The occlusion batching, the per-call-kind instrument (`SubmitSpans`) and a
+byte-identical test of the occlusion change stay; the rings, their tests, `TF2VIEW_CONSTANT_RING` and the `--measure`
+ring line go. The rings-off runs (condition R) measured the state that ships.
+
