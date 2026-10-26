@@ -685,3 +685,34 @@ The queue's job is CPU submission, not waiting on the GPU (`Present` costs it 0.
 ~5 µs a draw against the world's 0.4 µs. The driver worker adds 1.6-2.2 ms on its own thread (finding 100 reproduced). Open:
 whether OpaqueModels' flat 0.85 ms of GPU time is vertex work or submission pacing. If it is vertex work, the GPU alone is
 over 1 ms at 720p.
+
+## (12) Follow-up, 2026-10-26: the model pass's 5 µs a draw is not its maps (B597)
+
+**What was believed first.** Section 11 put the model path's ~12x gap over the world on "two buffer maps a draw against
+the world's one", and the obvious fix followed from that: write every draw's constants into one ring and bind by offset.
+The record marked the cause as interpolated. **The world pass already argued against it**: it maps the material buffer
+once a draw (`WRITE_DISCARD`) and still costs 0.4 µs a draw, so a discard-map cannot be most of 5 µs.
+
+**What killed it** (*measured*, measurements/2026-10-26-b597-constant-ring-and-occlusion.md). A lap of the clock at each
+boundary of the model draw path, read where the work runs:
+
+| OpaqueModels, ms a frame | |
+|---|---|
+| the face's deltas uploaded (`BindFlex`, 3.16 MB a frame) | 0.27-0.28 |
+| per-batch filters, raster, blend, 8 resource binds | 0.16 |
+| the model materials' proxies (0.73 µs a material; the world's 0.035) | 0.15 |
+| `BindPipeline` and the streams, per model | 0.075 |
+| nearest-cubemap search, per model | 0.07 |
+| body report and decals, per renderable | 0.06 |
+| submission reports keyed on (model path, pass, body) | 0.045 |
+| **all three constant maps** | **0.10 (9%)** |
+
+And the experiment: per-slot D3D11.1 rings (`WRITE_NO_OVERWRITE`, offset binding) took **nothing** off the pass; their
+map spans came out 0.005-0.01 ms slower (measurements/2026-10-26-b597-constant-ring-and-occlusion.md). On this driver a small `WRITE_DISCARD` costs what a `NO_OVERWRITE` does.
+
+**What did pay** is the other half of section 11's guess: the 376 occlusion queries each re-uploaded their own quad and
+camera. One upload a frame, each query drawing at its offset: Occlusion 0.37 → 0.18 ms, its maps 752 → 2 (measurements/2026-10-26-b597-constant-ring-and-occlusion.md).
+
+**What it says about the shape of the cost.** Ours is managed work around the D3D calls, not the calls:
+the face uploaded whole every frame for every flexing head, proxy chains on item materials, a linear cubemap search, and
+string-keyed diagnostics. How the engine's studio render pays for the same work was not read for this section.

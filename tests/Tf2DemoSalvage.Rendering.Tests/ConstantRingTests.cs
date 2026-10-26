@@ -165,7 +165,7 @@ public sealed class ConstantRingTests
         Draw(seen: true, lamped: false).ShouldNotBe((0, 0, 0), "the control: the stream lights the quad without the lamp");
         Draw(seen: true, lamped: false).ShouldNotBe(lit, "the control: the lamp changes the pixel");
 
-        // Each draw takes one window from each ring: 384 constants of bones, 48 of model and 32 of material. Past the
+        // Each draw takes one window from each ring: 384 constants of bones, 48 of model and 32 of material (18 rounded up). Past the
         // material ring's 2048th window, every ring has started again at least once.
         int draws = (WorldRenderer.RingConstants / 32) + 64;
 
