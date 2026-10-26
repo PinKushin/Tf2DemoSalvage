@@ -40254,9 +40254,21 @@ whole every draw. The engine
 does the same. `SetupWeights` (`c_baseflex.cpp:1147-1156`) and `R_StudioFlexMeshGroup` (studiorender `0x1800124f0`,
 disassembly) rebuild the flex stream per mesh group per draw with no change test, and there is no flex LOD (only
 `r_flex`/`r_randomflex` ship). A cache that skips an unchanged face was built and identity-tested, then measured: under
-1% of faces held still for a frame, so it saved nothing and was **reverted (D236)**. **Open:** the bytes. Each upload
-sends a model's whole stream, about 580 KB, yet a flex reaches about a third of a soldier's slots (finding 92 section 4).
-A bit-identical ranged or compacted upload is next (measurements/2026-10-26-b597-flex-extent.md).
+1% of faces held still for a frame, so it saved nothing and was **reverted (D236)**. **The bytes, FIXED
+(`perf/b597-flex-upload`, `e19d6733`).** A class face's flexed slots run from its first to its last over 25-55% of the
+buffer (measurements/2026-10-26-b597-flex-extent.md). The scene now carries that range (`ModelInstance.FlexRange`), and
+the renderer keeps a zeroed buffer per model, writing only the range with `UpdateSubresource`. Output is identical:
+pixel A/Bs on a quad and on the real laughing soldier, plus a scene test that every moving slot is inside the range,
+each sabotaged red.
+*Measured* (measurements/2026-10-26-b597-flex-range.md, four kept runs each):
+- the face upload: 3.16 → 1.26 MB a frame;
+- the flex span: 0.296-0.305 → 0.149-0.156 ms;
+- OpaqueModels: 1.169-1.201 → 1.055-1.093 ms;
+- the render thread's draw: 2.40-2.44 → 2.30-2.38 ms;
+- the frame: unchanged within its spread.
+
+**Left:** a compacted stream would send 4-46% fewer bytes again (scout most), but it needs a vertex-layout change. Pyro's
+face is not established.
 
 ## B598 — the zoomed local player and his gear were drawn; the engine hides them from every view — FIXED 2026-10-25 (`fix/four-parity-divergences`)
 
