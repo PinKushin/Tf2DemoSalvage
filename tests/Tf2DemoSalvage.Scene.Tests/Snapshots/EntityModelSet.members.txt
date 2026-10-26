@@ -183,6 +183,7 @@ Tf2DemoSalvage.Scene.EntityModelSet|method|BakedColoursOf|Private|(Tf2DemoSalvag
 Tf2DemoSalvage.Scene.EntityModelSet|method|Batches|Public|(System.String)|System.Collections.Generic.IReadOnlyList`1[Tf2DemoSalvage.Scene.WorldBatch]
 Tf2DemoSalvage.Scene.EntityModelSet|method|Batches|Public|(System.String,System.Int32)|System.Collections.Generic.IReadOnlyList`1[Tf2DemoSalvage.Scene.WorldBatch]
 Tf2DemoSalvage.Scene.EntityModelSet|method|BeginFaces|Private|(System.Collections.Generic.IReadOnlyList`1[Tf2DemoSalvage.Core.Scene.SceneProp],System.Double)|System.Void
+Tf2DemoSalvage.Scene.EntityModelSet|method|BeginScenes|Public|()|System.Void
 Tf2DemoSalvage.Scene.EntityModelSet|method|BoneNamed|Private|(Tf2DemoSalvage.Scene.PropModels+SkinnedModel,System.String,System.String)|System.Int32
 Tf2DemoSalvage.Scene.EntityModelSet|method|BreakPiecesOf|Public|(System.String)|System.Collections.Generic.IReadOnlyList`1[Tf2DemoSalvage.Content.Assets.PhysicsBreakPiece]
 Tf2DemoSalvage.Scene.EntityModelSet|method|BuildBakedColours|Private|(Tf2DemoSalvage.Core.Scene.SceneProp,Tf2DemoSalvage.Core.Scene.ScenePose,System.Single,System.Single,System.Single)|System.Single[]
