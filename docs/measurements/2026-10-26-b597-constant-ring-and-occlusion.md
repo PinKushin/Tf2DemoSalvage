@@ -141,18 +141,43 @@ code (arithmetic on measured laps, not counted at the device).
 is about 3,000 laps x 0.02 us = ~0.06 ms, which matches A's OpaqueModels (1.14-1.15) against the uninstrumented
 2026-10-25 record's 1.06-1.08 (different day: an indication, not a measurement).
 
-**Rings (R against B, quiet):** OpaqueModels 1.164-1.232 (R) against 1.194-1.210 (B): **no difference resolved**; the map
-spans are if anything slower through the rings — ModelConstants 0.040-0.046 (R) / 0.046-0.049 (B), MaterialMap
+**Rings (R against B, quiet; confounded by run order, see below):** OpaqueModels 1.164-1.232 (R) against 1.194-1.210 (B):
+no difference resolved; the map spans are slower through the rings — ModelConstants 0.040-0.046 (R) / 0.046-0.049 (B), MaterialMap
 0.033-0.039 (R) / 0.038-0.040 (B), World's MaterialMap 0.045 (A) / 0.052-0.057 (B) — and the marginal B runs agree
 (ModelConstants 0.049-0.059).
 
 **Occlusion (A against R and B):** 0.372-0.377 → 0.174-0.192 ms, **−0.18 to −0.20 ms**, GPU 0.056 → 0.031-0.032; the
 marginal pairs agree (0.392-0.417 → 0.184-0.188).
 
-**Render thread draw (A against B):** 2.33-2.37 → 2.24-2.26 ms, **−0.07 to −0.13 ms** (quiet); −0.10 to −0.24 marginal.
+**Render thread draw (A against B):** 2.33-2.37 → 2.24-2.26 ms, −0.07 to −0.13 ms (quiet, confounded; the matched figure
+is below); −0.10 to −0.24 marginal.
 The passes' CPU sum: 2.263-2.295 → 2.164-2.185. **Frame:** 9.58-9.84 (A) against 9.89-9.98 (B) and 9.53-10.42 (R):
 not resolved; the render thread is not the frame's critical path. **Driver worker:** 1.94-1.95 (A), 1.96-1.99 (B),
 1.79-2.05 (R): not resolved.
+
+**The quiet A/B/R comparison above fails its negative control, and run order explains it** (advisor review). Passes the
+change never touches rise in the same order as each condition's place in the triple, A first and R last: Sky3D
+0.187-0.188 (A) / 0.195-0.198 (B) / 0.185-0.198 (R), Hud 0.082-0.085 / 0.087-0.088 / 0.083-0.092, Particles 0.079-0.084 /
+0.084-0.087 / 0.082-0.089, and inside OpaqueModels the unchanged Flex, Proxies and Cubemap spans move with them. So the
+OpaqueModels and render-thread differences in the table are not attributable; **only Occlusion's (−0.19 ms, ten times
+the drift) is.**
+
+**Reversed order, B A B A (17-20)**, after B was rebuilt with `--no-incremental` as A had been (0 warnings, 0 errors), and
+a whole-solution build of the head (0 warnings, 0 errors). The machine's outside load held at 16-30%; 17, 18 and 19 peak at
+28-30 after, 20 at 25. **Matched by load: 18-A between 17-B and 19-B**, where the untouched passes agree (Sky3D 0.194 /
+0.195-0.196, Hud 0.093 / 0.089-0.092, Particles 0.086 / 0.085-0.088):
+
+| run | cond | frame ms | render thread draw | World | OpaqueModels | Occlusion | ModelConstants | MaterialMap (models) |
+|---|---|---|---|---|---|---|---|---|
+| 17 | B | 10.65 | 2.36 | 0.207 | 1.272 | 0.189 | 0.0510 | 0.0435 |
+| 18 | A | 10.75 | 2.55 | 0.194 | 1.255 | 0.407 | 0.0435 | 0.0308 |
+| 19 | B | 10.46 | 2.34 | 0.205 | 1.266 | 0.189 | 0.0484 | 0.0440 |
+| 20 | A | 9.90 | 2.39 | 0.185 | 1.186 | 0.377 | 0.0386 | 0.0314 |
+
+Against its neighbours, 18-A gives: **render thread draw −0.19 to −0.21 ms; Occlusion −0.22; OpaqueModels +0.011 to
++0.017; World +0.011 to +0.013** — the last two are the rings: ModelConstants +0.005 to +0.008, the models' MaterialMap
++0.013, and World's MaterialMap 0.045-0.049 in every A run and 0.047-0.053 in R against 0.056-0.057 in every B run. **The rings cost about 0.01 ms in
+each of World and OpaqueModels**, which R (rings off, occlusion on) avoids.
 
 **Identity.**
 
@@ -184,13 +209,15 @@ not resolved; the render thread is not the frame's critical path. **Driver worke
   and binds. **The face upload (Flex, 3.16 MB a frame) is the largest single span at a quarter of the pass**, then
   BatchState and the model proxies at 0.15-0.16 ms each. MaterialMap costs about the same a lap in World and in models
   (0.12 / 0.16 us). **"The maps are the cost" (the 2026-10-25 inference) is falsified.**
-- **Rings: falsified** (predicted −0.05 to −0.30 ms). No gain resolved; the map spans lean +0.005 to +0.01 ms slower
-  through the rings. A map a draw at WRITE_NO_OVERWRITE costs this driver what a small WRITE_DISCARD does.
+- **Rings: falsified** (predicted −0.05 to −0.30 ms). Matched by load they cost about +0.01 ms in each of World and
+  OpaqueModels (their map spans), and World's MaterialMap is higher in every B run than in every A and R run. A map a draw
+  at WRITE_NO_OVERWRITE plus an offset bind costs this driver a little more than a small WRITE_DISCARD.
 - **Occlusion: confirmed in direction, narrowly outside in size** (predicted under 0.15 ms, measured 0.174-0.192). What
   is left is the 376 Begin/Draw/End and the 376 per-proxy `GetData(…, 0)` polls, which can flush and are out of scope
   here: making them not flush changes when results arrive.
-- **Render thread: −0.07 to −0.13 ms (3-6% of it), below the predicted −0.25 to −0.6 because the rings bought
-  nothing; frame unchanged within spread (predicted).** About 1% of the frame, on a thread off the critical path.
+- **Render thread: −0.19 to −0.21 ms matched by load (8% of it), below the predicted −0.25 to −0.6 because the rings
+  bought nothing; the quiet triples' −0.07 to −0.13 is confounded by run order. Frame unchanged within spread
+  (predicted).** About 2% of a ~10 ms frame, on a thread off the critical path.
 - **Where the model pass's next ms is**: the face upload (only the deltas that move, or a face's buffer kept per model
   and rewritten only when its weights change), the per-batch binds (a state cache inside the bucket loop: 8+3 SRVs,
   blend, raster, depth set every batch), the model proxies (0.73 us a lap against the world's 0.035), the per-model

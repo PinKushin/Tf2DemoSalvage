@@ -707,8 +707,9 @@ boundary of the model draw path, read where the work runs:
 | submission reports keyed on (model path, pass, body) | 0.045 |
 | **all three constant maps** | **0.10 (9%)** |
 
-And the experiment: per-slot D3D11.1 rings (`WRITE_NO_OVERWRITE`, offset binding) took **nothing** off the pass; their
-map spans came out 0.005-0.01 ms slower (measurements/2026-10-26-b597-constant-ring-and-occlusion.md). On this driver a small `WRITE_DISCARD` costs what a `NO_OVERWRITE` does.
+And the experiment: per-slot D3D11.1 rings (`WRITE_NO_OVERWRITE`, offset binding) took **nothing** off the pass; matched
+by load they cost about 0.01 ms more in each of World and OpaqueModels (measurements/2026-10-26-b597-constant-ring-and-occlusion.md).
+On this driver a small `WRITE_DISCARD` is no dearer than a `NO_OVERWRITE` map plus an offset bind.
 
 **What did pay** is the other half of section 11's guess: the 376 occlusion queries each re-uploaded their own quad and
 camera. One upload a frame, each query drawing at its offset: Occlusion 0.37 → 0.18 ms, its maps 752 → 2 (measurements/2026-10-26-b597-constant-ring-and-occlusion.md).

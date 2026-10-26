@@ -40255,9 +40255,10 @@ model draw path. Of OpaqueModels' 1.14-1.15 ms, the three constant maps are 0.10
 3.16 MB a frame) is 0.27-0.28 ms** (measurements/2026-10-26-b597-constant-ring-and-occlusion.md), per-batch state and binds 0.16, the model proxies 0.15 (0.73 µs a material against
 the world's 0.035), `BindPipeline` per model 0.075, the cubemap search 0.07, the renderable's report and decals 0.06,
 the string-keyed reports 0.045, unspanned 0.115. **Per-slot D3D11.1 constant rings** (`ConstantRing`, offset binding,
-NO_OVERWRITE with a discard on first use and on wrap): **no gain resolved**, map spans 0.005-0.01 ms slower if anything (measurements/2026-10-26-b597-constant-ring-and-occlusion.md).
-**Occlusion proxies in one upload a frame**: 0.372-0.377 → 0.174-0.192 ms, maps 752 → 2 (measurements/2026-10-26-b597-constant-ring-and-occlusion.md). Render thread draw 2.33-2.37 →
-2.24-2.26; frame and driver worker unchanged within spread. Identity: byte-identical in-process (rings against
+NO_OVERWRITE with a discard on first use and on wrap): **no gain; about +0.01 ms in each of World and OpaqueModels**, matched by load (measurements/2026-10-26-b597-constant-ring-and-occlusion.md).
+**Occlusion proxies in one upload a frame**: 0.372-0.377 → 0.174-0.192 ms, maps 752 → 2 (measurements/2026-10-26-b597-constant-ring-and-occlusion.md). Render thread draw
+−0.19 to −0.21 ms matched by load (measurements/2026-10-26-b597-constant-ring-and-occlusion.md; the quiet A-B-R triples are confounded by run order: untouched passes drift with it);
+frame and driver worker unchanged within spread. Identity: byte-identical in-process (rings against
 discard-per-draw, every pixel of a 64-batch, 48-model scene); the viewer's image hash fails its own A-against-A control
 (2 of 201), pose and cull match 195/195 and 201/201; queue verify 741,500 frames, 0 changed. **Next, in order of size:**
 the face upload (upload only what moves, or keep a face's stream and rewrite it only when its weights change); a state
