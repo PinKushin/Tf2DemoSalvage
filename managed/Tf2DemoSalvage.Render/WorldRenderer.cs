@@ -2881,11 +2881,17 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             return (SubmitSpan.Flex, 0);
         }
 
-        (ComPtr<ID3D11Buffer> buffer, long uploaded) = _faces.Bind(_device, context, flex, written);
+        (ComPtr<ID3D11Buffer> buffer, long uploaded, bool repeat) = _faces.Bind(_device, context, flex, written);
         uint stride = sizeof(float) * FlexFloats;
         context.IASetVertexBuffers(FlexSlot, 1, ref buffer, in stride, in offset);
 
-        return (uploaded == 0 ? SubmitSpan.FlexCached : SubmitSpan.FlexUpload, uploaded);
+        // An upload is an upload, first draw or not (a face drawn by hand, stamp 0, uploads every time).
+        if (uploaded != 0)
+        {
+            return (SubmitSpan.FlexUpload, uploaded);
+        }
+
+        return (repeat ? SubmitSpan.FlexRepeat : SubmitSpan.FlexHeld, 0);
     }
 
     /// <summary>The device, kept to create a baked prop's colour stream the first time it is drawn.</summary>

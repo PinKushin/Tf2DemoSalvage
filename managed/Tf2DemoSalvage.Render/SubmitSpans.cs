@@ -19,8 +19,11 @@ public enum SubmitSpan
     /// <summary>`BindFlex` for a model with no face: the null stream bound.</summary>
     Flex,
 
-    /// <summary>`BindFlex` for a face whose stamp the device already holds: its kept buffer bound, nothing sent (B597).</summary>
-    FlexCached,
+    /// <summary>`BindFlex` for a face's first draw this frame whose stamp the device holds from an earlier frame (B597).</summary>
+    FlexHeld,
+
+    /// <summary>`BindFlex` for a face already drawn this frame — another pass, half or instance: nothing sent (B597).</summary>
+    FlexRepeat,
 
     /// <summary>`BindFlex` for a face with a new stamp, a new array or no stamp: mapped, copied and bound (B597).</summary>
     FlexUpload,

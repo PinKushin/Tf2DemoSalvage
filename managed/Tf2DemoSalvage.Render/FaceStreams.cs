@@ -41,11 +41,16 @@ internal sealed unsafe class FaceStreams : IDisposable
     /// <param name="context">Maps it.</param>
     /// <param name="face">Six floats per vertex of the model's buffer.</param>
     /// <param name="written">When the scene wrote <paramref name="face"/>; 0 is unknown and always uploads.</param>
-    /// <returns>The buffer, and the bytes uploaded — zero when the device already held this write.</returns>
-    public (ComPtr<ID3D11Buffer> Buffer, long Uploaded) Bind(
+    /// <returns>
+    /// The buffer; the bytes uploaded, zero when the device already held this write; and whether the face was already
+    /// drawn since the last frame boundary — what tells a face held across frames from a repeat within one.
+    /// </returns>
+    public (ComPtr<ID3D11Buffer> Buffer, long Uploaded, bool Repeat) Bind(
         ComPtr<ID3D11Device> device, ComPtr<ID3D11DeviceContext> context, float[] face, long written)
     {
         ArgumentNullException.ThrowIfNull(face);
+
+        bool repeat = false;
 
         if (!_faces.TryGetValue(face, out Entry? entry))
         {
@@ -61,10 +66,15 @@ internal sealed unsafe class FaceStreams : IDisposable
             SilkMarshal.ThrowHResult(device.CreateBuffer(in description, null, ref entry.Buffer));
             _faces[face] = entry;
         }
-        else if (Allowed && written != 0 && entry.Written == written)
+        else
         {
-            entry.Drawn = true;
-            return (entry.Buffer, 0);
+            repeat = entry.Drawn;
+
+            if (Allowed && written != 0 && entry.Written == written)
+            {
+                entry.Drawn = true;
+                return (entry.Buffer, 0, repeat);
+            }
         }
 
         MappedSubresource mapped = default;
@@ -82,7 +92,7 @@ internal sealed unsafe class FaceStreams : IDisposable
         entry.Written = written;
         entry.Drawn = true;
 
-        return (entry.Buffer, bytes);
+        return (entry.Buffer, bytes, repeat);
     }
 
     /// <summary>A frame boundary: releases every face not drawn since the last one.</summary>
