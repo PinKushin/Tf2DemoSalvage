@@ -86,7 +86,7 @@ public sealed class PassProfilerTests
 
     /// <summary>A throw on a measurement's LAST frame is counted abandoned at the throw, before the ledger is taken.</summary>
     [Test]
-    public void FrameScope_DrawThrowsOnTheLastFrame_CountsItAbandonedBeforeTheLedgerIsTaken()
+    public void PassFrame_DrawThrowsOnTheLastFrame_CountsItAbandonedBeforeTheLedgerIsTaken()
     {
         using OffscreenTarget? target = OffscreenTarget.TryCreate(4, 4);
 
@@ -114,7 +114,7 @@ public sealed class PassProfilerTests
 
     /// <summary>The control for the scope: a frame that ends normally is drawn, not abandoned.</summary>
     [Test]
-    public void FrameScope_FrameEnded_IsDrawnNotAbandoned()
+    public void PassFrame_FrameEnded_IsDrawnNotAbandoned()
     {
         using OffscreenTarget? target = OffscreenTarget.TryCreate(4, 4);
 

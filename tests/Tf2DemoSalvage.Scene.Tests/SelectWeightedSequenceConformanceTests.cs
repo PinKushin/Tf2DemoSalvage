@@ -63,7 +63,7 @@ public sealed class SelectWeightedSequenceConformanceTests
 
     /// <summary>
     /// A fuzzed `actweight` of <c>int.MinValue</c>: C's <c>iabs</c> has no positive answer for it (INTERPOLATED, RISKS
-    /// B600). It weighs as its mathematical absolute value, 2^31, so it outweighs <c>int.MaxValue</c>.
+    /// B601). It weighs as its mathematical absolute value, 2^31, so it outweighs <c>int.MaxValue</c>.
     /// </summary>
     [Test]
     public void ForActivity_WeightIntMinValue_WeighsAsTwoToThe31() =>
