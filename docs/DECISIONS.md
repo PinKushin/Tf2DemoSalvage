@@ -10998,6 +10998,10 @@ the assistant had instead paused everything over the red CI, the owner said it h
 reasoning for pinning rather than waiting was the owner's: keep merging and releasing while a Microsoft rollout
 finishes. The cost of a pin is that someone has to remember to remove it, which is why each line carries the date.
 
+**Unpinned 2026-10-26** as planned: `https://builds.dotnet.microsoft.com/dotnet/Sdk/10.0.403/dotnet-sdk-10.0.403-win-x64.zip`
+and the 10.0.14 runtime both answered HTTP 200 (300,745,255 bytes for the SDK). All `setup-dotnet` steps are `10.0.x` again; the
+first run after the unpin is the check.
+
 **Not a defect in the repo.** This is the same class as `docs/memory/runner-migration-notices-are-not-defects.md`: an
 upstream change, observed by rerunning, not a fault to fix in the code.
 
