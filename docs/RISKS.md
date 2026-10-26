@@ -40326,10 +40326,27 @@ else walk `RandomInt( 0, total - 1 )` over the tuples), rolled only when the act
 (`multiplayer_animstate.cpp:1170-1172`), with `animDesired < 0` → 0 unrolled (`:1174-1177`). The state is the existing
 `_mainSequences` entry, now carrying the last tick: a clock that runs back (a seek) forgets the hold; `LevelShutdown` clears
 it. **The one addition:** the roll is `ActivityPickSeed(entity, activity, tick the activity began)`, so a replay, or a second
-seek to the same tick, shows the same pick; it changes which value comes up, not the distribution. **Open, for the lead:** a
-seek lands mid-activity and keys the roll on the LANDING tick, so seeking into a stretch can show a different variant from
-playing through it. Options: recover the true begin tick from the timeline; drop the tick from the seed (one variant per
-entity and activity); or accept it. **No per-demo seed** was mixed in (the brief asked for one): entity and tick already
+seek to the same tick, shows the same pick; it changes which value comes up, not the distribution. **Seeks FIXED 2026-10-25
+(`feat/seek-recovers-activity-start`)** — owner: *"Recover real start (Recommended)"* (D233). The begun tick is recovered,
+never remembered: `EntityModelSet.ActivityBegan` scans back over whole ticks on every activity change, first sight, seek,
+or forward jump past `ContinuityTicks` (4), so play and seek run the same code; `_mainSequences` is only a cache, also
+dropped on a model change. The scan reads `EntityModelSet.PlayerPropAt`, which `MomentScene` builds with the frame's own
+`PlayerProps.Add` over `IMomentSource.ActivityPlayerAt` → `DemoTimeline.PlayerAt` — side-effect free, because the frame's
+sampler drives `DemoPlayer` and `RecorderPrediction` caches a backward scan would reset. A tick the player is not drawn on
+is passed over (dead players are not animated and `ClearAnimationState` keeps the main sequence,
+`multiplayer_animstate.cpp:136-146`, so he respawns into the variant he died in); a frame between ticks whose whole tick
+still shows the old activity keys on the next whole tick. Held by `MainSequenceSeekTests` (16: seek == play-through at
+cadences 1, 0.6, 1.7 and 5 ticks a frame, seek back then play on, forward into a later stretch of the same activity — the
+case this entry used to list as open — six boundary landings, respawn, controls, zero allocation) and
+`MomentPresenterEarlierPlayerTests` (the wiring); sabotaged — landing-tick keying, no continuity window, absence ending
+the stretch, the next-whole-tick rule, the presenter's hop — each reddened. **Ceilings, both tested or measured:** a stretch
+that began more than `ActivityScanTicks` (2048, 31 s at 66 Hz) before the landing keys on the earliest tick in the window,
+so a seek deep into one long activity can differ from play; and a stretch shorter than the gap between two frames is held
+through by play (as the engine at that frame rate would) but ends the stretch for a seek
+(`…_AStretchBetweenTwoFrames_…`). A point-of-view recorder is scanned on his networked velocity, where the frame uses the
+predicted one. **Seek cost** (`seek-scan` probe, the measurement's addendum): 9.1 ms mean, 52 ms max for 6-12 drawn players
+on f12, 175 earlier-tick probes a player, 95% of it `DemoTimeline.PlayerAt`; about 22 ms for 24 players, *interpolated*.
+The held frame stays 0 B (one 1,112 B frame after each landing). **No per-demo seed** was mixed in (the brief asked for one): entity and tick already
 differ per demo, and nothing in `EntityModelSet` names the demo; adding one is a header hash passed in. The negative-weight
 keep is ported and tested as a function but cannot fire on the main path, since a roll happens only when the activity changed
 or after a seek. Multi-candidate activities on the f12 set (probe): main-sequence ones are scout `ACT_MP_STAND_MELEE` x2 and
@@ -40339,9 +40356,18 @@ voice) and engineer's `ACT_MP_TAUNT` x7. Held by `SelectWeightedSequenceConforma
 seek back, zero allocation); sabotaged — negative keep, seek reset, hold, walk `>=`, seed without tick — each reddened its
 test. **Cost** (`measurements/2026-10-25-d233-activity-tuples-cost.md`): about 140 KB more retained over 64 models; a pick
 50 ns against a lookup's 48 ns; the held pass allocates 0 B (was 88 B, the closure below — fixed with it).
-**Not ported, still heaviest:** gestures (`EntityModels.Layers.cs`), the corpse rest (`EntityModels.Sequences.cs` `CorpseSequence`),
-the HUD class panel (`VguiModelPanel.cs`), and `SequenceFor`'s callers (the corpse's copied activity). A forward seek keeps
-a hold whose activity is unchanged at the landing tick (linear play might have re-rolled in between).
+**Gestures FIXED 2026-10-25** (same branch): the attack-and-reload holder, an activity gesture and the chest substitution
+roll by weight once, seeded on (player, activity, the gesture's start seconds) — `AddToGestureSlot`'s one
+`SelectWeightedSequence` (`multiplayer_animstate.cpp:616-688`) — so a gesture and a seek into it need no state. Held by
+`GestureVariantConformanceTests` (exact seed prediction per path, hold through the gesture, every one of four flinch
+variants reached); each of the three call sites sabotaged back to `ForActivity` reddened its case. **Still divergent,
+filed here:** `RestartGesture` of the activity a slot already plays only resets the cycle and keeps the variant
+(`:581-611`; `IsGestureSlotPlaying` compares the stored TRANSLATED activity with the untranslated argument, `:566-576`, so
+only an untranslated one such as the chest flinch can match), and `PlayFlinchGesture` ignores a flinch while the slot is
+active (`:371-385`) — `PlayerGestureFeed` overwrites the slot on every event, so ours re-rolls on the newer start.
+**Not ported, still heaviest, deliberately:** the corpse rest (`CorpseSequence`, `ACT_DIERAGDOLL`, one candidate on every
+class model), `SequenceFor`'s callers (the corpse's copied activity, one frame), and the HUD class panel
+(`VguiModelPanel.cs`, whatever activity its `.res` names — the engine rolls once there too).
 
 **Not done:** the callers still build activity strings per call (`PlayerActivityTable.Translate`).
 

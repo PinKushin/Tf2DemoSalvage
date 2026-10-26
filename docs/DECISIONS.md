@@ -11022,9 +11022,22 @@ when the activity changed (`multiplayer_animstate.cpp:1171-1172`), so it rolls o
 **The decision.** Engine behaviour only, no setting: rolled by weight on an activity change and held; a current sequence
 of negative weight kept (`animation.cpp:291-297`); a failed lookup is sequence 0, unrolled (`:1174-1177`). **The one
 addition** is the seed: the roll comes from (entity, activity, the tick the activity began) rather than a running RNG, so a
-replay or a repeated seek shows the same pick (a seek into the middle of an activity keys on the landing tick; RISKS B584). It changes which value comes up, not how often each does.
+replay or a repeated seek shows the same pick. It changes which value comes up, not how often each does.
 
 **Why it follows.** A setting that switches to a divergence keeps the divergence alive and gains nothing; the seed is the
 only part a viewer needs that the engine does not (the engine never seeks). Implementation, tests and cost: RISKS B584,
 `measurements/2026-10-25-d233-activity-tuples-cost.md`.
+
+**Seeks — the owner's decision, the same day.** The first cut keyed a seek's roll on the landing tick, so landing in the
+middle of an activity could show a different variant from the one playing through it showed. Offered three options —
+recover the real start, a pick fixed per player and activity, or accept it as is — the owner chose *"Recover real start
+(Recommended)"*. No further reasoning was given; the option's own case was that it is the only one where a seek and a
+play-through agree while keeping the engine's once-per-activity roll.
+
+**What it became.** The tick an activity began is never remembered, only recovered: on every activity change, first
+sight, seek or forward jump past four ticks, a backward scan over whole ticks finds the start of the stretch the player
+is in, so playing and seeking run the same code. A tick he was not drawn on (dead, not yet joined) is passed over, since
+a dead player is not animated and `ClearAnimationState` leaves the main sequence alone (`multiplayer_animstate.cpp:136-146`);
+he respawns into the variant he died in. Gestures needed no scan: each carries its own start, and the roll is seeded on
+it (`AddToGestureSlot` rolls once, `:616-688`). Ceilings, cost and what remains: RISKS B584.
 

@@ -46,3 +46,29 @@ third run listed them: the main-sequence ones are scout `ACT_MP_STAND_MELEE` x2 
 the rest are gestures (heavy and engineer `ACT_MP_GESTURE_FLINCH_CHEST` x4 and x3, attack, reload and PDA variants, a spy
 voice gesture), engineer `ACT_MP_TAUNT` x7, sniper `ACT_KART_POSITIVE` x2 and `ACT_MP_CROUCH_DEPLOYED_IDLE_ITEM2` x2, and
 soldier `ACT_MP_FALLING_STOMP_PRIMARY` x2. That run: 196,000 B retained (72 B more, run-to-run), 50.5 / 50.0 ns.
+
+## Addendum, same day: what a seek's activity-start scan costs (`feat/seek-recovers-activity-start`)
+
+**Written after the run**, no prediction fixed. `dotnet run --project tools/Tf2DemoSalvage.Probe -c Release -- seek-scan
+D:/measure-f12/f12.dem 40`, through `run-exclusive.ps1 -Shared` (it waited for another agent's timed viewer runs, so no
+viewer was running beside it). The probe builds the production `MomentScene` over the production `EntityModelSet`, sets
+`EarlierPlayer = DemoTimeline.PlayerAt`, and counts the calls passing through the `PlayerPropAt` the scene installed. 40
+landings spread over the demo, each more than `ContinuityTicks` from the last, so every drawn player's start is recovered;
+then two held frames.
+
+| | before sharing the motion pair | after (`430e3ca6`) |
+|---|---:|---:|
+| drawn players per landing | 6-12, mean 9.8 | same |
+| seek frame, first (pays the JIT) | 39.3 ms | 41.2 ms |
+| seek frame, mean of the other 39 | 13.4 ms | 9.1 ms |
+| seek frame, max | 97.6 ms | 52.2 ms |
+| earlier-tick probes | 68,378 (174.9 a player) | same |
+| the probes replayed through the builder / `PlayerAt` alone | 369.9 / 360.1 ms | 205.4 / 195.7 ms |
+| held frame after the seek | 0.011 ms, 1,112 B over 40 frames | same |
+| the held frame after that | — | 0 B over 40 frames |
+
+**Reading.** The scan is `PlayerAt`-bound (95%), so sharing the speed and heading's pair of track reads (five reads to two)
+cut it by 46%. Per drawn player a seek costs about 0.93 ms mean; **for 24 players that is about 22 ms mean and up to about
+105 ms** — *interpolated*, linearly from this demo's at most 12 drawn players, not measured. The 1,112 B is the first held
+frame after a seek (once per landing, 28 B a frame on average); the next held frame allocates nothing. A frame that only
+changes activity scans one or two ticks; the long scans are players standing still, or absent, back to the 2048-tick cap.

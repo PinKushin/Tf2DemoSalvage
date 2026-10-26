@@ -204,6 +204,17 @@ from the SDK before the test, each red before the code:
   negative-weight keep (`:291-297`) and one addition, a seed from (entity, activity, tick begun) so a seek repeats itself.
   Measured (`measurements/2026-10-25-d233-activity-tuples-cost.md`, read with the probe): only 19 of 1,339 activities on
   the f12 model set have more than one candidate, so the change is visible on few animations.
+- **"Tick begun" was first a lie on every seek** — the first cut keyed a seek on the landing tick, so the same moment
+  could show two variants depending on how you reached it. The owner chose *"Recover real start (Recommended)"*. The fix
+  that held was to stop remembering the start at all: it is RECOVERED, by one backward scan over whole ticks, on every
+  activity change as well as on a seek, so play and seek are the same code rather than two codes kept in agreement. Two
+  things the engine settled on the way (*read from published source*): a dead player is not animated and
+  `ClearAnimationState` keeps the main sequence (`multiplayer_animstate.cpp:136-146`), so absence must be passed over,
+  not end the stretch — he respawns into the variant he died in; and a gesture needs no scan, because `AddToGestureSlot`
+  rolls once (`:616-688`) and each gesture carries its own start. The wrong turn worth keeping: scanning through the frame's
+  own player sampler, which looks like the obvious reuse, would have reset the demo player's and prediction's per-tick
+  caches on every seek — the scan got a side-effect-free one-player sampler instead. What the scan cannot do is in RISKS
+  B584 (a 31 s cap; a stretch shorter than one frame gap, which play itself never sees).
 - **B580's sphere is bare `cl_detaildist`.** Reading it found that production never passes the FOV factor at all, so the
   zoomed case it guards is not reachable yet, and that the engine's sphere admits whole leaves, which a run box under-reaches
   when zoomed (interpolated; filed as B580's residuals).
