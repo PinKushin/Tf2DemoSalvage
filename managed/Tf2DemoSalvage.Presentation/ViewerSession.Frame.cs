@@ -648,9 +648,17 @@ public sealed partial class ViewerSession
 
             // The draw's passes, CPU and GPU, per frame (B597): the device times them only when asked.
             _ownedDevice?.ProfilePasses = true;
+
+            // Every sun query timed where it runs, whoever asked (B594 follow-up): two clock reads a call, so measuring only.
+            _presenter.Map?.Lighting.TimeSun = true;
         }
 
         _presenter.FrameParts?.Frame();
+
+        if (_presenter.FrameParts is { } sunParts)
+        {
+            _sunMeter.Frame(_presenter.Map?.Lighting, sunParts);
+        }
 
         // **The render thread's own time and every drain that waited** (B581), carried from the queue where each was
         // timed; in mode 0 the queue never waits and draws nothing of its own, so neither part appears.
@@ -705,7 +713,8 @@ public sealed partial class ViewerSession
                     CultureInfo.InvariantCulture,
                     $"{ParticleCensusLine.Format(_shownTick, _effects.ParticleCensus())}; trails {trails}; model decals {modelDecals}" +
                     $"; replays so far {replayTicks * 1000d / Stopwatch.Frequency:0.#} ms over {replaySteps} steps" +
-                    $"; dynamic light draws so far {merges.Asked} of {merges.Checked}, re-ranked {merges.Merged}, {merges.Ticks * 1000d / Stopwatch.Frequency:0.##} ms"));
+                    $"; dynamic light draws so far {merges.Asked} of {merges.Checked}, re-ranked {merges.Merged}, {merges.Ticks * 1000d / Stopwatch.Frequency:0.##} ms" +
+                    $"; particle forks so far {_effects.ParticleForks}; {_sunMeter.Report()}"));
             }
         }
 
@@ -771,6 +780,9 @@ public sealed partial class ViewerSession
     /// built at all (`cdll_client_int.cpp:1308`).
     /// </remarks>
     public void Simulate() => _playback.Advance();
+
+    /// <summary>`--measure`'s sun line, over the whole frame.</summary>
+    private readonly SunMeter _sunMeter = new();
 
     /// <summary>`queue wait {caller}` part names, made once per caller rather than per frame.</summary>
     private readonly System.Collections.Generic.Dictionary<string, string> _queueWaitParts = new(StringComparer.Ordinal);

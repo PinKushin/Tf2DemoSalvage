@@ -350,6 +350,10 @@ public sealed record ViewerSettings
     /// <remarks>Config-only, as TF2 gives it no bind; read once, when the device is made.</remarks>
     public const string MaterialQueueModeCommand = "mat_queue_mode";
 
+    /// <summary>Command name for stepping the particle effects on worker threads — Valve's <c>r_threaded_particles</c> (finding 103).</summary>
+    /// <remarks>`static ConVar r_threaded_particles( "r_threaded_particles", "1" )` (particlemgr.cpp:1543), no flags; config-only.</remarks>
+    public const string ThreadedParticlesCommand = "r_threaded_particles";
+
     /// <summary>The convar that swaps the local medic's beam for its `_targeted` variant.</summary>
     public const string HealTargetMarkerCommand = "hud_medichealtargetmarker";
 
@@ -614,6 +618,13 @@ public sealed record ViewerSettings
     /// TF2's own default (D229). Kept as written, like `r_3dsky`: the engine maps any value itself (`MaterialQueueMode.Resolve`).
     /// </remarks>
     public int MaterialQueueMode { get; init; } = -1;
+
+    /// <summary>`r_threaded_particles`: whether the played particle steps run on worker threads; on, as TF2 ships it.</summary>
+    /// <remarks>
+    /// Read as the engine reads it, `GetBool` over `GetInt` (particlemgr.cpp:1872): any value whose integer part is not 0 is on.
+    /// The picture is the same either way (`ParticleEffectsWorkersTests`); a user's `r_threaded_particles 0` is honoured.
+    /// </remarks>
+    public bool ThreadedParticles { get; init; } = true;
 
     /// <summary>How far detail props are drawn, in world units.</summary>
     /// <remarks>
@@ -1241,6 +1252,11 @@ public sealed record ViewerSettings
             settings = settings with { MaterialQueueMode = queueMode };
         }
 
+        if (Read(values, ThreadedParticlesCommand) is { } threadedParticles)
+        {
+            settings = settings with { ThreadedParticles = threadedParticles != 0 };
+        }
+
 
         // **Zero is accepted and negative is not**, which is the same rule the frame rate limit
         // keeps and for the same reason: `low.cfg` ships `cl_detaildist 0` and it means "draw no
@@ -1355,6 +1371,7 @@ public sealed record ViewerSettings
         (ShowPositionCommand, s => Int(s.ShowPosition)),
         (ThreeDimensionalSkyCommand, s => Int(s.ThreeDimensionalSky)),
         (MaterialQueueModeCommand, s => Int(s.MaterialQueueMode)),
+        (ThreadedParticlesCommand, s => Switch(s.ThreadedParticles)),
         (DetailDistanceCommand, s => EngineFloat(s.DetailDistance)),
         (DetailFadeCommand, s => EngineFloat(s.DetailFade)),
         (InterpCommand, s => EngineFloat(s.Interp.Interp)),

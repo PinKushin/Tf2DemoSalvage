@@ -31,6 +31,7 @@ namespace Tf2DemoSalvage.Presentation;
 /// <param name="HealTargetMarker">`hud_medichealtargetmarker`.</param>
 /// <param name="MaxDecals">`r_decals`.</param>
 /// <param name="MaxModelDecals">`r_maxmodeldecal`.</param>
+/// <param name="ThreadedParticles">`r_threaded_particles`: whether the played particle steps fork onto worker threads.</param>
 public readonly record struct ViewFrame(
     DemoTimeline? Timeline,
     LoadedMap? Loaded,
@@ -48,7 +49,8 @@ public readonly record struct ViewFrame(
     bool DrawViewmodel,
     bool HealTargetMarker,
     int MaxDecals,
-    int MaxModelDecals);
+    int MaxModelDecals,
+    bool ThreadedParticles = true);
 
 /// <summary>
 /// Everything a frame of a demo makes around its models — light styles, decals, the client's own sounds, impacts,
@@ -79,7 +81,33 @@ public sealed partial class FramePresenter
     private readonly ILogger _audioLog;
 
     /// <summary>The effects running for this demo.</summary>
-    private readonly ParticleEffects _particles = new();
+    /// <remarks>
+    /// **Their fork uses the physical cores less one, the game thread included** (finding 103): one is left for
+    /// `mat_queue_mode 2`'s render thread. Ours; TF2's pool size is in the closed `vstdlib`.
+    /// </remarks>
+    private readonly ParticleEffects _particles = new()
+    {
+        Workers = new ParticleWorkers
+        {
+            Degree = Tf2DemoSalvage.Render.MaterialQueueMode.PhysicalCores() - 1,
+            Threshold = int.TryParse(
+                Environment.GetEnvironmentVariable(ParticleThresholdVariable),
+                System.Globalization.NumberStyles.Integer,
+                System.Globalization.CultureInfo.InvariantCulture,
+                out int threshold)
+                ? threshold
+                : ParticleWorkers.DefaultThreshold,
+        },
+    };
+
+    /// <summary>`TF2VIEW_PARTICLE_THRESHOLD`: the fork's <see cref="ParticleWorkers.Threshold"/>, for measuring it; debugging only.</summary>
+    public const string ParticleThresholdVariable = "TF2VIEW_PARTICLE_THRESHOLD";
+
+    /// <summary>Whether this frame's particle steps may fork, as the last frame's `r_threaded_particles` said — for a test.</summary>
+    internal bool ParticlesThreaded => _particles.Workers.Threaded;
+
+    /// <summary>How many particle step lists were forked, ever — counted where the fork was taken, for `--measure`.</summary>
+    public long ParticleForks => _particles.Workers.Forks;
 
     /// <summary>Where a bullet stops and which a player stopped — `FX_FireBullets`' trace (tf_fx_shared.cpp).</summary>
     private readonly BulletStrikes _strikes;
@@ -317,6 +345,7 @@ public sealed partial class FramePresenter
     internal void DrawOver(in ViewFrame frame, FreeCamera viewing, IFrameDevice device)
     {
         _frame = frame;
+        _particles.Workers.Threaded = frame.ThreadedParticles;
 
         int tick = _frame.Tick;
 

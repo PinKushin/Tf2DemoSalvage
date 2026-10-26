@@ -11,6 +11,22 @@ using Tf2DemoSalvage.Content.Bsp;
 
 namespace Tf2DemoSalvage.Scene;
 
+/// <summary>The sun's work since a map loaded (<see cref="LevelLighting.SunWork"/>), each part counted where it ran.</summary>
+/// <param name="Calls">Every call into the sun's leaf test and sky trace.</param>
+/// <param name="LightCache">Of those, a model light cache entry being built.</param>
+/// <param name="StaticProp">Of those, a static prop's lighting state being built.</param>
+/// <param name="Direct">Of those, a direct <see cref="LevelLighting.SunAt"/>: an impact's colour, a model with no tree.</param>
+/// <param name="Ticks">Stopwatch ticks inside them, while timed.</param>
+public readonly record struct SunWork(long Calls, long LightCache, long StaticProp, long Direct, long Ticks)
+{
+    /// <summary>The work done since <paramref name="earlier"/>, of the same map.</summary>
+    /// <param name="earlier">An earlier reading.</param>
+    /// <returns>The difference, part by part.</returns>
+    public SunWork Since(SunWork earlier) => new(
+        Calls - earlier.Calls, LightCache - earlier.LightCache, StaticProp - earlier.StaticProp,
+        Direct - earlier.Direct, Ticks - earlier.Ticks);
+}
+
 /// <summary>The light a map casts at a world position: its bounce, its lamps and its sun.</summary>
 /// <remarks>
 /// **This is the engine's query, and it belongs behind an interface rather than on the window.**
@@ -116,6 +132,27 @@ public sealed class LevelLighting
 
     /// <summary>Since the map loaded: calls into the sun's leaf test and sky trace, counted inside it (B594).</summary>
     public long SunCalls { get; private set; }
+
+    /// <summary>
+    /// Since the map loaded: <see cref="SunCalls"/> by caller and the stopwatch ticks spent inside them, every count and the
+    /// time taken where the sun is asked for (B243). The ticks are taken only while <see cref="TimeSun"/> is on.
+    /// </summary>
+    public SunWork SunWork => new(SunCalls, _sunBy[(int)SunCaller.LightCache], _sunBy[(int)SunCaller.StaticProp],
+        _sunBy[(int)SunCaller.Direct], _sunTicks);
+
+    /// <summary>Whether <see cref="SunWork"/> times each call — `--measure` only, since it costs two clock reads a call.</summary>
+    public bool TimeSun { get; set; }
+
+    private readonly long[] _sunBy = new long[3];
+    private long _sunTicks;
+
+    /// <summary>Who asked for the sun: a light cache entry built, a static prop's state built, or a direct <see cref="SunAt"/>.</summary>
+    private enum SunCaller
+    {
+        LightCache,
+        StaticProp,
+        Direct,
+    }
 
     /// <summary>A light style a world light answers to changed: every cache entry is relit where it was built when next used.</summary>
     public void StylesChanged() => _styleVersion++;
@@ -251,7 +288,7 @@ public sealed class LevelLighting
             tree.LeafAt(x, y, z),
             Frame,
             allowFast: true,
-            () => new CachedLight(x, y, z, LightingAt(x, y, z), SunAt(x, y, z), _styleVersion));
+            () => new CachedLight(x, y, z, LightingAt(x, y, z), CellSun(SunCaller.LightCache, x, y, z), _styleVersion));
 
         if (entry.Built && entry.StyleVersion != _styleVersion)
         {
@@ -611,7 +648,9 @@ public sealed class LevelLighting
         int found = LocalLights.Strongest(_worldLights, x, y, z, nearest, static style => style == 0 ? 1f : 0f);
         Array.Resize(ref nearest, found);
 
-        SunLight? sun = _sun is { } light && _strikesSky is { } strikesSky ? SunFrom(light, strikesSky, x, y, z) : null;
+        SunLight? sun = _sun is { } light && _strikesSky is { } strikesSky
+            ? SunFrom(SunCaller.StaticProp, light, strikesSky, x, y, z)
+            : null;
 
         built = (found == 0 ? PointLighting.Bounce(bounced) : new PointLighting(bounced, nearest), sun);
         _staticStates[(x, y, z)] = built;
@@ -764,7 +803,10 @@ public sealed class LevelLighting
     /// normal, `TRACE_WORLD_ONLY` and `MASK_OPAQUE`, and the light counts only when it strikes `SURF_SKY`. This used to
     /// step through leaves until one was solid and call open air sky — which walked through every hillside.
     /// </remarks>
-    public SunLight? SunAt(float x, float y, float z)
+    public SunLight? SunAt(float x, float y, float z) => CellSun(SunCaller.Direct, x, y, z);
+
+    /// <summary><see cref="SunAt"/>, counted against the caller that asked.</summary>
+    private SunLight? CellSun(SunCaller caller, float x, float y, float z)
     {
         if (_sun is not { } sun || _strikesSky is not { } strikesSky)
         {
@@ -773,7 +815,31 @@ public sealed class LevelLighting
 
         (x, y, z) = CachePoint(x, y, z);
 
-        return SunFrom(sun, strikesSky, x, y, z);
+        return SunFrom(caller, sun, strikesSky, x, y, z);
+    }
+
+    /// <summary>The sun reaching exactly this point, counted and — measuring — timed where it runs.</summary>
+    private SunLight? SunFrom(
+        SunCaller caller,
+        BspWorldLight sun,
+        Func<(float X, float Y, float Z), (float X, float Y, float Z), bool> strikesSky,
+        float x,
+        float y,
+        float z)
+    {
+        SunCalls++;
+        _sunBy[(int)caller]++;
+
+        if (!TimeSun)
+        {
+            return SunFrom(sun, strikesSky, x, y, z);
+        }
+
+        long started = Stopwatch.GetTimestamp();
+        SunLight? reached = SunFrom(sun, strikesSky, x, y, z);
+
+        _sunTicks += Stopwatch.GetTimestamp() - started;
+        return reached;
     }
 
     /// <summary>The sun reaching exactly this point: <see cref="SunAt"/> without the cache cell.</summary>
@@ -785,8 +851,6 @@ public sealed class LevelLighting
     private SunLight? SunFrom(
         BspWorldLight sun, Func<(float X, float Y, float Z), (float X, float Y, float Z), bool> strikesSky, float x, float y, float z)
     {
-        SunCalls++;
-
         if (_leaves is { } tree && !tree.AdmitsSkyLight(x, y, z))
         {
             return null;

@@ -55,6 +55,20 @@ public sealed class FramePresenterTests
         frames.ParticleCounts.ShouldBe((0, 0, 0));
     }
 
+    /// <remarks>`r_threaded_particles` reaches the particle fork through the frame, both ways, so a user's 0 is honoured.</remarks>
+    [Test]
+    public void DrawOver_ThreadedParticlesOffThenOn_SwitchesTheParticleFork()
+    {
+        FramePresenter frames = Presenter();
+        FakeFrameDevice device = new();
+
+        frames.DrawOver(Frame() with { ThreadedParticles = false }, AlongX, device);
+        bool off = frames.ParticlesThreaded;
+        frames.DrawOver(Frame(), AlongX, device);
+
+        (off, frames.ParticlesThreaded).ShouldBe((false, true));
+    }
+
     [Test]
     public void DrawOver_WithAMapLoaded_UploadsTheLightmapThenTheDecalsThenTheParticles()
     {
