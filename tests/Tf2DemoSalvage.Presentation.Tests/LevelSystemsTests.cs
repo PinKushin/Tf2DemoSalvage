@@ -257,7 +257,13 @@ public sealed class LevelSystemsTests
         Task<GameContent> first = Task.Run(() => systems.Install(Locate));
         firstInside.Wait(TimeSpan.FromSeconds(10)).ShouldBeTrue("the first call reached the open");
 
-        Task<GameContent> second = Task.Run(() => systems.Install(Locate));
+        using ManualResetEventSlim secondStarted = new();
+        Task<GameContent> second = Task.Run(() =>
+        {
+            secondStarted.Set();
+            return systems.Install(Locate);
+        });
+        secondStarted.Wait(TimeSpan.FromSeconds(10)).ShouldBeTrue("the second call started");
 
         // Ungated, the second call reaches its own open at once; gated, it waits on the first and this times out.
         SpinWait.SpinUntil(() => Volatile.Read(ref opened) == 2, TimeSpan.FromMilliseconds(500));
