@@ -104,8 +104,9 @@ breaks the activity at other ticks; it is the route review 7 replaced, timed onl
 
 ## Verdict
 
-**Prediction confirmed**: a seek's recorder probes cost 14.05 ms mean and up to 85.85 ms, the cap 102.4 ms, all past the 2 ms
-threshold, and fast playback adds about 1 ms a frame. **The cache the brief proposed cannot be bit-identical and would barely
+**Prediction confirmed**: a seek's recorder probes cost 14.05 ms mean and up to 85.85 ms, one 2048-probe sample at the cap
+102.4 ms, all past the 2 ms threshold, and fast playback adds about 1 ms a frame. The cap figure is one sample with 26% of its
+probes predicting (523 of 2048), so it is not the worst case; and every figure is a lower bound (hooks and ground surfaces off). **The cache the brief proposed cannot be bit-identical and would barely
 pay**: every prediction restores from its own packet's networked state (`Restore(recorder, …, packet.Tick)`), so a state
 carried from packet N into N+1 differs from the per-probe route; and reuse within one packet is bounded by 1.19 probe ticks
 a packet — at most about 16% of the probes. Not built; reported to the lead with these numbers. What a bit-identical saving

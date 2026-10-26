@@ -272,7 +272,7 @@ synthetic test red under sabotage:
 **The batch-31 second review (2026-10-26)** — what it found, and one thing its fix broke on the way:
 
 - **The recorder's motion in the scan has a price** (*measured*, RISKS B602): one movement prediction per probe is 14 ms of a
-  seek on a POV match and 102 ms at the scan's cap (measurements/2026-10-26-pov-recorder-seek-scan.md). The obvious cache — predict once a packet and step forward — is not the
+  seek on a POV match and 102 ms in one sample at the scan's cap, a lower bound (measurements/2026-10-26-pov-recorder-seek-scan.md). The obvious cache — predict once a packet and step forward — is not the
   same answer, because the engine's `_Update` restores each packet's own networked state; it was measured, not built.
 - **The scan and the frame now find the current packet the same way**, through one index; on a demo whose packet ticks
   run backwards they had disagreed. **The wrong turn worth keeping:** the first index counted `dem_signon`s, which
@@ -284,5 +284,5 @@ synthetic test red under sabotage:
   `INT_MIN` weight is interpolated (RISKS B601). And the profiler's abandoned frames, and the install's first open under
   two threads, were each fixed with a test.
 - **One review claim the source does not support** (RISKS B598's re-read): during a monitor's draw an in-eye target IS drawn,
-  because `InFirstPersonView` defers to the local player's force-draw flag (`c_baseplayer.cpp:1927-1930`, `:1980-1984`);
-  left for the lead to rule on.
+  because `InFirstPersonView` defers to the local player's force-draw flag (`c_baseplayer.cpp:1927-1930`, `:1980-1984`),
+  which `ForceTempForceDraw` sets (`c_tf_player.cpp:9866-9868`); left for the lead to rule on.
