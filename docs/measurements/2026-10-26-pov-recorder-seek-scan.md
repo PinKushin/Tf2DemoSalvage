@@ -167,8 +167,10 @@ after:  rewind: first 2.036 ms, then mean 0.016 ms, max 0.042 ms; commands re-re
 **Prediction confirmed**: up to ~118k re-read before (115,338), ≤ 50 after (43).
 
 **Corrected 2026-10-26 (batch-33 review).** The control above compares views only, and the bound did not land in a fresh
-read's parse-ahead list on three synthetic shapes: a gap wider than 40 ticks (the start was counted from the target, not
-from the last packet read — views differed too), a backward tick run, and signons with no synctick after them. The start is
+read's parse-ahead list on four synthetic shapes: a gap wider than 40 ticks (the start was counted from the target, not
+from the last packet read — views differed too), a backward tick run with or without a synctick before it, and signons with
+no synctick after them. The five gcor POV specimens and z1800 keep the bound too (12-14 commands a rewind, 40.9 on the 2013
+specimen; 0 of 40 differ in each). The start is
 now counted from the last packet before the stop, and a read command stepping back in tick before the stop restarts from the
 file's start (`DemoPlayer.Restart`; held by `InterpolateViewpoint_RewoundToManyTargets_QueuesWhatAFreshReadQueues`, which
 compares the queue as well). Re-measured on the same demo (Release, `-Shared`, quiet desktop not checked):
