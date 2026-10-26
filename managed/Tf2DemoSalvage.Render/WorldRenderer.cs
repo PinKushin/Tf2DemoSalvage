@@ -2015,9 +2015,12 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
     /// <summary>Whether every one of the three slots is written through its ring, for a test's control.</summary>
     internal bool UsesConstantRing => _modelRing is not null && _boneRing is not null && _materialRing is not null;
 
-    private static ConstantRing? Ring(ComPtr<ID3D11DeviceContext> context)
+    /// <summary>Whether this renderer may use the rings; a test turns it off before the first draw for an A/B.</summary>
+    internal bool RingAllowed { get; set; } = RingWanted;
+
+    private ConstantRing? Ring(ComPtr<ID3D11DeviceContext> context)
     {
-        if (!RingWanted)
+        if (!RingAllowed)
         {
             return null;
         }

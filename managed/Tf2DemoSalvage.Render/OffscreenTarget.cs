@@ -838,6 +838,38 @@ internal sealed unsafe class OffscreenTarget : IDisposable
     /// <summary>Whether the model draws went through the constant rings (B597); false before any model draw.</summary>
     internal bool UsesConstantRing => _world?.UsesConstantRing ?? false;
 
+    /// <summary>Makes this target's renderer keep the discard-per-draw constant buffers, for an A/B against the rings (B597).</summary>
+    internal void WithoutConstantRing()
+    {
+        _world ??= WorldRenderer.Create(_device, _loggers);
+        _world.RingAllowed = false;
+    }
+
+    /// <summary>Every pixel's bytes, hashed row by row: the whole image, for an identity between two draws.</summary>
+    internal long ImageHash()
+    {
+        _context.CopyResource(_staging, _texture);
+
+        MappedSubresource mapped = default;
+        SilkMarshal.ThrowHResult(_context.Map(_staging, 0, Map.Read, 0, ref mapped));
+
+        try
+        {
+            StableHash hash = new();
+
+            for (int y = 0; y < _height; y++)
+            {
+                hash.Bytes(new ReadOnlySpan<byte>((byte*)mapped.PData + ((uint)y * mapped.RowPitch), _width * 4));
+            }
+
+            return hash.Result;
+        }
+        finally
+        {
+            _context.Unmap(_staging, 0);
+        }
+    }
+
     /// <summary>Reads one pixel back from the GPU.</summary>
     /// <param name="x">Column, from the left.</param>
     /// <param name="y">Row, from the TOP — image order, not clip space.</param>
