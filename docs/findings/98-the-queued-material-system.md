@@ -685,3 +685,48 @@ The queue's job is CPU submission, not waiting on the GPU (`Present` costs it 0.
 ~5 µs a draw against the world's 0.4 µs. The driver worker adds 1.6-2.2 ms on its own thread (finding 100 reproduced). Open:
 whether OpaqueModels' flat 0.85 ms of GPU time is vertex work or submission pacing. If it is vertex work, the GPU alone is
 over 1 ms at 720p.
+
+## (13) Follow-up, 2026-10-26: the face upload is kept on the device until the face changes (B597)
+
+Section 12 (branch `perf/model-pass-constant-ring`) split OpaqueModels into spans. The largest was the face: `Flex`,
+0.27-0.28 ms and 3.16 MB a frame (measurements/2026-10-26-b597-constant-ring-and-occlusion.md). A lap there is every
+model draw, so the 172 laps a frame are not 172 uploads. A class
+model's stream is about 27,000 vertices x 24 bytes, so 3.16 MB is about five whole faces a frame. *Arithmetic.*
+
+**How the engine does it.**
+- *Read from published source:* `C_BaseFlex::SetupWeights` (`c_baseflex.cpp:1147-1156`) is the per-draw callback. It
+  rebuilds the global weights (`:1189-1263`), runs the rules and the delay (`:1285-1330`, `RunFlexDelay` `:1265-1279`
+  decaying with `curtime`) on every draw. It has no change test and no distance cut.
+- *Read in disassembly* (x64 `studiorender.dll`; the names come from their telemetry strings, the field meanings are
+  *interpolated*): `R_StudioFlexMeshGroup` (`0x1800124f0`) is called per mesh group per draw by the mesh-group draw
+  (`0x180011de0`). It locks a dynamic flex mesh for the group's vertices and writes a position, normal and wrinkle delta
+  for each vertex. A vertex not flexed this draw gets zeros, judged by a per-draw stamp (`+0x3706d0` against a table at
+  `+0x3706e8`). The branch is gated per mesh group (`+0xc & 4`) and by a config bit read as `bFlex` (`+0x24 & 0x40`).
+  The hardware-morph branch (`ProcessFlexedMesh_SO`, `0x1800130f0`) is the alternative.
+- *Read from the shipped binaries' strings:* no flex LOD exists. The only cvars are `r_flex` (engine), `r_randomflex`
+  (studiorender), and `flex_rules` and `flex_smooth` (client). A face is cut only through model LOD, which this viewer
+  does not implement.
+
+**So the engine re-sends every face on every draw, as we did.** Skipping a face whose floats have not changed is an
+addition above Valve, allowed when the output is the same.
+
+**The change** (`FaceStreams`):
+- Each face array carries the stamp of the write its floats came from (`ModelInstance.FlexWritten`). The stamp is taken
+  from one counter: on `FlexFor`'s weight-equality miss, which is where the stream is rewritten in place, and once per
+  resting face.
+- The renderer keeps one dynamic buffer per array, keyed on the array, and re-sends it only for a new stamp, a new
+  array, or the stamp 0. Stamp 0 means unknown, so a face built by hand always uploads.
+- Because the cache is keyed on the array, a resting face shared by every instance of a model goes up once, and a class
+  change (a new array) gets a new buffer.
+- A buffer not drawn in the last frame is released at the start of `DrawFrame`.
+- **Queue:** the stamp is a value captured at the hand-off. The pose waits for the previous draw before any rewrite
+  (section 9). A re-send uses `WRITE_DISCARD`, so the GPU keeps what an earlier draw was given.
+
+**Identity:**
+- `FaceFlexRenderTests.Draw_AFaceSequenceThroughTheCache_IsPixelIdenticalToUploadingEveryDraw` draws six frames, cache
+  on against off, and every pixel is equal. Its stale control shows the cache is live.
+- `FaceFlexAnimationDemoTests.FlexWritten_AMedicPlayingAFlexAnimation_ChangesExactlyWhenItsFaceDoes` checks the
+  scene's half: 66 held, 65 changed. Every re-pose at the same time held, and every new tick changed.
+- Sabotage: keeping the stamp on a rewrite reddened the second test. Skipping regardless of stamp reddened the first.
+
+**Numbers:** measurements/2026-10-26-b597-face-cache.md.
