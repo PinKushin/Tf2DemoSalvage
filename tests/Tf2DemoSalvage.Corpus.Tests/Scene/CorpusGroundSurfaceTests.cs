@@ -6,6 +6,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 
 using Tf2DemoSalvage.Content.Bsp;
 using Tf2DemoSalvage.Core.Scene;
+using Tf2DemoSalvage.Presentation;
 using Tf2DemoSalvage.Scene;
 
 namespace Tf2DemoSalvage.Core.Tests.Scene;
@@ -59,11 +60,12 @@ public sealed class CorpusGroundSurfaceTests
     public void GroundTrace_ThePovRecorderOnTheGround_ReportsItsStartSolidRate()
     {
         string game = SdkReference.GameInstall.Require();
-        string mapPath = Path.Combine(game, "maps", "cp_process_f12.bsp");
 
-        if (!File.Exists(mapPath))
+        // The viewer's own search — the install, then this application's downloaded maps — as the B604 probes open it.
+        if (new MapLocator(MapProvider.SteamLibraryFile, MapProvider.OwnMapsFolder).Find("cp_process_f12") is not { } mapPath)
         {
-            Assert.Ignore($"{mapPath} is not installed; the recorder's floor cannot be traced without it");
+            Assert.Ignore("cp_process_f12 is neither installed nor downloaded; the recorder's floor cannot be traced without it");
+            return;
         }
 
         DemoTimeline timeline = DemoTimeline.Build(File.ReadAllBytes(Corpus.Demo("rgl-pug-2026-08-10-pov")));
