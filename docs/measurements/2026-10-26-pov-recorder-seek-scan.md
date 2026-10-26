@@ -218,3 +218,41 @@ included, so it is no control; the per-probe side count and the margin-0 sweep (
 item hooks and ground surfaces (`wired`, printed) left every figure identical to print precision with the unwired run: the
 control line shows the inputs exist, not that prediction read them, so the 2026-10-26 "lower bound" caveat is not resolved.
 The `exact` route is production's `ActivityPlayerAt` recomposed from the timeline's public pieces in `RecorderGate`.
+
+## B604's cause, and the counts before and after its fix
+
+**Environment:** the owner's desktop, 2026-10-26, branch `fix/b604-pov-prediction-speed`, `-c Release`, `run-exclusive.ps1
+-Shared`. **Counts only:** the machine was not quiet (CPU 44-91%, other agents), so no millisecond here is a result.
+
+**Instrument:** `recorder-prediction-gaps <demo> [print]`. From every packet, it re-runs the commands the next packet
+acknowledges, selected by sequence because this demo's acknowledgement lags its reads, through `PredictFrom`, the
+production route, wired. It compares the result with that next packet's networked velocity, which is the server's answer.
+Zeroed gaps are tagged, with the agreeing gaps' rates beside them as the baseline. Controls printed: gaps alive at both ends
+(95,713 of 118,282 packets, 83,267 compared, 0 declined), dormant living enemies seen (100, so the reading works), and
+whether the installed map is the recorded build (**False**: `cp_process_final`'s MapHash differs).
+
+**Before** (`6fee5c39`): within 1 u/s 61,014 of 83,267 (73.3%), mean |Δv| 25.718 u/s; still against the server over
+100 u/s: **7,723**. Of those, 98.4% are on the ground (66.2% of agreeing gaps) and 89.2% have the hull clear at the restored
+origin (99.3%). A temporary, uncommitted instrument on `TryPlayerMove`'s zeroing sites put them at the stuck re-trace after a
+clear sweep (43%), all-solid (25%) and `allFraction == 0` (21%). A clear sweep that ends embedded points at the sweep. With
+the entry clamp alone, as a manipulation before any test: 2,369. With startsolid-but-gets-out no longer zeroing the fraction,
+on top: 2,347, so that part was not the cause, and it was reverted.
+
+**After** (the fix, `fac73fdd`): within 1 u/s 65,636 (78.9%), mean |Δv| 10.492 u/s; still against running **2,376**. Of
+those, 23.3% start inside world geometry at the restored origin (agreeing gaps: 10). Of the stuck ones, 376 clear only when
+raised 18 units and 77 when raised 4. 11.7% have a static prop one step on (agreeing: 0.7%). Most likely the 2020 map build,
+which is not installed; *interpolated, not fetched*.
+
+**`recorder-speed-gate <demo> 300` with the per-probe dump, paired on the 18,076 probe ticks both runs asked:**
+
+| | before | after |
+|---|---:|---:|
+| flips against the networked speed | 1,372 | 656 (716 fixed, **0 new**) |
+| \|exact − networked\| < 1 u/s | 72.4% | 74.4% |
+| right before, moved > 1 u/s after | — | 8 (none changed side) |
+| the run's own total flips / viewed living probes | 1,392 / 19,601 (7.1%) | 724 / 33,368 (2.2%) |
+| margin with 0 fit probes wrong | 1,022.6 u/s (99.9% predict) | 825.6 u/s (98.7% predict) |
+
+There are more probes after because the scan scans back to the recorder's last activity change, which he now has more often
+(running, not standing). **The cheap route still does not match** (724 flips, 675 of them siding with the next packet over
+exact), so the scan was not switched to it. The residual is the map question above.

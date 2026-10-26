@@ -305,3 +305,14 @@ synthetic test red under sabotage:
   1,356 of them, and the frame draws prediction's 0. The reference the hybrid had to match is itself wrong there (B604).
   The track route, the brief's named cheap half, was worse on every count: a 13.7 u/s median error against 0, and
   80,003 u/s through teleports.
+- **The still-standing recorder was the world trace, not the movement code** (*measured by manipulation; read from published
+  source*, RISKS B604). The 2009 badlands demo, the only prediction test on real bytes, has median error 0. Read gap by gap
+  against the next packet on etf2l-12025, the failures had one shape: on the ground, hull clear at the start, every bit of
+  velocity removed in the first command. An instrument on `TryPlayerMove`'s zeroing sites put most of them at the stuck
+  re-trace after a sweep that had reported clear. The sweep was wrong. `BspLeafTree.ClipToBrush` dropped an entry fraction
+  that came out negative, which happens whenever the box starts nearer the face than `DIST_EPSILON`. Every movement trace
+  stops exactly that far short, so a player resting against a wall or a slope passed into the brush and was stopped dead.
+  Quake 2's `CM_ClipBoxToBrush` keeps any entry above −1 and clamps it to 0, and our own box sweep already did. **Our code
+  comment had quoted the rule as `enterfrac >= 0`.** That was a misremembered citation, written down with confidence.
+  Clamping took the still-against-running gaps from 7,723 to 2,376. The remainder starts inside geometry that a mismatched
+  map build would explain.
