@@ -40066,6 +40066,18 @@ reddens four tests), and a child's drawn size against its own scale alone.
   `pl_badwater_pro_v12.bsp` is not on this machine (not under the game's `tf/maps`, `tf/download/maps`, `tf2ds`, or the
   user profile), so its `parentname` cannot be read, and no sampled tick gives them a parent.
 
+## B597 — the render thread's 2.2 ms is CPU submission; half is the opaque models' per-draw cost — OPEN (2026-10-25)
+
+**Evidence class: measured** (`docs/measurements/2026-10-25-render-thread-cpu-vs-gpu.md`; `--measure` now prints every pass of
+`DrawFrame` with CPU, GPU timestamps, draws, maps and primitives). f12 gummo first person, mode 2, every figure below from
+measurements/2026-10-25-render-thread-cpu-vs-gpu.md: passes sum to 2.18-2.22 ms CPU; **OpaqueModels 1.07** (209 draws, 421 maps, ~5.1 µs a draw against the world's 0.4), **Occlusion 0.37** (376 one-quad
+draws, 752 maps), Sky3D/collation 0.22, the rest ~0.4. GPU work 1.50 / 1.75 / 2.0 ms at 640x360 / 1280x720 / 1644x931, only
+~0.5 ms of it pixel-bound; OpaqueModels' GPU 0.85 ms is flat with pixels and **not yet split into vertex execution vs
+submission pacing** — that control decides whether the GPU alone caps a 1 ms frame. Driver worker 1.6-2.2 ms on its own
+thread. **Next:** per-draw maps on the model path to one per-frame constant buffer bound by offset; occlusion proxies in one
+buffer (parity check first: which renderables the engine gives a pixel-visibility handle); the vertex control; the empty
+view with a free camera (`TF2VIEW_CAMERA` is ignored under `--first-person`, so that condition was void).
+
 ## B596 — is the Debug build part of the viewer-vs-TF2 f12 gap? No: Debug and Release are the same program — CLOSED (2026-10-24)
 
 **Evidence class: measured, with a code reading it confirms** (`docs/measurements/2026-10-24-debug-vs-release-f12.md`).

@@ -1,8 +1,8 @@
 # One reading: quiet gate, the viewer under run-exclusive, finding 100's thread sampler beside it.
 # Stdout -> $Out/$Name.txt, sampler -> $Out/$Name.csv. Exit 2 = gate not met within $GateMinutes.
-param([string]$Exe, [string]$Out, [string]$Name, [string]$Size = '1280x720', [string]$Camera, [int]$GateMinutes = 20)
+param([string]$Exe, [string]$Out, [string]$Name, [string]$Size = '1280x720', [string]$Camera, [int]$GateMinutes = 20, [switch]$Free)
 $ErrorActionPreference = 'Stop'
-function Busy { @(Get-CimInstance Win32_Process | Where-Object { $_.Name -eq 'tf2demoview.exe' -or $_.CommandLine -match 'run-one|--measure ' }).Count -gt 0 }
+function Busy { @(Get-CimInstance Win32_Process | Where-Object { $_.Name -eq 'tf2demoview.exe' -or $_.Name -match '^(dotnet|testhost|MSBuild|VBCSCompiler)' -or $_.CommandLine -match 'run-one|--measure ' }).Count -gt 0 }
 function Load { (Get-CimInstance Win32_Processor | Measure-Object LoadPercentage -Average).Average }
 $deadline = (Get-Date).AddMinutes($GateMinutes)
 while ($true) {
@@ -16,7 +16,9 @@ while ($true) {
 $env:TF2VIEW_AUTOPLAY = '1'; $env:TF2VIEW_VIEWPORT_SIZE = $Size
 if ($Camera) { $env:TF2VIEW_CAMERA = $Camera } else { Remove-Item Env:TF2VIEW_CAMERA -ErrorAction SilentlyContinue }
 $args2 = @('-NoProfile', '-File', 'C:/Users/pinku/source/repos/PinKushin/run-exclusive.ps1', $Exe, 'D:/measure-f12/f12.dem', '--tick', '30000',
-  '--spectate', 'gummo', '--first-person', '--measure', '20', '+fps_max', '0', '+mat_queue_mode', '2')
+  '--measure', '20', '+fps_max', '0', '+mat_queue_mode', '2')
+# -Free: no spectate target, so TF2VIEW_CAMERA is the view (under --first-person it was ignored: 04-E/11-E drew M's scene).
+if (-not $Free) { $args2 += '--spectate', 'gummo', '--first-person' }
 $p = Start-Process pwsh -ArgumentList $args2 -PassThru -NoNewWindow -RedirectStandardOutput "$Out/$Name.txt" -RedirectStandardError "$Out/$Name.err"
 $full = (Resolve-Path $Exe).Path
 $v = $null
