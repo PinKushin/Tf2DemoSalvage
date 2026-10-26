@@ -1778,6 +1778,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
                 // than trust the last one to have tidied up.
                 _context.OMSetDepthStencilState(_depthOn, 0);
 
+                SubmitSpans.Restart();
                 ReportRepeatedModels(models);
 
                 // **Biggest first, which is what the engine does and why it does it.**
@@ -1791,6 +1792,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
                 // blending is order-dependent, and a size sort there would put a window in front of
                 // what should show through it.
                 ReportDrawOrder(models, _collatedInstances);
+                SubmitSpans.Lap(SubmitSpan.Diagnostics);
 
                 // Biggest bucket first, each in collation order (`viewrender.cpp:4188`).
                 for (int bucket = 0; bucket < ClientLeafSystem.BucketCount; bucket++)
@@ -4614,12 +4616,16 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
             return;
         }
 
+        SubmitSpans.Restart();
         ReportBodySelection(instance, _world.ModelBatches(instance.ModelPath, instance.Frame));
+        SubmitSpans.Lap(SubmitSpan.Renderable);
 
         DrawInstance(instance, twoPass ? ModelPass.OpaqueOnly : ModelPass.EntireModel);
 
         // **Its decals straight after it, with its bones still bound** — `CStudioRender::DrawModel` draws a
         // model's decal meshes after its own (B415).
+        SubmitSpans.Restart();
+
         if (instance.EntityIndex > 0 &&
             ModelDecals?.For(instance.EntityIndex) is { } decals)
         {
@@ -4627,6 +4633,8 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
                 _device, _context, decals.Vertices, decals.Batches, instance.Bones?.Count ?? 0);
             _context.OMSetDepthStencilState(_depthOn, 0);
         }
+
+        SubmitSpans.Lap(SubmitSpan.Renderable, counted: false);
     }
 
     /// <summary>The render group collation asks for — <see cref="Classify"/>, once per collated renderable.</summary>

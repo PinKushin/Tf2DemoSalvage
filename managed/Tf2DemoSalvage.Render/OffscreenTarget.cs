@@ -835,6 +835,31 @@ internal sealed unsafe class OffscreenTarget : IDisposable
         _points.DrawLines(_device, _context, segments, red, green, blue);
     }
 
+    /// <summary>Every pixel's bytes, hashed row by row: the whole image, for an identity between two draws.</summary>
+    internal long ImageHash()
+    {
+        _context.CopyResource(_staging, _texture);
+
+        MappedSubresource mapped = default;
+        SilkMarshal.ThrowHResult(_context.Map(_staging, 0, Map.Read, 0, ref mapped));
+
+        try
+        {
+            StableHash hash = new();
+
+            for (int y = 0; y < _height; y++)
+            {
+                hash.Bytes(new ReadOnlySpan<byte>((byte*)mapped.PData + ((uint)y * mapped.RowPitch), _width * 4));
+            }
+
+            return hash.Result;
+        }
+        finally
+        {
+            _context.Unmap(_staging, 0);
+        }
+    }
+
     /// <summary>Reads one pixel back from the GPU.</summary>
     /// <param name="x">Column, from the left.</param>
     /// <param name="y">Row, from the TOP — image order, not clip space.</param>

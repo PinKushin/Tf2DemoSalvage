@@ -108,6 +108,27 @@ public sealed class PassLedger
     private long _skipped;
     private long _disjoint;
     private long _abandoned;
+    private readonly long[] _spanTicks = new long[PassCount * SubmitSpans.Count];
+    private readonly long[] _spanLaps = new long[PassCount * SubmitSpans.Count];
+    private readonly long[] _spanBytes = new long[PassCount * SubmitSpans.Count];
+
+    /// <summary>One frame's model-path spans, pass-major (<see cref="SubmitSpans"/>).</summary>
+    public void AddSpans(long[] ticks, long[] laps, long[] bytes)
+    {
+        ArgumentNullException.ThrowIfNull(ticks);
+        ArgumentNullException.ThrowIfNull(laps);
+        ArgumentNullException.ThrowIfNull(bytes);
+
+        lock (_gate)
+        {
+            for (int at = 0; at < _spanTicks.Length; at++)
+            {
+                _spanTicks[at] += ticks[at];
+                _spanLaps[at] += laps[at];
+                _spanBytes[at] += bytes[at];
+            }
+        }
+    }
 
     /// <summary>One pass's CPU side, from the frame being drawn.</summary>
     public void AddCpu(RenderPass pass, long ticks, long draws, long uploads)
@@ -211,6 +232,29 @@ public sealed class PassLedger
                 uploadsAll += _uploads[at];
                 text.Append(CultureInfo.InvariantCulture,
                     $"\n    {pass}: cpu {cpuEach(_cpuTicks[at]):0.000} ms, gpu {gpuEach(_gpuMs[at]):0.000} ms, draws {countEach(_draws[at], _cpuFrames):0.0}, maps {countEach(_uploads[at], _cpuFrames):0.0}, primitives {countEach(_primitives[at], _gpuFrames):0}, pixels {countEach(_pixels[at], _gpuFrames):0}");
+
+                // The model path's spans in this pass; the remainder of the pass's CPU is what no span covers.
+                long spanned = 0;
+
+                foreach (SubmitSpan span in Enum.GetValues<SubmitSpan>())
+                {
+                    int s = (at * SubmitSpans.Count) + (int)span;
+
+                    if (_spanLaps[s] == 0)
+                    {
+                        continue;
+                    }
+
+                    spanned += _spanTicks[s];
+                    text.Append(CultureInfo.InvariantCulture,
+                        $"\n        span {span}: cpu {cpuEach(_spanTicks[s]):0.0000} ms, laps {countEach(_spanLaps[s], _cpuFrames):0.0}, bytes {countEach(_spanBytes[s], _cpuFrames):0}");
+                }
+
+                if (spanned != 0)
+                {
+                    text.Append(CultureInfo.InvariantCulture,
+                        $"\n        unspanned: cpu {cpuEach(_cpuTicks[at] - spanned):0.0000} ms");
+                }
             }
 
             text.Append(CultureInfo.InvariantCulture,
@@ -271,6 +315,14 @@ public sealed unsafe class PassProfiler : IDisposable
     private readonly long[] _frameCpu = new long[PassCount];
     private readonly long[] _frameDraws = new long[PassCount];
     private readonly long[] _frameUploads = new long[PassCount];
+
+    // The model draw path's spans (SubmitSpans): totals at the previous mark, and this frame's per pass, pass-major.
+    private readonly long[] _spanTicks = new long[SubmitSpans.Count];
+    private readonly long[] _spanLaps = new long[SubmitSpans.Count];
+    private readonly long[] _spanBytes = new long[SubmitSpans.Count];
+    private readonly long[] _frameSpanTicks = new long[PassCount * SubmitSpans.Count];
+    private readonly long[] _frameSpanLaps = new long[PassCount * SubmitSpans.Count];
+    private readonly long[] _frameSpanBytes = new long[PassCount * SubmitSpans.Count];
 
     private PassProfiler(Slot[] slots) => _slots = slots;
 
@@ -335,9 +387,32 @@ public sealed unsafe class PassProfiler : IDisposable
         context.Begin(slot.Disjoint);
         context.End(slot.Start);
         _pass = -1;
+        SubmitSpans.On = true;
+        SnapshotSpans();
         _passStart = Stopwatch.GetTimestamp();
         _draws = SubmitCounters.Draws;
         _uploads = SubmitCounters.Uploads;
+    }
+
+    private void SnapshotSpans()
+    {
+        SubmitSpans.Ticks.CopyTo(_spanTicks);
+        SubmitSpans.Laps.CopyTo(_spanLaps);
+        SubmitSpans.Bytes.CopyTo(_spanBytes);
+    }
+
+    private void AddSpans(int pass)
+    {
+        for (int s = 0; s < SubmitSpans.Count; s++)
+        {
+            int at = (pass * SubmitSpans.Count) + s;
+
+            _frameSpanTicks[at] += SubmitSpans.Ticks[s] - _spanTicks[s];
+            _frameSpanLaps[at] += SubmitSpans.Laps[s] - _spanLaps[s];
+            _frameSpanBytes[at] += SubmitSpans.Bytes[s] - _spanBytes[s];
+        }
+
+        SnapshotSpans();
     }
 
     /// <summary>The pass just drawn ends here; the next begins.</summary>
@@ -368,6 +443,7 @@ public sealed unsafe class PassProfiler : IDisposable
         _frameCpu[at] += now - _passStart;
         _frameDraws[at] += SubmitCounters.Draws - _draws;
         _frameUploads[at] += SubmitCounters.Uploads - _uploads;
+        AddSpans(at);
 
         _pass = at;
         context.Begin(slot.Statistics[at]);
@@ -393,6 +469,7 @@ public sealed unsafe class PassProfiler : IDisposable
         context.End(slot.Disjoint);
         slot.Issued = true;
         _current = null;
+        SubmitSpans.On = false;
 
         for (int at = 0; at < PassCount; at++)
         {
@@ -401,6 +478,8 @@ public sealed unsafe class PassProfiler : IDisposable
                 Ledger.AddCpu((RenderPass)at, _frameCpu[at], _frameDraws[at], _frameUploads[at]);
             }
         }
+
+        Ledger.AddSpans(_frameSpanTicks, _frameSpanLaps, _frameSpanBytes);
 
         ClearFrameCpu();
         Ledger.CpuFrame();
@@ -429,6 +508,7 @@ public sealed unsafe class PassProfiler : IDisposable
 
         context.End(abandoned.Disjoint);
         _current = null;
+        SubmitSpans.On = false;
         ClearFrameCpu();
         Ledger.Abandoned();
     }
@@ -438,6 +518,9 @@ public sealed unsafe class PassProfiler : IDisposable
         Array.Clear(_frameCpu);
         Array.Clear(_frameDraws);
         Array.Clear(_frameUploads);
+        Array.Clear(_frameSpanTicks);
+        Array.Clear(_frameSpanLaps);
+        Array.Clear(_frameSpanBytes);
     }
 
     /// <inheritdoc/>

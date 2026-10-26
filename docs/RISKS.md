@@ -40309,6 +40309,36 @@ thread. **Next:** per-draw maps on the model path to one per-frame constant buff
 buffer (parity check first: which renderables the engine gives a pixel-visibility handle); the vertex control; the empty
 view with a free camera (`TF2VIEW_CAMERA` is ignored under `--first-person`, so that condition was void).
 
+**2026-10-26 (`perf/model-pass-constant-ring`): the maps were NOT the cost; occlusion −0.19 ms (measurements/2026-10-26-b597-constant-ring-and-occlusion.md); the rings bought
+nothing.** *Measured* (`docs/measurements/2026-10-26-b597-constant-ring-and-occlusion.md`, quiet runs A 01/04, B 02/05,
+R 06/09/10; every figure from there). `SubmitSpans` (on only under `--measure`) laps the clock at each boundary of the
+model draw path. Of OpaqueModels' 1.14-1.15 ms, the three constant maps are 0.10 ms (9%, measurements/2026-10-26-b597-constant-ring-and-occlusion.md); **the face upload (`BindFlex`,
+3.16 MB a frame) is 0.27-0.28 ms** (measurements/2026-10-26-b597-constant-ring-and-occlusion.md), per-batch state and binds 0.16, the model proxies 0.15 (0.73 µs a material against
+the world's 0.035), `BindPipeline` per model 0.075, the cubemap search 0.07, the renderable's report and decals 0.06,
+the string-keyed reports 0.045, unspanned 0.115. **Per-slot D3D11.1 constant rings** (`ConstantRing`, offset binding,
+NO_OVERWRITE with a discard on first use and on wrap): **no gain; +0.011 to +0.017 ms in OpaqueModels and +0.011 to +0.013 in World**, matched by load (measurements/2026-10-26-b597-constant-ring-and-occlusion.md).
+**Reverted on the owner's word, *"Revert, keep occlusion"* (D235)**: the maps they replaced were ~9% of the pass, and they
+measured slower; the rings-off runs (R) measured the state that ships.
+**Occlusion proxies in one upload a frame**: 0.372-0.377 → 0.174-0.192 ms, maps 752 → 2 (measurements/2026-10-26-b597-constant-ring-and-occlusion.md). Render thread draw
+−0.19 to −0.21 ms matched by load (measurements/2026-10-26-b597-constant-ring-and-occlusion.md; the quiet A-B-R triples are confounded by run order: untouched passes drift with it);
+frame and driver worker unchanged within spread. Identity: byte-identical in-process — the rings against
+discard-per-draw while they existed, and now `OcclusionQueriesRenderTests` (every pixel of a 64-batch, 48-model scene
+with 64 proxies issued between the world and the models, against none; sabotaged: proxies writing colour reddened it,
+every query drawing the first quad reddened it and the per-quad count test); the viewer's image hash fails its own A-against-A control
+(2 of 201), pose and cull match 195/195 and 201/201; queue verify 741,500 frames, 0 changed. **Next, in order of size:**
+the face upload (upload only what moves, or keep a face's stream and rewrite it only when its weights change); a state
+cache inside the opaque bucket loop (8+3 SRVs, blend, raster and depth set every batch); the model proxies; the per-model
+cubemap search; the string-keyed reports; the occlusion `GetData(…, 0)` polls (they can flush; changing that changes when
+results arrive, so it is a parity question).
+
+**Found on the way, OPEN, not fixed (2026-10-26):** an offscreen renderer drawing world batches then posed models gives a
+different picture the FIRST time than every time after — the same two hashes with the rings and without, and with the
+proxies and without (`OcclusionQueriesRenderTests`). *Measured by a throwaway split:* world-only scenes repeat, model-only scenes repeat; only the two
+together differ, so some state crosses from the world draw into the model draws (or back) on the first scene. Not
+localised further. Candidate, *read, not tested*: `DrawModel` picks the animation frame with `AnimationFrame(
+batch.MaterialIndex, …)` BEFORE `SetMaterial` runs the proxies, the order B343 moved at the other draw sites, and by the
+batch's own material rather than the skin-resolved one. A pixel-changing fix, so not on a performance branch.
+
 ## B598 — the zoomed local player and his gear were drawn; the engine hides them from every view — FIXED 2026-10-25 (`fix/four-parity-divergences`)
 
 **Read:** `C_TFPlayer::ShouldDraw` returns false for `this == GetLocalTFPlayer()` in `TF_COND_ZOOMED`
