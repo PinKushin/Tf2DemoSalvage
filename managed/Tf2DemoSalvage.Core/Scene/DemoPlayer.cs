@@ -42,9 +42,6 @@ public sealed class DemoPlayer
     /// <summary>For each command, the latest <c>dem_packet</c> tick at or before it in stream order: non-decreasing, so searchable.</summary>
     private readonly int[] _latestPacketTick;
 
-    /// <summary>The first read command whose tick is below the one straight before it; <see cref="int.MaxValue"/> if none.</summary>
-    private readonly int _firstBackwardStep = int.MaxValue;
-
     private readonly float _interval;
     private readonly int _maxClients;
     private readonly float _interpAmount;
@@ -63,6 +60,12 @@ public sealed class DemoPlayer
 
     /// <summary><c>m_bInterpolateView</c> (+0x63c), from the last packet's parse-ahead.</summary>
     private bool _interpolateView;
+
+    /// <summary><c>m_bInterpolateView</c>, for a test that a rewind lands in a fresh read's state.</summary>
+    internal bool InterpolatesView => _interpolateView;
+
+    /// <summary>Whether a rewind may start near its target rather than at the file's start — see <see cref="Simple"/>.</summary>
+    internal bool IsSimple { get; }
 
     /// <summary><c>m_bResetInterpolation</c> (+0x63d).</summary>
     private bool _resetInterpolation;
@@ -91,21 +94,73 @@ public sealed class DemoPlayer
             // Only a dem_packet waits for its tick; a signon is read when reached, and real ones carry the server's tick.
             latest = _commands[index].Type == DemoCommandType.Packet ? Math.Max(latest, _commands[index].Tick) : latest;
             _latestPacketTick[index] = latest;
-
-            // A backward step — see `Restart`: a read command straight after another with a higher tick (signons with no
-            // synctick between them and the packets, whose parse-ahead never ends), or a dem_packet below an earlier
-            // dem_packet across any marker (a backward run after a synctick).
-            if (_firstBackwardStep == int.MaxValue && index > 0 && _commands[index].IsPacket &&
-                ((_commands[index - 1].IsPacket && _commands[index].Tick < _commands[index - 1].Tick) ||
-                 (_commands[index].Type == DemoCommandType.Packet && _commands[index].Tick < _latestPacketTick[index - 1])))
-            {
-                _firstBackwardStep = index;
-            }
         }
 
+        IsSimple = Simple(_commands);
         _interval = timeline.IntervalPerTick > 0f ? timeline.IntervalPerTick : PlaybackClock.DefaultIntervalPerTick;
         _maxClients = timeline.MaxClients;
         _interpAmount = (float)timeline.ClientInterpAmount;
+    }
+
+    /// <summary>Whether a bounded rewind provably lands in a fresh read's state (batch-33 review 2): the conservative shape.</summary>
+    /// <remarks>
+    /// **The shape, and why each part is needed.** The commands this reader sees are signons and packets (both read, both
+    /// parse ahead), and the synctick and stop that end a parse-ahead (<see cref="ParseAheadForInterval"/>). The file is
+    /// simple when it is an opening, then a body:
+    ///
+    /// - **the body is every command after the opening, all <c>dem_packet</c>, ticks never stepping back**, with only
+    ///   <c>dem_stop</c> after it — no mid-file signon, synctick or stop, whose parse-ahead differs;
+    /// - **the opening ends in a synctick or stop**, so no opening parse-ahead reaches into the body;
+    /// - **every read command of the opening after the first is ticked past the whole body**, so whatever the opening left
+    ///   in the list is cleared by the body's first append (a lower tick after a higher one); the first command is never in
+    ///   the list, since a parse-ahead queues only what follows it.
+    ///
+    /// Then the list after reading body packet <c>L</c> holds only body packets, and the ones older than <c>L - 32</c> are
+    /// pruned — so a start at a body packet older than <c>L - 40</c> builds the same list (<see cref="Restart"/>). A real
+    /// recording opens with signons ticked at the server's tick and a synctick, so it is simple unless its packets step back.
+    /// Anything else rewinds from the file's start, which is the engine's own reload and correct by construction.
+    /// </remarks>
+    private static bool Simple(IReadOnlyList<DemoViewCommand> commands)
+    {
+        int end = commands.Count;
+
+        while (end > 0 && commands[end - 1].Type == DemoCommandType.Stop)
+        {
+            end--;
+        }
+
+        int body = end;
+
+        while (body > 0 && commands[body - 1].Type == DemoCommandType.Packet)
+        {
+            body--;
+        }
+
+        // Two packets at least, or there is nothing to bound; and an opening, if any, closed by a marker.
+        if (end - body < 2 || (body > 0 && commands[body - 1].Type is not (DemoCommandType.SyncTick or DemoCommandType.Stop)))
+        {
+            return false;
+        }
+
+        for (int index = body + 1; index < end; index++)
+        {
+            if (commands[index].Tick < commands[index - 1].Tick)
+            {
+                return false;
+            }
+        }
+
+        int highest = commands[end - 1].Tick;
+
+        for (int index = 1; index < body; index++)
+        {
+            if (commands[index].IsPacket && commands[index].Tick <= highest)
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /// <summary>The watcher's <c>demo_*</c> ConVars, asked on every interpolation.</summary>
@@ -385,23 +440,24 @@ public sealed class DemoPlayer
     /// target inside it). With ticks that never step back that start lands in a fresh read's list: every packet before it
     /// is older than <c>last - 32</c>, at the list's front, and pruned by the last read.
     ///
-    /// **From the start of the file when a read command steps back in tick before the stop** — a backward run, whose
-    /// parse-ahead clears the list, or signons with no synctick after them, whose parse-ahead queues the rest of the file.
-    /// What either leaves in the list depends on reads before any bounded start. Ponytail: none of the seven real POV
-    /// recordings measured (the five gcor POV specimens, z1800, etf2l-12025; `demo-player-rewind`, 2026-10-26) trips
-    /// it — each re-reads 12-43 commands a rewind — so only a demo whose ticks run backwards pays the full re-read (45 ms
-    /// at most on etf2l-12025, measured unbounded); a per-step bound is possible if one shows up.
+    /// **Bounded only for a <see cref="IsSimple"/> file; anything else re-reads from the start** (owner and lead,
+    /// batch-33 review 2: "stop chasing edge cases; make the bound conservative"). Three reviews each found a shape the
+    /// bound got wrong — a gap, a backward run, a backward run after a synctick, signons with no synctick — and a fourth
+    /// listed more; a reload from the start is the engine's own `SkipToTick` and right by construction, so it is the
+    /// answer for every shape the bound has not been proved on. `m_bInterpolateView` is cleared with the rest of the
+    /// reader's state, as a fresh player has it.
     /// </remarks>
     private void Restart(int playbackTick)
     {
         _packets.Clear();
         _current = -1;
+        _interpolateView = false;
         _lastInterpolatedTick = HostTickCount;
 
         int stop = FirstPacketPast(playbackTick);
         int from = 0;
 
-        if (stop > 0 && stop <= _firstBackwardStep && _latestPacketTick[stop - 1] != int.MinValue)
+        if (IsSimple && stop > 0 && _latestPacketTick[stop - 1] != int.MinValue)
         {
             // With ticks that never step back, the running maximum is the last packet's own tick.
             int oldest = _latestPacketTick[stop - 1] - KeptTicks - ParseAheadTicks;
