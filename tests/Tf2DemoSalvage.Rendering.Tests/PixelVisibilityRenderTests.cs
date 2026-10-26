@@ -87,6 +87,63 @@ public sealed class PixelVisibilityRenderTests
     }
 
     /// <remarks>
+    /// **The shared upload across a buffer's growth and its reuse** (B597): a frame of 4 proxies (24 corners, the line
+    /// renderer's first 128-vertex buffer), then 32 (192 corners, so the buffer is rebuilt at 256), then 32 again with every
+    /// depth swapped (the 256 reused). Every proxy over the wall's half alternates in front of it and behind it, so a query
+    /// drawing another proxy's corners, or corners left from the frame before, counts the wrong one.
+    /// </remarks>
+    [Test]
+    public void Count_AFrameThatGrowsTheBufferThenOneThatReusesIt_CountsEveryProxyAsItsOwn()
+    {
+        if (Walled() is not { } target)
+        {
+            return;
+        }
+
+        using (target)
+        {
+            // Over the wall (x < 0), 4 columns by 8 rows; a proxy at 0.2 is in front of it, at 0.5 behind it.
+            List<PixelVisibilityProxy> Grid(int count, bool evenInFront)
+            {
+                List<PixelVisibilityProxy> grid = [];
+
+                for (int cell = 0; cell < count; cell++)
+                {
+                    float x = -0.875f + (cell % 4 * 0.25f);
+                    float y = -0.875f + (cell / 4 * 0.25f);
+                    bool front = cell % 2 == 0 == evenInFront;
+                    float depth = front ? 0.2f : 0.5f;
+
+                    grid.Add(new PixelVisibilityProxy(
+                        cell + 1,
+                        new Vector3(x - 0.08f, y + 0.08f, depth),
+                        new Vector3(x + 0.08f, y + 0.08f, depth),
+                        new Vector3(x + 0.08f, y - 0.08f, depth),
+                        new Vector3(x - 0.08f, y - 0.08f, depth)));
+                }
+
+                return grid;
+            }
+
+            void Expect(IReadOnlyDictionary<int, (int Pixels, int Possible)> counts, int count, bool evenInFront, string frame)
+            {
+                for (int cell = 0; cell < count; cell++)
+                {
+                    (int pixels, int possible) = counts[cell + 1];
+                    bool front = cell % 2 == 0 == evenInFront;
+
+                    possible.ShouldBeGreaterThan(0, $"{frame}: proxy {cell + 1} is on screen");
+                    pixels.ShouldBe(front ? possible : 0, $"{frame}: proxy {cell + 1} is {(front ? "in front of" : "behind")} the wall");
+                }
+            }
+
+            Expect(target.CountOcclusion(Grid(4, evenInFront: true), Identity), 4, evenInFront: true, "the small frame");
+            Expect(target.CountOcclusion(Grid(32, evenInFront: true), Identity), 32, evenInFront: true, "the frame that grows it");
+            Expect(target.CountOcclusion(Grid(32, evenInFront: false), Identity), 32, evenInFront: false, "the frame that reuses it");
+        }
+    }
+
+    /// <remarks>
     /// **The counting query is squeezed, not untested**: <c>pRenderContext->DepthRange( 0.0f, 0.01f )</c> around
     /// `IssueCountingQuery` (`c_pixel_visibility.cpp:598-611`), with the depth test still on. A proxy at depth 0.5
     /// counts at 0.005, so a wall nearer than that hides the COUNT as well, and the ratio is of what is left.
