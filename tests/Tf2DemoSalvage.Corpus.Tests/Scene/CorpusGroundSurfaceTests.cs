@@ -39,9 +39,10 @@ public sealed class CorpusGroundSurfaceTests
 
         // The control: grounded players over a floor were found, or nothing below was asserted.
         probe.Sampled.ShouldBeGreaterThan(500, probe.Report);
-        // Measured 2026-10-26 (Source's clip): 1 miss of 3,993, a player 0.39 above terrain under his centre, which the
-        // displacement sweep does not stop — not the brush clip. The clip of before B604, which refused an entry inside the
-        // epsilon, missed 5 (sabotaged to that rule, the same run otherwise). Started solid, 3,320, is the same under both:
+        // Measured 2026-10-26 (Source's clip, MASK_PLAYERSOLID_BRUSHONLY): 1 miss of 3,993, a player 0.39 above terrain under
+        // his centre, which the displacement sweep does not stop — not the brush clip. The clip of before B604, which refused
+        // an entry inside the epsilon, missed 5 (sabotaged to that rule, the same run otherwise, under MASK_SOLID). Started
+        // solid 3,322, struck 670, 626 of them the surface underfoot (3,320 / 672 under MASK_SOLID), the same under both clips:
         // a SourceTV origin is SPROP_COORD_MP_LOWPRECISION (tf_player.cpp:748-749), so the rest an epsilon up rounds onto the
         // floor plane, `d1 = 0` is not outside, and the box starts in — as TF2's own GetGroundSurface does (B605).
         probe.Missed.ShouldBeLessThanOrEqualTo(1, probe.Report);
@@ -53,8 +54,7 @@ public sealed class CorpusGroundSurfaceTests
     /// **B605's control.** A POV recorder's own origin is `SPROP_NOSCALE` (`DT_TFLocalPlayerExclusive`,
     /// `tf_player.cpp:721-722`), so his rest an epsilon above the floor survives the wire, and the probe should start outside
     /// the floor — where the SourceTV match's low-precision origins start solid 83% of the time. rgl-pug-2026-08-10-pov (lcor)
-    /// on cp_process_f12, whose MapHash matches (B604). Reports the rate; asserts only that it sampled, and that the rate is
-    /// below the SourceTV one, which is the whole claim.
+    /// on cp_process_f12, whose MapHash matches (B604). Asserts that it sampled and that almost none start solid.
     /// </remarks>
     [Test]
     public void GroundTrace_ThePovRecorderOnTheGround_ReportsItsStartSolidRate()
@@ -77,8 +77,10 @@ public sealed class CorpusGroundSurfaceTests
         TestContext.Out.WriteLine($"the recorder, entity {recorder}: {probe.Report}");
 
         probe.Sampled.ShouldBeGreaterThan(100, probe.Report);
-        // The SourceTV match's rate is 3,320 / 3,993; full precision must come in well under it.
-        probe.StartSolid.ShouldBeLessThan(probe.Sampled / 2, probe.Report);
+        // Measured 2026-10-26 (MASK_PLAYERSOLID_BRUSHONLY): 0 of 1,662 started solid, against the SourceTV match's 3,322 of
+        // 3,993. The cause, by manipulation: the same run with the recorder's z truncated to 1/8 before the probe started
+        // solid for 1,623 of the 1,662 and failed this line. A floor of one in a hundred leaves room for a ledge, not for precision.
+        probe.StartSolid.ShouldBeLessThanOrEqualTo(probe.Sampled / 100, probe.Report);
     }
 
     /// <summary>The ground probe and its point-trace control, every 33rd tick, for the grounded living players chosen.</summary>

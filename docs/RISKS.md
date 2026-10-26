@@ -40084,8 +40084,9 @@ read order, which is not the small safe step the review allowed; filed for the l
 ## B605 — the footstep ground probe starts solid for 83% of grounded players on a SourceTV match — NOT OUR BUG: TF2 does the same; one engine question OPEN (2026-10-26)
 
 **Measured** (`CorpusGroundSurfaceTests`, lcor `20171113_2240_cp_badlands_red_blu`, today's cp_badlands, every 33rd tick):
-of 3,993 grounded players with a floor within a unit underfoot, `MapLevel.GroundTrace` started solid for **3,320**, struck a
-surface for 672 and missed 1. The networked origins rest EXACTLY on the floor plane (z = 296.0, 408.0), so the hull-wide
+of 3,993 grounded players with a floor within a unit underfoot, `MapLevel.GroundTrace` started solid for **3,322**, struck a
+surface for 670 (626 of them the one directly underfoot) and missed 1 — under `MASK_PLAYERSOLID_BRUSHONLY`; it was 3,320 /
+672 / 1 under the old `MASK_SOLID`. The networked origins rest EXACTLY on the floor plane (z = 296.0, 408.0), so the hull-wide
 cube's bottom face has `d1 = 0`, which neither Source's clip (`collisionutils.cpp:1141-1174`, startsolid unless some
 `d1 > 0`) nor Quake 2's counts as outside; the trace starts in and `Texinfo = −1`. Not caused by B604's clip change:
 identical under the pre-B604 rule.
@@ -40101,9 +40102,12 @@ a property of SourceTV's quantised origins, not of the probe. The mask was `MASK
 `MASK_PLAYERSOLID_BRUSHONLY` (= `BspLeafTree.MaskPlayerSolid`, `bspflags.h:134`).
 
 **The control** (`CorpusGroundSurfaceTests.GroundTrace_ThePovRecorderOnTheGround_ReportsItsStartSolidRate`): the recorder of
-a POV demo, whose origin is full precision, through the same probe — it reports the start-solid rate there, which should be
-near zero; it skips with a reason when its demo or map is absent. **Not yet run** (written in a no-build window): until its
-number is written here, the full-precision prediction is a prediction, not a measurement.
+a POV demo, whose origin is full precision, through the same probe. **Measured 2026-10-26** (rgl-pug-2026-08-10-pov, the
+recorder, entity 8, on cp_process_f12): **0 of 1,662** grounded samples started solid; 1,662 struck a surface, 1,558 of them
+the one directly underfoot. **The cause, by manipulation:** the same run with the recorder's z truncated to 1/8 before the
+probe started solid for **1,623 of 1,662** and failed the test's one-in-a-hundred floor. So the precision of the networked
+origin, and nothing in the probe, decides the rate. *Interpolated:* truncation, not rounding, was the sabotage's model of the
+encoder; either takes a 1/32 rest to the plane. The test skips with a reason when its demo or map is absent.
 
 **Still open, interpolated:** what the engine's closed cmodel puts in `trace.surface.surfaceProps` for a startsolid trace,
 which is what `GetGroundSurface` hands `physprops->GetSurfaceData` — Quake 2's ancestor leaves the surface untouched, 0, the
