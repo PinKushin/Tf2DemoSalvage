@@ -98,6 +98,35 @@ internal static class SyntheticSkinnedModel
             MasterPose: []);
     }
 
+    /// <summary>Sequences labelled <c>seq{index}</c>, each with its activity and its raw <c>actweight</c>.</summary>
+    /// <param name="weighted">Each sequence's activity and weight.</param>
+    /// <returns>The model.</returns>
+    public static PropModels.SkinnedModel WithWeights(params (string Activity, int Weight)[] weighted)
+    {
+        ArgumentNullException.ThrowIfNull(weighted);
+
+        List<StudioSequence> sequences =
+        [
+            .. weighted.Select((sequence, index) => new StudioSequence(
+                Animation: index,
+                Flags: 0,
+                Label: $"seq{index}",
+                Blend: null,
+                Activity: sequence.Activity,
+                ActivityWeight: sequence.Weight)),
+        ];
+
+        List<(int Group, IReadOnlyList<StudioSequence> Sequences)> groups = [(0, sequences)];
+
+        return new PropModels.SkinnedModel(
+            Bones: [],
+            Models: [[]],
+            Sequences: StudioSequenceTable.Merge(groups),
+            Groups: groups,
+            PoseParameters: [],
+            MasterPose: []);
+    }
+
     /// <summary>The same, with each sequence's <c>mstudioseqdesc_t::flags</c> chosen.</summary>
     /// <param name="labelled">Each sequence's label and its flags.</param>
     /// <returns>The model.</returns>

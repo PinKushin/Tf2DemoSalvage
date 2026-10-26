@@ -44,6 +44,9 @@ public interface IViewerDevice
     /// <summary>`cl_detailfade`.</summary>
     public float DetailFadeWidth { get; set; }
 
+    /// <summary>The local player's `GetFOVDistanceAdjustFactor()`, dividing the detail fade (`detailobjectsystem.cpp:2813-2825`).</summary>
+    public float DetailFovFactor { get; set; }
+
     /// <summary>Whether a map's world is on the device.</summary>
     public bool HasWorld { get; }
 

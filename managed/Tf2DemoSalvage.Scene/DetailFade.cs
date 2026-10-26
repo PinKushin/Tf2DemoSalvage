@@ -8,6 +8,9 @@ namespace Tf2DemoSalvage.Scene;
 /// <param name="MaximumSquared">Beyond this squared distance a sprite is not drawn at all.</param>
 /// <param name="FadeSquared">Inside this squared distance a sprite is fully opaque.</param>
 /// <param name="Falloff">Alpha per unit of squared distance across the band between them.</param>
+/// <param name="Radius">
+/// The sphere of leaves visited, bare <c>cl_detaildist</c> with no FOV factor (`detailobjectsystem.cpp:2839-2841`).
+/// </param>
 /// <remarks>
 /// **`CDetailObjectSystem::BuildDetailObjectRenderLists`, `detailobjectsystem.cpp:2821`.** The
 /// engine computes these three once per view and then applies them per object, which is why they
@@ -22,7 +25,7 @@ namespace Tf2DemoSalvage.Scene;
 /// size, so a tall sprite pops rather than fading from the top down. Transcribed as written.
 /// </remarks>
 public readonly record struct DetailFade(
-    float MaximumSquared, float FadeSquared, float Falloff)
+    float MaximumSquared, float FadeSquared, float Falloff, float Radius)
 {
     /// <summary>Prepares the fade for one view.</summary>
     /// <param name="distance"><c>cl_detaildist</c> — where detail props stop being drawn.</param>
@@ -55,7 +58,7 @@ public readonly record struct DetailFade(
         fadeSquared = MathF.Min(fadeSquared, maximumSquared - 1f);
 
         return new DetailFade(
-            maximumSquared, fadeSquared, 255f / (maximumSquared - fadeSquared));
+            maximumSquared, fadeSquared, 255f / (maximumSquared - fadeSquared), distance);
     }
 
     /// <summary>What the two detail cvars become when a level loads.</summary>

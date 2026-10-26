@@ -142,7 +142,21 @@ public sealed class MomentPresenter
     /// two sources this one joins. `DemoSystems.Open` sets all three, so a demo that fails to decode
     /// clears every one of them rather than leaving one behind pointing at the previous recording.
     /// </remarks>
-    public IMomentSource? Source { get; set; }
+    /// <remarks>
+    /// **And it hands the scene the side-effect-free player query** a seek needs to recover when each activity began
+    /// (D233); a demo opened without it would key every roll on the landing tick.
+    /// </remarks>
+    public IMomentSource? Source
+    {
+        get => _source;
+        set
+        {
+            _source = value;
+            _moment.EarlierPlayer = value is null ? null : value.ActivityPlayerAt;
+        }
+    }
+
+    private IMomentSource? _source;
 
     /// <summary>Where the players' appearance comes from, or null when nothing can build one.</summary>
     /// <remarks>

@@ -259,6 +259,31 @@ public sealed class MomentScene : IGameSystemPerFrame
         _models = models;
         _viewmodels = viewmodels;
         _render = render;
+        _models.PlayerPropAt = EarlierPlayerProp;
+    }
+
+    /// <summary>One player at an earlier moment, side-effect free (<see cref="IMomentSource.ActivityPlayerAt"/>); null for none.</summary>
+    /// <remarks>Set beside the moment source; read by the seek scan that recovers when an activity began (D233).</remarks>
+    public Func<double, int, ScenePlayer?>? EarlierPlayer { get; set; }
+
+    private readonly ScenePlayer[] _earlierPlayer = new ScenePlayer[1];
+    private readonly List<SceneProp> _earlierProps = [];
+
+    /// <summary>The player's prop at an earlier moment, built by the same <see cref="PlayerProps.Add"/> the frame uses.</summary>
+    /// <remarks>
+    /// No equipment beside him, so his body number is not the frame's; nothing the activity is chosen from reads it.
+    /// </remarks>
+    private SceneProp? EarlierPlayerProp(double tick, int entityIndex)
+    {
+        if (EarlierPlayer?.Invoke(tick, entityIndex) is not { } player)
+        {
+            return null;
+        }
+
+        _earlierPlayer[0] = player;
+        _earlierProps.Clear();
+        PlayerProps.Add(_earlierPlayer, _earlierProps, Appearance, _models);
+        return _earlierProps.Count > 0 ? _earlierProps[0] : null;
     }
 
     /// <summary>What light the map casts, set when a map is read.</summary>
@@ -554,6 +579,13 @@ public sealed class MomentScene : IGameSystemPerFrame
             DrawList.KeepOnly(_drawn, seen);
         }
 
+        // **A zoomed local player is hidden from every view, a monitor's too** (B598, ZoomVisibility).
+        if (ZoomVisibility.Hidden(players, info.Recorder) is { } zoomed)
+        {
+            DrawList.KeepOnly(_drawn, FirstPersonVisibility.Visible(_drawn, zoomed));
+            DrawList.KeepOnly(_undrawn, FirstPersonVisibility.Visible(_undrawn, zoomed));
+        }
+
         long firstPersonAt = Stopwatch.GetTimestamp();
 
         // **Every camera, not just first person.** `C_BaseCombatWeapon::ShouldDraw` hides a player's
@@ -601,6 +633,11 @@ public sealed class MomentScene : IGameSystemPerFrame
         }
 
         long rolesAt = Stopwatch.GetTimestamp();
+
+        // **The demo's tick before `Pack`**, whose `UpdateClientSideAnimations` holds and recovers each player's main
+        // sequence by it (D233); `Pose` sets it again for the corpses. Set only there, a seek frame's sequences were chosen
+        // at the PREVIOUS frame's tick.
+        _models.CurrentTick = info.Tick;
 
         Pack();
 
@@ -729,8 +766,11 @@ public sealed class MomentScene : IGameSystemPerFrame
         if (_undrawn.Count > 0)
         {
             // Its own pass, read after the world's counters, so it is posed and in the scene for a decal but never drawn.
+            // A monitor draws it as an ordinary model, so it lights through the light cache with dynamic lights, as the
+            // world pass does (model draws pass LightcacheGet flags 0xf, `0x1800f1bd0` → `0x1801b9cd0`).
             _models.Instances(
-                _undrawn, _undrawnInstances, Lighting.LightingAt, Lighting.SunAt, info.Seconds, pass: EntityModelSet.UndrawnPass);
+                _undrawn, _undrawnInstances, Lighting.ModelLightingAt, Lighting.ModelSunAt, info.Seconds,
+                pass: EntityModelSet.UndrawnPass);
         }
         long undrawnTicks = Stopwatch.GetTimestamp() - undrawnAt;
         UndrawnCensus census = new(

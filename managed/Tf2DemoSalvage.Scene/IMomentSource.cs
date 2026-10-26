@@ -41,6 +41,21 @@ public interface IMomentSource
     public void PlayersAt(
         double tick, ICollection<ScenePlayer> into, bool interpolating = true);
 
+    /// <summary>One player at an earlier moment, for the seek scan that recovers when his activity began (D233).</summary>
+    /// <param name="tick">The moment.</param>
+    /// <param name="entityIndex">The player.</param>
+    /// <returns>The player as playback samples him, or null when the moment lists no such player.</returns>
+    /// <remarks>
+    /// **Must not disturb <see cref="PlayersAt"/>**, which the scan runs between two calls of: the production source keeps
+    /// per-frame caches keyed on the last tick asked. The default samples through it for a source that keeps none.
+    /// </remarks>
+    public ScenePlayer? ActivityPlayerAt(double tick, int entityIndex)
+    {
+        List<ScenePlayer> players = [];
+        PlayersAt(tick, players);
+        return players.Find(player => player.EntityIndex == entityIndex);
+    }
+
     /// <summary>Fills a buffer with the props at a moment, fraction included.</summary>
     /// <param name="tick">The moment, which may fall between ticks.</param>
     /// <param name="into">The buffer to fill; cleared first.</param>
@@ -240,6 +255,13 @@ public sealed class TimelineMoments(DemoTimeline timeline) : IMomentSource
         double tick, ICollection<ScenePlayer> into, bool interpolating = true) =>
         timeline.PlayersAt(
             tick, into, interpolating, Player?.InterpolateViewpoint(tick), _recorderFeet, Prediction?.VelocityAt(tick));
+
+    /// <inheritdoc />
+    /// <remarks>
+    /// The timeline's own sampler with no viewpoint, prediction or carried feet, whose caches the scan would reset — so a
+    /// point-of-view recorder is read on his networked velocity here, where the frame reads the predicted one (B584).
+    /// </remarks>
+    public ScenePlayer? ActivityPlayerAt(double tick, int entityIndex) => timeline.PlayerAt(tick, entityIndex);
 
     /// <inheritdoc />
     public void PropsAt(

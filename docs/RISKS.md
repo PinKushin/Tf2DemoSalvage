@@ -40116,6 +40116,20 @@ thread. **Next:** per-draw maps on the model path to one per-frame constant buff
 buffer (parity check first: which renderables the engine gives a pixel-visibility handle); the vertex control; the empty
 view with a free camera (`TF2VIEW_CAMERA` is ignored under `--first-person`, so that condition was void).
 
+## B598 — the zoomed local player and his gear were drawn; the engine hides them from every view — FIXED 2026-10-25 (`fix/four-parity-divergences`)
+
+**Read:** `C_TFPlayer::ShouldDraw` returns false for `this == GetLocalTFPlayer()` in `TF_COND_ZOOMED`
+(`c_tf_player.cpp:8014-8020`), BEFORE `BaseClass::ShouldDraw`, so a monitor's `ForceTempForceDraw` (`viewrender.cpp:3266-3287`,
+which reaches only `C_BasePlayer::ShouldDraw`) cannot bring him back. `C_TFWearable::ShouldDraw` hides his cosmetics by
+the same test (`tf_item_wearable.cpp:338-340`); `C_BaseCombatWeapon::ShouldDraw` hides his weapon because the owner does
+not draw (`c_basecombatweapon.cpp:427-431`). It is per entity, so every camera — third person, free, monitor — is
+affected. **Data:** bit 1 of `m_Shared.m_nPlayerCond` (`PlayerConditions.Zoomed`, already decoded for the gesture context).
+The local player is the recorder; a SourceTV recording's is the spectator, never zoomed (`MomentInfo.Recorder` null), so
+nobody is hidden there. **Fixed:** `ZoomVisibility.Hidden` names the zoomed recorder and `MomentScene` removes him, his
+attached props and his owned weapons (`FirstPersonVisibility.Visible`'s set) from the drawn and the monitor lists.
+Held by two `MomentSceneTests` (synthetic): the zoomed cases were red before, the not-zoomed and SourceTV controls green.
+**Not checked:** a POV demo where the recorder scopes, seen in third person.
+
 ## B596 — is the Debug build part of the viewer-vs-TF2 f12 gap? No: Debug and Release are the same program — CLOSED (2026-10-24)
 
 **Evidence class: measured, with a code reading it confirms** (`docs/measurements/2026-10-24-debug-vs-release-f12.md`).
@@ -40241,7 +40255,10 @@ is posed only for an active, non-dormant `point_camera`), and our gate is that l
 (a) why ≤2 `SunFrom` calls a frame carry 5.8% — time one trace, or treat as profile bias; (b) on a map WITH a monitor,
 the undrawn pass lights uncached and so without dynamic lights (`LightingAt` skips `WithDynamicLights`), where the
 engine's monitor draw goes through the light cache — a small parity divergence in what a monitor shows, not a cost; fix
-by passing `ModelLightingAt`/`ModelSunAt` with a monitor-map test. (c) we pose him whenever a monitor exists, not only
+by passing `ModelLightingAt`/`ModelSunAt` with a monitor-map test — **(b) FIXED 2026-10-25** (`fix/four-parity-divergences`):
+the pass now takes the cached pair; `Pose_TheMonitorsFollowedPlayerBesideTheRecordersFireball_TakesItAsALocalLight`
+(synthetic) was red on the old call. No `b511_boardwalk_mirror.dem` shot: the machine was busy (`tf2demoview` running), and
+no TF2 reference capture exists. (c) we pose him whenever a monitor exists, not only
 when the monitor's view collates him — engine-exact would cull him by the monitor frustum; negligible at 6 props.
 
 ## B593 — `ScenePropTrack.At` copied the whole pose about six times to read nine numbers — REOPENED and FIXED bit-identical (2026-10-25; first cut reverted 2026-10-24: the saving was 0.03 ms in `advance` (measurements/2026-10-24-burst-walk-and-pose-copies.md), and review found the no-bracket fallback not bit-identical: it ran `LoopingLerp(c,c,t)` where main ran `LoopingCurve(c,c,c,t)`, which can differ by an ulp. Not worth a parity risk. To retry, keep the third sample.)
@@ -40373,13 +40390,84 @@ B584 alone (build M), gummo first person: `pose setup` 0.78-0.80 → 0.69-0.70 m
 0.25 MB a frame less allocation, frame −0.2 to −0.35 ms (measurements/2026-10-24-b583-b584-model-lookups.md). The code-read
 estimate of 0.6-1.0 ms was 2-3x high on the frame.
 
-**Divergence kept, now named:** the engine weights a sequence by `iabs(actweight)` and turns a weight of 0 into 1
-(`studio.cpp:1728`, `:1822-1829`), so a negative or zero weight is still selectable there; ours refuses weight ≤ 0, as the
-scan did. Behaviour unchanged on purpose. Whether any shipped model has such a weight on an activity we ask for: not checked.
-The highest-weight pick in place of Valve's random draw is the already-recorded divergence.
+**Weight ≤ 0 FIXED 2026-10-25 (`fix/four-parity-divergences`, owner-approved):** the map now weighs each sequence as the
+engine's tuple list does — `iabs(actweight)`, 0 raised to 1 (`studio.cpp:1822-1829`) — and skips only an empty activity
+name (`animation.cpp:146`, `studio.cpp:1723`). The tuple path is the live one: `STUDIO_SEQUENCE_ACTIVITY_LOOKUPS_ARE_SLOW`
+is 0 (`studio.h:33`), so the slow loop at `animation.cpp:239-266`, which never raises 0, is compiled out.
+`ForActivityMapTests` reddened on the old rule and on a sabotage that drops the `abs`. **Still divergent, both named:**
+(1) the engine rolls `RandomInt` over the weights (`animation.cpp:308-335`); ours takes the heaviest, first of a tie, so a
+demo replays the same way twice — the engine's own `SelectHeaviestSequence` (`animation.cpp:413-437`) is that rule apart
+from its weight-0 refusal. Random would need a decision from the owner. (2) The engine keeps the CURRENT sequence when its
+weight is negative (`animation.cpp:291-297`); `ForActivity` takes no current sequence, so this is not modelled.
 
-**Not done:** the callers still build activity strings and a `Func` closure per call (`PlayerActivityTable.Translate`,
-`PlayerAnimation.cs:118`).
+**Owner, 2026-10-25, on (1):** *"can we make it do both? have an extra setting or something? if not then deterministic,
+unless it costs a bunch of memory or fps."* **Stopped at a design, not built (read from code):** the engine calls
+`SelectWeightedSequence` EVERY frame (`multiplayer_animstate.cpp:1170`) but keeps the result only when its activity differs
+from the current sequence's (`:1171-1172`), so a random pick happens once per activity change and then holds. Our
+`ForActivity` is a stateless per-frame lookup (`PlayerAnimation.cs:118-132`, `EntityModels.Sequences.cs:224`,
+`EntityModels.Layers.cs`), so a random mode bolted onto it would re-roll every frame and flicker between variants. The
+setting needs per-entity "current main sequence" state first — the same state (2) needs — and, to keep a seek
+reproducible, a pick seeded from (entity, activity, the tick the activity began) rather than a running RNG. Memory is not the
+blocker (a candidate list per activity is a few ints per sequence); the missing state is. Deterministic stays the only mode.
+
+**(1) and (2) FIXED 2026-10-25 (`feat/engine-random-sequence-pick`, D233) — the deterministic pick is DROPPED, no setting.**
+Owner: *"it sounds to me like we can drop the deterministic, because it doesn't really help anything, it's just a straight
+divergence."* A player's main sequence is now `SkinnedModel.SelectWeightedSequence`, a port of
+`CActivityToSequenceMapping::SelectWeightedSequence` (`animation.cpp:277-335`: keep a current sequence of negative weight,
+else walk `RandomInt( 0, total - 1 )` over the tuples), rolled only when the activity changes and then held
+(`multiplayer_animstate.cpp:1170-1172`), with `animDesired < 0` → 0 unrolled (`:1174-1177`). The state is the existing
+`_mainSequences` entry, now carrying the last tick: a clock that runs back (a seek) forgets the hold; `LevelShutdown` clears
+it. **The one addition:** the roll is `ActivityPickSeed(entity, activity, tick the activity began)`, so a replay, or a second
+seek to the same tick, shows the same pick; it changes which value comes up, not the distribution. **Seeks FIXED 2026-10-25
+(`feat/seek-recovers-activity-start`)** — owner: *"Recover real start (Recommended)"* (D233). The begun tick is recovered,
+never remembered: `EntityModelSet.ActivityBegan` scans back over whole ticks on every activity change, first sight, seek,
+or forward jump past `ContinuityTicks` (4), so play and seek run the same code; `_mainSequences` is only a cache, also
+dropped on a model change. The scan reads `EntityModelSet.PlayerPropAt`, which `MomentScene` builds with the frame's own
+`PlayerProps.Add` over `IMomentSource.ActivityPlayerAt` → `DemoTimeline.PlayerAt` — side-effect free, because the frame's
+sampler drives `DemoPlayer` and `RecorderPrediction` caches a backward scan would reset. A tick the player is not drawn on
+is passed over (dead players are not animated and `ClearAnimationState` keeps the main sequence,
+`multiplayer_animstate.cpp:136-146`, so he respawns into the variant he died in); a frame between ticks whose whole tick
+still shows the old activity keys on the next whole tick. Held by `MainSequenceSeekTests` (16: seek == play-through at
+cadences 1, 0.6, 1.7 and 5 ticks a frame, seek back then play on, forward into a later stretch of the same activity — the
+case this entry used to list as open — six boundary landings, respawn, controls, zero allocation) and
+`MomentPresenterEarlierPlayerTests` (the wiring); sabotaged — landing-tick keying, no continuity window, absence ending
+the stretch, the next-whole-tick rule, the presenter's hop — each reddened. **Ceilings, both tested or measured:** a stretch
+that began more than `ActivityScanTicks` (2048, 31 s at 66 Hz) before the landing keys on the earliest tick in the window,
+so a seek deep into one long activity can differ from play; and a stretch shorter than the gap between two frames is held
+through by play (as the engine at that frame rate would) but ends the stretch for a seek
+(`…_AStretchBetweenTwoFrames_…`). A point-of-view recorder is scanned on his networked velocity, where the frame uses the
+predicted one. **Seek cost** (measurements/2026-10-25-d233-activity-tuples-cost.md, addendum): 9.1 ms mean, 52 ms max for 6-12 drawn players
+on f12, 175 earlier-tick probes a player, 95% of it `DemoTimeline.PlayerAt`; about 22 ms for 24 players, *interpolated*.
+The held frame stays 0 B (one 1,112 B frame after each landing). **Review fixes, same branch:** `MomentScene.Build` now
+sets `CurrentTick` before `Pack` — only `Pose` set it, so every frame's sequences were chosen at the PREVIOUS frame's tick
+and a seek frame scanned from the pre-seek tick (`MainSequenceSeekTests.Build_ASeek_…`); a forward gap past four ticks
+(arithmetic: below 66/4 = 16.5 fps, or fast playback) scans only the skipped ticks (`HoldsAcross`), which allocates; a skip's
+`SimulatesOnly` frames scan nothing and mark their rolls unrecovered for the landing (536 skip frames, 0 probes, landing
+6.5 ms on f12 — measurements/2026-10-25-d233-activity-tuples-cost.md, third run). **Open:** the post-seek model-decal
+replay builds ordinary frames, each paying a landing's scan; how many per seek was not counted. **No per-demo seed** was mixed in (the brief asked for one): entity and tick already
+differ per demo, and nothing in `EntityModelSet` names the demo; adding one is a header hash passed in. The negative-weight
+keep is ported and tested as a function but cannot fire on the main path, since a roll happens only when the activity changed
+or after a seek. Multi-candidate activities on the f12 set (probe): main-sequence ones are scout `ACT_MP_STAND_MELEE` x2 and
+soldier `ACT_MP_AIRWALK_PRIMARY` x5, so the change is visible there; the other 17 are gestures (attack, reload, flinch,
+voice) and engineer's `ACT_MP_TAUNT` x7. Held by `SelectWeightedSequenceConformanceTests`
+(14: slot walk, negative-weight keep with controls, distribution within 0.01, hold, re-roll keyed on the tick, replay,
+seek back, zero allocation); sabotaged — negative keep, seek reset, hold, walk `>=`, seed without tick — each reddened its
+test. **Cost** (`measurements/2026-10-25-d233-activity-tuples-cost.md`): about 140 KB more retained over 64 models; a pick
+50 ns against a lookup's 48 ns; the held pass allocates 0 B (was 88 B, the closure below — fixed with it).
+**Gestures FIXED 2026-10-25** (same branch): the attack-and-reload holder, an activity gesture and the chest substitution
+roll by weight once, seeded on (player, activity, the gesture's start seconds) — `AddToGestureSlot`'s one
+`SelectWeightedSequence` (`multiplayer_animstate.cpp:616-688`) — so a gesture and a seek into it need no state. Held by
+`GestureVariantConformanceTests` (exact seed prediction per path, hold through the gesture, every one of four flinch
+variants reached); each of the three call sites sabotaged back to `ForActivity` reddened its case. **Still divergent,
+filed here:** `RestartGesture` of the activity a slot already plays only resets the cycle and keeps the variant
+(`:581-611`; `IsGestureSlotPlaying` compares the stored TRANSLATED activity with the untranslated argument, `:566-576`, so
+only an untranslated one such as the chest flinch can match), and `PlayFlinchGesture` ignores a flinch while the slot is
+active (`:371-385`) — `PlayerGestureFeed` overwrites the slot on every event, so ours re-rolls on the newer start.
+**Not ported, still heaviest, deliberately:** the corpse rest (`CorpseSequence`, `ACT_DIERAGDOLL`, one candidate on every
+class model), `SequenceFor`'s callers (the corpse's copied activity, one frame), and the HUD class panel
+(`VguiModelPanel.cs`, whatever activity its `.res` names — the engine rolls once there too).
+
+**Not done:** the callers still build activity strings per call (`PlayerActivityTable.Translate`).
 
 ## B583 — about ten string-keyed dictionary probes per prop per frame, keyed on the model path — PARTLY FIXED 2026-10-24 (`perf/b583-b584-prop-lookups`)
 
@@ -40415,8 +40503,29 @@ does not rebuild detail at all (still camera).
 
 **Not done:** (1) The "drawn this view" half of the engine's reach (`DrawDetailObjectsInLeaf` by `BuildWorldListsNumber`)
 would change the emitted corners, because a prop in an undrawn leaf is emitted today. It is left for a parity change of its
-own. (2) The engine's sphere radius is bare `cl_detaildist`, not divided by the FOV factor, so a zoomed view's larger fade
-maximum is not cut here. (3) The corner-count control was not logged (debug level).
+own. (2) ~~The engine's sphere radius is bare `cl_detaildist`~~ — **FIXED 2026-10-25** (`fix/four-parity-divergences`):
+`DetailFade.Radius` carries bare `cl_detaildist` (`detailobjectsystem.cpp:2839-2841`) and `DetailReach.Near` takes it,
+while the FOV factor still divides only the fade (`:2821-2836`, matched by `DetailFade.For`). Held by
+`Build_ZoomedPropBeyondTheSphereInsideTheFade_IsNotReached`, red when `sqrt(MaximumSquared)` is passed instead. Default
+FOV: the radius equals `sqrt(MaximumSquared)` (factor 1), so the existing 200-view equivalence test is unchanged; the f12
+cull-hash comparison was NOT re-run (no viewer runs this pass). **Two residuals found reading it:** (a) ~~the zoomed fade was unwired~~ — **wired 2026-10-25** (`f7598155`): `SpectatorView.DistanceFactor` takes the
+recorder's `GetFOV()/GetDefaultFOV()` (`baseplayer_shared.cpp:1786-1799`, `PlayerFov`), 1 for SourceTV (interpolated:
+its spectator taken as never zoomed); the presenter hands it to `IViewerDevice.DetailFovFactor` each frame and
+`Device3D` passes it to `DetailFade.For` and keys the rebuild on it. Held by `FovDistanceFactorConformanceTests` and
+`DrawSceneOver_…`; no viewer run;
+(b) the engine visits whole BSP leaves whose region touches the sphere (tools copy `bsplib.cpp:3518-3548`, runtime walk in
+closed `engine.dll`, not disassembled), and a run box is its leaf's tighter subset, so when zoomed a prop past the sphere in
+a leaf that touches it is the engine's and not ours (interpolated). Exact at factor 1. Fix: port `EnumerateLeavesInSphere`
+beside `BspLeafTree.EnumerateLeavesInBox` (disassemble the `CEngineBSPTree` vtable's next slot for its deltas, as B262 did).
+**Design for the owner (2026-10-25), not built because it needs that disassembly session:** the `ISpatialQuery` order
+(`bsplib.cpp:3410-3416`: LeafCount, AtPoint, InBox, InSphere, AlongRay) puts the sphere walk in slot 3 of vtable
+`0x18038e768`; the box walk there differed from the tools copy by a solid-contents cutoff, a node-box overlap test and no
+epsilon, so the sphere walk is expected to differ the same way and must be READ, not assumed. Then: `BspLeafTree` gains
+`EnumerateLeavesInSphere(center, radius, into)`; `DetailReach` keeps each run's `Leaf` and, per build, reaches a run when
+its leaf is in that frame's walked set (the tree reaches the device through `WorldCulling.Tree`); the per-prop
+`Alpha` test stays. Test: two leaves, a zoomed prop past the sphere in a leaf that touches it (drawn) and one in a leaf
+outside it (not drawn); at factor 1 nothing changes.
+(3) The corner-count control was not logged (debug level).
 
 ## B579 — the HUD's event feed walks every game event and user message of the match, every frame — FIXED (2026-10-23)
 

@@ -756,6 +756,7 @@ public sealed class ViewerPresenterTests
             (device.Drawn.Red, device.Drawn.Green, device.Drawn.Blue).ShouldBe((0.1f, 0.2f, 0.3f));
             device.Drawn.Lines.ShouldBe(0, "mat_leafvis is off");
             device.Drawn.ViewmodelCamera.ShouldBeNull("nobody's eyes: no viewmodel pass");
+            device.DetailFovFactor.ShouldBe(1f, "B580: the factor is handed over each frame; an unzoomed demo's is 1");
         }
     }
 

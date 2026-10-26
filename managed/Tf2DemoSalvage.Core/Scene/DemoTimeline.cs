@@ -7679,52 +7679,92 @@ public sealed class DemoTimeline
 
         foreach (ScenePlayer player in PlayersAt((int)Math.Floor(tick)))
         {
-            // **A dead player keeps the position recorded for them**, which is where they fell.
-            // The entity's own track follows whoever they are spectating, so interpolating it
-            // would drag the body across the map to stand inside a living player.
-            if (!player.IsAlive)
-            {
-                into.Add(player);
-                continue;
-            }
-
-            // **The local player is where the demo player's view put him** (B56): his origin is SetViewOrigin's.
-            if (viewpoint is { } local && player.EntityIndex == RecorderEntityIndex)
-            {
-                into.Add(LocalPlayer(player, local, tick, recorderFeet ?? new RecorderFeet(), predictedVelocity));
-                continue;
-            }
-
-            // Stryker disable all : the guard condition spans two lines, so a mutant that empties
-            // the guard body leaves 'pose' unassigned at its use below (CS0165), and Safe Mode
-            // then drops every mutation in this method — B410.
-            // The occupant of the slot AT this tick, not its last one: a reused slot holds several tracks.
-            if (TrackFor(player.EntityIndex, tick) is not { } track ||
-                (interpolating ? track.At(tick) : track.Held(tick)) is not { } pose)
-            {
-                into.Add(player);
-                continue;
-            }
-
-            // Stryker restore all
-
-            (float moveX, float moveY) = MoveParameters(HeadingAt(track, tick), pose.EyeYaw ?? pose.Yaw);
-
-            // **Yaw travels with the position, from the same pose.** Taking one and discarding the
-            // other is what left every player facing north the moment they stopped being a dot:
-            // the number was decoded and interpolated already, and simply not carried the last few
-            // lines.
-            into.Add(player with
-            {
-                X = pose.X,
-                Y = pose.Y,
-                Z = pose.Z,
-                Yaw = pose.Yaw,
-                Speed = SpeedAt(track, tick),
-                MoveX = moveX,
-                MoveY = moveY,
-            });
+            into.Add(Sampled(player, tick, interpolating, viewpoint, recorderFeet, predictedVelocity));
         }
+    }
+
+    /// <summary>One player at a moment, interpolated as <see cref="PlayersAt(double, ICollection{ScenePlayer}, bool, RecordedView?, RecorderFeet?, ValueTuple{float, float, float}?)"/> does, with no viewpoint.</summary>
+    /// <param name="tick">The moment, which may fall between ticks.</param>
+    /// <param name="entityIndex">The player.</param>
+    /// <returns>The player, or null when the frame at that tick lists no such player.</returns>
+    /// <remarks>
+    /// **Side-effect free, which the per-frame sampler is not**: the viewer's demo player and prediction keep a cache
+    /// keyed on the last tick asked, and a backward scan would reset them (D233). So the recorder of a point-of-view demo
+    /// is read on his networked track here.
+    /// </remarks>
+    public ScenePlayer? PlayerAt(double tick, int entityIndex)
+    {
+        foreach (ScenePlayer player in PlayersAt((int)Math.Floor(tick)))
+        {
+            if (player.EntityIndex == entityIndex)
+            {
+                return Sampled(player, tick, interpolating: true, viewpoint: null, recorderFeet: null, predictedVelocity: null);
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>One player of the frame under <paramref name="tick"/>, at the moment itself.</summary>
+    private ScenePlayer Sampled(
+        ScenePlayer player,
+        double tick,
+        bool interpolating,
+        RecordedView? viewpoint,
+        RecorderFeet? recorderFeet,
+        (float X, float Y, float Z)? predictedVelocity)
+    {
+        // **A dead player keeps the position recorded for them**, which is where they fell.
+        // The entity's own track follows whoever they are spectating, so interpolating it
+        // would drag the body across the map to stand inside a living player.
+        if (!player.IsAlive)
+        {
+            return player;
+        }
+
+        // **The local player is where the demo player's view put him** (B56): his origin is SetViewOrigin's.
+        if (viewpoint is { } local && player.EntityIndex == RecorderEntityIndex)
+        {
+            return LocalPlayer(player, local, tick, recorderFeet ?? new RecorderFeet(), predictedVelocity);
+        }
+
+        // Stryker disable all : the guard condition spans two lines, so a mutant that empties
+        // the guard body leaves 'pose' unassigned at its use below (CS0165), and Safe Mode
+        // then drops every mutation in this method — B410.
+        // The occupant of the slot AT this tick, not its last one: a reused slot holds several tracks.
+        if (TrackFor(player.EntityIndex, tick) is not { } track)
+        {
+            return player;
+        }
+
+        // **One pair of samples for the speed and the heading**, where each asked for the same two: they are the
+        // same differencing over the same window, and `At` is three of a frame's five track reads per player.
+        ScenePose? now = track.At(tick);
+
+        if ((interpolating ? now : track.Held(tick)) is not { } pose)
+        {
+            return player;
+        }
+
+        // Stryker restore all
+
+        ScenePose? was = now is null ? null : track.At(Math.Max(0d, tick - MotionWindowTicks));
+        (float moveX, float moveY) = MoveParameters(HeadingOf(now, was), pose.EyeYaw ?? pose.Yaw);
+
+        // **Yaw travels with the position, from the same pose.** Taking one and discarding the
+        // other is what left every player facing north the moment they stopped being a dot:
+        // the number was decoded and interpolated already, and simply not carried the last few
+        // lines.
+        return player with
+        {
+            X = pose.X,
+            Y = pose.Y,
+            Z = pose.Z,
+            Yaw = pose.Yaw,
+            Speed = SpeedOf(now, was),
+            MoveX = moveX,
+            MoveY = moveY,
+        };
     }
 
     /// <summary>The round the game rules were in, or <c>null</c> when the demo does not say.</summary>
@@ -7907,28 +7947,28 @@ public sealed class DemoTimeline
     /// </summary>
     internal const double MotionWindowSeconds = 0.1d;
 
-    private static float SpeedAt(ScenePropTrack track, double tick)
+    /// <summary>The motion window in ticks, at the 0.015 s tick it has always been differenced at — as a float, bit for bit.</summary>
+    private const double MotionWindowTicks = MotionWindowSeconds / (double)0.015f;
+
+    /// <summary>The horizontal speed between the track's pose now and <see cref="MotionWindowTicks"/> before.</summary>
+    private static float SpeedOf(ScenePose? now, ScenePose? was)
     {
-        const double window = MotionWindowSeconds;
-
-        double ticks = window / Math.Max(0.001f, 0.015f);
-
-        // Stryker disable once : a mutant that empties the guard body leaves 'now' and 'was'
-        // unassigned below (CS0165), and Safe Mode then drops every mutation in this method — B410.
-        if (track.At(tick) is not { } now || track.At(Math.Max(0d, tick - ticks)) is not { } was)
+        // Stryker disable once : a mutant that empties the guard body leaves the poses unassigned below (CS0165), and Safe
+        // Mode then drops every mutation in this method — B410.
+        if (now is not { } at || was is not { } before)
         {
             return 0f;
         }
 
-        float across = now.X - was.X;
-        float along = now.Y - was.Y;
+        float across = at.X - before.X;
+        float along = at.Y - before.Y;
 
-        return MathF.Sqrt((across * across) + (along * along)) / (float)window;
+        return MathF.Sqrt((across * across) + (along * along)) / (float)MotionWindowSeconds;
     }
 
     /// <summary>Which way a track is travelling, in degrees, or null when it is still.</summary>
     /// <remarks>
-    /// Differenced over the same window as <see cref="SpeedAt"/> and for the same reason: velocity
+    /// Differenced over the same pair as <see cref="SpeedOf"/> and for the same reason: velocity
     /// is inside <c>DT_LocalPlayerExclusive</c>, so a SourceTV demo carries nobody's.
     ///
     /// Null rather than zero when stationary, because zero degrees is due east and a player
@@ -7936,21 +7976,17 @@ public sealed class DemoTimeline
     /// answering it anyway makes every idle player run on the spot toward the same corner of the
     /// map.
     /// </remarks>
-    private static float? HeadingAt(ScenePropTrack track, double tick)
+    private static float? HeadingOf(ScenePose? now, ScenePose? was)
     {
-        const double window = MotionWindowSeconds;
-
-        double ticks = window / Math.Max(0.001f, 0.015f);
-
-        // Stryker disable once : a mutant that empties the guard body leaves 'now' and 'was'
-        // unassigned below (CS0165), and Safe Mode then drops every mutation in this method — B410.
-        if (track.At(tick) is not { } now || track.At(Math.Max(0d, tick - ticks)) is not { } was)
+        // Stryker disable once : a mutant that empties the guard body leaves the poses unassigned below (CS0165), and Safe
+        // Mode then drops every mutation in this method — B410.
+        if (now is not { } at || was is not { } before)
         {
             return null;
         }
 
-        float across = now.X - was.X;
-        float along = now.Y - was.Y;
+        float across = at.X - before.X;
+        float along = at.Y - before.Y;
 
         // Below this the direction is numerical noise in the position rather than movement:
         // MOVING_MINIMUM_SPEED is 0.5 units a second (base_playeranimstate.h), which over a tenth

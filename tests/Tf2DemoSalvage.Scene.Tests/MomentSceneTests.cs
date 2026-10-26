@@ -199,6 +199,75 @@ public sealed class MomentSceneTests
         scene.Instances.Count.ShouldBe(1, "the control: the world pass draws the other one either way");
     }
 
+    /// <remarks>
+    /// **A monitor's draw of the followed player is an ordinary model draw**, so it lights through the light cache with
+    /// flags `0xf` (`0x1800f1bd0` → `LightcacheGet` `0x1801b9cd0`), dynamic lights included (`0x1801b7a10`), exactly as
+    /// the world pass does — not through the uncached point lookup. The recorder's fireball beside him is the probe.
+    /// </remarks>
+    [Test]
+    public void Pose_TheMonitorsFollowedPlayerBesideTheRecordersFireball_TakesItAsALocalLight()
+    {
+        MomentScene scene = Posable();
+        scene.Lighting = LevelLightingTests.Lit([]);
+        SceneProp fireball = new(
+            300, "models/empty.mdl", SceneModelKind.Studio, new ScenePose { Z = 60f }, OwnedBy: 9,
+            ClassName: "CTFProjectile_BallOfFire");
+        SceneProp followed = Prop("models/props/crate.mdl", entity: 3) with { Pose = new ScenePose { Z = 20f } };
+        MomentInfo info = Info() with { FirstPerson = true, Followed = 3, Recorder = 9, EyeCamera = Eye() };
+
+        // Entity 5 is a drawn crate far from the fireball: the world pass loads the model the undrawn pass shares.
+        SceneProp far = Prop("models/props/crate.mdl", entity: 5) with { Pose = new ScenePose { X = 5000f, Z = 20f } };
+
+        scene.Build([], [followed, far, fireball], info);
+        scene.Pose(info, monitor: true);
+
+        scene.Drawn.Select(prop => prop.EntityIndex).ShouldBe([5, 300], ignoreOrder: true);
+        scene.UndrawnInstances.Count.ShouldBe(1);
+        scene.UndrawnInstances[0].Locals!.Count.ShouldBe(1);
+    }
+
+    /// <remarks>
+    /// **The zoomed LOCAL player is hidden from every view** (B598): `C_TFPlayer::ShouldDraw` returns false for
+    /// `this == GetLocalTFPlayer()` in `TF_COND_ZOOMED` (`c_tf_player.cpp:8014-8020`), `C_TFWearable::ShouldDraw` hides
+    /// his cosmetics by the same test (`tf_item_wearable.cpp:338-340`), and `C_BaseCombatWeapon::ShouldDraw` hides his
+    /// weapon because its owner does not draw (`c_basecombatweapon.cpp:427-431`). The local player is the recorder; a
+    /// SourceTV recording's is the spectator, never zoomed, so nobody is hidden there.
+    /// </remarks>
+    [TestCase(3, true, false)]
+    [TestCase(3, false, true)]
+    [TestCase(null, true, true)]
+    public void Build_TheRecorderZoomedOrNot_HidesHimAndHisCosmeticsOnlyWhenZoomed(int? recorder, bool zoomed, bool drawn)
+    {
+        MomentScene scene = Scene();
+        ScenePlayer sniper = Soldier(entity: 3) with { Conditions = zoomed ? new(1 << 1, 0, 0, 0, 0) : default };
+        SceneProp hat = new(40, "models/props/crate.mdl", SceneModelKind.Studio, new ScenePose(), AttachedTo: 3);
+
+        scene.Build([sniper, Soldier(entity: 4)], [hat], Info() with { Recorder = recorder });
+
+        int[] entities = [.. scene.Drawn.Select(prop => prop.EntityIndex)];
+        entities.Contains(3).ShouldBe(drawn);
+        entities.Contains(40).ShouldBe(drawn);
+        entities.ShouldContain(4, "the control: another player is drawn either way");
+    }
+
+    /// <remarks>
+    /// **And a monitor does not bring him back**: `ForceTempForceDraw` (`viewrender.cpp:3266-3287`) only reaches
+    /// `C_BasePlayer::ShouldDraw`, and the zoom test above returns before `BaseClass::ShouldDraw` is called.
+    /// </remarks>
+    [TestCase(true, 0)]
+    [TestCase(false, 1)]
+    public void Pose_InFirstPersonWithAMonitorWhileZoomedOrNot_HandsTheMonitorNothingWhenZoomed(bool zoomed, int props)
+    {
+        MomentScene scene = Posable();
+        ScenePlayer sniper = Soldier(entity: 3) with { Conditions = zoomed ? new(1 << 1, 0, 0, 0, 0) : default };
+        MomentInfo info = Info() with { FirstPerson = true, Followed = 3, Recorder = 3, EyeCamera = Eye() };
+
+        scene.Build([sniper], [], info);
+        MomentPhases phases = scene.Pose(info, monitor: true);
+
+        phases.UndrawnCensus.Props.ShouldBe(props);
+    }
+
     [Test]
     public void Build_InThirdPerson_DrawsEveryPlayer()
     {

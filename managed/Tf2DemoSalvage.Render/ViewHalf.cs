@@ -87,7 +87,7 @@ internal sealed class ViewHalf
     public (float[] Matrix, bool Colours)? WorldCamera { get; set; }
 
     /// <summary>What the detail sprites were last built for.</summary>
-    public (float X, float Y, float Z, float Distance, float Fade, (float, float, float) Forward)? DetailBuiltFor { get; set; }
+    public (float X, float Y, float Z, float Distance, float Fade, float Factor, (float, float, float) Forward)? DetailBuiltFor { get; set; }
 
     /// <summary>The detail sprites' quads.</summary>
     public List<DetailSpriteVertex> DetailCorners { get; } = [];

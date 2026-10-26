@@ -249,6 +249,6 @@ public sealed class ViewHalvesTests
     private static CameraUpload Upload(float[] matrix) =>
         new(matrix, Colours: false, Specular: true, Fullbright.Off, DebugModes.None, Phong: true, Fog: null);
 
-    private static (float X, float Y, float Z, float Distance, float Fade, (float, float, float) Forward) Key(float x) =>
-        (x, 0f, 0f, 1200f, 0f, (1f, 0f, 0f));
+    private static (float X, float Y, float Z, float Distance, float Fade, float Factor, (float, float, float) Forward) Key(float x) =>
+        (x, 0f, 0f, 1200f, 0f, 1f, (1f, 0f, 0f));
 }

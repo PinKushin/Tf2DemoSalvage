@@ -2921,8 +2921,10 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         // `docs/memory/logs-are-the-debugger.md#a-null-object-default-hides-a-missed-wiring` records.
         (float Distance, float Fade) live = LiveDetailFade;
 
-        (float X, float Y, float Z, float Distance, float Fade, (float, float, float) Forward) key =
-            (eye.X, eye.Y, eye.Z, live.Distance, live.Fade, forward);
+        float factor = DetailFovFactor;
+
+        (float X, float Y, float Z, float Distance, float Fade, float Factor, (float, float, float) Forward) key =
+            (eye.X, eye.Y, eye.Z, live.Distance, live.Fade, factor, forward);
 
         if (_detailProps.Count == 0 || half.DetailBuiltFor == key)
         {
@@ -2931,7 +2933,8 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
 
         half.DetailBuiltFor = key;
 
-        DetailFade fade = DetailFade.For(live.Distance, live.Fade);
+        // `m_flCurMaxSqDist /= factor` (`detailobjectsystem.cpp:2813-2825`): a zoom pushes the fade out (B580).
+        DetailFade fade = DetailFade.For(live.Distance, live.Fade, factor);
 
         // **The models first, and OUTSIDE the sprite renderer's own guard** (B363). A map can carry
         // detail models and no sprites at all — `SetDetailProps` leaves `_detailSprites` null when
@@ -3098,6 +3101,9 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
     /// distinction <see cref="DetailDistance"/> draws applies.
     /// </remarks>
     public float DetailFadeWidth { get; set { Lock(); field = value; } } = 400f;
+
+    /// <inheritdoc />
+    public float DetailFovFactor { get; set { Lock(); field = value; } } = 1f;
 
     /// <summary>The two distances actually in force, after the loaded map has had its say.</summary>
     /// <remarks>

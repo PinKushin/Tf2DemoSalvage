@@ -211,3 +211,42 @@ type, call site and thread (measurements/2026-10-25-allocation-attribution.md):
   frames. And `TF2VIEW_FRAME_HASH` with `TF2VIEW_FIXED_FRAME` is not deterministic run to run in its image, particle and
   HUD hashes (an A-against-A control differs on 99%, 7% and 0.6% of labels); only its pose and cull hashes agree, so
   it cannot by itself show a change bit-identical.
+
+## (10) The four parity fixes and the engine's sequence pick, 2026-10-25
+
+  - **The parity half was fixed 2026-10-25:** on a map with a monitor the pass now lights through the light cache with
+    dynamic lights, as the engine's monitor draw does (B594 (b)). Read from code and the disassembly already cited;
+    held by a synthetic test, not by a monitor-map shot.
+
+**Four visible divergences closed on 2026-10-25, with the owner's approval (`fix/four-parity-divergences`)** — each read
+from the SDK before the test, each red before the code:
+
+- **B584's weight ≤ 0 was a refusal the engine does not make.** `iabs(actweight)` with 0 raised to 1
+  (`studio.cpp:1822-1829`); the slow loop that does not raise 0 is compiled out (`studio.h:33` sets its switch to 0).
+  The wrong turn worth keeping: the old comment called the refusal "Valve's rule"; it was the rule of a branch that is
+  never built.
+- **The heaviest pick itself was the divergence, and it was defended with the wrong function** (D233, the same day).
+  The deterministic rule had been called engine-matching because it equals `SelectHeaviestSequence`
+  (`animation.cpp:413-437`) — a function the player path never calls. The player path calls `SelectWeightedSequence`
+  every frame (`multiplayer_animstate.cpp:1170`), which rolls `RandomInt` over the weights (`animation.cpp:308-335`), and
+  keeps the roll only when the activity changed (`:1171-1172`): random once, then held — which is reproducible enough that
+  the "a random pick flickers" objection was about a stateless port, not about the engine. Ported with the hold, the
+  negative-weight keep (`:291-297`) and one addition, a seed from (entity, activity, tick begun) so a seek repeats itself.
+  Measured (`measurements/2026-10-25-d233-activity-tuples-cost.md`, read with the probe): only 19 of 1,339 activities on
+  the f12 model set have more than one candidate, so the change is visible on few animations.
+- **"Tick begun" was first a lie on every seek** — the first cut keyed a seek on the landing tick, so the same moment
+  could show two variants depending on how you reached it. The owner chose *"Recover real start (Recommended)"*. The fix
+  that held was to stop remembering the start at all: it is RECOVERED, by one backward scan over whole ticks, on every
+  activity change as well as on a seek, so play and seek are the same code rather than two codes kept in agreement. Two
+  things the engine settled on the way (*read from published source*): a dead player is not animated and
+  `ClearAnimationState` keeps the main sequence (`multiplayer_animstate.cpp:136-146`), so absence must be passed over,
+  not end the stretch — he respawns into the variant he died in; and a gesture needs no scan, because `AddToGestureSlot`
+  rolls once (`:616-688`) and each gesture carries its own start. The wrong turn worth keeping: scanning through the frame's
+  own player sampler, which looks like the obvious reuse, would have reset the demo player's and prediction's per-tick
+  caches on every seek — the scan got a side-effect-free one-player sampler instead. What the scan cannot do is in RISKS
+  B584 (a 31 s cap; a stretch shorter than one frame gap, which play itself never sees).
+- **B580's sphere is bare `cl_detaildist`.** Reading it found that production never passes the FOV factor at all, so the
+  zoomed case it guards is not reachable yet, and that the engine's sphere admits whole leaves, which a run box under-reaches
+  when zoomed (interpolated; filed as B580's residuals).
+- **B598, the zoomed local player**, is hidden from every view, a monitor's included, because the zoom test returns
+  before the base `ShouldDraw` that a monitor's force-draw reaches (`c_tf_player.cpp:8014-8020`).

@@ -63,7 +63,7 @@ public sealed class DetailReachTests
 
             for (int run = 0; run < reach.Runs; run++)
             {
-                skipped += reach.Near(run, eye, fade.MaximumSquared) ? 0 : 1;
+                skipped += reach.Near(run, eye, fade.Radius) ? 0 : 1;
             }
 
             whole.Count.ShouldBeGreaterThan(0, $"view {view}: the control must build something");
@@ -72,6 +72,28 @@ public sealed class DetailReachTests
         // The reach must actually skip: a 300-unit sphere touches at most ~100 of the 577 runs.
         reach.Runs.ShouldBe((Grid * Grid) + 2);
         skipped.ShouldBeGreaterThan(200 * 400);
+    }
+
+    /// <summary>
+    /// Conformance: the sphere is bare <c>cl_detaildist</c> (<c>detailobjectsystem.cpp:2839-2841</c>) while a zoomed
+    /// FOV factor divides only the fade's squared maximum (<c>:2821-2825</c>). So at factor 0.5 and distance 300 a model
+    /// 400 out is inside the fade (400² &lt; 300²/0.5) yet in no leaf the sphere reaches, and the engine never draws it.
+    /// </summary>
+    [Test]
+    public void Build_ZoomedPropBeyondTheSphereInsideTheFade_IsNotReached()
+    {
+        List<BspDetailProp> props = [Prop(0, 400f, 0f, 6), Prop(1, 100f, 0f, 6)];
+        DetailFade zoomed = DetailFade.For(distance: 300f, fade: 100f, factor: 0.5f);
+        DetailReach reach = new(props, [Rectangle]);
+
+        zoomed.Radius.ShouldBe(300f);
+        zoomed.Alpha(400f * 400f).ShouldBeGreaterThan((byte)0);
+
+        List<DetailModelInstance> placed = [];
+        DetailModels.Build(props, (0f, 0f, 0f), zoomed, placed, reach);
+
+        placed.Count.ShouldBe(1);
+        placed[0].Origin.X.ShouldBe(100f);
     }
 
     private static double Fraction(double value) => value - Math.Floor(value);

@@ -135,7 +135,7 @@ public static class DetailModels
 
         for (int run = 0; run < runs; run++)
         {
-            if (reach is not null && !reach.Near(run, eye, fade.MaximumSquared))
+            if (reach is not null && !reach.Near(run, eye, fade.Radius))
             {
                 continue;
             }
