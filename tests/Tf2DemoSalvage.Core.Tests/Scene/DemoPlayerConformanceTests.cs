@@ -307,6 +307,50 @@ public sealed class DemoPlayerConformanceTests
         played.InterpolateViewpoint(110.25).ShouldNotBeNull().Origin.X.ShouldBe(441f, Tolerance);
     }
 
+    /// <summary>
+    /// `ViewsAt` is the seek scan's side-effect-free question, and must answer what the frame's `ReadPackets` reads: on a
+    /// demo whose packet ticks run backwards, a binary search over the stream and the frame's linear read disagree.
+    /// </summary>
+    [Test]
+    public void ViewsAt_PacketTicksRunningBackwards_AgreesWithAFreshFrameAtEveryTick()
+    {
+        byte[] demo = Backwards();
+        DemoPlayer probe = Player(demo);
+
+        for (int tick = 95; tick <= 145; tick++)
+        {
+            probe.ViewsAt(tick).ShouldBe(Player(demo).InterpolateViewpoint(tick) is not null, $"tick {tick}");
+        }
+    }
+
+    /// <summary>
+    /// The frame itself must not depend on how it got there: `CDemoPlayer` rewinds only by `SkipToTick`'s reload, so a
+    /// rewind lands in the state a fresh read does, even when the packet read last has a tick at or below the target.
+    /// </summary>
+    [Test]
+    public void InterpolateViewpoint_RewoundOnABackwardsTickDemo_IsAFreshReadsAnswer()
+    {
+        byte[] demo = Backwards();
+        DemoPlayer played = Player(demo);
+
+        // Tick 120 reads past P120 into the backward run, whose last packet (tick 110, default view) is current.
+        played.InterpolateViewpoint(120d).ShouldBeNull("the control: the backward run's default view is current");
+
+        RecordedView? rewound = played.InterpolateViewpoint(115d);
+
+        // The value itself is the parse-ahead's across the backward run; what is claimed is that history does not change it.
+        rewound.ShouldNotBeNull("a fresh read at 115 has P115 current, a real view");
+        rewound.ShouldBe(Player(demo).InterpolateViewpoint(115d));
+    }
+
+    /// <summary>The line to 120, a backward run of default views at ticks 100-110, then the line on from 121.</summary>
+    private static byte[] Backwards() => SyntheticViews.Demo(
+    [
+        .. SyntheticViews.Run(100, 120, tick => SyntheticViews.Packet(tick, (tick * 4f, 0f, 0f), (0f, 10f, 0f))),
+        .. SyntheticViews.Run(100, 110, tick => SyntheticViews.Packet(tick, (0f, 0f, 0f))),
+        .. SyntheticViews.Run(121, 140, tick => SyntheticViews.Packet(tick, (tick * 4f, 0f, 0f), (0f, 10f, 0f))),
+    ]);
+
     /// <summary>Packets every tick from 100 to 130, four units a tick along X, looking along yaw 10.</summary>
     private static byte[] Line(byte maxPlayers = 24) => SyntheticViews.Demo(
         maxPlayers,
