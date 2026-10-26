@@ -320,3 +320,20 @@ synthetic test red under sabotage:
   comment had quoted the rule as `enterfrac >= 0`.** That was a misremembered citation, written down with confidence.
   Clamping took the still-against-running gaps from 7,723 to 2,376. The remainder starts inside geometry that a mismatched
   map build would explain.
+- **Then the ancestor turned out to be the wrong source, because the descendant was published** (*read from published
+  source; interpolated to the brush clip*, RISKS B604). A review pointed at `public/collisionutils.cpp`:
+  `IntersectRayWithBox` and `IntersectRayWithOBB` are Source's own clip for boxes and oriented boxes, called with
+  `DIST_EPSILON`, and they disagree with Quake 2 in every epsilon branch. They clamp the entry's numerator *before*
+  comparing it (`:1176-1189`), so at a corner with two faces inside the epsilon the first side wins. Ours kept the
+  least-negative raw value, which is a different plane to slide along. They have no −1 bound (`:1201`), so a step shorter
+  than the gap stops at 0. Under Quake 2's bound it passed into the brush, which is B604's own failure, reached by
+  another road. Allsolid is "left at or before the start, or never" (`:1242`), not "never got out". The early return is
+  `d2 > 0`. A start inside is fraction 0 with a conventional (1, 0, 0) normal. The lesson is about sources rather than
+  arithmetic. "The SDK does not ship `cmodel.cpp`" was true, and it was read as "the SDK says nothing about the clip". It
+  says a great deal, two files over. The probe is the control on whether that interpolation helps: see
+  measurements/2026-10-26-pov-recorder-seek-scan.md, "Source's clip".
+- **And the footstep probe, read on a real match, mostly starts solid** (*measured*, RISKS B605). It was assumed that the
+  clip change would move step surfaces on every demo. Measured on a SourceTV match, it moved 4 samples of 3,993, and those 4
+  belong to the B604 clamp, not to this change. 3,320 of the 3,993 start solid under every form of the clip, because a SourceTV
+  origin sits exactly on the floor plane and `d1 = 0` is not outside. Predicting the effect from the arithmetic was right
+  about direction and wrong about size.

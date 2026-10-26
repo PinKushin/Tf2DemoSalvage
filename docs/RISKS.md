@@ -40081,6 +40081,19 @@ the `Task.Run` holds the gate — no worse than the synchronous open it replaced
 setters volatile, or publishing one "install opened" object the frame reads once, touches five classes and the frame's
 read order, which is not the small safe step the review allowed; filed for the lead with that design.
 
+## B605 — the footstep ground probe starts solid for 83% of grounded players on a SourceTV match, and names no surface — OPEN (2026-10-26)
+
+**Measured** (`CorpusGroundSurfaceTests`, lcor `20171113_2240_cp_badlands_red_blu`, today's cp_badlands, every 33rd tick):
+of 3,993 grounded players with a floor within a unit underfoot, `MapLevel.GroundTrace` started solid for **3,320**, struck a
+surface for 672 and missed 1. The networked origins rest EXACTLY on the floor plane (z = 296.0, 408.0), so the hull-wide
+cube's bottom face has `d1 = 0`, which neither Source's clip (`collisionutils.cpp:1141-1174`, startsolid unless some
+`d1 > 0`) nor Quake 2's counts as outside; the trace starts in, `Texinfo = −1`, and the step sound falls to the no-surface
+choice. Not caused by B604's clip change: identical under the pre-B604 rule. **Not settled:** what TF2 itself traces here —
+`C_BasePlayer::GetGroundSurface` was not read this session (the SDK lookup was blocked by tooling, not tried and failed), and
+whether the client's origin for another player is the quantized networked one or a position resolved off the floor. Read it
+before changing anything; the probe's own shape (a 48 cube from z + 24, `MASK_SOLID`, where its comment says
+`MASK_PLAYERSOLID_BRUSHONLY`) is also unverified against it.
+
 ## B604 — prediction gives a running POV recorder 0 u/s on ~7% of probed ticks, and the frame draws him standing — MAIN CAUSE FIXED, REMAINDER OPEN (2026-10-26)
 
 **Root cause, found and fixed 2026-10-26 (evidence classes: measured by manipulation, and read from published source).**
@@ -40090,14 +40103,29 @@ a wall or a slope. With the crossing refused, the box passed into the brush, and
 (`gamemovement.cpp:2636-2649`) zeroed his velocity. In engine terms: a running player was predicted to a dead stop. Quake 2's
 `CM_ClipBoxToBrush` (`qcommon/cmodel.c:989-1096`, id's GPL release, the published ancestor of the unshipped
 `engine/cmodel.cpp`, read verbatim) keeps an entry above −1 and clamps it to 0 (`:1086-1089`). `MovementWorld.Sweep`
-already did the same; the brush tree now does too. **Two more differences from Quake 2 are filed, not changed**, because
-neither is this bug and Source's version of either is not read. (a) Quake 2 returns early only for `d1 > 0 && d2 >= d1`
-(`:1052`); ours returns for any `d2 >= 0`, so a box inside the epsilon that closes on the face without reaching it is let
-move. Taking Quake 2's form made the gap count worse against the server, 2,376 to 2,383, and was reverted. (b) Quake 2's
-start-solid branch sets only the flags (`:1077-1083`); ours also sets the fraction to 0. Quake 2's form changed the count by
-22 of 2,369. Both reach every world trace, so they wait for a decompile of Source's `CM_ClipBoxToBrush`.
-*Interpolated to Source:* the decompile that would settle it could not be run this session, because the Ghidra MCP's
-analysis tools were not exposed to the agent.
+already did the same; the brush tree now does too.
+
+**Superseded the same day: both clips now take SOURCE's published form, not Quake 2's** (branch `fix/source-brush-clip`,
+found by a Fable review). The SDK publishes the engine's own clip for boxes and oriented boxes,
+`IntersectRayWithBox` and `IntersectRayWithOBB` (`public/collisionutils.cpp:1130-1202`, `:1465-1685`, both with
+`flTolerance = DIST_EPSILON`), so citing Quake 2 here was reaching for the ancestor when the descendant was on the shelf.
+Five branches differ from what shipped above, and each now follows Source: (a) the entry's numerator is clamped to 0
+BEFORE `f > t1`, so at a corner with two faces inside the epsilon the FIRST side is kept — ours kept the least-negative raw
+value, a different normal for `ClipVelocity`; (b) no −1 bound: a step shorter than the gap passed INTO the brush, started the
+next tick inside it, and `TryPlayerMove`'s stuck re-trace zeroed the velocity — B604's own failure, for closing speeds under
+about 2 u/s; an entry clamped to 0 against a leave at or before 0 now misses, as Source's does; (c) allsolid is
+`t2 <= 0 || t2 >= 1` (`:1240-1243`), so a start inside the epsilon of a face, moving out, is allsolid; (d) the early return
+is `d1 > 0 && d2 > 0` (`:1158`); (e) a start inside is fraction 0 with plane normal (1, 0, 0) — and for the box sweep
+(buildings, enemies) fraction 0 instead of 1, so a recorder who starts inside one is held as the engine holds him; the box
+faces also go in Source's order, −x −y −z +x +y +z, which (a) makes matter. The earlier note (a) — Quake 2's `d2 >= d1` made
+the count worse — is moot: neither form is Source's. *Interpolated:* the brush clip itself is still the unshipped
+`cmodel.cpp`; the published form is a sibling with the same tolerance idiom. The tree's leaf pruning keeps Quake 2's
+`fraction <= p1f` (`cmodel.c:1239`), pinned by a test; Quake 2's leaf loop also stops at fraction 0 (`:1180`), which ours
+does not, a filed difference. Tests: `BrushClipConformanceTests` (Content), the box `Sweep` tests, the chase camera and
+`MapLevel.GroundTrace` from inside the epsilon, and `CorpusGroundSurfaceTests` on a real match. **Measured** on
+etf2l-12025: still-against-running gaps 2,376 → 2,369, speed-gate flips 724 / 33,368 → 721 / 34,040, all of it the brush
+clip's, none the box sweep's (measurements/2026-10-26-pov-recorder-seek-scan.md, "Source's clip"). Parity, not B604's
+remainder: the remainder is unchanged in shape.
 
 **How it was found** (measurements/2026-10-26-pov-recorder-seek-scan.md, "B604's cause"; probe `recorder-prediction-gaps`, which runs every packet gap of the demo against the next packet's
 networked velocity): 83,267 gaps were compared. In 7,723 of them prediction was still (< 0.5 u/s) while the server was over
