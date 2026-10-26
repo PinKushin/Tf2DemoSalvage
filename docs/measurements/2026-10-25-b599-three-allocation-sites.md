@@ -102,9 +102,14 @@ detail` parts (the stages holding the decal projection and `DetailSprites.Build`
 - **Stages:** `decals` gummo A 0.263-0.348, C 0.223-0.253 ms (separate; ~−0.03); empty A 0.120-0.125, C 0.110-0.121
   (overlap). `detail` gummo A 0.434-0.508, C 0.404-0.429 (separate by 0.005; ~−0.03).
 - **Frame mean:** gummo A 8.98-10.74 (mean 9.61), C 8.86-9.69 (9.26); pairs in run order C−A −1.51, +0.71, −0.24.
-  Empty A 3.45-3.54 (3.50), C 3.53-3.75 (3.62); pairs +0.21, +0.07, +0.03. **Neither separates**; the empty view's C
-  runs are not faster and two of three pairs lean slower, within the 3.41-3.81 same-build spread of
-  measurements/2026-10-25-b585-matrix-pool.md.
+  Empty A 3.45-3.54 (3.50), C 3.53-3.75 (3.62); pairs +0.21, +0.12, +0.03. **Neither separates**, but the empty
+  view's C runs are slower in all three pairs, within the 3.41-3.81 same-build spread of
+  measurements/2026-10-25-b585-matrix-pool.md. The only changed code the empty view runs is the decal projection, and
+  its stage did not slow (above), so the lean is not attributed to any changed stage; it is unexplained.
+- **The queue verifier has no positive control yet. Proposed:** a test that holds the render thread on a gate inside
+  the queued job, overwrites one handed-off instance's matrix `float[]` after `Submit` returns, then releases it, and
+  expects `changed` = 1 with `pose` named; sabotaged by making `after != handed` always false. And `--measure` should
+  print the checked count's change over the measured frames only, beside the frames.
 - **The removed sites are gone (trace of C, gummo, 60 s, same method as the attribution record):** `<Influences>`
   0 bytes (A 729 MB), `Device3D.File` 0.1 MB, one tick (A 648 MB), `DetailSprites.Build`/`EmitGroup` 0.1 MB, one tick
   (A 648 MB). Total ticked 4,886 MB against A's 7,326 in the same 60 s; the render thread 13.3% (A 18.1%).
@@ -127,6 +132,7 @@ detail` parts (the stages holding the decal projection and `DetailSprites.Build`
 
 **Allocation prediction confirmed for gummo (−0.30 MB, inside 0.22-0.32), falsified narrowly for the empty view
 (−0.05 to −0.06 against 0.06-0.08); gen0 confirmed; the gc pause fell ~0.045 ms a frame, which clears the owner's
-0.01 ms; the frame mean is inconclusive.** A quarter of the garbage and of the collections is gone at no measured cost to
-the stages (both moved stages got faster), so the change is kept; the frame-level gain is below this method's
-resolution. The rest of the ~0.85 MB is B599's open list.
+0.01 ms; the frame mean is inconclusive,** and in the empty view it leans slower in 3 of 3 pairs (+0.03 to +0.21 ms)
+with no changed stage slower. A quarter of the garbage and of the collections is gone and both stages the change
+touches got faster, so it is kept; the frame-level effect is below this method's resolution, and the empty view's lean
+is worth three more pairs before anyone quotes a frame gain. The rest of the ~0.85 MB is B599's open list.
