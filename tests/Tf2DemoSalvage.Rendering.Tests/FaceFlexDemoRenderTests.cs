@@ -90,11 +90,14 @@ public sealed class FaceFlexDemoRenderTests
         foreach (float yaw in (float[])[0f, 90f, 180f, 270f])
         {
             int[] flexed = Picture(target, assets, models, soldier, face, yaw);
-            int[] again = Picture(target, assets, models, soldier, face, yaw, soldier.FlexRange.ShouldNotBeNull());
+            int[] again = Picture(target, assets, models, soldier, face, yaw);
+            int[] ranged = Picture(target, assets, models, soldier, face, yaw, soldier.FlexRange.ShouldNotBeNull());
             int[] rest = Picture(target, assets, models, soldier, null, yaw);
 
+            again.ShouldBe(flexed, "the control: one draw repeated is the same picture");
+
             // Sent as production sends it, only the flexed range (B597): the same picture as the whole stream.
-            again.ShouldBe(flexed, "the flexed range draws what the whole stream draws");
+            ranged.ShouldBe(flexed, "the flexed range draws what the whole stream draws");
 
             int changed = flexed.Zip(rest).Count(pair => Math.Abs(pair.First - pair.Second) > 6);
 
