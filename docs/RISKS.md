@@ -40253,6 +40253,9 @@ inputs (the item schema and the archives). Not in `DemoAppearance.Ensure`, which
 in play, so it would not have moved the read. Its timing is carried from `WeaponMuzzleFlashes.Precache` itself (B243).
 `LevelSystemsTests.OpenGame_TheInstall_PrecachesItsWeaponScriptsBeforePlay` (red with the call removed);
 `CorpusMainThreadReadsInPlayTests` now reads the game's own instance, **not run here** (no f12 in the worktree).
+**Threads (read from code):** `OpenGame` runs inside `ReadMap`, which the demo load awaits behind its `_readingMap`
+barrier (B507) and may run on a pool thread; `WeaponMuzzleFlashes._scripts` is a plain dictionary filled there and read
+(and lazily added to by `For`) on the game thread only after that load completes, so the task's completion orders them.
 
 ## B594 — `LevelLighting.SunFrom`'s 5.8% is not explained by how often it runs; the first-person undrawn pass lights a model nothing draws — OPEN (2026-10-24)
 

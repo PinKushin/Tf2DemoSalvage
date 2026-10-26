@@ -250,3 +250,21 @@ from the SDK before the test, each red before the code:
   when zoomed (interpolated; filed as B580's residuals).
 - **B598, the zoomed local player**, is hidden from every view, a monitor's included, because the zoom test returns
   before the base `ShouldDraw` that a monitor's force-draw reaches (`c_tf_player.cpp:8014-8020`).
+
+**The batch-31 review (2026-10-26) corrected two of these and confirmed one claim** — read from code, each held by a
+synthetic test red under sabotage:
+
+- **Hidden is not gone, again.** The B598 fix took the zoomed sniper out of the undrawn list as well as the drawn one, so
+  no pass held him and `SkinningOf` — `CModelRender::AddDecal`'s own bone setup — refused his blood. It is the same
+  lesson as the first-person player's (B511): `ShouldDraw` decides drawing, not existence. He is now moved to the undrawn
+  list, simulated but unposed, and handed to no monitor; the monitor test that had asserted "posed 0" had encoded the
+  regression.
+- **The scan's recorder was on his track, not his networked velocity.** The previous bullet's side-effect-free sampler
+  was right about the caches and wrong about the motion: the frame moves a viewed recorder by `LocalPlayer` (prediction's
+  velocity, else `m_vecVelocity`), the scan by differenced positions. The scan now asks the demo player, side-effect free,
+  whether the frame has a view, and takes `LocalPlayer`'s speed from a cache-free prediction.
+- **"Posing waits for the previous draw" (B585's pool) holds on the seek paths too**, which the review doubted: they call
+  the moment presenter's pose directly, but both drain the render thread first (B581's `Lock`), and nothing between submits
+  a draw. Only the decal replay's drain lacked a test; it has one.
+- **The weapon-script precache moved to the install's open** (`LevelSystems.OpenGame`), from the first frame's step:
+  `C_World::Precache`'s inputs are the install's, so the first map read is the point before play that has them.
