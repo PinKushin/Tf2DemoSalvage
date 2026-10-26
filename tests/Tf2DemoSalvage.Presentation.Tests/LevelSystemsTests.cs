@@ -191,6 +191,22 @@ public sealed class LevelSystemsTests
         sound.Scripts.ShouldBeNull();
     }
 
+    /// <remarks>
+    /// **The weapon scripts are read before play** (B595 part 6), as `C_World::Precache` reads them (`c_world.cpp:161-176`)
+    /// — not on the first frame's step, on the game thread, where they were. The timestamp is the precache's own (B243).
+    /// </remarks>
+    [Test]
+    public void OpenGame_TheInstall_PrecachesItsWeaponScriptsBeforePlay()
+    {
+        GameContent game = GameContent.Open(folder: null, NullLoggerFactory.Instance);
+
+        game.MuzzleFlashes.PrecachedAt.ShouldBe(0, "the control: opening the content alone precaches nothing");
+
+        Systems().OpenGame(game);
+
+        game.MuzzleFlashes.PrecachedAt.ShouldNotBe(0);
+    }
+
     [Test]
     public void Install_AskedTwice_OpensTheGameOnceAndAnswersTheSameContent()
     {

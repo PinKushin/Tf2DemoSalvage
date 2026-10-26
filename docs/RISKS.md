@@ -40246,7 +40246,13 @@ start-up. Real-demo test: `CorpusMainThreadReadsInPlayTests`. **Still open:** po
 **Batch-31 review, finding 5 (2026-10-26):** the read observer was never removed, so after a `--measure` report every
 archive read for the rest of the run kept a `StackTrace` nobody printed. `ReadsInPlay` now owns arm, report and disarm;
 the report disarms and forgets (`ReadsInPlayTests`, red with the disarm removed); the `--then-seek` measurement re-arms at
-its own first frame.
+its own first frame. **Finding 6:** the weapon-script precache ran in the first `BurstEffects.Step` in play, on the
+game thread; it is now `GameContent.MuzzleFlashes`, precached by `LevelSystems.OpenGame` as the install arrives on the
+first map read — before play, beside the install's other catalogs, the nearest point to `C_World::Precache` that has the
+inputs (the item schema and the archives). Not in `DemoAppearance.Ensure`, which is per demo and runs on the first moment
+in play, so it would not have moved the read. Its timing is carried from `WeaponMuzzleFlashes.Precache` itself (B243).
+`LevelSystemsTests.OpenGame_TheInstall_PrecachesItsWeaponScriptsBeforePlay` (red with the call removed);
+`CorpusMainThreadReadsInPlayTests` now reads the game's own instance, **not run here** (no f12 in the worktree).
 
 ## B594 — `LevelLighting.SunFrom`'s 5.8% is not explained by how often it runs; the first-person undrawn pass lights a model nothing draws — OPEN (2026-10-24)
 

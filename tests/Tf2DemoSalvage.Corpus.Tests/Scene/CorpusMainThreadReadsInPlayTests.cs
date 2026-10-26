@@ -34,7 +34,8 @@ public sealed class CorpusMainThreadReadsInPlayTests
 
         IPlayerAppearance appearance = DemoAppearance.Ensure(DemoAppearance.None, timeline, game, NullLogger.Instance);
         FaceSources faces = appearance.Faces.ShouldNotBeNull();
-        WeaponMuzzleFlashes muzzles = new(game.Archives.Read, game.Weapons.Items);
+        // The game's own instance, the one the bursts read; `LevelSystems.OpenGame` precaches it at the install's open.
+        WeaponMuzzleFlashes muzzles = game.MuzzleFlashes;
         muzzles.Precache();
 
         List<string> reads = [];
