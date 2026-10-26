@@ -90,10 +90,11 @@ public sealed class FaceFlexDemoRenderTests
         foreach (float yaw in (float[])[0f, 90f, 180f, 270f])
         {
             int[] flexed = Picture(target, assets, models, soldier, face, yaw);
-            int[] again = Picture(target, assets, models, soldier, face, yaw);
+            int[] again = Picture(target, assets, models, soldier, face, yaw, soldier.FlexRange.ShouldNotBeNull());
             int[] rest = Picture(target, assets, models, soldier, null, yaw);
 
-            again.ShouldBe(flexed, "the control: one draw repeated is the same picture");
+            // Sent as production sends it, only the flexed range (B597): the same picture as the whole stream.
+            again.ShouldBe(flexed, "the flexed range draws what the whole stream draws");
 
             int changed = flexed.Zip(rest).Count(pair => Math.Abs(pair.First - pair.Second) > 6);
 
@@ -160,7 +161,8 @@ public sealed class FaceFlexDemoRenderTests
 
     /// <summary>The head from one side, close up, every pixel's channel sum.</summary>
     private static int[] Picture(
-        OffscreenTarget target, MapAssets assets, EntityModelSet models, ModelInstance soldier, float[]? face, float yaw)
+        OffscreenTarget target, MapAssets assets, EntityModelSet models, ModelInstance soldier, float[]? face, float yaw,
+        FlexSlots? range = null)
     {
         (float minX, float minY, float _, float maxX, float maxY, float maxZ) = soldier.WorldBounds;
         (float X, float Y, float Z) head = ((minX + maxX) / 2f, (minY + maxY) / 2f, maxZ - 12f);
@@ -190,7 +192,8 @@ public sealed class FaceFlexDemoRenderTests
             light: new AmbientCube((0.3f, 0.3f, 0.3f), (0.3f, 0.3f, 0.3f), (0.3f, 0.3f, 0.3f),
                 (0.3f, 0.3f, 0.3f), (0.6f, 0.6f, 0.6f), (0.1f, 0.1f, 0.1f)),
             bones: soldier.Bones,
-            flex: face);
+            flex: face,
+            flexRange: range);
 
         int[] sums = new int[Size * Size];
 

@@ -141,7 +141,10 @@ public sealed class FaceFlexRenderTests
         (float X, float Y, float Z) normal,
         (float, float, float, float, float, float)? stream,
         (float X, float Y, float Z)? tangent = null,
-        float[]? reused = null)
+        float[]? reused = null,
+        float[]? face = null,
+        FlexSlots? range = null,
+        bool sameModel = false)
     {
         (float X, float Y, float Z) t = tangent ?? (1f, 0f, 0f);
 
@@ -173,6 +176,8 @@ public sealed class FaceFlexRenderTests
             flex = reused;
         }
 
+        flex = face ?? flex;
+
         float[] identity = [1f, 0f, 0f, 0f, 0f, 1f, 0f, 0f, 0f, 0f, 1f, 0f, 0f, 0f, 0f, 1f];
         // Close enough that a 20-unit move is several pixels: the view is about 200 units across 65.
         float[] camera = new FreeCamera { Origin = (0f, -100f, 0f), Angles = (0f, 90f, 0f), Aspect = 1f }.ToMatrix();
@@ -189,7 +194,9 @@ public sealed class FaceFlexRenderTests
             bothSides: true,
             sun: new SunLight(1f, 1f, 1f, -0.48f, 0.58f, -0.66f),
             bones: [IdentityBone],
-            flex: flex);
+            flex: flex,
+            flexRange: range,
+            sameModel: sameModel);
 
         int[] sums = new int[Size * Size];
 
@@ -203,5 +210,107 @@ public sealed class FaceFlexRenderTests
         }
 
         return sums;
+    }
+
+    /// <summary>
+    /// **Sending only the face's flexed range draws, frame by frame, what sending all of it draws** (B597): one model
+    /// drawn four times with different faces — moved right, moved up, at rest, right again — through the range and,
+    /// on a second target, whole. Every pixel of every frame must match. The third frame is the one a range can get
+    /// wrong: a slot that stops moving must go back to zero on the device.
+    /// </summary>
+    /// <remarks>
+    /// **The control** that the range is what is sent: a face with a delta OUTSIDE its range draws, through the range, as
+    /// if that delta were zero — and, whole, differently. A scene face never has one (the range is its model's first to
+    /// last flexed slot, <c>FaceFlexAnimationDemoTests.FlexRange_AMedicPlayingAFlexAnimation_HoldsEverySlotThatMoves</c>).
+    /// The exact comparison is on each pixel's packed channels.
+    /// </remarks>
+    [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
+    public void Draw_FacesThroughTheirFlexedRange_IsPixelIdenticalToSendingTheWholeStream()
+    {
+        using OffscreenTarget? ranged = OffscreenTarget.TryCreate(Size, Size);
+        using OffscreenTarget? whole = OffscreenTarget.TryCreate(Size, Size);
+
+        if (ranged is null || whole is null || Subject() is not { } subject)
+        {
+            Assert.Ignore("no Direct3D, or the game is not installed");
+            return;
+        }
+
+        // Corners 1 and 2 — the first triangle's right edge — are the flexed slots; corner 4 is the same point in the
+        // second triangle, outside the range.
+        FlexSlots range = new(1, 2);
+
+        static float[] Face((float X, float Y, float Z) delta, float outside = 0f)
+        {
+            float[] face = new float[6 * 6];
+
+            foreach (int slot in (int[])[1, 2])
+            {
+                face[slot * 6] = delta.X;
+                face[(slot * 6) + 1] = delta.Y;
+                face[(slot * 6) + 2] = delta.Z;
+            }
+
+            // Up, so the second triangle grows past the first rather than into it.
+            face[(4 * 6) + 2] = outside;
+            return face;
+        }
+
+        int[] Frame(OffscreenTarget target, float[] face, bool first)
+        {
+            Picture(target, subject, 0f, (0f, -1f, 0f), null, face: face, range: target == ranged ? range : null, sameModel: !first);
+            return Exact(target);
+        }
+
+        (string Name, float[] Face)[] sequence =
+        [
+            ("moved right", Face((20f, 0f, 0f))),
+            ("moved up", Face((0f, 0f, 15f))),
+            ("at rest", Face((0f, 0f, 0f))),
+            ("right again", Face((20f, 0f, 0f))),
+        ];
+
+        List<int[]> frames = [];
+
+        for (int at = 0; at < sequence.Length; at++)
+        {
+            int[] through = Frame(ranged, sequence[at].Face, at == 0);
+            int[] sent = Frame(whole, sequence[at].Face, at == 0);
+
+            through.Zip(sent).Count(pair => pair.First != pair.Second).ShouldBe(0, sequence[at].Name);
+            frames.Add(through);
+        }
+
+        int right = frames[0].Zip(frames[2]).Count(pair => pair.First != pair.Second);
+        int up = frames[1].Zip(frames[2]).Count(pair => pair.First != pair.Second);
+        TestContext.Out.WriteLine($"{right} pixels change moving right, {up} moving up");
+
+        right.ShouldBeGreaterThan(100, "the control: the faces differ");
+        up.ShouldBeGreaterThan(20, "the control: so does moving up");
+
+        // The control that only the range is sent.
+        int[] outside = Frame(ranged, Face((20f, 0f, 0f), outside: 20f), first: false);
+        int[] withIt = Frame(whole, Face((20f, 0f, 0f), outside: 20f), first: false);
+
+        outside.Zip(frames[0]).Count(pair => pair.First != pair.Second).ShouldBe(0, "the range drops a delta outside it");
+        outside.Zip(withIt).Count(pair => pair.First != pair.Second).ShouldBeGreaterThan(20, "the control: whole, it shows");
+    }
+
+    /// <summary>Every pixel of the target, its channels packed, for an exact comparison.</summary>
+    private static int[] Exact(OffscreenTarget target)
+    {
+        int[] pixels = new int[Size * Size];
+
+        for (int y = 0; y < Size; y++)
+        {
+            for (int x = 0; x < Size; x++)
+            {
+                (int r, int g, int b) = target.PixelAt(x, y);
+                pixels[(y * Size) + x] = (r << 16) | (g << 8) | b;
+            }
+        }
+
+        return pixels;
     }
 }
