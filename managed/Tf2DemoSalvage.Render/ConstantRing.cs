@@ -118,21 +118,33 @@ public sealed unsafe class ConstantRing : IDisposable
     /// <param name="device">The device.</param>
     /// <param name="context">The immediate context.</param>
     /// <param name="capacity">Constants in the ring, a multiple of 16.</param>
+    /// <param name="why">Why there is none, or "on".</param>
     /// <returns>The ring, or null.</returns>
-    public static ConstantRing? TryCreate(ComPtr<ID3D11Device> device, ComPtr<ID3D11DeviceContext> context, int capacity)
+    public static ConstantRing? TryCreate(
+        ComPtr<ID3D11Device> device, ComPtr<ID3D11DeviceContext> context, int capacity, out string why)
     {
         FeatureDataD3D11Options options = default;
 
-        if (device.CheckFeatureSupport(Feature.D3D11Options, &options, (uint)sizeof(FeatureDataD3D11Options)) != 0 ||
-            !options.ConstantBufferOffsetting || !options.MapNoOverwriteOnDynamicConstantBuffer)
+        if (device.CheckFeatureSupport(Feature.D3D11Options, &options, (uint)sizeof(FeatureDataD3D11Options)) != 0)
         {
+            why = "off: D3D11_FEATURE_D3D11_OPTIONS not answered";
+            return null;
+        }
+
+        if (!options.ConstantBufferOffsetting || !options.MapNoOverwriteOnDynamicConstantBuffer)
+        {
+            why = $"off: ConstantBufferOffsetting {(bool)options.ConstantBufferOffsetting}, " +
+                $"MapNoOverwriteOnDynamicConstantBuffer {(bool)options.MapNoOverwriteOnDynamicConstantBuffer}";
             return null;
         }
 
         if (context.QueryInterface(out ComPtr<ID3D11DeviceContext1> context1) != 0)
         {
+            why = "off: no ID3D11DeviceContext1";
             return null;
         }
+
+        why = "on";
 
         BufferDesc description = new()
         {

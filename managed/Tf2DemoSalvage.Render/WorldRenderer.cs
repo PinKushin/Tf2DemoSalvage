@@ -2022,6 +2022,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
     {
         if (!RingAllowed)
         {
+            RingStatus = "off: TF2VIEW_CONSTANT_RING=0 or a test";
             return null;
         }
 
@@ -2029,12 +2030,16 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
 
         context.GetDevice(ref device);
 
-        ConstantRing? ring = ConstantRing.TryCreate(device, context, RingConstants);
+        ConstantRing? ring = ConstantRing.TryCreate(device, context, RingConstants, out string why);
 
         device.Dispose();
+        RingStatus = why;
 
         return ring;
     }
+
+    /// <summary>Whether the constants go through the rings, and why not when they do not; for `--measure`'s report.</summary>
+    public string RingStatus { get; private set; } = "not yet made";
 
     private Dictionary<string, IReadOnlyList<IReadOnlyList<WorldBatch>>> _modelBatches =
         new(StringComparer.OrdinalIgnoreCase);

@@ -260,8 +260,9 @@ public sealed class ConstantRingTests
         Scene(ring, lampRed: 0.31f).ShouldNotBe(again, "the control: the hash sees one lamp a hundredth brighter");
 
         // **The first scene differs from the second in BOTH renderers** (measured: the same two hashes each), so the
-        // sequence is compared, not one frame against a repeat: state carried from one draw to the next — the model
-        // path's frame chosen before its proxies run is the candidate (B343's order) — is the same either way.
+        // sequence is compared, not one frame against a repeat. Measured once by a throwaway split: world-only scenes
+        // repeat, model-only scenes repeat; only the two together differ first from second, so the carried state is
+        // between the world draw and the model draws (filed in RISKS under B597), and it is the same either way.
         again.ShouldNotBe(viaRing, "the control: the first scene is not the second, in this renderer too");
         (viaRing, again).ShouldBe((viaDiscard, discardAgain));
     }
