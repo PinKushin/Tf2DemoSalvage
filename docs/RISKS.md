@@ -40415,7 +40415,7 @@ tested over seeks, repeats, window edges, duplicates and an unordered list. `hud
 `hud events` 0.27-0.28 ms a frame (raw lines of measurements/2026-10-22-f12-camera-breakdown.md), an upper bound (it holds
 `Resolve` too). The shape of finding 93's model-decal walk. Nothing visible.
 
-## B578 — the moment's visibility filters rerun over the whole draw list every frame — OPEN
+## B578 — the moment's visibility filters rerun over the whole draw list every frame — CLOSED by decision D232 (parity by answer; structural caching deliberately not done)
 
 **Read** (finding 83 item 5, re-checked as not done in finding 97): `UpdateVisibility` runs at its event sites
 (`SetDormant`, `OnDataChanged`, `PostDataUpdate`). **Ours:** the first-person, weapon, disguise, respawn-room and vision
@@ -40427,6 +40427,18 @@ was 0.29-0.35 ms and its first-person block 0.28-0.32 of it; the empty view's fi
 `HashSet<SceneProp>` hashed the whole record per prop; by reference it is 0.04 ms (`drawlist` 0.46-0.56 → 0.21-0.22),
 output identical by construction. **Left:** the structural divergence (verdicts per moment, not at the change) stands,
 but every part is now under 0.2 ms, so it is open for parity, not cost.
+
+**Re-read, 2026-10-25 (finding 104).** The premise was too wide. Three of the five filters are judged **per frame in
+the engine too**, in `DrawModel`: the followed player (`c_baseplayer.cpp:1445-1456`), his weapon under an in-eye
+observer (`c_basecombatweapon.cpp:481-493`, *"this may change without notification"*), and the respawn-room visualizer
+(`c_func_respawnroom.cpp:48-64`). `FirstPersonVisibility` and `RespawnRoomVisibility` are parity as they are. Only
+weapon, disguise and vision are cached (`UpdateVisibility`). Every input `WeaponVisibility` reads has a trigger, so
+there per-moment judging gives the same drawn set. Disguise (the viewer's team) and vision (the viewer's vision flags)
+read inputs the engine has **no trigger for**, so its verdict there can be stale until the item's own next update.
+**Stopped for the owner:** either keep the answer (judge per moment, never stale), or copy the structure (judge at the
+trigger sites and keep the stale frames, with a history rebuilt on seek). The two give different drawn sets. The cost
+ceiling is about 0.02 ms (measurements/2026-10-24-drawlist-parts.md, empty view `filters`), so neither reading is
+expected to save frame time. No code changed; no timed run taken.
 
 ## B577 — particle bursts are re-searched from the timeline and rebuilt every frame — OPEN
 
