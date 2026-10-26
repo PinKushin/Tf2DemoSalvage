@@ -247,7 +247,7 @@ public sealed class MovementWorldConformanceTests
         BspTrace world = new(1f, -1, default, AllSolid: false);
         BspTrace box = new(1f, -1, default, AllSolid: false, BrushEntity: 5, StartSolid: true);
 
-        BspTrace merged = MovementWorld.Nearer(world, box);
+        BspTrace merged = MapLevel.Nearer(world, box);
 
         merged.StartSolid.ShouldBeTrue();
         merged.BrushEntity.ShouldBe(5);
@@ -260,8 +260,8 @@ public sealed class MovementWorldConformanceTests
         BspTrace far = new(0.5f, -1, (0f, 0f, 1f), AllSolid: false);
         BspTrace near = new(0.25f, -1, (-1f, 0f, 0f), AllSolid: false, BrushEntity: 40);
 
-        MovementWorld.Nearer(far, near).ShouldBe(near);
-        MovementWorld.Nearer(near, far).ShouldBe(near);
+        MapLevel.Nearer(far, near).ShouldBe(near);
+        MapLevel.Nearer(near, far).ShouldBe(near);
     }
 
     private static SceneCollision Bsp() => new(SolidType: 1, SolidFlags: 0, CollisionGroup: 0);
