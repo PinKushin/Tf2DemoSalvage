@@ -65,6 +65,49 @@ costs 100 ms-1 s, and a typical seek, which scans back only to the recorder's la
 
 ## Environment
 
+The owner's Windows 11 desktop, 2026-10-26. `Get-CimInstance Win32_Process` before the run: no dotnet, testhost, msbuild,
+tf2demoview or hl2 process; CPU load 12% before, 11% after. Branch `fix/batch-31-review-2` at `b9577586` (fix 2's signon
+regression already fixed), `-c Release`, through `run-exclusive.ps1 -Shared`. One run.
+
 ## Result
 
+The probe's output, verbatim except the control line's `ScenePlayer` record dump, which is elided (it showed the recorder
+dead at 60313, `LifeState = 2`, which is why he is not drawn there):
+
+```
+control at 60313: recorder drawn False, in the players True ([record elided]), drawn props 8 of 10 players, InterpolateViewpoint a view, ViewsAt True, view commands 118289, packets among them 118287
+  Signon: 5, ticks 146124-146256, IsPacket True, default views 5, first index 0
+  SyncTick: 1, ticks 0-0, IsPacket False, default views 1, first index 5
+  Packet: 118282, ticks 0-120626, IsPacket True, default views 0, first index 6
+  Stop: 1, ticks 120626-120626, IsPacket False, default views 1, first index 118288
+etf2l-12025-pov-2020-07-21.dem: recorder entity 6, 40 seeks, ticks 0-120626
+predicted route: seek frame first 23.59 ms, then mean 18.61 ms, max 94.79 ms; its recorder probes first 0.00 ms, then mean 14.05 ms, max 85.85 ms
+recorder probes per seek: mean 120.0, max 1662, total 4681
+control: 4681 recorder probe ticks, 4681 viewed (100.0%), 3204 with a predicted velocity (68.4%)
+counts: 3948 distinct packets (1.19 probe ticks a packet), 4.20 pending commands a probe; 118282 packets over 120626 ticks
+track route (control): seek frame first 1.42 ms, then mean 3.90 ms, max 13.32 ms; its recorder probes first 0.00 ms, then mean 0.49 ms, max 2.13 ms; 8142 recorder probes
+worst case: 2048 recorder probes back from 60479: 102.4 ms (50.0 us a probe), 2048 answered, 523 with a predicted velocity
+fast playback, 12 ticks a frame: frame first 1.67 ms, then mean 1.31 ms, max 5.84 ms; its recorder probes first 1.39 ms, then mean 1.03 ms, max 3.03 ms
+```
+
+| | predicted route | track route (control) |
+|---|---:|---:|
+| seek frame, mean of 39 / max | 18.61 / 94.79 ms | 3.90 / 13.32 ms |
+| its recorder probes, mean / max | 14.05 / 85.85 ms | 0.49 / 2.13 ms |
+| recorder probes | 4,681 | 8,142 |
+| 2048-probe cap, back from 60479 | 102.4 ms (50.0 µs a probe; 523 of 2048 predicted a velocity) | — |
+| fast playback, 12 ticks a frame, recorder part mean / max | 1.03 / 3.03 ms | — |
+
+The control held: every recorder probe was on the viewed route (100%), and 68.4% ran a full prediction (the rest exit early:
+no pending command, or dead). The track route asks more probes (8,142 against 4,681) because its differenced-position speed
+breaks the activity at other ticks; it is the route review 7 replaced, timed only as the baseline.
+
 ## Verdict
+
+**Prediction confirmed**: a seek's recorder probes cost 14.05 ms mean and up to 85.85 ms, the cap 102.4 ms, all past the 2 ms
+threshold, and fast playback adds about 1 ms a frame. **The cache the brief proposed cannot be bit-identical and would barely
+pay**: every prediction restores from its own packet's networked state (`Restore(recorder, …, packet.Tick)`), so a state
+carried from packet N into N+1 differs from the per-probe route; and reuse within one packet is bounded by 1.19 probe ticks
+a packet — at most about 16% of the probes. Not built; reported to the lead with these numbers. What a bit-identical saving
+would have to target instead is the per-probe setup (`PlayersAt` of every player at the packet, a second `PlayersAt` in
+`StunFadeUnknown`, `MovementWorld.At`) — not yet split, so not claimed.

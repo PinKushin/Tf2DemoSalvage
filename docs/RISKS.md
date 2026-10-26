@@ -40066,6 +40066,20 @@ reddens four tests), and a child's drawn size against its own scale alone.
   `pl_badwater_pro_v12.bsp` is not on this machine (not under the game's `tf/maps`, `tf/download/maps`, `tf2ds`, or the
   user profile), so its `parentname` cannot be read, and no sampled tick gives them a parent.
 
+## B602 — a seek's scan predicts the viewed recorder's movement once per probe: 14 ms of a seek, 102 ms at the cap (measurements/2026-10-26-pov-recorder-seek-scan.md) — OPEN (2026-10-26)
+
+**Evidence class: measured** (measurements/2026-10-26-pov-recorder-seek-scan.md, etf2l-12025 POV match, Release, quiet
+machine). Since batch-31 review 7 the seek scan asks `TimelineMoments.ActivityPlayerAt` for the recorder, which runs a full
+`RecorderPrediction.PredictFrom` per probed tick on the game thread. All figures from measurements/2026-10-26-pov-recorder-seek-scan.md:
+the recorder's probes cost 14.05 ms of a seek, mean of 39, and up to 85.85 ms (measurements/2026-10-26-pov-recorder-seek-scan.md;
+the track route 0.49 / 2.13 ms); the 2048-tick cap 102.4 ms, and 12 ticks a frame adds 1.03 ms (measurements/2026-10-26-pov-recorder-seek-scan.md),
+mean. **The fix the review proposed is not available bit-identically**: each prediction restores from its
+own packet's networked state, so a state stepped from packet N into N+1 is a different answer, and reuse within one packet is
+bounded by the measured 1.19 probe ticks a packet (at most about 16% of probes). **Where a bit-identical saving would have to
+come from** is the per-probe setup — `PlayersAt` of every player at the packet, a second full `PlayersAt` in `StunFadeUnknown`
+for an unstunned player, `MovementWorld.At` — not yet split by measurement. Other options for the lead: cap the recorder's
+scan shorter than other players', or key the recorder's roll differently; both change behaviour and need a decision.
+
 ## B601 — a fuzzed `actweight` of `INT_MIN`, and weights summing past 32 bits: the engine is undefined, ours is interpolated — FIXED 2026-10-26 (batch-31 second review)
 
 **Evidence class: read from published source, and INTERPOLATED for the one value the source cannot answer.** The
@@ -40155,6 +40169,23 @@ filter reddened it and the census assertion of the monitor test, which had encod
 **Ceiling (ponytail):** while he is zoomed the whole undrawn list leaves the monitor, so first person through ANOTHER player
 in a POV demo loses that player from a monitor for the zoom's length. **Not checked end to end:** a decal landing on him
 through `DecalEffects` — the test stops at `SkinningOf`, which is what `DecalEffects` asks.
+
+**Re-read 2026-10-26 (batch-31 second review) — the review's classification is DISPUTED by the source, so it is left OPEN
+for the lead rather than filed as engine-faithful.** The review asked for the ceiling to be filed as engine-faithful, on the
+premise that `ForceTempForceDraw` (`viewrender.cpp:3279-3286`) flips only the local player's `m_bForceLocalPlayerDraw` and
+that the observed target is refused by `ShouldDrawThisPlayer`. *Read from published source:* the half about the local
+player holds — the zoomed recorder is refused before the base (`c_tf_player.cpp:8014-8020`), so hiding HIM from monitors is
+faithful. The half about the observed target does not: `C_BasePlayer::ShouldDraw` is `ShouldDrawThisPlayer() &&
+BaseClass::ShouldDraw()` (`c_baseplayer.cpp:1440-1443`); `ShouldDrawThisPlayer` returns true when `!InFirstPersonView()`
+(`:1992-1997`); for an in-eye target `InFirstPersonView` returns `LocalPlayerInFirstPersonView()` (`:1980-1984`); and that
+returns false while `pLocalPlayer->m_Local.m_bForceLocalPlayerDraw` is set (`:1927-1930`). So during a monitor's draw the
+in-eye target IS drawn. *Not read:* `ForceTempForceDraw`'s body (its definition was not reachable through this session's
+index); that it sets `m_Local.m_bForceLocalPlayerDraw` is *inferred* from `viewrender.cpp:3269`, which tests that flag to
+decide whether to call it. And in a POV demo the recorder, alive and scoped, observes nobody (`OBS_MODE_NONE`), so another
+player the viewer follows in first person is, in the engine, drawn in every view, monitors included. **Reading: the ceiling
+above is a small real divergence** (that player leaves the monitors while the recorder scopes), and B511's force-drawing of
+a followed non-recorder into monitors matches the engine rather than diverging from it. Owner or lead to decide; nothing
+changed in code.
 
 ## B596 — is the Debug build part of the viewer-vs-TF2 f12 gap? No: Debug and Release are the same program — CLOSED (2026-10-24)
 
