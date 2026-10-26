@@ -64,6 +64,7 @@ Tf2DemoSalvage.Scene.EntityModelSet|field|ContinuityTicks|Assembly static|System
 Tf2DemoSalvage.Scene.EntityModelSet|field|DuckHullDifference|Private static|System.Single
 Tf2DemoSalvage.Scene.EntityModelSet|field|FlinchChestActivity|Private static|System.String
 Tf2DemoSalvage.Scene.EntityModelSet|field|FullyOpaqueAlpha|Private static|System.Int32
+Tf2DemoSalvage.Scene.EntityModelSet|field|HiddenPass|Public static|System.String
 Tf2DemoSalvage.Scene.EntityModelSet|field|LayerDepth|Private static|System.Int32
 Tf2DemoSalvage.Scene.EntityModelSet|field|LongestCycleStep|Private static|System.Double
 Tf2DemoSalvage.Scene.EntityModelSet|field|MaximumReportedBones|Private static|System.Int32
@@ -200,6 +201,7 @@ Tf2DemoSalvage.Scene.EntityModelSet|method|FileStaticProps|Private|()|System.Voi
 Tf2DemoSalvage.Scene.EntityModelSet|method|Filled|Private static|(System.Collections.Generic.IReadOnlyList`1[Tf2DemoSalvage.Content.Assets.StudioPoseParameter],System.Single,System.Single,System.Nullable`1[System.Single],System.Nullable`1[System.Single])|System.Single[]
 Tf2DemoSalvage.Scene.EntityModelSet|method|FindBodygroup|Public|(System.String,System.String)|System.Int32
 Tf2DemoSalvage.Scene.EntityModelSet|method|FindMdl|Public|(System.String)|Tf2DemoSalvage.Scene.PropModels+ModelFrames
+Tf2DemoSalvage.Scene.EntityModelSet|method|FiresEvents|Private static|(System.String)|System.Boolean
 Tf2DemoSalvage.Scene.EntityModelSet|method|FlexFor|Private|(Tf2DemoSalvage.Core.Scene.SceneProp,Tf2DemoSalvage.Scene.PropModels+ModelFrames,System.Double)|System.Single[]
 Tf2DemoSalvage.Scene.EntityModelSet|method|FlexedCornersOf|Private|(System.String,Tf2DemoSalvage.Scene.PropModels+ModelFrames,System.Int32[])|Tf2DemoSalvage.Scene.FlexedCorners
 Tf2DemoSalvage.Scene.EntityModelSet|method|FractionOf|Private static|(Tf2DemoSalvage.Scene.PropModels+SkinnedModel,Tf2DemoSalvage.Animation.Animating.PoseLayer)|System.Single
@@ -244,6 +246,7 @@ Tf2DemoSalvage.Scene.EntityModelSet|method|PoseValuesOf|Public|(System.Int32)|Sy
 Tf2DemoSalvage.Scene.EntityModelSet|method|PoseValues|Private static|(Tf2DemoSalvage.Scene.PropModels+SkinnedModel,Tf2DemoSalvage.Core.Scene.ScenePose,System.Int32)|System.Single[]
 Tf2DemoSalvage.Scene.EntityModelSet|method|PosedAttachmentMatrix|Private|(System.Int32,System.Func`2[System.Collections.Generic.IReadOnlyList`1[Tf2DemoSalvage.Content.Assets.StudioAttachment],System.Int32])|System.Single[]
 Tf2DemoSalvage.Scene.EntityModelSet|method|PosedHitboxes|Public|(System.Int32)|System.Nullable`1[System.ValueTuple`2[System.Collections.Generic.IReadOnlyList`1[Tf2DemoSalvage.Content.Assets.ModelHitbox],System.Numerics.Vector3]]
+Tf2DemoSalvage.Scene.EntityModelSet|method|PosesNothing|Private|(System.String)|System.Boolean
 Tf2DemoSalvage.Scene.EntityModelSet|method|Precache|Public|(System.Collections.Generic.IEnumerable`1[System.String])|System.Boolean
 Tf2DemoSalvage.Scene.EntityModelSet|method|ReadableBonesOf|Assembly|(System.Int32)|System.Int32
 Tf2DemoSalvage.Scene.EntityModelSet|method|ReleaseUploaded|Public|()|System.Void

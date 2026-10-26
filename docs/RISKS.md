@@ -36343,7 +36343,8 @@ water only) and overlays; nothing measured whether the darker room behind the so
 (the live client's capture shows more of it lit — an open question, not a finding); `pd_circus` and `vsh_skirmish`
 were not recorded; `m_Resolution` is not read (`DrawMonitors` sizes from the target, `GetActualWidth()`; whether anything else reads
 it was not searched). Who else the force-draw brings into a monitor — an in-eye target, a followed non-recorder — is
-read in B598's re-read of 2026-10-26.
+read in B598's re-read of 2026-10-26; since that day a followed non-recorder stays in the monitor while the recorder is
+zoomed, and only the zoomed recorder himself is withheld (B598, "Ceiling removed").
 
 ## B512 — models carried no tangent, so every bump-mapped model lit by its vertex normal — FIXED 2026-10-08
 
@@ -40190,6 +40191,16 @@ player the viewer follows in first person is, in the engine, drawn in every view
 above is a small real divergence** (that player leaves the monitors while the recorder scopes), and B511's force-drawing of
 a followed non-recorder into monitors matches the engine rather than diverging from it. Owner or lead to decide; nothing
 changed in code.
+
+**Ceiling removed 2026-10-26 (owner's decision, relayed by the lead: "restore engine behaviour").** The zoomed recorder's
+props now go to their own list and pass (`EntityModelSet.HiddenPass`: simulated, in the scene for `SkinningOf`, never
+posed, no events), out of BOTH the drawn and the undrawn lists — the undrawn list holds them when he follows himself — so
+the undrawn list keeps only the followed player and the monitor draws him (`ForceTempForceDraw`, `c_tf_player.cpp:9866-9868`;
+`c_baseplayer.cpp:1927-1930`, `:1980-1984`). `_zoomHides` and the ponytail are gone. Held by `MomentSceneTests`
+(synthetic): `Pose_FollowingAnotherWhileTheRecorderIsZoomed_HandsTheMonitorTheFollowedOnly` (red before: the monitor got
+nothing), the existing zoomed-and-following-himself and decal tests, and `Pose_SourceTvFollowingAZoomedSniper_HandsTheMonitorHim`
+as the control. Sabotage: leaving the undrawn list unfiltered reddened two tests, posing the hidden pass three. The monitor
+census (`UndrawnCensus.Props`) now counts only the monitor's list, so it reads 0 while he follows himself zoomed.
 
 ## B596 — is the Debug build part of the viewer-vs-TF2 f12 gap? No: Debug and Release are the same program — CLOSED (2026-10-24)
 

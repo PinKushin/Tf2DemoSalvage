@@ -145,7 +145,7 @@ public sealed partial class EntityModelSet
         long simulatedAt = System.Diagnostics.Stopwatch.GetTimestamp();
         int buildsBefore = SkeletonPose.PoseBuilds;
 
-        Simulate(props, seconds, fireEvents: !string.Equals(pass, UndrawnPass, StringComparison.Ordinal));
+        Simulate(props, seconds, fireEvents: FiresEvents(pass));
 
         if (string.Equals(pass, WorldPass, StringComparison.Ordinal))
         {
@@ -197,7 +197,7 @@ public sealed partial class EntityModelSet
         // asked for then may predate its own update. Defensive like `_simulating` — no test reaches a stale one.
         _attachments.Clear();
 
-        if (!PosesUndrawn && string.Equals(pass, UndrawnPass, StringComparison.Ordinal))
+        if (PosesNothing(pass))
         {
             // Counted, with the reason, like every other prop that does not draw: `ShouldDraw` refused it.
             _tally.Begin(props.Count, pass);
