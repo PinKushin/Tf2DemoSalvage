@@ -1,7 +1,7 @@
-# The order run (B597, 2026-10-26). M = c0584951 (spans, every face draw uploads), B = e784275c (the face cache).
+# The order run (B597, 2026-10-26). M = c0584951 (spans, every face draw uploads), B = f1f94056 (the face cache).
 # One reading each through the 2026-10-25 run.ps1 (its quiet gate and command). -Verify adds TF2VIEW_QUEUE_VERIFY=1.
 param([string]$M = 'D:/b597f/M/managed/Tf2DemoSalvage.Viewer3D/bin/Release/net10.0-windows/tf2demoview.exe',
-      [string]$B = 'D:/b597f/B/managed/Tf2DemoSalvage.Viewer3D/bin/Release/net10.0-windows/tf2demoview.exe',
+      [string]$B = 'D:/b597f/B2/managed/Tf2DemoSalvage.Viewer3D/bin/Release/net10.0-windows/tf2demoview.exe',
       [string[]]$Order = @('M', 'B', 'B', 'M', 'B', 'M', 'M', 'B'), [int]$Start = 1, [switch]$Verify)
 $ErrorActionPreference = 'Stop'
 $run = "$PSScriptRoot/../2026-10-25-render-thread-cpu-vs-gpu/run.ps1"
