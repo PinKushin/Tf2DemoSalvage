@@ -40243,6 +40243,10 @@ window in every run, so it is never counted; the slow frames track machine load,
 frames > 50 ms under an unnamed load, 0-2 in the quiet pair; measurements/2026-10-25-b595-part6-main-thread-reads-in-play.md), and the after build had fewer early ones in 4 of 6 loaded
 pairs. Verdict: the known pose/particle stalls amplified by contention, not the precache and not load shifted to
 start-up. Real-demo test: `CorpusMainThreadReadsInPlayTests`. **Still open:** pose, `camera wait`, the start-up frames.
+**Batch-31 review, finding 5 (2026-10-26):** the read observer was never removed, so after a `--measure` report every
+archive read for the rest of the run kept a `StackTrace` nobody printed. `ReadsInPlay` now owns arm, report and disarm;
+the report disarms and forgets (`ReadsInPlayTests`, red with the disarm removed); the `--then-seek` measurement re-arms at
+its own first frame.
 
 ## B594 — `LevelLighting.SunFrom`'s 5.8% is not explained by how often it runs; the first-person undrawn pass lights a model nothing draws — OPEN (2026-10-24)
 
