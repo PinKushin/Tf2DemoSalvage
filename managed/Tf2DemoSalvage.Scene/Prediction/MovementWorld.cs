@@ -157,29 +157,11 @@ public sealed class MovementWorld
 
             if (Sweep(start, end, mins, maxs, box) is { } hit)
             {
-                nearest = Nearer(nearest, hit);
+                nearest = MapLevel.Nearer(nearest, hit);
             }
         }
 
         return nearest;
-    }
-
-    /// <summary>
-    /// The engine's merge of one entity's trace into the running one: a nearer hit, or one that starts solid, becomes the
-    /// trace and names its entity. *Interpolated:* <c>CEngineTrace::TraceRay</c>'s loop is engine code the SDK omits.
-    /// </summary>
-    internal static BspTrace Nearer(BspTrace nearest, BspTrace hit)
-    {
-        if (hit.Fraction < nearest.Fraction || (hit.StartSolid && !nearest.StartSolid))
-        {
-            return hit with
-            {
-                Fraction = MathF.Min(hit.Fraction, nearest.Fraction),
-                AllSolid = hit.AllSolid || nearest.AllSolid,
-            };
-        }
-
-        return nearest with { AllSolid = nearest.AllSolid || hit.AllSolid, StartSolid = nearest.StartSolid || hit.StartSolid };
     }
 
     private List<SolidBrush> BrushesFor(int mask)
