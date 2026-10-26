@@ -253,6 +253,8 @@ which is not installed; *interpolated, not fetched*.
 | the run's own total flips / viewed living probes | 1,392 / 19,601 (7.1%) | 724 / 33,368 (2.2%) |
 | margin with 0 fit probes wrong | 1,022.6 u/s (99.9% predict) | 825.6 u/s (98.7% predict) |
 
-There are more probes after because the scan scans back to the recorder's last activity change, which he now has more often
-(running, not standing). **The cheap route still does not match** (724 flips, 675 of them siding with the next packet over
+There are more probes after the fix. The scan goes back to the recorder's last activity change, and wrongly zeroed ticks
+no longer break up a run. **This is a cost consequence:** on the same landings, the exact route's test-half probes went from
+26,536 to 41,236 (+55%) and the fit's from 21,794 to 35,561. The per-seek milliseconds above (14.05 / 85.85) are therefore
+stale and probably low. They need a re-run on a quiet machine. **The cheap route still does not match** (724 flips, 675 of them siding with the next packet over
 exact), so the scan was not switched to it. The residual is the map question above.

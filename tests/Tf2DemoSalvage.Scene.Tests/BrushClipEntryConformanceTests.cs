@@ -12,14 +12,14 @@ namespace Tf2DemoSalvage.Scene.Tests;
 /// <c>CM_ClipBoxToBrush</c>'s entry fraction for a box that starts closer to a brush than <c>DIST_EPSILON</c> (B604).
 /// </summary>
 /// <remarks>
-/// **Read from published source, the engine's ancestor:** Quake 2's <c>CM_ClipBoxToBrush</c> (<c>qcommon/cmodel.c</c>,
-/// id Software's GPL release) takes an entering crossing as <c>f = (d1 - DIST_EPSILON) / (d1 - d2)</c>, which is negative
-/// when the start is nearer the face than the epsilon, and keeps it: <c>if (enterfrac &gt; -1 &amp;&amp; enterfrac &lt;
-/// trace-&gt;fraction) { if (enterfrac &lt; 0) enterfrac = 0; … }</c>. *Interpolated to Source*, whose <c>cmodel.cpp</c> the
+/// **Read from published source, the engine's ancestor:** Quake 2's <c>CM_ClipBoxToBrush</c> (<c>qcommon/cmodel.c:989-1096</c>,
+/// id Software's GPL release, read verbatim) takes an entering crossing as <c>f = (d1-DIST_EPSILON) / (d1-d2)</c> (<c>:1061</c>), which is negative when the start is
+/// nearer the face than the epsilon, and keeps it: <c>if (enterfrac &gt; -1 &amp;&amp; enterfrac &lt; trace-&gt;fraction)</c>,
+/// then <c>if (enterfrac &lt; 0) enterfrac = 0;</c> (<c>:1086-1089</c>). *Interpolated to Source*, whose <c>cmodel.cpp</c> the
 /// SDK does not ship; this project's own box sweep (<see cref="MovementWorld.Sweep"/>) already followed it. A movement trace
 /// ends <c>DIST_EPSILON</c> short of what it hits, so a player resting against a wall or a slope starts every trace inside the
 /// epsilon; refused, the crossing let him pass into the brush, and <c>TryPlayerMove</c>'s unswept re-trace at the end then
-/// zeroed his velocity (<c>gamemovement.cpp:2620-2632</c>) — a running recorder drawn standing (B604).
+/// zeroed his velocity (<c>gamemovement.cpp:2636-2649</c>) — a running recorder drawn standing (B604).
 /// </remarks>
 public sealed class BrushClipEntryConformanceTests
 {
@@ -48,6 +48,15 @@ public sealed class BrushClipEntryConformanceTests
     {
         // The control: d2 > d1 > 0 is in front of the face throughout, and nothing is entered.
         Level().TraceHull((WithinEpsilon, 0f, 0f), (40f, 0f, 0f), Mins, Maxs, BspLeafTree.MaskPlayerSolid, [Slab(0f, 0f, 0f)])
+            .ShouldNotBeNull().Fraction.ShouldBe(1f);
+    }
+
+    [Test]
+    public void TraceHull_AnEntryAtOrBelowMinusOne_IsNotKept()
+    {
+        // The lower bound, cmodel.c:1086: from d1 = 0.001 to d2 = −0.01 the crossing is (0.001 − 1/32) / 0.011 = −2.75, and
+        // a sweep that short is left to go.
+        Level().TraceHull((28.001f, 0f, 0f), (27.99f, 0f, 0f), Mins, Maxs, BspLeafTree.MaskPlayerSolid, [Slab(0f, 0f, 0f)])
             .ShouldNotBeNull().Fraction.ShouldBe(1f);
     }
 

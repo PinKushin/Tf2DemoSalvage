@@ -312,7 +312,11 @@ synthetic test red under sabotage:
   re-trace after a sweep that had reported clear. The sweep was wrong. `BspLeafTree.ClipToBrush` dropped an entry fraction
   that came out negative, which happens whenever the box starts nearer the face than `DIST_EPSILON`. Every movement trace
   stops exactly that far short, so a player resting against a wall or a slope passed into the brush and was stopped dead.
-  Quake 2's `CM_ClipBoxToBrush` keeps any entry above −1 and clamps it to 0, and our own box sweep already did. **Our code
+  Quake 2's `CM_ClipBoxToBrush` keeps any entry above −1 and clamps it to 0 (`qcommon/cmodel.c:1086-1089`), and our own
+  box sweep already did. The first quote of that rule came through a web summarizer. It was right, but it was not read
+  until the raw file was. Reading the raw file also turned up a second epsilon case, the early return at `:1052`. Taken
+  as Quake 2 has it, it made the count against the server worse (by 7 gaps), so Source is not assumed to match its ancestor
+  there, and it was reverted and filed. **Our code
   comment had quoted the rule as `enterfrac >= 0`.** That was a misremembered citation, written down with confidence.
   Clamping took the still-against-running gaps from 7,723 to 2,376. The remainder starts inside geometry that a mismatched
   map build would explain.

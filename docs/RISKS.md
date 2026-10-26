@@ -40087,9 +40087,15 @@ read order, which is not the small safe step the review allowed; filed for the l
 `BspLeafTree.ClipToBrush` refused an entering crossing whose fraction came out negative. It comes out negative whenever a
 sweep starts nearer a brush face than `DIST_EPSILON`, and every movement trace leaves a player exactly there, resting against
 a wall or a slope. With the crossing refused, the box passed into the brush, and `TryPlayerMove`'s unswept re-trace at the end
-(`gamemovement.cpp:2620-2632`) zeroed his velocity. In engine terms: a running player was predicted to a dead stop. Quake 2's
-`CM_ClipBoxToBrush` (`qcommon/cmodel.c`, id's GPL release, the published ancestor of the unshipped `engine/cmodel.cpp`)
-keeps an entry above −1 and clamps it to 0. `MovementWorld.Sweep` already did the same; the brush tree now does too.
+(`gamemovement.cpp:2636-2649`) zeroed his velocity. In engine terms: a running player was predicted to a dead stop. Quake 2's
+`CM_ClipBoxToBrush` (`qcommon/cmodel.c:989-1096`, id's GPL release, the published ancestor of the unshipped
+`engine/cmodel.cpp`, read verbatim) keeps an entry above −1 and clamps it to 0 (`:1086-1089`). `MovementWorld.Sweep`
+already did the same; the brush tree now does too. **Two more differences from Quake 2 are filed, not changed**, because
+neither is this bug and Source's version of either is not read. (a) Quake 2 returns early only for `d1 > 0 && d2 >= d1`
+(`:1052`); ours returns for any `d2 >= 0`, so a box inside the epsilon that closes on the face without reaching it is let
+move. Taking Quake 2's form made the gap count worse against the server, 2,376 to 2,383, and was reverted. (b) Quake 2's
+start-solid branch sets only the flags (`:1077-1083`); ours also sets the fraction to 0. Quake 2's form changed the count by
+22 of 2,369. Both reach every world trace, so they wait for a decompile of Source's `CM_ClipBoxToBrush`.
 *Interpolated to Source:* the decompile that would settle it could not be run this session, because the Ghidra MCP's
 analysis tools were not exposed to the agent.
 
@@ -40165,7 +40171,11 @@ a teleport); the networked velocity is the cheap half to revisit.
 724 of 33,368 viewed living probes (2.2%), and the next packet sides with networked in 675 of them. A zero-wrong margin is
 825.6 u/s, where 98.7% of probes still predict. So the cheap route is still not equivalent and the scan was not switched.
 What is left is B604's remainder, mostly a map build mismatch on etf2l-12025 (measurements/2026-10-26-pov-recorder-seek-scan.md,
-"B604's cause"). The per-seek cost after the fix was not measured on a quiet machine. **Still OPEN.**
+"B604's cause"). **The fix makes the scan longer, so 14.05 / 85.85 ms (measurements/2026-10-26-pov-recorder-seek-scan.md) is stale and probably low.** A running recorder no
+longer breaks his activity on wrongly-zeroed ticks, so the scan reaches further back. On the same landings, the fit asked
+21,794 recorder probes before the fix and 35,561 after; the test half's exact route asked 26,536 before and 41,236 after
+(+55%). Probe counts do not depend on load. The milliseconds after the fix were not measured on a quiet machine:
+`recorder-seek-scan <demo> 40` waits for the lead's go. **Still OPEN.**
 
 ## B601 — a fuzzed `actweight` of `INT_MIN`, and weights summing past 32 bits: the engine is undefined, ours is interpolated — FIXED 2026-10-26 (batch-31 second review)
 
