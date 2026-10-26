@@ -54,6 +54,10 @@ internal static class SyntheticViews
         return new DemoCommand(DemoCommandType.Packet, tick, ReadOnlyMemory<byte>.Empty, prologue);
     }
 
+    /// <summary>A <c>dem_signon</c> with the default view, at a tick — real ones carry the server's tick, often far past the packets'.</summary>
+    public static DemoCommand Signon(int tick) =>
+        new(DemoCommandType.Signon, tick, ReadOnlyMemory<byte>.Empty, new byte[RecordedView.SizeBytes + 8]);
+
     /// <summary>A <c>dem_synctick</c>.</summary>
     public static DemoCommand SyncTick(int tick) => new(DemoCommandType.SyncTick, tick, ReadOnlyMemory<byte>.Empty);
 

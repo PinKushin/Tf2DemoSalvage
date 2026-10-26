@@ -36342,7 +36342,8 @@ first person, Debug, three pairs): the `draw` column 0.65 ms on against 0.45 off
 water only) and overlays; nothing measured whether the darker room behind the soldier in the mirror matches TF2's
 (the live client's capture shows more of it lit — an open question, not a finding); `pd_circus` and `vsh_skirmish`
 were not recorded; `m_Resolution` is not read (`DrawMonitors` sizes from the target, `GetActualWidth()`; whether anything else reads
-it was not searched).
+it was not searched). Who else the force-draw brings into a monitor — an in-eye target, a followed non-recorder — is
+read in B598's re-read of 2026-10-26.
 
 ## B512 — models carried no tangent, so every bump-mapped model lit by its vertex normal — FIXED 2026-10-08
 
@@ -40066,6 +40067,38 @@ reddens four tests), and a child's drawn size against its own scale alone.
   `pl_badwater_pro_v12.bsp` is not on this machine (not under the game's `tf/maps`, `tf/download/maps`, `tf2ds`, or the
   user profile), so its `parentname` cannot be read, and no sampled tick gives them a parent.
 
+## B602 — a seek's scan predicts the viewed recorder's movement once per probe: 14 ms of a seek, 102 ms at the cap (measurements/2026-10-26-pov-recorder-seek-scan.md) — OPEN (2026-10-26)
+
+**Evidence class: measured** (measurements/2026-10-26-pov-recorder-seek-scan.md, etf2l-12025 POV match, Release, quiet
+machine). Since batch-31 review 7 the seek scan asks `TimelineMoments.ActivityPlayerAt` for the recorder, which runs a full
+`RecorderPrediction.PredictFrom` per probed tick on the game thread. All figures from measurements/2026-10-26-pov-recorder-seek-scan.md:
+the recorder's probes cost 14.05 ms of a seek, mean of 39, and up to 85.85 ms (measurements/2026-10-26-pov-recorder-seek-scan.md;
+the track route 0.49 / 2.13 ms); one 2048-probe sample at the cap 102.4 ms (measurements/2026-10-26-pov-recorder-seek-scan.md), only 26% predicting (so not
+the worst case: a stretch predicting throughout costs more, unmeasured), and 12 ticks a frame adds 1.03 ms
+(measurements/2026-10-26-pov-recorder-seek-scan.md), mean. **A lower bound**: the probe ran with the prediction's item hooks
+and ground surfaces off. **The fix the review proposed is not available bit-identically**: each prediction restores from its
+own packet's networked state, so a state stepped from packet N into N+1 is a different answer, and reuse within one packet is
+bounded by the measured 1.19 probe ticks a packet (at most about 16% of probes). **Where a bit-identical saving would have to
+come from** is the per-probe setup — `PlayersAt` of every player at the packet, a second full `PlayersAt` in `StunFadeUnknown`
+for an unstunned player, `MovementWorld.At` — not yet split by measurement. Other options for the lead: memoise `VelocityThrough` by whole
+tick, invalidated when the map, hooks or surface source change (bit-identical, but free only on a revisited tick, so no help
+to a first seek); cap the recorder's scan shorter than other players'; or key the recorder's roll differently. The last two
+change behaviour and need a decision.
+
+## B601 — a fuzzed `actweight` of `INT_MIN`, and weights summing past 32 bits: the engine is undefined, ours is interpolated — FIXED 2026-10-26 (batch-31 second review)
+
+**Evidence class: read from published source, and INTERPOLATED for the one value the source cannot answer.** The
+tuple weight is `iabs(actweight)` with 0 raised to 1 (`studio.cpp:1822-1829`); the roll is `RandomInt( 0, totalWeight -
+1 )` over an `int` sum, walked in sequence order (`animation.cpp:329-335`). Every representable weight follows that rule.
+Two cases the engine leaves undefined: `iabs(INT_MIN)` stays negative in C, and an `int` sum of large weights overflows.
+**Ours:** weights and the total are 64-bit, `INT_MIN` weighs 2^31 (its mathematical abs — an interpolation, not a
+reading), and the roll is 64-bit (`ActivityPickSeed` returns all of SplitMix64), so no tuple's slot is out of reach.
+**What it replaced:** a total saturated at `int.MaxValue` and a 32-bit roll, so with weights `[MaxValue, MaxValue, 2]`
+the roll was always below the first weight and tuples 2 and 3 never came up; and `INT_MIN` was clamped to `MaxValue`, an
+invention. Only fuzzed files reach either; no shipped model has a weight near these. Held by
+`SelectWeightedSequenceConformanceTests` (`…_EveryTupleKeepsItsSlot`, `…_TotalPast32Bits_LastTupleReachable`,
+`ForActivity_WeightIntMinValue_WeighsAsTwoToThe31`); a 32-bit roll and a re-clamp each reddened one.
+
 ## B600 — `--measure`'s `render thread … bytes a frame` is the MAIN thread's allocation, mislabelled since the queue — OPEN (2026-10-25)
 
 **Evidence class: measured, with the code reading it confirms.** `GcReading.Now()` takes
@@ -40141,6 +40174,22 @@ filter reddened it and the census assertion of the monitor test, which had encod
 **Ceiling (ponytail):** while he is zoomed the whole undrawn list leaves the monitor, so first person through ANOTHER player
 in a POV demo loses that player from a monitor for the zoom's length. **Not checked end to end:** a decal landing on him
 through `DecalEffects` — the test stops at `SkinningOf`, which is what `DecalEffects` asks.
+
+**Re-read 2026-10-26 (batch-31 second review) — the review's classification is DISPUTED by the source, so it is left OPEN
+for the lead rather than filed as engine-faithful.** The review asked for the ceiling to be filed as engine-faithful, on the
+premise that `ForceTempForceDraw` (`viewrender.cpp:3279-3286`) flips only the local player's `m_bForceLocalPlayerDraw` and
+that the observed target is refused by `ShouldDrawThisPlayer`. *Read from published source:* the half about the local
+player holds — the zoomed recorder is refused before the base (`c_tf_player.cpp:8014-8020`), so hiding HIM from monitors is
+faithful. The half about the observed target does not: `C_BasePlayer::ShouldDraw` is `ShouldDrawThisPlayer() &&
+BaseClass::ShouldDraw()` (`c_baseplayer.cpp:1440-1443`); `ShouldDrawThisPlayer` returns true when `!InFirstPersonView()`
+(`:1992-1997`); for an in-eye target `InFirstPersonView` returns `LocalPlayerInFirstPersonView()` (`:1980-1984`); and that
+returns false while `pLocalPlayer->m_Local.m_bForceLocalPlayerDraw` is set (`:1927-1930`). `ForceTempForceDraw( true )` is `m_Local.m_bForceLocalPlayerDraw = bThirdPerson;` on the local player
+(`c_tf_player.cpp:9866-9868`), so during a monitor's draw the in-eye target IS drawn — the flag route (`:1927-1930`), not the
+third-person camera. And in a POV demo the recorder, alive and scoped, observes nobody (`OBS_MODE_NONE`), so another
+player the viewer follows in first person is, in the engine, drawn in every view, monitors included. **Reading: the ceiling
+above is a small real divergence** (that player leaves the monitors while the recorder scopes), and B511's force-drawing of
+a followed non-recorder into monitors matches the engine rather than diverging from it. Owner or lead to decide; nothing
+changed in code.
 
 ## B596 — is the Debug build part of the viewer-vs-TF2 f12 gap? No: Debug and Release are the same program — CLOSED (2026-10-24)
 

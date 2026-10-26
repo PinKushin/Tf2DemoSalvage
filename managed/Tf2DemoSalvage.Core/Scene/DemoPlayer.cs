@@ -38,6 +38,10 @@ public sealed class DemoPlayer
     private const int HostTickCount = int.MaxValue;
 
     private readonly IReadOnlyList<DemoViewCommand> _commands;
+
+    /// <summary>For each command, the latest <c>dem_packet</c> tick at or before it in stream order: non-decreasing, so searchable.</summary>
+    private readonly int[] _latestPacketTick;
+
     private readonly float _interval;
     private readonly int _maxClients;
     private readonly float _interpAmount;
@@ -72,6 +76,17 @@ public sealed class DemoPlayer
         ArgumentNullException.ThrowIfNull(timeline);
 
         _commands = timeline.ViewCommands;
+        _latestPacketTick = new int[_commands.Count];
+
+        int latest = int.MinValue;
+
+        for (int index = 0; index < _commands.Count; index++)
+        {
+            // Only a dem_packet waits for its tick; a signon is read when reached, and real ones carry the server's tick.
+            latest = _commands[index].Type == DemoCommandType.Packet ? Math.Max(latest, _commands[index].Tick) : latest;
+            _latestPacketTick[index] = latest;
+        }
+
         _interval = timeline.IntervalPerTick > 0f ? timeline.IntervalPerTick : PlaybackClock.DefaultIntervalPerTick;
         _maxClients = timeline.MaxClients;
         _interpAmount = (float)timeline.ClientInterpAmount;
@@ -133,20 +148,38 @@ public sealed class DemoPlayer
     /// <remarks>
     /// **Side-effect free**, for the seek scan (D233): it reads the command list and none of the reader's state. Both
     /// branches of <see cref="Interpolate"/> answer non-null exactly when the current packet's view is not the default,
-    /// and <see cref="ReadPackets"/> leaves the current packet the last one at or before the tick (commands are in
-    /// stream order, so their ticks do not decrease).
+    /// and <see cref="ReadPackets"/> leaves the current packet the last one before <see cref="FirstPacketPast"/> — the
+    /// same index both routes ask, so they agree on a demo whose packet ticks run backwards (batch-31 review 2).
     /// </remarks>
     public bool ViewsAt(int playbackTick)
     {
-        int low = 0;
-        int high = _commands.Count;
+        for (int index = FirstPacketPast(playbackTick) - 1; index >= 0; index--)
+        {
+            if (_commands[index].IsPacket)
+            {
+                return !_commands[index].View.IsDefault;
+            }
+        }
 
-        // The first command past the tick.
+        return false;
+    }
+
+    /// <summary>The first <c>dem_packet</c>, in stream order, whose tick is past <paramref name="playbackTick"/>; the count if none.</summary>
+    /// <remarks>
+    /// **Where a read from the start stops**: <see cref="ReadPackets"/> reads every command until a packet waits for a
+    /// later tick. Packet ticks are not monotonic in every file (<see cref="ParseAheadForInterval"/>'s backwards case),
+    /// so this searches their running maximum, which is, and whose first excess over the tick is that same packet.
+    /// </remarks>
+    private int FirstPacketPast(int playbackTick)
+    {
+        int low = 0;
+        int high = _latestPacketTick.Length;
+
         while (low < high)
         {
             int middle = (low + high) >>> 1;
 
-            if (_commands[middle].Tick <= playbackTick)
+            if (_latestPacketTick[middle] <= playbackTick)
             {
                 low = middle + 1;
             }
@@ -156,15 +189,7 @@ public sealed class DemoPlayer
             }
         }
 
-        for (int index = low - 1; index >= 0; index--)
-        {
-            if (_commands[index].IsPacket)
-            {
-                return !_commands[index].View.IsDefault;
-            }
-        }
-
-        return false;
+        return low;
     }
 
     private RecordedView? Interpolate(int playbackTick, float hostRemainder)
@@ -311,10 +336,15 @@ public sealed class DemoPlayer
     /// reloading and skipping forward (<c>SkipToTick</c>, <c>0x180073b10</c>). Only the last
     /// <see cref="KeptTicks"/> + <see cref="ParseAheadTicks"/> ticks of reading reach the list, so the skip starts
     /// that far back rather than at the beginning, and lands in the same state.
+    ///
+    /// **A rewind is a packet read that a read from the start would not reach** (`_current` at or past
+    /// <see cref="FirstPacketPast"/>). With monotonic ticks that is exactly `_commands[_current].Tick &gt; playbackTick`;
+    /// on a demo whose ticks run backwards the current packet's own tick can be at or below the target while a later-
+    /// ticked packet before it was already read, and only the reload lands where the engine's reload does.
     /// </remarks>
     private void ReadPackets(int playbackTick)
     {
-        if (_current >= 0 && _commands[_current].Tick > playbackTick)
+        if (_current >= 0 && _current >= FirstPacketPast(playbackTick))
         {
             Restart(playbackTick);
         }

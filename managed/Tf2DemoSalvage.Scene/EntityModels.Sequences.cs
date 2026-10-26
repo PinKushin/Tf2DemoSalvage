@@ -445,7 +445,7 @@ public sealed partial class EntityModelSet
     /// <param name="entity">The player's entity index.</param>
     /// <param name="activity">The activity entered, compared ignoring case as the activity map does.</param>
     /// <param name="tick">The demo tick the activity began.</param>
-    /// <returns>A 32-bit value; <see cref="PropModels.SkinnedModel.SelectWeightedSequence"/> reduces it by the total weight.</returns>
+    /// <returns>A 64-bit value; <see cref="PropModels.SkinnedModel.SelectWeightedSequence"/> reduces it by the total weight.</returns>
     /// <remarks>
     /// **The one addition over the engine**, whose `RandomInt` differs every client run. A viewer seeks and replays, and
     /// an unseeded roll would re-pick on every seek; a hash of (entity, activity, tick) makes the same moment show the
@@ -454,7 +454,7 @@ public sealed partial class EntityModelSet
     /// by <see cref="ActivityBegan"/>, so it matches playing through. SplitMix64's finaliser over an
     /// FNV-1a of the upper-cased name: allocation-free and stable across runs, which `HashCode` is not.
     /// </remarks>
-    internal static uint ActivityPickSeed(int entity, string activity, long tick)
+    internal static ulong ActivityPickSeed(int entity, string activity, long tick)
     {
         ulong name = 14695981039346656037UL;
 
@@ -467,7 +467,7 @@ public sealed partial class EntityModelSet
         z = (z ^ (z >> 30)) * 0xBF58476D1CE4E5B9UL;
         z = (z ^ (z >> 27)) * 0x94D049BB133111EBUL;
         z ^= z >> 31;
-        return (uint)z;
+        return z;
     }
 
     /// <summary>Players whose next <see cref="Advance"/> starts the cycle at zero.</summary>

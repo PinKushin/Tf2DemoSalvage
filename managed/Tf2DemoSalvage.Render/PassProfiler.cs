@@ -221,6 +221,25 @@ public sealed class PassLedger
     }
 }
 
+/// <summary>A profiled frame's lifetime: leaving it before `EndFrame` — the draw threw — abandons the frame at the throw.</summary>
+/// <remarks>
+/// Without it a throw on a measurement's LAST frame was never counted: `TakeLedger` ran before the next `BeginFrame` closed it.
+/// </remarks>
+public readonly ref struct PassFrame
+{
+    private readonly PassProfiler? _profiler;
+    private readonly ComPtr<ID3D11DeviceContext> _context;
+
+    internal PassFrame(PassProfiler? profiler, ComPtr<ID3D11DeviceContext> context)
+    {
+        _profiler = profiler;
+        _context = context;
+    }
+
+    /// <summary>Abandons the frame if it is still open; nothing when it ended or nothing is profiled.</summary>
+    public void Dispose() => _profiler?.Abandon(_context);
+}
+
 /// <summary>Per-pass CPU and GPU time of `DrawFrame`, for `--measure` only; every call is on the drawing thread.</summary>
 /// <remarks>
 /// One Stopwatch read and one timestamp query at each mark, inside one disjoint query per frame; one pipeline-statistics
@@ -243,6 +262,9 @@ public sealed unsafe class PassProfiler : IDisposable
     private long _passStart;
     private long _draws;
     private long _uploads;
+    private readonly long[] _frameCpu = new long[PassCount];
+    private readonly long[] _frameDraws = new long[PassCount];
+    private readonly long[] _frameUploads = new long[PassCount];
 
     private PassProfiler(Slot[] slots) => _slots = slots;
 
@@ -275,26 +297,25 @@ public sealed unsafe class PassProfiler : IDisposable
         return taken;
     }
 
+    /// <summary>Begins a frame that is closed when the scope is left, however it is left.</summary>
+    /// <param name="profiler">The profiler, or null when passes are not profiled.</param>
+    /// <param name="context">The immediate context.</param>
+    /// <returns>The scope; `using` it around the draw.</returns>
+    public static PassFrame Begin(PassProfiler? profiler, ComPtr<ID3D11DeviceContext> context)
+    {
+        profiler?.BeginFrame(context);
+
+        return new PassFrame(profiler, context);
+    }
+
     /// <summary>The frame begins: reads the slot's previous frame if answered, then opens the slot again.</summary>
     /// <param name="context">The immediate context.</param>
     /// <remarks>
-    /// **A frame left open is closed here, not read**: `DrawFrame` threw between its marks, so its queries were begun and
-    /// never ended. They are ended now, the slot stays unissued so its partial GPU side is never collected, and the frame
-    /// is counted as abandoned — not drawn.
+    /// **A frame left open is closed here, not read**, when no <see cref="PassFrame"/> closed it at the throw.
     /// </remarks>
     public void BeginFrame(ComPtr<ID3D11DeviceContext> context)
     {
-        if (_current is { } abandoned)
-        {
-            if (_pass >= 0)
-            {
-                context.End(abandoned.Statistics[_pass]);
-            }
-
-            context.End(abandoned.Disjoint);
-            _current = null;
-            Ledger.Abandoned();
-        }
+        Abandon(context);
 
         Slot slot = _slots[_frame++ % Ring];
 
@@ -336,7 +357,11 @@ public sealed unsafe class PassProfiler : IDisposable
         slot.StatisticsFor[at] = _pass;
         context.End(slot.Stamps[at]);
         slot.Order[slot.Count++] = at;
-        Ledger.AddCpu(ended, now - _passStart, SubmitCounters.Draws - _draws, SubmitCounters.Uploads - _uploads);
+
+        // Held with the frame until EndFrame: an abandoned frame's passes never reach the ledger's per-frame mean.
+        _frameCpu[at] += now - _passStart;
+        _frameDraws[at] += SubmitCounters.Draws - _draws;
+        _frameUploads[at] += SubmitCounters.Uploads - _uploads;
 
         _pass = at;
         context.Begin(slot.Statistics[at]);
@@ -362,7 +387,51 @@ public sealed unsafe class PassProfiler : IDisposable
         context.End(slot.Disjoint);
         slot.Issued = true;
         _current = null;
+
+        for (int at = 0; at < PassCount; at++)
+        {
+            if (_frameCpu[at] != 0 || _frameDraws[at] != 0 || _frameUploads[at] != 0)
+            {
+                Ledger.AddCpu((RenderPass)at, _frameCpu[at], _frameDraws[at], _frameUploads[at]);
+            }
+        }
+
+        ClearFrameCpu();
         Ledger.CpuFrame();
+    }
+
+    /// <summary>
+    /// Closes a frame begun and never ended — `DrawFrame` threw between its marks — and counts it abandoned; nothing when
+    /// no frame is open.
+    /// </summary>
+    /// <param name="context">The immediate context.</param>
+    /// <remarks>
+    /// Its queries were begun and never ended: they are ended now, the slot stays unissued so its partial GPU side is never
+    /// collected, and its CPU marks are dropped, so it is counted as abandoned and in no pass's mean.
+    /// </remarks>
+    public void Abandon(ComPtr<ID3D11DeviceContext> context)
+    {
+        if (_current is not { } abandoned)
+        {
+            return;
+        }
+
+        if (_pass >= 0)
+        {
+            context.End(abandoned.Statistics[_pass]);
+        }
+
+        context.End(abandoned.Disjoint);
+        _current = null;
+        ClearFrameCpu();
+        Ledger.Abandoned();
+    }
+
+    private void ClearFrameCpu()
+    {
+        Array.Clear(_frameCpu);
+        Array.Clear(_frameDraws);
+        Array.Clear(_frameUploads);
     }
 
     /// <inheritdoc/>

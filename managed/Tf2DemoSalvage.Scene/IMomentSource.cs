@@ -263,7 +263,8 @@ public sealed class TimelineMoments(DemoTimeline timeline) : IMomentSource
     /// his speed is <c>LocalPlayer</c>'s, from the cache-free <see cref="Prediction.RecorderPrediction.VelocityThrough"/>
     /// or the networked velocity, and whether he is viewed is <see cref="DemoPlayer.ViewsAt"/>; read off his track
     /// instead, the scan judged him on differenced positions and could break an activity the frame never left. One
-    /// movement prediction per recorder probe; not measured.
+    /// movement prediction per recorder probe: 14 ms of a seek on a POV match, mean, and 102 ms at the 2048-tick cap
+    /// (measurements/2026-10-26-pov-recorder-seek-scan.md) — OPEN, B602.
     /// </remarks>
     public ScenePlayer? ActivityPlayerAt(double tick, int entityIndex)
     {

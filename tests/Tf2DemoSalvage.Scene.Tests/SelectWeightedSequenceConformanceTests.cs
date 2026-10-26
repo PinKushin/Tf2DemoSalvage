@@ -62,19 +62,37 @@ public sealed class SelectWeightedSequenceConformanceTests
     }
 
     /// <summary>
-    /// A fuzzed `actweight` of <c>int.MinValue</c>: C's <c>iabs</c> has no positive answer for it, and
-    /// <c>Math.Abs</c> throws. It weighs as <c>int.MaxValue</c>, so it outweighs <c>int.MaxValue - 1</c>.
+    /// A fuzzed `actweight` of <c>int.MinValue</c>: C's <c>iabs</c> has no positive answer for it (INTERPOLATED, RISKS
+    /// B601). It weighs as its mathematical absolute value, 2^31, so it outweighs <c>int.MaxValue</c>.
     /// </summary>
     [Test]
-    public void ForActivity_WeightIntMinValue_WeighsAsIntMaxValue() =>
-        SyntheticSkinnedModel.WithWeights(("ACT_A", int.MaxValue - 1), ("ACT_A", int.MinValue)).ForActivity("ACT_A").ShouldBe(1);
+    public void ForActivity_WeightIntMinValue_WeighsAsTwoToThe31() =>
+        SyntheticSkinnedModel.WithWeights(("ACT_A", int.MaxValue), ("ACT_A", int.MinValue)).ForActivity("ACT_A").ShouldBe(1);
 
-    /// <summary>Weights whose sum wraps to zero in 32 bits must not divide by zero; the sum saturates.</summary>
-    [TestCase(0u, 0)]
-    [TestCase(uint.MaxValue, 0)]
-    public void SelectWeightedSequence_WeightsSumPastIntMax_Saturates(uint random, int expected) =>
+    /// <summary>
+    /// Weights whose sum passes 32 bits: no saturation, so every tuple keeps its slot. Total 2^32: slots
+    /// [0, 2^31-2], [2^31-1, 2^32-3], [2^32-2, 2^32-1].
+    /// </summary>
+    [TestCase(0UL, 0)]
+    [TestCase((ulong)int.MaxValue - 1, 0)]
+    [TestCase((ulong)int.MaxValue, 1)]
+    [TestCase((ulong)uint.MaxValue - 2, 1)]
+    [TestCase((ulong)uint.MaxValue - 1, 2)]
+    [TestCase((ulong)uint.MaxValue, 2)]
+    [TestCase((ulong)uint.MaxValue + 1, 0)]
+    public void SelectWeightedSequence_WeightsSumPastIntMax_EveryTupleKeepsItsSlot(ulong random, int expected) =>
         SyntheticSkinnedModel.WithWeights(("ACT_A", int.MaxValue), ("ACT_A", int.MaxValue), ("ACT_A", 2))
             .SelectWeightedSequence("ACT_A", current: -1, random).ShouldBe(expected);
+
+    /// <summary>A total past 2^32 needs a roll wider than 32 bits, or the last tuple's slot cannot come up.</summary>
+    [Test]
+    public void SelectWeightedSequence_TotalPast32Bits_LastTupleReachable()
+    {
+        const ulong Total = (3UL * int.MaxValue) + 1;
+
+        SyntheticSkinnedModel.WithWeights(("ACT_A", int.MaxValue), ("ACT_A", int.MaxValue), ("ACT_A", int.MaxValue), ("ACT_A", 1))
+            .SelectWeightedSequence("ACT_A", current: -1, Total - 1).ShouldBe(3);
+    }
 
     [Test]
     public void SelectWeightedSequence_ActivityAbsent_IsMinusOne() =>
