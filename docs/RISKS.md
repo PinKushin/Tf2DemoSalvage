@@ -40081,6 +40081,18 @@ the `Task.Run` holds the gate — no worse than the synchronous open it replaced
 setters volatile, or publishing one "install opened" object the frame reads once, touches five classes and the frame's
 read order, which is not the small safe step the review allowed; filed for the lead with that design.
 
+## B604 — prediction gives a running POV recorder 0 u/s on ~7% of probed ticks, and the frame draws him standing — OPEN (2026-10-26)
+
+**Evidence class: measured** (measurements/2026-10-26-pov-recorder-seek-scan.md, "Follow-up result", etf2l-12025, 300 seek
+landings, 19,601 viewed living probes). Found by B602's hybrid measurement: at 1,392 probes the predicted
+(`RecorderPrediction.VelocityThrough`) and networked speeds pick different activities; in 1,339 prediction says 0 where the
+networked `m_vecVelocity` says a running speed (median 215.5, p90 239.5 u/s), the next packet's networked speed sides with
+the networked one in 1,356 of the 1,392, and the frame (`TimelineMoments.PlayersAt`, prediction's `VelocityAt`) draws
+prediction's speed at all 1,392. So the viewer draws the running recorder stand-idle there. Worst ticks: 77518 (networked
+1,023 u/s), 117810-117811 (826), 119405 (722), 47436 (422). Wiring item hooks and ground surfaces changed nothing printed.
+**Cause not hunted**; the badlands 2009 corpus test (`CorpusRecorderPredictionTests`) has median error 0, so the failure is
+somewhere that demo does not reach. Blocks B602.
+
 ## B602 — a seek's scan predicts the viewed recorder's movement once per probe: 14 ms of a seek, 102 ms at the cap (measurements/2026-10-26-pov-recorder-seek-scan.md) — OPEN (2026-10-26)
 
 **Evidence class: measured** (measurements/2026-10-26-pov-recorder-seek-scan.md, etf2l-12025 POV match, Release, quiet
@@ -40098,6 +40110,25 @@ for an unstunned player, `MovementWorld.At` — not yet split by measurement. Ot
 tick, invalidated when the map, hooks or surface source change (bit-identical, but free only on a revisited tick, so no help
 to a first seek); cap the recorder's scan shorter than other players'; or key the recorder's roll differently. The last two
 change behaviour and need a decision.
+
+**The owner's hybrid, measured and not shipped (2026-10-26).** Networked speed by default, prediction only within a margin
+of `MOVING_MINIMUM_SPEED` 0.5 — the one speed threshold of the main activity (`multiplayer_animstate.cpp:33`; `>` at
+`:938`, TF `tf_playeranimstate.cpp:1302`/`:1314`; `<` at `:1351`). On 300 fit and 300 disjoint test landings
+(measurements/2026-10-26-pov-recorder-seek-scan.md, "Follow-up result"):
+
+| margin u/s | fit probes decided wrong | probes still predicting |
+|---:|---:|---:|
+| 0 | 1,392 | 0% |
+| 50 | 1,213 | 14.4% |
+| 300 | 10 (13 of 21,281 on the test set) | 92.4% |
+| 1,022.6 | 0 | 99.9% |
+| 4,090 (×4 headroom) | 0 (0 of 21,232 on the test set) | 100% |
+
+Recorder probes a seek on the test set (measurements/2026-10-26-pov-recorder-seek-scan.md): exact 9.87 ms mean / 102.7 max, networked 0.41 / 4.8, track 0.40 / 5.5, hybrid at
+4,090 10.20 / 104.9. **Zero mismatches costs exact; any saving decides wrongly**, and the disagreements are prediction's own
+error (B604), so a margin fitted now is fitted to a defect. **Still OPEN, blocked on B604**; re-measure with
+`recorder-speed-gate <demo> 300` once it is fixed. The track route is ruled out (13.7 u/s median error, 80,003 u/s through
+a teleport); the networked velocity is the cheap half to revisit.
 
 ## B601 — a fuzzed `actweight` of `INT_MIN`, and weights summing past 32 bits: the engine is undefined, ours is interpolated — FIXED 2026-10-26 (batch-31 second review)
 

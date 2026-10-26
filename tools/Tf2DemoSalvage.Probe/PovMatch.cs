@@ -53,10 +53,27 @@ public sealed record PovMatch(DemoTimeline Timeline, int Recorder, LoadedMap Map
     }
 
     /// <summary>The moment source as `DemoSystems.Open` builds it.</summary>
-    public TimelineMoments Moments(out DemoPlayer player, out RecorderPrediction prediction)
+    /// <param name="player">The demo player it holds.</param>
+    /// <param name="prediction">The recorder's prediction it holds.</param>
+    /// <param name="wired">
+    /// Whether the prediction gets the viewer's item-attribute hooks and ground surfaces (B450), as
+    /// `CorpusRecorderPredictionTests` wires them; false is the 2026-10-26 seek-scan measurement's lower-bound wiring.
+    /// </param>
+    public TimelineMoments Moments(out DemoPlayer player, out RecorderPrediction prediction, bool wired = false)
     {
         player = new DemoPlayer(Timeline);
         prediction = new RecorderPrediction(Timeline, () => Map.Level);
+
+        if (wired)
+        {
+            AttributeHooks? hooks = Game.Weapons.Items is { } items ? new AttributeHooks(items) : null;
+            prediction = new RecorderPrediction(Timeline, () => Map.Level)
+            {
+                Hooks = () => hooks,
+                GroundSurface = trace => Map.ImpactDecals is { } decals ? Game.Surfaces.GetSurfaceData(decals.SurfacePropOfTrace(trace)) : null,
+            };
+        }
+
         return new TimelineMoments(Timeline) { Player = player, Prediction = prediction };
     }
 }
