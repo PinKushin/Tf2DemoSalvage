@@ -1594,7 +1594,8 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
 
         PassProfiler? profile = ProfilePasses ? _profiler ??= PassProfiler.Create(_device) : null;
 
-        profile?.BeginFrame(_context);
+        // Closed at the throw if the draw throws, so a measurement's last frame is counted abandoned before its report.
+        using PassFrame profiledFrame = PassProfiler.Begin(profile, _context);
 
         float* colour = stackalloc float[4] { red, green, blue, 1f };
         _context.ClearRenderTargetView(_backBufferView, colour);
