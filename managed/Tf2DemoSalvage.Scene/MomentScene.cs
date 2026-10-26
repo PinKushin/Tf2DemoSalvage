@@ -237,15 +237,14 @@ public sealed class MomentScene : IGameSystemPerFrame
     private readonly List<ModelInstance> _undrawnInstances = [];
 
     /// <summary>The followed player in first person, posed but not in the main view: what a monitor view adds (B511).</summary>
-    /// <remarks>Empty while the recorder is zoomed: a monitor does not bring him back (B598).</remarks>
-    public IReadOnlyList<ModelInstance> UndrawnInstances => _undrawn.Count > 0 && !_zoomHides ? _undrawnInstances : [];
+    /// <remarks>Never the zoomed recorder, whom a monitor does not bring back (B598); a followed other player, yes.</remarks>
+    public IReadOnlyList<ModelInstance> UndrawnInstances => _undrawn.Count > 0 ? _undrawnInstances : [];
 
-    /// <summary>Whether this moment's undrawn list holds a zoomed recorder, whom no view draws (B598).</summary>
-    /// <remarks>
-    /// ponytail: the whole undrawn list leaves the monitor, so first person through ANOTHER player while the recorder is
-    /// zoomed loses that player from a monitor too; split the list per prop if that case is ever seen.
-    /// </remarks>
-    private bool _zoomHides;
+    /// <summary>The zoomed recorder and what goes with him: in no view, a monitor's included, but kept for a decal (B598).</summary>
+    private readonly List<SceneProp> _hidden = [];
+
+    /// <summary>Where the hidden pass writes, which it never does: it is posed for no view.</summary>
+    private readonly List<ModelInstance> _hiddenInstances = [];
 
     private readonly List<ModelInstance> _viewmodelInstances = [];
 
@@ -588,31 +587,17 @@ public sealed class MomentScene : IGameSystemPerFrame
         }
 
         // **A zoomed local player is hidden from every view, a monitor's too** (B598, ZoomVisibility) — **moved to the
-        // undrawn list, not dropped**: `ShouldDraw` false does not stop `CModelRender::AddDecal` setting up his bones, so
-        // he must stay in a pass for `SkinningOf`. In place, one pass over the list, no allocation.
-        _zoomHides = false;
+        // hidden list, not dropped**: `ShouldDraw` false does not stop `CModelRender::AddDecal` setting up his bones, so
+        // he must stay in a pass for `SkinningOf`. Out of the undrawn list as well, where following himself put him: a
+        // followed OTHER player stays there for the monitor, which `ForceTempForceDraw` draws him into
+        // (`c_tf_player.cpp:9866-9868`, `c_baseplayer.cpp:1927-1930`, `:1980-1984`). In place, no allocation.
+        _hidden.Clear();
 
         if (ZoomVisibility.Hidden(players, info.Recorder) is { } zoomed)
         {
-            _zoomHides = true;
-            int kept = 0;
-
-            for (int at = 0; at < _drawn.Count; at++)
-            {
-                SceneProp prop = _drawn[at];
-
-                // Holstered weapons are hidden from everyone anyway (WeaponVisibility); they need no bones.
-                if (!FirstPersonVisibility.Hides(prop, zoomed))
-                {
-                    _drawn[kept++] = prop;
-                }
-                else if (!WeaponVisibility.IsHolstered(prop))
-                {
-                    _undrawn.Add(prop);
-                }
-            }
-
-            _drawn.RemoveRange(kept, _drawn.Count - kept);
+            // Holstered weapons are hidden from everyone anyway (WeaponVisibility); they need no bones.
+            MoveHidden(_drawn, zoomed, skipHolstered: true);
+            MoveHidden(_undrawn, zoomed, skipHolstered: false);
         }
 
         long firstPersonAt = Stopwatch.GetTimestamp();
@@ -694,6 +679,28 @@ public sealed class MomentScene : IGameSystemPerFrame
                 FirstPerson: firstPersonAt - placedAt));
     }
 
+    /// <summary>Moves the zoomed recorder's props out of a list into <see cref="_hidden"/>, in place.</summary>
+    private void MoveHidden(List<SceneProp> list, int zoomed, bool skipHolstered)
+    {
+        int kept = 0;
+
+        for (int at = 0; at < list.Count; at++)
+        {
+            SceneProp prop = list[at];
+
+            if (!FirstPersonVisibility.Hides(prop, zoomed))
+            {
+                list[kept++] = prop;
+            }
+            else if (!skipHolstered || !WeaponVisibility.IsHolstered(prop))
+            {
+                _hidden.Add(prop);
+            }
+        }
+
+        list.RemoveRange(kept, list.Count - kept);
+    }
+
     /// <summary>Poses what <see cref="Build"/> selected, and produces the instances.</summary>
     /// <param name="info">The moment, whose camera this call needs and <see cref="Build"/> does not.</param>
     /// <param name="frustum">The view being drawn, for the cull that precedes the pose (B254).</param>
@@ -730,8 +737,7 @@ public sealed class MomentScene : IGameSystemPerFrame
         long posingAt = Stopwatch.GetTimestamp();
 
         // Only a monitor draws the first-person player (B511); without one his pass simulates and is not posed.
-        // Nor while the recorder is zoomed, whom no monitor draws (B598): simulated, his bones built on a decal's demand.
-        _models.PosesUndrawn = monitor && !_zoomHides;
+        _models.PosesUndrawn = monitor;
 
         // The main view for the static props' screen fades (B432), from the device beside the eye.
         _models.ScreenView = screen;
@@ -802,6 +808,15 @@ public sealed class MomentScene : IGameSystemPerFrame
                 _undrawn, _undrawnInstances, Lighting.ModelLightingAt, Lighting.ModelSunAt, info.Seconds,
                 pass: EntityModelSet.UndrawnPass);
         }
+
+        // The zoomed recorder, whom no view draws (B598): simulated and in the scene, his bones built on a decal's demand.
+        if (_hidden.Count > 0)
+        {
+            _models.Instances(
+                _hidden, _hiddenInstances, Lighting.ModelLightingAt, Lighting.ModelSunAt, info.Seconds,
+                pass: EntityModelSet.HiddenPass);
+        }
+
         long undrawnTicks = Stopwatch.GetTimestamp() - undrawnAt;
         UndrawnCensus census = new(
             sunWorld, Lighting.SunCalls - sunBefore - sunWorld, _undrawn.Count, UndrawnInstances.Count);
@@ -991,12 +1006,14 @@ public sealed class MomentScene : IGameSystemPerFrame
         // **The engine's list is every client-animating entity, drawn or not** — the first-person player included, or
         // he is posed in whatever sequence he last had: standing while the server crouched him, 29 units off his hitboxes.
         _models.UpdateClientSideAnimations(_undrawn);
+        _models.UpdateClientSideAnimations(_hidden);
 
         // **An old demo's sequence numbers, into today's models** (B380, D160) — after `Add`, which
         // loads the tables they translate into, and before `Instances`, whose `Simulate` advances each
         // cycle by its sequence.
         _models.TranslateEraSequences(_drawn);
         _models.TranslateEraSequences(_undrawn);
+        _models.TranslateEraSequences(_hidden);
 
         // **`grew` alone is wrong the moment a second demo is opened (B148).** The packed set lives
         // across demos, so after a switch it already holds what the new demo needs and does not grow

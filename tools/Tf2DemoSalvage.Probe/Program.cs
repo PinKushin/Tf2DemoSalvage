@@ -61,8 +61,9 @@ internal static class Program
             return 1;
         }
 
+        // A probe whose own control failed sets `Environment.ExitCode`; returning it keeps that failure visible to a script.
         chosen.Run(Console.Out, arguments[1..]);
-        return 0;
+        return Environment.ExitCode;
     }
 
     private static void List(List<IProbe> probes)

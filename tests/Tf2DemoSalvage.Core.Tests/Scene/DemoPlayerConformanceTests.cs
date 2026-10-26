@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 
 using Tf2DemoSalvage.Core.Container;
 using Tf2DemoSalvage.Core.Scene;
@@ -373,6 +374,66 @@ public sealed class DemoPlayerConformanceTests
 
         player.InterpolateViewpoint(120.5).ShouldNotBeNull().Origin.X.ShouldBe(480f, Tolerance);
     }
+
+    /// <summary>
+    /// **A rewind re-reads only the skip's tail** (`SkipToTick`'s reads land in the state a read from the start does,
+    /// `0x180073b10`): a signon ticked past every packet stood at index 0, and the start-point loop stopped at the first
+    /// command of any type past the target, so every rewind on etf2l-12025 re-read from the start.
+    /// </summary>
+    [Test]
+    public void InterpolateViewpoint_RewoundPastASignonTickedPastEveryPacket_ReadsOnlyTheSkipsTail()
+    {
+        DemoPlayer played = Player(SignonFirstLongLine());
+
+        played.InterpolateViewpoint(1000d);
+        long before = played.CommandsRead;
+        played.InterpolateViewpoint(900d);
+
+        // From the last packet before 900 - 40 to 900: 41 or so; the unbounded loop read 801.
+        (played.CommandsRead - before).ShouldBeLessThanOrEqualTo(42);
+    }
+
+    /// <summary>
+    /// The bound must not change where a rewind lands: for every target, a rewound player answers what a fresh read does,
+    /// bit for bit, over the next fifty ticks — long enough to cross the parse-ahead's 32 + 8 and a cut every 37 ticks.
+    /// </summary>
+    /// <remarks>
+    /// The single-player case is the one that sees the skip's 32 + 8 back-off: its interpolation target is eight ticks
+    /// behind the playback tick (`demo_legacy_rollback`), so a start nearer the target lacks the pair it needs.
+    /// </remarks>
+    [TestCase(false, (byte)24)]
+    [TestCase(false, (byte)1)]
+    [TestCase(true, (byte)24)]
+    public void InterpolateViewpoint_RewoundToManyTargets_IsAFreshReadsAnswerThroughTheNextFiftyTicks(bool backwards, byte maxPlayers)
+    {
+        byte[] demo = backwards ? Backwards() : SignonFirstLongLine(maxPlayers);
+        int[] targets = backwards ? [.. Enumerable.Range(95, 50)] : [.. Enumerable.Range(0, 60).Select(at => 101 + (at * 17))];
+        DemoPlayer played = Player(demo);
+        int compared = 0;
+
+        foreach (int target in targets)
+        {
+            played.InterpolateViewpoint(backwards ? 145d : 1100d);
+            DemoPlayer fresh = Player(demo);
+
+            for (double tick = target; tick <= target + 50; tick += 0.25d)
+            {
+                played.InterpolateViewpoint(tick).ShouldBe(fresh.InterpolateViewpoint(tick), $"target {target}, tick {tick}");
+                compared++;
+            }
+        }
+
+        compared.ShouldBe(targets.Length * 201);
+    }
+
+    /// <summary>A signon at tick 146,124, then packets every tick 100-1100, every 37th tick a cut.</summary>
+    private static byte[] SignonFirstLongLine(byte maxPlayers = 24) => SyntheticViews.Demo(
+        maxPlayers,
+    [
+        SyntheticViews.Signon(146124),
+        .. SyntheticViews.Run(100, 1100, tick => SyntheticViews.Packet(
+            tick, (tick * 4f, 0f, 0f), (0f, 10f, 0f), flags: tick % 37 == 0 ? SyntheticViews.NoInterpolation : 0)),
+    ]);
 
     /// <summary>The cut line with a default-view signon at tick 146,124 before it, as etf2l-12025 has.</summary>
     private static byte[] SignonFirstCut() => SyntheticViews.Demo([SyntheticViews.Signon(146124), .. CutCommands()]);

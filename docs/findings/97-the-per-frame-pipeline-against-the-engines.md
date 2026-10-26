@@ -286,3 +286,22 @@ synthetic test red under sabotage:
 - **One review claim the source does not support** (RISKS B598's re-read): during a monitor's draw an in-eye target IS drawn,
   because `InFirstPersonView` defers to the local player's force-draw flag (`c_baseplayer.cpp:1927-1930`, `:1980-1984`),
   which `ForceTempForceDraw` sets (`c_tf_player.cpp:9866-9868`); left for the lead to rule on.
+
+**The owner's three rulings on it (2026-10-26)** — one restored the engine, one cut a cost, one was falsified:
+
+- **The monitor ruling went to the engine** (*read from published source*, RISKS B598): a followed player stays in a zoomed
+  recorder's monitor, and only the recorder is withheld. His props now have their own never-posed pass instead of taking
+  the whole undrawn list out of the monitor.
+- **A rewind no longer re-reads the demo** (*measured*, measurements/2026-10-26-pov-recorder-seek-scan.md): the start-point
+  loop had stopped at the first command of any type past the target — the 146,124-ticked signon at index 0 again, the same
+  writer quirk as the index above, in a second loop. Bounded by that index: 57,715 commands and 6.98 ms a rewind, mean, to
+  40 and 0.016 ms (measurements/2026-10-26-pov-recorder-seek-scan.md). The equivalence test that proved it changes no answer could not see the 32 + 8 back-off at all until a
+  single-player demo, whose interpolation target lags eight ticks, was added; sabotage on the other cases stayed green.
+- **The hybrid seek recovery was measured and not shipped** (*measured*, RISKS B602, B604). The plan: answer the scan's
+  recorder by his networked speed and predict only near `MOVING_MINIMUM_SPEED`, the one speed threshold the main activity
+  has (`multiplayer_animstate.cpp:33`). The margin that gave zero mismatches was 1,022.6 u/s, which predicts on 99.9% of
+  probes — the hybrid is exact at exact's cost. **What the disagreements turned out to be is the finding:** 1,339 of 1,392
+  were prediction answering 0 u/s where the networked speed said ~215-240, the next packet sided with the networked speed in
+  1,356 of them, and the frame draws prediction's 0. The reference the hybrid had to match is itself wrong there (B604).
+  The track route, the brief's named cheap half, was worse on every count: a 13.7 u/s median error against 0, and
+  80,003 u/s through teleports.

@@ -36343,7 +36343,8 @@ water only) and overlays; nothing measured whether the darker room behind the so
 (the live client's capture shows more of it lit — an open question, not a finding); `pd_circus` and `vsh_skirmish`
 were not recorded; `m_Resolution` is not read (`DrawMonitors` sizes from the target, `GetActualWidth()`; whether anything else reads
 it was not searched). Who else the force-draw brings into a monitor — an in-eye target, a followed non-recorder — is
-read in B598's re-read of 2026-10-26.
+read in B598's re-read of 2026-10-26; since that day a followed non-recorder stays in the monitor while the recorder is
+zoomed, and only the zoomed recorder himself is withheld (B598, "Ceiling removed").
 
 ## B512 — models carried no tangent, so every bump-mapped model lit by its vertex normal — FIXED 2026-10-08
 
@@ -40067,6 +40068,31 @@ reddens four tests), and a child's drawn size against its own scale alone.
   `pl_badwater_pro_v12.bsp` is not on this machine (not under the game's `tf/maps`, `tf/download/maps`, `tf2ds`, or the
   user profile), so its `parentname` cannot be read, and no sampled tick gives them a parent.
 
+## B603 — `LevelSystems.OpenGame` publishes the install from a worker thread with no happens-before edge to the frame — OPEN (2026-10-26)
+
+**Evidence class: read from our source** (batch-32 review; pre-existing, not a regression). The async demo load calls
+`LevelSystems.Install` inside `Task.Run`, and `OpenGame` then writes `_sounds.Read`, `_moment.Weapons`,
+`_soundscape.Catalog`, `_sound.Scripts` and `_appearances.Game` — plain properties on objects the UI thread's frame code
+reads every frame — with no lock, volatile or barrier on the reading side. `_installGate` (batch-31 review 2) orders the
+`Install` callers only. What can go wrong: a frame reading some of the five set and others not (a torn group: weapons
+without the appearance's game, say) for one frame; each reference itself is published whole on .NET's memory model.
+Separately, `Install` blocks the UI thread for the whole archive and weapon-script open when it is the second caller while
+the `Task.Run` holds the gate — no worse than the synchronous open it replaced. **Not fixed**: making the five consumers'
+setters volatile, or publishing one "install opened" object the frame reads once, touches five classes and the frame's
+read order, which is not the small safe step the review allowed; filed for the lead with that design.
+
+## B604 — prediction gives a running POV recorder 0 u/s on ~7% of probed ticks, and the frame draws him standing — OPEN (2026-10-26)
+
+**Evidence class: measured** (measurements/2026-10-26-pov-recorder-seek-scan.md, "Follow-up result", etf2l-12025, 300 seek
+landings, 19,601 viewed living probes). Found by B602's hybrid measurement: at 1,392 probes the predicted
+(`RecorderPrediction.VelocityThrough`) and networked speeds pick different activities; in 1,339 prediction says 0 where the
+networked `m_vecVelocity` says a running speed (median 215.5, p90 239.5 u/s), the next packet's networked speed sides with
+the networked one in 1,356 of the 1,392, and the frame (`TimelineMoments.PlayersAt`, prediction's `VelocityAt`) draws
+prediction's speed at all 1,392. So the viewer draws the running recorder stand-idle there. Worst ticks: 77518 (networked
+1,023 u/s), 117810-117811 (826), 119405 (722), 47436 (422). Wiring item hooks and ground surfaces changed nothing printed.
+**Cause not hunted**; the badlands 2009 corpus test (`CorpusRecorderPredictionTests`) has median error 0, so the failure is
+somewhere that demo does not reach. Blocks B602.
+
 ## B602 — a seek's scan predicts the viewed recorder's movement once per probe: 14 ms of a seek, 102 ms at the cap (measurements/2026-10-26-pov-recorder-seek-scan.md) — OPEN (2026-10-26)
 
 **Evidence class: measured** (measurements/2026-10-26-pov-recorder-seek-scan.md, etf2l-12025 POV match, Release, quiet
@@ -40084,6 +40110,25 @@ for an unstunned player, `MovementWorld.At` — not yet split by measurement. Ot
 tick, invalidated when the map, hooks or surface source change (bit-identical, but free only on a revisited tick, so no help
 to a first seek); cap the recorder's scan shorter than other players'; or key the recorder's roll differently. The last two
 change behaviour and need a decision.
+
+**The owner's hybrid, measured and not shipped (2026-10-26).** Networked speed by default, prediction only within a margin
+of `MOVING_MINIMUM_SPEED` 0.5 — the one speed threshold of the main activity (`multiplayer_animstate.cpp:33`; `>` at
+`:938`, TF `tf_playeranimstate.cpp:1302`/`:1314`; `<` at `:1351`). On 300 fit and 300 disjoint test landings
+(measurements/2026-10-26-pov-recorder-seek-scan.md, "Follow-up result"):
+
+| margin u/s | fit probes decided wrong | probes still predicting |
+|---:|---:|---:|
+| 0 | 1,392 | 0% |
+| 50 | 1,213 | 14.4% |
+| 300 | 10 (13 of 21,281 on the test set) | 92.4% |
+| 1,022.6 | 0 | 99.9% |
+| 4,090 (×4 headroom) | 0 (0 of 21,232 on the test set) | 100% |
+
+Recorder probes a seek on the test set (measurements/2026-10-26-pov-recorder-seek-scan.md): exact 9.87 ms mean / 102.7 max, networked 0.41 / 4.8, track 0.40 / 5.5, hybrid at
+4,090 10.20 / 104.9. **Zero mismatches costs exact; any saving decides wrongly**, and the disagreements are prediction's own
+error (B604), so a margin fitted now is fitted to a defect. **Still OPEN, blocked on B604**; re-measure with
+`recorder-speed-gate <demo> 300` once it is fixed. The track route is ruled out (13.7 u/s median error, 80,003 u/s through
+a teleport); the networked velocity is the cheap half to revisit.
 
 ## B601 — a fuzzed `actweight` of `INT_MIN`, and weights summing past 32 bits: the engine is undefined, ours is interpolated — FIXED 2026-10-26 (batch-31 second review)
 
@@ -40190,6 +40235,16 @@ player the viewer follows in first person is, in the engine, drawn in every view
 above is a small real divergence** (that player leaves the monitors while the recorder scopes), and B511's force-drawing of
 a followed non-recorder into monitors matches the engine rather than diverging from it. Owner or lead to decide; nothing
 changed in code.
+
+**Ceiling removed 2026-10-26 (owner's decision, relayed by the lead: "restore engine behaviour").** The zoomed recorder's
+props now go to their own list and pass (`EntityModelSet.HiddenPass`: simulated, in the scene for `SkinningOf`, never
+posed, no events), out of BOTH the drawn and the undrawn lists — the undrawn list holds them when he follows himself — so
+the undrawn list keeps only the followed player and the monitor draws him (`ForceTempForceDraw`, `c_tf_player.cpp:9866-9868`;
+`c_baseplayer.cpp:1927-1930`, `:1980-1984`). `_zoomHides` and the ponytail are gone. Held by `MomentSceneTests`
+(synthetic): `Pose_FollowingAnotherWhileTheRecorderIsZoomed_HandsTheMonitorTheFollowedOnly` (red before: the monitor got
+nothing), the existing zoomed-and-following-himself and decal tests, and `Pose_SourceTvFollowingAZoomedSniper_HandsTheMonitorHim`
+as the control. Sabotage: leaving the undrawn list unfiltered reddened two tests, posing the hidden pass three. The monitor
+census (`UndrawnCensus.Props`) now counts only the monitor's list, so it reads 0 while he follows himself zoomed.
 
 ## B596 — is the Debug build part of the viewer-vs-TF2 f12 gap? No: Debug and Release are the same program — CLOSED (2026-10-24)
 

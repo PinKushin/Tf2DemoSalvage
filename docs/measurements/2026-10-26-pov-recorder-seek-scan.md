@@ -112,3 +112,109 @@ carried from packet N into N+1 differs from the per-probe route; and reuse withi
 a packet — at most about 16% of the probes. Not built; reported to the lead with these numbers. What a bit-identical saving
 would have to target instead is the per-probe setup (`PlayersAt` of every player at the packet, a second `PlayersAt` in
 `StunFadeUnknown`, `MovementWorld.At`) — not yet split, so not claimed.
+
+## Follow-up plan: the owner's hybrid (B602) and the bounded rewind — recorded before the runs
+
+**Owner decisions, 2026-10-26** (relayed by the lead): (1) the seek scan answers the viewed recorder by the cheap route by
+default and runs prediction only where the cheap speed is close enough to an activity threshold that its error could flip
+the activity, the margin justified by measurement; (2) `DemoPlayer.Restart`'s start-point loop is bounded by the packet index.
+
+**What the engine reads.** Speed reaches the main activity at one threshold: `MOVING_MINIMUM_SPEED` 0.5
+(`multiplayer_animstate.cpp:33`), `>` in `HandleMoving` (`:938`; TF `tf_playeranimstate.cpp:1302`, `:1314`) and `<` in
+`HandleDucking` (`tf_playeranimstate.cpp:1351`). TF2 has no walk (`multiplayer_animstate.cpp:935`). So the gate is one band,
+`|cheap − 0.5| ≤ margin` (`RecorderActivityGate`).
+
+**Which cheap route.** The brief names the track route (0.49 ms mean a seek above). The networked `m_vecVelocity` costs the
+same, is already the exact route's own answer wherever prediction declines (31.6% of probes above), and is not lagged by
+the interpolation window as a differenced track is. Both are measured; the one needing the smaller margin is used, and if
+that is the networked one it is reported as a deviation from the brief's word.
+
+**Probe `recorder-speed-gate`** (`RecorderGate` over the production wiring, as `recorder-seek-scan`):
+
+- *Fit*: the exact route's recorder probes on 300 landings placed as `seek-scan` places them (`recorder-speed-gate <demo> 300`). Per viewed, living probe: |exact − networked| and
+  |exact − track| — mean, median, p99, max — and, the number that sets the margin, the largest |cheap − 0.5| among probes
+  where cheap and exact fall on different sides of 0.5.
+- *Margin*: that largest value, times a headroom factor of at least 4 and at least 10 u/s; written into
+  `RecorderActivityGate.Margin` with this record cited.
+- *Test*, on 300 landings disjoint from the fit (half a stride on): each route's recorder-probe ms a seek (mean, max), probe
+  count, and how many landings chose a different recorder main sequence than the exact route; and per probe, how many of
+  the hybrid's answers are on another side of 0.5 than exact. **Prediction: 0 mismatches for the hybrid**; the networked
+  and track routes alone > 0 somewhere (the control that the comparison can fail); hybrid ms between cheap and exact.
+- *Sabotage*: margin 0 in the fit's sweep must report > 0 probes decided wrong.
+
+**Probe `demo-player-rewind`**: one `DemoPlayer` played to the end, then asked 40 earlier landings; ms of each rewind and
+commands re-read (`DemoPlayer.CommandsRead`, carried). Run on the commit before the bound and on the bound. Control: each
+rewound answer equals a fresh player's. Prediction: before, up to ~118k commands (from the start to the landing); after, ≤ 50.
+
+**Conditions**: `-c Release`, `run-exclusive.ps1 -Shared`, only after the lead's "go", with three CPU samples under 25%.
+
+## Follow-up result
+
+**Environment:** the owner's desktop, 2026-10-26, after the lead's "go"; CPU samples before each run 3-17%, no testhost,
+tf2demoview or hl2. Branch `fix/batch-31-pov-seek-hybrid`, `-c Release`, `run-exclusive.ps1 -Shared`.
+
+### The rewind
+
+`demo-player-rewind <lcor>/etf2l-12025-pov-2020-07-21.dem 40`, before the bound (`378a7d54`) and after it:
+
+```
+before: rewind: first 2.018 ms, then mean 6.978 ms, max 44.778 ms; commands re-read mean 57714.9, max 115338
+        control: 0 of 40 landings answer differently from a fresh player
+after:  rewind: first 2.036 ms, then mean 0.016 ms, max 0.042 ms; commands re-read mean 40.0, max 43
+        control: 0 of 40 landings answer differently from a fresh player
+```
+
+**Prediction confirmed**: up to ~118k re-read before (115,338), ≤ 50 after (43).
+
+### The hybrid
+
+`recorder-speed-gate <lcor>/etf2l-12025-pov-2020-07-21.dem 300`, verbatim (the probe's hybrid is emulated in the probe, not
+shipped; its margin is the plan's rule, the fit's farthest flip × 4):
+
+```
+etf2l-12025-pov-2020-07-21.dem: recorder 6; fit 300 landings, 21794 recorder probes, 19601 viewed and alive; item hooks wired, ground surfaces wired
+  networked: |exact - cheap| mean 23.563, median 0, p99 239.999, max 1023.111 u/s; 1392 probes on the other side of 0.5, the farthest |cheap - 0.5| among them 1022.613 u/s
+    flips' needed margin: median 215.502, p90 239.5, p99 287.5; over 10: 1308, over 50: 1213, over 300: 10; exact still and cheap moving: 1339, the reverse: 53
+    against the next packet's networked speed: 36 flips side with exact, 1356 with networked
+    the frame's drawn speed there: 1392 flips side with exact, 0 with networked, 0 not drawn alive
+    worst five (tick: exact, networked, track): 77518: 0, 1023.11, 969.36; 117811: 0, 826.15, 702.22; 117810: 0, 826.15, 810.66; 119405: 0, 721.92, 819.36; 47436: 0, 421.91, 916.85
+  track: |exact - cheap| mean 91.024, median 13.741, p99 444.164, max 80003.2 u/s; 1665 probes on the other side of 0.5, the farthest |cheap - 0.5| among them 80002.7 u/s
+    flips' needed margin: median 177.623, p90 239.5, p99 916.353; over 10: 1471, over 50: 1322, over 300: 32; exact still and cheap moving: 1525, the reverse: 140
+    against the next packet's networked speed: 347 flips side with exact, 1318 with track
+    the frame's drawn speed there: 1665 flips side with exact, 0 with track, 0 not drawn alive
+    worst five (tick: exact, networked, track): 42978: 0, 0, 80003.2; 42979: 0, 0, 77959.43; 42977: 0, 0, 67463.16; 42980: 0, 0, 65486.14; 42976: 0, 0, 52692.64
+  margin 0: 1392 fit probes decided wrong, 0 of 19601 (0.0%) predict
+  margin 10: 1308 fit probes decided wrong, 2448 of 19601 (12.5%) predict
+  margin 50: 1213 fit probes decided wrong, 2830 of 19601 (14.4%) predict
+  margin 100: 1071 fit probes decided wrong, 3399 of 19601 (17.3%) predict
+  margin 300: 10 fit probes decided wrong, 18116 of 19601 (92.4%) predict
+  margin 1022.613: 0 fit probes decided wrong, 19577 of 19601 (99.9%) predict
+  margin 4090.451: 0 fit probes decided wrong, 19601 of 19601 (100.0%) predict
+  test half: the hybrid emulated at margin 4090.451 u/s
+  test Exact: recorder probes per seek mean 9.865 ms, max 102.685 ms; 26536 probes; 0 of 300 landings chose another sequence than Exact
+  test Networked: recorder probes per seek mean 0.414 ms, max 4.809 ms; 44118 probes; 0 of 300 landings chose another sequence than Exact
+  test Track: recorder probes per seek mean 0.397 ms, max 5.463 ms; 42324 probes; 0 of 300 landings chose another sequence than Exact
+  test Hybrid: recorder probes per seek mean 10.197 ms, max 104.933 ms; 26536 probes; 0 of 300 landings chose another sequence than Exact
+  test Hybrid per probe: 0 of 21232 viewed, living probes on another side of 0.5 than Exact
+```
+
+And the test half at margin 300 (`… 300 300`): hybrid 8.852 ms mean, 103.231 max, **13 of 21,281 probes on another side**.
+
+**Verdict — the plan's prediction is falsified.** Zero mismatches holds only at a margin (≥ 1,022.6 u/s, 4,090 with the
+plan's headroom) where the hybrid predicts on every probe and costs exact's 9.9-10.2 ms; a margin that saves anything
+decides wrongly (300 u/s: 92.4% still predict, 10 fit and 13 test probes wrong). **Not shipped**; production is unchanged.
+
+**What the disagreements are** — the finding worth more than the gate: 1,339 of the 1,392 networked flips are prediction
+answering 0 u/s where the networked speed says a running speed (median 215.5, p90 239.5); the next packet's networked speed
+— the server's own answer — sides with the networked speed in 1,356 of 1,392; and the frame draws prediction's 0 in all
+1,392. So the viewer draws the running recorder standing on ~7% of probed ticks (1,392 of 19,601), and the scan's reference
+is wrong there (RISKS B604). Until that is fixed, any margin is fitted to a defect.
+
+**The track route is ruled out outright**: median error 13.7 u/s against the networked route's 0, and 80,003 u/s through a
+teleport. The networked velocity is the right cheap half if this is revisited.
+
+**Instrument notes.** The per-landing comparison (recorder main sequence) read 0 of 300 for every route, the track one
+included, so it is no control; the per-probe side count and the margin-0 sweep (1,392 wrong) are. Wiring the prediction's
+item hooks and ground surfaces (`wired`, printed) left every figure identical to print precision with the unwired run: the
+control line shows the inputs exist, not that prediction read them, so the 2026-10-26 "lower bound" caveat is not resolved.
+The `exact` route is production's `ActivityPlayerAt` recomposed from the timeline's public pieces in `RecorderGate`.

@@ -267,7 +267,48 @@ public sealed class MomentSceneTests
         MomentPhases phases = scene.Pose(info, monitor: true);
 
         scene.UndrawnInstances.Count.ShouldBe(instances);
-        phases.UndrawnCensus.Props.ShouldBe(1, "zoomed or not he is kept for a decal's bones; only the monitor loses him");
+        phases.UndrawnCensus.Props.ShouldBe(instances, "zoomed, he leaves the monitor's pass for the never-posed one");
+    }
+
+    /// <remarks>
+    /// **A followed in-eye target IS drawn into a monitor while the recorder is zoomed** (B598): `ForceTempForceDraw` sets
+    /// the local player's `m_bForceLocalPlayerDraw` (`c_tf_player.cpp:9866-9868`), and `InFirstPersonView` of an in-eye
+    /// target defers to it (`c_baseplayer.cpp:1927-1930`, `:1980-1984`), so the target draws. Only the zoomed local player
+    /// is refused, by his own `ShouldDraw` (`c_tf_player.cpp:8014-8020`). The undrawn list used to leave the monitor whole.
+    /// </remarks>
+    [Test]
+    public void Pose_FollowingAnotherWhileTheRecorderIsZoomed_HandsTheMonitorTheFollowedOnly()
+    {
+        EntityModelSet models = new();
+        MomentScene scene = SkinnedScene(models);
+        ScenePlayer sniper = Soldier(entity: 3) with { Conditions = new(1 << 1, 0, 0, 0, 0) };
+        MomentInfo info = Info() with { FirstPerson = true, Followed = 4, Recorder = 3, EyeCamera = Eye() };
+
+        // Entity 5 is drawn, so the world pass loads the model the other passes share.
+        scene.Build([sniper, Soldier(entity: 4), Soldier(entity: 5)], [], info);
+        scene.Pose(info, monitor: true);
+
+        scene.Drawn.Select(prop => prop.EntityIndex).ShouldBe([5]);
+        scene.UndrawnInstances.Select(instance => instance.EntityIndex).ShouldBe([4]);
+        models.ReadableBonesOf(3).ShouldBe(0, "the zoomed recorder is posed for no view");
+        models.SkinningOf(3).ShouldNotBeNull("AddDecal still sets up his bones");
+    }
+
+    /// <remarks>
+    /// **The control: the rule is the LOCAL player's**, so a SourceTV recording (no recorder) following a zoomed sniper
+    /// hands him to the monitor as any followed player.
+    /// </remarks>
+    [Test]
+    public void Pose_SourceTvFollowingAZoomedSniper_HandsTheMonitorHim()
+    {
+        MomentScene scene = SkinnedScene(new EntityModelSet());
+        ScenePlayer sniper = Soldier(entity: 3) with { Conditions = new(1 << 1, 0, 0, 0, 0) };
+        MomentInfo info = Info() with { FirstPerson = true, Followed = 3, Recorder = null, EyeCamera = Eye() };
+
+        scene.Build([sniper, Soldier(entity: 4)], [], info);
+        scene.Pose(info, monitor: true);
+
+        scene.UndrawnInstances.Select(instance => instance.EntityIndex).ShouldBe([3]);
     }
 
     /// <remarks>

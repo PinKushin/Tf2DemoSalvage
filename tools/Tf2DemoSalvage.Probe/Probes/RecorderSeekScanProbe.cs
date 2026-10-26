@@ -42,38 +42,23 @@ public sealed class RecorderSeekScanProbe : IProbe
             return;
         }
 
-        int seeks = arguments.Count > 1 ? int.Parse(arguments[1], CultureInfo.InvariantCulture) : 40;
-        byte[] file = File.ReadAllBytes(path);
-        DemoTimeline timeline = DemoTimeline.Build(file);
-        MapLocator locator = new(MapProvider.SteamLibraryFile, MapProvider.OwnMapsFolder);
-        string mapName = Tf2DemoSalvage.Core.Container.DemoHeader.Parse(file).MapName;
-
-        if (timeline.RecorderEntityIndex is not { } recorder)
+        // At least two: the first landing is reported apart (JIT), and the rest need one value to average.
+        if (!ProbeArguments.TryCount(arguments, 1, 40, 2, output, out int seeks))
         {
-            output.WriteLine("control failed: the demo has no recorder (SourceTV?), so there is nothing to measure.");
             return;
         }
 
-        if (mapName.Length == 0 || locator.Find(mapName) is not { } mapPath || locator.FindGameFolder() is not { } folder)
+        if (PovMatch.Open(path, output) is not { } match)
         {
-            output.WriteLine("The demo's map or the game could not be found.");
             return;
         }
 
-        GameContent game = GameContent.Open(folder, NullLoggerFactory.Instance);
-        LoadedMap map = LoadedMap.Read(File.ReadAllBytes(mapPath), game, timeline, 0, NullLoggerFactory.Instance, mapPath);
-
-        if (map.Assets is not { } assets)
-        {
-            output.WriteLine("The map loaded with no assets.");
-            return;
-        }
-
-        DemoPlayer demoPlayer = new(timeline);
-        RecorderPrediction prediction = new(timeline, () => map.Level);
-        TimelineMoments moments = new(timeline) { Player = demoPlayer, Prediction = prediction };
+        DemoTimeline timeline = match.Timeline;
+        int recorder = match.Recorder;
+        MapAssets assets = match.Assets;
+        TimelineMoments moments = match.Moments(out DemoPlayer demoPlayer, out RecorderPrediction prediction);
         EntityModelSet models = new() { Geometry = assets.Geometry };
-        GameAppearance appearance = new(game.Classes, null);
+        GameAppearance appearance = new(match.Game.Classes, null);
 
         // The route under measurement, or the pre-review-7 one for the control; switched between runs of the same landings.
         bool predicted = true;
@@ -167,8 +152,11 @@ public sealed class RecorderSeekScanProbe : IProbe
         (List<double> frames, List<double> recorderMs, List<long> calls) = Seeks();
         List<int> scanned = [.. recorderProbeTicks];
 
-        static string Stats(List<double> values) => string.Create(CultureInfo.InvariantCulture,
-            $"first {values[0]:0.00} ms, then mean {values.Skip(1).Average():0.00} ms, max {values.Skip(1).Max():0.00} ms");
+        // Fewer than two samples (a short demo's fast-playback run) has no "then" to average: said, not thrown.
+        static string Stats(List<double> values) => values.Count < 2
+            ? string.Create(CultureInfo.InvariantCulture, $"{values.Count} samples, too few")
+            : string.Create(CultureInfo.InvariantCulture,
+                $"first {values[0]:0.00} ms, then mean {values.Skip(1).Average():0.00} ms, max {values.Skip(1).Max():0.00} ms");
 
         output.WriteLine(string.Create(CultureInfo.InvariantCulture,
             $"{Path.GetFileName(path)}: recorder entity {recorder}, {seeks} seeks, ticks {timeline.FirstTick}-{timeline.LastTick}"));
@@ -216,6 +204,15 @@ public sealed class RecorderSeekScanProbe : IProbe
         while (from < timeline.LastTick && !(demoPlayer.ViewsAt(from) && timeline.PlayerAt(from, recorder) is { IsAlive: true }))
         {
             from++;
+        }
+
+        // The control: no viewed, living recorder from the middle on, so the cap below would time early exits.
+        if (from >= timeline.LastTick)
+        {
+            output.WriteLine(string.Create(CultureInfo.InvariantCulture,
+                $"error: control failed: no tick from {middleTick} to {timeline.LastTick} has the recorder viewed and alive."));
+            Environment.ExitCode = 1;
+            return;
         }
 
         int predictedInCap = 0;

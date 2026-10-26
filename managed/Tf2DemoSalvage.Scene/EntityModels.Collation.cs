@@ -73,8 +73,23 @@ public sealed partial class EntityModelSet
     /// </summary>
     public const string UndrawnPass = "undrawn";
 
+    /// <summary>
+    /// The pass for the zoomed local player, whom no view draws, a monitor's included (B598): simulated and in the scene
+    /// for a decal's bones, never posed, and like <see cref="UndrawnPass"/> it fires no event.
+    /// </summary>
+    public const string HiddenPass = "hidden";
+
     /// <summary>Whether the undrawn pass builds instances — true only when a monitor will draw them this frame (B511).</summary>
     public bool PosesUndrawn { get; set; } = true;
+
+    /// <summary>Whether a pass is posed for no view: <see cref="HiddenPass"/>, or <see cref="UndrawnPass"/> with no monitor.</summary>
+    private bool PosesNothing(string pass) =>
+        string.Equals(pass, HiddenPass, StringComparison.Ordinal) ||
+        (!PosesUndrawn && string.Equals(pass, UndrawnPass, StringComparison.Ordinal));
+
+    /// <summary>Whether a pass fires animation events: not one whose props are invisible (`c_baseanimating.cpp:3569`).</summary>
+    private static bool FiresEvents(string pass) =>
+        !string.Equals(pass, UndrawnPass, StringComparison.Ordinal) && !string.Equals(pass, HiddenPass, StringComparison.Ordinal);
 
     /// <summary>The viewmodel's pass — the arms and the gun, posed after the world (`MomentScene.AddViewmodel`).</summary>
     public const string ViewmodelPass = "viewmodel";
