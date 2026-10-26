@@ -417,7 +417,8 @@ public sealed class DemoPlayer
     }
 
     /// <summary>Commands read so far, rewinds' re-reads included: what a rewind costs, for a test and the rewind probe.</summary>
-    public long CommandsRead { get; private set; }
+    /// <remarks>Internal: an instrument, not production surface; Core.Tests and the probe tool see internals.</remarks>
+    internal long CommandsRead { get; private set; }
 
     /// <summary>What <c>ReadPacket</c> does with one command.</summary>
     private void ReadPacket(int index)

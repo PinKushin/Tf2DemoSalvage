@@ -31,13 +31,8 @@ public sealed class DemoPlayerRewindProbe : IProbe
         ArgumentNullException.ThrowIfNull(output);
         ArgumentNullException.ThrowIfNull(arguments);
 
-        if (arguments.Count == 0 || DemoCorpus.Find(arguments[0], output) is not { } path)
-        {
-            output.WriteLine(Summary);
-            return;
-        }
-
-        if (!ProbeArguments.TryCount(arguments, 1, 40, 2, output, out int rewinds))
+        if (!ProbeArguments.TryDemo(arguments, Summary, output, out string path) ||
+            !ProbeArguments.TryCount(arguments, 1, 40, 2, output, out int rewinds))
         {
             return;
         }
@@ -67,7 +62,7 @@ public sealed class DemoPlayerRewindProbe : IProbe
             $"{Path.GetFileName(path)}: {rewinds} rewinds from {end} over {timeline.ViewCommands.Count} view commands, ticks {timeline.FirstTick}-{timeline.LastTick}"));
         output.WriteLine(string.Create(CultureInfo.InvariantCulture,
             $"rewind: first {milliseconds[0]:0.000} ms, then mean {milliseconds.Skip(1).Average():0.000} ms, max {milliseconds.Skip(1).Max():0.000} ms; " +
-            $"commands re-read mean {reads.Average():0.0}, max {reads.Max()}"));
+            $"commands re-read: first {reads[0]}, then mean {reads.Skip(1).Average():0.0}, max {reads.Skip(1).Max()}"));
         output.WriteLine(string.Create(CultureInfo.InvariantCulture,
             $"control: {mismatches} of {rewinds} landings answer differently from a fresh player"));
 

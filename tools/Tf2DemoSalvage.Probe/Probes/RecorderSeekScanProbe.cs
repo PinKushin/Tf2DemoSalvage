@@ -36,19 +36,10 @@ public sealed class RecorderSeekScanProbe : IProbe
         ArgumentNullException.ThrowIfNull(output);
         ArgumentNullException.ThrowIfNull(arguments);
 
-        if (arguments.Count == 0 || DemoCorpus.Find(arguments[0], output) is not { } path)
-        {
-            output.WriteLine(Summary);
-            return;
-        }
-
-        // At least two: the first landing is reported apart (JIT), and the rest need one value to average.
-        if (!ProbeArguments.TryCount(arguments, 1, 40, 2, output, out int seeks))
-        {
-            return;
-        }
-
-        if (PovMatch.Open(path, output) is not { } match)
+        // At least two seeks: the first landing is reported apart (JIT), and the rest need one value to average.
+        if (!ProbeArguments.TryDemo(arguments, Summary, output, out string path) ||
+            !ProbeArguments.TryCount(arguments, 1, 40, 2, output, out int seeks) ||
+            PovMatch.Open(path, output) is not { } match)
         {
             return;
         }
