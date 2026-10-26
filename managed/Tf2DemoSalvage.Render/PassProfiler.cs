@@ -71,7 +71,11 @@ public enum RenderPass
 }
 
 /// <summary>Draws and buffer maps issued by `Render`, counted at each call; read by <see cref="PassProfiler"/> at its marks.</summary>
-/// <remarks>ponytail: plain static increments, one writer (the thread that draws); a second drawing thread would need Interlocked.</remarks>
+/// <remarks>
+/// ponytail: plain static increments, one writer (the thread that draws); a second drawing thread would need Interlocked.
+/// **Counted whether or not `ProfilePasses` is on**, deliberately: one `long++` per draw or map, which is cheaper than
+/// the branch on a device flag that would skip it, and the profiler differences the counts so it needs no reset.
+/// </remarks>
 public static class SubmitCounters
 {
     /// <summary>Draw calls so far.</summary>
@@ -103,6 +107,7 @@ public sealed class PassLedger
     private long _gpuFrames;
     private long _skipped;
     private long _disjoint;
+    private long _abandoned;
 
     /// <summary>One pass's CPU side, from the frame being drawn.</summary>
     public void AddCpu(RenderPass pass, long ticks, long draws, long uploads)
@@ -153,6 +158,15 @@ public sealed class PassLedger
         }
     }
 
+    /// <summary>A frame begun and never ended — the draw threw — so dropped.</summary>
+    public void Abandoned()
+    {
+        lock (_gate)
+        {
+            _abandoned++;
+        }
+    }
+
     /// <summary>A frame whose timestamps the device says are unreliable, so dropped.</summary>
     public void Disjoint()
     {
@@ -180,7 +194,7 @@ public sealed class PassLedger
             long drawsAll = 0;
             long uploadsAll = 0;
 
-            text.Append(CultureInfo.InvariantCulture, $"render passes, mean per frame at {width}x{height}: {_cpuFrames} frames drawn, {_gpuFrames} read on the GPU, {_skipped} skipped, {_disjoint} disjoint");
+            text.Append(CultureInfo.InvariantCulture, $"render passes, mean per frame at {width}x{height}: {_cpuFrames} frames drawn, {_gpuFrames} read on the GPU, {_skipped} skipped, {_disjoint} disjoint, {_abandoned} abandoned");
 
             foreach (RenderPass pass in Enum.GetValues<RenderPass>())
             {
@@ -263,8 +277,25 @@ public sealed unsafe class PassProfiler : IDisposable
 
     /// <summary>The frame begins: reads the slot's previous frame if answered, then opens the slot again.</summary>
     /// <param name="context">The immediate context.</param>
+    /// <remarks>
+    /// **A frame left open is closed here, not read**: `DrawFrame` threw between its marks, so its queries were begun and
+    /// never ended. They are ended now, the slot stays unissued so its partial GPU side is never collected, and the frame
+    /// is counted as abandoned — not drawn.
+    /// </remarks>
     public void BeginFrame(ComPtr<ID3D11DeviceContext> context)
     {
+        if (_current is { } abandoned)
+        {
+            if (_pass >= 0)
+            {
+                context.End(abandoned.Statistics[_pass]);
+            }
+
+            context.End(abandoned.Disjoint);
+            _current = null;
+            Ledger.Abandoned();
+        }
+
         Slot slot = _slots[_frame++ % Ring];
 
         if (slot.Issued)
@@ -287,7 +318,8 @@ public sealed unsafe class PassProfiler : IDisposable
     /// <param name="ended">The pass the work since the previous mark belongs to.</param>
     public void Mark(ComPtr<ID3D11DeviceContext> context, RenderPass ended)
     {
-        if (_current is not { } slot)
+        // Full: a pass marked twice in one frame. Every slot of the order is taken, so the rest of the frame is unprofiled.
+        if (_current is not { } slot || slot.Count >= slot.Order.Length)
         {
             return;
         }
