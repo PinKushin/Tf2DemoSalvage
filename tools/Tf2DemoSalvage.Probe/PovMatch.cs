@@ -18,7 +18,8 @@ namespace Tf2DemoSalvage.Probe;
 /// <remarks>The prediction's `Hooks` and `GroundSurface` are left null, as in the 2026-10-26 seek-scan measurement.</remarks>
 public sealed record PovMatch(DemoTimeline Timeline, int Recorder, LoadedMap Map, MapAssets Assets, GameContent Game)
 {
-    /// <summary>Opens a demo, or prints why it cannot be measured and answers null.</summary>
+    /// <summary>Opens a demo, or prints why it cannot be measured, sets a non-zero exit code and answers null.</summary>
+    /// <remarks>"Not measured" must not exit like "measured": every null sets <see cref="System.Environment.ExitCode"/>.</remarks>
     public static PovMatch? Open(string path, TextWriter output)
     {
         System.ArgumentNullException.ThrowIfNull(output);
@@ -30,14 +31,12 @@ public sealed record PovMatch(DemoTimeline Timeline, int Recorder, LoadedMap Map
 
         if (timeline.RecorderEntityIndex is not { } recorder)
         {
-            output.WriteLine("control failed: the demo has no recorder (SourceTV?), so there is nothing to measure.");
-            return null;
+            return Refused(output, "error: control failed: the demo has no recorder (SourceTV?), so there is nothing to measure.");
         }
 
         if (mapName.Length == 0 || locator.Find(mapName) is not { } mapPath || locator.FindGameFolder() is not { } folder)
         {
-            output.WriteLine("The demo's map or the game could not be found.");
-            return null;
+            return Refused(output, "error: the demo's map or the game could not be found.");
         }
 
         GameContent game = GameContent.Open(folder, NullLoggerFactory.Instance);
@@ -45,11 +44,17 @@ public sealed record PovMatch(DemoTimeline Timeline, int Recorder, LoadedMap Map
 
         if (map.Assets is not { } assets)
         {
-            output.WriteLine("The map loaded with no assets.");
-            return null;
+            return Refused(output, "error: the map loaded with no assets.");
         }
 
         return new PovMatch(timeline, recorder, map, assets, game);
+    }
+
+    private static PovMatch? Refused(TextWriter output, string reason)
+    {
+        output.WriteLine(reason);
+        System.Environment.ExitCode = 1;
+        return null;
     }
 
     /// <summary>The moment source as `DemoSystems.Open` builds it.</summary>

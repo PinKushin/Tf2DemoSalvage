@@ -42,12 +42,18 @@ public sealed class DemoPlayer
     /// <summary>For each command, the latest <c>dem_packet</c> tick at or before it in stream order: non-decreasing, so searchable.</summary>
     private readonly int[] _latestPacketTick;
 
+    /// <summary>The first read command whose tick is below the one straight before it; <see cref="int.MaxValue"/> if none.</summary>
+    private readonly int _firstBackwardStep = int.MaxValue;
+
     private readonly float _interval;
     private readonly int _maxClients;
     private readonly float _interpAmount;
 
     /// <summary>The parse-ahead list (+0x5d0): indices into the stream, in stream order.</summary>
     private readonly List<int> _packets = [];
+
+    /// <summary>The parse-ahead list itself, for a test that a rewind lands in a fresh read's state.</summary>
+    internal IReadOnlyList<int> QueuedPackets => _packets;
 
     /// <summary>The last command read, or -1.</summary>
     private int _read = -1;
@@ -85,6 +91,16 @@ public sealed class DemoPlayer
             // Only a dem_packet waits for its tick; a signon is read when reached, and real ones carry the server's tick.
             latest = _commands[index].Type == DemoCommandType.Packet ? Math.Max(latest, _commands[index].Tick) : latest;
             _latestPacketTick[index] = latest;
+
+            // A backward step — see `Restart`: a read command straight after another with a higher tick (signons with no
+            // synctick between them and the packets, whose parse-ahead never ends), or a dem_packet below an earlier
+            // dem_packet across any marker (a backward run after a synctick).
+            if (_firstBackwardStep == int.MaxValue && index > 0 && _commands[index].IsPacket &&
+                ((_commands[index - 1].IsPacket && _commands[index].Tick < _commands[index - 1].Tick) ||
+                 (_commands[index].Type == DemoCommandType.Packet && _commands[index].Tick < _latestPacketTick[index - 1])))
+            {
+                _firstBackwardStep = index;
+            }
         }
 
         _interval = timeline.IntervalPerTick > 0f ? timeline.IntervalPerTick : PlaybackClock.DefaultIntervalPerTick;
@@ -362,6 +378,19 @@ public sealed class DemoPlayer
     /// first command of ANY type past the target, which a real POV demo's signons (ticked 146,124 on etf2l-12025, at
     /// index 0) made the very first, so every rewind re-read from the start (batch-31 review 2). The start is the last
     /// packet before that stop whose tick is older than the list keeps; with none, the start of the file.
+    ///
+    /// **Older than the LAST PACKET READ keeps, not the target** (batch-33 review): the list is pruned against the tick of
+    /// the packet being read, and across a gap that packet can be 40 ticks behind the target — a start counted from the
+    /// target then began AT that packet, and the list lost the predecessors a fresh read still holds (60-tick gap, every
+    /// target inside it). With ticks that never step back that start lands in a fresh read's list: every packet before it
+    /// is older than <c>last - 32</c>, at the list's front, and pruned by the last read.
+    ///
+    /// **From the start of the file when a read command steps back in tick before the stop** — a backward run, whose
+    /// parse-ahead clears the list, or signons with no synctick after them, whose parse-ahead queues the rest of the file.
+    /// What either leaves in the list depends on reads before any bounded start. Ponytail: none of the seven real POV
+    /// recordings measured (the five gcor POV specimens, z1800, etf2l-12025; `demo-player-rewind`, 2026-10-26) trips
+    /// it — each re-reads 12-43 commands a rewind — so only a demo whose ticks run backwards pays the full re-read (45 ms
+    /// at most on etf2l-12025, measured unbounded); a per-step bound is possible if one shows up.
     /// </remarks>
     private void Restart(int playbackTick)
     {
@@ -369,14 +398,21 @@ public sealed class DemoPlayer
         _current = -1;
         _lastInterpolatedTick = HostTickCount;
 
+        int stop = FirstPacketPast(playbackTick);
         int from = 0;
 
-        for (int index = FirstPacketPast(playbackTick) - 1; index >= 0; index--)
+        if (stop > 0 && stop <= _firstBackwardStep && _latestPacketTick[stop - 1] != int.MinValue)
         {
-            if (_commands[index].IsPacket && _commands[index].Tick < playbackTick - KeptTicks - ParseAheadTicks)
+            // With ticks that never step back, the running maximum is the last packet's own tick.
+            int oldest = _latestPacketTick[stop - 1] - KeptTicks - ParseAheadTicks;
+
+            for (int index = stop - 1; index >= 0; index--)
             {
-                from = index;
-                break;
+                if (_commands[index].IsPacket && _commands[index].Tick < oldest)
+                {
+                    from = index;
+                    break;
+                }
             }
         }
 
@@ -384,7 +420,8 @@ public sealed class DemoPlayer
     }
 
     /// <summary>Commands read so far, rewinds' re-reads included: what a rewind costs, for a test and the rewind probe.</summary>
-    public long CommandsRead { get; private set; }
+    /// <remarks>Internal: an instrument, not production surface; Core.Tests and the probe tool see internals.</remarks>
+    internal long CommandsRead { get; private set; }
 
     /// <summary>What <c>ReadPacket</c> does with one command.</summary>
     private void ReadPacket(int index)

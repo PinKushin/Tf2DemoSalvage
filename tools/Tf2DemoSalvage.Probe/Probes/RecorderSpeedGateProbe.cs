@@ -29,13 +29,11 @@ public sealed class RecorderSpeedGateProbe : IProbe
         ArgumentNullException.ThrowIfNull(output);
         ArgumentNullException.ThrowIfNull(arguments);
 
-        if (arguments.Count == 0 || DemoCorpus.Find(arguments[0], output) is not { } path)
-        {
-            output.WriteLine(Summary);
-            return;
-        }
-
-        if (!ProbeArguments.TryCount(arguments, 1, 40, 2, output, out int seeks) || PovMatch.Open(path, output) is not { } match)
+        // The margin is validated before the demo is opened, so a typo costs nothing.
+        if (!ProbeArguments.TryDemo(arguments, Summary, output, out string path) ||
+            !ProbeArguments.TryCount(arguments, 1, 40, 2, output, out int seeks) ||
+            !ProbeArguments.TryNonNegative(arguments, 2, output, out float? asked) ||
+            PovMatch.Open(path, output) is not { } match)
         {
             return;
         }
@@ -114,9 +112,7 @@ public sealed class RecorderSpeedGateProbe : IProbe
         }
 
         // The plan's rule: the fit's farthest flip, times four, at least 10 u/s; or the margin asked for.
-        float margin = arguments.Count > 2 && float.TryParse(arguments[2], NumberStyles.Float, CultureInfo.InvariantCulture, out float asked) && asked >= 0f
-            ? asked
-            : MathF.Max(10f, needed * 4f);
+        float margin = asked ?? MathF.Max(10f, needed * 4f);
 
         foreach (float swept in new[] { 0f, 10f, 50f, 100f, 300f, needed, margin }.Distinct())
         {

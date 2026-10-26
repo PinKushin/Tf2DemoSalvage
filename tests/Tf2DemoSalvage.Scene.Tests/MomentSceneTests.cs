@@ -342,6 +342,60 @@ public sealed class MomentSceneTests
         models.SkinningOf(4).ShouldNotBeNull("the control: a drawn player answers");
     }
 
+    /// <remarks>
+    /// **No pass keeps a previous frame's props** (batch-33 review). The undrawn and hidden passes are skipped when their
+    /// lists are empty, and a skipped pass used to keep its last scene: the recorder sat in `undrawn` from a first-person
+    /// frame, the zoom then moved him to `hidden`, and `SkinningOf` — which answers from the first pass holding him —
+    /// read the stale undrawn prop. The class changes between the frames so the two props differ by model.
+    /// </remarks>
+    [TestCase(false, true)]
+    [TestCase(true, false)]
+    public void Pose_TheRecorderZoomChangingInFirstPerson_AnswersSkinningFromTheCurrentProp(bool zoomedFirst, bool zoomedThen)
+    {
+        EntityModelSet models = new();
+        MomentScene scene = SkinnedScene(models);
+        MomentInfo info = Info() with { FirstPerson = true, Followed = 3, Recorder = 3, EyeCamera = Eye() };
+        ScenePlayer sniper = Soldier(entity: 4) with { PlayerClass = SniperClass };
+
+        // Entities 4 and 5 are drawn so both models are loaded; the recorder is a soldier, then a sniper.
+        scene.Build([Recorder(SoldierClass, zoomedFirst), sniper, Soldier(entity: 5)], [], info);
+        scene.Pose(info, monitor: true);
+        string soldierModel = models.SkinningOf(3).ShouldNotBeNull("the prime: he answers in the first frame").Model;
+
+        scene.Build([Recorder(SniperClass, zoomedThen), sniper, Soldier(entity: 5)], [], info);
+        scene.Pose(info, monitor: true);
+
+        string sniperModel = scene.Drawn.Single(prop => prop.EntityIndex == 4).ModelPath;
+        sniperModel.ShouldNotBe(soldierModel, "the control: the two frames' props differ");
+        models.SkinningOf(3).ShouldNotBeNull().Model.ShouldBe(sniperModel);
+    }
+
+    /// <remarks>
+    /// **A recorder who leaves while zoomed has left** — the hidden pass skipped once he is gone must not keep him, or
+    /// `SkinningOf` and every other scene query report him forever.
+    /// </remarks>
+    [Test]
+    public void Pose_TheRecorderLeavingWhileZoomed_IsNoLongerInTheScene()
+    {
+        EntityModelSet models = new();
+        MomentScene scene = SkinnedScene(models);
+        MomentInfo info = Info() with { FirstPerson = true, Followed = 3, Recorder = 3, EyeCamera = Eye() };
+
+        scene.Build([Recorder(SoldierClass, zoomed: true), Soldier(entity: 4)], [], info);
+        scene.Pose(info, monitor: true);
+        models.SkinningOf(3).ShouldNotBeNull("the prime: zoomed, he is in the hidden pass");
+
+        scene.Build([Soldier(entity: 4)], [], info);
+        scene.Pose(info, monitor: true);
+
+        models.SkinningOf(3).ShouldBeNull();
+        models.SkinningOf(4).ShouldNotBeNull("the control: a player still present answers");
+    }
+
+    /// <summary>The recorder, entity 3, of a class, zoomed (`TF_COND_ZOOMED`) or not.</summary>
+    private static ScenePlayer Recorder(int playerClass, bool zoomed) =>
+        Soldier(entity: 3) with { PlayerClass = playerClass, Conditions = zoomed ? new(1 << 1, 0, 0, 0, 0) : default };
+
     [Test]
     public void Build_InThirdPerson_DrawsEveryPlayer()
     {
@@ -1585,6 +1639,9 @@ public sealed class MomentSceneTests
 
     private const int SoldierClass = 3;
 
+    /// <summary>`TF_CLASS_SNIPER`.</summary>
+    private const int SniperClass = 2;
+
     /// <summary>Geometry for any path, so a prop actually packs to something.</summary>
     /// <remarks>
     /// Needed by the upload cases: with no geometry the set never grows, so "did not upload" and
@@ -1628,7 +1685,12 @@ public sealed class MomentSceneTests
         public bool RolesKnown { get; init; } = true;
 
         public string? ModelOf(int playerClass) =>
-            playerClass == SoldierClass ? "models/player/soldier.mdl" : null;
+            playerClass switch
+            {
+                SoldierClass => "models/player/soldier.mdl",
+                SniperClass => "models/player/sniper.mdl",
+                _ => null,
+            };
 
         public string? WeaponSuffix(string? weaponClass, int? playerClass, int? weaponItem) =>
             RolesKnown && weaponClass is not null ? "PRIMARY" : null;

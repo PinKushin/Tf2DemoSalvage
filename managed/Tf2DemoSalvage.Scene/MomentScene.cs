@@ -778,6 +778,9 @@ public sealed class MomentScene : IGameSystemPerFrame
 
         long sunBefore = Lighting.SunCalls;
 
+        // Every pass's scene is this frame's or empty: a pass skipped below must not answer with last frame's props.
+        _models.BeginScenes();
+
         _models.Instances(
             _drawn, _instances, Lighting.ModelLightingAt, Lighting.ModelSunAt, info.Seconds, frustum,
             views);

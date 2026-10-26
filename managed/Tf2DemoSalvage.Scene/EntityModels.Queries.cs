@@ -392,6 +392,22 @@ public sealed partial class EntityModelSet
     /// <summary>Each pass's entities as its last run saw them, by pass name — see <see cref="Instances"/>.</summary>
     private readonly Dictionary<string, Dictionary<int, SceneProp>> _scenes = new(StringComparer.Ordinal);
 
+    /// <summary>Drops every pass's scene, so a frame starts with none and a pass it skips holds nothing.</summary>
+    /// <remarks>
+    /// **A skipped pass must not keep the last frame's props.** The undrawn and hidden passes are skipped on an empty
+    /// list, the viewmodel's when first person is off; each kept its previous scene, and <see cref="InScene"/> answers
+    /// from the first pass holding an entity — so a zoomed recorder answered with his stale undrawn prop, and one who
+    /// left while zoomed stayed in the scene for good. Called once a frame before the first pass; the dictionaries are
+    /// kept, so this allocates nothing.
+    /// </remarks>
+    internal void BeginScenes()
+    {
+        foreach (Dictionary<int, SceneProp> scene in _scenes.Values)
+        {
+            scene.Clear();
+        }
+    }
+
     /// <summary>The entity as the latest pass that holds it saw it, or null when no pass does — it has left the scene.</summary>
     private SceneProp? InScene(int entity)
     {

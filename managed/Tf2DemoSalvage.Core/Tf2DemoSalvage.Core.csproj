@@ -45,6 +45,10 @@
     <!-- The `timeline-resume` probe runs `DemoTimeline.BuildThroughSnapshot`, the snapshot-and-resume harness, on real
          demos: the synthetic test proves the mechanism, and only a real match has every feed and track at once (D217). -->
     <InternalsVisibleTo Include="Tf2DemoSalvage.Probe" />
+
+    <!-- `DemoPlayer.CommandsRead`, an instrument rather than an API: `CorpusDemoPlayerRewindTests` counts a real demo's
+         rewind re-reads with it (batch-33 review). -->
+    <InternalsVisibleTo Include="Tf2DemoSalvage.Corpus.Tests" />
   </ItemGroup>
 
   <ItemGroup>
