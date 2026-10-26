@@ -40259,7 +40259,20 @@ probes each is microseconds (arithmetic). Wiring held by `EntityModelsTests.Inst
 `ModelReports.cs:78-95`, `:128-135`, `:175-182`). This violates the B191 rule: the guard covers the WORK, not the log line.
 **Fix shape:** one `IsEnabled` read per Instances call. **Estimate (ESTIMATE, code-read): ~0.15-0.3 ms.**
 
-## B585 — the instance build allocates per prop per frame — NULL RESULT 2026-10-24, CODE REVERTED (`8b839017`; the cache measured slower, so only the record stays)
+## B585 — the instance build allocates per prop per frame — FIXED 2026-10-25 the engine's way (`perf/b585-matrix-pool`); the 2026-10-24 cache stays reverted
+
+**Engine** (read): `C_BaseAnimating::InternalDrawModel` builds the model-to-world matrix every draw into a stack
+`ClientModelRenderInfo_t` (`c_baseanimating.cpp:3464`, `AngleMatrix` `:3491`); `CClientRenderablesList::CEntry` holds no
+matrix (`clientleafsystem.h:58-67`). No heap, no compare. **Ours now:** `InstanceMatrices`, one pool per instance list,
+slots grown by doubling and overwritten on each rebuild (`4c7f98a9`). A list's matrices are rewritten only when that list
+is, after `FinishDrawBeforePose`, the wait that already makes reusing the lists safe. Held by `InstanceMatricesTests`
+(bit-identical to `ToMatrix`; warm pass 1 B/prop over 246 props; another list's pass leaves this one untouched; distinct
+within a pass), each sabotaged red. Mode-2 `TF2VIEW_QUEUE_VERIFY=1` gummo run: `0 changed` (no positive control).
+**Measured** (`measurements/2026-10-25-b585-matrix-pool.md`): own timer `place … matrix` 0.0136-0.0165 → 0.0089-0.0120 ms;
+frame, MB/frame, gc pause and gen0 inside the same-build spread on both subjects — the ~22 KB a frame was never the GC's
+driver.
+
+**The first attempt, kept as the record:**
 
 **The premise was half wrong (read from code):** `ModelInstance` is a `readonly record struct` (`EntityModels.cs:112`) and
 allocates nothing; only `ToMatrix()`'s `float[16]` does, and only for props that survive the cull (~246 collated on f12,
