@@ -6,10 +6,10 @@
 
 Released 2026-10-25.
 
-- **The kill feed no longer stalls the first time it draws a kill.** TF2 loads the HUD's texture sheets when the HUD starts, and the viewer now does the same.
-  Before, the main thread read each sheet from disk at the first kill drawn with it.
-  Cold disk, one run: 361.1 ms and 223.9 ms of file reading inside two stalls (`docs/measurements/2026-10-25-b595-sync-io-in-hud-and-pose.md`).
+- **The HUD's texture sheets are now loaded when the HUD starts, as in TF2,** not at the first kill drawn with each one.
+  Before, the main thread read each sheet from disk in the middle of play. In one cold-disk run that read cost 361.1 ms and 223.9 ms inside two stalls (`docs/measurements/2026-10-25-b595-sync-io-in-hud-and-pose.md`).
   Warm disk, `cp_process_f12`: main-thread file reads in play went from 45 to 33 over 20 s, none of them a HUD sheet (`docs/measurements/2026-10-25-b595-sync-io-in-hud-and-pose.md`).
+  **Not shown yet:** a cold-disk run after the change. The reads moved out of play; a stall disappearing was not observed, so treat the cold-disk benefit as expected, not measured.
 - **The first-person view builds its draw list faster.** A set of props was compared member by member; it now compares by reference. What is drawn does not change.
   `cp_process_f12`, first person, `drawlist` per frame: 0.56 and 0.46 ms before, 0.22 and 0.21 ms after (`docs/measurements/2026-10-24-drawlist-parts.md`).
   The filter part: 0.30-0.35 ms before, 0.06 ms after (`docs/measurements/2026-10-24-drawlist-parts.md`). This was in beta.51 and was left out of its notes.
@@ -23,6 +23,8 @@ Released 2026-10-25.
   after a normal close or a crash the viewer can report. Ending a frozen viewer with Task Manager still leaves its log current up to the freeze
   (see *Known gaps*).
   Main-thread time spent writing the log, per 60 s run on `cp_process_f12`: 5.6-691.1 ms before, 0.0 ms after (`docs/measurements/2026-10-24-d230-async-file-log.md`).
+  **This removes the log's share of the hitches, not all of them.** Frames over 100 ms across five 60 s runs: 7 before, 4 after, all four in one run, as `hud` and `pose` stalls that show no log time (`docs/measurements/2026-10-24-d230-async-file-log.md`).
+  Their cause is not yet explained; one candidate, `hud` texture reads, is addressed in beta.52 but not shown to be the cause.
 - **Two repeated log lines are quieter.** The viewmodel skin line is written once per skin change, and the muzzle-flash
   line is written only at Debug level. Each used to be flushed to disk from the frame (`docs/measurements/2026-10-24-b595-first-use-builds.md`,
   `docs/measurements/2026-10-24-muzzle-flash-log-line.md`). What is drawn does not change.
@@ -847,6 +849,9 @@ Each claim below is a measurement, not an expectation.
 ## Known gaps
 
 Things a user is likely to notice. Each has an entry in `docs/RISKS.md` in the repository.
+
+- **Occasional stalls of 50-190 ms remain** in play on a busy scene, with an unexplained cause (B595). On `cp_process_f12`, first person, five 60 s runs after the log writer change: 4 frames over 100 ms, all in one run (`docs/measurements/2026-10-24-d230-async-file-log.md`).
+  Known so far: not JIT, not first-use builds, no longer the log; most are pose or particle time. The 8-run precache comparison was run on a loaded machine, so it does not settle them (`docs/measurements/2026-10-25-b595-part6-main-thread-reads-in-play.md`).
 
 - **Ending the viewer with Task Manager can lose the last moment of its log**, usually about a millisecond of lines and
   at worst about 55 ms (`docs/measurements/2026-10-24-d230-async-file-log.md`). A normal close, or a crash the viewer can report, loses nothing; a crash that takes the process down without warning
