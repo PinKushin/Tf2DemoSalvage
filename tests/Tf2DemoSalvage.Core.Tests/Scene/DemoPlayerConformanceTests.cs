@@ -426,11 +426,78 @@ public sealed class DemoPlayerConformanceTests
         compared.ShouldBe(targets.Length * 201);
     }
 
-    /// <summary>A signon at tick 146,124, then packets every tick 100-1100, every 37th tick a cut.</summary>
+    /// <summary>
+    /// **A bounded rewind lands in a fresh read's state, queue included** (batch-33 review): `SkipToTick` reloads, so the
+    /// parse-ahead list after a rewind must be the one a read from the start builds — not just the views it happens to
+    /// produce. Leading signons ticked past every packet, so the start is searched back from the stop. Three shapes: a gap
+    /// wider than the 32 + 8 the skip backs off, where a start counted back from the TARGET rather than from the last
+    /// packet read leaves that packet's predecessors out of the list; a run whose ticks go backwards, whose parse-ahead
+    /// clears the list; and signons with no `dem_synctick` before the packets, whose parse-ahead runs to the end of the
+    /// file because no packet is ever 8 ticks past 146,124.
+    /// </summary>
+    [TestCase("gapped")]
+    [TestCase("backwards")]
+    [TestCase("no synctick")]
+    public void InterpolateViewpoint_RewoundToManyTargets_QueuesWhatAFreshReadQueues(string shape)
+    {
+        byte[] demo = shape switch
+        {
+            "gapped" => SignonFirstGappedLine(synctick: true),
+            "backwards" => SignonFirstBackwardsLine(),
+            _ => SignonFirstGappedLine(synctick: false),
+        };
+        DemoPlayer played = Player(demo);
+        int compared = 0;
+
+        for (int target = 100; target <= 600; target += 3)
+        {
+            played.InterpolateViewpoint(650d);
+            DemoPlayer fresh = Player(demo);
+
+            for (double tick = target; tick <= target + 50; tick += 0.5d)
+            {
+                RecordedView? expected = fresh.InterpolateViewpoint(tick);
+
+                played.InterpolateViewpoint(tick).ShouldBe(expected, $"target {target}, tick {tick}");
+                played.QueuedPackets.ShouldBe(fresh.QueuedPackets, $"target {target}, tick {tick}");
+                compared++;
+            }
+        }
+
+        compared.ShouldBe(167 * 101);
+    }
+
+    /// <summary>Two signons at tick 146,124, a synctick if asked, then packets every tick 100-300 and 360-650: a 60-tick gap.</summary>
+    private static byte[] SignonFirstGappedLine(bool synctick) => SyntheticViews.Demo(
+    [
+        SyntheticViews.Signon(146124),
+        SyntheticViews.Signon(146124),
+        .. synctick ? [SyntheticViews.SyncTick(100)] : Array.Empty<DemoCommand>(),
+        .. SyntheticViews.Run(100, 300, tick => SyntheticViews.Packet(tick, (tick * 4f, 0f, 0f), (0f, 10f, 0f))),
+        .. SyntheticViews.Run(360, 650, tick => SyntheticViews.Packet(tick, (tick * 4f, 0f, 0f), (0f, 10f, 0f))),
+    ]);
+
+    /// <summary>Two signons at tick 146,124, a synctick, the line 100-400, a backward run 300-340 off the line, then 401-650.</summary>
+    private static byte[] SignonFirstBackwardsLine() => SyntheticViews.Demo(
+    [
+        SyntheticViews.Signon(146124),
+        SyntheticViews.Signon(146124),
+        SyntheticViews.SyncTick(100),
+        .. SyntheticViews.Run(100, 400, tick => SyntheticViews.Packet(tick, (tick * 4f, 0f, 0f), (0f, 10f, 0f))),
+        .. SyntheticViews.Run(300, 340, tick => SyntheticViews.Packet(tick, ((tick * 4f) + 7f, 0f, 0f), (0f, 10f, 0f))),
+        .. SyntheticViews.Run(401, 650, tick => SyntheticViews.Packet(tick, (tick * 4f, 0f, 0f), (0f, 10f, 0f))),
+    ]);
+
+    /// <summary>
+    /// A signon at tick 146,124, a synctick as a real recording has after its signons, then packets every tick 100-1100,
+    /// every 37th tick a cut. Without the synctick the signon's parse-ahead queues the whole file and no bounded rewind
+    /// can land where a fresh read does (the "no synctick" case above).
+    /// </summary>
     private static byte[] SignonFirstLongLine(byte maxPlayers = 24) => SyntheticViews.Demo(
         maxPlayers,
     [
         SyntheticViews.Signon(146124),
+        SyntheticViews.SyncTick(100),
         .. SyntheticViews.Run(100, 1100, tick => SyntheticViews.Packet(
             tick, (tick * 4f, 0f, 0f), (0f, 10f, 0f), flags: tick % 37 == 0 ? SyntheticViews.NoInterpolation : 0)),
     ]);
