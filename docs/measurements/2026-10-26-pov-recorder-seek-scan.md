@@ -182,6 +182,22 @@ control: 0 of 40 landings answer differently from a fresh player
 
 etf2l-12025 has no backward step, so it keeps the bound.
 
+**Superseded the same day by D234 (batch-33 review 2): the bound applies only to a "simple" file**, decided once at load
+(`DemoPlayer.IsSimple`); anything else re-reads from the start. The probe now compares the whole rewound state (view,
+parse-ahead list, `m_bInterpolateView`) and names the file's shape. Sweep of every POV and SourceTV demo in gcor (the main
+checkout's 10) and lcor (`F:\Tf2DemoSalvage-lcor`, 773), `demo-player-rewind <demo> 40`, Release, `-Shared`, four probe
+processes at once (so the milliseconds carry CPU contention; the re-read counts do not):
+
+- **First cut** (opening signons required to be ticked past every packet), stopped after 25 demos: every gcor era
+  specimen and 4 of 15 lcor demos came out not simple — their opening signons sit inside the packets' span (158 on
+  `tf2-2007-build3258-pov-cp_granary`, 6,041 on `tf2-2013-build1729296-stv-cp_foundry`). The proof does not need that
+  condition; it was dropped (commit `0f32129e`).
+- **Interim, 75 of 783 demos** (all 10 gcor, 65 lcor) on the corrected rule: **75 simple, 0 not simple**; rewind mean
+  0.018 ms, largest single rewind 0.506 ms; 31.8 commands re-read a rewind on average; **0 of 3,000 landings** differ from a
+  fresh player; no probe exited non-zero. *The sweep was still running when this was written* (one log per demo under the
+  session scratchpad, `rewind-summary.ps1` totals them); the non-simple path's cost on a real file is therefore
+  unmeasured here — its ceiling is the unbounded figure above, 44.8 ms on etf2l-12025.
+
 ### The hybrid
 
 `recorder-speed-gate <lcor>/etf2l-12025-pov-2020-07-21.dem 300`, verbatim (the probe's hybrid is emulated in the probe, not
