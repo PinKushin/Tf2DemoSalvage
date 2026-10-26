@@ -231,13 +231,21 @@ public static class DetailSprites
         // **Gathered before anything is emitted, because the emission order IS the draw order.**
         // A blended quad is combined with what is already in the frame buffer, so the sort has to
         // happen between deciding what is visible and writing any vertex.
-        List<(int Index, float Squared, byte Alpha, bool Fast)> visible = [];
+        //
+        // **Into this thread's scratch, reused** (B599): two fresh lists and a capturing sort comparison a frame were
+        // ~0.1 MB a frame on f12 (measurements/2026-10-25-allocation-attribution.md). Thread-static because tests call
+        // this in parallel; the viewer calls it from the game thread only. The engine's sort buffers were not read.
+        Scratch scratch = t_scratch ??= new();
+        List<(int Index, float Squared, byte Alpha, bool Fast)> visible = scratch.Visible;
+        visible.Clear();
+        scratch.Objects = objects;
 
         int faded = 0;
 
         // The fast lane's group of four (`BuildOutSortedSprites`, `detailobjectsystem.cpp:2157-2165`), restarted at
         // every leaf change as `UnserializeModels` pads it (`:1794`).
-        List<(int Index, float Squared, byte Alpha, bool Culled)> group = [];
+        List<(int Index, float Squared, byte Alpha, bool Culled)> group = scratch.Group;
+        group.Clear();
         int runs = reach?.Runs ?? 1;
 
         for (int run = 0; run < runs; run++)
@@ -317,19 +325,8 @@ public static class DetailSprites
         faded += EmitGroup(group, visible);
 
         // Leaf by leaf; in each, the fast lane before the ordinary (`:2637`); in each lane, farthest first.
-        visible.Sort((first, second) =>
-        {
-            int byLeaf = objects[first.Index].Leaf.CompareTo(objects[second.Index].Leaf);
-
-            if (byLeaf != 0)
-            {
-                return byLeaf;
-            }
-
-            int byLane = second.Fast.CompareTo(first.Fast);
-
-            return byLane != 0 ? byLane : second.Squared.CompareTo(first.Squared);
-        });
+        visible.Sort(scratch.Order);
+        scratch.Objects = [];
 
         leaves?.Clear();
 
@@ -358,6 +355,39 @@ public static class DetailSprites
         }
 
         return new Frame(visible.Count, faded, aligned, fast);
+    }
+
+    [ThreadStatic]
+    private static Scratch? t_scratch;
+
+    /// <summary><see cref="Build"/>'s lists and its sort, kept per thread so a frame allocates neither.</summary>
+    private sealed class Scratch
+    {
+        public Scratch() => Order = Compare;
+
+        public List<(int Index, float Squared, byte Alpha, bool Fast)> Visible { get; } = [];
+
+        public List<(int Index, float Squared, byte Alpha, bool Culled)> Group { get; } = [];
+
+        /// <summary>The props the sort reads leaves from; set for one <see cref="Build"/> only.</summary>
+        public IReadOnlyList<BspDetailProp> Objects { get; set; } = [];
+
+        /// <summary>Leaf by leaf; in each, the fast lane before the ordinary (`:2637`); in each lane, farthest first.</summary>
+        public Comparison<(int Index, float Squared, byte Alpha, bool Fast)> Order { get; }
+
+        private int Compare((int Index, float Squared, byte Alpha, bool Fast) first, (int Index, float Squared, byte Alpha, bool Fast) second)
+        {
+            int byLeaf = Objects[first.Index].Leaf.CompareTo(Objects[second.Index].Leaf);
+
+            if (byLeaf != 0)
+            {
+                return byLeaf;
+            }
+
+            int byLane = second.Fast.CompareTo(first.Fast);
+
+            return byLane != 0 ? byLane : second.Squared.CompareTo(first.Squared);
+        }
     }
 
     /// <summary>Moves a finished group of four into the visible list unless every member was culled.</summary>

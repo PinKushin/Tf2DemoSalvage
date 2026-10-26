@@ -22,18 +22,25 @@ public sealed class TranslucencyCache
     private readonly Dictionary<string, bool> _byModel = new(StringComparer.Ordinal);
 
     /// <summary>The model's translucency flag, asked once.</summary>
+    /// <typeparam name="TState">What <paramref name="ask"/> needs, handed to it rather than captured.</typeparam>
     /// <param name="model">The model path.</param>
-    /// <param name="ask">Asks its materials.</param>
+    /// <param name="state">Handed to <paramref name="ask"/> on a miss.</param>
+    /// <param name="ask">Asks its materials; pass a <c>static</c> lambda.</param>
     /// <returns>Whether it has a translucent material.</returns>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
-    public bool For(string model, Func<bool> ask)
+    /// <remarks>
+    /// **The state is a parameter because a capturing lambda allocates on every call, hit or miss** (B599,
+    /// `docs/memory/a-capturing-cache-factory-allocates-on-a-hit.md`): the closure and its delegate were ~90 KB a frame
+    /// on the render thread on f12, one pair per collated instance (measurements/2026-10-25-allocation-attribution.md).
+    /// </remarks>
+    public bool For<TState>(string model, TState state, Func<TState, bool> ask)
     {
         ArgumentNullException.ThrowIfNull(model);
         ArgumentNullException.ThrowIfNull(ask);
 
         if (!_byModel.TryGetValue(model, out bool translucent))
         {
-            translucent = ask();
+            translucent = ask(state);
             _byModel[model] = translucent;
         }
 
