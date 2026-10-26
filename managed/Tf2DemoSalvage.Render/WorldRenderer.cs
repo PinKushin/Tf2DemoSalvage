@@ -2866,7 +2866,8 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
     /// **One dynamic buffer, discarded per draw**: the driver renames it, so a draw already queued keeps the
     /// contents it was given. It grows to the largest face drawn and never shrinks.
     /// </remarks>
-    private void BindFlex(ComPtr<ID3D11DeviceContext> context, float[]? flex)
+    /// <returns>The bytes uploaded: zero for the null stream or a face already on the device.</returns>
+    private long BindFlex(ComPtr<ID3D11DeviceContext> context, float[]? flex)
     {
         uint offset = 0;
 
@@ -2878,7 +2879,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             // Every model draw starts here (BindPipeline), so the skip below holds within one draw only. A face array is
             // reused across frames and rewritten in place (finding 80), so the same array can hold a new face next draw.
             _flexUploaded = null;
-            return;
+            return 0;
         }
 
         // A refract copy rebinds the face mid-model; the same face goes back on without a second upload.
@@ -2886,7 +2887,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
         {
             uint again = sizeof(float) * FlexFloats;
             context.IASetVertexBuffers(FlexSlot, 1, ref _flexStream, in again, in offset);
-            return;
+            return 0;
         }
 
         _flexUploaded = flex;
@@ -2920,6 +2921,8 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
 
         uint stride = sizeof(float) * FlexFloats;
         context.IASetVertexBuffers(FlexSlot, 1, ref _flexStream, in stride, in offset);
+
+        return (long)flex.Length * sizeof(float);
     }
 
     /// <summary>The device, kept to create a baked prop's colour stream the first time it is drawn.</summary>
@@ -4623,6 +4626,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             throw new ArgumentException("A model matrix is sixteen floats.", nameof(matrix));
         }
 
+        SubmitSpans.Restart();
         EnsureModelBuffer(context);
 
         // **Written straight into the mapped buffer, because the engine does not build a managed
@@ -4703,6 +4707,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
         // it was noticed. The camera buffer made this same mistake once and cost a session.
         context.VSSetConstantBuffers(2, 1, ref _model);
         context.PSSetConstantBuffers(2, 1, ref _model);
+        SubmitSpans.Lap(SubmitSpan.ModelConstants, sizeof(float) * ModelConstants);
     }
 
     /// <summary>Where the lamp arrays start in the model constants.</summary>
@@ -4958,6 +4963,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
     {
         ArgumentNullException.ThrowIfNull(matrices);
 
+        SubmitSpans.Restart();
         EnsureBoneBuffer(context);
 
         if (_bones.Handle is null)
@@ -4993,6 +4999,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
 
         context.Unmap(_bones, 0);
         context.VSSetConstantBuffers(3, 1, ref _bones);
+        SubmitSpans.Lap(SubmitSpan.Bones, sizeof(float) * BoneConstants);
     }
 
     private void EnsureBoneBuffer(ComPtr<ID3D11DeviceContext> context)
@@ -5807,6 +5814,8 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
         (float Red, float Green, float Blue)? urine = null,
         float alpha = 1f)
     {
+        SubmitSpans.Restart();
+
         // **The category view's underlay, chosen per material because that is what decides it.**
         // A material that resolved to nothing draws Valve's magenta-and-black chequer; everything
         // else draws Valve's measurement grid. Bound to one slot either way, so the shader has no
@@ -5892,6 +5901,8 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             context.OMSetDepthStencilState(depth, 0);
         }
 
+        SubmitSpans.Lap(SubmitSpan.MaterialBinds);
+
         if (_material.Handle is null)
         {
             return;
@@ -5952,6 +5963,8 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
                 contents[ModulationRed + channel] = ModelMaterialShading.ModulationToLinear(contents[ModulationRed + channel]);
             }
         }
+
+        SubmitSpans.Lap(SubmitSpan.Proxies);
 
         // **Every array feeding this buffer must be exactly the shader struct's length, and this is
         // the third time that has mattered.** The file already records a buffer created 160 bytes
@@ -6060,6 +6073,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
         // method said this buffer was pixel-only and named the session that cost — so it is bound
         // to both rather than left to be discovered again.
         context.VSSetConstantBuffers(1, 1, ref _material);
+        SubmitSpans.Lap(SubmitSpan.MaterialMap, sizeof(float) * contents.Length);
     }
 
     /// <summary>Draws the additive materials over everything already painted.</summary>
@@ -7148,6 +7162,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
         CloakBind cloak = default,
         float[]? flex = null)
     {
+        SubmitSpans.Restart();
         ArgumentNullException.ThrowIfNull(matrix);
         ArgumentNullException.ThrowIfNull(batches);
 
@@ -7191,6 +7206,9 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
         // per iteration grows the stack frame without bound (CA2014).
         float* blendFactor = stackalloc float[4] { 1f, 1f, 1f, 1f };
 
+        SubmitSpans.Lap(SubmitSpan.InstanceSetup);
+        SubmitSpans.Lap(SubmitSpan.TimerOverhead);
+
         // **Its own state, rather than whatever the world left behind.** See BindPipeline: this
         // path used to inherit the bindings from Draw, which works in an ordinary frame and does
         // not when the map is absent or when a test poses a model on its own.
@@ -7203,9 +7221,10 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
         // **A baked static prop's colour mesh beside the shared vertices** (B426, `engine.dll` `0x1800f1bd0`),
         // unbound again at the end so no later draw reads it.
         BindColours(context, bakedColours);
+        SubmitSpans.Lap(SubmitSpan.PipelineBinds);
 
         // **The face's deltas beside the model's vertices** (B513), added before skinning by the shader.
-        BindFlex(context, flex);
+        SubmitSpans.Lap(SubmitSpan.Flex, BindFlex(context, flex));
 
         SetModel(context, matrix, light, sun, blend, bones, locals, staticLight: bakedColours is not null);
 
@@ -7273,6 +7292,8 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
         int drawn = 0;
         int filteredByPass = 0;
         int filteredByBody = 0;
+
+        SubmitSpans.Lap(SubmitSpan.Cubemap);
 
         foreach (WorldBatch batch in batches)
         {
@@ -7590,6 +7611,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
 
             // A model's own batches carry their category too — `Prop`, or `Missing` where the
             // material did not resolve. A brush entity adds its class colour on top (B219).
+            SubmitSpans.Lap(SubmitSpan.BatchState);
             SetMaterial(context, material, batch.Category, tint, paint, burn, urine);
 
             if (refracting)
@@ -7611,6 +7633,8 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             {
                 SubmitCounters.Draw(); context.Draw((uint)batch.VertexCount, (uint)batch.FirstVertex);
             }
+
+            SubmitSpans.Lap(SubmitSpan.DrawCall);
 
             if (cloakPass is not null && frameCopied && CloakPass.DrawsCloakPass(cloaked.Factor))
             {
@@ -7745,6 +7769,8 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
         {
             BindFlex(context, null);
         }
+
+        SubmitSpans.Lap(SubmitSpan.Bookkeeping);
     }
 
     /// <summary>Which models have already reported drawing nothing, per pass.</summary>
