@@ -65,7 +65,13 @@ public sealed class DemoPlayer
     internal bool InterpolatesView => _interpolateView;
 
     /// <summary>Whether a rewind may start near its target rather than at the file's start — see <see cref="Simple"/>.</summary>
-    internal bool IsSimple { get; }
+    internal bool IsSimple => NotSimpleBecause is null;
+
+    /// <summary>Why the file is not <see cref="IsSimple"/>, naming the first command that breaks the shape; null when it is.</summary>
+    internal string? NotSimpleBecause { get; }
+
+    /// <summary>The first command of the trailing run of packets <see cref="Simple"/> found (the body).</summary>
+    private readonly int _bodyStart;
 
     /// <summary><c>m_bResetInterpolation</c> (+0x63d).</summary>
     private bool _resetInterpolation;
@@ -96,7 +102,7 @@ public sealed class DemoPlayer
             _latestPacketTick[index] = latest;
         }
 
-        IsSimple = Simple(_commands);
+        NotSimpleBecause = Simple(_commands, out _bodyStart);
         _interval = timeline.IntervalPerTick > 0f ? timeline.IntervalPerTick : PlaybackClock.DefaultIntervalPerTick;
         _maxClients = timeline.MaxClients;
         _interpAmount = (float)timeline.ClientInterpAmount;
@@ -110,17 +116,18 @@ public sealed class DemoPlayer
     ///
     /// - **the body is every command after the opening, all <c>dem_packet</c>, ticks never stepping back**, with only
     ///   <c>dem_stop</c> after it — no mid-file signon, synctick or stop, whose parse-ahead differs;
-    /// - **the opening ends in a synctick or stop**, so no opening parse-ahead reaches into the body;
-    /// - **every read command of the opening after the first is ticked past the whole body**, so whatever the opening left
-    ///   in the list is cleared by the body's first append (a lower tick after a higher one); the first command is never in
-    ///   the list, since a parse-ahead queues only what follows it.
+    /// - **the opening ends in a synctick or stop**, so no opening parse-ahead reaches into the body.
     ///
-    /// Then the list after reading body packet <c>L</c> holds only body packets, and the ones older than <c>L - 32</c> are
-    /// pruned — so a start at a body packet older than <c>L - 40</c> builds the same list (<see cref="Restart"/>). A real
-    /// recording opens with signons ticked at the server's tick and a synctick, so it is simple unless its packets step back.
-    /// Anything else rewinds from the file's start, which is the engine's own reload and correct by construction.
+    /// **What the opening leaves in the list** is then only opening commands, and the list's ticks never step back (a
+    /// lower append clears it). The body's first append — the second body packet, <c>B1</c> — either clears them (one
+    /// ticked past <c>B1</c>, as a modern match's 146,124 signons are) or finds them all at or below <c>B1</c>'s tick, at
+    /// the list's front and already read. A bounded start <c>F</c> at or past <c>B1</c> has <c>B1 &lt;= F &lt; L - 40</c>
+    /// for the last packet read <c>L</c>, so the prune at <c>L</c> removes every one of them, and the list after <c>L</c>
+    /// holds only body packets newer than <c>L - 32</c>, which a start at <c>F</c> builds too (<see cref="Restart"/>). The
+    /// era specimens open with signons ticked inside the packets' span (158 on the 2007 one, 6,041 on the 2013 one), which
+    /// is the second case. Anything else rewinds from the file's start, the engine's own reload, correct by construction.
     /// </remarks>
-    private static bool Simple(IReadOnlyList<DemoViewCommand> commands)
+    private static string? Simple(IReadOnlyList<DemoViewCommand> commands, out int body)
     {
         int end = commands.Count;
 
@@ -129,7 +136,7 @@ public sealed class DemoPlayer
             end--;
         }
 
-        int body = end;
+        body = end;
 
         while (body > 0 && commands[body - 1].Type == DemoCommandType.Packet)
         {
@@ -137,31 +144,30 @@ public sealed class DemoPlayer
         }
 
         // Two packets at least, or there is nothing to bound; and an opening, if any, closed by a marker.
-        if (end - body < 2 || (body > 0 && commands[body - 1].Type is not (DemoCommandType.SyncTick or DemoCommandType.Stop)))
+        if (end - body < 2)
         {
-            return false;
+            return Because($"the trailing run of packets is {end - body} long", body, commands);
+        }
+
+        if (body > 0 && commands[body - 1].Type is not (DemoCommandType.SyncTick or DemoCommandType.Stop))
+        {
+            return Because($"the trailing run of packets follows a {commands[body - 1].Type}", body - 1, commands);
         }
 
         for (int index = body + 1; index < end; index++)
         {
             if (commands[index].Tick < commands[index - 1].Tick)
             {
-                return false;
+                return Because("a packet steps back in tick", index, commands);
             }
         }
 
-        int highest = commands[end - 1].Tick;
-
-        for (int index = 1; index < body; index++)
-        {
-            if (commands[index].IsPacket && commands[index].Tick <= highest)
-            {
-                return false;
-            }
-        }
-
-        return true;
+        return null;
     }
+
+    private static string Because(string reason, int index, IReadOnlyList<DemoViewCommand> commands) =>
+        string.Create(System.Globalization.CultureInfo.InvariantCulture,
+            $"{reason}: command {index} of {commands.Count}{(index < commands.Count ? $", tick {commands[index].Tick}" : string.Empty)}");
 
     /// <summary>The watcher's <c>demo_*</c> ConVars, asked on every interpolation.</summary>
     /// <remarks>
@@ -457,12 +463,21 @@ public sealed class DemoPlayer
         int stop = FirstPacketPast(playbackTick);
         int from = 0;
 
-        if (IsSimple && stop > 0 && _latestPacketTick[stop - 1] != int.MinValue)
-        {
-            // With ticks that never step back, the running maximum is the last packet's own tick.
-            int oldest = _latestPacketTick[stop - 1] - KeptTicks - ParseAheadTicks;
+        // The last packet a read to the stop reads — its own tick, not the running maximum, which an opening packet
+        // ticked above the body sets.
+        int last = stop - 1;
 
-            for (int index = stop - 1; index >= 0; index--)
+        while (last > _bodyStart && !_commands[last].IsPacket)
+        {
+            last--;
+        }
+
+        if (IsSimple && last > _bodyStart)
+        {
+            int oldest = _commands[last].Tick - KeptTicks - ParseAheadTicks;
+
+            // Past the body's first packet, or the opening may leave a command a fresh read still holds (see `Simple`).
+            for (int index = last; index > _bodyStart; index--)
             {
                 if (_commands[index].IsPacket && _commands[index].Tick < oldest)
                 {

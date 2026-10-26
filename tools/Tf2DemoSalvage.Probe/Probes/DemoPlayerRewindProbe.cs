@@ -66,7 +66,7 @@ public sealed class DemoPlayerRewindProbe : IProbe
 
         output.WriteLine(string.Create(CultureInfo.InvariantCulture,
             $"{Path.GetFileName(path)}: {rewinds} rewinds from {end} over {timeline.ViewCommands.Count} view commands, ticks {timeline.FirstTick}-{timeline.LastTick}, " +
-            $"simple {(player.IsSimple ? "yes" : "no")}, recorder {(timeline.RecorderEntityIndex is null ? "none (SourceTV)" : "yes")}"));
+            $"simple {(player.NotSimpleBecause is { } why ? $"no ({why})" : "yes")}, recorder {(timeline.RecorderEntityIndex is null ? "none (SourceTV)" : "yes")}"));
         output.WriteLine(string.Create(CultureInfo.InvariantCulture,
             $"rewind: first {milliseconds[0]:0.000} ms, then mean {milliseconds.Skip(1).Average():0.000} ms, max {milliseconds.Skip(1).Max():0.000} ms; " +
             $"commands re-read: first {reads[0]}, then mean {reads.Skip(1).Average():0.0}, max {reads.Skip(1).Max()}"));

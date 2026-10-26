@@ -92,12 +92,14 @@ public sealed class DemoPlayerRewindPropertyTests
     {
         List<DemoCommand> commands = [];
 
-        // The opening a recording has: signons ticked past every packet, then a synctick — except, untame, sometimes not.
-        int signons = random.Next(0, 3);
+        // The opening a recording has: signons, then a synctick — except, untame, sometimes not. Their ticks are the
+        // server's: past every packet on a modern match (146,124 on etf2l-12025), inside the packets' span on the era
+        // specimens (158 and 6,041 on the 2007 and 2013 ones).
+        int signons = random.Next(0, 4);
 
         for (int at = 0; at < signons; at++)
         {
-            commands.Add(SyntheticViews.Signon(tame || random.Next(3) > 0 ? 146124 : random.Next(80, 200)));
+            commands.Add(SyntheticViews.Signon(random.Next(3) == 0 ? 146124 : random.Next(80, 400)));
         }
 
         if (tame || random.Next(3) > 0)
