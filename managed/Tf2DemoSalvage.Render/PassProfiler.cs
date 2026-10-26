@@ -237,6 +237,12 @@ public readonly ref struct PassFrame
     }
 
     /// <summary>Abandons the frame if it is still open; nothing when it ended or nothing is profiled.</summary>
+    /// <remarks>
+    /// **Runs while the draw's exception unwinds, so it must not throw one of its own** — and does not, so it is not
+    /// wrapped: `Abandon` makes only `ID3D11DeviceContext::End` calls, which are `void` (`d3d11.h`, Silk's binding checks
+    /// no HRESULT), so a removed or lost device answers later through `GetData` or `Present`, never here; and the ledger's
+    /// counter takes a lock and increments. A catch here would guard nothing and could only hide a fault (batch-32 review).
+    /// </remarks>
     public void Dispose() => _profiler?.Abandon(_context);
 }
 
