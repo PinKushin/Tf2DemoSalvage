@@ -178,6 +178,7 @@ public sealed unsafe class ExposureHistogram : IHistogramQueries, IDisposable
     void IHistogramQueries.Issue(int entry, float min, float max)
     {
         MappedSubresource mapped = default;
+        SubmitCounters.Upload();
         SilkMarshal.ThrowHResult(_context.Map(_constants, 0, Map.WriteDiscard, 0, ref mapped));
         float* into = (float*)mapped.PData;
         (into[0], into[1], into[2], into[3]) = (min, max, 1f, 0f);
@@ -185,6 +186,7 @@ public sealed unsafe class ExposureHistogram : IHistogramQueries, IDisposable
 
         ID3D11Asynchronous* query = (ID3D11Asynchronous*)_queries[entry].Handle;
         _context.Begin(query);
+        SubmitCounters.Draw();
         _context.Draw(3, 0);
         _context.End(query);
     }

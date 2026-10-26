@@ -275,7 +275,7 @@ public sealed unsafe class WorldLineRenderer : IDisposable
         context.VSSetConstantBuffers(CameraSlot, 1, ref _camera);
         context.PSSetShader(_pixelShader, ref Unsafe.NullRef<ComPtr<ID3D11ClassInstance>>(), 0);
 
-        context.Draw((uint)count, 0);
+        SubmitCounters.Draw(); context.Draw((uint)count, 0);
     }
 
     /// <inheritdoc/>
@@ -374,7 +374,7 @@ public sealed unsafe class WorldLineRenderer : IDisposable
     private void Upload(ComPtr<ID3D11DeviceContext> context, float[] vertices)
     {
         MappedSubresource mapped = default;
-        SilkMarshal.ThrowHResult(context.Map(_vertices, 0, Map.WriteDiscard, 0, ref mapped));
+        SubmitCounters.Upload(); SilkMarshal.ThrowHResult(context.Map(_vertices, 0, Map.WriteDiscard, 0, ref mapped));
 
         fixed (float* source = vertices)
         {
@@ -406,7 +406,7 @@ public sealed unsafe class WorldLineRenderer : IDisposable
         }
 
         MappedSubresource mapped = default;
-        SilkMarshal.ThrowHResult(context.Map(_camera, 0, Map.WriteDiscard, 0, ref mapped));
+        SubmitCounters.Upload(); SilkMarshal.ThrowHResult(context.Map(_camera, 0, Map.WriteDiscard, 0, ref mapped));
 
         fixed (float* source = matrix)
         {

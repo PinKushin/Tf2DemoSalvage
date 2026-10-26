@@ -347,7 +347,7 @@ internal sealed unsafe class VguiRenderer : IDisposable
 
                 context.PSSetShaderResources(1, 1, ref detailView);
                 context.PSSetShaderResources(0, 1, ref view);
-                context.Draw((uint)((end - start) * VerticesPerQuad), (uint)(start * VerticesPerQuad));
+                SubmitCounters.Draw(); context.Draw((uint)((end - start) * VerticesPerQuad), (uint)(start * VerticesPerQuad));
             }
         }
     }
@@ -503,7 +503,7 @@ internal sealed unsafe class VguiRenderer : IDisposable
     private void UploadConstants(ComPtr<ID3D11DeviceContext> context, float[] data)
     {
         MappedSubresource mapped = default;
-        SilkMarshal.ThrowHResult(context.Map(_constants, 0, Map.WriteDiscard, 0, ref mapped));
+        SubmitCounters.Upload(); SilkMarshal.ThrowHResult(context.Map(_constants, 0, Map.WriteDiscard, 0, ref mapped));
 
         fixed (float* source = data)
         {
@@ -564,7 +564,7 @@ internal sealed unsafe class VguiRenderer : IDisposable
     private void Upload(ComPtr<ID3D11DeviceContext> context, IReadOnlyList<VguiQuad> quads, int viewportWidth, int viewportHeight)
     {
         MappedSubresource mapped = default;
-        SilkMarshal.ThrowHResult(context.Map(_vertices, 0, Map.WriteDiscard, 0, ref mapped));
+        SubmitCounters.Upload(); SilkMarshal.ThrowHResult(context.Map(_vertices, 0, Map.WriteDiscard, 0, ref mapped));
 
         // EnsureCapacity sized the buffer for at least this many quads.
         BuildVertices(

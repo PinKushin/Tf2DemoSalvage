@@ -81,7 +81,7 @@ internal sealed unsafe partial class WorldRenderer
 
         MappedSubresource mapped = default;
 
-        SilkMarshal.ThrowHResult(context.Map(_overlayConstants, 0, Map.WriteDiscard, 0, ref mapped));
+        SubmitCounters.Upload(); SilkMarshal.ThrowHResult(context.Map(_overlayConstants, 0, Map.WriteDiscard, 0, ref mapped));
 
         float* into = (float*)mapped.PData;
 
@@ -99,7 +99,7 @@ internal sealed unsafe partial class WorldRenderer
         context.RSSetState(_bothSides);
         context.OMSetDepthStencilState(_overlayDepth, 0);
         context.OMSetBlendState(_alphaBlend, blendFactor, 0xFFFFFFFF);
-        context.Draw(3, 0);
+        SubmitCounters.Draw(); context.Draw(3, 0);
 
         ComPtr<ID3D11ShaderResourceView> none = default;
 

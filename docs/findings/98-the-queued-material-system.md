@@ -667,3 +667,21 @@ The engine drops back to 0 in the cases finding 99 section 1 lists. Here is each
 - *Alt-tab (the shader API not active)*: **no counterpart.** Nothing in `Render` or `Presentation` changes mode when
   the window is minimized or occluded, so mode 2 keeps running. *Read, not tested.* Nothing seen goes wrong because of
   it.
+
+## (11) Follow-up, 2026-10-25: what the render thread's 2.2 ms is (B597)
+
+*Measured* (measurements/2026-10-25-render-thread-cpu-vs-gpu.md), per pass, timed on the render thread and by GPU timestamps:
+
+| pass | render-thread CPU ms | GPU ms at 1280x720 | GPU scales with pixels? | draws / maps |
+|---|---|---|---|---|
+| OpaqueModels | 1.06-1.08 | 0.83-0.85 | no (0.87 at 640x360, 0.84-0.87 at 1644x931) | 209 / 421 |
+| Occlusion | 0.36-0.38 | 0.05 | no | 376 / 752 |
+| Sky3D (with collation) | 0.22 | 0.08 | yes | 19 / 36 |
+| World | 0.15-0.16 | 0.36 | yes (0.23 -> 0.48) | 378 / 379 |
+| everything else | ~0.4 | ~0.45 | partly | ~156 / ~210 |
+| **all** | **2.18-2.22** | **1.75** | ~0.5 ms of it | 1140 / 1800 |
+
+The queue's job is CPU submission, not waiting on the GPU (`Present` costs it 0.065 ms). Half of it is the model path, at
+~5 µs a draw against the world's 0.4 µs. The driver worker adds 1.6-2.2 ms on its own thread (finding 100 reproduced). Open:
+whether OpaqueModels' flat 0.85 ms of GPU time is vertex work or submission pacing. If it is vertex work, the GPU alone is
+over 1 ms at 720p.

@@ -1,0 +1,5 @@
+Start-Process: C:\Users\pinku\source\repos\PinKushin\run-exclusive.ps1:221
+Line |
+ 221 |          Start-Process -FilePath $Command[0] -ArgumentList $arguments  …
+     |          ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+     | This command cannot be run due to the error: The system cannot find the file specified.

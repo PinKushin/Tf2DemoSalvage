@@ -335,6 +335,11 @@ public sealed partial class ViewerSession
         {
             _host.Out.WriteLine("  " + GcReading.Now().Since(_gcAtStart, _framesMeasured));
 
+            if (_ownedDevice?.TakePassReport() is { Length: > 0 } passes)
+            {
+                _host.Out.WriteLine("  " + passes);
+            }
+
             if (_pauses is { } pauses)
             {
                 _host.Out.WriteLine("  " + pauses.Report(_pausesFrom));
@@ -554,6 +559,7 @@ public sealed partial class ViewerSession
                 _pauses = new PauseLedger(Stopwatch.Frequency);
                 _counted = false;
                 _countersAtStart = ReadCounters();
+                _ownedDevice?.TakePassReport();
                 _logAtStart = LogTiming?.Invoke() ?? default;
                 _pausesFrom = Stopwatch.GetTimestamp();
                 _heartbeat?.Dispose();
@@ -621,6 +627,9 @@ public sealed partial class ViewerSession
         if (_launch.MeasureSeconds is not null)
         {
             _presenter.FrameParts ??= new FrameParts();
+
+            // The draw's passes, CPU and GPU, per frame (B597): the device times them only when asked.
+            _ownedDevice?.ProfilePasses = true;
         }
 
         _presenter.FrameParts?.Frame();
