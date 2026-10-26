@@ -199,7 +199,7 @@ public sealed partial class EntityModelSet
             if (gesture.Slot == GestureSlot.AttackAndReload)
             {
                 int resolved = gesture.ActivityName is { Length: > 0 } asked
-                    ? skinned.ForActivity(TranslateGesture(prop, skinned, asked))
+                    ? GestureSequence(prop, skinned, TranslateGesture(prop, skinned, asked), gesture)
                     : 0;
 
                 if (!gesture.OnlyIfSlotIdle ||
@@ -278,14 +278,14 @@ public sealed partial class EntityModelSet
             // voice gestures are the `_BUILDING` ones.
             string activity = TranslateGesture(prop, skinned, named);
 
-            // **`ForActivity`, not `Find`, and the difference is the whole mechanism.** `Find`
+            // **The activity's weighted roll (`GestureSequence`), not `Find`, and the difference is the whole mechanism.** `Find`
             // matches a sequence LABEL the way `Studio_LookupSequence` does; the engine resolves a
             // gesture through `SelectWeightedSequence( iGestureActivity )`, which matches the
             // ACTIVITY and picks among ties by `actweight`. A gesture names an activity —
             // `ACT_MP_GESTURE_FLINCH_CHEST` — and no sequence is labelled that, so asking `Find`
             // returns −1 for every gesture on every model. Measured: a flinch half a second old,
             // three gestures reaching the drawn prop, and zero layers.
-            int sequence = skinned.ForActivity(activity);
+            int sequence = GestureSequence(prop, skinned, activity, gesture);
 
             // **A FLINCH is the one gesture the engine substitutes rather than abandoning** (B350),
             // and it does so before `AddToGestureSlot` is ever reached
@@ -311,7 +311,7 @@ public sealed partial class EntityModelSet
                 gesture.Slot == GestureSlot.Flinch &&
                 !string.Equals(activity, FlinchChestActivity, StringComparison.Ordinal))
             {
-                sequence = skinned.ForActivity(FlinchChestActivity);
+                sequence = GestureSequence(prop, skinned, FlinchChestActivity, gesture);
 
                 if (sequence > 0)
                 {
@@ -333,6 +333,19 @@ public sealed partial class EntityModelSet
 
         return layers;
     }
+
+    /// <summary>`AddToGestureSlot`'s `SelectWeightedSequence( iGestureActivity )`: one roll, when the gesture starts (D233).</summary>
+    /// <returns>A merged sequence number, or −1 when no sequence answers to the activity.</returns>
+    /// <remarks>
+    /// The engine rolls once at `multiplayer_animstate.cpp:633` and stores the answer in the layer, so the roll is seeded
+    /// on what the gesture carries — the player, the activity, the moment it started — and every frame of the gesture,
+    /// and a seek into it, lands on the same variant with nothing held. A `RestartGesture` of an activity the slot is
+    /// already playing only resets the cycle (`:581-611`) and keeps the variant; ours re-rolls on the restart's new
+    /// start (RISKS B584).
+    /// </remarks>
+    private static int GestureSequence(SceneProp prop, PropModels.SkinnedModel skinned, string activity, SceneGesture gesture) =>
+        skinned.SelectWeightedSequence(
+            activity, -1, ActivityPickSeed(prop.EntityIndex, activity, BitConverter.DoubleToInt64Bits(gesture.StartedSeconds)));
 
     /// <summary>`TranslateActivity` for a gesture of this player: their own table, the weapon's, the item's, the winner's (B437).</summary>
     private static string TranslateGesture(SceneProp prop, PropModels.SkinnedModel skinned, string activity) =>
