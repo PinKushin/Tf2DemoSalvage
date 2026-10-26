@@ -40068,6 +40068,19 @@ reddens four tests), and a child's drawn size against its own scale alone.
   `pl_badwater_pro_v12.bsp` is not on this machine (not under the game's `tf/maps`, `tf/download/maps`, `tf2ds`, or the
   user profile), so its `parentname` cannot be read, and no sampled tick gives them a parent.
 
+## B603 — `LevelSystems.OpenGame` publishes the install from a worker thread with no happens-before edge to the frame — OPEN (2026-10-26)
+
+**Evidence class: read from our source** (batch-32 review; pre-existing, not a regression). The async demo load calls
+`LevelSystems.Install` inside `Task.Run`, and `OpenGame` then writes `_sounds.Read`, `_moment.Weapons`,
+`_soundscape.Catalog`, `_sound.Scripts` and `_appearances.Game` — plain properties on objects the UI thread's frame code
+reads every frame — with no lock, volatile or barrier on the reading side. `_installGate` (batch-31 review 2) orders the
+`Install` callers only. What can go wrong: a frame reading some of the five set and others not (a torn group: weapons
+without the appearance's game, say) for one frame; each reference itself is published whole on .NET's memory model.
+Separately, `Install` blocks the UI thread for the whole archive and weapon-script open when it is the second caller while
+the `Task.Run` holds the gate — no worse than the synchronous open it replaced. **Not fixed**: making the five consumers'
+setters volatile, or publishing one "install opened" object the frame reads once, touches five classes and the frame's
+read order, which is not the small safe step the review allowed; filed for the lead with that design.
+
 ## B602 — a seek's scan predicts the viewed recorder's movement once per probe: 14 ms of a seek, 102 ms at the cap (measurements/2026-10-26-pov-recorder-seek-scan.md) — OPEN (2026-10-26)
 
 **Evidence class: measured** (measurements/2026-10-26-pov-recorder-seek-scan.md, etf2l-12025 POV match, Release, quiet
