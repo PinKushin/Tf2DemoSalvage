@@ -356,7 +356,8 @@ public sealed partial class EntityModelSet
     /// back, jumped forward past <see cref="ContinuityTicks"/>, or the model changed. So a seek and a play-through run the
     /// same code and land on the same variant.
     /// </remarks>
-    private readonly Dictionary<int, (int Sequence, double Tick, string Model)> _mainSequences = [];
+    /// <remarks>`Recovered` is false for what a skip's frame wrote without scanning (<see cref="SimulatesOnly"/>).</remarks>
+    private readonly Dictionary<int, (int Sequence, double Tick, string Model, bool Recovered)> _mainSequences = [];
 
     /// <summary>The player's prop as it would be drawn at an earlier whole tick, or null when he was not drawn then (D233).</summary>
     /// <remarks>
@@ -367,7 +368,11 @@ public sealed partial class EntityModelSet
     public Func<double, int, SceneProp?>? PlayerPropAt { get; set; }
 
     /// <summary>How far a frame may advance and still hold: past this the hold is re-derived, as for a seek.</summary>
-    /// <remarks>Four ticks spans a frame at 15 fps on a 66-tick server; a bigger gap is a seek or fast playback.</remarks>
+    /// <remarks>
+    /// Four ticks spans a frame at about 16.5 fps on a 66-tick server. A bigger forward gap — a lower frame rate, fast
+    /// playback, a seek — scans the skipped ticks (<see cref="HoldsAcross"/>), which allocates; within it nothing is
+    /// scanned and nothing allocated.
+    /// </remarks>
     internal const double ContinuityTicks = 4d;
 
     /// <summary>How far back <see cref="ActivityBegan"/> looks: 2048 ticks, 31 s at 66 ticks a second.</summary>
@@ -391,20 +396,21 @@ public sealed partial class EntityModelSet
     /// in. When the frame is between ticks and the whole tick under it still shows the old activity, the answer is the
     /// next whole tick — the first that will show the new one.
     /// </returns>
-    private long ActivityBegan(SceneProp prop, PropModels.SkinnedModel skinned, int desired, string wanted)
+    private long ActivityBegan(SceneProp prop, PropModels.SkinnedModel skinned, int desired, string wanted) =>
+        PlayerPropAt is null
+            ? (long)Math.Floor(CurrentTick)
+            : Scan(prop, skinned, desired, wanted, (long)Math.Floor(CurrentTick) - ActivityScanTicks).Began;
+
+    /// <summary><see cref="ActivityBegan"/>'s walk, from now back to just above <paramref name="above"/>.</summary>
+    /// <returns>The earliest tick of the stretch found, and whether a tick of another activity or model ended it.</returns>
+    private (long Began, bool Broke) Scan(SceneProp prop, PropModels.SkinnedModel skinned, int desired, string wanted, long above)
     {
         long now = (long)Math.Floor(CurrentTick);
-
-        if (PlayerPropAt is not { } at)
-        {
-            return now;
-        }
-
         long began = now + 1;
 
-        for (long tick = now; tick > now - ActivityScanTicks; tick--)
+        for (long tick = now; tick > above; tick--)
         {
-            if (at(tick, prop.EntityIndex) is not { Pose.Speed: { } speed } then)
+            if (PlayerPropAt!(tick, prop.EntityIndex) is not { Pose.Speed: { } speed } then)
             {
                 continue;
             }
@@ -412,14 +418,23 @@ public sealed partial class EntityModelSet
             if (!string.Equals(then.ModelPath, prop.ModelPath, StringComparison.Ordinal) ||
                 !SameActivity(skinned, Math.Max(0, DesiredSequence(then, skinned, speed)), desired, wanted))
             {
-                break;
+                return (began, true);
             }
 
             began = tick;
         }
 
-        return began;
+        return (began, false);
     }
+
+    /// <summary>
+    /// Whether a hold survives a forward jump past <see cref="ContinuityTicks"/> — low frame rate or fast playback: only
+    /// the skipped whole ticks are scanned, and an unbroken gap keeps the roll a full scan would have keyed the same way.
+    /// </summary>
+    private bool HoldsAcross(SceneProp prop, PropModels.SkinnedModel skinned, int desired, string wanted, double since) =>
+        PlayerPropAt is not null &&
+        CurrentTick - since <= ActivityScanTicks &&
+        !Scan(prop, skinned, desired, wanted, (long)Math.Floor(since)).Broke;
 
     /// <summary>`GetSequenceActivity( a ) == GetSequenceActivity( b )`, with an activity-less sequence equal only to itself.</summary>
     private static bool SameActivity(PropModels.SkinnedModel skinned, int sequence, int desired, string wanted) =>
@@ -484,12 +499,19 @@ public sealed partial class EntityModelSet
     /// </remarks>
     private int MainSequence(SceneProp prop, PropModels.SkinnedModel skinned, int desired, bool roll)
     {
-        bool held = _mainSequences.TryGetValue(prop.EntityIndex, out (int Sequence, double Tick, string Model) last) &&
+        bool cached = _mainSequences.TryGetValue(prop.EntityIndex, out (int Sequence, double Tick, string Model, bool Recovered) last) &&
             CurrentTick >= last.Tick &&
-            CurrentTick - last.Tick <= ContinuityTicks &&
-            string.Equals(last.Model, prop.ModelPath, StringComparison.Ordinal);
-        int current = held ? last.Sequence : -1;
+            string.Equals(last.Model, prop.ModelPath, StringComparison.Ordinal) &&
+            (last.Recovered || SimulatesOnly);
         string wanted = skinned.ActivityOf(desired);
+
+        // **A skip's frames scan nothing** (B504's 99-packet frames, never drawn): they hold across any gap and roll on
+        // their own tick, and what they write is marked unrecovered, so the landing frame recovers every player once.
+        bool held = cached &&
+            (CurrentTick - last.Tick <= ContinuityTicks ||
+                (SameActivity(skinned, last.Sequence, desired, wanted) &&
+                    (SimulatesOnly || HoldsAcross(prop, skinned, desired, wanted, last.Tick))));
+        int current = held ? last.Sequence : -1;
 
         if (held)
         {
@@ -497,7 +519,7 @@ public sealed partial class EntityModelSet
 
             if (SameActivity(skinned, current, desired, wanted))
             {
-                _mainSequences[prop.EntityIndex] = (current, CurrentTick, prop.ModelPath);
+                _mainSequences[prop.EntityIndex] = (current, CurrentTick, prop.ModelPath, last.Recovered && !SimulatesOnly);
                 return current;
             }
 
@@ -512,10 +534,15 @@ public sealed partial class EntityModelSet
         if (roll && wanted.Length > 0)
         {
             desired = skinned.SelectWeightedSequence(
-                wanted, -1, ActivityPickSeed(prop.EntityIndex, wanted, ActivityBegan(prop, skinned, desired, wanted)));
+                wanted,
+                -1,
+                ActivityPickSeed(
+                    prop.EntityIndex,
+                    wanted,
+                    SimulatesOnly ? (long)Math.Floor(CurrentTick) : ActivityBegan(prop, skinned, desired, wanted)));
         }
 
-        _mainSequences[prop.EntityIndex] = (desired, CurrentTick, prop.ModelPath);
+        _mainSequences[prop.EntityIndex] = (desired, CurrentTick, prop.ModelPath, !SimulatesOnly);
         return desired;
     }
 

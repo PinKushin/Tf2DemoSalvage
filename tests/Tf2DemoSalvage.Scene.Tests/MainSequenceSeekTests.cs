@@ -167,6 +167,120 @@ public sealed class MainSequenceSeekTests
         (GC.GetAllocatedBytesForCurrentThread() - before).ShouldBe(0);
     }
 
+    /// <summary>
+    /// Fast playback (five ticks a frame) through a long stand scans only the ticks each frame skipped, not back to the
+    /// stand's start — or every frame would cost a seek.
+    /// </summary>
+    [Test]
+    public void UpdateClientSideAnimations_FivePlayedTicksAFrameThroughALongStand_ScansOnlyTheSkippedTicks()
+    {
+        Schedule[] stand = [new(6, [(0d, Standing)])];
+        EntityModelSet models = Loaded(stand);
+        Func<double, int, SceneProp?> timeline = models.PlayerPropAt!;
+        int probes = 0;
+        models.PlayerPropAt = (tick, entity) =>
+        {
+            probes++;
+            return timeline(tick, entity);
+        };
+
+        Show(models, 0d, stand);
+        int most = 0;
+
+        for (double tick = 5d; tick <= 1500d; tick += 5d)
+        {
+            probes = 0;
+            Show(models, tick, stand);
+            most = Math.Max(most, probes);
+        }
+
+        most.ShouldBe(5, "the five whole ticks each frame skipped");
+    }
+
+    /// <summary>
+    /// A skip's frames (every 99 packets, never drawn, `SimulatesOnly`) scan nothing, and the frame it lands on
+    /// recovers every player as a fresh seek would — or a long skip would scan 99 ticks a player a frame.
+    /// </summary>
+    [Test]
+    public void UpdateClientSideAnimations_ASkipThenItsLanding_ScansOnlyOnTheLandingAndMatchesASeek()
+    {
+        EntityModelSet models = Loaded();
+        Func<double, int, SceneProp?> timeline = models.PlayerPropAt!;
+        int probes = 0;
+        models.PlayerPropAt = (tick, entity) =>
+        {
+            probes++;
+            return timeline(tick, entity);
+        };
+
+        PlayThrough(models, 0d, 30d, 1.0);
+        probes = 0;
+        models.SimulatesOnly = true;
+
+        for (double through = 129d; through < 390d; through += 99d)
+        {
+            Show(models, through);
+        }
+
+        probes.ShouldBe(0, "a skip's frames scan nothing");
+        models.SimulatesOnly = false;
+        Show(models, 390d).ShouldBe(Show(Loaded(), 390d), "the landing matches a fresh seek");
+        probes.ShouldBeGreaterThan(0, "the control: the landing did recover");
+    }
+
+    /// <summary>
+    /// The seek frame scans back from the tick it SHOWS. `UpdateClientSideAnimations` runs inside `Build`, before
+    /// `Pose`, so a clock that only `Pose` sets is the previous frame's when the scan reads it.
+    /// </summary>
+    [Test]
+    public void Build_ASeek_ScansBackFromTheLandingTick()
+    {
+        EntityModelSet models = new() { Geometry = Variants };
+        List<double> asked = [];
+        MomentScene scene = new(models, new ViewmodelScene(), Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance)
+        {
+            Appearance = new Soldiers(),
+            EarlierPlayer = (tick, entity) =>
+            {
+                asked.Add(tick);
+                return SoldierPlayer(entity);
+            },
+        };
+
+        scene.Build([SoldierPlayer(3)], [], Info(10d));
+        asked.Clear();
+        scene.Build([SoldierPlayer(3)], [], Info(500d));
+
+        asked.ShouldNotBeEmpty("the landing is a seek, so the start is recovered");
+        asked[0].ShouldBe(500d);
+    }
+
+    private static ScenePlayer SoldierPlayer(int entity) =>
+        new(EntityIndex: entity, X: 0f, Y: 0f, Z: 0f, Team: SceneTeams.Red, Health: 200, PlayerClass: 3) { Speed = Standing };
+
+    private static MomentInfo Info(double tick) =>
+        new(
+            Tick: tick,
+            CurrentTick: (int)tick,
+            FirstPerson: false,
+            Followed: null,
+            EyeCamera: null,
+            IntervalPerTick: 0.015f,
+            ViewmodelFieldOfView: 54f);
+
+    private sealed class Soldiers : IPlayerAppearance
+    {
+        public string? ModelOf(int playerClass) => Soldier;
+
+        public string? WeaponSuffix(string? weaponClass, int? playerClass, int? weaponItem) => null;
+
+        public string? Hands(int playerClass) => null;
+
+        public ItemBodygroups BodygroupsOf(int itemDefinitionIndex, int team) => ItemBodygroups.None;
+
+        public SceneTaunt? TauntForScene(string scene) => null;
+    }
+
     private static List<(double Tick, Dictionary<int, int> Picks)> PlayThrough(
         EntityModelSet models, double from, double to, double cadence, Schedule[]? schedules = null)
     {

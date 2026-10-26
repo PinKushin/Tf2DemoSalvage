@@ -40346,7 +40346,13 @@ through by play (as the engine at that frame rate would) but ends the stretch fo
 (`…_AStretchBetweenTwoFrames_…`). A point-of-view recorder is scanned on his networked velocity, where the frame uses the
 predicted one. **Seek cost** (measurements/2026-10-25-d233-activity-tuples-cost.md, addendum): 9.1 ms mean, 52 ms max for 6-12 drawn players
 on f12, 175 earlier-tick probes a player, 95% of it `DemoTimeline.PlayerAt`; about 22 ms for 24 players, *interpolated*.
-The held frame stays 0 B (one 1,112 B frame after each landing). **No per-demo seed** was mixed in (the brief asked for one): entity and tick already
+The held frame stays 0 B (one 1,112 B frame after each landing). **Review fixes, same branch:** `MomentScene.Build` now
+sets `CurrentTick` before `Pack` — only `Pose` set it, so every frame's sequences were chosen at the PREVIOUS frame's tick
+and a seek frame scanned from the pre-seek tick (`MainSequenceSeekTests.Build_ASeek_…`); a forward gap past four ticks
+(arithmetic: below 66/4 = 16.5 fps, or fast playback) scans only the skipped ticks (`HoldsAcross`), which allocates; a skip's
+`SimulatesOnly` frames scan nothing and mark their rolls unrecovered for the landing (536 skip frames, 0 probes, landing
+6.5 ms on f12 — measurements/2026-10-25-d233-activity-tuples-cost.md, third run). **Open:** the post-seek model-decal
+replay builds ordinary frames, each paying a landing's scan; how many per seek was not counted. **No per-demo seed** was mixed in (the brief asked for one): entity and tick already
 differ per demo, and nothing in `EntityModelSet` names the demo; adding one is a header hash passed in. The negative-weight
 keep is ported and tested as a function but cannot fire on the main path, since a roll happens only when the activity changed
 or after a seek. Multi-candidate activities on the f12 set (probe): main-sequence ones are scout `ACT_MP_STAND_MELEE` x2 and

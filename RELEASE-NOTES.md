@@ -5,10 +5,12 @@
 - **Player animation variants are picked the way TF2 picks them.** Where a class model has several sequences for one
   activity, the viewer now chooses at random by their weights when the player enters the activity and holds that choice
   until the activity changes, instead of always showing the heaviest. Gestures (flinches, reloads, voice commands) pick
-  their variant once when they start, the same way. Picks are reproducible: seeking to any moment shows the variant that
-  playing through to it showed, unless the player had been in that activity for more than about 31 seconds.
+  their variant once when they start, the same way. Picks are reproducible: seeking to a moment shows the variant that
+  playing through to it showed, with three exceptions — a player who had been in that activity for more than 2048 ticks
+  (31 seconds on a 66-tick server), a change too brief for playback at your frame rate to see, and a point-of-view
+  demo's recorder, whose movement is read differently while seeking.
 - **The cost.** About 140 KB of memory, no per-frame allocation while playing (docs/measurements/2026-10-25-d233-activity-tuples-cost.md).
-- **A seek** spends about 9 ms recovering 10 players' variants on the f12 demo, an estimated 22 ms for 24 (docs/measurements/2026-10-25-d233-activity-tuples-cost.md).
+- **A seek** spends about 9 ms (up to 57 ms) recovering 10 players' variants on the f12 demo, an estimated 22 ms for 24 (docs/measurements/2026-10-25-d233-activity-tuples-cost.md).
 
 ## Changes in 0.1.0-beta.52
 

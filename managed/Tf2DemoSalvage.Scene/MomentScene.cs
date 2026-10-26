@@ -634,6 +634,11 @@ public sealed class MomentScene : IGameSystemPerFrame
 
         long rolesAt = Stopwatch.GetTimestamp();
 
+        // **The demo's tick before `Pack`**, whose `UpdateClientSideAnimations` holds and recovers each player's main
+        // sequence by it (D233); `Pose` sets it again for the corpses. Set only there, a seek frame's sequences were chosen
+        // at the PREVIOUS frame's tick.
+        _models.CurrentTick = info.Tick;
+
         Pack();
 
         long uploadedAt = Stopwatch.GetTimestamp();

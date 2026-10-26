@@ -72,3 +72,18 @@ cut it by 46%. Per drawn player a seek costs about 0.93 ms mean; **for 24 player
 105 ms** — *interpolated*, linearly from this demo's at most 12 drawn players, not measured. The 1,112 B is the first held
 frame after a seek (once per landing, 28 B a frame on average); the next held frame allocates nothing. A frame that only
 changes activity scans one or two ticks; the long scans are players standing still, or absent, back to the 2048-tick cap.
+
+**Third run, after the review's fixes** (the build sets the clock before the sequence pass; a forward gap past four ticks
+scans only the gap; a skip's `SimulatesOnly` frames scan nothing and leave the rolls for the landing to recover):
+
+| | value |
+|---|---:|
+| a real forward skip, f12 26,579 → 79,735: 536 skip frames (every 99 ticks, B504) | 39.3 ms, 0 probes |
+| its landing frame, 11 players | 6.54 ms, 1,217 probes |
+| 40 landings as above: mean of 39 / max | 9.26 / 57.2 ms |
+| speed through `PlayerAt` against the pre-`430e3ca6` formula, rebuilt from the public track, bit for bit | 37,657 compared, 0 differ |
+| held frame after a landing / the one after that | 1,112 B over 40 / 0 B over 40 |
+
+**Reading.** A skip's frames would otherwise have scanned 99 ticks a player each — about 536 × 11 × 99 probes on this
+skip. Not measured: how many moments the post-seek model-decal replay builds (`FramePresenter.ReplayModelDecals`); those
+are ordinary frames, so each one more than four ticks from the last pays a landing's cost.

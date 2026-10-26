@@ -83,6 +83,18 @@ public sealed class SeekScanProbe : IProbe
 
         List<ScenePlayer> players = [];
         List<SceneProp> drawn = [];
+
+        // One frame's sequence choice at a tick, the props built as the scene builds them; answers how many were drawn.
+        int Frame(int tick)
+        {
+            drawn.Clear();
+            timeline.PlayersAt(tick, players);
+            PlayerProps.Add(players, drawn, appearance, models);
+            models.Add(drawn, assets.Geometry);
+            models.CurrentTick = tick;
+            models.UpdateClientSideAnimations(drawn);
+            return drawn.Count;
+        }
         int span = timeline.LastTick - timeline.FirstTick;
         List<double> seekMs = [];
         List<double> heldMs = [];
@@ -127,6 +139,33 @@ public sealed class SeekScanProbe : IProbe
             secondHeldBytes += GC.GetAllocatedBytesForCurrentThread() - bytes;
         }
 
+        // **A whole forward seek as the viewer makes it** (B504): a skip frame every 99 ticks, `SimulatesOnly`, then the
+        // landing. Played to the first tick before it so the skip starts from a hold.
+        int skipFrom = timeline.FirstTick + (span / 4);
+        int skipTo = timeline.FirstTick + (3 * span / 4);
+        Frame(skipFrom);
+        probes = 0;
+        long skipAt = Stopwatch.GetTimestamp();
+        models.SimulatesOnly = true;
+        int skipFrames = 0;
+
+        foreach (int through in DemoSkip.Frames(skipFrom + 1, skipTo))
+        {
+            Frame(through);
+            skipFrames++;
+        }
+
+        double skipMs = Stopwatch.GetElapsedTime(skipAt).TotalMilliseconds;
+        long skipProbes = probes;
+        models.SimulatesOnly = false;
+        long landAt = Stopwatch.GetTimestamp();
+        int skipLanded = Frame(skipTo);
+        double landMs = Stopwatch.GetElapsedTime(landAt).TotalMilliseconds;
+
+        output.WriteLine(string.Create(CultureInfo.InvariantCulture,
+            $"forward skip {skipFrom}->{skipTo}: {skipFrames} skip frames {skipMs:0.0} ms with {skipProbes} probes; " +
+            $"landing {landMs:0.00} ms for {skipLanded} players, {probes - skipProbes} probes"));
+
         // The first seek also pays the JIT; it is reported, and left out of the mean.
         output.WriteLine(string.Create(CultureInfo.InvariantCulture,
             $"{Path.GetFileName(path)}: {seeks} seeks, drawn players {counts.Min()}-{counts.Max()} (mean {counts.Average():0.0})"));
@@ -152,6 +191,30 @@ public sealed class SeekScanProbe : IProbe
 
         double whole = Stopwatch.GetElapsedTime(started).TotalMilliseconds;
 
+        // The control for `430e3ca6`, which made the speed share the pose's track reads: every alive probe's speed against
+        // the formula as it was before, rebuilt from the public track — bit for bit, or the refactor changed a frame.
+        int compared = 0;
+        int differ = 0;
+
+        foreach ((double tick, int entity) in asked)
+        {
+            if (timeline.PlayerAt(tick, entity) is not { IsAlive: true } player ||
+                timeline.TrackFor(entity, tick) is not { } track ||
+                track.At(tick) is not { } now ||
+                track.At(Math.Max(0d, tick - (0.1d / Math.Max(0.001f, 0.015f)))) is not { } was)
+            {
+                continue;
+            }
+
+            float across = now.X - was.X;
+            float along = now.Y - was.Y;
+            float old = MathF.Sqrt((across * across) + (along * along)) / (float)0.1d;
+            compared++;
+            differ += BitConverter.SingleToInt32Bits(old) == BitConverter.SingleToInt32Bits(player.Speed) ? 0 : 1;
+        }
+
+        output.WriteLine(string.Create(CultureInfo.InvariantCulture,
+            $"speed against the pre-430e3ca6 formula: {compared} compared, {differ} differ"));
         output.WriteLine(string.Create(CultureInfo.InvariantCulture,
             $"{asked.Count} probes replayed: {whole:0.0} ms through the scene's builder, {sampling:0.0} ms of it PlayerAt alone; " +
             $"{present} found him alive"));
