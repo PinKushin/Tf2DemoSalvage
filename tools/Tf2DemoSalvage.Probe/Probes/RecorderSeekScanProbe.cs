@@ -7,6 +7,7 @@ using System.Linq;
 
 using Microsoft.Extensions.Logging.Abstractions;
 
+using Tf2DemoSalvage.Core.Container;
 using Tf2DemoSalvage.Core.Scene;
 using Tf2DemoSalvage.Presentation;
 using Tf2DemoSalvage.Scene;
@@ -141,6 +142,26 @@ public sealed class RecorderSeekScanProbe : IProbe
             }
 
             return (frameMs, recorderMs, calls);
+        }
+
+        // The instrument's own control: at a mid-demo tick the recorder must be drawn and his view read, or nothing below
+        // measures prediction.
+        int middleTick = timeline.FirstTick + (span / 2);
+        Frame(middleTick);
+        output.WriteLine(string.Create(CultureInfo.InvariantCulture,
+            $"control at {middleTick}: recorder drawn {drawn.Any(prop => prop.EntityIndex == recorder)}, " +
+            $"in the players {players.Any(player => player.EntityIndex == recorder)} " +
+            $"({players.FirstOrDefault(player => player.EntityIndex == recorder)}), drawn props {drawn.Count} of {players.Count} players, " +
+            $"InterpolateViewpoint {(new DemoPlayer(timeline).InterpolateViewpoint(middleTick) is null ? "null" : "a view")}, " +
+            $"ViewsAt {demoPlayer.ViewsAt(middleTick)}, view commands {timeline.ViewCommands.Count}, " +
+            $"packets among them {timeline.ViewCommands.Count(command => command.IsPacket)}"));
+
+        foreach (IGrouping<DemoCommandType, DemoViewCommand> kind in timeline.ViewCommands.GroupBy(command => command.Type))
+        {
+            output.WriteLine(string.Create(CultureInfo.InvariantCulture,
+                $"  {kind.Key}: {kind.Count()}, ticks {kind.Min(command => command.Tick)}-{kind.Max(command => command.Tick)}, " +
+                $"IsPacket {kind.First().IsPacket}, default views {kind.Count(command => command.View.IsDefault)}, " +
+                $"first index {timeline.ViewCommands.ToList().FindIndex(command => command.Type == kind.Key)}"));
         }
 
         (List<double> frames, List<double> recorderMs, List<long> calls) = Seeks();

@@ -37,8 +37,16 @@ Command (`-c Release`, through `run-exclusive.ps1 -Shared`, after `Get-CimInstan
 work):
 
 ```
-dotnet run --project tools/Tf2DemoSalvage.Probe -c Release -- recorder-seek-scan D:/measure-f12/f12.dem 40
+dotnet run --project tools/Tf2DemoSalvage.Probe -c Release -- recorder-seek-scan <lcor>/etf2l-12025-pov-2020-07-21.dem 40
 ```
+
+**The demo is etf2l-12025 (a recorder-POV ETF2L match, 10 players), not f12.** The first exploratory run on
+`D:/measure-f12/f12.dem` tripped the control: recorder entity 1, but a fresh `DemoPlayer.InterpolateViewpoint` at mid-demo
+is null — its packets carry no recorder view, so the viewed route never runs there. The second exploratory run, on
+etf2l-12025, tripped it differently: `InterpolateViewpoint` gave a view where `ViewsAt` said none. That was this branch's
+fix 2 counting `dem_signon`s, whose ticks there are 146,124-146,256 against packets from 0, in its "first packet past the
+tick" index — `ViewsAt` false everywhere and the frame restarting on every read. Fixed before this run (the index counts
+only `dem_packet`, which is all that waits for its tick), with a synthetic regression test.
 
 ## Control
 
