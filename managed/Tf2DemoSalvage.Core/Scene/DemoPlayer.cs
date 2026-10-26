@@ -92,10 +92,12 @@ public sealed class DemoPlayer
             latest = _commands[index].Type == DemoCommandType.Packet ? Math.Max(latest, _commands[index].Tick) : latest;
             _latestPacketTick[index] = latest;
 
-            // A read command straight after another with a higher tick: the one step whose parse-ahead clears the list or,
-            // after signons with no synctick between, never ends it — see `Restart`.
+            // A backward step — see `Restart`: a read command straight after another with a higher tick (signons with no
+            // synctick between them and the packets, whose parse-ahead never ends), or a dem_packet below an earlier
+            // dem_packet across any marker (a backward run after a synctick).
             if (_firstBackwardStep == int.MaxValue && index > 0 && _commands[index].IsPacket &&
-                _commands[index - 1].IsPacket && _commands[index].Tick < _commands[index - 1].Tick)
+                ((_commands[index - 1].IsPacket && _commands[index].Tick < _commands[index - 1].Tick) ||
+                 (_commands[index].Type == DemoCommandType.Packet && _commands[index].Tick < _latestPacketTick[index - 1])))
             {
                 _firstBackwardStep = index;
             }
@@ -385,9 +387,10 @@ public sealed class DemoPlayer
     ///
     /// **From the start of the file when a read command steps back in tick before the stop** — a backward run, whose
     /// parse-ahead clears the list, or signons with no synctick after them, whose parse-ahead queues the rest of the file.
-    /// What either leaves in the list depends on reads before any bounded start. Ponytail: real POV demos put a synctick
-    /// after their signons, so only a demo whose packet ticks run backwards pays the full re-read (45 ms at most on
-    /// etf2l-12025, measured unbounded); a per-step bound is possible if one shows up.
+    /// What either leaves in the list depends on reads before any bounded start. Ponytail: none of the seven real POV
+    /// recordings measured (the five gcor POV specimens, z1800, etf2l-12025; `demo-player-rewind`, 2026-10-26) trips
+    /// it — each re-reads 12-43 commands a rewind — so only a demo whose ticks run backwards pays the full re-read (45 ms
+    /// at most on etf2l-12025, measured unbounded); a per-step bound is possible if one shows up.
     /// </remarks>
     private void Restart(int playbackTick)
     {

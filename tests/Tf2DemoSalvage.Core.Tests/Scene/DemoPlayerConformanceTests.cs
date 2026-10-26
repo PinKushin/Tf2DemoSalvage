@@ -438,12 +438,14 @@ public sealed class DemoPlayerConformanceTests
     [TestCase("gapped")]
     [TestCase("backwards")]
     [TestCase("no synctick")]
+    [TestCase("backwards after synctick")]
     public void InterpolateViewpoint_RewoundToManyTargets_QueuesWhatAFreshReadQueues(string shape)
     {
         byte[] demo = shape switch
         {
             "gapped" => SignonFirstGappedLine(synctick: true),
-            "backwards" => SignonFirstBackwardsLine(),
+            "backwards" => SignonFirstBackwardsLine(syncBefore: false),
+            "backwards after synctick" => SignonFirstBackwardsLine(syncBefore: true),
             _ => SignonFirstGappedLine(synctick: false),
         };
         DemoPlayer played = Player(demo);
@@ -477,13 +479,17 @@ public sealed class DemoPlayerConformanceTests
         .. SyntheticViews.Run(360, 650, tick => SyntheticViews.Packet(tick, (tick * 4f, 0f, 0f), (0f, 10f, 0f))),
     ]);
 
-    /// <summary>Two signons at tick 146,124, a synctick, the line 100-400, a backward run 300-340 off the line, then 401-650.</summary>
-    private static byte[] SignonFirstBackwardsLine() => SyntheticViews.Demo(
+    /// <summary>
+    /// Two signons at tick 146,124, a synctick, the line 100-400, a backward run 300-340 off the line (after a second
+    /// synctick if asked), then 401-650.
+    /// </summary>
+    private static byte[] SignonFirstBackwardsLine(bool syncBefore) => SyntheticViews.Demo(
     [
         SyntheticViews.Signon(146124),
         SyntheticViews.Signon(146124),
         SyntheticViews.SyncTick(100),
         .. SyntheticViews.Run(100, 400, tick => SyntheticViews.Packet(tick, (tick * 4f, 0f, 0f), (0f, 10f, 0f))),
+        .. syncBefore ? [SyntheticViews.SyncTick(300)] : Array.Empty<DemoCommand>(),
         .. SyntheticViews.Run(300, 340, tick => SyntheticViews.Packet(tick, ((tick * 4f) + 7f, 0f, 0f), (0f, 10f, 0f))),
         .. SyntheticViews.Run(401, 650, tick => SyntheticViews.Packet(tick, (tick * 4f, 0f, 0f), (0f, 10f, 0f))),
     ]);
