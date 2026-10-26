@@ -39,7 +39,7 @@ public sealed class DemoPlayer
 
     private readonly IReadOnlyList<DemoViewCommand> _commands;
 
-    /// <summary>For each command, the latest packet tick at or before it in stream order: non-decreasing, so searchable.</summary>
+    /// <summary>For each command, the latest <c>dem_packet</c> tick at or before it in stream order: non-decreasing, so searchable.</summary>
     private readonly int[] _latestPacketTick;
 
     private readonly float _interval;
@@ -82,7 +82,8 @@ public sealed class DemoPlayer
 
         for (int index = 0; index < _commands.Count; index++)
         {
-            latest = _commands[index].IsPacket ? Math.Max(latest, _commands[index].Tick) : latest;
+            // Only a dem_packet waits for its tick; a signon is read when reached, and real ones carry the server's tick.
+            latest = _commands[index].Type == DemoCommandType.Packet ? Math.Max(latest, _commands[index].Tick) : latest;
             _latestPacketTick[index] = latest;
         }
 
@@ -163,7 +164,7 @@ public sealed class DemoPlayer
         return false;
     }
 
-    /// <summary>The first packet, in stream order, whose tick is past <paramref name="playbackTick"/>; the count if none.</summary>
+    /// <summary>The first <c>dem_packet</c>, in stream order, whose tick is past <paramref name="playbackTick"/>; the count if none.</summary>
     /// <remarks>
     /// **Where a read from the start stops**: <see cref="ReadPackets"/> reads every command until a packet waits for a
     /// later tick. Packet ticks are not monotonic in every file (<see cref="ParseAheadForInterval"/>'s backwards case),

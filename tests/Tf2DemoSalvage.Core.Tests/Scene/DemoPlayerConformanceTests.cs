@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 
 using Tf2DemoSalvage.Core.Container;
 using Tf2DemoSalvage.Core.Scene;
@@ -343,6 +344,44 @@ public sealed class DemoPlayerConformanceTests
         rewound.ShouldBe(Player(demo).InterpolateViewpoint(115d));
     }
 
+    /// <summary>
+    /// A signon is read when reached, whatever its tick (`ReadPacket`'s mask, 0x180072ee0); only a `dem_packet` waits. A
+    /// real POV demo's signons carry the server's tick — 146,124 on etf2l-12025 against packets from 0 — so a "first packet
+    /// past the tick" that counted them would be 0 everywhere: `ViewsAt` always false, and the frame restarting each read.
+    /// </summary>
+    [Test]
+    public void ViewsAt_SignonTickedPastEveryPacket_AgreesWithAFreshFrameAtEveryTick()
+    {
+        byte[] demo = SignonFirstCut();
+        DemoPlayer probe = Player(demo);
+
+        Player(demo).InterpolateViewpoint(110d).ShouldNotBeNull("the control: the frame reads the line's views");
+
+        for (int tick = 95; tick <= 135; tick++)
+        {
+            probe.ViewsAt(tick).ShouldBe(Player(demo).InterpolateViewpoint(tick) is not null, $"tick {tick}");
+        }
+    }
+
+    /// <summary>The same demo played through: a frame that restarted on every read would lose the cut window.</summary>
+    [Test]
+    public void InterpolateViewpoint_SignonTickedPastEveryPacket_StillCrossesTheCutExactly()
+    {
+        DemoPlayer player = Player(SignonFirstCut());
+
+        player.InterpolateViewpoint(119.5);
+
+        player.InterpolateViewpoint(120.5).ShouldNotBeNull().Origin.X.ShouldBe(480f, Tolerance);
+    }
+
+    /// <summary>The cut line with a default-view signon at tick 146,124 before it, as etf2l-12025 has.</summary>
+    private static byte[] SignonFirstCut() => SyntheticViews.Demo([SyntheticViews.Signon(146124), .. CutCommands()]);
+
+    /// <summary>The line with tick 120 flagged FDEMO_NOINTERP.</summary>
+    private static IEnumerable<DemoCommand> CutCommands() =>
+        SyntheticViews.Run(100, 130, tick => SyntheticViews.Packet(
+            tick, (tick * 4f, 0f, 0f), (0f, 10f, 0f), flags: tick == 120 ? SyntheticViews.NoInterpolation : 0));
+
     /// <summary>The line to 120, a backward run of default views at ticks 100-110, then the line on from 121.</summary>
     private static byte[] Backwards() => SyntheticViews.Demo(
     [
@@ -370,9 +409,7 @@ public sealed class DemoPlayerConformanceTests
             (0f, localJumps && tick >= 120 ? 50f : 10f, 0f)))]);
 
     /// <summary>The line with tick 120 flagged FDEMO_NOINTERP.</summary>
-    private static byte[] Cut() => SyntheticViews.Demo(
-        [.. SyntheticViews.Run(100, 130, tick => SyntheticViews.Packet(
-            tick, (tick * 4f, 0f, 0f), (0f, 10f, 0f), flags: tick == 120 ? SyntheticViews.NoInterpolation : 0))]);
+    private static byte[] Cut() => SyntheticViews.Demo([.. CutCommands()]);
 
     /// <summary>The line with a second packet at tick 120, flagged FDEMO_NOINTERP and 320 units on.</summary>
     private static byte[] SameTickCut() => SyntheticViews.Demo(
