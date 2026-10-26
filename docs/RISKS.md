@@ -40066,6 +40066,20 @@ reddens four tests), and a child's drawn size against its own scale alone.
   `pl_badwater_pro_v12.bsp` is not on this machine (not under the game's `tf/maps`, `tf/download/maps`, `tf2ds`, or the
   user profile), so its `parentname` cannot be read, and no sampled tick gives them a parent.
 
+## B601 — a fuzzed `actweight` of `INT_MIN`, and weights summing past 32 bits: the engine is undefined, ours is interpolated — FIXED 2026-10-26 (batch-31 second review)
+
+**Evidence class: read from published source, and INTERPOLATED for the one value the source cannot answer.** The
+tuple weight is `iabs(actweight)` with 0 raised to 1 (`studio.cpp:1822-1829`); the roll is `RandomInt( 0, totalWeight -
+1 )` over an `int` sum, walked in sequence order (`animation.cpp:329-335`). Every representable weight follows that rule.
+Two cases the engine leaves undefined: `iabs(INT_MIN)` stays negative in C, and an `int` sum of large weights overflows.
+**Ours:** weights and the total are 64-bit, `INT_MIN` weighs 2^31 (its mathematical abs — an interpolation, not a
+reading), and the roll is 64-bit (`ActivityPickSeed` returns all of SplitMix64), so no tuple's slot is out of reach.
+**What it replaced:** a total saturated at `int.MaxValue` and a 32-bit roll, so with weights `[MaxValue, MaxValue, 2]`
+the roll was always below the first weight and tuples 2 and 3 never came up; and `INT_MIN` was clamped to `MaxValue`, an
+invention. Only fuzzed files reach either; no shipped model has a weight near these. Held by
+`SelectWeightedSequenceConformanceTests` (`…_EveryTupleKeepsItsSlot`, `…_TotalPast32Bits_LastTupleReachable`,
+`ForActivity_WeightIntMinValue_WeighsAsTwoToThe31`); a 32-bit roll and a re-clamp each reddened one.
+
 ## B600 — `--measure`'s `render thread … bytes a frame` is the MAIN thread's allocation, mislabelled since the queue — OPEN (2026-10-25)
 
 **Evidence class: measured, with the code reading it confirms.** `GcReading.Now()` takes

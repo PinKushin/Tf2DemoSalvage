@@ -159,7 +159,7 @@ Tf2DemoSalvage.Scene.EntityModelSet|field|_worldBoneFrame|Private|System.Int64
 Tf2DemoSalvage.Scene.EntityModelSet|method|Absolute|Private|(Tf2DemoSalvage.Core.Scene.SceneProp,System.Int32)|Tf2DemoSalvage.Core.Scene.ScenePose
 Tf2DemoSalvage.Scene.EntityModelSet|method|ActiveAt|Private static|(Tf2DemoSalvage.Scene.PropModels+SkinnedModel,System.Int32,Tf2DemoSalvage.Core.Scene.SceneGesture,System.Double)|System.Boolean
 Tf2DemoSalvage.Scene.EntityModelSet|method|ActivityBegan|Private|(Tf2DemoSalvage.Core.Scene.SceneProp,Tf2DemoSalvage.Scene.PropModels+SkinnedModel,System.Int32,System.String)|System.Int64
-Tf2DemoSalvage.Scene.EntityModelSet|method|ActivityPickSeed|Assembly static|(System.Int32,System.String,System.Int64)|System.UInt32
+Tf2DemoSalvage.Scene.EntityModelSet|method|ActivityPickSeed|Assembly static|(System.Int32,System.String,System.Int64)|System.UInt64
 Tf2DemoSalvage.Scene.EntityModelSet|method|Add|Public|(System.Collections.Generic.IReadOnlyList`1[Tf2DemoSalvage.Core.Scene.SceneProp])|System.Boolean
 Tf2DemoSalvage.Scene.EntityModelSet|method|Add|Public|(System.Collections.Generic.IReadOnlyList`1[Tf2DemoSalvage.Core.Scene.SceneProp],System.Func`2[System.String,Tf2DemoSalvage.Scene.PropModels+ModelFrames])|System.Boolean
 Tf2DemoSalvage.Scene.EntityModelSet|method|AdvanceCorpsesAlone|Assembly|(System.Collections.Generic.List`1[Tf2DemoSalvage.Core.Scene.SceneProp],System.Double)|System.Void

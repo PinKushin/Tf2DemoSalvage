@@ -2408,7 +2408,7 @@ public static class PropModels
         /// (`studio.cpp:1822-1829`), in sequence order (`:329-335`). A player's main sequence comes from here
         /// (D233); <see cref="ForActivity"/>'s heaviest answer is for the existence checks.
         /// </remarks>
-        public int SelectWeightedSequence(string activity, int current, uint random)
+        public int SelectWeightedSequence(string activity, int current, ulong random)
         {
             ArgumentNullException.ThrowIfNull(activity);
 
@@ -2423,7 +2423,8 @@ public static class PropModels
                 return -1;
             }
 
-            int value = (int)(random % (uint)tuples.Total);
+            // 64-bit on both sides: a fuzzed total past 32 bits keeps every tuple's slot reachable.
+            long value = (long)(random % (ulong)tuples.Total);
             int index = 0;
 
             while (value >= tuples.Weights[index])
@@ -2481,7 +2482,11 @@ public static class PropModels
         }
 
         /// <summary>One activity's tuples, in sequence order, as `CActivityToSequenceMapping` stores them.</summary>
-        private sealed record ActivityTuples(int[] Sequences, int[] Weights, int Total, int Heaviest);
+        /// <remarks>
+        /// Weights and total are `long`: the engine sums `int`s (`animation.cpp:329-335`), which a fuzzed file can overflow
+        /// (undefined in C). A 64-bit sum cannot, for any count of 32-bit weights a model can hold.
+        /// </remarks>
+        private sealed record ActivityTuples(int[] Sequences, long[] Weights, long Total, int Heaviest);
 
         /// <summary>An activity map and the tables it was built from.</summary>
         private sealed record ActivityMap(
@@ -2497,8 +2502,8 @@ public static class PropModels
         private Dictionary<string, ActivityTuples> BuildActivities()
         {
             Dictionary<string, int> map = new(StringComparer.OrdinalIgnoreCase);
-            Dictionary<string, int> weights = new(StringComparer.OrdinalIgnoreCase);
-            Dictionary<string, (List<int> Sequences, List<int> Weights)> tuples = new(StringComparer.OrdinalIgnoreCase);
+            Dictionary<string, long> weights = new(StringComparer.OrdinalIgnoreCase);
+            Dictionary<string, (List<int> Sequences, List<long> Weights)> tuples = new(StringComparer.OrdinalIgnoreCase);
 
             for (int sequence = 0; sequence < Sequences.Count; sequence++)
             {
@@ -2519,18 +2524,17 @@ public static class PropModels
                 // STUDIO_SEQUENCE_ACTIVITY_LOOKUPS_ARE_SLOW is 0 (studio.h:33, animation.cpp:238-268). An empty name has no activity
                 // (animation.cpp:146, studio.cpp:1723). Strictly greater, so the FIRST sequence of
                 // the highest weight wins a tie — deterministic where the engine rolls RandomInt.
-                // A fuzzed int.MinValue has no positive abs (C's iabs leaves it negative, Math.Abs throws); it
-                // weighs as int.MaxValue, the nearest weight the engine's rule can mean.
-                int weight = candidate.ActivityWeight == int.MinValue
-                    ? int.MaxValue
-                    : Math.Max(1, Math.Abs(candidate.ActivityWeight));
+                // INTERPOLATED (RISKS B601): a fuzzed int.MinValue has no positive abs in 32 bits — C's iabs
+                // leaves it negative and the engine's walk is then undefined. Taken in 64 bits it is 2^31, the
+                // mathematical abs; every other representable weight follows the engine's rule exactly.
+                long weight = Math.Max(1L, Math.Abs((long)candidate.ActivityWeight));
 
                 if (candidate.Activity.Length == 0)
                 {
                     continue;
                 }
 
-                if (!tuples.TryGetValue(candidate.Activity, out (List<int> Sequences, List<int> Weights) list))
+                if (!tuples.TryGetValue(candidate.Activity, out (List<int> Sequences, List<long> Weights) list))
                 {
                     list = ([], []);
                     tuples[candidate.Activity] = list;
@@ -2548,17 +2552,16 @@ public static class PropModels
 
             Dictionary<string, ActivityTuples> built = new(StringComparer.OrdinalIgnoreCase);
 
-            foreach ((string activity, (List<int> Sequences, List<int> Weights) list) in tuples)
+            foreach ((string activity, (List<int> Sequences, List<long> Weights) list) in tuples)
             {
                 long total = 0;
 
-                foreach (int weight in list.Weights)
+                foreach (long weight in list.Weights)
                 {
                     total += weight;
                 }
 
-                // Saturated: the engine's int sum overflows (undefined), and a wrap to zero divided by zero in the roll.
-                built[activity] = new ActivityTuples([.. list.Sequences], [.. list.Weights], (int)Math.Min(total, int.MaxValue), map[activity]);
+                built[activity] = new ActivityTuples([.. list.Sequences], [.. list.Weights], total, map[activity]);
             }
 
             return built;
