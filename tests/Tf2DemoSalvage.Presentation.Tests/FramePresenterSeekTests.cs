@@ -185,6 +185,40 @@ public sealed class FramePresenterSeekTests
         }
     }
 
+    /// <remarks>
+    /// **And the decals' replay drains on its own** (B581, B585): with no sound scripts the skip runs no frame and so
+    /// no drain, and the replay's poses would rewrite the instance matrices pooled in place while the held draw reads them.
+    /// </remarks>
+    [Test]
+    public void ShowMomentOver_ASeekWithNoSkipFramesInModeTwo_DrainsBeforeTheDecalsReplayPoses()
+    {
+        using System.Threading.ManualResetEventSlim gate = new();
+        using Render.QueuedRenderThread queue = new() { Mode = Render.MaterialThreadMode.QueuedThreaded };
+        string? drainedBy = null;
+
+        queue.Waiting = caller =>
+        {
+            drainedBy ??= caller;
+            gate.Set();
+        };
+
+        try
+        {
+            Seeking seek = new(scripts: false) { Queue = queue };
+
+            queue.Submit(gate.Wait);
+            seek.Show(500d, device: new FakeFrameDevice());
+
+            seek.Render.Count("model decals: a seek to 500 replayed ticks ").ShouldBe(1, "the control: the decals replayed");
+            seek.InFlight.ShouldAllBe(inFlight => !inFlight);
+            drainedBy.ShouldBe("ReplayModelDecals");
+        }
+        finally
+        {
+            gate.Set();
+        }
+    }
+
     [Test]
     public void ShowMomentOver_WhilePlaying_WalksEventsOnTheMoment()
     {

@@ -40363,6 +40363,13 @@ slots grown by doubling and overwritten on each rebuild (`4c7f98a9`). A list's m
 is, after `FinishDrawBeforePose`, the wait that already makes reusing the lists safe. Held by `InstanceMatricesTests`
 (bit-identical to `ToMatrix`; warm pass 1 B/prop over 246 props; another list's pass leaves this one untouched; distinct
 within a pass), each sabotaged red. Mode-2 `TF2VIEW_QUEUE_VERIFY=1` gummo run: `0 changed` (no positive control).
+**Batch-31 review, finding 1 (2026-10-26) — the seek poses were already safe, not fixed:** the review read that a seek's
+skip and decal-replay poses call `MomentPresenter.PoseNow` directly, never `PoseOver`, so `FinishDrawBeforePose` does not
+run. True, but both drain the render thread first by B581's `QueuedRenderThread.Lock` (`ReplaySkip` before its frames,
+`ReplayModelDecals` before its replay) and nothing in either loop submits a draw, so no frame is in flight while they pose.
+Only `ReplaySkip`'s drain was tested; `ShowMomentOver_ASeekWithNoSkipFramesInModeTwo_DrainsBeforeTheDecalsReplayPoses`
+covers the replay's own (no sound scripts, so no skip frame), red with its `Lock` removed. Every other `PoseNow`/`Instances`
+caller goes through `PoseOver` or has no device; `DecalEffects.Step`'s `SkinningOf` runs after `PoseOver`'s wait.
 **Measured** (`measurements/2026-10-25-b585-matrix-pool.md`): own timer `place … matrix` 0.0136-0.0165 → 0.0089-0.0120 ms;
 frame, MB/frame, gc pause and gen0 inside the same-build spread on both subjects — the ~22 KB a frame was never the GC's
 driver.
