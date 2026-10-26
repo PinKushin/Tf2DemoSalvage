@@ -11075,3 +11075,24 @@ a dead player is not animated and `ClearAnimationState` leaves the main sequence
 he respawns into the variant he died in. Gestures needed no scan: each carries its own start, and the roll is seeded on
 it (`AddToGestureSlot` rolls once, `:616-688`). Ceilings, cost and what remains: RISKS B584.
 
+## D234 — a demo rewind is bounded only for a provably simple file; everything else re-reads from the start (2026-10-26)
+
+**The question.** `DemoPlayer.Restart` starts a rewind's re-read near its target instead of at the file's start (batch-31
+review 2: 115k commands a rewind on etf2l-12025 before, ~40 after). Three reviews in a row each found a file shape where
+the bounded start left the parse-ahead list, and sometimes the view, different from a fresh read's — a tick gap, a
+backward run, a backward run after a synctick, signons with no synctick — and the fourth listed more.
+
+**The decision — the owner's and the lead's, relayed by the coordinator:** *"stop chasing edge cases; make the bound
+CONSERVATIVE."* At load, decide once whether the file is simple; if it is, use the bounded restart, otherwise the
+unbounded one exactly, "correct by construction". No reasoning beyond that was given; the record of three reviews, each
+finding a new shape, is the context it was given in.
+
+**What it became.** Simple is an opening closed by a synctick or stop, then a trailing run of `dem_packet`s whose ticks
+never step back (`DemoPlayer.Simple`, whose remarks carry the proof). The bounded start sits past the body's first
+packet and is counted from the last packet read. Held by `DemoPlayerRewindPropertyTests` (600 seeded synthetic demos,
+every target, view + list + `m_bInterpolateView` against a fresh player) and the four hand-built shapes. **One
+correction the coordinator's sketch did not have:** the first cut also required the opening's signons to be ticked past
+every packet, which a sweep of real demos showed the era specimens fail (opening signons at 158 and 6,041); the proof
+does not need it, so it was dropped and the start moved past the body's first packet instead. How many real demos are
+simple, and what a rewind costs on each path: `measurements/2026-10-26-pov-recorder-seek-scan.md`.
+

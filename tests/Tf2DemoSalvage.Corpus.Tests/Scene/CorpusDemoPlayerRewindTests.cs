@@ -19,6 +19,7 @@ public sealed class CorpusDemoPlayerRewindTests
     {
         DemoTimeline timeline = DemoTimeline.Build(File.ReadAllBytes(Corpus.Demo("etf2l-12025-pov-2020-07-21")));
         DemoPlayer played = new(timeline);
+        played.IsSimple.ShouldBeTrue("the control: a real POV opening is the shape the bound is for, or the tail check below measures the full re-read");
         int span = timeline.LastTick - timeline.FirstTick;
         int compared = 0;
         int views = 0;
@@ -40,6 +41,8 @@ public sealed class CorpusDemoPlayerRewindTests
                 }
 
                 (view == fresh.InterpolateViewpoint(tick)).ShouldBeTrue($"landing {landing}, tick {tick}");
+                played.QueuedPackets.SequenceEqual(fresh.QueuedPackets).ShouldBeTrue($"landing {landing}, tick {tick}: the parse-ahead list");
+                played.InterpolatesView.ShouldBe(fresh.InterpolatesView, $"landing {landing}, tick {tick}");
                 views += view is null ? 0 : 1;
                 compared++;
             }

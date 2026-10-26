@@ -55,16 +55,23 @@ public sealed class DemoPlayerRewindProbe : IProbe
             RecordedView? view = player.InterpolateViewpoint(landing + 0.25d);
             milliseconds.Add(Stopwatch.GetElapsedTime(at).TotalMilliseconds);
             reads.Add(player.CommandsRead - readBefore);
-            mismatches += view == new DemoPlayer(timeline).InterpolateViewpoint(landing + 0.25d) ? 0 : 1;
+
+            // The whole state a fresh read lands in, not just the view: the parse-ahead list and m_bInterpolateView.
+            DemoPlayer fresh = new(timeline);
+            bool same = view == fresh.InterpolateViewpoint(landing + 0.25d) &&
+                player.QueuedPackets.SequenceEqual(fresh.QueuedPackets) &&
+                player.InterpolatesView == fresh.InterpolatesView;
+            mismatches += same ? 0 : 1;
         }
 
         output.WriteLine(string.Create(CultureInfo.InvariantCulture,
-            $"{Path.GetFileName(path)}: {rewinds} rewinds from {end} over {timeline.ViewCommands.Count} view commands, ticks {timeline.FirstTick}-{timeline.LastTick}"));
+            $"{Path.GetFileName(path)}: {rewinds} rewinds from {end} over {timeline.ViewCommands.Count} view commands, ticks {timeline.FirstTick}-{timeline.LastTick}, " +
+            $"simple {(player.NotSimpleBecause is { } why ? $"no ({why})" : "yes")}, recorder {(timeline.RecorderEntityIndex is null ? "none (SourceTV)" : "yes")}"));
         output.WriteLine(string.Create(CultureInfo.InvariantCulture,
             $"rewind: first {milliseconds[0]:0.000} ms, then mean {milliseconds.Skip(1).Average():0.000} ms, max {milliseconds.Skip(1).Max():0.000} ms; " +
             $"commands re-read: first {reads[0]}, then mean {reads.Skip(1).Average():0.0}, max {reads.Skip(1).Max()}"));
         output.WriteLine(string.Create(CultureInfo.InvariantCulture,
-            $"control: {mismatches} of {rewinds} landings answer differently from a fresh player"));
+            $"control: {mismatches} of {rewinds} landings differ from a fresh player in view, queued packets or interpolate-view"));
 
         if (mismatches > 0)
         {
