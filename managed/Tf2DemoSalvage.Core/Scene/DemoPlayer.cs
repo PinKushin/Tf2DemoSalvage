@@ -357,6 +357,12 @@ public sealed class DemoPlayer
     }
 
     /// <summary><c>StartPlayback</c> then the skip's reads, from the last packet the list can no longer hold.</summary>
+    /// <remarks>
+    /// **Searched back from <see cref="FirstPacketPast"/>, where a read from the start stops** — not forward until the
+    /// first command of ANY type past the target, which a real POV demo's signons (ticked 146,124 on etf2l-12025, at
+    /// index 0) made the very first, so every rewind re-read from the start (batch-31 review 2). The start is the last
+    /// packet before that stop whose tick is older than the list keeps; with none, the start of the file.
+    /// </remarks>
     private void Restart(int playbackTick)
     {
         _packets.Clear();
@@ -365,11 +371,12 @@ public sealed class DemoPlayer
 
         int from = 0;
 
-        for (int index = 0; index < _commands.Count && _commands[index].Tick <= playbackTick; index++)
+        for (int index = FirstPacketPast(playbackTick) - 1; index >= 0; index--)
         {
             if (_commands[index].IsPacket && _commands[index].Tick < playbackTick - KeptTicks - ParseAheadTicks)
             {
                 from = index;
+                break;
             }
         }
 
@@ -377,7 +384,7 @@ public sealed class DemoPlayer
     }
 
     /// <summary>Commands read so far, rewinds' re-reads included: what a rewind costs, for a test and the rewind probe.</summary>
-    internal long CommandsRead { get; private set; }
+    public long CommandsRead { get; private set; }
 
     /// <summary>What <c>ReadPacket</c> does with one command.</summary>
     private void ReadPacket(int index)
