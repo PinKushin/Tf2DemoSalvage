@@ -253,6 +253,15 @@ which is not installed; *interpolated, not fetched*.
 | the run's own total flips / viewed living probes | 1,392 / 19,601 (7.1%) | 724 / 33,368 (2.2%) |
 | margin with 0 fit probes wrong | 1,022.6 u/s (99.9% predict) | 825.6 u/s (98.7% predict) |
 
+**The control on a demo whose map matches** is `rgl-pug-2026-08-10-pov.dem` (lcor), on `cp_process_f12`, where the probe
+prints that the installed map matches the recorded MapHash. Of 94,321 gaps compared, still against running went from
+**3,194 to 1,000**; within 1 u/s went from 75.2% to 77.1%; mean |Δv| went from 13.879 to 7.503 u/s. **None** of the 1,000
+starts inside world brushes, which supports blaming etf2l-12025's 23% on its map build. What is left there has a different
+shape. In 48.1% (1 of 72,686 agreeing), an unswept hull at the restored origin answers a fraction under 1 *without*
+`startsolid`, which is how `MapLevel.Trace` reports a static prop or terrain hit, since it drops the flag. In 51.3%, a static
+prop holds the hull one step on (agreeing: 0.1%). That points at static prop collision, or at the flag `MapLevel.Trace`
+drops, as the next cause. Not hunted.
+
 There are more probes after the fix. The scan goes back to the recorder's last activity change, and wrongly zeroed ticks
 no longer break up a run. **This is a cost consequence:** on the same landings, the exact route's test-half probes went from
 26,536 to 41,236 (+55%) and the fit's from 21,794 to 35,561. The per-seek milliseconds above (14.05 / 85.85) are therefore

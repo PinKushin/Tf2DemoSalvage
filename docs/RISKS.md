@@ -40120,6 +40120,13 @@ on (0.7% of agreeing gaps); that is the same map question, and also whether `Map
 `startsolid`, which it drops. Neither is settled. Next step: fetch the 2020 build (the viewer's `MapDownloader`) and re-run the
 two probes.
 
+**On a demo whose map matches** (`rgl-pug-2026-08-10-pov`, `cp_process_f12`, MapHash matches): still against running went
+from 3,194 to 1,000 of 94,321 gaps, and none of the 1,000 starts in world brushes. **The next cause, not hunted**, is static
+props. In 48% of the 1,000, a hull at the restored origin gets a fraction under 1 with no `startsolid`, against 1 in 72,686
+agreeing gaps; that is how `MapLevel.Trace` reports a prop or terrain hit, since it drops the flag. In 51%, a prop holds the
+hull one step on, against 0.1%. Read `StaticPropCollision` against vphysics' hull trace, and `MapLevel.Trace`'s dropped
+`startsolid`, before measuring more (measurements/2026-10-26-pov-recorder-seek-scan.md, "B604's cause").
+
 **Evidence class: measured** (measurements/2026-10-26-pov-recorder-seek-scan.md, "Follow-up result", etf2l-12025, 300 seek
 landings, 19,601 viewed living probes). Found by B602's hybrid measurement: at 1,392 probes the predicted
 (`RecorderPrediction.VelocityThrough`) and networked speeds pick different activities; in 1,339 prediction says 0 where the
