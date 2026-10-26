@@ -406,6 +406,28 @@ public sealed class SpectatorViewTests
     }
 
     /// <remarks>
+    /// **A camera whose trace starts within <c>DIST_EPSILON</c> of a wall** (B604, the clip's Source form). The slab is
+    /// |x| ≤ 4, grown to |x| ≤ 10 by the camera's ±6 box. Eyes 0.01 off its face: tracing INTO it clamps the entry to 0 and
+    /// the camera goes to the eyes, `cameraOrigin = trace.endpos` (hltvcamera.cpp:232-236); tracing AWAY is in front of the
+    /// face throughout, `d1 &gt; 0 &amp;&amp; d2 &gt; 0`, and reaches the whole 96.
+    /// </remarks>
+    [TestCase(10.01f, 0f, TestName = "Chase_EyesInsideTheEpsilonOfAWallBehindThem_SitsAtTheEyes")]
+    [TestCase(-10.01f, 96f, TestName = "Chase_EyesInsideTheEpsilonOfAWallInFront_IsNotHeldAtTheWall")]
+    public void Chase_EyesInsideTheEpsilonOfAWall_TracesFromThereAsSourceDoes(float x, float back)
+    {
+        MapLevel level = RotatedBrushTraceConformanceTests.Level();
+        SolidBrush slab = RotatedBrushTraceConformanceTests.Slab(0f, 0f, 0f);
+        SpectatorView view = new(new RecordingLogger())
+        {
+            Eyes = Eyes(null, false, [Player(2, x)]),
+            Spectating = 2,
+            World = (from, to, extent) => level.Trace(from, to, extent, [slab]).Fraction,
+        };
+
+        (x - view.Chase(tick: 10, aspect: 1f)!.Origin.X).ShouldBe(back, 0.01f);
+    }
+
+    /// <remarks>
     /// **`spec_autodirector` 0 is the watcher's own camera** (hltvcamera.cpp:109, :174-178): `bManual` takes
     /// `engine->GetViewAngles` and adds no offset. In demo playback those are the angles the demo recorded, and a
     /// SourceTV recording's are zero — so the camera looks along +X, level, while the target turns under it.
