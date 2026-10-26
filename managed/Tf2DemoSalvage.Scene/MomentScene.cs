@@ -612,7 +612,8 @@ public sealed class MomentScene : IGameSystemPerFrame
                 }
             }
 
-            _drawn.RemoveRange(kept, _drawn.Count - kept);        }
+            _drawn.RemoveRange(kept, _drawn.Count - kept);
+        }
 
         long firstPersonAt = Stopwatch.GetTimestamp();
 
