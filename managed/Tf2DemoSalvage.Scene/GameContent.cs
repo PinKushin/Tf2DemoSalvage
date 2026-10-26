@@ -43,7 +43,11 @@ public sealed class GameContent
         EntityClasses = entityClasses;
         Classes = classes;
         Weapons = weapons;
+        MuzzleFlashes = new WeaponMuzzleFlashes(archives.Read, weapons.Items);
     }
+
+    /// <summary>Each weapon's muzzle flash from its item and script, read before play by <c>OpenGame</c> (B595 part 6).</summary>
+    public WeaponMuzzleFlashes MuzzleFlashes { get; }
 
     /// <summary>Every content source: the VPKs, plus any loose folders beside them.</summary>
     public GameArchives Archives { get; }

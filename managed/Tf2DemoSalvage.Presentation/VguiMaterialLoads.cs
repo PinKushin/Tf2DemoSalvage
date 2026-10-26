@@ -17,6 +17,7 @@ public sealed class VguiMaterialLoads<T>(Func<string, T?> resolve, Func<object?>
     where T : struct
 {
     private readonly ConcurrentDictionary<string, T?> _held = new(StringComparer.OrdinalIgnoreCase);
+    private readonly System.Threading.Lock _gate = new();
     private object? _of;
 
     /// <summary>Decodes the material now and holds it for <see cref="Take"/>.</summary>
@@ -39,14 +40,18 @@ public sealed class VguiMaterialLoads<T>(Func<string, T?> resolve, Func<object?>
         return _held.TryRemove(material, out T? held) ? held : resolve(material);
     }
 
+    /// <summary>Drops what was held when the files changed; locked because the renderer may take on its own thread.</summary>
     private void Current()
     {
         object? now = files();
 
-        if (!ReferenceEquals(now, _of))
+        lock (_gate)
         {
-            _held.Clear();
-            _of = now;
+            if (!ReferenceEquals(now, _of))
+            {
+                _held.Clear();
+                _of = now;
+            }
         }
     }
 }

@@ -40130,6 +40130,18 @@ attached props and his owned weapons (`FirstPersonVisibility.Visible`'s set) fro
 Held by two `MomentSceneTests` (synthetic): the zoomed cases were red before, the not-zoomed and SourceTV controls green.
 **Not checked:** a POV demo where the recorder scopes, seen in third person.
 
+**Corrected 2026-10-26 (batch-31 review, finding 2): the first fix dropped him from the posed list too, which the engine
+does not.** `ShouldDraw` false does not stop `CModelRender::AddDecal`, which sets up the struck player's bones itself, so a
+bullet on a zoomed sniper still bloodies him. Removed from every list, he was in no pass, `SkinningOf` answered null and the
+decal was refused — in third person always, in first person because the undrawn list lost him too. Now his props are MOVED
+from the drawn list into the undrawn one (one in-place pass, `FirstPersonVisibility.Hides`, holstered weapons left out),
+the monitor is handed nothing while he is zoomed, and his pass simulates without posing, as the no-monitor path does.
+`Pose_TheRecorderZoomed_KeepsHisBonesForADecalAndDrawsHimInNoView` (both cameras) holds it; restoring the old `_undrawn`
+filter reddened it and the census assertion of the monitor test, which had encoded the regression (`Props == 0`).
+**Ceiling (ponytail):** while he is zoomed the whole undrawn list leaves the monitor, so first person through ANOTHER player
+in a POV demo loses that player from a monitor for the zoom's length. **Not checked end to end:** a decal landing on him
+through `DecalEffects` — the test stops at `SkinningOf`, which is what `DecalEffects` asks.
+
 ## B596 — is the Debug build part of the viewer-vs-TF2 f12 gap? No: Debug and Release are the same program — CLOSED (2026-10-24)
 
 **Evidence class: measured, with a code reading it confirms** (`docs/measurements/2026-10-24-debug-vs-release-f12.md`).
@@ -40231,6 +40243,19 @@ window in every run, so it is never counted; the slow frames track machine load,
 frames > 50 ms under an unnamed load, 0-2 in the quiet pair; measurements/2026-10-25-b595-part6-main-thread-reads-in-play.md), and the after build had fewer early ones in 4 of 6 loaded
 pairs. Verdict: the known pose/particle stalls amplified by contention, not the precache and not load shifted to
 start-up. Real-demo test: `CorpusMainThreadReadsInPlayTests`. **Still open:** pose, `camera wait`, the start-up frames.
+**Batch-31 review, finding 5 (2026-10-26):** the read observer was never removed, so after a `--measure` report every
+archive read for the rest of the run kept a `StackTrace` nobody printed. `ReadsInPlay` now owns arm, report and disarm;
+the report disarms and forgets (`ReadsInPlayTests`, red with the disarm removed); the `--then-seek` measurement re-arms at
+its own first frame. **Finding 6:** the weapon-script precache ran in the first `BurstEffects.Step` in play, on the
+game thread; it is now `GameContent.MuzzleFlashes`, precached by `LevelSystems.OpenGame` as the install arrives on the
+first map read — before play, beside the install's other catalogs, the nearest point to `C_World::Precache` that has the
+inputs (the item schema and the archives). Not in `DemoAppearance.Ensure`, which is per demo and runs on the first moment
+in play, so it would not have moved the read. Its timing is carried from `WeaponMuzzleFlashes.Precache` itself (B243).
+`LevelSystemsTests.OpenGame_TheInstall_PrecachesItsWeaponScriptsBeforePlay` (red with the call removed);
+`CorpusMainThreadReadsInPlayTests` now reads the game's own instance, **not run here** (no f12 in the worktree).
+**Threads (read from code):** `OpenGame` runs inside `ReadMap`, which the demo load awaits behind its `_readingMap`
+barrier (B507) and may run on a pool thread; `WeaponMuzzleFlashes._scripts` is a plain dictionary filled there and read
+(and lazily added to by `For`) on the game thread only after that load completes, so the task's completion orders them.
 
 ## B594 — `LevelLighting.SunFrom`'s 5.8% is not explained by how often it runs; the first-person undrawn pass lights a model nothing draws — OPEN (2026-10-24)
 
@@ -40351,6 +40376,13 @@ slots grown by doubling and overwritten on each rebuild (`4c7f98a9`). A list's m
 is, after `FinishDrawBeforePose`, the wait that already makes reusing the lists safe. Held by `InstanceMatricesTests`
 (bit-identical to `ToMatrix`; warm pass 1 B/prop over 246 props; another list's pass leaves this one untouched; distinct
 within a pass), each sabotaged red. Mode-2 `TF2VIEW_QUEUE_VERIFY=1` gummo run: `0 changed` (no positive control).
+**Batch-31 review, finding 1 (2026-10-26) — the seek poses were already safe, not fixed:** the review read that a seek's
+skip and decal-replay poses call `MomentPresenter.PoseNow` directly, never `PoseOver`, so `FinishDrawBeforePose` does not
+run. True, but both drain the render thread first by B581's `QueuedRenderThread.Lock` (`ReplaySkip` before its frames,
+`ReplayModelDecals` before its replay) and nothing in either loop submits a draw, so no frame is in flight while they pose.
+Only `ReplaySkip`'s drain was tested; `ShowMomentOver_ASeekWithNoSkipFramesInModeTwo_DrainsBeforeTheDecalsReplayPoses`
+covers the replay's own (no sound scripts, so no skip frame), red with its `Lock` removed. Every other `PoseNow`/`Instances`
+caller goes through `PoseOver` or has no device; `DecalEffects.Step`'s `SkinningOf` runs after `PoseOver`'s wait.
 **Measured** (`measurements/2026-10-25-b585-matrix-pool.md`): own timer `place … matrix` 0.0136-0.0165 → 0.0089-0.0120 ms;
 frame, MB/frame, gc pause and gen0 inside the same-build spread on both subjects — the ~22 KB a frame was never the GC's
 driver.
@@ -40435,8 +40467,23 @@ the stretch, the next-whole-tick rule, the presenter's hop — each reddened. **
 that began more than `ActivityScanTicks` (2048, 31 s at 66 Hz) before the landing keys on the earliest tick in the window,
 so a seek deep into one long activity can differ from play; and a stretch shorter than the gap between two frames is held
 through by play (as the engine at that frame rate would) but ends the stretch for a seek
-(`…_AStretchBetweenTwoFrames_…`). A point-of-view recorder is scanned on his networked velocity, where the frame uses the
-predicted one. **Seek cost** (measurements/2026-10-25-d233-activity-tuples-cost.md, addendum): 9.1 ms mean, 52 ms max for 6-12 drawn players
+(`…_AStretchBetweenTwoFrames_…`). **The recorder FIXED 2026-10-26 (batch-31 review, finding 7):** the line here said a
+POV recorder was scanned on his networked velocity; read again, he was scanned on his TRACK — `PlayerAt` takes the
+non-local path, whose speed differences positions — while the frame, once `DemoPlayer` hands a viewpoint, moves him by
+`LocalPlayer` on prediction's velocity or the networked one. So `DesiredSequence` could disagree with the frame and
+`HoldsAcross` report a break mid-activity (a re-roll under fast playback). `TimelineMoments.ActivityPlayerAt` now asks
+`DemoPlayer.ViewsAt` (side-effect free: the last packet at or before the tick has a non-default `democmdinfo_t`, which is
+exactly when `InterpolateViewpoint` answers non-null) and, when viewed, gives him `LocalPlayer`'s speed from the
+cache-free `RecorderPrediction.VelocityThrough` (equal by reading to `VelocityAt` at any fraction of that whole tick).
+Only speed and velocity: posture and the jump activity are decoded per frame and the same on both routes, and the rest
+of `LocalPlayer` needs the viewpoint and the carried feet. `MainSequenceSeekTests.ActivityPlayerAt_TheRecorder_HasTheFramesSpeed`
+(viewed and unviewed) reddened with the track route restored and with `ViewsAt` forced true. **Untested:** the prediction
+half (no map in the fixture). **Cost not measured:** one movement prediction per recorder probe on a seek, and per
+skipped tick under `HoldsAcross`. **Confirmed by reading, the other two questions:** a paused frame
+(`interpolating: false`) samples the same speed `PlayerAt` does, because the track's speed is `SpeedOf(At(tick), …)`
+whatever the flag (`Held` moves only the pose); and `DecalEffects`' `PlayersAt` lists (~922) never reach the scan, whose
+only input is `EntityModelSet.PlayerPropAt` ← `MomentScene.EarlierPlayer` ← the moment source's `ActivityPlayerAt`, which
+the decal replay's frames use too. **Seek cost** (measurements/2026-10-25-d233-activity-tuples-cost.md, addendum): 9.1 ms mean, 52 ms max for 6-12 drawn players
 on f12, 175 earlier-tick probes a player, 95% of it `DemoTimeline.PlayerAt`; about 22 ms for 24 players, *interpolated*.
 The held frame stays 0 B (one 1,112 B frame after each landing). **Review fixes, same branch:** `MomentScene.Build` now
 sets `CurrentTick` before `Pack` — only `Pose` set it, so every frame's sequences were chosen at the PREVIOUS frame's tick

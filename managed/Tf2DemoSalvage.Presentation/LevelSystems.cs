@@ -159,6 +159,11 @@ public sealed class LevelSystems
             : SoundScriptCatalog.Load(game.Archives.Read);
         _sound.Scripts = _installScripts;
 
+        // **The weapon scripts before play** (B595 part 6): `C_World::Precache` (c_world.cpp:161-176) reads every
+        // registered weapon's script at each level's load. The scripts are the install's, so they are read here, as the
+        // install arrives on the first map read, and a later level's precache would read nothing new.
+        game.MuzzleFlashes.Precache();
+
         // **The install is half of the player appearance and this is when it arrives.** The other
         // half is the demo, which `DemoSystems.Open` supplies — two lifetimes, so two setters, and
         // neither can wait for the other. Set here rather than left for a per-frame reach into a

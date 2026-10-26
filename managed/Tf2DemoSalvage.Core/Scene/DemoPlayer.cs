@@ -127,6 +127,46 @@ public sealed class DemoPlayer
         return _answer;
     }
 
+    /// <summary>Whether <see cref="InterpolateViewpoint"/> at this playback tick answers a view rather than null.</summary>
+    /// <param name="playbackTick">The whole playback tick.</param>
+    /// <returns>True when the last <c>dem_packet</c> read by it carries a non-default <c>democmdinfo_t</c>.</returns>
+    /// <remarks>
+    /// **Side-effect free**, for the seek scan (D233): it reads the command list and none of the reader's state. Both
+    /// branches of <see cref="Interpolate"/> answer non-null exactly when the current packet's view is not the default,
+    /// and <see cref="ReadPackets"/> leaves the current packet the last one at or before the tick (commands are in
+    /// stream order, so their ticks do not decrease).
+    /// </remarks>
+    public bool ViewsAt(int playbackTick)
+    {
+        int low = 0;
+        int high = _commands.Count;
+
+        // The first command past the tick.
+        while (low < high)
+        {
+            int middle = (low + high) >>> 1;
+
+            if (_commands[middle].Tick <= playbackTick)
+            {
+                low = middle + 1;
+            }
+            else
+            {
+                high = middle;
+            }
+        }
+
+        for (int index = low - 1; index >= 0; index--)
+        {
+            if (_commands[index].IsPacket)
+            {
+                return !_commands[index].View.IsDefault;
+            }
+        }
+
+        return false;
+    }
+
     private RecordedView? Interpolate(int playbackTick, float hostRemainder)
     {
         RecordedView current = _current >= 0 ? _commands[_current].View : default;

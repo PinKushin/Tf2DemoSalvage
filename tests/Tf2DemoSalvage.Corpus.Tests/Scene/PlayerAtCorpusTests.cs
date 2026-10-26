@@ -8,7 +8,7 @@ namespace Tf2DemoSalvage.Core.Tests;
 /// The seek scan's one-player sampler answers what the frame's sampler answers (D233).
 /// </summary>
 /// <remarks>
-/// `MainSequence`'s seek recovery reads earlier ticks through <see cref="DemoTimeline.PlayerAt"/> so it does not
+/// `MainSequence`'s seek recovery reads earlier ticks through <see cref="DemoTimeline.PlayerAt(double, int)"/> so it does not
 /// disturb the per-frame caches; if the two disagreed, a seek would key its roll on an activity the frame never
 /// showed. A SourceTV recording, so there is no viewpoint for the frame's sampler to differ by.
 /// </remarks>

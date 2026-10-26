@@ -61,6 +61,21 @@ public sealed class SelectWeightedSequenceConformanceTests
         model.SelectWeightedSequence("ACT_A", current: 2, 0u).ShouldBe(0);
     }
 
+    /// <summary>
+    /// A fuzzed `actweight` of <c>int.MinValue</c>: C's <c>iabs</c> has no positive answer for it, and
+    /// <c>Math.Abs</c> throws. It weighs as <c>int.MaxValue</c>, so it outweighs <c>int.MaxValue - 1</c>.
+    /// </summary>
+    [Test]
+    public void ForActivity_WeightIntMinValue_WeighsAsIntMaxValue() =>
+        SyntheticSkinnedModel.WithWeights(("ACT_A", int.MaxValue - 1), ("ACT_A", int.MinValue)).ForActivity("ACT_A").ShouldBe(1);
+
+    /// <summary>Weights whose sum wraps to zero in 32 bits must not divide by zero; the sum saturates.</summary>
+    [TestCase(0u, 0)]
+    [TestCase(uint.MaxValue, 0)]
+    public void SelectWeightedSequence_WeightsSumPastIntMax_Saturates(uint random, int expected) =>
+        SyntheticSkinnedModel.WithWeights(("ACT_A", int.MaxValue), ("ACT_A", int.MaxValue), ("ACT_A", 2))
+            .SelectWeightedSequence("ACT_A", current: -1, random).ShouldBe(expected);
+
     [Test]
     public void SelectWeightedSequence_ActivityAbsent_IsMinusOne() =>
         SyntheticSkinnedModel.WithWeights(("ACT_A", 1)).SelectWeightedSequence("ACT_B", -1, 0u).ShouldBe(-1);

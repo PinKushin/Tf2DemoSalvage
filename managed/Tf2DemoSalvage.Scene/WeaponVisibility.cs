@@ -85,7 +85,9 @@ public static class WeaponVisibility
     /// All three conditions matter and each covers a different case: no state means a wearable, no
     /// owner means a weapon on the ground, and the active state means the one in their hands.
     /// </remarks>
-    private static bool IsHolstered(SceneProp prop) =>
+    /// <param name="prop">The prop.</param>
+    /// <returns>True when <see cref="Visible"/> drops it.</returns>
+    internal static bool IsHolstered(SceneProp prop) =>
         prop.WeaponState is { } state &&
         prop.OwnedBy is not null &&
         state != EntityState.WeaponActive;

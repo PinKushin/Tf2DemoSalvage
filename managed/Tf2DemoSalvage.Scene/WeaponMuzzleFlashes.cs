@@ -66,6 +66,7 @@ public sealed class WeaponMuzzleFlashes(Func<string, byte[]?> readFile, ItemSche
     /// </remarks>
     public void Precache()
     {
+        long began = System.Diagnostics.Stopwatch.GetTimestamp();
         IEnumerable<string> classes = items is null
             ? []
             : items.DefinitionIndices.Select(items.ItemClass).OfType<string>().Where(name => name.Length > 0);
@@ -77,7 +78,16 @@ public sealed class WeaponMuzzleFlashes(Func<string, byte[]?> readFile, ItemSche
                 _scripts[name] = WeaponScript.Read(readFile, name);
             }
         }
+
+        PrecachedAt = System.Diagnostics.Stopwatch.GetTimestamp();
+        PrecacheTicks = PrecachedAt - began;
     }
+
+    /// <summary>How long the last <see cref="Precache"/> took, in Stopwatch ticks, for `--measure`; 0 before one.</summary>
+    public long PrecacheTicks { get; private set; }
+
+    /// <summary>The Stopwatch timestamp the last <see cref="Precache"/> ended at, or 0 before one.</summary>
+    public long PrecachedAt { get; private set; }
 
     /// <summary>What a weapon's flash starts.</summary>
     /// <param name="item">The weapon's item definition.</param>

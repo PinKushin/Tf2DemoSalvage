@@ -2519,7 +2519,11 @@ public static class PropModels
                 // STUDIO_SEQUENCE_ACTIVITY_LOOKUPS_ARE_SLOW is 0 (studio.h:33, animation.cpp:238-268). An empty name has no activity
                 // (animation.cpp:146, studio.cpp:1723). Strictly greater, so the FIRST sequence of
                 // the highest weight wins a tie — deterministic where the engine rolls RandomInt.
-                int weight = Math.Max(1, Math.Abs(candidate.ActivityWeight));
+                // A fuzzed int.MinValue has no positive abs (C's iabs leaves it negative, Math.Abs throws); it
+                // weighs as int.MaxValue, the nearest weight the engine's rule can mean.
+                int weight = candidate.ActivityWeight == int.MinValue
+                    ? int.MaxValue
+                    : Math.Max(1, Math.Abs(candidate.ActivityWeight));
 
                 if (candidate.Activity.Length == 0)
                 {
@@ -2546,14 +2550,15 @@ public static class PropModels
 
             foreach ((string activity, (List<int> Sequences, List<int> Weights) list) in tuples)
             {
-                int total = 0;
+                long total = 0;
 
                 foreach (int weight in list.Weights)
                 {
                     total += weight;
                 }
 
-                built[activity] = new ActivityTuples([.. list.Sequences], [.. list.Weights], total, map[activity]);
+                // Saturated: the engine's int sum overflows (undefined), and a wrap to zero divided by zero in the roll.
+                built[activity] = new ActivityTuples([.. list.Sequences], [.. list.Weights], (int)Math.Min(total, int.MaxValue), map[activity]);
             }
 
             return built;

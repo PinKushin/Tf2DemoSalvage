@@ -325,17 +325,8 @@ public sealed class BurstEffects
             _readOf = frame.Game;
             _read = frame.Game is { } content ? content.Archives.Read : null;
 
-            // The weapon scripts with the game, before play, as `C_World::Precache` reads them (B595 part 6).
-            _weaponMuzzles = null;
-
-            if (_read is { } read)
-            {
-                long began = System.Diagnostics.Stopwatch.GetTimestamp();
-                _weaponMuzzles = new WeaponMuzzleFlashes(read, frame.Game?.Weapons.Items);
-                _weaponMuzzles.Precache();
-                PrecachedAt = System.Diagnostics.Stopwatch.GetTimestamp();
-                PrecacheTicks = PrecachedAt - began;
-            }
+            // The game's own, its scripts read before play by `LevelSystems.OpenGame` (B595 part 6).
+            _weaponMuzzles = frame.Game?.MuzzleFlashes;
         }
 
         return StepOver(
@@ -364,11 +355,11 @@ public sealed class BurstEffects
     /// <summary>Time spent starting and stepping the bursts found, in stopwatch ticks (finding 82).</summary>
     internal long BurstTicks { get; private set; }
 
-    /// <summary>The last weapon-script precache's duration and its end, in stopwatch ticks; zero until one ran (B595 part 6).</summary>
-    internal long PrecacheTicks { get; private set; }
+    /// <summary>The weapon-script precache's duration and its end, in stopwatch ticks, carried from the precache itself; zero until one ran (B595 part 6).</summary>
+    internal long PrecacheTicks => _weaponMuzzles?.PrecacheTicks ?? 0;
 
     /// <inheritdoc cref="PrecacheTicks"/>
-    internal long PrecachedAt { get; private set; }
+    internal long PrecachedAt => _weaponMuzzles?.PrecachedAt ?? 0;
 
     /// <summary>The same, over what the frame's map and game hold as data, which a test can supply (D214).</summary>
     /// <param name="frame">What this frame is stepped against; its map, game and scripts are not read here.</param>

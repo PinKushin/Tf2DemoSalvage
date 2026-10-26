@@ -237,7 +237,15 @@ public sealed class MomentScene : IGameSystemPerFrame
     private readonly List<ModelInstance> _undrawnInstances = [];
 
     /// <summary>The followed player in first person, posed but not in the main view: what a monitor view adds (B511).</summary>
-    public IReadOnlyList<ModelInstance> UndrawnInstances => _undrawn.Count > 0 ? _undrawnInstances : [];
+    /// <remarks>Empty while the recorder is zoomed: a monitor does not bring him back (B598).</remarks>
+    public IReadOnlyList<ModelInstance> UndrawnInstances => _undrawn.Count > 0 && !_zoomHides ? _undrawnInstances : [];
+
+    /// <summary>Whether this moment's undrawn list holds a zoomed recorder, whom no view draws (B598).</summary>
+    /// <remarks>
+    /// ponytail: the whole undrawn list leaves the monitor, so first person through ANOTHER player while the recorder is
+    /// zoomed loses that player from a monitor too; split the list per prop if that case is ever seen.
+    /// </remarks>
+    private bool _zoomHides;
 
     private readonly List<ModelInstance> _viewmodelInstances = [];
 
@@ -579,12 +587,32 @@ public sealed class MomentScene : IGameSystemPerFrame
             DrawList.KeepOnly(_drawn, seen);
         }
 
-        // **A zoomed local player is hidden from every view, a monitor's too** (B598, ZoomVisibility).
+        // **A zoomed local player is hidden from every view, a monitor's too** (B598, ZoomVisibility) — **moved to the
+        // undrawn list, not dropped**: `ShouldDraw` false does not stop `CModelRender::AddDecal` setting up his bones, so
+        // he must stay in a pass for `SkinningOf`. In place, one pass over the list, no allocation.
+        _zoomHides = false;
+
         if (ZoomVisibility.Hidden(players, info.Recorder) is { } zoomed)
         {
-            DrawList.KeepOnly(_drawn, FirstPersonVisibility.Visible(_drawn, zoomed));
-            DrawList.KeepOnly(_undrawn, FirstPersonVisibility.Visible(_undrawn, zoomed));
-        }
+            _zoomHides = true;
+            int kept = 0;
+
+            for (int at = 0; at < _drawn.Count; at++)
+            {
+                SceneProp prop = _drawn[at];
+
+                // Holstered weapons are hidden from everyone anyway (WeaponVisibility); they need no bones.
+                if (!FirstPersonVisibility.Hides(prop, zoomed))
+                {
+                    _drawn[kept++] = prop;
+                }
+                else if (!WeaponVisibility.IsHolstered(prop))
+                {
+                    _undrawn.Add(prop);
+                }
+            }
+
+            _drawn.RemoveRange(kept, _drawn.Count - kept);        }
 
         long firstPersonAt = Stopwatch.GetTimestamp();
 
@@ -701,7 +729,8 @@ public sealed class MomentScene : IGameSystemPerFrame
         long posingAt = Stopwatch.GetTimestamp();
 
         // Only a monitor draws the first-person player (B511); without one his pass simulates and is not posed.
-        _models.PosesUndrawn = monitor;
+        // Nor while the recorder is zoomed, whom no monitor draws (B598): simulated, his bones built on a decal's demand.
+        _models.PosesUndrawn = monitor && !_zoomHides;
 
         // The main view for the static props' screen fades (B432), from the device beside the eye.
         _models.ScreenView = screen;

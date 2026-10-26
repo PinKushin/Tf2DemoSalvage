@@ -258,10 +258,21 @@ public sealed class TimelineMoments(DemoTimeline timeline) : IMomentSource
 
     /// <inheritdoc />
     /// <remarks>
-    /// The timeline's own sampler with no viewpoint, prediction or carried feet, whose caches the scan would reset — so a
-    /// point-of-view recorder is read on his networked velocity here, where the frame reads the predicted one (B584).
+    /// The timeline's own sampler, never the viewpoint, prediction or carried feet <see cref="PlayersAt"/> reads, whose
+    /// caches the scan would reset. **A viewed recorder still moves as the frame moves him** (B584, batch-31 review 7):
+    /// his speed is <c>LocalPlayer</c>'s, from the cache-free <see cref="Prediction.RecorderPrediction.VelocityThrough"/>
+    /// or the networked velocity, and whether he is viewed is <see cref="DemoPlayer.ViewsAt"/>; read off his track
+    /// instead, the scan judged him on differenced positions and could break an activity the frame never left. One
+    /// movement prediction per recorder probe; not measured.
     /// </remarks>
-    public ScenePlayer? ActivityPlayerAt(double tick, int entityIndex) => timeline.PlayerAt(tick, entityIndex);
+    public ScenePlayer? ActivityPlayerAt(double tick, int entityIndex)
+    {
+        int whole = (int)Math.Floor(tick);
+
+        return entityIndex == timeline.RecorderEntityIndex && Player?.ViewsAt(whole) == true
+            ? timeline.PlayerAt(tick, entityIndex, recorderViewed: true, Prediction?.VelocityThrough(whole))
+            : timeline.PlayerAt(tick, entityIndex);
+    }
 
     /// <inheritdoc />
     public void PropsAt(

@@ -247,6 +247,13 @@ public sealed class RecorderPrediction
         return _answer;
     }
 
+    /// <summary><see cref="VelocityAt"/>'s answer for a whole tick, asked without touching its cache or its landings.</summary>
+    /// <param name="tick">The whole playback tick; every fraction of it predicts the same.</param>
+    /// <returns>The velocity, or null as for <see cref="VelocityAt"/>.</returns>
+    /// <remarks>For the seek scan (D233), which asks earlier ticks between two frames and must not reset this frame's.</remarks>
+    public (float X, float Y, float Z)? VelocityThrough(int tick) =>
+        LastPacket(_timeline.PacketAcknowledgements, tick) is { } packet ? PredictFrom(packet, tick, null) : null;
+
     private (float X, float Y, float Z)? Predict(int tick)
     {
         return LastPacket(_timeline.PacketAcknowledgements, tick) is { } packet ? PredictFrom(packet, tick, _landings) : null;

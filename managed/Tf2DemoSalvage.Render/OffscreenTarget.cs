@@ -131,6 +131,12 @@ internal sealed unsafe class OffscreenTarget : IDisposable
         return null;
     }
 
+    /// <summary>A pass profiler over this target's device, for its own tests.</summary>
+    internal PassProfiler CreatePassProfiler() => PassProfiler.Create(_device);
+
+    /// <summary>The immediate context the profiler's marks are issued on.</summary>
+    internal ComPtr<ID3D11DeviceContext> Context => _context;
+
     /// <summary>Playback time handed to material proxies, which are functions of it.</summary>
     /// <remarks>
     /// Settable here so a test can draw the same geometry at two times and compare — which is the
