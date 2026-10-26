@@ -7705,6 +7705,38 @@ public sealed class DemoTimeline
         return null;
     }
 
+    /// <summary>One player at a moment as the seek scan needs him, the recorder moving as the frame moves him (D233).</summary>
+    /// <param name="tick">The moment.</param>
+    /// <param name="entityIndex">The player.</param>
+    /// <param name="recorderViewed">Whether the frame at this tick hands the recorder a viewpoint (<see cref="DemoPlayer.ViewsAt"/>).</param>
+    /// <param name="predictedVelocity">Prediction's velocity at this whole tick, or null when it did not run.</param>
+    /// <returns>The player, or null when the frame at that tick lists no such player.</returns>
+    /// <remarks>
+    /// **Side-effect free, as <see cref="PlayerAt(double, int)"/> is.** A viewed recorder's speed is the frame's —
+    /// <see cref="LocalPlayer"/>'s, from prediction's velocity or the networked one — not his track's differenced
+    /// positions, so an activity the frame chose is the one the scan sees. Only the speed and velocity: the rest of
+    /// <see cref="LocalPlayer"/> (origin, feet, eye yaw) needs the viewpoint and the carried feet, and the activity reads
+    /// none of it — its posture and jump are decoded per frame and the same on both routes.
+    /// </remarks>
+    public ScenePlayer? PlayerAt(
+        double tick, int entityIndex, bool recorderViewed, (float X, float Y, float Z)? predictedVelocity)
+    {
+        if (PlayerAt(tick, entityIndex) is not { } player)
+        {
+            return null;
+        }
+
+        // A dead recorder keeps his recorded position in the frame too (`Sampled`), and is not animated.
+        if (!recorderViewed || entityIndex != RecorderEntityIndex || !player.IsAlive)
+        {
+            return player;
+        }
+
+        (float X, float Y, float Z)? velocity = predictedVelocity ?? player.Velocity;
+
+        return player with { Speed = XySpeed(velocity ?? default), Velocity = velocity };
+    }
+
     /// <summary>One player of the frame under <paramref name="tick"/>, at the moment itself.</summary>
     private ScenePlayer Sampled(
         ScenePlayer player,
@@ -8021,8 +8053,7 @@ public sealed class DemoTimeline
         float length = MathF.Sqrt((velocity.X * velocity.X) + (velocity.Y * velocity.Y) + (velocity.Z * velocity.Z));
         float feetYaw = feet.Advance(tick, eyeYaw, length, player.Yaw, IntervalPerTick);
 
-        // GetOuterXYSpeed, and CalcMovementSpeed's `flSpeed > MOVING_MINIMUM_SPEED` (0.5).
-        float speed = MathF.Sqrt((velocity.X * velocity.X) + (velocity.Y * velocity.Y));
+        float speed = XySpeed(velocity);
         float? heading = speed > MovingMinimumSpeed
             ? MathF.Atan2(velocity.Y, velocity.X) * (180f / MathF.PI)
             : null;
@@ -8046,6 +8077,10 @@ public sealed class DemoTimeline
             Velocity = predictedVelocity ?? player.Velocity,
         };
     }
+
+    /// <summary>`GetOuterXYSpeed`, which `CalcMovementSpeed` tests against `MOVING_MINIMUM_SPEED`: the local player's speed.</summary>
+    private static float XySpeed((float X, float Y, float Z) velocity) =>
+        MathF.Sqrt((velocity.X * velocity.X) + (velocity.Y * velocity.Y));
 
     /// <summary><c>MOVING_MINIMUM_SPEED</c> (<c>base_playeranimstate.h</c>): 0.5 units a second.</summary>
     private const float MovingMinimumSpeed = 0.5f;

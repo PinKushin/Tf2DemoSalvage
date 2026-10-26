@@ -40464,8 +40464,23 @@ the stretch, the next-whole-tick rule, the presenter's hop — each reddened. **
 that began more than `ActivityScanTicks` (2048, 31 s at 66 Hz) before the landing keys on the earliest tick in the window,
 so a seek deep into one long activity can differ from play; and a stretch shorter than the gap between two frames is held
 through by play (as the engine at that frame rate would) but ends the stretch for a seek
-(`…_AStretchBetweenTwoFrames_…`). A point-of-view recorder is scanned on his networked velocity, where the frame uses the
-predicted one. **Seek cost** (measurements/2026-10-25-d233-activity-tuples-cost.md, addendum): 9.1 ms mean, 52 ms max for 6-12 drawn players
+(`…_AStretchBetweenTwoFrames_…`). **The recorder FIXED 2026-10-26 (batch-31 review, finding 7):** the line here said a
+POV recorder was scanned on his networked velocity; read again, he was scanned on his TRACK — `PlayerAt` takes the
+non-local path, whose speed differences positions — while the frame, once `DemoPlayer` hands a viewpoint, moves him by
+`LocalPlayer` on prediction's velocity or the networked one. So `DesiredSequence` could disagree with the frame and
+`HoldsAcross` report a break mid-activity (a re-roll under fast playback). `TimelineMoments.ActivityPlayerAt` now asks
+`DemoPlayer.ViewsAt` (side-effect free: the last packet at or before the tick has a non-default `democmdinfo_t`, which is
+exactly when `InterpolateViewpoint` answers non-null) and, when viewed, gives him `LocalPlayer`'s speed from the
+cache-free `RecorderPrediction.VelocityThrough` (equal by reading to `VelocityAt` at any fraction of that whole tick).
+Only speed and velocity: posture and the jump activity are decoded per frame and the same on both routes, and the rest
+of `LocalPlayer` needs the viewpoint and the carried feet. `MainSequenceSeekTests.ActivityPlayerAt_TheRecorder_HasTheFramesSpeed`
+(viewed and unviewed) reddened with the track route restored and with `ViewsAt` forced true. **Untested:** the prediction
+half (no map in the fixture). **Cost not measured:** one movement prediction per recorder probe on a seek, and per
+skipped tick under `HoldsAcross`. **Confirmed by reading, the other two questions:** a paused frame
+(`interpolating: false`) samples the same speed `PlayerAt` does, because the track's speed is `SpeedOf(At(tick), …)`
+whatever the flag (`Held` moves only the pose); and `DecalEffects`' `PlayersAt` lists (~922) never reach the scan, whose
+only input is `EntityModelSet.PlayerPropAt` ← `MomentScene.EarlierPlayer` ← the moment source's `ActivityPlayerAt`, which
+the decal replay's frames use too. **Seek cost** (measurements/2026-10-25-d233-activity-tuples-cost.md, addendum): 9.1 ms mean, 52 ms max for 6-12 drawn players
 on f12, 175 earlier-tick probes a player, 95% of it `DemoTimeline.PlayerAt`; about 22 ms for 24 players, *interpolated*.
 The held frame stays 0 B (one 1,112 B frame after each landing). **Review fixes, same branch:** `MomentScene.Build` now
 sets `CurrentTick` before `Pack` — only `Pose` set it, so every frame's sequences were chosen at the PREVIOUS frame's tick

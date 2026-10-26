@@ -2226,7 +2226,11 @@ internal static class SyntheticPlayer
     /// at 267 units a second, one animated from <c>GetAbsVelocity()</c> runs along Y at 300, so the two routes cannot
     /// pass the same assertion.
     /// </remarks>
-    public static byte[] DemoOfARecorderAndABystander()
+    /// <param name="viewed">
+    /// Give every packet a <c>democmdinfo_t</c> at the recorder's own origin, eye height up, so a demo player hands him a
+    /// viewpoint; false leaves the default, which hands none.
+    /// </param>
+    public static byte[] DemoOfARecorderAndABystander(bool viewed = false)
     {
         DemoSchema baseline = Schema(OriginTable.NonLocal);
         List<SendTable> tables = [];
@@ -2288,7 +2292,7 @@ internal static class SyntheticPlayer
 
             byte[] body = decoder.EncodeEntities(players, [], isDelta: !enter, 0, out int bits);
 
-            commands.Add(SyntheticDemo.Packet(
+            DemoCommand packet = SyntheticDemo.Packet(
                 SyntheticDemo.DefaultProtocol,
                 tick,
                 new PacketEntitiesMessage(
@@ -2299,10 +2303,27 @@ internal static class SyntheticPlayer
                     UpdatedEntries: players.Count,
                     LengthBits: bits,
                     UpdateBaseline: false,
-                    Body: body)));
+                    Body: body));
+
+            commands.Add(viewed ? packet with { Prologue = ViewPrologue((tick * 4f, 100f, 64f)) } : packet);
         }
 
         return SyntheticDemo.From(SyntheticDemo.DefaultProtocol, [.. commands]);
+    }
+
+    /// <summary>A packet prologue whose <c>democmdinfo_t</c> is a view at an origin, angles derived from it.</summary>
+    /// <remarks>Flags zero, so the ORIGINAL copy is the live one rather than the resampled; see <see cref="DemoWithRecordedViews"/>.</remarks>
+    private static byte[] ViewPrologue((float X, float Y, float Z) origin)
+    {
+        byte[] prologue = new byte[PrologueBytes];
+
+        BitConverter.GetBytes(origin.X).CopyTo(prologue, 4);
+        BitConverter.GetBytes(origin.Y).CopyTo(prologue, 8);
+        BitConverter.GetBytes(origin.Z).CopyTo(prologue, 12);
+        BitConverter.GetBytes(origin.X / 10f).CopyTo(prologue, 16);
+        BitConverter.GetBytes(origin.Y / 10f).CopyTo(prologue, 20);
+
+        return prologue;
     }
 
     /// <summary>One exclusive table's position and eye angles, keyed by table so two tables can travel together.</summary>
@@ -2879,24 +2900,14 @@ internal static class SyntheticPlayer
             SyntheticDemo.DataTables(schema),
         ];
 
-        foreach ((int tick, (float x, float y, float z)) in views)
+        foreach ((int tick, (float X, float Y, float Z) origin) in views)
         {
-            byte[] prologue = new byte[PrologueBytes];
-
-            // Flags stay zero, so the ORIGINAL copy is the live one rather than the resampled.
-            BitConverter.GetBytes(x).CopyTo(prologue, 4);
-            BitConverter.GetBytes(y).CopyTo(prologue, 8);
-            BitConverter.GetBytes(z).CopyTo(prologue, 12);
-
-            // Pitch and yaw scaled off the origin so two packets differ in both, which is what
+            // Pitch and yaw are scaled off the origin so two packets differ in both, which is what
             // catches a lookup that finds the right tick and reads the wrong field.
-            BitConverter.GetBytes(x / 10f).CopyTo(prologue, 16);
-            BitConverter.GetBytes(y / 10f).CopyTo(prologue, 20);
-
             commands.Add(
                 SyntheticDemo.Packet(SyntheticDemo.DefaultProtocol, tick) with
                 {
-                    Prologue = prologue,
+                    Prologue = ViewPrologue(origin),
                 });
         }
 

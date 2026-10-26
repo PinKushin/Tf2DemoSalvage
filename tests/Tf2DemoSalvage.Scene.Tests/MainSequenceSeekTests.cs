@@ -255,6 +255,37 @@ public sealed class MainSequenceSeekTests
         asked[0].ShouldBe(500d);
     }
 
+    /// <summary>
+    /// **The scan sees the recorder move as the frame moves him** (B584, batch-31 review 7). A viewed recorder's frame speed
+    /// is `LocalPlayer`'s — prediction's velocity, else the networked `m_vecVelocity` — not his track's differenced
+    /// positions; scanned on the track, `DesiredSequence` could disagree with the frame and `HoldsAcross` break a stretch
+    /// the frame never left. The fixture's networked velocity (0, 300, 0) disagrees with its motion on purpose. Unviewed —
+    /// the default `democmdinfo_t` — both routes are the track. No map, so prediction does not run: its half is untested.
+    /// </summary>
+    [TestCase(true)]
+    [TestCase(false)]
+    public void ActivityPlayerAt_TheRecorder_HasTheFramesSpeed(bool viewed)
+    {
+        DemoTimeline timeline = DemoTimeline.Build(Tf2DemoSalvage.Core.Tests.SyntheticPlayer.DemoOfARecorderAndABystander(viewed));
+        TimelineMoments moments = new(timeline) { Player = new DemoPlayer(timeline) };
+        List<ScenePlayer> frame = [];
+
+        moments.PlayersAt(105d, frame);
+
+        float drawn = frame.Single(player => player.EntityIndex == 1).Speed;
+        float track = timeline.PlayerAt(105d, 1).ShouldNotBeNull().Speed;
+
+        if (viewed)
+        {
+            drawn.ShouldBe(300f, 0.01f, "the control: viewed, the frame moves him at his networked velocity");
+            track.ShouldNotBe(drawn, "the control: his track's speed is another number, so the routes can be told apart");
+        }
+
+        moments.ActivityPlayerAt(105d, 1).ShouldNotBeNull().Speed.ShouldBe(drawn, 1e-3f);
+        moments.ActivityPlayerAt(105d, 2).ShouldNotBeNull().Speed
+            .ShouldBe(frame.Single(player => player.EntityIndex == 2).Speed, "the bystander is on his track either way");
+    }
+
     private static ScenePlayer SoldierPlayer(int entity) =>
         new(EntityIndex: entity, X: 0f, Y: 0f, Z: 0f, Team: SceneTeams.Red, Health: 200, PlayerClass: 3) { Speed = Standing };
 
