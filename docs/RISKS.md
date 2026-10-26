@@ -40081,18 +40081,39 @@ the `Task.Run` holds the gate — no worse than the synchronous open it replaced
 setters volatile, or publishing one "install opened" object the frame reads once, touches five classes and the frame's
 read order, which is not the small safe step the review allowed; filed for the lead with that design.
 
-## B605 — the footstep ground probe starts solid for 83% of grounded players on a SourceTV match, and names no surface — OPEN (2026-10-26)
+## B605 — the footstep ground probe starts solid for 83% of grounded players on a SourceTV match — NOT OUR BUG: TF2 does the same; one engine question OPEN (2026-10-26)
 
 **Measured** (`CorpusGroundSurfaceTests`, lcor `20171113_2240_cp_badlands_red_blu`, today's cp_badlands, every 33rd tick):
-of 3,993 grounded players with a floor within a unit underfoot, `MapLevel.GroundTrace` started solid for **3,320**, struck a
-surface for 672 and missed 1. The networked origins rest EXACTLY on the floor plane (z = 296.0, 408.0), so the hull-wide
+of 3,993 grounded players with a floor within a unit underfoot, `MapLevel.GroundTrace` started solid for **3,322**, struck a
+surface for 670 (626 of them the one directly underfoot) and missed 1 — under `MASK_PLAYERSOLID_BRUSHONLY`; it was 3,320 /
+672 / 1 under the old `MASK_SOLID`. The networked origins rest EXACTLY on the floor plane (z = 296.0, 408.0), so the hull-wide
 cube's bottom face has `d1 = 0`, which neither Source's clip (`collisionutils.cpp:1141-1174`, startsolid unless some
-`d1 > 0`) nor Quake 2's counts as outside; the trace starts in, `Texinfo = −1`, and the step sound falls to the no-surface
-choice. Not caused by B604's clip change: identical under the pre-B604 rule. **Not settled:** what TF2 itself traces here —
-`C_BasePlayer::GetGroundSurface` was not read this session (the SDK lookup was blocked by tooling, not tried and failed), and
-whether the client's origin for another player is the quantized networked one or a position resolved off the floor. Read it
-before changing anything; the probe's own shape (a 48 cube from z + 24, `MASK_SOLID`, where its comment says
-`MASK_PLAYERSOLID_BRUSHONLY`) is also unverified against it.
+`d1 > 0`) nor Quake 2's counts as outside; the trace starts in and `Texinfo = −1`. Not caused by B604's clip change:
+identical under the pre-B604 rule.
+
+**Why, read from published source (batch-34 review):** a non-local player's origin is sent LOW PRECISION —
+`DT_TFNonLocalPlayerExclusive` sends `m_vecOrigin` as `SPROP_COORD_MP_LOWPRECISION` (`tf_player.cpp:748-749`), three
+fractional bits, a resolution of 1/8 — so the server's rest at floor + 1/32 rounds to the floor plane exactly. The local
+player's origin is `SPROP_NOSCALE` (`DT_TFLocalPlayerExclusive`, `:721-722`), full precision; a SourceTV recording has no
+player who is local, so every one is low precision. And `C_BasePlayer::GetGroundSurface` (`c_baseplayer.cpp:713-737`) traces
+`Ray_t::Init( GetAbsOrigin(), origin − 64z, GetPlayerMins(), GetPlayerMaxs() )` from that same networked origin, with
+`MASK_PLAYERSOLID_BRUSHONLY`. **So our probe matches Source, and TF2's own client starts solid on this demo too**: the rate is
+a property of SourceTV's quantised origins, not of the probe. The mask was `MASK_SOLID` until the batch-34 review and is now
+`MASK_PLAYERSOLID_BRUSHONLY` (= `BspLeafTree.MaskPlayerSolid`, `bspflags.h:134`).
+
+**The control** (`CorpusGroundSurfaceTests.GroundTrace_ThePovRecorderOnTheGround_ReportsItsStartSolidRate`): the recorder of
+a POV demo, whose origin is full precision, through the same probe. **Measured 2026-10-26** (rgl-pug-2026-08-10-pov, the
+recorder, entity 8, on cp_process_f12): **0 of 1,662** grounded samples started solid; 1,662 struck a surface, 1,558 of them
+the one directly underfoot. **The cause, by manipulation:** the same run with the recorder's z truncated to 1/8 before the
+probe started solid for **1,623 of 1,662** and failed the test's one-in-a-hundred floor. So the precision of the networked
+origin, and nothing in the probe, decides the rate. *Interpolated:* truncation, not rounding, was the sabotage's model of the
+encoder; either takes a 1/32 rest to the plane. The test skips with a reason when its demo or map is absent.
+
+**Still open, interpolated:** what the engine's closed cmodel puts in `trace.surface.surfaceProps` for a startsolid trace,
+which is what `GetGroundSurface` hands `physprops->GetSurfaceData` — Quake 2's ancestor leaves the surface untouched, 0, the
+default surface; Source's `cmodel.cpp` is unshipped. Ours answers no surface (`Texinfo = −1`). A decompiler can settle it.
+**Also unverified:** the probe's box is a 48 cube from feet + 24, where `GetPlayerMins/Maxs` is (−24, −24, 0)–(24, 24, 82)
+standing (62 ducked); it differs only when something is within 48–82 units above the feet.
 
 ## B604 — prediction gives a running POV recorder 0 u/s on ~7% of probed ticks, and the frame draws him standing — MAIN CAUSE FIXED, REMAINDER OPEN (2026-10-26)
 
@@ -40121,11 +40142,23 @@ faces also go in Source's order, −x −y −z +x +y +z, which (a) makes matter
 the count worse — is moot: neither form is Source's. *Interpolated:* the brush clip itself is still the unshipped
 `cmodel.cpp`; the published form is a sibling with the same tolerance idiom. The tree's leaf pruning keeps Quake 2's
 `fraction <= p1f` (`cmodel.c:1239`), pinned by a test; Quake 2's leaf loop also stops at fraction 0 (`:1180`), which ours
-does not, a filed difference. Tests: `BrushClipConformanceTests` (Content), the box `Sweep` tests, the chase camera and
+does not, **on purpose** (batch-34 review): with it, a floor entered at 0 inside the epsilon and listed first hides a later
+brush in the same leaf that the sweep starts inside, so `startsolid` — and the footstep surface and `CheckStuck` after it —
+would turn on lump order. Ours clips every brush, and the start-inside convention wins in either order; pinned both ways in
+`BrushClipConformanceTests`, and adding Quake 2's return reddens the floor-first case. Tests: `BrushClipConformanceTests` (Content), the box `Sweep` tests, the chase camera and
 `MapLevel.GroundTrace` from inside the epsilon, and `CorpusGroundSurfaceTests` on a real match. **Measured** on
 etf2l-12025: still-against-running gaps 2,376 → 2,369, speed-gate flips 724 / 33,368 → 721 / 34,040, all of it the brush
 clip's, none the box sweep's (measurements/2026-10-26-pov-recorder-seek-scan.md, "Source's clip"). Parity, not B604's
 remainder: the remainder is unchanged in shape.
+
+**An expectation to check against, not yet observed (batch-34 review):** branch (e) moved the box sweep's start-inside,
+moving-out answer from fraction 1 to fraction 0. So a recorder an enemy has walked into — his hull overlapping the enemy's
+box at the start of a move — no longer slides out through it: every `TryPlayerMove` bump starts solid at fraction 0 and he
+holds in place until `CheckStuck` runs, which `CheckInterval( STUCK )` allows once per `CHECK_STUCK_TICK_INTERVAL`, 1 s in
+multiplayer (0.2 s with one client), staggered by command number plus entity index (`gamemovement.cpp:648-701`;
+`TfGameMovement.CheckInterval`). That is what Source does, so it is parity, not a regression. **If a POV demo shows the
+recorder frozen for about a second, repeatedly, around enemy contact, this is the place to look first**: compare the
+networked origin over that second with the predicted one before suspecting the brush clip.
 
 **How it was found** (measurements/2026-10-26-pov-recorder-seek-scan.md, "B604's cause"; probe `recorder-prediction-gaps`, which runs every packet gap of the demo against the next packet's
 networked velocity): 83,267 gaps were compared. In 7,723 of them prediction was still (< 0.5 u/s) while the server was over

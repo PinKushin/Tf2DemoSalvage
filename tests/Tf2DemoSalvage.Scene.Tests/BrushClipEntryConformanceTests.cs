@@ -88,6 +88,44 @@ public sealed class BrushClipEntryConformanceTests
     }
 
     [Test]
+    public void GroundTrace_FeetRestingOnAPlayerClip_HitsTheClip()
+    {
+        // `C_BasePlayer::GetGroundSurface` traces MASK_PLAYERSOLID_BRUSHONLY (c_baseplayer.cpp:731), which carries
+        // CONTENTS_PLAYERCLIP (bspflags.h:134): a player standing on a clip ledge is on it, not on whatever is beneath.
+        MapLevel level = new(
+            null, null, null, new Dictionary<int, string>(),
+            TfGameMovementConformanceTests.HalfSpace(0f, 0f, 1f, 0f, BspLeafTree.ContentsPlayerClip), null, null,
+            [], [], [], [], null, default);
+
+        BspTrace trace = level.GroundTrace((0f, 0f, 0.03125f), []);
+
+        trace.Fraction.ShouldBe(0f);
+        trace.Normal.ShouldBe((0f, 0f, 1f));
+    }
+
+    /// <remarks>
+    /// The merge of one brush entity's trace into the running one, both entered at fraction 0: one inside the epsilon of a face
+    /// (the slab's +x face at x = −0.01), one the point starts inside. A strict `fraction &lt;` keeps whichever came first, and
+    /// the start-solid door is lost when it comes second; the engine's merge (<c>MapLevel.Nearer</c>, *interpolated:*
+    /// <c>CEngineTrace::TraceRay</c>'s loop is unshipped) takes the start-solid one in either order.
+    /// </remarks>
+    [TestCase(false, TestName = "Trace_ADoorEnteredAtZeroThenADoorItStartsIn_IsStartSolidInTheSecond")]
+    [TestCase(true, TestName = "Trace_ADoorItStartsInThenADoorEnteredAtZero_IsStartSolidInTheFirst")]
+    public void Trace_TwoDoorsAtZeroOneStartedIn_IsStartSolidInEitherOrder(bool startInsideFirst)
+    {
+        SolidBrush touching = Slab(0f, 0f, 0f) with { Origin = new Vector3(-4.01f, 0f, 0f), Entity = 1 };
+        SolidBrush around = Slab(0f, 0f, 0f) with { Origin = new Vector3(3.5f, 0f, 0f), Entity = 2 };
+
+        BspTrace trace = Level().Trace(
+            (0f, 0f, 0f), (-1f, 0f, 0f), (0f, 0f, 0f), BspLeafTree.MaskPlayerSolid,
+            startInsideFirst ? [around, touching] : [touching, around]);
+
+        trace.Fraction.ShouldBe(0f);
+        trace.StartSolid.ShouldBeTrue();
+        trace.BrushEntity.ShouldBe(2);
+    }
+
+    [Test]
     public void ProcessMovement_InTheAirNearerAWallThanTheEpsilon_SlidesAlongItAndKeepsItsSpeedAcross()
     {
         // TryPlayerMove (gamemovement.cpp:2558-2760): the first bump stops at fraction 0 on the face x = 4, ClipVelocity takes

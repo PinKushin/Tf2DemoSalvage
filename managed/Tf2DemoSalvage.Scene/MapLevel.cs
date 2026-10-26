@@ -196,11 +196,17 @@ public sealed record MapLevel(
     /// <param name="feet">The player's origin.</param>
     /// <param name="brushes">The brush entities standing then — a door underfoot is ground.</param>
     /// <returns>The trace. A player at rest stands `DIST_EPSILON` above the floor, so it is entered at fraction 0.</returns>
+    /// <remarks>
+    /// `MASK_PLAYERSOLID_BRUSHONLY` (`c_baseplayer.cpp:731`), which is <see cref="BspLeafTree.MaskPlayerSolid"/> bit for bit
+    /// (`bspflags.h:134`): a playerclip is ground, so a player on a clip ledge is not given the surface beneath it.
+    /// </remarks>
     public BspTrace GroundTrace((float X, float Y, float Z) feet, IReadOnlyList<SolidBrush> brushes)
     {
         (float X, float Y, float Z) from = (feet.X, feet.Y, feet.Z + GroundHalfWidth);
 
-        return Trace(from, (from.X, from.Y, from.Z - GroundProbe), GroundHalfWidth, brushes);
+        return Trace(
+            from, (from.X, from.Y, from.Z - GroundProbe), (GroundHalfWidth, GroundHalfWidth, GroundHalfWidth),
+            BspLeafTree.MaskPlayerSolid, brushes);
     }
 
     /// <summary><see cref="Sweep"/>, with what the brushes say about what stopped it — `trace_t` (B415).</summary>
@@ -274,13 +280,33 @@ public sealed record MapLevel(
                     mask)
                 : TransformedTrace(tree, from, to, extents, mask, brush, centre);
 
-            if (entity.Fraction < nearest.Fraction)
-            {
-                nearest = entity with { BrushEntity = brush.Entity };
-            }
+            nearest = Nearer(nearest, entity with { BrushEntity = brush.Entity });
         }
 
         return nearest;
+    }
+
+    /// <summary>
+    /// The engine's merge of one entity's trace into the running one: a nearer hit, or one that starts solid, becomes the
+    /// trace and names its entity; `startsolid` and `allsolid` are kept from either. *Interpolated:*
+    /// <c>CEngineTrace::TraceRay</c>'s loop is engine code the SDK omits.
+    /// </summary>
+    /// <remarks>
+    /// **Order-independent by construction**: a strict `fraction &lt;` alone dropped a door the box starts inside when the
+    /// world, or an earlier door, had already answered 0 (batch-34 review).
+    /// </remarks>
+    internal static BspTrace Nearer(BspTrace nearest, BspTrace hit)
+    {
+        if (hit.Fraction < nearest.Fraction || (hit.StartSolid && !nearest.StartSolid))
+        {
+            return hit with
+            {
+                Fraction = MathF.Min(hit.Fraction, nearest.Fraction),
+                AllSolid = hit.AllSolid || nearest.AllSolid,
+            };
+        }
+
+        return nearest with { AllSolid = nearest.AllSolid || hit.AllSolid, StartSolid = nearest.StartSolid || hit.StartSolid };
     }
 
     /// <summary>
