@@ -297,7 +297,24 @@ public sealed partial class EntityModelSet
                 continue;
             }
 
-            int chosen = PlayerAnimation.ForOrMissing(
+            int chosen = DesiredSequence(prop, skinned, speed);
+
+            // **`if ( animDesired < 0 ) animDesired = 0;`** (`multiplayer_animstate.cpp:1174-1177`): a failed lookup is
+            // sequence 0 outright, and only a real answer is rolled by weight.
+            chosen = MainSequence(prop, skinned, Math.Max(0, chosen), roll: chosen >= 0);
+
+            if (chosen != prop.Pose.Sequence)
+            {
+                drawn[index] = prop with { Pose = prop.Pose with { Sequence = chosen } };
+            }
+        }
+    }
+
+    /// <summary>`TranslateActivity( idealActivity )`'s heaviest answer for a drawn player: what his activity is.</summary>
+    /// <returns>A merged sequence number, or −1 when nothing answers.</returns>
+    /// <remarks>One function, because the seek scan (<see cref="ActivityBegan"/>) must ask exactly what the frame asks.</remarks>
+    private static int DesiredSequence(SceneProp prop, PropModels.SkinnedModel skinned, float speed) =>
+            PlayerAnimation.ForOrMissing(
                 skinned,
                 speed,
                 prop.Pose.Flags,
@@ -332,23 +349,82 @@ public sealed partial class EntityModelSet
                 // TF's HandleDucking and HandleMoving inputs (B437).
                 posture: prop.Pose.Posture);
 
-            // **`if ( animDesired < 0 ) animDesired = 0;`** (`multiplayer_animstate.cpp:1174-1177`): a failed lookup is
-            // sequence 0 outright, and only a real answer is rolled by weight.
-            chosen = MainSequence(prop, skinned, Math.Max(0, chosen), roll: chosen >= 0);
+    /// <summary>Each player's main sequence as `ComputeMainSequence` last left it, the tick it was last asked and on which model.</summary>
+    /// <remarks>
+    /// **A cache, not the state** (D233): the pick is a function of (entity, activity, the tick the activity began), and
+    /// <see cref="ActivityBegan"/> recovers that tick from the timeline whenever this cannot vouch for it — the clock ran
+    /// back, jumped forward past <see cref="ContinuityTicks"/>, or the model changed. So a seek and a play-through run the
+    /// same code and land on the same variant.
+    /// </remarks>
+    private readonly Dictionary<int, (int Sequence, double Tick, string Model)> _mainSequences = [];
 
-            if (chosen != prop.Pose.Sequence)
-            {
-                drawn[index] = prop with { Pose = prop.Pose with { Sequence = chosen } };
-            }
+    /// <summary>The player's prop as it would be drawn at an earlier whole tick, or null when he was not drawn then (D233).</summary>
+    /// <remarks>
+    /// Side-effect free — set by <c>MomentScene</c> over the timeline, never over the live per-frame sampler, whose
+    /// viewpoint and prediction caches a backward scan would reset. Null keys a roll on the tick it is made at, which is
+    /// right only for a demo played through from where it is first seen.
+    /// </remarks>
+    public Func<double, int, SceneProp?>? PlayerPropAt { get; set; }
+
+    /// <summary>How far a frame may advance and still hold: past this the hold is re-derived, as for a seek.</summary>
+    /// <remarks>Four ticks spans a frame at 15 fps on a 66-tick server; a bigger gap is a seek or fast playback.</remarks>
+    internal const double ContinuityTicks = 4d;
+
+    /// <summary>How far back <see cref="ActivityBegan"/> looks: 2048 ticks, 31 s at 66 ticks a second.</summary>
+    /// <remarks>
+    /// **The guarantee's ceiling.** Play-through holds a roll however long the activity lasts; a seek into a stretch
+    /// that began more than this before the landing keys on the earliest tick inside the window instead, and may show
+    /// another variant. Cost per seek: `docs/measurements/2026-10-25-d233-activity-tuples-cost.md`.
+    /// </remarks>
+    internal const int ActivityScanTicks = 2048;
+
+    /// <summary>The whole tick the player's current activity began, recovered from the timeline (D233).</summary>
+    /// <param name="prop">The player as drawn this frame.</param>
+    /// <param name="skinned">His model.</param>
+    /// <param name="desired">This frame's heaviest answer for his activity.</param>
+    /// <param name="wanted">Its activity name.</param>
+    /// <returns>
+    /// The earliest whole tick of the stretch that ends now: every tick back to it on which he was drawn shows the same
+    /// activity on the same model. A tick he was not drawn on — dead, not yet joined, before the timeline — is passed
+    /// over rather than ending the stretch, because a dead player is not animated and `ClearAnimationState` leaves the
+    /// main sequence alone (`multiplayer_animstate.cpp:136-146`, `:1381-1395`), so he respawns into the variant he died
+    /// in. When the frame is between ticks and the whole tick under it still shows the old activity, the answer is the
+    /// next whole tick — the first that will show the new one.
+    /// </returns>
+    private long ActivityBegan(SceneProp prop, PropModels.SkinnedModel skinned, int desired, string wanted)
+    {
+        long now = (long)Math.Floor(CurrentTick);
+
+        if (PlayerPropAt is not { } at)
+        {
+            return now;
         }
+
+        long began = now + 1;
+
+        for (long tick = now; tick > now - ActivityScanTicks; tick--)
+        {
+            if (at(tick, prop.EntityIndex) is not { Pose.Speed: { } speed } then)
+            {
+                continue;
+            }
+
+            if (!string.Equals(then.ModelPath, prop.ModelPath, StringComparison.Ordinal) ||
+                !SameActivity(skinned, Math.Max(0, DesiredSequence(then, skinned, speed)), desired, wanted))
+            {
+                break;
+            }
+
+            began = tick;
+        }
+
+        return began;
     }
 
-    /// <summary>Each player's main sequence as `ComputeMainSequence` last left it, and the last tick it was asked.</summary>
-    /// <remarks>
-    /// The tick detects a seek back — the clock running backwards forgets the hold, as <c>EnsureFace</c> does for a face —
-    /// and is the "tick the activity began" the next roll is keyed on (D233).
-    /// </remarks>
-    private readonly Dictionary<int, (int Sequence, double Tick)> _mainSequences = [];
+    /// <summary>`GetSequenceActivity( a ) == GetSequenceActivity( b )`, with an activity-less sequence equal only to itself.</summary>
+    private static bool SameActivity(PropModels.SkinnedModel skinned, int sequence, int desired, string wanted) =>
+        sequence == desired ||
+        (wanted.Length > 0 && string.Equals(skinned.ActivityOf(sequence), wanted, StringComparison.OrdinalIgnoreCase));
 
     /// <summary>The roll for a player entering an activity: the engine's `RandomInt`, reproducible per demo (D233).</summary>
     /// <param name="entity">The player's entity index.</param>
@@ -359,7 +435,8 @@ public sealed partial class EntityModelSet
     /// **The one addition over the engine**, whose `RandomInt` differs every client run. A viewer seeks and replays, and
     /// an unseeded roll would re-pick on every seek; a hash of (entity, activity, tick) makes the same moment show the
     /// same variant. It decides which value comes up, never how often each comes up — the distribution test holds that.
-    /// No separate per-demo seed is mixed in (RISKS B584). A seek into an activity keys on the landing tick. SplitMix64's finaliser over an
+    /// No separate per-demo seed is mixed in (RISKS B584). A seek into an activity keys on the tick it began, recovered
+    /// by <see cref="ActivityBegan"/>, so it matches playing through. SplitMix64's finaliser over an
     /// FNV-1a of the upper-cased name: allocation-free and stable across runs, which `HashCode` is not.
     /// </remarks>
     internal static uint ActivityPickSeed(int entity, string activity, long tick)
@@ -400,12 +477,17 @@ public sealed partial class EntityModelSet
     ///
     /// **The roll is kept only on an activity change, so it happens once and then holds** (D233): `desired` is the
     /// heaviest answer, which stands for its activity; on a change the sequence is rolled by weight from
-    /// <see cref="ActivityPickSeed"/> keyed on this tick. A clock that ran back is a seek, and forgets the hold.
+    /// <see cref="ActivityPickSeed"/> keyed on the tick the activity began, which <see cref="ActivityBegan"/> recovers
+    /// from the timeline — so a seek shows what playing through showed. The roll passes no current sequence: on a
+    /// change the current one belongs to another activity, so the negative-weight keep (`animation.cpp:291-297`)
+    /// cannot fire, and a seek has none.
     /// </remarks>
     private int MainSequence(SceneProp prop, PropModels.SkinnedModel skinned, int desired, bool roll)
     {
-        bool held = _mainSequences.TryGetValue(prop.EntityIndex, out (int Sequence, double Tick) last) &&
-            CurrentTick >= last.Tick;
+        bool held = _mainSequences.TryGetValue(prop.EntityIndex, out (int Sequence, double Tick, string Model) last) &&
+            CurrentTick >= last.Tick &&
+            CurrentTick - last.Tick <= ContinuityTicks &&
+            string.Equals(last.Model, prop.ModelPath, StringComparison.Ordinal);
         int current = held ? last.Sequence : -1;
         string wanted = skinned.ActivityOf(desired);
 
@@ -413,9 +495,9 @@ public sealed partial class EntityModelSet
         {
             string was = skinned.ActivityOf(current);
 
-            if (current == desired || (was.Length > 0 && string.Equals(was, wanted, StringComparison.OrdinalIgnoreCase)))
+            if (SameActivity(skinned, current, desired, wanted))
             {
-                _mainSequences[prop.EntityIndex] = (current, CurrentTick);
+                _mainSequences[prop.EntityIndex] = (current, CurrentTick, prop.ModelPath);
                 return current;
             }
 
@@ -429,10 +511,11 @@ public sealed partial class EntityModelSet
 
         if (roll && wanted.Length > 0)
         {
-            desired = skinned.SelectWeightedSequence(wanted, current, ActivityPickSeed(prop.EntityIndex, wanted, (long)CurrentTick));
+            desired = skinned.SelectWeightedSequence(
+                wanted, -1, ActivityPickSeed(prop.EntityIndex, wanted, ActivityBegan(prop, skinned, desired, wanted)));
         }
 
-        _mainSequences[prop.EntityIndex] = (desired, CurrentTick);
+        _mainSequences[prop.EntityIndex] = (desired, CurrentTick, prop.ModelPath);
         return desired;
     }
 

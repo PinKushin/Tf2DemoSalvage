@@ -134,21 +134,6 @@ public sealed class SelectWeightedSequenceConformanceTests
         Replay(Loaded()).ShouldBe(Replay(Loaded()));
     }
 
-    /// <summary>A seek back forgets the hold: the activity begins again at the landing tick.</summary>
-    [Test]
-    public void UpdateClientSideAnimations_SeekBack_PicksAsAFreshArrivalAtTheLandingTick()
-    {
-        int landing = Enumerable.Range(1, 99).First(tick => StandAt(tick) != StandAt(0));
-        EntityModelSet models = Loaded();
-
-        for (int tick = 0; tick <= 100; tick++)
-        {
-            Play(models, tick, speed: 0f);
-        }
-
-        Play(models, landing, speed: 0f).ShouldBe(StandAt(landing));
-    }
-
     [Test]
     public void UpdateClientSideAnimations_HeldPath_AllocatesNothing()
     {
