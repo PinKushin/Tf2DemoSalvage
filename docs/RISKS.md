@@ -40081,7 +40081,51 @@ the `Task.Run` holds the gate — no worse than the synchronous open it replaced
 setters volatile, or publishing one "install opened" object the frame reads once, touches five classes and the frame's
 read order, which is not the small safe step the review allowed; filed for the lead with that design.
 
-## B604 — prediction gives a running POV recorder 0 u/s on ~7% of probed ticks, and the frame draws him standing — OPEN (2026-10-26)
+## B604 — prediction gives a running POV recorder 0 u/s on ~7% of probed ticks, and the frame draws him standing — MAIN CAUSE FIXED, REMAINDER OPEN (2026-10-26)
+
+**Root cause, found and fixed 2026-10-26 (evidence classes: measured by manipulation, and read from published source).**
+`BspLeafTree.ClipToBrush` refused an entering crossing whose fraction came out negative. It comes out negative whenever a
+sweep starts nearer a brush face than `DIST_EPSILON`, and every movement trace leaves a player exactly there, resting against
+a wall or a slope. With the crossing refused, the box passed into the brush, and `TryPlayerMove`'s unswept re-trace at the end
+(`gamemovement.cpp:2636-2649`) zeroed his velocity. In engine terms: a running player was predicted to a dead stop. Quake 2's
+`CM_ClipBoxToBrush` (`qcommon/cmodel.c:989-1096`, id's GPL release, the published ancestor of the unshipped
+`engine/cmodel.cpp`, read verbatim) keeps an entry above −1 and clamps it to 0 (`:1086-1089`). `MovementWorld.Sweep`
+already did the same; the brush tree now does too. **Two more differences from Quake 2 are filed, not changed**, because
+neither is this bug and Source's version of either is not read. (a) Quake 2 returns early only for `d1 > 0 && d2 >= d1`
+(`:1052`); ours returns for any `d2 >= 0`, so a box inside the epsilon that closes on the face without reaching it is let
+move. Taking Quake 2's form made the gap count worse against the server, 2,376 to 2,383, and was reverted. (b) Quake 2's
+start-solid branch sets only the flags (`:1077-1083`); ours also sets the fraction to 0. Quake 2's form changed the count by
+22 of 2,369. Both reach every world trace, so they wait for a decompile of Source's `CM_ClipBoxToBrush`.
+*Interpolated to Source:* the decompile that would settle it could not be run this session, because the Ghidra MCP's
+analysis tools were not exposed to the agent.
+
+**How it was found** (measurements/2026-10-26-pov-recorder-seek-scan.md, "B604's cause"; probe `recorder-prediction-gaps`, which runs every packet gap of the demo against the next packet's
+networked velocity): 83,267 gaps were compared. In 7,723 of them prediction was still (< 0.5 u/s) while the server was over
+100 u/s. Of those, 98.4% were on the ground and 89.2% had the hull clear at the restored origin, so he was not stuck at the
+start. A temporary instrument on `TryPlayerMove`'s zeroing sites put 43% at the end-of-move stuck re-trace, 25% at all-solid
+and 21% at `allFraction == 0`. Clamping the entry on its own, before any test was written, took the 7,723 to 2,369.
+
+**Before / after, paired** (`recorder-speed-gate <etf2l-12025> 300`, per-probe dump, the 18,076 probe ticks both runs
+asked). Flips against the networked speed went from 1,372 to 656: 716 fixed and 0 new. Ticks where |exact − networked| < 1 u/s
+went from 72.4% to 74.4%. Eight ticks that were already on the right side moved by more than 1 u/s and none changed side.
+Per gap (`recorder-prediction-gaps`): within 1 u/s went from 73.3% to 78.9%, mean |Δv| from 25.7 to 10.5 u/s, and
+still-vs-running gaps from 7,723 to 2,376. The run's own total flips are 1,392 of 19,601 probes (7.1%) before and 724 of
+33,368 (2.2%) after. The probe set grew because the scan now meets a running recorder and scans further back.
+
+**What remains** (2,376 gaps): 23.3% start inside world geometry at the restored origin, against 10 of 65,636 agreeing gaps.
+Most of those clear only when raised 4-18 units, which a server-accepted position cannot be. The installed `cp_process_final`
+does **not** match the demo's recorded `MapHash` (printed by the probe), so these are most likely geometry the 2020 build did
+not have. *Interpolated;* the matching build was not fetched. Another 11.7% have a static prop where the hull would be one step
+on (0.7% of agreeing gaps); that is the same map question, and also whether `MapLevel.Trace` should carry a prop's
+`startsolid`, which it drops. Neither is settled. Next step: fetch the 2020 build (the viewer's `MapDownloader`) and re-run the
+two probes.
+
+**On a demo whose map matches** (`rgl-pug-2026-08-10-pov`, `cp_process_f12`, MapHash matches): still against running went
+from 3,194 to 1,000 of 94,321 gaps, and none of the 1,000 starts in world brushes. **The next cause, not hunted**, is static
+props. In 48% of the 1,000, a hull at the restored origin gets a fraction under 1 with no `startsolid`, against 1 in 72,686
+agreeing gaps; that is how `MapLevel.Trace` reports a prop or terrain hit, since it drops the flag. In 51%, a prop holds the
+hull one step on, against 0.1%. Read `StaticPropCollision` against vphysics' hull trace, and `MapLevel.Trace`'s dropped
+`startsolid`, before measuring more (measurements/2026-10-26-pov-recorder-seek-scan.md, "B604's cause").
 
 **Evidence class: measured** (measurements/2026-10-26-pov-recorder-seek-scan.md, "Follow-up result", etf2l-12025, 300 seek
 landings, 19,601 viewed living probes). Found by B602's hybrid measurement: at 1,392 probes the predicted
@@ -40090,8 +40134,8 @@ networked `m_vecVelocity` says a running speed (median 215.5, p90 239.5 u/s), th
 the networked one in 1,356 of the 1,392, and the frame (`TimelineMoments.PlayersAt`, prediction's `VelocityAt`) draws
 prediction's speed at all 1,392. So the viewer draws the running recorder stand-idle there. Worst ticks: 77518 (networked
 1,023 u/s), 117810-117811 (826), 119405 (722), 47436 (422). Wiring item hooks and ground surfaces changed nothing printed.
-**Cause not hunted**; the badlands 2009 corpus test (`CorpusRecorderPredictionTests`) has median error 0, so the failure is
-somewhere that demo does not reach. Blocks B602.
+*(As filed, before the hunt above:)* cause not hunted. The badlands 2009 corpus test (`CorpusRecorderPredictionTests`)
+has median error 0, so the failure is somewhere that demo does not reach. Blocks B602.
 
 ## B602 — a seek's scan predicts the viewed recorder's movement once per probe: 14 ms of a seek, 102 ms at the cap (measurements/2026-10-26-pov-recorder-seek-scan.md) — OPEN (2026-10-26)
 
@@ -40129,6 +40173,16 @@ Recorder probes a seek on the test set (measurements/2026-10-26-pov-recorder-see
 error (B604), so a margin fitted now is fitted to a defect. **Still OPEN, blocked on B604**; re-measure with
 `recorder-speed-gate <demo> 300` once it is fixed. The track route is ruled out (13.7 u/s median error, 80,003 u/s through
 a teleport); the networked velocity is the cheap half to revisit.
+
+**Re-measured after B604's brush-entry fix (2026-10-26, counts only, machine not quiet):** the networked route still flips
+724 of 33,368 viewed living probes (2.2%), and the next packet sides with networked in 675 of them. A zero-wrong margin is
+825.6 u/s, where 98.7% of probes still predict. So the cheap route is still not equivalent and the scan was not switched.
+What is left is B604's remainder, mostly a map build mismatch on etf2l-12025 (measurements/2026-10-26-pov-recorder-seek-scan.md,
+"B604's cause"). **The fix makes the scan longer, so 14.05 / 85.85 ms (measurements/2026-10-26-pov-recorder-seek-scan.md) is stale and probably low.** A running recorder no
+longer breaks his activity on wrongly-zeroed ticks, so the scan reaches further back. On the same landings, the fit asked
+21,794 recorder probes before the fix and 35,561 after; the test half's exact route asked 26,536 before and 41,236 after
+(+55%). Probe counts do not depend on load. The milliseconds after the fix were not measured on a quiet machine:
+`recorder-seek-scan <demo> 40` waits for the lead's go. **Still OPEN.**
 
 ## B601 — a fuzzed `actweight` of `INT_MIN`, and weights summing past 32 bits: the engine is undefined, ours is interpolated — FIXED 2026-10-26 (batch-31 second review)
 

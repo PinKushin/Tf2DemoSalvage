@@ -21,7 +21,7 @@ public sealed class RecorderSpeedGateProbe : IProbe
     public string Name => "recorder-speed-gate";
 
     /// <inheritdoc/>
-    public string Summary => "B602 hybrid: cheap-vs-predicted speed error, margin, equivalence and ms: recorder-speed-gate <demo> [seeks] [margin]";
+    public string Summary => "B602 hybrid: cheap-vs-predicted speed error, margin, equivalence and ms: recorder-speed-gate <demo> [seeks] [margin] [per-probe dump file]";
 
     /// <inheritdoc/>
     public void Run(TextWriter output, IReadOnlyList<string> arguments)
@@ -53,6 +53,14 @@ public sealed class RecorderSpeedGateProbe : IProbe
             output.WriteLine("error: control failed: no probe had the recorder viewed and alive.");
             Environment.ExitCode = 1;
             return;
+        }
+
+        // A per-probe dump, so a fix's before and after can be paired tick by tick (B604): tick, exact, networked, next packet.
+        if (arguments.Count > 3)
+        {
+            File.WriteAllLines(arguments[3], speeds.Select(s => string.Create(CultureInfo.InvariantCulture,
+                $"{s.Tick} {s.Exact:R} {s.Networked:R} {(gate.NextPacketSpeed(s.Tick) is { } next ? next.ToString("R", CultureInfo.InvariantCulture) : "-")}")));
+            output.WriteLine($"  per-probe speeds written to {arguments[3]}");
         }
 
         float needed = 0f;

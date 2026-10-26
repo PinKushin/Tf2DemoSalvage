@@ -1092,11 +1092,13 @@ public sealed class BspLeafTree
     /// <code>
     ///   d1 = DotProduct( p1, plane->normal ) - dist;
     ///   d2 = DotProduct( p2, plane->normal ) - dist;
-    ///   if (d1 > 0 &amp;&amp; d2 > 0) return;        // outside this plane for the whole sweep: no hit
+    ///   if (d1 > 0 &amp;&amp; d2 >= 0) return;        // in front of this plane throughout: no hit (Quake 2: d2 >= d1)
     ///   if (d1 &lt;= 0 &amp;&amp; d2 &lt;= 0) continue;    // inside this plane throughout: says nothing
     ///   if (d1 > d2)  … entering, keep the LATEST …
     ///   else          … leaving,  keep the EARLIEST …
     /// </code>
+    ///
+    /// Quake 2's <c>qcommon/cmodel.c:989-1096</c> (id Software's GPL release), checked line by line on 2026-10-26 (B604).
     ///
     /// **The box is folded into the plane distance**, not into the geometry: <c>dist</c> is pushed
     /// out by the box's projection onto the normal, so a swept box becomes a swept point. That is
@@ -1225,7 +1227,10 @@ public sealed class BspLeafTree
                 getsOut = true;
             }
 
-            // Outside this plane for the whole sweep: a convex volume cannot be entered at all.
+            // Outside this plane for the whole sweep: a convex volume cannot be entered at all. **Not Quake 2's test**, which
+            // is `d1 > 0 && d2 >= d1` (`cmodel.c:1052`) and so also stops a box inside DIST_EPSILON closing on the face
+            // without reaching it. Taking Quake 2's form was measured against the server and made B604's count worse, by 7
+            // gaps of 2,376, so it was not kept; what Source's unpublished cmodel.cpp has here is not read.
             if (start > 0f && end >= 0f)
             {
                 return;
@@ -1267,9 +1272,10 @@ public sealed class BspLeafTree
 
         if (!startsOutside)
         {
-            // Began inside this brush. Valve sets `startsolid` and a fraction of zero, which is the
-            // same statement as "it got nowhere". Meaningful again now that the segment handed in
-            // is the whole ray rather than a piece of it.
+            // Began inside this brush: `startsolid`, and a fraction of zero, "it got nowhere". **Quake 2 sets only the
+            // flags** (`cmodel.c:1077-1083`) and leaves the fraction to the other brushes, and what Source's unpublished
+            // cmodel.cpp does is not read. It is a filed divergence (RISKS B604): taking Quake 2's form changed B604's count
+            // by 22 of 2,369, so it is not that bug, and it reaches every world trace, so it is not changed here.
             hit.Fraction = 0f;
             hit.Texinfo = -1;
             hit.StartSolid = true;
@@ -1277,12 +1283,15 @@ public sealed class BspLeafTree
             return;
         }
 
-        // `if (enterfrac < leavefrac && enterfrac >= 0.0f)` — the sweep is inside a convex brush
-        // only between the last plane it enters and the first it leaves, and a negative entry means
-        // it was already past the surface. The fraction is of the whole ray, so it needs no mapping.
-        if (enters < leaves && enters >= 0f && enters < hit.Fraction)
+        // The sweep is inside a convex brush only between the last plane it enters and the first it leaves. **A negative
+        // entry is kept, as zero** (B604): Quake 2's `CM_ClipBoxToBrush` (`qcommon/cmodel.c:1084-1090`, the ancestor of
+        // the unpublished `engine/cmodel.cpp`) has `if (enterfrac < leavefrac)`, then `if (enterfrac > -1 && enterfrac <
+        // trace->fraction)`, then `if (enterfrac < 0) enterfrac = 0;`. The entry goes negative when the start is nearer the face than DIST_EPSILON — where every
+        // movement trace leaves a player resting against a wall or slope — and refusing it let the box into the brush.
+        // The fraction is of the whole ray, so it needs no mapping.
+        if (enters < leaves && enters > -1f && enters < hit.Fraction)
         {
-            hit.Fraction = enters;
+            hit.Fraction = MathF.Max(0f, enters);
             hit.Texinfo = leadTexinfo;
             (hit.NormalX, hit.NormalY, hit.NormalZ) = leadNormal;
             hit.Distance = leadDistance;
