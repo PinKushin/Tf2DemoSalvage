@@ -156,17 +156,76 @@ public sealed class MovementWorldConformanceTests
     }
 
     [Test]
-    public void Sweep_FromInsideABoxLeavingIt_StartsSolidButGoesTheWholeWay()
+    public void Sweep_FromInsideABoxLeavingIt_StartsSolidAtZeroWithTheConventionalPlane()
     {
-        // CM_ClipBoxToBrush: in at the start and out at the end is startsolid with the fraction left alone.
+        // IntersectRayWithBox (collisionutils.cpp:1240-1250): in at the start and out at the end is startsolid with
+        // fraction 0, plane normal (1, 0, 0) and plane.dist startpos[0]. Leave (−9 + ε) / −49 is inside (0, 1): not allsolid.
         MovementBox box = new(new Vector3(-10f), new Vector3(10f), 40, 0);
 
-        BspTrace trace = MovementWorld.Sweep(Vector3.Zero, new Vector3(50f, 0f, 0f), Vector3.Zero, Vector3.Zero, box).ShouldNotBeNull();
+        BspTrace trace = MovementWorld.Sweep(new Vector3(1f, 0f, 0f), new Vector3(50f, 0f, 0f), Vector3.Zero, Vector3.Zero, box).ShouldNotBeNull();
 
         trace.AllSolid.ShouldBeFalse();
         trace.StartSolid.ShouldBeTrue();
-        trace.Fraction.ShouldBe(1f);
+        trace.Fraction.ShouldBe(0f);
+        trace.Normal.ShouldBe((1f, 0f, 0f));
+        trace.Distance.ShouldBe(1f);
+        trace.BrushEntity.ShouldBe(40);
     }
+
+    [Test]
+    public void Sweep_FromInsideWithinTheEpsilonOfAFaceAndLeaving_IsAllSolid()
+    {
+        // d1 = −0.01 on +x, d2 = 9.99: leave (−0.01 + ε) / −10 is below 0, and `t2 <= 0` is allsolid (:1242).
+        BspTrace trace = MovementWorld.Sweep(new Vector3(9.99f, 0f, 0f), new Vector3(20f, 0f, 0f), Vector3.Zero, Vector3.Zero, Cube())
+            .ShouldNotBeNull();
+
+        trace.StartSolid.ShouldBeTrue();
+        trace.AllSolid.ShouldBeTrue();
+        trace.Fraction.ShouldBe(0f);
+    }
+
+    [Test]
+    public void Sweep_AStepShorterThanTheGapIntoABox_IsKeptAtZero()
+    {
+        // d1 = 0.01, d2 = −0.005 on −x: f = max(0.01 − ε, 0) / 0.015 = 0 (:1178-1183), and `t1 >= 0` keeps it (:1201).
+        BspTrace trace = MovementWorld.Sweep(new Vector3(-10.01f, 0f, 0f), new Vector3(-9.995f, 0f, 0f), Vector3.Zero, Vector3.Zero, Cube())
+            .ShouldNotBeNull();
+
+        trace.Fraction.ShouldBe(0f);
+        trace.Normal.ShouldBe((-1f, 0f, 0f));
+        trace.StartSolid.ShouldBeFalse();
+    }
+
+    [Test]
+    public void Sweep_TwoFacesInsideTheEpsilonAtACorner_KeepsTheFirstInSourcesFaceOrder()
+    {
+        // Faces in IntersectRayWithBox's order: −x, −y, −z, then +x, +y, +z (:1144-1155). +x is 0.02 off and −y 0.01; both
+        // clamp to 0 and the first, −y, is kept. The raw entries (−0.01125 for +x, −0.02125 for −y) would answer +x.
+        BspTrace trace = MovementWorld.Sweep(new Vector3(10.02f, -10.01f, 0f), new Vector3(9.02f, -9.01f, 0f), Vector3.Zero, Vector3.Zero, Cube())
+            .ShouldNotBeNull();
+
+        trace.Fraction.ShouldBe(0f);
+        trace.Normal.ShouldBe((0f, -1f, 0f));
+    }
+
+    [Test]
+    public void Sweep_EnteredAtZeroButLeftAtOrBeforeZero_Misses()
+    {
+        // +x entered at 0 (d1 = 0.01); +y left at (−0.02 + ε) / −1 = −0.01125. `t1 < t2` on the clamped t1 fails.
+        MovementWorld.Sweep(new Vector3(10.01f, 9.98f, 0f), new Vector3(9.01f, 10.98f, 0f), Vector3.Zero, Vector3.Zero, Cube())
+            .ShouldBeNull();
+    }
+
+    [Test]
+    public void Sweep_EndingExactlyOnAFacePlane_EntersAnEpsilonShort()
+    {
+        // d1 = 1, d2 = 0: the early return is `d1 > 0 && d2 > 0` (:1158), so it crosses at (1 − ε) / 1.
+        MovementWorld.Sweep(new Vector3(-11f, 0f, 0f), new Vector3(-10f, 0f, 0f), Vector3.Zero, Vector3.Zero, Cube())
+            .ShouldNotBeNull().Fraction.ShouldBe(1f - 0.03125f);
+    }
+
+    /// <summary>The box ±10 on every axis, entity 40.</summary>
+    private static MovementBox Cube() => new(new Vector3(-10f), new Vector3(10f), 40, 0);
 
     [Test]
     public void Sweep_IntoABox_StopsAnEpsilonShortOfIt()
