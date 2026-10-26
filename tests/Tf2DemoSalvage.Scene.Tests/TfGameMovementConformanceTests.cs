@@ -359,7 +359,7 @@ public sealed class TfGameMovementConformanceTests
         return tree.Trace(from.X, from.Y, from.Z, to.X, to.Y, to.Z, (extents.X, extents.Y, extents.Z), 0, mask);
     };
 
-    internal static BspLeafTree HalfSpace(float nx, float ny, float nz, float distance)
+    internal static BspLeafTree HalfSpace(float nx, float ny, float nz, float distance, int contents = 0x1)
     {
         byte[] plane = new byte[20];
 
@@ -380,7 +380,7 @@ public sealed class TfGameMovementConformanceTests
         byte[] brushes = new byte[12];
 
         BinaryPrimitives.WriteInt32LittleEndian(brushes.AsSpan(4), 1);
-        BinaryPrimitives.WriteInt32LittleEndian(brushes.AsSpan(8), 1);
+        BinaryPrimitives.WriteInt32LittleEndian(brushes.AsSpan(8), contents);
 
         return BspLeafTree.FromCollisionLumps(node, plane, leaves, new byte[2], brushes, new byte[8]);
     }

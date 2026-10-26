@@ -88,6 +88,22 @@ public sealed class BrushClipEntryConformanceTests
     }
 
     [Test]
+    public void GroundTrace_FeetRestingOnAPlayerClip_HitsTheClip()
+    {
+        // `C_BasePlayer::GetGroundSurface` traces MASK_PLAYERSOLID_BRUSHONLY (c_baseplayer.cpp:731), which carries
+        // CONTENTS_PLAYERCLIP (bspflags.h:134): a player standing on a clip ledge is on it, not on whatever is beneath.
+        MapLevel level = new(
+            null, null, null, new Dictionary<int, string>(),
+            TfGameMovementConformanceTests.HalfSpace(0f, 0f, 1f, 0f, BspLeafTree.ContentsPlayerClip), null, null,
+            [], [], [], [], null, default);
+
+        BspTrace trace = level.GroundTrace((0f, 0f, 0.03125f), []);
+
+        trace.Fraction.ShouldBe(0f);
+        trace.Normal.ShouldBe((0f, 0f, 1f));
+    }
+
+    [Test]
     public void ProcessMovement_InTheAirNearerAWallThanTheEpsilon_SlidesAlongItAndKeepsItsSpeedAcross()
     {
         // TryPlayerMove (gamemovement.cpp:2558-2760): the first bump stops at fraction 0 on the face x = 4, ClipVelocity takes
