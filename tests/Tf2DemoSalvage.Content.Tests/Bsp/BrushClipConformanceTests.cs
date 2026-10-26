@@ -127,6 +127,38 @@ public sealed class BrushClipConformanceTests
         trace.StartSolid.ShouldBeFalse();
     }
 
+    /// <remarks>
+    /// **The invariant is that the answer does not depend on the order of the leaf's brush list.** A floor entered at 0 inside
+    /// the epsilon (resting feet) and a brush the sweep starts inside, in one leaf: `startsolid` is a fact about the start,
+    /// so it is set whichever brush is clipped first, and the start-inside convention (fraction 0, normal (1, 0, 0), no
+    /// surface — `collisionutils.cpp:1240-1250`) is the answer both ways. Quake 2's leaf loop stops at fraction 0
+    /// (`CM_TraceToLeaf`, `if (!trace_trace.fraction) return;`) and is NOT followed: floor first, it would never see the
+    /// start-inside brush, and the answer would turn on lump order. *Interpolated:* the engine's walk is unshipped.
+    /// </remarks>
+    [TestCase(false, TestName = "Trace_AnEpsilonFloorThenABrushItStartsInInOneLeaf_IsStartSolid")]
+    [TestCase(true, TestName = "Trace_ABrushItStartsInThenAnEpsilonFloorInOneLeaf_IsStartSolid")]
+    public void Trace_AnEpsilonFloorAndABrushItStartsInInOneLeaf_IsStartSolidInEitherOrder(bool startInsideFirst)
+    {
+        (float X, float Y, float Z, float D)[] floor =
+        [
+            (0f, 0f, 1f, 0f), (0f, 0f, -1f, 10f), (1f, 0f, 0f, 10f), (-1f, 0f, 0f, 10f), (0f, 1f, 0f, 10f), (0f, -1f, 0f, 10f),
+        ];
+
+        // The cube with its bottom raised to z = −0.5: the sweep starts in it and leaves it at 0.48, so it is not allsolid.
+        (float X, float Y, float Z, float D)[] around = [.. Cube()[..5], (0f, 0f, -1f, 0.5f)];
+
+        BspLeafTree world = Tree((0f, 0f, 1f, -100000f), front: startInsideFirst ? [around, floor] : [floor, around], back: []);
+
+        // Feet 0.01 above the floor's top face, moving down a unit.
+        BspTrace trace = world.Trace(0f, 0f, 0.01f, 0f, 0f, -0.99f, Point);
+
+        trace.StartSolid.ShouldBeTrue();
+        trace.AllSolid.ShouldBeFalse();
+        trace.Fraction.ShouldBe(0f);
+        trace.Normal.ShouldBe((1f, 0f, 0f));
+        trace.Texinfo.ShouldBe(-1);
+    }
+
     /// <summary>The cube |x|, |y|, |z| ≤ 4, sides +x, +y, −x, −y, +z, −z; side i's texinfo is i.</summary>
     private static (float X, float Y, float Z, float D)[] Cube() =>
     [

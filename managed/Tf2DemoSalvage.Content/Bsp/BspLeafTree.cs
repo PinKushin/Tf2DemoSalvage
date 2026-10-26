@@ -1161,6 +1161,10 @@ public sealed class BspLeafTree
                 continue;
             }
 
+            // **No early return at fraction 0, deliberately.** Quake 2's `CM_TraceToLeaf` stops there
+            // (`if (!trace_trace.fraction) return;`), which makes the answer turn on lump order: a floor entered at 0 inside
+            // the epsilon, listed first, hides a later brush the sweep starts inside. Clipping every brush keeps `startsolid`
+            // a fact about the start, order-independent (BrushClipConformanceTests). *Interpolated:* Source's walk is unshipped.
             ClipToBrush(
                 firstSide, sides, fromX, fromY, fromZ, toX, toY, toZ, extents, ref hit);
         }

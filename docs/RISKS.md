@@ -40121,7 +40121,10 @@ faces also go in Source's order, −x −y −z +x +y +z, which (a) makes matter
 the count worse — is moot: neither form is Source's. *Interpolated:* the brush clip itself is still the unshipped
 `cmodel.cpp`; the published form is a sibling with the same tolerance idiom. The tree's leaf pruning keeps Quake 2's
 `fraction <= p1f` (`cmodel.c:1239`), pinned by a test; Quake 2's leaf loop also stops at fraction 0 (`:1180`), which ours
-does not, a filed difference. Tests: `BrushClipConformanceTests` (Content), the box `Sweep` tests, the chase camera and
+does not, **on purpose** (batch-34 review): with it, a floor entered at 0 inside the epsilon and listed first hides a later
+brush in the same leaf that the sweep starts inside, so `startsolid` — and the footstep surface and `CheckStuck` after it —
+would turn on lump order. Ours clips every brush, and the start-inside convention wins in either order; pinned both ways in
+`BrushClipConformanceTests`, and adding Quake 2's return reddens the floor-first case. Tests: `BrushClipConformanceTests` (Content), the box `Sweep` tests, the chase camera and
 `MapLevel.GroundTrace` from inside the epsilon, and `CorpusGroundSurfaceTests` on a real match. **Measured** on
 etf2l-12025: still-against-running gaps 2,376 → 2,369, speed-gate flips 724 / 33,368 → 721 / 34,040, all of it the brush
 clip's, none the box sweep's (measurements/2026-10-26-pov-recorder-seek-scan.md, "Source's clip"). Parity, not B604's
