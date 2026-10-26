@@ -87,13 +87,18 @@ public sealed class ActivityTuplesProbe : IProbe
         int activities = 0;
         int multi = 0;
 
-        foreach ((_, PropModels.SkinnedModel model) in models)
+        foreach ((string Path, PropModels.SkinnedModel Model) m in models)
         {
+            PropModels.SkinnedModel model = m.Model;
             sequences += model.Sequences.Count;
             List<string> named = [.. Enumerable.Range(0, model.Sequences.Count).Select(model.ActivityOf).Where(a => a.Length > 0)];
             candidates += named.Count;
             activities += named.Distinct(StringComparer.OrdinalIgnoreCase).Count();
-            multi += named.GroupBy(a => a, StringComparer.OrdinalIgnoreCase).Count(g => g.Count() > 1);
+            foreach (IGrouping<string, string> group in named.GroupBy(a => a, StringComparer.OrdinalIgnoreCase).Where(g => g.Count() > 1))
+            {
+                multi++;
+                output.WriteLine(string.Create(CultureInfo.InvariantCulture, $"  {Path.GetFileName(m.Path)} {group.Key} x{group.Count()}"));
+            }
         }
 
         // The control: fresh tables alone. Then the same fresh tables with their maps built.

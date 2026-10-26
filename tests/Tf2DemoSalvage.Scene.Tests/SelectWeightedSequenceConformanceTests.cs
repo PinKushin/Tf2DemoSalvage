@@ -165,6 +165,22 @@ public sealed class SelectWeightedSequenceConformanceTests
         (GC.GetAllocatedBytesForCurrentThread() - before).ShouldBe(0);
     }
 
+    /// <summary>The cached delegate answers for its own model after a `with` copy, and the record still hashes.</summary>
+    [Test]
+    public void Declares_AfterAWithCopy_AnswersForTheCopyAndHashes()
+    {
+        PropModels.SkinnedModel first = SyntheticSkinnedModel.WithWeights(("ACT_A", 1));
+        first.Declares("ACT_A").ShouldBeTrue();
+
+        PropModels.SkinnedModel other = SyntheticSkinnedModel.WithWeights(("ACT_B", 1));
+        PropModels.SkinnedModel copy = first with { Sequences = other.Sequences, Groups = other.Groups };
+
+        copy.Declares("ACT_A").ShouldBeFalse();
+        copy.Declares("ACT_B").ShouldBeTrue();
+        first.GetHashCode().ShouldBe(first.GetHashCode());
+        first.Equals(copy).ShouldBeFalse();
+    }
+
     private static int StandAt(int tick) => Play(Loaded(), tick, speed: 0f);
 
     private static int Play(EntityModelSet models, int tick, float speed)

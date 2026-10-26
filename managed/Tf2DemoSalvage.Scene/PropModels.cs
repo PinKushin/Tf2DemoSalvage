@@ -2445,19 +2445,21 @@ public static class PropModels
         {
             get
             {
-                (SkinnedModel Owner, Func<string, bool> Ask)? held = _declares;
+                // The delegate's Target IS its owner; holding `this` in a field would put the record in its own
+                // generated GetHashCode/Equals and recurse. Delegates compare and hash by identity.
+                Func<string, bool>? held = _declares;
 
-                if (held is not { } known || !ReferenceEquals(known.Owner, this))
+                if (held is null || !ReferenceEquals(held.Target, this))
                 {
-                    known = (this, name => ForActivity(name) >= 0);
-                    _declares = known;
+                    held = name => ForActivity(name) >= 0;
+                    _declares = held;
                 }
 
-                return known.Ask;
+                return held;
             }
         }
 
-        private (SkinnedModel Owner, Func<string, bool> Ask)? _declares;
+        private Func<string, bool>? _declares;
 
         /// <summary>The map, built on first use and rebuilt if a `with` copy replaced the tables.</summary>
         private Dictionary<string, ActivityTuples> Activities()

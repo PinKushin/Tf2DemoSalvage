@@ -359,7 +359,7 @@ public sealed partial class EntityModelSet
     /// **The one addition over the engine**, whose `RandomInt` differs every client run. A viewer seeks and replays, and
     /// an unseeded roll would re-pick on every seek; a hash of (entity, activity, tick) makes the same moment show the
     /// same variant. It decides which value comes up, never how often each comes up — the distribution test holds that.
-    /// The per-demo part is the tick and entity themselves; no other seed is mixed in. SplitMix64's finaliser over an
+    /// No separate per-demo seed is mixed in (RISKS B584). A seek into an activity keys on the landing tick. SplitMix64's finaliser over an
     /// FNV-1a of the upper-cased name: allocation-free and stable across runs, which `HashCode` is not.
     /// </remarks>
     internal static uint ActivityPickSeed(int entity, string activity, long tick)

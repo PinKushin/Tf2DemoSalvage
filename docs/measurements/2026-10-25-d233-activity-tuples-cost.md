@@ -41,4 +41,8 @@ Both runs identical in counts and bytes; timings within 0.3 ns.
 
 **Reading.** The tuple lists cost about 140 KB more than the heaviest-only map across 64 models. A pick costs the same as the
 lookup it replaces, and runs only when an activity changes; a held frame does the same lookups as before plus one dictionary
-store. Only 19 activities on these models have more than one candidate, so the visible change is confined to those.
+store. Only 19 activities on these models have more than one candidate, so the visible change is confined to those. A
+third run listed them: the main-sequence ones are scout `ACT_MP_STAND_MELEE` x2 and soldier `ACT_MP_AIRWALK_PRIMARY` x5;
+the rest are gestures (heavy and engineer `ACT_MP_GESTURE_FLINCH_CHEST` x4 and x3, attack, reload and PDA variants, a spy
+voice gesture), engineer `ACT_MP_TAUNT` x7, sniper `ACT_KART_POSITIVE` x2 and `ACT_MP_CROUCH_DEPLOYED_IDLE_ITEM2` x2, and
+soldier `ACT_MP_FALLING_STOMP_PRIMARY` x2. That run: 196,000 B retained (72 B more, run-to-run), 50.5 / 50.0 ns.

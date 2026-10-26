@@ -11022,7 +11022,7 @@ when the activity changed (`multiplayer_animstate.cpp:1171-1172`), so it rolls o
 **The decision.** Engine behaviour only, no setting: rolled by weight on an activity change and held; a current sequence
 of negative weight kept (`animation.cpp:291-297`); a failed lookup is sequence 0, unrolled (`:1174-1177`). **The one
 addition** is the seed: the roll comes from (entity, activity, the tick the activity began) rather than a running RNG, so a
-seek or replay shows the same pick. It changes which value comes up, not how often each does.
+replay or a repeated seek shows the same pick (a seek into the middle of an activity keys on the landing tick; RISKS B584). It changes which value comes up, not how often each does.
 
 **Why it follows.** A setting that switches to a divergence keeps the divergence alive and gains nothing; the seed is the
 only part a viewer needs that the engine does not (the engine never seeks). Implementation, tests and cost: RISKS B584,

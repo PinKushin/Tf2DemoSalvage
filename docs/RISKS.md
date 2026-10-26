@@ -40325,8 +40325,16 @@ divergence."* A player's main sequence is now `SkinnedModel.SelectWeightedSequen
 else walk `RandomInt( 0, total - 1 )` over the tuples), rolled only when the activity changes and then held
 (`multiplayer_animstate.cpp:1170-1172`), with `animDesired < 0` → 0 unrolled (`:1174-1177`). The state is the existing
 `_mainSequences` entry, now carrying the last tick: a clock that runs back (a seek) forgets the hold; `LevelShutdown` clears
-it. **The one addition:** the roll is `ActivityPickSeed(entity, activity, tick the activity began)`, so a seek or replay shows
-the same pick; it changes which value comes up, not the distribution. Held by `SelectWeightedSequenceConformanceTests`
+it. **The one addition:** the roll is `ActivityPickSeed(entity, activity, tick the activity began)`, so a replay, or a second
+seek to the same tick, shows the same pick; it changes which value comes up, not the distribution. **Open, for the lead:** a
+seek lands mid-activity and keys the roll on the LANDING tick, so seeking into a stretch can show a different variant from
+playing through it. Options: recover the true begin tick from the timeline; drop the tick from the seed (one variant per
+entity and activity); or accept it. **No per-demo seed** was mixed in (the brief asked for one): entity and tick already
+differ per demo, and nothing in `EntityModelSet` names the demo; adding one is a header hash passed in. The negative-weight
+keep is ported and tested as a function but cannot fire on the main path, since a roll happens only when the activity changed
+or after a seek. Multi-candidate activities on the f12 set (probe): main-sequence ones are scout `ACT_MP_STAND_MELEE` x2 and
+soldier `ACT_MP_AIRWALK_PRIMARY` x5, so the change is visible there; the other 17 are gestures (attack, reload, flinch,
+voice) and engineer's `ACT_MP_TAUNT` x7. Held by `SelectWeightedSequenceConformanceTests`
 (14: slot walk, negative-weight keep with controls, distribution within 0.01, hold, re-roll keyed on the tick, replay,
 seek back, zero allocation); sabotaged — negative keep, seek reset, hold, walk `>=`, seed without tick — each reddened its
 test. **Cost** (`measurements/2026-10-25-d233-activity-tuples-cost.md`): about 140 KB more retained over 64 models; a pick
