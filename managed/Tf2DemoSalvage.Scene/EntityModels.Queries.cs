@@ -400,7 +400,7 @@ public sealed partial class EntityModelSet
     /// left while zoomed stayed in the scene for good. Called once a frame before the first pass; the dictionaries are
     /// kept, so this allocates nothing.
     /// </remarks>
-    public void BeginScenes()
+    internal void BeginScenes()
     {
         foreach (Dictionary<int, SceneProp> scene in _scenes.Values)
         {
