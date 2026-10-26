@@ -59,6 +59,21 @@ public sealed class MainSequenceSeekTests
         StandKeyedOn(5, 41).ShouldNotBe(StandKeyedOn(5, 0), "the control: the two keys pick different variants");
     }
 
+    /// <summary>
+    /// **A pin, not a rule**: the exact seed and variant a few (entity, activity, tick) keys pick, so changing the seed —
+    /// as widening it to all 64 bits did after batch 31, unreleased — is a deliberate edit of these numbers rather than a
+    /// silent re-pick of every variant in every demo (RISKS B584).
+    /// </summary>
+    [TestCase(1, Stand, 0L, 12668847861480691451UL, 3)]
+    [TestCase(3, Stand, 41L, 16780566077961897023UL, 7)]
+    [TestCase(5, Run, 140L, 2165073828567726469UL, 9)]
+    [TestCase(24, Stand, 120626L, 2596824343395533692UL, 4)]
+    public void ActivityPickSeed_AFewKeys_ArePinned(int entity, string activity, long tick, ulong seed, int pick)
+    {
+        EntityModelSet.ActivityPickSeed(entity, activity, tick).ShouldBe(seed);
+        Variants(Soldier)!.Skinned!.SelectWeightedSequence(activity, -1, seed).ShouldBe(pick);
+    }
+
     [TestCase(1.0)]
     [TestCase(0.6)]
     [TestCase(1.7)]
