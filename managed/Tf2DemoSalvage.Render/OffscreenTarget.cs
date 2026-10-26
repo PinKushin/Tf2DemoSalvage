@@ -835,6 +835,9 @@ internal sealed unsafe class OffscreenTarget : IDisposable
         _points.DrawLines(_device, _context, segments, red, green, blue);
     }
 
+    /// <summary>Whether the model draws went through the constant rings (B597); false before any model draw.</summary>
+    internal bool UsesConstantRing => _world?.UsesConstantRing ?? false;
+
     /// <summary>Reads one pixel back from the GPU.</summary>
     /// <param name="x">Column, from the left.</param>
     /// <param name="y">Row, from the TOP — image order, not clip space.</param>
