@@ -40081,18 +40081,35 @@ the `Task.Run` holds the gate — no worse than the synchronous open it replaced
 setters volatile, or publishing one "install opened" object the frame reads once, touches five classes and the frame's
 read order, which is not the small safe step the review allowed; filed for the lead with that design.
 
-## B605 — the footstep ground probe starts solid for 83% of grounded players on a SourceTV match, and names no surface — OPEN (2026-10-26)
+## B605 — the footstep ground probe starts solid for 83% of grounded players on a SourceTV match — NOT OUR BUG: TF2 does the same; one engine question OPEN (2026-10-26)
 
 **Measured** (`CorpusGroundSurfaceTests`, lcor `20171113_2240_cp_badlands_red_blu`, today's cp_badlands, every 33rd tick):
 of 3,993 grounded players with a floor within a unit underfoot, `MapLevel.GroundTrace` started solid for **3,320**, struck a
 surface for 672 and missed 1. The networked origins rest EXACTLY on the floor plane (z = 296.0, 408.0), so the hull-wide
 cube's bottom face has `d1 = 0`, which neither Source's clip (`collisionutils.cpp:1141-1174`, startsolid unless some
-`d1 > 0`) nor Quake 2's counts as outside; the trace starts in, `Texinfo = −1`, and the step sound falls to the no-surface
-choice. Not caused by B604's clip change: identical under the pre-B604 rule. **Not settled:** what TF2 itself traces here —
-`C_BasePlayer::GetGroundSurface` was not read this session (the SDK lookup was blocked by tooling, not tried and failed), and
-whether the client's origin for another player is the quantized networked one or a position resolved off the floor. Read it
-before changing anything; the probe's own shape (a 48 cube from z + 24, `MASK_SOLID`, where its comment says
-`MASK_PLAYERSOLID_BRUSHONLY`) is also unverified against it.
+`d1 > 0`) nor Quake 2's counts as outside; the trace starts in and `Texinfo = −1`. Not caused by B604's clip change:
+identical under the pre-B604 rule.
+
+**Why, read from published source (batch-34 review):** a non-local player's origin is sent LOW PRECISION —
+`DT_TFNonLocalPlayerExclusive` sends `m_vecOrigin` as `SPROP_COORD_MP_LOWPRECISION` (`tf_player.cpp:748-749`), three
+fractional bits, a resolution of 1/8 — so the server's rest at floor + 1/32 rounds to the floor plane exactly. The local
+player's origin is `SPROP_NOSCALE` (`DT_TFLocalPlayerExclusive`, `:721-722`), full precision; a SourceTV recording has no
+player who is local, so every one is low precision. And `C_BasePlayer::GetGroundSurface` (`c_baseplayer.cpp:713-737`) traces
+`Ray_t::Init( GetAbsOrigin(), origin − 64z, GetPlayerMins(), GetPlayerMaxs() )` from that same networked origin, with
+`MASK_PLAYERSOLID_BRUSHONLY`. **So our probe matches Source, and TF2's own client starts solid on this demo too**: the rate is
+a property of SourceTV's quantised origins, not of the probe. The mask was `MASK_SOLID` until the batch-34 review and is now
+`MASK_PLAYERSOLID_BRUSHONLY` (= `BspLeafTree.MaskPlayerSolid`, `bspflags.h:134`).
+
+**The control** (`CorpusGroundSurfaceTests.GroundTrace_ThePovRecorderOnTheGround_ReportsItsStartSolidRate`): the recorder of
+a POV demo, whose origin is full precision, through the same probe — it reports the start-solid rate there, which should be
+near zero; it skips with a reason when its demo or map is absent. **Not yet run** (written in a no-build window): until its
+number is written here, the full-precision prediction is a prediction, not a measurement.
+
+**Still open, interpolated:** what the engine's closed cmodel puts in `trace.surface.surfaceProps` for a startsolid trace,
+which is what `GetGroundSurface` hands `physprops->GetSurfaceData` — Quake 2's ancestor leaves the surface untouched, 0, the
+default surface; Source's `cmodel.cpp` is unshipped. Ours answers no surface (`Texinfo = −1`). A decompiler can settle it.
+**Also unverified:** the probe's box is a 48 cube from feet + 24, where `GetPlayerMins/Maxs` is (−24, −24, 0)–(24, 24, 82)
+standing (62 ducked); it differs only when something is within 48–82 units above the feet.
 
 ## B604 — prediction gives a running POV recorder 0 u/s on ~7% of probed ticks, and the frame draws him standing — MAIN CAUSE FIXED, REMAINDER OPEN (2026-10-26)
 

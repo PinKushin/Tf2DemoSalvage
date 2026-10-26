@@ -1,3 +1,4 @@
+using System;
 using System.Globalization;
 using System.IO;
 
@@ -29,8 +30,59 @@ public sealed class CorpusGroundSurfaceTests
         string game = SdkReference.GameInstall.Require();
         byte[] map = File.ReadAllBytes(Path.Combine(game, "maps", "cp_badlands.bsp"));
         DemoTimeline timeline = DemoTimeline.Build(File.ReadAllBytes(Corpus.Demo("20171113_2240_cp_badlands_red_blu")));
-        MapLevel level = MapLevel.Read(map, NullLogger.Instance);
         GameContent content = GameContent.Open(game, NullLoggerFactory.Instance);
+
+        Probe probe = Sample(timeline, map, content, _ => true);
+
+        TestContext.Out.WriteLine(probe.Report);
+
+        // The control: grounded players over a floor were found, or nothing below was asserted.
+        probe.Sampled.ShouldBeGreaterThan(500, probe.Report);
+        // Measured 2026-10-26 (Source's clip): 1 miss of 3,993, a player 0.39 above terrain under his centre, which the
+        // displacement sweep does not stop — not the brush clip. The clip of before B604, which refused an entry inside the
+        // epsilon, missed 5 (sabotaged to that rule, the same run otherwise). Started solid, 3,320, is the same under both:
+        // a SourceTV origin is SPROP_COORD_MP_LOWPRECISION (tf_player.cpp:748-749), so the rest an epsilon up rounds onto the
+        // floor plane, `d1 = 0` is not outside, and the box starts in — as TF2's own GetGroundSurface does (B605).
+        probe.Missed.ShouldBeLessThanOrEqualTo(1, probe.Report);
+        // A box 48 wide can rest on a ledge the centre is past, so the surfaces need not all agree; nine in ten must.
+        probe.Agreed.ShouldBeGreaterThan(probe.Struck * 9 / 10, probe.Report);
+    }
+
+    /// <remarks>
+    /// **B605's control.** A POV recorder's own origin is `SPROP_NOSCALE` (`DT_TFLocalPlayerExclusive`,
+    /// `tf_player.cpp:721-722`), so his rest an epsilon above the floor survives the wire, and the probe should start outside
+    /// the floor — where the SourceTV match's low-precision origins start solid 83% of the time. rgl-pug-2026-08-10-pov (lcor)
+    /// on cp_process_f12, whose MapHash matches (B604). Reports the rate; asserts only that it sampled, and that the rate is
+    /// below the SourceTV one, which is the whole claim.
+    /// </remarks>
+    [Test]
+    public void GroundTrace_ThePovRecorderOnTheGround_ReportsItsStartSolidRate()
+    {
+        string game = SdkReference.GameInstall.Require();
+        string mapPath = Path.Combine(game, "maps", "cp_process_f12.bsp");
+
+        if (!File.Exists(mapPath))
+        {
+            Assert.Ignore($"{mapPath} is not installed; the recorder's floor cannot be traced without it");
+        }
+
+        DemoTimeline timeline = DemoTimeline.Build(File.ReadAllBytes(Corpus.Demo("rgl-pug-2026-08-10-pov")));
+        int recorder = timeline.RecorderEntityIndex ?? -1;
+        GameContent content = GameContent.Open(game, NullLoggerFactory.Instance);
+
+        Probe probe = Sample(timeline, File.ReadAllBytes(mapPath), content, player => player.EntityIndex == recorder);
+
+        TestContext.Out.WriteLine($"the recorder, entity {recorder}: {probe.Report}");
+
+        probe.Sampled.ShouldBeGreaterThan(100, probe.Report);
+        // The SourceTV match's rate is 3,320 / 3,993; full precision must come in well under it.
+        probe.StartSolid.ShouldBeLessThan(probe.Sampled / 2, probe.Report);
+    }
+
+    /// <summary>The ground probe and its point-trace control, every 33rd tick, for the grounded living players chosen.</summary>
+    private static Probe Sample(DemoTimeline timeline, byte[] map, GameContent content, Func<ScenePlayer, bool> chosen)
+    {
+        MapLevel level = MapLevel.Read(map, NullLogger.Instance);
         ImpactDecals decals = ImpactDecals.Load(map, content.Archives, content.Surfaces);
 
         int sampled = 0;
@@ -43,7 +95,7 @@ public sealed class CorpusGroundSurfaceTests
         {
             foreach (ScenePlayer player in timeline.PlayersAt(tick))
             {
-                if (!player.IsAlive || ((player.Flags ?? 0) & 1) == 0)
+                if (!chosen(player) || !player.IsAlive || ((player.Flags ?? 0) & 1) == 0)
                 {
                     continue;
                 }
@@ -80,16 +132,8 @@ public sealed class CorpusGroundSurfaceTests
             $"{sampled} grounded players over a floor: the probe missed {missed}, started solid for {startSolid}, and struck a " +
             $"surface for {struck}, the one directly underfoot for {agreed}");
 
-        TestContext.Out.WriteLine(report);
-
-        // The control: grounded players over a floor were found, or nothing below was asserted.
-        sampled.ShouldBeGreaterThan(500, report);
-        // Measured 2026-10-26 (Source's clip): 1 miss of 3,993, a player 0.39 above terrain under his centre, which the
-        // displacement sweep does not stop — not the brush clip. The clip of before B604, which refused an entry inside the
-        // epsilon, missed 5 (sabotaged to that rule, the same run otherwise). Started solid, 3,320, is the same under both:
-        // a SourceTV origin rests EXACTLY on the floor plane (z = 296.0), `d1 = 0` is not outside, and the box starts in.
-        missed.ShouldBeLessThanOrEqualTo(1, report);
-        // A box 48 wide can rest on a ledge the centre is past, so the surfaces need not all agree; nine in ten must.
-        agreed.ShouldBeGreaterThan(struck * 9 / 10, report);
+        return new Probe(sampled, missed, startSolid, struck, agreed, report);
     }
+
+    private readonly record struct Probe(int Sampled, int Missed, int StartSolid, int Struck, int Agreed, string Report);
 }
