@@ -26,8 +26,11 @@ namespace Tf2DemoSalvage.Render;
 /// </remarks>
 public sealed unsafe class OcclusionQueries : IDisposable
 {
+    /// <summary>A proxy's quad as two triangles.</summary>
+    private const int CornersPerProxy = 6;
+
     private readonly Dictionary<int, Pair> _pairs = [];
-    private readonly Vector3[] _corners = new Vector3[6];
+    private Vector3[] _corners = [];
     private readonly WorldLineRenderer _shape;
     private ComPtr<ID3D11DepthStencilState> _tested;
     private ComPtr<ID3D11BlendState> _noColour;
@@ -110,8 +113,35 @@ public sealed unsafe class OcclusionQueries : IDisposable
         squeezed.MinDepth = 0f;
         squeezed.MaxDepth = 0.01f;
 
-        foreach (PixelVisibilityProxy proxy in proxies)
+        // **Every proxy's quad in one buffer, uploaded and bound once** (B597): each query draws its own six corners by
+        // offset. Per query this was a fresh array, a vertex map, a camera map and six binds — 0.37 ms of the render
+        // thread for 376 one-quad draws — and the GPU sees the same triangles under the same states either way.
+        int corners = proxies.Count * CornersPerProxy;
+
+        if (_corners.Length < corners)
         {
+            _corners = new Vector3[corners];
+        }
+
+        for (int p = 0; p < proxies.Count; p++)
+        {
+            PixelVisibilityProxy proxy = proxies[p];
+            int at = p * CornersPerProxy;
+
+            _corners[at] = proxy.First;
+            _corners[at + 1] = proxy.Second;
+            _corners[at + 2] = proxy.Third;
+            _corners[at + 3] = proxy.First;
+            _corners[at + 4] = proxy.Third;
+            _corners[at + 5] = proxy.Fourth;
+        }
+
+        _shape.BindTriangles(device, context, _corners.AsSpan(0, corners), viewProjection);
+
+        for (int p = 0; p < proxies.Count; p++)
+        {
+            PixelVisibilityProxy proxy = proxies[p];
+
             if (!_pairs.TryGetValue(proxy.Key, out Pair? pair))
             {
                 QueryDesc description = new() { Query = Query.Occlusion };
@@ -125,18 +155,11 @@ public sealed unsafe class OcclusionQueries : IDisposable
             // What it holds now, before it is begun again and loses it.
             Poll(context, pair, wait: false);
 
-            _corners[0] = proxy.First;
-            _corners[1] = proxy.Second;
-            _corners[2] = proxy.Third;
-            _corners[3] = proxy.First;
-            _corners[4] = proxy.Third;
-            _corners[5] = proxy.Fourth;
-
             // `IssueCountingQuery`, then `IssueQuery`.
             context.RSSetViewports(1, in squeezed);
-            Count(device, context, pair.Possible, viewProjection);
+            Count(context, pair.Possible, p * CornersPerProxy);
             context.RSSetViewports(1, in whole);
-            Count(device, context, pair.Visible, viewProjection);
+            Count(context, pair.Visible, p * CornersPerProxy);
             pair.Begun = true;
         }
 
@@ -180,14 +203,10 @@ public sealed unsafe class OcclusionQueries : IDisposable
         _shape.Dispose();
     }
 
-    private void Count(
-        ComPtr<ID3D11Device> device,
-        ComPtr<ID3D11DeviceContext> context,
-        ComPtr<ID3D11Query> query,
-        float[] viewProjection)
+    private static void Count(ComPtr<ID3D11DeviceContext> context, ComPtr<ID3D11Query> query, int first)
     {
         context.Begin((ID3D11Asynchronous*)query.Handle);
-        _shape.DrawTriangles(device, context, _corners, viewProjection);
+        WorldLineRenderer.DrawRange(context, first, CornersPerProxy);
         context.End((ID3D11Asynchronous*)query.Handle);
     }
 

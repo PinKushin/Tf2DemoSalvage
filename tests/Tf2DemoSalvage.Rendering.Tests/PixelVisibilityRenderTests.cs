@@ -63,6 +63,30 @@ public sealed class PixelVisibilityRenderTests
     }
 
     /// <remarks>
+    /// **Every proxy counts its OWN quad** when one upload serves them all and each query draws its six corners by offset
+    /// (B597): hidden, half hidden, open, and in front of the wall, issued together.
+    /// </remarks>
+    [Test]
+    public void Count_SeveralProxiesIssuedTogether_EachCountsItsOwnQuad()
+    {
+        if (Walled() is not { } target)
+        {
+            return;
+        }
+
+        using (target)
+        {
+            IReadOnlyDictionary<int, (int Pixels, int Possible)> counts = target.CountOcclusion(
+                [Proxy(1, -0.5f, 0.5f), Proxy(2, 0f, 0.5f), Proxy(3, 0.5f, 0.5f), Proxy(4, -0.5f, 0.2f)], Identity);
+
+            counts[1].ShouldBe((0, Possible), "behind the wall");
+            counts[2].ShouldBe((Possible / 2, Possible), "on its edge");
+            counts[3].ShouldBe((Possible, Possible), "clear of it");
+            counts[4].ShouldBe((Possible, Possible), "in front of it");
+        }
+    }
+
+    /// <remarks>
     /// **The counting query is squeezed, not untested**: <c>pRenderContext->DepthRange( 0.0f, 0.01f )</c> around
     /// `IssueCountingQuery` (`c_pixel_visibility.cpp:598-611`), with the depth test still on. A proxy at depth 0.5
     /// counts at 0.005, so a wall nearer than that hides the COUNT as well, and the ratio is of what is left.

@@ -238,24 +238,75 @@ public sealed unsafe class WorldLineRenderer : IDisposable
         ReadOnlySpan<Vector3> corners,
         float[] viewProjection)
     {
+        BindTriangles(device, context, corners, viewProjection);
+        DrawRange(context, 0, corners.Length);
+    }
+
+    /// <summary>
+    /// Uploads world-space triangles and binds the pipeline once, for <see cref="DrawRange"/> to draw them run by run —
+    /// the occlusion proxies, one run per query (B597).
+    /// </summary>
+    /// <param name="device">Device, for growing the buffers.</param>
+    /// <param name="context">Context to bind on.</param>
+    /// <param name="corners">Three corners a triangle, in Source units.</param>
+    /// <param name="viewProjection">The camera, row major, sixteen floats.</param>
+    /// <exception cref="ArgumentNullException">An argument is null.</exception>
+    /// <remarks>Nothing else may bind between this and the draws it serves.</remarks>
+    public void BindTriangles(
+        ComPtr<ID3D11Device> device,
+        ComPtr<ID3D11DeviceContext> context,
+        ReadOnlySpan<Vector3> corners,
+        float[] viewProjection)
+    {
         ArgumentNullException.ThrowIfNull(viewProjection);
 
-        float[] vertices = new float[corners.Length * 6];
+        // Reused: a frame's proxies came to 752 small arrays when each draw built its own (B597).
+        int floats = corners.Length * 6;
+
+        if (_triangleFloats.Length < floats)
+        {
+            _triangleFloats = new float[floats];
+        }
+
         int at = 0;
 
         foreach (Vector3 corner in corners)
         {
-            Append(vertices, ref at, (corner.X, corner.Y, corner.Z), 0f, 0f, 0f);
+            Append(_triangleFloats, ref at, (corner.X, corner.Y, corner.Z), 0f, 0f, 0f);
         }
 
-        Draw(device, context, vertices, viewProjection, D3DPrimitiveTopology.D3DPrimitiveTopologyTrianglelist);
+        Bind(device, context, _triangleFloats.AsSpan(0, floats), viewProjection, D3DPrimitiveTopology.D3DPrimitiveTopologyTrianglelist);
     }
+
+    /// <summary>Draws vertices <paramref name="first"/> to <paramref name="first"/> + <paramref name="count"/> of what was bound.</summary>
+    /// <param name="context">The context bound by <see cref="BindTriangles"/>.</param>
+    /// <param name="first">The first vertex.</param>
+    /// <param name="count">How many.</param>
+    public static void DrawRange(ComPtr<ID3D11DeviceContext> context, int first, int count)
+    {
+        SubmitCounters.Draw();
+        context.Draw((uint)count, (uint)first);
+    }
+
+    private float[] _triangleFloats = [];
 
     /// <summary>Uploads and draws vertices of six floats each under one topology.</summary>
     private void Draw(
         ComPtr<ID3D11Device> device,
         ComPtr<ID3D11DeviceContext> context,
         float[] vertices,
+        float[] viewProjection,
+        D3DPrimitiveTopology topology)
+    {
+        Bind(device, context, vertices, viewProjection, topology);
+        DrawRange(context, 0, vertices.Length / 6);
+    }
+
+    /// <summary>Uploads vertices of six floats each and binds the pipeline and camera for one topology.</summary>
+    private void Bind(
+        ComPtr<ID3D11Device> device,
+        ComPtr<ID3D11DeviceContext> context,
+        ReadOnlySpan<float> vertices,
         float[] viewProjection,
         D3DPrimitiveTopology topology)
     {
@@ -274,8 +325,6 @@ public sealed unsafe class WorldLineRenderer : IDisposable
         context.VSSetShader(_vertexShader, ref Unsafe.NullRef<ComPtr<ID3D11ClassInstance>>(), 0);
         context.VSSetConstantBuffers(CameraSlot, 1, ref _camera);
         context.PSSetShader(_pixelShader, ref Unsafe.NullRef<ComPtr<ID3D11ClassInstance>>(), 0);
-
-        SubmitCounters.Draw(); context.Draw((uint)count, 0);
     }
 
     /// <inheritdoc/>
@@ -371,16 +420,12 @@ public sealed unsafe class WorldLineRenderer : IDisposable
     }
 
     /// <summary>Copies the vertices into the dynamic buffer.</summary>
-    private void Upload(ComPtr<ID3D11DeviceContext> context, float[] vertices)
+    private void Upload(ComPtr<ID3D11DeviceContext> context, ReadOnlySpan<float> vertices)
     {
         MappedSubresource mapped = default;
         SubmitCounters.Upload(); SilkMarshal.ThrowHResult(context.Map(_vertices, 0, Map.WriteDiscard, 0, ref mapped));
 
-        fixed (float* source = vertices)
-        {
-            System.Buffer.MemoryCopy(
-                source, mapped.PData, vertices.Length * sizeof(float), vertices.Length * sizeof(float));
-        }
+        vertices.CopyTo(new Span<float>(mapped.PData, vertices.Length));
 
         context.Unmap(_vertices, 0);
     }
