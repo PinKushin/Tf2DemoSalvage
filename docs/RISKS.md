@@ -40344,7 +40344,7 @@ that began more than `ActivityScanTicks` (2048, 31 s at 66 Hz) before the landin
 so a seek deep into one long activity can differ from play; and a stretch shorter than the gap between two frames is held
 through by play (as the engine at that frame rate would) but ends the stretch for a seek
 (`…_AStretchBetweenTwoFrames_…`). A point-of-view recorder is scanned on his networked velocity, where the frame uses the
-predicted one. **Seek cost** (`seek-scan` probe, the measurement's addendum): 9.1 ms mean, 52 ms max for 6-12 drawn players
+predicted one. **Seek cost** (measurements/2026-10-25-d233-activity-tuples-cost.md, addendum): 9.1 ms mean, 52 ms max for 6-12 drawn players
 on f12, 175 earlier-tick probes a player, 95% of it `DemoTimeline.PlayerAt`; about 22 ms for 24 players, *interpolated*.
 The held frame stays 0 B (one 1,112 B frame after each landing). **No per-demo seed** was mixed in (the brief asked for one): entity and tick already
 differ per demo, and nothing in `EntityModelSet` names the demo; adding one is a header hash passed in. The negative-weight
