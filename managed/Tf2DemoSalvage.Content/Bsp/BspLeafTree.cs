@@ -1277,12 +1277,15 @@ public sealed class BspLeafTree
             return;
         }
 
-        // `if (enterfrac < leavefrac && enterfrac >= 0.0f)` — the sweep is inside a convex brush
-        // only between the last plane it enters and the first it leaves, and a negative entry means
-        // it was already past the surface. The fraction is of the whole ray, so it needs no mapping.
-        if (enters < leaves && enters >= 0f && enters < hit.Fraction)
+        // The sweep is inside a convex brush only between the last plane it enters and the first it leaves. **A negative
+        // entry is kept, as zero** (B604): Quake 2's `CM_ClipBoxToBrush` (`qcommon/cmodel.c`, the ancestor of the
+        // unpublished `engine/cmodel.cpp`) has `if (enterfrac > -1 && enterfrac < trace->fraction) { if (enterfrac < 0)
+        // enterfrac = 0; … }`. The entry goes negative when the start is nearer the face than DIST_EPSILON — where every
+        // movement trace leaves a player resting against a wall or slope — and refusing it let the box into the brush.
+        // The fraction is of the whole ray, so it needs no mapping.
+        if (enters < leaves && enters > -1f && enters < hit.Fraction)
         {
-            hit.Fraction = enters;
+            hit.Fraction = MathF.Max(0f, enters);
             hit.Texinfo = leadTexinfo;
             (hit.NormalX, hit.NormalY, hit.NormalZ) = leadNormal;
             hit.Distance = leadDistance;

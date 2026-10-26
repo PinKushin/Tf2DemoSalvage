@@ -143,11 +143,11 @@ public sealed class RotatedBrushTraceConformanceTests
             .ShouldNotBeNull().Fraction.ShouldBe((22f - Epsilon) / 200f, 1e-6f);
     }
 
-    private static SolidBrush Slab(float pitch, float yaw, float roll) =>
+    internal static SolidBrush Slab(float pitch, float yaw, float roll) =>
         new(HeadNode: 1, Origin: Vector3.Zero, Entity: Door, Angles: new Vector3(pitch, yaw, roll));
 
     /// <summary>An empty world at node 0 and one submodel at node 1: a brush of two sides, x ≤ 4 and −x ≤ 4.</summary>
-    private static MapLevel Level()
+    internal static MapLevel Level()
     {
         byte[] planes = new byte[60];
 

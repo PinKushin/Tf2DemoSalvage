@@ -8,6 +8,7 @@ using System.Numerics;
 using Tf2DemoSalvage.Content.Bsp;
 using Tf2DemoSalvage.Core.Container;
 using Tf2DemoSalvage.Core.Scene;
+using Tf2DemoSalvage.Presentation;
 using Tf2DemoSalvage.Scene;
 using Tf2DemoSalvage.Scene.Prediction;
 
@@ -64,7 +65,7 @@ public sealed class RecorderPredictionGapsProbe : IProbe
             tickOfSequence[command.Sequence] = command.Tick;
         }
 
-        int alive = 0, compared = 0, declined = 0, zeroed = 0, agree = 0, dormantEnemies = 0;
+        int alive = 0, compared = 0, declined = 0, zeroed = 0, zeroedRunning = 0, agree = 0, dormantEnemies = 0;
         List<float> errors = [];
         Dictionary<string, (int Zeroed, int Agreeing)> tags = [];
         int printed = 0;
@@ -108,6 +109,11 @@ public sealed class RecorderPredictionGapsProbe : IProbe
             bool isZeroed = Xy(predicted) < 0.5f && Xy(truth) > 0.5f;
             zeroed += isZeroed ? 1 : 0;
 
+            // The tags are for B604's population: prediction still, the server over 100 u/s.
+            bool running = isZeroed && Xy(truth) > 100f;
+            zeroedRunning += running ? 1 : 0;
+            isZeroed = running;
+
             foreach (ScenePlayer other in timeline.PlayersAt(tick))
             {
                 if (other.IsAlive && other.Team is 2 or 3 && other.Team != before.Team && timeline.Dormancy.IsDormant(other.EntityIndex, tick))
@@ -135,6 +141,60 @@ public sealed class RecorderPredictionGapsProbe : IProbe
             Vector3 along = origin + (new Vector3(held.X, held.Y, 0f) * (pending.Count * timeline.IntervalPerTick));
             BspTrace? ahead = world.Trace(origin, along, mins, maxs, mask);
 
+            // Which geometry holds an unswept hull one command's step on: brushes, terrain, or static props, apart.
+            Vector3 step = origin + (new Vector3(held.X, held.Y, 0f) * timeline.IntervalPerTick);
+            (float X, float Y, float Z) extents = (24f, 24f, maxs.Z * 0.5f);
+            (float X, float Y, float Z) centre = (step.X, step.Y, step.Z + (maxs.Z * 0.5f));
+            string Holds()
+            {
+                List<string> parts = [];
+
+                if (level.Leaves is { } tree && tree.Trace(centre.X, centre.Y, centre.Z, centre.X, centre.Y, centre.Z, extents, 0, mask) is { } b &&
+                    (b.StartSolid || b.Fraction < 1f))
+                {
+                    parts.Add("brush");
+                }
+
+                if (level.Displacements.SweepSurface(centre.X, centre.Y, centre.Z, centre.X, centre.Y, centre.Z, extents, mask).Fraction < 1f)
+                {
+                    parts.Add("terrain");
+                }
+
+                if (level.StaticProps.Trace(centre, centre, extents, mask) is { Fraction: < 1f })
+                {
+                    parts.Add("prop");
+                }
+
+                return parts.Count == 0 ? "nothing" : string.Join("+", parts);
+            }
+
+            // What takes a hull stuck at the restored origin out of the world: the mask's parts, or how far up.
+            string Clears()
+            {
+                if (stuck is not { StartSolid: true, BrushEntity: <= 0 })
+                {
+                    return "n/a";
+                }
+
+                if (world.Trace(origin, origin, mins, maxs, MovementWorld.MaskPlayerSolid) is { StartSolid: false })
+                {
+                    return "without team contents";
+                }
+
+                if (world.Trace(origin, origin, mins, maxs, BspLeafTree.MaskSolid) is { StartSolid: false })
+                {
+                    return "with MASK_SOLID (playerclip etc.)";
+                }
+
+                float? raised = Raises
+                    .Cast<float?>()
+                    .FirstOrDefault(up => world.Trace(origin + new Vector3(0f, 0f, up!.Value), origin + new Vector3(0f, 0f, up.Value), mins, maxs, mask) is { StartSolid: false });
+
+                return raised is { } by
+                    ? string.Create(CultureInfo.InvariantCulture, $"raised {by}")
+                    : "never";
+            }
+
             string Met(BspTrace? trace) => trace switch
             {
                 null => "none",
@@ -145,6 +205,8 @@ public sealed class RecorderPredictionGapsProbe : IProbe
 
             foreach (string tag in new[]
                      {
+                         $"stuck at origin clears {Clears()}",
+                         $"one step on, held by {Holds()}",
                          $"origin {Met(stuck)}",
                          $"ahead {Met(ahead)}",
                          $"ground {(flags & 1) != 0}",
@@ -152,12 +214,17 @@ public sealed class RecorderPredictionGapsProbe : IProbe
                          $"water {before.WaterLevel ?? 0}",
                          $"cmds {Math.Min(pending.Count, 6)}",
                          $"held {(Xy(held) > 0.5f ? "moving" : "still")}",
+                         $"server {(Xy(truth) > 100f ? "over 100" : "under 100")}",
+                         $"maxspeed {(before.MaxSpeed is { } m && m <= 1f ? "<= 1" : "> 1")}",
+                         $"cmd0 move {(pending[0].Command.ForwardMove != 0f || pending[0].Command.SideMove != 0f ? "some" : "none")}",
+                         $"cmd0 jump {(pending[0].Command.Buttons & 2) != 0}",
                      })
             {
                 (int z, int a) = tags.GetValueOrDefault(tag);
                 tags[tag] = isZeroed ? (z + 1, a) : (z, a + 1);
             }
 
+            // Printed: the zeroed gaps B604 is about — the server running, not the pre-round's 1 u/s creep.
             if (isZeroed && printed++ < print)
             {
                 int firstStill = -1;
@@ -183,15 +250,21 @@ public sealed class RecorderPredictionGapsProbe : IProbe
         output.WriteLine(string.Create(CultureInfo.InvariantCulture,
             $"{Path.GetFileName(path)}: recorder {match.Recorder}; {packets.Count} packets, {alive} gaps with him alive at both ends, {compared} compared, {declined} declined; " +
             $"|dv| xy mean {errors.DefaultIfEmpty().Average():0.###}, median {(errors.Count == 0 ? 0 : errors[errors.Count / 2]):0.###}; " +
-            $"within 1 u/s {agree} ({100d * agree / Math.Max(1, compared):0.0}%); zeroed (predicted < 0.5, server > 0.5) {zeroed} ({100d * zeroed / Math.Max(1, compared):0.0}%)"));
+            $"within 1 u/s {agree} ({100d * agree / Math.Max(1, compared):0.0}%); zeroed (predicted < 0.5, server > 0.5) {zeroed} ({100d * zeroed / Math.Max(1, compared):0.0}%), of them the server over 100 u/s {zeroedRunning}"));
+        // Whether the installed map is the build the demo was recorded on (MapHash, finding 43): stuck-in-world gaps need it.
+        string mapName = DemoHeader.Parse(File.ReadAllBytes(path)).MapName;
+        bool? sameMap = new MapLocator(MapProvider.SteamLibraryFile, MapProvider.OwnMapsFolder).Find(mapName) is { } mapPath
+            ? BspMapChecksum.Matches(File.ReadAllBytes(mapPath), timeline.MapHash)
+            : null;
+        output.WriteLine($"map {mapName}: installed build matches the recorded MapHash: {sameMap?.ToString() ?? "unknown"}");
         output.WriteLine(string.Create(CultureInfo.InvariantCulture,
             $"control: dormant living enemies summed over compared gaps {dormantEnemies} (zero would mean the dormancy reading is broken)"));
-        output.WriteLine("  tag: zeroed (% of zeroed) | agreeing (% of agreeing)");
+        output.WriteLine("  tag: zeroed with the server over 100 u/s (% of them) | agreeing (% of agreeing)");
 
         foreach ((string tag, (int z, int a)) in tags.OrderByDescending(pair => pair.Value.Zeroed))
         {
             output.WriteLine(string.Create(CultureInfo.InvariantCulture,
-                $"  {tag,-40} {z,6} ({100d * z / Math.Max(1, zeroed),5:0.0}%) | {a,6} ({100d * a / Math.Max(1, agree),5:0.0}%)"));
+                $"  {tag,-40} {z,6} ({100d * z / Math.Max(1, zeroedRunning),5:0.0}%) | {a,6} ({100d * a / Math.Max(1, agree),5:0.0}%)"));
         }
     }
 
@@ -214,6 +287,8 @@ public sealed class RecorderPredictionGapsProbe : IProbe
 
         return timeline.Dormancy.IsDormant(entity, tick) ? what + " DORMANT" : what;
     }
+
+    private static readonly float[] Raises = [0.03125f, 0.125f, 0.5f, 1f, 2f, 4f, 18f];
 
     private static ScenePlayer? Alive(DemoTimeline timeline, int recorder, int tick) =>
         timeline.PlayersAt(tick).FirstOrDefault(player => player.EntityIndex == recorder && player.IsAlive);
