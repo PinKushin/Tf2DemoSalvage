@@ -256,16 +256,49 @@ public sealed class MomentSceneTests
     /// </remarks>
     [TestCase(true, 0)]
     [TestCase(false, 1)]
-    public void Pose_InFirstPersonWithAMonitorWhileZoomedOrNot_HandsTheMonitorNothingWhenZoomed(bool zoomed, int props)
+    public void Pose_InFirstPersonWithAMonitorWhileZoomedOrNot_HandsTheMonitorNothingWhenZoomed(bool zoomed, int instances)
     {
-        MomentScene scene = Posable();
+        MomentScene scene = SkinnedScene(new EntityModelSet());
         ScenePlayer sniper = Soldier(entity: 3) with { Conditions = zoomed ? new(1 << 1, 0, 0, 0, 0) : default };
         MomentInfo info = Info() with { FirstPerson = true, Followed = 3, Recorder = 3, EyeCamera = Eye() };
 
-        scene.Build([sniper], [], info);
+        // Entity 4 is drawn, so the world pass loads the model the undrawn pass shares.
+        scene.Build([sniper, Soldier(entity: 4)], [], info);
         MomentPhases phases = scene.Pose(info, monitor: true);
 
-        phases.UndrawnCensus.Props.ShouldBe(props);
+        scene.UndrawnInstances.Count.ShouldBe(instances);
+        phases.UndrawnCensus.Props.ShouldBe(1, "zoomed or not he is kept for a decal's bones; only the monitor loses him");
+    }
+
+    /// <remarks>
+    /// **Not drawn is not gone, zoomed too**: `C_TFPlayer::ShouldDraw` false (`c_tf_player.cpp:8014-8020`) does not stop
+    /// `CModelRender::AddDecal`, which sets up the struck player's bones itself, so a bullet on a zoomed sniper still
+    /// bloodies him and the blood is there when he unzooms. In third person he was in no pass at all, so
+    /// <see cref="EntityModelSet.SkinningOf"/> — what the decal asks — had nothing to answer with.
+    /// </remarks>
+    [TestCase(false)]
+    [TestCase(true)]
+    public void Pose_TheRecorderZoomed_KeepsHisBonesForADecalAndDrawsHimInNoView(bool firstPerson)
+    {
+        EntityModelSet models = new();
+        MomentScene scene = SkinnedScene(models);
+        ScenePlayer sniper = Soldier(entity: 3) with { Conditions = new(1 << 1, 0, 0, 0, 0) };
+        MomentInfo info = Info() with
+        {
+            Recorder = 3,
+            FirstPerson = firstPerson,
+            Followed = firstPerson ? 3 : null,
+            EyeCamera = firstPerson ? Eye() : null,
+        };
+
+        scene.Build([sniper, Soldier(entity: 4)], [], info);
+        scene.Pose(info, monitor: true);
+
+        scene.Drawn.Select(prop => prop.EntityIndex).ShouldNotContain(3);
+        scene.UndrawnInstances.ShouldBeEmpty("a monitor does not bring him back (B598)");
+        models.ReadableBonesOf(3).ShouldBe(0, "no view draws him, so his pass simulates and builds no bones until asked");
+        models.SkinningOf(3).ShouldNotBeNull("AddDecal sets up his bones though he is not drawn");
+        models.SkinningOf(4).ShouldNotBeNull("the control: a drawn player answers");
     }
 
     [Test]
@@ -1204,6 +1237,30 @@ public sealed class MomentSceneTests
         };
 
         return new MomentScene(models, new ViewmodelScene(), log ?? new RecordingLogger())
+        {
+            Upload = new Uploads(),
+            Appearance = new Appearance(),
+        };
+    }
+
+    /// <summary>A scene over the given set, whose every model is one skinned triangle, so a player draws and has bones.</summary>
+    private static MomentScene SkinnedScene(EntityModelSet models)
+    {
+        models.Geometry = _ => new PropModels.ModelFrames(
+            [
+                new PropVertex[]
+                {
+                    new(1f, 0f, 0f, 0f, 0f, MaterialIndex: 3),
+                    new(0f, 1f, 0f, 1f, 0f, MaterialIndex: 3),
+                    new(0f, 0f, 1f, 0f, 1f, MaterialIndex: 3),
+                },
+            ],
+            new Dictionary<int, (int Start, int Frames, float CyclesPerSecond)> { [0] = (0, 1, 0f) },
+            [0],
+            [true],
+            Skinned: SyntheticSkinnedModel.WithOneBone());
+
+        return new MomentScene(models, new ViewmodelScene(), new RecordingLogger())
         {
             Upload = new Uploads(),
             Appearance = new Appearance(),

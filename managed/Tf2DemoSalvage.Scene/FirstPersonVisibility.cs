@@ -81,13 +81,7 @@ public static class FirstPersonVisibility
             //
             // `WeaponState` is the discriminator the wire already gives us: it is null for anything
             // that did not declare `DT_BaseCombatWeapon`.
-            // **A corpse is never the local player** — its own client entity, stepped by `physenv` whatever is drawn; filtered,
-            // it would leave the world pass and the corpse environment would retire and replay it.
-            bool corpse = prop.ClassName is RagdollProps.RagdollClassName or RagdollProps.GibClassName;
-
-            if (!corpse && (prop.EntityIndex == hidden ||
-                prop.AttachedTo == hidden ||
-                (prop.OwnedBy == hidden && prop.WeaponState is not null)))
+            if (Hides(prop, hidden))
             {
                 continue;
             }
@@ -96,5 +90,22 @@ public static class FirstPersonVisibility
         }
 
         return drawn;
+    }
+
+    /// <summary>Whether hiding a player hides this prop: he, what is attached to him, and the weapons he owns.</summary>
+    /// <param name="prop">The prop.</param>
+    /// <param name="hidden">The hidden player's entity.</param>
+    /// <returns>True when <see cref="Visible"/> would drop it.</returns>
+    public static bool Hides(SceneProp prop, int hidden)
+    {
+        ArgumentNullException.ThrowIfNull(prop);
+
+        // **A corpse is never the local player** — its own client entity, stepped by `physenv` whatever is drawn; filtered,
+        // it would leave the world pass and the corpse environment would retire and replay it.
+        bool corpse = prop.ClassName is RagdollProps.RagdollClassName or RagdollProps.GibClassName;
+
+        return !corpse && (prop.EntityIndex == hidden ||
+            prop.AttachedTo == hidden ||
+            (prop.OwnedBy == hidden && prop.WeaponState is not null));
     }
 }

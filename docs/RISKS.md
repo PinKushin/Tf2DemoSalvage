@@ -40130,6 +40130,18 @@ attached props and his owned weapons (`FirstPersonVisibility.Visible`'s set) fro
 Held by two `MomentSceneTests` (synthetic): the zoomed cases were red before, the not-zoomed and SourceTV controls green.
 **Not checked:** a POV demo where the recorder scopes, seen in third person.
 
+**Corrected 2026-10-26 (batch-31 review, finding 2): the first fix dropped him from the posed list too, which the engine
+does not.** `ShouldDraw` false does not stop `CModelRender::AddDecal`, which sets up the struck player's bones itself, so a
+bullet on a zoomed sniper still bloodies him. Removed from every list, he was in no pass, `SkinningOf` answered null and the
+decal was refused — in third person always, in first person because the undrawn list lost him too. Now his props are MOVED
+from the drawn list into the undrawn one (one in-place pass, `FirstPersonVisibility.Hides`, holstered weapons left out),
+the monitor is handed nothing while he is zoomed, and his pass simulates without posing, as the no-monitor path does.
+`Pose_TheRecorderZoomed_KeepsHisBonesForADecalAndDrawsHimInNoView` (both cameras) holds it; restoring the old `_undrawn`
+filter reddened it and the census assertion of the monitor test, which had encoded the regression (`Props == 0`).
+**Ceiling (ponytail):** while he is zoomed the whole undrawn list leaves the monitor, so first person through ANOTHER player
+in a POV demo loses that player from a monitor for the zoom's length. **Not checked end to end:** a decal landing on him
+through `DecalEffects` — the test stops at `SkinningOf`, which is what `DecalEffects` asks.
+
 ## B596 — is the Debug build part of the viewer-vs-TF2 f12 gap? No: Debug and Release are the same program — CLOSED (2026-10-24)
 
 **Evidence class: measured, with a code reading it confirms** (`docs/measurements/2026-10-24-debug-vs-release-f12.md`).
