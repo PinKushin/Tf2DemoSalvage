@@ -121,6 +121,16 @@ public sealed partial class EntityModelSet
     /// <summary>Per model, the buffer slots its flexes can move (finding 92).</summary>
     private readonly Dictionary<string, FlexedCorners> _flexedCorners = new(StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>
+    /// The buffer slots any flex of a model can move, out of how many it has, once a face of it was driven; null before.
+    /// </summary>
+    /// <param name="modelPath">The model.</param>
+    /// <returns>The slots (ascending) and the model's buffer vertex count, or null.</returns>
+    public (FlexedCorners Corners, int Slots)? FlexedSlotsOf(string modelPath) =>
+        _flexedCorners.TryGetValue(modelPath, out FlexedCorners? corners) && _packedOrder.TryGetValue(modelPath, out int[]? order)
+            ? (corners, order.Length)
+            : null;
+
     private FlexedCorners FlexedCornersOf(string modelPath, PropModels.ModelFrames model, int[] order)
     {
         if (!_flexedCorners.TryGetValue(modelPath, out FlexedCorners? corners))
