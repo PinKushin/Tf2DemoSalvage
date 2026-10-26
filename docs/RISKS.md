@@ -40147,6 +40147,15 @@ etf2l-12025: still-against-running gaps 2,376 → 2,369, speed-gate flips 724 / 
 clip's, none the box sweep's (measurements/2026-10-26-pov-recorder-seek-scan.md, "Source's clip"). Parity, not B604's
 remainder: the remainder is unchanged in shape.
 
+**An expectation to check against, not yet observed (batch-34 review):** branch (e) moved the box sweep's start-inside,
+moving-out answer from fraction 1 to fraction 0. So a recorder an enemy has walked into — his hull overlapping the enemy's
+box at the start of a move — no longer slides out through it: every `TryPlayerMove` bump starts solid at fraction 0 and he
+holds in place until `CheckStuck` runs, which `CheckInterval( STUCK )` allows once per `CHECK_STUCK_TICK_INTERVAL`, 1 s in
+multiplayer (0.2 s with one client), staggered by command number plus entity index (`gamemovement.cpp:648-701`;
+`TfGameMovement.CheckInterval`). That is what Source does, so it is parity, not a regression. **If a POV demo shows the
+recorder frozen for about a second, repeatedly, around enemy contact, this is the place to look first**: compare the
+networked origin over that second with the predicted one before suspecting the brush clip.
+
 **How it was found** (measurements/2026-10-26-pov-recorder-seek-scan.md, "B604's cause"; probe `recorder-prediction-gaps`, which runs every packet gap of the demo against the next packet's
 networked velocity): 83,267 gaps were compared. In 7,723 of them prediction was still (< 0.5 u/s) while the server was over
 100 u/s. Of those, 98.4% were on the ground and 89.2% had the hull clear at the restored origin, so he was not stuck at the
