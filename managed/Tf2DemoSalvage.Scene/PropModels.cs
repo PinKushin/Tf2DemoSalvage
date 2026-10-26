@@ -2526,7 +2526,9 @@ public static class PropModels
                 // the highest weight wins a tie — deterministic where the engine rolls RandomInt.
                 // INTERPOLATED (RISKS B601): a fuzzed int.MinValue has no positive abs in 32 bits — C's iabs
                 // leaves it negative and the engine's walk is then undefined. Taken in 64 bits it is 2^31, the
-                // mathematical abs; every other representable weight follows the engine's rule exactly.
+                // mathematical abs. Every other weight follows the engine's rule exactly while an activity's weights
+                // total below 2^31; past that the engine's own `int` sum overflows and is undefined, and ours, 64-bit,
+                // keeps counting — also INTERPOLATED (B601).
                 long weight = Math.Max(1L, Math.Abs((long)candidate.ActivityWeight));
 
                 if (candidate.Activity.Length == 0)
