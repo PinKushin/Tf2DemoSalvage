@@ -23,7 +23,16 @@
 - B. Does threshold 0 or 16 do better than 4 (one T configuration each)?
 - C. How many sun calls a frame, from which caller, and how many ms, on f12 gummo first person and in the empty view?
 
+- D (added after the probe, before the grid): a 15 s probe run (`00-probe.txt`, build of `849d94c0`) read the sun at
+  0.14-0.34 ms a frame for 0.56-2.04 calls, all light cache builds: about 0.2 ms a CALL. Reading `MapLevel.StrikesSky`:
+  the brush trace stops at the skybox, but `DisplacementCollision.SweepSurface` swept every displacement whose box met
+  the whole 57,016-unit travel box. `7057f223` bounds the terrain sweep by the brush fraction (bit-identical by
+  `DisplacementSweepLimitTests`). How much does `sun` fall between A (`849d94c0`) and C (`7057f223`), threaded both?
+
 ## Prediction
+
+- D: `sun` falls from ~0.15-0.3 to under 0.03 ms a frame on gummo with the same calls a frame; the frame by about that.
+  Falsified if C's `sun` per call is above half of A's.
 
 - A: `bursts/step` falls 0.05-0.10 ms (finding 94: 0.08); `camera particles` by the same; the frame by under 0.1 ms,
   inside run spread. Falsified if T's `bursts/step` is not below S's in every pair, or any T part rises above S by > 15%.
@@ -45,7 +54,12 @@ copied to `D:/measure-f12/threaded-sun/`. One viewer at a time through `run-excl
 - empty: `TF2VIEW_AUTOPLAY=1 TF2VIEW_VIEWPORT_SIZE=1280x720 TF2VIEW_CAMERA="1613 -2821 154 89 0" <exe>
   D:/measure-f12/f12.dem --tick 30000 --measure 60 +fps_max 0`
 
-Order: A — gummo S T T S S T (S = `+r_threaded_particles 0`, T = `1`); B — gummo T0 T16 (`TF2VIEW_PARTICLE_THRESHOLD`
+Builds: A = `D:/measure-f12/threaded-sun/` (`849d94c0`), C = `D:/measure-f12/threaded-sun-bound/` (`7057f223`), both
+Release. Grid (`grid.ps1`), one run at a time: 01 C-S, 02 C-T, 03 A-T, 04 C-T, 05 C-S, 06 A-T, 07 C-S, 08 C-T, 09 A-T,
+10 C-T0, 11 C-T16, 12 C-E, 13 A-E, 14 A-E, 15 C-E (E = empty view, threaded). Question A reads C-S against C-T; D reads
+A-T against C-T and A-E against C-E.
+
+Original order (superseded by the grid above): A — gummo S T T S S T (S = `+r_threaded_particles 0`, T = `1`); B — gummo T0 T16 (`TF2VIEW_PARTICLE_THRESHOLD`
 0 and 16), each against the nearest T; C — read from every A run's census notes, plus empty ×2. Steady = the per-second
 lines after the first five, frame-weighted. Percent of frame = part ms / that run's frame mean.
 
