@@ -124,3 +124,8 @@
 - [A call count is half an instrument](a-call-count-is-half-an-instrument.md) — B594's "≤2 calls" was 0.46 ms; time inside the callee over the whole frame (2026-10-26).
 - [The bone clock advances once a frame](the-bone-clock-advances-once-a-frame.md) — at the world pass, as `InvalidateBoneCaches`; per-pass made every post-pass attachment query rebuild (0.43-0.53 ms, 2026-10-27).
 - [A split carries its first-use builds](a-split-carries-its-first-use-builds.md) — a cached lookup read 4 µs a hit; 0.146 of 0.152 ms was 174 first builds. Time the miss path apart (2026-10-27).
+- [Fable only as a merge reviewer](never-use-fable.md) — via the credits queue (claude-fable-5-1); never implementer, lead or inside workflows.
+- [A win above 0.01 ms counts; target is 1000 fps](a-win-above-0-01-ms-counts-the-target-is-1000-fps.md) — only sub-0.01 ms is "small"; report ms + % of frame (2026-10-25).
+- [The lead does not decide to drop an item](the-lead-does-not-decide-to-drop-an-item.md) — closing/reverting/parking a perf item needs a second look; propose, never decide (2026-10-25).
+- [Delete leftover files yourself](delete-leftover-files-yourself.md) — throwaway probes, captures, scratch builds: delete, never hand the owner a list (2026-10-27).
+- [Handoff 2026-10-27](handoff-2026-10-27.md) — READ FIRST: main 1b398936, beta.54 full release (D237), running agents, queue, queued owner decisions, watch flake.
