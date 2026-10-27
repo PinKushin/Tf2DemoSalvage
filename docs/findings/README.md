@@ -70,6 +70,7 @@ when the number changes the old one is gone.
 | [38-which-players-can-be-shown.md](38-which-players-can-be-shown.md) | TF2 OVERRIDES `CanPlayerBeSeen` and drops the origin check; `mp_forcecamera`, `userid` vs `entindex`, and a correction to a Valve citation |
 | [39-the-engines-frame-clocks.md](39-the-engines-frame-clocks.md) | Six engine clocks and which of ours maps onto each; `CalcDemoViewOverride` flies by `absoluteframetime`, and `cl_showfps` reads the same quantity |
 | [40-the-game-ships-its-own-cvar-list.md](40-the-game-ships-its-own-cvar-list.md) | `tf/cvarlist.log`: 3,668 convars with defaults and flags, in plain text — a cheap instrument for finding 37's job, and the impossibility claim it found still standing in our code |
+| [105-two-offthread-moves-bones-and-hud.md](105-two-offthread-moves-bones-and-hud.md) | Design only, nothing built: parallel bone setup (A) and HUD paint off the game thread (B), as within-frame fork-joins on one shared pool |
 
 ## Which of this is original
 
