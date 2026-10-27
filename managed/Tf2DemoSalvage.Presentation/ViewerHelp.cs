@@ -106,6 +106,8 @@ public static class ViewerHelp
                                      machine with two or more physical cores. Read at startup.
           r_threaded_particles 0     Step the particle effects on one thread instead of the
                                      cores, as TF2's. Default 1; the picture is the same.
+          cl_threaded_bone_setup 1   Pose the players' skeletons ahead of the draw, as TF2's
+                                     development switch does. Default 0, as TF2 ships it.
 
         ENVIRONMENT (scripts, CI and debugging only; nothing a user needs)
           TF2_FOLDER                 A tf folder that beats both cl_game_folder and Steam.

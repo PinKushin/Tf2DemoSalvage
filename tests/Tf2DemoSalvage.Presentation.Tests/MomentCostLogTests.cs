@@ -202,13 +202,15 @@ public sealed class MomentCostLogTests
             Counters = new EntityModelSet.PoseCounters(
                 0, 0, 0, 0, 0, 10 * Millisecond, 0, 0, 0, 0, 0,
                 SetupRoot: 7 * Millisecond, SetupChild: 3 * Millisecond, RootBuilds: 5, ChildBuilds: 9, MaxRoot: slowest * Millisecond,
-                SetupEligible: 8 * Millisecond / 10, EligibleBuilds: 2),
+                SetupEligible: 8 * Millisecond / 10, EligibleBuilds: 2, PrePose: 6 * Millisecond / 10, PrePosed: 3),
         };
 
         _ = log.Report(Rebuild(2), sampleTicks: 0);
         string? line = log.Report(Rebuild(6), sampleTicks: 0);
 
-        Assert.That(line, Does.Contain("setup 10 (roots 7 over 5 built, eligible 0.8 over 2, slowest 4 peak 6; children 3 over 9 built)"));
+        Assert.That(
+            line,
+            Does.Contain("setup 10 (roots 7 over 5 built, eligible 0.8 over 2, slowest 4 peak 6; children 3 over 9 built; prepose 0.6 over 3)"));
     }
 
     /// <remarks>

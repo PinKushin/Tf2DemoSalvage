@@ -239,6 +239,13 @@ public sealed partial class EntityModelSet
             SimulateStaticsInView(seconds, scene);
 
             SimulateTicks += System.Diagnostics.Stopwatch.GetTimestamp() - staticsAt;
+
+            // **After every entity's state and before the first draw** — the engine's place for it, after `SimulateEntities`
+            // and before `FireEvents` (`cdll_client_int.cpp:2210`); a build before the state would pose last frame's.
+            if (ThreadedBoneSetup)
+            {
+                PrePoseRoots(seconds);
+            }
         }
 
         foreach ((SceneProp prop, int place, int? bucket, bool inSky, (float, float, float, float, float, float)? collatedBox) in _ordered)
@@ -279,12 +286,13 @@ public sealed partial class EntityModelSet
                 continue;
             }
 
-            // `Batches(path, frame)`'s clamp, on the resolved frames.
-            if (resolved.Batches is not { Count: > 0 } packed || packed[Math.Clamp(frame, 0, packed.Count - 1)].Count == 0)
+            if (!HasGeometry(resolved, frame))
             {
                 _tally.NoGeometry(prop.ModelPath);
                 continue;
             }
+
+            int packedFrames = resolved.Batches!.Count;
 
             _tally.Drawn();
 
@@ -386,7 +394,7 @@ public sealed partial class EntityModelSet
                 _reports.Lit(prop, lit, skin);
             }
 
-            _reports.Animating(prop, frame, packed.Count, blend);
+            _reports.Animating(prop, frame, packedFrames, blend);
 
             ReportTicks += System.Diagnostics.Stopwatch.GetTimestamp() - reportedAt;
 
@@ -407,40 +415,12 @@ public sealed partial class EntityModelSet
                 // is not worth guessing at before something measures it.
                 // A corpse's simulation was brought up to this tick by `AdvanceCorpses`, before the
                 // cull, which is what attached the ragdoll hook this `SetupBones` runs.
-                long setupAt = System.Diagnostics.Stopwatch.GetTimestamp();
-                int drawBuildsBefore = SkeletonPose.PoseBuilds;
-                BoneSetupMeter meter = _boneFrames.Meter;
-                (long rootBefore, long childBefore, int rootBuildsBefore, int childBuildsBefore) =
-                    (meter.RootTicks, meter.ChildTicks, meter.RootBuilds, meter.ChildBuilds);
-                (long eligibleBefore, int eligibleBuildsBefore) = (meter.EligibleTicks, meter.EligibleBuilds);
+                SetupMark mark = MarkSetup();
 
                 bool setUp = animating.SetupBones(StudioBoneFlags.UsedByAnything, seconds);
 
-                SetupTicks += System.Diagnostics.Stopwatch.GetTimestamp() - setupAt;
-                BuildsDrawing += SkeletonPose.PoseBuilds - drawBuildsBefore;
+                _ = ChargeSetup(mark, prop);
                 Posed++;
-
-                // **The split finding 105 A6 decides on, carried from the meter at the call** (B243). One call reaches at most
-                // one root — the prop itself or the top of its chain — so a root built here is one root's whole cost.
-                SetupRootTicks += meter.RootTicks - rootBefore;
-                SetupChildTicks += meter.ChildTicks - childBefore;
-                SetupRootBuilds += meter.RootBuilds - rootBuildsBefore;
-                SetupChildBuilds += meter.ChildBuilds - childBuildsBefore;
-
-                // **Eligible is the engine's `!GetMoveParent()`, and only this loop sees a parent that is not a merge**: a prop
-                // hung on a door is a root to the meter, so its own call is taken out here (`c_baseanimating.cpp:2897`).
-                if (prop is not { AttachedTo: not null, BoneMerged: false })
-                {
-                    long eligibleSpent = meter.EligibleTicks - eligibleBefore;
-
-                    SetupEligibleTicks += eligibleSpent;
-                    SetupEligibleBuilds += meter.EligibleBuilds - eligibleBuildsBefore;
-
-                    if (meter.EligibleBuilds > eligibleBuildsBefore)
-                    {
-                        MaxRootTicks = Math.Max(MaxRootTicks, eligibleSpent);
-                    }
-                }
 
                 if (!setUp)
                 {
@@ -946,5 +926,110 @@ public sealed partial class EntityModelSet
         }
 
         _tally.Report();
+    }
+
+    /// <summary>`cl_threaded_bone_setup`: pose this frame's eligible roots ahead of the draw loop (finding 105 A7). Off is the engine's default.</summary>
+    /// <remarks>
+    /// **The engine's pre-pass, on this frame's list rather than last frame's** — an addition above Valve (finding 105 A2):
+    /// `ThreadedBoneSetup` poses `g_PreviousBoneSetups`, last frame's roots, speculatively (`c_baseanimating.cpp:2777-2794`);
+    /// the collation has already said which roots draw now, so nothing is built that the frame will not use. Off, there is
+    /// no pre-pass at all, as the engine's `if ( g_bDoThreadedBoneSetup )` has none.
+    /// </remarks>
+    public bool ThreadedBoneSetup { get; set; }
+
+    /// <summary>The roots the pre-pass poses this frame, reused between frames.</summary>
+    private readonly List<(SceneProp Prop, AnimatingEntity Entity)> _roots = [];
+
+    /// <summary>Poses every eligible root the draw loop is about to reach, before it does (finding 105 A7.2).</summary>
+    /// <remarks>
+    /// **Only what the draw loop would build**: the same `kRenderNone` and geometry refusals it makes before it reaches
+    /// `SetupBones`, so no skeleton is built and no mask accumulated for a prop it skips. Then `SetupBonesOnBaseAnimating`'s
+    /// `SetupBones( NULL, -1, -1, gpGlobals->curtime )` for each (`c_baseanimating.cpp:2753`). The draw loop's own call then
+    /// finds its bones readable, the cache hit at `:2911`, so the bones it draws are these.
+    /// </remarks>
+    private void PrePoseRoots(double seconds)
+    {
+        _roots.Clear();
+
+        foreach ((SceneProp prop, _, _, _, _) in _ordered)
+        {
+            // The engine's `!GetMoveParent()`: a parent that is not a merge is a move parent too.
+            if (prop.Pose.RenderMode == RenderModes.None || prop is { AttachedTo: not null, BoneMerged: false })
+            {
+                continue;
+            }
+
+            ResolvedModel resolved = ResolvedFor(prop);
+
+            if (resolved.Frames?.Skinned is not null &&
+                HasGeometry(resolved, SelectWith(resolved.Frames, prop, seconds).Frame) &&
+                _entities.TryGetValue(prop.EntityIndex, out AnimatingEntity? animating) &&
+                animating.PrePoseEligible)
+            {
+                _roots.Add((prop, animating));
+            }
+        }
+
+        foreach ((SceneProp prop, AnimatingEntity animating) in _roots)
+        {
+            SetupMark mark = MarkSetup();
+
+            _ = animating.SetupBonesFromPreviousMask(seconds);
+
+            PrePoseTicks += ChargeSetup(mark, prop);
+            PrePosed += SkeletonPose.PoseBuilds - mark.PoseBuilds;
+        }
+    }
+
+    /// <summary>Whether a resolved model has geometry at a frame — `Batches(path, frame)`'s clamp, on the resolved frames.</summary>
+    private static bool HasGeometry(ResolvedModel resolved, int frame) =>
+        resolved.Batches is { Count: > 0 } packed && packed[Math.Clamp(frame, 0, packed.Count - 1)].Count > 0;
+
+    /// <summary>The setup counters and the meter at one instant, for <see cref="ChargeSetup"/>.</summary>
+    private readonly record struct SetupMark(
+        long At, int PoseBuilds, long Root, long Child, int RootBuilds, int ChildBuilds, long Eligible, int EligibleBuilds);
+
+    private SetupMark MarkSetup()
+    {
+        BoneSetupMeter meter = _boneFrames.Meter;
+
+        return new SetupMark(
+            System.Diagnostics.Stopwatch.GetTimestamp(), SkeletonPose.PoseBuilds, meter.RootTicks, meter.ChildTicks,
+            meter.RootBuilds, meter.ChildBuilds, meter.EligibleTicks, meter.EligibleBuilds);
+    }
+
+    /// <summary>Charges one `SetupBones` call since <paramref name="mark"/> to setup and its split, and returns its ticks.</summary>
+    /// <remarks>
+    /// **The split finding 105 A6 decides on, carried from the meter at the call** (B243). One call reaches at most one root —
+    /// the prop itself or the top of its chain — so a root built here is one root's whole cost. Eligible is the engine's
+    /// `!GetMoveParent()`, and only the caller sees a parent that is not a merge: a prop hung on a door is a root to the
+    /// meter, so its own call is taken out here (`c_baseanimating.cpp:2897`).
+    /// </remarks>
+    private long ChargeSetup(SetupMark mark, SceneProp prop)
+    {
+        BoneSetupMeter meter = _boneFrames.Meter;
+        long spent = System.Diagnostics.Stopwatch.GetTimestamp() - mark.At;
+
+        SetupTicks += spent;
+        BuildsDrawing += SkeletonPose.PoseBuilds - mark.PoseBuilds;
+        SetupRootTicks += meter.RootTicks - mark.Root;
+        SetupChildTicks += meter.ChildTicks - mark.Child;
+        SetupRootBuilds += meter.RootBuilds - mark.RootBuilds;
+        SetupChildBuilds += meter.ChildBuilds - mark.ChildBuilds;
+
+        if (prop is not { AttachedTo: not null, BoneMerged: false })
+        {
+            long eligibleSpent = meter.EligibleTicks - mark.Eligible;
+
+            SetupEligibleTicks += eligibleSpent;
+            SetupEligibleBuilds += meter.EligibleBuilds - mark.EligibleBuilds;
+
+            if (meter.EligibleBuilds > mark.EligibleBuilds)
+            {
+                MaxRootTicks = Math.Max(MaxRootTicks, eligibleSpent);
+            }
+        }
+
+        return spent;
     }
 }

@@ -63,6 +63,8 @@ public sealed class MomentCostLog
     private long _setupEligible;
     private long _eligibleBuilds;
     private long _setupChild;
+    private long _prePose;
+    private long _prePosed;
     private long _rootBuilds;
     private long _childBuilds;
     private long _maxRootSum;
@@ -156,6 +158,8 @@ public sealed class MomentCostLog
         _setupEligible += phases.Counters.SetupEligible;
         _eligibleBuilds += phases.Counters.EligibleBuilds;
         _setupChild += phases.Counters.SetupChild;
+        _prePose += phases.Counters.PrePose;
+        _prePosed += phases.Counters.PrePosed;
         _rootBuilds += phases.Counters.RootBuilds;
         _childBuilds += phases.Counters.ChildBuilds;
         _maxRootSum += phases.Counters.MaxRoot;
@@ -240,7 +244,8 @@ public sealed class MomentCostLog
             + $" (roots {Mean(_setupRoot, over):0.###} over {_rootBuilds / (double)over:0.#} built"
             + $", eligible {Mean(_setupEligible, over):0.###} over {_eligibleBuilds / (double)over:0.#}"
             + $", slowest {Mean(_maxRootSum, over):0.###} peak {Mean(_maxRootPeak, 1):0.###}"
-            + $"; children {Mean(_setupChild, over):0.###} over {_childBuilds / (double)over:0.#} built)"
+            + $"; children {Mean(_setupChild, over):0.###} over {_childBuilds / (double)over:0.#} built"
+            + $"; prepose {Mean(_prePose, over):0.###} over {_prePosed / (double)over:0.#})"
             + $", skin {Mean(_skin, over):0.#}"
             + $", anim {Mean(_animation, over):0.#}"
             + $", reports {Mean(_report, over):0.#}"
@@ -292,6 +297,8 @@ public sealed class MomentCostLog
         _setupEligible = 0;
         _eligibleBuilds = 0;
         _setupChild = 0;
+        _prePose = 0;
+        _prePosed = 0;
         _rootBuilds = 0;
         _childBuilds = 0;
         _maxRootSum = 0;

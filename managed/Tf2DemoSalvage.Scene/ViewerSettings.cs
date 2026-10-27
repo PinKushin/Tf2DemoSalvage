@@ -354,6 +354,11 @@ public sealed record ViewerSettings
     /// <remarks>`static ConVar r_threaded_particles( "r_threaded_particles", "1" )` (particlemgr.cpp:1543), no flags; config-only.</remarks>
     public const string ThreadedParticlesCommand = "r_threaded_particles";
 
+    /// <summary>Command name for posing the eligible roots ahead of the draw — Valve's <c>cl_threaded_bone_setup</c> (finding 105 A7).</summary>
+    /// <remarks>`ConVar cl_threaded_bone_setup( "cl_threaded_bone_setup", "0", FCVAR_DEVELOPMENTONLY | FCVAR_INTERNAL_USE, … )`
+    /// (c_baseanimating.cpp:2743); config-only.</remarks>
+    public const string ThreadedBoneSetupCommand = "cl_threaded_bone_setup";
+
     /// <summary>The convar that swaps the local medic's beam for its `_targeted` variant.</summary>
     public const string HealTargetMarkerCommand = "hud_medichealtargetmarker";
 
@@ -625,6 +630,13 @@ public sealed record ViewerSettings
     /// The picture is the same either way (`ParticleEffectsWorkersTests`); a user's `r_threaded_particles 0` is honoured.
     /// </remarks>
     public bool ThreadedParticles { get; init; } = true;
+
+    /// <summary>`cl_threaded_bone_setup`: whether the eligible roots are posed ahead of the draw loop; off, as TF2 ships it.</summary>
+    /// <remarks>
+    /// Read as the engine reads it, `GetBool` (c_baseanimating.cpp:2779). The engine marks it development-only because it
+    /// *"currently crashes"* (:2741); the default stays the engine's until the owner says otherwise (finding 105 C).
+    /// </remarks>
+    public bool ThreadedBoneSetup { get; init; }
 
     /// <summary>How far detail props are drawn, in world units.</summary>
     /// <remarks>
@@ -1257,6 +1269,11 @@ public sealed record ViewerSettings
             settings = settings with { ThreadedParticles = threadedParticles != 0 };
         }
 
+        if (Read(values, ThreadedBoneSetupCommand) is { } threadedBones)
+        {
+            settings = settings with { ThreadedBoneSetup = threadedBones != 0 };
+        }
+
 
         // **Zero is accepted and negative is not**, which is the same rule the frame rate limit
         // keeps and for the same reason: `low.cfg` ships `cl_detaildist 0` and it means "draw no
@@ -1372,6 +1389,7 @@ public sealed record ViewerSettings
         (ThreeDimensionalSkyCommand, s => Int(s.ThreeDimensionalSky)),
         (MaterialQueueModeCommand, s => Int(s.MaterialQueueMode)),
         (ThreadedParticlesCommand, s => Switch(s.ThreadedParticles)),
+        (ThreadedBoneSetupCommand, s => Switch(s.ThreadedBoneSetup)),
         (DetailDistanceCommand, s => EngineFloat(s.DetailDistance)),
         (DetailFadeCommand, s => EngineFloat(s.DetailFade)),
         (InterpCommand, s => EngineFloat(s.Interp.Interp)),

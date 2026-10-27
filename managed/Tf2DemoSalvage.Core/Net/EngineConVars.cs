@@ -198,6 +198,7 @@ public static class EngineConVars
         // physical cores (`MaterialQueueMode.Resolve`).
         new("mat_queue_mode", "-1", Replicated: false, Cheat: false),
         new("r_threaded_particles", "1", Replicated: false, Cheat: false),                   // particlemgr.cpp:1543
+        new("cl_threaded_bone_setup", "0", Replicated: false, Cheat: false),                 // c_baseanimating.cpp:2743
         new("cl_drawmonitors", "1", Replicated: false, Cheat: false),                        // viewrender.cpp:168
         new("cl_flipviewmodels", "0", Replicated: false, Cheat: false, UserInfo: true),      // c_baseviewmodel.cpp:44
         new("tf_use_min_viewmodels", "0", Replicated: false, Cheat: false),                  // tf/tf_viewmodel.cpp:125

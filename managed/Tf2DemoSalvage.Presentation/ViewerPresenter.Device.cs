@@ -194,6 +194,9 @@ public sealed partial class ViewerPresenter
     {
         device.FinishDrawBeforePose();
 
+        // `ThreadedBoneSetup` reads `cl_threaded_bone_setup` each frame (c_baseanimating.cpp:2779), before any bone is built.
+        _models.ThreadedBoneSetup = _settings.ThreadedBoneSetup;
+
         long posingAt = Stopwatch.GetTimestamp();
 
         _moments.PoseNow(device.Frustum, device.Views, device.Eye, device.ScreenView, device.DrawsMonitor);
