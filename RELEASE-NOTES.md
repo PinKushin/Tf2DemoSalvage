@@ -2,7 +2,9 @@
 
 ## Changes in 0.1.0-beta.53
 
-Draft, not yet released. Figures are on the `cp_process_f12` recording, one machine, first person unless it says
+Gate for this release (every test executed, 0 failed): core 2680, cli 75, logging 37, fonts 5, animation 5346, scene 3346,
+audio 383, presentation 1306, content 1859, corpus 235, rendering 1252, viewer 157, UI suite 84 of 84 with 0 skipped; CI on
+the release commit green with 0 annotations. Figures are on the `cp_process_f12` recording, one machine, first person unless it says
 otherwise; the file beside each figure holds it.
 
 - **The sun costs almost nothing now (B594).** A sky trace used to test every piece of terrain along its whole 57,016-unit
@@ -785,7 +787,7 @@ Each claim below is a measurement, not an expectation.
   The bounded sky trace differed from the old one in 0 of 50,000 traces on the real map (docs/measurements/2026-10-26-threaded-particles-and-sun.md).
   The mode-2 queue verifier reported 0 changed after the ranged upload, with no positive control for the verifier itself (docs/measurements/2026-10-26-b597-flex-range.md).
   The threaded particle step is held by tests that compare it with the serial step, not by pixels (docs/measurements/2026-10-26-threaded-particles-and-sun.md).
-- **Not measured in beta.53:** the merge gate counts for this release (fill in from the gate run), a run on a quiet machine of the point-of-view seek costs after the B604 fix (docs/measurements/2026-10-26-pov-recorder-seek-scan.md), and the four parity changes on screen.
+- **Not measured in beta.53:** a run on a quiet machine of the point-of-view seek costs after the B604 fix (docs/measurements/2026-10-26-pov-recorder-seek-scan.md), and the four parity changes on screen.
 
 - **Memory and speed (beta.45):** every figure is in this section's memory and playback bullets
   with its run (f12, Debug viewer, `--measure 20`); sources are finding 80 and the merge commits named there.
