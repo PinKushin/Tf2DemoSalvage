@@ -155,6 +155,40 @@ public sealed class StaticPlusDynamicLightingConformanceTests
         lighting.DlightsExamined.ShouldBe(3);
     }
 
+    /// <summary>A styled lamp with no live dlight still lists: the early return is for NOTHING to gather, not for no dlight.</summary>
+    [Test]
+    public void StaticPlusDynamicLights_AStyledLampAndNoLiveDlight_ListsTheLampAndExaminesNoSlot()
+    {
+        LevelLighting lighting = Map([Lamp(Style, cluster: 0)]);
+        lighting.Dynamic = new DynamicLights { Time = 1f };
+
+        lighting.StaticPlusDynamicLights(1000, 0f, 0f, 100f).ShouldHaveSingleItem();
+        lighting.DlightsExamined.ShouldBe(0);
+    }
+
+    /// <summary>A dead slot between two live ones is skipped: the walk is the live set's bits, not slots 0 to the last.</summary>
+    [Test]
+    public void StaticPlusDynamicLights_ADeadSlotBetweenTwoLive_ExaminesTwo()
+    {
+        LevelLighting lighting = Map([]);
+        DynamicLights lights = new() { Time = 1f };
+        lighting.Dynamic = lights;
+        List<DynamicLight> allocated = [];
+
+        for (int key = 1; key <= 3; key++)
+        {
+            DynamicLight light = lights.AllocDlight(key);
+            (light.X, light.Y, light.Z, light.Radius, light.Red, light.Die) = (0f, 0f, 120f, 255f, 255, 2f);
+            allocated.Add(light);
+        }
+
+        allocated[1].Radius = 0f;
+        lights.Decay(0.05f);
+
+        lighting.StaticPlusDynamicLights(1000, 0f, 0f, 100f).Count.ShouldBe(2);
+        lighting.DlightsExamined.ShouldBe(2, "slots 0 and 2; slot 1 is dead");
+    }
+
     /// <summary>A lamp 20 units above the prop's lighting origin.</summary>
     internal static BspWorldLight Lamp(int style, int cluster, float radius = 0f) =>
         LevelLightingTests.Lamp((0f, 0f, 120f), 400f) with { Style = style, Cluster = cluster, Radius = radius };
