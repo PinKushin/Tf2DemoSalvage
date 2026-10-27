@@ -40955,6 +40955,20 @@ and it is not split yet. **Left:** split `dispatches` into its attachment querie
 entity-less window. Muzzles: skip the finished flashes as dispatches already do (finding 86), which changes the offers
 and the census by design and needs a state-equivalence test, not an offer one.
 
+**Remainder done (2026-10-27, `perf/detail-transport-b577`).** **Read:** a dispatch fires once from
+`C_TEEffectDispatch::PostDataUpdate` (c_te_effect_dispatch.cpp:146) into `DispatchEffectToCallback` (:71), and the
+manager removes the effect once `IsFinished` (particlemgr.cpp:1581-1584). **Fixed:** on a played frame, a key
+`ParticleEffects.IsGone` reports is no longer offered. This covers sentry flashes, weapon flashes (both keys, before the
+attachment query), entity-less dispatches and `CTETFParticleEffect`s. A seek or a clock gone back still offers every
+key, because it rebuilds from the offer (D221). `played` is computed once per `StepOver` for every offerer. The owned
+dispatches' dormancy closures are made once per dispatch and timeline instead of once a frame. **Held by**
+`StepOver_AFinishedOneShotOnTheNextFrame_IsOfferedOnlyIfTheFrameLanded`, which covers all four kinds, played and
+seeked, and `StepOver_OneShotsLetGoOverAPlayback_DrawWhatOfferingThemAllDrew`. That test plays 3,000 frames of finite
+drawn one-shots and checks that every frame's batch bytes and whizzes equal a reference with `OfferGoneBursts` set,
+while offering under half as many bursts. The B577 and B592 fingerprint tests set `OfferGoneBursts`, because their
+recorded census predates the change. **Still open:** the attachment queries of live followed effects, which the engine
+also re-reads every frame. Frame cost not measured yet (plan: measurements/2026-10-27-detail-transport-b577.md).
+
 ## B576 — a talking face rewrote every slot of its model's flex stream, every changing frame — FIXED (2026-10-22)
 
 **Measured** (finding 92, measurements/2026-10-22-f12-steady-frame.md): `EntityModelSet.FlexFor` 6.0% of the render
