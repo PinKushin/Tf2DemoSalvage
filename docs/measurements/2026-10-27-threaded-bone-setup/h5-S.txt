@@ -1,0 +1,121 @@
+GUI application — holding the lock until it exits.
+measured 6 seconds of playback, 5 samples (2 rebuild reports), ending at tick 30220; 218 frames, mean 27.57 ms
+  phases, mean ms: sound 0.37, camera 11.58, project 0.00, advance 0.86, capture 0.00, hud 1.16, draw 12.90, between 0.69; render thread draw 0.00 (mode 2 only, frame-weighted like the phases); particles now: 2 trails, 42 bursts, 1510 quads last frame
+  gc: paused 0.79 ms a frame; collections gen0 82, gen1 25, gen2 0; allocated 2.96 MB a frame; render thread 1,139,564 bytes a frame
+  render passes, mean per frame at 984x551: 217 frames drawn, 217 read on the GPU, 0 skipped, 0 disjoint, 0 abandoned
+    Clear: cpu 0.004 ms, gpu 0.939 ms, draws 0.0, maps 0.0, primitives 0, pixels 0
+    Monitors: cpu 0.003 ms, gpu 0.008 ms, draws 0.0, maps 0.0, primitives 0, pixels 0
+    Sky2D: cpu 0.025 ms, gpu 0.020 ms, draws 6.0, maps 7.0, primitives 12, pixels 542184
+    Sky3D: cpu 0.309 ms, gpu 0.139 ms, draws 21.9, maps 42.9, primitives 8002, pixels 430555
+        span InstanceSetup: cpu 0.0032 ms, laps 18.0, bytes 0
+        span PipelineBinds: cpu 0.0157 ms, laps 18.0, bytes 0
+        span Flex: cpu 0.0012 ms, laps 18.0, bytes 0
+        span ModelConstants: cpu 0.0051 ms, laps 19.0, bytes 10333
+        span Cubemap: cpu 0.0173 ms, laps 18.0, bytes 0
+        span BatchState: cpu 0.0163 ms, laps 18.0, bytes 0
+        span MaterialBinds: cpu 0.0054 ms, laps 21.9, bytes 0
+        span Proxies: cpu 0.0048 ms, laps 21.9, bytes 0
+        span MaterialMap: cpu 0.0043 ms, laps 21.9, bytes 6316
+        span DrawCall: cpu 0.0018 ms, laps 18.0, bytes 0
+        span Bookkeeping: cpu 0.0095 ms, laps 18.0, bytes 0
+        span Renderable: cpu 0.0108 ms, laps 18.0, bytes 0
+        span TimerOverhead: cpu 0.0004 ms, laps 18.0, bytes 0
+        unspanned: cpu 0.2137 ms
+    WaterViews: cpu 0.000 ms, gpu 0.006 ms, draws 0.0, maps 0.0, primitives 0, pixels 0
+    World: cpu 0.279 ms, gpu 0.341 ms, draws 395.7, maps 396.7, primitives 16219, pixels 1189685
+        span ModelConstants: cpu 0.0004 ms, laps 1.0, bytes 544
+        span MaterialBinds: cpu 0.0491 ms, laps 395.7, bytes 0
+        span Proxies: cpu 0.0213 ms, laps 395.7, bytes 0
+        span MaterialMap: cpu 0.0590 ms, laps 395.7, bytes 113972
+        unspanned: cpu 0.1497 ms
+    OpaqueModels: cpu 1.426 ms, gpu 1.355 ms, draws 208.1, maps 423.2, primitives 238030, pixels 81001
+        span Diagnostics: cpu 0.0003 ms, laps 1.0, bytes 0
+        span InstanceSetup: cpu 0.0245 ms, laps 169.2, bytes 0
+        span PipelineBinds: cpu 0.1263 ms, laps 169.2, bytes 0
+        span Flex: cpu 0.2111 ms, laps 169.2, bytes 1796506
+        span ModelConstants: cpu 0.0577 ms, laps 169.4, bytes 92132
+        span Bones: cpu 0.0464 ms, laps 37.9, bytes 232821
+        span Cubemap: cpu 0.1329 ms, laps 169.2, bytes 0
+        span BatchState: cpu 0.1831 ms, laps 207.6, bytes 0
+        span MaterialBinds: cpu 0.0425 ms, laps 208.1, bytes 0
+        span Proxies: cpu 0.2557 ms, laps 208.1, bytes 0
+        span MaterialMap: cpu 0.0472 ms, laps 208.1, bytes 59939
+        span DrawCall: cpu 0.0411 ms, laps 207.6, bytes 0
+        span Bookkeeping: cpu 0.0654 ms, laps 169.2, bytes 0
+        span Renderable: cpu 0.0764 ms, laps 169.2, bytes 0
+        span TimerOverhead: cpu 0.0036 ms, laps 169.2, bytes 0
+        unspanned: cpu 0.1115 ms
+    EntityDecals: cpu 0.024 ms, gpu 0.022 ms, draws 30.0, maps 31.0, primitives 448, pixels 0
+        span ModelConstants: cpu 0.0002 ms, laps 1.0, bytes 544
+        span MaterialBinds: cpu 0.0051 ms, laps 30.0, bytes 0
+        span Proxies: cpu 0.0022 ms, laps 30.0, bytes 0
+        span MaterialMap: cpu 0.0045 ms, laps 30.0, bytes 8640
+        unspanned: cpu 0.0119 ms
+    Translucent: cpu 0.340 ms, gpu 0.052 ms, draws 30.5, maps 53.0, primitives 4200, pixels 261201
+        span InstanceSetup: cpu 0.0580 ms, laps 6.9, bytes 0
+        span PipelineBinds: cpu 0.0051 ms, laps 6.9, bytes 0
+        span Flex: cpu 0.0017 ms, laps 6.9, bytes 7151
+        span ModelConstants: cpu 0.0044 ms, laps 20.8, bytes 11334
+        span Bones: cpu 0.0015 ms, laps 1.8, bytes 11014
+        span Cubemap: cpu 0.0071 ms, laps 6.9, bytes 0
+        span BatchState: cpu 0.1858 ms, laps 9.5, bytes 0
+        span MaterialBinds: cpu 0.0059 ms, laps 29.9, bytes 0
+        span Proxies: cpu 0.0167 ms, laps 29.9, bytes 0
+        span MaterialMap: cpu 0.0053 ms, laps 29.9, bytes 8599
+        span DrawCall: cpu 0.0019 ms, laps 9.5, bytes 0
+        span Bookkeeping: cpu 0.0034 ms, laps 6.9, bytes 0
+        span TimerOverhead: cpu 0.0001 ms, laps 6.9, bytes 0
+        unspanned: cpu 0.0427 ms
+    WaterIntersection: cpu 0.000 ms, gpu 0.007 ms, draws 0.0, maps 0.0, primitives 0, pixels 0
+    Occlusion: cpu 0.209 ms, gpu 0.028 ms, draws 366.3, maps 2.0, primitives 730, pixels 0
+    Viewmodels: cpu 0.122 ms, gpu 0.069 ms, draws 3.0, maps 9.0, primitives 7235, pixels 101452
+        span InstanceSetup: cpu 0.0008 ms, laps 2.0, bytes 0
+        span PipelineBinds: cpu 0.0017 ms, laps 2.0, bytes 0
+        span Flex: cpu 0.0001 ms, laps 2.0, bytes 0
+        span ModelConstants: cpu 0.0012 ms, laps 2.0, bytes 1088
+        span Bones: cpu 0.0044 ms, laps 2.0, bytes 12288
+        span Cubemap: cpu 0.0025 ms, laps 2.0, bytes 0
+        span BatchState: cpu 0.0049 ms, laps 3.0, bytes 0
+        span MaterialBinds: cpu 0.0010 ms, laps 3.0, bytes 0
+        span Proxies: cpu 0.0114 ms, laps 3.0, bytes 0
+        span MaterialMap: cpu 0.0007 ms, laps 3.0, bytes 864
+        span DrawCall: cpu 0.0016 ms, laps 3.0, bytes 0
+        span Bookkeeping: cpu 0.0018 ms, laps 2.0, bytes 0
+        span TimerOverhead: cpu 0.0001 ms, laps 2.0, bytes 0
+        unspanned: cpu 0.0900 ms
+    Particles: cpu 0.248 ms, gpu 0.080 ms, draws 18.4, maps 36.9, primitives 3368, pixels 627914
+    Overlay: cpu 0.000 ms, gpu 0.007 ms, draws 0.0, maps 0.0, primitives 0, pixels 0
+    Exposure: cpu 0.018 ms, gpu 0.025 ms, draws 1.0, maps 1.0, primitives 1, pixels 415534
+    Bloom: cpu 0.005 ms, gpu 0.085 ms, draws 4.0, maps 4.0, primitives 4, pixels 643290
+    DebugLines: cpu 0.001 ms, gpu 0.007 ms, draws 0.0, maps 0.0, primitives 0, pixels 0
+    Hud: cpu 0.202 ms, gpu 0.046 ms, draws 75.4, maps 76.4, primitives 1060, pixels 134640
+    Present: cpu 0.063 ms, gpu 0.027 ms, draws 0.0, maps 0.0, primitives 0, pixels 0
+    all: cpu 3.278 ms, gpu 3.263 ms, draws 1160.4, maps 1083.1
+  pauses: 0 frames over 100 ms, 0 heartbeat gaps over 50 ms; 2 frames over 50 ms, 141 ms in them
+  slow at 0.351 s: 81 ms, mostly draw, gc paused 2 ms; between 0.4, sound 1.9, camera 10.9, project 0.0, advance 3.3, hud 1.5, draw 63.0, unaccounted 0.0; main jit 40 methods 4.6 ms (other threads 0.0 ms); camera view 0.0 setcamera 1.2 wait 0.0 pose 5.4 particles 4.2; first uses: sound decodes 0, models packed +0 0.0 ms, baked built +0 0.0 ms, particle systems +0; log 8 writes, wait 0.0 ms, flush 0.0 ms, 0 over 5 ms; archive reads 0 reads 0.0 ms, 0 over 5 ms; page faults 3477
+  slow at 1.017 s: 60 ms, mostly between, gc paused 6 ms; between 17.2, sound 1.5, camera 15.1, project 0.0, advance 0.8, hud 9.3, draw 15.9, unaccounted 0.0; main jit 238 methods 19.4 ms (other threads 0.8 ms); camera view 0.0 setcamera 1.0 wait 0.0 pose 5.1 particles 8.9; first uses: sound decodes 0, models packed +0 0.0 ms, baked built +0 0.0 ms, particle systems +0; log 3 writes, wait 0.0 ms, flush 0.0 ms, 0 over 5 ms; archive reads 0 reads 0.0 ms, 0 over 5 ms; page faults 1427
+  jit: 6847 methods compiled, 3129.1 ms compiling
+  main thread jit: 540 methods, 274.9 ms compiling
+  first uses in play: models packed 0, 0.0 ms; baked built 138, 8.0 ms; before play: models packed 735, 480.9 ms; baked built 91, 8.5 ms
+  main thread archive reads: 2 reads 0.3 ms, 0 over 5 ms; process page faults 26976
+    read in play: scripts/TF_WEAPON_CANNON.txt 0.12 ms <- WeaponScript.Read <- ExplosionEffects.Script <- ExplosionEffects.NameFor <- BurstEffects.StepOver
+    read in play: scripts/TF_WEAPON_CANNON.ctx 0.17 ms <- WeaponScript.Read <- ExplosionEffects.Script <- ExplosionEffects.NameFor <- BurstEffects.StepOver
+  weapon scripts precached in 35.6 ms, ending -185440.6 ms from the window's start
+  log writes: main thread enqueue 477 writes, wait 1.7 ms, flush 0.0 ms, 0 over 5 ms; writer thread 477 writes, wait 0.0 ms, flush 234.3 ms, 2 over 5 ms; queue: 0 dropped, high water 69
+  particle cost a frame: search 0.89 ms over 1 searches, bursts 0.41 ms; attachments 14.8 queries, 8.7 skeletons built, 0 rebuilt after this frame's first, 0.41 ms
+  particle work a frame: 44.5 effects alive, 32.5 steps, 0 asleep, 31.9 handed to the draw
+  particles born a second: 1222.6 in all; rocketjump_smoke 239.5, medicgun_beam_red_trail_stage1 173.9, medicgun_beam_red_trail_stage2 82.5, Explosion_Debris001 59.9, blood_spray_red_01 50.9, blood_impact_red_01_chunk 47.9, rockettrail 45.8, medicgun_beam_red_trail_stage3 42.9, Explosion_Dustup 39.9, Explosion_Flashup 39.9, rockettrail_burst 38.1, rockettrail_fire 38.1
+  memory: private 6133 MB, working set 4060 MB; GC heap 3627 MB, committed 3638 MB, fragmented 2 MB, slack 9 MB; generations 0, 2, 1485, LOH 2140, POH 0 MB; entity model vertices on the CPU 0 in 0 MB
+  large allocations: 9 MB; System.Single[] 4 MB, Tf2DemoSalvage.Scene.WorldVertex[] 3 MB, Tf2DemoSalvage.Scene.ModelInstance[] 1 MB, Projected[] 1 MB, Tf2DemoSalvage.Scene.DetailSpriteVertex[] 1 MB, VolatileNode[System.Int32,Tf2DemoSalvage.Scene.CorpseFriction[]][] 0 MB, System.Byte[] 0 MB, Tf2DemoSalvage.Scene.Hud.VguiQuad[] 0 MB
+  allocated since start: 37802 MB
+  sound cache: 1344 sounds, WAV 242 MB, MP3 101 MB held; 0 decodes in play
+      census at tick 30030: bursts 43 (5 unoffered, 7 finished); ExplosionCore_Wall 7/0; blood_impact_red_01 6/3; rocketjump_smoke 6/0; bullet_scattergun_tracer01_red 5/0; muzzle_grenadelauncher 4/0; overhealedplayer_red_pluses 4/0; trails 2; model decals 75; replays so far 3066.6 ms over 77984 steps; dynamic light draws so far 0 of 7937, re-ranked 0, 0 ms; particle forks so far 29; bone forks so far 0; sun per frame 21.91 calls (light cache 20.21, static props 1.68, direct 0.03) in 0.266 ms over 34 frames
+  frame rate 40 fps (0 worst, 405 best), 22.1 ms; mean over 36 frames: sound 0.5, camera 11.6, project 0, advance 0.9, capture 0, hud 1.6, draw 11.9, unaccounted 0 ms; parts: camera particles/lights 0.23, camera particles/decals 0.47, camera particles/sounds 0.05, camera particles/impacts 0.12, camera particles/trails 0.12, camera particles/bursts/explosions 0.01, camera particles/bursts/tracers 0.04, camera particles/bursts/blood 0.01, camera particles/bursts/splashes 0.01, camera particles/bursts/sentries 0, camera particles/bursts/dispatches 0.68, camera particles/bursts/muzzles 0.27, camera particles/bursts/players 0, camera particles/bursts/beams 0.18, camera particles/bursts/overheals 0.03, camera particles/bursts/step 0.36, camera particles/bursts 1.6, camera particles/build 2.54, camera particles/hand 0.26, camera view 0.02, camera setcamera 1.39, camera wait 0, camera setcamera view 0, camera setcamera upload 0, camera setcamera batches 0.51, camera setcamera overlays 0.46, camera setcamera sky 0.4, camera setcamera water 0, camera setcamera detail 0.01, camera pose 4.76, camera particles 5.4, hud window packed 13.85, hud packed frames 1, hud setup 0.01, hud events 0.01, hud precache 0.01, hud state 0.05, hud scheme 0, hud think 0.03, hud gameevents 0.07, hud updates 0.01, hud layout 0.21, hud cards 0, HudChat 0.57, HudDeathNotice 0.13, HudWeapon 0, HudCrosshair 0, CSpectatorTargetID 0.01, TopBar 0, bottombarblank 0, spectator_extras 0, card.classimage 0.01, card.HealthIcon 0.2, card.specindex 0.02, card.respawntime 0.01, card.playername 0.04, card.chargeamount 0.01, playerpanel5 0.03, playerpanel12 0.03, playerpanel3 0.03, playerpanel11 0.03, playerpanel2 0.02, playerpanel10 0.03, playerpanel7 0.03, playerpanel6 0.03, playerpanel1 0.02, playerpanel9 0.03, playerpanel8 0.02, playerpanel4 0.03, specgui 0.33, MatchMakingContainer 0, KillStreakNotice 0.1, HudAchievementTracker 0, HudMatchStatus 0.02, hud paint 1.17, hud frame 1.5, hud tools inputs 0, hud tools paint 0.06, hud tools 0.06, hud forkable 1.44, sun 0.03
+      census at tick 30066: bursts 40 (6 unoffered, 8 finished); blood_impact_red_01 6/2; rocketjump_smoke 6/0; ExplosionCore_Wall 5/0; bullet_scattergun_tracer01_red 5/0; rocketbackblast 5/3; overhealedplayer_red_pluses 3/0; trails 3; model decals 75; replays so far 3066.6 ms over 77984 steps; dynamic light draws so far 0 of 12578, re-ranked 0, 0 ms; particle forks so far 65; bone forks so far 0; sun per frame 2.06 calls (light cache 2, static props 0.06, direct 0) in 0.029 ms over 36 frames
+  frame rate 42 fps (0 worst, 405 best), 23.9 ms; mean over 42 frames: sound 0.5, camera 10.6, project 0, advance 0.9, capture 0, hud 1.1, draw 10.7, unaccounted 0 ms; parts: camera particles/lights 0.23, camera particles/decals 1.24, camera particles/sounds 0.04, camera particles/impacts 0.08, camera particles/trails 0.07, camera particles/bursts/explosions 0.01, camera particles/bursts/tracers 0.01, camera particles/bursts/blood 0.01, camera particles/bursts/splashes 0, camera particles/bursts/sentries 0, camera particles/bursts/dispatches 0.52, camera particles/bursts/muzzles 0.16, camera particles/bursts/players 0, camera particles/bursts/beams 0.05, camera particles/bursts/overheals 0.02, camera particles/bursts/step 0.34, camera particles/bursts 1.14, camera particles/build 2.34, camera particles/hand 0.25, camera view 0.02, camera setcamera 1.32, camera wait 0, camera setcamera view 0, camera setcamera upload 0, camera setcamera batches 0.5, camera setcamera overlays 0.38, camera setcamera sky 0.41, camera setcamera water 0, camera setcamera detail 0.01, camera pose 3.89, camera particles 5.4, hud window packed 11.93, hud packed frames 1, hud setup 0.01, hud events 0.01, hud precache 0.01, hud state 0.04, hud scheme 0, hud think 0.03, hud gameevents 0, hud updates 0.01, hud layout 0.08, hud cards 0, HudChat 0.5, HudDeathNotice 0.03, HudWeapon 0, HudCrosshair 0, CSpectatorTargetID 0.01, TopBar 0, bottombarblank 0, spectator_extras 0, card.classimage 0.01, card.HealthIcon 0.12, card.specindex 0.01, card.respawntime 0.01, card.playername 0.03, card.chargeamount 0, playerpanel5 0.02, playerpanel12 0.01, playerpanel3 0.02, playerpanel11 0.02, playerpanel2 0.01, playerpanel10 0.02, playerpanel7 0.02, playerpanel6 0.02, playerpanel1 0.01, playerpanel9 0.02, playerpanel8 0.01, playerpanel4 0.02, specgui 0.2, MatchMakingContainer 0, KillStreakNotice 0.04, HudAchievementTracker 0, HudMatchStatus 0.02, hud paint 0.82, hud frame 0.94, hud tools inputs 0, hud tools paint 0.05, hud tools 0.06, hud forkable 0.95, sun 0.02
+      census at tick 30108: bursts 35 (6 unoffered, 12 finished); rocketjump_smoke 8/0; blood_impact_red_01 7/3; ExplosionCore_Wall 6/0; blood_spray_red_01 4/0; rocketbackblast 4/2; muzzle_grenadelauncher 2/0; trails 2; model decals 75; replays so far 3066.6 ms over 77984 steps; dynamic light draws so far 0 of 17212, re-ranked 0, 0 ms; particle forks so far 107; bone forks so far 0; sun per frame 2.02 calls (light cache 2, static props 0.02, direct 0) in 0.018 ms over 42 frames
+  frame rate 36 fps (0 worst, 405 best), 27.9 ms; mean over 38 frames: sound 0.3, camera 12.1, project 0, advance 0.8, capture 0, hud 1.1, draw 11.9, unaccounted 0 ms; parts: camera particles/lights 0.2, camera particles/decals 0.43, camera particles/sounds 0.04, camera particles/impacts 0.04, camera particles/trails 0.16, camera particles/bursts/explosions 0.02, camera particles/bursts/tracers 0.01, camera particles/bursts/blood 0.01, camera particles/bursts/splashes 0, camera particles/bursts/sentries 0, camera particles/bursts/dispatches 0.4, camera particles/bursts/muzzles 0.04, camera particles/bursts/players 0.01, camera particles/bursts/beams 0.36, camera particles/bursts/overheals 0.05, camera particles/bursts/step 0.35, camera particles/bursts 1.25, camera particles/build 1.84, camera particles/hand 0.12, camera view 0.02, camera setcamera 3.06, camera wait 0, camera setcamera view 0, camera setcamera upload 0, camera setcamera batches 1.24, camera setcamera overlays 1.49, camera setcamera sky 0.3, camera setcamera water 0, camera setcamera detail 0.01, camera pose 4.9, camera particles 4.11, hud window packed 12.98, hud packed frames 1, hud setup 0.01, hud events 0, hud precache 0.01, hud state 0.04, hud scheme 0, hud think 0.03, hud gameevents 0, hud updates 0.01, hud layout 0.09, hud cards 0, HudChat 0.51, HudDeathNotice 0.03, HudWeapon 0, HudCrosshair 0, CSpectatorTargetID 0.01, TopBar 0, bottombarblank 0, spectator_extras 0, card.classimage 0, card.HealthIcon 0.11, card.specindex 0.01, card.respawntime 0.01, card.playername 0.02, card.chargeamount 0, playerpanel5 0.02, playerpanel12 0.01, playerpanel3 0.02, playerpanel11 0.02, playerpanel2 0.01, playerpanel10 0.02, playerpanel7 0.01, playerpanel6 0.02, playerpanel1 0.01, playerpanel9 0.02, playerpanel8 0.01, playerpanel4 0.02, specgui 0.19, MatchMakingContainer 0, KillStreakNotice 0.05, HudAchievementTracker 0, HudMatchStatus 0.02, hud paint 0.82, hud frame 0.95, hud tools inputs 0, hud tools paint 0.05, hud tools 0.05, hud forkable 0.96, sun 0.04
+      moment cost, mean over 100 rebuilds: 5.1 ms = sample 0.4 (players 0.08), drawlist 0.3 (prepare 0.1, players 0.1, place 0.01, filters 0.06 (first person 0.04)), models 0.1, pose 4.3, weapons 0, viewmodel 0.3; pose = lighting 0.8, simulate 0.4, wornlight 0, setup 0.9 (roots 0.785 over 11.8 built, eligible 0.71 over 6.8, slowest 0.207 peak 1.974; children 0.069 over 24.4 built; prepose 0 over 0, blend 0), skin 0, anim 0.2, reports 0, collate 0.2, baked 0.4, place 1 (compose 0.01, fade 0.03, build 0.95 of which binds 0.17, lookups 0.75 = matrix 0.01, swap 0.04, flex 0.71), undrawn 0.033 (6 props, 0 instances, sun 0 vs world 2.04), advance 0 (corpses 0 over 0.1 steps, 11 held, 0 rebuilt in 0), rest 0.3; built 36.3 (simulate 0, corpses 0, draw 36.2, place 0); posed 34.7 of 1860.8 selected, 1444.3 hidden by pvs, 9 unjudgeable; collated unparented 235.9, by identity 212.4
+      census at tick 30146: bursts 31 (6 unoffered, 6 finished); rocketjump_smoke 8/0; ExplosionCore_Wall 6/0; blood_impact_red_01 6/4; rocketbackblast 4/2; blood_spray_red_01 2/0; muzzle_grenadelauncher 2/0; trails 2; model decals 75; replays so far 3066.6 ms over 77984 steps; dynamic light draws so far 0 of 24400, re-ranked 0, 0 ms; particle forks so far 145; bone forks so far 0; sun per frame 3.21 calls (light cache 2, static props 1.21, direct 0) in 0.042 ms over 38 frames
+  frame rate 35 fps (0 worst, 405 best), 27.2 ms; mean over 34 frames: sound 0.4, camera 11.5, project 0, advance 0.8, capture 0, hud 1, draw 15.6, unaccounted 0 ms; parts: camera particles/lights 0.15, camera particles/decals 1.93, camera particles/sounds 0.04, camera particles/impacts 0.05, camera particles/trails 0.26, camera particles/bursts/explosions 0.01, camera particles/bursts/tracers 0.02, camera particles/bursts/blood 0, camera particles/bursts/splashes 0, camera particles/bursts/sentries 0, camera particles/bursts/dispatches 0.38, camera particles/bursts/muzzles 0.14, camera particles/bursts/players 0, camera particles/bursts/beams 0.04, camera particles/bursts/overheals 0.01, camera particles/bursts/step 0.26, camera particles/bursts 0.87, camera particles/build 0.94, camera particles/hand 0.06, camera view 0.02, camera setcamera 1.33, camera wait 0, camera setcamera view 0, camera setcamera upload 0, camera setcamera batches 0.77, camera setcamera overlays 0.33, camera setcamera sky 0.21, camera setcamera water 0, camera setcamera detail 0.01, camera pose 5.83, camera particles 4.32, hud window packed 16.79, hud packed frames 1, hud setup 0.01, hud events 0, hud precache 0.01, hud state 0.04, hud scheme 0, hud think 0.03, hud gameevents 0, hud updates 0.01, hud layout 0.08, hud cards 0, HudChat 0.49, HudDeathNotice 0.03, HudWeapon 0, HudCrosshair 0, CSpectatorTargetID 0.01, TopBar 0, bottombarblank 0, spectator_extras 0, card.classimage 0, card.HealthIcon 0.1, card.specindex 0.01, card.respawntime 0.01, card.playername 0.02, card.chargeamount 0, playerpanel5 0.02, playerpanel12 0.01, playerpanel3 0.01, playerpanel11 0.01, playerpanel2 0.01, playerpanel10 0.01, playerpanel7 0.01, playerpanel6 0.02, playerpanel1 0.01, playerpanel9 0.02, playerpanel8 0.01, playerpanel4 0.02, specgui 0.17, MatchMakingContainer 0, KillStreakNotice 0.02, HudAchievementTracker 0, HudMatchStatus 0.02, hud paint 0.74, hud frame 0.86, hud tools inputs 0, hud tools paint 0.05, hud tools 0.05, hud forkable 0.86, sun 0.02
+      census at tick 30180: bursts 36 (8 unoffered, 1 finished); rocketjump_smoke 8/0; ExplosionCore_Wall 7/0; blood_impact_red_01 5/4; bullet_scattergun_tracer01_red 5/0; rocketbackblast 4/2; muzzle_grenadelauncher 3/2; trails 2; model decals 75; replays so far 3066.7 ms over 77984 steps; dynamic light draws so far 0 of 35806, re-ranked 0, 0 ms; particle forks so far 179; bone forks so far 0; sun per frame 2.53 calls (light cache 2, static props 0.53, direct 0) in 0.024 ms over 34 frames
