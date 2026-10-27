@@ -40077,8 +40077,9 @@ reads it: bit 4's ranked styled lights cached at `+0x88` until a listed style's 
 bits `+0x1a4` masked by `r_dlightactive`.
 
 **Fixed:** bit 2 walked all 32 dlight slots, a `ClusterAt` each, for every static prop every frame (~4,000 slot reads a
-frame on f12 with none live). It walks the live mask now; `baked` 0.43-0.49 → 0.05-0.08 ms, −0.36 to −0.44 ms (4.1-5.0%
-of the frame; measurements/2026-10-27-static-prop-lighting.md), pixels unchanged (`StaticPlusDynamicLightingConformanceTests`, `…_NoLiveDlight_ExaminesNoSlot`,
+frame on f12 with none live). It walks the live mask now; `baked` 0.45-0.49 → 0.05-0.08 ms, −0.40 to −0.44 ms (4.7-5.1%
+of the frame), frame −0.37 to −0.47 ms (measurements/2026-10-27-static-prop-lighting.md, the three pairs passing both
+controls), pixels unchanged outside the frame-rate readout (`StaticPlusDynamicLightingConformanceTests`, `…_NoLiveDlight_ExaminesNoSlot`,
 `…_ThreeLiveDlightsOneInReach_…`).
 
 **Still open, each a divergence of shape with output equal:**

@@ -100,8 +100,8 @@ enumerator calling `FUN_1801b5260` has no direct cross-reference to read.
 
 The port gathered bit 2 by reading all 32 `cl_dlights` slots, a leaf lookup each, for every static prop every frame — about
 4,000 slot reads a frame on f12, where no dlight was live at all. The engine never looks at a dead slot: the handle's
-bits are masked by `r_dlightactive` first. Walking the mask instead took `baked` from 0.43-0.49 to 0.05-0.08 ms, with
-identical pixels (measurements/2026-10-27-static-prop-lighting.md). Bit 4's cache at `+0x88` is still not ported — f12
+bits are masked by `r_dlightactive` first. Walking the mask instead took `baked` from 0.45-0.49 to 0.05-0.08 ms and the frame down
+0.37-0.47 ms, with identical pixels outside the frame-rate readout (measurements/2026-10-27-static-prop-lighting.md). Bit 4's cache at `+0x88` is still not ported — f12
 lists no styled light at any prop it draws, so it could not be measured there (B607).
 
 Not ported: when cvar `DAT_18069c368` is nonzero a second combined state (the instance's `+0x88..+0xcc` added to

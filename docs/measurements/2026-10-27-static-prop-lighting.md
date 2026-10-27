@@ -113,22 +113,36 @@ there, so nothing this change touches runs.
 Identity (`shots.txt`, `compare.ps1`): A's shot equals both B shots on every pixel outside the frame-rate text, where B
 and B also differ (25 pixels) — the control.
 
-Controls:
+Controls, applied as the plan wrote them:
 
-- **Same work:** `posed`/`built` A 35.4-37.4 against B 34.7-36.5. Within 3% between 12-A and its pair, 2.5-4.5% between
-  06/07-A and 05/08-B — **A did slightly more work, not less**, so it cannot explain A's lower cost.
-- **Machine:** held on the nine kept runs within each ABBA (first: `sound` 0.16-0.17, `between` 0.31-0.34; second: 0.16-0.19,
-  0.31-0.37).
+- **Machine (`sound`, `between` within 10% across runs):** passed by 02, 05, 06, 07, 08, 09 (0.16-0.17 and 0.31-0.34).
+  **10-B, 11-B and 12-A fail it** (`between` 0.36-0.37, `sound` 0.18-0.19, ~19% above) and are set aside with 01, 03, 04.
+- **Same work (`posed`/`built` within 3%, or the pair is void):** of the runs left, 05-B/06-A (2.5%), 05-B/09-A (1.7%)
+  and 08-B/09-A (2.8%) pass. **02-B against every A run (6-8%), 08-B/06-A (3.6%) and 08-B/07-A (4.5%) are void.** In
+  every void pair A did MORE work than B, so the direction cannot flatter A, but the rule is the rule.
 
 ## Verdict
 
-**`baked`: 0.431-0.488 → 0.047-0.075 ms a frame, −0.36 to −0.44 ms (4.1-5.0% of B's 8.43-9.13 frame), ranges far
-apart.** Prediction (−0.2 to −0.35) **falsified on the high side**: the split read the walk's two paths at 0.31-0.34 ms and the
-fix took 0.36-0.44 off. Why the split under-read it was not measured (*interpolated*: the split averaged over the
-opening seek's frames too, and its window and this one differ).
+**From the three pairs that pass both controls** (05/06, 05/09, 08/09):
 
-**Frame: lower in every adjacent A/B pair, −0.29 to −1.07 ms; across all nine runs the ranges touch** (A 7.95-8.68, B
-8.43-9.13), because the second ABBA ran ~0.5 ms slower overall. `camera pose` A 2.82-3.04 against B 3.20-3.42.
+- **`baked`: −0.40 to −0.44 ms a frame** (0.450-0.488 → 0.050-0.075), **4.7-5.1% of each pair's B frame** (8.43-8.52).
+  Across every run, kept or not, `baked` is 0.43-0.52 in B and 0.05-0.08 in A apart from 04-A's 0.22 (a disturbed run), so
+  the result does not depend on which runs are kept.
+- **Frame: −0.37 to −0.47 ms** (A 8.05-8.06 against B 8.43-8.52; ranges apart), 4.4-5.5% of B. `camera pose` −0.30 to
+  −0.39 (2.88-2.90 against 3.20-3.24).
+- With the control-failing second ABBA included the frame is still lower in each adjacent pair (09/10 −0.91, 11/12
+  −0.45), but those runs say nothing under the plan's own rule.
+
+Prediction A (−0.2 to −0.35 on `baked`) **falsified on the high side**: the split read the walk's two paths at 0.31-0.34
+ms and the fix took 0.40-0.44 off. Why the split under-read it was not measured (*interpolated*: the split averaged over
+the opening seek's frames too, and its window and this one differ).
+
+Prediction C **falsified as worded** ("A equals B wherever B's two shots agree"): the A-B difference box is
+(1101,2)-(1119,10) and the B-B box (1113,2)-(1119,9), so A differs from B at a few pixels where the two B shots agree.
+**Every one of them is inside the red frame-rate readout** (top right, about (1000,0)-(1280,12)), which prints a live
+measurement and which no lighting state reaches; every other pixel is identical in all three. **What the shot can and
+cannot show:** this tick has no styled light and no live dlight at any drawn static prop, so it checks that nothing
+else changed, not the dlight path itself — the conformance tests carry that.
 
 **What is left in `baked` (~0.05 ms):** the colour-mesh and static-state lookups (cached, as the engine's handle is) and
 whatever first-use builds fall inside the window. **Not drawn or not compared** (D129): skinning runs on the GPU where
