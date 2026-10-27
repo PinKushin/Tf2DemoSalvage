@@ -113,6 +113,12 @@ it draws on the main thread (mode `0`). On the author's recording the second thr
 back to drawing on the main thread, put `mat_queue_mode 0` in `settings.cfg`, or for one run use
 `tf2demoview <demo> +mat_queue_mode 0`. Screenshots wait for the second thread to finish its frame.
 
+`r_threaded_particles` steps the particle effects on several threads (your physical cores minus one), as TF2's setting of
+that name does. The default is `1` and the picture is the same either way. To use one thread, put
+`r_threaded_particles 0` in `settings.cfg`, or for one run use `tf2demoview <demo> +r_threaded_particles 0`. The particle
+step got cheaper by 0.07 to 0.09 ms a frame on the author's recording; a faster whole frame is not established
+(`docs/measurements/2026-10-26-threaded-particles-and-sun.md`).
+
 `--hud <folder or .vpk>` draws a HUD laid out as in `tf/custom`. Without it the viewer draws TF2's stock HUD.
 
 ## Take a screenshot

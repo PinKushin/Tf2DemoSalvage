@@ -1,7 +1,38 @@
-# Tf2DemoSalvage 0.1.0-beta.52
+# Tf2DemoSalvage 0.1.0-beta.53
 
-## Unreleased
+## Changes in 0.1.0-beta.53
 
+Draft, not yet released. Figures are on the `cp_process_f12` recording, one machine, first person unless it says
+otherwise; the file beside each figure holds it.
+
+- **The sun costs almost nothing now (B594).** A sky trace used to test every piece of terrain along its whole 57,016-unit
+  length, though the walls had already stopped it. It now stops where the walls stop it, with the same answers.
+  Sun: 0.457-0.465 ms to 0.012-0.013 ms a frame, with the same 1.52-1.55 calls a frame (docs/measurements/2026-10-26-threaded-particles-and-sun.md).
+  Frame: 9.37-9.55 ms to 8.74-8.94 ms, **-0.6 ms, -6.5%** (docs/measurements/2026-10-26-threaded-particles-and-sun.md).
+  The sun is 0.45 ms of that; the rest is *estimated*, not timed, to be other traces that take the same limit (docs/measurements/2026-10-26-threaded-particles-and-sun.md).
+  Empty view: frame 3.60-3.63 ms to 3.53-3.55 ms, -0.06 ms (docs/measurements/2026-10-26-threaded-particles-and-sun.md).
+  On the real map, 0 of 50,000 traces differ from the old answer (docs/measurements/2026-10-26-threaded-particles-and-sun.md).
+- **Particle effects are stepped on several threads, as TF2 does (`r_threaded_particles`, default 1).** The picture is the
+  same. The step splits across your physical cores minus one, and effects with 4 steps or fewer stay on one thread.
+  Particle step (`bursts/step`): 0.275-0.282 ms to 0.196-0.204 ms a frame, -0.07 to -0.09 ms (docs/measurements/2026-10-26-threaded-particles-and-sun.md).
+  **The whole-frame gain is not established:** frame 8.93-9.03 ms to 8.74-8.94 ms, and the two ranges touch (docs/measurements/2026-10-26-threaded-particles-and-sun.md).
+  To go back to one thread, put `r_threaded_particles 0` in `settings.cfg`, or use `+r_threaded_particles 0` for one run
+  (`tf2demoview --help`). Thresholds of 0 and 16 gave the same step as 4, so 4 is kept without a measured advantage (docs/measurements/2026-10-26-threaded-particles-and-sun.md).
+- **A face uploads only the part of its stream that can move (B597).** Each model sends its first-to-last animated
+  slots instead of the whole stream. The picture is the same (tests compare every pixel).
+  Upload: 3.155-3.159 MB to 1.261-1.265 MB a frame (docs/measurements/2026-10-26-b597-flex-range.md).
+  Flex span: 0.296-0.305 ms to 0.149-0.156 ms a frame (docs/measurements/2026-10-26-b597-flex-range.md).
+  **Frame time did not separate:** 10.04-10.17 ms before, 9.99-10.31 ms after (docs/measurements/2026-10-26-b597-flex-range.md).
+  A cache that skipped a face whose animation had not changed was tried and removed: under 1% of faces held still (docs/measurements/2026-10-26-b597-face-cache.md).
+- **Occlusion tests are uploaded once a frame.** Occlusion pass: 0.372-0.377 ms to 0.174-0.192 ms, -0.18 to -0.20 ms (docs/measurements/2026-10-26-b597-constant-ring-and-occlusion.md).
+  That file attributes no frame-time change to it. A second change tried beside it, constant rings, measured slightly
+  slower and was removed (D235).
+- **Less garbage per frame.** Three allocation sites removed. Gummo first person: 1.15-1.19 MB to 0.84-0.90 MB a frame,
+  -0.30 MB, -26%; GC pause 0.20-0.23 ms to 0.15-0.18 ms a frame (docs/measurements/2026-10-25-b599-three-allocation-sites.md).
+  Frame time did not separate (docs/measurements/2026-10-25-b599-three-allocation-sites.md).
+- **Weapon scripts and face-sound lengths are read before play, not during it.** Main-thread file reads in play: 36 to 0
+  in each of five runs; loading takes 51.5-65.9 ms for the face lengths (docs/measurements/2026-10-25-b595-part6-main-thread-reads-in-play.md).
+  The mean frame time did not move beyond run-to-run spread, and the weapon scripts' load cost was **not measured** (docs/measurements/2026-10-25-b595-part6-main-thread-reads-in-play.md).
 - **Player animation variants are picked the way TF2 picks them.** Where a class model has several sequences for one
   activity, the viewer now chooses at random by their weights when the player enters the activity and holds that choice
   until the activity changes, instead of always showing the heaviest. Gestures (flinches, reloads, voice commands) pick
@@ -11,6 +42,24 @@
   demo's recorder, whose movement is read differently while seeking.
 - **The cost.** About 140 KB of memory, no per-frame allocation while playing (docs/measurements/2026-10-25-d233-activity-tuples-cost.md).
 - **A seek** spends about 9 ms (up to 57 ms) recovering 10 players' variants on the f12 demo, an estimated 22 ms for 24 (docs/measurements/2026-10-25-d233-activity-tuples-cost.md).
+- **Four more things now follow the game, each held by tests and none seen on screen yet** (finding 97):
+  - A **zoomed recorder and his gear are no longer drawn** in any view, including a monitor (B598). A decal can still
+    land on him. A player you follow stays visible in a monitor. **Not checked:** a point-of-view demo where the
+    recorder scopes, seen in third person.
+  - **Detail props (grass) reach out to the plain `cl_detaildist`,** and the zoom's field-of-view factor now reaches the
+    detail fade (B580). Not re-run on f12.
+  - **A camera monitor lights the followed player through the light cache,** as the game does (B594). No screenshot taken.
+  - **A sequence of zero or negative weight** is treated as the engine treats it when choosing (B584).
+- **A running point-of-view recorder is no longer predicted to stand still so often (B604).** Collision with walls and
+  slopes now uses Source's published clip, so a player resting against a wall is not stopped dead by it.
+  Gaps where prediction says still while the server says over 100 u/s: 7,723 to 2,369 on etf2l-12025 (docs/measurements/2026-10-26-pov-recorder-seek-scan.md).
+  The same on `rgl-pug-2026-08-10-pov`, a match whose map matches: 3,194 to 1,000 of 94,321 gaps (docs/measurements/2026-10-26-pov-recorder-seek-scan.md).
+  The footstep ground probe also treats a player clip as ground (tests only). The remainder is open (see *Known gaps*).
+- **Rewinding a point-of-view demo re-reads far less.** On etf2l-12025, mean 6.978 ms to 0.026 ms (docs/measurements/2026-10-26-pov-recorder-seek-scan.md).
+  Commands re-read a rewind: 57,714.9 to 40.9 (docs/measurements/2026-10-26-pov-recorder-seek-scan.md).
+  This holds only for a file the viewer can show has a simple shape (D234). Any other file is re-read from its start, up to 44.778 ms on that demo (docs/measurements/2026-10-26-pov-recorder-seek-scan.md).
+  Of 75 demos swept, all 75 were simple; the other 708 of 783 had not been swept when this was written (docs/measurements/2026-10-26-pov-recorder-seek-scan.md).
+  The 0.026 ms run did not check that the desktop was quiet (docs/measurements/2026-10-26-pov-recorder-seek-scan.md).
 
 ## Changes in 0.1.0-beta.52
 
@@ -732,6 +781,12 @@ writes no log file; send its console output.
 
 Each claim below is a measurement, not an expectation.
 
+- **Output unchanged by the speed changes (beta.53):** the ranged face upload gave the same pixels as the whole stream in four frames of one model and from four sides of the laughing soldier (docs/measurements/2026-10-26-b597-flex-range.md).
+  The bounded sky trace differed from the old one in 0 of 50,000 traces on the real map (docs/measurements/2026-10-26-threaded-particles-and-sun.md).
+  The mode-2 queue verifier reported 0 changed after the ranged upload, with no positive control for the verifier itself (docs/measurements/2026-10-26-b597-flex-range.md).
+  The threaded particle step is held by tests that compare it with the serial step, not by pixels (docs/measurements/2026-10-26-threaded-particles-and-sun.md).
+- **Not measured in beta.53:** the merge gate counts for this release (fill in from the gate run), a run on a quiet machine of the point-of-view seek costs after the B604 fix (docs/measurements/2026-10-26-pov-recorder-seek-scan.md), and the four parity changes on screen.
+
 - **Memory and speed (beta.45):** every figure is in this section's memory and playback bullets
   with its run (f12, Debug viewer, `--measure 20`); sources are finding 80 and the merge commits named there.
   Not measured: a Release viewer's memory, p50 and p99 frame time (`--measure` prints means), and the six-versus-six
@@ -860,6 +915,11 @@ Each claim below is a measurement, not an expectation.
 
 Things a user is likely to notice. Each has an entry in `docs/RISKS.md` in the repository.
 
+- **A point-of-view recorder can still be predicted standing while he runs (B604).** Left after the fix: 2,369 gaps on etf2l-12025, 23.4% of them starting inside world geometry; its installed map is not the build the demo recorded, so a newer map is the likely cause (*interpolated*, the matching build was not fetched). On the matching-map demo 1,000 remain, none inside world brushes, and static props are the next suspect (docs/measurements/2026-10-26-pov-recorder-seek-scan.md).
+  **An expectation, not yet observed:** a recorder an enemy has walked into may hold still for about a second until the engine's stuck check runs, as the game does.
+- **A seek in a point-of-view demo costs more than a play-through frame (B602).** Recovering the recorder's movement took 14.05 ms mean and up to 85.85 ms of a seek, and 102.4 ms in one capped sample (docs/measurements/2026-10-26-pov-recorder-seek-scan.md).
+  The fix above makes the scan look further back, so those figures are stale and probably low (docs/measurements/2026-10-26-pov-recorder-seek-scan.md).
+
 - **Occasional stalls of 50-190 ms remain** in play on a busy scene, with an unexplained cause (B595). On `cp_process_f12`, first person, five 60 s runs after the log writer change: 4 frames over 100 ms, all in one run (`docs/measurements/2026-10-24-d230-async-file-log.md`).
   Known so far: not JIT, not first-use builds, no longer the log; most are pose or particle time. The 8-run precache comparison was run on a loaded machine, so it does not settle them (`docs/measurements/2026-10-25-b595-part6-main-thread-reads-in-play.md`).
 
@@ -943,7 +1003,7 @@ Things a user is likely to notice. Each has an entry in `docs/RISKS.md` in the r
 - **Sound wave draws are approximated (B503):** the deck is dealt as the game does, but the game's random stream
   cannot be reproduced, so each sound's random draw is the viewer's own.
 - **Seeks are slower than before (B504):** forward seeks replay the skipped ticks, and a rewind restarts from
-  the beginning, as the game does. Faster rewind through checkpoints is planned.
+  the beginning, as the game does, except in a point-of-view demo whose file the viewer can show is simple (beta.53, D234). Faster rewind through checkpoints is planned.
 - **Landing sounds are the recorder's only, as in the game (B172).** Three of the seven hard landings in the
   demo we measured are not predicted: the landing's command is read on the same tick as the packet that
   acknowledges it (the game's order within a tick is inferred, not confirmed). Also not ported: the landing view
