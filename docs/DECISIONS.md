@@ -11134,3 +11134,22 @@ uploaded ones were reverted too, because they mean nothing without the cache. **
 each upload sends a model's whole stream, yet a flex reaches only about a third of a soldier's slots (finding 92 section
 4). That work is measured and decided in `measurements/2026-10-26-b597-flex-extent.md`.
 
+## D237 — the release keeps its `-beta` name and is never a prerelease; supersedes D204's "pre-release" (2026-10-27)
+
+Owner, 2026-10-27, after beta.54 was published with the pre-release flag: *"release it i dont do prerelease bs that
+never gets a real release thats worthless"*, and, asked why a prerelease at all: *"no one can use it"*. On the name:
+*"ive made the call to keep the beta name the last time i asked about it, ive asked about that naming convention about
+4 times, and this is the first im hearing about that prerelease convention"*, and his reason for leaving it: *"changing
+it now really doesnt do anything"*. **The `-beta.N` name stays; do not ask about it again.**
+
+**The pre-release flag was an assistant's wiring, never his choice.** `release.yml` (`d8f65d34`, 2026-10-01) passed
+`--prerelease` for any tag containing a `-`, and D204 recorded beta.1 as "published as a pre-release" under his words
+about wanting *"downloads and beta testers"*, a goal and not a label. GitHub does not tie a `-beta` name to that flag; the
+workflow line did. Nobody told him the two were linked. The flag hid every release from the Latest link, so testers
+following the repository's front page never saw one, which is the opposite of the goal.
+
+**What changed:** the `--prerelease` line is gone from `release.yml` (`8042477e`); beta.45 to beta.54 were switched to full
+releases and beta.54 is Latest; publishing now means `gh release edit <tag> --draft=false --prerelease=false --latest`
+until the draft is created without the flag (memory `the-lead-publishes-releases.md`). The Discord post for beta.54 had
+already gone out labelled "prerelease" and stays; the workflow labels a post by the flag, so later posts read "release".
+
