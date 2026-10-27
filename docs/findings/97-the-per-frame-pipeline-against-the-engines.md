@@ -184,6 +184,17 @@ equivalence test and timed in Release: interleaved, three runs a side, gummo fir
     returns before any lighting — the uncached caller is never called. The world pass makes 0.02-2.0 sun calls a frame.
     The wrong turn worth keeping: a code-read estimate of 0.2-0.4 ms, from reading the call and not its gate. The first
     counter run read all zeros, world included — the record was dropped by `MomentPresenter`'s `with` copy.
+  - **Closed 2026-10-26: the count was right and the conclusion was not.** Counted across the WHOLE frame and timed
+    inside `SunFrom` (`SunMeter`), f12 gummo first person made 1.54-1.55 calls a frame, nearly all light cache builds —
+    and they cost 0.46 ms a frame, 4.9% of it, about 0.3 ms a call (measurements/2026-10-26-threaded-particles-and-sun.md).
+    "At most 2 a frame" had been read as "cheap". The call was the sky trace's terrain half: 57,016 units, so its travel
+    box met most displacements and every triangle of each was swept, though the brush trace had stopped at the skybox.
+    Bounding the terrain sweep by the brush fraction (bit-identical by `DisplacementSweepLimitTests`; nearer
+    `CM_TraceToLeaf`, which only reaches the displacements of leaves crossed before the stop) took the sun to
+    0.012 ms (measurements/2026-10-26-threaded-particles-and-sun.md) with the same calls, and the frame from 9.37-9.55
+    to 8.74-8.94 ms (−0.6 ms, −6.5%; measurements/2026-10-26-threaded-particles-and-sun.md), the rest
+    from the other `TraceBrushOnly` callers. **The rule it teaches: a census of calls is half an instrument; time the
+    calls too.**
 
 ## (9) Where the garbage comes from, 2026-10-25 (measured)
 

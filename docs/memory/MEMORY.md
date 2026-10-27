@@ -120,3 +120,4 @@
 - [A capturing cache factory allocates on a hit](a-capturing-cache-factory-allocates-on-a-hit.md) — closure made at scope entry; IvpTestSurface boxes are IVP-frame (Y up).
 - [Parity and fps gains need no ask](parity-and-fps-gains-need-no-ask.md) — pre-approved; report cost and proceed; still ask on visible changes (2026-10-22).
 - [Parity includes how the engine schedules work](parity-includes-how-the-engine-schedules-work.md) — audits cover threads/queues/pools, not only what is drawn; may force a large rewrite (2026-10-22).
+- [A call count is half an instrument](a-call-count-is-half-an-instrument.md) — B594's "≤2 calls" was 0.46 ms; time inside the callee over the whole frame (2026-10-26).

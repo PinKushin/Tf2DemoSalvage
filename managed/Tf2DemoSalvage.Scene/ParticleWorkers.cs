@@ -23,7 +23,7 @@ namespace Tf2DemoSalvage.Scene;
 public sealed class ParticleWorkers
 {
     /// <summary>The default for <see cref="Threshold"/>.</summary>
-    /// <remarks>ponytail: a first guess, not measured yet; the sweep is in docs/measurements/2026-10-26-threaded-particles-and-sun.md.</remarks>
+    /// <remarks>0, 4 and 16 measured the same on f12 (docs/measurements/2026-10-26-threaded-particles-and-sun.md); kept as a guard for tiny lists.</remarks>
     public const int DefaultThreshold = 4;
 
     private readonly Action<int, Action<int>>? _schedule;

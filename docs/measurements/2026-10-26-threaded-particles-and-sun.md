@@ -1,6 +1,6 @@
 # Measurement 2026-10-26: `r_threaded_particles` on current main, and the sun over the whole frame
 
-**Status: plan, written before any run.** Nothing below the Method has been measured yet.
+**Status: measured 2026-10-26.** The plan above the Environment was written and committed (`ff7a70dc`) before the grid ran.
 
 ## Observation
 
@@ -78,9 +78,59 @@ lines after the first five, frame-weighted. Percent of frame = part ms / that ru
 
 ## Environment
 
-To be filled at run time: commit, CPU load before/after each run, machine (RTX 3060, i5-10600K: 6 physical cores, so the
-fork's degree is 5).
+RTX 3060, i5-10600K (6 physical cores, so the fork's degree is 5), Release builds as named above, 2026-10-26 20:08-21:26,
+`mat_queue_mode` default (-1, so 2 here). Every run passed the gate first time; load before / after (3 × 1 s, %):
+
+| run | before | after | run | before | after | run | before | after |
+|---|---|---|---|---|---|---|---|---|
+| 01 C-S | 15 15 17 | 13 8 14 | 06 A-T | 13 7 14 | 30 14 16 | 11 C-T16 | 14 14 22 | 15 13 11 |
+| 02 C-T | 8 15 12 | 20 23 22 | 07 C-S | 14 14 11 | 25 18 19 | 12 C-E | 19 17 19 | 23 16 16 |
+| 03 A-T | 23 24 20 | 18 16 22 | 08 C-T | 21 20 23 | 22 17 15 | 13 A-E | 18 12 9 | 20 13 14 |
+| 04 C-T | 18 13 5 | 22 13 18 | 09 A-T | 15 11 12 | 32 17 17 | 14 A-E | 16 22 14 | 25 22 26 |
+| 05 C-S | 20 15 20 | 20 6 12 | 10 C-T0 | 21 23 12 | 24 16 12 | 15 C-E | 14 13 20 | 32 18 29 |
+
+No run was discarded. `00-probe` (15 s, A, before the grid) is the observation that added question D and is not in the
+tables.
 
 ## Result
 
-Not yet run.
+Raw output: `2026-10-26-threaded-particles-and-sun/NN-*.txt`. Steady = the 53 per-second lines after the first five,
+frame-weighted; `frame` is the run's `measured … mean`. ms a frame.
+
+| run | frame | camera | camera particles | bursts/step | sun | sun calls | forks at end |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| 01 C-S | 8.93 | 6.67 | 1.81 | 0.275 | 0.012 | 1.53 | 0 |
+| 05 C-S | 9.03 | 6.77 | 1.85 | 0.282 | 0.012 | 1.53 | 0 |
+| 07 C-S | 8.98 | 6.70 | 1.79 | 0.275 | 0.013 | 1.53 | 0 |
+| 02 C-T | 8.74 | 6.51 | 1.71 | 0.196 | 0.012 | 1.52 | 6,439 |
+| 04 C-T | 8.74 | 6.52 | 1.71 | 0.197 | 0.013 | 1.52 | 6,432 |
+| 08 C-T | 8.94 | 6.65 | 1.73 | 0.204 | 0.012 | 1.53 | 6,296 |
+| 03 A-T | 9.37 | 7.01 | 1.73 | 0.199 | 0.457 | 1.54 | 6,009 |
+| 06 A-T | 9.51 | 7.17 | 1.78 | 0.203 | 0.465 | 1.55 | 5,923 |
+| 09 A-T | 9.55 | 7.23 | 1.77 | 0.207 | 0.464 | 1.55 | 5,894 |
+| 10 C-T0 | 9.11 | 6.79 | 1.80 | 0.205 | 0.012 | 1.54 | 6,536 |
+| 11 C-T16 | 8.90 | 6.61 | 1.76 | 0.205 | 0.012 | 1.53 | 4,282 |
+| 12 C-E | 3.55 | 1.83 | 1.25 | 0.181 | 0 | 0 | 15,688 |
+| 15 C-E | 3.53 | 1.80 | 1.23 | 0.177 | 0 | 0 | 15,776 |
+| 13 A-E | 3.63 | 1.81 | 1.24 | 0.184 | 0 | 0 | 15,356 |
+| 14 A-E | 3.60 | 1.80 | 1.23 | 0.180 | 0 | 0 | 15,510 |
+
+Sun control: in all 899 `sun per frame` notes the callers sum to the total (within the 0.01 rounding). The light cache
+is nearly all of it; static props are non-zero in 173 notes and direct `SunAt` (impacts) in 12, each a few hundredths.
+
+- **A, the fork-join** (C-S against C-T): `bursts/step` 0.275-0.282 → 0.196-0.204, **−0.07 to −0.09 ms (0.8-1.0% of
+  the frame)**, ranges separate. `camera particles` 1.79-1.85 → 1.71-1.73, −0.06 to −0.14 ms. Frame 8.93-9.03 → 8.74-8.94:
+  the ranges touch (08 C-T), so the frame difference, about −0.1 to −0.2 ms, is not established by itself. **Matches the
+  prediction and finding 94's 0.08 ms.** Switch control held: S forks 0 throughout, T climbs; census lines agree.
+- **B, the threshold:** 0, 4 and 16 give `bursts/step` 0.205, 0.196-0.204, 0.205 — inside one another's spread. Threshold
+  16 forks a third fewer lists (4,282 against ~6,400) for the same step, so the lists f12 makes are mostly above 16 and
+  the threshold does not matter at this size. **4 is kept**; it is not measured to be better than 0 or 16.
+- **C, the sun over the whole frame** (A runs): **1.54-1.55 calls a frame, nearly all light cache builds, costing 0.457-0.465
+  ms a frame (4.9% of A's 9.4-9.6 ms frame), about 0.30 ms a call.** B594's census was right about the count and wrong to
+  call it cheap. The timer's own cost, 2 clock reads × 1.55 calls (≈ 0.0001 ms, *estimate*), is far below the reading.
+  Empty view: 0 calls (control: nothing in view misses the cache).
+- **D, the bounded terrain sweep** (A-T against C-T): `sun` 0.457-0.465 → 0.012-0.013 ms with the same 1.52-1.55 calls,
+  **−0.45 ms (−4.8% of the frame), 0.008 ms a call, 37× cheaper.** `camera` 7.01-7.23 → 6.51-6.65 (−0.5 ms) and the frame
+  9.37-9.55 → 8.74-8.94 (**−0.6 ms, −6.5%**), ranges well apart; the part above the sun's 0.45 is the other
+  `TraceBrushOnly` callers, which take the same bound (not separately timed). Empty view: frame 3.60-3.63 → 3.53-3.55,
+  −0.06 ms (−1.7%), ranges separate, with no sun call: other traces again (not attributed).

@@ -1,6 +1,7 @@
 # 103. The engine's threaded particles are a fork-join inside `Simulate`, over the step alone (2026-10-24)
 
-**Status: audit and design only. Nothing here is implemented.**
+**Status: step 3 of §6 implemented and measured, 2026-10-26** (branch `perf/threaded-particles-sunfrom`, §8). Steps 1, 2 and
+the trails' fork are not.
 
 **The question.** The main-thread CPU profile (`git show e330651b:docs/measurements/2026-10-24-main-thread-cpu-profile.md`)
 puts particles at about 24% of our main thread on f12 gummo first person (`FramePresenter.DrawOver` 23.7% inclusive,
@@ -174,6 +175,42 @@ the engine does: less), not by threads; the threading lead with size remains the
   measured on another demo.
 - Step 2's copy cost: not measured.
 - The 2 ms share comes from a sampled profile; the instrumented camera parts are the costs used here.
+
+## (8) Implemented: the step split, behind `r_threaded_particles` (2026-10-26)
+
+**What runs where** (*read from our code*). `ParticleEffects.Bursts` makes `UpdateNewEffects`' passes. Serial, in offer
+order: every read and write of `_bursts`, `_spent` and `LifeOf`; every caller callback (`Model` posed once, `DormantAt`
+asked for each step end by `Plan`, a rebuild's `History`); a rebuild's whole replay; creation's `Simulate( 0 )`. Forked
+through `ParticleWorkers.For` (one effect each, the calling thread taking part, joined before return): the played steps,
+in a **static** `Advance` that reads only its slot, so it cannot reach the collection, a counter or a callback. Serial
+after the join, in offer order: `Commit`, which writes the entry, the counters (`Steps`, `Slept`, `ReplayTicks`,
+`ReplaySteps`), a still frame's points and hitboxes; then `FadeUnoffered`, `Retire`. The build, collation and sleep push
+stay serial, as `DrawModel` is (§6 step 4). A key offered twice flushes the pending slots first. A slot names its offer by
+index, not by a copy, so B592's write-barrier copy is not reintroduced.
+
+**The setting.** `r_threaded_particles` (`EngineConVars`, `ViewerSettings.ThreadedParticles`, help text), default 1,
+read as `GetBool` over `GetInt` (`0.5` is off), reaching the fork through `ViewFrame`. Two parts are ours and named so:
+the degree, physical cores − 1 with the game thread counted, leaving a core for `mat_queue_mode 2`'s render thread; and
+a threshold (default 4, `TF2VIEW_PARTICLE_THRESHOLD`) under which a list runs serially, where the engine forks any list.
+
+**Equivalence.** `ParticleEffectsWorkersTests` (46 frames, every case of §5, real threads at degree 2 and 8, backwards
+and shuffled schedules, each asserting it forked; plus the seek's draw order and the duplicate offer) and
+`BurstEffectsStepTests.StepOver_APlaybackOnWorkers_IsTheSerialPlayback` (B577's 3,000-frame playback through two
+presenters, one serial: offers, census, counters, batch corner bytes and whizzes, frame by frame; unrendered it also
+reproduces B592's fingerprint; > 100 forks asserted). **Sabotage:** removing in the serial pass reddened the seek-order
+test and both fingerprints; deleting the duplicate-key flush reddened three worker tests. **Two survived, and why is
+the finding:** committing inside the worker in completion order, and a worker `++` on `Steps` (paired with a `--` at
+commit). The first is an equivalent mutant here: a played slot's key is already in `_bursts`, so its write never moves
+dictionary order, and the only order-changing writes (an insert from a rebuild, a remove) are never on a worker. The
+second is a race that only true contention loses and a deterministic schedule cannot show; it is prevented by `Advance`
+being static, not by a test.
+
+**Measured** (`measurements/2026-10-26-threaded-particles-and-sun.md`, f12 gummo first person, three runs each):
+`bursts/step` 0.275-0.282 → 0.196-0.204 ms, **−0.07 to −0.09 ms, 0.8-1.0% of the frame** (measurements/2026-10-26-threaded-particles-and-sun.md); `camera particles` −0.06 to
+−0.14; the frame's ranges touch. Thresholds 0, 4 and 16 are indistinguishable. Finding 94's 0.08 ms, reproduced.
+
+**Not done:** the rocket trails' step (`Update`, 0.07-0.08 ms, measurements/2026-10-26-threaded-particles-and-sun.md `trails` part) is `ProcessPSystem` work in the engine and still serial
+here — a divergence of schedule, filed in `docs/RISKS.md` with this entry; §6 steps 1 and 2 stand.
 
 **What would falsify the main conclusion:** a closed-source read showing `particles.lib`'s `Simulate` spawns its own
 jobs that outlive `UpdateNewEffects`, or a TF2 build where `Simulate` is not called from `OnRenderStart`.
