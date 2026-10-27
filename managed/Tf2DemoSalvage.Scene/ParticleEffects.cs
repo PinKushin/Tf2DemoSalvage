@@ -660,8 +660,12 @@ public sealed class ParticleEffects
     /// <summary>The caller's array, or a copy of a list of another kind, for the frame.</summary>
     private ParticleBurst[]? _offerArray;
 
-    /// <summary>The threads the played steps run on — `r_threaded_particles`; the viewer sets its degree.</summary>
-    public ParticleWorkers Workers { get; set; } = new();
+    /// <summary>The fork the played steps run on — `r_threaded_particles`' lane over the shared pool, which the viewer sets.</summary>
+    public WorkerLane Workers { get; set; } = new() { Threshold = DefaultWorkerThreshold };
+
+    /// <summary>The particle lane's threshold: a list of this many played steps or fewer runs serially.</summary>
+    /// <remarks>0, 4 and 16 measured the same on f12 (docs/measurements/2026-10-26-threaded-particles-and-sun.md); kept as a guard for tiny lists.</remarks>
+    public const int DefaultWorkerThreshold = 4;
 
     /// <summary>The next unit of this frame's burst work, reused between frames.</summary>
     private BurstSlot NextSlot(int offer)
@@ -685,7 +689,7 @@ public sealed class ParticleEffects
     /// <summary>Steps every pending played burst on the workers, then writes every pending burst in offer order.</summary>
     /// <remarks>
     /// **The join is here**, before any write, as `ParallelProcess` returns before `DetectChanges` (particlemgr.cpp:1869-1904).
-    /// Only the slots with a step to take are handed out, so <see cref="ParticleWorkers.Threshold"/> counts real work.
+    /// Only the slots with a step to take are handed out, so <see cref="WorkerLane.Threshold"/> counts real work.
     /// </remarks>
     private void FlushBursts(float seconds)
     {

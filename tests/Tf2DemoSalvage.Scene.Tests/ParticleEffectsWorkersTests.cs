@@ -16,7 +16,7 @@ namespace Tf2DemoSalvage.Scene.Tests;
 /// <remarks>
 /// **The control is the schedule.** A worker may write only its own slot and the write-back walks the slots in offer
 /// order, so a schedule that runs them backwards or shuffled must give the same bytes; a write-back that relied on
-/// completion order turns those red. **And every threaded run asserts it forked** (<see cref="ParticleWorkers.Forks"/>,
+/// completion order turns those red. **And every threaded run asserts it forked** (<see cref="WorkerLane.Forks"/>,
 /// counted where the fork is taken): a threshold above the fixture's size would run both sides serially and pass by
 /// comparing the serial path with itself.
 ///
@@ -31,7 +31,7 @@ public sealed class ParticleEffectsWorkersTests
     [TestCase(8)]
     public void Frames_OnThreads_AreTheSerialFramesByteForByte(int degree)
     {
-        ParticleWorkers threaded = new() { Degree = degree, Threshold = 0 };
+        WorkerLane threaded = Lane(degree);
 
         Run(threaded).ShouldBe(Run(Serial()));
         threaded.Forks.ShouldBeGreaterThan(0, "the control: the steps were forked");
@@ -40,13 +40,13 @@ public sealed class ParticleEffectsWorkersTests
     [Test]
     public void Frames_SlotsRunBackwards_AreTheSerialFramesByteForByte()
     {
-        ParticleWorkers backwards = new(static (count, body) =>
+        WorkerLane backwards = new(new GameWorkers(static (count, body) =>
         {
             for (int index = count - 1; index >= 0; index--)
             {
                 body(index);
             }
-        });
+        }));
 
         Run(backwards).ShouldBe(Run(Serial()));
         backwards.Forks.ShouldBeGreaterThan(0, "the control: the steps were forked");
@@ -56,13 +56,13 @@ public sealed class ParticleEffectsWorkersTests
     public void Frames_SlotsRunShuffled_AreTheSerialFramesByteForByte()
     {
         // Odd indices first, then the even ones from the top: neither forwards nor backwards.
-        ParticleWorkers shuffled = new(static (count, body) =>
+        WorkerLane shuffled = new(new GameWorkers(static (count, body) =>
         {
             foreach (int index in Enumerable.Range(0, count).OrderBy(index => index % 2 == 0 ? (count * 2) - index : index))
             {
                 body(index);
             }
-        });
+        }));
 
         Run(shuffled).ShouldBe(Run(Serial()));
         shuffled.Forks.ShouldBeGreaterThan(0, "the control: the steps were forked");
@@ -71,7 +71,9 @@ public sealed class ParticleEffectsWorkersTests
     [Test]
     public void For_ThreadedOff_RunsInOrderOnTheCallingThreadAndNeverForks()
     {
-        ParticleWorkers off = new() { Threaded = false, Degree = 8, Threshold = 0 };
+        WorkerLane off = Lane(8);
+
+        off.Threaded = false;
         List<int> order = [];
         int thread = Environment.CurrentManagedThreadId;
 
@@ -89,7 +91,7 @@ public sealed class ParticleEffectsWorkersTests
     [TestCase(5, 4, 1, TestName = "For_AListPastTheThreshold_Forks")]
     public void For_AroundTheThreshold_ForksOnlyPastIt(int count, int threshold, int forks)
     {
-        ParticleWorkers workers = new() { Degree = 4, Threshold = threshold };
+        WorkerLane workers = Lane(4, threshold);
         int[] ran = new int[count];
 
         workers.For(count, index => ran[index]++);
@@ -101,7 +103,7 @@ public sealed class ParticleEffectsWorkersTests
     [Test]
     public void For_ADegreeOfOne_NeverForks()
     {
-        ParticleWorkers one = new() { Degree = 1, Threshold = 0 };
+        WorkerLane one = Lane(1);
 
         one.For(10, static _ => { });
 
@@ -139,7 +141,7 @@ public sealed class ParticleEffectsWorkersTests
     [Test]
     public void Build_AtTheSeek_DrawsTheInsertedBurstAfterTheOnesAlreadyRunning()
     {
-        ParticleEffects effects = new() { Workers = new ParticleWorkers { Degree = 4, Threshold = 0 } };
+        ParticleEffects effects = new() { Workers = Lane(4) };
 
         for (int tick = First; tick <= Seek; tick++)
         {
@@ -173,7 +175,10 @@ public sealed class ParticleEffectsWorkersTests
 
     private static readonly Vector3 Eye = new(0f, -1000f, 0f);
 
-    private static ParticleWorkers Serial() => new() { Threaded = false };
+    private static WorkerLane Serial() => new() { Threaded = false };
+
+    /// <summary>A lane over a pool of its own of <paramref name="degree"/> threads.</summary>
+    private static WorkerLane Lane(int degree, int threshold = 0) => new(new GameWorkers { Degree = degree }) { Threshold = threshold };
 
     /// <remarks>
     /// **The duplicate offer, which the comparisons above cannot see** for the reason the seek test gives. Serially a
@@ -183,13 +188,13 @@ public sealed class ParticleEffectsWorkersTests
     [Test]
     public void Frames_AKeyOfferedTwiceInAFrame_AreTheFramesOfOneOffer()
     {
-        ParticleWorkers threaded = new() { Degree = 4, Threshold = 0 };
+        WorkerLane threaded = Lane(4);
 
         Run(threaded).ShouldBe(Run(Serial(), duplicate: false));
         threaded.Forks.ShouldBeGreaterThan(0, "the control: the steps were forked");
     }
 
-    private static byte[] Run(ParticleWorkers workers, bool duplicate = true)
+    private static byte[] Run(WorkerLane workers, bool duplicate = true)
     {
         ParticleEffects effects = new() { Workers = workers };
         List<byte> bytes = [];

@@ -888,18 +888,18 @@ public sealed class BurstEffectsStepTests
     public void StepOver_APlaybackOnWorkers_IsTheSerialPlayback(bool rendered, bool parallel)
     {
         (DemoTimeline timeline, List<PlaybackFrame> frames) = Playback();
-        ParticleWorkers workers = parallel
-            ? new ParticleWorkers { Degree = 8, Threshold = 0 }
-            : new ParticleWorkers(static (count, body) =>
+        WorkerLane workers = parallel
+            ? new WorkerLane(new GameWorkers { Degree = 8 }) { Threshold = 0 }
+            : new WorkerLane(new GameWorkers(static (count, body) =>
             {
                 for (int index = count - 1; index >= 0; index--)
                 {
                     body(index);
                 }
-            });
+            }));
         (BurstEffects serial, FakePosedEntities serialModels, ParticleEffects serialParticles) = Presenter();
         (BurstEffects threaded, FakePosedEntities threadedModels, ParticleEffects threadedParticles) = Presenter();
-        serialParticles.Workers = new ParticleWorkers { Threaded = false };
+        serialParticles.Workers = new WorkerLane { Threaded = false };
         threadedParticles.Workers = workers;
 
         Dictionary<string, ParticleSystem> systems = rendered ? RenderedSystems : Systems;
