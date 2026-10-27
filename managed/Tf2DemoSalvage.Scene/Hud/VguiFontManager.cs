@@ -84,7 +84,10 @@ public sealed class VguiFontManager(IVguiGdi gdi)
     ];
 
     private readonly List<VguiWin32Font> _fonts = [];
-    private readonly List<VguiFontAmalgam> _handles = [];
+    // **A set, because the engine's check is a bounds check** (0x180016a70: `TEST EDX,EDX; JS`, `CMP EDX,[RCX+0x10]; JGE`):
+    // constant time, asked once or twice per CHARACTER drawn or measured. A `List.Contains` here scanned every handle — two
+    // per scheme font — on each of those calls (measurements/2026-10-27-empty-view-breakdown.md).
+    private readonly HashSet<VguiFontAmalgam> _handles = new(ReferenceEqualityComparer.Instance);
 
     /// <summary>`CreateFont`: a new, empty handle.</summary>
     /// <returns>The handle.</returns>
