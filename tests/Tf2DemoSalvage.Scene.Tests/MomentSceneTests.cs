@@ -1142,6 +1142,30 @@ public sealed class MomentSceneTests
         drawn[0].ShouldNotBe(PropModels.FromVertexByte(StaticPropVertexLighting.ToByte(ordinary.X)), "the control");
     }
 
+    /// <remarks>
+    /// **B607, the handle at load.** `CStaticPropMgr::PrecacheLighting` (`engine.dll` `0x180205b20`) builds every static
+    /// prop's light cache handle (`FUN_1801b8350`) when the level loads: the static state at `+0x18` and the styled list at
+    /// `+0x1b0`. So the first pack of the level's static props builds both, before any draw, and the draw builds neither
+    /// again — for a CPU-lit colour mesh (flags 6, whose bake reads the static state) and for a bump-mapped model (flags 7).
+    /// </remarks>
+    [TestCase(Content.Assets.StudioModelFlags.StaticProp)]
+    [TestCase(Content.Assets.StudioModelFlags.StaticProp | Content.Assets.StudioModelFlags.UsesBumpmapping)]
+    public void Build_TheStaticPropsFirstPack_BuildsTheirLightingHandlesBeforeAnyDraw(int studioFlags)
+    {
+        MomentScene scene = UnbakedStaticProp(studioFlags, out LevelLighting lighting, out _, styled: true);
+
+        (lighting.StaticStateBuilds, lighting.StyledListsBuilt).ShouldBe((0, 0), "the control: nothing before the pack");
+
+        scene.Build([], [], Info());
+
+        (lighting.StaticStateBuilds, lighting.StyledListsBuilt).ShouldBe((1, 1), "built when the static props were packed");
+
+        scene.Pose(Info());
+        scene.Instances.ShouldHaveSingleItem();
+
+        (lighting.StaticStateBuilds, lighting.StyledListsBuilt).ShouldBe((1, 1), "the draw read the handle built at load");
+    }
+
     private static MomentScene UnbakedStaticProp(
         int studioFlags, out LevelLighting lighting, out float[] scale, bool styled = false, byte constantDot = 0)
     {

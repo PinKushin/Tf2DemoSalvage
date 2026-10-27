@@ -1,6 +1,7 @@
 using System;
 using System.Buffers.Binary;
 using System.Collections.Generic;
+using System.Linq;
 
 using Tf2DemoSalvage.Content.Bsp;
 
@@ -66,6 +67,7 @@ public sealed class StaticPlusDynamicLightingConformanceTests
         LocalLight full = lighting.StaticPlusDynamicLights(1000, 0f, 0f, 100f).ShouldHaveSingleItem();
 
         lighting.StyleScale = values.Scale;
+        lighting.StylesChanged([Style]);
         LocalLight half = lighting.StaticPlusDynamicLights(1000, 0f, 0f, 100f).ShouldHaveSingleItem();
 
         values.Scale(Style).ShouldBe(0.5f);
@@ -187,6 +189,96 @@ public sealed class StaticPlusDynamicLightingConformanceTests
 
         lighting.StaticPlusDynamicLights(1000, 0f, 0f, 100f).Count.ShouldBe(2);
         lighting.DlightsExamined.ShouldBe(2, "slots 0 and 2; slot 1 is dead");
+    }
+
+    /// <summary>
+    /// Bit 4 is CACHED (B607): `FUN_1801ba590` keeps the handle's ranked styled lights at `+0x88` and ranks them again only
+    /// when a listed style's stamp (`DAT_1806998a0[style]`) has passed the handle's `+0xf8`. With nothing changed, the
+    /// second draw ranks nothing and draws the same light.
+    /// </summary>
+    [Test]
+    public void StaticPlusDynamicLights_NoListedStyleChanged_RanksTheStyledLightsOnce()
+    {
+        LevelLighting lighting = Map([Lamp(Style, cluster: 0)]);
+
+        LocalLight first = lighting.StaticPlusDynamicLights(1000, 0f, 0f, 100f).ShouldHaveSingleItem();
+        lighting.StaticPlusDynamicLights(1000, 0f, 0f, 100f).ShouldHaveSingleItem().ShouldBe(first);
+
+        lighting.StyledRankings.ShouldBe(1, "the second draw reads +0x88");
+    }
+
+    /// <summary>A listed style that changes stamps past `+0xf8`: the next draw ranks again, at the new value.</summary>
+    [Test]
+    public void StaticPlusDynamicLights_AListedStyleChanges_RanksAgainAtItsNewValue()
+    {
+        LightStyleValues values = new();
+        values.Set(Style, "m");
+        LevelLighting lighting = Map([Lamp(Style, cluster: 0)]);
+        lighting.StyleScale = values.Scale;
+        lighting.StylesChanged(values.Advance(0d));
+
+        LocalLight full = lighting.StaticPlusDynamicLights(1000, 0f, 0f, 100f).ShouldHaveSingleItem();
+
+        values.Set(Style, "g");
+        IReadOnlyList<int> changed = values.Advance(0d);
+        changed.ShouldBe([Style]);
+        lighting.StylesChanged(changed);
+
+        LocalLight half = lighting.StaticPlusDynamicLights(1000, 0f, 0f, 100f).ShouldHaveSingleItem();
+
+        half.ShouldBe(full with { Red = full.Red * 0.5f, Green = full.Green * 0.5f, Blue = full.Blue * 0.5f });
+        lighting.StyledRankings.ShouldBe(2);
+    }
+
+    /// <summary>A style the handle does not list stamps only itself: this prop's `+0x88` stays, and nothing is ranked.</summary>
+    [Test]
+    public void StaticPlusDynamicLights_AnUnlistedStyleChanges_DoesNotRankAgain()
+    {
+        LevelLighting lighting = Map([Lamp(Style, cluster: 0), Lamp(Style + 1, cluster: 1)]);
+
+        lighting.StaticPlusDynamicLights(1000, 0f, 0f, 100f).ShouldHaveSingleItem();
+        lighting.StylesChanged([Style + 1]);
+        lighting.StaticPlusDynamicLights(1000, 0f, 0f, 100f).ShouldHaveSingleItem();
+
+        lighting.StyledRankings.ShouldBe(1, "style 6's lamp is out of PVS, so not listed; its stamp is not this handle's");
+    }
+
+    /// <summary>A live dlight is ranked against the cached styled lights every draw, without ranking the styled ones again.</summary>
+    [Test]
+    public void StaticPlusDynamicLights_ALiveDlightBesideACachedStyledLamp_TakesBothAndRanksTheStyledOnce()
+    {
+        LevelLighting lighting = Map([Lamp(Style, cluster: 0) with { Origin = (0f, 30f, 120f) }]);
+        DynamicLights lights = new() { Time = 1f };
+        lighting.Dynamic = lights;
+
+        lighting.StaticPlusDynamicLights(1000, 0f, 0f, 100f).ShouldHaveSingleItem().Y.ShouldBe(30f, "the control: the lamp alone");
+
+        DynamicLight light = lights.AllocDlight(1);
+        (light.X, light.Y, light.Z, light.Radius, light.Red, light.Die) = (0f, 0f, 120f, 255f, 255, 2f);
+
+        IReadOnlyList<LocalLight> both = lighting.StaticPlusDynamicLights(1000, 0f, 0f, 100f);
+
+        both.Select(static local => (local.Y, local.Z)).ShouldBe([(30f, 120f), (0f, 120f)], ignoreOrder: true);
+        lighting.StyledRankings.ShouldBe(1);
+    }
+
+    /// <summary>
+    /// The handle's list is built ONCE, at load (`CStaticPropMgr::PrecacheLighting`, `0x180205b20` → `FUN_1801b8350` →
+    /// `FUN_1801b6bf0`); a draw reads it. Built for a prop before its first draw, the draw builds no second one.
+    /// </summary>
+    [Test]
+    public void PrecacheStaticProp_BeforeTheFirstDraw_BuildsTheListAndTheStaticStateOnce()
+    {
+        LevelLighting lighting = Map([Lamp(Style, cluster: 0), Lamp(0, cluster: 0)]);
+
+        lighting.PrecacheStaticProp(1000, 0f, 0f, 100f, staticState: true);
+
+        (lighting.StyledListsBuilt, lighting.StaticStateBuilds).ShouldBe((1, 1));
+
+        lighting.StaticPlusDynamicLights(1000, 0f, 0f, 100f).ShouldHaveSingleItem();
+        lighting.StaticPropFullLightingAt(1000, 0f, 0f, 100f).Lighting.Locals.Count.ShouldBe(2);
+
+        (lighting.StyledListsBuilt, lighting.StaticStateBuilds).ShouldBe((1, 1), "both draws read the handle built at load");
     }
 
     /// <summary>A lamp 20 units above the prop's lighting origin.</summary>

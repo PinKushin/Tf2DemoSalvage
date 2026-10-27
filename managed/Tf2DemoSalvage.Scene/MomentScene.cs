@@ -306,6 +306,7 @@ public sealed class MomentScene : IGameSystemPerFrame
             _models.StaticPlusDynamicLights = value.StaticPlusDynamicLights;
             _models.StaticPropLighting = value.StaticPropLightingAt;
             _models.StaticPropFullLighting = value.StaticPropFullLightingAt;
+            _models.StaticPropHandle = value.PrecacheStaticProp;
         }
     } = LevelLighting.Unlit(NullLogger.Instance);
 

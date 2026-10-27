@@ -158,6 +158,9 @@ public sealed partial class EntityModelSet
         {
             _staticsPacked = true;
             added |= PackModels(_staticProps, load);
+
+            // Their lighting with them, as the level loads (B607), not on each one's first draw.
+            PrecacheStaticLighting();
         }
 
         if (added)

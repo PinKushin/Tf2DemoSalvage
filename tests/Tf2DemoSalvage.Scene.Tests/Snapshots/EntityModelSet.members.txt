@@ -278,6 +278,7 @@ Tf2DemoSalvage.Scene.EntityModelSet|method|PosedHitboxes|Public|(System.Int32)|S
 Tf2DemoSalvage.Scene.EntityModelSet|method|PosesNothing|Private|(System.String)|System.Boolean
 Tf2DemoSalvage.Scene.EntityModelSet|method|PrePoseOne|Private|(System.Int32)|System.Void
 Tf2DemoSalvage.Scene.EntityModelSet|method|PrePoseRoots|Private|(System.Double)|System.Void
+Tf2DemoSalvage.Scene.EntityModelSet|method|PrecacheStaticLighting|Private|()|System.Void
 Tf2DemoSalvage.Scene.EntityModelSet|method|Precache|Public|(System.Collections.Generic.IEnumerable`1[System.String])|System.Boolean
 Tf2DemoSalvage.Scene.EntityModelSet|method|ReadableBonesOf|Assembly|(System.Int32)|System.Int32
 Tf2DemoSalvage.Scene.EntityModelSet|method|ReleaseUploaded|Public|()|System.Void
@@ -453,6 +454,7 @@ Tf2DemoSalvage.Scene.EntityModelSet|property|SpunBarrels|()|System.Int32|get=Tru
 Tf2DemoSalvage.Scene.EntityModelSet|property|StaticPlusDynamicLights|()|System.Func`5[System.Int32,System.Single,System.Single,System.Single,System.Collections.Generic.IReadOnlyList`1[Tf2DemoSalvage.Content.Bsp.LocalLight]]|get=True|set=True
 Tf2DemoSalvage.Scene.EntityModelSet|property|StaticPropColours|()|System.Collections.Generic.IReadOnlyDictionary`2[System.Int32,System.Single[]]|get=True|set=True
 Tf2DemoSalvage.Scene.EntityModelSet|property|StaticPropFullLighting|()|System.Func`5[System.Int32,System.Single,System.Single,System.Single,System.ValueTuple`2[Tf2DemoSalvage.Content.Bsp.PointLighting,System.Nullable`1[Tf2DemoSalvage.Scene.SunLight]]]|get=True|set=True
+Tf2DemoSalvage.Scene.EntityModelSet|property|StaticPropHandle|()|System.Action`5[System.Int32,System.Single,System.Single,System.Single,System.Boolean]|get=True|set=True
 Tf2DemoSalvage.Scene.EntityModelSet|property|StaticPropLighting|()|System.Func`4[System.Single,System.Single,System.Single,System.ValueTuple`2[Tf2DemoSalvage.Content.Bsp.PointLighting,System.Nullable`1[Tf2DemoSalvage.Scene.SunLight]]]|get=True|set=True
 Tf2DemoSalvage.Scene.EntityModelSet|property|StaticPropsFiled|()|System.Int32|get=True|set=True
 Tf2DemoSalvage.Scene.EntityModelSet|property|StaticProps|()|System.Collections.Generic.IReadOnlyList`1[Tf2DemoSalvage.Core.Scene.SceneProp]|get=True|set=True

@@ -405,6 +405,13 @@ public sealed partial class EntityModelSet
         }
         else if (!TryLightOnCpu(prop, pose, x, y, z, out byCorner))
         {
+            // A static prop has one answer a level — no colour mesh — so it is kept, as a mesh is; an entity's index is
+            // reused by the next entity, so its answer is not.
+            if (prop.EntityIndex >= PropModels.FirstStaticPropEntityIndex)
+            {
+                _bakedByEntity[prop.EntityIndex] = null;
+            }
+
             return null;
         }
 
@@ -430,6 +437,43 @@ public sealed partial class EntityModelSet
 
         _bakedByEntity[prop.EntityIndex] = built;
         return built;
+    }
+
+    /// <summary>
+    /// Builds one static prop's light cache handle at its lighting origin, whether to build its static state too
+    /// (<see cref="LevelLighting.PrecacheStaticProp"/>); null builds none ahead of the draw.
+    /// </summary>
+    public Action<int, float, float, float, bool>? StaticPropHandle { get; set; }
+
+    /// <summary>
+    /// Every static prop's lighting, built as its level loads (B607): `CStaticPropMgr::PrecacheLighting` (`engine.dll`
+    /// `0x180205b20`) builds each prop's light cache handle (`FUN_1801b8350`), and the colour mesh is built with the prop.
+    /// </summary>
+    /// <remarks>
+    /// Run once the static props are packed, since the lighting origin reads the model's `illumposition`. Each prop takes
+    /// the draw's own route — <see cref="IlluminationPoint"/> at its pose, the draw's colour-mesh test — so the draw finds
+    /// what was built here under the same key. Only what a draw reads is built: the colour mesh, the handle of a prop
+    /// whose draw reads one (a colour mesh's flags 6, a bump-mapped model's flags 7), and the static state for flags 7.
+    /// </remarks>
+    private void PrecacheStaticLighting()
+    {
+        foreach (SceneProp prop in _staticProps)
+        {
+            if (!CanDraw(prop) || prop.EntityIndex < PropModels.FirstStaticPropEntityIndex)
+            {
+                continue;
+            }
+
+            ScenePose pose = prop.Pose;
+            (float x, float y, float z) = IlluminationPoint(prop, pose);
+
+            bool fullyLit = ResolvedFor(prop).Frames is { } frames && StaticPropVertexLighting.RefusesColourMesh(frames.StudioFlags);
+
+            if (fullyLit || BakedColoursOf(prop, pose, x, y, z) is not null)
+            {
+                StaticPropHandle?.Invoke(prop.EntityIndex, x, y, z, fullyLit);
+            }
+        }
     }
 
     /// <summary>Where a model's light should be sampled, in world space.</summary>
