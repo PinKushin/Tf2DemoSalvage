@@ -839,7 +839,169 @@ public sealed class BurstEffectsStepTests
     [Test]
     public void StepOver_LiveOwnedDispatchesOverAPlayback_OfferWhatTheWalkFromTheFirstOffered()
     {
-        // A fixed linear congruential sequence, so a failure names a reproducible case.
+        (DemoTimeline timeline, List<PlaybackFrame> frames) = Playback();
+        (BurstEffects reference, FakePosedEntities referenceModels, ParticleEffects referenceParticles) = Presenter();
+        (BurstEffects live, FakePosedEntities liveModels, ParticleEffects liveParticles) = Presenter();
+        reference.WalkEveryOwnedDispatch = true;
+
+        int offered = 0;
+        Fingerprint fingerprint = new();
+
+        for (int frame = 0; frame < frames.Count; frame++)
+        {
+            PlaybackFrame played = frames[frame];
+
+            played.Toggle(referenceModels);
+            played.Toggle(liveModels);
+
+            BurstFrame step = Frame(timeline, played.At) with { Seeked = played.Seeked };
+
+            reference.StepOver(step, World());
+            live.StepOver(step, World());
+
+            live.Bursts.Select(Comparable).ShouldBe(reference.Bursts.Select(Comparable), $"frame {frame} at tick {played.At}");
+            liveParticles.Census().ShouldBe(referenceParticles.Census(), $"frame {frame} at tick {played.At}");
+            offered += live.Bursts.Count;
+            fingerprint.Fold(liveParticles);
+        }
+
+        // B592: the whole playback's census and step counters, recorded from `ParticleEffects.Bursts` while it still
+        // walked its list with a by-value `foreach`; the by-reference walk must reproduce it exactly.
+        fingerprint.Value.ShouldBe(PlaybackFingerprint, "the census and counters the by-value walk produced");
+
+        (liveParticles.BurstBuilds, liveParticles.ReplaySteps, liveParticles.Steps, liveParticles.Slept).ShouldBe(
+            (referenceParticles.BurstBuilds, referenceParticles.ReplaySteps, referenceParticles.Steps, referenceParticles.Slept));
+        offered.ShouldBeGreaterThan(1000, "the control: the playback offers owned effects at all");
+        referenceParticles.BurstBuilds.ShouldBeGreaterThan(50, "the control: effects are built and rebuilt");
+    }
+
+    /// <remarks>
+    /// **`r_threaded_particles` over B577's playback** (finding 103 §5): two presenters, each with its own effects, one
+    /// serial and one forking, frame by frame — the offers, the census and counters, every batch's corner bytes in order,
+    /// and the whizzes in order. Unrendered, the forking side must also reproduce B592's fingerprint, which the serial
+    /// by-value walk recorded. Rendered, the smoke has a material and a renderer and tracers pass the listener, so the
+    /// bytes and the sounds are not empty — the controls below say so.
+    /// </remarks>
+    [TestCase(false, false, TestName = "StepOver_APlaybackStepsBackwardsOnWorkers_IsTheSerialPlaybackAndItsFingerprint")]
+    [TestCase(true, false, TestName = "StepOver_ARenderedPlaybackStepsBackwardsOnWorkers_IsTheSerialPlaybackByteForByte")]
+    [TestCase(true, true, TestName = "StepOver_ARenderedPlaybackStepsOnThreads_IsTheSerialPlaybackByteForByte")]
+    public void StepOver_APlaybackOnWorkers_IsTheSerialPlayback(bool rendered, bool parallel)
+    {
+        (DemoTimeline timeline, List<PlaybackFrame> frames) = Playback();
+        ParticleWorkers workers = parallel
+            ? new ParticleWorkers { Degree = 8, Threshold = 0 }
+            : new ParticleWorkers(static (count, body) =>
+            {
+                for (int index = count - 1; index >= 0; index--)
+                {
+                    body(index);
+                }
+            });
+        (BurstEffects serial, FakePosedEntities serialModels, ParticleEffects serialParticles) = Presenter();
+        (BurstEffects threaded, FakePosedEntities threadedModels, ParticleEffects threadedParticles) = Presenter();
+        serialParticles.Workers = new ParticleWorkers { Threaded = false };
+        threadedParticles.Workers = workers;
+
+        Dictionary<string, ParticleSystem> systems = rendered ? RenderedSystems : Systems;
+        ShotTracer[]? tracers = rendered ? [.. Enumerable.Range(0, 12).Select(static at => Tracer(150 + (at * 120), bullet: at))] : null;
+        FreeCamera camera = rendered ? BesideThePath : FarAway;
+        Fingerprint fingerprint = new();
+        long corners = 0;
+        int sounds = 0;
+
+        for (int frame = 0; frame < frames.Count; frame++)
+        {
+            PlaybackFrame played = frames[frame];
+
+            played.Toggle(serialModels);
+            played.Toggle(threadedModels);
+
+            BurstFrame step = Frame(timeline, played.At, camera) with { Seeked = played.Seeked };
+            BurstWorld world = World(tracers) with { Systems = systems };
+            string at = $"frame {frame} at tick {played.At}";
+
+            IReadOnlyList<SceneSound> heard = serial.StepOver(step, world);
+
+            threaded.StepOver(step, world).ShouldBe(heard, at);
+            threaded.Bursts.Select(Comparable).ShouldBe(serial.Bursts.Select(Comparable), at);
+            threadedParticles.Census().ShouldBe(serialParticles.Census(), at);
+            (threadedParticles.BurstBuilds, threadedParticles.ReplaySteps, threadedParticles.Steps, threadedParticles.Slept)
+                .ShouldBe((serialParticles.BurstBuilds, serialParticles.ReplaySteps, serialParticles.Steps, serialParticles.Slept), at);
+
+            byte[] drawn = BatchBytes(serialParticles);
+
+            BatchBytes(threadedParticles).ShouldBe(drawn, at);
+            corners += drawn.Length;
+            sounds += heard.Count;
+            fingerprint.Fold(threadedParticles);
+        }
+
+        workers.Forks.ShouldBeGreaterThan(100, "the control: the played steps were forked");
+
+        if (rendered)
+        {
+            corners.ShouldBeGreaterThan(0, "the control: the smoke is drawn");
+            sounds.ShouldBeGreaterThan(0, "the control: a tracer whizzes past the listener");
+        }
+        else
+        {
+            fingerprint.Value.ShouldBe(PlaybackFingerprint, "the census and counters the serial walk produced");
+        }
+    }
+
+    private static readonly Dictionary<string, ParticleSystem> RenderedSystems = new(Systems, StringComparer.Ordinal)
+    {
+        ["rocketjump_smoke"] = Systems["rocketjump_smoke"] with
+        {
+            Renderers = [new ParticleFunction("render_animated_sprites", "draw", new Dictionary<string, DmxValue>(StringComparer.Ordinal))],
+            Parameters = new Dictionary<string, DmxValue>(StringComparer.Ordinal)
+            {
+                ["material"] = new DmxValue(DmxAttributeType.Text, Text: "effects\\smoke.vmt"),
+            },
+        },
+    };
+
+    private static readonly Dictionary<string, ParticleMaterial> SmokeMaterial = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["effects/smoke"] = new ParticleMaterial(null, [], SpriteBlend.Translucent),
+    };
+
+    /// <summary>Every batch this frame draws, its blend then its corners' bytes, in order.</summary>
+    private static byte[] BatchBytes(ParticleEffects particles)
+    {
+        List<byte> bytes = [];
+
+        foreach (ParticleBatch batch in particles.Build(Vector3.Zero, Vector3.UnitX, Vector3.UnitZ, SmokeMaterial))
+        {
+            bytes.Add((byte)batch.Material.Blend);
+            bytes.AddRange(System.Runtime.InteropServices.MemoryMarshal.AsBytes(batch.Corners.ToArray().AsSpan()).ToArray());
+        }
+
+        return [.. bytes];
+    }
+
+    private static ParticleBurst Comparable(ParticleBurst burst) => burst with { DormantAt = null };
+
+    /// <summary>One frame of B577's playback: the tick, whether it was sought, and the owner whose point it toggles.</summary>
+    private readonly record struct PlaybackFrame(int At, bool Seeked, int? Owner, ParticleControlPoint Point)
+    {
+        /// <summary>Poses the owner's attachment if it was not, unposes it if it was.</summary>
+        public void Toggle(FakePosedEntities models)
+        {
+            if (Owner is { } owner && !models.Numbered.Remove((owner, 3)))
+            {
+                models.Numbered[(owner, 3)] = Point;
+            }
+        }
+    }
+
+    /// <summary>
+    /// B577's fixed pseudo-random playback: several frames a tick, same-tick dispatches, RESET stops, owners posed and
+    /// unposed, seeks back and forward, and a clock gone back without a seek flag.
+    /// </summary>
+    /// <remarks>A fixed linear congruential sequence, so a failure names a reproducible case; drawn in one order, once.</remarks>
+    private static (DemoTimeline Timeline, List<PlaybackFrame> Frames) Playback()
+    {
         uint state = 577;
         int Next(int below)
         {
@@ -867,23 +1029,8 @@ public sealed class BurstEffectsStepTests
                 Number("m_nAttachmentIndex", 3)));
         }
 
-        DemoTimeline timeline = Timeline([.. effects]);
-        (BurstEffects reference, FakePosedEntities referenceModels, ParticleEffects referenceParticles) = Presenter();
-        (BurstEffects live, FakePosedEntities liveModels, ParticleEffects liveParticles) = Presenter();
-        reference.WalkEveryOwnedDispatch = true;
-
+        List<PlaybackFrame> frames = [];
         int at = 90;
-        int offered = 0;
-        ulong fingerprint = 14695981039346656037ul;
-
-        // FNV-1a over every frame's census and counters, so one number records the whole playback.
-        void Fold(string text)
-        {
-            foreach (char c in text)
-            {
-                fingerprint = (fingerprint ^ c) * 1099511628211ul;
-            }
-        }
 
         for (int frame = 0; frame < 3000; frame++)
         {
@@ -899,41 +1046,32 @@ public sealed class BurstEffectsStepTests
                 _ => at + 1,
             };
 
-            if (Next(20) == 0)
-            {
-                int owner = owners[Next(owners.Length)];
-                ParticleControlPoint point = ParticleControlPoint.Unoriented(new Vector3(owner, frame, 0f));
+            int? toggled = Next(20) == 0 ? owners[Next(owners.Length)] : null;
 
-                foreach (FakePosedEntities models in (FakePosedEntities[])[referenceModels, liveModels])
-                {
-                    if (!models.Numbered.Remove((owner, 3)))
-                    {
-                        models.Numbered[(owner, 3)] = point;
-                    }
-                }
-            }
-
-            BurstFrame step = Frame(timeline, at) with { Seeked = seeked };
-
-            reference.StepOver(step, World());
-            live.StepOver(step, World());
-
-            live.Bursts.Select(Comparable).ShouldBe(reference.Bursts.Select(Comparable), $"frame {frame} at tick {at}");
-            liveParticles.Census().ShouldBe(referenceParticles.Census(), $"frame {frame} at tick {at}");
-            offered += live.Bursts.Count;
-            Fold(string.Join(';', liveParticles.Census()));
-            Fold($"{liveParticles.BurstBuilds},{liveParticles.ReplaySteps},{liveParticles.Steps},{liveParticles.Slept}");
+            frames.Add(new PlaybackFrame(
+                at, seeked, toggled, ParticleControlPoint.Unoriented(new Vector3(toggled ?? 0, frame, 0f))));
         }
 
-        // B592: the whole playback's census and step counters, recorded from `ParticleEffects.Bursts` while it still
-        // walked its list with a by-value `foreach`; the by-reference walk must reproduce it exactly.
-        fingerprint.ShouldBe(PlaybackFingerprint, "the census and counters the by-value walk produced");
+        return (Timeline([.. effects]), frames);
+    }
 
-        (liveParticles.BurstBuilds, liveParticles.ReplaySteps, liveParticles.Steps, liveParticles.Slept).ShouldBe(
-            (referenceParticles.BurstBuilds, referenceParticles.ReplaySteps, referenceParticles.Steps, referenceParticles.Slept));
-        offered.ShouldBeGreaterThan(1000, "the control: the playback offers owned effects at all");
-        referenceParticles.BurstBuilds.ShouldBeGreaterThan(50, "the control: effects are built and rebuilt");
+    /// <summary>FNV-1a over every frame's census and counters, so one number records a whole playback.</summary>
+    private sealed class Fingerprint
+    {
+        public ulong Value { get; private set; } = 14695981039346656037ul;
 
-        static ParticleBurst Comparable(ParticleBurst burst) => burst with { DormantAt = null };
+        public void Fold(ParticleEffects particles)
+        {
+            Fold(string.Join(';', particles.Census()));
+            Fold($"{particles.BurstBuilds},{particles.ReplaySteps},{particles.Steps},{particles.Slept}");
+        }
+
+        private void Fold(string text)
+        {
+            foreach (char c in text)
+            {
+                Value = (Value ^ c) * 1099511628211ul;
+            }
+        }
     }
 }

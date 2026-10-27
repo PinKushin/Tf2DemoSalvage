@@ -492,18 +492,29 @@ public sealed class ParticleEffects
 
         // By reference, not `foreach`: a by-value walk copied the whole reference-holding struct per element through a
         // write barrier (B592, profile 2026-10-24). The caller's list is not changed while this runs.
-        ReadOnlySpan<ParticleBurst> offered = live switch
-        {
-            List<ParticleBurst> list => System.Runtime.InteropServices.CollectionsMarshal.AsSpan(list),
-            ParticleBurst[] array => array,
-            _ => [.. live],
-        };
+        // Held for the frame so a slot can name its offer by index and a worker read it by reference.
+        _offerList = live as List<ParticleBurst>;
+        _offerArray = _offerList is null ? live as ParticleBurst[] ?? [.. live] : null;
+
+        ReadOnlySpan<ParticleBurst> offered = Offered;
+
+        // **Three passes, as `UpdateNewEffects` makes them** (particlemgr.cpp:1841-1904, finding 103): everything that reads
+        // or writes this collection or asks a caller's callback, serially and in offer order — the engine's `Update` and
+        // `BuildParticleSimList`; the played steps, one effect each, on `r_threaded_particles`' fork-join — its
+        // `ProcessPSystem`; then every write, in offer order again, so `_bursts` is mutated in exactly the serial sequence
+        // and enumerates in the serial order — as `DetectChanges` runs after the join.
+        _slotsUsed = 0;
+        _slotsFlushed = 0;
 
         for (int each = 0; each < offered.Length; each++)
         {
             ref readonly ParticleBurst burst = ref offered[each];
 
-            _offered.Add(burst.Key);
+            // **A key offered twice sees its first offer's write**, as the serial loop did: what is pending lands first.
+            if (!_offered.Add(burst.Key))
+            {
+                FlushBursts(seconds);
+            }
 
             double wanted = now - burst.Tick;
 
@@ -548,7 +559,8 @@ public sealed class ParticleEffects
                 // own tick — once it can be placed. Only one already running sleeps.
                 if (burst.DormantAt?.Invoke(burst.Tick) == true || burst.Undrawn)
                 {
-                    _bursts.Remove(burst.Key);
+                    // Removed in the write pass, in offer order: a remove frees a slot a later insert reuses.
+                    NextSlot(each).Remove = true;
                     continue;
                 }
 
@@ -575,9 +587,16 @@ public sealed class ParticleEffects
                 running.Effect.SetControlPoint(1, end);
             }
 
+            BurstSlot slot = NextSlot(each);
+
+            slot.Running = running;
+            slot.Rebuild = rebuild;
+            slot.Wanted = wanted;
+            slot.NoDraw = noDraw;
+
             // **Counted by the loop, not assigned from `wanted`** (B243): the count says what was stepped.
-            int taken = running.Stepped;
-            double reachedTo = running.SimulatedTo;
+            slot.Taken = running.Stepped;
+            slot.ReachedTo = running.SimulatedTo;
 
             // **The creation frame simulates nothing of its own time** (B557 row 6): `ProcessPSystem` gives a new effect
             // `Simulate( 0.0f )` and clears its first-frame flag (particlemgr.cpp:1572-1575), and the next frame simulates
@@ -586,207 +605,414 @@ public sealed class ParticleEffects
             if (rebuild && !seeked && burst.Tick > previousShown)
             {
                 running.Effect.Step(burst.At, 0f);
-                reachedTo = wanted;
+                slot.ReachedTo = wanted;
             }
 
-            double nextSleep = running.NextSleep;
-            bool wasDormant = running.Dormant;
-            bool stopCleared = running.StopCleared;
+            slot.NextSleep = running.NextSleep;
+            slot.WasDormant = running.Dormant;
+            slot.StopCleared = running.StopCleared;
 
             // **Undrawn, it follows the points it last had** — the caller could not place it this frame.
-            ParticleControlPoint current = burst.Undrawn ? running.LastAt : burst.At;
+            slot.Current = burst.Undrawn ? running.LastAt : burst.At;
 
-            // Asked once, and only when there is a step to take: posing a model is not free.
-            (IReadOnlyList<ModelHitbox> Boxes, Vector3 PosedAt)? posed =
-                reachedTo < wanted && !burst.Undrawn ? burst.Model?.Invoke() : null;
+            // Asked once, and only when there is a step to take: posing a model is not free. Caller code, so asked here.
+            slot.Posed = slot.ReachedTo < wanted && !burst.Undrawn ? burst.Model?.Invoke() : null;
 
             // A rebuild replays whole ticks first, each where its points were then (B527); the last step — the only one a
             // played frame takes — runs to this frame's moment on this frame's points.
             // `StopEmission` lands before the frame's `Simulate`, so a step that crosses the stop is split there.
-            double stopAt = burst.StopTick is { } stopping ? stopping - burst.Tick : double.MaxValue;
-
-            long replayFrom = System.Diagnostics.Stopwatch.GetTimestamp();
-            bool sleptHere = false;
-
-            // **A played frame simulates at most 0.1 s**, its pieces together: `UpdateAllEffects` clamps the frame time
-            // (particlemgr.cpp:1947) and hands it to `UpdateNewEffects` (:1995). A replay is not a frame.
-            float budget = rebuild ? float.MaxValue : FrameStepLimit;
-
-            while (reachedTo < wanted)
-            {
-                double next = rebuild && Math.Floor(reachedTo) + 1d <= wanted ? Math.Floor(reachedTo) + 1d : wanted;
-
-                // **A played frame stays one step (D221) unless the owner's dormancy changes inside it**: then it is cut at
-                // the tick of the change, so a gap shorter than the frame is not stepped over. Dormancy changes on a
-                // snapshot, which lands on a tick.
-                if (!rebuild && burst.DormantAt is { } asked)
-                {
-                    next = DormancyChange(asked, burst.Tick, reachedTo, wanted);
-                }
-
-                if (reachedTo < stopAt && next > stopAt)
-                {
-                    next = stopAt;
-                }
-
-                // **A dormant tick stops emission and still simulates**: `CParticleCollection::SetDormant(true)` is
-                // `StopEmission(false, false, false)`, `SetDormant(false)` is `StartEmission(false)`, and `Simulate` never
-                // asks (particles.obj, Ghidra). The tick asked is the one the step simulates INTO — the frame drawn at it.
-                bool dormant = burst.DormantAt?.Invoke(burst.Tick + (int)Math.Floor(next)) == true;
-
-                // **Waking is `StartEmission`**: the emitters' `SkipToTime`, and the sleep time set to now plus the no-draw
-                // time. `SetDormant` (`0x000e5c60`) checks emission-stopped (`+0x69`) only on ENTERING dormancy, so an
-                // effect already stopped never goes dormant; once dormant, the wake calls `StartEmission` whatever stopped
-                // since, and that clears the stop.
-                bool stoppedHere = !stopCleared && burst.StopTick is { } stopsAt && burst.Tick + reachedTo >= stopsAt;
-
-                if (wasDormant && !dormant)
-                {
-                    running.Effect.StartEmission();
-                    nextSleep = reachedTo + noDraw;
-                    // Only a stop already landed is cleared; one still to come stops the effect when it arrives. Same basis
-                    // as `stoppedHere`: the time the step starts from, which is where the wake runs.
-                    stopCleared = burst.StopTick is { } landed && burst.Tick + reachedTo >= landed;
-                    stoppedHere = false;
-                }
-
-                wasDormant = dormant && (wasDormant || !stoppedHere);
-
-                // **`SetDormant` writes the flag `IsFinished` reads** (`0xe5c60`, `0xe3c60`): a dormant effect is never
-                // finished, so an empty one waits for its owner rather than being let go (finding 86, review item 1).
-                running.Effect.Dormant = wasDormant;
-
-                // **Asleep, its clock stands**: `BuildParticleSimList` skips an effect at or past `m_flNextSleepTime` while
-                // `m_nActiveParticles > 0` (particlemgr.cpp:1775-1776) — the root collection's own count; its children
-                // are simulated with it and never sleep apart. Only a draw pushes the time on.
-                if (reachedTo >= nextSleep && running.Effect.Particles.Count > 0)
-                {
-                    // **Unless it moved** (B557 row 9): then `Simulate( dt, true )`, bounds only — the frame's time and
-                    // the previous points kept, nothing simulated (particlemgr.cpp:1785-1789). The points are read first,
-                    // as `Update` reads them before `BuildParticleSimList` (:1841-1853).
-                    running.Effect.SetControlPoint(0, current);
-
-                    if (running.Effect.HasMoved())
-                    {
-                        running.Effect.SimulateBoundsOnly((float)((next - reachedTo) * seconds));
-                    }
-
-                    reachedTo = next;
-                    sleptHere = true;
-                    continue;
-                }
-
-                // **Finished can change no more** — no particles and none to come (particles.h:1119) — so the rest of a
-                // replay would step nothing.
-                if (taken > 0 && running.Effect.Finished)
-                {
-                    reachedTo = wanted;
-                    break;
-                }
-
-                int reached = burst.Tick + (int)next;
-                bool past = rebuild && next < wanted && burst.History is not null;
-
-                (ParticleControlPoint at, ParticleControlPoint? second) =
-                    past ? burst.History!(reached) : (current, burst.End);
-
-                if (second is { } then)
-                {
-                    running.Effect.SetControlPoint(1, then);
-                }
-
-                // The entity's hitboxes, where control point 0 is on this step (B538).
-                if (posed is { } model)
-                {
-                    running.Effect.SetHitboxes(0, Carried(model.Boxes, at.At - model.PosedAt));
-                }
-
-                float step = MathF.Min((float)((next - reachedTo) * seconds), budget);
-                budget -= step;
-
-                // A stopped effect only fades: its particles live out their lives and no more are born. **Its points
-                // still follow** — `StopEmission` leaves the effect in the property's list (particle_property.cpp:251).
-                if (dormant || (!stopCleared && burst.StopTick is { } stop && burst.Tick + reachedTo >= stop))
-                {
-                    running.Effect.SetControlPoint(0, at);
-                    running.Effect.Fade(step);
-                }
-                else
-                {
-                    running.Effect.Step(at, step);
-                }
-
-                // A replayed tick is a frame that was drawn: `Render` pushes the sleep time on.
-                if (rebuild && next < wanted)
-                {
-                    nextSleep = Math.Max(nextSleep, next + noDraw);
-                }
-
-                reachedTo = next;
-                taken++;
-            }
-
-            // **This frame's draw** — `CParticleCollection::Render` sets `m_flNextSleepTime` to at least the last simulation
-            // time plus the no-draw time (particles.obj, Ghidra); a frame the caller could not place draws nothing. **Only
-            // with no view to collate by**: given one, `Build` pushes it for what the view collated (finding 84, D1).
-            if (!_collating && !burst.Undrawn)
-            {
-                nextSleep = Math.Max(nextSleep, wanted + noDraw);
-            }
+            slot.StopAt = burst.StopTick is { } stopping ? stopping - burst.Tick : double.MaxValue;
 
             if (rebuild)
             {
-                ReplayTicks += System.Diagnostics.Stopwatch.GetTimestamp() - replayFrom;
-                ReplaySteps += taken;
+                // **A replay asks its caller for every tick's points** (`History`) and dormancy, which is caller code: run
+                // here, serially, as `Update` runs `UpdateControlPoint` before the parallel simulation (particlemgr.cpp:1847).
+                long replayFrom = System.Diagnostics.Stopwatch.GetTimestamp();
+
+                Advance(slot, burst, seconds);
+                slot.ReplayTicks = System.Diagnostics.Stopwatch.GetTimestamp() - replayFrom;
             }
             else
             {
-                // A played frame's work, counted where it ran (B243); a rebuild's is the replay counter's.
-                Steps += taken - running.Stepped;
-                Slept += sleptHere ? 1 : 0;
+                // A played step's ends and dormancy are asked now, on this thread; the workers read only the answers.
+                Plan(slot, burst);
             }
-
-            // **A frame that steps nothing still reads its points**: `UpdateNewEffects` calls every effect's `Update`
-            // — `UpdateControlPoint` — before it decides what to simulate (particlemgr.cpp:1841-1853), at any frame time.
-            bool stillRead = running.StillRead;
-
-            if (taken == running.Stepped)
-            {
-                running.Effect.SetControlPoint(0, current);
-
-                // **The hitboxes once per still, not once per frame**: a still frame's pose is the last one's, so the
-                // first still frame after a step reads them and the rest of the pause has nothing new to read.
-                if (!stillRead && !burst.Undrawn && burst.Model?.Invoke() is { } still)
-                {
-                    running.Effect.SetHitboxes(0, Carried(still.Boxes, current.At - still.PosedAt));
-                }
-
-                stillRead = true;
-            }
-            else
-            {
-                stillRead = false;
-            }
-
-            bool stopped = !stopCleared && burst.StopTick is { } stopTick && now >= stopTick;
-
-            // **A finished effect keeps only a marker**: its store is let go, its name and place in the census kept, so the
-            // owner's continued offer neither rebuilds it nor holds its buffers.
-            bool spent = running.Effect.Finished;
-
-            _bursts[burst.Key] = running with
-            {
-                Effect = spent ? Spent : running.Effect,
-                Stepped = taken, SimulatedTo = reachedTo, Stopped = stopped, StillRead = stillRead, Tick = burst.Tick,
-                Name = burst.Definition.Name, Unoffered = false, CutShort = false,
-                NextSleep = nextSleep, Dormant = wasDormant, LastAt = current, StopCleared = stopCleared,
-            };
         }
+
+        FlushBursts(seconds);
+
+        // Nothing past the join holds the caller's list.
+        _offerList = null;
+        _offerArray = null;
 
         FadeUnoffered(now, seconds, seeked);
         Retire();
         Alive += _bursts.Count;
     }
+
+    /// <summary>This frame's offers, by reference: the caller's own list or array, or a copy of anything else.</summary>
+    private ReadOnlySpan<ParticleBurst> Offered =>
+        _offerList is { } list ? System.Runtime.InteropServices.CollectionsMarshal.AsSpan(list) : _offerArray;
+
+    /// <summary>The caller's list for the frame, when it is one; the caller does not change it while <see cref="Bursts"/> runs.</summary>
+    private List<ParticleBurst>? _offerList;
+
+    /// <summary>The caller's array, or a copy of a list of another kind, for the frame.</summary>
+    private ParticleBurst[]? _offerArray;
+
+    /// <summary>The threads the played steps run on — `r_threaded_particles`; the viewer sets its degree.</summary>
+    public ParticleWorkers Workers { get; set; } = new();
+
+    /// <summary>The next unit of this frame's burst work, reused between frames.</summary>
+    private BurstSlot NextSlot(int offer)
+    {
+        if (_slotsUsed == _slots.Count)
+        {
+            _slots.Add(new BurstSlot());
+        }
+
+        BurstSlot slot = _slots[_slotsUsed++];
+
+        slot.Offer = offer;
+        slot.Remove = false;
+        slot.Advanced = false;
+        slot.SleptHere = false;
+        slot.ReplayTicks = 0L;
+        slot.Ends.Clear();
+        return slot;
+    }
+
+    /// <summary>Steps every pending played burst on the workers, then writes every pending burst in offer order.</summary>
+    /// <remarks>
+    /// **The join is here**, before any write, as `ParallelProcess` returns before `DetectChanges` (particlemgr.cpp:1869-1904).
+    /// Only the slots with a step to take are handed out, so <see cref="ParticleWorkers.Threshold"/> counts real work.
+    /// </remarks>
+    private void FlushBursts(float seconds)
+    {
+        _toAdvance.Clear();
+
+        for (int at = _slotsFlushed; at < _slotsUsed; at++)
+        {
+            if (!_slots[at].Remove && !_slots[at].Advanced)
+            {
+                _toAdvance.Add(at);
+            }
+        }
+
+        _flushSeconds = seconds;
+        Workers.For(_toAdvance.Count, _advanceSlot ??= AdvanceSlot);
+
+        for (int at = _slotsFlushed; at < _slotsUsed; at++)
+        {
+            Commit(_slots[at]);
+        }
+
+        _slotsFlushed = _slotsUsed;
+    }
+
+    /// <summary>One worker's unit: a played burst's steps, which touch its own effect and slot and nothing else.</summary>
+    /// <remarks>
+    /// **`Advance` is static** so it cannot reach this collection, its counters or a caller's callback: everything it
+    /// reads was asked serially into the slot, which is what makes the job `ProcessPSystem`'s and nothing more.
+    /// </remarks>
+    private void AdvanceSlot(int index)
+    {
+        BurstSlot slot = _slots[_toAdvance[index]];
+
+        Advance(slot, Offered[slot.Offer], _flushSeconds);
+    }
+
+    /// <summary>
+    /// A played burst's step ends and the owner's dormancy for each, asked of the caller on this thread: `Advance` walks
+    /// the same ends, so a worker never calls caller code.
+    /// </summary>
+    /// <remarks>
+    /// **The ends do not depend on the effect**: a sleeping step and a stepped one both move to the same end, and a
+    /// finished one stops early, so this list is the steps `Advance` takes or a longer one.
+    /// </remarks>
+    private static void Plan(BurstSlot slot, in ParticleBurst burst)
+    {
+        double reachedTo = slot.ReachedTo;
+
+        while (reachedTo < slot.Wanted)
+        {
+            double next = NextEnd(slot, burst, reachedTo);
+
+            slot.Ends.Add((next, burst.DormantAt?.Invoke(burst.Tick + (int)Math.Floor(next)) == true));
+            reachedTo = next;
+        }
+    }
+
+    /// <summary>Where the step from <paramref name="reachedTo"/> ends.</summary>
+    private static double NextEnd(BurstSlot slot, in ParticleBurst burst, double reachedTo)
+    {
+        double wanted = slot.Wanted;
+        double next = slot.Rebuild && Math.Floor(reachedTo) + 1d <= wanted ? Math.Floor(reachedTo) + 1d : wanted;
+
+        // **A played frame stays one step (D221) unless the owner's dormancy changes inside it**: then it is cut at
+        // the tick of the change, so a gap shorter than the frame is not stepped over. Dormancy changes on a
+        // snapshot, which lands on a tick.
+        if (!slot.Rebuild && burst.DormantAt is { } asked)
+        {
+            next = DormancyChange(asked, burst.Tick, reachedTo, wanted);
+        }
+
+        if (reachedTo < slot.StopAt && next > slot.StopAt)
+        {
+            next = slot.StopAt;
+        }
+
+        return next;
+    }
+
+    /// <summary>Steps one burst's effect from where it reached to the frame's moment.</summary>
+    /// <remarks>A rebuild asks its caller as it goes, on the calling thread; a played burst reads what <see cref="Plan"/> asked.</remarks>
+    private static void Advance(BurstSlot slot, in ParticleBurst burst, float seconds)
+    {
+        slot.Advanced = true;
+
+        RunningBurst running = slot.Running;
+        bool rebuild = slot.Rebuild;
+        double wanted = slot.Wanted;
+        double noDraw = slot.NoDraw;
+        int taken = slot.Taken;
+        double reachedTo = slot.ReachedTo;
+        double nextSleep = slot.NextSleep;
+        bool wasDormant = slot.WasDormant;
+        bool stopCleared = slot.StopCleared;
+        ParticleControlPoint current = slot.Current;
+        (IReadOnlyList<ModelHitbox> Boxes, Vector3 PosedAt)? posed = slot.Posed;
+        bool sleptHere = false;
+        int planned = 0;
+
+        // **A played frame simulates at most 0.1 s**, its pieces together: `UpdateAllEffects` clamps the frame time
+        // (particlemgr.cpp:1947) and hands it to `UpdateNewEffects` (:1995). A replay is not a frame.
+        float budget = rebuild ? float.MaxValue : FrameStepLimit;
+
+        while (reachedTo < wanted)
+        {
+            // **A dormant tick stops emission and still simulates**: `CParticleCollection::SetDormant(true)` is
+            // `StopEmission(false, false, false)`, `SetDormant(false)` is `StartEmission(false)`, and `Simulate` never
+            // asks (particles.obj, Ghidra). The tick asked is the one the step simulates INTO — the frame drawn at it.
+            (double next, bool dormant) = rebuild ? Asked(slot, burst, reachedTo) : slot.Ends[planned++];
+
+            // **Waking is `StartEmission`**: the emitters' `SkipToTime`, and the sleep time set to now plus the no-draw
+            // time. `SetDormant` (`0x000e5c60`) checks emission-stopped (`+0x69`) only on ENTERING dormancy, so an
+            // effect already stopped never goes dormant; once dormant, the wake calls `StartEmission` whatever stopped
+            // since, and that clears the stop.
+            bool stoppedHere = !stopCleared && burst.StopTick is { } stopsAt && burst.Tick + reachedTo >= stopsAt;
+
+            if (wasDormant && !dormant)
+            {
+                running.Effect.StartEmission();
+                nextSleep = reachedTo + noDraw;
+                // Only a stop already landed is cleared; one still to come stops the effect when it arrives. Same basis
+                // as `stoppedHere`: the time the step starts from, which is where the wake runs.
+                stopCleared = burst.StopTick is { } landed && burst.Tick + reachedTo >= landed;
+                stoppedHere = false;
+            }
+
+            wasDormant = dormant && (wasDormant || !stoppedHere);
+
+            // **`SetDormant` writes the flag `IsFinished` reads** (`0xe5c60`, `0xe3c60`): a dormant effect is never
+            // finished, so an empty one waits for its owner rather than being let go (finding 86, review item 1).
+            running.Effect.Dormant = wasDormant;
+
+            // **Asleep, its clock stands**: `BuildParticleSimList` skips an effect at or past `m_flNextSleepTime` while
+            // `m_nActiveParticles > 0` (particlemgr.cpp:1775-1776) — the root collection's own count; its children
+            // are simulated with it and never sleep apart. Only a draw pushes the time on.
+            if (reachedTo >= nextSleep && running.Effect.Particles.Count > 0)
+            {
+                // **Unless it moved** (B557 row 9): then `Simulate( dt, true )`, bounds only — the frame's time and
+                // the previous points kept, nothing simulated (particlemgr.cpp:1785-1789). The points are read first,
+                // as `Update` reads them before `BuildParticleSimList` (:1841-1853).
+                running.Effect.SetControlPoint(0, current);
+
+                if (running.Effect.HasMoved())
+                {
+                    running.Effect.SimulateBoundsOnly((float)((next - reachedTo) * seconds));
+                }
+
+                reachedTo = next;
+                sleptHere = true;
+                continue;
+            }
+
+            // **Finished can change no more** — no particles and none to come (particles.h:1119) — so the rest of a
+            // replay would step nothing.
+            if (taken > 0 && running.Effect.Finished)
+            {
+                reachedTo = wanted;
+                break;
+            }
+
+            int reached = burst.Tick + (int)next;
+            bool past = rebuild && next < wanted && burst.History is not null;
+
+            (ParticleControlPoint at, ParticleControlPoint? second) =
+                past ? burst.History!(reached) : (current, burst.End);
+
+            if (second is { } then)
+            {
+                running.Effect.SetControlPoint(1, then);
+            }
+
+            // The entity's hitboxes, where control point 0 is on this step (B538).
+            if (posed is { } model)
+            {
+                running.Effect.SetHitboxes(0, Carried(model.Boxes, at.At - model.PosedAt));
+            }
+
+            float step = MathF.Min((float)((next - reachedTo) * seconds), budget);
+            budget -= step;
+
+            // A stopped effect only fades: its particles live out their lives and no more are born. **Its points
+            // still follow** — `StopEmission` leaves the effect in the property's list (particle_property.cpp:251).
+            if (dormant || (!stopCleared && burst.StopTick is { } stop && burst.Tick + reachedTo >= stop))
+            {
+                running.Effect.SetControlPoint(0, at);
+                running.Effect.Fade(step);
+            }
+            else
+            {
+                running.Effect.Step(at, step);
+            }
+
+            // A replayed tick is a frame that was drawn: `Render` pushes the sleep time on.
+            if (rebuild && next < wanted)
+            {
+                nextSleep = Math.Max(nextSleep, next + noDraw);
+            }
+
+            reachedTo = next;
+            taken++;
+        }
+
+        slot.Taken = taken;
+        slot.ReachedTo = reachedTo;
+        slot.NextSleep = nextSleep;
+        slot.WasDormant = wasDormant;
+        slot.StopCleared = stopCleared;
+        slot.SleptHere = sleptHere;
+    }
+
+    /// <summary>A rebuild's step end and dormancy, asked of the caller as the step is taken.</summary>
+    private static (double Next, bool Dormant) Asked(BurstSlot slot, in ParticleBurst burst, double reachedTo)
+    {
+        double next = NextEnd(slot, burst, reachedTo);
+
+        return (next, burst.DormantAt?.Invoke(burst.Tick + (int)Math.Floor(next)) == true);
+    }
+
+    /// <summary>Writes one burst's frame back, in offer order: the counters, a still frame's points, and its entry.</summary>
+    private void Commit(BurstSlot slot)
+    {
+        ref readonly ParticleBurst burst = ref Offered[slot.Offer];
+
+        if (slot.Remove)
+        {
+            _bursts.Remove(burst.Key);
+            return;
+        }
+
+        RunningBurst running = slot.Running;
+        int taken = slot.Taken;
+        double nextSleep = slot.NextSleep;
+        ParticleControlPoint current = slot.Current;
+
+        // **This frame's draw** — `CParticleCollection::Render` sets `m_flNextSleepTime` to at least the last simulation
+        // time plus the no-draw time (particles.obj, Ghidra); a frame the caller could not place draws nothing. **Only
+        // with no view to collate by**: given one, `Build` pushes it for what the view collated (finding 84, D1).
+        if (!_collating && !burst.Undrawn)
+        {
+            nextSleep = Math.Max(nextSleep, slot.Wanted + slot.NoDraw);
+        }
+
+        if (slot.Rebuild)
+        {
+            ReplayTicks += slot.ReplayTicks;
+            ReplaySteps += taken;
+        }
+        else
+        {
+            // A played frame's work, counted where it was written back (B243); a rebuild's is the replay counter's.
+            Steps += taken - running.Stepped;
+            Slept += slot.SleptHere ? 1 : 0;
+        }
+
+        // **A frame that steps nothing still reads its points**: `UpdateNewEffects` calls every effect's `Update`
+        // — `UpdateControlPoint` — before it decides what to simulate (particlemgr.cpp:1841-1853), at any frame time.
+        bool stillRead = running.StillRead;
+
+        if (taken == running.Stepped)
+        {
+            running.Effect.SetControlPoint(0, current);
+
+            // **The hitboxes once per still, not once per frame**: a still frame's pose is the last one's, so the
+            // first still frame after a step reads them and the rest of the pause has nothing new to read.
+            if (!stillRead && !burst.Undrawn && burst.Model?.Invoke() is { } still)
+            {
+                running.Effect.SetHitboxes(0, Carried(still.Boxes, current.At - still.PosedAt));
+            }
+
+            stillRead = true;
+        }
+        else
+        {
+            stillRead = false;
+        }
+
+        bool stopped = !slot.StopCleared && burst.StopTick is { } stopTick && _burstShown >= stopTick;
+
+        // **A finished effect keeps only a marker**: its store is let go, its name and place in the census kept, so the
+        // owner's continued offer neither rebuilds it nor holds its buffers.
+        bool spent = running.Effect.Finished;
+
+        _bursts[burst.Key] = running with
+        {
+            Effect = spent ? Spent : running.Effect,
+            Stepped = taken, SimulatedTo = slot.ReachedTo, Stopped = stopped, StillRead = stillRead, Tick = burst.Tick,
+            Name = burst.Definition.Name, Unoffered = false, CutShort = false,
+            NextSleep = nextSleep, Dormant = slot.WasDormant, LastAt = current, StopCleared = slot.StopCleared,
+        };
+    }
+
+    /// <summary>One burst's work for a frame: what the serial pass decided, and what its steps reached.</summary>
+    /// <remarks>The offer is named by its index, not copied: a copy of the reference-holding struct is B592's write barrier.</remarks>
+    private sealed class BurstSlot
+    {
+        public int Offer;
+        public RunningBurst Running;
+        public bool Remove;
+        public bool Rebuild;
+        public bool Advanced;
+        public double Wanted;
+        public double NoDraw;
+        public double StopAt;
+        public int Taken;
+        public double ReachedTo;
+        public double NextSleep;
+        public bool WasDormant;
+        public bool StopCleared;
+        public bool SleptHere;
+        public long ReplayTicks;
+        public ParticleControlPoint Current;
+        public (IReadOnlyList<ModelHitbox> Boxes, Vector3 PosedAt)? Posed;
+
+        /// <summary>A played burst's step ends and dormancy, asked serially before the workers run.</summary>
+        public readonly List<(double Next, bool Dormant)> Ends = [];
+    }
+
+    /// <summary>This frame's burst units, reused; <see cref="_slotsUsed"/> are live and <see cref="_slotsFlushed"/> written.</summary>
+    private readonly List<BurstSlot> _slots = [];
+
+    /// <summary>The slots a flush hands the workers, reused.</summary>
+    private readonly List<int> _toAdvance = [];
+
+    private int _slotsUsed;
+    private int _slotsFlushed;
+    private float _flushSeconds;
+    private Action<int>? _advanceSlot;
 
     /// <summary>
     /// An effect its caller no longer offers is its owner's emission stopping — `StopEmission`: no particle is born, the

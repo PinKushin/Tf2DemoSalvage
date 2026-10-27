@@ -128,6 +128,46 @@ public sealed class LevelLightingTests
         asked.To.ShouldBe((0f, 0f, -100f + 57016.32f));
     }
 
+    /// <remarks>
+    /// **Every caller of the sun is counted, inside the call** (B594 follow-up): a light cache entry built, a static
+    /// prop's state built once, and a direct <see cref="LevelLighting.SunAt"/> — and a cache hit or a static prop asked
+    /// again calls nothing. Untimed, no ticks are taken; timed, the trace's own time is.
+    /// </remarks>
+    [Test]
+    public void SunWork_EachCallerOnceAndAgain_CountsEveryCallWhereItRan()
+    {
+        LevelLighting lighting = new(
+            leaves: OneSplit(above: 1, below: 0, solidLeaf: -1),
+            ambient: [Samples(Grey(0.5f)), Samples(Grey(0.1f))],
+            worldLights: [],
+            sun: Sky(),
+            new RecordingLogger(),
+            strikesSky: static (_, _) =>
+            {
+                long from = System.Diagnostics.Stopwatch.GetTimestamp();
+
+                while (System.Diagnostics.Stopwatch.GetTimestamp() == from)
+                {
+                    // A trace that lasts at least one stopwatch tick, so a timed call cannot read as zero by resolution alone.
+                }
+
+                return true;
+            });
+
+        lighting.ModelSunAt(0f, 0f, -100f);
+        lighting.ModelSunAt(0f, 0f, -100f);
+        lighting.StaticPropLightingAt(1f, 0f, -100f);
+        lighting.StaticPropLightingAt(1f, 0f, -100f);
+        lighting.SunAt(0f, 0f, -100f);
+
+        lighting.SunWork.ShouldBe(new SunWork(Calls: 3, LightCache: 1, StaticProp: 1, Direct: 1, Ticks: 0));
+
+        lighting.TimeSun = true;
+        lighting.SunAt(0f, 0f, -100f);
+
+        lighting.SunWork.Ticks.ShouldBeGreaterThan(0);
+    }
+
     [Test]
     public void SunAt_WhereTheTraceMissesSky_IsNull()
     {

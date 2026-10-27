@@ -145,8 +145,9 @@ public sealed record MapLevel(
             ? tree.Trace(from.X, from.Y, from.Z, to.X, to.Y, to.Z, extents, 0, mask)
             : new BspTrace(1f, -1, default, false);
 
+        // Bounded by the brush hit: only a shorter terrain hit can win, and the box past it is never swept (2026-10-26).
         (float terrain, int texdata, bool second, (float X, float Y, float Z) normal, float distance) =
-            Displacements.SweepSurface(from.X, from.Y, from.Z, to.X, to.Y, to.Z, extents, mask);
+            Displacements.SweepSurface(from.X, from.Y, from.Z, to.X, to.Y, to.Z, extents, mask, brushes.Fraction);
 
         // The struck triangle's plane, which `CBaseSimpleCollision::TestForPlane` builds a particle's collision plane from.
         return terrain < brushes.Fraction

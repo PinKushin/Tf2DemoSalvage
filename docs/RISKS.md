@@ -40068,6 +40068,17 @@ reddens four tests), and a child's drawn size against its own scale alone.
   `pl_badwater_pro_v12.bsp` is not on this machine (not under the game's `tf/maps`, `tf/download/maps`, `tf2ds`, or the
   user profile), so its `parentname` cannot be read, and no sampled tick gives them a parent.
 
+## B606 — the particle step's fork-join (`r_threaded_particles`) covers the bursts but not the rocket trails — PARTLY FIXED (2026-10-26)
+
+**Evidence class: read from source** (`particlemgr.cpp:1543`, `:1869-1897`; finding 103) **and measured**
+(measurements/2026-10-26-threaded-particles-and-sun.md). The engine forks every awake effect's `ProcessPSystem`; ours now
+forks the played burst steps (finding 103 §8), byte-identical by test, −0.07 to −0.09 ms of `bursts/step` on f12 (0.8-1.0%
+of the frame). **Still serial:** `ParticleEffects.Update`, the projectile trails (`camera particles/trails`, 0.07 ms on the
+same runs) — a divergence of schedule only. **Fix shape:** the same three passes in `Update` (serial point reads and sleep,
+forked `Step`/`Fade`, serial removal), with the trails added to the worker equivalence fixture. **Estimate:** ≤ 0.04 ms.
+Two of our own choices sit on top: the degree (physical cores − 1) and a size threshold (4) the engine does not have;
+thresholds 0, 4 and 16 measured the same.
+
 ## B603 — `LevelSystems.OpenGame` publishes the install from a worker thread with no happens-before edge to the frame — OPEN (2026-10-26)
 
 **Evidence class: read from our source** (batch-32 review; pre-existing, not a regression). The async demo load calls
@@ -40539,7 +40550,21 @@ in play, so it would not have moved the read. Its timing is carried from `Weapon
 barrier (B507) and may run on a pool thread; `WeaponMuzzleFlashes._scripts` is a plain dictionary filled there and read
 (and lazily added to by `For`) on the game thread only after that load completes, so the task's completion orders them.
 
-## B594 — `LevelLighting.SunFrom`'s 5.8% is not explained by how often it runs; the first-person undrawn pass lights a model nothing draws — OPEN (2026-10-24)
+## B594 — `LevelLighting.SunFrom`'s 5.8% is not explained by how often it runs; the first-person undrawn pass lights a model nothing draws — FIXED 2026-10-26: each call was a 0.3 ms terrain sweep (measurements/2026-10-26-threaded-particles-and-sun.md)
+
+**Closed 2026-10-26 — (a) answered, by timing the call rather than counting it.** `LevelLighting.SunWork` counts every
+`SunFrom` by caller and times it under `--measure`; `SunMeter` differences it over whole frames. f12 gummo first person:
+1.54-1.55 calls a frame (light cache builds, a few hundredths static prop and direct), **0.457-0.465 ms a frame, 4.9%**,
+about 0.3 ms a call. The cost was the sky trace's terrain half: `DisplacementCollision.SweepSurface` swept every
+displacement whose box met the 57,016-unit travel box, though the brush trace had stopped at the skybox. Now bounded by
+the brush fraction in `MapLevel.TraceBrushOnly` (`DisplacementSweepLimitTests`: 4,000 seeded rays, the bounded answer is
+the unbounded one wherever shorter; sabotage reddened it; on `cp_process_f12.bsp` probe `terrain-bound` finds 0 of
+50,000 traces differ, 375 terrain wins as control). **Sun 0.012-0.013 ms, same calls; frame 9.37-9.55 → 8.74-8.94
+ms (−0.6 ms, −6.5%); empty view −0.06 ms** (measurements/2026-10-26-threaded-particles-and-sun.md); the frame's share
+beyond the sun's 0.45 ms is *interpolated* to the other `TraceBrushOnly` callers, not timed. Engine: the trace
+count per frame was already the engine's (`LightcacheGet`, maxmiss); the change is to how far a trace looks, and
+`CM_TraceToLeaf` only reaches displacements of leaves crossed before its stop. *Interpolated*: that TF2's closed
+`engine.dll` trace does the same; not read in disassembly.
 
 **Evidence class: read from code; the share is the profile's** (`docs/measurements/2026-10-24-main-thread-cpu-profile.md`,
 5.8% exclusive, an upper bound under its fault 4). **The engine caches, and so do we already.** The model light cache is

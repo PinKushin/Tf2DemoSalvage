@@ -104,11 +104,15 @@ public static class ViewerHelp
           mat_queue_mode <n>         Which thread draws, as TF2's: 0 the main thread, 2 a second
                                      render thread, -1 (the default) the engine's choice: 2 on a
                                      machine with two or more physical cores. Read at startup.
+          r_threaded_particles 0     Step the particle effects on one thread instead of the
+                                     cores, as TF2's. Default 1; the picture is the same.
 
         ENVIRONMENT (scripts, CI and debugging only; nothing a user needs)
           TF2_FOLDER                 A tf folder that beats both cl_game_folder and Steam.
           TF2VIEW_AUTOPLAY           Same as --autoplay.
           TF2VIEW_CAMERA             "x y z pitch yaw" for a headless capture.
+          TF2VIEW_PARTICLE_THRESHOLD Particle steps at or below this many run on one thread
+                                     even with r_threaded_particles 1 (default 4).
           TF2VIEW_MODEL_CULL         Backface culling mode, for debugging inside-out models.
           TF2VIEW_SETTINGS           A settings file to use instead of the one above (tests).
           TF2VIEW_STEAM_ROOT         The only Steam folder discovery looks in (tests).
