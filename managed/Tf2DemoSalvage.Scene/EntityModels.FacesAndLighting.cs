@@ -24,12 +24,13 @@ public sealed partial class EntityModelSet
     /// playing back, because <c>C_SceneEntity::StopPlayback</c> clears the actor's scene events. A scene running
     /// alongside another on the same actor is not tracked (B513 remainder).
     /// </remarks>
-    private float[]? FlexFor(SceneProp prop, PropModels.ModelFrames? model, double seconds)
+    /// <returns>The face, or null, and the slots of it a flex can move (<see cref="ModelInstance.FlexRange"/>).</returns>
+    private (float[]? Face, FlexSlots? Range) FlexFor(SceneProp prop, PropModels.ModelFrames? model, double seconds)
     {
         if (model is null || !model.Flex.HasVertexAnimation || model.CornerVertex.Count == 0 ||
             !_packedOrder.TryGetValue(prop.ModelPath, out int[]? order))
         {
-            return null;
+            return (null, null);
         }
 
         float[]? face;
@@ -50,7 +51,7 @@ public sealed partial class EntityModelSet
             {
                 // **Written into arrays this set keeps, not new ones per frame** (finding 80): a talking face changes every
                 // frame, and three .vvd-sized arrays a face a frame were 2 GB of large-object garbage in 20 s of f12. The
-                // deltas are scratch; the stream is the entity's own, rewritten in place (the renderer uploads per draw).
+                // deltas are scratch; the stream is the entity's own, rewritten in place (the renderer uploads its flexed range per draw).
                 // Grown only: faces of different classes alternate, and an exact size would reallocate at every switch.
                 if (_flexScratch.Positions.Length < model.VertexCount * 3)
                 {
@@ -89,12 +90,18 @@ public sealed partial class EntityModelSet
             _restingFace[RestingKey(prop)] = face;
         }
 
-        if (face is not null)
+        if (face is null)
         {
-            FlexedInstances++;
+            return (null, null);
         }
 
-        return face;
+        FlexedInstances++;
+
+        // **The first to the last slot a flex of this model names** (B597): every slot outside is zero in every face of
+        // it — a driven face writes only the flexed slots, and a resting face's deltas exist only at vertices a flex moves.
+        int[] at = FlexedCornersOf(prop.ModelPath, model, order).At;
+
+        return (face, at.Length > 0 ? new FlexSlots(at[0], at[^1] - at[0] + 1) : null);
     }
 
     private static string RestingKey(SceneProp prop) => (IsCBaseFlex(prop) ? "1:" : "0:") + prop.ModelPath;
@@ -120,6 +127,16 @@ public sealed partial class EntityModelSet
 
     /// <summary>Per model, the buffer slots its flexes can move (finding 92).</summary>
     private readonly Dictionary<string, FlexedCorners> _flexedCorners = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// The buffer slots any flex of a model can move, out of how many it has, once a face of it was driven; null before.
+    /// </summary>
+    /// <param name="modelPath">The model.</param>
+    /// <returns>The slots (ascending) and the model's buffer vertex count, or null.</returns>
+    public (FlexedCorners Corners, int Slots)? FlexedSlotsOf(string modelPath) =>
+        _flexedCorners.TryGetValue(modelPath, out FlexedCorners? corners) && _packedOrder.TryGetValue(modelPath, out int[]? order)
+            ? (corners, order.Length)
+            : null;
 
     private FlexedCorners FlexedCornersOf(string modelPath, PropModels.ModelFrames model, int[] order)
     {

@@ -93,6 +93,84 @@ public sealed class FaceFlexAnimationDemoTests
         differ.ShouldBeGreaterThan(100, "the visemes the tracks write move the mouth");
     }
 
+    /// <summary>
+    /// **The range the renderer sends holds every slot that moves** (B597): the renderer uploads only
+    /// <see cref="ModelInstance.FlexRange"/> and keeps zeros on the device either side, so a non-zero float outside it
+    /// would never be drawn. Every frame of the medic's flex animation, each moving slot must lie inside, and the range
+    /// must be the model's first to last flexed slot (<see cref="EntityModelSet.FlexedSlotsOf"/>).
+    /// </summary>
+    [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
+    public void FlexRange_AMedicPlayingAFlexAnimation_HoldsEverySlotThatMoves()
+    {
+        ScenePlayer medic = new(
+            EntityIndex: Medic, X: -1423f, Y: 1020.625f, Z: 160f, Team: 2, Health: 150, PlayerClass: 5,
+            Yaw: -15.131946f, LifeState: 0, Flags: 131329, EyePitch: 2.4705963f, EyeYaw: -15.131958f,
+            ActiveWeapon: 501, WeaponClass: "CWeaponMedigun", WeaponItem: 411, ClientSideAnimated: true);
+
+        DemoTimeline timeline = SyntheticMatch.Timeline(
+            [medic],
+            scenes:
+            [
+                new SceneChoreography(60872, 516, "scenes/player/medic/low/idleloop01.vcd", [Medic]) { StoppedTick = 61874 },
+                new SceneChoreography(SceneStart, 586, FlexScene, [Medic]) { StoppedTick = 61353 },
+            ],
+            sounds: []);
+
+        GameAppearance appearance = SyntheticMatch.Appearance(timeline);
+        MapAssets assets = MapCache.Load(entityModels: [MedicModel]);
+        EntityModelSet models = new() { Geometry = assets.Geometry, IntervalPerTick = timeline.IntervalPerTick };
+        MomentScene scene = SyntheticMatch.Scene(models, appearance);
+        int faces = 0;
+        int widest = 0;
+
+        for (int tick = SceneStart - 5; tick <= SceneStart + 60; tick++)
+        {
+            MomentInfo info = SyntheticMatch.Info(timeline, tick);
+            scene.Build([medic], [], info);
+            scene.Pose(info);
+
+            ModelInstance instance = scene.Instances.Single(instance => instance.EntityIndex == Medic &&
+                string.Equals(instance.ModelPath, MedicModel, StringComparison.OrdinalIgnoreCase));
+
+            if (instance.Flex is not { } face)
+            {
+                continue;
+            }
+
+            FlexSlots range = instance.FlexRange.ShouldNotBeNull("a scene face says which slots can move");
+            (FlexedCorners corners, int slots) = models.FlexedSlotsOf(MedicModel).ShouldNotBeNull();
+
+            range.ShouldBe(new FlexSlots(corners.At[0], corners.At[^1] - corners.At[0] + 1), "the first to the last flexed slot");
+            (face.Length / 6).ShouldBe(slots);
+
+            int first = -1;
+            int last = -1;
+
+            for (int slot = 0; slot < slots; slot++)
+            {
+                if (face.AsSpan(slot * 6, 6).IndexOfAnyExcept(0f) >= 0)
+                {
+                    first = first < 0 ? slot : first;
+                    last = slot;
+                }
+            }
+
+            if (first >= 0)
+            {
+                first.ShouldBeGreaterThanOrEqualTo(range.First, $"tick {tick}");
+                last.ShouldBeLessThan(range.First + range.Count, $"tick {tick}");
+                widest = Math.Max(widest, last - first + 1);
+            }
+
+            faces++;
+        }
+
+        TestContext.Out.WriteLine($"{faces} faces; the widest moving span {widest} slots of the range");
+        faces.ShouldBeGreaterThan(60, "the control: the medic wears a face every frame");
+        widest.ShouldBeGreaterThan(1000, "the control: the face moves across much of the range");
+    }
+
     /// <summary>One of the two lines the recording starts on the medic's voice channel with the scene.</summary>
     private static SceneSound Voice(string name, int number) =>
         new(SceneStart, name, number, Medic, Channel: 2, Volume: 0.81889766f, SoundLevel: 95, Pitch: 100, DelaySeconds: 0f,

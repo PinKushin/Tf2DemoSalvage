@@ -563,6 +563,8 @@ internal sealed unsafe class OffscreenTarget : IDisposable
     /// <param name="cloak">What the invisibility proxies bind for the model; nobody cloaked by default.</param>
     /// <param name="bones">Row-major 3x4 bone matrices to skin the vertices by, or null for an unskinned draw.</param>
     /// <param name="flex">Position and normal deltas per vertex, added before skinning, or null (B513).</param>
+    /// <param name="flexRange">The slots of <paramref name="flex"/> to send, or null for all (B597).</param>
+    /// <param name="sameModel">The previous call drew these same vertices: keep the model and its face buffer (B597).</param>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <remarks>
     /// **The model path is not the world path and the difference has hidden a defect.** Every
@@ -592,7 +594,9 @@ internal sealed unsafe class OffscreenTarget : IDisposable
         IReadOnlyList<LocalLight>? locals = null,
         CloakBind cloak = default,
         IReadOnlyList<float[]>? bones = null,
-        float[]? flex = null)
+        float[]? flex = null,
+        FlexSlots? flexRange = null,
+        bool sameModel = false)
     {
         ArgumentNullException.ThrowIfNull(vertices);
         ArgumentNullException.ThrowIfNull(batches);
@@ -617,18 +621,23 @@ internal sealed unsafe class OffscreenTarget : IDisposable
         // caller maps a model path to fixed vertices for the life of a map, which is what lets the
         // upload skip anything it already holds; here each Render is a different model under
         // `offscreen/posed.mdl`, so without this the second render draws the first one's mesh.
-        _world.ClearModels();
+        // `sameModel` is the caller saying the previous call drew these vertices: the model, and what the device
+        // keeps for it across frames (its face buffer, B597), stays.
+        if (!sameModel)
+        {
+            _world.ClearModels();
 
-        // One model, so its vertices are already its own and its offsets already start at zero —
-        // which is exactly the shape a per-model static mesh wants (D86). The offscreen path was
-        // always giving the renderer one model's worth; it is only the production path that had to
-        // slice a shared pack apart.
-        _world.UploadModels(
-            _device,
-            new Dictionary<string, PackedModel>(StringComparer.Ordinal)
-            {
-                [Posed] = new PackedModel(vertices, new[] { batches }),
-            });
+            // One model, so its vertices are already its own and its offsets already start at zero —
+            // which is exactly the shape a per-model static mesh wants (D86). The offscreen path was
+            // always giving the renderer one model's worth; it is only the production path that had to
+            // slice a shared pack apart.
+            _world.UploadModels(
+                _device,
+                new Dictionary<string, PackedModel>(StringComparer.Ordinal)
+                {
+                    [Posed] = new PackedModel(vertices, new[] { batches }),
+                });
+        }
 
         // **The debug state is passed rather than defaulted, which is what lets B187 be tested.**
         // This read `SetCamera(_device, _context, camera)` — three arguments against a method whose
@@ -661,7 +670,7 @@ internal sealed unsafe class OffscreenTarget : IDisposable
         _world.DrawModel(
             _context, Posed, model, _world.ModelBatches(Posed), light, sun, bones: bones?.Count ?? 0, bothSides: bothSides,
             origin: origin, locals: locals, overrideMaterial: overrideMaterial, bakedColours: bakedColours, cloak: cloak,
-            flex: flex);
+            flex: flex, flexRange: flexRange);
     }
 
     /// <summary>Draws a screen overlay over what this target holds, as <c>Device3D</c> does after the world.</summary>

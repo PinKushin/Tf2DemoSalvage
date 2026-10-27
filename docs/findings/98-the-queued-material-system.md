@@ -719,3 +719,74 @@ camera. One upload a frame, each query drawing at its offset: Occlusion 0.37 →
 **What it says about the shape of the cost.** Ours is managed work around the D3D calls, not the calls:
 the face uploaded whole every frame for every flexing head, proxy chains on item materials, a linear cubemap search, and
 string-keyed diagnostics. How the engine's studio render pays for the same work was not read for this section.
+
+## (13) Follow-up, 2026-10-26: no face holds still, so the saving is in sending less of each one (B597)
+
+Section 12 (branch `perf/model-pass-constant-ring`) split OpaqueModels into spans. The largest was the face: `Flex`,
+0.27-0.28 ms and 3.16 MB a frame (measurements/2026-10-26-b597-constant-ring-and-occlusion.md). A lap there is every
+model draw, so the 172 laps a frame are not 172 uploads. A class
+model's stream is about 27,000 vertices x 24 bytes, so 3.16 MB is about five whole faces a frame. *Arithmetic.*
+
+**How the engine does it.**
+- *Read from published source:* `C_BaseFlex::SetupWeights` (`c_baseflex.cpp:1147-1156`) is the per-draw callback. It
+  rebuilds the global weights (`:1189-1263`), runs the rules and the delay (`:1285-1330`, `RunFlexDelay` `:1265-1279`
+  decaying with `curtime`) on every draw. It has no change test and no distance cut.
+- *Read in disassembly* (x64 `studiorender.dll`; the names come from their telemetry strings, the field meanings are
+  *interpolated*): `R_StudioFlexMeshGroup` (`0x1800124f0`) is called per mesh group per draw by the mesh-group draw
+  (`0x180011de0`). It locks a dynamic flex mesh for the group's vertices and writes a position, normal and wrinkle delta
+  for each vertex. A vertex not flexed this draw gets zeros, judged by a per-draw stamp (`+0x3706d0` against a table at
+  `+0x3706e8`). The branch is gated per mesh group (`+0xc & 4`) and by a config bit read as `bFlex` (`+0x24 & 0x40`).
+  The hardware-morph branch (`ProcessFlexedMesh_SO`, `0x1800130f0`) is the alternative.
+- *Read from the shipped binaries' strings:* no flex LOD exists. The only cvars are `r_flex` (engine), `r_randomflex`
+  (studiorender), and `flex_rules` and `flex_smooth` (client). A face is cut only through model LOD, which this viewer
+  does not implement.
+
+**So the engine re-sends every face on every draw, as we did.** Skipping a face whose floats have not changed is an
+addition above Valve, allowed when the output is the same.
+
+**The change tried** (`FaceStreams`, `e784275c` + `f1f94056`, **reverted in `7e3490ec`, D236**):
+- Each face array carries the stamp of the write its floats came from (`ModelInstance.FlexWritten`). The stamp is taken
+  from one counter: on `FlexFor`'s weight-equality miss, which is where the stream is rewritten in place, and once per
+  resting face.
+- The renderer keeps one dynamic buffer per array, keyed on the array, and re-sends it only for a new stamp, a new
+  array, or the stamp 0. Stamp 0 means unknown, so a face built by hand always uploads.
+- Because the cache is keyed on the array, a resting face shared by every instance of a model goes up once, and a class
+  change (a new array) gets a new buffer.
+- A buffer not drawn in the last frame is released at the start of `DrawFrame`.
+- **Queue:** the stamp is a value captured at the hand-off. The pose waits for the previous draw before any rewrite
+  (section 9). A re-send uses `WRITE_DISCARD`, so the GPU keeps what an earlier draw was given.
+
+**Identity:**
+- `FaceFlexRenderTests.Draw_AFaceSequenceThroughTheCache_IsPixelIdenticalToUploadingEveryDraw` draws six frames, cache
+  on against off, and every pixel is equal. Its stale control shows the cache is live.
+- `FaceFlexAnimationDemoTests.FlexWritten_AMedicPlayingAFlexAnimation_ChangesExactlyWhenItsFaceDoes` checks the
+  scene's half: 66 held, 65 changed. Every re-pose at the same time held, and every new tick changed.
+- Sabotage: keeping the stamp on a rewrite reddened the second test. Skipping regardless of stamp reddened the first.
+
+**What it measured — the wrong premise** (measurements/2026-10-26-b597-face-cache.md): f12 draws about 5.4 faces a
+frame, and **under 1%** of them held still since the previous frame. Every one was re-sent, about 580 KB each. Flex CPU
+was 0.277-0.295 ms against 0.270-0.277, and the frame 9.51-9.77 against 9.54-9.60 (measurements/2026-10-26-b597-face-cache.md), so the ranges
+overlap. The weights
+are taken at the continuous render time (the interpolated `m_flexWeight`, the blink, `RunFlexDelay` on `frametime`),
+and TF2's idle scenes animate the face continuously. The prediction (30-70% held) assumed faces change at the tick rate.
+They change at the frame rate, as the engine's per-draw recompute does. **Lesson:** count what changes before caching
+on "unchanged". The count needed one viewer run, while the cache took a branch. The owner reverted it (D236). The lever
+left is the bytes per face, not the number of faces.
+
+**The bytes, then.** A class face's flexed slots cluster: first to last covers 25-55% of the buffer, and the flexed
+count is 23-49% (measurements/2026-10-26-b597-flex-extent.md, a probe of the production scene over three real
+matches). The packer lays vertices out material by material, and the head is a few materials (*interpolated*). That is
+also the engine's shape: `R_StudioFlexMeshGroup` builds a flex stream only for the flexed mesh groups.
+
+**What was built.** The face now carries that range. The renderer keeps a zeroed default buffer per model and writes
+only the range, with `UpdateSubresource`. The output is identical: pixel A/Bs on a quad and on the laughing soldier,
+and the medic test that every moving slot falls inside the range. Each was sabotaged and went red.
+
+**Measured** (measurements/2026-10-26-b597-flex-range.md):
+- upload: 3.16 → 1.26 MB a frame;
+- flex span: 0.296-0.305 → 0.149-0.156 ms;
+- OpaqueModels: 1.169-1.201 → 1.055-1.093 ms;
+- render thread: 2.40-2.44 → 2.30-2.38 ms;
+- frame: within its spread.
+
+The risk that `UpdateSubresource` would copy twice on a buffer the GPU still reads did not show: time fell with bytes.

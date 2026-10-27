@@ -2852,22 +2852,28 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
     /// <summary>Six zeros, bound at stride zero on slot 2 for every draw without a face (B513).</summary>
     private ComPtr<ID3D11Buffer> _noFlex;
 
-    /// <summary>The one dynamic flex stream, rewritten per flexing draw with <c>WRITE_DISCARD</c> (B513).</summary>
-    private ComPtr<ID3D11Buffer> _flexStream;
+    /// <summary>Per model, its flex stream on the device, zero wherever no flex of the model reaches (B597).</summary>
+    private readonly Dictionary<string, (ComPtr<ID3D11Buffer> Buffer, int Floats)> _faceStreams = new(StringComparer.OrdinalIgnoreCase);
 
-    /// <summary>How many floats <see cref="_flexStream"/> holds.</summary>
-    private int _flexStreamFloats;
-
-    /// <summary>The face last written into <see cref="_flexStream"/>.</summary>
+    /// <summary>The face last written into the stream it was drawn with.</summary>
     private float[]? _flexUploaded;
 
     /// <summary>Binds a draw's face to slot 2, or the zero element at stride zero.</summary>
     /// <remarks>
-    /// **One dynamic buffer, discarded per draw**: the driver renames it, so a draw already queued keeps the
-    /// contents it was given. It grows to the largest face drawn and never shrinks.
+    /// **One stream per model, and only the flexed range sent** (B597; measurements/2026-10-26-b597-flex-extent.md). The
+    /// slots a flex of the model can move run from its first flexed slot to its last, 25-55% of a class model's buffer;
+    /// everything outside is zero for every face of that model, so the buffer is made zero and only the range is
+    /// written, per draw, with <c>UpdateSubresource</c>. That is the engine's shape: `R_StudioFlexMeshGroup` writes a
+    /// flex stream for the flexed mesh groups, not the model (studiorender `0x1800124f0`). The context orders the
+    /// update after the draws already submitted, so two faces of one model in one frame each draw their own.
+    /// A face with no range (a hand-built one) sends the whole array.
     /// </remarks>
+    /// <param name="context">The context drawing.</param>
+    /// <param name="modelPath">Whose stream.</param>
+    /// <param name="flex">The face, or null.</param>
+    /// <param name="range">The slots of <paramref name="flex"/> that can be non-zero, or null for all of it.</param>
     /// <returns>The bytes uploaded: zero for the null stream or a face already on the device.</returns>
-    private long BindFlex(ComPtr<ID3D11DeviceContext> context, float[]? flex)
+    private long BindFlex(ComPtr<ID3D11DeviceContext> context, string modelPath, float[]? flex, FlexSlots? range)
     {
         uint offset = 0;
 
@@ -2882,47 +2888,62 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             return 0;
         }
 
+        uint stride = sizeof(float) * FlexFloats;
+
+        if (!_faceStreams.TryGetValue(modelPath, out (ComPtr<ID3D11Buffer> Buffer, int Floats) stream) ||
+            stream.Floats != flex.Length)
+        {
+            stream.Buffer.Dispose();
+            stream = (CreateZeroStream(flex.Length), flex.Length);
+            _faceStreams[modelPath] = stream;
+            _flexUploaded = null;
+        }
+
         // A refract copy rebinds the face mid-model; the same face goes back on without a second upload.
         if (ReferenceEquals(flex, _flexUploaded))
         {
-            uint again = sizeof(float) * FlexFloats;
-            context.IASetVertexBuffers(FlexSlot, 1, ref _flexStream, in again, in offset);
+            context.IASetVertexBuffers(FlexSlot, 1, ref stream.Buffer, in stride, in offset);
             return 0;
         }
 
         _flexUploaded = flex;
 
-        if (_flexStreamFloats < flex.Length)
-        {
-            _flexStream.Dispose();
+        int first = range?.First ?? 0;
+        int count = range?.Count ?? flex.Length / FlexFloats;
+        Box box = new((uint)(first * stride), 0, 0, (uint)((first + count) * stride), 1, 1);
 
-            BufferDesc description = new()
-            {
-                ByteWidth = (uint)(flex.Length * sizeof(float)),
-                Usage = Usage.Dynamic,
-                BindFlags = (uint)BindFlag.VertexBuffer,
-                CPUAccessFlags = (uint)CpuAccessFlag.Write,
-            };
-
-            _flexStream = default;
-            SilkMarshal.ThrowHResult(_device.CreateBuffer(in description, null, ref _flexStream));
-            _flexStreamFloats = flex.Length;
-        }
-
-        MappedSubresource mapped = default;
-        SubmitCounters.Upload(); SilkMarshal.ThrowHResult(context.Map(_flexStream, 0, Map.WriteDiscard, 0, ref mapped));
+        SubmitCounters.Upload();
 
         fixed (float* from = flex)
         {
-            System.Buffer.MemoryCopy(from, mapped.PData, (long)_flexStreamFloats * sizeof(float), (long)flex.Length * sizeof(float));
+            context.UpdateSubresource(stream.Buffer, 0, in box, from + (first * FlexFloats), 0, 0);
         }
 
-        context.Unmap(_flexStream, 0);
+        context.IASetVertexBuffers(FlexSlot, 1, ref stream.Buffer, in stride, in offset);
 
-        uint stride = sizeof(float) * FlexFloats;
-        context.IASetVertexBuffers(FlexSlot, 1, ref _flexStream, in stride, in offset);
+        return (long)count * stride;
+    }
 
-        return (long)flex.Length * sizeof(float);
+    /// <summary>A default-usage vertex buffer of this many floats, all zero.</summary>
+    private ComPtr<ID3D11Buffer> CreateZeroStream(int floats)
+    {
+        BufferDesc description = new()
+        {
+            ByteWidth = (uint)(floats * sizeof(float)),
+            Usage = Usage.Default,
+            BindFlags = (uint)BindFlag.VertexBuffer,
+        };
+
+        float[] zeros = new float[floats];
+        ComPtr<ID3D11Buffer> buffer = default;
+
+        fixed (float* first = zeros)
+        {
+            SubresourceData initial = new() { PSysMem = first };
+            SilkMarshal.ThrowHResult(_device.CreateBuffer(in description, in initial, ref buffer));
+        }
+
+        return buffer;
     }
 
     /// <summary>The device, kept to create a baked prop's colour stream the first time it is drawn.</summary>
@@ -4030,7 +4051,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
         BindColours(context, null);
 
         // And slot 2; only a flexing face binds a stream there (B513).
-        BindFlex(context, null);
+        BindFlex(context, string.Empty, null, null);
         context.VSSetShader(_vertexShader, ref Unsafe.NullRef<ComPtr<ID3D11ClassInstance>>(), 0);
         context.PSSetShader(_pixelShader, ref Unsafe.NullRef<ComPtr<ID3D11ClassInstance>>(), 0);
         context.PSSetSamplers(0, 1, ref _wrapSampler);
@@ -6755,7 +6776,6 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
         ReleaseModelBuffers();
         _whiteColour.Dispose();
         _noFlex.Dispose();
-        _flexStream.Dispose();
         _decalOffset.Dispose();
         _decalPolyOffset.Dispose();
         _bothSides.Dispose();
@@ -7031,6 +7051,15 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
         }
 
         _colourStreams.Clear();
+
+        // A face stream is zero outside its model's flexed range, which holds only for the model whose faces wrote it.
+        foreach ((ComPtr<ID3D11Buffer> stream, int _) in _faceStreams.Values)
+        {
+            stream.Dispose();
+        }
+
+        _faceStreams.Clear();
+        _flexUploaded = null;
     }
 
     /// <summary>The packed batches for one model, or empty when it is not loaded.</summary>
@@ -7128,6 +7157,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
     /// <param name="flex">
     /// The face's position and normal deltas per vertex of the model's buffer, or null (B513).
     /// </param>
+    /// <param name="flexRange">The slots of <paramref name="flex"/> that can be non-zero, or null for all (B597).</param>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <remarks>
     /// **One matrix and one draw per entity, which is the engine's shape.** The vertices were
@@ -7160,7 +7190,8 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
         (float Red, float Green, float Blue)? urine = null,
         float[]? bakedColours = null,
         CloakBind cloak = default,
-        float[]? flex = null)
+        float[]? flex = null,
+        FlexSlots? flexRange = null)
     {
         SubmitSpans.Restart();
         ArgumentNullException.ThrowIfNull(matrix);
@@ -7224,7 +7255,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
         SubmitSpans.Lap(SubmitSpan.PipelineBinds);
 
         // **The face's deltas beside the model's vertices** (B513), added before skinning by the shader.
-        SubmitSpans.Lap(SubmitSpan.Flex, BindFlex(context, flex));
+        SubmitSpans.Lap(SubmitSpan.Flex, BindFlex(context, modelPath, flex, flexRange));
 
         SetModel(context, matrix, light, sun, blend, bones, locals, staticLight: bakedColours is not null);
 
@@ -7399,7 +7430,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
                 CopyFrameForRefract(context);
                 context.IASetVertexBuffers(0, 1, ref vertexBuffer, in stride, in offset);
                 BindColours(context, bakedColours);
-                BindFlex(context, flex);
+                BindFlex(context, modelPath, flex, flexRange);
             }
 
             // **Chosen per MATERIAL rather than per pass, which is the engine's arrangement and the
@@ -7767,7 +7798,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
         // Unbound again so no later draw reads this face (B513).
         if (flex is not null)
         {
-            BindFlex(context, null);
+            BindFlex(context, modelPath, null, null);
         }
 
         SubmitSpans.Lap(SubmitSpan.Bookkeeping);

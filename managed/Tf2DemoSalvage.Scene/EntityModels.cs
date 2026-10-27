@@ -109,6 +109,7 @@ public readonly record struct FiredAnimationEvent(
 /// <param name="InSky">Whether the 3D skybox view collated it, so the sky pass draws it.</param>
 /// <param name="Cloak">What <c>spy_invis</c> and <c>invis</c> write into <c>$cloakfactor</c> for this entity.</param>
 /// <param name="Flex">The face's position and normal deltas per buffer vertex, or null (B513).</param>
+/// <param name="FlexRange">The slots of <paramref name="Flex"/> a flex can move, or null for all of them (B597).</param>
 public readonly record struct ModelInstance(
     string ModelPath,
     float[] Matrix,
@@ -247,7 +248,16 @@ public readonly record struct ModelInstance(
 
     // **The face** (B513): a position delta then a normal delta per vertex of the model's buffer, in its order, which the
     // shader adds before skinning (`ApplyMorph`, common_vs_fxc.h:384-387). Null for a model with no flex this frame.
-    float[]? Flex = null);
+    float[]? Flex = null,
+
+    // **The only slots of the face that can be non-zero** (B597): the first to the last a flex of this model names, so the
+    // renderer sends that range and keeps the zeros either side on the device. Null sends the whole array.
+    FlexSlots? FlexRange = null);
+
+/// <summary>A run of buffer slots, the first and how many (B597).</summary>
+/// <param name="First">The first slot.</param>
+/// <param name="Count">How many slots, from <paramref name="First"/>.</param>
+public readonly record struct FlexSlots(int First, int Count);
 
 /// <summary>
 /// The views collation walks — <c>m_pWorldListInfo->m_pLeafList</c> per view (B262).
