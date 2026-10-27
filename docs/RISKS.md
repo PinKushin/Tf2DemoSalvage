@@ -40163,3 +40163,81 @@ at the rocket = stepping; repeat with `host_timescale 0` and `0.01`. Several eff
 viewer keeps its current behaviour (a paused frame steps no particles). Evidence classes: D (engine.dll), L (particles lib,
 not the live client), S (published SDK), I (interpolated: the server tick stays frozen under a server pause).
 
+## B701 to B705 — quality features TF2's maximum-quality setups use that the viewer lacks — DEFERRED until the fps target
+
+**Status: deferred until fps target.** Owner, 2026-10-27: *"Don't worry about the stuff missing until we get fps way better"*
+(the lead's figure that day for the f12 first-person frame, about 8.05 ms; not cited to a measurement file here). Not to be built before then, and filed so the gap is not
+forgotten. **Source of all five entries:** the audit `docs/measurements/2026-10-27-defaults-vs-max-quality.md` (branch
+`docs/defaults-vs-max-quality`, `7e7673ff`; audit only, nothing built or run). Its finding: the viewer's *defaults* are
+already at the maximum any source gives (owner, 2026-09-25, `docs/memory/defaults-are-highest-quality.md`), so the gaps
+are **absences**: raising a default needs a setting to exist first. Numbers B701 to B705 were chosen after the highest seen
+anywhere (B607 on a branch; B561 in this file on main); another agent may have taken some since, renumber on merge.
+Evidence classes: *read* (our source, SDK) or *web-sourced* (TF2 wiki, fetched 2026-10-27) as tagged; the audit read
+no engine binary. Fps cost is **unmeasured** for every entry; the only cost pair in `docs/measurements/` is HDR against
+LDR (`2026-10-22-empty-view-budget-ldr-f12.md:134`), which is not one of these.
+
+### B701 — no multisampling (`mat_antialias`, `mat_aaquality`, `mat_alphacoverage`)
+
+**Ours:** every swap chain and render target is `SampleDesc(1, 0)` (`Device3D.cs:369`, `WorldRenderer.cs:8076` and more).
+No setting. **Valve:** `mat_antialias 8` is the Ultra-quality value (TF2 wiki, web-sourced); `mat_aaquality` 2 or 4 is
+CSAA on old NVIDIA hardware only. The stock default is **unverified** (the cvarlist's 8 is likely the owner's own
+`ultra.cfg`). `mat_alphacoverage`: maximum unverified. **Cost:** the wiki says moderate GPU; unmeasured here. It also
+touches every resolve and every post-process pass that reads a render target, so it is a structural change, not a flag.
+The owner's own `ultra.cfg` sets `mat_antialias 1` on purpose for capture parity, so a default of 8 would differ from his
+reference captures.
+
+### B702 — no dynamic shadows (`r_shadows`, `r_shadowrendertotexture`, `r_shadowmaxrendered`, flashlight depth)
+
+**Ours:** no shadow renderer found in `managed/Tf2DemoSalvage.Render` or `.Scene` by file name (unverified by a deeper
+read); `docs/findings/13` lists it as absent. **Valve:** the SDK declares `r_shadows` (`clientshadowmgr.cpp:684`) and
+`r_shadowrendertotexture` (default 0, `:91`); the owner's `ultra.cfg` sets `r_shadows 1`, `r_shadowrendertotexture 1`,
+`r_shadowmaxrendered 160`, and `r_flashlightdepthtexture 1` with `r_flashlightdepthres 1024` (SDK default for the depth
+texture is 1, `:94`). How the engine builds a render-to-texture shadow: **unverified**, not read. **Cost:** unmeasured;
+an extra depth or shadow pass per shadow caster, likely the largest of the five.
+
+### B703 — water quality settings are not exposed (`r_waterforceexpensive`, `r_waterforcereflectentities`, `r_waterdrawreflection`, `r_waterdrawrefraction`, `r_cheapwaterstart`/`end`, `tf_water_resolution`)
+
+**Ours:** water reflection and refraction are drawn (`WorldRenderer.Water.cs`, `MapWater.cs`), but none of these is a
+setting. Which path the viewer takes against Valve's expensive-versus-cheap choice is **unverified**. **Valve:** SDK
+defaults `r_waterforceexpensive 0`, `r_waterforcereflectentities 0` (`viewrender.cpp:153`, `:155`); the owner's `ultra.cfg`
+sets 1 / 1 / 1 / 1 / 8192 / 2048 for the six in the order listed. `tf_water_resolution` stock 1024 per the
+cvarlist, which may be the owner's value. **Cost:** unmeasured; reflection of entities and a larger water target add
+passes and fill.
+
+### B704 — impact, gib and debris effects with no setting (`cl_new_impact_effects`, `cl_burninggibs`, `tf_playergib`, `r_drawflecks`, `cl_ejectbrass`, `props_break_max_pieces`)
+
+**Ours:** `ImpactEffects.cs`, `PlayerGibs.cs` and `BulletWater.cs` exist; none of these is a setting, and which variant
+of each the viewer draws is **unverified**. **Valve:** SDK defaults `cl_new_impact_effects 0` (`fx_impact.cpp:211`),
+`cl_burninggibs 0` (`props_shared.cpp:30`), `tf_playergib 1` (`tf_player.cpp:188`), `r_drawflecks 1` (`fx_impact.cpp:24`),
+`cl_ejectbrass 1` (`c_te_legacytempents.cpp:69`), `props_break_max_pieces -1` (`props_shared.cpp:25`). The wiki gives
+`cl_new_impact_effects 1` and `cl_burninggibs 1` for Ultra (web-sourced), and the owner's `ultra.cfg` agrees; `tf_playergib 2`
+("always" per the cvarlist help) is possibly richer, **unverified**. **Cost:** unmeasured; extra particles and gibs per
+impact or kill.
+
+### B705 — small quality cvars with no setting, grouped
+
+Each is a one-line cvar whose maximum value is the owner's `ultra.cfg` unless stated. **Ours:** none is a setting, and for
+most the drawing code's behaviour against the maximum is **unverified**. Cost for the group: unmeasured.
+- `cl_detaildist`: the one *implemented* setting below its `ultra.cfg` value. Ours 1200 (`ViewerSettings.cs:677`), equal to
+  the SDK default (`detailobjectsystem.cpp:52`); `ultra.cfg` 8592 (no Valve-published maximum found). A one-line default
+  change, held back only by the same fps rule.
+- Filtering: `mat_trilinear` (1), `mat_filtertextures`, `mat_filterlightmaps` (1); anisotropic 16 is hardcoded and at the
+  D3D11 ceiling (`WorldRenderer.cs:8480`), so these are probably already satisfied in effect.
+- LOD: `lod_transitiondist` 3592; `r_lod`, `r_rootlod`, `r_staticprop_lod` 0, which the viewer meets by always taking LOD 0.
+- Lighting: `r_worldlights` 4, `r_rimlight` 1, `r_maxdlights` 32, `r_dynamic` 1 (dynamic lights exist, B425), `mat_colorcorrection`
+  (the owner's `ultra.cfg` sets 0 for capture parity), `mat_bumpmap` (**unverified** whether built now).
+- Physics props and decals: `cl_phys_props_max` (300 stock, 100 in `ultra.cfg`, so not a maximum), `r_propsmaxdist` 8192,
+  `r_decalstaticprops`, `r_renderoverlayfragment`, `r_drawbatchdecals`, `r_decal_cover_count`, `r_decal_overlap_count`.
+- Characters: `r_eyes`, `r_flex`, `r_teeth`, `r_eyemove`, `flex_rules`, `flex_smooth`, `anim_3wayblend`, `cl_ragdoll_forcefade`,
+  `cl_ragdoll_collide`, `ragdoll_sleepaftertime`.
+- Effects: `mat_reduceparticles`, `tf_particles_disable_weather` (0), `muzzleflash_light`, `cl_muzzleflash_dlight_1st`,
+  `tracer_extra`, `r_drawtracers_firstperson` (1), the rope set (`rope_subdiv` 7, `rope_smooth`, `rope_rendersolid`,
+  `r_ropetranslucent`, `rope_collide`), `glow_outline_effect_enable`, `pyro_dof`, `pyro_vignette`.
+- Other: `tf_monitor_resolution` 1024; `snd_pitchquality`, `dsp_*` (audio).
+- **Not a gap:** `mat_picmip` (Full is the ceiling, `WorldRenderer.cs:8500`), `mat_hdr_level 3` (B537), motion blur (off in
+  the owner's baseline), `-no_texture_stream` (nothing streams here).
+
+**Not verified by the audit, and so not claimed here:** cheat flags on any maximum, engine-side stock defaults
+(`mat_picmip`, `mat_forceaniso`, `mat_antialias`, `r_lod`), and the values mastercomfig, Lawena and Chris' maxquality use.
+Next step when this is picked up: a Strings read of `engine.dll` and `materialsystem.dll` registrations (finding 37's method).
+

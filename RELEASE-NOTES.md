@@ -744,6 +744,12 @@ Things a user is likely to notice. Each has an entry in `docs/RISKS.md` in the r
 - **The heal glow beside a running patient is partly fixed** (B538, B539): the beam's arc toward the aim still
   differs from the game's, and the haze is fainter, with fewer pluses along the beam.
 - **`mat_hdr_level 3` is drawn as 2** (B537).
+- **Graphics options of TF2's highest-quality setups are missing** (B701 to B705), deferred by the owner until the
+  viewer is faster. There is no multisampled edge smoothing (`mat_antialias`), no dynamic shadows (`r_shadows`), no
+  water quality options (`r_waterforceexpensive`, `tf_water_resolution` and the rest), and no option for the richer
+  bullet-impact and burning-gib effects (`cl_new_impact_effects`, `cl_burninggibs`). A number of smaller options are
+  not offered either, for example `cl_detaildist` (distance of small ground clutter), the rope options, and the
+  eye and face options. Texture quality and anisotropic filtering are already at their highest.
 - **Demo voice is partly ported** (B549): TF2 lowers every other sound while someone speaks and shows a speaking
   indicator, and the viewer does neither. A voice's position is fixed when it starts, the output device resamples
   where the game does it itself, `cl_voice_filter` is not offered, and after a seek voice resumes at the next packet.

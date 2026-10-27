@@ -144,6 +144,8 @@ affect every user:
 - The viewer needs a lot of memory. See *Requirements* in the release notes.
 - Demos from a server left recording for hours cannot be opened in the viewer, though the command-line tool
   reads them.
+- Some options of TF2's highest-quality setups are missing: edge smoothing (`mat_antialias`), dynamic shadows,
+  water quality options and a few effect options (B701 to B705). They are planned for after the viewer is faster.
 
 ## Troubleshooting
 

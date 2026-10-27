@@ -168,3 +168,23 @@ it, and goes on to its own route.
 `ViewerAction` - a rule written for binds that mean nothing here (B214). `toggle cl_showpos` names no action, so
 `bind HOME "toggle cl_showpos"` ran `resetspeed`. A bind that sets a declared ConVar or defines an alias now counts as
 meaning something.
+
+## Correction, 2026-10-27: the "our state" column above was stale for six rows
+
+The audit `docs/measurements/2026-10-27-defaults-vs-max-quality.md` (branch `docs/defaults-vs-max-quality`, `7e7673ff`)
+read `ViewerSettings.cs` and `WorldRenderer.cs` against the tables in *What TF2 exposes that we do not*. The old
+statements are kept as written; what showed each wrong is the source line named. *Evidence class: read from our source.*
+
+| row | old statement | now |
+|---|---|---|
+| `mat_forceaniso` | "sampler is linear; no aniso set" | built, but hardcoded rather than a setting: anisotropic 16, `Filter.Anisotropic` (`WorldRenderer.cs:8483`, `:8506`) |
+| `mat_specular` | "not implemented" | a setting, default on (`ViewerSettings.cs:837`) |
+| `mat_phong` (not listed above; the 12-shader-parity doc's claim) | absent | a setting, default on (`ViewerSettings.cs:740`) |
+| `mat_hdr_level` | "none, bloom, full HDR" at 0, 1, 2 | a setting, default 2 (`BspHdr.cs:23`, `ViewerSettings.cs:828`); 3 still draws as 2 (B537), unchanged |
+| `mat_vsync` | "not exposed; `SyncInterval` is hardcoded to 0" | a setting, default off (`ViewerSettings.cs:899`) |
+| `fps_max` | "we present with no vsync and no cap" | a setting, default 300 (`ViewerSettings.cs:458`, `:552`) |
+
+Still true: `mat_antialias`/`mat_aaquality` (single-sampled) and `r_shadows` (no shadow renderer), now filed as B701 and
+B702 in `docs/RISKS.md` and deferred until the fps target. Not re-checked, so left as written: `mat_bumpmap` (the audit
+did not re-read `12-shader-parity.md`), and the `fov_desired` and `r_drawviewmodel` rows, which read as stale
+(the viewer has a first-person camera) but were not in the audit's list.
