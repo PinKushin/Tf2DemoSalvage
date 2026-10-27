@@ -49,22 +49,46 @@ public sealed class AttachmentQueryTests
     }
 
     /// <remarks>
-    /// **The instrument, not the behaviour** (finding 105 D): an entity the world pass drew is queried after a later pass
-    /// has moved the bone clock — as every effect's query is, after the viewmodel and undrawn passes. Whatever the query
-    /// builds of a skeleton built since the world pass is a rebuild by the engine's frame, which has one counter
-    /// (`InvalidateBoneCaches`, cdll_client_int.cpp:2163). Read with `BuiltThisFrame` after the clock moved, the counter
-    /// said 0 for every such build.
+    /// **The instrument, not the behaviour** (finding 105 D): a skeleton really built twice after the world pass. The
+    /// wearer is not drawn (`kRenderNone`), but its bone-merged item is, so the world pass builds the wearer through the
+    /// merge with the merge's own mask, `BONE_USED_BY_BONE_MERGE` (`bone_merge_cache.cpp:130`), and its first frame has no
+    /// previous mask to widen it. An attachment then asks for `BONE_USED_BY_ATTACHMENT`, which that build did not make
+    /// readable, so the query builds the same skeleton a second time — one build, and it is a rebuild. The case beside it
+    /// is the control the other way: a first build on an entity nothing built is a build and not a rebuild.
     /// </remarks>
     [Test]
-    public void AttachmentRebuilds_AQueryAfterALaterPassOnADrawnEntity_CountsEveryBuildAsARebuild()
+    public void AttachmentRebuilds_AQueryOnAWearerBuiltNarrowByItsItemsMerge_CountsItsBuildAsARebuild()
     {
-        EntityModelSet models = Posed();
+        EntityModelSet models = new();
+        SceneProp wearer = Subject() with { Pose = Subject().Pose with { RenderMode = RenderModes.None } };
+        SceneProp hat = new(
+            Entity + 1, "models/player/items/hat.mdl", ScenePropTrack.Classify("models/player/items/hat.mdl"), new ScenePose(), Entity)
+        {
+            BoneMerged = true,
+        };
+        SceneProp[] props = [hat, wearer];
 
-        models.Instances([], [], seconds: 0d, pass: EntityModelSet.UndrawnPass);
+        models.Add(props, _ => Model());
+        models.Instances(props, [], seconds: 0d);
+        models.ReadableBonesOf(Entity).ShouldBe(StudioBoneFlags.UsedByBoneMerge, "the control: built through the merge, narrow");
+
         models.AttachmentPosition(Entity, "muzzle").ShouldNotBeNull();
 
-        models.AttachmentQueries.ShouldBe(1, "the control: the query reached a bone setup");
-        models.AttachmentRebuilds.ShouldBe(models.AttachmentBuilds);
+        (models.AttachmentQueries, models.AttachmentBuilds, models.AttachmentRebuilds).ShouldBe((1, 1, 1));
+    }
+
+    /// <remarks>The other half of the counter's control: an entity nothing built this frame is built once, not rebuilt.</remarks>
+    [Test]
+    public void AttachmentRebuilds_AQueryOnAnEntityNothingBuilt_CountsABuildAndNoRebuild()
+    {
+        EntityModelSet models = new() { PosesUndrawn = false };
+        SceneProp[] props = [Subject()];
+
+        models.Add(props, _ => Model());
+        models.Instances(props, [], seconds: 0d, pass: EntityModelSet.UndrawnPass);
+        models.AttachmentPosition(Entity, "muzzle").ShouldNotBeNull();
+
+        (models.AttachmentQueries, models.AttachmentBuilds, models.AttachmentRebuilds).ShouldBe((1, 1, 0));
     }
 
     /// <remarks>
