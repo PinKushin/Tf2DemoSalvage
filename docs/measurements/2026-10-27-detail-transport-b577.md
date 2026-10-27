@@ -100,4 +100,70 @@ written, so **no timed run starts before the lead's GO**.
 
 ## Result
 
-(not run yet)
+Run 2026-10-27, from 04:17 to 05:31, after the coordinator's GO. Raw stdout of every run, the run script and the
+summariser were kept in the session scratch directory and are not committed. The tables below are the summariser's
+output. Builds: A is `d75ab179` (built from a `git archive` export at `D:/measure-f12/dtb-before-src`). B is `4a3e1b3b`.
+Both are Release builds with 0 warnings.
+
+**Deviations, stated.**
+1. The first launch passed the order as `A,B,B,...`. `pwsh -File` bound that to one string, so it matched no build and
+   ran no viewer, and nothing from it is used. The script now takes one string such as `ABBABAAB`. This is B580's
+   deviation (1) again.
+2. The gate waited 2 and 4 times before runs 1 and 2. The machine was busy then (samples up to 100%); every run started
+   under 25% on all three samples. No run was discarded.
+3. `between` and the frame mean come from the frame-weighted `phases` line of the whole window. `detail`, `dispatches`
+   and `muzzles` are unweighted means of the per-second `parts:` lines. There are 58 such lines on gummo, and the second
+   half is lines 30-58. The empty view has 18.
+
+**gummo, first person, 60 s** (every run ended at tick 33990-34014):
+
+| run | build | load before / after | frames | mean ms | between | detail 1st half | detail 2nd half | dispatches | muzzles |
+|---|---|---|---:|---:|---:|---:|---:|---:|---:|
+| 1 | A | 24 16 22 / 14 11 13 | 6473 | 9.27 | 0.34 | 0.156 | 0.753 | 0.201 | 0.146 |
+| 2 | B | 15 6 13 / 10 13 9 | 6804 | 8.82 | 0.32 | 0.084 | 0.458 | 0.192 | 0.141 |
+| 3 | B | 13 13 12 / 9 13 12 | 6887 | 8.71 | 0.32 | 0.090 | 0.456 | 0.188 | 0.142 |
+| 4 | A | 11 6 15 / 13 6 12 | 6598 | 9.09 | 0.33 | 0.157 | 0.749 | 0.198 | 0.143 |
+| 5 | B | 10 15 10 / 13 10 10 | 6795 | 8.83 | 0.32 | 0.092 | 0.459 | 0.195 | 0.141 |
+| 6 | A | 12 20 12 / 7 18 7 | 6674 | 8.99 | 0.33 | 0.151 | 0.729 | 0.198 | 0.145 |
+| 7 | A | 8 14 12 / 18 14 11 | 6719 | 8.93 | 0.33 | 0.149 | 0.733 | 0.193 | 0.138 |
+| 8 | B | 18 18 17 / 18 13 10 | 6818 | 8.80 | 0.32 | 0.094 | 0.454 | 0.189 | 0.139 |
+
+**Empty view, 20 s** (every run ended at tick 31347):
+
+| run | build | load before / after | frames | mean ms | between | detail | dispatches | muzzles |
+|---|---|---|---:|---:|---:|---:|---:|---:|
+| 1 | A | 21 13 19 / 15 10 11 | 4867 | 4.11 | 0.25 | 0.000 | 0.214 | 0.227 |
+| 2 | B | 13 16 19 / 19 14 13 | 4996 | 4.00 | 0.25 | 0.000 | 0.201 | 0.221 |
+| 3 | B | 19 13 8 / 23 10 21 | 4731 | 4.23 | 0.27 | 0.000 | 0.196 | 0.226 |
+| 4 | A | 10 14 21 / 11 18 11 | 4995 | 4.00 | 0.26 | 0.000 | 0.191 | 0.214 |
+| 5 | B | 13 9 21 / 16 19 10 | 5019 | 3.99 | 0.25 | 0.000 | 0.192 | 0.217 |
+| 6 | A | 11 12 7 / 17 13 16 | 4988 | 4.01 | 0.24 | 0.000 | 0.193 | 0.211 |
+| 7 | A | 12 10 9 / 18 18 14 | 4875 | 4.10 | 0.25 | 0.000 | 0.207 | 0.224 |
+| 8 | B | 11 18 15 / 9 5 15 | 5022 | 3.98 | 0.25 | 0.000 | 0.196 | 0.220 |
+
+**By change, A range → B range, with % of that build's frame mean:**
+
+- **Detail (D), gummo, second half:** A 0.729-0.753 ms (8.1-8.2%) → B 0.454-0.459 ms (5.2%). The spread is 0.024 in A
+  and 0.005 in B, and the drop is 0.27-0.30 ms, about 38%. In the first half A reads 0.149-0.157 and B 0.084-0.094; over
+  the whole window A is 0.440-0.454 and B 0.271-0.275. The in-range control passes: A's second half is well above zero.
+  **Prediction ("under half") falsified on the high side:** B is 61-63% of A, not under 50%.
+- **Frame mean, gummo:** A 8.93-9.27 → B 8.71-8.83 ms. The ranges do not overlap. The difference of the build means
+  (A 9.07, B 8.79) is 0.28 ms, about the size of the detail drop.
+- **Transport (T), `between`:** gummo A 0.33-0.34 → B 0.32 ms (3.6-3.7% of the frame both ways). Empty A 0.24-0.26 → B
+  0.25-0.27 (6.0-6.5% both ways). **No measured change** on either subject: the ranges overlap and the resolution is
+  0.01 ms. The prediction of 0.1-0.3 ms is falsified. The repeated label write was not where `between`'s cost lives;
+  the TrackBar repaint on a moved tick, and whatever else `between` holds, was not split here.
+- **B577 (B), dispatches + muzzles:** gummo A 0.332-0.348 (3.7-3.8%) → B 0.328-0.336 (3.7-3.8%). Empty A 0.404-0.441
+  (10.1-10.7%) → B 0.408-0.422 (10.0-10.6%). **No measured change**: the ranges overlap on both subjects. The prediction
+  of 0.05-0.2 ms is falsified. Re-offering finished one-shots from cache saved nothing measurable, so the cost is not in
+  the finished ones. It is in what is still live: the owned dispatches' per-frame offers (attachment queries on followed
+  points, `AddParticleEffect`), and the window searches. This is the split B577's "Left" already asked for, still not
+  taken.
+
+## Verdict
+
+**Detail: faster, 0.27-0.30 ms a frame on gummo in detail range (8.1% → 5.2% of the frame), with the frame mean down
+0.28 ms.** Identity is from the probe, with only the exact ties reordered into HeapSort order (above). **Transport and
+B577: correct by their tests, but no frame time measured as removed on either subject.** Neither is a perf win as
+built; both are kept as parity and allocation tidying. B577's real cost needs the split of `dispatches` into its live
+owned offers before another fix.

@@ -40895,7 +40895,9 @@ both red on the old code (lump order). **Identity, by the `detail-hash` probe on
 quads** (*measured*): the per-lane set hash is equal before and after (`747bd2e36488e1b3`); the order-including hash
 differs (`293530ac9f0717a4` → `9be0ad88d4b0ef3c`), and with ties broken by lump index in BOTH builds it is equal
 (`dc27b769f0b8dc78` each), so the only change is the order of tied quads. The tie census is 79 (an upper bound, a second
-route). Frame cost: not yet measured (plan: measurements/2026-10-27-detail-transport-b577.md).
+route). **Measured** (measurements/2026-10-27-detail-transport-b577.md, 4 runs per build, ABBA then BAAB): on gummo
+first person in detail range, `setcamera detail` dropped from 0.729-0.753 ms (8.1-8.2% of the frame) to 0.454-0.459 ms
+(5.2%). The frame mean dropped from 8.93-9.27 to 8.71-8.83 ms (measurements/2026-10-27-detail-transport-b577.md).
 
 ## B579 — the HUD's event feed walks every game event and user message of the match, every frame — FIXED (2026-10-23)
 
@@ -40977,7 +40979,11 @@ owned dispatches' dormancy closures are made once per dispatch and timeline inst
 **Sabotage:** leaving gone keys out reddens the state test and both fingerprint tests. Dropping the sentry's posed gate
 reddens the state test. **Assumption, named:** a posed entity whose attachment resolved when the flash fired still
 resolves it inside the flash's window. A model swapped within that second would break it. **Still open:** the attachment queries of live followed effects, which the engine
-also re-reads every frame. Frame cost not measured yet (plan: measurements/2026-10-27-detail-transport-b577.md).
+also re-reads every frame. **Measured: no change** (measurements/2026-10-27-detail-transport-b577.md). `dispatches` +
+`muzzles` were 0.332-0.348 ms before and 0.328-0.336 ms after on gummo, and 0.404-0.441 vs 0.408-0.422 ms on the empty (measurements/2026-10-27-detail-transport-b577.md)
+view. The ranges overlap, so the finished one-shots were not where the cost was. **Next:** split `dispatches` into its
+live owned offers (attachment queries on followed points, `AddParticleEffect`) and the window searches, before any
+further fix.
 
 ## B576 — a talking face rewrote every slot of its model's flex stream, every changing frame — FIXED (2026-10-22)
 
