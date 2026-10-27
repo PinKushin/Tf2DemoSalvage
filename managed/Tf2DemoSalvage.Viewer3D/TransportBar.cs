@@ -350,13 +350,24 @@ internal sealed class TransportBar : UserControl, IPlaybackView
     /// <remarks>
     /// Used by playback to report where it has got to. Raising the event here would feed the
     /// control's own output back in as a seek request on every frame.
+    ///
+    /// **Writes only when the tick moved, and once** (B572). It is called every frame and most frames repeat the
+    /// tick; the readout depends on the tick and the length alone, so a repeat has nothing to show. A moved value raises
+    /// the scrub bar's <c>ValueChanged</c>, whose handler writes the readout — the second, explicit write that
+    /// followed it here put the same text and accessible name on the label twice a frame.
     /// </remarks>
     public void ShowTick(int tick)
     {
+        int clamped = Math.Clamp(tick, _scrub.Minimum, _scrub.Maximum);
+
+        if (clamped == _scrub.Value)
+        {
+            return;
+        }
+
         _suppressScrubEvent = true;
-        _scrub.Value = Math.Clamp(tick, _scrub.Minimum, _scrub.Maximum);
+        _scrub.Value = clamped;
         _suppressScrubEvent = false;
-        UpdateTickLabel();
     }
 
     private void OnScrubValueChanged(object? sender, EventArgs e)
