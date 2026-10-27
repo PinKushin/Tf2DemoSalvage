@@ -740,16 +740,15 @@ public sealed class BurstEffectsStepTests
     }
 
     /// <remarks>
-    /// **B577's remainder: a one-shot the effects let go of is offered again as it last was, not rebuilt.** The engine
-    /// creates it once on arrival (`C_TEEffectDispatch::PostDataUpdate`, c_te_effect_dispatch.cpp:146 →
-    /// `DispatchEffectToCallback`, :71) and removes it once `IsFinished` (particlemgr.cpp:1581-1584); nothing reads its
-    /// owner again. Every system here has no emitter, so each is finished on its first played step. The attachment is
-    /// then moved: a played frame offers the burst at the OLD point, which no fresh build could, so nothing was queried;
-    /// the control is the seek, which rebuilds from the offer (D221) at the new one. Kinds with no attachment offer the
-    /// same either way, and are held by the playback test below.
+    /// **B577's remainder: a finished one-shot is offered again from cache only where the cache IS the fresh build** (B577
+    /// review). Every system here has no emitter, so each is finished on its first played step. The attachment then moves:
+    /// a sentry or weapon flash, whose offer hangs on a pose, is built fresh at the new point, played or seeked, because
+    /// whether a fresh build offers it at all is the attachment query a cache would skip. An entity-less dispatch or TF
+    /// effect offers the same burst either way, its point fixed at first sight. The playback test below holds that the
+    /// cache served them.
     /// </remarks>
     [Test]
-    public void StepOver_AFinishedOneShotOnTheNextFrame_IsItsLastOfferUnlessTheFrameLanded(
+    public void StepOver_AFinishedOneShotAfterItsAttachmentMoved_IsBuiltFreshWhereItsOfferHangsOnAPose(
         [Values] OneShot kind, [Values] bool seeked)
     {
         (BurstEffects bursts, FakePosedEntities models, _) = Presenter();
@@ -769,7 +768,7 @@ public sealed class BurstEffectsStepTests
         bool attached = kind is OneShot.WeaponFlash or OneShot.SentryFlash;
 
         again.Key.ShouldBe(first.Key);
-        again.At.At.X.ShouldBe(attached && seeked ? 500f : first.At.At.X);
+        again.At.At.X.ShouldBe(attached ? 500f : first.At.At.X);
     }
 
     /// <remarks>
@@ -791,20 +790,40 @@ public sealed class BurstEffectsStepTests
         reference.OfferGoneBursts = true;
 
         long corners = 0;
-        int reoffered = 0;
+        int swapped = 0;
+        int shownBack = 0;
+        double lastShown = double.MinValue;
+        int lastTick = int.MinValue;
 
         for (int frame = 0; frame < frames.Count; frame++)
         {
             PlaybackFrame played = frames[frame];
 
+            // Unposed one frame in twelve; one in seventeen posed with NO barrel, a sentry whose upgrade swapped its model.
+            // Otherwise posed, the attachments where this frame puts them.
+            bool posed = frame % 12 != 5;
+            bool swap = posed && frame % 17 == 9;
+
             foreach (FakePosedEntities models in (FakePosedEntities[])[referenceModels, liveModels])
             {
-                // Unposed one frame in twelve, else posed with its attachments where this frame puts them.
-                bool posed = frame % 12 != 5;
                 ShowOneShotOwners(models, posed, frame % 7);
+
+                if (swap)
+                {
+                    models.Numbered.Remove((Sentry, 3));
+                }
             }
 
-            BurstFrame step = Frame(timeline, played.At) with { Seeked = played.Seeked };
+            // The shown time inside the tick wanders, so on some played frames it moves BACK within one tick: a finished
+            // burst then has `SimulatedTo > wanted` and is rebuilt from whatever it was offered.
+            double shown = played.At + (((frame * 37) % 10) / 10d);
+
+            swapped += swap ? 1 : 0;
+            shownBack += !played.Seeked && shown < lastShown && played.At == lastTick ? 1 : 0;
+            lastShown = shown;
+            lastTick = played.At;
+
+            BurstFrame step = Frame(timeline, played.At) with { Seeked = played.Seeked, ShownTick = shown };
             BurstWorld world = World() with { Systems = FiniteSystems };
             string at = $"frame {frame} at tick {played.At}";
 
@@ -819,11 +838,32 @@ public sealed class BurstEffectsStepTests
 
             BatchBytes(liveParticles).ShouldBe(drawn, at);
             corners += drawn.Length;
-            reoffered += live.Bursts.Count(burst => !reference.Bursts.Contains(burst));
         }
 
         corners.ShouldBeGreaterThan(0, "the control: the one-shots are drawn");
-        reoffered.ShouldBeGreaterThan(200, "the control: let-go bursts were offered from their last offer, not rebuilt");
+        live.Reoffers.ShouldBeGreaterThan(200, "the control: let-go bursts were offered from cache, not rebuilt");
+        reference.Reoffers.ShouldBe(0, "the control: the reference builds every offer");
+        swapped.ShouldBeGreaterThan(100, "the control: the sentry's model swaps under it");
+        shownBack.ShouldBeGreaterThan(100, "the control: the shown time moves back within a tick on played frames");
+    }
+
+    /// <remarks>
+    /// **`BurstEffects` keeps per-timeline caches keyed on the timeline object alone** — `_stops` (from
+    /// `Dispatches.All` and `Dormancy.DeletedAfter`) and the owned dispatches' dormancy questions, which capture
+    /// `timeline.Dormancy`. They are right only if neither member can be replaced on a timeline that already exists. Both
+    /// are `private init`, so nothing after construction can, and a dormancy replaced on the same timeline is not a
+    /// reachable case. This holds the setters to init-only: one made settable would make that case reachable, and the
+    /// caches would need keying on the member too.
+    /// </remarks>
+    [TestCase(nameof(DemoTimeline.Dormancy))]
+    [TestCase(nameof(DemoTimeline.Dispatches))]
+    public void Timeline_TheMembersBurstEffectsCachesPerTimeline_AreInitOnly(string member)
+    {
+        System.Reflection.MethodInfo? setter = typeof(DemoTimeline).GetProperty(member)!.SetMethod;
+
+        setter.ShouldNotBeNull();
+        setter.ReturnParameter.GetRequiredCustomModifiers()
+            .ShouldContain(typeof(System.Runtime.CompilerServices.IsExternalInit), $"{member}'s setter is init-only");
     }
 
     /// <summary>Poses or unposes the weapon and the sentry, their attachments at a place that moves with <paramref name="shift"/>.</summary>
