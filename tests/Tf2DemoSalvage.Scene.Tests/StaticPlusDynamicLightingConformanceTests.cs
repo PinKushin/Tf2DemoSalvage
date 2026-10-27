@@ -120,6 +120,41 @@ public sealed class StaticPlusDynamicLightingConformanceTests
         lighting.StaticPlusDynamicLights(1000, 0f, 0f, 100f).ShouldBeEmpty();
     }
 
+    /// <summary>
+    /// Bit 2 reads only the live set: `FUN_1801ba590` masks the handle's dlight bits `+0x1a4` by `r_dlightactive`
+    /// (`DAT_1806996c4`) before converting any light, so with no live dlight a prop does no dlight work at all — no slot
+    /// walk and no leaf lookup for the prop (finding 67, measurement 2026-10-27-static-prop-lighting).
+    /// </summary>
+    [Test]
+    public void StaticPlusDynamicLights_NoLiveDlight_ExaminesNoSlot()
+    {
+        LevelLighting lighting = Map([]);
+        lighting.Dynamic = new DynamicLights { Time = 1f };
+
+        lighting.StaticPlusDynamicLights(1000, 0f, 0f, 100f).ShouldBeEmpty();
+        lighting.StaticPropFullLightingAt(1000, 0f, 0f, 100f).Lighting.Locals.ShouldBeEmpty();
+
+        lighting.DlightsExamined.ShouldBe(0, "32 dead slots: none is the live set's");
+    }
+
+    /// <summary>Three live dlights, one in reach: each live slot is examined once, and only the one in reach is ranked.</summary>
+    [Test]
+    public void StaticPlusDynamicLights_ThreeLiveDlightsOneInReach_ExaminesThreeAndRanksOne()
+    {
+        LevelLighting lighting = Map([]);
+        DynamicLights lights = new() { Time = 1f };
+        lighting.Dynamic = lights;
+
+        foreach ((int key, float radius) in new[] { (1, 1f), (2, 255f), (3, 1f) })
+        {
+            DynamicLight light = lights.AllocDlight(key);
+            (light.X, light.Y, light.Z, light.Radius, light.Red, light.Die) = (0f, 0f, 120f, radius, 255, 2f);
+        }
+
+        lighting.StaticPlusDynamicLights(1000, 0f, 0f, 100f).Count.ShouldBe(1, "a radius of 1 does not reach 20 units");
+        lighting.DlightsExamined.ShouldBe(3);
+    }
+
     /// <summary>A lamp 20 units above the prop's lighting origin.</summary>
     internal static BspWorldLight Lamp(int style, int cluster, float radius = 0f) =>
         LevelLightingTests.Lamp((0f, 0f, 120f), 400f) with { Style = style, Cluster = cluster, Radius = radius };
