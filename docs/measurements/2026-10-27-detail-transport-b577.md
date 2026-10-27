@@ -18,7 +18,8 @@ From the read-only ranking:
 - **D** (detail): `5faf3cfa` HeapSorts each leaf lane separately and reads through spans. `ae9791ca` makes
   `DetailSpriteLeaves.Add` count per lane.
 - **T** (transport): `38e543e8`, which writes the label only when the tick moved, and only once.
-- **B** (B577): `73f02aad`, which lets played frames leave out the one-shots `ParticleEffects` has let go of.
+- **B** (B577): `73f02aad`, amended by the following commit. On played frames, the one-shots `ParticleEffects` has let go
+  of are re-offered from cache instead of rebuilt.
 
 **Identity, shown before any timing run** (no viewer was needed):
 
@@ -27,9 +28,9 @@ From the read-only ranking:
   lump index in both builds the two order-including hashes match (`dc27b769f0b8dc78`), so the only reorder is among the
   79 exact ties, which now take Valve's HeapSort order.
 - T: unit tests on the label.
-- B: a per-frame state-equivalence test. On every frame it compares the same set of drawn quads (exact bytes of blend
-  and corners) and the same whizzes, but not offers. Order across effects is excluded on purpose, because it is
-  dictionary order and changes when a finished burst is retired sooner. That order change is left to the lead to accept.
+- B: a per-frame state-equivalence test against offer-everything. It checks batch bytes in order, whizzes, offered keys
+  in order, census and step counters. The B577/B592 fingerprints are unchanged. Gone keys are re-offered from cache
+  (coordinator: do not change drawn order).
 
 ## Viewer-path identity (detail), if the lead wants it beyond the probe
 

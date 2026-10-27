@@ -697,16 +697,34 @@ public sealed class BurstEffectsStepTests
         TfParticle,
     }
 
-    private static (DemoTimeline Timeline, int Fired) OneShotTimeline(OneShot kind, FakePosedEntities models)
+    /// <summary>Puts the one-shot's attachment, when it has one, at <paramref name="x"/>; posed, as a pass would.</summary>
+    private static void PlaceOneShot(OneShot kind, FakePosedEntities models, float x)
     {
         switch (kind)
         {
             case OneShot.WeaponFlash:
-                models.Named[(Weapon, "muzzle")] = ParticleControlPoint.Unoriented(new Vector3(20f, 0f, 60f));
+                models.Posed.Add(Weapon);
+                models.Named[(Weapon, "muzzle")] = ParticleControlPoint.Unoriented(new Vector3(x, 0f, 60f));
+                break;
+            case OneShot.SentryFlash:
+                models.Posed.Add(Sentry);
+                models.Numbered[(Sentry, 3)] = ParticleControlPoint.Facing(new Vector3(x, 0f, 40f), 30f);
+                break;
+            default:
+                break;
+        }
+    }
+
+    private static (DemoTimeline Timeline, int Fired) OneShotTimeline(OneShot kind, FakePosedEntities models)
+    {
+        PlaceOneShot(kind, models, 20f);
+
+        switch (kind)
+        {
+            case OneShot.WeaponFlash:
                 DemoTimeline firing = Firing(item: 200);
                 return (firing, firing.MuzzleFlashes.All.ShouldHaveSingleItem().Tick);
             case OneShot.SentryFlash:
-                models.Numbered[(Sentry, 3)] = ParticleControlPoint.Facing(new Vector3(700f, 0f, 40f), 30f);
                 DemoTimeline sentry = Timeline(SentryFlash(100, 1));
                 return (sentry, sentry.Dispatches.All.ShouldHaveSingleItem().Tick);
             case OneShot.EntitylessDispatch:
@@ -722,107 +740,108 @@ public sealed class BurstEffectsStepTests
     }
 
     /// <remarks>
-    /// **B577's remainder: a one-shot the effects let go of is not offered again while playing.** The engine creates it
-    /// once on arrival (`C_TEEffectDispatch::PostDataUpdate`, c_te_effect_dispatch.cpp:146 → `DispatchEffectToCallback`,
-    /// :71) and removes it once `IsFinished` (particlemgr.cpp:1581-1584). Every system here has no emitter, so each is
-    /// finished on its first played step. The control is the seek: a landed frame rebuilds from the offer (D221), so it is
-    /// offered again.
+    /// **B577's remainder: a one-shot the effects let go of is offered again as it last was, not rebuilt.** The engine
+    /// creates it once on arrival (`C_TEEffectDispatch::PostDataUpdate`, c_te_effect_dispatch.cpp:146 →
+    /// `DispatchEffectToCallback`, :71) and removes it once `IsFinished` (particlemgr.cpp:1581-1584); nothing reads its
+    /// owner again. Every system here has no emitter, so each is finished on its first played step. The attachment is
+    /// then moved: a played frame offers the burst at the OLD point, which no fresh build could, so nothing was queried;
+    /// the control is the seek, which rebuilds from the offer (D221) at the new one. Kinds with no attachment offer the
+    /// same either way, and are held by the playback test below.
     /// </remarks>
     [Test]
-    public void StepOver_AFinishedOneShotOnTheNextFrame_IsOfferedOnlyIfTheFrameLanded(
+    public void StepOver_AFinishedOneShotOnTheNextFrame_IsItsLastOfferUnlessTheFrameLanded(
         [Values] OneShot kind, [Values] bool seeked)
     {
         (BurstEffects bursts, FakePosedEntities models, _) = Presenter();
         (DemoTimeline timeline, int fired) = OneShotTimeline(kind, models);
 
         bursts.StepOver(Frame(timeline, fired), World());
-        bursts.Bursts.Count.ShouldBe(1, "the control: offered when it fires");
+        ParticleBurst first = bursts.Bursts.ShouldHaveSingleItem("the control: offered when it fires");
 
         // The creation frame simulates nothing (particlemgr.cpp:1572-1575), so it finishes on the next.
         bursts.StepOver(Frame(timeline, fired + 1), World());
         bursts.Bursts.Count.ShouldBe(1, "the control: offered while it runs");
 
+        PlaceOneShot(kind, models, 500f);
         bursts.StepOver(Frame(timeline, fired + 2) with { Seeked = seeked }, World());
 
-        bursts.Bursts.Count.ShouldBe(seeked ? 1 : 0);
+        ParticleBurst again = bursts.Bursts.ShouldHaveSingleItem();
+        bool attached = kind is OneShot.WeaponFlash or OneShot.SentryFlash;
+
+        again.Key.ShouldBe(first.Key);
+        again.At.At.X.ShouldBe(attached && seeked ? 500f : first.At.At.X);
     }
 
     /// <remarks>
-    /// **B577's remainder changes the offers and the census by design, so what it must keep is the STATE**: every frame's
-    /// drawn batches, byte for byte, and its whizzes. The reference is the same presenter with
-    /// <see cref="BurstEffects.OfferGoneBursts"/> set, through its own <see cref="ParticleEffects"/>. The one-shots are
-    /// finite and drawn: three sprites a fifth of a second long, so each is offered while it shows, then let go. A fixed
+    /// **B577's remainder may change only the WORK**: every frame's drawn batches byte for byte and in order, its whizzes,
+    /// the keys offered in order, the census and the step counters must be what offering every one-shot built afresh
+    /// gave. The reference is the same presenter with <see cref="BurstEffects.OfferGoneBursts"/> set, through its own
+    /// <see cref="ParticleEffects"/>. The one-shots are finite and drawn: three sprites a fifth of a second long. A fixed
     /// pseudo-random playback of weapon flashes, sentry flashes, entity-less and TF dispatches, with several frames a tick,
-    /// seeks both ways and a clock gone back without a seek flag.
+    /// seeks both ways, a clock gone back without a seek flag, and the weapon and the sentry unposed and posed again, their
+    /// attachments moving each time. The work control: the live side re-offers hundreds of bursts it did not rebuild,
+    /// which it can only do from its last offer.
     /// </remarks>
     [Test]
-    public void StepOver_OneShotsLetGoOverAPlayback_DrawWhatOfferingThemAllDrew()
+    public void StepOver_OneShotsLetGoOverAPlayback_DrawAndCountWhatOfferingThemAllDid()
     {
         (DemoTimeline timeline, List<PlaybackFrame> frames) = OneShotPlayback();
         (BurstEffects reference, FakePosedEntities referenceModels, ParticleEffects referenceParticles) = Presenter();
         (BurstEffects live, FakePosedEntities liveModels, ParticleEffects liveParticles) = Presenter();
         reference.OfferGoneBursts = true;
 
-        foreach (FakePosedEntities models in (FakePosedEntities[])[referenceModels, liveModels])
-        {
-            models.Named[(Weapon, "muzzle")] = ParticleControlPoint.Unoriented(new Vector3(20f, 0f, 60f));
-            models.Numbered[(Sentry, 3)] = ParticleControlPoint.Facing(new Vector3(70f, 0f, 40f), 30f);
-        }
-
         long corners = 0;
-        int referenceOffers = 0;
-        int liveOffers = 0;
+        int reoffered = 0;
 
         for (int frame = 0; frame < frames.Count; frame++)
         {
             PlaybackFrame played = frames[frame];
+
+            foreach (FakePosedEntities models in (FakePosedEntities[])[referenceModels, liveModels])
+            {
+                // Unposed one frame in twelve, else posed with its attachments where this frame puts them.
+                bool posed = frame % 12 != 5;
+                ShowOneShotOwners(models, posed, frame % 7);
+            }
+
             BurstFrame step = Frame(timeline, played.At) with { Seeked = played.Seeked };
             BurstWorld world = World() with { Systems = FiniteSystems };
             string at = $"frame {frame} at tick {played.At}";
 
             reference.StepOver(step, world).ShouldBe(live.StepOver(step, world), at);
 
-            string[] drawn = DrawnQuads(referenceParticles);
+            live.Bursts.Select(static burst => burst.Key).ShouldBe(reference.Bursts.Select(static burst => burst.Key), at);
+            liveParticles.Census().ShouldBe(referenceParticles.Census(), at);
+            (liveParticles.BurstBuilds, liveParticles.ReplaySteps, liveParticles.Steps, liveParticles.Slept).ShouldBe(
+                (referenceParticles.BurstBuilds, referenceParticles.ReplaySteps, referenceParticles.Steps, referenceParticles.Slept), at);
 
-            DrawnQuads(liveParticles).ShouldBe(drawn, at);
+            byte[] drawn = BatchBytes(referenceParticles);
+
+            BatchBytes(liveParticles).ShouldBe(drawn, at);
             corners += drawn.Length;
-            referenceOffers += reference.Bursts.Count;
-            liveOffers += live.Bursts.Count;
+            reoffered += live.Bursts.Count(burst => !reference.Bursts.Contains(burst));
         }
 
         corners.ShouldBeGreaterThan(0, "the control: the one-shots are drawn");
-        liveOffers.ShouldBeLessThan(referenceOffers / 2, "the control: the let-go ones were left out");
-        liveOffers.ShouldBeGreaterThan(0, "the control: the live ones were offered");
+        reoffered.ShouldBeGreaterThan(200, "the control: let-go bursts were offered from their last offer, not rebuilt");
     }
 
-    /// <summary>Every quad this frame draws, as its batch's blend and its six corners' bytes, sorted.</summary>
-    /// <remarks>
-    /// **Sorted, because the order ACROSS effects is not state**: it is `ParticleEffects`' dictionary order, which a
-    /// burst retired sooner changes by freeing its slot. The engine does not draw effects in its list's order either; each
-    /// is a translucent renderable sorted by the view. Every quad, its corners and its blend must still match exactly.
-    /// </remarks>
-    private static string[] DrawnQuads(ParticleEffects particles)
+    /// <summary>Poses or unposes the weapon and the sentry, their attachments at a place that moves with <paramref name="shift"/>.</summary>
+    private static void ShowOneShotOwners(FakePosedEntities models, bool posed, int shift)
     {
-        List<string> quads = [];
-
-        foreach (ParticleBatch batch in particles.Build(Vector3.Zero, Vector3.UnitX, Vector3.UnitZ, SmokeMaterial))
+        if (!posed)
         {
-            DetailSpriteVertex[] corners = batch.Corners.ToArray();
-
-            for (int at = 0; at + DetailSprites.CornersPerQuad <= corners.Length; at += DetailSprites.CornersPerQuad)
-            {
-                byte[] bytes = System.Runtime.InteropServices.MemoryMarshal.AsBytes(
-                    corners.AsSpan(at, DetailSprites.CornersPerQuad)).ToArray();
-
-                quads.Add($"{(byte)batch.Material.Blend}:{Convert.ToHexString(bytes)}");
-            }
-
-            corners.Length.ShouldBe(corners.Length / DetailSprites.CornersPerQuad * DetailSprites.CornersPerQuad, "whole quads");
+            models.Posed.Remove(Weapon);
+            models.Posed.Remove(Sentry);
+            models.Named.Remove((Weapon, "muzzle"));
+            models.Numbered.Remove((Sentry, 3));
+            return;
         }
 
-        quads.Sort(StringComparer.Ordinal);
-
-        return [.. quads];
+        models.Posed.Add(Weapon);
+        models.Posed.Add(Sentry);
+        models.Named[(Weapon, "muzzle")] = ParticleControlPoint.Unoriented(new Vector3(20f + shift, 0f, 60f));
+        models.Numbered[(Sentry, 3)] = ParticleControlPoint.Facing(new Vector3(70f + shift, 0f, 40f), 30f);
     }
 
     /// <summary>The one-shots' systems made finite and drawn: three sprites, a fifth of a second, then decayed.</summary>
@@ -1086,11 +1105,6 @@ public sealed class BurstEffectsStepTests
         (BurstEffects live, FakePosedEntities liveModels, ParticleEffects liveParticles) = Presenter();
         reference.WalkEveryOwnedDispatch = true;
 
-        // The fingerprint below was recorded while every one-shot was offered each frame, and B577's remainder changes the
-        // census by design; its state equivalence is `StepOver_OneShotsLetGoOverAPlayback_DrawWhatOfferingThemAllDrew`.
-        reference.OfferGoneBursts = true;
-        live.OfferGoneBursts = true;
-
         int offered = 0;
         Fingerprint fingerprint = new();
 
@@ -1148,10 +1162,6 @@ public sealed class BurstEffectsStepTests
         (BurstEffects threaded, FakePosedEntities threadedModels, ParticleEffects threadedParticles) = Presenter();
         serialParticles.Workers = new ParticleWorkers { Threaded = false };
         threadedParticles.Workers = workers;
-
-        // As in the live-owned test: the fingerprint predates B577's remainder, which changes the census by design.
-        serial.OfferGoneBursts = true;
-        threaded.OfferGoneBursts = true;
 
         Dictionary<string, ParticleSystem> systems = rendered ? RenderedSystems : Systems;
         ShotTracer[]? tracers = rendered ? [.. Enumerable.Range(0, 12).Select(static at => Tracer(150 + (at * 120), bullet: at))] : null;

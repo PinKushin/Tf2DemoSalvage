@@ -40957,22 +40957,26 @@ and the census by design and needs a state-equivalence test, not an offer one.
 
 **Remainder done (2026-10-27, `perf/detail-transport-b577`).** **Read:** a dispatch fires once from
 `C_TEEffectDispatch::PostDataUpdate` (c_te_effect_dispatch.cpp:146) into `DispatchEffectToCallback` (:71), and the
-manager removes the effect once `IsFinished` (particlemgr.cpp:1581-1584). **Fixed:** on a played frame, a key
-`ParticleEffects.IsGone` reports is no longer offered. This covers sentry flashes, weapon flashes (both keys, before the
-attachment query), entity-less dispatches and `CTETFParticleEffect`s. A seek or a clock gone back still offers every
-key, because it rebuilds from the offer (D221). `played` is computed once per `StepOver` for every offerer. The owned
-dispatches' dormancy closures are made once per dispatch and timeline instead of once a frame. **Held by**
-`StepOver_AFinishedOneShotOnTheNextFrame_IsOfferedOnlyIfTheFrameLanded`, which covers all four kinds, played and
-seeked, and `StepOver_OneShotsLetGoOverAPlayback_DrawWhatOfferingThemAllDrew`. That test plays 3,000 frames of finite
-drawn one-shots against a reference with `OfferGoneBursts` set and offers under half as many bursts. Each frame draws
-the same set of quads (exact bytes: blend and six corners) and the same whizzes. **The order ACROSS effects changes.** A
-finished burst is retired sooner, which frees its slot in the `ParticleEffects` dictionary for a later insert, so on
-some frames overlapping translucent one-shots from different effects blend in a different order. That order is
-dictionary order both before and after, not the engine's, which sorts each effect as a renderable. This is a visible
-change, filed for the lead to accept. To refuse it, offer the cached last `ParticleBurst` for a gone key: a finished
-burst that is still offered is kept and not stepped, so order and census stay identical and the attachment query is
-still saved. The B577 and B592 fingerprint tests set `OfferGoneBursts`, because their
-recorded census predates the change. **Still open:** the attachment queries of live followed effects, which the engine
+manager removes the effect once `IsFinished` (particlemgr.cpp:1581-1584). **Fixed:** on a played frame, a key that
+`ParticleEffects.IsGone` reports is offered again from its cached last `ParticleBurst` instead of being rebuilt. This
+applies to sentry flashes, weapon flashes (both keys), entity-less dispatches and `CTETFParticleEffect`s, and saves the
+attachment query and the build. A finished burst that is still offered is kept and not stepped, and its point is never
+read, so census, retire timing and dictionary (draw) order are exactly what a fresh offer gave. **Coordinator's
+decision, 2026-10-27:** *"do NOT change drawn order"*. The first version left gone keys out entirely; that retired them
+sooner and moved later effects in the draw order, so it was replaced. A cached offer is used only where a fresh build
+would also offer: for an attached kind (sentry barrel, world weapon), only while its entity is posed. Viewmodel flashes
+always rebuild. A seek or a clock gone back rebuilds every key (D221). `played` is computed once per `StepOver`. The
+owned dispatches' dormancy closures are made once per dispatch and timeline instead of once a frame. **Held by:**
+- `StepOver_AFinishedOneShotOnTheNextFrame_IsItsLastOfferUnlessTheFrameLanded`, over all four kinds, played and seeked:
+  with the attachment moved, a played frame offers the old point (no query) and a seek offers the new one.
+- `StepOver_OneShotsLetGoOverAPlayback_DrawAndCountWhatOfferingThemAllDid`, 3,000 frames of finite drawn one-shots
+  with the owners unposed and moved. Every frame's batch bytes in order, whizzes, offered keys in order, census and step
+  counters all equal a reference with `OfferGoneBursts` set, and more than 200 offers came from the cache.
+- The B577 and B592 fingerprint tests, unchanged and unflagged.
+
+**Sabotage:** leaving gone keys out reddens the state test and both fingerprint tests. Dropping the sentry's posed gate
+reddens the state test. **Assumption, named:** a posed entity whose attachment resolved when the flash fired still
+resolves it inside the flash's window. A model swapped within that second would break it. **Still open:** the attachment queries of live followed effects, which the engine
 also re-reads every frame. Frame cost not measured yet (plan: measurements/2026-10-27-detail-transport-b577.md).
 
 ## B576 — a talking face rewrote every slot of its model's flex stream, every changing frame — FIXED (2026-10-22)
