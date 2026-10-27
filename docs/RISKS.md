@@ -19708,6 +19708,21 @@ engine (`f61c7602`, `simulate` 0.5-0.6 → 0.3-0.4 ms; `measurements/2026-10-23-
 does for every entity too. **Still open:** `sample`, `drawlist` and `collate` walk every entity (~230 on f12), not only
 those that changed; together about 0.6 ms.
 
+### B259 on 2026-10-27: the world walk is pruned by the PVS, as the engine's mark-leaves makes it
+
+`WorldVisibility` used to walk every node the frustum kept and test the PVS per LEAF, so a subtree the PVS hides
+whole was still descended to its leaves, and its nodes still emitted walk steps whose surfaces were offered between
+their children. Now `MarkLeaves` stamps each PVS-visible leaf and the nodes above it (re-made only when the eye
+changes cluster) and `Descend` returns from an unstamped node before its box test. *Evidence:* that mark-leaves
+marks nodes is read (B262, `0x1801c8cb0`, eye cluster −1 marks every leaf and node); that a PVS leaf marks its
+ancestors and that `R_RecursiveWorldNode` skips an unmarked node is **interpolated** from the Quake
+`R_MarkLeaves`/`r_visframecount` shape and still to be re-read — the installed engine.dll changed on 2026-10-07, so the
+B262 addresses no longer match it. Two readings kept from the old walk, so the listed leaves are unchanged: no vis lump
+stamps everything, and a non-solid leaf with cluster −1 is stamped (`PVSCheck`). Whether the engine stamps such a leaf
+is not read. Conformance: `Walk_ASubtreeWithNoPvsVisibleLeaf_IsNeverEntered` (red before, the extra node step).
+Output level: `Surfaces_ForAPvsPrunedWalk_AreTheUnprunedWalksInTheSameOrder` on cp_process — the reached surfaces and
+leaves are the same sequence as the unpruned walk's, with strictly fewer node steps. Not yet measured in the viewer.
+
 ## B260 — why we do not get Valve's performance "doing it the way they do" — OPEN
 
 **The owner's question, and it is the right one:** *"we should be copying valve, why cant we gets

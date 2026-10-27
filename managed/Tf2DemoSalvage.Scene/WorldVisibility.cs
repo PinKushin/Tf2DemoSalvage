@@ -92,6 +92,118 @@ public sealed class WorldVisibility
 
         _tree = tree;
         _pvs = visibility;
+
+        _nodeParent = new int[tree.NodeCount];
+        _leafParent = new int[tree.LeafCount];
+        _nodeVisFrame = new int[tree.NodeCount];
+        _leafVisFrame = new int[tree.LeafCount];
+        Array.Fill(_nodeParent, -1);
+        Array.Fill(_leafParent, -1);
+        LinkParents(0, -1, 0);
+    }
+
+    /// <summary>Each node's parent node, −1 for the root and for a node the world tree does not reach.</summary>
+    private readonly int[] _nodeParent;
+
+    /// <summary>Each leaf's parent node, −1 for a leaf the world tree does not reach (a brush model's).</summary>
+    private readonly int[] _leafParent;
+
+    /// <summary>The vis count each node was last marked with — the engine's node <c>visframe</c>.</summary>
+    private readonly int[] _nodeVisFrame;
+
+    /// <summary>The vis count each leaf was last marked with.</summary>
+    private readonly int[] _leafVisFrame;
+
+    /// <summary>The current vis count; 0 marks nothing, since every stamp starts at 0.</summary>
+    private int _visFrame;
+
+    /// <summary>The eye cluster the current marks were made for; <see cref="int.MinValue"/> before any.</summary>
+    private int _markedCluster = int.MinValue;
+
+    /// <summary>Records every node's and leaf's parent, once, so marking can climb from a leaf to the root.</summary>
+    private void LinkParents(int node, int parent, int depth)
+    {
+        if (depth > MaximumDepth)
+        {
+            return;
+        }
+
+        if (node < 0)
+        {
+            int leaf = -node - 1;
+
+            if (leaf < _leafParent.Length)
+            {
+                _leafParent[leaf] = parent;
+            }
+
+            return;
+        }
+
+        // A node already linked is a cycle in a malformed tree; the first parent stands.
+        if (node >= _nodeParent.Length || _nodeParent[node] >= 0 || (node == 0 && parent >= 0) ||
+            _tree.Node(node) is not { } split)
+        {
+            return;
+        }
+
+        _nodeParent[node] = parent;
+        LinkParents(split.Front, node, depth + 1);
+        LinkParents(split.Back, node, depth + 1);
+    }
+
+    /// <summary>Marks the leaves the eye's cluster can see, and every node above them — the engine's mark-leaves.</summary>
+    /// <param name="from">The eye's cluster, or −1 when it has none.</param>
+    /// <remarks>
+    /// engine.dll <c>0x1801c8cb0</c> (read under B262): an eye cluster of −1 stamps every leaf and node
+    /// (<c>0x1801c9113</c>), as <c>r_novis</c> does. *Interpolated, not yet re-read:* that a leaf in the PVS stamps
+    /// each node above it, stopping at the first already stamped, and that the walk enters only stamped nodes — the
+    /// Quake <c>R_MarkLeaves</c> shape (B259, `docs/RISKS.md`).
+    ///
+    /// **Ours, two readings kept from the walk this replaces.** A map with no vis lump stamps everything, since no data
+    /// is not proof of invisibility; and a non-solid leaf with no cluster is stamped, after <c>PVSCheck</c>'s "we
+    /// assume the sample is in the PVS". Both list exactly what the per-leaf test listed before.
+    ///
+    /// **Made again only when the eye changes cluster**, because the stamps are a function of the cluster alone.
+    /// </remarks>
+    private void MarkLeaves(int from)
+    {
+        if (from == _markedCluster && _visFrame != 0)
+        {
+            return;
+        }
+
+        _markedCluster = from;
+        _visFrame++;
+
+        if (!_pvs.HasData || from < 0)
+        {
+            Array.Fill(_nodeVisFrame, _visFrame);
+            Array.Fill(_leafVisFrame, _visFrame);
+            return;
+        }
+
+        for (int leaf = 0; leaf < _leafVisFrame.Length; leaf++)
+        {
+            if (_tree.Contents(leaf) == BspLeafTree.ContentsSolid)
+            {
+                continue;
+            }
+
+            int cluster = _tree.Cluster(leaf);
+
+            if (cluster >= 0 && !_pvs.Visible(from, cluster))
+            {
+                continue;
+            }
+
+            _leafVisFrame[leaf] = _visFrame;
+
+            for (int node = _leafParent[leaf]; node >= 0 && _nodeVisFrame[node] != _visFrame; node = _nodeParent[node])
+            {
+                _nodeVisFrame[node] = _visFrame;
+            }
+        }
     }
 
     /// <summary>The leaves a camera can see, nearest first.</summary>
@@ -130,21 +242,22 @@ public sealed class WorldVisibility
         // is the conservative reading of it: never cull what cannot be proved invisible.
         int from = _tree.ClusterAt(x, y, z);
 
-        Descend(_tree.Node(0) is null ? -1 : 0, from, x, y, z, frustum, 0);
+        MarkLeaves(from);
+
+        Descend(_tree.Node(0) is null ? -1 : 0, x, y, z, frustum, 0);
 
         return _leaves;
     }
 
     /// <summary>Walks one subtree, near side first.</summary>
     /// <param name="node">A node index, or a negative leaf encoding, or −1 for nothing.</param>
-    /// <param name="from">The camera's cluster, or −1 when it has none.</param>
     /// <param name="x">The eye, for deciding which child is nearer.</param>
     /// <param name="y">The eye.</param>
     /// <param name="z">The eye.</param>
     /// <param name="frustum">The view volume.</param>
     /// <param name="depth">How far down this walk already is.</param>
     private void Descend(
-        int node, int from, float x, float y, float z, ViewFrustum frustum, int depth)
+        int node, float x, float y, float z, ViewFrustum frustum, int depth)
     {
         if (depth > MaximumDepth)
         {
@@ -156,13 +269,15 @@ public sealed class WorldVisibility
         // "absent" would silently keep descending past.
         if (node < 0)
         {
-            Collect(-node - 1, from, frustum);
+            Collect(-node - 1, frustum);
             return;
         }
 
+        // **A node no PVS-visible leaf lies under is never entered** — `R_RecursiveWorldNode`'s vis-count test, before
+        // its box test. Its surfaces could only have been marked by a leaf below it, so none would be drawn here anyway.
         // Stryker disable once : a mutant that empties the guard body leaves 'split'
         // unassigned (CS0165), and Safe Mode then drops every mutation in this method — B410.
-        if (_tree.Node(node) is not { } split)
+        if (node >= _nodeVisFrame.Length || _nodeVisFrame[node] != _visFrame || _tree.Node(node) is not { } split)
         {
             return;
         }
@@ -183,36 +298,30 @@ public sealed class WorldVisibility
             ? (split.Back, split.Front)
             : (split.Front, split.Back);
 
-        Descend(children.Near, from, x, y, z, frustum, depth + 1);
+        Descend(children.Near, x, y, z, frustum, depth + 1);
 
         // **The node's own surfaces between its children** — `R_RecursiveWorldNode`, engine.dll 0x1800e0600 (B457).
         // Its side is the engine's own test, `dot − dist < 0`, which puts a point ON the plane in front.
         _walk.Add(new WorldWalkStep(node, IsNode: true, EyeBehind: side - split.Distance < 0f));
 
-        Descend(children.Far, from, x, y, z, frustum, depth + 1);
+        Descend(children.Far, x, y, z, frustum, depth + 1);
     }
 
     /// <summary>Keeps a leaf if the camera can see it.</summary>
     /// <param name="leaf">The leaf index.</param>
-    /// <param name="from">The camera's cluster, or −1 when it has none.</param>
     /// <param name="frustum">The view volume.</param>
     /// <remarks>
-    /// **`PVSCheck`'s rule for the target, stated the way Valve states it**: a leaf whose cluster is
-    /// negative is treated as VISIBLE rather than hidden. Those are the solid leaves `vvis` gave no
-    /// cluster to, and getting this backwards is the difference between a map and an empty room.
-    ///
-    /// **A map with NO vis lump gets no PVS filtering, which is a third case and not the same as an
-    /// empty PVS.** `BspVisibility.None` answers false to every query — correctly, since it has no
-    /// table and nothing is in it — so testing it without the `HasData` guard culls the entire
-    /// world. Found by the first test written against this walk, which returned an empty leaf list
-    /// for a tree plainly in view. A map compiled without `vvis`, or one whose lump failed to read,
-    /// must draw everything: no data is not proof of invisibility.
+    /// **The PVS answer is the leaf's stamp from <see cref="MarkLeaves"/>**, which holds its two rules: a leaf whose
+    /// cluster is negative is treated as VISIBLE rather than hidden (<c>PVSCheck</c>), and a map with NO vis lump gets
+    /// no PVS filtering, which is a third case and not the same as an empty PVS. `BspVisibility.None` answers false to
+    /// every query, so testing it without the `HasData` guard culls the entire world — found by the first test written
+    /// against this walk. No data is not proof of invisibility.
     ///
     /// **The leaf's box is tested even when the PVS kept it**, because the two answer different
     /// questions: the PVS says what could ever be seen from here, the frustum says what is on screen
     /// now. Valve applies both.
     /// </remarks>
-    private void Collect(int leaf, int from, ViewFrustum frustum)
+    private void Collect(int leaf, ViewFrustum frustum)
     {
         // **A solid leaf is never walked into** (B262): engine.dll's world walk returns on contents 1 at entry
         // (`0x1800e060f`) and before a far child (`0x1800e079c`), so `R_DrawLeaf` never lists one — whatever the PVS
@@ -222,9 +331,7 @@ public sealed class WorldVisibility
             return;
         }
 
-        int cluster = _tree.Cluster(leaf);
-
-        if (_pvs.HasData && from >= 0 && cluster >= 0 && !_pvs.Visible(from, cluster))
+        if (leaf >= _leafVisFrame.Length || _leafVisFrame[leaf] != _visFrame)
         {
             return;
         }

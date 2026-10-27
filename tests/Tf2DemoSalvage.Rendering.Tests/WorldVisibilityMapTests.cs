@@ -269,6 +269,69 @@ public sealed class WorldVisibilityMapTests
             .ShouldNotBeEmpty("an unplaceable eye must not cull the world");
     }
 
+    /// <summary>That pruning the walk by the PVS reaches exactly the surfaces the unpruned walk did, in order.</summary>
+    /// <remarks>
+    /// **The output-level check on the node prune.** The reference is the walk with no PVS at all, with its PVS-hidden
+    /// leaves removed afterwards by the per-leaf rule the prune replaced (<c>PVSCheck</c>: a negative cluster passes).
+    /// That walk still steps through every node the frustum keeps, so it offers each node's surfaces where the pruned
+    /// walk never goes. The surfaces <see cref="VisibleWorld.Surfaces"/> reaches from the two must be the same sequence,
+    /// because a node surface is drawn only once a listed leaf below it has marked it.
+    ///
+    /// The control: the pruned walk takes strictly fewer node steps, so the prune did something to be compared.
+    /// </remarks>
+    [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
+    public void Surfaces_ForAPvsPrunedWalk_AreTheUnprunedWalksInTheSameOrder()
+    {
+        (MapLevel level, MapWorld world) = WorldCullingMapTests.Built();
+
+        BspLeafTree tree = level.Leaves.ShouldNotBeNull("cp_process has a tree");
+        BspLeafFaces leafFaces = level.LeafFaces.ShouldNotBeNull("cp_process has leaf faces");
+        BspVisibility pvs = BspVisibility.Read(MapCache.Bytes());
+        (_, (float X, float Y, float Z) eye) = SomewhereInside(tree);
+        int from = tree.ClusterAt(eye.X, eye.Y, eye.Z);
+
+        from.ShouldBeGreaterThanOrEqualTo(0, "the eye is in a cluster, so the PVS applies");
+
+        WorldVisibility pruned = new(tree, pvs);
+        WorldVisibility open = new(tree, BspVisibility.None);
+        VisibleWorld prunedWorld = new(world.FaceSpans, tree, leafFaces);
+        VisibleWorld openWorld = new(world.FaceSpans, tree, leafFaces);
+        int prunedNodes = 0;
+        int referenceNodes = 0;
+        int reached = 0;
+
+        foreach ((float X, float Y, float Z) towards in Directions.Append((0f, 0f, -1f)))
+        {
+            ViewFrustum frustum = Looking(eye, towards);
+
+            pruned.Leaves(eye.X, eye.Y, eye.Z, frustum);
+            open.Leaves(eye.X, eye.Y, eye.Z, frustum);
+
+            List<WorldWalkStep> reference =
+            [
+                .. open.Walk.Where(step =>
+                    step.IsNode || tree.Cluster(step.Index) < 0 || pvs.Visible(from, tree.Cluster(step.Index))),
+            ];
+
+            prunedNodes += pruned.Walk.Count(step => step.IsNode);
+            referenceNodes += reference.Count(step => step.IsNode);
+
+            pruned.Walk.Where(step => !step.IsNode).ShouldBe(
+                reference.Where(step => !step.IsNode), $"looking {towards}, the leaves differ");
+
+            List<int> expected = [.. openWorld.Surfaces(reference, eye.X, eye.Y, eye.Z, frustum)];
+
+            reached += expected.Count;
+
+            prunedWorld.Surfaces(pruned.Walk, eye.X, eye.Y, eye.Z, frustum)
+                .ShouldBe(expected, $"looking {towards}, the reached surfaces differ");
+        }
+
+        reached.ShouldBeGreaterThan(0, "nothing is reached from any direction, so this cannot fail");
+        prunedNodes.ShouldBeLessThan(referenceNodes, "the PVS pruned no node");
+    }
+
     private static IEnumerable<(float X, float Y, float Z)> Directions =>
     [
         (1f, 0f, 0f),

@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using System.Text.RegularExpressions;
 
 using Tf2DemoSalvage.Content.Bsp;
@@ -187,6 +188,39 @@ public sealed class WorldVisibilityConformanceTests
 
         tree.LeafFaces(0).ShouldBe((7, 10));
         tree.Cluster(0).ShouldBe(3, "the neighbouring field, so a shifted read shows up here too");
+    }
+
+    /// <summary>That the walk never enters a node no PVS-visible leaf lies under.</summary>
+    /// <remarks>
+    /// **Partly read, partly interpolated — say which.** Read from engine.dll in disassembly under B262: the
+    /// mark-leaves pass (<c>0x1801c8cb0</c>, the 2026-10-04 build) marks NODES as well as leaves — for an eye cluster
+    /// of −1 it marks every leaf and node of the world (<c>0x1801c9113</c>-<c>0x1801c918a</c>). *Interpolated, not
+    /// yet re-read:* that a leaf in the PVS marks each node above it up to the root, and that
+    /// <c>R_RecursiveWorldNode</c> (<c>0x1800e0600</c>) returns from a node whose mark is not this frame's — the Quake
+    /// <c>R_MarkLeaves</c> / <c>r_visframecount</c> shape, which is the only reason to mark a node at all. Those
+    /// addresses are of the build read then; the installed engine.dll changed on 2026-10-07.
+    ///
+    /// So a subtree the PVS hides is never walked: no leaf listed, and no node step, whose surfaces would otherwise be
+    /// offered between its children.
+    ///
+    /// The tree is <see cref="WorldVisibilityTests.Quarters"/>; the eye stands in leaf 3 (cluster 3), whose row sees
+    /// clusters 3 and 0. The whole tree is in the frustum, so node 1 (the +x half) is pruned by the PVS alone. The
+    /// control is the same view with no PVS, where node 1 is walked.
+    /// </remarks>
+    [Test]
+    public void Walk_ASubtreeWithNoPvsVisibleLeaf_IsNeverEntered()
+    {
+        ViewFrustum ahead = WorldVisibilityTests.Looking((-400f, 0f, 0f), (1f, 0f, 0f));
+
+        WorldVisibility open = new(WorldVisibilityTests.Quarters(), BspVisibility.None);
+        open.Leaves(-400f, 0f, 0f, ahead);
+        open.Walk.Where(step => step.IsNode).Select(step => step.Index).ShouldBe([2, 0, 1]);
+
+        WorldVisibility culled = new(
+            WorldVisibilityTests.Quarters(), WorldVisibilityTests.Pvs(0x0F, 0x0F, 0x0F, 0b1001));
+        culled.Leaves(-400f, 0f, 0f, ahead);
+
+        culled.Walk.Select(step => (step.Index, step.IsNode)).ShouldBe([(3, false), (2, true), (0, false), (0, true)]);
     }
 
     private static string Sdk(string relativePath) =>

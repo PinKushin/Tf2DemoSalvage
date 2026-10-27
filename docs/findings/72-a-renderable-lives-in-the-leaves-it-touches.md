@@ -64,6 +64,13 @@ ever listed. Its marking pass `0x1801c8cb0` also answered the eye-in-solid quest
 every leaf and node visible, the same as `r_novis`, which is the rule this project already had, now confirmed by
 reading rather than assumed.
 
+**What marking nodes is for was not followed through until 2026-10-27** (B259). A pass that marks nodes as well as
+leaves only makes sense if the walk reads the node marks, and this project's walk did not: it descended every node
+the frustum kept and asked the PVS per leaf, so a subtree the PVS hides whole was still walked to its leaves. The walk
+now returns from an unmarked node, as Quake's `R_RecursiveWorldNode` does on `r_visframecount`. On cp_process the
+reached surfaces are the same sequence either way; only node steps go. *Interpolated:* the ancestor marking and the
+walk's mark test are the Quake shape, not yet re-read in the current engine.dll (it changed on 2026-10-07).
+
 ## Translucency belongs to the model, not the entity
 
 An entity's group is recomputed every frame (`ComputeFxBlend` → `SetRenderGroup( GetRenderGroup() )`), but the

@@ -48,7 +48,7 @@ public sealed class WorldVisibilityTests
     }
 
     /// <summary>A frustum at a point looking down a direction, wide enough to see the whole tree.</summary>
-    private static ViewFrustum Looking(
+    internal static ViewFrustum Looking(
         (float X, float Y, float Z) from, (float X, float Y, float Z) towards) =>
         ViewFrustum.PerspectiveFromAspect(
             from,
@@ -125,6 +125,22 @@ public sealed class WorldVisibilityTests
     [Test]
     public void Leaves_WithASubtreeOutOfView_KeepsOnlyTheVisibleHalf()
     {
+        IReadOnlyList<int> visible =
+            new WorldVisibility(Quarters(), BspVisibility.None)
+                .Leaves(0f, 0f, 0f, Looking((0f, 0f, 0f), (1f, 0f, 0f)));
+
+        visible.ShouldBe([1, 2], ignoreOrder: false);
+    }
+
+    /// <summary>A root at x = 0 over two sub-nodes, four leaves in clusters 0 to 3.</summary>
+    /// <param name="cluster0">Leaf 0's cluster, so a case can give it none (−1).</param>
+    /// <remarks>
+    /// Node 1 is the +x half (x = 256 splits it into leaf 1 behind, leaf 2 in front); node 2 is the −x half (x = −256
+    /// splits it into leaf 3 behind, leaf 0 in front). From x = −400 the walk is leaf 3, node 2, leaf 0, node 0, then
+    /// the +x half.
+    /// </remarks>
+    internal static BspLeafTree Quarters(short cluster0 = 0)
+    {
         byte[] nodes =
         [
             // Root at x = 0: front (+x) is node 1, back (−x) is node 2.
@@ -146,17 +162,83 @@ public sealed class WorldVisibilityTests
 
         byte[] leaves =
         [
-            .. Leaf(cluster: 0, (-256, -512, -512), (0, 512, 512)),
+            .. Leaf(cluster: cluster0, (-256, -512, -512), (0, 512, 512)),
             .. Leaf(cluster: 1, (0, -512, -512), (256, 512, 512)),
             .. Leaf(cluster: 2, (256, -512, -512), (512, 512, 512)),
             .. Leaf(cluster: 3, (-512, -512, -512), (-256, 512, 512)),
         ];
 
-        IReadOnlyList<int> visible =
-            new WorldVisibility(BspLeafTree.FromLumps(nodes, planes, leaves), BspVisibility.None)
-                .Leaves(0f, 0f, 0f, Looking((0f, 0f, 0f), (1f, 0f, 0f)));
+        return BspLeafTree.FromLumps(nodes, planes, leaves);
+    }
 
-        visible.ShouldBe([1, 2], ignoreOrder: false);
+    /// <summary>A PVS lump for up to eight clusters, one row byte each, every byte non-zero.</summary>
+    /// <param name="rows">Cluster <c>c</c>'s row: bit <c>k</c> set means it sees cluster <c>k</c>.</param>
+    /// <remarks>
+    /// <c>dvis_t</c> (<c>bspfile.h:904</c>): a count, then a PVS and a PAS offset per cluster from the lump's start.
+    /// The compression only run-lengths ZERO bytes, so a non-zero byte is its own encoding.
+    /// </remarks>
+    internal static BspVisibility Pvs(params byte[] rows)
+    {
+        int table = 4 + (rows.Length * 8);
+        byte[] lump = new byte[table + rows.Length];
+
+        BitConverter.TryWriteBytes(lump.AsSpan(0), rows.Length);
+
+        for (int cluster = 0; cluster < rows.Length; cluster++)
+        {
+            rows[cluster].ShouldNotBe((byte)0, "a zero byte would be read as a run");
+            BitConverter.TryWriteBytes(lump.AsSpan(4 + (cluster * 8)), table + cluster);
+            BitConverter.TryWriteBytes(lump.AsSpan(8 + (cluster * 8)), table + cluster);
+            lump[table + cluster] = rows[cluster];
+        }
+
+        return BspVisibility.FromLump(lump);
+    }
+
+    /// <summary>That the PVS drops a leaf in view, and keeps one with no cluster.</summary>
+    /// <remarks>
+    /// From x = −400 (leaf 3, cluster 3) looking +x, every leaf is in the frustum. Cluster 3 sees 0 and 3 only, so
+    /// leaves 1 and 2 go. The control: with no PVS all four leaves listed, so the frustum is not what dropped them.
+    /// </remarks>
+    [Test]
+    public void Leaves_WithAPvs_ListsOnlyThePotentiallyVisibleLeaves()
+    {
+        ViewFrustum ahead = Looking((-400f, 0f, 0f), (1f, 0f, 0f));
+
+        new WorldVisibility(Quarters(), BspVisibility.None).Leaves(-400f, 0f, 0f, ahead)
+            .ShouldBe([3, 0, 1, 2]);
+
+        new WorldVisibility(Quarters(), Pvs(0x0F, 0x0F, 0x0F, 0b1001)).Leaves(-400f, 0f, 0f, ahead)
+            .ShouldBe([3, 0]);
+    }
+
+    /// <summary>That a non-solid leaf with no cluster still keeps its subtree walked.</summary>
+    /// <remarks>
+    /// Ours, the conservative reading of <c>PVSCheck</c> (<c>vrad.h:372</c>, "we assume the sample is in the PVS"):
+    /// a leaf with cluster −1 is listed whatever the eye's row says, so the prune must not take the node above it.
+    /// Leaf 0 has no cluster and cluster 3's row sees only itself.
+    /// </remarks>
+    [Test]
+    public void Leaves_ForALeafWithNoCluster_KeepsItAndItsParent()
+    {
+        WorldVisibility visibility = new(Quarters(cluster0: -1), Pvs(0x0F, 0x0F, 0x0F, 0b1000));
+
+        visibility.Leaves(-400f, 0f, 0f, Looking((-400f, 0f, 0f), (1f, 0f, 0f))).ShouldBe([3, 0]);
+    }
+
+    /// <summary>That moving into another cluster re-marks the tree from that cluster's row.</summary>
+    /// <remarks>
+    /// The marks are kept while the eye's cluster stays the same, so a stale mark would answer for the old cluster.
+    /// From cluster 3 (sees 3, 0) to cluster 2 (sees 2, 1) and back.
+    /// </remarks>
+    [Test]
+    public void Leaves_AfterTheEyeChangesCluster_AnswersForTheNewCluster()
+    {
+        WorldVisibility visibility = new(Quarters(), Pvs(0x0F, 0x0F, 0b0110, 0b1001));
+
+        visibility.Leaves(-400f, 0f, 0f, default).ShouldBe([3, 0]);
+        visibility.Leaves(400f, 0f, 0f, default).ShouldBe([2, 1]);
+        visibility.Leaves(-400f, 0f, 0f, default).ShouldBe([3, 0]);
     }
 
     /// <summary>That an unbuilt frustum applies no frustum test at all.</summary>
@@ -219,7 +301,7 @@ public sealed class WorldVisibilityTests
     }
 
     /// <summary>One `dnode_t`: plane index, two children, a cull box, and no faces.</summary>
-    private static byte[] Node(
+    internal static byte[] Node(
         int plane, int front, int back, (short X, short Y, short Z) min, (short X, short Y, short Z) max)
     {
         byte[] node = new byte[32];
@@ -238,7 +320,7 @@ public sealed class WorldVisibilityTests
     }
 
     /// <summary>One `dplane_t`: a normal, a distance, and a type this reader ignores.</summary>
-    private static byte[] Plane(float x, float y, float z, float distance)
+    internal static byte[] Plane(float x, float y, float z, float distance)
     {
         byte[] plane = new byte[20];
 
@@ -250,12 +332,13 @@ public sealed class WorldVisibilityTests
         return plane;
     }
 
-    /// <summary>One version-1 `dleaf_t`: a cluster, a cull box, and no faces.</summary>
-    private static byte[] Leaf(
-        short cluster, (short X, short Y, short Z) min, (short X, short Y, short Z) max)
+    /// <summary>One version-1 `dleaf_t`: contents, a cluster, a cull box, and no faces.</summary>
+    internal static byte[] Leaf(
+        short cluster, (short X, short Y, short Z) min, (short X, short Y, short Z) max, int contents = 0)
     {
         byte[] leaf = new byte[32];
 
+        BitConverter.TryWriteBytes(leaf.AsSpan(0), contents);
         BitConverter.TryWriteBytes(leaf.AsSpan(4), cluster);
         BitConverter.TryWriteBytes(leaf.AsSpan(8), min.X);
         BitConverter.TryWriteBytes(leaf.AsSpan(10), min.Y);
