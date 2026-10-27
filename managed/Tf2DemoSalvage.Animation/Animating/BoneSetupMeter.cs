@@ -1,3 +1,5 @@
+using System.Threading;
+
 namespace Tf2DemoSalvage.Animation.Animating;
 
 /// <summary>What one scene's <c>SetupBones</c> calls cost, split by whether the entity is a root (finding 105 A6).</summary>
@@ -12,31 +14,39 @@ namespace Tf2DemoSalvage.Animation.Animating;
 /// physics is not shown safe off the game thread (finding 105 A3.4). A parent that is not a merge is invisible here; the
 /// caller, which has the prop, counts those.
 ///
-/// **One per scene, beside the bone clock**, for the reason the clock is not static (D86). Single-threaded: a fork of
-/// the bone setup must give each worker its own and sum them at the join (finding 105 A3.2).
+/// **One per scene, beside the bone clock**, for the reason the clock is not static (D86), and **added to atomically**,
+/// because the pre-pass's roots record from the pool's threads (finding 105 A3.2): a delta read across the fork, after its
+/// join, is the fork's exact sum.
 /// </remarks>
 public sealed class BoneSetupMeter
 {
     /// <summary>The fewest bones the engine pre-poses on a thread — <c>nBoneCount &gt;= 16</c>, <c>c_baseanimating.cpp:2897</c>.</summary>
     public const int ThreadedMinimumBones = 16;
 
+    private long _rootTicks;
+    private long _eligibleTicks;
+    private long _childTicks;
+    private int _rootBuilds;
+    private int _eligibleBuilds;
+    private int _childBuilds;
+
     /// <summary>Stopwatch ticks in roots' calls, ever — the guards, the blend inputs and the build.</summary>
-    public long RootTicks { get; private set; }
+    public long RootTicks => Interlocked.Read(ref _rootTicks);
 
     /// <summary>Of <see cref="RootTicks"/>: the eligible roots'.</summary>
-    public long EligibleTicks { get; private set; }
+    public long EligibleTicks => Interlocked.Read(ref _eligibleTicks);
 
     /// <summary>Stopwatch ticks in children's calls, ever, less the parent each asked for.</summary>
-    public long ChildTicks { get; private set; }
+    public long ChildTicks => Interlocked.Read(ref _childTicks);
 
     /// <summary>Roots that built bones, ever.</summary>
-    public int RootBuilds { get; private set; }
+    public int RootBuilds => Volatile.Read(ref _rootBuilds);
 
     /// <summary>Of <see cref="RootBuilds"/>: the eligible roots'.</summary>
-    public int EligibleBuilds { get; private set; }
+    public int EligibleBuilds => Volatile.Read(ref _eligibleBuilds);
 
     /// <summary>Children that built bones, ever.</summary>
-    public int ChildBuilds { get; private set; }
+    public int ChildBuilds => Volatile.Read(ref _childBuilds);
 
     /// <summary>Records one call.</summary>
     /// <param name="root">Whether the entity follows nothing.</param>
@@ -49,18 +59,18 @@ public sealed class BoneSetupMeter
 
         if (!root)
         {
-            ChildTicks += ticks;
-            ChildBuilds += builds;
+            Interlocked.Add(ref _childTicks, ticks);
+            Interlocked.Add(ref _childBuilds, builds);
             return;
         }
 
-        RootTicks += ticks;
-        RootBuilds += builds;
+        Interlocked.Add(ref _rootTicks, ticks);
+        Interlocked.Add(ref _rootBuilds, builds);
 
         if (eligible)
         {
-            EligibleTicks += ticks;
-            EligibleBuilds += builds;
+            Interlocked.Add(ref _eligibleTicks, ticks);
+            Interlocked.Add(ref _eligibleBuilds, builds);
         }
     }
 }
