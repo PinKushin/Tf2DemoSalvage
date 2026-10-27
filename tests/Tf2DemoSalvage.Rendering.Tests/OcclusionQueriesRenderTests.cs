@@ -110,11 +110,44 @@ public sealed class OcclusionQueriesRenderTests
         long without = Scene(plain, occlude: false);
         long withoutAgain = Scene(plain, occlude: false);
 
-        // The controls: the proxies were drawn and counted — the ones in front pass, the ones behind the world do not.
+        // The controls: EVERY proxy was drawn and counted — each is on screen and each in front of the world passes whole.
+        // Behind it, a proxy passes only where its cell wrote depth: a cell whose material is translucent or alpha-tested
+        // does not (measured: proxy 6 passed). So the hidden half is held as "nearly all hidden"; the exact per-proxy
+        // answer against a uniform occluder, across a buffer's growth and reuse, is PixelVisibilityRenderTests'.
         counted.ShouldNotBeNull();
-        counted[1].Pixels.ShouldBeGreaterThan(0, "a proxy in front of the world passes");
-        counted[2].Pixels.ShouldBe(0, "a proxy behind it does not");
-        Scene(plain, occlude: false, lampRed: 0.31f).ShouldNotBe(withoutAgain, "the hash sees one lamp a hundredth brighter");
+
+        int hidden = 0;
+
+        for (int key = 1; key <= proxies.Count; key++)
+        {
+            (int pixels, int possible) = counted[key];
+
+            possible.ShouldBeGreaterThan(0, $"proxy {key} is on screen");
+
+            if (key % 2 == 1)
+            {
+                pixels.ShouldBe(possible, $"proxy {key} is in front of the world");
+            }
+            else
+            {
+                hidden += pixels == 0 ? 1 : 0;
+            }
+        }
+
+        TestContext.Out.WriteLine($"{hidden} of {proxies.Count / 2} proxies behind the world counted nothing");
+        hidden.ShouldBeGreaterThanOrEqualTo(proxies.Count / 4, "most of the world's cells write depth and hide what is behind");
+
+        // **The lamp control on a FRESH target, scene for scene**: scenes carry state from one to the next (below), so a
+        // third scene on `plain` could differ by that alone. Here the same two-scene sequence differs only in the lamp.
+        using OffscreenTarget? brighter = OffscreenTarget.TryCreate(128, 128);
+
+        brighter.ShouldNotBeNull();
+
+        long brighterFirst = Scene(brighter, occlude: false, lampRed: 0.31f);
+        long brighterSecond = Scene(brighter, occlude: false, lampRed: 0.31f);
+
+        brighterFirst.ShouldNotBe(without, "the hash sees one lamp a hundredth brighter, first scene against first");
+        brighterSecond.ShouldNotBe(withoutAgain, "and second against second");
 
         // **The first scene differs from the second in BOTH targets** (measured: the same two hashes each; B597 files it),
         // so the two-scene sequence is compared rather than one frame against a repeat.
