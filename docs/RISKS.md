@@ -40068,6 +40068,31 @@ reddens four tests), and a child's drawn size against its own scale alone.
   `pl_badwater_pro_v12.bsp` is not on this machine (not under the game's `tf/maps`, `tf/download/maps`, `tf2ds`, or the
   user profile), so its `parentname` cannot be read, and no sampled tick gives them a parent.
 
+## B607 — a static prop's draw-time lighting did more per frame than the engine's handle — PARTLY FIXED (2026-10-27)
+
+**Evidence class: read from disassembly** (findings 65 and 67, B427, B514) **and measured**
+(measurements/2026-10-27-static-prop-lighting.md). The engine's light cache handle is built at load
+(`CStaticPropMgr::PrecacheLighting`, `0x180205b20` → `FUN_1801b8350`) and the draw's state (`FUN_1801ba590`, flags 6/7)
+reads it: bit 4's ranked styled lights cached at `+0x88` until a listed style's stamp passes `+0xf8`, bit 2 the dlight
+bits `+0x1a4` masked by `r_dlightactive`.
+
+**Fixed:** bit 2 walked all 32 dlight slots, a `ClusterAt` each, for every static prop every frame (~4,000 slot reads a
+frame on f12 with none live). It walks the live mask now; `baked` 0.45-0.49 → 0.05-0.08 ms, −0.40 to −0.44 ms (4.7-5.1%
+of the frame), frame −0.37 to −0.47 ms (measurements/2026-10-27-static-prop-lighting.md, the three pairs passing both
+controls), pixels unchanged outside the frame-rate readout (`StaticPlusDynamicLightingConformanceTests`, `…_NoLiveDlight_ExaminesNoSlot`,
+`…_ThreeLiveDlightsOneInReach_…`).
+
+**Still open, each a divergence of shape with output equal:**
+- **Bit 4 is re-ranked every frame** when a prop lists styled lights (`StaticPlusDynamicLights`, `StyledAndDynamic`'s LINQ
+  `List`); the engine caches it at `+0x88`. 0 props on f12; `koth_dryfield`'s flicker is the specimen. Fix shape: cache
+  the ranked list per entity with the style values it used, rebuilt when one changes — a test must vary a style.
+- **The handle is built on first draw, not at load**: `_staticStates` (rays per prop), `_styledByEntity` and the CPU
+  colour meshes past the 188 built before play. 174 static states over a 20 s f12 run, 0.146 ms a frame averaged over it
+  (measurements/2026-10-27-static-prop-lighting/split.txt); first-use stalls are B595's subject.
+- **Dlight marking is per prop**, not from the dlight's side (`FUN_1801b5260`); cost scales with live dlights, 0 here.
+- **The full-lighting path re-ranks every style-0 world light** with the added ones; the engine ranks the added ones
+  against the cached static four. Equal output while `StyleScale(0)` is 1; runs only when something is added.
+
 ## B606 — the particle step's fork-join (`r_threaded_particles`) covers the bursts but not the rocket trails — PARTLY FIXED (2026-10-26)
 
 **Evidence class: read from source** (`particlemgr.cpp:1543`, `:1869-1897`; finding 103) **and measured**

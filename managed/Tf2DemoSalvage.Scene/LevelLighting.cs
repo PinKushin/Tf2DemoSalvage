@@ -524,9 +524,9 @@ public sealed class LevelLighting
     /// </remarks>
     public IReadOnlyList<LocalLight> StaticPlusDynamicLights(int entity, float x, float y, float z)
     {
-        List<BspWorldLight> lights = StyledAndDynamic(entity, x, y, z);
+        List<BspWorldLight>? lights = StyledAndDynamic(entity, x, y, z);
 
-        if (lights.Count == 0)
+        if (lights is not { Count: > 0 })
         {
             return [];
         }
@@ -560,9 +560,9 @@ public sealed class LevelLighting
     public (PointLighting Lighting, SunLight? Sun) StaticPropFullLightingAt(int entity, float x, float y, float z)
     {
         (PointLighting lighting, SunLight? sun) = StaticPropLightingAt(x, y, z);
-        List<BspWorldLight> added = StyledAndDynamic(entity, x, y, z);
+        List<BspWorldLight>? added = StyledAndDynamic(entity, x, y, z);
 
-        if (added.Count == 0)
+        if (added is not { Count: > 0 })
         {
             return (lighting, sun);
         }
@@ -576,8 +576,17 @@ public sealed class LevelLighting
         return (new PointLighting(lighting.Cube, nearest), sun);
     }
 
-    /// <summary>A handle's styled lights (bit 4) and the live dlights that reach it (bit 2), unranked.</summary>
-    private List<BspWorldLight> StyledAndDynamic(int entity, float x, float y, float z)
+    /// <summary>Dlight slots a static prop's bit-2 gather has examined, ever: the conformance tests' count of the live-set walk.</summary>
+    internal int DlightsExamined { get; private set; }
+
+    /// <summary>A handle's styled lights (bit 4) and the live dlights that reach it (bit 2), unranked; null when neither has any.</summary>
+    /// <remarks>
+    /// **Bit 2 walks the live set, `r_dlightactive`, and nothing else** (`FUN_1801ba590` masks the handle's `+0x1a4` by
+    /// `DAT_1806996c4`). This walked all 32 slots and looked up a cluster for each, and for the prop, on every static prop
+    /// every frame: ~4,000 slot reads a frame on f12 with no dlight live (measurement 2026-10-27-static-prop-lighting).
+    /// The live slots are visited in slot order, as the walk over every slot visited them.
+    /// </remarks>
+    private List<BspWorldLight>? StyledAndDynamic(int entity, float x, float y, float z)
     {
         if (!_styledByEntity.TryGetValue(entity, out int[]? listed))
         {
@@ -585,15 +594,24 @@ public sealed class LevelLighting
             _styledByEntity[entity] = listed;
         }
 
+        uint live = Dynamic?.ActiveMask ?? 0u;
+
+        if (listed.Length == 0 && (live == 0u || _leaves is null))
+        {
+            return null;
+        }
+
         List<BspWorldLight> lights = [.. listed.Select(index => _worldLights[index])];
 
-        if (Dynamic is { } dynamic && _leaves is { } tree)
+        if (live != 0u && Dynamic is { } dynamic && _leaves is { } tree)
         {
             int from = tree.ClusterAt(x, y, z);
             bool anyCluster = _visibility is not { HasData: true };
 
-            for (int index = 0; index < dynamic.Dlights.Count; index++)
+            for (; live != 0u; live &= live - 1u)
             {
+                int index = System.Numerics.BitOperations.TrailingZeroCount(live);
+                DlightsExamined++;
                 DynamicLight light = dynamic.Dlights[index];
                 int cluster = tree.ClusterAt(light.X, light.Y, light.Z);
 

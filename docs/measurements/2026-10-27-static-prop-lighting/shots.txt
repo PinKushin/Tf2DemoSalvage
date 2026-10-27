@@ -1,0 +1,9 @@
+compare.ps1 on the three --shot captures (f12 tick 30600, gummo first person, 1280x720; the PNGs are not committed):
+SHA-256 prefixes: S1-B 43D5393CD1C452EB, S2-B 4623F5948820309E, S3-A EA892DD4A5F0395A.
+
+S1-B.png vs S2-B.png: 25 of 921600 pixels differ, max channel 255, box (1113,2)-(1119,9)
+S1-B.png vs S3-A.png: 40 of 921600 pixels differ, max channel 255, box (1101,2)-(1119,10)
+S2-B.png vs S3-A.png: 47 of 921600 pixels differ, max channel 255, box (1101,2)-(1119,10)
+
+The box is the red frame-rate text in the top right ("19 fps ... ms on cp_process_f12.bsp"), which the B-B control
+shows changing between runs of the same build. Every pixel outside it is identical in all three.

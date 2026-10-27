@@ -270,6 +270,9 @@ public sealed class DynamicLights
     /// <returns>True for a live slot.</returns>
     public bool IsActive(int index) => index is >= 0 and < MaxDlights && (_active & (1u << index)) != 0;
 
+    /// <summary>`r_dlightactive` itself (`DAT_1806996c4`): bit N set while dlight slot N is live.</summary>
+    public uint ActiveMask => _active;
+
     /// <summary>The dlights as this frame draws them, copied into another list: `EndUpdateLightmaps`' copy of `cl_dlights`.</summary>
     /// <param name="into">Overwritten: its time, its active mask and every dlight slot.</param>
     /// <remarks>
