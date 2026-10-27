@@ -271,8 +271,8 @@ public sealed class DetailSpriteLeaves
 
     /// <summary>Writes the lane being filled into the table; a no-op once written, until the next <see cref="Add"/>.</summary>
     /// <remarks>
-    /// <see cref="DetailSprites.Build"/> calls it when it finishes, so the reads that follow — which may be on the render
-    /// thread — find nothing to write.
+    /// <see cref="DetailSprites.Build"/> calls it when it finishes, so the reads that follow do not write the lane table.
+    /// (<see cref="Take(int, float?, bool)"/> still advances its cursors, as it always did.)
     /// </remarks>
     public void Seal()
     {

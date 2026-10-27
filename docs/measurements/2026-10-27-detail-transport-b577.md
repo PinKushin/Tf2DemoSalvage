@@ -27,7 +27,23 @@ From the read-only ranking:
   lump index in both builds the two order-including hashes match (`dc27b769f0b8dc78`), so the only reorder is among the
   79 exact ties, which now take Valve's HeapSort order.
 - T: unit tests on the label.
-- B: a per-frame state-equivalence test, comparing drawn batch bytes and whizzes (not offers).
+- B: a per-frame state-equivalence test. On every frame it compares the same set of drawn quads (exact bytes of blend
+  and corners) and the same whizzes, but not offers. Order across effects is excluded on purpose, because it is
+  dictionary order and changes when a finished burst is retired sooner. That order change is left to the lead to accept.
+
+## Viewer-path identity (detail), if the lead wants it beyond the probe
+
+The B580 `cull` hash (`TF2VIEW_FRAME_HASH=1`) will differ between A and B on frames that hold an exact tie, so a raw A/B
+comparison proves nothing. Instead, build A′ and B′ with lump-index tie-breaks, as the probe did (its hashes match), and
+compare their `cull` hashes tick by tick, with A′ vs A′ and B′ vs B′ as the floor. The probe is the identity proof
+offered here. This section runs only on request, and after GO.
+
+## UI check (transport), after GO
+
+The worktree's gcor demos are LFS pointers. Copy them in first (`docs/memory/a-worktree-copies-gcor-demos-never-lfs-pull.md`),
+then rerun the two `LoadDemo*` tests in `Viewer3D.Tests` that fail here without the demos. Then run `TransportUiTests` alone
+through `run-exclusive.ps1`, because it takes the desktop. `Transport_JumpToEnd_MovesTheScrubBar` reads the tick label's
+UIA name.
 
 ## Question
 

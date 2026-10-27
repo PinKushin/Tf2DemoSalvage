@@ -40964,8 +40964,14 @@ key, because it rebuilds from the offer (D221). `played` is computed once per `S
 dispatches' dormancy closures are made once per dispatch and timeline instead of once a frame. **Held by**
 `StepOver_AFinishedOneShotOnTheNextFrame_IsOfferedOnlyIfTheFrameLanded`, which covers all four kinds, played and
 seeked, and `StepOver_OneShotsLetGoOverAPlayback_DrawWhatOfferingThemAllDrew`. That test plays 3,000 frames of finite
-drawn one-shots and checks that every frame's batch bytes and whizzes equal a reference with `OfferGoneBursts` set,
-while offering under half as many bursts. The B577 and B592 fingerprint tests set `OfferGoneBursts`, because their
+drawn one-shots against a reference with `OfferGoneBursts` set and offers under half as many bursts. Each frame draws
+the same set of quads (exact bytes: blend and six corners) and the same whizzes. **The order ACROSS effects changes.** A
+finished burst is retired sooner, which frees its slot in the `ParticleEffects` dictionary for a later insert, so on
+some frames overlapping translucent one-shots from different effects blend in a different order. That order is
+dictionary order both before and after, not the engine's, which sorts each effect as a renderable. This is a visible
+change, filed for the lead to accept. To refuse it, offer the cached last `ParticleBurst` for a gone key: a finished
+burst that is still offered is kept and not stepped, so order and census stay identical and the attachment query is
+still saved. The B577 and B592 fingerprint tests set `OfferGoneBursts`, because their
 recorded census predates the change. **Still open:** the attachment queries of live followed effects, which the engine
 also re-reads every frame. Frame cost not measured yet (plan: measurements/2026-10-27-detail-transport-b577.md).
 
