@@ -213,31 +213,46 @@ public sealed class DisplacementCollision
     /// <param name="toZ">Where it would end unobstructed.</param>
     /// <param name="extents">Half the box's size on each axis — `Ray_t::m_Extents` (`cmodel.h:66`).</param>
     /// <param name="mask">The contents that stop it. Terrain is `CONTENTS_SOLID`, so a mask without that bit passes through.</param>
+    /// <param name="limit">
+    /// A fraction something else already stops the trace at — the brush trace's: only a shorter terrain hit is looked
+    /// for, and the bound comes back, with no surface, when there is none. 1 for the whole ray.
+    /// </param>
     /// <returns>As the cube's.</returns>
+    /// <remarks>
+    /// **The bound shrinks the travel box, which is the whole saving.** A 57,016-unit sky trace's box overlapped most of a
+    /// map's displacements; the engine's world trace only reaches the displacements in the leaves the ray crosses before
+    /// it stops (`CM_TraceToLeaf`). A hit shorter than the bound lies inside the shortened box, so nothing it could return
+    /// is culled (`DisplacementSweepLimitTests`).
+    /// </remarks>
     public (float Fraction, int Texdata, bool SurfaceProp2, (float X, float Y, float Z) Normal, float Distance) SweepSurface(
         float fromX, float fromY, float fromZ,
         float toX, float toY, float toZ,
         (float X, float Y, float Z) extents,
-        int mask)
+        int mask,
+        float limit = 1f)
     {
         if (_displacements.Length == 0 || (mask & BspLeafTree.ContentsSolid) == 0)
         {
-            return (1f, -1, false, default, 0f);
+            return (limit, -1, false, default, 0f);
         }
-
-        // The travel's own box, grown by the sweeping box, so a displacement can be rejected without
-        // touching a triangle.
-        float lowX = MathF.Min(fromX, toX) - extents.X;
-        float lowY = MathF.Min(fromY, toY) - extents.Y;
-        float lowZ = MathF.Min(fromZ, toZ) - extents.Z;
-        float highX = MathF.Max(fromX, toX) + extents.X;
-        float highY = MathF.Max(fromY, toY) + extents.Y;
-        float highZ = MathF.Max(fromZ, toZ) + extents.Z;
 
         (float X, float Y, float Z) start = (fromX, fromY, fromZ);
         (float X, float Y, float Z) delta = (toX - fromX, toY - fromY, toZ - fromZ);
 
-        float hit = 1f;
+        // The travel's own box up to the bound, grown by the sweeping box and a unit for the clip's epsilons, so a
+        // displacement can be rejected without touching a triangle.
+        float endX = limit < 1f ? fromX + (delta.X * limit) : toX;
+        float endY = limit < 1f ? fromY + (delta.Y * limit) : toY;
+        float endZ = limit < 1f ? fromZ + (delta.Z * limit) : toZ;
+        float pad = limit < 1f ? BoundPad : 0f;
+        float lowX = MathF.Min(fromX, endX) - extents.X - pad;
+        float lowY = MathF.Min(fromY, endY) - extents.Y - pad;
+        float lowZ = MathF.Min(fromZ, endZ) - extents.Z - pad;
+        float highX = MathF.Max(fromX, endX) + extents.X + pad;
+        float highY = MathF.Max(fromY, endY) + extents.Y + pad;
+        float highZ = MathF.Max(fromZ, endZ) + extents.Z + pad;
+
+        float hit = limit;
         int texdata = -1;
         bool second = false;
         (float X, float Y, float Z) normal = default;
@@ -269,6 +284,9 @@ public sealed class DisplacementCollision
 
         return (hit, texdata, second, normal, distance);
     }
+
+    /// <summary>How far a bounded travel box is grown beyond the sweeping box: only ever adds candidates, which the bound then filters.</summary>
+    private const float BoundPad = 1f;
 
     /// <summary>One displacement surface: its triangles and the box they live in.</summary>
     private sealed class Displacement(
