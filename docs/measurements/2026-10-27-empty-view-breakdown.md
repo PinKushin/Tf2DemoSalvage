@@ -66,7 +66,9 @@ branch). Runs only after the lead's go; one at a time, each behind the quiet gat
 `TF2VIEW_AUTOPLAY=1 TF2VIEW_VIEWPORT_SIZE=1280x720 TF2VIEW_CAMERA="1613 -2821 154 89 0" <exe> D:/measure-f12/f12.dem
 --tick 30000 --measure 20 +fps_max 0`
 
-Order ABBA then BAAB (A = before, B = after): eight runs. Identity: one `--shot` per build at the same tick and camera,
+Order ABBA then BAAB (A = before, B = after): eight runs. **Plus one continuity run per build** (lead, 2026-10-27: the
+form behind the 3.44 ms is not known): the same command with `--spectate gummo --first-person` in place of the camera,
+reported beside the empty view and never pooled with it. Identity: one `--shot` per build at the same tick and camera,
 compared by hash and by pixel. Reading: per-second lines after the first five (steady, the hit path) frame-weighted; the
 first five reported apart (first-use builds, the miss path, `a-split-carries-its-first-use-builds.md`). % = part / that run's
 `measured … mean`.
