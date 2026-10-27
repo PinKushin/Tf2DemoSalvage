@@ -1,9 +1,11 @@
 # One reading: quiet gate (three LoadPercentage samples under 25%, no other viewer/dotnet/MSBuild/testhost), then the viewer
 # under run-exclusive. Stdout -> $Out/$Name.txt. Exit 2 = gate not met within $GateMinutes. Extra viewer args after -Extra.
+# VBCSCompiler is not in the list: the machine's shared compiler server idles for minutes after any agent's build, and an
+# active compile shows in the load samples anyway.
 param([string]$Exe = 'D:/measure-f12/offthread-a71/tf2demoview.exe', [string]$Out = $PSScriptRoot, [string]$Name,
   [int]$Seconds = 60, [int]$GateMinutes = 20, [string[]]$Extra = @())
 $ErrorActionPreference = 'Stop'
-function Busy { @(Get-CimInstance Win32_Process | Where-Object { $_.Name -eq 'tf2demoview.exe' -or $_.Name -match '^(dotnet|testhost|MSBuild|VBCSCompiler)' }).Count -gt 0 }
+function Busy { @(Get-CimInstance Win32_Process | Where-Object { $_.Name -eq 'tf2demoview.exe' -or $_.Name -match '^(dotnet|testhost|MSBuild)' }).Count -gt 0 }
 function Load { (Get-CimInstance Win32_Processor | Measure-Object LoadPercentage -Average).Average }
 $deadline = (Get-Date).AddMinutes($GateMinutes)
 while ($true) {

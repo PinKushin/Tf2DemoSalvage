@@ -1,6 +1,6 @@
 # 105 - Two off-thread moves: parallel bone setup (A) and HUD paint off the game thread (B)
 
-Status: design only, nothing built. Evidence classes labelled: *source* (SDK), *code* (ours), *measured* (named file), *estimate*. Read on the hitscan-implementation worktree plus `f049abfb` (queued render thread, finding 103) for the threading seams. Both designs are within-frame fork-joins on the same pool; forks never nest and never coexist (bones, then particles, then HUD, in time), so the core budget is shared, not summed.
+Status: step 1 (instruments) built and measured, both GO (section D); the forks are being built on `perf/offthread-bones-hud`. Evidence classes labelled: *source* (SDK), *code* (ours), *measured* (named file), *estimate*. Read on the hitscan-implementation worktree plus `f049abfb` (queued render thread, finding 103) for the threading seams. Both designs are within-frame fork-joins on the same pool; forks never nest and never coexist (bones, then particles, then HUD, in time), so the core budget is shared, not summed.
 
 ## 0. The frame as it runs today (code, `f049abfb`)
 
@@ -112,3 +112,10 @@ Existing parts (`--measure`): `hud setup/events/precache/state/frame/tools` (`Fr
 - Owner decisions to record (D-entries): `cl_threaded_bone_setup` default on (engine ships 0, dev-only); the HUD fork's name and default; this-frame roots instead of the engine's last-frame list.
 
 Totals (estimate): A 0.5-0.7 ms, B 0.3-0.6 ms, against a ~9.5 ms frame; both conditional on the step-1 measurements.
+
+## D. Step 1 measured: both GO (2026-10-26)
+
+*Measured*, `measurements/2026-10-26-offthread-bones-and-hud-go-no-go.md`, f12 gummo first person, mode 2, three runs:
+- **A**: eligible roots (at least 16 bones, no move parent, no ragdoll) 0.53-0.56 ms a frame over 6.3 builds (measurements/2026-10-26-offthread-bones-and-hud-go-no-go.md); slowest 0.12 ms; children 0.04 ms, so no wave 2. The count was wrong in A6's estimate (six roots, not tens): the critical path is ~two roots deep on five threads, so the saving ceiling is ~0.3 ms (*estimate*).
+- **A3 missed a hazard**: `AnimatingEntity.BeforeBuild` (`EntityModels.Simulation.cs:599-663`, `BuildBlend`) runs inside every root's request and reaches `EntityModelSet` (`LayersFor` counts `SubstitutedFlinches`, model lazy caches). It is idempotent within a frame (`pending.Ready`), so the pre-pass runs it serially for every root before the fork and the worker's call finds it already done.
+- **B**: forkable 0.58-0.61 ms against a 0.95 ms window to the next `Pack`, overrunning on 0.7-1.8% of frames by 0.002 ms a frame (measurements/2026-10-26-offthread-bones-and-hud-go-no-go.md). B7's check: `HudChat` is 0.30-0.33 ms, half the paint (measurements/2026-10-26-offthread-bones-and-hud-go-no-go.md) — doing less there may beat the fork.
