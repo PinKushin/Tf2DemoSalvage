@@ -40976,9 +40976,34 @@ owned dispatches' dormancy closures are made once per dispatch and timeline inst
   counters all equal a reference with `OfferGoneBursts` set, and more than 200 offers came from the cache.
 - The B577 and B592 fingerprint tests, unchanged and unflagged.
 
-**Sabotage:** leaving gone keys out reddens the state test and both fingerprint tests. Dropping the sentry's posed gate
-reddens the state test. **Assumption, named:** a posed entity whose attachment resolved when the flash fired still
-resolves it inside the flash's window. A model swapped within that second would break it. **Still open:** the attachment queries of live followed effects, which the engine
+**Sabotage:** leaving gone keys out reddens the state test and both fingerprint tests.
+
+**Review fix (2026-10-27, owner: fix B577 risks, keep).** A Sonnet review found three problems, and they are fixed:
+- **(a) A re-offered burst carried stale fields.** If a played frame's shown time moved back within a tick, `Bursts`
+  rebuilt the finished burst from the cached struct.
+- **(b) `IsPosed` is looser than the fresh build's test**, which is whether the attachment resolves. A sentry upgrade
+  that swaps the model breaks it.
+- **(c) The dormancy closure was cached per timeline.**
+
+Fixes:
+- **(a) and (b):** the cache now serves only bursts whose cached copy IS the fresh build, which are entity-less
+  dispatches and TF effects from no entity: point fixed at first sight, definition, end and stop all functions of the
+  dispatch alone. Sentry flashes, weapon flashes and TF effects from an entity are always built fresh. A weapon flash
+  with nothing under it still skips its muzzle query, which offers nothing either way.
+- **(c) is not a reachable case.** `DemoTimeline.Dormancy` and `Dispatches` are `private init`, and
+  `Timeline_TheMembersBurstEffectsCachesPerTimeline_AreInitOnly` holds them there. `_stops` rests on the same fact.
+
+The state test now covers both cases:
+- a sentry posed with no barrel, a model swap, on 1 frame in 17;
+- the shown time moving back within a tick on played frames, over 100 of them.
+
+It also checks that over 200 bursts came from cache and none on the reference side. Sabotage, each red:
+- caching the sentry behind `IsPosed` fails first on a swap frame (frame 60);
+- caching it behind an exact resolve check, which keeps the stale point, fails at frame 1739 (not a swap frame);
+- making `Dormancy` `private set` fails the init-only test.
+
+Cost: the saving of the cache is now only for entity-less one-shots. The timed runs had already measured no change.
+**Still open:** the attachment queries of live followed effects, which the engine
 also re-reads every frame. **Measured: no change** (measurements/2026-10-27-detail-transport-b577.md). `dispatches` +
 `muzzles` were 0.332-0.348 ms before and 0.328-0.336 ms after on gummo, and 0.404-0.441 vs 0.408-0.422 ms on the empty (measurements/2026-10-27-detail-transport-b577.md)
 view. The ranges overlap, so the finished one-shots were not where the cost was. **Next:** split `dispatches` into its

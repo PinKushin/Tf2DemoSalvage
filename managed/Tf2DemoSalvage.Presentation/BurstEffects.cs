@@ -252,6 +252,9 @@ public sealed class BurstEffects
     private int?[] _stops = [];
 
     /// <summary>Each owned dispatch's dormancy question by its index, made on first offer for <see cref="_stopsOf"/>.</summary>
+    /// <remarks>Keyed on the timeline alone, like <see cref="_stops"/>: `DemoTimeline.Dormancy` and `Dispatches` are
+    /// `private init`, so neither changes under an existing timeline (held by
+    /// `Timeline_TheMembersBurstEffectsCachesPerTimeline_AreInitOnly`).</remarks>
     private Func<int, bool>?[] _dormantAt = [];
 
     /// <summary>The `"ParticleEffect"` dispatches made from an entity, by index — each runs until Valve ends it.</summary>
@@ -285,15 +288,18 @@ public sealed class BurstEffects
     /// <summary>The timeline <see cref="_lastOffers"/> holds keys of.</summary>
     private DemoTimeline? _lastOffersOf;
 
-    /// <summary>Whether a key is let go and has a last offer to repeat.</summary>
-    private bool Gone(long key) => LetGo(key) && _lastOffers.ContainsKey(key);
-
     /// <summary>Offers a let-go key's last burst again instead of building it; false when it is not let go.</summary>
     /// <remarks>
     /// **Offered, not left out, so nothing but the work changes**: `ParticleEffects.Bursts` keeps a finished burst that
     /// is still offered and does not step it, never reading its point, so the census and the order of its dictionary
     /// stay exactly what offering a freshly built burst gave. Left out, it was retired sooner and the slot it freed
-    /// moved later effects in the draw order. The caller decides that a fresh build would have offered it at all.
+    /// moved later effects in the draw order.
+    ///
+    /// **Used only where the cached burst IS the fresh one** (B577 review): an entity-less dispatch, whose point is fixed at
+    /// first sight (<see cref="_particleDispatchPoints"/>), and whose definition, end point and stop are functions of the
+    /// dispatch alone. So a played frame that still rebuilds it — a shown time moving back within a tick, where
+    /// <c>SimulatedTo &gt; wanted</c> — rebuilds from exactly what a fresh build would hand it. Anything whose offer
+    /// depends on a pose (sentry and weapon flashes, an entity's TF effect) is always built fresh.
     /// </remarks>
     private bool Reoffer(long key)
     {
@@ -303,9 +309,13 @@ public sealed class BurstEffects
         }
 
         _burstsNow.Add(last);
+        Reoffers++;
 
         return true;
     }
+
+    /// <summary>Bursts offered from cache rather than built, ever, counted where it happens (B243).</summary>
+    internal long Reoffers { get; private set; }
 
     /// <summary>Offers a one-shot's burst and remembers it for <see cref="Reoffer"/>.</summary>
     private void Offer(in ParticleBurst burst)
@@ -786,12 +796,8 @@ public sealed class BurstEffects
 
         foreach ((int index, SceneEffectDispatch dispatch) in _dispatchesNow)
         {
-            // Finished, it is offered as it last was, without the barrel query (B577) — while posed, as a fresh build needs.
-            if (_models.IsPosed(dispatch.Entity) && Reoffer(MuzzleFlashKeys + index))
-            {
-                continue;
-            }
-
+            // **Always built fresh, never from cache** (B577 review): whether a fresh build offers it at all is whether the
+            // barrel resolves, and that is the query a cache would skip — a sentry upgrade swaps the model mid-window.
             // Stryker disable once all : a mutated guard leaves its pattern variables unassigned (CS0165) and Safe Mode drops the method - B410
             if (!string.Equals(
                     timeline.Dispatches.Names.Name(dispatch.Name), SentryMuzzleFlash.EffectName, StringComparison.Ordinal) ||
@@ -801,7 +807,7 @@ public sealed class BurstEffects
                 continue;
             }
 
-            Offer(new ParticleBurst(MuzzleFlashKeys + index, definition, barrel, dispatch.Tick));
+            _burstsNow.Add(new ParticleBurst(MuzzleFlashKeys + index, definition, barrel, dispatch.Tick));
         }
     }
 
@@ -1123,24 +1129,13 @@ public sealed class BurstEffects
             // never has one, in any view (`tf_weapon_rocketlauncher.cpp:383`).
             bool backblasts = what.Backblast && flash.Viewmodel is null && flash.Owner != timeline.RecorderEntityIndex;
 
-            // **Nothing left to build on a played frame, no attachment query** (B577). A flash with nothing under it — no
-            // muzzle particle and no backblast — offers nothing, as a fresh build did. A world flash whose every key is let go
-            // offers each as it last was, while its weapon is posed, which is when a fresh build would offer it at all.
-            // The first-person log line still gets its frame: it is written only while debug is on.
-            if (_played && !OfferGoneBursts && (flash.Viewmodel is null || !_renderLog.IsEnabled(LogLevel.Debug)))
+            // **A flash with nothing under it — no muzzle particle and no backblast — offers nothing, so it asks for no
+            // muzzle** (B577); a fresh build offered nothing too. Every other flash is built fresh, never from cache (B577
+            // review): whether it is offered is whether the muzzle resolves, which is the query a cache would skip. The
+            // first-person log line still gets its frame while debug is on.
+            if (what.Particle is null && !backblasts && (flash.Viewmodel is null || !_renderLog.IsEnabled(LogLevel.Debug)))
             {
-                if (what.Particle is null && !backblasts)
-                {
-                    continue;
-                }
-
-                if (flash.Viewmodel is null && _models.IsPosed(flash.Weapon) &&
-                    (what.Particle is null || Gone(muzzleKey)) && (!backblasts || Gone(muzzleKey + 1)))
-                {
-                    Reoffer(muzzleKey);
-                    Reoffer(muzzleKey + 1);
-                    continue;
-                }
+                continue;
             }
 
             ParticleControlPoint? point = FlashPoint(flash);
@@ -1175,7 +1170,7 @@ public sealed class BurstEffects
             // Stryker disable once all : a mutated guard leaves its pattern variables unassigned (CS0165) and Safe Mode drops the method - B410
             if (what.Particle is { } particle && systems.TryGetValue(particle, out ParticleSystem? definition))
             {
-                Offer(new ParticleBurst(muzzleKey, definition, muzzle, flash.Tick));
+                _burstsNow.Add(new ParticleBurst(muzzleKey, definition, muzzle, flash.Tick));
             }
 
             // Stryker disable once all : a mutated guard leaves its pattern variables unassigned (CS0165) and Safe Mode drops the method - B410
@@ -1183,7 +1178,7 @@ public sealed class BurstEffects
                 systems.TryGetValue(WeaponMuzzleFlashes.BackblastSystem, out ParticleSystem? backblast) &&
                 _models.AttachmentPoint(flash.Weapon, WeaponMuzzleFlashes.BackblastAttachment) is { } behind)
             {
-                Offer(new ParticleBurst(muzzleKey + 1, backblast, behind, flash.Tick));
+                _burstsNow.Add(new ParticleBurst(muzzleKey + 1, backblast, behind, flash.Tick));
             }
         }
     }
@@ -1334,15 +1329,16 @@ public sealed class BurstEffects
 
         foreach ((int index, SceneEffectDispatch dispatch) in _tfParticlesNow)
         {
-            // Finished, offered as it last was (B577); one from an entity only while that entity is posed, as a fresh build
-            // needs it to be.
-            if (((dispatch.Flags & DispatchFromEntity) == 0 || _models.IsPosed(dispatch.Entity)) &&
-                Reoffer(TfParticleKeys + index))
+            // From no entity, finished, it is offered as it last was (B577): the same burst a fresh build makes, as for the
+            // entity-less dispatches above. From an entity it is built fresh: its offer depends on the entity's pose.
+            bool fromNoEntity = (dispatch.Flags & DispatchFromEntity) == 0;
+
+            if (fromNoEntity && Reoffer(TfParticleKeys + index))
             {
                 continue;
             }
 
-            AddParticleEffect(TfParticleKeys + index, dispatch, timeline, systems, remember: true);
+            AddParticleEffect(TfParticleKeys + index, dispatch, timeline, systems, remember: fromNoEntity);
         }
     }
 
