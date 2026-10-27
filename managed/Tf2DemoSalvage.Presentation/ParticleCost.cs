@@ -12,6 +12,9 @@ namespace Tf2DemoSalvage.Presentation;
 /// <param name="AttachmentBuilds">Skeletons those queries built.</param>
 /// <param name="AttachmentRebuilds">Of those, queries that rebuilt a skeleton already built this frame.</param>
 /// <param name="AttachmentTicks">Stopwatch ticks in those queries' bone setups.</param>
+/// <param name="AttachmentRootBuilds">Of the builds, roots' (finding 105 A6, by caller: the attachment query).</param>
+/// <param name="AttachmentEligibleBuilds">Of those, roots a threaded pre-pass would take.</param>
+/// <param name="AttachmentEligibleTicks">Stopwatch ticks in the eligible roots' own calls.</param>
 public readonly record struct ParticleCost(
     long Searches,
     long SearchTicks,
@@ -19,7 +22,10 @@ public readonly record struct ParticleCost(
     long AttachmentQueries,
     long AttachmentBuilds,
     long AttachmentRebuilds,
-    long AttachmentTicks)
+    long AttachmentTicks,
+    long AttachmentRootBuilds = 0,
+    long AttachmentEligibleBuilds = 0,
+    long AttachmentEligibleTicks = 0)
 {
     /// <summary>The cost between an earlier reading and this one, per frame.</summary>
     /// <param name="start">The earlier reading.</param>
@@ -37,6 +43,7 @@ public readonly record struct ParticleCost(
             $"particle cost a frame: search {Ms(SearchTicks - start.SearchTicks):0.00} ms over {Each(Searches - start.Searches):0.##} searches, " +
             $"bursts {Ms(BurstTicks - start.BurstTicks):0.00} ms; attachments {Each(AttachmentQueries - start.AttachmentQueries):0.#} queries, " +
             $"{Each(AttachmentBuilds - start.AttachmentBuilds):0.#} skeletons built, {Each(AttachmentRebuilds - start.AttachmentRebuilds):0.#} rebuilt after this frame's first, " +
-            $"{Ms(AttachmentTicks - start.AttachmentTicks):0.00} ms");
+            $"{Ms(AttachmentTicks - start.AttachmentTicks):0.00} ms; roots built {Each(AttachmentRootBuilds - start.AttachmentRootBuilds):0.#}, " +
+            $"eligible {Each(AttachmentEligibleBuilds - start.AttachmentEligibleBuilds):0.#} in {Ms(AttachmentEligibleTicks - start.AttachmentEligibleTicks):0.000} ms");
     }
 }

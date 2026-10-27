@@ -310,6 +310,63 @@ public sealed class AnimatingEntityTests
         childPose.Builds.ShouldBe(0);
     }
 
+    /// <remarks>
+    /// **Finding 105 A6's split: a root is what the engine's threaded pre-pass would pose, a child what stays on the draw.**
+    /// The child asks first and builds its wearer inside its own call, which is the case a call-site timer would charge to
+    /// the child. Counts are exact; the second request is a cache hit for both and builds nothing.
+    /// </remarks>
+    [Test]
+    public void Meter_AChildThatBuildsItsParent_CountsOneRootAndOneChildBuild()
+    {
+        BoneFrameCounter clock = new();
+        AnimatingEntity wearer = new(new CountingPose(shared: true), clock);
+        AnimatingEntity hat = new(new CountingPose(shared: true), clock) { Follows = wearer };
+
+        hat.SetupBones(Vertices, 0d).ShouldBeTrue();
+        hat.SetupBones(Vertices, 0d).ShouldBeTrue();
+
+        (clock.Meter.RootBuilds, clock.Meter.ChildBuilds).ShouldBe((1, 1));
+    }
+
+    /// <remarks>
+    /// **Eligible is the engine's `nBoneCount &gt;= 16` root (`c_baseanimating.cpp:2897`) less a ragdoll body** (finding 105
+    /// A3.4). Three roots, each one build: 16 bones counts, 15 bones and a ragdoll-driven 16 do not — so a threshold off by
+    /// one, or a dropped ragdoll exclusion, changes the count.
+    /// </remarks>
+    [Test]
+    public void Meter_RootsEitherSideOfTheThreshold_CountOnlyTheSixteenBoneOneWithNoRagdollEligible()
+    {
+        BoneFrameCounter clock = new();
+        AnimatingEntity player = new(new CountingPose(bones: 16), clock);
+        AnimatingEntity small = new(new CountingPose(bones: 15), clock);
+        AnimatingEntity corpse = new(new CountingPose(bones: 16), clock) { Ragdoll = (_, _) => { } };
+
+        player.SetupBones(Vertices, 0d).ShouldBeTrue();
+        small.SetupBones(Vertices, 0d).ShouldBeTrue();
+        corpse.SetupBones(Vertices, 0d).ShouldBeTrue();
+
+        (clock.Meter.RootBuilds, clock.Meter.EligibleBuilds).ShouldBe((3, 1));
+    }
+
+    /// <remarks>
+    /// **Exclusive of the parent, or the root/child split reads a child-heavy frame that is really root-heavy.** The wearer
+    /// spends 50 ms on its build; the hat, which asked for it, spends nearly nothing of its own. 50 ms against a few
+    /// microseconds of guards is a margin no scheduler hiccup reaches.
+    /// </remarks>
+    [Test]
+    public void Meter_AChildThatBuildsASlowParent_ChargesTheParentsTimeToTheRoot()
+    {
+        long spin = System.Diagnostics.Stopwatch.Frequency / 20;
+        BoneFrameCounter clock = new();
+        AnimatingEntity wearer = new(new CountingPose(shared: true) { SpinTicks = spin }, clock);
+        AnimatingEntity hat = new(new CountingPose(shared: true), clock) { Follows = wearer };
+
+        hat.SetupBones(Vertices, 0d).ShouldBeTrue();
+
+        clock.Meter.RootTicks.ShouldBeGreaterThanOrEqualTo(spin);
+        clock.Meter.ChildTicks.ShouldBeLessThan(spin / 2);
+    }
+
     /// <summary>A pose source that records what was asked of it and nothing else.</summary>
     /// <remarks>
     /// **The <c>shared</c> flag decides whether a merge pairs, and that changes what a test
@@ -358,10 +415,20 @@ public sealed class AnimatingEntityTests
         /// <summary>Shared across entities when the test needs a merge to pair, unique otherwise.</summary>
         public string NameOf(int bone) => _shared ? $"bone_{bone}" : $"{_name}_{bone}";
 
+        /// <summary>Stopwatch ticks each build spends, so a meter has a known cost to attribute.</summary>
+        public long SpinTicks { get; init; }
+
         public void Build(int boneMask, double currentTime, BoneAccessor into, BoneBitList alreadyWritten)
         {
             Builds++;
             _order?.Add(_name);
+
+            long until = System.Diagnostics.Stopwatch.GetTimestamp() + SpinTicks;
+
+            while (System.Diagnostics.Stopwatch.GetTimestamp() < until)
+            {
+                // A known cost, spent where a real blend spends it.
+            }
         }
     }
 }

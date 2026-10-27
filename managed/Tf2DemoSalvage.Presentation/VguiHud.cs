@@ -151,12 +151,35 @@ public sealed class VguiHud
         bool showScoreboard = false,
         bool paint = true)
     {
+        if (Think(state, events, reset, userMessages, showScoreboard, paint))
+        {
+            Paint(state, reset);
+        }
+    }
+
+    /// <summary>The serial half of <see cref="Frame"/>: scheme, think, events, lifecycle, updates — every side effect (finding 105 B4).</summary>
+    /// <returns>Whether <see cref="Paint"/> should follow: false with no scheme, or for a frame that is not painted.</returns>
+    /// <remarks>Parameters as <see cref="Frame"/>'s.</remarks>
+    /// <param name="state">What `CHud::IsHidden` reads.</param>
+    /// <param name="events">The game events fired since the last frame, or null for none.</param>
+    /// <param name="reset">Whether this frame follows a seek.</param>
+    /// <param name="userMessages">The chat's user messages read since the last frame, or null for none.</param>
+    /// <param name="showScoreboard">Whether <c>+showscores</c> is held.</param>
+    /// <param name="paint">False for a frame that is never shown.</param>
+    public bool Think(
+        HudState state,
+        IReadOnlyList<HudGameEvent>? events = null,
+        bool reset = false,
+        IReadOnlyList<Core.Scene.SceneUserMessage>? userMessages = null,
+        bool showScoreboard = false,
+        bool paint = true)
+    {
         // **No `ClientScheme.res`, no HUD.** An install with no files opens as an empty `GameContent`, not a null one, and
         // an empty scheme's `Panel.BgColor` falls back to opaque white, so the viewport panel painted the whole screen
         // white — the CI runner's capture, one colour with every pixel lit. The game never runs its HUD without the file.
         if (_context is null && _host.Read(SchemePath) is null)
         {
-            return;
+            return false;
         }
 
         // `system()->GetCurrentTime()`, which a `RichText` fades on.
@@ -325,14 +348,23 @@ public sealed class VguiHud
 
         // `CBaseViewport::OnThink`'s `Update()` of each panel that `NeedsUpdate` — the spectator GUI while it is shown.
         SpectatorGui.Update(state);
-        partAt = Part("hud updates", partAt);
+        _ = Part("hud updates", partAt);
+        ForkableTicks = 0;
 
-        if (!paint)
-        {
-            return;
-        }
+        return paint;
+    }
 
-        VguiLayout.SolveTraverse(Viewport, _context);
+    /// <summary>The half of <see cref="Frame"/> a HUD fork would move: layout, cards and paint, into the host's list (finding 105 B4).</summary>
+    /// <param name="state">The state <see cref="Think"/> was given this frame.</param>
+    /// <param name="reset">Whether this frame follows a seek.</param>
+    /// <exception cref="InvalidOperationException">No <see cref="Think"/> has loaded the scheme.</exception>
+    public void Paint(HudState state, bool reset)
+    {
+        VguiContext context = _context ?? throw new InvalidOperationException("Paint before a Think that loaded the scheme");
+        long forkableAt = Parts is null ? 0 : System.Diagnostics.Stopwatch.GetTimestamp();
+        long partAt = forkableAt;
+
+        VguiLayout.SolveTraverse(Viewport, context);
         partAt = Part("hud layout", partAt);
 
         // **A player card made this frame is filled before it is painted.** Cards are made by an update, take their scheme
@@ -343,7 +375,7 @@ public sealed class VguiHud
         if (SpectatorGui.TakeNewPlayerPanels())
         {
             SpectatorGui.UpdatePlayerPanels(state);
-            VguiLayout.SolveTraverse(Viewport, _context);
+            VguiLayout.SolveTraverse(Viewport, context);
         }
 
         // A seek lands where the game, skipping forward through every packet, would have had the last
@@ -369,12 +401,15 @@ public sealed class VguiHud
                 SpectatorGui.Children[at].ChildPainted ??= (child, ticks) => inCard.Add(CardPart(child.Name), ticks);
             }
         }
-        Viewport.PaintTraverse(_host.List, _context);
-        _ = Part("hud paint", partAt);
+        Viewport.PaintTraverse(_host.List, context);
+        ForkableTicks = Part("hud paint", partAt) - forkableAt;
     }
 
     /// <summary>Where the frame's parts are timed, or null for none (tests).</summary>
     public FrameParts? Parts { get; set; }
+
+    /// <summary>This frame's layout, cards and paint in one span — what a HUD fork would move (finding 105 B7); 0 when not measuring.</summary>
+    public long ForkableTicks { get; private set; }
 
     /// <summary>Adds the time since <paramref name="since"/> to a part, and returns now.</summary>
     private long Part(string name, long since)

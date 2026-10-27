@@ -50,6 +50,9 @@ public sealed partial class EntityModelSet
     /// <summary>The bone-clock frame the last world pass ran on (finding 102).</summary>
     private long _worldBoneFrame;
 
+    /// <summary>The passes run on the current bone-clock frame — a second run of one is the next frame.</summary>
+    private readonly HashSet<string> _passesThisFrame = new(StringComparer.Ordinal);
+
     /// <summary>Each instance list's matrices, rewritten in place when that list is rebuilt (B585, <see cref="InstanceMatrices"/>).</summary>
     private readonly Dictionary<ICollection<ModelInstance>, InstanceMatrices> _matrices =
         new(ReferenceEqualityComparer.Instance);
@@ -107,6 +110,7 @@ public sealed partial class EntityModelSet
         Unjudgeable = 0;
         Posed = 0;
         Simulated = 0;
+        MaxRootTicks = 0;
 
         // **Only the world pass clears it, and that is a defect this rename exposed** (B385). The
         // viewmodel pass calls straight back into here with its own two props, so an unconditional
@@ -129,9 +133,20 @@ public sealed partial class EntityModelSet
         // (`cdll_client_int.cpp:2206-2210`): bring every entity's state up to date, then build
         // bones on demand while drawing. State first is what lets a merge reach an entity the draw
         // loop has not got to yet.
-        _boneFrames.Advance();
+        //
+        // **Once a frame, at the world pass** — `InvalidateBoneCaches` is called once, from `OnRenderStart`
+        // (cdll_client_int.cpp:2163), before any view draws; the viewmodel and undrawn passes are draws inside that frame.
+        // Advancing on every pass made each attachment query after them a first touch: it rebuilt a skeleton the world had
+        // just built and rolled its mask down to the attachment bit (finding 105 D). A pass run twice with no world pass
+        // between — a caller driving only the viewmodel — is a new frame each time.
+        if (string.Equals(pass, WorldPass, StringComparison.Ordinal) || !_passesThisFrame.Add(pass))
+        {
+            _boneFrames.Advance();
+            _passesThisFrame.Clear();
+            _passesThisFrame.Add(pass);
+        }
 
-        // The world pass's bone frame, for an instrument read after the viewmodel and undrawn passes have advanced it.
+        // The world pass's bone frame, for an instrument read after the later passes.
         if (string.Equals(pass, WorldPass, StringComparison.Ordinal))
         {
             _worldBoneFrame = _boneFrames.Frame;
@@ -238,6 +253,13 @@ public sealed partial class EntityModelSet
             SimulateStaticsInView(seconds, scene);
 
             SimulateTicks += System.Diagnostics.Stopwatch.GetTimestamp() - staticsAt;
+
+            // **After every entity's state and before the first draw** — the engine's place for it, after `SimulateEntities`
+            // and before `FireEvents` (`cdll_client_int.cpp:2210`); a build before the state would pose last frame's.
+            if (ThreadedBoneSetup)
+            {
+                PrePoseRoots(seconds);
+            }
         }
 
         foreach ((SceneProp prop, int place, int? bucket, bool inSky, (float, float, float, float, float, float)? collatedBox) in _ordered)
@@ -278,12 +300,13 @@ public sealed partial class EntityModelSet
                 continue;
             }
 
-            // `Batches(path, frame)`'s clamp, on the resolved frames.
-            if (resolved.Batches is not { Count: > 0 } packed || packed[Math.Clamp(frame, 0, packed.Count - 1)].Count == 0)
+            if (!HasGeometry(resolved, frame))
             {
                 _tally.NoGeometry(prop.ModelPath);
                 continue;
             }
+
+            int packedFrames = resolved.Batches!.Count;
 
             _tally.Drawn();
 
@@ -385,7 +408,7 @@ public sealed partial class EntityModelSet
                 _reports.Lit(prop, lit, skin);
             }
 
-            _reports.Animating(prop, frame, packed.Count, blend);
+            _reports.Animating(prop, frame, packedFrames, blend);
 
             ReportTicks += System.Diagnostics.Stopwatch.GetTimestamp() - reportedAt;
 
@@ -406,13 +429,11 @@ public sealed partial class EntityModelSet
                 // is not worth guessing at before something measures it.
                 // A corpse's simulation was brought up to this tick by `AdvanceCorpses`, before the
                 // cull, which is what attached the ragdoll hook this `SetupBones` runs.
-                long setupAt = System.Diagnostics.Stopwatch.GetTimestamp();
-                int drawBuildsBefore = SkeletonPose.PoseBuilds;
+                SetupMark mark = MarkSetup();
 
                 bool setUp = animating.SetupBones(StudioBoneFlags.UsedByAnything, seconds);
 
-                SetupTicks += System.Diagnostics.Stopwatch.GetTimestamp() - setupAt;
-                BuildsDrawing += SkeletonPose.PoseBuilds - drawBuildsBefore;
+                _ = ChargeSetup(mark, movesFreely: prop is not { AttachedTo: not null, BoneMerged: false });
                 Posed++;
 
                 if (!setUp)
@@ -919,5 +940,166 @@ public sealed partial class EntityModelSet
         }
 
         _tally.Report();
+    }
+
+    /// <summary>`cl_threaded_bone_setup`: pose this frame's eligible roots ahead of the draw loop (finding 105 A7). Off is the engine's default.</summary>
+    /// <remarks>
+    /// **The engine's pre-pass, on this frame's list rather than last frame's** — an addition above Valve (finding 105 A2):
+    /// `ThreadedBoneSetup` poses `g_PreviousBoneSetups`, last frame's roots, speculatively (`c_baseanimating.cpp:2777-2794`);
+    /// the collation has already said which roots draw now, so nothing is built that the frame will not use. Off, there is
+    /// no pre-pass at all, as the engine's `if ( g_bDoThreadedBoneSetup )` has none.
+    /// </remarks>
+    public bool ThreadedBoneSetup { get; set; }
+
+    /// <summary>The pre-pass's fork over the shared pool — `ParallelProcess( "C_BaseAnimating::ThreadedBoneSetup", … )`.</summary>
+    /// <remarks>
+    /// Its `Threaded` is not the cvar (<see cref="ThreadedBoneSetup"/> is): the engine forks whenever the pre-pass runs and the
+    /// list holds two or more (`nCount &gt; 1`, c_baseanimating.cpp:2783), which the lane's threshold of 1 is. The default lane
+    /// is one thread of its own, so a scene the viewer did not wire runs the pre-pass serially.
+    /// </remarks>
+    public WorkerLane BoneWorkers { get; set; } = new();
+
+    /// <summary>The roots the pre-pass poses this frame, reused between frames.</summary>
+    private readonly List<(SceneProp Prop, AnimatingEntity Entity)> _roots = [];
+
+    /// <summary>Each root's own ticks in the fork, by its index — written only by the body for that index.</summary>
+    private long[] _rootTicks = [];
+
+    /// <summary>The demo time the fork's bodies pose at, set before the fork.</summary>
+    private double _prePoseSeconds;
+
+    /// <summary>One root's pre-pose, made once so the fork allocates no delegate a frame.</summary>
+    private Action<int>? _prePoseOne;
+
+    /// <summary>The fork's body: one root's `SetupBones` with the engine's -1 mask, timed into its own slot.</summary>
+    private void PrePoseOne(int index)
+    {
+        long at = System.Diagnostics.Stopwatch.GetTimestamp();
+
+        _ = _roots[index].Entity.SetupBonesFromPreviousMask(_prePoseSeconds);
+
+        _rootTicks[index] = System.Diagnostics.Stopwatch.GetTimestamp() - at;
+    }
+
+    /// <summary>Poses every eligible root the draw loop is about to reach, before it does (finding 105 A7.2).</summary>
+    /// <remarks>
+    /// **Only what the draw loop would build**: the same `kRenderNone` and geometry refusals it makes before it reaches
+    /// `SetupBones`, so no skeleton is built and no mask accumulated for a prop it skips. Then `SetupBonesOnBaseAnimating`'s
+    /// `SetupBones( NULL, -1, -1, gpGlobals->curtime )` for each (`c_baseanimating.cpp:2753`). The draw loop's own call then
+    /// finds its bones readable, the cache hit at `:2911`, so the bones it draws are these.
+    /// </remarks>
+    private void PrePoseRoots(double seconds)
+    {
+        _roots.Clear();
+
+        foreach ((SceneProp prop, _, _, _, _) in _ordered)
+        {
+            // The engine's `!GetMoveParent()`: a parent that is not a merge is a move parent too.
+            if (prop.Pose.RenderMode == RenderModes.None || prop is { AttachedTo: not null, BoneMerged: false })
+            {
+                continue;
+            }
+
+            ResolvedModel resolved = ResolvedFor(prop);
+
+            if (resolved.Frames?.Skinned is not null &&
+                HasGeometry(resolved, SelectWith(resolved.Frames, prop, seconds).Frame) &&
+                _entities.TryGetValue(prop.EntityIndex, out AnimatingEntity? animating) &&
+                animating.PrePoseEligible)
+            {
+                _roots.Add((prop, animating));
+            }
+        }
+
+        // **The blend inputs first, every root, on this thread** (finding 105 D): `BeforeBuild` reaches this set's shared
+        // state (`LayersFor`'s counter, the models' lazy caches) and is idempotent within a frame, so the worker's own call
+        // finds it done. Charged to setup and to `PrePoseBlendTicks`, ahead of the meter's mark, so the split is the build.
+        long blendAt = System.Diagnostics.Stopwatch.GetTimestamp();
+
+        foreach ((SceneProp _, AnimatingEntity animating) in _roots)
+        {
+            animating.BeforeBuild?.Invoke();
+        }
+
+        long blend = System.Diagnostics.Stopwatch.GetTimestamp() - blendAt;
+
+        SetupTicks += blend;
+        PrePoseBlendTicks += blend;
+
+        if (_rootTicks.Length < _roots.Count)
+        {
+            _rootTicks = new long[_roots.Count];
+        }
+
+        _prePoseSeconds = seconds;
+
+        // **One mark across the whole fork**: the meter and the build count are added to atomically, so their deltas after
+        // the join are the fork's exact sums (finding 105 A7.4). The slowest root is its own slot's, carried.
+        SetupMark mark = MarkSetup();
+
+        BoneWorkers.For(_roots.Count, _prePoseOne ??= PrePoseOne);
+
+        PrePoseTicks += blend + ChargeSetup(mark, movesFreely: true, oneRoot: false);
+        PrePosed += SkeletonPose.PoseBuilds - mark.PoseBuilds;
+
+        for (int at = 0; at < _roots.Count; at++)
+        {
+            MaxRootTicks = Math.Max(MaxRootTicks, _rootTicks[at]);
+        }
+    }
+
+    /// <summary>Whether a resolved model has geometry at a frame — `Batches(path, frame)`'s clamp, on the resolved frames.</summary>
+    private static bool HasGeometry(ResolvedModel resolved, int frame) =>
+        resolved.Batches is { Count: > 0 } packed && packed[Math.Clamp(frame, 0, packed.Count - 1)].Count > 0;
+
+    /// <summary>The setup counters and the meter at one instant, for <see cref="ChargeSetup"/>.</summary>
+    private readonly record struct SetupMark(
+        long At, int PoseBuilds, long Root, long Child, int RootBuilds, int ChildBuilds, long Eligible, int EligibleBuilds);
+
+    private SetupMark MarkSetup()
+    {
+        BoneSetupMeter meter = _boneFrames.Meter;
+
+        return new SetupMark(
+            System.Diagnostics.Stopwatch.GetTimestamp(), SkeletonPose.PoseBuilds, meter.RootTicks, meter.ChildTicks,
+            meter.RootBuilds, meter.ChildBuilds, meter.EligibleTicks, meter.EligibleBuilds);
+    }
+
+    /// <summary>Charges the `SetupBones` work since <paramref name="mark"/> to setup and its split, and returns its ticks.</summary>
+    /// <param name="mark">Where the work began.</param>
+    /// <param name="movesFreely">False for a prop with a move parent that is not a merge, whose call is not eligible.</param>
+    /// <param name="oneRoot">True when the span is one call, so its eligible ticks are one root's and may be the slowest.</param>
+    /// <remarks>
+    /// **The split finding 105 A6 decides on, carried from the meter at the call** (B243). One call reaches at most one root —
+    /// the prop itself or the top of its chain — so a root built here is one root's whole cost. Eligible is the engine's
+    /// `!GetMoveParent()`, and only the caller sees a parent that is not a merge: a prop hung on a door is a root to the
+    /// meter, so its own call is taken out here (`c_baseanimating.cpp:2897`).
+    /// </remarks>
+    private long ChargeSetup(SetupMark mark, bool movesFreely, bool oneRoot = true)
+    {
+        BoneSetupMeter meter = _boneFrames.Meter;
+        long spent = System.Diagnostics.Stopwatch.GetTimestamp() - mark.At;
+
+        SetupTicks += spent;
+        BuildsDrawing += SkeletonPose.PoseBuilds - mark.PoseBuilds;
+        SetupRootTicks += meter.RootTicks - mark.Root;
+        SetupChildTicks += meter.ChildTicks - mark.Child;
+        SetupRootBuilds += meter.RootBuilds - mark.RootBuilds;
+        SetupChildBuilds += meter.ChildBuilds - mark.ChildBuilds;
+
+        if (movesFreely)
+        {
+            long eligibleSpent = meter.EligibleTicks - mark.Eligible;
+
+            SetupEligibleTicks += eligibleSpent;
+            SetupEligibleBuilds += meter.EligibleBuilds - mark.EligibleBuilds;
+
+            if (oneRoot && meter.EligibleBuilds > mark.EligibleBuilds)
+            {
+                MaxRootTicks = Math.Max(MaxRootTicks, eligibleSpent);
+            }
+        }
+
+        return spent;
     }
 }

@@ -235,7 +235,14 @@ public sealed partial class ViewerPresenter : IDisposable
         _maps = maps;
         _settingsOwner = settings;
         _shutdown = shutdown;
-        _models = new EntityModelSet(loggers);
+        _models = new EntityModelSet(loggers)
+        {
+            // `cl_threaded_bone_setup`'s fork, on the one pool the particle step shares (finding 105 C).
+            BoneWorkers = new WorkerLane(FramePresenter.Workers)
+            {
+                Threshold = FramePresenter.ThresholdFrom(BoneThresholdVariable, 1),
+            },
+        };
         _log = loggers.CreateLogger("viewer");
         _mapLog = loggers.CreateLogger("map");
         _renderLog = loggers.CreateLogger("render");
@@ -364,6 +371,12 @@ public sealed partial class ViewerPresenter : IDisposable
 
     /// <summary>The model set, for the window's frame reporter and its map projection.</summary>
     public EntityModelSet Models => _models;
+
+    /// <summary>`TF2VIEW_BONE_THRESHOLD`: the bone lane's <see cref="WorkerLane.Threshold"/>, for measuring the fork against its serial pre-pass; debugging only.</summary>
+    public const string BoneThresholdVariable = "TF2VIEW_BONE_THRESHOLD";
+
+    /// <summary>How many pre-pass root lists were forked, ever — counted where the fork was taken, for `--measure`.</summary>
+    public long BoneForks => _models.BoneWorkers.Forks;
 
     /// <summary>What the sound cache holds and how many decodes playback paid for, for `--measure` (finding 80).</summary>
     public SoundCacheHeld SoundsHeld => _sounds.Held;

@@ -238,8 +238,42 @@ public sealed class AnimatingEntity
     /// <summary>Everything asked for so far this frame.</summary>
     private int _accumulatedMask;
 
+    /// <summary>Whether a threaded pre-pass may pose this entity: a root of at least sixteen bones with no ragdoll (finding 105 A3.4).</summary>
+    /// <remarks>
+    /// The engine's list takes `nBoneCount &gt;= 16 &amp;&amp; !GetMoveParent()` (`c_baseanimating.cpp:2897`); a move parent that is not
+    /// a merge is not visible here, so the caller excludes it. The ragdoll exclusion is ours: its physics is not shown safe
+    /// off the game thread.
+    /// </remarks>
+    public bool PrePoseEligible => Follows is null && Ragdoll is null && _pose.BoneCount >= BoneSetupMeter.ThreadedMinimumBones;
+
+    /// <summary>`SetupBones( NULL, -1, -1, curtime )` — the threaded pre-pass's call (`c_baseanimating.cpp:2753`).</summary>
+    /// <param name="currentTime">Demo time.</param>
+    /// <returns>Whether the bones are readable for that mask.</returns>
+    /// <remarks>
+    /// **`boneMask == -1` resolves to `m_iPrevBoneMask` BEFORE the first-touch rollover** (`:2827` against `:2874-2885`), so it
+    /// is whatever was asked for the frame before the last one was rolled over — read as it stands, as the engine reads it.
+    /// Zero, for an entity new this frame, builds nothing and the draw builds it as ever.
+    /// </remarks>
+    public bool SetupBonesFromPreviousMask(double currentTime) => SetupBones(_previousMask, currentTime);
+
+    /// <summary>Times one request into the scene's meter, exclusive of the parent it asks for (finding 105 A6).</summary>
     private bool SetupBones(int boneMask, double currentTime, int budget)
     {
+        long started = System.Diagnostics.Stopwatch.GetTimestamp();
+        bool root = Follows is null;
+        bool eligible = PrePoseEligible;
+
+        bool readable = SetupBonesUntimed(boneMask, currentTime, budget, out long parentTicks, out bool built);
+
+        _clock.Meter.Record(root, eligible, built, System.Diagnostics.Stopwatch.GetTimestamp() - started - parentTicks);
+        return readable;
+    }
+
+    private bool SetupBonesUntimed(int boneMask, double currentTime, int budget, out long parentTicks, out bool built)
+    {
+        parentTicks = 0;
+        built = false;
+
         // **The blend inputs, built on the first request and only on a request** — `StandardBlendingRules` is called from
         // `SetupBones` (`c_baseanimating.cpp:1953`, `:2796`), so an entity nobody draws or asks for builds no layers this
         // frame. Ahead of every guard, because what the pose was handed is read even of a model that builds no bone.
@@ -299,6 +333,7 @@ public sealed class AnimatingEntity
             return true;
         }
 
+        built = true;
         _written.Clear();
 
         // **Widened to include what was already built**, per c_baseanimating.cpp:2920. A second
@@ -365,7 +400,12 @@ public sealed class AnimatingEntity
             // above make a repeat free. The mask is the merge's rather than the caller's, because
             // what the parent must build is the bones this item hangs off, not the bones this item
             // was asked to draw.
-            if (!parent.SetupBones(_merge.FollowBoneSetupMask, currentTime, budget - 1))
+            long parentAt = System.Diagnostics.Stopwatch.GetTimestamp();
+            bool parentReadable = parent.SetupBones(_merge.FollowBoneSetupMask, currentTime, budget - 1);
+
+            parentTicks = System.Diagnostics.Stopwatch.GetTimestamp() - parentAt;
+
+            if (!parentReadable)
             {
                 // Valve shrinks the merged bones rather than drawing them somewhere wrong, and
                 // then reports failure so a caller that checks declines to draw at all.

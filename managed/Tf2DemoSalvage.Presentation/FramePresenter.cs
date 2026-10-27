@@ -80,28 +80,31 @@ public sealed partial class FramePresenter
 
     private readonly ILogger _audioLog;
 
-    /// <summary>The effects running for this demo.</summary>
-    /// <remarks>
-    /// **Their fork uses the physical cores less one, the game thread included** (finding 103): one is left for
-    /// `mat_queue_mode 2`'s render thread. Ours; TF2's pool size is in the closed `vstdlib`.
-    /// </remarks>
+    /// <summary>The one pool every within-frame fork runs on (finding 105 C): the physical cores less one, the game thread included.</summary>
+    /// <remarks>One core is left for `mat_queue_mode 2`'s render thread (finding 103). Ours; TF2's pool size is in the closed `vstdlib`.</remarks>
+    internal static readonly GameWorkers Workers = new() { Degree = Tf2DemoSalvage.Render.MaterialQueueMode.PhysicalCores() - 1 };
+
+    /// <summary>The effects running for this demo, their step forked on the shared pool.</summary>
     private readonly ParticleEffects _particles = new()
     {
-        Workers = new ParticleWorkers
+        Workers = new WorkerLane(Workers)
         {
-            Degree = Tf2DemoSalvage.Render.MaterialQueueMode.PhysicalCores() - 1,
-            Threshold = int.TryParse(
-                Environment.GetEnvironmentVariable(ParticleThresholdVariable),
-                System.Globalization.NumberStyles.Integer,
-                System.Globalization.CultureInfo.InvariantCulture,
-                out int threshold)
-                ? threshold
-                : ParticleWorkers.DefaultThreshold,
+            Threshold = ThresholdFrom(ParticleThresholdVariable, ParticleEffects.DefaultWorkerThreshold),
         },
     };
 
-    /// <summary>`TF2VIEW_PARTICLE_THRESHOLD`: the fork's <see cref="ParticleWorkers.Threshold"/>, for measuring it; debugging only.</summary>
+    /// <summary>`TF2VIEW_PARTICLE_THRESHOLD`: the particle lane's <see cref="WorkerLane.Threshold"/>, for measuring it; debugging only.</summary>
     public const string ParticleThresholdVariable = "TF2VIEW_PARTICLE_THRESHOLD";
+
+    /// <summary>A lane threshold from an environment variable, for measuring it, or the default.</summary>
+    internal static int ThresholdFrom(string variable, int fallback) =>
+        int.TryParse(
+            Environment.GetEnvironmentVariable(variable),
+            System.Globalization.NumberStyles.Integer,
+            System.Globalization.CultureInfo.InvariantCulture,
+            out int threshold)
+            ? threshold
+            : fallback;
 
     /// <summary>Whether this frame's particle steps may fork, as the last frame's `r_threaded_particles` said — for a test.</summary>
     internal bool ParticlesThreaded => _particles.Workers.Threaded;
@@ -210,7 +213,10 @@ public sealed partial class FramePresenter
         _models.AttachmentQueries,
         _models.AttachmentBuilds,
         _models.AttachmentRebuilds,
-        _models.AttachmentTicks);
+        _models.AttachmentTicks,
+        _models.AttachmentRootBuilds,
+        _models.AttachmentEligibleBuilds,
+        _models.AttachmentEligibleTicks);
 
     /// <summary>The particle phase's work, ever (finding 84), carried from `ParticleEffects` where each was counted.</summary>
     public ParticleWork ParticleWork => new(_particles.Alive, _particles.Steps, _particles.Slept, _particles.Gathered);

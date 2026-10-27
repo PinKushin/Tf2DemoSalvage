@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Numerics;
+using System.Threading;
 
 using Microsoft.Extensions.Logging;
 
@@ -156,13 +157,26 @@ public sealed class SkeletonPose : IBonePose
     /// caller that reads it would be a lot of surface for a number that exists to answer one
     /// question: does a 131 ms pose spike come from MORE animation calls or SLOWER ones (B189)?
     ///
-    /// Read as a delta either side of a call, the way LightingTicks is. Single-threaded today; if
-    /// the threaded bone setup of D88 lands, this needs to become per-thread or go.
+    /// Read as a delta either side of a call, the way LightingTicks is. **Added to atomically**, because the threaded bone
+    /// setup builds on the pool (finding 105 A3.1): a delta read across a fork, after its join, is then the fork's exact
+    /// sum. A delta read WHILE another thread builds (a HUD panel's paint, B5.2) would take that thread's too.
     /// </remarks>
-    public static long AnimationTicks { get; set; }
+    public static long AnimationTicks
+    {
+        get => Interlocked.Read(ref _animationTicks);
+        set => Interlocked.Exchange(ref _animationTicks, value);
+    }
 
-    /// <summary>Diagnostic: how many times the animation callback has been asked for a pose.</summary>
-    public static int AnimationCalls { get; set; }
+    private static long _animationTicks;
+
+    /// <summary>Diagnostic: how many times the animation callback has been asked for a pose; added to atomically.</summary>
+    public static int AnimationCalls
+    {
+        get => Volatile.Read(ref _animationCalls);
+        set => Interlocked.Exchange(ref _animationCalls, value);
+    }
+
+    private static int _animationCalls;
 
     /// <summary>Diagnostic: how many times a skeleton has actually been rebuilt.</summary>
     /// <remarks>
@@ -179,9 +193,15 @@ public sealed class SkeletonPose : IBonePose
     /// The two want opposite fixes, which is why this is measured rather than guessed at.
     ///
     /// **Static, matching <see cref="AnimationCalls"/> and carrying the same caveat**: read as a
-    /// delta either side of a call, single-threaded today.
+    /// delta either side of a call, added to atomically (finding 105 A3.1).
     /// </remarks>
-    public static int PoseBuilds { get; set; }
+    public static int PoseBuilds
+    {
+        get => Volatile.Read(ref _poseBuilds);
+        set => Interlocked.Exchange(ref _poseBuilds, value);
+    }
+
+    private static int _poseBuilds;
 
     /// <summary>Which entry of the animation overrides each bone, or −1.</summary>
     /// <remarks>
@@ -356,15 +376,15 @@ public sealed class SkeletonPose : IBonePose
 
         // Counted HERE rather than at `SetupBones`, because the whole question is how often the
         // readable-bone cache misses and lets a call through to actual work.
-        PoseBuilds++;
+        Interlocked.Increment(ref _poseBuilds);
 
         long animatedAt = System.Diagnostics.Stopwatch.GetTimestamp();
 
         IReadOnlyList<StudioBonePose> animated =
             _animation(Sequence, Frame, FrameFraction, PoseValues);
 
-        AnimationTicks += System.Diagnostics.Stopwatch.GetTimestamp() - animatedAt;
-        AnimationCalls++;
+        Interlocked.Add(ref _animationTicks, System.Diagnostics.Stopwatch.GetTimestamp() - animatedAt);
+        Interlocked.Increment(ref _animationCalls);
 
         // **The layers, over the base pose and in order** (B282). `StandardBlendingRules` runs
         // `AccumulateLayers` straight after the main sequence, and each layer accumulates onto the

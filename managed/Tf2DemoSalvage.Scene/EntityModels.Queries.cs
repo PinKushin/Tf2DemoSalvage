@@ -192,6 +192,15 @@ public sealed partial class EntityModelSet
     /// <summary>Time spent in those queries' bone setups, in stopwatch ticks (finding 82).</summary>
     public long AttachmentTicks { get; private set; }
 
+    /// <summary>Of <see cref="AttachmentBuilds"/>: roots' builds, by the meter at the query (finding 105 A6).</summary>
+    public long AttachmentRootBuilds { get; private set; }
+
+    /// <summary>Of those: roots a threaded pre-pass would take (finding 105 A6).</summary>
+    public long AttachmentEligibleBuilds { get; private set; }
+
+    /// <summary>The eligible roots' own ticks in those queries (finding 105 A6).</summary>
+    public long AttachmentEligibleTicks { get; private set; }
+
     /// <summary>The attachment matrix of an entity posed in the pass in flight, which the scene does not list yet.</summary>
     /// <remarks>For a move child's parent during `Simulate` (B551); everything asked from outside goes through
     /// <see cref="AttachmentMatrix"/>, which refuses an entity that has left the scene.</remarks>
@@ -219,7 +228,13 @@ public sealed partial class EntityModelSet
         // many of those rebuilt one already built this frame, and the time, all carried from this call.
         long askedAt = System.Diagnostics.Stopwatch.GetTimestamp();
         int buildsBefore = SkeletonPose.PoseBuilds;
-        bool builtBefore = animating.BuiltThisFrame;
+
+        // **"This frame" is the engine's, which begins at the world pass** (`InvalidateBoneCaches`, once in `OnRenderStart`,
+        // cdll_client_int.cpp:2163). The viewmodel and undrawn passes advance our clock again, so `BuiltThisFrame` read here,
+        // after them, was false for every entity and this counter could only read 0 (finding 105 D).
+        bool builtBefore = animating.BuiltSince(_worldBoneFrame);
+        BoneSetupMeter meter = _boneFrames.Meter;
+        (int rootsBefore, int eligibleBefore, long eligibleTicksBefore) = (meter.RootBuilds, meter.EligibleBuilds, meter.EligibleTicks);
         // **`CalcAttachments` is `SetupBones( NULL, -1, BONE_USED_BY_ATTACHMENT, gpGlobals->curtime )`** (finding 82,
         // `c_baseanimating.cpp:2088-2094`): an attachment asks for the attachment bones, and `SetupBones` widens that by
         // what is readable and by last frame's mask (`:2920`). This asked for every bone, so an entity nothing drew this
@@ -234,6 +249,12 @@ public sealed partial class EntityModelSet
             AttachmentBuilds += built;
             AttachmentRebuilds += builtBefore && built > 0 ? 1 : 0;
             AttachmentTicks += System.Diagnostics.Stopwatch.GetTimestamp() - askedAt;
+
+            // By caller (finding 105 A6): the roots these queries build, which `g_PreviousBoneSetups` would list for the next
+            // frame's pre-pass whatever asked (c_baseanimating.cpp:2897), and the eligible ones' own time.
+            AttachmentRootBuilds += meter.RootBuilds - rootsBefore;
+            AttachmentEligibleBuilds += meter.EligibleBuilds - eligibleBefore;
+            AttachmentEligibleTicks += meter.EligibleTicks - eligibleTicksBefore;
         }
 
         return posed ? AttachmentsOf(entity, animating, attachments)[point] : null;

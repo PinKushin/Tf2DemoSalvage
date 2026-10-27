@@ -48,6 +48,96 @@ public sealed class AttachmentQueryTests
         models.ReadableBonesOf(Entity).ShouldBe(StudioBoneFlags.UsedByAttachment);
     }
 
+    /// <remarks>
+    /// **The instrument, not the behaviour** (finding 105 D): a skeleton really built twice after the world pass. The
+    /// wearer is not drawn (`kRenderNone`), but its bone-merged item is, so the world pass builds the wearer through the
+    /// merge with the merge's own mask, `BONE_USED_BY_BONE_MERGE` (`bone_merge_cache.cpp:130`), and its first frame has no
+    /// previous mask to widen it. An attachment then asks for `BONE_USED_BY_ATTACHMENT`, which that build did not make
+    /// readable, so the query builds the same skeleton a second time — one build, and it is a rebuild. The case beside it
+    /// is the control the other way: a first build on an entity nothing built is a build and not a rebuild.
+    /// </remarks>
+    [Test]
+    public void AttachmentRebuilds_AQueryOnAWearerBuiltNarrowByItsItemsMerge_CountsItsBuildAsARebuild()
+    {
+        EntityModelSet models = new();
+        SceneProp wearer = Subject() with { Pose = Subject().Pose with { RenderMode = RenderModes.None } };
+        SceneProp hat = new(
+            Entity + 1, "models/player/items/hat.mdl", ScenePropTrack.Classify("models/player/items/hat.mdl"), new ScenePose(), Entity)
+        {
+            BoneMerged = true,
+        };
+        SceneProp[] props = [hat, wearer];
+
+        models.Add(props, _ => Model());
+        models.Instances(props, [], seconds: 0d);
+        models.ReadableBonesOf(Entity).ShouldBe(StudioBoneFlags.UsedByBoneMerge, "the control: built through the merge, narrow");
+
+        models.AttachmentPosition(Entity, "muzzle").ShouldNotBeNull();
+
+        (models.AttachmentQueries, models.AttachmentBuilds, models.AttachmentRebuilds).ShouldBe((1, 1, 1));
+    }
+
+    /// <remarks>The other half of the counter's control: an entity nothing built this frame is built once, not rebuilt.</remarks>
+    [Test]
+    public void AttachmentRebuilds_AQueryOnAnEntityNothingBuilt_CountsABuildAndNoRebuild()
+    {
+        EntityModelSet models = new() { PosesUndrawn = false };
+        SceneProp[] props = [Subject()];
+
+        models.Add(props, _ => Model());
+        models.Instances(props, [], seconds: 0d, pass: EntityModelSet.UndrawnPass);
+        models.AttachmentPosition(Entity, "muzzle").ShouldNotBeNull();
+
+        (models.AttachmentQueries, models.AttachmentBuilds, models.AttachmentRebuilds).ShouldBe((1, 1, 0));
+    }
+
+    /// <remarks>
+    /// **One bone counter a frame, bumped before anything is drawn** — `C_BaseAnimating::InvalidateBoneCaches()`, called once
+    /// from `OnRenderStart` (cdll_client_int.cpp:2163) and nowhere in the view's passes. So an effect asking a drawn entity
+    /// for an attachment after the viewmodel and undrawn passes finds its bones readable (`c_baseanimating.cpp:2911`) and
+    /// builds nothing. Advancing our clock on every pass made each such query rebuild the skeleton.
+    /// </remarks>
+    [Test]
+    public void AttachmentPosition_AfterTheLaterPassesOnADrawnEntity_BuildsNothing()
+    {
+        EntityModelSet models = Posed();
+
+        models.Instances([], [], seconds: 0d, pass: EntityModelSet.UndrawnPass);
+        models.AttachmentPosition(Entity, "muzzle").ShouldNotBeNull().Y.ShouldBe(201f, 1e-3f);
+
+        (models.AttachmentQueries, models.AttachmentBuilds).ShouldBe((1, 0));
+    }
+
+    /// <remarks>
+    /// **And the second half of the same defect: the query rolled the mask.** A query that took the first touch of a later
+    /// clock frame rolled `m_iPrevBoneMask` to the attachment bit alone (`c_baseanimating.cpp:2884`); next frame an item drawn
+    /// before its wearer asks the wearer with its merge mask (`bone_merge_cache.cpp:130`), which widens by that narrow mask
+    /// only (`:2920`), and the wearer's own full request then builds it again. One counter a frame: two skeletons, the
+    /// wearer and the item, each built once.
+    /// </remarks>
+    [Test]
+    public void Instances_AFrameAfterAnAttachmentQuery_BuildsTheWearerOnceWhenItsItemIsDrawnFirst()
+    {
+        EntityModelSet models = new();
+        SceneProp hat = new(
+            Entity + 1, "models/player/items/hat.mdl", ScenePropTrack.Classify("models/player/items/hat.mdl"), new ScenePose(), Entity)
+        {
+            BoneMerged = true,
+        };
+        SceneProp[] props = [hat, Subject()];
+
+        models.Add(props, _ => Model());
+        models.Instances(props, [], seconds: 0d);
+        models.Instances([], [], seconds: 0d, pass: EntityModelSet.UndrawnPass);
+        _ = models.AttachmentPosition(Entity, "muzzle").ShouldNotBeNull();
+
+        int before = models.BuildsDrawing;
+
+        models.Instances(props, [], seconds: 0.015d);
+
+        (models.BuildsDrawing - before).ShouldBe(2);
+    }
+
     [Test]
     public void AttachmentPosition_ByName_IsTheBoneTimesTheLocalOffset()
     {

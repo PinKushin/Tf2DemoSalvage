@@ -185,6 +185,29 @@ public sealed partial class FramePresenter
         _overlay = frame;
         long partAt = Parts is null ? 0 : System.Diagnostics.Stopwatch.GetTimestamp();
 
+        // **How long a paint forked at the last overlay's end would have had, and whether it would have stalled** (finding
+        // 105 B7): until the next writer of what it reads — this frame's `Pack`, or, on a frame with no rebuild, this
+        // overlay itself. The two kinds are kept apart, since a frame with no `Pack` has a far longer window, and the stall
+        // is taken per frame against that frame's own forkable span. Spans other phases: never added into `hud`.
+        if (Parts is { } windowParts && _overlayEndedAt != 0)
+        {
+            bool packed = _moment.PackedAt > _overlayEndedAt;
+            long forkWindow = (packed ? _moment.PackedAt : partAt) - _overlayEndedAt;
+
+            windowParts.Add(packed ? "hud window packed" : "hud window unpacked", forkWindow);
+
+            if (packed)
+            {
+                windowParts.Count("hud packed frames");
+            }
+
+            if (_forkableLast > forkWindow)
+            {
+                windowParts.Add("hud stall", _forkableLast - forkWindow);
+                windowParts.Count("hud stalled frames");
+            }
+        }
+
         // A scheme read before the install is open is empty, and an empty scheme's `Panel.BgColor` falls back to opaque
         // white — the viewport would fill the screen with it and keep it, since only a new size loads the scheme again.
         // Stryker disable once all : a mutated guard leaves its pattern variables unassigned (CS0165) and Safe Mode drops the method - B410
@@ -206,6 +229,7 @@ public sealed partial class FramePresenter
         _vguiHud ??= new VguiHud(_vguiHost, _models);
         _vguiHud.Parts = Parts;
         _vguiTools ??= new VguiTools(_vguiHost);
+        _vguiTools.Parts = Parts;
 
         if (device is not null && !ReferenceEquals(device, _vguiResolverDevice))
         {
@@ -291,10 +315,18 @@ public sealed partial class FramePresenter
             window.Position(),
             _overlay.MapName);
 
-        _ = Part("hud tools", partAt);
+        _overlayEndedAt = Part("hud tools", partAt);
+        _forkableLast = _vguiHud.ForkableTicks + _vguiTools.PaintTicks;
+        Parts?.Add("hud forkable", _forkableLast);
 
         return _vguiHost.List;
     }
+
+    /// <summary>When the last overlay finished, for the `hud window` parts (finding 105 B7); 0 when not measuring.</summary>
+    private long _overlayEndedAt;
+
+    /// <summary>The last overlay's forkable span — HUD layout to paint end, plus the tools' paint — carried (finding 105 B7).</summary>
+    private long _forkableLast;
 
     /// <summary>The parts of the frame's `camera` and `hud` phases for the rate line — set only for `--measure`, else null.</summary>
     public FrameParts? Parts { get; set; }

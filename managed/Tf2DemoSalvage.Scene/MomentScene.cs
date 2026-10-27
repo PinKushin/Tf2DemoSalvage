@@ -653,6 +653,7 @@ public sealed class MomentScene : IGameSystemPerFrame
         // at the PREVIOUS frame's tick.
         _models.CurrentTick = info.Tick;
 
+        PackedAt = rolesAt;
         Pack();
 
         long uploadedAt = Stopwatch.GetTimestamp();
@@ -966,6 +967,9 @@ public sealed class MomentScene : IGameSystemPerFrame
 
         _decayedAt = info.Seconds;
     }
+
+    /// <summary>When the last <see cref="Pack"/> began, in stopwatch ticks — the first writer of the models' frames a HUD paint fork must finish before (finding 105 B7).</summary>
+    public long PackedAt { get; private set; }
 
     /// <summary>Reads whatever geometry this moment needs, and uploads it if the set grew.</summary>
     /// <remarks>

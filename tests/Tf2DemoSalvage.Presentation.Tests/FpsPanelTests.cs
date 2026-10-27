@@ -84,7 +84,20 @@ public sealed class FpsPanelTests
         return tools.Draw(Wide, Tall, 0.31, Frame, mode, position, "cp_process_f12");
     }
 
-    private static Rig Tools()
+    /// <remarks>Finding 105 B7: the tools panel's inputs and its layout+paint are timed apart, inputs first, so the fork's share is readable.</remarks>
+    [Test]
+    public void Frame_WhileMeasuring_TimesTheInputsThenThePaint()
+    {
+        FrameParts parts = new();
+        Rig tools = Tools(parts);
+
+        tools.Draw(Wide, Tall, 0.0, Frame, FpsMeter.Instantaneous, default, "cp_process_f12");
+        parts.Frame();
+
+        parts.Report().ShouldMatch("^hud tools inputs [0-9.]+, hud tools paint [0-9.]+$");
+    }
+
+    private static Rig Tools(FrameParts? parts = null)
     {
         byte[] scheme = Encoding.UTF8.GetBytes("""
             Scheme
@@ -98,7 +111,7 @@ public sealed class FpsPanelTests
 
         VguiSurfaceHost host = new(path => path == "resource/SourceScheme.res" ? scheme : null, _ => null, new SolidGdi(), _ => (0, 0));
 
-        return new Rig(host, new VguiTools(host));
+        return new Rig(host, new VguiTools(host) { Parts = parts });
     }
 
     /// <summary>The tools panel on its own surface, a frame at a time, as `MainForm.BuildOverlay` drives it.</summary>

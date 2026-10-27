@@ -34,6 +34,10 @@ public sealed class FrameParts
         _parts.Add((name, ticks));
     }
 
+    /// <summary>Counts one occurrence as one millisecond, so the part's printed mean is the share of frames it happened on.</summary>
+    /// <param name="name">The part, as printed.</param>
+    public void Count(string name) => Add(name, Stopwatch.Frequency / 1000);
+
     /// <summary>Adds the time since <paramref name="since"/> to a part and returns now, to time the next; nothing unmeasured.</summary>
     /// <param name="parts">The parts, or null when not measuring.</param>
     /// <param name="name">The part, as printed.</param>
