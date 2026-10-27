@@ -88,6 +88,11 @@ Controls:
   36.4-36.7 (means 36.3 and 36.6, 0.9%).
 - Identity, pose part (`compare.ps1`): h1-NS against h3-NT **equal on all 220 common labels**; h2-NS differs from both on
   16 early labels (30002-30017) — the run-to-run control's own noise; cull 0 differ in every pair.
+- *Added after the run, from files already on disk* (advisor review): **does the clock fix change the output?** The last
+  file's h1-S and h2-S (old build, same command, 1280x720) against h1-NS and h2-NS: pose differs on 29, 21, 13 and 5 of
+  ~211 labels, **all at or before 30030**, equal on every label after it; cull 0 differ. The old S-S pair itself differed
+  at 30023-30030 and the new one at 30002-30017, so the opening ~30 ticks are outside what this instrument can judge, and
+  from tick 30031 on the new base draws the bones the old one did.
 
 ## Verdict
 
