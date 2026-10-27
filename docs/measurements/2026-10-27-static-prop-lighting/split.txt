@@ -1,0 +1,8 @@
+One-off split of `baked`, throwaway counter build (never committed) on 8122feca, D:/measure-f12/spl-split/,
+run through 2026-10-27-threaded-bone-setup/run.ps1 -Seconds 20 (f12 tick 30000, gummo first person, 1280x720).
+Per frame, averaged over EVERY frame of the process (opening seek included), printed at process exit.
+"frames" counts world passes; "colours N in" counts BakedColoursOf misses (no cached entry), not builds.
+
+split1: SPLIT frames 2822: visits 169.3, full 53.5, mesh 76.3, mesh lit 0.0, styled nonempty 0.0 (0.0 lights), dlight slots 4153.8, live 0.00; ms: colours 0.031, full 0.282, mesh 0.183, cluster 0.019
+split2: SPLIT frames 2393: visits 165.7, full 52.3, mesh 75.5, mesh lit 0.0, styled nonempty 0.0 (0.0 lights), dlight slots 4087.0, live 0.00; ms: colours 0.037, full 0.351, mesh 0.204, cluster 0.023, static state 0.207 (misses 174), full styled 0.136
+split3: SPLIT frames 2636: visits 162.7, full 50.7, mesh 73.1, mesh lit 0.0, styled nonempty 0.0 (0.0 lights), dlight slots 3963.0, live 0.00; ms: colours 0.033, full 0.286, mesh 0.192, cluster 0.020, static state 0.152 (misses 174), full styled 0.128; misses inside those: static state 0.146, colours 102799 in 0.019
