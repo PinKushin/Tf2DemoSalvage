@@ -50,6 +50,9 @@ public sealed partial class EntityModelSet
     /// <summary>The bone-clock frame the last world pass ran on (finding 102).</summary>
     private long _worldBoneFrame;
 
+    /// <summary>The passes run on the current bone-clock frame — a second run of one is the next frame.</summary>
+    private readonly HashSet<string> _passesThisFrame = new(StringComparer.Ordinal);
+
     /// <summary>Each instance list's matrices, rewritten in place when that list is rebuilt (B585, <see cref="InstanceMatrices"/>).</summary>
     private readonly Dictionary<ICollection<ModelInstance>, InstanceMatrices> _matrices =
         new(ReferenceEqualityComparer.Instance);
@@ -130,9 +133,20 @@ public sealed partial class EntityModelSet
         // (`cdll_client_int.cpp:2206-2210`): bring every entity's state up to date, then build
         // bones on demand while drawing. State first is what lets a merge reach an entity the draw
         // loop has not got to yet.
-        _boneFrames.Advance();
+        //
+        // **Once a frame, at the world pass** — `InvalidateBoneCaches` is called once, from `OnRenderStart`
+        // (cdll_client_int.cpp:2163), before any view draws; the viewmodel and undrawn passes are draws inside that frame.
+        // Advancing on every pass made each attachment query after them a first touch: it rebuilt a skeleton the world had
+        // just built and rolled its mask down to the attachment bit (finding 105 D). A pass run twice with no world pass
+        // between — a caller driving only the viewmodel — is a new frame each time.
+        if (string.Equals(pass, WorldPass, StringComparison.Ordinal) || !_passesThisFrame.Add(pass))
+        {
+            _boneFrames.Advance();
+            _passesThisFrame.Clear();
+            _passesThisFrame.Add(pass);
+        }
 
-        // The world pass's bone frame, for an instrument read after the viewmodel and undrawn passes have advanced it.
+        // The world pass's bone frame, for an instrument read after the later passes.
         if (string.Equals(pass, WorldPass, StringComparison.Ordinal))
         {
             _worldBoneFrame = _boneFrames.Frame;

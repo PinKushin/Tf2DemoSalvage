@@ -67,6 +67,53 @@ public sealed class AttachmentQueryTests
         models.AttachmentRebuilds.ShouldBe(models.AttachmentBuilds);
     }
 
+    /// <remarks>
+    /// **One bone counter a frame, bumped before anything is drawn** — `C_BaseAnimating::InvalidateBoneCaches()`, called once
+    /// from `OnRenderStart` (cdll_client_int.cpp:2163) and nowhere in the view's passes. So an effect asking a drawn entity
+    /// for an attachment after the viewmodel and undrawn passes finds its bones readable (`c_baseanimating.cpp:2911`) and
+    /// builds nothing. Advancing our clock on every pass made each such query rebuild the skeleton.
+    /// </remarks>
+    [Test]
+    public void AttachmentPosition_AfterTheLaterPassesOnADrawnEntity_BuildsNothing()
+    {
+        EntityModelSet models = Posed();
+
+        models.Instances([], [], seconds: 0d, pass: EntityModelSet.UndrawnPass);
+        models.AttachmentPosition(Entity, "muzzle").ShouldNotBeNull().Y.ShouldBe(201f, 1e-3f);
+
+        (models.AttachmentQueries, models.AttachmentBuilds).ShouldBe((1, 0));
+    }
+
+    /// <remarks>
+    /// **And the second half of the same defect: the query rolled the mask.** A query that took the first touch of a later
+    /// clock frame rolled `m_iPrevBoneMask` to the attachment bit alone (`c_baseanimating.cpp:2884`); next frame an item drawn
+    /// before its wearer asks the wearer with its merge mask (`bone_merge_cache.cpp:130`), which widens by that narrow mask
+    /// only (`:2920`), and the wearer's own full request then builds it again. One counter a frame: two skeletons, the
+    /// wearer and the item, each built once.
+    /// </remarks>
+    [Test]
+    public void Instances_AFrameAfterAnAttachmentQuery_BuildsTheWearerOnceWhenItsItemIsDrawnFirst()
+    {
+        EntityModelSet models = new();
+        SceneProp hat = new(
+            Entity + 1, "models/player/items/hat.mdl", ScenePropTrack.Classify("models/player/items/hat.mdl"), new ScenePose(), Entity)
+        {
+            BoneMerged = true,
+        };
+        SceneProp[] props = [hat, Subject()];
+
+        models.Add(props, _ => Model());
+        models.Instances(props, [], seconds: 0d);
+        models.Instances([], [], seconds: 0d, pass: EntityModelSet.UndrawnPass);
+        _ = models.AttachmentPosition(Entity, "muzzle").ShouldNotBeNull();
+
+        int before = models.BuildsDrawing;
+
+        models.Instances(props, [], seconds: 0.015d);
+
+        (models.BuildsDrawing - before).ShouldBe(2);
+    }
+
     [Test]
     public void AttachmentPosition_ByName_IsTheBoneTimesTheLocalOffset()
     {

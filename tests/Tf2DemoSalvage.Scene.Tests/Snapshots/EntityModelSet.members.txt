@@ -141,6 +141,7 @@ Tf2DemoSalvage.Scene.EntityModelSet|field|_packedOrder|Private readonly|System.C
 Tf2DemoSalvage.Scene.EntityModelSet|field|_packedRebuilt|Private readonly|System.Collections.Generic.Dictionary`2[System.String,Tf2DemoSalvage.Scene.WorldVertex[]]
 Tf2DemoSalvage.Scene.EntityModelSet|field|_parentOf|Private|System.Func`2[System.Int32,Tf2DemoSalvage.Core.Scene.SceneProp]
 Tf2DemoSalvage.Scene.EntityModelSet|field|_parentPlacements|Private readonly|System.Collections.Generic.Dictionary`2[System.Int32,Tf2DemoSalvage.Content.Bsp.PropTransform]
+Tf2DemoSalvage.Scene.EntityModelSet|field|_passesThisFrame|Private readonly|System.Collections.Generic.HashSet`1[System.String]
 Tf2DemoSalvage.Scene.EntityModelSet|field|_pendingBlends|Private readonly|System.Collections.Generic.Dictionary`2[System.Int32,Tf2DemoSalvage.Scene.PendingBlend]
 Tf2DemoSalvage.Scene.EntityModelSet|field|_placements|Private readonly|System.Collections.Generic.Dictionary`2[System.Int32,System.Single[]]
 Tf2DemoSalvage.Scene.EntityModelSet|field|_posedSize|Private readonly|System.Collections.Generic.Dictionary`2[System.String,System.String]
