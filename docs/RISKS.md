@@ -40536,8 +40536,10 @@ barrier (B507) and may run on a pool thread; `WeaponMuzzleFlashes._scripts` is a
 about 0.3 ms a call. The cost was the sky trace's terrain half: `DisplacementCollision.SweepSurface` swept every
 displacement whose box met the 57,016-unit travel box, though the brush trace had stopped at the skybox. Now bounded by
 the brush fraction in `MapLevel.TraceBrushOnly` (`DisplacementSweepLimitTests`: 4,000 seeded rays, the bounded answer is
-the unbounded one wherever shorter; sabotage reddened it). **Sun 0.012-0.013 ms, same calls; frame 9.37-9.55 → 8.74-8.94
-ms (−0.6 ms, −6.5%); empty view −0.06 ms** (measurements/2026-10-26-threaded-particles-and-sun.md). Engine: the trace
+the unbounded one wherever shorter; sabotage reddened it; on `cp_process_f12.bsp` probe `terrain-bound` finds 0 of
+50,000 traces differ, 375 terrain wins as control). **Sun 0.012-0.013 ms, same calls; frame 9.37-9.55 → 8.74-8.94
+ms (−0.6 ms, −6.5%); empty view −0.06 ms** (measurements/2026-10-26-threaded-particles-and-sun.md); the frame's share
+beyond the sun's 0.45 ms is *interpolated* to the other `TraceBrushOnly` callers, not timed. Engine: the trace
 count per frame was already the engine's (`LightcacheGet`, maxmiss); the change is to how far a trace looks, and
 `CM_TraceToLeaf` only reaches displacements of leaves crossed before its stop. *Interpolated*: that TF2's closed
 `engine.dll` trace does the same; not read in disassembly.

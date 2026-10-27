@@ -192,8 +192,9 @@ equivalence test and timed in Release: interleaved, three runs a side, gummo fir
     Bounding the terrain sweep by the brush fraction (bit-identical by `DisplacementSweepLimitTests`; nearer
     `CM_TraceToLeaf`, which only reaches the displacements of leaves crossed before the stop) took the sun to
     0.012 ms (measurements/2026-10-26-threaded-particles-and-sun.md) with the same calls, and the frame from 9.37-9.55
-    to 8.74-8.94 ms (−0.6 ms, −6.5%; measurements/2026-10-26-threaded-particles-and-sun.md), the rest
-    from the other `TraceBrushOnly` callers. **The rule it teaches: a census of calls is half an instrument; time the
+    to 8.74-8.94 ms (−0.6 ms, −6.5%; measurements/2026-10-26-threaded-particles-and-sun.md); the rest, *interpolated
+    and not timed*, from the other `TraceBrushOnly` callers. On the real map the bounded trace equals the whole-ray one
+    in every field over 50,000 traces (probe `terrain-bound`, same file). **The rule it teaches: a census of calls is half an instrument; time the
     calls too.**
 
 ## (9) Where the garbage comes from, 2026-10-25 (measured)

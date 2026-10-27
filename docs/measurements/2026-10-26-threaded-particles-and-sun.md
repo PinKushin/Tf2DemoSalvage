@@ -122,6 +122,9 @@ is nearly all of it; static props are non-zero in 173 notes and direct `SunAt` (
   the frame)**, ranges separate. `camera particles` 1.79-1.85 → 1.71-1.73, −0.06 to −0.14 ms. Frame 8.93-9.03 → 8.74-8.94:
   the ranges touch (08 C-T), so the frame difference, about −0.1 to −0.2 ms, is not established by itself. **Matches the
   prediction and finding 94's 0.08 ms.** Switch control held: S forks 0 throughout, T climbs; census lines agree.
+  Allocation (each run's first `gc:` line): S 0.81-0.83 MB a frame, T 0.81-0.82; gc paused 0.15-0.16 against 0.16 ms a
+  frame — the fork's per-call `Parallel.For` allocation does not show. The main thread's own bytes fall 734-736k → 729-731k
+  a frame, since the steps' allocations (`Carried`) now land on workers.
 - **B, the threshold:** 0, 4 and 16 give `bursts/step` 0.205, 0.196-0.204, 0.205 — inside one another's spread. Threshold
   16 forks a third fewer lists (4,282 against ~6,400) for the same step, so the lists f12 makes are mostly above 16 and
   the threshold does not matter at this size. **4 is kept**; it is not measured to be better than 0 or 16.
@@ -131,6 +134,12 @@ is nearly all of it; static props are non-zero in 173 notes and direct `SunAt` (
   Empty view: 0 calls (control: nothing in view misses the cache).
 - **D, the bounded terrain sweep** (A-T against C-T): `sun` 0.457-0.465 → 0.012-0.013 ms with the same 1.52-1.55 calls,
   **−0.45 ms (−4.8% of the frame), 0.008 ms a call, 37× cheaper.** `camera` 7.01-7.23 → 6.51-6.65 (−0.5 ms) and the frame
-  9.37-9.55 → 8.74-8.94 (**−0.6 ms, −6.5%**), ranges well apart; the part above the sun's 0.45 is the other
-  `TraceBrushOnly` callers, which take the same bound (not separately timed). Empty view: frame 3.60-3.63 → 3.53-3.55,
-  −0.06 ms (−1.7%), ranges separate, with no sun call: other traces again (not attributed).
+  9.37-9.55 → 8.74-8.94 (**−0.6 ms, −6.5%**), ranges well apart. *Interpolated, not timed:* the part above the sun's
+  0.45 is the other `TraceBrushOnly` callers, which take the same bound — the light cache's own local-light `reaches`
+  traces in the same entry builds (`LevelLighting`, `MASK_OPAQUE`), the soundscape line of sight, beams, impacts. Empty
+  view: frame 3.60-3.63 → 3.53-3.55, −0.06 ms (−1.7%), ranges separate, with no sun call: other traces again, by the
+  same interpolation.
+- **Production equivalence on the real map:** probe `terrain-bound` on `cp_process_f12.bsp`, 50,000 traces (short and
+  8,192-unit rays, boxes 0/2/16, and the 57,016-unit sun trace from seeded points, `MASK_SOLID` and `MASK_OPAQUE`):
+  **0 differ** from the whole-ray compose in any `BspTrace` field, with terrain winning 375 (the control). With the bound
+  sabotaged (the box's x end halved) the same probe reports 29 differ; restored.

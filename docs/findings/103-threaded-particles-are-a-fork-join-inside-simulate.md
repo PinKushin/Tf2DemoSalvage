@@ -186,7 +186,9 @@ in a **static** `Advance` that reads only its slot, so it cannot reach the colle
 after the join, in offer order: `Commit`, which writes the entry, the counters (`Steps`, `Slept`, `ReplayTicks`,
 `ReplaySteps`), a still frame's points and hitboxes; then `FadeUnoffered`, `Retire`. The build, collation and sleep push
 stay serial, as `DrawModel` is (§6 step 4). A key offered twice flushes the pending slots first. A slot names its offer by
-index, not by a copy, so B592's write-barrier copy is not reintroduced.
+index, not by a copy, so B592's write-barrier copy is not reintroduced. **No world trace is reachable from a worker:**
+`ParticleEffect` has no collision operator; the map's traces (`MapLevel.TraceBrushOnly`) are called by impacts' debris
+(`ImpactParticles.TestForPlane`), beams, soundscapes and lighting, all on the game thread.
 
 **The setting.** `r_threaded_particles` (`EngineConVars`, `ViewerSettings.ThreadedParticles`, help text), default 1,
 read as `GetBool` over `GetInt` (`0.5` is off), reaching the fork through `ViewFrame`. Two parts are ours and named so:
