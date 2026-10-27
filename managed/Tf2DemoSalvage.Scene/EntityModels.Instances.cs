@@ -107,6 +107,7 @@ public sealed partial class EntityModelSet
         Unjudgeable = 0;
         Posed = 0;
         Simulated = 0;
+        MaxRootTicks = 0;
 
         // **Only the world pass clears it, and that is a defect this rename exposed** (B385). The
         // viewmodel pass calls straight back into here with its own two props, so an unconditional
@@ -408,12 +409,38 @@ public sealed partial class EntityModelSet
                 // cull, which is what attached the ragdoll hook this `SetupBones` runs.
                 long setupAt = System.Diagnostics.Stopwatch.GetTimestamp();
                 int drawBuildsBefore = SkeletonPose.PoseBuilds;
+                BoneSetupMeter meter = _boneFrames.Meter;
+                (long rootBefore, long childBefore, int rootBuildsBefore, int childBuildsBefore) =
+                    (meter.RootTicks, meter.ChildTicks, meter.RootBuilds, meter.ChildBuilds);
+                (long eligibleBefore, int eligibleBuildsBefore) = (meter.EligibleTicks, meter.EligibleBuilds);
 
                 bool setUp = animating.SetupBones(StudioBoneFlags.UsedByAnything, seconds);
 
                 SetupTicks += System.Diagnostics.Stopwatch.GetTimestamp() - setupAt;
                 BuildsDrawing += SkeletonPose.PoseBuilds - drawBuildsBefore;
                 Posed++;
+
+                // **The split finding 105 A6 decides on, carried from the meter at the call** (B243). One call reaches at most
+                // one root — the prop itself or the top of its chain — so a root built here is one root's whole cost.
+                SetupRootTicks += meter.RootTicks - rootBefore;
+                SetupChildTicks += meter.ChildTicks - childBefore;
+                SetupRootBuilds += meter.RootBuilds - rootBuildsBefore;
+                SetupChildBuilds += meter.ChildBuilds - childBuildsBefore;
+
+                // **Eligible is the engine's `!GetMoveParent()`, and only this loop sees a parent that is not a merge**: a prop
+                // hung on a door is a root to the meter, so its own call is taken out here (`c_baseanimating.cpp:2897`).
+                if (prop is not { AttachedTo: not null, BoneMerged: false })
+                {
+                    long eligibleSpent = meter.EligibleTicks - eligibleBefore;
+
+                    SetupEligibleTicks += eligibleSpent;
+                    SetupEligibleBuilds += meter.EligibleBuilds - eligibleBuildsBefore;
+
+                    if (meter.EligibleBuilds > eligibleBuildsBefore)
+                    {
+                        MaxRootTicks = Math.Max(MaxRootTicks, eligibleSpent);
+                    }
+                }
 
                 if (!setUp)
                 {

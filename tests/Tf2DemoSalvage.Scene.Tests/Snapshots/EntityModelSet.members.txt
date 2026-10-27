@@ -16,7 +16,7 @@ Tf2DemoSalvage.Scene.EntityModelSet+FiledPlacement|property|X|()|System.Single|g
 Tf2DemoSalvage.Scene.EntityModelSet+FiledPlacement|property|Yaw|()|System.Single|get=True|set=True
 Tf2DemoSalvage.Scene.EntityModelSet+FiledPlacement|property|Y|()|System.Single|get=True|set=True
 Tf2DemoSalvage.Scene.EntityModelSet+FiledPlacement|property|Z|()|System.Single|get=True|set=True
-Tf2DemoSalvage.Scene.EntityModelSet+PoseCounters|ctor|.ctor|Public|(System.Int64,System.Int64,System.Int64,System.Int64,System.Int64,System.Int64,System.Int64,System.Int64,System.Int32,System.Int32,System.Int32,System.Int64,System.Int32,System.Int32,System.Int64,System.Int64,System.Int64,System.Int64,System.Int32,System.Int64,System.Int32,System.Int32,System.Int32,System.Int32,System.Int64,System.Int64,System.Int64,System.Int64,System.Int64,System.Int64,System.Int64,System.Int64,System.Int32,System.Int32)|ctor
+Tf2DemoSalvage.Scene.EntityModelSet+PoseCounters|ctor|.ctor|Public|(System.Int64,System.Int64,System.Int64,System.Int64,System.Int64,System.Int64,System.Int64,System.Int64,System.Int32,System.Int32,System.Int32,System.Int64,System.Int32,System.Int32,System.Int64,System.Int64,System.Int64,System.Int64,System.Int32,System.Int64,System.Int32,System.Int32,System.Int32,System.Int32,System.Int64,System.Int64,System.Int64,System.Int64,System.Int64,System.Int64,System.Int64,System.Int64,System.Int32,System.Int32,System.Int64,System.Int64,System.Int32,System.Int32,System.Int64,System.Int64,System.Int32)|ctor
 Tf2DemoSalvage.Scene.EntityModelSet+PoseCounters|method|Since|Public|(Tf2DemoSalvage.Scene.EntityModelSet+PoseCounters)|Tf2DemoSalvage.Scene.EntityModelSet+PoseCounters
 Tf2DemoSalvage.Scene.EntityModelSet+PoseCounters|property|Advance|()|System.Int64|get=True|set=True
 Tf2DemoSalvage.Scene.EntityModelSet+PoseCounters|property|AnimationCalls|()|System.Int32|get=True|set=True
@@ -27,6 +27,7 @@ Tf2DemoSalvage.Scene.EntityModelSet+PoseCounters|property|BuildsDrawing|()|Syste
 Tf2DemoSalvage.Scene.EntityModelSet+PoseCounters|property|BuildsPlacing|()|System.Int32|get=True|set=True
 Tf2DemoSalvage.Scene.EntityModelSet+PoseCounters|property|BuildsSimulating|()|System.Int32|get=True|set=True
 Tf2DemoSalvage.Scene.EntityModelSet+PoseCounters|property|Built|()|System.Int32|get=True|set=True
+Tf2DemoSalvage.Scene.EntityModelSet+PoseCounters|property|ChildBuilds|()|System.Int32|get=True|set=True
 Tf2DemoSalvage.Scene.EntityModelSet+PoseCounters|property|CollateByIdentity|()|System.Int32|get=True|set=True
 Tf2DemoSalvage.Scene.EntityModelSet+PoseCounters|property|CollateFixed|()|System.Int32|get=True|set=True
 Tf2DemoSalvage.Scene.EntityModelSet+PoseCounters|property|Collate|()|System.Int64|get=True|set=True
@@ -35,7 +36,9 @@ Tf2DemoSalvage.Scene.EntityModelSet+PoseCounters|property|CorpseRebuilds|()|Syst
 Tf2DemoSalvage.Scene.EntityModelSet+PoseCounters|property|CorpseSteps|()|System.Int32|get=True|set=True
 Tf2DemoSalvage.Scene.EntityModelSet+PoseCounters|property|CorpsesHeld|()|System.Int32|get=True|set=True
 Tf2DemoSalvage.Scene.EntityModelSet+PoseCounters|property|Corpses|()|System.Int64|get=True|set=True
+Tf2DemoSalvage.Scene.EntityModelSet+PoseCounters|property|EligibleBuilds|()|System.Int32|get=True|set=True
 Tf2DemoSalvage.Scene.EntityModelSet+PoseCounters|property|Lighting|()|System.Int64|get=True|set=True
+Tf2DemoSalvage.Scene.EntityModelSet+PoseCounters|property|MaxRoot|()|System.Int64|get=True|set=True
 Tf2DemoSalvage.Scene.EntityModelSet+PoseCounters|property|PlaceBinds|()|System.Int64|get=True|set=True
 Tf2DemoSalvage.Scene.EntityModelSet+PoseCounters|property|PlaceBuild|()|System.Int64|get=True|set=True
 Tf2DemoSalvage.Scene.EntityModelSet+PoseCounters|property|PlaceCompose|()|System.Int64|get=True|set=True
@@ -48,6 +51,10 @@ Tf2DemoSalvage.Scene.EntityModelSet+PoseCounters|property|Place|()|System.Int64|
 Tf2DemoSalvage.Scene.EntityModelSet+PoseCounters|property|PoseBuilds|()|System.Int32|get=True|set=True
 Tf2DemoSalvage.Scene.EntityModelSet+PoseCounters|property|ReportLog|()|System.Int64|get=True|set=True
 Tf2DemoSalvage.Scene.EntityModelSet+PoseCounters|property|Report|()|System.Int64|get=True|set=True
+Tf2DemoSalvage.Scene.EntityModelSet+PoseCounters|property|RootBuilds|()|System.Int32|get=True|set=True
+Tf2DemoSalvage.Scene.EntityModelSet+PoseCounters|property|SetupChild|()|System.Int64|get=True|set=True
+Tf2DemoSalvage.Scene.EntityModelSet+PoseCounters|property|SetupEligible|()|System.Int64|get=True|set=True
+Tf2DemoSalvage.Scene.EntityModelSet+PoseCounters|property|SetupRoot|()|System.Int64|get=True|set=True
 Tf2DemoSalvage.Scene.EntityModelSet+PoseCounters|property|Setup|()|System.Int64|get=True|set=True
 Tf2DemoSalvage.Scene.EntityModelSet+PoseCounters|property|Simulate|()|System.Int64|get=True|set=True
 Tf2DemoSalvage.Scene.EntityModelSet+PoseCounters|property|Skin|()|System.Int64|get=True|set=True
@@ -365,6 +372,7 @@ Tf2DemoSalvage.Scene.EntityModelSet|property|IntervalPerTick|()|System.Single|ge
 Tf2DemoSalvage.Scene.EntityModelSet|property|JigglingBones|()|System.Int32|get=True|set=False
 Tf2DemoSalvage.Scene.EntityModelSet|property|LevelScreenFade|()|Tf2DemoSalvage.Core.Scene.ScreenFadeRange|get=True|set=True
 Tf2DemoSalvage.Scene.EntityModelSet|property|LightingTicks|()|System.Int64|get=True|set=True
+Tf2DemoSalvage.Scene.EntityModelSet|property|MaxRootTicks|()|System.Int64|get=True|set=True
 Tf2DemoSalvage.Scene.EntityModelSet|property|ModelResolved|()|System.Action`3[System.Int32,System.Collections.Generic.IReadOnlyList`1[System.Boolean],System.Boolean]|get=True|set=True
 Tf2DemoSalvage.Scene.EntityModelSet|property|ModelsPacked|()|System.Int32|get=True|set=True
 Tf2DemoSalvage.Scene.EntityModelSet|property|ModelsResolved|()|System.Int32|get=True|set=True
@@ -399,6 +407,12 @@ Tf2DemoSalvage.Scene.EntityModelSet|property|ResolutionsHeld|()|System.Int32|get
 Tf2DemoSalvage.Scene.EntityModelSet|property|ScreenView|()|System.Nullable`1[Tf2DemoSalvage.Core.Scene.ScreenFadeView]|get=True|set=True
 Tf2DemoSalvage.Scene.EntityModelSet|property|SequenceChangesSeen|()|System.Int32|get=True|set=True
 Tf2DemoSalvage.Scene.EntityModelSet|property|SequenceEra|()|System.String|get=True|set=True
+Tf2DemoSalvage.Scene.EntityModelSet|property|SetupChildBuilds|()|System.Int32|get=True|set=True
+Tf2DemoSalvage.Scene.EntityModelSet|property|SetupChildTicks|()|System.Int64|get=True|set=True
+Tf2DemoSalvage.Scene.EntityModelSet|property|SetupEligibleBuilds|()|System.Int32|get=True|set=True
+Tf2DemoSalvage.Scene.EntityModelSet|property|SetupEligibleTicks|()|System.Int64|get=True|set=True
+Tf2DemoSalvage.Scene.EntityModelSet|property|SetupRootBuilds|()|System.Int32|get=True|set=True
+Tf2DemoSalvage.Scene.EntityModelSet|property|SetupRootTicks|()|System.Int64|get=True|set=True
 Tf2DemoSalvage.Scene.EntityModelSet|property|SetupTicks|()|System.Int64|get=True|set=True
 Tf2DemoSalvage.Scene.EntityModelSet|property|SimulateTicks|()|System.Int64|get=True|set=True
 Tf2DemoSalvage.Scene.EntityModelSet|property|Simulated|()|System.Int32|get=True|set=True

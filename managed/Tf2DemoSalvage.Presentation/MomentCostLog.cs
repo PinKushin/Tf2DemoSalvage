@@ -57,6 +57,16 @@ public sealed class MomentCostLog
     private long _simulate;
     private long _wornLight;
     private long _setup;
+
+    // Finding 105 A6: setup split root against child, and the slowest root (mean of each rebuild's, and the window's).
+    private long _setupRoot;
+    private long _setupEligible;
+    private long _eligibleBuilds;
+    private long _setupChild;
+    private long _rootBuilds;
+    private long _childBuilds;
+    private long _maxRootSum;
+    private long _maxRootPeak;
     private long _skin;
     private long _animation;
     private long _corpses;
@@ -142,6 +152,14 @@ public sealed class MomentCostLog
         _simulate += phases.Counters.Simulate;
         _wornLight += phases.Counters.WornLight;
         _setup += phases.Counters.Setup;
+        _setupRoot += phases.Counters.SetupRoot;
+        _setupEligible += phases.Counters.SetupEligible;
+        _eligibleBuilds += phases.Counters.EligibleBuilds;
+        _setupChild += phases.Counters.SetupChild;
+        _rootBuilds += phases.Counters.RootBuilds;
+        _childBuilds += phases.Counters.ChildBuilds;
+        _maxRootSum += phases.Counters.MaxRoot;
+        _maxRootPeak = Math.Max(_maxRootPeak, phases.Counters.MaxRoot);
         _skin += phases.Counters.Skin;
         _animation += phases.Counters.Animation;
         _corpses += phases.Counters.Corpses;
@@ -219,6 +237,10 @@ public sealed class MomentCostLog
             + $", simulate {Mean(_simulate, over):0.#}"
             + $", wornlight {Mean(_wornLight, over):0.#}"
             + $", setup {Mean(_setup, over):0.#}"
+            + $" (roots {Mean(_setupRoot, over):0.###} over {_rootBuilds / (double)over:0.#} built"
+            + $", eligible {Mean(_setupEligible, over):0.###} over {_eligibleBuilds / (double)over:0.#}"
+            + $", slowest {Mean(_maxRootSum, over):0.###} peak {Mean(_maxRootPeak, 1):0.###}"
+            + $"; children {Mean(_setupChild, over):0.###} over {_childBuilds / (double)over:0.#} built)"
             + $", skin {Mean(_skin, over):0.#}"
             + $", anim {Mean(_animation, over):0.#}"
             + $", reports {Mean(_report, over):0.#}"
@@ -266,6 +288,14 @@ public sealed class MomentCostLog
         _simulate = 0;
         _wornLight = 0;
         _setup = 0;
+        _setupRoot = 0;
+        _setupEligible = 0;
+        _eligibleBuilds = 0;
+        _setupChild = 0;
+        _rootBuilds = 0;
+        _childBuilds = 0;
+        _maxRootSum = 0;
+        _maxRootPeak = 0;
         _skin = 0;
         _animation = 0;
         _corpses = 0;

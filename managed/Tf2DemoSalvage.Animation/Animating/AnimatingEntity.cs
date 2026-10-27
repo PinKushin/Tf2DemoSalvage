@@ -238,8 +238,24 @@ public sealed class AnimatingEntity
     /// <summary>Everything asked for so far this frame.</summary>
     private int _accumulatedMask;
 
+    /// <summary>Times one request into the scene's meter, exclusive of the parent it asks for (finding 105 A6).</summary>
     private bool SetupBones(int boneMask, double currentTime, int budget)
     {
+        long started = System.Diagnostics.Stopwatch.GetTimestamp();
+        bool root = Follows is null;
+        bool eligible = root && Ragdoll is null && _pose.BoneCount >= BoneSetupMeter.ThreadedMinimumBones;
+
+        bool readable = SetupBonesUntimed(boneMask, currentTime, budget, out long parentTicks, out bool built);
+
+        _clock.Meter.Record(root, eligible, built, System.Diagnostics.Stopwatch.GetTimestamp() - started - parentTicks);
+        return readable;
+    }
+
+    private bool SetupBonesUntimed(int boneMask, double currentTime, int budget, out long parentTicks, out bool built)
+    {
+        parentTicks = 0;
+        built = false;
+
         // **The blend inputs, built on the first request and only on a request** — `StandardBlendingRules` is called from
         // `SetupBones` (`c_baseanimating.cpp:1953`, `:2796`), so an entity nobody draws or asks for builds no layers this
         // frame. Ahead of every guard, because what the pose was handed is read even of a model that builds no bone.
@@ -299,6 +315,7 @@ public sealed class AnimatingEntity
             return true;
         }
 
+        built = true;
         _written.Clear();
 
         // **Widened to include what was already built**, per c_baseanimating.cpp:2920. A second
@@ -365,7 +382,12 @@ public sealed class AnimatingEntity
             // above make a repeat free. The mask is the merge's rather than the caller's, because
             // what the parent must build is the bones this item hangs off, not the bones this item
             // was asked to draw.
-            if (!parent.SetupBones(_merge.FollowBoneSetupMask, currentTime, budget - 1))
+            long parentAt = System.Diagnostics.Stopwatch.GetTimestamp();
+            bool parentReadable = parent.SetupBones(_merge.FollowBoneSetupMask, currentTime, budget - 1);
+
+            parentTicks = System.Diagnostics.Stopwatch.GetTimestamp() - parentAt;
+
+            if (!parentReadable)
             {
                 // Valve shrinks the merged bones rather than drawing them somewhere wrong, and
                 // then reports failure so a caller that checks declines to draw at all.

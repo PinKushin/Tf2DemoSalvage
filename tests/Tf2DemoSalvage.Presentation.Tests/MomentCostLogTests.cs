@@ -189,6 +189,29 @@ public sealed class MomentCostLogTests
     }
 
     /// <remarks>
+    /// **Finding 105 A6's split of setup**, over two rebuilds: roots and children are sums, the slowest root a level whose
+    /// mean (2 and 6 → 4) and peak (6) differ, so printing the mean as the peak, or a sum as the level, cannot pass.
+    /// </remarks>
+    [Test]
+    public void Report_WithSetupSplitByRoot_MeansTheSumsAndPeaksTheSlowest()
+    {
+        MomentCostLog log = new(every: 2);
+
+        MomentPhases Rebuild(long slowest) => Posing(10) with
+        {
+            Counters = new EntityModelSet.PoseCounters(
+                0, 0, 0, 0, 0, 10 * Millisecond, 0, 0, 0, 0, 0,
+                SetupRoot: 7 * Millisecond, SetupChild: 3 * Millisecond, RootBuilds: 5, ChildBuilds: 9, MaxRoot: slowest * Millisecond,
+                SetupEligible: 8 * Millisecond / 10, EligibleBuilds: 2),
+        };
+
+        _ = log.Report(Rebuild(2), sampleTicks: 0);
+        string? line = log.Report(Rebuild(6), sampleTicks: 0);
+
+        Assert.That(line, Does.Contain("setup 10 (roots 7 over 5 built, eligible 0.8 over 2, slowest 4 peak 6; children 3 over 9 built)"));
+    }
+
+    /// <remarks>
     /// **The parts of `place`, each a distinct width**, so a column printing its neighbour's value cannot pass.
     /// </remarks>
     [Test]

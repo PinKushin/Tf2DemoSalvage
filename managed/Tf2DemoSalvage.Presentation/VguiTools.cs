@@ -43,6 +43,7 @@ public sealed class VguiTools
     /// <param name="mapName">The open map without its extension, or null.</param>
     public void Frame(double realtime, double frameSeconds, int mode, PositionReadout position, string? mapName)
     {
+        long partAt = Parts is null ? 0 : System.Diagnostics.Stopwatch.GetTimestamp();
         Meter.Mode = mode;
         FpsReading? reading = Meter.Sample(frameSeconds);
 
@@ -82,7 +83,16 @@ public sealed class VguiTools
             Fps.OnTick();
         }
 
+        // The inputs above stay on the game thread; the layout and paint below are what a HUD fork would move (finding 105 B7).
+        partAt = FrameParts.Lap(Parts, "hud tools inputs", partAt);
         VguiLayout.SolveTraverse(_root, context);
         _root.PaintTraverse(_host.List, context);
+        PaintTicks = FrameParts.Lap(Parts, "hud tools paint", partAt) - partAt;
     }
+
+    /// <summary>Where the tools panel's inputs and paint are timed, or null for none (tests).</summary>
+    public FrameParts? Parts { get; set; }
+
+    /// <summary>This frame's `hud tools paint`, carried for the HUD fork's per-frame stall (finding 105 B7); 0 when not measuring.</summary>
+    public long PaintTicks { get; private set; }
 }

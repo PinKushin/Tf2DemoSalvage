@@ -406,6 +406,27 @@ public sealed partial class EntityModelSet : Hud.IMdlCache, IPosedEntities
     /// </remarks>
     public long SetupTicks { get; set; }
 
+    /// <summary>Of <see cref="SetupTicks"/>: roots' own calls, ever — what the threaded pre-pass would move (finding 105 A6).</summary>
+    public long SetupRootTicks { get; private set; }
+
+    /// <summary>Of <see cref="SetupTicks"/>: children's own calls, less their parents, ever (finding 105 A6).</summary>
+    public long SetupChildTicks { get; private set; }
+
+    /// <summary>Roots the draw loop built, ever (finding 105 A6).</summary>
+    public int SetupRootBuilds { get; private set; }
+
+    /// <summary>Children the draw loop built, ever (finding 105 A6).</summary>
+    public int SetupChildBuilds { get; private set; }
+
+    /// <summary>Of <see cref="SetupRootTicks"/>: the roots a threaded pre-pass would take (<see cref="BoneSetupMeter"/>), ever.</summary>
+    public long SetupEligibleTicks { get; private set; }
+
+    /// <summary>Eligible roots the draw loop built, ever (finding 105 A6).</summary>
+    public int SetupEligibleBuilds { get; private set; }
+
+    /// <summary>The slowest single eligible root built by the last pass's draw loop — the fork's critical path (finding 105 A6). A level.</summary>
+    public long MaxRootTicks { get; private set; }
+
     /// <summary>What composing skinning matrices has cost, ever.</summary>
     public long SkinTicks { get; set; }
 
@@ -517,7 +538,14 @@ public sealed partial class EntityModelSet : Hud.IMdlCache, IPosedEntities
         long PlaceSwap = 0,
         long PlaceFlex = 0,
         int CollateFixed = 0,
-        int CollateByIdentity = 0)
+        int CollateByIdentity = 0,
+        long SetupRoot = 0,
+        long SetupChild = 0,
+        int RootBuilds = 0,
+        int ChildBuilds = 0,
+        long MaxRoot = 0,
+        long SetupEligible = 0,
+        int EligibleBuilds = 0)
     {
         /// <summary>What happened between an earlier snapshot and this one.</summary>
         /// <param name="before">The earlier snapshot.</param>
@@ -562,7 +590,16 @@ public sealed partial class EntityModelSet : Hud.IMdlCache, IPosedEntities
                 PlaceSwap - before.PlaceSwap,
                 PlaceFlex - before.PlaceFlex,
                 CollateFixed - before.CollateFixed,
-                CollateByIdentity - before.CollateByIdentity);
+                CollateByIdentity - before.CollateByIdentity,
+                SetupRoot - before.SetupRoot,
+                SetupChild - before.SetupChild,
+                RootBuilds - before.RootBuilds,
+                ChildBuilds - before.ChildBuilds,
+
+                // A level, carried like CorpsesHeld: the slowest eligible root of the pass just run.
+                MaxRoot,
+                SetupEligible - before.SetupEligible,
+                EligibleBuilds - before.EligibleBuilds);
     }
 
     /// <summary>Every pose-phase counter as it stands now.</summary>
@@ -600,7 +637,14 @@ public sealed partial class EntityModelSet : Hud.IMdlCache, IPosedEntities
         PlaceSwapTicks,
         PlaceFlexTicks,
         CollateFixed,
-        CollatedByIdentity);
+        CollatedByIdentity,
+        SetupRootTicks,
+        SetupChildTicks,
+        SetupRootBuilds,
+        SetupChildBuilds,
+        MaxRootTicks,
+        SetupEligibleTicks,
+        SetupEligibleBuilds);
 
     /// <summary>Unparented props the world collation filed, ever (finding 82).</summary>
     public int CollateFixed { get; private set; }

@@ -326,11 +326,14 @@ public sealed class VguiHud
         // `CBaseViewport::OnThink`'s `Update()` of each panel that `NeedsUpdate` — the spectator GUI while it is shown.
         SpectatorGui.Update(state);
         partAt = Part("hud updates", partAt);
+        ForkableTicks = 0;
 
         if (!paint)
         {
             return;
         }
+
+        long forkableAt = partAt;
 
         VguiLayout.SolveTraverse(Viewport, _context);
         partAt = Part("hud layout", partAt);
@@ -370,11 +373,14 @@ public sealed class VguiHud
             }
         }
         Viewport.PaintTraverse(_host.List, _context);
-        _ = Part("hud paint", partAt);
+        ForkableTicks = Part("hud paint", partAt) - forkableAt;
     }
 
     /// <summary>Where the frame's parts are timed, or null for none (tests).</summary>
     public FrameParts? Parts { get; set; }
+
+    /// <summary>This frame's layout, cards and paint in one span — what a HUD fork would move (finding 105 B7); 0 when not measuring.</summary>
+    public long ForkableTicks { get; private set; }
 
     /// <summary>Adds the time since <paramref name="since"/> to a part, and returns now.</summary>
     private long Part(string name, long since)

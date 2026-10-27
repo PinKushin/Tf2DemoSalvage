@@ -36,4 +36,7 @@ public sealed class BoneFrameCounter
 
     /// <summary>Ends the current frame, so every cached pose is stale.</summary>
     public void Advance() => Frame++;
+
+    /// <summary>What this scene's bone setups cost, root against child (finding 105 A6).</summary>
+    public BoneSetupMeter Meter { get; } = new();
 }
