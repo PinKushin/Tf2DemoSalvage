@@ -40881,6 +40881,22 @@ its leaf is in that frame's walked set (the tree reaches the device through `Wor
 outside it (not drawn); at factor 1 nothing changes.
 (3) The corner-count control was not logged (debug level).
 
+**Follow-up, the per-call cost (2026-10-27, `perf/detail-transport-b577`).** **Read:** the engine sorts each leaf's
+lane on its own with `tier1/heapsort.h`'s `HeapSort` (ordinary `:2112`, fast `:2247`, the leaf loop `:2300-2312`), and
+the fast lane's sort buffer holds every member of a group that is not wholly culled, alpha 0 included (`:2223-2241`).
+**Ours was:** one `List.Sort` (introsort) over the whole view with a comparison that read each prop's leaf through
+`IReadOnlyList` per compare, alpha-0 fast members dropped before the sort, props and vertices through interfaces, and the
+fast anchor's fixed basis re-derived by trig per sprite. **Fixed:** two lane lists, each leaf's run HeapSorted by a
+transcription of Valve's, alpha-0 fast members sorted and then skipped (still counted `Faded`), spans over the reader's
+`List`s, the fixed basis computed once. **Divergence fixed with it: the order of EXACT ties.** Introsort's and
+HeapSort's orders of equal squared distances differ (two equal keys `[a, b]` come out `[b, a]` from `heapsort.h`); held by
+`Build_OrdinarySpritesAtOneDistance_KeepTheEnginesHeapSortOrder` and `Build_FastSpritesAtOneDistance_SortTheFadedMemberWithThem`,
+both red on the old code (lump order). **Identity, by the `detail-hash` probe on cp_process_f12, 2000 views, 5,437,195
+quads** (*measured*): the per-lane set hash is equal before and after (`747bd2e36488e1b3`); the order-including hash
+differs (`293530ac9f0717a4` → `9be0ad88d4b0ef3c`), and with ties broken by lump index in BOTH builds it is equal
+(`dc27b769f0b8dc78` each), so the only change is the order of tied quads. The tie census is 79 (an upper bound, a second
+route). Frame cost: not yet measured (plan: measurements/2026-10-27-detail-transport-b577.md).
+
 ## B579 — the HUD's event feed walks every game event and user message of the match, every frame — FIXED (2026-10-23)
 
 **Fixed:** `HudEventFeed.Advance` finds the `(last, tick]` window of each tick-ordered list by binary search
