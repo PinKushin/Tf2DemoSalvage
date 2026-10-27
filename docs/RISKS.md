@@ -40881,6 +40881,24 @@ its leaf is in that frame's walked set (the tree reaches the device through `Wor
 outside it (not drawn); at factor 1 nothing changes.
 (3) The corner-count control was not logged (debug level).
 
+**Follow-up, the per-call cost (2026-10-27, `perf/detail-transport-b577`).** **Read:** the engine sorts each leaf's
+lane on its own with `tier1/heapsort.h`'s `HeapSort` (ordinary `:2112`, fast `:2247`, the leaf loop `:2300-2312`), and
+the fast lane's sort buffer holds every member of a group that is not wholly culled, alpha 0 included (`:2223-2241`).
+**Ours was:** one `List.Sort` (introsort) over the whole view with a comparison that read each prop's leaf through
+`IReadOnlyList` per compare, alpha-0 fast members dropped before the sort, props and vertices through interfaces, and the
+fast anchor's fixed basis re-derived by trig per sprite. **Fixed:** two lane lists, each leaf's run HeapSorted by a
+transcription of Valve's, alpha-0 fast members sorted and then skipped (still counted `Faded`), spans over the reader's
+`List`s, the fixed basis computed once. **Divergence fixed with it: the order of EXACT ties.** Introsort's and
+HeapSort's orders of equal squared distances differ (two equal keys `[a, b]` come out `[b, a]` from `heapsort.h`); held by
+`Build_OrdinarySpritesAtOneDistance_KeepTheEnginesHeapSortOrder` and `Build_FastSpritesAtOneDistance_SortTheFadedMemberWithThem`,
+both red on the old code (lump order). **Identity, by the `detail-hash` probe on cp_process_f12, 2000 views, 5,437,195
+quads** (*measured*): the per-lane set hash is equal before and after (`747bd2e36488e1b3`); the order-including hash
+differs (`293530ac9f0717a4` → `9be0ad88d4b0ef3c`), and with ties broken by lump index in BOTH builds it is equal
+(`dc27b769f0b8dc78` each), so the only change is the order of tied quads. The tie census is 79 (an upper bound, a second
+route). **Measured** (measurements/2026-10-27-detail-transport-b577.md, 4 runs per build, ABBA then BAAB): on gummo
+first person in detail range, `setcamera detail` dropped from 0.729-0.753 ms (8.1-8.2% of the frame) to 0.454-0.459 ms
+(5.2%). The frame mean dropped from 8.93-9.27 to 8.71-8.83 ms (measurements/2026-10-27-detail-transport-b577.md).
+
 ## B579 — the HUD's event feed walks every game event and user message of the match, every frame — FIXED (2026-10-23)
 
 **Fixed:** `HudEventFeed.Advance` finds the `(last, tick]` window of each tick-ordered list by binary search
@@ -40938,6 +40956,34 @@ did not move (0.20 ms median before and after, on both scenes). The walk was not
 and it is not split yet. **Left:** split `dispatches` into its attachment queries, dormancy closures and the 660-tick
 entity-less window. Muzzles: skip the finished flashes as dispatches already do (finding 86), which changes the offers
 and the census by design and needs a state-equivalence test, not an offer one.
+
+**Remainder done (2026-10-27, `perf/detail-transport-b577`).** **Read:** a dispatch fires once from
+`C_TEEffectDispatch::PostDataUpdate` (c_te_effect_dispatch.cpp:146) into `DispatchEffectToCallback` (:71), and the
+manager removes the effect once `IsFinished` (particlemgr.cpp:1581-1584). **Fixed:** on a played frame, a key that
+`ParticleEffects.IsGone` reports is offered again from its cached last `ParticleBurst` instead of being rebuilt. This
+applies to sentry flashes, weapon flashes (both keys), entity-less dispatches and `CTETFParticleEffect`s, and saves the
+attachment query and the build. A finished burst that is still offered is kept and not stepped, and its point is never
+read, so census, retire timing and dictionary (draw) order are exactly what a fresh offer gave. **Coordinator's
+decision, 2026-10-27:** *"do NOT change drawn order"*. The first version left gone keys out entirely; that retired them
+sooner and moved later effects in the draw order, so it was replaced. A cached offer is used only where a fresh build
+would also offer: for an attached kind (sentry barrel, world weapon), only while its entity is posed. Viewmodel flashes
+always rebuild. A seek or a clock gone back rebuilds every key (D221). `played` is computed once per `StepOver`. The
+owned dispatches' dormancy closures are made once per dispatch and timeline instead of once a frame. **Held by:**
+- `StepOver_AFinishedOneShotOnTheNextFrame_IsItsLastOfferUnlessTheFrameLanded`, over all four kinds, played and seeked:
+  with the attachment moved, a played frame offers the old point (no query) and a seek offers the new one.
+- `StepOver_OneShotsLetGoOverAPlayback_DrawAndCountWhatOfferingThemAllDid`, 3,000 frames of finite drawn one-shots
+  with the owners unposed and moved. Every frame's batch bytes in order, whizzes, offered keys in order, census and step
+  counters all equal a reference with `OfferGoneBursts` set, and more than 200 offers came from the cache.
+- The B577 and B592 fingerprint tests, unchanged and unflagged.
+
+**Sabotage:** leaving gone keys out reddens the state test and both fingerprint tests. Dropping the sentry's posed gate
+reddens the state test. **Assumption, named:** a posed entity whose attachment resolved when the flash fired still
+resolves it inside the flash's window. A model swapped within that second would break it. **Still open:** the attachment queries of live followed effects, which the engine
+also re-reads every frame. **Measured: no change** (measurements/2026-10-27-detail-transport-b577.md). `dispatches` +
+`muzzles` were 0.332-0.348 ms before and 0.328-0.336 ms after on gummo, and 0.404-0.441 vs 0.408-0.422 ms on the empty (measurements/2026-10-27-detail-transport-b577.md)
+view. The ranges overlap, so the finished one-shots were not where the cost was. **Next:** split `dispatches` into its
+live owned offers (attachment queries on followed points, `AddParticleEffect`) and the window searches, before any
+further fix.
 
 ## B576 — a talking face rewrote every slot of its model's flex stream, every changing frame — FIXED (2026-10-22)
 

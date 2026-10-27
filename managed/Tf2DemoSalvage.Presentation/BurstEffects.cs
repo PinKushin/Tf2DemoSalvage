@@ -251,11 +251,68 @@ public sealed class BurstEffects
     /// <summary>Each `"ParticleEffect"` dispatch's stop tick (<see cref="DispatchStops"/>), by its index.</summary>
     private int?[] _stops = [];
 
+    /// <summary>Each owned dispatch's dormancy question by its index, made on first offer for <see cref="_stopsOf"/>.</summary>
+    private Func<int, bool>?[] _dormantAt = [];
+
     /// <summary>The `"ParticleEffect"` dispatches made from an entity, by index — each runs until Valve ends it.</summary>
     private readonly List<int> _owned = [];
 
-    /// <summary>The tick the owned dispatches were last offered at, so a clock gone back offers the finished ones again.</summary>
-    private int _ownedTick = int.MinValue;
+    /// <summary>The tick the bursts were last offered at, so a clock gone back offers the finished ones again.</summary>
+    private int _offeredTick = int.MinValue;
+
+    /// <summary>Whether this frame was played rather than landed: set once per <see cref="StepOver"/>, before any offer.</summary>
+    private bool _played;
+
+    /// <summary>
+    /// Offers a let-go one-shot (a muzzle flash, an entity-less or TF dispatch) every played frame, as before B577's
+    /// remainder: the reference a state-equivalence test compares with.
+    /// </summary>
+    internal bool OfferGoneBursts { get; set; }
+
+    /// <summary>Whether a played frame may leave this key out: <see cref="ParticleEffects.IsGone"/> and nothing to rebuild.</summary>
+    /// <remarks>
+    /// The engine creates a dispatched or muzzle effect once, on arrival (`C_TEEffectDispatch::PostDataUpdate`,
+    /// c_te_effect_dispatch.cpp:146 → `DispatchEffectToCallback`, :71), and removes it once `IsFinished`
+    /// (particlemgr.cpp:1581-1584); nothing reads it again. Offered after that, ours was found finished and skipped.
+    /// </remarks>
+    private bool LetGo(long key) => _played && !OfferGoneBursts && _particles.IsGone(key);
+
+    /// <summary>The last burst offered under each one-shot key, for <see cref="Reoffer"/>; for <see cref="_lastOffersOf"/>.</summary>
+    /// <remarks>ponytail: grows by one entry per one-shot the demo fires and is cleared per timeline; prune by window if a
+    /// long demo makes it matter.</remarks>
+    private readonly Dictionary<long, ParticleBurst> _lastOffers = [];
+
+    /// <summary>The timeline <see cref="_lastOffers"/> holds keys of.</summary>
+    private DemoTimeline? _lastOffersOf;
+
+    /// <summary>Whether a key is let go and has a last offer to repeat.</summary>
+    private bool Gone(long key) => LetGo(key) && _lastOffers.ContainsKey(key);
+
+    /// <summary>Offers a let-go key's last burst again instead of building it; false when it is not let go.</summary>
+    /// <remarks>
+    /// **Offered, not left out, so nothing but the work changes**: `ParticleEffects.Bursts` keeps a finished burst that
+    /// is still offered and does not step it, never reading its point, so the census and the order of its dictionary
+    /// stay exactly what offering a freshly built burst gave. Left out, it was retired sooner and the slot it freed
+    /// moved later effects in the draw order. The caller decides that a fresh build would have offered it at all.
+    /// </remarks>
+    private bool Reoffer(long key)
+    {
+        if (!LetGo(key) || !_lastOffers.TryGetValue(key, out ParticleBurst last))
+        {
+            return false;
+        }
+
+        _burstsNow.Add(last);
+
+        return true;
+    }
+
+    /// <summary>Offers a one-shot's burst and remembers it for <see cref="Reoffer"/>.</summary>
+    private void Offer(in ParticleBurst burst)
+    {
+        _burstsNow.Add(burst);
+        _lastOffers[burst.Key] = burst;
+    }
 
     /// <summary>
     /// The owned dispatches fired and not yet let go, in fire order (B577): what the walk over <see cref="_owned"/> would
@@ -303,6 +360,7 @@ public sealed class BurstEffects
         _bloodBursts.Clear();
         _particleDispatchPoints.Clear();
         _healBeamFrom.Clear();
+        _lastOffers.Clear();
     }
 
     /// <summary>Starts and steps a one-shot effect for every explosion in the window (B415), and every other burst.</summary>
@@ -422,6 +480,17 @@ public sealed class BurstEffects
 
         // Each offerer timed where it runs, under `camera particles/bursts`; a `/` in a part's name nests it inside the
         // part before it, so nested parts are not added together (finding 86, B243).
+        // A played frame, not a landed one: a seek, or a clock gone back, rebuilds from the offer (D221), so only a played
+        // frame may leave out what `ParticleEffects` already let go (finding 86).
+        _played = !frame.Seeked && tick >= _offeredTick;
+        _offeredTick = tick;
+
+        if (!ReferenceEquals(timeline, _lastOffersOf))
+        {
+            _lastOffersOf = timeline;
+            _lastOffers.Clear();
+        }
+
         long partAt = Part("camera particles/bursts/explosions", searchingAt);
         AddTracers(tick, systems, new Vector3(viewing.Origin.X, viewing.Origin.Y, viewing.Origin.Z));
         partAt = Part("camera particles/bursts/tracers", partAt);
@@ -717,6 +786,12 @@ public sealed class BurstEffects
 
         foreach ((int index, SceneEffectDispatch dispatch) in _dispatchesNow)
         {
+            // Finished, it is offered as it last was, without the barrel query (B577) — while posed, as a fresh build needs.
+            if (_models.IsPosed(dispatch.Entity) && Reoffer(MuzzleFlashKeys + index))
+            {
+                continue;
+            }
+
             // Stryker disable once all : a mutated guard leaves its pattern variables unassigned (CS0165) and Safe Mode drops the method - B410
             if (!string.Equals(
                     timeline.Dispatches.Names.Name(dispatch.Name), SentryMuzzleFlash.EffectName, StringComparison.Ordinal) ||
@@ -726,7 +801,7 @@ public sealed class BurstEffects
                 continue;
             }
 
-            _burstsNow.Add(new ParticleBurst(MuzzleFlashKeys + index, definition, barrel, dispatch.Tick));
+            Offer(new ParticleBurst(MuzzleFlashKeys + index, definition, barrel, dispatch.Tick));
         }
     }
 
@@ -1041,8 +1116,34 @@ public sealed class BurstEffects
 
         foreach ((int index, SceneMuzzleFlash flash) in _weaponFlashesNow)
         {
-            ParticleControlPoint? point = FlashPoint(flash);
+            long muzzleKey = WeaponFlashKeys + (index * 2L);
             WeaponMuzzleFlash what = _weaponMuzzles.For(flash.Item, flash.Team);
+
+            // "Don't do backblast effects in first person" — the test is `pOwner->IsLocalPlayer()`, so the recorder's own launcher
+            // never has one, in any view (`tf_weapon_rocketlauncher.cpp:383`).
+            bool backblasts = what.Backblast && flash.Viewmodel is null && flash.Owner != timeline.RecorderEntityIndex;
+
+            // **Nothing left to build on a played frame, no attachment query** (B577). A flash with nothing under it — no
+            // muzzle particle and no backblast — offers nothing, as a fresh build did. A world flash whose every key is let go
+            // offers each as it last was, while its weapon is posed, which is when a fresh build would offer it at all.
+            // The first-person log line still gets its frame: it is written only while debug is on.
+            if (_played && !OfferGoneBursts && (flash.Viewmodel is null || !_renderLog.IsEnabled(LogLevel.Debug)))
+            {
+                if (what.Particle is null && !backblasts)
+                {
+                    continue;
+                }
+
+                if (flash.Viewmodel is null && _models.IsPosed(flash.Weapon) &&
+                    (what.Particle is null || Gone(muzzleKey)) && (!backblasts || Gone(muzzleKey + 1)))
+                {
+                    Reoffer(muzzleKey);
+                    Reoffer(muzzleKey + 1);
+                    continue;
+                }
+            }
+
+            ParticleControlPoint? point = FlashPoint(flash);
 
             // One line per first-person flash, the first frame it is offered: what started, or why nothing did. Debug, and
             // guarded so the string is never built otherwise: at Information it was flushed per shot on the main thread
@@ -1074,17 +1175,15 @@ public sealed class BurstEffects
             // Stryker disable once all : a mutated guard leaves its pattern variables unassigned (CS0165) and Safe Mode drops the method - B410
             if (what.Particle is { } particle && systems.TryGetValue(particle, out ParticleSystem? definition))
             {
-                _burstsNow.Add(new ParticleBurst(WeaponFlashKeys + (index * 2L), definition, muzzle, flash.Tick));
+                Offer(new ParticleBurst(muzzleKey, definition, muzzle, flash.Tick));
             }
 
-            // "Don't do backblast effects in first person" — the test is `pOwner->IsLocalPlayer()`, so the recorder's own launcher
-            // never has one, in any view (`tf_weapon_rocketlauncher.cpp:383`).
             // Stryker disable once all : a mutated guard leaves its pattern variables unassigned (CS0165) and Safe Mode drops the method - B410
-            if (what.Backblast && flash.Viewmodel is null && flash.Owner != timeline.RecorderEntityIndex &&
+            if (backblasts &&
                 systems.TryGetValue(WeaponMuzzleFlashes.BackblastSystem, out ParticleSystem? backblast) &&
                 _models.AttachmentPoint(flash.Weapon, WeaponMuzzleFlashes.BackblastAttachment) is { } behind)
             {
-                _burstsNow.Add(new ParticleBurst(WeaponFlashKeys + (index * 2L) + 1, backblast, behind, flash.Tick));
+                Offer(new ParticleBurst(muzzleKey + 1, backblast, behind, flash.Tick));
             }
         }
     }
@@ -1137,6 +1236,7 @@ public sealed class BurstEffects
         {
             _stopsOf = timeline;
             _stops = DispatchStops.Compute(timeline.Dispatches.All, timeline.Dispatches.Names.Name, timeline.Dormancy.DeletedAfter);
+            _dormantAt = new Func<int, bool>?[_stops.Length];
             _owned.Clear();
             _liveOwned.Clear();
             _ownedFired = 0;
@@ -1164,10 +1264,12 @@ public sealed class BurstEffects
         // which is only how far back a seek replays it.
         foreach ((int index, SceneEffectDispatch dispatch) in _particleDispatchesNow)
         {
+            // Finished, it is offered as it last was (B577): a point fixed at first sight, so a fresh build offers the same.
             if ((dispatch.Flags & DispatchFromEntity) == 0 &&
+                !Reoffer(ParticleDispatchKeys + index) &&
                 string.Equals(timeline.Dispatches.Names.Name(dispatch.Name), "ParticleEffect", StringComparison.Ordinal))
             {
-                AddParticleEffect(ParticleDispatchKeys + index, dispatch, timeline, systems);
+                AddParticleEffect(ParticleDispatchKeys + index, dispatch, timeline, systems, remember: true);
             }
         }
 
@@ -1181,9 +1283,7 @@ public sealed class BurstEffects
         // `IsFinished` (particlemgr.cpp:1581-1584) and nothing reads its owner again. Offered, it cost an attachment query
         // and a burst every frame for the rest of the demo, to be skipped. A seek, or a clock gone back, offers it again,
         // since that frame rebuilds from the offer (D221).
-        bool played = !_frame.Seeked && tick >= _ownedTick;
-
-        _ownedTick = tick;
+        bool played = _played;
 
         // **Each frame visits only what is live, not every owned dispatch since the first** (B577): the engine creates an
         // effect once, when its dispatch arrives (`C_TEEffectDispatch::PostDataUpdate`, c_te_effect_dispatch.cpp:146-154),
@@ -1220,12 +1320,10 @@ public sealed class BurstEffects
             _liveOwned[kept++] = index;
 
             SceneEffectDispatch dispatch = timeline.Dispatches.All[index];
-            int owner = dispatch.Entity;
-            EntityDormancy dormancy = timeline.Dormancy;
 
             AddParticleEffect(
                 ParticleDispatchKeys + index, dispatch, timeline, systems, _stops[index],
-                at => dormancy.IsDormant(owner, at));
+                _dormantAt[index] ??= DormantAt(timeline.Dormancy, dispatch.Entity));
         }
 
         _liveOwned.RemoveRange(kept, _liveOwned.Count - kept);
@@ -1236,9 +1334,20 @@ public sealed class BurstEffects
 
         foreach ((int index, SceneEffectDispatch dispatch) in _tfParticlesNow)
         {
-            AddParticleEffect(TfParticleKeys + index, dispatch, timeline, systems);
+            // Finished, offered as it last was (B577); one from an entity only while that entity is posed, as a fresh build
+            // needs it to be.
+            if (((dispatch.Flags & DispatchFromEntity) == 0 || _models.IsPosed(dispatch.Entity)) &&
+                Reoffer(TfParticleKeys + index))
+            {
+                continue;
+            }
+
+            AddParticleEffect(TfParticleKeys + index, dispatch, timeline, systems, remember: true);
         }
     }
+
+    /// <summary>An owned dispatch's dormancy question, made once per dispatch and timeline rather than once a frame (B577).</summary>
+    private static Func<int, bool> DormantAt(EntityDormancy dormancy, int owner) => at => dormancy.IsDormant(owner, at);
 
     /// <summary>One `"ParticleEffect"` dispatch's burst, under a key unique across both sources.</summary>
     private void AddParticleEffect(
@@ -1247,7 +1356,8 @@ public sealed class BurstEffects
         DemoTimeline timeline,
         IReadOnlyDictionary<string, ParticleSystem> systems,
         int? stop = null,
-        Func<int, bool>? dormantAt = null)
+        Func<int, bool>? dormantAt = null,
+        bool remember = false)
     {
         string? name = timeline.Dispatches.ParticleNames.Name(dispatch.HitBox);
         ParticleSystem? definition = name is null ? null : systems.GetValueOrDefault(name);
@@ -1281,11 +1391,20 @@ public sealed class BurstEffects
 
         if (definition is not null && point is { } at)
         {
-            _burstsNow.Add(new ParticleBurst(key, definition, at, dispatch.Tick, DispatchedEnd(dispatch), stop)
+            ParticleBurst burst = new(key, definition, at, dispatch.Tick, DispatchedEnd(dispatch), stop)
             {
                 DormantAt = dormantAt,
                 Undrawn = undrawn,
-            });
+            };
+
+            if (remember)
+            {
+                Offer(burst);
+            }
+            else
+            {
+                _burstsNow.Add(burst);
+            }
         }
     }
 

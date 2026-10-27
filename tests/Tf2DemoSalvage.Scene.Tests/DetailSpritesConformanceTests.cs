@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 
 using Tf2DemoSalvage.Content.Bsp;
@@ -753,6 +754,83 @@ public sealed class DetailSpritesConformanceTests
 
         frame.Built.ShouldBe(19_189);
         frame.Fast.ShouldBe(FastOnGranary);
+    }
+
+    /// <remarks>
+    /// **Equal distances keep the order Valve's <c>HeapSort</c> gives them, not the lump's.** Each leaf's lane is sorted
+    /// by <c>HeapSort( pSortInfo, nCount, SortLessFunc )</c> (<c>detailobjectsystem.cpp:2112</c>, <c>:2247</c>), and
+    /// <c>tier1/heapsort.h:17-72</c> is not stable. Traced by hand with <c>SortLessFunc</c>'s strict <c>&gt;</c>: for two
+    /// equal keys <c>[a, b]</c> the heapify step does not swap and the sort loop's first swap (<c>:44</c>) gives
+    /// <c>[b, a]</c>; for three, <c>[a, b, c]</c> heapifies unchanged, swaps to <c>[c, b, a]</c>, re-heapifies without
+    /// a swap, and the last swap gives <c>[b, c, a]</c>. The quads are told apart by their lighting.
+    /// </remarks>
+    [TestCase(2, new[] { 20f, 10f })]
+    [TestCase(3, new[] { 20f, 30f, 10f })]
+    public void Build_OrdinarySpritesAtOneDistance_KeepTheEnginesHeapSortOrder(int count, float[] expectedRed)
+    {
+        (float X, float Y, float Z)[] at = [(300f, 0f, 0f), (0f, 300f, 0f), (-300f, 0f, 0f)];
+        List<BspDetailProp> props = [];
+
+        for (int index = 0; index < count; index++)
+        {
+            props.Add(Prop(angles: (0f, 0f, 0f), origin: at[index], lighting: ((index + 1) * 10f, 0f, 0f)));
+        }
+
+        List<DetailSpriteVertex> world = [];
+        DetailSprites.Build(props, [Sprite()], Eye, Near, world);
+
+        Reds(world).ShouldBe(expectedRed);
+    }
+
+    /// <remarks>
+    /// **The fast lane sorts a faded member too**, and that moves the ties. <c>BuildOutSortedSprites</c> writes every
+    /// member of a group that is not wholly culled into <c>m_pFastSortInfo</c> (<c>detailobjectsystem.cpp:2223-2232</c>)
+    /// whatever its alpha, and sorts them all (<c>:2247</c>); only the tail padding is trimmed (<c>:2240-2241</c>). A
+    /// member at alpha zero draws nothing. Traced through <c>heapsort.h</c>: <c>[a, b, c, z]</c> with a, b, c equal and z
+    /// farther heapifies unchanged, then gives <c>[z, b, c, a]</c> → <c>[b, z, c, a]</c> → <c>[c, z, b, a]</c> →
+    /// <c>[z, c, b, a]</c>: <c>c, b, a</c> where the three alone give <c>b, c, a</c>. A zero-size rectangle puts each
+    /// anchor exactly on its origin, so the three distances are exactly equal; z at 999.9 of a 1000 maximum rounds to
+    /// alpha 0 (<c>:2183</c>) without being culled.
+    /// </remarks>
+    [TestCase(false, new[] { 20f, 30f, 10f }, 0)]
+    [TestCase(true, new[] { 30f, 20f, 10f }, 1)]
+    public void Build_FastSpritesAtOneDistance_SortTheFadedMemberWithThem(bool faded, float[] expectedRed, int expectedFaded)
+    {
+        List<BspDetailProp> props =
+        [
+            FastAt((300f, 0f, 0f), 10f),
+            FastAt((0f, 300f, 0f), 20f),
+            FastAt((-300f, 0f, 0f), 30f),
+        ];
+
+        if (faded)
+        {
+            props.Add(FastAt((0f, -999.9f, 0f), 40f));
+        }
+
+        List<DetailSpriteVertex> world = [];
+        DetailSprites.Frame frame = DetailSprites.Build(
+            props, [new BspDetailSprite((0f, 0f), (0f, 0f), (0f, 0f), (0.5f, 0.25f))], Eye,
+            DetailFade.For(distance: 1000f, fade: 500f), world);
+
+        Reds(world).ShouldBe(expectedRed);
+        (frame.Built, frame.Fast, frame.Faded).ShouldBe((3, 3, expectedFaded));
+    }
+
+    private static BspDetailProp FastAt((float X, float Y, float Z) origin, float red) =>
+        Prop(angles: (0f, 0f, 0f), orientation: 2, origin: origin, lighting: (red, 0f, 0f));
+
+    /// <summary>Each quad's red channel back in the lump's units, to name the prop it came from.</summary>
+    private static float[] Reds(List<DetailSpriteVertex> world)
+    {
+        float[] reds = new float[world.Count / DetailSprites.CornersPerQuad];
+
+        for (int quad = 0; quad < reds.Length; quad++)
+        {
+            reds[quad] = MathF.Round(world[quad * DetailSprites.CornersPerQuad].Red * 255f);
+        }
+
+        return reds;
     }
 
     /// <summary>Measured 2026-09-29: every sprite, none with a light style (the ordinary lane is empty on this map).</summary>

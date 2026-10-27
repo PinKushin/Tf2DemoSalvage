@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Runtime.InteropServices;
 
 using Tf2DemoSalvage.Content.Bsp;
 
@@ -176,7 +177,7 @@ public static class DetailSprites
     /// <c>detailobjectsystem.cpp:1644</c>: the cvar, <c>DETAIL_PROP_TYPE_SPRITE</c>, <c>m_LightStyleCount == 0</c>,
     /// <c>m_Orientation == 2</c>, and zero <c>m_ShapeAngle</c>, <c>m_ShapeSize</c> and <c>m_SwayAmount</c>.
     /// </remarks>
-    public static bool IsFast(BspDetailProp prop, bool enabled = FastDetailSprites) =>
+    public static bool IsFast(in BspDetailProp prop, bool enabled = FastDetailSprites) =>
         enabled &&
         prop.Type == DetailPropType.Sprite &&
         prop.LightStyleCount == 0 &&
@@ -228,23 +229,30 @@ public static class DetailSprites
         ArgumentNullException.ThrowIfNull(sprites);
         ArgumentNullException.ThrowIfNull(into);
 
+        // **Read through spans, never per element through the interface** (finding 101 measured that shape at 62%
+        // overhead): the viewer hands the reader's own List, which passes through without a copy.
+        ReadOnlySpan<BspDetailProp> props = AsSpan(objects);
+        ReadOnlySpan<BspDetailSprite> rectangles = AsSpan(sprites);
+
         // **Gathered before anything is emitted, because the emission order IS the draw order.**
         // A blended quad is combined with what is already in the frame buffer, so the sort has to
         // happen between deciding what is visible and writing any vertex.
         //
-        // **Into this thread's scratch, reused** (B599): two fresh lists and a capturing sort comparison a frame were
-        // ~0.1 MB a frame on f12 (measurements/2026-10-25-allocation-attribution.md). Thread-static because tests call
-        // this in parallel; the viewer calls it from the game thread only. The engine's sort buffers were not read.
+        // **Into this thread's scratch, reused** (B599): fresh lists a frame were ~0.1 MB a frame on f12
+        // (measurements/2026-10-25-allocation-attribution.md). Thread-static because tests call this in parallel; the
+        // viewer calls it from the game thread only. **One list per lane**, as the engine keeps the fast lane's sort
+        // buffer (`m_pFastSortInfo`) apart from the ordinary one's (`pSortInfo`).
         Scratch scratch = t_scratch ??= new();
-        List<(int Index, float Squared, byte Alpha, bool Fast)> visible = scratch.Visible;
-        visible.Clear();
-        scratch.Objects = objects;
+        List<Visible> ordinary = scratch.Ordinary;
+        List<Visible> fastLane = scratch.Fast;
+        ordinary.Clear();
+        fastLane.Clear();
 
         int faded = 0;
 
         // The fast lane's group of four (`BuildOutSortedSprites`, `detailobjectsystem.cpp:2157-2165`), restarted at
         // every leaf change as `UnserializeModels` pads it (`:1794`).
-        List<(int Index, float Squared, byte Alpha, bool Culled)> group = scratch.Group;
+        List<(Visible Member, bool Culled)> group = scratch.Group;
         group.Clear();
         int runs = reach?.Runs ?? 1;
 
@@ -259,27 +267,27 @@ public static class DetailSprites
             // of one leaf would otherwise join their groups of four.
             int groupLeaf = int.MinValue;
 
-            (int first, int end) = reach?.Range(run) ?? (0, objects.Count);
+            (int first, int end) = reach?.Range(run) ?? (0, props.Length);
 
             for (int index = first; index < end; index++)
             {
-                BspDetailProp prop = objects[index];
+                ref readonly BspDetailProp prop = ref props[index];
 
                 if (prop.Leaf != groupLeaf)
                 {
-                    faded += EmitGroup(group, visible);
+                    EmitGroup(group, fastLane);
                     groupLeaf = prop.Leaf;
                 }
 
                 if (prop.Type != DetailPropType.Sprite ||
-                    prop.DetailModel < 0 || prop.DetailModel >= sprites.Count)
+                    prop.DetailModel < 0 || prop.DetailModel >= rectangles.Length)
                 {
                     continue;
                 }
 
                 if (IsFast(prop, fastSprites))
                 {
-                    (float X, float Y, float Z) anchor = Anchor(prop, sprites[prop.DetailModel]);
+                    (float X, float Y, float Z) anchor = Anchor(prop, rectangles[prop.DetailModel]);
                     float ax = anchor.X - eye.X;
                     float ay = anchor.Y - eye.Y;
                     float az = anchor.Z - eye.Z;
@@ -291,11 +299,11 @@ public static class DetailSprites
                         (float.IsNegative((ax * ahead.X) + (ay * ahead.Y) + (az * ahead.Z)) ||
                          distance > fade.MaximumSquared);
 
-                    group.Add((index, distance, FastAlpha(fade, distance), culled));
+                    group.Add((new Visible(index, prop.Leaf, distance, FastAlpha(fade, distance)), culled));
 
                     if (group.Count == 4)
                     {
-                        faded += EmitGroup(group, visible);
+                        EmitGroup(group, fastLane);
                     }
 
                     continue;
@@ -318,109 +326,229 @@ public static class DetailSprites
                     continue;
                 }
 
-                visible.Add((index, squared, alpha, false));
+                ordinary.Add(new Visible(index, prop.Leaf, squared, alpha));
             }
         }
 
-        faded += EmitGroup(group, visible);
+        EmitGroup(group, fastLane);
 
-        // Leaf by leaf; in each, the fast lane before the ordinary (`:2637`); in each lane, farthest first.
-        visible.Sort(scratch.Order);
-        scratch.Objects = [];
+        // Leaf by leaf, ascending; in each, the fast lane before the ordinary (`:2637`); each lane HeapSorted on its own.
+        Span<Visible> fastSorted = SortEachLeaf(fastLane);
+        Span<Visible> ordinarySorted = SortEachLeaf(ordinary);
 
         leaves?.Clear();
 
         int aligned = 0;
         int fast = 0;
+        int built = 0;
+        int nextFast = 0;
+        int nextOrdinary = 0;
 
-        foreach ((int index, float squared, byte alpha, bool isFast) in visible)
+        while (nextFast < fastSorted.Length || nextOrdinary < ordinarySorted.Length)
         {
-            BspDetailProp prop = objects[index];
+            int leaf = nextOrdinary >= ordinarySorted.Length ||
+                (nextFast < fastSorted.Length && fastSorted[nextFast].Leaf <= ordinarySorted[nextOrdinary].Leaf)
+                ? fastSorted[nextFast].Leaf
+                : ordinarySorted[nextOrdinary].Leaf;
 
-            leaves?.Add(prop.Leaf, squared, isFast);
-
-            if (prop.Orientation != 0)
+            for (; nextFast < fastSorted.Length && fastSorted[nextFast].Leaf == leaf; nextFast++)
             {
-                aligned++;
-            }
+                Visible member = fastSorted[nextFast];
 
-            if (isFast)
-            {
-                fast++;
-                FastQuad(prop, sprites[prop.DetailModel], eye, alpha / 255f, into);
-                continue;
-            }
-
-            Quad(prop, sprites[prop.DetailModel], Facing(prop, eye), alpha / 255f, into);
-        }
-
-        return new Frame(visible.Count, faded, aligned, fast);
-    }
-
-    [ThreadStatic]
-    private static Scratch? t_scratch;
-
-    /// <summary><see cref="Build"/>'s lists and its sort, kept per thread so a frame allocates neither.</summary>
-    private sealed class Scratch
-    {
-        public Scratch() => Order = Compare;
-
-        public List<(int Index, float Squared, byte Alpha, bool Fast)> Visible { get; } = [];
-
-        public List<(int Index, float Squared, byte Alpha, bool Culled)> Group { get; } = [];
-
-        /// <summary>The props the sort reads leaves from; set for one <see cref="Build"/> only.</summary>
-        public IReadOnlyList<BspDetailProp> Objects { get; set; } = [];
-
-        /// <summary>Leaf by leaf; in each, the fast lane before the ordinary (`:2637`); in each lane, farthest first.</summary>
-        public Comparison<(int Index, float Squared, byte Alpha, bool Fast)> Order { get; }
-
-        private int Compare((int Index, float Squared, byte Alpha, bool Fast) first, (int Index, float Squared, byte Alpha, bool Fast) second)
-        {
-            int byLeaf = Objects[first.Index].Leaf.CompareTo(Objects[second.Index].Leaf);
-
-            if (byLeaf != 0)
-            {
-                return byLeaf;
-            }
-
-            int byLane = second.Fast.CompareTo(first.Fast);
-
-            return byLane != 0 ? byLane : second.Squared.CompareTo(first.Squared);
-        }
-    }
-
-    /// <summary>Moves a finished group of four into the visible list unless every member was culled.</summary>
-    /// <returns>How many of its members the fade reduced to nothing, which are left out.</returns>
-    /// <remarks>
-    /// `if ( nLastBfMask != 0xf )` (`detailobjectsystem.cpp:2165`): one member ahead of the eye keeps all four. A
-    /// member at alpha zero is still built by the engine, and draws nothing; it is left out here as the ordinary lane
-    /// leaves one out.
-    /// </remarks>
-    private static int EmitGroup(
-        List<(int Index, float Squared, byte Alpha, bool Culled)> group,
-        List<(int Index, float Squared, byte Alpha, bool Fast)> visible)
-    {
-        int faded = 0;
-
-        if (group.Exists(static member => !member.Culled))
-        {
-            foreach ((int index, float squared, byte alpha, bool _) in group)
-            {
-                if (alpha == 0)
+                // Sorted with its lane, drawing nothing: the engine builds it at alpha zero (`:2183`).
+                if (member.Alpha == 0)
                 {
                     faded++;
                     continue;
                 }
 
-                visible.Add((index, squared, alpha, true));
+                ref readonly BspDetailProp prop = ref props[member.Index];
+                leaves?.Add(leaf, member.Squared, fast: true);
+                aligned += prop.Orientation != 0 ? 1 : 0;
+                fast++;
+                built++;
+                FastQuad(prop, rectangles[prop.DetailModel], eye, member.Alpha / 255f, into);
+            }
+
+            for (; nextOrdinary < ordinarySorted.Length && ordinarySorted[nextOrdinary].Leaf == leaf; nextOrdinary++)
+            {
+                Visible member = ordinarySorted[nextOrdinary];
+                ref readonly BspDetailProp prop = ref props[member.Index];
+                leaves?.Add(leaf, member.Squared);
+                aligned += prop.Orientation != 0 ? 1 : 0;
+                built++;
+                Quad(prop, rectangles[prop.DetailModel], Facing(prop, eye), member.Alpha / 255f, into);
+            }
+        }
+
+        leaves?.Seal();
+
+        return new Frame(built, faded, aligned, fast);
+    }
+
+    /// <summary>One sprite the view keeps, as the engine's <c>SortInfo_t</c> plus what emission needs.</summary>
+    private readonly record struct Visible(int Index, int Leaf, float Squared, byte Alpha);
+
+    [ThreadStatic]
+    private static Scratch? t_scratch;
+
+    /// <summary><see cref="Build"/>'s lists, kept per thread so a frame allocates none.</summary>
+    private sealed class Scratch
+    {
+        public List<Visible> Ordinary { get; } = [];
+
+        public List<Visible> Fast { get; } = [];
+
+        public List<(Visible Member, bool Culled)> Group { get; } = [];
+    }
+
+    /// <summary>The list as a span: an array or a <see cref="List{T}"/> passes through, anything else is copied.</summary>
+    private static ReadOnlySpan<T> AsSpan<T>(IReadOnlyList<T> list) => list switch
+    {
+        T[] array => array,
+        List<T> items => CollectionsMarshal.AsSpan(items),
+        _ => Copy(list),
+    };
+
+    private static T[] Copy<T>(IReadOnlyList<T> list) => [.. list];
+
+    /// <summary>Groups one lane by leaf, ascending, then HeapSorts each leaf's run as the engine sorts each leaf.</summary>
+    /// <remarks>
+    /// **Per leaf, because the engine sorts per leaf** (`detailobjectsystem.cpp:2300-2312`, and
+    /// <c>SortSpritesBackToFront</c> for one leaf at <c>:2042</c>). The lane arrives in visit order, which on every lump
+    /// measured is already leaf-ascending (runs ascend on cp_process_f12: the `detail-hash` probe), so the grouping is
+    /// a check. A lump whose runs do not ascend, or a leaf split across runs, is grouped first by (leaf, lump index),
+    /// which keeps each leaf's members in lump order — the order the engine collects them in.
+    /// </remarks>
+    private static Span<Visible> SortEachLeaf(List<Visible> lane)
+    {
+        Span<Visible> members = CollectionsMarshal.AsSpan(lane);
+
+        for (int at = 1; at < members.Length; at++)
+        {
+            if (members[at].Leaf < members[at - 1].Leaf ||
+                (members[at].Leaf == members[at - 1].Leaf && members[at].Index < members[at - 1].Index))
+            {
+                members.Sort(static (first, second) =>
+                    first.Leaf != second.Leaf ? first.Leaf.CompareTo(second.Leaf) : first.Index.CompareTo(second.Index));
+                break;
+            }
+        }
+
+        int start = 0;
+
+        for (int at = 1; at <= members.Length; at++)
+        {
+            if (at == members.Length || members[at].Leaf != members[start].Leaf)
+            {
+                HeapSort(members[start..at]);
+                start = at;
+            }
+        }
+
+        return members;
+    }
+
+    /// <summary><c>tier1/heapsort.h:17-72</c>, transcribed: Valve's heap sort with <c>SortLessFunc</c> (<c>:2035</c>).</summary>
+    /// <remarks>
+    /// **Transcribed rather than replaced by the library's sort, because it is not stable** and its order of equal
+    /// distances is part of what the engine draws: two sprites of one leaf at one squared distance overlap in the order
+    /// this puts them in. <c>SortLessFunc</c> compares the distances' bits as integers (<c>TREATASINT</c>), which for the
+    /// non-negative squared distances here is the float order, farthest "less".
+    /// </remarks>
+    private static void HeapSort(Span<Visible> items)
+    {
+        // heapify
+        for (int endOfHeap = 1; endOfHeap < items.Length; endOfHeap++)
+        {
+            int index = endOfHeap;
+
+            do
+            {
+                int parent = ((index + 1) / 2) - 1;
+
+                if (!Less(items[parent], items[index]))
+                {
+                    break;
+                }
+
+                (items[parent], items[index]) = (items[index], items[parent]);
+                index = parent;
+            }
+            while (index > 0);
+        }
+
+        // heap sort
+        for (int endOfHeap = items.Length; endOfHeap-- > 1;)
+        {
+            (items[0], items[endOfHeap]) = (items[endOfHeap], items[0]);
+
+            int index = 0;
+
+            while (true)
+            {
+                int child = (index * 2) + 1;
+
+                if (child >= endOfHeap)
+                {
+                    break;
+                }
+
+                if (child + 1 < endOfHeap && Less(items[child], items[child + 1]))
+                {
+                    child++;
+                }
+
+                if (!Less(items[index], items[child]))
+                {
+                    break;
+                }
+
+                (items[index], items[child]) = (items[child], items[index]);
+                index = child;
+            }
+        }
+    }
+
+    private static bool Less(in Visible left, in Visible right) =>
+        BitConverter.SingleToInt32Bits(left.Squared) > BitConverter.SingleToInt32Bits(right.Squared);
+
+    /// <summary>Moves a finished group of four into the fast lane unless every member was culled.</summary>
+    /// <remarks>
+    /// `if ( nLastBfMask != 0xf )` (`detailobjectsystem.cpp:2165`): one member ahead of the eye keeps all four. **A
+    /// member at alpha zero is kept too**: the engine writes all four into its sort buffer (`:2223-2232`) and sorts them,
+    /// and its place in the heap moves the order of the others' ties. It is dropped, and counted faded, at emission.
+    /// </remarks>
+    private static void EmitGroup(List<(Visible Member, bool Culled)> group, List<Visible> lane)
+    {
+        bool kept = false;
+
+        foreach ((Visible _, bool culled) in group)
+        {
+            kept |= !culled;
+        }
+
+        if (kept)
+        {
+            foreach ((Visible member, bool _) in group)
+            {
+                lane.Add(member);
             }
         }
 
         group.Clear();
-
-        return faded;
     }
+
+    /// <summary>The fixed direction's angles, (0, -100, 0) through <c>VectorAngles</c>; computed once, not per sprite.</summary>
+    private static readonly (float Pitch, float Yaw, float Roll) AnchorAngles = AngleVectors.Angles(0f, -100f, 0f);
+
+    /// <summary>The fixed basis's right — the same function of the same constant, so the same bits every call.</summary>
+    private static readonly (float X, float Y, float Z) AnchorRight =
+        AngleVectors.Right(AnchorAngles.Pitch, AnchorAngles.Yaw, AnchorAngles.Roll);
+
+    /// <summary>The fixed basis's up.</summary>
+    private static readonly (float X, float Y, float Z) AnchorUp =
+        AngleVectors.Up(AnchorAngles.Pitch, AnchorAngles.Yaw, AnchorAngles.Roll);
 
     /// <summary>
     /// A fast sprite's anchor — <c>GetSpriteMiddleBottomPosition</c> (<c>detailobjectsystem.cpp:1885</c>), as
@@ -430,11 +558,10 @@ public static class DetailSprites
     /// **Built from a FIXED direction, (0, -100, 0), not the eye**: yaw 270, so the rectangle's middle-bottom is found
     /// along world -X once at load, and the quad later turns about that point rather than about the origin.
     /// </remarks>
-    public static (float X, float Y, float Z) Anchor(BspDetailProp prop, BspDetailSprite sprite)
+    public static (float X, float Y, float Z) Anchor(in BspDetailProp prop, in BspDetailSprite sprite)
     {
-        (float pitch, float yaw, float roll) = AngleVectors.Angles(0f, -100f, 0f);
-        (float X, float Y, float Z) dx = AngleVectors.Right(pitch, yaw, roll);
-        (float X, float Y, float Z) dy = AngleVectors.Up(pitch, yaw, roll);
+        (float X, float Y, float Z) dx = AnchorRight;
+        (float X, float Y, float Z) dy = AnchorUp;
 
         float scale = prop.Scale;
         (float X, float Y) ul = (sprite.UpperLeft.X * scale, sprite.UpperLeft.Y * scale);
@@ -478,8 +605,8 @@ public static class DetailSprites
     /// (<c>:1929-1932</c>), and laid on as (LR.x, LR.y), (LR.x, UL.y), (UL.x, UL.y), (UL.x, LR.y) (<c>:2600-2617</c>).
     /// </remarks>
     private static void FastQuad(
-        BspDetailProp prop,
-        BspDetailSprite sprite,
+        in BspDetailProp prop,
+        in BspDetailSprite sprite,
         (float X, float Y, float Z) eye,
         float alpha,
         IList<DetailSpriteVertex> into)
@@ -516,13 +643,38 @@ public static class DetailSprites
         at = (at.X, at.Y, at.Z + height);
         DetailSpriteVertex fourth = Vertex(at, texUpperLeftX, sprite.TextureLowerRight.Y, prop, alpha);
 
-        into.Add(first);
-        into.Add(second);
-        into.Add(third);
+        Push(into, first, second, third, fourth);
+    }
 
-        into.Add(first);
-        into.Add(third);
-        into.Add(fourth);
+    /// <summary>Appends a quad's four corners as the two triangles 0-1-2 and 0-2-3, through a span.</summary>
+    private static void Push(
+        IList<DetailSpriteVertex> target,
+        in DetailSpriteVertex first,
+        in DetailSpriteVertex second,
+        in DetailSpriteVertex third,
+        in DetailSpriteVertex fourth)
+    {
+        if (target is not List<DetailSpriteVertex> into)
+        {
+            target.Add(first);
+            target.Add(second);
+            target.Add(third);
+            target.Add(first);
+            target.Add(third);
+            target.Add(fourth);
+            return;
+        }
+
+        int at = into.Count;
+        CollectionsMarshal.SetCount(into, at + CornersPerQuad);
+        Span<DetailSpriteVertex> corners = CollectionsMarshal.AsSpan(into).Slice(at, CornersPerQuad);
+
+        corners[0] = first;
+        corners[1] = second;
+        corners[2] = third;
+        corners[3] = first;
+        corners[4] = third;
+        corners[5] = fourth;
     }
 
     /// <summary>Which way a sprite faces this view — <c>CDetailModel::ComputeAngles</c>.</summary>
@@ -558,7 +710,7 @@ public static class DetailSprites
     /// exactly as a sprite does.
     /// </remarks>
     public static (float Pitch, float Yaw, float Roll) Facing(
-        BspDetailProp prop, (float X, float Y, float Z) eye) =>
+        in BspDetailProp prop, (float X, float Y, float Z) eye) =>
         prop.Orientation switch
         {
             1 => AngleVectors.Angles(
@@ -570,8 +722,8 @@ public static class DetailSprites
 
     /// <summary>One sprite's four corners, as two triangles.</summary>
     private static void Quad(
-        BspDetailProp prop,
-        BspDetailSprite sprite,
+        in BspDetailProp prop,
+        in BspDetailSprite sprite,
         (float Pitch, float Yaw, float Roll) angles,
         float alpha,
         IList<DetailSpriteVertex> into)
@@ -623,17 +775,11 @@ public static class DetailSprites
             (corner.X + alongX.X, corner.Y + alongX.Y, corner.Z + alongX.Z),
             texRight, texTop, prop, alpha);
 
-        into.Add(first);
-        into.Add(second);
-        into.Add(third);
-
-        into.Add(first);
-        into.Add(third);
-        into.Add(fourth);
+        Push(into, first, second, third, fourth);
     }
 
     private static DetailSpriteVertex Vertex(
-        (float X, float Y, float Z) at, float u, float v, BspDetailProp prop, float alpha) =>
+        (float X, float Y, float Z) at, float u, float v, in BspDetailProp prop, float alpha) =>
         new(
             at.X, at.Y, at.Z, u, v,
             Red: Light(prop.Lighting.Red),

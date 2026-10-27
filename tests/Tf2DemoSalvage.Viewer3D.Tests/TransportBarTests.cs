@@ -1,3 +1,6 @@
+using System.Windows.Forms;
+
+using Tf2DemoSalvage.Presentation;
 using Tf2DemoSalvage.Viewer3D;
 
 namespace Tf2DemoSalvage.Viewer3D.Tests;
@@ -69,4 +72,43 @@ public sealed class TransportBarTests
 
         transport.LastTick.ShouldBe(0);
     }
+
+    /// <remarks>
+    /// B572: playback calls <c>ShowTick</c> every frame, and at a few hundred frames a second most frames repeat the
+    /// last tick. The readout is a function of the tick and the length alone, so a repeated tick has nothing new to
+    /// write — the control is a text planted by the test, which a rewrite would replace.
+    /// </remarks>
+    [Test]
+    public void ShowTick_TheSameTickAgain_DoesNotRewriteTheReadout()
+    {
+        using TransportBar transport = new();
+        transport.SetDemoLength(1000);
+        transport.ShowTick(500);
+        Label readout = TickReadout(transport);
+
+        readout.Text = "planted";
+        readout.AccessibleName = "planted";
+        transport.ShowTick(500);
+
+        (readout.Text, readout.AccessibleName).ShouldBe(("planted", "planted"));
+    }
+
+    /// <remarks>The control for the test above: a new tick does write, and writes exactly the position's label.</remarks>
+    [Test]
+    public void ShowTick_ANewTick_WritesThePositionLabelToTextAndName()
+    {
+        using TransportBar transport = new();
+        transport.SetDemoLength(1000);
+        transport.ShowTick(500);
+        Label readout = TickReadout(transport);
+
+        readout.Text = "planted";
+        transport.ShowTick(501);
+
+        string expected = new DemoPosition(501, 1000).Label();
+        (readout.Text, readout.AccessibleName).ShouldBe((expected, expected));
+    }
+
+    private static Label TickReadout(TransportBar transport) =>
+        (Label)transport.Controls.Find(TransportBar.TickLabelId, searchAllChildren: true)[0];
 }

@@ -217,6 +217,9 @@ public sealed class DetailSpriteLeaves
     private readonly Dictionary<(int Leaf, bool Fast), (int First, int Count)> _lanes = [];
     private readonly Dictionary<(int Leaf, bool Fast), int> _drawn = [];
     private (int Leaf, bool Fast)? _last;
+    private int _lastFirst;
+    private int _lastCount;
+    private bool _sealed = true;
 
     /// <summary>Forgets every quad.</summary>
     public void Clear()
@@ -225,34 +228,61 @@ public sealed class DetailSpriteLeaves
         _lanes.Clear();
         _drawn.Clear();
         _last = null;
+        _sealed = true;
     }
 
     /// <summary>Records the next quad — each leaf's lanes contiguous, each lane's quads farthest first.</summary>
     /// <param name="leaf">The BSP leaf the sprite sits in.</param>
     /// <param name="squared">Its squared distance from the eye.</param>
     /// <param name="fast">Whether it is in the leaf's fast lane.</param>
+    /// <remarks>
+    /// The lane being filled is counted here and written to the table only when it ends or is read (<see cref="Seal"/>):
+    /// two dictionary operations per quad were most of this method's cost.
+    /// </remarks>
     public void Add(int leaf, float squared, bool fast = false)
     {
         (int, bool) lane = (leaf, fast);
 
         if (_last != lane)
         {
-            _lanes[lane] = (_squared.Count, 0);
+            Seal();
             _last = lane;
+            _lastFirst = _squared.Count;
+            _lastCount = 0;
         }
 
-        (int first, int count) = _lanes[lane];
-        _lanes[lane] = (first, count + 1);
+        _lastCount++;
+        _sealed = false;
         _squared.Add(squared);
     }
 
     /// <summary>Whether a BSP leaf has any sprite this view.</summary>
     /// <param name="leaf">The BSP leaf.</param>
     /// <returns>True when it has at least one.</returns>
-    public bool Has(int leaf) => _lanes.ContainsKey((leaf, false)) || _lanes.ContainsKey((leaf, true));
+    public bool Has(int leaf)
+    {
+        Seal();
+
+        return _lanes.ContainsKey((leaf, false)) || _lanes.ContainsKey((leaf, true));
+    }
 
     /// <summary>Rewinds every leaf's cursors — <c>BeginTranslucentDetailRendering</c>.</summary>
     public void Begin() => _drawn.Clear();
+
+    /// <summary>Writes the lane being filled into the table; a no-op once written, until the next <see cref="Add"/>.</summary>
+    /// <remarks>
+    /// <see cref="DetailSprites.Build"/> calls it when it finishes, so the reads that follow do not write the lane table.
+    /// (<see cref="Take(int, float?, bool)"/> still advances its cursors, as it always did.)
+    /// </remarks>
+    public void Seal()
+    {
+        if (!_sealed && _last is { } lane)
+        {
+            _lanes[lane] = (_lastFirst, _lastCount);
+        }
+
+        _sealed = true;
+    }
 
     /// <summary>Takes a leaf's next undrawn ordinary quads, advancing its cursor.</summary>
     /// <param name="leaf">The BSP leaf.</param>
@@ -270,6 +300,8 @@ public sealed class DetailSpriteLeaves
     public (int First, int Count) Take(int leaf, float? nearest, bool fast)
     {
         (int, bool) lane = (leaf, fast);
+
+        Seal();
 
         if (!_lanes.TryGetValue(lane, out (int First, int Count) range))
         {
