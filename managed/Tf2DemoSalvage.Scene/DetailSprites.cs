@@ -381,6 +381,8 @@ public static class DetailSprites
             }
         }
 
+        leaves?.Seal();
+
         return new Frame(built, faded, aligned, fast);
     }
 
