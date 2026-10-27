@@ -93,6 +93,18 @@ public sealed class CvarNameConformanceTests
             "the scale. Filed under D104 as a decision, not carried as a justification.",
     };
 
+    /// <summary>Valve's own names that its shipped list cannot show, each with the source that declares it.</summary>
+    /// <remarks>
+    /// **`FCVAR_DEVELOPMENTONLY` convars are hidden from `cvarlist`** in a release build, so the dump is not their
+    /// denominator; the SDK line that registers each is.
+    /// </remarks>
+    private static readonly Dictionary<string, string> ValvesHidden = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["cl_threaded_bone_setup"] =
+            "`ConVar cl_threaded_bone_setup( \"cl_threaded_bone_setup\", \"0\", FCVAR_DEVELOPMENTONLY | FCVAR_INTERNAL_USE, … )`, " +
+            "c_baseanimating.cpp:2743 (finding 105).",
+    };
+
     [Test]
     public void EveryCommandThisViewerAnswersTo_IsValvesNameOrADeclaredException()
     {
@@ -111,7 +123,7 @@ public sealed class CvarNameConformanceTests
 
         foreach (string command in Named().Select(Verb).Distinct())
         {
-            if (shipped.Contains(command) || Ours.ContainsKey(command))
+            if (shipped.Contains(command) || Ours.ContainsKey(command) || ValvesHidden.ContainsKey(command))
             {
                 continue;
             }
