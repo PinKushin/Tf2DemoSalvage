@@ -1,6 +1,37 @@
-# Tf2DemoSalvage 0.1.0-beta.53
+# Tf2DemoSalvage 0.1.0-beta.54
+
+## Changes in 0.1.0-beta.54
+
+Gate for this release (every test executed, 0 failed): core 2680, cli 75, logging 37, fonts 5, animation 5352, scene 3360,
+audio 383, presentation 1321, content 1859, corpus 235, rendering 1252, viewer 159, UI suite 84 of 84 with 0 skipped; CI on
+the merge commit green with 0 annotations. Figures are on the `cp_process_f12` recording, one machine, first person unless it says
+otherwise; the file beside each figure holds it.
+
+- **Attachment queries no longer rebuild a skeleton the same frame already built (parity).** The viewer advanced its bone
+  clock once per drawing pass; TF2 advances it once a frame, so every query made after a pass saw a stale clock and rebuilt.
+  Attachment builds: 7.4-7.5 to 3.5 a frame (docs/measurements/2026-10-27-bone-clock-and-threaded-setup.md).
+  The burst search that makes the queries: 0.55-0.56 to 0.32-0.33 ms a frame (docs/measurements/2026-10-27-bone-clock-and-threaded-setup.md).
+  Frame: **-0.43 to -0.53 ms, 4.7-5.8%** (docs/measurements/2026-10-27-bone-clock-and-threaded-setup.md).
+  From tick 30031 on, the bones drawn equal the old build's on every label compared; the first ~30 ticks are outside what
+  that comparison can judge (docs/measurements/2026-10-27-bone-clock-and-threaded-setup.md).
+- **Detail sprites (grass) are sorted per leaf, as TF2 sorts them.** Gummo, first person, in detail range:
+  detail cost 0.729-0.753 ms to 0.454-0.459 ms a frame, **-0.27 to -0.30 ms** (docs/measurements/2026-10-27-detail-transport-b577.md).
+  Frame 8.93-9.27 ms to 8.71-8.83 ms, ranges apart (docs/measurements/2026-10-27-detail-transport-b577.md).
+  The sort is Valve's own heap sort, which is not stable, so sprites at exactly equal distance can swap places with
+  the previous version (docs/measurements/2026-10-27-detail-transport-b577.md).
+- **New setting: `cl_threaded_bone_setup`, default 0, as in TF2.** At 1 the skeletons the previous frame used are posed
+  on the worker threads before the frame. With it on the pose equals the off pose on every label compared (docs/measurements/2026-10-27-bone-clock-and-threaded-setup.md).
+  `setup` falls 0.13-0.17 ms (docs/measurements/2026-10-27-bone-clock-and-threaded-setup.md).
+  **The frame time did not separate:** 8.64-8.72 ms off, 8.53-8.68 ms on (docs/measurements/2026-10-27-bone-clock-and-threaded-setup.md).
+  It stays off.
+- **No measured change:** the playback bar's tick label is skipped when it has not changed, and a one-shot particle effect
+  that finished is served from a cache. Neither moved the frame (docs/measurements/2026-10-27-detail-transport-b577.md).
+  They stay as parity and allocation tidying. The cost in particle dispatch is in the live effects' offers, not the finished
+  ones, and is not yet split out (docs/measurements/2026-10-27-detail-transport-b577.md).
 
 ## Changes in 0.1.0-beta.53
+
+Released 2026-10-27.
 
 Gate for this release (every test executed, 0 failed): core 2680, cli 75, logging 37, fonts 5, animation 5346, scene 3346,
 audio 383, presentation 1306, content 1859, corpus 235, rendering 1252, viewer 157, UI suite 84 of 84 with 0 skipped; CI on

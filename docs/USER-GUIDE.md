@@ -119,6 +119,12 @@ that name does. The default is `1` and the picture is the same either way. To us
 step got cheaper by 0.07 to 0.09 ms a frame on the author's recording; a faster whole frame is not established
 (`docs/measurements/2026-10-26-threaded-particles-and-sun.md`).
 
+`cl_threaded_bone_setup` poses the skeletons the previous frame used on the worker threads before the frame, as TF2's
+setting of that name does. The default is `0`, as in TF2, and the picture is the same either way. To try it, put
+`cl_threaded_bone_setup 1` in `settings.cfg`, or for one run use `tf2demoview <demo> +cl_threaded_bone_setup 1`. On the
+author's recording the pose step got cheaper by 0.13 to 0.17 ms a frame; a faster whole frame is not established
+(`docs/measurements/2026-10-27-bone-clock-and-threaded-setup.md`).
+
 `--hud <folder or .vpk>` draws a HUD laid out as in `tf/custom`. Without it the viewer draws TF2's stock HUD.
 
 ## Take a screenshot
