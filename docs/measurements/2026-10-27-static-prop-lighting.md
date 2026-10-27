@@ -1,6 +1,7 @@
 # Measurement 2026-10-27: static-prop lighting (`baked`) against the engine's per-draw work
 
-**Status: plan.** Written and committed before the timed runs; the result is added below the Environment afterwards.
+**Status: measured 2026-10-27.** The plan above the Environment was committed (`714b2938`) before any timed run; one
+replacement ABBA (09-12) was added after the grid, for the reason given in the Environment.
 
 ## Observation
 
@@ -79,4 +80,58 @@ under `run-exclusive.ps1`, each behind the quiet gate of `2026-10-27-threaded-bo
 
 ## Environment
 
-(filled in after the runs)
+RTX 3060, i5-10600K; Release builds as in the Method (A from `f9edd46c`, B from `8122feca`); 2026-10-27 10:44-11:54.
+Every run passed the gate first time (load before and after each: `grid-log.txt`). **Machine control failed for 01-A, 03-B and 04-A**: `sound` 0.23-0.33 and `between` 0.41-0.53 against
+0.16-0.17 and 0.31-0.34 elsewhere, with load after 01 at 82/96/71 and after 03 at 69 (another workload on the machine);
+they also have 10-14 moment lines against 16. They are set aside. **Added after the grid, not in the plan:** one more
+ABBA (`grid2.ps1`: 09-A, 10-B, 11-B, 12-A) to replace them; it ran on a slightly busier machine (`sound` 0.16-0.19,
+`between` 0.31-0.37).
+
+## Result
+
+Raw output: `2026-10-27-static-prop-lighting/NN-*.txt`; table by `read.ps1` (moment lines after the first, plain mean;
+frame is the window's own `measured … mean` line; `sound`/`between` from the window's `phases` line). ms a frame.
+
+| run | frame | baked | pose | camera pose | sound | between | posed | built |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| 02 B | 8.69 | 0.431 | 3.51 | 3.29 | 0.17 | 0.33 | 34.7 | 34.7 |
+| 05 B | 8.52 | 0.488 | 3.64 | 3.20 | 0.17 | 0.34 | 36.2 | 36.1 |
+| 06 A | 8.05 | 0.075 | 3.23 | 2.90 | 0.17 | 0.31 | 37.1 | 37.1 |
+| 07 A | 7.95 | 0.056 | 3.16 | 2.82 | 0.16 | 0.31 | 37.4 | 37.4 |
+| 08 B | 8.43 | 0.450 | 3.61 | 3.24 | 0.17 | 0.31 | 35.8 | 35.9 |
+| 09 A | 8.06 | 0.050 | 3.21 | 2.88 | 0.16 | 0.31 | 36.8 | 36.7 |
+| 10 B | 8.97 | 0.444 | 3.70 | 3.36 | 0.18 | 0.37 | 36.2 | 36.2 |
+| 11 B | 9.13 | 0.450 | 3.76 | 3.42 | 0.19 | 0.37 | 36.5 | 36.5 |
+| 12 A | 8.68 | 0.047 | 3.17 | 3.04 | 0.19 | 0.36 | 35.4 | 35.3 |
+| *01 A, set aside* | 9.51 | 0.050 | 3.42 | 3.20 | 0.23 | 0.41 | 33.7 | 33.8 |
+| *03 B, set aside* | 13.91 | 0.520 | 4.69 | 4.43 | 0.33 | 0.53 | 34.6 | 34.5 |
+| *04 A, set aside* | 11.03 | 0.215 | 3.94 | 3.37 | 0.28 | 0.52 | 32.1 | 32.1 |
+
+Empty view (`E*-*.txt`): frame A 3.44-3.45, B 3.46-3.49; `baked` 0.000 and `posed` 0 in all four — no prop is visited
+there, so nothing this change touches runs.
+
+Identity (`shots.txt`, `compare.ps1`): A's shot equals both B shots on every pixel outside the frame-rate text, where B
+and B also differ (25 pixels) — the control.
+
+Controls:
+
+- **Same work:** `posed`/`built` A 35.4-37.4 against B 34.7-36.5. Within 3% between 12-A and its pair, 2.5-4.5% between
+  06/07-A and 05/08-B — **A did slightly more work, not less**, so it cannot explain A's lower cost.
+- **Machine:** held on the nine kept runs within each ABBA (first: `sound` 0.16-0.17, `between` 0.31-0.34; second: 0.16-0.19,
+  0.31-0.37).
+
+## Verdict
+
+**`baked`: 0.431-0.488 → 0.047-0.075 ms a frame, −0.36 to −0.44 ms (4.1-5.0% of B's 8.43-9.13 frame), ranges far
+apart.** Prediction (−0.2 to −0.35) **falsified on the high side**: the split read the walk's two paths at 0.31-0.34 ms and the
+fix took 0.36-0.44 off. Why the split under-read it was not measured (*interpolated*: the split averaged over the
+opening seek's frames too, and its window and this one differ).
+
+**Frame: lower in every adjacent A/B pair, −0.29 to −1.07 ms; across all nine runs the ranges touch** (A 7.95-8.68, B
+8.43-9.13), because the second ABBA ran ~0.5 ms slower overall. `camera pose` A 2.82-3.04 against B 3.20-3.42.
+
+**What is left in `baked` (~0.05 ms):** the colour-mesh and static-state lookups (cached, as the engine's handle is) and
+whatever first-use builds fall inside the window. **Not drawn or not compared** (D129): skinning runs on the GPU where
+Valve's is on the processor; muzzle flashes, shell ejection and `DoAnimationEvents` unchecked since D129; f12 has no
+styled light and no live dlight at this window, so the bit-4 cache and the dlight ranking were not exercised by these
+runs — the conformance tests cover them.

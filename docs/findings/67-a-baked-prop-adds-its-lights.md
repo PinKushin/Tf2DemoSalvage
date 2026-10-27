@@ -96,6 +96,14 @@ the colour stream as the whole static term when one is bound (`ambientCube[1].w`
 *Interpolated:* the dlight flag test (`0xe`) is taken from the model draw's `0x1801b7a10`, because the
 enumerator calling `FUN_1801b5260` has no direct cross-reference to read.
 
+## What it costs a frame (2026-10-27, B607)
+
+The port gathered bit 2 by reading all 32 `cl_dlights` slots, a leaf lookup each, for every static prop every frame — about
+4,000 slot reads a frame on f12, where no dlight was live at all. The engine never looks at a dead slot: the handle's
+bits are masked by `r_dlightactive` first. Walking the mask instead took `baked` from 0.43-0.49 to 0.05-0.08 ms, with
+identical pixels (measurements/2026-10-27-static-prop-lighting.md). Bit 4's cache at `+0x88` is still not ported — f12
+lists no styled light at any prop it draws, so it could not be measured there (B607).
+
 Not ported: when cvar `DAT_18069c368` is nonzero a second combined state (the instance's `+0x88..+0xcc` added to
 the per-draw state, lights unioned to four, `0x1800f2120..0x1800f2232`) is built for a record at
 `param_1 + 0x18`; its consumer is the second `FUN_1800f0e10` call, not the prop's own lighting.
