@@ -73,6 +73,6 @@ jobs:
           $tag = '${{ github.ref_name }}'
           $flags = @('--draft', '--verify-tag', '--notes-file', 'RELEASE-NOTES.md',
                      '--title', "Tf2DemoSalvage $($tag.TrimStart('v'))")
-          if ($tag -like '*-*') { $flags += '--prerelease' }
+          # No --prerelease for a "-beta.N" tag: the owner does not publish prereleases (2026-10-27, docs/memory/the-lead-publishes-releases.md).
           gh release create $tag (Get-Item artifacts/Tf2DemoSalvage-*-win-x64.zip).FullName @flags
           if ($LASTEXITCODE -ne 0) { throw "gh release create failed with exit code $LASTEXITCODE." }
