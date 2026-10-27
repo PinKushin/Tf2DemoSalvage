@@ -427,6 +427,9 @@ public sealed partial class EntityModelSet : Hud.IMdlCache, IPosedEntities
     /// <summary>Of <see cref="SetupTicks"/>: the threaded pre-pass's calls, ever (finding 105 A7).</summary>
     public long PrePoseTicks { get; private set; }
 
+    /// <summary>Of <see cref="PrePoseTicks"/>: the blend inputs run serially ahead of the fork (finding 105 D), ever.</summary>
+    public long PrePoseBlendTicks { get; private set; }
+
     /// <summary>Skeletons the pre-pass built, ever (finding 105 A7) — a root new last frame asks for nothing and builds none.</summary>
     public int PrePosed { get; private set; }
 
@@ -553,7 +556,8 @@ public sealed partial class EntityModelSet : Hud.IMdlCache, IPosedEntities
         long SetupEligible = 0,
         int EligibleBuilds = 0,
         long PrePose = 0,
-        int PrePosed = 0)
+        int PrePosed = 0,
+        long PrePoseBlend = 0)
     {
         /// <summary>What happened between an earlier snapshot and this one.</summary>
         /// <param name="before">The earlier snapshot.</param>
@@ -609,7 +613,8 @@ public sealed partial class EntityModelSet : Hud.IMdlCache, IPosedEntities
                 SetupEligible - before.SetupEligible,
                 EligibleBuilds - before.EligibleBuilds,
                 PrePose - before.PrePose,
-                PrePosed - before.PrePosed);
+                PrePosed - before.PrePosed,
+                PrePoseBlend - before.PrePoseBlend);
     }
 
     /// <summary>Every pose-phase counter as it stands now.</summary>
@@ -656,7 +661,8 @@ public sealed partial class EntityModelSet : Hud.IMdlCache, IPosedEntities
         SetupEligibleTicks,
         SetupEligibleBuilds,
         PrePoseTicks,
-        PrePosed);
+        PrePosed,
+        PrePoseBlendTicks);
 
     /// <summary>Unparented props the world collation filed, ever (finding 82).</summary>
     public int CollateFixed { get; private set; }

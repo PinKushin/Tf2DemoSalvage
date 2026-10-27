@@ -419,7 +419,7 @@ public sealed partial class EntityModelSet
 
                 bool setUp = animating.SetupBones(StudioBoneFlags.UsedByAnything, seconds);
 
-                _ = ChargeSetup(mark, prop);
+                _ = ChargeSetup(mark, movesFreely: prop is not { AttachedTo: not null, BoneMerged: false });
                 Posed++;
 
                 if (!setUp)
@@ -937,8 +937,35 @@ public sealed partial class EntityModelSet
     /// </remarks>
     public bool ThreadedBoneSetup { get; set; }
 
+    /// <summary>The pre-pass's fork over the shared pool — `ParallelProcess( "C_BaseAnimating::ThreadedBoneSetup", … )`.</summary>
+    /// <remarks>
+    /// Its `Threaded` is not the cvar (<see cref="ThreadedBoneSetup"/> is): the engine forks whenever the pre-pass runs and the
+    /// list holds two or more (`nCount &gt; 1`, c_baseanimating.cpp:2783), which the lane's threshold of 1 is. The default lane
+    /// is one thread of its own, so a scene the viewer did not wire runs the pre-pass serially.
+    /// </remarks>
+    public WorkerLane BoneWorkers { get; set; } = new();
+
     /// <summary>The roots the pre-pass poses this frame, reused between frames.</summary>
     private readonly List<(SceneProp Prop, AnimatingEntity Entity)> _roots = [];
+
+    /// <summary>Each root's own ticks in the fork, by its index — written only by the body for that index.</summary>
+    private long[] _rootTicks = [];
+
+    /// <summary>The demo time the fork's bodies pose at, set before the fork.</summary>
+    private double _prePoseSeconds;
+
+    /// <summary>One root's pre-pose, made once so the fork allocates no delegate a frame.</summary>
+    private Action<int>? _prePoseOne;
+
+    /// <summary>The fork's body: one root's `SetupBones` with the engine's -1 mask, timed into its own slot.</summary>
+    private void PrePoseOne(int index)
+    {
+        long at = System.Diagnostics.Stopwatch.GetTimestamp();
+
+        _ = _roots[index].Entity.SetupBonesFromPreviousMask(_prePoseSeconds);
+
+        _rootTicks[index] = System.Diagnostics.Stopwatch.GetTimestamp() - at;
+    }
 
     /// <summary>Poses every eligible root the draw loop is about to reach, before it does (finding 105 A7.2).</summary>
     /// <remarks>
@@ -970,14 +997,40 @@ public sealed partial class EntityModelSet
             }
         }
 
-        foreach ((SceneProp prop, AnimatingEntity animating) in _roots)
+        // **The blend inputs first, every root, on this thread** (finding 105 D): `BeforeBuild` reaches this set's shared
+        // state (`LayersFor`'s counter, the models' lazy caches) and is idempotent within a frame, so the worker's own call
+        // finds it done. Charged to setup and to `PrePoseBlendTicks`, ahead of the meter's mark, so the split is the build.
+        long blendAt = System.Diagnostics.Stopwatch.GetTimestamp();
+
+        foreach ((SceneProp _, AnimatingEntity animating) in _roots)
         {
-            SetupMark mark = MarkSetup();
+            animating.BeforeBuild?.Invoke();
+        }
 
-            _ = animating.SetupBonesFromPreviousMask(seconds);
+        long blend = System.Diagnostics.Stopwatch.GetTimestamp() - blendAt;
 
-            PrePoseTicks += ChargeSetup(mark, prop);
-            PrePosed += SkeletonPose.PoseBuilds - mark.PoseBuilds;
+        SetupTicks += blend;
+        PrePoseBlendTicks += blend;
+
+        if (_rootTicks.Length < _roots.Count)
+        {
+            _rootTicks = new long[_roots.Count];
+        }
+
+        _prePoseSeconds = seconds;
+
+        // **One mark across the whole fork**: the meter and the build count are added to atomically, so their deltas after
+        // the join are the fork's exact sums (finding 105 A7.4). The slowest root is its own slot's, carried.
+        SetupMark mark = MarkSetup();
+
+        BoneWorkers.For(_roots.Count, _prePoseOne ??= PrePoseOne);
+
+        PrePoseTicks += blend + ChargeSetup(mark, movesFreely: true, oneRoot: false);
+        PrePosed += SkeletonPose.PoseBuilds - mark.PoseBuilds;
+
+        for (int at = 0; at < _roots.Count; at++)
+        {
+            MaxRootTicks = Math.Max(MaxRootTicks, _rootTicks[at]);
         }
     }
 
@@ -998,14 +1051,17 @@ public sealed partial class EntityModelSet
             meter.RootBuilds, meter.ChildBuilds, meter.EligibleTicks, meter.EligibleBuilds);
     }
 
-    /// <summary>Charges one `SetupBones` call since <paramref name="mark"/> to setup and its split, and returns its ticks.</summary>
+    /// <summary>Charges the `SetupBones` work since <paramref name="mark"/> to setup and its split, and returns its ticks.</summary>
+    /// <param name="mark">Where the work began.</param>
+    /// <param name="movesFreely">False for a prop with a move parent that is not a merge, whose call is not eligible.</param>
+    /// <param name="oneRoot">True when the span is one call, so its eligible ticks are one root's and may be the slowest.</param>
     /// <remarks>
     /// **The split finding 105 A6 decides on, carried from the meter at the call** (B243). One call reaches at most one root —
     /// the prop itself or the top of its chain — so a root built here is one root's whole cost. Eligible is the engine's
     /// `!GetMoveParent()`, and only the caller sees a parent that is not a merge: a prop hung on a door is a root to the
     /// meter, so its own call is taken out here (`c_baseanimating.cpp:2897`).
     /// </remarks>
-    private long ChargeSetup(SetupMark mark, SceneProp prop)
+    private long ChargeSetup(SetupMark mark, bool movesFreely, bool oneRoot = true)
     {
         BoneSetupMeter meter = _boneFrames.Meter;
         long spent = System.Diagnostics.Stopwatch.GetTimestamp() - mark.At;
@@ -1017,14 +1073,14 @@ public sealed partial class EntityModelSet
         SetupRootBuilds += meter.RootBuilds - mark.RootBuilds;
         SetupChildBuilds += meter.ChildBuilds - mark.ChildBuilds;
 
-        if (prop is not { AttachedTo: not null, BoneMerged: false })
+        if (movesFreely)
         {
             long eligibleSpent = meter.EligibleTicks - mark.Eligible;
 
             SetupEligibleTicks += eligibleSpent;
             SetupEligibleBuilds += meter.EligibleBuilds - mark.EligibleBuilds;
 
-            if (meter.EligibleBuilds > mark.EligibleBuilds)
+            if (oneRoot && meter.EligibleBuilds > mark.EligibleBuilds)
             {
                 MaxRootTicks = Math.Max(MaxRootTicks, eligibleSpent);
             }

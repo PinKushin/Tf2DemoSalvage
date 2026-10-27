@@ -23,11 +23,31 @@ public sealed class EntityModelSetPrePoseTests
 
     private static readonly string[] PlayerBones = [.. Enumerable.Range(0, 20).Select(bone => bone == 0 ? "root" : $"b{bone}")];
 
-    [Test]
-    public void Instances_RootsPrePosedAheadOfTheDraw_DrawTheSameBonesAsSerial()
+    /// <remarks>
+    /// Three ways to run the pre-pass against one with none: on the calling thread (A7.2), on a schedule that runs the roots
+    /// backwards (the adversarial order, A5), and on eight real threads (A7.5). The forked ones must also have forked — a lane
+    /// that quietly ran serially would compare the serial path with itself.
+    /// </remarks>
+    [TestCase(Lanes.Serial, TestName = "Instances_RootsPrePosedOnTheCallingThread_DrawTheSameBonesAsSerial")]
+    [TestCase(Lanes.Backwards, TestName = "Instances_RootsPrePosedBackwardsOnWorkers_DrawTheSameBonesAsSerial")]
+    [TestCase(Lanes.EightThreads, TestName = "Instances_RootsPrePosedOnEightThreads_DrawTheSameBonesAsSerial")]
+    public void Instances_RootsPrePosedAheadOfTheDraw_DrawTheSameBonesAsSerial(Lanes lane)
     {
         (EntityModelSet serial, List<ModelInstance> serialDrawn) = Scene(threaded: false);
         (EntityModelSet prePosed, List<ModelInstance> prePosedDrawn) = Scene(threaded: true);
+
+        prePosed.BoneWorkers = lane switch
+        {
+            Lanes.Backwards => new WorkerLane(new GameWorkers(static (count, body) =>
+            {
+                for (int index = count - 1; index >= 0; index--)
+                {
+                    body(index);
+                }
+            })),
+            Lanes.EightThreads => new WorkerLane(new GameWorkers { Degree = 8 }),
+            _ => new WorkerLane(),
+        };
 
         for (int frame = 0; frame < FrameCount; frame++)
         {
@@ -53,6 +73,22 @@ public sealed class EntityModelSetPrePoseTests
         prePosed.PrePosed.ShouldBe(Players * (FrameCount - 2));
         serial.PrePosed.ShouldBe(0);
         prePosed.BuildsDrawing.ShouldBe(serial.BuildsDrawing);
+        (prePosed.SetupRootBuilds, prePosed.SetupEligibleBuilds, prePosed.SetupChildBuilds)
+            .ShouldBe((serial.SetupRootBuilds, serial.SetupEligibleBuilds, serial.SetupChildBuilds), "every build counted once, on whichever thread");
+        prePosed.BoneWorkers.Forks.ShouldBe(lane == Lanes.Serial ? 0 : FrameCount, "the control: the forked lanes forked every frame");
+    }
+
+    /// <summary>How the pre-pass's roots are run.</summary>
+    public enum Lanes
+    {
+        /// <summary>On the calling thread, in order.</summary>
+        Serial,
+
+        /// <summary>Handed to a schedule that runs them last first.</summary>
+        Backwards,
+
+        /// <summary>On eight threads of the pool.</summary>
+        EightThreads,
     }
 
     [TestCase("", false, TestName = "Parse_NoThreadedBoneSetup_IsOffAsTheEngineShipsIt")]

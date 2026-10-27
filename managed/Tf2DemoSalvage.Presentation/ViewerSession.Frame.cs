@@ -714,7 +714,7 @@ public sealed partial class ViewerSession
                     $"{ParticleCensusLine.Format(_shownTick, _effects.ParticleCensus())}; trails {trails}; model decals {modelDecals}" +
                     $"; replays so far {replayTicks * 1000d / Stopwatch.Frequency:0.#} ms over {replaySteps} steps" +
                     $"; dynamic light draws so far {merges.Asked} of {merges.Checked}, re-ranked {merges.Merged}, {merges.Ticks * 1000d / Stopwatch.Frequency:0.##} ms" +
-                    $"; particle forks so far {_effects.ParticleForks}; {_sunMeter.Report()}"));
+                    $"; particle forks so far {_effects.ParticleForks}; bone forks so far {_presenter.BoneForks}; {_sunMeter.Report()}"));
             }
         }
 
