@@ -44,6 +44,8 @@ quiet gate of `run.ps1` here (three `Win32_Processor.LoadPercentage` samples all
 - identity (`identity.ps1`), as `2026-10-26-b597-constant-ring-and-occlusion.md` ran it: `TF2VIEW_FRAME_HASH=1
   TF2VIEW_FIXED_FRAME=0.015`, mode 0, `--measure 6`, gummo first person from 30000: h1 S, h2 S, h3 T, `frame hash at`
   lines matched by tick; then v1 T in mode 2 with `TF2VIEW_QUEUE_VERIFY=1`.
+- *Added after h3-T differed from both S runs at labels 30021-30022, which S1 and S2 agreed on* (`identity-extra.ps1`):
+  h4 T, h5 S, the same command, to tell a T-only difference from the warm-up's run-to-run one.
 
 Reading (`read.ps1` here: the go/no-go reader, extended to the `prepose` column and the census's bone forks): moment lines after the first, rate lines after the first five,
 frame-weighted. % of frame = part / that run's `measured … mean`.
