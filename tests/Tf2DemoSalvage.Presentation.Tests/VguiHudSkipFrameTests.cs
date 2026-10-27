@@ -32,4 +32,28 @@ public sealed class VguiHudSkipFrameTests
 
         (string.Join(',', sounds), host.List.Quads.Count > 0 ? 1 : 0).ShouldBe(("HudChat.Message", drawsAnything));
     }
+
+    /// <remarks>
+    /// **Finding 105 B5.7: no sound from the half a HUD fork would move.** The same say-text through the split: `Think`
+    /// emits the chat's sound and draws nothing; `Paint` draws the line and emits nothing, so a paint on a worker cannot
+    /// reach `PlayHudSound`. The quads are the control that the paint drew what the think made.
+    /// </remarks>
+    [Test]
+    public void Paint_AfterAThinkThatEmittedTheChatSound_DrawsTheLineAndEmitsNothing()
+    {
+        VguiSurfaceHost host = VguiHudTests.EmptySchemeHost();
+        VguiHud hud = new(host, new EntityModelSet());
+        List<string> sounds = [];
+        hud.Chat.SoundEmitter = sounds.Add;
+        HudState state = new(true, true, 0, 100, true, 100, 150, 1f, 2, LocalIndex: 1, Players: [new ScenePlayer(1, 0f, 0f, 0f, 2, 100, 3)]);
+
+        host.BeginFrame(640, 480);
+        hud.Think(state, userMessages: [new SceneUserMessage(10, SceneUserMessage.SayText, (byte[])[0, .. Encoding.UTF8.GetBytes("hi"), 0, 1])])
+            .ShouldBeTrue();
+        (string.Join(',', sounds), host.List.Quads.Count).ShouldBe(("HudChat.Message", 0), "the think emitted and drew nothing");
+
+        hud.Paint(state, reset: false);
+
+        (sounds.Count, host.List.Quads.Count > 0).ShouldBe((1, true));
+    }
 }

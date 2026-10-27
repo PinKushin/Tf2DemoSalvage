@@ -43,6 +43,18 @@ public sealed class VguiTools
     /// <param name="mapName">The open map without its extension, or null.</param>
     public void Frame(double realtime, double frameSeconds, int mode, PositionReadout position, string? mapName)
     {
+        Think(realtime, frameSeconds, mode, position, mapName);
+        Paint();
+    }
+
+    /// <summary>The inputs half of <see cref="Frame"/>: sample the meter, the scheme on a new surface, the size, the tick (finding 105 B4).</summary>
+    /// <param name="realtime">Seconds since the viewer started, for the tick.</param>
+    /// <param name="frameSeconds">How long the previous frame took.</param>
+    /// <param name="mode">`cl_showfps`.</param>
+    /// <param name="position">`cl_showpos` and what it reads.</param>
+    /// <param name="mapName">The open map without its extension, or null.</param>
+    public void Think(double realtime, double frameSeconds, int mode, PositionReadout position, string? mapName)
+    {
         long partAt = Parts is null ? 0 : System.Diagnostics.Stopwatch.GetTimestamp();
         Meter.Mode = mode;
         FpsReading? reading = Meter.Sample(frameSeconds);
@@ -54,8 +66,6 @@ public sealed class VguiTools
             // A resolution change reloads every panel's scheme — and `CFPSPanel::ApplySchemeSettings` calls `ComputeSize`.
             _root.InvalidateLayout(reloadScheme: true);
         }
-
-        VguiContext context = _context;
 
         if ((_root.Wide, _root.Tall) != (_host.Wide, _host.Tall))
         {
@@ -83,8 +93,16 @@ public sealed class VguiTools
             Fps.OnTick();
         }
 
-        // The inputs above stay on the game thread; the layout and paint below are what a HUD fork would move (finding 105 B7).
-        partAt = FrameParts.Lap(Parts, "hud tools inputs", partAt);
+        _ = FrameParts.Lap(Parts, "hud tools inputs", partAt);
+    }
+
+    /// <summary>The half of <see cref="Frame"/> a HUD fork would move: layout and paint into the host's list (finding 105 B4).</summary>
+    /// <exception cref="InvalidOperationException">No <see cref="Think"/> has loaded the scheme.</exception>
+    public void Paint()
+    {
+        VguiContext context = _context ?? throw new InvalidOperationException("Paint before a Think that loaded the scheme");
+        long partAt = Parts is null ? 0 : System.Diagnostics.Stopwatch.GetTimestamp();
+
         VguiLayout.SolveTraverse(_root, context);
         _root.PaintTraverse(_host.List, context);
         PaintTicks = FrameParts.Lap(Parts, "hud tools paint", partAt) - partAt;
