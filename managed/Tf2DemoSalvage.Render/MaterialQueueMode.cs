@@ -51,6 +51,13 @@ public static class MaterialQueueMode
     /// <remarks>`Environment.ProcessorCount` is LOGICAL processors, which is not what the engine tests.</remarks>
     public static int PhysicalCores()
     {
+        // **The query is a Windows API**: the CI runners (Linux) construct a presenter too, and an unguarded P/Invoke
+        // there is a DllNotFoundException in every test that does.
+        if (!OperatingSystem.IsWindows())
+        {
+            return Environment.ProcessorCount;
+        }
+
         uint length = 0;
 
         _ = GetLogicalProcessorInformationEx(RelationProcessorCore, IntPtr.Zero, ref length);
