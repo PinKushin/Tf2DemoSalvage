@@ -354,8 +354,11 @@ Tf2DemoSalvage.Scene.EntityModelSet|nested|SetupMark|nonpublic
 Tf2DemoSalvage.Scene.EntityModelSet|property|AdvanceTicks|()|System.Int64|get=True|set=True
 Tf2DemoSalvage.Scene.EntityModelSet|property|AppliedIkLocks|()|System.Int32|get=True|set=False
 Tf2DemoSalvage.Scene.EntityModelSet|property|AttachmentBuilds|()|System.Int64|get=True|set=True
+Tf2DemoSalvage.Scene.EntityModelSet|property|AttachmentEligibleBuilds|()|System.Int64|get=True|set=True
+Tf2DemoSalvage.Scene.EntityModelSet|property|AttachmentEligibleTicks|()|System.Int64|get=True|set=True
 Tf2DemoSalvage.Scene.EntityModelSet|property|AttachmentQueries|()|System.Int64|get=True|set=True
 Tf2DemoSalvage.Scene.EntityModelSet|property|AttachmentRebuilds|()|System.Int64|get=True|set=True
+Tf2DemoSalvage.Scene.EntityModelSet|property|AttachmentRootBuilds|()|System.Int64|get=True|set=True
 Tf2DemoSalvage.Scene.EntityModelSet|property|AttachmentTicks|()|System.Int64|get=True|set=True
 Tf2DemoSalvage.Scene.EntityModelSet|property|Attachments|()|System.Func`2[Tf2DemoSalvage.Core.Scene.SceneProp,System.Collections.Generic.IReadOnlyList`1[System.String]]|get=True|set=True
 Tf2DemoSalvage.Scene.EntityModelSet|property|BakedBuildTicks|()|System.Int64|get=True|set=True

@@ -213,7 +213,10 @@ public sealed partial class FramePresenter
         _models.AttachmentQueries,
         _models.AttachmentBuilds,
         _models.AttachmentRebuilds,
-        _models.AttachmentTicks);
+        _models.AttachmentTicks,
+        _models.AttachmentRootBuilds,
+        _models.AttachmentEligibleBuilds,
+        _models.AttachmentEligibleTicks);
 
     /// <summary>The particle phase's work, ever (finding 84), carried from `ParticleEffects` where each was counted.</summary>
     public ParticleWork ParticleWork => new(_particles.Alive, _particles.Steps, _particles.Slept, _particles.Gathered);

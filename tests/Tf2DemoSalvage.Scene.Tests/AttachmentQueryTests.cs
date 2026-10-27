@@ -48,6 +48,25 @@ public sealed class AttachmentQueryTests
         models.ReadableBonesOf(Entity).ShouldBe(StudioBoneFlags.UsedByAttachment);
     }
 
+    /// <remarks>
+    /// **The instrument, not the behaviour** (finding 105 D): an entity the world pass drew is queried after a later pass
+    /// has moved the bone clock — as every effect's query is, after the viewmodel and undrawn passes. Whatever the query
+    /// builds of a skeleton built since the world pass is a rebuild by the engine's frame, which has one counter
+    /// (`InvalidateBoneCaches`, cdll_client_int.cpp:2163). Read with `BuiltThisFrame` after the clock moved, the counter
+    /// said 0 for every such build.
+    /// </remarks>
+    [Test]
+    public void AttachmentRebuilds_AQueryAfterALaterPassOnADrawnEntity_CountsEveryBuildAsARebuild()
+    {
+        EntityModelSet models = Posed();
+
+        models.Instances([], [], seconds: 0d, pass: EntityModelSet.UndrawnPass);
+        models.AttachmentPosition(Entity, "muzzle").ShouldNotBeNull();
+
+        models.AttachmentQueries.ShouldBe(1, "the control: the query reached a bone setup");
+        models.AttachmentRebuilds.ShouldBe(models.AttachmentBuilds);
+    }
+
     [Test]
     public void AttachmentPosition_ByName_IsTheBoneTimesTheLocalOffset()
     {
