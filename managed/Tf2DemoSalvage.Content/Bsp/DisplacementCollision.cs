@@ -220,8 +220,9 @@ public sealed class DisplacementCollision
     /// <returns>As the cube's.</returns>
     /// <remarks>
     /// **The bound shrinks the travel box, which is the whole saving.** A 57,016-unit sky trace's box overlapped most of a
-    /// map's displacements; the engine's world trace only reaches the displacements in the leaves the ray crosses before
-    /// it stops (`CM_TraceToLeaf`). A hit shorter than the bound lies inside the shortened box, so nothing it could return
+    /// map's displacements; the engine's world trace is read to reach only the displacements in the leaves the ray crosses
+    /// before it stops (`CM_TraceToLeaf`) — **an inference from the shipped engine's shape, not read here: the SDK tree has no
+    /// `cmodel.cpp`** (only the displacement side, `dispcoll_common.cpp`). A hit shorter than the bound lies inside the shortened box, so nothing it could return
     /// is culled (`DisplacementSweepLimitTests`).
     /// </remarks>
     public (float Fraction, int Texdata, bool SurfaceProp2, (float X, float Y, float Z) Normal, float Distance) SweepSurface(

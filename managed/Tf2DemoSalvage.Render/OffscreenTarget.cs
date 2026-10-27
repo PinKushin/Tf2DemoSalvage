@@ -623,6 +623,11 @@ internal sealed unsafe class OffscreenTarget : IDisposable
         // `offscreen/posed.mdl`, so without this the second render draws the first one's mesh.
         // `sameModel` is the caller saying the previous call drew these vertices: the model, and what the device
         // keeps for it across frames (its face buffer, B597), stays.
+        if (sameModel && _world.ModelBatches(Posed, 0).Count == 0)
+        {
+            throw new ArgumentException("sameModel needs a previous Render to have uploaded the model.", nameof(sameModel));
+        }
+
         if (!sameModel)
         {
             _world.ClearModels();

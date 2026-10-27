@@ -203,8 +203,9 @@ Tf2DemoSalvage.Scene.EntityModelSet|method|Filled|Private static|(System.Collect
 Tf2DemoSalvage.Scene.EntityModelSet|method|FindBodygroup|Public|(System.String,System.String)|System.Int32
 Tf2DemoSalvage.Scene.EntityModelSet|method|FindMdl|Public|(System.String)|Tf2DemoSalvage.Scene.PropModels+ModelFrames
 Tf2DemoSalvage.Scene.EntityModelSet|method|FiresEvents|Private static|(System.String)|System.Boolean
-Tf2DemoSalvage.Scene.EntityModelSet|method|FlexFor|Private|(Tf2DemoSalvage.Core.Scene.SceneProp,Tf2DemoSalvage.Scene.PropModels+ModelFrames,System.Double)|System.Single[]
+Tf2DemoSalvage.Scene.EntityModelSet|method|FlexFor|Private|(Tf2DemoSalvage.Core.Scene.SceneProp,Tf2DemoSalvage.Scene.PropModels+ModelFrames,System.Double)|System.ValueTuple`2[System.Single[],System.Nullable`1[Tf2DemoSalvage.Scene.FlexSlots]]
 Tf2DemoSalvage.Scene.EntityModelSet|method|FlexedCornersOf|Private|(System.String,Tf2DemoSalvage.Scene.PropModels+ModelFrames,System.Int32[])|Tf2DemoSalvage.Scene.FlexedCorners
+Tf2DemoSalvage.Scene.EntityModelSet|method|FlexedSlotsOf|Public|(System.String)|System.Nullable`1[System.ValueTuple`2[Tf2DemoSalvage.Scene.FlexedCorners,System.Int32]]
 Tf2DemoSalvage.Scene.EntityModelSet|method|FractionOf|Private static|(Tf2DemoSalvage.Scene.PropModels+SkinnedModel,Tf2DemoSalvage.Animation.Animating.PoseLayer)|System.Single
 Tf2DemoSalvage.Scene.EntityModelSet|method|Fraction|Private static|(System.Single)|System.Single
 Tf2DemoSalvage.Scene.EntityModelSet|method|FrameFor|Public|(Tf2DemoSalvage.Core.Scene.SceneProp,System.Double)|System.Int32

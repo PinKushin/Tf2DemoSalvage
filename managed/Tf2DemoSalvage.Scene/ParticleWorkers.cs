@@ -85,6 +85,17 @@ public sealed class ParticleWorkers
         }
 
         Forks++;
-        Parallel.For(0, count, _options, body);
+
+        // **The serial path throws the body's own exception, so the fork does too.** `Parallel.For` wraps whatever a body
+        // throws in an AggregateException, and a catch above this call would then match in one mode and not the other.
+        try
+        {
+            Parallel.For(0, count, _options, body);
+        }
+        catch (AggregateException wrapped) when (wrapped.InnerExceptions.Count == 1)
+        {
+            System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(wrapped.InnerExceptions[0]).Throw();
+            throw;
+        }
     }
 }
