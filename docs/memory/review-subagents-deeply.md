@@ -24,6 +24,12 @@ production (a green suite that missed a wiring gap), or a ported base class miss
 Related: [[one-subagent-and-prefer-cheap-models]], [[no-task-cards]],
 [[output-level-assertion-or-it-is-not-done]].
 
+## `reviewer-differs-from-the-lead` — reviewer model must not be the lead's
+
+Owner, 2026-10-27 (lead Sonnet): *"you shouldnt be running an independent review with the same model you are"*, then *"no you should be using opus for small ones now"*.
+
+**How to apply (owner's restatement, 2026-10-27: *"smalls are either sonnet, iff opus lead, or opus, if sonnet with opus advisor lead"*):** small diff -> Sonnet reviewer when the lead is Opus; Opus reviewer when the lead is Sonnet (with the Opus advisor). Large/structural -> Fable either way. Never the lead's own model. `block-expensive-subagents.ps1` already allows sonnet/opus/fable for `caveman:cavecrew-reviewer` (since 2026-10-18; it cannot see the lead's model, so the lead picks one that differs).
+
 ## `dont-guide-the-reviewer` — a reviewer prompt gives scope and context, never the lead's hypotheses
 
 Owner, 2026-10-20, seeing a second-round Fable prompt that listed what the lead suspected (child delay, lifetime default, units at a call site): *"yo shouldnt be guiding ffable at all"*.
