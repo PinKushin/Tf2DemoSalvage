@@ -364,6 +364,46 @@ public sealed class EntityModelsTests
         instances[0].Bones![0][11].ShouldBe(12f, 1e-3f);
     }
 
+    /// <remarks>
+    /// **The pose writes its own half and leaves the other standing** (B581 rung 3, <see cref="PoseHalvesConformanceTests"/>):
+    /// the frame in flight draws from the other half's skinning matrices while this one is posed.
+    /// </remarks>
+    [Test]
+    public void Instances_InTheOtherPoseHalf_LeavesTheFirstHalfsSkinningUntouched()
+    {
+        EntityModelSet models = new();
+        List<ModelInstance> drawn = [];
+        List<ModelInstance> posing = [];
+
+        models.Add([Prop("models/player/scout.mdl", x: 300f, entity: 5)], OneSkinnedBone);
+        models.PoseHalf = 0;
+        models.Instances([Prop("models/player/scout.mdl", x: 300f, entity: 5)], drawn, seconds: 0.25d);
+        float[] inFlight = drawn[0].Bones.ShouldNotBeNull()[0];
+
+        models.PoseHalf = 1;
+        models.Instances([Prop("models/player/scout.mdl", x: 900f, entity: 5)], posing, seconds: 0.5d);
+
+        inFlight[3].ShouldBe(300f, 1e-3f, "the half in flight was rewritten by the next pose");
+        posing[0].Bones.ShouldNotBeNull()[0][3].ShouldBe(900f, 1e-3f);
+    }
+
+    /// <remarks>The control: within one half, the skinning is rewritten in place, as before the halves (no allocation).</remarks>
+    [Test]
+    public void Instances_InTheSamePoseHalfNextFrame_RewritesItsSkinningInPlace()
+    {
+        EntityModelSet models = new();
+        List<ModelInstance> instances = [];
+
+        models.Add([Prop("models/player/scout.mdl", x: 300f, entity: 5)], OneSkinnedBone);
+        models.Instances([Prop("models/player/scout.mdl", x: 300f, entity: 5)], instances, seconds: 0.25d);
+        float[] first = instances[0].Bones.ShouldNotBeNull()[0];
+
+        models.Instances([Prop("models/player/scout.mdl", x: 900f, entity: 5)], instances, seconds: 0.5d);
+
+        instances[0].Bones.ShouldNotBeNull()[0].ShouldBeSameAs(first);
+        first[3].ShouldBe(900f, 1e-3f);
+    }
+
     [Test]
     public void Instances_AWeaponMergedOntoAPlayer_IsWhereThePlayerIsRatherThanAtTheOrigin()
     {

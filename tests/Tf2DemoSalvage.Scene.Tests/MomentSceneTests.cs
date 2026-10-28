@@ -200,6 +200,46 @@ public sealed class MomentSceneTests
     }
 
     /// <remarks>
+    /// **A pose after a hand-off writes the other half's lists** (B581 rung 3, <see cref="PoseHalvesConformanceTests"/>):
+    /// the frame handed keeps its instance list, and the matrices in it, while the next frame is posed.
+    /// </remarks>
+    [Test]
+    public void Pose_AfterAHandOff_WritesTheOtherListAndLeavesTheHandedOneStanding()
+    {
+        MomentScene scene = Posable();
+        MomentInfo info = Info();
+
+        scene.Build([], [Prop("models/props/crate.mdl", entity: 5) with { Pose = new ScenePose { X = 10f } }], info);
+        scene.Pose(info, handOffs: 0);
+        IReadOnlyList<ModelInstance> handed = scene.Instances;
+        float x = handed[0].Matrix[12];
+
+        scene.Build([], [Prop("models/props/crate.mdl", entity: 5) with { Pose = new ScenePose { X = 70f } }], info);
+        scene.Pose(info, handOffs: 1);
+
+        scene.Instances.ShouldNotBeSameAs(handed);
+        handed.Count.ShouldBe(1, "the handed list was cleared by the next pose");
+        handed[0].Matrix[12].ShouldBe(x, "the handed matrix was rewritten by the next pose");
+        scene.Instances[0].Matrix[12].ShouldBe(70f, 1e-4f);
+    }
+
+    /// <remarks>The control: with no hand-off between, a second pose rebuilds the same list (a seek's replays).</remarks>
+    [Test]
+    public void Pose_TwiceWithNoHandOffBetween_RebuildsTheSameList()
+    {
+        MomentScene scene = Posable();
+        MomentInfo info = Info();
+
+        scene.Build([], [Prop("models/props/crate.mdl", entity: 5)], info);
+        scene.Pose(info, handOffs: 3);
+        IReadOnlyList<ModelInstance> first = scene.Instances;
+
+        scene.Pose(info, handOffs: 3);
+
+        scene.Instances.ShouldBeSameAs(first);
+    }
+
+    /// <remarks>
     /// **A monitor's draw of the followed player is an ordinary model draw**, so it lights through the light cache with
     /// flags `0xf` (`0x1800f1bd0` → `LightcacheGet` `0x1801b9cd0`), dynamic lights included (`0x1801b7a10`), exactly as
     /// the world pass does — not through the uncached point lookup. The recorder's fireball beside him is the probe.

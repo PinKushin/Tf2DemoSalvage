@@ -783,13 +783,16 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
     /// <returns>The half the draw reads.</returns>
     /// <remarks>**Drains first when no `SetCamera` flipped since the last hand-off** (finding 98 §9 step 5): the half is
     /// then the one last handed, which may still be drawing, and this writes its feeds. Free on every other frame, whose
-    /// pose already drained.</remarks>
+    /// effects already drained (<see cref="FinishDrawBeforeEffects"/>). Counted in <see cref="HandOffs"/>, which moves the
+    /// pose to its other half (B581 rung 3).</remarks>
     private ViewHalf HandOff()
     {
         if (_views.CullWasHanded)
         {
             Lock();
         }
+
+        HandOffs++;
 
         return _views.Hand(new DrawFeeds(
             _specular, _fullbright, _debug, _phong, _worldFog, _skyFog, MonitorCamera, Tonemap, ExposureSeconds,
@@ -3327,9 +3330,9 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
     {
         StableHash pose = new();
 
-        AddInstances(ref pose, models);
-        AddInstances(ref pose, viewmodels);
-        AddInstances(ref pose, MonitorOnlyModels);
+        AddInstances(ref pose, models, lights: !FrameHash);
+        AddInstances(ref pose, viewmodels, lights: !FrameHash);
+        AddInstances(ref pose, MonitorOnlyModels, lights: !FrameHash);
         pose.Floats(viewmodelCamera);
 
         StableHash particles = new();
@@ -3417,7 +3420,11 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         ];
     }
 
-    private static void AddInstances(ref StableHash hash, IReadOnlyList<ModelInstance>? instances)
+    /// <param name="hash">The pose part.</param>
+    /// <param name="instances">A list the draw reads.</param>
+    /// <param name="lights">Whether to hash the light cube and the local lights by value: the verifier's only, so
+    /// `TF2VIEW_FRAME_HASH` values stay comparable with every run recorded before rung 3.</param>
+    private static void AddInstances(ref StableHash hash, IReadOnlyList<ModelInstance>? instances, bool lights)
     {
         if (instances is null)
         {
@@ -3448,12 +3455,47 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
                     hash.Floats(bone);
                 }
             }
+
+            // **The lights by value, not by count** (B581 rung 3): the pose now overlaps the draw, so a light list
+            // rewritten in place would be invisible to a count. Field by field, never a struct's raw bytes (StableHash).
+            if (!lights)
+            {
+                continue;
+            }
+
+            if (instance.Locals is { } locals)
+            {
+                foreach (LocalLight light in locals)
+                {
+                    hash.Value(light.X);
+                    hash.Value(light.Y);
+                    hash.Value(light.Z);
+                    hash.Value(light.Red);
+                    hash.Value(light.Green);
+                    hash.Value(light.Blue);
+                    hash.Value(light.Range);
+                }
+            }
+
+            if (instance.Light is { } cube)
+            {
+                foreach ((float red, float green, float blue) in (ReadOnlySpan<(float, float, float)>)[cube.PositiveX, cube.NegativeX, cube.PositiveY, cube.NegativeY, cube.PositiveZ, cube.NegativeZ])
+                {
+                    hash.Value(red);
+                    hash.Value(green);
+                    hash.Value(blue);
+                }
+            }
         }
     }
 
     /// <inheritdoc/>
     /// <remarks>Named in the wait ledger as itself, so its `queue wait` part is a column of its own.</remarks>
-    public void FinishDrawBeforePose() => Queue.FinishPreviousDraw(nameof(FinishDrawBeforePose));
+    public void FinishDrawBeforeEffects() => Queue.FinishPreviousDraw(nameof(FinishDrawBeforeEffects));
+
+    /// <inheritdoc/>
+    /// <remarks>Counted at <see cref="HandOff"/>, on the game thread, which is the only thread that reads it.</remarks>
+    public long HandOffs { get; private set; }
 
     /// <summary>Sets the view the world is drawn through, and the volume it culls against.</summary>
     /// <param name="camera">The camera the frame is seen through.</param>

@@ -105,11 +105,24 @@ internal sealed class FakeViewerDevice : IViewerDevice
     }
 
     /// <summary>Drains <see cref="Queue"/>, as the device does, and writes the call down.</summary>
-    public void FinishDrawBeforePose()
+    public void FinishDrawBeforeEffects()
     {
         Queue?.FinishPreviousDraw();
-        _set.Add(nameof(FinishDrawBeforePose));
+        _set.Add(nameof(FinishDrawBeforeEffects));
     }
+
+    /// <summary>Hand-offs so far, written down when read; a test sets it to stand for frames handed.</summary>
+    public long HandOffs
+    {
+        get
+        {
+            _set.Add(string.Create(CultureInfo.InvariantCulture, $"HandOffs read {_handOffs}"));
+            return _handOffs;
+        }
+        set => _handOffs = value;
+    }
+
+    private long _handOffs;
 
     public void DrawScene(
         float red,

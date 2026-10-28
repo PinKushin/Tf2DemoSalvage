@@ -178,7 +178,8 @@ public sealed class MomentScene : IGameSystemPerFrame
         _decayedAt = null;
 
         _drawn.Clear();
-        _instances.Clear();
+        _instancesByHalf[0].Clear();
+        _instancesByHalf[1].Clear();
 
         // **The model set forgets the level with the level** (the outside audit's finding 1). Its
         // caches are path-keyed and a path is a map-scoped name — `*3` is a different door on the
@@ -229,12 +230,25 @@ public sealed class MomentScene : IGameSystemPerFrame
     /// becomes visible. The test now supplies both, and losing this list reddens it alone.
     /// </remarks>
     private readonly List<ScenePlayer> _posing = [];
-    private readonly List<ModelInstance> _instances = [];
+
+    /// <summary>Which half of each drawn list the pose writes (B581 rung 3): the frame in flight draws the other.</summary>
+    private readonly PoseHalves _halves = new();
+
+    /// <summary>The world pass's list, one per pose half; <see cref="_instances"/> is the half last posed.</summary>
+    private readonly List<ModelInstance>[] _instancesByHalf = [[], []];
+
+    /// <summary>The undrawn pass's, likewise: a monitor draws it, so it is read by the frame in flight too.</summary>
+    private readonly List<ModelInstance>[] _undrawnByHalf = [[], []];
+
+    /// <summary>The viewmodel pass's, likewise.</summary>
+    private readonly List<ModelInstance>[] _viewmodelByHalf = [[], []];
+
+    private List<ModelInstance> _instances;
     /// <summary>The followed player's own model in first person: posed so it can take a decal, never drawn.</summary>
     private readonly List<SceneProp> _undrawn = [];
 
-    /// <summary>Where the undrawn pass writes its instances.</summary>
-    private readonly List<ModelInstance> _undrawnInstances = [];
+    /// <summary>Where the undrawn pass writes its instances: the half last posed.</summary>
+    private List<ModelInstance> _undrawnInstances;
 
     /// <summary>The followed player in first person, posed but not in the main view: what a monitor view adds (B511).</summary>
     /// <remarks>Never the zoomed recorder, whom a monitor does not bring back (B598); a followed other player, yes.</remarks>
@@ -246,7 +260,7 @@ public sealed class MomentScene : IGameSystemPerFrame
     /// <summary>Where the hidden pass writes, which it never does: it is posed for no view.</summary>
     private readonly List<ModelInstance> _hiddenInstances = [];
 
-    private readonly List<ModelInstance> _viewmodelInstances = [];
+    private List<ModelInstance> _viewmodelInstances;
 
     private int _lastInstanceCount = -1;
     private int? _lastFirstPersonReport;
@@ -267,6 +281,9 @@ public sealed class MomentScene : IGameSystemPerFrame
         _viewmodels = viewmodels;
         _render = render;
         _models.PlayerPropAt = EarlierPlayerProp;
+        _instances = _instancesByHalf[0];
+        _undrawnInstances = _undrawnByHalf[0];
+        _viewmodelInstances = _viewmodelByHalf[0];
     }
 
     /// <summary>One player at an earlier moment, side-effect free (<see cref="IMomentSource.ActivityPlayerAt"/>); null for none.</summary>
@@ -728,15 +745,29 @@ public sealed class MomentScene : IGameSystemPerFrame
     /// </remarks>
     /// <param name="screen">The main view for the static props' screen fades (B432).</param>
     /// <param name="monitor">Whether a monitor can draw this frame; false leaves the first-person player unposed (B511).</param>
+    /// <param name="handOffs">
+    /// Frames the device has handed to the draw so far (<see cref="IViewerDevice.HandOffs"/>), which decides the pose half
+    /// (<see cref="PoseHalves"/>, B581 rung 3). The default, with no device, is one half for ever.
+    /// </param>
     public MomentPhases Pose(
         MomentInfo info,
         ViewFrustum frustum = default,
         RenderableViews views = default,
         (float X, float Y, float Z)? eye = null,
         ScreenFadeView? screen = null,
-        bool monitor = true)
+        bool monitor = true,
+        long handOffs = 0)
     {
         long posingAt = Stopwatch.GetTimestamp();
+
+        // **This frame's pose half** (B581 rung 3): every list and per-entity buffer the draw reads by reference comes from
+        // it, so the frame in flight, which was handed the other, keeps drawing while this one is posed.
+        int half = _halves.Next(handOffs);
+
+        _models.PoseHalf = half;
+        _instances = _instancesByHalf[half];
+        _undrawnInstances = _undrawnByHalf[half];
+        _viewmodelInstances = _viewmodelByHalf[half];
 
         // Only a monitor draws the first-person player (B511); without one his pass simulates and is not posed.
         _models.PosesUndrawn = monitor;

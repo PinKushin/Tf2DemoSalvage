@@ -608,9 +608,10 @@ public sealed class ViewerPresenterTests
                 "WorldFog none", "SkyFog none", "MonitorCamera none", "Tonemap default",
                 "ExposureSeconds 0.25", "ObserverTarget nobody",
                 nameof(IViewerDevice.SetCamera),
-                nameof(IViewerDevice.FinishDrawBeforePose),
                 "DrawsMonitor read True",
+                "HandOffs read 0",
                 "posed",
+                nameof(IViewerDevice.FinishDrawBeforeEffects),
                 nameof(IFrameDevice.SetParticles),
             ]);
             device.Camera.SurfaceColours.ShouldBeTrue();
@@ -619,14 +620,15 @@ public sealed class ViewerPresenterTests
     }
 
     /// <remarks>
-    /// **Rung 2's contract (B581, D228): SetCamera overlaps the frame in flight, the pose does not.** The cull writes only
-    /// its own view half, so it may run while the previous frame draws from the other; the pose rewrites bones, flex and
-    /// instance lists the draw reads, so the drain sits at its entry. Deterministic: the in-flight draw is held on a gate
-    /// only the drain opens. The drain is <see cref="IViewerDevice.FinishDrawBeforePose"/>, at the pose's entry (finding 98
-    /// §9 step 5); before it moved there, this read `posed in flight True`.
+    /// **Rung 3's first step (B581, finding 98 §9): SetCamera AND the pose overlap the frame in flight; the effects do
+    /// not.** The cull writes its own view half, and the pose now writes its own pose half (instance lists, matrices,
+    /// skinning, face streams; `PoseHalvesConformanceTests` in Scene.Tests), so both may run while the previous frame draws
+    /// from the other halves. The particles, decals and lightmaps still hand the device what it reads in place, so the
+    /// drain, <see cref="IViewerDevice.FinishDrawBeforeEffects"/>, sits after the pose and before them. Deterministic:
+    /// the in-flight draw is held on a gate only the drain opens. Before the move this read `posed in flight False`.
     /// </remarks>
     [Test]
-    public void UploadCameraOver_InModeTwoWithAFrameInFlight_OverlapsSetCameraButNotThePose()
+    public void UploadCameraOver_InModeTwoWithAFrameInFlight_OverlapsThePoseButNotTheEffects()
     {
         WriteMap();
         (ViewerPresenter loader, _, _) = Loader();
@@ -646,10 +648,12 @@ public sealed class ViewerPresenterTests
             {
                 queue.Submit(gate.Wait);
                 loader.Posed = () => device.Mark($"posed in flight {queue.InFlight}");
-                loader.UploadCameraOver(device, new FakeFrameDevice(), flyTicks: 0, exposureSeconds: 0f, surfaceColours: false);
+                FakeFrameDevice effects = new() { Told = call => device.Mark($"{call} in flight {queue.InFlight}") };
+                loader.UploadCameraOver(device, effects, flyTicks: 0, exposureSeconds: 0f, surfaceColours: false);
 
                 device.Set.ShouldContain("SetCamera in flight True", "the control: the frame was in flight at the cull");
-                device.Set.ShouldContain("posed in flight False");
+                device.Set.ShouldContain("posed in flight True");
+                device.Set.ShouldContain($"{nameof(IFrameDevice.SetParticles)} in flight False");
             }
             finally
             {
@@ -732,7 +736,9 @@ public sealed class ViewerPresenterTests
 
             int read = device.Set.ToList().IndexOf($"DrawsMonitor read {monitor}");
             read.ShouldBeGreaterThanOrEqualTo(0);
-            device.Set.ToList().IndexOf("posed").ShouldBe(read + 1);
+            // The hand-off count is read beside it, for the pose half (B581 rung 3); nothing else comes between.
+            device.Set[read + 1].ShouldBe("HandOffs read 0");
+            device.Set.ToList().IndexOf("posed").ShouldBe(read + 2);
             device.Set.Count(line => line.StartsWith("DrawsMonitor read", StringComparison.Ordinal)).ShouldBe(1);
         }
     }

@@ -235,7 +235,11 @@ public sealed partial class EntityModelSet
         // Safe to reuse because an instance list is consumed within the frame that built it, and
         // the viewmodel's entities carry their own indices (4096-4098) so they cannot collide with
         // a world entity's buffer.
-        if (!_skinning.TryGetValue(entity, out float[][]? buffer) ||
+        //
+        // **One buffer per entity per pose half** (B581 rung 3): the frame in flight draws from the other half's.
+        Dictionary<int, float[][]> skinning = _skinning[PoseHalf];
+
+        if (!skinning.TryGetValue(entity, out float[][]? buffer) ||
             buffer.Length != accessor.Count)
         {
             buffer = new float[accessor.Count][];
@@ -245,7 +249,7 @@ public sealed partial class EntityModelSet
                 buffer[bone] = new float[12];
             }
 
-            _skinning[entity] = buffer;
+            skinning[entity] = buffer;
         }
 
         BoneSkinning.Fill(bones, accessor, buffer);
@@ -253,6 +257,12 @@ public sealed partial class EntityModelSet
         return buffer;
     }
 
-    /// <summary>Each entity's skinning matrices, reused between frames.</summary>
-    private readonly Dictionary<int, float[][]> _skinning = [];
+    /// <summary>Each entity's skinning matrices, reused between frames, one set per pose half.</summary>
+    private readonly Dictionary<int, float[][]>[] _skinning = [[], []];
+
+    /// <summary>The pose half this frame's pose writes (<see cref="PoseHalves"/>, B581 rung 3): 0 or 1; 0 without a device.</summary>
+    /// <remarks>Selects the per-entity buffers the draw reads by reference — skinning matrices and face streams — so a
+    /// pose never rewrites what the frame in flight is drawing. Instance lists and their matrices are per list, and the
+    /// scene hands each half its own list.</remarks>
+    internal int PoseHalf { get; set; }
 }
