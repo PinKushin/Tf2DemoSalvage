@@ -1,0 +1,1 @@
+GUI application - holding the lock until it exits.

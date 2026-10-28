@@ -19784,7 +19784,16 @@ several vis origins (`ViewCustomVisibility_t`), and an eye cluster past the PVS 
 Output level: `Surfaces_ForAPvsPrunedWalk_AreTheUnprunedWalksInTheSameOrder` on cp_process and cp_badlands, 35 eyes
 each as printed by the run (32 asserted clustered eyes, one in no cluster, two repeats on one instance), five
 directions: the reached surfaces and leaves are the same sequence as the walk with no vis data filtered by the
-engine's stamp rule in every view. Not yet measured in the viewer.
+engine's stamp rule in every view.
+
+**Measured 2026-10-28** (`measurements/2026-10-28-pvs-node-prune.md`, Release, f12, ABBA+BAAB, four runs a build per
+view): world-only pixel identity in every shot pair (0 pixels). First person, the moving view, steady window:
+`camera setcamera batches` 0.415-0.426 → 0.208-0.214 ms (6.1% → 3.2% of the frame) and `sky` 0.198-0.204 → 0.050-0.052
+(2.9% → 0.8%) — the sky view's own walk from the sky camera is pruned by its cluster's PVS too — so `setcamera`
+0.761-0.781 → 0.404-0.415 ms, 5.3% of A's frame; frame 6.753-7.100 → 6.582-6.704 ms (non-overlapping; 0.12-0.20 ms of
+it reaches the frame). The re-mark (the miss path, `batches/marks`) is below the rate line's 0.005 ms resolution in every
+steady second. Empty view: `batches` 0 in both builds (a still camera does not re-cull), frame unchanged. **Still open:**
+the entity walks — `sample`, `drawlist`, `collate` — which this change does not touch.
 
 ## B260 — why we do not get Valve's performance "doing it the way they do" — OPEN
 
