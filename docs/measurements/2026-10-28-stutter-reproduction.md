@@ -153,6 +153,19 @@ Spread by variant:
 - Every demo has a distinct-offset count of 3 to 22. The large counts are the spikes, each leaving one packet at its own
   offset.
 
+## Round 3, pre-registered before recording (after the review of rounds 1–2)
+
+**The weakness in rounds 1–2.** The three lowest readings (57.9, 62.5 and 69.2%) all carry the user's lines. Stock at
+66/s never went below 74.2%. A and E66 differ in a dozen cvars at once, so rounds 1–2 cannot say whether the user's lines
+*as a whole* make a bad recording likelier.
+
+**The test.** Six more A and six more E66, interleaved A, E, A, E. Pooled with rounds 1–2 that is A n=9 against E66 n=4+6=10.
+
+**The decision rule**, a one-sided Mann-Whitney U on the delta-1 shares:
+- If A is lower at p < 0.05, report "the user's lines as a whole make it worse" and leave which line does it unresolved.
+- If not, report "no difference shown between the user's lines and stock".
+- Either way, both arms producing the signature stands.
+
 ## Verdict
 
 **The signature is reproduced, and it is not the user's client config.**
