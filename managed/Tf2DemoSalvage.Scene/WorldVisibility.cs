@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 
 using Tf2DemoSalvage.Content.Bsp;
 
@@ -212,6 +213,8 @@ public sealed class WorldVisibility
             return;
         }
 
+        long startedAt = Stopwatch.GetTimestamp();
+
         _markedCluster = int.MinValue;
         _visFrame++;
 
@@ -220,6 +223,7 @@ public sealed class WorldVisibility
             Array.Fill(_nodeVisFrame, _visFrame);
             Array.Fill(_leafVisFrame, _visFrame);
             _markedCluster = from;
+            MarkTicks = Stopwatch.GetTimestamp() - startedAt;
             return;
         }
 
@@ -243,7 +247,13 @@ public sealed class WorldVisibility
         }
 
         _markedCluster = from;
+        MarkTicks = Stopwatch.GetTimestamp() - startedAt;
     }
+
+    /// <summary>The <see cref="Stopwatch"/> ticks the last <see cref="Leaves"/> call spent re-marking — 0 when the eye
+    /// stayed in the cluster it last marked (the hit path), the mark pass's cost when it moved (the miss path).</summary>
+    /// <remarks>Timed where the marking runs and carried out, so the rate line reads the work done (B243).</remarks>
+    public long MarkTicks { get; private set; }
 
     /// <summary>The leaves a camera can see, nearest first.</summary>
     /// <param name="x">The eye's world position — the vis origin.</param>
@@ -265,6 +275,7 @@ public sealed class WorldVisibility
         _leaves.Clear();
         _walk.Clear();
         Array.Clear(_visibleByLeaf);
+        MarkTicks = 0;
 
         if (_tree.IsEmpty)
         {

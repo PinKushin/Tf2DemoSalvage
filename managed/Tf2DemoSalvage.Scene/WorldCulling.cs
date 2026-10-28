@@ -101,6 +101,9 @@ public sealed class WorldCulling
     /// <summary>How many leaves the last call found, for the log.</summary>
     public int LeafCount { get; private set; }
 
+    /// <summary>The main view's re-marking time in the last <see cref="Batches"/> call — <see cref="WorldVisibility.MarkTicks"/>.</summary>
+    public long MarkTicks => _visibility.MarkTicks;
+
     /// <summary>How many leaves the map has, so the count above can be read as a fraction.</summary>
     /// <remarks>
     /// **Without this the visible count is uninterpretable, and the first real measurement proved

@@ -255,6 +255,23 @@ public sealed class WorldVisibilityTests
         visibility.Leaves(-400f, 0f, 0f, default).ShouldBe([3, 0]);
     }
 
+    /// <summary>That the re-mark timer reads above zero when the tree is marked and zero while the cluster stays.</summary>
+    /// <remarks>
+    /// The instrument behind the rate line's `batches/marks` (B259): the miss path and the hit path apart. On the
+    /// 300-node chain, so the first marking (301 leaves, each a PVS lookup) is many timer ticks long rather than one.
+    /// </remarks>
+    [Test]
+    public void MarkTicks_OnTheFirstMarkThenTheSameCluster_AreAboveZeroThenZero()
+    {
+        WorldVisibility visibility = new(Chain(300), Pvs(0x01));
+
+        visibility.Leaves(-200_000f, 0f, 0f, default);
+        visibility.MarkTicks.ShouldBeGreaterThan(0, "the first call marks");
+
+        visibility.Leaves(-200_000f, 0f, 0f, default);
+        visibility.MarkTicks.ShouldBe(0, "the same cluster is the hit path");
+    }
+
     /// <summary>That one instance alternating two eyes walks exactly as two fresh instances do.</summary>
     [Test]
     public void Walk_OneInstanceAlternatingTwoClusters_MatchesAFreshInstanceForEach()
@@ -335,21 +352,7 @@ public sealed class WorldVisibilityTests
     [Test]
     public void Leaves_ForATreeDeeperThanTheBound_ListsTheLeavesWithinIt()
     {
-        const int Depth = 300;
-        List<byte> nodes = [];
-        List<byte> leaves = [];
-
-        for (int at = 0; at < Depth; at++)
-        {
-            int front = at + 1 < Depth ? at + 1 : -(Depth + 1);
-
-            nodes.AddRange(Node(plane: 0, front, back: -(at + 1), (-512, -512, -512), (512, 512, 512)));
-            leaves.AddRange(Leaf(cluster: 0, (-512, -512, -512), (512, 512, 512)));
-        }
-
-        leaves.AddRange(Leaf(cluster: 0, (-512, -512, -512), (512, 512, 512)));
-
-        BspLeafTree tree = BspLeafTree.FromLumps(nodes.ToArray(), Plane(1f, 0f, 0f, -100_000f), leaves.ToArray());
+        BspLeafTree tree = Chain(300);
         int[] expected = [.. Enumerable.Range(0, 256)];
 
         tree.ClusterAt(-200_000f, 0f, 0f).ShouldBe(0, "the control: the eye is placed, so the PVS applies");
@@ -363,6 +366,26 @@ public sealed class WorldVisibilityTests
             // Node 256 is inside the bound but no linked leaf lies under it, so it is never stamped (malformed only).
             visibility.Walk.Where(step => step.IsNode).Select(step => step.Index).ShouldBe(expected);
         }
+    }
+
+    /// <summary>A chain of <paramref name="depth"/> nodes: node <c>d</c>'s back child is leaf <c>d</c>, its front child
+    /// node <c>d + 1</c> (the last's, leaf <paramref name="depth"/>); every leaf in cluster 0; the plane x = −100,000.</summary>
+    private static BspLeafTree Chain(int depth)
+    {
+        List<byte> nodes = [];
+        List<byte> leaves = [];
+
+        for (int at = 0; at < depth; at++)
+        {
+            int front = at + 1 < depth ? at + 1 : -(depth + 1);
+
+            nodes.AddRange(Node(plane: 0, front, back: -(at + 1), (-512, -512, -512), (512, 512, 512)));
+            leaves.AddRange(Leaf(cluster: 0, (-512, -512, -512), (512, 512, 512)));
+        }
+
+        leaves.AddRange(Leaf(cluster: 0, (-512, -512, -512), (512, 512, 512)));
+
+        return BspLeafTree.FromLumps(nodes.ToArray(), Plane(1f, 0f, 0f, -100_000f), leaves.ToArray());
     }
 
     /// <summary>That a cycle in a malformed tree ends, and walks the same with or without a PVS.</summary>
