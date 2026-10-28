@@ -76,7 +76,12 @@ walk (`0x1800e1800`) tests the stamp before it clips the box. But the first port
 never the renderer's. It stamped a non-solid leaf with cluster −1, because `vrad`'s `PVSCheck` says *"we assume the
 sample is in the PVS"* — a lighting compiler's rule, quoted for years in this project as if it were the cull's; the
 engine skips such a leaf (`0x1801cadb6`). And it refused to stamp solid leaves; the engine has no contents test while
-marking, and relies on the walk's own solid return. Both are now as the engine has them. The lesson is the one in
+marking, and relies on the walk's own solid return. A third followed on a second read: with no vis data the engine
+does not mark everything but fetches an all-ones row (`CM_Vis`, `0x18016ca26`), so its cluster −1 skip still applies.
+All three are now as the engine has them, and none changes a compiled map: vbsp gives solid and brush-model leaves
+cluster −1 and numbers every other world leaf (`utils/vbsp/prtfile.cpp:185-190`, `writebsp.cpp:128-139`), and the
+census on cp_process and cp_badlands found no reachable non-solid leaf without one. The same read settled that one view
+origin is one cluster — there is no Quake 2-style second point across a water surface (`0x1801caad0`). The lesson is the one in
 `docs/memory/a-visibility-set-is-four-questions.md`: a rule read in one Valve program is not a rule of another. Full
 quotes: RISKS B259.
 

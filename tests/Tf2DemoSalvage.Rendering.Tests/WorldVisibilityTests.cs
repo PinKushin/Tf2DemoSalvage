@@ -329,7 +329,8 @@ public sealed class WorldVisibilityTests
     /// A chain of 300 nodes, each front child the next node and each back child its own leaf; the eye is on every
     /// back side, so it stands in leaf 0 (cluster 0) and each leaf is walked before the node below it. Node <c>d</c>
     /// sits at depth <c>d</c> and its leaf at <c>d + 1</c>, so leaves 0 to 255 are inside the bound of 256. The parent
-    /// links stop at the same bound, so a deeper leaf the PVS sees stamps nothing above it.
+    /// links stop at the same bound, so a deeper leaf the PVS sees stamps nothing above it, and node 256 — within the
+    /// bound, but over no linked leaf — is never entered. Malformed trees only.
     /// </remarks>
     [Test]
     public void Leaves_ForATreeDeeperThanTheBound_ListsTheLeavesWithinIt()
@@ -352,8 +353,16 @@ public sealed class WorldVisibilityTests
         int[] expected = [.. Enumerable.Range(0, 256)];
 
         tree.ClusterAt(-200_000f, 0f, 0f).ShouldBe(0, "the control: the eye is placed, so the PVS applies");
-        new WorldVisibility(tree, BspVisibility.None).Leaves(-200_000f, 0f, 0f, default).ShouldBe(expected);
-        new WorldVisibility(tree, Pvs(0x01)).Leaves(-200_000f, 0f, 0f, default).ShouldBe(expected);
+
+        foreach (BspVisibility pvs in new[] { BspVisibility.None, Pvs(0x01) })
+        {
+            WorldVisibility visibility = new(tree, pvs);
+
+            visibility.Leaves(-200_000f, 0f, 0f, default).ShouldBe(expected);
+
+            // Node 256 is inside the bound but no linked leaf lies under it, so it is never stamped (malformed only).
+            visibility.Walk.Where(step => step.IsNode).Select(step => step.Index).ShouldBe(expected);
+        }
     }
 
     /// <summary>That a cycle in a malformed tree ends, and walks the same with or without a PVS.</summary>

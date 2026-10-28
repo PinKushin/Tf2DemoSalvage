@@ -285,8 +285,10 @@ public sealed class WorldVisibilityMapTests
     /// walk, step for step; and wherever the open walk entered a node whose two children are both leaves the stamp
     /// rule rejects, the pruned walk takes strictly fewer — that node cannot be stamped.
     ///
-    /// The run also prints how many non-solid leaves with no cluster the OLD rule listed, which is what aligning the
-    /// cluster −1 rule with the engine removed from the picture.
+    /// The run also prints a census: how many non-solid leaves with no cluster the world tree reaches from node 0. Only
+    /// those could be changed by aligning the cluster −1 rule with the engine. vbsp says it should be none: such a leaf
+    /// is a brush model's (`utils/vbsp/writebsp.cpp:128-139`). When it is none, this test cannot catch the rule being
+    /// reverted, and the synthetic conformance tests are the only guard (B259 records the counts).
     /// </remarks>
     /// <param name="mapName">The map.</param>
     [TestCase("cp_process_final")]
@@ -304,7 +306,7 @@ public sealed class WorldVisibilityMapTests
 
         List<(float X, float Y, float Z)> eyes = [.. Inside(tree, 32)];
 
-        eyes.Count.ShouldBeGreaterThan(1, "too few eyes for a cluster change");
+        eyes.Count.ShouldBe(32, "the map has fewer roomy clustered leaves than the 32 eyes the record quotes");
 
         BspNode root = tree.Node(0).ShouldNotBeNull("the map has a root node");
         (float X, float Y, float Z) outside = (
@@ -318,9 +320,14 @@ public sealed class WorldVisibilityMapTests
         VisibleWorld prunedWorld = new(world.FaceSpans, tree, leafFaces);
         VisibleWorld openWorld = new(world.FaceSpans, tree, leafFaces);
         (int Views, int PrunedNodes, int OpenNodes, int Surfaces, int MustShrink) total = default;
-        int droppedNoCluster = 0;
         int noClusterLeaves = Enumerable.Range(0, tree.LeafCount)
             .Count(leaf => tree.Cluster(leaf) < 0 && tree.Contents(leaf) != BspLeafTree.ContentsSolid);
+        List<int> reachable = WorldLeaves(tree);
+        int reachableNoCluster = reachable.Count(leaf =>
+            tree.Cluster(leaf) < 0 && tree.Contents(leaf) != BspLeafTree.ContentsSolid);
+
+        // The control for the census: the world tree must reach clustered, non-solid leaves.
+        reachable.Count(leaf => tree.Cluster(leaf) >= 0).ShouldBeGreaterThan(0, "the census reached no clustered leaf");
 
         foreach ((float X, float Y, float Z) eye in eyes)
         {
@@ -344,11 +351,6 @@ public sealed class WorldVisibilityMapTests
                 pruned.Walk.ShouldBe(fresh.Walk, $"{view}: the shared instance walked unlike a fresh one");
 
                 List<WorldWalkStep> reference = [.. open.Walk.Where(step => step.IsNode || Stampable(step.Index))];
-
-                if (from >= 0)
-                {
-                    droppedNoCluster += open.Walk.Count(step => !step.IsNode && tree.Cluster(step.Index) < 0);
-                }
                 int prunedNodes = pruned.Walk.Count(step => step.IsNode);
                 int openNodes = open.Walk.Count(step => step.IsNode);
 
@@ -385,10 +387,36 @@ public sealed class WorldVisibilityMapTests
         TestContext.Out.WriteLine(
             $"{mapName}: {eyes.Count} eyes, {total.Views} views, node steps {total.PrunedNodes} pruned vs " +
             $"{total.OpenNodes} open, {total.Surfaces} surfaces compared, {total.MustShrink} views required to shrink; " +
-            $"{noClusterLeaves} non-solid leaves with no cluster in the map, {droppedNoCluster} listings of one dropped");
+            $"{noClusterLeaves} non-solid leaves with no cluster in the lump, {reachableNoCluster} of them reachable from " +
+            $"node 0 (of {reachable.Count} reachable leaves)");
 
         total.Surfaces.ShouldBeGreaterThan(0, "nothing is reached from any view, so this cannot fail");
         total.MustShrink.ShouldBeGreaterThan(0, "no view had a node the PVS must prune, so the prune is untested");
+    }
+
+    /// <summary>Every leaf the world tree reaches from node 0 — a census, independent of the walk under test.</summary>
+    private static List<int> WorldLeaves(BspLeafTree tree)
+    {
+        List<int> leaves = [];
+        Stack<int> pending = new([0]);
+        HashSet<int> seen = [];
+
+        while (pending.Count > 0)
+        {
+            int at = pending.Pop();
+
+            if (at < 0)
+            {
+                leaves.Add(-at - 1);
+            }
+            else if (seen.Add(at) && tree.Node(at) is { } node)
+            {
+                pending.Push(node.Front);
+                pending.Push(node.Back);
+            }
+        }
+
+        return leaves;
     }
 
     /// <summary>Up to <paramref name="count"/> eyes, each the middle of a clustered, roomy leaf, spread over the map.</summary>

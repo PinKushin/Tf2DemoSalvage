@@ -33,9 +33,13 @@ namespace Tf2DemoSalvage.Scene;
 ///
 /// **What this does NOT do, and why each is deliberate.** No area portals — their open/shut state
 /// is server-side and a demo does not carry it, so a viewer that guessed would hide rooms that are
-/// open. No occlusion queries and no `func_occluder`. Both make the result strictly more
-/// conservative, which is the safe direction: this may keep a leaf the engine would drop, never the
-/// reverse.
+/// open. No occlusion queries and no `func_occluder`. Both make the result more conservative, the
+/// safe direction: this keeps leaves the engine would drop. **Two cases, both outside a TF2 main view
+/// as read, could go the other way:** a view with several vis origins
+/// (`ViewCustomVisibility_t::m_rgVisOrigins`, `viewrender.cpp:1900-1903`), whose clusters the engine
+/// ORs together and this does not model; and an eye cluster past the PVS row count, which the engine
+/// answers with an all-ones row (`0x18016ca26`) and <see cref="BspVisibility.Visible"/> with false — a
+/// malformed map only.
 /// </remarks>
 public sealed class WorldVisibility
 {
@@ -127,9 +131,10 @@ public sealed class WorldVisibility
     /// The parent links are per instance rather than on <see cref="BspLeafTree"/>: the tree is shared between threads
     /// (each view half's twin cull), and two small arrays per instance cost less than a lazily built shared one.
     ///
-    /// **First writer wins, for nodes and leaves alike.** In a well-formed BSP every node and leaf has one parent. A
-    /// malformed tree that reaches a child twice keeps the first path, so marking climbs that one; the walk may still
-    /// reach the child by the other path, where it is stamped or not by the same leaf test.
+    /// **Ours: first writer wins, for nodes and leaves alike** — malformed trees only. In a well-formed BSP every node
+    /// and leaf has one parent, and the rule never applies. A malformed tree that reaches a child twice keeps the first
+    /// path, so marking climbs that one. The engine's parent links come from its loader, not read in this build; a
+    /// recursive Quake-style `Mod_SetParent` would be last writer wins.
     /// </remarks>
     private void LinkParents(int node, int parent, int depth)
     {
@@ -167,24 +172,35 @@ public sealed class WorldVisibility
     /// <remarks>
     /// **Read from engine.dll (x64, installed 2026-10-07), in disassembly** (B259, `docs/RISKS.md`, which quotes it):
     ///
-    /// * the mark pass `0x1801ca5f0` returns at once when the view's cluster list is the one it last marked
-    ///   (`0x1801ca6c8`); otherwise it increments `r_visframecount` (`0x1801ca6d5`, `[0x1807784b4]`);
+    /// * the view's cluster list holds ONE cluster per vis origin: `Map_VisSetup` (`0x1801caad0`, reached straight from
+    ///   `ViewSetupVisEx` at `0x1800da247`) clamps the origin count to 32, and per origin stores
+    ///   `CM_LeafCluster(CM_PointLeafnum(origin))` (`0x1801cab4b`, `0x1801cab75`, `0x1801cab7a`) — no second point
+    ///   above or below water. The TF2 main view passes one origin (`viewrender.cpp:1908`), so one cluster, as here;
+    /// * the mark pass `0x1801ca5f0` returns at once when that list is the one it last marked (`0x1801ca6c8`); otherwise
+    ///   it increments `r_visframecount` (`0x1801ca6d5`, `[0x1807784b4]`);
     /// * any view cluster of −1, or `r_novis`, stamps every leaf and every node (`0x1801caa53`-`0x1801caac8`);
-    /// * otherwise `0x1801cacd0` walks every leaf: one whose cluster is −1 is skipped (`0x1801cadb6`), one whose
-    ///   PVS bit is clear is skipped (`0x1801cadcf`), and the rest are stamped (`0x1801caddd`) and climb their parents,
-    ///   stamping each, until a parent already stamped this count (`0x1801caee0`-`0x1801caffb`). There is NO contents
-    ///   test: a solid leaf in the PVS is stamped and so are the nodes above it.
+    /// * otherwise the eye's PVS row is fetched by `CM_Vis` (`0x18016c8e0`), which fills the row with ONES when the map
+    ///   has no vis data or the cluster is out of range (`0x18016c96a`, `0x18016ca26`-`0x18016ca35`), and
+    ///   `0x1801cacd0` walks every leaf: one whose cluster is −1 is skipped (`0x1801cadb6`), one whose PVS bit is clear
+    ///   is skipped (`0x1801cadcf`), and the rest are stamped (`0x1801caddd`) and climb their parents, stamping each,
+    ///   until a parent already stamped this count (`0x1801caee0`-`0x1801caffb`). There is NO contents test.
+    ///
+    /// **What a compiled map has, so which of these cases are real** (`utils/vbsp`, source-sdk-2013): every SOLID world
+    /// leaf gets cluster −1 (`prtfile.cpp:185-187`) and every brush-model leaf does too (`writebsp.cpp:128-139`); every
+    /// non-solid world leaf is numbered (`prtfile.cpp:190`). So on a real map a solid leaf is never stamped from a
+    /// cluster, and the leaves the cluster −1 skip drops are ones the world walk never reaches. The solid-leaf-in-the-PVS
+    /// case is synthetic only.
     ///
     /// **So the two eye cases walk different NODES.** From an eye in no cluster every node is stamped and a subtree of
-    /// only solid leaves is still entered; from a real cluster such a subtree is entered only when one of its leaves
-    /// has a cluster in the PVS. The listed leaves follow the walk, which returns on a solid leaf at entry. The node
-    /// steps draw nothing extra on a well-formed tree: <see cref="VisibleWorld.Surfaces"/> draws a node face only once a
-    /// listed leaf has marked it, and those leaves lie under that node (checked on cp_process and cp_badlands, many
-    /// eyes, `Surfaces_ForAPvsPrunedWalk_AreTheUnprunedWalksInTheSameOrder`).
+    /// only solid leaves is still entered; from a real cluster it is not. The listed leaves follow the walk, which
+    /// returns on a solid leaf at entry. The node steps draw nothing extra on a well-formed tree:
+    /// <see cref="VisibleWorld.Surfaces"/> draws a node face only once a listed leaf has marked it, and those leaves lie
+    /// under that node (checked on cp_process and cp_badlands, many eyes,
+    /// `Surfaces_ForAPvsPrunedWalk_AreTheUnprunedWalksInTheSameOrder`).
     ///
-    /// **Ours, one reading kept:** a map with no vis lump stamps everything, since no data is not proof of
-    /// invisibility. A child index past the leaf lump, which the old walk listed and
-    /// <see cref="VisibleWorld.Surfaces"/> then indexed out of range, is never listed.
+    /// **A map with no vis lump** is the all-ones row: every clustered leaf stamped, cluster −1 still skipped. A child
+    /// index past the leaf lump, which the old walk listed and <see cref="VisibleWorld.Surfaces"/> then indexed out of
+    /// range, is never listed (ours, malformed trees only).
     ///
     /// **Made again only when the eye changes cluster**, as the engine's own early return does. The cluster is
     /// recorded only once the stamps are complete, so a PVS row that throws mid-way is re-marked next call.
@@ -199,7 +215,7 @@ public sealed class WorldVisibility
         _markedCluster = int.MinValue;
         _visFrame++;
 
-        if (!_pvs.HasData || from < 0)
+        if (from < 0)
         {
             Array.Fill(_nodeVisFrame, _visFrame);
             Array.Fill(_leafVisFrame, _visFrame);
@@ -210,10 +226,10 @@ public sealed class WorldVisibility
         for (int leaf = 0; leaf < _leafVisFrame.Length; leaf++)
         {
             // No contents test (a solid leaf in the PVS is stamped too; the walk returns on it at entry), and a leaf
-            // with no cluster is skipped — `0x1801cadb6`.
+            // with no cluster is skipped — `0x1801cadb6`. No vis data is `CM_Vis`'s all-ones row.
             int cluster = _tree.Cluster(leaf);
 
-            if (cluster < 0 || !_pvs.Visible(from, cluster))
+            if (cluster < 0 || (_pvs.HasData && !_pvs.Visible(from, cluster)))
             {
                 continue;
             }
@@ -325,8 +341,10 @@ public sealed class WorldVisibility
 
         Descend(children.Near, x, y, z, frustum, depth + 1);
 
-        // **The node's own surfaces between its children** — `R_RecursiveWorldNode`, engine.dll 0x1800e0600 (B457).
-        // Its side is the engine's own test, `dot − dist < 0`, which puts a point ON the plane in front.
+        // **The node's own surfaces between its children** — `R_RecursiveWorldNode`, engine.dll `0x1800e1800` in the
+        // build installed 2026-10-07 (`0x1800e0600` in the build B457 read): near child at `0x1800e1915`, the node's
+        // surfaces `0x1800e191a`-`0x1800e198e`, then the far child. Its side is the engine's own test, `dot − dist < 0`
+        // (`0x1800e18fd`-`0x1800e190a`), which puts a point ON the plane in front.
         _walk.Add(new WorldWalkStep(node, IsNode: true, EyeBehind: side - split.Distance < 0f));
 
         Descend(children.Far, x, y, z, frustum, depth + 1);
@@ -338,9 +356,9 @@ public sealed class WorldVisibility
     /// <remarks>
     /// **The PVS answer is the leaf's stamp from <see cref="MarkLeaves"/>**, which holds its rules: from a real
     /// cluster a leaf with no cluster is NOT stamped (engine.dll `0x1801cadb6` — `vrad`'s `PVSCheck` treats one as
-    /// visible, but that is the lighting compiler's rule, not the renderer's), and a map with NO vis lump gets no PVS
-    /// filtering, which is not the same as an empty PVS. `BspVisibility.None` answers false to every query, so testing
-    /// it without the `HasData` guard culls the entire world. No data is not proof of invisibility.
+    /// visible, but that is the lighting compiler's rule, not the renderer's), and a map with NO vis lump is the
+    /// engine's all-ones row (`0x18016ca26`), which is not the same as an empty PVS. `BspVisibility.None` answers false
+    /// to every query, so testing it without the `HasData` guard culls the entire world.
     ///
     /// **The leaf's box is tested even when the PVS kept it**, because the two answer different
     /// questions: the PVS says what could ever be seen from here, the frustum says what is on screen
