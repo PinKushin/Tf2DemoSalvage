@@ -67,3 +67,21 @@ invalid.
 The task assumed a dedicated server install, but `F:\tf2ds\windows\steamapps` is empty and the TF2 install ships no
 srcds. So every variant is a **listen server** in the running client, `+maxplayers 32`, on pl_pier with bots filling to
 23 players. Installing srcds (steamcmd app 232250) is a download. It was not done; it is a decision for the lead.
+
+## Interim, after the first eight recordings (written before the second round)
+
+**The H5 prediction failed.** A on a loopback listen server reproduces the user's signature. Three runs show it: A2 at 69%
+delta-1, B1 at 58% and C1 at 62%. Each has stamp steps of 0 and 2 under a server step of 1, and the dominant
+`stamp − net_Tick` cluster is split between two adjacent values. So no network path is needed. The jitter that the
+stamp's rounding turns into 0/2 steps can be the host's own frame on loopback.
+
+**The validity check was wrong too.** It expected a host frame of ~15 ms. The `net_tick` frametime means are 6.6 to
+8.0 ms, which is ~130 to 150 fps rather than 400, with spikes of 140 to 410 ms. Those spikes are the 12 to 29 tick steps.
+The corrected criterion is a frame well under a tick, and every recording passes it.
+
+**New prediction, registered before recording again.** A recording's share of non-1 steps follows how its dominant offset
+cluster splits between two adjacent values. No setting moves that split. The second round is interleaved E, B, E, B, E:
+three more E at stock plus `cl_updaterate`/`cl_cmdrate` 66, and two more B. The verdict rule, fixed now:
+- If any E reads at or below ~70%, the client settings are not the cause.
+- If every E stays at or above 88% while every B stays at or below 62%, that is a setting effect left unexplained, and it
+  will be reported as one.
