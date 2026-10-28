@@ -80,3 +80,97 @@ first five reported apart (first-use builds, the miss path, `a-split-carries-its
 - `HudChat` present and non-zero in the before runs (the instrument sees the subject).
 - The per-second phase sums equal the frame to within 0.1 ms (no untimed residual).
 - Runs of one build agree within 15% on `hud paint`, else the spread is stated and no difference claimed.
+
+## Environment
+
+RTX 3060, i5-10600K, 2026-10-27 20:21-23:55. Release builds: A = `a706d1e4` (main's code) built from a `git archive` at
+`D:/measure-f12/evb-before-src`, copied to `D:/measure-f12/evb-before`; B = `373b8e7b`'s code (this branch) copied to
+`D:/measure-f12/evb-after`. `mat_queue_mode` default. Scripts and raw output beside this file:
+`2026-10-27-empty-view-breakdown/` — `run.ps1` (one gated run), `all.ps1` (the order), `read.ps1` (the parse), `NN-X.txt`.
+
+Load before / after each run (3 × 1 s, %), every run passed the gate before starting:
+
+| run | before | after | | run | before | after |
+|---|---|---|---|---|---|---|
+| 01-A | 3 13 6 | 14 7 8 | | 05-B | 15 17 13 | 48 32 34 |
+| 02-B | 19 6 3 | 91 94 100 | | 06-A | 7 14 6 | 14 4 7 |
+| 03-B | 12 12 12 | 30 18 22 | | 07-A | 4 6 6 | 11 15 17 |
+| 04-A | 2 4 11 | 55 74 100 | | 08-B | 21 17 22 | 41 42 28 |
+| fp-A | 6 9 2 | 24 19 19 | | fp-B | 7 8 3 | 4 93 79 |
+
+The high after-reads are another agent's work starting as a run ended (the B607 agent's `-Shared` builds and tests); a
+run's phases do not move with them (02-B and 04-A sit inside their build's range on every phase), so none is voided.
+
+**Deviations from the plan.** (1) The gate stalled 20:55-21:47: it counted another agent's idle MSBuild worker nodes
+(`/nodemode:1`, `nodeReuse:true`) as busy while load was under 25%. Worker nodes are now excluded (the driving `dotnet`
+process and the load samples still gate); the plan resumed at 03. (2) The first two `--shot`s ran under autoplay and
+landed at ticks 33355 and 33178; they were retaken PAUSED at tick 30000 (`shot-A2`, `shot-B2`, control `shot-A3`).
+
+## Result
+
+**Controls.** Every empty run ended at tick 31347-31348 (~1,347 ticks over 20 s). Every moment line reads `posed 0 of
+1,852-1,888`, and the paused shot is a flat surface with the HUD only — the view is empty. `HudChat` is non-zero in every
+A run. The steady per-second phases sum to the frame within rounding (`unaccounted 0`). Runs of one build agree on
+`hud paint` within 15% except 01-A (0.62 against 0.46-0.51), the first run of the session; it is kept and the range shown.
+
+**The table: means of the four runs of each build** (range in brackets), steady per-second lines after the first five,
+frame-weighted; **%** of that run's `measured … mean`; **first use** = the first five lines (the miss path: archives,
+JIT, first builds), frame-weighted. Nesting as in the Observation; nested rows are never added to their parent.
+
+| pass | A (main) ms | A % | B (fix) ms | B % | first use A / B |
+|---|---|---|---|---|---|
+| **frame mean** (whole window) | **4.28** (3.88-5.16) | | **3.71** (3.32-4.04) | | |
+| `camera` | 2.15 (1.83-2.89) | 49.9 | 2.16 (1.83-2.49) | 58.0 | 3.42 / 3.11 |
+| ↳ `camera pose` (the moment's pose) | 0.59 | 14.0 | 0.58 | 15.6 | 0.71 / 0.67 |
+| ↳ `camera particles` | 1.52 (1.28-2.12) | 35.1 | 1.55 (1.27-1.84) | 41.5 | 2.69 / 2.42 |
+| ↳↳ `decals` | 0.17 | 3.9 | 0.14 | 3.9 | 0.35 / 0.28 |
+| ↳↳ `bursts` | 0.82 (0.65-1.25) | 18.7 | 0.89 (0.65-1.13) | 23.8 | 1.07 / 1.02 |
+| ↳↳↳ `bursts/step` | 0.32 (0.19-0.69) | 7.1 | 0.41 (0.20-0.63) | 10.9 | 0.30 / 0.28 |
+| ↳↳↳ `bursts/muzzles` | 0.22 | 5.2 | 0.22 | 5.8 | 0.27 / 0.26 |
+| ↳↳↳ `bursts/dispatches` | 0.16 | 3.7 | 0.15 | 4.1 | 0.32 / 0.30 |
+| ↳↳ `build` | 0.33 | 7.7 | 0.31 | 8.5 | 0.83 / 0.73 |
+| ↳ `camera wait` | 0.02 | 0.3 | 0.02 | 0.5 | 0 / 0 |
+| `hud` | **0.68** (0.61-0.81) | 15.9 | **0.27** (0.25-0.30) | 7.3 | 1.04 / 0.38 |
+| ↳ `hud frame` | 0.60 | 14.0 | 0.22 | 5.8 | 0.93 / 0.32 |
+| ↳↳ `hud paint` | 0.52 (0.46-0.62) | 12.1 | 0.14 (0.13-0.15) | 3.8 | 0.82 / 0.22 |
+| ↳↳↳ `HudChat` | **0.33** (0.29-0.39) | 7.7 | **0.011** (0.011-0.012) | 0.3 | 0.54 / 0.05 |
+| ↳↳↳ `specgui` | 0.15 | 3.4 | 0.09 | 2.5 | 0.20 / 0.11 |
+| ↳↳ `hud layout` | 0.06 | 1.5 | 0.06 | 1.6 | 0.08 / 0.07 |
+| ↳ `hud tools` | 0.04 | 0.9 | 0.01 | 0.3 | 0.05 / 0.02 |
+| `advance` | 0.62 (0.55-0.72) | 14.6 | 0.59 (0.55-0.65) | 15.9 | 0.82 / 0.71 |
+| `sound` | 0.11 | 2.6 | 0.11 | 3.0 | 0.15 / 0.12 |
+| `draw` (the hand-off; mode 2) | 0.00 | 0 | 0.00 | 0 | |
+| `between` (whole window) | 0.24-0.35 | | 0.23-0.29 | | |
+
+Moment lines (mean of 15-17 rebuilds a run, both builds alike): sample 0.31-0.40, drawlist 0.18-0.22, models 0.01-0.05,
+pose 0.56-0.72 = simulate 0.32-0.42 + collate 0.20-0.26. gc 0.10-0.14 ms a frame, 0.53-0.61 MB allocated a frame.
+
+**First person, one run per build** (`--spectate gummo --first-person`; posed 14-50 of ~1,870, so NOT an empty view):
+
+| | frame | camera | camera pose | camera particles | hud | hud paint | HudChat |
+|---|---|---|---|---|---|---|---|
+| fp-A | 8.04 | 5.42 | 2.91 | 1.46 | 0.64 (8.0%) | 0.47 | 0.29 |
+| fp-B | 8.86 | 6.77 | 3.21 | 2.31 | 0.33 (3.7%) | 0.15 | 0.011 |
+
+One run each, so no frame or camera difference is claimed: fp-B's `bursts/step` is 0.85 against 0.21, the same
+burst-step spread the empty runs show (0.19-0.69 within build A alone).
+
+**Identity.** Paused at tick 30000: A2 against B2 differ in 49 pixels, all inside (1101,2)-(1119,10), the digits of the
+frame-time overlay (`cl_showfps 2`), which reads each build's own frame time. The control, A2 against A3 of the SAME build,
+differs in 53,167 pixels: A3 loaded fast enough that the chat history had not faded yet. **The chat fades on the wall clock**
+(`hud_saytext_time`, `CHAT_HISTORY_IDLE_FADE_TIME`), so a shot of the HUD is not deterministic between runs; A2 and B2
+happened to land in the same fade state. The world is identical in all three. That is as far as pixel identity goes here.
+
+## Verdict
+
+**The font-handle check was the HUD's empty-view cost.** `HudChat` falls from 0.29-0.39 ms to 0.011 ms in every run, `hud`
+from 0.61-0.81 ms (15.9% of the frame) to 0.25-0.30 ms (7.3%) — 0.41 ms a frame, outside both builds' spreads — and the
+first-person view shows the same 0.31 ms. The frame mean falls 4.28 → 3.71 ms on average, but the ranges overlap
+(3.88-5.16 against 3.32-4.04), so only the HUD's part of it is claimed.
+
+**What the empty view costs now, and whose it is:** camera 2.16 ms (58%), of which particles 1.55 (bursts 0.89, build
+0.31, decals 0.14) and the pose 0.58; advance 0.59 (sample, drawlist, models); hud 0.27; sound 0.11; between ~0.26. The
+particle step and build are the engine's shape (an effect updates until it sleeps; every live effect's box is checked
+each frame) and are recorded, not changed; the muzzles and dispatches offers are B577's; sample, drawlist and collate are
+B259's. **Nothing in this record makes 3.7 ms "basically infinite"**: the remaining floor is the particles' per-effect
+work and B259's per-entity walks, each audited above.

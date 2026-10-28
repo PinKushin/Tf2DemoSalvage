@@ -19708,6 +19708,11 @@ engine (`f61c7602`, `simulate` 0.5-0.6 → 0.3-0.4 ms; `measurements/2026-10-23-
 does for every entity too. **Still open:** `sample`, `drawlist` and `collate` walk every entity (~230 on f12), not only
 those that changed; together about 0.6 ms.
 
+**2026-10-27, the whole empty view re-measured** (`measurements/2026-10-27-empty-view-breakdown.md`, eight runs, Release):
+frame 3.32-4.04 ms after B608 removed 0.41 ms of HUD (measurements/2026-10-27-empty-view-breakdown.md). Moment: sample 0.31-0.40, drawlist 0.18-0.22, collate 0.20-0.26 —
+this entry's open walks are unchanged. The larger share of the floor is now `camera particles` (1.55 ms, 42%; same record), whose step
+and build are the engine's shape (audited in that record).
+
 ## B260 — why we do not get Valve's performance "doing it the way they do" — OPEN
 
 **The owner's question, and it is the right one:** *"we should be copying valve, why cant we gets
@@ -40067,6 +40072,25 @@ reddens four tests), and a child's drawn size against its own scale alone.
   (then the engine draws them there too) or the handle fails to resolve here. **Not answerable yet**: the map
   `pl_badwater_pro_v12.bsp` is not on this machine (not under the game's `tf/maps`, `tf/download/maps`, `tf2ds`, or the
   user profile), so its `parentname` cannot be read, and no sampled tick gives them a parent.
+
+## B608 — a font handle's validity was a scan of every handle, per character — FIXED (2026-10-27)
+
+**Evidence class: read from disassembly, and measured.** `CFontManager::GetCharABCwide` (vguimatsurface.dll
+`0x180016a70`) checks a handle with `TEST EDX,EDX; JS` and `CMP EDX,[RCX+0x10]; JGE` — a bounds check against the amalgam
+count — then indexes `handle * 72`. `VguiFontManager` held its handles in a `List` and asked `List.Contains` in
+`GetCharAbcWide`, `GetCharacterWidth` (twice) and `GetFontTall`; `VguiRichText.DrawString` and `VguiDrawList.DrawPrintText`
+make those calls per character, and each scheme load makes two handles per font. **Same answers, different mechanism**:
+now a reference-keyed `HashSet` (`373b8e7b`), pinned by `VguiFontManagerConformanceTests` (a foreign handle, a handle from
+before `ClearAllFonts`; a sabotage that accepts any handle reddens both).
+
+**Measured** (`measurements/2026-10-27-empty-view-breakdown.md`, f12 empty view, eight runs ABBA BAAB): `HudChat`
+0.29-0.39 → 0.011 ms; `hud` 0.61-0.81 → 0.25-0.30 ms, 15.9% → 7.3% of the frame; first person the same 0.31 ms
+(measurements/2026-10-27-empty-view-breakdown.md). Nothing
+visible changes: the paused shots differ only in the frame-time overlay's digits.
+
+**What it does not close** (measurements/2026-10-27-empty-view-breakdown.md): the rest of the empty view's 3.7 ms — particles 1.55 (engine-shaped), B577's
+offers and B259's walks. And one ours-not-the-engine's left as it was: an engine handle is an index, so a stale one below
+the new count would name a new font; ours names nothing.
 
 ## B607 — a static prop's draw-time lighting did more per frame than the engine's handle — PARTLY FIXED (2026-10-27)
 

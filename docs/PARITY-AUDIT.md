@@ -1573,3 +1573,19 @@ path**: elements are matched to bones BY NAME at build time, which is what `Ragd
 too, and `RagdollGetBoneMatrix` walks the inverse direction. What needs `physicsbone` is a TRACE
 against a corpse — a sticky bolt pinned into a body, a decal on a limb — none of which this project
 draws. **Not a divergence, an unimplemented feature**, and this audit ranks by what we already draw.
+
+## The empty view, pass by pass, audited 2026-10-27 (B608)
+
+The full per-pass table — what the engine does with nothing on screen against what we do, each row cited and classed —
+is in `measurements/2026-10-27-empty-view-breakdown.md`; it is not restated here. The one divergence it found:
+
+**A font handle's validity check: a bounds check in the engine, a scan of every handle in ours (B608, FIXED).**
+`CFontManager::GetCharABCwide`, vguimatsurface.dll `0x180016a70`: `TEST EDX,EDX; JS` / `CMP EDX,[RCX+0x10]; JGE`, then
+`handle * 72`. Ours asked `List.Contains` over two handles per scheme font, on calls made per character by `RichText` and
+`DrawPrintText`. Invisible when wrong (same answers); visible only as HUD time (measurements/2026-10-27-empty-view-breakdown.md).
+Evidence: read (disassembly) and measured. **Not established:** whether the engine's stale-index behaviour (a handle below
+the new count names a new font after a reload) is ever exercised; ours keeps object identity and answers zeros.
+
+The rest of the empty view was read as the engine's shape and recorded there: `RichText::Paint` measures every visible
+character even at alpha 0 (vgui_controls/RichText.cpp:610-665, 714-), the particle manager updates every live effect until
+it sleeps (particlemgr.cpp:1766-1848) and checks every live effect's box (particles_new.cpp:370-404).
