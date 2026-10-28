@@ -41,12 +41,13 @@ public sealed class DemoPlayer
     /// </remarks>
     private const int HostTickCount = int.MaxValue;
 
-    /// <summary>How far, in seconds either side, <see cref="ServerTimed"/> looks for a packet's usual arrival delay.</summary>
+    /// <summary>How many PACKETS either side <see cref="ServerTimed"/> looks for a packet's usual arrival delay.</summary>
     /// <remarks>
-    /// Long enough that the delay most packets arrive with is the most common one in it (71% of the subject's,
-    /// finding 106), short enough to follow a drift between the two machines' clocks over a long match.
+    /// A count, not a time: about 5 s at the 65 packets a second the measured POV demos arrive at, and 16 s at
+    /// <c>cl_updaterate 20</c>. Long enough that the delay most packets arrive with is the most common one in it (71% of
+    /// the subject's, finding 106), short enough to follow a drift between the two machines' clocks over a long match.
     /// </remarks>
-    private const double ServerTimedWindowSeconds = 5d;
+    private const int ServerTimedWindowPackets = 333;
 
     private readonly IReadOnlyList<DemoViewCommand> _commands;
 
@@ -137,13 +138,17 @@ public sealed class DemoPlayer
             _stamped[index] = _commands[index].Tick;
         }
 
-        _serverTimed = ServerTimed(_commands, (int)Math.Round(ServerTimedWindowSeconds / _interval));
+        _serverTimed = ServerTimed(_commands, ServerTimedWindowPackets);
     }
 
     /// <summary>Each command's tick on the server's clock: what <c>demo_retimeview</c> interpolates the origin by (D238).</summary>
     /// <param name="commands">The view commands, in stream order.</param>
     /// <param name="window">How many packets either side the usual arrival delay is taken over.</param>
-    /// <returns>One tick per command; the stamp for every command that cannot be placed.</returns>
+    /// <returns>
+    /// One tick per command. One that cannot be placed starts at its stamp, and like every packet is then raised to the
+    /// latest earlier packet's tick when that is later — so a fallback can sit above its own stamp, never before an
+    /// earlier packet.
+    /// </returns>
     /// <remarks>
     /// **Why there is a second clock at all** (finding 106). A multiplayer recording stamps each <c>dem_packet</c> with
     /// <c>CDemoRecorder::GetRecordingTick</c> (<c>0x180071f80</c>): <c>TIME_TO_TICKS( net_time ) - m_nStartTick</c>, the
@@ -159,10 +164,11 @@ public sealed class DemoPlayer
     /// stamps are regular every delay is that one and the tick IS the stamp, bit for bit; a packet that arrived late by a
     /// tick moves back by one.
     ///
-    /// **Two guards, and both fall back to the stamp rather than invent a time.** A placement more than
-    /// <see cref="ParseAheadTicks"/> from the stamp is not arrival jitter (a stall, a server tick that jumped) and keeps
-    /// its stamp — the parse-ahead window is all the reader would queue past it. And no tick is ever placed before an
-    /// earlier packet's while the stamps do not step back: it is raised to it, so a pair never reorders. Where the stamps
+    /// **Two guards, and neither invents a time.** A placement more than <see cref="ParseAheadTicks"/> from the stamp is
+    /// not arrival jitter (a stall, a server tick that jumped) and starts from its stamp — the parse-ahead window is all
+    /// the reader would queue past it. And no tick is ever placed before an earlier packet's while the stamps do not step
+    /// back: it is raised to it, so a pair never reorders — which can lift a fallback, or a packet with no
+    /// <c>net_Tick</c>, above its own stamp when the packet before it was placed after its own. Where the stamps
     /// do step back the engine's own queue clears, and so does this guard.
     /// </remarks>
     internal static int[] ServerTimed(IReadOnlyList<DemoViewCommand> commands, int window)
@@ -480,6 +486,16 @@ public sealed class DemoPlayer
         // than the parse-ahead, its successor is queued only once it is read. The origin holds that last placed packet
         // until then — the stamp's pair would put it back behind where the server's had already shown it. Both ends at
         // -1 is the search finding nothing; a real pair has next > prev.
+        // **Around a cut the origin follows the engine's pair** (Fable review of 4c4b247b). A cut placed a tick before its
+        // stamp is crossed on the server's axis a frame before the angles cross it on the stamp's, so the origin would cut
+        // first and then hold. Any server-axis pair that took the cut branch, or has a cut packet at either end, is
+        // replaced by the stamp's: every frame a cut touches is the engine's.
+        if (retimed && (origins.Cut || origins.Prev.View.IsCut || origins.Next.View.IsCut))
+        {
+            retimed = false;
+            origins = angles;
+        }
+
         bool serverAxis = retimed;
 
         if (retimed && origins.Prev.Tick == -1 && origins.Next.Tick == -1)

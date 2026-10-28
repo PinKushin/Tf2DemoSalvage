@@ -133,6 +133,29 @@ held the camera before the change and is the line after it
 The subject and 2013 rows of the table were measured after the change and match the first run to the digit; rgl's were
 measured again.
 
+**After the Fable review of `4c4b247b`.** Two changes:
+- A server-axis pair that touches an `FDEMO_NOINTERP` packet now takes the engine's pair. Before, a cut placed a tick early
+  cut the origin a frame before the angles, then held it.
+- The window is named as the packet count it always was, 333 either side.
+
+Rerun on all three demos, the subject, 2013 and rgl rows above are unchanged to the printed digit, off and on.
+
+**Whether the world carries the stamp's jitter** (the review's question). The probe's world-pacing section reads every
+other player's origin from `DemoTimeline.PlayerAt` per frame. It is independent of the setting and groups them by the
+camera's packet classes. On the subject, 16 other players (the recorder is excluded), speed over local median:
+
+| class | other players | camera, off |
+|---|---|---|
+| step 1, stamp not shared | 1.068 (n 24386) | 1.111 |
+| step 1, shared | 1.116 (n 6716) | **2.610** |
+| step 2, not shared | 1.095 (n 14436) | **0.786** |
+| step 2, shared | 1.142 (n 7716) | 1.834 |
+
+The world does not show the camera's pattern; its entities interpolate on their own changetimes (B273). rgl's first 20,000
+frames do not show it either (1.72, 1.30 for step 1 alone and shared). Each player still paces unevenly on his own: CV
+0.46–2.3 on the subject, and the recorder's networked track 0.66. That is uncorrelated with the stamp and not examined
+here.
+
 ## Verdict
 
 Retiming the origin by the server tick removes the arrival-stamp unevenness. On a smooth line carrying each subject's own

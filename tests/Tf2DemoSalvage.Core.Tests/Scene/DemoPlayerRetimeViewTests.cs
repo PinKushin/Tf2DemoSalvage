@@ -128,24 +128,28 @@ public sealed class DemoPlayerRetimeViewTests
     }
 
     [Test]
-    public void InterpolateViewpoint_CrossingANoInterpPacket_IsTheEnginesFrameOnAndOff()
+    public void InterpolateViewpoint_EveryFrameANoInterpPacketTouches_IsTheEnginesOnAndOff()
     {
         // The cut is late packet 33: stamped 134, server-timed 133. The engine crosses it at 134.5 and shows it there
-        // (the pair ending at it, fraction clamped to one); with the origin paired on its own axis alone, that frame
-        // would already be past it, blending 1034 to 1035.
+        // (the pair ending at it, fraction clamped to one). On the server's axis alone the origin would cross it a
+        // frame early, at 133.5, and then hold it; with the origin paired on its own axis after the stamp's cut, 134.5
+        // would already be past it. Every frame the cut touches must be the engine's.
         byte[] demo = Jittered(cutAt: 33);
         DemoPlayer on = Player(demo, On);
         DemoPlayer off = Player(demo, Off);
 
-        foreach (double tick in new[] { 132.5, 133.5 })
+        double[] ticks = [131.5, 132.5, 133.5, 134.5, 135.5];
+        RecordedView?[] frames = new RecordedView?[ticks.Length];
+
+        for (int at = 0; at < ticks.Length; at++)
         {
-            on.InterpolateViewpoint(tick);
-            off.InterpolateViewpoint(tick);
+            frames[at] = on.InterpolateViewpoint(ticks[at]);
+            frames[at].ShouldBe(off.InterpolateViewpoint(ticks[at]), $"tick {ticks[at]}");
         }
 
-        RecordedView? crossing = on.InterpolateViewpoint(134.5);
+        RecordedView? crossing = frames[3];
 
-        crossing.ShouldBe(off.InterpolateViewpoint(134.5));
+        // The control: the frame that crosses the cut shows the cut packet itself.
         crossing.ShouldNotBeNull().Origin.X.ShouldBe(4f * 1033f, Tolerance);
     }
 
@@ -230,7 +234,7 @@ public sealed class DemoPlayerRetimeViewTests
     }
 
     [Test]
-    public void ServerTimed_APacketWithoutANetTick_KeepsItsStampAndSplitsTheRun()
+    public void ServerTimed_APacketWithoutANetTick_StartsFromItsStampAndSplitsTheRun()
     {
         List<DemoViewCommand> commands = [.. Enumerable.Range(0, 30).Select(k => View(100 + k + (k == 10 ? 1 : 0), k == 15 ? null : 1000 + k))];
 
@@ -258,7 +262,7 @@ public sealed class DemoPlayerRetimeViewTests
     }
 
     [Test]
-    public void ServerTimed_APlacementFurtherThanTheParseAheadFromItsStamp_KeepsItsStamp()
+    public void ServerTimed_APlacementFurtherThanTheParseAheadFromItsStamp_FallsBackAndIsNeverPlacedBeforeTheOneBefore()
     {
         // A stall: packets 10-29 all arrived at stamp 130, then the client caught up. Packet 10's placement, 110, is 20
         // before its stamp, past the 8 the reader queues, so it keeps 130; the burst's later ones come within 8 and are

@@ -11165,14 +11165,28 @@ multiplayer recording's packets with `TIME_TO_TICKS( net_time ) - m_nStartTick`,
 the packet. `CDemoPlayer::InterpolateViewpoint` (`0x180072180`) pairs the recorded views on that stamp, so network
 jitter (two packets in one tick, none in the next) becomes uneven camera speed. Every packet also carries the server's
 own tick (`net_Tick`), and the recorded origins follow it. With `demo_retimeview 1` the ORIGIN alone is paired on that
-server tick instead, placed on the stamp's axis by the delay most packets arrive with (`DemoPlayer.ServerTimed`). The
-view angles stay on the stamp, because the recorder writes them from `cl.viewangles`, the client's clock. Reading, the
-parse-ahead, the rewind, the snaps' current view and the cut frames are unchanged.
+server tick instead, placed on the stamp's axis by the delay most packets arrive with over the 333 packets either side
+(`DemoPlayer.ServerTimed`; about 5 s at 65 packets a second). The view angles stay on the stamp, because the recorder
+writes them from `cl.viewangles`, the client's clock. Reading, the parse-ahead, the rewind and the snaps' current view are
+unchanged. Every frame whose origin pair touches an `FDEMO_NOINTERP` packet takes the engine's pair, so cut frames are
+the engine's. That held only from the Fable review of `4c4b247b`: before it, a cut placed a tick early cut the origin a
+frame before the angles and then held it.
 
 **How to switch it off.** `demo_retimeview 0` in a config or at the console gives the engine's answer bit for bit
 (`DemoRecordingStampConformanceTests`). The name is ours (D79 rule 2); `cvarlist.log` has no such ConVar. Wherever a
 packet carries no `net_Tick`, or its placement would be more than the parse-ahead's 8 ticks from its stamp, the stamp is
 used, so old demos, SourceTV demos and clock steps fall back to the engine.
+
+**What it does not need to fix: the world.** Every other entity's origin is interpolated by its changetime, the
+entity's own `m_flSimulationTime` (`ScenePropTrack._appliedAt`, B273), not by its packet's stamp. In this port that
+changetime reaches the stamp axis through the packet, as a server-axis lag applied to the demo tick. So whether the
+world carries the jitter was measured rather than assumed, with the probe's world-pacing section on the subject. Every
+other player's drawn origin from `DemoTimeline.PlayerAt` was grouped by the camera's packet classes. Their speed over
+the local median is 1.07 / 1.12 / 1.10 / 1.14 after a lone stamp, a shared stamp, a step of 2 and a shared step of 2.
+The camera with the setting off reads 1.11 / 2.61 / 0.79 / 1.83 over the same classes. So the world is not on the
+stamp's jitter, and with the setting on the camera and the world now share the server's clock. Those players still pace
+unevenly (CV 0.46–2.3 each), uncorrelated with the stamp: their own motion or their own clients' upstream jitter. That
+is not examined here. The recorder's body follows the view it is placed from, so it moves with the camera.
 
 **The open question, as the owner's rule asks.** Why does Valve not do this? *Interpolated:* nobody needed it. The
 SourceTV recorder stamps with the server's own `host_tickcount` (`0x18019baa0`), and the single-player branch uses a

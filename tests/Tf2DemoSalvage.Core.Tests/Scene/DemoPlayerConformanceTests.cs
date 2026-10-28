@@ -29,6 +29,9 @@ public sealed class DemoPlayerConformanceTests
 {
     private const float Tolerance = 1e-3f;
 
+    /// <summary>The registrations' defaults with <c>demo_retimeview 0</c>: this suite is the engine's, and the addition is not (D238).</summary>
+    private static readonly DemoViewConVars Engine = DemoViewConVars.Defaults with { RetimeView = false };
+
     [Test]
     public void InterpolateViewpoint_BeforeAnyViewIsRead_IsNull()
     {
@@ -185,7 +188,7 @@ public sealed class DemoPlayerConformanceTests
     [Test]
     public void InterpolateViewpoint_WithDemoInterpolateViewOff_UsesTheCurrentView()
     {
-        DemoPlayer player = Player(Line(), DemoViewConVars.Defaults with { InterpolateView = false });
+        DemoPlayer player = Player(Line(), Engine with { InterpolateView = false });
 
         player.InterpolateViewpoint(105.5).ShouldNotBeNull().Origin.X.ShouldBe(420f, Tolerance);
     }
@@ -197,12 +200,12 @@ public sealed class DemoPlayerConformanceTests
     [Test]
     public void InterpolateViewpoint_DemoInterpolateViewChangedWhilePlaying_AppliesOnTheNextCall()
     {
-        DemoViewConVars vars = DemoViewConVars.Defaults with { InterpolateView = false };
+        DemoViewConVars vars = Engine with { InterpolateView = false };
         DemoPlayer player = new(DemoTimeline.Build(Line())) { ConVars = () => vars };
 
         player.InterpolateViewpoint(105.5).ShouldNotBeNull().Origin.X.ShouldBe(420f, Tolerance);
 
-        vars = DemoViewConVars.Defaults;
+        vars = Engine;
 
         player.InterpolateViewpoint(106.5).ShouldNotBeNull().Origin.X.ShouldBe(426f, Tolerance);
     }
@@ -253,7 +256,7 @@ public sealed class DemoPlayerConformanceTests
     [Test]
     public void InterpolateViewpoint_OnASinglePlayerServerWithoutLegacyRollback_RollsBackOneTick()
     {
-        DemoPlayer player = Player(Line(maxPlayers: 1), DemoViewConVars.Defaults with { LegacyRollback = false });
+        DemoPlayer player = Player(Line(maxPlayers: 1), Engine with { LegacyRollback = false });
 
         player.InterpolateViewpoint(120.5).ShouldNotBeNull().Origin.X.ShouldBe(478f, Tolerance);
     }
@@ -554,5 +557,5 @@ public sealed class DemoPlayerConformanceTests
     ]);
 
     internal static DemoPlayer Player(byte[] demo, DemoViewConVars? conVars = null) =>
-        new(DemoTimeline.Build(demo)) { ConVars = () => conVars ?? DemoViewConVars.Defaults };
+        new(DemoTimeline.Build(demo)) { ConVars = () => conVars ?? Engine };
 }

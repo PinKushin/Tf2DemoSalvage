@@ -47,7 +47,8 @@ while the packet sat in its queue. Pairing them by the stamp is already right, w
 the snapshot's and follows the server. The two halves of one `democmdinfo_t` run on two clocks.
 
 **The fix, above Valve** (D238). `demo_retimeview 1`, the default, pairs the origin on each packet's `net_Tick`. It is
-placed on the stamp's axis by the delay most packets in a 5-second window arrive with. The angles stay on the stamp. On
+placed on the stamp's axis by the delay most packets arrive with among the 333 packets either side (about 5 s here, at
+65 packets a second; 16 s at `cl_updaterate 20`). The angles stay on the stamp. On
 the subject the origin pacing CV falls from 0.877 to 0.246. A synthetic line carrying the subject's own stamps and
 `net_Tick`s falls from 0.863 to 0.007. So the jitter is gone, and what the subject keeps is its own motion. The engine's
 snap rule had to follow the origin onto the new axis. It measures from the current packet to the pair's end, over the

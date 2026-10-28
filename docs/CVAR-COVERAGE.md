@@ -43,6 +43,7 @@ rather than assumed:
 | `opendemo` | `playdemo` takes a demo NAME; this opens a picker, which the engine has no command for. |
 | `resetspeed` | `demo_timescale 1` would be faithful and was rejected deliberately: this also clears REVERSE, which the engine cannot express (D97). |
 | `texture_quality` | **Provisional — a question, not an answer.** See below. |
+| `demo_retimeview` | An addition above `CDemoPlayer::InterpolateViewpoint`, which has no such step (D238). A ConVar declared in `EngineConVars` rather than a `ViewerSettings` command, so the counts above do not include it. |
 
 **`texture_quality` is the one entry that is unfinished.** Unlike the other seven, Valve DOES ship a
 convar in this area: `mat_picmip`, default `-1`, archived. It is not a rename, because picmip counts
@@ -51,7 +52,7 @@ Recorded as a decision to make rather than carried as a justification.
 
 ## The `demo_` family, which is the one most directly ours
 
-Eighteen entries. **This viewer implements two.**
+Eighteen entries. **This viewer implements six**, and adds one of its own, `demo_retimeview`.
 
 | convar | | note |
 |---|---|---|
@@ -63,10 +64,11 @@ Eighteen entries. **This viewer implements two.**
 | `demo_gototick` | gap | seek to a tick — we seek, under no name |
 | `demo_setendtick` | gap | |
 | `demo_pauseatservertick` | gap | |
-| `demo_interpolateview` | gap | view interpolation during playback |
-| `demo_legacy_rollback` | gap | legacy view interpolation |
-| `demo_avellimit` | gap | angular velocity limit before interpolation gives up |
-| `demo_interplimit` | gap | origin velocity limit, same idea |
+| `demo_interpolateview` | **done** | view interpolation during playback (B56, D190; finding 68) |
+| `demo_legacy_rollback` | **done** | legacy view interpolation rollback (B56) |
+| `demo_avellimit` | **done** | angular velocity limit before interpolation gives up (B56) |
+| `demo_interplimit` | **done** | origin velocity limit, same idea (B56) |
+| `demo_retimeview` | **ours** | not Valve's: the first-person origin paced by the packets' server ticks, default 1; 0 is the engine (D238) |
 | `demo_fastforwardstartspeed` | gap | |
 | `demo_fastforwardfinalspeed` | gap | |
 | `demo_fastforwardramptime` | gap | |

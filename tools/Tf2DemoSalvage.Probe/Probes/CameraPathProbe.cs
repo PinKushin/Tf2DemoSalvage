@@ -120,12 +120,89 @@ public sealed class CameraPathProbe : IProbe
         Report(output, string.Create(CultureInfo.InvariantCulture, $"subject {name}, demo_retimeview 1"), subject, hz, true);
         ServerTicks(output, bytes, [.. subject.ViewCommands.Where(command => command.Type == DemoCommandType.Packet).Select(command => command.View)]);
         Placement(output, subject);
+        WorldPacing(output, subject, hz, stamps[0], stamps[^1]);
 
         (int Placed, int Same, int ChangedNear, int ChangedFar) identity = RetimeIdentity(subject, hz);
         output.WriteLine(string.Create(CultureInfo.InvariantCulture,
             $"camera on vs off: {identity.Placed} packets placed; frames with none near: {identity.Same} identical, " +
             $"{identity.ChangedFar} differing; frames near one: {identity.ChangedNear} differing"));
     }
+
+    /// <summary>
+    /// The world's pacing beside the camera's: every player's origin from <see cref="DemoTimeline.PlayerAt(double, int)"/>, the
+    /// per-entity sampler the moment source reads for a player's networked track, per frame, with the same
+    /// speed-over-local-median measure. The recorder is read on his networked track (not viewed), so none of this
+    /// depends on <c>demo_retimeview</c>; it answers whether the world was ever on the stamp's jitter.
+    /// </summary>
+    /// <remarks>At most <see cref="WorldFrames"/> frames from the first packet: the question is the clock, not the whole match.</remarks>
+    private static void WorldPacing(TextWriter output, DemoTimeline timeline, int hz, int firstTick, int lastTick)
+    {
+        int middle = (firstTick + lastTick) / 2;
+        int[] entities = [.. timeline.PlayersAt(middle).Where(player => player.Team is 2 or 3).Select(player => player.EntityIndex)];
+        Dictionary<int, List<double>> speeds = entities.ToDictionary(entity => entity, _ => new List<double>());
+        Dictionary<int, List<double>> positions = entities.ToDictionary(entity => entity, _ => new List<double>());
+        int[] packets = ViewPackets(timeline);
+        Dictionary<int, ScenePlayer> last = [];
+        double step = 1d / hz / timeline.IntervalPerTick;
+        int frames = 0;
+
+        for (double tick = firstTick + 1; tick < lastTick - 9 && frames < WorldFrames; tick += step, frames++)
+        {
+            foreach (int entity in entities)
+            {
+                if (timeline.PlayerAt(tick, entity) is not { } now)
+                {
+                    last.Remove(entity);
+                    continue;
+                }
+
+                if (last.TryGetValue(entity, out ScenePlayer before))
+                {
+                    speeds[entity].Add(Math.Sqrt(
+                        ((double)now.X - before.X) * (now.X - before.X) + ((double)now.Y - before.Y) * (now.Y - before.Y) +
+                        ((double)now.Z - before.Z) * (now.Z - before.Z)));
+                    positions[entity].Add(tick);
+                }
+
+                last[entity] = now;
+            }
+        }
+
+        output.WriteLine();
+        output.WriteLine(string.Create(CultureInfo.InvariantCulture,
+            $"== the world's pacing, {entities.Length} players on a team at tick {middle}, {frames} frames at {hz} Hz (recorder {timeline.RecorderEntityIndex})"));
+
+        // Every non-recorder moving frame, classed by the packet stamps around it as the camera's are: ~2.6 after a
+        // shared stamp and ~0.8 across a step of 2 would mean the world carries the stamp's jitter too.
+        List<((int Step, int Shared) Class, double Ratio)> classed = [];
+
+        foreach ((int entity, List<double> list) in speeds.OrderBy(pair => pair.Key))
+        {
+            double[] speed = [.. list];
+            double[] median = LocalMedians(speed);
+            int[] moving = [.. Enumerable.Range(0, speed.Length).Where(at => median[at] > Moving)];
+
+            if (entity != timeline.RecorderEntityIndex)
+            {
+                classed.AddRange(moving.Select(at => (ClassOf(positions[entity][at], packets), speed[at] / median[at])));
+            }
+            double[] ratio = [.. moving.Select(at => speed[at] / median[at])];
+            double mean = ratio.Length > 0 ? ratio.Average() : 0d;
+            double sd = ratio.Length > 0 ? Math.Sqrt(ratio.Average(value => (value - mean) * (value - mean))) : 0d;
+
+            output.WriteLine(string.Create(CultureInfo.InvariantCulture,
+                $"  entity {entity}{(entity == timeline.RecorderEntityIndex ? " (recorder, networked)" : string.Empty)}: moving frames {moving.Length}, " +
+                $"speed/local-median CV {(mean > 0 ? sd / mean : 0):0.0000}, >50% off median {moving.Count(at => Math.Abs(speed[at] - median[at]) > 0.5 * median[at])}"));
+        }
+
+        output.WriteLine("  other players by packet class: " + string.Join("; ", classed
+            .GroupBy(sample => sample.Class).Where(group => group.Key.Step <= 3).OrderBy(group => group.Key.Step).ThenBy(group => group.Key.Shared)
+            .Select(group => string.Create(CultureInfo.InvariantCulture,
+                $"step {group.Key.Step}/shared {group.Key.Shared}: n {group.Count()} speed/median {group.Average(sample => sample.Ratio):0.000}"))));
+    }
+
+    /// <summary>The most frames <see cref="WorldPacing"/> samples.</summary>
+    private const int WorldFrames = 20000;
 
     /// <summary>
     /// The production camera (<see cref="SpectatorView.Eye"/> over <see cref="TimelineEyes"/>) with <c>demo_retimeview</c>

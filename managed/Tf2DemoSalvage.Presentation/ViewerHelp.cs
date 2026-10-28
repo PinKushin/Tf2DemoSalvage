@@ -108,6 +108,10 @@ public static class ViewerHelp
                                      cores, as TF2's. Default 1; the picture is the same.
           cl_threaded_bone_setup 1   Pose the players' skeletons ahead of the draw, as TF2's
                                      development switch does. Default 0, as TF2 ships it.
+          demo_retimeview 0          Pace a first-person demo's camera by the packets' arrival
+                                     ticks, as TF2 does. Default 1 (ours, not TF2's): by the
+                                     server's own tick, which removes the stutter a laggy
+                                     connection records.
 
         ENVIRONMENT (scripts, CI and debugging only; nothing a user needs)
           TF2_FOLDER                 A tf folder that beats both cl_game_folder and Steam.
