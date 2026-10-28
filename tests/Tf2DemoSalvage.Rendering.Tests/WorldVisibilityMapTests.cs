@@ -272,7 +272,7 @@ public sealed class WorldVisibilityMapTests
     /// <summary>That pruning the walk by the PVS reaches exactly the surfaces the unpruned walk did, in order.</summary>
     /// <remarks>
     /// **The output-level check on the node prune.** The reference is the walk with no PVS at all, with its PVS-hidden
-    /// leaves removed afterwards by the per-leaf rule the prune replaced (<c>PVSCheck</c>: a negative cluster passes).
+    /// leaves removed afterwards by the engine's per-leaf stamp rule (`0x1801cacd0`: a clustered leaf in the PVS).
     /// That walk still steps through every node the frustum keeps, so it offers each node's surfaces where the pruned
     /// walk never goes. The surfaces <see cref="VisibleWorld.Surfaces"/> reaches from the two must be the same sequence,
     /// because a node surface is drawn only once a listed leaf below it has marked it.
@@ -282,8 +282,11 @@ public sealed class WorldVisibilityMapTests
     /// Each view is also walked by a fresh instance, which must agree step for step with the shared one.
     ///
     /// The controls, per view: the pruned walk never takes more node steps; from the eye in no cluster it IS the open
-    /// walk, step for step; and wherever the open walk entered a node whose two children are both leaves the PVS hides
-    /// (or solid), the pruned walk takes strictly fewer — that node cannot be stamped.
+    /// walk, step for step; and wherever the open walk entered a node whose two children are both leaves the stamp
+    /// rule rejects, the pruned walk takes strictly fewer — that node cannot be stamped.
+    ///
+    /// The run also prints how many non-solid leaves with no cluster the OLD rule listed, which is what aligning the
+    /// cluster −1 rule with the engine removed from the picture.
     /// </remarks>
     /// <param name="mapName">The map.</param>
     [TestCase("cp_process_final")]
@@ -315,14 +318,18 @@ public sealed class WorldVisibilityMapTests
         VisibleWorld prunedWorld = new(world.FaceSpans, tree, leafFaces);
         VisibleWorld openWorld = new(world.FaceSpans, tree, leafFaces);
         (int Views, int PrunedNodes, int OpenNodes, int Surfaces, int MustShrink) total = default;
+        int droppedNoCluster = 0;
+        int noClusterLeaves = Enumerable.Range(0, tree.LeafCount)
+            .Count(leaf => tree.Cluster(leaf) < 0 && tree.Contents(leaf) != BspLeafTree.ContentsSolid);
 
         foreach ((float X, float Y, float Z) eye in eyes)
         {
             int from = tree.ClusterAt(eye.X, eye.Y, eye.Z);
 
+            // The engine's stamp (0x1801cacd0): any leaf from an eye in no cluster; otherwise a clustered leaf in the
+            // PVS, solid or not. The walk then lists only the non-solid ones.
             bool Stampable(int leaf) =>
-                tree.Contents(leaf) != BspLeafTree.ContentsSolid &&
-                (from < 0 || tree.Cluster(leaf) < 0 || pvs.Visible(from, tree.Cluster(leaf)));
+                from < 0 || (tree.Cluster(leaf) >= 0 && pvs.Visible(from, tree.Cluster(leaf)));
 
             foreach ((float X, float Y, float Z) towards in Directions.Append((0f, 0f, -1f)))
             {
@@ -337,6 +344,11 @@ public sealed class WorldVisibilityMapTests
                 pruned.Walk.ShouldBe(fresh.Walk, $"{view}: the shared instance walked unlike a fresh one");
 
                 List<WorldWalkStep> reference = [.. open.Walk.Where(step => step.IsNode || Stampable(step.Index))];
+
+                if (from >= 0)
+                {
+                    droppedNoCluster += open.Walk.Count(step => !step.IsNode && tree.Cluster(step.Index) < 0);
+                }
                 int prunedNodes = pruned.Walk.Count(step => step.IsNode);
                 int openNodes = open.Walk.Count(step => step.IsNode);
 
@@ -372,7 +384,8 @@ public sealed class WorldVisibilityMapTests
 
         TestContext.Out.WriteLine(
             $"{mapName}: {eyes.Count} eyes, {total.Views} views, node steps {total.PrunedNodes} pruned vs " +
-            $"{total.OpenNodes} open, {total.Surfaces} surfaces compared, {total.MustShrink} views required to shrink");
+            $"{total.OpenNodes} open, {total.Surfaces} surfaces compared, {total.MustShrink} views required to shrink; " +
+            $"{noClusterLeaves} non-solid leaves with no cluster in the map, {droppedNoCluster} listings of one dropped");
 
         total.Surfaces.ShouldBeGreaterThan(0, "nothing is reached from any view, so this cannot fail");
         total.MustShrink.ShouldBeGreaterThan(0, "no view had a node the PVS must prune, so the prune is untested");

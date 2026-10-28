@@ -68,8 +68,17 @@ reading rather than assumed.
 leaves only makes sense if the walk reads the node marks, and this project's walk did not: it descended every node
 the frustum kept and asked the PVS per leaf, so a subtree the PVS hides whole was still walked to its leaves. The walk
 now returns from an unmarked node, as Quake's `R_RecursiveWorldNode` does on `r_visframecount`. On cp_process the
-reached surfaces are the same sequence either way; only node steps go. *Interpolated:* the ancestor marking and the
-walk's mark test are the Quake shape, not yet re-read in the current engine.dll (it changed on 2026-10-07).
+reached surfaces are the same sequence either way; only node steps go.
+
+**The re-read (2026-10-28, the engine.dll installed 2026-10-07) confirmed the shape and killed two of our own
+readings.** The mark pass (`0x1801cacd0`) does stamp each PVS leaf's ancestors up to the first already stamped, and the
+walk (`0x1800e1800`) tests the stamp before it clips the box. But the first port had carried over two rules that were
+never the renderer's. It stamped a non-solid leaf with cluster −1, because `vrad`'s `PVSCheck` says *"we assume the
+sample is in the PVS"* — a lighting compiler's rule, quoted for years in this project as if it were the cull's; the
+engine skips such a leaf (`0x1801cadb6`). And it refused to stamp solid leaves; the engine has no contents test while
+marking, and relies on the walk's own solid return. Both are now as the engine has them. The lesson is the one in
+`docs/memory/a-visibility-set-is-four-questions.md`: a rule read in one Valve program is not a rule of another. Full
+quotes: RISKS B259.
 
 ## Translucency belongs to the model, not the entity
 

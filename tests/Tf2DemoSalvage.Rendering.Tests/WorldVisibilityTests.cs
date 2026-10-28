@@ -136,14 +136,18 @@ public sealed class WorldVisibilityTests
     /// <param name="cluster0">Leaf 0's cluster, so a case can give it none (−1).</param>
     /// <param name="solidPlusX">Whether leaves 1 and 2, the whole +x half, are solid (contents 1).</param>
     /// <param name="extraLeaves">Leaves appended after the four, which no node reaches.</param>
+    /// <param name="plusXNoCluster">Whether leaves 1 and 2 have no cluster (−1), as a compiled solid leaf has.</param>
     /// <remarks>
     /// Node 1 is the +x half (x = 256 splits it into leaf 1 behind, leaf 2 in front); node 2 is the −x half (x = −256
     /// splits it into leaf 3 behind, leaf 0 in front). From x = −400 the walk is leaf 3, node 2, leaf 0, node 0, then
     /// the +x half.
     /// </remarks>
-    internal static BspLeafTree Quarters(short cluster0 = 0, bool solidPlusX = false, int extraLeaves = 0)
+    internal static BspLeafTree Quarters(
+        short cluster0 = 0, bool solidPlusX = false, int extraLeaves = 0, bool plusXNoCluster = false)
     {
         int plusX = solidPlusX ? BspLeafTree.ContentsSolid : 0;
+        short cluster1 = plusXNoCluster ? (short)-1 : (short)1;
+        short cluster2 = plusXNoCluster ? (short)-1 : (short)2;
 
         byte[] nodes =
         [
@@ -167,8 +171,8 @@ public sealed class WorldVisibilityTests
         byte[] leaves =
         [
             .. Leaf(cluster: cluster0, (-256, -512, -512), (0, 512, 512)),
-            .. Leaf(cluster: 1, (0, -512, -512), (256, 512, 512), plusX),
-            .. Leaf(cluster: 2, (256, -512, -512), (512, 512, 512), plusX),
+            .. Leaf(cluster: cluster1, (0, -512, -512), (256, 512, 512), plusX),
+            .. Leaf(cluster: cluster2, (256, -512, -512), (512, 512, 512), plusX),
             .. Leaf(cluster: 3, (-512, -512, -512), (-256, 512, 512)),
         ];
 
@@ -215,52 +219,10 @@ public sealed class WorldVisibilityTests
         return BspVisibility.FromLump(bytes);
     }
 
-    private static ViewFrustum AheadFromMinus400 => Looking((-400f, 0f, 0f), (1f, 0f, 0f));
+    internal static ViewFrustum AheadFromMinus400 => Looking((-400f, 0f, 0f), (1f, 0f, 0f));
 
-    private static (int Index, bool IsNode)[] Steps(WorldVisibility visibility) =>
+    internal static (int Index, bool IsNode)[] Steps(WorldVisibility visibility) =>
         [.. visibility.Walk.Select(step => (step.Index, step.IsNode))];
-
-    /// <summary>That the walk never enters a node no PVS-visible leaf lies under.</summary>
-    /// <remarks>
-    /// **Not in the conformance suite, deliberately**: `docs/CONFORMANCE.md` selects those as what the engine does, and
-    /// the half asserted here — a node with no stamped leaf below is skipped — is interpolated from the Quake
-    /// `R_MarkLeaves` shape until the current engine.dll is re-read (B259). It moves there once read.
-    ///
-    /// The eye stands in leaf 3 (cluster 3), whose row sees clusters 3 and 0. The whole tree is in the frustum, so node
-    /// 1 (the +x half) is pruned by the PVS alone. The control is the same view with no PVS, where node 1 is walked.
-    /// </remarks>
-    [Test]
-    public void Walk_ASubtreeWithNoPvsVisibleLeaf_IsNeverEntered()
-    {
-        WorldVisibility open = new(Quarters(), BspVisibility.None);
-        open.Leaves(-400f, 0f, 0f, AheadFromMinus400);
-        open.Walk.Where(step => step.IsNode).Select(step => step.Index).ShouldBe([2, 0, 1]);
-
-        WorldVisibility culled = new(Quarters(), Pvs(0x0F, 0x0F, 0x0F, 0b1001));
-        culled.Leaves(-400f, 0f, 0f, AheadFromMinus400);
-
-        Steps(culled).ShouldBe([(3, false), (2, true), (0, false), (0, true)]);
-    }
-
-    /// <summary>That a subtree whose only leaves are solid is pruned from a real cluster, even when the PVS sees them.</summary>
-    /// <remarks>
-    /// Leaves 1 and 2 are solid and cluster 3's row sees every cluster, so only the solid test in marking keeps node 1
-    /// unstamped: the walk's own solid skip would still drop the leaves, but not the node step. The control is the
-    /// same tree from an eye in leaf 0, given no cluster, which stamps everything (`0x1801c9113`): node 1 is then
-    /// entered, its solid leaves still unlisted.
-    /// </remarks>
-    [Test]
-    public void Walk_ASubtreeOfOnlySolidLeaves_IsPrunedFromACluster()
-    {
-        WorldVisibility culled = new(Quarters(solidPlusX: true), Pvs(0x0F, 0x0F, 0x0F, 0x0F));
-        culled.Leaves(-400f, 0f, 0f, AheadFromMinus400);
-
-        Steps(culled).ShouldBe([(3, false), (2, true), (0, false), (0, true)]);
-
-        WorldVisibility noCluster = new(Quarters(cluster0: -1, solidPlusX: true), Pvs(0x0F, 0x0F, 0x0F, 0x0F));
-        noCluster.Leaves(-100f, 0f, 0f, default).ShouldBe([0, 3]);
-        noCluster.Walk.Where(step => step.IsNode).Select(step => step.Index).ShouldBe([2, 0, 1]);
-    }
 
     /// <summary>That the PVS drops a leaf in view.</summary>
     /// <remarks>
@@ -275,20 +237,6 @@ public sealed class WorldVisibilityTests
 
         new WorldVisibility(Quarters(), Pvs(0x0F, 0x0F, 0x0F, 0b1001)).Leaves(-400f, 0f, 0f, AheadFromMinus400)
             .ShouldBe([3, 0]);
-    }
-
-    /// <summary>That a non-solid leaf with no cluster is listed, and its climb alone keeps its parent walked.</summary>
-    /// <remarks>
-    /// Ours, the conservative reading of <c>PVSCheck</c> (<c>vrad.h:372</c>, "we assume the sample is in the PVS"):
-    /// a leaf with cluster −1 is listed whatever the eye's row says. Cluster 3's row sees only cluster 1, so leaf 3 —
-    /// node 2's other child — is not stamped, and node 2 is stamped by leaf 0's climb or by nothing.
-    /// </remarks>
-    [Test]
-    public void Leaves_ForALeafWithNoCluster_KeepsItAndItsParent()
-    {
-        WorldVisibility visibility = new(Quarters(cluster0: -1), Pvs(0x0F, 0x0F, 0x0F, 0b0010));
-
-        visibility.Leaves(-400f, 0f, 0f, AheadFromMinus400).ShouldBe([0, 1]);
     }
 
     /// <summary>That moving into another cluster re-marks the tree from that cluster's row.</summary>

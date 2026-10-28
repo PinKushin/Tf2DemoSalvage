@@ -165,27 +165,29 @@ public sealed class WorldVisibility
     /// <summary>Marks the leaves the eye's cluster can see, and every node above them — the engine's mark-leaves.</summary>
     /// <param name="from">The eye's cluster, or −1 when it has none.</param>
     /// <remarks>
-    /// engine.dll <c>0x1801c8cb0</c> (read under B262, the 2026-10-04 build): an eye cluster of −1 stamps every leaf
-    /// and node (<c>0x1801c9113</c>), as <c>r_novis</c> does. *Interpolated, not yet re-read:* that a leaf in the PVS
-    /// stamps each node above it, stopping at the first already stamped, and that the walk enters only stamped nodes —
-    /// the Quake <c>R_MarkLeaves</c> shape (B259, `docs/RISKS.md`).
+    /// **Read from engine.dll (x64, installed 2026-10-07), in disassembly** (B259, `docs/RISKS.md`, which quotes it):
     ///
-    /// **So the two eye cases walk different NODES, and that is the read.** With an eye cluster of −1 (or, ours, no vis
-    /// lump) every node is stamped and a subtree holding only solid leaves is still entered, emitting its node steps;
-    /// from a real cluster a solid leaf is never stamped, so such a subtree is pruned. The listed leaves are the same
-    /// either way, since the walk never lists a solid leaf. The extra node steps draw nothing on a well-formed tree:
-    /// <see cref="VisibleWorld.Surfaces"/> draws a node face only once a listed leaf has marked it, and the leaves that
-    /// list a node face lie under that node (checked on cp_process and cp_badlands, many eyes,
-    /// `Surfaces_ForAPvsPrunedWalk_AreTheUnprunedWalksInTheSameOrder`).
+    /// * the mark pass `0x1801ca5f0` returns at once when the view's cluster list is the one it last marked
+    ///   (`0x1801ca6c8`); otherwise it increments `r_visframecount` (`0x1801ca6d5`, `[0x1807784b4]`);
+    /// * any view cluster of −1, or `r_novis`, stamps every leaf and every node (`0x1801caa53`-`0x1801caac8`);
+    /// * otherwise `0x1801cacd0` walks every leaf: one whose cluster is −1 is skipped (`0x1801cadb6`), one whose
+    ///   PVS bit is clear is skipped (`0x1801cadcf`), and the rest are stamped (`0x1801caddd`) and climb their parents,
+    ///   stamping each, until a parent already stamped this count (`0x1801caee0`-`0x1801caffb`). There is NO contents
+    ///   test: a solid leaf in the PVS is stamped and so are the nodes above it.
     ///
-    /// **Ours, two readings kept from the walk this replaces.** A map with no vis lump stamps everything, since no data
-    /// is not proof of invisibility; and a non-solid leaf with no cluster is stamped, after <c>PVSCheck</c>'s "we
-    /// assume the sample is in the PVS" — whether the engine stamps one is not read (Quake 2 does not). On a
-    /// well-formed tree the listed leaves are what the per-leaf test listed before. A child index past the leaf lump,
-    /// which the old walk listed and <see cref="VisibleWorld.Surfaces"/> then indexed out of range, is now never listed.
+    /// **So the two eye cases walk different NODES.** From an eye in no cluster every node is stamped and a subtree of
+    /// only solid leaves is still entered; from a real cluster such a subtree is entered only when one of its leaves
+    /// has a cluster in the PVS. The listed leaves follow the walk, which returns on a solid leaf at entry. The node
+    /// steps draw nothing extra on a well-formed tree: <see cref="VisibleWorld.Surfaces"/> draws a node face only once a
+    /// listed leaf has marked it, and those leaves lie under that node (checked on cp_process and cp_badlands, many
+    /// eyes, `Surfaces_ForAPvsPrunedWalk_AreTheUnprunedWalksInTheSameOrder`).
     ///
-    /// **Made again only when the eye changes cluster**, because the stamps are a function of the cluster alone. The
-    /// cluster is recorded only once the stamps are complete, so a PVS row that throws mid-way is re-marked next call.
+    /// **Ours, one reading kept:** a map with no vis lump stamps everything, since no data is not proof of
+    /// invisibility. A child index past the leaf lump, which the old walk listed and
+    /// <see cref="VisibleWorld.Surfaces"/> then indexed out of range, is never listed.
+    ///
+    /// **Made again only when the eye changes cluster**, as the engine's own early return does. The cluster is
+    /// recorded only once the stamps are complete, so a PVS row that throws mid-way is re-marked next call.
     /// </remarks>
     private void MarkLeaves(int from)
     {
@@ -207,14 +209,11 @@ public sealed class WorldVisibility
 
         for (int leaf = 0; leaf < _leafVisFrame.Length; leaf++)
         {
-            if (_tree.Contents(leaf) == BspLeafTree.ContentsSolid)
-            {
-                continue;
-            }
-
+            // No contents test (a solid leaf in the PVS is stamped too; the walk returns on it at entry), and a leaf
+            // with no cluster is skipped — `0x1801cadb6`.
             int cluster = _tree.Cluster(leaf);
 
-            if (cluster >= 0 && !_pvs.Visible(from, cluster))
+            if (cluster < 0 || !_pvs.Visible(from, cluster))
             {
                 continue;
             }
@@ -256,14 +255,9 @@ public sealed class WorldVisibility
             return _leaves;
         }
 
-        // **Valve's `PVSCheck` rule, applied to the CAMERA rather than to a leaf.** An eye that
-        // cannot be placed in a cluster gets no PVS filtering at all — only the frustum. The free
-        // camera is in solid space routinely, and a viewer that culled the whole map there would
-        // show a black screen at exactly the moment the user flew through a wall.
-        //
-        // Valve's own rule is stated for the target cluster — *"we assume the sample is in the
-        // PVS"* — and the engine's behaviour for an unplaceable VIEW origin is not published. This
-        // is the conservative reading of it: never cull what cannot be proved invisible.
+        // **An eye that cannot be placed in a cluster gets no PVS filtering at all** — only the frustum. Read from
+        // engine.dll: a view cluster of −1 stamps every leaf and node (`0x1801ca712`, then `0x1801caa53`). The free
+        // camera is in solid space routinely, and this is why it does not go blind there.
         int from = _tree.ClusterAt(x, y, z);
 
         MarkLeaves(from);
@@ -297,9 +291,10 @@ public sealed class WorldVisibility
             return;
         }
 
-        // **A node no PVS-visible leaf lies under is never entered**, before its box test. *Interpolated* as
-        // `R_RecursiveWorldNode`'s vis-count test (MarkLeaves says what is read). On a well-formed tree nothing is lost:
-        // a node face is drawn only once a listed leaf has marked it, and those leaves lie under the node.
+        // **A node no stamped leaf lies under is never entered**, before its box test: `R_RecursiveWorldNode`
+        // (`0x1800e1800`, engine.dll of 2026-10-07) compares `visframe` with `r_visframecount` at `0x1800e1850` and
+        // returns, and only then clips (`0x1800e188c`). On a well-formed tree nothing drawn is lost: a node face is
+        // drawn only once a listed leaf has marked it, and those leaves lie under the node.
         if (node >= _nodeVisFrame.Length || _nodeVisFrame[node] != _visFrame)
         {
             return;
@@ -341,11 +336,11 @@ public sealed class WorldVisibility
     /// <param name="leaf">The leaf index.</param>
     /// <param name="frustum">The view volume.</param>
     /// <remarks>
-    /// **The PVS answer is the leaf's stamp from <see cref="MarkLeaves"/>**, which holds its two rules: a leaf whose
-    /// cluster is negative is treated as VISIBLE rather than hidden (<c>PVSCheck</c>), and a map with NO vis lump gets
-    /// no PVS filtering, which is a third case and not the same as an empty PVS. `BspVisibility.None` answers false to
-    /// every query, so testing it without the `HasData` guard culls the entire world — found by the first test written
-    /// against this walk. No data is not proof of invisibility.
+    /// **The PVS answer is the leaf's stamp from <see cref="MarkLeaves"/>**, which holds its rules: from a real
+    /// cluster a leaf with no cluster is NOT stamped (engine.dll `0x1801cadb6` — `vrad`'s `PVSCheck` treats one as
+    /// visible, but that is the lighting compiler's rule, not the renderer's), and a map with NO vis lump gets no PVS
+    /// filtering, which is not the same as an empty PVS. `BspVisibility.None` answers false to every query, so testing
+    /// it without the `HasData` guard culls the entire world. No data is not proof of invisibility.
     ///
     /// **The leaf's box is tested even when the PVS kept it**, because the two answer different
     /// questions: the PVS says what could ever be seen from here, the frustum says what is on screen
@@ -354,8 +349,8 @@ public sealed class WorldVisibility
     private void Collect(int leaf, ViewFrustum frustum)
     {
         // **A solid leaf is never walked into** (B262): engine.dll's world walk returns on contents 1 at entry
-        // (`0x1800e060f`) and before a far child (`0x1800e079c`), so `R_DrawLeaf` never lists one — whatever the PVS
-        // says, including the eye-in-solid case where every leaf is marked visible (`0x1801c9113`).
+        // (`0x1800e180f` in the 2026-10-07 build) and before a far child (`0x1800e199c`), so `R_DrawLeaf` never lists
+        // one — whatever its stamp, since marking has no contents test.
         if (_tree.Contents(leaf) == BspLeafTree.ContentsSolid)
         {
             return;

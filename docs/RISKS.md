@@ -19713,25 +19713,46 @@ those that changed; together about 0.6 ms.
 `WorldVisibility` used to walk every node the frustum kept and test the PVS per LEAF, so a subtree the PVS hides
 whole was still descended to its leaves, and its nodes still emitted walk steps whose surfaces were offered between
 their children. Now `MarkLeaves` stamps each PVS-visible leaf and the nodes above it (re-made only when the eye
-changes cluster) and `Descend` returns from an unstamped node before its box test. *Evidence:* that mark-leaves
-marks nodes is read (B262, `0x1801c8cb0`, eye cluster −1 marks every leaf and node); that a PVS leaf marks its
-ancestors and that `R_RecursiveWorldNode` skips an unmarked node is **interpolated** from the Quake
-`R_MarkLeaves`/`r_visframecount` shape and still to be re-read — the installed engine.dll changed on 2026-10-07, so the
-B262 addresses no longer match it. Two readings kept from the old walk, so on a well-formed tree the listed leaves are
-unchanged: no vis lump stamps everything, and a non-solid leaf with cluster −1 is stamped (`PVSCheck`). Whether the
-engine stamps such a leaf is not read (Quake 2 does not).
+changes cluster) and `Descend` returns from an unstamped node before its box test.
 
-**Where it differs from the old walk, deliberately.** A child index past the leaf lump (a malformed tree) is no longer
-listed; the old walk listed it and `VisibleWorld.Surfaces` then indexed its displacement table out of range. And the
-two eye cases now walk different nodes: an eye in no cluster (or a map with no vis lump) stamps every node, as the read
-`0x1801c9113` path does, so a subtree of only solid leaves is still entered; from a real cluster it is pruned. Neither
-changes a listed leaf or a reached surface.
+**Read from engine.dll, 2026-10-28** — the x64 build installed 2026-10-07, imported fresh as Ghidra project
+`tf2enginex64-1007` (the B262 addresses are of the earlier build and no longer match). Evidence class: read from
+engine.dll, in disassembly.
 
-`Walk_ASubtreeWithNoPvsVisibleLeaf_IsNeverEntered` (red before, the extra node step) sits in `WorldVisibilityTests`,
-not the conformance suite, until the re-read: the half it asserts is the interpolated one. Output level:
-`Surfaces_ForAPvsPrunedWalk_AreTheUnprunedWalksInTheSameOrder` on cp_process and cp_badlands, up to 32 eyes each plus
-one in no cluster and repeated eyes on one instance — the reached surfaces and leaves are the same sequence as the
-unpruned walk's in every view. Not yet measured in the viewer.
+- **The mark pass is `0x1801ca5f0`** (found as the one writer of `r_visframecount`, `[0x1807784b4]`):
+  `0x1801ca6c8 CMP R8D,[0x1807785e4]` / `JZ 0x1801caa01` returns when the view's cluster list is the one last marked —
+  so re-marking only on a cluster change is the engine's, not ours; then `0x1801ca6d5 INC dword ptr [0x1807784b4]`.
+  A view cluster of −1 (`0x1801ca701 CMP EAX,-0x1` / `JZ 0x1801ca712`, which sets R9B), `r_novis` (`0x1801ca71d`) or a
+  forced mark take `0x1801caa53`, which writes the count into every leaf's (`[leaf+0x4]`, `0x1801caa77`) and every
+  node's (`0x1801caaba`) `visframe`.
+- **Per leaf, `0x1801cacd0`:** `0x1801cadb0 MOVSX RAX,word ptr [R12+0x3c]` (the cluster), `0x1801cadb6 CMP EAX,-0x1` /
+  `JZ 0x1801cb018` — **a leaf with no cluster is skipped**; `0x1801cadcf TEST byte ptr [RAX+R9*1+0x288],DL` /
+  `JZ` — skipped when its PVS bit is clear; `0x1801caddd MOV dword ptr [R12],R14D` stamps it; then
+  `0x1801caebf MOV RDI,qword ptr [R12+0x4]` (the parent) and the loop `0x1801caee0 CMP dword ptr [RDI+0x4],R14D` /
+  `JZ 0x1801cb001` … `0x1801caff0 MOV dword ptr [RDI+0x4],R14D` / `0x1801caff4 MOV RDI,qword ptr [RDI+0x8]` —
+  **each ancestor is stamped up to the first already stamped**. Nothing between reads the leaf's contents: **a solid
+  leaf in the PVS is stamped, and so are the nodes above it.**
+- **`R_RecursiveWorldNode` is `0x1800e1800`:** `0x1800e180f CMP dword ptr [RDX],0x1` / `JZ` returns on a solid leaf;
+  `0x1800e1850 MOV EAX,[0x1807784b4]`, `0x1800e1856 CMP dword ptr [R14+0x4],EAX`, `0x1800e185a JNZ 0x1800e19b7` returns
+  on an unstamped node or leaf; **only then** the box is clipped (`0x1800e188c CALL 0x180114ad0`). The far child is
+  tested for contents 1 before the loop continues (`0x1800e199c`).
+
+**Two divergences the read found, both fixed (parity is the rule).** The first pass stamped a non-solid leaf with
+cluster −1 (our reading of `vrad`'s `PVSCheck`, which is the lighting compiler's rule); the engine skips it, so it is
+no longer listed from an eye in a real cluster. And the first pass skipped solid leaves when marking; the engine has no
+contents test, so a solid leaf in a visible cluster now stamps its ancestors (its own listing is still refused by the
+walk's solid return). Conformance, all in `WorldVisibilityConformanceTests`:
+`Walk_ASubtreeWithNoPvsVisibleLeaf_IsNeverEntered` (moved back now that it is read),
+`Leaves_FromAClusterForALeafWithNoCluster_NeverListIt`, `Walk_ASolidLeafInThePvs_StampsTheNodesAboveIt`,
+`Walk_FromAnEyeInNoCluster_EntersEveryNode`.
+
+**Ours, kept:** a map with no vis lump stamps everything (no data is not proof of invisibility; the engine's
+behaviour without vis data was not read). A child index past the leaf lump (a malformed tree) is no longer listed; the
+old walk listed it and `VisibleWorld.Surfaces` then indexed its displacement table out of range.
+
+Output level: `Surfaces_ForAPvsPrunedWalk_AreTheUnprunedWalksInTheSameOrder` on cp_process and cp_badlands, 35 eyes
+each (one in no cluster, repeats on one instance), five directions: the reached surfaces and leaves are the same
+sequence as the unpruned walk filtered by the engine's stamp rule in every view. Not yet measured in the viewer.
 
 ## B260 — why we do not get Valve's performance "doing it the way they do" — OPEN
 
