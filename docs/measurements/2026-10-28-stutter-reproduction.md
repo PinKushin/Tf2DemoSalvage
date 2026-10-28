@@ -27,7 +27,7 @@ internet, then relay, then a Valve server. Loopback has none of that.
 *Arithmetic*: the demo is 2,593,852 bytes over 2366 packets, so ~1.1 KB a packet and ~71 KB/s at 64.8 packets a second.
 That figure includes the signon, so it is an upper bound. The user's `rate` was 131072.
 
-## Hypotheses and predictions (written before the first recorded demo)
+## Hypotheses and predictions (committed as `071b892a`, before the first recorded demo)
 
 The TF2 console's own help text, read 2026-10-28 on the running client:
 - `net_chokeloop` "Apply bandwidth choke to loopback packets" (default 0);
@@ -68,7 +68,7 @@ The task assumed a dedicated server install, but `F:\tf2ds\windows\steamapps` is
 srcds. So every variant is a **listen server** in the running client, `+maxplayers 32`, on pl_pier with bots filling to
 23 players. Installing srcds (steamcmd app 232250) is a download. It was not done; it is a decision for the lead.
 
-## Interim, after the first eight recordings (written before the second round)
+## Interim, after the first eight recordings (committed as `c724fc61`, before the second round)
 
 **The H5 prediction failed.** A on a loopback listen server reproduces the user's signature. Three runs show it: A2 at 69%
 delta-1, B1 at 58% and C1 at 62%. Each has stamp steps of 0 and 2 under a server step of 1, and the dominant
@@ -93,7 +93,7 @@ three more E at stock plus `cl_updaterate`/`cl_cmdrate` 66, and two more B. The 
   `config.cfg` was not rewritten. It was relaunched because no client answered, and E11 is the only recording made on the
   second process. It ran as a listen server on pl_pier with `tf_bot_quota 23 fill`. `status` showed 1 human and 23 bots.
 - The recorder: a spectator in first person on a bot (`spec_mode 4`).
-- Each recording is ~44–52 s. Each starts with `disconnect; exec sr_<v>; map pl_pier`, so every recording is a fresh
+- Each recording is ~44–63 s. Each starts with `disconnect; exec sr_<v>; map pl_pier`, so every recording is a fresh
   connect with its own clock phase.
 - Every variant's key cvars were read back after `exec`, on the loaded map, before `record`.
 - The desktop lock was held through `run-exclusive.ps1` for all three rounds, about 86 minutes in total. The probe ran
@@ -170,7 +170,7 @@ Spread by variant:
 - Every demo has a distinct-offset count of 3 to 22. The large counts are the spikes, each leaving one packet at its own
   offset.
 
-## Round 3, pre-registered before recording (after the review of rounds 1–2)
+## Round 3, pre-registered (committed as `1c199d20`, before any round-3 recording; the round-3 rows above were added after)
 
 **The weakness in rounds 1–2.** The three lowest readings (57.9, 62.5 and 69.2%) all carry the user's lines. Stock at
 66/s never went below 74.2%. A and E66 differ in a dozen cvars at once, so rounds 1–2 cannot say whether the user's lines
@@ -196,7 +196,8 @@ does not reach the rule.
 
 ## Verdict
 
-**The signature is reproduced. No setting tested makes a difference, and stock settings produce it too.** Whether the
+**The signature is reproduced, and stock settings produce it too. No setting tested made a difference that could be
+told apart from the run-to-run spread**, though C and D had one recording each. Whether the
 user's lines as a whole raise the odds of a bad recording is not shown either way at this n. The pooled A against stock
 test found no difference, and the low tail is a post-hoc hint.
 
@@ -207,12 +208,15 @@ tick, as the user's demo does. B1 reads 57.9% against the user's 59.4%. *Measure
 - A spans 67 to 97% over nine recordings.
 - B, which raises `rate` (the obvious remedy under H1), spans 58 to 89% and is no better than A.
 - Stock at 66/s (E66) spans 74 to 97% over ten.
-- The single C and D readings sit inside A's range.
+- C's single reading, 62.5%, is below every A but inside the overall spread, and at n=1 it is not a result. It also
+  points the wrong way for H2: if `net_chokeloop 1` caused the stutter, turning it off should have helped.
+- D's single reading, 93.0%, is inside A's range.
 - The lowest stock readings have about a quarter of their steps off 1: E5 25.8%, E11 25.6%, E7 24.0%. The user's demo has
   40.6%.
 
-**What tracks the share is the offset split** (*measured correlation, 25 demos, the split read by eye from each
-histogram*). The demos split well between two adjacent offsets have the most 0/2 steps:
+**The share follows the offset split, with exceptions.** This is an *observed pattern*: the split was picked by hand
+from each histogram and no coefficient was computed. The demos split well between two adjacent offsets have the most
+0/2 steps:
 
 | demo | split | steps off 1 |
 |---|---|---|
@@ -222,8 +226,25 @@ histogram*). The demos split well between two adjacent offsets have the most 0/2
 | E11 | 0.34 | 26% |
 | user | 0.28 | 41% |
 
-The demos with one dominant offset have the fewest: E3, E4, E6, E10, A8 and A9 have 2.6 to 6.9%. There are exceptions.
-E9 shows a 0.31 split with 13%, because its two split clusters are short.
+The demos with one dominant offset have the fewest: E3, E4, E6, E10, A8 and A9 have 2.6 to 6.9%. 
+
+**A quantitative check, and where it fails** (*arithmetic*). If each packet fell on either of a pair's two offsets
+independently, the expected share of steps off 1 would be 2p(1−p), weighted by the pair's packets:
+
+| demo | expected | observed |
+|---|---|---|
+| user | 40.1% | 40.6% |
+| E7 | ~28% | 24.0% |
+| B1 | 48.6% | 42.1% |
+| C1 | 44.7% | 37.5% |
+| A4 | 26.5% | 32.8% |
+| E11 | 45.1% | 25.6% |
+| E9 | ~41% | 12.9% |
+
+It fits the user's demo and E7, and it misses E9 and E11 by a factor of 2 to 3. In those two, the flips come in runs:
+the phase lingers on one side of the boundary, then the other. So the split bounds the share rather than predicting it,
+and the order of the offsets in time matters too. The probe prints the histogram, not the sequence. That was not
+examined further.
 
 That fits the stamp being `round(net_time / interval)` (finding 106, *read from the disassembly*). Each packet is
 written at a near-constant phase inside its tick. When that phase sits near the +0.5 rounding boundary, frame-to-frame
@@ -240,7 +261,7 @@ Per hypothesis:
 | | hypothesis | verdict |
 |---|---|---|
 | H1 | `rate 131072` causes bursts | **Not reproduced.** The user's server steps are regular and their bandwidth is below the rate. Raising the rate (B) does not improve the share. |
-| H2 | `net_chokeloop 1` | **Not reproduced.** C at 62.5% is inside A's range. The cvar is loopback only by its own help text, and the user played on a Valve server. |
+| H2 | `net_chokeloop 1` | **Not reproduced.** Turning it off (C, n=1) read 62.5%, lower than every A, which is the wrong direction for H2 and within the overall spread. The cvar is loopback only by its own help text, and the user played on a Valve server. |
 | H3 | `net_queued_packet_thread 1` | **Not reproduced.** It is the stock value, and D at 93.0% is inside A's range. |
 | H4 | smoothing and interp settings | **Not varied alone.** A and E differ in all of them, and the ranges overlap. Nothing in the stamp path reads them. |
 | H5 | the server or network path is needed | **Falsified as stated.** Loopback reproduces it with stock settings. The mechanism is the timing phase plus jitter, which any path has. A real internet and relay path may add jitter and make a bad split likelier. That is *untested*, because no srcds is installed. |
@@ -316,9 +337,11 @@ touched.
 
 We could not pin this on your settings. We recorded the same kind of demo nine times with your exact network lines and
 ten times with TF2's stock settings. Both sets came out stuttery on some recordings and smooth on others, and on
-average the two were the same. Raising `rate` to the maximum did not help. Nor did turning `net_chokeloop` off or
-`net_queued_packet_thread` off. Our very worst recordings happened to use your lines, but there were too few of them to
-call that a real effect.
+average the two were the same. We also changed one setting at a time: `rate` to the maximum (three recordings),
+`net_chokeloop` off (one) and `net_queued_packet_thread` off (one). None of them made things better, and that is all so
+few recordings can show. Our very worst recordings happened to use your lines, but there were too few of them to call
+that a real effect. One limit: we recorded on a local server with bots, not on Valve's casual servers through Steam's
+relay. We could not reproduce that route, so we cannot rule out that it makes a bad recording more likely.
 
 Here is what happens. A POV demo stamps every update it receives with your PC's own clock, rounded to the nearest
 server tick. When the updates arrive close to the halfway point between two ticks, small timing wobbles push some of
@@ -327,7 +350,10 @@ speeds up and slows down. Where your updates land against that halfway point cha
 and even partway through one after a hitch. Live play does not use those stamps, which is why it felt fine while you
 played.
 
-We tested `rate`, `net_chokeloop` and `net_queued_packet_thread` one at a time, and none of them changed anything. We did
-not test any other single setting, so we are not suggesting one. Tf2DemoSalvage's viewer re-times the camera by the
-server's own tick (`demo_retimeview`, on by default since 0.1.0-beta.55). On your demo it cuts the camera's pacing
-unevenness from 0.88 to 0.25, measured through the viewer's own `DemoPlayer`. We have not watched it on screen.
+We did not test any other single setting, so we are not suggesting one. Tf2DemoSalvage's viewer re-times the camera by
+the server's own tick (`demo_retimeview`, on by default since 0.1.0-beta.55). On your demo it cuts the share of camera
+frames more than 50% off their neighbours' pace from 21% to 3.4%. That was measured in the viewer's own playback code,
+not watched on screen.
+
+(Source for that figure: the `camerapath` run on `spiked-pl_pier-stutter.dem` on 2026-10-28, from its world-pacing
+lines. With `demo_retimeview 0` it is 622 of 2945 moving frames; with `demo_retimeview 1` it is 101 of 2947.)
