@@ -73,7 +73,12 @@ public sealed class LevelLighting
     private readonly HashSet<(int X, int Y, int Z)> _reportedLightTerms = [];
 
     /// <summary>Each light style's value over 264, which the world lights are scaled by; one for every style unless set.</summary>
-    /// <remarks>The lightcache multiplies a world light's falloff by it before ranking (`engine.dll` `0x1801b8e20`).</remarks>
+    /// <remarks>
+    /// The lightcache multiplies a world light's falloff by it before ranking (`engine.dll` `0x1801b8e20`). **Setting it
+    /// stamps nothing**, as a value changing stamps nothing until `R_AnimateLight` does: what was built stands until
+    /// <see cref="StylesChanged(IReadOnlyCollection{int})"/> — which the first <see cref="LightStyleValues.Advance"/> calls
+    /// for every style.
+    /// </remarks>
     public Func<int, float>? StyleScale { get; set; }
 
     /// <summary>Whether any of these styles is one a world light answers to — whether model lighting must be sampled again.</summary>
@@ -154,8 +159,26 @@ public sealed class LevelLighting
         Direct,
     }
 
-    /// <summary>A light style a world light answers to changed: every cache entry is relit where it was built when next used.</summary>
-    public void StylesChanged() => _styleVersion++;
+    /// <summary>
+    /// These light styles changed: every light cache entry is relit when next used, and each style is stamped, as
+    /// `R_AnimateLight` stamps `DAT_1806998a0[style]`, for a static prop's handle to compare with its `+0xf8` (B607).
+    /// </summary>
+    /// <param name="styles">The styles whose values changed.</param>
+    /// <exception cref="ArgumentNullException"><paramref name="styles"/> is null.</exception>
+    public void StylesChanged(IReadOnlyCollection<int> styles)
+    {
+        ArgumentNullException.ThrowIfNull(styles);
+
+        _styleVersion++;
+
+        foreach (int style in styles)
+        {
+            _styleStamps[style] = _styleVersion;
+        }
+    }
+
+    /// <summary>When each style last changed, in <see cref="_styleVersion"/>s; a style never changed is absent.</summary>
+    private readonly Dictionary<int, int> _styleStamps = [];
 
     /// <summary>A model's light, through the light cache: see <see cref="LightCache{T}"/>.</summary>
     /// <param name="x">The model's lighting origin.</param>
@@ -462,8 +485,147 @@ public sealed class LevelLighting
     /// <summary>The PVS, for a static prop's styled-light list; null or empty admits every cluster.</summary>
     private readonly BspVisibility? _visibility;
 
-    /// <summary>Each baked static prop's styled-light list, by entity, built on first ask — once per map, as the handle's.</summary>
-    private readonly Dictionary<int, int[]> _styledByEntity = [];
+    /// <summary>Each static prop's handle — its styled-light list and bit 4's ranked cache — by entity, built once per map.</summary>
+    private readonly Dictionary<int, StyledHandle> _styledByEntity = [];
+
+    /// <summary>The part of a static prop's light cache handle bit 4 reads (`FUN_1801ba590`, finding 67, B607).</summary>
+    /// <param name="listed">`+0x1b0`: <see cref="StyledLights"/> at the lighting origin, built once.</param>
+    private sealed class StyledHandle(BspWorldLight[] listed)
+    {
+        /// <summary>`+0x1b0`, as the lights themselves.</summary>
+        public BspWorldLight[] Listed { get; } = listed;
+
+        /// <summary>The styles of <see cref="Listed"/>, each once: whose stamps make <see cref="Ranked"/> stale.</summary>
+        public int[] Styles { get; } = [.. listed.Select(static light => light.Style).Distinct()];
+
+        /// <summary>
+        /// `+0x88`: the listed lights ranked at their style values when <see cref="BuiltAt"/> was stamped. Read-only, since
+        /// every draw of the prop is handed this one list.
+        /// </summary>
+        public System.Collections.ObjectModel.ReadOnlyCollection<LocalLight> Ranked { get; set; } =
+            System.Collections.ObjectModel.ReadOnlyCollection<LocalLight>.Empty;
+
+        /// <summary>The same ranked lights as world lights, for a live dlight to be ranked against.</summary>
+        public BspWorldLight[] RankedLights { get; set; } = [];
+
+        /// <summary>`+0xf8`: the <see cref="_styleVersion"/> <see cref="Ranked"/> was built at; never, until the first draw.</summary>
+        public int BuiltAt { get; set; } = -1;
+
+        /// <summary>
+        /// Flags 7's finished lights with no live dlight — the style-0 lights and <see cref="RankedLights"/> ranked together —
+        /// and the later of <see cref="BuiltAt"/> and style 0's stamp they were ranked at; null until a flags-7 draw asks.
+        /// </summary>
+        public (System.Collections.ObjectModel.ReadOnlyCollection<LocalLight> Locals, int At)? Full { get; set; }
+    }
+
+    /// <summary>Times bit 4 ranked a handle's styled lights, ever: the conformance tests' count of the `+0x88` cache's misses.</summary>
+    internal int StyledRankings { get; private set; }
+
+    /// <summary>Times a flags-7 draw ranked its static four with its styled lights, ever (the `Full` cache's misses).</summary>
+    internal int FullRankings { get; private set; }
+
+    /// <summary>Static-prop handles' styled lists built, ever (`FUN_1801b6bf0`): once a prop, at load (B607).</summary>
+    public int StyledListsBuilt { get; private set; }
+
+    /// <summary>Static states built, ever (`ComputeStaticLightingForCacheEntry`): once a lighting origin, at load (B607).</summary>
+    public int StaticStateBuilds { get; private set; }
+
+    /// <summary>Stopwatch ticks spent building <see cref="StaticStateBuilds"/>, for `--measure`'s first-use line.</summary>
+    public long StaticStateBuildTicks { get; private set; }
+
+    /// <summary>
+    /// Builds one static prop's light cache handle, as the level loads: `CStaticPropMgr::PrecacheLighting`
+    /// (`engine.dll` `0x180205b20`) → `FUN_1801b8350`, B427, B607.
+    /// </summary>
+    /// <param name="entity">The prop's entity index, which keys its handle.</param>
+    /// <param name="x">The prop's lighting origin (the handle's `+0x184`).</param>
+    /// <param name="y">The prop's lighting origin.</param>
+    /// <param name="z">The prop's lighting origin.</param>
+    /// <param name="staticState">Whether to build the static state at `+0x18` too.</param>
+    /// <remarks>
+    /// The styled list (`+0x1b0`, `FUN_1801b6bf0`) and, when asked, the static state (`+0x18`,
+    /// <see cref="StaticPropLightingAt"/>). Bit 4's ranked cache (`+0x88`) is left to the first draw, whose stamp test finds
+    /// it never built — *interpolated*: whether `FUN_1801b8350` fills `+0x88` itself is unread. Either way the first draw's
+    /// light is the same, and a prop that lists nothing ranks nothing.
+    ///
+    /// **`staticState` is the caller's**, because only two draws read `+0x18`: a bump-mapped model's flags 7, and the CPU
+    /// bake of a `$staticprop` without a `.vhv`. *Interpolated:* the engine builds it for every handle; a `.vhv` prop's
+    /// is never read here, and building it would cast that prop's rays for nothing.
+    /// </remarks>
+    public void PrecacheStaticProp(int entity, float x, float y, float z, bool staticState)
+    {
+        _ = Handle(entity, x, y, z);
+
+        if (staticState)
+        {
+            _ = StaticPropLightingAt(x, y, z);
+        }
+    }
+
+    /// <summary>A static prop's handle, built on the first ask — at load, by <see cref="PrecacheStaticProp"/>.</summary>
+    private StyledHandle Handle(int entity, float x, float y, float z)
+    {
+        if (!_styledByEntity.TryGetValue(entity, out StyledHandle? handle))
+        {
+            handle = new StyledHandle([.. StyledLights(x, y, z).Select(index => _worldLights[index])]);
+            _styledByEntity[entity] = handle;
+            StyledListsBuilt++;
+        }
+
+        return handle;
+    }
+
+    /// <summary>Bit 4 (`FUN_1801b5400`): the handle's ranked styled lights, ranked again only when a listed style changed.</summary>
+    /// <remarks>
+    /// **Cached at `+0x88`, rebuilt when a listed style's stamp passes `+0xf8`** (finding 67): a style no listed light
+    /// answers to leaves it. Both stamps are <see cref="_styleVersion"/>s, set by
+    /// <see cref="StylesChanged(IReadOnlyCollection{int})"/>.
+    /// </remarks>
+    private StyledHandle Ranked(StyledHandle handle, float x, float y, float z)
+    {
+        if (handle.Listed.Length == 0 || !Stale(handle))
+        {
+            return handle;
+        }
+
+        Span<int> chosen = stackalloc int[LocalLights.MaximumLocalLights];
+        int found = LocalLights.StrongestIndices(handle.Listed, x, y, z, chosen, StyleScale);
+        BspWorldLight[] ranked = new BspWorldLight[found];
+
+        for (int slot = 0; slot < found; slot++)
+        {
+            ranked[slot] = handle.Listed[chosen[slot]];
+        }
+
+        LocalLight[] locals = new LocalLight[LocalLights.MaximumLocalLights];
+        Array.Resize(ref locals, LocalLights.Strongest(ranked, x, y, z, locals, StyleScale));
+
+        handle.RankedLights = ranked;
+        handle.Ranked = Array.AsReadOnly(locals);
+        handle.BuiltAt = _styleVersion;
+        StyledRankings++;
+
+        return handle;
+    }
+
+    /// <summary>Whether a handle's `+0x88` was never built, or predates a stamp of a style it lists.</summary>
+    private bool Stale(StyledHandle handle)
+    {
+        if (handle.BuiltAt < 0)
+        {
+            return true;
+        }
+
+        foreach (int style in handle.Styles)
+        {
+            if (_styleStamps.TryGetValue(style, out int stamp) && stamp > handle.BuiltAt)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
 
     /// <summary>The world lights a static prop's lighting handle lists: `engine.dll` `FUN_1801b6bf0`.</summary>
     /// <param name="x">The prop's lighting origin.</param>
@@ -524,11 +686,12 @@ public sealed class LevelLighting
     /// </remarks>
     public IReadOnlyList<LocalLight> StaticPlusDynamicLights(int entity, float x, float y, float z)
     {
-        List<BspWorldLight>? lights = StyledAndDynamic(entity, x, y, z);
+        StyledHandle handle = Ranked(Handle(entity, x, y, z), x, y, z);
+        List<BspWorldLight>? lights = WithDynamic(handle, x, y, z);
 
-        if (lights is not { Count: > 0 })
+        if (lights is null)
         {
-            return [];
+            return handle.Ranked;
         }
 
         LocalLight[] nearest = new LocalLight[LocalLights.MaximumLocalLights];
@@ -560,65 +723,89 @@ public sealed class LevelLighting
     public (PointLighting Lighting, SunLight? Sun) StaticPropFullLightingAt(int entity, float x, float y, float z)
     {
         (PointLighting lighting, SunLight? sun) = StaticPropLightingAt(x, y, z);
-        List<BspWorldLight>? added = StyledAndDynamic(entity, x, y, z);
+        StyledHandle handle = Ranked(Handle(entity, x, y, z), x, y, z);
 
-        if (added is not { Count: > 0 })
+        if (WithDynamic(handle, x, y, z) is { } added)
+        {
+            return (new PointLighting(lighting.Cube, WithStyleZero(added, x, y, z)), sun);
+        }
+
+        if (handle.RankedLights.Length == 0)
         {
             return (lighting, sun);
         }
 
+        // **With no live dlight the finished state is the handle's** (`+0x88` holds the ranked result and the draw only
+        // adds to it): ranked again only when bit 4 was, or style 0 (which the style-0 lights are ranked at) was stamped,
+        // so a frame with nothing stamped allocates and ranks nothing.
+        int at = Math.Max(handle.BuiltAt, _styleStamps.GetValueOrDefault(0, -1));
+
+        if (handle.Full is not { } full || full.At != at)
+        {
+            full = (Array.AsReadOnly(WithStyleZero([.. handle.RankedLights], x, y, z)), at);
+            handle.Full = full;
+            FullRankings++;
+        }
+
+        return (new PointLighting(lighting.Cube, full.Locals), sun);
+    }
+
+    /// <summary>Flags 7's one ranking: these added lights with every style-0 world light, strongest four.</summary>
+    private LocalLight[] WithStyleZero(List<BspWorldLight> added, float x, float y, float z)
+    {
         added.AddRange(_worldLights.Where(static light => light.Style == 0));
 
         LocalLight[] nearest = new LocalLight[LocalLights.MaximumLocalLights];
-        int found = LocalLights.Strongest(added, x, y, z, nearest, StyleScale);
-        Array.Resize(ref nearest, found);
+        Array.Resize(ref nearest, LocalLights.Strongest(added, x, y, z, nearest, StyleScale));
 
-        return (new PointLighting(lighting.Cube, nearest), sun);
+        return nearest;
     }
 
     /// <summary>Dlight slots a static prop's bit-2 gather has examined, ever: the conformance tests' count of the live-set walk.</summary>
     internal int DlightsExamined { get; private set; }
 
-    /// <summary>A handle's styled lights (bit 4) and the live dlights that reach it (bit 2), unranked; null when neither has any.</summary>
+    /// <summary>
+    /// A handle's ranked styled lights (bit 4's `+0x88`) and the live dlights that reach it (bit 2), unranked; null when
+    /// no dlight reaches, which leaves the cached ranking the whole answer.
+    /// </summary>
     /// <remarks>
     /// **Bit 2 walks the live set, `r_dlightactive`, and nothing else** (`FUN_1801ba590` masks the handle's `+0x1a4` by
     /// `DAT_1806996c4`). This walked all 32 slots and looked up a cluster for each, and for the prop, on every static prop
     /// every frame: ~4,000 slot reads a frame on f12 with no dlight live (measurement 2026-10-27-static-prop-lighting).
     /// The live slots are visited in slot order, as the walk over every slot visited them.
+    ///
+    /// **Ranked against the cached four, not the whole list** (`FUN_1801b6550` adds to the state bit 4 left): a light's
+    /// strength is its own, so the strongest of the four and the dlights are the strongest of the list and the dlights.
+    /// That holds on ties too, because `LocalLights`' insert keeps the EARLIER of two equal lights (a full list refuses
+    /// a light no stronger than its last, and a light moves up only past a weaker one): the four come in rank order before
+    /// the dlights, as the list came in lump order before them. Pinned by
+    /// `StaticPlusDynamicLights_FiveEqualStyledLampsAndADlight_RankAsOneListWould`, which asserts WHICH four of five equal
+    /// lamps are kept (the first four, in lump order) and then that the dlight ranks as one list would.
     /// </remarks>
-    private List<BspWorldLight>? StyledAndDynamic(int entity, float x, float y, float z)
+    private List<BspWorldLight>? WithDynamic(StyledHandle handle, float x, float y, float z)
     {
-        if (!_styledByEntity.TryGetValue(entity, out int[]? listed))
-        {
-            listed = StyledLights(x, y, z);
-            _styledByEntity[entity] = listed;
-        }
-
         uint live = Dynamic?.ActiveMask ?? 0u;
 
-        if (listed.Length == 0 && (live == 0u || _leaves is null))
+        if (live == 0u || Dynamic is not { } dynamic || _leaves is not { } tree)
         {
             return null;
         }
 
-        List<BspWorldLight> lights = [.. listed.Select(index => _worldLights[index])];
+        List<BspWorldLight>? lights = null;
+        int from = tree.ClusterAt(x, y, z);
+        bool anyCluster = _visibility is not { HasData: true };
 
-        if (live != 0u && Dynamic is { } dynamic && _leaves is { } tree)
+        for (; live != 0u; live &= live - 1u)
         {
-            int from = tree.ClusterAt(x, y, z);
-            bool anyCluster = _visibility is not { HasData: true };
+            int index = System.Numerics.BitOperations.TrailingZeroCount(live);
+            DlightsExamined++;
+            DynamicLight light = dynamic.Dlights[index];
+            int cluster = tree.ClusterAt(light.X, light.Y, light.Z);
 
-            for (; live != 0u; live &= live - 1u)
+            if (dynamic.LightsModels(index) && (anyCluster || (cluster >= 0 && _visibility!.Visible(cluster, from))))
             {
-                int index = System.Numerics.BitOperations.TrailingZeroCount(live);
-                DlightsExamined++;
-                DynamicLight light = dynamic.Dlights[index];
-                int cluster = tree.ClusterAt(light.X, light.Y, light.Z);
-
-                if (dynamic.LightsModels(index) && (anyCluster || (cluster >= 0 && _visibility!.Visible(cluster, from))))
-                {
-                    lights.Add(DynamicLights.ToWorldLight(light, cluster));
-                }
+                lights ??= [.. handle.RankedLights];
+                lights.Add(DynamicLights.ToWorldLight(light, cluster));
             }
         }
 
@@ -652,6 +839,8 @@ public sealed class LevelLighting
             return built;
         }
 
+        long buildAt = System.Diagnostics.Stopwatch.GetTimestamp();
+
         // **Computed, not the leaf's** (B514): `FUN_1801bb4b0` gives a static caller `ComputeAmbientFromSphericalSamples`
         // under `r_radiosity` 4. The leaf's samples stand in only where the level cannot cast the rays.
         int leaf = tree.LeafAt(x, y, z);
@@ -670,8 +859,11 @@ public sealed class LevelLighting
             ? SunFrom(SunCaller.StaticProp, light, strikesSky, x, y, z)
             : null;
 
-        built = (found == 0 ? PointLighting.Bounce(bounced) : new PointLighting(bounced, nearest), sun);
+        // Read-only: this one state is every later draw's and bake's (B607).
+        built = (found == 0 ? PointLighting.Bounce(bounced) : new PointLighting(bounced, Array.AsReadOnly(nearest)), sun);
         _staticStates[(x, y, z)] = built;
+        StaticStateBuilds++;
+        StaticStateBuildTicks += System.Diagnostics.Stopwatch.GetTimestamp() - buildAt;
 
         return built;
     }

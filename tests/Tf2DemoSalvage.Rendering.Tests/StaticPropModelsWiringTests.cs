@@ -184,6 +184,59 @@ public sealed class StaticPropModelsWiringTests
     }
 
     /// <remarks>
+    /// **B607, bit 4's cache on a real map.** `FUN_1801ba590` keeps a handle's ranked styled lights at `+0x88` until a
+    /// listed style's stamp passes `+0xf8`. On `koth_dryfield`, whose only styled light is style 1's (`styledprops`,
+    /// 2026-09-28), a second draw with nothing stamped ranks nothing, and switching style 1 to `a` ranks every handle that
+    /// ranked before once more and takes the lamp off every placement.
+    /// </remarks>
+    [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
+    public void Instances_KothDryfieldDrawnTwiceThenStyleOneSwitchedOff_RanksOnlyOnTheStamp()
+    {
+        const string Map = "koth_dryfield";
+        MapAssets assets = MapCache.With(mapName: Map).Assets;
+        LevelLighting lighting = LevelLighting.From(MapLevel.Read(MapCache.Bytes(Map), NullLogger.Instance), NullLogger.Instance);
+
+        LightStyleValues values = new();
+        values.Set(1, "n");
+        lighting.StyleScale = values.Scale;
+        lighting.StylesChanged(values.Advance(0d));
+
+        EntityModelSet models = new()
+        {
+            Geometry = assets.Geometry,
+            StaticPropColours = assets.StaticModelColours,
+            StaticPlusDynamicLights = lighting.StaticPlusDynamicLights,
+        };
+
+        models.Add(assets.StaticModels);
+
+        List<ModelInstance> drawn = [];
+        models.Instances(assets.StaticModels, drawn, lighting.ModelLightingAt, lighting.ModelSunAt);
+
+        int lit = drawn.Count(instance => instance.BakedColours is not null && instance.Locals is { Count: > 0 });
+        int ranked = lighting.StyledRankings;
+
+        lit.ShouldBeGreaterThan(0, "the control: style 1's lamp lights baked placements");
+        ranked.ShouldBeGreaterThanOrEqualTo(lit);
+
+        drawn.Clear();
+        models.Instances(assets.StaticModels, drawn, lighting.ModelLightingAt, lighting.ModelSunAt);
+        lighting.StyledRankings.ShouldBe(ranked, "nothing stamped: every handle read +0x88");
+
+        values.Set(1, "a");
+        IReadOnlyList<int> changed = values.Advance(0d);
+        changed.ShouldBe([1]);
+        lighting.StylesChanged(changed);
+
+        drawn.Clear();
+        models.Instances(assets.StaticModels, drawn, lighting.ModelLightingAt, lighting.ModelSunAt);
+
+        drawn.Count(instance => instance.BakedColours is not null && instance.Locals is { Count: > 0 }).ShouldBe(0);
+        lighting.StyledRankings.ShouldBe(2 * ranked, "every handle that ranked lists style 1, and only style 1 changed");
+    }
+
+    /// <remarks>
     /// **B514, on the parity map.** `models/props_hydro/observatory_dome.mdl` draws
     /// `materials/models/props_hydro/observatory_dome.vmt`, a `VertexLitGeneric` with `$phong 1` and no `$bumpmap`.
     /// `studiorender.dll FUN_180057da0` flags the model `STUDIOHDR_FLAGS_USES_BUMPMAPPING` for the `$phong`, and

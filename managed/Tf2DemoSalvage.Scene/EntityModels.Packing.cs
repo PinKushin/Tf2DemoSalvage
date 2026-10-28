@@ -154,7 +154,9 @@ public sealed partial class EntityModelSet
 
         // **The static props once a level, after the moment's own** — the order they were packed in when they rode the
         // draw list behind the entities every frame (finding 83 item 1).
-        if (!_staticsPacked)
+        bool staticsNow = !_staticsPacked;
+
+        if (staticsNow)
         {
             _staticsPacked = true;
             added |= PackModels(_staticProps, load);
@@ -166,7 +168,23 @@ public sealed partial class EntityModelSet
             PackTicks += System.Diagnostics.Stopwatch.GetTimestamp() - packAt;
         }
 
+        // Their lighting with them, as the level loads (B607), not on each one's first draw — on its own clock, after the
+        // pack's: it holds the colour meshes, static states and styled lists, so `BakedBuildTicks` and the static states'
+        // ticks nest inside it.
+        if (staticsNow)
+        {
+            TimedPrecache();
+        }
+
         return added;
+    }
+
+    /// <summary><see cref="PrecacheStaticLighting"/> on its own clock, <see cref="PrecacheTicks"/>.</summary>
+    private void TimedPrecache()
+    {
+        long precacheAt = System.Diagnostics.Stopwatch.GetTimestamp();
+        PrecacheStaticLighting();
+        PrecacheTicks += System.Diagnostics.Stopwatch.GetTimestamp() - precacheAt;
     }
 
     /// <summary><see cref="Add(IReadOnlyList{SceneProp}, Func{string, PropModels.ModelFrames?})"/>'s body, for one list.</summary>

@@ -460,8 +460,14 @@ public sealed partial class EntityModelSet : Hud.IMdlCache, IPosedEntities
     /// <summary>Static props whose colour mesh was built (a cache miss in <c>BakedColoursOf</c>), ever (B595).</summary>
     public int BakedBuilds { get; private set; }
 
-    /// <summary>What those builds cost, ever, in stopwatch ticks (B595).</summary>
+    /// <summary>What every colour-mesh answer kept cost, ever, in stopwatch ticks — a refused mesh too (B595).</summary>
     public long BakedBuildTicks { get; private set; }
+
+    /// <summary>
+    /// What the static props' lighting built at level load cost, ever, in stopwatch ticks (B607): colour meshes, static
+    /// states and styled lists, so <see cref="BakedBuildTicks"/>' load-time part nests inside it.
+    /// </summary>
+    public long PrecacheTicks { get; private set; }
 
     /// <summary>Model paths packed for the first time, ever (B595).</summary>
     public int ModelsPacked { get; private set; }

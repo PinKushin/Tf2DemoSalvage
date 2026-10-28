@@ -63,6 +63,10 @@
     <!-- The viewer's own suite still covers most of this while the split settles; it moves to
          Scene.Tests as the tests follow their subjects. -->
     <InternalsVisibleTo Include="Tf2DemoSalvage.Viewer3D.Tests" />
+
+    <!-- `LevelLighting.StyledRankings`, the one reading of whether a frame's style stamps reached a static prop's handle
+         (B607): `LightStyleEffects` makes the call and draws no pixel that would differ without it. -->
+    <InternalsVisibleTo Include="Tf2DemoSalvage.Presentation.Tests" />
   </ItemGroup>
 
   <!--

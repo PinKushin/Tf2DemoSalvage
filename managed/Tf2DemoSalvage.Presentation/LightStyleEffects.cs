@@ -153,7 +153,8 @@ public sealed class LightStyleEffects
 
         if (changed.Count > 0 && lighting.Answers(changed))
         {
-            lighting.StylesChanged();
+            // Per style, so a static prop's ranked styled lights stand until a style it lists changes (B607).
+            lighting.StylesChanged(changed);
         }
 
         _lightmapRegions.Clear();

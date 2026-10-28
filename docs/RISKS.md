@@ -19708,6 +19708,13 @@ engine (`f61c7602`, `simulate` 0.5-0.6 → 0.3-0.4 ms; `measurements/2026-10-23-
 does for every entity too. **Still open:** `sample`, `drawlist` and `collate` walk every entity (~230 on f12), not only
 those that changed; together about 0.6 ms.
 
+**2026-10-27, the whole empty view re-measured** (`measurements/2026-10-27-empty-view-breakdown.md`, Release): the B build,
+four runs: frame 3.32-4.04 ms over the whole window; `hud` fell 0.41 ms with B608 (frame not claimed; same record). Moment,
+all eight runs: sample 0.31-0.40, drawlist 0.18-0.22, collate 0.20-0.26 — the three open walks sum to 0.69-0.88 ms here
+(same record), against "about 0.6" above from a Debug build on 2026-10-23; the two are not a pair, so no change is claimed
+either way. The larger share of the floor is `camera particles` (1.55 ms, 46% of B's steady frame; same record), whose step
+and build are the engine's shape (audited in that record).
+
 ### B259 on 2026-10-27: the world walk is pruned by the PVS, as the engine's mark-leaves makes it
 
 `WorldVisibility` used to walk every node the frustum kept and test the PVS per LEAF, so a subtree the PVS hides
@@ -40139,7 +40146,29 @@ reddens four tests), and a child's drawn size against its own scale alone.
   `pl_badwater_pro_v12.bsp` is not on this machine (not under the game's `tf/maps`, `tf/download/maps`, `tf2ds`, or the
   user profile), so its `parentname` cannot be read, and no sampled tick gives them a parent.
 
-## B607 — a static prop's draw-time lighting did more per frame than the engine's handle — PARTLY FIXED (2026-10-27)
+## B608 — a font handle's validity was a scan of every handle, per character — FIXED (2026-10-27)
+
+**Evidence class: read from disassembly, and measured.** `CFontManager::GetCharABCwide` (vguimatsurface.dll
+`0x180016a70`) checks a handle with `TEST EDX,EDX; JS` and `CMP EDX,[RCX+0x10]; JGE` — a bounds check against the amalgam
+count — then indexes `handle * 72`. `VguiFontManager` held its handles in a `List` and asked `List.Contains` in
+`GetCharAbcWide`, `GetCharacterWidth` (twice) and `GetFontTall`; `VguiRichText.DrawString` and `VguiDrawList.DrawPrintText`
+make those calls per character, and each scheme load makes two handles per font. **Same answers, different mechanism**:
+now a reference-keyed `HashSet` (`373b8e7b`), pinned by `VguiFontManagerConformanceTests` (a foreign handle, a handle from
+before `ClearAllFonts`; a sabotage making `GetFontTall` accept any handle reddened both and only those two, 2 failed of
+13 in the fixture — run 2026-10-27, recorded in commit `373b8e7b`'s message, not in a committed log).
+
+**Measured** (`measurements/2026-10-27-empty-view-breakdown.md`, f12 empty view, eight runs ABBA BAAB): `HudChat`
+0.29-0.39 → 0.011 ms; `hud` 0.61-0.81 → 0.25-0.30 ms, 18.0% → 8.1% of the steady frame; the frame itself is not claimed
+(measurements/2026-10-27-empty-view-breakdown.md). First person: a 0.31 ms `hud` drop in one run per build; no spread,
+supporting only. **Identity, as far as it goes:** the paused A2/B2 pair, which landed in the same chat-fade state, differs only
+in the frame-time overlay's digits; the HUD is not deterministic between runs (the chat fades on the wall clock), the
+chat's own text was faded in both, and no world-only comparison was made.
+
+**What it does not close** (measurements/2026-10-27-empty-view-breakdown.md): the rest of the empty view's 3.7 ms — particles 1.55 (engine-shaped), B577's
+offers and B259's walks. And one ours-not-the-engine's left as it was: an engine handle is an index, so a stale one below
+the new count would name a new font; ours names nothing.
+
+## B607 — a static prop's draw-time lighting did more per frame than the engine's handle — MOSTLY FIXED (2026-10-27)
 
 **Evidence class: read from disassembly** (findings 65 and 67, B427, B514) **and measured**
 (measurements/2026-10-27-static-prop-lighting.md). The engine's light cache handle is built at load
@@ -40153,13 +40182,34 @@ of the frame), frame −0.37 to −0.47 ms (measurements/2026-10-27-static-prop-
 controls), pixels unchanged outside the frame-rate readout (`StaticPlusDynamicLightingConformanceTests`, `…_NoLiveDlight_ExaminesNoSlot`,
 `…_ThreeLiveDlightsOneInReach_…`).
 
+**Fixed 2026-10-27 (branch `perf/static-prop-handle-at-load`), measurements/2026-10-27-static-prop-handle-at-load.md:**
+- **The handle is built at load.** Once the level's static props are packed, `EntityModelSet.PrecacheStaticLighting`
+  builds each prop's colour mesh, its handle's styled list and, for a bump-mapped model, its static state
+  (`LevelLighting.PrecacheStaticProp`), at the lighting origin the draw uses; a static prop with no colour mesh keeps
+  that answer. On f12 (measurements/2026-10-27-static-prop-handle-at-load.md): in play 0 colour meshes and 0 static
+  states built, against B's 233 meshes; the frame unchanged (A 8.37-8.38, B 8.35-8.39 ms in the pairs passing both
+  controls); load **+0.5-0.6 s**, user-visible (404 static states, 468-585 ms of it).
+- **Bit 4 is cached** at `+0x88`'s shape: ranked once, ranked again only when a listed style is stamped
+  (`StylesChanged(styles)`, which `LightStyleEffects` now passes); a live dlight is ranked against the cached four. A
+  bump-mapped prop's finished state (style-0 and styled lights ranked together) is cached on the handle the same way, so
+  with no live dlight neither path allocates or ranks on a frame with nothing stamped. Every cached list — flags 6's,
+  flags 7's and the static state — is handed out read-only. A source set after the static props were packed (no
+  production path: `LevelSystems.Load` runs after `ClearMap`'s shutdown) drops the kept answers and the next draw builds.
+  Tests: `StaticPlusDynamicLightingConformanceTests` (`…_NoListedStyleChanged_RanksTheStyledLightsOnce`,
+  `…_AListedStyleChanges_RanksAgainAtItsNewValue`, `…_AnUnlistedStyleChanges_DoesNotRankAgain`,
+  `…_ALiveDlightBesideACachedStyledLamp_…`, `PrecacheStaticProp_…`) and
+  `…_FiveEqualStyledLampsAndADlight_RankAsOneListWould` (the tie rule),
+  `MomentSceneTests.Build_TheStaticPropsFirstPack_BuildsTheirLightingHandlesBeforeAnyDraw`, the production stamp in
+  `LightStyleEffectsTests.StepOver_TheFirstFrame_…` and `…_AnUnlistedStyleSteppingThenAListedOne_…`, and on a real map
+  `StaticPropModelsWiringTests.Instances_KothDryfieldDrawnTwiceThenStyleOneSwitchedOff_RanksOnlyOnTheStamp` (a count,
+  not a shot). f12 lists no styled light, so the timed runs cannot show bit 4.
+- **Interpolated, the engine unread this pass** (the Ghidra MCP's program tools did not register): whether
+  `PrecacheLighting` skips any prop (ours: every drawable one whose draw reads a handle); whether `FUN_1801b8350` fills
+  `+0x88` itself (ours: the first draw ranks); that `+0xf8` is compared per listed style against `DAT_1806998a0[style]`
+  (B424's reading of `+0x1d0` has that shape); that the engine builds `+0x18` for a `.vhv` prop (ours does not, since
+  no draw here reads it).
+
 **Still open, each a divergence of shape with output equal:**
-- **Bit 4 is re-ranked every frame** when a prop lists styled lights (`StaticPlusDynamicLights`, `StyledAndDynamic`'s LINQ
-  `List`); the engine caches it at `+0x88`. 0 props on f12; `koth_dryfield`'s flicker is the specimen. Fix shape: cache
-  the ranked list per entity with the style values it used, rebuilt when one changes — a test must vary a style.
-- **The handle is built on first draw, not at load**: `_staticStates` (rays per prop), `_styledByEntity` and the CPU
-  colour meshes past the 188 built before play. 174 static states over a 20 s f12 run, 0.146 ms a frame averaged over it
-  (measurements/2026-10-27-static-prop-lighting/split.txt); first-use stalls are B595's subject.
 - **Dlight marking is per prop**, not from the dlight's side (`FUN_1801b5260`); cost scales with live dlights, 0 here.
 - **The full-lighting path re-ranks every style-0 world light** with the added ones; the engine ranks the added ones
   against the cached static four. Equal output while `StyleScale(0)` is 1; runs only when something is added.

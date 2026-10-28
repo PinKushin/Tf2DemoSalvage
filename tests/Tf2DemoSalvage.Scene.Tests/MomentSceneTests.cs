@@ -1106,7 +1106,7 @@ public sealed class MomentSceneTests
         float[] before = [.. scene.Instances.ShouldHaveSingleItem().BakedColours.ShouldNotBeNull()];
 
         scale[0] = 1f;
-        lighting.StylesChanged();
+        lighting.StylesChanged([5]);
         scene.Pose(Info());
 
         scene.Instances.ShouldHaveSingleItem().BakedColours.ShouldBe(before);
@@ -1142,8 +1142,91 @@ public sealed class MomentSceneTests
         drawn[0].ShouldNotBe(PropModels.FromVertexByte(StaticPropVertexLighting.ToByte(ordinary.X)), "the control");
     }
 
+    /// <remarks>
+    /// **B607, the handle at load.** `CStaticPropMgr::PrecacheLighting` (`engine.dll` `0x180205b20`) builds every static
+    /// prop's light cache handle (`FUN_1801b8350`) when the level loads: the static state at `+0x18` and the styled list at
+    /// `+0x1b0`. So the first pack of the level's static props builds both, before any draw, and the draw builds neither
+    /// again — for a CPU-lit colour mesh (flags 6, whose bake reads the static state) and for a bump-mapped model (flags 7).
+    /// </remarks>
+    [TestCase(Content.Assets.StudioModelFlags.StaticProp)]
+    [TestCase(Content.Assets.StudioModelFlags.StaticProp | Content.Assets.StudioModelFlags.UsesBumpmapping)]
+    public void Build_TheStaticPropsFirstPack_BuildsTheirLightingHandlesBeforeAnyDraw(int studioFlags)
+    {
+        MomentScene scene = UnbakedStaticProp(studioFlags, out LevelLighting lighting, out _, styled: true);
+
+        (lighting.StaticStateBuilds, lighting.StyledListsBuilt).ShouldBe((0, 0), "the control: nothing before the pack");
+
+        scene.Build([], [], Info());
+
+        (lighting.StaticStateBuilds, lighting.StyledListsBuilt).ShouldBe((1, 1), "built when the static props were packed");
+
+        scene.Pose(Info());
+        scene.Instances.ShouldHaveSingleItem();
+
+        (lighting.StaticStateBuilds, lighting.StyledListsBuilt).ShouldBe((1, 1), "the draw read the handle built at load");
+    }
+
+    /// <remarks>
+    /// **B607, a refusal that waited on a source.** With no lighting source at the first pack the CPU bake is refused — a
+    /// refusal that depends on state not yet there, not a final one. Setting the source drops that answer (the
+    /// delegate's setter clears the colour meshes), so the first draw builds the mesh rather than drawing the kept
+    /// refusal. Production never takes this route — `LevelSystems.Load` sets the source before the pack — but a kept
+    /// refusal must not outlive what it waited on.
+    /// </remarks>
+    [Test]
+    public void Lighting_SetAfterTheStaticPropsArePacked_DropsTheRefusalAndTheFirstDrawBuildsTheMesh()
+    {
+        MomentScene scene = UnbakedStaticProp(0x10, out LevelLighting lighting, out _, lit: false);
+
+        scene.Build([], [], Info());
+        lighting.StaticStateBuilds.ShouldBe(0, "the control: no source at the pack");
+
+        scene.Lighting = lighting;
+        scene.Pose(Info());
+
+        scene.Instances.ShouldHaveSingleItem().BakedColours.ShouldNotBeNull("the refusal at the pack was not kept");
+        lighting.StaticStateBuilds.ShouldBe(1, "built by the first draw");
+    }
+
+    /// <remarks>
+    /// **B607, a level's shutdown builds nothing.** It hands the scene the unlit source before the model set forgets the
+    /// level; nothing may build the departing level's static-prop lighting against it, or that work lands in the counters
+    /// the next level's `--measure` reports.
+    /// </remarks>
+    [Test]
+    public void LevelShutdownPreEntity_WithTheStaticPropsPacked_BuildsNoStaticPropLighting()
+    {
+        PropVertex corner = new(0, 0f, 0f, 0f, 0f, MaterialIndex: 3);
+        EntityModelSet models = new()
+        {
+            Geometry = _ => new PropModels.ModelFrames(
+                [new[] { corner }],
+                new Dictionary<int, (int Start, int Frames, float CyclesPerSecond)> { [0] = (0, 1, 0f) },
+                [0],
+                [true]),
+            StaticPropColours = new Dictionary<int, float[]> { [PropModels.FirstStaticPropEntityIndex] = [.5f, .5f, .5f] },
+        };
+
+        MomentScene scene = new(models, new ViewmodelScene(), new RecordingLogger())
+        {
+            Upload = new Uploads(),
+            Appearance = new Appearance(),
+            Lighting = StaticPlusDynamicLightingConformanceTests.Map([]),
+            StaticProps =
+                [PropModels.StaticModel(new Content.Bsp.BspStaticProp("models/props/crate.mdl", 0f, 0f, 100f, 0f, 0f, 0f, 1f), 0)],
+        };
+
+        scene.Build([], [], Info());
+        models.BakedBuilds.ShouldBe(1, "the control: the pack built it");
+        (long bakedTicks, long precacheTicks) = (models.BakedBuildTicks, models.PrecacheTicks);
+
+        scene.LevelShutdownPreEntity();
+
+        (models.BakedBuilds, models.BakedBuildTicks, models.PrecacheTicks).ShouldBe((1, bakedTicks, precacheTicks));
+    }
+
     private static MomentScene UnbakedStaticProp(
-        int studioFlags, out LevelLighting lighting, out float[] scale, bool styled = false, byte constantDot = 0)
+        int studioFlags, out LevelLighting lighting, out float[] scale, bool styled = false, byte constantDot = 0, bool lit = true)
     {
         EntityModelSet models = new()
         {
@@ -1169,14 +1252,20 @@ public sealed class MomentSceneTests
         lighting = StaticPlusDynamicLightingConformanceTests.Map(styled ? [Dim(0), Dim(5)] : [Dim(0)]);
         lighting.StyleScale = style => style == 5 ? styleScale[0] : 1f;
 
-        return new MomentScene(models, new ViewmodelScene(), new RecordingLogger())
+        MomentScene scene = new(models, new ViewmodelScene(), new RecordingLogger())
         {
             Upload = new Uploads(),
             Appearance = new Appearance(),
-            Lighting = lighting,
             StaticProps =
                 [PropModels.StaticModel(new Content.Bsp.BspStaticProp("models/props/crate.mdl", 0f, 0f, 100f, 0f, 0f, 0f, 1f), 0)],
         };
+
+        if (lit)
+        {
+            scene.Lighting = lighting;
+        }
+
+        return scene;
     }
 
 
