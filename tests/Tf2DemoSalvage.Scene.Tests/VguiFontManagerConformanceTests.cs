@@ -130,5 +130,41 @@ public sealed class VguiFontManagerConformanceTests
         gdi.Deleted.Count.ShouldBe(2, "a second clear has nothing left to delete");
     }
 
+    // `GetCharABCwide` (0x180016a70) bounds-checks the handle against the manager's amalgam count (`TEST EDX,EDX; JS`,
+    // `CMP EDX,[RCX+0x10]; JGE`) and answers zeros outside it; `GetCharacterWidth` and `GetFontTall` the same.
+    [Test]
+    public void HandleCheck_AHandleAnotherManagerMade_AnswersZerosFromEveryQuery()
+    {
+        VguiFontManager other = new(new FakeGdi());
+        VguiFontAmalgam foreign = other.CreateFont();
+
+        other.SetFontGlyphSet(foreign, Set("Tahoma"), 0, 0);
+
+        VguiFontManager manager = new(new FakeGdi());
+
+        _ = manager.CreateFont();
+        manager.GetCharAbcWide(foreign, 'A').ShouldBe((0, 0, 0));
+        manager.GetCharacterWidth(foreign, 'A').ShouldBe(0);
+        manager.GetFontTall(foreign).ShouldBe(0);
+        other.GetFontTall(foreign).ShouldBe(20, "control: its own manager answers");
+    }
+
+    // **Ours, not the engine's:** an engine handle is an index, so a stale one below the new count would name a NEW font.
+    // This port's handles are objects and a stale one names nothing; kept as it was, and pinned so a faster check keeps it.
+    [Test]
+    public void HandleCheck_AHandleFromBeforeClearAllFonts_AnswersZeros()
+    {
+        VguiFontManager manager = new(new FakeGdi());
+        VguiFontAmalgam stale = manager.CreateFont();
+
+        manager.SetFontGlyphSet(stale, Set("Tahoma"), 0, 0);
+        manager.GetFontTall(stale).ShouldBe(20, "control: answers before the clear");
+
+        manager.ClearAllFonts();
+
+        manager.GetFontTall(stale).ShouldBe(0);
+        manager.GetCharacterWidth(stale, 'A').ShouldBe(0);
+    }
+
     private static VguiFont Set(string face, int flags = 0) => new(face, 20, 400, 0, 0, flags, 1f, 1f);
 }
