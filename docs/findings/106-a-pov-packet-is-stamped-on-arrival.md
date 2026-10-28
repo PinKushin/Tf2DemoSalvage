@@ -41,8 +41,8 @@ The same function fills `democmdinfo_t` from two different places:
 - `viewAngles` is copied from `cl.viewangles` (`0x18053f4e4`), which `IVEngineClient::SetViewAngles` (`0x180070fa0`) writes.
 
 **That answers the angles** (*measured*). The probe now groups the angle steps as it does the origin's. On the subject, the
-view-angle step over its local median is 0.016 at a stamp step of 0, 1.31 at 1 and 3.42 at 2. By server step it is 1.51,
-2.79 and 1.61, which does not track. So the angles were sampled on the stamp's own clock: the client turned the view
+view-angle step over its local median is 0.016 at a stamp step of 0, 1.31 at 1 and 3.42 at 2. By server step it is 1.51
+at a step of 1, 2.79 at 2 and 1.61 at 3 or more, which does not track. So the angles were sampled on the stamp's own clock: the client turned the view
 while the packet sat in its queue. Pairing them by the stamp is already right, which is why they pace evenly. The origin is
 the snapshot's and follows the server. The two halves of one `democmdinfo_t` run on two clocks.
 
@@ -56,8 +56,8 @@ pair's interval. On the server's axis the pair can start at a packet not yet rea
 spanned two: rgl's snaps rose from 842 to 1005, and fell to 904 once the interval ran from the current packet. The full table
 is in `docs/measurements/2026-10-27-retime-view-by-server-tick.md`.
 
-**A second clock defect, found by the fix** (*measured*). In 2 minutes the 2013 specimen's `stamp - net_Tick` steps by 12 to
-28 ticks seven times, and it never steps back. Each time, a stamp gap of about 20 ticks covers a server step of about 7. So
+**A second clock defect, found by the fix** (*measured*). In 2 minutes the 2013 specimen's `stamp - net_Tick` takes seven
+values. That is six steps: three of 12 ticks, two of 13 and one of 28. It never steps back. Each time, a stamp gap of about 20 ticks covers a server step of about 7. So
 the server lost ticks: it simulated 7 while 20 passed on the wall. A single usual delay over such a step put every
 packet on one side 12 ticks off its stamp. The first version then fell back to the stamp there, and the camera regressed
 (CV 0.447 to 0.603). So a delay step wider than the parse-ahead now ends a run. Across such a lost-time gap the camera

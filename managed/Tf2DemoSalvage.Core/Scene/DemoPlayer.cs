@@ -76,6 +76,9 @@ public sealed class DemoPlayer
     /// <summary>The ticks <c>demo_retimeview</c> pairs the origin on, one per view command — the array the blend reads, for a test and the probe.</summary>
     internal IReadOnlyList<int> ServerTimedTicks => _serverTimed;
 
+    /// <summary>The view commands this player reads and the window it places them with, for the probe to re-run <see cref="ServerTimed"/>'s counter.</summary>
+    internal (IReadOnlyList<DemoViewCommand> Commands, int Window) ServerTimedInputs => (_commands, ServerTimedWindowPackets);
+
     /// <summary>The last command read, or -1.</summary>
     private int _read = -1;
 
@@ -145,6 +148,9 @@ public sealed class DemoPlayer
     /// <summary>Each command's tick on the server's clock: what <c>demo_retimeview</c> interpolates the origin by (D238).</summary>
     /// <param name="commands">The view commands, in stream order.</param>
     /// <param name="window">How many packets either side the usual arrival delay is taken over.</param>
+    /// <param name="modeChanges">
+    /// If given, receives each command index at which a run's usual delay changes, with the old and new delay: an instrument.
+    /// </param>
     /// <returns>
     /// One tick per command. One that cannot be placed starts at its stamp, and like every packet is then raised to the
     /// latest earlier packet's tick when that is later — so a fallback can sit above its own stamp, never before an
@@ -159,9 +165,10 @@ public sealed class DemoPlayer
     /// **The placement: server tick plus the usual delay.** A run is consecutive <c>dem_packet</c>s that each carry a
     /// <c>net_Tick</c>, the server's stepping up; a signon, synctick, stop, a packet without one, a server tick that
     /// steps back, or a delay that steps by more than <see cref="ParseAheadTicks"/> ends it. That last is a clock step,
-    /// not jitter — the 2013 specimen's server lost 12 or 13 ticks at a time, seven times (finding 106) — and each side
+    /// not jitter — the 2013 specimen's delay steps six times, by 12, 13 and once 28 ticks (finding 106) — and each side
     /// of it has its own usual delay. Within a run each packet's delay is <c>stamp - server</c>, and its tick is its server tick plus
-    /// the most common delay among the <paramref name="window"/> packets either side (the smaller on a tie). Where the
+    /// the most common delay among the <paramref name="window"/> packets either side (the smaller on a tie), the one in
+    /// force kept until another leads it by a tenth of the window. Where the
     /// stamps are regular every delay is that one and the tick IS the stamp, bit for bit; a packet that arrived late by a
     /// tick moves back by one.
     ///
@@ -172,7 +179,8 @@ public sealed class DemoPlayer
     /// <c>net_Tick</c>, above its own stamp when the packet before it was placed after its own. Where the stamps
     /// do step back the engine's own queue clears, and so does this guard.
     /// </remarks>
-    internal static int[] ServerTimed(IReadOnlyList<DemoViewCommand> commands, int window)
+    internal static int[] ServerTimed(
+        IReadOnlyList<DemoViewCommand> commands, int window, List<(int Index, long From, long To)>? modeChanges = null)
     {
         int[] ticks = new int[commands.Count];
 
@@ -198,7 +206,7 @@ public sealed class DemoPlayer
                 end++;
             }
 
-            Place(commands, start, end, window, ticks);
+            Place(commands, start, end, window, ticks, modeChanges);
             start = end;
         }
 
@@ -226,12 +234,15 @@ public sealed class DemoPlayer
         command.Type == DemoCommandType.Packet && command.ServerTick is not null;
 
     /// <summary>One run's placement: each server tick plus the commonest delay in the window around it.</summary>
-    private static void Place(IReadOnlyList<DemoViewCommand> commands, int start, int end, int window, int[] ticks)
+    private static void Place(
+        IReadOnlyList<DemoViewCommand> commands, int start, int end, int window, int[] ticks,
+        List<(int Index, long From, long To)>? modeChanges)
     {
         // Delays in long: a server tick is 32 bits off the wire, and the difference of two need not fit an int.
         Dictionary<long, int> counts = [];
         int entered = start;
         int left = start;
+        long previous = long.MinValue;
 
         for (int index = start; index < end; index++)
         {
@@ -264,9 +275,27 @@ public sealed class DemoPlayer
                 }
             }
 
+            // **Hysteresis** (Opus review, round 4; measured). Two delays near a tie trade the lead as the window slides,
+            // and each trade moves every later placement by a tick: rgl changed its usual delay 252 times, 231 of them
+            // back again within a window, 92 in the worst window. The delay in force keeps the place until a challenger
+            // leads it by a tenth of the window.
+            if (counts.TryGetValue(previous, out int held) && held + (window / 10) >= most)
+            {
+                usual = previous;
+            }
+
             long placed = commands[index].ServerTick.GetValueOrDefault() + usual;
 
             ticks[index] = Math.Abs(placed - commands[index].Tick) <= ParseAheadTicks ? (int)placed : commands[index].Tick;
+
+            // An instrument (Opus review, round 4): where the usual delay changes within a run, every later placement
+            // moves by the difference. Recorded at the index the new delay first applies, never recomputed elsewhere.
+            if (index > start && usual != previous)
+            {
+                modeChanges?.Add((index, previous, usual));
+            }
+
+            previous = usual;
         }
     }
 
@@ -492,6 +521,10 @@ public sealed class DemoPlayer
             // A packet placed before its stamp can leave the target past every queued placement: after a stamp gap wider
             // than the parse-ahead, its successor is queued only once it is read. The origin holds that last placed
             // packet until then — the stamp's pair would put it back behind where the server's had already shown it.
+            // **And where the target lies BEFORE every queued placement** (the first frames on a packet placed after its
+            // stamp, as at the start of playback or a seek landing on one) there is nothing to hold: the origin is the
+            // engine's blend, and when the server's pair appears it can step by up to one tick of motion
+            // (InterpolateViewpoint_FirstFramesOnAPacketPlacedAfterItsStamp_StepNoMoreThanATickOfMotion).
             if (origins.PrevAt < 0)
             {
                 int last = _packets.Count - 1;

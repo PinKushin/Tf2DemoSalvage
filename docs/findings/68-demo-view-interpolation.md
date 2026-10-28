@@ -59,7 +59,10 @@ Everything above is the engine's, and it is what `demo_retimeview 0` plays. The 
 the recorded ORIGIN on each packet's `net_Tick` rather than on the stamp, because a POV packet's stamp is the client's
 arrival time and jitters (finding 106). The angles keep the engine's pair. So does the origin whenever any queued
 `FDEMO_NOINTERP` packet lies between the outermost ends of its pair and the engine's, which covers a cut placed early by
-any amount, lifted, or held past a gap. The snap's origin speed is measured from the current packet's own placement on that
+any amount, lifted, or held past a gap. Where the target lies before every queued placement (the first frames on a
+packet placed after its stamp, at the start or on a seek landing there) the origin is the engine's blend too. At both of
+these hand-overs, and at a cut's hull edges, the origin can step by up to one tick of motion; D238 accepts that. The
+snap's origin speed is measured from the current packet's own placement on that
 axis. The reading, the parse-ahead and the rewind above are untouched. How each packet is placed, and the measured
 result: finding 106 and `docs/measurements/2026-10-27-retime-view-by-server-tick.md`.
 

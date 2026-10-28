@@ -63,6 +63,9 @@ median. "Stalls" counts zero-move frames between moving ones.
 |---|---|---|---|---|---|---|
 | (a) line, a packet every tick | either | 0.0002 | 0 | 0 | 0 | 0.0001 |
 | (b1) subject rate, no jitter | either | 0.111 | 23 / 5233 | 0 | 0 | 0.111 |
+| (b2) subject's stamps, no `net_Tick` | off, and on to the digit | 0.864 | 972 / 5235 | 0 | 0 | 0.864 |
+| (b2) on the 2013 stamps | off, and on to the digit | 0.324 | 329 / 17396 | 0 | 0 | 0.326 |
+| (b2) on the rgl stamps | off, and on to the digit | 1.220 | 50434 / 309558 | 72 | 0 | 1.213 |
 | (b3) subject's two clocks, smooth line | off | 0.863 | 895 / 5235 | 0 | 0 | 0.870 |
 | (b3) subject's two clocks, smooth line | **on** | **0.0071** | **0** | 0 | 0 | 0.870 |
 | **subject** spiked pl_pier | off | 0.877 | 607 / 2937 (20.7%) | 8 | 11 | 0.2153 |
@@ -74,7 +77,7 @@ median. "Stalls" counts zero-move frames between moving ones.
 | (b3) on the rgl clocks | off | 1.219 | 49501 / 309558 | 72 | 0 | 1.212 |
 | (b3) on the rgl clocks | **on** | **0.196** | **299** | 61 | 0 | 1.212 |
 | (d) rgl pug POV, modern | off | 27.9 † | 77353 / 251766 (30.7%) | 6912 | 842 | 8.88 |
-| (d) rgl pug POV, modern | **on** | 19.4 † | **53873 / 252771 (21.3%)** | 9914 | 904 | 8.10 |
+| (d) rgl pug POV, modern | **on** | 22.4 † | **53819 / 252770 (21.3%)** | 9929 | 900 | 8.10 |
 
 † Dominated by respawns: the largest frame step is 4170 units. The "> 50%" column is the comparable one.
 
@@ -82,7 +85,7 @@ median. "Stalls" counts zero-move frames between moving ones.
 - Subject: 679 packets placed. 978 frames have no placed packet near, and every one is identical. 1498 frames near one
   differ.
 - 2013: 147 placed, 15930 identical, 0 different away from them, 565 different near them.
-- rgl: 41837 placed, 81773 identical, 0 different away from them.
+- rgl: 41721 placed, 81777 identical, 0 different away from them. These are the round-4 figures, with hysteresis.
 
 **Where the setting placed packets (stamp minus placement).**
 - Subject: 0 ×1687, 1 ×661, 2 ×11, 3 ×6, 6 ×1.
@@ -123,7 +126,7 @@ snaps. The interval now runs from the earlier of the pair's start and the curren
 engine's own interval wherever the pair starts at or before the current packet. A line at 2667 u/s across a late packet
 held the camera before the change and is the line after it
 (`InterpolateViewpoint_AJitteredLineUnderTheInterpLimit_IsTheLineAndNeverSnaps`).
-- rgl, after the change: 842 → 904. The remaining 62 were not examined.
+- rgl, after the change: 842 → 904, then 900 with round 4's hysteresis. The remaining 58 were not examined.
 - Subject: 11 → 24, unchanged by the change. The extra 13 are at 2236–2242, a 6-tick stamp gap. There `net_Tick` 82036 sits
   at stamp 2242 and 82042 at 2244, and the origin between them moves faster than `demo_interplimit` over the 7 ticks from
   the current packet: a respawn. The engine's own teleport rule therefore now holds the view across the real interval,
@@ -147,6 +150,41 @@ Rerun on all three demos, the subject, 2013 and rgl rows above are unchanged to 
 - The repeat-call memo is keyed on the ConVars too, so `demo_retimeview` changed while paused applies on the next call.
 
 Rerun again, the subject, 2013 and rgl rows above are unchanged to the printed digit, off and on.
+
+**After the Fable review of `acb22826` (round 4).** Three measurements.
+
+**Usual-delay changes.** The probe now carries `ServerTimed`'s own counter, re-run on the player's own inputs, and checks
+that it agrees with the blend's placement (it does, on every demo). For each demo: changes, how many changed back within
+a window, and the most in any 667 commands.
+
+| demo | before | with hysteresis |
+|---|---|---|
+| subject | 0 | 0 |
+| 2013 | 0 (its clock steps end runs) | 0 |
+| rgl | **252**: sizes 1 ×160, 2 ×92; 231 changed back; 92 in one window | **17**: all of size 1; none changed back; at most 2 in a window |
+
+On rgl two delays sit near a tie (−12772 and −12773). Each trade of the lead moved every later placement by a tick. The
+usual delay now holds its place until a challenger leads it by a tenth of the window (33 packets). The subject and 2013 had
+no change to suppress, and their rows are unchanged. rgl's row moved:
+
+| rgl, on | before | with hysteresis |
+|---|---|---|
+| frames > 50% off | 53873 | 53819 |
+| snaps | 904 | 900 |
+| stalls | 9914 | 9929 |
+| CV † | 19.4 | 22.4 |
+
+† Respawn-dominated, as the table's note says; its comparable column improved.
+
+**SourceTV.** The 2013 foundry SourceTV specimen's packets carry `net_Tick`, and all 5,972 are placed exactly on their
+stamps: a constant delay, because SourceTV stamps with the server's own `host_tickcount`. It records no view, so
+`InterpolateViewpoint` answers null at every one of 23,899 ticks with the setting on and off.
+
+**The ConVar read the memo now makes on every call.** The `viewconvarcost` probe times the production reader,
+`DemoSystems.ViewConVarsFrom`, over a two-table stand-in for the settings and console lookups: 441 ns minimum, 447 ns
+median of five million-call runs. Before, the read ran once per new moment. Now it runs on every call, so it adds one read
+a frame while playing (the camera and the recorder's body ask the same moment) and two while paused. That is about
+0.0005–0.0009 ms a frame, under a twentieth of the 0.01 ms this project counts as a win. No cache was added.
 
 **Whether the world carries the stamp's jitter** (the review's question). The probe's world-pacing section puts every
 other player's origin from `DemoTimeline.PlayerAt` through ONE loop with both cameras. The cameras are a positive
@@ -186,8 +224,9 @@ Two things got worse and are kept, deliberately:
 
 The angles are paired on the stamp as before; their source and the subject's measurement agree that the stamp is their
 clock. They change only on frames where the origin's snap decision changes, because a snap returns the current packet's
-angles with its origin. That happens nowhere on the subject or 2013 (angle CV identical), and on rgl it moves the angle
-CV from 8.88 to 8.10 and the angle stalls from 98 to 130.
+angles with its origin. On the subject that is the 13 extra snap frames at 2236–2242. There, and on 2013, the angle
+figures are unchanged to the printed digit. On rgl the angle CV moves from 8.88 to 8.10 and the angle stalls from 98 to
+130.
 
 **What remains for the 4+ tick gaps.** By server step:
 - subject `1x3 2x1 3x1`;

@@ -78,6 +78,21 @@ public sealed class CameraPathProbe : IProbe
         DemoTimeline subject = DemoTimeline.Build(bytes);
         int[] stamps = ViewPackets(subject);
 
+        // A SourceTV demo, or any with no recorded view: what the setting places, and whether either setting answers a view.
+        if (stamps.Length == 0)
+        {
+            Placement(output, subject);
+            DemoPlayer off = new(subject) { ConVars = () => DemoViewConVars.Defaults with { RetimeView = false } };
+            DemoPlayer on = new(subject) { ConVars = () => DemoViewConVars.Defaults with { RetimeView = true } };
+            int[] ticks = [.. Enumerable.Range(subject.FirstTick, Math.Max(0, subject.LastTick - subject.FirstTick))];
+            int differ = ticks.Count(tick => off.InterpolateViewpoint(tick + 0.5) != on.InterpolateViewpoint(tick + 0.5));
+
+            output.WriteLine(string.Create(CultureInfo.InvariantCulture,
+                $"no recorded view: InterpolateViewpoint non-null at {ticks.Count(tick => off.InterpolateViewpoint(tick + 0.25) is not null)} of {ticks.Length} ticks off, " +
+                $"{ticks.Count(tick => on.InterpolateViewpoint(tick + 0.25) is not null)} on; answers differing at mid-tick {differ}"));
+            return;
+        }
+
         int first = stamps[0];
         int count = stamps.Length;
         // The synthetic lines are written at SyntheticViews.Interval; the subject's own rate decides its seconds.
@@ -316,7 +331,25 @@ public sealed class CameraPathProbe : IProbe
     /// </summary>
     private static void Placement(TextWriter output, DemoTimeline timeline)
     {
-        IReadOnlyList<int> placed = new DemoPlayer(timeline).ServerTimedTicks;
+        DemoPlayer player = new(timeline);
+        IReadOnlyList<int> placed = player.ServerTimedTicks;
+
+        // How often a run's usual delay changes, from ServerTimed's own counter over the player's own inputs — checked to be
+        // the same placement the blend reads before it is believed. A change moves every later placement by its size; one
+        // that changes back within a window is the flip-flop a near-tie produces.
+        (IReadOnlyList<DemoViewCommand> inputs, int window) = player.ServerTimedInputs;
+        List<(int Index, long From, long To)> changes = [];
+        bool same = DemoPlayer.ServerTimed(inputs, window, changes).SequenceEqual(placed);
+        int back = changes.Zip(changes.Skip(1)).Count(pair => pair.Second.To == pair.First.From && pair.Second.Index - pair.First.Index <= window);
+        int worst = changes.Count == 0 ? 0 : changes.Max(change => changes.Count(other => other.Index >= change.Index && other.Index <= change.Index + (2 * window)));
+
+        output.WriteLine();
+        string sizes = Counts(changes.Select(change => (int)Math.Abs(change.To - change.From)));
+        output.WriteLine(string.Create(CultureInfo.InvariantCulture,
+            $"== usual-delay changes: {changes.Count} (re-run agrees with the blend's placement: {same}), by size {sizes}; " +
+            $"changed back within {window} commands {back}; most in any {(2 * window) + 1} commands {worst}"));
+        output.WriteLine("  first: " + string.Join(' ', changes.Take(16).Select(change =>
+            string.Create(CultureInfo.InvariantCulture, $"{inputs[change.Index].Tick}:{change.From - change.To:+0;-0}"))));
         int[] packets = [.. Enumerable.Range(0, timeline.ViewCommands.Count).Where(at => timeline.ViewCommands[at].Type == DemoCommandType.Packet)];
         int[] shift = [.. packets.Select(at => timeline.ViewCommands[at].Tick - placed[at])];
         int third = Math.Max(1, shift.Length / 3);

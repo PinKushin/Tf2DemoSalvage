@@ -11177,10 +11177,33 @@ ticks early, lifted above its stamp, or held past a gap, so the cut frames are t
 - The round-2 rule checked only the pair's two ends and its cut branch. The Opus review of `b7a8a751` found a cut two
   ticks early, and a held cut, still getting through.
 
+**Two steps accepted as the price.**
+- **The hull's edges.** The frame a cut enters that span, and the frame both pairs clear it, the origin moves between the
+  server's blend and the engine's. That step is up to one tick of motion. It is the accepted cost of every cut frame being
+  the engine's. Its size on the three demos was not measured.
+- **The first frames on a packet placed after its stamp.** This happens at the start of playback, or on a seek that lands
+  on one. The target lies before every queued placement, so there is neither a pair nor anything to hold, and the origin
+  is the engine's blend. When the server's pair appears, the origin steps by up to one tick of motion; a test holds that
+  bound.
+
 **How to switch it off.** `demo_retimeview 0` in a config or at the console gives the engine's answer bit for bit
-(`DemoRecordingStampConformanceTests`). The name is ours (D79 rule 2); `cvarlist.log` has no such ConVar. Wherever a
-packet carries no `net_Tick`, or its placement would be more than the parse-ahead's 8 ticks from its stamp, the stamp is
-used, so old demos, SourceTV demos and clock steps fall back to the engine.
+(`DemoRecordingStampConformanceTests`). The name is ours (D79 rule 2); `cvarlist.log` has no such ConVar.
+
+**Where it falls back.** Wherever a packet carries no `net_Tick`, or its placement would be more than the parse-ahead's 8
+ticks from its stamp, the stamp is used: old demos and clock steps fall back to the engine.
+
+**The usual delay holds its place** (round 4, measured). It changes only when a challenger leads it by a tenth of the
+window. Without that, rgl's two near-tied delays traded the lead 252 times, 231 of them back again within a window, each
+trade moving every later placement by a tick. With it they trade 17 times, never back.
+
+**The repeat memo reads the ConVars on every call**, so a change made while paused applies at once. That read costs about
+0.44 µs: under 0.001 ms a frame, measured, so no cache was added.
+
+**A SourceTV demo is not a fallback.** Its packets DO carry `net_Tick` and are placed. They land on the stamp only
+because SourceTV stamps with the server's own `host_tickcount`, a constant delay. On the 2013 foundry SourceTV specimen,
+measured with the probe, all 5,972 packets were placed exactly on their stamps. The demo also records no view, so
+`InterpolateViewpoint` answers null at every one of its 23,899 ticks with the setting on and off. The setting changes
+nothing there.
 
 **What it does not need to fix: the world.** Every other entity's origin is interpolated by its changetime, the
 entity's own `m_flSimulationTime` (`ScenePropTrack._appliedAt`, B273), not by its packet's stamp. In this port that
@@ -11198,7 +11221,8 @@ world carries the jitter was measured rather than assumed, with the probe's worl
   | camera, setting on | 1.01 | 1.00 | 1.02 | 1.01 |
   | the other players | 1.06 | 1.10 | 1.10 | 1.13 |
 
-  The medians are 1.000 in every class.
+  The medians are 1.000 in every class of the camera with the setting on and of the players. For the camera with the
+  setting off they are 1.990 after a shared stamp and 0.714 at step 2.
 - **Verdict.** The camera's pattern is absent from the world. A residual 3–6% rise on shared stamps is unexplained. rgl
   is in the measurement file.
 

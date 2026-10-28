@@ -133,8 +133,8 @@ public sealed class DemoPlayerRetimeViewTests
         // The cut is late packet 33: stamped 134, server-timed 133. The engine crosses it at 134.5 and shows it there
         // (the pair ending at it, fraction clamped to one). On the server's axis alone the origin would cross it a
         // frame early, at 133.5, and then hold it; with the origin paired on its own axis after the stamp's cut, 134.5
-        // would already be past it. Every frame the cut touches must be the engine's. 131.5 and 135.5 touch no cut on
-        // either axis and are controls: they hold whatever the rule says.
+        // would already be past it. Every frame the cut touches must be the engine's. 131.5 and 135.5 are unaffected
+        // frames: no late packet is near them, so both axes give one pair with or without the rule, and they cannot fail.
         byte[] demo = Jittered(cutAt: 33);
         DemoPlayer on = Player(demo, On);
         DemoPlayer off = Player(demo, Off);
@@ -206,6 +206,70 @@ public sealed class DemoPlayerRetimeViewTests
             on.InterpolateViewpoint(tick).ShouldBe(off.InterpolateViewpoint(tick), $"tick {tick}");
         }
     }
+
+    [Test]
+    public void InterpolateViewpoint_ACutLiftedAboveItsStampByTheRaise_IsTheEnginesFrame()
+    {
+        // Packet 32 arrived a tick early (stamp 132, placed 133). Cut 33 carries no net_Tick, so it starts from its stamp,
+        // 132, and is raised to 133 past packet 32 — a cut placed LATE. At 133 the server's pair starts at it while the
+        // engine blends (cut 33, 34) from 132.
+        List<DemoCommand> commands = [];
+
+        for (int k = 0; k < 120; k++)
+        {
+            int stamp = k == 33 ? 132 : 100 + k;
+            int? server = k switch { 32 => 1033, 33 => null, _ => 1000 + k };
+
+            commands.Add(SyntheticViews.Packet(
+                stamp, (4f * (server ?? 1033), 0f, 0f), (0f, stamp * 0.5f, 0f), flags: k == 33 ? SyntheticViews.NoInterpolation : 0, serverTick: server));
+        }
+
+        byte[] demo = SyntheticViews.Demo([.. commands, SyntheticViews.Stop(300)]);
+        DemoPlayer on = Player(demo, On);
+        DemoPlayer off = Player(demo, Off);
+
+        // The fixture's control: the cut really is placed above its stamp.
+        on.ServerTimedTicks[Index(DemoTimeline.Build(demo), 33)].ShouldBe(133);
+
+        // Before 132 neither pair reaches the cut, and the origin is retimed: at 131.5 it blends toward packet 32 at its
+        // placement, 133, where the engine blends toward its stamp, 132 — the control that the setting is on here.
+        on.InterpolateViewpoint(131.5).ShouldNotBe(off.InterpolateViewpoint(131.5));
+
+        for (double tick = 132d; tick <= 136.5; tick += 0.25d)
+        {
+            on.InterpolateViewpoint(tick).ShouldBe(off.InterpolateViewpoint(tick), $"tick {tick}");
+        }
+    }
+
+    [Test]
+    public void InterpolateViewpoint_FirstFramesOnAPacketPlacedAfterItsStamp_StepNoMoreThanATickOfMotion()
+    {
+        // The first packet arrived a tick early: stamp 99, placed 100. Until 100 the target lies before every queued
+        // placement — the server's axis has no pair and nothing to hold — so the origin is the engine's blend, and at
+        // 100 the server's pair takes over. Seeking onto it lands the same way. The hand-over may step, by no more than one
+        // server tick of the line's motion (4 units), and the origin may never leap ahead to a later packet.
+        List<DemoCommand> commands = [.. Enumerable.Range(0, 60).Select(k => SyntheticViews.Packet(
+            k == 0 ? 99 : 100 + k, (4f * (1000 + k), 0f, 0f), (0f, 10f, 0f), serverTick: 1000 + k))];
+        DemoPlayer player = Player(SyntheticViews.Demo([.. commands, SyntheticViews.Stop(200)]), On);
+        float? last = null;
+
+        for (double tick = 99d; tick <= 104d; tick += 0.125d)
+        {
+            float x = player.InterpolateViewpoint(tick).ShouldNotBeNull().Origin.X;
+
+            if (last is { } before)
+            {
+                MathF.Abs(x - before).ShouldBeLessThanOrEqualTo(4f + Tolerance, $"tick {tick}");
+            }
+
+            last = x;
+        }
+    }
+
+    private static int Index(DemoTimeline timeline, int packet) =>
+        Enumerable.Range(0, timeline.ViewCommands.Count)
+            .Where(at => timeline.ViewCommands[at].Type == DemoCommandType.Packet && !timeline.ViewCommands[at].View.IsDefault)
+            .ElementAt(packet);
 
     [Test]
     public void InterpolateViewpoint_DemoRetimeViewChangedWhilePaused_AppliesOnTheNextCall()
@@ -356,6 +420,20 @@ public sealed class DemoPlayerRetimeViewTests
         int[] ticks = DemoPlayer.ServerTimed(commands, 333);
 
         ticks.ShouldBe(Enumerable.Range(0, 200).Select(k => k < 100 ? 100 + k : 112 + k));
+    }
+
+    [Test]
+    public void ServerTimed_TwoDelaysAlternatingAtATie_KeepsOneAndNeverFlips()
+    {
+        // Every odd packet a tick late: across a 101-packet window the two delays lead by one in turn as it slides, which
+        // without hysteresis flips the usual delay nearly every packet and steps the placements by 0 and 2 in turn.
+        List<DemoViewCommand> commands = [.. Enumerable.Range(0, 400).Select(k => View(100 + k + (k % 2), 1000 + k))];
+        List<(int Index, long From, long To)> changes = [];
+
+        int[] ticks = DemoPlayer.ServerTimed(commands, 50, changes);
+
+        changes.ShouldBeEmpty();
+        ticks.ShouldBe(Enumerable.Range(0, 400).Select(k => 100 + k));
     }
 
     [Test]
