@@ -125,6 +125,18 @@ setting of that name does. The default is `0`, as in TF2, and the picture is the
 author's recording the pose step got cheaper by 0.13 to 0.17 ms a frame; a faster whole frame is not established
 (`docs/measurements/2026-10-27-bone-clock-and-threaded-setup.md`).
 
+`demo_retimeview` smooths the first-person camera of a point-of-view demo recorded over a jittery connection. TF2 spreads
+the camera's position along the time each packet reached the recording client, which is uneven on such a connection; with
+this setting the viewer spreads the position along the server's own tick instead. The view angles are left as TF2 plays
+them. The default is `1`. For TF2's exact camera, put `demo_retimeview 0` in `settings.cfg`, or for one run use
+`tf2demoview <demo> +demo_retimeview 0`. On one stuttering demo, frames more than 50% off their neighbors fell from 20.7%
+to 3.2% (`docs/measurements/2026-10-27-retime-view-by-server-tick.md`). It has costs and limits, listed in
+`RELEASE-NOTES.md` under *Known gaps*. A SourceTV demo is unchanged by it.
+
+Opening a map takes about half a second longer than in the last release, because the viewer now builds every static
+prop's lighting at load, as TF2 does, so that none is built while the demo plays
+(`docs/measurements/2026-10-27-static-prop-handle-at-load.md`).
+
 `--hud <folder or .vpk>` draws a HUD laid out as in `tf/custom`. Without it the viewer draws TF2's stock HUD.
 
 ## Take a screenshot
@@ -164,6 +176,8 @@ affect every user:
   reads them.
 - Some options of TF2's highest-quality setups are missing: edge smoothing (`mat_antialias`), dynamic shadows,
   water quality options and a few effect options (B701 to B705). They are planned for after the viewer is faster.
+- With `demo_retimeview` on (the default), a point-of-view camera can stall or snap more often in places than TF2's
+  own, in exchange for the smoother pace. `demo_retimeview 0` gives TF2's camera.
 
 ## Troubleshooting
 
