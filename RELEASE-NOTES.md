@@ -31,6 +31,9 @@ the merge commit cb7dbb21 green with 0 annotations (Test run 40663194687, CodeQL
   **Frame time is unchanged:** 8.37-8.38 ms against 8.35-8.39 ms (docs/measurements/2026-10-27-static-prop-handle-at-load.md).
   The screenshot matches outside the frame-rate readout (docs/measurements/2026-10-27-static-prop-handle-at-load.md).
   The load-time figures predate two counter fixes, so only the total, +0.5-0.6 s, is supported (docs/measurements/2026-10-27-static-prop-handle-at-load.md).
+  **These figures were timed on the first implementation, before four review rounds changed it** (a cached ranking for
+  bump-mapped props, read-only views of the cached lists, a dropped rebuild); the timing was not repeated afterwards, and f12 draws
+  no bump-mapped prop that would exercise the cached ranking (docs/measurements/2026-10-27-static-prop-handle-at-load.md).
 - **Static props no longer check every dynamic-light slot (parity).** The viewer read all 32 dynamic-light slots for every
   static prop every frame; TF2 reads only the lights that are live.
   Static-prop lighting (`baked`): 0.450-0.488 ms to 0.050-0.075 ms a frame, -0.40 to -0.44 ms (docs/measurements/2026-10-27-static-prop-lighting.md).
@@ -56,7 +59,6 @@ the merge commit cb7dbb21 green with 0 annotations (Test run 40663194687, CodeQL
   Frame in the steady window: **-0.12 ms**, ranges apart, and only with one disturbed run left out (docs/measurements/2026-10-28-pvs-node-prune.md).
   Over the whole 20 s the ranges overlap and there is no difference (docs/measurements/2026-10-28-pvs-node-prune.md).
   Empty view: no change claimed (docs/measurements/2026-10-28-pvs-node-prune.md).
-  The next frame-rate gain is in the render thread's draw, not in another pass in front of it (docs/measurements/2026-10-28-pvs-node-prune.md).
   The screenshots match in the world at one paused tick with two cameras; nothing on a moving path was compared (docs/measurements/2026-10-28-pvs-node-prune.md).
 
 ## Changes in 0.1.0-beta.54
