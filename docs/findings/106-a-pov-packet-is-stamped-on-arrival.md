@@ -62,3 +62,19 @@ the server lost ticks: it simulated 7 while 20 passed on the wall. A single usua
 packet on one side 12 ticks off its stamp. The first version then fell back to the stamp there, and the camera regressed
 (CV 0.447 to 0.603). So a delay step wider than the parse-ahead now ends a run. Across such a lost-time gap the camera
 slows, because the server did, and it holds one frame where the reader has not yet queued the packet after the gap.
+
+**Reproduced in TF2. Stock settings produce the shape, though more mildly** (2026-10-28, *measured*,
+`docs/measurements/2026-10-28-stutter-reproduction.md`). The first guess was that the user's network cvars caused it
+(`rate 131072`, `net_chokeloop 1`, `net_queued_packet_thread 1`). The prediction written down was that a loopback listen
+server would not show it at all. Both were wrong.
+- 25 POV recordings on pl_pier with 23 bots show the same 0/2 stamp steps under a regular server tick.
+- The delta-1 share ranged 58 to 97%. The user's lines gave 67 to 97% (n 9), and stock at 66 updates a second gave 74
+  to 97% (n 10), with no difference by Mann-Whitney. Raising `rate` to the maximum gave 58 to 89%.
+- Stock's worst recording had 26% of steps off 1. Only recordings with the user's lines reached the ~40% of the user's
+  demo (B1, 42%). Too few reached it to call that an effect, and A and stock also differ in `host_thread_mode`.
+- The share loosely follows how evenly a recording's `stamp − net_Tick` splits between two adjacent values. The split
+  was picked by hand, and an independent-flip model fits only 2 of 7 checked demos. *Interpolated*: the mechanism is
+  the rounding in `GetRecordingTick` meeting a write phase near the half-tick. The phase differs between recordings and
+  moves within one at host hitches. What sets it is unread.
+- The banner and convars match TF2's shipped `server_casual.cfg` (*measured*). That it was a Valve server reached
+  through the relay is *inferred*, and the FakeIP range is recalled.
