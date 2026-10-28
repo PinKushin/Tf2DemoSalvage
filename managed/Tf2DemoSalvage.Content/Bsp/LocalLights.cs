@@ -273,6 +273,36 @@ public static class LocalLights
         return count;
     }
 
+    /// <summary>Which lights <see cref="Strongest"/> would take, as indices into <paramref name="lights"/>, strongest first.</summary>
+    /// <param name="lights">The lights to rank.</param>
+    /// <param name="x">World position being lit.</param>
+    /// <param name="y">World position being lit.</param>
+    /// <param name="z">World position being lit.</param>
+    /// <param name="chosen">Where to put them; at most <see cref="MaximumLocalLights"/> are written.</param>
+    /// <param name="styleScale">Each light style's value over 264; one for every style when null.</param>
+    /// <returns>How many were written.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="lights"/> is null.</exception>
+    /// <exception cref="ArgumentException"><paramref name="chosen"/> is too short.</exception>
+    /// <remarks>
+    /// For a caller that keeps a ranked set and ranks later lights against it — a static prop's handle caching its styled
+    /// lights (`FUN_1801ba590`'s `+0x88`, B607). Each light's strength is its own, so the strongest of a kept set plus
+    /// more are the strongest of everything plus more.
+    /// </remarks>
+    public static int StrongestIndices(
+        IReadOnlyList<BspWorldLight> lights, float x, float y, float z, Span<int> chosen, Func<int, float>? styleScale = null)
+    {
+        ArgumentNullException.ThrowIfNull(lights);
+
+        if (chosen.Length < MaximumLocalLights)
+        {
+            throw new ArgumentException($"Room for {MaximumLocalLights} lights is needed.", nameof(chosen));
+        }
+
+        Span<float> strengths = stackalloc float[MaximumLocalLights];
+
+        return Choose(lights, x, y, z, chosen, strengths, styleScale ?? Steady);
+    }
+
     /// <summary>Ranks the local lights at a point and keeps the strongest few.</summary>
     private static int Choose(
         IReadOnlyList<BspWorldLight> lights,

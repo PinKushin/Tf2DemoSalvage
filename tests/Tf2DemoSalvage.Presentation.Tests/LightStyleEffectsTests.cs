@@ -18,8 +18,8 @@ namespace Tf2DemoSalvage.Presentation.Tests;
 /// a second. A style's value is its letter's distance from `a` times 22, and its scale that over 264: `m` is 1. The
 /// atlas holds two one-luxel faces, one lit by style 0 alone and one by styles 0 and 3.
 ///
-/// **Not here:** `LevelLighting.StylesChanged`, which has no reading a test can take, and the faces a dynamic light
-/// reaches, which need a map's nodes; `WorldDynamicLights` and `LightmapAtlas` have their own suites.
+/// `LevelLighting.StylesChanged` is read through a static prop's handle (`StyledRankings`, B607). **Not here:** the faces
+/// a dynamic light reaches, which need a map's nodes; `WorldDynamicLights` and `LightmapAtlas` have their own suites.
 /// </remarks>
 public sealed class LightStyleEffectsTests
 {
@@ -38,7 +38,7 @@ public sealed class LightStyleEffectsTests
     {
         public LightmapAtlas Atlas { get; } = LightmapAtlas.PackAll([Face(0), Face(0, 3)]);
 
-        public LevelLighting Lighting { get; } = LevelLighting.Unlit(new RecordingLogger());
+        public LevelLighting Lighting { get; init; } = LevelLighting.Unlit(new RecordingLogger());
 
         public int Walked { get; private set; }
 
@@ -129,6 +129,85 @@ public sealed class LightStyleEffectsTests
 
         scale(2).ShouldBe(550f / 264f);
         scale(3).ShouldBe(lights.Scale(3));
+    }
+
+    /// <summary>A lamp on style 3 twenty units above a static prop's lighting origin, and the level holding only it.</summary>
+    private static Map WithAStyleThreeLamp() => new()
+    {
+        Lighting = new LevelLighting(
+            null,
+            [],
+            [new BspWorldLight((0f, 0f, 120f), (400f, 400f, 400f), (0f, 0f, -1f), WorldLightKind.Point, QuadraticAttenuation: 1f) { Style = 3 }],
+            null,
+            new RecordingLogger()),
+    };
+
+    /// <remarks>
+    /// **B607, the production ordering.** Ranked before the first frame, a handle's styled lights are at `Steady` (one);
+    /// the first frame's `Advance` reports every style changed, the level answers to style 3, and `LightStyleEffects`
+    /// stamps them — so the next draw ranks again, at the demo's `a`, which is off.
+    /// </remarks>
+    [Test]
+    public void StepOver_TheFirstFrame_RanksAStaticPropsStyledLightsAgainAtTheDemosValue()
+    {
+        LightStyleEffects lights = new(new RecordingLogger());
+        Map map = WithAStyleThreeLamp();
+
+        map.Lighting.StaticPlusDynamicLights(1000, 0f, 0f, 100f).Count.ShouldBe(1, "the control: unscaled, the lamp lights it");
+
+        Step(lights, map, new FakeFrameDevice(), 0);
+
+        map.Lighting.StaticPlusDynamicLights(1000, 0f, 0f, 100f).ShouldBeEmpty("style 3 is a at time zero");
+        map.Lighting.StyledRankings.ShouldBe(2);
+    }
+
+    /// <summary>Style 3 `az` steps every tenth of a second; style 4 `aazz` every second tenth.</summary>
+    private static readonly DemoTimeline TwoAnimatedStyles = DemoTimeline.Build(SyntheticEffects.DemoWithLightStyles(
+        [new(1, SyntheticEffects.PlayerClass, SyntheticEffects.Standing(0f, 0f, 0f, 2))],
+        [],
+        [],
+        ["m", "a", "z", "az", "aazz"],
+        []));
+
+    /// <remarks>
+    /// **B607, the per-style stamp reaching the handle** (`FUN_1801ba590` bit 4: `+0x88` stands until a LISTED style's
+    /// stamp passes `+0xf8`). The prop lists the lamp on style 4; a lamp on style 3 is in the level (so the level answers
+    /// to style 3) but out of the prop's reach. Tick 7 (0.105 s) steps style 3 and holds style 4: a stamp, but not one the
+    /// handle lists, so nothing ranks. Tick 14 (0.21 s) steps style 4: one ranking, at its new value. A version that
+    /// stamped every style on any change would rank at tick 7.
+    /// </remarks>
+    [Test]
+    public void StepOver_AnUnlistedStyleSteppingThenAListedOne_RanksAStaticPropsStyledLightsOnlyForTheListed()
+    {
+        LightStyleEffects lights = new(new RecordingLogger());
+        Map map = new()
+        {
+            Lighting = new LevelLighting(
+                null,
+                [],
+                [
+                    new BspWorldLight((0f, 0f, 120f), (400f, 400f, 400f), (0f, 0f, -1f), WorldLightKind.Point, QuadraticAttenuation: 1f) { Style = 4 },
+                    new BspWorldLight((0f, 0f, 120f), (400f, 400f, 400f), (0f, 0f, -1f), WorldLightKind.Point, QuadraticAttenuation: 1f) { Style = 3, Radius = 10f },
+                ],
+                null,
+                new RecordingLogger()),
+        };
+        FakeFrameDevice device = new();
+
+        void At(int tick) => lights.StepOver(TwoAnimatedStyles, map.Data(), tick, new DynamicLights(), [], device);
+
+        At(0);
+        map.Lighting.StaticPlusDynamicLights(1000, 0f, 0f, 100f).ShouldBeEmpty("style 4 is a at time zero");
+        map.Lighting.StyledRankings.ShouldBe(1);
+
+        At(7);
+        lights.Scale(3).ShouldBe(550f / 264f, "the control: style 3 stepped to z");
+        map.Lighting.StaticPlusDynamicLights(1000, 0f, 0f, 100f).ShouldBeEmpty();
+        map.Lighting.StyledRankings.ShouldBe(1, "style 3 is not the handle's: +0x88 read");
+
+        At(14);
+        map.Lighting.StaticPlusDynamicLights(1000, 0f, 0f, 100f).Count.ShouldBe(1, "style 4 stepped to z: the lamp is on");
+        map.Lighting.StyledRankings.ShouldBe(2);
     }
 
     [Test]

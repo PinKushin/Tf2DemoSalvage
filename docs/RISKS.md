@@ -40068,7 +40068,7 @@ reddens four tests), and a child's drawn size against its own scale alone.
   `pl_badwater_pro_v12.bsp` is not on this machine (not under the game's `tf/maps`, `tf/download/maps`, `tf2ds`, or the
   user profile), so its `parentname` cannot be read, and no sampled tick gives them a parent.
 
-## B607 — a static prop's draw-time lighting did more per frame than the engine's handle — PARTLY FIXED (2026-10-27)
+## B607 — a static prop's draw-time lighting did more per frame than the engine's handle — MOSTLY FIXED (2026-10-27)
 
 **Evidence class: read from disassembly** (findings 65 and 67, B427, B514) **and measured**
 (measurements/2026-10-27-static-prop-lighting.md). The engine's light cache handle is built at load
@@ -40082,13 +40082,34 @@ of the frame), frame −0.37 to −0.47 ms (measurements/2026-10-27-static-prop-
 controls), pixels unchanged outside the frame-rate readout (`StaticPlusDynamicLightingConformanceTests`, `…_NoLiveDlight_ExaminesNoSlot`,
 `…_ThreeLiveDlightsOneInReach_…`).
 
+**Fixed 2026-10-27 (branch `perf/static-prop-handle-at-load`), measurements/2026-10-27-static-prop-handle-at-load.md:**
+- **The handle is built at load.** Once the level's static props are packed, `EntityModelSet.PrecacheStaticLighting`
+  builds each prop's colour mesh, its handle's styled list and, for a bump-mapped model, its static state
+  (`LevelLighting.PrecacheStaticProp`), at the lighting origin the draw uses; a static prop with no colour mesh keeps
+  that answer. On f12 (measurements/2026-10-27-static-prop-handle-at-load.md): in play 0 colour meshes and 0 static
+  states built, against B's 233 meshes; the frame unchanged (A 8.37-8.38, B 8.35-8.39 ms in the pairs passing both
+  controls); load **+0.5-0.6 s**, user-visible (404 static states, 468-585 ms of it).
+- **Bit 4 is cached** at `+0x88`'s shape: ranked once, ranked again only when a listed style is stamped
+  (`StylesChanged(styles)`, which `LightStyleEffects` now passes); a live dlight is ranked against the cached four. A
+  bump-mapped prop's finished state (style-0 and styled lights ranked together) is cached on the handle the same way, so
+  with no live dlight neither path allocates or ranks on a frame with nothing stamped. Every cached list — flags 6's,
+  flags 7's and the static state — is handed out read-only. A source set after the static props were packed (no
+  production path: `LevelSystems.Load` runs after `ClearMap`'s shutdown) drops the kept answers and the next draw builds.
+  Tests: `StaticPlusDynamicLightingConformanceTests` (`…_NoListedStyleChanged_RanksTheStyledLightsOnce`,
+  `…_AListedStyleChanges_RanksAgainAtItsNewValue`, `…_AnUnlistedStyleChanges_DoesNotRankAgain`,
+  `…_ALiveDlightBesideACachedStyledLamp_…`, `PrecacheStaticProp_…`) and
+  `…_FiveEqualStyledLampsAndADlight_RankAsOneListWould` (the tie rule),
+  `MomentSceneTests.Build_TheStaticPropsFirstPack_BuildsTheirLightingHandlesBeforeAnyDraw`, the production stamp in
+  `LightStyleEffectsTests.StepOver_TheFirstFrame_…` and `…_AnUnlistedStyleSteppingThenAListedOne_…`, and on a real map
+  `StaticPropModelsWiringTests.Instances_KothDryfieldDrawnTwiceThenStyleOneSwitchedOff_RanksOnlyOnTheStamp` (a count,
+  not a shot). f12 lists no styled light, so the timed runs cannot show bit 4.
+- **Interpolated, the engine unread this pass** (the Ghidra MCP's program tools did not register): whether
+  `PrecacheLighting` skips any prop (ours: every drawable one whose draw reads a handle); whether `FUN_1801b8350` fills
+  `+0x88` itself (ours: the first draw ranks); that `+0xf8` is compared per listed style against `DAT_1806998a0[style]`
+  (B424's reading of `+0x1d0` has that shape); that the engine builds `+0x18` for a `.vhv` prop (ours does not, since
+  no draw here reads it).
+
 **Still open, each a divergence of shape with output equal:**
-- **Bit 4 is re-ranked every frame** when a prop lists styled lights (`StaticPlusDynamicLights`, `StyledAndDynamic`'s LINQ
-  `List`); the engine caches it at `+0x88`. 0 props on f12; `koth_dryfield`'s flicker is the specimen. Fix shape: cache
-  the ranked list per entity with the style values it used, rebuilt when one changes — a test must vary a style.
-- **The handle is built on first draw, not at load**: `_staticStates` (rays per prop), `_styledByEntity` and the CPU
-  colour meshes past the 188 built before play. 174 static states over a 20 s f12 run, 0.146 ms a frame averaged over it
-  (measurements/2026-10-27-static-prop-lighting/split.txt); first-use stalls are B595's subject.
 - **Dlight marking is per prop**, not from the dlight's side (`FUN_1801b5260`); cost scales with live dlights, 0 here.
 - **The full-lighting path re-ranks every style-0 world light** with the added ones; the engine ranks the added ones
   against the cached static four. Equal output while `StyleScale(0)` is 1; runs only when something is added.
