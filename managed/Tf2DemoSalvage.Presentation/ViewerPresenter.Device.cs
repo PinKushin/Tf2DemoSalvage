@@ -49,7 +49,14 @@ public sealed partial class ViewerPresenter
     {
         _moment.Upload = null;
         _device = null;
+        _handingDevice = null;
     }
+
+    /// <summary>The device the frame last posed over, whose hand-offs pick the pose half (B581 rung 3); null before one.</summary>
+    private IViewerDevice? _handingDevice;
+
+    /// <summary>The count the scene's next pose would read (<see cref="MomentScene.HandOffs"/>), for a test of the wiring.</summary>
+    internal long PoseHandOffs => _moment.HandOffs?.Invoke() ?? -1;
 
     /// <summary>Every camera upload's pieces so far, in stopwatch ticks, timed where they ran (B595).</summary>
     public CameraTotals CameraSpent { get; private set; }
@@ -200,7 +207,11 @@ public sealed partial class ViewerPresenter
         // `ThreadedBoneSetup` reads `cl_threaded_bone_setup` each frame (c_baseanimating.cpp:2779), before any bone is built.
         _models.ThreadedBoneSetup = _settings.ThreadedBoneSetup;
 
-        _moments.PoseNow(device.Frustum, device.Views, device.Eye, device.ScreenView, device.DrawsMonitor, device.HandOffs);
+        // **The device every pose counts hand-offs on**, the seek's and the replay's included (`MomentScene.HandOffs`):
+        // they pose without a device argument, and must still read this one's count.
+        _handingDevice = device;
+
+        _moments.PoseNow(device.Frustum, device.Views, device.Eye, device.ScreenView, device.DrawsMonitor);
         Posed?.Invoke();
 
         long waitAt = Stopwatch.GetTimestamp();

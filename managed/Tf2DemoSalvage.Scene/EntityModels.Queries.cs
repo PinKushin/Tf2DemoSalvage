@@ -472,7 +472,8 @@ public sealed partial class EntityModelSet
             return null;
         }
 
-        return (prop.ModelPath, Skinning(entity, skinned.Bones, animating.Bones), prop.Pose.Body, frames.BodyParts);
+        // Into the query's own buffers: the pose half last written is the one a frame in flight may be drawing.
+        return (prop.ModelPath, Skinning(entity, skinned.Bones, animating.Bones, _queriedSkinning), prop.Pose.Body, frames.BodyParts);
     }
 
     /// <summary>Whether an entity is one of the viewmodel pass's own.</summary>

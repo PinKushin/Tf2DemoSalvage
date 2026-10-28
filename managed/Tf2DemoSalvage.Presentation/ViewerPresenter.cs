@@ -274,6 +274,9 @@ public sealed partial class ViewerPresenter : IDisposable
         {
             Lighting = LevelLighting.Unlit(_renderLog),
             Weapons = WeaponModels.None(_renderLog),
+
+            // Every pose, the frame's and a seek's, counts on the device the frame last posed over (B581 rung 3).
+            HandOffs = () => _handingDevice?.HandOffs ?? 0,
         };
 
         // **A local, not a field.** Both readers are constructed here and neither hands it back — keeping one is what

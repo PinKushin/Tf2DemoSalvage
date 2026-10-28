@@ -476,8 +476,9 @@ public sealed partial class ViewerSession
         if (_camera.Fly(_console.Intent, seconds))
         {
             // The view, and nothing else. Flight only happens in the free camera, where the map's
-            // screen-space projection is not what is being drawn (B98). Not drained here (finding 98 §9 step 5): the upload
-            // waits at its own pose, and the cull before it lands on the half not last handed, whatever drew.
+            // screen-space projection is not what is being drawn (B98). Not drained here (finding 98 §9, §14): the upload's
+            // cull lands on the view half not last handed, its pose on the pose half not last handed, and its wait for the
+            // frame in flight comes after that pose (`FinishDrawBeforeEffects`), whatever drew.
             UploadCamera();
         }
     }

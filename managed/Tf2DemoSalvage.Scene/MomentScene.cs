@@ -234,6 +234,15 @@ public sealed class MomentScene : IGameSystemPerFrame
     /// <summary>Which half of each drawn list the pose writes (B581 rung 3): the frame in flight draws the other.</summary>
     private readonly PoseHalves _halves = new();
 
+    /// <summary>Frames handed to the draw so far (<see cref="IViewerDevice.HandOffs"/>), read at every pose to pick its half
+    /// (<see cref="PoseHalves"/>, B581 rung 3); null without a device, where nothing is ever in flight and one half serves.</summary>
+    /// <remarks>
+    /// **The scene's own source, set once by whoever owns the device, and never a per-call argument** (review of rung 3):
+    /// every pose, a seek's and a replay's included, reads the same count, so no caller can omit it and flip onto the half
+    /// in flight. `ViewerPresenter` points it at the device its frame poses over.
+    /// </remarks>
+    public Func<long>? HandOffs { get; set; }
+
     /// <summary>The world pass's list, one per pose half; <see cref="_instances"/> is the half last posed.</summary>
     private readonly List<ModelInstance>[] _instancesByHalf = [[], []];
 
@@ -745,24 +754,20 @@ public sealed class MomentScene : IGameSystemPerFrame
     /// </remarks>
     /// <param name="screen">The main view for the static props' screen fades (B432).</param>
     /// <param name="monitor">Whether a monitor can draw this frame; false leaves the first-person player unposed (B511).</param>
-    /// <param name="handOffs">
-    /// Frames the device has handed to the draw so far (<see cref="IViewerDevice.HandOffs"/>), which decides the pose half
-    /// (<see cref="PoseHalves"/>, B581 rung 3). The default, with no device, is one half for ever.
-    /// </param>
     public MomentPhases Pose(
         MomentInfo info,
         ViewFrustum frustum = default,
         RenderableViews views = default,
         (float X, float Y, float Z)? eye = null,
         ScreenFadeView? screen = null,
-        bool monitor = true,
-        long handOffs = 0)
+        bool monitor = true)
     {
         long posingAt = Stopwatch.GetTimestamp();
 
         // **This frame's pose half** (B581 rung 3): every list and per-entity buffer the draw reads by reference comes from
-        // it, so the frame in flight, which was handed the other, keeps drawing while this one is posed.
-        int half = _halves.Next(handOffs);
+        // it, so the frame in flight, which was handed the other, keeps drawing while this one is posed. The count is the
+        // scene's own source, never a caller's argument, so a seek's pose cannot pass a wrong one (review of rung 3).
+        int half = _halves.Next(HandOffs?.Invoke() ?? 0);
 
         _models.PoseHalf = half;
         _instances = _instancesByHalf[half];

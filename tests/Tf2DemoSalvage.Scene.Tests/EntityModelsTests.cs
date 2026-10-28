@@ -387,6 +387,27 @@ public sealed class EntityModelsTests
         posing[0].Bones.ShouldNotBeNull()[0][3].ShouldBe(900f, 1e-3f);
     }
 
+    /// <remarks>
+    /// **A decal's query never writes what a draw was handed** (review of rung 3): `SkinningOf` runs between frames, when
+    /// the pose half last written is the one in flight, so it builds into buffers of its own. The values agree; the arrays
+    /// are not the drawn ones.
+    /// </remarks>
+    [Test]
+    public void SkinningOf_AfterThePose_BuildsIntoItsOwnBuffersNotTheDrawnOnes()
+    {
+        EntityModelSet models = new();
+        List<ModelInstance> drawn = [];
+
+        models.Add([Prop("models/player/scout.mdl", x: 300f, entity: 5)], OneSkinnedBone);
+        models.Instances([Prop("models/player/scout.mdl", x: 300f, entity: 5)], drawn, seconds: 0.25d);
+        IReadOnlyList<float[]> handed = drawn[0].Bones.ShouldNotBeNull();
+
+        IReadOnlyList<float[]> queried = models.SkinningOf(5).ShouldNotBeNull().Bones;
+
+        queried[0].ShouldNotBeSameAs(handed[0], "the query rewrote the drawn skinning matrix");
+        queried[0].ShouldBe(handed[0], "the control: the same bones, the same matrices");
+    }
+
     /// <remarks>The control: within one half, the skinning is rewritten in place, as before the halves (no allocation).</remarks>
     [Test]
     public void Instances_InTheSamePoseHalfNextFrame_RewritesItsSkinningInPlace()

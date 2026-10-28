@@ -609,7 +609,6 @@ public sealed class ViewerPresenterTests
                 "ExposureSeconds 0.25", "ObserverTarget nobody",
                 nameof(IViewerDevice.SetCamera),
                 "DrawsMonitor read True",
-                "HandOffs read 0",
                 "posed",
                 nameof(IViewerDevice.FinishDrawBeforeEffects),
                 nameof(IFrameDevice.SetParticles),
@@ -659,6 +658,31 @@ public sealed class ViewerPresenterTests
             {
                 gate.Set();
             }
+        }
+    }
+
+    /// <remarks>
+    /// **Every pose counts hand-offs on the device the frame posed over** (B581 rung 3, review): the scene's source is set
+    /// from it at the pose, so a seek's pose, which passes no device, reads the same count and cannot flip onto the half
+    /// in flight. Before any frame, nothing was ever handed and the count is zero.
+    /// </remarks>
+    [Test]
+    public void UploadCameraOver_OverADevice_PointsThePosesHandOffCountAtThatDevice()
+    {
+        WriteMap();
+        (ViewerPresenter loader, _, _) = Loader();
+        Questions asked = new();
+        FakeViewerDevice device = new() { HandOffs = 7 };
+
+        using (loader)
+        {
+            loader.AttachWindow(asked.Window(loader), new FpsPanelTests.SolidGdi());
+            loader.LoadDemo(WriteDemo("camera")).Loaded.ShouldBeTrue();
+            loader.PoseHandOffs.ShouldBe(0, "the control: before any frame, no device is counted");
+
+            loader.UploadCameraOver(device, new FakeFrameDevice(), flyTicks: 0, exposureSeconds: 0f, surfaceColours: false);
+
+            loader.PoseHandOffs.ShouldBe(7);
         }
     }
 
@@ -736,9 +760,7 @@ public sealed class ViewerPresenterTests
 
             int read = device.Set.ToList().IndexOf($"DrawsMonitor read {monitor}");
             read.ShouldBeGreaterThanOrEqualTo(0);
-            // The hand-off count is read beside it, for the pose half (B581 rung 3); nothing else comes between.
-            device.Set[read + 1].ShouldBe("HandOffs read 0");
-            device.Set.ToList().IndexOf("posed").ShouldBe(read + 2);
+            device.Set.ToList().IndexOf("posed").ShouldBe(read + 1);
             device.Set.Count(line => line.StartsWith("DrawsMonitor read", StringComparison.Ordinal)).ShouldBe(1);
         }
     }
