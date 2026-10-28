@@ -63,6 +63,7 @@ public readonly record struct FrameCounters(
             $", models packed +{Models.Packed - start.Models.Packed} {ms(Models.PackTicks - start.Models.PackTicks):0.0} ms" +
             $", baked built +{Models.Baked - start.Models.Baked} {ms(Models.BakedTicks - start.Models.BakedTicks):0.0} ms" +
             $", static states +{Models.StaticStates - start.Models.StaticStates} {ms(Models.StaticStateTicks - start.Models.StaticStateTicks):0.0} ms" +
+            $", styled lists +{Models.StyledLists - start.Models.StyledLists}" +
             $", particle systems +{ParticleSystems - start.ParticleSystems}" +
             $"; log {Log - start.Log}" +
             $"; archive reads {Reads - start.Reads}; page faults {PageFaults - start.PageFaults}");
@@ -80,5 +81,7 @@ public readonly record struct FrameCounters(
 /// Ticks spent building the static props' lighting at level load (`EntityModelSet.PrecacheTicks`, B607); the load-time
 /// parts of <paramref name="BakedTicks"/> and <paramref name="StaticStateTicks"/> nest inside it.
 /// </param>
+/// <param name="StyledLists">Static-prop handles' styled lists built (`LevelLighting.StyledListsBuilt`, B607).</param>
 public readonly record struct ModelFirstUses(
-    int Packed, long PackTicks, int Baked, long BakedTicks, int StaticStates, long StaticStateTicks, long PrecacheTicks);
+    int Packed, long PackTicks, int Baked, long BakedTicks, int StaticStates, long StaticStateTicks, long PrecacheTicks,
+    int StyledLists);

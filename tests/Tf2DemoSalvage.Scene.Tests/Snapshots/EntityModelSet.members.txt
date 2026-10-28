@@ -281,6 +281,7 @@ Tf2DemoSalvage.Scene.EntityModelSet|method|PrePoseRoots|Private|(System.Double)|
 Tf2DemoSalvage.Scene.EntityModelSet|method|PrecacheStaticLighting|Private|()|System.Void
 Tf2DemoSalvage.Scene.EntityModelSet|method|Precache|Public|(System.Collections.Generic.IEnumerable`1[System.String])|System.Boolean
 Tf2DemoSalvage.Scene.EntityModelSet|method|ReadableBonesOf|Assembly|(System.Int32)|System.Int32
+Tf2DemoSalvage.Scene.EntityModelSet|method|RebuildStaticLighting|Public|()|System.Void
 Tf2DemoSalvage.Scene.EntityModelSet|method|ReleaseUploaded|Public|()|System.Void
 Tf2DemoSalvage.Scene.EntityModelSet|method|RemoveStaticHandles|Private|()|System.Void
 Tf2DemoSalvage.Scene.EntityModelSet|method|ReportPosedExtents|Private|(System.String,System.Collections.Generic.IReadOnlyList`1[System.Single[]],System.String)|System.Void
@@ -311,6 +312,7 @@ Tf2DemoSalvage.Scene.EntityModelSet|method|SpinBarrel|Private|(Tf2DemoSalvage.Co
 Tf2DemoSalvage.Scene.EntityModelSet|method|SweepResolved|Private|()|System.Void
 Tf2DemoSalvage.Scene.EntityModelSet|method|TakeFiredEvents|Public|(System.Collections.Generic.ICollection`1[Tf2DemoSalvage.Scene.FiredAnimationEvent])|System.Void
 Tf2DemoSalvage.Scene.EntityModelSet|method|Tallest|Private static|(System.Single,System.Single,System.Single)|System.String
+Tf2DemoSalvage.Scene.EntityModelSet|method|TimedPrecache|Private|()|System.Void
 Tf2DemoSalvage.Scene.EntityModelSet|method|TraceHitboxes|Public|(System.Int32,System.Numerics.Vector3,System.Numerics.Vector3,System.Int32)|System.Nullable`1[System.Single]
 Tf2DemoSalvage.Scene.EntityModelSet|method|TransitionsFor|Private|(Tf2DemoSalvage.Core.Scene.SceneProp,Tf2DemoSalvage.Scene.PropModels+SkinnedModel,System.Int32,System.Single,System.Double)|System.Collections.Generic.List`1[Tf2DemoSalvage.Animation.Animating.PoseLayer]
 Tf2DemoSalvage.Scene.EntityModelSet|method|TranslateEraSequences|Public|(System.Collections.Generic.IList`1[Tf2DemoSalvage.Core.Scene.SceneProp])|System.Void

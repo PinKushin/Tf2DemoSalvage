@@ -413,7 +413,10 @@ public sealed partial class EntityModelSet
         else if (!TryLightOnCpu(prop, pose, x, y, z, out byCorner))
         {
             // A static prop has one answer a level — no colour mesh — so it is kept, as a mesh is; an entity's index is
-            // reused by the next entity, so its answer is not.
+            // reused by the next entity, so its answer is not. Kept only while what it depended on stands: the model's
+            // flags and packed geometry are the level's, and the two sources that can arrive late — `StaticPropLighting`
+            // and `StaticPropColours` — drop every kept answer when set, and `MomentScene.Lighting` then builds them again
+            // (`RebuildStaticLighting`, B607).
             if (prop.EntityIndex >= PropModels.FirstStaticPropEntityIndex)
             {
                 _bakedByEntity[prop.EntityIndex] = null;

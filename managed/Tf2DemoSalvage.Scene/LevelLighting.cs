@@ -498,21 +498,34 @@ public sealed class LevelLighting
         /// <summary>The styles of <see cref="Listed"/>, each once: whose stamps make <see cref="Ranked"/> stale.</summary>
         public int[] Styles { get; } = [.. listed.Select(static light => light.Style).Distinct()];
 
-        /// <summary>`+0x88`: the listed lights ranked at their style values when <see cref="BuiltAt"/> was stamped.</summary>
-        public LocalLight[] Ranked { get; set; } = [];
+        /// <summary>
+        /// `+0x88`: the listed lights ranked at their style values when <see cref="BuiltAt"/> was stamped. Read-only, since
+        /// every draw of the prop is handed this one list.
+        /// </summary>
+        public System.Collections.ObjectModel.ReadOnlyCollection<LocalLight> Ranked { get; set; } =
+            System.Collections.ObjectModel.ReadOnlyCollection<LocalLight>.Empty;
 
         /// <summary>The same ranked lights as world lights, for a live dlight to be ranked against.</summary>
         public BspWorldLight[] RankedLights { get; set; } = [];
 
         /// <summary>`+0xf8`: the <see cref="_styleVersion"/> <see cref="Ranked"/> was built at; never, until the first draw.</summary>
         public int BuiltAt { get; set; } = -1;
+
+        /// <summary>
+        /// Flags 7's finished lights with no live dlight — the style-0 lights and <see cref="RankedLights"/> ranked together —
+        /// and the later of <see cref="BuiltAt"/> and style 0's stamp they were ranked at; null until a flags-7 draw asks.
+        /// </summary>
+        public (System.Collections.ObjectModel.ReadOnlyCollection<LocalLight> Locals, int At)? Full { get; set; }
     }
 
     /// <summary>Times bit 4 ranked a handle's styled lights, ever: the conformance tests' count of the `+0x88` cache's misses.</summary>
     internal int StyledRankings { get; private set; }
 
+    /// <summary>Times a flags-7 draw ranked its static four with its styled lights, ever (the `Full` cache's misses).</summary>
+    internal int FullRankings { get; private set; }
+
     /// <summary>Static-prop handles' styled lists built, ever (`FUN_1801b6bf0`): once a prop, at load (B607).</summary>
-    internal int StyledListsBuilt { get; private set; }
+    public int StyledListsBuilt { get; private set; }
 
     /// <summary>Static states built, ever (`ComputeStaticLightingForCacheEntry`): once a lighting origin, at load (B607).</summary>
     public int StaticStateBuilds { get; private set; }
@@ -588,7 +601,7 @@ public sealed class LevelLighting
         Array.Resize(ref locals, LocalLights.Strongest(ranked, x, y, z, locals, StyleScale));
 
         handle.RankedLights = ranked;
-        handle.Ranked = locals;
+        handle.Ranked = Array.AsReadOnly(locals);
         handle.BuiltAt = _styleVersion;
         StyledRankings++;
 
@@ -711,21 +724,41 @@ public sealed class LevelLighting
     {
         (PointLighting lighting, SunLight? sun) = StaticPropLightingAt(x, y, z);
         StyledHandle handle = Ranked(Handle(entity, x, y, z), x, y, z);
-        List<BspWorldLight>? added = WithDynamic(handle, x, y, z) ??
-            (handle.RankedLights.Length > 0 ? [.. handle.RankedLights] : null);
 
-        if (added is null)
+        if (WithDynamic(handle, x, y, z) is { } added)
+        {
+            return (new PointLighting(lighting.Cube, WithStyleZero(added, x, y, z)), sun);
+        }
+
+        if (handle.RankedLights.Length == 0)
         {
             return (lighting, sun);
         }
 
+        // **With no live dlight the finished state is the handle's** (`+0x88` holds the ranked result and the draw only
+        // adds to it): ranked again only when bit 4 was, or style 0 (which the style-0 lights are ranked at) was stamped,
+        // so a frame with nothing stamped allocates and ranks nothing.
+        int at = Math.Max(handle.BuiltAt, _styleStamps.GetValueOrDefault(0, -1));
+
+        if (handle.Full is not { } full || full.At != at)
+        {
+            full = (Array.AsReadOnly(WithStyleZero([.. handle.RankedLights], x, y, z)), at);
+            handle.Full = full;
+            FullRankings++;
+        }
+
+        return (new PointLighting(lighting.Cube, full.Locals), sun);
+    }
+
+    /// <summary>Flags 7's one ranking: these added lights with every style-0 world light, strongest four.</summary>
+    private LocalLight[] WithStyleZero(List<BspWorldLight> added, float x, float y, float z)
+    {
         added.AddRange(_worldLights.Where(static light => light.Style == 0));
 
         LocalLight[] nearest = new LocalLight[LocalLights.MaximumLocalLights];
-        int found = LocalLights.Strongest(added, x, y, z, nearest, StyleScale);
-        Array.Resize(ref nearest, found);
+        Array.Resize(ref nearest, LocalLights.Strongest(added, x, y, z, nearest, StyleScale));
 
-        return (new PointLighting(lighting.Cube, nearest), sun);
+        return nearest;
     }
 
     /// <summary>Dlight slots a static prop's bit-2 gather has examined, ever: the conformance tests' count of the live-set walk.</summary>

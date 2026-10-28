@@ -246,8 +246,10 @@ public sealed class LevelSystems
 
         // **The payload, assigned before the walk.** Valve's hooks take no arguments because a
         // system reads globals; ours are handed their data here and then told the level has begun.
-        _moment.Lighting = map.Lighting;
+        // The static props first: their setter unpacks the old level's, so the lighting's arrival does not rebuild the OLD
+        // props' lighting handles (`EntityModelSet.RebuildStaticLighting`, B607); the next pack builds the new ones.
         _moment.StaticProps = map.Assets?.StaticModels ?? [];
+        _moment.Lighting = map.Lighting;
         _models.StaticPropColours = map.Assets?.StaticModelColours ?? new Dictionary<int, float[]>();
 
         // **The level screen fade** (B432): `C_World::OnDataChanged` → `SetLevelScreenFadeRange` (`FUN_1801c9e50`).

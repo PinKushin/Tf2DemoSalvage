@@ -254,7 +254,8 @@ public sealed partial class ViewerSession
             _presenter.Models.BakedBuildTicks,
             _presenter.Map?.Lighting.StaticStateBuilds ?? 0,
             _presenter.Map?.Lighting.StaticStateBuildTicks ?? 0,
-            _presenter.Models.PrecacheTicks),
+            _presenter.Models.PrecacheTicks,
+            _presenter.Map?.Lighting.StyledListsBuilt ?? 0),
         Logging.FileLogWriter.ThreadTiming,
         Tf2DemoSalvage.Content.Assets.GameArchives.ThreadReads,
         Tf2DemoSalvage.Content.Assets.ArchiveReadTiming.ProcessPageFaults());
@@ -370,10 +371,12 @@ public sealed partial class ViewerSession
                 $"  first uses in play: models packed {jitNow.Models.Packed - _countersAtStart.Models.Packed}, {(jitNow.Models.PackTicks - _countersAtStart.Models.PackTicks) * 1000d / Stopwatch.Frequency:0.0} ms" +
                 $"; baked built {jitNow.Models.Baked - _countersAtStart.Models.Baked}, {(jitNow.Models.BakedTicks - _countersAtStart.Models.BakedTicks) * 1000d / Stopwatch.Frequency:0.0} ms" +
                 $"; static states {jitNow.Models.StaticStates - _countersAtStart.Models.StaticStates}, {(jitNow.Models.StaticStateTicks - _countersAtStart.Models.StaticStateTicks) * 1000d / Stopwatch.Frequency:0.0} ms" +
+                $"; styled lists {jitNow.Models.StyledLists - _countersAtStart.Models.StyledLists}" +
                 $"; before play: models packed {_countersAtStart.Models.Packed}, {_countersAtStart.Models.PackTicks * 1000d / Stopwatch.Frequency:0.0} ms" +
-                $"; static-prop lighting at load {_countersAtStart.Models.PrecacheTicks * 1000d / Stopwatch.Frequency:0.0} ms (holds the next two)" +
+                $"; static-prop lighting at load {_countersAtStart.Models.PrecacheTicks * 1000d / Stopwatch.Frequency:0.0} ms (holds the next three)" +
                 $"; baked built {_countersAtStart.Models.Baked}, {_countersAtStart.Models.BakedTicks * 1000d / Stopwatch.Frequency:0.0} ms" +
-                $"; static states {_countersAtStart.Models.StaticStates}, {_countersAtStart.Models.StaticStateTicks * 1000d / Stopwatch.Frequency:0.0} ms"));
+                $"; static states {_countersAtStart.Models.StaticStates}, {_countersAtStart.Models.StaticStateTicks * 1000d / Stopwatch.Frequency:0.0} ms" +
+                $"; styled lists {_countersAtStart.Models.StyledLists}"));
             _host.Out.WriteLine(
                 "  main thread archive reads: " + (jitNow.Reads - _countersAtStart.Reads) +
                 "; process page faults " + (jitNow.PageFaults - _countersAtStart.PageFaults).ToString(CultureInfo.InvariantCulture));

@@ -1166,8 +1166,31 @@ public sealed class MomentSceneTests
         (lighting.StaticStateBuilds, lighting.StyledListsBuilt).ShouldBe((1, 1), "the draw read the handle built at load");
     }
 
+    /// <remarks>
+    /// **B607, a lighting source that arrives after the pack.** With no source at the first pack the CPU bake is refused
+    /// — a refusal that depends on state not yet there, not a final one — and the handle cannot be built. Setting the
+    /// source drops that answer (the delegates' setters clear the colour meshes) and builds every handle again then, so
+    /// the first draw still finds the mesh, the static state and the styled list built, and builds none of them.
+    /// </remarks>
+    [Test]
+    public void Lighting_SetAfterTheStaticPropsArePacked_BuildsTheirMeshAndHandleBeforeTheFirstDraw()
+    {
+        MomentScene scene = UnbakedStaticProp(0x10, out LevelLighting lighting, out _, styled: true, lit: false);
+
+        scene.Build([], [], Info());
+        (lighting.StaticStateBuilds, lighting.StyledListsBuilt).ShouldBe((0, 0), "the control: no source at the pack");
+
+        scene.Lighting = lighting;
+        (lighting.StaticStateBuilds, lighting.StyledListsBuilt).ShouldBe((1, 1), "built when the source arrived");
+
+        scene.Pose(Info());
+
+        scene.Instances.ShouldHaveSingleItem().BakedColours.ShouldNotBeNull("the refusal at the pack was not kept");
+        (lighting.StaticStateBuilds, lighting.StyledListsBuilt).ShouldBe((1, 1), "the draw built nothing");
+    }
+
     private static MomentScene UnbakedStaticProp(
-        int studioFlags, out LevelLighting lighting, out float[] scale, bool styled = false, byte constantDot = 0)
+        int studioFlags, out LevelLighting lighting, out float[] scale, bool styled = false, byte constantDot = 0, bool lit = true)
     {
         EntityModelSet models = new()
         {
@@ -1193,14 +1216,20 @@ public sealed class MomentSceneTests
         lighting = StaticPlusDynamicLightingConformanceTests.Map(styled ? [Dim(0), Dim(5)] : [Dim(0)]);
         lighting.StyleScale = style => style == 5 ? styleScale[0] : 1f;
 
-        return new MomentScene(models, new ViewmodelScene(), new RecordingLogger())
+        MomentScene scene = new(models, new ViewmodelScene(), new RecordingLogger())
         {
             Upload = new Uploads(),
             Appearance = new Appearance(),
-            Lighting = lighting,
             StaticProps =
                 [PropModels.StaticModel(new Content.Bsp.BspStaticProp("models/props/crate.mdl", 0f, 0f, 100f, 0f, 0f, 0f, 1f), 0)],
         };
+
+        if (lit)
+        {
+            scene.Lighting = lighting;
+        }
+
+        return scene;
     }
 
 

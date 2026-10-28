@@ -299,6 +299,49 @@ public sealed class StaticPlusDynamicLightingConformanceTests
     }
 
     /// <summary>
+    /// Flags 7 with no live dlight hands over the handle's finished state (B607): `+0x88` holds the ranked result and the
+    /// draw only adds to it. A second draw with nothing stamped ranks nothing and returns the same list; a stamp of a
+    /// listed style ranks once more, and the lights are what one ranking over the styled and style-0 lights gives.
+    /// </summary>
+    [Test]
+    public void StaticPropFullLightingAt_NoStampThenAListedStamp_RanksOnlyOnTheStampAndAsOneListWould()
+    {
+        BspWorldLight[] lamps = [Lamp(Style, cluster: 0), Lamp(0, cluster: 0) with { Origin = (0f, 30f, 120f) }];
+        LevelLighting lighting = Map(lamps);
+
+        IReadOnlyList<LocalLight> first = lighting.StaticPropFullLightingAt(1000, 0f, 0f, 100f).Lighting.Locals;
+        lighting.StaticPropFullLightingAt(1000, 0f, 0f, 100f).Lighting.Locals.ShouldBeSameAs(first, "nothing stamped");
+        lighting.FullRankings.ShouldBe(1);
+
+        lighting.StylesChanged([Style]);
+        IReadOnlyList<LocalLight> again = lighting.StaticPropFullLightingAt(1000, 0f, 0f, 100f).Lighting.Locals;
+
+        lighting.FullRankings.ShouldBe(2);
+        LocalLight[] expected = new LocalLight[LocalLights.MaximumLocalLights];
+        again.ShouldBe(expected[..LocalLights.Strongest(lamps, 0f, 0f, 100f, expected)]);
+        first.ShouldBe(again, "the stamp changed no value");
+    }
+
+    /// <summary>
+    /// The cached lists are every later draw's too, so neither path hands out one a caller could write through: a cast to
+    /// an array fails and the list says it is read-only.
+    /// </summary>
+    [Test]
+    public void StaticPlusDynamicLights_TheCachedLights_AreReadOnly()
+    {
+        LevelLighting lighting = Map([Lamp(Style, cluster: 0), Lamp(0, cluster: 0) with { Origin = (0f, 30f, 120f) }]);
+
+        IReadOnlyList<LocalLight> plus = lighting.StaticPlusDynamicLights(1000, 0f, 0f, 100f);
+        IReadOnlyList<LocalLight> full = lighting.StaticPropFullLightingAt(1000, 0f, 0f, 100f).Lighting.Locals;
+
+        plus.Count.ShouldBe(1, "the control: a cached list with a light in it");
+        (plus as LocalLight[]).ShouldBeNull();
+        (full as LocalLight[]).ShouldBeNull();
+        ((ICollection<LocalLight>)plus).IsReadOnly.ShouldBeTrue();
+        ((ICollection<LocalLight>)full).IsReadOnly.ShouldBeTrue();
+    }
+
+    /// <summary>
     /// The handle's list is built ONCE, at load (`CStaticPropMgr::PrecacheLighting`, `0x180205b20` → `FUN_1801b8350` →
     /// `FUN_1801b6bf0`); a draw reads it. Built for a prop before its first draw, the draw builds no second one.
     /// </summary>
