@@ -3482,7 +3482,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         // **Timed here, where each part runs, and carried to the rate line** (B243): `camera setcamera` was one number
         // over the view setup, the constant upload, the world cull and the detail rebuild (finding 83).
         long startAt = Stopwatch.GetTimestamp();
-        long batchesAt = 0, overlaysAt = 0, skyAt = 0, culledAt = 0;
+        long batchesAt = 0, overlaysAt = 0, skyAt = 0, culledAt = 0, marks = 0;
 
         // **This frame's view half** (B581 rung 2): the other may still be what the frame in flight draws from.
         _views.Flip();
@@ -3552,6 +3552,9 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
                 camera.Origin.X, camera.Origin.Y, camera.Origin.Z, half.Frustum, _world.IsTwoSidedMaterial);
 
             batchesAt = Stopwatch.GetTimestamp();
+
+            // The PVS re-mark inside that, carried from where it ran (B259): 0 while the eye stays in its cluster.
+            marks = culling?.MarkTicks ?? 0;
 
             (float X, float Y, float Z) overlayEye = (camera.Origin.X, camera.Origin.Y, camera.Origin.Z);
 
@@ -3646,6 +3649,9 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         _setCameraParts[4] = ("sky", skyAt - overlaysAt);
         _setCameraParts[5] = ("water", culledAt - skyAt);
         _setCameraParts[6] = ("detail", detailAt - culledAt);
+
+        // Nested in `batches`, so it is named under it and not added to the seven parts' sum.
+        _setCameraParts[7] = ("batches/marks", marks);
     }
 
 
@@ -3721,7 +3727,8 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
 
     /// <summary>The parts of the last <see cref="SetCamera(FreeCamera, bool)"/>, refilled in place, so a frame allocates nothing.</summary>
     private readonly (string Part, long Ticks)[] _setCameraParts =
-        [("view", 0), ("upload", 0), ("batches", 0), ("overlays", 0), ("sky", 0), ("water", 0), ("detail", 0)];
+        [("view", 0), ("upload", 0), ("batches", 0), ("overlays", 0), ("sky", 0), ("water", 0), ("detail", 0),
+         ("batches/marks", 0)];
 
     /// <inheritdoc/>
     public IReadOnlyList<(string Part, long Ticks)> SetCameraParts => _setCameraParts;

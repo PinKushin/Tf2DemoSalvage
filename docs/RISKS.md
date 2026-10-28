@@ -19715,6 +19715,91 @@ all eight runs: sample 0.31-0.40, drawlist 0.18-0.22, collate 0.20-0.26 — the 
 either way. The larger share of the floor is `camera particles` (1.55 ms, 46% of B's steady frame; same record), whose step
 and build are the engine's shape (audited in that record).
 
+### B259 on 2026-10-27/28: the world walk is pruned by the PVS, as the engine's mark-leaves makes it
+
+Built 2026-10-27; the engine re-read and the measurement are 2026-10-28.
+
+`WorldVisibility` used to walk every node the frustum kept and test the PVS per LEAF, so a subtree the PVS hides
+whole was still descended to its leaves, and its nodes still emitted walk steps whose surfaces were offered between
+their children. Now `MarkLeaves` stamps each PVS-visible leaf and the nodes above it (re-made only when the eye
+changes cluster) and `Descend` returns from an unstamped node before its box test.
+
+**Read from engine.dll, 2026-10-28** — the x64 build installed 2026-10-07, imported fresh as Ghidra project
+`tf2enginex64-1007` (the B262 addresses are of the earlier build and no longer match). Evidence class: read from
+engine.dll, in disassembly.
+
+- **One cluster per vis origin, and no water point.** `ViewSetupVisEx` (`0x1800da230`) jumps straight to
+  `Map_VisSetup` (`0x1801caad0`): `0x1801caaf2 CMOVG EDX,EAX` clamps the origin count to 32, `0x1801cab00` stores it as
+  the list's count, and per origin `0x1801cab4b CALL 0x18016b4f0` (point → leaf), `0x1801cab75 CALL 0x18016b120` (leaf
+  → cluster), `0x1801cab7a MOV dword ptr [RBX+0x4],EAX` stores the one cluster. Nothing adds a point above or below
+  a water surface (Quake 2's `R_MarkLeaves` does; this engine does not). The TF2 main view passes one origin
+  (`viewrender.cpp:1908`); a view with `ViewCustomVisibility_t` origins (`:1900-1903`) would OR several clusters'
+  rows, which this project does not model.
+- **The mark pass is `0x1801ca5f0`** (found as the one writer of `r_visframecount`, `[0x1807784b4]`):
+  `0x1801ca6c8 CMP R8D,[0x1807785e4]` / `JZ 0x1801caa01` returns when the view's cluster list is the one last marked —
+  so re-marking only on a cluster change is the engine's, not ours; then `0x1801ca6d5 INC dword ptr [0x1807784b4]`.
+  A view cluster of −1 (`0x1801ca701 CMP EAX,-0x1` / `JZ 0x1801ca712`, which sets R9B), `r_novis` (`0x1801ca71d`) or a
+  forced mark take `0x1801caa53`, which writes the count into every leaf's (`[leaf+0x4]`, `0x1801caa77`) and every
+  node's (`0x1801caaba`) `visframe`.
+- **No vis data is an all-ones row.** `CM_Vis` (`0x18016c8e0`): `0x18016c96a CMP dword ptr [0x180741698],0x0` / `JZ
+  0x18016ca26`, and `0x18016ca33 MOV DL,0xff` / `CALL` memset fills the row with ones (as for a cluster out of
+  range, `0x18016c958`). The per-leaf pass below is unchanged, so its cluster −1 skip still applies.
+- **Per leaf, `0x1801cacd0`:** R12 = `&leaf->visframe` (leaf + 4, `0x1801cada7`), so
+  `0x1801cadb0 MOVSX RAX,word ptr [R12+0x3c]` reads the cluster at leaf + 0x40; `0x1801cadb6 CMP EAX,-0x1` /
+  `JZ 0x1801cb018` — **a leaf with no cluster is skipped**; `0x1801cadcf TEST byte ptr [RAX+R9*1+0x288],DL` /
+  `JZ` — skipped when its PVS bit is clear; `0x1801caddd MOV dword ptr [R12],R14D` stamps it; then
+  `0x1801caebf MOV RDI,qword ptr [R12+0x4]` (the parent, at leaf + 8) and the loop `0x1801caee0 CMP dword ptr [RDI+0x4],R14D` /
+  `JZ 0x1801cb001` … `0x1801caff0 MOV dword ptr [RDI+0x4],R14D` / `0x1801caff4 MOV RDI,qword ptr [RDI+0x8]` —
+  **each ancestor is stamped up to the first already stamped**. Nothing between reads the leaf's contents: **a solid
+  leaf in the PVS is stamped, and so are the nodes above it.**
+- **`R_RecursiveWorldNode` is `0x1800e1800`:** `0x1800e180f CMP dword ptr [RDX],0x1` / `JZ` returns on a solid leaf;
+  `0x1800e1850 MOV EAX,[0x1807784b4]`, `0x1800e1856 CMP dword ptr [R14+0x4],EAX`, `0x1800e185a JNZ 0x1800e19b7` returns
+  on an unstamped node or leaf; **only then** the box is clipped (`0x1800e188c CALL 0x180114ad0`). The far child is
+  tested for contents 1 before the loop continues (`0x1800e199c`).
+
+**Three divergences the reads found, all aligned to the engine (parity is the rule).** (1) The first pass stamped a
+non-solid leaf with cluster −1 (our reading of `vrad`'s `PVSCheck`, which is the lighting compiler's rule); the engine
+skips it. (2) It skipped solid leaves when marking; the engine has no contents test, so a solid leaf in a visible
+cluster stamps its ancestors (its own listing is still refused by the walk's solid return). (3) A map with no vis lump
+stamped every leaf and node; the engine's row is all ones there, so every CLUSTERED leaf is stamped and cluster −1 is
+still skipped.
+
+**These were possibly visible changes; on a compiled map they change nothing, and the source says why** (the
+measured build below carries all three; its paused shots match main's in the world). vbsp gives every solid world leaf cluster −1 (`utils/vbsp/prtfile.cpp:185-187`) and every
+brush-model leaf cluster −1 (`writebsp.cpp:128-139`), and numbers every non-solid world leaf
+(`prtfile.cpp:190` → `NumberLeafs`). So (2) never arises on a real map, and (1) and (3) only drop leaves the world walk
+does not reach. Measured by the map test's census of the leaves the world tree reaches from node 0: non-solid leaves
+with no cluster **0 of 3,614 reachable on cp_process_final (986 in the lump) and 0 of 4,539 on cp_badlands (844)**.
+(An earlier run of the old rule also listed none over 170 clustered-eye views per map.) The node-step and surface
+counts of that test are identical before and after all three changes. So the map test cannot catch any of them being
+reverted; the synthetic conformance tests are the only guards:
+`Walk_ASubtreeWithNoPvsVisibleLeaf_IsNeverEntered` (moved back now that it is read),
+`Leaves_FromAClusterForALeafWithNoCluster_NeverListIt`, `Walk_ASolidLeafInThePvs_StampsTheNodesAboveIt`,
+`Leaves_WithNoVisDataForALeafWithNoCluster_NeverListIt`, `Walk_FromAnEyeInNoCluster_EntersEveryNode`.
+
+**Ours, kept:** a child index past the leaf lump (a malformed tree) is no longer listed; the old walk listed it and
+`VisibleWorld.Surfaces` then indexed its displacement table out of range. Parent links are first writer wins
+(malformed trees only); the engine's loader was not read. **Not modelled, could draw less than the engine:** a view with
+several vis origins (`ViewCustomVisibility_t`), and an eye cluster past the PVS row count (the engine's all-ones row,
+`0x18016c958`; ours answers false — malformed only).
+
+Output level: `Surfaces_ForAPvsPrunedWalk_AreTheUnprunedWalksInTheSameOrder` on cp_process and cp_badlands, 35 eyes
+each as printed by the run (32 asserted clustered eyes, one in no cluster, two repeats on one instance), five
+directions: the reached surfaces and leaves are the same sequence as the walk with no vis data filtered by the
+engine's stamp rule in every view.
+
+**Measured 2026-10-28, verdict** (`measurements/2026-10-28-pvs-node-prune.md`): in f12 first person the pass cost fell 0.36 ms (`camera setcamera`, 11.3-11.4% →
+6.1-6.2% of the frame); the frame fell 0.12 ms in the steady window **only with the stalled run 14-A voided**, and not at
+all over the whole 20 s window; **0.30 ms of the saving became `camera wait`** — the main thread waiting on the render
+thread's draw of the previous frame (`Queue.FinishPreviousDraw`) before the pose. The miss path is ~45 re-marks in the
+window at a median 25.6 µs each (the `cluster-path` probe), about 0.0005 ms a frame; the sky view's re-marks are not
+timed apart. Empty view: no difference claimed. Everything, with its caveats: `measurements/2026-10-28-pvs-node-prune.md`.
+
+**What it found, and the next fps target** (same record): in first person that stretch of the frame is bound by the
+render thread's ~1.8 ms draw (`queue render thread` 1.805-1.843 ms in both builds), not by the main thread's passes in front of the wait — so trimming those passes further turns into waiting.
+The target is the draw itself, or moving work that does not touch what the draw reads to before the wait. **Still
+open, as before:** the entity walks — `sample`, `drawlist`, `collate`.
+
 ## B260 — why we do not get Valve's performance "doing it the way they do" — OPEN
 
 **The owner's question, and it is the right one:** *"we should be copying valve, why cant we gets

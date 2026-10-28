@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using System.Text.RegularExpressions;
 
 using Tf2DemoSalvage.Content.Bsp;
@@ -111,9 +112,10 @@ public sealed class WorldVisibilityConformanceTests
     /// }
     /// </code>
     ///
-    /// A cull that answered "not visible" for cluster −1 would be doing the opposite of what the
-    /// engine does with the same value, and it would do it for solid leaves and for points the
-    /// tree walk cannot place — which for a free camera is routine.
+    /// **This is `vrad`'s rule, and the renderer's is different** (B259, read 2026-10-28): the world
+    /// walk's mark pass skips a TARGET leaf of cluster −1 (engine.dll `0x1801cadb6`), and only an EYE
+    /// of cluster −1 stamps everything — see `Leaves_FromAClusterForALeafWithNoCluster_NeverListIt`.
+    /// This test pins the lighting compiler's rule as published, not the cull's.
     ///
     /// **The bit arithmetic is asserted too**, because `1 &lt;&lt; (c &amp; 7)` and `0x80 &gt;&gt;
     /// (c &amp; 7)` are both plausible-looking and only one matches the lump.
@@ -187,6 +189,104 @@ public sealed class WorldVisibilityConformanceTests
 
         tree.LeafFaces(0).ShouldBe((7, 10));
         tree.Cluster(0).ShouldBe(3, "the neighbouring field, so a shifted read shows up here too");
+    }
+
+    /// <summary>That the walk never enters a node no stamped leaf lies under, testing the stamp before the box.</summary>
+    /// <remarks>
+    /// **Read from engine.dll (x64, installed 2026-10-07), in disassembly.** `R_RecursiveWorldNode` (`0x1800e1800`)
+    /// returns on contents 1 (`0x1800e180f`), then on `visframe != r_visframecount` (`0x1800e1850`-`0x1800e185a`), and
+    /// only then clips the node's box (`0x1800e188c`). The mark pass (`0x1801cacd0`) stamps a PVS leaf and each parent
+    /// up to the first already stamped (`0x1801caddd`, `0x1801caee0`-`0x1801caffb`). So a subtree the PVS hides is not
+    /// walked: no leaf listed, and no node step.
+    ///
+    /// The eye stands in leaf 3 (cluster 3), whose row sees clusters 3 and 0. The whole tree is in the frustum, so node
+    /// 1 (the +x half) is pruned by the PVS alone. The control is the same view with no PVS, where node 1 is walked.
+    /// </remarks>
+    [Test]
+    public void Walk_ASubtreeWithNoPvsVisibleLeaf_IsNeverEntered()
+    {
+        WorldVisibility open = new(WorldVisibilityTests.Quarters(), BspVisibility.None);
+        open.Leaves(-400f, 0f, 0f, WorldVisibilityTests.AheadFromMinus400);
+        open.Walk.Where(step => step.IsNode).Select(step => step.Index).ShouldBe([2, 0, 1]);
+
+        WorldVisibility culled = new(
+            WorldVisibilityTests.Quarters(), WorldVisibilityTests.Pvs(0x0F, 0x0F, 0x0F, 0b1001));
+        culled.Leaves(-400f, 0f, 0f, WorldVisibilityTests.AheadFromMinus400);
+
+        WorldVisibilityTests.Steps(culled).ShouldBe([(3, false), (2, true), (0, false), (0, true)]);
+    }
+
+    /// <summary>That from a real cluster a leaf with no cluster is not stamped, so neither it nor its parent is walked.</summary>
+    /// <remarks>
+    /// **Read: `0x1801cadb0`-`0x1801cadb9`** — `MOVSX RAX, word ptr [R12 + 0x3c]` with R12 = &amp;leaf-&gt;visframe
+    /// (leaf + 4, `0x1801cada7`), so the cluster at leaf + 0x40; `CMP EAX, -1`; `JZ` past the stamp.
+    /// `vrad`'s `PVSCheck` treats cluster −1 as visible, but that is the lighting compiler's rule, not the renderer's.
+    /// Leaf 0 has no cluster; cluster 3's row sees 3 and 0. Leaf 3 stamps node 2 and the root; node 1 is never stamped.
+    /// </remarks>
+    [Test]
+    public void Leaves_FromAClusterForALeafWithNoCluster_NeverListIt()
+    {
+        WorldVisibility visibility = new(
+            WorldVisibilityTests.Quarters(cluster0: -1), WorldVisibilityTests.Pvs(0x0F, 0x0F, 0x0F, 0b1001));
+
+        visibility.Leaves(-400f, 0f, 0f, WorldVisibilityTests.AheadFromMinus400).ShouldBe([3]);
+        WorldVisibilityTests.Steps(visibility).ShouldBe([(3, false), (2, true), (0, true)]);
+    }
+
+    /// <summary>That a solid leaf in the PVS still stamps the nodes above it, and one with no cluster does not.</summary>
+    /// <remarks>
+    /// **Read: the mark pass `0x1801cacd0` has no contents test** — between the cluster test (`0x1801cadb6`), the PVS
+    /// bit (`0x1801cadcf`) and the stamp (`0x1801caddd`) nothing reads `leaf + 0`. So node 1, over two solid leaves in
+    /// visible clusters, is entered, and the walk's own solid return (`0x1800e180f`) keeps its leaves unlisted.
+    ///
+    /// **The first case is synthetic only.** vbsp gives every solid world leaf cluster −1
+    /// (`utils/vbsp/prtfile.cpp:185-187`, *"solid block, viewpoint never inside"*), so on a compiled map the second
+    /// case is the one that happens: node 1 is pruned.
+    /// </remarks>
+    [Test]
+    public void Walk_ASolidLeafInThePvs_StampsTheNodesAboveIt()
+    {
+        BspVisibility seesAll = WorldVisibilityTests.Pvs(0x0F, 0x0F, 0x0F, 0x0F);
+
+        WorldVisibility clustered = new(WorldVisibilityTests.Quarters(solidPlusX: true), seesAll);
+        clustered.Leaves(-400f, 0f, 0f, WorldVisibilityTests.AheadFromMinus400).ShouldBe([3, 0]);
+        WorldVisibilityTests.Steps(clustered).ShouldBe([(3, false), (2, true), (0, false), (0, true), (1, true)]);
+
+        WorldVisibility unclustered = new(
+            WorldVisibilityTests.Quarters(solidPlusX: true, plusXNoCluster: true), seesAll);
+        unclustered.Leaves(-400f, 0f, 0f, WorldVisibilityTests.AheadFromMinus400).ShouldBe([3, 0]);
+        WorldVisibilityTests.Steps(unclustered).ShouldBe([(3, false), (2, true), (0, false), (0, true)]);
+    }
+
+    /// <summary>That a map with no vis data stamps every clustered leaf, and still skips one with no cluster.</summary>
+    /// <remarks>
+    /// **Read: `CM_Vis` (`0x18016c8e0`)** fills the row with ones when the map has no vis data (`0x18016c96a` → `JZ
+    /// 0x18016ca26`, `0x18016ca33 MOV DL,0xff`), and the per-leaf pass then applies its cluster −1 skip
+    /// (`0x1801cadb6`) as it does for any row. Leaf 0 has no cluster; the eye stands in leaf 3 (cluster 3).
+    /// </remarks>
+    [Test]
+    public void Leaves_WithNoVisDataForALeafWithNoCluster_NeverListIt()
+    {
+        WorldVisibility visibility = new(WorldVisibilityTests.Quarters(cluster0: -1), BspVisibility.None);
+
+        visibility.Leaves(-400f, 0f, 0f, WorldVisibilityTests.AheadFromMinus400).ShouldBe([3, 1, 2]);
+    }
+
+    /// <summary>That an eye in no cluster stamps every leaf and node, entering even a subtree of solid leaves.</summary>
+    /// <remarks>
+    /// **Read: `0x1801ca701`-`0x1801ca712`** sets a flag when a view cluster is −1, and `0x1801ca72f` then takes the
+    /// mark-everything path (`0x1801caa53`-`0x1801caac8`: every leaf's and every node's `visframe`). The eye stands in
+    /// leaf 0, which has no cluster.
+    /// </remarks>
+    [Test]
+    public void Walk_FromAnEyeInNoCluster_EntersEveryNode()
+    {
+        WorldVisibility visibility = new(
+            WorldVisibilityTests.Quarters(cluster0: -1, solidPlusX: true, plusXNoCluster: true),
+            WorldVisibilityTests.Pvs(0x0F, 0x0F, 0x0F, 0x0F));
+
+        visibility.Leaves(-100f, 0f, 0f, default).ShouldBe([0, 3]);
+        visibility.Walk.Where(step => step.IsNode).Select(step => step.Index).ShouldBe([2, 0, 1]);
     }
 
     private static string Sdk(string relativePath) =>

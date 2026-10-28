@@ -48,7 +48,7 @@ public sealed class WorldVisibilityTests
     }
 
     /// <summary>A frustum at a point looking down a direction, wide enough to see the whole tree.</summary>
-    private static ViewFrustum Looking(
+    internal static ViewFrustum Looking(
         (float X, float Y, float Z) from, (float X, float Y, float Z) towards) =>
         ViewFrustum.PerspectiveFromAspect(
             from,
@@ -125,6 +125,30 @@ public sealed class WorldVisibilityTests
     [Test]
     public void Leaves_WithASubtreeOutOfView_KeepsOnlyTheVisibleHalf()
     {
+        IReadOnlyList<int> visible =
+            new WorldVisibility(Quarters(), BspVisibility.None)
+                .Leaves(0f, 0f, 0f, Looking((0f, 0f, 0f), (1f, 0f, 0f)));
+
+        visible.ShouldBe([1, 2], ignoreOrder: false);
+    }
+
+    /// <summary>A root at x = 0 over two sub-nodes, four leaves in clusters 0 to 3.</summary>
+    /// <param name="cluster0">Leaf 0's cluster, so a case can give it none (−1).</param>
+    /// <param name="solidPlusX">Whether leaves 1 and 2, the whole +x half, are solid (contents 1).</param>
+    /// <param name="extraLeaves">Leaves appended after the four, which no node reaches.</param>
+    /// <param name="plusXNoCluster">Whether leaves 1 and 2 have no cluster (−1), as a compiled solid leaf has.</param>
+    /// <remarks>
+    /// Node 1 is the +x half (x = 256 splits it into leaf 1 behind, leaf 2 in front); node 2 is the −x half (x = −256
+    /// splits it into leaf 3 behind, leaf 0 in front). From x = −400 the walk is leaf 3, node 2, leaf 0, node 0, then
+    /// the +x half.
+    /// </remarks>
+    internal static BspLeafTree Quarters(
+        short cluster0 = 0, bool solidPlusX = false, int extraLeaves = 0, bool plusXNoCluster = false)
+    {
+        int plusX = solidPlusX ? BspLeafTree.ContentsSolid : 0;
+        short cluster1 = plusXNoCluster ? (short)-1 : (short)1;
+        short cluster2 = plusXNoCluster ? (short)-1 : (short)2;
+
         byte[] nodes =
         [
             // Root at x = 0: front (+x) is node 1, back (−x) is node 2.
@@ -146,17 +170,250 @@ public sealed class WorldVisibilityTests
 
         byte[] leaves =
         [
-            .. Leaf(cluster: 0, (-256, -512, -512), (0, 512, 512)),
-            .. Leaf(cluster: 1, (0, -512, -512), (256, 512, 512)),
-            .. Leaf(cluster: 2, (256, -512, -512), (512, 512, 512)),
+            .. Leaf(cluster: cluster0, (-256, -512, -512), (0, 512, 512)),
+            .. Leaf(cluster: cluster1, (0, -512, -512), (256, 512, 512), plusX),
+            .. Leaf(cluster: cluster2, (256, -512, -512), (512, 512, 512), plusX),
             .. Leaf(cluster: 3, (-512, -512, -512), (-256, 512, 512)),
         ];
 
-        IReadOnlyList<int> visible =
-            new WorldVisibility(BspLeafTree.FromLumps(nodes, planes, leaves), BspVisibility.None)
-                .Leaves(0f, 0f, 0f, Looking((0f, 0f, 0f), (1f, 0f, 0f)));
+        for (int extra = 0; extra < extraLeaves; extra++)
+        {
+            leaves = [.. leaves, .. Leaf(cluster: 0, (-512, -512, -512), (512, 512, 512))];
+        }
 
-        visible.ShouldBe([1, 2], ignoreOrder: false);
+        return BspLeafTree.FromLumps(nodes, planes, leaves);
+    }
+
+    /// <summary>A PVS lump for up to eight clusters, one row byte each, every byte non-zero.</summary>
+    /// <param name="rows">Cluster <c>c</c>'s row: bit <c>k</c> set means it sees cluster <c>k</c>.</param>
+    /// <remarks>
+    /// <c>dvis_t</c> (<c>bspfile.h:904</c>): a count, then a PVS and a PAS offset per cluster from the lump's start.
+    /// The compression only run-lengths ZERO bytes, so a non-zero byte is its own encoding.
+    /// </remarks>
+    internal static BspVisibility Pvs(params byte[] rows)
+    {
+        foreach (byte row in rows)
+        {
+            row.ShouldNotBe((byte)0, "a zero byte would be read as a run");
+        }
+
+        return PvsOfRows([.. rows.Select(row => new[] { row })]);
+    }
+
+    /// <summary>A PVS lump whose rows are written as given, already compressed — so a case can write a bad one.</summary>
+    private static BspVisibility PvsOfRows(params byte[][] rows)
+    {
+        int table = 4 + (rows.Length * 8);
+        List<byte> lump = [.. BitConverter.GetBytes(rows.Length)];
+        List<byte> data = [];
+
+        foreach (byte[] row in rows)
+        {
+            lump.AddRange(BitConverter.GetBytes(table + data.Count));
+            lump.AddRange(BitConverter.GetBytes(table + data.Count));
+            data.AddRange(row);
+        }
+
+        byte[] bytes = [.. lump, .. data];
+
+        return BspVisibility.FromLump(bytes);
+    }
+
+    internal static ViewFrustum AheadFromMinus400 => Looking((-400f, 0f, 0f), (1f, 0f, 0f));
+
+    internal static (int Index, bool IsNode)[] Steps(WorldVisibility visibility) =>
+        [.. visibility.Walk.Select(step => (step.Index, step.IsNode))];
+
+    /// <summary>That the PVS drops a leaf in view.</summary>
+    /// <remarks>
+    /// From x = −400 (leaf 3, cluster 3) looking +x, every leaf is in the frustum. Cluster 3 sees 0 and 3 only, so
+    /// leaves 1 and 2 go. The control: with no PVS all four leaves listed, so the frustum is not what dropped them.
+    /// </remarks>
+    [Test]
+    public void Leaves_WithAPvs_ListsOnlyThePotentiallyVisibleLeaves()
+    {
+        new WorldVisibility(Quarters(), BspVisibility.None).Leaves(-400f, 0f, 0f, AheadFromMinus400)
+            .ShouldBe([3, 0, 1, 2]);
+
+        new WorldVisibility(Quarters(), Pvs(0x0F, 0x0F, 0x0F, 0b1001)).Leaves(-400f, 0f, 0f, AheadFromMinus400)
+            .ShouldBe([3, 0]);
+    }
+
+    /// <summary>That moving into another cluster re-marks the tree from that cluster's row.</summary>
+    /// <remarks>
+    /// The marks are kept while the eye's cluster stays the same, so a stale mark would answer for the old cluster.
+    /// From cluster 3 (sees 3, 0) to cluster 2 (sees 2, 1) and back, and the same cluster twice.
+    /// </remarks>
+    [Test]
+    public void Leaves_AfterTheEyeChangesCluster_AnswersForTheNewCluster()
+    {
+        WorldVisibility visibility = new(Quarters(), Pvs(0x0F, 0x0F, 0b0110, 0b1001));
+
+        visibility.Leaves(-400f, 0f, 0f, default).ShouldBe([3, 0]);
+        visibility.Leaves(-300f, 0f, 0f, default).ShouldBe([3, 0]);
+        visibility.Leaves(400f, 0f, 0f, default).ShouldBe([2, 1]);
+        visibility.Leaves(-400f, 0f, 0f, default).ShouldBe([3, 0]);
+    }
+
+    /// <summary>That the re-mark timer reads above zero when the tree is marked and zero while the cluster stays.</summary>
+    /// <remarks>
+    /// The instrument behind the rate line's `batches/marks` (B259): the miss path and the hit path apart. On the
+    /// 300-node chain, so the first marking (301 leaves, each a PVS lookup) is many timer ticks long rather than one.
+    /// </remarks>
+    [Test]
+    public void MarkTicks_OnTheFirstMarkThenTheSameCluster_AreAboveZeroThenZero()
+    {
+        WorldVisibility visibility = new(Chain(300), Pvs(0x01));
+
+        visibility.Leaves(-200_000f, 0f, 0f, default);
+        visibility.MarkTicks.ShouldBeGreaterThan(0, "the first call marks");
+
+        visibility.Leaves(-200_000f, 0f, 0f, default);
+        visibility.MarkTicks.ShouldBe(0, "the same cluster is the hit path");
+    }
+
+    /// <summary>That one instance alternating two eyes walks exactly as two fresh instances do.</summary>
+    [Test]
+    public void Walk_OneInstanceAlternatingTwoClusters_MatchesAFreshInstanceForEach()
+    {
+        BspVisibility pvs = Pvs(0x0F, 0x0F, 0b0110, 0b1001);
+        WorldVisibility shared = new(Quarters(), pvs);
+
+        foreach (float x in new[] { -400f, 400f, -400f, 400f, 400f })
+        {
+            WorldVisibility fresh = new(Quarters(), pvs);
+
+            shared.Leaves(x, 0f, 0f, default).ShouldBe(fresh.Leaves(x, 0f, 0f, default), $"from x = {x}");
+            Steps(shared).ShouldBe(Steps(fresh), $"from x = {x}");
+        }
+    }
+
+    /// <summary>That a PVS row that throws mid-marking throws again, rather than leaving half-made stamps in use.</summary>
+    /// <remarks>
+    /// Cluster 3's row carries a zero repeat count, which <see cref="BspVisibility"/> refuses as Valve's
+    /// `DecompressVis` does. Had the cluster been recorded before the stamps were made, the second call would find it
+    /// current and walk on stamps the first never finished.
+    /// </remarks>
+    [Test]
+    public void Leaves_WhenAPvsRowThrowsMidMarking_ThrowsAgainOnTheNextCall()
+    {
+        WorldVisibility visibility = new(Quarters(), PvsOfRows([0x0F], [0x0F], [0x0F], [0x00, 0x00]));
+
+        Should.Throw<System.IO.InvalidDataException>(() => visibility.Leaves(-400f, 0f, 0f, default));
+        Should.Throw<System.IO.InvalidDataException>(() => visibility.Leaves(-400f, 0f, 0f, default));
+    }
+
+    /// <summary>That a leaf no node reaches — a brush model's — is never listed, though the PVS sees it.</summary>
+    [Test]
+    public void Leaves_ForALeafNoNodeReaches_NeverListIt()
+    {
+        new WorldVisibility(Quarters(extraLeaves: 1), Pvs(0x0F, 0x0F, 0x0F, 0x0F)).Leaves(-400f, 0f, 0f, default)
+            .ShouldBe([3, 0, 1, 2]);
+    }
+
+    /// <summary>That a child index past the leaf lump is never listed.</summary>
+    /// <remarks>
+    /// A change from the walk this replaced, which listed leaf 9 here, and <see cref="VisibleWorld.Surfaces"/> then
+    /// indexed its displacement table out of range. Malformed trees only (B259, 2026-10-27).
+    /// </remarks>
+    [Test]
+    public void Leaves_ForAChildPastTheLeafLump_NeverListIt()
+    {
+        byte[] node = Node(plane: 0, front: -10, back: -1, (-512, -512, -512), (512, 512, 512));
+        byte[] leaves = [.. Leaf(cluster: 0, (-512, -512, -512), (0, 512, 512))];
+        BspLeafTree tree = BspLeafTree.FromLumps(node, Plane(1f, 0f, 0f, 0f), leaves);
+
+        new WorldVisibility(tree, BspVisibility.None).Leaves(-2000f, 0f, 0f, default).ShouldBe([0]);
+        new WorldVisibility(tree, Pvs(0x01)).Leaves(-2000f, 0f, 0f, default).ShouldBe([0]);
+    }
+
+    /// <summary>That a root node whose plane cannot be read leaves the walk at leaf 0, as before.</summary>
+    [Test]
+    public void Leaves_ForARootWithNoReadablePlane_ListsLeafZero()
+    {
+        byte[] node = Node(plane: 5, front: -2, back: -1, (-512, -512, -512), (512, 512, 512));
+        byte[] leaves = [.. Leaf(cluster: 0, (-512, -512, -512), (0, 512, 512))];
+        BspLeafTree tree = BspLeafTree.FromLumps(node, Plane(1f, 0f, 0f, 0f), leaves);
+
+        tree.Node(0).ShouldBeNull("the control: the root's plane is out of range");
+
+        new WorldVisibility(tree, BspVisibility.None).Leaves(0f, 0f, 0f, default).ShouldBe([0]);
+        new WorldVisibility(tree, Pvs(0x01)).Leaves(0f, 0f, 0f, default).ShouldBe([0]);
+    }
+
+    /// <summary>That a tree deeper than the walk's bound is walked to the bound, with or without a PVS.</summary>
+    /// <remarks>
+    /// A chain of 300 nodes, each front child the next node and each back child its own leaf; the eye is on every
+    /// back side, so it stands in leaf 0 (cluster 0) and each leaf is walked before the node below it. Node <c>d</c>
+    /// sits at depth <c>d</c> and its leaf at <c>d + 1</c>, so leaves 0 to 255 are inside the bound of 256. The parent
+    /// links stop at the same bound, so a deeper leaf the PVS sees stamps nothing above it, and node 256 — within the
+    /// bound, but over no linked leaf — is never entered. Malformed trees only.
+    /// </remarks>
+    [Test]
+    public void Leaves_ForATreeDeeperThanTheBound_ListsTheLeavesWithinIt()
+    {
+        BspLeafTree tree = Chain(300);
+        int[] expected = [.. Enumerable.Range(0, 256)];
+
+        tree.ClusterAt(-200_000f, 0f, 0f).ShouldBe(0, "the control: the eye is placed, so the PVS applies");
+
+        foreach (BspVisibility pvs in new[] { BspVisibility.None, Pvs(0x01) })
+        {
+            WorldVisibility visibility = new(tree, pvs);
+
+            visibility.Leaves(-200_000f, 0f, 0f, default).ShouldBe(expected);
+
+            // Node 256 is inside the bound but no linked leaf lies under it, so it is never stamped (malformed only).
+            visibility.Walk.Where(step => step.IsNode).Select(step => step.Index).ShouldBe(expected);
+        }
+    }
+
+    /// <summary>A chain of <paramref name="depth"/> nodes: node <c>d</c>'s back child is leaf <c>d</c>, its front child
+    /// node <c>d + 1</c> (the last's, leaf <paramref name="depth"/>); every leaf in cluster 0; the plane x = −100,000.</summary>
+    private static BspLeafTree Chain(int depth)
+    {
+        List<byte> nodes = [];
+        List<byte> leaves = [];
+
+        for (int at = 0; at < depth; at++)
+        {
+            int front = at + 1 < depth ? at + 1 : -(depth + 1);
+
+            nodes.AddRange(Node(plane: 0, front, back: -(at + 1), (-512, -512, -512), (512, 512, 512)));
+            leaves.AddRange(Leaf(cluster: 0, (-512, -512, -512), (512, 512, 512)));
+        }
+
+        leaves.AddRange(Leaf(cluster: 0, (-512, -512, -512), (512, 512, 512)));
+
+        return BspLeafTree.FromLumps(nodes.ToArray(), Plane(1f, 0f, 0f, -100_000f), leaves.ToArray());
+    }
+
+    /// <summary>That a cycle in a malformed tree ends, and walks the same with or without a PVS.</summary>
+    /// <remarks>Node 1's front child is node 0 again; the walk's depth bound is what ends it. The eye is on every back
+    /// side, in leaf 0 (cluster 0), so the PVS path is the one marking.</remarks>
+    [Test]
+    public void Leaves_ForATreeWithACycle_EndsAndMatchesTheUnprunedWalk()
+    {
+        byte[] nodes =
+        [
+            .. Node(plane: 0, front: 1, back: -1, (-512, -512, -512), (512, 512, 512)),
+            .. Node(plane: 0, front: 0, back: -2, (-512, -512, -512), (512, 512, 512)),
+        ];
+
+        byte[] leaves =
+        [
+            .. Leaf(cluster: 0, (-512, -512, -512), (512, 512, 512)),
+            .. Leaf(cluster: 0, (-512, -512, -512), (512, 512, 512)),
+        ];
+
+        BspLeafTree tree = BspLeafTree.FromLumps(nodes, Plane(1f, 0f, 0f, -100_000f), leaves);
+
+        WorldVisibility open = new(tree, BspVisibility.None);
+        WorldVisibility pruned = new(tree, Pvs(0x01));
+
+        tree.ClusterAt(-200_000f, 0f, 0f).ShouldBe(0, "the control: the eye is placed, so the PVS applies");
+        open.Leaves(-200_000f, 0f, 0f, default).Distinct().ShouldBe([0, 1]);
+        pruned.Leaves(-200_000f, 0f, 0f, default).ShouldBe(open.Leaves(-200_000f, 0f, 0f, default));
     }
 
     /// <summary>That an unbuilt frustum applies no frustum test at all.</summary>
@@ -219,7 +476,7 @@ public sealed class WorldVisibilityTests
     }
 
     /// <summary>One `dnode_t`: plane index, two children, a cull box, and no faces.</summary>
-    private static byte[] Node(
+    internal static byte[] Node(
         int plane, int front, int back, (short X, short Y, short Z) min, (short X, short Y, short Z) max)
     {
         byte[] node = new byte[32];
@@ -238,7 +495,7 @@ public sealed class WorldVisibilityTests
     }
 
     /// <summary>One `dplane_t`: a normal, a distance, and a type this reader ignores.</summary>
-    private static byte[] Plane(float x, float y, float z, float distance)
+    internal static byte[] Plane(float x, float y, float z, float distance)
     {
         byte[] plane = new byte[20];
 
@@ -250,12 +507,13 @@ public sealed class WorldVisibilityTests
         return plane;
     }
 
-    /// <summary>One version-1 `dleaf_t`: a cluster, a cull box, and no faces.</summary>
-    private static byte[] Leaf(
-        short cluster, (short X, short Y, short Z) min, (short X, short Y, short Z) max)
+    /// <summary>One version-1 `dleaf_t`: contents, a cluster, a cull box, and no faces.</summary>
+    internal static byte[] Leaf(
+        short cluster, (short X, short Y, short Z) min, (short X, short Y, short Z) max, int contents = 0)
     {
         byte[] leaf = new byte[32];
 
+        BitConverter.TryWriteBytes(leaf.AsSpan(0), contents);
         BitConverter.TryWriteBytes(leaf.AsSpan(4), cluster);
         BitConverter.TryWriteBytes(leaf.AsSpan(8), min.X);
         BitConverter.TryWriteBytes(leaf.AsSpan(10), min.Y);

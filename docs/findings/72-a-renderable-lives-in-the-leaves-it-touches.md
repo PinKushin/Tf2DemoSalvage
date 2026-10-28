@@ -64,6 +64,27 @@ ever listed. Its marking pass `0x1801c8cb0` also answered the eye-in-solid quest
 every leaf and node visible, the same as `r_novis`, which is the rule this project already had, now confirmed by
 reading rather than assumed.
 
+**What marking nodes is for was not followed through until 2026-10-27** (B259). A pass that marks nodes as well as
+leaves only makes sense if the walk reads the node marks, and this project's walk did not: it descended every node
+the frustum kept and asked the PVS per leaf, so a subtree the PVS hides whole was still walked to its leaves. The walk
+now returns from an unmarked node, as Quake's `R_RecursiveWorldNode` does on `r_visframecount`. On cp_process the
+reached surfaces are the same sequence either way; only node steps go.
+
+**The re-read (2026-10-28, the engine.dll installed 2026-10-07) confirmed the shape and killed two of our own
+readings.** The mark pass (`0x1801ca5f0`), through its per-leaf loop (`0x1801cacd0`), does stamp each PVS leaf's ancestors up to the first already stamped, and the
+walk (`0x1800e1800`) tests the stamp before it clips the box. But the first port had carried over two rules that were
+never the renderer's. It stamped a non-solid leaf with cluster −1, because `vrad`'s `PVSCheck` says *"we assume the
+sample is in the PVS"* — a lighting compiler's rule, quoted for years in this project as if it were the cull's; the
+engine skips such a leaf (`0x1801cadb6`). And it refused to stamp solid leaves; the engine has no contents test while
+marking, and relies on the walk's own solid return. A third followed on a second read: with no vis data the engine
+does not mark everything but fetches an all-ones row (`CM_Vis`, `0x18016ca26`), so its cluster −1 skip still applies.
+All three are now as the engine has them, and none changes a compiled map: vbsp gives solid and brush-model leaves
+cluster −1 and numbers every other world leaf (`utils/vbsp/prtfile.cpp:185-190`, `writebsp.cpp:128-139`), and the
+census on cp_process and cp_badlands found no reachable non-solid leaf without one. The same read settled that one view
+origin is one cluster — there is no Quake 2-style second point across a water surface (`0x1801caad0`). The lesson is the one in
+`docs/memory/a-visibility-set-is-four-questions.md`: a rule read in one Valve program is not a rule of another. Full
+quotes: RISKS B259.
+
 ## Translucency belongs to the model, not the entity
 
 An entity's group is recomputed every frame (`ComputeFxBlend` → `SetRenderGroup( GetRenderGroup() )`), but the
