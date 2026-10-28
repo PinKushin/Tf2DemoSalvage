@@ -71,6 +71,7 @@ when the number changes the old one is gone.
 | [39-the-engines-frame-clocks.md](39-the-engines-frame-clocks.md) | Six engine clocks and which of ours maps onto each; `CalcDemoViewOverride` flies by `absoluteframetime`, and `cl_showfps` reads the same quantity |
 | [40-the-game-ships-its-own-cvar-list.md](40-the-game-ships-its-own-cvar-list.md) | `tf/cvarlist.log`: 3,668 convars with defaults and flags, in plain text — a cheap instrument for finding 37's job, and the impossibility claim it found still standing in our code |
 | [105-two-offthread-moves-bones-and-hud.md](105-two-offthread-moves-bones-and-hud.md) | Design only, nothing built: parallel bone setup (A) and HUD paint off the game thread (B), as within-frame fork-joins on one shared pool |
+| [106-a-pov-packet-is-stamped-on-arrival.md](106-a-pov-packet-is-stamped-on-arrival.md) | A POV `dem_packet`'s tick jitters 0/1/2 while its `net_Tick` steps by 1; the recorded origins follow the server tick, so first-person playback is uneven exactly as the stamps predict |
 
 ## Which of this is original
 

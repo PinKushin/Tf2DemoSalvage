@@ -59,6 +59,10 @@
     <!-- Render, for PngWriter: `golden-compare` (B161) writes its diff and crops with the same
          encoder the viewer's own captures use. Plain net10.0. -->
     <ProjectReference Include="../../managed/Tf2DemoSalvage.Render/Tf2DemoSalvage.Render.csproj" />
+
+    <!-- TestSupport, for SyntheticViews: `camerapath` proves itself on a hand-built POV demo before it reads a real
+         one. Helpers only, no NUnit, no fixtures. -->
+    <ProjectReference Include="../../tests/Tf2DemoSalvage.TestSupport/Tf2DemoSalvage.TestSupport.csproj" />
   </ItemGroup>
 
   <!--
