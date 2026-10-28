@@ -834,7 +834,8 @@ lights by value now; `TF2VIEW_FRAME_HASH` does not, so earlier hash records stay
 - *Gate*: phase 1 green.
 - *Phase 2, NOT green*: one UI test hung at the first world frame of a z1800 load
   (`PausedSoundUiTests.Footsteps_HeardWhilePlaying_StopWhenTheDemoIsPaused`). The overlap is the suspect. Since then:
-  - 4 more full suites on the branch were green, so the branch is 1 hang in 5 suites;
+  - 5 more full suites on the branch were green, the last with the stall report below in, so the branch is 1 hang in 6
+    suites;
   - 35 isolated or harness-exact scripted runs passed, beside a second viewer;
   - the baseline passed 15 of 15 in isolation. That does not discriminate, because the branch passes in isolation too.
 
