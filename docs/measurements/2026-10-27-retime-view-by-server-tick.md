@@ -77,7 +77,7 @@ median. "Stalls" counts zero-move frames between moving ones.
 | (b3) on the rgl clocks | off | 1.219 | 49501 / 309558 | 72 | 0 | 1.212 |
 | (b3) on the rgl clocks | **on** | **0.196** | **299** | 61 | 0 | 1.212 |
 | (d) rgl pug POV, modern | off | 27.9 † | 77353 / 251766 (30.7%) | 6912 | 842 | 8.88 |
-| (d) rgl pug POV, modern | **on** | 22.3 † | **53809 / 252778 (21.3%)** | 9936 | 902 | 8.10 |
+| (d) rgl pug POV, modern | **on** | 22.4 † | **53803 / 252777 (21.3%)** | 9936 | 902 | 8.10 |
 
 † Dominated by respawns: the largest frame step is 4170 units. The "> 50%" column is the comparable one.
 
@@ -85,7 +85,7 @@ median. "Stalls" counts zero-move frames between moving ones.
 - Subject: 679 packets placed. 978 frames have no placed packet near, and every one is identical. 1498 frames near one
   differ.
 - 2013: 147 placed, 15930 identical, 0 different away from them, 565 different near them.
-- rgl: 41779 placed, 81794 identical, 0 different away from them. These are the round-5 figures.
+- rgl: 41842 placed, 81767 identical, 0 different away from them. These are the round-6 figures.
 
 **Where the setting placed packets (stamp minus placement).**
 - Subject: 0 ×1687, 1 ×661, 2 ×11, 3 ×6, 6 ×1.
@@ -177,7 +177,7 @@ no change to suppress, and their rows are unchanged. rgl's row moved:
 | CV † | 19.4 | 22.4 |
 
 † Respawn-dominated, as the table's note says. Round 5 tests that claim (below). The comparable column moved by 0.1%, and
-the 15 stalls are explained under round 5.
+the 15 stalls are unexplained (see round 5).
 
 **SourceTV.** The 2013 foundry SourceTV specimen's packets carry `net_Tick`, and all 5,972 are placed exactly on their
 stamps: a constant delay, because SourceTV stamps with the server's own `host_tickcount`. It records no view, so
@@ -207,7 +207,7 @@ change's lag behind the commonest change it follows.
 |---|---|---|---|
 | subject | 0 | 0 | — |
 | 2013 | 0 | 0 | — |
-| rgl | 252 (231) | 16 (0) | 0 at every change |
+| rgl | 252 (231) | 16 (0) | "0 at every change" — an instrument fault: see round 6 |
 
 The subject and 2013 rows are unchanged to the printed digit. rgl, with the setting on, across three versions:
 
@@ -220,15 +220,37 @@ The subject and 2013 rows are unchanged to the printed digit. rgl, with the sett
 | CV † | 19.4 | 22.4 | 22.3 |
 | CV without teleports | not measured | not measured | 1.049 (off 1.655) |
 
-**The trade, plainly.** Round 5 has the fewest frames off, no lag, and no flip-backs. Against the bare commonest delay
-it has 22 more stalls (+0.2%) and the respawn-dominated CV is higher. The extra stalls are not explained by lag, because
-there is none now. They are not otherwise explained either. The recording repeats its origin 13,601 times among moving
+**The trade, plainly.** Round 5 has the fewest frames off and no flip-backs. (Its "no lag" was the faulty instrument;
+round 6 measures it.) Against the bare commonest delay
+it has 22 more stalls (+0.2%) and the respawn-dominated CV is higher. The extra stalls are unexplained. The recording repeats its origin 13,601 times among moving
 packets, and which repeats land exactly on a frame depends on each packet's placement.
 
-**"Respawn-dominated" is now shown.** The probe drops every frame faster than `demo_interplimit` (a teleport), and the
-frames whose local median includes one. On rgl that drops 4,641 frames off and 3,513 on. Without them the origin CV is
-1.655 off and 1.049 on, against 27.9 and 22.3 with them, so the † column is the teleports. The subject and 2013 are
-unchanged by the drop: their teleports were never in a moving frame's median.
+**"Respawn-dominated" is now shown.** The probe drops every frame that moves farther than `demo_interplimit` allows in a
+frame, and the frames whose local median includes one. In round 5 the mask was per run (4,641 frames off, 3,513 on: two
+different sets, so 1.655 and 1.049 were not comparable). Round 6 uses one mask for both runs, the union. Its figures
+follow.
+
+**After the Opus review of `472613db` (round 6).**
+- **The lag figure was an instrument fault.** It measured each applied change from the last commonest change toward the
+  same delay, which is the applied change itself by construction, so it could only read 0. It now measures from the
+  FIRST commonest change toward that delay since the previous applied change. rgl's 14 applied changes lag 0 five times;
+  2, 4, 6 and 12 once each; and 249, 605, 2,801, 3,320 and 13,281 commands once each. Those five are long near-ties,
+  each holding its delay until the commonest one finally stops coming back. That is the rule (`HoldShortChanges`), now
+  tested on a noisy step.
+- **A run's tail is held.** A change with less than a window of the run ahead of it is not taken, so a near-tie that ends
+  a run no longer flips at its last packet. A real step in a run's last 333 packets is not taken either.
+- **One teleport mask for both runs** (the union; it drops 5,219 frames on rgl, 44 on the subject, 77 on 2013):
+
+| demo | origin CV off | origin CV on | frames > 50% off, off | frames > 50% off, on |
+|---|---|---|---|---|
+| subject | 0.877 | 0.246 | 607 | 95 |
+| 2013 | 0.447 | 0.251 | 320 | 114 |
+| rgl | 1.490 | 0.989 | 76724 | 53218 |
+
+  The subject and 2013 figures are the unmasked ones to the digit: none of their teleports sat in a moving frame's
+  median. rgl's unmasked CV is 27.9 off and 22.4 on, so the † column is the teleports.
+- **rgl with round 6:** frames > 50% off 53803 (round 5 53809), snaps 902, stalls 9936. The subject and 2013 are unchanged
+  to the digit.
 
 **Whether the world carries the stamp's jitter** (the review's question). The probe's world-pacing section puts every
 other player's origin from `DemoTimeline.PlayerAt` through ONE loop with both cameras. The cameras are a positive

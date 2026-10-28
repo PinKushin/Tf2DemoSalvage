@@ -131,8 +131,9 @@ public sealed class CameraPathProbe : IProbe
         Report(output, "control (b3) line, this demo's stamps and net_Ticks, views at the server tick, demo_retimeview 1", snapshots, hz, true);
 
         string name = Path.GetFileName(path);
-        Report(output, string.Create(CultureInfo.InvariantCulture, $"subject {name}, demo_retimeview 0"), subject, hz, false);
-        Report(output, string.Create(CultureInfo.InvariantCulture, $"subject {name}, demo_retimeview 1"), subject, hz, true);
+        List<Frame> offFrames = Report(output, string.Create(CultureInfo.InvariantCulture, $"subject {name}, demo_retimeview 0"), subject, hz, false);
+        List<Frame> onFrames = Report(output, string.Create(CultureInfo.InvariantCulture, $"subject {name}, demo_retimeview 1"), subject, hz, true);
+        WithoutTeleports(output, offFrames, onFrames, hz);
         ServerTicks(output, bytes, [.. subject.ViewCommands.Where(command => command.Type == DemoCommandType.Packet).Select(command => command.View)]);
         Placement(output, subject);
         WorldPacing(output, subject, hz, stamps[0], stamps[^1]);
@@ -338,7 +339,7 @@ public sealed class CameraPathProbe : IProbe
         // delay the placements use, and the bare commonest one. A change moves every later placement by its size; one that
         // changes back within a window is the flip-flop a near-tie produces. Each applied change is printed beside the
         // commonest one it follows, so a lag between them would show.
-        const int window = 333;
+        const int window = DemoPlayer.ServerTimedWindowPackets;
         output.WriteLine();
 
         foreach ((string what, List<(int Index, long From, long To)> changes) in new[]
@@ -356,14 +357,22 @@ public sealed class CameraPathProbe : IProbe
                 $"most in any {(2 * window) + 1} commands {worst}"));
         }
 
+        // The lag of each applied change behind the FIRST commonest change toward its delay since the previous applied
+        // change: how long the noise around a step held it (Opus review, round 6 — the last such change is the applied one
+        // by construction, so measuring from it read 0 always).
         List<(int Index, long From, long To)> commonest = player.PlacementChanges.Commonest;
-        output.WriteLine("  applied (command index, delay change, lag behind the commonest change it follows): " + string.Join(' ',
-            player.PlacementChanges.Applied.Take(24).Select(change =>
-            {
-                int follows = commonest.Where(other => other.Index <= change.Index && other.To == change.To).Select(other => other.Index).DefaultIfEmpty(change.Index).Max();
+        List<(int Index, long From, long To)> applied = player.PlacementChanges.Applied;
+        int[] lags = [.. applied.Select((change, at) =>
+        {
+            int since = at > 0 ? applied[at - 1].Index : int.MinValue;
+            int first = commonest.Where(other => other.Index > since && other.Index <= change.Index && other.To == change.To)
+                .Select(other => other.Index).DefaultIfEmpty(change.Index).Min();
 
-                return string.Create(CultureInfo.InvariantCulture, $"{change.Index}:{change.To - change.From:+0;-0}/lag {change.Index - follows}");
-            })));
+            return change.Index - first;
+        })];
+
+        output.WriteLine(string.Create(CultureInfo.InvariantCulture,
+            $"  applied-change lag behind the first commonest change toward it, in commands: {Counts(lags)}"));
         int[] packets = [.. Enumerable.Range(0, timeline.ViewCommands.Count).Where(at => timeline.ViewCommands[at].Type == DemoCommandType.Packet)];
         int[] shift = [.. packets.Select(at => timeline.ViewCommands[at].Tick - placed[at])];
         int third = Math.Max(1, shift.Length / 3);
@@ -553,7 +562,7 @@ public sealed class CameraPathProbe : IProbe
     private static int?[] ViewServerTicks(DemoTimeline timeline) =>
         [.. timeline.ViewCommands.Where(command => command.Type == DemoCommandType.Packet && !command.View.IsDefault).Select(command => command.ServerTick)];
 
-    private static void Report(TextWriter output, string title, DemoTimeline timeline, int hz, bool retime)
+    private static List<Frame> Report(TextWriter output, string title, DemoTimeline timeline, int hz, bool retime)
     {
         output.WriteLine();
         output.WriteLine("== " + title);
@@ -575,31 +584,47 @@ public sealed class CameraPathProbe : IProbe
         Summarise(output, "origin", frames, frame => frame.Move, packets);
         Summarise(output, "angles", frames, frame => frame.Turn, packets);
 
-        // The origin's CV without its teleports: frames faster than demo_interplimit, as the engine judges one, and the
-        // frames whose local median such a frame sits in (Opus review, round 5: "respawn-dominated" asserted, not shown).
-        double teleport = DemoViewConVars.Defaults.InterpLimit / hz;
-        double[] moves = [.. frames.Select(frame => frame.Move)];
-        double[] medians = LocalMedians(moves);
-        bool[] near = new bool[moves.Length];
+        return frames;
+    }
 
-        for (int at = 0; at < moves.Length; at++)
+    /// <summary>
+    /// The origin's pacing over the SAME frames of two runs, without any frame either run moved faster than
+    /// <c>demo_interplimit</c> allows in a frame, or any frame whose local median such a frame sits in (Opus reviews,
+    /// rounds 5 and 6: "respawn-dominated" asserted, not shown; one shared mask so the two figures compare one set).
+    /// </summary>
+    private static void WithoutTeleports(TextWriter output, List<Frame> off, List<Frame> on, int hz)
+    {
+        double teleport = DemoViewConVars.Defaults.InterpLimit / hz;
+        int count = Math.Min(off.Count, on.Count);
+        bool[] dropped = new bool[count];
+
+        foreach (List<Frame> run in new[] { off, on })
         {
-            if (moves[at] > teleport)
+            for (int at = 0; at < count; at++)
             {
-                for (int other = Math.Max(0, at - Half); other <= Math.Min(moves.Length - 1, at + Half); other++)
+                if (run[at].Move > teleport)
                 {
-                    near[other] = true;
+                    for (int other = Math.Max(0, at - Half); other <= Math.Min(count - 1, at + Half); other++)
+                    {
+                        dropped[other] = true;
+                    }
                 }
             }
         }
 
-        double[] kept = [.. Enumerable.Range(0, moves.Length).Where(at => !near[at] && medians[at] > Moving).Select(at => moves[at] / medians[at])];
-        double keptMean = kept.Length > 0 ? kept.Average() : 0d;
-        double keptSd = kept.Length > 0 ? Math.Sqrt(kept.Average(value => (value - keptMean) * (value - keptMean))) : 0d;
+        foreach ((string name, List<Frame> run) in new[] { ("off", off), ("on", on) })
+        {
+            double[] moves = [.. run.Take(count).Select(frame => frame.Move)];
+            double[] medians = LocalMedians(moves);
+            double[] kept = [.. Enumerable.Range(0, count).Where(at => !dropped[at] && medians[at] > Moving).Select(at => moves[at] / medians[at])];
+            double mean = kept.Length > 0 ? kept.Average() : 0d;
+            double sd = kept.Length > 0 ? Math.Sqrt(kept.Average(value => (value - mean) * (value - mean))) : 0d;
 
-        output.WriteLine(string.Create(CultureInfo.InvariantCulture,
-            $"origin without teleports (>{teleport:0.0} units a frame, and their medians' frames): {near.Count(value => value)} frames dropped, " +
-            $"moving {kept.Length}, speed/local-median CV {(keptMean > 0 ? keptSd / keptMean : 0):0.0000}, >50% off {kept.Count(value => Math.Abs(value - 1d) > 0.5)}"));
+            output.WriteLine(string.Create(CultureInfo.InvariantCulture,
+                $"origin without teleports, demo_retimeview {name} (>{teleport:0.0} units a frame in either run, and their medians' frames; " +
+                $"{dropped.Count(value => value)} of {count} frames dropped, the same for both): moving {kept.Length}, " +
+                $"speed/local-median CV {(mean > 0 ? sd / mean : 0):0.0000}, >50% off {kept.Count(value => Math.Abs(value - 1d) > 0.5)}"));
+        }
     }
 
     private static void Histogram(TextWriter output, int[] packets, float interval)

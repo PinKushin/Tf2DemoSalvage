@@ -47,7 +47,7 @@ public sealed class DemoPlayer
     /// <c>cl_updaterate 20</c>. Long enough that the delay most packets arrive with is the most common one in it (71% of
     /// the subject's, finding 106), short enough to follow a drift between the two machines' clocks over a long match.
     /// </remarks>
-    private const int ServerTimedWindowPackets = 333;
+    internal const int ServerTimedWindowPackets = 333;
 
     private readonly IReadOnlyList<DemoViewCommand> _commands;
 
@@ -143,6 +143,7 @@ public sealed class DemoPlayer
     }
 
     /// <summary>Where the placement this player reads changed its delay, recorded as it was built: an instrument for the probe.</summary>
+    /// <remarks>Two small lists per player, filled once at construction (16 and 252 entries on rgl).</remarks>
     internal ServerTimedChanges PlacementChanges { get; } = new();
 
     /// <summary>Each command's tick on the server's clock: what <c>demo_retimeview</c> interpolates the origin by (D238).</summary>
@@ -167,8 +168,9 @@ public sealed class DemoPlayer
     /// of it has its own usual delay. Within a run each packet's delay is <c>stamp - server</c>, and its tick is its server tick plus
     /// the most common delay among the <paramref name="window"/> packets either side (the smaller on a tie) — except that a
     /// change of that delay which reverts within <paramref name="window"/> packets is not taken
-    /// (<see cref="HoldShortChanges"/>). The window at a run's first packets is cut off by the run's start, so it looks
-    /// forward only; in a lasting near-tie the delay it picks is kept, and both delays are common there. Where the
+    /// (<see cref="HoldShortChanges"/>), and that a change in a run's last <paramref name="window"/> packets is held. The
+    /// window at a run's first packets is cut off by the run's start, so it looks forward only; in a lasting near-tie the
+    /// delay it picks is kept to the run's end, and both delays are common there. Where the
     /// stamps are regular every delay is that one and the tick IS the stamp, bit for bit; a packet that arrived late by a
     /// tick moves back by one.
     ///
@@ -314,8 +316,19 @@ public sealed class DemoPlayer
     /// commonest delay changed 252 times, 231 of them back within a window. Round 4's lead-margin hysteresis stopped that,
     /// but it followed a real one-tick step about 17 packets late. This takes a change at the very packet the commonest
     /// delay changes, unless the delay in force is the commonest again within the next <paramref name="window"/>
-    /// packets — a flip-back. A real step therefore lags not at all; a near-tie holds the delay it started with, which is
-    /// as right as the other (both are common), for as long as the tie lasts.
+    /// packets — a flip-back — or the run ends within them, where nothing ahead can show the change lasts. So:
+    ///
+    /// - a clean step lags 0;
+    /// - a noisy step, where the old delay is the commonest again now and then, is taken after its last return that falls
+    ///   within a window of the packet before. Chained returns have no limit, so the lag is as long as the noise;
+    /// - a near-tie keeps the delay it started with, which is as right as the other (both are common), for as long as the
+    ///   tie lasts, the run's last packets included;
+    /// - a real step in a run's last <paramref name="window"/> packets is never taken: they stay a tick off. That is the
+    ///   price of not taking a tail's flip on no evidence.
+    ///
+    /// **Cost:** <see cref="ReturnsWithin"/> scans up to <paramref name="window"/> packets for each packet whose commonest
+    /// delay differs from the one in force. Over a long near-tie that is about n × window comparisons — some 3 × 10^7 at
+    /// 100,000 packets, tens of milliseconds once per open — and nothing elsewhere.
     /// </remarks>
     internal static long[] HoldShortChanges(long[] commonest, int window)
     {
@@ -330,7 +343,9 @@ public sealed class DemoPlayer
 
         for (int index = 0; index < commonest.Length; index++)
         {
-            if (commonest[index] != current && !ReturnsWithin(commonest, index, window, current))
+            // Taken only with a whole window ahead to show it does not revert: in a run's last packets nothing ahead can,
+            // so a change there is held (Opus review, round 6).
+            if (commonest[index] != current && index + window < commonest.Length && !ReturnsWithin(commonest, index, window, current))
             {
                 current = commonest[index];
             }

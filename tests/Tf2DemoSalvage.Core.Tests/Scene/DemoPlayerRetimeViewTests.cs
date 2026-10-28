@@ -247,7 +247,7 @@ public sealed class DemoPlayerRetimeViewTests
         // The first packet arrived a tick early: stamp 99, placed 100. Until 100 the target lies before every queued
         // placement — the server's axis has no pair and nothing to hold — so the origin is exactly the engine's blend;
         // from 100 the server's pair takes over and the origin is exactly the line. Played from the start, and again after
-        // playing on to 103 and seeking back to 99, which lands the same way.
+        // seeking back from 104 to 99, which lands the same way.
         List<DemoCommand> commands = [.. Enumerable.Range(0, 60).Select(k => SyntheticViews.Packet(
             k == 0 ? 99 : 100 + k, (4f * (1000 + k), 0f, 0f), (0f, 10f, 0f), serverTick: 1000 + k))];
         byte[] demo = SyntheticViews.Demo([.. commands, SyntheticViews.Stop(200)]);
@@ -277,8 +277,7 @@ public sealed class DemoPlayerRetimeViewTests
         // The control: the hand-over is real — at 100.5 the engine blends (99, 101) and the line does not.
         on.InterpolateViewpoint(100.5).ShouldNotBe(off.InterpolateViewpoint(100.5));
 
-        on.InterpolateViewpoint(103d);
-        off.InterpolateViewpoint(103d);
+        // The first Play ended at 104, so this one starts with a seek back to 99.
         Play();
     }
 
@@ -443,7 +442,8 @@ public sealed class DemoPlayerRetimeViewTests
     {
         // Every odd packet of the first 400 a tick late, then 100 on time: across a 101-packet window the two delays lead
         // by one in turn as it slides, which flips the bare commonest delay nearly every packet and, taken, would step the
-        // placements by 0 and 2 in turn. Every one of those flips comes back within the window.
+        // placements by 0 and 2 in turn. Every one of those flips comes back within the window. The on-time tail puts the
+        // near-tie mid-run; the twin below ends the run in it.
         List<DemoViewCommand> commands = [.. Enumerable.Range(0, 500).Select(k => View(100 + k + (k < 400 ? k % 2 : 0), 1000 + k))];
         DemoPlayer.ServerTimedChanges changes = new();
 
@@ -452,6 +452,37 @@ public sealed class DemoPlayerRetimeViewTests
         changes.Commonest.Count.ShouldBeGreaterThan(100, "the control: the bare commonest delay does flip");
         changes.Applied.ShouldBeEmpty();
         ticks.ShouldBe(Enumerable.Range(0, 500).Select(k => 100 + k));
+    }
+
+    [Test]
+    public void ServerTimed_TwoDelaysAlternatingAtATieToTheRunsEnd_KeepsOneThroughTheTail()
+    {
+        // The twin of the test above without its on-time tail. The tail kept the end unambiguous there. Here the run ENDS
+        // in the near-tie: packet 399's window [349, 399] holds 26 late against 25 on time, so its commonest delay flips,
+        // and nothing ahead could bring the other back. A change with less than a window ahead of it is held.
+        List<DemoViewCommand> commands = [.. Enumerable.Range(0, 400).Select(k => View(100 + k + (k % 2), 1000 + k))];
+        DemoPlayer.ServerTimedChanges changes = new();
+
+        int[] ticks = DemoPlayer.ServerTimed(commands, 50, changes);
+
+        changes.Commonest[^1].Index.ShouldBe(399, "the control: the tail's last packet does flip");
+        changes.Applied.ShouldBeEmpty();
+        ticks.ShouldBe(Enumerable.Range(0, 400).Select(k => 100 + k));
+    }
+
+    [Test]
+    public void HoldShortChanges_ANoisyStep_IsTakenAfterTheOldDelaysLastReturn()
+    {
+        // The step at 500, but the old delay is the commonest once more at 600. Every packet 500-599 has that return
+        // within its window, so the change is held; 601 has none ahead, so it is taken there — after the last return,
+        // however many come in a chain.
+        long[] commonest =
+            [.. Enumerable.Repeat(-900L, 500), .. Enumerable.Repeat(-899L, 100), -900L, .. Enumerable.Repeat(-899L, 600)];
+
+        long[] held = DemoPlayer.HoldShortChanges(commonest, 333);
+
+        held[..601].ShouldAllBe(delay => delay == -900L);
+        held[601..].ShouldAllBe(delay => delay == -899L);
     }
 
     [Test]
@@ -477,6 +508,8 @@ public sealed class DemoPlayerRetimeViewTests
     {
         // From packet 500 every packet arrives a tick later, for good. At the 333-packet window the commonest delay
         // changes at packet 500 exactly, and that change is taken there: every packet, before and after, sits on its stamp.
+        // A clean step: the bare commonest delay with no hold passes this too. The noisy step is
+        // HoldShortChanges_ANoisyStep_IsTakenAfterTheOldDelaysLastReturn.
         List<DemoViewCommand> commands = [.. Enumerable.Range(0, 1000).Select(k => View(100 + k + (k >= 500 ? 1 : 0), 1000 + k))];
         DemoPlayer.ServerTimedChanges changes = new();
 

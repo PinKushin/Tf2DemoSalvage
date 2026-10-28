@@ -11200,10 +11200,18 @@ of them back again within a window.
   real one-tick step was followed about 17 packets late (deduced from the margin), and a step in a run's last ~170
   packets never.
 - **Round 5 replaces it.** A change is taken at the very packet the commonest delay changes, unless the delay in force
-  is the commonest again within the next 333 packets. rgl now has 16 changes, none back and lag 0. A one-tick step at the
-  production window is followed at its own packet; a test holds that.
-- **A near-tie.** The window at a run's first packets looks forward only. In a near-tie that lasts, the delay it picks is
-  kept, and that is intended: both delays are common there, and holding one is what stops the trades.
+  is the commonest again within the next 333 packets.
+  - A clean step is followed at its own packet; a test holds that.
+  - A noisy step, where the old delay is the commonest again now and then, is taken only after its last such return.
+    Chained returns have no limit, and a test holds the rule.
+  - rgl, measured: 14 changes, none back. Each change's lag behind the first commonest change toward it is 0 five times;
+    2, 4, 6 and 12 once each; and 249, 605, 2,801, 3,320 and 13,281 packets once each. Those last five are long
+    near-ties holding the delay they started with.
+- **A near-tie, and a run's tail** (round 6, decided). The window at a run's first packets looks forward only. In a
+  near-tie that lasts, the delay it picks is kept to the run's end, and that is intended: both delays are common there,
+  and holding one is what stops the trades. A change with less than 333 packets of the run ahead of it is held, because
+  nothing ahead can show it lasts. The price is that a real step in a run's last 333 packets is never taken; those packets
+  stay a tick off.
 
 **The repeat memo reads the ConVars on every call**, so a change made while paused applies at once. No cache was added.
 - **Measured, per call:** about 0.44 µs, a hot loop in Release over a stand-in for the settings and console lookups.
