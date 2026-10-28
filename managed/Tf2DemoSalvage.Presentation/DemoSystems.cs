@@ -92,15 +92,23 @@ public sealed class DemoSystems
     public Func<string, string?>? ClientConVars { get; set; }
 
     /// <summary>The <c>demo_*</c> ConVars <c>InterpolateViewpoint</c> reads, from the watcher's config, read on every interpolation (B450).</summary>
-    private DemoViewConVars ViewConVars()
+    /// <remarks><c>demo_retimeview</c> beside them is ours (D238), read the same way so a config line or the console flips it mid-play.</remarks>
+    private DemoViewConVars ViewConVars() => ViewConVarsFrom(ClientConVars);
+
+    /// <summary>The <c>demo_*</c> ConVars as <see cref="ViewConVars"/> reads them, from a watcher's values.</summary>
+    /// <param name="client">The watcher's own ConVar values, or null where unset.</param>
+    /// <returns>Each one in force, its declared default where unset.</returns>
+    /// <remarks>Internal for the probe that times one read (D238, round 4); the frame reads it through <see cref="ViewConVars"/>.</remarks>
+    internal static DemoViewConVars ViewConVarsFrom(Func<string, string?>? client)
     {
-        Scene.Hud.HudConVars vars = new(null, ClientConVars);
+        Scene.Hud.HudConVars vars = new(null, client);
 
         return new DemoViewConVars(
             vars.GetBool(DemoViewConVars.InterpolateViewName),
             vars.GetFloat(DemoViewConVars.InterpLimitName),
             vars.GetFloat(DemoViewConVars.AvelLimitName),
-            vars.GetBool(DemoViewConVars.LegacyRollbackName));
+            vars.GetBool(DemoViewConVars.LegacyRollbackName),
+            vars.GetBool(DemoViewConVars.RetimeViewName));
     }
 
     /// <summary>Adds what the client emits itself — every explosion's sound — to the demo's schedule (B415).</summary>

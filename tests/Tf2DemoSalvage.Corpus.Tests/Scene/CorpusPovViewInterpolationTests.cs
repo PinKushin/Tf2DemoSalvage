@@ -33,7 +33,9 @@ public sealed class CorpusPovViewInterpolationTests
         // The control: the two packets are apart, so "half way" and "the older one" are different answers.
         (after.Origin.X - before.Origin.X).ShouldNotBe(0f);
 
-        SpectatorView view = new(NullLogger.Instance) { Eyes = new TimelineEyes(timeline, new DemoPlayer(timeline)) };
+        // The engine's pairing, by stamp: demo_retimeview would move a packet placed off its stamp (D238).
+        DemoPlayer player = new(timeline) { ConVars = () => DemoViewConVars.Defaults with { RetimeView = false } };
+        SpectatorView view = new(NullLogger.Instance) { Eyes = new TimelineEyes(timeline, player) };
 
         FreeCamera camera = view.Eye(Tick + 0.5, 1f).ShouldNotBeNull();
 

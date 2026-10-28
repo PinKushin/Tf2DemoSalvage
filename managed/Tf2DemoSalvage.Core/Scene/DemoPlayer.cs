@@ -18,6 +18,10 @@ namespace Tf2DemoSalvage.Core.Scene;
 ///
 /// **Not ported:** the three <c>OverrideView</c> hooks <c>InterpolateViewpoint</c> asks after it (<c>0x1800728ab</c>),
 /// which answer false unless a demo tool is driving the camera; and timedemo (+0x63e), which never interpolates.
+///
+/// **Added above it: <c>demo_retimeview</c>** (D238, on by default), which pairs the recorded ORIGIN on the packets'
+/// server ticks rather than their arrival stamps (<see cref="ServerTimed"/>). Reading, the parse-ahead, the rewind and
+/// the angles stay on the stamp; <c>demo_retimeview 0</c> is the engine's answer bit for bit.
 /// </remarks>
 public sealed class DemoPlayer
 {
@@ -37,7 +41,24 @@ public sealed class DemoPlayer
     /// </remarks>
     private const int HostTickCount = int.MaxValue;
 
+    /// <summary>How many PACKETS either side <see cref="ServerTimed"/> looks for a packet's usual arrival delay.</summary>
+    /// <remarks>
+    /// A count, not a time: about 5 s at the 65 packets a second the measured POV demos arrive at, and 16 s at
+    /// <c>cl_updaterate 20</c>. Long enough that the delay most packets arrive with is the most common one in it (71% of
+    /// the subject's, finding 106), short enough to follow a drift between the two machines' clocks over a long match.
+    /// </remarks>
+    internal const int ServerTimedWindowPackets = 333;
+
     private readonly IReadOnlyList<DemoViewCommand> _commands;
+
+    /// <summary>Each command's tick, the stamp: the axis the engine pairs every view on.</summary>
+    private readonly int[] _stamped;
+
+    /// <summary>
+    /// Each command's tick on the server's clock, the axis <c>demo_retimeview</c> pairs the recorded origin on — the
+    /// stamp wherever <see cref="ServerTimed"/> cannot place it (D238).
+    /// </summary>
+    private readonly int[] _serverTimed;
 
     /// <summary>For each command, the latest <c>dem_packet</c> tick at or before it in stream order: non-decreasing, so searchable.</summary>
     private readonly int[] _latestPacketTick;
@@ -51,6 +72,9 @@ public sealed class DemoPlayer
 
     /// <summary>The parse-ahead list itself, for a test that a rewind lands in a fresh read's state.</summary>
     internal IReadOnlyList<int> QueuedPackets => _packets;
+
+    /// <summary>The ticks <c>demo_retimeview</c> pairs the origin on, one per view command — the array the blend reads, for a test and the probe.</summary>
+    internal IReadOnlyList<int> ServerTimedTicks => _serverTimed;
 
     /// <summary>The last command read, or -1.</summary>
     private int _read = -1;
@@ -82,6 +106,7 @@ public sealed class DemoPlayer
     /// <summary>The moment last asked about, and its answer — the engine interpolates once a rendered frame.</summary>
     private double _askedTick = double.NaN;
     private RecordedView? _answer;
+    private DemoViewConVars _askedConVars;
 
     /// <summary>A demo player over a decoded demo.</summary>
     /// <param name="timeline">The demo.</param>
@@ -106,7 +131,255 @@ public sealed class DemoPlayer
         _interval = timeline.IntervalPerTick > 0f ? timeline.IntervalPerTick : PlaybackClock.DefaultIntervalPerTick;
         _maxClients = timeline.MaxClients;
         _interpAmount = (float)timeline.ClientInterpAmount;
+
+        _stamped = new int[_commands.Count];
+
+        for (int index = 0; index < _commands.Count; index++)
+        {
+            _stamped[index] = _commands[index].Tick;
+        }
+
+        _serverTimed = ServerTimed(_commands, ServerTimedWindowPackets, PlacementChanges);
     }
+
+    /// <summary>Where the placement this player reads changed its delay, recorded as it was built: an instrument for the probe.</summary>
+    /// <remarks>Two small lists per player, filled once at construction (16 and 252 entries on rgl).</remarks>
+    internal ServerTimedChanges PlacementChanges { get; } = new();
+
+    /// <summary>Each command's tick on the server's clock: what <c>demo_retimeview</c> interpolates the origin by (D238).</summary>
+    /// <param name="commands">The view commands, in stream order.</param>
+    /// <param name="window">How many packets either side the usual arrival delay is taken over.</param>
+    /// <param name="modeChanges">If given, receives where each run's delay changed: an instrument.</param>
+    /// <returns>
+    /// One tick per command. One that cannot be placed starts at its stamp, and like every packet is then raised to the
+    /// latest earlier packet's tick when that is later — so a fallback can sit above its own stamp, never before an
+    /// earlier packet.
+    /// </returns>
+    /// <remarks>
+    /// **Why there is a second clock at all** (finding 106). A multiplayer recording stamps each <c>dem_packet</c> with
+    /// <c>CDemoRecorder::GetRecordingTick</c> (<c>0x180071f80</c>): <c>TIME_TO_TICKS( net_time ) - m_nStartTick</c>, the
+    /// client's wall clock when the packet was written, so network jitter puts two in one tick and none in the next. The
+    /// <c>net_Tick</c> inside is the server's own, and steps by one in 2315 of 2362 pairs on the subject.
+    ///
+    /// **The placement: server tick plus the usual delay.** A run is consecutive <c>dem_packet</c>s that each carry a
+    /// <c>net_Tick</c>, the server's stepping up; a signon, synctick, stop, a packet without one, a server tick that
+    /// steps back, or a delay that steps by more than <see cref="ParseAheadTicks"/> ends it. That last is a clock step,
+    /// not jitter — the 2013 specimen's delay steps six times, by 12, 13 and once 28 ticks (finding 106) — and each side
+    /// of it has its own usual delay. Within a run each packet's delay is <c>stamp - server</c>, and its tick is its server tick plus
+    /// the most common delay among the <paramref name="window"/> packets either side (the smaller on a tie) — except that a
+    /// change of that delay which reverts within <paramref name="window"/> packets is not taken
+    /// (<see cref="HoldShortChanges"/>), and that a change in a run's last <paramref name="window"/> packets is held. The
+    /// window at a run's first packets is cut off by the run's start, so it looks forward only; in a lasting near-tie the
+    /// delay it picks is kept to the run's end, and both delays are common there. Where the
+    /// stamps are regular every delay is that one and the tick IS the stamp, bit for bit; a packet that arrived late by a
+    /// tick moves back by one.
+    ///
+    /// **Two guards, and neither invents a time.** A placement more than <see cref="ParseAheadTicks"/> from the stamp is
+    /// not arrival jitter (a stall, a server tick that jumped) and starts from its stamp — the parse-ahead window is all
+    /// the reader would queue past it. And no tick is ever placed before an earlier packet's while the stamps do not step
+    /// back: it is raised to it, so a pair never reorders — which can lift a fallback, or a packet with no
+    /// <c>net_Tick</c>, above its own stamp when the packet before it was placed after its own. Where the stamps
+    /// do step back the engine's own queue clears, and so does this guard.
+    /// </remarks>
+    internal static int[] ServerTimed(IReadOnlyList<DemoViewCommand> commands, int window, ServerTimedChanges? modeChanges = null)
+    {
+        int[] ticks = new int[commands.Count];
+
+        for (int index = 0; index < commands.Count; index++)
+        {
+            ticks[index] = commands[index].Tick;
+        }
+
+        for (int start = 0; start < commands.Count;)
+        {
+            if (!Placeable(commands[start]))
+            {
+                start++;
+                continue;
+            }
+
+            int end = start + 1;
+
+            while (end < commands.Count && Placeable(commands[end]) &&
+                   commands[end].ServerTick.GetValueOrDefault() > commands[end - 1].ServerTick.GetValueOrDefault() &&
+                   Math.Abs(Delay(commands[end]) - Delay(commands[end - 1])) <= ParseAheadTicks)
+            {
+                end++;
+            }
+
+            Place(commands, start, end, window, ticks, modeChanges);
+            start = end;
+        }
+
+        // Never reordered: raised to the latest earlier tick, until the stamps themselves step back.
+        int latest = int.MinValue;
+        int lastStamp = int.MinValue;
+
+        for (int index = 0; index < commands.Count; index++)
+        {
+            if (!commands[index].IsPacket)
+            {
+                continue;
+            }
+
+            latest = commands[index].Tick < lastStamp ? int.MinValue : latest;
+            ticks[index] = Math.Max(ticks[index], latest);
+            latest = ticks[index];
+            lastStamp = commands[index].Tick;
+        }
+
+        return ticks;
+    }
+
+    private static bool Placeable(DemoViewCommand command) =>
+        command.Type == DemoCommandType.Packet && command.ServerTick is not null;
+
+    /// <summary>One run's placement: each server tick plus the commonest delay in the window around it.</summary>
+    private static void Place(
+        IReadOnlyList<DemoViewCommand> commands, int start, int end, int window, int[] ticks, ServerTimedChanges? changes)
+    {
+        // Delays in long: a server tick is 32 bits off the wire, and the difference of two need not fit an int.
+        Dictionary<long, int> counts = [];
+        int entered = start;
+        int left = start;
+        long[] commonest = new long[end - start];
+
+        for (int index = start; index < end; index++)
+        {
+            for (; entered < end && entered <= index + window; entered++)
+            {
+                long delay = Delay(commands[entered]);
+                counts[delay] = counts.GetValueOrDefault(delay) + 1;
+            }
+
+            // A delay that left the window leaves the table, so it holds at most the window's distinct delays.
+            for (; left < index - window; left++)
+            {
+                long delay = Delay(commands[left]);
+
+                if (--counts[delay] == 0)
+                {
+                    counts.Remove(delay);
+                }
+            }
+
+            long usual = long.MaxValue;
+            int most = 0;
+
+            foreach ((long delay, int count) in counts)
+            {
+                if (count > most || (count == most && delay < usual))
+                {
+                    usual = delay;
+                    most = count;
+                }
+            }
+
+            commonest[index - start] = usual;
+        }
+
+        long[] held = HoldShortChanges(commonest, window);
+
+        for (int index = start; index < end; index++)
+        {
+            long placed = commands[index].ServerTick.GetValueOrDefault() + held[index - start];
+
+            ticks[index] = Math.Abs(placed - commands[index].Tick) <= ParseAheadTicks ? (int)placed : commands[index].Tick;
+
+            // An instrument (Opus reviews, rounds 4 and 5): where a run's delay changes, every later placement moves by the
+            // difference. Recorded where the placement code decides it, for the delay used and for the bare commonest one.
+            if (changes is not null && index > start)
+            {
+                if (held[index - start] != held[index - start - 1])
+                {
+                    changes.Applied.Add((index, held[index - start - 1], held[index - start]));
+                }
+
+                if (commonest[index - start] != commonest[index - start - 1])
+                {
+                    changes.Commonest.Add((index, commonest[index - start - 1], commonest[index - start]));
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// The delays a run uses: each packet's commonest, except that a change which comes back within
+    /// <paramref name="window"/> packets is not taken.
+    /// </summary>
+    /// <param name="commonest">The commonest delay in the window around each packet of a run.</param>
+    /// <param name="window">How many packets a change must last to be taken.</param>
+    /// <returns>One delay per packet.</returns>
+    /// <remarks>
+    /// **Why** (Opus reviews, rounds 4 and 5; measured, docs/measurements/2026-10-27-retime-view-by-server-tick.md). Two
+    /// delays near a tie trade the lead as the window slides, and each trade moves every later placement by a tick: rgl's
+    /// commonest delay changed 252 times, 231 of them back within a window. Round 4's lead-margin hysteresis stopped that,
+    /// but it followed a real one-tick step about 17 packets late. This takes a change at the very packet the commonest
+    /// delay changes, unless the delay in force is the commonest again within the next <paramref name="window"/>
+    /// packets — a flip-back — or the run ends within them, where nothing ahead can show the change lasts. So:
+    ///
+    /// - a clean step lags 0;
+    /// - a noisy step, where the old delay is the commonest again now and then, is taken after its last return that falls
+    ///   within a window of the packet before. Chained returns have no limit, so the lag is as long as the noise;
+    /// - a near-tie keeps the delay it started with, which is as right as the other (both are common), for as long as the
+    ///   tie lasts, the run's last packets included;
+    /// - a real step in a run's last <paramref name="window"/> packets is never taken: they stay a tick off. That is the
+    ///   price of not taking a tail's flip on no evidence.
+    ///
+    /// **Cost:** <see cref="ReturnsWithin"/> scans up to <paramref name="window"/> packets for each packet whose commonest
+    /// delay differs from the one in force. Over a long near-tie that is about n × window comparisons — some 3 × 10^7 at
+    /// 100,000 packets, tens of milliseconds once per open — and nothing elsewhere.
+    /// </remarks>
+    internal static long[] HoldShortChanges(long[] commonest, int window)
+    {
+        long[] held = new long[commonest.Length];
+
+        if (commonest.Length == 0)
+        {
+            return held;
+        }
+
+        long current = commonest[0];
+
+        for (int index = 0; index < commonest.Length; index++)
+        {
+            // Taken only with a whole window ahead to show it does not revert: in a run's last packets nothing ahead can,
+            // so a change there is held (Opus review, round 6).
+            if (commonest[index] != current && index + window < commonest.Length && !ReturnsWithin(commonest, index, window, current))
+            {
+                current = commonest[index];
+            }
+
+            held[index] = current;
+        }
+
+        return held;
+    }
+
+    private static bool ReturnsWithin(long[] commonest, int from, int window, long value)
+    {
+        for (int index = from + 1; index < commonest.Length && index <= from + window; index++)
+        {
+            if (commonest[index] == value)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>Where a run's delay changed: the delay the placements use, and the bare commonest one, each as (index, from, to).</summary>
+    internal sealed class ServerTimedChanges
+    {
+        /// <summary>Changes of the delay the placements use.</summary>
+        public List<(int Index, long From, long To)> Applied { get; } = [];
+
+        /// <summary>Changes of the commonest delay in the window, before flip-backs are held.</summary>
+        public List<(int Index, long From, long To)> Commonest { get; } = [];
+    }
+
+    private static long Delay(DemoViewCommand command) => (long)command.Tick - command.ServerTick.GetValueOrDefault();
 
     /// <summary>Whether a bounded rewind provably lands in a fresh read's state (batch-33 review 2): the conservative shape.</summary>
     /// <remarks>
@@ -201,8 +474,11 @@ public sealed class DemoPlayer
     /// </remarks>
     public RecordedView? InterpolateViewpoint(double tick)
     {
-        // The same stored moment, bit for bit — a question about repetition, not about nearness.
-        if (BitConverter.DoubleToInt64Bits(tick) == BitConverter.DoubleToInt64Bits(_askedTick))
+        // The same stored moment, bit for bit, under the same ConVars — a question about repetition, not about
+        // nearness. The ConVars are part of the key so a change made while paused applies on the next call (B450).
+        DemoViewConVars conVars = ConVars();
+
+        if (BitConverter.DoubleToInt64Bits(tick) == BitConverter.DoubleToInt64Bits(_askedTick) && conVars.Equals(_askedConVars))
         {
             return _answer;
         }
@@ -214,7 +490,8 @@ public sealed class DemoPlayer
         ReadPackets(playbackTick);
 
         _askedTick = tick;
-        _answer = Interpolate(playbackTick, hostRemainder);
+        _askedConVars = conVars;
+        _answer = Interpolate(playbackTick, hostRemainder, conVars);
 
         return _answer;
     }
@@ -269,13 +546,12 @@ public sealed class DemoPlayer
         return low;
     }
 
-    private RecordedView? Interpolate(int playbackTick, float hostRemainder)
+    private RecordedView? Interpolate(int playbackTick, float hostRemainder, DemoViewConVars conVars)
     {
         RecordedView current = _current >= 0 ? _commands[_current].View : default;
         bool hasView = !current.IsDefault;
 
         int target = playbackTick;
-        DemoViewConVars conVars = ConVars();
 
         if (_maxClients == 1)
         {
@@ -302,33 +578,86 @@ public sealed class DemoPlayer
     }
 
     /// <summary>The interpolating branch: the pair, the fraction, the two snaps and the blend.</summary>
+    /// <remarks>
+    /// **With <c>demo_retimeview</c> the ORIGIN has its own pair, on <see cref="_serverTimed"/>** (D238); the angles and
+    /// everything else keep the engine's. The recorder writes the two from different clocks (<c>0x1800748b0</c>): the
+    /// origin is the local player's (<c>IPrediction::GetViewOrigin</c>), which the measured views follow on the server's
+    /// tick, and the view angles are <c>cl.viewangles</c> (<c>0x18053f4e4</c>), the client's own at the moment of writing
+    /// — the stamp's clock, which is why they already pace evenly (finding 106). The origin takes the stamp's pair
+    /// wherever the stamp's took its cut branch or found nothing, and wherever a queued cut lies between the two pairs'
+    /// outermost ends, so every frame a cut can reach is the engine's; a target past every queued placement holds the
+    /// last placed packet. Off, both pairs are one and the arithmetic is the engine's, operation for operation.
+    /// </remarks>
     private RecordedView Between(RecordedView current, int target, float hostRemainder, DemoViewConVars conVars)
     {
-        ((int Tick, RecordedView View) prev, (int Tick, RecordedView View) next) = Pair(current, target);
+        QueuedPair angles = Pair(current, target, _stamped);
+        QueuedPair origins = angles;
+        bool serverAxis = conVars.RetimeView && !angles.Cut && angles.PrevAt >= 0;
 
-        float dt = (next.Tick - prev.Tick) * _interval;
-        float inverse = 1f / dt;
-        float fraction = (((target - prev.Tick) * _interval) + hostRemainder) * inverse;
+        if (serverAxis)
+        {
+            origins = Pair(current, target, _serverTimed);
 
-        // MAXSS then MINSS (0x180072469, 0x18007248a): a NaN takes the source operand, zero.
-        fraction = fraction > 0f ? fraction : 0f;
-        fraction = fraction < 1f ? fraction : 1f;
+            // A packet placed before its stamp can leave the target past every queued placement: after a stamp gap wider
+            // than the parse-ahead, its successor is queued only once it is read. The origin holds that last placed
+            // packet until then — the stamp's pair would put it back behind where the server's had already shown it.
+            // **And where the target lies BEFORE every queued placement** (the first frames on a packet placed after its
+            // stamp, as at the start of playback or a seek landing on one) there is nothing to hold: the origin is the
+            // engine's blend, and when the server's pair appears it can step by up to one tick of motion
+            // (InterpolateViewpoint_FirstFramesOnAPacketPlacedAfterItsStamp_AreTheEnginesThenTheLine).
+            if (origins.PrevAt < 0)
+            {
+                int last = _packets.Count - 1;
 
-        (float X, float Y, float Z) from = prev.View.Origin;
-        (float X, float Y, float Z) to = next.View.Origin;
+                serverAxis = last >= 0 && _serverTimed[_packets[last]] <= target;
+                origins = serverAxis
+                    ? new(Queued(last, _serverTimed), Queued(last, _serverTimed), false, last, last)
+                    : angles;
+            }
+
+            // **Around a cut the origin follows the engine's pair** (Fable and Opus reviews of 4c4b247b and b7a8a751).
+            // A cut placed early on the server's axis — or lifted above its stamp — is reached by the origin's pair on a
+            // different frame from the angles'; checking only the cut branch and the pair's two ends missed a cut two
+            // ticks early and the hold above. So wherever any queued cut lies between the two pairs' outermost ends, the
+            // origin takes the stamp's pair: every frame a cut can reach on either axis is the engine's.
+            if (serverAxis && CutAmong(angles, origins))
+            {
+                serverAxis = false;
+                origins = angles;
+            }
+        }
+
+        (float angleDt, float angleFraction) = Fraction(angles.Prev.Tick, angles.Next.Tick, target, hostRemainder);
+        (float originDt, float originFraction) = Fraction(origins.Prev.Tick, origins.Next.Tick, target, hostRemainder);
+
+        // **The snap's interval.** The engine measures current-to-next over its pair's interval, and its pair starts at
+        // the current packet or before it. On the server's axis the pair can start PAST the current one — a packet
+        // placed before its stamp is not read yet — and over that one interval the distance from the current packet
+        // spans two, which doubled the speed and snapped a rocket jump. So the interval runs from the earlier of the
+        // pair's start and the current packet's placement: the engine's own wherever the pair starts at or before it.
+        float speedDt = serverAxis
+            ? (origins.Next.Tick - Math.Min(origins.Prev.Tick, _serverTimed[_current])) * _interval
+            : originDt;
+
+        (float X, float Y, float Z) from = origins.Prev.View.Origin;
+        (float X, float Y, float Z) to = origins.Next.View.Origin;
 
         float originSpeed = 0f;
         float angularSpeed = 0f;
 
-        if (dt > 0f)
+        if (speedDt > 0f)
         {
             (float X, float Y, float Z) now = current.Origin;
             float dx = to.X - now.X;
             float dy = to.Y - now.Y;
             float dz = to.Z - now.Z;
 
-            originSpeed = MathF.Sqrt((dy * dy) + (dx * dx) + (dz * dz)) * inverse;
-            angularSpeed = AngularSpeed(prev.View.LocalAngles, next.View.LocalAngles, 1d / dt);
+            originSpeed = MathF.Sqrt((dy * dy) + (dx * dx) + (dz * dz)) * (1f / speedDt);
+        }
+
+        if (angleDt > 0f)
+        {
+            angularSpeed = AngularSpeed(angles.Prev.View.LocalAngles, angles.Next.View.LocalAngles, 1d / angleDt);
         }
 
         if (originSpeed > conVars.InterpLimit || angularSpeed > conVars.AvelLimit || _resetInterpolation)
@@ -339,9 +668,23 @@ public sealed class DemoPlayer
         }
 
         return Viewpoint(
-            (((to.X - from.X) * fraction) + from.X, ((to.Y - from.Y) * fraction) + from.Y, ((to.Z - from.Z) * fraction) + from.Z),
-            ScenePropTrack.SlerpAngles(prev.View.Angles, next.View.Angles, fraction),
-            ScenePropTrack.SlerpAngles(prev.View.LocalAngles, next.View.LocalAngles, fraction));
+            (((to.X - from.X) * originFraction) + from.X, ((to.Y - from.Y) * originFraction) + from.Y, ((to.Z - from.Z) * originFraction) + from.Z),
+            ScenePropTrack.SlerpAngles(angles.Prev.View.Angles, angles.Next.View.Angles, angleFraction),
+            ScenePropTrack.SlerpAngles(angles.Prev.View.LocalAngles, angles.Next.View.LocalAngles, angleFraction));
+    }
+
+    /// <summary>The pair's interval in seconds and the clamped fraction of it the target has run (<c>0x180072440..0x18007248a</c>).</summary>
+    private (float Dt, float Fraction) Fraction(int prev, int next, int target, float hostRemainder)
+    {
+        float dt = (next - prev) * _interval;
+        float inverse = 1f / dt;
+        float fraction = (((target - prev) * _interval) + hostRemainder) * inverse;
+
+        // MAXSS then MINSS (0x180072469, 0x18007248a): a NaN takes the source operand, zero.
+        fraction = fraction > 0f ? fraction : 0f;
+        fraction = fraction < 1f ? fraction : 1f;
+
+        return (dt, fraction);
     }
 
     /// <summary>The largest local-angle turn rate over the three axes (<c>0x180072573..0x1800725ba</c>).</summary>
@@ -370,41 +713,65 @@ public sealed class DemoPlayer
     /// <remarks>
     /// **Both start as <see cref="RecordedView.Reset"/> copies of the current view at tick -1**, which is what a search
     /// that finds nothing leaves them: the current view's originals, with a zero interval.
+    ///
+    /// **On either axis**: <paramref name="ticks"/> is <see cref="_stamped"/>, the engine's, or <see cref="_serverTimed"/>
+    /// for <c>demo_retimeview</c>'s origin (D238). <c>Cut</c> says the cut branch answered.
     /// </remarks>
-    private ((int Tick, RecordedView View) Prev, (int Tick, RecordedView View) Next) Pair(RecordedView current, int target)
+    private QueuedPair Pair(RecordedView current, int target, int[] ticks)
     {
         (int, RecordedView) none = (-1, current.Reset());
 
         if (_packets.Count < 2)
         {
-            return (none, none);
+            return new(none, none, false, -1, -1);
         }
 
         int cut = -1;
 
         for (int index = 0; index + 1 < _packets.Count; index++)
         {
-            DemoViewCommand a = _commands[_packets[index]];
-            DemoViewCommand b = _commands[_packets[index + 1]];
+            int a = _packets[index];
+            int b = _packets[index + 1];
 
-            if (a.Tick <= target && target < b.Tick)
+            if (ticks[a] <= target && target < ticks[b])
             {
                 return cut < 0
-                    ? ((a.Tick, a.View), (b.Tick, b.View))
-                    : (Queued(cut), Queued(cut + 1));
+                    ? new((ticks[a], _commands[a].View), (ticks[b], _commands[b].View), false, index, index + 1)
+                    : new(Queued(cut, ticks), Queued(cut + 1, ticks), true, cut, cut + 1);
             }
 
-            if (cut < 0 && _lastInterpolatedTick < b.Tick && b.Tick <= target && b.View.IsCut)
+            if (cut < 0 && _lastInterpolatedTick < ticks[b] && ticks[b] <= target && _commands[b].View.IsCut)
             {
                 cut = index;
             }
         }
 
-        return (none, none);
+        return new(none, none, false, -1, -1);
     }
 
-    private (int Tick, RecordedView View) Queued(int position) =>
-        (_commands[_packets[position]].Tick, _commands[_packets[position]].View);
+    /// <summary>A pair from <see cref="Pair"/>: its two ends, whether the cut branch answered, and the ends' places in the queue (-1 for none).</summary>
+    private readonly record struct QueuedPair(
+        (int Tick, RecordedView View) Prev, (int Tick, RecordedView View) Next, bool Cut, int PrevAt, int NextAt);
+
+    /// <summary>Whether a queued <c>FDEMO_NOINTERP</c> packet lies anywhere from the first to the last end of two pairs.</summary>
+    private bool CutAmong(QueuedPair one, QueuedPair other)
+    {
+        int from = Math.Min(one.PrevAt, other.PrevAt);
+        int to = Math.Max(one.NextAt, other.NextAt);
+
+        for (int position = Math.Max(0, from); position <= to; position++)
+        {
+            if (_commands[_packets[position]].View.IsCut)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private (int Tick, RecordedView View) Queued(int position, int[] ticks) =>
+        (ticks[_packets[position]], _commands[_packets[position]].View);
 
     /// <summary>Reads every command due by a playback tick, as <c>CL_ReadPackets</c> calls <c>ReadPacket</c>.</summary>
     /// <remarks>

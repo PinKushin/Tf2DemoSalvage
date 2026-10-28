@@ -11153,3 +11153,103 @@ releases and beta.54 is Latest; publishing now means `gh release edit <tag> --dr
 until the draft is created without the flag (memory `the-lead-publishes-releases.md`). The Discord post for beta.54 had
 already gone out labelled "prerelease" and stays; the workflow labels a post by the flag, so later posts read "release".
 
+## D238 — the first-person origin is retimed by the server's tick, above Valve, on by default as `demo_retimeview 1` (2026-10-27)
+
+**The owner, 2026-10-27**, on finding 106 (a POV demo whose camera stutters in TF2's own playback, because each
+`dem_packet` is stamped with the client's arrival time): *"we would fix it above valve, the information seems to be
+there, just need to be properly spread out"*. So this is an addition above the engine
+(`docs/memory/an-addition-above-valve-is-allowed.md`), not a parity fix.
+
+**What Valve does, and what we depart from.** `CDemoRecorder::GetRecordingTick` (`engine.dll` `0x180071f80`) stamps a
+multiplayer recording's packets with `TIME_TO_TICKS( net_time ) - m_nStartTick`, the client's wall clock when it wrote
+the packet. `CDemoPlayer::InterpolateViewpoint` (`0x180072180`) pairs the recorded views on that stamp, so network
+jitter (two packets in one tick, none in the next) becomes uneven camera speed. Every packet also carries the server's
+own tick (`net_Tick`), and the recorded origins follow it. With `demo_retimeview 1` the ORIGIN alone is paired on that
+server tick instead, placed on the stamp's axis by the delay most packets arrive with over the 333 packets either side
+(`DemoPlayer.ServerTimed`; about 5 s at 65 packets a second). The view angles stay on the stamp, because the recorder
+writes them from `cl.viewangles`, the client's clock. Reading, the parse-ahead, the rewind and the snaps' current view are
+unchanged. The origin takes the engine's pair whenever any queued `FDEMO_NOINTERP` packet lies between the outermost
+ends of its own pair and the engine's (a hold counts as a pair). That covers a cut placed one tick early, two or more
+ticks early, lifted above its stamp, or held past a gap, so the cut frames are the engine's.
+`DemoPlayerRetimeViewTests` covers each case against the engine. It took two reviews:
+- Before the Fable review of `4c4b247b`, a cut placed a tick early cut the origin a frame before the angles and then held
+  it.
+- The round-2 rule checked only the pair's two ends and its cut branch. The Opus review of `b7a8a751` found a cut two
+  ticks early, and a held cut, still getting through.
+
+**Two steps accepted as the price.**
+- **The hull's edges.** The frame a cut enters that span, and the frame both pairs clear it, the origin moves between the
+  server's blend and the engine's. That step is up to one tick of motion. It is the accepted cost of every cut frame being
+  the engine's. Its size on the three demos was not measured.
+- **The first frames on a packet placed after its stamp.** This happens at the start of playback, or on a seek that lands
+  on one. The target lies before every queued placement, so there is neither a pair nor anything to hold, and the origin
+  is the engine's blend. When the server's pair appears, the origin steps by up to one tick of motion.
+  `InterpolateViewpoint_FirstFramesOnAPacketPlacedAfterItsStamp_AreTheEnginesThenTheLine` asserts the exact values on
+  both sides of the hand-over, from the start and after a seek back onto it.
+
+**How to switch it off.** `demo_retimeview 0` in a config or at the console gives the engine's answer bit for bit
+(`DemoRecordingStampConformanceTests`). The name is ours (D79 rule 2); `cvarlist.log` has no such ConVar.
+
+**Where it falls back.** Wherever a packet carries no `net_Tick`, or its placement would be more than the parse-ahead's 8
+ticks from its stamp, the stamp is used: old demos and clock steps fall back to the engine.
+
+**A change of the usual delay that reverts within 333 packets is not taken** (rounds 4 and 5, measured). Each change
+moves every later placement by a tick, and rgl has two near-tied delays: their commonest traded the lead 252 times, 231
+of them back again within a window.
+- **Round 4** held the delay in force until a challenger led it by more than 33 packets. That cut the trades to 17, but a
+  real one-tick step was followed about 17 packets late (deduced from the margin), and a step in a run's last ~170
+  packets never.
+- **Round 5 replaces it.** A change is taken at the very packet the commonest delay changes, unless the delay in force
+  is the commonest again within the next 333 packets.
+  - A clean step is followed at its own packet; a test holds that.
+  - A noisy step, where the old delay is the commonest again now and then, is taken only after its last such return.
+    Chained returns have no limit, and a test holds the rule.
+  - rgl, measured: 14 changes, none back. Each change's lag behind the first commonest change toward it is 0 five times;
+    2, 4, 6 and 12 once each; and 249, 605, 2,801, 3,320 and 13,281 packets once each. Those last five are long
+    near-ties holding the delay they started with.
+- **A near-tie, and a run's tail** (round 6, decided). The window at a run's first packets looks forward only. In a
+  near-tie that lasts, the delay it picks is kept to the run's end, and that is intended: both delays are common there,
+  and holding one is what stops the trades. A change with less than 333 packets of the run ahead of it is held, because
+  nothing ahead can show it lasts. The price is that a real step in a run's last 333 packets is never taken; those packets
+  stay a tick off.
+
+**The repeat memo reads the ConVars on every call**, so a change made while paused applies at once. No cache was added.
+- **Measured, per call:** about 0.44 µs, a hot loop in Release over a stand-in for the settings and console lookups.
+- **Deduced, per frame:** one read more while playing and two while paused, from the two callers that ask each moment
+  (the camera, `SpectatorView.cs:66`, and the recorder's body, `IMomentSource.cs:257`). That is under 0.001 ms.
+
+**A SourceTV demo is not a fallback.** Its packets DO carry `net_Tick` and are placed. They land on the stamp only
+because SourceTV stamps with the server's own `host_tickcount`, a constant delay. On the 2013 foundry SourceTV specimen,
+measured with the probe, all 5,972 packets were placed exactly on their stamps. The demo also records no view, so
+`InterpolateViewpoint` answers null at every one of its 23,899 ticks with the setting on and off. The setting changes
+nothing there.
+
+**What it does not need to fix: the world.** Every other entity's origin is interpolated by its changetime, the
+entity's own `m_flSimulationTime` (`ScenePropTrack._appliedAt`, B273), not by its packet's stamp. In this port that
+changetime reaches the stamp axis through the packet, as a server-axis lag applied to the demo tick. So whether the
+world carries the jitter was measured rather than assumed, with the probe's world-pacing section on the subject.
+- **Method.** Every other player's drawn origin from `DemoTimeline.PlayerAt` is put through ONE loop, frame cap and
+  classification, alongside both cameras.
+- **Excluded.** Dead or undrawn frames, and frames faster than `demo_interplimit`, end a segment, so a respawn is not
+  measured.
+- **Result.** Mean speed over the local median, after a lone stamp, a shared stamp, a step of 2 and a shared step of 2:
+
+  | series | lone | shared | step 2 | step 2, shared |
+  |---|---|---|---|---|
+  | camera, setting off (the positive control) | 1.11 | 2.66 | 0.78 | 1.83 |
+  | camera, setting on | 1.01 | 1.00 | 1.02 | 1.01 |
+  | the other players | 1.06 | 1.10 | 1.10 | 1.13 |
+
+  The medians are 1.000 in every class of the camera with the setting on and of the players. For the camera with the
+  setting off they are 1.990 after a shared stamp and 0.714 at step 2.
+- **Verdict.** The camera's pattern is absent from the world. A residual 3–6% rise on shared stamps is unexplained. rgl
+  is in the measurement file.
+
+Each player still paces unevenly on his own (CV 0.46–0.68 once deaths and teleports are excluded), which is not examined
+here. The recorder's body follows the view it is placed from, so it moves with the camera.
+
+**The open question, as the owner's rule asks.** Why does Valve not do this? *Interpolated:* nobody needed it. The
+SourceTV recorder stamps with the server's own `host_tickcount` (`0x18019baa0`), and the single-player branch uses a
+tick counter, so only a POV recording over a jittery connection shows the stutter. The measured
+result, and what it does not fix, is `docs/measurements/2026-10-27-retime-view-by-server-tick.md`.
+

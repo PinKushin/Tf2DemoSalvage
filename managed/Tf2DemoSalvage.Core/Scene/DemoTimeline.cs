@@ -3478,6 +3478,20 @@ public sealed class DemoTimeline
         reportEvery = Math.Max(1, commands.Count / ProgressReports);
         }
 
+        /// <summary>The last <c>net_Tick</c> among a packet's messages, or null when it carries none.</summary>
+        private static int? LastServerTick(IReadOnlyList<INetMessage> messages)
+        {
+            for (int index = messages.Count - 1; index >= 0; index--)
+            {
+                if (messages[index] is NetTickMessage tick)
+                {
+                    return tick.Tick;
+                }
+            }
+
+            return null;
+        }
+
         /// <summary>Walks commands, continuing from wherever the pass stands.</summary>
         /// <param name="batch">The next commands of the demo, in order.</param>
         public void Run(IEnumerable<DemoCommand> batch)
@@ -3516,18 +3530,6 @@ public sealed class DemoTimeline
                 continue;
             }
 
-            // **The recorder's own camera, kept while the file is already open.** A viewer asking
-            // for it per frame cannot re-walk a 39 MB demo, and this loop is the only pass over
-            // the commands there is. Every packet, zeroed ones included: the demo player's current
-            // view is the last packet read, and a zeroed one is the engine's "set nothing".
-            if (!block)
-            {
-                viewCommands.Add(new DemoViewCommand(
-                    command.Type,
-                    command.Tick,
-                    command.Prologue.Length >= RecordedView.SizeBytes ? RecordedView.Parse(command.Prologue.Span) : default));
-            }
-
             bool moved = false;
 
             // The events due on frames between the last packet and this one, against the last packet (B437).
@@ -3551,6 +3553,21 @@ public sealed class DemoTimeline
                 : [.. NetMessageReader.Read(command.Payload.Span, state).Messages];
 
             messageTicks += Stopwatch.GetTimestamp() - readFrom;
+
+            // **The recorder's own camera, kept while the file is already open.** A viewer asking
+            // for it per frame cannot re-walk a 39 MB demo, and this loop is the only pass over
+            // the commands there is. Every packet, zeroed ones included: the demo player's current
+            // view is the last packet read, and a zeroed one is the engine's "set nothing". After
+            // the decode, so it carries the packet's last `net_Tick` — the server's clock, which
+            // `demo_retimeview` places the recorded origin on (finding 106, D238).
+            if (!block)
+            {
+                viewCommands.Add(new DemoViewCommand(
+                    command.Type,
+                    command.Tick,
+                    command.Prologue.Length >= RecordedView.SizeBytes ? RecordedView.Parse(command.Prologue.Span) : default,
+                    LastServerTick(messages)));
+            }
 
             foreach (INetMessage message in messages)
             {

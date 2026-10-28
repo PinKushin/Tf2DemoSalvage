@@ -25,6 +25,8 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="Tf2DemoSalvage.Presentation.Tests" />
+    <!-- The probe times one read of the demo_* ConVars (D238, viewconvarcost). -->
+    <InternalsVisibleTo Include="Tf2DemoSalvage.Probe" />
   </ItemGroup>
 
   <ItemGroup>
