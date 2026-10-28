@@ -790,3 +790,101 @@ and the medic test that every moving slot falls inside the range. Each was sabot
 - frame: within its spread.
 
 The risk that `UpdateSubresource` would copy twice on a buffer the GPU still reads did not show: time fell with bytes.
+
+## (14) Follow-up, 2026-10-28: rung 3, step 1 — the pose writes its own half, and the wait moves after it
+
+**The motive** (measurements/2026-10-28-pvs-node-prune.md): after the PVS prune the cull got 0.30 ms cheaper, and all of
+it became `camera wait` (0.25 → 0.55-0.57 ms, measurements/2026-10-28-pvs-node-prune.md). The game thread reached the
+pose's entry with about a third of the render thread's draw left (arithmetic, measurements/2026-10-28-pvs-node-prune.md).
+
+**The engine** (finding 99 §2-3, *binary*): `EndFrame` waits for the previous frame's job, flips its context index
+(`0x2f00`) and hands the context just recorded to `MatQueue`; the game thread records the next frame into the OTHER
+context. Each context owns its own memory stack, and per-frame render data lives there: *"Renderdata goes out of scope
+at frame end in multicore"* (`imaterialsystem.h:1623-1626`, `LockRenderData`). The client double-buffers its own data the
+same way: `CMemoryStack m_QueuedRopeMemory[2]`, swapped by `SwitchStack` (`c_rope.cpp:178-206`). So the game thread
+never writes what the frame in flight reads; it writes the other copy.
+
+**What the pose writes that the draw reads by reference** (*read from our code*): the world, undrawn and viewmodel
+instance lists (`MomentScene`), each list's matrix pool (`InstanceMatrices`, keyed per list), each entity's skinning
+matrices (`EntityModelSet.Skinning`) and face stream (`FlexFor`'s `_lastFace`). Everything else in a `ModelInstance` is a
+value (the light cube, the sun, the cloak bind), a fresh array (local lights, baked colours), or immutable after load
+(skin swaps, body parts, resting faces).
+
+**Built** (`perf/double-buffer-pose`, `815bd95f`): each of those is kept twice over. `PoseHalves` picks the half a pose
+writes, and **it moves only when a hand-off happened since the last pose**, counted by `Device3D.HandOffs` at `HandOff`.
+Two simpler rules each fail one case:
+
+- *a toggle per pose*: a seek's replays pose several times between hand-offs, and the second would land on the half in
+  flight;
+- *the hand-off count's parity*: a paused viewer hands one posed list several times, and an even count would put the
+  next pose on the half being drawn.
+
+`PoseHalvesConformanceTests` holds both cases.
+
+The wait (`FinishDrawBeforePose` → `FinishDrawBeforeEffects`) now comes after the pose and before the particles, decals and
+lightmaps, which still hand the device what the draw reads in place. The queue verifier hashes the light cube and local
+lights by value now; `TF2VIEW_FRAME_HASH` does not, so earlier hash records stay comparable.
+
+**Verified:**
+
+- *Verifier*, mode 2, f12: 773,000 frames checked (20 s), then 746,000 (40 s, rebuilt after the sabotage), **0 changed**.
+- *Sabotage*: `PoseHalves` never moving. The verifier logged the pose part changed at 30001 and 30004, and the viewer died
+  with `Collection was modified` in the render thread's hash. Restored with the inverse edit.
+- *Pixels*: 0 world pixels differ, A/B and A/A, in the empty view and in first person.
+- *Gate*: phase 1 green.
+- *Phase 2, NOT green*: one UI test hung at the first world frame of a z1800 load
+  (`PausedSoundUiTests.Footsteps_HeardWhilePlaying_StopWhenTheDemoIsPaused`). The overlap is the suspect. Since then:
+  - 5 more full suites on the branch were green, the last with the stall report below in, so the branch is 1 hang in 6
+    suites;
+  - 35 isolated or harness-exact scripted runs passed, beside a second viewer;
+  - the baseline passed 15 of 15 in isolation. That does not discriminate, because the branch passes in isolation too.
+
+  No stack was captured: the watchdog's `dotnet-trace` instrument reads stacks, proved on the idle shared viewer, but
+  nothing hung while it was armed. The cause is unknown, and no fix was made without a red-first reproduction. The next
+  occurrence logs `queue stall: <caller> … last finished pass <RenderPass>` (`QueuedRenderThread.Stalled`, 5 s).
+
+  **The like-for-like control:** 6 full suites on the baseline (`7946c74d`) against 6 on the branch, alternating, plus
+  a replacement for a run the owner's hands touched. **0 hangs on either side**, so the branch stands at 1 hang in 12
+  suites and the baseline at 0 in 6. At that count the two cannot be told apart.
+
+  Both of the owner's hypotheses were checked:
+  - *the test does not wait for the load*: it failed on its 300 s load wait, with the viewer already silent;
+  - *the load is longer now*: both builds load in 53-65 s, so no wait is within a factor of 3.
+
+  Full account: measurements/2026-10-28-double-buffer-pose.md, "Gate" and "Verdict on the hang".
+- *Review fixes* (two reviews; `6991bf4c`):
+  - the hand-off count is the scene's own source (`MomentScene.HandOffs`), never a defaulted argument;
+  - `SkinningOf` builds into its own buffers;
+  - tests were added that redden for a per-half face stream, for the undrawn and viewmodel lists, and for the stall
+    report held on its own gate. Each was sabotaged red.
+
+  A map change drains before clearing either half (`ClearMap` → `Queue.Lock()` → `Shutdown`).
+- *Final gate:* phase 2 green (84 total, 0 failed). Phase 1 aborted in rendering, on a native crash in D3D11 `Map` on
+  the offscreen screen-overlay path, which this branch does not touch. The crash did not recur in 10 isolated runs on
+  either build. It is filed apart from this work as B610 (measurements/2026-10-28-double-buffer-pose.md, "The gate,
+  once").
+- **Status: merge-ready, by the owner's decision (D239, 2026-10-28).** The hang is filed as a known flake, B609, which
+  reopens if a `queue stall` line ever appears or the branch's hang rate exceeds the baseline's. His reading, *"probably
+  just a slow load because tf2 was open"*, is neither confirmed nor refuted by the evidence.
+
+**Measured** (measurements/2026-10-28-double-buffer-pose.md, ABBA BAAB, quiet-gated, Release):
+
+- `camera wait`: 0.49-0.51 → 0.000-0.002 ms (measurements/2026-10-28-double-buffer-pose.md);
+- steady first-person frame: 6.85-6.93 → 6.31-6.46 ms, **−0.49 ms (7.2%)** (measurements/2026-10-28-double-buffer-pose.md);
+- whole window: −0.62 ms (measurements/2026-10-28-double-buffer-pose.md);
+- empty view: no difference, as predicted;
+- render thread and pose within +0.04 ms.
+
+**Left: still not the engine's shape, and on f12 no longer worth any time.** The engine waits at the hand-off. We wait
+after the pose because the effects and the HUD still write in place:
+
+- `SetParticles` locks and uploads sheets on the immediate context;
+- `ModelDecals`, `UploadShotDecals`, `UpdateLightmap` and `SetOcclusionProxies` all lock;
+- `ScreenOverlay`, `MonitorOnlyModels` and `DetailFovFactor` are setters that lock;
+- the VGUI list is reused.
+
+Moving the wait to the hand-off needs each one recorded and replayed at `Begin`, as step 2 did for the camera, or
+double-buffered. That also means `_particleSheets` stops being written by both threads. On f12 the wait there measures
+0.00 ms, because the pose (~3 ms) outlasts what is left of the draw. So the rest of rung 3 is parity of structure. It
+buys frame time only where the pose is shorter than the draw's remainder (the empty view: 0.55 ms pose against a
+0.32 ms draw, where neither build waits).

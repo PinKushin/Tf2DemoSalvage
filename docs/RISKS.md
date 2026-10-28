@@ -40160,6 +40160,72 @@ reddens four tests), and a child's drawn size against its own scale alone.
   `pl_badwater_pro_v12.bsp` is not on this machine (not under the game's `tf/maps`, `tf/download/maps`, `tf2ds`, or the
   user profile), so its `parentname` cannot be read, and no sampled tick gives them a parent.
 
+## B609 — `PausedSoundUiTests.Footsteps_HeardWhilePlaying_StopWhenTheDemoIsPaused` hung once in the UI suite — KNOWN FLAKE (2026-10-28)
+
+**Filed as a flake by the owner's decision (D239)**, on branch `perf/double-buffer-pose` (B581 rung 3 step 1). The
+measurements behind it are in `docs/measurements/2026-10-28-double-buffer-pose.md` ("Gate" and "Verdict on the hang").
+
+**What happened, once.** The suite's first run of the day, at 13:34, took 11 m 8 s against about 6 m for every later
+run.
+- The harness logged memory load 87% (3,987 of 32,632 MB free) before the test.
+- TF2 was left running on the desktop by an earlier agent. It also stayed running through every later, clean run.
+- The suite's shared z1800 viewer ran beside the test's own viewer.
+- The test timed out on its FIRST wait: 300 s on "opening state applied" (`PausedSoundUiTests.cs:65`).
+- Its viewer had stopped logging about 4 minutes before the timeout, at the first world frame (13:35:30). It wrote no
+  rate report after that, while the process stayed alive.
+
+**The counts.**
+
+| | branch | baseline `7946c74d` |
+|---|---|---|
+| full UI suites | **1 hang in 12** | **0 in 6** (A1-A4, A6, A7) |
+| other | 0 in 36 isolated or harness-exact scripted runs | 0 in 15 isolated runs |
+
+The baseline's six clean suites came from a like-for-like alternation with the branch. Beside them:
+- one more baseline suite was tainted by the owner's hands at a game-folder test. Footsteps passed in it, and it is not
+  counted;
+- one baseline suite failed a different test (a focus-dependent menu test).
+
+At one occurrence in 12, the branch and the baseline cannot be told apart. With a true rate of 1 in 12 on both, the
+baseline's 0 in 6 has about a 0.59 chance (*arithmetic*).
+
+**The owner's reading:** a slow load under load, *"probably just a slow load because tf2 was open or somethign"* (D239).
+**The evidence neither confirms nor refutes it.**
+- Against a timeout of a merely slow load: loads measure 53-65 s on both builds, against the 300 s bound, and a slow
+  load keeps writing its once-a-second rate report, which this one stopped doing.
+- For a stall under load: the one occurrence came under the heaviest memory load seen, on the slowest suite.
+- The hung run's viewer log was removed by log retention before anyone could search it whole.
+- No stack was captured. The watchdog's `dotnet-trace` route reads every thread's stack (proved on idle viewers), but
+  nothing hung while it was armed.
+
+**The instrument for next time:** `QueuedRenderThread.Stalled`. Any wait on the frame in flight past 5 s (`StallAfter`)
+logs once `queue stall: <caller> has waited 5 s on the frame in flight, whose last finished pass is <RenderPass>`.
+It is tested red-first. It names which thread waited and where the draw had got to.
+
+**Reopen if** the `queue stall` line ever appears in a viewer log, or if this test's hang rate on the branch, measured
+the same way, exceeds the baseline's.
+
+## B610 — a native access violation in D3D11 `Map` under the offscreen screen-overlay draw aborted the rendering tests once — OPEN (2026-10-28)
+
+**Seen once**, in phase 1 of the gate on branch `perf/double-buffer-pose` (`6991bf4c` plus records), 2026-10-28 18:13-18:27.
+- `Tf2DemoSalvage.Rendering.Tests` aborted with `0xC0000005` after 129 tests had passed.
+- The stack ran `Silk.NET.Direct3D11.ID3D11DeviceContext.Map` ← `WorldRenderer.DrawScreenOverlay` ←
+  `OffscreenTarget.DrawScreenOverlay` ← `CloakRenderTests.DrawScreenOverlay_JarateOverAUniformFrame_KeepsRedAndDarkensBlue`.
+
+**Not reproduced:**
+- `CloakRenderTests` (9 tests) run 5 times on the baseline `7946c74d` and 5 times on the branch passed 10 of 10;
+- the whole assembly passed (1272) in the same branch's 16:10 gate.
+
+The path is an offscreen target with its own device: no `Device3D`, no queue, no pose halves. The branch's diff does
+not touch it. TF2 was running on the desktop throughout.
+
+**Not established:** the cause. *Readings, unconfirmed:*
+- a `Map` on a buffer released or never created;
+- a driver fault under GPU contention.
+
+**Next:** run the class in a loop under the desktop lock with TF2 closed and open, and capture the `Map` call's resource
+and its `HRESULT` path.
+
 ## B608 — a font handle's validity was a scan of every handle, per character — FIXED (2026-10-27)
 
 **Evidence class: read from disassembly, and measured.** `CFontManager::GetCharABCwide` (vguimatsurface.dll
@@ -41215,9 +41281,10 @@ latency, which needs the owner's say. Design and plan in finding 98; first step 
 - Every public `Device3D` member takes the engine's `Lock`, a full drain. The drain also runs on seek replays, map changes,
   captures, teardown and leaving mode 2.
 
-**Still a divergence.** The game thread waits at the pose's entry inside `PlaceCamera` (rung 2, branch
-`feat/queued-render-thread-rung-2g`), not at the hand-off as `EndFrame` does. The gap, the shot stage, `Simulate` and the
-cull overlap the draw; the pose, particles and HUD do not (finding 98 §9).
+**Still a divergence.** The game thread waits after the pose inside `PlaceCamera` (rung 3 step 1, branch
+`perf/double-buffer-pose`, finding 98 §14), not at the hand-off as `EndFrame` does. The gap, the shot stage, `Simulate`,
+the cull and the pose overlap the draw; the particles, decals, lightmaps and HUD do not. On f12 that wait measures 0.00 ms
+(measurements/2026-10-28-double-buffer-pose.md; it was 0.49-0.51 ms at the pose's entry; frame −0.49 ms, measurements/2026-10-28-double-buffer-pose.md).
 
 **Measured** (`measurements/2026-10-23-queued-render-thread-rung-1.md`): on f12, 11.57-11.93 ms against 13.51-13.66 in mode
 0, a saving of 1.7-1.9 ms. A verifier run checked every played frame and found 0 of them with inputs changed while drawn.

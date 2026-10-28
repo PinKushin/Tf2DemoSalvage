@@ -315,6 +315,12 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         _context = context;
         _swapChain = swapChain;
         _views = new ViewHalves(ReplayUploads);
+
+        // **A wait that does not end says where the frame in flight stopped** (B581 rung 3, the phase-2 hang that would not
+        // reproduce): the caller, and the last pass `Passed` marked, logged once per wait from the waiting thread.
+        Queue.Stalled = (caller, stage) => _render.LogWarning(
+            "{Message}",
+            $"queue stall: {caller} has waited {Queue.StallAfter.TotalSeconds:0} s on the frame in flight, whose last finished pass is {(stage < 0 ? "none" : ((RenderPass)stage).ToString())} (render thread {Queue.RenderThreadId})");
     }
 
     /// <summary>Creates a device and swap chain bound to a window.</summary>
@@ -783,13 +789,16 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
     /// <returns>The half the draw reads.</returns>
     /// <remarks>**Drains first when no `SetCamera` flipped since the last hand-off** (finding 98 §9 step 5): the half is
     /// then the one last handed, which may still be drawing, and this writes its feeds. Free on every other frame, whose
-    /// pose already drained.</remarks>
+    /// effects already drained (<see cref="FinishDrawBeforeEffects"/>). Counted in <see cref="HandOffs"/>, which moves the
+    /// pose to its other half (B581 rung 3).</remarks>
     private ViewHalf HandOff()
     {
         if (_views.CullWasHanded)
         {
             Lock();
         }
+
+        HandOffs++;
 
         return _views.Hand(new DrawFeeds(
             _specular, _fullbright, _debug, _phong, _worldFog, _skyFog, MonitorCamera, Tonemap, ExposureSeconds,
@@ -1544,6 +1553,15 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         _context.OMSetDepthStencilState(_depthOn, 0);
     }
 
+    /// <summary>A pass of the draw has finished: told to the profiler, when one runs, and to the queue's stall report.</summary>
+    /// <param name="profile">The pass profiler, or null.</param>
+    /// <param name="pass">The pass just finished.</param>
+    private void Passed(PassProfiler? profile, RenderPass pass)
+    {
+        Queue.Stage = (int)pass;
+        profile?.Mark(_context, pass);
+    }
+
     /// <summary>Clears, draws the map and the players, and presents.</summary>
     /// <param name="red">Clear colour, red channel.</param>
     /// <param name="green">Clear colour, green channel.</param>
@@ -1608,7 +1626,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
             _context.ClearDepthStencilView(_depthView, (uint)ClearFlag.Depth, 1f, 0);
         }
 
-        profile?.Mark(_context, RenderPass.Clear);
+        Passed(profile, RenderPass.Clear);
 
         if (mapFill.Count > 0 || mapLines.Count > 0 || points.Count > 0 ||
             _world is { HasMap: true })
@@ -1637,7 +1655,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
                 // `SceneBegin` (`viewrender.cpp:2074-2081`), so `_rt_Camera` holds this frame's camera view when the
                 // monitor's material samples it below.
                 DrawMonitorPass(DrawEntities ? models ?? [] : [], viewport);
-                profile?.Mark(_context, RenderPass.Monitors);
+                Passed(profile, RenderPass.Monitors);
 
                 // **The 2D skybox first of everything**, because `MATERIAL_VAR_IGNOREZ` means it
                 // neither tests nor writes depth and only draw ORDER puts it behind the world
@@ -1658,7 +1676,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
                 }
 
                 _context.OMSetDepthStencilState(_depthOn, 0);
-                profile?.Mark(_context, RenderPass.Sky2D);
+                Passed(profile, RenderPass.Sky2D);
 
                 // **The map's detail models join the scene's list rather than getting a pass**
                 // (B363), because the engine puts them in the same one:
@@ -1728,7 +1746,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
                     ReapplyCamera(view);
                 }
 
-                profile?.Mark(_context, RenderPass.Sky3D);
+                Passed(profile, RenderPass.Sky3D);
 
                 // **The water views before the main one** (B62) — DrawWorldAndEntities' AddViewToScene order:
                 // the reflection and refraction render into their targets, then this view draws.
@@ -1753,9 +1771,9 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
                     _world.ViewDraws = view.SimpleViewDraws;
                 }
 
-                profile?.Mark(_context, RenderPass.WaterViews);
+                Passed(profile, RenderPass.WaterViews);
                 _world.Draw(_context);
-                profile?.Mark(_context, RenderPass.World);
+                Passed(profile, RenderPass.World);
 
                 // **The grass is NOT drawn here** but in the translucent pass below, leaf by leaf
                 // (B434): `RenderOpaqueDetailObjects` has an empty body (`detailobjectsystem.cpp:1954`).
@@ -1806,11 +1824,11 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
                     }
                 }
 
-                profile?.Mark(_context, RenderPass.OpaqueModels);
+                Passed(profile, RenderPass.OpaqueModels);
 
                 // Bullet holes on doors, after the doors (`R_DrawBrushModel`'s order).
                 _world.DrawEntityDecals(_context);
-                profile?.Mark(_context, RenderPass.EntityDecals);
+                Passed(profile, RenderPass.EntityDecals);
 
                 // **The translucent world, after every opaque renderable** — `DrawTranslucentRenderables`
                 // (`viewrender.cpp:4465`), not `DrawWorld`. A static prop behind glass was painted over it (B426).
@@ -1904,7 +1922,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
                 }
 
                 WorldRenderer.ResetBlend(_context);
-                profile?.Mark(_context, RenderPass.Translucent);
+                Passed(profile, RenderPass.Translucent);
 
                 // **The intersection view, after the main one** (viewrender.cpp:5958-5961): the water side of a near
                 // plane that crosses the surface, under the volume's height fog.
@@ -1914,7 +1932,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
                     ReapplyCamera(view);
                 }
 
-                profile?.Mark(_context, RenderPass.WaterIntersection);
+                Passed(profile, RenderPass.WaterIntersection);
 
                 // **"issue the pixel visibility tests"** (viewrender.cpp:1446-1450, B378): at the end of the main view,
                 // against its finished depth and before the viewmodels, which the engine draws after the view and which
@@ -1927,9 +1945,9 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
                     _context.OMSetDepthStencilState(_depthOn, 0);
                 }
 
-                profile?.Mark(_context, RenderPass.Occlusion);
+                Passed(profile, RenderPass.Occlusion);
                 DrawViewmodels(viewmodels, viewmodelCamera);
-                profile?.Mark(_context, RenderPass.Viewmodels);
+                Passed(profile, RenderPass.Viewmodels);
 
                 // **Particles last of the world, and the position is the whole safety argument**
                 // (B373). They are translucent, and `docs/findings/32-the-opaque-pass-blend-leak.md`
@@ -1951,7 +1969,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
                     DrawParticleBatches(particleCamera.Matrix);
                 }
 
-                profile?.Mark(_context, RenderPass.Particles);
+                Passed(profile, RenderPass.Particles);
 
                 // **`PerformScreenOverlay`, after the viewmodels and before the HUD** (viewrender.cpp:2177): the local
                 // player's overlay over the finished world.
@@ -1966,12 +1984,12 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
                 // the goal from it, then the material system's walk by this frame's game time.
                 // **Whether THIS frame was drawn settled, read before the walk moves the exposure on** (B243): the world
                 // above used `LinearLightScale`, which the walk below changes only for the next frame.
-                profile?.Mark(_context, RenderPass.Overlay);
+                Passed(profile, RenderPass.Overlay);
 
                 bool exposureSettled = !ExposureWalks || _exposure.Settled;
 
                 UpdateExposure();
-                profile?.Mark(_context, RenderPass.Exposure);
+                Passed(profile, RenderPass.Exposure);
 
                 float bloom = _bloomAmount.Next(
                     _world.Bloom, _world.HdrType, view.Feeds.Tonemap.UseBloom, view.Feeds.Tonemap.Bloom);
@@ -1984,7 +2002,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
                     DrawBloom(bloom);
                 }
 
-                profile?.Mark(_context, RenderPass.Bloom);
+                Passed(profile, RenderPass.Bloom);
 
                 // **The scale the HUD draws under is not the scene's** (viewrender.cpp:2211-2216): reset to 1 under integer
                 // HDR before the 2D section, so a HUD panel's model draws unexposed. The scene's is kept for the capture log.
@@ -2018,7 +2036,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
             _context.OMSetDepthStencilState(_depthOff, 0);
 
             _points.Draw(_device, _context, points);
-            profile?.Mark(_context, RenderPass.DebugLines);
+            Passed(profile, RenderPass.DebugLines);
         }
 
         // **The HUD is drawn OUTSIDE the block above, and that is deliberate.** Everything in there
@@ -2044,7 +2062,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
             WorldRenderer.ResetBlend(_context);
         }
 
-        profile?.Mark(_context, RenderPass.Hud);
+        Passed(profile, RenderPass.Hud);
 
         // **Synced to the display, which is also what paces the render loop.** The loop draws for
         // as long as Windows has nothing else for the thread, so without a sync interval it spins
@@ -2060,7 +2078,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         SilkMarshal.ThrowHResult(
             _swapChain.Present(SyncInterval: VerticalSync ? 1u : 0u, Flags: 0u));
 
-        profile?.Mark(_context, RenderPass.Present);
+        Passed(profile, RenderPass.Present);
         profile?.EndFrame(_context);
 
         if (_captureTo is { } file)
@@ -3327,9 +3345,9 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
     {
         StableHash pose = new();
 
-        AddInstances(ref pose, models);
-        AddInstances(ref pose, viewmodels);
-        AddInstances(ref pose, MonitorOnlyModels);
+        AddInstances(ref pose, models, lights: !FrameHash);
+        AddInstances(ref pose, viewmodels, lights: !FrameHash);
+        AddInstances(ref pose, MonitorOnlyModels, lights: !FrameHash);
         pose.Floats(viewmodelCamera);
 
         StableHash particles = new();
@@ -3417,7 +3435,11 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         ];
     }
 
-    private static void AddInstances(ref StableHash hash, IReadOnlyList<ModelInstance>? instances)
+    /// <param name="hash">The pose part.</param>
+    /// <param name="instances">A list the draw reads.</param>
+    /// <param name="lights">Whether to hash the light cube and the local lights by value: the verifier's only, so
+    /// `TF2VIEW_FRAME_HASH` values stay comparable with every run recorded before rung 3.</param>
+    private static void AddInstances(ref StableHash hash, IReadOnlyList<ModelInstance>? instances, bool lights)
     {
         if (instances is null)
         {
@@ -3448,12 +3470,47 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
                     hash.Floats(bone);
                 }
             }
+
+            // **The lights by value, not by count** (B581 rung 3): the pose now overlaps the draw, so a light list
+            // rewritten in place would be invisible to a count. Field by field, never a struct's raw bytes (StableHash).
+            if (!lights)
+            {
+                continue;
+            }
+
+            if (instance.Locals is { } locals)
+            {
+                foreach (LocalLight light in locals)
+                {
+                    hash.Value(light.X);
+                    hash.Value(light.Y);
+                    hash.Value(light.Z);
+                    hash.Value(light.Red);
+                    hash.Value(light.Green);
+                    hash.Value(light.Blue);
+                    hash.Value(light.Range);
+                }
+            }
+
+            if (instance.Light is { } cube)
+            {
+                foreach ((float red, float green, float blue) in (ReadOnlySpan<(float, float, float)>)[cube.PositiveX, cube.NegativeX, cube.PositiveY, cube.NegativeY, cube.PositiveZ, cube.NegativeZ])
+                {
+                    hash.Value(red);
+                    hash.Value(green);
+                    hash.Value(blue);
+                }
+            }
         }
     }
 
     /// <inheritdoc/>
     /// <remarks>Named in the wait ledger as itself, so its `queue wait` part is a column of its own.</remarks>
-    public void FinishDrawBeforePose() => Queue.FinishPreviousDraw(nameof(FinishDrawBeforePose));
+    public void FinishDrawBeforeEffects() => Queue.FinishPreviousDraw(nameof(FinishDrawBeforeEffects));
+
+    /// <inheritdoc/>
+    /// <remarks>Counted at <see cref="HandOff"/>, on the game thread, which is the only thread that reads it.</remarks>
+    public long HandOffs { get; private set; }
 
     /// <summary>Sets the view the world is drawn through, and the volume it culls against.</summary>
     /// <param name="camera">The camera the frame is seen through.</param>
@@ -3476,8 +3533,9 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         ArgumentNullException.ThrowIfNull(camera);
 
         // **No lock** (finding 98 §9 step 4): everything below writes the game thread's own half and fields; the draw
-        // installs that half's runs into the renderer when it begins. The wait is `FinishDrawBeforePose`, after this, so
-        // this cull runs while the previous frame draws (step 5): the flip below never lands on the half last handed.
+        // installs that half's runs into the renderer when it begins. The wait is `FinishDrawBeforeEffects`, after this and
+        // after the pose, so this cull runs while the previous frame draws (step 5): the flip below never lands on the half
+        // last handed.
 
         // **Timed here, where each part runs, and carried to the rate line** (B243): `camera setcamera` was one number
         // over the view setup, the constant upload, the world cull and the detail rebuild (finding 83).

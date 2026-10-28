@@ -42,6 +42,10 @@ public sealed partial class ViewerPresenter
         // Assigned here rather than at construction because the device does not exist until the
         // viewport has a handle.
         _moment.Upload = device;
+
+        // **From the moment it is attached**, not only from the first frame's pose (review of rung 3): a seek before that
+        // frame poses too, and must count this device's hand-offs.
+        _handingDevice = device;
     }
 
     /// <summary>The window is about to dispose the device: the scene uploads nowhere, and no frame call reaches it.</summary>
@@ -49,7 +53,12 @@ public sealed partial class ViewerPresenter
     {
         _moment.Upload = null;
         _device = null;
+        _handingDevice = null;
     }
+
+    /// <summary>The device whose hand-offs pick the pose half (B581 rung 3): the one attached, then the one the frame last
+    /// posed over; null before either.</summary>
+    private IViewerDevice? _handingDevice;
 
     /// <summary>Every camera upload's pieces so far, in stopwatch ticks, timed where they ran (B595).</summary>
     public CameraTotals CameraSpent { get; private set; }
@@ -103,10 +112,10 @@ public sealed partial class ViewerPresenter
         // player and the view models (cdll_client_int.cpp:2184) before `ParticleMgr()->Simulate` (`:2234`) reads
         // them. Stepped first, every followed point read the LAST frame's pose, and the first frame after a seek read
         // a viewmodel posed for no camera at all. `ProjectWorld`'s own call then finds the moment posed and returns.
-        // **The pose begins with the wait for the frame in flight**, timed on its own (B581 rung 2, finding 98 §9 step 5):
-        // `SetCamera` above wrote only its own view half, so it overlapped the draw; the pose rewrites what the draw reads.
-        long waitAt = Stopwatch.GetTimestamp();
-        long posingAt = PoseOver(device);
+        // **The pose ends with the wait for the frame in flight**, timed on its own (B581 rung 3, finding 98 §9): `SetCamera`
+        // above writes its own view half and the pose its own pose half, so both overlap the draw; the effects do not.
+        long posingAt = Stopwatch.GetTimestamp();
+        long waitAt = PoseOver(device);
 
         long particlesAt = Stopwatch.GetTimestamp();
 
@@ -119,8 +128,8 @@ public sealed partial class ViewerPresenter
         {
             parts.Add("camera view", deviceAt - viewAt);
             // `posingAt - deviceAt` also covers the six `device.*` feed writes before `SetCamera`, so it exceeds the seven parts' sum by microseconds.
-            parts.Add("camera setcamera", waitAt - deviceAt);
-            parts.Add("camera wait", posingAt - waitAt);
+            parts.Add("camera setcamera", posingAt - deviceAt);
+            parts.Add("camera wait", particlesAt - waitAt);
 
             // The device's own split of that, as it timed it (B243). Indexed, because a foreach over the interface
             // allocates an enumerator on every measured frame.
@@ -139,16 +148,16 @@ public sealed partial class ViewerPresenter
                 parts.Add(name, ticks);
             }
 
-            parts.Add("camera pose", particlesAt - posingAt);
+            parts.Add("camera pose", waitAt - posingAt);
             parts.Add("camera particles", particledAt - particlesAt);
         }
 
         // Running totals, so a stalled frame can be told its own share by differencing two frame boundaries (B595).
         CameraSpent = new CameraTotals(
             CameraSpent.View + (deviceAt - viewAt),
-            CameraSpent.SetCamera + (waitAt - deviceAt),
-            CameraSpent.Wait + (posingAt - waitAt),
-            CameraSpent.Pose + (particlesAt - posingAt),
+            CameraSpent.SetCamera + (posingAt - deviceAt),
+            CameraSpent.Wait + (particlesAt - waitAt),
+            CameraSpent.Pose + (waitAt - posingAt),
             CameraSpent.Particles + (particledAt - particlesAt));
 
         // **Each piece named, because the `camera` column alone held 102 and 410 ms stalls** on f12
@@ -186,23 +195,32 @@ public sealed partial class ViewerPresenter
     internal Action? Posed { get; set; }
 
     /// <summary><see cref="PoseNow"/> over a device a test can read.</summary>
-    /// <returns>The timestamp read when the wait for the frame in flight ended and the pose began, carried to the
-    /// `camera wait` and `camera pose` parts (B243).</returns>
-    /// <remarks>**The one wait before the pose, for both callers** (finding 98 §9 step 5): the camera stage, and
-    /// `ProjectWorld`'s pose on a frame whose camera upload returned early.</remarks>
+    /// <returns>The timestamp read when the pose ended and the wait for the frame in flight began, carried to the
+    /// `camera pose` and `camera wait` parts (B243).</returns>
+    /// <remarks>
+    /// **The pose, then the one wait, for both callers** (B581 rung 3, finding 98 §9): the camera stage, and
+    /// `ProjectWorld`'s pose on a frame whose camera upload returned early. The pose writes its own pose half
+    /// (`PoseHalves`: instance lists, their matrices, skinning, face streams), so it overlaps the frame in flight, as the
+    /// engine's game thread records frame N+1 into the other queued context while N plays (finding 99 §2). The effects
+    /// after it still hand the device what the draw reads in place, so the wait sits between the two.
+    /// </remarks>
     internal long PoseOver(IViewerDevice device)
     {
-        device.FinishDrawBeforePose();
-
         // `ThreadedBoneSetup` reads `cl_threaded_bone_setup` each frame (c_baseanimating.cpp:2779), before any bone is built.
         _models.ThreadedBoneSetup = _settings.ThreadedBoneSetup;
 
-        long posingAt = Stopwatch.GetTimestamp();
+        // **The device every pose counts hand-offs on**, the seek's and the replay's included (`MomentScene.HandOffs`):
+        // they pose without a device argument, and must still read this one's count.
+        _handingDevice = device;
 
         _moments.PoseNow(device.Frustum, device.Views, device.Eye, device.ScreenView, device.DrawsMonitor);
         Posed?.Invoke();
 
-        return posingAt;
+        long waitAt = Stopwatch.GetTimestamp();
+
+        device.FinishDrawBeforeEffects();
+
+        return waitAt;
     }
 
     /// <summary>Hands this frame's scene to the device.</summary>

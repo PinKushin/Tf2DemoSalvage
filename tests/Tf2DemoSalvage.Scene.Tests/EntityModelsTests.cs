@@ -364,6 +364,89 @@ public sealed class EntityModelsTests
         instances[0].Bones![0][11].ShouldBe(12f, 1e-3f);
     }
 
+    /// <remarks>
+    /// **The pose writes its own half and leaves the other standing** (B581 rung 3, <see cref="PoseHalvesConformanceTests"/>):
+    /// the frame in flight draws from the other half's skinning matrices while this one is posed.
+    /// </remarks>
+    [Test]
+    public void Instances_InTheOtherPoseHalf_LeavesTheFirstHalfsSkinningUntouched()
+    {
+        EntityModelSet models = new();
+        List<ModelInstance> drawn = [];
+        List<ModelInstance> posing = [];
+
+        models.Add([Prop("models/player/scout.mdl", x: 300f, entity: 5)], OneSkinnedBone);
+        models.PoseHalf = 0;
+        models.Instances([Prop("models/player/scout.mdl", x: 300f, entity: 5)], drawn, seconds: 0.25d);
+        float[] inFlight = drawn[0].Bones.ShouldNotBeNull()[0];
+
+        models.PoseHalf = 1;
+        models.Instances([Prop("models/player/scout.mdl", x: 900f, entity: 5)], posing, seconds: 0.5d);
+
+        inFlight[3].ShouldBe(300f, 1e-3f, "the half in flight was rewritten by the next pose");
+        posing[0].Bones.ShouldNotBeNull()[0][3].ShouldBe(900f, 1e-3f);
+    }
+
+    /// <remarks>
+    /// **A decal's query never writes what a draw was handed** (review of rung 3): `SkinningOf` runs between frames, when
+    /// the pose half last written is the one in flight, so it builds into buffers of its own. The values agree; the arrays
+    /// are not the drawn ones.
+    /// </remarks>
+    [Test]
+    public void SkinningOf_AfterThePose_BuildsIntoItsOwnBuffersNotTheDrawnOnes()
+    {
+        EntityModelSet models = new();
+        List<ModelInstance> drawn = [];
+
+        models.Add([Prop("models/player/scout.mdl", x: 300f, entity: 5)], OneSkinnedBone);
+        models.Instances([Prop("models/player/scout.mdl", x: 300f, entity: 5)], drawn, seconds: 0.25d);
+        IReadOnlyList<float[]> handed = drawn[0].Bones.ShouldNotBeNull();
+
+        IReadOnlyList<float[]> queried = models.SkinningOf(5).ShouldNotBeNull().Bones;
+
+        queried[0].ShouldNotBeSameAs(handed[0], "the query rewrote the drawn skinning matrix");
+        queried[0].ShouldBe(handed[0], "the control: the same bones, the same matrices");
+    }
+
+    /// <remarks>
+    /// **A level's query buffers go with the level**, as both pose halves' do (`LevelShutdown`): entity 5 on the next map is
+    /// another entity, and a buffer kept from the last one would be reused under it.
+    /// </remarks>
+    [Test]
+    public void SkinningOf_AfterALevelShutdown_BuildsIntoANewBuffer()
+    {
+        EntityModelSet models = new();
+        List<ModelInstance> drawn = [];
+
+        models.Add([Prop("models/player/scout.mdl", x: 300f, entity: 5)], OneSkinnedBone);
+        models.Instances([Prop("models/player/scout.mdl", x: 300f, entity: 5)], drawn, seconds: 0.25d);
+        float[] before = models.SkinningOf(5).ShouldNotBeNull().Bones[0];
+
+        models.LevelShutdown();
+        models.Add([Prop("models/player/scout.mdl", x: 300f, entity: 5)], OneSkinnedBone);
+        models.Instances([Prop("models/player/scout.mdl", x: 300f, entity: 5)], drawn, seconds: 0.25d);
+        float[] after = models.SkinningOf(5).ShouldNotBeNull().Bones[0];
+
+        after.ShouldNotBeSameAs(before, "the query's buffer outlived the level");
+    }
+
+    /// <remarks>The control: within one half, the skinning is rewritten in place, as before the halves (no allocation).</remarks>
+    [Test]
+    public void Instances_InTheSamePoseHalfNextFrame_RewritesItsSkinningInPlace()
+    {
+        EntityModelSet models = new();
+        List<ModelInstance> instances = [];
+
+        models.Add([Prop("models/player/scout.mdl", x: 300f, entity: 5)], OneSkinnedBone);
+        models.Instances([Prop("models/player/scout.mdl", x: 300f, entity: 5)], instances, seconds: 0.25d);
+        float[] first = instances[0].Bones.ShouldNotBeNull()[0];
+
+        models.Instances([Prop("models/player/scout.mdl", x: 900f, entity: 5)], instances, seconds: 0.5d);
+
+        instances[0].Bones.ShouldNotBeNull()[0].ShouldBeSameAs(first);
+        first[3].ShouldBe(900f, 1e-3f);
+    }
+
     [Test]
     public void Instances_AWeaponMergedOntoAPlayer_IsWhereThePlayerIsRatherThanAtTheOrigin()
     {

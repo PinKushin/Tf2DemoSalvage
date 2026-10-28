@@ -11253,3 +11253,26 @@ SourceTV recorder stamps with the server's own `host_tickcount` (`0x18019baa0`),
 tick counter, so only a POV recording over a jittery connection shows the stutter. The measured
 result, and what it does not fix, is `docs/measurements/2026-10-27-retime-view-by-server-tick.md`.
 
+## D239 — merge B581 rung 3 step 1 (the pose into its own half); the one UI-suite hang is filed as a flake, B609 (2026-10-28)
+
+**The owner, 2026-10-28**, on the branch `perf/double-buffer-pose` and its one phase-2 hang: *"merge it, file the hang
+as a flake, i think it was probably just a slow load because tf2 was open or somethign"*. The text is his, verbatim,
+with the typo kept.
+
+**The decision:** rung 3 step 1 merges.
+- What merges: the pose's outputs held per pose half (`PoseHalves`), and the wait for the frame in flight moved to
+  after the pose (`FinishDrawBeforeEffects`). It measured −0.49 ms (7.2%) of f12's steady first-person frame
+  (measurements/2026-10-28-double-buffer-pose.md).
+- `PausedSoundUiTests.Footsteps_HeardWhilePlaying_StopWhenTheDemoIsPaused` hung once. It is filed as a known flake,
+  B609, rather than holding the merge.
+
+**His reasoning is his own:** a slow load, with TF2 open on the same machine. **The evidence neither confirms nor
+refutes it.**
+- The one hang came on the day's first and slowest suite (11 m 8 s), at 87% memory load, with TF2 running.
+- But loads measured 53-65 s on both builds against the test's 300 s bound. The failed viewer stopped logging about
+  4 minutes before the timeout, where a merely slow load keeps writing its rate report each second.
+- The like-for-like control found 0 hangs in 6 clean baseline suites and 0 in 6 branch suites. That leaves the branch
+  at 1 in 12, which cannot be told apart from the baseline at that count.
+
+What would decide it next time, the `queue stall` report, and when B609 reopens, are in B609.
+

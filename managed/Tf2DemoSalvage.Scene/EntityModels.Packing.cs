@@ -82,7 +82,8 @@ public sealed partial class EntityModelSet
         _restingFace.Clear();
         _faces.Clear();
         _delays.Clear();
-        _lastFace.Clear();
+        _lastFace[0].Clear();
+        _lastFace[1].Clear();
         _swaps.Clear();
         _raw.Clear();
         _packedRebuilt.Clear();
@@ -99,7 +100,9 @@ public sealed partial class EntityModelSet
         _drawnPlacements.Clear();
         _parentPlacements.Clear();
         _propsByEntity.Clear();
-        _skinning.Clear();
+        _skinning[0].Clear();
+        _skinning[1].Clear();
+        _queriedSkinning.Clear();
         _inView.Clear();
         _eventStates.Clear();
         _clientCycles.Clear();

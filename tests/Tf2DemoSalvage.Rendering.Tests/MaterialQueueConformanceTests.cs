@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Threading;
 
 namespace Tf2DemoSalvage.Rendering.Tests;
@@ -155,6 +156,74 @@ public sealed class MaterialQueueConformanceTests
 
         waited.ShouldBe("CaptureNextFrame");
         queue.TakeWaits().ShouldContain(wait => wait.Caller == "CaptureNextFrame" && wait.Ticks >= 0);
+    }
+
+    /// <remarks>
+    /// **An instrument, for a hang that would not reproduce** (B581 rung 3; measurements/2026-10-28-double-buffer-pose.md,
+    /// "Gate"): a wait past <see cref="QueuedRenderThread.StallAfter"/> reports, once, who waited and the last pass the
+    /// frame in flight finished, then keeps waiting. Behaviour is unchanged: the wait still ends only when the frame does.
+    /// The frame is held on its own gate, which only the test opens: the report must arrive while it is held, the wait must
+    /// still be running after the report, and it must end once the frame is let go. No step depends on a timing race.
+    /// </remarks>
+    [Test]
+    public void Lock_PastTheStallBound_ReportsOnceTheCallerAndTheFramesLastPassAndKeepsWaiting()
+    {
+        using QueuedRenderThread queue = new() { Mode = MaterialThreadMode.QueuedThreaded, StallAfter = TimeSpan.FromMilliseconds(200) };
+        using ManualResetEventSlim release = new();
+        using ManualResetEventSlim staged = new();
+        using ManualResetEventSlim reported = new();
+        List<(string Caller, int Stage)> stalls = [];
+
+        queue.Stalled = (caller, stage) =>
+        {
+            stalls.Add((caller, stage));
+            reported.Set();
+        };
+        queue.Submit(() =>
+        {
+            queue.Stage = 7;
+            staged.Set();
+            release.Wait();
+        });
+
+        try
+        {
+            // The frame has reached its stage before the wait begins, so the report's stage is not a race.
+            staged.Wait(TimeSpan.FromSeconds(10)).ShouldBeTrue();
+
+            System.Threading.Tasks.Task locking = System.Threading.Tasks.Task.Run(() => queue.Lock("FinishDrawBeforeEffects"));
+
+            reported.Wait(TimeSpan.FromSeconds(10)).ShouldBeTrue("nothing reported the stall");
+            locking.Wait(TimeSpan.FromMilliseconds(100)).ShouldBeFalse("the report ended the wait while the frame was still held");
+
+            release.Set();
+
+            locking.Wait(TimeSpan.FromSeconds(10)).ShouldBeTrue("the wait did not end when the frame did");
+            queue.InFlight.ShouldBeFalse("the wait returned with the frame still in flight");
+            stalls.ShouldBe([("FinishDrawBeforeEffects", 7)]);
+        }
+        finally
+        {
+            // Opened whatever failed, so the queue's Dispose (a drain) cannot hang the run.
+            release.Set();
+        }
+    }
+
+    /// <remarks>The control: a wait shorter than the bound reports nothing.</remarks>
+    [Test]
+    public void Lock_WithinTheStallBound_ReportsNothing()
+    {
+        using QueuedRenderThread queue = new() { Mode = MaterialThreadMode.QueuedThreaded, StallAfter = TimeSpan.FromMinutes(1) };
+        using ManualResetEventSlim gate = new();
+        int stalls = 0;
+
+        queue.Stalled = (_, _) => stalls++;
+        queue.Waiting = _ => gate.Set();
+        queue.Submit(gate.Wait);
+
+        queue.Lock("FinishDrawBeforeEffects");
+
+        stalls.ShouldBe(0);
     }
 
     /// <remarks>Bounded, so a broken guard FAILS rather than hanging the run: the inner `Lock` would wait on its own

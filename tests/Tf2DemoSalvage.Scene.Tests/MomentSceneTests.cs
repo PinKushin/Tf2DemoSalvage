@@ -200,6 +200,116 @@ public sealed class MomentSceneTests
     }
 
     /// <remarks>
+    /// **A pose after a hand-off writes the other half's lists** (B581 rung 3, <see cref="PoseHalvesConformanceTests"/>):
+    /// the frame handed keeps its instance list, and the matrices in it, while the next frame is posed.
+    /// </remarks>
+    [Test]
+    public void Pose_AfterAHandOff_WritesTheOtherListAndLeavesTheHandedOneStanding()
+    {
+        MomentScene scene = Posable();
+        long handOffs = 0;
+        scene.HandOffs = () => handOffs;
+        MomentInfo info = Info();
+
+        scene.Build([], [Prop("models/props/crate.mdl", entity: 5) with { Pose = new ScenePose { X = 10f } }], info);
+        scene.Pose(info);
+        IReadOnlyList<ModelInstance> handed = scene.Instances;
+        float x = handed[0].Matrix[12];
+
+        handOffs = 1;
+        scene.Build([], [Prop("models/props/crate.mdl", entity: 5) with { Pose = new ScenePose { X = 70f } }], info);
+        scene.Pose(info);
+
+        scene.Instances.ShouldNotBeSameAs(handed);
+        handed.Count.ShouldBe(1, "the handed list was cleared by the next pose");
+        handed[0].Matrix[12].ShouldBe(x, "the handed matrix was rewritten by the next pose");
+        scene.Instances[0].Matrix[12].ShouldBe(70f, 1e-4f);
+    }
+
+    /// <remarks>The undrawn list, which a monitor draws, keeps its half the same way (B581 rung 3, B511).</remarks>
+    [Test]
+    public void Pose_AfterAHandOff_WritesTheOtherUndrawnListAndLeavesTheHandedOneStanding()
+    {
+        MomentScene scene = Posable();
+        long handOffs = 0;
+        scene.HandOffs = () => handOffs;
+        MomentInfo info = Info() with { FirstPerson = true, Followed = 3, EyeCamera = Eye() };
+
+        // Entity 3 is the followed one, so the undrawn pass poses him; 5 is drawn, so the world pass loads the model.
+        scene.Build(
+            [],
+            [Prop("models/props/crate.mdl", entity: 3) with { Pose = new ScenePose { X = 10f } }, Prop("models/props/crate.mdl", entity: 5)],
+            info);
+        scene.Pose(info, monitor: true);
+        IReadOnlyList<ModelInstance> handed = scene.UndrawnInstances;
+        handed.Count.ShouldBe(1, "the control: the undrawn pass posed the followed player");
+        float x = handed[0].Matrix[12];
+
+        handOffs = 1;
+        scene.Build(
+            [],
+            [Prop("models/props/crate.mdl", entity: 3) with { Pose = new ScenePose { X = 70f } }, Prop("models/props/crate.mdl", entity: 5)],
+            info);
+        scene.Pose(info, monitor: true);
+
+        scene.UndrawnInstances.ShouldNotBeSameAs(handed);
+        handed[0].Matrix[12].ShouldBe(x, "the handed undrawn matrix was rewritten by the next pose");
+        scene.UndrawnInstances[0].Matrix[12].ShouldBe(70f, 1e-4f);
+    }
+
+    /// <remarks>The viewmodel list keeps its half the same way (B581 rung 3).</remarks>
+    [Test]
+    public void Pose_AfterAHandOff_WritesTheOtherViewmodelListAndLeavesTheHandedOneStanding()
+    {
+        MomentScene scene = Posable();
+        long handOffs = 0;
+        scene.HandOffs = () => handOffs;
+        scene.Weapons = new WeaponModels(_ => System.Text.Encoding.UTF8.GetBytes(WeaponSchema), new RecordingLogger());
+        scene.Viewmodels = new FakeViewmodels
+        {
+            MainHand = new SceneViewmodel(
+                "models/weapons/c_models/c_soldier_arms.mdl", Sequence: 0, PlaybackRate: 1f, OwnerEntityIndex: 3, Slot: SceneViewmodel.MainHand),
+        };
+        MomentInfo info = Info() with { FirstPerson = true, Followed = 3, EyeCamera = Eye(), DrawViewmodel = true };
+
+        scene.Build([Soldier(entity: 3) with { WeaponItem = 205 }], [], info);
+        scene.Pose(info);
+        IReadOnlyList<ModelInstance> handed = scene.ViewmodelInstances;
+        handed.Count.ShouldBe(2, "the control: arms and weapon were posed");
+
+        // The next frame holds the arms alone, so a pose into the handed list would leave it with one.
+        handOffs = 1;
+        scene.Viewmodels = new FakeViewmodels
+        {
+            MainHand = new SceneViewmodel(
+                "models/weapons/c_models/c_soldier_arms.mdl", Sequence: 0, PlaybackRate: 1f, OwnerEntityIndex: 3, Slot: SceneViewmodel.MainHand),
+        };
+        scene.Build([Soldier(entity: 3)], [], info);
+        scene.Pose(info);
+
+        scene.ViewmodelInstances.Count.ShouldBe(1, "the control: this frame's pose holds the arms alone");
+        scene.ViewmodelInstances.ShouldNotBeSameAs(handed);
+        handed.Count.ShouldBe(2, "the handed viewmodel list was rewritten by the next pose");
+    }
+
+    /// <remarks>The control: with no hand-off between, a second pose rebuilds the same list (a seek's replays).</remarks>
+    [Test]
+    public void Pose_TwiceWithNoHandOffBetween_RebuildsTheSameList()
+    {
+        MomentScene scene = Posable();
+        scene.HandOffs = () => 3;
+        MomentInfo info = Info();
+
+        scene.Build([], [Prop("models/props/crate.mdl", entity: 5)], info);
+        scene.Pose(info);
+        IReadOnlyList<ModelInstance> first = scene.Instances;
+
+        scene.Pose(info);
+
+        scene.Instances.ShouldBeSameAs(first);
+    }
+
+    /// <remarks>
     /// **A monitor's draw of the followed player is an ordinary model draw**, so it lights through the light cache with
     /// flags `0xf` (`0x1800f1bd0` → `LightcacheGet` `0x1801b9cd0`), dynamic lights included (`0x1801b7a10`), exactly as
     /// the world pass does — not through the uncached point lookup. The recorder's fireball beside him is the probe.

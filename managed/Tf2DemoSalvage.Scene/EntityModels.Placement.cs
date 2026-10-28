@@ -221,7 +221,15 @@ public sealed partial class EntityModelSet
     /// Keeping it out of the pose path is what leaves one array per entity with nothing to choose
     /// wrongly between.
     /// </remarks>
-    private float[][] Skinning(int entity, IReadOnlyList<StudioBone> bones, BoneAccessor accessor)
+    private float[][] Skinning(int entity, IReadOnlyList<StudioBone> bones, BoneAccessor accessor) =>
+        Skinning(entity, bones, accessor, _skinning[PoseHalf]);
+
+    /// <summary><see cref="Skinning(int, IReadOnlyList{StudioBone}, BoneAccessor)"/> into a given set of buffers.</summary>
+    /// <param name="entity">The entity.</param>
+    /// <param name="bones">The model's bones.</param>
+    /// <param name="accessor">The entity's built bones.</param>
+    /// <param name="skinning">The buffers: a pose half's, which the draw reads, or the queries' own.</param>
+    private static float[][] Skinning(int entity, IReadOnlyList<StudioBone> bones, BoneAccessor accessor, Dictionary<int, float[][]> skinning)
     {
         // **Reused per entity, because this ran once per bone per drawn prop per FRAME.** At around
         // 250 props of eighty bones that is twenty thousand twelve-float arrays every frame, and
@@ -235,7 +243,9 @@ public sealed partial class EntityModelSet
         // Safe to reuse because an instance list is consumed within the frame that built it, and
         // the viewmodel's entities carry their own indices (4096-4098) so they cannot collide with
         // a world entity's buffer.
-        if (!_skinning.TryGetValue(entity, out float[][]? buffer) ||
+        //
+        // **One buffer per entity per pose half** (B581 rung 3): the frame in flight draws from the other half's.
+        if (!skinning.TryGetValue(entity, out float[][]? buffer) ||
             buffer.Length != accessor.Count)
         {
             buffer = new float[accessor.Count][];
@@ -245,7 +255,7 @@ public sealed partial class EntityModelSet
                 buffer[bone] = new float[12];
             }
 
-            _skinning[entity] = buffer;
+            skinning[entity] = buffer;
         }
 
         BoneSkinning.Fill(bones, accessor, buffer);
@@ -253,6 +263,20 @@ public sealed partial class EntityModelSet
         return buffer;
     }
 
-    /// <summary>Each entity's skinning matrices, reused between frames.</summary>
-    private readonly Dictionary<int, float[][]> _skinning = [];
+    /// <summary>Each entity's skinning matrices, reused between frames, one set per pose half.</summary>
+    private readonly Dictionary<int, float[][]>[] _skinning = [[], []];
+
+    /// <summary>The skinning a query (<see cref="SkinningOf"/>) builds: its own buffers, never one a draw was handed.</summary>
+    /// <remarks>
+    /// **By construction, not by call order** (review of rung 3): a decal's query runs between frames, when the pose half
+    /// last written is the one in flight, so writing <see cref="_skinning"/> there would rewrite the bones being drawn. The
+    /// query's projection reads the matrices on the game thread and keeps none of them for the draw.
+    /// </remarks>
+    private readonly Dictionary<int, float[][]> _queriedSkinning = [];
+
+    /// <summary>The pose half this frame's pose writes (<see cref="PoseHalves"/>, B581 rung 3): 0 or 1; 0 without a device.</summary>
+    /// <remarks>Selects the per-entity buffers the draw reads by reference — skinning matrices and face streams — so a
+    /// pose never rewrites what the frame in flight is drawing. Instance lists and their matrices are per list, and the
+    /// scene hands each half its own list.</remarks>
+    internal int PoseHalf { get; set; }
 }

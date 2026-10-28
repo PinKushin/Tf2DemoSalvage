@@ -61,6 +61,55 @@ public sealed class FaceFlexDemoRenderTests
         moved.ShouldBeGreaterThan(restMoved + 100);
     }
 
+    /// <remarks>
+    /// **The face stream the frame in flight draws is not rewritten by the next pose** (B581 rung 3): the stream is the
+    /// entity's own, rewritten in place when the face changes, so there is one per pose half. Two poses of one scene, a
+    /// hand-off between them, ten ticks apart in the laugh: the first stream keeps what it held, and the second is another
+    /// array holding another face.
+    /// </remarks>
+    [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
+    public void Pose_AfterAHandOffMidLaugh_LeavesTheHandedFaceStreamStanding()
+    {
+        (MomentScene scene, ScenePlayer soldier9, DemoTimeline timeline) = Laughing();
+        long handOffs = 0;
+        scene.HandOffs = () => handOffs;
+
+        ModelInstance first = PoseAt(scene, soldier9, timeline, TauntStart + 130);
+        float[] handed = first.Flex.ShouldNotBeNull("the control: the laugh moves the face");
+        float[] held = [.. handed];
+
+        handOffs = 1;
+        ModelInstance second = PoseAt(scene, soldier9, timeline, TauntStart + 140);
+        float[] next = second.Flex.ShouldNotBeNull();
+
+        next.ShouldNotBeSameAs(handed, "the next pose wrote the handed stream");
+        handed.ShouldBe(held, "the handed face stream was rewritten by the next pose");
+        next.ShouldNotBe(held, "the control: ten ticks on, the face has moved, so a shared stream would have shown it");
+    }
+
+    private static (MomentScene Scene, ScenePlayer Soldier, DemoTimeline Timeline) Laughing()
+    {
+        ScenePlayer soldier9 = Soldier9(TauntStart + 130);
+        DemoTimeline timeline = Timeline(soldier9);
+        MapAssets assets = MapCache.Load(entityModels: [SoldierModel]);
+        EntityModelSet models = new() { Geometry = assets.Geometry, IntervalPerTick = timeline.IntervalPerTick };
+
+        return (SyntheticMatch.Scene(models, SyntheticMatch.Appearance(timeline)), soldier9, timeline);
+    }
+
+    private static ModelInstance PoseAt(MomentScene scene, ScenePlayer soldier9, DemoTimeline timeline, int tick)
+    {
+        MomentInfo info = SyntheticMatch.Info(timeline, tick, recorder: Soldier);
+
+        scene.Build([soldier9], [], info);
+        scene.Pose(info);
+
+        return scene.Instances.Single(
+            instance => instance.EntityIndex == Soldier &&
+                string.Equals(instance.ModelPath, SoldierModel, StringComparison.OrdinalIgnoreCase));
+    }
+
     private static (int Moved, float Largest) Movement(float[]? face)
     {
         float largest = 0f;
@@ -117,7 +166,22 @@ public sealed class FaceFlexDemoRenderTests
     /// <summary>The soldier's instance at a tick, built by the scene from the written-down moment with the production loader.</summary>
     private static (MapAssets Assets, EntityModelSet Models, ModelInstance Soldier) Posed(int tick)
     {
-        ScenePlayer soldier9 = new(
+        ScenePlayer soldier9 = Soldier9(tick);
+        DemoTimeline timeline = Timeline(soldier9);
+
+        MapAssets assets = MapCache.Load(entityModels: [SoldierModel]);
+        EntityModelSet models = new() { Geometry = assets.Geometry, IntervalPerTick = timeline.IntervalPerTick };
+        MomentScene scene = SyntheticMatch.Scene(models, SyntheticMatch.Appearance(timeline));
+
+        // The soldier is the recording's own player; the moment is drawn in third person.
+        ModelInstance soldier = PoseAt(scene, soldier9, timeline, tick);
+
+        return (assets, models, soldier);
+    }
+
+    /// <summary>Soldier 9 at a tick, laughing from <see cref="TauntStart"/>, as the written-down moment has him.</summary>
+    private static ScenePlayer Soldier9(int tick) =>
+        new(
             EntityIndex: Soldier,
             X: 5913.6333f,
             Y: -2720.6206f,
@@ -131,7 +195,9 @@ public sealed class FaceFlexDemoRenderTests
             Conditions: new PlayerConditions(tick >= TauntStart ? LaughingConditions : 0, 0, 0, 0, 0),
             ClientSideAnimated: true);
 
-        DemoTimeline timeline = SyntheticMatch.Timeline(
+    /// <summary>The written-down moment's timeline: the idle scene, the laugh over it, and its voice line.</summary>
+    private static DemoTimeline Timeline(ScenePlayer soldier9) =>
+        SyntheticMatch.Timeline(
             [soldier9],
             scenes:
             [
@@ -144,23 +210,6 @@ public sealed class FaceFlexDemoRenderTests
                     TauntStart, "vo/soldier_LaughLong03.mp3", 1084, Soldier, Channel: 2, Volume: 0.61417323f, SoundLevel: 95,
                     Pitch: 100, DelaySeconds: 0f, OriginX: 5912f, OriginY: -2720f, OriginZ: 424f),
             ]);
-
-        MapAssets assets = MapCache.Load(entityModels: [SoldierModel]);
-        EntityModelSet models = new() { Geometry = assets.Geometry, IntervalPerTick = timeline.IntervalPerTick };
-        MomentScene scene = SyntheticMatch.Scene(models, SyntheticMatch.Appearance(timeline));
-
-        // The soldier is the recording's own player; the moment is drawn in third person.
-        MomentInfo info = SyntheticMatch.Info(timeline, tick, recorder: Soldier);
-
-        scene.Build([soldier9], [], info);
-        scene.Pose(info);
-
-        ModelInstance soldier = scene.Instances.Single(
-            instance => instance.EntityIndex == Soldier &&
-                string.Equals(instance.ModelPath, SoldierModel, StringComparison.OrdinalIgnoreCase));
-
-        return (assets, models, soldier);
-    }
 
     /// <summary>The head from one side, close up, every pixel's channel sum.</summary>
     private static int[] Picture(

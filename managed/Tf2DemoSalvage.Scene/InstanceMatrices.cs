@@ -13,8 +13,8 @@ namespace Tf2DemoSalvage.Scene;
 /// lookup, a transform compare and a branch per prop and measured slower (RISKS B585).
 ///
 /// **Owned per instance LIST, not per pass name or frame**, so a matrix is rewritten exactly when the list
-/// holding it is cleared — which happens after <c>FinishDrawBeforePose</c>, the same wait that makes reusing
-/// the lists themselves safe under the queued draw.
+/// holding it is cleared. Under the queued draw each list exists once per pose half (<c>PoseHalves</c>, B581 rung 3), so
+/// the list being rebuilt is never the one the frame in flight was handed, and neither are its matrices.
 /// </remarks>
 internal sealed class InstanceMatrices
 {

@@ -42,7 +42,11 @@ public sealed partial class EntityModelSet
             float[] delayed = Delayed(prop.FaceOf ?? prop.EntityIndex, weights, seconds);
 
             // The same weights draw the same face: an idle loop's expression holds still for seconds at a time.
-            if (_lastFace.TryGetValue(prop.EntityIndex, out (float[] Weights, float[] Delayed, float[]? Face, float[]? Stream, FlexedCorners? Corners) last) &&
+            // **Per pose half** (B581 rung 3): the stream is rewritten in place, and the frame in flight draws the other
+            // half's, so this half's last face is two frames old — a still face still converges in two.
+            Dictionary<int, (float[] Weights, float[] Delayed, float[]? Face, float[]? Stream, FlexedCorners? Corners)> lastFaces = _lastFace[PoseHalf];
+
+            if (lastFaces.TryGetValue(prop.EntityIndex, out (float[] Weights, float[] Delayed, float[]? Face, float[]? Stream, FlexedCorners? Corners) last) &&
                 last.Weights.AsSpan().SequenceEqual(weights) && last.Delayed.AsSpan().SequenceEqual(delayed))
             {
                 face = last.Face;
@@ -70,7 +74,7 @@ public sealed partial class EntityModelSet
                 face = FaceFlex.Deltas(model.Flex, weights, delayed, _flexScratch.Positions, _flexScratch.Normals) is { } deltas
                     ? FaceFlex.IntoFlexedSlots(deltas, corners, stream)
                     : null;
-                _lastFace[prop.EntityIndex] = (weights, (float[])delayed.Clone(), face, stream, corners);
+                lastFaces[prop.EntityIndex] = (weights, (float[])delayed.Clone(), face, stream, corners);
             }
         }
         else if (!_restingFace.TryGetValue(RestingKey(prop), out face))
@@ -122,8 +126,8 @@ public sealed partial class EntityModelSet
     /// <summary>Each drawing entity's <c>m_flFlexDelayedWeight</c> and <c>m_flFlexDelayTime</c>.</summary>
     private readonly Dictionary<int, (float[] Delayed, double Time)> _delays = [];
 
-    /// <summary>Each drawing entity's last weights and the face they made, reused while they hold.</summary>
-    private readonly Dictionary<int, (float[] Weights, float[] Delayed, float[]? Face, float[]? Stream, FlexedCorners? Corners)> _lastFace = [];
+    /// <summary>Each drawing entity's last weights and the face they made, reused while they hold; one set per pose half.</summary>
+    private readonly Dictionary<int, (float[] Weights, float[] Delayed, float[]? Face, float[]? Stream, FlexedCorners? Corners)>[] _lastFace = [[], []];
 
     /// <summary>Per model, the buffer slots its flexes can move (finding 92).</summary>
     private readonly Dictionary<string, FlexedCorners> _flexedCorners = new(StringComparer.OrdinalIgnoreCase);

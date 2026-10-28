@@ -73,10 +73,15 @@ public interface IViewerDevice
     /// <param name="surfaceColours">Whether the surface-colour view is on.</param>
     public void SetCamera(FreeCamera camera, bool surfaceColours = false);
 
-    /// <summary>Waits for the frame in flight, if one is (`mat_queue_mode 2`): called at the pose's entry, because the pose
-    /// rewrites the bones, flex and instance lists the draw reads, while <see cref="SetCamera"/> writes only its own view
-    /// half and so overlaps the draw (B581 rung 2, finding 98 §9 step 5). Free in mode 0.</summary>
-    public void FinishDrawBeforePose();
+    /// <summary>Waits for the frame in flight, if one is (`mat_queue_mode 2`): called after the pose and before the effects,
+    /// because the particles, decals and lightmaps hand the device what the draw reads in place, while
+    /// <see cref="SetCamera"/> writes its own view half and the pose its own pose half, so both overlap the draw (B581
+    /// rung 3, finding 98 §9). Free in mode 0.</summary>
+    public void FinishDrawBeforeEffects();
+
+    /// <summary>Frames handed to the draw so far: the pose writes a new half only after one was handed (B581 rung 3,
+    /// `PoseHalves`), as the engine's `EndFrame` flips its queued context once per hand-off (finding 99 §2).</summary>
+    public long HandOffs { get; }
 
     /// <summary>The parts of the last <see cref="SetCamera"/>, in stopwatch ticks, each timed inside it where it ran (B243).</summary>
     public IReadOnlyList<(string Part, long Ticks)> SetCameraParts { get; }
