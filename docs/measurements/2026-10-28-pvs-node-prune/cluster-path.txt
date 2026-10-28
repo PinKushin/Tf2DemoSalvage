@@ -1,0 +1,48 @@
+dotnet run --project tools/Tf2DemoSalvage.Probe -c Release -- cluster-path D:/measure-f12/f12.dem cp_process_f12 3 30000 31347
+(2026-10-28, untimed: run under run-exclusive -Shared; entity 3 is gummo per the roster probe; the probe lists the first
+40 of the changes it counts)
+
+f12.dem on cp_process_f12.bsp: entity 3 on 1348 of ticks 30000-31347; 2238 clusters, 5654 leaves
+  eye cluster changes: 45 over 1347 ticks; distinct clusters 25; in no cluster on 0 ticks
+    tick 30005: 2172 -> 2085
+    tick 30021: 2085 -> 2082
+    tick 30083: 2082 -> 2089
+    tick 30085: 2089 -> 2126
+    tick 30127: 2126 -> 2127
+    tick 30141: 2127 -> 2129
+    tick 30158: 2129 -> 2179
+    tick 30192: 2179 -> 2181
+    tick 30195: 2181 -> 2183
+    tick 30198: 2183 -> 2194
+    tick 30230: 2194 -> 2189
+    tick 30297: 2189 -> 2188
+    tick 30302: 2188 -> 1646
+    tick 30412: 1646 -> 1645
+    tick 30414: 1645 -> 1644
+    tick 30415: 1644 -> 1643
+    tick 30420: 1643 -> 1641
+    tick 30458: 1641 -> 1619
+    tick 30607: 1619 -> 1641
+    tick 30628: 1641 -> 1640
+    tick 30677: 1640 -> 1641
+    tick 30783: 1641 -> 1643
+    tick 30786: 1643 -> 1644
+    tick 30787: 1644 -> 1645
+    tick 30789: 1645 -> 1646
+    tick 30846: 1646 -> 2189
+    tick 30856: 2189 -> 2190
+    tick 30928: 2190 -> 2191
+    tick 30955: 2191 -> 2193
+    tick 30959: 2193 -> 2194
+    tick 31008: 2194 -> 2183
+    tick 31010: 2183 -> 2182
+    tick 31011: 2182 -> 2181
+    tick 31014: 2181 -> 2179
+    tick 31046: 2179 -> 2129
+    tick 31063: 2129 -> 2127
+    tick 31120: 2127 -> 2092
+    tick 31160: 2092 -> 2127
+    tick 31162: 2127 -> 2126
+    tick 31198: 2126 -> 2127
+  one re-mark, clusters 2172 <-> 2085, 2000 timed after 200 warm: median 25.6 us, p10 25.1, p90 104.5, mean 37.0; the control, a repeat from one eye: 0.0 us
+  bound: 45 changes in 1347 ticks x median = 1.152 ms over the window

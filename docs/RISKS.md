@@ -19715,7 +19715,9 @@ all eight runs: sample 0.31-0.40, drawlist 0.18-0.22, collate 0.20-0.26 — the 
 either way. The larger share of the floor is `camera particles` (1.55 ms, 46% of B's steady frame; same record), whose step
 and build are the engine's shape (audited in that record).
 
-### B259 on 2026-10-27: the world walk is pruned by the PVS, as the engine's mark-leaves makes it
+### B259 on 2026-10-27/28: the world walk is pruned by the PVS, as the engine's mark-leaves makes it
+
+Built 2026-10-27; the engine re-read and the measurement are 2026-10-28.
 
 `WorldVisibility` used to walk every node the frustum kept and test the PVS per LEAF, so a subtree the PVS hides
 whole was still descended to its leaves, and its nodes still emitted walk steps whose surfaces were offered between
@@ -19762,8 +19764,8 @@ cluster stamps its ancestors (its own listing is still refused by the walk's sol
 stamped every leaf and node; the engine's row is all ones there, so every CLUSTERED leaf is stamped and cluster −1 is
 still skipped.
 
-**These are possibly visible changes, untimed and not captured — but on a compiled map they change nothing, and the
-source says why.** vbsp gives every solid world leaf cluster −1 (`utils/vbsp/prtfile.cpp:185-187`) and every
+**These were possibly visible changes; on a compiled map they change nothing, and the source says why** (the
+measured build below carries all three; its paused shots match main's in the world). vbsp gives every solid world leaf cluster −1 (`utils/vbsp/prtfile.cpp:185-187`) and every
 brush-model leaf cluster −1 (`writebsp.cpp:128-139`), and numbers every non-solid world leaf
 (`prtfile.cpp:190` → `NumberLeafs`). So (2) never arises on a real map, and (1) and (3) only drop leaves the world walk
 does not reach. Measured by the map test's census of the leaves the world tree reaches from node 0: non-solid leaves
@@ -19786,14 +19788,17 @@ each as printed by the run (32 asserted clustered eyes, one in no cluster, two r
 directions: the reached surfaces and leaves are the same sequence as the walk with no vis data filtered by the
 engine's stamp rule in every view.
 
-**Measured 2026-10-28** (`measurements/2026-10-28-pvs-node-prune.md`, Release, f12, ABBA+BAAB, four runs a build per
-view): world-only pixel identity in every shot pair (0 pixels). First person, the moving view, steady window:
-`camera setcamera batches` 0.415-0.426 → 0.208-0.214 ms (6.1% → 3.2% of the frame) and `sky` 0.198-0.204 → 0.050-0.052
-(2.9% → 0.8%) — the sky view's own walk from the sky camera is pruned by its cluster's PVS too — so `setcamera`
-0.761-0.781 → 0.404-0.415 ms, 5.3% of A's frame; frame 6.753-7.100 → 6.582-6.704 ms (non-overlapping; 0.12-0.20 ms of
-it reaches the frame). The re-mark (the miss path, `batches/marks`) is below the rate line's 0.005 ms resolution in every
-steady second. Empty view: `batches` 0 in both builds (a still camera does not re-cull), frame unchanged. **Still open:**
-the entity walks — `sample`, `drawlist`, `collate` — which this change does not touch.
+**Measured 2026-10-28, verdict** (`measurements/2026-10-28-pvs-node-prune.md`): in f12 first person the pass cost fell 0.36 ms (`camera setcamera`, 11.3-11.4% →
+6.1-6.2% of the frame); the frame fell 0.12 ms in the steady window **only with the stalled run 14-A voided**, and not at
+all over the whole 20 s window; **0.30 ms of the saving became `camera wait`** — the main thread waiting on the render
+thread's draw of the previous frame (`Queue.FinishPreviousDraw`) before the pose. The miss path is ~45 re-marks in the
+window at a median 25.6 µs each (the `cluster-path` probe), about 0.0005 ms a frame; the sky view's re-marks are not
+timed apart. Empty view: no difference claimed. Everything, with its caveats: `measurements/2026-10-28-pvs-node-prune.md`.
+
+**What it found, and the next fps target** (same record): in first person that stretch of the frame is bound by the
+render thread's ~1.8 ms draw (`queue render thread` 1.805-1.843 ms in both builds), not by the main thread's passes in front of the wait — so trimming those passes further turns into waiting.
+The target is the draw itself, or moving work that does not touch what the draw reads to before the wait. **Still
+open, as before:** the entity walks — `sample`, `drawlist`, `collate`.
 
 ## B260 — why we do not get Valve's performance "doing it the way they do" — OPEN
 

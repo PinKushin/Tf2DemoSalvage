@@ -1,0 +1,7 @@
+pixdiff.ps1 (2026-10-27-empty-view-breakdown/), shots at tick 30000, 2026-10-28 ~04:10. Per pair: -WorldOnly, then the whole frame.
+shot-empty-A vs shot-empty-B : 1280x720 world only: 0 pixels differ | whole: 1280x720: 52 pixels differ; box (1101,2)-(1119,10)
+shot2-empty-A vs shot2-empty-B : 1280x720 world only: 0 pixels differ | whole: 1280x720: 19 pixels differ; box (1113,2)-(1119,9)
+shot-empty-A vs shot2-empty-A : 1280x720 world only: 0 pixels differ | whole: 1280x720: 16 pixels differ; box (1113,5)-(1119,10)
+shot-fp-A vs shot-fp-B : 1280x720 world only: 0 pixels differ | whole: 1280x720: 36 pixels differ; box (1113,2)-(1119,10)
+shot2-fp-A vs shot2-fp-B : 1280x720 world only: 0 pixels differ | whole: 1280x720: 13 pixels differ; box (1113,2)-(1119,7)
+shot-fp-A vs shot2-fp-A : 1280x720 world only: 0 pixels differ | whole: 1280x720: 13 pixels differ; box (1113,5)-(1119,10)

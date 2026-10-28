@@ -71,7 +71,7 @@ now returns from an unmarked node, as Quake's `R_RecursiveWorldNode` does on `r_
 reached surfaces are the same sequence either way; only node steps go.
 
 **The re-read (2026-10-28, the engine.dll installed 2026-10-07) confirmed the shape and killed two of our own
-readings.** The mark pass (`0x1801cacd0`) does stamp each PVS leaf's ancestors up to the first already stamped, and the
+readings.** The mark pass (`0x1801ca5f0`), through its per-leaf loop (`0x1801cacd0`), does stamp each PVS leaf's ancestors up to the first already stamped, and the
 walk (`0x1800e1800`) tests the stamp before it clips the box. But the first port had carried over two rules that were
 never the renderer's. It stamped a non-solid leaf with cluster −1, because `vrad`'s `PVSCheck` says *"we assume the
 sample is in the PVS"* — a lighting compiler's rule, quoted for years in this project as if it were the cull's; the
