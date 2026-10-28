@@ -139,70 +139,116 @@ public sealed class CameraPathProbe : IProbe
     {
         int middle = (firstTick + lastTick) / 2;
         int[] entities = [.. timeline.PlayersAt(middle).Where(player => player.Team is 2 or 3).Select(player => player.EntityIndex)];
-        Dictionary<int, List<double>> speeds = entities.ToDictionary(entity => entity, _ => new List<double>());
-        Dictionary<int, List<double>> positions = entities.ToDictionary(entity => entity, _ => new List<double>());
         int[] packets = ViewPackets(timeline);
-        Dictionary<int, ScenePlayer> last = [];
+        DemoPlayer off = new(timeline) { ConVars = () => DemoViewConVars.Defaults with { RetimeView = false } };
+        DemoPlayer on = new(timeline) { ConVars = () => DemoViewConVars.Defaults with { RetimeView = true } };
+
+        // Every series through the SAME loop, frames and classing. The two cameras are the positive control: off must
+        // show the stamp's pattern here too, or this instrument cannot see it.
+        List<(string Name, Func<double, (double X, double Y, double Z)?> Sample)> series =
+        [
+            (OffCamera, tick => Point(off.InterpolateViewpoint(tick))),
+            (OnCamera, tick => Point(on.InterpolateViewpoint(tick))),
+        ];
+
+        static (double X, double Y, double Z)? Point(RecordedView? view) =>
+            view is { } seen ? ((double)seen.Origin.X, (double)seen.Origin.Y, (double)seen.Origin.Z) : null;
+
+        foreach (int entity in entities)
+        {
+            series.Add((
+                string.Create(CultureInfo.InvariantCulture,
+                    $"entity {entity}{(entity == timeline.RecorderEntityIndex ? Recorder : string.Empty)}"),
+                tick => timeline.PlayerAt(tick, entity) is { Drawn: true, LifeState: null or 0 } player
+                    ? ((double)player.X, (double)player.Y, (double)player.Z)
+                    : null));
+        }
+
+        // A frame faster than demo_interplimit is a teleport, as the engine judges one. It ends a segment, as a death or
+        // an undrawn frame does, so no local median mixes two lives.
+        double teleport = DemoViewConVars.Defaults.InterpLimit / hz;
+        List<List<(double Tick, double Speed)>>[] segments = [.. series.Select(_ => new List<List<(double Tick, double Speed)>>())];
+        (double X, double Y, double Z)?[] last = new (double X, double Y, double Z)?[series.Count];
         double step = 1d / hz / timeline.IntervalPerTick;
         int frames = 0;
 
         for (double tick = firstTick + 1; tick < lastTick - 9 && frames < WorldFrames; tick += step, frames++)
         {
-            foreach (int entity in entities)
+            for (int at = 0; at < series.Count; at++)
             {
-                if (timeline.PlayerAt(tick, entity) is not { } now)
+                (double X, double Y, double Z)? now = series[at].Sample(tick);
+                double? speed = now is { } a && last[at] is { } b
+                    ? Math.Sqrt(((a.X - b.X) * (a.X - b.X)) + ((a.Y - b.Y) * (a.Y - b.Y)) + ((a.Z - b.Z) * (a.Z - b.Z)))
+                    : null;
+
+                if (speed is { } moved && moved <= teleport)
                 {
-                    last.Remove(entity);
-                    continue;
+                    segments[at][^1].Add((tick, moved));
+                }
+                else if (now is not null)
+                {
+                    segments[at].Add([]);
                 }
 
-                if (last.TryGetValue(entity, out ScenePlayer before))
-                {
-                    speeds[entity].Add(Math.Sqrt(
-                        ((double)now.X - before.X) * (now.X - before.X) + ((double)now.Y - before.Y) * (now.Y - before.Y) +
-                        ((double)now.Z - before.Z) * (now.Z - before.Z)));
-                    positions[entity].Add(tick);
-                }
-
-                last[entity] = now;
+                last[at] = now;
             }
         }
 
         output.WriteLine();
         output.WriteLine(string.Create(CultureInfo.InvariantCulture,
-            $"== the world's pacing, {entities.Length} players on a team at tick {middle}, {frames} frames at {hz} Hz (recorder {timeline.RecorderEntityIndex})"));
+            $"== the world's pacing, {entities.Length} players on a team at tick {middle}, {frames} frames at {hz} Hz; " +
+            $"a dead or undrawn frame, or one over {teleport:0.0} units, splits a segment"));
 
-        // Every non-recorder moving frame, classed by the packet stamps around it as the camera's are: ~2.6 after a
-        // shared stamp and ~0.8 across a step of 2 would mean the world carries the stamp's jitter too.
-        List<((int Step, int Shared) Class, double Ratio)> classed = [];
+        List<((int Step, int Shared) Class, double Ratio)>[] classed = new List<((int Step, int Shared) Class, double Ratio)>[series.Count];
 
-        foreach ((int entity, List<double> list) in speeds.OrderBy(pair => pair.Key))
+        for (int at = 0; at < series.Count; at++)
         {
-            double[] speed = [.. list];
-            double[] median = LocalMedians(speed);
-            int[] moving = [.. Enumerable.Range(0, speed.Length).Where(at => median[at] > Moving)];
+            classed[at] = [];
 
-            if (entity != timeline.RecorderEntityIndex)
+            foreach (List<(double Tick, double Speed)> part in segments[at])
             {
-                classed.AddRange(moving.Select(at => (ClassOf(positions[entity][at], packets), speed[at] / median[at])));
+                double[] speed = [.. part.Select(sample => sample.Speed)];
+                double[] median = LocalMedians(speed);
+
+                classed[at].AddRange(Enumerable.Range(0, speed.Length)
+                    .Where(frame => median[frame] > Moving)
+                    .Select(frame => (ClassOf(part[frame].Tick, packets), speed[frame] / median[frame])));
             }
-            double[] ratio = [.. moving.Select(at => speed[at] / median[at])];
-            double mean = ratio.Length > 0 ? ratio.Average() : 0d;
-            double sd = ratio.Length > 0 ? Math.Sqrt(ratio.Average(value => (value - mean) * (value - mean))) : 0d;
+
+            double[] values = [.. classed[at].Select(sample => sample.Ratio).Order()];
+            double mean = values.Length > 0 ? values.Average() : 0d;
+            double sd = values.Length > 0 ? Math.Sqrt(values.Average(value => (value - mean) * (value - mean))) : 0d;
 
             output.WriteLine(string.Create(CultureInfo.InvariantCulture,
-                $"  entity {entity}{(entity == timeline.RecorderEntityIndex ? " (recorder, networked)" : string.Empty)}: moving frames {moving.Length}, " +
-                $"speed/local-median CV {(mean > 0 ? sd / mean : 0):0.0000}, >50% off median {moving.Count(at => Math.Abs(speed[at] - median[at]) > 0.5 * median[at])}"));
+                $"  {series[at].Name}: moving frames {values.Length}, speed/local-median mean {mean:0.000} median {Percentile(values, 0.5):0.000} " +
+                $"CV {(mean > 0 ? sd / mean : 0):0.0000}, >50% off median {values.Count(value => Math.Abs(value - 1d) > 0.5)}"));
         }
 
-        output.WriteLine("  other players by packet class: " + string.Join("; ", classed
-            .GroupBy(sample => sample.Class).Where(group => group.Key.Step <= 3).OrderBy(group => group.Key.Step).ThenBy(group => group.Key.Shared)
-            .Select(group => string.Create(CultureInfo.InvariantCulture,
-                $"step {group.Key.Step}/shared {group.Key.Shared}: n {group.Count()} speed/median {group.Average(sample => sample.Ratio):0.000}"))));
+        void Table(string title, IEnumerable<((int Step, int Shared) Class, double Ratio)> samples) =>
+            output.WriteLine($"  {title} by packet class: " + string.Join("; ", samples
+                .Where(sample => sample.Class.Step is >= 1 and <= 3 && sample.Class.Shared is 1 or 2)
+                .GroupBy(sample => sample.Class).OrderBy(group => group.Key.Step).ThenBy(group => group.Key.Shared)
+                .Select(group =>
+                {
+                    double[] sorted = [.. group.Select(sample => sample.Ratio).Order()];
+
+                    return string.Create(CultureInfo.InvariantCulture,
+                        $"step {group.Key.Step}/shared {group.Key.Shared}: n {sorted.Length} mean {sorted.Average():0.000} median {Percentile(sorted, 0.5):0.000}");
+                })));
+
+        Table(OffCamera, classed[0]);
+        Table(OnCamera, classed[1]);
+        Table("other players", Enumerable.Range(2, series.Count - 2)
+            .Where(at => !series[at].Name.EndsWith(Recorder, StringComparison.Ordinal))
+            .SelectMany(at => classed[at]));
     }
 
     /// <summary>The most frames <see cref="WorldPacing"/> samples.</summary>
     private const int WorldFrames = 20000;
+
+    private const string OffCamera = "camera, demo_retimeview 0";
+    private const string OnCamera = "camera, demo_retimeview 1";
+    private const string Recorder = " (recorder, networked)";
 
     /// <summary>
     /// The production camera (<see cref="SpectatorView.Eye"/> over <see cref="TimelineEyes"/>) with <c>demo_retimeview</c>

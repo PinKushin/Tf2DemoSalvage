@@ -11168,9 +11168,14 @@ own tick (`net_Tick`), and the recorded origins follow it. With `demo_retimeview
 server tick instead, placed on the stamp's axis by the delay most packets arrive with over the 333 packets either side
 (`DemoPlayer.ServerTimed`; about 5 s at 65 packets a second). The view angles stay on the stamp, because the recorder
 writes them from `cl.viewangles`, the client's clock. Reading, the parse-ahead, the rewind and the snaps' current view are
-unchanged. Every frame whose origin pair touches an `FDEMO_NOINTERP` packet takes the engine's pair, so cut frames are
-the engine's. That held only from the Fable review of `4c4b247b`: before it, a cut placed a tick early cut the origin a
-frame before the angles and then held it.
+unchanged. The origin takes the engine's pair whenever any queued `FDEMO_NOINTERP` packet lies between the outermost
+ends of its own pair and the engine's (a hold counts as a pair). That covers a cut placed one tick early, two or more
+ticks early, lifted above its stamp, or held past a gap, so the cut frames are the engine's.
+`DemoPlayerRetimeViewTests` covers each case against the engine. It took two reviews:
+- Before the Fable review of `4c4b247b`, a cut placed a tick early cut the origin a frame before the angles and then held
+  it.
+- The round-2 rule checked only the pair's two ends and its cut branch. The Opus review of `b7a8a751` found a cut two
+  ticks early, and a held cut, still getting through.
 
 **How to switch it off.** `demo_retimeview 0` in a config or at the console gives the engine's answer bit for bit
 (`DemoRecordingStampConformanceTests`). The name is ours (D79 rule 2); `cvarlist.log` has no such ConVar. Wherever a
@@ -11180,13 +11185,25 @@ used, so old demos, SourceTV demos and clock steps fall back to the engine.
 **What it does not need to fix: the world.** Every other entity's origin is interpolated by its changetime, the
 entity's own `m_flSimulationTime` (`ScenePropTrack._appliedAt`, B273), not by its packet's stamp. In this port that
 changetime reaches the stamp axis through the packet, as a server-axis lag applied to the demo tick. So whether the
-world carries the jitter was measured rather than assumed, with the probe's world-pacing section on the subject. Every
-other player's drawn origin from `DemoTimeline.PlayerAt` was grouped by the camera's packet classes. Their speed over
-the local median is 1.07 / 1.12 / 1.10 / 1.14 after a lone stamp, a shared stamp, a step of 2 and a shared step of 2.
-The camera with the setting off reads 1.11 / 2.61 / 0.79 / 1.83 over the same classes. So the world is not on the
-stamp's jitter, and with the setting on the camera and the world now share the server's clock. Those players still pace
-unevenly (CV 0.46–2.3 each), uncorrelated with the stamp: their own motion or their own clients' upstream jitter. That
-is not examined here. The recorder's body follows the view it is placed from, so it moves with the camera.
+world carries the jitter was measured rather than assumed, with the probe's world-pacing section on the subject.
+- **Method.** Every other player's drawn origin from `DemoTimeline.PlayerAt` is put through ONE loop, frame cap and
+  classification, alongside both cameras.
+- **Excluded.** Dead or undrawn frames, and frames faster than `demo_interplimit`, end a segment, so a respawn is not
+  measured.
+- **Result.** Mean speed over the local median, after a lone stamp, a shared stamp, a step of 2 and a shared step of 2:
+
+  | series | lone | shared | step 2 | step 2, shared |
+  |---|---|---|---|---|
+  | camera, setting off (the positive control) | 1.11 | 2.66 | 0.78 | 1.83 |
+  | camera, setting on | 1.01 | 1.00 | 1.02 | 1.01 |
+  | the other players | 1.06 | 1.10 | 1.10 | 1.13 |
+
+  The medians are 1.000 in every class.
+- **Verdict.** The camera's pattern is absent from the world. A residual 3–6% rise on shared stamps is unexplained. rgl
+  is in the measurement file.
+
+Each player still paces unevenly on his own (CV 0.46–0.68 once deaths and teleports are excluded), which is not examined
+here. The recorder's body follows the view it is placed from, so it moves with the camera.
 
 **The open question, as the owner's rule asks.** Why does Valve not do this? *Interpolated:* nobody needed it. The
 SourceTV recorder stamps with the server's own `host_tickcount` (`0x18019baa0`), and the single-player branch uses a

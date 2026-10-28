@@ -106,6 +106,7 @@ public sealed class DemoPlayer
     /// <summary>The moment last asked about, and its answer — the engine interpolates once a rendered frame.</summary>
     private double _askedTick = double.NaN;
     private RecordedView? _answer;
+    private DemoViewConVars _askedConVars;
 
     /// <summary>A demo player over a decoded demo.</summary>
     /// <param name="timeline">The demo.</param>
@@ -364,8 +365,11 @@ public sealed class DemoPlayer
     /// </remarks>
     public RecordedView? InterpolateViewpoint(double tick)
     {
-        // The same stored moment, bit for bit — a question about repetition, not about nearness.
-        if (BitConverter.DoubleToInt64Bits(tick) == BitConverter.DoubleToInt64Bits(_askedTick))
+        // The same stored moment, bit for bit, under the same ConVars — a question about repetition, not about
+        // nearness. The ConVars are part of the key so a change made while paused applies on the next call (B450).
+        DemoViewConVars conVars = ConVars();
+
+        if (BitConverter.DoubleToInt64Bits(tick) == BitConverter.DoubleToInt64Bits(_askedTick) && conVars.Equals(_askedConVars))
         {
             return _answer;
         }
@@ -377,7 +381,8 @@ public sealed class DemoPlayer
         ReadPackets(playbackTick);
 
         _askedTick = tick;
-        _answer = Interpolate(playbackTick, hostRemainder);
+        _askedConVars = conVars;
+        _answer = Interpolate(playbackTick, hostRemainder, conVars);
 
         return _answer;
     }
@@ -432,13 +437,12 @@ public sealed class DemoPlayer
         return low;
     }
 
-    private RecordedView? Interpolate(int playbackTick, float hostRemainder)
+    private RecordedView? Interpolate(int playbackTick, float hostRemainder, DemoViewConVars conVars)
     {
         RecordedView current = _current >= 0 ? _commands[_current].View : default;
         bool hasView = !current.IsDefault;
 
         int target = playbackTick;
-        DemoViewConVars conVars = ConVars();
 
         if (_maxClients == 1)
         {
@@ -470,40 +474,44 @@ public sealed class DemoPlayer
     /// everything else keep the engine's. The recorder writes the two from different clocks (<c>0x1800748b0</c>): the
     /// origin is the local player's (<c>IPrediction::GetViewOrigin</c>), which the measured views follow on the server's
     /// tick, and the view angles are <c>cl.viewangles</c> (<c>0x18053f4e4</c>), the client's own at the moment of writing
-    /// — the stamp's clock, which is why they already pace evenly (finding 106). A cut crossed on the stamp's axis keeps
-    /// the stamp's pair for the origin too, so the frame that shows the cut is the engine's; a target past every queued
-    /// placement holds the last placed packet. Off, both pairs are one and
-    /// the arithmetic is the engine's, operation for operation.
+    /// — the stamp's clock, which is why they already pace evenly (finding 106). The origin takes the stamp's pair
+    /// wherever the stamp's took its cut branch or found nothing, and wherever a queued cut lies between the two pairs'
+    /// outermost ends, so every frame a cut can reach is the engine's; a target past every queued placement holds the
+    /// last placed packet. Off, both pairs are one and the arithmetic is the engine's, operation for operation.
     /// </remarks>
     private RecordedView Between(RecordedView current, int target, float hostRemainder, DemoViewConVars conVars)
     {
-        ((int Tick, RecordedView View) Prev, (int Tick, RecordedView View) Next, bool Cut) angles = Pair(current, target, _stamped);
-        bool retimed = conVars.RetimeView && !angles.Cut;
-        ((int Tick, RecordedView View) Prev, (int Tick, RecordedView View) Next, bool Cut) origins =
-            retimed ? Pair(current, target, _serverTimed) : angles;
+        QueuedPair angles = Pair(current, target, _stamped);
+        QueuedPair origins = angles;
+        bool serverAxis = conVars.RetimeView && !angles.Cut && angles.PrevAt >= 0;
 
-        // A packet placed before its stamp can leave the target past every queued placement: after a stamp gap wider
-        // than the parse-ahead, its successor is queued only once it is read. The origin holds that last placed packet
-        // until then — the stamp's pair would put it back behind where the server's had already shown it. Both ends at
-        // -1 is the search finding nothing; a real pair has next > prev.
-        // **Around a cut the origin follows the engine's pair** (Fable review of 4c4b247b). A cut placed a tick before its
-        // stamp is crossed on the server's axis a frame before the angles cross it on the stamp's, so the origin would cut
-        // first and then hold. Any server-axis pair that took the cut branch, or has a cut packet at either end, is
-        // replaced by the stamp's: every frame a cut touches is the engine's.
-        if (retimed && (origins.Cut || origins.Prev.View.IsCut || origins.Next.View.IsCut))
+        if (serverAxis)
         {
-            retimed = false;
-            origins = angles;
-        }
+            origins = Pair(current, target, _serverTimed);
 
-        bool serverAxis = retimed;
+            // A packet placed before its stamp can leave the target past every queued placement: after a stamp gap wider
+            // than the parse-ahead, its successor is queued only once it is read. The origin holds that last placed
+            // packet until then — the stamp's pair would put it back behind where the server's had already shown it.
+            if (origins.PrevAt < 0)
+            {
+                int last = _packets.Count - 1;
 
-        if (retimed && origins.Prev.Tick == -1 && origins.Next.Tick == -1)
-        {
-            serverAxis = _packets.Count > 0 && _serverTimed[_packets[^1]] <= target;
-            origins = serverAxis
-                ? (Queued(_packets.Count - 1, _serverTimed), Queued(_packets.Count - 1, _serverTimed), false)
-                : angles;
+                serverAxis = last >= 0 && _serverTimed[_packets[last]] <= target;
+                origins = serverAxis
+                    ? new(Queued(last, _serverTimed), Queued(last, _serverTimed), false, last, last)
+                    : angles;
+            }
+
+            // **Around a cut the origin follows the engine's pair** (Fable and Opus reviews of 4c4b247b and b7a8a751).
+            // A cut placed early on the server's axis — or lifted above its stamp — is reached by the origin's pair on a
+            // different frame from the angles'; checking only the cut branch and the pair's two ends missed a cut two
+            // ticks early and the hold above. So wherever any queued cut lies between the two pairs' outermost ends, the
+            // origin takes the stamp's pair: every frame a cut can reach on either axis is the engine's.
+            if (serverAxis && CutAmong(angles, origins))
+            {
+                serverAxis = false;
+                origins = angles;
+            }
         }
 
         (float angleDt, float angleFraction) = Fraction(angles.Prev.Tick, angles.Next.Tick, target, hostRemainder);
@@ -596,14 +604,13 @@ public sealed class DemoPlayer
     /// **On either axis**: <paramref name="ticks"/> is <see cref="_stamped"/>, the engine's, or <see cref="_serverTimed"/>
     /// for <c>demo_retimeview</c>'s origin (D238). <c>Cut</c> says the cut branch answered.
     /// </remarks>
-    private ((int Tick, RecordedView View) Prev, (int Tick, RecordedView View) Next, bool Cut) Pair(
-        RecordedView current, int target, int[] ticks)
+    private QueuedPair Pair(RecordedView current, int target, int[] ticks)
     {
         (int, RecordedView) none = (-1, current.Reset());
 
         if (_packets.Count < 2)
         {
-            return (none, none, false);
+            return new(none, none, false, -1, -1);
         }
 
         int cut = -1;
@@ -616,8 +623,8 @@ public sealed class DemoPlayer
             if (ticks[a] <= target && target < ticks[b])
             {
                 return cut < 0
-                    ? ((ticks[a], _commands[a].View), (ticks[b], _commands[b].View), false)
-                    : (Queued(cut, ticks), Queued(cut + 1, ticks), true);
+                    ? new((ticks[a], _commands[a].View), (ticks[b], _commands[b].View), false, index, index + 1)
+                    : new(Queued(cut, ticks), Queued(cut + 1, ticks), true, cut, cut + 1);
             }
 
             if (cut < 0 && _lastInterpolatedTick < ticks[b] && ticks[b] <= target && _commands[b].View.IsCut)
@@ -626,7 +633,28 @@ public sealed class DemoPlayer
             }
         }
 
-        return (none, none, false);
+        return new(none, none, false, -1, -1);
+    }
+
+    /// <summary>A pair from <see cref="Pair"/>: its two ends, whether the cut branch answered, and the ends' places in the queue (-1 for none).</summary>
+    private readonly record struct QueuedPair(
+        (int Tick, RecordedView View) Prev, (int Tick, RecordedView View) Next, bool Cut, int PrevAt, int NextAt);
+
+    /// <summary>Whether a queued <c>FDEMO_NOINTERP</c> packet lies anywhere from the first to the last end of two pairs.</summary>
+    private bool CutAmong(QueuedPair one, QueuedPair other)
+    {
+        int from = Math.Min(one.PrevAt, other.PrevAt);
+        int to = Math.Max(one.NextAt, other.NextAt);
+
+        for (int position = Math.Max(0, from); position <= to; position++)
+        {
+            if (_commands[_packets[position]].View.IsCut)
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private (int Tick, RecordedView View) Queued(int position, int[] ticks) =>

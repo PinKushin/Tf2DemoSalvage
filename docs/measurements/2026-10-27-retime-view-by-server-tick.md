@@ -140,21 +140,38 @@ measured again.
 
 Rerun on all three demos, the subject, 2013 and rgl rows above are unchanged to the printed digit, off and on.
 
-**Whether the world carries the stamp's jitter** (the review's question). The probe's world-pacing section reads every
-other player's origin from `DemoTimeline.PlayerAt` per frame. It is independent of the setting and groups them by the
-camera's packet classes. On the subject, 16 other players (the recorder is excluded), speed over local median:
+**After the Opus review of `b7a8a751`.**
+- The round-2 cut rule checked only the server pair's two ends and its cut branch. A cut two ticks early, or a held cut,
+  still reached the origin a frame before the angles. The origin now takes the engine's pair whenever ANY queued cut
+  lies between the outermost ends of the two pairs (a hold counts as a pair).
+- The repeat-call memo is keyed on the ConVars too, so `demo_retimeview` changed while paused applies on the next call.
 
-| class | other players | camera, off |
-|---|---|---|
-| step 1, stamp not shared | 1.068 (n 24386) | 1.111 |
-| step 1, shared | 1.116 (n 6716) | **2.610** |
-| step 2, not shared | 1.095 (n 14436) | **0.786** |
-| step 2, shared | 1.142 (n 7716) | 1.834 |
+Rerun again, the subject, 2013 and rgl rows above are unchanged to the printed digit, off and on.
 
-The world does not show the camera's pattern; its entities interpolate on their own changetimes (B273). rgl's first 20,000
-frames do not show it either (1.72, 1.30 for step 1 alone and shared). Each player still paces unevenly on his own: CV
-0.46–2.3 on the subject, and the recorder's networked track 0.66. That is uncorrelated with the stamp and not examined
-here.
+**Whether the world carries the stamp's jitter** (the review's question). The probe's world-pacing section puts every
+other player's origin from `DemoTimeline.PlayerAt` through ONE loop with both cameras. The cameras are a positive
+control: the camera off must show the stamp pattern there, or the loop could not see it.
+- **Same everything.** Same frames, 1/144 s from the first packet, at most 20,000. Same classing by the camera's packet
+  stamps.
+- **Segments.** A dead or undrawn frame, or one faster than `demo_interplimit` (a teleport), ends a segment, so no local
+  median spans two lives.
+
+Mean speed over local median (every class median is 1.000 except where marked):
+
+| demo | series | step 1, lone | step 1, shared | step 2, lone | step 2, shared |
+|---|---|---|---|---|---|
+| subject | camera, off | 1.109 | **2.658** (median 1.990) | **0.782** (median 0.714) | 1.826 |
+| subject | camera, on | 1.008 | 0.999 | 1.023 | 1.014 |
+| subject | 16 other players | 1.064 (n 24331) | 1.096 (n 6707) | 1.096 (n 14428) | 1.126 (n 7704) |
+| rgl, first 20,000 frames | camera, off | 1.093 | **2.616** (median 1.999) | 0.841 (median 0.910) | 1.606 |
+| rgl, first 20,000 frames | camera, on | 1.048 | 1.008 | 1.058 | 1.012 |
+| rgl, first 20,000 frames | 10 other players | 1.078 (n 61802) | 1.094 (n 3921) | 1.079 (n 9358) | 1.101 (n 10265) |
+
+The loop sees the stamp's pattern where it is: on the camera off, in both demos. The camera's pattern (2.6, 0.8) is absent
+from the world, whose entities interpolate on their own changetimes (B273). A residual rise on shared stamps is
+unexplained: 3–6% on the subject, 1–2% on rgl. Each player still paces unevenly on his own, with CV 0.46–0.68 on the
+subject. The earlier 2.3 was a respawn read as one frame, which the segments now exclude. The recorder's networked track
+reads 0.51. None of that is examined here.
 
 ## Verdict
 

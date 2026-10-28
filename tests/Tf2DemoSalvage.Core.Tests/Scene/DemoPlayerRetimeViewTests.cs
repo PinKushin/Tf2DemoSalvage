@@ -133,7 +133,8 @@ public sealed class DemoPlayerRetimeViewTests
         // The cut is late packet 33: stamped 134, server-timed 133. The engine crosses it at 134.5 and shows it there
         // (the pair ending at it, fraction clamped to one). On the server's axis alone the origin would cross it a
         // frame early, at 133.5, and then hold it; with the origin paired on its own axis after the stamp's cut, 134.5
-        // would already be past it. Every frame the cut touches must be the engine's.
+        // would already be past it. Every frame the cut touches must be the engine's. 131.5 and 135.5 touch no cut on
+        // either axis and are controls: they hold whatever the rule says.
         byte[] demo = Jittered(cutAt: 33);
         DemoPlayer on = Player(demo, On);
         DemoPlayer off = Player(demo, Off);
@@ -151,6 +152,74 @@ public sealed class DemoPlayerRetimeViewTests
 
         // The control: the frame that crosses the cut shows the cut packet itself.
         crossing.ShouldNotBeNull().Origin.X.ShouldBe(4f * 1033f, Tolerance);
+    }
+
+    [Test]
+    public void InterpolateViewpoint_AFreshPlayerAskedOnceBesideAnEarlyCut_IsTheEnginesFrame()
+    {
+        // No history, so no cut window on either axis: at 133.5 the server's pair is (cut 33, 34), already past the
+        // cut, while the engine's is (32, cut 33) — the pair that starts AT a cut, which only its ends can show.
+        byte[] demo = Jittered(cutAt: 33);
+
+        Player(demo, On).InterpolateViewpoint(133.5).ShouldBe(Player(demo, Off).InterpolateViewpoint(133.5));
+    }
+
+    [Test]
+    public void InterpolateViewpoint_ACutTwoTicksEarly_IsTheEnginesFrameThroughout()
+    {
+        // Cut 33 is stamped 135 and placed 133, its successors 34 and 35 stamped 135 and placed 134 and 135. At 134.5 the
+        // server's pair is (34, 35), wholly past the cut, while the engine still blends (32, cut 33) and has not taken
+        // its cut branch: no end and no cut branch of the server's pair shows it.
+        byte[] demo = Jittered(cutAt: 33, lateness: k => k switch { 33 => 2, 34 => 1, _ => 0 });
+        DemoPlayer on = Player(demo, On);
+        DemoPlayer off = Player(demo, Off);
+
+        for (double tick = 131.5; tick <= 137.5; tick += 1d)
+        {
+            on.InterpolateViewpoint(tick).ShouldBe(off.InterpolateViewpoint(tick), $"tick {tick}");
+        }
+    }
+
+    [Test]
+    public void InterpolateViewpoint_ACutHeldPastAGapWiderThanTheParseAhead_IsTheEnginesFrame()
+    {
+        // An 11-tick gap, then cut packet 20, stamped 131 and placed 130. The reader queues nothing past it until it is
+        // read, so at 130 the server's axis has no pair and the origin would hold the cut packet while the angles still
+        // blend toward it.
+        List<DemoCommand> commands = [];
+
+        for (int k = 0; k < 200; k++)
+        {
+            int stamp = k < 20 ? 100 + k : 111 + k;
+            int server = k < 20 ? 1000 + k : 1011 + k - Convert.ToInt32(k == 20);
+
+            commands.Add(SyntheticViews.Packet(
+                stamp, (4f * server, 0f, 0f), (0f, stamp * 0.5f, 0f), flags: k == 20 ? SyntheticViews.NoInterpolation : 0, serverTick: server));
+        }
+
+        byte[] demo = SyntheticViews.Demo([.. commands, SyntheticViews.Stop(400)]);
+        DemoPlayer on = Player(demo, On);
+        DemoPlayer off = Player(demo, Off);
+
+        for (double tick = 127.5; tick <= 133.5; tick += 1d)
+        {
+            on.InterpolateViewpoint(tick).ShouldBe(off.InterpolateViewpoint(tick), $"tick {tick}");
+        }
+    }
+
+    [Test]
+    public void InterpolateViewpoint_DemoRetimeViewChangedWhilePaused_AppliesOnTheNextCall()
+    {
+        // B450's rule for every demo_* ConVar, and a pause asks one moment again and again: the repeat may not answer
+        // from before the change.
+        DemoViewConVars vars = On;
+        DemoPlayer player = new(DemoTimeline.Build(Jittered())) { ConVars = () => vars };
+
+        player.InterpolateViewpoint(110.5).ShouldNotBeNull().Origin.X.ShouldBe(4042f, Tolerance);
+
+        vars = Off;
+
+        player.InterpolateViewpoint(110.5).ShouldNotBeNull().Origin.X.ShouldBe(4039f, Tolerance);
     }
 
     [Test]
@@ -326,16 +395,18 @@ public sealed class DemoPlayerRetimeViewTests
 
     /// <summary>Sixty packets, server ticks 1000-1059, stamped server tick - 900 (+1 when late), origin 4 per server tick.</summary>
     /// <remarks>The yaw turns with the STAMP, as <c>cl.viewangles</c> does; a cut flag on <paramref name="cutAt"/> if asked.</remarks>
-    internal static byte[] Jittered(bool withServerTicks = true, int[]? late = null, int cutAt = -1, float speed = 4f)
+    internal static byte[] Jittered(
+        bool withServerTicks = true, int[]? late = null, int cutAt = -1, float speed = 4f, Func<int, int>? lateness = null)
     {
         int[] lateOnes = late ?? Late;
+        lateness ??= k => lateOnes.Contains(k) ? 1 : 0;
 
         return SyntheticViews.Demo(
         [
             .. Enumerable.Range(0, 60).Select(k =>
             {
                 int server = 1000 + k;
-                int stamp = server - Delay + (lateOnes.Contains(k) ? 1 : 0);
+                int stamp = server - Delay + lateness(k);
 
                 return SyntheticViews.Packet(
                     stamp,

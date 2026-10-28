@@ -57,8 +57,9 @@ all flags 0, and agree with `cvarlist.log`.
 
 Everything above is the engine's, and it is what `demo_retimeview 0` plays. The default, 1, is this project's. It pairs
 the recorded ORIGIN on each packet's `net_Tick` rather than on the stamp, because a POV packet's stamp is the client's
-arrival time and jitters (finding 106). The angles keep the engine's pair, and so does every frame whose origin pair
-touches an `FDEMO_NOINTERP` packet. The snap's origin speed is measured from the current packet's own placement on that
+arrival time and jitters (finding 106). The angles keep the engine's pair. So does the origin whenever any queued
+`FDEMO_NOINTERP` packet lies between the outermost ends of its pair and the engine's, which covers a cut placed early by
+any amount, lifted, or held past a gap. The snap's origin speed is measured from the current packet's own placement on that
 axis. The reading, the parse-ahead and the rewind above are untouched. How each packet is placed, and the measured
 result: finding 106 and `docs/measurements/2026-10-27-retime-view-by-server-tick.md`.
 
