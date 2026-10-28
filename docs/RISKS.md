@@ -19717,11 +19717,21 @@ changes cluster) and `Descend` returns from an unstamped node before its box tes
 marks nodes is read (B262, `0x1801c8cb0`, eye cluster −1 marks every leaf and node); that a PVS leaf marks its
 ancestors and that `R_RecursiveWorldNode` skips an unmarked node is **interpolated** from the Quake
 `R_MarkLeaves`/`r_visframecount` shape and still to be re-read — the installed engine.dll changed on 2026-10-07, so the
-B262 addresses no longer match it. Two readings kept from the old walk, so the listed leaves are unchanged: no vis lump
-stamps everything, and a non-solid leaf with cluster −1 is stamped (`PVSCheck`). Whether the engine stamps such a leaf
-is not read. Conformance: `Walk_ASubtreeWithNoPvsVisibleLeaf_IsNeverEntered` (red before, the extra node step).
-Output level: `Surfaces_ForAPvsPrunedWalk_AreTheUnprunedWalksInTheSameOrder` on cp_process — the reached surfaces and
-leaves are the same sequence as the unpruned walk's, with strictly fewer node steps. Not yet measured in the viewer.
+B262 addresses no longer match it. Two readings kept from the old walk, so on a well-formed tree the listed leaves are
+unchanged: no vis lump stamps everything, and a non-solid leaf with cluster −1 is stamped (`PVSCheck`). Whether the
+engine stamps such a leaf is not read (Quake 2 does not).
+
+**Where it differs from the old walk, deliberately.** A child index past the leaf lump (a malformed tree) is no longer
+listed; the old walk listed it and `VisibleWorld.Surfaces` then indexed its displacement table out of range. And the
+two eye cases now walk different nodes: an eye in no cluster (or a map with no vis lump) stamps every node, as the read
+`0x1801c9113` path does, so a subtree of only solid leaves is still entered; from a real cluster it is pruned. Neither
+changes a listed leaf or a reached surface.
+
+`Walk_ASubtreeWithNoPvsVisibleLeaf_IsNeverEntered` (red before, the extra node step) sits in `WorldVisibilityTests`,
+not the conformance suite, until the re-read: the half it asserts is the interpolated one. Output level:
+`Surfaces_ForAPvsPrunedWalk_AreTheUnprunedWalksInTheSameOrder` on cp_process and cp_badlands, up to 32 eyes each plus
+one in no cluster and repeated eyes on one instance — the reached surfaces and leaves are the same sequence as the
+unpruned walk's in every view. Not yet measured in the viewer.
 
 ## B260 — why we do not get Valve's performance "doing it the way they do" — OPEN
 

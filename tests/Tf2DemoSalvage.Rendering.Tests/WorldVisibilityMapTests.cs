@@ -277,59 +277,132 @@ public sealed class WorldVisibilityMapTests
     /// walk never goes. The surfaces <see cref="VisibleWorld.Surfaces"/> reaches from the two must be the same sequence,
     /// because a node surface is drawn only once a listed leaf below it has marked it.
     ///
-    /// The control: the pruned walk takes strictly fewer node steps, so the prune did something to be compared.
+    /// **Many eyes, two maps** (B259 review): up to 32 eyes spread over the clustered leaves, then one above the world
+    /// (cluster −1), then the first eye again and again (A→B→A and A→A on ONE pruned instance), five directions each.
+    /// Each view is also walked by a fresh instance, which must agree step for step with the shared one.
+    ///
+    /// The controls, per view: the pruned walk never takes more node steps; from the eye in no cluster it IS the open
+    /// walk, step for step; and wherever the open walk entered a node whose two children are both leaves the PVS hides
+    /// (or solid), the pruned walk takes strictly fewer — that node cannot be stamped.
     /// </remarks>
-    [Test]
+    /// <param name="mapName">The map.</param>
+    [TestCase("cp_process_final")]
+    [TestCase("cp_badlands")]
     [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
-    public void Surfaces_ForAPvsPrunedWalk_AreTheUnprunedWalksInTheSameOrder()
+    public void Surfaces_ForAPvsPrunedWalk_AreTheUnprunedWalksInTheSameOrder(string mapName)
     {
-        (MapLevel level, MapWorld world) = WorldCullingMapTests.Built();
+        (MapLevel level, MapWorld world) = WorldCullingMapTests.Built(mapName);
 
-        BspLeafTree tree = level.Leaves.ShouldNotBeNull("cp_process has a tree");
-        BspLeafFaces leafFaces = level.LeafFaces.ShouldNotBeNull("cp_process has leaf faces");
-        BspVisibility pvs = BspVisibility.Read(MapCache.Bytes());
-        (_, (float X, float Y, float Z) eye) = SomewhereInside(tree);
-        int from = tree.ClusterAt(eye.X, eye.Y, eye.Z);
+        BspLeafTree tree = level.Leaves.ShouldNotBeNull("the map has a tree");
+        BspLeafFaces leafFaces = level.LeafFaces.ShouldNotBeNull("the map has leaf faces");
+        BspVisibility pvs = BspVisibility.Read(MapCache.Bytes(mapName));
 
-        from.ShouldBeGreaterThanOrEqualTo(0, "the eye is in a cluster, so the PVS applies");
+        pvs.HasData.ShouldBeTrue("the map is compiled with visibility, so the PVS applies");
+
+        List<(float X, float Y, float Z)> eyes = [.. Inside(tree, 32)];
+
+        eyes.Count.ShouldBeGreaterThan(1, "too few eyes for a cluster change");
+
+        BspNode root = tree.Node(0).ShouldNotBeNull("the map has a root node");
+        (float X, float Y, float Z) outside = (
+            (root.Min.X + root.Max.X) * 0.5f, (root.Min.Y + root.Max.Y) * 0.5f, root.Max.Z + 512f);
+
+        tree.ClusterAt(outside.X, outside.Y, outside.Z).ShouldBeLessThan(0, "the control: this eye is in no cluster");
+        eyes.AddRange([outside, eyes[0], eyes[0]]);
 
         WorldVisibility pruned = new(tree, pvs);
         WorldVisibility open = new(tree, BspVisibility.None);
         VisibleWorld prunedWorld = new(world.FaceSpans, tree, leafFaces);
         VisibleWorld openWorld = new(world.FaceSpans, tree, leafFaces);
-        int prunedNodes = 0;
-        int referenceNodes = 0;
-        int reached = 0;
+        (int Views, int PrunedNodes, int OpenNodes, int Surfaces, int MustShrink) total = default;
 
-        foreach ((float X, float Y, float Z) towards in Directions.Append((0f, 0f, -1f)))
+        foreach ((float X, float Y, float Z) eye in eyes)
         {
-            ViewFrustum frustum = Looking(eye, towards);
+            int from = tree.ClusterAt(eye.X, eye.Y, eye.Z);
 
-            pruned.Leaves(eye.X, eye.Y, eye.Z, frustum);
-            open.Leaves(eye.X, eye.Y, eye.Z, frustum);
+            bool Stampable(int leaf) =>
+                tree.Contents(leaf) != BspLeafTree.ContentsSolid &&
+                (from < 0 || tree.Cluster(leaf) < 0 || pvs.Visible(from, tree.Cluster(leaf)));
 
-            List<WorldWalkStep> reference =
-            [
-                .. open.Walk.Where(step =>
-                    step.IsNode || tree.Cluster(step.Index) < 0 || pvs.Visible(from, tree.Cluster(step.Index))),
-            ];
+            foreach ((float X, float Y, float Z) towards in Directions.Append((0f, 0f, -1f)))
+            {
+                string view = $"{mapName} from {eye} (cluster {from}) looking {towards}";
+                ViewFrustum frustum = Looking(eye, towards);
 
-            prunedNodes += pruned.Walk.Count(step => step.IsNode);
-            referenceNodes += reference.Count(step => step.IsNode);
+                pruned.Leaves(eye.X, eye.Y, eye.Z, frustum);
+                open.Leaves(eye.X, eye.Y, eye.Z, frustum);
 
-            pruned.Walk.Where(step => !step.IsNode).ShouldBe(
-                reference.Where(step => !step.IsNode), $"looking {towards}, the leaves differ");
+                WorldVisibility fresh = new(tree, pvs);
+                fresh.Leaves(eye.X, eye.Y, eye.Z, frustum);
+                pruned.Walk.ShouldBe(fresh.Walk, $"{view}: the shared instance walked unlike a fresh one");
 
-            List<int> expected = [.. openWorld.Surfaces(reference, eye.X, eye.Y, eye.Z, frustum)];
+                List<WorldWalkStep> reference = [.. open.Walk.Where(step => step.IsNode || Stampable(step.Index))];
+                int prunedNodes = pruned.Walk.Count(step => step.IsNode);
+                int openNodes = open.Walk.Count(step => step.IsNode);
 
-            reached += expected.Count;
+                pruned.Walk.Where(step => !step.IsNode).ShouldBe(
+                    reference.Where(step => !step.IsNode), $"{view}: the leaves differ");
 
-            prunedWorld.Surfaces(pruned.Walk, eye.X, eye.Y, eye.Z, frustum)
-                .ShouldBe(expected, $"looking {towards}, the reached surfaces differ");
+                prunedNodes.ShouldBeLessThanOrEqualTo(openNodes, $"{view}: the prune added node steps");
+
+                if (from < 0)
+                {
+                    pruned.Walk.ShouldBe(open.Walk, $"{view}: an eye in no cluster stamps everything");
+                }
+
+                bool mustShrink = open.Walk.Any(step =>
+                    step.IsNode && tree.Node(step.Index) is { Front: < 0, Back: < 0 } split &&
+                    !Stampable(-split.Front - 1) && !Stampable(-split.Back - 1));
+
+                if (mustShrink)
+                {
+                    prunedNodes.ShouldBeLessThan(openNodes, $"{view}: a node with two hidden leaves was walked");
+                    total.MustShrink++;
+                }
+
+                List<int> expected = [.. openWorld.Surfaces(reference, eye.X, eye.Y, eye.Z, frustum)];
+
+                prunedWorld.Surfaces(pruned.Walk, eye.X, eye.Y, eye.Z, frustum)
+                    .ShouldBe(expected, $"{view}: the reached surfaces differ");
+
+                total = (total.Views + 1, total.PrunedNodes + prunedNodes, total.OpenNodes + openNodes,
+                    total.Surfaces + expected.Count, total.MustShrink);
+            }
         }
 
-        reached.ShouldBeGreaterThan(0, "nothing is reached from any direction, so this cannot fail");
-        prunedNodes.ShouldBeLessThan(referenceNodes, "the PVS pruned no node");
+        TestContext.Out.WriteLine(
+            $"{mapName}: {eyes.Count} eyes, {total.Views} views, node steps {total.PrunedNodes} pruned vs " +
+            $"{total.OpenNodes} open, {total.Surfaces} surfaces compared, {total.MustShrink} views required to shrink");
+
+        total.Surfaces.ShouldBeGreaterThan(0, "nothing is reached from any view, so this cannot fail");
+        total.MustShrink.ShouldBeGreaterThan(0, "no view had a node the PVS must prune, so the prune is untested");
+    }
+
+    /// <summary>Up to <paramref name="count"/> eyes, each the middle of a clustered, roomy leaf, spread over the map.</summary>
+    private static IEnumerable<(float X, float Y, float Z)> Inside(BspLeafTree tree, int count)
+    {
+        List<(float X, float Y, float Z)> all = [];
+
+        for (int leaf = 1; leaf < tree.LeafCount; leaf++)
+        {
+            if (tree.Cluster(leaf) < 0 || tree.Bounds(leaf) is not { } box ||
+                box.Max.X - box.Min.X < 64f || box.Max.Y - box.Min.Y < 64f || box.Max.Z - box.Min.Z < 64f)
+            {
+                continue;
+            }
+
+            (float X, float Y, float Z) middle = (
+                (box.Min.X + box.Max.X) * 0.5f, (box.Min.Y + box.Max.Y) * 0.5f, (box.Min.Z + box.Max.Z) * 0.5f);
+
+            if (tree.LeafAt(middle.X, middle.Y, middle.Z) == leaf)
+            {
+                all.Add(middle);
+            }
+        }
+
+        int step = Math.Max(1, all.Count / count);
+
+        return all.Where((_, at) => at % step == 0).Take(count);
     }
 
     private static IEnumerable<(float X, float Y, float Z)> Directions =>

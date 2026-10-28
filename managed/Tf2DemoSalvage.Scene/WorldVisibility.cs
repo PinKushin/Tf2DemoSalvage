@@ -115,12 +115,22 @@ public sealed class WorldVisibility
     private readonly int[] _leafVisFrame;
 
     /// <summary>The current vis count; 0 marks nothing, since every stamp starts at 0.</summary>
+    /// <remarks>One increment per change of the eye's cluster, so it does not wrap in any real session.</remarks>
     private int _visFrame;
 
-    /// <summary>The eye cluster the current marks were made for; <see cref="int.MinValue"/> before any.</summary>
+    /// <summary>The eye cluster the current marks were made for; <see cref="int.MinValue"/> before any, or after a
+    /// marking that did not finish.</summary>
     private int _markedCluster = int.MinValue;
 
     /// <summary>Records every node's and leaf's parent, once, so marking can climb from a leaf to the root.</summary>
+    /// <remarks>
+    /// The parent links are per instance rather than on <see cref="BspLeafTree"/>: the tree is shared between threads
+    /// (each view half's twin cull), and two small arrays per instance cost less than a lazily built shared one.
+    ///
+    /// **First writer wins, for nodes and leaves alike.** In a well-formed BSP every node and leaf has one parent. A
+    /// malformed tree that reaches a child twice keeps the first path, so marking climbs that one; the walk may still
+    /// reach the child by the other path, where it is stamped or not by the same leaf test.
+    /// </remarks>
     private void LinkParents(int node, int parent, int depth)
     {
         if (depth > MaximumDepth)
@@ -132,7 +142,7 @@ public sealed class WorldVisibility
         {
             int leaf = -node - 1;
 
-            if (leaf < _leafParent.Length)
+            if (leaf < _leafParent.Length && _leafParent[leaf] < 0)
             {
                 _leafParent[leaf] = parent;
             }
@@ -140,7 +150,7 @@ public sealed class WorldVisibility
             return;
         }
 
-        // A node already linked is a cycle in a malformed tree; the first parent stands.
+        // A node already linked is a cycle or a shared child in a malformed tree; the first parent stands.
         if (node >= _nodeParent.Length || _nodeParent[node] >= 0 || (node == 0 && parent >= 0) ||
             _tree.Node(node) is not { } split)
         {
@@ -155,31 +165,43 @@ public sealed class WorldVisibility
     /// <summary>Marks the leaves the eye's cluster can see, and every node above them — the engine's mark-leaves.</summary>
     /// <param name="from">The eye's cluster, or −1 when it has none.</param>
     /// <remarks>
-    /// engine.dll <c>0x1801c8cb0</c> (read under B262): an eye cluster of −1 stamps every leaf and node
-    /// (<c>0x1801c9113</c>), as <c>r_novis</c> does. *Interpolated, not yet re-read:* that a leaf in the PVS stamps
-    /// each node above it, stopping at the first already stamped, and that the walk enters only stamped nodes — the
-    /// Quake <c>R_MarkLeaves</c> shape (B259, `docs/RISKS.md`).
+    /// engine.dll <c>0x1801c8cb0</c> (read under B262, the 2026-10-04 build): an eye cluster of −1 stamps every leaf
+    /// and node (<c>0x1801c9113</c>), as <c>r_novis</c> does. *Interpolated, not yet re-read:* that a leaf in the PVS
+    /// stamps each node above it, stopping at the first already stamped, and that the walk enters only stamped nodes —
+    /// the Quake <c>R_MarkLeaves</c> shape (B259, `docs/RISKS.md`).
+    ///
+    /// **So the two eye cases walk different NODES, and that is the read.** With an eye cluster of −1 (or, ours, no vis
+    /// lump) every node is stamped and a subtree holding only solid leaves is still entered, emitting its node steps;
+    /// from a real cluster a solid leaf is never stamped, so such a subtree is pruned. The listed leaves are the same
+    /// either way, since the walk never lists a solid leaf. The extra node steps draw nothing on a well-formed tree:
+    /// <see cref="VisibleWorld.Surfaces"/> draws a node face only once a listed leaf has marked it, and the leaves that
+    /// list a node face lie under that node (checked on cp_process and cp_badlands, many eyes,
+    /// `Surfaces_ForAPvsPrunedWalk_AreTheUnprunedWalksInTheSameOrder`).
     ///
     /// **Ours, two readings kept from the walk this replaces.** A map with no vis lump stamps everything, since no data
     /// is not proof of invisibility; and a non-solid leaf with no cluster is stamped, after <c>PVSCheck</c>'s "we
-    /// assume the sample is in the PVS". Both list exactly what the per-leaf test listed before.
+    /// assume the sample is in the PVS" — whether the engine stamps one is not read (Quake 2 does not). On a
+    /// well-formed tree the listed leaves are what the per-leaf test listed before. A child index past the leaf lump,
+    /// which the old walk listed and <see cref="VisibleWorld.Surfaces"/> then indexed out of range, is now never listed.
     ///
-    /// **Made again only when the eye changes cluster**, because the stamps are a function of the cluster alone.
+    /// **Made again only when the eye changes cluster**, because the stamps are a function of the cluster alone. The
+    /// cluster is recorded only once the stamps are complete, so a PVS row that throws mid-way is re-marked next call.
     /// </remarks>
     private void MarkLeaves(int from)
     {
-        if (from == _markedCluster && _visFrame != 0)
+        if (from == _markedCluster)
         {
             return;
         }
 
-        _markedCluster = from;
+        _markedCluster = int.MinValue;
         _visFrame++;
 
         if (!_pvs.HasData || from < 0)
         {
             Array.Fill(_nodeVisFrame, _visFrame);
             Array.Fill(_leafVisFrame, _visFrame);
+            _markedCluster = from;
             return;
         }
 
@@ -204,6 +226,8 @@ public sealed class WorldVisibility
                 _nodeVisFrame[node] = _visFrame;
             }
         }
+
+        _markedCluster = from;
     }
 
     /// <summary>The leaves a camera can see, nearest first.</summary>
@@ -273,11 +297,17 @@ public sealed class WorldVisibility
             return;
         }
 
-        // **A node no PVS-visible leaf lies under is never entered** — `R_RecursiveWorldNode`'s vis-count test, before
-        // its box test. Its surfaces could only have been marked by a leaf below it, so none would be drawn here anyway.
+        // **A node no PVS-visible leaf lies under is never entered**, before its box test. *Interpolated* as
+        // `R_RecursiveWorldNode`'s vis-count test (MarkLeaves says what is read). On a well-formed tree nothing is lost:
+        // a node face is drawn only once a listed leaf has marked it, and those leaves lie under the node.
+        if (node >= _nodeVisFrame.Length || _nodeVisFrame[node] != _visFrame)
+        {
+            return;
+        }
+
         // Stryker disable once : a mutant that empties the guard body leaves 'split'
         // unassigned (CS0165), and Safe Mode then drops every mutation in this method — B410.
-        if (node >= _nodeVisFrame.Length || _nodeVisFrame[node] != _visFrame || _tree.Node(node) is not { } split)
+        if (_tree.Node(node) is not { } split)
         {
             return;
         }
