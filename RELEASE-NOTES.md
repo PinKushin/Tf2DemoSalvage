@@ -1,4 +1,63 @@
-# Tf2DemoSalvage 0.1.0-beta.54
+# Tf2DemoSalvage 0.1.0-beta.55
+
+## Changes in 0.1.0-beta.55
+
+Gate for this release (every test executed, 0 failed): core 2713, cli 75, logging 37, fonts 5, animation 5352, scene 3379,
+audio 383, presentation 1323, content 1859, corpus 236, rendering 1270, viewer 159, UI suite 84 of 84 with 0 skipped; CI on
+the merge commit cb7dbb21 green with 0 annotations (Test run 40663194687, CodeQL run 40663194672). Figures are on the
+`cp_process_f12` recording, one machine, first person unless it says otherwise; the file beside each figure holds it.
+
+- **New setting: `demo_retimeview`, default 1. Point-of-view demos recorded over a jittery connection get a smoother
+  first-person camera (D238).** TF2 stamps each packet of a point-of-view demo with the time the recording client received it, and
+  the camera positions are spread along those stamps, so a connection that delivers two packets in one tick and none in the
+  next shows as uneven camera speed. The server's own tick is in every packet. With the setting on, the camera's **position**
+  is spread along the server's tick; the view angles stay on the stamps, as TF2 plays them. `demo_retimeview 0` gives TF2's
+  exact camera. To turn it off, put `demo_retimeview 0` in `settings.cfg`, or for one run use `tf2demoview <demo> +demo_retimeview 0`.
+  On a stuttering demo a user reported (a pl_pier match, 23 players): camera-position pacing unevenness (CV of speed) 0.877 to 0.246, and
+  frames more than 50% off their neighbors 20.7% to 3.2% (docs/measurements/2026-10-27-retime-view-by-server-tick.md).
+  The same packet rate without any jitter reads 0.111, so what is left is partly the player's own motion (docs/measurements/2026-10-27-retime-view-by-server-tick.md).
+  A calm 2013 recording: 3.3% to 1.2% of frames. A modern loaded match (`rgl-pug-2026-08-10-pov`): 30.7% to 21.3%
+  (docs/measurements/2026-10-27-retime-view-by-server-tick.md).
+  Where the server itself lost time, the camera holds for a frame. A teleport (a respawn) that falls across a stamp gap is held, as
+  TF2's own teleport rule holds it, instead of being smeared over several frames (docs/measurements/2026-10-27-retime-view-by-server-tick.md).
+  A demo whose packets carry no server tick, or whose stamps and ticks disagree by more than 8 ticks, plays as TF2 plays it.
+  A SourceTV demo is unchanged by the setting: it records no view, and the one specimen checked answered nothing at all 23,899 of its ticks, on or off (docs/measurements/2026-10-27-retime-view-by-server-tick.md).
+  No frame-time figure is claimed; nothing there is a time (docs/measurements/2026-10-27-retime-view-by-server-tick.md). The costs are under *Known gaps*.
+- **Opening a map takes about half a second longer, and no static prop's lighting is built while the demo plays (B607).**
+  The viewer now builds every static prop's lighting when the map loads, as TF2 does, instead of when each prop first comes
+  into view. Before play on f12: +0.5-0.6 s (docs/measurements/2026-10-27-static-prop-handle-at-load.md).
+  In a 20 s run of play: 233 colour-mesh builds (10.8-17.3 ms) to 0, and static-state builds to 0 (docs/measurements/2026-10-27-static-prop-handle-at-load.md).
+  Those builds were a stall as each prop came into view, not a per-frame cost (docs/measurements/2026-10-27-static-prop-handle-at-load.md).
+  **Frame time is unchanged:** 8.37-8.38 ms against 8.35-8.39 ms (docs/measurements/2026-10-27-static-prop-handle-at-load.md).
+  The screenshot matches outside the frame-rate readout (docs/measurements/2026-10-27-static-prop-handle-at-load.md).
+  The load-time figures predate two counter fixes, so only the total, +0.5-0.6 s, is supported (docs/measurements/2026-10-27-static-prop-handle-at-load.md).
+- **Static props no longer check every dynamic-light slot (parity).** The viewer read all 32 dynamic-light slots for every
+  static prop every frame; TF2 reads only the lights that are live.
+  Static-prop lighting (`baked`): 0.450-0.488 ms to 0.050-0.075 ms a frame, -0.40 to -0.44 ms (docs/measurements/2026-10-27-static-prop-lighting.md).
+  Frame: **-0.37 to -0.47 ms, 4.4-5.5%** (docs/measurements/2026-10-27-static-prop-lighting.md).
+  The screenshot matches outside the frame-rate readout (docs/measurements/2026-10-27-static-prop-lighting.md).
+  **Not exercised by these runs:** f12 had no live dynamic light and no styled light at any drawn static prop in the window, so
+  the dynamic-light path is checked by tests, not by this timing (docs/measurements/2026-10-27-static-prop-lighting.md).
+  Empty view: no change, because no prop is visited there (docs/measurements/2026-10-27-static-prop-lighting.md).
+- **The HUD's font check takes constant time (B608, parity).** Each character of HUD text used to search a list of font
+  handles; TF2 checks a bound.
+  On an empty view, `hud` 0.61-0.81 ms to 0.25-0.30 ms, -0.41 ms; the chat panel 0.29-0.39 ms to 0.011 ms (docs/measurements/2026-10-27-empty-view-breakdown.md).
+  **The frame time is not claimed to have fallen:** the ranges overlap, and other passes read higher in the after build (docs/measurements/2026-10-27-empty-view-breakdown.md).
+  Steady window 3.81 to 3.35 ms; 3.45 to 3.35 ms with one outlying run left out (docs/measurements/2026-10-27-empty-view-breakdown.md).
+  First person is one run per build: `hud` fell 0.31 ms, with no spread, supporting only (docs/measurements/2026-10-27-empty-view-breakdown.md).
+  The screenshots match outside the frame-time overlay, but the chat had faded in both, so they cannot speak for the chat's
+  own text, and the world was not compared (docs/measurements/2026-10-27-empty-view-breakdown.md).
+- **The world is walked only through the parts the visibility set reaches, as TF2 does (B259).** The listed leaves and
+  surfaces are unchanged on `cp_process` and `cp_badlands` (docs/measurements/2026-10-28-pvs-node-prune.md).
+  Camera setup in first person: 0.761-0.770 ms to 0.404-0.415 ms, **-0.36 ms, 5.3% of the frame** (docs/measurements/2026-10-28-pvs-node-prune.md).
+  The sky view's share: 0.198 ms to 0.050-0.052 ms (docs/measurements/2026-10-28-pvs-node-prune.md).
+  **Most of that saving became waiting.** The main thread now finishes sooner and waits longer for the render thread to finish
+  the previous frame (`camera wait` 0.253-0.263 ms to 0.554-0.568 ms); the render thread's own time did not change (docs/measurements/2026-10-28-pvs-node-prune.md).
+  Frame in the steady window: **-0.12 ms**, ranges apart, and only with one disturbed run left out (docs/measurements/2026-10-28-pvs-node-prune.md).
+  Over the whole 20 s the ranges overlap and there is no difference (docs/measurements/2026-10-28-pvs-node-prune.md).
+  Empty view: no change claimed (docs/measurements/2026-10-28-pvs-node-prune.md).
+  The next frame-rate gain is in the render thread's draw, not in another pass in front of it (docs/measurements/2026-10-28-pvs-node-prune.md).
+  The screenshots match in the world at one paused tick with two cameras; nothing on a moving path was compared (docs/measurements/2026-10-28-pvs-node-prune.md).
 
 ## Changes in 0.1.0-beta.54
 
@@ -948,6 +1007,14 @@ Each claim below is a measurement, not an expectation.
 
 Things a user is likely to notice. Each has an entry in `docs/RISKS.md` in the repository.
 
+- **`demo_retimeview` has costs, and its limits are not all explained (D238).** With it on, stalls (frames where the camera does not move between
+  moving frames) rise: the stuttering demo 8 to 11, the modern match 6,912 to 9,936; the extra stalls on the modern match are unexplained (docs/measurements/2026-10-27-retime-view-by-server-tick.md).
+  Snaps (the camera jumping) move too: 11 to 24 on the stuttering demo, 842 to 902 on the modern match, and the remaining 60 on the modern match were not examined (docs/measurements/2026-10-27-retime-view-by-server-tick.md).
+  The 13 extra on the stuttering demo are a respawn that the setting now holds across the real interval (docs/measurements/2026-10-27-retime-view-by-server-tick.md).
+  The camera position can step by up to one tick of motion where it hands over to TF2's own placement (at the edge of a cut, and on the first frames of a playback or a seek that lands on a packet placed after its stamp); the size of the first was not measured (docs/measurements/2026-10-27-retime-view-by-server-tick.md).
+  The modern match keeps 21.3% of frames more than 50% off their neighbors, and why is not explained (docs/measurements/2026-10-27-retime-view-by-server-tick.md).
+  The view angles are not retimed (docs/measurements/2026-10-27-retime-view-by-server-tick.md).
+  Use `demo_retimeview 0` for TF2's exact camera.
 - **A point-of-view recorder can still be predicted standing while he runs (B604).** Left after the fix: 2,369 gaps on etf2l-12025, 23.4% of them starting inside world geometry; its installed map is not the build the demo recorded, so a newer map is the likely cause (*interpolated*, the matching build was not fetched). On the matching-map demo 1,000 remain, none inside world brushes, and static props are the next suspect (docs/measurements/2026-10-26-pov-recorder-seek-scan.md).
   **An expectation, not yet observed:** a recorder an enemy has walked into may hold still for about a second until the engine's stuck check runs, as the game does.
 - **A seek in a point-of-view demo costs more than a play-through frame (B602).** Recovering the recorder's movement took 14.05 ms mean and up to 85.85 ms of a seek, and 102.4 ms in one capped sample (docs/measurements/2026-10-26-pov-recorder-seek-scan.md).
@@ -987,7 +1054,9 @@ Things a user is likely to notice. Each has an entry in `docs/RISKS.md` in the r
   water quality options (`r_waterforceexpensive`, `tf_water_resolution` and the rest), and no option for the richer
   bullet-impact and burning-gib effects (`cl_new_impact_effects`, `cl_burninggibs`). A number of smaller options are
   not offered either, for example `cl_detaildist` (distance of small ground clutter), the rope options, and the
-  eye and face options. Texture quality and anisotropic filtering are already at their highest.
+  eye and face options. Texture quality and anisotropic filtering are already at their highest. The frame cost of each
+  missing option is unmeasured (docs/RISKS.md B701 to B705). `cl_detaildist` is 1200, TF2's own default; the owner's capture config uses 8592
+  (docs/measurements/2026-10-27-defaults-vs-max-quality.md).
 - **Demo voice is partly ported** (B549): TF2 lowers every other sound while someone speaks and shows a speaking
   indicator, and the viewer does neither. A voice's position is fixed when it starts, the output device resamples
   where the game does it itself, `cl_voice_filter` is not offered, and after a seek voice resumes at the next packet.
