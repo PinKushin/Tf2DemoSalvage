@@ -195,6 +195,20 @@ if ($tool -eq 'Agent') {
               "since 2026-09-12: its answers had to be redone."))
     }
 
+    # REVIEWER-MODEL REMINDER, 2026-10-27. The lead launched a sonnet reviewer while itself on sonnet, and the rule
+    # (owner: "you shouldnt be running an independent review with the same model you are"; "smalls are either
+    # sonnet, iff opus lead, or opus, if sonnet with opus advisor lead") was in memory and in this file's comments
+    # but in front of nobody at launch. The hook cannot see the lead's model, so it states the rule at the moment
+    # of launch and lets the lead check its own. After the allow check, so a denied call emits one JSON object only.
+    if ("$($toolInput.subagent_type)" -eq 'caveman:cavecrew-reviewer') {
+        @{ hookSpecificOutput = @{
+              hookEventName = 'PreToolUse'
+              additionalContext = ("REVIEWER MODEL: it must differ from YOURS. Small diff: sonnet if you are opus; opus if you are " +
+                  "sonnet. Large/structural diff: fable either way. Never your own model. Your model is in your system " +
+                  "prompt ('You are powered by the model named ...'). Check it before this launch.") } } |
+            ConvertTo-Json -Depth 5 -Compress
+    }
+
     exit 0
 }
 
