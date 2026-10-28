@@ -13,7 +13,7 @@ the merge commit cb7dbb21 green with 0 annotations (Test run 40663194687, CodeQL
   next shows as uneven camera speed. The server's own tick is in every packet. With the setting on, the camera's **position**
   is spread along the server's tick; the view angles stay on the stamps, as TF2 plays them. `demo_retimeview 0` gives TF2's
   exact camera. To turn it off, put `demo_retimeview 0` in `settings.cfg`, or for one run use `tf2demoview <demo> +demo_retimeview 0`.
-  On the stuttering demo `spiked-pl_pier-stutter.dem`: camera-position pacing unevenness (CV of speed) 0.877 to 0.246, and
+  On a stuttering demo a user reported (a pl_pier match, 23 players): camera-position pacing unevenness (CV of speed) 0.877 to 0.246, and
   frames more than 50% off their neighbors 20.7% to 3.2% (docs/measurements/2026-10-27-retime-view-by-server-tick.md).
   The same packet rate without any jitter reads 0.111, so what is left is partly the player's own motion (docs/measurements/2026-10-27-retime-view-by-server-tick.md).
   A calm 2013 recording: 3.3% to 1.2% of frames. A modern loaded match (`rgl-pug-2026-08-10-pov`): 30.7% to 21.3%
