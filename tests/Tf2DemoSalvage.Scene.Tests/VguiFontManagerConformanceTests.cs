@@ -133,7 +133,7 @@ public sealed class VguiFontManagerConformanceTests
     // `GetCharABCwide` (0x180016a70) bounds-checks the handle against the manager's amalgam count (`TEST EDX,EDX; JS`,
     // `CMP EDX,[RCX+0x10]; JGE`) and answers zeros outside it; `GetCharacterWidth` and `GetFontTall` the same.
     [Test]
-    public void GetCharAbcWide_AHandleAnotherManagerMade_IsZeros()
+    public void HandleCheck_AHandleAnotherManagerMade_AnswersZerosFromEveryQuery()
     {
         VguiFontManager other = new(new FakeGdi());
         VguiFontAmalgam foreign = other.CreateFont();
@@ -152,7 +152,7 @@ public sealed class VguiFontManagerConformanceTests
     // **Ours, not the engine's:** an engine handle is an index, so a stale one below the new count would name a NEW font.
     // This port's handles are objects and a stale one names nothing; kept as it was, and pinned so a faster check keeps it.
     [Test]
-    public void GetFontTall_AHandleFromBeforeClearAllFonts_IsZero()
+    public void HandleCheck_AHandleFromBeforeClearAllFonts_AnswersZeros()
     {
         VguiFontManager manager = new(new FakeGdi());
         VguiFontAmalgam stale = manager.CreateFont();

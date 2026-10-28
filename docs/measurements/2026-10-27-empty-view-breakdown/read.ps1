@@ -24,6 +24,10 @@ function Weighted($lines) {
 }
 $first = Weighted ($rates | Select-Object -First $Warm)
 $steady = Weighted ($rates | Select-Object -Skip $Warm)
+# Each rate line is one second, so a window's frame mean is 1000 ms × its lines / its frames — the steady window's own
+# denominator, where `measured … mean` also counts the first-use seconds.
+$first['frame'] = 1000 * [math]::Min($Warm, $rates.Count) / [math]::Max(1, $first['#frames'])
+$steady['frame'] = 1000 * [math]::Max(0, $rates.Count - $Warm) / [math]::Max(1, $steady['#frames'])
 $mean = [double](($text | Select-String 'measured .* frames, mean ([\d.]+) ms').Matches[0].Groups[1].Value)
 $moments = @($text | Where-Object { $_ -match 'moment cost, mean over' } | Select-Object -Skip 1)
 $ticks = ($text | Select-String 'ending at tick (\d+)').Matches[0].Groups[1].Value
@@ -32,6 +36,7 @@ $posed = ($moments | ForEach-Object { if ($_ -match 'posed ([\d.]+) of ([\d.]+) 
 $m = @{}
 foreach ($l in $moments) { if ($l -match '= (.*)$') { foreach ($kv in $Matches[1] -split '[,;] ') { if ($kv -match '^(\w+) ([\d.]+)') { $m[$Matches[1]] += [double]$Matches[2] } } } }
 "moment (mean of $($moments.Count)): " + (($('sample', 'drawlist', 'models', 'pose', 'simulate', 'collate') | ForEach-Object { "$_ {0:0.00}" -f ($m[$_] / [math]::Max(1, $moments.Count)) }) -join ', ')
+"steady frame mean {0:0.000} ms (the % denominator below); first-use frame mean {1:0.000} ms" -f $steady['frame'], $first['frame']
 foreach ($k in $Keys) {
-  "{0,-38} steady {1,6:0.000} ms {2,5:0.0}%   warm {3,6:0.000}" -f $k, $steady[$k], (100 * $steady[$k] / $mean), $first[$k]
+  "{0,-38} steady {1,6:0.000} ms {2,5:0.0}%   warm {3,6:0.000}" -f $k, $steady[$k], (100 * $steady[$k] / $steady['frame']), $first[$k]
 }

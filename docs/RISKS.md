@@ -19708,9 +19708,11 @@ engine (`f61c7602`, `simulate` 0.5-0.6 → 0.3-0.4 ms; `measurements/2026-10-23-
 does for every entity too. **Still open:** `sample`, `drawlist` and `collate` walk every entity (~230 on f12), not only
 those that changed; together about 0.6 ms.
 
-**2026-10-27, the whole empty view re-measured** (`measurements/2026-10-27-empty-view-breakdown.md`, eight runs, Release):
-frame 3.32-4.04 ms after B608 removed 0.41 ms of HUD (measurements/2026-10-27-empty-view-breakdown.md). Moment: sample 0.31-0.40, drawlist 0.18-0.22, collate 0.20-0.26 —
-this entry's open walks are unchanged. The larger share of the floor is now `camera particles` (1.55 ms, 42%; same record), whose step
+**2026-10-27, the whole empty view re-measured** (`measurements/2026-10-27-empty-view-breakdown.md`, Release): the B build,
+four runs: frame 3.32-4.04 ms over the whole window; `hud` fell 0.41 ms with B608 (frame not claimed; same record). Moment,
+all eight runs: sample 0.31-0.40, drawlist 0.18-0.22, collate 0.20-0.26 — the three open walks sum to 0.69-0.88 ms here
+(same record), against "about 0.6" above from a Debug build on 2026-10-23; the two are not a pair, so no change is claimed
+either way. The larger share of the floor is `camera particles` (1.55 ms, 46% of B's steady frame; same record), whose step
 and build are the engine's shape (audited in that record).
 
 ## B260 — why we do not get Valve's performance "doing it the way they do" — OPEN
@@ -40081,12 +40083,15 @@ count — then indexes `handle * 72`. `VguiFontManager` held its handles in a `L
 `GetCharAbcWide`, `GetCharacterWidth` (twice) and `GetFontTall`; `VguiRichText.DrawString` and `VguiDrawList.DrawPrintText`
 make those calls per character, and each scheme load makes two handles per font. **Same answers, different mechanism**:
 now a reference-keyed `HashSet` (`373b8e7b`), pinned by `VguiFontManagerConformanceTests` (a foreign handle, a handle from
-before `ClearAllFonts`; a sabotage that accepts any handle reddens both).
+before `ClearAllFonts`; a sabotage making `GetFontTall` accept any handle reddened both and only those two, 2 failed of
+13 in the fixture — run 2026-10-27, recorded in commit `373b8e7b`'s message, not in a committed log).
 
 **Measured** (`measurements/2026-10-27-empty-view-breakdown.md`, f12 empty view, eight runs ABBA BAAB): `HudChat`
-0.29-0.39 → 0.011 ms; `hud` 0.61-0.81 → 0.25-0.30 ms, 15.9% → 7.3% of the frame; first person the same 0.31 ms
-(measurements/2026-10-27-empty-view-breakdown.md). Nothing
-visible changes: the paused shots differ only in the frame-time overlay's digits.
+0.29-0.39 → 0.011 ms; `hud` 0.61-0.81 → 0.25-0.30 ms, 18.0% → 8.1% of the steady frame; the frame itself is not claimed
+(measurements/2026-10-27-empty-view-breakdown.md). First person: a 0.31 ms `hud` drop in one run per build; no spread,
+supporting only. **Identity, as far as it goes:** the paused A2/B2 pair, which landed in the same chat-fade state, differs only
+in the frame-time overlay's digits; the HUD is not deterministic between runs (the chat fades on the wall clock), the
+chat's own text was faded in both, and no world-only comparison was made.
 
 **What it does not close** (measurements/2026-10-27-empty-view-breakdown.md): the rest of the empty view's 3.7 ms — particles 1.55 (engine-shaped), B577's
 offers and B259's walks. And one ours-not-the-engine's left as it was: an engine handle is an index, so a stale one below

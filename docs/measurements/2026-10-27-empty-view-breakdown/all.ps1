@@ -1,5 +1,6 @@
 # The whole committed plan, in order: a shot per build (identity, emptiness), ABBA then BAAB empty-view runs, then one
-# first-person run per build. Shots go to the scratch folder given; their hashes are what is kept.
+# first-person run per build. Shots go to the scratch folder given. (Their hashes were meant to be kept here; they were not,
+# and the shots were removed in cleanup — see the record's Identity paragraph. Compare a new pair with pixdiff.ps1.)
 # -From: the first measured run to make (1-8), to resume after a stop; shots are taken only from 1.
 param([Parameter(Mandatory)][string]$ShotDir, [int]$From = 1)
 $run = Join-Path $PSScriptRoot 'run.ps1'
