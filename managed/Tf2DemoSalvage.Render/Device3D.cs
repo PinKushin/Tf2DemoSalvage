@@ -3518,8 +3518,9 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         ArgumentNullException.ThrowIfNull(camera);
 
         // **No lock** (finding 98 §9 step 4): everything below writes the game thread's own half and fields; the draw
-        // installs that half's runs into the renderer when it begins. The wait is `FinishDrawBeforePose`, after this, so
-        // this cull runs while the previous frame draws (step 5): the flip below never lands on the half last handed.
+        // installs that half's runs into the renderer when it begins. The wait is `FinishDrawBeforeEffects`, after this and
+        // after the pose, so this cull runs while the previous frame draws (step 5): the flip below never lands on the half
+        // last handed.
 
         // **Timed here, where each part runs, and carried to the rate line** (B243): `camera setcamera` was one number
         // over the view setup, the constant upload, the world cull and the detail rebuild (finding 83).

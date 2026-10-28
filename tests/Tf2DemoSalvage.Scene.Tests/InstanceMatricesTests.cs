@@ -79,9 +79,9 @@ public sealed class InstanceMatricesTests
     public void Instances_AnotherListsPass_LeavesThisListsMatricesUntouched()
     {
         // **The hand-off contract** (B585): the world, undrawn and viewmodel lists are alive at once and the
-        // device reads all three. A matrix is rewritten only when the list that holds it is rebuilt — which
-        // is after `FinishDrawBeforePose` (`ViewerPresenter.Device.cs` `PoseOver`), the wait that already
-        // makes reusing the lists themselves safe.
+        // device reads all three. A matrix is rewritten only when the list that holds it is rebuilt, and each
+        // list exists once per pose half (`PoseHalves`, B581 rung 3), so the list in flight is never the one
+        // rebuilt (`MomentSceneTests.Pose_AfterAHandOff_WritesTheOtherListAndLeavesTheHandedOneStanding`).
         EntityModelSet models = new();
         List<ModelInstance> world = [];
         List<ModelInstance> other = [];

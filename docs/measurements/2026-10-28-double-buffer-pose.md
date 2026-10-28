@@ -57,6 +57,77 @@ comparable with earlier records).
   `Instances_InTheOtherPoseHalf_LeavesTheFirstHalfsSkinningUntouched`; the world list ignoring the half reddened
   `Pose_AfterAHandOff_WritesTheOtherListAndLeavesTheHandedOneStanding`.
 
+## Environment
+
+RTX 3060, i5-10600K, 2026-10-28 11:37-13:11. Every run passed the quiet gate and exited 0. Load (3 × 1 s, %) before /
+after:
+
+| run | before | after | | run | before | after |
+|---|---|---|---|---|---|---|
+| 01-fp-A | 19 8 16 | 15 9 9 | | 09-empty-A | 14 6 11 | 15 8 15 |
+| 02-fp-B | 24 14 13 | 8 15 17 | | 10-empty-B | 7 7 7 | 19 15 10 |
+| 03-fp-B | 14 17 12 | 15 10 8 | | 11-empty-B | 8 12 14 | 22 15 15 |
+| 04-fp-A | 8 11 11 | 13 5 12 | | 12-empty-A | 12 16 6 | 4 10 9 |
+| 05-fp-B | 12 13 14 | 13 21 9 | | 13-empty-B | 14 9 8 | 6 7 17 |
+| 06-fp-A | 18 19 14 | 16 16 8 | | 14-empty-A | 12 15 14 | 17 14 8 |
+| 07-fp-A | 14 19 12 | 16 18 12 | | 15-empty-A | 10 14 11 | 9 12 7 |
+| 08-fp-B | 11 13 10 | 15 12 12 | | 16-empty-B | 14 11 6 | 10 29 15 |
+
+The baseline load of 7-19% is mostly TF2 idling on the desktop (above); no run was voided. Raw output beside this file:
+`2026-10-28-double-buffer-pose/NN-*.txt`.
+
 ## Results
 
-(pending)
+**Controls.** Every run ended at tick 31347; every first-person run had 18 rebuild reports; first person drew 2,512-2,599 (A)
+and 2,737-2,833 (B) frames, the empty view 5,996-6,199. Empty view: `posed 0` in every moment line of all eight runs.
+
+**Identity: held.** `pixdiff.ps1` on the paused `--shot`s at tick 30000 (shots in the session scratch folder, not kept):
+
+| pair | whole frame | world only |
+|---|---|---:|
+| empty A / B | 17, box (1113,2)-(1119,9) | 0 |
+| empty A / B, second pair | 45,478, box (0,0)-(1279,48) | 0 |
+| empty A / A (control) | 0 | 0 |
+| first person A / B | 28, box (1113,2)-(1119,10) | 0 |
+| first person A / B, second pair | 51, box (993,2)-(1119,10) | 0 |
+| first person A / A (control) | 41,721, box (0,0)-(1279,48) | 0 |
+
+Every whole-frame difference lies in rows 0-48, the top HUD bar, and the A/A control shows the same (41,721 in the
+first-person pair). **Scope:** two cameras at one paused tick, as the prune record; nothing on a moving path.
+
+**First person, steady window (seconds 6-20), ms and % of that run's steady frame:**
+
+| run | frame | `camera wait` | `camera pose` | `camera particles` | `camera setcamera` | render thread (whole window) |
+|---|---:|---:|---:|---:|---:|---:|
+| 01-A | 6.933 | 0.497 (7.2%) | 3.022 | 1.554 | 0.435 | 2.08 |
+| 04-A | 6.893 | 0.509 (7.4%) | 2.979 | 1.546 | 0.433 | 2.10 |
+| 06-A | 6.846 | 0.498 (7.3%) | 2.984 | 1.509 | 0.432 | 2.03 |
+| 07-A | 6.860 | 0.491 (7.2%) | 2.985 | 1.510 | 0.440 | 2.06 |
+| 02-B | 6.417 | 0.000 (0.0%) | 3.068 | 1.507 | 0.428 | 2.08 |
+| 03-B | 6.369 | 0.000 (0.0%) | 3.043 | 1.503 | 0.422 | 2.08 |
+| 05-B | 6.311 | 0.002 (0.0%) | 3.018 | 1.486 | 0.416 | 2.08 |
+| 08-B | 6.458 | 0.000 (0.0%) | 3.059 | 1.541 | 0.428 | 2.13 |
+
+- **Frame: A 6.846-6.933 ms (mean 6.883, 145 fps), B 6.311-6.458 (mean 6.389, 157 fps): −0.49 ms, 7.2% of A's frame,
+  ranges apart.** Inside the registered −0.40 to −0.57. Held.
+- **`camera wait` 0.491-0.509 → 0.000-0.002 ms.** Under 0.05 as registered. Held. In A it is the wait at the pose's
+  entry; in B the wait after the pose (`FinishDrawBeforeEffects`), which finds the frame in flight finished.
+- **No other wait took it over.** B's whole-run `queue wait` ledger holds only `FinishDrawBeforeEffects`, on 1-3 of
+  20 rate lines, each 0.00-0.08 ms; A's holds `FinishDrawBeforePose` on 16-18 lines (0.18-2.63 ms). Held.
+- `camera pose` 2.979-3.022 → 3.018-3.068 (+0.04 ms, inside ±0.15). `queue render thread` 2.03-2.10 → 2.08-2.13
+  (+0.02, inside +0.15; this column is the whole-window phase line, not the steady window).
+- **Whole 20 s window** (each file's `measured … mean`): A 7.96, 7.82, 7.70, 7.76 ms; B 7.16, 7.22, 7.06, 7.31 —
+  **−0.62 ms, ranges apart.** The warm seconds account for the extra: A's `camera wait` there is 0.84-0.95 ms, B's
+  0.006-0.011.
+
+**Empty view (the control), steady window:** A 2.833-2.933 ms, B 2.850-2.886 — overlapping: **no difference**, as
+registered. `camera wait` is 0.000-0.003 in both: with nothing posed, the frame in flight (render thread 0.32 ms) has
+finished before either build's wait.
+
+## Verdict
+
+The pose now overlaps the frame in flight, and `camera wait` is gone: −0.49 ms (7.2%) of the steady first-person frame
+on f12, −0.62 ms over the whole window, with the world identical in both views. What is still not the engine's shape:
+the wait sits after the pose instead of at the hand-off (`EndFrame`), because the particles, decals, lightmap and HUD
+still hand the device what the draw reads in place. On f12 that remaining wait measures 0.00 ms, so moving it buys
+nothing here; it is structure, filed in finding 98 §14.
