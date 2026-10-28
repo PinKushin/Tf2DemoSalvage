@@ -234,10 +234,15 @@ public sealed class DemoPlayer
                 counts[delay] = counts.GetValueOrDefault(delay) + 1;
             }
 
+            // A delay that left the window leaves the table, so it holds at most the window's distinct delays.
             for (; left < index - window; left++)
             {
                 long delay = Delay(commands[left]);
-                counts[delay]--;
+
+                if (--counts[delay] == 0)
+                {
+                    counts.Remove(delay);
+                }
             }
 
             long usual = long.MaxValue;
@@ -245,7 +250,7 @@ public sealed class DemoPlayer
 
             foreach ((long delay, int count) in counts)
             {
-                if (count > most || (count == most && count > 0 && delay < usual))
+                if (count > most || (count == most && delay < usual))
                 {
                     usual = delay;
                     most = count;
@@ -475,9 +480,12 @@ public sealed class DemoPlayer
         // than the parse-ahead, its successor is queued only once it is read. The origin holds that last placed packet
         // until then — the stamp's pair would put it back behind where the server's had already shown it. Both ends at
         // -1 is the search finding nothing; a real pair has next > prev.
+        bool serverAxis = retimed;
+
         if (retimed && origins.Prev.Tick == -1 && origins.Next.Tick == -1)
         {
-            origins = _packets.Count > 0 && _serverTimed[_packets[^1]] <= target
+            serverAxis = _packets.Count > 0 && _serverTimed[_packets[^1]] <= target;
+            origins = serverAxis
                 ? (Queued(_packets.Count - 1, _serverTimed), Queued(_packets.Count - 1, _serverTimed), false)
                 : angles;
         }
@@ -485,20 +493,29 @@ public sealed class DemoPlayer
         (float angleDt, float angleFraction) = Fraction(angles.Prev.Tick, angles.Next.Tick, target, hostRemainder);
         (float originDt, float originFraction) = Fraction(origins.Prev.Tick, origins.Next.Tick, target, hostRemainder);
 
+        // **The snap's interval.** The engine measures current-to-next over its pair's interval, and its pair starts at
+        // the current packet or before it. On the server's axis the pair can start PAST the current one — a packet
+        // placed before its stamp is not read yet — and over that one interval the distance from the current packet
+        // spans two, which doubled the speed and snapped a rocket jump. So the interval runs from the earlier of the
+        // pair's start and the current packet's placement: the engine's own wherever the pair starts at or before it.
+        float speedDt = serverAxis
+            ? (origins.Next.Tick - Math.Min(origins.Prev.Tick, _serverTimed[_current])) * _interval
+            : originDt;
+
         (float X, float Y, float Z) from = origins.Prev.View.Origin;
         (float X, float Y, float Z) to = origins.Next.View.Origin;
 
         float originSpeed = 0f;
         float angularSpeed = 0f;
 
-        if (originDt > 0f)
+        if (speedDt > 0f)
         {
             (float X, float Y, float Z) now = current.Origin;
             float dx = to.X - now.X;
             float dy = to.Y - now.Y;
             float dz = to.Z - now.Z;
 
-            originSpeed = MathF.Sqrt((dy * dy) + (dx * dx) + (dz * dz)) * (1f / originDt);
+            originSpeed = MathF.Sqrt((dy * dy) + (dx * dx) + (dz * dz)) * (1f / speedDt);
         }
 
         if (angleDt > 0f)

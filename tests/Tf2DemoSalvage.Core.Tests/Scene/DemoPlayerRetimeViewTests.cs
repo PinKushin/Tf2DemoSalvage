@@ -71,6 +71,20 @@ public sealed class DemoPlayerRetimeViewTests
     }
 
     [Test]
+    public void InterpolateViewpoint_AJitteredLineUnderTheInterpLimit_IsTheLineAndNeverSnaps()
+    {
+        // 40 units a server tick is 2667 a second, under demo_interplimit's 4000. Across late packet 10 the server's pair
+        // is (10, 11) while packet 9 is still the one read: measured from 9 over the pair's one tick it would be 5333 and
+        // snap, holding packet 9 for a tick. Over the two ticks 9 to 11 actually span, it is the line.
+        DemoPlayer player = Player(Jittered(speed: 40f), On);
+
+        for (double tick = 101d; tick <= 150d; tick += 0.25d)
+        {
+            player.InterpolateViewpoint(tick).ShouldNotBeNull().Origin.X.ShouldBe((float)(40d * (tick + Delay)), 1e-2f, $"tick {tick}");
+        }
+    }
+
+    [Test]
     public void InterpolateViewpoint_OnAJitteredDemo_KeepsTheEnginesAngles()
     {
         // The view angles are cl.viewangles, the stamp's own clock: retiming moves the origin only.
@@ -308,7 +322,7 @@ public sealed class DemoPlayerRetimeViewTests
 
     /// <summary>Sixty packets, server ticks 1000-1059, stamped server tick - 900 (+1 when late), origin 4 per server tick.</summary>
     /// <remarks>The yaw turns with the STAMP, as <c>cl.viewangles</c> does; a cut flag on <paramref name="cutAt"/> if asked.</remarks>
-    internal static byte[] Jittered(bool withServerTicks = true, int[]? late = null, int cutAt = -1)
+    internal static byte[] Jittered(bool withServerTicks = true, int[]? late = null, int cutAt = -1, float speed = 4f)
     {
         int[] lateOnes = late ?? Late;
 
@@ -321,7 +335,7 @@ public sealed class DemoPlayerRetimeViewTests
 
                 return SyntheticViews.Packet(
                     stamp,
-                    (4f * server, 0f, 0f),
+                    (speed * server, 0f, 0f),
                     (0f, stamp * 0.5f, 0f),
                     flags: k == cutAt ? SyntheticViews.NoInterpolation : 0,
                     serverTick: withServerTicks ? server : null);

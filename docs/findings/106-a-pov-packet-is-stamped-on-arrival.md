@@ -49,7 +49,10 @@ the snapshot's and follows the server. The two halves of one `democmdinfo_t` run
 **The fix, above Valve** (D238). `demo_retimeview 1`, the default, pairs the origin on each packet's `net_Tick`. It is
 placed on the stamp's axis by the delay most packets in a 5-second window arrive with. The angles stay on the stamp. On
 the subject the origin pacing CV falls from 0.877 to 0.246. A synthetic line carrying the subject's own stamps and
-`net_Tick`s falls from 0.863 to 0.007. So the jitter is gone, and what the subject keeps is its own motion. The full table
+`net_Tick`s falls from 0.863 to 0.007. So the jitter is gone, and what the subject keeps is its own motion. The engine's
+snap rule had to follow the origin onto the new axis. It measures from the current packet to the pair's end, over the
+pair's interval. On the server's axis the pair can start at a packet not yet read, and over one interval that distance
+spanned two: rgl's snaps rose from 842 to 1005, and fell to 904 once the interval ran from the current packet. The full table
 is in `docs/measurements/2026-10-27-retime-view-by-server-tick.md`.
 
 **A second clock defect, found by the fix** (*measured*). In 2 minutes the 2013 specimen's `stamp - net_Tick` steps by 12 to

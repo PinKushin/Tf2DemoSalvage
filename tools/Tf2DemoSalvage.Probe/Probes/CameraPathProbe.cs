@@ -348,7 +348,7 @@ public sealed class CameraPathProbe : IProbe
         output.WriteLine(string.Create(CultureInfo.InvariantCulture, $"  unchanged from the packet before, among moving: {still.Length}") +
             (still.Length > 0 ? ", by server step " + Counts(still.Select(at =>
                 samples[at + 1].Server is { } next && samples[at].Server is { } previous ? next - previous : -1)) +
-            ", first stamps " + string.Join(' ', still.Take(12).Select(at => samples[at + 1].Stamp.ToString(CultureInfo.InvariantCulture))) : string.Empty));
+            ", first stamps " + string.Join(' ', still.Take(40).Select(at => samples[at + 1].Stamp.ToString(CultureInfo.InvariantCulture))) : string.Empty));
     }
 
     private static string Counts(IEnumerable<int> values) => string.Join(' ',

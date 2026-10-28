@@ -74,7 +74,7 @@ median. "Stalls" counts zero-move frames between moving ones.
 | (b3) on the rgl clocks | off | 1.219 | 49501 / 309558 | 72 | 0 | 1.212 |
 | (b3) on the rgl clocks | **on** | **0.196** | **299** | 61 | 0 | 1.212 |
 | (d) rgl pug POV, modern | off | 27.9 † | 77353 / 251766 (30.7%) | 6912 | 842 | 8.88 |
-| (d) rgl pug POV, modern | **on** | 19.4 † | **53855 / 252738 (21.3%)** | 9916 | 1005 | 8.10 |
+| (d) rgl pug POV, modern | **on** | 19.4 † | **53873 / 252771 (21.3%)** | 9914 | 904 | 8.10 |
 
 † Dominated by respawns: the largest frame step is 4170 units. The "> 50%" column is the comparable one.
 
@@ -106,17 +106,32 @@ Each step comes with a stamp gap of about 20 ticks over a server step of about 7
 every packet beyond it 12 ticks from its stamp, the guard fell back to the stamp, and (c) regressed to CV 0.603. A delay
 step wider than the parse-ahead now ends a run; the table is after that change.
 
-**Stalls, and where they come from.** Every new stall on the subject sits at a stamp where the recording itself repeats the
-origin of the packet before while its neighbours move: 22 such packets, all at a server step of 1. The ON stalls fall at
-46.76, 253.70, 413.89, 614.81 … and the recording's repeats are at stamps 47, 255, 415, 615 …. Off, the uneven stamps
-smeared those repeats across neighbouring frames. That rgl's 6912 → 9916 stalls are the same thing is *interpolated*: rgl
-was not rerun with the repeat count. The other stall source is one frame per lost-time gap, where the reader has not yet
-queued the packet after the gap and the origin holds the last placed packet (b3: 2 on 2013, 61 against 72 off on rgl).
+**Stalls, and where they come from.** The subject has 22 packets whose recorded origin repeats the one before while their
+neighbours move, all at a server step of 1. Its stamps are 0 19 25 47 255 333 415 615 650 683 762 940 1013 1080 1155 1238
+1311 1391 1473 1564 1644 1675. All 11 ON stalls fall on one of them: 46.76, 253.70, 413.89, 614.81, 682.87, 939.81,
+1079.63, 1153.70, 1310.65, 1390.74 and 1472.69. Off, the uneven stamps smeared those repeats across neighbouring frames.
+rgl's recording repeats its origin 13,601 times among moving packets, and its ON stalls (9914) stay under that. That they
+are the same thing is *interpolated*: the 1:1 match was checked on the subject only. The other stall source is one frame per
+lost-time gap, where the reader has not yet queued the packet after the gap and the origin holds the last placed packet
+(b3: 2 on 2013, 61 against 72 off on rgl).
 
-**Snaps.** Subject 11 → 24. The extra 13 are at 2236–2242, a 6-tick stamp gap. There, `net_Tick` 82036 sits at stamp 2242
-and 82042 at 2244, and the origin between them moves faster than `demo_interplimit`. The engine's own teleport rule
-therefore now holds the view across the real interval, where off it smeared one server tick across six. rgl 842 → 1005, not
-examined.
+**Snaps, and a defect they found.** The first run of this table had rgl at 842 → 1005. Its cause was the snap's speed. The
+engine measures from the current packet to the pair's end over the pair's interval, and its pair starts at the current
+packet. On the server's axis, a packet placed a tick before its stamp is not read yet, so the pair can start past the
+current packet. The distance then spans two server ticks over one tick's interval, the speed doubles, and a fast move
+snaps. The interval now runs from the earlier of the pair's start and the current packet's placement. That is the
+engine's own interval wherever the pair starts at or before the current packet. A line at 2667 u/s across a late packet
+held the camera before the change and is the line after it
+(`InterpolateViewpoint_AJitteredLineUnderTheInterpLimit_IsTheLineAndNeverSnaps`).
+- rgl, after the change: 842 → 904. The remaining 62 were not examined.
+- Subject: 11 → 24, unchanged by the change. The extra 13 are at 2236–2242, a 6-tick stamp gap. There `net_Tick` 82036 sits
+  at stamp 2242 and 82042 at 2244, and the origin between them moves faster than `demo_interplimit` over the 7 ticks from
+  the current packet: a respawn. The engine's own teleport rule therefore now holds the view across the real interval,
+  where off it smeared one server tick across six.
+- 2013: 161 either way.
+
+The subject and 2013 rows of the table were measured after the change and match the first run to the digit; rgl's were
+measured again.
 
 ## Verdict
 
@@ -129,8 +144,10 @@ Two things got worse and are kept, deliberately:
 - Stalls rise, because the server's own repeated origins now land on their own tick.
 - Some snaps move, because the engine's teleport limit now sees the true interval.
 
-The angles are unchanged by construction, and their source and the subject's measurement agree that the stamp is their
-clock.
+The angles are paired on the stamp as before; their source and the subject's measurement agree that the stamp is their
+clock. They change only on frames where the origin's snap decision changes, because a snap returns the current packet's
+angles with its origin. That happens nowhere on the subject or 2013 (angle CV identical), and on rgl it moves the angle
+CV from 8.88 to 8.10 and the angle stalls from 98 to 130.
 
 **What remains for the 4+ tick gaps.** By server step:
 - subject `1x3 2x1 3x1`;
