@@ -366,7 +366,7 @@ public sealed class LevelLightingTests
 
         lighting.ModelLightingAt(30f, 0f, 100f).Locals[0].X.ShouldBe(-200f, "unchanged until told");
 
-        lighting.StylesChanged();
+        lighting.StylesChanged([1]);
 
         lighting.ModelLightingAt(30f, 0f, 100f).Locals[0].X.ShouldBe(230f);
     }

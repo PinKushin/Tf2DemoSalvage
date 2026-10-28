@@ -67,6 +67,10 @@ public sealed class StaticPlusDynamicLightingConformanceTests
         LocalLight full = lighting.StaticPlusDynamicLights(1000, 0f, 0f, 100f).ShouldHaveSingleItem();
 
         lighting.StyleScale = values.Scale;
+
+        // Setting the scale stamps nothing (`R_AnimateLight` stamps a style when its value changes); production is safe
+        // because the first `Advance` reports every style changed and `LightStyleEffects` stamps them — pinned by
+        // `LightStyleEffectsTests.StepOver_TheFirstFrame_RanksAStaticPropsStyledLightsAgainAtTheDemosValue`.
         lighting.StylesChanged([Style]);
         LocalLight half = lighting.StaticPlusDynamicLights(1000, 0f, 0f, 100f).ShouldHaveSingleItem();
 
@@ -259,6 +263,35 @@ public sealed class StaticPlusDynamicLightingConformanceTests
         IReadOnlyList<LocalLight> both = lighting.StaticPlusDynamicLights(1000, 0f, 0f, 100f);
 
         both.Select(static local => (local.Y, local.Z)).ShouldBe([(30f, 120f), (0f, 120f)], ignoreOrder: true);
+        lighting.StyledRankings.ShouldBe(1);
+    }
+
+    /// <summary>
+    /// The cached four plus a dlight rank as the whole list plus the dlight would, ties included: five styled lamps at one
+    /// distance tie, so which four keep their slots is the tie rule's, and the dlight is ranked in among them. The expected
+    /// value is one ranking over everything, the shape this replaced.
+    /// </summary>
+    [Test]
+    public void StaticPlusDynamicLights_FiveEqualStyledLampsAndADlight_RankAsOneListWould()
+    {
+        BspWorldLight[] lamps =
+        [
+            .. new[] { (20f, 0f, 100f), (-20f, 0f, 100f), (0f, 20f, 100f), (0f, -20f, 100f), (0f, 0f, 120f) }
+                .Select(origin => LevelLightingTests.Lamp(origin, 400f) with { Style = Style, Cluster = 0 }),
+        ];
+        LevelLighting lighting = Map(lamps);
+        DynamicLights lights = new() { Time = 1f };
+        lighting.Dynamic = lights;
+
+        lighting.StaticPlusDynamicLights(1000, 0f, 0f, 100f).Count.ShouldBe(4, "the control: five tie for four slots");
+
+        DynamicLight light = lights.AllocDlight(1);
+        (light.X, light.Y, light.Z, light.Radius, light.Red, light.Die) = (0f, 0f, 80f, 255f, 255, 2f);
+
+        LocalLight[] expected = new LocalLight[LocalLights.MaximumLocalLights];
+        int found = LocalLights.Strongest([.. lamps, DynamicLights.ToWorldLight(light, 0)], 0f, 0f, 100f, expected);
+
+        lighting.StaticPlusDynamicLights(1000, 0f, 0f, 100f).ShouldBe(expected[..found]);
         lighting.StyledRankings.ShouldBe(1);
     }
 

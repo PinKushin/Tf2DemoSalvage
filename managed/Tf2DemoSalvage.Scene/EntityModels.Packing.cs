@@ -154,19 +154,25 @@ public sealed partial class EntityModelSet
 
         // **The static props once a level, after the moment's own** — the order they were packed in when they rode the
         // draw list behind the entities every frame (finding 83 item 1).
-        if (!_staticsPacked)
+        bool staticsNow = !_staticsPacked;
+
+        if (staticsNow)
         {
             _staticsPacked = true;
             added |= PackModels(_staticProps, load);
-
-            // Their lighting with them, as the level loads (B607), not on each one's first draw.
-            PrecacheStaticLighting();
         }
 
         if (added)
         {
             ModelsPacked += _byModel.Count - before;
             PackTicks += System.Diagnostics.Stopwatch.GetTimestamp() - packAt;
+        }
+
+        // Their lighting with them, as the level loads (B607), not on each one's first draw — after the pack's own clock,
+        // since the colour meshes and static states it builds are timed where they are built.
+        if (staticsNow)
+        {
+            PrecacheStaticLighting();
         }
 
         return added;

@@ -1,0 +1,4 @@
+compare.ps1 (../2026-10-27-static-prop-lighting/compare.ps1) over the three --shot captures at tick 30600 (not committed):
+S1-B.png vs S2-B.png: 36200 of 921600 pixels differ, max channel 255, box (0,0)-(1279,48)
+S1-B.png vs S3-A.png: 36192 of 921600 pixels differ, max channel 255, box (0,0)-(1279,48)
+S2-B.png vs S3-A.png: 54 of 921600 pixels differ, max channel 255, box (1101,2)-(1119,10)

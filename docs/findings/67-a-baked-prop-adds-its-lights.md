@@ -101,8 +101,13 @@ enumerator calling `FUN_1801b5260` has no direct cross-reference to read.
 The port gathered bit 2 by reading all 32 `cl_dlights` slots, a leaf lookup each, for every static prop every frame — about
 4,000 slot reads a frame on f12, where no dlight was live at all. The engine never looks at a dead slot: the handle's
 bits are masked by `r_dlightactive` first. Walking the mask instead took `baked` from 0.45-0.49 to 0.05-0.08 ms and the frame down
-0.37-0.47 ms, with identical pixels outside the frame-rate readout (measurements/2026-10-27-static-prop-lighting.md). Bit 4's cache at `+0x88` is still not ported — f12
-lists no styled light at any prop it draws, so it could not be measured there (B607).
+0.37-0.47 ms, with identical pixels outside the frame-rate readout (measurements/2026-10-27-static-prop-lighting.md). Bit 4's cache at `+0x88` was ported the same day: the ranked
+styled lights are kept per prop and ranked again only when a listed style is stamped, and a live dlight is ranked
+against the cached four (B607). f12 lists no styled light at any prop it draws, so only the conformance tests exercise
+it. The handle itself is now built when the level loads, as `PrecacheLighting` builds it: on f12 no static state and no
+colour mesh is built during play any more, the frame is unchanged, and the load is about half a second longer
+(measurements/2026-10-27-static-prop-handle-at-load.md). *Interpolated*, because this pass could not open the engine:
+whether the load-time build fills `+0x88` too, and that `+0xf8` is compared per listed style.
 
 Not ported: when cvar `DAT_18069c368` is nonzero a second combined state (the instance's `+0x88..+0xcc` added to
 the per-draw state, lights unioned to four, `0x1800f2120..0x1800f2232`) is built for a record at

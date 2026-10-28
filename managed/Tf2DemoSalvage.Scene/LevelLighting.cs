@@ -159,13 +159,6 @@ public sealed class LevelLighting
         Direct,
     }
 
-    /// <summary>Every light style changed: every cache entry is relit where it was built when next used.</summary>
-    public void StylesChanged()
-    {
-        _styleVersion++;
-        _everyStyleStamp = _styleVersion;
-    }
-
     /// <summary>
     /// These light styles changed: every light cache entry is relit when next used, and each style is stamped, as
     /// `R_AnimateLight` stamps `DAT_1806998a0[style]`, for a static prop's handle to compare with its `+0xf8` (B607).
@@ -186,9 +179,6 @@ public sealed class LevelLighting
 
     /// <summary>When each style last changed, in <see cref="_styleVersion"/>s; a style never changed is absent.</summary>
     private readonly Dictionary<int, int> _styleStamps = [];
-
-    /// <summary>When every style last changed at once — a new <see cref="StyleScale"/>, or <see cref="StylesChanged()"/>.</summary>
-    private int _everyStyleStamp;
 
     /// <summary>A model's light, through the light cache: see <see cref="LightCache{T}"/>.</summary>
     /// <param name="x">The model's lighting origin.</param>
@@ -575,8 +565,8 @@ public sealed class LevelLighting
     /// <summary>Bit 4 (`FUN_1801b5400`): the handle's ranked styled lights, ranked again only when a listed style changed.</summary>
     /// <remarks>
     /// **Cached at `+0x88`, rebuilt when a listed style's stamp passes `+0xf8`** (finding 67): a style no listed light
-    /// answers to leaves it. Both stamps are <see cref="_styleVersion"/>s — <see cref="StylesChanged(IReadOnlyCollection{int})"/>
-    /// for one style, <see cref="StylesChanged()"/> for all.
+    /// answers to leaves it. Both stamps are <see cref="_styleVersion"/>s, set by
+    /// <see cref="StylesChanged(IReadOnlyCollection{int})"/>.
     /// </remarks>
     private StyledHandle Ranked(StyledHandle handle, float x, float y, float z)
     {
@@ -605,10 +595,10 @@ public sealed class LevelLighting
         return handle;
     }
 
-    /// <summary>Whether a handle's `+0x88` predates a stamp of every style or of one it lists.</summary>
+    /// <summary>Whether a handle's `+0x88` was never built, or predates a stamp of a style it lists.</summary>
     private bool Stale(StyledHandle handle)
     {
-        if (handle.BuiltAt < 0 || _everyStyleStamp > handle.BuiltAt)
+        if (handle.BuiltAt < 0)
         {
             return true;
         }
@@ -753,6 +743,10 @@ public sealed class LevelLighting
     ///
     /// **Ranked against the cached four, not the whole list** (`FUN_1801b6550` adds to the state bit 4 left): a light's
     /// strength is its own, so the strongest of the four and the dlights are the strongest of the list and the dlights.
+    /// That holds on ties too, because `LocalLights`' insert keeps the EARLIER of two equal lights (a full list refuses
+    /// a light no stronger than its last, and a light moves up only past a weaker one): the four come in rank order before
+    /// the dlights, as the list came in lump order before them. Pinned by
+    /// `StaticPlusDynamicLights_FiveEqualStyledLampsAndADlight_RankAsOneListWould`.
     /// </remarks>
     private List<BspWorldLight>? WithDynamic(StyledHandle handle, float x, float y, float z)
     {

@@ -375,7 +375,8 @@ public sealed partial class EntityModelSet
         long buildAt = System.Diagnostics.Stopwatch.GetTimestamp();
         built = BuildBakedColours(prop, pose, x, y, z);
 
-        if (_bakedByEntity.ContainsKey(prop.EntityIndex))
+        // A mesh built, not an answer of none: a static prop's "no colour mesh" is kept too, and is not a build.
+        if (built is not null)
         {
             BakedBuilds++;
             BakedBuildTicks += System.Diagnostics.Stopwatch.GetTimestamp() - buildAt;

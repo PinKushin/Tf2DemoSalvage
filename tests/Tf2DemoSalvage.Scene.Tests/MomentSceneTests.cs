@@ -1106,7 +1106,7 @@ public sealed class MomentSceneTests
         float[] before = [.. scene.Instances.ShouldHaveSingleItem().BakedColours.ShouldNotBeNull()];
 
         scale[0] = 1f;
-        lighting.StylesChanged();
+        lighting.StylesChanged([5]);
         scene.Pose(Info());
 
         scene.Instances.ShouldHaveSingleItem().BakedColours.ShouldBe(before);

@@ -1,0 +1,16 @@
+grid.ps1:
+01-A 18:34:26: load before: 21 24 24 exit 0; load after: 46 43 97
+02-B 18:40:14: load before: 14 21 13 exit 0; load after: 54 70 43
+03-B 18:49:44: load before: 20 19 13 exit 0; load after: 23 18 20
+04-A 18:58:16: load before: 16 7 19 exit 0; load after: 44 43 21
+05-B 19:03:13: load before: 13 15 19 exit 0; load after: 41 100 26
+06-A 19:07:35: load before: 21 10 17 exit 0; load after: 11 17 14
+07-A 19:11:59: load before: 16 21 20 exit 0; load after: 9 11 15
+08-B 19:16:27: load before: 11 12 13 exit 0; load after: 12 11 15
+S1-B 19:20:40: load before: 6 12 6 exit 0; load after: 47 28 39
+(S2-B and S3-A followed; their lines were not kept.)
+grid2.ps1:
+09-A 19:33:59: load before: 13 10 1 exit 0; load after: 54 96 87
+10-B 19:38:07: load before: 13 14 6 exit 0; load after: 54 87 77
+11-B 19:43:53: load before: 18 3 9 exit 0; load after: 15 5 17
+12-A 19:48:13: load before: 13 14 18 exit 0; load after: 19 8 13
