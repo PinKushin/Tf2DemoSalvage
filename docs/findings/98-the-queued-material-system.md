@@ -861,7 +861,11 @@ lights by value now; `TF2VIEW_FRAME_HASH` does not, so earlier hash records stay
   A map change drains before clearing either half (`ClearMap` → `Queue.Lock()` → `Shutdown`).
 - *Final gate:* phase 2 green (84 total, 0 failed). Phase 1 aborted in rendering, on a native crash in D3D11 `Map` on
   the offscreen screen-overlay path, which this branch does not touch. The crash did not recur in 10 isolated runs on
-  either build. It is filed apart from this work (measurements/2026-10-28-double-buffer-pose.md, "The gate, once").
+  either build. It is filed apart from this work as B610 (measurements/2026-10-28-double-buffer-pose.md, "The gate,
+  once").
+- **Status: merge-ready, by the owner's decision (D239, 2026-10-28).** The hang is filed as a known flake, B609, which
+  reopens if a `queue stall` line ever appears or the branch's hang rate exceeds the baseline's. His reading, *"probably
+  just a slow load because tf2 was open"*, is neither confirmed nor refuted by the evidence.
 
 **Measured** (measurements/2026-10-28-double-buffer-pose.md, ABBA BAAB, quiet-gated, Release):
 

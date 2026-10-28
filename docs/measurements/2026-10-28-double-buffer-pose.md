@@ -132,7 +132,7 @@ the wait sits after the pose instead of at the hand-off (`EndFrame`), because th
 still hand the device what the draw reads in place. On f12 that remaining wait measures 0.00 ms, so moving it buys
 nothing here; it is structure, filed in finding 98 §14.
 
-## Gate, and an unexplained hang (NOT merge-ready)
+## Gate, and an unexplained hang (merge-ready by the owner's decision, D239; the hang is a known flake, B609)
 
 - **Phase 1** (`TF2DEMOSALVAGE_GCOR_ONLY=1`, `-Shared`, at `bd98321f`): twelve assemblies, 0 failed, every one above its
   floor (scene 3387, presentation 1323, rendering 1270, core 2713, animation 5352, content 1859).
@@ -347,5 +347,9 @@ log a `queue stall` line naming the caller and the pass the frame in flight had 
 **What this supports:** at one occurrence in 12, nothing distinguishes the branch from the baseline. With a true
 rate of 1 in 12 on both, a clean 0 in 6 for the baseline is likely, about 0.59 (*arithmetic*). So the control cannot
 say the hang is the branch's, and it cannot say it is not. **Not established:** the cause. The stall report is in place,
-so a recurrence will name the waiting caller and the last pass of the frame in flight. Whether one hang in 12 runs
-blocks the merge is the lead's call. It is not decided here.
+so a recurrence will name the waiting caller and the last pass of the frame in flight.
+
+**Status: merge-ready, by the owner's decision (D239, 2026-10-28).** His words: *"merge it, file the hang as a flake, i
+think it was probably just a slow load because tf2 was open or somethign"*. The hang is filed as a known flake, B609,
+with the condition that reopens it. The evidence neither confirms nor refutes his reading. The rendering crash in the
+final gate's phase 1 is filed apart, as B610.
