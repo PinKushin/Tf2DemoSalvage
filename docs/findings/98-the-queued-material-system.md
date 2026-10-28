@@ -831,6 +831,10 @@ lights by value now; `TF2VIEW_FRAME_HASH` does not, so earlier hash records stay
 - *Sabotage*: `PoseHalves` never moving. The verifier logged the pose part changed at 30001 and 30004, and the viewer died
   with `Collection was modified` in the render thread's hash. Restored with the inverse edit.
 - *Pixels*: 0 world pixels differ, A/B and A/A, in the empty view and in first person.
+- *Gate*: phase 1 green.
+- *Phase 2, NOT green*: one UI test hung at the first world frame of a z1800 load
+  (`PausedSoundUiTests.Footsteps_HeardWhilePlaying_StopWhenTheDemoIsPaused`). The overlap is the suspect. It did not
+  reproduce in 16 tries, and the cause is unknown (measurements/2026-10-28-double-buffer-pose.md, "Gate").
 
 **Measured** (measurements/2026-10-28-double-buffer-pose.md, ABBA BAAB, quiet-gated, Release):
 

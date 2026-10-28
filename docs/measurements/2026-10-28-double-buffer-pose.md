@@ -131,3 +131,31 @@ on f12, −0.62 ms over the whole window, with the world identical in both views
 the wait sits after the pose instead of at the hand-off (`EndFrame`), because the particles, decals, lightmap and HUD
 still hand the device what the draw reads in place. On f12 that remaining wait measures 0.00 ms, so moving it buys
 nothing here; it is structure, filed in finding 98 §14.
+
+## Gate, and an unexplained hang (NOT merge-ready)
+
+- **Phase 1** (`TF2DEMOSALVAGE_GCOR_ONLY=1`, `-Shared`, at `bd98321f`): twelve assemblies, 0 failed, every one above its
+  floor (scene 3387, presentation 1323, rendering 1270, core 2713, animation 5352, content 1859).
+- **Phase 2** (`Tf2DemoSalvage.Viewer3D.UiTests`, under the desktop lock): **1 failed, 75 passed, 8 skipped, of 84.**
+  `PausedSoundUiTests.Footsteps_HeardWhilePlaying_StopWhenTheDemoIsPaused` timed out after 5 min 2 s, at its 300 s
+  `Loading` bound: "opening state applied" never came. Its viewer log (`%LOCALAPPDATA%/Tf2DemoSalvage/
+  viewer-20261028-133421-4372.log`, z1800 `--tick 20000 --autoplay +demo_timescale 8 +volume 1`, mode `-1` → 2) holds 38
+  once-a-second rate reports through the load, then the first world frame's draw (the render thread's `viewmodel pass
+  start: (first frame)` at 13:35:30.805), then **nothing**. The process stayed alive until the test killed it at
+  ~13:39:21, so for about four minutes even the background log writer wrote nothing. The suite's shared-fixture viewer
+  (`viewer-20261028-133014-40780.log`, also z1800) ran beside it the whole time.
+- **What was tried, and what it shows:**
+  - the test alone: passed (1 m 11 s);
+  - a scripted loop of the same scenario beside a second viewer (f12 autoplay), with a watchdog that, on a stalled
+    log, samples the process's CPU and takes a `dotnet-trace` before killing it: **15 of 15 attempts reached "opening
+    state applied"**;
+  - the loop's first version flagged a "hang" at 97% of one core during the demo's load, before any rate report. That was
+    the watchdog's own fault: the load is silent for more than 30 s. It now waits for the first rate report. Not a
+    reproduction.
+- **Not established:** the cause. Not reproduced in 16 tries. *Suspect:* this branch's new overlap, since the pose now
+  runs while the first world frame draws, and the stall came exactly there. The source holds no `lock` in Scene,
+  Content, Animation or Render that the pose could hold across a drain. The candidates left are:
+  - a non-concurrent collection touched by both threads, which spins (rung 2's `BspVisibility` row cache was one);
+  - a process-wide stall: a log writer that stopped too says more than one thread stopped.
+
+  **No baseline control was run**, so whether `7946c74d` also hangs here is unknown.
