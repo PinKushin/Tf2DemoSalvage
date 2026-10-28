@@ -99,7 +99,15 @@ three more E at stock plus `cl_updaterate`/`cl_cmdrate` 66, and two more B. The 
 - The desktop lock was held through `run-exclusive.ps1` for all three rounds, about 86 minutes in total. The probe ran
   `-Shared` after each round.
 
-The variant cfgs are in `tf/cfg/` (`sr_a.cfg`, `sr_e.cfg`, `sr_server.cfg`, `sr_restore.cfg`). They hold network lines only:
+The variant cfgs were run from `tf/cfg/`, and copies are kept in
+[`2026-10-28-stutter-reproduction/`](2026-10-28-stutter-reproduction/):
+- `sr_a.cfg`, the user's network lines;
+- `sr_e.cfg`, the engine defaults;
+- `sr_server.cfg`, the listen-server bot lines;
+- `sr_restore.cfg`, the session's pre-run values.
+
+To reproduce the run, copy them into `tf/cfg/`. They hold cvar lines only, with no password, token or other private value
+from the user's autoexec. B, C, D and E66 are `exec sr_a` or `exec sr_e` followed by the one or two cvars in the table:
 
 | v | settings |
 |---|---|
