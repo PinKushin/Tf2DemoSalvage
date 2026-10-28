@@ -408,6 +408,28 @@ public sealed class EntityModelsTests
         queried[0].ShouldBe(handed[0], "the control: the same bones, the same matrices");
     }
 
+    /// <remarks>
+    /// **A level's query buffers go with the level**, as both pose halves' do (`LevelShutdown`): entity 5 on the next map is
+    /// another entity, and a buffer kept from the last one would be reused under it.
+    /// </remarks>
+    [Test]
+    public void SkinningOf_AfterALevelShutdown_BuildsIntoANewBuffer()
+    {
+        EntityModelSet models = new();
+        List<ModelInstance> drawn = [];
+
+        models.Add([Prop("models/player/scout.mdl", x: 300f, entity: 5)], OneSkinnedBone);
+        models.Instances([Prop("models/player/scout.mdl", x: 300f, entity: 5)], drawn, seconds: 0.25d);
+        float[] before = models.SkinningOf(5).ShouldNotBeNull().Bones[0];
+
+        models.LevelShutdown();
+        models.Add([Prop("models/player/scout.mdl", x: 300f, entity: 5)], OneSkinnedBone);
+        models.Instances([Prop("models/player/scout.mdl", x: 300f, entity: 5)], drawn, seconds: 0.25d);
+        float[] after = models.SkinningOf(5).ShouldNotBeNull().Bones[0];
+
+        after.ShouldNotBeSameAs(before, "the query's buffer outlived the level");
+    }
+
     /// <remarks>The control: within one half, the skinning is rewritten in place, as before the halves (no allocation).</remarks>
     [Test]
     public void Instances_InTheSamePoseHalfNextFrame_RewritesItsSkinningInPlace()

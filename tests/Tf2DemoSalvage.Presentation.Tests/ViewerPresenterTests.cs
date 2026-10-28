@@ -662,12 +662,13 @@ public sealed class ViewerPresenterTests
     }
 
     /// <remarks>
-    /// **Every pose counts hand-offs on the device the frame posed over** (B581 rung 3, review): the scene's source is set
-    /// from it at the pose, so a seek's pose, which passes no device, reads the same count and cannot flip onto the half
-    /// in flight. Before any frame, nothing was ever handed and the count is zero.
+    /// **The pose itself reads the hand-off count of the device the frame poses over** (B581 rung 3, review): the scene's
+    /// source points at that device before the pose runs, so the count read inside the pose is the device's — and a
+    /// seek's pose, which passes no device, reads the same one. A moment is built, so the pose really runs and the read
+    /// is the scene's, not the test's.
     /// </remarks>
     [Test]
-    public void UploadCameraOver_OverADevice_PointsThePosesHandOffCountAtThatDevice()
+    public void UploadCameraOver_WithAMomentBuilt_PosesWithTheHandOffCountOfThatDevice()
     {
         WriteMap();
         (ViewerPresenter loader, _, _) = Loader();
@@ -678,11 +679,19 @@ public sealed class ViewerPresenterTests
         {
             loader.AttachWindow(asked.Window(loader), new FpsPanelTests.SolidGdi());
             loader.LoadDemo(WriteDemo("camera")).Loaded.ShouldBeTrue();
-            loader.PoseHandOffs.ShouldBe(0, "the control: before any frame, no device is counted");
+            loader.Show(12d, playing: false);
 
+            loader.Posed = () => device.Mark("posed");
             loader.UploadCameraOver(device, new FakeFrameDevice(), flyTicks: 0, exposureSeconds: 0f, surfaceColours: false);
 
-            loader.PoseHandOffs.ShouldBe(7);
+            List<string> set = [.. device.Set];
+            int monitor = set.FindIndex(line => line.StartsWith("DrawsMonitor read", StringComparison.Ordinal));
+            int counted = set.IndexOf("HandOffs read 7");
+            int posed = set.IndexOf("posed");
+
+            counted.ShouldBeGreaterThan(monitor, "the pose did not read this device's count after its own inputs");
+            counted.ShouldBeLessThan(posed);
+            monitor.ShouldBeGreaterThanOrEqualTo(0, "the control: the pose's inputs were read");
         }
     }
 

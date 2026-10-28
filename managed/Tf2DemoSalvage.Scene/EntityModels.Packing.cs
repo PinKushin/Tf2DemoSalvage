@@ -102,6 +102,7 @@ public sealed partial class EntityModelSet
         _propsByEntity.Clear();
         _skinning[0].Clear();
         _skinning[1].Clear();
+        _queriedSkinning.Clear();
         _inView.Clear();
         _eventStates.Clear();
         _clientCycles.Clear();

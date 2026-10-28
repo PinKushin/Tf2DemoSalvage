@@ -42,6 +42,10 @@ public sealed partial class ViewerPresenter
         // Assigned here rather than at construction because the device does not exist until the
         // viewport has a handle.
         _moment.Upload = device;
+
+        // **From the moment it is attached**, not only from the first frame's pose (review of rung 3): a seek before that
+        // frame poses too, and must count this device's hand-offs.
+        _handingDevice = device;
     }
 
     /// <summary>The window is about to dispose the device: the scene uploads nowhere, and no frame call reaches it.</summary>
@@ -52,11 +56,9 @@ public sealed partial class ViewerPresenter
         _handingDevice = null;
     }
 
-    /// <summary>The device the frame last posed over, whose hand-offs pick the pose half (B581 rung 3); null before one.</summary>
+    /// <summary>The device whose hand-offs pick the pose half (B581 rung 3): the one attached, then the one the frame last
+    /// posed over; null before either.</summary>
     private IViewerDevice? _handingDevice;
-
-    /// <summary>The count the scene's next pose would read (<see cref="MomentScene.HandOffs"/>), for a test of the wiring.</summary>
-    internal long PoseHandOffs => _moment.HandOffs?.Invoke() ?? -1;
 
     /// <summary>Every camera upload's pieces so far, in stopwatch ticks, timed where they ran (B595).</summary>
     public CameraTotals CameraSpent { get; private set; }

@@ -199,6 +199,7 @@ public sealed class MaterialQueueConformanceTests
             release.Set();
 
             locking.Wait(TimeSpan.FromSeconds(10)).ShouldBeTrue("the wait did not end when the frame did");
+            queue.InFlight.ShouldBeFalse("the wait returned with the frame still in flight");
             stalls.ShouldBe([("FinishDrawBeforeEffects", 7)]);
         }
         finally
