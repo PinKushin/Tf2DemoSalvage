@@ -183,11 +183,169 @@ nothing here; it is structure, filed in finding 98 §14.
   - Tests, red first: `Lock_PastTheStallBound_ReportsOnceTheCallerAndTheFramesLastPass` failed against a stub with the members and no report, "nothing reported the stall, so nothing opened the frame's gate". It passes with the report. The control is `Lock_WithinTheStallBound_ReportsNothing`.
 - **No fix was made.** Without a reproduction no change can be shown red-first against the real failure, and a speculative one would be a guess.
 
+### The owner's hypothesis: "the footsteps test isnt waiting on the demo to load"
+
+Checked against what survives: the phase-2 console output of the failing run (session scratch `gate2.txt`), the
+quoted lines of its viewer log above (the log itself is gone), and `PausedSoundUiTests.cs`.
+
+1. **Which wait timed out: the first, the load.** The stack ends at `PausedSoundUiTests.cs:line 65`. That is
+   `Retry.WhileFalse(() => viewer.Count("opening state applied") > 0, Loading /* 300 s */, …, throwOnTimeout: true)`,
+   and the 5 m 2 s run time is that bound. The 30 s footstep wait (`:66`), the Play-button `Activate` (`:70`) and the
+   pause and report waits (`:72-83`) never ran.
+2. **The test was waiting on the demo to load, and the viewer stopped before finishing.** Its log reached the first
+   world frame at 13:35:30 (frame 2's pose at `.677`, the render thread's `viewmodel pass start: (first frame)` at
+   `.805`). After that it wrote nothing, not even a rate report, until the test killed it at about 13:39:21.
+   - In a good run the next lines are the opening skip (`skip: to 20000 …`) and then "opening state applied", about
+     4 s after the first world frame (`viewer-20261028-134950-12092.log`: first draw 13:50:49.849, applied 13:50:53.761).
+   - So the load did not need longer. It stopped making progress. A load that is merely slow keeps writing its rate
+     report each second, as all 38 seconds of this run's load did.
+3. **Does "opening state applied" come before the load is complete?** It is logged after the opening seek's skip. In
+   every good log the playing frames and the first footstep follow it within the test's 30 s, so that ordering has
+   not failed the test in any run seen. It could matter for the later waits, but the failing run never reached them.
+   Whether it is the right "loaded" signal is a fair question for those waits; it is not this failure.
+
+**One thing the output does show:** the harness logs memory before each test, and before this one it read **"physical
+3987 of 32632 MB free, memory load 87%"**. Passing tests do not print it, so there is no comparison from the green
+runs. *Not established*: whether memory pressure (two z1800 viewers at `developer 1`, TF2 resident) stalled the viewer.
+
+**So no test fix was made.** The evidence points away from a test synchronisation defect: the test waited 300 s on the
+right condition, and the viewer went silent. The like-for-like control below decides between this branch and the machine.
+
+### The like-for-like control (item A): full suites, baseline against branch, 16:48-18:04
+
+The whole UI suite (`Tf2DemoSalvage.Viewer3D.UiTests`, 84 tests), run alternately on the two builds under one desktop
+lock, with the stall watchdog armed throughout:
+
+- A is `7946c74d`, its own Debug build in `D:/measure-f12/dbp-before-src`.
+- B is the branch at `6991bf4c`, the review fixes and the stall report in.
+- Script: session scratch `abloop.ps1`. A1, B1, A2, B2, … B6, then one replacement A.
+
+| run | A (baseline) | B (branch) |
+|---|---|---|
+| 1 | 76 passed, 0 failed | 76 passed, 0 failed |
+| 2 | 76, 0 | 76, 0 |
+| 3 | 76, 0 | 76, 0 |
+| 4 | 75, **1 failed**: `Activate_AMenuItemWithAnotherAppInFront_TogglesItWithoutTheCursor` (2 s) | 76, 0 |
+| 5 | **TAINTED**: 75, 1 failed, `StartupPicker_AFolderThatIsNotTf2_IsRefusedAndNothingIsSaved` (30 s) | 76, 0 |
+| 6 | 76, 0 | 76, 0 |
+| 7 (replacement for A5) | 76, 0 (18:07-18:13) | — |
+
+- **The hang: 0 of 13 runs** (0 of 6 clean A, 0 of 6 B). `Footsteps_HeardWhilePlaying_StopWhenTheDemoIsPaused` passed in
+  every run, the tainted one included.
+- **A5 is tainted by human input, kept visible, not counted.** The owner touched the desktop during a game-folder test
+  (a scroll wheel stopped the test's typing, and he picked a folder by hand). The logs place it in A5:
+  - that run's non-TF2 viewer (`viewer-20261028-174205-31672.log`) waited 29 s and was given `C:\$GetCurrent`, not the
+    test's own `…\Pictures` folder;
+  - the same test's viewer in B4 (`viewer-20261028-173608-13728.log`) took 3 s on its `Pictures` folder.
+
+  The game-folder test failed in A5, and Footsteps passed in it.
+- **A4's failure counts as a real baseline flake.** A focus-related menu test failed in 2 s. Nothing in its timestamps
+  places the owner there: the owner's own account was of the game-folder test, which is A5.
+- **The watchdog** flagged one viewer (16:50:35, the suite's shared viewer at its start, as in every earlier flag). No
+  `queue stall` line was written by any B viewer.
+
+**Load time (the owner's second hypothesis: "the load time might be longer now, so it might be timing out").** These are
+the paused-sound test's own viewers, harvested before log retention removed them (scratch `pslogs/`, `loadtimes.ps1`).
+The load is the seconds from the log's first line (process start) to "opening state applied", the test's 300 s
+`Loading` wait. The step is the seconds from there to the first `player/footsteps/` line, its 30 s wait.
+
+| build | runs | load: min / median / max (s) | step: min / median / max (s) |
+|---|---:|---|---|
+| A, in suite | 6 | 54.7 / 60.6 / 64.3 | 0.3 / 0.3 / 0.4 |
+| B, in suite | 6 | 53.6 / 59.3 / 63.1 | 0.3 / 0.3 / 0.3 |
+| B, harness-exact scripted, beside a second viewer | 16 | 52.8 / 60.2 / 65.2 | 0.3 / 0.3 / 0.5 |
+| B, the failed run | 1 | (first world frame at 69 s, then silent) | — |
+
+- The 300 s bound is 4.6× the slowest load seen.
+- The 30 s footstep bound is 60× the slowest step.
+- The pause and report waits are 30 s on once-a-second reports.
+
+**No wait is within the factor of 3, so the test's clocks were not changed.** The two builds' loads are the same
+within their spread. *Not done*: the comparison with an older build. B607's 0.5-0.6 s of load work cannot bring a
+65 s load near 300 s.
+
+### Review fixes, 2026-10-28 (`6991bf4c`): two reviews, items B-F
+
+- **B, the count could be omitted.** `MomentScene.Pose(…, handOffs = 0)` let a seek's and a replay's pose
+  (`FramePresenter.Seek.cs`, `PoseNow(ViewFrustum.Nothing)`) pass 0. Against a real device count that flips onto the
+  half handed. It was safe only because those paths drain first.
+  - *Fixed:* the count is no longer an argument. It is `MomentScene.HandOffs`, a source `ViewerPresenter` points at the
+    device the frame last posed over (`_handingDevice`, set in `PoseOver`), so every pose reads the same count.
+  - *Without a device* it is null: one half, and nothing in flight.
+  - *Test:* `UploadCameraOver_OverADevice_PointsThePosesHandOffCountAtThatDevice`. Sabotage: not setting the device
+    reddened it.
+- **C, `SkinningOf` wrote a pose half.** Between frames that is the half in flight; it was drained only by call order.
+  - *Fixed:* it builds into `_queriedSkinning`, its own buffers. `ModelDecals.Add` projects from the matrices at once
+    and keeps none (*read*).
+  - *Test:* `SkinningOf_AfterThePose_BuildsIntoItsOwnBuffersNotTheDrawnOnes`. Sabotage: writing `_skinning[PoseHalf]`
+    reddened "the query rewrote the drawn skinning matrix".
+- **D, tests that could not fail, added and each sabotaged red:**
+  - the face stream per half: `Pose_AfterAHandOffMidLaugh_LeavesTheHandedFaceStreamStanding`, on the install. A shared
+    `_lastFace[0]` reddened "the next pose wrote the handed stream". The other suggested mutant, `[1 - PoseHalf]`, is
+    *equivalent*: two dictionaries swapped are still two, and no test can or should tell them apart;
+  - the undrawn and viewmodel lists per half: `Pose_AfterAHandOff_WritesTheOther{Undrawn,Viewmodel}List…`. Each `[0]`
+    reddened;
+  - the stall test, rewritten so the frame is held on its own gate. The report must arrive while it is held, the wait
+    must still run after the report, and it must end when the frame is let go. An early return after the report reddened
+    "the report ended the wait while the frame was still held".
+- **E, answered from the code:**
+  - *A map change while playing:* `ViewerPresenter.ClearMap` calls `_device?.Queue.Lock()` first, then
+    `_levels.Shutdown()`, which runs `MomentScene.LevelShutdownPreEntity` and clears both halves. It is the only caller.
+    So a frame in flight is drained before either half is cleared. *Read, not tested*: `ClearMap` needs a real `Device3D`.
+  - *Does any gate fail on a logged warning?* No. No UI test, `build/` script or workflow counts `WARN` lines. The
+    viewer's log is read by the UI tests for specific strings only. The stall report stays a warning.
+- **F:**
+  - the stale comment in `ViewerSession.Frame.cs` (the flight path's wait) is corrected;
+  - **the raw run outputs beside this file were NOT removed**: this agent may not delete files. The 52 `.txt`/`.err`
+    files under `2026-10-28-double-buffer-pose/` (26 of them empty `.err`) are for the lead to `git rm` if wanted. The
+    `.md` and the two scripts are the record; the empty `.err` files carry nothing;
+  - **the stall report stays.** It costs one timed wait, and it reports only a wait of over 5 s
+    (`QueuedRenderThread.StallAfter`, settable at construction), which no healthy frame has: the slowest seen here, a
+    first-use frame, logged `SLOW FRAME 194 ms` (`viewer-20261028-134950-12092.log`, one of the scripted runs above). It is the instrument that would have explained this hang, and the next one anywhere.
+    *Removal condition:* it goes, or its bound rises, if it ever logs on a run that did not hang.
+
 **Gate with the instrument in.** Build: 0 warnings, 0 errors. Phase 1: twelve assemblies, 0 failed, rendering 1272 (two
 new tests). Phase 2: **76 passed, 8 skipped, 0 failed of 84** (6 m 48 s). No viewer log of the 49 newest holds a
 `queue stall` line.
 
-**Status: not explained, and not merge-ready on that account.** 1 hang in 6 full suites on the branch, 0 in 35 isolated
+**Superseded by the like-for-like control above** (13 more suites, 0 hangs on either build; verdict at the end). The
+paragraph that follows was the state before it.
+
+**Status then: not explained, and not merge-ready on that account.** 1 hang in 6 full suites on the branch, 0 in 35 isolated
 or scripted branch runs, 0 in 15 isolated baseline runs. The suspect is still this branch's overlap: the pose of frame 2
 was at 13:35:30.677 while the render thread drew frame 1 until 30.805, then silence. Unproved. The next occurrence will
 log a `queue stall` line naming the caller and the pass the frame in flight had reached.
+
+## The gate, once, on the final code (`6991bf4c` plus records), 18:13-18:27
+
+- Build: 0 warnings, 0 errors.
+- **Phase 1: NOT green.** Ten assemblies passed at or above their floors: core 2713, cli 75, logging 37, fonts 5,
+  animation 5352, scene 3390, audio 383, presentation 1324, content 1859, corpus 236. Viewer, which comes after
+  rendering, was not reached.
+- **Rendering's run aborted.** It was a native access violation (`0xC0000005`) in `ID3D11DeviceContext.Map`, under
+  `WorldRenderer.DrawScreenOverlay` ← `OffscreenTarget.DrawScreenOverlay` ←
+  `CloakRenderTests.DrawScreenOverlay_JarateOverAUniformFrame_KeepsRedAndDarkensBlue`, after 129 of its tests had
+  passed.
+  - That path is an offscreen target with its own device. It has no queue, no `Device3D` and no pose halves, and this
+    branch's diff does not touch it.
+  - *Control:* `CloakRenderTests` (9 tests) run 5 times on the baseline and 5 times on the branch: **10 of 10 passed**,
+    with no crash.
+  - The same assembly passed whole (1272) in the 16:10 gate on this branch.
+  - *Filed as a separate defect, not explained:* a crash in D3D11 `Map` on the overlay path, seen once.
+- **Phase 2: 76 passed, 8 skipped, 0 failed of 84** (6 m 8 s).
+
+## Verdict on the hang (after the like-for-like control)
+
+- **Branch, full suites: 1 hang in 12.** The one was the first suite of the day: 11 m 8 s, memory load 87% before the
+  test. The next 11 ran 5 m 53 s to 7 m 2 s with none.
+- **Baseline, full suites: 0 in 6 clean**, plus one other flake (A4's menu test) and one run tainted by the owner (A5).
+- **Branch, isolated or harness-exact scripted runs: 0 in 36.**
+- **The load-time hypothesis is ruled out by measurement.** Loads are 53-65 s on both builds against a 300 s bound.
+- **The test-synchronisation hypothesis is ruled out by the failure's own stack.** The test failed on its first, 300 s,
+  load wait, while the viewer had stopped logging four minutes earlier.
+
+**What this supports:** at one occurrence in 12, nothing distinguishes the branch from the baseline. With a true
+rate of 1 in 12 on both, a clean 0 in 6 for the baseline is likely, about 0.59 (*arithmetic*). So the control cannot
+say the hang is the branch's, and it cannot say it is not. **Not established:** the cause. The stall report is in place,
+so a recurrence will name the waiting caller and the last pass of the frame in flight. Whether one hang in 12 runs
+blocks the merge is the lead's call. It is not decided here.

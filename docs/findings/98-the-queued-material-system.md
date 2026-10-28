@@ -841,8 +841,27 @@ lights by value now; `TF2VIEW_FRAME_HASH` does not, so earlier hash records stay
 
   No stack was captured: the watchdog's `dotnet-trace` instrument reads stacks, proved on the idle shared viewer, but
   nothing hung while it was armed. The cause is unknown, and no fix was made without a red-first reproduction. The next
-  occurrence logs `queue stall: <caller> … last finished pass <RenderPass>` (`QueuedRenderThread.Stalled`, 5 s). Full
-  account: measurements/2026-10-28-double-buffer-pose.md, "Gate".
+  occurrence logs `queue stall: <caller> … last finished pass <RenderPass>` (`QueuedRenderThread.Stalled`, 5 s).
+
+  **The like-for-like control:** 6 full suites on the baseline (`7946c74d`) against 6 on the branch, alternating, plus
+  a replacement for a run the owner's hands touched. **0 hangs on either side**, so the branch stands at 1 hang in 12
+  suites and the baseline at 0 in 6. At that count the two cannot be told apart.
+
+  Both of the owner's hypotheses were checked:
+  - *the test does not wait for the load*: it failed on its 300 s load wait, with the viewer already silent;
+  - *the load is longer now*: both builds load in 53-65 s, so no wait is within a factor of 3.
+
+  Full account: measurements/2026-10-28-double-buffer-pose.md, "Gate" and "Verdict on the hang".
+- *Review fixes* (two reviews; `6991bf4c`):
+  - the hand-off count is the scene's own source (`MomentScene.HandOffs`), never a defaulted argument;
+  - `SkinningOf` builds into its own buffers;
+  - tests were added that redden for a per-half face stream, for the undrawn and viewmodel lists, and for the stall
+    report held on its own gate. Each was sabotaged red.
+
+  A map change drains before clearing either half (`ClearMap` → `Queue.Lock()` → `Shutdown`).
+- *Final gate:* phase 2 green (84 total, 0 failed). Phase 1 aborted in rendering, on a native crash in D3D11 `Map` on
+  the offscreen screen-overlay path, which this branch does not touch. The crash did not recur in 10 isolated runs on
+  either build. It is filed apart from this work (measurements/2026-10-28-double-buffer-pose.md, "The gate, once").
 
 **Measured** (measurements/2026-10-28-double-buffer-pose.md, ABBA BAAB, quiet-gated, Release):
 
