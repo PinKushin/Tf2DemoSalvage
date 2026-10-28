@@ -833,8 +833,15 @@ lights by value now; `TF2VIEW_FRAME_HASH` does not, so earlier hash records stay
 - *Pixels*: 0 world pixels differ, A/B and A/A, in the empty view and in first person.
 - *Gate*: phase 1 green.
 - *Phase 2, NOT green*: one UI test hung at the first world frame of a z1800 load
-  (`PausedSoundUiTests.Footsteps_HeardWhilePlaying_StopWhenTheDemoIsPaused`). The overlap is the suspect. It did not
-  reproduce in 16 tries, and the cause is unknown (measurements/2026-10-28-double-buffer-pose.md, "Gate").
+  (`PausedSoundUiTests.Footsteps_HeardWhilePlaying_StopWhenTheDemoIsPaused`). The overlap is the suspect. Since then:
+  - 4 more full suites on the branch were green, so the branch is 1 hang in 5 suites;
+  - 35 isolated or harness-exact scripted runs passed, beside a second viewer;
+  - the baseline passed 15 of 15 in isolation. That does not discriminate, because the branch passes in isolation too.
+
+  No stack was captured: the watchdog's `dotnet-trace` instrument reads stacks, proved on the idle shared viewer, but
+  nothing hung while it was armed. The cause is unknown, and no fix was made without a red-first reproduction. The next
+  occurrence logs `queue stall: <caller> … last finished pass <RenderPass>` (`QueuedRenderThread.Stalled`, 5 s). Full
+  account: measurements/2026-10-28-double-buffer-pose.md, "Gate".
 
 **Measured** (measurements/2026-10-28-double-buffer-pose.md, ABBA BAAB, quiet-gated, Release):
 

@@ -52,6 +52,24 @@ public sealed class QueuedRenderThread : IDisposable
     /// <summary>Told, on the waiting thread, the moment a <see cref="Lock"/> is about to block, with its caller's name; for tests and `--measure`.</summary>
     public Action<string>? Waiting { get; set; }
 
+    /// <summary>How long a <see cref="Lock"/> waits before it reports a stall through <see cref="Stalled"/>.</summary>
+    public TimeSpan StallAfter { get; init; } = TimeSpan.FromSeconds(5);
+
+    /// <summary>Told, once per wait and on the waiting thread, when a <see cref="Lock"/> has waited past
+    /// <see cref="StallAfter"/>: the caller, and the last <see cref="Stage"/> the frame in flight set. The wait goes on.</summary>
+    /// <remarks>An instrument for a hang that would not reproduce (measurements/2026-10-28-double-buffer-pose.md, "Gate"):
+    /// it changes nothing about when a wait ends.</remarks>
+    public Action<string, int>? Stalled { get; set; }
+
+    /// <summary>The last stage the frame in flight passed, set by the draw; -1 when a frame begins.</summary>
+    public int Stage
+    {
+        get => Volatile.Read(ref _stage);
+        set => Volatile.Write(ref _stage, value);
+    }
+
+    private int _stage = -1;
+
     /// <summary>Draws a frame: on the render thread in mode 2, after the previous one finished; on this thread otherwise.</summary>
     /// <param name="draw">The frame.</param>
     /// <param name="queued">False to draw on this thread whatever the mode (a state the engine's `EndFrame` vetoes mode 2 in).</param>
@@ -109,7 +127,14 @@ public sealed class QueuedRenderThread : IDisposable
             long at = Stopwatch.GetTimestamp();
 
             Waiting?.Invoke(caller);
-            _idle.Wait();
+
+            // **In slices, so a wait that does not end says so once** (the phase-2 hang, B581 rung 3): the same wait,
+            // ended only by the frame, with one report of who waited and where the frame in flight had got to.
+            if (!_idle.Wait(StallAfter))
+            {
+                Stalled?.Invoke(caller, Stage);
+                _idle.Wait();
+            }
 
             lock (_gate)
             {
@@ -191,6 +216,8 @@ public sealed class QueuedRenderThread : IDisposable
             }
 
             long at = Stopwatch.GetTimestamp();
+
+            Stage = -1;
 
             try
             {

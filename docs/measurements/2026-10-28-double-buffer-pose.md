@@ -159,3 +159,35 @@ nothing here; it is structure, filed in finding 98 §14.
   - a process-wide stall: a log writer that stopped too says more than one thread stopped.
 
   **No baseline control was run**, so whether `7946c74d` also hangs here is unknown.
+
+### Follow-up, 2026-10-28 14:00-16:00: controls, a stack instrument, and five more suites
+
+**Asked for:** a baseline control, a stack of the hung viewer, and the root cause fixed red-first. **What was done:**
+
+- **Baseline control** (`7946c74d`, its own Debug build in `D:/measure-f12/dbp-before-src`): the test alone, 15 times, under the desktop lock. **15 of 15 passed** (1 m 5 s to 1 m 20 s). This is **not** a discriminating control: the branch also passes alone (1 time by the gate's own rerun, and 35 scripted attempts, below). The hang has only been seen inside the full suite, so A's isolated passes say nothing about A inside the suite.
+- **The branch inside the suite again**, four more full phase-2 runs with a watchdog armed: **76 passed, 8 skipped, 0 failed of 84, every time** (6 m 37 s to 7 m 2 s each). The run that failed took 11 m 8 s. The branch's phase-2 record is now **4 green of 5**.
+- **The scripted loop, corrected.** Its first 15 attempts lacked the harness's `+developer 1 +cl_game_folder_ask 0 +cl_screenshot_folder`, so the first world draw did not log every model's first draw and was shorter. The overlap is the window this branch opened. Rerun with the harness's exact arguments, beside a second z1800 viewer at `developer 1` (the suite's shared fixture): **20 of 20 reached "opening state applied"**. Their logs carry `viewmodel pass start: (first frame)`, so the conditions matched.
+- **No stack was captured, because nothing hung.** The watchdog sampled CPU and took a 5 s `dotnet-trace` (sample profiler) of every viewer whose log fell silent for 30 s after its first rate report. It flagged four viewers, one per suite. In each one the stack (`speedscope`, the stack open at the trace's midpoint) showed:
+  - the main thread in `ViewerSession.Idle` → `Thread.Sleep`;
+  - `MatQueue` in `QueuedRenderThread.Run` waiting for work;
+  - the log writer waiting on its channel.
+
+  That is the suite's shared viewer sitting idle, and it **proves the instrument reads thread stacks**. It is not the hang. `createdump` takes no PID in .NET 10 (*"The pid argument is no longer supported"*), so a full dump needs `dotnet-dump`, a download not made.
+- **The hung run's own evidence is gone.** The viewer's log retention removed `viewer-20261028-133421-4372.log`, and the capture folder was overwritten by later runs. What is quoted above was read before that. Two checks were made from the code instead:
+  - *An exception would have been logged.* `Program.Main` sets `UnhandledExceptionMode.CatchException`, and its `ThreadException` handler logs the stack and flushes. A render-thread failure rethrown at `FinishDrawBeforeEffects`, the shape the `PoseHalves` sabotage produced, therefore leaves a log line and does not open a dialog. The quoted tail had none. So "a wrong half threw" does not fit a silent log, though the full log can no longer be searched to rule it out.
+  - *No lock the pose could hold across a drain.* No `lock` or semaphore exists in Scene, Content, Animation or Render outside the queue and the pass profiler.
+- **The instrument the next occurrence needs, built** (`QueuedRenderThread.StallAfter`, `Stalled`, `Stage`):
+  - `Lock` now waits in two parts. After 5 s it logs once, `queue stall: <caller> has waited 5 s on the frame in flight, whose last finished pass is <RenderPass>`, then goes on waiting.
+  - The draw marks each pass as it finishes (`Device3D.Passed`, beside the existing `PassProfiler` marks), and a frame starts at -1.
+  - Behaviour is unchanged: the wait still ends only when the frame does.
+  - Tests, red first: `Lock_PastTheStallBound_ReportsOnceTheCallerAndTheFramesLastPass` failed against a stub with the members and no report, "nothing reported the stall, so nothing opened the frame's gate". It passes with the report. The control is `Lock_WithinTheStallBound_ReportsNothing`.
+- **No fix was made.** Without a reproduction no change can be shown red-first against the real failure, and a speculative one would be a guess.
+
+**Gate with the instrument in.** Build: 0 warnings, 0 errors. Phase 1: twelve assemblies, 0 failed, rendering 1272 (two
+new tests). Phase 2: **76 passed, 8 skipped, 0 failed of 84** (6 m 48 s). No viewer log of the 49 newest holds a
+`queue stall` line.
+
+**Status: not explained, and not merge-ready on that account.** 1 hang in 6 full suites on the branch, 0 in 35 isolated
+or scripted branch runs, 0 in 15 isolated baseline runs. The suspect is still this branch's overlap: the pose of frame 2
+was at 13:35:30.677 while the render thread drew frame 1 until 30.805, then silence. Unproved. The next occurrence will
+log a `queue stall` line naming the caller and the pass the frame in flight had reached.
