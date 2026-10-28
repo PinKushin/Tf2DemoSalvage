@@ -88,13 +88,16 @@ three more E at stock plus `cl_updaterate`/`cl_cmdrate` 66, and two more B. The 
 
 ## Environment
 
-- Client: the owner's live TF2, build 11138802/24, launched once through the tf2 MCP with `+maxplayers 32` and never
-  restarted. It ran as a listen server on pl_pier with `tf_bot_quota 23 fill`. `status` showed 1 human and 23 bots.
+- Client: the owner's live TF2, build 11138802/24, launched through the tf2 MCP with `+maxplayers 32`. It crashed once,
+  during the 22nd `map pl_pier` load in round 3, before E11 recorded. `console.log` ends on a map-load line, and
+  `config.cfg` was not rewritten. It was relaunched because no client answered, and E11 is the only recording made on the
+  second process. It ran as a listen server on pl_pier with `tf_bot_quota 23 fill`. `status` showed 1 human and 23 bots.
 - The recorder: a spectator in first person on a bot (`spec_mode 4`).
 - Each recording is ~44–52 s. Each starts with `disconnect; exec sr_<v>; map pl_pier`, so every recording is a fresh
   connect with its own clock phase.
 - Every variant's key cvars were read back after `exec`, on the loaded map, before `record`.
-- The desktop lock was held through `run-exclusive.ps1` for both rounds. The probe ran `-Shared` after each round.
+- The desktop lock was held through `run-exclusive.ps1` for all three rounds, about 86 minutes in total. The probe ran
+  `-Shared` after each round.
 
 The variant cfgs are in `tf/cfg/` (`sr_a.cfg`, `sr_e.cfg`, `sr_server.cfg`, `sr_restore.cfg`). They hold network lines only:
 
@@ -108,7 +111,7 @@ The variant cfgs are in `tf/cfg/` (`sr_a.cfg`, `sr_e.cfg`, `sr_server.cfg`, `sr_
 | E66 | E with `cl_updaterate 66` and `cl_cmdrate 66` |
 
 All variants also set `fps_max 400` and `engine_no_focus_sleep 0`. E1 ran at the stock `cl_updaterate 20` and recorded 20
-packets a second. Its 3- and 4-tick steps are that rate, so it is not comparable, and E2 to E5 are E66.
+packets a second. Its 3- and 4-tick steps are that rate, so it is not comparable, and E2 to E11 are E66.
 
 ## Result
 
@@ -123,29 +126,43 @@ histogram). A second pair, where it is large, is given after it.
 | sr_a2 | A | 64.65 | 14.8 / 69.2 / 15.2% | **69.2%** | 2757/2824 | 0.25; 0.21 | 7.5 / 262 |
 | sr_a3 | A | 64.80 | 3.2 / 91.9 / 4.6% | **91.9%** | 3262/3339 | 0.10 | 7.9 / 166 |
 | sr_b1 | B | 64.70 | 20.3 / 57.9 / 21.0% | **57.9%** | 2759/2831 | 0.44; 0.43 | 8.0 / 143 |
-| sr_b2 | B | 64.44 | 9.0 / 80.5 / 10.2% | **80.5%** | — | 0.10; 0.23 | 7.2 / 399 |
-| sr_b3 | B | 64.67 | 5.0 / 88.5 / 6.2% | **88.5%** | — | 0.00; 0.35 | 7.5 / 406 |
+| sr_b2 | B | 64.44 | 9.0 / 80.5 / 10.2% | **80.5%** | 2802/2869 | 0.10; 0.23 | 7.2 / 399 |
+| sr_b3 | B | 64.67 | 5.0 / 88.5 / 6.2% | **88.5%** | 2982/3048 | 0.00; 0.35 | 7.5 / 406 |
 | sr_c1 | C | 64.93 | 18.4 / 62.5 / 17.9% | **62.5%** | 2929/2996 | 0.43 | 7.4 / 213 |
 | sr_d1 | D | 64.56 | 2.7 / 93.0 / 4.0% | **93.0%** | 3293/3371 | 0.13 | 7.6 / 408 |
 | sr_e1 | E (20/s) | 19.86 | steps 3/4 at 20/s | n/a | — | 0.04 | 7.8 / 118 |
 | sr_e2 | E66 | 63.04 | 4.9 / 88.3 / 6.1% | **88.3%** | 2918/2990 | 0.02; 0.34 | 6.6 / 414 |
-| sr_e3 | E66 | 65.65 | 2.7 / 93.1 / 4.1% | **93.1%** | — | 0.03 | 6.6 / 62 |
-| sr_e4 | E66 | 64.30 | 2.3 / 93.2 / 4.1% | **93.2%** | — | ~0 | 8.2 / 133 |
-| sr_e5 | E66 | 64.51 | 11.8 / 74.2 / 13.6% | **74.2%** | — | 0.16 | 8.1 / 149 |
+| sr_e3 | E66 | 65.65 | 2.7 / 93.1 / 4.1% | **93.1%** | 2861/2904 | 0.03 | 6.6 / 62 |
+| sr_e4 | E66 | 64.30 | 2.3 / 93.2 / 4.1% | **93.2%** | 2933/3012 | ~0 | 8.2 / 133 |
+| sr_e5 | E66 | 64.51 | 11.8 / 74.2 / 13.6% | **74.2%** | 2807/2875 | 0.16 | 8.1 / 149 |
+| *round 3* | | | | | | | |
+| sr_a4 | A | 65.55 | 15.8 / 67.2 / 16.7% | **67.2%** | 4033/4106 | 0.34 | 6.5 / 177 |
+| sr_e6 | E66 | 64.58 | 1.6 / 94.7 / 3.4% | **94.7%** | 2876/2942 | 0.01 | 9.4 / 191 |
+| sr_a5 | A | 64.80 | 7.6 / 83.4 / 8.5% | **83.4%** | 2776/2844 | 0.13 | 7.1 / 227 |
+| sr_e7 | E66 | 64.17 | 10.8 / 76.0 / 12.8% | **76.0%** | 2852/2932 | 0.28 | 8.2 / 178 |
+| sr_a6 | A | 64.87 | 2.8 / 92.9 / 4.0% | **92.9%** | 2894/2963 | 0.15 | 7.0 / 137 |
+| sr_e8 | E66 | 63.33 | 8.6 / 80.8 / 9.8% | **80.8%** | 3856/3962 | many clusters † | 10.1 / 461 |
+| sr_a7 | A | 64.77 | 3.3 / 91.9 / 4.5% | **91.9%** | 2838/2904 | 0.14 | 7.2 / 215 |
+| sr_e9 | E66 | 63.88 | 5.4 / 87.1 / 7.1% | **87.1%** | 3040/3118 | 0.31; 0.33 | 9.3 / 457 |
+| sr_a8 | A | 65.59 | 0.5 / 97.4 / 2.0% | **97.4%** | 2859/2919 | 0.01 | 6.7 / 52 |
+| sr_e10 | E66 | 64.69 | 0.6 / 96.9 / 2.3% | **96.9%** | 2812/2873 | 0.05 | 7.7 / 234 |
+| sr_a9 | A | 64.79 | 2.0 / 94.2 / 3.5% | **94.2%** | 2896/2976 | 0.02 | 7.2 / 217 |
+| sr_e11 | E66 | 64.80 | 11.9 / 74.4 / 13.1% | **74.4%** | 2863/2922 | 0.34 | 7.2 / 246 |
 
-"—" in the server-step column means the round-2 run printed only the summary lines. Each count is the sum of the
-cross-tab's server-step-1 cells. In round 1, 97.5 to 98.0% of pairs step the server by 1, under stamp steps of 0 and 2
-alike.
+† sr_e8's offset walks across 18 values in 62 s rather than sitting in one or two pairs.
+
+Each server-step count is the sum of the cross-tab's server-step-1 cells. The share is 97.3 to 98.5% in every recording,
+and so is the user's 98.0%, under stamp steps of 0 and 2 alike.
 
 Spread by variant:
 
 | variant | n | range | mean |
 |---|---|---|---|
-| A | 3 | 69.2–91.9% | 83.5% |
+| A | 9 | 67.2–97.4% | 86.4% |
 | B | 3 | 57.9–88.5% | 75.6% |
 | C | 1 | 62.5% | — |
 | D | 1 | 93.0% | — |
-| E66 | 4 | 74.2–93.2% | 87.2% |
+| E66 | 10 | 74.2–96.9% | 85.9% |
 
 - Stamp steps of 3 or more are 0.1 to 1.1% in every demo.
 - Every large step (5 to 29 ticks) sits beside a host-frame spike of 100 to 400 ms. The server lost that time, which is
@@ -166,30 +183,57 @@ Spread by variant:
 - If not, report "no difference shown between the user's lines and stock".
 - Either way, both arms producing the signature stands.
 
+## Round 3 result
+
+Ranking all 19 delta-1 shares (A n=9, E66 n=10), A's rank sum is 91, so U_A = 46 and U_E = 44, against 45 expected under
+no difference. The one-sided p is about 0.5 (*arithmetic*). The means are 86.4% for A and 85.9% for E66. **By the
+pre-registered rule: no difference shown between the user's lines and stock.**
+
+A post-hoc observation, not pre-registered: the four lowest of the 24 comparable readings all carry the user's lines
+(B1 57.9, C1 62.5, A4 67.2, A2 69.2). The A family (A, B, C and D) is 14 of the 24. The chance that the lowest four are
+all from it is C(14,4)/C(24,4) = 0.094. That is suggestive at most, and it is the next thing to test if anyone cares. It
+does not reach the rule.
+
 ## Verdict
 
-**The signature is reproduced, and it is not the user's client config.**
+**The signature is reproduced. No setting tested makes a difference, and stock settings produce it too.** Whether the
+user's lines as a whole raise the odds of a bad recording is not shown either way at this n. The pooled A against stock
+test found no difference, and the low tail is a post-hoc hint.
 
-**The signature reproduces with no network path.** On loopback, recordings show stamp steps of 0 and 2 under a regular
-server tick, as the user's demo does. B1 reads 57.9% against the user's 59.4%; A2 and C1 come close. *Measured.*
+**It reproduces with no network path.** On loopback, recordings show stamp steps of 0 and 2 under a regular server
+tick, as the user's demo does. B1 reads 57.9% against the user's 59.4%. *Measured.*
 
-**It varies from recording to recording at fixed settings, and no setting separates the variants.**
-- A spans 69 to 92%.
-- B, which raises `rate` (the obvious fix for H1), spans 58 to 89% and is no better than A.
-- The control E66 spans 74 to 93%.
-- The single C and D readings sit inside the A range.
-- On the pre-registered rule, no E fell to 70% (the lowest is 74.2%), so the strict "any E ≤ 70%" branch did not fire. The
-  other branch, every E ≥ 88% with every B ≤ 62%, is plainly false. So no setting effect is shown.
-- Stock settings produced a quarter of their steps off 1 (E5, 25.8%). The user's demo has 40.6%.
+**It varies from recording to recording at constant settings, and no single setting separates the variants:**
+- A spans 67 to 97% over nine recordings.
+- B, which raises `rate` (the obvious remedy under H1), spans 58 to 89% and is no better than A.
+- Stock at 66/s (E66) spans 74 to 97% over ten.
+- The single C and D readings sit inside A's range.
+- The lowest stock readings have about a quarter of their steps off 1: E5 25.8%, E11 25.6%, E7 24.0%. The user's demo has
+  40.6%.
 
-**What tracks the share is the offset split** (*measured correlation, 13 demos*). The demos split well between two
-adjacent offsets have the most 0/2 steps: B1 at 0.44 has 42%, C1 at 0.43 has 37.5%, A2 at 0.25 has 31% and the user at
-0.28 has 41%. The demos with one dominant offset have the fewest: E3 and E4 at about 0 have about 7%, as does A1. That
-fits the stamp being `round(net_time / interval)` (finding 106, *read from the disassembly*). Each packet is written
-at a near-constant phase inside its tick. When that phase sits near the +0.5 rounding boundary, frame-to-frame jitter
-flips the rounding between two neighbouring ticks. One flip makes a step of 0, and the flip back makes a step of 2.
-*Interpolated*: why one connect lands near the boundary and another does not is not read. The split is set at connect
-time, and nothing in the config chooses it.
+**What tracks the share is the offset split** (*measured correlation, 25 demos, the split read by eye from each
+histogram*). The demos split well between two adjacent offsets have the most 0/2 steps:
+
+| demo | split | steps off 1 |
+|---|---|---|
+| B1 | 0.44 | 42% |
+| C1 | 0.43 | 37.5% |
+| A4 | 0.34 | 33% |
+| E11 | 0.34 | 26% |
+| user | 0.28 | 41% |
+
+The demos with one dominant offset have the fewest: E3, E4, E6, E10, A8 and A9 have 2.6 to 6.9%. There are exceptions.
+E9 shows a 0.31 split with 13%, because its two split clusters are short.
+
+That fits the stamp being `round(net_time / interval)` (finding 106, *read from the disassembly*). Each packet is
+written at a near-constant phase inside its tick. When that phase sits near the +0.5 rounding boundary, frame-to-frame
+jitter flips the rounding between two neighbouring ticks. One flip makes a step of 0, and the flip back makes a step
+of 2.
+
+**The phase is not fixed for a recording.** It moves at the host hitches: E2, A2, A4, B2, B3, E7 and E9 each have two
+or more clusters with different splits, and E8's offset walks across 18 values. So the split varies between
+recordings, and within one after a lost-time spike. *Interpolated*: what puts the phase where it is after a connect or a
+hitch is not read.
 
 Per hypothesis:
 
@@ -199,14 +243,15 @@ Per hypothesis:
 | H2 | `net_chokeloop 1` | **Not reproduced.** C at 62.5% is inside A's range. The cvar is loopback only by its own help text, and the user played on a Valve server. |
 | H3 | `net_queued_packet_thread 1` | **Not reproduced.** It is the stock value, and D at 93.0% is inside A's range. |
 | H4 | smoothing and interp settings | **Not varied alone.** A and E differ in all of them, and the ranges overlap. Nothing in the stamp path reads them. |
-| H5 | the server or network path is needed | **Falsified as stated.** Loopback reproduces it. What remains true: the cause is on no client setting the user chose. It is per-recording timing phase plus jitter, which any path has. A real internet and relay path may add jitter and make a bad split likelier. That is *untested*, because no srcds is installed. |
+| H5 | the server or network path is needed | **Falsified as stated.** Loopback reproduces it with stock settings. The mechanism is the timing phase plus jitter, which any path has. A real internet and relay path may add jitter and make a bad split likelier. That is *untested*, because no srcds is installed. |
+| — | the user's lines as a whole | **Unresolved.** In the pooled A against E66 test, U is 46 against 44, so no difference. A post-hoc low-tail hint has p ≈ 0.09. |
 
 **What is inferred, not measured:**
 - That the user's live path was a Valve casual server over the relay. The banner and convars are measured. The FakeIP
   range is recalled.
 - That TF2's own playback stutters on our recordings. Not watched: the stutter in TF2 is the user's report, and that TF2
   pairs views by the stamp is from finding 106's port of `InterpolateViewpoint`.
-- The rounding-phase mechanism. It is consistent with all 13 demos, but nobody set the phase on purpose.
+- The rounding-phase mechanism. It is consistent with the 25 demos, but nobody set the phase on purpose.
 
 Recorded demos (lcor, `tools/corpus/local/`, recorded 2026-10-28 by this measurement on build 11138802, listen server
 pl_pier, 23 bots, spectator in-eye), as SHA-256:
@@ -225,9 +270,24 @@ d9351546d026b5b35ad4fad83c541826a6ce943e7e484c9c3794eb7614afef6a sr_c1.dem
 cda931eabea968ff90294e080ff3c33749050b1d689f4cd8b0516fa1d5f3c169 sr_e3.dem
 214e13828c67660a99b0c2d226f786335df9b3eb3cbc978204f72d3f46f41b3b sr_e4.dem
 bef8643e89dd336cdb74dac015f2898941fe8849bff79c900ffcbeaebd428f60 sr_e5.dem
+3d6f7bf2e44fd9c6adf128e8a62c3659cb51ae70354a6594917c4c1516bc51bf sr_a4.dem
+b45ef3b77b995b1eda8e5ac25d8c76cbc0f249ce6010c6e9a0a9f02520782e5f sr_a5.dem
+a984e63f87c5adc0cf63f20d0e023c87fcaef07844efd0f99310029d630b40a6 sr_a6.dem
+7fdbaa3bb6317d4b879577cc3e3fc830b07738313e11216353a07264feb377d9 sr_a7.dem
+9292d7b67e736dd3a677d3e12cd4ec5a2f3519917b8a41a41db0e6a051dd67cb sr_a8.dem
+42b23a8c89efccb00e3b52406613fe81cb7752cf6ff520dda0f5222a5f627203 sr_a9.dem
+11ad19e2f543017b1e7442c88ebec86d03fc737474b07e51e5c40e17fa225bb6 sr_e6.dem
+4d61d15e91d3e1a136f31b5963f8987a37410ba1a709149609b5e58d77e9728d sr_e7.dem
+74bfe2cd800662e97fa482198388ada714730ef64aea28c62ffa9062a78e664b sr_e8.dem
+6137d89b603100d71947d0542eb5383d4aeba1773a982eb3a82ad0436927e7ef sr_e9.dem
+d1db1e9366f53ee6bcb316bd27aeb6c0a9b14ed568d8cb8e7350d61e8f240a43 sr_e10.dem
+06792bbb7cd856dd2d9aee5fd49d3256552af3872d648360bd5f2eb26a80dc7a sr_e11.dem
 ```
 
-**Restore, read back after `exec sr_restore`** (the client was disconnected):
+`tools/corpus/manifest.json` lists gcor only, so the hashes for these lcor demos are kept here rather than in it.
+
+**Restore, read back after `exec sr_restore` at the end of each round** (the client was disconnected). Every round
+read back these same values:
 - Network and client: `rate` 786432, `cl_cmdrate` 66, `cl_updaterate` 66, `cl_interp_ratio` 1, `cl_interp` 0 (shown
   as 0.015152 restricted), `cl_smooth` 0, `cl_smoothtime` 0.01, `cl_localnetworkbackdoor` 1, `cl_pred_optimize` 2.
 - `net_*`: `net_chokeloop` 0, `net_compresspackets` 1, `_minsize` 1024, `net_splitpacket_maxrate` 80000,
@@ -245,25 +305,29 @@ touched.
 
 - **The user's real path was not reproduced.** Steam relay to a Valve server cannot be reproduced locally. A local
   srcds would test a real UDP socket rather than loopback, but none is installed.
-- **What sets the phase at connect** is unread: the client's `net_time` against the host's tick accumulator, and on a remote
-  server the clock-correction code.
+- **What sets the phase, at connect and after a hitch,** is unread: the client's `net_time` against the host's tick
+  accumulator, and on a remote server the clock-correction code.
+- **Whether the user's lines as a whole make a bad recording likelier** stays open. The pooled test shows no difference,
+  and the low tail is only a post-hoc hint.
 - **Whether a client frame rate change moves the split** is untested. Nothing here varied `fps_max`, so nothing here
   should be suggested.
 
 ## For the Discord user
 
-Your network settings are not what makes this demo stutter, and changing them will not fix it. We recorded the same
-kind of demo with your exact network lines and with TF2's stock settings, several times each. Both came out stuttery
-on some recordings and smooth on others. Raising `rate` to the maximum did not help either. The same goes for
-`net_chokeloop` and `net_queued_packet_thread`: neither made a difference we could measure.
+We could not pin this on your settings. We recorded the same kind of demo nine times with your exact network lines and
+ten times with TF2's stock settings. Both sets came out stuttery on some recordings and smooth on others, and on
+average the two were the same. Raising `rate` to the maximum did not help. Nor did turning `net_chokeloop` off or
+`net_queued_packet_thread` off. Our very worst recordings happened to use your lines, but there were too few of them to
+call that a real effect.
 
 Here is what happens. A POV demo stamps every update it receives with your PC's own clock, rounded to the nearest
-server tick. If the updates happen to arrive close to the halfway point between two ticks, small timing wobbles push
-some of them onto the same tick and some onto the next-but-one. The game's demo player trusts those stamps, so the
-camera speeds up and slows down. Whether a given recording lands near that halfway point is decided when you
-connect. It is not decided by your config. Live play does not use those stamps, which is why it felt fine while you
+server tick. When the updates arrive close to the halfway point between two ticks, small timing wobbles push some of
+them onto the same tick and some onto the next-but-one. The game's demo player trusts those stamps, so the camera
+speeds up and slows down. Where your updates land against that halfway point changes from recording to recording,
+and even partway through one after a hitch. Live play does not use those stamps, which is why it felt fine while you
 played.
 
-What does not fix it: `rate`, `net_chokeloop`, `net_queued_packet_thread`, `cl_interp`/`cl_smooth`. We did not test any
-other setting, so we are not suggesting one. Tf2DemoSalvage's viewer re-times the camera by the server's own tick
-(`demo_retimeview 1`, the default) and plays this demo without the jitter.
+We tested `rate`, `net_chokeloop` and `net_queued_packet_thread` one at a time, and none of them changed anything. We did
+not test any other single setting, so we are not suggesting one. Tf2DemoSalvage's viewer re-times the camera by the
+server's own tick (`demo_retimeview`, on by default since 0.1.0-beta.55). On your demo it cuts the camera's pacing
+unevenness from 0.88 to 0.25, measured through the viewer's own `DemoPlayer`. We have not watched it on screen.

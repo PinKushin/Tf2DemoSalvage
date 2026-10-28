@@ -63,15 +63,15 @@ packet on one side 12 ticks off its stamp. The first version then fell back to t
 (CV 0.447 to 0.603). So a delay step wider than the parse-ahead now ends a run. Across such a lost-time gap the camera
 slows, because the server did, and it holds one frame where the reader has not yet queued the packet after the gap.
 
-**Reproduced in TF2, and it is not the user's config** (2026-10-28, *measured*,
+**Reproduced in TF2, and stock settings produce it too** (2026-10-28, *measured*,
 `docs/measurements/2026-10-28-stutter-reproduction.md`). The first guess was that the user's network cvars caused it
 (`rate 131072`, `net_chokeloop 1`, `net_queued_packet_thread 1`). The prediction written down was that a loopback listen
 server would not show it at all. Both were wrong.
-- Thirteen POV recordings on pl_pier with 23 bots show the same 0/2 stamp steps under a regular server tick.
-- The share of delta-1 steps ranged 58 to 93%. The user's own network lines gave 69 to 92%, `rate` raised to the maximum
-  gave 58 to 89%, and stock settings gave 74 to 93%.
+- 25 POV recordings on pl_pier with 23 bots show the same 0/2 stamp steps under a regular server tick.
+- The delta-1 share ranged 58 to 97%. The user's lines gave 67 to 97% (n 9), stock gave 74 to 97% (n 10), with no
+  difference by Mann-Whitney. Raising `rate` to the maximum gave 58 to 89%.
 - What tracks the share is how evenly a recording's `stamp − net_Tick` splits between two adjacent values. That is the
-  rounding in `GetRecordingTick` meeting a write phase near the half-tick. Why a connect lands near the boundary is
-  unread, but it is set at connect and nothing in the config chooses it.
+  rounding in `GetRecordingTick` meeting a write phase near the half-tick. The phase differs between recordings and moves
+  within one at host hitches. What sets it is unread.
 - The user's server was a Valve casual server. Its banner and convars match TF2's shipped `server_casual.cfg`, so the
   "link-local" address was the relay, not a VM.
