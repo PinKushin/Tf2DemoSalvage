@@ -25,4 +25,36 @@ defect mildly (1.6% stamp-0 steps). A modern loaded POV match has it heavily (20
 `host_tickcount` on arrival is *interpolated* (the recorder's write path is unread), and so is the claim that TF2 shows the same
 stutter (TF2 was not run on this demo).
 
-Left open: the subject's view angles pace evenly (CV 0.215) where its origin does not, which is not yet explained.
+~~Left open: the subject's view angles pace evenly (CV 0.215) where its origin does not, which is not yet explained.~~
+Answered below.
+
+**The writer, read** (*read from the disassembly*, x64 `engine.dll`). `CDemoRecorder::RecordPacket` (`0x180073720`) writes
+each packet through `0x1800748b0`, and the header tick comes from `GetRecordingTick` (`0x180071f80`). With more than one
+client, that is `(int)((float)net_time / interval + 0.5) - m_nStartTick`: the client's wall clock at the moment of writing,
+rounded to a tick. `net_time` is the double at `0x180779520`, which `NET_Init` zeroes. The guard is `cl.m_nMaxClients`, the
+same global `InterpolateViewpoint` tests for its rollback. So "stamped on arrival" is now read, not interpolated. One part
+stays *interpolated*: that `RecordPacket` runs as each packet is processed. Its caller was not read.
+
+The same function fills `democmdinfo_t` from two different places:
+- `viewOrigin` is `IPrediction::GetViewOrigin` (slot +0x40), the local player's `GetLocalOrigin` (`prediction.cpp:1820`);
+- `localViewAngles` is `GetLocalViewAngles` (+0x60, `pl.v_angle`);
+- `viewAngles` is copied from `cl.viewangles` (`0x18053f4e4`), which `IVEngineClient::SetViewAngles` (`0x180070fa0`) writes.
+
+**That answers the angles** (*measured*). The probe now groups the angle steps as it does the origin's. On the subject, the
+view-angle step over its local median is 0.016 at a stamp step of 0, 1.31 at 1 and 3.42 at 2. By server step it is 1.51,
+2.79 and 1.61, which does not track. So the angles were sampled on the stamp's own clock: the client turned the view
+while the packet sat in its queue. Pairing them by the stamp is already right, which is why they pace evenly. The origin is
+the snapshot's and follows the server. The two halves of one `democmdinfo_t` run on two clocks.
+
+**The fix, above Valve** (D238). `demo_retimeview 1`, the default, pairs the origin on each packet's `net_Tick`. It is
+placed on the stamp's axis by the delay most packets in a 5-second window arrive with. The angles stay on the stamp. On
+the subject the origin pacing CV falls from 0.877 to 0.246. A synthetic line carrying the subject's own stamps and
+`net_Tick`s falls from 0.863 to 0.007. So the jitter is gone, and what the subject keeps is its own motion. The full table
+is in `docs/measurements/2026-10-27-retime-view-by-server-tick.md`.
+
+**A second clock defect, found by the fix** (*measured*). In 2 minutes the 2013 specimen's `stamp - net_Tick` steps by 12 to
+28 ticks seven times, and it never steps back. Each time, a stamp gap of about 20 ticks covers a server step of about 7. So
+the server lost ticks: it simulated 7 while 20 passed on the wall. A single usual delay over such a step put every
+packet on one side 12 ticks off its stamp. The first version then fell back to the stamp there, and the camera regressed
+(CV 0.447 to 0.603). So a delay step wider than the parse-ahead now ends a run. Across such a lost-time gap the camera
+slows, because the server did, and it holds one frame where the reader has not yet queued the packet after the gap.

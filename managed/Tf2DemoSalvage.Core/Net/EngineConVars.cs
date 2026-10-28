@@ -230,6 +230,13 @@ public static class EngineConVars
         new("demo_avellimit", "2000", Replicated: false, Cheat: false),
         new("demo_legacy_rollback", "1", Replicated: false, Cheat: false),
 
+        // **OURS, not Valve's — the one entry here the engine does not declare** (D79 rule 2, D238). An addition above
+        // `InterpolateViewpoint`: the recorded origin placed on the packet's `net_Tick` rather than its arrival stamp
+        // (finding 106). Declared here because this is the one route a client ConVar's default reaches the console, the
+        // settings and `HudConVars` by; undeclared, it would read "0" and the addition would silently be off.
+        // Absent from `cvarlist.log`, held by `CvarNameConformanceTests.Ours`.
+        new("demo_retimeview", "1", Replicated: false, Cheat: false),
+
         // **Tournament mode, so `IsInTournamentMode` can be modelled instead of taken as off.**
         // All three `FCVAR_REPLICATED`, none `FCVAR_CHEAT` — a server sets them, not a player.
         // src/game/shared/teamplayroundbased_gamerules.cpp:202 and :227,

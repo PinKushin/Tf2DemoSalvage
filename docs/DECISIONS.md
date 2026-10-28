@@ -11153,3 +11153,29 @@ releases and beta.54 is Latest; publishing now means `gh release edit <tag> --dr
 until the draft is created without the flag (memory `the-lead-publishes-releases.md`). The Discord post for beta.54 had
 already gone out labelled "prerelease" and stays; the workflow labels a post by the flag, so later posts read "release".
 
+## D238 — the first-person origin is retimed by the server's tick, above Valve, on by default as `demo_retimeview 1` (2026-10-27)
+
+**The owner, 2026-10-27**, on finding 106 (a POV demo whose camera stutters in TF2's own playback, because each
+`dem_packet` is stamped with the client's arrival time): *"we would fix it above valve, the information seems to be
+there, just need to be properly spread out"*. So this is an addition above the engine
+(`docs/memory/an-addition-above-valve-is-allowed.md`), not a parity fix.
+
+**What Valve does, and what we depart from.** `CDemoRecorder::GetRecordingTick` (`engine.dll` `0x180071f80`) stamps a
+multiplayer recording's packets with `TIME_TO_TICKS( net_time ) - m_nStartTick`, the client's wall clock when it wrote
+the packet. `CDemoPlayer::InterpolateViewpoint` (`0x180072180`) pairs the recorded views on that stamp, so network
+jitter (two packets in one tick, none in the next) becomes uneven camera speed. Every packet also carries the server's
+own tick (`net_Tick`), and the recorded origins follow it. With `demo_retimeview 1` the ORIGIN alone is paired on that
+server tick instead, placed on the stamp's axis by the delay most packets arrive with (`DemoPlayer.ServerTimed`). The
+view angles stay on the stamp, because the recorder writes them from `cl.viewangles`, the client's clock. Reading, the
+parse-ahead, the rewind, the snaps' current view and the cut frames are unchanged.
+
+**How to switch it off.** `demo_retimeview 0` in a config or at the console gives the engine's answer bit for bit
+(`DemoRecordingStampConformanceTests`). The name is ours (D79 rule 2); `cvarlist.log` has no such ConVar. Wherever a
+packet carries no `net_Tick`, or its placement would be more than the parse-ahead's 8 ticks from its stamp, the stamp is
+used, so old demos, SourceTV demos and clock steps fall back to the engine.
+
+**The open question, as the owner's rule asks.** Why does Valve not do this? *Interpolated:* nobody needed it. The
+SourceTV recorder stamps with the server's own `host_tickcount` (`0x18019baa0`), and the single-player branch uses a
+tick counter, so only a POV recording over a jittery connection shows the stutter. The measured
+result, and what it does not fix, is `docs/measurements/2026-10-27-retime-view-by-server-tick.md`.
+

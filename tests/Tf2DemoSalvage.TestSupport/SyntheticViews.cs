@@ -29,7 +29,11 @@ internal static class SyntheticViews
     /// <summary>TF2's 66.67 tick.</summary>
     public const float Interval = 0.015f;
 
-    /// <summary>A packet at a tick carrying a view.</summary>
+    /// <summary>A packet at a tick carrying a view, and a <c>net_Tick</c> when <paramref name="serverTick"/> is given.</summary>
+    /// <remarks>
+    /// <paramref name="serverTick"/> is written by <see cref="SyntheticDemo"/>'s encoder as the packet's one message:
+    /// the server's own tick, which a POV recording carries beside its client-side stamp (finding 106).
+    /// </remarks>
     public static DemoCommand Packet(
         int tick,
         (float X, float Y, float Z) origin,
@@ -38,7 +42,8 @@ internal static class SyntheticViews
         int flags = 0,
         (float X, float Y, float Z) origin2 = default,
         (float Pitch, float Yaw, float Roll) angles2 = default,
-        (float Pitch, float Yaw, float Roll) localAngles2 = default)
+        (float Pitch, float Yaw, float Roll) localAngles2 = default,
+        int? serverTick = null)
     {
         byte[] prologue = new byte[RecordedView.SizeBytes + 8];
         (float Pitch, float Yaw, float Roll) local = localAngles ?? angles;
@@ -51,7 +56,11 @@ internal static class SyntheticViews
         Write(prologue, 52, angles2.Pitch, angles2.Yaw, angles2.Roll);
         Write(prologue, 64, localAngles2.Pitch, localAngles2.Yaw, localAngles2.Roll);
 
-        return new DemoCommand(DemoCommandType.Packet, tick, ReadOnlyMemory<byte>.Empty, prologue);
+        ReadOnlyMemory<byte> payload = serverTick is { } server
+            ? SyntheticDemo.Packet(SyntheticDemo.DefaultProtocol, tick, new NetTickMessage(server, 0, 0)).Payload
+            : ReadOnlyMemory<byte>.Empty;
+
+        return new DemoCommand(DemoCommandType.Packet, tick, payload, prologue);
     }
 
     /// <summary>A <c>dem_signon</c> with the default view, at a tick — real ones carry the server's tick, often far past the packets'.</summary>

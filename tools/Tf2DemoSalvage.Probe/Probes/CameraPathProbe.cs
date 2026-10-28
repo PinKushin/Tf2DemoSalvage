@@ -4,6 +4,8 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 
+using Microsoft.Extensions.Logging.Abstractions;
+
 using Tf2DemoSalvage.Core.Container;
 using Tf2DemoSalvage.Core.Net;
 using Tf2DemoSalvage.Core.Scene;
@@ -29,9 +31,13 @@ namespace Tf2DemoSalvage.Probe.Probes;
 /// (b1) the same line at the subject's packet rate, evenly spaced in true time, each stamped floor(time / interval) —
 /// what that rate alone does against the tick;
 /// (b2) the same line, with the subject demo's own packet tick stamps and each packet at an evenly spaced true time —
-/// what this demo's arrival-stamp jitter alone does to a perfectly smooth motion.
-/// Then the server's <c>net_Tick</c> inside each packet beside its stamp, which is whether the true time is recoverable.
-/// `docs/measurements/2026-10-27-camera-path-pacing.md`.
+/// what this demo's arrival-stamp jitter alone does to a perfectly smooth motion; it carries no <c>net_Tick</c>, so
+/// <c>demo_retimeview</c> 0 and 1 must read alike on it;
+/// (b3) the subject's stamps carrying an even <c>net_Tick</c>, each view the line at its server tick — the snapshot
+/// shape — run with <c>demo_retimeview</c> 0 and 1: off must read b2's jitter, on the line's own pace.
+/// Then the subject with the setting off and on, the server's <c>net_Tick</c> beside each stamp, and where the
+/// setting placed each packet (D238). `docs/measurements/2026-10-27-camera-path-pacing.md`,
+/// `docs/measurements/2026-10-27-retime-view-by-server-tick.md`.
 /// </remarks>
 public sealed class CameraPathProbe : IProbe
 {
@@ -78,18 +84,141 @@ public sealed class CameraPathProbe : IProbe
         double seconds = (stamps[^1] - first) * (double)subject.IntervalPerTick;
         double spacing = seconds / (count - 1);
 
-        Report(output, "control (a) line, a packet every tick", Line([.. Enumerable.Range(0, 2400)], at => at * (double)SyntheticViews.Interval), hz);
+        Report(output, "control (a) line, a packet every tick", Line([.. Enumerable.Range(0, 2400)], at => at * (double)SyntheticViews.Interval), hz, true);
 
         // The subject's packet rate with no jitter: each packet stamped with the tick its own even time falls in.
+        int[] evenTicks = [.. Enumerable.Range(0, count).Select(at => (int)Math.Floor(at * spacing / SyntheticViews.Interval))];
         Report(output, "control (b1) line, this demo's packet rate, stamped floor(even time / interval)",
-            Line([.. Enumerable.Range(0, count).Select(at => (int)Math.Floor(at * spacing / SyntheticViews.Interval))], at => at * spacing), hz);
+            Line(evenTicks, at => at * spacing), hz, true);
 
-        // The subject's own stamps, each packet at its even true time: arrival jitter alone.
-        Report(output, "control (b2) line, this demo's own stamps at even true times",
-            Line([.. stamps.Select(tick => tick - first)], at => at * spacing), hz);
+        // The subject's own stamps, each packet at its even true time: arrival jitter alone. No net_Tick, so
+        // demo_retimeview has nothing to place and the two settings must read alike — the fallback's control.
+        int[] ownStamps = [.. stamps.Select(tick => tick - first)];
+        DemoTimeline jitterOnly = Line(ownStamps, at => at * spacing);
+        Report(output, "control (b2) line, this demo's own stamps at even true times, demo_retimeview 0", jitterOnly, hz, false);
+        Report(output, "control (b2) line, this demo's own stamps at even true times, demo_retimeview 1", jitterOnly, hz, true);
 
-        Report(output, string.Create(CultureInfo.InvariantCulture, $"subject {Path.GetFileName(path)}"), subject, hz);
+        // The subject's own two clocks — its stamps and its net_Ticks — with each view the line AT its server tick: a
+        // snapshot, as the measured views are. Off reads the jitter (b2); on must collapse to the line's own pace, so
+        // whatever the subject keeps on top of this is its motion, not its timing. A packet without a net_Tick takes
+        // the one before it plus one for its view and carries none, as the subject's do.
+        int?[] servers = ViewServerTicks(subject);
+        int[] serverTimes = new int[servers.Length];
+
+        for (int at = 0; at < servers.Length; at++)
+        {
+            serverTimes[at] = servers[at] ?? (at > 0 ? serverTimes[at - 1] + 1 : 0);
+        }
+
+        DemoTimeline snapshots = Line(
+            ownStamps, at => (serverTimes[at] - serverTimes[0]) * (double)SyntheticViews.Interval, at => servers[at]);
+        Report(output, "control (b3) line, this demo's stamps and net_Ticks, views at the server tick, demo_retimeview 0", snapshots, hz, false);
+        Report(output, "control (b3) line, this demo's stamps and net_Ticks, views at the server tick, demo_retimeview 1", snapshots, hz, true);
+
+        string name = Path.GetFileName(path);
+        Report(output, string.Create(CultureInfo.InvariantCulture, $"subject {name}, demo_retimeview 0"), subject, hz, false);
+        Report(output, string.Create(CultureInfo.InvariantCulture, $"subject {name}, demo_retimeview 1"), subject, hz, true);
         ServerTicks(output, bytes, [.. subject.ViewCommands.Where(command => command.Type == DemoCommandType.Packet).Select(command => command.View)]);
+        Placement(output, subject);
+
+        (int Placed, int Same, int ChangedNear, int ChangedFar) identity = RetimeIdentity(subject, hz);
+        output.WriteLine(string.Create(CultureInfo.InvariantCulture,
+            $"camera on vs off: {identity.Placed} packets placed; frames with none near: {identity.Same} identical, " +
+            $"{identity.ChangedFar} differing; frames near one: {identity.ChangedNear} differing"));
+    }
+
+    /// <summary>
+    /// The production camera (<see cref="SpectatorView.Eye"/> over <see cref="TimelineEyes"/>) with <c>demo_retimeview</c>
+    /// on and off, every frame at <paramref name="hz"/>: which differ, and whether a packet the setting placed is near.
+    /// </summary>
+    /// <param name="timeline">A POV demo.</param>
+    /// <param name="hz">Frames a second.</param>
+    /// <returns>
+    /// Packets the setting placed off their stamp; frames with none near, whose two cameras agreed; frames near one whose
+    /// cameras differ; and frames with none near whose cameras differ — zero, or the setting leaks.
+    /// </returns>
+    /// <remarks>
+    /// "Near" is from a placed packet's predecessor's earlier tick to its successor's later one, on either axis, two
+    /// ticks either side: every pair the packet can be an end of. Held by <c>CorpusRetimeViewTests</c>.
+    /// </remarks>
+    public static (int Placed, int Same, int ChangedNear, int ChangedFar) RetimeIdentity(DemoTimeline timeline, int hz)
+    {
+        ArgumentNullException.ThrowIfNull(timeline);
+
+        const int reach = 2;
+        DemoPlayer on = new(timeline) { ConVars = () => DemoViewConVars.Defaults with { RetimeView = true } };
+        DemoPlayer off = new(timeline) { ConVars = () => DemoViewConVars.Defaults with { RetimeView = false } };
+        IReadOnlyList<int> placed = on.ServerTimedTicks;
+        IReadOnlyList<DemoViewCommand> commands = timeline.ViewCommands;
+        int[] packets = [.. Enumerable.Range(0, commands.Count).Where(at => commands[at].Type == DemoCommandType.Packet && !commands[at].View.IsDefault)];
+        List<(int From, int To)> near = [.. Enumerable.Range(1, Math.Max(0, packets.Length - 2))
+            .Where(at => placed[packets[at]] != commands[packets[at]].Tick)
+            .Select(at => (
+                Math.Min(placed[packets[at - 1]], commands[packets[at - 1]].Tick) - reach,
+                Math.Max(placed[packets[at + 1]], commands[packets[at + 1]].Tick) + reach))];
+
+        SpectatorView retimed = new(NullLogger.Instance) { Eyes = new TimelineEyes(timeline, on) };
+        SpectatorView engine = new(NullLogger.Instance) { Eyes = new TimelineEyes(timeline, off) };
+        int same = 0;
+        int changedNear = 0;
+        int changedFar = 0;
+        int last = commands[packets[^1]].Tick - 9;
+
+        for (double tick = commands[packets[0]].Tick + 1; tick < last; tick += 1d / hz / timeline.IntervalPerTick)
+        {
+            bool differs = retimed.Eye(tick, 1f)?.Origin != engine.Eye(tick, 1f)?.Origin;
+            int target = (int)Math.Floor(tick);
+
+            if (near.Exists(span => span.From <= target && target <= span.To))
+            {
+                changedNear += differs ? 1 : 0;
+            }
+            else if (differs)
+            {
+                changedFar++;
+            }
+            else
+            {
+                same++;
+            }
+        }
+
+        return (near.Count, same, changedNear, changedFar);
+    }
+
+    /// <summary>
+    /// Where <c>demo_retimeview</c> put each packet, read from the array the blend itself reads
+    /// (<see cref="DemoPlayer.ServerTimedTicks"/>, B243): stamp minus placement, over the whole demo and by thirds — a
+    /// drift between the clocks shows as the thirds disagreeing.
+    /// </summary>
+    private static void Placement(TextWriter output, DemoTimeline timeline)
+    {
+        IReadOnlyList<int> placed = new DemoPlayer(timeline).ServerTimedTicks;
+        int[] packets = [.. Enumerable.Range(0, timeline.ViewCommands.Count).Where(at => timeline.ViewCommands[at].Type == DemoCommandType.Packet)];
+        int[] shift = [.. packets.Select(at => timeline.ViewCommands[at].Tick - placed[at])];
+        int third = Math.Max(1, shift.Length / 3);
+
+        output.WriteLine();
+        output.WriteLine(string.Create(CultureInfo.InvariantCulture,
+            $"== demo_retimeview placement, {packets.Length} packets, {shift.Count(value => value != 0)} moved off their stamp"));
+        output.WriteLine("stamp - placed: " + Counts(shift));
+
+        for (int part = 0; part < 3; part++)
+        {
+            output.WriteLine(string.Create(CultureInfo.InvariantCulture, $"  third {part + 1}: ") +
+                Counts(shift.Skip(part * third).Take(part == 2 ? int.MaxValue : third)));
+        }
+
+        // Around each stamp gap of 8 or more, and each packet moved by 3 or more: stamp/server/placed, packet by packet.
+        foreach (int at in Enumerable.Range(1, Math.Max(0, packets.Length - 1))
+            .Where(at => timeline.ViewCommands[packets[at]].Tick - timeline.ViewCommands[packets[at - 1]].Tick >= 8 || Math.Abs(shift[at]) >= 3)
+            .Take(12))
+        {
+            output.WriteLine("  around packet " + at.ToString(CultureInfo.InvariantCulture) + ": " + string.Join(' ',
+                Enumerable.Range(Math.Max(0, at - 4), Math.Min(packets.Length, at + 5) - Math.Max(0, at - 4)).Select(near =>
+                    string.Create(CultureInfo.InvariantCulture,
+                        $"{timeline.ViewCommands[packets[near]].Tick}/{timeline.ViewCommands[packets[near]].ServerTick}/{placed[packets[near]]}"))));
+        }
     }
 
     /// <summary>One <c>dem_packet</c>: its stamp, the last <c>net_Tick</c> inside it (null with none), its recorded view.</summary>
@@ -165,7 +294,21 @@ public sealed class CameraPathProbe : IProbe
             .Select(group => string.Create(CultureInfo.InvariantCulture, $"stamp {group.Key.Stamp} server {group.Key.Server}: {group.Count()}"));
 
         output.WriteLine("stamp step x server step (3 = 3 or more): " + string.Join("; ", rows));
-        output.WriteLine("stamp - server tick: " + Counts(samples.Where(sample => sample.Server is not null).Select(sample => sample.Stamp - sample.Server.GetValueOrDefault())));
+
+        int[] delays = [.. samples.Where(sample => sample.Server is not null).Select(sample => sample.Stamp - sample.Server.GetValueOrDefault())];
+        int third = Math.Max(1, delays.Length / 3);
+        output.WriteLine("stamp - server tick: " + Counts(delays));
+
+        for (int part = 0; part < 3; part++)
+        {
+            output.WriteLine(string.Create(CultureInfo.InvariantCulture, $"  third {part + 1}: ") +
+                Counts(delays.Skip(part * third).Take(part == 2 ? int.MaxValue : third)));
+        }
+
+        // The stamp gaps of 4 or more, by what the server did across them: a server step of 1 is a gap only the stamp has.
+        output.WriteLine("stamp steps of 4+, by server step: " + Counts(Enumerable.Range(1, samples.Length - 1)
+            .Where(at => samples[at].Stamp - samples[at - 1].Stamp >= 4 && samples[at].Server is not null && samples[at - 1].Server is not null)
+            .Select(at => samples[at].Server.GetValueOrDefault() - samples[at - 1].Server.GetValueOrDefault())));
     }
 
     /// <summary>
@@ -175,9 +318,18 @@ public sealed class CameraPathProbe : IProbe
     /// </summary>
     private static void ViewSteps(TextWriter output, Sample[] samples)
     {
-        double[] step = [.. Enumerable.Range(1, samples.Length - 1).Select(at => Distance(samples[at - 1].View.Origin, samples[at].View.Origin))];
+        ComponentSteps(output, samples, "recorded origin", 0.5, (a, b) => Distance(a.Origin, b.Origin));
+        ComponentSteps(output, samples, "recorded view angles", 0.05, (a, b) => Turned(a.Angles, b.Angles));
+        ComponentSteps(output, samples, "recorded local angles", 0.05, (a, b) => Turned(a.LocalAngles, b.LocalAngles));
+    }
+
+    /// <summary>One component's step per packet over its local median, by stamp step and by server step.</summary>
+    private static void ComponentSteps(
+        TextWriter output, Sample[] samples, string what, double moves, Func<RecordedView, RecordedView, double> measure)
+    {
+        double[] step = [.. Enumerable.Range(1, samples.Length - 1).Select(at => measure(samples[at - 1].View, samples[at].View))];
         double[] median = LocalMedians(step);
-        int[] moving = [.. Enumerable.Range(0, step.Length).Where(at => median[at] > 0.5)];
+        int[] moving = [.. Enumerable.Range(0, step.Length).Where(at => median[at] > moves)];
 
         string Grouped(Func<int, int?> key) => string.Join("; ", moving
             .Where(at => key(at) is not null)
@@ -186,25 +338,36 @@ public sealed class CameraPathProbe : IProbe
             .Select(group => string.Create(CultureInfo.InvariantCulture,
                 $"{group.Key}: n {group.Count()} step/median mean {group.Average(at => step[at] / median[at]):0.000}")));
 
-        output.WriteLine(string.Create(CultureInfo.InvariantCulture, $"recorded origin step / local median, {moving.Length} moving packet steps"));
+        output.WriteLine(string.Create(CultureInfo.InvariantCulture, $"{what} step / local median, {moving.Length} moving packet steps"));
         output.WriteLine("  by stamp step: " + Grouped(at => samples[at + 1].Stamp - samples[at].Stamp));
         output.WriteLine("  by server step: " + Grouped(at =>
             samples[at + 1].Server is { } next && samples[at].Server is { } previous ? next - previous : null));
+
+        // A packet whose value did not change while its neighbours' did: in the recording itself, before any blend.
+        int[] still = [.. moving.Where(at => step[at] <= 0d)];
+        output.WriteLine(string.Create(CultureInfo.InvariantCulture, $"  unchanged from the packet before, among moving: {still.Length}") +
+            (still.Length > 0 ? ", by server step " + Counts(still.Select(at =>
+                samples[at + 1].Server is { } next && samples[at].Server is { } previous ? next - previous : -1)) +
+            ", first stamps " + string.Join(' ', still.Take(12).Select(at => samples[at + 1].Stamp.ToString(CultureInfo.InvariantCulture))) : string.Empty));
     }
 
     private static string Counts(IEnumerable<int> values) => string.Join(' ',
         values.GroupBy(value => value).OrderBy(group => group.Key)
             .Select(group => string.Create(CultureInfo.InvariantCulture, $"{group.Key}x{group.Count()}")));
 
-    /// <summary>A synthetic POV demo: packets at <paramref name="ticks"/> (offset to <see cref="LineStart"/>), packet k at the line's position at <paramref name="time"/>(k).</summary>
-    private static DemoTimeline Line(int[] ticks, Func<int, double> time)
+    /// <summary>
+    /// A synthetic POV demo: packets at <paramref name="ticks"/> (offset to <see cref="LineStart"/>), packet k at the
+    /// line's position at <paramref name="time"/>(k), carrying <c>net_Tick</c> <paramref name="server"/>(k) when given.
+    /// </summary>
+    private static DemoTimeline Line(int[] ticks, Func<int, double> time, Func<int, int?>? server = null)
     {
         List<DemoCommand> commands = [];
 
         for (int at = 0; at < ticks.Length; at++)
         {
             float t = (float)time(at);
-            commands.Add(SyntheticViews.Packet(LineStart + ticks[at], (LineSpeed * t, 0f, 0f), (0f, (LineTurn * t) % 360f, 0f)));
+            commands.Add(SyntheticViews.Packet(
+                LineStart + ticks[at], (LineSpeed * t, 0f, 0f), (0f, (LineTurn * t) % 360f, 0f), serverTick: server?.Invoke(at)));
         }
 
         commands.Add(SyntheticViews.Stop(LineStart + ticks[^1]));
@@ -216,7 +379,11 @@ public sealed class CameraPathProbe : IProbe
     private static int[] ViewPackets(DemoTimeline timeline) =>
         [.. timeline.ViewCommands.Where(command => command.Type == DemoCommandType.Packet && !command.View.IsDefault).Select(command => command.Tick)];
 
-    private static void Report(TextWriter output, string title, DemoTimeline timeline, int hz)
+    /// <summary>The <c>net_Tick</c> the timeline kept for each of <see cref="ViewPackets"/>, null where a packet carried none.</summary>
+    private static int?[] ViewServerTicks(DemoTimeline timeline) =>
+        [.. timeline.ViewCommands.Where(command => command.Type == DemoCommandType.Packet && !command.View.IsDefault).Select(command => command.ServerTick)];
+
+    private static void Report(TextWriter output, string title, DemoTimeline timeline, int hz, bool retime)
     {
         output.WriteLine();
         output.WriteLine("== " + title);
@@ -226,10 +393,14 @@ public sealed class CameraPathProbe : IProbe
 
         // ParseAheadForInterval answers false within 8 ticks of the dem_stop, so the tail plays stepped by design: judged
         // frames are those whose whole tick is past the first packet and 9 or more short of the last.
-        List<Frame> played = Play(timeline, hz, packets[0], packets[^1]);
+        List<Frame> played = Play(timeline, hz, packets[0], packets[^1], retime);
         List<Frame> frames = [.. played.Where(frame => Math.Floor(frame.Position) >= packets[0] + 1 && Math.Floor(frame.Position) <= packets[^1] - 9)];
         output.WriteLine(string.Create(CultureInfo.InvariantCulture,
-            $"frames {frames.Count} judged ({played.Count - frames.Count} at the ends excluded) at {hz} Hz, demo_interplimit/avellimit snaps {frames.Count(frame => frame.Snapped)}"));
+            $"frames {frames.Count} judged ({played.Count - frames.Count} at the ends excluded) at {hz} Hz, demo_interplimit/avellimit snaps {frames.Count(frame => frame.Snapped)}" +
+            $" at {string.Join(' ', frames.Where(frame => frame.Snapped).Take(30).Select(frame => frame.Position.ToString("0.00", CultureInfo.InvariantCulture)))}"));
+        output.WriteLine("  stalls at " + string.Join(' ', Enumerable.Range(1, Math.Max(0, frames.Count - 2))
+            .Where(at => frames[at].Move <= 0d && frames[at - 1].Move > Moving && frames[at + 1].Move > Moving)
+            .Take(30).Select(at => frames[at].Position.ToString("0.00", CultureInfo.InvariantCulture))));
 
         Summarise(output, "origin", frames, frame => frame.Move, packets);
         Summarise(output, "angles", frames, frame => frame.Turn, packets);
@@ -254,12 +425,17 @@ public sealed class CameraPathProbe : IProbe
     /// Played from the first view-bearing packet to the last: a synthetic demo's header states no length, so the
     /// timeline's own last tick is not used.
     /// </remarks>
-    private static List<Frame> Play(DemoTimeline timeline, int hz, int firstTick, int lastTick)
+    /// <remarks>
+    /// **Both players take the same <c>demo_retimeview</c>**: the unlimited one differs from the viewer's only in the two
+    /// limits, so a difference between them is a snap and never the setting.
+    /// </remarks>
+    private static List<Frame> Play(DemoTimeline timeline, int hz, int firstTick, int lastTick, bool retime)
     {
-        TimelineEyes eyes = new(timeline, new DemoPlayer(timeline));
+        DemoViewConVars setting = DemoViewConVars.Defaults with { RetimeView = retime };
+        TimelineEyes eyes = new(timeline, new DemoPlayer(timeline) { ConVars = () => setting });
         DemoPlayer unlimited = new(timeline)
         {
-            ConVars = () => DemoViewConVars.Defaults with { InterpLimit = float.PositiveInfinity, AvelLimit = float.PositiveInfinity },
+            ConVars = () => setting with { InterpLimit = float.PositiveInfinity, AvelLimit = float.PositiveInfinity },
         };
 
         PlaybackClock clock = new(timeline.IntervalPerTick, lastTick);

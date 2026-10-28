@@ -85,6 +85,11 @@ public sealed class CvarNameConformanceTests
             "D210. Follows `cl_game_folder` above: whether the viewer asks for it at startup, which " +
             "the engine never does.",
 
+        ["demo_retimeview"] =
+            "D238, an addition above `CDemoPlayer::InterpolateViewpoint`: the recorded origin on the packets' server " +
+            "ticks rather than their arrival stamps (finding 106). The engine has no such step, so no name to adopt; " +
+            "named beside `demo_interpolateview`, which it refines.",
+
         ["texture_quality"] =
             "PROVISIONAL — the one entry here that is a question rather than an answer. Valve ships " +
             "`mat_picmip` (default -1, archived) for texture quality, so unlike every other name " +
