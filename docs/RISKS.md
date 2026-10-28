@@ -40092,8 +40092,9 @@ controls), pixels unchanged outside the frame-rate readout (`StaticPlusDynamicLi
 - **Bit 4 is cached** at `+0x88`'s shape: ranked once, ranked again only when a listed style is stamped
   (`StylesChanged(styles)`, which `LightStyleEffects` now passes); a live dlight is ranked against the cached four. A
   bump-mapped prop's finished state (style-0 and styled lights ranked together) is cached on the handle the same way, so
-  with no live dlight neither path allocates or ranks on a frame with nothing stamped; both hand out read-only lists.
-  A lighting source set after the static props were packed builds their handles then (`RebuildStaticLighting`).
+  with no live dlight neither path allocates or ranks on a frame with nothing stamped. Every cached list — flags 6's,
+  flags 7's and the static state — is handed out read-only. A source set after the static props were packed (no
+  production path: `LevelSystems.Load` runs after `ClearMap`'s shutdown) drops the kept answers and the next draw builds.
   Tests: `StaticPlusDynamicLightingConformanceTests` (`…_NoListedStyleChanged_RanksTheStyledLightsOnce`,
   `…_AListedStyleChanges_RanksAgainAtItsNewValue`, `…_AnUnlistedStyleChanges_DoesNotRankAgain`,
   `…_ALiveDlightBesideACachedStyledLamp_…`, `PrecacheStaticProp_…`) and

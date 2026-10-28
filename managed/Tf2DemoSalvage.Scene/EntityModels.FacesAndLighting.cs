@@ -414,9 +414,9 @@ public sealed partial class EntityModelSet
         {
             // A static prop has one answer a level — no colour mesh — so it is kept, as a mesh is; an entity's index is
             // reused by the next entity, so its answer is not. Kept only while what it depended on stands: the model's
-            // flags and packed geometry are the level's, and the two sources that can arrive late — `StaticPropLighting`
-            // and `StaticPropColours` — drop every kept answer when set, and `MomentScene.Lighting` then builds them again
-            // (`RebuildStaticLighting`, B607).
+            // flags and packed geometry are the level's, and the two sources a refusal can wait on — `StaticPropLighting`
+            // and `StaticPropColours` — drop every kept answer when set, so the next draw builds it (B607). In production
+            // both are set before the static props are packed (`LevelSystems.Load`, after `ClearMap`'s shutdown).
             if (prop.EntityIndex >= PropModels.FirstStaticPropEntityIndex)
             {
                 _bakedByEntity[prop.EntityIndex] = null;

@@ -307,9 +307,6 @@ public sealed class MomentScene : IGameSystemPerFrame
             _models.StaticPropLighting = value.StaticPropLightingAt;
             _models.StaticPropFullLighting = value.StaticPropFullLightingAt;
             _models.StaticPropHandle = value.PrecacheStaticProp;
-
-            // A source set after the static props were packed builds their handles now, not on each first draw (B607).
-            _models.RebuildStaticLighting();
         }
     } = LevelLighting.Unlit(NullLogger.Instance);
 

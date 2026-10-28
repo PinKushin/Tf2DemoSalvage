@@ -179,23 +179,6 @@ public sealed partial class EntityModelSet
         return added;
     }
 
-    /// <summary>
-    /// Builds the static props' lighting again, for a lighting source handed over after they were packed (B607); before
-    /// they are packed it does nothing, since the pack builds it.
-    /// </summary>
-    /// <remarks>
-    /// The engine builds a prop's handle once, at load. Here a level's lighting can arrive after its static props were
-    /// packed — and its delegates' setters drop what the old source built — so without this the handles would fall back
-    /// to being built on each prop's first draw, which is the hitch the load-time build exists to remove.
-    /// </remarks>
-    public void RebuildStaticLighting()
-    {
-        if (_staticsPacked)
-        {
-            TimedPrecache();
-        }
-    }
-
     /// <summary><see cref="PrecacheStaticLighting"/> on its own clock, <see cref="PrecacheTicks"/>.</summary>
     private void TimedPrecache()
     {

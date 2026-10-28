@@ -1167,26 +1167,62 @@ public sealed class MomentSceneTests
     }
 
     /// <remarks>
-    /// **B607, a lighting source that arrives after the pack.** With no source at the first pack the CPU bake is refused
-    /// — a refusal that depends on state not yet there, not a final one — and the handle cannot be built. Setting the
-    /// source drops that answer (the delegates' setters clear the colour meshes) and builds every handle again then, so
-    /// the first draw still finds the mesh, the static state and the styled list built, and builds none of them.
+    /// **B607, a refusal that waited on a source.** With no lighting source at the first pack the CPU bake is refused — a
+    /// refusal that depends on state not yet there, not a final one. Setting the source drops that answer (the
+    /// delegate's setter clears the colour meshes), so the first draw builds the mesh rather than drawing the kept
+    /// refusal. Production never takes this route — `LevelSystems.Load` sets the source before the pack — but a kept
+    /// refusal must not outlive what it waited on.
     /// </remarks>
     [Test]
-    public void Lighting_SetAfterTheStaticPropsArePacked_BuildsTheirMeshAndHandleBeforeTheFirstDraw()
+    public void Lighting_SetAfterTheStaticPropsArePacked_DropsTheRefusalAndTheFirstDrawBuildsTheMesh()
     {
-        MomentScene scene = UnbakedStaticProp(0x10, out LevelLighting lighting, out _, styled: true, lit: false);
+        MomentScene scene = UnbakedStaticProp(0x10, out LevelLighting lighting, out _, lit: false);
 
         scene.Build([], [], Info());
-        (lighting.StaticStateBuilds, lighting.StyledListsBuilt).ShouldBe((0, 0), "the control: no source at the pack");
+        lighting.StaticStateBuilds.ShouldBe(0, "the control: no source at the pack");
 
         scene.Lighting = lighting;
-        (lighting.StaticStateBuilds, lighting.StyledListsBuilt).ShouldBe((1, 1), "built when the source arrived");
-
         scene.Pose(Info());
 
         scene.Instances.ShouldHaveSingleItem().BakedColours.ShouldNotBeNull("the refusal at the pack was not kept");
-        (lighting.StaticStateBuilds, lighting.StyledListsBuilt).ShouldBe((1, 1), "the draw built nothing");
+        lighting.StaticStateBuilds.ShouldBe(1, "built by the first draw");
+    }
+
+    /// <remarks>
+    /// **B607, a level's shutdown builds nothing.** It hands the scene the unlit source before the model set forgets the
+    /// level; nothing may build the departing level's static-prop lighting against it, or that work lands in the counters
+    /// the next level's `--measure` reports.
+    /// </remarks>
+    [Test]
+    public void LevelShutdownPreEntity_WithTheStaticPropsPacked_BuildsNoStaticPropLighting()
+    {
+        PropVertex corner = new(0, 0f, 0f, 0f, 0f, MaterialIndex: 3);
+        EntityModelSet models = new()
+        {
+            Geometry = _ => new PropModels.ModelFrames(
+                [new[] { corner }],
+                new Dictionary<int, (int Start, int Frames, float CyclesPerSecond)> { [0] = (0, 1, 0f) },
+                [0],
+                [true]),
+            StaticPropColours = new Dictionary<int, float[]> { [PropModels.FirstStaticPropEntityIndex] = [.5f, .5f, .5f] },
+        };
+
+        MomentScene scene = new(models, new ViewmodelScene(), new RecordingLogger())
+        {
+            Upload = new Uploads(),
+            Appearance = new Appearance(),
+            Lighting = StaticPlusDynamicLightingConformanceTests.Map([]),
+            StaticProps =
+                [PropModels.StaticModel(new Content.Bsp.BspStaticProp("models/props/crate.mdl", 0f, 0f, 100f, 0f, 0f, 0f, 1f), 0)],
+        };
+
+        scene.Build([], [], Info());
+        models.BakedBuilds.ShouldBe(1, "the control: the pack built it");
+        (long bakedTicks, long precacheTicks) = (models.BakedBuildTicks, models.PrecacheTicks);
+
+        scene.LevelShutdownPreEntity();
+
+        (models.BakedBuilds, models.BakedBuildTicks, models.PrecacheTicks).ShouldBe((1, bakedTicks, precacheTicks));
     }
 
     private static MomentScene UnbakedStaticProp(

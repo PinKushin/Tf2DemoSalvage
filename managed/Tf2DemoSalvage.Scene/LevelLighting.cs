@@ -859,7 +859,8 @@ public sealed class LevelLighting
             ? SunFrom(SunCaller.StaticProp, light, strikesSky, x, y, z)
             : null;
 
-        built = (found == 0 ? PointLighting.Bounce(bounced) : new PointLighting(bounced, nearest), sun);
+        // Read-only: this one state is every later draw's and bake's (B607).
+        built = (found == 0 ? PointLighting.Bounce(bounced) : new PointLighting(bounced, Array.AsReadOnly(nearest)), sun);
         _staticStates[(x, y, z)] = built;
         StaticStateBuilds++;
         StaticStateBuildTicks += System.Diagnostics.Stopwatch.GetTimestamp() - buildAt;

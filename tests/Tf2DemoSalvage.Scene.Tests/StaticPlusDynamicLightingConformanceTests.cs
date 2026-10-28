@@ -323,22 +323,43 @@ public sealed class StaticPlusDynamicLightingConformanceTests
     }
 
     /// <summary>
-    /// The cached lists are every later draw's too, so neither path hands out one a caller could write through: a cast to
-    /// an array fails and the list says it is read-only.
+    /// The cached lists are every later draw's too, so no path hands out one a caller could write through: a cast to an
+    /// array fails — flags 6's styled four, flags 7's finished state, and flags 7 with nothing styled, which is the static
+    /// state itself (the CPU bake's input too). An empty list is the shared empty array, which holds nothing to write.
     /// </summary>
     [Test]
-    public void StaticPlusDynamicLights_TheCachedLights_AreReadOnly()
+    public void StaticPlusDynamicLights_TheCachedLights_CannotBeCastToAnArray()
     {
         LevelLighting lighting = Map([Lamp(Style, cluster: 0), Lamp(0, cluster: 0) with { Origin = (0f, 30f, 120f) }]);
+        LevelLighting unstyled = Map([Lamp(0, cluster: 0)]);
 
         IReadOnlyList<LocalLight> plus = lighting.StaticPlusDynamicLights(1000, 0f, 0f, 100f);
         IReadOnlyList<LocalLight> full = lighting.StaticPropFullLightingAt(1000, 0f, 0f, 100f).Lighting.Locals;
+        IReadOnlyList<LocalLight> state = unstyled.StaticPropFullLightingAt(1000, 0f, 0f, 100f).Lighting.Locals;
 
-        plus.Count.ShouldBe(1, "the control: a cached list with a light in it");
+        (plus.Count, full.Count, state.Count).ShouldBe((1, 2, 1), "the control: each list holds a light");
         (plus as LocalLight[]).ShouldBeNull();
         (full as LocalLight[]).ShouldBeNull();
-        ((ICollection<LocalLight>)plus).IsReadOnly.ShouldBeTrue();
-        ((ICollection<LocalLight>)full).IsReadOnly.ShouldBeTrue();
+        (state as LocalLight[]).ShouldBeNull();
+    }
+
+    /// <summary>
+    /// Flags 7's finished state ranks the style-0 lights at style 0's value, so a stamp of style 0 alone makes it stale
+    /// even though the handle lists no style-0 light; a stamp of a style nothing here answers to does not.
+    /// </summary>
+    [Test]
+    public void StaticPropFullLightingAt_AStyleZeroStamp_RanksAgainAndAnUnlistedStyleDoesNot()
+    {
+        LevelLighting lighting = Map([Lamp(Style, cluster: 0), Lamp(0, cluster: 0) with { Origin = (0f, 30f, 120f) }]);
+
+        lighting.StaticPropFullLightingAt(1000, 0f, 0f, 100f);
+        lighting.StylesChanged([Style + 1]);
+        lighting.StaticPropFullLightingAt(1000, 0f, 0f, 100f);
+        lighting.FullRankings.ShouldBe(1, "style 6 is not this prop's");
+
+        lighting.StylesChanged([0]);
+        lighting.StaticPropFullLightingAt(1000, 0f, 0f, 100f);
+        lighting.FullRankings.ShouldBe(2);
     }
 
     /// <summary>
