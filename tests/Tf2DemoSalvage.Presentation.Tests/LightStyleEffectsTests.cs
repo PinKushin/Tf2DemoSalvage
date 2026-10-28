@@ -161,27 +161,52 @@ public sealed class LightStyleEffectsTests
         map.Lighting.StyledRankings.ShouldBe(2);
     }
 
+    /// <summary>Style 3 `az` steps every tenth of a second; style 4 `aazz` every second tenth.</summary>
+    private static readonly DemoTimeline TwoAnimatedStyles = DemoTimeline.Build(SyntheticEffects.DemoWithLightStyles(
+        [new(1, SyntheticEffects.PlayerClass, SyntheticEffects.Standing(0f, 0f, 0f, 2))],
+        [],
+        [],
+        ["m", "a", "z", "az", "aazz"],
+        []));
+
     /// <remarks>
-    /// **B607, the per-style stamp reaching the handle** (`FUN_1801ba590` bit 4: `+0x88` stands until a listed style's stamp
-    /// passes `+0xf8`). A frame in which style 3 holds its letter ranks nothing; the frame it steps ranks once, at its new
-    /// value.
+    /// **B607, the per-style stamp reaching the handle** (`FUN_1801ba590` bit 4: `+0x88` stands until a LISTED style's
+    /// stamp passes `+0xf8`). The prop lists the lamp on style 4; a lamp on style 3 is in the level (so the level answers
+    /// to style 3) but out of the prop's reach. Tick 7 (0.105 s) steps style 3 and holds style 4: a stamp, but not one the
+    /// handle lists, so nothing ranks. Tick 14 (0.21 s) steps style 4: one ranking, at its new value. A version that
+    /// stamped every style on any change would rank at tick 7.
     /// </remarks>
     [Test]
-    public void StepOver_AListedStyleHoldingThenStepping_RanksAStaticPropsStyledLightsOnlyWhenItSteps()
+    public void StepOver_AnUnlistedStyleSteppingThenAListedOne_RanksAStaticPropsStyledLightsOnlyForTheListed()
     {
         LightStyleEffects lights = new(new RecordingLogger());
-        Map map = WithAStyleThreeLamp();
+        Map map = new()
+        {
+            Lighting = new LevelLighting(
+                null,
+                [],
+                [
+                    new BspWorldLight((0f, 0f, 120f), (400f, 400f, 400f), (0f, 0f, -1f), WorldLightKind.Point, QuadraticAttenuation: 1f) { Style = 4 },
+                    new BspWorldLight((0f, 0f, 120f), (400f, 400f, 400f), (0f, 0f, -1f), WorldLightKind.Point, QuadraticAttenuation: 1f) { Style = 3, Radius = 10f },
+                ],
+                null,
+                new RecordingLogger()),
+        };
         FakeFrameDevice device = new();
 
-        Step(lights, map, device, 0);
-        map.Lighting.StaticPlusDynamicLights(1000, 0f, 0f, 100f).ShouldBeEmpty();
+        void At(int tick) => lights.StepOver(TwoAnimatedStyles, map.Data(), tick, new DynamicLights(), [], device);
 
-        Step(lights, map, device, 6);
-        map.Lighting.StaticPlusDynamicLights(1000, 0f, 0f, 100f).ShouldBeEmpty();
-        map.Lighting.StyledRankings.ShouldBe(1, "style 3 held its letter: +0x88 read");
+        At(0);
+        map.Lighting.StaticPlusDynamicLights(1000, 0f, 0f, 100f).ShouldBeEmpty("style 4 is a at time zero");
+        map.Lighting.StyledRankings.ShouldBe(1);
 
-        Step(lights, map, device, 7);
-        map.Lighting.StaticPlusDynamicLights(1000, 0f, 0f, 100f).Count.ShouldBe(1, "z: the lamp is on");
+        At(7);
+        lights.Scale(3).ShouldBe(550f / 264f, "the control: style 3 stepped to z");
+        map.Lighting.StaticPlusDynamicLights(1000, 0f, 0f, 100f).ShouldBeEmpty();
+        map.Lighting.StyledRankings.ShouldBe(1, "style 3 is not the handle's: +0x88 read");
+
+        At(14);
+        map.Lighting.StaticPlusDynamicLights(1000, 0f, 0f, 100f).Count.ShouldBe(1, "style 4 stepped to z: the lamp is on");
         map.Lighting.StyledRankings.ShouldBe(2);
     }
 

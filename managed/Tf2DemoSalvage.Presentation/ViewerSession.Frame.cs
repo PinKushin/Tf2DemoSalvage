@@ -253,7 +253,8 @@ public sealed partial class ViewerSession
             _presenter.Models.BakedBuilds,
             _presenter.Models.BakedBuildTicks,
             _presenter.Map?.Lighting.StaticStateBuilds ?? 0,
-            _presenter.Map?.Lighting.StaticStateBuildTicks ?? 0),
+            _presenter.Map?.Lighting.StaticStateBuildTicks ?? 0,
+            _presenter.Models.PrecacheTicks),
         Logging.FileLogWriter.ThreadTiming,
         Tf2DemoSalvage.Content.Assets.GameArchives.ThreadReads,
         Tf2DemoSalvage.Content.Assets.ArchiveReadTiming.ProcessPageFaults());
@@ -370,6 +371,7 @@ public sealed partial class ViewerSession
                 $"; baked built {jitNow.Models.Baked - _countersAtStart.Models.Baked}, {(jitNow.Models.BakedTicks - _countersAtStart.Models.BakedTicks) * 1000d / Stopwatch.Frequency:0.0} ms" +
                 $"; static states {jitNow.Models.StaticStates - _countersAtStart.Models.StaticStates}, {(jitNow.Models.StaticStateTicks - _countersAtStart.Models.StaticStateTicks) * 1000d / Stopwatch.Frequency:0.0} ms" +
                 $"; before play: models packed {_countersAtStart.Models.Packed}, {_countersAtStart.Models.PackTicks * 1000d / Stopwatch.Frequency:0.0} ms" +
+                $"; static-prop lighting at load {_countersAtStart.Models.PrecacheTicks * 1000d / Stopwatch.Frequency:0.0} ms (holds the next two)" +
                 $"; baked built {_countersAtStart.Models.Baked}, {_countersAtStart.Models.BakedTicks * 1000d / Stopwatch.Frequency:0.0} ms" +
                 $"; static states {_countersAtStart.Models.StaticStates}, {_countersAtStart.Models.StaticStateTicks * 1000d / Stopwatch.Frequency:0.0} ms"));
             _host.Out.WriteLine(

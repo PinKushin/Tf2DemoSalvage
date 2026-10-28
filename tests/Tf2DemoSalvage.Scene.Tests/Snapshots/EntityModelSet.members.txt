@@ -427,6 +427,7 @@ Tf2DemoSalvage.Scene.EntityModelSet|property|PosesUndrawn|()|System.Boolean|get=
 Tf2DemoSalvage.Scene.EntityModelSet|property|PrePoseBlendTicks|()|System.Int64|get=True|set=True
 Tf2DemoSalvage.Scene.EntityModelSet|property|PrePoseTicks|()|System.Int64|get=True|set=True
 Tf2DemoSalvage.Scene.EntityModelSet|property|PrePosed|()|System.Int32|get=True|set=True
+Tf2DemoSalvage.Scene.EntityModelSet|property|PrecacheTicks|()|System.Int64|get=True|set=True
 Tf2DemoSalvage.Scene.EntityModelSet|property|QuatInterpBones|()|System.Int32|get=True|set=False
 Tf2DemoSalvage.Scene.EntityModelSet|property|QuatInterpFurthestMove|()|System.Single|get=True|set=False
 Tf2DemoSalvage.Scene.EntityModelSet|property|QueuesClearedByADiscontinuity|()|System.Int32|get=True|set=True

@@ -75,6 +75,10 @@ public readonly record struct FrameCounters(
 /// <param name="Baked">Static-prop colour meshes built.</param>
 /// <param name="BakedTicks">Ticks spent building them.</param>
 /// <param name="StaticStates">Static-prop handles' static states built (`LevelLighting.StaticStateBuilds`, B607).</param>
-/// <param name="StaticStateTicks">Ticks spent building them.</param>
+/// <param name="StaticStateTicks">Ticks spent building them; a CPU bake's are inside <paramref name="BakedTicks"/> too.</param>
+/// <param name="PrecacheTicks">
+/// Ticks spent building the static props' lighting at level load (`EntityModelSet.PrecacheTicks`, B607); the load-time
+/// parts of <paramref name="BakedTicks"/> and <paramref name="StaticStateTicks"/> nest inside it.
+/// </param>
 public readonly record struct ModelFirstUses(
-    int Packed, long PackTicks, int Baked, long BakedTicks, int StaticStates, long StaticStateTicks);
+    int Packed, long PackTicks, int Baked, long BakedTicks, int StaticStates, long StaticStateTicks, long PrecacheTicks);

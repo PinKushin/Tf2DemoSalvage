@@ -375,11 +375,17 @@ public sealed partial class EntityModelSet
         long buildAt = System.Diagnostics.Stopwatch.GetTimestamp();
         built = BuildBakedColours(prop, pose, x, y, z);
 
-        // A mesh built, not an answer of none: a static prop's "no colour mesh" is kept too, and is not a build.
-        if (built is not null)
+        // Every answer kept is timed, a refused mesh too (a CPU bake that could not fill, geometry it does not cover); only a
+        // mesh built is counted, since a static prop's "no colour mesh" is kept as well and is not a build. A CPU bake's
+        // static state (`LevelLighting.StaticStateBuildTicks`) is built inside this clock: the two nest.
+        if (_bakedByEntity.ContainsKey(prop.EntityIndex))
         {
-            BakedBuilds++;
             BakedBuildTicks += System.Diagnostics.Stopwatch.GetTimestamp() - buildAt;
+
+            if (built is not null)
+            {
+                BakedBuilds++;
+            }
         }
 
         return built;

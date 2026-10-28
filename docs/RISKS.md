@@ -40096,7 +40096,7 @@ controls), pixels unchanged outside the frame-rate readout (`StaticPlusDynamicLi
   `…_ALiveDlightBesideACachedStyledLamp_…`, `PrecacheStaticProp_…`) and
   `…_FiveEqualStyledLampsAndADlight_RankAsOneListWould` (the tie rule),
   `MomentSceneTests.Build_TheStaticPropsFirstPack_BuildsTheirLightingHandlesBeforeAnyDraw`, the production stamp in
-  `LightStyleEffectsTests.StepOver_TheFirstFrame_…` and `…_AListedStyleHoldingThenStepping_…`, and on a real map
+  `LightStyleEffectsTests.StepOver_TheFirstFrame_…` and `…_AnUnlistedStyleSteppingThenAListedOne_…`, and on a real map
   `StaticPropModelsWiringTests.Instances_KothDryfieldDrawnTwiceThenStyleOneSwitchedOff_RanksOnlyOnTheStamp` (a count,
   not a shot). f12 lists no styled light, so the timed runs cannot show bit 4.
 - **Interpolated, the engine unread this pass** (the Ghidra MCP's program tools did not register): whether

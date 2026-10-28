@@ -283,7 +283,10 @@ public sealed class StaticPlusDynamicLightingConformanceTests
         DynamicLights lights = new() { Time = 1f };
         lighting.Dynamic = lights;
 
-        lighting.StaticPlusDynamicLights(1000, 0f, 0f, 100f).Count.ShouldBe(4, "the control: five tie for four slots");
+        // The tie rule itself: of five equal lamps the EARLIER four keep the slots, in lump order, and the fifth — the lamp
+        // straight above — takes none (`LocalLights`' insert refuses a light no stronger than the last kept).
+        lighting.StaticPlusDynamicLights(1000, 0f, 0f, 100f).Select(static local => (local.X, local.Y, local.Z))
+            .ShouldBe([(20f, 0f, 100f), (-20f, 0f, 100f), (0f, 20f, 100f), (0f, -20f, 100f)]);
 
         DynamicLight light = lights.AllocDlight(1);
         (light.X, light.Y, light.Z, light.Radius, light.Red, light.Die) = (0f, 0f, 80f, 255f, 255, 2f);

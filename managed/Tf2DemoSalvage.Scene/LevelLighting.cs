@@ -746,7 +746,8 @@ public sealed class LevelLighting
     /// That holds on ties too, because `LocalLights`' insert keeps the EARLIER of two equal lights (a full list refuses
     /// a light no stronger than its last, and a light moves up only past a weaker one): the four come in rank order before
     /// the dlights, as the list came in lump order before them. Pinned by
-    /// `StaticPlusDynamicLights_FiveEqualStyledLampsAndADlight_RankAsOneListWould`.
+    /// `StaticPlusDynamicLights_FiveEqualStyledLampsAndADlight_RankAsOneListWould`, which asserts WHICH four of five equal
+    /// lamps are kept (the first four, in lump order) and then that the dlight ranks as one list would.
     /// </remarks>
     private List<BspWorldLight>? WithDynamic(StyledHandle handle, float x, float y, float z)
     {

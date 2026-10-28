@@ -9,9 +9,9 @@ public sealed class FrameCountersTests
     [Test]
     public void Since_TwoReadings_NamesEachDeltaAndSplitsTheJitByThread()
     {
-        FrameCounters start = new(10, TimeSpan.FromMilliseconds(5), TimeSpan.FromMilliseconds(8), TimeSpan.Zero, new(1, 2, 3, 4, 5), 2, 7, new(3, 10, 5, 20, 6, 30), default, new(2, 0, 0), 100);
+        FrameCounters start = new(10, TimeSpan.FromMilliseconds(5), TimeSpan.FromMilliseconds(8), TimeSpan.Zero, new(1, 2, 3, 4, 5), 2, 7, new(3, 10, 5, 20, 6, 30, 40), default, new(2, 0, 0), 100);
         FrameCounters end = new(
-            14, TimeSpan.FromMilliseconds(45), TimeSpan.FromMilliseconds(60), TimeSpan.Zero, new(2, 12, 3, 34, 105), 3, 9, new(4, 52, 8, 31, 8, 37), default,
+            14, TimeSpan.FromMilliseconds(45), TimeSpan.FromMilliseconds(60), TimeSpan.Zero, new(2, 12, 3, 34, 105), 3, 9, new(4, 52, 8, 31, 8, 37, 40), default,
             new(5, 0, 1, "materials/hud/d_images_v2.vtf"), 350);
 
         end.Since(start, 1000).ShouldBe(

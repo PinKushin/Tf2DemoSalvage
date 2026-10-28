@@ -168,11 +168,14 @@ public sealed partial class EntityModelSet
             PackTicks += System.Diagnostics.Stopwatch.GetTimestamp() - packAt;
         }
 
-        // Their lighting with them, as the level loads (B607), not on each one's first draw — after the pack's own clock,
-        // since the colour meshes and static states it builds are timed where they are built.
+        // Their lighting with them, as the level loads (B607), not on each one's first draw — on its own clock, after the
+        // pack's: it holds the colour meshes, static states and styled lists, so `BakedBuildTicks` and the static states'
+        // ticks nest inside it.
         if (staticsNow)
         {
+            long precacheAt = System.Diagnostics.Stopwatch.GetTimestamp();
             PrecacheStaticLighting();
+            PrecacheTicks += System.Diagnostics.Stopwatch.GetTimestamp() - precacheAt;
         }
 
         return added;

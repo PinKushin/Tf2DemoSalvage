@@ -87,13 +87,21 @@ frame.
 | B | baked built **233**, 10.8-17.3 ms per run | models packed 735 in 444-734 ms; baked built 188, 23.6-37.5 ms |
 | A | baked built **0**; static states **0** | models packed 735 in 1020-1330 ms; baked built 959, 64.9-80.0 ms; static states **404, 468-585 ms** |
 
-*Read with care:* A's `models packed` ms in these runs includes the precache, which then ran inside `Add`'s pack clock
-(fixed after the runs, review item 1: the precache now runs after it), and its `baked built 959` counts the static props
-answered "no colour mesh" too (fixed likewise: only a mesh built counts now). B's counter also counted a refused `.vhv`
-as a build. So the before-play rise is **~0.5-0.6 s** (A's 1020-1330 against B's 444-734), of which the static states
-are 468-585 ms and the colour meshes most of the rest.
+*Read with care: every A figure above predates two counter fixes made after the runs* (A's binary was `e761fc6e`):
+- A's `models packed` ms includes the whole precache, which then ran inside `Add`'s pack clock. It now runs after that
+  clock, on its own (`EntityModelSet.PrecacheTicks`, printed as `static-prop lighting at load`).
+- A's `baked built 959` counts the static props answered "no colour mesh" too. Only a mesh built counts now; every
+  answer kept is still timed. B's counter also counted a refused `.vhv` as a build.
+- **The clocks nest**, then and now: a CPU-baked prop's static state is built inside its colour-mesh clock, so `static
+  states` ms and `baked built` ms overlap and are not to be added.
 
-Identity (`compare.ps1`): S2-B against S3-A, **54 pixels, all in (1101,2)-(1119,10)** — the frame-rate readout. S1-B
+So the one sum these runs support is the total: the before-play rise is **~0.5-0.6 s** (A's 1020-1330 against B's
+444-734 ms of `models packed`, which in A held the precache). Within it, `static states` were 468-585 ms and `baked built`
+65-80 ms, overlapping by the CPU-baked props' states; the rest (styled lists, lighting origins) was on no clock in A's
+binary. Not re-measured with the fixed counters: no timed run without the coordinator's say-so.
+
+Identity (`shots.txt`, by `compare.ps1`; the shots themselves are not committed, and `S*-*.txt` hold only
+`run-exclusive`'s banner): S2-B against S3-A, **54 pixels, all in (1101,2)-(1119,10)** — the frame-rate readout. S1-B
 against S2-B, 36,200 pixels in the band (0,0)-(1279,48); S1-B against S3-A, 36,192 in the same band. So A equals S2-B
 outside the readout, and differs from S1-B only where the two B shots disagree with each other.
 
