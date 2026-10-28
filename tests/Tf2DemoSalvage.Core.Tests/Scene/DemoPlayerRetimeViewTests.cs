@@ -242,28 +242,44 @@ public sealed class DemoPlayerRetimeViewTests
     }
 
     [Test]
-    public void InterpolateViewpoint_FirstFramesOnAPacketPlacedAfterItsStamp_StepNoMoreThanATickOfMotion()
+    public void InterpolateViewpoint_FirstFramesOnAPacketPlacedAfterItsStamp_AreTheEnginesThenTheLine()
     {
         // The first packet arrived a tick early: stamp 99, placed 100. Until 100 the target lies before every queued
-        // placement — the server's axis has no pair and nothing to hold — so the origin is the engine's blend, and at
-        // 100 the server's pair takes over. Seeking onto it lands the same way. The hand-over may step, by no more than one
-        // server tick of the line's motion (4 units), and the origin may never leap ahead to a later packet.
+        // placement — the server's axis has no pair and nothing to hold — so the origin is exactly the engine's blend;
+        // from 100 the server's pair takes over and the origin is exactly the line. Played from the start, and again after
+        // playing on to 103 and seeking back to 99, which lands the same way.
         List<DemoCommand> commands = [.. Enumerable.Range(0, 60).Select(k => SyntheticViews.Packet(
             k == 0 ? 99 : 100 + k, (4f * (1000 + k), 0f, 0f), (0f, 10f, 0f), serverTick: 1000 + k))];
-        DemoPlayer player = Player(SyntheticViews.Demo([.. commands, SyntheticViews.Stop(200)]), On);
-        float? last = null;
+        byte[] demo = SyntheticViews.Demo([.. commands, SyntheticViews.Stop(200)]);
+        DemoPlayer on = Player(demo, On);
+        DemoPlayer off = Player(demo, Off);
 
-        for (double tick = 99d; tick <= 104d; tick += 0.125d)
+        void Play()
         {
-            float x = player.InterpolateViewpoint(tick).ShouldNotBeNull().Origin.X;
-
-            if (last is { } before)
+            for (double tick = 99d; tick <= 104d; tick += 0.125d)
             {
-                MathF.Abs(x - before).ShouldBeLessThanOrEqualTo(4f + Tolerance, $"tick {tick}");
-            }
+                RecordedView now = on.InterpolateViewpoint(tick).ShouldNotBeNull();
+                RecordedView engine = off.InterpolateViewpoint(tick).ShouldNotBeNull();
 
-            last = x;
+                if (tick < 100d)
+                {
+                    now.ShouldBe(engine, $"tick {tick}: before the hand-over, the engine's blend");
+                }
+                else
+                {
+                    now.Origin.X.ShouldBe((float)(4d * (tick + 900d)), Tolerance, $"tick {tick}: after it, the server's line");
+                }
+            }
         }
+
+        Play();
+
+        // The control: the hand-over is real — at 100.5 the engine blends (99, 101) and the line does not.
+        on.InterpolateViewpoint(100.5).ShouldNotBe(off.InterpolateViewpoint(100.5));
+
+        on.InterpolateViewpoint(103d);
+        off.InterpolateViewpoint(103d);
+        Play();
     }
 
     private static int Index(DemoTimeline timeline, int packet) =>
@@ -425,15 +441,49 @@ public sealed class DemoPlayerRetimeViewTests
     [Test]
     public void ServerTimed_TwoDelaysAlternatingAtATie_KeepsOneAndNeverFlips()
     {
-        // Every odd packet a tick late: across a 101-packet window the two delays lead by one in turn as it slides, which
-        // without hysteresis flips the usual delay nearly every packet and steps the placements by 0 and 2 in turn.
-        List<DemoViewCommand> commands = [.. Enumerable.Range(0, 400).Select(k => View(100 + k + (k % 2), 1000 + k))];
-        List<(int Index, long From, long To)> changes = [];
+        // Every odd packet of the first 400 a tick late, then 100 on time: across a 101-packet window the two delays lead
+        // by one in turn as it slides, which flips the bare commonest delay nearly every packet and, taken, would step the
+        // placements by 0 and 2 in turn. Every one of those flips comes back within the window.
+        List<DemoViewCommand> commands = [.. Enumerable.Range(0, 500).Select(k => View(100 + k + (k < 400 ? k % 2 : 0), 1000 + k))];
+        DemoPlayer.ServerTimedChanges changes = new();
 
         int[] ticks = DemoPlayer.ServerTimed(commands, 50, changes);
 
-        changes.ShouldBeEmpty();
-        ticks.ShouldBe(Enumerable.Range(0, 400).Select(k => 100 + k));
+        changes.Commonest.Count.ShouldBeGreaterThan(100, "the control: the bare commonest delay does flip");
+        changes.Applied.ShouldBeEmpty();
+        ticks.ShouldBe(Enumerable.Range(0, 500).Select(k => 100 + k));
+    }
+
+    [Test]
+    public void HoldShortChanges_AChangeRevertingWithinTheWindow_IsNotTaken()
+    {
+        // Ten packets of the other delay, and a window of ten: the delay in force is back at the tenth packet after.
+        long[] commonest = [.. Enumerable.Repeat(-900L, 100), .. Enumerable.Repeat(-899L, 10), .. Enumerable.Repeat(-900L, 100)];
+
+        DemoPlayer.HoldShortChanges(commonest, 10).ShouldAllBe(delay => delay == -900L);
+    }
+
+    [Test]
+    public void HoldShortChanges_AChangeLastingLongerThanTheWindow_IsTakenAtItsFirstPacket()
+    {
+        // Eleven packets against a window of ten: taken at the very packet it starts, and left at the packet it ends.
+        long[] commonest = [.. Enumerable.Repeat(-900L, 100), .. Enumerable.Repeat(-899L, 11), .. Enumerable.Repeat(-900L, 100)];
+
+        DemoPlayer.HoldShortChanges(commonest, 10).ShouldBe(commonest);
+    }
+
+    [Test]
+    public void ServerTimed_AOneTickStepAtTheProductionWindow_IsFollowedAtTheStepWithNoLag()
+    {
+        // From packet 500 every packet arrives a tick later, for good. At the 333-packet window the commonest delay
+        // changes at packet 500 exactly, and that change is taken there: every packet, before and after, sits on its stamp.
+        List<DemoViewCommand> commands = [.. Enumerable.Range(0, 1000).Select(k => View(100 + k + (k >= 500 ? 1 : 0), 1000 + k))];
+        DemoPlayer.ServerTimedChanges changes = new();
+
+        int[] ticks = DemoPlayer.ServerTimed(commands, 333, changes);
+
+        changes.Applied.ShouldBe([(500, -900L, -899L)]);
+        ticks.ShouldBe(commands.Select(command => command.Tick));
     }
 
     [Test]

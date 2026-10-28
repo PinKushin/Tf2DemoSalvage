@@ -98,8 +98,8 @@ public sealed class DemoSystems
     /// <summary>The <c>demo_*</c> ConVars as <see cref="ViewConVars"/> reads them, from a watcher's values.</summary>
     /// <param name="client">The watcher's own ConVar values, or null where unset.</param>
     /// <returns>Each one in force, its declared default where unset.</returns>
-    /// <remarks>Public for the probe that times one read (D238, round 4); the frame reads it through <see cref="ViewConVars"/>.</remarks>
-    public static DemoViewConVars ViewConVarsFrom(Func<string, string?>? client)
+    /// <remarks>Internal for the probe that times one read (D238, round 4); the frame reads it through <see cref="ViewConVars"/>.</remarks>
+    internal static DemoViewConVars ViewConVarsFrom(Func<string, string?>? client)
     {
         Scene.Hud.HudConVars vars = new(null, client);
 

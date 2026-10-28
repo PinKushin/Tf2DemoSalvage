@@ -77,7 +77,7 @@ median. "Stalls" counts zero-move frames between moving ones.
 | (b3) on the rgl clocks | off | 1.219 | 49501 / 309558 | 72 | 0 | 1.212 |
 | (b3) on the rgl clocks | **on** | **0.196** | **299** | 61 | 0 | 1.212 |
 | (d) rgl pug POV, modern | off | 27.9 † | 77353 / 251766 (30.7%) | 6912 | 842 | 8.88 |
-| (d) rgl pug POV, modern | **on** | 22.4 † | **53819 / 252770 (21.3%)** | 9929 | 900 | 8.10 |
+| (d) rgl pug POV, modern | **on** | 22.3 † | **53809 / 252778 (21.3%)** | 9936 | 902 | 8.10 |
 
 † Dominated by respawns: the largest frame step is 4170 units. The "> 50%" column is the comparable one.
 
@@ -85,7 +85,7 @@ median. "Stalls" counts zero-move frames between moving ones.
 - Subject: 679 packets placed. 978 frames have no placed packet near, and every one is identical. 1498 frames near one
   differ.
 - 2013: 147 placed, 15930 identical, 0 different away from them, 565 different near them.
-- rgl: 41721 placed, 81777 identical, 0 different away from them. These are the round-4 figures, with hysteresis.
+- rgl: 41779 placed, 81794 identical, 0 different away from them. These are the round-5 figures.
 
 **Where the setting placed packets (stamp minus placement).**
 - Subject: 0 ×1687, 1 ×661, 2 ×11, 3 ×6, 6 ×1.
@@ -126,7 +126,8 @@ snaps. The interval now runs from the earlier of the pair's start and the curren
 engine's own interval wherever the pair starts at or before the current packet. A line at 2667 u/s across a late packet
 held the camera before the change and is the line after it
 (`InterpolateViewpoint_AJitteredLineUnderTheInterpLimit_IsTheLineAndNeverSnaps`).
-- rgl, after the change: 842 → 904, then 900 with round 4's hysteresis. The remaining 58 were not examined.
+- rgl, after the change: 842 → 904. It was then 900 with round 4's margin and is 902 with round 5's flip-back hold. The
+  remaining 60 were not examined.
 - Subject: 11 → 24, unchanged by the change. The extra 13 are at 2236–2242, a 6-tick stamp gap. There `net_Tick` 82036 sits
   at stamp 2242 and 82042 at 2244, and the origin between them moves faster than `demo_interplimit` over the 7 ticks from
   the current packet: a respawn. The engine's own teleport rule therefore now holds the view across the real interval,
@@ -153,9 +154,10 @@ Rerun again, the subject, 2013 and rgl rows above are unchanged to the printed d
 
 **After the Fable review of `acb22826` (round 4).** Three measurements.
 
-**Usual-delay changes.** The probe now carries `ServerTimed`'s own counter, re-run on the player's own inputs, and checks
-that it agrees with the blend's placement (it does, on every demo). For each demo: changes, how many changed back within
-a window, and the most in any 667 commands.
+**Usual-delay changes.** From `ServerTimed`'s own counter, re-run on the player's own inputs. (A comparison of that re-run
+against the blend's placement printed "agrees" each time. It was a tautology, the same pure function on the same inputs,
+and round 5 replaced it with the constructor's own record.) For each demo: changes, how many changed back within a window,
+and the most in any 667 commands.
 
 | demo | before | with hysteresis |
 |---|---|---|
@@ -164,7 +166,7 @@ a window, and the most in any 667 commands.
 | rgl | **252**: sizes 1 ×160, 2 ×92; 231 changed back; 92 in one window | **17**: all of size 1; none changed back; at most 2 in a window |
 
 On rgl two delays sit near a tie (−12772 and −12773). Each trade of the lead moved every later placement by a tick. The
-usual delay now holds its place until a challenger leads it by a tenth of the window (33 packets). The subject and 2013 had
+usual delay then held its place until a challenger led it by more than 33 packets (replaced in round 5). The subject and 2013 had
 no change to suppress, and their rows are unchanged. rgl's row moved:
 
 | rgl, on | before | with hysteresis |
@@ -174,7 +176,8 @@ no change to suppress, and their rows are unchanged. rgl's row moved:
 | stalls | 9914 | 9929 |
 | CV † | 19.4 | 22.4 |
 
-† Respawn-dominated, as the table's note says; its comparable column improved.
+† Respawn-dominated, as the table's note says. Round 5 tests that claim (below). The comparable column moved by 0.1%, and
+the 15 stalls are explained under round 5.
 
 **SourceTV.** The 2013 foundry SourceTV specimen's packets carry `net_Tick`, and all 5,972 are placed exactly on their
 stamps: a constant delay, because SourceTV stamps with the server's own `host_tickcount`. It records no view, so
@@ -182,9 +185,50 @@ stamps: a constant delay, because SourceTV stamps with the server's own `host_ti
 
 **The ConVar read the memo now makes on every call.** The `viewconvarcost` probe times the production reader,
 `DemoSystems.ViewConVarsFrom`, over a two-table stand-in for the settings and console lookups: 441 ns minimum, 447 ns
-median of five million-call runs. Before, the read ran once per new moment. Now it runs on every call, so it adds one read
-a frame while playing (the camera and the recorder's body ask the same moment) and two while paused. That is about
-0.0005–0.0009 ms a frame, under a twentieth of the 0.01 ms this project counts as a win. No cache was added.
+median of five million-call runs.
+- **What was measured:** the cost per call only, a hot warm-cache loop in Release over the stand-in. The owner runs Debug.
+- **Deduced, not counted in the viewer:** the per-frame figure. Before, the read ran once per new moment; now it runs on
+  every call. Two callers ask each moment, the camera (`SpectatorView.cs:66`) and the recorder's body
+  (`IMomentSource.cs:257`), so it adds one read a frame while playing and two while paused.
+- **So:** about 0.0004–0.0009 ms a frame, under a tenth of the 0.01 ms this project counts as a win. No cache was added.
+
+**After the Opus review of `75b16f9f` (round 5).**
+
+**A real step was followed late.** Round 4's margin held the delay in force until a challenger led by more than 33 of the
+667 packets in the window. A real one-tick step was therefore followed about 17 packets late (deduced from the margin),
+and a step in a run's last ~170 packets never.
+
+**Round 5 replaces the margin.** A change of the commonest delay is taken at the very packet it happens, unless the delay
+in force is the commonest again within the next 333 packets (`DemoPlayer.HoldShortChanges`). The probe now reads the
+changes the player's constructor recorded while placing: the delay applied, the bare commonest one, and each applied
+change's lag behind the commonest change it follows.
+
+| demo | commonest changes (back within a window) | applied changes (back within a window) | lag |
+|---|---|---|---|
+| subject | 0 | 0 | — |
+| 2013 | 0 | 0 | — |
+| rgl | 252 (231) | 16 (0) | 0 at every change |
+
+The subject and 2013 rows are unchanged to the printed digit. rgl, with the setting on, across three versions:
+
+| rgl, on | bare commonest (round 3) | margin hysteresis (round 4) | flip-back hold (round 5) |
+|---|---|---|---|
+| applied changes | 252 | 17 | 16 |
+| frames > 50% off | 53873 | 53819 | **53809** |
+| snaps (off 842) | 904 | 900 | 902 |
+| stalls (off 6912) | 9914 | 9929 | 9936 |
+| CV † | 19.4 | 22.4 | 22.3 |
+| CV without teleports | not measured | not measured | 1.049 (off 1.655) |
+
+**The trade, plainly.** Round 5 has the fewest frames off, no lag, and no flip-backs. Against the bare commonest delay
+it has 22 more stalls (+0.2%) and the respawn-dominated CV is higher. The extra stalls are not explained by lag, because
+there is none now. They are not otherwise explained either. The recording repeats its origin 13,601 times among moving
+packets, and which repeats land exactly on a frame depends on each packet's placement.
+
+**"Respawn-dominated" is now shown.** The probe drops every frame faster than `demo_interplimit` (a teleport), and the
+frames whose local median includes one. On rgl that drops 4,641 frames off and 3,513 on. Without them the origin CV is
+1.655 off and 1.049 on, against 27.9 and 22.3 with them, so the † column is the teleports. The subject and 2013 are
+unchanged by the drop: their teleports were never in a moving frame's median.
 
 **Whether the world carries the stamp's jitter** (the review's question). The probe's world-pacing section puts every
 other player's origin from `DemoTimeline.PlayerAt` through ONE loop with both cameras. The cameras are a positive

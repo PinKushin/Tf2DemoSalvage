@@ -11183,8 +11183,9 @@ ticks early, lifted above its stamp, or held past a gap, so the cut frames are t
   the engine's. Its size on the three demos was not measured.
 - **The first frames on a packet placed after its stamp.** This happens at the start of playback, or on a seek that lands
   on one. The target lies before every queued placement, so there is neither a pair nor anything to hold, and the origin
-  is the engine's blend. When the server's pair appears, the origin steps by up to one tick of motion; a test holds that
-  bound.
+  is the engine's blend. When the server's pair appears, the origin steps by up to one tick of motion.
+  `InterpolateViewpoint_FirstFramesOnAPacketPlacedAfterItsStamp_AreTheEnginesThenTheLine` asserts the exact values on
+  both sides of the hand-over, from the start and after a seek back onto it.
 
 **How to switch it off.** `demo_retimeview 0` in a config or at the console gives the engine's answer bit for bit
 (`DemoRecordingStampConformanceTests`). The name is ours (D79 rule 2); `cvarlist.log` has no such ConVar.
@@ -11192,12 +11193,22 @@ ticks early, lifted above its stamp, or held past a gap, so the cut frames are t
 **Where it falls back.** Wherever a packet carries no `net_Tick`, or its placement would be more than the parse-ahead's 8
 ticks from its stamp, the stamp is used: old demos and clock steps fall back to the engine.
 
-**The usual delay holds its place** (round 4, measured). It changes only when a challenger leads it by a tenth of the
-window. Without that, rgl's two near-tied delays traded the lead 252 times, 231 of them back again within a window, each
-trade moving every later placement by a tick. With it they trade 17 times, never back.
+**A change of the usual delay that reverts within 333 packets is not taken** (rounds 4 and 5, measured). Each change
+moves every later placement by a tick, and rgl has two near-tied delays: their commonest traded the lead 252 times, 231
+of them back again within a window.
+- **Round 4** held the delay in force until a challenger led it by more than 33 packets. That cut the trades to 17, but a
+  real one-tick step was followed about 17 packets late (deduced from the margin), and a step in a run's last ~170
+  packets never.
+- **Round 5 replaces it.** A change is taken at the very packet the commonest delay changes, unless the delay in force
+  is the commonest again within the next 333 packets. rgl now has 16 changes, none back and lag 0. A one-tick step at the
+  production window is followed at its own packet; a test holds that.
+- **A near-tie.** The window at a run's first packets looks forward only. In a near-tie that lasts, the delay it picks is
+  kept, and that is intended: both delays are common there, and holding one is what stops the trades.
 
-**The repeat memo reads the ConVars on every call**, so a change made while paused applies at once. That read costs about
-0.44 µs: under 0.001 ms a frame, measured, so no cache was added.
+**The repeat memo reads the ConVars on every call**, so a change made while paused applies at once. No cache was added.
+- **Measured, per call:** about 0.44 µs, a hot loop in Release over a stand-in for the settings and console lookups.
+- **Deduced, per frame:** one read more while playing and two while paused, from the two callers that ask each moment
+  (the camera, `SpectatorView.cs:66`, and the recorder's body, `IMomentSource.cs:257`). That is under 0.001 ms.
 
 **A SourceTV demo is not a fallback.** Its packets DO carry `net_Tick` and are placed. They land on the stamp only
 because SourceTV stamps with the server's own `host_tickcount`, a constant delay. On the 2013 foundry SourceTV specimen,

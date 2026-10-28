@@ -334,22 +334,36 @@ public sealed class CameraPathProbe : IProbe
         DemoPlayer player = new(timeline);
         IReadOnlyList<int> placed = player.ServerTimedTicks;
 
-        // How often a run's usual delay changes, from ServerTimed's own counter over the player's own inputs — checked to be
-        // the same placement the blend reads before it is believed. A change moves every later placement by its size; one
-        // that changes back within a window is the flip-flop a near-tie produces.
-        (IReadOnlyList<DemoViewCommand> inputs, int window) = player.ServerTimedInputs;
-        List<(int Index, long From, long To)> changes = [];
-        bool same = DemoPlayer.ServerTimed(inputs, window, changes).SequenceEqual(placed);
-        int back = changes.Zip(changes.Skip(1)).Count(pair => pair.Second.To == pair.First.From && pair.Second.Index - pair.First.Index <= window);
-        int worst = changes.Count == 0 ? 0 : changes.Max(change => changes.Count(other => other.Index >= change.Index && other.Index <= change.Index + (2 * window)));
-
+        // How often a run's delay changes, as the player's own constructor recorded it while placing (no second route): the
+        // delay the placements use, and the bare commonest one. A change moves every later placement by its size; one that
+        // changes back within a window is the flip-flop a near-tie produces. Each applied change is printed beside the
+        // commonest one it follows, so a lag between them would show.
+        const int window = 333;
         output.WriteLine();
-        string sizes = Counts(changes.Select(change => (int)Math.Abs(change.To - change.From)));
-        output.WriteLine(string.Create(CultureInfo.InvariantCulture,
-            $"== usual-delay changes: {changes.Count} (re-run agrees with the blend's placement: {same}), by size {sizes}; " +
-            $"changed back within {window} commands {back}; most in any {(2 * window) + 1} commands {worst}"));
-        output.WriteLine("  first: " + string.Join(' ', changes.Take(16).Select(change =>
-            string.Create(CultureInfo.InvariantCulture, $"{inputs[change.Index].Tick}:{change.From - change.To:+0;-0}"))));
+
+        foreach ((string what, List<(int Index, long From, long To)> changes) in new[]
+                 {
+                     ("applied", player.PlacementChanges.Applied),
+                     ("commonest", player.PlacementChanges.Commonest),
+                 })
+        {
+            int back = changes.Zip(changes.Skip(1)).Count(pair => pair.Second.To == pair.First.From && pair.Second.Index - pair.First.Index <= window);
+            int worst = changes.Count == 0 ? 0 : changes.Max(change => changes.Count(other => other.Index >= change.Index && other.Index <= change.Index + (2 * window)));
+            string sizes = Counts(changes.Select(change => (int)Math.Abs(change.To - change.From)));
+
+            output.WriteLine(string.Create(CultureInfo.InvariantCulture,
+                $"== {what} delay changes: {changes.Count}, by size {sizes}; changed back within {window} commands {back}; " +
+                $"most in any {(2 * window) + 1} commands {worst}"));
+        }
+
+        List<(int Index, long From, long To)> commonest = player.PlacementChanges.Commonest;
+        output.WriteLine("  applied (command index, delay change, lag behind the commonest change it follows): " + string.Join(' ',
+            player.PlacementChanges.Applied.Take(24).Select(change =>
+            {
+                int follows = commonest.Where(other => other.Index <= change.Index && other.To == change.To).Select(other => other.Index).DefaultIfEmpty(change.Index).Max();
+
+                return string.Create(CultureInfo.InvariantCulture, $"{change.Index}:{change.To - change.From:+0;-0}/lag {change.Index - follows}");
+            })));
         int[] packets = [.. Enumerable.Range(0, timeline.ViewCommands.Count).Where(at => timeline.ViewCommands[at].Type == DemoCommandType.Packet)];
         int[] shift = [.. packets.Select(at => timeline.ViewCommands[at].Tick - placed[at])];
         int third = Math.Max(1, shift.Length / 3);
@@ -560,6 +574,32 @@ public sealed class CameraPathProbe : IProbe
 
         Summarise(output, "origin", frames, frame => frame.Move, packets);
         Summarise(output, "angles", frames, frame => frame.Turn, packets);
+
+        // The origin's CV without its teleports: frames faster than demo_interplimit, as the engine judges one, and the
+        // frames whose local median such a frame sits in (Opus review, round 5: "respawn-dominated" asserted, not shown).
+        double teleport = DemoViewConVars.Defaults.InterpLimit / hz;
+        double[] moves = [.. frames.Select(frame => frame.Move)];
+        double[] medians = LocalMedians(moves);
+        bool[] near = new bool[moves.Length];
+
+        for (int at = 0; at < moves.Length; at++)
+        {
+            if (moves[at] > teleport)
+            {
+                for (int other = Math.Max(0, at - Half); other <= Math.Min(moves.Length - 1, at + Half); other++)
+                {
+                    near[other] = true;
+                }
+            }
+        }
+
+        double[] kept = [.. Enumerable.Range(0, moves.Length).Where(at => !near[at] && medians[at] > Moving).Select(at => moves[at] / medians[at])];
+        double keptMean = kept.Length > 0 ? kept.Average() : 0d;
+        double keptSd = kept.Length > 0 ? Math.Sqrt(kept.Average(value => (value - keptMean) * (value - keptMean))) : 0d;
+
+        output.WriteLine(string.Create(CultureInfo.InvariantCulture,
+            $"origin without teleports (>{teleport:0.0} units a frame, and their medians' frames): {near.Count(value => value)} frames dropped, " +
+            $"moving {kept.Length}, speed/local-median CV {(keptMean > 0 ? keptSd / keptMean : 0):0.0000}, >50% off {kept.Count(value => Math.Abs(value - 1d) > 0.5)}"));
     }
 
     private static void Histogram(TextWriter output, int[] packets, float interval)
