@@ -19734,6 +19734,22 @@ filters run per frame where the engine runs `UpdateVisibility` on an update (0.0
 the prop's update, and the engine's trigger for each was not read). Remaining B259 per-frame cost, empty view (moment
 line, that record): `sample` 0.215, `drawlist` 0.15-0.21, `collate` 0.135.
 
+**Filed at the merge, 2026-10-29 (a Fable review and a `/code-review high`; none acted on, none measured):**
+- `SetLive` does a dictionary lookup and a `BinarySearch` on every call, including for a lerping track whose liveness did
+  not change; the lerp loop calls it for each of ~2-62 tracks a frame. A `was == (prop is not null)` early-out, or the
+  ordinal stored on `ScenePropTrack`, would remove both.
+- `DrawTally`'s per-object cache is a `ConditionalWeakTable` keyed on prop identity. A prop rebuilt each frame (a lerping
+  or waking track) misses it and pays the old cost plus a table entry; a stable key (model-path reference, kind, class
+  name) would keep the saving.
+- `DrawTally.EverNotStudio` is now a snapshot built on every read; its sibling `EverNoGeometry` is still a live view. The
+  only production reader is the census probe.
+- `Debug.Assert(false, …)` in `PropsAt` fail-fasts the test host on a desync instead of failing one test; the check that
+  names it is `LiveListMatchesSamples`. `TracksWalked` is `_live.Count`, the list's length, which is what the walk iterates.
+- A track listed twice now throws `ArgumentException` at construction (was: emitted twice). Exercised on the gcor timelines
+  only (gate phase 1); an lcor demo that trips it would fail to load, not be dropped.
+- No test reads the walk's output on a real demo against the old full walk; the identity check was a one-off script
+  (the measurement record).
+
 ### B259 on 2026-10-27/28: the world walk is pruned by the PVS, as the engine's mark-leaves makes it
 
 Built 2026-10-27; the engine re-read and the measurement are 2026-10-28.

@@ -234,3 +234,11 @@ corpse-count family each run falls into is matched.
 **What B259 still walks per frame** (B, empty view): `sample` 0.215 (players 0.06, the wakes and lerps, the live list), 
 `drawlist` ~0.15-0.21 (prepare 0.05, players 0.065, filters 0.02), `collate` 0.135 (the reconcile walk's identity and keyed
 paths ~0.07, `PreRender` ~0.045). The divergences left are the three filed in the table above.
+
+**What was NOT re-measured (added 2026-10-29, at the merge).** Every figure and hash above describes `eb9910a3`. The merged
+head `2b3b914c` adds the review rounds' code on top of it: the per-track `_ordinalOf` map built in the constructor and
+read by `SetLive`, the `Debug.Assert` in the walk, the one-emission refusal of a track listed twice, and the `DrawTally`
+list/sample changes. None of it was timed or hashed again. Its checks are the tests (`EntityListConformanceTests`, 4 of 4;
+`DrawTallyTests`) and gate phase 1 on the gcor demos (all twelve assemblies, 0 failed). The reviewers' cost concerns on that
+code (a lookup and `BinarySearch` per lerping track per frame in `SetLive`; the `DrawTally` cache missing for props
+rebuilt each frame) are filed in RISKS under B259 and are unmeasured.
