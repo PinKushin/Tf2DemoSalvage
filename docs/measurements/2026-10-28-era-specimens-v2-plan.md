@@ -367,6 +367,109 @@ Deferred to Phase B, under the lock once it is free:
 > Supersedes the manifest's description of era specimens as ad-hoc recordings. It does not change D81, under which the
 > corpus's eventual home is still archive.org.
 
+## Missing specimens: every cell with nothing today (owner, 2026-10-28: *"can we also maybe check for any missing ones?"*)
+
+Read-only. Sources:
+- `docs/TIMELINE.md`: dated anchors and the gap table;
+- `tools/corpus/manifest.json`;
+- the protocol census TIMELINE cites (471 lcor headers);
+- archive.org item metadata. Only the `/metadata/` JSON was read for sizes; no file was fetched.
+
+"gcor" below means committed; "lcor" means local only. Ranked by the order the owner gave: a protocol never seen first,
+then a dated window, then a POV/STV pair.
+
+| rank | gap | what exists today | what could close it | cost / needs |
+|---|---|---|---|---|
+| 1 | **protocol 12–13** (9 Oct → 15 Nov 2007), never seen | nothing | a build from those five weeks. None is on disk. `tf2-old-manifests-chunks` covers "roughly 2007 to 2012" and might hold one, but which builds it holds is unknown until its `versions.txt` is read | proposal: fetch `versions.txt` + `revemureference.txt` (small text files from a 35.3 GB item) to learn which builds it holds. The item's own uploader says "the game crashed on map load". Any build means an owner yes and a new executable |
+| 1 | **protocol 17** (15 Jun → 1 Nov 2011), never seen | nothing | same: a manifest/chunk build if `versions.txt` lists one. Nothing on disk | as above |
+| 1 | **protocol 20** (3 Nov → ~Dec 2011), never seen | nothing; the 471 lcor headers jump from 19 to 21 | same | as above |
+| 1 | **protocol 23** (after build 5126 → 25 Mar 2013), never seen | nothing | same | as above |
+| 2 | **late protocol-15 dialect** (after Aug 2009, six-bit types; B440), dated window | 2 SourceTV demos in lcor; no gcor specimen; no runnable client | (a) `TF2 1.1.0.0 (19 Jul 2010).zip`, 2,986,998,821 B: the client whose `engine.dll`/`client.dll` are already on `D:`, and a ZIP, so it can be dated statically first (D30). (b) `Team Fortress 2 v1.0.9.5.7z`, 1,799,062,913 B (2010). (c) the no-Steam 1.0.9.5 `.rar`, 2,385,225,096 B (1 Jul 2010, LAN only) | owner yes for one download + a new executable. (a) is preferred: it is the only ZIP, and its build is already half-identified |
+| 2 | **build 1.1.4.6** (2010/11, protocol unknown: 15 or 16) | nothing | `TF2 1.1.4.6 with cosmetics lol.7z`, 4,024,425,179 B (same item as 1.1.0.0) | a 7z cannot be partially read (D30), so it is the whole 4 GB to learn its protocol. Lowest value unless it turns out to sit inside a gap |
+| 2 | protocols 18, 19, 21, 22 (dated by server banners, *inferred*) | lcor only: full ESEA/i46 matches. Owner ruling: full real demos stay out of gcor | a short **period-client** specimen. No client for 4735/4743/4833/5126 is on disk | the same `versions.txt` question |
+| 3 | **protocol 15 (build 3862) SourceTV** | POV only, in gcor | **`D:\team fortress 2`, on disk.** Folded into the Phase B run list | none beyond the Phase B rules |
+| 3 | protocol 16 (build 4604) pair | both, in gcor | re-record (Phase B) | — |
+| 3 | protocol 24, early (build 1729296) pair | POV badlands + STV foundry: **two different sessions**, so not a pair | **on disk: `F:\tf2-builds\tf2-2013`, in Phase B.** It becomes a true same-session pair | — |
+| 3 | live (protocol 24, today) scripted specimen | `tf2ds_specimen-2026-10-02.dem` in lcor (predates the final script, POV only); `z1800` (2020 match) in gcor | **on disk: the live install, in Phase B**, POV + STV | — |
+| — | **2014–2019** (the Speex→CELT voice transition; `CorpusVoiceCodecEraTests`'s Ignore) | protocol 24 throughout; no specimen in that range | **no demo recorded today can close it.** It needs a client build from those years, and Steam serves only the current depot (manifest downloads of old depots need the owner's account and decision) | TIMELINE already classifies this as a dating gap for a period CLIENT. Marked unclosable by a recording on hand |
+| — | **dating** of 18–23 (when each was current) | windows from banners + file times, *inferred* | **no demo can close it** (TIMELINE "a protocol cannot date a demo"); only a stamped client does | as TIMELINE says |
+| — | **a second player** (voice client↔player mapping, mid-game join, slot reuse; RECORDING_CHECKLIST 19–24) | none | not a missing era: a second Steam session or machine. Bots cover only some of it, and only in 2011+ | owner's call; outside this task |
+
+**Folded into Phase B:**
+- 2009 STV (new cell);
+- the 2013 same-session pair (new cell);
+- the live scripted pair.
+
+**Proposals for the owner, smallest first:**
+1. the two text files from `tf2-old-manifests-chunks` (kilobytes), to learn whether builds inside 12–13, 17, 20 or 23 exist at all;
+2. the 1.1.0.0 ZIP (2.99 GB) for the late-15 dialect;
+3. anything else only if (1) shows it inside a gap.
+
+## Phase B run procedure (exact; nothing below runs until "B259 timed runs finished")
+
+**Order:** 2007 (dry run first), then 2008, 2009, 2011, 2013, live. Oldest first, because the oldest refuses most.
+
+**Tf2Mcp** (owner decision 1): branch `feat/per-era-game` in `F:\source\repos\Tf2Mcp`, commit `3a2485a`.
+- `launch` takes `gameDirectory`, `executable` (a bare file name inside that folder) and `consoleLog`, held for the
+  session.
+- Tests went from 11 to 17 and all pass, with zero warnings. Sabotaged twice: each break reddened only its own test.
+- **The running MCP server is the old binary.** `tf2mcp.exe` (PID 33816) holds `src/Tf2Mcp/bin/Debug`, which is why
+  the change was built in Release. Using it means:
+  1. merge in Tf2Mcp;
+  2. stop that server process (it is the session's own MCP connection, so this is the owner's or lead's step);
+  3. `dotnet build` Debug;
+  4. reconnect the MCP.
+
+**Per era, under `run-exclusive.ps1` for the whole session:**
+
+1. **Before.** Take a hashed listing (name, size, sha256) of `<G>/tf/`, `<G>/tf/cfg/` and `<G>/tf/screenshots/` into
+   `D:\tf2ds-specimen-backup\<era>\before.txt`, where `<G>` is the era's folder.
+   - For each file about to be placed (`tf/cfg/tf2ds_specimen.cfg`, `tf/cfg/tf2ds_era_<era>.cfg`,
+     `tf/cfg/tf2ds_era_pre2011.cfg` for ≤2009, `tf/cfg/tf2ds_dryrun.cfg`, `tf/voice_input.wav`), copy any existing one
+     aside with its hash.
+   - Copy `tf/cfg/config.cfg` aside too.
+2. **Place.** Copy from `tools/specimen/` with `cp -n`: those cfgs and `voice_input.wav`, sha256
+   `1D3E14C04325E69DBE0450CE037C3D36150CAE1EAAFBE69AF4A3C03794EA0B2D` (written by `make-voice-wav.ps1`).
+   **Live is the exception:** its `tf/cfg/tf2ds_specimen.cfg` already exists (the 2026-10-02 leftover). Copy it aside,
+   overwrite it, and put it back afterwards.
+3. **Launch:** `mcp__tf2__launch gameDirectory=<G> executable=hl2.exe extraArguments="+tv_enable 1"`. For live, leave
+   both empty.
+   - **2011 (REVEmu):** its `.bat` first runs `reg add HKCU\Software\Valve\Steam\ActiveProcess /v SteamClientDll`,
+     which is a registry write. Try `hl2.exe` direct first. If that fails, the registry write is reported for the
+     owner's yes, not run.
+   - **2007 (steamemu):** `hl2.exe` direct first. `RUN_TF2.exe` is the fallback the owner allowed, but it cannot
+     carry RCON arguments, so it can only be driven by hand.
+4. **Read the build.** `version` goes into the session log, then `sv_allow_wait_command` and `cl_savescreenshotstosteam`
+   are read back (the latter set to 0 where it exists).
+5. **Load the map.** `map cp_granary`, then `wait_for` the map. `tv_enable` was set at launch.
+6. **Dry run (first session on each era).** `con_logfile tf2ds_dry_<era>.log; exec tf2ds_specimen; exec tf2ds_era_<era>; exec tf2ds_dryrun; ds_start`.
+   - Then `wait_for "tf2ds_specimen done"`.
+   - Each step's time comes from the `tf2ds_mark` lines.
+   - Every `Unknown command` and refusal goes into `docs/RECORDING_CHECKLIST.md` as an era finding.
+   - The capture and building outcomes are checked in the demo of the real run.
+7. **Real run.** `map cp_granary` again, then `exec tf2ds_specimen; exec tf2ds_era_<era>; ds_start`, then
+   `wait_for "tf2ds_specimen done"`. The client is reused across eras' steps, never relaunched to reset (shared-fixture
+   rule).
+8. **Collect.** Move `tf/tf2ds_specimen.dem` and `tf/tf2ds_specimen_stv.dem` to lcor as
+   `tf2-<year>-build<n>-spec-pov-cp_granary.dem` and `…-spec-stv-cp_granary.dem`. Move `console.log` and the dry-run log
+   to the scratchpad.
+9. **After.** `quit`. Restore every placed file from step 1, or move it out where nothing existed, and restore
+   `config.cfg`.
+   - Take the after-listing and diff it against `before.txt`. **The empty diff is pasted here.**
+   - Any residue that would need a deletion goes to the lead.
+10. **Census each new demo against the one it replaces:**
+    - protocol, duration;
+    - classes and conditions seen;
+    - event kinds;
+    - packet-delta histogram;
+    - voice codec;
+    - `teamplay_point_captured`;
+    - the built objects' classes;
+    - for 2007, the `dem_datatables` sha256 against `build3258-datatables.bin` (the 3A prediction);
+    - the decoder's condition field set per era (section 4).
+
+    Each condition's bit is read from the demo after its `addcond`.
+
 ## Session log (Phase B)
 
 Empty: no client launched, nothing copied into any game folder.

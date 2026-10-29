@@ -9,6 +9,9 @@ The era demos so far were recorded ad hoc. That is why `svc_VoiceData` had no co
 client-to-player mapping is still unresolved — the one recording that carries voice has a single
 speaker in it. None of those are hard to capture; they were simply not on a list.
 
+**The solo list below is now scripted:** `tools/specimen/tf2ds_specimen.cfg` and a per-era override. The procedure is
+in `docs/measurements/2026-10-28-era-specimens-v2-plan.md`. A step a build refuses is recorded here, per era.
+
 **Run the whole list on every build.** Two to four minutes is enough (see the corpus manifest on
 why era specimens stay short), and a build that refuses a step is itself a finding.
 
