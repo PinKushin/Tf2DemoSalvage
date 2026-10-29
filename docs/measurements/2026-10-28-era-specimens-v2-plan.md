@@ -430,6 +430,37 @@ from **1.0.0.0, 2007/09/17, to 1.2.6.4, 2013/04/19**. That range covers **every 
 That dates each gap's build without launching anything. Running such a build later would need RevEmu, which is not on
 disk for those versions, so that is a separate owner decision.
 
+### The 2010 client 1.1.0.0 (downloaded 2026-10-28 with the owner's yes; extracted, nothing executed)
+
+- **Zip:** `D:\tf2-builds-dl\tf-2-1.1.0.0-19-jul-2010\TF2 1.1.0.0 (19 Jul 2010).zip`, 2,986,998,821 B. MD5
+  `ad72616d9b107a4295abe4fb5596ba5e` and SHA-1 `4f3f9c8ad2fa2504857ed681483e5b75d86b67a7` both equal archive.org's
+  `/metadata/tf-2-1.1.0.0-19-jul-2010/files`.
+- **Zip-slip check:** none of its 39,012 entries is absolute or contains `../`.
+- **Extracted** into the new folder `D:\tf2-builds-dl\tf2-2010-1.1.0.0-extracted\TF2 1.1.0.0 (19 Jul 2010)\`:
+  38,261 files, equal to the zip's 38,261 file entries.
+  - **Instrument trap, worth keeping:** MSYS `unzip` refused all 8,559 `hl2/` entries ("hl2 exists but is not
+    directory"). Its `.exe` magic resolves `hl2` to `hl2.exe`. The `hl2/` subtree was taken with Windows `tar.exe -k`
+    instead, and the file count above is the control that the extraction is now whole.
+- **Identity:**
+  - `tf/steam.inf` reads `PatchVersion=1.1.0.0`.
+  - `engine.dll` carries the date "Jul 16 2010" and is byte-identical to the copy already at
+    `D:\tf2-builds\tf2-2010-1.1.0.0\bin\engine.dll` (`cmp`).
+  - It ships `tf/bin/server.dll` and 43 maps, `cp_granary.bsp` among them (no `.nav`).
+  - Its protocol is **15, interpolated**: between build 3862 (15) and 9 Nov 2010 (15). The dialect is unmeasured until a
+    demo exists.
+- **Its loader** is `Launch Team Fortress 2.bat`. The bat deletes `rev-client_440.log`, runs `rmdir ./RemStorage`, then
+  `cd platform\SmartSteamEmu` and `start SmartSteamLoader.exe`. A `rev.ini` (RevEmu) also ships.
+  `revemureference.txt` puts 1.1.0.0 of 2010/07/19–21 under "Revemu 9.83", before the "-steam required" builds.
+
+**What would run, pending the owner's separate yes (nothing has):**
+1. `hl2.exe` direct, through `mcp__tf2__launch gameDirectory=<that folder> executable=hl2.exe extraArguments="+tv_enable 1"`.
+   This is the first try, with the same procedure as every era.
+2. If `hl2.exe` will not start without its emulator, the fallback is `platform\SmartSteamEmu\SmartSteamLoader.exe`.
+   That is a new executable, and the loader cannot carry RCON arguments, so this needs a further decision. The `.bat`
+   itself is never run: it deletes a log and a folder.
+
+That would close the **late protocol-15 dialect** with a POV + SourceTV pair, the gcor cell B440 has lacked.
+
 **Folded into Phase B:**
 - 2009 STV (new cell);
 - the 2013 same-session pair (new cell);
