@@ -115,3 +115,12 @@ about 0.26 ms, inside the run-to-run spread, because the camera stage got about 
 The remaining `camera wait` is 0.03-0.09 ms (unweighted), so **rung 3's ceiling for removing the wait itself is about 0.1 ms
 a frame**; anything more from rung 3 would have to come from undoing the camera's slowdown, which this measurement does not
 attribute. Before rung 3, measure why `camera` grows in R2 (its parts, R1 vs R2, frame-weighted).
+
+Against the Prediction. The saving over rung 1 (predicted 0.3-0.7 ms) is falsified by the prediction's own criterion: the
+measured 0.26 ms is inside the same-condition spread (R1 0.50, R2 0.27), so R2 is not faster than R1 by more than the
+spread; with R1's run 03 left out the difference is -0.26 to +0.02 ms, which does not rescue it. Confirmed: mode 2 at 11.25
+ms sits inside the predicted 11.1-11.6, and `camera wait` of 0.03-0.09 ms matches the predicted near 0.1. The prediction that
+the game-thread wait in `draw` would mostly vanish held (0.75-0.79 to 0.01 ms) but its saving did not reach the frame,
+because `camera` grew by about 0.57 ms, which the prediction did not anticipate.
+
+Verdict extended 2026-10-29 after the fact from the Result above; the run itself was not repeated.

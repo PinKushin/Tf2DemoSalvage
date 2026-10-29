@@ -141,3 +141,12 @@ microseconds (*arithmetic*). B585 (estimate 0.2-0.4 ms, 560 KB): `ModelInstance`
 a frame; allocation did not move, falsifying the prediction, and **its own `matrix` timer doubled, 0.011 → 0.021 ms.**
 B586 is kept as the B191 rule. **B585 is a measured regression on its own stage and gains nothing; the recommendation is to
 drop commit `94217782`** (left on the branch for the owner's call, not reverted).
+
+Against the Prediction. **B586:** inconclusive. `reports` read 0.006 ms in A and 0 in M and B, so it fell to ~0.00 as
+predicted and the frame did not move, but the column's one-decimal resolution cannot show a fall of that size, so the
+prediction was never tested at an effect size this instrument resolves. **B585:** the allocation prediction is falsified
+(a fall of 0.05-0.15 MB a frame was predicted; allocation did not fall, 1.29-1.36 MB in B against 1.30-1.39 in A, because
+the matrices were only ~22 KB), while the prediction that the frame would be a null result is confirmed (the intervals
+overlap for every build). The measurement also found what the prediction did not look for: B585's own `matrix` timer doubled.
+
+Verdict extended 2026-10-29 after the fact from the Result above; the run itself was not repeated.

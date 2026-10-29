@@ -224,3 +224,10 @@ particle step and build are the engine's shape (an effect updates until it sleep
 each frame) and are recorded, not changed; the muzzles and dispatches offers are B577's; sample, drawlist and collate are
 B259's. **Nothing in this record makes 3.7 ms "basically infinite"**: the remaining floor is the particles' per-effect
 work and B259's per-entity walks, each audited above.
+
+In the Prediction's own terms. (1) Camera largest, then hud, then advance: confirmed for A, falsified for B (`hud` 0.27 is
+under `advance` 0.59, because the fix took the HUD below it). (2) `hud paint` falls 0.1-0.3 ms: the direction is confirmed
+and the stated range is falsified on the high side, since it fell 0.38 ms (0.52 to 0.14); the falsifier as written (inside
+the before build's spread) covered only the low side, so a larger drop could not fail it, as the scoring above says.
+
+Verdict extended 2026-10-29 after the fact from the Result above; the run itself was not repeated.

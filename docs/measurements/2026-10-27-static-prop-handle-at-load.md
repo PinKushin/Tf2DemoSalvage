@@ -127,3 +127,11 @@ ejection and `DoAnimationEvents` unchecked since D129. **f12 lists no styled lig
 is not exercised by these runs: it is pinned by the conformance tests, `LightStyleEffectsTests`, and on a real map by
 `StaticPropModelsWiringTests.Instances_KothDryfieldDrawnTwiceThenStyleOneSwitchedOff_RanksOnlyOnTheStamp` (a count, not a
 shot).
+
+In the Prediction's own terms: A confirmed (frame within -0.02 to +0.03 ms, far inside the 0.1 ms falsifier), B confirmed
+(in-window colour meshes 233 to 0, static states 0), C confirmed (the before-play rise is 0.5-0.6 s, hundreds of
+milliseconds as predicted, though A's figures predate two counter fixes and were not re-measured), D confirmed on S2-B
+against S3-A (the B-B control failed in the top 48 rows, so that band says nothing). One pair, 08-B/09-A, was void on the
+same-work control and is not used.
+
+Verdict extended 2026-10-29 after the fact from the Result above; the run itself was not repeated.
