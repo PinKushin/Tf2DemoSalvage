@@ -120,8 +120,11 @@ printed nothing actually took effect is read from the demo, not from the console
 |---|---|---|
 | 2007, 3258 (p11) | `cl_disablehtmlmotd`, `mp_respawnwavetime`, `mp_disable_respawn_times`, `tf_bot_quota`, `tf_bot_add`, `addcond`, `removecond` | `name Пётр大将` from a cfg sets nothing: it prints the cvar, as `name` with no argument does. `tv_delay` is clamped to at least 10. `con_logfile` diverts `-condebug`'s console.log. Started raw, the client froze after the config banner. |
 | 2008, 3420 (p14) | not yet run | Started raw, it failed with `CFileSystem_Steam::Init() failed: failed to find steam interface`. |
-| 2010, 4231 (1.0.9.5, p15) | none | |
-| 2010, 4269 (1.1.0.0, p15) | none | Needs its SmartSteamLoader; started bare, it has no `gameinfo.txt`. |
-| 2011, 4604 (p16) | `cl_savescreenshotstosteam` | Tf2Mcp's default launch args make it shut down before RCON opens; the bat's own args work. |
-| 2013, 5252 (p24) | none from the script | `fps_max` is refused on a loaded map. The owner's class cfgs end in `sv_cheats 0`, so the script re-sets it before every cheat. |
-| live, 11138802 (p24) | none from the script | With Steam offline, STEAMAUTH drops the local client after about 70 s; `sv_lan 1` prevents it. |
+| 2010, 4231 (1.0.9.5, p15) | none | Speex voice landed (`svc_VoiceData` 266). |
+| 2010, 4269 (1.1.0.0, p15) | none | Needs its SmartSteamLoader; started bare, it has no `gameinfo.txt`. Speex voice landed (44). |
+| 2011, 4604 (p16) | `cl_savescreenshotstosteam` | **Silent no-op: voice** (`svc_VoiceData` 0, Speex declared). REVEmu: the first launch after blanking `SteamClientDll` shuts down, the second runs. |
+| 2013, 5252 (p24) | none from the script | **Silent no-op: bots** (`tf_bot_add` and `bot` add nothing and print nothing). `fps_max` is refused on a loaded map. The owner's class cfgs end in `sv_cheats 0`, so the script re-sets it before every cheat. |
+| live, 11138802 (p24) | none from the script | **Silent no-ops: bots, and voice** (codec `steam`, `svc_VoiceData` 0, Steam offline). With Steam offline, STEAMAUTH drops the local client after about 70 s; `sv_lan 1` prevents it. |
+
+On every build the script now produces, measured in both demos: a capture, a built sentry and dispenser, a pause, 13
+deaths. Coverage "none refused" does not mean every step landed: the silent no-ops above are read from the demo.

@@ -876,5 +876,34 @@ The first-pass pairs are kept in lcor as `…-spec1-…`; the 2007 first pair is
   - After every such session it was set back to `C:\Program Files (x86)\Steam\steamclient.dll` and read back.
 - Every folder's diff against its before-listing is empty.
 
+### Section 3A's prediction, confirmed; and the state left at 03:47
+
+**KnownSchema bytes, which is arithmetic over the files** (scratchpad `dt_hash.py`, which walks the protocol-3
+container):
+- The 2007 `spec0` POV's `dem_datatables` is 85,063 B with sha256 `ea020a81…e637`. That is byte-identical to
+  `managed/Tf2DemoSalvage.Core/Schema/Data/build3258-datatables.bin` and to the old gcor POV.
+- The `spec0` SourceTV's payload is cut at exactly 65,536 B (`c5397d22…79f2`), identical to the old gcor STV. B24
+  reproduces.
+- The schema is a property of the build, so the embedded resource stays and only a test's demo SHA would change.
+
+**UTF-8 name: unresolved.** The bytes `D0 9F D1 91 D1 82 D1 80` (`Пётр`) are present in the 2011, 2013, 1.0.9.5 and
+live POV demos. They may be only in the recorded `dem_consolecmd`, though.
+- The summary prints 14 `�` for 2011 and `empty` for 2013.
+- Whether the userinfo string carries the UTF-8, which would make the display our decode's fault, or something else
+  (the cfg read or the engine) is not yet read.
+- **Until it is, the old 2013 POV (the UTF-8 bug finder) stays in gcor.**
+
+**Voice codec per era** (`svc_voiceinit`): `vaudio_speex` on 2010 ×2, 2011 and 2013; `steam` on live. The Speex
+carriers for `CorpusVoiceCodecEraTests` are therefore the 2010 and 2013 pairs, not 2011.
+
+**The owner-click eras were not run**: no click arrived within 27 minutes of the ready message.
+- Everything placed for them was put back:
+  - `Start Team Fortress 2.lnk` was restored to `D8D5057B…0373` (match).
+  - The 3862 `tf2.lnk` was restored to `2CFA0465…2D88` (match).
+  - The 2007, 2008 and 3862 folders' diffs against their before-listings are empty.
+- The scratchpad `TF2-2007-specimen.lnk` remains outside every game folder.
+- To run them later, repeat for each: `prep.sh`, then `lnk-args.ps1 -Add` (2008, 3862), then the click, then
+  `drive.ps1`, then `restore.sh` plus `lnk-args.ps1 -Restore`.
+
 **Every era override:** 2010 gets `tf2ds_era_2010.cfg`, which redefines nothing. Both 2010 `client.dll` files carry
 the two-argument `build %d %d` format string, as 2011 does; 3862 carries the one-argument `build %d`.
