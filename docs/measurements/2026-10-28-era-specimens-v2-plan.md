@@ -957,5 +957,41 @@ and 3862 have none. To retry: `prep.sh <era-rN> <folder> <era cfgs>`, then:
 
 Then the click, `drive.ps1` (2008/3862 only), collect the demos first, then `restore.sh`.
 
+### 2008, build 3420, run 3 (2026-10-29): recorded, POV + SourceTV pair in lcor
+
+- **Prep:** `prep.sh 2008-r3` (104 files listed and copied aside), then the owner's modern `tf/cfg/autoexec.cfg`
+  (`aa71bd57…3827`, a 2014 fps config: `mat_queue_mode 2`, `r_threaded_*`, `exec pinconfig.cfg`) and `config.cfg`
+  (`89f8d443…334d`, `mat_queue_mode "2"`) moved out, so the client started on `config_default.cfg`. Shortcut
+  `D8D5057B…0373` given the RCON args plus `+sv_lan 1 +fps_max 66 +tv_enable 1`.
+- **Clean config, measured with `find` before applying anything:** the build knows `mat_queue_mode` (default -1),
+  `host_thread_mode` 0, `snd_mix_async` 0, `cl_threaded_*` 0, `r_threaded_client_shadow_manager` 0,
+  `r_threaded_renderables` 0, and `r_threaded_particles` **1 by default**. Set over RCON: `mat_queue_mode 0`,
+  `r_threaded_particles 0`, `mat_picmip -1`; `mat_forceaniso 16`, `mat_trilinear 1`, `r_rootlod 0`, `r_lod -1`,
+  `mat_hdr_level 2` were already the max. `mat_antialias` (1) was left alone: it applies only through a video mode reset.
+- **The owner's click came within the 30 min poll.** `version`: `Protocol version 14`, `Exe version 1.0.2.2`,
+  `Exe build: 20:17:35 Mar 19 2008 (3420)`. With `sv_lan 1` the player **stayed** (`status`: `PinKushin … active
+  loopback`), fixing run 2's `No Steam logon` drop.
+- **Finding: `name` does not take in this build, before or after the map.** `name tf2ds_specimen` after the map loaded
+  (twice, quoted and unquoted) left `"name" = "PinKushin"`, so the persona name overrides the cvar. The chain's UTF-8
+  name and its rename are therefore absent from both demos.
+- **Finding: the owner's modern class cfgs run on `joinclass`.** `scout.cfg` etc. in `tf/cfg` (crosshairswitcher)
+  printed `Unknown command: cl_crosshair_*` / `tf_remember_activeweapon` and `Can't use cheat cvar viewmodel_fov`;
+  harmless here, but they should be moved aside too for 2007/2009.
+- **Chain:** every mark start…finish, `PinKushin captured the Central Control Point for team #2`, `Completed demo,
+  recording time 312.0, game frames 5283`, `Completed SourceTV demo … 311.6`. `tf_bot_add`, `addcond`, `removecond`
+  are unknown commands in 3420.
+- **Quit:** `disconnect` then `quit`; the client again spun in shutdown (alive at 30 s, `Responding`), and was then
+  ended. No `hl2` left; `SteamClientDll` read `C:\Program Files (x86)\Steam\steamclient.dll`.
+- **lcor:** `tf2-2008-build3420-spec-pov-cp_granary.dem` (1,814,563 bytes, `753278df…f9ed`) and
+  `tf2-2008-build3420-spec-stv-cp_granary.dem` (786,149 bytes, `c5859cf8…342d`).
+- **Read back (Cli `-s`/`-t`, Probe `buildings`), POV / STV:** network protocol 14 both, `svc_serverinfo protocol 14
+  map "cp_granary"`; 5,283 / 3,985 packets, frame check ok; first `svc_packetentities` updated 227 / 399; 124 / 125
+  game events with `teamplay_point_captured` 1, `controlpoint_starttouch` 1, 13 deaths, 14 class changes; 2 chat
+  lines; `svc_voiceinit vaudio_speex quality 5` and 44 `svc_VoiceData` each. Sentry (entity 477, type 3) reached
+  150/150 and finished building; dispenser (entity 486, type 0) reached 66/150, 44 % built, when the chain's `kill`
+  came — the dispenser is placed and building, not finished.
+- **Restore:** `restore.sh 2008-r3` diff against the before-listing **empty** (autoexec/config restored from the aside
+  copies); shortcut restored, hash match `D8D5057B…0373`.
+
 **Every era override:** 2010 gets `tf2ds_era_2010.cfg`, which redefines nothing. Both 2010 `client.dll` files carry
 the two-argument `build %d %d` format string, as 2011 does; 3862 carries the one-argument `build %d`.
