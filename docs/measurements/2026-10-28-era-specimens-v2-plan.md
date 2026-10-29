@@ -596,3 +596,121 @@ every era, for comparability.
 **Real run** (`tv_delay 0` → clamped to 10, `map cp_granary`, then `exec tf2ds_specimen; exec tf2ds_era_2007; ds_start`):
 - Started; "Recording SourceTV demo to tf2ds_specimen_stv.dem...".
 - The player's name at start was `tf2ds_renamed`, carried over from the dry run, because the UTF-8 rename fails.
+- It finished: `Completed demo, recording time 275.9, game frames 4764`. The predecessor agent had already moved both
+  demos to lcor as `tf2-2007-build3258-spec-pov-cp_granary.dem` (1,357,904 B) and `…-spec-stv-…` (582,673 B) when it was
+  stopped (by accident), between collect and restore.
+- **This pair predates the two script fixes below** (fps_max, sv_cheats). 2007 shows no "Can't use cheat" line, but its
+  `setpos`/capture is unverified. It is re-recorded after the other eras for comparability; the first pair stays in lcor,
+  renamed apart.
+
+**Restore (resumed by a second agent, 00:16):** no `hl2.exe` running. Against `before.txt`:
+- `tf/console.log` and `tf/cfg/config.cfg`: the session versions were moved to the scratchpad, and the aside copies were
+  put back.
+- The two con_logfiles, the four placed cfgs and `voice_input.wav` were moved out.
+- **Residue, the lead's or owner's call:**
+  - `tf/demoheader.tmp` was rewritten by the client, and no pre-session copy of it was kept.
+  - Outside the listed dirs, the client also rewrote `platform/config/{ingamedialogconfig,serverbrowser}.vdf` and
+    `tf/DownloadLists/cp_granary.lst`, which have no pre-copy either.
+  - From 2008 on, the listing and the aside copies cover `tf/DownloadLists/` and `platform/config/`, and every file in
+    the listed dirs is copied aside, so any change is restorable.
+
+### Two script findings, measured on 2013 (build 5252), fixed in the shared cfg
+
+1. **`fps_max` is `notconnected`.** The cfg runs on a loaded map, so its `fps_max 66` prints "Can't set fps_max when
+   connected" and does nothing. The 2013 client was at `fps_max 0`, and the whole chain ran in 32.7 s: every `wait` is
+   frames. `fps_max 66` now goes on the launch line (`+fps_max 66`) or before `map`. The 2013 aborted demos are kept in
+   the scratchpad as `aborted-fps0-*`.
+2. **The owner's class cfgs switch cheats off.** `scout.cfg` … `soldier.cfg` exec his `pinconfig.cfg`, and that ends
+   `wait 60; sv_cheats 0`. So every `joinclass` turns cheats off 60 frames later, and `setpos` was refused ("Can't use
+   cheat command setpos in multiplayer"); `addcond` is a cheat too. The same `pinconfig.cfg` ships in the 2007, 2008,
+   2011 and 2013 folders. The shared cfg now sets `sv_cheats 1` right before `setpos` and before the first `addcond`.
+   Run 1 on 2013 (cheats off) is kept in the scratchpad as `run1-cheatsoff-*`.
+
+The starting name is now set to `tf2ds_specimen` before `ds_start` on every era, so each run starts from the same
+userinfo whatever the last session left.
+
+### The tf2 MCP cannot attach while a client exists (instrument)
+
+`~/.claude/hooks/guard-tf2-fixture.ps1` denies `mcp__tf2__launch` whenever any `hl2`/`tf_win64` process exists, which
+includes the attach case. A client started outside the MCP (a `.bat`, a `.lnk` the owner double-clicks) therefore cannot
+be driven through it. The workaround here is a minimal Source RCON client (scratchpad `rcon.ps1`), which uses the
+password Tf2Mcp stores, plus reading `console.log` directly. No hook or configuration was changed. An attach exemption is
+the owner's call.
+
+### 2008, build 3420 — `F:\tf2-builds\tf2-2008`: refused to start, waiting on the owner's double-click
+
+- **Before:** `before.txt`, and every file in the listed dirs copied aside (104). Placed: the four cfgs
+  (`tf2ds_era_2008`, `tf2ds_era_pre2011`, specimen, dryrun) and `voice_input.wav`.
+- **Attempt 1:** `mcp__tf2__launch gameDirectory=F:\tf2-builds\tf2-2008 executable=hl2.exe
+  extraArguments="-window +tv_enable 1"`. It timed out, with no RCON.
+- **Attempt 2:** `hl2.exe -game tf -window -condebug`, with the working directory set to the game folder (Start-Process,
+  no Tf2Mcp arguments). It showed the dialog **`CFileSystem_Steam::Init() failed: failed to find steam interface`**
+  (read through UI Automation).
+  - Neither attempt wrote a `console.log`.
+  - Steam was offline. `HKCU\…\ActiveProcess\SteamClientDll` was untouched (`…\Steam\steamclient.dll`).
+- **Start-Process on the `.lnk`** (unmodified, and with arguments added) started no process within 30 s. Its
+  WorkingDirectory `D:\Desktop\tf2-retail\dump` does not exist on this machine.
+- **What the build reads:**
+  - `bin\` holds `FileSystem_Steam.dll` and `steam_api.dll`, and no `FileSystem_Stdio.dll`.
+  - The strings in `FileSystem_Steam.dll` are `steam.dll`, `Steam006` and `SteamAPI_GetSteamInstallPath`, so it loads
+    `Steam.dll` from the Steam install and asks it for `Steam006`.
+- The owner says the shipped shortcut works for him. So the recipe is **his double-click on the edited shortcut**:
+  - `Start Team Fortress 2.lnk`, original sha256 `D8D5057B…0373`, copied aside.
+  - Its Arguments are `-game tf -window -condebug -usercon +ip 127.0.0.1 +hostport 27025 +rcon_password <Tf2Mcp's>
+    +net_start +tv_enable 1`.
+  - Restore: copy the aside bytes back and verify the hash.
+- After the failed attempts, the listing diff showed only the placed files. The client wrote nothing.
+
+### 2009, build 3862 — the owner's 3862 extract, waiting on his double-click
+
+- `D:\team fortress 2` (also `PatchVersion=1.0.5.9`) was prepared and given one attempt:
+  - `mcp__tf2__launch … extraArguments="-appid 440 -steam +tv_enable 1"` timed out, with no `console.log`.
+  - Its `tf2.lnk` targets `T:\client\steamapps\stopthispain\team fortress 2\hl2.exe`, a drive this machine lacks.
+  - On the coordinator's word, the folder was then **restored and left untouched**: the placed files were moved out,
+    and the listing diff is empty.
+- The canonical 2009 client is now `D:\tf2-builds-dl\team-fortress-2-3862\team fortress 2 3862\team fortress 2\`:
+  - Before-listing taken; cfgs and wav placed.
+  - `tf2.lnk` original sha256 `2CFA0465…2D88`, copied aside.
+  - Its Arguments are the shipped `-game tf -appid 440 -steam -windowed -w 800 -h 600`, then the same RCON arguments as
+    2008.
+
+### 2013, build 5252 (exe 1729296) — `F:\tf2-builds\tf2-2013\TF2`: done
+
+- **Launch:** `mcp__tf2__launch gameDirectory=F:\tf2-builds\tf2-2013\TF2 executable=hl2.exe extraArguments="+tv_enable 1"`
+  launched raw: it ships `FileSystem_Stdio.dll` and its own `bin\Steam.dll`.
+- **Build:** `version` printed `Protocol version 24`, `Exe version 1729296 (tf)`, `Exe build: 17:24:29 Mar 25 2013 (5252)`.
+  `sv_allow_wait_command 1`.
+- **Run 3** (after both fixes): `fps_max 66; name tf2ds_specimen; map cp_granary`, `tv_delay 10`.
+  - Every mark ran in order; the only refusals were the two deliberate unknowns and the owner's
+    `cl_hud_playerclass_use_playermodel`.
+  - POV `Completed demo, recording time 179.2, game frames 10963`; SourceTV `recording time 182.6`.
+- **lcor:**
+  - `tf2-2013-build1729296-spec-pov-cp_granary.dem`: 2,459,096 B, sha256 `0a651dd2…983c`.
+  - `tf2-2013-build1729296-spec-stv-cp_granary.dem`: 940,557 B, `a992336f…e3d9`.
+- **Restore:** `console.log`, the placed cfgs, the wav and `DownloadLists/cp_granary.lst` were moved out. `config.cfg`,
+  `demoheader.tmp`, `modelsounds.cache`, `tf2_playerstats.dmx` and `platform/config/ingamedialogconfig.vdf` were
+  restored from aside. **Diff against `before.txt`: empty.**
+
+### 2011, build 4604 — `F:\tf2-builds\tf2-2011\Team Fortress 2`: done
+
+- **Registry:**
+  - Before the session, `HKCU\Software\Valve\Steam\ActiveProcess\SteamClientDll` was String
+    `C:\Program Files (x86)\Steam\steamclient.dll` (saved in the scratchpad's `era-2011/reg-before.txt`).
+  - It was set to `""`, as the shipped `Team Fortress 2.bat` does.
+  - After the session it was set back and read back: String, same value.
+- **Attempt 1** went through `mcp__tf2__launch` with Tf2Mcp's default arguments (`-insecure -novid -windowed -noborder
+  …`) plus `-steam -appid 440`. The client loaded its cfgs, then shut down cleanly without opening RCON (`console.log`
+  ends in font and material teardown).
+- **Attempt 2: the bat's own arguments plus the RCON ones.** The client stayed up, and RCON answered.
+  - Command: `hl2.exe -game tf -steam -appid 440 -condebug -usercon +ip 127.0.0.1 +hostport 27025 +rcon_password …
+    +net_start +fps_max 66 +tv_enable 1`, with the working directory set to the game folder.
+  - It was driven through `rcon.ps1`.
+- **Build:** `Protocol version 16`, `Exe version 1.1.5.8 (tf)`, `Exe build: 13:46:52 Jun 15 2011 (4604)`. `status` says
+  `secure`, because there was no `-insecure`. `cl_savescreenshotstosteam` is an unknown command in this build.
+- **Run:**
+  - Every mark ran in order, and there was no cheat refusal.
+  - POV `recording time 175.0, game frames 11139`; SourceTV `179.9`.
+- **lcor:**
+  - `tf2-2011-build4604-spec-pov-cp_granary.dem`: sha256 `3464e7fa…13eb1`, 2,563,188 B.
+  - `tf2-2011-build4604-spec-stv-cp_granary.dem`: `3b999e85…c01b`, 894,814 B.
+- **Restore:** the same moves as 2013, plus `tf/cfg/user.scr` restored. **Diff against `before.txt`: empty.**
