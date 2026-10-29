@@ -85,7 +85,10 @@ public sealed class DrawTally
     public IReadOnlyDictionary<string, int> EverNoGeometry => _everNoGeometry;
 
     /// <summary>Every model ever rejected as not being a studio model, with how many times.</summary>
-    /// <remarks>Built on read from the buckets the counting increments, for an audit rather than per frame.</remarks>
+    /// <remarks>
+    /// Built on read from the buckets the counting increments, so every read allocates a dictionary. Its one reader is the
+    /// census probe (`ViewerCensusProbe`, once at the end of a run); nothing reads it per frame.
+    /// </remarks>
     public IReadOnlyDictionary<string, int> EverNotStudio =>
         _everBuckets.Values.ToDictionary(bucket => bucket.Key, bucket => bucket.Count, StringComparer.Ordinal);
 

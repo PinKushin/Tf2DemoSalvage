@@ -1667,7 +1667,10 @@ public sealed class DemoTimeline
         {
             ScenePropTrack track = _props[ordinal];
             _trackByEntity[track.EntityIndex] = track;
-            _ordinalOf[track] = ordinal;
+
+            // `Add`, which throws on a repeat: a track listed twice was emitted twice by the old walk and would be emitted
+            // once from `_live`, so a cast that names one track twice is refused rather than answered differently.
+            _ordinalOf.Add(track, ordinal);
         }
 
         foreach (ScenePropTrack track in _playerTracks)
@@ -7096,20 +7099,25 @@ public sealed class DemoTimeline
 
         // The list is refilled to nearly the same length every frame, so growing it from empty
         // re-allocates the backing array a dozen times a second for nothing.
-        fast?.EnsureCapacity(_props.Count);
+        fast?.EnsureCapacity(_live.Count);
 
-        // **The collate walks the entities that EXIST, never every track the demo ever had** (B259). The engine's
+        // **The collate walks the tracks with a sample, never every track the demo ever had** (B259). The engine's
         // per-frame walks (`SimulateEntities`, `cdll_client_int.cpp:2010-2015`) iterate `m_BaseEntities`, which an entity
         // joins when it is created and leaves when it is deleted (`CClientEntityList::OnAddEntity` / `OnRemoveEntity`,
         // `cliententitylist.cpp:340`, `:402-403`). Walking `_props` instead paid for every track of the whole recording —
-        // measured on f12, 6,456 tracks for ~492 live props, 0.13 ms a frame. `_live` is that list, kept in TRACK order
-        // (ours, not the engine's creation order) so the answer is the one the full walk gave, item for item.
+        // measured on f12, 6,456 tracks for ~492 live props, 0.13 ms a frame. `_live` is NOT quite that list: it holds the
+        // tracks whose sample is non-null, so a hidden entity leaves it, where the engine keeps a no-draw entity on
+        // `m_BaseEntities` until it is deleted — the props answered are the same either way, since a hidden track answers
+        // none. Kept in TRACK order (ours, not the engine's creation order) so the answer is the one the full walk gave.
         foreach (int ordinal in _live)
         {
             // Stryker disable once : a mutant that empties the guard body leaves 'prop'
             // unassigned (CS0165), and Safe Mode then drops every mutation in this method — B410.
             if (_props[ordinal].Live is not { } prop)
             {
+                // A listed track with no sample is a desync this skip would hide: `SetLive` is the only writer, so it
+                // cannot happen, and Debug runs say so loudly if it does (`LiveListMatchesSamples` is the tests' check).
+                Debug.Assert(false, $"_live lists track {ordinal}, which has no sample");
                 continue;
             }
 
@@ -7212,12 +7220,32 @@ public sealed class DemoTimeline
     /// <summary>How many tracks the last <see cref="PropsAt"/> walked — the entity list's length, for its tests.</summary>
     internal int TracksWalked => _live.Count;
 
+    /// <summary>Whether <see cref="_live"/> is exactly the ascending ordinals of the tracks with a sample — for its tests.</summary>
+    /// <remarks>The walk skips a listed track with no sample, so a desync never shows in the props; this is what sees it.</remarks>
+    internal bool LiveListMatchesSamples()
+    {
+        int at = 0;
+
+        for (int ordinal = 0; ordinal < _props.Count; ordinal++)
+        {
+            bool listed = at < _live.Count && _live[at] == ordinal;
+
+            if (listed != _props[ordinal].Live is not null)
+            {
+                return false;
+            }
+
+            at += listed ? 1 : 0;
+        }
+
+        return at == _live.Count;
+    }
+
     /// <summary>Sets a track's sample, joining or leaving <see cref="_live"/> when it starts or stops answering.</summary>
     /// <remarks>
     /// **The only writer of <see cref="ScenePropTrack.Live"/>**, so the list cannot disagree with it: a track is on it
-    /// exactly while its sample is non-null — <c>OnAddEntity</c> and <c>OnRemoveEntity</c>, at the change. Membership is
-    /// read from this timeline's own list, never from <c>Live</c>, because a track is a shared object (two timelines given
-    /// one cast would otherwise each believe the other's answer).
+    /// exactly while its sample is non-null (<see cref="LiveListMatchesSamples"/> checks it). No two timelines share a
+    /// track: the builder makes its own per build and <see cref="ForTracks"/> is for tests, which build a fresh cast each.
     /// </remarks>
     private void SetLive(ScenePropTrack track, SceneProp? prop)
     {

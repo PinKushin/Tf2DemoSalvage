@@ -90,4 +90,78 @@ public sealed class EntityListConformanceTests
             props.Select(prop => prop.EntityIndex).ShouldBe(entities, $"at tick {tick}");
         }
     }
+
+    /// <summary>A mover that goes hidden and comes back while it is mid-lerp, and two that are born and end while moving.</summary>
+    /// <remarks>
+    /// Keyframes every 3 ticks, inside the interpolation delay, so each track is on the lerp list for its whole life and
+    /// its sample is rewritten by `AdvanceSample`'s lerp loop every call, not only at its wakes.
+    /// </remarks>
+    private static List<ScenePropTrack> Movers()
+    {
+        ScenePropTrack blinker = new(entityIndex: 1, "models/props/a.mdl");
+
+        for (int tick = 0; tick <= 120; tick += 3)
+        {
+            blinker.Add(tick, new ScenePose { X = tick * 2f, Hidden = tick is >= 30 and < 60 });
+        }
+
+        ScenePropTrack late = new(entityIndex: 2, "models/props/b.mdl");
+
+        for (int tick = 40; tick <= 90; tick += 3)
+        {
+            late.Add(tick, new ScenePose { Y = tick * 2f });
+        }
+
+        late.End(91);
+
+        ScenePropTrack early = new(entityIndex: 3, "models/props/c.mdl");
+
+        for (int tick = 0; tick <= 50; tick += 3)
+        {
+            early.Add(tick, new ScenePose { Z = tick * 2f });
+        }
+
+        early.End(52);
+
+        return [blinker, late, early];
+    }
+
+    /// <remarks>
+    /// **The list and the samples must agree after every call, on every path that writes a sample** (review of
+    /// `eb9910a3`): a wake's `DeriveSample`, the lerp loop, and a resync. The walk skips a listed track with no sample, so
+    /// a desync is invisible in the props; `LiveListMatchesSamples` is the check that sees it. Interpolating and stepped a
+    /// quarter tick at a time, so the lerp loop runs on every call.
+    /// </remarks>
+    [Test]
+    public void PropsAt_SteppedWhileTracksLerpThroughHidingBirthAndEnd_KeepsTheListEqualToTheSamples()
+    {
+        DemoTimeline timeline = DemoTimeline.ForTracks(Movers());
+        List<SceneProp> props = [];
+        HashSet<int> everSeen = [];
+
+        for (double tick = 0d; tick <= 130d; tick += 0.25)
+        {
+            timeline.PropsAt(tick, props);
+            everSeen.UnionWith(props.Select(prop => prop.EntityIndex));
+
+            timeline.LiveListMatchesSamples().ShouldBeTrue($"at tick {tick}");
+            timeline.TracksWalked.ShouldBe(props.Count, $"tracks walked at tick {tick}");
+        }
+
+        // The control: every mover was drawn at some point, so the run exercised all three.
+        everSeen.ShouldBe([1, 2, 3], ignoreOrder: true);
+    }
+
+    /// <remarks>
+    /// **One track, one place in the list** (review of `eb9910a3`): the old walk emitted a track listed twice twice, the
+    /// list would emit it once, so a cast holding one track twice is refused when the timeline is built.
+    /// </remarks>
+    [Test]
+    public void ForTracks_TheSameTrackTwice_Throws()
+    {
+        ScenePropTrack track = new(entityIndex: 1, "models/props/a.mdl");
+        track.Add(0, new ScenePose());
+
+        Should.Throw<System.ArgumentException>(() => DemoTimeline.ForTracks([track, track]));
+    }
 }
