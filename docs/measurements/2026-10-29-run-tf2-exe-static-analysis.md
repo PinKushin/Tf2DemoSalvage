@@ -60,6 +60,12 @@ Evidence class in brackets: **[dis]** read from disassembly, **[str]** read from
   `SetWindowsHookEx`, `LoadLibrary` imported [dis]. One `MZ`, no embedded PE, no manifest [str].
 - **No network**: no ws2_32/wininet import; the only "steam" text is the `-steam` argument [str].
 - **Environment variables**: none read [dis].
+- **No ini or args file**: no `GetPrivateProfile*`, `CreateFile` or `ReadFile` imported [dis], so
+  the empty `[SPK Game Launcher]` section in `steamemu.ini` is not read by this launcher [dis]; it
+  belongs to the emulator or the repacker's tooling [guess].
+- **`lpDirectory` is NULL**, so `hl2.exe` inherits the cwd just set — the client root, not `bin\`
+  [dis]. A harness that starts `RUN_TF2.exe` and waits on that PID sees it exit within milliseconds
+  while the game is still starting; that is not a failed launch [dis].
 
 The folder also holds `steamemu.ini` (`[Emulator] Extracted=1`) and `bin\steam.dll`
 (SHA-256 `33cf5b2e…683fb7`) whose strings include `STEAMemu`, `SteamEmu_GetGcfList`,
