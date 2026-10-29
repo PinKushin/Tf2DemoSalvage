@@ -395,6 +395,41 @@ then a dated window, then a POV/STV pair.
 | — | **dating** of 18–23 (when each was current) | windows from banners + file times, *inferred* | **no demo can close it** (TIMELINE "a protocol cannot date a demo"); only a stamped client does | as TIMELINE says |
 | — | **a second player** (voice client↔player mapping, mid-game join, slot reuse; RECORDING_CHECKLIST 19–24) | none | not a missing era: a second Steam session or machine. Bots cover only some of it, and only in 2011+ | owner's call; outside this task |
 
+### What `tf2-old-manifests-chunks` holds (downloaded 2026-10-28 with the owner's yes; read, nothing executed)
+
+`D:\tf2-builds-dl\tf2-old-manifests-chunks\`:
+- `versions.txt`: 32,267 B, sha256 `45e826959dab63ec16ad59b8da535cd0d9f24a0493d876777748f5f6fa4b1ba4`;
+- `revemureference.txt`: 1,211 B, sha256 `7313c7e60ad5f29561e06d15b9b2b95988727f64f4b7ec6af476cc23d42e284f`.
+
+`versions.txt` lists **387 dated depot-manifest sets**, one per update (each names `engine 216 n`, `tf2 441/442/443 n`),
+from **1.0.0.0, 2007/09/17, to 1.2.6.4, 2013/04/19**. That range covers **every never-seen protocol window**:
+
+| gap | builds the manifest list has inside the window (version, date) |
+|---|---|
+| 12–13 (9 Oct → 15 Nov 2007) | 1.0.0.6 10/25, 1.0.0.7 10/31 + 11/01, 1.0.0.8 11/07, 1.0.0.9 11/15 |
+| 17 (15 Jun → 1 Nov 2011) | 1.1.5.8 06/17 … 1.1.8.0 10/28, about 40 sets |
+| 20 (3 Nov → ~Dec 2011) | 1.1.8.1 11/02 … 1.1.9.2 12/23 |
+| 23 (after build 5126 → 25 Mar 2013) | 1.2.x through 1.2.6.0 03/19 |
+| late 15 / 1.1.4.6 | 1.0.6.3 2009/08/13 onward; 1.1.4.6 2011/04/20 |
+
+**Limits, stated as found:**
+- A manifest set listed is not proof that its chunks are in the 15.5 GB `chunks_tf2.zip`. The uploader calls the item
+  "very messy".
+- The uploader's own assembly "crashed on map load".
+- `revemureference.txt` says these builds need RevEmu to launch, from 1.1.0.0 (2010/07/23) on also `-steam`, and an
+  engine.dll patch for 1.1.0.6–1.1.1.2. RevEmu is not in the item.
+- No protocol number is in either file. Each build's protocol comes from its `engine.dll` (D30).
+
+**Proposal, the cheapest way to settle all four gaps:**
+1. Fetch `manifests_tf2.zip`, a fraction of the item; its size is in the item metadata.
+2. Use a reader **we write** (never the item's `example_extract.py`, which is downloaded code) to locate `bin/engine.dll`
+   in one manifest per gap.
+3. Pull just that file's chunks.
+4. Read the protocol constants statically, as D30 did.
+
+That dates each gap's build without launching anything. Running such a build later would need RevEmu, which is not on
+disk for those versions, so that is a separate owner decision.
+
 **Folded into Phase B:**
 - 2009 STV (new cell);
 - the 2013 same-session pair (new cell);
