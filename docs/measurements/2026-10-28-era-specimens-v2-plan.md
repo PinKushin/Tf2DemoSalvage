@@ -1249,6 +1249,96 @@ The first run of the new `tf2ds_era_pre2011.cfg` (only the two `ds_build_*` alia
   left; `SteamClientDll` reads `C:\Program Files (x86)\Steam\steamclient.dll`. lcor unchanged: the `spec0` pair
   stays the only scripted 2007 recording.
 
+### 2007, build 3258, run 8 (2026-10-29, 15:55–16:14): the 255-character hypothesis, killed
+
+- **The hypothesis (the lead's, unmeasured):** the 2007 command buffer limits a cfg line to about 255 characters, and
+  the specimen cfg has two lines over that: line 65 (`ds_extras`, 344) and line 95 (`ds_engineer_build`, 396).
+- **Already against it before the run (measured):** the `spec0` cfg's `ds_extras` was also 344 characters. Over RCON
+  it ran to its last command, `ds_scout` (`tf2ds_mark scout` in `tf2ds_rec_2007.log`).
+- **Engine limit: not read.** The 3258 `engine.dll` strings hold the old engine's own `Cbuf_AddText: buffer overflow`
+  and `Alias name is too long`. They do not hold tier1's `Command too long` or `CCommand::Tokenize` warnings, which the
+  2013 SDK has (`tier1/commandbuffer.cpp:124`, `tier1/convar.cpp:407`). The Ghidra project `tf2engine2007` opened,
+  but its analysis tools were not reachable from this session, so no buffer size is cited.
+- **The test:** a session-only variant of the specimen cfg (`9dfad82b…3704`), scratchpad `era-2007-r8-src/`. It drops
+  the comments and splits the two long aliases at a `wait`, the second half called last
+  (`ds_extras2`, `ds_engineer_build2`). Its longest line is 241 bytes. Joining the halves back reproduces the shared
+  cfg's command lines exactly (`diff`, empty). Every ~10 lines it switches `con_logfile` to a new file
+  (`tf2ds_2007_L00.log`, `_L10`, …) and echoes a marker. The autoexec does the same around each exec. The shared
+  `tools/specimen/tf2ds_specimen.cfg` is **unchanged**.
+- **Result (measured):** `hl2.exe` PID 14248 started at 16:02:15, `Responding=False` from the first poll. At 16:02:42
+  it wrote `tf2ds_2007.log`, `_A1`, `_L00`, `_L10` and `_L20`, each holding its marker, and **never `_L30`**. CPU ran at
+  about one core and then slowed (455 s by 16:13:58). It was ended at the lead's instruction.
+- **The log is not buffered** (measured): each stage file held its line within the same second.
+- **So the exec stopped between `L20` and `L30`, with no line over 250 bytes. The 255-character hypothesis is
+  killed.** That block holds `ds_class`, `ds_class2`, `ds_class3`, `ds_start`, `ds_extras` and `ds_extras2`.
+  `ds_extras` is the cfg's only non-ASCII line (`name Пётр大将`). Run 9 says what that line does.
+- **Restore:** `restore.sh 2007-r8` diff **empty**.
+
+### 2007, build 3258, run 9 (2026-10-29, 16:20–16:42): menu reached, chain stepped over RCON, POV + SourceTV pair in lcor
+
+- **Experiment A, the bare client:** the folder was prepared as in run 8 (`prep.sh 2007-r9`, before-listing identical
+  to run 8's). The pack cfgs were moved aside, and the autoexec held only `con_logfile`, two echoes and
+  `mat_queue_mode 0`. The lead's static read of `RUN_TF2.exe` (a shortcut that runs `hl2.exe -game tf -steam
+  -console`) let a new shortcut, scratchpad `era-2007-r9/TF2-2007-run9.lnk`, start `hl2.exe` directly with the same
+  arguments plus the RCON ones (`make-lnk.ps1`, which also appends `+fps_max 66 +tv_enable 1`). The owner
+  double-clicked it.
+- **Result A (measured):** PID 9240 started at 16:28:14 and was **`Responding=True` 20 s later**. Both autoexec
+  markers printed, RCON answered `version` (`Protocol version 11`, `Exe build: 18:14:51 Oct  9 2007 (3258)`). **The
+  launcher and the bare client do not hang.** Runs 6–8 differed in two ways (from my own logs): those clients were
+  `Responding=False` from the first poll, and their logs stopped inside the specimen exec. This one ran a minimal
+  autoexec.
+- **The chain, stepped over RCON one command at a time** (`era-2007-r9/step.ps1` over `manual-commands.txt`, the
+  variant's lines plus the 2007 overrides). The 15 pre-map settings, then `map cp_granary`: `status` showed the map
+  loaded 5 s later, `PinKushin … active loopback`. Then the 44 alias definitions, and every one returned with the
+  client `Responding=True`. **No command hung.** Line 31 (`ds_extras`) was sent with the ASCII name
+  `Petr_tf2ds` instead of the UTF-8 one.
+  - **Instrument note:** output from a command sent over RCON goes back over RCON and not into the con_logfile, and
+    `-condebug`'s `console.log` stopped at 7,174 B once `con_logfile` was set. The chain's later output (run from the
+    command buffer) did land in `tf2ds_2007.log`.
+- **Recording:** `ds_start` at 16:32:37 printed every mark from start to finish. `PinKushin captured the Central
+  Control Point for team #2`. `Completed demo, recording time 427.4, game frames 6165`, then `Completed SourceTV demo
+  … 393.8`, then `tf2ds_specimen done`.
+  - `drive-build.ps1` (given a `-LogName` parameter so it reads `tf2ds_2007.log`) saw `engineer_wait` at 16:35:13.
+  - Its one poll took 93 s. The copy sat at the 782,336 B flush and read sentry `pct 0.44`, dispenser not yet seen.
+  - It then sent `ds_engineer_go`; the fallback printed `engineer_fallback_disarmed`. The demo shows both buildings
+    finished before the kill (below).
+- **The UTF-8 line, tested on its own at the menu after `disconnect`** (the not-connected state of an autoexec). Each
+  was a 4-line cfg: an echo, `alias ds_utf8probe "name <X>; echo tf2ds_mark probe_ran"`, an echo.
+  - Control (`X` = `Petr_ascii`): `utf8ctl_before`, `utf8ctl_after`, and no `probe_ran`.
+  - Test (`X` = `Пётр大将`): `utf8test_before`, **`probe_ran`**, `utf8test_after`; the client stayed `Responding=True`.
+  - **Measured: in 3258, the UTF-8 name ends the alias's quoted body, and the rest of the line runs at once as
+    top-level commands.**
+  - The `spec0` log shows the same thing from a different run. `*DEAD* tf2ds_renamed : hi` and `Unknown command:
+    tf2ds_unknown_one` / `_two` come at lines 1220–1228, BEFORE `tf2ds_mark extras` at 1272. That is the tail of
+    `ds_extras` (`… say hi; … tf2ds_unknown_one; … wait 330; … ds_scout`) running when the cfg was exec'd. It also
+    explains the "UTF-8 name dropped from a cfg" row below.
+- **Startup hang: the cause is unconfirmed (interpolated):** the same tail exec'd from the autoexec runs ~495 waits
+  and `ds_scout` (a `joinclass` and the whole class chain) during startup with no map loaded. Runs 6–8 stalled
+  exactly in that block. That this is what spins the client was not observed, because the UTF-8 line was not exec'd
+  from an autoexec again.
+- **The owner's observation, as he reported it:** on this 2007 client the screen sat at the MOTD and he heard nothing.
+  On the newer clients the RCON scripts get past the MOTD and he hears the game run. **The demo disagrees about the
+  game itself** (below): the player joined team 2, spawned 17 times, died 13 times and captured the point. Why the
+  window and sound did not show it is **not known**.
+- **lcor:**
+  - `tf2-2007-build3258-spec-pov-cp_granary.dem`: 1,749,267 B, `bcc8fabe…a287`.
+  - `tf2-2007-build3258-spec-stv-cp_granary.dem`: 872,785 B, `ac7d119e…62a3`.
+  - `spec0` untouched.
+- **Read back (Cli `-s` and `-t`, Probe `buildings`), POV / STV:**
+  - Network protocol 11 on both; `svc_serverinfo protocol 11 map "cp_granary"`.
+  - 6,165 / 5,075 packets, frame check ok.
+  - `dem_datatables` 85,063 / **65,536** B: the SourceTV 64 KiB cut (B24), predicted.
+  - `teamplay_point_captured` 1, `controlpoint_starttouch` 1, 13 `player_death`, 2 `svc_SetPause`, 2 chat lines.
+  - `svc_voiceinit vaudio_speex quality 5` and **74 `svc_VoiceData`** on each.
+  - **Both buildings finished on both demos.** POV: the sentry (entity 476, type 3) from tick 9977 to `building False
+    pct 1` 150/150 at 10799 (822 ticks, 12.3 s). The dispenser (entity 485, type 0) from 10401 to 150/150 at 12098
+    (1,697 ticks, 25.5 s). STV: 9248→9946 and 9625→11021.
+  - The builder control resolved on 15,530 of 15,530 ticks (POV) and 13,275 of 13,275 (STV).
+  - The dispenser stays in the POV until tick 17487, after the Engineer's kill and class change; not chased.
+- **Quit:** `quit` over RCON; the client exited within 10 s. **Restore:** `restore.sh 2007-r9` diff **empty**.
+  `console.log`, `demoheader.tmp`, `tf_gamestats.dat`, `config.cfg` and `platform/config/ingamedialogconfig.vdf` came
+  back from the aside copies. No `hl2` left; `SteamClientDll` reads `C:\Program Files (x86)\Steam\steamclient.dll`.
+
 ### Differences observed, per era (D240: fixed in the script where the build allows it, documented where inherent)
 
 The owner, 2026-10-29: *"any differences like that should be fixed, it lets us obviously see and notice changes too,
@@ -1260,8 +1350,10 @@ Evidence classes: **read** (published source or shipped game data), **measured**
 | what differs | builds | evidence | status |
 |---|---|---|---|
 | Buildings not finished when the chain's `kill` came. Last state, sentry / dispenser, before (`spec2`) → after (`spec`): 4231 done / 0.44 → done / done; 4269 done / 0.44 → done / done; 4604 done / 0.39 → done / done; 1729296 0.58 / 0.13 → done / done; live 0.58 / 0.12 → done / done; 3420 done / 0.44 → done / done (run 4) | 3420, 4231, 4269, 4604, 1729296, live | measured (Probe `buildings` on each POV and SourceTV) | **fixed** in the shared cfg (third pass; 3420 by run 4, the first pre-2011 run of `tf2ds_era_pre2011.cfg`): one cause in every era, see "the 2013 and live sentry", above |
-| No building at all | 3258 `spec0` | measured | that pair predates the script fixes; the re-records (runs 6, 7) stalled at startup, so still open |
-| The client freezes at the end of autoexec.cfg on start (`hl2.exe` direct and `RUN_TF2.exe` alike) | 3258 | measured (both Steam-online starts, the raw re-record, the `RUN_TF2.exe` click, runs 6 and 7; runs 6–7 with the pack config out and `mat_queue_mode 0`; run 7 spun one core for 15 min with no demo and no log line after `version`) | **open**: not `mat_queue_mode` (refuted, runs 6–7). Stalls inside or after `exec tf2ds_specimen`, before `map`, unless con_logfile buffers. The only working 2007 boot loaded the map over RCON |
+| No building at all | 3258 `spec0` | measured | **fixed** by run 9 (`spec`): sentry and dispenser both finished, POV and STV |
+| The client freezes during `exec tf2ds_specimen` from the autoexec (`hl2.exe` direct and `RUN_TF2.exe` alike) | 3258 | measured (both Steam-online starts, the raw re-record, the `RUN_TF2.exe` click, runs 6–8; run 8's stage files place it between the variant's `L20` and `L30`). Run 9's minimal autoexec reached the menu, `Responding=True`, in 20 s, and every specimen command stepped over RCON returned | **worked around**: 2007 is recorded over RCON from the menu, as 2008/2009 are. Not `mat_queue_mode` (refuted, runs 6–7), not `RUN_TF2.exe` (run 9 A, plus the lead's static read), not line length (run 8: no line over 241 B). That the UTF-8 tail of `ds_extras` (next row), run at startup with no map, is the cause is **interpolated** |
+| A UTF-8 byte ends an alias's quoted body; the rest of the line runs immediately at top level | 3258 | measured (run 9: the UTF-8 probe alias printed its own `probe_ran` at definition, while the ASCII control did not; `spec0` log: `ds_extras`'s tail ran before `tf2ds_mark extras`) | **inherent**; the shared cfg's `ds_extras` defines a broken alias on 3258, and the 2007 RCON list uses an ASCII name. Not checked on other builds |
+| The owner saw the screen stay on the MOTD and heard nothing during the RCON-driven chain (newer clients: past the MOTD, sound heard) | 3258 (run 9) | observed by the owner; the demo meanwhile records a team join, 17 spawns, 13 deaths, a capture and both buildings | **open**; cause unknown, not guessed |
 | `wait` runs about once a tick at ~17 fps (1.0–1.25 waits/tick) | 3258 | measured (`spec0` `dem_consolecmd` ticks) | inherent; the 7920-wait fallback is 95–119 s here |
 | `addcond` absent from `find` yet printing no `Unknown command` | 3862 | measured | **unresolved**: whether 3862 has `addcond` is not known; the non-zero `m_nPlayerCond` values may come from the chain's natural steps |
 | Construction time: sentry 10 s, dispenser 20 s | every build | read (`objects.txt`, 3258/3420/3862); measured (first `building True` → `building False`, SourceTV `spec` demos): sentry 10.4 s and dispenser 20.9 s on 4231, 4269 (dispenser), 4604, 1729296 and live; 3862 11.2 / 21.6 s from first existence | **the same in every era**; no change to explain |
@@ -1270,7 +1362,7 @@ Evidence classes: **read** (published source or shipped game data), **measured**
 | `build` takes one argument | 3258, 3420, 3862 | read (`client.dll` format string `build %d`) | fixed (`tf2ds_era_pre2011.cfg`) |
 | Object type of the sentry: 3 (old enum), not 2 | 3420, 3862 vs 4231 | measured | inherent; the poll accepts any non-zero type |
 | `name` does not take (the start name, the UTF-8 name and the rename are absent) | 3420, 3862 | measured; that the Steam persona overrides it is interpolated | inherent so far |
-| UTF-8 name dropped from a cfg (the ASCII rename works) | 3258 | measured | inherent |
+| UTF-8 name dropped from a cfg (the ASCII rename works) | 3258 | measured | inherent; the mechanism is the alias-quote row above (run 9) |
 | `tf_bot_add`, `tf_bot_quota` unknown | 3258, 3420, 3862 | measured | inherent (no bots before the bot update) |
 | `tf_bot_add` accepted but adds nothing | 5252 | measured (`status`) | not chased |
 | `addcond`/`removecond` unknown | 3258, 3420 | measured | inherent |
