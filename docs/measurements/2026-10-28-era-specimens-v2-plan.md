@@ -825,5 +825,56 @@ were checked with `Get-AuthenticodeSignature`, and nothing was run during the in
     plus `+fps_max 66 +tv_enable 1`.
   - The owner double-clicks it.
 
+### Census of the first pass: coverage missing in every era, and the script fixed (2026-10-29, 02:00–02:30)
+
+`tf2demosalvage -s` was run over every new pair and every old gcor specimen (scratchpad `census/`).
+- **No new specimen carried `teamplay_point_captured`**, though the old ones did.
+- Engineer buildings were not confirmed.
+- No bot appeared.
+
+What the bytes showed:
+- **Instrument note.** The script's own commands are recorded in `dem_consolecmd` with a leading space
+  (`command " setpos …"`); a grep for `command "setpos` misses them. Control: `command " kill"` hits 12 times.
+  Forwarded commands (`joinclass`, `build`, `addcond`) are not recorded there at all.
+- **Capture.**
+  - On the old 2008 SourceTV demo, the solo mid capture landed 1,324 ticks after the last starttouch.
+  - On a 2013 test demo, `teamplay_point_captured` came 1,608 ticks (24 s) after `setpos`.
+  - The first pass held the point 698 ticks (2011) and 1,095 ticks (1.0.9.5). The hold is now `wait 3960`.
+- **`wait` is not one frame.** On 2013 at `fps_max 66`, 462 waits spanned 244 ticks (about 1.9 waits per tick).
+  Wall time therefore comes only from the marks.
+- **Respawn.** A dead player re-joining the SAME class waits the full respawn: death→spawn was 428 ticks against 50 for
+  a different class (2013, every death in the run). So `ds_engineer_build` and `ds_spy_disguise`, which follow their own
+  class, ran while dead. Both now join scout first.
+- **Buildings.**
+  - The `buildings` probe on the first 2013 pass shows the sentry `placing True` and never built.
+  - In a hand test, a dispenser at (-1536 300 -340) reached `m_bBuilding 1`.
+  - Both now go beside mid. `impulse 101` refills metal, because the sentry's 130 leaves too little for the dispenser.
+- **Bots.** `tf_bot_add` and `bot -team blue …` add nothing on 2013 (hand test, `status`) and print nothing. Recorded,
+  not chased: the old specimens had no bots either.
+- **Verification on 2013 (v5)**, from the `-e` traces:
+  - POV: `teamplay_point_captured` 1, `m_bBuilding 1` twice (CObjectSentrygun, CObjectDispenser), `svc_VoiceData` 81,
+    `svc_SetPause` 2, 13 deaths.
+  - SourceTV: the same.
+
+### Second pass, every self-startable era on the verified script
+
+The first-pass pairs are kept in lcor as `…-spec1-…`; the 2007 first pair is `…-spec0-…`.
+
+| era | lcor pair (`…-spec-{pov,stv}-cp_granary.dem`) | POV s | captured | sentry/dispenser built | svc_VoiceData | refusals |
+|---|---|---|---|---|---|---|
+| 2013, 5252 | `tf2-2013-build1729296` (POV `c221c466…`, STV `b02cf42d…`) | 201.0 | 1 | 2 | 81 | none |
+| 2011, 4604 | `tf2-2011-build4604` (`5bb15ce5…`, `11952ade…`) | 202.4 | 1 | 2 | **0** | `cl_hud_playerclass_use_playermodel` (owner's cfg) |
+| 2010, 4231 | `tf2-2010-build4231` (`972bd82c…`, `ad7a5187…`) | 308.8 | 1 | 2 | 266 | none |
+| 2010, 4269 | `tf2-2010-build4269` (`1fe9aac2…`, `f8e499a9…`) | 314.0 | 1 | 2 | 44 | none |
+| live, 11138802 | `tf2-live-build11138802` (`a49f13c7…`, `16bfa996…`) | 200.5 | 1 | 2 | **0** | none |
+
+- No voice in 2011 or live: `voice_inputfromfile` was accepted silently. Recorded as an era finding, not chased.
+- **REVEmu rewrites the registry.** The 2011, 1.0.9.5 and 1.1.0.0 clients rewrite
+  `HKCU\…\ActiveProcess\SteamClientDll` to their own `bin\steamclient.dll` at launch.
+  - It was found set to the 1.0.9.5 path before the 2011 re-record, and with a trailing space after 1.1.0.0.
+  - It explains why 2011 shuts itself down on the first launch after the value is blanked and runs on the second.
+  - After every such session it was set back to `C:\Program Files (x86)\Steam\steamclient.dll` and read back.
+- Every folder's diff against its before-listing is empty.
+
 **Every era override:** 2010 gets `tf2ds_era_2010.cfg`, which redefines nothing. Both 2010 `client.dll` files carry
 the two-argument `build %d %d` format string, as 2011 does; 3862 carries the one-argument `build %d`.
