@@ -19,7 +19,20 @@ why era specimens stay short), and a build that refuses a step is itself a findi
 
 ## Before you start
 
+**Step 0, every era: start the client the way it ships.** The owner, 2026-10-29: *"the agent should always look for a
+bat or shortcut first"*.
+- List the client's folder, one level up and one level down, for `.bat`, `.cmd`, `.lnk` and loader executables:
+  `RUN_TF2.exe`, `SmartSteamLoader.exe` with its `.ini`, `tf2.exe`, and `rev.ini`/`steamemu.ini`.
+- Read each one: the text, or the target and arguments.
+- Start the client through that launcher, with the RCON arguments added to the launcher's own command line. Hash the
+  launcher first and restore it afterwards.
+- `hl2.exe` started raw is the last resort, used only where no launcher exists.
+
+Measured 2026-10-29: 2008 started raw failed with `CFileSystem_Steam::Init() failed`, and 2007 started raw froze after
+the config banner. The recipes per build are in `docs/measurements/2026-10-28-era-specimens-v2-plan.md`.
+
 ```
+fps_max 66           // BEFORE the map: fps_max is `notconnected`, refused on a loaded map, and every wait counts frames
 tv_enable 1          // before the map loads, or SourceTV will not attach
 map <mapname>
 ```
@@ -94,3 +107,21 @@ tf2demosalvage <demo> --trace -o t.txt # every message in stream order
 Then grep the trace for the ones with no in-game feedback — `svc_voicedata`, `svc_bspdecal`,
 `svc_setpause`. A step that produced no message is worth knowing about immediately, while the
 build is still set up.
+
+---
+
+## What each build refused (the scripted run, 2026-10-28/29)
+
+Read from each run's console. "Refused" means the build printed `Unknown command` or a cheat refusal; the two deliberate
+unknowns (`tf2ds_unknown_one`, `tf2ds_unknown_two`) are refused everywhere and are left out below. Whether a step that
+printed nothing actually took effect is read from the demo, not from the console.
+
+| build | refused | other findings |
+|---|---|---|
+| 2007, 3258 (p11) | `cl_disablehtmlmotd`, `mp_respawnwavetime`, `mp_disable_respawn_times`, `tf_bot_quota`, `tf_bot_add`, `addcond`, `removecond` | `name Пётр大将` from a cfg sets nothing: it prints the cvar, as `name` with no argument does. `tv_delay` is clamped to at least 10. `con_logfile` diverts `-condebug`'s console.log. Started raw, the client froze after the config banner. |
+| 2008, 3420 (p14) | not yet run | Started raw, it failed with `CFileSystem_Steam::Init() failed: failed to find steam interface`. |
+| 2010, 4231 (1.0.9.5, p15) | none | |
+| 2010, 4269 (1.1.0.0, p15) | none | Needs its SmartSteamLoader; started bare, it has no `gameinfo.txt`. |
+| 2011, 4604 (p16) | `cl_savescreenshotstosteam` | Tf2Mcp's default launch args make it shut down before RCON opens; the bat's own args work. |
+| 2013, 5252 (p24) | none from the script | `fps_max` is refused on a loaded map. The owner's class cfgs end in `sv_cheats 0`, so the script re-sets it before every cheat. |
+| live, 11138802 (p24) | none from the script | With Steam offline, STEAMAUTH drops the local client after about 70 s; `sv_lan 1` prevents it. |

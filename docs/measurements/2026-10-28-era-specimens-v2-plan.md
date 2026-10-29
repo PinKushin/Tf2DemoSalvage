@@ -488,6 +488,16 @@ That would close the **late protocol-15 dialect** with a POV + SourceTV pair, th
 
 **Per era, under `run-exclusive.ps1` for the whole session:**
 
+0. **Launcher first** (owner, 2026-10-29: *"the agent should always look for a bat or shortcut first"*).
+   - List the folder, one level up and one down, for `.bat`, `.cmd`, `.lnk` and loader executables (`RUN_TF2.exe`,
+     `SmartSteamLoader.exe` + `.ini`, `tf2.exe`, `rev.ini`/`steamemu.ini`), and read each one.
+   - Start the client the way it ships, with the RCON arguments on the launcher's own command line. Hash the launcher
+     before and restore it after.
+   - `hl2.exe` raw only where no launcher exists.
+   - A client the owner must click is driven over RCON with scratchpad `rcon.ps1`, because the tf2 MCP's launch guard
+     refuses to attach while a client exists.
+   - `+fps_max 66` goes on the launch line in every case.
+
 1. **Before.** Take a hashed listing (name, size, sha256) of `<G>/tf/`, `<G>/tf/cfg/` and `<G>/tf/screenshots/` into
    `D:\tf2ds-specimen-backup\<era>\before.txt`, where `<G>` is the era's folder.
    - For each file about to be placed (`tf/cfg/tf2ds_specimen.cfg`, `tf/cfg/tf2ds_era_<era>.cfg`,
@@ -765,6 +775,55 @@ were checked with `Get-AuthenticodeSignature`, and nothing was run during the in
   - Restore the ini from aside and verify the hash.
 - **3862:** the owner double-clicks the edited `tf2.lnk`. Its shipped Arguments come first, then the RCON args.
 - **2008:** the owner double-clicks the edited `Start Team Fortress 2.lnk`, with the same arrangement.
+
+### 2010, build 4231 (1.0.9.5): done
+
+- **Launch:** started raw. Its root has no `.bat`/`.lnk`; `tf2.exe` is the shipped loader and was not used (step 0
+  postdates this run).
+- **Build:** `Protocol version 15`, `Exe build: 16:13:38 Jun 10 2010 (4231)`.
+- **Run:**
+  - POV `recording time 287.2, game frames 4594` (about 16 fps); SourceTV `281.6`.
+  - The only refusals were the two deliberate unknowns.
+- **lcor:**
+  - `tf2-2010-build4231-spec-pov-cp_granary.dem`: 1,596,834 B, `fabd8315…05aa`.
+  - `tf2-2010-build4231-spec-stv-cp_granary.dem`: 969,619 B, `382db165…d877`.
+- **Restore:** diff against `before.txt` empty.
+- **Residue outside the listing:** the emulator appended to the root's `rev-client.log`, and no pre-copy exists.
+
+### 2010, build 4269 (1.1.0.0): done
+
+- **Launch:**
+  - `SmartSteamEmu.ini` `CommandLine` was extended (`ini-args.ps1`).
+  - `SmartSteamLoader.exe` was started with its working directory set to `platform\SmartSteamEmu`; the loader started
+    `hl2.exe`, and RCON answered.
+  - The ini was restored from aside straight after (hash match).
+- **Build:** `Protocol version 15`, `Exe build: 16:21:09 Jul 16 2010 (4269)`.
+- **Run:**
+  - POV `280.6 s, 4457 frames`; SourceTV `283.8`.
+  - The only refusals were the two deliberate unknowns.
+- **lcor:**
+  - `tf2-2010-build4269-spec-pov-cp_granary.dem`: 1,630,885 B, `b8cbd10e…4050`.
+  - `tf2-2010-build4269-spec-stv-cp_granary.dem`: 1,104,843 B, `2ab3dded…9c16`.
+- **Restore:** diff empty. The emulator appended to the root's `rev-client.log`.
+
+### 2007 re-record (with the fixed script): froze when started raw, now waiting on the owner's click
+
+- The first 2007 pair was renamed apart in lcor to `tf2-2007-build3258-spec0-{pov,stv}-cp_granary.dem`.
+  `spec-pov` is not a substring of `spec0-pov`, so `Corpus.Demo` cannot confuse the two.
+- **Attempt:** `mcp__tf2__launch … executable=hl2.exe extraArguments="+fps_max 66 +tv_enable 1"`.
+  - `hl2.exe` went `Responding=False` after the owner's config banner, and wrote no line after it.
+  - UIA showed one `Valve001` window and no dialog; the owner saw nothing pop up either.
+  - Steam was offline (`WantsOfflineMode "1"`).
+  - Killed after 9 min (its PID was this session's launch). The folder was restored, diff empty.
+- **Diagnosis, unconfirmed:**
+  - `RUN_TF2.exe` (37,376 B) carries the string `-game tf -steam -console`, imports `GetCommandLineA`, and starts
+    `hl2.exe`. Tf2Mcp passes neither `-steam` nor `-console`.
+  - The owner thinks the first 2007 recording was his own launch. The record above says `mcp__tf2__launch`.
+    **Unresolved.**
+- **Recipe now:** a NEW shortcut, scratchpad `TF2-2007-specimen.lnk`, so nothing in the game folder is edited.
+  - It targets `RUN_TF2.exe` with its working directory set to the game folder, and its Arguments are the RCON args
+    plus `+fps_max 66 +tv_enable 1`.
+  - The owner double-clicks it.
 
 **Every era override:** 2010 gets `tf2ds_era_2010.cfg`, which redefines nothing. Both 2010 `client.dll` files carry
 the two-argument `build %d %d` format string, as 2011 does; 3862 carries the one-argument `build %d`.
