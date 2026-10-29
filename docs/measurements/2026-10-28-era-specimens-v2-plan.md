@@ -967,7 +967,8 @@ Then the click, `drive.ps1` (2008/3862 only), collect the demos first, then `res
   `host_thread_mode` 0, `snd_mix_async` 0, `cl_threaded_*` 0, `r_threaded_client_shadow_manager` 0,
   `r_threaded_renderables` 0, and `r_threaded_particles` **1 by default**. Set over RCON: `mat_queue_mode 0`,
   `r_threaded_particles 0`, `mat_picmip -1`; `mat_forceaniso 16`, `mat_trilinear 1`, `r_rootlod 0`, `r_lod -1`,
-  `mat_hdr_level 2` were already the max. `mat_antialias` (1) was left alone: it applies only through a video mode reset.
+  `mat_hdr_level 2` were already the max. `mat_antialias` (1) was left alone (interpolated, not measured: it is believed to apply only through a video mode
+  reset).
 - **The owner's click came within the 30 min poll.** `version`: `Protocol version 14`, `Exe version 1.0.2.2`,
   `Exe build: 20:17:35 Mar 19 2008 (3420)`. With `sv_lan 1` the player **stayed** (`status`: `PinKushin … active
   loopback`), fixing run 2's `No Steam logon` drop.
