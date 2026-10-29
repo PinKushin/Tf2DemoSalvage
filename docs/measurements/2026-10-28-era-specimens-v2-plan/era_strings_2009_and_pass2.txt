@@ -1,0 +1,98 @@
+Raw output pasted from the 2026-10-28 session (the shell hook refuses an appending redirect, so these two runs are
+pasted rather than redirected). era_strings.sh with ERAS=2009 printed ABSENT only for: cl_disablehtmlmotd, tf_bot_quota,
+tf_bot_add, cl_savescreenshotstosteam; every other name was present (disguise and heavyweapons in client.dll only).
+
+era_strings2.sh (substring, case-insensitive; no NUL boundary):
+
+== 2007
+  server.dll heavyweapons                     1 HEAVYWEAPONS       1 heavyweapons
+  server.dll addcond                    none
+  server.dll tf_bot_add                 none
+  server.dll cl_disablehtmlmotd         none
+  server.dll mp_disable_respawn_times   none
+  server.dll TF_COND_ names: 0
+  client.dll heavyweapons                     3 heavyweapons
+  client.dll addcond                    none
+  client.dll tf_bot_add                 none
+  client.dll cl_disablehtmlmotd         none
+  client.dll mp_disable_respawn_times   none
+  client.dll TF_COND_ names: 0
+== 2008
+  server.dll heavyweapons                     1 HEAVYWEAPONS       1 heavyweapons
+  server.dll addcond                    none
+  server.dll tf_bot_add                 none
+  server.dll cl_disablehtmlmotd         none
+  server.dll mp_disable_respawn_times         1 mp_disable_respawn_times
+  server.dll TF_COND_ names: 0
+  client.dll heavyweapons                     3 heavyweapons
+  client.dll addcond                    none
+  client.dll tf_bot_add                 none
+  client.dll cl_disablehtmlmotd         none
+  client.dll mp_disable_respawn_times         1 mp_disable_respawn_times
+  client.dll TF_COND_ names: 0
+== 2009
+  server.dll heavyweapons                     1 HEAVYWEAPONS       1 heavyweapons
+  server.dll addcond                          1 addcond
+  server.dll tf_bot_add                 none
+  server.dll cl_disablehtmlmotd         none
+  server.dll mp_disable_respawn_times         1 mp_disable_respawn_times
+  server.dll TF_COND_ names: 0
+  client.dll heavyweapons                     4 heavyweapons
+  client.dll addcond                    none
+  client.dll tf_bot_add                 none
+  client.dll cl_disablehtmlmotd         none
+  client.dll mp_disable_respawn_times         1 mp_disable_respawn_times
+  client.dll TF_COND_ names: 0
+== 2011
+  server.dll heavyweapons                     2 HEAVYWEAPONS       1 heavyweapons
+  server.dll addcond                          1 addcond
+  server.dll tf_bot_add                       1 tf_bot_add
+  server.dll cl_disablehtmlmotd         none
+  server.dll mp_disable_respawn_times         1 mp_disable_respawn_times
+  server.dll TF_COND_ names: 0
+  client.dll heavyweapons                     4 heavyweapons
+  client.dll addcond                    none
+  client.dll tf_bot_add                 none
+  client.dll cl_disablehtmlmotd               1 cl_disablehtmlmotd
+  client.dll mp_disable_respawn_times         1 mp_disable_respawn_times
+  client.dll TF_COND_ names: 0
+== 2013
+  server.dll heavyweapons                     2 HEAVYWEAPONS       2 heavyweapons
+  server.dll addcond                          1 addcond
+  server.dll tf_bot_add                       1 tf_bot_add
+  server.dll cl_disablehtmlmotd         none
+  server.dll mp_disable_respawn_times         1 mp_disable_respawn_times
+  server.dll TF_COND_ names: 0
+  client.dll heavyweapons                     2 heavyweapons
+  client.dll addcond                    none
+  client.dll tf_bot_add                 none
+  client.dll cl_disablehtmlmotd               1 cl_disablehtmlmotd
+  client.dll mp_disable_respawn_times         1 mp_disable_respawn_times
+  client.dll TF_COND_ names: 0
+== live
+  server.dll heavyweapons                     2 HEAVYWEAPONS       1 heavyweapons
+  server.dll addcond                          4 AddCond       2 addcond
+  server.dll tf_bot_add                       1 tf_bot_add
+  server.dll cl_disablehtmlmotd         none
+  server.dll mp_disable_respawn_times         1 mp_disable_respawn_times
+  server.dll TF_COND_ names: 134
+  client.dll heavyweapons                     2 heavyweapons
+  client.dll addcond                    none
+  client.dll tf_bot_add                 none
+  client.dll cl_disablehtmlmotd               1 cl_disablehtmlmotd
+  client.dll mp_disable_respawn_times         1 mp_disable_respawn_times
+  client.dll TF_COND_ names: 133
+
+(The live pass-2 above was run on tf/bin/server.dll and client.dll, the 32-bit pair; pass 1 also read bin/x64.)
+
+build/destroy/disguise format strings (grep -aoE '(build|destroy|disguise) ?%[a-z0-9 %-]*' client.dll):
+  2007  build %d ; destroy %d (x2) ; disguise %d %d
+  2008  build %d ; destroy %d (x2) ; disguise %d %d
+  2009  build %d ; destroy %d (x2) ; (no disguise format string)
+  2011  build %d %d ; destroy %d %d (x2) ; server.dll: "Usage: build <building> <mode>"
+  2013  build %d %d ; destroy %d %d (x2) ; server.dll: "Usage: build <building> <mode>"
+
+Client RCON support (engine.dll string counts): -usercon 1, -condebug 2, rcon_password 1 in every era 2007..live.
+
+Nav meshes: 2013 tf/maps ships cp_dustbowl.nav and cp_granary.nav (no cp_badlands.nav). The 2011 content GCF names no
+*.nav at all (same grep that lists its 60 *.bsp names).

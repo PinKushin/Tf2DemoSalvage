@@ -1,0 +1,252 @@
+== 2007 (5 modules: bin bin bin bin bin )
+  sv_cheats                         engine.dll server.dll client.dll
+  cl_disablehtmlmotd               ABSENT
+  fps_max                           engine.dll
+  mp_respawnwavetime                server.dll client.dll
+  mp_disable_respawn_times         ABSENT
+  mp_waitingforplayers_cancel       server.dll
+  tf_bot_quota                     ABSENT
+  tf_bot_add                       ABSENT
+  hidepanel                         client.dll
+  record                            engine.dll
+  stop                              engine.dll server.dll
+  disconnect                        engine.dll server.dll client.dll
+  jointeam                          server.dll
+  joinclass                         server.dll
+  taunt                             server.dll
+  kill                              server.dll
+  explode                           server.dll
+  slot1                             client.dll
+  slot2                             client.dll
+  slot3                             client.dll
+  build                             engine.dll server.dll
+  destroy                           server.dll
+  disguise                          server.dll
+  addcond                          ABSENT
+  removecond                       ABSENT
+  wait                              engine.dll server.dll
+  alias                             engine.dll
+  echo                              engine.dll
+  tv_enable                         engine.dll
+  tv_record                         engine.dll
+  tv_stoprecord                     engine.dll
+  con_logfile                       engine.dll
+  version                           engine.dll server.dll client.dll
+  heavyweapons                     ABSENT
+  +attack2                          client.dll
+  +reload                           client.dll
+  +duck                             client.dll
+  +jump                             client.dll
+  +moveleft                         client.dll
+  cl_savescreenshotstosteam        ABSENT
+  sv_allow_wait_command             engine.dll
+== 2008 (5 modules: bin bin bin bin bin )
+  sv_cheats                         engine.dll server.dll client.dll
+  cl_disablehtmlmotd               ABSENT
+  fps_max                           engine.dll
+  mp_respawnwavetime                engine.dll server.dll client.dll
+  mp_disable_respawn_times          engine.dll server.dll client.dll
+  mp_waitingforplayers_cancel       server.dll
+  tf_bot_quota                     ABSENT
+  tf_bot_add                       ABSENT
+  hidepanel                         client.dll
+  record                            engine.dll
+  stop                              engine.dll server.dll
+  disconnect                        engine.dll server.dll client.dll
+  jointeam                          server.dll
+  joinclass                         server.dll
+  taunt                             server.dll
+  kill                              server.dll
+  explode                           server.dll
+  slot1                             client.dll
+  slot2                             client.dll
+  slot3                             client.dll
+  build                             engine.dll server.dll
+  destroy                           server.dll
+  disguise                          server.dll
+  addcond                          ABSENT
+  removecond                       ABSENT
+  wait                              engine.dll server.dll
+  alias                             engine.dll
+  echo                              engine.dll
+  tv_enable                         engine.dll
+  tv_record                         engine.dll
+  tv_stoprecord                     engine.dll
+  con_logfile                       engine.dll
+  version                           engine.dll server.dll client.dll
+  heavyweapons                     ABSENT
+  +attack2                          client.dll
+  +reload                           client.dll
+  +duck                             client.dll
+  +jump                             client.dll
+  +moveleft                         client.dll
+  cl_savescreenshotstosteam        ABSENT
+  sv_allow_wait_command             engine.dll
+== 2010 (2 modules: bin bin )
+  sv_cheats                         engine.dll client.dll
+  cl_disablehtmlmotd                client.dll
+  fps_max                           engine.dll
+  mp_respawnwavetime                client.dll
+  mp_disable_respawn_times          client.dll
+  mp_waitingforplayers_cancel      ABSENT
+  tf_bot_quota                      client.dll
+  tf_bot_add                       ABSENT
+  hidepanel                         client.dll
+  record                            engine.dll
+  stop                              engine.dll client.dll
+  disconnect                        engine.dll client.dll
+  jointeam                         ABSENT
+  joinclass                         client.dll
+  taunt                             client.dll
+  kill                             ABSENT
+  explode                          ABSENT
+  slot1                             client.dll
+  slot2                             client.dll
+  slot3                             client.dll
+  build                             engine.dll
+  destroy                          ABSENT
+  disguise                          client.dll
+  addcond                          ABSENT
+  removecond                       ABSENT
+  wait                              engine.dll
+  alias                             engine.dll
+  echo                              engine.dll
+  tv_enable                         engine.dll
+  tv_record                         engine.dll
+  tv_stoprecord                     engine.dll
+  con_logfile                       engine.dll
+  version                           engine.dll client.dll
+  heavyweapons                      client.dll
+  +attack2                          client.dll
+  +reload                           client.dll
+  +duck                             client.dll
+  +jump                             client.dll
+  +moveleft                         client.dll
+  cl_savescreenshotstosteam        ABSENT
+  sv_allow_wait_command             engine.dll
+== 2011 (5 modules: bin bin bin bin bin )
+  sv_cheats                         engine.dll server.dll client.dll
+  cl_disablehtmlmotd                client.dll
+  fps_max                           engine.dll
+  mp_respawnwavetime                server.dll client.dll
+  mp_disable_respawn_times          server.dll client.dll
+  mp_waitingforplayers_cancel       server.dll
+  tf_bot_quota                      server.dll client.dll
+  tf_bot_add                        server.dll
+  hidepanel                         client.dll
+  record                            engine.dll
+  stop                              engine.dll server.dll client.dll
+  disconnect                        engine.dll server.dll client.dll
+  jointeam                          server.dll
+  joinclass                         server.dll client.dll
+  taunt                             server.dll client.dll
+  kill                              server.dll client.dll
+  explode                           server.dll
+  slot1                             client.dll
+  slot2                             client.dll
+  slot3                             client.dll
+  build                             engine.dll server.dll
+  destroy                           server.dll
+  disguise                          server.dll client.dll
+  addcond                           server.dll
+  removecond                        server.dll
+  wait                              engine.dll server.dll
+  alias                             engine.dll client.dll
+  echo                              engine.dll
+  tv_enable                         engine.dll
+  tv_record                         engine.dll
+  tv_stoprecord                     engine.dll
+  con_logfile                       engine.dll
+  version                           engine.dll server.dll client.dll
+  heavyweapons                      client.dll
+  +attack2                          client.dll
+  +reload                           client.dll
+  +duck                             client.dll
+  +jump                             client.dll
+  +moveleft                         client.dll
+  cl_savescreenshotstosteam        ABSENT
+  sv_allow_wait_command             engine.dll
+== 2013 (5 modules: bin bin bin bin bin )
+  sv_cheats                         engine.dll server.dll client.dll
+  cl_disablehtmlmotd                client.dll
+  fps_max                           engine.dll
+  mp_respawnwavetime                server.dll client.dll
+  mp_disable_respawn_times          server.dll client.dll
+  mp_waitingforplayers_cancel       server.dll
+  tf_bot_quota                      server.dll client.dll
+  tf_bot_add                        server.dll
+  hidepanel                         client.dll
+  record                            engine.dll
+  stop                              engine.dll server.dll client.dll
+  disconnect                        engine.dll server.dll client.dll
+  jointeam                          server.dll
+  joinclass                         server.dll
+  taunt                             server.dll client.dll
+  kill                              server.dll client.dll
+  explode                           server.dll
+  slot1                             client.dll
+  slot2                             client.dll
+  slot3                             client.dll
+  build                             engine.dll server.dll
+  destroy                           server.dll
+  disguise                          server.dll client.dll
+  addcond                           server.dll
+  removecond                        server.dll
+  wait                              engine.dll server.dll
+  alias                             engine.dll client.dll
+  echo                              engine.dll
+  tv_enable                         engine.dll
+  tv_record                         engine.dll
+  tv_stoprecord                     engine.dll
+  con_logfile                       engine.dll
+  version                           engine.dll server.dll client.dll
+  heavyweapons                      server.dll client.dll
+  +attack2                          client.dll
+  +reload                           client.dll
+  +duck                             client.dll
+  +jump                             client.dll
+  +moveleft                         client.dll
+  cl_savescreenshotstosteam         engine.dll client.dll
+  sv_allow_wait_command             engine.dll
+== live (9 modules: bin bin bin x64 x64 x64 bin bin x64 )
+  sv_cheats                         engine.dll server.dll client.dll engine.dll server.dll client.dll
+  cl_disablehtmlmotd                client.dll client.dll
+  fps_max                           engine.dll engine.dll
+  mp_respawnwavetime                server.dll client.dll server.dll client.dll
+  mp_disable_respawn_times          server.dll client.dll server.dll client.dll
+  mp_waitingforplayers_cancel       server.dll server.dll
+  tf_bot_quota                      server.dll client.dll server.dll client.dll
+  tf_bot_add                        server.dll server.dll
+  hidepanel                         client.dll client.dll
+  record                            engine.dll engine.dll
+  stop                              engine.dll server.dll client.dll engine.dll server.dll client.dll
+  disconnect                        engine.dll server.dll client.dll engine.dll server.dll client.dll
+  jointeam                          server.dll server.dll
+  joinclass                         server.dll server.dll
+  taunt                             server.dll client.dll server.dll client.dll
+  kill                              server.dll client.dll server.dll client.dll
+  explode                           server.dll server.dll
+  slot1                             client.dll client.dll
+  slot2                             client.dll client.dll
+  slot3                             client.dll client.dll
+  build                             engine.dll server.dll engine.dll server.dll
+  destroy                           server.dll server.dll
+  disguise                          server.dll client.dll server.dll client.dll
+  addcond                           server.dll
+  removecond                        server.dll server.dll
+  wait                              engine.dll server.dll engine.dll server.dll
+  alias                             engine.dll engine.dll
+  echo                              engine.dll engine.dll
+  tv_enable                         engine.dll engine.dll
+  tv_record                         engine.dll engine.dll
+  tv_stoprecord                     engine.dll engine.dll
+  con_logfile                       engine.dll engine.dll
+  version                           engine.dll server.dll client.dll engine.dll server.dll client.dll
+  heavyweapons                      client.dll client.dll
+  +attack2                          client.dll client.dll
+  +reload                           client.dll client.dll
+  +duck                             client.dll client.dll
+  +jump                             client.dll client.dll
+  +moveleft                         client.dll client.dll
+  cl_savescreenshotstosteam         engine.dll client.dll engine.dll client.dll
+  sv_allow_wait_command             engine.dll engine.dll

@@ -16,7 +16,8 @@ metadata:
 | Live TF2 install | `F:\SteamLibrary\steamapps\common\Team Fortress 2` |
 | Source SDK 2013 | `F:\src\source-sdk-2013` |
 | Period clients | `F:\tf2-builds\tf2-{2007,2008,2011,2013}` |
-| Probe builds | `F:\tf2-builds\probe-{2011,2013}` |
+| 2009 client (build 3862, 1.0.5.9, engine dated Jun 4 2009; runnable) | `D:\team fortress 2` — not under `tf2-builds`; source zip `C:\Users\pinku\Downloads\team fortress 2 3862.zip` |
+| Probe builds | `F:\tf2-builds\probe-{2011,2013}` — DLLs only, not runnable |
 | 2010 client (1.1.0.0, protocol-15 era; B444) | `D:\tf2-builds\tf2-2010-1.1.0.0` — only `tf\bin\client.dll`, `bin\engine.dll`, `tf\steam.inf`, fetched 2026-10-01 from inside the zip at https://archive.org/details/tf-2-1.1.0.0-19-jul-2010 (`TF2 1.1.0.0 (19 Jul 2010).zip`, 2,986,998,821 bytes). The whole client is there: a candidate for a 2010 era specimen in gcor |
 | Other archive.org builds found (not fetched) | `team-fortress-2-v-1.0.9.5.7z_20251228` (1.0.9.5, 2010), `team-fortress-2-no-steam-build-1.0.9.5-july-1st-2010-lan-only`, `tf-2-1.1.4.6-with-cosmetics-lol.-7z` (1.1.4.6, 2010/11), `team-fortress-2-3862` (2009), `tf2-old-manifests-chunks` (35 GB); demos: `tf2-recovered-forum-demos-2010-2012` |
 | A 380-demo competitive archive | `D:\tf2-demo-archive` — real leagues, not the 53-demo corpus |
