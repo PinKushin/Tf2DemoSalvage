@@ -11276,3 +11276,23 @@ refutes it.**
 
 What would decide it next time, the `queue stall` report, and when B609 reopens, are in B609.
 
+## D240 — era specimens must be comparable: a per-era difference is fixed in the script, or documented as the build's (2026-10-29)
+
+**The owner, 2026-10-29**, relayed by the lead after the 2008 specimen's dispenser was killed at 44 % built: *"any
+differences like that should be fixed, it lets us obviously see and notice changes too, which should be documented"*.
+His reasoning, in his words: fixing them is what lets a real change between eras be seen.
+
+**The decision:** every difference in what an era specimen contains (build times, unknown commands, a name that does
+not take, bots, conditions, voice, buildings) is handled one of two ways:
+- **fixed in the script**, where the build allows it, so the eras record the same thing;
+- **documented as an era difference**, where the build itself behaves differently, in the per-era "differences
+  observed" table of `docs/measurements/2026-10-28-era-specimens-v2-plan.md`, with its evidence class and whether it
+  was fixed or is inherent.
+
+The first fix under it: the Engineer step waits until both buildings read finished in the demo being recorded, instead
+of a fixed `wait` (same document, the 2009 run). The table is the only list of differences; this entry does not
+restate it.
+
+(Number note: the plan document reserved "D240 at time of writing" for the gcor swap decision; that entry takes the
+next free number when it lands.)
+

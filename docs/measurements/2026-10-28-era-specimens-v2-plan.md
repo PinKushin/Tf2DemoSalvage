@@ -994,5 +994,113 @@ Then the click, `drive.ps1` (2008/3862 only), collect the demos first, then `res
 - **Restore:** `restore.sh 2008-r3` diff against the before-listing **empty** (autoexec/config restored from the aside
   copies); shortcut restored, hash match `D8D5057B…0373`.
 
+### Build times: the old builds were not slower (2026-10-29)
+
+The owner thought Engineer built more slowly in old builds. The evidence says no, and the 44 % dispenser was the
+script's timing:
+- **Read from the game's shipped data:** `tf/scripts/objects.txt` gives `BuildTime 10` for `obj_sentrygun` and `20`
+  for `obj_dispenser` (and 20 for both teleporters) in 3258 (2007), 3420 (2008) and 3862 (2009) alike. The 2013 and
+  live folders ship it inside VPKs, and those were not read.
+- **Measured on the 3862 pair (Probe `buildings`, POV):** from the first tick each object exists to the first tick it
+  reads `building False pct 1`, the sentry took 749 ticks (11.2 s) and the dispenser 1,442 ticks (21.6 s). That is
+  the shipped time plus the placement.
+- **Secondary:** the TF2 wiki's Buildings page gives 10.5 s (sentry) and 21.0 s (dispenser, twice the sentry) as the
+  default construction speed (https://wiki.teamfortress.com/wiki/Buildings, read 2026-10-29). Its update history has
+  no change to construction time before the July 2, 2015 Gun Mettle redeploy change. The Dispenser page's update
+  history has none either (https://wiki.teamfortress.com/wiki/Dispenser, read 2026-10-29).
+- A web search of 2008–2009 patch notes found no build-time change. **No source dates a change**, so "old builds were
+  slower" is unsupported, not disproven.
+- **The 44 % has a different cause, measured on two eras:** the dispenser was killed at health 66/150, pct 0.44, on
+  both 3420 (2008) and 4231 (2010). The fixed `wait 198` after placement is frames, and at the ~16 fps these clients
+  run, 198 frames is well short of 20 s.
+
+### The fix: the kill waits until both buildings read finished
+
+- `tools/specimen/tf2ds_era_pre2011.cfg` (2007, 2008, 2009 only): `ds_engineer_build` now ends on `echo tf2ds_mark
+  engineer_wait`, then `wait 3960; ds_engineer_cont`.
+  - The session's driver reads the POV demo as it is being recorded and sends `ds_engineer_go` once both buildings
+    read finished. That runs the rest (`kill; wait 99; ds_medic`) and disarms the fallback.
+  - With no driver (2007's self-driving autoexec), the fallback runs the rest after 3,960 waits.
+- The driver is scratchpad `drive-build.ps1`, which calls `pollbuild.ps1`. The poll reads a copy of the open demo with
+  Probe `buildings` and needs the last state of each object to be `building False placing False pct 1`. It is capped at
+  60 s, three times the dispenser's 20 s.
+- **The controls, run before the session:**
+  - On the finished 3420 POV, the poll read sentry done and dispenser 0.44, so `BOTH_BUILT False`.
+  - The same file cut to 1.2 MB and to 1.4 MB read the same states, so a partial demo decodes.
+  - The 4231 POV read `False` for the same reason. That run is how the 2010 defect was found.
+- **Instrument note:** the client flushes the demo in chunks of about 196 KB. During the run, the copy stayed at
+  913,408 B for 33 s, then jumped to 1,110,016 B and read both finished. So the poll lags the game by up to a flush.
+  That is safe, because it only lengthens the wait.
+- **Open, for the lead:** the shared `ds_engineer_build` in `tf2ds_specimen.cfg` (2010 onward) has the same fixed
+  `wait 198`, and 4231's dispenser was not finished. 2008 can be redone with the new pre2011 cfg as it stands.
+
+### 2009, build 3862 (1.0.5.9), run 3 (2026-10-29): recorded, POV + SourceTV pair in lcor
+
+- **Prep:** `prep.sh 2009-3862-r3` (61 files listed and copied aside). No `autoexec.cfg` exists.
+  - `config.cfg` (from the extract: `mat_queue_mode "-2"`, `name "MikeD"`) and the nine class cfgs were moved out.
+  - `tf2.lnk` (`2CFA0465…2D88`) was given the RCON args plus `+sv_lan 1 +fps_max 66 +tv_enable 1`.
+  - The desktop lock was held throughout.
+- **The owner's click came within the poll.** `version`: `Protocol version 15`, `Exe version 1.0.5.9 (tf)`,
+  `Exe build: 13:52:56 Jun  4 2009 (3862)`. `sv_lan 1`, `sv_allow_wait_command 1`, `fps_max 66`. `status` showed
+  `insecure` and the player `active loopback`.
+- **`find` before setting anything:**
+  - The build knows `mat_queue_mode` (-2), `r_threaded_particles` (**1**), `host_thread_mode` 0, and `cl_threaded_*`
+    and `r_threaded_*` (0).
+  - Set: `mat_queue_mode 0`, `r_threaded_particles 0`, `mat_picmip -1`. Nothing else threading-related was touched.
+  - `mat_forceaniso 16`, `mat_trilinear 1`, `r_rootlod 0`, `r_lod -1` and `mat_hdr_level 2` were already at the max.
+  - `find addcond` and `find tf_bot` printed nothing.
+- **`name` does not take**, as on 3420: `name tf2ds_specimen` left `"name" = "PinKushin"`.
+- **Chain:** every mark ran, from start to finish. `PinKushin captured the Central Control Point for team #2`.
+  - The engineer wait read both buildings finished 38 s after `engineer_wait`; `ds_engineer_go` was sent, and the
+    fallback later printed `engineer_fallback_disarmed`.
+  - `Completed demo, recording time 339.6, game frames 5897`; `Completed SourceTV demo … 348.3`.
+  - **Refusals:** `cl_disablehtmlmotd`, `tf_bot_add` ×4, `tf_bot_quota`, the two deliberate unknowns, and one
+    `Can't use cheat cvar cl_phys_timescale`. `addcond`/`removecond` printed no refusal.
+- **Quit:** `disconnect`, then `quit`. The client exited by itself within 30 s, unlike 3420.
+- **lcor:**
+  - `tf2-2009-build3862-spec-pov-cp_granary.dem`: 1,865,596 B, sha256 `a635be1e…5e45`.
+  - `tf2-2009-build3862-spec-stv-cp_granary.dem`: 1,084,769 B, `9b0294ef…3c05d`.
+- **Read back (Cli `-s` and `-t -e`, Probe `buildings`), POV / STV:**
+  - Network protocol 15 on both; `svc_serverinfo protocol 15 map "cp_granary"`.
+  - 5,897 / 4,840 packets, frame check ok.
+  - `teamplay_point_captured` 1, `controlpoint_starttouch` 1, 13 `player_death`, 2 `svc_SetPause`.
+  - `svc_voiceinit vaudio_speex quality 5` and 43 `svc_VoiceData` on each.
+  - **Both buildings finished on both demos.** Sentry (entity 476, type 3) reached `building False pct 1` at tick 9562
+    (POV). The dispenser (entity 485, type 0) reached 150/150 and `building False` at tick 10627.
+  - The builder control resolved on 6,647 of 6,647 ticks (POV) and 6,531 of 6,531 (STV).
+  - `m_nPlayerCond` takes values beyond 0/1 (16, 32, 128, 2048, 262144 among them), so the forced conditions
+    landed. The bit-by-bit check against each `addcond` is not done.
+- **Restore:** `restore.sh 2009-3862-r3` diff against `before.txt` **empty**. `config.cfg` and the class cfgs came back
+  from the aside copies. `tf2.lnk` was restored, hash match `2CFA0465…2D88`. No `hl2` was left, and `SteamClientDll`
+  reads `C:\Program Files (x86)\Steam\steamclient.dll`.
+
+### Differences observed, per era (D240: fixed in the script where the build allows it, documented where inherent)
+
+The owner, 2026-10-29: *"any differences like that should be fixed, it lets us obviously see and notice changes too,
+which should be documented"*.
+
+Evidence classes: **read** (published source or shipped game data), **measured** (a session's console or demo),
+**interpolated** (inferred, not observed).
+
+| what differs | builds | evidence | status |
+|---|---|---|---|
+| Dispenser not finished when the chain's `kill` came (44 %) | 3420, 4231 | measured (Probe `buildings`) | **fixed** for ≤2009 (wait on the demo); **open** for 2010+ (the shared cfg has the same `wait 198`) |
+| Construction time: sentry 10 s, dispenser 20 s | 3258, 3420, 3862 | read (`objects.txt`); 3862 measured 11.2 / 21.6 s | the same in every build read; 2013/live not read |
+| `build` takes one argument | 3258, 3420, 3862 | read (`client.dll` format string `build %d`) | fixed (`tf2ds_era_pre2011.cfg`) |
+| Object type of the sentry: 3 (old enum), not 2 | 3420, 3862 vs 4231 | measured | inherent; the poll accepts any non-zero type |
+| `name` does not take (the start name, the UTF-8 name and the rename are absent) | 3420, 3862 | measured; that the Steam persona overrides it is interpolated | inherent so far |
+| UTF-8 name dropped from a cfg (the ASCII rename works) | 3258 | measured | inherent |
+| `tf_bot_add`, `tf_bot_quota` unknown | 3258, 3420, 3862 | measured | inherent (no bots before the bot update) |
+| `tf_bot_add` accepted but adds nothing | 5252 | measured (`status`) | not chased |
+| `addcond`/`removecond` unknown | 3258, 3420 | measured | inherent |
+| `cl_disablehtmlmotd` unknown | 3258, 3862 | measured | inherent |
+| `mp_respawnwavetime`, `mp_disable_respawn_times` unknown | 3258 | measured | inherent |
+| `cl_savescreenshotstosteam` unknown | 4604 | measured | inherent |
+| `tv_delay` clamped to at least 10 s | 3258 | measured | fixed for every era (SourceTV stops 726 frames after the POV) |
+| Steam offline drops the local player unless `sv_lan 1` | 3420, live | measured | fixed at launch (`+sv_lan 1`) |
+| No `svc_VoiceData` (`voice_inputfromfile` silently accepted) | 4604, live | measured | open, not chased |
+| Voice codec `steam`, not `vaudio_speex` | live | measured (`svc_voiceinit`) | inherent |
+| `quit` hangs in shutdown | 3420 | measured | worked around (disconnect, quit, end after 30 s); 3862 exited cleanly |
+
 **Every era override:** 2010 gets `tf2ds_era_2010.cfg`, which redefines nothing. Both 2010 `client.dll` files carry
 the two-argument `build %d %d` format string, as 2011 does; 3862 carries the one-argument `build %d`.
