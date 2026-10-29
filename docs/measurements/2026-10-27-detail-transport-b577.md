@@ -167,3 +167,11 @@ Both are Release builds with 0 warnings.
 B577: correct by their tests, but no frame time measured as removed on either subject.** Neither is a perf win as
 built; both are kept as parity and allocation tidying. B577's real cost needs the split of `dispatches` into its live
 owned offers before another fix.
+
+Against the Prediction. **Detail:** the direction is confirmed and the stated size is falsified. The prediction's falsifier
+(a change smaller than the same-build spread) was not triggered, since the 0.27-0.30 ms drop is far larger than the spread
+(0.024 in A, 0.005 in B), but it said the reading would fall to under half of the 0.6-1.0 ms and B is 61-63% of A. **Transport
+(`between`):** falsified, no measured change on either subject (predicted a fall of 0.1-0.3 ms). **B577 (dispatches +
+muzzles):** falsified, no measured change on either subject (predicted a fall of 0.05-0.2 ms).
+
+Verdict extended 2026-10-29 after the fact from the Result above; the run itself was not repeated.

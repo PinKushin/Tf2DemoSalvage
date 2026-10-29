@@ -253,3 +253,15 @@ That audit used the owner's own `ultra.cfg`, the SDK and the wiki, and marked ma
 - Whether `r_cheapwater*` or `tf_water_resolution` match in the water path.
 - That the `?` rows are absent; only that no cvar of that name appears in `managed/`.
 - Fps cost of any row (unmeasured; `docs/measurements/` has only the HDR/LDR pair, `2026-10-22-empty-view-budget-ldr-f12.md:134`).
+
+## Verdict
+
+An audit with no Prediction (status line at the top), so nothing is confirmed or falsified; this is what the reading
+answers. Of the 148 cvars the ultra preset sets, 12 are implemented as settings, 29 are drawn with no knob, 15 are absent,
+20 are irrelevant to a demo viewer and 72 have no knob and were not checked. Of the 12 settings, 11 equal the preset and 1
+is below it, `cl_detaildist` (1200 against 8592). Outside the 12, `fps_max` (300 against 0 in the owner's `modules.cfg`) is
+below and `phonemefilter` is a differing constant. The real gaps are absences, led by MSAA 8x and shadows (7 of the 15
+absent rows are below the preset); the one default that can be raised today is `cl_detaildist`. Unchecked: whether any
+drawn row matches the preset's value, cheat flags outside `EngineConVars.cs`, and the fps cost of any row.
+
+Verdict written 2026-10-29 after the fact from the Result above; the run itself was not repeated.

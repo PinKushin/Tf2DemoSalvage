@@ -24,7 +24,10 @@
 # 2. CLOSE THE LOOP (`git commit`, `git push`, `gh release`). Denied while any docs/measurements/*.md in the working
 #    tree has a filled Result and a placeholder Verdict; while a file that states a Prediction has a Verdict that does
 #    not say confirmed, falsified or inconclusive; or while a section that was FILLED before the run (Observation,
-#    Question, Hypothesis, Prediction, Falsified if, Control, Method) differs now from its pre-run form. THE RUN is the
+#    Question, Hypothesis, Prediction, Falsified if, Control, Method) differs now from its pre-run form, UNLESS the
+#    section itself carries "added after", "changed from the plan" or "amendment" (owner, 2026-10-29: loosened after
+#    three honest, labelled amendments blocked every commit; the label tells the reader, so nothing is hidden - it
+#    does not check that the original text survives). THE RUN is the
 #    first committed version with a filled Result; the pre-run form is the committed version before it (or HEAD,
 #    while the Result exists only in the working copy). Before that, edits are free: the f12 entry's Control was
 #    corrected before its run. A section that was a placeholder before the run may be filled later. A Result in the
@@ -44,6 +47,11 @@
 # Tests: tf2-measurement-gate.sequence-test.ps1 (builds throwaway repos; run by hand).
 
 $ErrorActionPreference = 'Stop'
+
+# git's stdout is decoded with the console code page. Launched from a shell on an OEM page (437), a UTF-8 blob read
+# through `git cat-file` came back as mojibake ("…" as three characters) while Get-Content read the same bytes
+# correctly, so every section with a non-ASCII character looked edited since its run and gate 2 denied every commit.
+[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
 
 try {
     $raw = [Console]::In.ReadToEnd()
@@ -162,6 +170,7 @@ foreach ($f in $files) {
     if (-not $base) { continue }   # Result in the very first commit (or never committed): nothing before the run
     $then = Get-Sections ((& git -C $root cat-file -p "${base}:$r" 2>$null) -join "`n")
     foreach ($n in $frozen) {
+        if ($now.ContainsKey($n) -and $now[$n] -match '(?i)\b(added after|changed from the plan|amendment)\b') { continue }   # labelled: the reader is told
         if ((Test-Filled $then $n) -and (-not $now.ContainsKey($n) -or $now[$n].Trim() -cne $then[$n].Trim())) {
             $why += "$r changed '## $n' since its last pre-run commit ($($base.Substring(0, 8)))"
         }

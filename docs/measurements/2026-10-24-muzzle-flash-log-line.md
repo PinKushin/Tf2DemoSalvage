@@ -57,3 +57,14 @@ of playback each, quiet-gate loads 1-15% except one 34% sample on round 3's m593
   run's spread, so read it as **about 0.05-0.1 ms, small but consistent**, not as a precise figure. The phase split shows
   it spread across `camera` and `hud`, with no one timer carrying it, which is what a flushed write that lands wherever
   the next frame runs would look like.
+
+## Verdict
+
+Partly confirmed, partly falsified. Confirmed: the size. The prediction was at most ~0.1 ms on gummo first person; the
+measured change is 8.65 to 8.56 ms (-0.09), at the ceiling, and the log line itself is gone from the output (113 lines per
+before-run, 0 per after-run). Falsified: the control. The empty view was predicted not to move and it moved by about as
+much (3.44 to 3.38, -0.06), because the line is written for every viewmodel flash before the first-person check (113
+lines in the empty view too). The prediction that the result would be a null inside run-to-run spread is not cleanly
+settled: a1 was faster in all six pairs by 0.04-0.19 ms, which Result reads as about 0.05-0.1 ms, small but consistent.
+
+Verdict written 2026-10-29 after the fact from the Result above; the run itself was not repeated.

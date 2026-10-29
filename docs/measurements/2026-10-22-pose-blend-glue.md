@@ -98,3 +98,14 @@ such cost nothing once the reads are direct; the cost was reading a ~100-byte `S
 `IReadOnlyList<StudioBone>` twice per bone and the sparse poses through `IReadOnlyList<StudioBonePose>`. What remains
 (1.05 µs for 86 bones, ~12 ns a bone) is the normalised lerp the engine's `BlendBones` also does. Allocation (the
 public `Blend`) is a further 1.2 µs a call, but production already avoids it (finding 88).
+
+## Verdict
+
+Reused from the inline verdicts in Result R2 and Result R1 above (no Prediction was stated, so there is nothing to
+confirm or falsify). **R2 (the one to quote):** on production's ordinary path the glue is 1,748 of 2,842 ns, **62%
+(2.6x)**; on the additive path, which never reads the skeleton, it is 83 ns, **7%**. The glue is almost all one thing:
+reading the ~100-byte `StudioBone` through `IReadOnlyList<StudioBone>` per bone (three times a bone on the ordinary path).
+Flat equals the SoA floor within noise on the ordinary path; on the additive path SoA is 54 ns below Flat (just over 3x
+error). **R1 (void as production):** on the `BlendInto` shape the glue was 0.86 µs, **45%**, understated because its copy
+read the skeleton twice a bone instead of three times; Flat equalled the dense-SoA floor, and allocation (the public
+`Blend`) is a further 1.2 µs a call that production already avoids (finding 88).

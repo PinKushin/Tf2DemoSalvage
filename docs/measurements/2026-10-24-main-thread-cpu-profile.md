@@ -195,7 +195,7 @@ true sample count is at least 1,473. One sample is at most ~0.07%.
 In E, the empty view, `BulkMoveWithWriteBarrier` is **33% exclusive**. That is the largest single item in a frame that
 draws nothing, but it carries fault 4's bias, so it is a lead to time and not a cost.
 
-## What this settles and what it does not
+## Verdict: what this settles and what it does not
 
 - **The frame is not unexplained by the timers.** Over the whole G run, `camera` 6.30 = pose ~3.3 + setcamera ~1.4 +
   particles ~1.5, then advance 0.73, hud 0.69, between 0.31. The sampler agrees with that split. Nothing large hides

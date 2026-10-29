@@ -63,3 +63,13 @@ before collation, posing and lighting — the uncached `LightingAt`/`SunAt` are 
 6 props (0.025 ms), which the engine also does (it animates the local player). **The 0.2-0.4 ms estimate is refuted;
 the saving available on f12 is zero.** And `SunFrom` runs at most ~2 times a frame, so its 5.8% profile share is either
 a slow trace (≈0.25 ms each, if real) or sampling bias — still open, and not the undrawn pass.
+
+## Verdict
+
+Confirmed, first branch of the Prediction. On f12 gummo first person the undrawn pass is handed 6 props (predicted ~5),
+builds 0 instances and makes 0 sun calls, at 0.023-0.027 ms (predicted under 0.1 ms); the empty-view control read 0 props,
+0 sun, 0. B594's lighting lead is moot on f12: the saving available there is zero, and the Fable code-read estimate of
+0.2-0.4 ms is refuted. The 5.8% exclusive share of `SunFrom` in the profile is not this pass (the world pass makes 0.02-2.0
+calls a frame) and stays open.
+
+Verdict written 2026-10-29 after the fact from the Result above; the run itself was not repeated.

@@ -62,3 +62,14 @@ Rebuild: sample 0.3, drawlist 0.1-0.2, models 0.1, pose 0.7 = simulate 0.5 + col
 
 **Stop condition:** not reached. The best run is 4.99 ms with phases summing to it; nothing measured on this machine today
 puts the floor under 3 ms.
+
+## Verdict
+
+Inconclusive on the number, partly confirmed on the shape. The prediction was 5-6 ms; the same build's empty view read
+4.99, 5.47, 7.54 and 9.23 ms, so the repeat control (within 10%) failed and the record quotes no floor. Two of the six
+empty runs sit inside 5-6 ms (5.47 and 5.20), one is 0.01 ms under it (4.99) and three are above (7.13-9.23), so the
+prediction neither held nor failed cleanly. The shape held in the fastest run: camera 2.0-2.6 ms, then hud 0.8, then advance
+0.7. The question's condition ("well under 3 ms", which would have made the loaded number misleading) is not met: nothing
+measured today is under 4.99 ms. The floor remains unquoted.
+
+Verdict written 2026-10-29 after the fact from the Result above; the run itself was not repeated.
