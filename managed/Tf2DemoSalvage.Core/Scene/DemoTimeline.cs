@@ -7220,6 +7220,9 @@ public sealed class DemoTimeline
     /// <summary>How many tracks the last <see cref="PropsAt"/> walked — the entity list's length, for its tests.</summary>
     internal int TracksWalked => _live.Count;
 
+    /// <summary>How many tracks are on the lerp list — for the tests' control that the lerp loop ran, not only the wakes.</summary>
+    internal int TracksLerping => _lerping.Count;
+
     /// <summary>Whether <see cref="_live"/> is exactly the ascending ordinals of the tracks with a sample — for its tests.</summary>
     /// <remarks>The walk skips a listed track with no sample, so a desync never shows in the props; this is what sees it.</remarks>
     internal bool LiveListMatchesSamples()

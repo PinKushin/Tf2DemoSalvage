@@ -11276,7 +11276,7 @@ refutes it.**
 
 What would decide it next time, the `queue stall` report, and when B609 reopens, are in B609.
 
-## D242 — the measurement gate accepts a labelled amendment; 21 old measurements get a Verdict written after the fact (2026-10-29)
+## D240 — the measurement gate accepts a labelled amendment; 21 old measurements get a Verdict written after the fact (2026-10-29)
 
 **What happened.** Merging B259 was blocked: `.claude/hooks/tf2-measurement-gate.ps1` (gate 2) denied every
 `git commit`, on any branch, because of `docs/measurements/` files from 2026-10-22..27 that were already on main.
@@ -11307,5 +11307,7 @@ amendments):** *"loosen the gate i guess"*. His reasoning is not given beyond th
   "What this settles…" became "Verdict: what this settles…"). The agent's text was read in full before it landed; **its
   figures were not re-checked against the raw output**, only against each file's own Result.
 
-**Number note:** D240 and D241 are on `feat/specimen-name-ascii`, not yet on main; this entry is D242 to avoid reusing them.
+**Number note:** `feat/specimen-name-ascii` (and `feat/era-specimens-v2-e`) hold entries also numbered D240 and D241 and
+cite them, written before this merge. The decision-number check refuses a gap (`build/assert-decision-numbers`), so this
+entry took D240 on main and **those two renumber to D241 and D242, with their citations, when those branches merge.**
 

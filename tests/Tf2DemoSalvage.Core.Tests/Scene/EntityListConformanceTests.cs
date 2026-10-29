@@ -138,11 +138,17 @@ public sealed class EntityListConformanceTests
         DemoTimeline timeline = DemoTimeline.ForTracks(Movers());
         List<SceneProp> props = [];
         HashSet<int> everSeen = [];
+        int lerpingMidLife = 0;
 
         for (double tick = 0d; tick <= 130d; tick += 0.25)
         {
             timeline.PropsAt(tick, props);
             everSeen.UnionWith(props.Select(prop => prop.EntityIndex));
+
+            if (System.Math.Abs(tick - 20d) < 0.125)
+            {
+                lerpingMidLife = timeline.TracksLerping;
+            }
 
             timeline.LiveListMatchesSamples().ShouldBeTrue($"at tick {tick}");
             timeline.TracksWalked.ShouldBe(props.Count, $"tracks walked at tick {tick}");
@@ -150,6 +156,10 @@ public sealed class EntityListConformanceTests
 
         // The control: every mover was drawn at some point, so the run exercised all three.
         everSeen.ShouldBe([1, 2, 3], ignoreOrder: true);
+
+        // And the second control (review of the merge): at tick 20 the blinker (visible) and the early mover are mid-lerp,
+        // so the lerp loop, not only the wake path, rewrote the samples this test just checked.
+        lerpingMidLife.ShouldBe(2, "tracks on the lerp list at tick 20");
     }
 
     /// <remarks>
