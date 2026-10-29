@@ -1106,8 +1106,8 @@ One client at a time, each session under the desktop lock (`hold-lock.ps1` under
 the next. Every placed cfg's sha256 matched the worktree's (`94b5607f…c14a` for the shared one). After the runs,
 `tf2ds_era_2011.cfg` (placed `b15e5d51…`) and `tf2ds_era_live.cfg` (placed `f221abe5…`) gained comments only, and
 the shared cfg's engineer comment was reworded, so the committed hashes differ from the placed ones. The new
-`tf2ds_era_pre2011.cfg` (only the two `ds_build_*` aliases) has **not run on a pre-2011 client yet**: 3862 was
-recorded with the old wholesale redefinition.
+`tf2ds_era_pre2011.cfg` (only the two `ds_build_*` aliases) had not run on a pre-2011 client at this point (3862 was
+recorded with the old wholesale redefinition); its first run is 3420 run 4, below.
 
 | era | launch | POV s / frames | lcor `…-spec-{pov,stv}-cp_granary.dem` (sha256) | captured | sentry / dispenser | svc_VoiceData, codec | engineer step |
 |---|---|---|---|---|---|---|---|
@@ -1153,6 +1153,44 @@ The capture line printed the UTF-8 name as `empty` (1729296) or 14 `�` (4604, 
   were finished by `era-f/prep-rest-live.sh`, after checking that the listing was complete (291 entries, as in
   `era-live-r2`).
 
+### 2008, build 3420, run 4 (2026-10-29, 14:30–14:45): re-recorded with the shared engineer wait
+
+The first run of the new `tf2ds_era_pre2011.cfg` (only the two `ds_build_*` aliases) on a pre-2011 client.
+- **lcor first:** the run-3 pair renamed to `tf2-2008-build3420-spec2-{pov,stv}-cp_granary.dem` (hashes unchanged,
+  `753278df…f9ed` / `c5859cf8…342d`), nothing overwritten.
+- **Prep:** `prep.sh 2008-r4` (104 files listed and copied aside). Placed sha256: `tf2ds_specimen.cfg` `7d454642…7b92`,
+  `tf2ds_era_pre2011.cfg` `ea4e6f2a…a1cd`, `tf2ds_era_2008.cfg` `041abf99…e772`, matching the worktree. The owner's
+  `autoexec.cfg`, `config.cfg` and all nine class cfgs moved out (run 3 left the class cfgs in place). Shortcut
+  `D8D5057B…0373` given the RCON args plus `+sv_lan 1 +fps_max 66 +tv_enable 1`. Desktop lock held throughout.
+- **Control before the run:** `pollbuild.ps1` on the `spec2` POV read sentry done, dispenser `health 66/150 … pct
+  0.44`, `BOTH_BUILT False`.
+- **The owner's click; RCON answered.** `version`: `Protocol version 14`, `Exe build: … Mar 19 2008 (3420)`;
+  `sv_lan 1`, `sv_allow_wait_command 1`, `fps_max 66`, `tv_enable 1`; `status`: `insecure`, `PinKushin … active
+  loopback`.
+- **`find` before setting anything:** as in run 3 (`mat_queue_mode` -1, `r_threaded_particles` 1, every other
+  `*thread*` cvar 0 except `net_queued_packet_thread` 1 by default, untouched). Set: `mat_queue_mode 0`,
+  `r_threaded_particles 0`, `mat_picmip -1`; aniso 16, trilinear 1, `r_rootlod 0`, `r_lod -1`, `mat_hdr_level 2`
+  already at the max.
+- **Chain:** every mark start…finish. The engineer wait read both finished **38 s** after `engineer_wait` (the copy
+  sat at 684,032 B for ~10 s, then 782,336 B read the dispenser at `pct 1`); `ds_engineer_go` sent; the fallback later
+  printed `engineer_fallback_disarmed`. `PinKushin captured the Central Control Point for team #2`. `Completed demo,
+  recording time 237.8, game frames 4525`; `Completed SourceTV demo … 239.5`. Refusals: `addcond`/`removecond` ×14
+  each, `tf_bot_add` ×4, `tf_bot_quota`, `cl_disablehtmlmotd`, the two deliberate unknowns.
+- **Quit:** `disconnect`, `quit`; alive and `Responding` at 30 s, as in run 3, then ended. No `hl2` left.
+- **lcor:** `tf2-2008-build3420-spec-pov-cp_granary.dem` 1,330,346 B `c3ca1ded…4467`;
+  `tf2-2008-build3420-spec-stv-cp_granary.dem` 803,852 B `202ab655…bbda`.
+- **Read back (Cli `-s` and `-t -e`, Probe `buildings`), POV / STV:** network protocol 14 both, `svc_serverinfo
+  protocol 14 map "cp_granary"`; 4,525 / 3,874 packets, frame check ok; first `svc_packetentities` updated 227 / 399;
+  90 / 91 game events, `teamplay_point_captured` 1, `controlpoint_starttouch` 1, 13 `player_death`, 14
+  `player_changeclass`; 2 chat lines; 2 `svc_SetPause`; `svc_voiceinit vaudio_speex quality 5` and **167**
+  `svc_VoiceData` each. **Both buildings finished on both demos:** POV sentry (entity 483, type 3) from tick 5763 to
+  `building False pct 1` 150/150 at 6513 (750 ticks, 11.3 s), dispenser (entity 476, type 0) from 6011 to 150/150 at
+  7468 (1,457 ticks, 21.9 s); STV 5732→6430 and 5965→7359 (10.5 s / 20.9 s). Builder control resolved on 6,544 of
+  6,544 (POV) and 6,287 of 6,287 (STV) ticks.
+- **Restore:** `restore.sh 2008-r4` diff against `before.txt` **empty** (`after-restore.144348.txt`); the owner's
+  cfgs came back from the aside copies. Shortcut restored, hash match `D8D5057B…0373`. `SteamClientDll` reads
+  `C:\Program Files (x86)\Steam\steamclient.dll`.
+
 ### Differences observed, per era (D240: fixed in the script where the build allows it, documented where inherent)
 
 The owner, 2026-10-29: *"any differences like that should be fixed, it lets us obviously see and notice changes too,
@@ -1163,7 +1201,7 @@ Evidence classes: **read** (published source or shipped game data), **measured**
 
 | what differs | builds | evidence | status |
 |---|---|---|---|
-| Buildings not finished when the chain's `kill` came. Last state, sentry / dispenser, before (`spec2`) → after (`spec`): 4231 done / 0.44 → done / done; 4269 done / 0.44 → done / done; 4604 done / 0.39 → done / done; 1729296 0.58 / 0.13 → done / done; live 0.58 / 0.12 → done / done. (3420 done / 0.44, not re-recorded) | 3420, 4231, 4269, 4604, 1729296, live | measured (Probe `buildings` on each POV and SourceTV) | **fixed** in the shared cfg (third pass): one cause in every era, see "the 2013 and live sentry", below. 3420 still needs a re-record |
+| Buildings not finished when the chain's `kill` came. Last state, sentry / dispenser, before (`spec2`) → after (`spec`): 4231 done / 0.44 → done / done; 4269 done / 0.44 → done / done; 4604 done / 0.39 → done / done; 1729296 0.58 / 0.13 → done / done; live 0.58 / 0.12 → done / done; 3420 done / 0.44 → done / done (run 4) | 3420, 4231, 4269, 4604, 1729296, live | measured (Probe `buildings` on each POV and SourceTV) | **fixed** in the shared cfg (third pass; 3420 by run 4, the first pre-2011 run of `tf2ds_era_pre2011.cfg`): one cause in every era, see "the 2013 and live sentry", above |
 | No building at all | 3258 `spec0` | measured | that pair predates the script fixes; 2007 is to be re-recorded |
 | `addcond` absent from `find` yet printing no `Unknown command` | 3862 | measured | **unresolved**: whether 3862 has `addcond` is not known; the non-zero `m_nPlayerCond` values may come from the chain's natural steps |
 | Construction time: sentry 10 s, dispenser 20 s | every build | read (`objects.txt`, 3258/3420/3862); measured (first `building True` → `building False`, SourceTV `spec` demos): sentry 10.4 s and dispenser 20.9 s on 4231, 4269 (dispenser), 4604, 1729296 and live; 3862 11.2 / 21.6 s from first existence | **the same in every era**; no change to explain |
@@ -1183,8 +1221,8 @@ Evidence classes: **read** (published source or shipped game data), **measured**
 | Steam offline drops the local player unless `sv_lan 1` | 3420, live | measured | fixed at launch (`+sv_lan 1`) |
 | No `svc_VoiceData` (`voice_inputfromfile` silently accepted) | 4604 | measured: `sv_use_steam_voice` defaults to 1 in 4604, and its help says "voice_inputfromfile will no longer function" | **fixed**: `sv_use_steam_voice 0` before `map` (`tf2ds_era_2011.cfg` comment); 0 → 88 packets, `vaudio_speex` |
 | No `svc_VoiceData`, codec `steam` | live | measured: `sv_voicecodec steam` (default) carries none; `vaudio_speex` prints "Unable to load voice codec 'vaudio_speex'. Voice disabled." (0 packets in a 5 s test demo); `vaudio_celt` 171 in the same test. `bin/x64` ships `vaudio_celt.dll` and no `vaudio_speex.dll` (32-bit `bin/` has both) | **fixed** for voice: `sv_voicecodec vaudio_celt` before `map` (`tf2ds_era_live.cfg` comment); 0 → 79 packets. **Inherent**: live's codec is CELT where 2010–2013 are Speex, and this pair is the controlled CELT specimen gcor lacked |
-| `svc_VoiceData` count from the same 330-wait step: 1729296 81 → 28; 4231 266 → 44; 4269 44 → 28; 4604 0 → 88; live 0 → 79 (spec2 → spec) | 2010+ | measured | not chased; that the count follows how long 330 waits take on that run is interpolated |
-| `quit` hangs in shutdown | 3420 | measured | worked around (disconnect, quit, end after 30 s); 3862 exited cleanly |
+| `svc_VoiceData` count from the same 330-wait step: 1729296 81 → 28; 4231 266 → 44; 4269 44 → 28; 4604 0 → 88; live 0 → 79; 3420 44 → 167 (spec2 → spec) | 3420, 2010+ | measured | not chased; that the count follows how long 330 waits take on that run is interpolated |
+| `quit` hangs in shutdown | 3420 (runs 3 and 4) | measured | worked around (disconnect, quit, end after 30 s); 3862 exited cleanly |
 
 **Every era override:** 2010 gets `tf2ds_era_2010.cfg`, which redefines nothing. Both 2010 `client.dll` files carry
 the two-argument `build %d %d` format string, as 2011 does; 3862 carries the one-argument `build %d`.
