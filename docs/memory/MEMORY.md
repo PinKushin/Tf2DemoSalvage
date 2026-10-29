@@ -129,4 +129,5 @@
 - [The lead does not decide to drop an item](the-lead-does-not-decide-to-drop-an-item.md) — closing/reverting/parking a perf item needs a second look; propose, never decide (2026-10-25).
 - [Delete leftover files yourself](delete-leftover-files-yourself.md) — throwaway probes, captures, scratch builds: delete, never hand the owner a list (2026-10-27).
 - [A client starts from its shipped launcher](a-client-starts-from-its-shipped-launcher.md) — period clients: find the .bat/.lnk/loader FIRST; raw hl2.exe froze or failed on 2007/2008/2009/2011 (2026-10-29).
+- [A track walk is a walk of the whole recording](a-track-walk-is-a-walk-of-the-whole-recording.md) — 6,456 tracks for ~492 live on f12; count the walk beside what it yields; time diagnostics too (B259, 2026-10-28).
 - [Handoff 2026-10-28](handoff-2026-10-28.md) — READ FIRST: main 818ccd68, beta.55 published Latest, shipped list, next fps target (camera wait), owed items (local stutter reproduction, cl_detaildist), lessons.
