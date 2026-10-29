@@ -1103,7 +1103,11 @@ The shared `ds_engineer_build` now ends on `tf2ds_mark engineer_wait` and the wa
 sv_lan 1; tv_delay 10; tv_enable 1`, runs the chain, polls with `era-f/pollbuild.ps1` and sends `ds_engineer_go`).
 The `spec2` pairs (the second pass) were renamed apart in lcor first; `spec-pov` is not a substring of `spec2-pov`.
 One client at a time, each session under the desktop lock (`hold-lock.ps1` under `run-exclusive.ps1`), quit before
-the next. Every placed cfg's sha256 matched the worktree's (`94b5607f…c14a` for the shared one).
+the next. Every placed cfg's sha256 matched the worktree's (`94b5607f…c14a` for the shared one). After the runs,
+`tf2ds_era_2011.cfg` (placed `b15e5d51…`) and `tf2ds_era_live.cfg` (placed `f221abe5…`) gained comments only, and
+the shared cfg's engineer comment was reworded, so the committed hashes differ from the placed ones. The new
+`tf2ds_era_pre2011.cfg` (only the two `ds_build_*` aliases) has **not run on a pre-2011 client yet**: 3862 was
+recorded with the old wholesale redefinition.
 
 | era | launch | POV s / frames | lcor `…-spec-{pov,stv}-cp_granary.dem` (sha256) | captured | sentry / dispenser | svc_VoiceData, codec | engineer step |
 |---|---|---|---|---|---|---|---|
@@ -1137,6 +1141,14 @@ The capture line printed the UTF-8 name as `empty` (1729296) or 14 `�` (4604, 
 - `SteamClientDll` read the 4604 path, the 4231 path, and `…\steamclient.dll ` with a trailing space after the three
   emulated sessions. Each time it was set back to `C:\Program Files (x86)\Steam\steamclient.dll` and read back.
 - No `hl2`, `tf_win64` or `SmartSteamLoader` was left running.
+- **Residue outside the listed directories** (`era-f/residue.sh`: every file newer than the before-listing, outside
+  the dirs `listing.sh` covers), with no pre-session copy, so not restorable here; for the lead:
+  - 1729296 and live: `steam_appid.txt`, rewritten as `440\n\0` (5 B);
+  - 4604: `bin/stats.bin` (26,116 B), `config/serverbrowser.vdf`;
+  - 4231: `stats.bin` (20,172 B), `config/serverbrowser.vdf`;
+  - 4269: `config/serverbrowser.vdf`, `tf/maps/soundcache/_other.cache` (538,614 B).
+  - Live's `tf/downloadlists/cp_granary.lst` was rewritten with the same bytes (`b0e28087…`, in the listing).
+- The 1.1.0.0 `RemStorage/` folder is empty and has no session writes, and `%APPDATA%\SmartSteamEmu` does not exist.
 - The live prep's listing hashes about 22 GB of VPKs and outlasted a 2-minute tool call. The aside copy and placement
   were finished by `era-f/prep-rest-live.sh`, after checking that the listing was complete (291 entries, as in
   `era-live-r2`).
@@ -1155,7 +1167,7 @@ Evidence classes: **read** (published source or shipped game data), **measured**
 | No building at all | 3258 `spec0` | measured | that pair predates the script fixes; 2007 is to be re-recorded |
 | `addcond` absent from `find` yet printing no `Unknown command` | 3862 | measured | **unresolved**: whether 3862 has `addcond` is not known; the non-zero `m_nPlayerCond` values may come from the chain's natural steps |
 | Construction time: sentry 10 s, dispenser 20 s | every build | read (`objects.txt`, 3258/3420/3862); measured (first `building True` → `building False`, SourceTV `spec` demos): sentry 10.4 s and dispenser 20.9 s on 4231, 4269 (dispenser), 4604, 1729296 and live; 3862 11.2 / 21.6 s from first existence | **the same in every era**; no change to explain |
-| The Engineer builds a **mini-sentry** (`m_bMiniBuilding 1`, health 100, built in 2.7 s) | 4269 only (spec1, spec2 and spec alike) | measured (Probe `buildings`: `mini True`) | **open**: a loadout difference. That the 1.1.0.0 emulator's inventory equips the Gunslinger is interpolated, not read. The step is the same; the object is not |
+| The Engineer builds a **mini-sentry** (`m_bMiniBuilding 1`, health 100, built in 2.7 s) | 4269 only (spec1, spec2 and spec alike) | measured (Probe `buildings`: `mini True`) | **open**: a loadout difference, consistent across three runs. That the 1.1.0.0 emulator equips the Gunslinger is interpolated, not read. Checked and ruled out as the store: `RemStorage/` (empty, untouched), `%APPDATA%\SmartSteamEmu` (absent). `SmartSteamEmu.ini` has `RandomItemAwards = 1` and `DisableGC = 1`, untested. The step is the same; the object is not |
 | The kill's timing is the poll's, not the build's: from `engineer_wait`, the driver read both finished after 32 s (1729296), 40 s (4604), 44 s (4231); on live (55 s) and 4269 (64 s) the 7920-wait fallback fired first | 4269, live | measured (console marks, poll timestamps) | harmless as recorded: on both, the dispenser had already finished (live: tick 7615, buildings removed at 10223), and the fallback fired within 55 s (live) and 64 s (4269) of `engineer_wait`, well past the dispenser's 21 s. Slow polls are the cause: the demo flushes in ~196 KB chunks, so at 4269's ~6 KB/s the copy did not change for about 60 s (12 polls). How many waits a second a client runs is not settled: 7920 took about a minute on both an 18 fps (4269) and a 62 fps (live) client, while the same ~660 build waits took 14.5 s on 4231 `spec2` and 6.1 s on 1729296 `spec2` |
 | `build` takes one argument | 3258, 3420, 3862 | read (`client.dll` format string `build %d`) | fixed (`tf2ds_era_pre2011.cfg`) |
 | Object type of the sentry: 3 (old enum), not 2 | 3420, 3862 vs 4231 | measured | inherent; the poll accepts any non-zero type |
