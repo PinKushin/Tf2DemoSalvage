@@ -130,4 +130,7 @@
 - [Delete leftover files yourself](delete-leftover-files-yourself.md) — throwaway probes, captures, scratch builds: delete, never hand the owner a list (2026-10-27).
 - [A client starts from its shipped launcher](a-client-starts-from-its-shipped-launcher.md) — period clients: find the .bat/.lnk/loader FIRST; raw hl2.exe froze or failed on 2007/2008/2009/2011 (2026-10-29).
 - [A track walk is a walk of the whole recording](a-track-walk-is-a-walk-of-the-whole-recording.md) — 6,456 tracks for ~492 live on f12; count the walk beside what it yields; time diagnostics too (B259, 2026-10-28).
-- [Handoff 2026-10-28](handoff-2026-10-28.md) — READ FIRST: main 818ccd68, beta.55 published Latest, shipped list, next fps target (camera wait), owed items (local stutter reproduction, cl_detaildist), lessons.
+- [Handoff 2026-10-29](handoff-2026-10-29.md) — READ FIRST (supersedes 10-28): D240 renumber on the specimen branches, B259 merged on `merge/batch-43`, 8 era specimens redone in lcor (chain `feat/era-specimens-v2-b..i`), re-record 4269 + 2013 POV, then gcor swap (live pair in), rules learned.
+- [Handoff 2026-10-28](handoff-2026-10-28.md) — (older) main 818ccd68, beta.55 published Latest, shipped list, next fps target (camera wait), owed items (local stutter reproduction, cl_detaildist), lessons.
+- [Owner input does not affect RCON-driven runs](owner-input-does-not-affect-rcon-driven-runs.md) — no "hands-off" for specimen runs; only the launcher click is his.
+- [Owner narration is not an instruction](owner-narration-is-not-an-instruction.md) — "it got to the menu" is observation; no agent messages or plan changes from it.
