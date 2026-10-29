@@ -133,8 +133,9 @@ passed the quiet gate and exited 0; TF2 was not running. Load (3 × 1 s, %) befo
 | 07-fp-A | 5 10 8 | 9 13 10 | | 15-empty-A | 8 9 9 | 37 25 17 |
 | 08-fp-B | 10 14 14 | 24 6 12 | | 16-empty-B | 2 20 6 | 40 9 7 |
 
-The after-reads over 25% (04, 15, 16) are single samples as the viewer exited; no slow frames in those runs. Raw stdout
-beside this file (`NN-*.txt`); shots and hash logs were in the session scratch folder and are not kept.
+The after-reads over 25% (04, 15, 16) are single samples as the viewer exited; no slow frames in those runs. This record
+quotes every number it uses; the raw stdout, shots and hash logs are not committed (as `59b95325` settled for the
+double-buffer record). Scripts kept: `run.ps1`, `all.ps1`, `hashcmp.ps1`.
 
 **Deviations.** (1) Two hash runs were added after the plan (`hash-5-B`, `hash-6-A`), because `hash-2-B` disagreed with
 every other run on `pose` (below) and the plan's four could not say whether that was the build. (2) Run 11-empty-B started
