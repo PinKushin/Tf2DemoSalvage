@@ -852,13 +852,17 @@ What the bytes showed:
 - **Bots.** `tf_bot_add` and `bot -team blue …` add nothing on 2013 (hand test, `status`) and print nothing. Recorded,
   not chased: the old specimens had no bots either.
 - **Verification on 2013 (v5)**, from the `-e` traces:
-  - POV: `teamplay_point_captured` 1, `m_bBuilding 1` twice (CObjectSentrygun, CObjectDispenser), `svc_VoiceData` 81,
+  - POV: `teamplay_point_captured` 1, `m_bBuilding 1` twice (CObjectSentrygun, CObjectDispenser; started, not
+    finished: see the differences table), `svc_VoiceData` 81,
     `svc_SetPause` 2, 13 deaths.
   - SourceTV: the same.
 
 ### Second pass, every self-startable era on the verified script
 
 The first-pass pairs are kept in lcor as `…-spec1-…`; the 2007 first pair is `…-spec0-…`.
+
+"Built" in this table counts `m_bBuilding 1` (construction started), not finished; no dispenser here finished
+(the build-times section and the differences table, below).
 
 | era | lcor pair (`…-spec-{pov,stv}-cp_granary.dem`) | POV s | captured | sentry/dispenser built | svc_VoiceData | refusals |
 |---|---|---|---|---|---|---|
@@ -1068,8 +1072,10 @@ script's timing:
   - **Both buildings finished on both demos.** Sentry (entity 476, type 3) reached `building False pct 1` at tick 9562
     (POV). The dispenser (entity 485, type 0) reached 150/150 and `building False` at tick 10627.
   - The builder control resolved on 6,647 of 6,647 ticks (POV) and 6,531 of 6,531 (STV).
-  - `m_nPlayerCond` takes values beyond 0/1 (16, 32, 128, 2048, 262144 among them), so the forced conditions
-    landed. The bit-by-bit check against each `addcond` is not done.
+  - `m_nPlayerCond` takes values beyond 0/1 (16, 32, 128, 2048, 262144 among them). That these are the forced
+    conditions is **interpolated**: `find addcond` printed nothing (and `find` does list commands in this build:
+    `find thread` showed `thread_test_tslist`), yet no `Unknown command: addcond` was printed. The chain's own steps
+    (spin-up, zoom, disguise, cloak, taunt) can set such bits. Unresolved; see the differences table.
 - **Restore:** `restore.sh 2009-3862-r3` diff against `before.txt` **empty**. `config.cfg` and the class cfgs came back
   from the aside copies. `tf2.lnk` was restored, hash match `2CFA0465…2D88`. No `hl2` was left, and `SteamClientDll`
   reads `C:\Program Files (x86)\Steam\steamclient.dll`.
@@ -1084,7 +1090,9 @@ Evidence classes: **read** (published source or shipped game data), **measured**
 
 | what differs | builds | evidence | status |
 |---|---|---|---|
-| Dispenser not finished when the chain's `kill` came (44 %) | 3420, 4231 | measured (Probe `buildings`) | **fixed** for ≤2009 (wait on the demo); **open** for 2010+ (the shared cfg has the same `wait 198`) |
+| Buildings not finished when the chain's `kill` came. Last state, sentry / dispenser: 3420 done / 0.44; 4231 done / 0.44; 4269 done (100/100) / 0.44; 4604 done / 0.39; 1729296 0.58 / 0.13; live 0.58 / 0.12 | 3420, 4231, 4269, 4604, 1729296, live (the `spec` POVs) | measured (`pollbuild.ps1` on each lcor POV) | **fixed** for ≤2009 (3862 recorded with both finished); **open** for 2010+ (the shared cfg has the same `wait 198`); every `spec` pair after 3862 needs re-recording once it is fixed |
+| No building at all | 3258 `spec0` | measured | that pair predates the script fixes; 2007 is to be re-recorded |
+| `addcond` absent from `find` yet printing no `Unknown command` | 3862 | measured | **unresolved**: whether 3862 has `addcond` is not known; the non-zero `m_nPlayerCond` values may come from the chain's natural steps |
 | Construction time: sentry 10 s, dispenser 20 s | 3258, 3420, 3862 | read (`objects.txt`); 3862 measured 11.2 / 21.6 s | the same in every build read; 2013/live not read |
 | `build` takes one argument | 3258, 3420, 3862 | read (`client.dll` format string `build %d`) | fixed (`tf2ds_era_pre2011.cfg`) |
 | Object type of the sentry: 3 (old enum), not 2 | 3420, 3862 vs 4231 | measured | inherent; the poll accepts any non-zero type |
