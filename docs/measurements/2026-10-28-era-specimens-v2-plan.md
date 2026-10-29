@@ -905,5 +905,57 @@ carriers for `CorpusVoiceCodecEraTests` are therefore the 2010 and 2013 pairs, n
 - To run them later, repeat for each: `prep.sh`, then `lnk-args.ps1 -Add` (2008, 3862), then the click, then
   `drive.ps1`, then `restore.sh` plus `lnk-args.ps1 -Restore`.
 
+### Owner-click eras, third attempt (2026-10-29, 09:20–10:23): nothing captured
+
+Each era was prepared (`prep.sh`, hashed shortcut, `lnk-args.ps1 -Add`), then the lead got `CLICK NOW: <path>` via
+`SendMessage to main` (the session name is not addressable from a subagent; `main` delivered), and RCON 27025 was polled
+for 9.5 min. The desktop lock was held throughout (`hold-lock.ps1` under `run-exclusive.ps1`).
+
+- **2007, via the scratchpad shortcut to `RUN_TF2.exe`.** The owner clicked, and `hl2.exe` PID 44188 came up
+  `Responding=False`, with nothing listening on 27025.
+  - **Finding: `RUN_TF2.exe` drops its own command line.** The client's command line was exactly `"…\hl2.exe" -game tf
+    -steam -console` (`Win32_Process`): the string baked into `RUN_TF2.exe`, and none of the shortcut's arguments. So no
+    RCON and no `-condebug` (no log line was written). A shortcut to `RUN_TF2.exe` cannot carry arguments.
+  - The client froze anyway, as it did on the hl2-direct re-record. The launcher and the arguments are not the cause.
+  - **Where the freeze happens:** both earlier hang logs (Steam online; raw re-record) end on the owner's autoexec banner
+    `Comanglia' frames config loaded`, before that file's final `exec pinconfig.cfg`. The one boot that worked goes on
+    to `execing pinconfig.cfg`, `maxplayers set to 24`.
+  - The `execing pinconfig.cfg` line read during the session was the restored pre-session `console.log` (it always ends
+    there), and not this run.
+  - **Hypothesis, unconfirmed:** `mat_queue_mode 2`, set by the owner's autoexec and archived in `config.cfg`. The
+    autoexec's own first line reads "Unexplained crashes? Try changing mat_queue_mode to -1".
+  - PID 44188 was ended (the lead agreed); `restore.sh` diff empty.
+- **2007, autoexec route** (owner-approved, because `RUN_TF2.exe` drops arguments). The owner's `tf/cfg/autoexec.cfg`
+  (sha256 `aa71bd57…3827`) was copied aside and replaced by a self-driving one, in this order:
+  1. `mat_queue_mode 0`, `con_logfile tf2ds_2007.log`, `version`, `fps_max 66`, `sv_lan 1`, `sv_cheats 1`,
+     `tv_enable 1`, `tv_delay 10`, `name tf2ds_specimen`;
+  2. exec of the specimen and `era_2007` cfgs;
+  3. `ds_finish` redefined to end in `quit`;
+  4. `map cp_granary`, then `wait 1320; ds_start`.
+
+  No click arrived in 9.5 min. The autoexec was restored (hash match) and the diff is empty. **Not run, so the
+  mat_queue_mode hypothesis is untested.**
+- **2008, build 3420.** The owner's first click worked: RCON answered, `Protocol version 14`, `Exe version 1.0.2.2`,
+  `Exe build: 20:17:35 Mar 19 2008 (3420)`, and `cp_granary` loaded with `SourceTV broadcast active`.
+  - **Finding: Steam offline drops the local player**: `Dropped PinKushin from server (No Steam logon)`, before the
+    chain started. This is the same failure as live run 1; `sv_lan 1` is needed on every Steam-backed era.
+  - The chain then ran disconnected, with every `joinclass` `Unknown command` and `SourceTV not active`. No demo.
+  - Also: `name tf2ds_specimen` set before `map` did not take (`PinKushin connected`).
+  - **The client hung on `quit`**: it wrote `config.cfg`, printed `Unable to remove …\tf\textwindow_temp.html!`, then
+    spun the CPU, `Responding=True`, for 2.5 min. Ended.
+  - The shortcut was re-edited with `+sv_lan 1`, but the second click did not come in 9.5 min.
+  - Shortcut restored (`D8D5057B…0373`); diff empty.
+- **2009, build 3862.** `tf2.lnk` (`2CFA0465…2D88`, the same as the aside copy; it targets this folder's `hl2.exe`
+  with `-game tf -appid 440 -steam -windowed -w 800 -h 600`) was given the RCON args plus `+sv_lan 1 +fps_max 66
+  +tv_enable 1`. No click arrived in 9.5 min. Shortcut restored (hash match); diff empty.
+
+After every era, no `hl2`/`RUN_TF2` process was left, and `SteamClientDll` read
+`C:\Program Files (x86)\Steam\steamclient.dll`. The 2007 `spec0` pair stays the only scripted 2007 recording; 2008
+and 3862 have none. To retry: `prep.sh <era-rN> <folder> <era cfgs>`, then:
+- for 2008/3862, `lnk-args.ps1 -Add -Extra "+sv_lan 1 +fps_max 66 +tv_enable 1"`;
+- for 2007, the session autoexec above.
+
+Then the click, `drive.ps1` (2008/3862 only), collect the demos first, then `restore.sh`.
+
 **Every era override:** 2010 gets `tf2ds_era_2010.cfg`, which redefines nothing. Both 2010 `client.dll` files carry
 the two-argument `build %d %d` format string, as 2011 does; 3862 carries the one-argument `build %d`.
