@@ -1191,6 +1191,38 @@ The first run of the new `tf2ds_era_pre2011.cfg` (only the two `ds_build_*` alia
   cfgs came back from the aside copies. Shortcut restored, hash match `D8D5057B…0373`. `SteamClientDll` reads
   `C:\Program Files (x86)\Steam\steamclient.dll`.
 
+### 2007, build 3258, run 6 (2026-10-29, 14:55–15:01): the autoexec route ran, and froze; nothing captured
+
+- **Fallback sized first, from the `spec0` POV** (Cli `-t`, `dem_consolecmd` ticks; arithmetic): 4,764 frames over
+  18,390 ticks is ~17 fps, but `wait` advanced about once a TICK, not once a frame: `+forward` `wait 99` spanned 99
+  ticks, `+attack` 99 → 78, `+reload` 66 → 55, the voice `wait 330` → 269 (1.0–1.25 waits/tick). So the shared
+  `wait 7920` is ~6,300–7,900 ticks (95–119 s) on this build, over 4× the dispenser's ~22 s; even at 2013's 1.9
+  waits/tick it is 62 s. Left unchanged.
+- **Prep:** `prep.sh 2007-r6` (109 files listed and copied aside; placed hashes as 3420 run 4: shared `7d454642…7b92`,
+  `tf2ds_era_pre2011.cfg` `ea4e6f2a…a1cd`). The uploader's performance-pack `autoexec.cfg` (`aa71bd57…3827`),
+  `config.cfg` (`89f8d443…334d`, `mat_queue_mode "2"`) and the nine class cfgs moved out, so the client started on
+  `config_default.cfg`. Session `autoexec.cfg`: `con_logfile tf2ds_2007.log` first; then `mat_queue_mode 0`,
+  `r_threaded_particles 0`, `host_thread_mode 0`, `snd_mix_async 0`, `version`, `mat_picmip -1`, aniso 16,
+  trilinear, `r_rootlod 0`, `r_lod -1`, `mat_hdr_level 2`, `fps_max 66`, `sv_lan 1`, `sv_cheats 1`,
+  `sv_allow_wait_command 1`, `tv_enable 1`, `tv_delay 10`; exec of the specimen and `era_2007` cfgs; `ds_finish` ending
+  in `quit`; `map cp_granary`; `wait 1320; ds_start`. Desktop lock held throughout. Steam offline.
+- **The owner clicked `RUN_TF2.exe`;** `hl2.exe` PID 20756 came up at 14:57:44 with `-game tf -steam -console` and was
+  `Responding=False` from the first poll, spinning ~0.86 of a core (8.6 s CPU per 10 s), 190 MB, title
+  `Team Fortress 2`, for 2 min. Ended at 14:59:45.
+- **The con_logfile's last line:** `Unknown command "tf_bot_quota"` (288 B in all). It carries `version` (`Protocol
+  version 11`, `Exe build: 18:14:51 Oct  9 2007 (3258)`, `Not playing a local game.`) and the specimen cfg's top-level
+  refusals through its line 35. **No `Unknown command` for any of the four threading cvars**, so build 3258 knows
+  `mat_queue_mode`, `r_threaded_particles`, `host_thread_mode` and `snd_mix_async` (measured: an unknown prints).
+  Nothing after line 35 of the specimen cfg prints (aliases, the era exec, `map`), so the log cannot place the freeze
+  more exactly than "at or after the end of autoexec.cfg".
+- **The mat_queue_mode hypothesis is refuted** (measured): with the pack autoexec and `config.cfg` out and
+  `mat_queue_mode 0` set first, the client froze at the same place: the end of autoexec.cfg. What follows autoexec in
+  `valve.rc` is `stuffcmds` and `startupmenu`, and here `map cp_granary`. The one 2007 boot that worked (`spec0`) had
+  its map loaded over RCON, not from the autoexec. **Open; not chased** (the brief: no loop).
+- **Restore:** `restore.sh 2007-r6` diff against `before.txt` **empty**; no file outside the listed dirs is newer than
+  the listing. No `hl2`/`RUN_TF2` left; `SteamClientDll` reads `C:\Program Files (x86)\Steam\steamclient.dll`.
+  lcor unchanged: the `spec0` pair stays the only scripted 2007 recording.
+
 ### Differences observed, per era (D240: fixed in the script where the build allows it, documented where inherent)
 
 The owner, 2026-10-29: *"any differences like that should be fixed, it lets us obviously see and notice changes too,
@@ -1202,7 +1234,9 @@ Evidence classes: **read** (published source or shipped game data), **measured**
 | what differs | builds | evidence | status |
 |---|---|---|---|
 | Buildings not finished when the chain's `kill` came. Last state, sentry / dispenser, before (`spec2`) → after (`spec`): 4231 done / 0.44 → done / done; 4269 done / 0.44 → done / done; 4604 done / 0.39 → done / done; 1729296 0.58 / 0.13 → done / done; live 0.58 / 0.12 → done / done; 3420 done / 0.44 → done / done (run 4) | 3420, 4231, 4269, 4604, 1729296, live | measured (Probe `buildings` on each POV and SourceTV) | **fixed** in the shared cfg (third pass; 3420 by run 4, the first pre-2011 run of `tf2ds_era_pre2011.cfg`): one cause in every era, see "the 2013 and live sentry", above |
-| No building at all | 3258 `spec0` | measured | that pair predates the script fixes; 2007 is to be re-recorded |
+| No building at all | 3258 `spec0` | measured | that pair predates the script fixes; the re-record (run 6) froze at startup, so still open |
+| The client freezes at the end of autoexec.cfg on start (`hl2.exe` direct and `RUN_TF2.exe` alike) | 3258 | measured (both Steam-online starts, the raw re-record, the `RUN_TF2.exe` click, run 6; run 6 with the pack config out and `mat_queue_mode 0`) | **open**: not `mat_queue_mode` (refuted, run 6). The only working 2007 boot loaded the map over RCON |
+| `wait` runs about once a tick at ~17 fps (1.0–1.25 waits/tick) | 3258 | measured (`spec0` `dem_consolecmd` ticks) | inherent; the 7920-wait fallback is 95–119 s here |
 | `addcond` absent from `find` yet printing no `Unknown command` | 3862 | measured | **unresolved**: whether 3862 has `addcond` is not known; the non-zero `m_nPlayerCond` values may come from the chain's natural steps |
 | Construction time: sentry 10 s, dispenser 20 s | every build | read (`objects.txt`, 3258/3420/3862); measured (first `building True` → `building False`, SourceTV `spec` demos): sentry 10.4 s and dispenser 20.9 s on 4231, 4269 (dispenser), 4604, 1729296 and live; 3862 11.2 / 21.6 s from first existence | **the same in every era**; no change to explain |
 | The Engineer builds a **mini-sentry** (`m_bMiniBuilding 1`, health 100, built in 2.7 s) | 4269 only (spec1, spec2 and spec alike) | measured (Probe `buildings`: `mini True`) | **open**: a loadout difference, consistent across three runs. That the 1.1.0.0 emulator equips the Gunslinger is interpolated, not read. Checked and ruled out as the store: `RemStorage/` (empty, untouched), `%APPDATA%\SmartSteamEmu` (absent). `SmartSteamEmu.ini` has `RandomItemAwards = 1` and `DisableGC = 1`, untested. The step is the same; the object is not |
