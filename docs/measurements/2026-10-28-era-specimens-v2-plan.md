@@ -538,4 +538,61 @@ That would close the **late protocol-15 dialect** with a POV + SourceTV pair, th
 
 ## Session log (Phase B)
 
-Empty: no client launched, nothing copied into any game folder.
+### 2007, build 3258 — `F:\tf2-builds\tf2-2007\Team Fortress 2`, `hl2.exe` direct (no `RUN_TF2.exe`)
+
+**Before (23:3x):**
+- Hashed listing taken (`before.txt`, scratchpad `era-2007/`).
+- `tf/cfg/config.cfg` (sha256 `89f8d443…2334d`) and `tf/console.log` (`1e793cd5…14943`, 6,805 B) copied aside.
+- No `tf2ds_*` file and no `voice_input.wav` existed. Placed with `cp -n`: `tf2ds_specimen.cfg`, `tf2ds_era_2007.cfg`,
+  `tf2ds_era_pre2011.cfg`, `tf2ds_dryrun.cfg`, `tf/voice_input.wav`.
+- Desktop lock held by a background `run-exclusive.ps1` holder for the session.
+
+**Attempts 1 and 2, Steam ONLINE: the client hung at startup.**
+- Both launches went through `mcp__tf2__launch` (attempt 2 added `+map cp_granary`).
+- The command line was right, but RCON never opened; no TCP or UDP socket was bound by `hl2.exe`.
+- `console.log` ends right after `autoexec.cfg`/`pinconfig.cfg` ("Comanglia' frames config loaded"). No `+` command ran:
+  no `map`, no `tv_enable` line.
+- Attempt 2's client was `Responding=False`, and the coordinator force-killed it at the owner's request.
+- After-listing diff: only `tf/console.log` changed (6,805 → 18,851 B); `config.cfg` was unchanged. The hung session's log
+  is kept as `console-hang-steam-online.log`.
+- **Not a build finding**: the owner then put Steam in offline mode (`loginusers.vdf` `WantsOfflineMode "1"`).
+
+**Attempt 3, Steam OFFLINE: the client launched.** RCON answered.
+- `version`: `Protocol version 11`, `Exe version 1.0.0.5 (tf)`, `Exe build: 18:14:51 Oct  9 2007 (3258)`.
+- `sv_allow_wait_command 1`.
+- `map cp_granary` loaded, with SourceTV on port 27020 (`delay 30.0s`).
+
+**Dry run (no record), about 3.5 min from `ds_start` to `tf2ds_specimen done`. Every step ran in order.**
+
+Refused by the build, which are findings for RECORDING_CHECKLIST:
+- `cl_disablehtmlmotd`, `mp_respawnwavetime`, `mp_disable_respawn_times` and `tf_bot_quota` printed `Unknown command:`.
+  `tf_bot_add` (×4) and every `addcond`/`removecond` did the same.
+- **Instrument note:** `mp_respawnwavetime` was a whole NUL-delimited string in the 2007 `server.dll`, and still not a
+  command. A string present is not a registered ConVar, so section 4's "ok" for it in 2007 is wrong.
+- The two deliberate unknowns were refused as intended.
+
+Worked:
+- `say` and `say_team` (printed with `*DEAD*`, since the player was not alive yet).
+- `jointeam`, every `joinclass`, `taunt`/`kill` (`suicided`), `explode`.
+- `name tf2ds_renamed` (later lines read `tf2ds_renamed suicided.`).
+- `pause` ("paused the game"), `mp_restartgame 1` ("The game will restart in 1 second"), `disconnect`.
+
+Finding:
+- **The UTF-8 name failed**: `name Пётр大将` printed the cvar's help and current value (`"name" = "PinKushin"`), the
+  behaviour of `name` with no argument. Build 3258 drops the non-ASCII token when it reads it from a cfg.
+
+Not yet confirmed:
+- `build 3`/`build 0`, `setpos` + capture, and voice print nothing. They are read from the recorded demo.
+
+**Instrument trap:** `con_logfile <file>` diverted this build's console away from `-condebug`'s `console.log`. That file
+stopped at 23:51:18, so `mcp__tf2__wait_for` (which tails `console.log`) never saw the marker, and the wait timed out
+with the chain already done. The con_logfile is written only at the chain's end or when it closes. For this era, wait on
+the con_logfile itself, not on `wait_for`.
+
+**tv_delay:** build 3258 clamps `tv_delay` to at least 10 (`min. 10.000000`). The shared script now stops SourceTV 726
+frames after the POV (`ds_pov_stop`, `wait 726`, `ds_stv_stop`), so the SourceTV demo keeps its last 10 s. This applies to
+every era, for comparability.
+
+**Real run** (`tv_delay 0` → clamped to 10, `map cp_granary`, then `exec tf2ds_specimen; exec tf2ds_era_2007; ds_start`):
+- Started; "Recording SourceTV demo to tf2ds_specimen_stv.dem...".
+- The player's name at start was `tf2ds_renamed`, carried over from the dry run, because the UTF-8 rename fails.
