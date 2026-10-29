@@ -47,7 +47,6 @@ public sealed class DrawTally
     private int _notDrawn;
 
     private readonly Dictionary<string, int> _noBatchesBy = new(StringComparer.Ordinal);
-    private readonly Dictionary<string, int> _notStudioBy = new(StringComparer.Ordinal);
 
     /// <summary>Everything this tally has ever counted, which the per-frame fields cannot answer.</summary>
     /// <remarks>
@@ -61,8 +60,6 @@ public sealed class DrawTally
     /// instruments gave confident wrong answers in one session.
     /// </remarks>
     private readonly Dictionary<string, int> _everNoGeometry = new(StringComparer.Ordinal);
-
-    private readonly Dictionary<string, int> _everNotStudio = new(StringComparer.Ordinal);
 
     /// <summary>One entity index per undrawable bucket, so a census can be followed (B379).</summary>
     private readonly Dictionary<string, int> _firstNotDrawable = new(StringComparer.Ordinal);
@@ -88,7 +85,9 @@ public sealed class DrawTally
     public IReadOnlyDictionary<string, int> EverNoGeometry => _everNoGeometry;
 
     /// <summary>Every model ever rejected as not being a studio model, with how many times.</summary>
-    public IReadOnlyDictionary<string, int> EverNotStudio => _everNotStudio;
+    /// <remarks>Built on read from the buckets the counting increments, for an audit rather than per frame.</remarks>
+    public IReadOnlyDictionary<string, int> EverNotStudio =>
+        _everBuckets.Values.ToDictionary(bucket => bucket.Key, bucket => bucket.Count, StringComparer.Ordinal);
 
     /// <summary>Starts a frame's count.</summary>
     /// <param name="askedFor">How many props the scene offered.</param>
@@ -113,7 +112,8 @@ public sealed class DrawTally
         _notDrawn = 0;
 
         _noBatchesBy.Clear();
-        _notStudioBy.Clear();
+        _frameTouched.Clear();
+        _begun++;
     }
 
     /// <summary>Records a prop the view frustum rejected before it was posed.</summary>
@@ -141,6 +141,12 @@ public sealed class DrawTally
     /// **Inline BSP submodels collapse to one entry.** A map's doors and moving brushes are
     /// <c>*1</c>, <c>*2</c>, … and cp_process names 141 of them, which turns the line into a wall
     /// that hides the entry that matters. They are one gap, not 141 findings.
+    ///
+    /// **The keys are worked out once per prop OBJECT, then only counted** (B259). Every undrawable prop is offered every
+    /// frame — the engine never walks one at all, since `UpdateVisibility` keeps it out of the leaf system — and the sample
+    /// hands an unchanged track back as the same object, so on f12 all ~220 a frame are repeats. Building two key strings
+    /// and hashing them three times for each cost 0.065 ms a frame (timed inside this call, 2026-10-28); a repeat is now
+    /// one lookup and two increments, 0.010 ms with the stopwatch's own cost in it.
     /// </remarks>
     public void NotDrawable(SceneProp prop)
     {
@@ -148,6 +154,72 @@ public sealed class DrawTally
 
         _notStudio++;
 
+        if (!_rejections.TryGetValue(prop, out Rejection? rejection))
+        {
+            (string rejected, string ever) = Keys(prop);
+            rejection = new Rejection(BucketOf(_frameBuckets, rejected), BucketOf(_everBuckets, ever));
+            _rejections.Add(prop, rejection);
+
+            // **One example index per bucket, kept rather than counted** (B243). A count says a
+            // population exists and cannot be followed; an index is what a probe takes. The FIRST is kept
+            // rather than the last, so re-running lands on the same entity and a second measurement is
+            // about the same subject as the first. Only a new object can be a bucket's first.
+            _firstNotDrawable.TryAdd(ever, prop.EntityIndex);
+        }
+
+        if (rejection.Frame.Stamp != _begun)
+        {
+            rejection.Frame.Stamp = _begun;
+            rejection.Frame.Count = 0;
+            _frameTouched.Add(rejection.Frame);
+        }
+
+        rejection.Frame.Count++;
+        rejection.Ever.Count++;
+    }
+
+    /// <summary>One bucket's count, shared by every prop whose key names it.</summary>
+    private sealed class Bucket
+    {
+        public Bucket(string key) => Key = key;
+
+        public string Key { get; }
+
+        public int Count { get; set; }
+
+        /// <summary>The <see cref="Begin"/> its per-frame count belongs to.</summary>
+        public int Stamp { get; set; } = -1;
+    }
+
+    /// <summary>A prop object's two buckets: per frame by file name, and over the whole run by full path.</summary>
+    private sealed record Rejection(Bucket Frame, Bucket Ever);
+
+    private static Bucket BucketOf(Dictionary<string, Bucket> buckets, string key)
+    {
+        if (!buckets.TryGetValue(key, out Bucket? bucket))
+        {
+            bucket = new Bucket(key);
+            buckets.Add(key, bucket);
+        }
+
+        return bucket;
+    }
+
+    /// <summary>Each undrawable prop object's buckets, dropped with the object — `SceneProp` is immutable, so its keys are.</summary>
+    private readonly System.Runtime.CompilerServices.ConditionalWeakTable<SceneProp, Rejection> _rejections = [];
+
+    private readonly Dictionary<string, Bucket> _frameBuckets = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, Bucket> _everBuckets = new(StringComparer.Ordinal);
+
+    /// <summary>The per-frame buckets this pass counted, in the order each was first met — the line's order.</summary>
+    private readonly List<Bucket> _frameTouched = [];
+
+    /// <summary>How many times <see cref="Begin"/> has run; a per-frame count from another is stale.</summary>
+    private int _begun;
+
+    /// <summary>A rejection's per-frame key and its cumulative key.</summary>
+    private static (string Rejected, string Ever) Keys(SceneProp prop)
+    {
         string name;
 
         if (prop.ModelPath.Length == 0)
@@ -165,8 +237,6 @@ public sealed class DrawTally
 
         string rejected = $"{name}#{prop.Kind}";
 
-        _notStudioBy[rejected] = _notStudioBy.GetValueOrDefault(rejected) + 1;
-
         // **The KIND is kept in the cumulative map too, because it is the whole diagnosis.** A prop
         // rejected as `#Unknown` is a model reference this project does not classify; one rejected as
         // a kind it knows is a renderer that has no path for that kind. Losing the kind here would
@@ -181,13 +251,7 @@ public sealed class DrawTally
             ? $"<no model>#{prop.Kind}#{ClassOf(prop.ClassName)}"
             : $"{prop.ModelPath}#{prop.Kind}";
 
-        _everNotStudio[ever] = _everNotStudio.GetValueOrDefault(ever) + 1;
-
-        // **One example index per bucket, kept rather than counted** (B243). A count says a
-        // population exists and cannot be followed; an index is what a probe takes. The FIRST is kept
-        // rather than the last, so re-running lands on the same entity and a second measurement is
-        // about the same subject as the first.
-        _firstNotDrawable.TryAdd(ever, prop.EntityIndex);
+        return (rejected, ever);
     }
 
     /// <summary>An entity's class, or a placeholder when the demo has not named one.</summary>
@@ -302,8 +366,8 @@ public sealed class DrawTally
         _props.LogDebug(
             "{Message}",
             $"{_pass} pass: asked for {_askedFor}, produced {_drawn}; " +
-            $"skipped {_notStudio} not-studio [{Named(_notStudioBy)}], " +
-            $"{_noBatches} no-batches [{Named(_noBatchesBy)}], " +
+            $"skipped {_notStudio} not-studio [{Named(_frameTouched.Select(bucket => (bucket.Key, bucket.Count)))}], " +
+            $"{_noBatches} no-batches [{Named(_noBatchesBy.Select(entry => (entry.Key, entry.Value)))}], " +
 
             // Counted and REPORTED apart from the two failures beside it: this one is the map
             // working as intended, and a number that never moves is how a reader tells the
@@ -315,6 +379,6 @@ public sealed class DrawTally
             $"{_culled} off-screen");
     }
 
-    private static string Named(Dictionary<string, int> by) =>
-        by.Count == 0 ? "none" : string.Join(", ", by.Select(entry => $"{entry.Value}x{entry.Key}"));
+    private static string Named(IEnumerable<(string Key, int Count)> by) =>
+        by.Any() ? string.Join(", ", by.Select(entry => $"{entry.Count}x{entry.Key}")) : "none";
 }

@@ -1663,9 +1663,11 @@ public sealed class DemoTimeline
 
         // Last track wins where a slot was reused: the later occupant is the one still alive at
         // any tick a caller can ask about after it started, and At answers null before that.
-        foreach (ScenePropTrack track in _props)
+        for (int ordinal = 0; ordinal < _props.Count; ordinal++)
         {
+            ScenePropTrack track = _props[ordinal];
             _trackByEntity[track.EntityIndex] = track;
+            _ordinalOf[track] = ordinal;
         }
 
         foreach (ScenePropTrack track in _playerTracks)
@@ -7096,15 +7098,17 @@ public sealed class DemoTimeline
         // re-allocates the backing array a dozen times a second for nothing.
         fast?.EnsureCapacity(_props.Count);
 
-        // **The collate is the engine's own closing step** — `BuildRenderablesList` also emits a
-        // fresh per-frame list from its maintained structures. This walk touches one reference and
-        // one null test per track; the work a track used to cost here (a binary search, an
-        // interpolation, a sixteen-field construction) happens only when something changed.
-        foreach (ScenePropTrack track in _props)
+        // **The collate walks the entities that EXIST, never every track the demo ever had** (B259). The engine's
+        // per-frame walks (`SimulateEntities`, `cdll_client_int.cpp:2010-2015`) iterate `m_BaseEntities`, which an entity
+        // joins when it is created and leaves when it is deleted (`CClientEntityList::OnAddEntity` / `OnRemoveEntity`,
+        // `cliententitylist.cpp:340`, `:402-403`). Walking `_props` instead paid for every track of the whole recording —
+        // measured on f12, 6,456 tracks for ~492 live props, 0.13 ms a frame. `_live` is that list, kept in TRACK order
+        // (ours, not the engine's creation order) so the answer is the one the full walk gave, item for item.
+        foreach (int ordinal in _live)
         {
             // Stryker disable once : a mutant that empties the guard body leaves 'prop'
             // unassigned (CS0165), and Safe Mode then drops every mutation in this method — B410.
-            if (track.Live is not { } prop)
+            if (_props[ordinal].Live is not { } prop)
             {
                 continue;
             }
@@ -7193,9 +7197,42 @@ public sealed class DemoTimeline
             // Mid-lerp tracks are blend-sampled by construction: `Motion` only reports a track
             // changing under blended sampling. Hidden is re-read because it is a field of the
             // pose, discrete at the keyframe the lerp is walking away from.
-            track.Live = track.At(tick) is { Hidden: false } pose
+            SetLive(track, track.At(tick) is { Hidden: false } pose
                 ? BuildProp(track, tick, pose, recorderTeam)
-                : null;
+                : null);
+        }
+    }
+
+    /// <summary>Each track's position in <see cref="_props"/>, which orders <see cref="_live"/>.</summary>
+    private readonly Dictionary<ScenePropTrack, int> _ordinalOf = new(ReferenceEqualityComparer.Instance);
+
+    /// <summary>The ordinals of the tracks whose <see cref="ScenePropTrack.Live"/> is set, ascending — the entity list.</summary>
+    private readonly List<int> _live = [];
+
+    /// <summary>How many tracks the last <see cref="PropsAt"/> walked — the entity list's length, for its tests.</summary>
+    internal int TracksWalked => _live.Count;
+
+    /// <summary>Sets a track's sample, joining or leaving <see cref="_live"/> when it starts or stops answering.</summary>
+    /// <remarks>
+    /// **The only writer of <see cref="ScenePropTrack.Live"/>**, so the list cannot disagree with it: a track is on it
+    /// exactly while its sample is non-null — <c>OnAddEntity</c> and <c>OnRemoveEntity</c>, at the change. Membership is
+    /// read from this timeline's own list, never from <c>Live</c>, because a track is a shared object (two timelines given
+    /// one cast would otherwise each believe the other's answer).
+    /// </remarks>
+    private void SetLive(ScenePropTrack track, SceneProp? prop)
+    {
+        track.Live = prop;
+
+        int ordinal = _ordinalOf[track];
+        int at = _live.BinarySearch(ordinal);
+
+        if (prop is null && at >= 0)
+        {
+            _live.RemoveAt(at);
+        }
+        else if (prop is not null && at < 0)
+        {
+            _live.Insert(~at, ordinal);
         }
     }
 
@@ -7244,9 +7281,9 @@ public sealed class DemoTimeline
         ScenePose? sampled = blend ? track.At(tick) : stated;
 
         // A hidden entity is not drawn but is still tracked: it is coming back.
-        track.Live = sampled is { Hidden: false } pose
+        SetLive(track, sampled is { Hidden: false } pose
             ? BuildProp(track, tick, pose, recorderTeam)
-            : null;
+            : null);
 
         if (changing != track.Lerping)
         {

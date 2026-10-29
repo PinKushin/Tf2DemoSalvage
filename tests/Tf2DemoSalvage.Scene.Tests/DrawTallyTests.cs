@@ -172,6 +172,47 @@ public sealed class DrawTallyTests
         log.Count("1xcrate.mdl").ShouldBe(0);
     }
 
+    /// <remarks>
+    /// **The census counts every frame a prop is rejected, whether or not it is the same object as last frame** (B259).
+    /// The sample hands an unchanged track back as the SAME object, and on f12 all ~220 undrawable props a frame are; the
+    /// rejection's keys are kept per object so a repeat costs no string work. A repeat must still count, a second object
+    /// with the same key must join the same bucket, and the example index stays the first one seen.
+    /// </remarks>
+    [Test]
+    public void NotDrawable_TheSameObjectOverThreeFramesAndASecondEntity_CountsFourAndKeepsTheFirstIndex()
+    {
+        RecordingLogger log = new();
+        DrawTally tally = new(log);
+        SceneProp first = new(7, "models/props_gameplay/sign.mdl", SceneModelKind.Sprite, new ScenePose(), null);
+        SceneProp second = new(9, "models/props_gameplay/sign.mdl", SceneModelKind.Sprite, new ScenePose(), null);
+        SceneProp nothing = new(11, string.Empty, SceneModelKind.Unknown, new ScenePose(), null) { ClassName = "CFuncNothing" };
+
+        // A pass name per frame, so the rate limit (per pass) lets each frame's line through.
+        for (int frame = 0; frame < 3; frame++)
+        {
+            tally.Begin(3, $"frame{frame}");
+            tally.NotDrawable(first);
+            tally.NotDrawable(nothing);
+
+            if (frame == 1)
+            {
+                tally.NotDrawable(second);
+            }
+
+            tally.Report();
+        }
+
+        tally.EverNotStudio["models/props_gameplay/sign.mdl#Sprite"].ShouldBe(4);
+        tally.FirstNotDrawable["models/props_gameplay/sign.mdl#Sprite"].ShouldBe(7);
+        tally.EverNotStudio["<no model>#Unknown#CFuncNothing"].ShouldBe(3);
+        tally.EverNotStudio.Count.ShouldBe(2);
+
+        // Per-frame buckets by file name, in first-seen order, and each frame counted from zero.
+        log.Count("frame0 pass: asked for 3, produced 0; skipped 2 not-studio [1xsign.mdl#Sprite, 1x<no model>#Unknown]").ShouldBe(1);
+        log.Count("frame1 pass: asked for 3, produced 0; skipped 3 not-studio [2xsign.mdl#Sprite, 1x<no model>#Unknown]").ShouldBe(1);
+        log.Count("frame2 pass: asked for 3, produced 0; skipped 2 not-studio [1xsign.mdl#Sprite, 1x<no model>#Unknown]").ShouldBe(1);
+    }
+
     private static SceneProp Prop(string model, SceneModelKind kind) =>
         new(1, model, kind, new ScenePose(), null);
 }
