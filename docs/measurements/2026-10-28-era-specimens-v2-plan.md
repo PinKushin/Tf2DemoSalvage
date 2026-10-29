@@ -85,6 +85,14 @@ No document records it. The physical evidence above says the cfg was copied into
 - After the session, put back exactly what was there. Re-copy the original, or, where nothing existed, **move** the
   placed cfg out to the backup folder. This agent never deletes files. Then verify by hash and listing.
 - Log every copy and restore here, in a `## Session log` section added in Phase B.
+- **The restore control is a listing diff, not the files we named.** The period `tf/` folders already hold files the
+  client rewrites: `stats.txt`, `tf2_playerstats.dmx`, `gamestate.txt`, `modelsounds.cache`, `demoheader.tmp` and
+  `voice_ban.dt`.
+  - Before each session, take a hashed listing (name, size, sha256) of `tf/` (top level), `tf/cfg/` and
+    `tf/screenshots/`.
+  - After it, take the same listing and diff the two. Every changed or new entry is restored from the pre-session copy
+    or moved out.
+  - The empty diff is what "restored" means, and it is pasted into the session log.
 - Only cfgs are copied in. The client itself writes demos, `console.log` (`-condebug`) and the `con_logfile` output into
   `tf/`, and these are **moved** out to lcor or the scratchpad afterwards. If the owner wants an exact pre-session
   listing restored, a file nothing existed for has to be removed, and that removal is the owner's or the lead's to do.
@@ -144,13 +152,33 @@ demo (a measurement, the SDK, or the engine), never copied from the old one.
 - `CorpusRecorderFeetTests` and `CorpusRetimeViewTests` (2013 POV).
 - The probes' usage comments.
 
-**D. Name pattern, a silent-membership risk.** `CorpusVoiceCodecEraTests.IsEraSpecimenFrom2007To2013` selects any
-`tf2-YYYY-build…` filename in 2007–2013. lcor is picked up automatically, and lcor already holds
-`tf2-2007-build3258-pov-damage.dem` and others. So the new filenames decide which tests the new demos silently join.
+**D. Name pattern: a silent-membership risk and a collision.**
 
-**Proposal:** stage them in lcor as `tf2-<year>-build<n>-<pov|stv>-cp_granary-spec.dem`. This keeps the pattern, so the
-era-gated tests exercise them on a full local run, which is part of the coverage proof. The `-spec` suffix keeps the
-names distinct from the old ones.
+- `CorpusVoiceCodecEraTests.IsEraSpecimenFrom2007To2013` selects any `tf2-YYYY-build…` filename in 2007–2013.
+- lcor is picked up automatically.
+- **`Corpus.Demo(fragment)` (`tests/Tf2DemoSalvage.Corpus.Tests/Corpus.cs:90`) matches by `Contains` and takes
+  `FirstOrDefault`.** If an old full name sits inside a new one, `Corpus.Demo("tf2-2007-build3258-pov-cp_granary")` could
+  open the new file on a full local run. Old expected values would then run against new bytes. A suffix such as
+  `<old-name>-spec.dem` is therefore unsafe.
+
+**Proposal:** stage the new demos in lcor as `tf2-<year>-build<n>-spec-<pov|stv>-cp_granary.dem`.
+- No old full name is a substring of that name: checked against every `Corpus.Demo("…")` fragment found in section 3,
+  each of which carries mode and map after the build.
+- It still passes `IsEraSpecimenFrom2007To2013`, because `name[8..]` starts with `-build`.
+- So the era-gated tests exercise it on a full local run, which is part of the coverage proof.
+
+**D2. Consumers keyed on content, invisible to a filename grep.**
+- 45 test files sweep `Corpus.Files()` / `FilesWithSchema()` (80 call sites, counted with `Grep`). They are listed by
+  that grep, which is the reproduction.
+- Some assert set-level facts that a specific gcor file may be the only one to satisfy:
+  - `CorpusVoiceCodecEraTests` ("some demo uses Speex");
+  - `CorpusDamageTests`, which presumably needs a damage message at protocol ≤14. Not yet read, so this is an
+    interpolation;
+  - `CorpusCeltSpeexVoiceTests`;
+  - `CorpusProtocol15Tests`.
+- Under `TF2DEMOSALVAGE_GCOR_ONLY` such a test turns into a skip or a failure when its only witness leaves gcor.
+- The swap commit must run these with the new gcor and read each one's count, not only the gate total.
+- No test reads `manifest.json` (`Grep` over `*.cs`, `*.sh`, `*.py` and `*.yml`: no match).
 
 **E. Gate.** The floors in `build/gate.sh` count tests per project, and parametrised corpus tests scale with gcor's file
 count. A swap that changes the number of gcor files moves those counts. The CI check in `.github/workflows/test.yml:524`
@@ -188,19 +216,48 @@ the swap should not wait on it.
 
 **What the old specimens found, and what the new set must reproduce:**
 
-| old specimen | finding | can the new set reproduce it? |
-|---|---|---|
-| 2007 STV + POV | B24: SourceTV truncates the schema at 64 KiB, and the POV carries 85,063 bytes. B441 | yes, if the same build records both modes. Predict the same truncation |
-| 2007 POV | B26, B247, B291, B372, B377, B382: KnownSchema source | yes for era facts. The bytes are 3A above |
-| 2007 session | the only `svc_VoiceData` / Speex coverage (RECORDING_CHECKLIST); `CorpusVoiceCodecEraTests` needs Speex in some demo | **no, not with the cfg as written**: it has no voice step (see Verdict) |
-| 2008 pair | no `dem_stringtables` at p14; fog; B370, B372, B380, B501 | yes |
-| 2009 POV | B440 early dialect (5-bit types); two viewmodels; B172, B450, B501 | yes on `D:\team fortress 2`; adds the missing p15 STV |
-| 2011 pair | audience-split tables; B132; "local SourceTV is not a proxy" | yes |
-| 2013 POV | UTF-8 player name, which found a real bug | **only if the name is non-ASCII**: the cfg sets no name |
-| 2013 STV | six minutes of entity churn (the only long one); B270, B389 | partial: the cfg runs about 2.5–4 min |
+Each RISKS entry that cites a gcor specimen was read (heading and status line) and classified:
+- **era/mode**: a re-recording of the same build and mode reproduces it;
+- **content**: it needs a particular thing to happen in the session, so check that the cfg does it;
+- **map**;
+- **subject only**: the demo was merely the file the work happened on.
 
-**Do not drop any old demo that a finding in the "no" or "partial" rows depends on** until the new set reproduces it.
-Keeping the 2007 POV for the KnownSchema bytes is cheap (1.2 MB) if the Phase B hash prediction fails.
+| B | what it is | specimens cited | class | reproduced by the cfg? |
+|---|---|---|---|---|
+| B24 | SourceTV cuts the schema at 64 KiB on build 3258; KnownSchema embeds the POV's 85,063 bytes | 2007 POV/STV | era/mode + exact bytes (3A) | yes, if both modes are recorded. Predict the same cut |
+| B26 | the Damage user message's older layout at protocol ≤14 | 2007 POV | content: the recorder must take damage | yes: `explode` and fall in `ds_move` (check in the census) |
+| B44 | pre-2013 demos decode one positioned player; not a defect | 2007 POV, 2008 STV, 2009 POV, 2011 STV, 2013 STV | era/mode | yes |
+| B45 | team/class coverage; every delta wiped the entity | 2007 POV, 2011 STV, 2013 POV | era/mode | yes |
+| B132 | entities reach the table with no properties | 2011 STV | era/mode | yes |
+| B146 | the UI thread stalls on load | 2013 POV | subject only | n/a |
+| B172 | footsteps and landing sounds | 2009 POV | content: movement and landing | yes (`ds_move`, `+jump`) |
+| B225 | a viewmodel is drawn while the recorder spectates | 2013 POV | content: the recorder spectating | partial: death time after `kill`. Re-derive the span |
+| B247 | `dem_stringtables` is not needed (closed) | 2007 POV | era/mode | yes |
+| B270 | bone controllers are unimplemented, measured | 2013 STV | content: entities that send controllers | re-measure. The cfg builds a sentry (2011+) |
+| B291 | `CalcAutoplaySequences` | 2007 POV | map | yes, with cp_granary |
+| B370 | granary's shutter doors | 2008 STV | map + content (doors opening) | only if a door cycles. Unverified |
+| B372 | projectiles reach the timeline | 2007, 2008 pair | content: projectiles fired | yes: rockets, pipes, flares in `ds_fire` |
+| B377, B382 | the interpolation pair and per-variable histories | 2007 POV | era/mode | yes |
+| B380 | the 2008 sticky launcher's sequence numbers | 2008 pair, 2013 POV | content: demoman slot 2 | yes (`ds_slots2`) |
+| B389 | a probe bug | 2013 STV | subject only | n/a |
+| B440 | build 3862's early p15 dialect | 2009 POV | era/mode | yes, on `D:\team fortress 2` |
+| B441 | the Speex frame width (the subject was a 2012 lcor demo) | 2007 STV, cited only | subject only | n/a |
+| B450 | POV recorder prediction | 2009 POV | era/mode | yes |
+| B452 | POV fog/skybox through `dem_stringtables` | 2013 POV | era/mode | yes |
+| B501 | 2007–2009 footstep flags (FL_ONTRAIN) | 2008 STV, 2009 POV, 2013 POV | era/mode + movement | yes |
+
+Findings not under a B-number:
+
+| old specimen | finding | reproduced? |
+|---|---|---|
+| 2008 pair | no `dem_stringtables` at p14 | yes (era) |
+| 2011 pair | audience-split tables; "a local SourceTV is not a proxy" | yes (mode) |
+| whichever gcor demo the Phase B census shows carrying `svc_VoiceData` | the only Speex in gcor; `CorpusVoiceCodecEraTests` relies on it | **no, not with the cfg as written**: it has no voice step. RECORDING_CHECKLIST places the voice in the 2007 session, but which file carries it is **unmeasured** |
+| 2013 POV | a UTF-8 player name, which found a real bug | **only if the name is non-ASCII**: the cfg sets no name |
+| 2013 STV | six minutes of entity churn, the only long one | partial: the cfg runs about 2.5–4 min |
+
+**Do not drop any old demo that a "no" or "partial" row depends on** until the new set reproduces it. Keeping the 2007
+POV for the KnownSchema bytes is cheap (1.2 MB) if the Phase B hash prediction fails.
 
 ### 4. Per-era cfg feasibility
 
@@ -266,8 +323,8 @@ closes the missing protocol-15 SourceTV. The swap's cost is in section 3A, not L
    - voice
 
    All but voice are console commands that can go into the shared layer. **Voice** needs `voice_inputfromfile` and a
-   wav in the game folder, and the copy ruling covers only cfgs, so it needs the owner's word. Without it, the old 2007
-   POV (Speex) stays.
+   wav in the game folder, and the copy ruling covers only cfgs, so it needs the owner's word. Without it, whichever old gcor demo the
+   census shows carrying Speex stays.
 
 **Phase B blockers to settle before the desktop is used:**
 
@@ -300,9 +357,11 @@ Deferred to Phase B, under the lock once it is free:
 > changing the gcor, we have to"*. On copying the specimen cfg into a client's `tf/cfg/`: *"and copying is fine as long
 > as it gets replaced with what was there when it gets done"*.
 >
-> What followed: every gcor era specimen is re-recorded with `tools/specimen/tf2ds_specimen.cfg`, plus a per-era override
-> layer, on that era's period client, in both points of view. Each is staged in lcor, censused and diffed against the
-> demo it replaces, and swapped into gcor only once the full gate (phases 1 and 2) and the full-corpus superset pass.
+> What followed: every gcor era specimen is re-recorded with `tools/specimen/tf2ds_specimen.cfg` on that era's period
+> client. Each is staged in lcor, censused and diffed against the demo it replaces, and swapped into gcor only once the
+> full gate (phases 1 and 2) and the full-corpus superset pass. [At commit, add only what the owner has ruled on by
+> then: the map, the per-era override layer, and `tv_record` in the shared script are still open proposals as of this
+> draft.]
 > Expected values on a new demo are re-derived from fresh evidence, never copied. An old specimen stays where it carries
 > a finding the new set does not reproduce (`docs/measurements/2026-10-28-era-specimens-v2-plan.md`, section 3).
 > Supersedes the manifest's description of era specimens as ad-hoc recordings. It does not change D81, under which the
