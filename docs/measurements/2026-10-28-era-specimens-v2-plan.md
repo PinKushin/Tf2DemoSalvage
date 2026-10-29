@@ -1215,13 +1215,39 @@ The first run of the new `tf2ds_era_pre2011.cfg` (only the two `ds_build_*` alia
   `mat_queue_mode`, `r_threaded_particles`, `host_thread_mode` and `snd_mix_async` (measured: an unknown prints).
   Nothing after line 35 of the specimen cfg prints (aliases, the era exec, `map`), so the log cannot place the freeze
   more exactly than "at or after the end of autoexec.cfg".
-- **The mat_queue_mode hypothesis is refuted** (measured): with the pack autoexec and `config.cfg` out and
-  `mat_queue_mode 0` set first, the client froze at the same place: the end of autoexec.cfg. What follows autoexec in
+- **The mat_queue_mode hypothesis is refuted** (measured, run 7 below confirms over 15 min): with the pack autoexec
+  and `config.cfg` out and `mat_queue_mode 0` set first, the client stalled at the same place: the end of autoexec.cfg. What follows autoexec in
   `valve.rc` is `stuffcmds` and `startupmenu`, and here `map cp_granary`. The one 2007 boot that worked (`spec0`) had
   its map loaded over RCON, not from the autoexec. **Open; not chased** (the brief: no loop).
 - **Restore:** `restore.sh 2007-r6` diff against `before.txt` **empty**; no file outside the listed dirs is newer than
   the listing. No `hl2`/`RUN_TF2` left; `SteamClientDll` reads `C:\Program Files (x86)\Steam\steamclient.dll`.
-  lcor unchanged: the `spec0` pair stays the only scripted 2007 recording.
+- **Instrument error, corrected by the lead:** run 6 was ended after 2 min on `Responding=False` alone, which a 2007
+  client also shows while it loads a map (it does not pump its window). Ending it looked to the owner like the client
+  quitting by itself; he clicked again at 15:02:32, after the restore, so that second instance (PID 17060) booted on
+  the pack config, spun the same way, and was ended (lead's instruction). Rule from run 7 on: a freeze is a
+  con_logfile that has not grown AND CPU time that has not advanced for 5 min; otherwise wait, to a 15-min cap.
+
+### 2007, build 3258, run 7 (2026-10-29, 15:05–15:23): the same autoexec route, waited 15 min; nothing captured
+
+- **Prep:** `prep.sh 2007-r7` (before-listing identical to run 6's); the same cfgs moved out. The session autoexec
+  differs from run 6 in two ways: `alias <name> ""` for the four top-level settings 3258 lacks (`cl_disablehtmlmotd`,
+  `mp_respawnwavetime`, `mp_disable_respawn_times`, `tf_bot_quota`), so the log tail means something, and
+  `tf2ds_mark specimen_loaded` / `era_loaded` / `map` / `map_loaded` echoes around each exec and the `map`.
+- **The owner's one click after READY:** `hl2.exe` PID 24540 at 15:06:49. For 15 min it stayed `Responding=False`,
+  CPU time advancing ~57 s per minute (one core: 888 s at the end), working set 191 MB. **No demo file appeared**,
+  and the con_logfile stayed at 136 B from 15:07 on: `tf2ds_mark autoexec`, the three `version` lines and `Not
+  playing a local game.` Not a freeze by the run-7 rule (CPU moved), so it ran to the cap and was then ended.
+- **What the two logs together say** (measured; the reading is interpolated): both stop at the last line that prints
+  before the `exec tf2ds_specimen` output ends. Run 6 printed the specimen cfg's line-35 refusal; run 7, with those
+  refusals silenced, printed nothing after `version`, not even `tf2ds_mark specimen_loaded`, which follows the
+  specimen exec. So either the client stopped inside or right after the specimen cfg, before the `map`, or this
+  build's con_logfile holds its later lines in a buffer that a forced end discards. Either way, no `map` progress
+  was ever seen in 15 min, and cp_granary loaded far faster when the map came over RCON (`spec0`). **The longest
+  line in the specimen cfg is 396 characters** (`ds_engineer_build`), so an over-long alias is not obviously the
+  cause; not chased (one re-prepare only).
+- **Restore:** `restore.sh 2007-r7` diff **empty**; nothing outside the listed dirs newer than the listing; no `hl2`
+  left; `SteamClientDll` reads `C:\Program Files (x86)\Steam\steamclient.dll`. lcor unchanged: the `spec0` pair
+  stays the only scripted 2007 recording.
 
 ### Differences observed, per era (D240: fixed in the script where the build allows it, documented where inherent)
 
@@ -1234,8 +1260,8 @@ Evidence classes: **read** (published source or shipped game data), **measured**
 | what differs | builds | evidence | status |
 |---|---|---|---|
 | Buildings not finished when the chain's `kill` came. Last state, sentry / dispenser, before (`spec2`) → after (`spec`): 4231 done / 0.44 → done / done; 4269 done / 0.44 → done / done; 4604 done / 0.39 → done / done; 1729296 0.58 / 0.13 → done / done; live 0.58 / 0.12 → done / done; 3420 done / 0.44 → done / done (run 4) | 3420, 4231, 4269, 4604, 1729296, live | measured (Probe `buildings` on each POV and SourceTV) | **fixed** in the shared cfg (third pass; 3420 by run 4, the first pre-2011 run of `tf2ds_era_pre2011.cfg`): one cause in every era, see "the 2013 and live sentry", above |
-| No building at all | 3258 `spec0` | measured | that pair predates the script fixes; the re-record (run 6) froze at startup, so still open |
-| The client freezes at the end of autoexec.cfg on start (`hl2.exe` direct and `RUN_TF2.exe` alike) | 3258 | measured (both Steam-online starts, the raw re-record, the `RUN_TF2.exe` click, run 6; run 6 with the pack config out and `mat_queue_mode 0`) | **open**: not `mat_queue_mode` (refuted, run 6). The only working 2007 boot loaded the map over RCON |
+| No building at all | 3258 `spec0` | measured | that pair predates the script fixes; the re-records (runs 6, 7) stalled at startup, so still open |
+| The client freezes at the end of autoexec.cfg on start (`hl2.exe` direct and `RUN_TF2.exe` alike) | 3258 | measured (both Steam-online starts, the raw re-record, the `RUN_TF2.exe` click, runs 6 and 7; runs 6–7 with the pack config out and `mat_queue_mode 0`; run 7 spun one core for 15 min with no demo and no log line after `version`) | **open**: not `mat_queue_mode` (refuted, runs 6–7). Stalls inside or after `exec tf2ds_specimen`, before `map`, unless con_logfile buffers. The only working 2007 boot loaded the map over RCON |
 | `wait` runs about once a tick at ~17 fps (1.0–1.25 waits/tick) | 3258 | measured (`spec0` `dem_consolecmd` ticks) | inherent; the 7920-wait fallback is 95–119 s here |
 | `addcond` absent from `find` yet printing no `Unknown command` | 3862 | measured | **unresolved**: whether 3862 has `addcond` is not known; the non-zero `m_nPlayerCond` values may come from the chain's natural steps |
 | Construction time: sentry 10 s, dispenser 20 s | every build | read (`objects.txt`, 3258/3420/3862); measured (first `building True` → `building False`, SourceTV `spec` demos): sentry 10.4 s and dispenser 20.9 s on 4231, 4269 (dispenser), 4604, 1729296 and live; 3862 11.2 / 21.6 s from first existence | **the same in every era**; no change to explain |
