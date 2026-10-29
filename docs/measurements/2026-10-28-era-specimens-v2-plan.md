@@ -714,3 +714,57 @@ the owner's call.
   - `tf2-2011-build4604-spec-pov-cp_granary.dem`: sha256 `3464e7fa…13eb1`, 2,563,188 B.
   - `tf2-2011-build4604-spec-stv-cp_granary.dem`: `3b999e85…c01b`, 894,814 B.
 - **Restore:** the same moves as 2013, plus `tf/cfg/user.scr` restored. **Diff against `before.txt`: empty.**
+
+### Live, build 11138802 — the Steam install: done
+
+- **Launch:** `mcp__tf2__launch extraArguments="+fps_max 66 +tv_enable 1"`, which starts `tf_win64.exe`.
+- **Build:** `version` printed `Build Label 11138802`, protocol 24.
+- **Before:** the 2026-10-02 leftover `tf/cfg/tf2ds_specimen.cfg` was copied aside and moved out, then the current one
+  placed.
+- **Run 1, Steam offline:** 70 s in, at the demoman step, the server dropped its own local client: `STEAMAUTH: Client
+  PinKushin received failure code 1 … Disconnect: Client not connected to Steam`. The kicked pair is kept in the
+  scratchpad (`run1-steamauth-kick-*`). **Finding: a live listen server with Steam offline needs `sv_lan 1`.**
+- **Run 2:**
+  - `sv_lan` read `0`, was set to `1` for the session, then set back to `0` and read back before quit.
+  - Every mark ran.
+  - POV `recording time 278.1, game frames 5946`; that is about 21 fps, below `fps_max 66`, but the chain counts frames.
+  - SourceTV `260.2`.
+- **lcor:**
+  - `tf2-live-build11138802-spec-pov-cp_granary.dem`: 2,412,088 B, `d017823c…7099`.
+  - `tf2-live-build11138802-spec-stv-cp_granary.dem`: 1,654,479 B, `e83851ca…6a36`.
+- **Restore:** `console.log`, `demoheader.tmp`, `tf2_playerstats.dmx` and `config.cfg` were put back from aside. Both
+  2026-10-02 leftovers are back byte-identical: the cfg, and `tf/tf2ds_specimen.dem`, which this run's recording had
+  overwritten in place. **Diff against `before.txt`: empty.**
+
+### The downloaded builds: inventory (read-only) and run recipes
+
+All three were booted by the owner first, 2026-10-29; only after that did he clear them to be launched here. Executables
+were checked with `Get-AuthenticodeSignature`, and nothing was run during the inventory. "Extracted" counts are files.
+
+| build | folder | files | steam.inf | engine.dll date | executables (size, sha256 prefix, signature) |
+|---|---|---|---|---|---|
+| 1.1.0.0 | `D:\tf2-builds-dl\tf-2-1.1.0.0-19-jul-2010\TF2 1.1.0.0 (19 Jul 2010)\TF2 1.1.0.0 (19 Jul 2010)\` (the owner's extract) | 38,261 | 1.1.0.0 | Jul 16 2010 | `hl2.exe` 103,760 `EDB01AEA` Valid; `platform\SmartSteamEmu\SmartSteamLoader.exe` 232,448 `44E6E203` NotSigned; `VTF2ItemsTool.exe` 58,880 and `bin\VTF2ItemsTool64/86.exe` NotSigned; `Launch Team Fortress 2.bat`; `rev.ini` |
+| 3862 (2009) | `D:\tf2-builds-dl\team-fortress-2-3862\team fortress 2 3862\team fortress 2\` (the owner's extract) | 55,829 | 1.0.5.9 | Jun  4 2009 | `hl2.exe` 98,304 `C59B406E` NotSigned; `tf2.lnk` (original `2CFA0465`); `tf\*.bat` are Valve's reslist scripts |
+| 1.0.9.5 | `D:\tf2-builds-dl\tf2-2010-1.0.9.5-extracted\Team Fortress 2\` | 38,761 (= the 7z's 38,761 files, 901 dirs; no absolute or `..` entry) | 1.0.9.5 | Jun  8 / Jun 10 2010 | `hl2.exe` 103,760 `D044773D` Valid; `tf2.exe` 44,032 `4865E3B9` NotSigned (a ShellExecuteEx loader); REVEmu `steam.dll`, `steamclient.dll`, `rev.ini` in the root; `VTF2ItemsTool64/86.exe` NotSigned |
+
+**Run recipes** (RCON args = `-condebug -usercon +ip 127.0.0.1 +hostport 27025 +rcon_password <Tf2Mcp's stored> +net_start`):
+
+- **1.0.9.5:** `hl2.exe -game tf -steam <RCON args> +fps_max 66 +tv_enable 1`, with the working directory set to the
+  game folder, started directly. It ran first time.
+  - `version` printed `Protocol version 15`, `Exe version 1.0.9.5 (tf)`, `Exe build: 16:13:38 Jun 10 2010 (4231)`.
+  - It runs `secure`, and its REVEmu steamid is `STEAM_0:0:797930894`.
+- **1.1.0.0:** the owner reports that `hl2.exe` started bare errors for want of `gameinfo.txt` (no `-game tf`). Its
+  `Launch Team Fortress 2.bat` runs `del rev-client_440.log`, `rmdir ./RemStorage`,
+  `cd platform\SmartSteamEmu`, then `start SmartSteamLoader.exe`.
+  - `SmartSteamEmu.ini` has `Target = ..\..\hl2.exe`, `CommandLine = -steam -game tf`, `AppId = 440` and
+    `Offline = 0`.
+  - Recipe: copy the ini aside (sha256 `5F8635E0…3373`), then extend `CommandLine` with the RCON args,
+    `+fps_max 66 +tv_enable 1` (scratchpad `ini-args.ps1`, which asserts exactly one match).
+  - Start `SmartSteamLoader.exe` with the working directory set to `platform\SmartSteamEmu`. The `.bat` itself is not
+    run, because it deletes a log and a folder.
+  - Restore the ini from aside and verify the hash.
+- **3862:** the owner double-clicks the edited `tf2.lnk`. Its shipped Arguments come first, then the RCON args.
+- **2008:** the owner double-clicks the edited `Start Team Fortress 2.lnk`, with the same arrangement.
+
+**Every era override:** 2010 gets `tf2ds_era_2010.cfg`, which redefines nothing. Both 2010 `client.dll` files carry
+the two-argument `build %d %d` format string, as 2011 does; 3862 carries the one-argument `build %d`.
