@@ -11296,3 +11296,19 @@ restate it.
 (Number note: the plan document reserved "D240 at time of writing" for the gcor swap decision; that entry takes the
 next free number when it lands.)
 
+## D241 — the shared specimen script names the player `PinKushin`, ASCII (2026-10-29)
+
+*Owner-voiced.* **The owner, 2026-10-29**, on the UTF-8 name `Пётр大将` in `tools/specimen/tf2ds_specimen.cfg`: *"fix the
+name to my name, so we dont have to wworry about it PinKushin"* [typos kept as spoken: "wworry" is "worry"].
+
+**The decision:** `ds_extras` in the shared specimen script runs `name PinKushin`, an ASCII name, on every build.
+
+**Why it followed:** on build 3258 a UTF-8 byte in the alias ends its quoted body early and the rest of the line runs
+at once at top level, so the shared cfg defined a broken `ds_extras` there (measured, run 9 of
+`docs/measurements/2026-10-28-era-specimens-v2-plan.md`); on 3420 and 3862 `name` does not take at all. An ASCII name
+removes one per-era difference from the specimens (D240) instead of documenting it. The owner gave no further reason.
+
+**What it does not touch:** the UTF-8 name finding (the old 2013 POV demo in gcor) stays as it is. Pairs recorded
+before this carry whatever name took in each demo. A UTF-8 name test, if wanted, is a separate dedicated specimen. The
+plan document's differences table carries the dated row.
+

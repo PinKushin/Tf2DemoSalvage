@@ -1363,6 +1363,7 @@ Evidence classes: **read** (published source or shipped game data), **measured**
 | Object type of the sentry: 3 (old enum), not 2 | 3420, 3862 vs 4231 | measured | inherent; the poll accepts any non-zero type |
 | `name` does not take (the start name, the UTF-8 name and the rename are absent) | 3420, 3862 | measured; that the Steam persona overrides it is interpolated | inherent so far |
 | UTF-8 name dropped from a cfg (the ASCII rename works) | 3258 | measured | inherent; the mechanism is the alias-quote row above (run 9) |
+| **2026-10-29:** the cfg's name is now ASCII `PinKushin` (D241), because on build 3258 the UTF-8 name breaks the `ds_extras` alias: it ends the quoted text early and runs the rest at once (measured in run 9). Pairs recorded before this carry whatever name took in each demo. | every build | measured (run 9) for 3258; the other builds are by the decision, not a per-build measurement | **fixed in the script**; a UTF-8 name test is a separate dedicated specimen if wanted |
 | `tf_bot_add`, `tf_bot_quota` unknown | 3258, 3420, 3862 | measured | inherent (no bots before the bot update) |
 | `tf_bot_add` accepted but adds nothing | 5252 | measured (`status`) | not chased |
 | `addcond`/`removecond` unknown | 3258, 3420 | measured | inherent |
