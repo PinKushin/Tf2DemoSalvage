@@ -973,7 +973,7 @@ Then the click, `drive.ps1` (2008/3862 only), collect the demos first, then `res
   `Exe build: 20:17:35 Mar 19 2008 (3420)`. With `sv_lan 1` the player **stayed** (`status`: `PinKushin … active
   loopback`), fixing run 2's `No Steam logon` drop.
 - **Finding: `name` does not take in this build, before or after the map.** `name tf2ds_specimen` after the map loaded
-  (twice, quoted and unquoted) left `"name" = "PinKushin"`, so the persona name overrides the cvar. The chain's UTF-8
+  (twice, quoted and unquoted) left `"name" = "PinKushin"` (that the Steam persona overrides the cvar is interpolated, not observed). The chain's UTF-8
   name and its rename are therefore absent from both demos.
 - **Finding: the owner's modern class cfgs run on `joinclass`.** `scout.cfg` etc. in `tf/cfg` (crosshairswitcher)
   printed `Unknown command: cl_crosshair_*` / `tf_remember_activeweapon` and `Can't use cheat cvar viewmodel_fov`;
