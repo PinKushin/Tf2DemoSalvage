@@ -137,8 +137,9 @@ The after-reads over 25% (04, 15, 16) are single samples as the viewer exited; n
 quotes every number it uses; the raw stdout, shots and hash logs are not committed (as `59b95325` settled for the
 double-buffer record). Scripts kept: `run.ps1`, `all.ps1`, `hashcmp.ps1`.
 
-**Deviations.** (1) Two hash runs were added after the plan (`hash-5-B`, `hash-6-A`), because `hash-2-B` disagreed with
-every other run on `pose` (below) and the plan's four could not say whether that was the build. (2) Run 11-empty-B started
+**Deviations.** (1) Eight hash runs were added after the plan (`hash-5-B`, `hash-6-A`, then `hash-7` … `hash-12`, 22:40-23:20,
+behind the same gate), because `hash-2-B` disagreed with every other run on `pose` (below) and the plan's four could not
+say whether that was the build. (2) Run 11-empty-B started
 with a 24% sample, under the gate's 25%.
 
 ## Result
@@ -159,18 +160,33 @@ person: 16 moment windows each.
 
 Every whole-frame difference is the frame-time digits of the overlay, as large in the A/A controls.
 
-Mode-0 frame hashes, gummo first person, each tick by its first frame (`hashcmp.ps1`): **`cull` equal on every shared tick
-of every pair** (229-237). `pose`: A1/B4 229/229, B5/A6 237/237, A3/B4 226/231, A1/A3 224/229 (the control), B5/A1 221/229.
-**`hash-2-B` alone disagrees with all five other runs from tick 30010 on** (14 of 229-230 equal, against A and B alike),
-while B4 and B5 match A exactly — so it is a run-to-run state, not the build. What that run's pose diverged on is not
-established (*interpolated*: something with its own clock, such as the corpse worker; `cull` stayed equal, so the
-collated set did not change). `particles`, `rest` and `image` differ in the A/A pairs as much as A/B, as finding 97
-records for this instrument.
+Mode-0 frame hashes, gummo first person, each tick by its first frame (`hashcmp.ps1`). `cull` is equal on every shared tick
+of every pair (229-237), but it hashes the camera's world cull (world, sky and overlay batches, detail corners —
+`Device3D.CullPart`), not the entities, so it says nothing about this change. **`pose` is the entity instances, and the
+registered falsifier fired on it once:** `hash-2-B` agreed with A on only 14 of 229 ticks, from tick 30010, where no A/A
+pair of the first six runs fell below 224/229.
+
+**Six more runs (deviation 1 widened to `hash-7` … `hash-12`, A B A A B A) settle it: the split is run state, in both
+builds.** The twelve runs fall into two families, and the family follows the corpse count the run's first moment window
+printed, not the build:
+
+| family | runs | `corpses … held` | `pose` within the family | `pose` against the other |
+|---|---|---|---|---|
+| X | 1-A, 3-A, 4-B, 5-B, 6-A | 12 | 221-237 of 229-237 equal (A1/B4 229/229, B5/A6 237/237) | 6-25 equal |
+| Y | 2-B, 7-A, 8-B, 9-A, 10-A, 11-B, 12-A | 11 | 142/146-221/230 equal against 2-B | (as above) |
+
+Both families hold both builds (X: three A, two B; Y: four A, three B), and within a family A and B agree as closely as
+two runs of one build do. **Scored: pose identity holds within a family; the family itself is a run-to-run state that
+A shows as often as B.** Which corpse is present in one family and not the other, and why a run starts with 11 or 12, is
+not established (*interpolated*: the corpse worker's timing against the opening seek) and is filed in the report, not
+here. `particles`, `rest` and `image` differ in the A/A pairs as much as A/B, as finding 97 records for this instrument.
 
 **Mode-2 verifier on B: `queue verify: 745500 frames checked, 0 changed`**, `mat_queue_mode -1: QueuedThreaded on 6
 physical cores`, no exception, exit 0.
 
-**Moment line, mean of each run's windows (0.01 ms resolution), A → B:**
+**Moment line, A → B** — each figure the mean of a run's 16-17 windows, and `MomentCostLog` prints each window at 0.1 ms
+(`0.#`), so these are means of rounded values; the probe's unrounded splits (above) and `advance` (below, 0.001 ms) are the
+finer instruments:
 
 | view | `sample` | `collate` |
 |---|---|---|
@@ -200,17 +216,20 @@ faster (by 0.36-0.86 ms), so it is not one bad run; but the measured parts of th
 allocation fell 0.02-0.07 MB a frame (`gc:` lines: A 0.96-1.02, B 0.93-0.95 MB in first person; A 0.54-0.56, B 0.49-0.51
 empty) and the gc pause by 0.00-0.03 ms, which is the tally's two strings per undrawable prop no longer being built.
 
-**Scored.** Identity held. `advance` held in the empty view and overshot the band by 0.009 ms in first person (the band was
+**Scored.** Identity: world pixels and the verifier held; the `pose` falsifier fired on one run and the extra runs show it is
+a run-state family both builds fall into (above), so held within a family. `advance` held in the empty view and overshot the band by 0.009 ms in first person (the band was
 from one probe run per view). `camera pose` in the band in the empty view but overlapping; outside and overlapping in first
 person. The frame is claimed in neither view, by the registered rule.
 
 ## Verdict
 
 **Two of B259's whole-set walks are gone, measured where they run:** the sample's walk over the recording's 6,456 tracks
-(−0.115 to −0.125 ms on `sample`) and the undrawable tally's string work (−0.065 to −0.070 ms on `collate`), together
-**0.185 ms a frame in the empty view (6.1% of 3.02 ms) and 0.19 ms in first person (2.7% of 7.06)** (sum of the moment-line
-differences; the frame itself is not claimed). Every drawn frame compared is the same: world pixels, `cull` hashes, and
-the verifier's 0 changed frames.
+(−0.115 to −0.125 ms on `sample`; `advance`, which holds it at 0.001 ms resolution, −0.141 and −0.169 with ranges apart)
+and the undrawable tally's string work (−0.065 to −0.070 ms on `collate`, means of 0.1-rounded windows, with the probe's
+0.065 → 0.010 behind it and `camera pose` overlapping), together **0.185 ms a frame in the empty view (6.1% of 3.02 ms)
+and 0.19 ms in first person (2.7% of 7.06)** (sum of the moment-line differences; the frame itself is not claimed). Every paused frame compared is the same in the world, the verifier saw 0 changed
+frames, and the instance (`pose`) hashes agree between builds as closely as between runs of one build, once the
+corpse-count family each run falls into is matched.
 
 **What B259 still walks per frame** (B, empty view): `sample` 0.215 (players 0.06, the wakes and lerps, the live list), 
 `drawlist` ~0.15-0.21 (prepare 0.05, players 0.065, filters 0.02), `collate` 0.135 (the reconcile walk's identity and keyed

@@ -87,12 +87,12 @@ is open: an unfixed timing input to the shot, *interpolated*.
 
 **The wrong belief, kept because it was written down as reasoning.** Stage C's comment on the sample's closing walk said
 it *"touches one reference and one null test per track"*, as if that were free. On f12 there are **6,456 tracks for ~492
-live props**, so the walk was thirteen null tests per prop drawn: 0.13 ms a frame, timed inside. The engine has no such
+live props**, so the walk was thirteen null tests per prop drawn: 0.13 ms a frame, timed inside (measurements/2026-10-28-b259-entity-walks.md). The engine has no such
 walk: its per-frame walks iterate `m_BaseEntities`, which an entity joins when created and leaves when deleted
 (`cliententitylist.cpp:340`, `:402-403`). The timeline now keeps that list. The same probe found `DrawTally.NotDrawable`,
-a diagnostic, at 0.065 ms: two key strings built and hashed for each of ~220 undrawable props a frame, every one the same
-object as the frame before. Measured, both views: `sample` −0.115 to −0.125 ms, `collate` −0.065 to −0.070
-(`measurements/2026-10-28-b259-entity-walks.md`). Evidence class: measured on the corpus, with a control per instrument.
+a diagnostic, at 0.065 ms (same record): two key strings built and hashed for each of ~220 undrawable props a frame, every one the same
+object as the frame before. Measured, both views (measurements/2026-10-28-b259-entity-walks.md): `advance` −0.141 to −0.169 ms
+(ranges apart), `collate` −0.065 to −0.070 on the moment line's 0.1-rounded windows. Evidence class: measured on the corpus, with a control per instrument.
 
 ## What the floor is, then
 
