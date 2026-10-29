@@ -1035,8 +1035,9 @@ script's timing:
 - **Instrument note:** the client flushes the demo in chunks of about 196 KB. During the run, the copy stayed at
   913,408 B for 33 s, then jumped to 1,110,016 B and read both finished. So the poll lags the game by up to a flush.
   That is safe, because it only lengthens the wait.
-- **Open, for the lead:** the shared `ds_engineer_build` in `tf2ds_specimen.cfg` (2010 onward) has the same fixed
-  `wait 198`, and 4231's dispenser was not finished. 2008 can be redone with the new pre2011 cfg as it stands.
+- **Closed by the third pass (below):** the wait/go/fallback mechanism moved into the shared `ds_engineer_build`, and
+  `tf2ds_era_pre2011.cfg` now redefines only the two `build` lines (`ds_build_sentry`, `ds_build_dispenser`). The
+  fallback became `wait 7920`. 2008 can be redone with it as it stands.
 
 ### 2009, build 3862 (1.0.5.9), run 3 (2026-10-29): recorded, POV + SourceTV pair in lcor
 
@@ -1080,6 +1081,66 @@ script's timing:
   from the aside copies. `tf2.lnk` was restored, hash match `2CFA0465…2D88`. No `hl2` was left, and `SteamClientDll`
   reads `C:\Program Files (x86)\Steam\steamclient.dll`.
 
+### The 2013 and live sentry: the same cause as the 2010 dispenser (2026-10-29)
+
+The `spec2` 1729296 and live POVs left the sentry at pct 0.58 while 4231 finished it. Read with Probe `buildings`
+(arithmetic over its ticks, at 66.67 ticks/s, assuming construction is linear):
+- **Construction ran at the normal rate.** 1729296: the sentry was `building True` from tick 5976 and at 0.58 by the
+  kill at 6381, 405 ticks (6.1 s), so a full build is 10.5 s. The dispenser went from 6211 to 0.13 at 6381, so 20 s.
+  Live: 400 ticks to 0.58, 162 to 0.12, the same. 4231: the sentry took 698 ticks (10.5 s) to finish.
+- **The kill came sooner.** From the sentry's build start to the kill: 405 ticks (6.1 s) on 1729296 and 400 on live,
+  against 970 ticks (14.5 s) on 4231, for the same ~660 waits. So the faster clients killed both buildings, and the
+  slower one only the dispenser: the same frame-counted `wait 198` the 2009 fix replaced.
+- **Refuted:** spawn placement (both were `placing False`, `building True` at the mid position); an upgrade (level 1
+  everywhere, `mode 0`).
+- The re-recordings below, with the wait read from the demo, finish both buildings in every era. That is the
+  manipulation that confirms the cause.
+
+### Third pass (2026-10-29, 12:37–13:51): the five self-startable eras re-recorded with the shared engineer wait
+
+The shared `ds_engineer_build` now ends on `tf2ds_mark engineer_wait` and the wait/go/fallback aliases
+(`tf2ds_specimen.cfg`); scratchpad `era-f/run-era.ps1` drives it (reads the build, loads the map with `fps_max 66;
+sv_lan 1; tv_delay 10; tv_enable 1`, runs the chain, polls with `era-f/pollbuild.ps1` and sends `ds_engineer_go`).
+The `spec2` pairs (the second pass) were renamed apart in lcor first; `spec-pov` is not a substring of `spec2-pov`.
+One client at a time, each session under the desktop lock (`hold-lock.ps1` under `run-exclusive.ps1`), quit before
+the next. Every placed cfg's sha256 matched the worktree's (`94b5607f…c14a` for the shared one).
+
+| era | launch | POV s / frames | lcor `…-spec-{pov,stv}-cp_granary.dem` (sha256) | captured | sentry / dispenser | svc_VoiceData, codec | engineer step |
+|---|---|---|---|---|---|---|---|
+| 1729296 (2013) | `mcp__tf2__launch … hl2.exe "+fps_max 66 +sv_lan 1 +tv_enable 1"` | 238.2 / 14,384 | `tf2-2013-build1729296`: POV 3,135,865 B `03162bfb…9e130`; STV 1,114,516 B `29029c3d…8f6` | 1 | done / done | 28, `vaudio_speex` | go at +32 s |
+| live 11138802 | `mcp__tf2__launch "+fps_max 66 +tv_enable 1"`; `sv_voicecodec vaudio_celt` before `map` | 262.4 / 16,214 | `tf2-live-build11138802`: 3,754,805 B `040a9f49…ffd4`; 1,719,222 B `4e51fe40…75bc` | 1 | done / done | 79, `vaudio_celt` | fallback, then go (both already done) |
+| 4604 (2011) | `SteamClientDll` blanked as the `.bat` does; `hl2.exe -game tf -steam -appid 440` + RCON args (the first start shut down, the second ran, as recorded before); `sv_use_steam_voice 0` before `map` | 264.9 / 13,530 | `tf2-2011-build4604`: 3,119,444 B `a133bb4f…c341`; 1,043,987 B `1f180a17…2979` | 1 | done / done | 88, `vaudio_speex` | go at +40 s |
+| 4231 (1.0.9.5) | `hl2.exe -game tf -steam` + RCON args | 280.6 / 11,969 | `tf2-2010-build4231`: 2,590,482 B `6487f0d2…a409`; 1,000,815 B `086a5bd8…b563` | 1 | done / done | 44, `vaudio_speex` | go at +44 s |
+| 4269 (1.1.0.0) | `SmartSteamEmu.ini` `CommandLine` extended (`ini-args.ps1`), `SmartSteamLoader.exe`, ini restored once RCON answered | 277.0 / 5,065 | `tf2-2010-build4269`: 1,649,103 B `1fbaa6e7…aa25`; 1,056,173 B `35903ed0…e076` | 1 | done (a mini-sentry) / done | 28, `vaudio_speex` | fallback, then go (both already done) |
+
+**Read back** (Cli `-s` and `-t -e`, Probe `buildings`; scratchpad `era-f/verify/`), POV and SourceTV alike: network
+protocol 24 / 24 / 16 / 15 / 15 in table order, `svc_serverinfo … map "cp_granary"`, `teamplay_point_captured` 1, 13
+`player_death` (14 on live), 2 `svc_SetPause`. Each demo's builder control resolved on every tick with a builder.
+Refusals: only the two deliberate unknowns, plus the owner's `cl_hud_playerclass_use_playermodel` on 1729296 and 4604.
+The capture line printed the UTF-8 name as `empty` (1729296) or 14 `�` (4604, 4231, 4269); not chased.
+
+**Voice, settled per era:**
+- **4604:** `sv_use_steam_voice` read `1` (`replicated`, def. 1), with the help text "if enabled, voice_inputfromfile
+  will no longer function". Set to 0 before `map`: 88 packets. Set back to 1 and read back before quit.
+- **Live:** `sv_voicecodec` read `steam` (no flags, so not archived; `sv_use_steam_voice` is a deprecated placeholder
+  there, 0). Two 5 s voice-only test demos (scratchpad `era-f/voicetest/`, not lcor): `vaudio_speex` → `svc_voiceinit
+  codec "vaudio_speex" quality 11025`, 0 packets, and the console printed "Unable to load voice codec 'vaudio_speex'.
+  Voice disabled."; `vaudio_celt` → `quality 22050`, 171 packets. The real run used `vaudio_celt`. Restored to
+  `steam`, and `sv_lan` to `0`, both read back before quit.
+- 4231 and 4269 have no `sv_use_steam_voice` (`Unknown command`).
+
+**Restore:** every folder's diff against its before-listing is **empty** (`era-f-<era>/after-restore.*.txt`).
+- Live's 2026-10-02 leftovers (`tf/cfg/tf2ds_specimen.cfg`, `tf/tf2ds_specimen.dem`) are back byte-identical from the
+  aside copies, and `config.cfg` too.
+- The root `rev-client.log` the 4231 and 4269 emulators append to was copied before and restored after (hash match),
+  which closes the residue the earlier passes left.
+- `SteamClientDll` read the 4604 path, the 4231 path, and `…\steamclient.dll ` with a trailing space after the three
+  emulated sessions. Each time it was set back to `C:\Program Files (x86)\Steam\steamclient.dll` and read back.
+- No `hl2`, `tf_win64` or `SmartSteamLoader` was left running.
+- The live prep's listing hashes about 22 GB of VPKs and outlasted a 2-minute tool call. The aside copy and placement
+  were finished by `era-f/prep-rest-live.sh`, after checking that the listing was complete (291 entries, as in
+  `era-live-r2`).
+
 ### Differences observed, per era (D240: fixed in the script where the build allows it, documented where inherent)
 
 The owner, 2026-10-29: *"any differences like that should be fixed, it lets us obviously see and notice changes too,
@@ -1090,10 +1151,12 @@ Evidence classes: **read** (published source or shipped game data), **measured**
 
 | what differs | builds | evidence | status |
 |---|---|---|---|
-| Buildings not finished when the chain's `kill` came. Last state, sentry / dispenser: 3420 done / 0.44; 4231 done / 0.44; 4269 done (100/100) / 0.44; 4604 done / 0.39; 1729296 0.58 / 0.13; live 0.58 / 0.12 | 3420, 4231, 4269, 4604, 1729296, live (the `spec` POVs) | measured (`pollbuild.ps1` on each lcor POV) | **fixed** for ≤2009 (3862 recorded with both finished); **open** for 2010+ (the shared cfg has the same `wait 198`); every `spec` pair after 3862 needs re-recording once it is fixed |
+| Buildings not finished when the chain's `kill` came. Last state, sentry / dispenser, before (`spec2`) → after (`spec`): 4231 done / 0.44 → done / done; 4269 done / 0.44 → done / done; 4604 done / 0.39 → done / done; 1729296 0.58 / 0.13 → done / done; live 0.58 / 0.12 → done / done. (3420 done / 0.44, not re-recorded) | 3420, 4231, 4269, 4604, 1729296, live | measured (Probe `buildings` on each POV and SourceTV) | **fixed** in the shared cfg (third pass): one cause in every era, see "the 2013 and live sentry", below. 3420 still needs a re-record |
 | No building at all | 3258 `spec0` | measured | that pair predates the script fixes; 2007 is to be re-recorded |
 | `addcond` absent from `find` yet printing no `Unknown command` | 3862 | measured | **unresolved**: whether 3862 has `addcond` is not known; the non-zero `m_nPlayerCond` values may come from the chain's natural steps |
-| Construction time: sentry 10 s, dispenser 20 s | 3258, 3420, 3862 | read (`objects.txt`); 3862 measured 11.2 / 21.6 s | the same in every build read; 2013/live not read |
+| Construction time: sentry 10 s, dispenser 20 s | every build | read (`objects.txt`, 3258/3420/3862); measured (first `building True` → `building False`, SourceTV `spec` demos): sentry 10.4 s and dispenser 20.9 s on 4231, 4269 (dispenser), 4604, 1729296 and live; 3862 11.2 / 21.6 s from first existence | **the same in every era**; no change to explain |
+| The Engineer builds a **mini-sentry** (`m_bMiniBuilding 1`, health 100, built in 2.7 s) | 4269 only (spec1, spec2 and spec alike) | measured (Probe `buildings`: `mini True`) | **open**: a loadout difference. That the 1.1.0.0 emulator's inventory equips the Gunslinger is interpolated, not read. The step is the same; the object is not |
+| The kill's timing is the poll's, not the build's: from `engineer_wait`, the driver read both finished after 32 s (1729296), 40 s (4604), 44 s (4231); on live (55 s) and 4269 (64 s) the 7920-wait fallback fired first | 4269, live | measured (console marks, poll timestamps) | harmless as recorded: on both, the dispenser had already finished (live: tick 7615, buildings removed at 10223), and the fallback fired within 55 s (live) and 64 s (4269) of `engineer_wait`, well past the dispenser's 21 s. Slow polls are the cause: the demo flushes in ~196 KB chunks, so at 4269's ~6 KB/s the copy did not change for about 60 s (12 polls). How many waits a second a client runs is not settled: 7920 took about a minute on both an 18 fps (4269) and a 62 fps (live) client, while the same ~660 build waits took 14.5 s on 4231 `spec2` and 6.1 s on 1729296 `spec2` |
 | `build` takes one argument | 3258, 3420, 3862 | read (`client.dll` format string `build %d`) | fixed (`tf2ds_era_pre2011.cfg`) |
 | Object type of the sentry: 3 (old enum), not 2 | 3420, 3862 vs 4231 | measured | inherent; the poll accepts any non-zero type |
 | `name` does not take (the start name, the UTF-8 name and the rename are absent) | 3420, 3862 | measured; that the Steam persona overrides it is interpolated | inherent so far |
@@ -1106,8 +1169,9 @@ Evidence classes: **read** (published source or shipped game data), **measured**
 | `cl_savescreenshotstosteam` unknown | 4604 | measured | inherent |
 | `tv_delay` clamped to at least 10 s | 3258 | measured | fixed for every era (SourceTV stops 726 frames after the POV) |
 | Steam offline drops the local player unless `sv_lan 1` | 3420, live | measured | fixed at launch (`+sv_lan 1`) |
-| No `svc_VoiceData` (`voice_inputfromfile` silently accepted) | 4604, live | measured | open, not chased |
-| Voice codec `steam`, not `vaudio_speex` | live | measured (`svc_voiceinit`) | inherent |
+| No `svc_VoiceData` (`voice_inputfromfile` silently accepted) | 4604 | measured: `sv_use_steam_voice` defaults to 1 in 4604, and its help says "voice_inputfromfile will no longer function" | **fixed**: `sv_use_steam_voice 0` before `map` (`tf2ds_era_2011.cfg` comment); 0 → 88 packets, `vaudio_speex` |
+| No `svc_VoiceData`, codec `steam` | live | measured: `sv_voicecodec steam` (default) carries none; `vaudio_speex` prints "Unable to load voice codec 'vaudio_speex'. Voice disabled." (0 packets in a 5 s test demo); `vaudio_celt` 171 in the same test. `bin/x64` ships `vaudio_celt.dll` and no `vaudio_speex.dll` (32-bit `bin/` has both) | **fixed** for voice: `sv_voicecodec vaudio_celt` before `map` (`tf2ds_era_live.cfg` comment); 0 → 79 packets. **Inherent**: live's codec is CELT where 2010–2013 are Speex, and this pair is the controlled CELT specimen gcor lacked |
+| `svc_VoiceData` count from the same 330-wait step: 1729296 81 → 28; 4231 266 → 44; 4269 44 → 28; 4604 0 → 88; live 0 → 79 (spec2 → spec) | 2010+ | measured | not chased; that the count follows how long 330 waits take on that run is interpolated |
 | `quit` hangs in shutdown | 3420 | measured | worked around (disconnect, quit, end after 30 s); 3862 exited cleanly |
 
 **Every era override:** 2010 gets `tf2ds_era_2010.cfg`, which redefines nothing. Both 2010 `client.dll` files carry
