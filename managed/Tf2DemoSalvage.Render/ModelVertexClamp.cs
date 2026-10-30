@@ -30,4 +30,12 @@ public static class ModelVertexClamp
     /// <param name="cap">The cap, or null for off.</param>
     /// <returns>The count to draw.</returns>
     public static int Apply(int count, int? cap) => cap is { } limit ? Math.Min(count, limit) : count;
+
+    /// <summary>
+    /// Whether a draw is skipped outright: only under a cap of zero. Every other cap, and none, issues every draw, an empty
+    /// batch included as the default does, so a capped run counts the same draws as an uncapped one.
+    /// </summary>
+    /// <param name="cap">The cap, or null for off.</param>
+    /// <returns>True for a cap of zero.</returns>
+    public static bool Suppresses(int? cap) => cap == 0;
 }

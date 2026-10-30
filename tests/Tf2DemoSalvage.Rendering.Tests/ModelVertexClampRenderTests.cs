@@ -31,11 +31,11 @@ public sealed class ModelVertexClampRenderTests
     }
 
     [Test]
-    public void DrawModel_CapThree_DrawsOnlyTheNonEmptyBatchWithThreeVertices()
+    public void DrawModel_CapThree_DrawsBothBatchesWithThreeVertices()
     {
         (long draws, ulong vertices) = DrawModel(3) ?? Skip();
 
-        draws.ShouldBe(1, "under a cap an empty batch is a skipped draw");
+        draws.ShouldBe(2, "only a cap of zero suppresses a draw, so V3 counts the same draws as N");
         vertices.ShouldBe(3ul);
     }
 
@@ -73,6 +73,51 @@ public sealed class ModelVertexClampRenderTests
 
         draws.ShouldBe(0);
         vertices.ShouldBe(0ul);
+    }
+
+    /// <summary>A cap set between the model and its decals is the one the decals draw under.</summary>
+    [Test]
+    public void DrawModelDecals_CapZeroSetAfterTheModel_DrawsNothing()
+    {
+        (long draws, ulong vertices) = DrawDecals(0, capAfterModel: true) ?? Skip();
+
+        draws.ShouldBe(0);
+        vertices.ShouldBe(0ul);
+    }
+
+    /// <remarks>
+    /// **The cloak pass draws inside the model pass too** (`DrawCloakPass`). A third cloaked, `spy_red` draws its standard
+    /// pass (at or below 4/9) and then its cloak pass (strictly inside 0 and 1): two draws of the six-vertex batch.
+    ///
+    /// **Plus the frame copy before it, which the cap does not touch**: `UpdateRefractTexture`'s copy is a `Blit`, one
+    /// draw of a three-vertex full-screen triangle (`WorldRenderer.Water.cs`, `Blit`). It is a copy of the frame, not the
+    /// model's geometry, so every case below carries its one draw and three vertices.
+    /// </remarks>
+    [Test]
+    public void DrawModel_CloakedNoCap_DrawsBothPassesWhole()
+    {
+        (long draws, ulong vertices) = DrawCloaked(null) ?? Skip();
+
+        draws.ShouldBe(1 + 2);
+        vertices.ShouldBe(3ul + 12ul);
+    }
+
+    [Test]
+    public void DrawModel_CloakedCapThree_DrawsBothPassesWithThreeVertices()
+    {
+        (long draws, ulong vertices) = DrawCloaked(3) ?? Skip();
+
+        draws.ShouldBe(1 + 2);
+        vertices.ShouldBe(3ul + 6ul);
+    }
+
+    [Test]
+    public void DrawModel_CloakedCapZero_DrawsOnlyTheFrameCopy()
+    {
+        (long draws, ulong vertices) = DrawCloaked(0) ?? Skip();
+
+        draws.ShouldBe(1);
+        vertices.ShouldBe(3ul);
     }
 
     /// <remarks>
@@ -119,7 +164,9 @@ public sealed class ModelVertexClampRenderTests
     }
 
     /// <summary>Two six-corner decal runs on the model under <paramref name="cap"/>, counted apart from the model.</summary>
-    private static (long Draws, ulong Vertices)? DrawDecals(int? cap)
+    /// <param name="cap">The cap.</param>
+    /// <param name="capAfterModel">Draw the model with no cap and set <paramref name="cap"/> only before the decals.</param>
+    private static (long Draws, ulong Vertices)? DrawDecals(int? cap, bool capAfterModel = false)
     {
         using OffscreenTarget? target = OffscreenTarget.TryCreate(16, 16);
 
@@ -128,8 +175,9 @@ public sealed class ModelVertexClampRenderTests
             return null;
         }
 
-        target.ModelVertexCap = cap;
+        target.ModelVertexCap = capAfterModel ? null : cap;
         Draw(target, assets);
+        target.ModelVertexCap = cap;
 
         List<WorldVertex> corners = [.. Quad(), .. Quad()];
 
@@ -139,6 +187,39 @@ public sealed class ModelVertexClampRenderTests
 
         return (SubmitCounters.Draws - before, vertices);
     }
+
+    /// <summary>A six-vertex batch of <c>spy_red</c>, a third cloaked, under <paramref name="cap"/>, counted.</summary>
+    private static (long Draws, ulong Vertices)? DrawCloaked(int? cap)
+    {
+        using OffscreenTarget? target = OffscreenTarget.TryCreate(16, 16);
+
+        if (target is null || Assets is null)
+        {
+            return null;
+        }
+
+        MapAssets assets = MapCache.Load(entityModels: [SpyModel]);
+        int spyRed = Enumerable.Range(0, assets.Materials.Count)
+            .First(at => assets.Materials[at].Name.EndsWith("spy/spy_red", System.StringComparison.OrdinalIgnoreCase));
+
+        assets.Textures[spyRed]!.Value.Cloak.ShouldNotBeNull("the control: spy_red has a cloak pass to draw");
+        target.ModelVertexCap = cap;
+
+        long before = SubmitCounters.Draws;
+        ulong vertices = target.InputVertices(() =>
+            target.DrawModelPose(
+                Quad(),
+                [new WorldBatch(spyRed, 0, 6)],
+                new FreeCamera { Origin = (0f, -300f, 0f), Angles = (0f, 90f, 0f), Aspect = 1f }.ToMatrix(),
+                [1f, 0f, 0f, 0f, 0f, 1f, 0f, 0f, 0f, 0f, 1f, 0f, 0f, 0f, 0f, 1f],
+                assets,
+                bothSides: true,
+                cloak: new CloakBind(0.3f, 0.3f)));
+
+        return (SubmitCounters.Draws - before, vertices);
+    }
+
+    private const string SpyModel = "models/player/spy.mdl";
 
     /// <summary>The model: an empty batch, then six vertices.</summary>
     private static void Draw(OffscreenTarget target, MapAssets assets) =>

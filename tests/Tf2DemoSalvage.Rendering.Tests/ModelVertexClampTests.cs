@@ -34,6 +34,22 @@ public sealed class ModelVertexClampTests
         ModelVertexClamp.Apply(count, null).ShouldBe(count);
     }
 
+    [Test]
+    public void Suppresses_CapZero_IsTrue()
+    {
+        ModelVertexClamp.Suppresses(0).ShouldBeTrue();
+    }
+
+    /// <summary>No cap, and every cap but zero, draws every batch — an empty one included, as the default does.</summary>
+    [TestCase(null)]
+    [TestCase(1)]
+    [TestCase(3)]
+    [TestCase(1200)]
+    public void Suppresses_AnyOtherCap_IsFalse(int? cap)
+    {
+        ModelVertexClamp.Suppresses(cap).ShouldBeFalse();
+    }
+
     [TestCase(681, 3, 3)]
     [TestCase(681, 0, 0)]
     [TestCase(2, 3, 2)]
