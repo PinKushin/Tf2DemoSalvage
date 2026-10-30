@@ -92,6 +92,18 @@ Control:
   `driving` and `rules` included, which this change does not touch (0.124 and 0.118 against 0.083-0.103): the machine
   was slower during them (load after 07-A 33/24/16, before 09-B 18/15/4, after 25/21/22), not the build.
 
+Identity at the output (not a measurement; paused `--shot`, 1280x720, compared with `pixdiff.ps1` in the run folder,
+every pixel; captures kept outside the repository in `D:/measure-f12/flex-scratch/`):
+- Tick 30000, gummo first person: A, A, A, B, B. A2 = A3 = B1 = B2, 0 pixels differ in each pair. The first capture of
+  the session (A1) differs from all the others in the top bar only (42,997 pixels inside (0,0)-(1279,48)), the same
+  against A2 as against B1, so it is the session's first HUD draw, not the build.
+- Tick 30515, a fixed camera (`TF2VIEW_CAMERA='-3430 -1130 650 10 270'`) on scout entity 5, 0.18 s into
+  `vo/scout_StandOnThePoint03.mp3` (started tick 30503 by the trace), with a soldier and a pyro in view: A1 against A2,
+  B1 against B2, A1 against B1, A2 against B2, 0 pixels differ in each.
+- Control that the comparison sees a frame's change: A at 30515 against A at 30516, 757,877 pixels differ.
+- Byte level: `FaceFlexIdentityTests` (195 frames, three models, bit-identical streams), and the Rendering medic tests
+  through the production path, green on B.
+
 ## Verdict
 
 **The rewrite lowers `flex` by about a quarter: B 0.424-0.537 against A 0.565-0.675, ranges apart; the means of the
