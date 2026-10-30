@@ -74,9 +74,10 @@ public sealed class CorpusDamageTests
         // Measured on both sides: protocols 11 and 14 carry the old form, 15 and above the new.
         // Protocol 11's specimen is a local-corpus demo recorded by holding a soldier next to a
         // resupply cabinet, which is why it has 43 of these where the committed protocol-11 files
-        // have none at all. In gcor the old side is the 2008 POV's 24 messages alone: the scripted
-        // 2007 and 2008 specimens carry none (2026-10-29, this test's own count went 24 -> 0 without
-        // that file), which is why that recording stays in gcor.
+        // have none at all. The scripted 2007 and 2008 specimens carry none (2026-10-29), and the
+        // 2008 POV whose 24 messages were gcor's old side left gcor that day (the owner's call): the
+        // old side is now asserted on that recording by name, from lcor, and skips without it. On
+        // CI the boundary is held by UserMessageLayoutDemoTests, on that demo's first body at 14 and 15.
         int old = 0;
         int modern = 0;
 
@@ -110,9 +111,21 @@ public sealed class CorpusDamageTests
 
         // Both sides have to be exercised or this asserts nothing: a run containing only modern
         // demos would pass with the old branch never taken.
-        old.ShouldBeGreaterThan(0, "no demo at protocol 14 or below carried a Damage message");
         modern.ShouldBeGreaterThan(0, "no demo above protocol 14 carried a Damage message");
+
+        // The old side's witness, named so its absence is a skip with a reason rather than a pass.
+        string witness = Corpus.Demo(OldLayoutWitness);
+        Damages(witness).Count(message => message.Fields is not null).ShouldBe(
+            WitnessDamageMessages, $"{Path.GetFileName(witness)}: its decoded Damage messages");
+        old.ShouldBeGreaterThanOrEqualTo(
+            WitnessDamageMessages, "the witness's messages were counted on the old layout above");
     }
+
+    /// <summary>The 2008 POV, retired from gcor 2026-10-29 and kept in lcor: 24 Damage messages at protocol 14.</summary>
+    private const string OldLayoutWitness = "tf2-2008-build3420-pov-cp_granary";
+
+    /// <summary>Its Damage messages, every one 77 bits on the old layout (Cli -t, 2026-10-29: 24 lines).</summary>
+    private const int WitnessDamageMessages = 24;
 
     private static IEnumerable<UserMessage> Damages(string path)
     {

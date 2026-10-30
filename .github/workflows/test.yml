@@ -519,12 +519,14 @@ jobs:
         # Every one of them. Green, fast, and measuring nothing at all.
         # 10 -> 21 on 2026-10-29: the gcor file count, every one over 4096 bytes (21 manifest entries,
         # 21 files in tools/corpus/demos), after the scripted era specimens joined and three old ones left.
+        # 21 -> 15 on 2026-10-29: the owner retired the six remaining old era demos (15 manifest entries,
+        # 15 files: the fourteen scripted specimens and z1800).
         run: |
           $demos = Get-ChildItem tools/corpus/demos -Filter *.dem |
                    Where-Object { $_.Length -ge 4096 }
           Write-Host "$($demos.Count) demos, $([math]::Round(($demos | Measure-Object Length -Sum).Sum / 1MB)) MB"
-          if ($demos.Count -lt 21) {
-              throw "Expected at least 21 fetched demos, found $($demos.Count) - git lfs pull did not deliver the corpus."
+          if ($demos.Count -lt 15) {
+              throw "Expected at least 15 fetched demos, found $($demos.Count) - git lfs pull did not deliver the corpus."
           }
 
       - name: Cache the native codecs
@@ -709,7 +711,9 @@ jobs:
           # too and reports more; that number must never be copied here.
           # 156 -> 217 on 2026-10-29: measured on a gcor-only local run (.trx total) after the scripted
           # era specimens joined gcor (+14) and the 2007 pair and 2008 STV retired (-3): 21 gcor demos.
-          ./build/assert-test-count.sh '**/corpus.trx' 217 Corpus
+          # 217 -> 211 on 2026-10-29: measured the same way after the six remaining old era demos retired
+          # (15 gcor demos): the six per-file container cases left with them; no test was removed.
+          ./build/assert-test-count.sh '**/corpus.trx' 211 Corpus
 
       # `always()` for the same reason as the unit job's copy above: the floors in this step are
       # only checkable against a green run's .trx, and a green run used to upload none.

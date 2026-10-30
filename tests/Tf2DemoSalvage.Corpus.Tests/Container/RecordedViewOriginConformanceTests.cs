@@ -228,11 +228,20 @@ public sealed class RecordedViewOriginConformanceTests
         //
         // **The 2009 badlands demo is still the only witness** (2026-10-29): the seven scripted
         // cp_granary POVs all read a dead median of 0 (why is not measured; their deaths are the
-        // script's own `kill` and `explode`). That is why it stays in gcor.
-        divergent.ShouldNotBeEmpty(
+        // script's own `kill` and `explode`). It left gcor that day (the owner's call), so the
+        // assertion names it and reads it from lcor, skipping with a reason where it is absent —
+        // on CI. What the engine writes into a dead recorder's view is a real-bytes question; no
+        // synthetic demo can answer it.
+        string witness = Path.GetFileName(Corpus.Demo(DeadRecorderWitness));
+
+        divergent.ShouldContain(
+            witness,
             "every dead stretch tracked the recorder's own entity, so the recorded view is no " +
             "longer following the spectated player — see docs/findings/01-container.md");
     }
+
+    /// <summary>The 2009 badlands POV, retired from gcor 2026-10-29 and kept in lcor: dead median −168.97.</summary>
+    private const string DeadRecorderWitness = "tf2-2009-build3862-pov-cp_badlands";
 
     /// <summary>The middle value of a sorted copy, so one odd tick cannot decide an answer.</summary>
     private static float Median(List<float> values)

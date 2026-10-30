@@ -29,7 +29,8 @@ public sealed class CorpusRecorderPredictionTests
 {
     /// <summary>The 2009 badlands POV, a session a person played.</summary>
     /// <remarks>
-    /// **Kept, not moved to the scripted 2009 specimen, and that is the owner's call to change** (2026-10-29). On
+    /// **Read from lcor**: the owner retired it from gcor on 2026-10-29, and no written demo can stand in for a played
+    /// session's motion. These tests also need a TF2 install for the map, so CI skipped them before as well. On
     /// <c>tf2-2009-build3862-spec-pov-cp_granary</c> the three tests here read: prediction mean 3.562 against holding
     /// 4.094 (5,185 gaps; the bound is under half), 22 of the 50 differing ticks the control asks for, and no predicted
     /// landing beside the server's one at tick 2123. The script walks, jumps once and crouches; it does not run about

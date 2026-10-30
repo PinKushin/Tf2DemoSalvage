@@ -32,17 +32,18 @@ public sealed class CorpusServerConVarTests
 
     /// <summary>An era SourceTV recording on a server that changed nothing, which the scripted ones are not.</summary>
     /// <remarks>
-    /// **Kept, and the owner's call to change** (2026-10-29): every scripted specimen's server sets
-    /// <c>sv_cheats</c>, <c>mp_respawnwavetime</c> and <c>mp_disable_respawn_times</c>, so on
-    /// <c>tf2-2011-build4604-spec-stv-cp_granary</c> <c>Changed</c> names those three and a vanilla server is not
-    /// there to measure.
+    /// **Kept** (2026-10-29): every scripted specimen's server sets <c>sv_cheats</c>, <c>mp_respawnwavetime</c> and
+    /// <c>mp_disable_respawn_times</c>, so on <c>tf2-2011-build4604-spec-stv-cp_granary</c> <c>Changed</c> names those
+    /// three and a vanilla server is not there to measure. The recording left gcor that day (the owner's call) and is
+    /// read from lcor; <c>ServerConVarsFromADemoTests</c> carries its five values through a written demo on CI.
     /// </remarks>
     private const string VanillaStvDemo = "tf2-2011-build4604-stv-koth_viaduct";
 
     /// <summary>A solo POV recording, whose server changed nothing at all.</summary>
     /// <remarks>
     /// Kept for the same reason: the scripted 2013 POV carries <c>net_setconvar</c> with the three above
-    /// (2026-10-29), so it is not a demo that sends no ConVars.
+    /// (2026-10-29), so it is not a demo that sends no ConVars. Read from lcor since it left gcor that day;
+    /// <c>ServerConVarsFromADemoTests</c> asks the same of a written demo on CI.
     /// </remarks>
     private const string PovDemo = "tf2-2013-build1729296-pov-cp_badlands";
 

@@ -128,7 +128,7 @@ public static class DemoCorpus
     /// <returns>The path, or <c>null</c> when no such demo is present.</returns>
     /// <remarks>
     /// **Returns null rather than falling back to another demo.** The specimens differ enormously —
-    /// the committed 2013 badlands POV carries 11 props and no wearables at all — so a probe
+    /// the 2013 badlands POV carries 11 props and no wearables at all — so a probe
     /// quietly redirected there would report numbers about nothing.
     /// </remarks>
     public static string? Find(string fragment, TextWriter? log)

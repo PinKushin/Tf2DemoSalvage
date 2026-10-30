@@ -23,7 +23,8 @@ namespace Tf2DemoSalvage.Core.Tests.Scene;
 /// **Kept, not moved to the scripted 2013 specimen** (2026-10-29): on
 /// <c>tf2-2013-build1729296-spec-pov-cp_granary</c> no tick has the recorder alive, moving and turning more than two
 /// degrees, because the script moves with <c>+forward</c>/<c>+moveleft</c>/<c>+back</c>/<c>+moveright</c> and never
-/// turns. Retiring this demo is the owner's call.
+/// turns. The owner retired it from gcor that day; it is read from lcor and skips without it, and
+/// <c>TimelineMomentsRecorderFeetTests</c> (Scene.Tests) asks the same of a written demo on CI.
 /// </remarks>
 public sealed class CorpusRecorderFeetTests
 {
