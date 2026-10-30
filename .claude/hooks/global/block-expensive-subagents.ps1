@@ -178,6 +178,20 @@ if ($tool -eq 'Agent') {
 }
 
 if ($tool -eq 'Agent') {
+    # EFFORT IS LOW OR MEDIUM, 2026-10-29. The owner, after an Opus implementer spent nearly an hour (447k tokens) on
+    # a mechanical rename sweep: "use low effort or medium effort at the most of subagents too". An Agent call that
+    # names no `effort` inherits the lead's, which is high, so ABSENCE is refused, same as an omitted model: the
+    # failure is not a wrong value but never having chosen one. `high`, `xhigh` and `max` are refused for every
+    # subagent type, reviewers and specialists included ("subagents"). The Agent tool documents `effort` as set only
+    # when the owner asks; he asked. Tests: block-expensive-subagents.tests.json (run-hook-tests.ps1 supports a
+    # per-case "tool" for this hook). Workflow agents are not covered: their opts carry no effort field to check.
+    $effort = "$($toolInput.effort)".Trim().ToLowerInvariant()
+    if ($effort -ne 'low' -and $effort -ne 'medium') {
+        $shown = if ([string]::IsNullOrWhiteSpace($effort)) { 'none (it would inherit the lead''s)' } else { "'$effort'" }
+        Deny(("Blocked: subagent effort is $shown. Set effort 'low' (mechanical, bounded) or 'medium' (judgment work) " +
+              "on every Agent call; never high, xhigh or max (owner, 2026-10-29)."))
+    }
+
     $model = $toolInput.model
 
     # An omitted model inherits the session's, which is the expensive one. Absence is the failure

@@ -79,6 +79,18 @@ Owner, after the D217 agent (~900k context) was handed unrelated frame-cost work
 Owner, on an opus agent launched to add gcor specimens for new protocols: *"adding specimens was probably a sonnet or
 haiku job, not a opus job"*. Picking files, manifest entries, era tests, doc updates = bounded-task (sonnet). Opus only
 if a decode actually fails and needs diagnosis — spawn that separately when it happens.
+**Repeated 2026-10-29, same mistake:** the gcor swap's retirement (renaming ~50 test references to the new specimens,
+moving floors, manifest entries) went to an OPUS implementer for nearly an hour (447k tokens). Owner: *"the gcor demos
+should have been another sonet or even haiku, iit was purely a mechaniical thing"*. **How to apply:** split a mixed task.
+Rename/re-point sweeps, floors, manifest and doc edits = `bounded-task` (sonnet, haiku if fully self-contained); opus only
+for the part with judgment (a synthetic fixture that must encode what the engine does, a failure that needs diagnosis),
+launched as its own agent. Read this entry BEFORE choosing the model, not after.
+
+## 2026-10-29: subagent effort is low, medium at most
+Owner: *"use low effort or medium effort at the most of subagents too"*. Set `effort` to `low` (mechanical, bounded) or
+`medium` (a judgment task) on EVERY Agent call; never `high`/`xhigh`/`max` for a subagent. The Agent tool's `effort`
+parameter exists for exactly this and is only set when the owner asks, which he now has. A hook could enforce it (the
+Agent call's parameters are visible to a PreToolUse hook): drafted for the owner to apply, not applied.
 
 ## 2026-10-05: small bugs go to sonnet
 Owner: *"The small bugs can probably use sonnet though, if they are actually small."* A bug whose fix is known and

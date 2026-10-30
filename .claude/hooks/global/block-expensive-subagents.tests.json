@@ -1,0 +1,21 @@
+[
+  { "name": "bounded-task sonnet worktree, effort low", "tool": "Agent", "input": {"subagent_type": "bounded-task", "model": "sonnet", "isolation": "worktree", "effort": "low", "prompt": "x"}, "expect": "allow" },
+  { "name": "bounded-task sonnet worktree, effort medium", "tool": "Agent", "input": {"subagent_type": "bounded-task", "model": "sonnet", "isolation": "worktree", "effort": "medium", "prompt": "x"}, "expect": "allow" },
+  { "name": "effort is case-insensitive", "tool": "Agent", "input": {"subagent_type": "bounded-task", "model": "sonnet", "isolation": "worktree", "effort": "LOW", "prompt": "x"}, "expect": "allow" },
+  { "name": "implementer opus worktree, effort medium", "tool": "Agent", "input": {"subagent_type": "implementer", "model": "opus", "isolation": "worktree", "effort": "medium", "prompt": "x"}, "expect": "allow" },
+  { "name": "read-only reviewer, fable, effort low", "tool": "Agent", "input": {"subagent_type": "caveman:cavecrew-reviewer", "model": "fable", "effort": "low", "prompt": "x"}, "expect": "allow" },
+  { "name": "specialist Explore, sonnet, effort low", "tool": "Agent", "input": {"subagent_type": "Explore", "model": "sonnet", "effort": "low", "prompt": "x"}, "expect": "allow" },
+
+  { "name": "effort omitted inherits the lead's: denied", "tool": "Agent", "input": {"subagent_type": "bounded-task", "model": "sonnet", "isolation": "worktree", "prompt": "x"}, "expect": "deny" },
+  { "name": "effort high: denied", "tool": "Agent", "input": {"subagent_type": "bounded-task", "model": "sonnet", "isolation": "worktree", "effort": "high", "prompt": "x"}, "expect": "deny" },
+  { "name": "effort xhigh: denied", "tool": "Agent", "input": {"subagent_type": "implementer", "model": "opus", "isolation": "worktree", "effort": "xhigh", "prompt": "x"}, "expect": "deny" },
+  { "name": "effort max: denied", "tool": "Agent", "input": {"subagent_type": "implementer", "model": "opus", "isolation": "worktree", "effort": "max", "prompt": "x"}, "expect": "deny" },
+  { "name": "read-only specialist with no effort: denied", "tool": "Agent", "input": {"subagent_type": "Explore", "model": "sonnet", "prompt": "x"}, "expect": "deny" },
+  { "name": "reviewer with effort high: denied", "tool": "Agent", "input": {"subagent_type": "caveman:cavecrew-reviewer", "model": "fable", "effort": "high", "prompt": "x"}, "expect": "deny" },
+
+  { "name": "CONTROL: unnamed agent type is still denied (old rule)", "tool": "Agent", "input": {"model": "sonnet", "effort": "low", "prompt": "x"}, "expect": "deny" },
+  { "name": "CONTROL: no model is still denied (old rule)", "tool": "Agent", "input": {"subagent_type": "bounded-task", "isolation": "worktree", "effort": "low", "prompt": "x"}, "expect": "deny" },
+  { "name": "CONTROL: editing agent without a worktree is still denied (old rule)", "tool": "Agent", "input": {"subagent_type": "bounded-task", "model": "sonnet", "effort": "low", "prompt": "x"}, "expect": "deny" },
+  { "name": "CONTROL: opus on a bounded-task is still denied (old rule)", "tool": "Agent", "input": {"subagent_type": "bounded-task", "model": "opus", "isolation": "worktree", "effort": "low", "prompt": "x"}, "expect": "deny" },
+  { "name": "CONTROL: a non-Agent tool is untouched", "tool": "Bash", "input": {"command": "echo hi"}, "expect": "allow" }
+]
