@@ -19741,6 +19741,10 @@ line, that record): `sample` 0.215, `drawlist` 0.15-0.21, `collate` 0.135.
 - `DrawTally`'s per-object cache is a `ConditionalWeakTable` keyed on prop identity. A prop rebuilt each frame (a lerping
   or waking track) misses it and pays the old cost plus a table entry; a stable key (model-path reference, kind, class
   name) would keep the saving.
+  *2026-10-30, measured (`measurements/2026-10-29-allocation-census.md`):* `DrawTally` appears in none of the 600
+  largest allocation sites of either view on `2a46490c`, and `SetLive` allocates nothing; neither was changed on
+  `perf/alloc-sites-2`. The `SetLive` early-out is a lookup and a `BinarySearch` for 2-62 tracks a frame, which no
+  instrument here resolves (*interpolated*: microseconds); left for the lead to decide, not dropped.
 - `DrawTally.EverNotStudio` is now a snapshot built on every read; its sibling `EverNoGeometry` is still a live view. The
   only production reader is the census probe.
 - `Debug.Assert(false, …)` in `PropsAt` fail-fasts the test host on a desync instead of failing one test; the check that
@@ -40568,6 +40572,34 @@ call that goes to the large-object heap (93 MB per 200 s), and model decals are 
 structural question (does the engine re-project, or keep the decal's vertices?) and not an allocation one. The pattern
 to look for: a `foreach` over an interface-typed `List` (boxes the enumerator), a lambda capturing a local on a hot
 path (`docs/memory/a-capturing-cache-factory-allocates-on-a-hit.md`), `yield`, and a list made per call.
+
+**2026-10-29/30, branch `perf/alloc-sites-2`: the list re-taken on main and four sites FIXED.** *Measured*: the census
+(`measurements/2026-10-29-allocation-census.md`, `2a46490c`) found two of the list already gone — `OcclusionQueries.Count`
+(`c7a81430`, B597) and `DrawTally.NotDrawable` (`eb9910a3`, B259), 0 of 600 sites in both views — and the rest, G: econ
+attributes ~89, impact batches ~81, effect entities ~39, attachments ~39 KiB a frame. Fixed, each with its own ABBA+BAAB
+record, world pixels 0 and the mode-2 verifier 0 changed:
+- **econ attributes** (`bece7a0d`; `measurements/2026-10-29-econ-attribute-walk.md`): a struct walk instead of a list
+  and a set, the definition's attributes built once per index as `m_vecStaticAttributes` is
+  (`econ_item_schema.cpp:3330-3359`), `PaintFor`'s dictionary only for a painted item. Main thread −105 KB a frame first
+  person (−14%), `camera pose` −0.101 ms, frame −0.095 ms, ranges apart by 0.005 (measurements/2026-10-29-econ-attribute-walk.md);
+- **impact batches** (`83c807e0`; `measurements/2026-10-29-impact-batches.md`): `ImpactDraw`'s `AddRange([…])` per quad
+  through a stack span, the batch list reused. Main thread −121 KB first person (−18.7%), −79 KB empty (−20.6%);
+  `camera particles` −0.057 ms, frame not claimed (measurements/2026-10-29-impact-batches.md);
+- **effect entities** (`b88b8d97`; `measurements/2026-10-29-effect-entity-callbacks.md`): callbacks made once, strip
+  lists indexed, the result reused. Main thread −43 KB first person (−8.1%), −41 KB empty (−13.5%);
+- **attachments** (`fb734d69`; `measurements/2026-10-29-attachment-matrices.md`): composed on the stack, one kept array
+  per attachment, bit-identical by test. Main thread −33 KB first person (−6.8%), −32 KB empty (−12.2%); no timing claimed.
+
+Chained, not paired: item 1's A runs read 750,856 main-thread bytes a frame in first person and item 5's B runs 448,810
+(measurements/2026-10-29-econ-attribute-walk.md, measurements/2026-10-29-attachment-matrices.md), gc pause 0.22-0.23 →
+0.15-0.17 ms; runs hours apart, so the difference is the sum of the four paired steps, not a fifth measurement.
+
+**Still open, from the census (G / E, KiB a frame):** `WorldRenderer.DrawModel`'s boxed `List<WorldBatch>` enumerator,
+closure and `ApplyProxies` enumerators on the render thread (~31 / —); `WorldDecals.Placed` (19.9 / 11.2);
+`ItemSchema.BestVisualSection`'s `Func` and its neighbours per player per frame (~27 / ~20, not on the old list);
+`DemoTimeline.BuildProp` and `WeaponPropModels.Resolve` `SceneProp` records (~30 / ~12); `WorldDynamicLights.BrushesOf`
+(13.7 / 13.6); `VguiRenderer.ShadingConstants` `float[]` (9.8 / 9.7); `LevelLighting.Entry`'s closure (15.3 / —). A beam
+still allocates 176 bytes a frame in its own build, not located (`EffectEntitiesTests`).
 
 ## B597 — the render thread's 2.2 ms is CPU submission; half is the opaque models' per-draw cost — OPEN (2026-10-25)
 
