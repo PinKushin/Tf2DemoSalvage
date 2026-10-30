@@ -70,9 +70,13 @@ public sealed class FaceFlexIdentityTests
         moved.ShouldBeLessThan(frames, "the control: some frames move nothing");
     }
 
-    /// <summary>The vertices any flex of a model names, each once, ascending — the hoist the clear walks.</summary>
+    /// <summary>
+    /// The offsets the clear walks are the ones the slot write reads, each once, ascending: vertices 4 and 1 are read by
+    /// a corner; vertex 9 is named by a flex and read by none, so it is not cleared (the accumulation still writes it, and
+    /// nothing reads it for this model).
+    /// </summary>
     [Test]
-    public void FlexedCorners_FlexesNamingAVertexTwice_ListEachMovedVertexOnce()
+    public void FlexedCorners_FlexesNamingAVertexTwice_ClearEachReadOffsetOnce()
     {
         StudioFlexData data = new(
             ["a", "b"],
@@ -83,14 +87,14 @@ public sealed class FaceFlexIdentityTests
                 new StudioMeshFlex(1, 0, 0f, 1f, 1f, 2f, [Anim(1), Anim(9)]),
             ]);
 
-        FaceFlex.FlexedCorners(data, [0, 1, 4], [2, 1, 0]).Moved.ShouldBe([1, 4, 9]);
+        FaceFlex.FlexedCorners(data, [0, 1, 4], [2, 1, 0]).Moved.ShouldBe([3, 12]);
     }
 
-    /// <summary>The clear writes the moved vertices' three floats and nothing else — a vertex no flex names keeps its value.</summary>
+    /// <summary>The clear writes the read offsets' three floats and nothing else.</summary>
     [Test]
-    public void ClearMoved_ADirtyScratch_ZeroesOnlyTheMovedVertices()
+    public void ClearMoved_ADirtyScratch_ZeroesOnlyTheReadOffsets()
     {
-        FlexedCorners corners = new([], []) { Moved = [1, 3] };
+        FlexedCorners corners = new([0, 1], [3, 9]);
         float[] positions = [9f, 9f, 9f, 9f, 9f, 9f, 9f, 9f, 9f, 9f, 9f, 9f];
         float[] normals = [8f, 8f, 8f, 8f, 8f, 8f, 8f, 8f, 8f, 8f, 8f, 8f];
 
@@ -100,11 +104,11 @@ public sealed class FaceFlexIdentityTests
         normals.ShouldBe([8f, 8f, 8f, 0f, 0f, 0f, 8f, 8f, 8f, 0f, 0f, 0f]);
     }
 
-    /// <summary>A moved vertex past the scratch is skipped, as the accumulation skips it, rather than thrown on.</summary>
+    /// <summary>An offset past the scratch is skipped, as the accumulation skips it, rather than thrown on.</summary>
     [Test]
-    public void ClearMoved_AVertexPastTheScratch_IsSkipped()
+    public void ClearMoved_AnOffsetPastTheScratch_IsSkipped()
     {
-        FlexedCorners corners = new([], []) { Moved = [0, 2] };
+        FlexedCorners corners = new([0, 1], [0, 6]);
         float[] positions = [9f, 9f, 9f, 9f, 9f, 9f];
         float[] normals = [8f, 8f, 8f, 8f, 8f, 8f];
 
@@ -115,11 +119,11 @@ public sealed class FaceFlexIdentityTests
     }
 
     /// <summary>
-    /// The unchecked slot write is taken only when every slot is in range; a slot whose vertex is past the deltas is
-    /// skipped, as the checked loop skipped it, and the slots around it are still written.
+    /// A slot whose vertex is past the deltas fails the one-time range check, so the checked loop runs: it skips that
+    /// slot and still writes the slots around it. (Only the checked loop runs here.)
     /// </summary>
     [Test]
-    public void IntoFlexedSlots_ASlotWhoseVertexIsPastTheDeltas_SkipsOnlyThatSlot()
+    public void IntoFlexedSlots_ASlotWhoseVertexIsPastTheDeltas_TakesTheCheckedLoopAndSkipsOnlyThatSlot()
     {
         FlexedCorners corners = new([0, 1, 2], [0, 6, 3]);
         float[] stream = new float[18];
@@ -179,11 +183,14 @@ public sealed class FaceFlexIdentityTests
         Should.Throw<IndexOutOfRangeException>(() => FaceFlex.IntoFlexedSlots(deltas, corners, new float[6]));
     }
 
-    /// <summary>A moved vertex whose offset overflows is skipped, as the whole-array clear it replaces never threw.</summary>
+    /// <summary>
+    /// Vertex 715,827,882's offset is 2,147,483,646: its last float is past int, so it is skipped without a throw, as the
+    /// whole-array clear it replaces never threw (the accumulation still throws there, as it always did).
+    /// </summary>
     [Test]
-    public void ClearMoved_AVertexWhoseOffsetOverflows_IsSkipped()
+    public void ClearMoved_AnOffsetWhoseLastFloatIsPastInt_IsSkipped()
     {
-        FlexedCorners corners = new([], []) { Moved = [715_827_882, 1] };
+        FlexedCorners corners = new([0, 1], [2_147_483_646, 3]);
         float[] positions = [9f, 9f, 9f, 9f, 9f, 9f];
         float[] normals = [8f, 8f, 8f, 8f, 8f, 8f];
 
@@ -191,6 +198,46 @@ public sealed class FaceFlexIdentityTests
 
         positions.ShouldBe([9f, 9f, 9f, 0f, 0f, 0f]);
         normals.ShouldBe([8f, 8f, 8f, 0f, 0f, 0f]);
+    }
+
+    /// <summary>
+    /// **The clear and the accumulation agree on a vertex whose offset wraps**: vertex 1,431,655,766 times three wraps in
+    /// int to 2, which the accumulation writes (floats 2 to 4). The clear takes the same int offset from the corners, so
+    /// those three floats are cleared each miss rather than summed across frames.
+    /// </summary>
+    [Test]
+    public void ClearMoved_AVertexWhoseOffsetWrapsSmall_ClearsWhatTheAccumulationWrites()
+    {
+        const int Wrapping = 1_431_655_766;
+        StudioFlexData data = new(["a"], [], [], [new StudioMeshFlex(0, 0, 0f, 1f, 1f, 2f, [Anim(Wrapping)])]);
+        FlexedCorners corners = FaceFlex.FlexedCorners(data, [Wrapping], [0]);
+        float[] positions = [9f, 9f, 9f, 9f, 9f, 9f, 9f, 9f, 9f];
+        float[] normals = [8f, 8f, 8f, 8f, 8f, 8f, 8f, 8f, 8f];
+
+        float[] cleanPositions = new float[9];
+        float[] cleanNormals = new float[9];
+        StudioFlexRules.Accumulate(data, [1f], [1f], cleanPositions, cleanNormals).ShouldBe(1, "the control: it writes at 2");
+
+        FaceFlex.ClearMoved(corners, positions, normals);
+        StudioFlexRules.Accumulate(data, [1f], [1f], positions, normals);
+
+        positions.ShouldBe([9f, 9f, cleanPositions[2], cleanPositions[3], cleanPositions[4], 9f, 9f, 9f, 9f]);
+        normals.ShouldBe([8f, 8f, cleanNormals[2], cleanNormals[3], cleanNormals[4], 8f, 8f, 8f, 8f]);
+        cleanPositions[2].ShouldNotBe(0f, "the control: the accumulation moved it");
+    }
+
+    /// <summary>A copy made with new offsets clears them: the cleared set cannot omit an offset the slot write reads.</summary>
+    [Test]
+    public void With_NewOffsets_ClearsThem()
+    {
+        FlexedCorners further = new FlexedCorners([0], [0]) with { From = [6] };
+        float[] positions = [9f, 9f, 9f, 9f, 9f, 9f, 9f, 9f, 9f];
+        float[] normals = [8f, 8f, 8f, 8f, 8f, 8f, 8f, 8f, 8f];
+
+        FaceFlex.ClearMoved(further, positions, normals);
+
+        positions.ShouldBe([9f, 9f, 9f, 9f, 9f, 9f, 0f, 0f, 0f]);
+        normals.ShouldBe([8f, 8f, 8f, 8f, 8f, 8f, 0f, 0f, 0f]);
     }
 
     /// <summary>
