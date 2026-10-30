@@ -12,6 +12,11 @@ foreach ($name in $Plan) {
   switch -Regex ($name) {
     '-F' { $c.Foreground = $true }
     '-C' { $c.Cover = $true }
+    '-U' { $c.Uncover = $true }   # added after the base rate: background, made TOPMOST without activation
+    '-W' { $c.CoverFull = $true }   # added after 13-F: background, the whole rect under a TopMost form
+    '-M' { $c.Minimize = $true }    # added after 13-F: minimized without activation
+    '-S' { $c.Pos = '1820,100'; $c.Uncover = $true }   # added after 37-X: TOPMOST, no activation, only a 100 px strip on screen
+    '-X' { $c.Pos = '-3000,100' }   # added after 18-U: the whole window off the screen (invisible, not minimized, not covered)
     '-O' { $c.Pos = '40,40' }
     '-K' { $c.ColdSeconds = 300 }
     '-Z' { $c.Mode = 0 }

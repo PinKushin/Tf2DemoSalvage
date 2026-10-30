@@ -12,7 +12,10 @@
 # exit, and winsample.ps1 records foreground and occlusion every 500 ms ($Name.win.csv). Stdout to $Name.txt.
 # The console line says how long no tf2demoview had been seen before launch. Exit 2 = gate not met.
 param([string]$Name, [string]$Exe, [int]$Seconds = 20, [int]$GateMinutes = 90, [string]$Out = $PSScriptRoot,
-  [int]$Mode = 2, [string]$Pos = '', [switch]$Foreground, [switch]$Cover, [int]$ColdSeconds = 0)
+  [int]$Mode = 2, [string]$Pos = '', [switch]$Foreground, [switch]$Cover, [switch]$Uncover, [int]$ColdSeconds = 0,
+  [switch]$CoverFull, [switch]$Minimize)
+# -CoverFull, -Minimize (added after 13-F): passed to winsample.ps1; the whole rect covered, or minimized without activation.
+# -Uncover (added after the base rate): winsample.ps1 makes the viewer TOPMOST without activating it.
 $ErrorActionPreference = 'Stop'
 if (-not (Test-Path $Exe)) { "no exe at $Exe"; exit 3 }
 function Busy {
@@ -43,7 +46,7 @@ while ($true) {
   Start-Sleep 5
 }
 $idle = if ($null -eq $lastSeen) { 'unknown' } else { [int]((Get-Date) - $lastSeen).TotalSeconds }
-$cond = "mode $Mode; pos '$Pos'; fg $([int][bool]$Foreground); cover $([int][bool]$Cover); cold $ColdSeconds"
+$cond = "mode $Mode; pos '$Pos'; fg $([int][bool]$Foreground); cover $([int][bool]$Cover); uncover $([int][bool]$Uncover); coverfull $([int][bool]$CoverFull); minimize $([int][bool]$Minimize); cold $ColdSeconds"
 "$(Get-Date -Format s) $Name exe $Exe; $cond; no viewer seen for $idle s; load before: $($l -join ' ')"
 $env:TF2VIEW_AUTOPLAY = '1'
 $env:TF2VIEW_VIEWPORT_SIZE = '1280x720'
@@ -52,11 +55,17 @@ Remove-Item Env:TF2VIEW_MODEL_VERTS -ErrorAction SilentlyContinue
 if ($Pos) { $env:TF2VIEW_WINDOW_POS = $Pos } else { Remove-Item Env:TF2VIEW_WINDOW_POS -ErrorAction SilentlyContinue }
 $smi = Start-Process nvidia-smi -PassThru -NoNewWindow -RedirectStandardOutput "$Out/$Name.gpu.csv" -ArgumentList `
   '--query-gpu=timestamp,pstate,clocks.gr,clocks.mem,power.draw,utilization.gpu', '--format=csv', '-lms', '500'
+# Added after 11-P (the first state 1 run, with floorp in front): per-process GPU use every second, to see what other
+# processes put on the GPU during the run.
+$pmon = Start-Process nvidia-smi -PassThru -NoNewWindow -RedirectStandardOutput "$Out/$Name.pmon.txt" -ArgumentList 'pmon', '-s', 'u', '-d', '1'
 $start = Get-Date
 $ws = @('-NoProfile', '-File', "$PSScriptRoot/winsample.ps1", '-Exe', $Exe, '-After', $start.AddSeconds(-1).ToString('o'),
   '-Csv', "$Out/$Name.win.csv", '-WaitSeconds', "$($GateMinutes * 60)")
 if ($Foreground) { $ws += '-Foreground' }
 if ($Cover) { $ws += '-Cover' }
+if ($Uncover) { $ws += '-Uncover' }
+if ($CoverFull) { $ws += '-Cover', '-CoverFull' }
+if ($Minimize) { $ws += '-Minimize' }
 $side = Start-Process pwsh -ArgumentList $ws -PassThru -NoNewWindow
 $a = @('-NoProfile', '-File', 'C:/Users/pinku/source/repos/PinKushin/run-exclusive.ps1', $Exe, 'D:/measure-f12/f12.dem',
   '--tick', '30000', '--spectate', 'gummo', '--first-person', '--measure', "$Seconds", '+fps_max', '0', '+mat_queue_mode', "$Mode")
@@ -67,5 +76,6 @@ $p.WaitForExit()
 $null = $side.WaitForExit(15000)
 if (-not $side.HasExited) { Stop-Process -Id $side.Id }
 Stop-Process -Id $smi.Id -ErrorAction SilentlyContinue
+Stop-Process -Id $pmon.Id -ErrorAction SilentlyContinue
 "exit $($p.ExitCode); load after: $((1..3 | ForEach-Object { Load; Start-Sleep 1 }) -join ' ')"
 exit ($null -eq $p.ExitCode ? 1 : $p.ExitCode)
