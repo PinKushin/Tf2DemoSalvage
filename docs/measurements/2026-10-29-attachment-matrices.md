@@ -50,12 +50,43 @@ within ~15% of the census.
 
 ## Environment
 
-(to be filled at the run)
+RTX 3060, i5-10600K, 2026-10-30 05:21-06:58, under `pmux`. A = `D:/measure-f12/as2-d-src` (`b88b8d97`), B =
+`D:/measure-f12/as2-e-src` (`fb734d69`), Release from `git archive` (117 warnings first build, 0 incremental; 0
+in-tree). Every timed run: load before under 25% (most 3-10%), exit 0, ended at tick 31347. Raw output in
+`D:/measure-f12/alloc2/runs/item5/`, not committed.
 
 ## Result
 
-(pending)
+**Deviations.** None from the plan.
+
+**Allocation (the decision):**
+
+| view | A (4 runs) | B (4 runs) | B − A |
+|---|---|---|---|
+| first person, main thread bytes | 480,748-481,935 (481,439) | 443,903-452,955 (448,810) | **−32,629 (−6.8%)**, ranges apart |
+| first person, MB a frame (all threads) | 0.65-0.67 | 0.62-0.70 | overlap |
+| empty, main thread bytes | 262,514-266,488 (264,614) | 231,483-233,428 (232,238) | **−32,376 (−12.2%)**, ranges apart |
+| empty, MB a frame | 0.37 | 0.33-0.34 | −0.03 MB |
+
+Attribution (B trace, first person): 480.5 KiB a frame against item 3's B trace 513.2; the `AttachmentsOf` sites fall
+from the census's 38.6 KiB to 6.7 — the twelve-float array kept per attachment (5.9) and the per-entity table (0.8) —
+and `MatrixConvention`'s are gone; `WorldDecals.Placed` holds at 18.6.
+
+**Frame, steady window, frame-weighted, ms:**
+
+| view | part | A | B | |
+|---|---|---|---|---|
+| first person | frame | 5.858-5.888 (5.872) | 5.835-6.066 (5.917) | **not claimed**: overlap (02-B 6.066) |
+| first person | `camera particles` | 1.391-1.403 (1.396) | 1.367-1.418 (1.390) | overlap |
+| empty | frame | 2.453-2.773 (2.609) | 2.449-2.622 (2.511) | overlap (14-A, 15-A, 16-B high, as late runs were in items 1-2) |
+
+**Identity.** World pixels 0 in every pair; whole frame 0 except empty A/B, 46,816 pixels in the top bar — the
+two-state bar items 1-3 showed within one build (A/A3, B/B2). Mode-2 verifier on B: `queue verify: 799000 frames
+checked, 0 changed`. The attachment arithmetic is bit-identical by test (`Matrix_OnTheStack_IsTheArrayArithmeticBitForBit`).
 
 ## Verdict
 
-(pending)
+**Confirmed** on allocation: main thread −33 KB a frame in first person (−6.8%) and −32 KB in the empty view (−12.2%),
+ranges apart, inside the predicted 0.02-0.04 MB; the all-thread column overlaps in first person. Identity held. No
+frame or part is claimed: every timing range overlaps. Kept as an allocation-only change at no measured cost, which
+the brief allows, said plainly here.
