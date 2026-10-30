@@ -273,6 +273,71 @@ internal static class SyntheticProp
         return SyntheticDemo.From(SyntheticDemo.DefaultProtocol, [.. commands]);
     }
 
+    /// <summary>
+    /// The prop entering once, its model a precache index, with a <c>dem_stringtables</c> block between the schema and
+    /// the snapshot — the order a point-of-view recording writes them (B452).
+    /// </summary>
+    /// <param name="modelIndex">The prop's <c>m_nModelIndex</c>.</param>
+    /// <param name="block">The block's payload, or <c>null</c> to write none.</param>
+    /// <returns>The demo's bytes.</returns>
+    /// <remarks>
+    /// The signon's <c>svc_CreateStringTable</c> states only <c>""</c> and <see cref="ModelPath"/>, indices 0 and 1, so
+    /// any higher index is one only the block can name — the shape the 2011 viaduct POV had, whose block alone held
+    /// <c>modelprecache</c> entry 552 (<c>stringtables-block</c> probe, 2026-10-29).
+    /// </remarks>
+    public static byte[] DemoAfterABlock(int modelIndex, byte[]? block)
+    {
+        DemoSchema schema = Schema();
+        EntityDecoder decoder = new(schema, EntityDecoder.ClassIdBits(schema.ServerClasses.Count));
+        IReadOnlyList<FlatProperty> flat = decoder.FlattenedFor(PropClassId);
+
+        List<DemoCommand> commands =
+        [
+            SyntheticDemo.Packet(
+                SyntheticDemo.DefaultProtocol,
+                0,
+                ServerInfo(),
+                SyntheticDemo.StringTable(ModelPrecache.TableName, [string.Empty, ModelPath], maxEntries: 8)),
+            SyntheticDemo.DataTables(schema),
+        ];
+
+        if (block is not null)
+        {
+            commands.Add(new DemoCommand(DemoCommandType.StringTables, 0, block));
+        }
+
+        List<DecodedProperty> properties =
+        [
+            Property(flat, "m_nModelIndex", PropertyValue.FromInt(modelIndex)),
+            Property(flat, "m_vecOrigin", PropertyValue.FromVectorXY(64f, 0f)),
+            Property(flat, "m_vecOrigin[2]", PropertyValue.FromFloat(0f)),
+        ];
+
+        properties.Sort((left, right) => left.Index.CompareTo(right.Index));
+
+        byte[] body = decoder.EncodeEntities(
+            [new DecodedEntity(PropEntityIndex, PropClassId, SerialNumber: 3, EntityUpdateType.Enter, properties)],
+            [],
+            isDelta: false,
+            0,
+            out int bits);
+
+        commands.Add(SyntheticDemo.Packet(
+            SyntheticDemo.DefaultProtocol,
+            66,
+            new PacketEntitiesMessage(
+                MaxEntries: 64,
+                IsDelta: false,
+                DeltaFromTick: null,
+                BaselineIndex: false,
+                UpdatedEntries: 1,
+                LengthBits: bits,
+                UpdateBaseline: false,
+                Body: body)));
+
+        return SyntheticDemo.From(SyntheticDemo.DefaultProtocol, [.. commands]);
+    }
+
     private static DecodedProperty Property(
         IReadOnlyList<FlatProperty> flat, string name, PropertyValue value)
     {

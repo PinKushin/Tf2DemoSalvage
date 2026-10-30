@@ -268,9 +268,9 @@ public sealed class UserMessageBodyTests
     [Test]
     public void Damage_FromTheProtocolFourteenDemo_RefusesTheModernLayout()
     {
-        // Captured from tf2-2008-build3420-pov-cp_granary.dem, where the modern layout read it as
-        // damage=16164 with a plausible-looking position. TF2 damage does not reach five figures.
-        byte[] body = [0x24, 0x3F, 0x09, 0x01, 0xD7, 0x7E, 0xFD, 0x8B, 0x05, 0x01];
+        // The modern layout read it as damage=16164 with a plausible-looking position. TF2 damage
+        // does not reach five figures.
+        byte[] body = [.. Protocol14DamageBody];
 
         UserMessageBody.Decode(18, "Damage", body, 77, ModernProtocol).Fields.ShouldBeNull();
 
@@ -279,6 +279,16 @@ public sealed class UserMessageBodyTests
         message.Fields.ShouldNotBeNull();
         Value(message, "damage").ShouldBe(36);
     }
+
+    /// <summary>
+    /// A real protocol-14 <c>Damage</c> body, 77 bits: the first of the 24 in
+    /// <c>tf2-2008-build3420-pov-cp_granary.dem</c> (retired from gcor 2026-10-29, kept in lcor).
+    /// </summary>
+    /// <remarks>
+    /// That demo's trace reads it as <c>damage=36 x=-1061.5 y=6126.9688 z=-355.03125</c> (Cli -t, 2026-10-29), and
+    /// <c>UserMessageLayoutDemoTests</c> asserts those values back through a demo.
+    /// </remarks>
+    internal static readonly byte[] Protocol14DamageBody = [0x24, 0x3F, 0x09, 0x01, 0xD7, 0x7E, 0xFD, 0x8B, 0x05, 0x01];
 
     /// <summary>Protocol 24, where the damage layout is the one Valve's published client reads.</summary>
     private const int ModernProtocol = 24;

@@ -590,6 +590,49 @@ public sealed class UserMessageLayoutDemoTests
     }
 
     [Test]
+    public void Decode_ARecordedProtocol14DamageBodyAtProtocol14_IsTheByteFormWithItsRecordedPosition()
+    {
+        // **Real bytes at the last protocol of the old layout** — the 2008 POV's first Damage message, whose
+        // recording has left gcor (2026-10-29). The values are that demo's own trace: damage 36 from
+        // (-1061.5, 6126.9688, -355.03125). Coordinates in 1/32 steps, so they compare exactly.
+        IReadOnlyList<KeyValuePair<string, object?>> fields = Fields(
+            "Damage", UserMessageBodyTests.Protocol14DamageBody, RecordedDamageBits, protocol: 14);
+
+        Field(fields, "damage").ShouldBe(36);
+        Field(fields, "x").ShouldBe(-1061.5f);
+        Field(fields, "y").ShouldBe(6126.96875f);
+        Field(fields, "z").ShouldBe(-355.03125f);
+        fields.ShouldNotContain(pair => pair.Key == "bits");
+    }
+
+    [Test]
+    public void Decode_TheSameRecordedBodyAtProtocol15_IsRefusedByTheModernLayout()
+    {
+        // The other side of the boundary, one protocol on: 15 is the first to send the short, the discarded long and
+        // the flag, and a 77-bit body is not that. Moving the boundary up to 15 would decode it here.
+        Read("Damage", UserMessageBodyTests.Protocol14DamageBody, RecordedDamageBits, protocol: 15)
+            .Fields.ShouldBeNull();
+    }
+
+    [Test]
+    public void Decode_AModernDamageBodyAtProtocol15_CarriesTheDamageType()
+    {
+        // And the modern form decodes at 15 with its type flags — moving the boundary up would refuse it, moving it
+        // down would read the recorded body above as this one.
+        BitWriter writer = new();
+        writer.Write(45, 16).Write(0x0000_0040, 32).WriteBit(false);
+
+        IReadOnlyList<KeyValuePair<string, object?>> fields =
+            Fields("Damage", writer.Build(), writer.BitCount, protocol: 15);
+
+        Field(fields, "damage").ShouldBe(45);
+        Field(fields, "bits").ShouldBe(0x0000_0040);
+    }
+
+    /// <summary>The recorded protocol-14 body's stated length, which ends mid-byte.</summary>
+    private const int RecordedDamageBits = 77;
+
+    [Test]
     public void Decode_VoiceMaskAtLaunch_CarriesOneBlockRatherThanFour()
     {
         // VOICE_MAX_PLAYERS_DW grew twice — one dword at launch, two later, four now — so the

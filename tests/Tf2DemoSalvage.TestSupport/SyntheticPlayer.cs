@@ -2230,7 +2230,11 @@ internal static class SyntheticPlayer
     /// Give every packet a <c>democmdinfo_t</c> at the recorder's own origin, eye height up, so a demo player hands him a
     /// viewpoint; false leaves the default, which hands none.
     /// </param>
-    public static byte[] DemoOfARecorderAndABystander(bool viewed = false)
+    /// <param name="localYawPerTick">
+    /// How far the recorded LOCAL view yaw (<c>democmdinfo_t.localViewAngles</c>, his <c>pl.v_angle</c>) turns each tick
+    /// from zero at tick 100, when <paramref name="viewed"/>. Zero holds it still, as before.
+    /// </param>
+    public static byte[] DemoOfARecorderAndABystander(bool viewed = false, float localYawPerTick = 0f)
     {
         DemoSchema baseline = Schema(OriginTable.NonLocal);
         List<SendTable> tables = [];
@@ -2305,15 +2309,20 @@ internal static class SyntheticPlayer
                     UpdateBaseline: false,
                     Body: body));
 
-            commands.Add(viewed ? packet with { Prologue = ViewPrologue((tick * 4f, 100f, 64f)) } : packet);
+            commands.Add(viewed
+                ? packet with { Prologue = ViewPrologue((tick * 4f, 100f, 64f), (tick - 100) * localYawPerTick) }
+                : packet);
         }
 
         return SyntheticDemo.From(SyntheticDemo.DefaultProtocol, [.. commands]);
     }
 
     /// <summary>A packet prologue whose <c>democmdinfo_t</c> is a view at an origin, angles derived from it.</summary>
-    /// <remarks>Flags zero, so the ORIGINAL copy is the live one rather than the resampled; see <see cref="DemoWithRecordedViews"/>.</remarks>
-    private static byte[] ViewPrologue((float X, float Y, float Z) origin)
+    /// <remarks>
+    /// Flags zero, so the ORIGINAL copy is the live one rather than the resampled; see <see cref="DemoWithRecordedViews"/>.
+    /// The local view angles follow at offset 28 (pitch, yaw, roll); only the yaw is ever set.
+    /// </remarks>
+    private static byte[] ViewPrologue((float X, float Y, float Z) origin, float localYaw = 0f)
     {
         byte[] prologue = new byte[PrologueBytes];
 
@@ -2322,6 +2331,7 @@ internal static class SyntheticPlayer
         BitConverter.GetBytes(origin.Z).CopyTo(prologue, 12);
         BitConverter.GetBytes(origin.X / 10f).CopyTo(prologue, 16);
         BitConverter.GetBytes(origin.Y / 10f).CopyTo(prologue, 20);
+        BitConverter.GetBytes(localYaw).CopyTo(prologue, 32);
 
         return prologue;
     }
