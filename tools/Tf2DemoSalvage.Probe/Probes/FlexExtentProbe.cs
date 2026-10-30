@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.Globalization;
 using System.IO;
 using System.Linq;
@@ -176,7 +177,7 @@ public sealed class FlexExtentProbe : IProbe
 
             if (models.FlexedSlotsOf(name) is { } flexed && flexed.Corners.At.Length > 0)
             {
-                int[] at = flexed.Corners.At;
+                ImmutableArray<int> at = flexed.Corners.At;
                 fixedSet = string.Create(CultureInfo.InvariantCulture,
                     $"{at.Length} ({100.0 * at.Length / flexed.Slots:0.0}%), {at[0]}-{at[^1]}, {at[^1] - at[0] + 1} ({100.0 * (at[^1] - at[0] + 1) / flexed.Slots:0.0}%)");
                 inside = model.Last < 0 || (model.First >= at[0] && model.Last <= at[^1]) ? "yes" : "NO";
