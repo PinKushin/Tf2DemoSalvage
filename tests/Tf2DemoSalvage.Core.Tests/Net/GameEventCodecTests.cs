@@ -287,6 +287,65 @@ public sealed class GameEventCodecTests
     }
 
     /// <summary>
+    /// The <c>newname</c> build 4231's and 4604's specimen POV demos carry for the script's old
+    /// <c>name Пётр大将</c>: those clients put a space between every BYTE, so the 27 bytes are not
+    /// UTF-8. Measured with <c>specimen-triage events</c> on
+    /// <c>tf2-2010-build4231-spec-pov-cp_granary.dem</c> (tick 259, bit 529).
+    /// </summary>
+    private static readonly byte[] NameSpacedBetweenBytes =
+    [
+        0xD0, 0x20, 0x9F, 0x20, 0xD1, 0x20, 0x91, 0x20, 0xD1, 0x20, 0x82, 0x20, 0xD1, 0x20,
+        0x80, 0x20, 0xE5, 0x20, 0xA4, 0x20, 0xA7, 0x20, 0xE5, 0x20, 0xB0, 0x20, 0x86,
+    ];
+
+    [Test]
+    public void Write_ChangeNameWhoseBytesAreNotUtf8_ReproducesTheEventBitForBit()
+    {
+        // The engine carries a string as raw chars: bf_read::ReadString copies each byte until
+        // the zero and bf_write::WriteString writes them back, decoding nothing
+        // (src/tier1/bitbuf.cpp). A UTF-8 decode that turns each stray byte into U+FFFD wrote
+        // these 27 bytes back as 55 - 386 bits read, 610 written, on the 4231 specimen.
+        AssertChangeNameRoundTrips(NameSpacedBetweenBytes);
+    }
+
+    [Test]
+    public void Write_ChangeNameInUtf8_ReproducesTheEventBitForBit()
+    {
+        // The control: a valid UTF-8 name must keep round-tripping, and keep decoding as text.
+        GameEventMessage read = AssertChangeNameRoundTrips(System.Text.Encoding.UTF8.GetBytes("Пётр大将"));
+
+        read.Values["newname"].ShouldBe("Пётр大将");
+    }
+
+    private static GameEventMessage AssertChangeNameRoundTrips(byte[] newName)
+    {
+        NetDecodeState state = new();
+        NetMessageReader.Read(
+            EventList((25, "player_changename",
+            [
+                (GameEventValueType.Short, "userid"),
+                (GameEventValueType.String, "oldname"),
+                (GameEventValueType.String, "newname"),
+            ])),
+            state);
+
+        BitWriter body = new BitWriter().Write(25, 9).Write(3, 16).String("tf2ds_specimen");
+        body.WriteBytes(newName).Write(0, 8);
+        BitWriter original = new();
+        AppendEvent(original, body);
+
+        GameEventMessage read = NetMessageReader.Read(original.Build(), state)
+            .Messages[0].ShouldBeOfType<GameEventMessage>();
+
+        BitWriter written = new();
+        NetMessageWriter.TryWrite(written, read, state).ShouldBeTrue();
+
+        written.BitCount.ShouldBe(original.BitCount);
+        written.Build().ShouldBe(original.Build());
+        return read;
+    }
+
+    /// <summary>
     /// Messages with padding removed. Byte-aligning a fixture leaves spare zero bits, and
     /// those decode as net_NOP - correct behaviour, but noise when counting real messages.
     /// </summary>

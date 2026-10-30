@@ -44,11 +44,19 @@ public sealed record GameEventListMessage(
 /// sender measures its buffer after rounding, so a body routinely runs a few bits past its last
 /// field and those bits are on the wire.
 /// </param>
+/// <param name="RawStrings">
+/// The wire bytes of each string field whose bytes are not UTF-8, by field name; <c>null</c> when every
+/// string decoded cleanly. The engine moves strings as raw chars (<c>bf_read::ReadString</c>,
+/// <c>src/tier1/bitbuf.cpp</c>), so a client can send a name that is not UTF-8 - builds 4231 and 4604
+/// sent one with a space between every byte. Its entry in <paramref name="Values"/> is the display text,
+/// with U+FFFD for each stray byte; these are what writing the event back needs.
+/// </param>
 public sealed record GameEventMessage(
     int EventId,
     string? Name,
     IReadOnlyDictionary<string, object?> Values,
-    int BodyBits = 0) : INetMessage
+    int BodyBits = 0,
+    IReadOnlyDictionary<string, byte[]>? RawStrings = null) : INetMessage
 {
     /// <inheritdoc />
     public NetMessageType Type => NetMessageType.GameEvent;

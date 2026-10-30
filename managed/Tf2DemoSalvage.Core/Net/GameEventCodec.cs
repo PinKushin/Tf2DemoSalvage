@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.Text;
+using System.Text.Unicode;
 using Tf2DemoSalvage.Core.Primitives;
 
 namespace Tf2DemoSalvage.Core.Net;
@@ -95,12 +97,28 @@ internal static class GameEventCodec
         }
 
         Dictionary<string, object?> values = new(definition.Fields.Count, StringComparer.Ordinal);
+        Dictionary<string, byte[]>? rawStrings = null;
+
         foreach (GameEventField field in definition.Fields)
         {
-            values[field.Name] = ReadValue(ref bodyReader, field.Type);
+            if (field.Type != GameEventValueType.String)
+            {
+                values[field.Name] = ReadValue(ref bodyReader, field.Type);
+                continue;
+            }
+
+            byte[] bytes = NetBitReading.ReadStringBytes(ref bodyReader);
+            values[field.Name] = Encoding.UTF8.GetString(bytes);
+
+            // Kept only when the text cannot reproduce them, so a clean event carries nothing extra.
+            if (!Utf8.IsValid(bytes))
+            {
+                rawStrings ??= new Dictionary<string, byte[]>(StringComparer.Ordinal);
+                rawStrings[field.Name] = bytes;
+            }
         }
 
-        return new GameEventMessage(eventId, definition.Name, values, lengthBits);
+        return new GameEventMessage(eventId, definition.Name, values, lengthBits, rawStrings);
     }
 
     /// <summary>Writes a <c>svc_GameEventList</c> body, length prefix included.</summary>
@@ -145,6 +163,12 @@ internal static class GameEventCodec
 
         foreach (GameEventField field in definition.Fields)
         {
+            if (message.RawStrings?.TryGetValue(field.Name, out byte[]? raw) == true)
+            {
+                body.WriteBytes(raw).Write(0, 8);
+                continue;
+            }
+
             WriteValue(body, field.Type, message.Values[field.Name]);
         }
 

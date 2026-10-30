@@ -20,7 +20,20 @@ public static class NetBitReading
     /// why garbage strings are the first visible symptom of a desynchronised stream rather
     /// than an exception.
     /// </remarks>
-    public static string ReadString(ref BitReader reader)
+    public static string ReadString(ref BitReader reader) =>
+        Encoding.UTF8.GetString(ReadStringBytes(ref reader));
+
+    /// <summary>
+    /// Reads a NUL-terminated string's bytes, terminator consumed and not included.
+    /// </summary>
+    /// <remarks>
+    /// **The engine's form of the string.** <c>bf_read::ReadString</c> copies each char up to the zero
+    /// and <c>bf_write::WriteString</c> writes them back, decoding nothing (<c>src/tier1/bitbuf.cpp</c>),
+    /// so a name a client sent as bytes that are not UTF-8 goes through the engine intact.
+    /// <see cref="ReadString"/>'s text turns each such byte into U+FFFD, and a caller that has to write
+    /// the string back keeps these bytes instead.
+    /// </remarks>
+    public static byte[] ReadStringBytes(ref BitReader reader)
     {
         List<byte> bytes = new();
 
@@ -35,7 +48,7 @@ public static class NetBitReading
             bytes.Add(value);
         }
 
-        return Encoding.UTF8.GetString([.. bytes]);
+        return [.. bytes];
     }
 
     /// <summary>
