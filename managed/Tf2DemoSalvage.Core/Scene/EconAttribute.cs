@@ -202,37 +202,126 @@ public static class EconAttributes
         bool hasValidItemId,
         IReadOnlyList<EconAttributeValue> definitionAttributes)
     {
+        List<EconAttributeValue> resolved = [];
+
+        foreach (EconAttributeValue attribute in Iterate(local, networkedForDemos, hasValidItemId, definitionAttributes))
+        {
+            resolved.Add(attribute);
+        }
+
+        return resolved;
+    }
+
+    /// <summary>The same attributes in the same order as <see cref="Resolve"/>, walked without allocating.</summary>
+    /// <param name="local">Branch 1.</param>
+    /// <param name="networkedForDemos">Branch 3's list.</param>
+    /// <param name="hasValidItemId">Branch 3's other guard.</param>
+    /// <param name="definitionAttributes">Branch 4.</param>
+    /// <returns>A walk to <c>foreach</c> over; its enumerator is a struct, so nothing is boxed.</returns>
+    /// <remarks>
+    /// **The engine's own shape: `IterateAttributes` streams into an iterator and allocates nothing**
+    /// (`econ_item_view.cpp:523-600`). Its wrapper suppresses a definition branch 1 already produced by asking the local
+    /// list, `GetAttributeList()->GetAttributeByID`, a linear search — so the duplicate test here is a linear search of
+    /// what came before rather than a set (B599). Lists hold at most a few dozen entries.
+    /// </remarks>
+    public static ResolvedAttributes Iterate(
+        IReadOnlyList<EconAttributeValue> local,
+        IReadOnlyList<EconAttributeValue> networkedForDemos,
+        bool hasValidItemId,
+        IReadOnlyList<EconAttributeValue> definitionAttributes)
+    {
         ArgumentNullException.ThrowIfNull(local);
         ArgumentNullException.ThrowIfNull(networkedForDemos);
         ArgumentNullException.ThrowIfNull(definitionAttributes);
 
-        List<EconAttributeValue> resolved = [];
-        HashSet<int> seen = [];
-
-        foreach (EconAttributeValue attribute in local)
-        {
-            if (seen.Add(attribute.DefinitionIndex))
-            {
-                resolved.Add(attribute);
-            }
-        }
-
         // `bHasNetworkedAttribsForDemos` is noted from the list's own count; the else-if chain
         // means exactly one of the two fallbacks runs.
-        IReadOnlyList<EconAttributeValue> fallback =
-            hasValidItemId && networkedForDemos.Count > 0
-                ? networkedForDemos
-                : definitionAttributes;
+        return new ResolvedAttributes(
+            local,
+            hasValidItemId && networkedForDemos.Count > 0 ? networkedForDemos : definitionAttributes);
+    }
+}
 
-        foreach (EconAttributeValue attribute in fallback)
+/// <summary>An item's attributes, first-writer-wins per definition index: <see cref="EconAttributes.Iterate"/>.</summary>
+/// <param name="Local">Branch 1, which overrides.</param>
+/// <param name="Fallback">Whichever of branch 3 or 4 the else-if chose.</param>
+public readonly record struct ResolvedAttributes(IReadOnlyList<EconAttributeValue> Local, IReadOnlyList<EconAttributeValue> Fallback)
+    : IEnumerable<EconAttributeValue>
+{
+    /// <summary>The walk, for <c>foreach</c>.</summary>
+    /// <returns>A struct enumerator; through the interface it is boxed, so hot callers take this type.</returns>
+    public Enumerator GetEnumerator() => new(Local, Fallback);
+
+    IEnumerator<EconAttributeValue> IEnumerable<EconAttributeValue>.GetEnumerator() => GetEnumerator();
+
+    System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() => GetEnumerator();
+
+    /// <summary>Walks the local list, then the fallback, skipping any definition index already produced.</summary>
+    public struct Enumerator : IEnumerator<EconAttributeValue>
+    {
+        private readonly IReadOnlyList<EconAttributeValue> _local;
+        private readonly IReadOnlyList<EconAttributeValue> _fallback;
+        private int _index;
+
+        internal Enumerator(IReadOnlyList<EconAttributeValue> local, IReadOnlyList<EconAttributeValue> fallback)
         {
-            if (seen.Add(attribute.DefinitionIndex))
-            {
-                resolved.Add(attribute);
-            }
+            _local = local;
+            _fallback = fallback;
+            _index = -1;
+            Current = default;
         }
 
-        return resolved;
+        /// <summary>The attribute the walk is on.</summary>
+        public EconAttributeValue Current { get; private set; }
+
+        readonly object System.Collections.IEnumerator.Current => Current;
+
+        /// <summary>Back to before the first attribute.</summary>
+        public void Reset() => _index = -1;
+
+        /// <summary>Nothing to release.</summary>
+        public readonly void Dispose()
+        {
+            // A walk over two lists holds nothing.
+        }
+
+        /// <summary>Steps to the next attribute whose definition nothing before it produced.</summary>
+        /// <returns>False when both lists are done.</returns>
+        public bool MoveNext()
+        {
+            int locals = _local?.Count ?? 0;
+            int total = locals + (_fallback?.Count ?? 0);
+
+            while (++_index < total)
+            {
+                bool local = _index < locals;
+                int at = local ? _index : _index - locals;
+                EconAttributeValue candidate = local ? _local![at] : _fallback![at];
+                int definition = candidate.DefinitionIndex;
+
+                if (!Holds(_local!, local ? at : locals, definition) && (local || !Holds(_fallback!, at, definition)))
+                {
+                    Current = candidate;
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        /// <summary>Whether the first <paramref name="count"/> entries name <paramref name="definition"/>.</summary>
+        private static bool Holds(IReadOnlyList<EconAttributeValue> list, int count, int definition)
+        {
+            for (int i = 0; i < count; i++)
+            {
+                if (list[i].DefinitionIndex == definition)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
     }
 }
 
