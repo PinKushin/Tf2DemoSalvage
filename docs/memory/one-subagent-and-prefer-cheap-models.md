@@ -75,6 +75,13 @@ Owner: *"it is a new week so we run like 2 agents at most, the reviews are takin
 ## 2026-10-18: new subsystem = fresh agent
 Owner, after the D217 agent (~900k context) was handed unrelated frame-cost work: *"shouldnt those have been put on new agents for fresh context?"*. Same subsystem follow-ups stay with the agent that knows it; a new subsystem gets a fresh agent once a slot frees. **Why:** a big context is paid every turn and helps nothing outside its subsystem.
 
+## 2026-10-30: the lead is first mate — it does not implement
+Owner, after the lead wrote the B597 vertex control, tests, measurement record and run scripts itself: *"Are you properly
+delegating implementation to opus? You are just supposed to be a 'first mate' in many ways, just the first reviewer, and
+orchestrator"*. Lead: read the engine, write the brief (red test first), launch, review the diff, gate, merge, publish.
+Code, tests, measurement scaffolding → `implementer` (opus, `effort` low/medium); known small edit → `bounded-task`.
+Running a prepared script and reading its output stays the lead's. Brief still names prediction, control, red-first order.
+
 ## 2026-10-04: corpus/specimen plumbing is sonnet or haiku
 Owner, on an opus agent launched to add gcor specimens for new protocols: *"adding specimens was probably a sonnet or
 haiku job, not a opus job"*. Picking files, manifest entries, era tests, doc updates = bounded-task (sonnet). Opus only
