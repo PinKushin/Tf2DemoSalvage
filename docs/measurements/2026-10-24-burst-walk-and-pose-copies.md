@@ -69,3 +69,15 @@ apart by their stage timers (`camera` for B592's particles, `advance` for B593's
   cost far below a millisecond. The change stays, because it is equivalent by test and it is no larger than what it
   replaced.
 - One m593 gummo run (round 3) had a 34% load sample in its quiet gate; it was not the outlier (8.59 ms).
+
+## Verdict
+
+Partly confirmed, partly falsified. Confirmed: both changes are small (the prediction bound was 0.2-0.3 ms each; the
+measured change is at most 0.03 ms), B593 shows in `advance` as predicted (0.72 to 0.69 ms gummo, 0.57 to 0.54 ms empty,
+all three pairs in both views), and a null result for the other was the plausible outcome the prediction allowed. Falsified:
+B592 was predicted to show in `camera particles`, and the `camera` phase did not move outside its spread in either view
+(gummo +0.06, empty +0.02 ms), including the empty view where particles are the largest share. B593 was also predicted to
+show in `camera pose`; that stage is not tabulated separately, and the whole `camera` phase it sits in did not move. The profile's 2.7-5.4% under the enumerator was
+GC-poll bias or a cost far below a millisecond; neither change reaches the frame (gummo +0.07, empty +0.01 ms, null).
+
+Verdict written 2026-10-29 after the fact from the Result above; the run itself was not repeated.

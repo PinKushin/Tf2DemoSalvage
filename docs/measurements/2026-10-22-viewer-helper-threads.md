@@ -134,3 +134,17 @@ before the heartbeat, under 1% after).
 GC mode: `tf2demoview.runtimeconfig.json` carries no `System.GC.*` keys, so workstation GC with concurrent (background) gen2
 on. With gen2 at 0 the background GC thread has nothing to do. The pause is 2.1% of A's 13.41 ms frame. Pause includes the
 first 10 s.
+
+## Verdict
+
+Confirmed on all three predictions. (1) The `0xd22f0` thread is a `.NET TP Worker` running the corpse record pass
+(`CorpseRecording`): 31% of its 15 s of wall samples in run C are under `ViewerPresenter.StartCorpseRecord`, the other 69%
+idle in `PortableThreadPool.WorkerThread`. (2) The `0x17abf0` thread is the `.NET Tiered Compilation Worker`: 1.5% (A) and
+1.2% (B) of a core in the steady window, under the 3% bound, 0.17-0.20 ms a frame. (3) The config carries no `System.GC.*`
+keys (workstation, concurrent), and gen2 was 0 in all three 40 s reports (A 599/125/0, B 582/111/0, C 538/114/0), so the
+background GC thread had nothing to do. What the observation answers: the 4.9-5.5 and 2.1-2.9 ms a frame in the previous
+record were the first ~10 s after the heartbeat (pool worker 57.5-68.0%, tiered worker 30.5-33.6%), not steady state; in the
+steady window the pool worker is under 1% and the threads beside the render thread (12.85-13.74 ms) are the NVIDIA D3D11
+driver worker at 1.75-2.20 ms and little else. The GC pause is 0.28-0.35 ms a frame with no heartbeat gap over 50 ms.
+
+Verdict written 2026-10-29 after the fact from the Result above; the run itself was not repeated.

@@ -1,6 +1,6 @@
 # Measurement 2026-10-29: gcor swap prep (the edit list, the dry run, the LFS cost)
 
-This document prepares the swap that puts the scripted era specimens into gcor (D240). **Nothing here has been
+This document prepares the swap that puts the scripted era specimens into gcor (D241). **Nothing here has been
 applied.** tools/corpus/demos, the manifest, the tests and the gate floors are all unchanged. The swap runs as
 `tools/specimen/gcor-swap.ps1`, which takes the final file list as its input. Why each test depends on its old demo is
 section 3 of `2026-10-28-era-specimens-v2-plan.md`, and this document does not restate it.
@@ -101,11 +101,11 @@ UNVERIFIED tf2-live-build11138802-spec-{pov,stv}-cp_granary.dem  (no -ExpectedPr
 | `tools/corpus/manifest.json` `demos[]` | 10 entries | N entries spliced by `-Apply`. Fill each TODO from the plan's session log (`version` lines, cfg commit, launch recipe) | — |
 | `manifest.json:4` "it is now 4 and 14.5 MB" | stale already | the new count and size | — |
 | `manifest.json:6` "protocol 15 has POV only" | true today | false once the 3862 STV is in | — |
-| `manifest.json:7` "three of the four entries" | stale already | restate as "every era specimen is scripted on a dated client (D240)" | — |
+| `manifest.json:7` "three of the four entries" | stale already | restate as "every era specimen is scripted on a dated client (D241)" | — |
 | `manifest.json:76` (2007 STV: "the only file carrying `svc_VoiceData` in quantity") | true today | false: 2008/3862 carry 43–44 each, and 2010 4231 carries 266 (plan, second pass) | measured |
 | `docs/TIMELINE.md` Dated anchors (`:51`–`:64`) | no 2010 rows | if 2010 enters: `10 June 2010, 15, build 4231` and `16 July 2010, 15, build 4269`, from their `version` lines (plan, the 2010 sections); live 11138802 only if live enters | measured |
 | `docs/TIMELINE.md:243`–`:244` (late-p15 dialect "after build 3862 … by 9 November 2010") | bounded | **measure first.** If 4231 writes six-bit types and VectorXY numbering, the upper bound moves to 10 June 2010 | not yet measured |
-| `docs/DECISIONS.md` | — | the swap decision, drafted in the plan's "Prepared for the swap commit" section. It takes the next free number (D241 today), with D240's number note | — |
+| `docs/DECISIONS.md` | — | the swap decision, drafted in the plan's "Prepared for the swap commit" section. It takes the next free number (D243 after the 2026-10-29 renumber), with D240's number note | — |
 
 Lines checked and left alone:
 
@@ -226,7 +226,7 @@ pwsh tools/specimen/gcor-swap.ps1 -Eras <chosen> -ExpectedProtocol @{4231=15;426
 After `-Apply`:
 1. Fill the manifest TODOs.
 2. Make the phase-1 edits above.
-3. Run both gate phases and the full-corpus superset (D240), then read the four set-level counts.
+3. Run both gate phases and the full-corpus superset (D241), then read the four set-level counts.
 4. Commit the demos (LFS), the manifest, the floors and the decision entry together.
 
 Retiring is a separate commit for each old demo, on the owner's word.

@@ -19715,6 +19715,41 @@ all eight runs: sample 0.31-0.40, drawlist 0.18-0.22, collate 0.20-0.26 — the 
 either way. The larger share of the floor is `camera particles` (1.55 ms, 46% of B's steady frame; same record), whose step
 and build are the engine's shape (audited in that record).
 
+### B259 on 2026-10-28: the sample walks the live entities; the undrawable tally counts by object
+
+Record: `measurements/2026-10-28-b259-entity-walks.md` (engine reading, count-first probe, ABBA+BAAB, identity). Two walks
+gone, each timed inside first: `DemoTimeline.Sample`'s closing collate walked all **6,456 tracks** of f12 for ~492 live
+props (0.13 ms, that record's probe); it now walks a maintained list of the tracks that answer (`_live`, the engine's
+`m_BaseEntities`, `cliententitylist.cpp:340`, `:402-403`), in track order. `DrawTally.NotDrawable` built and hashed key
+strings for ~220 undrawable props a frame, all repeats (0.065 ms, that record's probe); keys are now kept per prop object.
+A → B (that record): `advance` −0.141 (empty) / −0.169 (first person), ranges apart; `collate` −0.070 / −0.065 on the
+moment line's 0.1-rounded windows: **0.185-0.19 ms a frame, 6.1% of the empty view, 2.7% of first person.** The frame is
+not claimed (ranges overlap). Identity: see that record (world pixels and the verifier held; the `pose` hash is scored
+there).
+
+**Still open, each filed in that record's table** (figures from its probe): `Collate` still offers every prop to its
+reconcile walk (~0.07 ms; the change signal it needs is stage B's persistent drawn list, D131's separate approval); the
+leaf lists are O(n) `Insert(0)`/`Remove` where `CBidirectionalSet` is O(1) (under 0.03 ms); the `drawlist` `ShouldDraw`
+filters run per frame where the engine runs `UpdateVisibility` on an update (0.02-0.06 ms; their inputs change without
+the prop's update, and the engine's trigger for each was not read). Remaining B259 per-frame cost, empty view (moment
+line, that record): `sample` 0.215, `drawlist` 0.15-0.21, `collate` 0.135.
+
+**Filed at the merge, 2026-10-29 (a Fable review and a `/code-review high`; none acted on, none measured):**
+- `SetLive` does a dictionary lookup and a `BinarySearch` on every call, including for a lerping track whose liveness did
+  not change; the lerp loop calls it for each of ~2-62 tracks a frame. A `was == (prop is not null)` early-out, or the
+  ordinal stored on `ScenePropTrack`, would remove both.
+- `DrawTally`'s per-object cache is a `ConditionalWeakTable` keyed on prop identity. A prop rebuilt each frame (a lerping
+  or waking track) misses it and pays the old cost plus a table entry; a stable key (model-path reference, kind, class
+  name) would keep the saving.
+- `DrawTally.EverNotStudio` is now a snapshot built on every read; its sibling `EverNoGeometry` is still a live view. The
+  only production reader is the census probe.
+- `Debug.Assert(false, …)` in `PropsAt` fail-fasts the test host on a desync instead of failing one test; the check that
+  names it is `LiveListMatchesSamples`. `TracksWalked` is `_live.Count`, the list's length, which is what the walk iterates.
+- A track listed twice now throws `ArgumentException` at construction (was: emitted twice). Exercised on the gcor timelines
+  only (gate phase 1); an lcor demo that trips it would fail to load, not be dropped.
+- No test reads the walk's output on a real demo against the old full walk; the identity check was a one-off script
+  (the measurement record).
+
 ### B259 on 2026-10-27/28: the world walk is pruned by the PVS, as the engine's mark-leaves makes it
 
 Built 2026-10-27; the engine re-read and the measurement are 2026-10-28.

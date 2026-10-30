@@ -87,3 +87,15 @@ scans only the gap; a skip's `SimulatesOnly` frames scan nothing and leave the r
 **Reading.** A skip's frames would otherwise have scanned 99 ticks a player each — about 536 × 11 × 99 probes on this
 skip. Not measured: how many moments the post-seek model-decal replay builds (`FramePresenter.ReplayModelDecals`); those
 are ordinary frames, so each one more than four ticks from the last pays a landing's cost.
+
+## Verdict
+
+No prediction was fixed (stated at the top), so there is nothing to confirm or falsify; this is what the numbers answer.
+**Weighted pick:** the per-activity candidate lists retain 195,928 B against 55,784 B for the heaviest-only map over 64
+models (about 140 KB more); a pick is 50.1-50.4 ns against 48.3-48.4 ns for `ForActivity`, so it costs the same as the
+lookup it sits beside; the held path allocates 0 B. Only 19 of 1,339 activities have more than one candidate. **Seek scan
+(addendum):** the scan is `PlayerAt`-bound (95%) and sharing the motion pair cut it by 46% (seek frame mean 13.4 to 9.1 ms,
+max 97.6 to 52.2 ms); about 22 ms mean and up to about 105 ms for 24 players is interpolated from at most 12 drawn players,
+not measured. A real forward skip's 536 frames make 0 probes, and its landing frame costs 6.54 ms.
+
+Verdict written 2026-10-29 after the fact from the Result above; the run itself was not repeated.
