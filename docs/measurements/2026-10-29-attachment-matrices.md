@@ -16,7 +16,10 @@ arrays — before the one twelve-float result that is kept.
 
 `C_BaseAnimating::SetupBones_AttachmentHelper` (`c_baseanimating.cpp:2055`, quoted in `EntityModels.Queries.cs`)
 composes `ConcatTransforms( GetBone( iBone ), pattachment.local, world )` into a stack `matrix3x4_t world` and
-`PutAttachment` copies it into the entity's preallocated `m_Attachments`. The kept per-attachment array here is that
+`PutAttachment` copies it into the entity's preallocated `m_Attachments`. *Re-read 2026-10-30:* `matrix3x4_t world` is
+declared once before the loop (`:2061`), the world-aligned branch builds an identity around the position (`:2070-2078`),
+and `PutAttachment( i + 1, world )` (`:2082`) writes into `m_Attachments[number-1]` (`:2026-2045`), refusing a number
+past `m_Attachments.Count()`. The kept per-attachment array here is that
 copy; the five temporaries are not the engine's.
 
 ## The change (`perf/alloc-sites-2`)

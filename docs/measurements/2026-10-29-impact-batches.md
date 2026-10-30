@@ -19,7 +19,9 @@ per effect and per emitter.
 
 Not a mechanism change: the quads, their order and their batches are the same. `CSimpleEmitter::RenderParticles` and its
 kin write corners straight into a mesh builder (`particle_util.h`, `RenderParticle_ColorSizeAngle`), allocating nothing
-per quad, which is what the span form does.
+per quad, which is what the span form does. *Read 2026-10-30 (published source):* `RenderParticle_ColorSizeAngle`
+(`particle_util.h:303-315`) takes `pDraw->GetMeshBuilder()` and writes each corner with `Position3f`/`Color4ubv`/
+`AdvanceVertex` (the pattern at `:296-299`); no allocation per quad.
 
 ## The change (`perf/alloc-sites-2`)
 

@@ -16,8 +16,11 @@ Christmas check was a capturing closure per frame; the ropes' ready list and the
 
 ## The engine's shape
 
-Not a mechanism change: the same strips, passes, corners and order. The engine's beams, trails and ropes write into a
-mesh builder per draw and allocate nothing per frame (`view_beams.cpp`, `c_rope.cpp` `CRopeManager::DrawRenderCache`).
+Not a mechanism change: the same strips, passes, corners and order. *Read 2026-10-30 (published source), after the
+first wording of this section cited files without lines:* `CViewRenderBeams::DrawBeam( C_Beam* )` builds its `Beam_t`
+and `BeamInfo_t` on the stack per draw (`view_beams.cpp:2126-2133`); `CRopeManager::DrawRenderCache_NonQueued` walks a
+fixed render cache and takes each rope's segments from a preallocated segment cache, with its predicted positions in a
+stack array (`c_rope.cpp:432-449`; the cache fields `:261-271`). Neither allocates per frame.
 
 ## The change (`perf/alloc-sites-2`)
 
