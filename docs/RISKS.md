@@ -40742,6 +40742,20 @@ each sabotaged red.
 **Left:** a compacted stream would send 4-46% fewer bytes again (scout most), but it needs a vertex-layout change. Pyro's
 face is not established.
 
+**The GPU split, 2026-10-30 (`perf/b597-gpu-split`; measurements/2026-10-30-b597-gpu-split.md).** *Measured*, three runs
+per condition on the same exe: with `TF2VIEW_MODEL_VERTS` capping each model draw (and model decal, and cloak draw) at 3
+vertices, **OpaqueModels' GPU falls 0.861 to 0.393 ms (54% of it is geometry and the pixel work of those triangles)**; the
+214 tiny draws cost 0.053 (6%); and with **no draw issued at all 0.340 ms (40%) remains** (state binds, 424 maps a frame,
+whatever the timestamp chain charges the pass), which is a third of the pass's 1.06 ms CPU, so it is not the GPU waiting
+on the CPU. The predicted V3 band (0.45-0.65) was missed low: verdict *falsified* on that clause only. The 0.468 ms is a
+floor no CPU change lowers; the 0.34 is not split into pass-boundary cost and submission pacing. The frame mean did not move
+with it (6.7-7.2 ms in all nine), so this pass is not what bounds the frame at this load. **Open:** Sky3D reads 0.75-0.80
+ms of GPU against 0.19 ms CPU (19 draws), where 2026-10-25 read 0.083, and World reads 0.48 against 0.355; OpaqueModels
+reproduced, so the pass boundaries moved between the two records for a reason not yet found. The control is a development
+switch (`--help` lists it), off by default, tested at the draw sites; three cross-model reviews found defects in it before
+the runs (a changed default path, decals and the cloak pass unclamped, empty batches dropped, an unbounded query wait,
+record tolerances).
+
 ## B598 — the zoomed local player and his gear were drawn; the engine hides them from every view — FIXED 2026-10-25 (`fix/four-parity-divergences`)
 
 **Read:** `C_TFPlayer::ShouldDraw` returns false for `this == GetLocalTFPlayer()` in `TF_COND_ZOOMED`

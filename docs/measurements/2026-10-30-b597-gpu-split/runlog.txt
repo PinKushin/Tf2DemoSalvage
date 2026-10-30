@@ -1,0 +1,21 @@
+2026-10-30T10:57:47 01-N verts ''; load before: 6 4 9
+exit 0; load after: 7 7 28
+2026-10-30T11:01:32 02-V3 verts '3'; load before: 22 3 7
+exit 0; load after: 4 6 10
+2026-10-30T11:05:18 03-V0 verts '0'; load before: 11 12 3
+exit 0; load after: 5 4 3
+2026-10-30T11:09:01 04-V0 verts '0'; load before: 5 20 7
+exit 0; load after: 3 5 20
+2026-10-30T11:12:43 05-V3 verts '3'; load before: 6 14 13
+exit 0; load after: 29 7 12
+2026-10-30T11:16:30 06-N verts ''; load before: 17 10 4
+exit 0; load after: 9  2
+2026-10-30T11:20:16 07-N verts ''; load before: 6 13 4
+exit 0; load after: 16 11 14
+2026-10-30T11:24:18 08-V0 verts '0'; load before: 5 6 7
+exit 0; load after: 11 18 15
+2026-10-30T11:28:03 09-V3 verts '3'; load before: 5 9 17
+exit 0; load after: 11 10 5
+all nine done
+
+[exited with code 0]
