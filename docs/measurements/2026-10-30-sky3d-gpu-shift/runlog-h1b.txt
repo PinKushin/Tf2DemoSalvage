@@ -1,0 +1,9 @@
+2026-10-30T12:56:35 07-C exe D:/measure-f12/gs-4a2878b0/tf2demoview.exe; load before: 24 13 19
+exit 0; load after: 8 29 7
+2026-10-30T13:04:58 08-B exe D:/measure-f12/b597-split/tf2demoview.exe; load before: 9 7 15
+exit 0; load after: 11 3 17
+2026-10-30T13:12:27 09-C exe D:/measure-f12/gs-4a2878b0/tf2demoview.exe; load before: 5 15 23
+exit 0; load after: 27 77 63
+2026-10-30T13:19:50 10-B exe D:/measure-f12/b597-split/tf2demoview.exe; load before: 4 2 6
+exit 0; load after: 31 74 74
+grid done
