@@ -339,16 +339,32 @@ silence.
 whole 1.2.x line, so 1.2.1 decodes 2007-era frames without needing a period-matched version.
 
 **A silent frame can be the speaker's, not the decoder's** (2026-10-29, *measured*, probe
-`specimen-triage speex` and `speex-encode`). The scripted era specimens all feed the same tone
-(`tools/specimen/make-voice-wav.ps1`). 2,138 of 3,768 Speex frames in gcor decode to all zeros, and
+`specimen-triage speex` and `speex-encode`). The scripted era specimens were meant to feed the same tone
+(`tools/specimen/make-voice-wav.ps1`; **it never arrived, see the correction at the end of this section**). 2,138 of 3,768 Speex frames in gcor decode to all zeros, and
 every one is in the 3420 pair: 1,069 frames per demo, all one encoded frame,
 `269D6600001B366CD9B0…0001B366CD9B6`. libspeex 1.2.1 at quality 5 encodes 160 zero samples to the same
 220 payload bits; only the last nibble, padding by arithmetic (220 bits in 28 bytes), differs (`B7`).
 So the 3420 client encoded digital silence, at about 6.4 frames a tick, roughly 8x real time; why is
 unread. The control: the same encoder fed a 440 Hz tone decodes to 0 silent frames, 17.3 zero
 crossings a frame against 17.6 predicted, peak 19,314 for a 16,383 input; and the other 1,630 frames
-(2007, 3862, 4231, 4604 tone, and the 2007 SourceTV's 272) decode with none silent. The tone arrives
-quiet, peaks of 326 to 594, which is the engine's input path and not the decoder's gain.
+(2007, 3862, 4231, 4604, and the 2007 SourceTV's 272) decode with none silent.
+
+**Correction, 2026-10-29: no tone arrived in any era, and the silence is the microphone's** (*disassembled* for the 3258
+and 3420 engines, *measured* on the demos; probe `specimen-triage speex-pitch`). The session placed `voice_input.wav` in
+`tf\`, but the engine opens it by bare name with the C runtime's `fopen(name, "rb")`, relative to the process's working
+directory, and the launcher sets that to the folder holding `hl2.exe` (`LauncherMain` calls `_chdir` on the module's
+folder). So the file was never found and the engine fell back to the default microphone. The wav reader is identical in
+3258 and 3420 and rejects no format. Nothing in `voice_inputfromfile`'s command order is wrong. What the demos hold:
+- **A tone gives autocorrelation lags 25 and 17** (293 of 300 frames in the control: our wav through libspeex at quality 5).
+  No gcor pair (3258, 3862, 4231, 4604) and none of 13 lcor specimen POVs shows it. The retired 272-frame 2007 SourceTV
+  shows speech-like lags spread over 21–39, so the instrument does see periodic signal.
+- **The quiet audible frames (peaks 326 to 594) are aperiodic microphone input**, not the tone and not the decoder's gain.
+- **3420's silence is a microphone state, not a 3420 trait:** the same frame at the same rate appears in 4231 spec2 and 4269
+  spec1 runs (lcor). Rate: a file read would give about 1.03 frames a tick (11,025 × 0.015 / 160); the silent runs give
+  5.9–6.4, which is the engine's 2,048-byte buffer (1,024 samples = 6.4 frames) returned whole each call. The file holds
+  55,125 samples, so it can never yield more than 345 frames, and 1,069, 1,703 and 1,722 cannot have come from it
+  (*arithmetic*). *Interpolated:* why the capture state hands back zeros at the cap.
+- **Not read:** the file read in the 4231, 4269, 4604, 2013 and live engines.
 
 ### CELT (`vaudio_celt`) — builds, initialises, and rejects most real frames
 
