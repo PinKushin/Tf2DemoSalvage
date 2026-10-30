@@ -102,6 +102,7 @@ public sealed class SpecimenTriageProbe : IProbe
         List<(int DDemo, int DNet, float Frame)> other = [];
         List<List<int>> runs = [[]];
         List<List<int>> clampedRuns = [[]];
+        List<List<int>> divergedRuns = [[]];
         int previousIndex = int.MinValue;
         int consecutiveLag = 0;
         int consecutiveLagDNet = 0;
@@ -161,6 +162,15 @@ public sealed class SpecimenTriageProbe : IProbe
                 }
 
                 clampedRuns[^1].Add(tick.Tick - command.Tick);
+
+                // The narrower form: break only where the frame was over 100 ms AND the demo clock outran the
+                // server's by more than the usual one-tick jitter in that packet.
+                if (previousDemo != int.MinValue && (dDemo > 32 || (tick.HostFrameTimeSeconds > 0.1f && dDemo - dNet >= 2)))
+                {
+                    divergedRuns.Add([]);
+                }
+
+                divergedRuns[^1].Add(tick.Tick - command.Tick);
             }
 
             if (previousDemo != int.MinValue && packetIndex == previousIndex + 1 && dDemo - dNet >= 3)
@@ -195,6 +205,9 @@ public sealed class SpecimenTriageProbe : IProbe
         output.WriteLine(string.Create(CultureInfo.InvariantCulture,
             $"  WITH-FRAME-SPLIT {Path.GetFileName(path)}: longest run {clampedLongest.Count} packets, spread {(clampedLongest.Count == 0 ? 0 : clampedLongest.Max() - clampedLongest.Min())}, runs {clampedRuns.Count}; " +
             $"consecutive-packet lag rows {consecutiveLag}, their dNet max {consecutiveLagDNet}, host frame min {(consecutiveLag == 0 ? 0 : consecutiveLagMinFrame):F1} ms"));
+        List<int> divergedLongest = divergedRuns.OrderByDescending(run => run.Count).First();
+        output.WriteLine(string.Create(CultureInfo.InvariantCulture,
+            $"  WITH-DIVERGED-SPLIT {Path.GetFileName(path)}: longest run {divergedLongest.Count} packets, spread {(divergedLongest.Count == 0 ? 0 : divergedLongest.Max() - divergedLongest.Min())}, runs {divergedRuns.Count}"));
     }
 
     private static double Mean(List<(int DDemo, int DNet, float Frame)> rows, Func<(int DDemo, int DNet, float Frame), double> value) =>

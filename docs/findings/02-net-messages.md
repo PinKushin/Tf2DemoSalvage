@@ -338,6 +338,18 @@ silence.
 **The latest release is correct here, unlike CELT**: Speex's bitstream has been stable across the
 whole 1.2.x line, so 1.2.1 decodes 2007-era frames without needing a period-matched version.
 
+**A silent frame can be the speaker's, not the decoder's** (2026-10-29, *measured*, probe
+`specimen-triage speex` and `speex-encode`). The scripted era specimens all feed the same tone
+(`tools/specimen/make-voice-wav.ps1`). 2,138 of 3,768 Speex frames in gcor decode to all zeros, and
+every one is in the 3420 pair: 1,069 frames per demo, all one encoded frame,
+`269D6600001B366CD9B0…0001B366CD9B6`. libspeex 1.2.1 at quality 5 encodes 160 zero samples to the same
+220 payload bits; only the last nibble, padding by arithmetic (220 bits in 28 bytes), differs (`B7`).
+So the 3420 client encoded digital silence, at about 6.4 frames a tick, roughly 8x real time; why is
+unread. The control: the same encoder fed a 440 Hz tone decodes to 0 silent frames, 17.3 zero
+crossings a frame against 17.6 predicted, peak 19,314 for a 16,383 input; and the other 1,630 frames
+(2007, 3862, 4231, 4604 tone, and the 2007 SourceTV's 272) decode with none silent. The tone arrives
+quiet, peaks of 326 to 594, which is the engine's input path and not the decoder's gain.
+
 ### CELT (`vaudio_celt`) — builds, initialises, and rejects most real frames
 
 This one is unresolved, and the trail matters more than the conclusion.

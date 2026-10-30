@@ -230,6 +230,8 @@ internal static class GameEventCodec
 
     private static object? ReadValue(ref BitReader reader, GameEventValueType type) => type switch
     {
+        // Not reached from ReadEvent, which reads strings as bytes to keep the ones that are not
+        // UTF-8; kept so this switch stays total over the wire's types.
         GameEventValueType.String => NetBitReading.ReadString(ref reader),
         GameEventValueType.Float => BitConverter.Int32BitsToSingle((int)reader.ReadUInt32(32)),
         GameEventValueType.Long => (int)reader.ReadUInt32(32),

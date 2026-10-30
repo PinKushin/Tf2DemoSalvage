@@ -63,6 +63,17 @@ packet on one side 12 ticks off its stamp. The first version then fell back to t
 (CV 0.447 to 0.603). So a delay step wider than the parse-ahead now ends a run. Across such a lost-time gap the camera
 slows, because the server did, and it holds one frame where the reader has not yet queued the packet after the gap.
 
+**The lost ticks follow the server's own frame time, and they need no gap** (2026-10-29, *measured*, probe
+`specimen-triage nettick`, all 24 gcor demos). `net_Tick` carries the server's host frame time. Where a POV packet's stamp
+outran its `net_Tick` by 3 or more over the previous packet, that frame time is long: mean 191.6 ms on the 2007 scripted
+POV (359 packets), against 58.6 ms where the two clocks stepped together. The stamp step matches it, frame time over 15 ms
+(220.2 ms and 15 ticks; 397.3 ms and 24; 355.1 ms and 23), while the server step between consecutive packets never exceeds
+7 in that demo. So the stamp is wall time, as read above, and the server simulated at most about 100 ms per host frame.
+That 100 ms cap is *interpolated*: the engine's frame-time clamp is not in the SDK and was not disassembled, and a few
+packets elsewhere (3420, 3862, the 4604 koth POV) step the server 9 or 10, unexplained. SourceTV demos never drift.
+The 2007 scripted client ran at ~17 fps throughout and slower after each spawn, so it drifted 73 ticks inside the first
+200 packets without one stamp gap over 32 - which `NetTickRunsOnTheServerClock` read as the decoder losing the stream.
+
 **Reproduced in TF2. Stock settings produce the shape, though more mildly** (2026-10-28, *measured*,
 `docs/measurements/2026-10-28-stutter-reproduction.md`). The first guess was that the user's network cvars caused it
 (`rate 131072`, `net_chokeloop 1`, `net_queued_packet_thread 1`). The prediction written down was that a loopback listen
