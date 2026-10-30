@@ -130,6 +130,85 @@ public sealed class FaceFlexIdentityTests
         stream.ShouldBe([1f, 2f, 3f, 7f, 8f, 9f, 5f, 5f, 5f, 5f, 5f, 5f, 4f, 5f, 6f, 10f, 11f, 12f]);
     }
 
+    /// <summary>
+    /// **Corners that fail the one-time range check take the checked loop, and it matches the reference bit for bit**:
+    /// slots whose vertex lies past the deltas, over dirty streams, against the code as it stood.
+    /// </summary>
+    [Test]
+    public void IntoFlexedSlots_CornersThatFailTheRangeCheck_MatchTheReferenceByteForByte()
+    {
+        Seeded random = new(99);
+
+        for (int round = 0; round < 50; round++)
+        {
+            float[] positions = new float[30];
+            float[] normals = new float[30];
+
+            for (int at = 0; at < positions.Length; at++)
+            {
+                positions[at] = Value(random);
+                normals[at] = Value(random);
+            }
+
+            // Ascending slots; every third vertex offset past the ten vertices the deltas hold.
+            int[] slots = [.. Enumerable.Range(0, 12).Select(slot => slot * 2)];
+            int[] from = [.. slots.Select((_, index) => index % 3 == 2 ? (10 + random.Next(5)) * 3 : random.Next(10) * 3)];
+            FlexedCorners corners = new(slots, from);
+
+            float[] now = [.. Enumerable.Range(0, 24 * 6).Select(_ => Value(random))];
+            float[] reference = (float[])now.Clone();
+
+            FaceFlex.IntoFlexedSlots((positions, normals), corners, now);
+            FaceFlexReference.IntoFlexedSlots((positions, normals), corners, reference);
+
+            Bits(now).ShouldBe(Bits(reference), $"round {round}");
+        }
+    }
+
+    /// <summary>
+    /// A vertex offset near <see cref="int.MaxValue"/> must not pass the range check by wrapping: the checked loop
+    /// runs, and throws exactly as it always did, rather than an unchecked read gigabytes past the array.
+    /// </summary>
+    [Test]
+    public void IntoFlexedSlots_AVertexOffsetThatWrapsTheCheck_ThrowsAsTheCheckedLoopDoes()
+    {
+        FlexedCorners corners = new([0], [int.MaxValue - 1]);
+        (float[], float[]) deltas = (new float[6], new float[6]);
+
+        Should.Throw<IndexOutOfRangeException>(() => FaceFlexReference.IntoFlexedSlots(deltas, corners, new float[6]));
+        Should.Throw<IndexOutOfRangeException>(() => FaceFlex.IntoFlexedSlots(deltas, corners, new float[6]));
+    }
+
+    /// <summary>A moved vertex whose offset overflows is skipped, as the whole-array clear it replaces never threw.</summary>
+    [Test]
+    public void ClearMoved_AVertexWhoseOffsetOverflows_IsSkipped()
+    {
+        FlexedCorners corners = new([], []) { Moved = [715_827_882, 1] };
+        float[] positions = [9f, 9f, 9f, 9f, 9f, 9f];
+        float[] normals = [8f, 8f, 8f, 8f, 8f, 8f];
+
+        FaceFlex.ClearMoved(corners, positions, normals);
+
+        positions.ShouldBe([9f, 9f, 9f, 0f, 0f, 0f]);
+        normals.ShouldBe([8f, 8f, 8f, 0f, 0f, 0f]);
+    }
+
+    /// <summary>
+    /// **A copy made with new slots carries their bounds, not the original's**, so the unchecked write cannot be handed
+    /// a stale range: the wider copy fails the check and the checked loop throws as it always did.
+    /// </summary>
+    [Test]
+    public void With_NewSlotsOrOffsets_RederivesTheBounds()
+    {
+        FlexedCorners narrow = new([0], [0]);
+        FlexedCorners wider = narrow with { At = [5] };
+        FlexedCorners further = narrow with { From = [99] };
+
+        (wider.MinAt, wider.MaxAt).ShouldBe((5, 5));
+        (further.MinFrom, further.MaxFrom).ShouldBe((99, 99));
+        Should.Throw<IndexOutOfRangeException>(() => FaceFlex.IntoFlexedSlots((new float[6], new float[6]), wider, new float[6]));
+    }
+
     private static IEnumerable<(Model Model, float[] Weights, float[] Delayed)> Frames(Model small, Model large, Model listed)
     {
         Seeded random = new(1234);
