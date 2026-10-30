@@ -1357,7 +1357,7 @@ Evidence classes: **read** (published source or shipped game data), **measured**
 | `wait` runs about once a tick at ~17 fps (1.0–1.25 waits/tick) | 3258 | measured (`spec0` `dem_consolecmd` ticks) | inherent; the 7920-wait fallback is 95–119 s here |
 | `addcond` absent from `find` yet printing no `Unknown command` | 3862 | measured | **unresolved**: whether 3862 has `addcond` is not known; the non-zero `m_nPlayerCond` values may come from the chain's natural steps |
 | Construction time: sentry 10 s, dispenser 20 s | every build | read (`objects.txt`, 3258/3420/3862); measured (first `building True` → `building False`, SourceTV `spec` demos): sentry 10.4 s and dispenser 20.9 s on 4231, 4269 (dispenser), 4604, 1729296 and live; 3862 11.2 / 21.6 s from first existence | **the same in every era**; no change to explain |
-| The Engineer builds a **mini-sentry** (`m_bMiniBuilding 1`, health 100, built in 2.7 s) | 4269 only (spec1, spec2 and spec alike) | measured (Probe `buildings`: `mini True`) | **open**: a loadout difference, consistent across three runs. That the 1.1.0.0 emulator equips the Gunslinger is interpolated, not read. Checked and ruled out as the store: `RemStorage/` (empty, untouched), `%APPDATA%\SmartSteamEmu` (absent). `SmartSteamEmu.ini` has `RandomItemAwards = 1` and `DisableGC = 1`, untested. The step is the same; the object is not |
+| The Engineer builds a **mini-sentry** (`m_bMiniBuilding 1`, health 100, built in 2.7 s) | 4269 only (spec1, spec2 and spec alike) | measured (Probe `buildings`: `mini True`) | **fixed 2026-10-29** (section "4269 and 2013 re-records" below): the owner set the Engineer loadout to stock weapons in the client's own `.bat` session, and the next recording built a regular sentry (`mini False`, 102 states). It was a loadout difference, as suspected. *Superseded text, kept:* "the 1.1.0.0 emulator equips the Gunslinger is interpolated, not read"; `RemStorage/` and `%APPDATA%\SmartSteamEmu` were ruled out as the store, and `RandomItemAwards`/`DisableGC` were never tested. **They are not the cause either way:** the ini's own comment says `RandomItemAwards` gives items "in CS:GO" (owner, 2026-10-29: *"radomitemsawards isnt a tf2 thing, at all"*). Where the loadout is stored on disk was not found: nothing under the client folder, `%APPDATA%` or `HKCU\Software\Valve` changed during the owner's session |
 | The kill's timing is the poll's, not the build's: from `engineer_wait`, the driver read both finished after 32 s (1729296), 40 s (4604), 44 s (4231); on live (55 s) and 4269 (64 s) the 7920-wait fallback fired first | 4269, live | measured (console marks, poll timestamps) | harmless as recorded: on both, the dispenser had already finished (live: tick 7615, buildings removed at 10223), and the fallback fired within 55 s (live) and 64 s (4269) of `engineer_wait`, well past the dispenser's 21 s. Slow polls are the cause: the demo flushes in ~196 KB chunks, so at 4269's ~6 KB/s the copy did not change for about 60 s (12 polls). How many waits a second a client runs is not settled: 7920 took about a minute on both an 18 fps (4269) and a 62 fps (live) client, while the same ~660 build waits took 14.5 s on 4231 `spec2` and 6.1 s on 1729296 `spec2` |
 | `build` takes one argument | 3258, 3420, 3862 | read (`client.dll` format string `build %d`) | fixed (`tf2ds_era_pre2011.cfg`) |
 | Object type of the sentry: 3 (old enum), not 2 | 3420, 3862 vs 4231 | measured | inherent; the poll accepts any non-zero type |
@@ -1379,3 +1379,91 @@ Evidence classes: **read** (published source or shipped game data), **measured**
 
 **Every era override:** 2010 gets `tf2ds_era_2010.cfg`, which redefines nothing. Both 2010 `client.dll` files carry
 the two-argument `build %d %d` format string, as 2011 does; 3862 carries the one-argument `build %d`.
+
+### 4269 and 2013 re-records (2026-10-29, evening): the mini-sentry fixed, the 2013 name fixed
+
+Owner: *"we needed to fix that mini senty one to use a regular sentry, the 2013 if it didnt work, should be able to be done with my screen name PinKushin, and work."*
+
+**There are two copies of the 1.1.0.0 client, and the recordings so far were made in the wrong one.**
+- `D:\tf2-builds-dl\tf-2-1.1.0.0-19-jul-2010\TF2 1.1.0.0 (19 Jul 2010)\TF2 1.1.0.0 (19 Jul 2010)\` (the nested copy;
+  folder dated 10-29 00:08). Every earlier 4269 recording (`spec1`, `spec2`, `spec3`) came from here. The plan above calls
+  it "the owner's extract". *That label was not verified and is wrong.*
+- `D:\tf2-builds-dl\tf2-2010-1.1.0.0-extracted\TF2 1.1.0.0 (19 Jul 2010)\` (folder dated 10-28 23:26). The owner ran this
+  one's `Launch Team Fortress 2.bat` and set the Engineer loadout to stock weapons.
+- *Evidence class: measured.* A file-by-file listing of both: 38,267 and 38,261 files, differing only in run residue
+  (logs, caches, `config.cfg`, the placed cfgs). So the nested folder is a copy of the other. *Who made it, and why, is
+  not recorded anywhere I found.* The owner: *"why do we have 2?"*
+- The owner's change left **no changed file** in either folder: `rev-client.log` and `RemStorage/` were written only by
+  the `.bat` run itself, and nothing under `%APPDATA%`, `%LOCALAPPDATA%` or the registry was found. Where the loadout is
+  stored is **not known**.
+
+**Take 1 (nested copy, loader started with RCON args; not kept in lcor): still a mini-sentry**, `type 2 … mini True`, 28
+states, as in the three earlier runs. It was recorded after the owner's change but in the other folder, so it is the
+control, not a failure of the fix. Kept in the scratchpad as `take1-mini`. The probe control on the old `spec` pair read
+the same (`mini True` on building 491, `mini False` on the dispenser), so the instrument sees a mini-sentry.
+
+**Take 2 (the `-extracted` folder, started by the owner through its `.bat`, ini `CommandLine` carrying the RCON args, the
+script attached once RCON answered): a regular sentry.**
+- Build `Protocol version 15`, `Exe build: 16:21:09 Jul 16 2010 (4269)`; `sv_allow_wait_command 1`.
+- Map loaded 152.5 s after the script started; `engineer_go` sent at 381.8 s, when the poll first read both buildings
+  finished (polls 1 and 2: not yet); the run ended at 574.6 s with `tf2ds_specimen done`. Refusals: only the two
+  deliberate unknowns.
+- POV: protocol 15, 405.0 s of play, 27,000 ticks, 5,542 frames, 1,903,794 B, sha256 `3d22e27c…`. SourceTV: 1,180,182 B,
+  `577c1bd3…`. In lcor as `tf2-2010-build4269-spec-{pov,stv}-cp_granary.dem`; the previous pair is `spec3`.
+- **Probe `buildings`, POV: sentry (building 485) `type 2 … mini False`, 102 states; dispenser (484) 186 states;
+  the builder control resolved on 8,616 of 8,616 ticks.**
+- The client's persona name is `Finarooni` (the emulator's), so the chat lines read `Finarooni: hello …` before the
+  `name PinKushin` step.
+- **Cosmetics were left on, as they were.** Owner: *"they were already there,, and having an early demo with early
+  cosmetics is good"*; later: *"this probably isnt early cosmetics really, buds exist in this, we would need to lookuup the
+  uppdate that added cosmetics and find that client with all or most of the items unlocked, to test that really"*. So this
+  pair is **not** an era-faithful cosmetics set, and a real cosmetics test needs a client from the update that added
+  them, with most items unlocked (the old-manifests item lists a `1.1.4.6 with cosmetics` build; not examined).
+- Restore: the ini from its aside copy (hash match), the placed cfgs and wav removed, changed files restored from aside.
+  `tf/DownloadLists/cp_granary.lst` (23 B) is created by the client and was removed. **Diff against `before.txt`:
+  empty.** The nested folder was restored the same way after take 1: empty diff.
+
+**2013 (build 5252, exe 1729296, `F:\tf2-builds\tf2-2013\TF2`): the name is fixed.**
+- Launched by the script with `hl2.exe` and the arguments the tf2 MCP builds (`Tf2Session.cs`: `-game tf -insecure -novid
+  -windowed -noborder -w 1280 -h 720 -condebug -usercon +ip 127.0.0.1 +hostport 27025 +rcon_password … +net_start`) plus
+  `+fps_max 66 +sv_lan 1 +tv_enable 1`, and **`name PinKushin` before `map cp_granary`**.
+- RCON open at 23.7 s, map loaded at 55.5 s, `engineer_go` at 253.9 s, done at 426.9 s. Refusals: 14x
+  `cl_hud_playerclass_use_playermodel` (the owner's config) and the two deliberate unknowns.
+- **This first take** (lcor `spec4`): POV protocol 24, 354.5 s of play, 3,019,759 B, sha256 `ab47588e…`; SourceTV
+  1,216,804 B, `58f88768…`. Sentry (building 487) `mini False`, 102 states.
+- **The old pair's name rendered as `empty`** (`tf2ds_specimen: empty`, `empty: hi`: the UTF-8 persona). Both new takes'
+  header client and chat lines read **`PinKushin`**.
+- **No `player_changename` event in this take** (found by reading the demo, not from the run's marks), and the roster
+  still read `PinKushin` at the end, where the old pair had them (`tf2ds_specimen` → `empty` → `tf2ds_renamed`, tick
+  13,802) and the 4269 pair has two (`Finarooni` → `PinKushin` → `tf2ds_renamed`). *An earlier version of this section
+  said the final rename was still in the demo; it had not been checked and was wrong.* The owner had been online on
+  Steam during this take.
+
+**Second take** (the one of record, lcor `tf2-2013-build1729296-spec-{pov,stv}-cp_granary.dem`), after the owner went
+offline on Steam, with the start name set to `tf2ds_specimen` before `map` as the shared driver did on the other eras,
+and the first RCON call retried (an attempt just before it failed at its first RCON call, because the port opened at 11 s
+before the game answered; nothing was recorded in that attempt):
+- RCON open at 9.2 s, map loaded at 34.8 s, `engineer_go` at 168.4 s (poll 1 not yet, poll 2 finished), done at 290.0 s.
+  Refusals: 14x `cl_hud_playerclass_use_playermodel` and the two deliberate unknowns.
+- POV: protocol 24, **239.4 s of play** (the old pair: 238.2 s), 3,144,947 B, sha256 `2963f6c8…`; SourceTV 1,118,435 B,
+  `b087b17e…`. The previous pairs are `spec3` (3,135,865 B / 1,114,516 B) and `spec4` (the first take).
+- Sentry (building 489) `type 2 … mini False`, 102 states; dispenser (493) 183 states; builder control 5,259 of 5,259.
+- **Still no `player_changename`, and the client and chat name are `PinKushin` from the first chat line (tick 136), before
+  the cfg's `name PinKushin` step. The roster's Steam ID is the owner's real account (`STEAM_0:1:28447543`), where the
+  old pair read `STEAM_0:0:0`.** So the 2013 client takes its name from the owner's Steam persona, which he has set to
+  `PinKushin`, and `name` does not override it. *Evidence class: measured for the name, the Steam ID and the absence of
+  the events; interpolated for the cause* (the console log also has `STEAMAUTH: Client PinKushin received failure code
+  1`). A process check just before this take listed no `steam` or `hl2` process, so why the persona still applies is not
+  known. The owner's instruction for this build is quoted at the top of this section.
+- **A difference from the old pair and from 4269, documented (D240): the 2013 pair has no mid-demo name changes** (the
+  checklist's items 3 and 5, a roster change through `userinfo`). It is the UTF-8 fix and it costs that coverage on
+  this build. A name change on 2013 would need the persona changed or the client offline in a way not tried here.
+- Restore: diff against `before.txt` empty (after removing the client-made `cp_granary.lst`) for both takes.
+
+**Instrument and setup lessons from this session** (so the next run does not repeat them):
+- In PowerShell, `R` is an alias for `Invoke-History`, and an alias beats a function of the same name, so a helper named
+  `R` fails with "Cannot locate the history for command line …". The driver's helper is `Rc`.
+- `%LOCALAPPDATA%\tf2mcp\rcon-password` did not exist. Tf2Mcp creates it lazily on its first launch, so a driver that
+  reads it first fails. It was created by hand in the format Tf2Mcp uses (32 hex characters).
+- A `Probe` run, including `buildings`, must hold the machine-wide lock (a hook refuses it otherwise). A driver that polls
+  with the Probe during a recording therefore has to run inside `run-exclusive.ps1` for the whole session.
