@@ -97,6 +97,12 @@ Put $g ($ran -replace 'back to back', 'an hour apart')
 Check 'Control edited after the Result commit: denied'     (Run $g 'git commit -m "docs: x"') 'deny'
 Put $g ($ran -replace 'back to back', 'an hour apart') -Commit
 Check 'same edit once committed: still denied'             (Run $g 'git commit -m "docs: x"') 'deny'
+# A labelled amendment is the owner's loosening (2026-10-29): the section says it was changed after the run, so the
+# reader is told and nothing is hidden.
+Put $g ($ran -replace 'back to back', 'back to back. Added after the run (review): twice more')
+Check 'Control edited after the run, labelled "Added after": allowed' (Run $g 'git commit -m "docs: x"') 'allow'
+Put $g ($ran -replace 'back to back', 'back to back. Changed from the plan: twice more')
+Check 'Control edited after the run, labelled "Changed from the plan": allowed' (Run $g 'git commit -m "docs: x"') 'allow'
 $k = New-Repo 'g2c'
 Put $k $ran -Commit
 Put $k ($ran -replace 'back to back', 'an hour apart')

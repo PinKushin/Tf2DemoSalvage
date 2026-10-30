@@ -143,3 +143,17 @@ is nearly all of it; static props are non-zero in 173 notes and direct `SunAt` (
   8,192-unit rays, boxes 0/2/16, and the 57,016-unit sun trace from seeded points, `MASK_SOLID` and `MASK_OPAQUE`):
   **0 differ** from the whole-ray compose in any `BspTrace` field, with terrain winning 375 (the control). With the bound
   sabotaged (the box's x end halved) the same probe reports 29 differ; restored.
+
+## Verdict
+
+Mixed; each prediction separately. **A** (fork-join): confirmed on `bursts/step`, which fell 0.275-0.282 to 0.196-0.204 ms
+(-0.07 to -0.09, predicted 0.05-0.10), ranges separate, no part rose; the frame piece is inconclusive: predicted under 0.1
+ms, observed about -0.1 to -0.2 with touching ranges, so not established. **B** (threshold): confirmed, 0, 4 and 16 give
+0.205, 0.196-0.204 and 0.205 ms, no difference within spread; 4 is kept. **C** (sun calls): falsified on the cost. The
+calls matched (1.54-1.55 a frame, nearly all light cache builds; empty view 0), but the predicted total of 0.05 ms or less
+was 0.457-0.465 ms a frame (4.9% of the frame, about 0.30 ms a call), so the profile's 5.8% was real, not attribution bias.
+**D** (bounded sweep): confirmed, `sun` fell to 0.012-0.013 ms (predicted under 0.03) with the same calls, 0.008 ms a call
+against 0.30; the starting point was higher than predicted (0.46, not 0.15-0.3), and the frame fell 0.6 ms (-6.5%), more
+than the sun's own 0.45, the excess being interpolated to other traces taking the same bound, not timed.
+
+Verdict written 2026-10-29 after the fact from the Result above; the run itself was not repeated.

@@ -11276,7 +11276,43 @@ refutes it.**
 
 What would decide it next time, the `queue stall` report, and when B609 reopens, are in B609.
 
-## D240 — era specimens must be comparable: a per-era difference is fixed in the script, or documented as the build's (2026-10-29)
+## D240 — the measurement gate accepts a labelled amendment; 21 old measurements get a Verdict written after the fact (2026-10-29)
+
+**What happened.** Merging B259 was blocked: `.claude/hooks/tf2-measurement-gate.ps1` (gate 2) denied every
+`git commit`, on any branch, because of `docs/measurements/` files from 2026-10-22..27 that were already on main.
+
+**Three separate causes:**
+- **A hook bug.** The hook decoded `git cat-file` output with the console code page (437 when launched from a shell), so
+  a UTF-8 `…` came back as three characters and every section containing one looked edited since its run. Fixed by
+  setting `[Console]::OutputEncoding` to UTF-8 at the top of the hook. *Evidence class: measured* (a replica of the
+  section comparison printed 915,199,170 against 8230 for the same character).
+- **21 files with a Result and no `## Verdict` heading**, or a Prediction whose Verdict never said confirmed, falsified
+  or inconclusive. Genuine against the hook's own rule.
+- **Three files whose Control or Method was amended after the run**, each with a sentence saying so: `f12-camera-breakdown`
+  ("added after R1/R2 and before it runs"), `burst-walk-and-pose-copies` ("Changed from the plan"),
+  `b597-constant-ring-and-occlusion` ("Added after this record was committed").
+
+**Owner, asked how to clear the 21 (options: delegate Verdicts to a bounded-task agent, loosen gate 2 to touched files
+only, or clear it himself):** chose to delegate the Verdicts, then added *"shit i didnt actuallyy read all those options
+but its ok"*. **Asked what to do about the three amendments (restore the original text, or loosen the gate for labelled
+amendments):** *"loosen the gate i guess"*. His reasoning is not given beyond that; the hedge ("i guess") is his.
+
+**What was done.**
+- Gate 2 skips a frozen section whose current text contains "added after", "changed from the plan" or "amendment". The
+  label tells the reader; **the hook does not check that the original text survives**, so a label can excuse a rewrite
+  (the burst-walk amendment did replace the plan's text). Sequence-test cases added first and seen red: 2 of 2.
+- A bounded-task agent (sonnet) added a `## Verdict` to the 21 files. A fresh Verdict ends "Verdict written 2026-10-29
+  after the fact from the Result above; the run itself was not repeated", and an existing one that lacked the word ends
+  "Verdict extended 2026-10-29 …". No frozen section was touched; one heading was renamed (`main-thread-cpu-profile`:
+  "What this settles…" became "Verdict: what this settles…"). The agent's text was read in full before it landed; **its
+  figures were not re-checked against the raw output**, only against each file's own Result.
+
+**Number note:** the specimen branch held entries also numbered D240 and D241, written before this merge. The
+decision-number check refuses a gap (`build/assert-decision-numbers`), so this entry took D240 on main, and **those two
+were renumbered to D241 and D242, with their citations, when `origin/main` was merged into the specimen branch
+(2026-10-29).**
+
+## D241 — era specimens must be comparable: a per-era difference is fixed in the script, or documented as the build's (2026-10-29)
 
 **The owner, 2026-10-29**, relayed by the lead after the 2008 specimen's dispenser was killed at 44 % built: *"any
 differences like that should be fixed, it lets us obviously see and notice changes too, which should be documented"*.
@@ -11296,7 +11332,7 @@ restate it.
 (Number note: the plan document reserved "D240 at time of writing" for the gcor swap decision; that entry takes the
 next free number when it lands.)
 
-## D241 — the shared specimen script names the player `PinKushin`, ASCII (2026-10-29)
+## D242 — the shared specimen script names the player `PinKushin`, ASCII (2026-10-29)
 
 *Owner-voiced.* **The owner, 2026-10-29**, on the UTF-8 name `Пётр大将` in `tools/specimen/tf2ds_specimen.cfg`: *"fix the
 name to my name, so we dont have to wworry about it PinKushin"* [typos kept as spoken: "wworry" is "worry"].
@@ -11306,7 +11342,7 @@ name to my name, so we dont have to wworry about it PinKushin"* [typos kept as s
 **Why it followed:** on build 3258 a UTF-8 byte in the alias ends its quoted body early and the rest of the line runs
 at once at top level, so the shared cfg defined a broken `ds_extras` there (measured, run 9 of
 `docs/measurements/2026-10-28-era-specimens-v2-plan.md`); on 3420 and 3862 `name` does not take at all. An ASCII name
-removes one per-era difference from the specimens (D240) instead of documenting it. The owner gave no further reason.
+removes one per-era difference from the specimens (D241) instead of documenting it. The owner gave no further reason.
 
 **What it does not touch:** the UTF-8 name finding (the old 2013 POV demo in gcor) stays as it is. Pairs recorded
 before this carry whatever name took in each demo. A UTF-8 name test, if wanted, is a separate dedicated specimen. The

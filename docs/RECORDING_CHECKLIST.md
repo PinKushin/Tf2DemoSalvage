@@ -57,7 +57,7 @@ silently.
 |---|---|---|
 | 1 | `say hello from <year>` | `SayText2` → chat decoding, per era |
 | 2 | `say_team team line` | the chat message's destination/kind field |
-| 3 | `name PinKushin` then `say hi` | a name change through `userinfo`, chat, and the header (the shared specimen name is ASCII, D241) |
+| 3 | `name PinKushin` then `say hi` | a name change through `userinfo`, chat, and the header (the shared specimen name is ASCII, D242) |
 | 4 | Hold the mic key and talk for ~10s | `svc_VoiceData`, `svc_VoiceInit` |
 | 5 | `name something_else` mid-demo | `svc_UpdateStringTable` on `userinfo` — the mid-game roster path (B22), and `TextMsg #TF_Name_Change` |
 | 6 | Change class at least three times | different entity classes, different flattened property sets |
@@ -118,7 +118,7 @@ printed nothing actually took effect is read from the demo, not from the console
 
 | build | refused | other findings |
 |---|---|---|
-| 2007, 3258 (p11) | `cl_disablehtmlmotd`, `mp_respawnwavetime`, `mp_disable_respawn_times`, `tf_bot_quota`, `tf_bot_add`, `addcond`, `removecond` | (historical, 2026-10-28: a UTF-8 `name` from a cfg set nothing and printed the cvar; the cfg name is now ASCII, D241.) `tv_delay` is clamped to at least 10. `con_logfile` diverts `-condebug`'s console.log. Started raw, the client froze after the config banner. |
+| 2007, 3258 (p11) | `cl_disablehtmlmotd`, `mp_respawnwavetime`, `mp_disable_respawn_times`, `tf_bot_quota`, `tf_bot_add`, `addcond`, `removecond` | (historical, 2026-10-28: a UTF-8 `name` from a cfg set nothing and printed the cvar; the cfg name is now ASCII, D242.) `tv_delay` is clamped to at least 10. `con_logfile` diverts `-condebug`'s console.log. Started raw, the client froze after the config banner. |
 | 2008, 3420 (p14) | not yet run | Started raw, it failed with `CFileSystem_Steam::Init() failed: failed to find steam interface`. |
 | 2010, 4231 (1.0.9.5, p15) | none | Speex voice landed (`svc_VoiceData` 266). |
 | 2010, 4269 (1.1.0.0, p15) | none | Needs its SmartSteamLoader; started bare, it has no `gameinfo.txt`. Speex voice landed (44). |

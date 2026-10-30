@@ -80,3 +80,12 @@ pre-run gate (three samples under 25%, no `vbcscompiler`/`MSBuild`), so part of 
    view's frame means overlap (base 4.93-5.02, fix1 4.74-5.02), so **no frame gain is claimed there**. The gummo pairs
    are 0.2-0.4 ms faster each time, but under load.
 2. **Equivalence not shown byte-identical.** Fix1's 70-73 differing pixels are inside base's own 63-41,710.
+
+Against the Prediction, line by line. Prediction 1, the empty view's `simulate` falling from 0.5 to 0.1-0.2 ms: falsified in
+size, since it fell to 0.3-0.4 ms (about 0.2 ms, not the 0.3-0.4 ms the probe suggested). The frame mean down ~0.3 ms and
+visible only on the stage timer: confirmed as far as it goes, the frame means overlap and no frame gain is claimed. Gummo
+`simulate` down by less than the empty view: falsified, it fell by the same ~0.2 ms (0.5-0.7 to 0.3-0.5). Prediction 2,
+byte-identical shots at ticks 30000 and 30400: inconclusive, because base does not reproduce its own shot, so the
+comparison could not be byte identity and the 70-73 differing pixels cannot be told from the baseline's own noise.
+
+Verdict extended 2026-10-29 after the fact from the Result above; the run itself was not repeated.

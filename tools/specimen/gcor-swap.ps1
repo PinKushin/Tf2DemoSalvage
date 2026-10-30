@@ -1,12 +1,12 @@
 #Requires -Version 7.2
 <#
 .SYNOPSIS
-Validates the scripted era specimens staged in lcor and, only with -Apply, adds them to gcor (D240). A dry run is the
+Validates the scripted era specimens staged in lcor and, only with -Apply, adds them to gcor (D241). A dry run is the
 default and writes nothing.
 
 .DESCRIPTION
 The swap is ADDITIVE. It copies the new `tf2-<era>-build<n>-spec-{pov,stv}-<map>.dem` files into tools/corpus/demos
-and leaves every old specimen where it is, because the old ones go only on the owner's word (D240). Retiring an old
+and leaves every old specimen where it is, because the old ones go only on the owner's word (D241). Retiring an old
 specimen is a separate edit list in docs/measurements/2026-10-29-gcor-swap-prep.md.
 
 **The `-spec-` tag stays in the gcor name.** Without it, the 2007 and 2008 targets would be the old file names exactly,

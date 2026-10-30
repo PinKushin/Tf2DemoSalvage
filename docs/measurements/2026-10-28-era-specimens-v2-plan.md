@@ -348,9 +348,9 @@ Deferred to Phase B, under the lock once it is free:
 - the KnownSchema hash prediction;
 - the dry runs, which start on the oldest era (2007) without `record`.
 
-## Prepared for the swap commit — the decision entry (take the next free number at commit; D240 at time of writing)
+## Prepared for the swap commit — the decision entry (take the next free number at commit; D243 after the 2026-10-29 renumber; it was "D240 at time of writing")
 
-> **D240 — gcor's era specimens are re-recorded from one script, and the old ones are replaced (2026-10-28)**
+> **D243 (drafted as D240) — gcor's era specimens are re-recorded from one script, and the old ones are replaced (2026-10-28)**
 >
 > The owner, 2026-10-28, on the hand-recorded era specimens: *"They dont match and test enough, I manually just did
 > random stuff, they cant be compared against each other."* And, when the swap was put to him as his call: *"we will be
@@ -1339,7 +1339,7 @@ The first run of the new `tf2ds_era_pre2011.cfg` (only the two `ds_build_*` alia
   `console.log`, `demoheader.tmp`, `tf_gamestats.dat`, `config.cfg` and `platform/config/ingamedialogconfig.vdf` came
   back from the aside copies. No `hl2` left; `SteamClientDll` reads `C:\Program Files (x86)\Steam\steamclient.dll`.
 
-### Differences observed, per era (D240: fixed in the script where the build allows it, documented where inherent)
+### Differences observed, per era (D241: fixed in the script where the build allows it, documented where inherent)
 
 The owner, 2026-10-29: *"any differences like that should be fixed, it lets us obviously see and notice changes too,
 which should be documented"*.
@@ -1363,7 +1363,7 @@ Evidence classes: **read** (published source or shipped game data), **measured**
 | Object type of the sentry: 3 (old enum), not 2 | 3420, 3862 vs 4231 | measured | inherent; the poll accepts any non-zero type |
 | `name` does not take (the start name, the UTF-8 name and the rename are absent) | 3420, 3862 | measured; that the Steam persona overrides it is interpolated | inherent so far |
 | UTF-8 name dropped from a cfg (the ASCII rename works) | 3258 | measured | inherent; the mechanism is the alias-quote row above (run 9) |
-| **2026-10-29:** the cfg's name is now ASCII `PinKushin` (D241), because on build 3258 the UTF-8 name breaks the `ds_extras` alias: it ends the quoted text early and runs the rest at once (measured in run 9). Pairs recorded before this carry whatever name took in each demo. | every build | measured (run 9) for 3258; the other builds are by the decision, not a per-build measurement | **fixed in the script**; a UTF-8 name test is a separate dedicated specimen if wanted |
+| **2026-10-29:** the cfg's name is now ASCII `PinKushin` (D242), because on build 3258 the UTF-8 name breaks the `ds_extras` alias: it ends the quoted text early and runs the rest at once (measured in run 9). Pairs recorded before this carry whatever name took in each demo. | every build | measured (run 9) for 3258; the other builds are by the decision, not a per-build measurement | **fixed in the script**; a UTF-8 name test is a separate dedicated specimen if wanted |
 | `tf_bot_add`, `tf_bot_quota` unknown | 3258, 3420, 3862 | measured | inherent (no bots before the bot update) |
 | `tf_bot_add` accepted but adds nothing | 5252 | measured (`status`) | not chased |
 | `addcond`/`removecond` unknown | 3258, 3420 | measured | inherent |
@@ -1455,7 +1455,7 @@ before the game answered; nothing was recorded in that attempt):
   the events; interpolated for the cause* (the console log also has `STEAMAUTH: Client PinKushin received failure code
   1`). A process check just before this take listed no `steam` or `hl2` process, so why the persona still applies is not
   known. The owner's instruction for this build is quoted at the top of this section.
-- **A difference from the old pair and from 4269, documented (D240): the 2013 pair has no mid-demo name changes** (the
+- **A difference from the old pair and from 4269, documented (D241): the 2013 pair has no mid-demo name changes** (the
   checklist's items 3 and 5, a roster change through `userinfo`). It is the UTF-8 fix and it costs that coverage on
   this build. A name change on 2013 would need the persona changed or the client offline in a way not tried here.
 - Restore: diff against `before.txt` empty (after removing the client-made `cp_granary.lst`) for both takes.
