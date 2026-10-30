@@ -19744,7 +19744,14 @@ line, that record): `sample` 0.215, `drawlist` 0.15-0.21, `collate` 0.135.
 - `DrawTally.EverNotStudio` is now a snapshot built on every read; its sibling `EverNoGeometry` is still a live view. The
   only production reader is the census probe.
 - `Debug.Assert(false, …)` in `PropsAt` fail-fasts the test host on a desync instead of failing one test; the check that
-  names it is `LiveListMatchesSamples`. `TracksWalked` is `_live.Count`, the list's length, which is what the walk iterates.
+  names it is `LiveListMatchesSamples`.
+- **`TracksWalked` is `_live.Count`, a recomputed value, not a count taken by the walk, so the assertions on it cannot
+  fail when the walk is reverted** (found independently by two free-model reviewers, DeepSeek V4.1 and MiMo V2.6, in the
+  2026-10-29 review bench; checked against the code). Reverting the collate loop to `foreach (… in _props)` leaves
+  `TracksWalked` at `_live.Count`, so `EntityListConformanceTests` lines 74 and 148 (`Walked` and
+  `TracksWalked.ShouldBe(props.Count)`) stay green while ~6,456 tracks are visited per frame instead of ~492. It breaks
+  the instrument rule (report the value the code USED, B243). The fix is to count iterations inside the loop, and then
+  prove it by reverting the walk and seeing the assertions go red.
 - A track listed twice now throws `ArgumentException` at construction (was: emitted twice). Exercised on the gcor timelines
   only (gate phase 1); an lcor demo that trips it would fail to load, not be dropped.
 - No test reads the walk's output on a real demo against the old full walk; the identity check was a one-off script

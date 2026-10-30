@@ -130,7 +130,14 @@ Lines checked and left alone:
   copies have to be moved out of `F:\Tf2DemoSalvage-lcor`. That is for the owner or the lead; this task deletes and
   moves nothing.
 
-**Phase 2: retire (on the owner's go, one old demo at a time).** Each line below keeps working while its old demo
+**Amended 2026-10-29 (owner): phases 1 and 2 land in ONE push.** *"they need to go at the same time though so github
+doesnt end up with a huge set"* (after the 14 files were added locally; nothing had been pushed). The cost table in
+section 3 shows why: two pushes change the LFS cache key twice (about 89 MB, then 66–99 MB), and between them the
+committed set holds both generations. Local commits may be split; the push may not.
+
+**Phase 2: retire (on the owner's go, one old demo at a time).** *The "on the owner's go, one old demo at a time" below
+is superseded by the amendment above for the 9 old gcor demos; a demo whose test cannot be answered by the scripted
+specimen is the exception and stays, as a listed blocker for the owner.* Each line below keeps working while its old demo
 stays. "Re-derive" means the new expected value comes from fresh evidence on the new demo and is never copied. The
 class letters are plan §3's.
 
