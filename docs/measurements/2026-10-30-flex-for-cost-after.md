@@ -94,13 +94,22 @@ Control:
 
 Identity at the output (not a measurement; paused `--shot`, 1280x720, compared with `pixdiff.ps1` in the run folder,
 every pixel; captures kept outside the repository in `D:/measure-f12/flex-scratch/`):
-- Tick 30000, gummo first person: A, A, A, B, B. A2 = A3 = B1 = B2, 0 pixels differ in each pair. The first capture of
+- **The talking face, from the front**: tick 30515, camera `TF2VIEW_CAMERA='-3400 -1268 648 5 135'`, 55 units in front
+  of scout entity 5 at his head (origin -3445.1 -1224.1 583.1, yaw -44.7, from `moment-dump f12.dem 30515 5`), 0.18 s
+  into `vo/scout_StandOnThePoint03.mp3` and scene `scenes/Player/Scout/low/1305.vcd` (started tick 30503). A1 against
+  A2, B1 against B2, A1 against B1, A2 against B2: 0 pixels differ in each.
+- **Control that this camera sees a face error**: a third build, B with one deliberate change (the slot write's
+  position deltas doubled, `D:/measure-f12/flex-c-src`, never committed), against B1: 1,877 pixels differ, all inside
+  (353,145)-(597,349), which is the scout's head and a distant player's.
+- Tick 30000, gummo first person (no face is on screen in this view, so it shows only that the rest of the frame is
+  unchanged): A, A, A, B, B. A2 = A3 = B1 = B2, 0 pixels differ in each pair. The first capture of
   the session (A1) differs from all the others in the top bar only (42,997 pixels inside (0,0)-(1279,48)), the same
   against A2 as against B1, so it is the session's first HUD draw, not the build.
-- Tick 30515, a fixed camera (`TF2VIEW_CAMERA='-3430 -1130 650 10 270'`) on scout entity 5, 0.18 s into
-  `vo/scout_StandOnThePoint03.mp3` (started tick 30503 by the trace), with a soldier and a pyro in view: A1 against A2,
-  B1 against B2, A1 against B1, A2 against B2, 0 pixels differ in each.
-- Control that the comparison sees a frame's change: A at 30515 against A at 30516, 757,877 pixels differ.
+- Tick 30515 from behind the scout (`TF2VIEW_CAMERA='-3430 -1130 650 10 270'`, his face not in view; a soldier and a
+  pyro are): A1 against A2, B1 against B2, A1 against B1, A2 against B2, 0 pixels differ in each. A at 30515 against
+  A at 30516: 757,877 pixels differ (the comparison sees a frame's change).
+- Allocation (`gc:` line of each run): A 0.63-0.92 MB a frame, B 0.66-0.79; B inside A's range, so the array copy
+  `Accumulate` makes for a non-array vertex list is not being taken in production.
 - Byte level: `FaceFlexIdentityTests` (195 frames, three models, bit-identical streams), and the Rendering medic tests
   through the production path, green on B.
 

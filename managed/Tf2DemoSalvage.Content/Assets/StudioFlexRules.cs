@@ -304,9 +304,10 @@ public static class StudioFlexRules
         int applied = 0;
         IReadOnlyList<StudioMeshFlex> flexes = data.Flexes;
 
-        // **Indexed, not enumerated** (docs/measurements/2026-10-30-flex-for-cost.md): a `foreach` over the interface
-        // made two interface calls and a copy per vertex animation, about 12 ns each over ~3,000 a face. The order of
-        // the flexes, of their vertices and of every add is unchanged, so the sums are the same bits.
+        // **Indexed, not enumerated**: a `foreach` over the interface made two interface calls and a copy per vertex
+        // animation. Removing them took the accumulation from 0.21 to 0.16 ms a rebuild on f12, about 9 ns an animation
+        // still unexplained (docs/measurements/2026-10-30-flex-for-cost-after.md). The order of the flexes, of their
+        // vertices and of every add is unchanged, so the sums are the same bits.
         for (int index = 0; index < flexes.Count; index++)
         {
             StudioMeshFlex flex = flexes[index];

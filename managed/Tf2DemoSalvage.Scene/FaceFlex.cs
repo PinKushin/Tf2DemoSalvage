@@ -266,9 +266,10 @@ public static class FaceFlex
         ReadOnlySpan<int> at = corners.At;
         ReadOnlySpan<int> from = corners.From;
 
-        // **Every slot in range, checked once** (docs/measurements/2026-10-30-flex-for-cost.md): the per-slot checks of
-        // the loop below were most of a ~27 µs write a face. Only when some slot is out of range does that loop run, and
-        // it skips exactly what it always skipped.
+        // **Every slot in range, checked once**: the write went from 0.165 to 0.102-0.105 ms a rebuild on f12 without the
+        // per-slot checks (docs/measurements/2026-10-30-flex-for-cost-after.md). Only when some slot is out of range does
+        // the checked loop below run, and it skips exactly what it always skipped. The bounds are the ones FlexedCorners
+        // computed when it was made, so its arrays must not be changed after (nothing does).
         if (at.Length > 0 && at.Length == from.Length && corners.MinAt >= 0 && corners.MinFrom >= 0 &&
             corners.MaxFrom + 2 < positions.Length && corners.MaxFrom + 2 < normals.Length &&
             ((long)corners.MaxAt * 6) + 5 < stream.Length)
