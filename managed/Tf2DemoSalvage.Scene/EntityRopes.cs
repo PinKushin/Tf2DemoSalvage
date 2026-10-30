@@ -247,10 +247,15 @@ public sealed class EntityRopes
         Drawn = 0;
         Skipped = 0;
 
-        List<(Rope Rope, SceneProp Prop)> drawn = [];
+        // The list reused and `props` indexed: both were per-frame garbage (B599).
+        List<(Rope Rope, SceneProp Prop)> drawn = _drawn;
 
-        foreach (SceneProp prop in props)
+        drawn.Clear();
+
+        for (int p = 0; p < props.Count; p++)
         {
+            SceneProp prop = props[p];
+
             if (prop.Pose.Rope is not { } parameters)
             {
                 continue;
@@ -315,6 +320,9 @@ public sealed class EntityRopes
                 rope.Index, (node << 8) + step, _segments[point].Position, HolidayLightScale));
         }
     }
+
+    /// <summary>The ropes ready to draw this frame, with their props, reused.</summary>
+    private readonly List<(Rope Rope, SceneProp Prop)> _drawn = [];
 
     /// <summary>This entity's simulation, new when it was not offered last frame or changed material.</summary>
     private Rope RopeFor(SceneProp prop, SceneRope parameters)

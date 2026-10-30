@@ -165,8 +165,11 @@ public sealed class EntityBeams
         Drawn = 0;
         Skipped = 0;
 
-        foreach (SceneProp prop in props)
+        // Indexed: `props` is interface-typed and a `foreach` boxed its enumerator every frame (B599).
+        for (int p = 0; p < props.Count; p++)
         {
+            SceneProp prop = props[p];
+
             if (prop.Pose.Beam is not { } beam)
             {
                 continue;

@@ -146,5 +146,25 @@ public sealed class EconDefinitionAttributeTests
         Read().DefinitionAttributesFor(502).ShouldBeEmpty();
     }
 
+    /// <remarks>
+    /// **A definition's attributes are built once and kept, as `m_vecStaticAttributes` is** (econ_item_schema.cpp:3330-3359,
+    /// B599): the scene asks per prop per frame. The second ask allocates nothing and answers the same values; the first
+    /// built the prefab walk, which is why the two are asked apart.
+    /// </remarks>
+    [Test]
+    public void DefinitionAttributesFor_AskedAgain_AllocatesNothingAndAnswersTheSame()
+    {
+        ItemSchema schema = Read();
+        EconAttributeValue[] first = [.. schema.DefinitionAttributesFor(500)];
+
+        long before = System.GC.GetAllocatedBytesForCurrentThread();
+        System.Collections.Generic.IReadOnlyList<EconAttributeValue> again = schema.DefinitionAttributesFor(500);
+        long bytes = System.GC.GetAllocatedBytesForCurrentThread() - before;
+
+        bytes.ShouldBe(0L);
+        again.ShouldBe(first);
+        first.Length.ShouldBe(3);
+    }
+
     private static ItemSchema Read() => ItemSchema.Read(Encoding.UTF8.GetBytes(Schema));
 }

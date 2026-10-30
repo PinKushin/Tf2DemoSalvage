@@ -43,10 +43,15 @@ public static class ImpactDraw
         ArgumentNullException.ThrowIfNull(materialAlpha);
         ArgumentNullException.ThrowIfNull(into);
 
-        foreach (ImpactEmitter emitter in effect.Emitters)
+        // Indexed, because the three lists are `IList`-typed and a `foreach` over one boxes its enumerator — per effect and
+        // per emitter, every frame (B599).
+        for (int e = 0; e < effect.Emitters.Count; e++)
         {
-            foreach (ImpactParticle particle in emitter.Particles)
+            ImpactEmitter emitter = effect.Emitters[e];
+
+            for (int p = 0; p < emitter.Particles.Count; p++)
             {
+                ImpactParticle particle = emitter.Particles[p];
                 List<DetailSpriteVertex> corners = Corners(into, particle.Material);
                 float alpha = materialAlpha(particle.Material);
 
@@ -61,8 +66,10 @@ public static class ImpactDraw
             }
         }
 
-        foreach (ImpactQuad quad in effect.Quads)
+        for (int q = 0; q < effect.Quads.Count; q++)
         {
+            ImpactQuad quad = effect.Quads[q];
+
             if (quad.Lifetime < quad.DieTime)
             {
                 Quad(quad, materialAlpha(quad.Material), Corners(into, quad.Material));
@@ -129,7 +136,9 @@ public static class ImpactDraw
         DetailSpriteVertex c2 = Corner(ca - sa, sa + ca, 1f, 0f);
         DetailSpriteVertex c3 = Corner(ca + sa, sa - ca, 1f, 1f);
 
-        into.AddRange([c0, c1, c2, c0, c2, c3]);
+        // A span, so the six corners go on the stack: `AddRange([…])` binds the `IEnumerable` overload and made an array
+        // and a wrapper per quad, ~59 KB a frame on f12 (B599, measurements/2026-10-29-allocation-census.md).
+        into.AddRange((ReadOnlySpan<DetailSpriteVertex>)[c0, c1, c2, c0, c2, c3]);
     }
 
     /// <summary>`CTrailParticles::RenderParticles` and `Tracer_Draw`.</summary>
@@ -192,7 +201,7 @@ public static class ImpactDraw
         DetailSpriteVertex v3 = Vertex(start + normal + delta, 1f, 1f);
 
         // `MATERIAL_QUADS` in the order 0, 1, 3, 2.
-        into.AddRange([v0, v1, v3, v0, v3, v2]);
+        into.AddRange((ReadOnlySpan<DetailSpriteVertex>)[v0, v1, v3, v0, v3, v2]);
 
         DetailSpriteVertex Vertex(Vector3 at, float u, float v) => new(at.X, at.Y, at.Z, u, v, r, g, b, a, u, v, 0f);
     }
@@ -221,7 +230,7 @@ public static class ImpactDraw
         DetailSpriteVertex v2 = Vertex(quad.Origin - right + up, 0f, 0f);
         DetailSpriteVertex v3 = Vertex(quad.Origin + right + up, 1f, 0f);
 
-        into.AddRange([v0, v1, v2, v0, v2, v3]);
+        into.AddRange((ReadOnlySpan<DetailSpriteVertex>)[v0, v1, v2, v0, v2, v3]);
 
         DetailSpriteVertex Vertex(Vector3 at, float u, float v) => new(at.X, at.Y, at.Z, u, v, 1f, 1f, 1f, a, u, v, 0f);
     }

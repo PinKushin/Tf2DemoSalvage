@@ -80,7 +80,33 @@ public sealed class EffectEntities
     {
         _models = models;
         _renderLog = render;
+
+        // **Each callback made once** (B599): a method group or a lambda over `this` is a new delegate every time it is
+        // passed, and these were passed every frame — the parent lookup once per prop placed.
+        _drawnParent = entity => _drawnByEntity.TryGetValue(entity, out SceneProp? parent) ? parent : null;
+        _absolutePose = AbsolutePose;
+        _beamEnd = BeamEnd;
+        _trailOrigin = TrailOrigin;
+        _ropeEnd = RopeEnd;
+        _ropeLight = RopeLight;
+        _ropeCollide = RopeCollide;
+        _ropeEndDormant = RopeEndDormantWithModel;
+        _christmas = ChristmasActive;
     }
+
+    private readonly Func<bool> _christmas;
+
+    private readonly Func<int, SceneProp?> _drawnParent;
+    private readonly Func<SceneProp, ScenePose> _absolutePose;
+    private readonly BeamEntityPosition _beamEnd;
+    private readonly Func<SceneProp, Vector3?> _trailOrigin;
+    private readonly RopeEndPointResolver _ropeEnd;
+    private readonly Func<Vector3, Vector3> _ropeLight;
+    private readonly RopeCollision _ropeCollide;
+    private readonly Func<int, bool> _ropeEndDormant;
+
+    /// <summary>The frame's batches, ropes first, reused: the caller copies them before the next frame.</summary>
+    private readonly List<ParticleBatch> _built = [];
 
     /// <summary>The frame's strips, ropes first.</summary>
     /// <param name="frame">What this frame is built against.</param>
@@ -133,7 +159,7 @@ public sealed class EffectEntities
     /// <c>gpGlobals-&gt;frametime</c> is while a demo is paused, and what makes <c>UpdateBeam</c> re-seed its noise so a
     /// paused frame repeats itself. A step backwards is a seek, not negative time, and counts as zero too.
     /// </remarks>
-    private IReadOnlyList<ParticleBatch> BuildEffectEntities(
+    private List<ParticleBatch> BuildEffectEntities(
         FreeCamera viewing, Vector3 forward, Vector3 right, Vector3 up, Func<GlowQuery, float> sees)
     {
         double interval = _frame.Timeline?.IntervalPerTick ?? (1d / 66d);
@@ -146,9 +172,9 @@ public sealed class EffectEntities
 
         _drawnByEntity.Clear();
 
-        foreach (SceneProp prop in _frame.Drawn)
+        for (int p = 0; p < _frame.Drawn.Count; p++)
         {
-            _drawnByEntity[prop.EntityIndex] = prop;
+            _drawnByEntity[_frame.Drawn[p].EntityIndex] = _frame.Drawn[p];
         }
 
         BeamView view = new(new Vector3(viewing.Origin.X, viewing.Origin.Y, viewing.Origin.Z), forward, right, up);
@@ -159,8 +185,8 @@ public sealed class EffectEntities
             _frame.Drawn,
             view,
             _map?.SpriteMaterials ?? NoEngineSprites,
-            AbsolutePose,
-            BeamEnd,
+            _absolutePose,
+            _beamEnd,
             sees,
             seconds,
             elapsed);
@@ -169,7 +195,7 @@ public sealed class EffectEntities
             _frame.Drawn,
             view.Origin,
             _map?.SpriteMaterials ?? NoEngineSprites,
-            TrailOrigin,
+            _trailOrigin,
             seconds);
 
         IReadOnlyDictionary<string, EngineSprite> spriteMaterials = _map?.SpriteMaterials ?? NoEngineSprites;
@@ -189,11 +215,11 @@ public sealed class EffectEntities
             _frame.Drawn,
             new RopeView(view.Origin, forward, Math.Max(1, _frame.ViewportWidth)),
             spriteMaterials,
-            RopeEnd,
-            RopeLight,
-            RopeCollide,
+            _ropeEnd,
+            _ropeLight,
+            _ropeCollide,
             elapsed,
-            RopeEndDormantWithModel,
+            _ropeEndDormant,
             holidayStyle);
 
         QueueHolidayLights((int)tick);
@@ -213,7 +239,13 @@ public sealed class EffectEntities
         }
 
         // Ropes first: the rope manager draws its cache with the opaque renderables, before anything translucent.
-        return [.. ropes, .. beams, .. trails, .. holidayLights];
+        _built.Clear();
+        _built.AddRange(ropes);
+        _built.AddRange(beams);
+        _built.AddRange(trails);
+        _built.AddRange(holidayLights);
+
+        return _built;
     }
 
     /// <summary>
@@ -260,13 +292,26 @@ public sealed class EffectEntities
 
         SceneGameRules rules = timeline.RulesAt(tick);
 
+        // The Christmas question is asked lazily, through one delegate made once over these two fields rather than a
+        // closure per frame (B599).
+        _holidayTimeline = timeline;
+        _holidayRules = rules;
+
         return _ropeHolidayMode.Style(
             rules.Present,
             rules.PowerupMode,
             rules.RopesHolidayLightsAllowed,
-            () => TfHolidays.IsChristmasActive(timeline.ServerConVars.Value, rules.MapHolidayType, TfHolidays.WatcherClock),
+            _christmas,
             (_frame.ViewerVisionFlags & PyroVisionFlag) == PyroVisionFlag);
     }
+
+    private DemoTimeline? _holidayTimeline;
+    private SceneGameRules _holidayRules;
+
+    /// <summary>`IsChristmasActive` for the timeline and rules <see cref="RopeHolidayStyle"/> last read.</summary>
+    private bool ChristmasActive() =>
+        _holidayTimeline is { } timeline &&
+        TfHolidays.IsChristmasActive(timeline.ServerConVars.Value, _holidayRules.MapHolidayType, TfHolidays.WatcherClock);
 
     /// <summary>
     /// <c>CHolidayLightManager::AddHolidayLight</c> for each light the build just dispatched, against the local player's
@@ -512,8 +557,7 @@ public sealed class EffectEntities
     }
 
     /// <summary>A drawn prop's place in the world, through its move parents — <c>GetAbsOrigin()</c>.</summary>
-    private ScenePose AbsolutePose(SceneProp prop) =>
-        ParentChain.Absolute(prop, entity => _drawnByEntity.TryGetValue(entity, out SceneProp? parent) ? parent : null);
+    private ScenePose AbsolutePose(SceneProp prop) => ParentChain.Absolute(prop, _drawnParent);
 
     /// <summary><c>ComputeBeamEntPosition</c> for one beam end, the handle dereferenced as the client does (B231).</summary>
     /// <remarks>

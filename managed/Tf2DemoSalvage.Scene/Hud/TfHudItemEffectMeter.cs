@@ -847,7 +847,7 @@ public sealed class TfItemAttributeEffectMeter : TfHudItemEffectMeter
             return null;
         }
 
-        IReadOnlyList<EconAttributeValue> resolved = EconAttributes.Resolve(
+        ResolvedAttributes resolved = EconAttributes.Iterate(
             item.Wire.Local,
             item.Wire.NetworkedForDemos,
             item.Wire.HasValidItemId,

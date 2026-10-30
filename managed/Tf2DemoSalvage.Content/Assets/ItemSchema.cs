@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Globalization;
 
@@ -307,6 +308,9 @@ public sealed class ItemSchema
 
     /// <summary>Each attribute definition's <c>description_format</c>, which decides how a hook applies it.</summary>
     private readonly Dictionary<int, string> _attributeFormat = [];
+
+    /// <summary><see cref="DefinitionAttributesFor"/>'s answers, one per definition asked — `m_vecStaticAttributes`.</summary>
+    private readonly ConcurrentDictionary<int, EconAttributeValue[]> _definitionAttributes = new();
 
     /// <summary>The <c>rarities</c> section by name: each one's <c>value</c> and <c>color</c> (econ_item_schema.cpp:329).</summary>
     private readonly Dictionary<string, (int? Value, string Color)> _rarities = new(StringComparer.OrdinalIgnoreCase);
@@ -1575,8 +1579,17 @@ public sealed class ItemSchema
     /// bits; an integer attribute's <c>"64"</c> is the integer itself, a float attribute's
     /// <c>"1.1"</c> is the float's bit pattern — and confusing the two produces a denormal, not a
     /// number.
+    ///
+    /// **Built once per definition and kept, as the engine keeps it.** `CEconItemDefinition::BInitFromKV` fills
+    /// `m_vecStaticAttributes` at schema init (econ_item_schema.cpp:3330-3359) and `IterateAttributes` only walks it
+    /// (:3544-3561). The schema never changes after <see cref="Read"/>, so the answer for an index is a constant; it was
+    /// rebuilt — a list, a name set and the prefab walk — per prop per frame (B599). Thread-safe: the scene and its
+    /// workers both ask.
     /// </remarks>
-    public IReadOnlyList<EconAttributeValue> DefinitionAttributesFor(int definitionIndex)
+    public IReadOnlyList<EconAttributeValue> DefinitionAttributesFor(int definitionIndex) =>
+        _definitionAttributes.GetOrAdd(definitionIndex, static (index, schema) => schema.BuildDefinitionAttributes(index), this);
+
+    private EconAttributeValue[] BuildDefinitionAttributes(int definitionIndex)
     {
         if (!_items.TryGetValue(definitionIndex, out Entry? item))
         {
@@ -1588,7 +1601,7 @@ public sealed class ItemSchema
 
         CollectDefinitionAttributes(item, found, seen, LongestChain);
 
-        return found;
+        return [.. found];
     }
 
     /// <summary>
@@ -1630,24 +1643,49 @@ public sealed class ItemSchema
 
         foreach (EconAttributeValue attribute in attributes)
         {
-            if (!_attributeClass.TryGetValue(attribute.DefinitionIndex, out string? named) ||
-                !string.Equals(named, attributeClass, StringComparison.OrdinalIgnoreCase))
-            {
-                continue;
-            }
-
-            float modifier = _attributeStoredAsInteger.Contains(attribute.DefinitionIndex) ? attribute.AsInteger : attribute.Value;
-
-            value = _attributeFormat.GetValueOrDefault(attribute.DefinitionIndex) switch
-            {
-                "value_is_percentage" or "value_is_inverted_percentage" => value * modifier,
-                "value_is_additive" or "value_is_additive_percentage" or "value_is_particle_index" => value + modifier,
-                "value_is_or" => (int)value | (int)modifier,
-                _ => modifier,
-            };
+            value = ApplyOne(attribute, attributeClass, value);
         }
 
         return value;
+    }
+
+    /// <summary>The same over an item's resolved walk, which allocates nothing (B599).</summary>
+    /// <param name="attributes">The attributes, as <see cref="EconAttributes.Iterate"/> walks them.</param>
+    /// <param name="attributeClass">The hook's class.</param>
+    /// <param name="initial">The value so far.</param>
+    /// <returns>The value after the walk.</returns>
+    public float Apply(ResolvedAttributes attributes, string attributeClass, float initial)
+    {
+        ArgumentNullException.ThrowIfNull(attributeClass);
+
+        float value = initial;
+
+        foreach (EconAttributeValue attribute in attributes)
+        {
+            value = ApplyOne(attribute, attributeClass, value);
+        }
+
+        return value;
+    }
+
+    /// <summary>One attribute of a hook's class applied by its <c>description_format</c>; any other attribute leaves the value.</summary>
+    private float ApplyOne(EconAttributeValue attribute, string attributeClass, float value)
+    {
+        if (!_attributeClass.TryGetValue(attribute.DefinitionIndex, out string? named) ||
+            !string.Equals(named, attributeClass, StringComparison.OrdinalIgnoreCase))
+        {
+            return value;
+        }
+
+        float modifier = _attributeStoredAsInteger.Contains(attribute.DefinitionIndex) ? attribute.AsInteger : attribute.Value;
+
+        return _attributeFormat.GetValueOrDefault(attribute.DefinitionIndex) switch
+        {
+            "value_is_percentage" or "value_is_inverted_percentage" => value * modifier,
+            "value_is_additive" or "value_is_additive_percentage" or "value_is_particle_index" => value + modifier,
+            "value_is_or" => (int)value | (int)modifier,
+            _ => modifier,
+        };
     }
 
     /// <summary>Gathers definition attributes, nearest declaration winning per name.</summary>

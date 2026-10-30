@@ -154,9 +154,10 @@ public sealed class WeaponModels
     /// <remarks>
     /// The wire's two lists and the item-id gate come from the recording; branch 4 — the item
     /// definition's own attributes — comes from `items_game.txt` here, which is why the resolution
-    /// completes in this layer rather than in Core (B234).
+    /// completes in this layer rather than in Core (B234). Asked per placed prop per frame, so it is a walk that allocates
+    /// nothing rather than a list (B599).
     /// </remarks>
-    public IReadOnlyList<EconAttributeValue> AttributesFor(SceneProp prop)
+    public ResolvedAttributes AttributesFor(SceneProp prop)
     {
         ArgumentNullException.ThrowIfNull(prop);
 
@@ -165,7 +166,7 @@ public sealed class WeaponModels
                 ? schema.DefinitionAttributesFor(item)
                 : [];
 
-        return EconAttributes.Resolve(
+        return EconAttributes.Iterate(
             prop.Econ?.Local ?? [],
             prop.Econ?.NetworkedForDemos ?? [],
             prop.Econ?.HasValidItemId ?? false,
@@ -228,14 +229,36 @@ public sealed class WeaponModels
             return null;
         }
 
+        // **An item with no primary paint is unpainted** — `ItemPaint.Packed` answers null before it reads anything else
+        // — so the dictionary is built only for the few items that carry one (B599: it was built per prop per frame).
+        ResolvedAttributes attributes = AttributesFor(prop);
+
+        if (schema.AttributeDefinitionIndex(ItemPaint.PaintAttribute) is not { } paint || !Carries(attributes, paint))
+        {
+            return null;
+        }
+
         Dictionary<int, EconAttributeValue> byDefinition = [];
 
-        foreach (EconAttributeValue attribute in AttributesFor(prop))
+        foreach (EconAttributeValue attribute in attributes)
         {
             byDefinition[attribute.DefinitionIndex] = attribute;
         }
 
         return ItemPaint.Tint(byDefinition, schema, alternate: team == SceneTeams.Blu);
+    }
+
+    private static bool Carries(ResolvedAttributes attributes, int definition)
+    {
+        foreach (EconAttributeValue attribute in attributes)
+        {
+            if (attribute.DefinitionIndex == definition)
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /// <summary>The extra models an item hangs on itself, for the team holding it.</summary>

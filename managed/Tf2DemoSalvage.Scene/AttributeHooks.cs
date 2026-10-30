@@ -96,8 +96,8 @@ public sealed class AttributeHooks(ItemSchema schema)
         return value;
     }
 
-    private IReadOnlyList<EconAttributeValue> Attributes(SceneItem item) =>
-        EconAttributes.Resolve(
+    private ResolvedAttributes Attributes(SceneItem item) =>
+        EconAttributes.Iterate(
             item.Wire.Local,
             item.Wire.NetworkedForDemos,
             item.Wire.HasValidItemId,

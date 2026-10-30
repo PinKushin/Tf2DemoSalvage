@@ -50,20 +50,64 @@ internal static class AttachmentPlacement
         ArgumentNullException.ThrowIfNull(local);
         ArgumentNullException.ThrowIfNull(wearer);
 
+        Span<float> bone = stackalloc float[12];
+        Span<float> wearing = stackalloc float[16];
+
+        for (int index = 0; index < 12; index++)
+        {
+            bone[index] = boneToWorld[index];
+        }
+
+        for (int index = 0; index < 16; index++)
+        {
+            wearing[index] = wearer[index];
+        }
+
+        float[] placed = new float[16];
+        Matrix(bone, local, wearing, worldAligned, placed);
+        return placed;
+    }
+
+    /// <summary><see cref="Matrix(IReadOnlyList{float}, IReadOnlyList{float}, IReadOnlyList{float}, bool)"/> into sixteen floats the caller owns.</summary>
+    /// <param name="boneToWorld">The wearer's bone, twelve floats.</param>
+    /// <param name="local">The attachment's offset, twelve floats.</param>
+    /// <param name="wearer">The wearer's model matrix, sixteen floats.</param>
+    /// <param name="worldAligned">Whether to keep the position and discard the orientation.</param>
+    /// <param name="into">Sixteen floats; must not overlap the others.</param>
+    /// <remarks>
+    /// **On the stack, as the engine's own `matrix3x4_t world` is** (B599): resolving an entity's attachments made five
+    /// arrays per attachment per pass, of which only the result is kept.
+    /// </remarks>
+    public static void Matrix(
+        ReadOnlySpan<float> boneToWorld, IReadOnlyList<float> local, ReadOnlySpan<float> wearer, bool worldAligned, Span<float> into)
+    {
+        ArgumentNullException.ThrowIfNull(local);
+
+        Span<float> offset = stackalloc float[12];
+        Span<float> point = stackalloc float[12];
+        Span<float> model = stackalloc float[16];
+
+        for (int index = 0; index < 12; index++)
+        {
+            offset[index] = local[index];
+        }
+
         // The bone first and the attachment second, which is ConcatTransforms' own order: the
         // attachment is expressed in the bone's space. The reverse agrees on a pure translation and
         // differs the moment either carries a rotation, which is why the tests use one.
-        float[] point = MatrixConvention.Concatenate(boneToWorld, local);
+        MatrixConvention.Concatenate(boneToWorld, offset, point);
 
         if (worldAligned)
         {
             // Position only. MatrixGetColumn/SetColumn around an identity, as the engine does it.
-            point = [1f, 0f, 0f, point[3], 0f, 1f, 0f, point[7], 0f, 0f, 1f, point[11]];
+            ReadOnlySpan<float> aligned = [1f, 0f, 0f, point[3], 0f, 1f, 0f, point[7], 0f, 0f, 1f, point[11]];
+            aligned.CopyTo(point);
         }
 
         // **The convention change happens in one place**, which is the whole reason
         // MatrixConvention exists: this was the second site to need it and the second to implement
         // it, and two implementations of a boundary is how they come to disagree.
-        return MatrixConvention.Multiply(MatrixConvention.ToModelMatrix(point), wearer);
+        MatrixConvention.ToModelMatrix(point, model);
+        MatrixConvention.Multiply(model, wearer, into);
     }
 }

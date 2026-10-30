@@ -39,16 +39,23 @@ internal sealed class SpriteStripBatches
     /// <param name="corners">The strip's corners, with the colour <see cref="BeamSegDraw"/> packed into them.</param>
     public void Add(string path, EngineSprite sprite, int renderMode, IReadOnlyList<DetailSpriteVertex> corners)
     {
-        foreach (SpritePass pass in EntitySprites.PassesFor(sprite, renderMode))
+        // Indexed, because both lists are interface-typed and a `foreach` over one boxes its enumerator — per strip and per
+        // pass, every frame (B599).
+        IReadOnlyList<SpritePass> passes = EntitySprites.PassesFor(sprite, renderMode);
+
+        for (int p = 0; p < passes.Count; p++)
         {
+            SpritePass pass = passes[p];
+
             if (!_byMaterial.TryGetValue((path, pass), out List<DetailSpriteVertex>? into))
             {
                 into = [];
                 _byMaterial[(path, pass)] = into;
             }
 
-            foreach (DetailSpriteVertex corner in corners)
+            for (int c = 0; c < corners.Count; c++)
             {
+                DetailSpriteVertex corner = corners[c];
                 (Vector3 colour, float alpha) = EntitySprites.ShaderInput(
                     sprite, renderMode, new Vector3(corner.Red, corner.Green, corner.Blue), corner.Alpha);
 

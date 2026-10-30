@@ -20,6 +20,9 @@ public sealed partial class EntityModelSet
     /// </remarks>
     private readonly Dictionary<int, float[][]> _attachments = [];
 
+    /// <summary>`PropTransform.Identity.ToMatrix()`, the wearer an attachment is resolved against, computed once (B599).</summary>
+    private static readonly float[] IdentityWearer = PropTransform.Identity.ToMatrix();
+
     /// <summary>Resolves every attachment a wearer declares, once.</summary>
     /// <remarks>
     /// **<c>SetupBones_AttachmentHelper</c>, `c_baseanimating.cpp:2055`**, loop and all:
@@ -51,6 +54,12 @@ public sealed partial class EntityModelSet
 
         float[][] resolved = new float[attachments.Count][];
 
+        // **On the stack until the one kept per attachment** (B599): the bone's copy, the identity wearer, the
+        // concatenation, the model matrix and the product were five arrays per attachment per pass. The engine's
+        // `SetupBones_AttachmentHelper` composes into a stack `matrix3x4_t world` and `PutAttachment` copies it into the
+        // entity's preallocated `m_Attachments` (`c_baseanimating.cpp:2055`).
+        Span<float> placed = stackalloc float[16];
+
         for (int index = 0; index < attachments.Count; index++)
         {
             StudioAttachment attachment = attachments[index];
@@ -60,12 +69,14 @@ public sealed partial class EntityModelSet
                 continue;
             }
 
-            float[] placement = MatrixConvention.ToBoneMatrix(
-                AttachmentPlacement.Matrix(
-                    wearer.Bones.Bone(attachment.Bone).ToArray(),
-                    attachment.Local,
-                    PropTransform.Identity.ToMatrix(),
-                    attachment.IsWorldAligned));
+            AttachmentPlacement.Matrix(
+                wearer.Bones.Bone(attachment.Bone),
+                attachment.Local,
+                IdentityWearer,
+                attachment.IsWorldAligned,
+                placed);
+
+            float[] placement = MatrixConvention.BoneMatrixOf(placed);
 
             // **`FormatViewModelAttachment`, a virtual whose base body is EMPTY** — nothing for a
             // world model, everything for a viewmodel, which is why a null projection here is that

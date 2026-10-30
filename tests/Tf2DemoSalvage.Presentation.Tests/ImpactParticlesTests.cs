@@ -6,6 +6,8 @@ using System.Linq;
 using System.Numerics;
 using System.Text;
 
+using Microsoft.Extensions.Logging.Abstractions;
+
 using Tf2DemoSalvage.Content.Assets;
 using Tf2DemoSalvage.Content.Bsp;
 using Tf2DemoSalvage.Core.Scene;
@@ -282,6 +284,39 @@ public sealed class ImpactParticlesTests
 
         all.Count.ShouldBe(2);
         all[0].ShouldBe(given, "drawn first, as it was built first");
+    }
+
+    /// <remarks>
+    /// **The impact batches are rebuilt every frame and must cost no garbage doing it** (B599): the quads went in through
+    /// `AddRange([…])`, an array and a wrapper per quad, beside a list, an array and a closure per frame. Both spark kinds
+    /// and a tracer line are running, so every quad builder is on the path. Warmed once (first-use lists and the JIT),
+    /// then built again for the same frame, which must hand back the same quads and allocate nothing. The render log has
+    /// Debug off, as the viewer runs: the per-batch Debug line formats a string by design.
+    /// </remarks>
+    [Test]
+    public void WithOver_SparksAndATracerBuiltAgain_AllocatesNothingAndDrawsTheSame()
+    {
+        DemoTimeline timeline = Timeline(Spark(100), Spark(100, metal: true), TracerDispatch(100));
+        int tick = timeline.Sparks.All[0].Tick + 3;
+        FakePosedEntities models = new();
+        ImpactParticles impacts = new(models, new BulletStrikes(models, new RecordingLogger()), NullLogger.Instance);
+        Map map = new();
+        ParticleBatch given = new([new DetailSpriteVertex(9f, 9f, 9f, 0f, 0f, 1f, 1f, 1f, 1f, 0f, 0f, 0f)], default);
+        IReadOnlyList<ParticleBatch> batches = [given];
+
+        impacts.StepOver(Frame(timeline, tick), map.Data());
+        ImpactMap? data = map.Data();
+        ImpactFrame frame = Frame(timeline, tick);
+        List<DetailSpriteVertex> first = Quads(impacts.WithOver(batches, frame, data));
+
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        IReadOnlyList<ParticleBatch> again = impacts.WithOver(batches, frame, data);
+        long bytes = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        first.Count.ShouldBeGreaterThan(6 * 3, "the control: sparks of both kinds and the tracer are on screen");
+        again[0].ShouldBe(given);
+        Quads(again).ShouldBe(first);
+        bytes.ShouldBe(0L);
     }
 
     private static SyntheticEffects.Effect Spark(int tick, bool metal = false) => metal
