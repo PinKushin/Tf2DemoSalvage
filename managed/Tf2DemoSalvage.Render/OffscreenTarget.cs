@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Runtime.CompilerServices;
 
 using Microsoft.Extensions.Logging;
@@ -686,9 +687,18 @@ internal sealed unsafe class OffscreenTarget : IDisposable
     /// <param name="vertices">The decal's corners.</param>
     /// <param name="batches">One run per decal material, into <paramref name="vertices"/>.</param>
     /// <exception cref="InvalidOperationException">No model has been drawn.</exception>
-    internal void DrawPosedModelDecals(IReadOnlyList<WorldVertex> vertices, IReadOnlyList<WorldBatch> batches) =>
-        (_world ?? throw new InvalidOperationException("DrawModelPose first: the decals draw with its camera and materials."))
-            .DrawModelDecals(_device, _context, vertices, batches, 0);
+    internal void DrawPosedModelDecals(IReadOnlyList<WorldVertex> vertices, IReadOnlyList<WorldBatch> batches)
+    {
+        WorldRenderer world =
+            _world ?? throw new InvalidOperationException("DrawModelPose first: the decals draw with its camera and materials.");
+
+        // The cap as it is now, so one set between the model and its decals is the one they draw under.
+        world.ModelVertexCap = ModelVertexCap;
+        world.DrawModelDecals(_device, _context, vertices, batches, 0);
+    }
+
+    /// <summary>How long <see cref="InputVertices"/> waits on the GPU before it gives up.</summary>
+    private const long InputVerticesTimeoutSeconds = 5;
 
     /// <summary>The vertices the input assembler read while <paramref name="draw"/> ran, by a pipeline statistics query.</summary>
     /// <param name="draw">The draws to count.</param>
@@ -710,13 +720,21 @@ internal sealed unsafe class OffscreenTarget : IDisposable
 
             QueryDataPipelineStatistics statistics = default;
             int result;
+            long deadline = Stopwatch.GetTimestamp() + (InputVerticesTimeoutSeconds * Stopwatch.Frequency);
 
-            // Flushing, and synchronised on the answer: S_FALSE until the GPU has finished the draws.
+            // Flushing, and synchronised on the answer: S_FALSE until the GPU has finished the draws. Bounded, so a GPU
+            // that never answers fails the test rather than spinning it forever.
             do
             {
                 result = _context.GetData(
                     (ID3D11Asynchronous*)query.Handle, &statistics, (uint)sizeof(QueryDataPipelineStatistics), 0u);
                 SilkMarshal.ThrowHResult(result);
+
+                if (result != 0 && Stopwatch.GetTimestamp() > deadline)
+                {
+                    throw new TimeoutException(
+                        $"The pipeline statistics query (IAVertices) had no answer after {InputVerticesTimeoutSeconds} s.");
+                }
             }
             while (result != 0);
 

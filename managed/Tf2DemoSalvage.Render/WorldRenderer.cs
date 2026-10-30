@@ -6485,7 +6485,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
     /// <param name="context">The device context.</param>
     /// <param name="batch">The run.</param>
     /// <param name="alpha">The overlay fade.</param>
-    /// <param name="cap">The B597 vertex cap, model decals only; null draws the run whole, and a cap of zero skips the draw.</param>
+    /// <param name="cap">The B597 vertex cap, model decals only; null draws the run whole (<see cref="ModelVertexClamp"/>).</param>
     private void DrawDecalBatch(ComPtr<ID3D11DeviceContext> context, WorldBatch batch, float alpha = 1f, int? cap = null)
     {
         if (batch.MaterialIndex < 0 || batch.MaterialIndex >= _textures.Count)
@@ -6562,11 +6562,9 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
         context.PSSetShaderResources(4, 1, ref bump);
         BindBlendModulation(context, batch.MaterialIndex);
 
-        int submitted = ModelVertexClamp.Apply(batch.VertexCount, cap);
-
-        if (submitted > 0 || cap is null)
+        if (!ModelVertexClamp.Suppresses(cap))
         {
-            SubmitCounters.Draw(); context.Draw((uint)submitted, (uint)batch.FirstVertex);
+            SubmitCounters.Draw(); context.Draw((uint)ModelVertexClamp.Apply(batch.VertexCount, cap), (uint)batch.FirstVertex);
         }
     }
 
@@ -7677,12 +7675,13 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
                 ? (0f, (1f, 1f, 1f))
                 : cloak.For(cloakPass, materialProxies);
 
-            // The B597 cap: with none this is the batch's own count, and every batch draws, an empty one included.
+            // The B597 cap: with none this is the batch's own count. Only a cap of zero skips a draw; every other cap draws
+            // every batch, an empty one included, as the default does.
             int submitted = ModelVertexClamp.Apply(batch.VertexCount, ModelVertexCap);
 
             drawn += submitted;
 
-            if ((cloakPass is null || CloakPass.DrawsStandardPass(cloaked.Factor)) && (submitted > 0 || ModelVertexCap is null))
+            if ((cloakPass is null || CloakPass.DrawsStandardPass(cloaked.Factor)) && !ModelVertexClamp.Suppresses(ModelVertexCap))
             {
                 SubmitCounters.Draw(); context.Draw((uint)submitted, (uint)batch.FirstVertex);
             }
