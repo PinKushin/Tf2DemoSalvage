@@ -123,6 +123,15 @@ public sealed class ImpactParticles
     /// <summary>The window's sparks as the runner's events, reused.</summary>
     private readonly List<(int Index, int Tick, int Seed)> _sparkEvents = [];
 
+    /// <summary>The frame's batches with the impact batches after them, reused; see <see cref="WithImpactEffects"/>.</summary>
+    private readonly List<ParticleBatch> _withImpacts = [];
+
+    /// <summary>The materials of the frame being built, which <see cref="_alphaOf"/> reads.</summary>
+    private IReadOnlyDictionary<string, ParticleMaterial>? _materials;
+
+    /// <summary><see cref="AlphaOf"/>, made once rather than as a capturing lambda per frame.</summary>
+    private readonly Func<string, float> _alphaOf;
+
     /// <summary>The view's own: the model set it draws with.</summary>
     /// <param name="models">The posed entities, for a tracer's barrel.</param>
     /// <param name="strikes">Which bullets a player stopped.</param>
@@ -141,6 +150,7 @@ public sealed class ImpactParticles
         _models = models;
         _strikes = strikes;
         _renderLog = render;
+        _alphaOf = AlphaOf;
     }
 
     /// <summary>How many impact effects and how many spark effects are running, for an instrument.</summary>
@@ -311,28 +321,25 @@ public sealed class ImpactParticles
         (float ux, float uy, float uz) = AngleVectors.Up(viewing.Angles.Pitch, viewing.Angles.Yaw, viewing.Angles.Roll);
         Vector3 eye = new(viewing.Origin.X, viewing.Origin.Y, viewing.Origin.Z);
 
-        foreach (ImpactEffectRunner runner in (ImpactEffectRunner[])[_impactEffects, _sparkEffects])
-        {
-            if (runner.Count > 0)
-            {
-                runner.Build(
-                    eye,
-                    new Vector3(fx, fy, fz),
-                    new Vector3(rx, ry, rz),
-                    new Vector3(ux, uy, uz),
-                    name => materials.TryGetValue(name, out ParticleMaterial material) ? material.Alpha : 1f,
-                    _impactCorners);
-            }
-        }
+        // **Nothing here is made per frame** (B599): the runners are named rather than put in an array, the alpha lookup
+        // is one delegate over the frame's materials field, and the batch list is reused — `SetParticles` copies what it
+        // keeps before the next frame refills it, as it already does for the corner lists.
+        _materials = materials;
+
+        BuildRunner(_impactEffects, eye, new Vector3(fx, fy, fz), new Vector3(rx, ry, rz), new Vector3(ux, uy, uz));
+        BuildRunner(_sparkEffects, eye, new Vector3(fx, fy, fz), new Vector3(rx, ry, rz), new Vector3(ux, uy, uz));
 
         AddTracerLines(eye, new Vector3(fx, fy, fz));
 
-        if (!_impactCorners.Values.Any(static corners => corners.Count > 0))
+        if (!AnyCorners())
         {
             return batches;
         }
 
-        List<ParticleBatch> all = [.. batches];
+        List<ParticleBatch> all = _withImpacts;
+
+        all.Clear();
+        all.AddRange(batches);
 
         foreach ((string name, List<DetailSpriteVertex> corners) in _impactCorners)
         {
@@ -358,6 +365,33 @@ public sealed class ImpactParticles
 
         return all;
     }
+
+    /// <summary>One runner's quads, if it has effects in flight.</summary>
+    private void BuildRunner(ImpactEffectRunner runner, Vector3 eye, Vector3 forward, Vector3 right, Vector3 up)
+    {
+        if (runner.Count > 0)
+        {
+            runner.Build(eye, forward, right, up, _alphaOf, _impactCorners);
+        }
+    }
+
+    /// <summary>Whether any impact material has corners this frame.</summary>
+    private bool AnyCorners()
+    {
+        foreach (List<DetailSpriteVertex> corners in _impactCorners.Values)
+        {
+            if (corners.Count > 0)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>A material's alpha, or 1 for one the map does not name — read from this frame's materials.</summary>
+    private float AlphaOf(string name) =>
+        _materials is { } materials && materials.TryGetValue(name, out ParticleMaterial material) ? material.Alpha : 1f;
 
     /// <summary>Draws every `"Tracer"` dispatch in flight as `CFXDiscreetLine` quads — `TracerCallback` (B415).</summary>
     /// <remarks>
