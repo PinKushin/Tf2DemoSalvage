@@ -1587,7 +1587,11 @@ public sealed class ItemSchema
     /// workers both ask.
     /// </remarks>
     public IReadOnlyList<EconAttributeValue> DefinitionAttributesFor(int definitionIndex) =>
-        _definitionAttributes.GetOrAdd(definitionIndex, static (index, schema) => schema.BuildDefinitionAttributes(index), this);
+        // An index the schema lacks is kept NOWHERE: it comes from the recording, so a corrupt or hostile demo could carry
+        // any 32-bit value and a cache entry per one would grow for the schema's lifetime (review, 2026-10-30).
+        _items.ContainsKey(definitionIndex)
+            ? _definitionAttributes.GetOrAdd(definitionIndex, static (index, schema) => schema.BuildDefinitionAttributes(index), this)
+            : [];
 
     private EconAttributeValue[] BuildDefinitionAttributes(int definitionIndex)
     {

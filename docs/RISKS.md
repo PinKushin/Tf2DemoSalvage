@@ -40251,6 +40251,38 @@ It is tested red-first. It names which thread waited and where the draw had got 
 **Reopen if** the `queue stall` line ever appears in a viewer log, or if this test's hang rate on the branch, measured
 the same way, exceeds the baseline's.
 
+## B612 — loose ends from the allocation branch (`perf/alloc-sites-2`), review and the agent's own list (2026-10-30) — OPEN
+
+**Evidence class: read or reported, per line; none measured as a defect.** Filed so none lives only in a session. The
+branch itself is in `docs/measurements/2026-10-29-allocation-census.md` and the four records beside it.
+
+- **The attribute walk de-duplicates by rescanning earlier entries** (`EconAttribute.cs`, `Holds`): O(n²) in interface
+  indexer calls per item per walk, per placed prop per frame and per hook call. `camera pose` fell 0.101 ms on f12
+  (measurements/2026-10-29-econ-attribute-walk.md), whose weapons carry few attributes (*interpolated*: typical TF2 items
+  carry under ten), but no CPU timing covers a many-attribute loadout. Time one before it matters.
+- **Our attribute dedup differs from the engine's:** ours drops repeats within each list; the engine drops only fallback
+  entries the local list already has (`attribute_manager.cpp`, `econ_item_view.cpp`). Kept as ours; the output equals the
+  old set-based walk for all 6,750 tested shapes. Whether the engine's rule would change any real demo is not measured.
+- **Per-frame scratch parked in long-lived instance fields** (`ImpactParticles._materials`, `EntityRopes._drawn`,
+  `EffectEntities._holidayTimeline`): they pin the previous map's data until the next build and are valid only inside the
+  build call. Clear at the end of the build or pass a small struct.
+- **The span overloads of `MatrixConvention.Multiply/Concatenate/ToModelMatrix` check neither length nor overlap**; the
+  array overloads checked length. A too-short span throws mid-loop after partial writes; an aliased result is silently wrong.
+  `Debug.Assert` both, or make them private to the two callers.
+- **The zero-byte allocation tests assert an exact `0`** (`GC.GetAllocatedBytesForCurrentThread`): a runtime or analyzer
+  change that adds one unrelated allocation turns the merge gate red with no size to read. Assert a per-call bound or
+  mark them diagnostics. The beam case still allocates 176 bytes a frame, location unknown.
+- **`ItemPaint`'s doc comment pairs 15185723 with 0xE7B53B; that number is 0xE7B73B.**
+- **Top-bar difference between paused shots, within one build** (the dark background present or absent, run to run):
+  possibly a HUD determinism defect, not caused by this branch (agent's report).
+- **Late-queue outliers:** runs at queue positions 14–15 came out high in three queues; cause unknown.
+- **Remaining allocation sites, ranked in B599:** `ItemSchema.BestVisualSection` (~27 KiB, not on the old list),
+  `WorldRenderer.DrawModel`, `WorldDecals.Placed`. Two patterns to add to B599's list: `AddRange([…])` and method groups
+  or `this`-lambdas passed every frame.
+- **Fixed on review the same day:** `EntitySprites` indexed a hand-ordered array by an unguarded enum cast (now total);
+  `ItemSchema.DefinitionAttributesFor` cached an entry per bogus definition index from a recording (now caches only
+  indices the schema has; test `DefinitionAttributesFor_ManyIndicesTheSchemaDoesNotHave_KeepsNoEntryForThem`).
+
 ## B611 — loose ends from the gcor specimen swap (review and the voice investigation, 2026-10-29) — OPEN
 
 **Evidence class: measured or read, per line.** Filed so none of it lives only in a session. None blocks the swap; each

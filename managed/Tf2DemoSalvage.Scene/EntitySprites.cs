@@ -198,7 +198,11 @@ public static class EntitySprites
     /// as well, since only <c>MATERIAL_VAR_TRANSLUCENT</c> turns the writes off (`cable_dx9.cpp:55-60`).
     /// </remarks>
     public static IReadOnlyList<SpritePass> PassesFor(EngineSprite sprite, int renderMode) =>
-        sprite.IsSpriteShader ? PassesFor(renderMode) : OwnPasses[(int)sprite.Material.Blend];
+        sprite.IsSpriteShader ? PassesFor(renderMode) : OwnPassesOf(sprite.Material.Blend);
+
+    /// <summary>The shared single pass for a blend, or one built on the spot for a value outside the enum (the old totality).</summary>
+    private static SpritePass[] OwnPassesOf(SpriteBlend blend) =>
+        (uint)blend < (uint)OwnPasses.Length ? OwnPasses[(int)blend] : [OwnPass(blend)];
 
     /// <summary>A non-Sprite material's single pass: its own blend, writing depth only when opaque.</summary>
     private static SpritePass OwnPass(SpriteBlend blend) =>

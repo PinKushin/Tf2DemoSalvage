@@ -166,5 +166,34 @@ public sealed class EconDefinitionAttributeTests
         first.Length.ShouldBe(3);
     }
 
+    /// <remarks>
+    /// **The index comes from the recording, so nothing may be kept for one the schema does not have** (review of the
+    /// allocation branch, 2026-10-30): a corrupt or hostile demo can carry any 32-bit `m_iItemDefinitionIndex`, and a cache
+    /// entry per bogus index grows for the schema's lifetime. 20,000 distinct unknown indices cost at most a few KB; each
+    /// kept entry would cost tens of bytes, hundreds of KB together.
+    /// </remarks>
+    [Test]
+    public void DefinitionAttributesFor_ManyIndicesTheSchemaDoesNotHave_KeepsNoEntryForThem()
+    {
+        ItemSchema schema = Read();
+        _ = schema.DefinitionAttributesFor(999_000);
+
+        long before = System.GC.GetAllocatedBytesForCurrentThread();
+        int nonEmpty = 0;
+
+        for (int index = 1_000_000; index < 1_020_000; index++)
+        {
+            if (schema.DefinitionAttributesFor(index).Count != 0)
+            {
+                nonEmpty++;
+            }
+        }
+
+        long bytes = System.GC.GetAllocatedBytesForCurrentThread() - before;
+
+        nonEmpty.ShouldBe(0);
+        bytes.ShouldBeLessThan(16 * 1024L);
+    }
+
     private static ItemSchema Read() => ItemSchema.Read(Encoding.UTF8.GetBytes(Schema));
 }
