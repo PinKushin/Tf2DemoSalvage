@@ -36,9 +36,11 @@ public class ParseBenchmarks
     /// <remarks>
     /// Two sizes on purpose. A 2-minute era specimen and a full modern match differ by more than a
     /// constant factor — the entity delta path scales with player count and tick count together —
-    /// so a single file cannot show a change that only appears at length.
+    /// so a single file cannot show a change that only appears at length. The era specimen is the scripted 2013
+    /// SourceTV since the cp_foundry recording left gcor (2026-10-29); a number measured on the old one is not
+    /// comparable with one measured on this.
     /// </remarks>
-    [Params("tf2-2013-build1729296-stv-cp_foundry.dem", "demostf-cp_process_f12-2026-08-08-2207.dem")]
+    [Params("tf2-2013-build1729296-spec-stv-cp_granary.dem", "demostf-cp_process_f12-2026-08-08-2207.dem")]
     public string Demo { get; set; } = string.Empty;
 
     [GlobalSetup]

@@ -31,6 +31,8 @@ public sealed class PovSkyFogCorpusTests
         // modelprecache entry 552 is the one no earlier create or update stated. Kept on the viaduct
         // POV (2026-10-29): the same probe finds no block-only modelprecache entry on any of the ten
         // scripted cp_granary specimens from 2009 on, and protocols 11 and 14 carry no block at all.
+        // The recording left gcor that day (the owner's call): read from lcor here, and
+        // ModelPathsStringTablesBlockTests writes its shape into a demo for CI.
         DemoTimeline timeline = TimelineCache.For(
             Corpus.Demo("tf2-2011-build4604-pov-koth_viaduct"));
 

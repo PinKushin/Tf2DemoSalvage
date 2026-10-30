@@ -1634,7 +1634,13 @@ run Tf2DemoSalvage.Content.Tests  content   1189
 # fourteen scripted era specimens joined gcor and three old era demos retired (2007 POV and STV,
 # 2008 STV): 21 gcor files. Per-file cases scale with gcor (one CorpusContainerTests case a file, the
 # era-named TestCases), so the same suite read 220 with all 24 files and 214 with 18.
-run Tf2DemoSalvage.Corpus.Tests   corpus     217
+# 217 -> 211 on 2026-10-29: MEASURED (.trx total, TF2DEMOSALVAGE_GCOR_ONLY=1) once the owner retired
+# the six remaining old era demos from gcor (15 files: 14 scripted + z1800). Exactly the six
+# per-file Container_EveryCorpusDemo cases left with them; no test was removed. Eleven tests now read
+# a retired demo from lcor and SKIP on a gcor run - nine that name one, and the Damage and dead-
+# recorder sweeps whose only witness is one (synthetic replacements in Core.Tests and Scene.Tests
+# hold their questions on CI) - so 211 counts them as skipped, not passed.
+run Tf2DemoSalvage.Corpus.Tests   corpus     211
 # Lowered from 523 on 2026-08-21, and the arithmetic is the justification: FIVE stale gap markers
 # were deleted (Cubemaps_AreNotRead, EnvironmentMaps_AreNotImplemented, AttachmentPoints_AreNot-
 # Implemented, Attachments_AreNotRead, ViewModels_AreNotDrawn — every one claiming a feature that

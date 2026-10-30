@@ -84,7 +84,7 @@ internal static class Corpus
     ///
     /// Ignoring says so in the run's own summary, where a skipped count is visible and a silently
     /// absent test is not. It deliberately does NOT fall back to another demo: the specimens differ
-    /// enormously — the committed 2013 badlands POV carries 11 props and no wearables at all, so a
+    /// enormously — the 2013 badlands POV carries 11 props and no wearables at all, so a
     /// test quietly redirected there would pass while measuring nothing.
     /// </remarks>
     public static string Demo(string fragment)
