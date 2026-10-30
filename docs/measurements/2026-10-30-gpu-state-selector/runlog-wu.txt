@@ -1,0 +1,6 @@
+2026-10-30T16:09:06 17-W exe D:/measure-f12/gss-19f59cc3/tf2demoview.exe; mode 2; pos ''; fg 0; cover 0; uncover 0; coverfull 1; minimize 0; cold 0; no viewer seen for 66 s; load before: 12 17 11
+exit 0; load after: 50 36 34
+2026-10-30T16:10:49 18-U exe D:/measure-f12/gss-19f59cc3/tf2demoview.exe; mode 2; pos ''; fg 0; cover 0; uncover 1; coverfull 0; minimize 0; cold 0; no viewer seen for 24 s; load before: 5 10 10
+exit 0; load after: 12 16 10
+
+[killed]

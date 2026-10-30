@@ -1,0 +1,27 @@
+2026-10-30T16:15:57 33-X exe D:/measure-f12/gss-19f59cc3/tf2demoview.exe; mode 2; pos '-3000,100'; fg 0; cover 0; uncover 0; coverfull 0; minimize 0; cold 0; no viewer seen for 63 s; load before: 17 15 12
+exit 0; load after: 16 21 9
+2026-10-30T16:20:04 34-M exe D:/measure-f12/gss-19f59cc3/tf2demoview.exe; mode 2; pos ''; fg 0; cover 0; uncover 0; coverfull 0; minimize 1; cold 0; no viewer seen for 35 s; load before: 10 17 15
+exit 0; load after: 12 11 16
+2026-10-30T16:23:43 35-P exe D:/measure-f12/gss-19f59cc3/tf2demoview.exe; mode 2; pos ''; fg 0; cover 0; uncover 0; coverfull 0; minimize 0; cold 0; no viewer seen for 12 s; load before: 14 15 23
+exit 0; load after: 14 13 12
+2026-10-30T16:28:07 36-M exe D:/measure-f12/gss-19f59cc3/tf2demoview.exe; mode 2; pos ''; fg 0; cover 0; uncover 0; coverfull 0; minimize 1; cold 0; no viewer seen for 47 s; load before: 5 17 14
+exit 0; load after: 17 12 9
+2026-10-30T16:31:45 37-X exe D:/measure-f12/gss-19f59cc3/tf2demoview.exe; mode 2; pos '-3000,100'; fg 0; cover 0; uncover 0; coverfull 0; minimize 0; cold 0; no viewer seen for 13 s; load before: 10 14 15
+exit 0; load after: 14 13 11
+2026-10-30T16:35:29 38-P exe D:/measure-f12/gss-19f59cc3/tf2demoview.exe; mode 2; pos ''; fg 0; cover 0; uncover 0; coverfull 0; minimize 0; cold 0; no viewer seen for 13 s; load before: 11 11 10
+exit 0; load after: 19 10 5
+2026-10-30T16:39:24 39-P exe D:/measure-f12/gss-19f59cc3/tf2demoview.exe; mode 2; pos ''; fg 0; cover 0; uncover 0; coverfull 0; minimize 0; cold 0; no viewer seen for 12 s; load before: 10 17 4
+exit 0; load after: 19 9 15
+2026-10-30T16:43:14 40-X exe D:/measure-f12/gss-19f59cc3/tf2demoview.exe; mode 2; pos '-3000,100'; fg 0; cover 0; uncover 0; coverfull 0; minimize 0; cold 0; no viewer seen for 12 s; load before: 14 13 13
+exit 0; load after: 15 14 11
+2026-10-30T16:46:56 41-M exe D:/measure-f12/gss-19f59cc3/tf2demoview.exe; mode 2; pos ''; fg 0; cover 0; uncover 0; coverfull 0; minimize 1; cold 0; no viewer seen for 12 s; load before: 10 15 17
+exit 0; load after: 10 17 10
+2026-10-30T16:50:38 42-P exe D:/measure-f12/gss-19f59cc3/tf2demoview.exe; mode 2; pos ''; fg 0; cover 0; uncover 0; coverfull 0; minimize 0; cold 0; no viewer seen for 13 s; load before: 14 9 13
+exit 0; load after: 5 13 5
+2026-10-30T16:54:21 43-M exe D:/measure-f12/gss-19f59cc3/tf2demoview.exe; mode 2; pos ''; fg 0; cover 0; uncover 0; coverfull 0; minimize 1; cold 0; no viewer seen for 12 s; load before: 12 9 6
+exit 0; load after: 11 10 6
+2026-10-30T16:57:52 44-X exe D:/measure-f12/gss-19f59cc3/tf2demoview.exe; mode 2; pos '-3000,100'; fg 0; cover 0; uncover 0; coverfull 0; minimize 0; cold 0; no viewer seen for 12 s; load before: 5 4 13
+exit 0; load after: 16 4 6
+grid done
+
+[exited with code 0]
