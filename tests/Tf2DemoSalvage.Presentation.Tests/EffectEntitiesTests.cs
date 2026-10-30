@@ -148,6 +148,51 @@ public sealed class EffectEntitiesTests
         built.SelectMany(static batch => batch.Corners).ShouldBe(beside.SelectMany(static batch => batch.Corners));
     }
 
+    /// <remarks>
+    /// **Built every frame, so built without garbage** (B599): the callbacks were new delegates per frame (the parent
+    /// lookup one per prop placed), the holiday check a closure, the props walked through a boxed enumerator per builder,
+    /// and the result a fresh array. Warmed once, then built again for the same frame with a trail (which places through the
+    /// parent lookup and draws nothing yet): nothing allocated. The render log has Debug off, as the viewer runs.
+    ///
+    /// **A beam still allocates 176 bytes a frame somewhere in its own build, not located** (2026-10-29); the test below
+    /// holds a beam's corners, not its bytes.
+    /// </remarks>
+    [Test]
+    public void BuildOver_ATrailFrameBuiltAgain_AllocatesNothing()
+    {
+        EffectEntities effects = new(new FakePosedEntities(), Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance);
+        (Vector3 forward, Vector3 right, Vector3 up) = Axes();
+        EffectEntityMap map = Map();
+        EffectEntityFrame frame = Frame(Trail(NoHandle));
+
+        _ = effects.BuildOver(frame, map, forward, right, up, Sees);
+
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        _ = effects.BuildOver(frame, map, forward, right, up, Sees);
+        long bytes = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        bytes.ShouldBe(0L);
+
+        static float Sees(GlowQuery query) => 1f;
+    }
+
+    /// <remarks>The result list is reused (B599): a second build of the same frame must hand back the same corners.</remarks>
+    [Test]
+    public void BuildOver_ABeamBuiltAgain_DrawsTheSameCorners()
+    {
+        EffectEntities effects = new(new FakePosedEntities(), new RecordingLogger());
+        (Vector3 forward, Vector3 right, Vector3 up) = Axes();
+        EffectEntityMap map = Map();
+        EffectEntityFrame frame = Frame(Spotlight());
+
+        List<DetailSpriteVertex> first = [.. effects.BuildOver(frame, map, forward, right, up, static _ => 1f).SelectMany(static batch => batch.Corners)];
+        List<DetailSpriteVertex> again = [.. effects.BuildOver(frame, map, forward, right, up, static _ => 1f).SelectMany(static batch => batch.Corners)];
+
+        first.ShouldNotBeEmpty("the control: the spotlight draws from here");
+        again.ShouldBe(first);
+    }
+
+
     [Test]
     public void BeamEnd_AHandleWhoseSerialIsTheSlotsOccupants_IsThatEntitysOrigin()
     {

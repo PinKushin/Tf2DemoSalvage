@@ -217,8 +217,11 @@ public sealed class EntitySpriteBatches
             (Vector3 color, float alpha) = EntitySprites.ShaderInput(sprite, prop.Pose.RenderMode, vertexColor, vertexAlpha);
 
             // **One set of corners per DRAW, in the shader's order** — `kRenderTransAlphaAdd` is two.
-            foreach (SpritePass pass in passes)
+            // Indexed: `passes` is interface-typed, and a `foreach` boxed its enumerator per sprite per frame (B599).
+            for (int p = 0; p < passes.Count; p++)
             {
+                SpritePass pass = passes[p];
+
                 if (!_byMaterial.TryGetValue((prop.ModelPath, pass), out List<DetailSpriteVertex>? corners))
                 {
                     corners = [];
