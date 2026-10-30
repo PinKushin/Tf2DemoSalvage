@@ -6468,9 +6468,11 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
                 $"textured {first.MaterialIndex < _textures.Count && _textures[first.MaterialIndex].Handle is not null}");
         }
 
+        // The B597 cap reaches these too, because they draw inside the model pass; world decals share DrawDecalBatch
+        // and are not the control's.
         foreach (WorldBatch batch in batches)
         {
-            DrawDecalBatch(context, batch);
+            DrawDecalBatch(context, batch, cap: ModelVertexCap);
         }
 
         context.RSSetState(Raster(_bothSides));
@@ -6480,7 +6482,11 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
     private static readonly float[] ModelIdentity = [1f, 0f, 0f, 0f, 0f, 1f, 0f, 0f, 0f, 0f, 1f, 0f, 0f, 0f, 0f, 1f];
 
     /// <summary>Draws one decal run with its material's textures, in whatever vertex buffer is bound.</summary>
-    private void DrawDecalBatch(ComPtr<ID3D11DeviceContext> context, WorldBatch batch, float alpha = 1f)
+    /// <param name="context">The device context.</param>
+    /// <param name="batch">The run.</param>
+    /// <param name="alpha">The overlay fade.</param>
+    /// <param name="cap">The B597 vertex cap, model decals only; null draws the run whole, and a cap of zero skips the draw.</param>
+    private void DrawDecalBatch(ComPtr<ID3D11DeviceContext> context, WorldBatch batch, float alpha = 1f, int? cap = null)
     {
         if (batch.MaterialIndex < 0 || batch.MaterialIndex >= _textures.Count)
         {
@@ -6555,7 +6561,13 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
         context.PSSetShaderResources(3, 1, ref detail);
         context.PSSetShaderResources(4, 1, ref bump);
         BindBlendModulation(context, batch.MaterialIndex);
-        SubmitCounters.Draw(); context.Draw((uint)batch.VertexCount, (uint)batch.FirstVertex);
+
+        int submitted = ModelVertexClamp.Apply(batch.VertexCount, cap);
+
+        if (submitted > 0 || cap is null)
+        {
+            SubmitCounters.Draw(); context.Draw((uint)submitted, (uint)batch.FirstVertex);
+        }
     }
 
     /// <summary>Binds a material's <c>$blendmodulatetexture</c> to slot 15, null handle included.</summary>
@@ -7088,8 +7100,11 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
         return frames[Math.Clamp(index, 0, frames.Count - 1)];
     }
 
-    // The B597 control, read once: null (the default) draws every batch whole. See ModelVertexClamp.
-    private static readonly int? _modelVertexClamp =
+    /// <summary>
+    /// The B597 control, read from the environment when the renderer is made: null (the default) draws every model batch
+    /// and model decal run whole. Settable so its tests can draw under a cap. See <see cref="ModelVertexClamp"/>.
+    /// </summary>
+    internal int? ModelVertexCap { get; set; } =
         ModelVertexClamp.Parse(Environment.GetEnvironmentVariable(ModelVertexClamp.Variable));
 
     /// <summary>Draws one posed model.</summary>
@@ -7662,16 +7677,14 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
                 ? (0f, (1f, 1f, 1f))
                 : cloak.For(cloakPass, materialProxies);
 
-            drawn += batch.VertexCount;
+            // The B597 cap: with none this is the batch's own count, and every batch draws, an empty one included.
+            int submitted = ModelVertexClamp.Apply(batch.VertexCount, ModelVertexCap);
 
-            if (cloakPass is null || CloakPass.DrawsStandardPass(cloaked.Factor))
+            drawn += submitted;
+
+            if ((cloakPass is null || CloakPass.DrawsStandardPass(cloaked.Factor)) && (submitted > 0 || ModelVertexCap is null))
             {
-                int submitted = ModelVertexClamp.Apply(batch.VertexCount, _modelVertexClamp);
-
-                if (submitted > 0)
-                {
-                    SubmitCounters.Draw(); context.Draw((uint)submitted, (uint)batch.FirstVertex);
-                }
+                SubmitCounters.Draw(); context.Draw((uint)submitted, (uint)batch.FirstVertex);
             }
 
             SubmitSpans.Lap(SubmitSpan.DrawCall);

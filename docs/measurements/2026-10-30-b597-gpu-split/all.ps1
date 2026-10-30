@@ -6,9 +6,11 @@ $plan = @(
   @('07-N', ''), @('08-V0', '0'), @('09-V3', '3')
 )
 foreach ($p in $plan) {
-  # A run already on disk is kept, so a stopped sequence resumes (01-N was kept after the first version of this loop
-  # read an unset $LASTEXITCODE as failure and stopped).
-  if (Test-Path "$PSScriptRoot/$($p[0]).txt") { "kept $($p[0])"; continue }
+  # A finished run already on disk is kept, so a stopped sequence resumes (01-N was kept after the first version of this
+  # loop read an unset $LASTEXITCODE as failure and stopped). Finished means it holds the measurement's own line; a
+  # partial or empty file is run again.
+  $done = "$PSScriptRoot/$($p[0]).txt"
+  if ((Test-Path $done) -and (Select-String -LiteralPath $done -SimpleMatch 'frames, mean' -Quiet)) { "kept $($p[0])"; continue }
   &"$PSScriptRoot/run.ps1" -Name $p[0] -Verts $p[1]
   if ($LASTEXITCODE -ne 0) { "stopped at $($p[0]), exit $LASTEXITCODE"; exit 1 }
 }

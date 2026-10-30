@@ -608,6 +608,7 @@ internal sealed unsafe class OffscreenTarget : IDisposable
 
         _world ??= WorldRenderer.Create(_device, _loggers);
         _world.Seconds = Seconds;
+        _world.ModelVertexCap = ModelVertexCap;
 
         // **Not again for the world's own assets**: an upload releases the world's material classes and
         // its translucent sort, so a DrawTranslucentWorld after this model would draw nothing (B426).
@@ -676,6 +677,55 @@ internal sealed unsafe class OffscreenTarget : IDisposable
             _context, Posed, model, _world.ModelBatches(Posed), light, sun, bones: bones?.Count ?? 0, bothSides: bothSides,
             origin: origin, locals: locals, overrideMaterial: overrideMaterial, bakedColours: bakedColours, cloak: cloak,
             flex: flex, flexRange: flexRange);
+    }
+
+    /// <summary>The B597 vertex cap <see cref="DrawModelPose"/> draws under; null, the default, draws whole.</summary>
+    internal int? ModelVertexCap { get; set; }
+
+    /// <summary>Draws decals on the model the last <see cref="DrawModelPose"/> drew, as <c>Device3D</c> does after it.</summary>
+    /// <param name="vertices">The decal's corners.</param>
+    /// <param name="batches">One run per decal material, into <paramref name="vertices"/>.</param>
+    /// <exception cref="InvalidOperationException">No model has been drawn.</exception>
+    internal void DrawPosedModelDecals(IReadOnlyList<WorldVertex> vertices, IReadOnlyList<WorldBatch> batches) =>
+        (_world ?? throw new InvalidOperationException("DrawModelPose first: the decals draw with its camera and materials."))
+            .DrawModelDecals(_device, _context, vertices, batches, 0);
+
+    /// <summary>The vertices the input assembler read while <paramref name="draw"/> ran, by a pipeline statistics query.</summary>
+    /// <param name="draw">The draws to count.</param>
+    /// <returns><c>IAVertices</c>: what the GPU was actually handed, which no counter on the CPU side can stand in for.</returns>
+    internal ulong InputVertices(Action draw)
+    {
+        ArgumentNullException.ThrowIfNull(draw);
+
+        ComPtr<ID3D11Query> query = default;
+        QueryDesc description = new() { Query = Query.PipelineStatistics };
+
+        SilkMarshal.ThrowHResult(_device.CreateQuery(in description, ref query));
+
+        try
+        {
+            _context.Begin((ID3D11Asynchronous*)query.Handle);
+            draw();
+            _context.End((ID3D11Asynchronous*)query.Handle);
+
+            QueryDataPipelineStatistics statistics = default;
+            int result;
+
+            // Flushing, and synchronised on the answer: S_FALSE until the GPU has finished the draws.
+            do
+            {
+                result = _context.GetData(
+                    (ID3D11Asynchronous*)query.Handle, &statistics, (uint)sizeof(QueryDataPipelineStatistics), 0u);
+                SilkMarshal.ThrowHResult(result);
+            }
+            while (result != 0);
+
+            return statistics.IAVertices;
+        }
+        finally
+        {
+            query.Dispose();
+        }
     }
 
     /// <summary>Draws a screen overlay over what this target holds, as <c>Device3D</c> does after the world.</summary>
