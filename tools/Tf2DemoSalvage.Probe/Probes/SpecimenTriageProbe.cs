@@ -156,7 +156,7 @@ public sealed class SpecimenTriageProbe : IProbe
             // The corpus test's own statistic: first 200 packets, split where the demo clock jumps more than 32.
             if (packetIndex < 200)
             {
-                if (previousDemo != int.MinValue && dDemo > 32)
+                if (previousDemo != int.MinValue && dDemo > NetTickRuns.GapTicks)
                 {
                     runs.Add([]);
                 }
@@ -164,7 +164,7 @@ public sealed class SpecimenTriageProbe : IProbe
                 runs[^1].Add(tick.Tick - command.Tick);
 
                 // The proposed classifier: a host frame over 100 ms also starts a new run.
-                if (previousDemo != int.MinValue && (dDemo > 32 || tick.HostFrameTimeSeconds > 0.1f))
+                if (previousDemo != int.MinValue && (dDemo > NetTickRuns.GapTicks || tick.HostFrameTimeSeconds > NetTickRuns.LongFrameSeconds))
                 {
                     clampedRuns.Add([]);
                 }
@@ -190,7 +190,7 @@ public sealed class SpecimenTriageProbe : IProbe
 
             previousIndex = packetIndex;
 
-            if (previousDemo != int.MinValue && dDemo <= 32)
+            if (previousDemo != int.MinValue && dDemo <= NetTickRuns.GapTicks)
             {
                 // Lagging = the demo clock ran at least 3 ticks ahead of the server's within one packet.
                 List<(int DDemo, int DNet, float Frame)> bucket = dDemo == dNet ? level : other;

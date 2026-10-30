@@ -40247,6 +40247,42 @@ It is tested red-first. It names which thread waited and where the draw had got 
 **Reopen if** the `queue stall` line ever appears in a viewer log, or if this test's hang rate on the branch, measured
 the same way, exceeds the baseline's.
 
+## B611 — loose ends from the gcor specimen swap (review and the voice investigation, 2026-10-29) — OPEN
+
+**Evidence class: measured or read, per line.** Filed so none of it lives only in a session. None blocks the swap; each
+is the owner's to schedule. The swap's own record: `docs/measurements/2026-10-28-era-specimens-v2-plan.md` (the 4269 and
+2013 section), `docs/measurements/2026-10-29-gcor-swap-prep.md`, `docs/findings/02-net-messages.md` ("Correction,
+2026-10-29").
+
+- **The scripted voice is the microphone, not the tone, in every era** (*disassembled* for the 3258 and 3420 engines).
+  The wav was placed in `tf/`; the engine opens it relative to the folder holding `hl2.exe`. Decision owed: re-record
+  with the wav beside `hl2.exe` (the investigator's prep change: add the game root to `listing.sh`/`prep.sh`), or accept
+  microphone voice as the documented state. The 4231, 4269, 4604, 2013 and live engines' file reads were not read.
+- **`SilkVoiceDecoder` rejects one real Steam Voice packet** (*measured*): `SKP_Silk_SDK_Decode returned -12 for a 80-byte
+  packet`, from the lcor 2013 `spec4` pair (recorded while the owner was online on Steam). `EverySpeexFrame_DecodesToPcm`
+  passes over all 43 Speex demos of gcor plus lcor with `spec4` moved out, and fails with it in. lcor-only, so CI is
+  unaffected; the owner's full local run is red on it until the packet is understood (a decoder gap or a damaged packet:
+  not yet told apart).
+- **`tf2ds_specimen.cfg`: `ds_engineer_go` does not disarm itself** (*read*). If the 7920-wait fallback fires first,
+  `ds_engineer_cont` runs `ds_engineer_go`, and a later driver `ds_engineer_go` runs `kill; wait 99; ds_medic` a second
+  time, starting a second concurrent class chain. In all three of the 2026-10-29 recordings the driver's go came first
+  (the marks read `engineer_go` then `engineer_fallback_disarmed`). Fix: alias `ds_engineer_go` to a no-op as its first
+  action, in the shared cfg (which re-hashes the placed file; do it with the next re-record).
+- **`-a` assembly declines a non-UTF-8 `player_changename`** (*read*, Fable): `EventAssembly.BuildEvent` builds the event
+  without `RawStrings`, so the 4231 and 4604 events print as `raw … GameEvent declined`. The bytes survive the round trip;
+  only the text form is uneditable. Carry a `raw=` hex token, or leave it as a known declined kind.
+- **Coverage lost from CI by retiring the old demos** (*named, not hidden*): the dead-recorder divergence has no CI
+  witness (real bytes only; it runs from lcor), and the seven scripted POVs read a dead median of exactly 0 with the
+  reason not measured; the protocol-14 Damage sweep is now an lcor witness (`ProtocolFourteenWitness_…`, a skip on CI),
+  with the layout rule held on CI by `UserMessageLayoutDemoTests` on one body.
+- **Gaps in the scripted recordings, not decoder faults:** the 2013 gcor pair carries 0 Speex packets where the plan says
+  28 (the engine chose Steam Voice, see B441), and the 2013 pair has no mid-demo name change (the client takes the Steam
+  persona, so the checklist's items 3 and 5 cannot be exercised on that build).
+- **Floors with slack** (*pre-existing*): the Core floor is 1888 against 2735 measured, and the Scene floor 737 against
+  3394; `gate.sh` says floors are the current counts. Left alone: lowering the slack is the owner's call, and a floor
+  that tracks the count loses the room to add tests without editing it.
+- **`SyntheticPlayer.localYawPerTick` is silently ignored when the player is not viewed** (*read*, nit): throw or document.
+
 ## B610 — a native access violation in D3D11 `Map` under the offscreen screen-overlay draw aborted the rendering tests once — OPEN (2026-10-28)
 
 **Seen once**, in phase 1 of the gate on branch `perf/double-buffer-pose` (`6991bf4c` plus records), 2026-10-28 18:13-18:27.

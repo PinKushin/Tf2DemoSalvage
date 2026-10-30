@@ -713,7 +713,9 @@ jobs:
           # era specimens joined gcor (+14) and the 2007 pair and 2008 STV retired (-3): 21 gcor demos.
           # 217 -> 211 on 2026-10-29: measured the same way after the six remaining old era demos retired
           # (15 gcor demos): the six per-file container cases left with them; no test was removed.
-          ./build/assert-test-count.sh '**/corpus.trx' 211 Corpus
+          # 211 -> 212 on 2026-10-29: measured the same way (143 passed, 69 skipped, 0 failed) after the Damage
+          # sweep and its lcor witness became two tests (the witness is one of the skips).
+          ./build/assert-test-count.sh '**/corpus.trx' 212 Corpus
 
       # `always()` for the same reason as the unit job's copy above: the floors in this step are
       # only checkable against a green run's .trx, and a green run used to upload none.

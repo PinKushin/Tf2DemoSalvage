@@ -29,12 +29,32 @@ public static class NetTickRuns
     /// <summary>The stamp outran the server by more than one tick of jitter within the packet.</summary>
     public const int OutranTicks = 2;
 
+    /// <summary>TF2's tick rate, 1 / 0.015 s: how many stamp ticks a host frame of a given length can span.</summary>
+    public const float TicksPerSecond = 66.667f;
+
     /// <summary>Whether a packet starts a new unbroken run.</summary>
     /// <param name="stampStep">The demo stamp's step since the previous <c>net_Tick</c> packet.</param>
     /// <param name="serverStep">The server tick's step over the same packets.</param>
     /// <param name="hostFrameSeconds">This packet's <c>net_Tick</c> host frame time.</param>
     /// <returns>True where the offset may legitimately step.</returns>
-    public static bool Breaks(int stampStep, int serverStep, float hostFrameSeconds) =>
-        stampStep > GapTicks ||
-        (hostFrameSeconds > LongFrameSeconds && stampStep - serverStep >= OutranTicks);
+    /// <remarks>
+    /// **The outrun is bounded by the frame that explains it** (Fable's review of the swap branch, 2026-10-29): the
+    /// server cannot have fallen further behind the wall clock than the host frame it reports, which spans at most
+    /// <c>hostFrameSeconds × <see cref="TicksPerSecond"/></c> stamp ticks. Without the bound a misread <c>net_Tick</c>
+    /// (a 16-bit field decoding above 0.1 s) or a real dropped stretch under the gap threshold would split the run and
+    /// hide exactly the desync the spread test exists to see.
+    /// </remarks>
+    public static bool Breaks(int stampStep, int serverStep, float hostFrameSeconds)
+    {
+        if (stampStep > GapTicks)
+        {
+            return true;
+        }
+
+        int outran = stampStep - serverStep;
+
+        return hostFrameSeconds > LongFrameSeconds
+            && outran >= OutranTicks
+            && outran <= (hostFrameSeconds * TicksPerSecond) + OutranTicks;
+    }
 }

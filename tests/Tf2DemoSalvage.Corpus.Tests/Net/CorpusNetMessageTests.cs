@@ -125,7 +125,8 @@ public sealed class CorpusNetMessageTests
 
             // **A floor on the run, so splitting cannot pass the spread by itself.** A classifier
             // that broke at every packet would leave runs of one with a spread of zero. The
-            // shortest longest-run across gcor is 61 packets (2026-10-29, this test's own output).
+            // shortest longest-run is 61 packets across gcor and 47 across gcor plus lcor
+            // (golden_cp_granary2.dem: spread 1, 11 recording gaps; 2026-10-29, this test's own output).
             longest.Count.ShouldBeGreaterThanOrEqualTo(
                 ShortestLongestRun,
                 $"{Path.GetFileName(path)}: the longest unbroken run is {longest.Count} packets, so " +
@@ -133,8 +134,12 @@ public sealed class CorpusNetMessageTests
         }
     }
 
-    /// <summary>Under the 61 packets the shortest longest-run measured across gcor (2026-10-29).</summary>
-    private const int ShortestLongestRun = 50;
+    /// <summary>
+    /// A tenth of the 200-packet sample, under the 47 the shortest longest-run measured across gcor plus lcor
+    /// (2026-10-29). A first floor of 50 sat inside 3 packets of that minimum and failed a healthy lcor demo (Fable's
+    /// review of the swap branch); a splitter that breaks everywhere still leaves runs of 1 to 3, far under 20.
+    /// </summary>
+    private const int ShortestLongestRun = 20;
 
     /// <summary>Beyond any real server uptime, so only a misread reaches it.</summary>
     private const int ImplausibleOffset = 100_000_000;

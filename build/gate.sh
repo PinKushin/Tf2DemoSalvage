@@ -1640,7 +1640,10 @@ run Tf2DemoSalvage.Content.Tests  content   1189
 # a retired demo from lcor and SKIP on a gcor run - nine that name one, and the Damage and dead-
 # recorder sweeps whose only witness is one (synthetic replacements in Core.Tests and Scene.Tests
 # hold their questions on CI) - so 211 counts them as skipped, not passed.
-run Tf2DemoSalvage.Corpus.Tests   corpus     211
+# 211 -> 212 on 2026-10-29: MEASURED (212 total, 143 passed, 69 skipped, 0 failed, gcor only). Review of this swap split
+# the Damage sweep from its lcor witness into its own test, so the sweep reports what it asserted on CI and the witness
+# reads as a skip: +1.
+run Tf2DemoSalvage.Corpus.Tests   corpus     212
 # Lowered from 523 on 2026-08-21, and the arithmetic is the justification: FIVE stale gap markers
 # were deleted (Cubemaps_AreNotRead, EnvironmentMaps_AreNotImplemented, AttachmentPoints_AreNot-
 # Implemented, Attachments_AreNotRead, ViewModels_AreNotDrawn — every one claiming a feature that

@@ -113,12 +113,28 @@ public sealed class CorpusDamageTests
         // demos would pass with the old branch never taken.
         modern.ShouldBeGreaterThan(0, "no demo above protocol 14 carried a Damage message");
 
-        // The old side's witness, named so its absence is a skip with a reason rather than a pass.
+        // The old side is asserted by the lcor witness in its own test below, so this one reports Passed on CI for what
+        // it did assert (the modern side, and any old-layout message that is present) and the skip is not hidden in it.
+        TestContext.Out.WriteLine($"old-layout messages seen here: {old}");
+    }
+
+    /// <summary>
+    /// The old side's witness: the retired 2008 POV, from lcor. Its own test, so that on CI (no lcor) the skip reads as
+    /// a skip and the sweep above does not report Skipped for work it did. Review of the swap branch, 2026-10-29.
+    /// </summary>
+    [Test]
+    public void ProtocolFourteenWitness_TheRetired2008Pov_CarriesItsDamageMessagesOnTheOldLayout()
+    {
         string witness = Corpus.Demo(OldLayoutWitness);
-        Damages(witness).Count(message => message.Fields is not null).ShouldBe(
-            WitnessDamageMessages, $"{Path.GetFileName(witness)}: its decoded Damage messages");
-        old.ShouldBeGreaterThanOrEqualTo(
-            WitnessDamageMessages, "the witness's messages were counted on the old layout above");
+        ushort protocol = Corpus.ProtocolOf(witness);
+        protocol.ShouldBeLessThanOrEqualTo((ushort)14, $"{Path.GetFileName(witness)} is the old-layout witness");
+
+        List<UserMessage> decoded = [.. Damages(witness).Where(message => message.Fields is not null)];
+
+        decoded.Count.ShouldBe(WitnessDamageMessages, $"{Path.GetFileName(witness)}: its decoded Damage messages");
+        decoded.ShouldAllBe(
+            message => message.Fields!.All(field => field.Key != "bits"),
+            "no old-layout Damage message may carry a damage-type field");
     }
 
     /// <summary>The 2008 POV, retired from gcor 2026-10-29 and kept in lcor: 24 Damage messages at protocol 14.</summary>

@@ -291,8 +291,13 @@ foreach ($b in ($good | ForEach-Object Build | Sort-Object -Unique)) {
 $sweep = @($good | Where-Object { $_.Era -match '^\d{4}$' -and [int]$_.Era -ge 2007 -and [int]$_.Era -le 2013 })
 if ($sweep) { Write-Host "  CorpusVoiceCodecEraTests.IsEraSpecimenFrom2007To2013 takes $($sweep.Count) of them: each must declare vaudio_speex (run it gcor-only)" }
 $oldStems = $gcorNow | Where-Object { $_ -match '^tf2-\d{4}-build\d+-(pov|stv)-' } | ForEach-Object { $_ -replace '\.dem$', '' }
-$refs = Get-ChildItem -Path (Join-Path $Repo 'tests'), (Join-Path $Repo 'tools'), (Join-Path $Repo 'managed'), (Join-Path $Repo 'benchmarks') -Recurse -Include *.cs |
-    Select-String -SimpleMatch -Pattern $oldStems
+# After the old generation is retired from gcor there are no old-style names left, and Select-String's mandatory
+# -Pattern throws on an empty list (found in review of the swap branch, 2026-10-29): nothing to look for is zero hits.
+$refs = if ($oldStems) {
+    Get-ChildItem -Path (Join-Path $Repo 'tests'), (Join-Path $Repo 'tools'), (Join-Path $Repo 'managed'), (Join-Path $Repo 'benchmarks') -Recurse -Include *.cs |
+        Select-String -SimpleMatch -Pattern $oldStems
+}
+else { @() }
 Write-Host "  $(@($refs).Count) code line(s) name an old era specimen; they stay while it stays, and are re-derived when it retires:"
 foreach ($ref in $refs) { Write-Host ('    {0}:{1}' -f [IO.Path]::GetRelativePath($Repo, $ref.Path), $ref.LineNumber) }
 
