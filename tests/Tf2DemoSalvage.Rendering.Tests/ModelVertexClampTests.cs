@@ -27,10 +27,11 @@ public sealed class ModelVertexClampTests
         ModelVertexClamp.Parse(text).ShouldBe(expected);
     }
 
-    [Test]
-    public void Apply_Off_ReturnsTheBatchesOwnCount()
+    [TestCase(681)]
+    [TestCase(0)]
+    public void Apply_Off_ReturnsTheBatchesOwnCount(int count)
     {
-        ModelVertexClamp.Apply(681, null).ShouldBe(681);
+        ModelVertexClamp.Apply(count, null).ShouldBe(count);
     }
 
     [TestCase(681, 3, 3)]

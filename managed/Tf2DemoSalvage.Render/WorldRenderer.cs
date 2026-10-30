@@ -7088,8 +7088,11 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
         return frames[Math.Clamp(index, 0, frames.Count - 1)];
     }
 
-    // The B597 control, read once: null (the default) draws every batch whole. See ModelVertexClamp.
-    private static readonly int? _modelVertexClamp =
+    /// <summary>
+    /// The B597 control, read from the environment when the renderer is made: null (the default) draws every model batch
+    /// and model decal run whole. Settable so its tests can draw under a cap. See <see cref="ModelVertexClamp"/>.
+    /// </summary>
+    internal int? ModelVertexCap { get; set; } =
         ModelVertexClamp.Parse(Environment.GetEnvironmentVariable(ModelVertexClamp.Variable));
 
     /// <summary>Draws one posed model.</summary>
@@ -7666,7 +7669,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
 
             if (cloakPass is null || CloakPass.DrawsStandardPass(cloaked.Factor))
             {
-                int submitted = ModelVertexClamp.Apply(batch.VertexCount, _modelVertexClamp);
+                int submitted = ModelVertexClamp.Apply(batch.VertexCount, ModelVertexCap);
 
                 if (submitted > 0)
                 {
