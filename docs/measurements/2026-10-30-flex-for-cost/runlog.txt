@@ -1,0 +1,8 @@
+all.ps1 -Plan '01-A=D:/measure-f12/flex-a/tf2demoview.exe;02-A=...;03-A=...' (A = ffd51e49, the instrument commit)
+2026-10-30T12:24:26 01-A exe D:/measure-f12/flex-a/tf2demoview.exe; load before: 12 9 17
+exit 0; load after: 34 74 74
+2026-10-30T12:32:27 02-A exe D:/measure-f12/flex-a/tf2demoview.exe; load before: 10 6 10
+exit 0; load after: 9 4 9
+2026-10-30T12:37:13 03-A exe D:/measure-f12/flex-a/tf2demoview.exe; load before: 6 4 10
+exit 0; load after: 28 6 17
+all done

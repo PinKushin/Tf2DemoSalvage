@@ -94,4 +94,49 @@ commit adding this file on `perf/flex-for-cost` (parent `19f59cc3`). Load before
 
 ## Result
 
+Raw output: `2026-10-30-flex-for-cost/01-A.txt`, `02-A.txt`, `03-A.txt`; console and load in `runlog.txt`; the figures
+below are `summ.ps1 -Runs '01-A;02-A;03-A'`, each the mean over a run's 16 `moment cost` lines after the first (the first
+is printed in the opening seek, before the window). Milliseconds a rebuild; counts a rebuild.
+
+| | 01-A | 02-A | 03-A |
+|---|---|---|---|
+| frame mean (window) | 6.79 | 7.40 | 6.99 |
+| camera phase | 5.34 | 5.81 | 5.54 |
+| place | 0.800 | 0.831 | 0.825 |
+| **flex** | **0.527** | **0.546** | **0.543** |
+| driving | 0.081 | 0.090 | 0.092 |
+| (scenes) | 0.026 | 0.031 | 0.031 |
+| (voices) | 0.013 | 0.016 | 0.017 |
+| (step) | 0.039 | 0.040 | 0.042 |
+| local | 0.007 | 0.007 | 0.007 |
+| rules | 0.024 | 0.024 | 0.023 |
+| delayed | 0.006 | 0.007 | 0.006 |
+| probe | 0.002 | 0.002 | 0.002 |
+| corners | 0.002 | 0.002 | 0.002 |
+| clear | 0.032 | 0.029 | 0.032 |
+| **deltas** | **0.203** | **0.211** | **0.204** |
+| **slots** | **0.156** | **0.159** | **0.159** |
+| resting | 0 | 0 | 0 |
+| calls | 228.6 | 217.8 | 223.6 |
+| faces | 5.84 | 5.75 | 5.84 |
+| own / worn / corpse / resting | 4.24 / 0.24 / 1.35 / 0 | 4.18 / 0.25 / 1.34 / 0 | 4.23 / 0.29 / 1.33 / 0 |
+| hits / misses | 0 / 5.84 | 0.04 / 5.70 | 0.05 / 5.79 |
+| vertices (vertex animations applied) | 17,298 | 17,276 | 16,996 |
+
+Control:
+- The ten parts sum to 0.513 / 0.533 / 0.531 ms against `flex` 0.527 / 0.546 / 0.543: 97-98%, inside 15%.
+  `scenes + voices + step` = 0.078 / 0.087 / 0.090, at most `driving`. *Arithmetic on the printed means.*
+- `hits + misses == own + worn + corpse` and `faces == own + worn + corpse + resting` in each run to the printed
+  rounding (5.84 = 5.84; 5.74 against 5.75; 5.84 = 5.84). `faces` well under `calls`.
+- `faces > 0`; `vertices > 0` with misses.
+- Playback: 30000 to 31347 in 20 s, 67.4 ticks a second.
+
 ## Verdict
+
+**The time is in the vertex work, not the weights: `deltas` (the accumulation, 0.20-0.21 ms) and `slots` (the write into
+the flexed slots, 0.16 ms) are two thirds of `flex`, with `driving` 0.08-0.09 and `clear` 0.03 next.** Prediction 2 is
+falsified (`driving` is not the largest part); 3 holds (misses 99-100%: no face holds still, as finding 98 section 13
+counted); 4 holds (5.8 faces a rebuild); 1 is falsified narrowly (`flex` 0.527-0.546 against 0.55-0.80; the lead's
+0.60-0.72 was from a build without this instrument, so that comparison is void and the split is still read). The
+accumulation walks about 2,960 vertex animations a face at about 12 ns each (0.205 ms / 17,190; *arithmetic*), and the
+slot write about 27 µs a face: both far above what the arithmetic needs, so they are where the fix goes.
