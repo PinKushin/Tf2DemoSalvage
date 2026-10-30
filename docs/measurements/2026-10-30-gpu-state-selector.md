@@ -220,7 +220,7 @@ viewer's edges uncovered. (b) floorp was read maximized (-8,-8 to 1928,1040) at 
 | condition | state 1 | state 2 | what the window was |
 |---|---|---|---|
 | any part of the window composed on screen (P behind T3 Code, F visible, S) | 0 | 15 | 01-10, 09-F, 12-F, 45/47/48/50-S |
-| no part composed (P with cov 1.00, minimized by anyone, off screen) | 18 | 0 | 11, 13-16, 18, 33-44, 46, 49 |
+| no part composed (P with cov 1.00, minimized by anyone, off screen) | 20 | 0 | 11, 13-16, 18, 33-44, 46, 49 |
 | S (100 px visible, TopMost, background) against X (off screen), interleaved 17:01-17:24 | X 6 of 6 | S 4 of 4 | manipulation |
 | M (minimized by the script) | 4 of 4 | 0 | manipulation |
 | F (forced foreground) | 2 (both minimized by the owner) | 2 (both visible) | foreground does not decide it |
@@ -273,11 +273,19 @@ the archive cannot separate the state from whatever else slowed those runs.
 **Q1, confirmed (a selector found, by manipulation): the state follows whether any part of the viewer's window is
 composed on screen.** Visible, even as a 100 px strip, background and not foreground: state 2 (Clear GPU about 0.08,
 Sky3D about 0.8, World about 0.48). Not composed at all, whether minimized, entirely off screen, or covered by a
-maximized window: state 1 (Clear about 1.25-1.5, Sky3D about 0.08, World about 0.32). The split is 33 of 33 runs with
-no exception, and the decisive interleaved manipulation is 4 of 4 S against 6 of 6 X and 4 of 4 M.
+maximized window: state 1 (Clear about 1.25-1.5, Sky3D about 0.08, World about 0.32).
 
-- **H-P, partly confirmed.** The DWM presentation path selects the state, but through visibility, not foreground.
-  My guess "foreground reads state 1" is falsified: a visible foreground window read state 2 (09-F, 12-F).
+- **The confirmation rests on the manipulation**, added after the base rate: S 4 of 4 state 2, against X 6 of 6
+  and M 4 of 4 state 1, interleaved in one session.
+- **Supporting tally, 35 of 35 runs, in two evidence classes.** Measured visibility (the `covered` column, the
+  off-screen rect, or a minimized rect): 23 runs, 13-16, 18 and 33-50, every one on the rule. Partly interpolated
+  visibility: 12 runs, 01-12, every one on the rule. 01-08, 10 and 11 rely on T3 Code's and floorp's rects read at
+  about 16:00 rather than during the run (01-10 visible, 11-P hidden). 09-F and 12-F rely on their own rects and
+  `above` (on screen, with at most the taskbar over an edge), before the `covered` column existed.
+- **H-P falsified by its registered rule 2:** the forced-foreground runs read both states (09-F and 12-F state 2;
+  13-F and 16-F state 1). In 13-F and 16-F the owner minimized the window, while `fg` still read 1. My guess
+  "foreground reads state 1" is falsified with it. What the S/X/M manipulation confirms is the occlusion half of
+  H-P: whether DWM composes any part of the window, not focus.
 - **Base-rate prediction falsified.** I predicted both states among the 8 plain runs; they read 8 of 8 state 2,
   because T3 Code, the window in front all afternoon, never fully covered the viewer.
 - **The archive's flips follow the same rule, by inference not observation.** A plain agent-launched run lands in
@@ -289,12 +297,13 @@ no exception, and the decisive interleaved manipulation is 4 of 4 S against 6 of
 - **H-W:** position matters only by making the window visible or not (X against S).
 - **H-Q not tested.** No mode 0 runs.
 
-**Q2, falsified: the state does not move the frame mean, the render thread or the main-thread phases.** Matched pair,
-same session: frame 6.73 (6.63-6.85) in state 2 against 6.69 (6.57-6.82) in state 1. The ranges overlap and the
-means differ by 0.04 ms, under the 0.22-0.25 ms within-state range. Render thread, camera, advance and hud overlap.
-`between` reads 0.19-0.20 against 0.17-0.18, a 0.02 ms difference (0.3% of the frame) that does not
-overlap. I attribute it to the window condition (a TopMost on-screen strip against an off-screen window), but that is
-untested: this record did not separate the two. The 10-27 lead (state 2 about 0.8 ms slower) did not reproduce. In the
+**Q2, by rule 4: the state does not move the frame mean, the render thread draw, `camera`, `advance` or `hud`.**
+Matched pair, same session: frame 6.73 (6.63-6.85) in state 2 against 6.69 (6.57-6.82) in state 1. The ranges overlap
+and the means differ by 0.04 ms, under the 0.22-0.25 ms within-state range. Render thread, camera, advance and hud
+overlap too. **`between` does move by the same rule:** 0.19-0.20 against 0.17-0.18. The ranges do not overlap, and the
+0.02 ms difference (0.3% of the frame) exceeds the 0.01 within-state range. It is confounded with the window condition
+(a TopMost on-screen strip against an off-screen window) and not separated from it. The Prediction for Q2 (state 2
+about 0.8 ms slower, render thread and camera following) is falsified. The 10-27 lead (state 2 about 0.8 ms slower) did not reproduce. In the
 archive the state-2 penalties of constant-ring and static-prop-handle come with a rise in OpaqueModels. The one that
 does not is static-prop-lighting 04-A (11.03, Opaque 0.883), a single run 2.4 ms above its build's others.
 
