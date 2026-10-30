@@ -99,7 +99,7 @@ public sealed partial class EntityModelSet
                 float[] stream = last.Stream is { } kept && ReferenceEquals(last.Corners, corners) ? kept : new float[order.Length * 6];
 
                 // `FaceFlex.Deltas` taken apart so its two halves are timed apart: the clear, then the accumulation. Only
-                // the vertices this model's flexes name are cleared: nothing else is written or read for it
+                // the offsets the slot write reads are cleared: nothing else is read for this model
                 // (`FaceFlex.ClearMoved`, docs/measurements/2026-10-30-flex-for-cost.md).
                 (float[] positions, float[] normals) = _flexScratch;
                 FaceFlex.ClearMoved(corners, positions, normals);
