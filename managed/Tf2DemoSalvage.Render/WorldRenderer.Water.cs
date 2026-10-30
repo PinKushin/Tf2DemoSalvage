@@ -1073,7 +1073,11 @@ internal sealed unsafe partial class WorldRenderer
         context.PSSetConstantBuffers(5, 1, ref _refractModelConstants);
         context.PSSetShaderResources(13, 1, ref _refractModelFrame);
 
-        SubmitCounters.Draw(); context.Draw((uint)batch.VertexCount, (uint)batch.FirstVertex);
+        // The B597 cap, as the standard pass takes it: inside the model pass, so a cloaked model is capped too.
+        if (!ModelVertexClamp.Suppresses(ModelVertexCap))
+        {
+            SubmitCounters.Draw(); context.Draw((uint)ModelVertexClamp.Apply(batch.VertexCount, ModelVertexCap), (uint)batch.FirstVertex);
+        }
 
         // A bound input cannot be an output, and the next batch draws with the material's own state and shader.
         ComPtr<ID3D11ShaderResourceView> none = default;

@@ -11,13 +11,19 @@ function Busy {
       $_.CommandLine -notmatch 'VBCSCompiler' -and $_.CommandLine -notmatch '/nodemode:1'
     }).Count -gt 0
 }
-function Load { (Get-CimInstance Win32_Processor | Measure-Object LoadPercentage -Average).Average }
+# Null when any processor gives no LoadPercentage: Measure-Object would average a null as 0, which reads as quiet.
+function Load {
+  $v = @(Get-CimInstance Win32_Processor | ForEach-Object { $_.LoadPercentage })
+  if ($v.Count -eq 0 -or @($v | Where-Object { $null -eq $_ }).Count -gt 0) { return $null }
+  ($v | Measure-Object -Average).Average
+}
 $deadline = (Get-Date).AddMinutes($GateMinutes)
 while ($true) {
   if ((Get-Date) -gt $deadline) { "gate not met in $GateMinutes min"; exit 2 }
   if (Busy) { Start-Sleep 10; continue }
   $l = 1..3 | ForEach-Object { Load; Start-Sleep 1 }
-  if (($l | Where-Object { $_ -ge 25 }).Count -eq 0) { break }
+  # A null sample is not quiet.
+  if (@($l | Where-Object { $null -eq $_ -or $_ -ge 25 }).Count -eq 0) { break }
   Start-Sleep 5
 }
 "$(Get-Date -Format s) $Name verts '$Verts'; load before: $($l -join ' ')"
@@ -28,6 +34,8 @@ if ($Verts -ne '') { $env:TF2VIEW_MODEL_VERTS = $Verts } else { Remove-Item Env:
 $a = @('-NoProfile', '-File', 'C:/Users/pinku/source/repos/PinKushin/run-exclusive.ps1', $exe, 'D:/measure-f12/f12.dem',
   '--tick', '30000', '--spectate', 'gummo', '--first-person', '--measure', "$Seconds", '+fps_max', '0', '+mat_queue_mode', '2')
 $p = Start-Process pwsh -ArgumentList $a -PassThru -NoNewWindow -RedirectStandardOutput "$Out/$Name.txt" -RedirectStandardError "$Out/$Name.err"
+# Taking the handle now is what keeps ExitCode readable after WaitForExit; without it ExitCode can come back null.
+$null = $p.Handle
 $p.WaitForExit()
 "exit $($p.ExitCode); load after: $((1..3 | ForEach-Object { Load; Start-Sleep 1 }) -join ' ')"
 # No exit code read is a failure, never a zero.

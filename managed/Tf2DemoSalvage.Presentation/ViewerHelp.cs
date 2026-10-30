@@ -123,6 +123,7 @@ public static class ViewerHelp
           TF2VIEW_MODEL_VERTS        "3": cap the vertices each model draw submits (0 skips the
                                      draw), keeping every bind and state change. Splits a pass's
                                      GPU time into vertex work and per-draw cost; changes the picture.
+                                     A cap that is not a multiple of 3 draws partial triangles: use 3 or 0.
           TF2VIEW_SETTINGS           A settings file to use instead of the one above (tests).
           TF2VIEW_STEAM_ROOT         The only Steam folder discovery looks in (tests).
           TF2VIEW_PICK               "x y": log what lies under that pixel of a --shot.
