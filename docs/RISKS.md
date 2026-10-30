@@ -40251,6 +40251,21 @@ It is tested red-first. It names which thread waited and where the draw had got 
 **Reopen if** the `queue stall` line ever appears in a viewer log, or if this test's hang rate on the branch, measured
 the same way, exceeds the baseline's.
 
+## B613 — a viewer load with no log line and no progress for about 168 s looks hung (2026-10-30) — OPEN
+
+**Evidence class: observed once, read from a log; nothing measured as a defect.** The owner saw a measurement run's
+window sit at the loader and closed it 77 s into the quiet stretch (run 17-W in
+`docs/measurements/2026-10-30-gpu-state-selector/`). The run's log shows no hang: its last line was
+`[demo] cp_process_f12 … protocol 24`, and the agent's other f12 runs log nothing for about 168 s after that line while the
+position timeline is built, then proceed. So the load is not stuck, but it is silent for nearly three minutes.
+
+- **Open: is 168 s expected?** The table near line 11499 puts the position timeline at 0.40-0.81 s as a background step;
+  the f12 demo with `--measure` waits 168 s. Which of the two is the cost, and why one is background and one is not, is not
+  established.
+- **Open: what the user sees.** A loader with no progress for that long reads as a hang
+  (`docs/memory/design-for-what-the-user-sees-during-it.md`). A progress line or bar for the long step is the fix once the
+  step is identified; no change is made here.
+
 ## B612 — loose ends from the allocation branch (`perf/alloc-sites-2`), review and the agent's own list (2026-10-30) — OPEN
 
 **Evidence class: read or reported, per line; none measured as a defect.** Filed so none lives only in a session. The
