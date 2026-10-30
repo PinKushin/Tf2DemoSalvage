@@ -40755,8 +40755,18 @@ Clear 0.11 / Sky3D 0.80, the same as now, and the archive shows the per-pass spl
 between runs of the same binary in one session** (2026-10-25 run 06-M: Clear 1.334, Sky3D 0.083; run 15-M of the same record:
 Clear 0.109, Sky3D 0.776). Clear, Sky3D and World GPU are state-dependent, OpaqueModels is not; compare per-pass GPU
 figures only between runs in the same state (Clear above about 1.0 is state 1, under about 0.3 state 2; all nine B597
-runs were state 2). **Open:** what selects the state, and whether it moves the frame mean (a lead: 8.37 against 9.20-9.33 ms
-in measurements/2026-10-27-static-prop-handle-at-load.md; an A/B that mixed states could carry that as a build difference). The control is a development
+runs were state 2). **Answered** (measurements/2026-10-30-gpu-state-selector.md, *measured*; 35 runs gave a result): the
+state is set by whether any part of the viewer window is visible on screen. Any part visible (even a 100 px strip, partly
+covered by T3 Code) is state 2 (Clear GPU about 0.1, Sky3D about 0.8, World about 0.5). Nothing visible (minimized, off
+screen via `TF2VIEW_WINDOW_POS=-3000,100`, or fully under a maximized window) is state 1 (Clear about 1.3, Sky3D about 0.08,
+World about 0.35). It is not focus and not GPU clocks (P0 at 1837/7501 MHz in both states). Interleaved: S 4/4 state 2
+against X 6/6 and M 4/4 state 1. **The state does not move the frame mean:** S (state 2, n 4) 6.63-6.85 ms, mean 6.73; X
+(state 1, n 6) 6.57-6.82, mean 6.69; the 0.04 ms difference is under the 0.22-0.25 ms spread inside each state. The
+2026-10-27 lead (state 2 about 0.8 ms slower) did not reproduce. **Rule for any per-pass GPU comparison:** hold the window
+condition fixed across runs (all off screen is the one that does not disturb the owner), and classify each run by Clear GPU
+(above 1.0 is state 1, below 0.3 is state 2). **Still open:** whether `mat_queue_mode 0` changes it; a true 300 s cold
+start; why a visible window moves GPU time from Clear into Sky3D and World (a guess, not measured: DWM composition work
+landing in the viewer's timestamps); whether a 0.02 ms shift in `between` comes from the state or the window condition. The control is a development
 switch (`--help` lists it), off by default, tested at the draw sites; three cross-model reviews found defects in it before
 the runs (a changed default path, decals and the cloak pass unclamped, empty batches dropped, an unbounded query wait,
 record tolerances).
