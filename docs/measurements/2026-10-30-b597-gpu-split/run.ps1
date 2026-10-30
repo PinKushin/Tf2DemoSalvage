@@ -30,3 +30,4 @@ $a = @('-NoProfile', '-File', 'C:/Users/pinku/source/repos/PinKushin/run-exclusi
 $p = Start-Process pwsh -ArgumentList $a -PassThru -NoNewWindow -RedirectStandardOutput "$Out/$Name.txt" -RedirectStandardError "$Out/$Name.err"
 $p.WaitForExit()
 "exit $($p.ExitCode); load after: $((1..3 | ForEach-Object { Load; Start-Sleep 1 }) -join ' ')"
+exit $p.ExitCode

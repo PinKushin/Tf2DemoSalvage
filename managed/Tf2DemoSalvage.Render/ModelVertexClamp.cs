@@ -17,7 +17,13 @@ public static class ModelVertexClamp
     /// <param name="text">The variable's value, or null when it is unset.</param>
     /// <returns>The cap, or null for off.</returns>
     public static int? Parse(string? text) =>
-        int.TryParse(text, NumberStyles.AllowLeadingWhite | NumberStyles.AllowTrailingWhite, CultureInfo.InvariantCulture, out int cap) ? cap : null;
+        int.TryParse(
+            text,
+            NumberStyles.AllowLeadingWhite | NumberStyles.AllowTrailingWhite,
+            CultureInfo.InvariantCulture,
+            out int cap)
+            ? cap
+            : null;
 
     /// <summary>The vertex count to submit: <paramref name="count"/> when off, else no more than the cap.</summary>
     /// <param name="count">The batch's own vertex count.</param>
