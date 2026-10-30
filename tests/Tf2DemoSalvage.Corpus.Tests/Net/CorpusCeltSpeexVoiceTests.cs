@@ -103,6 +103,13 @@ public sealed class CorpusCeltSpeexVoiceTests
         int silentFrames = 0;
         int steamPackets = 0;
         int silkFrames = 0;
+
+        // A silent decode is the decoder's to answer for only when the INPUT was not silent. Per demo: how many frames
+        // decoded to all zeros, and the distinct encoded frames it carries. A demo whose frames are one repeated
+        // encoded frame was fed digital silence (the 3420 pair: the microphone returned zeros, libspeex at quality 5
+        // encodes 160 zero samples to exactly that frame), and its silent decodes are correct.
+        Dictionary<string, int> silentByDemo = [];
+        Dictionary<string, HashSet<string>> distinctByDemo = [];
         Dictionary<string, SpeexVoiceDecoder> decoders = [];
         Dictionary<(string, ulong), SilkVoiceDecoder> silk = [];
 
@@ -158,13 +165,23 @@ public sealed class CorpusCeltSpeexVoiceTests
 
                     for (int at = 0; at < body.Length; at += SpeexNarrowbandFrameBytes)
                     {
-                        short[] pcm = decoder.Decode(
-                            body.Slice(at, SpeexNarrowbandFrameBytes));
+                        ReadOnlySpan<byte> encoded = body.Slice(at, SpeexNarrowbandFrameBytes);
+                        short[] pcm = decoder.Decode(encoded);
 
                         frames++;
+
+                        if (!distinctByDemo.TryGetValue(path, out HashSet<string>? distinct))
+                        {
+                            distinct = [];
+                            distinctByDemo[path] = distinct;
+                        }
+
+                        distinct.Add(Convert.ToHexString(encoded));
+
                         if (Array.TrueForAll(pcm, sample => sample == 0))
                         {
                             silentFrames++;
+                            silentByDemo[path] = silentByDemo.GetValueOrDefault(path) + 1;
                         }
                     }
                 }
@@ -185,13 +202,22 @@ public sealed class CorpusCeltSpeexVoiceTests
 
         frames.ShouldBeGreaterThan(0, "no Speex frame reached the decoder");
 
-        double silentRate = (double)silentFrames / frames;
-        silentRate.ShouldBeLessThan(0.5, $"{silentFrames} of {frames} Speex frames were silent");
+        // The premise is the decoder's: a frame that decodes to silence while its demo carries VARIED encoded frames is
+        // a decoder or framing fault. (The earlier rule, under half the frames silent, asserted that the corpus's voice
+        // was audible, which is a claim about what was recorded and was false for a whole pair; D38.)
+        List<string> unexplained =
+        [
+            .. silentByDemo
+                .Where(demo => distinctByDemo[demo.Key].Count > 1)
+                .Select(demo => $"{Path.GetFileName(demo.Key)}: {demo.Value} silent of {distinctByDemo[demo.Key].Count} distinct frames"),
+        ];
+
+        unexplained.ShouldBeEmpty("a silent decode from varied input");
 
         TestContext.Out.WriteLine(
             $"{frames} Speex frames decoded across {decoders.Count} demos, " +
-            $"{silentFrames} silent ({silentRate:P1}); {steamPackets} Steam Voice packets, " +
-            $"{silkFrames} SILK frames");
+            $"{silentFrames} silent, all from demos of one repeated encoded frame (digital silence in); " +
+            $"{steamPackets} Steam Voice packets, {silkFrames} SILK frames");
     }
 
 }
