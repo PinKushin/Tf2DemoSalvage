@@ -17,7 +17,7 @@ public sealed class PovSkyFogCorpusTests
     public void SkyFogAt_APointOfViewRecordingStartedMidMatch_IsTheSkyboxsFog()
     {
         DemoTimeline timeline = TimelineCache.For(
-            Corpus.Demo("tf2-2013-build1729296-pov-cp_badlands"));
+            Corpus.Demo("tf2-2013-build1729296-spec-pov-cp_granary"));
 
         // The last state the recording reached: the baseline arrives once, before the first packet.
         timeline.SkyFogAt(int.MaxValue).ShouldNotBeNull(
@@ -28,7 +28,9 @@ public sealed class PovSkyFogCorpusTests
     public void ModelPaths_APointOfViewRecordingWhoseModelOnlyTheBlockPrecaches_IncludesIt()
     {
         // Measured with the `stringtables-block` probe: of every table this demo's block carries,
-        // modelprecache entry 552 is the one no earlier create or update stated.
+        // modelprecache entry 552 is the one no earlier create or update stated. Kept on the viaduct
+        // POV (2026-10-29): the same probe finds no block-only modelprecache entry on any of the ten
+        // scripted cp_granary specimens from 2009 on, and protocols 11 and 14 carry no block at all.
         DemoTimeline timeline = TimelineCache.For(
             Corpus.Demo("tf2-2011-build4604-pov-koth_viaduct"));
 

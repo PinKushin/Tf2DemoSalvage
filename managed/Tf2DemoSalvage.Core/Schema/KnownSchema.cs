@@ -19,8 +19,10 @@ namespace Tf2DemoSalvage.Core.Schema;
 /// entity (<c>CL_CopyNewEntity: invalid class index</c>) — read from build 3258's <c>engine.dll</c>,
 /// see RISKS B24. Here the same demos decode their entities.
 ///
-/// The bytes are the payload of <c>tools/corpus/demos/tf2-2007-build3258-pov-cp_granary.dem</c>'s
+/// The bytes are the payload of <c>tools/corpus/demos/tf2-2007-build3258-spec-pov-cp_granary.dem</c>'s
 /// <c>dem_datatables</c>, SHA-256 <c>ea020a813d6ab230800b6a6410b833cef3daf5538b33c9dca8da6b63cf87e637</c>.
+/// They were extracted from the retired <c>tf2-2007-build3258-pov-cp_granary.dem</c> (in git history); the
+/// scripted specimen's payload is byte-identical to it (container walk, 2026-10-29).
 /// Only the decode uses them: whatever writes a demo back writes the demo's own cut bytes.
 /// </remarks>
 internal static class KnownSchema

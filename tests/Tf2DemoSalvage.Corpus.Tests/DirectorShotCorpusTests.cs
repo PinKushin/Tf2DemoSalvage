@@ -34,7 +34,7 @@ public sealed class DirectorShotCorpusTests
         // a SourceTV demo joins the corpus this goes red, and that is exactly the moment somebody
         // should come back and point `DirectorShotTests`' authored specimen at real bytes. An
         // absence nobody records is an absence nobody revisits.
-        foreach (string name in new[] { "cp_process_f12", "tf2-2013-build1729296-pov-cp_badlands" })
+        foreach (string name in new[] { "cp_process_f12", "tf2-2013-build1729296-spec-pov-cp_granary" })
         {
             TimelineCache.For(Corpus.Demo(name)).HasDirector.ShouldBeFalse(
                 $"{name} is a point-of-view recording and carries no hltv_chase; if this is now " +
@@ -54,7 +54,7 @@ public sealed class DirectorShotCorpusTests
     [Explicit("Diagnostic: what the director asks for, per demo.")]
     public void ReportDirectorShots()
     {
-        foreach (string name in new[] { "cp_process_f12", "tf2-2013-build1729296-pov-cp_badlands" })
+        foreach (string name in new[] { "cp_process_f12", "tf2-2013-build1729296-spec-pov-cp_granary" })
         {
             DemoTimeline timeline = TimelineCache.For(Corpus.Demo(name));
 

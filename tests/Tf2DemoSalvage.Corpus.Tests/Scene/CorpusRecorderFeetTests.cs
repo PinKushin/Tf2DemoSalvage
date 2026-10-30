@@ -18,7 +18,12 @@ namespace Tf2DemoSalvage.Core.Tests.Scene;
 /// engine converges the feet by <c>gpGlobals-&gt;frametime</c> from <c>EyeAngles()</c>
 /// (<c>multiplayer_animstate.cpp:1759</c>, <c>c_tf_player.cpp:4279-4284</c>), so the drawn yaw moves between them;
 /// the per-tick route read the same timeline frame twice and could not. The twist is measured against the drawn feet.
-/// gcor's 2013 POV: the one era specimen whose recorder runs about while turning.
+/// gcor's 2013 badlands POV: the one era specimen whose recorder runs about while turning.
+///
+/// **Kept, not moved to the scripted 2013 specimen** (2026-10-29): on
+/// <c>tf2-2013-build1729296-spec-pov-cp_granary</c> no tick has the recorder alive, moving and turning more than two
+/// degrees, because the script moves with <c>+forward</c>/<c>+moveleft</c>/<c>+back</c>/<c>+moveright</c> and never
+/// turns. Retiring this demo is the owner's call.
 /// </remarks>
 public sealed class CorpusRecorderFeetTests
 {

@@ -33,7 +33,7 @@ namespace Tf2DemoSalvage.Viewer3D.UiTests;
 [TestFixture]
 public sealed class MapFetchUiTests
 {
-    private const string DemoName = "tf2-2008-build3420-stv-cp_granary.dem";
+    private const string DemoName = "tf2-2008-build3420-spec-stv-cp_granary.dem";
 
     private const string MapName = "cp_granary";
 

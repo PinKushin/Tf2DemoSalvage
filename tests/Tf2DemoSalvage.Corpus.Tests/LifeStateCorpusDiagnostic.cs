@@ -42,7 +42,7 @@ public sealed class LifeStateCorpusDiagnostic
     /// times the colour variety of the alternative. A replacement has to meet the same bar AND be
     /// alive, so this reports all of it per candidate rather than picking on liveness alone.
     /// </remarks>
-    [TestCase("tf2-2013-build1729296-pov-cp_badlands")]
+    [TestCase("tf2-2013-build1729296-spec-pov-cp_granary")]
     public void ReportCandidateTicks(string demo)
     {
         DemoTimeline timeline = TimelineCache.For(Corpus.Demo(demo));
@@ -77,7 +77,7 @@ public sealed class LifeStateCorpusDiagnostic
         }
     }
 
-    [TestCase("tf2-2013-build1729296-pov-cp_badlands")]
+    [TestCase("tf2-2013-build1729296-spec-pov-cp_granary")]
     [TestCase("cp_process_f12")]
     public void ReportLifeState(string demo)
     {

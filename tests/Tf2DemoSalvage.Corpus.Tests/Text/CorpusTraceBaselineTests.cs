@@ -79,7 +79,7 @@ public sealed class CorpusTraceBaselineTests
     [Test]
     public void TheTrace_SeedsEntitiesFromTheirInstanceBaseline()
     {
-        string path = Corpus.Demo("stv-cp_foundry");
+        string path = Corpus.Demo("tf2-2013-build1729296-spec-stv-cp_granary");
 
         string trace = TraceWithEntities(path);
 

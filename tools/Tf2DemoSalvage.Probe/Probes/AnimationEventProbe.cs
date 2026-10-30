@@ -22,8 +22,8 @@ namespace Tf2DemoSalvage.Probe.Probes;
 /// what a recording actually contains: how many, of which kind, on which models.
 ///
 /// <code>
-///   animevents tf2-2013-build1729296-stv-cp_foundry
-///   animevents tf2-2013-build1729296-stv-cp_foundry 8000 9000
+///   animevents tf2-2013-build1729296-spec-stv-cp_granary
+///   animevents tf2-2013-build1729296-spec-stv-cp_granary 6000 8000
 /// </code>
 ///
 /// **It walks tick by tick, because the traversal is stateful.** Sampling every hundredth tick

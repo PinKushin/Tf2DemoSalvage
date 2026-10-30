@@ -39,7 +39,7 @@ public sealed class CorpusObserverModeDiagnostic
     /// <summary>Point-of-view demos, which are the ones with a recorder to observe with.</summary>
     private static readonly string[] Sampled =
     [
-        "tf2-2013-build1729296-pov-cp_badlands",  // where the owner saw it
+        "tf2-2013-build1729296-spec-pov-cp_granary", // the 2013 era POV; he saw it on the retired badlands one
         "etf2l-12025-pov-2020-07-21",             // 2020 POV, real match
         "tf2-2026-pub-pov-clean",                 // 2026 POV, public match
     ];

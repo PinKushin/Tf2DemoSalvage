@@ -23,8 +23,8 @@ namespace Tf2DemoSalvage.Probe.Probes;
 /// every building drew level and straight ahead and nothing looked broken.
 ///
 /// <code>
-///   poseparams tf2-2013-build1729296-stv-cp_foundry 12000
-///   poseparams tf2-2013-build1729296-stv-cp_foundry 12000 sentry
+///   poseparams tf2-2013-build1729296-spec-stv-cp_granary 7000
+///   poseparams tf2-2013-build1729296-spec-stv-cp_granary 7000 sentry
 /// </code>
 ///
 /// **Both numbers per parameter, deliberately.** The value in force is what the blend received,

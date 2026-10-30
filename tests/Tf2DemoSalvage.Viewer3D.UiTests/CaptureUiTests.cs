@@ -53,7 +53,7 @@ public sealed class CaptureUiTests
     /// **Not <see cref="ViewerSession.DemoPath"/>**, which is `z1800` and costs eight times as much to
     /// load — see the measurements in the remarks above. Committed (gcor), so CI has it.
     /// </remarks>
-    private const string DemoName = "tf2-2008-build3420-stv-cp_granary.dem";
+    private const string DemoName = "tf2-2008-build3420-spec-stv-cp_granary.dem";
 
     /// <summary>A tick inside the recording, well past the header.</summary>
     /// <remarks>

@@ -43,10 +43,11 @@ public sealed class RetiredWireNameCorpusTests
     {
         foreach (string name in new[]
         {
-            "tf2-2007-build3258-pov-cp_granary",
-            "tf2-2008-build3420-pov-cp_granary",
-            "tf2-2009-build3862-pov-cp_badlands",
-            "tf2-2011-build4604-pov-koth_viaduct",
+            "tf2-2007-build3258-spec-pov-cp_granary",
+            "tf2-2008-build3420-spec-pov-cp_granary",
+            "tf2-2009-build3862-spec-pov-cp_granary",
+            "tf2-2010-build4231-spec-pov-cp_granary",
+            "tf2-2011-build4604-spec-pov-cp_granary",
         })
         {
             DemoSchema schema = SchemaOf(name);
@@ -74,7 +75,8 @@ public sealed class RetiredWireNameCorpusTests
     {
         foreach (string name in new[]
         {
-            "tf2-2013-build1729296-stv-cp_foundry",
+            "tf2-2013-build1729296-spec-stv-cp_granary",
+            "tf2-live-build11138802-spec-stv-cp_granary",
             "z1800",
         })
         {

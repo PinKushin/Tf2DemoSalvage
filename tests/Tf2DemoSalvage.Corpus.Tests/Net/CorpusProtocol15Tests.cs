@@ -39,7 +39,7 @@ public sealed class CorpusProtocol15Tests
     private const string Esea = "esea_match_2184869.dem";
 
     /// <summary>TF2 build 3862 of 4 June 2009, recorded on the period client: the control.</summary>
-    private const string June2009Pov = "tf2-2009-build3862-pov-cp_badlands.dem";
+    private const string June2009Pov = "tf2-2009-build3862-spec-pov-cp_granary.dem";
 
     [TestCase(Cevo)]
     [TestCase(Esea)]

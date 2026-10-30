@@ -225,6 +225,10 @@ public sealed class RecordedViewOriginConformanceTests
         // pinned is that the identity is alive-only: a future change that made the dead case agree
         // everywhere would mean the timeline had started following the spectated target, which is
         // a real behavioural change and should not pass silently.
+        //
+        // **The 2009 badlands demo is still the only witness** (2026-10-29): the seven scripted
+        // cp_granary POVs all read a dead median of 0 (why is not measured; their deaths are the
+        // script's own `kill` and `explode`). That is why it stays in gcor.
         divergent.ShouldNotBeEmpty(
             "every dead stretch tracked the recorder's own entity, so the recorded view is no " +
             "longer following the spectated player — see docs/findings/01-container.md");

@@ -27,10 +27,11 @@ public sealed class CorpusSchemaTests
         // establishes the schema really is larger and the cut is the writer's rather than this
         // parser's. Four things say the file is otherwise intact: the size is exactly 2^16, the
         // payload sits in the signon block at the START of the recording where an interrupted
-        // capture cannot reach, its frame check is exact at 3,897 of 3,897, and it ends with
-        // dem_stop.
+        // capture cannot reach, its frame check is exact at 5,075 of 5,075, and it ends with
+        // dem_stop. Re-measured on the scripted specimen (Cli -s and a container walk, 2026-10-29):
+        // the cut and the whole payload are byte-identical to the retired 2007 pair's.
         string? truncated = Corpus.Files().FirstOrDefault(
-            f => Path.GetFileName(f) == "tf2-2007-build3258-stv-cp_granary.dem");
+            f => Path.GetFileName(f) == "tf2-2007-build3258-spec-stv-cp_granary.dem");
         if (truncated is null)
         {
             return;                                  // corpus not checked out
@@ -41,7 +42,7 @@ public sealed class CorpusSchemaTests
 
         // The paired POV proves the schema is genuinely larger than the cut.
         string pov = Corpus.Files().First(
-            f => Path.GetFileName(f) == "tf2-2007-build3258-pov-cp_granary.dem");
+            f => Path.GetFileName(f) == "tf2-2007-build3258-spec-pov-cp_granary.dem");
         DataTablesLength(pov).ShouldBe(85_063);
         DemoSchema whole = Corpus.TrySchema(pov).ShouldNotBeNull();
         whole.ServerClasses.Count.ShouldBeGreaterThan(200);
@@ -72,7 +73,7 @@ public sealed class CorpusSchemaTests
         // was completed from the known whole one (B24, 2026-09-30). gcor now leaves nothing out, so
         // this check has nothing to explain on gcor alone; a 65,536-byte exclusion that remains is a
         // cut of a build whose whole schema is not shipped. The positive half: the demo is kept.
-        kept.Select(Path.GetFileName).ShouldContain("tf2-2007-build3258-stv-cp_granary.dem");
+        kept.Select(Path.GetFileName).ShouldContain("tf2-2007-build3258-spec-stv-cp_granary.dem");
 
         List<string> unexplained = [];
         foreach (string path in leftOut)

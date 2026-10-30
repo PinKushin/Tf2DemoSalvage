@@ -46,7 +46,7 @@ public sealed class LaunchOptionWiringTests
     private static string DemoPath => Path.GetFullPath(Path.Combine(
         TestContext.CurrentContext.TestDirectory,
         "..", "..", "..", "..", "..",
-        "tools", "corpus", "demos", "tf2-2013-build1729296-pov-cp_badlands.dem"));
+        "tools", "corpus", "demos", "tf2-2013-build1729296-spec-pov-cp_granary.dem"));
 
     [Test]
     [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]

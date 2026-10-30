@@ -120,11 +120,13 @@ public sealed class ViewmodelClassAgreementTests
 
     /// <summary>The corpus recording that describes a main hand and an off hand at once.</summary>
     /// <remarks>
-    /// Measured 2026-08-20: every other demo carries one viewmodel entity, this one carries two.
-    /// It is where the wrong weapon appeared — <c>v_watch_spy</c>, held steady while the
-    /// recorder's networked class went from soldier to scout.
+    /// Measured 2026-08-20 on the retired 2009 badlands POV (in git history): every other demo carried
+    /// one viewmodel entity, that one two. It is where the wrong weapon appeared — <c>v_watch_spy</c>,
+    /// held steady while the recorder's networked class went from soldier to scout. The scripted 2009
+    /// specimen carries two <c>CTFViewModel</c> entities as well (`entity-census … ViewModel`,
+    /// 2026-10-29, with the retired file as the control at two).
     /// </remarks>
-    private const string TwoViewmodelDemo = "tf2-2009-build3862-pov-cp_badlands.dem";
+    private const string TwoViewmodelDemo = "tf2-2009-build3862-spec-pov-cp_granary.dem";
 
     /// <summary>A spread of ticks across the demo, so a class change is visible.</summary>
     private static IEnumerable<int> Ticks(DemoTimeline timeline)
