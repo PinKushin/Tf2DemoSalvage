@@ -6,3 +6,18 @@ exit 0; load after: 9 4 9
 2026-10-30T12:37:13 03-A exe D:/measure-f12/flex-a/tf2demoview.exe; load before: 6 4 10
 exit 0; load after: 28 6 17
 all done
+
+all.ps1 -Plan '04-A=<a>;05-B=<b>;06-B=<b>;07-A=<a>;08-A=<a>;09-B=<b>' (A = D:/measure-f12/flex-a, ffd51e49; B = D:/measure-f12/flex-b, 3b7d98a1)
+2026-10-30T13:01:10 04-A exe D:/measure-f12/flex-a/tf2demoview.exe; load before: 18 7 10
+exit 0; load after: 15 4 9
+2026-10-30T13:08:41 05-B exe D:/measure-f12/flex-b/tf2demoview.exe; load before: 16 12 18
+exit 0; load after: 6 21 9
+2026-10-30T13:12:29 06-B exe D:/measure-f12/flex-b/tf2demoview.exe; load before: 14 22 19
+exit 0; load after: 2 10 4
+2026-10-30T13:19:52 07-A exe D:/measure-f12/flex-a/tf2demoview.exe; load before: 7 10 15
+exit 0; load after: 33 24 16
+2026-10-30T13:28:03 08-A exe D:/measure-f12/flex-a/tf2demoview.exe; load before: 24 8 16
+exit 0; load after: 45 15 25
+2026-10-30T13:35:02 09-B exe D:/measure-f12/flex-b/tf2demoview.exe; load before: 18 15 4
+exit 0; load after: 25 21 22
+all done

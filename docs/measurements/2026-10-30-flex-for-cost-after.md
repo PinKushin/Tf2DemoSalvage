@@ -67,4 +67,42 @@ Same machine and settings as the baseline; load before and after each run in `ru
 
 ## Result
 
+Raw output: `2026-10-30-flex-for-cost/04-A.txt` to `09-B.txt`; console and load in `runlog.txt`; figures from
+`summ.ps1 -Runs '04-A;05-B;06-B;07-A;08-A;09-B'`, each the mean over a run's `moment cost` lines after the first.
+Milliseconds a rebuild.
+
+| run | frame | camera | place | **flex** | driving | rules | clear | **deltas** | **slots** | faces | misses | vertices |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| 04-A | 8.02 | 6.37 | 0.871 | **0.581** | 0.103 | 0.027 | 0.033 | 0.215 | 0.165 | 5.76 | 5.72 | 16,417 |
+| 05-B | 6.79 | 5.34 | 0.718 | **0.428** | 0.086 | 0.022 | 0.023 | 0.159 | 0.105 | 5.98 | 5.93 | 16,754 |
+| 06-B | 7.01 | 5.53 | 0.706 | **0.424** | 0.083 | 0.021 | 0.023 | 0.161 | 0.102 | 5.71 | 5.68 | 16,947 |
+| 07-A | 11.89 | 9.68 | 1.042 | **0.675** | 0.124 | 0.033 | 0.037 | 0.240 | 0.202 | 5.89 | 5.85 | 17,398 |
+| 08-A | 8.38 | 6.69 | 0.860 | **0.565** | 0.098 | 0.025 | 0.030 | 0.212 | 0.165 | 5.89 | 5.84 | 16,836 |
+| 09-B | 9.36 | 7.35 | 0.936 | **0.537** | 0.118 | 0.034 | 0.033 | 0.187 | 0.124 | 6.03 | 6.00 | 17,525 |
+
+Ranges: `flex` A 0.565-0.675, B 0.424-0.537; `deltas` A 0.212-0.240, B 0.159-0.187; `slots` A 0.165-0.202, B
+0.102-0.124; `clear` A 0.030-0.037, B 0.023-0.033; `place` A 0.860-1.042, B 0.706-0.936; `camera` A 6.37-9.68, B
+5.34-7.35; frame A 8.02-11.89, B 6.79-9.36.
+
+Control:
+- Parts against `flex`: 97-98% in every run (05-B: 0.415 of 0.428; 07-A: 0.660 of 0.675). Counts consistent as in the
+  baseline. Playback 30000 to 31346-31348 in 20 s in every run.
+- A here against the baseline's A (0.527-0.546): 04-A and 08-A within 0.05 (0.581, 0.565); **07-A is not** (0.675), and
+  neither its frame (11.89 against 6.79-7.40). 07-A and 09-B are the two slowest runs of the six in every column,
+  `driving` and `rules` included, which this change does not touch (0.124 and 0.118 against 0.083-0.103): the machine
+  was slower during them (load after 07-A 33/24/16, before 09-B 18/15/4, after 25/21/22), not the build.
+
 ## Verdict
+
+**The rewrite lowers `flex` by about a quarter: B 0.424-0.537 against A 0.565-0.675, ranges apart; the means of the
+three are 0.463 against 0.607, 0.144 ms a rebuild (24%, *arithmetic*).** Adjacent pairs differ by 0.153 (04-A, 05-B),
+0.251 (06-B, 07-A) and 0.028 (08-A, 09-B): the two slow runs fall one on each side, so the pairs are noisier than the
+means. `slots` fell most (0.165 to 0.102-0.105 in the quiet runs, about 38%), `deltas` about a quarter (0.21 to
+0.16), `clear` about a quarter (0.03 to 0.023). Predictions 1, 2 and 4's first half are **falsified**: `deltas` stayed
+above 0.10 (0.159-0.187), `clear` above 0.010 (0.023-0.033), and `flex` above 0.42 in every B run (0.424-0.537); 3
+holds (`slots` at most 0.124) and 4's second half holds (no overlap). 5 holds for the counts; `driving` and `rules`
+moved with the machine in 07-A and 09-B, as said in the control. 6: `camera` and the frame mean are lower in B's quiet
+runs (5.34-5.53 against 6.37-6.69) but A's own spread is 3.3 ms, so no claim is made. **The hypothesis that the
+accumulation's cost was the interface enumeration is only partly right**: removing it took a quarter, and the remaining
+~27 µs a face (about 9 ns a vertex animation applied) is somewhere this split does not resolve (the per-flex ramps over
+every flex of the model, the scattered writes); that is the next question, not answered here.
