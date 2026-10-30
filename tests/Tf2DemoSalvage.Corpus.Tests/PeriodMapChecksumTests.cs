@@ -77,9 +77,9 @@ public sealed class PeriodMapChecksumTests
     /// `PeriodMapChecksumDiagnostic` reports the pairing attempt without pretending it is a
     /// verdict on this code.
     /// </remarks>
-    [TestCase("tf2-2007", "tf2-2007-build3258-pov-cp_granary", "cp_granary")]
-    [TestCase("tf2-2008", "tf2-2008-build3420-pov-cp_granary", "cp_granary")]
-    [TestCase("tf2-2008", "tf2-2008-build3420-stv-cp_granary", "cp_granary")]
+    [TestCase("tf2-2007", "tf2-2007-build3258-spec-pov-cp_granary", "cp_granary")]
+    [TestCase("tf2-2008", "tf2-2008-build3420-spec-pov-cp_granary", "cp_granary")]
+    [TestCase("tf2-2008", "tf2-2008-build3420-spec-stv-cp_granary", "cp_granary")]
     public void Matches_ForAnEraDemoAndItsOwnClientsMap_IsTrue(
         string build, string demoName, string map)
     {
@@ -117,7 +117,7 @@ public sealed class PeriodMapChecksumTests
         }
 
         DemoTimeline timeline =
-            TimelineCache.For(Corpus.Demo("tf2-2007-build3258-pov-cp_granary"));
+            TimelineCache.For(Corpus.Demo("tf2-2007-build3258-spec-pov-cp_granary"));
 
         BspMapChecksum.Matches(File.ReadAllBytes(modern), timeline.MapHash).ShouldBe(
             false, "today's cp_granary is not the map this 2007 demo was recorded on");
@@ -173,7 +173,7 @@ public sealed class PeriodMapChecksumTests
             return;
         }
 
-        uint recorded = TimelineCache.For(Corpus.Demo("tf2-2007-build3258-pov-cp_granary"))
+        uint recorded = TimelineCache.For(Corpus.Demo("tf2-2007-build3258-spec-pov-cp_granary"))
             .MapCrc.ShouldNotBeNull("the 2007 demo carries a checksum");
 
         BspMapChecksum.OfMap(File.ReadAllBytes(modern)).Crc.ShouldNotBe(

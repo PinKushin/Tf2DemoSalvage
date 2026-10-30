@@ -20,7 +20,7 @@ namespace Tf2DemoSalvage.Probe.Probes;
 /// This project stamps every keyframe with the packet's tick instead. This measures the gap.
 ///
 /// <code>
-///   simlag tf2-2013-build1729296-stv-cp_foundry
+///   simlag tf2-2013-build1729296-spec-stv-cp_granary
 /// </code>
 ///
 /// **Two things had to be right before the numbers meant anything, and both were wrong first.**

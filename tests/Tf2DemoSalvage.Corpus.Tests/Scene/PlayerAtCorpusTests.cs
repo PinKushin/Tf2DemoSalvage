@@ -17,7 +17,7 @@ public sealed class PlayerAtCorpusTests
     [Test]
     public void PlayerAt_EveryPlayerOfAFrameBetweenTicks_EqualsPlayersAt()
     {
-        DemoTimeline timeline = TimelineCache.For(Corpus.Demo("tf2-2013-build1729296-stv-cp_foundry"));
+        DemoTimeline timeline = TimelineCache.For(Corpus.Demo("tf2-2013-build1729296-spec-stv-cp_granary"));
         double tick = timeline.Frames[timeline.Frames.Count / 2].Tick + 0.37d;
         List<ScenePlayer> frame = [];
 

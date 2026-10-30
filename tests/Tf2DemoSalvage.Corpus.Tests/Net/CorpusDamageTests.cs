@@ -74,7 +74,9 @@ public sealed class CorpusDamageTests
         // Measured on both sides: protocols 11 and 14 carry the old form, 15 and above the new.
         // Protocol 11's specimen is a local-corpus demo recorded by holding a soldier next to a
         // resupply cabinet, which is why it has 43 of these where the committed protocol-11 files
-        // have none at all.
+        // have none at all. In gcor the old side is the 2008 POV's 24 messages alone: the scripted
+        // 2007 and 2008 specimens carry none (2026-10-29, this test's own count went 24 -> 0 without
+        // that file), which is why that recording stays in gcor.
         int old = 0;
         int modern = 0;
 

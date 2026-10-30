@@ -19,8 +19,8 @@ public sealed class AudienceSplitCorpusTests
     [Test]
     public void WeaponClip1_PovAndStvOfOneSession_ArriveInBoth()
     {
-        DemoTimeline pov = TimelineCache.For(Corpus.Demo("tf2-2011-build4604-pov-koth_viaduct"));
-        DemoTimeline stv = TimelineCache.For(Corpus.Demo("tf2-2011-build4604-stv-koth_viaduct"));
+        DemoTimeline pov = TimelineCache.For(Corpus.Demo("tf2-2011-build4604-spec-pov-cp_granary"));
+        DemoTimeline stv = TimelineCache.For(Corpus.Demo("tf2-2011-build4604-spec-stv-cp_granary"));
 
         Clipped(pov).ShouldBeGreaterThan(0, "the recorder's own clip is in the local table, sent to the recorder");
         Clipped(stv).ShouldBeGreaterThan(0, "SourceTV is handed the owner-only local table as well");

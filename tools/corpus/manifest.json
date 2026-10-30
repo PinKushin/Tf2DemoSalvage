@@ -17,68 +17,6 @@
   ],
   "demos": [
     {
-      "file": "demos/tf2-2007-build3258-pov-cp_granary.dem",
-      "sha256": "cc60a93947945070bf866e862dcebffe76c6d4d39994c15accb833d2490193eb",
-      "sizeBytes": 1203675,
-      "source": "recorded by the owner 2026-08-10 on TF2 build 3258, listen server",
-      "pointOfView": "POV",
-      "demoProtocol": 3,
-      "networkProtocol": 11,
-      "serverName": "Team Fortress 2",
-      "clientName": "unnamed",
-      "map": "cp_granary",
-      "gameDir": "tf",
-      "playbackTimeSeconds": 191.21,
-      "playbackTicks": 12747,
-      "playbackFrames": 3807,
-      "signonLengthBytes": 159563,
-      "commandCounts": {
-        "dem_signon": 5,
-        "dem_packet": 3807,
-        "dem_synctick": 1,
-        "dem_consolecmd": 883,
-        "dem_usercmd": 12746,
-        "dem_datatables": 1,
-        "dem_stop": 1
-      },
-      "era": "9 October 2007, exactly",
-      "eraEvidence": "The client's own version command: `Protocol version 11`, `Exe version 1.0.0.5 (tf)`, `Exe build: 18:14:51 Oct  9 2007 (3258)`. Confirmed twice independently before the client was ever launched: `bin/engine.dll` carries that same build string and was read remotely out of the archive.org ZIP for 4 MB (D30), and the demo header states network protocol 11 on its own. TF2 released on 10 October 2007, so this is the launch build.",
-      "whyItMatters": "The oldest specimen in the corpus and the launch build of the game. It also corrected a wrong assumption: the March 2008 build reports protocol 14, and this one was expected to report 14 as well. It reports **11**, so protocols 12 and 13 came and went inside a five-month window between October 2007 and March 2008.\n\nIt decodes end to end with no rule changes at all, which is the substantive result. Every protocol-conditional branch this parser has is keyed on 14 or above, so protocol 11 exercises all of them on their old side simultaneously - the absent string table compression flag, the six-bit schema bit-count field, the five-bit message type, the old SendPropType numbering, the four-byte map CRC, the 13-bit prefetch index and fixed lengths. Nothing below 14 needed a new rule.",
-      "knownIssues": "None. 17,444 commands, no decode failures, frame check 3807 of 3807.",
-      "privacyNote": "The pack ships a Steam emulator, so the account id is synthetic - the SourceTV recording of the same session shows `STEAM_666:88:666`. Not a real account.",
-      "notes": "Carries no dem_stringtables command, like the protocol-14 pair and unlike protocol 15 and above. String table COUNT is 16 here, as it is at 14, 15, 16 and 24 - four eras spanning eighteen years and the number never moves, which is why the table names and not their count are the era discriminator. max_classes is 216, the same as the March 2008 build, so that figure is non-decreasing across eras rather than strictly increasing: 216, 216, 232, 256, 275."
-    },
-    {
-      "file": "demos/tf2-2007-build3258-stv-cp_granary.dem",
-      "sha256": "366931cf8ece02a91eaabab5bd7ef46233d93f6f4a6d8d653abbb0526a5f261d",
-      "sizeBytes": 738362,
-      "source": "recorded by the owner 2026-08-10 on TF2 build 3258, SourceTV on a listen server",
-      "pointOfView": "SourceTV",
-      "demoProtocol": 3,
-      "networkProtocol": 11,
-      "serverName": "Team Fortress 2",
-      "clientName": "SourceTV Demo",
-      "map": "cp_granary",
-      "gameDir": "tf",
-      "playbackTimeSeconds": 235.56,
-      "playbackTicks": 15704,
-      "playbackFrames": 3897,
-      "signonLengthBytes": 138805,
-      "commandCounts": {
-        "dem_signon": 3,
-        "dem_packet": 3897,
-        "dem_synctick": 1,
-        "dem_datatables": 1,
-        "dem_stop": 1
-      },
-      "era": "9 October 2007, exactly",
-      "eraEvidence": "The client's own version command: `Protocol version 11`, `Exe version 1.0.0.5 (tf)`, `Exe build: 18:14:51 Oct  9 2007 (3258)`. Confirmed twice independently before the client was ever launched: `bin/engine.dll` carries that same build string and was read remotely out of the archive.org ZIP for 4 MB (D30), and the demo header states network protocol 11 on its own. TF2 released on 10 October 2007, so this is the launch build.",
-      "whyItMatters": "SourceTV at the oldest protocol the corpus holds, and the fourth era with both modes. It is also the only file carrying `svc_VoiceData` in quantity - 125 of them - which no other entry exercises at all.",
-      "knownIssues": "None. 3,903 commands, no decode failures, frame check 3897 of 3897.",
-      "privacyNote": "SourceTV virtual client; the player slot carries the emulator's synthetic id.",
-      "notes": "A local SourceTV is not a proxy for a real one - see the protocol-16 SourceTV entry for why agreement with its POV counterpart says something about the parser and nothing about how far an internet relay can diverge from what the player saw."
-    },
-    {
       "file": "demos/tf2-2008-build3420-pov-cp_granary.dem",
       "sha256": "96057237a40cf8271c921fb60b1ee614aa3604e6c2ed37bf546c6ff926f8579d",
       "sizeBytes": 988963,
@@ -109,36 +47,6 @@
       "knownIssues": "None. 12,608 commands, 22,176 trace lines, no stops and no unknown or undecoded markers, frame check 2764 against 2764 declared.",
       "privacyNote": "Carries a REAL Steam account id, unlike the 2009 and 2013 entries which record STEAM_0:0:0. The 2008 build refuses to start without a running Steam process, so the client had a logged-in session to write. Retained deliberately with the owner's consent - the id is already public on their ESEA profile. Redacting it was rejected because altering the bytes destroys the file's value as a faithful specimen.",
       "notes": "Carries NO dem_stringtables command, where the 2009 and 2013 entries each carry exactly one. At protocol 14 the tables arrive only as svc_CreateStringTable in the signon stream. Not documented in proto_version.h and not predicted - the same discovery shape as RISKS B17 and B18. It also disproved a fingerprint: the string table COUNT is 16 here, in the 2009 demo and in modern demos alike, so it dates nothing. Max classes does move: 216 here, 232 in 2009, 275 modern."
-    },
-    {
-      "file": "demos/tf2-2008-build3420-stv-cp_granary.dem",
-      "sha256": "d0e729d959238b767e12ef386dd94ccac5f882135cacc4d0ff3b52d9e2758fef",
-      "sizeBytes": 642002,
-      "source": "recorded by the owner 2026-08-10 on TF2 build 3420, SourceTV on a listen server",
-      "pointOfView": "SourceTV",
-      "demoProtocol": 3,
-      "networkProtocol": 14,
-      "serverName": "Team Fortress 2",
-      "clientName": "SourceTV Demo",
-      "map": "cp_granary",
-      "gameDir": "tf",
-      "playbackTimeSeconds": 183.63,
-      "playbackTicks": 12242,
-      "playbackFrames": 3054,
-      "signonLengthBytes": 161454,
-      "commandCounts": {
-        "dem_signon": 3,
-        "dem_packet": 3054,
-        "dem_synctick": 1,
-        "dem_datatables": 1,
-        "dem_stop": 1
-      },
-      "era": "19 March 2008, exactly",
-      "eraEvidence": "Same client as the protocol-14 POV entry: `Exe build: 20:17:35 Mar 19 2008 (3420)`, `Protocol version 14`.",
-      "whyItMatters": "The oldest SourceTV recording in the corpus, and the control that turned a suspected POV quirk into an era fact. It carries NO dem_stringtables command, exactly as the protocol-14 POV demo does and unlike every protocol-15 or 24 file - so the absence is a property of the era, not of the recording mode. One demo could not have established that. It also carries no dem_consolecmd and no dem_usercmd at all, which is the structural difference between SourceTV and POV: nobody is pressing keys.",
-      "knownIssues": "None. Frame check 3054 against 3054 declared.",
-      "privacyNote": "SourceTV records as a virtual client, so the userinfo slot holds `SourceTV` with `BOT (SourceTV)` where a player record would hold a Steam id. No account identifier appears in this file at all - unlike the POV entry from the same session, which carries a real one. **Prefer SourceTV for any demo intended for a public repository.**",
-      "notes": "Recorded on a listen server with `tv_enable 1` before the map load, then `tv_record`. No dedicated server was needed and no period srcds binary had to be found: the client packs ship tf/bin/server.dll and the engine already exports tv_enable, tv_record and tv_maxclients. That is the route to a SourceTV specimen for any era whose client runs."
     },
     {
       "file": "demos/tf2-2009-build3862-pov-cp_badlands.dem",
@@ -777,12 +685,54 @@
     }
   ],
   "censusSpecimens": {
-    "why": "The smallest demo of each failure class the decode census (D200, 2026-09-30) found. All are lcor candidates, not gcor: none is a new protocol. They are recorded here by checksum, not copied. Two classes already have gcor specimens: B447 (svc_SetPause) is z1800.dem and B24 (the truncated schema) is demos/tf2-2007-build3258-stv-cp_granary.dem.",
+    "why": "The smallest demo of each failure class the decode census (D200, 2026-09-30) found. All are lcor candidates, not gcor: none is a new protocol. They are recorded here by checksum, not copied. Two classes already have gcor specimens: B447 (svc_SetPause) is z1800.dem and B24 (the truncated schema) is demos/tf2-2007-build3258-spec-stv-cp_granary.dem (until 2026-10-29 the retired demos/tf2-2007-build3258-stv-cp_granary.dem, whose 65,536-byte cut it reproduces byte for byte).",
     "demos": [
       { "class": "B448", "file": "D:\\tf2-demo-archive\\ESEA Season 30\\esea_match_14634302.dem", "sha256": "51cc146c6271d92cc83dedbdcfe63b7feacc97c049aabb4c9796215745c0efff", "sizeBytes": 5558272, "networkProtocol": 24, "failure": "assembly: 181-byte tail after the last whole command is not rebuilt" },
       { "class": "B441", "file": "20120324-2006-cp_quay_a9.dem, inside tf2-comp-archive\\raw\\downloads\\DEMO\\20120324-2006-cp_quay_a9.7z (beside this repo)", "sha256": "e4ae46d1434a8d99667f5b0625cbf5955bf5863d19b46316f3908c115d168a5d", "sizeBytes": 9562228, "networkProtocol": 21, "pointOfView": "SourceTV", "failure": "voice: Speex payloads are not whole 28-byte frames" },
       { "class": "B440", "file": "C:\\Users\\pinku\\source\\repos\\PinKushin\\Tf2DemoSalvage\\tools\\corpus\\local\\auto-20101109-2141-cp_badlands.dem", "sha256": "a156f8e76f74582d229f7a51a90924d66274d0d83dcf23c02a9c30247ca8fd14", "sizeBytes": 10914193, "failure": "schema: protocol-15 SourceTV misread from its first bytes (fixed on main eb60251f, after the census build)" },
       { "class": "B449", "file": "D:\\tf2-demo-archive\\ETF2L Season 29\\auto-20180301-2156-koth_product_rc8.dem", "sha256": "3b624edcbabfef8c1c5506bbc79fb626b8cf093af47c6e9d6d9e1752a319f614", "sizeBytes": 1300749497, "networkProtocol": 24, "failure": "memory: an idle-server recording too large to hold whole" }
+    ]
+  },
+  "retiredFromGcor": {
+    "why": "Retired, in git history. Era specimens the scripted cp_granary set replaces (D240); each was removed only once no test needed it. Restore one with `git show <commit>:tools/corpus/demos/<file>` (an LFS pointer, so `git lfs` fetches the bytes) if a question needs it again. The full entry is in this file's history.",
+    "demos": [
+      {
+        "file": "demos/tf2-2007-build3258-pov-cp_granary.dem",
+        "sha256": "cc60a93947945070bf866e862dcebffe76c6d4d39994c15accb833d2490193eb",
+        "sizeBytes": 1203675,
+        "retired": "2026-10-29; replaced by demos/tf2-2007-build3258-spec-pov-cp_granary.dem, whose dem_datatables payload is byte-identical (the KnownSchema bytes)",
+        "source": "recorded by the owner 2026-08-10 on TF2 build 3258, listen server",
+        "pointOfView": "POV",
+        "networkProtocol": 11,
+        "map": "cp_granary",
+        "era": "9 October 2007, exactly",
+        "whyItMatters": "The oldest specimen in the corpus and the launch build of the game. It also corrected a wrong assumption: the March 2008 build reports protocol 14, and this one was expected to report 14 as well. It reports **11**, so protocols 12 and 13 came and went inside a five-month window between October 2007 and March 2008.\n\nIt decodes end to end with no rule changes at all, which is the substantive result. Every protocol-conditional branch this parser has is keyed on 14 or above, so protocol 11 exercises all of them on their old side simultaneously - the absent string table compression flag, the six-bit schema bit-count field, the five-bit message type, the old SendPropType numbering, the four-byte map CRC, the 13-bit prefetch index and fixed lengths. Nothing below 14 needed a new rule."
+      },
+      {
+        "file": "demos/tf2-2007-build3258-stv-cp_granary.dem",
+        "sha256": "366931cf8ece02a91eaabab5bd7ef46233d93f6f4a6d8d653abbb0526a5f261d",
+        "sizeBytes": 738362,
+        "retired": "2026-10-29; replaced by demos/tf2-2007-build3258-spec-stv-cp_granary.dem, which carries the same 65,536-byte cut schema (B24)",
+        "source": "recorded by the owner 2026-08-10 on TF2 build 3258, SourceTV on a listen server",
+        "pointOfView": "SourceTV",
+        "networkProtocol": 11,
+        "map": "cp_granary",
+        "era": "9 October 2007, exactly",
+        "whyItMatters": "SourceTV at the oldest protocol the corpus holds, and the fourth era with both modes. It is also the only file carrying `svc_VoiceData` in quantity - 125 of them - which no other entry exercises at all."
+      },
+      {
+        "file": "demos/tf2-2008-build3420-stv-cp_granary.dem",
+        "sha256": "d0e729d959238b767e12ef386dd94ccac5f882135cacc4d0ff3b52d9e2758fef",
+        "sizeBytes": 642002,
+        "retired": "2026-10-29; replaced by demos/tf2-2008-build3420-spec-stv-cp_granary.dem",
+        "source": "recorded by the owner 2026-08-10 on TF2 build 3420, SourceTV on a listen server",
+        "pointOfView": "SourceTV",
+        "networkProtocol": 14,
+        "map": "cp_granary",
+        "era": "19 March 2008, exactly",
+        "whyItMatters": "The oldest SourceTV recording in the corpus, and the control that turned a suspected POV quirk into an era fact. It carries NO dem_stringtables command, exactly as the protocol-14 POV demo does and unlike every protocol-15 or 24 file - so the absence is a property of the era, not of the recording mode. One demo could not have established that. It also carries no dem_consolecmd and no dem_usercmd at all, which is the structural difference between SourceTV and POV: nobody is pressing keys.",
+        "notes": "Recorded on a listen server with `tv_enable 1` before the map load, then `tv_record`. No dedicated server was needed and no period srcds binary had to be found: the client packs ship tf/bin/server.dll and the engine already exports tv_enable, tv_record and tv_maxclients. That is the route to a SourceTV specimen for any era whose client runs."
+      }
     ]
   },
   "corpusGaps": {

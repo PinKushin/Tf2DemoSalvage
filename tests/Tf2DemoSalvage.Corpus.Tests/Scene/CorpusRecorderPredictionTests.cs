@@ -27,12 +27,25 @@ namespace Tf2DemoSalvage.Core.Tests.Scene;
 /// </remarks>
 public sealed class CorpusRecorderPredictionTests
 {
+    /// <summary>The 2009 badlands POV, a session a person played.</summary>
+    /// <remarks>
+    /// **Kept, not moved to the scripted 2009 specimen, and that is the owner's call to change** (2026-10-29). On
+    /// <c>tf2-2009-build3862-spec-pov-cp_granary</c> the three tests here read: prediction mean 3.562 against holding
+    /// 4.094 (5,185 gaps; the bound is under half), 22 of the 50 differing ticks the control asks for, and no predicted
+    /// landing beside the server's one at tick 2123. The script walks, jumps once and crouches; it does not run about
+    /// and land the way a played session does, so these questions need the played one.
+    /// </remarks>
+    private const string Specimen = "tf2-2009-build3862-pov-cp_badlands";
+
+    /// <summary>The specimen's map, as today's install ships it (interpolated: not the 2009 build's).</summary>
+    private const string Map = "cp_badlands.bsp";
+
     [Test]
     public void VelocityAt_BetweenPackets_LandsCloserToTheNextPacketThanHoldingTheLastOne()
     {
         string game = SdkReference.GameInstall.Require();
-        byte[] map = File.ReadAllBytes(Path.Combine(game, "maps", "cp_badlands.bsp"));
-        DemoTimeline timeline = DemoTimeline.Build(File.ReadAllBytes(Corpus.Demo("tf2-2009-build3862-pov-cp_badlands")));
+        byte[] map = File.ReadAllBytes(Path.Combine(game, "maps", Map));
+        DemoTimeline timeline = DemoTimeline.Build(File.ReadAllBytes(Corpus.Demo(Specimen)));
         MapLevel level = MapLevel.Read(map, NullLogger.Instance);
 
         // The viewer's wiring (B450): items_game.txt's attribute hooks, and the ground's surface data by the texinfo route.
@@ -109,8 +122,8 @@ public sealed class CorpusRecorderPredictionTests
         // B450, the output: the body TimelineMoments hands the scene carries prediction's velocity as its Velocity —
         // the one GetAbsVelocity() every reader asks, motion cloak included — wherever it differs from the networked.
         string game = SdkReference.GameInstall.Require();
-        MapLevel level = MapLevel.Read(File.ReadAllBytes(Path.Combine(game, "maps", "cp_badlands.bsp")), NullLogger.Instance);
-        DemoTimeline timeline = DemoTimeline.Build(File.ReadAllBytes(Corpus.Demo("tf2-2009-build3862-pov-cp_badlands")));
+        MapLevel level = MapLevel.Read(File.ReadAllBytes(Path.Combine(game, "maps", Map)), NullLogger.Instance);
+        DemoTimeline timeline = DemoTimeline.Build(File.ReadAllBytes(Corpus.Demo(Specimen)));
         int recorder = timeline.RecorderEntityIndex.ShouldNotBeNull();
         RecorderPrediction prediction = new(timeline, () => level);
         TimelineMoments moments = new(timeline) { Player = new DemoPlayer(timeline), Prediction = prediction };
@@ -145,8 +158,8 @@ public sealed class CorpusRecorderPredictionTests
         // CheckFalling on the landing, so a packet with it at or past 350 followed by one on the ground with it zero is a
         // hard landing the server made from the same commands.
         string game = SdkReference.GameInstall.Require();
-        byte[] map = File.ReadAllBytes(Path.Combine(game, "maps", "cp_badlands.bsp"));
-        DemoTimeline timeline = DemoTimeline.Build(File.ReadAllBytes(Corpus.Demo("tf2-2009-build3862-pov-cp_badlands")));
+        byte[] map = File.ReadAllBytes(Path.Combine(game, "maps", Map));
+        DemoTimeline timeline = DemoTimeline.Build(File.ReadAllBytes(Corpus.Demo(Specimen)));
         MapLevel level = MapLevel.Read(map, NullLogger.Instance);
         GameContent content = GameContent.Open(game, NullLoggerFactory.Instance);
         ImpactDecals decals = ImpactDecals.Load(map, content.Archives, content.Surfaces);

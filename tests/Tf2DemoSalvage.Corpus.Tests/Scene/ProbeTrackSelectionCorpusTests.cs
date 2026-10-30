@@ -19,9 +19,11 @@ namespace Tf2DemoSalvage.Core.Tests.Scene;
 /// a different entity — which is precisely what `cycle` did until B389, and what nobody noticed
 /// because the table was complete and the model name was plausible.
 ///
-/// **The specimen is committed, so this runs in CI.** `tf2-2013-build1729296-stv-cp_foundry` puts two
-/// occupants in slot 200, `[7..9349]` and `[9349..end]`, both `door_slide_door.mdl` — which is why
-/// the assertion is on the WINDOW rather than the model path. Two occupants sharing a model is the
+/// **The specimen is committed, so this runs in CI.** `tf2-2013-build1729296-stv-cp_foundry`, which this
+/// was written against, puts two occupants in slot 200, `[7..9349]` and `[9349..end]`, both
+/// `door_slide_door.mdl` — which is why the assertion is on the WINDOW rather than the model path. It now
+/// opens the scripted 2013 SourceTV specimen, which reuses a slot as well (both tests pass on it,
+/// 2026-10-29; the slot is found, not typed, so no index of it is claimed here). Two occupants sharing a model is the
 /// harder case and the commoner one: a slot is usually recycled by the round restarting.
 ///
 /// **The index is found rather than typed.** A hardcoded 200 becomes a claim about that file, and the
@@ -30,7 +32,7 @@ namespace Tf2DemoSalvage.Core.Tests.Scene;
 public sealed class ProbeTrackSelectionCorpusTests
 {
     /// <summary>The committed specimen whose slots are reused within the recording.</summary>
-    private const string DemoName = "tf2-2013-build1729296-stv-cp_foundry";
+    private const string DemoName = "tf2-2013-build1729296-spec-stv-cp_granary";
 
     [Test]
     public void Cycle_AnIndexWhoseSlotWasReused_ReportsTheOccupantAliveAtTheTick()

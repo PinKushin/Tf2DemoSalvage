@@ -56,8 +56,8 @@ public sealed class CorpusItemAnimSlotTests
     /// <summary>Every tenth frame: the question is whether the item reaches the pose, not how often it is held.</summary>
     private const int Stride = 10;
 
-    [TestCase("tf2-2011-build4604-pov-koth_viaduct")]
-    [TestCase("tf2-2011-build4604-stv-koth_viaduct")]
+    [TestCase("tf2-2011-build4604-spec-pov-cp_granary")]
+    [TestCase("tf2-2011-build4604-spec-stv-cp_granary")]
     [TestCase("z1800")]
     public void Add_APlayerHoldingAnItemWhoseSlotOverridesTheScript_IsDrawnWithTheItemsTable(string demo)
     {

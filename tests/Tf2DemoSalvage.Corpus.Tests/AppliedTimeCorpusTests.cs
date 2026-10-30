@@ -20,11 +20,14 @@ namespace Tf2DemoSalvage.Core.Tests;
 /// </remarks>
 public sealed class AppliedTimeCorpusTests
 {
+    /// <summary>The 2013 era SourceTV specimen. The retired cp_foundry one (in git history) was the first subject.</summary>
+    private const string Specimen = "tf2-2013-build1729296-spec-stv-cp_granary";
+
     [Test]
     public void SimulationLag_OnASourceTvRecording_IsNonZeroForRealEntities()
     {
         DemoTimeline timeline = TimelineCache.For(
-            Corpus.Demo("tf2-2013-build1729296-stv-cp_foundry"));
+            Corpus.Demo(Specimen));
 
         int lagged = 0;
 
@@ -62,7 +65,7 @@ public sealed class AppliedTimeCorpusTests
     public void Keyframes_OnASourceTvRecording_CarryAnAppliedTimeAwayFromTheirArrival()
     {
         DemoTimeline timeline = TimelineCache.For(
-            Corpus.Demo("tf2-2013-build1729296-stv-cp_foundry"));
+            Corpus.Demo(Specimen));
 
         int corrected = 0;
         int total = 0;
@@ -99,7 +102,7 @@ public sealed class AppliedTimeCorpusTests
     public void Keyframes_OnASourceTvRecording_CarryAnAnimationTimeAwayFromTheirArrival()
     {
         DemoTimeline timeline = TimelineCache.For(
-            Corpus.Demo("tf2-2013-build1729296-stv-cp_foundry"));
+            Corpus.Demo(Specimen));
 
         int corrected = 0;
 
@@ -131,7 +134,7 @@ public sealed class AppliedTimeCorpusTests
     public void SimulationLag_ForPlayers_SplitsBetweenTwoClusters()
     {
         DemoTimeline timeline = TimelineCache.For(
-            Corpus.Demo("tf2-2013-build1729296-stv-cp_foundry"));
+            Corpus.Demo(Specimen));
 
         timeline.SimulationLagByClass.ShouldContainKey("CTFPlayer");
 

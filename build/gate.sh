@@ -1630,7 +1630,11 @@ run Tf2DemoSalvage.Content.Tests  content   1189
 # 151 -> 152: the ANIMATION clock reaching real keyframes (B274). Separate from the simulation
 # one because the two clocks reach different entities - players send no animation time at all - so
 # a single "some clock corrected something" assertion would pass on the simulation half alone.
-run Tf2DemoSalvage.Corpus.Tests   corpus     156
+# 156 -> 217 on 2026-10-29: MEASURED, the .trx total of a TF2DEMOSALVAGE_GCOR_ONLY=1 run once the
+# fourteen scripted era specimens joined gcor and three old era demos retired (2007 POV and STV,
+# 2008 STV): 21 gcor files. Per-file cases scale with gcor (one CorpusContainerTests case a file, the
+# era-named TestCases), so the same suite read 220 with all 24 files and 214 with 18.
+run Tf2DemoSalvage.Corpus.Tests   corpus     217
 # Lowered from 523 on 2026-08-21, and the arithmetic is the justification: FIVE stale gap markers
 # were deleted (Cubemaps_AreNotRead, EnvironmentMaps_AreNotImplemented, AttachmentPoints_AreNot-
 # Implemented, Attachments_AreNotRead, ViewModels_AreNotDrawn — every one claiming a feature that

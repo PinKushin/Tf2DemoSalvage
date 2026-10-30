@@ -127,12 +127,13 @@ public sealed class CorpusEntityRoundTripTests
         // B24: this demo's dem_datatables is cut at 65,536 bytes and decodes only because the parser
         // completes it with build 3258's whole schema. Every snapshot, the whole demo, re-encoding to
         // its own bits is what says the completed schema is the one the server wrote with.
-        string path = Corpus.Demo("tf2-2007-build3258-stv-cp_granary.dem");
+        string path = Corpus.Demo("tf2-2007-build3258-spec-stv-cp_granary.dem");
 
         (long total, long exact, _, _, string? failure) = Measure(path, int.MaxValue);
 
-        // One snapshot per packet: the demo's frame check is 3,897 packets of 3,897 declared.
-        total.ShouldBe(3_897, "measured 2026-09-30");
+        // One snapshot per packet: the demo's frame check is 5,075 packets of 5,075 declared (Cli -s on
+        // the scripted specimen, 2026-10-29; the retired 2007 SourceTV read 3,897 of 3,897).
+        total.ShouldBe(5_075, "the specimen's dem_packet count, measured by Cli -s 2026-10-29");
         exact.ShouldBe(total, failure);
     }
 

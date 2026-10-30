@@ -65,7 +65,8 @@ public sealed class KnownSchemaTests
     public void Parse_Build3258SchemaCutAtSixtyFourKilobytes_ReadsAsTheWholeSchema()
     {
         // The cut exactly as the SourceTV writer left it: 2^16 bytes, the last one 0E where the
-        // whole schema has 2E (measured on tf2-2007-build3258-stv-cp_granary.dem).
+        // whole schema has 2E (measured on tf2-2007-build3258-stv-cp_granary.dem, now in git history, and
+        // again on tf2-2007-build3258-spec-stv-cp_granary.dem, 2026-10-29: the same 65,536 bytes).
         byte[] cut = KnownSchema.Build3258.Span[..KnownSchema.CutLength].ToArray();
         cut[^1] = 0x0E;
         DemoSchema whole = SendTableParser.Parse(KnownSchema.Build3258.Span, 11);
@@ -88,8 +89,8 @@ public sealed class KnownSchemaTests
     [Test]
     public void Build3258_TheShippedSchema_IsTheBuildsWholeDataTables()
     {
-        // The POV demo tools/corpus/demos/tf2-2007-build3258-pov-cp_granary.dem carries it; SHA-256
-        // measured on that payload when it was extracted.
+        // The POV demo tools/corpus/demos/tf2-2007-build3258-spec-pov-cp_granary.dem carries it; SHA-256
+        // measured on the retired 2007 POV's payload when it was extracted, and on this one's 2026-10-29.
         Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(KnownSchema.Build3258.Span))
             .ShouldBe("ea020a813d6ab230800b6a6410b833cef3daf5538b33c9dca8da6b63cf87e637");
     }

@@ -86,7 +86,8 @@ public sealed class CorpusDecodedDemoTests
     }
 
     /// <summary>A demo present in the committed corpus, so CI runs these rather than skipping.</summary>
-    private const string AnyEraDemo = "badlands";
+    /// <remarks>It was "badlands", which named the 2009 era POV until that recording was retired (2026-10-29).</remarks>
+    private const string AnyEraDemo = "tf2-2009-build3862-spec-pov-cp_granary";
 
     /// <summary>Keeps what it was told, so a diagnostic can be asserted rather than assumed.</summary>
     /// <remarks>

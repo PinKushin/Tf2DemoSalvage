@@ -517,12 +517,14 @@ jobs:
         # demo - which means a failed `git lfs pull` produces an EMPTY corpus, and a corpus test
         # that iterates `foreach (path in Corpus.Files())` then passes having asserted nothing.
         # Every one of them. Green, fast, and measuring nothing at all.
+        # 10 -> 21 on 2026-10-29: the gcor file count, every one over 4096 bytes (21 manifest entries,
+        # 21 files in tools/corpus/demos), after the scripted era specimens joined and three old ones left.
         run: |
           $demos = Get-ChildItem tools/corpus/demos -Filter *.dem |
                    Where-Object { $_.Length -ge 4096 }
           Write-Host "$($demos.Count) demos, $([math]::Round(($demos | Measure-Object Length -Sum).Sum / 1MB)) MB"
-          if ($demos.Count -lt 10) {
-              throw "Expected at least 10 fetched demos, found $($demos.Count) - git lfs pull did not deliver the corpus."
+          if ($demos.Count -lt 21) {
+              throw "Expected at least 21 fetched demos, found $($demos.Count) - git lfs pull did not deliver the corpus."
           }
 
       - name: Cache the native codecs
@@ -705,7 +707,9 @@ jobs:
           # not a local one — but CI and a `TF2DEMOSALVAGE_GCOR_ONLY=1` local run now agree at 156,
           # since gcor is exactly what a runner checks out. A full local run sees tools/corpus/local
           # too and reports more; that number must never be copied here.
-          ./build/assert-test-count.sh '**/corpus.trx' 156 Corpus
+          # 156 -> 217 on 2026-10-29: measured on a gcor-only local run (.trx total) after the scripted
+          # era specimens joined gcor (+14) and the 2007 pair and 2008 STV retired (-3): 21 gcor demos.
+          ./build/assert-test-count.sh '**/corpus.trx' 217 Corpus
 
       # `always()` for the same reason as the unit job's copy above: the floors in this step are
       # only checkable against a green run's .trx, and a green run used to upload none.

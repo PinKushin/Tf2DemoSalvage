@@ -125,7 +125,7 @@ public sealed class OffHandProbe
         //
         // This reports where the recorder both HAS a viewmodel and is alive, so a tick can be picked
         // on evidence instead of on the demo's last frame.
-        DemoTimeline timeline = TimelineCache.For(Corpus.Demo("tf2-2013-build1729296-pov-cp_badlands"));
+        DemoTimeline timeline = TimelineCache.For(Corpus.Demo("tf2-2013-build1729296-spec-pov-cp_granary"));
 
         // Nullable, because a SourceTV recording has no local player at all. This demo is a POV
         // recording so it has one, and saying so out loud is cheaper than a cast that would throw.

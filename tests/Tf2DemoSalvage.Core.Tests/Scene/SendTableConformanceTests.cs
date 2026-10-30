@@ -47,7 +47,7 @@ public sealed class SendTableConformanceTests
     /// exists to check.
     ///
     /// **So the pair is taken from a demo, which outranks both.**
-    /// `schema tf2-2007-build3258-pov-cp_granary m_flModelWidthScale` answers
+    /// `schema tf2-2007-build3258-spec-pov-cp_granary m_flModelWidthScale` answers
     /// <c>PROP DT_BaseAnimating.m_flModelWidthScale</c> — the 2007 client's own schema, saying which
     /// table declared it. That is the strongest evidence available for a build whose source nobody
     /// has, and it is the premise of this whole project: a demo carries the schema it was recorded

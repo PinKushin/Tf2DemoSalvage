@@ -21,9 +21,10 @@ namespace Tf2DemoSalvage.Viewer3D.Tests;
 /// after it would find the right timeline already in the field and pass for the wrong reason.
 ///
 /// **Needs the corpus demo and a Team Fortress 2 install**, and skips without either: the sprite's
-/// material comes out of the game's archives. The demo's one sprite, `light_glow03.vmt` on six
-/// `CSprite` entities, was found with the `props` probe; the model count from the same run is the
-/// control that the probe was reading the right file.
+/// material comes out of the game's archives. The demo's sprite, `light_glow03.vmt` on eleven
+/// `CSprite` entities, was found with the `props` probe (2026-10-29, `props … 3000 .vmt`); the same
+/// run on the retired 2013 badlands POV, which this test opened before, read it on six, and that
+/// is the control that the probe was reading the right file.
 /// </remarks>
 /// <remarks>Serial, because this constructs a Windows Form — see B178.</remarks>
 [NonParallelizable]
@@ -33,7 +34,7 @@ public sealed class PlaylistMapLoadTests
     private static string DemoPath => Path.GetFullPath(Path.Combine(
         TestContext.CurrentContext.TestDirectory,
         "..", "..", "..", "..", "..",
-        "tools", "corpus", "demos", "tf2-2013-build1729296-pov-cp_badlands.dem"));
+        "tools", "corpus", "demos", "tf2-2013-build1729296-spec-pov-cp_granary.dem"));
 
     /// <summary>The sprite the demo networks, as the demo names it.</summary>
     private const string DemoSprite = "materials/Sprites/light_glow03.vmt";
@@ -47,7 +48,7 @@ public sealed class PlaylistMapLoadTests
             Assert.Ignore($"The corpus demo is not present at {DemoPath}.");
         }
 
-        GameInstall.RequireFile("maps/cp_badlands.bsp");
+        GameInstall.RequireFile("maps/cp_granary.bsp");
 
         using MainForm form = new(Path.GetDirectoryName(DemoPath)!);
 

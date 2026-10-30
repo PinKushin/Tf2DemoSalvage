@@ -79,8 +79,8 @@ public sealed class SpectatorGuiCorpusTests
     [Test]
     public void IsSourceTv_PovAndStvOfOneSession_IsTheServerInfosFlag()
     {
-        TimelineCache.For(Corpus.Demo("tf2-2011-build4604-stv-koth_viaduct")).IsSourceTv.ShouldBeTrue();
-        TimelineCache.For(Corpus.Demo("tf2-2011-build4604-pov-koth_viaduct")).IsSourceTv.ShouldBeFalse();
+        TimelineCache.For(Corpus.Demo("tf2-2011-build4604-spec-stv-cp_granary")).IsSourceTv.ShouldBeTrue();
+        TimelineCache.For(Corpus.Demo("tf2-2011-build4604-spec-pov-cp_granary")).IsSourceTv.ShouldBeFalse();
     }
 
     /// <summary>

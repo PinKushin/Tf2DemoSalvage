@@ -97,6 +97,10 @@ public sealed class FogDecodeTests
         // **The map is the independent source and viaduct is the discriminating one.** Hammer's
         // fogcolor for koth_viaduct is "213 174 221" — three distinct bytes, so red-in-the-low-byte
         // is proved by this rather than assumed. 14528213 is 0xDDAED5.
+        //
+        // Kept on the viaduct recording when the other era specimens moved to the scripted cp_granary
+        // set (2026-10-29): granary's controller is "225 225 225" in the 2008, 2013 and live .bsp
+        // (read from each map's entity lump), so equal channels cannot say which byte is red.
         SceneFog fog = OnlyFog("tf2-2011-build4604-stv-koth_viaduct.dem");
 
         fog.Start.ShouldBe(0f);
@@ -115,8 +119,8 @@ public sealed class FogDecodeTests
         // corpus was built to provide. A POV demo is written by a player's client and a SourceTV
         // demo by the relay; they share a server and nothing else. Fog that decoded from an
         // artefact of one writer could not survive being read out of both.
-        SceneFog pov = OnlyFog("tf2-2008-build3420-pov-cp_granary.dem");
-        SceneFog stv = OnlyFog("tf2-2008-build3420-stv-cp_granary.dem");
+        SceneFog pov = OnlyFog("tf2-2008-build3420-spec-pov-cp_granary.dem");
+        SceneFog stv = OnlyFog("tf2-2008-build3420-spec-stv-cp_granary.dem");
 
         pov.ShouldBe(stv);
 
@@ -132,6 +136,7 @@ public sealed class FogDecodeTests
         // **A range that starts well away from the camera, which the other specimens do not test.**
         // granary and viaduct both start at 0, so a reader that ignored m_fog.start entirely would
         // pass on either. cp_foundry starts at 1707 and ends at 4634 — numbers no default produces.
+        // Kept on the foundry recording for that reason when the rest moved to cp_granary (2026-10-29).
         SceneFog fog = OnlyFog("tf2-2013-build1729296-stv-cp_foundry.dem");
 
         fog.Start.ShouldBe(1707f);

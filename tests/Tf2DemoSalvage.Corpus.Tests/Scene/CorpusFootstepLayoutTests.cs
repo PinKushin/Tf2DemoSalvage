@@ -12,9 +12,9 @@ namespace Tf2DemoSalvage.Core.Tests.Scene;
 /// </remarks>
 public sealed class CorpusFootstepLayoutTests
 {
-    [TestCase("tf2-2009-build3862-pov-cp_badlands", TestName = "Step_The2009Specimen_Sounds")]
-    [TestCase("tf2-2008-build3420-stv-cp_granary", TestName = "Step_The2008SourceTvSpecimen_Sounds")]
-    [TestCase("tf2-2013-build1729296-pov-cp_badlands", TestName = "Step_The2013Specimen_Sounds")]
+    [TestCase("tf2-2009-build3862-spec-pov-cp_granary", TestName = "Step_The2009Specimen_Sounds")]
+    [TestCase("tf2-2008-build3420-spec-stv-cp_granary", TestName = "Step_The2008SourceTvSpecimen_Sounds")]
+    [TestCase("tf2-2013-build1729296-spec-pov-cp_granary", TestName = "Step_The2013Specimen_Sounds")]
     public void Step_ByEra(string demo)
     {
         StepGateCounts counts = StepGateProbe.Measure(TimelineCache.For(Corpus.Demo(demo)), every: 3);

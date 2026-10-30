@@ -47,7 +47,7 @@ public sealed class MapCrcVariantSearchDiagnostic
 
         byte[] file = File.ReadAllBytes(Map);
 
-        DemoTimeline demo = TimelineCache.For(Corpus.Demo("tf2-2007-build3258-pov-cp_granary"));
+        DemoTimeline demo = TimelineCache.For(Corpus.Demo("tf2-2007-build3258-spec-pov-cp_granary"));
 
         uint wanted = demo.MapCrc.ShouldNotBeNull("the 2007 demo carries a checksum");
 
