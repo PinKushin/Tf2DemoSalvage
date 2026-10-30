@@ -216,18 +216,16 @@ public static class FaceFlex
             }
         }
 
-        int[] movedVertices = [.. moved];
-        Array.Sort(movedVertices);
-
-        return new FlexedCorners([.. at], [.. from]) { Moved = movedVertices };
+        return new FlexedCorners([.. at], [.. from]);
     }
 
-    /// <summary>Zeroes the deltas of the vertices a model's flexes name, and no others.</summary>
+    /// <summary>Zeroes the deltas at the offsets the slot write reads (<see cref="FlexedCorners.Moved"/>), and no others.</summary>
     /// <remarks>
     /// **What `FlexFor`'s miss needs of a scratch shared by every model** (docs/measurements/2026-10-30-flex-for-cost.md):
-    /// the accumulation writes only vertices some flex names, and <see cref="IntoFlexedSlots"/> reads only the slots of
-    /// those vertices, so every other entry is never read for this model and need not be cleared. A vertex past either
-    /// array is skipped, as both of those skip it.
+    /// <see cref="IntoFlexedSlots"/> reads only these offsets, so every other entry is never read for this model and
+    /// need not be cleared. The offsets are the int vertex times three, wrapped as the accumulation wraps its own
+    /// (`int at = anim.Vertex * 3`), so the two agree on where a wrapping vertex lands; the skip test is in long so it
+    /// cannot wrap a second time, and an offset whose last float is past either array is skipped, never thrown on.
     /// </remarks>
     /// <param name="corners">From <see cref="FlexedCorners(StudioFlexData, IReadOnlyList{int}, IReadOnlyList{int})"/>.</param>
     /// <param name="positions">Three floats per <c>.vvd</c> vertex.</param>
@@ -238,19 +236,15 @@ public static class FaceFlex
         ArgumentNullException.ThrowIfNull(positions);
         ArgumentNullException.ThrowIfNull(normals);
 
-        foreach (int vertex in corners.Moved)
+        foreach (int at in corners.Moved.AsSpan())
         {
-            // In long, so an offset past int's range is skipped rather than wrapped into a throw: the whole-array clear
-            // this replaces never threw.
-            long at = vertex * 3L;
-
-            if (at < 0 || at + 2 >= positions.Length || at + 2 >= normals.Length)
+            if (at < 0 || at + 2L >= positions.Length || at + 2L >= normals.Length)
             {
                 continue;
             }
 
-            positions.AsSpan((int)at, 3).Clear();
-            normals.AsSpan((int)at, 3).Clear();
+            positions.AsSpan(at, 3).Clear();
+            normals.AsSpan(at, 3).Clear();
         }
     }
 
@@ -354,11 +348,20 @@ public sealed record FlexedCorners
         {
             field = value.IsDefault ? [] : value;
             (MinFrom, MaxFrom) = Bounds(field);
+            Moved = [.. field.Distinct().Order()];
         }
     }
 
-    /// <summary>Every <c>.vvd</c> vertex any flex of the model names, once each, ascending (<see cref="FaceFlex.ClearMoved"/>).</summary>
-    public int[] Moved { get; init; } = [];
+    /// <summary>
+    /// The offsets <see cref="FaceFlex.ClearMoved"/> clears: every offset in <see cref="From"/>, once each, ascending —
+    /// derived where <see cref="From"/> is set, so it cannot omit one the slot write reads.
+    /// </summary>
+    /// <remarks>
+    /// A vertex a flex names but no corner reads is not here: the accumulation still writes it, and since nothing clears
+    /// it, its entries sum across misses, but nothing reads them for this model, and another model sharing the scratch
+    /// clears its own offsets before it accumulates. So no output can change.
+    /// </remarks>
+    public ImmutableArray<int> Moved { get; private init; } = [];
 
     /// <summary>The smallest slot, or 0 for none.</summary>
     public int MinAt { get; private init; }

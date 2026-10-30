@@ -10,7 +10,10 @@ namespace Tf2DemoSalvage.Scene;
 /// <param name="Step">Of <paramref name="Driving"/>: <c>ActorFace.Step</c>, <c>SetupGlobalWeights</c>.</param>
 /// <param name="Local">The model's controller values out of the global weights.</param>
 /// <param name="Rules"><c>RunFlexRules</c>.</param>
-/// <param name="Delayed"><c>RunFlexDelay</c>, and on a miss the copy of the delayed weights the next probe compares with.</param>
+/// <param name="Delayed">
+/// <c>RunFlexDelay</c>, and on a miss the copy of the delayed weights the next probe compares with together with the
+/// insert of the last-face entry that holds it (one clock covers both).
+/// </param>
 /// <param name="Probe">The last face's lookup and the two weight comparisons.</param>
 /// <param name="Corners">The model's flexed slots, both lookups.</param>
 /// <param name="Clear">On a miss: the scratch growth, the stream, and clearing the scratch.</param>
@@ -40,14 +43,14 @@ public readonly record struct FlexCounters(
     long Deltas = 0,
     long Slots = 0,
     long Resting = 0,
-    int Calls = 0,
-    int Faces = 0,
+    long Calls = 0,
+    long Faces = 0,
     int Own = 0,
     int Worn = 0,
     int Corpse = 0,
     int RestingFaces = 0,
-    int Hits = 0,
-    int Misses = 0,
+    long Hits = 0,
+    long Misses = 0,
     long Vertices = 0)
 {
     /// <summary>What happened between an earlier snapshot and this one.</summary>
@@ -136,9 +139,9 @@ internal sealed class FlexTally
 
     public long Resting { get; set; }
 
-    public int Calls { get; set; }
+    public long Calls { get; set; }
 
-    public int Faces { get; set; }
+    public long Faces { get; set; }
 
     public int Own { get; set; }
 
@@ -148,9 +151,9 @@ internal sealed class FlexTally
 
     public int RestingFaces { get; set; }
 
-    public int Hits { get; set; }
+    public long Hits { get; set; }
 
-    public int Misses { get; set; }
+    public long Misses { get; set; }
 
     public long Vertices { get; set; }
 

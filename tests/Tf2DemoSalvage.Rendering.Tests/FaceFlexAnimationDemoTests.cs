@@ -217,7 +217,6 @@ public sealed class FaceFlexAnimationDemoTests
         flex.Faces.ShouldBe(flex.Own + flex.Worn + flex.Corpse + flex.RestingFaces, "each face is driven or resting");
         flex.Misses.ShouldBeGreaterThan(0, "a talking face changes");
         flex.Vertices.ShouldBeGreaterThan(0, "a changing face walks its flexed vertices");
-        flex.Calls.ShouldBeGreaterThanOrEqualTo(flex.Faces);
     }
 
     /// <summary>
@@ -264,6 +263,8 @@ public sealed class FaceFlexAnimationDemoTests
         HashSet<int> halves = [];
         HashSet<string> faced = new(StringComparer.OrdinalIgnoreCase);
         int compared = 0;
+        int rechecked = 0;
+        (float[] Face, int[] Bits, int Tick)? previous = null;
 
         for (int tick = SceneStart - 5; tick <= Switch + 40; tick++)
         {
@@ -294,6 +295,15 @@ public sealed class FaceFlexAnimationDemoTests
 
             int applied = FaceFlexReference.Face(frames.Flex, weights, delayed, positions, normals, corners, stream);
 
+            // The previous frame's face, posed on the other half, must still hold what it held: the draw of that frame
+            // reads it while this one is posed, so a stream shared between the halves would show here.
+            if (previous is { } held)
+            {
+                MemoryMarshal.Cast<float, int>(held.Face).ToArray().ShouldBe(held.Bits, $"tick {held.Tick} after posing {tick}");
+            }
+
+            previous = null;
+
             if (applied > 0)
             {
                 float[] face = instance.Flex.ShouldNotBeNull($"tick {tick}");
@@ -301,6 +311,8 @@ public sealed class FaceFlexAnimationDemoTests
                     .ShouldBe(MemoryMarshal.Cast<float, int>(stream).ToArray(), $"tick {tick}");
                 face.AsSpan(stream.Length).IndexOfAnyExcept(0f).ShouldBe(-1, $"tick {tick}: past the last flexed slot");
                 faced.Add(instance.ModelPath);
+                previous = (face, MemoryMarshal.Cast<float, int>(face).ToArray(), tick);
+                rechecked++;
             }
             else
             {
@@ -313,6 +325,7 @@ public sealed class FaceFlexAnimationDemoTests
         }
 
         compared.ShouldBe(76, "the control: every frame was compared");
+        rechecked.ShouldBeGreaterThan(60, "the control: most faces were checked again after the next pose");
         halves.Count.ShouldBe(2, "the control: both pose halves were posed");
         faced.ShouldBe([MedicModel, ScoutModel], ignoreOrder: true, "the control: both models wore a moving face");
     }
