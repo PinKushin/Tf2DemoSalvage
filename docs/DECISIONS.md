@@ -11348,3 +11348,39 @@ removes one per-era difference from the specimens (D241) instead of documenting 
 before this carry whatever name took in each demo. A UTF-8 name test, if wanted, is a separate dedicated specimen. The
 plan document's differences table carries the dated row.
 
+## D243 — gcor's era specimens are the 14 scripted ones, and the nine old ones leave in the same push (2026-10-29)
+
+**The owner, 2026-10-28**, on the hand-recorded era specimens: *"They dont match and test enough, I manually just did
+random stuff, they cant be compared against each other."* And, when the swap was put to him as his call: *"we will be
+changing the gcor, we have to"*. On the build for 2010: *"ok 4231 it is."* On the live pair (protocol 24, already in
+gcor): *"yes put it in, that is the modern control, for the most part, although maybe not this weeks update idk"* [the
+doubt about the current update is his, not a decision]. On timing, after the 14 files had been added locally and nothing
+was pushed: *"they need to go at the same time though so github doesnt end up with a huge set."* On the six old demos
+the retirement could not first remove because each was the only demo that answered some test's question: *"if they are
+ones i made, they are orthless now"* [worthless; the manifest `source` of all six reads 'recorded by the owner']. On the
+differences found between eras: *"those are fine go"*.
+
+**The decision.**
+- gcor's era specimens are the 14 scripted `…-spec-{pov,stv}-cp_granary.dem` files: builds 3258, 3420, 3862, 4231 (not
+  4269), 4604, 1729296 and the live 11138802. Each was recorded with `tools/specimen/tf2ds_specimen.cfg` and that era's
+  layer on its period client (D241); the per-era differences are documented in the plan record's table, not hidden.
+- The nine old gcor era demos (the owner's own early recordings) are retired in the SAME push as the additions, so the
+  committed set never holds both generations and the LFS cache key changes once. `z1800.dem` stays. gcor is 15 files.
+- Every test that named an old demo keeps asking its question: onto a synthetic fixture where the engine's behaviour can
+  be encoded (Damage layout at protocols 14 and 15, a model named only by a `dem_stringtables` block, fog colour byte
+  order, ConVars, the recorder's feet), or as an lcor-only corpus test that SKIPS WITH A REASON on CI (the dead-recorder
+  divergence, the prediction tests, the protocol-14 Damage sweep). The old demos were copied into lcor under their old
+  names, not deleted. **CI coverage lost:** those lcor-only tests. They are listed in B611 and the plan record.
+
+**What it cost, found on the way (each recorded where it is read):** the scripted voice is microphone input in every era
+(the wav was read relative to the wrong folder; `docs/findings/02-net-messages.md`, 'Correction, 2026-10-29'); a real
+decoder bug (a game event's non-UTF-8 string, `player_changename`) was found and fixed; the NetTick test's run rule and
+the Speex test's premise were wrong about what was recorded and were rewritten (D38).
+
+**Open and not decided here:** whether to re-record voice with the wav beside `hl2.exe`; whether the 2013 pair's roster,
+which carries the owner's real Steam ID, may stay in the public repository.
+
+Supersedes the manifest's description of era specimens as ad-hoc recordings. It does not change D81, under which the
+corpus's eventual home is still archive.org. Evidence: `docs/measurements/2026-10-28-era-specimens-v2-plan.md` (session
+logs, differences table, the 4269 and 2013 re-records), `docs/measurements/2026-10-29-gcor-swap-prep.md`.
+

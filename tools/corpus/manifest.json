@@ -1,10 +1,10 @@
 {
   "notes": [
     "Demo files are stored in Git LFS (see .gitattributes). Clone with `git lfs install` first, or the .dem files arrive as ~130-byte pointer stubs.",
-    "ONE SPECIMEN PER CATEGORY, DELIBERATELY. The corpus was 10 demos and 308 MB; it is now 4 and 14.5 MB. Six of the ten were protocol-24 SourceTV recordings differing only in map and date, and they cost 257 MB to say the same thing six times. GitHub's free Git LFS tier is 1 GiB of bandwidth a month, and every CI job that fetches the corpus spends the whole of it in three runs - so the redundancy was not free, it was the budget.",
+    "ONE SPECIMEN PER CATEGORY, DELIBERATELY. The corpus was 10 demos and 308 MB; it was then 4 and 14.5 MB, and since the scripted era specimens (D243) it is 15 files and 34.2 MB: 14 scripted specimens, a POV and a SourceTV recording for each of seven builds, plus z1800.dem. Six of the ten were protocol-24 SourceTV recordings differing only in map and date, and they cost 257 MB to say the same thing six times. GitHub's free Git LFS tier is 1 GiB of bandwidth a month, and every CI job that fetches the corpus spends the whole of it in three runs - so the redundancy was not free, it was the budget.",
     "KEEP ERA SPECIMENS SHORT. The committed corpus is small because its recordings are two to four minutes, not because old clients produce small files. Measured across these entries, size per minute spans 5x: 0.18-0.23 MB/min for SourceTV on a listen server, 0.34-0.92 for POV (which carries dem_usercmd, one input record per tick, where SourceTV carries none), and 0.59 for a 24-player SourceTV match. The same recordings at 30 minutes would make this corpus 90 MB rather than 20. Every protocol-conditional rule fires during signon and the first snapshots, so a short recording exercises the era just as well as a long one - length buys nothing an era specimen needs.",
-    "ERA x POINT OF VIEW, which is the shape the committed corpus is kept in. SourceTV and POV are different containers - only POV carries dem_usercmd - so a difference seen in one mode is not an era finding until the other mode agrees. Protocols 11, 14, 16 and 24 have both; protocol 15 has POV only, and a SourceTV recording on the 2009 client would complete it.",
-    "Per D5, every entry records how its era was established. Date demos from seasonal asset names in their string tables, never from protocol numbers - protocol 3 / network 24 spans at least 2013 through 2026 and dates nothing. Better still, date the CLIENT: three of the four entries here were recorded on period builds whose `version` command reports an exact date, which is how the era axis was closed at both ends (D30).",
+    "ERA x POINT OF VIEW, which is the shape the committed corpus is kept in. SourceTV and POV are different containers - only POV carries dem_usercmd - so a difference seen in one mode is not an era finding until the other mode agrees. Protocols 11, 14, 15, 16 and 24 all have both: each scripted build has a POV and a SourceTV recording from the same session.",
+    "Per D5, every entry records how its era was established. Date demos from seasonal asset names in their string tables, never from protocol numbers - protocol 3 / network 24 spans at least 2013 through 2026 and dates nothing. Better still, date the CLIENT: every era specimen here was recorded on a period build (the live build for the newest) whose `version` command reports its build, and the era's date where the client prints one (D241), which is how the era axis was closed at both ends (D30).",
     "Reproduce any field below with `python tools/inspect_demo.py walk|date <file>`.",
     "What was removed is not lost - it is in git history, and the sources are recorded in each entry. Restore a demo if a specific question needs it, rather than keeping six against the possibility. The differential comparison in tools/differential/ ran across four demos and 204,000 properties when it found the flattening-order bug; it now has fewer files to work with, which is a real cost and the reason to re-add one deliberately if that tooling is used again.",
     "The remaining gaps are protocols 12-13, 17, 20 and 23, with no specimen at all: 12-13 inside the five weeks after launch (October to November 2007), 17 between June and November 2011, 20 in November 2011, 23 between build 5126 and March 2013. Protocols 18, 19, 21 and 22 are verified on lcor demos (docs/TIMELINE.md). A protocol-conditional rule stays unexecuted on its far side wherever a gap borders it. Candidate builds are dated from `bin/engine.dll` before downloading (D30). Anything found there is the one category worth ADDING; another modern demo is not.",
@@ -50,7 +50,7 @@
       "file": "demos/tf2-2007-build3258-spec-pov-cp_granary.dem",
       "sha256": "bcc8fabe122dd168bf7a157f285c36efa560a7e4badda0e25ce247e4ffa9a287",
       "sizeBytes": 1749267,
-      "source": "TODO: scripted, tools/specimen/tf2ds_specimen.cfg + the era layer; cfg commit and launch from the plan's session log",
+      "source": "scripted: tools/specimen/tf2ds_specimen.cfg plus tf2ds_era_2007.cfg and tf2ds_era_pre2011.cfg, recorded 2026-10-29 on TF2 build 3258, hl2.exe started directly by a scratchpad shortcut (era-2007-r9/TF2-2007-run9.lnk) carrying the RCON arguments and double-clicked by the owner, the chain then stepped over RCON one command at a time from the menu",
       "pointOfView": "POV",
       "build": 3258,
       "demoProtocol": 3,
@@ -72,17 +72,17 @@
         "dem_synctick": 1,
         "dem_stop": 1
       },
-      "era": "TODO",
-      "eraEvidence": "TODO: the session's version lines",
-      "whyItMatters": "TODO",
-      "knownIssues": "TODO",
-      "privacyNote": "TODO"
+      "era": "9 October 2007, exactly",
+      "eraEvidence": "`Exe build: 18:14:51 Oct  9 2007 (3258)`",
+      "whyItMatters": "The oldest protocol in the corpus, protocol 11, recorded from the same script as every other era, so a difference against them is an era difference and not a difference of what happened. The POV half carries the 85,063-byte `dem_datatables` payload that KnownSchema embeds, and every protocol-conditional branch keyed on 14 or above runs here on its old side.",
+      "knownIssues": "The client freezes when the cfg is exec'd from the autoexec, so this pair was recorded over RCON from the menu; a UTF-8 byte ends an alias's quoted body, so the 2007 command list uses an ASCII name; `wait` runs about once a tick at ~17 fps; `build` takes one argument; `addcond`/`removecond`, `tf_bot_add`/`tf_bot_quota`, `cl_disablehtmlmotd`, `mp_respawnwavetime` and `mp_disable_respawn_times` are unknown; `tv_delay` is clamped to at least 10 s; the owner saw the screen stay on the MOTD and heard nothing during the chain, cause unknown; the voice in this demo is microphone input, not the scripted tone: the engine opens voice_input.wav relative to the folder holding hl2.exe and the wav was placed in tf/ (docs/findings/02-net-messages.md, 'Correction, 2026-10-29')",
+      "privacyNote": "the player name is `PinKushin` (an ASCII game handle); no personal data beyond the in-game name"
     },
     {
       "file": "demos/tf2-2007-build3258-spec-stv-cp_granary.dem",
       "sha256": "ac7d119ea6397ae231d3902434557f6b15e15a8f435a5c6b7a3e2c4c546a62a3",
       "sizeBytes": 872785,
-      "source": "TODO: scripted, tools/specimen/tf2ds_specimen.cfg + the era layer; cfg commit and launch from the plan's session log",
+      "source": "scripted: tools/specimen/tf2ds_specimen.cfg plus tf2ds_era_2007.cfg and tf2ds_era_pre2011.cfg, recorded 2026-10-29 on TF2 build 3258, hl2.exe started directly by a scratchpad shortcut (era-2007-r9/TF2-2007-run9.lnk) carrying the RCON arguments and double-clicked by the owner, the chain then stepped over RCON one command at a time from the menu",
       "pointOfView": "SourceTV",
       "build": 3258,
       "demoProtocol": 3,
@@ -102,17 +102,17 @@
         "dem_synctick": 1,
         "dem_stop": 1
       },
-      "era": "TODO",
-      "eraEvidence": "TODO: the session's version lines",
-      "whyItMatters": "TODO",
-      "knownIssues": "TODO",
-      "privacyNote": "TODO"
+      "era": "9 October 2007, exactly",
+      "eraEvidence": "`Exe build: 18:14:51 Oct  9 2007 (3258)`",
+      "whyItMatters": "The SourceTV half of the protocol-11 pair: same session, same script, and no `dem_usercmd` at all, so a POV-only structure cannot be read as an era fact. Its `dem_datatables` is cut at exactly 65,536 bytes, which is B24 and is what the 64 KiB cap is tested on.",
+      "knownIssues": "SourceTV cuts this build's schema at exactly 65,536 bytes (B24), as predicted; the client freezes when the cfg is exec'd from the autoexec, so this pair was recorded over RCON from the menu; a UTF-8 byte ends an alias's quoted body, so the 2007 command list uses an ASCII name; `wait` runs about once a tick at ~17 fps; `build` takes one argument; `addcond`/`removecond`, `tf_bot_add`/`tf_bot_quota`, `cl_disablehtmlmotd`, `mp_respawnwavetime` and `mp_disable_respawn_times` are unknown; `tv_delay` is clamped to at least 10 s; the owner saw the screen stay on the MOTD and heard nothing during the chain, cause unknown; the voice in this demo is microphone input, not the scripted tone: the engine opens voice_input.wav relative to the folder holding hl2.exe and the wav was placed in tf/ (docs/findings/02-net-messages.md, 'Correction, 2026-10-29')",
+      "privacyNote": "the player name is `PinKushin` (an ASCII game handle); no personal data beyond the in-game name"
     },
     {
       "file": "demos/tf2-2008-build3420-spec-pov-cp_granary.dem",
       "sha256": "c3ca1deda0d4a008e9576eb16acd5eadcc8230bcbddc52053aecfb3d3fbb4467",
       "sizeBytes": 1330346,
-      "source": "TODO: scripted, tools/specimen/tf2ds_specimen.cfg + the era layer; cfg commit and launch from the plan's session log",
+      "source": "scripted: tools/specimen/tf2ds_specimen.cfg plus tf2ds_era_2008.cfg and tf2ds_era_pre2011.cfg, recorded 2026-10-29 on TF2 build 3420, the owner's Start Team Fortress 2.lnk edited with the RCON arguments plus +sv_lan 1 +fps_max 66 +tv_enable 1 and double-clicked by the owner",
       "pointOfView": "POV",
       "build": 3420,
       "demoProtocol": 3,
@@ -134,17 +134,17 @@
         "dem_synctick": 1,
         "dem_stop": 1
       },
-      "era": "TODO",
-      "eraEvidence": "TODO: the session's version lines",
-      "whyItMatters": "TODO",
-      "knownIssues": "TODO",
-      "privacyNote": "TODO"
+      "era": "19 March 2008, exactly",
+      "eraEvidence": "`Exe build: 20:17:35 Mar 19 2008 (3420)`",
+      "whyItMatters": "The corpus's only protocol-14 era, recorded from the same script as every other era, so the pre-Source-2009 rules are compared against 11, 15 and 24 on identical input. It carries no `dem_stringtables` command, and the SourceTV half shows the same absence, which makes it the era's property and not the mode's.",
+      "knownIssues": "Steam offline drops the local player unless `sv_lan 1`; `name` does not take, so the demo's name is the Steam persona; `quit` hangs in shutdown (disconnect, quit, end after 30 s); `build` takes one argument and the sentry's object type is 3; `addcond`/`removecond`, `tf_bot_add`/`tf_bot_quota` and `cl_disablehtmlmotd` are unknown; all 1,069 of its Speex frames are one encoded frame (digital silence); the voice in this demo is microphone input, not the scripted tone: the engine opens voice_input.wav relative to the folder holding hl2.exe and the wav was placed in tf/ (docs/findings/02-net-messages.md, 'Correction, 2026-10-29')",
+      "privacyNote": "the player name is `PinKushin` (an ASCII game handle), the client's Steam persona because `name` does not take in this build; the roster carries the owner's real Steam account ID (STEAM_0:1:28447543), measured with the CLI's `-s` roster dump on 2026-10-30; the owner has been asked whether that may stay in the public repository"
     },
     {
       "file": "demos/tf2-2008-build3420-spec-stv-cp_granary.dem",
       "sha256": "202ab655c5e84ca9f3a621712c63b37fe725fbd74d05cfa1bdeec2753ed2bbda",
       "sizeBytes": 803852,
-      "source": "TODO: scripted, tools/specimen/tf2ds_specimen.cfg + the era layer; cfg commit and launch from the plan's session log",
+      "source": "scripted: tools/specimen/tf2ds_specimen.cfg plus tf2ds_era_2008.cfg and tf2ds_era_pre2011.cfg, recorded 2026-10-29 on TF2 build 3420, the owner's Start Team Fortress 2.lnk edited with the RCON arguments plus +sv_lan 1 +fps_max 66 +tv_enable 1 and double-clicked by the owner",
       "pointOfView": "SourceTV",
       "build": 3420,
       "demoProtocol": 3,
@@ -164,17 +164,17 @@
         "dem_synctick": 1,
         "dem_stop": 1
       },
-      "era": "TODO",
-      "eraEvidence": "TODO: the session's version lines",
-      "whyItMatters": "TODO",
-      "knownIssues": "TODO",
-      "privacyNote": "TODO"
+      "era": "19 March 2008, exactly",
+      "eraEvidence": "`Exe build: 20:17:35 Mar 19 2008 (3420)`",
+      "whyItMatters": "The SourceTV half of the protocol-14 pair: same session, same script, no `dem_usercmd` and no `dem_consolecmd` at all. With the POV half it shows that the missing `dem_stringtables` at protocol 14 is the era's and not the mode's.",
+      "knownIssues": "Steam offline drops the local player unless `sv_lan 1`; `name` does not take, so the demo's name is the Steam persona; `quit` hangs in shutdown (disconnect, quit, end after 30 s); `build` takes one argument and the sentry's object type is 3; `addcond`/`removecond`, `tf_bot_add`/`tf_bot_quota` and `cl_disablehtmlmotd` are unknown; all 1,069 of its Speex frames are one encoded frame (digital silence); the voice in this demo is microphone input, not the scripted tone: the engine opens voice_input.wav relative to the folder holding hl2.exe and the wav was placed in tf/ (docs/findings/02-net-messages.md, 'Correction, 2026-10-29')",
+      "privacyNote": "the player name is `PinKushin` (an ASCII game handle), the client's Steam persona because `name` does not take in this build; the roster carries the owner's real Steam account ID (STEAM_0:1:28447543), measured with the CLI's `-s` roster dump on 2026-10-30; the owner has been asked whether that may stay in the public repository"
     },
     {
       "file": "demos/tf2-2009-build3862-spec-pov-cp_granary.dem",
       "sha256": "a635be1e4a0a0e03cdbad187a2aba31a7a4a165aacad1967a7b48cffb7dd5e45",
       "sizeBytes": 1865596,
-      "source": "TODO: scripted, tools/specimen/tf2ds_specimen.cfg + the era layer; cfg commit and launch from the plan's session log",
+      "source": "scripted: tools/specimen/tf2ds_specimen.cfg plus tf2ds_era_2009.cfg, recorded 2026-10-29 on TF2 build 3862, the owner's tf2.lnk edited with the RCON arguments plus +sv_lan 1 +fps_max 66 +tv_enable 1 and double-clicked by the owner",
       "pointOfView": "POV",
       "build": 3862,
       "demoProtocol": 3,
@@ -197,17 +197,17 @@
         "dem_stringtables": 1,
         "dem_stop": 1
       },
-      "era": "TODO",
-      "eraEvidence": "TODO: the session's version lines",
-      "whyItMatters": "TODO",
-      "knownIssues": "TODO",
-      "privacyNote": "TODO"
+      "era": "4 June 2009, exactly",
+      "eraEvidence": "`Exe build: 13:52:56 Jun  4 2009 (3862)`",
+      "whyItMatters": "The early protocol-15 dialect (B440) on the same script as every other era, so its structures are compared against 14 below and 16 above on identical input. It is the POV half of the protocol-15 pair that closes gcor's POV-only cell for this protocol.",
+      "knownIssues": "`addcond` is absent from `find` yet prints no `Unknown command`, so whether 3862 has it is unresolved; `name` does not take, so the demo's name is the Steam persona; `cl_disablehtmlmotd` and `tf_bot_add`/`tf_bot_quota` are unknown; `build` takes one argument and the sentry's object type is 3; the voice in this demo is microphone input, not the scripted tone: the engine opens voice_input.wav relative to the folder holding hl2.exe and the wav was placed in tf/ (docs/findings/02-net-messages.md, 'Correction, 2026-10-29')",
+      "privacyNote": "the player name is `PinKushin` (an ASCII game handle), the client's Steam persona because `name` does not take in this build; no personal data beyond the in-game name"
     },
     {
       "file": "demos/tf2-2009-build3862-spec-stv-cp_granary.dem",
       "sha256": "9b0294efad710a0585dc88fed2322f4b4b14dfc777db2109ae3f3e8c5ea3c05d",
       "sizeBytes": 1084769,
-      "source": "TODO: scripted, tools/specimen/tf2ds_specimen.cfg + the era layer; cfg commit and launch from the plan's session log",
+      "source": "scripted: tools/specimen/tf2ds_specimen.cfg plus tf2ds_era_2009.cfg, recorded 2026-10-29 on TF2 build 3862, the owner's tf2.lnk edited with the RCON arguments plus +sv_lan 1 +fps_max 66 +tv_enable 1 and double-clicked by the owner",
       "pointOfView": "SourceTV",
       "build": 3862,
       "demoProtocol": 3,
@@ -228,17 +228,17 @@
         "dem_synctick": 1,
         "dem_stop": 1
       },
-      "era": "TODO",
-      "eraEvidence": "TODO: the session's version lines",
-      "whyItMatters": "TODO",
-      "knownIssues": "TODO",
-      "privacyNote": "TODO"
+      "era": "4 June 2009, exactly",
+      "eraEvidence": "`Exe build: 13:52:56 Jun  4 2009 (3862)`",
+      "whyItMatters": "The SourceTV half of the protocol-15 pair, the mode gcor lacked for this protocol. Same session and script as the POV, so a difference between the two modes is a mode fact and not a coincidence of what happened.",
+      "knownIssues": "`addcond` is absent from `find` yet prints no `Unknown command`, so whether 3862 has it is unresolved; `name` does not take, so the demo's name is the Steam persona; `cl_disablehtmlmotd` and `tf_bot_add`/`tf_bot_quota` are unknown; `build` takes one argument and the sentry's object type is 3; the voice in this demo is microphone input, not the scripted tone: the engine opens voice_input.wav relative to the folder holding hl2.exe and the wav was placed in tf/ (docs/findings/02-net-messages.md, 'Correction, 2026-10-29')",
+      "privacyNote": "the player name is `PinKushin` (an ASCII game handle), the client's Steam persona because `name` does not take in this build; no personal data beyond the in-game name"
     },
     {
       "file": "demos/tf2-2010-build4231-spec-pov-cp_granary.dem",
       "sha256": "6487f0d25fe7cd4ad22c938925dd549d452a2196a82f7e16469facc03e80a409",
       "sizeBytes": 2590482,
-      "source": "TODO: scripted, tools/specimen/tf2ds_specimen.cfg + the era layer; cfg commit and launch from the plan's session log",
+      "source": "scripted: tools/specimen/tf2ds_specimen.cfg plus tf2ds_era_2010.cfg, recorded 2026-10-29 on TF2 build 4231, hl2.exe -game tf -steam plus the RCON arguments, started raw (the root has no .bat or .lnk)",
       "pointOfView": "POV",
       "build": 4231,
       "demoProtocol": 3,
@@ -261,17 +261,17 @@
         "dem_stringtables": 1,
         "dem_stop": 1
       },
-      "era": "TODO",
-      "eraEvidence": "TODO: the session's version lines",
-      "whyItMatters": "TODO",
-      "knownIssues": "TODO",
-      "privacyNote": "TODO"
+      "era": "10 June 2010, exactly",
+      "eraEvidence": "`Exe build: 16:13:38 Jun 10 2010 (4231)`",
+      "whyItMatters": "A second protocol-15 client, the 1.0.9.5 build, on the same script as 3862's early dialect and every later era, so the two protocol-15 builds are compared without a difference in what happened. It also carries `dem_stringtables`, which the protocol-14 pair does not.",
+      "knownIssues": "the emulator appends to the root's rev-client.log, outside the session's listed directories; `sv_use_steam_voice` is unknown on this build; the capture line prints the UTF-8 name as 14 replacement characters, not chased; the voice in this demo is microphone input, not the scripted tone: the engine opens voice_input.wav relative to the folder holding hl2.exe and the wav was placed in tf/ (docs/findings/02-net-messages.md, 'Correction, 2026-10-29')",
+      "privacyNote": "the player name is the script's `tf2ds_specimen` start name, and the cfg's own name steps take on this build; no personal data beyond the in-game name"
     },
     {
       "file": "demos/tf2-2010-build4231-spec-stv-cp_granary.dem",
       "sha256": "086a5bd834eb28b0b339e9d27465a4f0656d1475a13f0f9dbdb4252580a0b563",
       "sizeBytes": 1000815,
-      "source": "TODO: scripted, tools/specimen/tf2ds_specimen.cfg + the era layer; cfg commit and launch from the plan's session log",
+      "source": "scripted: tools/specimen/tf2ds_specimen.cfg plus tf2ds_era_2010.cfg, recorded 2026-10-29 on TF2 build 4231, hl2.exe -game tf -steam plus the RCON arguments, started raw (the root has no .bat or .lnk)",
       "pointOfView": "SourceTV",
       "build": 4231,
       "demoProtocol": 3,
@@ -292,17 +292,17 @@
         "dem_synctick": 1,
         "dem_stop": 1
       },
-      "era": "TODO",
-      "eraEvidence": "TODO: the session's version lines",
-      "whyItMatters": "TODO",
-      "knownIssues": "TODO",
-      "privacyNote": "TODO"
+      "era": "10 June 2010, exactly",
+      "eraEvidence": "`Exe build: 16:13:38 Jun 10 2010 (4231)`",
+      "whyItMatters": "The SourceTV half of the second protocol-15 pair: same session and script as its POV, so the two modes and the two protocol-15 builds can both be compared.",
+      "knownIssues": "the emulator appends to the root's rev-client.log, outside the session's listed directories; `sv_use_steam_voice` is unknown on this build; the capture line prints the UTF-8 name as 14 replacement characters, not chased; the voice in this demo is microphone input, not the scripted tone: the engine opens voice_input.wav relative to the folder holding hl2.exe and the wav was placed in tf/ (docs/findings/02-net-messages.md, 'Correction, 2026-10-29')",
+      "privacyNote": "the player name is the script's `tf2ds_specimen` start name, and the cfg's own name steps take on this build; no personal data beyond the in-game name"
     },
     {
       "file": "demos/tf2-2011-build4604-spec-pov-cp_granary.dem",
       "sha256": "a133bb4fdf1ff9f52ae7077b314c697ef06b58417cbce997106ebccfd707c341",
       "sizeBytes": 3119444,
-      "source": "TODO: scripted, tools/specimen/tf2ds_specimen.cfg + the era layer; cfg commit and launch from the plan's session log",
+      "source": "scripted: tools/specimen/tf2ds_specimen.cfg plus tf2ds_era_2011.cfg, recorded 2026-10-29 on TF2 build 4604, SteamClientDll blanked as the shipped .bat does, then hl2.exe -game tf -steam -appid 440 with the RCON arguments (the first start shut down, the second ran), sv_use_steam_voice 0 before map",
       "pointOfView": "POV",
       "build": 4604,
       "demoProtocol": 3,
@@ -325,17 +325,17 @@
         "dem_stringtables": 1,
         "dem_stop": 1
       },
-      "era": "TODO",
-      "eraEvidence": "TODO: the session's version lines",
-      "whyItMatters": "TODO",
-      "knownIssues": "TODO",
-      "privacyNote": "TODO"
+      "era": "15 June 2011, exactly",
+      "eraEvidence": "`Exe build: 13:46:52 Jun 15 2011 (4604)`",
+      "whyItMatters": "The corpus's only protocol-16 era, the value where `svc_ServerInfo`'s replay flag changes (read as `protocol > 15`), recorded from the same script as every other era so the boundary is compared with 15 below and 24 above. It is the fourth era with both modes.",
+      "knownIssues": "`cl_savescreenshotstosteam` is unknown; `cl_hud_playerclass_use_playermodel` (the owner's cfg) is refused 14 times; `sv_use_steam_voice` defaults to 1 and disables `voice_inputfromfile`, so the era cfg sets it to 0 before `map` (the first pass carried no `svc_VoiceData`); the capture line prints the UTF-8 name as 14 replacement characters, not chased; the voice in this demo is microphone input, not the scripted tone: the engine opens voice_input.wav relative to the folder holding hl2.exe and the wav was placed in tf/ (docs/findings/02-net-messages.md, 'Correction, 2026-10-29')",
+      "privacyNote": "the player name is the script's `tf2ds_specimen` start name, and the cfg's own name steps take on this build; no personal data beyond the in-game name"
     },
     {
       "file": "demos/tf2-2011-build4604-spec-stv-cp_granary.dem",
       "sha256": "1f180a17d5d84ea2e0da2bba495ca9ffc3216de31c81655fe02e85c7af3a2979",
       "sizeBytes": 1043987,
-      "source": "TODO: scripted, tools/specimen/tf2ds_specimen.cfg + the era layer; cfg commit and launch from the plan's session log",
+      "source": "scripted: tools/specimen/tf2ds_specimen.cfg plus tf2ds_era_2011.cfg, recorded 2026-10-29 on TF2 build 4604, SteamClientDll blanked as the shipped .bat does, then hl2.exe -game tf -steam -appid 440 with the RCON arguments (the first start shut down, the second ran), sv_use_steam_voice 0 before map",
       "pointOfView": "SourceTV",
       "build": 4604,
       "demoProtocol": 3,
@@ -356,17 +356,17 @@
         "dem_synctick": 1,
         "dem_stop": 1
       },
-      "era": "TODO",
-      "eraEvidence": "TODO: the session's version lines",
-      "whyItMatters": "TODO",
-      "knownIssues": "TODO",
-      "privacyNote": "TODO"
+      "era": "15 June 2011, exactly",
+      "eraEvidence": "`Exe build: 13:46:52 Jun 15 2011 (4604)`",
+      "whyItMatters": "The SourceTV half of the protocol-16 pair, and the third era with both modes. Same session and script as the POV, which is how a difference between the two modes is separated from what happened.",
+      "knownIssues": "`cl_savescreenshotstosteam` is unknown; `cl_hud_playerclass_use_playermodel` (the owner's cfg) is refused 14 times; `sv_use_steam_voice` defaults to 1 and disables `voice_inputfromfile`, so the era cfg sets it to 0 before `map` (the first pass carried no `svc_VoiceData`); the capture line prints the UTF-8 name as 14 replacement characters, not chased; the voice in this demo is microphone input, not the scripted tone: the engine opens voice_input.wav relative to the folder holding hl2.exe and the wav was placed in tf/ (docs/findings/02-net-messages.md, 'Correction, 2026-10-29')",
+      "privacyNote": "the player name is the script's `tf2ds_specimen` start name, and the cfg's own name steps take on this build; no personal data beyond the in-game name"
     },
     {
       "file": "demos/tf2-2013-build1729296-spec-pov-cp_granary.dem",
       "sha256": "2963f6c80edde13cddf22531092973e23e81bd45c8fb356de91b1f787129741d",
       "sizeBytes": 3144947,
-      "source": "TODO: scripted, tools/specimen/tf2ds_specimen.cfg + the era layer; cfg commit and launch from the plan's session log",
+      "source": "scripted: tools/specimen/tf2ds_specimen.cfg, recorded 2026-10-29 on TF2 build 1729296 (exe 5252), hl2.exe launched by the script with the tf2 MCP's arguments plus +fps_max 66 +sv_lan 1 +tv_enable 1, the start name set to tf2ds_specimen before map",
       "pointOfView": "POV",
       "build": 1729296,
       "demoProtocol": 3,
@@ -389,17 +389,17 @@
         "dem_stringtables": 1,
         "dem_stop": 1
       },
-      "era": "TODO",
-      "eraEvidence": "TODO: the session's version lines",
-      "whyItMatters": "TODO",
-      "knownIssues": "TODO",
-      "privacyNote": "TODO"
+      "era": "25 March 2013, exactly",
+      "eraEvidence": "`Exe build: 17:24:29 Mar 25 2013 (5252)`",
+      "whyItMatters": "Protocol 24 as it stood on 25 March 2013, on the same script as every other era, so a protocol-24 difference can be split into '2013' and 'now' by comparing it with the live pair.",
+      "knownIssues": "no mid-demo name change: the client takes the Steam persona (PinKushin) and ignores name; `cl_hud_playerclass_use_playermodel` (the owner's cfg) is refused 14 times; the voice in this demo is microphone input, not the scripted tone: the engine opens voice_input.wav relative to the folder holding hl2.exe and the wav was placed in tf/ (docs/findings/02-net-messages.md, 'Correction, 2026-10-29')",
+      "privacyNote": "the player name is `PinKushin` (an ASCII game handle), the client's Steam persona; the roster carries the owner's real Steam account ID (STEAM_0:1:28447543); the owner has been asked whether that may stay in the public repository"
     },
     {
       "file": "demos/tf2-2013-build1729296-spec-stv-cp_granary.dem",
       "sha256": "b087b17e62e2a09bfc6f702f282b71895494e07d8c5b13e452876a5f68c13e69",
       "sizeBytes": 1118435,
-      "source": "TODO: scripted, tools/specimen/tf2ds_specimen.cfg + the era layer; cfg commit and launch from the plan's session log",
+      "source": "scripted: tools/specimen/tf2ds_specimen.cfg, recorded 2026-10-29 on TF2 build 1729296 (exe 5252), hl2.exe launched by the script with the tf2 MCP's arguments plus +fps_max 66 +sv_lan 1 +tv_enable 1, the start name set to tf2ds_specimen before map",
       "pointOfView": "SourceTV",
       "build": 1729296,
       "demoProtocol": 3,
@@ -420,17 +420,17 @@
         "dem_synctick": 1,
         "dem_stop": 1
       },
-      "era": "TODO",
-      "eraEvidence": "TODO: the session's version lines",
-      "whyItMatters": "TODO",
-      "knownIssues": "TODO",
-      "privacyNote": "TODO"
+      "era": "25 March 2013, exactly",
+      "eraEvidence": "`Exe build: 17:24:29 Mar 25 2013 (5252)`",
+      "whyItMatters": "The SourceTV half of the 2013 protocol-24 pair, same session and script as its POV. It is the 2013 end of the comparison against the live protocol-24 pair.",
+      "knownIssues": "no mid-demo name change: the client takes the Steam persona (PinKushin) and ignores name; `cl_hud_playerclass_use_playermodel` (the owner's cfg) is refused 14 times; the voice in this demo is microphone input, not the scripted tone: the engine opens voice_input.wav relative to the folder holding hl2.exe and the wav was placed in tf/ (docs/findings/02-net-messages.md, 'Correction, 2026-10-29')",
+      "privacyNote": "the player name is `PinKushin` (an ASCII game handle), the client's Steam persona; the roster carries the owner's real Steam account ID (STEAM_0:1:28447543); the owner has been asked whether that may stay in the public repository"
     },
     {
       "file": "demos/tf2-live-build11138802-spec-pov-cp_granary.dem",
       "sha256": "040a9f49983a44c92dfa461271e3cbb3da543a5e2be933a71b6c38aeaafaffd4",
       "sizeBytes": 3754805,
-      "source": "TODO: scripted, tools/specimen/tf2ds_specimen.cfg + the era layer; cfg commit and launch from the plan's session log",
+      "source": "scripted: tools/specimen/tf2ds_specimen.cfg plus tf2ds_era_live.cfg, recorded 2026-10-29 on TF2 build 11138802, mcp__tf2__launch with +fps_max 66 +tv_enable 1 (which starts tf_win64.exe), sv_voicecodec vaudio_celt set before map",
       "pointOfView": "POV",
       "build": 11138802,
       "demoProtocol": 3,
@@ -453,17 +453,17 @@
         "dem_stringtables": 1,
         "dem_stop": 1
       },
-      "era": "TODO",
-      "eraEvidence": "TODO: the session's version lines",
-      "whyItMatters": "TODO",
-      "knownIssues": "TODO",
-      "privacyNote": "TODO"
+      "era": "not recorded: the client's version printed Build Label 11138802 and protocol 24, and no date",
+      "eraEvidence": "not recorded: the plan's live session log quotes Build Label 11138802 and protocol 24 and no Exe build: line",
+      "whyItMatters": "The current build on the same script as every other era, so a protocol-24 difference can be split into '2013' and 'now'. Its voice codec is CELT where 2010-2013 are Speex, which makes this the controlled CELT specimen the corpus lacked.",
+      "knownIssues": "Steam offline drops the local player unless `sv_lan 1`; `sv_voicecodec` must be set to `vaudio_celt` before `map`, because `vaudio_speex` does not load on the 64-bit client; the codec is CELT where 2010-2013 are Speex, which is inherent; 14 `player_death` against 13 in every other era; the voice in this demo is microphone input, not the scripted tone: the engine opens voice_input.wav relative to the folder holding hl2.exe and the wav was placed in tf/ (docs/findings/02-net-messages.md, 'Correction, 2026-10-29')",
+      "privacyNote": "the player name is `PinKushin` (an ASCII game handle). The CLI's `-s` roster lists only SourceTV for this demo, so the player's Steam ID was NOT read; it was recorded through the real Steam client, so it may be the owner's account ID (STEAM_0:1:28447543) as in the 2008 and 2013 pairs. Not checked; the owner has been asked about those IDs in the public repository"
     },
     {
       "file": "demos/tf2-live-build11138802-spec-stv-cp_granary.dem",
       "sha256": "4e51fe405c2b9a55d3a69e25d6f8cb3cc370bb2508adf23a7fb5b8a986fe75bc",
       "sizeBytes": 1719222,
-      "source": "TODO: scripted, tools/specimen/tf2ds_specimen.cfg + the era layer; cfg commit and launch from the plan's session log",
+      "source": "scripted: tools/specimen/tf2ds_specimen.cfg plus tf2ds_era_live.cfg, recorded 2026-10-29 on TF2 build 11138802, mcp__tf2__launch with +fps_max 66 +tv_enable 1 (which starts tf_win64.exe), sv_voicecodec vaudio_celt set before map",
       "pointOfView": "SourceTV",
       "build": 11138802,
       "demoProtocol": 3,
@@ -484,11 +484,11 @@
         "dem_synctick": 1,
         "dem_stop": 1
       },
-      "era": "TODO",
-      "eraEvidence": "TODO: the session's version lines",
-      "whyItMatters": "TODO",
-      "knownIssues": "TODO",
-      "privacyNote": "TODO"
+      "era": "not recorded: the client's version printed Build Label 11138802 and protocol 24, and no date",
+      "eraEvidence": "not recorded: the plan's live session log quotes Build Label 11138802 and protocol 24 and no Exe build: line",
+      "whyItMatters": "The SourceTV half of the live protocol-24 pair: same session and script as its POV, so the mode and the era are separated. It is the CELT half of the voice comparison, where the 2010-2013 pairs are Speex.",
+      "knownIssues": "Steam offline drops the local player unless `sv_lan 1`; `sv_voicecodec` must be set to `vaudio_celt` before `map`, because `vaudio_speex` does not load on the 64-bit client; the codec is CELT where 2010-2013 are Speex, which is inherent; 14 `player_death` against 13 in every other era; the voice in this demo is microphone input, not the scripted tone: the engine opens voice_input.wav relative to the folder holding hl2.exe and the wav was placed in tf/ (docs/findings/02-net-messages.md, 'Correction, 2026-10-29')",
+      "privacyNote": "the player name is `PinKushin` (an ASCII game handle). The CLI's `-s` roster lists only SourceTV for this demo, so the player's Steam ID was NOT read; it was recorded through the real Steam client, so it may be the owner's account ID (STEAM_0:1:28447543) as in the 2008 and 2013 pairs. Not checked; the owner has been asked about those IDs in the public repository"
     }
   ],
   "censusSpecimens": {

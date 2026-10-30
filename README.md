@@ -96,6 +96,10 @@ tf2-2013-build1729296-stv-cp_foundry.dem   88 of  2,264,584 payload bits opaque 
 z1800.dem                                 357 of 14,932,648 payload bits opaque (0.00%)
 ```
 
+*Of these four, only `z1800.dem` is still in the repository. The other three were the owner's early recordings and left
+the committed corpus on 2026-10-29, replaced by the scripted era specimens; their rows are kept as the figures measured
+at the time, not re-measured, and no test prints them now.*
+
 0.00–0.19% per demo. What remains is `svc_EntityMessage`, whose body is laid out by the receiving
 entity's class and has no generic reading, and voice payloads, which are a codec. The test reports
 and does not gate — a gate would be set to today's number and then defended.

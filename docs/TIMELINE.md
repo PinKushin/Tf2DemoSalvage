@@ -55,6 +55,7 @@ The corpus's fixed points. Everything else is positioned relative to these.
 | **19 March 2008** | **14** | `engine.dll` build 3420: `StartRecording` writes the literals `3` and `14` into the header it is about to record. Dated from the binary, without launching anything. | **Measured** |
 | **19 March 2008** | **14** | TF2 build 3420. `Exe build: 20:17:35 Mar 19 2008 (3420)`, `PatchVersion=1.0.2.2`. | **Measured** |
 | **4 June 2009** | 15 | TF2 build 3862. The client's own `version` reports `Exe build: 13:52:56 Jun 4 2009 (3862)`. | **Measured** |
+| **10 June 2010** | **15** | TF2 build 4231 (1.0.9.5). The client's own `version` reports `Exe build: 16:13:38 Jun 10 2010 (4231)` and `Exe version 1.0.9.5 (tf)`. | **Measured** |
 | **15 June 2011** | **16** | TF2 build 4604. `Exe build: 13:46:52 Jun 15 2011 (4604) (440)`, `Exe version 1.1.5.8`. | **Measured** |
 | 1 Nov 2011 | 18 | ESEA S10 POV; server banner `Build: 4735`, preserved file time | **Inferred** |
 | 3 Nov 2011 | 19 | ESEA S10 POV; server banner `Build: 4743`, preserved file time | **Inferred** |
