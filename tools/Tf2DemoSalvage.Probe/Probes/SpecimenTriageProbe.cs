@@ -33,7 +33,7 @@ public sealed class SpecimenTriageProbe : IProbe
 
     /// <inheritdoc/>
     public string Summary =>
-        "net_Tick offsets, Speex silence and game-event re-encode mismatches: specimen-triage nettick <demo> | speex [demo] | events [demo]";
+        "net_Tick offsets, Speex silence and game-event re-encode mismatches: specimen-triage nettick <demo> | speex [demo] | speex-pitch [demo] | events [demo]";
 
     /// <inheritdoc/>
     public void Run(TextWriter output, IReadOnlyList<string> arguments)
@@ -62,6 +62,14 @@ public sealed class SpecimenTriageProbe : IProbe
                 break;
             case "speex-encode":
                 SpeexEncodeControl(output);
+                break;
+            case "speex-pitch":
+                SpeexPitchControl(output);
+                foreach (string demo in demos)
+                {
+                    SpeexPitch(output, demo);
+                }
+
                 break;
             case "events":
                 foreach (string demo in demos)
@@ -425,6 +433,161 @@ public sealed class SpecimenTriageProbe : IProbe
             output.WriteLine(string.Create(CultureInfo.InvariantCulture,
                 $"  {input}: 50 frames, {silent} decode all-zero, {distinct.Count} distinct, zero crossings per frame {crossings / 50.0:F1}, peak |sample| {peak} (input peak 16383)"));
         }
+    }
+
+    /// <summary>
+    /// Which input a demo's Speex voice carries: the tone of <c>tools/specimen/make-voice-wav.ps1</c> (440 Hz and 660 Hz
+    /// alternating every half second) or something aperiodic such as a live microphone. Each decoded 160-sample frame
+    /// gets its autocorrelation period; a tone read from the file and fed to the 8 kHz codec unresampled has periods
+    /// 25.1 and 16.7 samples, resampled to 8 kHz 18.2 and 12.1.
+    /// </summary>
+    private static void SpeexPitch(TextWriter output, string path)
+    {
+        byte[] bytes = File.ReadAllBytes(path);
+        NetDecodeState state = new() { NetworkProtocol = (ushort)DemoHeader.Parse(bytes).NetworkProtocol };
+        string? codec = null;
+        List<byte[]> bodies = [];
+
+        foreach ((DemoCommand _, NetMessageReadResult result) in Walk(bytes, state))
+        {
+            foreach (INetMessage message in result.Messages)
+            {
+                if (message is VoiceInitMessage init)
+                {
+                    codec = init.Codec;
+                }
+                else if (message is VoiceDataMessage voice && voice.BodyBits > 0 && !SteamVoicePayload.TryDecode(voice.Body.Span, out _))
+                {
+                    bodies.Add(voice.Body.ToArray());
+                }
+            }
+        }
+
+        if (codec != "vaudio_speex" || bodies.Count == 0)
+        {
+            output.WriteLine($"== {Path.GetFileName(path)}: codec {codec ?? "none"}, {bodies.Count} voice packets - skipped");
+            return;
+        }
+
+        using SpeexVoiceDecoder decoder = new();
+        List<short[]> frames = [];
+        foreach (byte[] body in bodies)
+        {
+            for (int at = 0; at + SpeexFrameBytes <= body.Length; at += SpeexFrameBytes)
+            {
+                frames.Add(decoder.Decode(body.AsSpan(at, SpeexFrameBytes)));
+            }
+        }
+
+        output.WriteLine($"== {Path.GetFileName(path)}: {PitchReport(frames)}");
+    }
+
+    /// <summary>The instrument's controls: three known inputs through libspeex q5 and back, then the same report.</summary>
+    private static void SpeexPitchControl(TextWriter output)
+    {
+        // make-voice-wav.ps1's samples: 11025 Hz, 440 Hz then 660 Hz, switching every 5512.5 samples.
+        static short Wav(int i) =>
+            (short)Math.Round(16383 * Math.Sin(2 * Math.PI * ((Math.Floor(i / (11025 / 2.0)) % 2 == 0) ? 440 : 660) * i / 11025.0));
+
+        // The same tone generated at 8 kHz (what a correct resample to the codec's rate would carry).
+        static short Resampled(int i) =>
+            (short)Math.Round(16383 * Math.Sin(2 * Math.PI * ((Math.Floor(i / 4000.0) % 2 == 0) ? 440 : 660) * i / 8000.0));
+
+        // A fixed-seed LCG (Numerical Recipes constants): aperiodic within a frame, identical every run.
+        uint seed = 1;
+        short Noise(int i)
+        {
+            seed = (seed * 1664525u) + 1013904223u;
+            return (short)((int)(seed >> 16) % 6000 - 3000);
+        }
+
+        output.WriteLine($"  CONTROL wav-as-8k (unresampled): {PitchReport(EncodeDecode(Wav, 300))}");
+        output.WriteLine($"  CONTROL tone-at-8k (resampled):   {PitchReport(EncodeDecode(Resampled, 300))}");
+        output.WriteLine($"  CONTROL white noise:              {PitchReport(EncodeDecode(Noise, 300))}");
+    }
+
+    private static List<short[]> EncodeDecode(Func<int, short> sample, int frameCount)
+    {
+        nint library = NativeLibrary.Load(Path.Combine(AppContext.BaseDirectory, "speex.dll"));
+        GetModeFn getMode = Export<GetModeFn>(library, "speex_lib_get_mode");
+        EncoderInitFn init = Export<EncoderInitFn>(library, "speex_encoder_init");
+        EncoderCtlFn ctl = Export<EncoderCtlFn>(library, "speex_encoder_ctl");
+        EncodeFn encode = Export<EncodeFn>(library, "speex_encode_int");
+        BitsFn bitsInit = Export<BitsFn>(library, "speex_bits_init");
+        BitsFn bitsReset = Export<BitsFn>(library, "speex_bits_reset");
+        BitsWriteFn bitsWrite = Export<BitsWriteFn>(library, "speex_bits_write");
+
+        nint encoder = init(getMode(0));
+        int quality = 5;
+        _ = ctl(encoder, 4, ref quality); // SPEEX_SET_QUALITY
+        byte[] bits = new byte[64];
+        bitsInit(bits);
+        using SpeexVoiceDecoder decoder = new();
+        List<short[]> decoded = [];
+        short[] pcm = new short[160];
+        byte[] frame = new byte[SpeexFrameBytes];
+
+        for (int n = 0; n < frameCount; n++)
+        {
+            for (int i = 0; i < pcm.Length; i++)
+            {
+                pcm[i] = sample((n * 160) + i);
+            }
+
+            bitsReset(bits);
+            _ = encode(encoder, pcm, bits);
+            _ = bitsWrite(bits, frame, frame.Length);
+            decoded.Add(decoder.Decode(frame));
+        }
+
+        return decoded;
+    }
+
+    /// <summary>
+    /// Per frame: the lag (6..40 samples) of the highest normalised autocorrelation, and that correlation. A frame is
+    /// periodic when it is at least 0.8. Reports the periodic fraction and the lag histogram of the periodic frames.
+    /// </summary>
+    private static string PitchReport(List<short[]> frames)
+    {
+        SortedDictionary<int, int> lags = [];
+        int periodic = 0, silent = 0;
+        foreach (short[] pcm in frames)
+        {
+            if (IsSilent(pcm))
+            {
+                silent++;
+                continue;
+            }
+
+            double best = double.MinValue;
+            int bestLag = 0;
+            for (int lag = 6; lag <= 40; lag++)
+            {
+                double xy = 0, xx = 0, yy = 0;
+                for (int i = 0; i + lag < pcm.Length; i++)
+                {
+                    xy += pcm[i] * (double)pcm[i + lag];
+                    xx += pcm[i] * (double)pcm[i];
+                    yy += pcm[i + lag] * (double)pcm[i + lag];
+                }
+
+                double r = xx == 0 || yy == 0 ? 0 : xy / Math.Sqrt(xx * yy);
+                if (r > best)
+                {
+                    best = r;
+                    bestLag = lag;
+                }
+            }
+
+            if (best >= 0.8)
+            {
+                periodic++;
+                lags[bestLag] = lags.GetValueOrDefault(bestLag) + 1;
+            }
+        }
+
+        return string.Create(CultureInfo.InvariantCulture,
+            $"{frames.Count} frames, {silent} silent, {periodic} periodic (r>=0.8); lag histogram [{string.Join(' ', lags.Select(e => $"{e.Key}:{e.Value}"))}]");
     }
 
     private static T Export<T>(nint library, string name)
