@@ -90,12 +90,62 @@ Falsified if the allocation does not fall by at least 0.03 MB in G, or any ident
 
 ## Environment
 
-(to be filled at the run)
+RTX 3060, i5-10600K, 2026-10-30 00:26-02:12. A = `D:/measure-f12/as2-a-src` (`2a46490c`), B = `D:/measure-f12/as2-b-src`
+(`bece7a0d`), both Release from `git archive` (117 warnings on each archive's first build, 0 on an incremental one; the
+in-tree build of `bece7a0d` is 0). Every timed run: load before 2-13% on all three samples, no other dotnet process,
+exit 0; one after-sample of 100% (run 10, as the viewer exited). Raw stdout, shots and traces in
+`D:/measure-f12/alloc2/runs/item1/`, not committed.
 
 ## Result
 
-(pending)
+**Deviations.** (1) `all.ps1`'s loop variable `$b` is the `-B` parameter in PowerShell (names ignore case), so the B
+runs were launched as label `B` — the folder `as2-B-src`, which on Windows IS `as2-b-src`: the right build, by luck
+(fixed in `e648792f` before any later pair ran). (2) The B trace of the empty view did not run: the queue's job hit its
+two-hour limit during the first-person trace. (3) Two extra empty-view shots, B2 and A3, were added after the first
+pair differed in the top bar (below).
+
+**Controls.** Every timed run ended at tick 31,323-31,347; empty-view moment lines `posed 0`.
+
+**Allocation (the decision).** `gc:` line per run, and the main thread's bytes (`render thread … bytes a frame`, which
+is the main thread by the 10-25 record's reading):
+
+| view | A (4 runs) | B (4 runs) | B − A |
+|---|---|---|---|
+| first person, MB a frame | 0.97-1.00 | 0.88-0.89 | **−0.10 MB** |
+| first person, main thread bytes | 747,451-752,872 (750,856) | 641,731-648,412 (646,136) | **−104,720 (−14%)**, ranges apart |
+| first person, gc pause | 0.22-0.23 ms | 0.20-0.21 ms | −0.02 ms |
+| empty, MB a frame | 0.49-0.53 | 0.49 | −0.01 |
+| empty, main thread bytes | 389,160-398,843 (391,899) | 380,352-382,061 (381,120) | **−10,779 (−2.8%)**, ranges apart |
+
+Attribution (B trace, first person, same analyser as the census): 641.1 KiB a frame against the census's 744.2; the
+econ sites are gone but for `PaintFor`'s dictionary on the painted items (1.7 KiB), and untouched sites hold
+(`EffectEntities` boxed enumerator 16.2 vs 16.5, `WorldDecals.Placed` 18.8 vs 19.9, `ImpactParticles` 54.5 vs 54.1).
+
+**Frame, steady window (seconds 6-20), per-second lines frame-weighted, ms (% of A's mean steady frame):**
+
+| view | part | A | B | B − A | |
+|---|---|---|---|---|---|
+| first person | frame | 6.035-6.100 (6.076) | 5.920-6.030 (5.980) | **−0.095 (1.6%)** | ranges apart by 0.005 ms |
+| first person | `camera pose` | 2.893-2.943 (2.922) | 2.794-2.836 (2.821) | **−0.101 (1.7%)** | ranges apart |
+| first person | `advance` | 0.570-0.587 (0.580) | 0.556-0.580 (0.567) | −0.013 | overlap |
+| first person | `camera particles` (untouched) | 1.460-1.489 (1.471) | 1.481-1.527 (1.498) | +0.027 | overlap |
+| empty | frame | 2.515-3.245 (2.714) | 2.529-2.584 (2.551) | — | overlap (run 14-A 3.245) |
+| empty | `camera pose` | 0.465-0.501 (0.478) | 0.467-0.475 (0.472) | −0.006 | overlap |
+
+The pose falls because the Paint and Attachments delegates run inside placement, which is in `camera pose`; each placed
+item prop rebuilt its definition's attributes through the prefab chain twice a frame.
+
+**Identity.** Paused shots (tick 30000, `pixdiff`, a C# port of `2026-10-27-empty-view-breakdown/pixdiff.ps1`'s rule):
+first person A/B 0 pixels whole and world, A/A2 0. Empty view: world 0 in every pair; the whole frame differs by 46,816
+pixels in the top bar (box (0,0)-(1279,48): the bar's dark background present or absent) in A/B **and** in A/A3 and
+B/B2, while A/A2 and A/B2 are identical — a two-state top bar both builds show from run to run, not the change.
+Mode-2 verifier on B: `queue verify: 821500 frames checked, 0 changed`, `QueuedThreaded on 6 physical cores`, exit 0.
 
 ## Verdict
 
-(pending)
+**Confirmed.** The attribute sites' allocation is gone: −0.10 MB a frame in first person (main thread −105 KB, −14%,
+ranges apart), −0.01 MB in the empty view, with the trace showing the sites absent and the untouched ones unchanged.
+Identity held (world pixels, the verifier, and a top-bar difference both builds show). The frame is **claimed narrowly**
+in first person: −0.095 ms (1.6%) with the ranges apart by only 0.005 ms, carried by `camera pose` −0.101 ms (ranges
+clearly apart); not claimed in the empty view. Above the 0.01 ms bar, from removing allocation and a per-call prefab
+walk, with the engine's own shape (definition attributes parsed once, item attributes streamed).
