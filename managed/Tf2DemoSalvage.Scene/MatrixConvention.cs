@@ -47,22 +47,42 @@ internal static class MatrixConvention
             throw new ArgumentException("A matrix3x4_t is twelve floats.", nameof(transform));
         }
 
-        return
-        [
-            transform[0], transform[4], transform[8], 0f,
-            transform[1], transform[5], transform[9], 0f,
-            transform[2], transform[6], transform[10], 0f,
-            transform[3], transform[7], transform[11], 1f,
-        ];
+        Span<float> twelve = stackalloc float[12];
+
+        Copy(transform, twelve);
+
+        float[] model = new float[16];
+        ToModelMatrix(twelve, model);
+        return model;
+    }
+
+    /// <summary><see cref="ToModelMatrix(IReadOnlyList{float})"/> into sixteen floats the caller owns (B599).</summary>
+    /// <param name="transform">Twelve floats, translation in column three.</param>
+    /// <param name="into">Sixteen floats, translation in row three.</param>
+    public static void ToModelMatrix(ReadOnlySpan<float> transform, Span<float> into)
+    {
+        into[0] = transform[0]; into[1] = transform[4]; into[2] = transform[8]; into[3] = 0f;
+        into[4] = transform[1]; into[5] = transform[5]; into[6] = transform[9]; into[7] = 0f;
+        into[8] = transform[2]; into[9] = transform[6]; into[10] = transform[10]; into[11] = 0f;
+        into[12] = transform[3]; into[13] = transform[7]; into[14] = transform[11]; into[15] = 1f;
+    }
+
+    /// <summary>The first <paramref name="into"/>.Length floats of a list, into a span.</summary>
+    private static void Copy(IReadOnlyList<float> from, Span<float> into)
+    {
+        for (int index = 0; index < into.Length; index++)
+        {
+            into[index] = from[index];
+        }
     }
 
     /// <summary>A row-vector 4×4 back to Valve's <c>matrix3x4_t</c>.</summary>
-    /// <param name="model">Sixteen floats, as <see cref="ToModelMatrix"/> produces.</param>
+    /// <param name="model">Sixteen floats, as <see cref="ToModelMatrix(IReadOnlyList{float})"/> produces.</param>
     /// <returns>Twelve floats, row-major, translation in column 3.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="model"/> is null.</exception>
     /// <exception cref="ArgumentException">It is not sixteen floats.</exception>
     /// <remarks>
-    /// **The inverse of <see cref="ToModelMatrix"/>, added because a caller crossed the boundary by
+    /// **The inverse of <see cref="ToModelMatrix(IReadOnlyList{float})"/>, added because a caller crossed the boundary by
     /// hand and got it wrong.** D88's entity placement fed a sixteen-float model matrix into
     /// something expecting a <c>matrix3x4_t</c>; what came out was
     /// <c>ArgumentException: Destination array was not long enough</c> at the first frame of
@@ -84,14 +104,9 @@ internal static class MatrixConvention
 
         Span<float> sixteen = stackalloc float[16];
 
-        for (int index = 0; index < 16; index++)
-        {
-            sixteen[index] = model[index];
-        }
+        Copy(model, sixteen);
 
-        float[] bone = new float[12];
-        Transpose(sixteen, bone);
-        return bone;
+        return BoneMatrixOf(sixteen);
     }
 
     /// <summary>A placement straight into a <c>matrix3x4_t</c> the caller owns — <see cref="ToBoneMatrix(IReadOnlyList{float})"/> of its <see cref="Content.Bsp.PropTransform.ToMatrix"/>, without either array (B574).</summary>
@@ -108,6 +123,17 @@ internal static class MatrixConvention
         Span<float> model = stackalloc float[16];
         placement.WriteMatrix(model);
         Transpose(model, into);
+    }
+
+    /// <summary><see cref="ToBoneMatrix(IReadOnlyList{float})"/> from sixteen floats on the stack (B599).</summary>
+    /// <param name="model">Sixteen floats.</param>
+    /// <returns>Twelve floats, row-major, translation in column 3.</returns>
+    /// <remarks>Named apart from <see cref="ToBoneMatrix(IReadOnlyList{float})"/> so an array argument cannot bind here and skip its length check.</remarks>
+    public static float[] BoneMatrixOf(ReadOnlySpan<float> model)
+    {
+        float[] bone = new float[12];
+        Transpose(model, bone);
+        return bone;
     }
 
     /// <summary>The one transpose across the boundary: a row-vector 4×4 into a <c>matrix3x4_t</c>.</summary>
@@ -133,8 +159,23 @@ internal static class MatrixConvention
         ArgumentNullException.ThrowIfNull(first);
         ArgumentNullException.ThrowIfNull(second);
 
-        float[] result = new float[16];
+        Span<float> a = stackalloc float[16];
+        Span<float> b = stackalloc float[16];
 
+        Copy(first, a);
+        Copy(second, b);
+
+        float[] result = new float[16];
+        Multiply(a, b, result);
+        return result;
+    }
+
+    /// <summary><see cref="Multiply(IReadOnlyList{float}, IReadOnlyList{float})"/> into sixteen floats the caller owns (B599).</summary>
+    /// <param name="first">Applied first.</param>
+    /// <param name="second">Applied second.</param>
+    /// <param name="result">Their product; must not overlap either operand.</param>
+    public static void Multiply(ReadOnlySpan<float> first, ReadOnlySpan<float> second, Span<float> result)
+    {
         for (int row = 0; row < 4; row++)
         {
             for (int column = 0; column < 4; column++)
@@ -149,8 +190,6 @@ internal static class MatrixConvention
                 result[(row * 4) + column] = total;
             }
         }
-
-        return result;
     }
 
     /// <summary>Valve's <c>ConcatTransforms</c>: one 3×4 applied after another.</summary>
@@ -168,8 +207,23 @@ internal static class MatrixConvention
         ArgumentNullException.ThrowIfNull(first);
         ArgumentNullException.ThrowIfNull(second);
 
-        float[] result = new float[12];
+        Span<float> a = stackalloc float[12];
+        Span<float> b = stackalloc float[12];
 
+        Copy(first, a);
+        Copy(second, b);
+
+        float[] result = new float[12];
+        Concatenate(a, b, result);
+        return result;
+    }
+
+    /// <summary><see cref="Concatenate(IReadOnlyList{float}, IReadOnlyList{float})"/> into twelve floats the caller owns (B599).</summary>
+    /// <param name="first">The outer transform.</param>
+    /// <param name="second">The inner one.</param>
+    /// <param name="result">Twelve floats in Valve's layout; must not overlap either operand.</param>
+    public static void Concatenate(ReadOnlySpan<float> first, ReadOnlySpan<float> second, Span<float> result)
+    {
         for (int row = 0; row < 3; row++)
         {
             for (int column = 0; column < 3; column++)
@@ -186,7 +240,5 @@ internal static class MatrixConvention
                 (first[(row * 4) + 2] * second[11]) +
                 first[(row * 4) + 3];
         }
-
-        return result;
     }
 }
