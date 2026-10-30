@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using Tf2DemoSalvage.Core.Container;
 using Tf2DemoSalvage.Core.Net;
+using Tf2DemoSalvage.Probe;
 
 namespace Tf2DemoSalvage.Core.Tests.Net;
 
@@ -71,8 +72,15 @@ public sealed class CorpusNetMessageTests
             // was saturating the machine froze the game for about 36 seconds mid-match, stepping
             // the offset by 3,500 ticks. The old assertion called that "the decoder lost the
             // stream". It had not - the same file decodes every entity snapshot it is offered.
+            //
+            // **A long host frame is the other legitimate step** (finding 106, 2026-10-29): a POV
+            // stamp is wall time and the server simulates at most ~100 ms a frame, so a client at
+            // ~17 fps — the 2007 scripted specimen — drifted 73 ticks in 200 packets with no stamp
+            // gap. A packet whose own net_Tick reports such a frame AND whose stamp outran the server
+            // starts a run too; the rule is NetTickRuns, shared with the specimen-triage probe.
             List<List<int>> runs = [[]];
             int previousTick = int.MinValue;
+            int previousServerTick = int.MinValue;
 
             foreach ((DemoCommand packet, INetMessage? first) in Sampled(path, protocol, typeBits))
             {
@@ -81,13 +89,15 @@ public sealed class CorpusNetMessageTests
                     continue;
                 }
 
-                if (previousTick != int.MinValue && packet.Tick - previousTick > GapTicks)
+                if (previousTick != int.MinValue && NetTickRuns.Breaks(
+                    packet.Tick - previousTick, tick.Tick - previousServerTick, tick.HostFrameTimeSeconds))
                 {
                     runs.Add([]);
                 }
 
                 runs[^1].Add(tick.Tick - packet.Tick);
                 previousTick = packet.Tick;
+                previousServerTick = tick.Tick;
             }
 
             List<int> longest = runs.OrderByDescending(run => run.Count).First();
@@ -112,16 +122,19 @@ public sealed class CorpusNetMessageTests
                 $"{Path.GetFileName(path)}: within an unbroken run of {longest.Count} packets " +
                 $"the server-to-demo offset still spreads {spread}. Gaps are excluded, so this " +
                 $"is the decoder losing the stream rather than the recording pausing");
+
+            // **A floor on the run, so splitting cannot pass the spread by itself.** A classifier
+            // that broke at every packet would leave runs of one with a spread of zero. The
+            // shortest longest-run across gcor is 61 packets (2026-10-29, this test's own output).
+            longest.Count.ShouldBeGreaterThanOrEqualTo(
+                ShortestLongestRun,
+                $"{Path.GetFileName(path)}: the longest unbroken run is {longest.Count} packets, so " +
+                $"the run splitting, not the decoder, decided the spread");
         }
     }
 
-    /// <summary>A demo-clock jump this large is a recording gap, not the usual one to three.</summary>
-    /// <remarks>
-    /// Half a second at TF2's tick rate. Normal packet spacing is one to three ticks, and the
-    /// stalls this separates out are hundreds — so the threshold sits in a wide empty band rather
-    /// than near either population, which is what makes it a classification and not a tolerance.
-    /// </remarks>
-    private const int GapTicks = 32;
+    /// <summary>Under the 61 packets the shortest longest-run measured across gcor (2026-10-29).</summary>
+    private const int ShortestLongestRun = 50;
 
     /// <summary>Beyond any real server uptime, so only a misread reaches it.</summary>
     private const int ImplausibleOffset = 100_000_000;

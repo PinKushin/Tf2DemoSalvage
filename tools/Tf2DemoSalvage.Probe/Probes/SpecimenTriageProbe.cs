@@ -163,9 +163,9 @@ public sealed class SpecimenTriageProbe : IProbe
 
                 clampedRuns[^1].Add(tick.Tick - command.Tick);
 
-                // The narrower form: break only where the frame was over 100 ms AND the demo clock outran the
-                // server's by more than the usual one-tick jitter in that packet.
-                if (previousDemo != int.MinValue && (dDemo > 32 || (tick.HostFrameTimeSeconds > 0.1f && dDemo - dNet >= 2)))
+                // The narrower form, which the corpus test adopted: break only where the frame was over 100 ms AND the
+                // demo clock outran the server's by more than the usual one-tick jitter in that packet.
+                if (previousDemo != int.MinValue && NetTickRuns.Breaks(dDemo, dNet, tick.HostFrameTimeSeconds))
                 {
                     divergedRuns.Add([]);
                 }
