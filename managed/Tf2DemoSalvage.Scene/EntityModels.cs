@@ -563,7 +563,8 @@ public sealed partial class EntityModelSet : Hud.IMdlCache, IPosedEntities
         int EligibleBuilds = 0,
         long PrePose = 0,
         int PrePosed = 0,
-        long PrePoseBlend = 0)
+        long PrePoseBlend = 0,
+        FlexCounters Flex = default)
     {
         /// <summary>What happened between an earlier snapshot and this one.</summary>
         /// <param name="before">The earlier snapshot.</param>
@@ -620,7 +621,8 @@ public sealed partial class EntityModelSet : Hud.IMdlCache, IPosedEntities
                 EligibleBuilds - before.EligibleBuilds,
                 PrePose - before.PrePose,
                 PrePosed - before.PrePosed,
-                PrePoseBlend - before.PrePoseBlend);
+                PrePoseBlend - before.PrePoseBlend,
+                Flex.Since(before.Flex));
     }
 
     /// <summary>Every pose-phase counter as it stands now.</summary>
@@ -668,7 +670,11 @@ public sealed partial class EntityModelSet : Hud.IMdlCache, IPosedEntities
         SetupEligibleBuilds,
         PrePoseTicks,
         PrePosed,
-        PrePoseBlendTicks);
+        PrePoseBlendTicks,
+        _flexTally.Snapshot());
+
+    /// <summary>The parts of <see cref="PlaceFlexTicks"/>, added where each ran (<see cref="FlexCounters"/>).</summary>
+    private readonly FlexTally _flexTally = new();
 
     /// <summary>Unparented props the world collation filed, ever (finding 82).</summary>
     public int CollateFixed { get; private set; }

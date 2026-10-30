@@ -56,4 +56,10 @@
     <ProjectReference Include="..\Tf2DemoSalvage.SdkReference\Tf2DemoSalvage.SdkReference.csproj" />
   </ItemGroup>
 
+  <!-- The face's pre-rewrite vertex work, one copy shared with Scene.Tests: the reference FlexFor is held to here
+       through the production path (docs/measurements/2026-10-30-flex-for-cost-after.md). -->
+  <ItemGroup>
+    <Compile Include="..\Tf2DemoSalvage.Scene.Tests\FaceFlexReference.cs" Link="FaceFlexReference.cs" />
+  </ItemGroup>
+
 </Project>

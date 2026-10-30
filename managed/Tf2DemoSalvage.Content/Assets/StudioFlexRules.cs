@@ -302,9 +302,15 @@ public static class StudioFlexRules
         ArgumentNullException.ThrowIfNull(data);
 
         int applied = 0;
+        IReadOnlyList<StudioMeshFlex> flexes = data.Flexes;
 
-        foreach (StudioMeshFlex flex in data.Flexes)
+        // **Indexed, not enumerated**: a `foreach` over the interface made two interface calls and a copy per vertex
+        // animation. Removing them took the accumulation from 0.21 to 0.16 ms a rebuild on f12, about 9 ns an animation
+        // still unexplained (docs/measurements/2026-10-30-flex-for-cost-after.md). The order of the flexes, of their
+        // vertices and of every add is unchanged, so the sums are the same bits.
+        for (int index = 0; index < flexes.Count; index++)
         {
+            StudioMeshFlex flex = flexes[index];
             float w1 = Ramp(flex, At(weights, flex.FlexDesc));
             float w2 = Ramp(flex, At(delayed, flex.FlexDesc));
             float w3 = w1;
@@ -323,7 +329,10 @@ public static class StudioFlexRules
                 continue;
             }
 
-            foreach (StudioVertAnim anim in flex.Vertices)
+            // The reader stores an array; any other list is copied once, here.
+            ReadOnlySpan<StudioVertAnim> anims = flex.Vertices as StudioVertAnim[] ?? [.. flex.Vertices];
+
+            foreach (ref readonly StudioVertAnim anim in anims)
             {
                 int at = anim.Vertex * 3;
 

@@ -94,6 +94,9 @@ public sealed class MomentCostLog
     private long _placeMatrix;
     private long _placeSwap;
     private long _placeFlex;
+
+    /// <summary>The parts of <see cref="_placeFlex"/>, summed as each rebuild carried them.</summary>
+    private FlexCounters _flex;
     private long _corpseBuilding;
 
     /// <summary><see cref="MomentPhases.PoseRest"/>, summed as each rebuild computed it — carried, not re-derived here.</summary>
@@ -192,6 +195,7 @@ public sealed class MomentCostLog
         _placeMatrix += phases.Counters.PlaceMatrix;
         _placeSwap += phases.Counters.PlaceSwap;
         _placeFlex += phases.Counters.PlaceFlex;
+        _flex = _flex.Add(phases.Counters.Flex);
         _corpseBuilding += phases.Counters.CorpseBuilding;
         _rest += phases.PoseRest;
 
@@ -255,6 +259,20 @@ public sealed class MomentCostLog
             + $", baked {Mean(_baked, over):0.#}"
             + $", place {Mean(_place, over):0.#}"
             + $" (compose {Mean(_placeCompose, over):0.##}, fade {Mean(_placeFade, over):0.##}, build {Mean(_placeBuild, over):0.##} of which binds {Mean(_placeBinds, over):0.##}, lookups {Mean(_placeLookups, over):0.##} = matrix {Mean(_placeMatrix, over):0.##}, swap {Mean(_placeSwap, over):0.##}, flex {Mean(_placeFlex, over):0.##})"
+
+            // The parts of `flex` at a finer width than the line's: about a tenth of a millisecond a face over ten parts.
+            + $", flex parts (driving {Mean(_flex.Driving, over):0.###} = scenes {Mean(_flex.Scenes, over):0.###}"
+            + $", voices {Mean(_flex.Voices, over):0.###}, step {Mean(_flex.Step, over):0.###}"
+            + $"; local {Mean(_flex.Local, over):0.###}, rules {Mean(_flex.Rules, over):0.###}"
+            + $", delayed {Mean(_flex.Delayed, over):0.###}, probe {Mean(_flex.Probe, over):0.###}"
+            + $", corners {Mean(_flex.Corners, over):0.###}, clear {Mean(_flex.Clear, over):0.###}"
+            + $", deltas {Mean(_flex.Deltas, over):0.###}, slots {Mean(_flex.Slots, over):0.###}"
+            + $", resting {Mean(_flex.Resting, over):0.###}"
+            + $"; calls {_flex.Calls / (double)over:0.#}, faces {_flex.Faces / (double)over:0.#}"
+            + $" = own {_flex.Own / (double)over:0.#}, worn {_flex.Worn / (double)over:0.#}"
+            + $", corpse {_flex.Corpse / (double)over:0.#}, resting {_flex.RestingFaces / (double)over:0.#}"
+            + $"; hits {_flex.Hits / (double)over:0.#}, misses {_flex.Misses / (double)over:0.#}"
+            + $", vertices {_flex.Vertices / (double)over:0.#})"
             + $", undrawn {Mean(_undrawn, over):0.###} ({_census.Props / (double)over:0.#} props"
             + $", {_census.Instances / (double)over:0.#} instances, sun {_census.SunUndrawn / (double)over:0.##}"
             + $" vs world {_census.SunWorld / (double)over:0.##})"
@@ -330,6 +348,7 @@ public sealed class MomentCostLog
         _placeMatrix = 0;
         _placeSwap = 0;
         _placeFlex = 0;
+        _flex = default;
         _corpseBuilding = 0;
         _rest = 0;
         _poseBuilds = 0;

@@ -888,3 +888,28 @@ double-buffered. That also means `_particleSheets` stops being written by both t
 0.00 ms, because the pose (~3 ms) outlasts what is left of the draw. So the rest of rung 3 is parity of structure. It
 buys frame time only where the pose is shorter than the draw's remainder (the empty view: 0.55 ms pose against a
 0.32 ms draw, where neither build waits).
+
+## (15) Follow-up, 2026-10-30: the face's CPU cost is its vertex work, not its weights (B597)
+
+`flex` (`FlexFor`, the CPU half of section 13's face) was split part by part on f12 tick 30000, gummo first person
+(measurements/2026-10-30-flex-for-cost.md). *Measured:* 5.8 faces a rebuild (4.2 players' own, 1.3 corpses, 0.25 worn
+items), every one a cache miss, as section 13 counted. Of 0.53-0.55 ms (measurements/2026-10-30-flex-for-cost.md), the accumulation took 0.20-0.21 and the write
+into the flexed slots 0.16. The global weights (`SetupGlobalWeights`, the scene and voice lookups) took 0.08-0.09, the
+scratch clear 0.03, and the rules 0.024.
+
+**The wrong turn, kept.** The record predicted the weights would be the largest part. A TF player's controllers decay
+every call and its global list is rebuilt by name each time, so that part looked like the waste. The split falsified it:
+the weights are a sixth, and the vertex work is two thirds.
+
+**What moved it** (measurements/2026-10-30-flex-for-cost-after.md), with every output bit held:
+- The accumulation now walks the vertex animations as a span. It was a `foreach` over `IReadOnlyList`, which made two
+  interface calls and a struct copy per animation.
+- The clear now covers only the vertices the model's flexes name. Before, it cleared the whole scratch, which is grown to
+  the largest model.
+- The slot write checks every slot's range once, not per slot.
+
+`flex` went from 0.565-0.675 to 0.424-0.537 ms (measurements/2026-10-30-flex-for-cost-after.md), interleaved three
+against three: about a quarter. The accumulation is still about 9 ns a vertex animation applied (*arithmetic* on
+measurements/2026-10-30-flex-for-cost-after.md: 0.16 ms over 17,000), well above what its six adds need.
+Where the rest goes is the next split, not yet made. Candidates: the four ramps per flex over every flex of the model,
+and the scattered writes.

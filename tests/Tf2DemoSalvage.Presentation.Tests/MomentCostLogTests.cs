@@ -242,6 +242,55 @@ public sealed class MomentCostLogTests
     }
 
     /// <remarks>
+    /// **The parts of `flex`, each a distinct width, over two identical rebuilds**: a mean prints each value once, a sum
+    /// would print it doubled, and a column printing its neighbour's value cannot pass.
+    /// </remarks>
+    [Test]
+    public void Report_WithFlexParts_NamesEachAsAMeanPerRebuild()
+    {
+        MomentCostLog log = new(every: 2);
+
+        MomentPhases phases = Posing(100) with
+        {
+            Counters = new EntityModelSet.PoseCounters(
+                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                PlaceFlex: 90 * Millisecond,
+                Flex: new FlexCounters(
+                    Driving: 11 * Millisecond,
+                    Scenes: 2 * Millisecond,
+                    Voices: 3 * Millisecond,
+                    Step: 4 * Millisecond,
+                    Local: 5 * Millisecond,
+                    Rules: 6 * Millisecond,
+                    Delayed: 7 * Millisecond,
+                    Probe: 8 * Millisecond,
+                    Corners: 9 * Millisecond,
+                    Clear: 10 * Millisecond,
+                    Deltas: 12 * Millisecond,
+                    Slots: 13 * Millisecond,
+                    Resting: 14 * Millisecond,
+                    Calls: 40,
+                    Faces: 9,
+                    Own: 5,
+                    Worn: 2,
+                    Corpse: 1,
+                    RestingFaces: 1,
+                    Hits: 3,
+                    Misses: 5,
+                    Vertices: 1234)),
+        };
+
+        _ = log.Report(phases, sampleTicks: 0);
+
+        Assert.That(
+            log.Report(phases, sampleTicks: 0),
+            Does.Contain(
+                "flex 90), flex parts (driving 11 = scenes 2, voices 3, step 4; local 5, rules 6, delayed 7, probe 8, corners 9"
+                + ", clear 10, deltas 12, slots 13, resting 14; calls 40, faces 9 = own 5, worn 2, corpse 1, resting 1"
+                + "; hits 3, misses 5, vertices 1234)"));
+    }
+
+    /// <remarks>
     /// **The step is inside `advance`, so it is taken out once.** 50 ms of pose, 30 of advance holding 20 of stepping: the
     /// formula reads 20. Subtracting both would read 0, `corpses` alone 30, and neither 50 — four candidates, four answers.
     /// </remarks>
