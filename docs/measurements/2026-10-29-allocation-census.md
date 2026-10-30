@@ -64,12 +64,49 @@ None ranked. The two sites changed since 10-25 allocate nothing per frame now.
 
 ## Environment
 
-(to be filled at the run)
+RTX 3060, i5-10600K, 2026-10-30 00:08-00:20. Build `D:/measure-f12/as2-a-src` (`2a46490c`, Release; the archive's first
+build printed 117 warnings, an incremental rebuild 0, as the 10-28 record found for its trees). Loads before / after:
+G 15 11 10 / 10 4 11; E 5 3 13 / 33 11 100 (the 100 is the analyser of G, started while E ran — E is a census, not a
+timing; its shares are by allocation, not time). Another agent's corpus test (one core) ran throughout.
 
 ## Result
 
-(pending)
+**Deviations.** The traces cost frames: G read `mean 6.96 ms` over 17,244 frames with ~115-125 fps per-second lines at
+the end, against ~6.0 ms untraced (`measurements/2026-10-29-econ-attribute-walk.md`'s A runs); the bytes per frame are
+not affected by that (the control below holds). The analyser's window is the trace's last 60 s; frames are the run's
+last 60 per-second lines.
+
+**Controls.** Ticked bytes per frame against the run's own `allocated … MB a frame`: G 744.2 KiB vs 0.74 MB; E 374.8 KiB
+vs 0.40 MB — within 6%. The main thread carries 89.7% (G) and 93.9% (E). `EffectEntities.BuildEffectEntities` is
+present in both views (the positive control). The model/attribute sites shrink in E and the particle sites stay
+(below), as predicted.
+
+**The open B599 sites on `2a46490c`, KiB a frame (G / E), from the top 600 type-and-stack sites:**
+
+| B599 item | G | E | sites |
+|---|---|---|---|
+| econ attributes (`EconAttributes.Resolve`, `ItemSchema.DefinitionAttributesFor`, `PaintFor`'s dictionary, from the Paint/Attachments delegates and `PowerupBottle`) | ~89 | under 3 (none in E's top 30) | `HashSet<int>` 13.5 + 13.4, `Dictionary` 15.7 + entries 5.1, `List` 7.8 + 7.0, growth 2.6 + 2.4 + 0.9 + 0.9, `HashSet` entries 3.6 + 3.4 + 1.5, `HashSet<string>` 1.4 + 1.3 and entries 2.2 + 1.8 + 1.6, … |
+| `ImpactParticles.WithImpactEffects` | ~81 | ~53 | `DetailSpriteVertex[]` 54.1 / 45.7 (callees inlined: `ImpactDraw`'s `AddRange([…])`), `ParticleBatch[]` 13.9 + 6.9 / 3.0, `<>z__ReadOnlyArray` 4.3 / 3.7, boxed `IList` enumerators 1.1 + 0.9 |
+| `OcclusionQueries.Count` | **0** | **0** | absent from all 600 sites: removed by `c7a81430` (B597, one reused buffer) |
+| `DrawTally.NotDrawable` | **0** | **0** | absent: removed by `eb9910a3` (B259, keys per prop object) |
+| `EffectEntities.BuildEffectEntities` | ~39 | ~38 | boxed `List<DetailSpriteVertex>.Enumerator` 16.5 / 16.4, `Func<int, SceneProp>` 13.1 / 12.6, boxed `SpritePass` array enumerator 6.4 / 6.1, `ParticleBatch[]` 3.0 / 2.9 |
+| `EntityModelSet.AttachmentsOf`, `MatrixConvention.To*Matrix` | ~39 | ~36 | `float[]` at `AttachmentsOf` 15.2 + 6.1 + 3.2 + 1.4, `ToModelMatrix` 6.9, `ToBoneMatrix` 5.8 (the one kept per attachment; the rest are intermediates) |
+| `PropTransform.ToMatrix` | 0 visible | 0 visible | inlined into `AttachmentsOf`'s figure, if anywhere |
+| `WorldRenderer.DrawModel` (render thread) | ~31 | — | boxed `List<WorldBatch>.Enumerator` 16.7, closure 7.7, `ApplyProxies` enumerators 4.3 + 2.6 |
+| `WorldDecals.Placed` | 19.9 | 11.2 | `PlacedDecal` |
+| `DemoTimeline.SetLive` | 0 | 0 | absent: it allocates nothing (its cost is a lookup, not bytes) |
+
+**Not on B599's list and now among the largest:** `ItemSchema.BestVisualSection` and its `Func<Entry, string>` per
+player per frame (17.0 KiB G, 12.9 E, with `BaseBodygroups`/`ActivityReplacements` beside it ~10 more), `SceneProp`
+records from `DemoTimeline.BuildProp` (21.8 G) and `WeaponPropModels.Resolve` (8.3 / 8.6), `WorldDynamicLights.BrushesOf`
+`LitBrush[]` (13.7 / 13.6), `VguiRenderer.ShadingConstants` `float[]` (9.8 / 9.7), `LevelLighting.Entry`'s closure (15.3 G).
 
 ## Verdict
 
-(pending)
+**Confirmed**, both predictions: `OcclusionQueries` and `DrawTally.NotDrawable` allocate nothing measurable now (0 of
+600 sites in both views), and the econ attribute sites are ~89 KiB a frame in G, inside the 60-150 band. The third
+prediction is **falsified as worded**: G read 0.74 MB a frame, not within 0.1 MB of the 10-28 record's 0.93-0.95 — the
+traced run's frame rate is lower (*interpolated, not tested*: work done per tick rather than per frame is then divided
+over fewer frames, which should RAISE the figure, so the cause is not established); the untraced A runs of item 1 read
+0.97-1.00 MB (`measurements/2026-10-29-econ-attribute-walk.md`), which is the comparable figure. The ranking for this
+branch: econ attributes ~89, impact batches ~81, effect entities ~39, attachments ~39 KiB a frame in G.
