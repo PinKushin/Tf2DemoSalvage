@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 
 using Tf2DemoSalvage.Content.Assets;
 using Tf2DemoSalvage.Core.Scene;
@@ -213,7 +215,40 @@ public static class FaceFlex
             }
         }
 
-        return new FlexedCorners([.. at], [.. from]);
+        int[] movedVertices = [.. moved];
+        Array.Sort(movedVertices);
+
+        return new FlexedCorners([.. at], [.. from]) { Moved = movedVertices };
+    }
+
+    /// <summary>Zeroes the deltas of the vertices a model's flexes name, and no others.</summary>
+    /// <remarks>
+    /// **What `FlexFor`'s miss needs of a scratch shared by every model** (docs/measurements/2026-10-30-flex-for-cost.md):
+    /// the accumulation writes only vertices some flex names, and <see cref="IntoFlexedSlots"/> reads only the slots of
+    /// those vertices, so every other entry is never read for this model and need not be cleared. A vertex past either
+    /// array is skipped, as both of those skip it.
+    /// </remarks>
+    /// <param name="corners">From <see cref="FlexedCorners(StudioFlexData, IReadOnlyList{int}, IReadOnlyList{int})"/>.</param>
+    /// <param name="positions">Three floats per <c>.vvd</c> vertex.</param>
+    /// <param name="normals">The same for the normals.</param>
+    public static void ClearMoved(FlexedCorners corners, float[] positions, float[] normals)
+    {
+        ArgumentNullException.ThrowIfNull(corners);
+        ArgumentNullException.ThrowIfNull(positions);
+        ArgumentNullException.ThrowIfNull(normals);
+
+        foreach (int vertex in corners.Moved)
+        {
+            int at = vertex * 3;
+
+            if (at < 0 || at + 2 >= positions.Length || at + 2 >= normals.Length)
+            {
+                continue;
+            }
+
+            positions.AsSpan(at, 3).Clear();
+            normals.AsSpan(at, 3).Clear();
+        }
     }
 
     /// <summary>Writes the deltas into only the slots a flex can move; the rest of the stream is left as it is.</summary>
@@ -230,6 +265,32 @@ public static class FaceFlex
         ReadOnlySpan<float> normals = deltas.Normals;
         ReadOnlySpan<int> at = corners.At;
         ReadOnlySpan<int> from = corners.From;
+
+        // **Every slot in range, checked once** (docs/measurements/2026-10-30-flex-for-cost.md): the per-slot checks of
+        // the loop below were most of a ~27 µs write a face. Only when some slot is out of range does that loop run, and
+        // it skips exactly what it always skipped.
+        if (at.Length > 0 && at.Length == from.Length && corners.MinAt >= 0 && corners.MinFrom >= 0 &&
+            corners.MaxFrom + 2 < positions.Length && corners.MaxFrom + 2 < normals.Length &&
+            ((long)corners.MaxAt * 6) + 5 < stream.Length)
+        {
+            ref float position = ref MemoryMarshal.GetReference(positions);
+            ref float normal = ref MemoryMarshal.GetReference(normals);
+            ref float written = ref MemoryMarshal.GetArrayDataReference(stream);
+
+            for (int index = 0; index < at.Length; index++)
+            {
+                int source = from[index];
+                ref float to = ref Unsafe.Add(ref written, at[index] * 6);
+                to = Unsafe.Add(ref position, source);
+                Unsafe.Add(ref to, 1) = Unsafe.Add(ref position, source + 1);
+                Unsafe.Add(ref to, 2) = Unsafe.Add(ref position, source + 2);
+                Unsafe.Add(ref to, 3) = Unsafe.Add(ref normal, source);
+                Unsafe.Add(ref to, 4) = Unsafe.Add(ref normal, source + 1);
+                Unsafe.Add(ref to, 5) = Unsafe.Add(ref normal, source + 2);
+            }
+
+            return stream;
+        }
 
         for (int index = 0; index < at.Length; index++)
         {
@@ -256,7 +317,23 @@ public static class FaceFlex
 /// <summary>The buffer slots a model's flexes can move (<see cref="FaceFlex.FlexedCorners"/>).</summary>
 /// <param name="At">Each slot, ascending.</param>
 /// <param name="From">Three times the slot's <c>.vvd</c> vertex.</param>
-public sealed record FlexedCorners(int[] At, int[] From);
+public sealed record FlexedCorners(int[] At, int[] From)
+{
+    /// <summary>Every <c>.vvd</c> vertex any flex of the model names, once each, ascending (<see cref="FaceFlex.ClearMoved"/>).</summary>
+    public int[] Moved { get; init; } = [];
+
+    /// <summary>The smallest slot, or 0 for none.</summary>
+    public int MinAt { get; } = At.Length > 0 ? At.Min() : 0;
+
+    /// <summary>The largest slot, or -1 for none.</summary>
+    public int MaxAt { get; } = At.Length > 0 ? At.Max() : -1;
+
+    /// <summary>The smallest vertex offset, or 0 for none.</summary>
+    public int MinFrom { get; } = From.Length > 0 ? From.Min() : 0;
+
+    /// <summary>The largest vertex offset, or -1 for none.</summary>
+    public int MaxFrom { get; } = From.Length > 0 ? From.Max() : -1;
+}
 
 /// <summary>
 /// One TF2 player's <c>C_BaseFlex</c> state, stepped once per frame: <c>SetupGlobalWeights</c> as it runs for a player
