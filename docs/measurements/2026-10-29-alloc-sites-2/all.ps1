@@ -17,9 +17,12 @@ if (-not $SkipIdentity) {
   Remove-Item Env:TF2VIEW_QUEUE_VERIFY
 }
 $i = 1
+# NOTE: PowerShell names are case-insensitive — a loop variable named `$b` IS the `-B` parameter. It was, until
+# 2026-10-30 02:05, which sent every B run to the label "B" (as2-B-src, the same folder as as2-b-src on Windows): right
+# for item 1 by luck, wrong for any later pair. Hence `$side`.
 foreach ($m in $Modes) {
-  foreach ($b in 'A', 'B', 'B', 'A', 'B', 'A', 'A', 'B') {
-    & $run -Build ($b -eq 'A' ? $A : $B) -Mode $m -Name ("{0:00}-{1}-{2}" -f $i, $m, $b) -Out $out
+  foreach ($side in 'A', 'B', 'B', 'A', 'B', 'A', 'A', 'B') {
+    & $run -Build ($side -eq 'A' ? $A : $B) -Mode $m -Name ("{0:00}-{1}-{2}" -f $i, $m, $side) -Out $out
     $i++
   }
 }
