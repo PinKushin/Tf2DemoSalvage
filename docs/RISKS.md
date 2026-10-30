@@ -40749,9 +40749,14 @@ vertices, **OpaqueModels' GPU falls 0.861 to 0.393 ms (54% of it is geometry and
 whatever the timestamp chain charges the pass), which is a third of the pass's 1.06 ms CPU, so it is not the GPU waiting
 on the CPU. The predicted V3 band (0.45-0.65) was missed low: verdict *falsified* on that clause only. The 0.468 ms is a
 floor no CPU change lowers; the 0.34 is not split into pass-boundary cost and submission pacing. The frame mean did not move
-with it (6.7-7.2 ms in all nine), so this pass is not what bounds the frame at this load. **Open:** Sky3D reads 0.75-0.80
-ms of GPU against 0.19 ms CPU (19 draws), where 2026-10-25 read 0.083, and World reads 0.48 against 0.355; OpaqueModels
-reproduced, so the pass boundaries moved between the two records for a reason not yet found. The control is a development
+with it (6.7-7.2 ms in all nine), so this pass is not what bounds the frame at this load. **The Sky3D and World shift is
+not a commit** (measurements/2026-10-30-sky3d-gpu-shift.md, *measured*): the profiler's own first build rebuilt today reads
+Clear 0.11 / Sky3D 0.80, the same as now, and the archive shows the per-pass split is a **two-state condition that flips
+between runs of the same binary in one session** (2026-10-25 run 06-M: Clear 1.334, Sky3D 0.083; run 15-M of the same record:
+Clear 0.109, Sky3D 0.776). Clear, Sky3D and World GPU are state-dependent, OpaqueModels is not; compare per-pass GPU
+figures only between runs in the same state (Clear above about 1.0 is state 1, under about 0.3 state 2; all nine B597
+runs were state 2). **Open:** what selects the state, and whether it moves the frame mean (a lead: 8.37 against 9.20-9.33 ms
+in measurements/2026-10-27-static-prop-handle-at-load.md; an A/B that mixed states could carry that as a build difference). The control is a development
 switch (`--help` lists it), off by default, tested at the draw sites; three cross-model reviews found defects in it before
 the runs (a changed default path, decals and the cloak pass unclamped, empty batches dropped, an unbounded query wait,
 record tolerances).
