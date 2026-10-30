@@ -71,7 +71,8 @@ Falsified if the allocation does not fall by at least 0.03 MB in G, or any ident
 
 - A = `2a46490c` (label `a`, `D:/measure-f12/as2-a-src`); B = this branch's code commit (label `b`,
   `D:/measure-f12/as2-b-src`), each from `git archive`, `-c Release`.
-- Every run through `docs/measurements/2026-10-29-alloc-sites-2/run.ps1` (quiet gate, `run-exclusive.ps1`, 1280x720,
+- Every run through `docs/measurements/2026-10-29-alloc-sites-2/run.ps1` (quiet gate by load: no other viewer, three samples under 25%, other agents' dotnet processes counted per run;
+  `run-exclusive.ps1`, 1280x720,
   `--tick 30000 --measure 20 +fps_max 0`): first person ABBA BAAB, then empty ABBA BAAB.
 - Identity: `--shot` per view per build plus an A/A control; one `TF2VIEW_QUEUE_VERIFY=1` run on B (first person).
   Compared with `2026-10-27-empty-view-breakdown/pixdiff.ps1 -WorldOnly`.

@@ -36,7 +36,8 @@ None ranked. The two sites changed since 10-25 allocate nothing per frame now.
 ## Method
 
 - Build: `2a46490c` from `git archive` at `D:/measure-f12/as2-a-src`, `-c Release` (label `a`).
-- Runs, one per view, through `docs/measurements/2026-10-29-alloc-sites-2/run.ps1` (the 10-28 quiet gate, then
+- Runs, one per view, through `docs/measurements/2026-10-29-alloc-sites-2/run.ps1` (a quiet gate by load — no other
+  viewer, three samples under 25%; other agents' dotnet processes are counted and logged, not refused — then
   `run-exclusive.ps1`, 1280x720):
   - G: `run.ps1 -Build a -Mode fp -Name census-fp-a -Seconds 120 -Trace D:/measure-f12/alloc2/runs/census-fp-a.nettrace`
   - E: `run.ps1 -Build a -Mode empty -Name census-empty-a -Seconds 120 -Trace D:/measure-f12/alloc2/runs/census-empty-a.nettrace`

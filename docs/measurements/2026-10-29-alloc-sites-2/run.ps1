@@ -1,6 +1,7 @@
-# One reading, as 2026-10-28-b259-entity-walks/run.ps1 with the build named by label: the quiet gate (no other viewer,
-# dotnet, testhost or MSBuild process; an idle MSBuild /nodemode:1 reuse node and VBCSCompiler are not counted; then three
-# LoadPercentage samples under 25%), then the viewer under run-exclusive. Stdout -> $Out/$Name.txt. Exit 2 = gate not met.
+# One reading, as 2026-10-28-b259-entity-walks/run.ps1 with the build named by label: the quiet gate, then the viewer under
+# run-exclusive. The gate is by LOAD, as the brief for this branch asks ("sample CPU load, not process names"): no other
+# viewer, then three LoadPercentage samples under 25%. Changed from the 10-28 script, which also refused any dotnet,
+# testhost or MSBuild process: another agent's single-threaded corpus test held that gate shut for 30 minutes at 17% load. Stdout -> $Out/$Name.txt. Exit 2 = gate not met.
 # -Build: a label; the exe is D:/measure-f12/as2-<label>-src/managed/Tf2DemoSalvage.Viewer3D/bin/Release/net10.0-windows.
 # -Mode empty: the tf2-measure empty view (camera override, no --first-person). -Mode fp: f12 gummo first person.
 # -Shot <png>: a paused --shot of the same view instead. -Trace <nettrace>: also attach dotnet-trace (GC verbose, keyword
@@ -14,10 +15,7 @@ $exe = "D:/measure-f12/as2-$Build-src/managed/Tf2DemoSalvage.Viewer3D/bin/Releas
 if (-not (Test-Path $exe)) { "no build at $exe"; exit 3 }
 New-Item -ItemType Directory -Force $Out | Out-Null
 function Busy {
-  @(Get-CimInstance Win32_Process | Where-Object {
-      ($_.Name -eq 'tf2demoview.exe' -or $_.Name -match '^(dotnet|testhost|MSBuild)') -and
-      $_.CommandLine -notmatch 'VBCSCompiler' -and $_.CommandLine -notmatch '/nodemode:1'
-    }).Count -gt 0
+  @(Get-CimInstance Win32_Process -Filter "Name = 'tf2demoview.exe'").Count -gt 0
 }
 function Load { (Get-CimInstance Win32_Processor | Measure-Object LoadPercentage -Average).Average }
 $deadline = (Get-Date).AddMinutes($GateMinutes)
@@ -28,7 +26,8 @@ while ($true) {
   if (($l | Where-Object { $_ -ge 25 }).Count -eq 0) { break }
   Start-Sleep 5
 }
-"$(Get-Date -Format s) $Name build $Build mode $Mode; load before: $($l -join ' ')"
+$others = @(Get-CimInstance Win32_Process | Where-Object { $_.Name -match '^(dotnet|testhost|MSBuild)' -and $_.CommandLine -notmatch 'VBCSCompiler|/nodemode:1' }).Count
+"$(Get-Date -Format s) $Name build $Build mode $Mode; load before: $($l -join ' '); other dotnet/testhost/MSBuild processes: $others"
 if ($Shot) { Remove-Item Env:TF2VIEW_AUTOPLAY -ErrorAction SilentlyContinue } else { $env:TF2VIEW_AUTOPLAY = '1' }
 $env:TF2VIEW_VIEWPORT_SIZE = '1280x720'
 if (-not $Diagnostics) { Remove-Item Env:TF2VIEW_QUEUE_VERIFY, Env:TF2VIEW_FIXED_FRAME, Env:TF2VIEW_FRAME_HASH -ErrorAction SilentlyContinue }
