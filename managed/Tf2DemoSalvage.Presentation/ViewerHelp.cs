@@ -120,6 +120,9 @@ public static class ViewerHelp
           TF2VIEW_PARTICLE_THRESHOLD Particle steps at or below this many run on one thread
                                      even with r_threaded_particles 1 (default 4).
           TF2VIEW_MODEL_CULL         Backface culling mode, for debugging inside-out models.
+          TF2VIEW_MODEL_VERTS        "3": cap the vertices each model draw submits (0 skips the
+                                     draw), keeping every bind and state change. Splits a pass's
+                                     GPU time into vertex work and per-draw cost; changes the picture.
           TF2VIEW_SETTINGS           A settings file to use instead of the one above (tests).
           TF2VIEW_STEAM_ROOT         The only Steam folder discovery looks in (tests).
           TF2VIEW_PICK               "x y": log what lies under that pixel of a --shot.
