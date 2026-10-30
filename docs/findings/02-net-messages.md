@@ -75,6 +75,27 @@ byte-identically — 87,733 messages, 100% of message bits. See
 [07-writing-demos.md](07-writing-demos.md) for what that does and does not prove, and for the
 "record the encoding shape" pattern that made it possible.
 
+### A wire string is bytes, and a client can send ones that are not UTF-8 (2026-10-29)
+
+**Read from published source:** `bf_read::ReadString` copies each char up to the zero and
+`bf_write::WriteString` writes them back (`src/tier1/bitbuf.cpp`); neither decodes anything. So the
+engine moves a name as whatever bytes the client put in it.
+
+**Measured** (`specimen-triage events`, every writable message of all 24 gcor demos, 441,637
+messages): the only mismatches were four `player_changename` events, two each in the 4231 and 4604
+scripted POV demos. Those clients were given `name Пётр大将` (the script's name before D242) and sent
+it with a space between every BYTE — `D0 20 9F 20 D1 20 …`, 27 bytes that are not UTF-8. That the
+spaces come from the old clients' console tokenizer is **interpolated**. Our UTF-8 decode turned each
+stray byte into U+FFFD, three bytes when written back, so the event re-encoded 224 bits long (386 →
+610; 378 → 602 for the later rename that carries it as `oldname`).
+
+**Fixed for game events only:** a String field whose bytes are not UTF-8 keeps them beside its
+display text (`GameEventMessage.RawStrings`) and the writer replays them. Turning the bytes into the
+text itself (lone-surrogate escapes) was tried first and abandoned: the default `StreamWriter`
+encoder throws on a lone surrogate, and the trace crashed on the first such name. Every other string
+on the wire (`svc_ServerInfo` host name, `svc_Print`, `svc_SetConVar` …) is still read lossily; none
+mismatches in the corpus today, and the `events` probe is the instrument that will show the first.
+
 ## Voice: three codecs in nineteen years, and the era is declared in the demo
 
 Measured 2026-08-11 from `svc_VoiceInit` across the corpus. The message names its codec as a
@@ -316,6 +337,18 @@ silence.
 
 **The latest release is correct here, unlike CELT**: Speex's bitstream has been stable across the
 whole 1.2.x line, so 1.2.1 decodes 2007-era frames without needing a period-matched version.
+
+**A silent frame can be the speaker's, not the decoder's** (2026-10-29, *measured*, probe
+`specimen-triage speex` and `speex-encode`). The scripted era specimens all feed the same tone
+(`tools/specimen/make-voice-wav.ps1`). 2,138 of 3,768 Speex frames in gcor decode to all zeros, and
+every one is in the 3420 pair: 1,069 frames per demo, all one encoded frame,
+`269D6600001B366CD9B0…0001B366CD9B6`. libspeex 1.2.1 at quality 5 encodes 160 zero samples to the same
+220 payload bits; only the last nibble, padding by arithmetic (220 bits in 28 bytes), differs (`B7`).
+So the 3420 client encoded digital silence, at about 6.4 frames a tick, roughly 8x real time; why is
+unread. The control: the same encoder fed a 440 Hz tone decodes to 0 silent frames, 17.3 zero
+crossings a frame against 17.6 predicted, peak 19,314 for a 16,383 input; and the other 1,630 frames
+(2007, 3862, 4231, 4604 tone, and the 2007 SourceTV's 272) decode with none silent. The tone arrives
+quiet, peaks of 326 to 594, which is the engine's input path and not the decoder's gain.
 
 ### CELT (`vaudio_celt`) — builds, initialises, and rejects most real frames
 

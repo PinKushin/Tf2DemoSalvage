@@ -22,6 +22,36 @@ public sealed class NetBitReadingTests
         reader.ReadByte().ShouldBe((byte)'X');
     }
 
+    [TestCase(new byte[] { 0xD0, 0x20, 0x9F }, TestName = "ReadStringBytes_ALeadByteCutByASpace_ReturnsTheWireBytes")]
+    [TestCase(new byte[] { 0x80, 0xFF, 0xC0, 0xAF }, TestName = "ReadStringBytes_BytesUtf8NeverUses_ReturnsTheWireBytes")]
+    [TestCase(new byte[] { 0xE5, 0xA4 }, TestName = "ReadStringBytes_ASequenceCutByTheTerminator_ReturnsTheWireBytes")]
+    public void ReadStringBytes_WireBytes_ReturnsThemAndConsumesTheTerminator(byte[] wire)
+    {
+        // bf_read::ReadString copies raw chars up to the zero and decodes nothing
+        // (src/tier1/bitbuf.cpp), so the bytes are the engine's form of the string.
+        BitReader reader = new([.. wire, 0, (byte)'X']);
+
+        NetBitReading.ReadStringBytes(ref reader).ShouldBe(wire);
+        reader.ReadByte().ShouldBe((byte)'X');
+    }
+
+    [Test]
+    public void ReadString_BytesThatAreNotUtf8_ReplacesEachStrayByteForDisplay()
+    {
+        // The display text is unchanged by keeping the bytes: what is not UTF-8 shows as U+FFFD.
+        BitReader reader = new([0xD0, 0x20, 0x9F, 0]);
+
+        NetBitReading.ReadString(ref reader).ShouldBe("� �");
+    }
+
+    [Test]
+    public void ReadString_ValidUtf8_DecodesAsText()
+    {
+        BitReader reader = new([.. System.Text.Encoding.UTF8.GetBytes("miałker Пётр大将"), 0]);
+
+        NetBitReading.ReadString(ref reader).ShouldBe("miałker Пётр大将");
+    }
+
     [Test]
     public void ReadString_ThatNeverTerminates_ThrowsRatherThanReadingForever()
     {
