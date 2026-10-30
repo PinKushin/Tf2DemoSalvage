@@ -171,6 +171,53 @@ public sealed class FaceFlexAnimationDemoTests
         widest.ShouldBeGreaterThan(1000, "the control: the face moves across much of the range");
     }
 
+    /// <summary>
+    /// **The flex counters add up on the production path**: one medic, drawn every tick of a talking scene, is one own face
+    /// a draw, each either a hit or a miss, and a moving face walks vertices. The instrument the flex-cost measurement reads
+    /// (docs/measurements/2026-10-30-flex-for-cost.md).
+    /// </summary>
+    [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
+    public void FlexCounters_AMedicPlayingAFlexAnimation_CountEachDrawOnce()
+    {
+        ScenePlayer medic = new(
+            EntityIndex: Medic, X: -1423f, Y: 1020.625f, Z: 160f, Team: 2, Health: 150, PlayerClass: 5,
+            Yaw: -15.131946f, LifeState: 0, Flags: 131329, EyePitch: 2.4705963f, EyeYaw: -15.131958f,
+            ActiveWeapon: 501, WeaponClass: "CWeaponMedigun", WeaponItem: 411, ClientSideAnimated: true);
+
+        DemoTimeline timeline = SyntheticMatch.Timeline(
+            [medic],
+            scenes: [new SceneChoreography(SceneStart, 586, FlexScene, [Medic]) { StoppedTick = 61353 }],
+            sounds: []);
+
+        GameAppearance appearance = SyntheticMatch.Appearance(timeline);
+        MapAssets assets = MapCache.Load(entityModels: [MedicModel]);
+        EntityModelSet models = new() { Geometry = assets.Geometry, IntervalPerTick = timeline.IntervalPerTick };
+        MomentScene scene = SyntheticMatch.Scene(models, appearance);
+        FlexCounters before = models.Counters.Flex;
+        int drawn = 0;
+
+        for (int tick = SceneStart; tick < SceneStart + 40; tick++)
+        {
+            MomentInfo info = SyntheticMatch.Info(timeline, tick);
+            scene.Build([medic], [], info);
+            scene.Pose(info);
+            drawn += scene.Instances.Count(instance => instance.EntityIndex == Medic &&
+                string.Equals(instance.ModelPath, MedicModel, StringComparison.OrdinalIgnoreCase));
+        }
+
+        FlexCounters flex = models.Counters.Flex.Since(before);
+        TestContext.Out.WriteLine(flex.ToString());
+
+        drawn.ShouldBe(40, "the control: the medic is drawn every tick");
+        flex.Own.ShouldBe(drawn, "one own face a draw");
+        (flex.Hits + flex.Misses).ShouldBe(flex.Own + flex.Worn + flex.Corpse, "each driven face is a hit or a miss");
+        flex.Faces.ShouldBe(flex.Own + flex.Worn + flex.Corpse + flex.RestingFaces, "each face is driven or resting");
+        flex.Misses.ShouldBeGreaterThan(0, "a talking face changes");
+        flex.Vertices.ShouldBeGreaterThan(0, "a changing face walks its flexed vertices");
+        flex.Calls.ShouldBeGreaterThanOrEqualTo(flex.Faces);
+    }
+
     /// <summary>One of the two lines the recording starts on the medic's voice channel with the scene.</summary>
     private static SceneSound Voice(string name, int number) =>
         new(SceneStart, name, number, Medic, Channel: 2, Volume: 0.81889766f, SoundLevel: 95, Pitch: 100, DelaySeconds: 0f,

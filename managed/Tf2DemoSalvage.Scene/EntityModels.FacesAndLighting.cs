@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using Microsoft.Extensions.Logging;
 using Tf2DemoSalvage.Animation.Animating;
@@ -27,32 +28,64 @@ public sealed partial class EntityModelSet
     /// <returns>The face, or null, and the slots of it a flex can move (<see cref="ModelInstance.FlexRange"/>).</returns>
     private (float[]? Face, FlexSlots? Range) FlexFor(SceneProp prop, PropModels.ModelFrames? model, double seconds)
     {
+        FlexTally tally = _flexTally;
+        tally.Calls++;
+
         if (model is null || !model.Flex.HasVertexAnimation || model.CornerVertex.Count == 0 ||
             !_packedOrder.TryGetValue(prop.ModelPath, out int[]? order))
         {
             return (null, null);
         }
 
+        tally.Faces++;
         float[]? face;
+        long drivingAt = Stopwatch.GetTimestamp();
+        IReadOnlyDictionary<string, float>? global = FaceDriving(prop, seconds);
+        long drivenAt = Stopwatch.GetTimestamp();
+        tally.Driving += drivenAt - drivingAt;
 
-        if (FaceDriving(prop, seconds) is { } global)
+        if (global is not null)
         {
-            float[] weights = FaceFlex.Rules(model.Flex, FaceFlex.Local(model.Flex, global));
+            float[] local = FaceFlex.Local(model.Flex, global);
+            long localAt = Stopwatch.GetTimestamp();
+            tally.Local += localAt - drivenAt;
+            float[] weights = FaceFlex.Rules(model.Flex, local);
+            long rulesAt = Stopwatch.GetTimestamp();
+            tally.Rules += rulesAt - localAt;
             // A corpse runs its player's whole SetupWeights, so the delay is the player's own (`m_flFlexDelayedWeight`).
             float[] delayed = Delayed(prop.FaceOf ?? prop.EntityIndex, weights, seconds);
+            long delayedAt = Stopwatch.GetTimestamp();
+            tally.Delayed += delayedAt - rulesAt;
 
             // The same weights draw the same face: an idle loop's expression holds still for seconds at a time.
             // **Per pose half** (B581 rung 3): the stream is rewritten in place, and the frame in flight draws the other
             // half's, so this half's last face is two frames old — a still face still converges in two.
             Dictionary<int, (float[] Weights, float[] Delayed, float[]? Face, float[]? Stream, FlexedCorners? Corners)> lastFaces = _lastFace[PoseHalf];
 
-            if (lastFaces.TryGetValue(prop.EntityIndex, out (float[] Weights, float[] Delayed, float[]? Face, float[]? Stream, FlexedCorners? Corners) last) &&
-                last.Weights.AsSpan().SequenceEqual(weights) && last.Delayed.AsSpan().SequenceEqual(delayed))
+            bool same = lastFaces.TryGetValue(prop.EntityIndex, out (float[] Weights, float[] Delayed, float[]? Face, float[]? Stream, FlexedCorners? Corners) last) &&
+                last.Weights.AsSpan().SequenceEqual(weights) && last.Delayed.AsSpan().SequenceEqual(delayed);
+            long probedAt = Stopwatch.GetTimestamp();
+            tally.Probe += probedAt - delayedAt;
+
+            if (same)
             {
                 face = last.Face;
+                tally.Hits++;
             }
             else
             {
+                tally.Misses++;
+
+                // Kept apart from the face, which is null while nothing moves: a face that stops and starts again would
+                // otherwise lose its stream at every stop and allocate a new one at every start.
+                //
+                // **Only the slots a flex can move are written** (finding 92): the stream starts at zero and nothing else
+                // writes it, so the rest stays zero — which holds only for the model whose slots wrote it, so a stream
+                // left by another model (a class change) is not reused.
+                FlexedCorners corners = FlexedCornersOf(prop.ModelPath, model, order);
+                long cornersAt = Stopwatch.GetTimestamp();
+                tally.Corners += cornersAt - probedAt;
+
                 // **Written into arrays this set keeps, not new ones per frame** (finding 80): a talking face changes every
                 // frame, and three .vvd-sized arrays a face a frame were 2 GB of large-object garbage in 20 s of f12. The
                 // deltas are scratch; the stream is the entity's own, rewritten in place (the renderer uploads its flexed range per draw).
@@ -62,22 +95,56 @@ public sealed partial class EntityModelSet
                     _flexScratch = (new float[model.VertexCount * 3], new float[model.VertexCount * 3]);
                 }
 
-                // Kept apart from the face, which is null while nothing moves: a face that stops and starts again would
-                // otherwise lose its stream at every stop and allocate a new one at every start.
-                //
-                // **Only the slots a flex can move are written** (finding 92): the stream starts at zero and nothing else
-                // writes it, so the rest stays zero — which holds only for the model whose slots wrote it, so a stream
-                // left by another model (a class change) is not reused.
-                FlexedCorners corners = FlexedCornersOf(prop.ModelPath, model, order);
                 float[] stream = last.Stream is { } kept && ReferenceEquals(last.Corners, corners) ? kept : new float[order.Length * 6];
 
-                face = FaceFlex.Deltas(model.Flex, weights, delayed, _flexScratch.Positions, _flexScratch.Normals) is { } deltas
-                    ? FaceFlex.IntoFlexedSlots(deltas, corners, stream)
-                    : null;
+                // `FaceFlex.Deltas` taken apart so its two halves are timed apart: the clear, then the accumulation.
+                (float[] positions, float[] normals) = _flexScratch;
+                Array.Clear(positions);
+                Array.Clear(normals);
+                long clearedAt = Stopwatch.GetTimestamp();
+                tally.Clear += clearedAt - cornersAt;
+
+                int applied = StudioFlexRules.Accumulate(model.Flex, weights, delayed, positions, normals);
+                long accumulatedAt = Stopwatch.GetTimestamp();
+                tally.Deltas += accumulatedAt - clearedAt;
+                tally.Vertices += applied;
+
+                face = applied > 0 ? FaceFlex.IntoFlexedSlots((positions, normals), corners, stream) : null;
+                long slottedAt = Stopwatch.GetTimestamp();
+                tally.Slots += slottedAt - accumulatedAt;
+
                 lastFaces[prop.EntityIndex] = (weights, (float[])delayed.Clone(), face, stream, corners);
+                tally.Delayed += Stopwatch.GetTimestamp() - slottedAt;
             }
         }
-        else if (!_restingFace.TryGetValue(RestingKey(prop), out face))
+        else
+        {
+            face = RestingFaceOf(prop, model, order);
+        }
+
+        if (face is null)
+        {
+            return (null, null);
+        }
+
+        FlexedInstances++;
+
+        // **The first to the last slot a flex of this model names** (B597): every slot outside is zero in every face of
+        // it — a driven face writes only the flexed slots, and a resting face's deltas exist only at vertices a flex moves.
+        long rangeAt = Stopwatch.GetTimestamp();
+        int[] at = FlexedCornersOf(prop.ModelPath, model, order).At;
+        tally.Corners += Stopwatch.GetTimestamp() - rangeAt;
+
+        return (face, at.Length > 0 ? new FlexSlots(at[0], at[^1] - at[0] + 1) : null);
+    }
+
+    /// <summary>The face of a prop no player drives, kept per model and kind; timed and counted as the resting part.</summary>
+    private float[]? RestingFaceOf(SceneProp prop, PropModels.ModelFrames model, int[] order)
+    {
+        long restingAt = Stopwatch.GetTimestamp();
+        _flexTally.RestingFaces++;
+
+        if (!_restingFace.TryGetValue(RestingKey(prop), out float[]? face))
         {
             // **No face of its own**: a bone-merged item whose parent is not a player is a C_BaseFlex at its zeroed
             // controllers (each at its minimum, `c_baseflex.cpp:1222`); anything else is a C_BaseAnimating, whose
@@ -94,18 +161,8 @@ public sealed partial class EntityModelSet
             _restingFace[RestingKey(prop)] = face;
         }
 
-        if (face is null)
-        {
-            return (null, null);
-        }
-
-        FlexedInstances++;
-
-        // **The first to the last slot a flex of this model names** (B597): every slot outside is zero in every face of
-        // it — a driven face writes only the flexed slots, and a resting face's deltas exist only at vertices a flex moves.
-        int[] at = FlexedCornersOf(prop.ModelPath, model, order).At;
-
-        return (face, at.Length > 0 ? new FlexSlots(at[0], at[^1] - at[0] + 1) : null);
+        _flexTally.Resting += Stopwatch.GetTimestamp() - restingAt;
+        return face;
     }
 
     private static string RestingKey(SceneProp prop) => (IsCBaseFlex(prop) ? "1:" : "0:") + prop.ModelPath;
@@ -165,6 +222,9 @@ public sealed partial class EntityModelSet
     {
         int actor;
 
+        // Which branch drove it, for the counters: 0 a corpse, 1 a worn item, 2 the player's own.
+        int kind;
+
         if (prop.FaceOf is { } dead)
         {
             // `( pPlayer && pPlayer->IsAlive() ) || !pPlayer` takes the corpse's own face (c_tf_player.cpp:630).
@@ -174,6 +234,7 @@ public sealed partial class EntityModelSet
             }
 
             actor = dead;
+            kind = 0;
 
             // A player who died before the first frame drawn has no face yet; the corpse wears their class model, so
             // the face is that model's (only when absent: a living player's own draw keeps it current).
@@ -185,10 +246,12 @@ public sealed partial class EntityModelSet
         else if (prop.BoneMerged && prop.AttachedTo is { } parent && _faces.ContainsKey(parent))
         {
             actor = parent;
+            kind = 1;
         }
         else if (IsPlayerModel(prop) && (PlayerAlive is null || PlayerAlive(prop.EntityIndex) is not null))
         {
             actor = prop.EntityIndex;
+            kind = 2;
             EnsureFace(actor, prop.ModelPath, seconds);
         }
         else
@@ -201,11 +264,32 @@ public sealed partial class EntityModelSet
             return null;
         }
 
-        face.Face.Step(
-            seconds,
-            prop.EntityIndex,
-            Faces?.Scenes(actor, seconds) ?? GestureScenes(prop),
-            Faces?.Voices(actor, seconds) ?? []);
+        // The arguments taken into locals, in the order C# evaluates them, so each is timed apart.
+        long scenesAt = Stopwatch.GetTimestamp();
+        IReadOnlyList<FaceScene> scenes = Faces?.Scenes(actor, seconds) ?? GestureScenes(prop);
+        long voicesAt = Stopwatch.GetTimestamp();
+        IReadOnlyList<FaceVoice> voices = Faces?.Voices(actor, seconds) ?? [];
+        long stepAt = Stopwatch.GetTimestamp();
+
+        face.Face.Step(seconds, prop.EntityIndex, scenes, voices);
+
+        FlexTally tally = _flexTally;
+        tally.Scenes += voicesAt - scenesAt;
+        tally.Voices += stepAt - voicesAt;
+        tally.Step += Stopwatch.GetTimestamp() - stepAt;
+
+        switch (kind)
+        {
+            case 0:
+                tally.Corpse++;
+                break;
+            case 1:
+                tally.Worn++;
+                break;
+            default:
+                tally.Own++;
+                break;
+        }
 
         return face.Face.Global;
     }
