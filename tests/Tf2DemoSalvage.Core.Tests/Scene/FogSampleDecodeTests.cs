@@ -89,8 +89,8 @@ public sealed class FogSampleDecodeTests
     /// <remarks>
     /// **The handle is how the view finds its fog** (B139): <c>C_BasePlayer::UpdateFogController</c>
     /// (<c>c_baseplayer.cpp:2802</c>) copies the controller the local player's handle names, and with none there is no
-    /// fog however many controllers the map has. Sent in <c>DT_Local</c> by <c>SendPropEHandle</c>: 21 bits unsigned,
-    /// the slot in the low 11 and the serial above.
+    /// fog however many controllers the map has. Sent in <c>DT_Local</c> as an Int of 21 bits (the viaduct STV's own
+    /// <c>dem_datatables</c>, schema probe), the slot in the low 11 and the serial above.
     /// </remarks>
     private static byte[] Demo(int enable, int colour, float start, float end, float density)
     {
@@ -189,8 +189,9 @@ public sealed class FogSampleDecodeTests
     private const int Unsigned = 1 << 0;
 
     /// <summary><c>SendPropFloat(..., 0, SPROP_NOSCALE)</c>: the float's 32 bits as they are.</summary>
+    /// <remarks>Declared with 0 bits, as the viaduct STV's own <c>dem_datatables</c> declares it (schema probe).</remarks>
     private static SendProperty NoScale(string name) =>
-        new(SendPropType.Float, name, 1 << 2, string.Empty, 0f, 0f, 32, 0);
+        new(SendPropType.Float, name, 1 << 2, string.Empty, 0f, 0f, 0, 0);
 
     private static DecodedProperty Property(IReadOnlyList<FlatProperty> flat, string name, PropertyValue value)
     {
