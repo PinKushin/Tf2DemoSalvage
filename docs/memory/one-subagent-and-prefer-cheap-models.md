@@ -89,8 +89,22 @@ launched as its own agent. Read this entry BEFORE choosing the model, not after.
 ## 2026-10-29: subagent effort is low, medium at most
 Owner: *"use low effort or medium effort at the most of subagents too"*. Set `effort` to `low` (mechanical, bounded) or
 `medium` (a judgment task) on EVERY Agent call; never `high`/`xhigh`/`max` for a subagent. The Agent tool's `effort`
-parameter exists for exactly this and is only set when the owner asks, which he now has. A hook could enforce it (the
-Agent call's parameters are visible to a PreToolUse hook): drafted for the owner to apply, not applied.
+parameter exists for exactly this and is only set when the owner asks, which he now has. Enforced since by
+`~/.claude/hooks/block-expensive-subagents.ps1` (backup in `.claude/hooks/global/`).
+
+## 2026-10-29: docs passes go to a free model first (broadened the same day to everything mechanical)
+Owner: *"i wwant to use the free models everywhere we can so my paid models can do real work that matters"*. The scope
+is now in `~/.claude/CLAUDE.md` "Free models" (docs, commit messages, mechanical sweeps, floors and manifest
+bookkeeping, log summaries, an extra diff read; never a gate, a merge call, a decoder/parity judgment or a measured number).
+Owner: *"docs can be done on a ffree model though"*. The release docs pass (README, RELEASE-NOTES, user guide, `--help`)
+goes to the free OpenCode models in the global order (`deepseek-v4.1-flash-free`, then `glm-5.3-flash-free`, ...), not to
+a Sonnet. Supersedes "never opus / sonnet bounded-task" in CLAUDE.md's public-beta paragraph for the writing itself.
+**Still the lead's job:** read the output and check every figure against its measurement record before it lands (the
+docs are public). A free model is never a review gate. **Fallback order (owner, 2026-10-29: *"if that one fails allback
+to codexx and antoigravity first"*):** the free OpenCode models (the 2026-10-29 review bench used most of that allowance),
+then Codex, then Antigravity, and only then a low-effort Sonnet `bounded-task`. Codex was found not good enough for
+REVIEW (owner: *"codex doesnt seem to cut it"*); writing docs is a different job. These run through `delegate_task`
+(`orchestrator_capabilities` lists the providers); the Agent-tool hook does not cover them.
 
 ## 2026-10-05: small bugs go to sonnet
 Owner: *"The small bugs can probably use sonnet though, if they are actually small."* A bug whose fix is known and
