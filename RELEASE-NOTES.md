@@ -1,4 +1,61 @@
-# Tf2DemoSalvage 0.1.0-beta.55
+# Tf2DemoSalvage 0.1.0-beta.56
+
+## Changes in 0.1.0-beta.56
+
+Gate for this release (every test executed, 0 failed): core 2737, cli 75, logging 37, fonts 5, animation 5352, scene 3401,
+audio 383, presentation 1327, content 1861, corpus 242, rendering 1275, viewer 159, UI suite 84 of 84 with 0 skipped; CI on the merge commit efd5d496 green with 2 annotations, both the notice that the runner label `ubuntu-latest` moves to Ubuntu 26 (no warnings, no errors; Test run 41055706448, CodeQL run 41055706449).
+Figures are on the `cp_process_f12` recording, one machine, first person unless it says otherwise; the file beside each
+figure holds it.
+
+- **The pose is built beside the frame in flight, and the main thread no longer waits for it (rung 3, D239).**
+  `camera wait` in the steady first-person window fell from 0.491-0.509 ms to 0.000-0.002 ms (docs/measurements/2026-10-28-double-buffer-pose.md).
+  The steady first-person frame on f12 fell by 0.49 ms, 7.2%; over the whole 20 s window by 0.62 ms (docs/measurements/2026-10-28-double-buffer-pose.md).
+  The world was identical in both views (docs/measurements/2026-10-28-double-buffer-pose.md).
+  On the empty view `camera wait` reads 0.000-0.003 ms in both builds, so nothing was left to remove there (docs/measurements/2026-10-28-double-buffer-pose.md).
+  **Not done:** the wait still sits after the pose rather than at the hand-off, and it measures 0.00 ms on f12, so moving it
+  buys nothing there (docs/measurements/2026-10-28-double-buffer-pose.md).
+  One UI-suite test hung once in the merge gate; it is filed as a known flake (B609) and did not reproduce in 6 clean
+  baseline suites or 6 suites of the branch (docs/measurements/2026-10-28-double-buffer-pose.md).
+- **The sample walks the live entities, and the undrawable tally counts by object (B259).** The sample's closing walk
+  covered all 6,456 tracks of f12 for about 492 live props; it now walks a maintained list of the tracks that answer, in
+  track order (docs/measurements/2026-10-28-b259-entity-walks.md).
+  Sample walk: -0.115 to -0.125 ms on `sample`; `advance` -0.141 ms on the empty view and -0.169 ms in first person,
+  ranges apart (docs/measurements/2026-10-28-b259-entity-walks.md).
+  The undrawable tally's string work: -0.065 to -0.070 ms on `collate` (the probe read 0.065 ms to 0.010 ms) (docs/measurements/2026-10-28-b259-entity-walks.md).
+  Together 0.185 ms a frame in the empty view (6.1% of 3.02 ms) and 0.19 ms in first person (2.7% of 7.06 ms); these are
+  sums of the moment-line differences (docs/measurements/2026-10-28-b259-entity-walks.md).
+  **The frame time itself is not claimed:** its ranges overlap (docs/measurements/2026-10-28-b259-entity-walks.md).
+  Every paused frame compared showed the same world, the queued-render verifier saw 0 changed frames, and the instance
+  hashes agree between builds as closely as between runs of one build (docs/measurements/2026-10-28-b259-entity-walks.md).
+  **These figures were timed on the first implementation, before the review rounds changed it** (a per-track ordinal map,
+  a refusal of a track listed twice, and changes to how the tally keys its cache); the timing was not repeated afterwards,
+  and the review-round code is checked by tests and the gate, not by a new timing (docs/measurements/2026-10-28-b259-entity-walks.md).
+  Behaviour change: a recording whose track list names the same track twice now fails to build instead of drawing it
+  twice; the gate's committed recordings never do, which was checked on those recordings only, not on every recording
+  you may own (docs/RISKS.md, B259, 'Filed at the merge').
+- **Less garbage per frame (B599).** Four allocation sites were removed, each its own change and each timed ABBA+BAAB in
+  both views, with the world pixels matching and the queued-render verifier reporting 0 changed frames (docs/RISKS.md, B599).
+  Measured as a chain of the four steps (not one paired run): first-person main-thread allocation 750,856 to 448,810 bytes
+  a frame, about -40%; GC pause 0.22-0.23 ms to 0.15-0.17 ms a frame (docs/RISKS.md, B599, 'Chained, not paired' paragraph).
+  Per item, first person / empty view main-thread bytes a frame: econ attribute walk -105 KB (-14%) / -11 KB (-2.8%),
+  `camera pose` -0.101 ms (1.7%) and the frame -0.095 ms with ranges apart by only 0.005 ms, so marginal (docs/measurements/2026-10-29-econ-attribute-walk.md);
+  impact batches -121 KB (-18.7%) / -79 KB (-20.6%), `camera particles` -0.057 ms, frame not claimed (docs/measurements/2026-10-29-impact-batches.md);
+  effect entities -43 KB (-8.1%) / -41 KB (-13.5%), `camera particles` -0.025 ms, frame not claimed (docs/measurements/2026-10-29-effect-entity-callbacks.md);
+  attachments -33 KB (-6.8%) / -32 KB (-12.2%), nothing claimed on time (docs/measurements/2026-10-29-attachment-matrices.md).
+  The census that ranked the sites is docs/measurements/2026-10-29-allocation-census.md.
+  **A frame-time gain is claimed only for the attribute walk, and only marginally;** the others are kept for the bytes
+  they save (docs/measurements/2026-10-29-econ-attribute-walk.md).
+  The attribute walk gives exactly the old result for all 6,750 shapes tested (15 list shapes for each of the three lists, under both item-id answers, 15 × 15 × 15 × 2; a test compares each with the old algorithm: tests/Tf2DemoSalvage.Core.Tests/Scene/EconAttributeResolutionTests.cs).
+- **Exporting and compiling a demo keeps a game event's text bytes exactly (`-a`, `-c`).** Old clients sent a name change
+  with a space between every byte, which is not valid UTF-8; the reader turned each stray byte into a replacement
+  character, so rebuilding the demo wrote a different event (386 bits became 610, and 378 became 602 for the later rename)
+  (docs/findings/02-net-messages.md).
+  Over every writable message of the 24 committed demos (441,637 messages) the only mismatches were four
+  `player_changename` events, two each in the 2010 (build 4231) and 2011 (build 4604) scripted recordings; after the fix
+  none differ (docs/findings/02-net-messages.md).
+  The event is written back as the bytes it was read from (docs/findings/02-net-messages.md).
+  **Not done:** the `-a` text form still prints that one event as a declined raw record (RISKS B611), so it cannot be
+  edited as text; the bytes survive (docs/findings/02-net-messages.md).
 
 ## Changes in 0.1.0-beta.55
 
@@ -875,6 +932,8 @@ writes no log file; send its console output.
 
 Each claim below is a measurement, not an expectation.
 
+- **Merge gate (beta.56):** all twelve assemblies passed (core 2737, cli 75, logging 37, fonts 5, animation 5352, scene 3401, audio 383, presentation 1327, content 1861, corpus 242, rendering 1275, viewer 159), with the UI suite at 84 of 84 passed and 0 skipped. CI on the merge commit efd5d496 green with 2 annotations, both the notice that the runner label `ubuntu-latest` moves to Ubuntu 26 (no warnings, no errors; Test run 41055706448, CodeQL run 41055706449).
+
 - **Output unchanged by the speed changes (beta.53):** the ranged face upload gave the same pixels as the whole stream in four frames of one model and from four sides of the laughing soldier (docs/measurements/2026-10-26-b597-flex-range.md).
   The bounded sky trace differed from the old one in 0 of 50,000 traces on the real map (docs/measurements/2026-10-26-threaded-particles-and-sun.md).
   The mode-2 queue verifier reported 0 changed after the ranged upload, with no positive control for the verifier itself (docs/measurements/2026-10-26-b597-flex-range.md).
@@ -1125,6 +1184,10 @@ Things a user is likely to notice. Each has an entry in `docs/RISKS.md` in the r
 - **Demos recorded in late June 2011 were malformed by the game itself** and may not decode (B144).
 - **The first-person camera's movement differs slightly from the game's** in velocity and feet yaw
   (B450).
+- **One Steam Voice packet is rejected by the SILK decoder (B611).** A recording made while Steam was online has an
+  80-byte Steam Voice packet that the decoder refuses with error -12; playback skips a rejected voice packet and counts
+  it, so nothing stops, but that speaker is missing a frame. It is one packet in one recording; it is not known whether
+  the packet or the decoder is at fault.
 
 ## Requirements
 
