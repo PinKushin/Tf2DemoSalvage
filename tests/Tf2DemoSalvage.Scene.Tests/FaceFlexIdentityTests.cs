@@ -153,7 +153,7 @@ public sealed class FaceFlexIdentityTests
             // Ascending slots; every third vertex offset past the ten vertices the deltas hold.
             int[] slots = [.. Enumerable.Range(0, 12).Select(slot => slot * 2)];
             int[] from = [.. slots.Select((_, index) => index % 3 == 2 ? (10 + random.Next(5)) * 3 : random.Next(10) * 3)];
-            FlexedCorners corners = new(slots, from);
+            FlexedCorners corners = new([.. slots], [.. from]);
 
             float[] now = [.. Enumerable.Range(0, 24 * 6).Select(_ => Value(random))];
             float[] reference = (float[])now.Clone();

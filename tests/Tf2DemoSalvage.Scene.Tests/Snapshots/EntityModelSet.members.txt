@@ -255,6 +255,7 @@ Tf2DemoSalvage.Scene.EntityModelSet|method|IsDrawable|Private static|(Tf2DemoSal
 Tf2DemoSalvage.Scene.EntityModelSet|method|IsPlayerModel|Private static|(Tf2DemoSalvage.Core.Scene.SceneProp)|System.Boolean
 Tf2DemoSalvage.Scene.EntityModelSet|method|IsPosed|Public|(System.Int32)|System.Boolean
 Tf2DemoSalvage.Scene.EntityModelSet|method|IsViewmodel|Private static|(System.Int32)|System.Boolean
+Tf2DemoSalvage.Scene.EntityModelSet|method|LastFaceWeights|Assembly|(System.Int32,System.Int32)|System.Nullable`1[System.ValueTuple`2[System.Single[],System.Single[]]]
 Tf2DemoSalvage.Scene.EntityModelSet|method|LayersFor|Private|(Tf2DemoSalvage.Core.Scene.SceneProp,Tf2DemoSalvage.Scene.PropModels+SkinnedModel,System.Double)|System.Collections.Generic.List`1[Tf2DemoSalvage.Animation.Animating.PoseLayer]
 Tf2DemoSalvage.Scene.EntityModelSet|method|LayersOf|Public|(System.Int32)|System.Collections.Generic.IReadOnlyList`1[Tf2DemoSalvage.Animation.Animating.PoseLayer]
 Tf2DemoSalvage.Scene.EntityModelSet|method|Layer|Private static|(System.Collections.Generic.List`1[Tf2DemoSalvage.Animation.Animating.PoseLayer],Tf2DemoSalvage.Scene.PropModels+SkinnedModel,System.Int32,Tf2DemoSalvage.Core.Scene.SceneGesture,System.Double)|System.Void

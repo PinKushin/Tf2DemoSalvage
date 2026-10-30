@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.Diagnostics;
 using System.Linq;
 using Microsoft.Extensions.Logging;
@@ -133,7 +134,7 @@ public sealed partial class EntityModelSet
         // **The first to the last slot a flex of this model names** (B597): every slot outside is zero in every face of
         // it — a driven face writes only the flexed slots, and a resting face's deltas exist only at vertices a flex moves.
         long rangeAt = Stopwatch.GetTimestamp();
-        int[] at = FlexedCornersOf(prop.ModelPath, model, order).At;
+        ImmutableArray<int> at = FlexedCornersOf(prop.ModelPath, model, order).At;
         tally.Corners += Stopwatch.GetTimestamp() - rangeAt;
 
         return (face, at.Length > 0 ? new FlexSlots(at[0], at[^1] - at[0] + 1) : null);
@@ -186,6 +187,13 @@ public sealed partial class EntityModelSet
 
     /// <summary>Each drawing entity's last weights and the face they made, reused while they hold; one set per pose half.</summary>
     private readonly Dictionary<int, (float[] Weights, float[] Delayed, float[]? Face, float[]? Stream, FlexedCorners? Corners)>[] _lastFace = [[], []];
+
+    /// <summary>The weights and delayed weights a pose half's last rebuilt face of an entity used, as FlexFor stored them.</summary>
+    /// <remarks>For the differential that holds FlexFor to its reference (docs/measurements/2026-10-30-flex-for-cost-after.md).</remarks>
+    internal (float[] Weights, float[] Delayed)? LastFaceWeights(int half, int entity) =>
+        _lastFace[half].TryGetValue(entity, out (float[] Weights, float[] Delayed, float[]? Face, float[]? Stream, FlexedCorners? Corners) last)
+            ? (last.Weights, last.Delayed)
+            : null;
 
     /// <summary>Per model, the buffer slots its flexes can move (finding 92).</summary>
     private readonly Dictionary<string, FlexedCorners> _flexedCorners = new(StringComparer.OrdinalIgnoreCase);

@@ -254,6 +254,10 @@ public sealed class FaceFlexAnimationDemoTests
         EntityModelSet models = new() { Geometry = assets.Geometry, IntervalPerTick = timeline.IntervalPerTick };
         MomentScene scene = SyntheticMatch.Scene(models, appearance);
 
+        // Every frame handed to the draw, as the viewer's device counts them, so the poses alternate halves.
+        long handOffs = 0;
+        scene.HandOffs = () => handOffs;
+
         float[] positions = [];
         float[] normals = [];
         Dictionary<(int Half, string Model), float[]> streams = [];
@@ -305,6 +309,7 @@ public sealed class FaceFlexAnimationDemoTests
 
             halves.Add(half);
             compared++;
+            handOffs++;
         }
 
         compared.ShouldBe(76, "the control: every frame was compared");

@@ -91,8 +91,9 @@ internal static class FaceFlexReference
     {
         ReadOnlySpan<float> positions = deltas.Positions;
         ReadOnlySpan<float> normals = deltas.Normals;
-        ReadOnlySpan<int> at = corners.At;
-        ReadOnlySpan<int> from = corners.From;
+        // `.AsSpan()` only because FlexedCorners' arrays became immutable; the loop is the old one.
+        ReadOnlySpan<int> at = corners.At.AsSpan();
+        ReadOnlySpan<int> from = corners.From.AsSpan();
 
         for (int index = 0; index < at.Length; index++)
         {
