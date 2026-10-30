@@ -126,8 +126,93 @@ This machine (Windows 11, NVIDIA driver, windowed), 1280x720 back buffer, mode 2
 
 ## Result
 
-(not yet run)
+Raw stdout and stderr of every run, discarded ones included: `2026-10-30-sky3d-gpu-shift/`; console lines (time, exe,
+load before and after) in `runlog-h1.txt` (01-06) and `runlog-h1b.txt` (07-10); `summ.ps1` prints every figure below.
+Exes: C = `D:/measure-f12/gs-4a2878b0` (built today from `git archive 4a2878b0`, Release, 0 errors, 117 warnings, all
+from the native Speex/Silk fetch and compile: 115 C4311, one `refs/tags/Speex-1.2.1 ... is not a commit`, one LNK4070);
+B = `D:/measure-f12/b597-split` (`22704fa9`, built 2026-10-30 10:51 by the lead, not rebuilt).
+
+**Per run, ms per frame, GPU (CPU in brackets where read).** Every run: 1280x720, frames read on the GPU equal to frames
+drawn, 0 skipped, 0 disjoint (control a met in all ten).
+
+| run | build | load after | frame | render thread | Clear GPU | Sky3D GPU (CPU) | World GPU (CPU) | OpaqueModels GPU (CPU) | kept? |
+|---|---|---|---|---|---|---|---|---|---|
+| 01-C | 4a2878b0 | 23 7 38 | 13.86 | 2.91 | 0.191 | 0.921 (0.289) | 0.543 (0.195) | 0.970 (1.348) | discarded: frame 4 ms off 03-C/07-C |
+| 02-B | 22704fa9 | 37 63 100 | 8.34 | 2.31 | 0.115 | 0.839 (0.201) | 0.516 (0.203) | 0.893 (1.165) | discarded: load after |
+| **03-C** | 4a2878b0 | 6 5 8 | 9.88 | 2.34 | **0.117** | **0.799** (0.226) | 0.510 (0.159) | 0.851 (1.120) | kept |
+| **04-B** | 22704fa9 | 9 23 18 | 7.76 | 2.37 | **0.091** | **0.883** (0.215) | 0.506 (0.214) | 0.905 (1.203) | kept |
+| 05-C | 4a2878b0 | 55 77 82 | 12.65 | 2.90 | 0.146 | 1.013 (0.272) | 0.555 (0.223) | 0.891 (1.345) | discarded: load after |
+| 06-B | 22704fa9 | 61 25 96 | 12.55 | 2.94 | 0.153 | 1.012 (0.253) | 0.625 (0.250) | 0.893 (1.483) | discarded: load after |
+| **07-C** | 4a2878b0 | 8 29 7 | 10.06 | 2.35 | **0.113** | **0.813** (0.224) | 0.518 (0.156) | 0.864 (1.132) | kept |
+| **08-B** | 22704fa9 | 11 3 17 | 7.04 | 2.16 | **0.089** | **0.801** (0.195) | 0.490 (0.194) | 0.877 (1.094) | kept |
+| 09-C | 4a2878b0 | 27 77 63 | 10.13 | 2.37 | 0.121 | 0.805 (0.233) | 0.513 (0.160) | 0.842 (1.122) | discarded: load after |
+| 10-B | 22704fa9 | 31 74 74 | 6.73 | 2.09 | 0.086 | 0.767 (0.190) | 0.475 (0.186) | 0.859 (1.055) | discarded: load after |
+
+Another agent's viewer (`D:/measure-f12/flex-a`) ran between my runs under the same lock; the after-load breaches are
+consistent with it starting as mine ended. **Two quiet runs per build, not three.** The planned 11-C/12-B were not run:
+all ten runs, kept and discarded, read the same state, so a third quiet pair could not change the reading (the
+coordinator agreed). Sky3D primitives 7,276-7,627 and pixels 636,000-653,000 in every run (control b met).
+OpaqueModels GPU 0.842-0.905 in all but 01-C (0.970, discarded) (control c met).
+
+**Today, the control build reads the 10-30 split, not its own 10-25 split**: Clear 0.113-0.117, Sky3D 0.799-0.813, World
+0.510-0.518, against its record's 1.29-1.35 / 0.083-0.084 / 0.355-0.361. Its frame (9.88, 10.06) and render thread
+(2.34, 2.35) are 0.2-0.6 ms and 0.05-0.10 ms above its record's 9.41-9.65 and 2.25-2.29.
+
+**Evidence found after the record was committed, outside the pre-registered method: the committed raw runs of every
+per-pass record since 10-25.** Same condition in each (f12 tick 30000, gummo first person, 1280x720, mode 2 by a nonzero
+render-thread draw; E, h, v and 984x551 runs excluded). Builds from each record's Environment section. State 1 = Clear
+above 1.0 and Sky3D under 0.15; state 2 = Clear under 0.3 and Sky3D above 0.5.
+
+| record | build(s) | state 1 runs | state 2 runs |
+|---|---|---|---|
+| 2026-10-25 render-thread-cpu-vs-gpu | 4a2878b0 | 01, 06, 07, 12 (M) | **15-M** (Clear 0.109, Sky3D 0.776; discarded by its record for load, so not quiet) |
+| 2026-10-26 b597-constant-ring | A c0584951, B its head | 01-11, 20-A | 12-B to 19-B, **A and B both** (Clear 0.138-0.149, Sky3D 0.926-0.958) |
+| 2026-10-26 b597-face-cache | its A/B | all 8 | none |
+| 2026-10-26 b597-flex-range | its M/R | only 09-R-verify (a verify run at a 21 ms frame) | 01-08, 11-14, M and R |
+| 2026-10-26 threaded-particles-and-sun | its C/A | 01-C-S, 04-C-T | 02, 03, 05-11, C and A both |
+| 2026-10-27 static-prop-lighting | A f9edd46c, B 8122feca | 01-03, 05-12 | 04-A |
+| 2026-10-27 static-prop-handle-at-load | A e761fc6e, B 06ae76c2 | 01, 02, 04, 07-11 | 05-B, 06-A, 12-A (03-B between: 0.979 / 0.401, read as a flip inside the run, interpolated from a mean) |
+| 2026-10-27 bone-clock-and-threaded-setup | its builds | none | 01-08 |
+| 2026-10-28 pvs-node-prune (fp runs) | its A/B | 09-16 | none |
+| 2026-10-30 b597-gpu-split | 22704fa9 | none | 01-N, 06-N, 07-N |
+| this record | 4a2878b0, 22704fa9 | none | all 10 |
+
+So both states occur on the same build within one session, and both builds of an A/B flip together (constant-ring 12-19,
+static-prop-handle 05-06, threaded-particles 02-03). State 1 is seen as late as 2026-10-28; state 2 as early as 2026-10-25
+(15-M, on the control build itself). In state 2 the sum Clear + Sky3D + World is lower (about 1.4 against 1.75):
+Clear loses about 1.2, Sky3D gains about 0.7, World gains about 0.15; OpaqueModels does not move.
+
+**Machine facts read today (read, nothing changed):**
+
+| fact | value | what it proves |
+|---|---|---|
+| GPU, driver | RTX 3060, 32.0.16.1088, driver dated 2026-07-21; driver store folder and `nvwgf2umx.dll` dated 2026-10-14 / 2026-08-18 | no driver install between 10-25 and 10-30 |
+| Windows | 11 Pro 10.0.26300, last boot 2026-10-16 06:25; last hotfixes 2026-10-14/16 | no reboot or OS build change in the window |
+| Windows Update installs 10-24 to 10-30 (event 19, Store apps and Defender signatures left out) | .NET 10.0.14 and 9.0.22 runtimes 10-26 01:30; PowerShell 7.6.9 10-26 01:43; VS 2022/2026 security updates 10-26 to 10-29; Defender platform 10-28; Windows Security platform 10-30 07:24 | the .NET 10.0.14 runtime is shared by both builds and arrived 10-26 01:30, but **state 2 occurs before it (10-25 15-M) and state 1 after it (10-26 face-cache, 10-27, 10-28)**, so it does not select the state. Not ruled out as a contributor to the frame drift. |
+| display | one monitor, 1920x1080 at 239 Hz, primary | single display, no second monitor now (10-25 not recorded) |
+| power plan | High performance | not recorded on 10-25 |
+| GPU state at one moment | P0, 1837 MHz graphics, 43% utilisation, 51 C (another agent's viewer was running) | one sample; says nothing about the state |
+| HDR / overlays | `AutoHDROptOutApplicable 0`; no per-app GPU preference for tf2demoview; Xbox Game Overlay updated by the Store on 10-24, 10-25 and 10-29 | Store app updates are spread through both states; HDR state itself not read |
 
 ## Verdict
 
-(not yet run)
+**H1 confirmed: no commit moved the split.** The control build `4a2878b0` rebuilt today reads Clear 0.11 / Sky3D 0.80
+(two quiet runs, eight in all), the same as `22704fa9` (Clear 0.09 / Sky3D 0.80-0.88). The prediction's H1 branch held
+and falsification clause 1 is met: **H2, H3 and H4 are falsified for this range**, and my guess of `35000cda` is
+falsified with them. No bisect was run, because the signal does not depend on the build.
+
+**The mechanism is narrower than a dated environmental change.** The committed archive shows the split is a **two-state
+condition that flips between runs of the same binary in the same session**, in both directions, from 2026-10-25 to
+2026-10-30, and both builds of an A/B pair flip together. No driver, OS or display change occurred in the window; the one
+runtime install (.NET 10.0.14, 10-26) is bracketed by both states. **What selects the state is not settled** (candidates
+not measured: DWM presentation mode of the window, GPU clock or power state, another process on the GPU). Two
+consequences that hold whatever selects it:
+
+- **Clear, Sky3D and World GPU are state-dependent; OpaqueModels is not.** Per-pass GPU figures from different records
+  compare only within one state. Clear GPU classifies a run: above about 1.0 is state 1, under about 0.3 state 2.
+- **The state may move the frame mean** (a lead, not a measurement): in `2026-10-27-static-prop-handle-at-load`, build A
+  read 8.37-8.38 ms in state 1 (07, 09) and 9.20-9.33 ms in state 2 (06, 12). An A/B that mixed states could carry that
+  as a build difference. Not tested here.
+
+Inconclusive, and left open: what selects the state; whether it moves the frame; and the control build's 0.2-0.6 ms
+frame drift since its record. The state alone may account for that drift, if the lead above holds.
