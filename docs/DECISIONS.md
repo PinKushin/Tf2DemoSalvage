@@ -11377,8 +11377,12 @@ differences found between eras: *"those are fine go"*.
 decoder bug (a game event's non-UTF-8 string, `player_changename`) was found and fixed; the NetTick test's run rule and
 the Speex test's premise were wrong about what was recorded and were rewritten (D38).
 
-**Open and not decided here:** whether to re-record voice with the wav beside `hl2.exe`; whether the 2013 pair's roster,
-which carries the owner's real Steam ID, may stay in the public repository.
+**Two questions, put to the owner on 2026-10-30 and answered together: *"Both are fine I guess"*** [the hedge is his;
+no reason was given]. (1) The scripted voice is microphone input in every era, not the tone (the wav was read relative to
+the wrong folder): it is accepted as the documented state and is not re-recorded. (2) The owner's real Steam ID
+(`STEAM_0:1:28447543`) is in the roster of the 2008 and 2013 pairs (measured), and probably the live pair (its roster
+lists only SourceTV, so the ID was not read): it stays in the public repository. A re-record for either would have
+changed the 14 files; neither is done. If either is wanted later it is a new re-record and a new swap, not an edit.
 
 Supersedes the manifest's description of era specimens as ad-hoc recordings. It does not change D81, under which the
 corpus's eventual home is still archive.org. Evidence: `docs/measurements/2026-10-28-era-specimens-v2-plan.md` (session

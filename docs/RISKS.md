@@ -40257,7 +40257,9 @@ is the owner's to schedule. The swap's own record: `docs/measurements/2026-10-28
 - **The scripted voice is the microphone, not the tone, in every era** (*disassembled* for the 3258 and 3420 engines).
   The wav was placed in `tf/`; the engine opens it relative to the folder holding `hl2.exe`. Decision owed: re-record
   with the wav beside `hl2.exe` (the investigator's prep change: add the game root to `listing.sh`/`prep.sh`), or accept
-  microphone voice as the documented state. The 4231, 4269, 4604, 2013 and live engines' file reads were not read.
+  microphone voice as the documented state. **Decided 2026-10-30 (D243): accepted as the documented state, not
+  re-recorded** (owner: *"Both are fine I guess"*); the prep change stays on file for a later re-record. The 4231, 4269,
+  4604, 2013 and live engines' file reads were not read.
 - **`SilkVoiceDecoder` rejects one real Steam Voice packet** (*measured*): `SKP_Silk_SDK_Decode returned -12 for a 80-byte
   packet`, from the lcor 2013 `spec4` pair (recorded while the owner was online on Steam). `EverySpeexFrame_DecodesToPcm`
   passes over all 43 Speex demos of gcor plus lcor with `spec4` moved out, and fails with it in. lcor-only, so CI is

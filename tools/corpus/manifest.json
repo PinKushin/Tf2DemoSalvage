@@ -138,7 +138,7 @@
       "eraEvidence": "`Exe build: 20:17:35 Mar 19 2008 (3420)`",
       "whyItMatters": "The corpus's only protocol-14 era, recorded from the same script as every other era, so the pre-Source-2009 rules are compared against 11, 15 and 24 on identical input. It carries no `dem_stringtables` command, and the SourceTV half shows the same absence, which makes it the era's property and not the mode's.",
       "knownIssues": "Steam offline drops the local player unless `sv_lan 1`; `name` does not take, so the demo's name is the Steam persona; `quit` hangs in shutdown (disconnect, quit, end after 30 s); `build` takes one argument and the sentry's object type is 3; `addcond`/`removecond`, `tf_bot_add`/`tf_bot_quota` and `cl_disablehtmlmotd` are unknown; all 1,069 of its Speex frames are one encoded frame (digital silence); the voice in this demo is microphone input, not the scripted tone: the engine opens voice_input.wav relative to the folder holding hl2.exe and the wav was placed in tf/ (docs/findings/02-net-messages.md, 'Correction, 2026-10-29')",
-      "privacyNote": "the player name is `PinKushin` (an ASCII game handle), the client's Steam persona because `name` does not take in this build; the roster carries the owner's real Steam account ID (STEAM_0:1:28447543), measured with the CLI's `-s` roster dump on 2026-10-30; the owner has been asked whether that may stay in the public repository"
+      "privacyNote": "the player name is `PinKushin` (an ASCII game handle), the client's Steam persona because `name` does not take in this build; the roster carries the owner's real Steam account ID (STEAM_0:1:28447543), measured with the CLI's `-s` roster dump on 2026-10-30; the owner ruled it may stay in the public repository (D243, \"Both are fine I guess\")"
     },
     {
       "file": "demos/tf2-2008-build3420-spec-stv-cp_granary.dem",
@@ -168,7 +168,7 @@
       "eraEvidence": "`Exe build: 20:17:35 Mar 19 2008 (3420)`",
       "whyItMatters": "The SourceTV half of the protocol-14 pair: same session, same script, no `dem_usercmd` and no `dem_consolecmd` at all. With the POV half it shows that the missing `dem_stringtables` at protocol 14 is the era's and not the mode's.",
       "knownIssues": "Steam offline drops the local player unless `sv_lan 1`; `name` does not take, so the demo's name is the Steam persona; `quit` hangs in shutdown (disconnect, quit, end after 30 s); `build` takes one argument and the sentry's object type is 3; `addcond`/`removecond`, `tf_bot_add`/`tf_bot_quota` and `cl_disablehtmlmotd` are unknown; all 1,069 of its Speex frames are one encoded frame (digital silence); the voice in this demo is microphone input, not the scripted tone: the engine opens voice_input.wav relative to the folder holding hl2.exe and the wav was placed in tf/ (docs/findings/02-net-messages.md, 'Correction, 2026-10-29')",
-      "privacyNote": "the player name is `PinKushin` (an ASCII game handle), the client's Steam persona because `name` does not take in this build; the roster carries the owner's real Steam account ID (STEAM_0:1:28447543), measured with the CLI's `-s` roster dump on 2026-10-30; the owner has been asked whether that may stay in the public repository"
+      "privacyNote": "the player name is `PinKushin` (an ASCII game handle), the client's Steam persona because `name` does not take in this build; the roster carries the owner's real Steam account ID (STEAM_0:1:28447543), measured with the CLI's `-s` roster dump on 2026-10-30; the owner ruled it may stay in the public repository (D243, \"Both are fine I guess\")"
     },
     {
       "file": "demos/tf2-2009-build3862-spec-pov-cp_granary.dem",
@@ -393,7 +393,7 @@
       "eraEvidence": "`Exe build: 17:24:29 Mar 25 2013 (5252)`",
       "whyItMatters": "Protocol 24 as it stood on 25 March 2013, on the same script as every other era, so a protocol-24 difference can be split into '2013' and 'now' by comparing it with the live pair.",
       "knownIssues": "no mid-demo name change: the client takes the Steam persona (PinKushin) and ignores name; `cl_hud_playerclass_use_playermodel` (the owner's cfg) is refused 14 times; the voice in this demo is microphone input, not the scripted tone: the engine opens voice_input.wav relative to the folder holding hl2.exe and the wav was placed in tf/ (docs/findings/02-net-messages.md, 'Correction, 2026-10-29')",
-      "privacyNote": "the player name is `PinKushin` (an ASCII game handle), the client's Steam persona; the roster carries the owner's real Steam account ID (STEAM_0:1:28447543); the owner has been asked whether that may stay in the public repository"
+      "privacyNote": "the player name is `PinKushin` (an ASCII game handle), the client's Steam persona; the roster carries the owner's real Steam account ID (STEAM_0:1:28447543); the owner ruled it may stay in the public repository (D243, \"Both are fine I guess\")"
     },
     {
       "file": "demos/tf2-2013-build1729296-spec-stv-cp_granary.dem",
@@ -424,7 +424,7 @@
       "eraEvidence": "`Exe build: 17:24:29 Mar 25 2013 (5252)`",
       "whyItMatters": "The SourceTV half of the 2013 protocol-24 pair, same session and script as its POV. It is the 2013 end of the comparison against the live protocol-24 pair.",
       "knownIssues": "no mid-demo name change: the client takes the Steam persona (PinKushin) and ignores name; `cl_hud_playerclass_use_playermodel` (the owner's cfg) is refused 14 times; the voice in this demo is microphone input, not the scripted tone: the engine opens voice_input.wav relative to the folder holding hl2.exe and the wav was placed in tf/ (docs/findings/02-net-messages.md, 'Correction, 2026-10-29')",
-      "privacyNote": "the player name is `PinKushin` (an ASCII game handle), the client's Steam persona; the roster carries the owner's real Steam account ID (STEAM_0:1:28447543); the owner has been asked whether that may stay in the public repository"
+      "privacyNote": "the player name is `PinKushin` (an ASCII game handle), the client's Steam persona; the roster carries the owner's real Steam account ID (STEAM_0:1:28447543); the owner ruled it may stay in the public repository (D243, \"Both are fine I guess\")"
     },
     {
       "file": "demos/tf2-live-build11138802-spec-pov-cp_granary.dem",
@@ -457,7 +457,7 @@
       "eraEvidence": "not recorded: the plan's live session log quotes Build Label 11138802 and protocol 24 and no Exe build: line",
       "whyItMatters": "The current build on the same script as every other era, so a protocol-24 difference can be split into '2013' and 'now'. Its voice codec is CELT where 2010-2013 are Speex, which makes this the controlled CELT specimen the corpus lacked.",
       "knownIssues": "Steam offline drops the local player unless `sv_lan 1`; `sv_voicecodec` must be set to `vaudio_celt` before `map`, because `vaudio_speex` does not load on the 64-bit client; the codec is CELT where 2010-2013 are Speex, which is inherent; 14 `player_death` against 13 in every other era; the voice in this demo is microphone input, not the scripted tone: the engine opens voice_input.wav relative to the folder holding hl2.exe and the wav was placed in tf/ (docs/findings/02-net-messages.md, 'Correction, 2026-10-29')",
-      "privacyNote": "the player name is `PinKushin` (an ASCII game handle). The CLI's `-s` roster lists only SourceTV for this demo, so the player's Steam ID was NOT read; it was recorded through the real Steam client, so it may be the owner's account ID (STEAM_0:1:28447543) as in the 2008 and 2013 pairs. Not checked; the owner has been asked about those IDs in the public repository"
+      "privacyNote": "the player name is `PinKushin` (an ASCII game handle). The CLI's `-s` roster lists only SourceTV for this demo, so the player's Steam ID was NOT read; it was recorded through the real Steam client, so it may be the owner's account ID (STEAM_0:1:28447543) as in the 2008 and 2013 pairs. Not checked; the owner ruled that the IDs may stay in the public repository (D243, \"Both are fine I guess\")"
     },
     {
       "file": "demos/tf2-live-build11138802-spec-stv-cp_granary.dem",
@@ -488,7 +488,7 @@
       "eraEvidence": "not recorded: the plan's live session log quotes Build Label 11138802 and protocol 24 and no Exe build: line",
       "whyItMatters": "The SourceTV half of the live protocol-24 pair: same session and script as its POV, so the mode and the era are separated. It is the CELT half of the voice comparison, where the 2010-2013 pairs are Speex.",
       "knownIssues": "Steam offline drops the local player unless `sv_lan 1`; `sv_voicecodec` must be set to `vaudio_celt` before `map`, because `vaudio_speex` does not load on the 64-bit client; the codec is CELT where 2010-2013 are Speex, which is inherent; 14 `player_death` against 13 in every other era; the voice in this demo is microphone input, not the scripted tone: the engine opens voice_input.wav relative to the folder holding hl2.exe and the wav was placed in tf/ (docs/findings/02-net-messages.md, 'Correction, 2026-10-29')",
-      "privacyNote": "the player name is `PinKushin` (an ASCII game handle). The CLI's `-s` roster lists only SourceTV for this demo, so the player's Steam ID was NOT read; it was recorded through the real Steam client, so it may be the owner's account ID (STEAM_0:1:28447543) as in the 2008 and 2013 pairs. Not checked; the owner has been asked about those IDs in the public repository"
+      "privacyNote": "the player name is `PinKushin` (an ASCII game handle). The CLI's `-s` roster lists only SourceTV for this demo, so the player's Steam ID was NOT read; it was recorded through the real Steam client, so it may be the owner's account ID (STEAM_0:1:28447543) as in the 2008 and 2013 pairs. Not checked; the owner ruled that the IDs may stay in the public repository (D243, \"Both are fine I guess\")"
     }
   ],
   "censusSpecimens": {
