@@ -7496,12 +7496,22 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             // depthwrite.cpp:93); everything else culls back faces, front wound clockwise
             // (imaterialsystem.h:180). Set inside the loop rather than once per model because two
             // batches of one model can disagree — a sign that culls and a flag that does not.
-            context.RSSetState(Raster(CullFor(mirrored, bothSides || _noCull.Contains(material)) switch
+            ComPtr<ID3D11RasterizerState> raster = CullFor(mirrored, bothSides || _noCull.Contains(material)) switch
             {
                 ModelCull.None => _bothSides,
                 ModelCull.Front => _viewmodelCull,
                 _ => _modelCull,
-            }));
+            };
+
+            // **A DecalModulate brush entity takes its shader's polygon offset** (B635 review): SHADER_POLYOFFSET_DECAL is
+            // set in DecalModulate's SHADOW_STATE (DecalModulate_dx9.cpp:67), so on every bind. `ctf_crasher`'s scorch
+            // `func_brush`es are drawn here, as brush entities, at z 0 and -0.25 on the floor they mark.
+            if (!mirrored && _decalPolyOffsetMaterials.Contains(material) && _decalPolyOffset.Handle is not null)
+            {
+                raster = _decalPolyOffset;
+            }
+
+            context.RSSetState(Raster(raster));
 
             // **A model's materials are sorted into the same two passes the world's are.** Until
             // now every model batch drew opaque, whatever its material said, which is why a capture

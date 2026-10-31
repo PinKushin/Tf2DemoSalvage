@@ -40251,6 +40251,21 @@ It is tested red-first. It names which thread waited and where the draw had got 
 **Reopen if** the `queue stall` line ever appears in a viewer log, or if this test's hang rate on the branch, measured
 the same way, exceeds the baseline's.
 
+## B639 — `ctf_crasher`'s scorch `func_brush` LIGHTENS the floor in ours where TF2 darkens it (2026-10-31) — OPEN, lead
+
+**Observed (pictures; images under `D:/measure-f12/decal-cmp/owner/`):** `ctf_crasher` carries four `func_brush`
+entities (`gatescorch_red`/`_blu`, `scorch_red`/`_blu`, `StartDisabled=1`) whose top face is `decals/scorch1`, a
+DecalModulate, flush with the floor (origin z 0 and −0.25; `shader-faces ctf_crasher DecalModulate`). I recorded a demo on
+a listen server with them enabled (`crasher_scorch.dem`) and shot ours at camera `-3116 -1344 700 89 0`. Tick 5 against
+tick 2000 differs in 78,228 px, max 177, around the capture point, and the floor gets **lighter**
+(`sbs-crasher-scorch-off-on.png`). In TF2, firing `Enable` made the same floor **darker** (`tf2-ref/crasher-gatescorch-z300.png`
+against the shot before it). *Read:* Valve's DecalModulate is unlit, the texture alone (`decalmodulate_ps2x.fxc:35`,
+`STATIC_LIGHT_LIGHTMAP 0`, `DecalModulate_dx9.cpp:186`). Ours draws a brush entity in the model pass, which lights its
+material. A mod2x output above 0.5 brightens the floor. *Interpolated:* that the model pass's light is the cause.
+Not isolated: the two ticks also differ in time, and the demo's first ticks may already carry the brush enabled.
+**Next:** shoot one tick with the brush hidden through its own entity (or `r_drawentities 0`) and once shown, and
+read the light the model pass gives a brush entity's DecalModulate run.
+
 ## B638 — a plain (non-`$mod2x`) Modulate draws about twice too bright in linear terms: it is lit, Valve's is not (2026-10-31) — OPEN
 
 **Measured (offscreen, `ModulateToneMapConformanceTests`' hand-built material):** a plain Modulate of texel 128 over a

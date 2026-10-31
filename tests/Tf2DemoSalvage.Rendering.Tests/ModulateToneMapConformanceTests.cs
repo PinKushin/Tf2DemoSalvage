@@ -337,6 +337,35 @@ public sealed class ModulateToneMapConformanceTests
         marked.Item2.ShouldBeLessThan(wallOnly.Item2 - 20, $"the wall drew {wallOnly} and {marked} with the scorch 0.02 behind it");
     }
 
+    /// <remarks>
+    /// **The same face as a brush ENTITY** (B635 review): `ctf_crasher`'s four scorch `func_brush`es are drawn by the
+    /// model pass, not the world's, so the offset has to be there too. The wall is world (it writes depth); the scorch is
+    /// a model drawn over that depth, as a brush entity is drawn after the world.
+    /// </remarks>
+    [Test]
+    public void DrawModel_DecalModulateBrushEntityJustBehindAWall_IsPulledInFrontByTheDecalOffset()
+    {
+        using OffscreenTarget? target = OffscreenTarget.TryCreate(16, 16);
+
+        if (target is null)
+        {
+            Skip();
+            return;
+        }
+
+        target.Clear(Surface, Surface, Surface);
+        target.DrawWorld(Quad(1f), [new WorldBatch(Lit, 0, 6)], Camera(), Assets, toneMapScale: 1f);
+
+        (int, int, int) wallOnly = target.PixelAt(8, 8);
+
+        target.DrawModelPose(
+            Quad(Device3D.DecalModulateLight, depth: 0.02f), [new WorldBatch(DecalModulateDark, 0, 6)], Camera(), Identity, Assets, clearDepth: false, toneMapScale: 1f);
+
+        (int, int, int) marked = target.PixelAt(8, 8);
+
+        marked.Item2.ShouldBeLessThan(wallOnly.Item2 - 20, $"the wall drew {wallOnly} and {marked} with the scorch entity 0.02 behind it");
+    }
+
     private static void Close((int Red, int Green, int Blue) actual, (int Red, int Green, int Blue) expected, string because)
     {
         actual.Red.ShouldBeInRange(expected.Red - 2, expected.Red + 2, because);
