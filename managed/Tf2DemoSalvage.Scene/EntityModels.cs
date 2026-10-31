@@ -409,6 +409,9 @@ public sealed partial class EntityModelSet : Hud.IMdlCache, IPosedEntities
     /// <summary>Of <see cref="SetupTicks"/>: roots' own calls, ever — what the threaded pre-pass would move (finding 105 A6).</summary>
     public long SetupRootTicks { get; private set; }
 
+    /// <summary>Of <see cref="SetupRootTicks"/>: the parts each root call carried (<see cref="RootSetupParts"/>), ever, read from the meter beside it.</summary>
+    public RootSetupParts SetupRootParts { get; private set; }
+
     /// <summary>Of <see cref="SetupTicks"/>: children's own calls, less their parents, ever (finding 105 A6).</summary>
     public long SetupChildTicks { get; private set; }
 
@@ -564,7 +567,8 @@ public sealed partial class EntityModelSet : Hud.IMdlCache, IPosedEntities
         long PrePose = 0,
         int PrePosed = 0,
         long PrePoseBlend = 0,
-        FlexCounters Flex = default)
+        FlexCounters Flex = default,
+        RootSetupParts RootParts = default)
     {
         /// <summary>What happened between an earlier snapshot and this one.</summary>
         /// <param name="before">The earlier snapshot.</param>
@@ -622,7 +626,8 @@ public sealed partial class EntityModelSet : Hud.IMdlCache, IPosedEntities
                 PrePose - before.PrePose,
                 PrePosed - before.PrePosed,
                 PrePoseBlend - before.PrePoseBlend,
-                Flex.Since(before.Flex));
+                Flex.Since(before.Flex),
+                RootParts.Since(before.RootParts));
     }
 
     /// <summary>Every pose-phase counter as it stands now.</summary>
@@ -671,7 +676,8 @@ public sealed partial class EntityModelSet : Hud.IMdlCache, IPosedEntities
         PrePoseTicks,
         PrePosed,
         PrePoseBlendTicks,
-        _flexTally.Snapshot());
+        _flexTally.Snapshot(),
+        SetupRootParts);
 
     /// <summary>The parts of <see cref="PlaceFlexTicks"/>, added where each ran (<see cref="FlexCounters"/>).</summary>
     private readonly FlexTally _flexTally = new();

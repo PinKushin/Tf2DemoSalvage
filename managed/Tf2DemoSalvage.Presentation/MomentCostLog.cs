@@ -2,6 +2,7 @@ using System;
 using System.Diagnostics;
 using System.Globalization;
 
+using Tf2DemoSalvage.Animation.Animating;
 using Tf2DemoSalvage.Scene;
 
 namespace Tf2DemoSalvage.Presentation;
@@ -60,6 +61,9 @@ public sealed class MomentCostLog
 
     // Finding 105 A6: setup split root against child, and the slowest root (mean of each rebuild's, and the window's).
     private long _setupRoot;
+
+    /// <summary>The parts of <see cref="_setupRoot"/>, summed as each rebuild carried them (the 2026-10-31 setup-parts split).</summary>
+    private RootSetupParts _rootParts;
     private long _setupEligible;
     private long _eligibleBuilds;
     private long _setupChild;
@@ -159,6 +163,7 @@ public sealed class MomentCostLog
         _wornLight += phases.Counters.WornLight;
         _setup += phases.Counters.Setup;
         _setupRoot += phases.Counters.SetupRoot;
+        _rootParts = _rootParts.Add(phases.Counters.RootParts);
         _setupEligible += phases.Counters.SetupEligible;
         _eligibleBuilds += phases.Counters.EligibleBuilds;
         _setupChild += phases.Counters.SetupChild;
@@ -252,6 +257,15 @@ public sealed class MomentCostLog
             + $", slowest {Mean(_maxRootSum, over):0.###} peak {Mean(_maxRootPeak, 1):0.###}"
             + $"; children {Mean(_setupChild, over):0.###} over {_childBuilds / (double)over:0.#} built"
             + $"; prepose {Mean(_prePose, over):0.###} over {_prePosed / (double)over:0.#}, blend {Mean(_prePoseBlend, over):0.###})"
+
+            // The parts of `roots`, each carried from where it ran; `unsplit` is the residual no part covers (guards, mask
+            // bookkeeping, a ragdoll, the timers), and layer sampling is inside accumulate, so it is not subtracted twice.
+            + $", roots split (blend {Mean(_rootParts.Blend, over):0.###}, base {Mean(_rootParts.Base, over):0.###}"
+            + $", accumulate {Mean(_rootParts.Accumulate, over):0.###} of which layer sampling {Mean(_rootParts.Sampling, over):0.###}"
+            + $" over {_rootParts.Samples / (double)over:0.#}"
+            + $", adjust {Mean(_rootParts.Adjust, over):0.###}, loop {Mean(_rootParts.Loop, over):0.###}"
+            + $", ik {Mean(_rootParts.Ik, over):0.###}, finish {Mean(_rootParts.Finish, over):0.###}"
+            + $"; unsplit {Mean(_setupRoot - _rootParts.Sum, over):0.###})"
             + $", skin {Mean(_skin, over):0.#}"
             + $", anim {Mean(_animation, over):0.#}"
             + $", reports {Mean(_report, over):0.#}"
@@ -314,6 +328,7 @@ public sealed class MomentCostLog
         _wornLight = 0;
         _setup = 0;
         _setupRoot = 0;
+        _rootParts = default;
         _setupEligible = 0;
         _eligibleBuilds = 0;
         _setupChild = 0;

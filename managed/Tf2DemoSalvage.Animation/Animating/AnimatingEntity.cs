@@ -263,13 +263,17 @@ public sealed class AnimatingEntity
         bool root = Follows is null;
         bool eligible = PrePoseEligible;
 
-        bool readable = SetupBonesUntimed(boneMask, currentTime, budget, out long parentTicks, out bool built);
+        bool readable = SetupBonesUntimed(boneMask, currentTime, budget, out long parentTicks, out bool built, out long blendTicks);
 
-        _clock.Meter.Record(root, eligible, built, System.Diagnostics.Stopwatch.GetTimestamp() - started - parentTicks);
+        // The build's parts as the pose timed them, read on this thread straight after it built, and the blend as timed here.
+        RootSetupParts parts = root && built ? _pose.LastBuild with { Blend = blendTicks } : new RootSetupParts(Blend: blendTicks);
+
+        _clock.Meter.Record(root, eligible, built, System.Diagnostics.Stopwatch.GetTimestamp() - started - parentTicks, parts);
         return readable;
     }
 
-    private bool SetupBonesUntimed(int boneMask, double currentTime, int budget, out long parentTicks, out bool built)
+    private bool SetupBonesUntimed(
+        int boneMask, double currentTime, int budget, out long parentTicks, out bool built, out long blendTicks)
     {
         parentTicks = 0;
         built = false;
@@ -277,7 +281,11 @@ public sealed class AnimatingEntity
         // **The blend inputs, built on the first request and only on a request** — `StandardBlendingRules` is called from
         // `SetupBones` (`c_baseanimating.cpp:1953`, `:2796`), so an entity nobody draws or asks for builds no layers this
         // frame. Ahead of every guard, because what the pose was handed is read even of a model that builds no bone.
+        long blendAt = System.Diagnostics.Stopwatch.GetTimestamp();
+
         BeforeBuild?.Invoke();
+
+        blendTicks = System.Diagnostics.Stopwatch.GetTimestamp() - blendAt;
 
         if (_pose.BoneCount == 0)
         {

@@ -48,12 +48,35 @@ public sealed class BoneSetupMeter
     /// <summary>Children that built bones, ever.</summary>
     public int ChildBuilds => Volatile.Read(ref _childBuilds);
 
+    /// <summary>Of <see cref="RootTicks"/>: the parts each root call carried, ever.</summary>
+    public RootSetupParts RootParts => new(
+        Interlocked.Read(ref _blend),
+        Interlocked.Read(ref _base),
+        Interlocked.Read(ref _accumulate),
+        Interlocked.Read(ref _sampling),
+        Interlocked.Read(ref _samples),
+        Interlocked.Read(ref _adjust),
+        Interlocked.Read(ref _loop),
+        Interlocked.Read(ref _ik),
+        Interlocked.Read(ref _finish));
+
+    private long _blend;
+    private long _base;
+    private long _accumulate;
+    private long _sampling;
+    private long _samples;
+    private long _adjust;
+    private long _loop;
+    private long _ik;
+    private long _finish;
+
     /// <summary>Records one call.</summary>
     /// <param name="root">Whether the entity follows nothing.</param>
     /// <param name="eligible">Whether a threaded pre-pass would take it; meaningful only for a root.</param>
     /// <param name="built">Whether the call built bones rather than returning the cached ones.</param>
     /// <param name="ticks">Its own ticks, without its parent's.</param>
-    public void Record(bool root, bool eligible, bool built, long ticks)
+    /// <param name="parts">Of <paramref name="ticks"/>: the parts the call carried; added for a root only.</param>
+    public void Record(bool root, bool eligible, bool built, long ticks, in RootSetupParts parts = default)
     {
         int builds = built ? 1 : 0;
 
@@ -71,6 +94,22 @@ public sealed class BoneSetupMeter
         {
             Interlocked.Add(ref _eligibleTicks, ticks);
             Interlocked.Add(ref _eligibleBuilds, builds);
+        }
+
+        // The parts of those ticks, beside them; a child's are not a root's (the 2026-10-31 setup-parts split). A cache hit
+        // carries a blend and nothing else, so it pays one add rather than nine.
+        Interlocked.Add(ref _blend, parts.Blend);
+
+        if (built)
+        {
+            Interlocked.Add(ref _base, parts.Base);
+            Interlocked.Add(ref _accumulate, parts.Accumulate);
+            Interlocked.Add(ref _sampling, parts.Sampling);
+            Interlocked.Add(ref _samples, parts.Samples);
+            Interlocked.Add(ref _adjust, parts.Adjust);
+            Interlocked.Add(ref _loop, parts.Loop);
+            Interlocked.Add(ref _ik, parts.Ik);
+            Interlocked.Add(ref _finish, parts.Finish);
         }
     }
 }

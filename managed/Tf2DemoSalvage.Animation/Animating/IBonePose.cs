@@ -99,4 +99,8 @@ public interface IBonePose
     /// when it is, this splits at the same seam rather than growing a parameter.
     /// </remarks>
     public void Build(int boneMask, double currentTime, BoneAccessor into, BoneBitList alreadyWritten);
+
+    /// <summary>What the last <see cref="Build"/> spent in each of its parts, as the build timed them; zero for a pose that does not time itself.</summary>
+    /// <remarks>Read by the entity straight after the build it asked for, on the same thread, and only when it built.</remarks>
+    public RootSetupParts LastBuild => default;
 }
