@@ -202,3 +202,20 @@ into `bin/Debug` (Render.dll 11:09). The pair is re-shot from a scratch pre-fix 
 Result was taken from 10:05 to 10:45, before that rebuild. The `fix/` and `alphatest/` sidecars name the commit their
 source was on, `c01b388e`/`517564ec` with no `-dirty`, although both were built from uncommitted changes. Do not
 reproduce "after" from those sidecars.
+
+## Addendum 2: the review batch is bit-identical on the owner's frame (fix/b635-review-batch)
+
+The review moved the tone-map exemption off fog mode 2 onto its own constant and put Modulate ahead of `$additive`.
+Required: bit-identical output on a scorch frame. *Measured:* the merged head `6250dca9` (`bin-head`) against the branch
+`df36aadd` (`bin-review`), both built to scratch folders. Control on the builds: `Tf2DemoSalvage.Render.dll` read as
+UTF-16 has the old `if (mode < 1.5f)` and no `ToneMapScale(tintControl.w)` in `bin-head`, the reverse in `bin-review`,
+and `PixelFog` in both. Close camera, Debug `--shot`:
+
+| pair | 30400 | 30000 |
+|---|---|---|
+| head against head (repeat, the noise control) | 0 px | 0 px |
+| head against review | 0 px | 0 px |
+
+Images: `D:/measure-f12/decal-cmp/bi-head/`, `bi-head2/`, `bi-review/`. The five shipped Modulate materials that declare
+`$additive` are not in this frame, so this proves the reorganisation, not their change. The synthetic
+`ModulateToneMapConformanceTests` holds that change.
