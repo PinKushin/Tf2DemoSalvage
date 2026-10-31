@@ -2848,6 +2848,9 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             // **D3D11 returns the SAME object for an identical description**, so a twin can be a state already keyed
             // here (the model cull's offset twin is the overlays' poly-offset state). Overwriting leaked the first wire
             // (Dispose_After…_LeavesNoDeviceReference, B635 review 4); the duplicate reference is released instead.
+            // That default-cull collision exists only while the model cull's offset twin equals decalPolyOffset's
+            // description (DecalState.Cull is Back and the same bias); ModelCullOverrideReleaseTests pins the
+            // collisions TF2VIEW_MODEL_CULL=none and =front make, which do not depend on DecalState.
             if (!wireframe.TryAdd((nint)solid.Handle, wire))
             {
                 wire.Dispose();
@@ -2875,7 +2878,15 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             ComPtr<ID3D11RasterizerState> twin = default;
             SilkMarshal.ThrowHResult(device.CreateRasterizerState(in description, ref twin));
 
-            polyOffsetFor[(nint)solid.Handle] = twin;
+            // Two draw states can be ONE D3D11 object (TF2VIEW_MODEL_CULL=none makes the model cull both-sided's
+            // description, =front makes it the mirror's), and then so are their twins: the duplicate reference is released
+            // rather than overwritten, as AddWire does (B635 review 5).
+            if (!polyOffsetFor.TryAdd((nint)solid.Handle, twin))
+            {
+                twin.Dispose();
+                return;
+            }
+
             AddWire(twin, description);
         }
 
@@ -6930,6 +6941,9 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
         {
             twin.Dispose();
         }
+
+        // Cleared as the wireframe twins are, so a second Dispose releases nothing twice.
+        _polyOffsetFor.Clear();
         _bothSides.Dispose();
         _modelCull.Dispose();
 

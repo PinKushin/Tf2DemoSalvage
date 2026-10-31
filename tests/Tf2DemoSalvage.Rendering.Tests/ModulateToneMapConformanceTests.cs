@@ -26,8 +26,8 @@ namespace Tf2DemoSalvage.Rendering.Tests;
 public sealed class ModulateToneMapConformanceTests
 {
     private const int DecalModulateNeutral = 0;
-    private const int DecalModulateDark = 1;
-    private const int Lit = 2;
+    internal const int DecalModulateDark = 1;
+    internal const int Lit = 2;
     private const int PlainModulate = 3;
     private const int AdditiveModulate = 4;
     private const int TranslucentLit = 5;
@@ -49,9 +49,9 @@ public sealed class ModulateToneMapConformanceTests
     }
 
     /// <summary>The grey the surface is cleared to, in the target's own terms (188 when read back).</summary>
-    private const float Surface = 0.5f;
+    internal const float Surface = 0.5f;
 
-    private static readonly MapAssets Assets = MapAssets.ForMaterials(
+    internal static readonly MapAssets Assets = MapAssets.ForMaterials(
         [
             Grey(128, modulate: true, twice: true, decal: true),
             Grey(32, modulate: true, twice: true, decal: true),
@@ -312,7 +312,8 @@ public sealed class ModulateToneMapConformanceTests
     /// (DecalModulate_dx9.cpp:67), so on every bind; with it the face is pulled forward and drawn, without it the wall in
     /// front hides it. *Derived:* with <see cref="Camera"/>'s near plane of 7, depth changes by about near / d² = 7 / 300²
     /// ≈ 7.8e-5 of its range per unit, so 0.02 units is about 1.6e-6, some 26 steps of 2^-24, inside the offset's 64.
-    /// *Measured:* the scorch shows with the offset and is hidden without it (138 against 138, review 3).
+    /// *Measured:* with the offset, the marked pixel is darker than the wall by more than 20 (this test, green); with the
+    /// offset reverted (review 3's red run) the marked pixel equalled the wall, 138 against 138: the scorch was hidden.
     /// </remarks>
     [Test]
     public void Draw_DecalModulateBrushFaceJustBehindAWall_IsPulledInFrontByTheDecalOffset()
@@ -373,6 +374,9 @@ public sealed class ModulateToneMapConformanceTests
     /// <remarks>
     /// **The leaf path's offset** (B635 review 4): `DrawTranslucentLeaf` is what production draws on every cullable map,
     /// and its `BlendedRaster` call had no test. The same scorch 0.02 behind the wall, handed over as one leaf's run.
+    /// **Honestly:** this would also have passed before review 4. The leaf path got the offset in review 3; review 4 kept
+    /// it and changed only its culling, which a camera-facing quad does not see. It guards against the offset being
+    /// dropped from the leaf path (red when `BlendedRaster` has none, review 4's run B), not review 4's own change.
     /// </remarks>
     [Test]
     public void DrawTranslucentLeaf_DecalModulateRunJustBehindAWall_IsPulledInFrontByTheDecalOffset()
@@ -432,42 +436,38 @@ public sealed class ModulateToneMapConformanceTests
     }
 
     /// <remarks>
-    /// **The offset keeps CullFor's mode, including the TF2VIEW_MODEL_CULL experiment** (B635 review 4): with the
-    /// override set to none, a DecalModulate model seen from behind draws, as any other model's back face does. Read once
-    /// when the renderer is created, so the variable is set before the target and put back after.
+    /// **The same back face, with the offset itself under test** (B635 review 5): the case above shows the face draws, not
+    /// that it took the offset. Here it lies 0.02 behind a world wall, so it shows only if the both-sided twin carried the
+    /// polygon offset too.
     /// </remarks>
     [Test]
-    public void DrawModel_DecalModulateSeenFromBehindUnderModelCullNone_StillDraws()
+    public void DrawModel_NoCullDecalModulateSeenFromBehindJustBehindAWall_IsPulledInFront()
     {
-        string? before = System.Environment.GetEnvironmentVariable("TF2VIEW_MODEL_CULL");
+        using OffscreenTarget? target = OffscreenTarget.TryCreate(16, 16);
 
-        System.Environment.SetEnvironmentVariable("TF2VIEW_MODEL_CULL", "none");
-
-        try
+        if (target is null)
         {
-            using OffscreenTarget? target = OffscreenTarget.TryCreate(16, 16);
-
-            if (target is null)
-            {
-                Skip();
-                return;
-            }
-
-            target.Clear(Surface, Surface, Surface);
-
-            (int, int, int) under = target.PixelAt(8, 8);
-
-            target.DrawModelPose(
-                Quad(Device3D.DecalModulateLight, away: true), [new WorldBatch(DecalModulateDark, 0, 6)], Camera(), Identity, Assets, toneMapScale: 1f);
-
-            (int, int, int) drawn = target.PixelAt(8, 8);
-
-            drawn.Item2.ShouldBeLessThan(under.Item2 - 40, $"the scorch seen from behind under model cull none drew {drawn} over {under}");
+            Skip();
+            return;
         }
-        finally
-        {
-            System.Environment.SetEnvironmentVariable("TF2VIEW_MODEL_CULL", before);
-        }
+
+        target.Clear(Surface, Surface, Surface);
+        target.DrawWorld(Quad(1f), [new WorldBatch(Lit, 0, 6)], Camera(), Assets, toneMapScale: 1f);
+
+        (int, int, int) wallOnly = target.PixelAt(8, 8);
+
+        target.DrawModelPose(
+            Quad(Device3D.DecalModulateLight, depth: 0.02f, away: true),
+            [new WorldBatch(DecalModulateDarkNoCull, 0, 6)],
+            Camera(),
+            Identity,
+            Assets,
+            clearDepth: false,
+            toneMapScale: 1f);
+
+        (int, int, int) marked = target.PixelAt(8, 8);
+
+        marked.Item2.ShouldBeLessThan(wallOnly.Item2 - 20, $"the wall drew {wallOnly} and {marked} with the $nocull back face 0.02 behind it");
     }
 
     /// <remarks>
@@ -486,18 +486,64 @@ public sealed class ModulateToneMapConformanceTests
             return;
         }
 
-        List<WorldVertex> both = [.. Quad(1f), .. Quad(1f, depth: 0.02f)];
+        List<WorldVertex> behind = [.. Quad(1f), .. Quad(1f, depth: 0.02f)];
+        List<WorldVertex> flush = [.. Quad(1f), .. Quad(1f)];
 
         target.Clear(Surface, Surface, Surface);
-        target.DrawWorld(both, [new WorldBatch(Lit, 0, 6)], Camera(), Assets, toneMapScale: 1f);
+        target.DrawWorld(behind, [new WorldBatch(Lit, 0, 6)], Camera(), Assets, toneMapScale: 1f);
 
         (int, int, int) wallOnly = target.PixelAt(8, 8);
 
+        // The positive control: the same overlay flush with the wall draws and darkens it, so "hidden" below is the depth
+        // test's answer, not an overlay that never drew.
         target.Clear(Surface, Surface, Surface);
         target.DrawWorld(
-            both, [new WorldBatch(Lit, 0, 6)], Camera(), Assets, decals: [new WorldBatch(PlainModulate, 6, 6, Category: SurfaceCategory.Overlay)], toneMapScale: 1f);
+            flush, [new WorldBatch(Lit, 0, 6)], Camera(), Assets, decals: [new WorldBatch(PlainModulate, 6, 6, Category: SurfaceCategory.Overlay)], toneMapScale: 1f);
 
-        Close(target.PixelAt(8, 8), wallOnly, $"the wall drew {wallOnly} and {target.PixelAt(8, 8)} with a plain Modulate overlay behind it");
+        (int, int, int) flushDrawn = target.PixelAt(8, 8);
+
+        target.Clear(Surface, Surface, Surface);
+        target.DrawWorld(
+            behind, [new WorldBatch(Lit, 0, 6)], Camera(), Assets, decals: [new WorldBatch(PlainModulate, 6, 6, Category: SurfaceCategory.Overlay)], toneMapScale: 1f);
+
+        (int, int, int) behindDrawn = target.PixelAt(8, 8);
+
+        flushDrawn.Item2.ShouldBeLessThan(wallOnly.Item2 - 20, $"the flush overlay drew {flushDrawn} over the wall's {wallOnly}: it did not draw");
+        Close(behindDrawn, wallOnly, $"the wall drew {wallOnly} and {behindDrawn} with a plain Modulate overlay behind it");
+    }
+
+    /// <remarks>
+    /// **The model route for the same material** (B635 review 5): a plain Modulate model 0.02 behind a world wall stays
+    /// hidden, since its shader requests no offset; the same model flush with the wall draws, the control.
+    /// </remarks>
+    [Test]
+    public void DrawModel_PlainModulateJustBehindAWall_IsNotPulledInFront()
+    {
+        using OffscreenTarget? target = OffscreenTarget.TryCreate(16, 16);
+
+        if (target is null)
+        {
+            Skip();
+            return;
+        }
+
+        target.Clear(Surface, Surface, Surface);
+        target.DrawWorld(Quad(1f), [new WorldBatch(Lit, 0, 6)], Camera(), Assets, toneMapScale: 1f);
+
+        (int, int, int) wallOnly = target.PixelAt(8, 8);
+
+        target.DrawModelPose(Quad(1f), [new WorldBatch(PlainModulate, 0, 6)], Camera(), Identity, Assets, clearDepth: false, toneMapScale: 1f);
+
+        (int, int, int) flushDrawn = target.PixelAt(8, 8);
+
+        target.Clear(Surface, Surface, Surface);
+        target.DrawWorld(Quad(1f), [new WorldBatch(Lit, 0, 6)], Camera(), Assets, toneMapScale: 1f);
+        target.DrawModelPose(Quad(1f, depth: 0.02f), [new WorldBatch(PlainModulate, 0, 6)], Camera(), Identity, Assets, clearDepth: false, toneMapScale: 1f);
+
+        (int, int, int) behindDrawn = target.PixelAt(8, 8);
+
+        flushDrawn.Item2.ShouldBeLessThan(wallOnly.Item2 - 20, $"the flush model drew {flushDrawn} over the wall's {wallOnly}: it did not draw");
+        Close(behindDrawn, wallOnly, $"the wall drew {wallOnly} and {behindDrawn} with a plain Modulate model behind it");
     }
 
     /// <remarks>
@@ -606,11 +652,11 @@ public sealed class ModulateToneMapConformanceTests
         return target.PixelAt(8, 8);
     }
 
-    private static readonly float[] Identity = [1f, 0f, 0f, 0f, 0f, 1f, 0f, 0f, 0f, 0f, 1f, 0f, 0f, 0f, 0f, 1f];
+    internal static readonly float[] Identity = [1f, 0f, 0f, 0f, 0f, 1f, 0f, 0f, 0f, 0f, 1f, 0f, 0f, 0f, 0f, 1f];
 
     /// <summary>The view: 300 units back, the engine's VIEW_NEARZ of 7 stated rather than left to the default.</summary>
     /// <remarks>The offset tests depend on the near plane: depth per unit at 300 out is near / 300² of the range.</remarks>
-    private static float[] Camera() =>
+    internal static float[] Camera() =>
         new FreeCamera { Origin = (0f, -300f, 0f), Angles = (0f, 90f, 0f), Aspect = 1f, NearZ = 7f }.ToMatrix();
 
     /// <summary>A 128-unit square facing the camera, every corner on one texel, lit by <paramref name="light"/>.</summary>
@@ -618,7 +664,7 @@ public sealed class ModulateToneMapConformanceTests
     /// <param name="offset">How far to the side, to put a model outside the pixel read.</param>
     /// <param name="depth">How far behind the plane at y = 0, away from the camera.</param>
     /// <param name="away">Wound the other way, so the camera sees its BACK face.</param>
-    private static List<WorldVertex> Quad(float light, float offset = 0f, float depth = 0f, bool away = false)
+    internal static List<WorldVertex> Quad(float light, float offset = 0f, float depth = 0f, bool away = false)
     {
         List<WorldVertex> quad =
         [
