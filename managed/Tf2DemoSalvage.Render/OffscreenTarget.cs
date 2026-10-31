@@ -345,7 +345,8 @@ internal sealed unsafe class OffscreenTarget : IDisposable
         world.Overlays = [];
 
         // The main view this draw ends on is what a later DrawTranslucentWorld or DrawTranslucentLeaf puts back, not an
-        // older DrawWorld's (B635 review): the water views push and pop the scale, so the main view's is the one now.
+        // older DrawWorld's (B635 review). Captured BEFORE the water views on purpose: they push their own scale and pop
+        // it, so the value now, before they run, is the main view's.
         float mainScale = world.LinearLightScale;
 
         _reapplyWorldCamera = () =>

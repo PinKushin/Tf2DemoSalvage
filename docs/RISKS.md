@@ -40251,6 +40251,18 @@ It is tested red-first. It names which thread waited and where the draw had got 
 **Reopen if** the `queue stall` line ever appears in a viewer log, or if this test's hang rate on the branch, measured
 the same way, exceeds the baseline's.
 
+## B640 — the uncullable translucent world ignores the view's water sort group; the engine's draws only the view's groups (2026-10-31) — OPEN, unfixed
+
+*Read (our disassembly citation, already on `DrawTranslucentLeaf`):* the engine's translucent walk draws group by group,
+`1 << n` (engine.dll `0x1800e4fd0`), only the groups the view's `DF_` flags name (B62). Our leaf path honours
+`RunGroup`. The fallback `DrawTranslucent` / `DrawAdditive` cannot: its runs come from `UploadGeometry(world.Batches)`,
+which `MapWorld` builds one per material with `SortGroup` −1 (`MapWorld.cs` ~529, ~548). Only `VisibleWorld` assigns
+groups. The water views call that fallback (`WorldRenderer.Water.cs` ~855), so a reflection or refraction view draws
+every translucent run, including the groups it should leave out. **History:** B635's review batch 3 added a sort-group
+check to the fallback that could never fire (every group −1) and claimed parity; review 4 removed it rather than leave
+dead code reading as delivered. **The fix** is to give the uploaded runs their groups (split per material AND group), or
+to feed the water views' translucent world from the cull. Not small.
+
 ## B639 — `ctf_crasher`'s scorch `func_brush` LIGHTENS the floor in ours where TF2 darkens it (2026-10-31) — OPEN, lead
 
 **Observed (pictures; images under `D:/measure-f12/decal-cmp/owner/`):** `ctf_crasher` carries four `func_brush`
