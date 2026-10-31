@@ -41,17 +41,16 @@ public sealed class DensePoseAccumulateDifferentialTests
         GameInstall.Require();
 
         VpkArchive[] archives = Archives();
-        int subjects = 0;
+        List<string> missing = [];
 
         foreach (string name in new[] { "scout", "heavy", "engineer", "spy" })
         {
             if (Read(archives, $"models/player/{name}.mdl") is not { } player ||
                 Read(archives, $"models/player/{name}_animations.mdl") is not { } animations)
             {
+                missing.Add($"models/player/{name}.mdl or its animations");
                 continue;
             }
-
-            subjects++;
 
             IReadOnlyList<StudioBone> bones = StudioBones.Read(player);
             IReadOnlyList<StudioBone> animationBones = StudioBones.Read(animations);
@@ -73,10 +72,12 @@ public sealed class DensePoseAccumulateDifferentialTests
             read.Append(name).Append(' ').Append(tally.Compared - before).Append("; ");
         }
 
-        if (Read(archives, "models/buildables/sentry3.mdl") is { } sentry)
+        if (Read(archives, "models/buildables/sentry3.mdl") is not { } sentry)
         {
-            subjects++;
-
+            missing.Add("models/buildables/sentry3.mdl");
+        }
+        else
+        {
             IReadOnlyList<StudioBone> bones = StudioBones.Read(sentry);
 
             // The shipped sentry declares no bone controllers (seen when this test was first run), so three are put on
@@ -107,8 +108,15 @@ public sealed class DensePoseAccumulateDifferentialTests
 
         TestContext.Out.WriteLine($"compared {tally.Compared} ({read}) {tally}");
 
-        subjects.ShouldBe(5, "the control: every subject model was read from the install");
         tally.Mismatches.ShouldBe(0, tally.First);
+
+        // A partial install skips rather than fails, but only after whatever it did hold was compared: the controls
+        // below need every subject (the locks are a player's, the controllers the sentry's), so they cannot be judged.
+        if (missing.Count > 0)
+        {
+            Assert.Ignore($"not in this install, so the scenarios' controls cannot be judged: {string.Join(", ", missing)}");
+        }
+
         tally.AssertReached();
     }
 
@@ -171,6 +179,13 @@ public sealed class DensePoseAccumulateDifferentialTests
     /// **The no-layer path, dense and sparse, allocates nothing after a warm-up.** The layered path is not asserted:
     /// its <c>foreach</c> over the layer and sample interfaces boxes an enumerator per build (setup-bones read M6),
     /// which predates the dense-pose change and is unchanged by it.
+    ///
+    /// **Instrumentation can make this fail without production allocating.** A mutation run rewrites the code under
+    /// test with mutant switches and per-test coverage capture, which can record into collections on the measuring
+    /// thread, and a coverage collector does the same with its hit tables. Such a failure says nothing about the build
+    /// path. The repo has no existing way to ignore a test under instrumentation (the allocation tests in
+    /// <c>FramePairDifferentialTests</c> and <c>DeltaBlendGridTests</c> run unguarded too), so this follows them rather
+    /// than invent one. A failure seen only under instrumentation is to be read as the instrument first.
     /// </remarks>
     [TestCase(true)]
     [TestCase(false)]
@@ -322,6 +337,14 @@ public sealed class DensePoseAccumulateDifferentialTests
         reference.Build(mask, want, wantWritten);
         production.Build(mask, 0d, got, gotWritten);
 
+        productionSampler.Check();
+
+        if (productionSampler.Written is { } written)
+        {
+            tally.Mismatch($"{label}: the build wrote into a pose it was handed: {written}");
+            return;
+        }
+
         // The inert values the reference leaves out, checked rather than assumed.
         production.JiggleSource.ShouldBeNull();
         production.IkErrors.Count.ShouldBe(0);
@@ -382,16 +405,51 @@ public sealed class DensePoseAccumulateDifferentialTests
         Func<int, int, float, (IReadOnlyList<StudioBonePose> Pose, bool Listed)> answer, int bones)
     {
         private readonly List<StudioBonePose> _reused = [];
+        private StudioBonePose[] _given = [];
         private int _calls;
 
         public bool FirstWasDense { get; private set; }
+
+        /// <summary>How the build wrote into a pose it was handed, or null when every answer kept its bits.</summary>
+        /// <remarks>
+        /// **The short way reads a dense answer where it lies, so it must never write into one.** A write made after the
+        /// last read would leave every matrix right and corrupt the workspace for whoever reads it next, which the
+        /// matrix comparison cannot see. Checked before each answer is replaced and once after the build.
+        /// </remarks>
+        public string? Written { get; private set; }
+
+        public void Check()
+        {
+            if (Written is not null)
+            {
+                return;
+            }
+
+            if (_reused.Count != _given.Length)
+            {
+                Written = $"answer {_calls} changed length from {_given.Length} to {_reused.Count}";
+                return;
+            }
+
+            for (int entry = 0; entry < _given.Length; entry++)
+            {
+                if (!SameBits(_reused[entry], _given[entry]))
+                {
+                    Written = $"answer {_calls} entry {entry}: {_reused[entry]}, handed out {_given[entry]}";
+                    return;
+                }
+            }
+        }
 
         public IReadOnlyList<StudioBonePose> Sample(int sequence, int frame, float fraction)
         {
             (IReadOnlyList<StudioBonePose> pose, bool listed) = answer(sequence, frame, fraction);
 
+            Check();
+
             _reused.Clear();
             _reused.AddRange(pose);
+            _given = [.. _reused];
 
             if (_calls++ == 0)
             {
@@ -401,6 +459,15 @@ public sealed class DensePoseAccumulateDifferentialTests
             // A list the shortcut cannot see through, for the shape that must take the old path for that reason.
             return listed ? _reused : new ReadOnlyCollection<StudioBonePose>([.. _reused]);
         }
+
+        private static bool SameBits(StudioBonePose a, StudioBonePose b) =>
+            a.Bone == b.Bone &&
+            Bits(a.Position.X) == Bits(b.Position.X) && Bits(a.Position.Y) == Bits(b.Position.Y) &&
+            Bits(a.Position.Z) == Bits(b.Position.Z) && Bits(a.Rotation.X) == Bits(b.Rotation.X) &&
+            Bits(a.Rotation.Y) == Bits(b.Rotation.Y) && Bits(a.Rotation.Z) == Bits(b.Rotation.Z) &&
+            Bits(a.Rotation.W) == Bits(b.Rotation.W);
+
+        private static int Bits(float value) => BitConverter.SingleToInt32Bits(value);
 
         private static bool IsDense(List<StudioBonePose> pose, int expected)
         {

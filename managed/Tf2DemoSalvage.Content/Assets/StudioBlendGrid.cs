@@ -602,7 +602,9 @@ public static class StudioPoseBlend
         ReadOnlySpan<StudioBonePose> left = AsDense(first, bones.Count);
         ReadOnlySpan<StudioBonePose> right = AsDense(second, bones.Count);
 
-        // Stryker disable once all : a cost branch the differential cannot tell apart - expanding a dense input gives the same bits, only slower, so mutants that widen it survive by equivalence
+        // Not suppressed for Stryker: a mutant that skips this expansion leaves a sparse input as an empty span, which the
+        // blend then indexes, and the differential's sparse shapes kill it. Only "a dense input expanded anyway" is
+        // equivalent, and no single mutant produces that alone; `StudioPoseBlendAsDenseTests` witnesses the short way.
         if (left.IsEmpty)
         {
             SeedInto(bones, additive, output);
@@ -610,7 +612,6 @@ public static class StudioPoseBlend
             left = output;
         }
 
-        // Stryker disable once all : the same cost branch for the second input
         if (right.IsEmpty)
         {
             CollectionsMarshal.SetCount(scratch, bones.Count);
@@ -655,7 +656,9 @@ public static class StudioPoseBlend
             _ => default,
         };
 
-        if (bones <= 0 || entries.Length != bones)
+        // No separate test for `bones <= 0`: a span's length is never negative, and at zero the empty storage it would
+        // return IS the empty answer, so the test would only add a mutant nothing could tell apart.
+        if (entries.Length != bones)
         {
             return default;
         }
@@ -717,6 +720,13 @@ public static class StudioPoseBlend
     /// Receives the blend; may be <paramref name="left"/> itself, as <c>BlendBones</c> writes over its <c>q1</c>,
     /// because each bone is read in full before it is written.
     /// </param>
+    /// <exception cref="ArgumentException">The three spans are not the same length.</exception>
+    /// <remarks>
+    /// **The loop runs over <paramref name="into"/>, so the three must agree, and that is checked rather than assumed.**
+    /// Every caller passes <c>bones.Count</c> for all three (<c>BlendInto</c>, <c>BlendSpans</c>,
+    /// <c>StudioAnimation.PoseBetweenInto</c>); the bound used to be the first input's length, which was the same
+    /// number. A longer input would otherwise be blended short without a word.
+    /// </remarks>
     internal static void BlendExpanded(
         IReadOnlyList<StudioBone> bones,
         float s,
@@ -724,6 +734,13 @@ public static class StudioPoseBlend
         ReadOnlySpan<StudioBonePose> right,
         Span<StudioBonePose> into)
     {
+        if (left.Length != into.Length || right.Length != into.Length)
+        {
+            throw new ArgumentException(
+                $"A blend reads and writes one entry per bone: {left.Length} and {right.Length} into {into.Length}.",
+                nameof(into));
+        }
+
         float weightFirst = 1f - s;
 
         for (int bone = 0; bone < into.Length; bone++)
