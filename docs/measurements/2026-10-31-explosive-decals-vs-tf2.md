@@ -1,7 +1,7 @@
 # Measurement 2026-10-31: explosive scorch decals, dark and blocky at a close camera (B633)
 
-**Status: method and predictions written before the controlled shots.** The exploratory shots under Observation were taken
-first and raised the question; they are kept as they were seen.
+**Status: RUN, verdict recorded.** Method and predictions were committed before the controlled shots (`ecc8977c`, and
+predictions 5-7 before their runs); the exploratory shots under Observation were taken first and raised the question.
 
 ## Observation
 
@@ -111,4 +111,70 @@ frame at a stated camera is an in-eye camera read back with `spec_pos`, copied i
 
 ## Result
 
+Images under `D:/measure-f12/decal-cmp/`; crops are the same 240x180 rectangle at (230, 230), 4x nearest-neighbour.
+
+| run | build / switch | tick | seen (picture) | images |
+|---|---|---|---|---|
+| 1 | scratch: DecalModulate alpha-tested at 0.5/255, nothing else | 30400, 30000 | rectangles GONE; each scorch's cut-out outline shows | `alphatest/`, `crop-alphatest-30400-4x.png` |
+| 5 | unchanged, `+mat_force_tonemap_scale 1` | 30400 | rectangles GONE; soft scorch like the shipped texels | `debug/F-30400-tonemap1.png`, `crop-F-30400-tonemap1-4x.png` |
+| 6 | unchanged, `+mat_hdr_level 0` | 30400 | the same as 5 | `debug/G-30400-ldr.png`, `crop-G-30400-ldr-4x.png` |
+| 5b | unchanged, `+mat_force_tonemap_scale 1` | 30000 (the owner's frame) | no dark haze; looks like the clean 29900 shot; the whole frame brighter, so the automatic exposure there was below one | `debug/H-30000-tonemap1.png` |
+| 7 | the fix (no tone-map scale on a modulating draw), default settings | 30000, 30400, 29900 | no squares, no haze, soft scorches | `fix/`, `crop-fix-*-4x.png` |
+
+**Before against after, whole frame** (`pair-diff`, the viewer's own captures): 30400 differs in 210,577 of 542,184 px, max
+channel step 52, box (0,37)-(690,550), and the difference image (`sbs-before-after-30400.png`, right panel) is
+exactly the decal squares on the floor and nothing else. 30000 differs in 237,410 px, max 61, over the whole frame; the
+**control**, the same build shot twice at that frame (`close1.png` against `A-30000.png`), differs in 27,120 px, max 61, box
+(0,0)-(983,292): live particles. Side-by-sides: `sbs-before-after-30000.png`, `sbs-before-after-30400.png`,
+`sbs-fix-vs-tonemap1-30400.png`.
+
+**The conformance test, red then green** (`DecalModulateConformanceTests`, the shipped atlas sampled at one texel over a
+cleared 188-grey surface): before the fix a neutral texel moved the surface to 139 at scale 0.5 and to 255 at scale 2, and a
+scorch centre drew 100 at scale 1 against 71 at scale 0.5; after it, 3 of 3 pass. The control in it (a scorch centre must
+darken the surface by more than 40) first caught the test drawing NOTHING (a world pass with no runs returns before its
+decals) and the neutral cases passing vacuously; fixed in the test before the red run was counted.
+
+**Gate phase 1 on the fix** (gcor): core 2737, cli 75, logging 37, fonts 5, animation 5368, scene 3417, audio 383,
+presentation 1330, content 1890, corpus 242, rendering 1312, viewer 159 executed, 0 failed, every one at or over its floor.
+
+**Not run:** predictions 2 (`pixel-face` at an edge), 3 (`+mat_fullbright 1`) and 4 (an isolated scorch). They were
+written to separate per-face from per-luxel causes; run 1 then pointed at a multiplier on the output and runs 5-7 settled
+it, so they no longer answer anything. **Real TF2 at the same camera was not captured**: the demo's roaming camera cannot
+take a pitch from the console (Method), and the owner moved the question to our own frames before an in-eye pairing was
+made. **The live window was not captured** either; the exposure explanation predicts that a live view differs from a
+`--shot` wherever its exposure differs, which is *interpolated, not measured*.
+
+### Every divergence found, ranked by what it does to this picture
+
+1. **The tone-map scale reaches a modulating draw** — `PixelFog` scaled every output by `LINEAR_LIGHT_SCALE`; Valve's
+   `Modulate`/`DecalModulate` are `TONEMAP_SCALE_NONE` (`modulate_ps2x.fxc:37`, `decalmodulate_ps2x.fxc:44`,
+   `common_ps_fxc.h:356-358`). *Measured* as the cause (runs 5-7). **Fixed** on `fix/b633-modulate-tonemap-none`.
+2. **No alpha test on DecalModulate** — Valve `EnableAlphaTest( true )`, `AlphaFunc( GREATER, 0 )`
+   (`DecalModulate_dx9.cpp:64-65`); ours tests only `$alphatest` materials (`WorldRenderer.cs:3495`) and `decals_mod2x` is
+   `$translucent`. After the fix the untested region is the 40,512 outside-mask texels at 128 ± 11 (*measured*), under 1%
+   on the mean; DXT noise down to 117 can still darken a texel by about 8%. *Read*; its visible effect after fix 1 is
+   *not measured*. Open.
+3. **Fog** — Valve fogs a DecalModulate draw toward middle grey with `pow( saturate( fogFactor ), 0.4 )`
+   (`decalmodulate_ps2x.fxc:42`, `FogToGrey`, `DecalModulate_dx9.cpp:80`); ours applies none (already marked `ponytail:`
+   at `WorldRenderer.cs` fogMode). No fog in this room, so nothing here. *Read*. Open.
+4. **Gamma-space mod2x reproduced in linear space** — `ModulateTwiceLight` (`WorldRenderer.cs`, 2^2.2/4) is the 2.2
+   approximation of the sRGB curve: a 128 texel gives 0.992 against Valve's 1.004. *Arithmetic*. Known, documented there.
+
+Checked and NOT divergent: the decal is unlit as Valve's (`DecalMesh` binds the atlas's white texel); the sampler is
+16x anisotropic as the owner's `mat_forceaniso 16`; the scorch material is the atlas Subrect at `$decalscale` .65 (166.4
+units) as shipped. Not checked: the texture size the viewer uploaded for the atlas (the fixed shots show no blockiness,
+so not pursued).
+
 ## Verdict
+
+**H2 confirmed (predictions 5, 6, 7 confirmed; prediction 1 falsified; 2-4 not run, inconclusive):** the dark,
+straight-edged "pixelation" under f12's scorches was our shader scaling a `DecalModulate` draw by the HDR exposure, so
+every scorch's neutral 128-grey surround darkened the floor across its whole 166-unit square whenever the exposure sat
+below one. Valve's shader takes no tone-map scale. The fix is one condition in `PixelFog`, held by a red-first render
+test; the after-shot at the owner's camera draws soft scorches with no squares. Because the exposure follows the view,
+the same decals looked clean from the tick-29900 camera, which is why build, capture path and magnification were all
+suspected first. **Shots affected:** every viewer capture on an HDR_TYPE_INTEGER map under automatic exposure with a
+decal or `Modulate` material in frame, including the B624 and B622 before/after shots (both sides drew the same fault, so
+their between-build differences stand, and the decals in them are too dark); the golden comparisons pinned at
+`mat_force_tonemap_scale 1` are not affected (a scale of one is the identity), while their auto-exposure cases are, in
+proportion to the decal area in frame.

@@ -524,3 +524,35 @@ as settled in a way a number without one does not.
 
 `OverlayOcclusionRenderTests` kept its two-condition design and had its requirement inverted rather
 than deleted, so what is now under guard is that a surface in front of a marking hides it.
+
+## A modulating decal is not light, so the tone map does not touch it (B633, 2026-10-31)
+
+**What the owner saw:** explosion scorches on f12's floor drawn as "massive pixelation", "dark", like "transparency
+… set to super low", at a close camera, while the same scorches at another camera looked clean. Every number and
+image is in `docs/measurements/2026-10-31-explosive-decals-vs-tf2.md`.
+
+**What it was** (*measured, one change on an unchanged build*): our pixel shader multiplied every material's output by
+`LINEAR_LIGHT_SCALE`, the HDR_TYPE_INTEGER exposure, and a `DecalModulate` draw is a material. Its output is not light.
+It is a MULTIPLIER the blend applies to the framebuffer (`BlendFunc( DST_COLOR, SRC_COLOR )`, `dst · 2·src`), so a
+texel of 128 means "leave the floor alone". Scaled by an exposure of about a half, it means "halve the floor". Every
+scorch is a 256-texel square of which 62% is neutral grey outside an alpha mask, so each became a dark square, and
+overlapping squares cut the floor into straight-edged blocks. That is the "pixelation".
+
+*Read from published source:* both modulating shaders opt out. `Modulate` ends `FinalOutput( …, TONEMAP_SCALE_NONE )`
+(`modulate_ps2x.fxc:37`), and `DecalModulate` does the same (`decalmodulate_ps2x.fxc:44`). `FinalOutput` under NONE is
+`result.rgb = vShaderColor.rgb` (`common_ps_fxc.h:356-358`).
+
+**Why it hid** (*measured*): the darkening is the exposure, and the exposure follows the view. The far camera at tick
+29900 sat under an exposure near one and drew the same decals cleanly; the close camera at 30000 did not. Two shots of
+the same scorches disagreeing by camera read as magnification or a headless-capture fault. The question that
+separated them was one cvar, `+mat_force_tonemap_scale 1`, and it took the blocks away without touching a line.
+
+**What was wrong first, kept:** the first lead was that the scorch's outside-mask texels were drawn because ours does
+not alpha-test DecalModulate where Valve does (`AlphaFunc( SHADER_ALPHAFUNC_GREATER, 0.0f )`,
+`DecalModulate_dx9.cpp:64-65`). The texels were measured at 128 within 1% and the prediction said the alpha test would
+NOT remove the blocks. It did, and that falsified prediction is what pointed at a multiplier on the decal's output: a
+neutral texel can only darken a floor if something scales it. The missing alpha test is still a divergence, filed
+with the measurement; it is invisible once the scale is gone.
+
+**Held by** `DecalModulateConformanceTests`, red first: the shipped atlas's neutral texel took a 188 surface to 139
+under a scale of 0.5 and to 255 under 2, and a scorch centre drew 100 at scale 1 and 71 at 0.5.

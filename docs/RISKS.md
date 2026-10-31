@@ -40251,7 +40251,10 @@ It is tested red-first. It names which thread waited and where the draw had got 
 **Reopen if** the `queue stall` line ever appears in a viewer log, or if this test's hang rate on the branch, measured
 the same way, exceeds the baseline's.
 
-## B633 — explosive scorch decals look dark and pixelated at a close camera (2026-10-31) — OPEN, under measurement
+## B633 — explosive scorch decals look dark and pixelated at a close camera (2026-10-31) — FIXED on `fix/b633-modulate-tonemap-none`, not merged
+
+**Cause (measured):** the HDR tone-map scale reached `DecalModulate` draws; Valve's is `TONEMAP_SCALE_NONE`. Two
+divergences found beside it stay open, ranked in the measurement: no alpha test on DecalModulate, and no grey fog on it.
 
 **The owner's words, verbatim, in order:** *"why are our explosive decals so pixelated?"*, then *"i can see massive
 pixelation in your shots. how about doing a comparison with real tf2, then you will see it"*, then *"our shots are like
