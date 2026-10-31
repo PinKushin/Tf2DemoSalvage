@@ -40251,6 +40251,36 @@ It is tested red-first. It names which thread waited and where the draw had got 
 **Reopen if** the `queue stall` line ever appears in a viewer log, or if this test's hang rate on the branch, measured
 the same way, exceeds the baseline's.
 
+## B632 — `SpeedSlider_AtEachEnd_ReachesSpeedsTheButtonsCannot` fails intermittently: real key input does not reach the speed slider (2026-10-31) — OPEN
+
+**Observed (measured, 2026-10-31, same machine, desktop shared with the owner's browser):**
+
+| run | commit | scope | result |
+|---|---|---|---|
+| gate phase 2 | `0979f203` (pushed `main`) | full UI suite | **1 failed**: `Home` reached −8x, then `End` did not reach the fastest forward speed within 5 s (`TransportUiTests.cs:219`) |
+| same test alone | `0979f203` tree | `--filter SpeedSlider_AtEachEnd` | **failed**: `Home` never reached the slider, readout stayed `speed 1 times`, `HasKeyboardFocus` false, focus on `Image 'Demo viewport'` in the viewer's own process |
+| same test alone | `74f4519e` (the previous, passing gate) | `--filter` | **failed** identically |
+| full UI suite | `74f4519e` | full | passed, 76 / 8 / 0, 84 |
+| full UI suite | `0979f203` code (docs-only difference) | full | passed, 76 / 8 / 0, 84 |
+
+The previous two gates (`44ca01f7`, `74f4519e`) also passed this test inside the full suite. Nothing between `74f4519e` and
+`0979f203` touches the transport, the slider or the UI project (only the `roots split` timers), and the control at
+`74f4519e` fails the same way alone, so this is **not** attributed to that change (*differential*: same test, two
+commits, same result).
+
+**What is unproven.** The cause is not found. Two readings fit the evidence and neither is confirmed:
+- **Focus is lost inside the viewer.** In both failure shapes the keyboard focus ended on the viewer's own viewport, not on
+  another application, so a foreground steal by the browser (open on this desktop during the runs) does not fit as stated.
+  The first failure got past `Home` and lost the slider's focus before `End`.
+- **The test depends on state the full suite sets up** (it fails 2 of 2 when run alone, passes in 3 of 4 full runs).
+
+**Settles it:** capture the foreground window, the cursor position and a screenshot at the moment the timeout fires
+(inside the test's failure path); run the test alone and in the full suite N times with the desktop idle and count; read
+`ViewerSession.PressRealKey` for how it focuses a control before sending a key. Per the project rule a flake is a defect, not
+noise: **do not retry until green, and do not call the gate passed on one green run.**
+**Gate note:** `main` at `0979f203` was pushed before this was understood (the push was chained to the phase 2 command
+without reading its result); a full phase 2 on the same code has since passed once.
+
 ## B631 — autoplay IK rules go to the entity's one `IkErrors`; the engine solves them in a separate `auto_ik` (2026-10-31) — OPEN, latent
 
 **Evidence class: read from published source on the Valve side; our side read at `0979f203`; nothing measured except that players carry no autoplay locks.** D10 of `docs/measurements/2026-10-31-iklock-bracket-read.md` §3. Nothing is fixed here.
