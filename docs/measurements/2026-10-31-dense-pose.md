@@ -95,5 +95,28 @@ Either would show as a fall below 0.01. The prediction does not exclude that out
 
 ## Result
 
-Not run. This record was written, with its predictions, before any measurement. Running it needs the desktop lock and
-the viewer, and both were outside this change's scope.
+Three runs of the command above (merge `e434a205`, `2026-10-31-dense-pose/`, driver `all.sh`, reader `summ.ps1 -Dir`), off
+screen, no void condition (`prepose 0 over 0`; roots built 13.1-13.8; eligible 4.9-5.0; samples 12.4-13.2; `.err` empty), set beside the
+frame-pair second after-set (`after-review/`), the same demo, tick, build configuration and instrument. Means per run
+(n = 16-17), ms per rebuild:
+
+| part | before 01 / 02 / 03 | after 01 / 02 / 03 | mean before → after |
+|---|---|---|---|
+| base + layer sampling | 0.268 / 0.273 / 0.280 | 0.268 / 0.259 / 0.253 | 0.274 → 0.260 |
+| accumulate remainder | 0.065 / 0.070 / 0.070 | 0.067 / 0.060 / 0.062 | 0.068 → 0.063 |
+| adjust | 0.004 / 0.005 / 0.004 | 0.002 / 0.003 / 0.002 | 0.0043 → 0.0023 |
+| roots total | 0.481 / 0.497 / 0.507 | 0.492 / 0.471 / 0.461 | 0.495 → 0.475 |
+| `anim` | 0.171 / 0.169 / 0.181 | 0.169 / 0.171 / 0.169 | 0.174 → 0.170 |
+| blend / loop / ik | 0.074 / 0.040 / 0.026 | 0.074 / 0.039 / 0.026 | unchanged |
+
+**Predictions:** 1 holds (sampling 0.260, inside 0.225-0.265). 2 holds (remainder −0.005, under the 0.01 line). 3 holds (adjust
+0.0023). 4 holds (roots −0.020, inside 0.015-0.06). 5 holds (blend, loop and ik move by ≤ 0.001; counts within ±1).
+
+## Verdict
+
+A small win in the predicted direction: roots −0.020 ms per rebuild (−4%), sampling −0.014, adjust −0.002, the accumulate remainder
+−0.005. Above the 0.01 ms bar but near the noise: the paired runs go 0.268→0.268, 0.273→0.259, 0.280→0.253 in sampling and
+0.481→0.492, 0.497→0.471, 0.507→0.461 in roots, so one pair is flat and one is reversed, and the run-order drift seen in earlier sets
+(the set's last run lower or higher by 0.03-0.05) is as large as the effect. Reported as "about −0.02 ms, measured, noisy",
+not as a confirmed number. The change stays: output is bit-identical by two differentials and the removal is mechanical. The
+remainder is still 0.063, so the boxed enumerators the read lists as M6 are the next place to look, not the grid blends.
