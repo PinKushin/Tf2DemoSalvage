@@ -40251,6 +40251,115 @@ It is tested red-first. It names which thread waited and where the draw had got 
 **Reopen if** the `queue stall` line ever appears in a viewer log, or if this test's hang rate on the branch, measured
 the same way, exceeds the baseline's.
 
+## B619 — a gesture's activity is translated and rolled on every build, not once at its start (2026-10-31) — OPEN
+
+**Evidence class: read from published source on both sides; the observable difference is *interpolated*, nothing measured.**
+Filed from P6 of `docs/measurements/2026-10-31-setup-bones-read.md` §3. Nothing is fixed here.
+
+- **Valve:** `RestartGesture` translates the activity once, `TranslateActivity( iGestureActivity )`
+  (`multiplayer_animstate.cpp:603`), with the weapon and state of that moment. `AddToGestureSlot` then rolls
+  `SelectWeightedSequence( iGestureActivity )` once (`:633`) and keeps the answer on the layer (*read from published
+  source*; both lines read for this entry).
+- **Ours:** every build re-translates from the current pose, `TranslateGesture` (`EntityModels.Layers.cs:279`,
+  `:351-358`, reading `Slot`, `ActivityOverride`, `CompetitiveWinnerClass`, `ItemActivities`), then re-rolls through
+  `GestureSequence` (`:346-348`), whose seed includes the translated activity. Both read for this entry.
+- **Who could see it:** *interpolated*, not observed. A weapon switch, loser-state change or item-override change while
+  a gesture plays would change its sequence on our side mid-gesture, where Valve's stays. The owner would see it only on
+  such a frame; how often a demo holds one is not measured.
+- **Already kept, not part of this entry:** the re-roll of a variant on a same-activity restart (comment at `:340-345`,
+  RISKS B584); the flinch substitution resolved at build time rather than event time (`:303-306`).
+- **Fix shape, for later:** translate with the state *at `StartedSeconds`*. Caching the first build's answer would be
+  wrong for a gesture that first comes into view after it started.
+- **What would settle it:** a synthetic test (`Core.Tests`, per D38): one gesture, change `Pose.Slot` or
+  `ActivityOverride` between two builds of the same frame range, assert the layer's sequence. Red on ours confirms the
+  divergence; whether any real demo reaches it is a separate corpus count, via a probe.
+
+## B618 — duck-jump shifts every bone; the engine shifts only bones in `boneMask` (2026-10-31) — OPEN, believed inert
+
+**Evidence class: read from published source on both sides; the "inert" reading is *interpolated*.** Filed from P5 of
+`docs/measurements/2026-10-31-setup-bones-read.md` §3.
+
+- **Valve:** `C_TFPlayer::BuildTransformations` shifts only bones in `boneMask` (`c_tf_player.cpp:8797-8806`); its ramp
+  state machine (`:8771-8792`) advances on each build.
+- **Ours:** `DuckJumpOffset != 0` shifts every bone (`SkeletonPose.cs:592-600`, R9 in the source doc). The ramp is
+  carried by `DuckJump.Update`, called in simulate (`EntityModels.Simulation.cs:406`).
+- **Who could see it:** *interpolated*, no one. With our `UsedByAnything` mask the two differ only for bones with no use
+  flags; the build does not write those slots, so the shift lands on stale data nobody draws. The place the ramp
+  advances (simulate against build) is the same shape as the barrel in follow-up 3 of the source doc and differs only
+  on a frame simulated but not built.
+- **What would settle it:** a probe that counts, over a real POV demo's frames, bones with no use flags that the draw
+  reads (expected zero). Not run.
+
+## B617 — bone flex drivers (`mstudioboneflexdriver_t`) are not implemented — OPEN, content check first
+
+**Evidence class: read from published source (Valve) and from our tree (absence); whether it matters is *not measured*.**
+Filed from P4 of `docs/measurements/2026-10-31-setup-bones-read.md` §3.
+
+- **Valve:** `C_BaseFlex::BuildTransformations` (`c_baseflex.cpp:1163-1183`) drives flex controllers from local bone
+  positions before calling the base class.
+- **Ours:** nothing under `managed/` reads `mstudioboneflexdriver_t`. It is already in the generated not-handled list
+  (`docs/SDK-COVERAGE.md:49`), so this is tracked as coverage; this entry adds the open question.
+- **Who could see it:** no one yet, and possibly no one ever. The open question is content: does any TF2 model declare a
+  bone flex driver (studiohdr2)? *Not measured.* File a fix only if one does.
+- **What would settle it:** a probe over the shipped models (the game's own data, per CLAUDE.md's fifth source) counting
+  bone flex drivers per model. Control: it must find the count for a model known to declare any, or the probe is broken.
+
+## B616 — IK may run on a ragdoll where the engine skips it — UNVERIFIED, OPEN
+
+**Evidence class: Valve side read from published source; ours read from our tree; the divergence itself is *not
+established*.** Filed from P3 of `docs/measurements/2026-10-31-setup-bones-read.md` §3. **Do not read this as a
+confirmed bug.**
+
+- **Valve:** IK runs only when `m_pIk && !IsRagdoll()` (`c_baseanimating.cpp:2990-2991`, the comment at `:2990` reads
+  `// don't calculate IK on ragdolls`; read for this entry).
+- **Ours:** `ReachWithIk` has no ragdoll test (`SkeletonPose.cs:627-681`; it returns only on
+  `IkChains.Count == 0 || IkErrors.Count == 0` at `:629`), and `IkContext.Solve` is not passed `alreadyWritten`
+  (`:640`), so it would overwrite bones the ragdoll drove. Read for this entry.
+- **The divergence exists only if** a corpse's `SkeletonPose` ever has `IkChains.Count > 0` *and* `IkErrors.Count > 0`
+  while `AnimatingEntity.Ragdoll` is set. That depends on whether a corpse prop passes through the simulate path at
+  `EntityModels.Simulation.cs:374` and gets a `BuildBlend` (*not checked*).
+- **Who could see it:** unknown until the probe runs. If it exists, a ragdoll limb snapping toward an IK target.
+- **What would settle it:** a probe that reports, for each corpse entity, `Pose.IkChains.Count`, `Pose.IkErrors.Count`
+  and `SolvedChains` after a draw, on a demo with deaths. Control: the same probe on a living player with IK, which must
+  show non-zero counts, or the instrument is broken.
+
+## B615 — jiggle bones step on demo time; the engine steps on `gpGlobals->realtime` (2026-10-31) — OPEN
+
+**Evidence class: read from published source on both sides; the observable difference is *interpolated*.** Filed from P2
+of `docs/measurements/2026-10-31-setup-bones-read.md` §3.
+
+- **Valve:** `BuildJiggleTransformations( i, gpGlobals->realtime, ... )` (`c_baseanimating.cpp:1586`, read for this
+  entry).
+- **Ours:** `Jiggle` passes `(float)currentTime`, demo time (`SkeletonPose.cs:1270`, read for this entry).
+  `JiggleBones.Build` integrates `currentTime - LastUpdate` (`JiggleBones.cs:243`) and re-seeds after a 0.5 s gap
+  (`:233`); a negative step is clamped to 0.001 s (`:121-122`). Those three `JiggleBones.cs` lines are copied from the
+  source doc and not re-read.
+- **Who could see it (*interpolated*):**
+  - Paused: Valve's springs keep integrating real time and settle; ours stop.
+  - Demo speed or `host_timescale` other than 1: Valve's run at wall-clock speed; ours at demo speed.
+  - Backward seek: Valve's real time never runs backward, so the next step is a short forward one; ours takes a negative
+    step, clamped, and can re-seed.
+  - Visible to the owner on any jiggle-bone model while paused, slowed or seeking. Which TF2 models have jiggle bones
+    is not counted here (the `JiggleBones.cs:113` comment says 22 procedural bones on a map).
+- **Check before fixing:** `docs/memory/a-paused-frame-is-two-moments.md`, in case the paused case is already ruled on.
+- **What would settle it:** a synthetic test (`Core.Tests`) stepping `JiggleBones.Build` with demo time held fixed
+  against time that advances, asserting the settled offset; then one paused capture of a jiggle-bone model against the
+  same camera, owner's call on which is right.
+
+## B614 — the frame blend starts at `fraction > 0`; the engine's starts at `s > 0.001` (2026-10-31) — OPEN
+
+**Evidence class: read from published source on both sides; the visible size is *arithmetic* and small.** Filed from P1
+of `docs/measurements/2026-10-31-setup-bones-read.md` §3.
+
+- **Valve:** blends two keyframes only when `s > 0.001f`, for rotation (`bone_setup.cpp:408`) and position (`:525`);
+  at or below that it reads the single frame. Both lines read for this entry.
+- **Ours:** `PoseBetween` returns the single frame when `fraction <= 0f` (`PropModels.cs:2178`, read for this entry),
+  so for `0 < s <= 0.001` we blend where Valve does not.
+- **Who could see it:** no one. The difference is at most a thousandth of one keyframe step (*arithmetic*). It is a
+  parity item, not a performance one, though the same change also skips a second read in that band.
+- **What would settle it:** a conformance test (`Core.Tests`, written first per CLAUDE.md): a two-key animation, sample at
+  `s = 0.0005` and `s = 0.002`, assert the first equals frame 1 exactly and the second is the blend.
+
 ## B613 — a viewer load with no log line and no progress for about 168 s looks hung (2026-10-30) — OPEN
 
 **Evidence class: observed once, read from a log; nothing measured as a defect.** The owner saw a measurement run's
