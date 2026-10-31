@@ -167,6 +167,38 @@ public sealed class DensePoseAccumulateDifferentialTests
         tally.OtherBase.ShouldBeGreaterThan(0, "the control: a base the shortcut must refuse was compared");
     }
 
+    /// <remarks>
+    /// **The no-layer path, dense and sparse, allocates nothing after a warm-up.** The layered path is not asserted:
+    /// its <c>foreach</c> over the layer and sample interfaces boxes an enumerator per build (setup-bones read M6),
+    /// which predates the dense-pose change and is unchanged by it.
+    /// </remarks>
+    [TestCase(true)]
+    [TestCase(false)]
+    public void Build_ASecondBuildWithoutLayers_AllocatesNothing(bool dense)
+    {
+        List<StudioBone> bones = Skeleton();
+        (_, StudioBonePose[] shape, _) = Shapes(bones.Count)[dense ? 0 : 2];
+        List<StudioBonePose> pose = [.. shape];
+        SkeletonPose production = new(bones, (_, _, _, _) => pose);
+        BoneAccessor into = new(bones.Count);
+        BoneBitList written = new(bones.Count);
+
+        for (int pass = 0; pass < 64; pass++)
+        {
+            written.Clear();
+            production.Build(~0, 0d, into, written);
+        }
+
+        written.Clear();
+
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        production.Build(~0, 0d, into, written);
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        allocated.ShouldBe(0L);
+        written.IsMarked(bones.Count - 1).ShouldBeTrue("the control: the build ran to the last bone");
+    }
+
     private static void RunScenarios(Subject subject, Tally tally)
     {
         int count = StudioAnimation.Count(subject.File);
