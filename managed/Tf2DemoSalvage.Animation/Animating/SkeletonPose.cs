@@ -820,17 +820,36 @@ public sealed class SkeletonPose : IBonePose
     /// <summary>TF2's per-bone hand scale — <c>m_flHandScale</c>.</summary>
     public float HandScale { get; set; } = 1f;
 
-    /// <summary>The lock bracket, built once for a model that has one.</summary>
+    /// <summary>How many of <see cref="Layers"/>, from the front, the main sequence's lock bracket encloses.</summary>
     /// <remarks>
-    /// **Lazily, like the IK context beside it**, because a prop declares no chains and most
-    /// sequences no locks — so the arrays this allocates would be per-entity waste on almost
-    /// everything drawn.
+    /// **The main sequence's own autolayers** (B625): its `AccumulatePose` runs both autolayer passes before
+    /// `SolveSequenceLocks` (<c>bone_setup.cpp:2439</c>, <c>:2449</c>, <c>:2451-2454</c>), so its bracket closes after them
+    /// rather than before the first layer. Zero closes it straight after the base, which is right for a sequence that
+    /// layers nothing.
     /// </remarks>
-    private IkLocks Held()
+    public int BaseNested { get; set; }
+
+    /// <summary>The lock bracket at one nesting depth, built the first time a bracket that deep opens.</summary>
+    /// <param name="depth">How many brackets are already open around it.</param>
+    /// <remarks>
+    /// **One per DEPTH, because brackets nest and each holds its own capture** (B625). Valve's `seq_ik` is a local of each
+    /// `AccumulatePose` (<c>bone_setup.cpp:2424</c>), so a nested autolayer's capture cannot overwrite its parent's; one
+    /// shared <see cref="IkLocks"/> would, and the parent would then pin to where its child found the foot.
+    ///
+    /// **Lazily, like the IK context beside it**, because a prop declares no chains and most sequences no locks — so the
+    /// arrays this allocates would be per-entity waste on almost everything drawn. A deeper bracket's first use allocates
+    /// once and is kept.
+    /// </remarks>
+    private IkLocks Bracket(int depth)
     {
         _parents ??= [.. _bones.Select(bone => bone.Parent)];
 
-        return _held ??= new IkLocks(_parents, _bones.Count);
+        while (_brackets.Count <= depth)
+        {
+            _brackets.Add(new IkLocks(_parents, _bones.Count));
+        }
+
+        return _brackets[depth];
     }
 
     /// <summary>Every rule that asked for something this frame, with its target and weight.</summary>
@@ -858,7 +877,20 @@ public sealed class SkeletonPose : IBonePose
     /// pins an effector when `IkLocks` is called; this says whether anything calls it on a real
     /// demo, which is the half that has shipped broken three times this session.
     /// </remarks>
-    public int AppliedLocks => _held?.Applied ?? 0;
+    public int AppliedLocks
+    {
+        get
+        {
+            int applied = 0;
+
+            foreach (IkLocks bracket in _brackets)
+            {
+                applied += bracket.Applied;
+            }
+
+            return applied;
+        }
+    }
 
     /// <summary>Of those, how many moved the effector, and the furthest one.</summary>
     /// <remarks>
@@ -866,13 +898,34 @@ public sealed class SkeletonPose : IBonePose
     /// already equals where the sequence left the foot solves to the same place, so a count of
     /// solves cannot tell a pose needing no correction from a correction computing zero.
     /// </remarks>
-    public (int Moved, float Furthest) LockEffect =>
-        (_held?.Moved ?? 0, _held?.FurthestMove ?? 0f);
+    /// <remarks>
+    /// Summed over every depth's bracket, the furthest the largest of them: each carries its own, from the solve that did
+    /// the work (B243).
+    /// </remarks>
+    public (int Moved, float Furthest) LockEffect
+    {
+        get
+        {
+            (int moved, float furthest) = (0, 0f);
+
+            foreach (IkLocks bracket in _brackets)
+            {
+                moved += bracket.Moved;
+                furthest = MathF.Max(furthest, bracket.FurthestMove);
+            }
+
+            return (moved, furthest);
+        }
+    }
 
     /// <summary>The IK state, created on the first entity that actually has a chain.</summary>
     private IkContext? _ik;
 
-    private IkLocks? _held;
+    /// <summary>One lock bracket per nesting depth, grown as deeper brackets first open (B625).</summary>
+    private readonly List<IkLocks> _brackets = [];
+
+    /// <summary>The brackets open during one accumulate, innermost last: each its closing layer index and its locks.</summary>
+    private readonly List<(int Close, IReadOnlyList<StudioIkLock> Locks)> _open = [];
 
     /// <summary>Each bone's parent, built once for a model with chains.</summary>
     private int[]? _parents;
@@ -946,12 +999,14 @@ public sealed class SkeletonPose : IBonePose
         // `AddSequenceLocks` records where the chain ends in the rest skeleton — which is why a
         // locked sequence holds a foot at its bind position rather than at wherever the previous
         // frame left it. That is why the seed above stays whenever a lock will read it.
+        _open.Clear();
+
         if (locked)
         {
             long capturingAt = System.Diagnostics.Stopwatch.GetTimestamp();
             _seed += capturingAt - seedingAt;
 
-            Held().Capture(Locks, IkChains, result);
+            Bracket(0).Capture(Locks, IkChains, result);
 
             seedingAt = System.Diagnostics.Stopwatch.GetTimestamp();
             _capture += seedingAt - capturingAt;
@@ -977,24 +1032,30 @@ public sealed class SkeletonPose : IBonePose
         long seededAt = System.Diagnostics.Stopwatch.GetTimestamp();
         _seed += seededAt - seedingAt;
 
+        // **The main sequence's bracket stays OPEN over its own autolayers** (B625): `AccumulatePose` runs
+        // `AddLocalLayers` and `AddSequenceLayers` before `SolveSequenceLocks` (`bone_setup.cpp:2439`, `:2449`,
+        // `:2451-2454`), and those are the first `BaseNested` layers.
         if (locked)
         {
-            Held().Solve(Locks, IkChains, result);
-
-            _solve += System.Diagnostics.Stopwatch.GetTimestamp() - seededAt;
+            _open.Add((BaseNested - 1, Locks));
         }
+
+        long last = CloseBrackets(-1, result, seededAt);
 
         // Counted, not timed (the setup-bones read's M6): `Layers` is an interface, so this takes an enumerator from it.
         _enumerators++;
 
+        int index = -1;
+
         foreach (PoseLayer layer in Layers)
         {
-            // `if (fWeight > 0)` — a slot at zero is not accumulated at all.
-            if (layer.Weight <= 0f)
-            {
-                continue;
-            }
+            index++;
 
+            // **No weight test on the bracket** (B626). A layer reaching here at weight 0 is an autolayer whose window
+            // computed zero, and `AddSequenceLayers` accumulates it regardless (`bone_setup.cpp:2209`): `AccumulatePose`
+            // only clamps (`:2408`), so its capture and solve run and its nested layers sit inside them. An OVERLAY at zero
+            // never gets here — `if (fWeight > 0)` is at the overlay walk (`c_baseanimatingoverlay.cpp:356`), which the
+            // scene side keeps.
             float weight = MathF.Min(1f, layer.Weight);
 
             // **Each layer is its own `AccumulatePose`, so each carries its own lock bracket**
@@ -1008,11 +1069,20 @@ public sealed class SkeletonPose : IBonePose
 
             if (holds)
             {
-                Held().Capture(layer.Locks!, IkChains, result);
+                Bracket(_open.Count).Capture(layer.Locks!, IkChains, result);
+                _open.Add((index + Math.Max(0, layer.Nested), layer.Locks!));
 
                 long capturedAt = System.Diagnostics.Stopwatch.GetTimestamp();
                 _capture += capturedAt - sampledAt;
                 sampledAt = capturedAt;
+            }
+
+            // **A zero weight composes nothing, so it is not sampled**: `SlerpBones` skips every bone on
+            // `if (s2 <= 0.0f) continue;`, so Valve's `CalcPoseSingle` there is work whose result is discarded.
+            if (weight <= 0f)
+            {
+                last = CloseBrackets(index, result, sampledAt);
+                continue;
             }
 
             IReadOnlyList<StudioBonePose> sampled =
@@ -1114,17 +1184,45 @@ public sealed class SkeletonPose : IBonePose
             long composedAt = System.Diagnostics.Stopwatch.GetTimestamp();
             _compose += composedAt - composingAt;
 
-            // `if (seqdesc.numiklocks) seq_ik.SolveSequenceLocks( seqdesc, pos, q );` — the closing
-            // half, after the layer has been composed and before the next one begins.
-            if (holds)
-            {
-                Held().Solve(layer.Locks!, IkChains, result);
-
-                _solve += System.Diagnostics.Stopwatch.GetTimestamp() - composedAt;
-            }
+            // `if (seqdesc.numiklocks) seq_ik.SolveSequenceLocks( seqdesc, pos, q );` — the closing half, after the layer
+            // AND everything nested in it has been composed: this layer's own if it nests nothing, and its ancestors'
+            // when it is the last of their subtrees.
+            last = CloseBrackets(index, result, composedAt);
         }
 
+        // A bracket whose nesting ran past the list — a `BaseNested` with no layers to enclose, or a malformed count —
+        // still closes, because its capture ran.
+        CloseBrackets(int.MaxValue, result, last);
+
         return result;
+    }
+
+    /// <summary>Solves every open bracket that closes at or before a layer, innermost first.</summary>
+    /// <param name="index">The layer just accumulated; −1 for the base.</param>
+    /// <param name="result">The pose, solved in place.</param>
+    /// <param name="from">The stamp the last span ended at, where the first solve's span begins.</param>
+    /// <returns>The stamp the last solve ended at, or <paramref name="from"/> when none ran.</returns>
+    /// <remarks>
+    /// **Innermost first is the engine's order** (B625): a nested `AccumulatePose` returns, solving its own locks, before
+    /// its parent reaches `SolveSequenceLocks` (<c>bone_setup.cpp:2449-2454</c>). Each solve uses the bracket at its own
+    /// depth, which holds that sequence's capture and no other. Every solve is stamped from the end of the span before it,
+    /// so no tick is counted in two parts.
+    /// </remarks>
+    private long CloseBrackets(int index, StudioBonePose[] result, long from)
+    {
+        while (_open.Count > 0 && _open[^1].Close <= index)
+        {
+            IReadOnlyList<StudioIkLock> locks = _open[^1].Locks;
+            _open.RemoveAt(_open.Count - 1);
+
+            Bracket(_open.Count).Solve(locks, IkChains, result);
+
+            long solvedAt = System.Diagnostics.Stopwatch.GetTimestamp();
+            _solve += solvedAt - from;
+            from = solvedAt;
+        }
+
+        return from;
     }
 
     /// <summary>The bone a procedural barrel spin overwrites, or -1 when there is none.</summary>

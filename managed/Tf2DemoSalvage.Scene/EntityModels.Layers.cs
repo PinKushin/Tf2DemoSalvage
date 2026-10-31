@@ -102,7 +102,8 @@ public sealed partial class EntityModelSet
     /// <param name="prop">The entity.</param>
     /// <param name="skinned">Its model.</param>
     /// <param name="seconds">Demo time now.</param>
-    /// <returns>The layers, in slot order, or empty.</returns>
+    /// <param name="values">The pose parameters in force, for a pose-windowed autolayer.</param>
+    /// <param name="layers">Appended with the layers, in slot order, each followed by its autolayers.</param>
     /// <remarks>
     /// **This is <c>AddToGestureSlot</c> and <c>UpdateGestureLayer</c> together**
     /// (<c>multiplayer_animstate.cpp:616</c> and <c>:1275</c>), which is where the engine turns an
@@ -135,10 +136,13 @@ public sealed partial class EntityModelSet
     /// counter kept anywhere else would measure this method's intent rather than its work — the
     /// fault B347 shipped and a sabotage caught.
     /// </remarks>
-    private List<PoseLayer> LayersFor(
-        SceneProp prop, PropModels.SkinnedModel skinned, double seconds)
+    /// <remarks>
+    /// **Each layer is an `AccumulatePose`, so it brings its own autolayers** (B624): appended straight after it and nested
+    /// in its bracket, by the same builder the main sequence's go through.
+    /// </remarks>
+    private void LayersFor(
+        SceneProp prop, PropModels.SkinnedModel skinned, double seconds, IReadOnlyList<float> values, List<PoseLayer> layers)
     {
-        List<PoseLayer> layers = [];
 
         // **The layers the entity itself sends, walked in `m_nOrder`** (B285). A player has none —
         // `tf_player.cpp:774` excludes the array — so this loop is empty for them and the gesture
@@ -164,29 +168,25 @@ public sealed partial class EntityModelSet
             // main sequence, for each layer and for each autolayer alike. Putting it only on the
             // main sequence would be half a mechanism — a realtime sequence would take the clock
             // when played and the wire's cycle when layered.
+            float clamped = StudioSequences.ClampCycle(sent.Cycle, skinned.Loops(sent.Sequence));
+
             float wrapped = skinned.Realtime(sent.Sequence)
                 ? Fraction((float)(seconds * skinned.CyclesPerSecond(sent.Sequence)))
-                : StudioSequences.ClampCycle(sent.Cycle, skinned.Loops(sent.Sequence));
+                : clamped;
 
             (int at, float part) = StudioSequences.FrameAt(
                 wrapped, skinned.Frames(sent.Sequence), skinned.Loops(sent.Sequence));
 
-            layers.Add(new PoseLayer(
-                sent.Sequence,
-                at,
-                part,
-                sent.Weight,
-                skinned.BoneWeights(sent.Sequence),
-                Delta: skinned.IsDelta(sent.Sequence),
-                Post: skinned.IsPost(sent.Sequence),
-                Locks: skinned.LocksOf(sent.Sequence)));
+            // `if (fWeight > 1) fWeight = 1; boneSetup.AccumulatePose( pos, q, m_nSequence, fCycle, fWeight, … )`
+            // (`c_baseanimatingoverlay.cpp:366-369`), with `fCycle` the clamped cycle its autolayers window on.
+            AccumulatePose(skinned, sent.Sequence, clamped, at, part, sent.Weight, values, LayerDepth, seconds, layers);
         }
 
         // Stryker disable once : a mutant that empties the guard body leaves 'gestures'
         // unassigned (CS0165), and Safe Mode then drops every mutation in this method — B410.
         if (prop.Pose.Gestures is not { Count: > 0 } gestures)
         {
-            return layers;
+            return;
         }
 
         // **The attack-and-reload slot's holder, decided before it is drawn** (B437): a voice command waiting behind it
@@ -214,7 +214,7 @@ public sealed partial class EntityModelSet
 
             if (holder is { } playing)
             {
-                Layer(layers, skinned, playing.Sequence, playing.Gesture, seconds);
+                Layer(layers, skinned, playing.Sequence, playing.Gesture, seconds, values);
                 holder = null;
             }
 
@@ -241,7 +241,8 @@ public sealed partial class EntityModelSet
                         skinned,
                         skinned.Find(staged.Gesture.Sequence),
                         gesture with { StartedSeconds = seconds - staged.Elapsed },
-                        seconds);
+                        seconds,
+                        values);
                 }
 
                 continue;
@@ -323,15 +324,13 @@ public sealed partial class EntityModelSet
             // this model does not have, rather than substituting one. That still holds for every
             // other slot, and for a flinch on a model carrying no flinch at all: the substitution
             // above reaches this same check with the chest activity and is abandoned on it.
-            Layer(layers, skinned, sequence, gesture, seconds);
+            Layer(layers, skinned, sequence, gesture, seconds, values);
         }
 
         if (holder is { } last)
         {
-            Layer(layers, skinned, last.Sequence, last.Gesture, seconds);
+            Layer(layers, skinned, last.Sequence, last.Gesture, seconds, values);
         }
-
-        return layers;
     }
 
     /// <summary>`AddToGestureSlot`'s `SelectWeightedSequence( iGestureActivity )`: one roll, when the gesture starts (D233).</summary>
@@ -381,6 +380,7 @@ public sealed partial class EntityModelSet
     /// <param name="sequence">What the activity or the label resolved to; zero or below is abandoned.</param>
     /// <param name="gesture">The gesture, for its start and its auto-kill.</param>
     /// <param name="seconds">Demo time now.</param>
+    /// <param name="values">The pose parameters in force, for the gesture's own autolayers (B624).</param>
     /// <remarks>
     /// **Shared by the activity path and the VCD path because everything after the lookup is
     /// identical.** The engine's own split is the same shape: `AddToGestureSlot` and
@@ -394,7 +394,8 @@ public sealed partial class EntityModelSet
         PropModels.SkinnedModel skinned,
         int sequence,
         SceneGesture gesture,
-        double seconds)
+        double seconds,
+        IReadOnlyList<float> values)
     {
         // `if ( iGestureSequence <= 0 ) return;` — the engine abandons a gesture the model does not
         // have rather than substituting one.
@@ -430,19 +431,21 @@ public sealed partial class EntityModelSet
         (int frame, float fraction) = StudioSequences.FrameAt(
             (float)cycle, skinned.Frames(sequence), skinned.Loops(sequence));
 
-        layers.Add(new PoseLayer(
+        // **Every TF2 player gesture is a DELTA**, measured: `PRIMARY_reload_start` and `jumpland_primary` both carry the
+        // bit, and `AccumulatePose` reads it off the sequence (B284). Weight 1, `m_flWeight = 1.0f`. The overlay's
+        // `fCycle = ClampCycle( fCycle, looping )` (`c_baseanimatingoverlay.cpp:364`) is what its autolayers window on, so
+        // a reload gesture's arms layer comes with it (B624).
+        AccumulatePose(
+            skinned,
             sequence,
+            StudioSequences.ClampCycle((float)cycle, skinned.Loops(sequence)),
             frame,
             fraction,
             1f,
-            skinned.BoneWeights(sequence),
-
-            // **Every TF2 player gesture is a DELTA**, measured: `PRIMARY_reload_start` and
-            // `jumpland_primary` both carry the bit. `SlerpBones` composes those additively
-            // rather than blending toward them (B284).
-            Delta: skinned.IsDelta(sequence),
-            Post: skinned.IsPost(sequence),
-            Locks: skinned.LocksOf(sequence)));
+            values,
+            LayerDepth,
+            seconds,
+            layers);
     }
 
     /// <summary>How deep an autolayer chain may go before it is abandoned.</summary>

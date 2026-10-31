@@ -11,7 +11,8 @@ namespace Tf2DemoSalvage.Animation.Tests;
 /// <c>SkeletonPose.Build</c>'s accumulate path exactly as it stood at <c>44ca01f7</c>, before the dense-pose change
 /// (docs/measurements/2026-10-31-setup-bones-read.md §5): <c>Accumulate</c> seeding <c>_layered</c> from rest and
 /// overlaying the base, <c>Adjust</c> seeding and overlaying again, <c>SpinBarrel</c>, the <c>_overrideOf</c> index,
-/// and the per-bone loop's override-or-rest choice, local transform and concatenate.
+/// and the per-bone loop's override-or-rest choice, local transform and concatenate — with one later change of meaning,
+/// B626's weight-0 lock bracket, marked where it sits.
 /// </summary>
 /// <remarks>
 /// **Copied, not shared**, so a fault in the change cannot appear on both sides. Shared are only leaves the change does
@@ -172,11 +173,6 @@ internal sealed class AccumulatePathReference
 
         foreach (PoseLayer layer in Layers)
         {
-            if (layer.Weight <= 0f)
-            {
-                continue;
-            }
-
             float weight = MathF.Min(1f, layer.Weight);
 
             bool holds = layer.Locks is { Count: > 0 } && IkChains.Count > 0;
@@ -184,6 +180,19 @@ internal sealed class AccumulatePathReference
             if (holds)
             {
                 Held().Capture(layer.Locks!, IkChains, result);
+            }
+
+            // B626, moved here from 44ca01f7's `if (layer.Weight <= 0f) continue;` at the top of the loop: a weight-0
+            // layer composes nothing but still runs its lock bracket (`bone_setup.cpp:2209`, `:2408`). Nesting is not
+            // modelled here — every scenario's `Nested` and `BaseNested` are 0, where the two structures agree.
+            if (weight <= 0f)
+            {
+                if (holds)
+                {
+                    Held().Solve(layer.Locks!, IkChains, result);
+                }
+
+                continue;
             }
 
             IReadOnlyList<StudioBonePose> sampled =

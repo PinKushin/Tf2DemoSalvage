@@ -189,18 +189,12 @@ public sealed partial class EntityModelSet
             }
 #pragma warning restore S1244
 
-            // **`flWeight = clamp( flWeight, 0.0f, 1.0f );`** — `AccumulatePose`'s own first act
-            // (`bone_setup.cpp:2408`), under an Assert and a comment saying it should not be
-            // necessary. It is: the ramp is extrapolated outside its window whenever `start` and
-            // `peak` differ, so a layer just below its own start computes a negative weight. Valve
-            // clamps it to zero and `SlerpBones` then skips it on `if (s2 <= 0.0f) continue`, which
-            // is what dropping it here reproduces.
-            layerWeight = Math.Clamp(layerWeight, 0f, 1f);
-
-            if (layerWeight <= 0f)
-            {
-                continue;
-            }
+            // **No weight test here, and that is the engine's** (B626): `AddSequenceLayers` hands
+            // `AccumulatePose` whatever the window computed (`bone_setup.cpp:2209`), and
+            // `AccumulatePose` only clamps it (`:2408`). A layer at weight 0 still opens and closes its
+            // lock bracket and still accumulates its OWN autolayers — and a `STUDIO_AL_NOBLEND` child
+            // of it takes `layerWeight = s` whatever its parent weighs (`:2195`), so dropping the
+            // parent would drop a child Valve draws. The clamp is in `AccumulatePose` below.
 
             // **`STUDIO_REALTIME` on the layered sequence, and this is where TF2 actually puts it**
             // (B309). All 32 sequences carrying the flag are named `layer_*` — MvM bot
@@ -216,31 +210,73 @@ public sealed partial class EntityModelSet
                 skinned.Frames(target),
                 skinned.Loops(target));
 
-            layers.Add(new PoseLayer(
-                target,
-                frame,
-                fraction,
-                layerWeight,
-                skinned.BoneWeights(target),
-                Delta: skinned.IsDelta(target),
-                Post: skinned.IsPost(target),
-                Locks: skinned.LocksOf(target)));
-
-            // **A layered sequence can layer further sequences**, because Valve reaches them through
-            // `AccumulatePose` and that calls both passes again. Bounded rather than trusted: the
-            // recursion is over data from a file, and a model whose layers cycle would not
-            // terminate.
-            AutoLayersFor(
-                skinned,
-                target,
-                layerCycle,
-                layerWeight,
-                values,
-                local: false,
-                budget - 1,
-                seconds,
-                layers);
+            // **`AccumulatePose( pos, q, iSequence, layerCycle, layerWeight, … )`** (`:2209`, and `:2284`
+            // for the local pass): the layered sequence is accumulated the way every sequence is, so it
+            // layers ITS autolayers inside its own bracket. Bounded rather than trusted: the recursion
+            // is over data from a file, and a model whose layers cycle would not terminate.
+            AccumulatePose(skinned, target, layerCycle, frame, fraction, layerWeight, values, budget - 1, seconds, layers);
         }
+    }
+
+    /// <summary>`CBoneSetup::AccumulatePose`'s shape: the sequence, then its autolayers nested inside it (B624).</summary>
+    /// <param name="skinned">The model.</param>
+    /// <param name="sequence">The sequence being accumulated.</param>
+    /// <param name="cycle">
+    /// The cycle `AccumulatePose` is CALLED with, which is what its `AddSequenceLayers` windows — not the
+    /// `STUDIO_REALTIME` clock `CalcPoseSingle` substitutes privately for sampling (<c>bone_setup.cpp:1955</c>).
+    /// </param>
+    /// <param name="frame">Where the sequence itself is sampled, as its caller resolved it.</param>
+    /// <param name="fraction">How far past <paramref name="frame"/>.</param>
+    /// <param name="weight">The weight it is accumulated at; clamped as the engine clamps it.</param>
+    /// <param name="values">The pose parameters in force.</param>
+    /// <param name="budget">How much deeper the recursion may go.</param>
+    /// <param name="seconds">Demo time, for a realtime autolayer.</param>
+    /// <param name="layers">Appended with the sequence's layer, then its autolayers' subtrees in file order.</param>
+    /// <remarks>
+    /// **Every entry point is `AccumulatePose`** — the main sequence (`c_baseanimating.cpp:1986`), each fading transition
+    /// (`:1863`), each overlay (`c_baseanimatingoverlay.cpp:369`) and each autoplay sequence (`bone_setup.cpp:4485`) — and
+    /// it runs `AddSequenceLayers` (`:2449`) between its lock capture (`:2424-2429`) and its solve (`:2451-2454`). So a
+    /// gesture's autolayers and a fading run's aim matrices are accumulated, each nested inside its parent's bracket.
+    /// `PoseLayer.Nested` writes that nesting into the flat list; the skeleton closes the bracket after it.
+    ///
+    /// **Not ported: `AddLocalLayers` for a sequence other than the main one** (`:2439`). The local pass composes into the
+    /// sequence's own `pos2` before `SlerpBones` blends it at `flWeight`, which a flat list reproduces only at weight one
+    /// — the main sequence's case. `STUDIO_LOCAL` is set only on viewmodel arms (B294, and the B624 plan's census).
+    /// </remarks>
+    private static void AccumulatePose(
+        PropModels.SkinnedModel skinned,
+        int sequence,
+        float cycle,
+        int frame,
+        float fraction,
+        float weight,
+        IReadOnlyList<float> values,
+        int budget,
+        double seconds,
+        List<PoseLayer> layers)
+    {
+        // **`flWeight = clamp( flWeight, 0.0f, 1.0f );`** — `AccumulatePose`'s own first act (`bone_setup.cpp:2408`),
+        // under an Assert and a comment saying it should not be necessary. It is: an autolayer's ramp is extrapolated
+        // outside its window whenever `start` and `peak` differ, so one just below its own start computes a negative
+        // weight. Clamped to zero it is still accumulated — `SlerpBones` skips every bone on `if (s2 <= 0.0f)` — and its
+        // own autolayers are windowed from that zero.
+        weight = Math.Clamp(weight, 0f, 1f);
+
+        int at = layers.Count;
+
+        layers.Add(new PoseLayer(
+            sequence,
+            frame,
+            fraction,
+            weight,
+            skinned.BoneWeights(sequence),
+            Delta: skinned.IsDelta(sequence),
+            Post: skinned.IsPost(sequence),
+            Locks: skinned.LocksOf(sequence)));
+
+        AutoLayersFor(skinned, sequence, cycle, weight, values, local: false, budget, seconds, layers);
+
+        layers[at] = layers[at] with { Nested = layers.Count - at - 1 };
     }
 
     /// <summary>Where a pose-driven autolayer sits in its parameter's own range.</summary>
@@ -273,7 +309,8 @@ public sealed partial class EntityModelSet
     /// <summary>The sequences a model plays on its own, off the clock.</summary>
     /// <param name="skinned">The model.</param>
     /// <param name="seconds">Demo time now, which is Valve's <c>flRealTime</c>.</param>
-    /// <param name="layers">Appended with a layer per autoplay sequence, at full weight.</param>
+    /// <param name="values">The pose parameters in force, for the sequences' own autolayers (B624).</param>
+    /// <param name="layers">Appended with a layer per autoplay sequence, at full weight, each followed by its autolayers.</param>
     /// <remarks>
     /// **`CalcAutoplaySequences`, <c>bone_setup.cpp:4457</c>**, whose whole body is:
     ///
@@ -309,7 +346,8 @@ public sealed partial class EntityModelSet
     /// **Weight is a literal 1.0 and never fades.** There is no queue, no lifetime and no
     /// auto-kill: an autoplay sequence is on for as long as the model is drawn.
     /// </remarks>
-    private static void AutoplayFor(PropModels.SkinnedModel skinned, double seconds, List<PoseLayer> layers)
+    private static void AutoplayFor(
+        PropModels.SkinnedModel skinned, double seconds, IReadOnlyList<float> values, List<PoseLayer> layers)
     {
         foreach (int sequence in skinned.AutoplaySequences())
         {
@@ -325,17 +363,9 @@ public sealed partial class EntityModelSet
             (int frame, float fraction) = StudioSequences.FrameAt(
                 cycle, skinned.Frames(sequence), skinned.Loops(sequence));
 
-            layers.Add(new PoseLayer(
-                sequence,
-                frame,
-                fraction,
-
-                // `AccumulatePose( pos, q, sequenceIndex, cycle, 1.0, … )` — the literal.
-                1f,
-                skinned.BoneWeights(sequence),
-                Delta: skinned.IsDelta(sequence),
-                Post: skinned.IsPost(sequence),
-                Locks: skinned.LocksOf(sequence)));
+            // `AccumulatePose( pos, q, sequenceIndex, cycle, 1.0, … )` — the literal, and the same recursion as every
+            // other accumulated sequence, so an autoplay sequence's own autolayers come with it (B624).
+            AccumulatePose(skinned, sequence, cycle, frame, fraction, 1f, values, LayerDepth, seconds, layers);
         }
     }
 
@@ -369,7 +399,7 @@ public sealed partial class EntityModelSet
     /// animation start, so a restart already resets the cycle — but a restart of the SAME sequence
     /// does not currently cross-fade.
     /// </remarks>
-    private List<PoseLayer> TransitionsFor(
+    private List<FadingRoot> TransitionsFor(
         SceneProp prop, PropModels.SkinnedModel skinned, int sequence, float cycle, double seconds)
     {
         if (!_transitions.TryGetValue(prop.EntityIndex, out List<FadingSequence>? queue))
@@ -481,7 +511,7 @@ public sealed partial class EntityModelSet
             return [];
         }
 
-        List<PoseLayer> fading = [];
+        List<FadingRoot> fading = [];
 
         for (int index = queue.Count - 1; index >= 0; index--)
         {
@@ -509,22 +539,18 @@ public sealed partial class EntityModelSet
             // like every other and takes the clock if it is flagged. The engine computes and clamps
             // `flCycle` just above that call and `CalcPoseSingle` then discards it — which is easy
             // to read as the clamp being the final word.
+            float clamped = StudioSequences.ClampCycle((float)advanced, skinned.Loops(leaving.Sequence));
+
             float wrapped = skinned.Realtime(leaving.Sequence)
                 ? Fraction((float)(seconds * skinned.CyclesPerSecond(leaving.Sequence)))
-                : StudioSequences.ClampCycle((float)advanced, skinned.Loops(leaving.Sequence));
+                : clamped;
 
             (int at, float part) = StudioSequences.FrameAt(
                 wrapped, skinned.Frames(leaving.Sequence), skinned.Loops(leaving.Sequence));
 
-            fading.Add(new PoseLayer(
-                leaving.Sequence,
-                at,
-                part,
-                weight,
-                skinned.BoneWeights(leaving.Sequence),
-                Delta: skinned.IsDelta(leaving.Sequence),
-                Post: skinned.IsPost(leaving.Sequence),
-                Locks: skinned.LocksOf(leaving.Sequence)));
+            // A root, expanded through `AccumulatePose` in the bone build (B624): its autolayers window on `flCycle`
+            // as the engine clamped it (`c_baseanimating.cpp:1854`), not on the realtime clock.
+            fading.Add(new FadingRoot(leaving.Sequence, clamped, at, part, weight));
         }
 
         // Oldest first, because the engine walks its queue from the front and each accumulates onto
@@ -807,5 +833,14 @@ public sealed partial class EntityModelSet
         _entities.TryGetValue(entityIndex, out AnimatingEntity? animating) &&
         animating.Pose is SkeletonPose posed
             ? posed.Layers
+            : null;
+
+    /// <summary>How many of <see cref="LayersOf"/> the main sequence's lock bracket encloses, as the skeleton was handed it (B625).</summary>
+    /// <param name="entityIndex">The entity.</param>
+    /// <returns>The count, or null when the entity has no skeleton.</returns>
+    internal int? BaseNestedOf(int entityIndex) =>
+        _entities.TryGetValue(entityIndex, out AnimatingEntity? animating) &&
+        animating.Pose is SkeletonPose posed
+            ? posed.BaseNested
             : null;
 }

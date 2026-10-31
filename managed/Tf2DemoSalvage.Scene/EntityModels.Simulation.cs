@@ -638,11 +638,23 @@ public sealed partial class EntityModelSet
         // **Then `AddSequenceLayers` for the main sequence, before the transitions** (`:2449`).
         AutoLayersFor(skinned, sequence, phase, 1f, poseValues, local: false, LayerDepth, seconds, composed);
 
-        composed.AddRange(pending.Transitions);
-        composed.AddRange(LayersFor(prop, skinned, seconds));
+        // **The main sequence's bracket closes here, after its own autolayers** (B625): `SolveSequenceLocks` is
+        // `AccumulatePose`'s last step (`:2451-2454`), after both passes above.
+        posed.BaseNested = composed.Count;
+
+        // **Each fading sequence is an `AccumulatePose` of its own** (`c_baseanimating.cpp:1863`), so its autolayers — a
+        // run's aim matrices — fade out with it (B624).
+        foreach (FadingRoot fading in pending.Transitions)
+        {
+            AccumulatePose(
+                skinned, fading.Sequence, fading.Cycle, fading.Frame, fading.Fraction, fading.Weight, poseValues, LayerDepth,
+                seconds, composed);
+        }
+
+        LayersFor(prop, skinned, seconds, poseValues, composed);
 
         // **`CalcAutoplaySequences` LAST of the three** (`c_baseanimating.cpp:1996`), B291.
-        AutoplayFor(skinned, seconds, composed);
+        AutoplayFor(skinned, seconds, poseValues, composed);
 
         posed.Layers = composed;
 

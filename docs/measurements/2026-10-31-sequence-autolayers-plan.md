@@ -105,8 +105,8 @@ later layers sit inside a layer's bracket.**
 `MaintainSequenceTransitions` walks `m_animationQueue` from `Count() - 2` DOWN to 0 (`c_baseanimating.cpp:1848`), and
 `CheckForSequenceChange` appends with `AddToTail` (`sequence_Transitioner.cpp:64`), so the NEWEST fading sequence is
 accumulated first and the oldest last. Ours reverses to oldest first (`EntityModels.Autoplay.cs:530-532`, whose comment
-says the engine "walks its queue from the front"). It matters only with two or more transitions in flight. Fixed here
-only if it needs no more than removing the reverse and one conformance test; otherwise filed.
+says the engine "walks its queue from the front"). It matters only with two or more transitions in flight. **Filed as
+B633, not fixed here**, so the before/after shows one change. `AddLocalLayers` beyond the main sequence is filed as B634.
 
 ## 5. Which f12 players reach it [meas]
 
@@ -158,3 +158,17 @@ transitions exist. Run on this branch before any production change, `pose-layers
   2-3 more layers a rebuild over today's 12.7 samples. At the measured ~8 µs a sample and ~3 µs a compose
   (`2026-10-31-accumulate-parts.md`), plus ~2-5 µs per added lock bracket, **about 0.02-0.05 ms per root rebuild**,
   landing in `layer sampling` (most), `compose`, `capture` and `solve`. Not `--measure`d here.
+
+## 9. Result (after the change)
+
+- **Layers [meas]**, same probe and window on the fix: 8,135 layers (+1,534, +23%), 6,115 with locks (+854, +16%);
+  1,534 nested under the same 1,396 parents. Players are not every root, so the share of a rebuild's samples is lower
+  than 23%. **Revised cost [pred]: 0.02-0.04 ms per root rebuild** — ~2-3 added samples at ~11 µs sample + compose,
+  ~0.004 ms of added brackets (16% on the measured 0.024), and a weight-0 bracket's solve with no sample where one occurs.
+  The depth pool's first use of a new depth allocates one `IkLocks` once per skeleton.
+- **Where it lands in `RootSetupParts`:** `layer sampling` (the samples, `over N` rises), `compose`, `capture` and
+  `solve`. A solve that now closes after a later layer is stamped from the end of that layer's compose, so no tick is
+  counted in two parts (`AccumulatePartsTests` green unchanged).
+- **Shots [meas]:** `D:/measure-f12/b624/before-30000.png` and `control-wide-30000.png` (the fix), camera
+  `-3836 -2030 932 25 -28`, tick 30000: 19,894 of 542,184 pixels differ, on entity 7's upper body; the fix against
+  `after-30000-repeat.png`: 0. Mask: `diff-before-after.png`.

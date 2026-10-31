@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 
 using Tf2DemoSalvage.Content.Assets;
 
@@ -92,8 +93,30 @@ internal static class AnimatedStudioBytes
     /// </param>
     /// <returns>A <c>.mdl</c> body whose animations hold differences rather than poses.</returns>
     public static byte[] OneSecondLoop(
-        int animations, int sequences, int autoLayerOn, StudioAutoLayer[]? autoLayers, bool delta)
+        int animations, int sequences, int autoLayerOn, StudioAutoLayer[]? autoLayers, bool delta) =>
+        OneSecondLoop(
+            animations,
+            sequences,
+            autoLayerOn >= 0 && autoLayers is { Length: > 0 }
+                ? new Dictionary<int, StudioAutoLayer[]> { [autoLayerOn] = autoLayers }
+                : new Dictionary<int, StudioAutoLayer[]>(),
+            delta);
+
+    /// <summary>The same, with any number of sequences each declaring its own autolayers.</summary>
+    /// <param name="animations">As above.</param>
+    /// <param name="sequences">As above.</param>
+    /// <param name="autoLayers">Each declaring sequence's autolayers, in order.</param>
+    /// <param name="delta">As above.</param>
+    /// <returns>A <c>.mdl</c> body in which a layered sequence can layer further sequences (B624).</returns>
+    /// <remarks>
+    /// **More than one declaring sequence is what makes the RECURSION observable**: a gesture that layers a sequence which
+    /// itself layers another is the shape `AccumulatePose` → `AddSequenceLayers` → `AccumulatePose` exists for.
+    /// </remarks>
+    public static byte[] OneSecondLoop(
+        int animations, int sequences, IReadOnlyDictionary<int, StudioAutoLayer[]> autoLayers, bool delta = false)
     {
+        ArgumentNullException.ThrowIfNull(autoLayers);
+
         const int header = 256;
         const int stride = 100;
         const int sequenceStride = 212;
@@ -103,10 +126,20 @@ internal static class AnimatedStudioBytes
 
         int table = descriptors + (Math.Max(0, sequences) * sequenceStride);
 
-        StudioAutoLayer[] written = autoLayers ?? [];
-        bool layering = autoLayerOn >= 0 && autoLayerOn < sequences && written.Length > 0;
+        // Each declaring sequence's entries, back to back after the sequence table, in sequence order.
+        Dictionary<int, int> entriesAt = [];
+        int end = table;
 
-        byte[] file = new byte[table + (layering ? written.Length * AutoLayerStride : 0)];
+        for (int sequence = 0; sequence < sequences; sequence++)
+        {
+            if (autoLayers.TryGetValue(sequence, out StudioAutoLayer[]? declared) && declared.Length > 0)
+            {
+                entriesAt[sequence] = end;
+                end += declared.Length * AutoLayerStride;
+            }
+        }
+
+        byte[] file = new byte[end];
 
         BitConverter.TryWriteBytes(file.AsSpan(180), animations);
         BitConverter.TryWriteBytes(file.AsSpan(184), header);
@@ -136,19 +169,21 @@ internal static class AnimatedStudioBytes
             BitConverter.TryWriteBytes(file.AsSpan(at + 104), FadeSeconds);
             BitConverter.TryWriteBytes(file.AsSpan(at + 108), FadeSeconds);
 
-            if (!layering || sequence != autoLayerOn)
+            if (!entriesAt.TryGetValue(sequence, out int first))
             {
                 continue;
             }
 
+            StudioAutoLayer[] written = autoLayers[sequence];
+
             // `numautolayers` at 148 and `autolayerindex` at 152, the index measured from THIS
             // sequence's own start.
             BitConverter.TryWriteBytes(file.AsSpan(at + 148), written.Length);
-            BitConverter.TryWriteBytes(file.AsSpan(at + 152), table - at);
+            BitConverter.TryWriteBytes(file.AsSpan(at + 152), first - at);
 
             for (int layer = 0; layer < written.Length; layer++)
             {
-                int entry = table + (layer * AutoLayerStride);
+                int entry = first + (layer * AutoLayerStride);
 
                 // mstudioautolayer_t: two shorts, then flags and four floats.
                 BitConverter.TryWriteBytes(file.AsSpan(entry), (short)written[layer].Sequence);

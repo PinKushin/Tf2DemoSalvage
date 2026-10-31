@@ -40251,6 +40251,45 @@ It is tested red-first. It names which thread waited and where the draw had got 
 **Reopen if** the `queue stall` line ever appears in a viewer log, or if this test's hang rate on the branch, measured
 the same way, exceeds the baseline's.
 
+## B634 — `AddLocalLayers` runs only for the main sequence; the engine runs it inside every `AccumulatePose` (2026-10-31) — OPEN, latent on players
+
+**Evidence class: read from published source; who reaches it measured as a flag census only.** Found while fixing B624, and
+deliberately left out of that change (`docs/measurements/2026-10-31-sequence-autolayers-plan.md` §4, "Not ported").
+
+- **Valve:** `AccumulatePose` composes `AddLocalLayers( pos2, q2, …, 1.0, … )` into the sequence's OWN pose `pos2`
+  (seeded by `InitPose` for a `STUDIO_LOCAL` sequence) BEFORE `SlerpBones( q, pos, …, q2, pos2, flWeight )` blends it in
+  (`bone_setup.cpp:2431-2441`), and `AddLocalLayers` returns at once unless the sequence carries `STUDIO_LOCAL`
+  (`:2229`). Every entry point is `AccumulatePose`, so a fading or overlaid `STUDIO_LOCAL` sequence brings its local layers.
+- **Ours:** `BuildBlend` runs the local pass for the main sequence only (`EntityModels.Simulation.cs`, the
+  `AutoLayersFor(…, local: true, …)` call), composing onto the accumulator. That is exact for the main sequence (weight
+  1.0, `c_baseanimating.cpp:1986`) and is why B294 put it there. The new `AccumulatePose` builder
+  (`EntityModels.Autoplay.cs`) recurses the non-local pass only.
+- **Why it is not a flat-list change:** at a weight below one, composing the local layer onto `pos2` and then slerping
+  differs from slerping both onto `pos` (*arithmetic*, rotations; positions agree for a delta local layer). Doing it
+  faithfully needs a second accumulation buffer per nesting level in `SkeletonPose`.
+- **Who could see it:** `STUDIO_LOCAL` is on 48 of 26,706 sequences in `tf2_misc_dir.vpk`, the examples all `c_*_animations`
+  viewmodel arms (*measured*: `sequence-flags`, 2026-10-31). A player never plays one. A viewmodel cross-fading OUT of a
+  local sequence (`throw_idle` → `throw_fire`, say) would (*interpolated*, not observed).
+- **What would settle it:** a `transitions`-style walk over a POV demo counting fading viewmodel sequences that carry
+  `STUDIO_LOCAL` with local autolayers. Control: the same walk must count the viewmodel's ordinary transitions.
+
+## B633 — fading sequences are accumulated oldest first; the engine accumulates the newest first (2026-10-31) — OPEN
+
+**Evidence class: read from published source on both sides; the visible effect is *interpolated*.** Found while fixing
+B624, and left out of that change so its before/after shows one thing.
+
+- **Valve:** `MaintainSequenceTransitions` walks `for (int i = m_SequenceTransitioner.m_animationQueue.Count() - 2; i >= 0;
+  i--)` (`c_baseanimating.cpp:1848`), and `CheckForSequenceChange` appends each outgoing sequence with `AddToTail`
+  (`sequence_Transitioner.cpp:64`). So the most recent fading sequence is accumulated FIRST and the oldest last, each
+  slerping onto the result of the one before.
+- **Ours:** `TransitionsFor` builds the list newest first and then `fading.Reverse()`s it (`EntityModels.Autoplay.cs`,
+  the end of `TransitionsFor`), under a comment saying the engine "walks its queue from the front". That comment is wrong.
+- **Who could see it (*interpolated*):** only with two or more transitions in flight at once — a player changing sequence
+  twice inside one 0.2 s fade window, which a rocket jump or a weapon switch mid-run plausibly does. Order matters
+  because each is a partial slerp onto the last.
+- **What would settle it:** a synthetic test (`Scene.Tests`): three sequences, two changes inside one fade window; assert
+  `LayersOf` lists the newer fading sequence first. Red on ours confirms it; the fix removes the `Reverse`.
+
 ## B631 — autoplay IK rules go to the entity's one `IkErrors`; the engine solves them in a separate `auto_ik` (2026-10-31) — OPEN, latent
 
 **Evidence class: read from published source on the Valve side; our side read at `0979f203`; nothing measured except that players carry no autoplay locks.** D10 of `docs/measurements/2026-10-31-iklock-bracket-read.md` §3. Nothing is fixed here.
@@ -40323,7 +40362,23 @@ is fixed here.
 - **What would settle it:** a census of `kneeDir` over every chain link in the shipped models. Control: the census must
   report a non-zero on any model known to state one, or the offset it reads is wrong.
 
-## B626 — a zero-weight autolayer gets no lock bracket; the engine brackets it (2026-10-31) — OPEN
+## B626 — a zero-weight autolayer gets no lock bracket; the engine brackets it (2026-10-31) — FIXED with B624
+
+**Fixed 2026-10-31 on `fix/b624-sequence-autolayers`, by the same structure as B624.** `AutoLayersFor` lost its
+`layerWeight <= 0f` `continue`; the clamp moved into the new `AccumulatePose` builder (`bone_setup.cpp:2408`).
+`SkeletonPose.Accumulate` no longer skips a weight-0 layer: it opens and closes the bracket and skips only the sample
+and compose, which is result-identical because `SlerpBones` skips every bone at `s2 <= 0`. The overlay gate stays where
+the engine has it (`c_baseanimatingoverlay.cpp:356`, our `LayersFor`).
+- **A consequence the entry below did not name:** a `STUDIO_AL_NOBLEND` child of a weight-0 autolayer takes
+  `layerWeight = s` (`:2195`), so the old guard also dropped a child Valve draws at full weight.
+- **Tests, red on the old structure first:** `AccumulatePoseConformanceTests.BuildBlend_AZeroWeightAutolayerWithANoBlendChild_AccumulatesBoth`
+  (old: no layers at all; now `[(1, 0, nested 1), (2, 1, 0)]`) and
+  `NestedLockBracketConformanceTests.Build_AZeroWeightLockingLayer_StillBracketsItsChild` (old: tip at 4; now 0), with
+  `Build_AZeroWeightLayer_ComposesNothing` as its control.
+- **The size of the effect, *measured* on real bones:** the dense-pose differential's reference
+  (`AccumulatePathReference`, which held the old guard) disagreed with production in 16 cells over its scout scenarios once
+  the weight-0 locking layer bracketed, the first `0.99534196` against `0.99534184`. A re-solve of an unmoved leg is
+  near-identity, not identity. The reference now brackets too, marked where it does.
 
 **Evidence class: Valve side read from published source; the visible effect is *interpolated*.** D5 of the IK-lock bracket read. Nothing is fixed here.
 
@@ -40341,7 +40396,23 @@ is fixed here.
   `start`, on a sequence that locks. Assert whether a bracket runs. Red on ours confirms the divergence, and the size of
   the pose difference is the second assertion.
 
-## B625 — lock brackets do not nest as the engine's do (2026-10-31) — OPEN, latent until B624 is fixed
+## B625 — lock brackets do not nest as the engine's do (2026-10-31) — FIXED with B624
+
+**Fixed 2026-10-31 on `fix/b624-sequence-autolayers`.** The flat layer list now carries the tree: `PoseLayer.Nested` is
+how many following layers sit inside a layer's `AccumulatePose`, and `SkeletonPose.BaseNested` the same for the main
+sequence (its own local and non-local autolayers). `SkeletonPose.Accumulate` keeps a stack of open brackets and closes
+each after the last layer it encloses, innermost first (`CloseBrackets`), so a sequence's solve runs after its autolayers
+(`bone_setup.cpp:2449` then `:2451-2454`). **One `IkLocks` per nesting depth** (`SkeletonPose.Bracket`), because Valve's
+`seq_ik` is a local of each `AccumulatePose` (`:2424`) and a shared store would let a child's capture overwrite its
+parent's. `AppliedLocks` and `LockEffect` sum over the depths, carried from each instance.
+- **Tests:** `NestedLockBracketConformanceTests` (Animation.Tests) — a locking parent's solve after its nested child
+  (old order: tip at 4, now 0; control with nothing nested: 4), the main sequence's bracket over `BaseNested` layers (as a
+  `TestCase` pair, 1 → 0 and 0 → 4), and two nested locking layers each pinning to its own capture. The last passes on the
+  old flat order too (both orders end at 0); it exists for the depth pool, and a sabotage that returned depth 0 for every
+  bracket reddened it alone. `AccumulatePoseConformanceTests.BuildBlend_AMainSequenceWithAutolayersAndAnOverlay_EnclosesOnlyItsOwnSubtree`
+  holds `BaseNested` at the main subtree's size (sabotaged to 0: red).
+- **Not established:** no TF2 main sequence locks (scout census), so the base half is still latent on players; the
+  locking-autolayer-with-autolayers half is live wherever `layer_melee_swing` plays (not in the f12 window measured).
 
 **Evidence class: read from published source on both sides; latent by measurement on scout.** D4 of the IK-lock bracket read. Nothing is fixed here.
 
@@ -40356,7 +40427,35 @@ is fixed here.
 - **What would settle it:** fix B624 first, then a synthetic test of a locking sequence with a locking autolayer, asserting
   the order captures and solves run. Reopen as live when B624 closes.
 
-## B624 — a gesture's or a transition's autolayers are never accumulated (2026-10-31) — OPEN
+## B624 — a gesture's or a transition's autolayers are never accumulated (2026-10-31) — FIXED, awaiting the owner's look
+
+**Fixed 2026-10-31 on `fix/b624-sequence-autolayers`, by porting `AccumulatePose`'s recursion rather than adding layers
+where they were missing.** Plan, with Valve's structure and ours at file:line:
+`docs/measurements/2026-10-31-sequence-autolayers-plan.md`.
+- **The structure:** one builder, `EntityModelSet.AccumulatePose` (`EntityModels.Autoplay.cs`), is every entry point's
+  `AccumulatePose`: it clamps the weight (`:2408`), appends the sequence's `PoseLayer`, runs `AutoLayersFor` (the
+  `AddSequenceLayers` pass, `:2125-2211`) whose every autolayer is a nested call to the same builder, and writes
+  `Nested`. The main sequence's local and non-local passes, each fading transition (`c_baseanimating.cpp:1863`, expanded
+  in `BuildBlend` from `FadingRoot`s so the work stays in the bone build), each networked layer and each gesture
+  (`c_baseanimatingoverlay.cpp:369`) and each autoplay sequence (`bone_setup.cpp:4485`) go through it. The per-site
+  `new PoseLayer(…)` constructions are gone. B625 and B626 are closed by the same change.
+- **Each root passes the cycle Valve hands `AddSequenceLayers`**: the clamped `flCycle`/`fCycle`, not the `STUDIO_REALTIME`
+  clock `CalcPoseSingle` substitutes privately for sampling.
+- **Tests, red on the old structure first** (run against `2cb4016c` in a scratch tree): `AccumulatePoseConformanceTests`
+  — a wire layer, a gesture and a fading sequence each bring their autolayer nested inside them (old: the parent alone),
+  and a main-sequence grandchild is nested (old: `Nested` 0). Sabotaging `Nested` to 0 reddened all five.
+- **Measured on f12, `pose-layers D:/measure-f12/f12.dem 29700 30000`** (one `EntityModelSet` over the range, reading
+  `LayersOf`): 6,601 layers before, 8,135 after (+1,534, every one nested under one of the 1,396 parents); layers with
+  locks 5,261 → 6,115. The parents are the same list before and after, led by fading `run_PRIMARY` (280) and
+  `crouch_walk_PRIMARY` (238) and the reload gestures. Control: the main sequences' own autolayers were present before.
+- **What the owner can see, *measured* as pixels:** f12 tick 30000, entity 7, a soldier mid rocket-jump playing
+  `ReloadStand_PRIMARY_loop`, whose autolayer `layer_reload_standing_arms_loop` was missing. Same camera, base `9a43ea9e`
+  against the fix: 19,894 of 542,184 pixels differ, all on his upper body and a patch of ceiling above him (box x 314-540,
+  y 67-334); the fix against a repeat of itself: 0. Before, the launcher hangs straight down from one hand; after, both
+  arms hold it raised. **Whether that matches TF2 is the owner's call** — it is what Valve's structure produces, not a
+  comparison against the game. Shots in `D:/measure-f12/b624/`.
+- **Not established:** `AddLocalLayers` for a sequence other than the main one (B634); the transition order (B633);
+  autoplay rules in `auto_ik` (B631). The cost is predicted, not measured (the plan's §8, about 0.02-0.04 ms a root rebuild).
 
 **Evidence class: both sides read from published source and our tree for this entry; the visible effect is *interpolated*.** D3 of the IK-lock bracket read, which marks it certain from source. The lines cited here support that wording for the code path; the on-screen effect is not measured. Nothing is fixed here.
 
