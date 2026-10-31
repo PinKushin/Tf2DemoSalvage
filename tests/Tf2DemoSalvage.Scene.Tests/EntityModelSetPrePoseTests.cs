@@ -135,7 +135,7 @@ public sealed class EntityModelSetPrePoseTests
         _ => Skinned(PlayerBones),
     };
 
-    private static PropModels.ModelFrames Skinned(params string[] bones) =>
+    internal static PropModels.ModelFrames Skinned(params string[] bones) =>
         new(
             [
                 new PropVertex[]
@@ -150,7 +150,7 @@ public sealed class EntityModelSetPrePoseTests
             [true],
             Skinned: SyntheticSkinnedModel.WithBones(bones));
 
-    private static SceneProp Prop(string model, int entity, float x = 0f, float yaw = 0f, int? attachedTo = null) =>
+    internal static SceneProp Prop(string model, int entity, float x = 0f, float yaw = 0f, int? attachedTo = null) =>
         new(entity, model, ScenePropTrack.Classify(model), new ScenePose { X = x, Yaw = yaw, Scale = 1f }, attachedTo);
 
     /// <summary>Every bone float's bits, so a difference in the last place fails.</summary>
