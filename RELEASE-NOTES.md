@@ -1,4 +1,48 @@
-# Tf2DemoSalvage 0.1.0-beta.56
+# Tf2DemoSalvage 0.1.0-beta.57
+
+## Changes in 0.1.0-beta.57
+
+Gate for this release (every test executed, 0 failed): core 2737, cli 75, logging 37, fonts 5, animation 5378, scene 3424,
+audio 383, presentation 1330, content 1890, corpus 242, rendering 1340, viewer 159, UI suite 84 of 84 counted as 76 passed + 8 skipped + 0 failed; CI on the release commit: pending.
+Figures are on the `cp_process_f12` recording, one machine, first person unless it says otherwise; the file beside each
+figure holds it. Several changes below are parity fixes that cost frames, and are reported as costs.
+
+- **Scorch marks and other modulating decals are no longer darkened by the exposure (B635).** Close to an explosion on
+  `cp_process_f12` the floor around a scorch drew as dark, blocky, straight-edged squares: the HDR exposure was applied to
+  a decal that Valve draws with no exposure, so the scorch's neutral grey surround darkened the whole 166-unit square
+  whenever the exposure sat below one (docs/findings/18-decals.md, docs/measurements/2026-10-31-explosive-decals-vs-tf2.md).
+  At tick 30400 the fixed build differs from the old one in 210,577 of 542,184 pixels, and the difference image is the decal squares and nothing else (docs/measurements/2026-10-31-explosive-decals-vs-tf2.md).
+  **Not compared against real TF2 on screen:** a frame of TF2 at the same camera was not captured, because the roaming camera's pitch cannot be set from the console in demo playback (docs/measurements/2026-10-31-explosive-decals-vs-tf2.md).
+  Only frames that draw a 3D-sky or water view carried the exposure into the world, so a far camera drew the old and the new build identically (0 pixels) and a close one very differently (docs/measurements/2026-10-31-explosive-decals-vs-tf2.md; the cause is open, B636 under *Known gaps*).
+- **A Modulate material on world brushwork now multiplies instead of drawing opaque, and five shipped `$additive` Modulate
+  materials multiply as Valve's shader does (B635).** A Modulate brush drew its own texel opaque (176 over a 188 surface) and now multiplies (docs/findings/18-decals.md).
+  The five are `effects/red`, `effects/combine_binocoverlay`, `models/props_nucleus/mp_energy`, `models/vgui/filmscreen_dark` and `models/effects/comball_glow1`; they were drawn added and fogged to black
+  (docs/findings/18-decals.md). **`mp_energy` on `arena_nucleus` and `koth_nucleus` changes look and now gets no fog (B637)** (docs/RISKS.md, B637).
+  Held by synthetic render tests, not by a capture of those maps (docs/findings/18-decals.md).
+  **Not done:** a plain Modulate draws about twice too bright (B638), a modulating draw takes no fog (B637), a decal is not alpha-tested (docs/measurements/2026-10-31-explosive-decals-vs-tf2.md); see *Known gaps*.
+- **Gestures, reloads and transitions accumulate their own layered sequences, each with its own IK-lock bracket, as Valve's
+  `AccumulatePose` does (B624, B625, B626).** A gesture's or a fading transition's layered animation was never played; now it is (docs/RISKS.md, B624; plan: docs/measurements/2026-10-31-sequence-autolayers-plan.md).
+  Measured as pixels on f12, camera held: a soldier mid rocket-jump playing `ReloadStand_PRIMARY_loop` (tick 30000) changes in 19,894 of 542,184 pixels
+  (before, the launcher hangs from one hand; after, both arms hold it raised), and the voice gesture `gesture_primary_help` (tick 29900) in 4,088 pixels
+  (the left hand goes up to his head); a repeat of the same build differs in 0 (docs/RISKS.md, B624; the HUD band is excluded from both counts).
+  **Not compared against real TF2 on screen:** this is what Valve's structure produces, and whether it matches the game is the owner's call (docs/RISKS.md, B624).
+  **This costs frames:** roots total 0.488 to 0.530 ms per root rebuild, +0.042 (+9%), with 12.9 to 15.9 samples a rebuild; a parity cost, not a regression to chase (docs/measurements/2026-10-31-b624-cost.md).
+  Against the start of the day's work the roots total is still about 0.08 ms lower (0.608 to 0.530) (docs/measurements/2026-10-31-b624-cost.md).
+  **Not done:** the transition order (B633), local layers inside nested sequences (B634), autoplay IK rules in their own context (B631); see *Known gaps*.
+- **A failed IK lock solve still pins the foot (B622).** Valve slams the captured rotation onto the foot even when the solve fails; ours skipped it (docs/RISKS.md, B622).
+  No visible change was measured: no scene pixel moved in the two shots taken for B624 (docs/RISKS.md, B624).
+- **Face flex is cheaper.** `flex` per rebuild fell from 0.607 to 0.463 ms, the means of three runs against three (-0.144 ms, 24%); the ranges are 0.565-0.675 before and 0.424-0.537 after, apart (docs/measurements/2026-10-30-flex-for-cost-after.md).
+  Two of the six runs (one before, one after) were taken while the machine was slower, so adjacent pairs differ by 0.028 to 0.251 and the pairs are noisier than the means; the three earlier before runs read 0.527-0.546 (docs/measurements/2026-10-30-flex-for-cost-after.md, docs/measurements/2026-10-30-flex-for-cost.md).
+  The output is bit-identical in the byte test (195 frames, three models) and 0 pixels differ at a talking scout's face, with a deliberately changed build differing in 1,877 (docs/measurements/2026-10-30-flex-for-cost-after.md).
+  `camera` and the frame mean are not claimed: their ranges overlap (docs/measurements/2026-10-30-flex-for-cost-after.md).
+  **Not done:** about 9 ns for each vertex animation applied remains, and where it goes is not resolved (docs/measurements/2026-10-30-flex-for-cost-after.md).
+- **Bone setup decodes each pair of keyframes in one pass.** Base plus layer sampling fell from 0.360 to 0.274 ms per root rebuild in the second set of three runs (docs/measurements/2026-10-31-frame-pair-one-pass.md).
+  **The first set of three carried load noise** (0.360 to 0.318, roots total -0.020, inside the run spread of about 0.1 ms); the second spread only 0.012 ms across its runs, and the safe statement is sampling down by 0.06-0.09 ms per root rebuild (docs/measurements/2026-10-31-frame-pair-one-pass.md).
+  The pose is kept dense through accumulate: the roots total did not move measurably (0.495 before; 0.475 and 0.492 in two sets), base plus layer sampling is about 0.01 ms lower, and `adjust` fell from 0.0043 to 0.0020 ms (docs/measurements/2026-10-31-dense-pose.md).
+  The output is bit-identical in the differential tests: 711,568 + 102,516 real-model samples for the frame pair, 188,256 real grid blends and 504 real builds for the dense pose (docs/measurements/2026-10-31-frame-pair-one-pass.md, docs/measurements/2026-10-31-dense-pose.md).
+- **New viewer development control `TF2VIEW_MODEL_VERTS`.** `"3"` caps the vertices each model draw submits (0 skips the draw), keeping every bind and state change, to split a pass's GPU time into vertex work and per-draw cost; it changes the picture, and a cap that is not a multiple of 3 draws partial triangles, so use 3 or 0 (`tf2demoview --help`; docs/RISKS.md, B597).
+- **Measurement note: per-pass GPU figures depend on whether any part of the window is visible.** Clear, Sky3D and World GPU time are comparable only within one visibility state; the frame mean, render thread, `camera`, `advance` and `hud` do not move with it: 6.73 ms in one state against 6.69 ms in the other, ranges overlapping (docs/measurements/2026-10-30-gpu-state-selector.md).
+  Run per-pass GPU measurements with the window off screen (`TF2VIEW_WINDOW_POS=-3000,100`) (docs/measurements/2026-10-30-gpu-state-selector.md).
 
 ## Changes in 0.1.0-beta.56
 
@@ -932,6 +976,9 @@ writes no log file; send its console output.
 
 Each claim below is a measurement, not an expectation.
 
+- **Merge gate (beta.57):** all twelve assemblies passed (core 2737, cli 75, logging 37, fonts 5, animation 5378, scene 3424, audio 383, presentation 1330, content 1890, corpus 242, rendering 1340, viewer 159), with the UI suite at 84 of 84 counted as 76 passed, 8 skipped and 0 failed. CI on the release commit: pending.
+  The decal, gesture and flex changes are held by tests that read exact values and by the figures in *Changes in 0.1.0-beta.57*; the gesture and decal changes are not compared against real TF2 on screen.
+
 - **Merge gate (beta.56):** all twelve assemblies passed (core 2737, cli 75, logging 37, fonts 5, animation 5352, scene 3401, audio 383, presentation 1327, content 1861, corpus 242, rendering 1275, viewer 159), with the UI suite at 84 of 84 passed and 0 skipped. CI on the merge commit efd5d496 green with 2 annotations, both the notice that the runner label `ubuntu-latest` moves to Ubuntu 26 (no warnings, no errors; Test run 41055706448, CodeQL run 41055706449).
 
 - **Output unchanged by the speed changes (beta.53):** the ranged face upload gave the same pixels as the whole stream in four frames of one model and from four sides of the laughing soldier (docs/measurements/2026-10-26-b597-flex-range.md).
@@ -1067,6 +1114,18 @@ Each claim below is a measurement, not an expectation.
 ## Known gaps
 
 Things a user is likely to notice. Each has an entry in `docs/RISKS.md` in the repository.
+
+- **Decals and modulating materials (beta.57), all open:**
+  a scorch on `ctf_crasher`'s `func_brush` lightens the floor where TF2 darkens it (B639, observed in pictures, cause not isolated);
+  a plain Modulate draws about twice too bright in linear terms because ours lights it and Valve's is unlit (B638; the `$mod2x` case lands within about 4 levels of Valve's arithmetic, 90 against 94);
+  a Modulate or DecalModulate draw takes no fog, so every scorch and bullet hole in a fogged map, and `mp_energy` on `koth_nucleus` and `arena_nucleus`, stay at full strength (B637);
+  the world pass receives the exposure only on frames that draw a 3D-sky or water view, so the same decal can look different from two cameras, and it may reach other world lighting (B636, mechanism read from our code and not yet proved by a capture; the wider reach is interpolated);
+  a reflection or refraction view draws every translucent run, including sort groups it should leave out (B640).
+- **Animation (beta.57), open:** fading sequences are accumulated oldest first where Valve accumulates the newest first (B633, visible only with two or more transitions in flight, *interpolated*);
+  local layers run for the main sequence only (B634, latent on players);
+  and fourteen smaller divergences found by reading Valve's bone setup against ours, each in `docs/RISKS.md`: B614 (frame blend threshold), B615 (jiggle bones step on demo time), B616 (IK on a ragdoll, unverified), B617 (bone flex drivers not implemented), B618 (duck-jump shifts every bone, believed inert), B619 (a gesture's activity is translated on every build), B620 and B621 (frame pair and remapped-animation blend indices), B623 (a scaled model drops its lock brackets), B627 (knee direction not carried to the solve), B628 and B629 (bone-mask test and slerp at zero, unverified), B630 (lock solve clamps both weights) and B631 (autoplay IK rules share one error list).
+- **A viewer load can sit silent for about 168 s (B613)** with no log line and no progress, on `cp_process_f12` with `--measure`; it is not stuck, and what takes the time is not established (docs/RISKS.md, B613).
+- **A UI test is intermittent (B632):** `SpeedSlider_AtEachEnd_ReachesSpeedsTheButtonsCannot` failed once in the full UI suite and in 2 of 2 runs alone, and passed in the other full runs recorded; the cause is not found and the keyboard focus was in the viewer's own window each time (docs/RISKS.md, B632).
 
 - **`demo_retimeview` has costs, and its limits are not all explained (D238).** With it on, stalls (frames where the camera does not move between
   moving frames) rise: the stuttering demo 8 to 11, the modern match 6,912 to 9,936; the extra stalls on the modern match are unexplained (docs/measurements/2026-10-27-retime-view-by-server-tick.md).
