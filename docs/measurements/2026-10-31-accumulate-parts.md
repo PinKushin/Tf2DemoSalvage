@@ -176,9 +176,25 @@ Checked on every run before any part is believed:
    term). This is arithmetic, so it only catches a reader error.
 3. **`unsplit` is unchanged in kind**: ≥ 0 per line and ≤ 0.05 per run mean. The new parts are inside accumulate and must
    not move it.
-4. **The five are not all near zero while the remainder is about 0.067.** That would mean the wiring is broken, not that
-   the cost is elsewhere.
-5. **Enumerators ≥ samples per rebuild.** Every sample adds one, plus one per root that reaches the layer loop.
+4. **The four TIMED sub-parts (seed, capture, solve, compose) are not all near zero while the remainder is about 0.067.**
+   That would mean the wiring is broken, not that the cost is elsewhere. (Instrument audit, 2026-10-31: the earlier wording
+   counted `other` among "the five", but `other` is the residual and takes the whole remainder when every timer is dead, so
+   it could never be near zero; `enumerators` is a count and stays 15-30 with every timer dead. Only the four timed
+   sub-parts can serve as this control.)
+5. ~~Enumerators ≥ samples per rebuild.~~ **Not a control.** `_layerSamples++` and `_enumerators++` sit on adjacent lines in
+   the same iteration (`SkeletonPose.cs` ~1017, ~1020), so it holds by construction and cannot fail (audit, 2026-10-31).
+
+**Further audit limits (2026-10-31, Opus `instrument-auditor`; no wrong number found, the carrying holds):**
+
+- **`capture` and `solve` are means per rebuild with no count of lock brackets beside them**, and the base's bracket is merged
+  with every layer's. A high `solve` cannot be told apart from more locking layers, so prediction 3's "perhaps 5-10 locking
+  layers a rebuild" cannot be confirmed or falsified by this line alone. `compose` is covered (`over N` prints the sample
+  count).
+- **`other` is recomputed by the reader** (accumulate − sampling − seed − capture − solve − compose), never recorded. Control 1
+  (`other` ≥ 0) catches a span counted twice and nothing else: a sub-part timed around the wrong code still prints a plausible
+  `other`.
+- Holds: the five fields are reset before `Accumulate` and read straight into `LastBuild`; the stamps form one chain so the
+  sub-parts plus `other` equal accumulate minus sampling exactly; roots only; `enumerators` is an upper bound.
 
 ## Prediction (before the runs)
 
