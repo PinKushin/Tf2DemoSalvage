@@ -535,3 +535,54 @@ raise the parity, directly or through the player:
 So the only script that names a flash model belongs to a weapon whose parity never moves. The
 correct implementation is none, and the item leaves the list of gaps for the same reason `$modblend`
 did (`12-shader-parity.md`).
+
+## A sequence's IK lock ignores its own solver's verdict (2026-10-31, B622)
+
+`CIKContext::SolveLock` (`bone_setup.cpp:4402-4451`) calls `Studio_SolveIK` and **discards the
+return** (`:4431-4438`). It then reads the foot's position with `MatrixPosition`, puts the captured
+rotation on it with `QuaternionMatrix` (`:4441-4442`), and rebuilds all three bones with `SolveBone`
+(`:4446`, `:4449`, `:4450`), slerping the foot by `flLocalQWeight` (`:4447`). Read from published
+source.
+
+**This is not house style. The function beside it does the opposite.** `SolveDependencies` gates on
+the same call: `if (Studio_SolveIK(pchain, pChainResult->pos, boneToWorld ))` (`:4211`). The one
+ungated call in that function (`:4252`, "force angle (bad?)") sits inside `#if 0` (`:4236-4263`). So
+the engine had both behaviours available, and only the lock path ignores the verdict.
+
+**Why ignoring the verdict is safe there: a failed solve writes nothing.** Both overloads return
+before touching a matrix. The no-direction one returns at `:2735` when the leg is too straight
+(`l3 > (l1 + l2) * 0.9998`, `KNEEMAX_EPSILON`, "about 1 degree"). The seven-argument one writes only
+inside `if (ik.solve(...))`, and its `else` holds nothing but commented-out debug lines
+(`:2859-2867`). So on failure, the slam lands on the foot where the SEQUENCE left it, and the foot
+takes the captured orientation without being moved. Every TF2 lock has `flLocalQWeight` 0 (B310), so
+the captured orientation is kept.
+
+**What we believed first:** our `IkLocks.Solve` had `if (!SolveChain(...)) continue;`. That read the
+solver's `bool` as "nothing to do", the way `SolveDependencies` does. It looks like the natural
+reading, and it is the wrong one for this caller. Fixed by taking the return as a value and not as a
+gate. `Applied` still counts only solves that succeeded.
+
+**How often it fires (measured, f12):** rarely.
+
+- The `temp-b622` probe posed each player alone over 30 evenly spaced ticks: **3 failures in 1,034
+  lock solves**, all at tick 54871.
+- An instrumented viewer, in first person and seeking through the same 30 ticks, counted **3 failures
+  in 2,794**. Its control was the successes it also logged.
+- At tick 54871 the viewer path had **0 failures in 158**. The probe's single-entity pose does not
+  reproduce the viewer's pose there.
+- Bisection put one viewer-path failure at **tick 58301** (bone 26, one failure in 252 solves).
+
+**Whether anyone can see it (measured, f12):** not in any frame shot here. Each comparison took
+`--shot` frames from a base-commit build and a fixed build, with the same camera, and a repeat of
+the base for a noise floor:
+
+- **Tick 58301, first person, where the viewer path fails a lock:** 0 of 542,184 pixels differ.
+- **Tick 54871, three fixed cameras on the two players the probe flagged:** 0 pixels differ in the 3D
+  view. The 26,513 that differ sit in the HUD strip (rows 0-36), and they also differ between two
+  runs of the same build, so that is HUD noise.
+
+Why tick 58301 shows nothing is not settled. It may be that the failed lock's player is occluded or
+outside the view. It may be that the pose belongs to a non-drawn query (bones are also set up for
+the decal replay's hitbox traces). Or the captured and sequenced foot rotations may already agree.
+*Interpolated*, not measured. A synthetic chain shows the effect exactly:
+`IkLockConformanceTests.Solve_WithALegTooStraightToSolve_SlamsTheCapturedRotationWhereTheSequenceLeftTheFoot`.
