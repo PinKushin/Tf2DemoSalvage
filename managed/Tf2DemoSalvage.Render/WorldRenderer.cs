@@ -478,6 +478,8 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             //    colour. Zero is the common case and TF2's cosmetics use it.
             // z: the material's fog mode (B139) — 0 toward the fog colour, 1 toward black
             //    (additive), 2 no fog (modulating decals; see the C# side for the ceiling).
+            // w: the tone-map type (B635) — 1 TONEMAP_SCALE_NONE (Modulate, DecalModulate), 0 TONEMAP_SCALE_LINEAR.
+            //    Its own component so that giving a modulate decal Valve's grey fog cannot drop the exemption.
             //
             // **Appended rather than folded into an existing float4**, and every array feeding this
             // buffer had to grow with it. The comment on `SetMaterial`'s length check records what
@@ -878,16 +880,19 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
         // fog colour is taken at the same scale — interpolated from SetClearColorToFogColor (viewrender.cpp:759-766), which
         // scales the fog colour by the tone-map scale under HDR_TYPE_INTEGER; shaderapi's g_LinearFogColor is not read.
         //
-        // **Mode 2, a modulating material, takes TONEMAP_SCALE_NONE** (B635): `Modulate` and `DecalModulate` both end in
-        // `FinalOutput( …, TONEMAP_SCALE_NONE )` (modulate_ps2x.fxc:37, decalmodulate_ps2x.fxc:44), which leaves the colour
-        // alone (common_ps_fxc.h:356-358). Their output is a multiplier on the framebuffer, not light, so scaling it
-        // multiplied the floor under every scorch's neutral surround by the exposure: straight-edged dark squares.
-        float3 PixelFog(float3 lit, float3 wpos, float mode)
+        // **`toneMapScaleNone` (tintControl.w), not the fog mode, decides the scale** (B635): `Modulate` and `DecalModulate`
+        // both end in `FinalOutput( …, TONEMAP_SCALE_NONE )` (modulate_ps2x.fxc:37, decalmodulate_ps2x.fxc:44), which leaves
+        // the colour alone (common_ps_fxc.h:356-358). Their output is a multiplier on the framebuffer, not light, so scaling
+        // it multiplied the floor under every scorch's neutral surround by the exposure: straight-edged dark squares. It
+        // was keyed on fog mode 2 first; the two are apart so the fog ponytail on the C# side cannot move the scale.
+        float ToneMapScale(float toneMapScaleNone)
         {
-            if (mode < 1.5f)
-            {
-                lit *= debugModes2.y;
-            }
+            return toneMapScaleNone > 0.5f ? 1.0f : debugModes2.y;
+        }
+
+        float3 PixelFog(float3 lit, float3 wpos, float mode, float toneMapScaleNone)
+        {
+            lit *= ToneMapScale(toneMapScaleNone);
 
             if (fogColour.w > 0.5f && mode < 1.5f)
             {
@@ -1988,10 +1993,10 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
 
                 // "can't write a special value to dest alpha if we're actually using as-intended alpha"
                 // (lightmappedgeneric_dx9_helper.cpp:907-918): only a fully opaque draw writes the factor.
-                return float4(lerp(lit, under, waterFog) * debugModes2.y, heightFog.z > 0.5f ? waterFog : albedo.a);
+                return float4(lerp(lit, under, waterFog) * ToneMapScale(tintControl.w), heightFog.z > 0.5f ? waterFog : albedo.a);
             }
 
-            return float4(PixelFog(lit, input.wpos, tintControl.z), albedo.a);
+            return float4(PixelFog(lit, input.wpos, tintControl.z, tintControl.w), albedo.a);
         }
         """;
 
@@ -3364,17 +3369,19 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
                 _cloaks[index] = cloak;
             }
 
-            if (texture is { IsAdditive: true })
-            {
-                _additive.Add(index);
-            }
-            else if (texture is { IsModulate: true })
+            // **Modulate first** (B635): its blend comes from `$mod2x` alone (modulate_dx9.cpp:141-148; DecalModulate's is
+            // fixed, DecalModulate_dx9.cpp:78), so a Modulate material declaring `$additive 1` still multiplies.
+            if (texture is { IsModulate: true })
             {
                 // **Its own kind, not translucency.** A Modulate material declares neither
                 // $translucent nor $additive, so it fell through every test here and was drawn
                 // opaque — a shader whose entire job is to darken what is behind it, painting over
                 // it instead. It belongs in the blended pass with a blend state of its own.
                 _modulate[index] = texture.Value.IsModulateTwice;
+            }
+            else if (texture is { IsAdditive: true })
+            {
+                _additive.Add(index);
             }
             else if (texture is { IsTranslucent: true })
             {
@@ -3733,13 +3740,23 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             // shaderlib; every additive pass the SDK shows fogs to black (`FogToBlack`,
             // BaseVSShader.cpp:1305, the envmap pass added over a lightmapped surface) — and 2 none for a
             // modulating decal. ponytail: Valve fogs a modulate decal to middle grey
-            // (decalmodulate_dx9.cpp:80), which fades it; none leaves it at full strength in fog.
+            // (decalmodulate_dx9.cpp:80), which fades it; none leaves it at full strength in fog. Changing this mode does
+            // NOT change the tone map: that is `toneMapScaleNone` below, its own constant (B635).
+            //
+            // **Modulate before additive** (B635): `Modulate` picks its blend from `$mod2x` alone
+            // (modulate_dx9.cpp:141-148) and `DecalModulate`'s is fixed (DecalModulate_dx9.cpp:78), so `$additive` changes
+            // neither. Five shipped Modulate materials declare `$additive 1` (vmt-param $additive shader=Modulate).
             float fogMode = surface switch
             {
+                _ when Modulates(surface) => 2f,
                 { IsAdditive: true } => 1f,
-                { IsModulate: true } or { IsModulateTwice: true } => 2f,
                 _ => 0f,
             };
+
+            // **The tone-map type, kept apart from the fog mode** (B635): 1 for `TONEMAP_SCALE_NONE`, 0 for
+            // `TONEMAP_SCALE_LINEAR`. Both modulating shaders end in `FinalOutput( …, TONEMAP_SCALE_NONE )`
+            // (modulate_ps2x.fxc:37, decalmodulate_ps2x.fxc:44): their colour multiplies the framebuffer, it is not light.
+            float toneMapScaleNone = Modulates(surface) ? 1f : 0f;
 
             // **The two colours TF2's paint chain works on, kept apart from their product** (B330).
             // `$colortint_base` non-null is also what marks a material as tintable at all, so a
@@ -3862,8 +3879,9 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
                     // stays the length the shader's struct declares (B219).
                     1f, 1f, 1f, 0f,
 
-                    // tintControl: `$blendtintbybasealpha` and `$blendtintcoloroverbase` (B331).
-                    tintByBaseAlpha, tintOverBase, fogMode, 0f,
+                    // tintControl: `$blendtintbybasealpha` and `$blendtintcoloroverbase` (B331), the fog mode and the
+                    // tone-map type (B635).
+                    tintByBaseAlpha, tintOverBase, fogMode, toneMapScaleNone,
                 ]
                 :
                 [
@@ -3922,8 +3940,9 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
                     // stays the length the shader's struct declares (B219).
                     1f, 1f, 1f, 0f,
 
-                    // tintControl: `$blendtintbybasealpha` and `$blendtintcoloroverbase` (B331).
-                    tintByBaseAlpha, tintOverBase, fogMode, 0f,
+                    // tintControl: `$blendtintbybasealpha` and `$blendtintcoloroverbase` (B331), the fog mode and the
+                    // tone-map type (B635).
+                    tintByBaseAlpha, tintOverBase, fogMode, toneMapScaleNone,
                 ]);
         }
 
@@ -6288,6 +6307,11 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
     /// unsigned-normalised output can carry and is clamped; a bullet hole's atlas is dark.
     /// </remarks>
     public const float ModulateTwiceLight = 1.1486983f;
+
+    /// <summary>Whether a material is drawn by `Modulate` or `DecalModulate`, whose colour multiplies the framebuffer.</summary>
+    /// <param name="surface">The material's base texture and flags, or null.</param>
+    /// <returns>True for either modulating shader, whatever else the material declares (B635).</returns>
+    private static bool Modulates(MapTexture? surface) => surface is { IsModulate: true } or { IsModulateTwice: true };
 
     /// <summary>The world's placed decals, drawn after the overlays; rebuilt when the decal list changes.</summary>
     private IReadOnlyList<WorldBatch> _shotDecals = [];

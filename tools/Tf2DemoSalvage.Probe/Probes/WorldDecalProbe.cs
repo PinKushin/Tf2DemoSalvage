@@ -29,18 +29,35 @@ public sealed class WorldDecalProbe : IProbe
         ArgumentNullException.ThrowIfNull(output);
         ArgumentNullException.ThrowIfNull(arguments);
 
-        if (arguments.Count < 3 || DemoCorpus.Find(arguments[0], output) is not { } path)
+        if (arguments.Count < 3)
         {
-            output.WriteLine("Usage: world-decals <demo> <from> <to> [name substring] [height] [back] [yaw]");
+            output.WriteLine("Usage: " + Summary);
             return;
         }
 
-        int from = int.Parse(arguments[1], CultureInfo.InvariantCulture);
-        int to = int.Parse(arguments[2], CultureInfo.InvariantCulture);
         string filter = arguments.Count > 3 ? arguments[3] : string.Empty;
-        float height = arguments.Count > 4 ? float.Parse(arguments[4], CultureInfo.InvariantCulture) : 120f;
-        float back = arguments.Count > 5 ? float.Parse(arguments[5], CultureInfo.InvariantCulture) : 80f;
-        float yaw = arguments.Count > 6 ? float.Parse(arguments[6], CultureInfo.InvariantCulture) : 0f;
+
+        if (!int.TryParse(arguments[1], NumberStyles.Integer, CultureInfo.InvariantCulture, out int from) ||
+            !int.TryParse(arguments[2], NumberStyles.Integer, CultureInfo.InvariantCulture, out int to) ||
+            !TryFloat(arguments, 4, 120f, out float height) ||
+            !TryFloat(arguments, 5, 80f, out float back) ||
+            !TryFloat(arguments, 6, 0f, out float yaw))
+        {
+            output.WriteLine("from and to are ticks, height, back and yaw are numbers. Usage: " + Summary);
+            return;
+        }
+
+        if (from > to)
+        {
+            output.WriteLine($"from {from} is after to {to}. Usage: " + Summary);
+            return;
+        }
+
+        if (DemoCorpus.Find(arguments[0], output) is not { } path)
+        {
+            output.WriteLine("Usage: " + Summary);
+            return;
+        }
 
         DemoTimeline timeline = DemoTimeline.Build(File.ReadAllBytes(path));
         int shown = 0;
@@ -76,5 +93,16 @@ public sealed class WorldDecalProbe : IProbe
         }
 
         output.WriteLine($"{shown} shown");
+    }
+
+    private static bool TryFloat(IReadOnlyList<string> arguments, int index, float otherwise, out float value)
+    {
+        if (arguments.Count <= index)
+        {
+            value = otherwise;
+            return true;
+        }
+
+        return float.TryParse(arguments[index], NumberStyles.Float, CultureInfo.InvariantCulture, out value) && float.IsFinite(value);
     }
 }

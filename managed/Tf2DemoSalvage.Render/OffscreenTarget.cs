@@ -167,6 +167,10 @@ internal sealed unsafe class OffscreenTarget : IDisposable
     /// Draw the translucent world now; false leaves it for <see cref="DrawTranslucentWorld"/> after a model.
     /// </param>
     /// <param name="fog">The world fog in force, or null for none (B139).</param>
+    /// <param name="toneMapScale">
+    /// <c>LINEAR_LIGHT_SCALE</c> for this draw only, as <c>Device3D</c> sets it from the exposure under HDR_TYPE_INTEGER;
+    /// null keeps the world renderer's own. Restored after the draw, so it never leaks into the next one (B635).
+    /// </param>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <remarks>
     /// **The renderer's own shader, not a copy of it.** Everything this project invents rather than
@@ -191,46 +195,54 @@ internal sealed unsafe class OffscreenTarget : IDisposable
         bool drawWorld = true,
         DebugModes debug = default,
         bool translucent = true,
-        Tf2DemoSalvage.Core.Scene.SceneFog? fog = null)
+        Tf2DemoSalvage.Core.Scene.SceneFog? fog = null,
+        float? toneMapScale = null)
     {
         ArgumentNullException.ThrowIfNull(vertices);
         ArgumentNullException.ThrowIfNull(batches);
         ArgumentNullException.ThrowIfNull(matrix);
         ArgumentNullException.ThrowIfNull(assets);
 
-        _world ??= WorldRenderer.Create(_device, _loggers);
-        _world.DrawDetail = detail;
-        _world.DrawBumped = bumped;
-        _world.DrawWorld = drawWorld;
-        _world.Seconds = Seconds;
+        WorldRenderer world = _world ??= WorldRenderer.Create(_device, _loggers);
 
-        // **Textures first, because the shader clips on their alpha.** With none bound the sample
-        // returns zero and every fragment is discarded - which reads as "the geometry is wrong".
-        _world.UploadTextures(_device, _context, assets);
-        _uploaded = assets;
-        _world.UploadGeometry(_device, vertices, batches);
-        _world.Overlays = decals ?? [];
+        // The constant buffer takes the scale at SetCamera; restored after, so a later draw never inherits it.
+        float before = world.LinearLightScale;
 
-        if (WorldToneMapScale is { } scale)
+        world.LinearLightScale = toneMapScale ?? before;
+
+        try
         {
-            _world.LinearLightScale = scale;
+            world.DrawDetail = detail;
+            world.DrawBumped = bumped;
+            world.DrawWorld = drawWorld;
+            world.Seconds = Seconds;
+
+            // **Textures first, because the shader clips on their alpha.** With none bound the sample
+            // returns zero and every fragment is discarded - which reads as "the geometry is wrong".
+            world.UploadTextures(_device, _context, assets);
+            _uploaded = assets;
+            world.UploadGeometry(_device, vertices, batches);
+            world.Overlays = decals ?? [];
+            world.SetCamera(
+                _device, _context, matrix, surfaceColours, specular: true, fullbright,
+                debug, fog: fog);
+
+            Viewport viewport = new(0f, 0f, _width, _height, 0f, 1f);
+
+            _context.RSSetViewports(1, in viewport);
+            _context.ClearDepthStencilView(_depthView, (uint)ClearFlag.Depth, 1f, 0);
+            _context.OMSetRenderTargets(1u, _view.GetAddressOf(), _depthView);
+
+            world.Draw(_context);
+
+            if (translucent)
+            {
+                world.DrawTranslucentWorld(_context);
+            }
         }
-
-        _world.SetCamera(
-            _device, _context, matrix, surfaceColours, specular: true, fullbright,
-            debug, fog: fog);
-
-        Viewport viewport = new(0f, 0f, _width, _height, 0f, 1f);
-
-        _context.RSSetViewports(1, in viewport);
-        _context.ClearDepthStencilView(_depthView, (uint)ClearFlag.Depth, 1f, 0);
-        _context.OMSetRenderTargets(1u, _view.GetAddressOf(), _depthView);
-
-        _world.Draw(_context);
-
-        if (translucent)
+        finally
         {
-            _world.DrawTranslucentWorld(_context);
+            world.LinearLightScale = before;
         }
     }
 
@@ -272,12 +284,11 @@ internal sealed unsafe class OffscreenTarget : IDisposable
     /// <remarks>
     /// A plain value: this target is the test and debugging harness, and no production view draws through it
     /// (monitors render through <c>Device3D</c>). A caller that wants the main view's exposure passes it here.
+    /// **Not folded with the world's scale** (<see cref="DrawWorld"/>'s <c>toneMapScale</c>): this one persists for every
+    /// later sprite draw by design, and the world renderer's own is pushed and popped by its water views, so one setting
+    /// for both would change what the sprite and water tests draw.
     /// </remarks>
     internal float ToneMapScale { get; set; } = 1f;
-
-    /// <summary><c>LINEAR_LIGHT_SCALE</c> for the world <see cref="DrawWorld"/> draws, as <c>Device3D</c> sets it from the
-    /// exposure under HDR_TYPE_INTEGER; null leaves the world renderer's own (B635).</summary>
-    internal float? WorldToneMapScale { get; set; }
 
     /// <summary>The world renderer's own tone-map scale as it stands (water views push and pop it), one before any draw.</summary>
     internal float WorldLinearLightScale => _world?.LinearLightScale ?? 1f;
@@ -576,6 +587,7 @@ internal sealed unsafe class OffscreenTarget : IDisposable
     /// <param name="flex">Position and normal deltas per vertex, added before skinning, or null (B513).</param>
     /// <param name="flexRange">The slots of <paramref name="flex"/> to send, or null for all (B597).</param>
     /// <param name="sameModel">The previous call drew these same vertices: keep the model and its face buffer (B597).</param>
+    /// <param name="toneMapScale"><c>LINEAR_LIGHT_SCALE</c> for this draw only, restored after it; null keeps the renderer's own (B635).</param>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <remarks>
     /// **The model path is not the world path and the difference has hidden a defect.** Every
@@ -607,7 +619,8 @@ internal sealed unsafe class OffscreenTarget : IDisposable
         IReadOnlyList<float[]>? bones = null,
         float[]? flex = null,
         FlexSlots? flexRange = null,
-        bool sameModel = false)
+        bool sameModel = false,
+        float? toneMapScale = null)
     {
         ArgumentNullException.ThrowIfNull(vertices);
         ArgumentNullException.ThrowIfNull(batches);
@@ -664,6 +677,10 @@ internal sealed unsafe class OffscreenTarget : IDisposable
         // That is the same omission `Device3D.DrawViewmodels` had, and it is the reason the defect
         // could sit in the viewer with a full offscreen render suite in place: the harness reproduced
         // the bug rather than exposing it.
+        // The scale reaches the constant buffer at SetCamera, so it is set for that call alone and put back (B635).
+        float before = _world.LinearLightScale;
+
+        _world.LinearLightScale = toneMapScale ?? before;
         _world.SetCamera(
             _device, _context, camera, surfaceColours, specular, fullbright, debug, phong);
 
@@ -688,6 +705,8 @@ internal sealed unsafe class OffscreenTarget : IDisposable
             _context, Posed, model, _world.ModelBatches(Posed), light, sun, bones: bones?.Count ?? 0, bothSides: bothSides,
             origin: origin, locals: locals, overrideMaterial: overrideMaterial, bakedColours: bakedColours, cloak: cloak,
             flex: flex, flexRange: flexRange);
+
+        _world.LinearLightScale = before;
     }
 
     /// <summary>The B597 vertex cap <see cref="DrawModelPose"/> draws under; null, the default, draws whole.</summary>
