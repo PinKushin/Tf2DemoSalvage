@@ -51,7 +51,10 @@ Every claim carries one of these evidence tags:
   - JIT
 
   So 64 µs and 116 µs are upper bounds on the steady-state cost (see
-  `docs/memory/a-split-carries-its-first-use-builds.md`).
+  `docs/memory/a-split-carries-its-first-use-builds.md`). The inflation is small, though. **[arith]**
+  One 2.902 ms peak spread over the 100 rebuilds adds at most 0.029 ms to the roots' 0.666 ms mean.
+  The means are not dominated by first uses unless there were several such peaks.
+- **"Eligible" means players in practice. [interp]** Not checked per entity.
 - **The roots' time has almost no internal split. [arith]**
   - `anim 0.2` is `SkeletonPose.AnimationTicks`, which times only the base-sequence `_animation` call
     (`SkeletonPose.cs:381-387`). It covers every build: roots and children, 33.9 of them.
@@ -80,7 +83,7 @@ Every claim carries one of these evidence tags:
 
 | # | ours [src] | allocates / recomputes | Valve [src] |
 |---|---|---|---|
-| C1 | `_merge.UpdateCache(parent._pose)`: `ReferenceEquals` early-out (`BoneMergeCache.cs:86`) | nothing on a hit | `CBoneMergeCache::UpdateCache` compares four pointers (`ER §9`, bone_merge_cache.cpp:2414 in ER) |
+| C1 | `_merge.UpdateCache(parent._pose)`: `ReferenceEquals` early-out (`BoneMergeCache.cs:86`) | nothing on a hit | `CBoneMergeCache::UpdateCache` compares four pointers (`ER §9`) |
 | C2 | `parent.SetupBones(FollowBoneSetupMask)`, a cache hit after the parent's first build (`AnimatingEntity.cs:404`) | A1-A4 on the parent | `MergeMatchingBones` → `m_pFollow->SetupBones(NULL,-1,mask,curtime)` (`ER §9`, :130) |
 | C3 | `MergeMatchingBones` first calls **`SpreadOf`** (`BoneMergeCache.cs:242`) **unconditionally**. It loops over every pair and calls `_worn.FlagsOf(mine)` per pair. Only then does it test `IsEnabled(Debug)` (`:248`). | a whole loop over the pairs, purely for a diagnostic; `FlagsOf` is `_bones[bone].Flags` through `IReadOnlyList<StudioBone>`: an interface dispatch plus a struct copy | not present. Valve's copy loop is the only loop (`ER §9`) |
 | C4 | the copy loop: `FlagsOf(mine)` again per pair, then `CopyTo` (`:250-282`) | a second `FlagsOf` per pair | same loop and the same mask test (`ER §9`) |
@@ -95,7 +98,7 @@ A child does the same work as Valve. The only extra is C3 (a diagnostic loop) an
 |---|---|---|---|
 | R1 | **`BuildBlend`** (`Simulation.cs:619-663`), once a frame per entity, inside the root's timer: `AutoLayersFor` ×2, `+Transitions`, `LayersFor`, `AutoplayFor`, then `IkFor` for the main sequence and each layer | see R1a-R1d | the inputs of `StandardBlendingRules`, assembled inside `SetupBones` (`ER §3`, CA:1950-2018). Autolayers are reached by recursion in `AccumulatePose` (`ER §10`, bone_setup.cpp:2389-2455) |
 | R1a | `LayersFor` builds a **new `List<PoseLayer>` every build** (`Layers.cs:141`) | 1 List allocation | Valve walks the existing `m_AnimOverlay` (`ER §6`, c_baseanimatingoverlay.cpp:294) |
-| R1b | for each gesture, every build: `TranslateGesture` → `PlayerActivityTable.Translate(..., name => skinned.ForActivity(name) >= 0)` (`Layers.cs:351-358`), then `GestureSequence` → `SelectWeightedSequence` with a seed (`:346-348`). For a non-chest flinch, a second `SelectWeightedSequence` (`:314`) | **recomputed every build**; a closure allocation per call (`[interp]`: it captures `skinned`) | resolved **once**, when the gesture starts: `AddToGestureSlot` stores `m_nSequence` (`Layers.cs:340` cites `multiplayer_animstate.cpp:633`). The result is identical by construction: the roll is seeded on the gesture's start (D233) |
+| R1b | for each gesture, every build: `TranslateGesture` → `PlayerActivityTable.Translate(..., name => skinned.ForActivity(name) >= 0)` (`Layers.cs:351-358`), then `GestureSequence` → `SelectWeightedSequence` with a seed (`:346-348`). For a non-chest flinch, a second `SelectWeightedSequence` (`:314`) | **recomputed every build**, from the pose state of *this* frame (`Slot`, `ActivityOverride`, `ItemActivities`, `CompetitiveWinnerClass`); a closure allocation per call (`[interp]`: it captures `skinned`) | **translated and resolved once, at the restart**: `RestartGesture` → `TranslateActivity` (multiplayer_animstate.cpp:603), then `AddToGestureSlot` → `SelectWeightedSequence` (:633), stored on the layer. **Not identical**: see P6 |
 | R1c | `IkFor` → `skinned.BlendedAnimations(...)` returns a newly built collection for a plain sequence (`PropModels.cs:2058`, `[(chosen.Animation, 1f)]`) | 1 allocation per `IkFor` call; per player, 1 + layers | `Studio_SeqAnims` fills stack arrays |
 | R1d | `posed.Layers` is reused (B574); `ReusedIkErrors` is reused | none | |
 | R2 | `_animation(Sequence, ...)` = `SkinnedModel.LocalsInto` (`PropModels.cs:1901`): sequence lookup, grid `Locate` ×2, `ThreeWayInto`, then **for each of up to 3 corners, `PoseBetween`** (`:2173`) | see R2a-R2c | `AccumulatePose` → `CalcPoseSingle` (bone_setup.cpp:1919-2116, three-way blend under `anim_3wayblend`) → `CalcAnimation` per corner → `BlendBones` |
@@ -104,14 +107,14 @@ A child does the same work as Valve. The only extra is C3 (a diagnostic loop) an
 | R2c | the grid: up to 2 more `BlendInto` calls (`PropModels.cs:1977-1994`). Each **re-expands inputs that are already dense** (`ExpandInto` on a full list) before blending | 2 extra full-skeleton passes per grid blend | `BlendBones` takes dense `pos`/`q` arrays, with no expand step |
 | R3 | `Accumulate` (`SkeletonPose.cs:835`): if there are layers or locks, **fill `_layered` from the rest pose for every bone** (`:844-848`), overlay the base (`:860-868`), then for each layer with weight > 0, **`_animation(...)` again** (`:897`, untimed) = R2 for the layer's sequence, then a per-bone slerp or delta add | per layer, a full R2. `foreach` over `IReadOnlyList<PoseLayer>` (`:875`) and over `IReadOnlyList<StudioBonePose>` (`:900`) **box an enumerator per build per layer** | `InitPose` (bone_setup.cpp:1779) seeds every bone once. Per layer, `AccumulatePose` → `CalcPoseSingle` + `SlerpBones` (`ER §10`). The count of samples is the same; the seeding is the same |
 | R4 | `Adjust` (`:1109`), only when the model has controllers and the demo sent values: **a second fill from rest plus overlay** (`:1118-1130`). `foreach` over two interface lists (`:1124`, `:1134`) | a second densify pass; boxed enumerators | `CalcBoneAdj` works in place on the dense `pos`/`q` (bone_setup.cpp:2462, `ER §10`) |
-| R5 | `SpinBarrel` (`:1073`), minigun and grenade launcher only: **a new `List<StudioBonePose>`** plus a copy of the pose every build (`:1082`); `foreach` over the interface (`:1085`) | 1 List allocation per build | `CTFMinigun::StandardBlendingRules` writes `q[m_iBarrelBone]` in place (`tf_weapon_minigun.cpp:1068`, as cited at `SkeletonPose.cs:401`) |
+| R5 | `SpinBarrel` (`:1073`), minigun and grenade launcher only: **a new `List<StudioBonePose>`** plus a copy of the pose every build (`:1082`); `foreach` over the interface (`:1085`) | 1 List allocation per build | `CTFMinigun::StandardBlendingRules` (tf_weapon_minigun.cpp:1068-1091) and `CTFGrenadeLauncher::StandardBlendingRules` (tf_weapon_grenadelauncher.cpp:610-621) write `q[m_iBarrelBone]` in place. Both call `UpdateBarrelMovement` **inside the build** (minigun :1096-1119: `Approach` by a literal step, then `angle += velocity * frametime`). Ours advances the barrel in simulate (`EntityModels.Simulation.cs:327`, `MinigunBarrel`). **[interp]** These differ only for frames on which the weapon is simulated but not built |
 | R6 | `Array.Fill(_overrideOf, -1)` plus an index pass over the sparse pose (`:414-424`) | 1 full-skeleton pass | none (Valve's arrays are dense) |
 | R7 | the per-bone loop (`:435-581`): `IsMarked`, mask test, `FromQuaternion`, concatenate onto the parent or the placement | none; the bone is read by `ref` from `_boneArray` | `BuildTransformations` loop (`ER §4`, loop opens CA:1515): `QuaternionMatrix`, then `ConcatTransforms` |
 | R7a | for each bone, **`QuatInterp` and `Jiggle` each read `_bones[bone].Flags` through `IReadOnlyList<StudioBone>`** (`:1299`, `:1254`; `Jiggle` reads it only after its `JiggleSource` test passes) | **up to 2 struct copies per bone per build**. The loop already holds `ref readonly rest` (`:452`), so these copies are avoidable. The ~136-byte size is from the comment at `:437-443`, not re-measured | Valve reads `hdr->boneFlags(i)` (a pointer read) |
 | R7b | a procedural bone is concatenated first, then **overwritten** by `QuatInterp` (`:570`) | 1 wasted concatenate per QUATINTERP bone | `CalcProceduralBone` runs **before** the concatenate and `continue`s (`ER §4`, CA:1527) |
 | R7c | `Jiggle` calls **`StudioJiggleBones.Read(model, bone)` every build** (`:1261`), re-parsing the bone's procedure block from the bytes. It returns a struct, so nothing is allocated | per jiggle bone per build | `pbones[i].pProcedure()` is a pointer add (CA:1578) |
 | R8 | `ReachWithIk` (`:627`): `IkContext.Solve`, then a re-concatenate pass from the lowest chain bone (`:662-680`). That pass uses `foreach` over `IkChains` and `Links` (`:651`, `:653`, boxed). `IsChainBone` is indexed | | `UpdateIKLocks`, `UpdateTargets`, `CalculateIKLocks`, `SolveDependencies` **before** `BuildTransformations` (`ER §2`, CA:2989-3000). Valve has no rebuild pass. **Done differently**, the documented choice at `SkeletonPose.cs:621-625` |
-| R9 | duck-jump: `DuckJumpOffset != 0` shifts **every** bone (`:592-600`) | | `C_TFPlayer::BuildTransformations` shifts only bones in `boneMask` (c_tf_player.cpp:8797-8806) |
+| R9 | duck-jump: `DuckJumpOffset != 0` shifts **every** bone (`:592-600`). The 0.15 s ramp is carried by `DuckJump.Update`, which is called in **simulate** (`EntityModels.Simulation.cs:406`) | | `C_TFPlayer::BuildTransformations` shifts only bones in `boneMask` (c_tf_player.cpp:8797-8806). Its ramp state machine (:8771-8792) advances on **each build**, on `curtime`. **[interp]** The same place-of-advance difference as R5 |
 | R10 | `PlayerBoneScales.Head/Torso/Hands` (`:606-608`) | `scale == 1` returns at once (`PlayerBoneScales.cs:218`); otherwise a linear name search, and `Descendants` allocates a `List` and a `HashSet` | same early-out (c_tf_player.cpp:8484, 8650, 8717); `LookupBone` per call; `CUtlVector` per call. Equal |
 | R11 | (attachments are not in this timer) | | `SetupBones_AttachmentHelper` is inside `SetupBones` when attachment bits are first wanted (`ER §5`, CA:2055) |
 | R12 | (ragdoll) `Ragdoll` hook before the merge (`AnimatingEntity.cs:371-383`) | | CA:1473-1491, same order |
@@ -125,10 +128,25 @@ A child does the same work as Valve. The only extra is C3 (a diagnostic loop) an
 - `C_TFPlayer::BuildTransformations` (c_tf_player.cpp:8760-8821): duck-jump, then
   head/torso/hand scales, then the meathook.
 - `C_TFPlayer::ApplyBoneMatrixTransform` (c_tf_player.cpp:8473-8476) only forwards to the base class.
+- `BuildFirstPersonMeathookTransformations` (:8820) is already ruled inapplicable, for the engine's
+  own reason, in `docs/RISKS.md` (the table at about line 24123). It is not re-filed here.
 - `C_BasePlayer` declares no bone-setup override (header read; c_baseplayer.h:172 is
   `GetRagdollInitBoneArrays` only).
-- Not read: `C_TFWearable` and the weapon classes' bone overrides. The minigun is cited from our own
-  code comment, not re-read.
+- **Wearables and weapons.** The `virtual` declarations were filtered for
+  bone/blend/transform/attach/layer in these headers:
+  - `econ_entity.h`, `econ_wearable.h`
+  - `tf_item_wearable.h`, `tf_wearable_weapons.h`
+  - `tf_weaponbase.h`, `basecombatweapon_shared.h`
+  - `tf_weapon_minigun.h`, `tf_weapon_grenadelauncher.h`
+
+  Results:
+  - **No TF wearable overrides `SetupBones`, `StandardBlendingRules` or `BuildTransformations`.**
+  - The blend overrides are the minigun and grenade launcher (R5, read directly).
+  - `C_ViewmodelAttachmentModel::StandardBlendingRules` (econ_entity.cpp:890-900) is the base class
+    plus `m_hOuter->ViewModelAttachmentBlending`. That call is an empty default on `CEconEntity`
+    (econ_entity.h:125) and is overridden by the minigun and grenade launcher (B348 left those
+    paths filed).
+  - `C_TFViewModel` was not found at `client/tf/c_tf_viewmodel.h` and was not read.
 
 ## 3. Where we differ from Valve
 
@@ -139,7 +157,7 @@ A child does the same work as Valve. The only extra is C3 (a diagnostic loop) an
 | M1 | R2a | every frame-pair sample walks the chain and the RLE twice, and converts Euler angles twice even when both keys are equal. Raw and un-animated channels are read twice and blended with themselves | [src] both sides |
 | M2 | R2b, R2c | expand-then-blend over the full skeleton, plus re-expansion of inputs that are already dense in every grid blend | [src] |
 | M3 | R4, R6 | a second densify in `Adjust`; a fill and index pass for `_overrideOf` | [src] |
-| M4 | R1b | gesture activity translation and the weighted roll are recomputed on every build. Valve resolves them once per gesture | [src]; same result by D233's seeding |
+| M4 | R1b | gesture activity translation and the weighted roll are recomputed on every build. Valve resolves them once per gesture, at restart. The result is **not** always the same: see P6 | [src] |
 | M5 | R1a, R1c, R5, R1b | a `List` allocation per build in each of these places: `LayersFor`, `BlendedAnimations` per `IkFor`, `SpinBarrel`, and the `Translate` closure | [src] |
 | M6 | R3, R4, R5, R8 | `foreach` over `IReadOnlyList` boxes an enumerator per build per loop. The file's own `IsChainBone` comment measured this pattern at 14 MB/s on f12 | [src]; the cost is [interp] |
 | M7 | R7a, R2a, C3/C4 | struct copies through `IReadOnlyList<StudioBone>` on per-bone paths | [src] |
@@ -151,7 +169,8 @@ A child does the same work as Valve. The only extra is C3 (a diagnostic loop) an
 
 These are proposed, to be numbered after B613; the lead assigns the numbers. **None is filed in
 `docs/RISKS.md` by this document.** Already-kept divergences are not re-filed: D131 (transitions
-built in simulate) and B584 (a gesture's variant re-rolled on restart).
+built in simulate), and the re-roll of a gesture's variant on a same-activity restart, which the
+comment at `EntityModels.Layers.cs:340-345` names.
 
 - **P1. Frame-blend threshold. [src] both sides.**
   - Valve blends two keyframes only when `s > 0.001f`, for rotation (bone_setup.cpp:408) and for
@@ -195,7 +214,17 @@ built in simulate) and B584 (a gesture's variant re-rolled on restart).
   `boneMask`. With our `UsedByAnything` mask this differs only for bones with no use flags. Those
   slots are not written by the build, so the shift lands on stale data nobody draws.
   - **[interp]:** inert, but it is a different shape.
-- **P6 (note, not a candidate): the draw-time mask.**
+- **P6. A gesture is translated on every build, not at its start. [src] both sides.**
+  - Valve translates the activity once, in `RestartGesture` (multiplayer_animstate.cpp:603), using
+    the weapon and state of that moment. It rolls the sequence once in `AddToGestureSlot` (:633) and
+    keeps it on the layer.
+  - Ours re-translates on every build from the current pose (`EntityModels.Layers.cs:279`, `:351-358`).
+    The seed in `GestureSequence` includes the translated activity, so the roll is redone too.
+  - **Observable difference [interp]:** a weapon switch, loser-state change or item-override change
+    while a gesture plays changes its sequence on our side, mid-gesture. Valve's does not change.
+  - The fix must translate with the state **at `StartedSeconds`**. Caching the first build's answer
+    would be wrong for a gesture that comes into view after it started.
+- **P7 (note, not a candidate): the draw-time mask.**
   - Ours always asks for `UsedByAnything` (`EntityModels.Instances.cs:427-434`).
   - The engine's draw call into `SetupBones` (engine `modelrender`) is not in the SDK. Whether it asks
     for `BONE_USED_BY_VERTEX_AT_LOD(lod)` cannot be settled from published source; it needs the
@@ -223,10 +252,11 @@ stated in each item, and follow-up 1 is what would replace these predictions wit
    - **Prediction:** 0.03-0.08 ms per rebuild. These are full-skeleton passes: about 6-10 of them per
      player build at about 78 bones, which are struct writes of a 32-byte `StudioBonePose`.
      **[interp]**
-3. **Resolve a gesture once, at its start (fixes M4).** Cache the translated activity and the rolled
-   sequence on the gesture (or in a per-entity cache keyed by `(activity, StartedSeconds)`), as
-   `AddToGestureSlot` stores `m_nSequence`. The result is identical because the roll is already
-   seeded on the start (D233).
+3. **Resolve a gesture once, at its start (fixes M4, and is the fix for P6).** Translate with the
+   pose state at `StartedSeconds`, roll once, and keep the result per gesture, as `AddToGestureSlot`
+   stores `m_nSequence`.
+   - This moves us *toward* Valve rather than leaving the result unchanged, so it goes through P6's
+     parity review, not this list alone.
    - **Prediction:** 0.01-0.04 ms, only on frames where players hold gestures. **[interp]**
 4. **Remove per-build allocations and boxing (fixes M5, M6).** Reuse the `LayersFor` list. Write
    `SpinBarrel` into a reused array. Return a span or reused buffer from `BlendedAnimations` in
@@ -263,5 +293,8 @@ Not listed, because they would depart from Valve:
 
    Then take one `--measure` run. Exclude first uses (time the miss paths separately) so the peak
    does not inflate the means.
-2. P1 and P2 go to the lead for numbering as RISKS entries. P3 needs the corpse probe first. P4 needs
-   a content check first.
+2. P1, P2 and P6 go to the lead for numbering as RISKS entries. P3 needs the corpse probe first. P4
+   needs a content check first.
+3. **[interp], to check:** whether the barrel (R5) and duck-jump ramp (R9) being advanced in simulate
+   rather than in the build ever differs. It can only differ on a frame where the entity is simulated
+   but not built.
