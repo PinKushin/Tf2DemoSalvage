@@ -241,7 +241,8 @@ public sealed partial class EntityModelSet
     ///
     /// **Not ported: `AddLocalLayers` for a sequence other than the main one** (`:2439`). The local pass composes into the
     /// sequence's own `pos2` before `SlerpBones` blends it at `flWeight`, which a flat list reproduces only at weight one
-    /// — the main sequence's case. `STUDIO_LOCAL` is set only on viewmodel arms (B294, and the B624 plan's census).
+    /// — the main sequence's case. `STUDIO_LOCAL` is on 48 shipped sequences; the census printed two, both viewmodel arms,
+    /// and the other 46 are not listed (B634).
     /// </remarks>
     private static void AccumulatePose(
         PropModels.SkinnedModel skinned,

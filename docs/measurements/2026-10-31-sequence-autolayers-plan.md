@@ -92,9 +92,9 @@ later layers sit inside a layer's bracket.**
   BEFORE `SlerpBones` at `flWeight`; a flat list composes onto the accumulator, which is exact only at weight 1 with
   unit bone weights. That is why it is right for the main sequence (weight 1.0, `c_baseanimating.cpp:1986`) and why
   B294 already names it. Reproducing it needs a second accumulation buffer per nesting level. Who could reach it:
-  `STUDIO_LOCAL` is set on 48 of 26,706 sequences in `tf2_misc_dir.vpk`, examples all `c_*_animations` viewmodel arms
-  **[meas: `sequence-flags`, this branch]**; a player never plays one. A viewmodel cross-fading OUT of a local sequence
-  would. Filed as a sibling, not fixed here.
+  `STUDIO_LOCAL` is set on 48 of 26,706 sequences in `tf2_misc_dir.vpk` **[meas: `sequence-flags`, this branch]**; the
+  census printed two, both `c_medic_animations` viewmodel arms, and the other 46 are not listed, so "no player plays one"
+  is **[interp]**. A viewmodel cross-fading OUT of a local sequence would. Filed as B634, not fixed here.
 - **`auto_ik` for autoplay rules** (B631) and the IK-rule weight of a weight-0 sequence: `AddDependencies` still runs at
   weight 0 (`:3253-3267`, no weight test), and ours adds nothing at zero influence
   (`IkRuleDependencyTests.IkFor_BeforeTheEnvelopeOrAtZeroInfluence_AddsNothing`). Rules are not locks; unchanged here.

@@ -327,7 +327,8 @@ every accumulation.
 **What it cost, measured** on f12, 300 ticks, one model set over the range [measured, `pose-layers` probe]:
 1,396 layers whose sequence declares autolayers, and none of those autolayers drawn. The reload gestures carry
 an arms layer (`ReloadStand_PRIMARY_loop` → `layer_reload_standing_arms_loop`, window all zeros, so always at
-full weight); a fading `run_PRIMARY` or `crouch_walk_PRIMARY` carries its aim matrices. On screen, a soldier
+full weight); a fading `run_PRIMARY` or `crouch_walk_PRIMARY` declares autolayers too (that they are its aim
+matrices is the bracket read's scout census for `run_PRIMARY`, and *interpolated* for the crouch walk). On screen, a soldier
 reloading mid-rocket-jump held his launcher hanging straight down from one hand where Valve's structure has
 both arms raising it — 19,894 pixels of the shot [measured, same camera, base against fix; a repeat of the
 fix differs by 0]. Whether that matches the game was left to the owner's eye, not asserted.

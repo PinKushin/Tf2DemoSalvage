@@ -40267,9 +40267,10 @@ deliberately left out of that change (`docs/measurements/2026-10-31-sequence-aut
 - **Why it is not a flat-list change:** at a weight below one, composing the local layer onto `pos2` and then slerping
   differs from slerping both onto `pos` (*arithmetic*, rotations; positions agree for a delta local layer). Doing it
   faithfully needs a second accumulation buffer per nesting level in `SkeletonPose`.
-- **Who could see it:** `STUDIO_LOCAL` is on 48 of 26,706 sequences in `tf2_misc_dir.vpk`, the examples all `c_*_animations`
-  viewmodel arms (*measured*: `sequence-flags`, 2026-10-31). A player never plays one. A viewmodel cross-fading OUT of a
-  local sequence (`throw_idle` → `throw_fire`, say) would (*interpolated*, not observed).
+- **Who could see it:** `STUDIO_LOCAL` is on 48 of 26,706 sequences in `tf2_misc_dir.vpk` (*measured*: `sequence-flags`,
+  2026-10-31). The census prints two examples, both `c_medic_animations` viewmodel arms; **the other 46 are not listed**,
+  so "only viewmodels carry it, and no player plays one" is *interpolated*. A viewmodel cross-fading OUT of a local
+  sequence would reach it (*interpolated*, not observed). Listing the 48 is the first step.
 - **What would settle it:** a `transitions`-style walk over a POV demo counting fading viewmodel sequences that carry
   `STUDIO_LOCAL` with local autolayers. Control: the same walk must count the viewmodel's ordinary transitions.
 
@@ -40450,8 +40451,8 @@ where they were missing.** Plan, with Valve's structure and ours at file:line:
   `crouch_walk_PRIMARY` (238) and the reload gestures. Control: the main sequences' own autolayers were present before.
 - **What the owner can see, *measured* as pixels:** f12 tick 30000, entity 7, a soldier mid rocket-jump playing
   `ReloadStand_PRIMARY_loop`, whose autolayer `layer_reload_standing_arms_loop` was missing. Same camera, base `9a43ea9e`
-  against the fix: 19,894 of 542,184 pixels differ, all on his upper body and a patch of ceiling above him (box x 314-540,
-  y 67-334); the fix against a repeat of itself: 0. Before, the launcher hangs straight down from one hand; after, both
+  against the fix: 19,894 of 542,184 pixels differ, on his upper body, head and arms, plus a patch of ceiling above him
+  whose cause was not checked (box x 314-540, y 67-334); the fix against a repeat of itself: 0. Before, the launcher hangs straight down from one hand; after, both
   arms hold it raised. **Whether that matches TF2 is the owner's call** — it is what Valve's structure produces, not a
   comparison against the game. Shots in `D:/measure-f12/b624/`.
 - **Not established:** `AddLocalLayers` for a sequence other than the main one (B634); the transition order (B633);
