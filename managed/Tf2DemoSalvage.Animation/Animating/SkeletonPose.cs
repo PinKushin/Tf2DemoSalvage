@@ -395,6 +395,10 @@ public sealed class SkeletonPose : IBonePose
 
         _layerSampling = 0;
         _layerSamples = 0;
+        _seed = 0;
+        _locks = 0;
+        _compose = 0;
+        _enumerators = 0;
 
         // **The layers, over the base pose and in order** (B282). `StandardBlendingRules` runs
         // `AccumulateLayers` straight after the main sequence, and each layer accumulates onto the
@@ -646,7 +650,11 @@ public sealed class SkeletonPose : IBonePose
             Adjust: loopAt - adjustAt,
             Loop: ikAt - loopAt,
             Ik: finishAt - ikAt,
-            Finish: System.Diagnostics.Stopwatch.GetTimestamp() - finishAt);
+            Finish: System.Diagnostics.Stopwatch.GetTimestamp() - finishAt,
+            Seed: _seed,
+            Locks: _locks,
+            Compose: _compose,
+            Enumerators: _enumerators);
     }
 
     /// <summary>The layers' own samples in the build under way, carried into <see cref="LastBuild"/>.</summary>
@@ -654,6 +662,18 @@ public sealed class SkeletonPose : IBonePose
 
     /// <summary>How many layer samples <see cref="_layerSampling"/> timed.</summary>
     private long _layerSamples;
+
+    /// <summary>Of the build under way's accumulate: the rest seed and the base's copy or overlay.</summary>
+    private long _seed;
+
+    /// <summary>Of the build under way's accumulate: every IK-lock capture and solve.</summary>
+    private long _locks;
+
+    /// <summary>Of the build under way's accumulate: each layer's per-bone pass after its sample.</summary>
+    private long _compose;
+
+    /// <summary>How many interface enumerators <c>Accumulate</c>'s loops took in the build under way.</summary>
+    private long _enumerators;
 
     /// <summary>Pulls each chain's end to where its rules ask — <c>CIKContext::SolveDependencies</c>.</summary>
     /// <remarks>
@@ -889,6 +909,11 @@ public sealed class SkeletonPose : IBonePose
         StudioBonePose[] result = _layered;
         bool locked = Locks.Count > 0 && IkChains.Count > 0;
 
+        // **The accumulate split** (docs/measurements/2026-10-31-accumulate-parts.md): seed, locks and compose, each the
+        // gap between two stamps of one chain, so no tick lands in two of them. Each lock bracket starts at the stamp that
+        // ended the step before it and its end stamp starts the next, so a pose without locks pays no extra read for them.
+        long seedingAt = System.Diagnostics.Stopwatch.GetTimestamp();
+
         // **A dense base is copied, not re-expanded** (docs/measurements/2026-10-31-setup-bones-read.md §5). Valve's
         // `pos`/`q` are seeded once by `InitPose` and the main sequence lands in them (`bone_setup.cpp:1782`, `:2393`);
         // a base that already names every bone in order overwrites a whole seed, so seeding it first was work that
@@ -912,7 +937,13 @@ public sealed class SkeletonPose : IBonePose
         // frame left it. That is why the seed above stays whenever a lock will read it.
         if (locked)
         {
+            long capturingAt = System.Diagnostics.Stopwatch.GetTimestamp();
+            _seed += capturingAt - seedingAt;
+
             Held().Capture(Locks, IkChains, result);
+
+            seedingAt = System.Diagnostics.Stopwatch.GetTimestamp();
+            _locks += seedingAt - capturingAt;
         }
 
         if (!dense.IsEmpty)
@@ -932,10 +963,18 @@ public sealed class SkeletonPose : IBonePose
             }
         }
 
+        long seededAt = System.Diagnostics.Stopwatch.GetTimestamp();
+        _seed += seededAt - seedingAt;
+
         if (locked)
         {
             Held().Solve(Locks, IkChains, result);
+
+            _locks += System.Diagnostics.Stopwatch.GetTimestamp() - seededAt;
         }
+
+        // Counted, not timed (the setup-bones read's M6): `Layers` is an interface, so this takes an enumerator from it.
+        _enumerators++;
 
         foreach (PoseLayer layer in Layers)
         {
@@ -954,18 +993,26 @@ public sealed class SkeletonPose : IBonePose
             // not the bind pose — which is what the engine's `pos`/`q` hold at that point.
             bool holds = layer.Locks is { Count: > 0 } && IkChains.Count > 0;
 
+            long sampledAt = System.Diagnostics.Stopwatch.GetTimestamp();
+
             if (holds)
             {
                 Held().Capture(layer.Locks!, IkChains, result);
-            }
 
-            long sampledAt = System.Diagnostics.Stopwatch.GetTimestamp();
+                long capturedAt = System.Diagnostics.Stopwatch.GetTimestamp();
+                _locks += capturedAt - sampledAt;
+                sampledAt = capturedAt;
+            }
 
             IReadOnlyList<StudioBonePose> sampled =
                 _animation(layer.Sequence, layer.Frame, layer.FrameFraction, PoseValues);
 
-            _layerSampling += System.Diagnostics.Stopwatch.GetTimestamp() - sampledAt;
+            long composingAt = System.Diagnostics.Stopwatch.GetTimestamp();
+            _layerSampling += composingAt - sampledAt;
             _layerSamples++;
+
+            // `sampled` is an interface too: one more enumerator, inside the compose span.
+            _enumerators++;
 
             foreach (StudioBonePose over in sampled)
             {
@@ -1053,11 +1100,16 @@ public sealed class SkeletonPose : IBonePose
                         : StudioBones.Slerp(under.Rotation, over.Rotation, s2));
             }
 
+            long composedAt = System.Diagnostics.Stopwatch.GetTimestamp();
+            _compose += composedAt - composingAt;
+
             // `if (seqdesc.numiklocks) seq_ik.SolveSequenceLocks( seqdesc, pos, q );` — the closing
             // half, after the layer has been composed and before the next one begins.
             if (holds)
             {
                 Held().Solve(layer.Locks!, IkChains, result);
+
+                _locks += System.Diagnostics.Stopwatch.GetTimestamp() - composedAt;
             }
         }
 

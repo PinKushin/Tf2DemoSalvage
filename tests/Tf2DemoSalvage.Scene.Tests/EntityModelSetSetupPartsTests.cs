@@ -69,9 +69,11 @@ public sealed class EntityModelSetSetupPartsTests
         }
 
         RootSetupParts first = new(Blend: 1_000_003, Base: 2_000_029, Accumulate: 3_000_017, Sampling: 1_500_007, Samples: 11,
-            Adjust: 4_000_037, Loop: 5_000_011, Ik: 6_000_001, Finish: 7_000_003);
+            Adjust: 4_000_037, Loop: 5_000_011, Ik: 6_000_001, Finish: 7_000_003,
+            Seed: 300_007, Locks: 400_009, Compose: 500_029, Enumerators: 17);
         RootSetupParts second = new(Blend: 8_000_009, Base: 9_000_011, Accumulate: 10_000_019, Sampling: 9_500_021, Samples: 13,
-            Adjust: 11_000_027, Loop: 12_000_007, Ik: 13_000_027, Finish: 14_000_029);
+            Adjust: 11_000_027, Loop: 12_000_007, Ik: 13_000_027, Finish: 14_000_029,
+            Seed: 100_003, Locks: 200_003, Compose: 150_001, Enumerators: 19);
 
         injected = first;
         calls = 0;
@@ -81,6 +83,7 @@ public sealed class EntityModelSetSetupPartsTests
         firstCalls.ShouldBeGreaterThan(0, "the control: the wrapper ran inside the interval");
         one.ShouldBe(oneMeter, "the first interval carries the meter's delta");
         one.Samples.ShouldBe(firstCalls * first.Samples, "exactly the samples put in");
+        one.Enumerators.ShouldBe(firstCalls * first.Enumerators, "exactly the enumerators put in");
         AtLeast(one, firstCalls, first);
 
         injected = second;
@@ -91,6 +94,7 @@ public sealed class EntityModelSetSetupPartsTests
         secondCalls.ShouldBeGreaterThan(0, "the control: the wrapper ran inside the interval");
         two.ShouldBe(twoMeter, "the second interval carries only its own delta, not the running total");
         two.Samples.ShouldBe(secondCalls * second.Samples, "exactly this interval's samples, none of the first's");
+        two.Enumerators.ShouldBe(secondCalls * second.Enumerators, "exactly this interval's enumerators, none of the first's");
         AtLeast(two, secondCalls, second);
     }
 
@@ -117,6 +121,9 @@ public sealed class EntityModelSetSetupPartsTests
         charged.Loop.ShouldBeGreaterThanOrEqualTo(calls * injected.Loop);
         charged.Ik.ShouldBeGreaterThanOrEqualTo(calls * injected.Ik);
         charged.Finish.ShouldBeGreaterThanOrEqualTo(calls * injected.Finish);
+        charged.Seed.ShouldBeGreaterThanOrEqualTo(calls * injected.Seed);
+        charged.Locks.ShouldBeGreaterThanOrEqualTo(calls * injected.Locks);
+        charged.Compose.ShouldBeGreaterThanOrEqualTo(calls * injected.Compose);
     }
 
     private static BoneSetupMeter Meter(EntityModelSet models)

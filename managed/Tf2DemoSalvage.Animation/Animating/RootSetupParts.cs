@@ -19,6 +19,16 @@ namespace Tf2DemoSalvage.Animation.Animating;
 /// <param name="Loop">The per-bone loop: concatenate, quaternion-interpolated and jiggle bones.</param>
 /// <param name="Ik"><c>ReachWithIk</c>: the solve and the re-concatenate pass.</param>
 /// <param name="Finish">The duck-jump shift and the three player bone scales.</param>
+/// <param name="Seed">Of <paramref name="Accumulate"/>: the rest seed, if any, and the base's copy or overlay into the workspace.</param>
+/// <param name="Locks">Of <paramref name="Accumulate"/>: every IK-lock capture and solve, the base's and each layer's.</param>
+/// <param name="Compose">
+/// Of <paramref name="Accumulate"/>: each layer's per-bone pass after its sample — the enumerator, the bone and weight
+/// guards, and the slerp or delta add. Interleaved per bone, so not split further.
+/// </param>
+/// <param name="Enumerators">
+/// A count, not ticks: the interface enumerators <c>Accumulate</c>'s <c>foreach</c> loops took (the setup-bones read's
+/// M6). Each non-empty one is a heap object; an empty array's is a shared one.
+/// </param>
 public readonly record struct RootSetupParts(
     long Blend = 0,
     long Base = 0,
@@ -28,10 +38,20 @@ public readonly record struct RootSetupParts(
     long Adjust = 0,
     long Loop = 0,
     long Ik = 0,
-    long Finish = 0)
+    long Finish = 0,
+    long Seed = 0,
+    long Locks = 0,
+    long Compose = 0,
+    long Enumerators = 0)
 {
-    /// <summary>The disjoint parts summed: everything but <see cref="Sampling"/>, which is inside <see cref="Accumulate"/>.</summary>
+    /// <summary>The disjoint parts summed: everything but the sub-parts of <see cref="Accumulate"/>, which are inside it.</summary>
     public long Sum => Blend + Base + Accumulate + Adjust + Loop + Ik + Finish;
+
+    /// <summary>
+    /// What <see cref="Accumulate"/> spent outside its sub-parts: the statics <c>Build</c> adds before the call, the guard,
+    /// the layer loop's own step and weight test, and the timers. The reader's residual, never a recorded number.
+    /// </summary>
+    public long AccumulateOther => Accumulate - Sampling - Seed - Locks - Compose;
 
     /// <summary>What happened between an earlier snapshot and this one.</summary>
     /// <param name="before">The earlier snapshot.</param>
@@ -46,7 +66,11 @@ public readonly record struct RootSetupParts(
             Adjust - before.Adjust,
             Loop - before.Loop,
             Ik - before.Ik,
-            Finish - before.Finish);
+            Finish - before.Finish,
+            Seed - before.Seed,
+            Locks - before.Locks,
+            Compose - before.Compose,
+            Enumerators - before.Enumerators);
 
     /// <summary>This and another, field by field: a window's total.</summary>
     /// <param name="other">The other.</param>
@@ -61,5 +85,9 @@ public readonly record struct RootSetupParts(
             Adjust + other.Adjust,
             Loop + other.Loop,
             Ik + other.Ik,
-            Finish + other.Finish);
+            Finish + other.Finish,
+            Seed + other.Seed,
+            Locks + other.Locks,
+            Compose + other.Compose,
+            Enumerators + other.Enumerators);
 }

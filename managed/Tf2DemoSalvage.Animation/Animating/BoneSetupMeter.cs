@@ -58,7 +58,11 @@ public sealed class BoneSetupMeter
         Interlocked.Read(ref _adjust),
         Interlocked.Read(ref _loop),
         Interlocked.Read(ref _ik),
-        Interlocked.Read(ref _finish));
+        Interlocked.Read(ref _finish),
+        Interlocked.Read(ref _seed),
+        Interlocked.Read(ref _locks),
+        Interlocked.Read(ref _compose),
+        Interlocked.Read(ref _enumerators));
 
     private long _blend;
     private long _base;
@@ -69,6 +73,10 @@ public sealed class BoneSetupMeter
     private long _loop;
     private long _ik;
     private long _finish;
+    private long _seed;
+    private long _locks;
+    private long _compose;
+    private long _enumerators;
 
     /// <summary>Records one call.</summary>
     /// <param name="root">Whether the entity follows nothing.</param>
@@ -110,6 +118,10 @@ public sealed class BoneSetupMeter
             Interlocked.Add(ref _loop, parts.Loop);
             Interlocked.Add(ref _ik, parts.Ik);
             Interlocked.Add(ref _finish, parts.Finish);
+            Interlocked.Add(ref _seed, parts.Seed);
+            Interlocked.Add(ref _locks, parts.Locks);
+            Interlocked.Add(ref _compose, parts.Compose);
+            Interlocked.Add(ref _enumerators, parts.Enumerators);
         }
     }
 }

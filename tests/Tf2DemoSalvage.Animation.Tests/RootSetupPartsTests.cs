@@ -88,6 +88,7 @@ public sealed class RootSetupPartsTests
         clock.Meter.ChildTicks.ShouldBeGreaterThanOrEqualTo(10 * Millisecond);
         (added.Base, added.Accumulate, added.Sampling, added.Samples, added.Adjust, added.Loop, added.Ik, added.Finish)
             .ShouldBe((0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L));
+        (added.Seed, added.Locks, added.Compose, added.Enumerators).ShouldBe((0L, 0L, 0L, 0L));
     }
 
     /// <summary>A one-bone skeleton whose base sequence (0) and layer sequences (anything else) spin for a known time.</summary>
