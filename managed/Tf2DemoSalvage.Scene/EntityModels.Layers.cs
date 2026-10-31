@@ -451,9 +451,14 @@ public sealed partial class EntityModelSet
     /// <summary>How deep an autolayer chain may go before it is abandoned.</summary>
     /// <remarks>
     /// **A bound on data from a file, not a guess at content.** Valve reaches a layered sequence's
-    /// own layers through `AccumulatePose`, which has no depth limit at all and would not terminate
-    /// on a model whose layers cycle. Four is far past anything measured — the deepest real case is
-    /// one level — and a chain longer than that is a corrupt model rather than an animator's intent.
+    /// own layers through `AccumulatePose` → `AddSequenceLayers` → `AccumulatePose`
+    /// (<c>bone_setup.cpp:2449</c>, <c>:2209</c>), which has no depth limit at all and would not terminate on a model
+    /// whose layers cycle. **The bound is the same for every root** (the B624 review asked): the main sequence's
+    /// `AutoLayersFor(…, LayerDepth, …)` and every other root's `AccumulatePose(…, LayerDepth, …)` both reach
+    /// <c>LayerDepth</c> levels of autolayer BELOW the sequence they start from — held by
+    /// `AccumulatePoseConformanceTests.BuildBlend_ACyclicAutolayer_StopsFourLevelsBelowEveryRoot`. Four is past anything
+    /// measured — the deepest real chain is two levels (`MELEE_swing` → `layer_melee_swing` → its own autolayer) — so the
+    /// bound only ever cuts a model whose layers cycle, which in Valve would recurse until the stack ran out.
     /// </remarks>
     private const int LayerDepth = 4;
 

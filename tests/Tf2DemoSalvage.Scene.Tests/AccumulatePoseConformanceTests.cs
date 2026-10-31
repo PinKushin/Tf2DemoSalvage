@@ -184,6 +184,47 @@ public sealed class AccumulatePoseConformanceTests
         models.BaseNestedOf(4).ShouldBe(2);
     }
 
+    /// <remarks>
+    /// **The depth bound is ours, and it is the same for every root.** Valve has none (`AccumulatePose` →
+    /// `AddSequenceLayers` → `AccumulatePose`, `bone_setup.cpp:2449`, `:2209`), so a cycle would recurse until the stack
+    /// ran out. Sequence 1 layers ITSELF; the main sequence 0 layers 1, and a networked layer plays 1 as a root of its own.
+    /// Below the main sequence the chain is four 1s; below the overlay root it is the root and four more. Equal depth
+    /// below each starting sequence is the claim.
+    /// </remarks>
+    [Test]
+    public void BuildBlend_ACyclicAutolayer_StopsFourLevelsBelowEveryRoot()
+    {
+        Dictionary<int, StudioAutoLayer[]> autoLayers = new()
+        {
+            [0] = [new StudioAutoLayer(Parent, 0, 0, 0f, 0f, 0f, 0f)],
+            [Parent] = [new StudioAutoLayer(Parent, 0, 0, 0f, 0f, 0f, 0f)],
+        };
+
+        EntityModelSet models = new();
+        List<SceneProp> drawn =
+        [
+            new(
+                4,
+                "models/props_gameplay/resupply_locker.mdl",
+                ScenePropTrack.Classify("models/props_gameplay/resupply_locker.mdl"),
+                new ScenePose
+                {
+                    Sequence = 0,
+                    Cycle = 0f,
+                    Layers = [new SceneAnimationLayer(Order: 0, Sequence: Parent, Cycle: 0.5f, Weight: 1f)],
+                },
+                null,
+                ClientSideAnimated: true),
+        ];
+
+        models.Add(drawn, _ => Model(autoLayers, ("a", 0), ("b", 0), ("c", 0)));
+        models.Instances(drawn, [], seconds: 0.25d);
+
+        models.BaseNestedOf(4).ShouldBe(4, "four levels below the main sequence");
+        Shape(models.LayersOf(4)).Select(layer => layer.Nested).ShouldBe(
+            [3, 2, 1, 0, 4, 3, 2, 1, 0], "and the overlay root with four levels below it");
+    }
+
     private static IReadOnlyList<(int Sequence, float Weight, int Nested)> Shape(IReadOnlyList<PoseLayer>? layers) =>
         [.. layers.ShouldNotBeNull().Select(layer => (layer.Sequence, layer.Weight, layer.Nested))];
 

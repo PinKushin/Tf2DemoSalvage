@@ -97,7 +97,9 @@ public sealed class PoseLayerProbe : IProbe
         int layersSeen = 0;
         int brackets = 0;
         int parents = 0;
-        int nestedUnder = 0;
+        int directChildren = 0;
+        int mainParents = 0;
+        int mainShown = 0;
         Dictionary<string, (int Count, int FirstTick, int Entity)> byParent = new(StringComparer.Ordinal);
 
         for (int tick = from; tick <= to; tick++)
@@ -127,6 +129,20 @@ public sealed class PoseLayerProbe : IProbe
 
                 playerTicks++;
 
+                // **The control** (the B624 review): a main sequence that declares autolayers — `stand_PRIMARY` →
+                // `PRIMARY_aimmatrix_idle` — must show one of its targets in the list, which was already true before B624.
+                int main = models.FrameOf(entity)?.Sequence ?? -1;
+                int[] mainTargets = main < 0
+                    ? []
+                    : [.. skinned.AutoLayersOf(main).Where(entry => !entry.IsLocal)
+                        .Select(entry => skinned.RelativeSequence(main, entry.Sequence))];
+
+                if (mainTargets.Length > 0)
+                {
+                    mainParents++;
+                    mainShown += layers.Any(layer => mainTargets.Contains(layer.Sequence)) ? 1 : 0;
+                }
+
                 for (int index = 0; index < layers.Count; index++)
                 {
                     PoseLayer layer = layers[index];
@@ -139,7 +155,15 @@ public sealed class PoseLayerProbe : IProbe
                     }
 
                     parents++;
-                    nestedUnder += layer.Nested;
+
+                    // DIRECT children only: `Nested` is the whole subtree, so summing it would count a grandchild once
+                    // under its parent and again under its grandparent. Step from one child to the next over its subtree.
+                    for (int child = index + 1; child <= index + layer.Nested && child < layers.Count;
+                         child += layers[child].Nested + 1)
+                    {
+                        directChildren++;
+                    }
+
                     string label = skinned.LabelOf(layer.Sequence);
 
                     byParent[label] = byParent.TryGetValue(label, out (int Count, int FirstTick, int Entity) was)
@@ -158,7 +182,20 @@ public sealed class PoseLayerProbe : IProbe
             string.Create(
                 CultureInfo.InvariantCulture,
                 $"{Path.GetFileName(path)} ticks {from}..{to}: {playerTicks} player-ticks, {layersSeen} layers, " +
-                $"{brackets} with locks; {parents} layers declare non-local autolayers, {nestedUnder} layers nested under them"));
+                $"{brackets} with locks; {parents} layers declare non-local autolayers, {directChildren} direct children " +
+                $"nested under them"));
+
+        // Pass/fail rather than a number to read: the main sequences' autolayers were built before B624, so seeing none
+        // of them, or no parent at all, says the instrument is broken rather than the subject.
+        output.WriteLine(
+            mainParents > 0 && mainShown > 0 && parents > 0
+                ? string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"CONTROL pass: {mainShown} of {mainParents} player-ticks whose main sequence declares autolayers show one")
+                : string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"CONTROL FAIL, instrument broken: {mainShown} of {mainParents} main-sequence autolayers shown, " +
+                    $"{parents} parents"));
 
         foreach ((string label, (int count, int first, int entity)) in byParent.OrderByDescending(entry => entry.Value.Count))
         {

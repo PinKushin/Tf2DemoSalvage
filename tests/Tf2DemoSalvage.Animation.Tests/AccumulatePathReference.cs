@@ -15,8 +15,14 @@ namespace Tf2DemoSalvage.Animation.Tests;
 /// B626's weight-0 lock bracket, marked where it sits.
 /// </summary>
 /// <remarks>
-/// **Copied, not shared**, so a fault in the change cannot appear on both sides. Shared are only leaves the change does
-/// not touch: <c>StudioBones</c>' quaternion and matrix arithmetic, <c>IkLocks</c>, <c>StudioBoneController.Value</c>.
+/// **Copied, not shared**, so a fault in the DENSE-POSE change cannot appear on both sides. Shared are only leaves that
+/// change does not touch: <c>StudioBones</c>' quaternion and matrix arithmetic, <c>IkLocks</c>,
+/// <c>StudioBoneController.Value</c>.
+///
+/// **What it no longer guards: the lock bracket's structure.** It was edited for B626 (a weight-0 layer brackets), so it
+/// is not independent of that change, and it does not model nesting at all — every scenario here has <c>Nested</c> and
+/// <c>BaseNested</c> 0, where the flat and nested orders agree. The bracket order and the per-depth captures (B625) are
+/// held by <c>NestedLockBracketConformanceTests</c>, against hand-computed foot positions, not by this differential.
 ///
 /// **Omitted, and held off by the caller**: the procedural bones (<c>JiggleSource</c> null), IK (<c>IkErrors</c>
 /// empty), the duck-jump shift (0), the three scales (1), the root reflection (null), the diagnostics and the timers.
