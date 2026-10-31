@@ -227,6 +227,15 @@ internal sealed unsafe class OffscreenTarget : IDisposable
                 _device, _context, matrix, surfaceColours, specular: true, fullbright,
                 debug, fog: fog);
 
+            // What a later DrawTranslucentWorld puts back: a model drawn between leaves its own camera constants.
+            float drawnScale = world.LinearLightScale;
+
+            _reapplyWorldCamera = () =>
+            {
+                world.LinearLightScale = drawnScale;
+                world.SetCamera(_device, _context, matrix, surfaceColours, specular: true, fullbright, debug, fog: fog);
+            };
+
             Viewport viewport = new(0f, 0f, _width, _height, 0f, 1f);
 
             _context.RSSetViewports(1, in viewport);
@@ -371,8 +380,34 @@ internal sealed unsafe class OffscreenTarget : IDisposable
     /// <summary>The assets whose textures the renderer holds now.</summary>
     private MapAssets? _uploaded;
 
+    /// <summary>The last <see cref="DrawWorld"/>'s camera and tone-map scale, set again; null before any.</summary>
+    private Action? _reapplyWorldCamera;
+
     /// <summary>The translucent world of the last <see cref="DrawWorld"/>, drawn now — after a model, as the engine does (B426).</summary>
-    public void DrawTranslucentWorld() => _world?.DrawTranslucentWorld(_context);
+    /// <remarks>
+    /// **Under that DrawWorld's camera and tone-map scale, not the last model's** (B635): the constant buffer keeps whatever
+    /// the last <c>SetCamera</c> wrote, so a model drawn in between left its own scale on the world's glass. Production does
+    /// the same with <c>ReapplyCamera</c>. The renderer's own scale is put back afterwards.
+    /// </remarks>
+    public void DrawTranslucentWorld()
+    {
+        if (_world is not { } world)
+        {
+            return;
+        }
+
+        float before = world.LinearLightScale;
+
+        try
+        {
+            _reapplyWorldCamera?.Invoke();
+            world.DrawTranslucentWorld(_context);
+        }
+        finally
+        {
+            world.LinearLightScale = before;
+        }
+    }
 
     /// <summary>Hands the renderer the last <see cref="DrawWorld"/>'s translucent runs by leaf place (B426).</summary>
     /// <param name="leaves">The runs, over that world's vertices.</param>
@@ -681,32 +716,38 @@ internal sealed unsafe class OffscreenTarget : IDisposable
         float before = _world.LinearLightScale;
 
         _world.LinearLightScale = toneMapScale ?? before;
-        _world.SetCamera(
-            _device, _context, camera, surfaceColours, specular, fullbright, debug, phong);
 
-        Viewport viewport = new(0f, 0f, _width, _height, 0f, 1f);
-
-        _context.RSSetViewports(1, in viewport);
-
-        if (clearDepth)
+        try
         {
-            _context.ClearDepthStencilView(_depthView, (uint)ClearFlag.Depth, 1f, 0);
+            _world.SetCamera(
+                _device, _context, camera, surfaceColours, specular, fullbright, debug, phong);
+
+            Viewport viewport = new(0f, 0f, _width, _height, 0f, 1f);
+
+            _context.RSSetViewports(1, in viewport);
+
+            if (clearDepth)
+            {
+                _context.ClearDepthStencilView(_depthView, (uint)ClearFlag.Depth, 1f, 0);
+            }
+
+            _context.OMSetRenderTargets(1u, _view.GetAddressOf(), _depthView);
+
+            // A skinned pose: the matrices as production uploads them, and the count the shader skins by.
+            if (bones is not null)
+            {
+                _world.SetBones(_context, bones);
+            }
+
+            _world.DrawModel(
+                _context, Posed, model, _world.ModelBatches(Posed), light, sun, bones: bones?.Count ?? 0, bothSides: bothSides,
+                origin: origin, locals: locals, overrideMaterial: overrideMaterial, bakedColours: bakedColours, cloak: cloak,
+                flex: flex, flexRange: flexRange);
         }
-
-        _context.OMSetRenderTargets(1u, _view.GetAddressOf(), _depthView);
-
-        // A skinned pose: the matrices as production uploads them, and the count the shader skins by.
-        if (bones is not null)
+        finally
         {
-            _world.SetBones(_context, bones);
+            _world.LinearLightScale = before;
         }
-
-        _world.DrawModel(
-            _context, Posed, model, _world.ModelBatches(Posed), light, sun, bones: bones?.Count ?? 0, bothSides: bothSides,
-            origin: origin, locals: locals, overrideMaterial: overrideMaterial, bakedColours: bakedColours, cloak: cloak,
-            flex: flex, flexRange: flexRange);
-
-        _world.LinearLightScale = before;
     }
 
     /// <summary>The B597 vertex cap <see cref="DrawModelPose"/> draws under; null, the default, draws whole.</summary>

@@ -3371,13 +3371,13 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
 
             // **Modulate first** (B635): its blend comes from `$mod2x` alone (modulate_dx9.cpp:141-148; DecalModulate's is
             // fixed, DecalModulate_dx9.cpp:78), so a Modulate material declaring `$additive 1` still multiplies.
-            if (texture is { IsModulate: true })
+            if (Modulates(texture))
             {
                 // **Its own kind, not translucency.** A Modulate material declares neither
                 // $translucent nor $additive, so it fell through every test here and was drawn
                 // opaque — a shader whose entire job is to darken what is behind it, painting over
                 // it instead. It belongs in the blended pass with a blend state of its own.
-                _modulate[index] = texture.Value.IsModulateTwice;
+                _modulate[index] = texture!.Value.IsModulateTwice;
             }
             else if (texture is { IsAdditive: true })
             {
@@ -3746,17 +3746,8 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             // **Modulate before additive** (B635): `Modulate` picks its blend from `$mod2x` alone
             // (modulate_dx9.cpp:141-148) and `DecalModulate`'s is fixed (DecalModulate_dx9.cpp:78), so `$additive` changes
             // neither. Five shipped Modulate materials declare `$additive 1` (vmt-param $additive shader=Modulate).
-            float fogMode = surface switch
-            {
-                _ when Modulates(surface) => 2f,
-                { IsAdditive: true } => 1f,
-                _ => 0f,
-            };
-
-            // **The tone-map type, kept apart from the fog mode** (B635): 1 for `TONEMAP_SCALE_NONE`, 0 for
-            // `TONEMAP_SCALE_LINEAR`. Both modulating shaders end in `FinalOutput( …, TONEMAP_SCALE_NONE )`
-            // (modulate_ps2x.fxc:37, decalmodulate_ps2x.fxc:44): their colour multiplies the framebuffer, it is not light.
-            float toneMapScaleNone = Modulates(surface) ? 1f : 0f;
+            float fogMode = FogModeOf(surface);
+            float toneMapScaleNone = ToneMapScaleNoneOf(surface);
 
             // **The two colours TF2's paint chain works on, kept apart from their product** (B330).
             // `$colortint_base` non-null is also what marks a material as tintable at all, so a
@@ -4019,7 +4010,9 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
 
         _batches = batches;
 
-        _sortedTranslucent = SortTranslucent(vertices, batches, _translucent);
+        // Modulating runs sort with the translucent ones (B635): blended by their shader, so back to front with the rest.
+        _sortedTranslucent = SortTranslucent(
+            vertices, batches, _modulate.Count == 0 ? _translucent : new HashSet<int>(_translucent.Concat(_modulate.Keys)));
 
         _render.LogInformation(
             "{Message}",
@@ -4294,7 +4287,9 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
 
         foreach (WorldBatch batch in batches)
         {
-            if (_additive.Contains(batch.MaterialIndex) || _translucent.Contains(batch.MaterialIndex))
+            // **A modulating run is blended too** (B635): `Modulate` enables blending in its shadow state
+            // (modulate_dx9.cpp:141-148), so it draws in the translucent world, not here with no blend at all.
+            if (IsBlendedMaterial(batch.MaterialIndex))
             {
                 continue;
             }
@@ -6313,6 +6308,28 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
     /// <returns>True for either modulating shader, whatever else the material declares (B635).</returns>
     private static bool Modulates(MapTexture? surface) => surface is { IsModulate: true } or { IsModulateTwice: true };
 
+    /// <summary>A material's fog mode (B139), the shader constant's <c>tintControl.z</c>: 0 fog colour, 1 black, 2 none.</summary>
+    /// <param name="surface">The material's base texture and flags, or null.</param>
+    /// <returns>2 for a modulating material whatever it declares, 1 for an additive one, else 0.</returns>
+    /// <remarks>
+    /// **The water-fog branch relies on this**: it scales by <see cref="ToneMapScaleNoneOf"/> and is entered only below
+    /// mode 1.5, so no modulating material reaches it today. Giving a modulate decal Valve's grey fog (the ponytail at the
+    /// upload) changes that; <c>ModulateToneMapConformanceTests</c> pins the pairing so the change cannot be silent.
+    /// </remarks>
+    internal static float FogModeOf(MapTexture? surface) => surface switch
+    {
+        _ when Modulates(surface) => 2f,
+        { IsAdditive: true } => 1f,
+        _ => 0f,
+    };
+
+    /// <summary>A material's tone-map type, <c>tintControl.w</c>: 1 <c>TONEMAP_SCALE_NONE</c>, 0 <c>TONEMAP_SCALE_LINEAR</c> (B635).</summary>
+    /// <param name="surface">The material's base texture and flags, or null.</param>
+    /// <returns>1 for a modulating material, whose colour multiplies the framebuffer rather than lighting it.</returns>
+    /// <remarks>Both modulating shaders end in <c>FinalOutput( …, TONEMAP_SCALE_NONE )</c> (modulate_ps2x.fxc:37,
+    /// decalmodulate_ps2x.fxc:44).</remarks>
+    internal static float ToneMapScaleNoneOf(MapTexture? surface) => Modulates(surface) ? 1f : 0f;
+
     /// <summary>The world's placed decals, drawn after the overlays; rebuilt when the decal list changes.</summary>
     private IReadOnlyList<WorldBatch> _shotDecals = [];
 
@@ -6621,22 +6638,22 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
 
     private void DrawTranslucent(ComPtr<ID3D11DeviceContext> context)
     {
-        if (_translucent.Count == 0 || _alphaBlend.Handle is null)
+        if (_sortedTranslucent.Count == 0 || _alphaBlend.Handle is null)
         {
             return;
         }
 
         float* factor = stackalloc float[4] { 1f, 1f, 1f, 1f };
 
-        context.OMSetBlendState(_alphaBlend, factor, 0xFFFFFFFF);
-
         if (_depthReadOnly.Handle is not null)
         {
             context.OMSetDepthStencilState(_depthReadOnly, 0);
         }
 
+        // Per run, since B635 sorted modulating runs in among the translucent ones, each with its own blend.
         foreach (WorldBatch batch in _sortedTranslucent)
         {
+            context.OMSetBlendState(BlendFor(batch.MaterialIndex), factor, 0xFFFFFFFF);
             DrawBlendedBatch(context, batch, additive: false);
         }
 
@@ -6721,11 +6738,25 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
     /// </remarks>
     public TranslucentLeafRuns? TranslucentLeaves { get; set; }
 
-    /// <summary>Whether a material draws in the translucent pass — translucent or additive.</summary>
+    /// <summary>Whether a material draws in the translucent pass — translucent, additive or modulating.</summary>
     /// <param name="material">The material index.</param>
     /// <returns>True for a blended material.</returns>
+    /// <remarks>Modulating since B635: a `Modulate` brush was skipped by neither pass and drew opaque.</remarks>
     public bool IsBlendedMaterial(int material) =>
-        _translucent.Contains(material) || _additive.Contains(material);
+        _translucent.Contains(material) || _additive.Contains(material) || _modulate.ContainsKey(material);
+
+    /// <summary>The blend a non-additive translucent-world run draws with: its modulate blend, else alpha (B635).</summary>
+    /// <param name="material">The material index.</param>
+    /// <returns>`DST_COLOR, SRC_COLOR` for `$mod2x`, `DST_COLOR, ZERO` without (modulate_dx9.cpp:141-148), alpha otherwise.</returns>
+    private ComPtr<ID3D11BlendState> BlendFor(int material)
+    {
+        if (!_modulate.TryGetValue(material, out bool twice))
+        {
+            return _alphaBlend;
+        }
+
+        return twice ? _modulateTwiceBlend : _modulateBlend;
+    }
 
     /// <summary>Whether a material is <c>$nocull</c> — the engine's NOCULL surface bit (0x1800fa3d0, B457).</summary>
     /// <param name="material">The material index.</param>
@@ -6781,7 +6812,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
                 continue;
             }
 
-            context.OMSetBlendState(additive ? _addBlend : _alphaBlend, factor, 0xFFFFFFFF);
+            context.OMSetBlendState(additive ? _addBlend : BlendFor(batch.MaterialIndex), factor, 0xFFFFFFFF);
             DrawBlendedBatch(context, batch, additive);
 
             // **The surface's overlays straight after it** (0x1800e4fd0, B457), with the overlay pass's own state;

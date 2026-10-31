@@ -579,3 +579,17 @@ materials declare `$additive 1` (`vmt-param $additive shader=Modulate`: `models/
 DecalModulate does. Ours drew those five ADDED, tone-mapped and fogged to black; they now multiply. Held by
 `ModulateToneMapConformanceTests`: hand-built materials, no game install. Each case carries its own drawn control, and
 the lit case is the negative control that a lit draw IS scaled.
+
+**Second review: a Modulate on brushwork had no blended pass at all.** `IsBlendedMaterial` counted translucent and
+additive only. A `Modulate` brush run was therefore skipped by neither the opaque pass nor the translucent world, and
+drew opaque with no blend: its own texel, 176 over a 188 surface. Moving the five `$additive` Modulates out of the
+additive set routed them into that hole. *Read:* Valve's Modulate enables blending in its shadow state
+(`modulate_dx9.cpp:141-148`), so it multiplies wherever it is drawn. It now sorts into the translucent world with the
+modulate blend, in both `DrawTranslucentWorld` and `DrawTranslucentLeaf`. The first test of it was too weak: drawing
+opaque and then multiplying also darkens. It caught the fault only once it asserted the model pass's exact value
+(120 against 129).
+
+*Measured:* no shipped material uses a `_DX9`/`_DX8`/`_DX6` alias of these shaders (0 of 30,994). Fog (*read*):
+Valve's Modulate fogs toward its neutral value, grey under `$mod2x` (`FogToGrey`), otherwise
+`FogToOOOverbright` (`modulate_dx9.cpp:201-209`). Ours fogs a modulating material not at all, which is the open
+ponytail at the upload.

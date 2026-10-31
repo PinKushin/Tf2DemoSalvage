@@ -242,6 +242,11 @@ public sealed class VmtMaterial
     /// <c>$mod2x</c> doubles the result, so a texel of mid grey leaves the destination unchanged
     /// and the material can brighten as well as darken. Reported separately because the two want
     /// different blend factors.
+    ///
+    /// **No `_DX9` alias is accepted, unlike `Sprite_DX9`, because none ships** (B635, measured 2026-10-31): `vmt-param
+    /// $basetexture shader=Modulate_DX9` (and `DecalModulate_DX9`, `Modulate_DX8`, `DecalModulate_DX6`) find 0 of 30,994
+    /// shipped materials, against 28 `Modulate` and 68 `DecalModulate`. Valve registers the alias
+    /// (`DEFINE_FALLBACK_SHADER`, modulate_dx9.cpp:20); accept it here if a map's pakfile is ever seen naming it.
     /// </remarks>
     public bool IsModulate => Shader.Equals("Modulate", StringComparison.OrdinalIgnoreCase) || IsDecalModulate;
 
