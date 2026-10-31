@@ -427,9 +427,8 @@ public sealed class SkeletonPose : IBonePose
         // **And a dense pose needs no index at all**: entry `bone` IS bone `bone`, so the loop reads it directly, as
         // `BuildTransformations` reads `pos[i]`/`q[i]`. The view is safe across the loop because nothing in it samples an
         // animation, so the workspace list it may point into is not written until the next build.
-        ReadOnlySpan<StudioBonePose> dense = StudioPoseBlend.AsDense(animated, _bones.Count);
+        ReadOnlySpan<StudioBonePose> dense = DenseOf(animated);
 
-        // Stryker disable once all : a cost branch the differential cannot tell apart - indexing a dense pose gives the identity, the same bits, only slower
         if (dense.IsEmpty)
         {
             Array.Fill(_overrideOf, -1);
@@ -893,7 +892,6 @@ public sealed class SkeletonPose : IBonePose
         // base lives in, so the base has to leave it before any layer is sampled.
         ReadOnlySpan<StudioBonePose> dense = StudioPoseBlend.AsDense(basePose, result.Length);
 
-        // Stryker disable once all : a cost branch the differential cannot tell apart - seeding before a dense copy gives the same bits, only slower
         if (locked || dense.IsEmpty)
         {
             for (int bone = 0; bone < _bones.Count; bone++)
@@ -1185,9 +1183,8 @@ public sealed class SkeletonPose : IBonePose
 
         // A dense pose is copied rather than re-expanded, as in `Accumulate`: `CalcBoneAdj` works in place on the
         // dense `pos`/`q` (`bone_setup.cpp:2462`), and seeding under a pose that names every bone changes no bit.
-        ReadOnlySpan<StudioBonePose> dense = StudioPoseBlend.AsDense(pose, adjusted.Length);
+        ReadOnlySpan<StudioBonePose> dense = DenseOf(pose);
 
-        // Stryker disable once all : a cost branch the differential cannot tell apart - expanding a dense pose gives the same bits, only slower
         if (!dense.IsEmpty)
         {
             dense.CopyTo(adjusted);
@@ -1280,6 +1277,27 @@ public sealed class SkeletonPose : IBonePose
         }
 
         return touched ? adjusted : pose;
+    }
+
+    /// <summary>A pose's entries when it is dense, without re-scanning the two arrays this class keeps dense itself.</summary>
+    /// <param name="pose">The pose so far.</param>
+    /// <returns>The entries, one per bone in order, or empty when the pose is any other shape.</returns>
+    /// <remarks>
+    /// **<see cref="_layered"/> and <see cref="_adjusted"/> are dense by construction.** Each is first filled whole -
+    /// seeded per bone or copied from a dense pose - and every later write lands at index <c>bone</c> with
+    /// <c>Bone == bone</c>: the overlay writes <c>moved</c> at <c>moved.Bone</c>, a layer and a controller build
+    /// <c>new StudioBonePose(bone, …)</c>, and <c>IkLocks.Solve</c> writes <c>pose[bone] with { … }</c> or
+    /// <c>new StudioBonePose(bone, …)</c>. Asking <see cref="StudioPoseBlend.AsDense"/> about them would only re-prove
+    /// that; any other list, a barrel's or the workspace's, is asked.
+    /// </remarks>
+    private ReadOnlySpan<StudioBonePose> DenseOf(IReadOnlyList<StudioBonePose> pose)
+    {
+        if (ReferenceEquals(pose, _layered) || ReferenceEquals(pose, _adjusted))
+        {
+            return (StudioBonePose[])pose;
+        }
+
+        return StudioPoseBlend.AsDense(pose, _bones.Count);
     }
 
     /// <summary>Degrees as radians, which is the engine's <c>value * (M_PI / 180.0)</c>.</summary>

@@ -183,8 +183,19 @@ public sealed class DensePoseBlendDifferentialTests
         bool firstDense = IsDense(first, bones.Count);
         bool secondDense = IsDense(second, bones.Count);
 
+        // The inputs' bits as the reference read them: the short way reads a dense input where it lies, so a write into
+        // one would corrupt both sides alike and the comparison below could not see it.
+        StudioBonePose[] firstBefore = [.. first];
+        StudioBonePose[] secondBefore = [.. second];
+
         IReadOnlyList<StudioBonePose> got =
             StudioPoseBlend.BlendInto(bones, first, second, s, additive, into, scratch);
+
+        if ((Diff(first, firstBefore) ?? Diff(second, secondBefore)) is { } written)
+        {
+            tally.Mismatches++;
+            tally.First ??= $"{label}, additive {additive}: the blend wrote into an input: {written}";
+        }
 
         tally.Compared++;
 
