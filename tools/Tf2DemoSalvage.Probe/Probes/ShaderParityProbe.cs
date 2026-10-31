@@ -82,7 +82,9 @@ public sealed class ShaderParityProbe : IProbe
 
             try
             {
-                material = VmtMaterial.Parse(vmt);
+                // Through a Patch's include, as the material system applies it (VmtMaterial.Load, B390): a patched
+                // DecalModulate otherwise counts as shader "Patch" (B635 review 4).
+                material = VmtMaterial.Load(vmt, path => pak.ReadFile(path) ?? archives.Read(path));
             }
             catch (InvalidDataException)
             {

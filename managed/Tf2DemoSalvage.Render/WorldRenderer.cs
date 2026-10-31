@@ -2246,6 +2246,18 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
     /// <summary>The marking rasteriser plus <c>SHADER_POLYOFFSET_DECAL</c>, for a shader that requests it (DecalModulate).</summary>
     private ComPtr<ID3D11RasterizerState> _decalPolyOffset;
 
+    /// <summary>Each draw state's twin with <c>SHADER_POLYOFFSET_DECAL</c> added and its culling kept, by the state's handle.</summary>
+    private Dictionary<nint, ComPtr<ID3D11RasterizerState>> _polyOffsetFor = [];
+
+    /// <summary>The state a run draws with: <paramref name="drawn"/>, plus the decal polygon offset for a shader that asks.</summary>
+    /// <param name="drawn">The state the draw would use: its culling is kept.</param>
+    /// <param name="material">The material index.</param>
+    /// <returns>The offset twin of <paramref name="drawn"/> for DecalModulate, else <paramref name="drawn"/> itself.</returns>
+    private ComPtr<ID3D11RasterizerState> WithDecalOffset(ComPtr<ID3D11RasterizerState> drawn, int material) =>
+        _decalPolyOffsetMaterials.Contains(material) && _polyOffsetFor.TryGetValue((nint)drawn.Handle, out ComPtr<ID3D11RasterizerState> twin)
+            ? twin
+            : drawn;
+
     /// <summary>Blend state that ADDS a fragment to what is already there.</summary>
     private ComPtr<ID3D11BlendState> _addBlend;
     private readonly List<ComPtr<ID3D11ShaderResourceView>> _blendTextures = [];
@@ -2833,7 +2845,13 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             ComPtr<ID3D11RasterizerState> wire = default;
             SilkMarshal.ThrowHResult(device.CreateRasterizerState(in description, ref wire));
 
-            wireframe[(nint)solid.Handle] = wire;
+            // **D3D11 returns the SAME object for an identical description**, so a twin can be a state already keyed
+            // here (the model cull's offset twin is the overlays' poly-offset state). Overwriting leaked the first wire
+            // (Dispose_After…_LeavesNoDeviceReference, B635 review 4); the duplicate reference is released instead.
+            if (!wireframe.TryAdd((nint)solid.Handle, wire))
+            {
+                wire.Dispose();
+            }
         }
 
         AddWire(bothSides, rasterizer);
@@ -2841,6 +2859,29 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
         AddWire(mirrored, mirroredRasterizer);
         AddWire(decalOffset, biased);
         AddWire(decalPolyOffset, polyOffset);
+
+        // **The decal polygon offset as a TWIN of each draw state, culling untouched** (B635 review 4). Valve keeps the
+        // two apart: DecalModulate's shadow state asks for `EnablePolyOffset( SHADER_POLYOFFSET_DECAL )`
+        // (DecalModulate_dx9.cpp:67) and says nothing of culling, which is the material's (`MATERIAL_VAR_NOCULL`,
+        // imaterial.h:369). So the offset is added to whatever state the draw would use, both-sided, back-culled (with
+        // TF2VIEW_MODEL_CULL's experiment) or mirrored, rather than swapping in the overlays' back-culled state.
+        Dictionary<nint, ComPtr<ID3D11RasterizerState>> polyOffsetFor = [];
+
+        void AddPolyOffset(ComPtr<ID3D11RasterizerState> solid, RasterizerDesc description)
+        {
+            description.DepthBias = DecalState.PolyOffsetDepthBias;
+            description.SlopeScaledDepthBias = DecalState.PolyOffsetSlopeScaledBias;
+
+            ComPtr<ID3D11RasterizerState> twin = default;
+            SilkMarshal.ThrowHResult(device.CreateRasterizerState(in description, ref twin));
+
+            polyOffsetFor[(nint)solid.Handle] = twin;
+            AddWire(twin, description);
+        }
+
+        AddPolyOffset(bothSides, rasterizer);
+        AddPolyOffset(culled, modelRasterizer);
+        AddPolyOffset(mirrored, mirroredRasterizer);
 
         return new WorldRenderer(
             loggers,
@@ -2855,6 +2896,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             _viewmodelCull = mirrored,
             _decalOffset = decalOffset,
             _decalPolyOffset = decalPolyOffset,
+            _polyOffsetFor = polyOffsetFor,
             _wireframeFor = wireframe,
             _device = device,
             _whiteColour = ColourStream(device, [1f, 1f, 1f]),
@@ -6562,15 +6604,16 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
         ComPtr<ID3D11BlendState> blending = _alphaBlend;
 
         // **And its polygon offset, which is the shader's too**: DecalModulate requests
-        // SHADER_POLYOFFSET_DECAL, LightmappedGeneric does not (shaderapidx9 0x180014600 applies it).
-        bool modulates = _modulate.TryGetValue(batch.MaterialIndex, out bool twice);
-
-        if (modulates)
+        // SHADER_POLYOFFSET_DECAL (DecalModulate_dx9.cpp:67); plain Modulate does not (no EnablePolyOffset in
+        // modulate_dx9.cpp's shadow state, :139-211), nor does LightmappedGeneric (shaderapidx9 0x180014600 applies it).
+        // Until B635's review 4 every modulating material took it here, plain Modulate included.
+        if (_modulate.TryGetValue(batch.MaterialIndex, out bool twice))
         {
             blending = twice ? _modulateTwiceBlend : _modulateBlend;
         }
 
-        context.RSSetState(Raster(modulates && _decalPolyOffset.Handle is not null ? _decalPolyOffset : _decalOffset));
+        context.RSSetState(Raster(
+            _decalPolyOffsetMaterials.Contains(batch.MaterialIndex) && _decalPolyOffset.Handle is not null ? _decalPolyOffset : _decalOffset));
 
         if (blending.Handle is not null)
         {
@@ -6666,12 +6709,8 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
         // Per run, since B635 sorted modulating runs in among the translucent ones, each with its own blend.
         foreach (WorldBatch batch in _sortedTranslucent)
         {
-            // Only the view's water sort groups, as the leaf path and the engine's translucent walk (0x1800e4fd0) do.
-            if (batch.SortGroup >= 0 && !WaterViews.DrawsSortGroup(ViewDraws, batch.SortGroup))
-            {
-                continue;
-            }
-
+            // No water sort-group filter here: every uploaded world run has SortGroup -1, so it could never fire; the engine
+            // does filter by group (0x1800e4fd0) and this fallback does not, B640.
             context.OMSetBlendState(BlendFor(batch.MaterialIndex), factor, 0xFFFFFFFF);
             context.RSSetState(BlendedRaster(batch.MaterialIndex));
             DrawBlendedBatch(context, batch, additive: false);
@@ -6695,8 +6734,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
 
         foreach (WorldBatch batch in _batches)
         {
-            if (_additive.Contains(batch.MaterialIndex) &&
-                (batch.SortGroup < 0 || WaterViews.DrawsSortGroup(ViewDraws, batch.SortGroup)))
+            if (_additive.Contains(batch.MaterialIndex))
             {
                 DrawBlendedBatch(context, batch, additive: true);
             }
@@ -6770,14 +6808,14 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
 
     /// <summary>The rasteriser a translucent-world run draws with: the decal polygon offset for a shader that asks for it.</summary>
     /// <param name="material">The material index.</param>
-    /// <returns>`SHADER_POLYOFFSET_DECAL`'s state for DecalModulate (DecalModulate_dx9.cpp:67), else both-sided.</returns>
+    /// <returns>The both-sided state with `SHADER_POLYOFFSET_DECAL` added for DecalModulate (DecalModulate_dx9.cpp:67), else
+    /// both-sided.</returns>
     /// <remarks>
-    /// **A DecalModulate brush face** (B635 review): `ctf_crasher`'s scorch `func_brush`es lie at z 0 and 1 on the
-    /// floor, and the shader's own offset is what keeps such a face in front of the surface it marks. The overlay path
-    /// already applied it; the brush path drew with no offset at all.
+    /// **A DecalModulate brush face** (B635 review): the shader's own offset is what keeps a face flush with another in
+    /// front of it. Only DecalModulate asks for it; plain Modulate does not, on this path or the overlay path. The world's
+    /// translucent pass draws both-sided, so its offset twin is both-sided too.
     /// </remarks>
-    private ComPtr<ID3D11RasterizerState> BlendedRaster(int material) =>
-        Raster(_decalPolyOffsetMaterials.Contains(material) && _decalPolyOffset.Handle is not null ? _decalPolyOffset : _bothSides);
+    private ComPtr<ID3D11RasterizerState> BlendedRaster(int material) => Raster(WithDecalOffset(_bothSides, material));
 
     /// <summary>The blend a non-additive translucent-world run draws with: its modulate blend, else alpha (B635).</summary>
     /// <param name="material">The material index.</param>
@@ -6887,6 +6925,11 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
         _noFlex.Dispose();
         _decalOffset.Dispose();
         _decalPolyOffset.Dispose();
+
+        foreach (ComPtr<ID3D11RasterizerState> twin in _polyOffsetFor.Values)
+        {
+            twin.Dispose();
+        }
         _bothSides.Dispose();
         _modelCull.Dispose();
 
@@ -7505,13 +7548,9 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
 
             // **A DecalModulate brush entity takes its shader's polygon offset** (B635 review): SHADER_POLYOFFSET_DECAL is
             // set in DecalModulate's SHADOW_STATE (DecalModulate_dx9.cpp:67), so on every bind. `ctf_crasher`'s scorch
-            // `func_brush`es are drawn here, as brush entities, at z 0 and -0.25 on the floor they mark.
-            if (!mirrored && _decalPolyOffsetMaterials.Contains(material) && _decalPolyOffset.Handle is not null)
-            {
-                raster = _decalPolyOffset;
-            }
-
-            context.RSSetState(Raster(raster));
+            // `func_brush`es are drawn here, as brush entities, at z 0 and -0.25 on the floor they mark. Added to the cull
+            // CullFor chose, not in place of it: $nocull, mirroring and TF2VIEW_MODEL_CULL all survive.
+            context.RSSetState(Raster(WithDecalOffset(raster, material)));
 
             // **A model's materials are sorted into the same two passes the world's are.** Until
             // now every model batch drew opaque, whatever its material said, which is why a capture

@@ -69,10 +69,11 @@ public sealed class ShaderFacesProbe : IProbe
 
         for (int index = 0; index < materials.Count; index++)
         {
-            byte[]? vmt = pak.ReadFile("materials/" + materials[index].Name + ".vmt")
-                ?? archives.Read("materials/" + materials[index].Name + ".vmt");
+            byte[]? vmt = Find(pak, archives, "materials/" + materials[index].Name + ".vmt");
 
-            if (vmt is not null && VmtMaterial.Parse(vmt).Shader.Equals(arguments[1], StringComparison.OrdinalIgnoreCase))
+            // Through a Patch's include, as the material system applies it on every load (VmtMaterial.Load, B390).
+            if (vmt is not null &&
+                VmtMaterial.Load(vmt, path => Find(pak, archives, path)).Shader.Equals(arguments[1], StringComparison.OrdinalIgnoreCase))
             {
                 wanted.Add(index);
                 output.WriteLine($"material {index}: {materials[index].Name}");
@@ -84,32 +85,55 @@ public sealed class ShaderFacesProbe : IProbe
 
         foreach (BspSurface surface in surfaces.Where(surface => wanted.Contains(surface.MaterialIndex) && surface.Vertices.Count >= 3))
         {
-            int owner = models.Select((model, index) => (model, index))
-                .FirstOrDefault(pair => surface.FaceIndex >= pair.model.FirstFace && surface.FaceIndex < pair.model.FirstFace + pair.model.FaceCount).index;
+            // −1 when no model's range holds the face: never defaulted to the world.
+            int owner = -1;
+
+            for (int index = 0; index < models.Count; index++)
+            {
+                if (surface.FaceIndex >= models[index].FirstFace && surface.FaceIndex < models[index].FirstFace + models[index].FaceCount)
+                {
+                    owner = index;
+                    break;
+                }
+            }
+
             double cx = surface.Vertices.Average(vertex => vertex.X);
             double cy = surface.Vertices.Average(vertex => vertex.Y);
             double cz = surface.Vertices.Average(vertex => vertex.Z);
-            // A brush entity's faces are in its own frame when it has an origin: place them where the entity stands.
+            double nx = surface.Normal.X, ny = surface.Normal.Y, nz = surface.Normal.Z;
+
+            // A brush entity's faces are in its own frame: turned by its `angles`, then placed at its `origin`.
             BspEntity? entity = owner > 0
                 ? level.Entities.FirstOrDefault(candidate => candidate.TryGetValue("model", out string model) && model == "*" + owner.ToString(CultureInfo.InvariantCulture))
                 : null;
 
-            if (entity is not null && entity.TryGetValue("origin", out string originText) &&
-                originText.Split(' ', StringSplitOptions.RemoveEmptyEntries) is { Length: 3 } parts)
+            if (entity is not null && Vector(entity, "angles") is { } angles)
             {
-                cx += double.Parse(parts[0], CultureInfo.InvariantCulture);
-                cy += double.Parse(parts[1], CultureInfo.InvariantCulture);
-                cz += double.Parse(parts[2], CultureInfo.InvariantCulture);
+                (cx, cy, cz) = Rotate(angles, cx, cy, cz);
+                (nx, ny, nz) = Rotate(angles, nx, ny, nz);
             }
 
-            string who = owner == 0 ? "world" : "no entity";
+            if (entity is not null && Vector(entity, "origin") is { } origin)
+            {
+                cx += origin.X;
+                cy += origin.Y;
+                cz += origin.Z;
+            }
+
+            string who = owner switch
+            {
+                0 => "world",
+                < 0 => "in no model's face range",
+                _ => "no entity names it",
+            };
 
             if (entity is not null)
             {
                 who = string.Join(" ", entity.Values.Select(pair => $"{pair.Key}={pair.Value}"));
             }
-            int area = level.Leaves is { } leaves ? leaves.AreaAt((float)cx, (float)cy, (float)cz) : -1;
-            (float nx, float ny, float nz) = surface.Normal;
+
+            // The area one unit off the face along its normal, not on the plane, where a leaf boundary may lie.
+            int area = level.Leaves is { } leaves ? leaves.AreaAt((float)(cx + nx), (float)(cy + ny), (float)(cz + nz)) : -1;
 
             // Back along the normal by the distance, looking at the centre.
             double ex = cx + (nx * distance), ey = cy + (ny * distance), ez = cz + (nz * distance);
@@ -121,6 +145,37 @@ public sealed class ShaderFacesProbe : IProbe
                 CultureInfo.InvariantCulture,
                 $"face {surface.FaceIndex} material {surface.MaterialIndex} model {owner} ({who}) area-id {area}{(area == skyArea && skyArea >= 0 ? " SKY" : string.Empty)} flags {surface.Flags} disp {surface.DisplacementIndex} polygon {Area(surface):0} at ({cx:0} {cy:0} {cz:0}) normal ({nx:0.00} {ny:0.00} {nz:0.00})  TF2VIEW_CAMERA=\"{ex:0} {ey:0} {ez:0} {pitch:0} {yaw:0}\""));
         }
+    }
+
+    private static byte[]? Find(PakFile pak, GameArchives archives, string path) => pak.ReadFile(path) ?? archives.Read(path);
+
+    /// <summary>An entity's three-number key (origin, angles), or null when absent or unreadable.</summary>
+    private static (double X, double Y, double Z)? Vector(BspEntity entity, string key)
+    {
+        if (!entity.TryGetValue(key, out string text) ||
+            text.Split(' ', StringSplitOptions.RemoveEmptyEntries) is not { Length: 3 } parts ||
+            !double.TryParse(parts[0], NumberStyles.Float, CultureInfo.InvariantCulture, out double a) ||
+            !double.TryParse(parts[1], NumberStyles.Float, CultureInfo.InvariantCulture, out double b) ||
+            !double.TryParse(parts[2], NumberStyles.Float, CultureInfo.InvariantCulture, out double c))
+        {
+            return null;
+        }
+
+        return (a, b, c);
+    }
+
+    /// <summary>A vector turned by Source angles (pitch, yaw, roll), as <c>AngleMatrix</c> builds the rotation (mathlib.cpp).</summary>
+    private static (double X, double Y, double Z) Rotate((double X, double Y, double Z) angles, double x, double y, double z)
+    {
+        double p = angles.X * Math.PI / 180.0, w = angles.Y * Math.PI / 180.0, r = angles.Z * Math.PI / 180.0;
+        double sp = Math.Sin(p), cp = Math.Cos(p), sy = Math.Sin(w), cy = Math.Cos(w), sr = Math.Sin(r), cr = Math.Cos(r);
+
+        // Columns: forward, left, up (AngleMatrix's matrix[.][0..2]).
+        double m00 = cp * cy, m01 = (sr * sp * cy) - (cr * sy), m02 = (cr * sp * cy) + (sr * sy);
+        double m10 = cp * sy, m11 = (sr * sp * sy) + (cr * cy), m12 = (cr * sp * sy) - (sr * cy);
+        double m20 = -sp, m21 = sr * cp, m22 = cr * cp;
+
+        return ((m00 * x) + (m01 * y) + (m02 * z), (m10 * x) + (m11 * y) + (m12 * z), (m20 * x) + (m21 * y) + (m22 * z));
     }
 
     /// <summary>The polygon's area, by the cross products of its fan.</summary>
