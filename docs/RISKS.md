@@ -40275,7 +40275,7 @@ shader depends on the camera.
 **Next:** carry the uploaded constant to the capture log; shoot one camera with and without a 3D-sky view in frame; then
 move the world upload after the scale is set. Every auto-exposure shot changes when it is fixed.
 
-## B635 — explosive scorch decals look dark and pixelated at a close camera (2026-10-31) — FIXED on `fix/b633-modulate-tonemap-none`, not merged
+## B635 — explosive scorch decals look dark and pixelated at a close camera (2026-10-31) — FIXED (merged to local `main` 2026-10-31; branches `fix/b633-modulate-tonemap-none`, `fix/b635-review-batch`)
 
 **Cause (measured):** the HDR tone-map scale reached `DecalModulate` draws; Valve's is `TONEMAP_SCALE_NONE`. Two
 divergences found beside it stay open, ranked in the measurement: no alpha test on DecalModulate, and no grey fog on it.
