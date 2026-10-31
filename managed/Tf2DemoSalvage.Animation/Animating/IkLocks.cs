@@ -225,7 +225,8 @@ public sealed class IkLocks
             bool solved = IkContext.SolveChain(chain, wanted, _chain.Bones);
 
             // "slam orientation" — the solver only positions, so the remembered rotation is put
-            // onto the end bone while the solve's position is kept.
+            // onto the end bone at whatever position it now has: the solve's when it succeeded, the
+            // sequence's when it failed (`MatrixPosition( boneToWorld[bone], p3 )`, `:4441`).
             Compose(_held[at].Rotation, Position(_chain.Matrix(bone)), _chain.Bones.BoneForWrite(bone));
 
             (float X, float Y, float Z, float W) sequenced = pose[bone].Rotation;
@@ -244,11 +245,15 @@ public sealed class IkLocks
             Rebuild(chain.Links[0].Bone, pose);
 
             // Counted here rather than at the top of the loop, so a lock that named nothing or
-            // whose chain the solver refused is not reported as a solve.
-            if (solved)
+            // whose chain the solver refused is not reported as a solve. **The three counters keep
+            // their meaning of "of the solves"** (B622): a failed solve's slam is rotation only and
+            // travels about zero, so counting it in `Moved` would dilute the measure, not extend it.
+            if (!solved)
             {
-                Applied++;
+                continue;
             }
+
+            Applied++;
 
             // **The distance the effector actually travelled**, measured between where the sequence
             // left it and where the lock put it — carried out of this loop rather than recomputed
