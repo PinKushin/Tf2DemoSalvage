@@ -58,7 +58,15 @@ larger than the effect, so a three-vs-three mean carries that spread.
 | 4 | roots total drops by ≥ 0.7 of the base + layer sampling move (0.029) | **falsified**: roots −0.020 (position by position −0.083, +0.022, +0.002), the blend and loop rise ate part of it |
 | 5 | samples, built, eligible unchanged (±1) | holds |
 
-## Verdict
+## Second after-set (merge `12b5617a`, after the review batch) - predictions made before the run
+
+The review batch changed production code: `Value` and `ValuePair` now share one block walk (`Values`, `Land`, `Cell`), the remap
+rule is one helper. Three more runs into `2026-10-31-frame-pair-one-pass/after-review/` with the same command. Predictions
+[all predictions]: base + layer sampling lies between the first after-set (0.263-0.374 per run, mean 0.318) and the before
+mean 0.360 less 0.02, i.e. mean 0.30-0.34; the shared walk costs nothing measurable (the pair path loses one branch per block).
+**Falsified if** the mean base + layer sampling is above 0.36 (the change would have given the win back) or below 0.27.
+
+## Verdict (first after-set)
 
 Direction is consistent: base and layer sampling are lower in all three runs, 6 of 6 comparisons, and `anim` follows. The size
 is small: base + layer sampling −0.042 ms per root rebuild (−12% of the sampling cost, −7% of the roots total), at the
