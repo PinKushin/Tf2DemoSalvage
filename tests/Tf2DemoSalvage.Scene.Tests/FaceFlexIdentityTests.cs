@@ -271,13 +271,29 @@ public sealed class FaceFlexIdentityTests
 
     /// <summary>
     /// A negative vertex offset must not take the unchecked fast path: the checked loop reads at it and throws, as the
-    /// reference does, rather than reading memory before the array. (A negative slot is the same hazard on the write, but
-    /// breaking its gate would write over the array header and crash the host, so it has no test.)
+    /// reference does, rather than reading memory before the array.
     /// </summary>
     [Test]
     public void IntoFlexedSlots_ANegativeVertexOffset_ThrowsAsTheCheckedLoopDoes()
     {
         FlexedCorners corners = new([0], [-3]);
+        (float[], float[]) deltas = (new float[6], new float[6]);
+
+        Should.Throw<IndexOutOfRangeException>(() => FaceFlexReference.IntoFlexedSlots(deltas, corners, new float[6]));
+        Should.Throw<IndexOutOfRangeException>(() => FaceFlex.IntoFlexedSlots(deltas, corners, new float[6]));
+    }
+
+    /// <summary>
+    /// A negative slot must not take the unchecked fast path: the checked loop throws on the stream write, as the
+    /// reference does, rather than writing before the array. **Breaking the gate is dangerous**: with
+    /// <c>corners.MinAt &gt;= 0</c> removed, the fast path writes 24 bytes before the stream's data, over the array header.
+    /// Measured once: the run failed (exit 1) with "Should.Throw ... IndexOutOfRangeException but did not" at the second
+    /// assertion, the host surviving by luck, so the corruption can also crash the host; either failure counts as red.
+    /// </summary>
+    [Test]
+    public void IntoFlexedSlots_ANegativeSlot_ThrowsAsTheCheckedLoopDoes()
+    {
+        FlexedCorners corners = new([-1], [0]);
         (float[], float[]) deltas = (new float[6], new float[6]);
 
         Should.Throw<IndexOutOfRangeException>(() => FaceFlexReference.IntoFlexedSlots(deltas, corners, new float[6]));
