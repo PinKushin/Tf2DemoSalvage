@@ -43,6 +43,13 @@ public sealed class DensePoseAccumulateDifferentialTests
         VpkArchive[] archives = Archives();
         List<string> missing = [];
 
+        // **The control before any skip: a broken reader must FAIL, never be mistaken for a partial install.** An
+        // install that passed `Require` has its model archives, and every TF2 install since launch carries the scout.
+        // Only a model beyond that may be absent and skipped.
+        archives.ShouldNotBeEmpty("the control: an installed game opens its model archives");
+        Read(archives, "models/player/scout.mdl").ShouldNotBeNull(
+            "the control: the reader finds the scout, which every install carries");
+
         foreach (string name in new[] { "scout", "heavy", "engineer", "spy" })
         {
             if (Read(archives, $"models/player/{name}.mdl") is not { } player ||
@@ -173,6 +180,9 @@ public sealed class DensePoseAccumulateDifferentialTests
 
         tally.DenseBase.ShouldBeGreaterThan(0, "the control: a dense base was compared");
         tally.OtherBase.ShouldBeGreaterThan(0, "the control: a base the shortcut must refuse was compared");
+
+        // DenseOf's _layered branch through Adjust; bone reads cannot tell it from the scan, so equality is the check.
+        tally.LayeredControllers.ShouldBeGreaterThan(0, "the control: a layer and a controller were built together");
     }
 
     /// <remarks>
@@ -366,7 +376,12 @@ public sealed class DensePoseAccumulateDifferentialTests
 
         tally.Locks += production.AppliedLocks > 0 ? 1 : 0;
         tally.Barrel += production.SpunBarrels > 0 ? 1 : 0;
-        tally.Controllers += production.Controllers.Count > 0 && production.BoneControllers.Count > 0 ? 1 : 0;
+        bool controlled = production.Controllers.Count > 0 && production.BoneControllers.Count > 0;
+
+        tally.Controllers += controlled ? 1 : 0;
+
+        // A layer makes `Accumulate` hand `Adjust` its own `_layered`, which is `DenseOf`'s shortcut branch.
+        tally.LayeredControllers += controlled && production.Layers.Count > 0 ? 1 : 0;
 
         for (int bone = 0; bone < bones.Count; bone++)
         {
@@ -603,6 +618,8 @@ public sealed class DensePoseAccumulateDifferentialTests
 
         public int Controllers { get; set; }
 
+        public int LayeredControllers { get; set; }
+
         public int Barrel { get; set; }
 
         public int PartialMask { get; set; }
@@ -628,6 +645,8 @@ public sealed class DensePoseAccumulateDifferentialTests
             Locks.ShouldBeGreaterThan(0, "the control: a build applied IK locks");
             LayerLocks.ShouldBeGreaterThan(0, "the control: a layer carried its own locks");
             Controllers.ShouldBeGreaterThan(0, "the control: a build ran bone controllers");
+            LayeredControllers.ShouldBeGreaterThan(
+                0, "the control: a build ran controllers over a layered pose, DenseOf's _layered branch through Adjust");
             Barrel.ShouldBeGreaterThan(0, "the control: a build spun a barrel");
             PartialMask.ShouldBeGreaterThan(0, "the control: a build used a mask narrower than everything");
             PreWritten.ShouldBeGreaterThan(0, "the control: a build found bones already written");
@@ -636,7 +655,8 @@ public sealed class DensePoseAccumulateDifferentialTests
 
         public override string ToString() =>
             $"dense base {DenseBase}, other base {OtherBase}, layers {Layers} (delta {Delta}, override {Override}), " +
-            $"locks applied {Locks}, layer locks {LayerLocks}, controllers {Controllers}, barrel {Barrel}, " +
+            $"locks applied {Locks}, layer locks {LayerLocks}, controllers {Controllers} (over layers " +
+            $"{LayeredControllers}), barrel {Barrel}, " +
             $"partial mask {PartialMask}, pre-written {PreWritten}, skipped bones {Skipped}";
     }
 

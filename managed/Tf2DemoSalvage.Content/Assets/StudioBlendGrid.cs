@@ -602,9 +602,10 @@ public static class StudioPoseBlend
         ReadOnlySpan<StudioBonePose> left = AsDense(first, bones.Count);
         ReadOnlySpan<StudioBonePose> right = AsDense(second, bones.Count);
 
-        // Not suppressed for Stryker: a mutant that skips this expansion leaves a sparse input as an empty span, which the
-        // blend then indexes, and the differential's sparse shapes kill it. Only "a dense input expanded anyway" is
-        // equivalent, and no single mutant produces that alone; `StudioPoseBlendAsDenseTests` witnesses the short way.
+        // Not suppressed for Stryker: a mutant that skips this expansion leaves a sparse input as an empty span, so
+        // `BlendExpanded`'s length guard throws, and the differential's sparse shapes kill it with that exception. Only "a
+        // dense input expanded anyway" is equivalent, and no single mutant produces that alone;
+        // `StudioPoseBlendAsDenseTests` witnesses the short way.
         if (left.IsEmpty)
         {
             SeedInto(bones, additive, output);

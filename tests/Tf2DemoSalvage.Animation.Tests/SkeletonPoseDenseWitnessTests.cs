@@ -17,9 +17,16 @@ namespace Tf2DemoSalvage.Animation.Tests;
 /// (<c>_bones[bone].Position</c> and <c>.Rotation</c>); the per-bone loop reads the array by reference instead. So
 /// a skeleton that counts its own index reads separates the routes by exactly two reads a bone.
 ///
-/// Not witnessed here: the third consumer, the <c>_overrideOf</c> index in <c>Build</c>. Skipping it reads no bone, and
-/// the index is private, so its short way is equivalent from outside by construction; the differential covers both
-/// routes for correctness.
+/// Not witnessed here, and not witnessable by bone reads:
+/// <list type="bullet">
+/// <item>the third consumer, the <c>_overrideOf</c> index in <c>Build</c>: skipping it reads no bone and the index is
+/// private. The differential covers both routes for correctness.</item>
+/// <item><c>DenseOf</c>'s shortcut for <c>_layered</c> and <c>_adjusted</c>: without it the same arrays are scanned by
+/// <c>AsDense</c>, which reads no bone either and answers the same storage. It is a cost branch no output can tell
+/// apart, and its <c>||</c>-to-<c>&amp;&amp;</c> mutant is suppressed for that reason (measured equivalent: the whole
+/// Animation suite stays green under it). The layer-plus-controller builds in
+/// <c>DensePoseAccumulateDifferentialTests</c> exercise the <c>_layered</c> branch through <c>Adjust</c>.</item>
+/// </list>
 /// </remarks>
 public sealed class SkeletonPoseDenseWitnessTests
 {

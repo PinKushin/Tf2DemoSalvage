@@ -429,6 +429,10 @@ public sealed class SkeletonPose : IBonePose
         // animation, so the workspace list it may point into is not written until the next build.
         ReadOnlySpan<StudioBonePose> dense = DenseOf(animated);
 
+        // Deliberately NOT suppressed for Stryker, although indexing a dense pose would be harmless: no single mutant
+        // here produces only that. Negating the test or emptying the block leaves a SPARSE pose unindexed, so the loop
+        // reads a stale or zero `_overrideOf`, and `DensePoseAccumulateDifferentialTests` kills both (measured
+        // 2026-10-31, as were both mutants of the loop's `!dense.IsEmpty || _overrideOf[bone] >= 0`).
         if (dense.IsEmpty)
         {
             Array.Fill(_overrideOf, -1);
@@ -1292,6 +1296,7 @@ public sealed class SkeletonPose : IBonePose
     /// </remarks>
     private ReadOnlySpan<StudioBonePose> DenseOf(IReadOnlyList<StudioBonePose> pose)
     {
+        // Stryker disable once Logical : a cost branch no output can tell apart - with `&&` neither array is recognised, so each is scanned by AsDense, which answers its own storage: the same bits and the same bone reads, only slower. The Boolean negation stays live: it hands a list to the cast and fails
         if (ReferenceEquals(pose, _layered) || ReferenceEquals(pose, _adjusted))
         {
             return (StudioBonePose[])pose;
