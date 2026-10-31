@@ -578,10 +578,12 @@ the base for a noise floor:
 
 - **Tick 58301, first person, where the viewer path fails a lock:** 0 of 542,184 pixels differ.
 - **Tick 54871, three fixed cameras on the two players the probe flagged:** 0 pixels differ in the 3D
-  view. The 26,513 that differ sit in the HUD strip (rows 0-36), and they also differ between two
-  runs of the same build, so that is HUD noise.
+  view. That is NOT evidence about visibility, because the viewer path fails no lock at that tick
+  (0 in 158). The two builds pose identically there by construction, so these shots are only a
+  noise floor. The 26,513 pixels that differ sit in the HUD strip (rows 0-36), and the same pixels
+  also differ between two runs of one build, so that is HUD noise.
 
-Why tick 58301 shows nothing is not settled. It may be that the failed lock's player is occluded or
+So the only visibility evidence is the one frame at 58301. Why it shows nothing is not settled. It may be that the failed lock's player is occluded or
 outside the view. It may be that the pose belongs to a non-drawn query (bones are also set up for
 the decal replay's hitbox traces). Or the captured and sequenced foot rotations may already agree.
 *Interpolated*, not measured. A synthetic chain shows the effect exactly:

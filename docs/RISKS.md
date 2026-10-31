@@ -40417,8 +40417,9 @@ successful solves. Evidence:
   skipped the `flLocalQWeight` read. They now count four.
 - **Failure rate on f12, measured:** 3 in 2,794 lock solves in the viewer path over 30 sampled
   ticks.
-- **Visible difference, measured:** none. 0 pixels differ at tick 58301 in first person, where a
-  lock fails, and 0 differ in the 3D view at tick 54871 from three cameras. Full account:
+- **Visible difference, measured in one frame:** none. 0 pixels differ at tick 58301 in first
+  person, where a lock is confirmed to fail in the viewer path, and nobody has established why. The
+  tick 54871 shots are only a noise floor, because the viewer path fails no lock there. Full account:
   `docs/findings/09-valve-implementation.md`, "A sequence's IK lock ignores its own solver's
   verdict".
 
