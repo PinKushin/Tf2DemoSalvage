@@ -40251,6 +40251,64 @@ It is tested red-first. It names which thread waited and where the draw had got 
 **Reopen if** the `queue stall` line ever appears in a viewer log, or if this test's hang rate on the branch, measured
 the same way, exceeds the baseline's.
 
+## B621 — a remapped animation's frame blend is sized and seeded from the included model's bones, at base-model indices (2026-10-31) — OPEN
+
+**Evidence class: read from published source on both sides; whether any shipped model is affected is *not measured*.**
+Found while making the frame-pair decode single-pass (`perf/frame-pair-one-pass`). That change kept this behavior bit
+for bit, so the change did not cause this entry and does not fix it.
+
+- **Valve:** `CalcVirtualAnimation` walks the BASE model's bones (`for (int i = 0; i < pStudioHdr->numbones(); i++)`,
+  `bone_setup.cpp:927`). It seeds base bone `i` from the sequence group's bone `j = pSeqGroup->boneMap[i]`
+  (`:931-947`), and writes each track at `j = pAnimGroup->masterBone[panim->bone]` (`:966`). The track's own rest values
+  come from the animation model's bone (`&pAnimbone[panim->bone]`, `:973`). The arrays are the base model's, so seed
+  and track agree on what index `i` means. Read for this entry.
+- **Ours:** `StudioAnimation.PoseBetweenInto`, called from `SkinnedModel.PoseBetween` with `BonesOf(group)` and
+  `Remaps(group)`, sizes the dense blend to the included model's bone count. It seeds index `k` from the included
+  model's bone `k`, and reads the fixed-alignment flag for index `k` from the included model too
+  (`StudioPoseBlend.BlendExpanded`). It writes each track at `remap[bone]`, a BASE-model index. The two-pass read
+  before it did the same (`FramePairReference.cs`). The pose-parameter grid in `LocalsInto` then blends those corners
+  against the base `Bones`. Read for this entry.
+- **So it is right only while the included skeleton matches the base in order and count.** What is consistent with
+  that holding for TF2's players: replacing the remap with the identity left every Scene test green (*observed* in a
+  sabotage run, 2026-10-31). That run is not proof, because it does not exercise a mismatch.
+- **Who could see it (*interpolated*):** the owner, on any model whose included animation model lists bones in a
+  different order or number from the base. An unanimated bone there would sit at another bone's bind pose, or past the
+  end of the blend. No such model is known.
+- **What would settle it:** a probe over the shipped models that include animation groups (players, `c_*_arms` with
+  `c_*_animations`, viewmodels). For each group it reports the bone counts and whether `StudioBones.Remap(group, base)`
+  is the identity, and counts the ones that are not. Control: the same probe on one class's `_animations.mdl` against
+  another class's skeleton, which must report a non-identity, or the instrument is broken.
+
+## B620 — a frame pair reads frame + 1 from frame + 1's own section; the engine reads it from frame's (2026-10-31) — OPEN
+
+**Evidence class: read from published source on both sides; whether the two ever differ depends on how studiomdl
+writes sections, which is *not read* (the compiler is not in the SDK tree here) and *not measured*.** Found while making
+the frame-pair decode single-pass (`perf/frame-pair-one-pass`). That change kept this behavior bit for bit, so the
+change did not cause this entry and does not fix it.
+
+- **Valve:** `CalcAnimation` takes `iFrame` and `s` from the cycle, then resolves the section ONCE, from `iFrame`:
+  `panim = animdesc.pAnim( &iLocalFrame, flStall )` (`bone_setup.cpp:1056-1063`; `:915-922` for a virtual model).
+  Each track then reads both keys from that one section's stream, at `iLocalFrame` and the frame after it
+  (`ExtractAnimValue( frame, …, v1, v2 )`, `:413-415`, `:530`). Past a block's end, v2 is "pulled from the first data
+  block in next list" (`:317`, `:333`). `pAnim` puts only `numframes - 1` in the trailing section (`studio.cpp:84-96`).
+  So for `iFrame = numframes - 2`, Valve reads the last frame as v2 from the regular section, never from the trailing
+  one. Read for this entry.
+- **Ours:** `StudioAnimation.PoseBetweenInto` locates frame + 1 by itself. When that lands in a different chain (the
+  next section, or the trailing section), it reads frame + 1 from THAT chain through the two-pass path. When that chain
+  reads nothing, it holds the frame alone, unblended. Read for this entry.
+- **The two agree only if** every section's stream carries one frame past its end, equal to the next section's first
+  frame (and the regular section's last carried frame equals the trailing section's). That is a property of the
+  compiler's output, and nobody here has checked it.
+- **Who could see it (*interpolated*):** on a sectioned (long) animation, for one keyframe interval at each section
+  boundary and at the last interval. Either a different in-between pose there, or, if a section's stream does not carry
+  the extra frame, Valve reading whatever its "next list" holds. Which long animations TF2 actually plays is not
+  counted here. The differential's real-model run did reach straddling pairs, but it samples boundaries on purpose, so
+  its counts are not a rate.
+- **What would settle it:** a probe over every sectioned animation in the shipped models. For each section boundary,
+  read the regular section's stream at local frame `sectionframes` the way `ExtractAnimValue`'s v2 does, and compare it
+  with the next section's local frame 0 (or the trailing section's frame). Count disagreements per channel. Control: the
+  probe must report a non-zero number of boundaries, and must reproduce frame 0 of an unsectioned animation exactly.
+
 ## B619 — a gesture's activity is translated and rolled on every build, not once at its start (2026-10-31) — OPEN
 
 **Evidence class: read from published source on both sides; the observable difference is *interpolated*, nothing measured.**
@@ -40353,7 +40411,8 @@ of `docs/measurements/2026-10-31-setup-bones-read.md` §3.
 
 - **Valve:** blends two keyframes only when `s > 0.001f`, for rotation (`bone_setup.cpp:408`) and position (`:525`);
   at or below that it reads the single frame. Both lines read for this entry.
-- **Ours:** `PoseBetween` returns the single frame when `fraction <= 0f` (`PropModels.cs:2178`, read for this entry),
+- **Ours:** `PoseBetween` returns the single frame when `fraction <= 0f` (`PropModels.cs:2178`, read for this entry;
+  since `perf/frame-pair-one-pass` the test is the first one in `StudioAnimation.PoseBetweenInto`, unchanged),
   so for `0 < s <= 0.001` we blend where Valve does not.
 - **Who could see it:** no one. The difference is at most a thousandth of one keyframe step (*arithmetic*). It is a
   parity item, not a performance one, though the same change also skips a second read in that band.
