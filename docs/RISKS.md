@@ -40251,6 +40251,29 @@ It is tested red-first. It names which thread waited and where the draw had got 
 **Reopen if** the `queue stall` line ever appears in a viewer log, or if this test's hang rate on the branch, measured
 the same way, exceeds the baseline's.
 
+## B638 — a plain (non-`$mod2x`) Modulate draws about twice too bright in linear terms: it is lit, Valve's is not (2026-10-31) — OPEN
+
+**Measured (offscreen, `ModulateToneMapConformanceTests`' hand-built material):** a plain Modulate of texel 128 over a
+188 surface draws 129. Valve multiplies in gamma, `dst · src` (`DST_COLOR, ZERO`, `modulate_dx9.cpp:147`), so
+188 · 128/255 ≈ 94 (*arithmetic*). *Read:* Valve's Modulate uses `unlitgeneric_vs20` (`modulate_dx9.cpp:186`), so the
+texel times the vertex colour and nothing else. Ours lights it from the lightmap atlas's white texel (2.0) with no
+compensation. `DecalMesh` compensates only `DecalModulate` decals, through `ModulateTwiceLight`. **Who it reaches:** every
+shipped non-`$mod2x` Modulate, including the capture point's `cappoint_logo_*_dark` signs (`VmtMaterial.IsModulate`'s
+remark). The `$mod2x` case lands within about 4 levels of Valve's arithmetic (90 against 94) and is held by the brush test.
+
+## B637 — a Modulate or DecalModulate draw takes no fog; Valve fogs it toward its neutral value (2026-10-31) — OPEN
+
+*Read:* `DecalModulate` calls `FogToGrey` (`DecalModulate_dx9.cpp:80`) and pre-scales the factor by
+`pow( saturate( fogFactor ), 0.4 )` (`decalmodulate_ps2x.fxc:42`). `Modulate` calls `FogToGrey` under `$mod2x` and
+`FogToOOOverbright` without (`modulate_dx9.cpp:201-209`). Either way, in fog the surface fades to "change nothing". Ours
+gives a modulating material fog mode 2, which is no fog at all (`WorldRenderer.FogModeOf`, the `ponytail:` beside it),
+so in fog it stays at full strength. **Who it reaches:** every decal scorch and bullet hole in a fogged map, and
+`models/props_nucleus/mp_energy` on `koth_nucleus` and `arena_nucleus`. Before B635's review that model was drawn as
+additive and fogged to black, which was also neutral for an additive draw.
+**Tripwire:** `ModulateToneMapConformanceTests.FogModeAndToneMapType_…` pins fog mode 2 for modulating materials. When
+this is fixed, that test goes red BY DESIGN. The water-fog branch (`ToneMapScale(tintControl.w)`) then becomes reachable
+by a modulating material, and has to keep its scale exemption.
+
 ## B636 — the world pass gets the exposure only on frames that draw a 3D-sky or water view (2026-10-31) — OPEN, lead
 
 **Measured (f12, cp_process_f12, HDR_TYPE_INTEGER, Debug `--shot`):** every capture logs "drawn with tone-map scale
