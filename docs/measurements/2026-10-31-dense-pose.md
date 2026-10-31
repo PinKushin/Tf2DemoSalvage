@@ -112,7 +112,16 @@ frame-pair second after-set (`after-review/`), the same demo, tick, build config
 **Predictions:** 1 holds (sampling 0.260, inside 0.225-0.265). 2 holds (remainder −0.005, under the 0.01 line). 3 holds (adjust
 0.0023). 4 holds (roots −0.020, inside 0.015-0.06). 5 holds (blend, loop and ik move by ≤ 0.001; counts within ±1).
 
-## Verdict
+## Second after-set (merge `ae7053e8`, after the review batch) - predictions made before the run
+
+The review batch changed production code: `DenseOf` carries "known dense" for `_layered` and `_adjusted` so `Adjust` and `Build`
+no longer re-scan them, `AsDense` lost its `bones <= 0` test, `BlendExpanded` gained a length guard. Three more runs into
+`2026-10-31-dense-pose/after-review/`. Predictions [all predictions]: roots 0.455-0.485 (the first set's mean 0.475 less up to
+0.02 for the dropped scans; the scans are about 78 compares each, so under 0.005 ms), adjust ≤ 0.003, base + layer sampling
+0.245-0.270. **Falsified if** roots is above 0.50 (the carry or the guard cost more than they saved) or below 0.44; the effect of
+the carry alone is below the noise and is not claimed.
+
+## Verdict (first set)
 
 A small win in the predicted direction: roots −0.020 ms per rebuild (−4%), sampling −0.014, adjust −0.002, the accumulate remainder
 −0.005. Above the 0.01 ms bar but near the noise: the paired runs go 0.268→0.268, 0.273→0.259, 0.280→0.253 in sampling and
