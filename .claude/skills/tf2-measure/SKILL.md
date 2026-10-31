@@ -37,6 +37,12 @@ the build output rather than a grep of it (`error S` is not `error CS`).
 - **`+fps_max 0`** or the cap is what you measure. The default is 300.
 - **It exits itself**, so this never needs backgrounding, a sleep, or a kill.
 
+## Per-pass GPU needs the window off screen
+
+Clear, Sky3D and World per-pass GPU differ by whether any part of the viewer window is visible; the frame mean does not.
+For any per-pass GPU comparison prefix `TF2VIEW_WINDOW_POS=-3000,100` on every run and classify each run by Clear GPU
+(above 1.0 is the nothing-visible state, below 0.3 the visible one). Evidence: `docs/measurements/2026-10-30-gpu-state-selector.md`.
+
 ## The focus sleep is off for you
 
 `--measure` holds `engine_no_focus_sleep` at 0 where the sleep is read, over the command line, saved
