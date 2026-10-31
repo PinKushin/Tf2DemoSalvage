@@ -141,6 +141,30 @@ builds outside 4-7, or `prepose` not `0 over 0`. **That last matters:** with the
 What follows from each outcome: if 2 holds, the read's ranking item 1 (single-pass frame-pair decode) is first; if blend or
 loop is largest instead, the ranking is wrong and items 3-6 move up.
 
+## Instrument audit caveats (Opus `instrument-auditor`, 2026-10-31, read before believing a result)
+
+The audit found no wrong number: the seven parts come from one timestamp chain, `LastBuild` is read only when `root && built`,
+children are dropped in `BoneSetupMeter.Record`, and parts and `RootTicks` leave through the same `SetupMark`. It found
+these limits, none fixed before the runs:
+
+1. **`roots split (blend …)` is near 0 whenever the threaded pre-pass is on.** `EntityModels.Instances.cs` (~1017-1027) runs
+   every eligible root's `BeforeBuild` before `MarkSetup`, so the worker times only the idempotent repeat; the real cost is in
+   `prepose … blend`. The log line carries no warning. Only the void rule (`prepose` must be `0 over 0`) covers it.
+   Follow-up: label it in the line, or carry the pre-pass blend into the same part.
+2. **`unsplit` is `_setupRoot − Sum`, recomputed, never recorded.** Control 1 (`unsplit` ≥ 0) catches a wiring fault only;
+   it cannot catch a mis-timed part. The ragdoll hook, `_written.Clear`, the guards and `_poseBuilds` land in `unsplit` unlabeled.
+3. **Control 2 can fire while the instrument is right**: the ragdoll hook is deliberately left in `unsplit`, so a scene with
+   drawn corpses can exceed 0.05. The line has no ragdoll count to tell the cases apart. Read a failure as "look", not "broken".
+4. **Control 5 can fire while the instrument is right**: `SkeletonPose.AnimationTicks` (`EntityModels.cs:642`) is process-wide
+   and also counts attachment and hitbox queries (`EntityModels.Queries.cs:253,293,325,356,401,481`),
+   `EntityModels.Simulation.cs:552`, `CorpsePhysics.cs:597` and HUD model panels, none of which is in roots or children.
+5. **`accumulate` starts before the shared static `Interlocked.Add(_animationTicks)` and the `_layerSampling` resets**
+   (`SkeletonPose.cs:393`). With the pre-pass on, worker contention on that static reads as `accumulate − sampling`, which
+   prediction 5 attributes to seed, overlay and slerp. Small with the pre-pass off, the only non-void case.
+6. **The Scene charge (`SetupRootParts`, the `RootParts` field of `MarkSetup`, `RootParts.Since` in `PoseCounters.Since`,
+   `EntityModels.cs:630`) has no test.** Control 6 catches only "every part about 0". A partial break prints cumulative parts,
+   noticed only once they exceed the root total and `unsplit` goes negative. Follow-up: a Scene-level wiring test.
+
 ## Environment
 
 To be recorded with the result: the branch commit, the build, load before and after each run.
