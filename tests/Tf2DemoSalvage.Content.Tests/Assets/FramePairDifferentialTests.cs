@@ -95,26 +95,9 @@ public sealed class FramePairDifferentialTests
 
             models++;
 
-            IReadOnlyList<StudioBone> bones = StudioBones.Read(model);
-            int[] remap = StudioBones.Remap(bones, StudioBones.Read(player));
             int before = tally.Compared;
 
-            foreach (int[]? map in new[] { null, remap })
-            {
-                for (int animation = 0; animation < StudioAnimation.Count(model); animation++)
-                {
-                    foreach (int frame in FramesOf(StudioAnimation.Frames(model, animation), everyFrame: false))
-                    {
-                        tally.CountSections(model, animation, frame);
-
-                        foreach (float fraction in RealFractions)
-                        {
-                            Compare(model, bones, map, animation, frame, fraction, workspace, lists, tally);
-                        }
-                    }
-                }
-            }
-
+            CompareEveryAnimation(model, player, workspace, lists, tally);
             read.Append(name).Append(' ').Append(tally.Compared - before).Append("; ");
         }
 
@@ -126,6 +109,93 @@ public sealed class FramePairDifferentialTests
         models.ShouldBe(classes.Length, "the control: every class's animations and skeleton were read");
         tally.Mismatches.ShouldBe(0, tally.First);
         tally.Dense.ShouldBeGreaterThan(10_000, "the control: real blends were compared, not a handful");
+    }
+
+    /// <remarks>
+    /// **Every other animated model the existing fixtures name**: the player models' own animations, the first-person
+    /// arms (the measured scene is first person) and their included animation models remapped onto them, the one old
+    /// viewmodel still shipped, and the animated props and buildables. The fixtures also name
+    /// <c>v_rocketlauncher</c>, <c>v_scattergun</c>, <c>v_watch</c> and <c>v_knife</c>, which the current install no
+    /// longer carries. A file missing from the install fails the control rather than
+    /// quietly shrinking what was compared.
+    /// </remarks>
+    [Test]
+    public void PoseBetweenInto_EveryOtherAnimatedModelTheFixturesName_IsBitIdenticalToTheTwoPassReference()
+    {
+        string[] classes = ["scout", "soldier", "pyro", "demo", "heavy", "engineer", "medic", "sniper", "spy"];
+        (string Model, string? Base)[] subjects =
+        [
+            .. classes.Select(name => ($"models/player/{name}.mdl", (string?)null)),
+            .. classes.Select(name => ($"models/weapons/c_models/c_{name}_arms.mdl", (string?)null)),
+            .. classes.Select(name => (
+                $"models/weapons/c_models/c_{name}_animations.mdl",
+                (string?)$"models/weapons/c_models/c_{name}_arms.mdl")),
+            ("models/weapons/v_models/v_rocketlauncher_soldier.mdl", null),
+            ("models/props_gameplay/resupply_locker.mdl", null),
+            ("models/props_gameplay/door_slide_door.mdl", null),
+            ("models/props_gameplay/cap_point_base.mdl", null),
+            ("models/props_well/main_entrance_door.mdl", null),
+            ("models/buildables/sentry3.mdl", null),
+            ("models/effects/cappoint_hologram.mdl", null),
+            ("models/items/medkit_small.mdl", null),
+        ];
+
+        StudioPoseWorkspace workspace = new();
+        FramePairReference.Lists lists = new();
+        Tally tally = new();
+        List<string> missing = [];
+        StringBuilder read = new();
+
+        GameInstall.Require();
+
+        foreach ((string path, string? basePath) in subjects)
+        {
+            byte[]? baseModel = basePath is null ? null : Read(basePath);
+
+            if (Read(path) is not { } model || (basePath is not null && baseModel is null))
+            {
+                missing.Add(path);
+                continue;
+            }
+
+            int before = tally.Compared;
+
+            CompareEveryAnimation(model, baseModel, workspace, lists, tally);
+            read.Append(path[(path.LastIndexOf('/') + 1)..]).Append(' ').Append(tally.Compared - before).Append("; ");
+        }
+
+        TestContext.Out.WriteLine(
+            $"compared {tally.Compared} ({read}) dense {tally.Dense}, sparse {tally.Sparse}, empty {tally.Empty}; " +
+            $"pairs within a section {tally.WithinOne}, straddling {tally.Straddling}, into the trailing section " +
+            $"{tally.IntoTrailing}");
+
+        missing.ShouldBeEmpty("the control: every named model was read from the install");
+        tally.Mismatches.ShouldBe(0, tally.First);
+        tally.Dense.ShouldBeGreaterThan(1_000, "the control: real blends were compared, not a handful");
+    }
+
+    /// <summary>Every animation of <paramref name="model"/>, unremapped and, given a base, remapped onto it.</summary>
+    private static void CompareEveryAnimation(
+        byte[] model, byte[]? baseModel, StudioPoseWorkspace workspace, FramePairReference.Lists lists, Tally tally)
+    {
+        IReadOnlyList<StudioBone> bones = StudioBones.Read(model);
+        int[]?[] remaps = baseModel is null ? [null] : [null, StudioBones.Remap(bones, StudioBones.Read(baseModel))];
+
+        foreach (int[]? remap in remaps)
+        {
+            for (int animation = 0; animation < StudioAnimation.Count(model); animation++)
+            {
+                foreach (int frame in FramesOf(StudioAnimation.Frames(model, animation), everyFrame: false))
+                {
+                    tally.CountSections(model, animation, frame);
+
+                    foreach (float fraction in RealFractions)
+                    {
+                        Compare(model, bones, remap, animation, frame, fraction, workspace, lists, tally);
+                    }
+                }
+            }
+        }
     }
 
     [Test]
