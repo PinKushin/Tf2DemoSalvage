@@ -562,29 +562,42 @@ solver's `bool` as "nothing to do", the way `SolveDependencies` does. It looks l
 reading, and it is the wrong one for this caller. Fixed by taking the return as a value and not as a
 gate. `Applied` still counts only solves that succeeded.
 
-**How often it fires (measured, f12):** rarely.
+**How often it fires (measured, f12):** 3 in 2,794 lock solves on f12's 30 sampled ticks, in
+first person.
 
-- The `temp-b622` probe posed each player alone over 30 evenly spaced ticks: **3 failures in 1,034
-  lock solves**, all at tick 54871.
-- An instrumented viewer, in first person and seeking through the same 30 ticks, counted **3 failures
-  in 2,794**. Its control was the successes it also logged.
-- At tick 54871 the viewer path had **0 failures in 158**. The probe's single-entity pose does not
-  reproduce the viewer's pose there.
-- Bisection put one viewer-path failure at **tick 58301** (bone 26, one failure in 252 solves).
+- The 30 ticks are evenly spaced, from 3430 to 102883.
+- **Viewer path:** a temporarily instrumented viewer seeking through the 30 ticks
+  (`TF2VIEW_SEEK_THROUGH`) logged every solve. Its control was the successes it also logged.
+- **Where the three are:** bisecting by cumulative log lines placed one at **tick 58301** (bone 26),
+  and 58301 is one of the 30. The other two (bones 25 and 17) fall later in the sweep, somewhere in
+  ticks 61730-102883. They are **not located** more precisely.
+- **Tick 54871:** the viewer path fails no lock there (0 of 158).
+- **The probe disagrees with the viewer.** The `temp-b622` probe posed each player alone over the
+  same 30 ticks and found 3 failures in 1,034, all at tick 54871. Its single-entity pose does not
+  reproduce the viewer's.
 
-**Whether anyone can see it (measured, f12):** not in any frame shot here. Each comparison took
-`--shot` frames from a base-commit build and a fixed build, with the same camera, and a repeat of
-the base for a noise floor:
+**Whether anyone can see it (measured, f12):** no failure was found in a drawn pose, so no frame
+can show it.
 
-- **Tick 58301, first person, where the viewer path fails a lock:** 0 of 542,184 pixels differ.
-- **Tick 54871, three fixed cameras on the two players the probe flagged:** 0 pixels differ in the 3D
-  view. That is NOT evidence about visibility, because the viewer path fails no lock at that tick
-  (0 in 158). The two builds pose identically there by construction, so these shots are only a
-  noise floor. The 26,513 pixels that differ sit in the HUD strip (rows 0-36), and the same pixels
-  also differ between two runs of one build, so that is HUD noise.
+- **The one located failure is not drawn.** At tick 58301 a temporary instrument, run in the same
+  `--shot` invocation as the comparison, logged the caller of the only failing solve:
+  `DecalEffects.ReplayOver` → `BulletStrikes.StruckPlayer` → `EntityModelSet.TraceHitboxes` →
+  `AnimatingEntity.SetupBones`. That is the bullet-decal replay posing a player to trace its
+  hitboxes, not the draw.
+  - The entity index could not be recovered: the hook was registered by a different
+    `EntityModelSet` instance.
+  - So the reviewer's candidate (the first-person recorder, whose body is not drawn) is neither
+    confirmed nor needed. Whatever the entity, the pose that failed is a query's.
+  - Its only effect is where a foot hitbox sits, for decal placement.
+- **The comparisons, for the record.** Each took `--shot` frames from a base-commit build and a
+  fixed build, with the same camera, and a repeat of the base as a noise floor.
+  - **Tick 58301, first person:** 0 of 542,184 pixels differ. Expected, since the failing pose is
+    not drawn.
+  - **Tick 54871, three fixed cameras on the players the probe flagged:** 0 pixels differ in the 3D
+    view. This is a noise floor only, because the viewer fails no lock there.
+  - The 26,513 pixels that differ sit in the HUD strip (rows 0-36). The same pixels also differ
+    between two runs of one build, so that is HUD noise.
+- **A third-person retake was not taken:** no drawn failure was found to aim a camera at.
 
-So the only visibility evidence is the one frame at 58301. Why it shows nothing is not settled. It may be that the failed lock's player is occluded or
-outside the view. It may be that the pose belongs to a non-drawn query (bones are also set up for
-the decal replay's hitbox traces). Or the captured and sequenced foot rotations may already agree.
-*Interpolated*, not measured. A synthetic chain shows the effect exactly:
+A synthetic chain shows the effect exactly:
 `IkLockConformanceTests.Solve_WithALegTooStraightToSolve_SlamsTheCapturedRotationWhereTheSequenceLeftTheFoot`.
