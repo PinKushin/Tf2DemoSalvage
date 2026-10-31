@@ -3,7 +3,7 @@
 ## Changes in 0.1.0-beta.57
 
 Gate for this release (every test executed, 0 failed): core 2737, cli 75, logging 37, fonts 5, animation 5378, scene 3424,
-audio 383, presentation 1330, content 1890, corpus 242, rendering 1340, viewer 159, UI suite 84 of 84 counted as 76 passed + 8 skipped + 0 failed; CI on the merge commit 105e5584 green with 2 annotations, both the notice that the runner label `ubuntu-latest` moves to Ubuntu 26 (no warnings, no errors; Test run 41244338821, CodeQL run 41244338780). One UI-suite test, the speed slider's end keys, failed once in an earlier full run on the same code and passed in the others (B632).
+audio 383, presentation 1330, content 1890, corpus 242, rendering 1340, viewer 159, UI suite 84 of 84 counted as 76 passed + 8 skipped + 0 failed; CI on the merge commit 105e5584 green with 2 annotations, both the notice that the runner label `ubuntu-latest` moves to Ubuntu 26 (no warnings, no errors; Test run 41244338821, CodeQL run 41244338780). One UI-suite test, the speed slider's end keys, failed once in a full run at commit 0979f203 and passed in the full runs since, including this release's gate (B632).
 Figures are on the `cp_process_f12` recording, one machine, first person unless it says otherwise; the file beside each
 figure holds it. Several changes below are parity fixes that cost frames, and are reported as costs.
 
@@ -30,7 +30,7 @@ figure holds it. Several changes below are parity fixes that cost frames, and ar
   Against the start of the day's work the roots total is still about 0.08 ms lower (0.608 to 0.530) (docs/measurements/2026-10-31-b624-cost.md).
   **Not done:** the transition order (B633), local layers inside nested sequences (B634), autoplay IK rules in their own context (B631); see *Known gaps*.
 - **A failed IK lock solve still pins the foot (B622).** Valve slams the captured rotation onto the foot even when the solve fails; ours skipped it (docs/RISKS.md, B622).
-  No visible change was measured: no scene pixel moved in the two shots taken for B624 (docs/RISKS.md, B624).
+  No visible change was measured: the one failing solve located on f12 (tick 58301, 3 failures in 2,794 solves) came from a hitbox query for a bullet decal, never from a drawn pose, and no scene pixel moved in the two shots taken for B624 (docs/RISKS.md, B622, B624).
 - **Face flex is cheaper.** `flex` per rebuild fell from 0.607 to 0.463 ms, the means of three runs against three (-0.144 ms, 24%); the ranges are 0.565-0.675 before and 0.424-0.537 after, apart (docs/measurements/2026-10-30-flex-for-cost-after.md).
   Two of the six runs (one before, one after) were taken while the machine was slower, so adjacent pairs differ by 0.028 to 0.251 and the pairs are noisier than the means; the three earlier before runs read 0.527-0.546 (docs/measurements/2026-10-30-flex-for-cost-after.md, docs/measurements/2026-10-30-flex-for-cost.md).
   The output is bit-identical in the byte test (195 frames, three models) and 0 pixels differ at a talking scout's face, with a deliberately changed build differing in 1,877 (docs/measurements/2026-10-30-flex-for-cost-after.md).
