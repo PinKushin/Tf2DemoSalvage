@@ -50,7 +50,7 @@ public sealed class MaterialParameterProbe : IProbe
 
     /// <inheritdoc/>
     public string Summary =>
-        "how many shipped materials declare a parameter: vmt-param <$parameter> [!$excluded]";
+        "how many shipped materials declare a parameter: vmt-param <$parameter> [!$excluded] [shader=<name>]";
 
     /// <summary>How many materials to name, rather than only count.</summary>
     private const int Named = 10;
@@ -79,9 +79,10 @@ public sealed class MaterialParameterProbe : IProbe
         string wanted = arguments[0];
 
         // An argument such as `!$phongexponent` narrows to materials that do NOT state it.
-        string? excluded = arguments.Count > 1 && arguments[1].StartsWith('!')
-            ? arguments[1][1..]
-            : null;
+        string? excluded = arguments.Skip(1).FirstOrDefault(argument => argument.StartsWith('!'))?[1..];
+
+        // `shader=Modulate` narrows to one shader, and then every carrier is named with its value.
+        string? onlyShader = arguments.Skip(1).FirstOrDefault(argument => argument.StartsWith("shader=", StringComparison.OrdinalIgnoreCase))?["shader=".Length..];
 
         int materials = 0;
         int unreadable = 0;
@@ -128,7 +129,8 @@ public sealed class MaterialParameterProbe : IProbe
             }
 
             if (material.Value(wanted) is not { } value ||
-                (excluded is not null && material.Value(excluded) is not null))
+                (excluded is not null && material.Value(excluded) is not null) ||
+                (onlyShader is not null && !material.Shader.Equals(onlyShader, StringComparison.OrdinalIgnoreCase)))
             {
                 continue;
             }
@@ -137,9 +139,9 @@ public sealed class MaterialParameterProbe : IProbe
             values[value] = values.GetValueOrDefault(value) + 1;
             shaders[material.Shader] = shaders.GetValueOrDefault(material.Shader) + 1;
 
-            if (carrying.Count < Named)
+            if (onlyShader is not null || carrying.Count < Named)
             {
-                carrying.Add(path);
+                carrying.Add(onlyShader is null ? path : $"{path}  {wanted} = {value}");
             }
         }
 

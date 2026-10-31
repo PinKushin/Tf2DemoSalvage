@@ -151,7 +151,7 @@ internal static class MapCache
         int maximumTextureSize = DefaultTextureSize,
         IReadOnlyCollection<string>? entityModels = null,
         string mapName = DefaultMap) =>
-        Loaded_(maximumTextureSize, entityModels, mapName, null, null);
+        Loaded_(maximumTextureSize, entityModels, mapName, null, null, null);
 
     private static LoadedMap Loaded_(
         int maximumTextureSize,
@@ -159,7 +159,7 @@ internal static class MapCache
         string mapName,
         IReadOnlyCollection<string>? spriteMaterials,
         IReadOnlyCollection<string>? wornModels,
-        IReadOnlyCollection<string>? decalMaterials = null)
+        IReadOnlyCollection<string>? decalMaterials)
     {
         // Both skips happen here, before the cache is touched.
         RequirePath(mapName);

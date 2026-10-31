@@ -568,3 +568,14 @@ with the measurement; it is invisible once the scale is gone.
 
 **Held by** `DecalModulateConformanceTests`, red first: the shipped atlas's neutral texel took a 188 surface to 139
 under a scale of 0.5 and to 255 under 2, and a scorch centre drew 100 at scale 1 and 71 at 0.5.
+
+**After review (2026-10-31): the tone map is its own constant, and `$additive` does not beat Modulate.** The exemption
+was first keyed on fog mode 2, which a later change giving DecalModulate Valve's grey fog could have dropped. It is now
+`tintControl.w`, the tone-map type, set by one predicate (`Modulates`). Reading Valve's shadow state found a second
+divergence nearby. *Read:* `Modulate` picks its blend from `$mod2x` alone (`modulate_dx9.cpp:141-148`), and
+DecalModulate's is fixed, so `$additive` changes neither its blend nor its scale. *Measured:* five shipped Modulate
+materials declare `$additive 1` (`vmt-param $additive shader=Modulate`: `models/props_nucleus/mp_energy`,
+`models/vgui/filmscreen_dark`, `models/effects/comball_glow1`, `effects/red`, `effects/combine_binocoverlay`); no
+DecalModulate does. Ours drew those five ADDED, tone-mapped and fogged to black; they now multiply. Held by
+`ModulateToneMapConformanceTests`: hand-built materials, no game install. Each case carries its own drawn control, and
+the lit case is the negative control that a lit draw IS scaled.

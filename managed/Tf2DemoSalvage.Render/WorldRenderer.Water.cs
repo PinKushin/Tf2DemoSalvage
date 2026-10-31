@@ -226,7 +226,7 @@ internal sealed unsafe partial class WorldRenderer
                 result = float4(0.0f, 0.0f, 0.0f, 0.0f);
             }
 
-            return float4(PixelFog(result.rgb, input.wpos, tintControl.z), 1.0f);
+            return float4(PixelFog(result.rgb, input.wpos, tintControl.z, tintControl.w), 1.0f);
         }
 
         float4 PsWaterCheap(VsOut input) : SV_TARGET
@@ -285,7 +285,7 @@ internal sealed unsafe partial class WorldRenderer
                 specularLighting = lerp(cheapFogColour.rgb, specularLighting, flFresnelFactor);
             }
 
-            return float4(PixelFog(specularLighting, input.wpos, tintControl.z), flAlpha);
+            return float4(PixelFog(specularLighting, input.wpos, tintControl.z, tintControl.w), flAlpha);
         }
         """;
 

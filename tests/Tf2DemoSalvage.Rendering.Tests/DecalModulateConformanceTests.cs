@@ -52,6 +52,10 @@ public sealed class DecalModulateConformanceTests
     public void Draw_NeutralTexelUnderAnyToneMapScale_LeavesTheSurfaceUnchanged(float scale)
     {
         ((int Red, int Green, int Blue) under, (int Red, int Green, int Blue) drawn) = DrawOnce(Neutral, scale) ?? Skip();
+        (_, (int Red, int Green, int Blue) scorched) = DrawOnce(Scorch, scale) ?? Skip();
+
+        // This test's own control: the same draw with the scorch's texel darkens, so a decal that never draws cannot pass.
+        scorched.Green.ShouldBeLessThan(under.Green - 40, $"at scale {scale} the scorch texel drew {scorched} over {under}: nothing drew");
 
         // dst · 2 · 128/255 is dst · 1.004 in Valve's gamma blend; ours blends in linear, within two levels of that.
         string moved = $"at scale {scale} the neutral texel moved the surface from {under} to {drawn}";
@@ -108,14 +112,14 @@ public sealed class DecalModulateConformanceTests
             new(64f, 0f, 64f, texel.U, texel.V, 0f, 0f, 0f, light, light, light),
         ];
 
-        target.WorldToneMapScale = scale;
         // One EMPTY world run: the world pass returns before its decals when it has no runs at all (WorldRenderer.Draw).
         target.DrawWorld(
             quad,
             [new WorldBatch(material, 0, 0)],
             new FreeCamera { Origin = (0f, -300f, 0f), Angles = (0f, 90f, 0f), Aspect = 1f }.ToMatrix(),
             assets,
-            decals: [new WorldBatch(material, 0, 6, Category: SurfaceCategory.Overlay)]);
+            decals: [new WorldBatch(material, 0, 6, Category: SurfaceCategory.Overlay)],
+            toneMapScale: scale);
 
         return (under, target.PixelAt(8, 8));
     }

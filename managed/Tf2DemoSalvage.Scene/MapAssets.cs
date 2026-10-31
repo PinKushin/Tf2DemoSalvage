@@ -516,6 +516,31 @@ public sealed class MapAssets
         Missing = missing;
     }
 
+    /// <summary>A table of hand-built materials and nothing else: no map, no game install (B635's synthetic guard).</summary>
+    /// <param name="textures">Each material's base texture and flags, by table index.</param>
+    /// <param name="shaders">Each material's shader name, by the same index.</param>
+    /// <returns>Assets whose every other per-material slot is empty, with an atlas holding only the reserved white texel.</returns>
+    internal static MapAssets ForMaterials(IReadOnlyList<MapTexture?> textures, IReadOnlyList<string> shaders)
+    {
+        ArgumentNullException.ThrowIfNull(textures);
+        ArgumentNullException.ThrowIfNull(shaders);
+
+        int count = textures.Count;
+
+        return new MapAssets(
+            textures,
+            new MapTexture?[count],
+            new MapDetail?[count],
+            new MapBump?[count],
+            new MapCubemap?[count],
+            [.. Enumerable.Repeat<IReadOnlyList<MaterialProxy>>([], count)],
+            [.. Enumerable.Range(0, count).Select(index => new BspMaterial($"synthetic/{index}", (1f, 1f, 1f), 1, 1))],
+            shaders,
+            LightmapAtlas.Pack([]),
+            count,
+            0);
+    }
+
     /// <summary>Each drawn static prop's model shape and placement, by its index in the map's lump — for its decals (B421).</summary>
     public IReadOnlyDictionary<int, PlacedProp> PlacedProps { get; init; } = new Dictionary<int, PlacedProp>();
 
