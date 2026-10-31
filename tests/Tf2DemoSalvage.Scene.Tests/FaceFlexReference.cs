@@ -87,6 +87,39 @@ internal static class FaceFlexReference
         return applied;
     }
 
+    /// <summary>
+    /// <c>FaceFlex.FlexedCorners</c> as it stood at <c>5ff7e1ac</c> (the factory is unchanged since; only the record it fills
+    /// gained bounds), so the reference builds its own corner list rather than trusting production's.
+    /// </summary>
+    public static FlexedCorners Corners(StudioFlexData data, IReadOnlyList<int> cornerVertex, IReadOnlyList<int> packedOrder)
+    {
+        HashSet<int> moved = [];
+
+        foreach (StudioMeshFlex flex in data.Flexes)
+        {
+            foreach (StudioVertAnim anim in flex.Vertices)
+            {
+                moved.Add(anim.Vertex);
+            }
+        }
+
+        List<int> at = [];
+        List<int> from = [];
+
+        for (int slot = 0; slot < packedOrder.Count; slot++)
+        {
+            int corner = packedOrder[slot];
+
+            if (corner >= 0 && corner < cornerVertex.Count && cornerVertex[corner] >= 0 && moved.Contains(cornerVertex[corner]))
+            {
+                at.Add(slot);
+                from.Add(cornerVertex[corner] * 3);
+            }
+        }
+
+        return new FlexedCorners([.. at], [.. from]);
+    }
+
     public static float[] IntoFlexedSlots((float[] Positions, float[] Normals) deltas, FlexedCorners corners, float[] stream)
     {
         ReadOnlySpan<float> positions = deltas.Positions;

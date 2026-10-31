@@ -42,6 +42,13 @@ public sealed class FaceFlexIdentityTests
             [listed] = (new float[listed.Order.Length * 6], new float[listed.Order.Length * 6]),
         };
 
+        // The production factory builds the corner list the reference's own copy of the old factory builds.
+        foreach (Model model in streams.Keys)
+        {
+            model.Corners.At.ShouldBe(model.ReferenceCorners.At);
+            model.Corners.From.ShouldBe(model.ReferenceCorners.From);
+        }
+
         int frames = 0;
         int moved = 0;
 
@@ -49,7 +56,8 @@ public sealed class FaceFlexIdentityTests
         {
             (float[] now, float[] reference) = streams[model];
 
-            int expected = FaceFlexReference.Face(model.Data, weights, delayed, refPositions, refNormals, model.Corners, reference);
+            int expected = FaceFlexReference.Face(
+                model.Data, weights, delayed, refPositions, refNormals, model.ReferenceCorners, reference);
 
             FaceFlex.ClearMoved(model.Corners, positions, normals);
             int applied = StudioFlexRules.Accumulate(model.Data, weights, delayed, positions, normals);
@@ -87,7 +95,11 @@ public sealed class FaceFlexIdentityTests
                 new StudioMeshFlex(1, 0, 0f, 1f, 1f, 2f, [Anim(1), Anim(9)]),
             ]);
 
-        FaceFlex.FlexedCorners(data, [0, 1, 4], [2, 1, 0]).Moved.ShouldBe([3, 12]);
+        // Corners 1 and 3 both read vertex 1, so From holds offset 3 twice and Moved must hold it once.
+        FlexedCorners corners = FaceFlex.FlexedCorners(data, [0, 1, 4, 1], [2, 1, 0, 3]);
+
+        corners.From.ShouldBe([12, 3, 3]);
+        corners.Moved.ShouldBe([3, 12]);
     }
 
     /// <summary>The clear writes the read offsets' three floats and nothing else.</summary>
@@ -226,6 +238,52 @@ public sealed class FaceFlexIdentityTests
         cleanPositions[2].ShouldNotBe(0f, "the control: the accumulation moved it");
     }
 
+    /// <summary>A negative offset is skipped, never thrown on, as is one whose int vertex-times-three wraps negative.</summary>
+    [Test]
+    public void ClearMoved_ANegativeOffset_IsSkipped()
+    {
+        float[] positions = [9f, 9f, 9f, 9f, 9f, 9f];
+        float[] normals = [8f, 8f, 8f, 8f, 8f, 8f];
+
+        FaceFlex.ClearMoved(new FlexedCorners([0], [-3]), positions, normals);
+
+        positions.ShouldBe([9f, 9f, 9f, 9f, 9f, 9f]);
+        normals.ShouldBe([8f, 8f, 8f, 8f, 8f, 8f]);
+    }
+
+    /// <summary>Vertex 715,827,883 times three is 2,147,483,649, which wraps in int to a negative offset: skipped.</summary>
+    [Test]
+    public void ClearMoved_AVertexWhoseOffsetWrapsNegative_IsSkipped()
+    {
+        const int Wrapping = 715_827_883;
+        StudioFlexData data = new(["a"], [], [], [new StudioMeshFlex(0, 0, 0f, 1f, 1f, 2f, [Anim(Wrapping)])]);
+        FlexedCorners corners = FaceFlex.FlexedCorners(data, [Wrapping], [0]);
+        float[] positions = [9f, 9f, 9f];
+        float[] normals = [8f, 8f, 8f];
+
+        corners.Moved.ShouldBe([int.MinValue + 1], "the control: the offset did wrap negative");
+
+        FaceFlex.ClearMoved(corners, positions, normals);
+
+        positions.ShouldBe([9f, 9f, 9f]);
+        normals.ShouldBe([8f, 8f, 8f]);
+    }
+
+    /// <summary>
+    /// A negative vertex offset must not take the unchecked fast path: the checked loop reads at it and throws, as the
+    /// reference does, rather than reading memory before the array. (A negative slot is the same hazard on the write, but
+    /// breaking its gate would write over the array header and crash the host, so it has no test.)
+    /// </summary>
+    [Test]
+    public void IntoFlexedSlots_ANegativeVertexOffset_ThrowsAsTheCheckedLoopDoes()
+    {
+        FlexedCorners corners = new([0], [-3]);
+        (float[], float[]) deltas = (new float[6], new float[6]);
+
+        Should.Throw<IndexOutOfRangeException>(() => FaceFlexReference.IntoFlexedSlots(deltas, corners, new float[6]));
+        Should.Throw<IndexOutOfRangeException>(() => FaceFlex.IntoFlexedSlots(deltas, corners, new float[6]));
+    }
+
     /// <summary>A copy made with new offsets clears them: the cleared set cannot omit an offset the slot write reads.</summary>
     [Test]
     public void With_NewOffsets_ClearsThem()
@@ -322,7 +380,7 @@ public sealed class FaceFlexIdentityTests
 
     private static StudioVertAnim Anim(int vertex) => new(vertex, 255, 0, (1f, 0f, 0f), (0f, 1f, 0f));
 
-    private sealed record Model(StudioFlexData Data, int[] Order, FlexedCorners Corners);
+    private sealed record Model(StudioFlexData Data, int[] Order, FlexedCorners Corners, FlexedCorners ReferenceCorners);
 
     private static Model Build(int seed, int vertices, int descriptors, int flexes, bool asArrays)
     {
@@ -343,6 +401,7 @@ public sealed class FaceFlexIdentityTests
                 {
                     (3, 0) => vertices + 2,
                     (5, 0) => vertices + 1000,
+                    (7, 0) => vertices + 3, // inside the scratch, and no corner names it: accumulated, never read
                     _ => vertex,
                 };
 
@@ -387,7 +446,8 @@ public sealed class FaceFlexIdentityTests
         int[] order = [.. Enumerable.Range(0, cornerVertex.Count + 2).Select(at => at < cornerVertex.Count ? at : cornerVertex.Count + at)];
         random.Shuffle(order);
 
-        return new Model(data, order, FaceFlex.FlexedCorners(data, cornerVertex, order));
+        return new Model(
+            data, order, FaceFlex.FlexedCorners(data, cornerVertex, order), FaceFlexReference.Corners(data, cornerVertex, order));
     }
 
     private static float Value(Seeded random) => (float)((random.NextDouble() * 4d) - 2d);
