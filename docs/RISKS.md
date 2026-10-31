@@ -40291,6 +40291,36 @@ B624, and left out of that change so its before/after shows one thing.
 - **What would settle it:** a synthetic test (`Scene.Tests`): three sequences, two changes inside one fade window; assert
   `LayersOf` lists the newer fading sequence first. Red on ours confirms it; the fix removes the `Reverse`.
 
+## B632 — `SpeedSlider_AtEachEnd_ReachesSpeedsTheButtonsCannot` fails intermittently: real key input does not reach the speed slider (2026-10-31) — OPEN
+
+**Observed (measured, 2026-10-31, same machine, desktop shared with the owner's browser):**
+
+| run | commit | scope | result |
+|---|---|---|---|
+| gate phase 2 | `0979f203` (pushed `main`) | full UI suite | **1 failed**: `Home` reached −8x, then `End` did not reach the fastest forward speed within 5 s (`TransportUiTests.cs:219`) |
+| same test alone | `0979f203` tree | `--filter SpeedSlider_AtEachEnd` | **failed**: `Home` never reached the slider, readout stayed `speed 1 times`, `HasKeyboardFocus` false, focus on `Image 'Demo viewport'` in the viewer's own process |
+| same test alone | `74f4519e` (the previous, passing gate) | `--filter` | **failed** identically |
+| full UI suite | `74f4519e` | full | passed, 76 / 8 / 0, 84 |
+| full UI suite | `0979f203` code (docs-only difference) | full | passed, 76 / 8 / 0, 84 |
+
+The previous two gates (`44ca01f7`, `74f4519e`) also passed this test inside the full suite. Nothing between `74f4519e` and
+`0979f203` touches the transport, the slider or the UI project (only the `roots split` timers), and the control at
+`74f4519e` fails the same way alone, so this is **not** attributed to that change (*differential*: same test, two
+commits, same result).
+
+**What is unproven.** The cause is not found. Two readings fit the evidence and neither is confirmed:
+- **Focus is lost inside the viewer.** In both failure shapes the keyboard focus ended on the viewer's own viewport, not on
+  another application, so a foreground steal by the browser (open on this desktop during the runs) does not fit as stated.
+  The first failure got past `Home` and lost the slider's focus before `End`.
+- **The test depends on state the full suite sets up** (it fails 2 of 2 when run alone, passes in 3 of 4 full runs).
+
+**Settles it:** capture the foreground window, the cursor position and a screenshot at the moment the timeout fires
+(inside the test's failure path); run the test alone and in the full suite N times with the desktop idle and count; read
+`ViewerSession.PressRealKey` for how it focuses a control before sending a key. Per the project rule a flake is a defect, not
+noise: **do not retry until green, and do not call the gate passed on one green run.**
+**Gate note:** `main` at `0979f203` was pushed before this was understood (the push was chained to the phase 2 command
+without reading its result); a full phase 2 on the same code has since passed once.
+
 ## B631 — autoplay IK rules go to the entity's one `IkErrors`; the engine solves them in a separate `auto_ik` (2026-10-31) — OPEN, latent
 
 **Evidence class: read from published source on the Valve side; our side read at `0979f203`; nothing measured except that players carry no autoplay locks.** D10 of `docs/measurements/2026-10-31-iklock-bracket-read.md` §3. Nothing is fixed here.
@@ -40497,9 +40527,33 @@ where they were missing.** Plan, with Valve's structure and ours at file:line:
 - **What would settle it:** a synthetic test (`Core.Tests`, per D38): a locking sequence on a model with `Pose.Scale = 1.75`;
   assert the pose carries `Locks`. Red on ours confirms it. A corpus count of scaled players in a real match is a separate probe.
 
-## B622 — a failed lock solve does not slam the foot; the engine slams it regardless (2026-10-31) — OPEN
+## B622 — a failed lock solve does not slam the foot; the engine slams it regardless (2026-10-31) — FIXED
 
-**Evidence class: both sides read from published source and our tree for this entry; the visible effect is *interpolated*, and the lock-solve failure rate is *not measured*.** D1 of the IK-lock bracket read. Nothing is fixed here.
+**FIXED (branch `fix/b622-failed-solve-slams-foot`).** `IkLocks.Solve` no longer `continue`s on a
+failed `SolveChain`. It slams the captured rotation onto the unsolved foot and rebuilds all three
+bones, as `SolveLock` does (`bone_setup.cpp:4431-4450`). A failed solve writes no matrix (`:2735`,
+`:2859-2867`), so the slam lands where the sequence left the foot. `Applied` still counts only
+successful solves. Evidence:
+
+- **Conformance test, red before and green after:**
+  `IkLockConformanceTests.Solve_WithALegTooStraightToSolve_SlamsTheCapturedRotationWhereTheSequenceLeftTheFoot`.
+  It uses a dead-straight leg (`l3` 20 > 19.996) and asserts the foot, thigh and knee model
+  matrices. Before the fix it failed on foot element 0: it was 1, the sequence's identity rotation,
+  and the engine's answer is 0, the captured rotation.
+- **Sabotage:** writing the target position into the foot on the failure path turns the same test
+  red on foot y (0 instead of 5).
+- **Two tests encoded the divergence** (`AccumulatePartsTests`, two cases). Their chain sits at the
+  origin, so its solve fails. They counted three lock reads in `Solve` because the `continue`
+  skipped the `flLocalQWeight` read. They now count four.
+- **Failure rate on f12, measured:** 3 in 2,794 lock solves in the viewer path over 30 sampled
+  ticks.
+- **Visible difference, measured in one frame:** none. 0 pixels differ at tick 58301 in first
+  person, where a lock is confirmed to fail in the viewer path, and nobody has established why. The
+  tick 54871 shots are only a noise floor, because the viewer path fails no lock there. Full account:
+  `docs/findings/09-valve-implementation.md`, "A sequence's IK lock ignores its own solver's
+  verdict".
+
+**Evidence class (as filed): both sides read from published source and our tree for this entry; the visible effect is *interpolated*, and the lock-solve failure rate is *not measured*.** D1 of the IK-lock bracket read.
 
 - **Valve:** `SolveLock` calls `Studio_SolveIK(...)` and ignores its return (`bone_setup.cpp:4431-4438`), then slams the
   captured rotation onto the effector (`:4441-4442`) and rebuilds all three bones with `SolveBone` (`:4446`, `:4449`,
