@@ -3,7 +3,7 @@
 ## Changes in 0.1.0-beta.57
 
 Gate for this release (every test executed, 0 failed): core 2737, cli 75, logging 37, fonts 5, animation 5378, scene 3424,
-audio 383, presentation 1330, content 1890, corpus 242, rendering 1340, viewer 159, UI suite 84 of 84 counted as 76 passed + 8 skipped + 0 failed; CI on the release commit: pending.
+audio 383, presentation 1330, content 1890, corpus 242, rendering 1340, viewer 159, UI suite 84 of 84 counted as 76 passed + 8 skipped + 0 failed; CI on the merge commit 105e5584 green with 2 annotations, both the notice that the runner label `ubuntu-latest` moves to Ubuntu 26 (no warnings, no errors; Test run 41244338821, CodeQL run 41244338780). One UI-suite test, the speed slider's end keys, failed once in an earlier full run on the same code and passed in the others (B632).
 Figures are on the `cp_process_f12` recording, one machine, first person unless it says otherwise; the file beside each
 figure holds it. Several changes below are parity fixes that cost frames, and are reported as costs.
 
@@ -976,7 +976,7 @@ writes no log file; send its console output.
 
 Each claim below is a measurement, not an expectation.
 
-- **Merge gate (beta.57):** all twelve assemblies passed (core 2737, cli 75, logging 37, fonts 5, animation 5378, scene 3424, audio 383, presentation 1330, content 1890, corpus 242, rendering 1340, viewer 159), with the UI suite at 84 of 84 counted as 76 passed, 8 skipped and 0 failed. CI on the release commit: pending.
+- **Merge gate (beta.57):** all twelve assemblies passed (core 2737, cli 75, logging 37, fonts 5, animation 5378, scene 3424, audio 383, presentation 1330, content 1890, corpus 242, rendering 1340, viewer 159), with the UI suite at 84 of 84 counted as 76 passed, 8 skipped and 0 failed. CI on the merge commit 105e5584: Test and CodeQL green, annotations only the Ubuntu 26 runner notice.
   The decal, gesture and flex changes are held by tests that read exact values and by the figures in *Changes in 0.1.0-beta.57*; the gesture and decal changes are not compared against real TF2 on screen.
 
 - **Merge gate (beta.56):** all twelve assemblies passed (core 2737, cli 75, logging 37, fonts 5, animation 5352, scene 3401, audio 383, presentation 1327, content 1861, corpus 242, rendering 1275, viewer 159), with the UI suite at 84 of 84 passed and 0 skipped. CI on the merge commit efd5d496 green with 2 annotations, both the notice that the runner label `ubuntu-latest` moves to Ubuntu 26 (no warnings, no errors; Test run 41055706448, CodeQL run 41055706449).
