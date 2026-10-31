@@ -20,7 +20,8 @@ namespace Tf2DemoSalvage.Animation.Animating;
 /// <param name="Ik"><c>ReachWithIk</c>: the solve and the re-concatenate pass.</param>
 /// <param name="Finish">The duck-jump shift and the three player bone scales.</param>
 /// <param name="Seed">Of <paramref name="Accumulate"/>: the rest seed, if any, and the base's copy or overlay into the workspace.</param>
-/// <param name="Locks">Of <paramref name="Accumulate"/>: every IK-lock capture and solve, the base's and each layer's.</param>
+/// <param name="Capture">Of <paramref name="Accumulate"/>: every IK-lock capture (<c>IkLocks.Capture</c>), the base's and each layer's.</param>
+/// <param name="Solve">Of <paramref name="Accumulate"/>: every IK-lock solve (<c>IkLocks.Solve</c>), the base's and each layer's.</param>
 /// <param name="Compose">
 /// Of <paramref name="Accumulate"/>: each layer's per-bone pass after its sample — the enumerator, the bone and weight
 /// guards, and the slerp or delta add. Interleaved per bone, so not split further.
@@ -40,7 +41,8 @@ public readonly record struct RootSetupParts(
     long Ik = 0,
     long Finish = 0,
     long Seed = 0,
-    long Locks = 0,
+    long Capture = 0,
+    long Solve = 0,
     long Compose = 0,
     long Enumerators = 0)
 {
@@ -51,7 +53,7 @@ public readonly record struct RootSetupParts(
     /// What <see cref="Accumulate"/> spent outside its sub-parts: the statics <c>Build</c> adds before the call, the guard,
     /// the layer loop's own step and weight test, and the timers. The reader's residual, never a recorded number.
     /// </summary>
-    public long AccumulateOther => Accumulate - Sampling - Seed - Locks - Compose;
+    public long AccumulateOther => Accumulate - Sampling - Seed - Capture - Solve - Compose;
 
     /// <summary>What happened between an earlier snapshot and this one.</summary>
     /// <param name="before">The earlier snapshot.</param>
@@ -68,7 +70,8 @@ public readonly record struct RootSetupParts(
             Ik - before.Ik,
             Finish - before.Finish,
             Seed - before.Seed,
-            Locks - before.Locks,
+            Capture - before.Capture,
+            Solve - before.Solve,
             Compose - before.Compose,
             Enumerators - before.Enumerators);
 
@@ -87,7 +90,8 @@ public readonly record struct RootSetupParts(
             Ik + other.Ik,
             Finish + other.Finish,
             Seed + other.Seed,
-            Locks + other.Locks,
+            Capture + other.Capture,
+            Solve + other.Solve,
             Compose + other.Compose,
             Enumerators + other.Enumerators);
 }

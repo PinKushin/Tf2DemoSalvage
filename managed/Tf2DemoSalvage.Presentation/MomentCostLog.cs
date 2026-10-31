@@ -266,7 +266,8 @@ public sealed class MomentCostLog
 
             // Accumulate's own parts (2026-10-31 accumulate-parts): `other` is its residual beside sampling, and the
             // enumerators are a count. None of these words is one the older readers anchor on.
-            + $" (seed {Mean(_rootParts.Seed, over):0.###}, locks {Mean(_rootParts.Locks, over):0.###}"
+            + $" (seed {Mean(_rootParts.Seed, over):0.###}, capture {Mean(_rootParts.Capture, over):0.###}"
+            + $", solve {Mean(_rootParts.Solve, over):0.###}"
             + $", compose {Mean(_rootParts.Compose, over):0.###}, other {Mean(_rootParts.AccumulateOther, over):0.###}"
             + $"; enumerators {_rootParts.Enumerators / (double)over:0.#})"
             + $", adjust {Mean(_rootParts.Adjust, over):0.###}, loop {Mean(_rootParts.Loop, over):0.###}"

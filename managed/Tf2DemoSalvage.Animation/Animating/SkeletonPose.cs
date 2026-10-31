@@ -396,7 +396,8 @@ public sealed class SkeletonPose : IBonePose
         _layerSampling = 0;
         _layerSamples = 0;
         _seed = 0;
-        _locks = 0;
+        _capture = 0;
+        _solve = 0;
         _compose = 0;
         _enumerators = 0;
 
@@ -652,7 +653,8 @@ public sealed class SkeletonPose : IBonePose
             Ik: finishAt - ikAt,
             Finish: System.Diagnostics.Stopwatch.GetTimestamp() - finishAt,
             Seed: _seed,
-            Locks: _locks,
+            Capture: _capture,
+            Solve: _solve,
             Compose: _compose,
             Enumerators: _enumerators);
     }
@@ -666,8 +668,11 @@ public sealed class SkeletonPose : IBonePose
     /// <summary>Of the build under way's accumulate: the rest seed and the base's copy or overlay.</summary>
     private long _seed;
 
-    /// <summary>Of the build under way's accumulate: every IK-lock capture and solve.</summary>
-    private long _locks;
+    /// <summary>Of the build under way's accumulate: every IK-lock capture.</summary>
+    private long _capture;
+
+    /// <summary>Of the build under way's accumulate: every IK-lock solve.</summary>
+    private long _solve;
 
     /// <summary>Of the build under way's accumulate: each layer's per-bone pass after its sample.</summary>
     private long _compose;
@@ -909,8 +914,8 @@ public sealed class SkeletonPose : IBonePose
         StudioBonePose[] result = _layered;
         bool locked = Locks.Count > 0 && IkChains.Count > 0;
 
-        // **The accumulate split** (docs/measurements/2026-10-31-accumulate-parts.md): seed, locks and compose, each the
-        // gap between two stamps of one chain, so no tick lands in two of them. Each lock bracket starts at the stamp that
+        // **The accumulate split** (docs/measurements/2026-10-31-accumulate-parts.md): seed, lock capture, lock solve and
+        // compose, each the gap between two stamps of one chain, so no tick lands in two of them. Each lock bracket starts at the stamp that
         // ended the step before it and its end stamp starts the next, so a pose without locks pays no extra read for them.
         long seedingAt = System.Diagnostics.Stopwatch.GetTimestamp();
 
@@ -943,7 +948,7 @@ public sealed class SkeletonPose : IBonePose
             Held().Capture(Locks, IkChains, result);
 
             seedingAt = System.Diagnostics.Stopwatch.GetTimestamp();
-            _locks += seedingAt - capturingAt;
+            _capture += seedingAt - capturingAt;
         }
 
         if (!dense.IsEmpty)
@@ -970,7 +975,7 @@ public sealed class SkeletonPose : IBonePose
         {
             Held().Solve(Locks, IkChains, result);
 
-            _locks += System.Diagnostics.Stopwatch.GetTimestamp() - seededAt;
+            _solve += System.Diagnostics.Stopwatch.GetTimestamp() - seededAt;
         }
 
         // Counted, not timed (the setup-bones read's M6): `Layers` is an interface, so this takes an enumerator from it.
@@ -1000,7 +1005,7 @@ public sealed class SkeletonPose : IBonePose
                 Held().Capture(layer.Locks!, IkChains, result);
 
                 long capturedAt = System.Diagnostics.Stopwatch.GetTimestamp();
-                _locks += capturedAt - sampledAt;
+                _capture += capturedAt - sampledAt;
                 sampledAt = capturedAt;
             }
 
@@ -1109,7 +1114,7 @@ public sealed class SkeletonPose : IBonePose
             {
                 Held().Solve(layer.Locks!, IkChains, result);
 
-                _locks += System.Diagnostics.Stopwatch.GetTimestamp() - composedAt;
+                _solve += System.Diagnostics.Stopwatch.GetTimestamp() - composedAt;
             }
         }
 

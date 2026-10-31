@@ -70,10 +70,10 @@ public sealed class EntityModelSetSetupPartsTests
 
         RootSetupParts first = new(Blend: 1_000_003, Base: 2_000_029, Accumulate: 3_000_017, Sampling: 1_500_007, Samples: 11,
             Adjust: 4_000_037, Loop: 5_000_011, Ik: 6_000_001, Finish: 7_000_003,
-            Seed: 300_007, Locks: 400_009, Compose: 500_029, Enumerators: 17);
+            Seed: 300_007, Capture: 400_009, Solve: 450_013, Compose: 500_029, Enumerators: 17);
         RootSetupParts second = new(Blend: 8_000_009, Base: 9_000_011, Accumulate: 10_000_019, Sampling: 9_500_021, Samples: 13,
             Adjust: 11_000_027, Loop: 12_000_007, Ik: 13_000_027, Finish: 14_000_029,
-            Seed: 100_003, Locks: 200_003, Compose: 150_001, Enumerators: 19);
+            Seed: 100_003, Capture: 200_003, Solve: 250_007, Compose: 150_001, Enumerators: 19);
 
         injected = first;
         calls = 0;
@@ -122,7 +122,8 @@ public sealed class EntityModelSetSetupPartsTests
         charged.Ik.ShouldBeGreaterThanOrEqualTo(calls * injected.Ik);
         charged.Finish.ShouldBeGreaterThanOrEqualTo(calls * injected.Finish);
         charged.Seed.ShouldBeGreaterThanOrEqualTo(calls * injected.Seed);
-        charged.Locks.ShouldBeGreaterThanOrEqualTo(calls * injected.Locks);
+        charged.Capture.ShouldBeGreaterThanOrEqualTo(calls * injected.Capture);
+        charged.Solve.ShouldBeGreaterThanOrEqualTo(calls * injected.Solve);
         charged.Compose.ShouldBeGreaterThanOrEqualTo(calls * injected.Compose);
     }
 

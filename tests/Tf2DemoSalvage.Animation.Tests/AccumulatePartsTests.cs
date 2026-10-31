@@ -24,8 +24,10 @@ public sealed class AccumulatePartsTests
     /// <remarks>
     /// One layer that locks a chain: each base read 10 ms (only the sparse base's overlay reads it), each lock read 5 ms
     /// (only the capture before the sample and the solve after the compose read it), compose 20 ms, sample 30 ms. The
-    /// lists count their own reads, so each part's floor is reads × spin: a solve left unstamped falls short of it by the
-    /// solve's reads, and a compose stamped from before the sample reads the 30 ms twice and drives the residual negative.
+    /// lists count their own reads, so each part's floor is reads × spin. The lock reads split one to `Capture` and three
+    /// to `Solve` (`IkLocks.cs`: `EffectorOf(locks[at])` in the capture; the guard, the chain and the weight in the solve),
+    /// and the total is the control. A solve left unstamped or charged to the capture falls below three reads, and a
+    /// compose stamped from before the sample reads the 30 ms twice and drives the residual negative.
     /// </remarks>
     [Test]
     public void Build_WithASlowSeedLockComposeAndSample_CarriesEachIntoItsOwnSubPart()
@@ -43,17 +45,19 @@ public sealed class AccumulatePartsTests
 
         (basePose.Reads, locks.Reads).ShouldBe((1, 4), "the control: the overlay reads once; capture once, solve three times");
         parts.Seed.ShouldBeGreaterThanOrEqualTo(basePose.Reads * 10 * Millisecond);
-        parts.Locks.ShouldBeGreaterThanOrEqualTo(locks.Reads * 5 * Millisecond);
+        parts.Capture.ShouldBeGreaterThanOrEqualTo(1 * 5 * Millisecond);
+        parts.Solve.ShouldBeGreaterThanOrEqualTo(3 * 5 * Millisecond);
         parts.Compose.ShouldBeGreaterThanOrEqualTo(20 * Millisecond);
         parts.Sampling.ShouldBeGreaterThanOrEqualTo(30 * Millisecond);
         parts.AccumulateOther.ShouldBeGreaterThanOrEqualTo(0, "a sub-part counted a span twice");
-        (parts.Seed + parts.Locks + parts.Compose + parts.AccumulateOther).ShouldBe(parts.Accumulate - parts.Sampling);
+        (parts.Seed + parts.Capture + parts.Solve + parts.Compose + parts.AccumulateOther)
+            .ShouldBe(parts.Accumulate - parts.Sampling);
     }
 
     /// <remarks>
     /// **The base's own bracket splits the seed in two**: the rest seed, the capture, the overlay, the solve. The overlay
     /// spins 10 ms after the capture; every lock read spins 20 ms. A seed stamp that ran on through the capture counts the
-    /// capture in both seed and locks, and the residual goes negative.
+    /// capture in both seed and `Capture`, and the residual goes negative.
     /// </remarks>
     [Test]
     public void Build_WithBaseLocksAndNoLayers_SplitsTheSeedAroundTheBracket()
@@ -68,7 +72,8 @@ public sealed class AccumulatePartsTests
 
         (basePose.Reads, locks.Reads).ShouldBe((1, 4), "the control: the overlay reads once; capture once, solve three times");
         parts.Seed.ShouldBeGreaterThanOrEqualTo(basePose.Reads * 10 * Millisecond);
-        parts.Locks.ShouldBeGreaterThanOrEqualTo(locks.Reads * 20 * Millisecond);
+        parts.Capture.ShouldBeGreaterThanOrEqualTo(1 * 20 * Millisecond);
+        parts.Solve.ShouldBeGreaterThanOrEqualTo(3 * 20 * Millisecond);
         (parts.Samples, parts.Compose).ShouldBe((0L, 0L));
         parts.AccumulateOther.ShouldBeGreaterThanOrEqualTo(0, "a sub-part counted a span twice");
     }
@@ -108,7 +113,7 @@ public sealed class AccumulatePartsTests
 
         childPose.LastBuild.Compose.ShouldBeGreaterThanOrEqualTo(10 * Millisecond);
         childPose.LastBuild.Enumerators.ShouldBe(2);
-        (added.Seed, added.Locks, added.Compose, added.Enumerators).ShouldBe((0L, 0L, 0L, 0L));
+        (added.Seed, added.Capture, added.Solve, added.Compose, added.Enumerators).ShouldBe((0L, 0L, 0L, 0L, 0L));
     }
 
     private static RootSetupParts Built(SkeletonPose pose)

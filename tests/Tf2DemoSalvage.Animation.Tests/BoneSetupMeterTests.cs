@@ -45,7 +45,7 @@ public sealed class BoneSetupMeterTests
     {
         BoneSetupMeter meter = new();
         RootSetupParts parts = new(Blend: 1, Base: 2, Accumulate: 3, Sampling: 4, Samples: 5, Adjust: 6, Loop: 7, Ik: 8, Finish: 9,
-            Seed: 10, Locks: 11, Compose: 12, Enumerators: 13);
+            Seed: 10, Capture: 11, Solve: 12, Compose: 13, Enumerators: 14);
 
         Parallel.For(0, Threads, new ParallelOptions { MaxDegreeOfParallelism = Threads }, _ =>
         {
@@ -58,7 +58,7 @@ public sealed class BoneSetupMeterTests
         const long Roots = Threads * CallsEach / 2;
 
         meter.RootParts.ShouldBe(new RootSetupParts(Roots, 2 * Roots, 3 * Roots, 4 * Roots, 5 * Roots, 6 * Roots, 7 * Roots, 8 * Roots, 9 * Roots,
-            10 * Roots, 11 * Roots, 12 * Roots, 13 * Roots));
+            10 * Roots, 11 * Roots, 12 * Roots, 13 * Roots, 14 * Roots));
     }
 
     /// <remarks>
