@@ -608,17 +608,41 @@ public static class StudioPoseBlend
         Span<StudioBonePose> left,
         Span<StudioBonePose> right)
     {
+        SeedInto(bones, additive, left);
+        Overlay(first, left);
+        SeedInto(bones, additive, right);
+        Overlay(second, right);
+
+        BlendExpanded(bones, s, left, right);
+    }
+
+    /// <summary>What an unlisted bone holds before a pose is overlaid: identity and zero for a delta, rest otherwise.</summary>
+    /// <param name="bones">The skeleton.</param>
+    /// <param name="additive">Whether the pose about to be overlaid is a delta; see <see cref="Blend"/>.</param>
+    /// <param name="full">Receives one entry per bone.</param>
+    internal static void SeedInto(IReadOnlyList<StudioBone> bones, bool additive, Span<StudioBonePose> full)
+    {
         if (additive)
         {
-            ExpandIdentityInto(first, left);
-            ExpandIdentityInto(second, right);
+            SeedIdentity(full);
         }
         else
         {
-            ExpandInto(bones, first, left);
-            ExpandInto(bones, second, right);
+            SeedRest(bones, full);
         }
+    }
 
+    /// <summary>
+    /// The blend of two dense poses, one entry per bone, written over <paramref name="left"/>: the loop of
+    /// <c>BlendBones</c> (<c>bone_setup.cpp:1531</c>) after both sides are expanded.
+    /// </summary>
+    /// <param name="bones">The skeleton, for each bone's fixed-alignment flag.</param>
+    /// <param name="s">How far toward <paramref name="right"/>.</param>
+    /// <param name="left">The pose at weight <c>1 - s</c>; receives the blend.</param>
+    /// <param name="right">The pose at weight <paramref name="s"/>.</param>
+    internal static void BlendExpanded(
+        IReadOnlyList<StudioBone> bones, float s, Span<StudioBonePose> left, ReadOnlySpan<StudioBonePose> right)
+    {
         float weightFirst = 1f - s;
 
         for (int bone = 0; bone < left.Length; bone++)
@@ -825,12 +849,16 @@ public static class StudioPoseBlend
     /// <summary><see cref="ExpandIdentity"/> into storage the caller owns, one entry per bone.</summary>
     private static void ExpandIdentityInto(IReadOnlyList<StudioBonePose> pose, Span<StudioBonePose> full)
     {
+        SeedIdentity(full);
+        Overlay(pose, full);
+    }
+
+    private static void SeedIdentity(Span<StudioBonePose> full)
+    {
         for (int bone = 0; bone < full.Length; bone++)
         {
             full[bone] = new StudioBonePose(bone, (0f, 0f, 0f), (0f, 0f, 0f, 1f));
         }
-
-        Overlay(pose, full);
     }
 
     /// <summary>Fills in the bones an animation did not mention, from the skeleton's rest pose.</summary>
@@ -848,14 +876,18 @@ public static class StudioPoseBlend
     private static void ExpandInto(
         IReadOnlyList<StudioBone> bones, IReadOnlyList<StudioBonePose> pose, Span<StudioBonePose> full)
     {
+        SeedRest(bones, full);
+        Overlay(pose, full);
+    }
+
+    private static void SeedRest(IReadOnlyList<StudioBone> bones, Span<StudioBonePose> full)
+    {
         for (int bone = 0; bone < full.Length; bone++)
         {
             StudioBone rest = bones[bone];
 
             full[bone] = new StudioBonePose(bone, rest.Position, rest.Rotation);
         }
-
-        Overlay(pose, full);
     }
 
     /// <summary>Writes each bone a pose names over the expanded one. Indexed rather than enumerated, so an interface

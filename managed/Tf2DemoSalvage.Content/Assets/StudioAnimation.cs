@@ -1,6 +1,7 @@
 using System;
 using System.Buffers.Binary;
 using System.Collections.Generic;
+using System.Runtime.InteropServices;
 
 using static Tf2DemoSalvage.Content.Assets.StudioLayout;
 
@@ -392,6 +393,209 @@ public static class StudioAnimation
         return poses;
     }
 
+    /// <summary>One animation sampled BETWEEN two of its frames, as the engine samples it, in storage the caller owns.</summary>
+    /// <param name="file">The <c>.mdl</c>'s bytes.</param>
+    /// <param name="bones">The skeleton the animation is numbered against, which is also the one it is expanded to.</param>
+    /// <param name="remap">
+    /// The animation model's bone numbering onto the base model's, or null when the animation is the base model's own.
+    /// A bone mapping to a negative index is dropped.
+    /// </param>
+    /// <param name="animation">Which local animation.</param>
+    /// <param name="frame">The frame the cycle landed on.</param>
+    /// <param name="fraction">How far from it toward the next, the engine's <c>s</c>.</param>
+    /// <param name="workspace">The skeleton's pose storage the result is built in.</param>
+    /// <param name="slot">Which grid corner this is, so two corners never share storage.</param>
+    /// <returns>
+    /// The frame alone, sparse, when <paramref name="fraction"/> is not above zero or the frame names no bone;
+    /// otherwise the blend of the frame toward the next, one entry per bone. Valid until the next call with
+    /// <paramref name="workspace"/> and <paramref name="slot"/>.
+    /// </returns>
+    /// <exception cref="ArgumentNullException">An argument is null.</exception>
+    /// <remarks>
+    /// **<c>CalcPoseSingle</c> never samples one frame** (<c>bone_setup.cpp:915</c>): every bone is
+    /// <c>CalcBoneQuaternion( iFrame, s, … )</c>, a blend of that frame with the next, so an animation plays between
+    /// its authored frames rather than stepping (B279).
+    ///
+    /// **One walk of the chain for both keys, as Valve's.** <c>CalcAnimation</c> resolves the section once
+    /// (<c>bone_setup.cpp:1063</c>) and walks the <c>mstudioanim_t</c> chain once (<c>:1095-1109</c>, and
+    /// <c>:964-981</c> for a virtual model), and each track yields both keys (<see cref="ReadBonePair"/>). This read the
+    /// whole chain twice, once per frame, then expanded both sparse poses to the skeleton before blending: twice the
+    /// walks, twice the run-length reads, twice the Euler conversions. Both keys now land straight in the two dense
+    /// blend inputs. **The result is the same to the bit** (<c>FramePairDifferentialTests</c>): the blend itself, its
+    /// threshold (B614) and its seeding are unchanged.
+    ///
+    /// **When the two frames resolve to different chains the two-pass read stays.** A sectioned animation stores
+    /// each section's data separately, and its last frame alone in a trailing section, so frame and frame + 1 can sit
+    /// in different chains. Valve reads frame + 1 from frame's section; this reader reads it from its own, and a cost
+    /// change does not move that.
+    /// </remarks>
+    internal static List<StudioBonePose> PoseBetweenInto(
+        ReadOnlyMemory<byte> file,
+        IReadOnlyList<StudioBone> bones,
+        int[]? remap,
+        int animation,
+        int frame,
+        float fraction,
+        StudioPoseWorkspace workspace,
+        int slot)
+    {
+        ArgumentNullException.ThrowIfNull(bones);
+        ArgumentNullException.ThrowIfNull(workspace);
+
+        List<StudioBonePose> pose = workspace.Frame[slot];
+
+        if (fraction <= 0f)
+        {
+            return PoseOfInto(file, bones, remap, animation, frame, workspace, pose);
+        }
+
+        ReadOnlySpan<byte> bytes = file.Span;
+
+        if (animation < 0 || animation >= Count(file) || bones.Count == 0 ||
+            !Locate(bytes, animation, frame, out int cursor, out int first))
+        {
+            pose.Clear();
+            return pose;
+        }
+
+        bool additive = IsDelta(file, animation);
+
+        if (!Locate(bytes, animation, frame + 1, out int nextCursor, out int second) || nextCursor != cursor)
+        {
+            return TwoPass(file, bones, remap, animation, frame, fraction, additive, workspace, slot);
+        }
+
+        List<(int Bone, int Flags, int At)> chain = workspace.Chain;
+
+        chain.Clear();
+        Walk(bytes, bones.Count, cursor, chain);
+
+        List<StudioBonePose> between = workspace.Between[slot];
+
+        CollectionsMarshal.SetCount(between, bones.Count);
+        CollectionsMarshal.SetCount(workspace.Scratch, bones.Count);
+
+        Span<StudioBonePose> left = CollectionsMarshal.AsSpan(between);
+        Span<StudioBonePose> right = CollectionsMarshal.AsSpan(workspace.Scratch);
+
+        StudioPoseBlend.SeedInto(bones, additive, left);
+        StudioPoseBlend.SeedInto(bones, additive, right);
+
+        int named = 0;
+
+        foreach ((int bone, int flags, int payload) in CollectionsMarshal.AsSpan(chain))
+        {
+            int target = bone;
+
+            if (remap is not null)
+            {
+                target = bone >= 0 && bone < remap.Length ? remap[bone] : -1;
+            }
+
+            if (target < 0)
+            {
+                continue;
+            }
+
+            // Counted whether or not it lands, as the sparse frame the two-pass read built counted it.
+            named++;
+
+            if (target < left.Length)
+            {
+                StudioBone rest = bones[bone];
+
+                (left[target], right[target]) =
+                    ReadBonePair(bytes[payload..], rest, target, flags, first, second, additive);
+            }
+        }
+
+        if (named == 0)
+        {
+            pose.Clear();
+            return pose;
+        }
+
+        StudioPoseBlend.BlendExpanded(bones, fraction, left, right);
+
+        return between;
+    }
+
+    /// <summary>The frame and the frame after it read as two whole passes, then blended: for two different chains.</summary>
+    private static List<StudioBonePose> TwoPass(
+        ReadOnlyMemory<byte> file,
+        IReadOnlyList<StudioBone> bones,
+        int[]? remap,
+        int animation,
+        int frame,
+        float fraction,
+        bool additive,
+        StudioPoseWorkspace workspace,
+        int slot)
+    {
+        List<StudioBonePose> pose = PoseOfInto(file, bones, remap, animation, frame, workspace, workspace.Frame[slot]);
+
+        if (pose.Count == 0)
+        {
+            return pose;
+        }
+
+        List<StudioBonePose> next = PoseOfInto(file, bones, remap, animation, frame + 1, workspace, workspace.Next[slot]);
+
+        if (next.Count == 0)
+        {
+            return pose;
+        }
+
+        StudioPoseBlend.BlendInto(bones, pose, next, fraction, additive, workspace.Between[slot], workspace.Scratch);
+
+        return workspace.Between[slot];
+    }
+
+    /// <summary>One frame of an animation, renumbered onto the base skeleton when <paramref name="remap"/> is given.</summary>
+    /// <param name="file">The <c>.mdl</c>'s bytes.</param>
+    /// <param name="bones">The skeleton the animation is numbered against.</param>
+    /// <param name="remap">Its numbering onto the base model's, or null for the base model's own.</param>
+    /// <param name="animation">Which local animation.</param>
+    /// <param name="frame">Which frame.</param>
+    /// <param name="workspace">The skeleton's pose storage.</param>
+    /// <param name="into">Receives the pose, sparse; cleared first.</param>
+    /// <returns><paramref name="into"/>.</returns>
+    /// <remarks>
+    /// **The animation's bones are ITS model's, and must be renumbered.** An animation model has its own bone list and
+    /// ordering; applying those indices to the base skeleton moves the wrong joints by the right amounts. Valve remap
+    /// every animation through <c>masterBone</c> for exactly this, <c>bone_setup.cpp:966</c>.
+    /// </remarks>
+    internal static List<StudioBonePose> PoseOfInto(
+        ReadOnlyMemory<byte> file,
+        IReadOnlyList<StudioBone> bones,
+        int[]? remap,
+        int animation,
+        int frame,
+        StudioPoseWorkspace workspace,
+        List<StudioBonePose> into)
+    {
+        if (remap is null)
+        {
+            return PoseInto(file, bones, animation, frame, into, workspace.Chain);
+        }
+
+        List<StudioBonePose> pose = PoseInto(file, bones, animation, frame, workspace.Raw, workspace.Chain);
+
+        into.Clear();
+
+        foreach (StudioBonePose moved in pose)
+        {
+            int bone = moved.Bone >= 0 && moved.Bone < remap.Length ? remap[moved.Bone] : -1;
+
+            if (bone >= 0)
+            {
+                into.Add(moved with { Bone = bone });
+            }
+        }
+
+        return into;
+    }
+
     private static StudioBonePose ReadBone(
         ReadOnlySpan<byte> payload,
         StudioBone rest,
@@ -417,40 +621,10 @@ public static class StudioAnimation
         }
         else if ((flags & AnimatedRotation) != 0)
         {
-            // Three run-length channels of Euler angle, scaled and added to the bone's rest
-            // rotation - unless the animation is a delta, where the rest value is not a base.
-            float x = Value(payload, 0, frame) * rest.RotationScale.X;
-            float y = Value(payload, 1, frame) * rest.RotationScale.Y;
-            float z = Value(payload, 2, frame) * rest.RotationScale.Z;
-
-            if ((flags & Delta) == 0)
-            {
-                x += rest.Euler.X;
-                y += rest.Euler.Y;
-                z += rest.Euler.Z;
-            }
-
-            rotation = FromEulerRadians(x, y, z);
-
-            // **`CalcBoneQuaternion`'s last line** (`bone_setup.cpp:470`), and it belongs to this
-            // branch alone — `STUDIO_ANIM_RAWROT`, `RAWROT2` and the no-`ANIMROT` case all `return`
-            // before reaching it:
-            //
-            //   // align to unified bone
-            //   if (!(panim->flags & STUDIO_ANIM_DELTA) && (iBaseFlags & BONE_FIXED_ALIGNMENT))
-            //       QuaternionAlign( baseAlignment, q, q );
-            //
-            // **This is the half that makes the other two halves safe** (B308). A quaternion and
-            // its negation are the same rotation, so a blend has to pick one; settling that HERE,
-            // once, against the bone's own `qAlignment`, is what lets `SlerpBones` and `BlendBones`
-            // then use their `NoAlign` variants. We had the `NoAlign` slerp without this, which is
-            // the worse half of the mechanism to have alone: neither end aligning means an
-            // antipodal pair blends the long way round.
-            if ((flags & Delta) == 0 &&
-                (rest.Flags & StudioBoneFlags.FixedAlignment) != 0)
-            {
-                rotation = StudioBones.Align(rest.Alignment, rotation);
-            }
+            rotation = Turned(
+                Angles(Value(payload, 0, frame), Value(payload, 1, frame), Value(payload, 2, frame), rest, flags),
+                rest,
+                flags);
         }
 
         (float X, float Y, float Z) position = additive ? (0f, 0f, 0f) : rest.Position;
@@ -461,22 +635,165 @@ public static class StudioAnimation
         }
         else if ((flags & AnimatedPosition) != 0)
         {
-            // **The position channels sit after the rotation channels when both are animated**,
-            // which is what pPosV encodes by advancing one mstudioanim_valueptr_t.
-            ReadOnlySpan<byte> from = (flags & AnimatedRotation) != 0 && payload.Length >= 6
-                ? payload[6..]
-                : payload;
+            ReadOnlySpan<byte> from = PositionChannels(payload, flags);
 
-            float x = Value(from, 0, frame) * rest.PositionScale.X;
-            float y = Value(from, 1, frame) * rest.PositionScale.Y;
-            float z = Value(from, 2, frame) * rest.PositionScale.Z;
-
-            position = (flags & Delta) == 0
-                ? (rest.Position.X + x, rest.Position.Y + y, rest.Position.Z + z)
-                : (x, y, z);
+            position = Moved(Value(from, 0, frame), Value(from, 1, frame), Value(from, 2, frame), rest, flags);
         }
 
         return new StudioBonePose(bone, position, rotation);
+    }
+
+    /// <summary>
+    /// One track at two frames, decoded once: the pair <c>CalcBoneQuaternion</c> and <c>CalcBonePosition</c> read for a
+    /// sub-frame sample.
+    /// </summary>
+    /// <param name="payload">The track's payload.</param>
+    /// <param name="rest">The bone the track is numbered against, in its own model.</param>
+    /// <param name="bone">The index to stamp on both poses.</param>
+    /// <param name="flags">The track's <c>STUDIO_ANIM_*</c> flags.</param>
+    /// <param name="first">The first key's frame within the chain's data.</param>
+    /// <param name="second">The second key's frame.</param>
+    /// <param name="additive">Whether the animation is a delta.</param>
+    /// <returns>
+    /// Exactly what <see cref="ReadBone"/> answers at <paramref name="first"/> and at <paramref name="second"/>.
+    /// </returns>
+    /// <remarks>
+    /// **The work Valve does once per pair, done once here** (<c>bone_setup.cpp:374-474</c>, <c>:498-551</c>): a raw
+    /// rotation or position is one read for both keys (<c>:379-391</c>, <c>:502-507</c>), an absent channel is one seed
+    /// (<c>:393-404</c>, <c>:509-520</c>), each run-length channel is one walk for both keys (<c>:413-415</c>,
+    /// <c>:530</c>), and equal angles convert once (<c>:428-446</c>). The angles are compared by their BITS, not by
+    /// <c>==</c>: a zero scale turns one short into <c>+0</c> and another into <c>-0</c>, which a delta never washes out
+    /// with a base angle, and the two convert to different quaternions. **The blend between the keys is not here** and
+    /// is not skipped for equal keys, because <c>a * (1 - s) + a * s</c> is not <c>a</c> to the bit.
+    /// </remarks>
+    private static (StudioBonePose First, StudioBonePose Second) ReadBonePair(
+        ReadOnlySpan<byte> payload,
+        in StudioBone rest,
+        int bone,
+        int flags,
+        int first,
+        int second,
+        bool additive)
+    {
+        int rotationBytes = 0;
+
+        (float X, float Y, float Z, float W) rotation =
+            additive ? (0f, 0f, 0f, 1f) : rest.Rotation;
+
+        (float X, float Y, float Z, float W) rotationNext = rotation;
+
+        if ((flags & RawRotation) != 0 && payload.Length >= 6)
+        {
+            rotation = rotationNext = Quaternion48(payload);
+            rotationBytes = 6;
+        }
+        else if ((flags & RawRotation64) != 0 && payload.Length >= 8)
+        {
+            rotation = rotationNext = Quaternion64(payload);
+            rotationBytes = 8;
+        }
+        else if ((flags & AnimatedRotation) != 0)
+        {
+            (float x, float xNext) = ValuePair(payload, 0, first, second);
+            (float y, float yNext) = ValuePair(payload, 1, first, second);
+            (float z, float zNext) = ValuePair(payload, 2, first, second);
+
+            (float X, float Y, float Z) angles = Angles(x, y, z, rest, flags);
+            (float X, float Y, float Z) anglesNext = Angles(xNext, yNext, zNext, rest, flags);
+
+            rotation = Turned(angles, rest, flags);
+            rotationNext = SameBits(angles, anglesNext) ? rotation : Turned(anglesNext, rest, flags);
+        }
+
+        (float X, float Y, float Z) position = additive ? (0f, 0f, 0f) : rest.Position;
+        (float X, float Y, float Z) positionNext = position;
+
+        if ((flags & RawPosition) != 0 && payload.Length >= rotationBytes + 6)
+        {
+            position = positionNext = Vector48(payload[rotationBytes..]);
+        }
+        else if ((flags & AnimatedPosition) != 0)
+        {
+            ReadOnlySpan<byte> from = PositionChannels(payload, flags);
+
+            (float x, float xNext) = ValuePair(from, 0, first, second);
+            (float y, float yNext) = ValuePair(from, 1, first, second);
+            (float z, float zNext) = ValuePair(from, 2, first, second);
+
+            position = Moved(x, y, z, rest, flags);
+            positionNext = Moved(xNext, yNext, zNext, rest, flags);
+        }
+
+        return (new StudioBonePose(bone, position, rotation), new StudioBonePose(bone, positionNext, rotationNext));
+    }
+
+    private static bool SameBits((float X, float Y, float Z) a, (float X, float Y, float Z) b) =>
+        BitConverter.SingleToInt32Bits(a.X) == BitConverter.SingleToInt32Bits(b.X) &&
+        BitConverter.SingleToInt32Bits(a.Y) == BitConverter.SingleToInt32Bits(b.Y) &&
+        BitConverter.SingleToInt32Bits(a.Z) == BitConverter.SingleToInt32Bits(b.Z);
+
+    /// <summary>
+    /// **The position channels sit after the rotation channels when both are animated**, which is what pPosV encodes
+    /// by advancing one mstudioanim_valueptr_t.
+    /// </summary>
+    private static ReadOnlySpan<byte> PositionChannels(ReadOnlySpan<byte> payload, int flags) =>
+        (flags & AnimatedRotation) != 0 && payload.Length >= 6 ? payload[6..] : payload;
+
+    /// <summary>Three raw run-length values as the Euler angle they encode, in radians.</summary>
+    /// <remarks>
+    /// Scaled, then added to the bone's rest rotation - unless the track is a delta, where the rest value is not a base.
+    /// </remarks>
+    private static (float X, float Y, float Z) Angles(float x, float y, float z, in StudioBone rest, int flags)
+    {
+        x *= rest.RotationScale.X;
+        y *= rest.RotationScale.Y;
+        z *= rest.RotationScale.Z;
+
+        if ((flags & Delta) == 0)
+        {
+            x += rest.Euler.X;
+            y += rest.Euler.Y;
+            z += rest.Euler.Z;
+        }
+
+        return (x, y, z);
+    }
+
+    /// <summary>Three raw run-length values as the position they encode.</summary>
+    private static (float X, float Y, float Z) Moved(float x, float y, float z, in StudioBone rest, int flags)
+    {
+        x *= rest.PositionScale.X;
+        y *= rest.PositionScale.Y;
+        z *= rest.PositionScale.Z;
+
+        return (flags & Delta) == 0
+            ? (rest.Position.X + x, rest.Position.Y + y, rest.Position.Z + z)
+            : (x, y, z);
+    }
+
+    /// <summary>An animated Euler angle as the rotation <c>CalcBoneQuaternion</c> ends with.</summary>
+    private static (float X, float Y, float Z, float W) Turned(
+        (float X, float Y, float Z) angles, in StudioBone rest, int flags)
+    {
+        (float X, float Y, float Z, float W) rotation = FromEulerRadians(angles.X, angles.Y, angles.Z);
+
+        // **`CalcBoneQuaternion`'s last line** (`bone_setup.cpp:470`), and it belongs to this
+        // branch alone — `STUDIO_ANIM_RAWROT`, `RAWROT2` and the no-`ANIMROT` case all `return`
+        // before reaching it:
+        //
+        //   // align to unified bone
+        //   if (!(panim->flags & STUDIO_ANIM_DELTA) && (iBaseFlags & BONE_FIXED_ALIGNMENT))
+        //       QuaternionAlign( baseAlignment, q, q );
+        //
+        // **This is the half that makes the other two halves safe** (B308). A quaternion and
+        // its negation are the same rotation, so a blend has to pick one; settling that HERE,
+        // once, against the bone's own `qAlignment`, is what lets `SlerpBones` and `BlendBones`
+        // then use their `NoAlign` variants. We had the `NoAlign` slerp without this, which is
+        // the worse half of the mechanism to have alone: neither end aligning means an
+        // antipodal pair blends the long way round.
+        return (flags & Delta) == 0 && (rest.Flags & StudioBoneFlags.FixedAlignment) != 0
+            ? StudioBones.Align(rest.Alignment, rotation)
+            : rotation;
     }
 
     /// <summary>How an animation's data is laid out: its frames, and whether it is sectioned.</summary>
@@ -535,17 +852,36 @@ public static class StudioAnimation
 
         chain.Clear();
 
-        if (animation < 0 || bones.Count == 0)
+        if (animation >= 0 && bones.Count > 0 && Locate(bytes, animation, frame, out int cursor, out wanted))
         {
-            return chain;
+            Walk(bytes, bones.Count, cursor, chain);
         }
+
+        return chain;
+    }
+
+    /// <summary>Where one frame's chain starts, and the frame renumbered within its section.</summary>
+    /// <param name="bytes">The <c>.mdl</c>'s bytes.</param>
+    /// <param name="animation">Which local animation; not negative.</param>
+    /// <param name="frame">The frame wanted, in whole-animation numbering; clamped to the animation.</param>
+    /// <param name="cursor">The first <c>mstudioanim_t</c>'s offset in the file.</param>
+    /// <param name="wanted">The frame to read within that chain's data.</param>
+    /// <returns>False when the animation has no chain to read: no frames, a bad offset, or data in a block.</returns>
+    /// <remarks>
+    /// <c>mstudioanimdesc_t::pAnim</c> without the walk, so a frame pair can ask whether both of its frames resolve to the
+    /// same chain and walk it once, as <c>CalcAnimation</c> does (<c>bone_setup.cpp:1063</c>, <c>:1095-1109</c>).
+    /// </remarks>
+    private static bool Locate(ReadOnlySpan<byte> bytes, int animation, int frame, out int cursor, out int wanted)
+    {
+        cursor = 0;
+        wanted = 0;
 
         int at = BinaryPrimitives.ReadInt32LittleEndian(bytes[HeaderAnimationIndexOffset..]) +
             (animation * AnimationStride);
 
         if (at < 0 || at + AnimationStride > bytes.Length)
         {
-            return chain;
+            return false;
         }
 
         ReadOnlySpan<byte> description = bytes[at..];
@@ -556,7 +892,7 @@ public static class StudioAnimation
 
         if (frames <= 0)
         {
-            return chain;
+            return false;
         }
 
         int sectionFrames =
@@ -575,7 +911,7 @@ public static class StudioAnimation
 
             if (entry < 0 || entry + AnimationSectionStride > bytes.Length)
             {
-                return chain;
+                return false;
             }
 
             block = BinaryPrimitives.ReadInt32LittleEndian(bytes[entry..]);
@@ -587,12 +923,23 @@ public static class StudioAnimation
 
         if (block != 0 || data == 0)
         {
-            return chain;
+            return false;
         }
 
-        int cursor = at + data;
+        cursor = at + data;
 
-        for (int step = 0; step <= bones.Count && cursor > 0 && cursor + 4 <= bytes.Length; step++)
+        return true;
+    }
+
+    /// <summary>Follows a chain of <c>mstudioanim_t</c> from <paramref name="cursor"/>, the <c>pNext</c> walk.</summary>
+    /// <param name="bytes">The <c>.mdl</c>'s bytes.</param>
+    /// <param name="boneCount">The skeleton's size; an entry naming a bone past it ends the walk.</param>
+    /// <param name="cursor">Where the first entry is, from <see cref="Locate"/>.</param>
+    /// <param name="chain">Receives each entry's bone, flags and payload offset, in chain order.</param>
+    private static void Walk(
+        ReadOnlySpan<byte> bytes, int boneCount, int cursor, List<(int Bone, int Flags, int At)> chain)
+    {
+        for (int step = 0; step <= boneCount && cursor > 0 && cursor + 4 <= bytes.Length; step++)
         {
             ReadOnlySpan<byte> entry = bytes[cursor..];
 
@@ -600,7 +947,7 @@ public static class StudioAnimation
             int flags = entry[1];
             int next = BinaryPrimitives.ReadInt16LittleEndian(entry[2..]);
 
-            if (bone >= bones.Count)
+            if (bone >= boneCount)
             {
                 break;
             }
@@ -614,8 +961,6 @@ public static class StudioAnimation
 
             cursor += next;
         }
-
-        return chain;
     }
 
     /// <summary>Bytes of <c>mstudioanim_t</c> before its payload: bone, flags, nextoffset.</summary>
@@ -755,12 +1100,7 @@ public static class StudioAnimation
 
             if (total > remaining)
             {
-                int index = remaining < valid ? remaining + 1 : valid;
-                int cell = at + (index * 2);
-
-                return cell + 2 <= values.Length
-                    ? BinaryPrimitives.ReadInt16LittleEndian(values[cell..])
-                    : 0f;
+                return Cell(values, at, valid, remaining);
             }
 
             remaining -= total;
@@ -768,6 +1108,87 @@ public static class StudioAnimation
         }
 
         return 0f;
+    }
+
+    /// <summary>The value a frame reads inside the block it landed in: its own, or the last valid one repeated.</summary>
+    private static float Cell(ReadOnlySpan<byte> values, int at, int valid, int remaining)
+    {
+        int index = remaining < valid ? remaining + 1 : valid;
+        int cell = at + (index * 2);
+
+        return cell + 2 <= values.Length
+            ? BinaryPrimitives.ReadInt16LittleEndian(values[cell..])
+            : 0f;
+    }
+
+    /// <summary>One channel at two frames, in one walk: <c>ExtractAnimValue( frame, …, v1, v2 )</c>.</summary>
+    /// <param name="payload">The track's payload; the offset table starts at byte zero.</param>
+    /// <param name="channel">Which channel.</param>
+    /// <param name="first">The frame for the first value.</param>
+    /// <param name="second">The frame for the second, normally <paramref name="first"/> + 1.</param>
+    /// <returns>Each frame's raw value, exactly what <see cref="Value(ReadOnlySpan{byte}, int, int)"/> answers for it.</returns>
+    /// <remarks>
+    /// **The shape is Valve's, the arithmetic is this reader's.** <c>bone_setup.cpp:413-415</c> and <c>:530</c> read both
+    /// keys of a pair from one walk of the run-length blocks. The second key here is landed by the same rule as
+    /// <see cref="Value(ReadOnlySpan{byte}, int, int)"/>, continuing from the first key's block, rather than by Valve's
+    /// "repeats, no blend" and "pull from the next list" branches. Those can disagree with an independent walk at a block
+    /// edge, and this is a cost change that must give the same bits as two separate walks. The walk for the later frame
+    /// passes every block the earlier one does, so the shared prefix is the same walk.
+    /// </remarks>
+    private static (float First, float Second) ValuePair(ReadOnlySpan<byte> payload, int channel, int first, int second)
+    {
+        if (second < first)
+        {
+            return (Value(payload, channel, first), Value(payload, channel, second));
+        }
+
+        if (payload.Length < 6)
+        {
+            return (0f, 0f);
+        }
+
+        int offset = BinaryPrimitives.ReadInt16LittleEndian(payload[(channel * 2)..]);
+
+        if (offset <= 0 || offset >= payload.Length)
+        {
+            return (0f, 0f);
+        }
+
+        ReadOnlySpan<byte> values = payload[offset..];
+
+        float found = 0f;
+        bool landed = false;
+        int remainingFirst = first;
+        int remainingSecond = second;
+        int at = 0;
+
+        while (at + 2 <= values.Length)
+        {
+            int valid = values[at];
+            int total = values[at + 1];
+
+            if (total == 0)
+            {
+                return (found, 0f);
+            }
+
+            if (!landed && total > remainingFirst)
+            {
+                found = Cell(values, at, valid, remainingFirst);
+                landed = true;
+            }
+
+            if (total > remainingSecond)
+            {
+                return (found, Cell(values, at, valid, remainingSecond));
+            }
+
+            remainingFirst -= total;
+            remainingSecond -= total;
+            at += (valid + 1) * 2;
+        }
+
+        return (found, 0f);
     }
 
     /// <summary>Valve's <c>Quaternion48</c>: x:16, y:16, z:15, wneg:1.</summary>

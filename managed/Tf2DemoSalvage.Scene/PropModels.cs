@@ -2139,13 +2139,6 @@ public static class PropModels
             return StudioMotion.GroundSpeed(Models[where.Group], blend);
         }
 
-        /// <summary>One animation's pose, renumbered onto the base model's bones.</summary>
-        /// <remarks>
-        /// **The animation's bones are ITS model's, and must be renumbered.** An animation model
-        /// has its own bone list and its own ordering; applying those indices to the base skeleton
-        /// moves the wrong joints by the right amounts. Valve remap every animation through
-        /// <c>masterBone</c> for exactly this — <c>bone_setup.cpp:966</c>.
-        /// </remarks>
         /// <summary>One animation sampled BETWEEN two of its frames, as the engine samples it.</summary>
         /// <param name="group">Which included model the animation belongs to.</param>
         /// <param name="animation">The animation index within that group.</param>
@@ -2155,84 +2148,22 @@ public static class PropModels
         /// <param name="slot">Which grid corner this is, so two corners never share storage.</param>
         /// <returns>The blended bone poses.</returns>
         /// <remarks>
-        /// **<c>CalcPoseSingle</c> never samples one frame** (<c>bone_setup.cpp:915</c>): it takes
-        /// <c>iFrame</c> and <c>s</c> and every bone is <c>CalcBoneQuaternion( iFrame, s, … )</c>,
-        /// a blend of that frame with the next. This project sampled the frame alone, so an
-        /// animation played its authored frames and nothing between them — thirty poses a second
-        /// against a viewer drawing several hundred, which is what stepping is (B279).
-        ///
-        /// **The blend is the same one the pose-parameter grid already uses.**
-        /// <c>StudioPoseBlend.Blend</c> slerps rotations and lerps positions, which is what
-        /// <c>CalcBoneQuaternion</c> does between two keys; the grid then composes on top exactly
-        /// as the engine's does, since it samples every corner at the same <c>iFrame</c> and
-        /// <c>s</c>.
-        ///
-        /// A zero fraction skips the second read entirely, which is the common case for a
-        /// single-frame pose holder and for the last frame of a one-shot.
+        /// The sampling, the blend between the two keys and the renumbering onto the base skeleton
+        /// are <c>StudioAnimation.PoseBetweenInto</c>'s. An included model's animations are numbered
+        /// against its own bones and renumbered onto the base model's (<c>bone_setup.cpp:966</c>);
+        /// the base model's own need no renumbering.
         /// </remarks>
-        private IReadOnlyList<StudioBonePose> PoseBetween(
-            int group, int animation, int frame, float fraction, StudioPoseWorkspace workspace, int slot)
-        {
-            List<StudioBonePose> pose = PoseOf(group, animation, frame, workspace, workspace.Frame[slot]);
-
-            if (fraction <= 0f || pose.Count == 0)
-            {
-                return pose;
-            }
-
-            List<StudioBonePose> next = PoseOf(group, animation, frame + 1, workspace, workspace.Next[slot]);
-
-            // **A frame past the end reads as nothing, and holding is the right answer there.**
-            // `StudioAnimation.Pose` answers empty for a frame the animation does not have, and
-            // the engine never asks for one — at the end its fraction is zero.
-            //
-            // **Told whether these are DELTAS, because that decides what an unlisted bone means**
-            // (B284). The blend has to name every bone to weight them against each other, and a
-            // delta's absent bone is identity and zero rather than its rest transform — the two
-            // halves of `CalcVirtualAnimation`'s own seeding. Filling a twelve-bone landing delta
-            // from the rest pose turned it into a seventy-six-bone one and threw the player's arms
-            // over its head.
-            return next.Count == 0
-                ? pose
-                : StudioPoseBlend.BlendInto(
-                    BonesOf(group),
-                    pose,
-                    next,
-                    fraction,
-                    StudioAnimation.IsDelta(Models[group], animation),
-                    workspace.Between[slot],
-                    workspace.Scratch);
-        }
-
-        private List<StudioBonePose> PoseOf(
-            int group, int animation, int frame, StudioPoseWorkspace workspace, List<StudioBonePose> into)
-        {
-            IReadOnlyList<StudioBone> owner = BonesOf(group);
-
-            if (group == 0 || Remaps(group) is not { } remap)
-            {
-                return StudioAnimation.PoseInto(Models[group], owner, animation, frame, into, workspace.Chain);
-            }
-
-            List<StudioBonePose> pose =
-                StudioAnimation.PoseInto(Models[group], owner, animation, frame, workspace.Raw, workspace.Chain);
-
-            List<StudioBonePose> renumbered = into;
-
-            renumbered.Clear();
-
-            foreach (StudioBonePose moved in pose)
-            {
-                int bone = moved.Bone >= 0 && moved.Bone < remap.Length ? remap[moved.Bone] : -1;
-
-                if (bone >= 0)
-                {
-                    renumbered.Add(moved with { Bone = bone });
-                }
-            }
-
-            return renumbered;
-        }
+        private List<StudioBonePose> PoseBetween(
+            int group, int animation, int frame, float fraction, StudioPoseWorkspace workspace, int slot) =>
+            StudioAnimation.PoseBetweenInto(
+                Models[group],
+                BonesOf(group),
+                group == 0 ? null : Remaps(group),
+                animation,
+                frame,
+                fraction,
+                workspace,
+                slot);
 
         /// <summary>An animation's IK rules, read once.</summary>
         /// <param name="group">Which included model the animation belongs to.</param>
