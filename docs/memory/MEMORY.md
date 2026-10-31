@@ -1,139 +1,61 @@
-- [A measurement hook checks the record, not the science](a-measurement-hook-checks-the-record-not-the-science.md) — pre-run file, verdict, fix:/perf: names its test; `git cat-file` not `git show sha:path`.
-- [Credits queue](credits-queue.md) — API-credit jobs: drop JSON in F:\credits-queue\pending; owner runs the runner.
-- [Gate once per batch](gate-once-per-batch.md) — touched projects between rounds; one implementer until UI runs beside phase 1.
-- [The lead publishes releases](the-lead-publishes-releases.md) — draft by workflow, lead checks and publishes; D227.
-- [When to call the advisor](when-to-call-the-advisor.md) — after the first plan and on the changes; not before every merge.
-- [Show a comparison, don't ask him to look](show-a-comparison-dont-ask-him-to-look.md) — golden test or before/after shot, via SendUserFile.
-- [How to prioritize the work](how-to-prioritize-the-work.md) — bugs, then measured fps/memory wins, then parity, housekeeping in the gaps.
-- [API jobs get the tools paragraph from the wrapper](api-jobs-get-the-tools-paragraph-from-the-wrapper.md) — `_tools.md` is prepended to every queue job.
-- [Accessibility here is for tests](accessibility-here-is-for-tests.md) — TF2 needs sight; keep deaf/motor/colour support; PBJ needs all.
-- [Design for what the user sees during it](design-for-what-the-user-sees-during-it.md) — scrub needs live feedback (D217).
-- [Tests before codecs](tests-before-codecs.md); [conformance first](conformance-test-before-implementation.md).
-- [Layer 2 is a dependency chain](layer2-is-a-dependency-chain.md); [length arithmetic](length-arithmetic-identifies-a-layout.md) IDs a layout.
-- [Fixtures are the weak point](fixtures-are-the-weak-point.md); [author the specimen](author-the-specimen-the-corpus-lacks.md) the corpus lacks.
-- [Numeric decoding traps](numeric-decoding-traps.md); [padding is not zero](padding-is-not-zero.md).
-- [Span guards without allocation](span-guards-testable-without-allocation.md); [per-item APIs](per-item-apis-hide-quadratic-reads.md) hide quadratic reads.
-- [Mutation score is not the goal](mutation-score-is-not-the-goal.md); [Stryker Safe Mode](stryker-safe-mode-needs-an-inline-comment.md) needs a comment.
-- [Research before code](research-before-code.md); [read the encoder](read-the-encoder-not-the-decoder.md); [ask whether the data arrived](ask-whether-the-data-arrived.md); [decoding must be total](decode-must-be-total.md).
-- [Fallbacks don't make guesses safe](fallbacks-do-not-make-guesses-safe.md); [a fallback that makes sound](a-fallback-that-makes-sound-hides-itself.md) hides; [arithmetic settles disputes](arithmetic-settles-disputes.md).
-- [NUnit, never deprecated packages](nunit-over-xunit-never-deprecated-packages.md); [keep packages current](keep-packages-current.md) (D191); [international names are required](international-names-are-required.md).
-- [The era axis is measured](era-axis-is-measured.md); [hl2sdk branches](hl2sdk-branches-are-per-era-headers.md); [a protocol can hide two builds](a-protocol-can-hide-two-builds.md) (B440).
-- [Record both points of view](record-both-points-of-view.md); [a demo dates its own fields](the-demo-dates-its-own-fields.md); [round trips need the encoding shape](round-trip-needs-the-encoding-shape.md); [wire- ≠ state-faithful](wire-faithful-is-not-state-faithful.md).
-- [Measure the output](measure-the-output-not-the-capability.md); [output-level assertion or not done](output-level-assertion-or-it-is-not-done.md); [the engine accepts authored demos](engine-accepts-authored-demos.md); [a test demo is not demo repair](a-test-demo-is-not-demo-repair.md).
-- [A changelog dates the complaint](a-changelog-dates-the-complaint.md); [fixture lifetime per test-kind](nunit-shared-fixture-is-the-standard.md); [an assembly attribute does not travel with its tests](an-assembly-attribute-does-not-travel-with-its-tests.md) (D213).
-- [Branch granularity is fine](branch-granularity-is-fine-here.md); [a parent branch defers the gate](parent-branch-defers-the-gate.md); [a header written last is absent](a-header-written-last-is-absent.md); [ticks don't start at zero](demo-ticks-do-not-start-at-zero.md).
-- [BSP lumps are compressed](bsp-lumps-are-compressed.md); [vrad key arithmetic ≠ the lump](vrad-key-arithmetic-is-not-the-lump.md).
-- [UI tests run every time](ui-tests-run-every-time.md); [take the desktop lock](take-the-desktop-lock-dont-defer.md); [announce before launching](announce-before-launching.md).
-- [A UIA-expanded menu eats later keys](a-uia-expanded-menu-eats-later-keys.md); [UI tests use no real input unless forced](ui-tests-use-no-real-input-unless-forced.md); [a test can outlive its design](a-test-can-outlive-its-design.md).
-- [Instrument bugs outnumber decoder bugs](instrument-bugs-outnumber-decoder-bugs.md) — absence needs a control (B443); [denominator decides loss](the-denominator-decides-what-can-be-lost.md); [logs are the debugger](logs-are-the-debugger.md); [logging on a background thread](logging-goes-on-a-background-thread.md) (D230).
-- [One place or it drifts](one-place-or-it-drifts.md); [key a lookup on the question](key-a-lookup-on-the-question.md).
-- [Most of a decoder is untested](most-of-a-decoder-is-untested.md); [boundaries find what tests cannot](boundaries-find-what-tests-cannot.md); [a grouped sabotage can redden for the wrong reason](a-grouped-sabotage-can-redden-for-the-wrong-reason.md).
-- [Sentinels conflate unknown with answer](sentinels-conflate-unknown-with-answer.md); [a neutral default must be neutral](a-neutral-default-must-be-neutral.md).
-- [Edit with the file tools](edit-files-with-the-file-tools.md); [Write can destroy what you did not read](write-can-destroy-what-you-did-not-read.md); [bone merge sends no position](bone-merge-sends-no-position.md).
-- [Negative model indices are dynamic](negative-model-indices-are-dynamic.md); [a weapon's world model is its item's](a-weapons-world-model-is-its-items.md); [build-time shortcuts assume the camera](build-time-shortcuts-assume-the-camera.md).
-- [Read the map before the renderer](read-the-map-before-the-renderer.md); [a map cannot have a hole](a-map-cannot-have-a-hole.md); [surf and jump are an audience](surf-and-jump-are-an-audience.md).
-- [Wire names are strings](wire-names-are-strings.md); [any table can declare a property](a-property-can-be-declared-by-any-table.md), [needs its table](a-property-name-needs-its-declaring-table.md) (B442).
-- [Nothing is closed](nothing-is-closed.md); [rename decompiled functions](rename-decompiled-functions.md) (D174); [death is EF_NODRAW](death-is-ef-nodraw-not-an-animation.md); [a corpse is simulated](a-tf2-corpse-is-simulated-not-sent.md).
-- [Pose parameters live in the included model](pose-parameters-live-in-the-included-model.md); [material variables split three ways](material-variables-split-three-ways.md).
-- [Struct padding is on disk](struct-padding-is-on-disk.md); [address a struct by name](address-a-struct-by-name-not-from-its-end.md); [a count is not a span](a-count-is-not-a-span.md) (B521).
-- [Test naming](test-naming-convention.md) — {Subject}_{Scenario}_{Expected}; [a nullable pattern on a struct is dead code](nullable-pattern-on-a-struct-is-dead-code.md).
-- [A player has two viewmodels](a-player-has-two-viewmodels.md); [a player is not a prop track](a-player-is-not-a-prop-track.md); [the client builds what the demo omits](the-client-builds-what-the-demo-omits.md).
-- [Two matrix conventions](two-matrix-conventions-on-purpose.md) (D173).
-- [A default is not a constant](a-default-is-not-a-constant.md); [a constant carries no scope](a-constant-carries-no-scope.md); [a SHADER_PARAM default string is not applied](a-shader-param-default-string-is-not-applied.md) (B521).
-- [Where the game and clients live](where-the-game-and-clients-live.md) — game `F:`, decompilation `D:`.
-- [A filed design choice may not be one](a-filed-design-choice-may-not-be-one.md); [clip the surface to the projection](clip-the-surface-to-the-projection.md).
-- [Name the reading you picked](name-the-reading-you-picked.md); [state the assumptions the owner can falsify](state-the-assumptions-the-owner-can-falsify.md).
-- [Never revert without asking](never-revert-without-asking.md); [name the trade before fixing Valve](name-the-trade-before-fixing-valve.md).
-- [Read the trx total](read-the-trx-total-not-the-console.md); [gate once per merge](gate-once-per-merge-not-per-commit.md).
-- [A config is a program](a-config-is-a-program.md); [silence about a missing feature is not a preference](silence-about-a-missing-feature-is-not-a-preference.md).
-- [A pass must establish its own state](a-pass-must-establish-its-own-state.md); [a picture is assertable](a-picture-is-assertable.md).
-- [A budget rule must not gate a correctness rule](a-budget-rule-must-not-gate-a-correctness-rule.md); [a parity rule may bound the cost](a-parity-rule-may-bound-the-cost.md).
-- [Sound the demo does not carry](sound-the-demo-does-not-carry.md); [a loop is state](a-loop-is-state-not-an-event.md).
-- [Valve parity first](valve-parity-is-the-first-principle.md) (D89/D143/D148/D172); [Valve's shape](valve-shape-beyond-parity.md) (D163); [never assume it's broken](never-assume-valve-is-broken.md); [an addition above Valve is allowed](an-addition-above-valve-is-allowed.md); [parity is the search](parity-is-the-search-not-the-defence.md); [a Valve comment is not its code](a-valve-comment-is-not-its-code.md) (B463).
-- [The fat column is the subtracted one](the-fat-column-is-the-subtracted-one.md); [custom/ and choosable huds](custom-folder-and-choosable-huds.md) — deliberate; don't "fix".
-- [A partial thin view is worse than none](a-partial-thin-view-is-worse-than-none.md); [ask if the view must hold it](ask-if-the-view-must-hold-it.md); [a callee's signature is the caller's TypeRef](a-callee-signature-is-the-callers-typeref.md) (B540).
-- [Ask which input differs before bisecting](ask-which-input-differs-before-bisecting.md); [the first step of a sequence is not the culprit](the-first-step-of-a-sequence-is-not-the-culprit.md).
-- [The f12 demo is the parity reference](the-f12-demo-is-the-parity-reference.md); [compare with the same camera](compare-with-the-same-camera.md).
-- [The game folder is the user's](the-game-folder-is-the-users-to-provide.md); [modern TF2 is not a stock reference](modern-tf2-is-not-a-stock-reference.md).
-- [Rewind is ours; parity first](rewind-is-ours-parity-first.md).
-- [Runner migration notices are not defects](runner-migration-notices-are-not-defects.md).
-- [CI is the machine without TF2](ci-is-the-machine-without-tf2.md); [CI gates are soft for now](ci-gates-are-soft-for-now.md) (D195).
-- [No hardcoded controls](no-hardcoded-controls-ever.md) (D101).
-- [Portable half and adapter half](portable-half-and-adapter-half.md); [a native API wrapper owns a library handle](a-native-api-wrapper-owns-a-library-handle.md).
-- [A lazy cache makes reading a write](a-lazy-cache-makes-reading-a-write.md); [a cached timeline samples for everyone](a-cached-timeline-samples-for-everyone.md) (B438).
-- [An empty box must never cull](an-empty-box-must-never-cull.md); [a visibility set is four questions](a-visibility-set-is-four-questions.md).
-- [A demo names a map version](a-demo-names-a-map-version.md) — MapHash, never MapCrc.
-- [A gap can be filed backwards](a-gap-can-be-filed-backwards.md); [a RISKS heading can be stale](a-risks-heading-can-be-stale.md).
-- [Ask whether it still follows the pattern](ask-whether-it-still-follows-the-pattern.md); [ask about the entity you are drawing](ask-about-the-entity-you-are-drawing.md).
-- [Measure the route before building on it](measure-the-route-before-building-on-it.md); [prove the equivalence before building it](prove-the-equivalence-before-building-it.md); [one look can be two mechanisms](one-look-can-be-two-mechanisms.md).
-- [Take your own screenshot](take-your-own-screenshot.md); [take the golden shot, don't ask](take-the-golden-shot-dont-ask.md); [delete captures after measuring](delete-captures-after-measuring.md).
-- [Subagent models](one-subagent-and-prefer-cheap-models.md) (D196); [review subagents deeply](review-subagents-deeply.md); [read the diff before merging agent work](read-the-diff-before-merging-agent-work.md); [review for recall](review-for-recall.md); [no interim status replies](no-interim-status-replies.md).
-- [A dropped field falls to a computed default](a-dropped-field-falls-to-a-computed-default.md); [a flag with no field is set by the loop](a-flag-with-no-field-is-set-by-the-loop.md); [the player send table excludes the animation](the-player-send-table-excludes-the-animation.md).
-- [Filing a divergence is not fixing it](filing-a-divergence-is-not-fixing-it.md); [a .phy is text except for the hulls](a-phy-is-text-except-for-the-hulls.md).
-- [A guard you remove may be the mechanism](a-guard-you-remove-may-be-the-mechanism.md); [an exception type can be load-bearing](an-exception-type-can-be-load-bearing.md).
-- [The base is not the behaviour](the-base-is-not-the-behaviour.md); [an unused method may be the engine's](an-unused-method-may-be-the-engines.md).
-- [Point the camera from the data](point-the-camera-from-the-data.md); [the view origin is the camera](the-view-origin-is-the-camera-not-a-player.md); [precache what the engine precaches](precache-what-the-engine-precaches.md).
-- [Two accumulators cannot see order](two-accumulators-cannot-see-order.md); [determinism without flattening a draw](determinism-does-not-require-flattening-a-draw.md); [a computed offset is a guess the file can answer](a-computed-offset-is-a-guess-the-file-can-answer.md).
-- [An entity index does not name a track](an-entity-index-does-not-name-a-track.md); [a handle resolves through its serial](a-handle-resolves-through-its-serial.md).
-- [The interpolation pair is found by changetime](the-interpolation-pair-is-found-by-changetime.md); [one demo player serves camera and recorder](one-demo-player-serves-camera-and-recorder.md) (B56).
-- [Port the engine's bottom layer first](port-the-engines-bottom-layer-first.md); [American English for new text](american-english-for-new-text.md) (D158).
-- [A picked option is not a voiced decision](a-picked-option-is-not-a-voiced-decision.md) (D183); [thinking aloud ≠ decision](thinking-aloud-is-not-a-decision.md); [ask what the request is for](ask-what-the-request-is-for.md).
-- [One run at a time](one-run-at-a-time.md); [parallel agents lock the gate too](parallel-agents-lock-the-gate-too.md); [a lock holder must time itself out](a-lock-holder-must-time-itself-out.md); [a GUI exe ≠ the lock](a-gui-exe-does-not-hold-the-lock.md); [my own processes are mine](my-own-processes-are-mine.md).
-- [Check at the owner's moment](check-at-the-owners-moment.md); [no task cards](no-task-cards.md) (D169/D171).
-- [Spend fewer tokens](spend-fewer-tokens.md); [push when work piles up](push-when-work-piles-up.md); [verify origin/main after a push](verify-origin-main-after-push.md).
-- [The JIT picks the NaN destination](the-jit-picks-the-nan-destination.md); [a `with` switch can hang the compiler](a-with-switch-expression-can-hang-the-compiler.md).
-- [Sticking friction is out of scope](sticking-friction-is-out-of-scope.md) (D175); [use Bash, not the PowerShell tool](use-bash-not-powershell-tool.md).
-- [Debug is what the owner runs](debug-is-what-the-owner-runs.md) (D176); [defaults are highest quality](defaults-are-highest-quality.md); [unread by production is dead](unread-by-production-is-dead.md) (D180).
-- [A measure needs focus](a-measure-needs-focus.md); [a reference count can depend on fps](a-reference-count-can-depend-on-fps.md); [mutation box gets maps, never demos](mutation-box-gets-maps-never-demos.md).
-- [SourceTV has a local player](sourcetv-has-a-local-player.md); [a POV demo follows the recorder](a-pov-demo-follows-the-recorder-in-everything.md) (D188).
-- [Play fast to find lifecycle bugs](play-fast-to-find-lifecycle-bugs.md) (B418); [an event is taken, not read](an-event-is-taken-not-read.md) (B473); [driving TF2 demo playback](driving-tf2-demo-playback.md); [interp is the watcher's setting](interp-is-the-watchers-setting.md) (D190).
-- [lcor is not in a worktree](lcor-is-not-in-a-worktree.md); [a worktree's lcor is a junction](a-worktree-lcor-is-a-junction.md) — `rm` deletes the original; [$TEMP is shared](temp-is-shared-across-worktrees.md); [check the worktree before every git command](check-the-worktree-before-every-git-command.md).
-- [clangd on the SDK](clangd-on-the-sdk.md) — never grep.
-- [Auto-exposure settles](auto-exposure-settles.md) (D192); [read the HDR set](read-the-hdr-set.md); [TF2 barely uses dynamic lights](tf2-barely-uses-dynamic-lights.md) (B425).
-- [A synthetic packet without ServerInfo is protocol 0](a-synthetic-packet-without-serverinfo-is-protocol-0.md) (B443); [an empty schema value is an answer](an-empty-schema-value-is-an-answer.md) (B105).
-- [A corpus sweep holds one demo at a time](a-corpus-sweep-holds-one-demo-at-a-time.md) (B439); [a streamed demo is read per enumeration](a-streamed-demo-is-read-per-enumeration.md) (B449); [a corpus selection outlives its corpus](a-corpus-selection-outlives-its-corpus.md) (B440).
-- [Never stop a working subagent](never-stop-a-working-subagent.md).
-- [A check is a test or it is not in](a-check-is-a-test-or-it-is-not-in.md); [a hook is not live until a control fires it](a-hook-is-not-live-until-a-control-fires-it.md) — hooks load from the base checkout.
-- [Mutation runs go to the box](mutation-runs-go-to-the-box.md) — stale.
-- [Full corpus at most once a day](full-corpus-at-most-once-a-day.md); [download every demo found](download-every-demo-found.md).
-- [Record specimens with the tf2 MCP](record-specimens-with-the-tf2-mcp.md); [TF2 is a shared fixture](tf2-is-a-shared-fixture.md).
-- [A declared codec is not the payload's](a-declared-codec-is-not-the-payloads.md) (B441); [a flag that changes state belongs in the state machine](a-flag-that-changes-state-belongs-in-the-state-machine.md) (B437).
-- [Water LOD lives in a material proxy](water-lod-lives-in-a-material-proxy.md); [an unanalysed Ghidra program shows no xrefs](an-unanalysed-ghidra-program-shows-no-xrefs.md) (B62).
-- [A level reads its pakfile first](a-level-reads-its-pakfile-first.md) (B465, B485); [users never touch env vars](users-never-touch-environment-variables.md) (D210).
-- [A deck is dealt at play time](a-deck-is-dealt-at-play-time.md) (B503-B505); [a model names itself](a-model-names-itself.md) (B513).
-- [A sweep of three is not a census](a-sweep-of-three-is-not-a-census.md); [no known-protocol list](no-known-protocol-list.md) (D211).
-- [Steerable work is done inline](steerable-work-is-done-inline.md); [agents ask the owner client questions](agents-ask-the-owner-client-questions.md); [engine reader before implementer](engine-reader-before-implementer.md).
-- [A TF2 face is the scene](a-tf2-face-is-the-scene.md) (B513); [the engine rewrites data between the file and the shader](the-engine-rewrites-data-between-the-file-and-the-shader.md) (B514).
-- [A phong static prop is not vertex lit](a-phong-static-prop-is-not-vertex-lit.md) (B514); [a model shader's $color is gamma](a-model-shaders-color-is-gamma.md) (B514).
-- [No unit test opens a real demo](no-unit-test-opens-a-real-demo.md) (D213); [a reflection is tinted and masked by the helper](a-reflection-is-tinted-and-masked-by-the-helper.md) (B521).
-- [A gate that waits says what it waits on](a-gate-that-waits-says-what-it-waits-on.md) (B520); [check the reference's subject before the camera](check-the-reference-subject-before-the-camera.md) (B522).
-- [A reading that makes Valve absurd is the reading](a-reading-that-makes-valve-absurd-is-the-reading.md) (B523); [one KeyValues tokenizer](one-keyvalues-tokenizer.md) (B524).
-- [A seek rebuilds what playing accumulated](a-seek-rebuilds-what-playing-accumulated.md) (B527); [a directorless STV chase does not turn](a-directorless-stv-chase-does-not-turn.md) (B535).
-- [A paused frame is two moments](a-paused-frame-is-two-moments.md) (B538); [walks no animation event](a-paused-frame-walks-no-animation-event.md) (B541).
-- [Game handles are not personal information](game-handles-are-not-personal-information.md) — fine in committed docs; no history scrub.
-- [A whole timeline can leak the future](a-whole-timeline-can-leak-the-future.md) (D217 step 3).
-- [Log findings to the measurement box log](log-findings-to-the-measurement-box-log.md) — findings go in `PinKushin/MEASUREMENT-BOX-LOG.md`.
-- [A demo without its map fails soft](a-demo-without-its-map-fails-soft.md) (D224).
-- [Index notes](index-notes.md) — decision numbers formerly beside links.
-- [The HUD draws at tone-map scale 1](the-hud-draws-at-tone-map-scale-one.md) — integer HDR resets it before VGUI (viewrender.cpp:2211).
-- [UnlitGeneric has no $detailtint](unlitgeneric-has-no-detailtint.md) — c10 white; check SetupVars before porting a param.
-- [A capturing cache factory allocates on a hit](a-capturing-cache-factory-allocates-on-a-hit.md) — closure made at scope entry; IvpTestSurface boxes are IVP-frame (Y up).
-- [Parity and fps gains need no ask](parity-and-fps-gains-need-no-ask.md) — pre-approved; report cost and proceed; still ask on visible changes (2026-10-22).
-- [Parity includes how the engine schedules work](parity-includes-how-the-engine-schedules-work.md) — audits cover threads/queues/pools, not only what is drawn; may force a large rewrite (2026-10-22).
-- [Count the changes before caching on unchanged](count-the-changes-before-caching-on-unchanged.md) — B597 face cache held <1% (faces change every render frame); one count run first (D236).
-- [A call count is half an instrument](a-call-count-is-half-an-instrument.md) — B594's "≤2 calls" was 0.46 ms; time inside the callee over the whole frame (2026-10-26).
-- [The bone clock advances once a frame](the-bone-clock-advances-once-a-frame.md) — at the world pass, as `InvalidateBoneCaches`; per-pass made every post-pass attachment query rebuild (0.43-0.53 ms, 2026-10-27).
-- [A split carries its first-use builds](a-split-carries-its-first-use-builds.md) — a cached lookup read 4 µs a hit; 0.146 of 0.152 ms was 174 first builds. Time the miss path apart (2026-10-27).
-- [Fable only as a merge reviewer](never-use-fable.md) — via the credits queue (claude-fable-5-1); never implementer, lead or inside workflows.
-- [A win above 0.01 ms counts; target is 1000 fps](a-win-above-0-01-ms-counts-the-target-is-1000-fps.md) — only sub-0.01 ms is "small"; report ms + % of frame (2026-10-25).
-- [The lead does not decide to drop an item](the-lead-does-not-decide-to-drop-an-item.md) — closing/reverting/parking a perf item needs a second look; propose, never decide (2026-10-25).
-- [Delete leftover files yourself](delete-leftover-files-yourself.md) — throwaway probes, captures, scratch builds: delete, never hand the owner a list (2026-10-27).
-- [A client starts from its shipped launcher](a-client-starts-from-its-shipped-launcher.md) — period clients: find the .bat/.lnk/loader FIRST; raw hl2.exe froze or failed on 2007/2008/2009/2011 (2026-10-29).
-- [A track walk is a walk of the whole recording](a-track-walk-is-a-walk-of-the-whole-recording.md) — 6,456 tracks for ~492 live on f12; count the walk beside what it yields; time diagnostics too (B259, 2026-10-28).
-- [Handoff 2026-10-31](handoff-2026-10-31.md) — READ FIRST (supersedes 10-29's release block): beta.57 PUBLISHED, tag on d3e008fe, what landed, open B numbers, next fps items, owed items, rules learned.
-- [Handoff 2026-10-29](handoff-2026-10-29.md) — (older; its release block is superseded) (supersedes 10-28): D240 renumber on the specimen branches, B259 merged on `merge/batch-43`, 8 era specimens redone in lcor (chain `feat/era-specimens-v2-b..i`), re-record 4269 + 2013 POV, then gcor swap (live pair in), rules learned.
-- [Handoff 2026-10-28](handoff-2026-10-28.md) — (older) main 818ccd68, beta.55 published Latest, shipped list, next fps target (camera wait), owed items (local stutter reproduction, cl_detaildist), lessons.
-- [Owner input does not affect RCON-driven runs](owner-input-does-not-affect-rcon-driven-runs.md) — no "hands-off" for specimen runs; only the launcher click is his.
-- [Owner narration is not an instruction](owner-narration-is-not-an-instruction.md) — "it got to the menu" is observation; no agent messages or plan changes from it.
-- [Per-pass GPU needs a fixed window condition](per-pass-gpu-needs-a-fixed-window-condition.md) — any visible part of the viewer window flips Clear/Sky3D/World GPU; run all off screen (`TF2VIEW_WINDOW_POS=-3000,100`), classify by Clear GPU (2026-10-30).
-- [A modulate output is a multiplier, not light](a-modulate-output-is-a-multiplier-not-light.md) — Modulate/DecalModulate are TONEMAP_SCALE_NONE; shots disagreeing by camera → pin `+mat_force_tonemap_scale 1` first (B635, 2026-10-31).
+- [[a-measurement-hook-checks-the-record-not-the-science]] — pre-run file, verdict, `fix:`/`perf:` names its test; `git cat-file`, not `git show sha:path`.
+- [[handoff-2026-10-31]] READ FIRST — beta.57 PUBLISHED, tag on `d3e008fe`; supersedes [[handoff-2026-10-29]], which supersedes [[handoff-2026-10-28]].
+- [[index-notes]] — D numbers formerly beside links.
+- [[credits-queue]] — API-credit jobs: JSON in `F:\credits-queue\pending`, owner runs the runner; [[api-jobs-get-the-tools-paragraph-from-the-wrapper]].
+- [[gate-once-per-batch]]; [[gate-once-per-merge-not-per-commit]]; [[parent-branch-defers-the-gate]]; [[branch-granularity-is-fine-here]]; [[a-gate-that-waits-says-what-it-waits-on]] (B520) — one implementer until UI runs beside phase 1.
+- [[the-lead-publishes-releases]] (D227); [[the-lead-does-not-decide-to-drop-an-item]]; [[when-to-call-the-advisor]] — after the first plan and on the changes.
+- [[how-to-prioritize-the-work]] — bugs, then measured fps/memory wins, then parity, housekeeping in the gaps.
+- [[parity-and-fps-gains-need-no-ask]]; [[parity-includes-how-the-engine-schedules-work]] — audits cover threads/queues/pools, not only what is drawn.
+- [[show-a-comparison-dont-ask-him-to-look]]; [[take-your-own-screenshot]]; [[take-the-golden-shot-dont-ask]]; [[delete-captures-after-measuring]]; [[delete-leftover-files-yourself]].
+- [[no-task-cards]] (D169/D171); [[no-interim-status-replies]]; [[spend-fewer-tokens]]; [[push-when-work-piles-up]]; [[verify-origin-main-after-push]]; [[check-at-the-owners-moment]].
+- [[one-run-at-a-time]]; [[parallel-agents-lock-the-gate-too]]; [[a-lock-holder-must-time-itself-out]]; [[a-gui-exe-does-not-hold-the-lock]]; [[my-own-processes-are-mine]]; [[take-the-desktop-lock-dont-defer]]; [[announce-before-launching]].
+- [[never-stop-a-working-subagent]]; [[one-subagent-and-prefer-cheap-models]] (D196); [[review-subagents-deeply]]; [[read-the-diff-before-merging-agent-work]]; [[review-for-recall]].
+- [[steerable-work-is-done-inline]]; [[agents-ask-the-owner-client-questions]]; [[engine-reader-before-implementer]]; [[port-the-engines-bottom-layer-first]]; [[ask-what-the-request-is-for]].
+- [[a-picked-option-is-not-a-voiced-decision]] (D183); [[thinking-aloud-is-not-a-decision]]; [[owner-narration-is-not-an-instruction]]; [[owner-input-does-not-affect-rcon-driven-runs]].
+- [[never-use-fable]] — merge reviewer only, via the credits queue; [[use-bash-not-powershell-tool]]; [[debug-is-what-the-owner-runs]] (D176); [[defaults-are-highest-quality]]; [[unread-by-production-is-dead]] (D180).
+- [[american-english-for-new-text]] (D158); [[keep-packages-current]] (D191); [[international-names-are-required]]; [[nunit-over-xunit-never-deprecated-packages]]; [[nunit-shared-fixture-is-the-standard]]; [[an-assembly-attribute-does-not-travel-with-its-tests]] (D213).
+- [[test-naming-convention]]; [[no-unit-test-opens-a-real-demo]] (D213); [[read-the-trx-total-not-the-console]]; [[nullable-pattern-on-a-struct-is-dead-code]]; [[no-hardcoded-controls-ever]] (D101); [[users-never-touch-environment-variables]] (D210).
+- [[ui-tests-run-every-time]]; [[a-uia-expanded-menu-eats-later-keys]]; [[ui-tests-use-no-real-input-unless-forced]]; [[a-test-can-outlive-its-design]].
+- [[a-with-switch-expression-can-hang-the-compiler]]; [[the-jit-picks-the-nan-destination]]; [[silence-about-a-missing-feature-is-not-a-preference]].
+- [[ci-is-the-machine-without-tf2]]; [[ci-gates-are-soft-for-now]] (D195); [[runner-migration-notices-are-not-defects]]; [[one-place-or-it-drifts]]; [[key-a-lookup-on-the-question]].
+- [[a-check-is-a-test-or-it-is-not-in]]; [[a-hook-is-not-live-until-a-control-fires-it]] — hooks load from the base checkout; [[a-config-is-a-program]].
+- [[record-both-points-of-view]]; [[name-the-reading-you-picked]]; [[state-the-assumptions-the-owner-can-falsify]]; [[never-revert-without-asking]]; [[name-the-trade-before-fixing-valve]]; [[a-filed-design-choice-may-not-be-one]].
+- [[game-handles-are-not-personal-information]] — fine in committed docs, no history scrub; [[log-findings-to-the-measurement-box-log]] — `PinKushin/MEASUREMENT-BOX-LOG.md`.
+- [[accessibility-here-is-for-tests]] — TF2 needs sight; keep deaf/motor/colour support; PBJ needs all; [[design-for-what-the-user-sees-during-it]] (D217); [[a-whole-timeline-can-leak-the-future]] (D217 step 3).
+- [[tests-before-codecs]]; [[conformance-test-before-implementation]]; [[layer2-is-a-dependency-chain]]; [[length-arithmetic-identifies-a-layout]]; [[fixtures-are-the-weak-point]]; [[author-the-specimen-the-corpus-lacks]].
+- [[numeric-decoding-traps]]; [[padding-is-not-zero]]; [[struct-padding-is-on-disk]]; [[address-a-struct-by-name-not-from-its-end]]; [[a-count-is-not-a-span]] (B521); [[span-guards-testable-without-allocation]]; [[per-item-apis-hide-quadratic-reads]]; [[one-keyvalues-tokenizer]] (B524).
+- [[mutation-score-is-not-the-goal]]; [[stryker-safe-mode-needs-an-inline-comment]]; [[mutation-runs-go-to-the-box]] — stale; [[mutation-box-gets-maps-never-demos]]; [[full-corpus-at-most-once-a-day]]; [[download-every-demo-found]].
+- [[research-before-code]]; [[read-the-encoder-not-the-decoder]]; [[ask-whether-the-data-arrived]]; [[decode-must-be-total]]; [[fallbacks-do-not-make-guesses-safe]]; [[a-fallback-that-makes-sound-hides-itself]]; [[arithmetic-settles-disputes]].
+- [[era-axis-is-measured]]; [[hl2sdk-branches-are-per-era-headers]]; [[a-protocol-can-hide-two-builds]] (B440); [[no-known-protocol-list]] (D211); [[a-sweep-of-three-is-not-a-census]]; [[a-synthetic-packet-without-serverinfo-is-protocol-0]] (B443); [[an-empty-schema-value-is-an-answer]] (B105).
+- [[the-demo-dates-its-own-fields]]; [[round-trip-needs-the-encoding-shape]]; [[wire-faithful-is-not-state-faithful]]; [[demo-ticks-do-not-start-at-zero]]; [[a-header-written-last-is-absent]]; [[a-demo-names-a-map-version]] — MapHash, never MapCrc.
+- [[measure-the-output-not-the-capability]]; [[output-level-assertion-or-it-is-not-done]]; [[engine-accepts-authored-demos]]; [[a-test-demo-is-not-demo-repair]]; [[a-picture-is-assertable]]; [[a-demo-without-its-map-fails-soft]] (D224).
+- [[a-changelog-dates-the-complaint]]; [[most-of-a-decoder-is-untested]]; [[boundaries-find-what-tests-cannot]]; [[a-grouped-sabotage-can-redden-for-the-wrong-reason]]; [[the-denominator-decides-what-can-be-lost]].
+- [[instrument-bugs-outnumber-decoder-bugs]] — absence needs a control (B443); [[logs-are-the-debugger]]; [[logging-goes-on-a-background-thread]] (D230).
+- [[sentinels-conflate-unknown-with-answer]]; [[a-neutral-default-must-be-neutral]]; [[a-default-is-not-a-constant]]; [[a-constant-carries-no-scope]]; [[a-shader-param-default-string-is-not-applied]] (B521).
+- [[edit-files-with-the-file-tools]]; [[write-can-destroy-what-you-did-not-read]]; [[bone-merge-sends-no-position]]; [[a-phy-is-text-except-for-the-hulls]].
+- [[negative-model-indices-are-dynamic]]; [[a-weapons-world-model-is-its-items]]; [[build-time-shortcuts-assume-the-camera]]; [[pose-parameters-live-in-the-included-model]]; [[material-variables-split-three-ways]].
+- [[read-the-map-before-the-renderer]]; [[a-map-cannot-have-a-hole]]; [[surf-and-jump-are-an-audience]]; [[bsp-lumps-are-compressed]]; [[vrad-key-arithmetic-is-not-the-lump]]; [[a-level-reads-its-pakfile-first]] (B465, B485).
+- [[wire-names-are-strings]]; [[a-property-can-be-declared-by-any-table]]; [[a-property-name-needs-its-declaring-table]] (B442); [[an-entity-index-does-not-name-a-track]]; [[a-handle-resolves-through-its-serial]]; [[the-interpolation-pair-is-found-by-changetime]].
+- [[nothing-is-closed]]; [[rename-decompiled-functions]] (D174); [[death-is-ef-nodraw-not-an-animation]]; [[a-tf2-corpse-is-simulated-not-sent]]; [[a-deck-is-dealt-at-play-time]] (B503-B505); [[a-model-names-itself]] (B513); [[a-tf2-face-is-the-scene]] (B513).
+- [[a-player-has-two-viewmodels]]; [[a-player-is-not-a-prop-track]]; [[the-client-builds-what-the-demo-omits]]; [[the-player-send-table-excludes-the-animation]]; [[an-event-is-taken-not-read]] (B473).
+- [[two-matrix-conventions-on-purpose]] (D173); [[the-view-origin-is-the-camera-not-a-player]]; [[point-the-camera-from-the-data]]; [[compare-with-the-same-camera]]; [[check-the-reference-subject-before-the-camera]] (B522); [[the-f12-demo-is-the-parity-reference]].
+- [[where-the-game-and-clients-live]] — game `F:`, decompilation `D:`; [[the-game-folder-is-the-users-to-provide]]; [[modern-tf2-is-not-a-stock-reference]]; [[a-client-starts-from-its-shipped-launcher]].
+- [[clip-the-surface-to-the-projection]]; [[a-reflection-is-tinted-and-masked-by-the-helper]] (B521); [[the-engine-rewrites-data-between-the-file-and-the-shader]] (B514); [[a-phong-static-prop-is-not-vertex-lit]] (B514); [[a-model-shaders-color-is-gamma]] (B514).
+- [[unlitgeneric-has-no-detailtint]]; [[water-lod-lives-in-a-material-proxy]]; [[the-hud-draws-at-tone-map-scale-one]]; [[a-modulate-output-is-a-multiplier-not-light]] (B635); [[tf2-barely-uses-dynamic-lights]] (B425); [[read-the-hdr-set]]; [[auto-exposure-settles]] (D192).
+- [[sound-the-demo-does-not-carry]]; [[a-loop-is-state-not-an-event]]; [[a-pass-must-establish-its-own-state]]; [[a-budget-rule-must-not-gate-a-correctness-rule]]; [[a-parity-rule-may-bound-the-cost]].
+- [[valve-parity-is-the-first-principle]] (D89/D143/D148/D172); [[valve-shape-beyond-parity]] (D163); [[never-assume-valve-is-broken]]; [[an-addition-above-valve-is-allowed]]; [[parity-is-the-search-not-the-defence]]; [[a-valve-comment-is-not-its-code]] (B463); [[a-reading-that-makes-valve-absurd-is-the-reading]] (B523).
+- [[the-fat-column-is-the-subtracted-one]]; [[custom-folder-and-choosable-huds]] — deliberate, don't "fix"; [[a-partial-thin-view-is-worse-than-none]]; [[ask-if-the-view-must-hold-it]]; [[a-callee-signature-is-the-callers-typeref]] (B540).
+- [[ask-which-input-differs-before-bisecting]]; [[the-first-step-of-a-sequence-is-not-the-culprit]]; [[rewind-is-ours-parity-first]]; [[a-corpus-sweep-holds-one-demo-at-a-time]] (B439); [[a-streamed-demo-is-read-per-enumeration]] (B449); [[a-corpus-selection-outlives-its-corpus]] (B440).
+- [[portable-half-and-adapter-half]]; [[a-native-api-wrapper-owns-a-library-handle]]; [[a-lazy-cache-makes-reading-a-write]]; [[a-cached-timeline-samples-for-everyone]] (B438); [[a-capturing-cache-factory-allocates-on-a-hit]].
+- [[an-empty-box-must-never-cull]]; [[a-visibility-set-is-four-questions]]; [[a-gap-can-be-filed-backwards]]; [[a-risks-heading-can-be-stale]]; [[filing-a-divergence-is-not-fixing-it]].
+- [[ask-whether-it-still-follows-the-pattern]]; [[ask-about-the-entity-you-are-drawing]]; [[measure-the-route-before-building-on-it]]; [[prove-the-equivalence-before-building-it]]; [[one-look-can-be-two-mechanisms]].
+- [[a-guard-you-remove-may-be-the-mechanism]]; [[an-exception-type-can-be-load-bearing]]; [[the-base-is-not-the-behaviour]]; [[an-unused-method-may-be-the-engines]].
+- [[precache-what-the-engine-precaches]]; [[two-accumulators-cannot-see-order]]; [[determinism-does-not-require-flattening-a-draw]]; [[a-computed-offset-is-a-guess-the-file-can-answer]].
+- [[one-demo-player-serves-camera-and-recorder]] (B56); [[play-fast-to-find-lifecycle-bugs]] (B418); [[driving-tf2-demo-playback]]; [[interp-is-the-watchers-setting]] (D190); [[sourcetv-has-a-local-player]]; [[a-pov-demo-follows-the-recorder-in-everything]] (D188).
+- [[a-seek-rebuilds-what-playing-accumulated]] (B527); [[a-directorless-stv-chase-does-not-turn]] (B535); [[a-paused-frame-is-two-moments]] (B538); [[a-paused-frame-walks-no-animation-event]] (B541).
+- [[a-declared-codec-is-not-the-payloads]] (B441); [[a-flag-that-changes-state-belongs-in-the-state-machine]] (B437); [[a-dropped-field-falls-to-a-computed-default]]; [[a-flag-with-no-field-is-set-by-the-loop]].
+- [[an-unanalysed-ghidra-program-shows-no-xrefs]] (B62); [[clangd-on-the-sdk]] — never grep; [[lcor-is-not-in-a-worktree]]; [[a-worktree-lcor-is-a-junction]]; [[temp-is-shared-across-worktrees]]; [[check-the-worktree-before-every-git-command]].
+- [[a-measure-needs-focus]]; [[a-reference-count-can-depend-on-fps]]; [[per-pass-gpu-needs-a-fixed-window-condition]] — run off screen, classify by Clear GPU.
+- [[count-the-changes-before-caching-on-unchanged]] (D236); [[the-bone-clock-advances-once-a-frame]] — once a frame at the world pass; [[a-split-carries-its-first-use-builds]]; [[a-call-count-is-half-an-instrument]].
+- [[a-track-walk-is-a-walk-of-the-whole-recording]] (B259); [[a-win-above-0-01-ms-counts-the-target-is-1000-fps]] — only sub-0.01 ms is "small"; report ms and % of frame.
+- [[tf2-is-a-shared-fixture]]; [[record-specimens-with-the-tf2-mcp]]; [[sticking-friction-is-out-of-scope]] (D175).

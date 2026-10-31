@@ -40,7 +40,7 @@ assistant's own directory doesn't need.
 
 ## What is here
 
-`MEMORY.md` is the index: one line per entry. Each other file holds a single fact, typed:
+`MEMORY.md` is the index: one line per entry. Its links are `[[slug]]`, the file name without `.md`, which keeps the index short enough to load every session. Each other file holds a single fact, typed:
 
 | Type | Meaning |
 |---|---|
