@@ -40410,6 +40410,10 @@ commits, same result).
 (inside the test's failure path); run the test alone and in the full suite N times with the desktop idle and count; read
 `ViewerSession.PressRealKey` for how it focuses a control before sending a key. Per the project rule a flake is a defect, not
 noise: **do not retry until green, and do not call the gate passed on one green run.**
+**The owner's reading (2026-10-31, an observation, not a decision):** *"those failures were probably me on the computer but idk"*.
+It fits: a browser was the foreground window when the desktop was checked after the first failure and during the runs of the
+test alone (not recorded during the first failure itself). It is unconfirmed; the settling run is the test alone with the
+desktop idle. beta.57's gate ran the full suite green on the final code.
 **Gate note:** `main` at `0979f203` was pushed before this was understood (the push was chained to the phase 2 command
 without reading its result); a full phase 2 on the same code has since passed once.
 
