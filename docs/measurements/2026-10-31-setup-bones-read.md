@@ -298,3 +298,54 @@ Not listed, because they would depart from Valve:
 3. **[interp], to check:** whether the barrel (R5) and duck-jump ramp (R9) being advanced in simulate
    rather than in the build ever differs. It can only differ on a frame where the entity is simulated
    but not built.
+
+## 5. Full-skeleton passes in one root build, counted before §4 item 2 (2026-10-31)
+
+A count from reading the code at `44ca01f7`, after the frame-pair change (`2026-10-31-frame-pair-one-pass.md`). Nothing
+was instrumented or run. "Pass" means one loop over every bone of the skeleton that writes a `StudioBonePose` (32 bytes:
+an int and seven floats). `n` is the bone count. A player's `n` is 78 (the `jumpland_primary` comment in
+`StudioBlendGrid.cs`).
+
+**Per sample (`SkinnedModel.LocalsInto`), when the fraction is above zero and both frames sit in one chain [src]:**
+
+| step | passes | removable without changing a bit? |
+|---|---|---|
+| each corner, `StudioAnimation.PoseBetweenInto`: seed both keys, then `BlendExpanded` | 3 | **no**. The seeds are `CalcAnimation`'s per-bone default for a bone the animation does not name (rest, or identity for a delta). The blend runs over unanimated bones too, and `a*(1-s) + a*s` is not bit-equal to `a`, so skipping it would change bits. |
+| each grid `StudioPoseBlend.BlendInto` (2 per three-corner grid, 1 on the diagonal): `SeedInto` + `Overlay` for each input, then `BlendExpanded` | 5 | **4 of the 5.** Both inputs are already dense: one entry per bone, in bone order, from the corner's `BlendExpanded` or from the previous grid blend. Seeding then overlaying a dense list reproduces it exactly. Valve's `BlendBones` (`bone_setup.cpp:1531`) blends two dense arrays and has no expand step. |
+
+- A plain sequence costs 3 passes, none removable.
+- A three-corner grid costs 9 + 10 = 19 passes, of which **8 are removable**.
+
+**Per build, after the samples [src]:**
+
+| step | passes | removable? |
+|---|---|---|
+| `SkeletonPose.Accumulate` (any layer or base lock): seed `_layered` from rest, then overlay the base | 2 | **Yes, replaced by one 32-byte-per-bone copy.** The copy is still needed: the first layer sample reuses the workspace list the base pose lives in, so the base has to leave it. With base locks and chains, the rest seed stays, because `IkLocks.Capture` reads the bind pose before the base is applied (`AccumulatePose`'s `AddSequenceLocks`, `bone_setup.cpp:2425`). The overlay becomes the copy. |
+| per layer, the slerp or delta add (`SlerpBones`) | 1 | no; it is Valve's own work |
+| `Adjust`, only when the model has controllers and the demo sent values: seed `_adjusted`, then overlay | 2 | **Yes, replaced by one copy.** Valve's `CalcBoneAdj` works in place (`bone_setup.cpp:2462`). |
+| `_overrideOf`: `Array.Fill` plus an index pass over the pose | 2 (ints and reads) | **Yes, both.** For a dense pose the index is the identity, so the loop can read entry `bone` directly. |
+
+**Sizes [src][arith]:**
+
+- A rest seed reads each `StudioBone` (about 136 bytes, per the comment in `SkeletonPose.Build`) by value through
+  `IReadOnlyList`, then writes 32 bytes. For 78 bones that is about 13 KB moved.
+- An identity seed writes about 2.5 KB.
+- An overlay reads 32 bytes through the interface and writes 32 bytes per bone, about 5 KB.
+
+**Per player build [interp]:**
+
+- Samples per player build: the base plus about 2.5 layers. That is 12.5 layer samples per frame over 4.9 eligible
+  roots (`2026-10-31-frame-pair-one-pass.md`, second after-set), assuming the layer samples belong to the players.
+- Assume every sample is a three-corner grid. Movement is a 9-way grid; the aim matrices are 3x4 delta grids.
+- Then about 3.5 × 8 = **28 removable grid passes**, plus 2 in `Accumulate`, 2 for `_overrideOf`, and 0 for `Adjust`
+  (a player model has no bone controllers; **not checked**), for **about 32 of 78 bones each**.
+- These sit beside about 3.5 × 11 = 38 sampling passes that stay.
+- Over 4.9 players, that is about **157 removable passes per frame**.
+
+**Where they land in the `roots split` timers.** This decides which part can move:
+
+- The grid passes run inside `_animation`, so they fall in **base** and **layer sampling** (0.166 + 0.108 = 0.274 in
+  the second after-set).
+- Only `Accumulate`'s 2 passes per player fall in the **accumulate remainder** (0.077). The rest of that remainder is
+  the per-layer composite (Valve's work, kept) and the `foreach` enumerator boxing (M6, not in this change).
+- `_overrideOf` and `Adjust` fall in **adjust** (0.004).
