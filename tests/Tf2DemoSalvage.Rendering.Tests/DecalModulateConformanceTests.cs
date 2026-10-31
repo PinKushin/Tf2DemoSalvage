@@ -3,7 +3,7 @@ using System.Collections.Generic;
 
 namespace Tf2DemoSalvage.Rendering.Tests;
 
-/// <summary>A <c>DecalModulate</c> draw is not scaled by the tone map (B633).</summary>
+/// <summary>A <c>DecalModulate</c> draw is not scaled by the tone map (B635).</summary>
 /// <remarks>
 /// **What Valve's shader does, quoted** (<c>decalmodulate_ps2x.fxc:35-44</c>):
 ///

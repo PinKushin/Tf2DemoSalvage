@@ -276,7 +276,7 @@ internal sealed unsafe class OffscreenTarget : IDisposable
     internal float ToneMapScale { get; set; } = 1f;
 
     /// <summary><c>LINEAR_LIGHT_SCALE</c> for the world <see cref="DrawWorld"/> draws, as <c>Device3D</c> sets it from the
-    /// exposure under HDR_TYPE_INTEGER; null leaves the world renderer's own (B633).</summary>
+    /// exposure under HDR_TYPE_INTEGER; null leaves the world renderer's own (B635).</summary>
     internal float? WorldToneMapScale { get; set; }
 
     /// <summary>The world renderer's own tone-map scale as it stands (water views push and pop it), one before any draw.</summary>

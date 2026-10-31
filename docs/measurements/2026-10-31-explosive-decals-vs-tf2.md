@@ -1,4 +1,4 @@
-# Measurement 2026-10-31: explosive scorch decals, dark and blocky at a close camera (B633)
+# Measurement 2026-10-31: explosive scorch decals, dark and blocky at a close camera (B635)
 
 **Status: RUN, verdict recorded.** Method and predictions were committed before the controlled shots (`ecc8977c`, and
 predictions 5-7 before their runs); the exploratory shots under Observation were taken first and raised the question.
@@ -8,7 +8,7 @@ predictions 5-7 before their runs); the exploratory shots under Observation were
 The owner, looking at `D:/measure-f12/decal/close1.png` (f12, tick 30000, camera `-3516 -2200 763 35 -28`, 984x551, Debug
 `--shot`), called the explosion scorches "massive pixelation" and "like our transparency or something is set to super low", and
 beside it called the scorches in `D:/measure-f12/b624/merged-after-29900.png` (tick 29900, camera `-3722 -1403 726 25 99`, also a
-Debug `--shot`) "much cleaner and less pixelated", and close1's "dark". His words in full: `docs/RISKS.md` B633.
+Debug `--shot`) "much cleaner and less pixelated", and close1's "dark". His words in full: `docs/RISKS.md` B635.
 
 Exploratory shots, taken before this file (images under `D:/measure-f12/decal-cmp/debug/`, all Debug, `--shot`, 984x551, close1's
 camera, `TF2VIEW_WINDOW_POS=-3000,100`, build of `c01b388e`):
@@ -193,7 +193,7 @@ reason was interpolated. It has now been measured, and the mechanism is differen
 
 Every one of these captures logs "drawn with tone-map scale 0.7009725" (the forced one logs 1). So the logged scale is not
 what reached the shader at the far camera. *Read:* the world constants are uploaded before the scale is set and
-re-uploaded at it only after a 3D-sky or water view; filed as **B634** with the line references. **For B633 this means:**
+re-uploaded at it only after a 3D-sky or water view; filed as **B636** with the line references. **For B635 this means:**
 the decal fault showed only on frames whose world pass received the exposure, which is why one camera showed it and the
 other did not. The fix is unchanged; Valve's modulate shaders take no scale on any frame.
 

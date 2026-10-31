@@ -878,7 +878,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
         // fog colour is taken at the same scale — interpolated from SetClearColorToFogColor (viewrender.cpp:759-766), which
         // scales the fog colour by the tone-map scale under HDR_TYPE_INTEGER; shaderapi's g_LinearFogColor is not read.
         //
-        // **Mode 2, a modulating material, takes TONEMAP_SCALE_NONE** (B633): `Modulate` and `DecalModulate` both end in
+        // **Mode 2, a modulating material, takes TONEMAP_SCALE_NONE** (B635): `Modulate` and `DecalModulate` both end in
         // `FinalOutput( …, TONEMAP_SCALE_NONE )` (modulate_ps2x.fxc:37, decalmodulate_ps2x.fxc:44), which leaves the colour
         // alone (common_ps_fxc.h:356-358). Their output is a multiplier on the framebuffer, not light, so scaling it
         // multiplied the floor under every scorch's neutral surround by the exposure: straight-edged dark squares.

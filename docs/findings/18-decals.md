@@ -525,7 +525,7 @@ as settled in a way a number without one does not.
 `OverlayOcclusionRenderTests` kept its two-condition design and had its requirement inverted rather
 than deleted, so what is now under guard is that a surface in front of a marking hides it.
 
-## A modulating decal is not light, so the tone map does not touch it (B633, 2026-10-31)
+## A modulating decal is not light, so the tone map does not touch it (B635, 2026-10-31)
 
 **What the owner saw:** explosion scorches on f12's floor drawn as "massive pixelation", "dark", like "transparency
 … set to super low", at a close camera, while the same scorches at another camera looked clean. Every number and
@@ -554,7 +554,7 @@ previous frame's end value, which is reset to 1 for the HUD (`:2007-2010`). It i
 only by `ReapplyCamera`, after the 3D skybox (`:1720-1746`) or the water views (`:1753-1766`). The log reports
 `_drawnScale`, a second route to the number (B243). *Interpolated:* the close camera's frame draws a 3D-sky view and
 the far camera's does not. That is the likeliest reason only the first carried the exposure into the world pass, and
-with it the decal fault. That world-exposure fault is its own entry (B634).
+with it the decal fault. That world-exposure fault is its own entry (B636).
 
 The question that separated decal from everything else was still one cvar, `+mat_force_tonemap_scale 1`, which took
 the blocks away without touching a line.
