@@ -64,6 +64,23 @@ Valve does (`EnableAlphaTest( true )`, `AlphaFunc( SHADER_ALPHAFUNC_GREATER, 0.0
 
 Falsified if: (1) the rectangles vanish with the alpha test; (2) both pixels are one face; (4) one scorch alone is smooth.
 
+**Added after run 1 (the alpha test) falsified prediction 1, before the runs it predicts.** Run 1 showed the outside-mask region
+darkens the floor although its texels are 128, so something multiplies the decal's output. Read in our shader: `PixelFog`
+multiplies every material's colour by `LINEAR_LIGHT_SCALE` (`WorldRenderer.cs:882`), the HDR_TYPE_INTEGER tone-map scale,
+including a modulating decal; Valve's DecalModulate writes `FinalOutput( result, fogFactor, PIXELFOGTYPE, TONEMAP_SCALE_NONE )`
+(`decalmodulate_ps2x.fxc:44`). Under mod2x a texel of 128 then multiplies the floor by the exposure rather than by one.
+
+H2: the rectangles and the extra darkness are the tone-map scale applied to a DecalModulate draw.
+
+5. **`+mat_force_tonemap_scale 1`** on the unchanged build at 30400: the rectangles VANISH (the scale is one, so 128 is neutral
+   again) and the scorch interiors get lighter than in C.
+6. **`+mat_hdr_level 0`** on the unchanged build at 30400: the same as 5 (`LinearLightScale` is 1 outside integer HDR,
+   `Device3D.cs:1652`).
+7. **The fix, applied in a scratch build** (no tone-map scale on a DecalModulate draw, nothing else changed) at 30400 with
+   default settings: no rectangles; the alpha test is a separate divergence and stays out of that build.
+
+Falsified if 5 or 6 still shows straight-edged blocks.
+
 ## Method
 
 Every shot: `tf2demoview D:/measure-f12/f12.dem --tick <t> --shot <png>` with `TF2VIEW_CAMERA` as stated and
