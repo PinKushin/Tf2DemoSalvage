@@ -171,8 +171,53 @@ To be recorded with the result: the branch commit, the build, load before and af
 
 ## Result
 
-Not run yet.
+Three runs (`2026-10-31-setup-parts/01.txt`..`03.txt`, driver `all.sh`, reader `summ.ps1`), each built in the command that ran
+it, off screen (`TF2VIEW_WINDOW_POS=-3000,100`), f12 tick 30000, 20 s playback. Means over the `moment cost` lines with the
+first left out (n = 16, 16, 14), ms per rebuild:
+
+| part | 01 | 02 | 03 |
+|---|---|---|---|
+| roots total | 0.565 | 0.567 | 0.692 |
+| blend | 0.071 | 0.079 | 0.099 |
+| base | 0.208 | 0.208 | 0.245 |
+| accumulate (all) | 0.208 | 0.200 | 0.247 |
+| of which layer sampling | 0.131 | 0.130 | 0.159 |
+| adjust | 0.004 | 0.004 | 0.005 |
+| loop | 0.039 | 0.040 | 0.051 |
+| ik | 0.026 | 0.027 | 0.034 |
+| finish | 0.001 | 0.002 | 0.002 |
+| unsplit | 0.007 | 0.008 | 0.010 |
+| layer samples per rebuild | 12.7 | 12.1 | 12.0 |
+| roots built / eligible | 12.9 / 4.9 | 12.7 / 4.7 | 12.9 / 4.7 |
+| `anim` / children | 0.219 / 0.052 | 0.225 / 0.055 | 0.264 / 0.069 |
+
+**Void conditions:** none (`prepose 0 over 0` in every line, roots built 12.7-12.9 within 8-21, eligible 4.7-4.9 within 4-7).
+**Controls:** the parts plus `unsplit` sum to the roots total (run 01: 0.564 vs 0.565); over all 49 `roots split` lines,
+`unsplit` ≥ 0.003 (min) and run means 0.007-0.010 (≤ 0.05); layer sampling ≤ accumulate in all 49; roots' base ≤ `anim` in
+every run; `anim` − base ≤ children + 0.05; parts not near zero. Audit caveats 1, 3, 4 and 5 did not bite (pre-pass off, no
+control fired).
+
+**Predictions against the result:**
+
+| # | Prediction | Result |
+|---|---|---|
+| 1 | roots 0.5-0.9 | holds (0.565, 0.567, 0.692) |
+| 2 | base + layer sampling ≥ 50% of roots | holds (60%, 60%, 58%) |
+| 3 | base 0.08-0.20 | **falsified**, 0.208, 0.208, 0.245 (just above) |
+| 4 | layer sampling 0.08-0.30 over 8-30 samples | holds (0.13-0.16 over 12-13) |
+| 5 | accumulate − sampling ≤ 0.05 | **falsified**, 0.077, 0.070, 0.088 |
+| 6 | blend 0.03-0.15 | holds (0.071-0.099) |
+| 7 | loop 0.03-0.10 | holds (0.039-0.051) |
+| 8 | ik 0.005-0.05 | holds (0.026-0.034) |
+| 9 | adjust ≤ 0.02, finish ≤ 0.01 | holds |
+| 10 | largest part is base or layer sampling | holds on the base reading (base ≥ accumulate in 01, 02; accumulate 0.247 vs base 0.245 in 03, and accumulate contains the sampling) |
 
 ## Verdict
 
-Not run yet.
+Of the roots' ~0.57 ms per rebuild, base sample (0.21) plus layer sampling (0.13) is about 60%: **decoding frames is the cost**,
+so the read's ranking item 1 (decode each pair of keyframes in one pass, `2026-10-31-setup-bones-read.md` §4) goes first, and
+it now has two places to pay (the base and the 12 layer samples per rebuild). Two predictions were wrong in the same
+direction: the base sample costs about a fifth more than predicted, and accumulate carries 0.07-0.09 ms beyond layer sampling
+(seed, overlay, slerp), more than the 0.05 allowed. That remainder is the second target. Blend (0.07-0.10) is third; loop,
+ik, adjust and finish together are about 0.07 and not worth a change by themselves. Nothing here is a before/after: no
+optimization was made, only the instrument.
