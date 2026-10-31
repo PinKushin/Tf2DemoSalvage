@@ -395,7 +395,14 @@ public static class StudioAnimation
 
     /// <summary>One animation sampled BETWEEN two of its frames, as the engine samples it, in storage the caller owns.</summary>
     /// <param name="file">The <c>.mdl</c>'s bytes.</param>
-    /// <param name="bones">The skeleton the animation is numbered against, which is also the one it is expanded to.</param>
+    /// <param name="bones">
+    /// The skeleton the animation is numbered against: each track's rest values and scales come from it, and the
+    /// blend is sized and seeded from it. **With a <paramref name="remap"/> that is a mismatch, carried over bit for bit
+    /// from the two-pass read and not a design**: the tracks land at the BASE model's indices, but the blend is
+    /// seeded and sized from the included model's own bones, so it is right only while the included skeleton matches
+    /// the base in order and count. Valve seeds base bone <c>i</c> from the sequence group's bone through
+    /// <c>boneMap</c> (<c>bone_setup.cpp:931-947</c>). Filed as B621.
+    /// </param>
     /// <param name="remap">
     /// The animation model's bone numbering onto the base model's, or null when the animation is the base model's own.
     /// A bone mapping to a negative index is dropped.
@@ -427,7 +434,7 @@ public static class StudioAnimation
     /// **When the two frames resolve to different chains the two-pass read stays.** A sectioned animation stores
     /// each section's data separately, and its last frame alone in a trailing section, so frame and frame + 1 can sit
     /// in different chains. Valve reads frame + 1 from frame's section; this reader reads it from its own, and a cost
-    /// change does not move that.
+    /// change does not move that (filed as B620).
     /// </remarks>
     internal static List<StudioBonePose> PoseBetweenInto(
         ReadOnlyMemory<byte> file,
@@ -451,6 +458,7 @@ public static class StudioAnimation
 
         ReadOnlySpan<byte> bytes = file.Span;
 
+        // Stryker disable once all : a mutant turning an || into && skips Locate, leaves 'cursor' and 'first' unassigned (CS0165), and Safe Mode drops the method - B410
         if (animation < 0 || animation >= Count(file) || bones.Count == 0 ||
             !Locate(bytes, animation, frame, out int cursor, out int first))
         {
@@ -460,6 +468,7 @@ public static class StudioAnimation
 
         bool additive = IsDelta(file, animation);
 
+        // Stryker disable once all : a cost branch the differential cannot tell apart - sending a same-chain pair to TwoPass gives the same bits, only slower, so mutants that widen it survive by equivalence
         if (!Locate(bytes, animation, frame + 1, out int nextCursor, out int second) || nextCursor != cursor)
         {
             return TwoPass(file, bones, remap, animation, frame, fraction, additive, workspace, slot);
@@ -485,12 +494,7 @@ public static class StudioAnimation
 
         foreach ((int bone, int flags, int payload) in CollectionsMarshal.AsSpan(chain))
         {
-            int target = bone;
-
-            if (remap is not null)
-            {
-                target = bone >= 0 && bone < remap.Length ? remap[bone] : -1;
-            }
+            int target = Renumbered(bone, remap);
 
             if (target < 0)
             {
@@ -585,7 +589,7 @@ public static class StudioAnimation
 
         foreach (StudioBonePose moved in pose)
         {
-            int bone = moved.Bone >= 0 && moved.Bone < remap.Length ? remap[moved.Bone] : -1;
+            int bone = Renumbered(moved.Bone, remap);
 
             if (bone >= 0)
             {
@@ -594,6 +598,17 @@ public static class StudioAnimation
         }
 
         return into;
+    }
+
+    /// <summary>A track's bone in the base model's numbering: itself without a remap, -1 when the remap drops it.</summary>
+    private static int Renumbered(int bone, int[]? remap)
+    {
+        if (remap is null)
+        {
+            return bone;
+        }
+
+        return bone >= 0 && bone < remap.Length ? remap[bone] : -1;
     }
 
     private static StudioBonePose ReadBone(
@@ -665,6 +680,15 @@ public static class StudioAnimation
     /// <c>==</c>: a zero scale turns one short into <c>+0</c> and another into <c>-0</c>, which a delta never washes out
     /// with a base angle, and the two convert to different quaternions. **The blend between the keys is not here** and
     /// is not skipped for equal keys, because <c>a * (1 - s) + a * s</c> is not <c>a</c> to the bit.
+    ///
+    /// **Why the flag ladder is written twice, here and in <see cref="ReadBone"/>.** Everything the two do with a
+    /// value is shared: <see cref="Angles"/>, <see cref="Turned"/>, <see cref="Moved"/>, <see cref="PositionChannels"/>,
+    /// the packed decoders and the run-length walk. Only the order of the tests on <c>flags</c> repeats. Joining them
+    /// costs work on one side: <see cref="ReadBone"/> as this called with one frame twice does a second
+    /// <see cref="Angles"/>, <see cref="Moved"/>, <see cref="SameBits"/> and second-key landing per animated track on
+    /// every single-frame read; this as a ladder that asks "one key or two" pays that branch on every channel of the
+    /// pair path. Both ladders are pinned to the same frozen reference by <c>FramePairDifferentialTests</c> (the single
+    /// read through fractions at or below zero), so a change to either alone fails it.
     /// </remarks>
     private static (StudioBonePose First, StudioBonePose Second) ReadBonePair(
         ReadOnlySpan<byte> payload,
@@ -702,6 +726,7 @@ public static class StudioAnimation
             (float X, float Y, float Z) anglesNext = Angles(xNext, yNext, zNext, rest, flags);
 
             rotation = Turned(angles, rest, flags);
+            // Stryker disable once all : a cost branch the differential cannot tell apart - converting bit-equal angles a second time gives the same quaternion, so a mutant that never takes the shortcut survives by equivalence
             rotationNext = SameBits(angles, anglesNext) ? rotation : Turned(anglesNext, rest, flags);
         }
 
@@ -852,6 +877,7 @@ public static class StudioAnimation
 
         chain.Clear();
 
+        // Stryker disable once all : a mutant turning an && into || reaches Walk without Locate, leaves 'cursor' unassigned (CS0165), and Safe Mode drops the method - B410
         if (animation >= 0 && bones.Count > 0 && Locate(bytes, animation, frame, out int cursor, out wanted))
         {
             Walk(bytes, bones.Count, cursor, chain);
@@ -1071,23 +1097,56 @@ public static class StudioAnimation
     /// </remarks>
     internal static float Value(ReadOnlySpan<byte> payload, int tableAt, int channel, int frame)
     {
-        if (payload.Length < tableAt + 6)
+        if (!Values(payload, tableAt, channel, out ReadOnlySpan<byte> values))
         {
             return 0f;
+        }
+
+        int at = 0;
+        int remaining = frame;
+        int valid = Land(values, ref at, ref remaining);
+
+        return valid < 0 ? 0f : Cell(values, at, valid, remaining);
+    }
+
+    /// <summary>One channel's run-length stream, through the <c>short</c> offset table.</summary>
+    /// <returns>False when the table is cut short or the offset points nowhere, which reads as zero.</returns>
+    private static bool Values(ReadOnlySpan<byte> payload, int tableAt, int channel, out ReadOnlySpan<byte> values)
+    {
+        values = default;
+
+        if (payload.Length < tableAt + 6)
+        {
+            return false;
         }
 
         int offset = BinaryPrimitives.ReadInt16LittleEndian(payload[(tableAt + (channel * 2))..]);
 
         if (offset <= 0 || offset >= payload.Length)
         {
-            return 0f;
+            return false;
         }
 
-        ReadOnlySpan<byte> values = payload[offset..];
+        values = payload[offset..];
 
-        int remaining = frame;
-        int at = 0;
+        return true;
+    }
 
+    /// <summary>
+    /// Walks the blocks from <paramref name="at"/> to the one <paramref name="remaining"/> frames land in, the loop of
+    /// <c>ExtractAnimValue</c>.
+    /// </summary>
+    /// <param name="values">The channel's stream.</param>
+    /// <param name="at">The block to start from; left at the block landed in.</param>
+    /// <param name="remaining">Frames still to go from that block; left as the frame within the landed block.</param>
+    /// <returns>The landed block's <c>valid</c>, or -1 for an ending block (<c>total</c> zero) or a stream run out.</returns>
+    /// <remarks>
+    /// **Resumable, so a frame pair walks the shared prefix once**: the later frame passes every block the earlier one
+    /// does, so <see cref="ValuePair"/> lands the first, adds the gap to <paramref name="remaining"/> and carries on from
+    /// the same block, which is the same walk an independent read of the later frame takes.
+    /// </remarks>
+    private static int Land(ReadOnlySpan<byte> values, ref int at, ref int remaining)
+    {
         while (at + 2 <= values.Length)
         {
             int valid = values[at];
@@ -1095,19 +1154,19 @@ public static class StudioAnimation
 
             if (total == 0)
             {
-                return 0f;
+                return -1;
             }
 
             if (total > remaining)
             {
-                return Cell(values, at, valid, remaining);
+                return valid;
             }
 
             remaining -= total;
             at += (valid + 1) * 2;
         }
 
-        return 0f;
+        return -1;
     }
 
     /// <summary>The value a frame reads inside the block it landed in: its own, or the last valid one repeated.</summary>
@@ -1132,8 +1191,9 @@ public static class StudioAnimation
     /// keys of a pair from one walk of the run-length blocks. The second key here is landed by the same rule as
     /// <see cref="Value(ReadOnlySpan{byte}, int, int)"/>, continuing from the first key's block, rather than by Valve's
     /// "repeats, no blend" and "pull from the next list" branches. Those can disagree with an independent walk at a block
-    /// edge, and this is a cost change that must give the same bits as two separate walks. The walk for the later frame
-    /// passes every block the earlier one does, so the shared prefix is the same walk.
+    /// edge, and this is a cost change that must give the same bits as two separate walks. Both keys go through
+    /// <see cref="Land"/> and <see cref="Cell"/>, the same two steps <see cref="Value(ReadOnlySpan{byte}, int, int, int)"/>
+    /// takes, so there is one copy of the block arithmetic.
     /// </remarks>
     private static (float First, float Second) ValuePair(ReadOnlySpan<byte> payload, int channel, int first, int second)
     {
@@ -1142,53 +1202,26 @@ public static class StudioAnimation
             return (Value(payload, channel, first), Value(payload, channel, second));
         }
 
-        if (payload.Length < 6)
+        if (!Values(payload, tableAt: 0, channel, out ReadOnlySpan<byte> values))
         {
             return (0f, 0f);
         }
 
-        int offset = BinaryPrimitives.ReadInt16LittleEndian(payload[(channel * 2)..]);
-
-        if (offset <= 0 || offset >= payload.Length)
-        {
-            return (0f, 0f);
-        }
-
-        ReadOnlySpan<byte> values = payload[offset..];
-
-        float found = 0f;
-        bool landed = false;
-        int remainingFirst = first;
-        int remainingSecond = second;
         int at = 0;
+        int remaining = first;
+        int valid = Land(values, ref at, ref remaining);
 
-        while (at + 2 <= values.Length)
+        if (valid < 0)
         {
-            int valid = values[at];
-            int total = values[at + 1];
-
-            if (total == 0)
-            {
-                return (found, 0f);
-            }
-
-            if (!landed && total > remainingFirst)
-            {
-                found = Cell(values, at, valid, remainingFirst);
-                landed = true;
-            }
-
-            if (total > remainingSecond)
-            {
-                return (found, Cell(values, at, valid, remainingSecond));
-            }
-
-            remainingFirst -= total;
-            remainingSecond -= total;
-            at += (valid + 1) * 2;
+            return (0f, 0f);
         }
 
-        return (found, 0f);
+        float found = Cell(values, at, valid, remaining);
+
+        remaining += second - first;
+        valid = Land(values, ref at, ref remaining);
+
+        return (found, valid < 0 ? 0f : Cell(values, at, valid, remaining));
     }
 
     /// <summary>Valve's <c>Quaternion48</c>: x:16, y:16, z:15, wneg:1.</summary>
