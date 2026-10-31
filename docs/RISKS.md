@@ -40251,6 +40251,173 @@ It is tested red-first. It names which thread waited and where the draw had got 
 **Reopen if** the `queue stall` line ever appears in a viewer log, or if this test's hang rate on the branch, measured
 the same way, exceeds the baseline's.
 
+## B631 — autoplay IK rules go to the entity's one `IkErrors`; the engine solves them in a separate `auto_ik` (2026-10-31) — OPEN, latent
+
+**Evidence class: read from published source on the Valve side; our side read at `0979f203`; nothing measured except that players carry no autoplay locks.** D10 of `docs/measurements/2026-10-31-iklock-bracket-read.md` §3. Nothing is fixed here.
+
+- **Valve:** `StandardBlendingRules` makes a separate `auto_ik` context and runs `CalcAutoplaySequences(pos, q, t, &auto_ik)`
+  (`bone_setup.cpp:4457`), with `AddAutoplayLocks` and `SolveAutoplayLocks` around the loop. Each autoplay `AccumulatePose`
+  adds its rules to `auto_ik`, not to the entity's `m_pIk`. The source doc quotes this from
+  `D:/measure-f12/engine-read-iklock.md`; the `c_baseanimating.cpp` lines were **not re-read for this entry**.
+- **Ours:** every layer's rules, autoplay included, are folded into the one list (`Simulation.cs:654-658`, the `IkFor` loop
+  over `composed`, which `AutoplayFor` appends to earlier in `BuildBlend`). Read for this entry.
+- **Who could see it:** nobody on a player. Autoplay locks are 0 for scout, heavy and medic (*measured*: the
+  `numlocalikautoplaylocks` header field, by hand through the `game-file` probe). Whether autoplay sequences carry IK
+  *rules* on any shipped model was not checked; the divergence only exists where they do.
+- **What would settle it:** a `game-file` census of `numlocalikautoplaylocks` and autoplay sequences' `numikrules` across
+  the shipped models. Control: a model known to have autoplay sequences must report non-zero, or the instrument is wrong.
+
+## B630 — the lock solve clamps both weights; the engine does not (2026-10-31) — OPEN, latent
+
+**Evidence class: read from published source on both sides.** D8 of the IK-lock bracket read. Nothing is fixed here.
+
+- **Valve:** `SolveLock` blends with `plock->flPosWeight` as stored, unclamped (`bone_setup.cpp:4428`), and passes
+  `plock->flLocalQWeight` straight to `QuaternionSlerp` (`:4447`). Both read for this entry.
+- **Ours:** `Math.Clamp(locks[at].PositionWeight, 0f, 1f)` (`IkLocks.cs:217`) and the same on the rotation weight
+  (`:239`, from the source doc; not re-read). Read for this entry for `:217`.
+- **Who could see it:** nobody known. TF2 locks are weight 1 and 0 (B310, *measured*). A model with a weight outside 0-1
+  would extrapolate in Valve and saturate here.
+- **What would settle it:** a census of `flPosWeight` and `flLocalQWeight` over every `mstudioiklock_t` in the shipped
+  models, reporting any outside 0-1. Control: the census must find the weight-1 and weight-0 locks B310 names.
+
+## B629 — a Valve slerp at `t = 0` returns the input exactly; ours goes through `System.Numerics.Quaternion.Slerp` (2026-10-31) — UNVERIFIED, OPEN
+
+**Evidence class: Valve side by arithmetic on `QuaternionSlerp` (`mathlib/mathlib_base.cpp:1605-1658`, not re-read for this
+entry); our side not checked whether `System.Numerics` is bit-exact at `t = 0`.** D9 of the IK-lock bracket read. Nothing
+is fixed here.
+
+- **Valve:** at `t = 0`, `sclp = sin(w)/sin(w) = 1` and `sclq = 0`, so `q[bone]` returns unchanged up to the sign of zero
+  (*arithmetic*). `QuaternionAlign` (`:1509`) picks the sign by `sum(p-q)^2 > sum(p+q)^2`, which reduces to `p.q < 0`
+  except for float rounding at the boundary (*arithmetic*).
+- **Ours:** `IkLocks.cs:236` calls `StudioBones.Slerp` (`StudioBones.cs:601-612`), which uses
+  `System.Numerics.Quaternion.Slerp`. Whether that is exact at `t = 0` is *not checked*.
+- **Who could see it:** at most last-bit differences (*interpolated*, up to about 1 ulp). It affects every slerp we do, not
+  only locks, so it is not an IK finding.
+- **What would settle it:** a unit test over random unit quaternions at `t = 0`, asserting bit equality with the input,
+  beside a hand-written Valve-form slerp. Red on the `System.Numerics` path confirms it. Control: the same test at `t = 1`.
+
+## B628 — no per-lock bone-mask test in `IkLocks`; the engine drops a lock whose effector is outside `boneMask` (2026-10-31) — UNVERIFIED, OPEN
+
+**Evidence class: Valve side read from published source; whether our build ever uses a mask that excludes a foot effector is *not checked*.** D7 of the IK-lock bracket read. Nothing is fixed here.
+
+- **Valve:** `SolveLock` returns early `if ( !(m_pStudioHdr->boneFlags( bone ) & m_boneMask))` (`bone_setup.cpp:4415`, read
+  for this entry); `AddSequenceLocks` has the same `continue` (`:3398` onward, from the source doc; not re-read).
+- **Ours:** `IkLocks.Capture` and `Solve` have no such test (read: `IkLocks.cs:205-229` shows none in the solve loop).
+- **Who could see it:** *interpolated*. Heavy's foot effectors carry flags `0x1f00` and medic's `0xff00` (*measured*, by
+  hand through `game-file`): no bone-merge bit and only low LOD bits. A low-LOD mask in Valve would drop the lock. Whether
+  our pose build ever runs with a mask that excludes them is open. If it never does, this is inert.
+- **What would settle it:** list every `boneMask` value the pose build passes (or that we model), and test each against
+  the foot effectors' flags. Control: a mask of all ones must keep every lock.
+
+## B627 — the captured knee direction is not carried to the solve (2026-10-31) — OPEN, latent
+
+**Evidence class: read from published source on both sides; latent by measurement on three classes.** D6 of the IK-lock bracket read. Nothing is fixed here.
+
+- **Valve:** when a chain states `kneeDir`, `AddSequenceLocks` captures it rotated by link 0's matrix (and `kneePos` is
+  never set, so it stays at the memset 0). `SolveLock` then calls the captured-direction `Studio_SolveIK` overload
+  (`bone_setup.cpp:4431-4434`, read for this entry); otherwise the plain one (`:4436-4438`).
+- **Ours:** `IkContext.SolveChain` (`IkContext.cs:316-336`, called from `IkLocks.cs:221`) uses the model's `kneeDir` rotated
+  by the CURRENT thigh and the current knee. Read from the source doc; `IkContext.cs` not re-read for this entry.
+- **Who could see it:** nobody known. Every link of every chain has `kneeDir = 0` on scout, heavy and medic
+  (*measured*, by hand through `game-file`), so both sides take the no-preference path.
+- **What would settle it:** a census of `kneeDir` over every chain link in the shipped models. Control: the census must
+  report a non-zero on any model known to state one, or the offset it reads is wrong.
+
+## B626 — a zero-weight autolayer gets no lock bracket; the engine brackets it (2026-10-31) — OPEN
+
+**Evidence class: Valve side read from published source; the visible effect is *interpolated*.** D5 of the IK-lock bracket read. Nothing is fixed here.
+
+- **Valve:** `AddSequenceLayers` computes `layerWeight` inside the window and calls `AccumulatePose` with no weight guard
+  (`bone_setup.cpp:2136-2209`). With `index >= start` but `s = 0` (for example `index == start` and `start != peak`,
+  `:2175-2178`) the weight is 0. `AccumulatePose` has no early return on weight 0, only the clamp and `sequence < 0`
+  (`:2406-2411`), so the capture (`:2425-2429`) and solve (`:2451-2454`) still run. Read for this entry. Overlays differ:
+  they are gated `fWeight > 0` (`c_baseanimatingoverlay.cpp:356`, read for this entry), and ours matches that gate.
+- **Ours:** `AutoLayersFor` clamps and then `continue`s on `layerWeight <= 0f` (`EntityModels.Autoplay.cs:198-203` region,
+  read), and `SkeletonPose.Accumulate` skips `Weight <= 0f` layers (`SkeletonPose.cs:987`, read), so a zero-weight autolayer
+  has neither layer nor bracket.
+- **Who could see it:** *interpolated*. Small. It needs an exact boundary value, and the bracket's solve re-solves the legs
+  from the pose as it stands, which is near-identity but not proven so.
+- **What would settle it:** a synthetic test (`Core.Tests`, per D38): an autolayer with `start != peak`, cycle exactly at
+  `start`, on a sequence that locks. Assert whether a bracket runs. Red on ours confirms the divergence, and the size of
+  the pose difference is the second assertion.
+
+## B625 — lock brackets do not nest as the engine's do (2026-10-31) — OPEN, latent until B624 is fixed
+
+**Evidence class: read from published source on both sides; latent by measurement on scout.** D4 of the IK-lock bracket read. Nothing is fixed here.
+
+- **Valve:** a sequence's solve runs AFTER its local layers and its non-local autolayers: `AddLocalLayers` (`:2439`),
+  `AddSequenceLayers` (`:2449`), then `SolveSequenceLocks` (`:2451-2454`). Read for this entry.
+- **Ours:** the base solve runs before any layer (`SkeletonPose.cs:974-979` runs before the loop at `:984`), and a locking
+  autolayer's own sub-autolayers are appended after its solve (the `AutoLayersFor` recursion, `Autoplay.cs:233`, read).
+  The `:974-979` lines were not individually re-read for this entry.
+- **Who could see it:** nobody today. No TF2 main sequence locks, and no locking autolayer of a main sequence has
+  autolayers of its own (*measured*: scout census). It becomes live when B624 is fixed, because `layer_melee_swing` is
+  both locking and has autolayers.
+- **What would settle it:** fix B624 first, then a synthetic test of a locking sequence with a locking autolayer, asserting
+  the order captures and solves run. Reopen as live when B624 closes.
+
+## B624 — a gesture's or a transition's autolayers are never accumulated (2026-10-31) — OPEN
+
+**Evidence class: both sides read from published source and our tree for this entry; the visible effect is *interpolated*.** D3 of the IK-lock bracket read, which marks it certain from source. The lines cited here support that wording for the code path; the on-screen effect is not measured. Nothing is fixed here.
+
+- **Valve:** `AccumulatePose` runs `AddSequenceLayers` for EVERY sequence it accumulates (`bone_setup.cpp:2449`), and
+  `AddSequenceLayers` calls `AccumulatePose` for each non-local autolayer in its window (`:2209`). Overlays reach the
+  engine through `AccumulatePose` too (`c_baseanimatingoverlay.cpp:369`). So a gesture's autolayers, and a fading
+  transition's, are accumulated, each with its own lock bracket. Read for this entry.
+- **Ours:** `BuildBlend` calls `AutoLayersFor` only for the MAIN sequence (`Simulation.cs:636-639`, read). Transitions
+  (`pending.Transitions`, built at `EntityModels.Autoplay.cs:519-527`) and gestures/wire layers (`LayersFor`,
+  `EntityModels.Layers.cs:174-182` and `:433-445`) each add a `PoseLayer` for the sequence alone, and none of those sites
+  recurses. Read for this entry. A search for another caller of `AutoLayersFor` was refused by the C# hook here, so
+  "no other caller" rests on the sites read, not on a repo-wide search.
+- **Examples (*measured*, source doc):** `PRIMARY_reload_start` has autolayer 9; `MELEE_swing` has `layer_melee_swing`
+  (2 locks) which has autolayer 64; a fading `run_PRIMARY` has its two locking aim matrices. 55 of scout's 102 locking
+  sequences have autolayers.
+- **Who could see it (*interpolated*):** the owner, as missing layered motion on swings and reloads, and a missing aim
+  matrix during a cross-fade, plus the lock brackets that go with them. Fixing it is MORE work per rebuild than today
+  (*arithmetic*). Not found filed (searched `docs/` for gesture/overlay/transition/fading near autolayer, per the source doc).
+- **What would settle it:** a synthetic test (`Core.Tests`, per D38): a model with a gesture sequence that has an autolayer
+  in its window; assert that the autolayer's `PoseLayer` is in `Layers`. Red on ours confirms it. Then a corpus count of
+  how many gesture/transition frames in a real match reach one, via a probe. Control: the same test on the main sequence
+  must already pass.
+
+## B623 — a scaled model drops its lock brackets; the engine's bracket never consults scale (2026-10-31) — OPEN
+
+**Evidence class: read from published source on both sides; the visible effect is *interpolated*.** D2 of the IK-lock bracket read. Nothing is fixed here.
+
+- **Valve:** the lock bracket depends only on `seqdesc.numiklocks` (`bone_setup.cpp:2425`, `:2451`, read for this entry)
+  and `seq_ik` is a local of `AccumulatePose`, initialised with `vec3_angle, vec3_origin` and no scale. Scale gates only the
+  entity's `m_pIk` in `C_BaseAnimating::SetupBones` (`c_baseanimating.cpp:2946-2963`, from the source doc; not re-read for
+  this entry). Scale is applied later, in `BuildTransformations`.
+- **Ours:** `scaled` zeroes both `IkChains` and `Locks` (`EntityModels.Simulation.cs:374` and `:383`, read), citing B301
+  (link lengths on a resized model). The comment's premise is about the rules solver measuring links from the posed
+  skeleton; it does not hold for the lock bracket, which runs on the local pose before scale. `SkeletonPose.cs:915` and
+  `:999` also require `IkChains.Count > 0` (read).
+- **Who could see it (*interpolated*):** the owner, on scaled players (MvM giants, scaled bosses): feet slide where Valve
+  pins them. Whether the chains need to stay for the rules (B301) is a separate question this entry does not settle.
+- **What would settle it:** a synthetic test (`Core.Tests`, per D38): a locking sequence on a model with `Pose.Scale = 1.75`;
+  assert the pose carries `Locks`. Red on ours confirms it. A corpus count of scaled players in a real match is a separate probe.
+
+## B622 — a failed lock solve does not slam the foot; the engine slams it regardless (2026-10-31) — OPEN
+
+**Evidence class: both sides read from published source and our tree for this entry; the visible effect is *interpolated*, and the lock-solve failure rate is *not measured*.** D1 of the IK-lock bracket read. Nothing is fixed here.
+
+- **Valve:** `SolveLock` calls `Studio_SolveIK(...)` and ignores its return (`bone_setup.cpp:4431-4438`), then slams the
+  captured rotation onto the effector (`:4441-4442`) and rebuilds all three bones with `SolveBone` (`:4446`, `:4449`,
+  `:4450`). Read for this entry.
+- **Control, so this is not house style:** `SolveDependencies` DOES gate on the return
+  (`if (Studio_SolveIK(pchain, pChainResult->pos, boneToWorld ))`, `bone_setup.cpp:4211`, read for this entry).
+- **Ours:** `if (!IkContext.SolveChain(...)) { continue; }` (`IkLocks.cs:221-224`, read) skips the slam and all three
+  rebuilds when the solver reports failure (a straight leg, `l3 > (l1+l2)*0.9998`, per the source doc).
+- **Who could see it (*interpolated*):** the owner, as a foot on a near-straight leg keeping the sequence's orientation
+  instead of the locked one. Every TF2 lock has rotation weight 0 (B310), so Valve keeps the slammed rotation.
+  `Applied`/`Moved` count only successes, so the failure rate is invisible to today's counters. If a large share of locks
+  fail (standing legs?), this is the larger of the two behavioural divergences with B624; if few do, it is rarely visible.
+- **What would settle it:** first a failed-solve count beside `Applied` in `IkLocks` (an instrument, B243: carried, not
+  recomputed) over a real demo; then a synthetic test (`Core.Tests`, per D38) with a leg exactly straight, asserting the
+  foot's rotation equals the captured one. Red on ours confirms it. Fixing it adds a slam, three rebuilds and a slerp to
+  each failed lock (about 0.002-0.006 ms a rebuild if most fail, *predicted*), which interacts with every saving in the
+  source doc's §4.
+
 ## B621 — a remapped animation's frame blend is sized and seeded from the included model's bones, at base-model indices (2026-10-31) — OPEN
 
 **Evidence class: read from published source on both sides; whether any shipped model is affected is *not measured*.**
