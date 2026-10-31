@@ -82,7 +82,10 @@ public sealed class MaterialParameterProbe : IProbe
         string? excluded = arguments.Skip(1).FirstOrDefault(argument => argument.StartsWith('!'))?[1..];
 
         // `shader=Modulate` narrows to one shader, and then every carrier is named with its value.
-        string? onlyShader = arguments.Skip(1).FirstOrDefault(argument => argument.StartsWith("shader=", StringComparison.OrdinalIgnoreCase))?["shader=".Length..];
+        // A bare `shader=` names no shader, so it filters nothing rather than everything.
+        string? onlyShader = arguments.Skip(1).FirstOrDefault(argument => argument.StartsWith("shader=", StringComparison.OrdinalIgnoreCase))?["shader=".Length..] is { Length: > 0 } named
+            ? named
+            : null;
 
         int materials = 0;
         int unreadable = 0;
