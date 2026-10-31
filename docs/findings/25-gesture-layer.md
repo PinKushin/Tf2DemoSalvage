@@ -310,7 +310,41 @@ draw something absurd is a reading to distrust before the engine. "The soldier's
 activity his model does not have" was one probe away, and it means every soldier in TF2 jumps in the
 reference pose. Nobody asked what the reading implied on screen.
 
+## A gesture is an `AccumulatePose`, so it brings its own layers (B624, 2026-10-31)
+
+**What was believed:** a gesture is one sequence laid over the body. Every site that turned a gesture, a
+networked layer or a fading sequence into a `PoseLayer` built exactly one, and only the main sequence went
+through the autolayer pass — because that is where B294 found autolayers first (`stand_PRIMARY` layering its
+aim matrix), and nobody asked whether a layer could have them too.
+
+**What the engine does** [read from published source]: `C_BaseAnimatingOverlay::AccumulateLayers` hands each
+overlay to `boneSetup.AccumulatePose(…)` (`c_baseanimatingoverlay.cpp:369`), the same function the main
+sequence goes through, and `AccumulatePose` runs `AddSequenceLayers` for whatever it is given
+(`bone_setup.cpp:2449`) between its own lock capture and solve (`:2424-2454`). A fading sequence takes the same
+road (`c_baseanimating.cpp:1863`). The autolayer is not a property of "the main sequence"; it is a property of
+every accumulation.
+
+**What it cost, measured** on f12, 300 ticks, one model set over the range [measured, `pose-layers` probe]:
+1,396 layers whose sequence declares autolayers, and none of those autolayers drawn. The reload gestures carry
+an arms layer (`ReloadStand_PRIMARY_loop` → `layer_reload_standing_arms_loop`, window all zeros, so always at
+full weight); a fading `run_PRIMARY` or `crouch_walk_PRIMARY` declares autolayers too (that they are its aim
+matrices is the bracket read's scout census for `run_PRIMARY`, and *interpolated* for the crouch walk). On screen, a soldier
+reloading mid-rocket-jump held his launcher hanging straight down from one hand where Valve's structure has
+both arms raising it — 19,894 pixels of the shot [measured, same camera, base against fix; a repeat of the
+fix differs by 0]. Whether that matches the game was left to the owner's eye, not asserted.
+
+**Two engine details the fix needed that the first reading did not have:**
+- **There is no weight test on an autolayer** (`:2209`; `AccumulatePose` only clamps at `:2408`). A window that
+  computes 0 still accumulates the sequence, its lock bracket and its own autolayers — and a
+  `STUDIO_AL_NOBLEND` child of it takes the ramp alone (`:2195`), so dropping the zero-weight parent dropped a
+  child Valve draws at full weight (B626).
+- **Brackets nest, and each holds its own capture.** `seq_ik` is a local of each `AccumulatePose` (`:2424`),
+  so a parent's `SolveSequenceLocks` runs after its children have moved the legs, and pins them to where the
+  PARENT found them. One shared lock store reproduced the order and broke the capture; only a test where parent
+  and child both lock and both move the foot tells the two apart (B625).
+
 ## Open
 
 Slice 3b is built (B282, B284, B350, B351) and the context is complete (above). B437 is closed; a
-private activity's number stays unnamed.
+private activity's number stays unnamed. B633 (fading sequences accumulated oldest-first, the engine newest-first)
+and B634 (`AddLocalLayers` beyond the main sequence) are filed against the structure above.
