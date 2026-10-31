@@ -37,6 +37,29 @@ public sealed class BoneSetupMeterTests
     }
 
     /// <remarks>
+    /// **The root parts, from eight threads, and a child's dropped.** Every field distinct, so a field added to its
+    /// neighbour cannot pass; half the calls are children carrying parts too, which must not land.
+    /// </remarks>
+    [Test]
+    public void Record_PartsFromEightThreadsAtOnce_SumsEveryRootsAndNoChilds()
+    {
+        BoneSetupMeter meter = new();
+        RootSetupParts parts = new(Blend: 1, Base: 2, Accumulate: 3, Sampling: 4, Samples: 5, Adjust: 6, Loop: 7, Ik: 8, Finish: 9);
+
+        Parallel.For(0, Threads, new ParallelOptions { MaxDegreeOfParallelism = Threads }, _ =>
+        {
+            for (int call = 0; call < CallsEach; call++)
+            {
+                meter.Record(root: call % 2 == 0, eligible: false, built: true, ticks: 100, parts);
+            }
+        });
+
+        const long Roots = Threads * CallsEach / 2;
+
+        meter.RootParts.ShouldBe(new RootSetupParts(Roots, 2 * Roots, 3 * Roots, 4 * Roots, 5 * Roots, 6 * Roots, 7 * Roots, 8 * Roots, 9 * Roots));
+    }
+
+    /// <remarks>
     /// **`SkeletonPose.PoseBuilds` and `AnimationCalls` are static and read as deltas** (`EntityModels.Instances.cs`), so a
     /// worker's build must land in them. Each thread builds its own skeleton, as each root does on the pool; serially and
     /// forked the deltas are the same exact count.

@@ -1054,7 +1054,8 @@ public sealed partial class EntityModelSet
 
     /// <summary>The setup counters and the meter at one instant, for <see cref="ChargeSetup"/>.</summary>
     private readonly record struct SetupMark(
-        long At, int PoseBuilds, long Root, long Child, int RootBuilds, int ChildBuilds, long Eligible, int EligibleBuilds);
+        long At, int PoseBuilds, long Root, long Child, int RootBuilds, int ChildBuilds, long Eligible, int EligibleBuilds,
+        RootSetupParts RootParts);
 
     private SetupMark MarkSetup()
     {
@@ -1062,7 +1063,7 @@ public sealed partial class EntityModelSet
 
         return new SetupMark(
             System.Diagnostics.Stopwatch.GetTimestamp(), SkeletonPose.PoseBuilds, meter.RootTicks, meter.ChildTicks,
-            meter.RootBuilds, meter.ChildBuilds, meter.EligibleTicks, meter.EligibleBuilds);
+            meter.RootBuilds, meter.ChildBuilds, meter.EligibleTicks, meter.EligibleBuilds, meter.RootParts);
     }
 
     /// <summary>Charges the `SetupBones` work since <paramref name="mark"/> to setup and its split, and returns its ticks.</summary>
@@ -1083,6 +1084,7 @@ public sealed partial class EntityModelSet
         SetupTicks += spent;
         BuildsDrawing += SkeletonPose.PoseBuilds - mark.PoseBuilds;
         SetupRootTicks += meter.RootTicks - mark.Root;
+        SetupRootParts = SetupRootParts.Add(meter.RootParts.Since(mark.RootParts));
         SetupChildTicks += meter.ChildTicks - mark.Child;
         SetupRootBuilds += meter.RootBuilds - mark.RootBuilds;
         SetupChildBuilds += meter.ChildBuilds - mark.ChildBuilds;

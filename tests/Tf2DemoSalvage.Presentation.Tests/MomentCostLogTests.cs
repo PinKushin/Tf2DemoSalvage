@@ -1,6 +1,7 @@
 using System;
 using System.Diagnostics;
 
+using Tf2DemoSalvage.Animation.Animating;
 using Tf2DemoSalvage.Presentation;
 using Tf2DemoSalvage.Scene;
 
@@ -211,6 +212,43 @@ public sealed class MomentCostLogTests
         Assert.That(
             line,
             Does.Contain("setup 10 (roots 7 over 5 built, eligible 0.8 over 2, slowest 4 peak 6; children 3 over 9 built; prepose 0.6 over 3, blend 0.2)"));
+    }
+
+    /// <remarks>
+    /// **The parts of the roots' setup, and the residual no timer covers**, over two identical rebuilds so a sum printed as
+    /// the mean cannot pass. Every width distinct. 70 ms of roots less blend 2, base 3, accumulate 13, adjust 1, loop 11,
+    /// ik 4 and finish 8 leaves unsplit 28; layer sampling (5) sits INSIDE accumulate, so subtracting it as well would
+    /// read 23.
+    /// </remarks>
+    [Test]
+    public void Report_WithRootSetupParts_NamesEachAndLeavesTheUnsplitResidual()
+    {
+        MomentCostLog log = new(every: 2);
+
+        MomentPhases phases = Posing(100) with
+        {
+            Counters = new EntityModelSet.PoseCounters(
+                0, 0, 0, 0, 0, 80 * Millisecond, 0, 0, 0, 0, 0,
+                SetupRoot: 70 * Millisecond,
+                RootParts: new RootSetupParts(
+                    Blend: 2 * Millisecond,
+                    Base: 3 * Millisecond,
+                    Accumulate: 13 * Millisecond,
+                    Sampling: 5 * Millisecond,
+                    Samples: 6,
+                    Adjust: 1 * Millisecond,
+                    Loop: 11 * Millisecond,
+                    Ik: 4 * Millisecond,
+                    Finish: 8 * Millisecond)),
+        };
+
+        _ = log.Report(phases, sampleTicks: 0);
+
+        Assert.That(
+            log.Report(phases, sampleTicks: 0),
+            Does.Contain(
+                "roots split (blend 2, base 3, accumulate 13 of which layer sampling 5 over 6, adjust 1, loop 11, ik 4"
+                + ", finish 8; unsplit 28)"));
     }
 
     /// <remarks>

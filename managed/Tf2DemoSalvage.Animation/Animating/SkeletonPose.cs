@@ -203,6 +203,9 @@ public sealed class SkeletonPose : IBonePose
 
     private static int _poseBuilds;
 
+    /// <inheritdoc/>
+    public RootSetupParts LastBuild { get; private set; }
+
     /// <summary>Which entry of the animation overrides each bone, or −1.</summary>
     /// <remarks>
     /// Allocated once per entity and refilled per build, per D87: the size is known when the model
@@ -378,18 +381,27 @@ public sealed class SkeletonPose : IBonePose
         // readable-bone cache misses and lets a call through to actual work.
         Interlocked.Increment(ref _poseBuilds);
 
+        // **One chain of timestamps, each part the gap to the next** (the 2026-10-31 setup-parts split), so the parts are
+        // disjoint and sum to the build exactly; the base's span is the one AnimationTicks has always added.
         long animatedAt = System.Diagnostics.Stopwatch.GetTimestamp();
 
         IReadOnlyList<StudioBonePose> animated =
             _animation(Sequence, Frame, FrameFraction, PoseValues);
 
-        Interlocked.Add(ref _animationTicks, System.Diagnostics.Stopwatch.GetTimestamp() - animatedAt);
+        long accumulateAt = System.Diagnostics.Stopwatch.GetTimestamp();
+
+        Interlocked.Add(ref _animationTicks, accumulateAt - animatedAt);
         Interlocked.Increment(ref _animationCalls);
+
+        _layerSampling = 0;
+        _layerSamples = 0;
 
         // **The layers, over the base pose and in order** (B282). `StandardBlendingRules` runs
         // `AccumulateLayers` straight after the main sequence, and each layer accumulates onto the
         // RESULT of the last rather than onto the original.
         animated = Accumulate(animated);
+
+        long adjustAt = System.Diagnostics.Stopwatch.GetTimestamp();
 
         // **`CalcBoneAdj`, which `StandardBlendingRules` runs after the layers** (B288). It bends
         // individual bones by the entity's own controller values — a sentry's barrel, a door's
@@ -431,6 +443,8 @@ public sealed class SkeletonPose : IBonePose
         // The blocks themselves are unchanged and still cost nothing when the level is off; what
         // moved is only where the question is asked.
         ILogger? verbose = Log is { } sink && sink.IsEnabled(LogLevel.Debug) ? Log : null;
+
+        long loopAt = System.Diagnostics.Stopwatch.GetTimestamp();
 
         for (int bone = 0; bone < _bones.Count; bone++)
         {
@@ -580,7 +594,11 @@ public sealed class SkeletonPose : IBonePose
             alreadyWritten.Mark(bone);
         }
 
+        long ikAt = System.Diagnostics.Stopwatch.GetTimestamp();
+
         ReachWithIk(boneMask, into, alreadyWritten);
+
+        long finishAt = System.Diagnostics.Stopwatch.GetTimestamp();
 
         // **The duck-jump correction, BEFORE the scales** (B314), which is the order
         // `C_TFPlayer::BuildTransformations` uses: the base transformations, then this, then the
@@ -606,7 +624,23 @@ public sealed class SkeletonPose : IBonePose
         PlayerBoneScales.Head(into, _bones, HeadScale);
         PlayerBoneScales.Torso(into, _bones, TorsoScale);
         PlayerBoneScales.Hands(into, _bones, HandScale);
+
+        LastBuild = new RootSetupParts(
+            Base: accumulateAt - animatedAt,
+            Accumulate: adjustAt - accumulateAt,
+            Sampling: _layerSampling,
+            Samples: _layerSamples,
+            Adjust: loopAt - adjustAt,
+            Loop: ikAt - loopAt,
+            Ik: finishAt - ikAt,
+            Finish: System.Diagnostics.Stopwatch.GetTimestamp() - finishAt);
     }
+
+    /// <summary>The layers' own samples in the build under way, carried into <see cref="LastBuild"/>.</summary>
+    private long _layerSampling;
+
+    /// <summary>How many layer samples <see cref="_layerSampling"/> timed.</summary>
+    private long _layerSamples;
 
     /// <summary>Pulls each chain's end to where its rules ask — <c>CIKContext::SolveDependencies</c>.</summary>
     /// <remarks>
@@ -894,8 +928,13 @@ public sealed class SkeletonPose : IBonePose
                 Held().Capture(layer.Locks!, IkChains, result);
             }
 
+            long sampledAt = System.Diagnostics.Stopwatch.GetTimestamp();
+
             IReadOnlyList<StudioBonePose> sampled =
                 _animation(layer.Sequence, layer.Frame, layer.FrameFraction, PoseValues);
+
+            _layerSampling += System.Diagnostics.Stopwatch.GetTimestamp() - sampledAt;
+            _layerSamples++;
 
             foreach (StudioBonePose over in sampled)
             {
