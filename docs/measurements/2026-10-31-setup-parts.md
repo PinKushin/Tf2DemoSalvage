@@ -47,8 +47,13 @@ split (...)` segment straight after `setup (...)`:
 
 Tested in `tests/Tf2DemoSalvage.Animation.Tests/RootSetupPartsTests.cs` (known spins in the base, a layer and the blend each
 read back at least the value spun, in their own part; a child's build adds nothing to the roots), `BoneSetupMeterTests`
-(eight threads, exact sums, children dropped) and `MomentCostLogTests` (the printed segment and the residual). Each was
-sabotaged by hand once and reddened (base end-stamp moved past the layers; a child's parts let into the meter).
+(eight threads, exact sums, children dropped) and `MomentCostLogTests` (the printed segment and the residual). All were seen
+red on stubs first. `RootSetupPartsTests` and `BoneSetupMeterTests` were also sabotaged by hand after they went green, and
+reddened: moving the base end-stamp past the layers reddened the layer test, and letting a child's parts into the meter
+reddened the child, eight-thread and nesting tests. `MomentCostLogTests` was red only on the stub; it was not sabotaged.
+
+**The Scene wiring has no test.** Deleting the `SetupRootParts` line in `ChargeSetup`, or dropping `RootParts` from
+`MarkSetup`, would leave every suite green. Control 6 below is the only check on that path.
 
 **Not split, on purpose:**
 
@@ -66,16 +71,25 @@ meter adds for parts.
 
 ## Method
 
-Build the branch's viewer in Release, then three runs of the same command, under the machine-wide lock:
+Three runs of one command that builds the branch's viewer in Release and then runs it, so the binary measured is the one just
+built (a run without a build in the same command is refused, and could measure a stale exe). The build is outside the
+machine-wide lock; the run is inside it. `<repo>` is the absolute path of the checkout at `measure/setup-parts`:
 
 ```bash
-MSBUILDDISABLENODEREUSE=1 dotnet build managed/Tf2DemoSalvage.Viewer3D -c Release
-
+MSBUILDDISABLENODEREUSE=1 dotnet build <repo>/managed/Tf2DemoSalvage.Viewer3D -c Release && \
 TF2VIEW_WINDOW_POS=-3000,100 TF2VIEW_AUTOPLAY=1 TF2VIEW_VIEWPORT_SIZE=1280x720 \
   pwsh C:/Users/pinku/source/repos/PinKushin/run-exclusive.ps1 \
-  managed/Tf2DemoSalvage.Viewer3D/bin/Release/net10.0-windows/tf2demoview.exe \
+  <repo>/managed/Tf2DemoSalvage.Viewer3D/bin/Release/net10.0-windows/tf2demoview.exe \
   D:/measure-f12/f12.dem --tick 30000 --spectate gummo --first-person --measure 20 +fps_max 0 +mat_queue_mode 2
 ```
+
+Equally valid, and what the flex record did: `git archive` the commit into a new directory under `D:/measure-f12/`, build it
+there, copy the output no-clobber, and run that copy.
+
+**No script parses the new segment yet.** `2026-10-30-flex-for-cost/summ.ps1` reads `place`, `flex` and `flex parts` only, and
+`2026-10-27-threaded-bone-setup/read.ps1`'s anchored `setup (...blend X)` pattern still matches, because the new segment follows
+its closing parenthesis. A reader written for this run should anchor on `roots split \(`, since `blend` now appears twice in
+the line (`prepose ... blend` and the roots' `blend`).
 
 The demo, tick and arguments are `2026-10-30-flex-for-cost-after.md`'s, plus `TF2VIEW_WINDOW_POS=-3000,100` (off screen, as the
 tf2-measure skill requires for a per-pass reading). Each run's figures are the mean over its `moment cost` lines with the first
@@ -93,6 +107,8 @@ The instrument's own consistency, checked on every run before any part is believ
    `anim` covers every build; the roots' base is a subset.
 5. **`anim` − roots' base ≤ `children` + 0.05** (the rest of `anim` is children's base samples, which sit inside the children
    column; 0.05 is `anim`'s print width).
+6. **The parts are not all near zero.** Every part reading about 0 while roots reads about 0.6, so that `unsplit` ≈ roots,
+   means the Scene wiring (`MarkSetup`/`ChargeSetup`) is broken. It does not mean the work is somewhere else.
 
 ## Prediction (before the runs)
 
