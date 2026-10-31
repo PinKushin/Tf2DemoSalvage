@@ -1,6 +1,6 @@
 # Per-run mean of each `roots split (...)` part and of the roots total, leaving the first moment-cost line out.
 # Anchors on `roots split \(` because `blend` appears twice in the line (the record's Method section).
-param([string[]]$Files = @('01.txt', '02.txt', '03.txt'))
+param([string[]]$Files = @('01.txt', '02.txt', '03.txt'), [string]$Dir = $PSScriptRoot)
 
 $parts = [ordered]@{
     blend   = 'roots split \(blend ([0-9.]+)'
@@ -22,7 +22,7 @@ $parts = [ordered]@{
 }
 
 foreach ($file in $Files) {
-    $lines = Select-String -Path (Join-Path $PSScriptRoot $file) -Pattern 'moment cost' | Select-Object -Skip 1
+    $lines = Select-String -Path (Join-Path $Dir $file) -Pattern 'moment cost' | Select-Object -Skip 1
     $row = [ordered]@{ run = $file; n = @($lines).Count }
     foreach ($name in $parts.Keys) {
         $values = foreach ($line in $lines) {
