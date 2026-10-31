@@ -40251,6 +40251,44 @@ It is tested red-first. It names which thread waited and where the draw had got 
 **Reopen if** the `queue stall` line ever appears in a viewer log, or if this test's hang rate on the branch, measured
 the same way, exceeds the baseline's.
 
+## B639 — `ctf_crasher`'s scorch `func_brush` LIGHTENS the floor in ours where TF2 darkens it (2026-10-31) — OPEN, lead
+
+**Observed (pictures; images under `D:/measure-f12/decal-cmp/owner/`):** `ctf_crasher` carries four `func_brush`
+entities (`gatescorch_red`/`_blu`, `scorch_red`/`_blu`, `StartDisabled=1`) whose top face is `decals/scorch1`, a
+DecalModulate, flush with the floor (origin z 0 and −0.25; `shader-faces ctf_crasher DecalModulate`). I recorded a demo on
+a listen server with them enabled (`crasher_scorch.dem`) and shot ours at camera `-3116 -1344 700 89 0`. Tick 5 against
+tick 2000 differs in 78,228 px, max 177, around the capture point, and the floor gets **lighter**
+(`sbs-crasher-scorch-off-on.png`). In TF2, firing `Enable` made the same floor **darker** (`tf2-ref/crasher-gatescorch-z300.png`
+against the shot before it). *Read:* Valve's DecalModulate is unlit, the texture alone (`decalmodulate_ps2x.fxc:35`,
+`STATIC_LIGHT_LIGHTMAP 0`, `DecalModulate_dx9.cpp:186`). Ours draws a brush entity in the model pass, which lights its
+material. A mod2x output above 0.5 brightens the floor. *Interpolated:* that the model pass's light is the cause.
+Not isolated: the two ticks also differ in time, and the demo's first ticks may already carry the brush enabled.
+**Next:** shoot one tick with the brush hidden through its own entity (or `r_drawentities 0`) and once shown, and
+read the light the model pass gives a brush entity's DecalModulate run.
+
+## B638 — a plain (non-`$mod2x`) Modulate draws about twice too bright in linear terms: it is lit, Valve's is not (2026-10-31) — OPEN
+
+**Measured (offscreen, `ModulateToneMapConformanceTests`' hand-built material):** a plain Modulate of texel 128 over a
+188 surface draws 129. Valve multiplies in gamma, `dst · src` (`DST_COLOR, ZERO`, `modulate_dx9.cpp:147`), so
+188 · 128/255 ≈ 94 (*arithmetic*). *Read:* Valve's Modulate uses `unlitgeneric_vs20` (`modulate_dx9.cpp:186`), so the
+texel times the vertex colour and nothing else. Ours lights it from the lightmap atlas's white texel (2.0) with no
+compensation. `DecalMesh` compensates only `DecalModulate` decals, through `ModulateTwiceLight`. **Who it reaches:** every
+shipped non-`$mod2x` Modulate, including the capture point's `cappoint_logo_*_dark` signs (`VmtMaterial.IsModulate`'s
+remark). The `$mod2x` case lands within about 4 levels of Valve's arithmetic (90 against 94) and is held by the brush test.
+
+## B637 — a Modulate or DecalModulate draw takes no fog; Valve fogs it toward its neutral value (2026-10-31) — OPEN
+
+*Read:* `DecalModulate` calls `FogToGrey` (`DecalModulate_dx9.cpp:80`) and pre-scales the factor by
+`pow( saturate( fogFactor ), 0.4 )` (`decalmodulate_ps2x.fxc:42`). `Modulate` calls `FogToGrey` under `$mod2x` and
+`FogToOOOverbright` without (`modulate_dx9.cpp:201-209`). Either way, in fog the surface fades to "change nothing". Ours
+gives a modulating material fog mode 2, which is no fog at all (`WorldRenderer.FogModeOf`, the `ponytail:` beside it),
+so in fog it stays at full strength. **Who it reaches:** every decal scorch and bullet hole in a fogged map, and
+`models/props_nucleus/mp_energy` on `koth_nucleus` and `arena_nucleus`. Before B635's review that model was drawn as
+additive and fogged to black, which was also neutral for an additive draw.
+**Tripwire:** `ModulateToneMapConformanceTests.FogModeAndToneMapType_…` pins fog mode 2 for modulating materials. When
+this is fixed, that test goes red BY DESIGN. The water-fog branch (`ToneMapScale(tintControl.w)`) then becomes reachable
+by a modulating material, and has to keep its scale exemption.
+
 ## B636 — the world pass gets the exposure only on frames that draw a 3D-sky or water view (2026-10-31) — OPEN, lead
 
 **Measured (f12, cp_process_f12, HDR_TYPE_INTEGER, Debug `--shot`):** every capture logs "drawn with tone-map scale

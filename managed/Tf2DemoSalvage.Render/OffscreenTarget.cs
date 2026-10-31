@@ -227,13 +227,15 @@ internal sealed unsafe class OffscreenTarget : IDisposable
                 _device, _context, matrix, surfaceColours, specular: true, fullbright,
                 debug, fog: fog);
 
-            // What a later DrawTranslucentWorld puts back: a model drawn between leaves its own camera constants.
+            // What a later DrawTranslucentWorld puts back: a model drawn between leaves its own camera constants. The
+            // matrix is copied, so a caller reusing its array cannot move the camera after the fact.
             float drawnScale = world.LinearLightScale;
+            float[] drawnMatrix = (float[])matrix.Clone();
 
             _reapplyWorldCamera = () =>
             {
                 world.LinearLightScale = drawnScale;
-                world.SetCamera(_device, _context, matrix, surfaceColours, specular: true, fullbright, debug, fog: fog);
+                world.SetCamera(_device, _context, drawnMatrix, surfaceColours, specular: true, fullbright, debug, fog: fog);
             };
 
             Viewport viewport = new(0f, 0f, _width, _height, 0f, 1f);
@@ -342,6 +344,16 @@ internal sealed unsafe class OffscreenTarget : IDisposable
         world.UploadGeometry(_device, vertices, batches);
         world.Overlays = [];
 
+        // The main view this draw ends on is what a later DrawTranslucentWorld or DrawTranslucentLeaf puts back, not an
+        // older DrawWorld's (B635 review): the water views push and pop the scale, so the main view's is the one now.
+        float mainScale = world.LinearLightScale;
+
+        _reapplyWorldCamera = () =>
+        {
+            world.LinearLightScale = mainScale;
+            world.SetCamera(_device, _context, matrix);
+        };
+
         Viewport viewport = new(0f, 0f, _width, _height, 0f, 1f);
         WaterDraw draw = frame with
         {
@@ -421,7 +433,26 @@ internal sealed unsafe class OffscreenTarget : IDisposable
 
     /// <summary>One leaf place's translucent world runs, drawn now — the interleave's world step (B426).</summary>
     /// <param name="position">The leaf's place.</param>
-    public void DrawTranslucentLeaf(int position) => _world?.DrawTranslucentLeaf(_context, position);
+    /// <remarks>Under the last world draw's camera and scale, as <see cref="DrawTranslucentWorld"/> is (B635 review).</remarks>
+    public void DrawTranslucentLeaf(int position)
+    {
+        if (_world is not { } world)
+        {
+            return;
+        }
+
+        float before = world.LinearLightScale;
+
+        try
+        {
+            _reapplyWorldCamera?.Invoke();
+            world.DrawTranslucentLeaf(_context, position);
+        }
+        finally
+        {
+            world.LinearLightScale = before;
+        }
+    }
 
     private DetailSpriteRenderer? _detail;
     private ComPtr<ID3D11ShaderResourceView> _detailSheet;

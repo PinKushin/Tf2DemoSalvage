@@ -2178,6 +2178,12 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
     /// <summary>Materials that multiply what is behind them; the value says whether it doubles.</summary>
     private readonly Dictionary<int, bool> _modulate = [];
 
+    /// <summary>
+    /// Materials whose shader requests <c>SHADER_POLYOFFSET_DECAL</c> — `DecalModulate`, in its SHADOW_STATE
+    /// (DecalModulate_dx9.cpp:67), so on every bind, a brush face's as much as a decal's (B635 review).
+    /// </summary>
+    private readonly HashSet<int> _decalPolyOffsetMaterials = [];
+
     /// <summary>Materials that draw from both sides — the engine's MATERIAL_VAR_NOCULL.</summary>
     private readonly HashSet<int> _noCull = [];
 
@@ -3378,6 +3384,13 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
                 // opaque — a shader whose entire job is to darken what is behind it, painting over
                 // it instead. It belongs in the blended pass with a blend state of its own.
                 _modulate[index] = texture!.Value.IsModulateTwice;
+
+                // DecalModulate asks for the decal polygon offset in its shadow state; plain Modulate does not.
+                if (index < assets.Shaders.Count &&
+                    assets.Shaders[index].Equals("DecalModulate", StringComparison.OrdinalIgnoreCase))
+                {
+                    _decalPolyOffsetMaterials.Add(index);
+                }
             }
             else if (texture is { IsAdditive: true })
             {
@@ -6653,9 +6666,18 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
         // Per run, since B635 sorted modulating runs in among the translucent ones, each with its own blend.
         foreach (WorldBatch batch in _sortedTranslucent)
         {
+            // Only the view's water sort groups, as the leaf path and the engine's translucent walk (0x1800e4fd0) do.
+            if (batch.SortGroup >= 0 && !WaterViews.DrawsSortGroup(ViewDraws, batch.SortGroup))
+            {
+                continue;
+            }
+
             context.OMSetBlendState(BlendFor(batch.MaterialIndex), factor, 0xFFFFFFFF);
+            context.RSSetState(BlendedRaster(batch.MaterialIndex));
             DrawBlendedBatch(context, batch, additive: false);
         }
+
+        context.RSSetState(Raster(_bothSides));
 
         context.OMSetBlendState(default(ComPtr<ID3D11BlendState>), factor, 0xFFFFFFFF);
     }
@@ -6673,7 +6695,8 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
 
         foreach (WorldBatch batch in _batches)
         {
-            if (_additive.Contains(batch.MaterialIndex))
+            if (_additive.Contains(batch.MaterialIndex) &&
+                (batch.SortGroup < 0 || WaterViews.DrawsSortGroup(ViewDraws, batch.SortGroup)))
             {
                 DrawBlendedBatch(context, batch, additive: true);
             }
@@ -6745,6 +6768,17 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
     public bool IsBlendedMaterial(int material) =>
         _translucent.Contains(material) || _additive.Contains(material) || _modulate.ContainsKey(material);
 
+    /// <summary>The rasteriser a translucent-world run draws with: the decal polygon offset for a shader that asks for it.</summary>
+    /// <param name="material">The material index.</param>
+    /// <returns>`SHADER_POLYOFFSET_DECAL`'s state for DecalModulate (DecalModulate_dx9.cpp:67), else both-sided.</returns>
+    /// <remarks>
+    /// **A DecalModulate brush face** (B635 review): `ctf_crasher`'s scorch `func_brush`es lie at z 0 and 1 on the
+    /// floor, and the shader's own offset is what keeps such a face in front of the surface it marks. The overlay path
+    /// already applied it; the brush path drew with no offset at all.
+    /// </remarks>
+    private ComPtr<ID3D11RasterizerState> BlendedRaster(int material) =>
+        Raster(_decalPolyOffsetMaterials.Contains(material) && _decalPolyOffset.Handle is not null ? _decalPolyOffset : _bothSides);
+
     /// <summary>The blend a non-additive translucent-world run draws with: its modulate blend, else alpha (B635).</summary>
     /// <param name="material">The material index.</param>
     /// <returns>`DST_COLOR, SRC_COLOR` for `$mod2x`, `DST_COLOR, ZERO` without (modulate_dx9.cpp:141-148), alpha otherwise.</returns>
@@ -6813,6 +6847,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             }
 
             context.OMSetBlendState(additive ? _addBlend : BlendFor(batch.MaterialIndex), factor, 0xFFFFFFFF);
+            context.RSSetState(BlendedRaster(batch.MaterialIndex));
             DrawBlendedBatch(context, batch, additive);
 
             // **The surface's overlays straight after it** (0x1800e4fd0, B457), with the overlay pass's own state;
@@ -6829,6 +6864,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             }
         }
 
+        context.RSSetState(Raster(_bothSides));
         context.OMSetBlendState(default(ComPtr<ID3D11BlendState>), factor, 0xFFFFFFFF);
 
         return true;
@@ -6936,6 +6972,12 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
         _detailParameters.Clear();
         _additive.Clear();
         _translucent.Clear();
+
+        // **Every per-material class, not only two** (B635 review): these were kept across a re-upload, so after a second
+        // map an index the old map had as a Modulate or $nocull was still one, now routed into the blended pass.
+        _modulate.Clear();
+        _noCull.Clear();
+        _decalPolyOffsetMaterials.Clear();
         ReleaseWaters();
 
         foreach ((RefractMaterial _, ComPtr<ID3D11ShaderResourceView> normal, ComPtr<ID3D11ShaderResourceView> tint) in _refracts.Values)
@@ -7454,12 +7496,22 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             // depthwrite.cpp:93); everything else culls back faces, front wound clockwise
             // (imaterialsystem.h:180). Set inside the loop rather than once per model because two
             // batches of one model can disagree — a sign that culls and a flag that does not.
-            context.RSSetState(Raster(CullFor(mirrored, bothSides || _noCull.Contains(material)) switch
+            ComPtr<ID3D11RasterizerState> raster = CullFor(mirrored, bothSides || _noCull.Contains(material)) switch
             {
                 ModelCull.None => _bothSides,
                 ModelCull.Front => _viewmodelCull,
                 _ => _modelCull,
-            }));
+            };
+
+            // **A DecalModulate brush entity takes its shader's polygon offset** (B635 review): SHADER_POLYOFFSET_DECAL is
+            // set in DecalModulate's SHADOW_STATE (DecalModulate_dx9.cpp:67), so on every bind. `ctf_crasher`'s scorch
+            // `func_brush`es are drawn here, as brush entities, at z 0 and -0.25 on the floor they mark.
+            if (!mirrored && _decalPolyOffsetMaterials.Contains(material) && _decalPolyOffset.Handle is not null)
+            {
+                raster = _decalPolyOffset;
+            }
+
+            context.RSSetState(Raster(raster));
 
             // **A model's materials are sorted into the same two passes the world's are.** Until
             // now every model batch drew opaque, whatever its material said, which is why a capture

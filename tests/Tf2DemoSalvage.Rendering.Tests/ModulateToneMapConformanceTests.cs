@@ -31,6 +31,8 @@ public sealed class ModulateToneMapConformanceTests
     private const int PlainModulate = 3;
     private const int AdditiveModulate = 4;
     private const int TranslucentLit = 5;
+    private const int ModulateTwiceDark = 6;
+    private const int AdditiveModulateTwiceDark = 7;
 
     /// <summary>How a quad reaches the screen.</summary>
     private enum Route
@@ -59,8 +61,12 @@ public sealed class ModulateToneMapConformanceTests
             Grey(128, modulate: true),
             Grey(128, modulate: true, additive: true),
             Grey(100, translucent: true),
+
+            // `$mod2x`, as all five shipped Modulates with `$additive` are: 64 predicts 188 · 2 · 64/255 ≈ 94 in gamma.
+            Grey(64, modulate: true, twice: true),
+            Grey(64, modulate: true, twice: true, additive: true),
         ],
-        ["DecalModulate", "DecalModulate", "LightmappedGeneric", "Modulate", "Modulate", "LightmappedGeneric"]);
+        ["DecalModulate", "DecalModulate", "LightmappedGeneric", "Modulate", "Modulate", "LightmappedGeneric", "Modulate", "Modulate"]);
 
     [TestCase(0.5f)]
     [TestCase(2f)]
@@ -84,9 +90,8 @@ public sealed class ModulateToneMapConformanceTests
         (int, int, int) atHalf = Draw(Lit, Route.Decal, 0.5f) ?? Skip();
         string drew = $"the lit decal drew {atOne} at scale 1 and {atHalf} at 0.5, over {under}";
 
-        // The control: the lit decal covers the surface, well away from it and from the clamp, or a margin means nothing.
+        // The control: the lit decal covers the surface, well away from it, so the margin below measures the scale.
         atOne.Item2.ShouldBeLessThan(under.Item2 - 30, drew);
-        atOne.Item2.ShouldBeLessThan(255, drew);
 
         // TONEMAP_SCALE_LINEAR: a lit material must still be scaled, or a change that unscales every decal passes.
         atHalf.Item2.ShouldBeLessThan(atOne.Item2 - 20, drew);
@@ -126,15 +131,29 @@ public sealed class ModulateToneMapConformanceTests
     /// </remarks>
     [TestCase(PlainModulate)]
     [TestCase(AdditiveModulate)]
+    [TestCase(ModulateTwiceDark)]
+    [TestCase(AdditiveModulateTwiceDark)]
     public void Draw_ModulateOnBrushworkUnderHalfAndUnitToneMapScale_MultipliesTheSame(int material)
     {
-        (int, int, int) under = Under() ?? Skip();
-        (int, int, int) atOne = Draw(material, Route.Brush, 1f) ?? Skip();
-        (int, int, int) atHalf = Draw(material, Route.Brush, 0.5f) ?? Skip();
-        (int, int, int) onAModel = Draw(material, Route.Model, 1f) ?? Skip();
+        // `$mod2x` over 0.8, where a multiply (about 114) and a cover (about 90) differ; plain Modulate over 0.5.
+        bool twice = material is ModulateTwiceDark or AdditiveModulateTwiceDark;
+        float surface = twice ? 0.8f : Surface;
+        (int, int, int) under = Under(surface) ?? Skip();
+        (int, int, int) atOne = Draw(material, Route.Brush, 1f, surface) ?? Skip();
+        (int, int, int) atHalf = Draw(material, Route.Brush, 0.5f, surface) ?? Skip();
+        (int, int, int) onAModel = Draw(material, Route.Model, 1f, surface) ?? Skip();
 
-        // Multiplied: a plain Modulate of 128 halves the surface in gamma, far below the 176 an opaque draw gives.
+        // Multiplied: darker than the surface by far, where an opaque draw of the texel would not be.
         atOne.Item2.ShouldBeLessThan(under.Item2 - 40, $"the brush Modulate drew {atOne} over {under}: not multiplied");
+
+        // The value itself for `$mod2x`: Valve's gamma arithmetic, dst · 2 · 64/255, within the linear blend's 2.2-curve
+        // error, so an error the brush and model paths share cannot pass. Plain Modulate's value is B638.
+        if (twice)
+        {
+            int expected = (int)System.Math.Round(under.Item2 * 2.0 * 64.0 / 255.0);
+
+            atOne.Item2.ShouldBeInRange(expected - 6, expected + 2, $"the brush mod2x Modulate drew {atOne} over {under}; Valve's arithmetic {expected}");
+        }
 
         // Exactly the model pass's multiply over the bare surface: drawing it opaque first, then multiplying over that,
         // also darkens, and only the value tells the two apart.
@@ -189,30 +208,162 @@ public sealed class ModulateToneMapConformanceTests
     }
 
     /// <remarks>
-    /// **The pairing the water-fog branch relies on** (B635 review): that branch scales by
-    /// <c>ToneMapScale(tintControl.w)</c> and is entered only below fog mode 1.5, so today no modulating material reaches
-    /// it and swapping it back to <c>debugModes2.y</c> changes no pixel; a render test there cannot fail. What CAN change
-    /// is the pairing below, the moment a modulate decal gets Valve's grey fog (the ponytail at the upload): this goes red
-    /// then, and the water branch is the place to look.
+    /// **A TRIPWIRE for the open divergence B637, not a statement of Valve's behaviour.** Valve fogs a modulating material
+    /// toward its neutral value (`FogToGrey`, DecalModulate_dx9.cpp:80, modulate_dx9.cpp:201-209); ours gives it fog mode
+    /// 2, none. The water-fog branch scales by <c>ToneMapScale(tintControl.w)</c> and is entered only below mode 1.5, so
+    /// today no modulating material reaches it and a render test there cannot fail. **When B637 is fixed this goes red by
+    /// design**: that is not a regression, it is the signal to check the water-fog branch keeps the scale exemption.
+    /// </remarks>
+    [TestCase(DecalModulateNeutral)]
+    [TestCase(PlainModulate)]
+    [TestCase(AdditiveModulate)]
+    [TestCase(ModulateTwiceDark)]
+    public void FogModeAndToneMapType_AModulatingMaterial_IsFogModeTwoAndNoToneMap(int material)
+    {
+        WorldRenderer.FogModeOf(Assets.Textures[material]).ShouldBe(2f, "fog mode 2, B637's open no-fog");
+        WorldRenderer.ToneMapScaleNoneOf(Assets.Textures[material]).ShouldBe(1f, "TONEMAP_SCALE_NONE");
+    }
+
+    [Test]
+    public void FogModeAndToneMapType_LitAdditiveAndMissingMaterials_AreFoggedAndToneMapped()
+    {
+        WorldRenderer.FogModeOf(Assets.Textures[Lit]).ShouldBe(0f);
+        WorldRenderer.ToneMapScaleNoneOf(Assets.Textures[Lit]).ShouldBe(0f);
+        WorldRenderer.FogModeOf(Grey(100, additive: true)).ShouldBe(1f, "an additive material fogs to black");
+        WorldRenderer.ToneMapScaleNoneOf(Grey(100, additive: true)).ShouldBe(0f);
+        WorldRenderer.FogModeOf(null).ShouldBe(0f);
+        WorldRenderer.ToneMapScaleNoneOf(null).ShouldBe(0f);
+    }
+
+    /// <remarks>
+    /// **The leaf path** (B635 review), which production takes on every cullable map: <c>DrawTranslucentLeaf</c>, not the
+    /// uncullable fallback <c>DrawTranslucentWorld</c> that <see cref="Route.Brush"/> goes through. The same Modulate run
+    /// handed over as one leaf's must multiply exactly as the fallback does.
     /// </remarks>
     [Test]
-    public void FogModeAndToneMapType_ForEveryKindOfMaterial_KeepModulatingOnesOutOfTheScaledFogBranches()
+    public void DrawTranslucentLeaf_AModulateRun_MultipliesAsTheFallbackDoes()
     {
-        foreach (MapTexture? material in Assets.Textures.Append(null))
-        {
-            float fog = WorldRenderer.FogModeOf(material);
-            float none = WorldRenderer.ToneMapScaleNoneOf(material);
+        // Over 0.8, where the `$mod2x` multiply and an alpha cover differ (see Draw's surface).
+        const float Bright = 0.8f;
+        (int, int, int) under = Under(Bright) ?? Skip();
+        (int, int, int) fallback = Draw(ModulateTwiceDark, Route.Brush, 1f, Bright) ?? Skip();
 
-            // Entering a fog branch (mode below 1.5) must mean TONEMAP_SCALE_LINEAR, or that branch's scale decides.
-            if (fog < 1.5f)
-            {
-                none.ShouldBe(0f, $"{material} enters the fog branches with TONEMAP_SCALE_NONE");
-            }
+        using OffscreenTarget? target = OffscreenTarget.TryCreate(16, 16);
+
+        if (target is null)
+        {
+            Skip();
+            return;
         }
 
-        WorldRenderer.ToneMapScaleNoneOf(Assets.Textures[AdditiveModulate]).ShouldBe(1f, "Modulate with $additive is still NONE");
-        WorldRenderer.FogModeOf(Assets.Textures[AdditiveModulate]).ShouldBe(2f, "Modulate with $additive does not fog to black");
-        WorldRenderer.ToneMapScaleNoneOf(Assets.Textures[Lit]).ShouldBe(0f, "a lit material is LINEAR");
+        WorldBatch run = new(ModulateTwiceDark, 0, 6);
+
+        target.Clear(Bright, Bright, Bright);
+        target.DrawWorld(Quad(1f), [run], Camera(), Assets, translucent: false, toneMapScale: 1f);
+        target.SetTranslucentLeaves(new TranslucentLeafRuns([run], [0, 1]));
+        target.DrawTranslucentLeaf(0);
+
+        (int, int, int) leaf = target.PixelAt(8, 8);
+
+        // The control: the fallback multiplied, so matching it means the leaf did too.
+        fallback.Item2.ShouldBeLessThan(under.Item2 - 40, $"the fallback drew {fallback} over {under}");
+        Close(leaf, fallback, $"the leaf drew {leaf}, the fallback {fallback}, over {under}");
+    }
+
+    /// <remarks>
+    /// **The leaf path after a model** (B635 review): <c>DrawTranslucentLeaf</c> is the second harness entry point to the
+    /// world's glass, and it drew under whatever constants the last model left, as <c>DrawTranslucentWorld</c> did.
+    /// </remarks>
+    [Test]
+    public void DrawTranslucentLeaf_AfterAModelAtAnotherScale_DrawsAtTheWorldsScale()
+    {
+        using OffscreenTarget? target = OffscreenTarget.TryCreate(16, 16);
+
+        if (target is null)
+        {
+            Skip();
+            return;
+        }
+
+        WorldBatch run = new(TranslucentLit, 0, 6);
+
+        target.Clear(Surface, Surface, Surface);
+        target.DrawWorld(Quad(1f), [run], Camera(), Assets, toneMapScale: 0.5f);
+
+        (int, int, int) together = target.PixelAt(8, 8);
+
+        target.Clear(Surface, Surface, Surface);
+        target.DrawWorld(Quad(1f), [run], Camera(), Assets, translucent: false, toneMapScale: 0.5f);
+        target.SetTranslucentLeaves(new TranslucentLeafRuns([run], [0, 1]));
+        target.DrawModelPose(Quad(1f, offset: 5000f), [new WorldBatch(Lit, 0, 6)], Camera(), Identity, Assets, bothSides: true, clearDepth: false, toneMapScale: 1f);
+        target.DrawTranslucentLeaf(0);
+
+        (int, int, int) apart = target.PixelAt(8, 8);
+
+        together.Item2.ShouldBeLessThan(188 - 30, $"the translucent run drew {together}: nothing drew");
+        Close(apart, together, $"the leaf drew {together} in one go and {apart} after a model at scale 1");
+    }
+
+    /// <remarks>
+    /// **A DecalModulate brush face just behind the surface it marks** (B635 review): `ctf_crasher`'s scorch `func_brush`es
+    /// lie at z 0 and 1 on its floor. DecalModulate requests `SHADER_POLYOFFSET_DECAL` in its shadow state
+    /// (DecalModulate_dx9.cpp:67), so on every bind; with it the face is pulled forward and drawn, without it the wall in
+    /// front hides it. 0.02 units at 300 out is about 13 steps of a 24-bit depth buffer, inside the offset's 64.
+    /// </remarks>
+    [Test]
+    public void Draw_DecalModulateBrushFaceJustBehindAWall_IsPulledInFrontByTheDecalOffset()
+    {
+        using OffscreenTarget? target = OffscreenTarget.TryCreate(16, 16);
+
+        if (target is null)
+        {
+            Skip();
+            return;
+        }
+
+        List<WorldVertex> wall = Quad(1f);
+        List<WorldVertex> both = [.. wall, .. Quad(1f, depth: 0.02f)];
+
+        target.Clear(Surface, Surface, Surface);
+        target.DrawWorld(wall, [new WorldBatch(Lit, 0, 6)], Camera(), Assets, toneMapScale: 1f);
+
+        (int, int, int) wallOnly = target.PixelAt(8, 8);
+
+        target.Clear(Surface, Surface, Surface);
+        target.DrawWorld(both, [new WorldBatch(Lit, 0, 6), new WorldBatch(DecalModulateDark, 6, 6)], Camera(), Assets, toneMapScale: 1f);
+
+        (int, int, int) marked = target.PixelAt(8, 8);
+
+        marked.Item2.ShouldBeLessThan(wallOnly.Item2 - 20, $"the wall drew {wallOnly} and {marked} with the scorch 0.02 behind it");
+    }
+
+    /// <remarks>
+    /// **The same face as a brush ENTITY** (B635 review): `ctf_crasher`'s four scorch `func_brush`es are drawn by the
+    /// model pass, not the world's, so the offset has to be there too. The wall is world (it writes depth); the scorch is
+    /// a model drawn over that depth, as a brush entity is drawn after the world.
+    /// </remarks>
+    [Test]
+    public void DrawModel_DecalModulateBrushEntityJustBehindAWall_IsPulledInFrontByTheDecalOffset()
+    {
+        using OffscreenTarget? target = OffscreenTarget.TryCreate(16, 16);
+
+        if (target is null)
+        {
+            Skip();
+            return;
+        }
+
+        target.Clear(Surface, Surface, Surface);
+        target.DrawWorld(Quad(1f), [new WorldBatch(Lit, 0, 6)], Camera(), Assets, toneMapScale: 1f);
+
+        (int, int, int) wallOnly = target.PixelAt(8, 8);
+
+        target.DrawModelPose(
+            Quad(Device3D.DecalModulateLight, depth: 0.02f), [new WorldBatch(DecalModulateDark, 0, 6)], Camera(), Identity, Assets, clearDepth: false, toneMapScale: 1f);
+
+        (int, int, int) marked = target.PixelAt(8, 8);
+
+        marked.Item2.ShouldBeLessThan(wallOnly.Item2 - 20, $"the wall drew {wallOnly} and {marked} with the scorch entity 0.02 behind it");
     }
 
     private static void Close((int Red, int Green, int Blue) actual, (int Red, int Green, int Blue) expected, string because)
@@ -223,7 +374,7 @@ public sealed class ModulateToneMapConformanceTests
     }
 
     /// <summary>The cleared surface's centre pixel; null without a device.</summary>
-    private static (int, int, int)? Under()
+    private static (int, int, int)? Under(float surface = Surface)
     {
         using OffscreenTarget? target = OffscreenTarget.TryCreate(16, 16);
 
@@ -232,13 +383,20 @@ public sealed class ModulateToneMapConformanceTests
             return null;
         }
 
-        target.Clear(Surface, Surface, Surface);
+        target.Clear(surface, surface, surface);
 
         return target.PixelAt(8, 8);
     }
 
     /// <summary>One quad of one material over the cleared surface, by one route; null without a device.</summary>
-    private static (int, int, int)? Draw(int material, Route route, float scale)
+    /// <param name="material">The material.</param>
+    /// <param name="route">How it reaches the screen.</param>
+    /// <param name="scale">The tone-map scale.</param>
+    /// <param name="surface">
+    /// The cleared surface. NOT 0.5 for a `$mod2x` case that must tell a multiply from a cover: over a surface of 0.5 in
+    /// linear, `2 · dst · s` is `s`, exactly what an alpha draw of the same colour gives.
+    /// </param>
+    private static (int, int, int)? Draw(int material, Route route, float scale, float surface = Surface)
     {
         using OffscreenTarget? target = OffscreenTarget.TryCreate(16, 16);
 
@@ -247,7 +405,7 @@ public sealed class ModulateToneMapConformanceTests
             return null;
         }
 
-        target.Clear(Surface, Surface, Surface);
+        target.Clear(surface, surface, surface);
 
         // An unlit decal's corners carry the mod2x light (DecalMesh); everything else is lit by the reserved white texel.
         List<WorldVertex> quad = Quad(material is DecalModulateNeutral or DecalModulateDark ? Device3D.DecalModulateLight : 1f);
@@ -285,14 +443,17 @@ public sealed class ModulateToneMapConformanceTests
     private static float[] Camera() => new FreeCamera { Origin = (0f, -300f, 0f), Angles = (0f, 90f, 0f), Aspect = 1f }.ToMatrix();
 
     /// <summary>A 128-unit square facing the camera, every corner on one texel, lit by <paramref name="light"/>.</summary>
-    private static List<WorldVertex> Quad(float light, float offset = 0f) =>
+    /// <param name="light">The corners' vertex light.</param>
+    /// <param name="offset">How far to the side, to put a model outside the pixel read.</param>
+    /// <param name="depth">How far behind the plane at y = 0, away from the camera.</param>
+    private static List<WorldVertex> Quad(float light, float offset = 0f, float depth = 0f) =>
     [
-        new(offset - 64f, 0f, -64f, 0.5f, 0.5f, 0f, 0f, 0f, light, light, light),
-        new(offset + 64f, 0f, 64f, 0.5f, 0.5f, 0f, 0f, 0f, light, light, light),
-        new(offset + 64f, 0f, -64f, 0.5f, 0.5f, 0f, 0f, 0f, light, light, light),
-        new(offset - 64f, 0f, -64f, 0.5f, 0.5f, 0f, 0f, 0f, light, light, light),
-        new(offset - 64f, 0f, 64f, 0.5f, 0.5f, 0f, 0f, 0f, light, light, light),
-        new(offset + 64f, 0f, 64f, 0.5f, 0.5f, 0f, 0f, 0f, light, light, light),
+        new(offset - 64f, depth, -64f, 0.5f, 0.5f, 0f, 0f, 0f, light, light, light),
+        new(offset + 64f, depth, 64f, 0.5f, 0.5f, 0f, 0f, 0f, light, light, light),
+        new(offset + 64f, depth, -64f, 0.5f, 0.5f, 0f, 0f, 0f, light, light, light),
+        new(offset - 64f, depth, -64f, 0.5f, 0.5f, 0f, 0f, 0f, light, light, light),
+        new(offset - 64f, depth, 64f, 0.5f, 0.5f, 0f, 0f, 0f, light, light, light),
+        new(offset + 64f, depth, 64f, 0.5f, 0.5f, 0f, 0f, 0f, light, light, light),
     ];
 
     /// <summary>A 4x4 texture of one grey, opaque, with the flags a shader of that kind gives its material.</summary>
