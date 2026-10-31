@@ -263,6 +263,13 @@ public sealed class MomentCostLog
             + $", roots split (blend {Mean(_rootParts.Blend, over):0.###}, base {Mean(_rootParts.Base, over):0.###}"
             + $", accumulate {Mean(_rootParts.Accumulate, over):0.###} of which layer sampling {Mean(_rootParts.Sampling, over):0.###}"
             + $" over {_rootParts.Samples / (double)over:0.#}"
+
+            // Accumulate's own parts (2026-10-31 accumulate-parts): `other` is its residual beside sampling, and the
+            // enumerators are a count. None of these words is one the older readers anchor on.
+            + $" (seed {Mean(_rootParts.Seed, over):0.###}, capture {Mean(_rootParts.Capture, over):0.###}"
+            + $", solve {Mean(_rootParts.Solve, over):0.###}"
+            + $", compose {Mean(_rootParts.Compose, over):0.###}, other {Mean(_rootParts.AccumulateOther, over):0.###}"
+            + $"; enumerators {_rootParts.Enumerators / (double)over:0.#})"
             + $", adjust {Mean(_rootParts.Adjust, over):0.###}, loop {Mean(_rootParts.Loop, over):0.###}"
             + $", ik {Mean(_rootParts.Ik, over):0.###}, finish {Mean(_rootParts.Finish, over):0.###}"
             + $"; unsplit {Mean(_setupRoot - _rootParts.Sum, over):0.###})"

@@ -247,7 +247,50 @@ public sealed class MomentCostLogTests
         Assert.That(
             log.Report(phases, sampleTicks: 0),
             Does.Contain(
-                "roots split (blend 2, base 3, accumulate 13 of which layer sampling 5 over 6, adjust 1, loop 11, ik 4"
+                "roots split (blend 2, base 3, accumulate 13 of which layer sampling 5 over 6"
+                + " (seed 0, capture 0, solve 0, compose 0, other 8; enumerators 0), adjust 1, loop 11, ik 4, finish 8"
+                + "; unsplit 28)"));
+    }
+
+    /// <remarks>
+    /// **The parts of `accumulate`, and its own residual**, over two identical rebuilds. 13 ms of accumulate less layer
+    /// sampling 5, seed 0.5, capture 0.75, solve 0.125 and compose 5.5 leaves other 1.125; the enumerators are a count, 18 over two
+    /// rebuilds. The roots' `unsplit` stays 28: the sub-parts are inside accumulate and must not be subtracted again.
+    /// </remarks>
+    [Test]
+    public void Report_WithAccumulateSubParts_NamesEachAndLeavesTheOtherResidual()
+    {
+        MomentCostLog log = new(every: 2);
+
+        MomentPhases phases = Posing(100) with
+        {
+            Counters = new EntityModelSet.PoseCounters(
+                0, 0, 0, 0, 0, 80 * Millisecond, 0, 0, 0, 0, 0,
+                SetupRoot: 70 * Millisecond,
+                RootParts: new RootSetupParts(
+                    Blend: 2 * Millisecond,
+                    Base: 3 * Millisecond,
+                    Accumulate: 13 * Millisecond,
+                    Sampling: 5 * Millisecond,
+                    Samples: 6,
+                    Adjust: 1 * Millisecond,
+                    Loop: 11 * Millisecond,
+                    Ik: 4 * Millisecond,
+                    Finish: 8 * Millisecond,
+                    Seed: Millisecond / 2,
+                    Capture: 3 * Millisecond / 4,
+                    Solve: Millisecond / 8,
+                    Compose: 11 * Millisecond / 2,
+                    Enumerators: 9)),
+        };
+
+        _ = log.Report(phases, sampleTicks: 0);
+
+        Assert.That(
+            log.Report(phases, sampleTicks: 0),
+            Does.Contain(
+                "roots split (blend 2, base 3, accumulate 13 of which layer sampling 5 over 6"
+                + " (seed 0.5, capture 0.75, solve 0.125, compose 5.5, other 1.125; enumerators 9), adjust 1, loop 11, ik 4"
                 + ", finish 8; unsplit 28)"));
     }
 
