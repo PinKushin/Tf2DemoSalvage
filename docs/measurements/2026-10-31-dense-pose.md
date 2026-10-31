@@ -121,7 +121,35 @@ no longer re-scan them, `AsDense` lost its `bones <= 0` test, `BlendExpanded` ga
 0.245-0.270. **Falsified if** roots is above 0.50 (the carry or the guard cost more than they saved) or below 0.44; the effect of
 the carry alone is below the noise and is not claimed.
 
-## Verdict (first set)
+### Result of the second after-set
+
+`after-review/01.txt`..`03.txt` (n = 16 each; no void condition: `prepose 0 over 0`, roots built 13.3-13.9, eligible 4.9-5.0, samples
+12.6-13.2, `.err` empty). Per run, ms per rebuild:
+
+| part | 01 | 02 | 03 | mean | first dense set | before (frame-pair after-review) |
+|---|---|---|---|---|---|---|
+| base + layer sampling | 0.277 | 0.270 | 0.261 | 0.269 | 0.260 | 0.274 |
+| accumulate remainder | 0.069 | 0.067 | 0.064 | 0.067 | 0.063 | 0.068 |
+| adjust | 0.0020 | 0.0020 | 0.0020 | 0.0020 | 0.0023 | 0.0043 |
+| roots total | 0.516 | 0.489 | 0.471 | 0.492 | 0.475 | 0.495 |
+
+**Against the prediction:** roots 0.492 is above the predicted 0.455-0.485 and below the 0.50 falsifier (not falsified, not
+confirmed); sampling 0.269 is at the top of 0.245-0.270; adjust 0.0020 holds.
+
+## Verdict (final)
+
+Honest reading of all six runs: **the roots total did not move measurably** (0.495 before; 0.475 and 0.492 after, with a
+single set's own spread of 0.03-0.05 and runs that drift within a set). Base + layer sampling is lower in five of six after
+runs against the 0.274 before mean (0.253-0.277), a move of about −0.01 ms, and `adjust` fell from 0.0043 to 0.0020, which is
+mechanical and certain but 0.002 ms. The change is at the 0.01 ms bar and cannot be called a measured win beyond that. It stays
+because the output is bit-identical (two differentials, 188,256 real grid blends and 504 real builds) and it removes real
+passes, but it is **not** the 0.03-0.08 ms the read hoped for: the cost the read saw in "expansions" was smaller than
+interpolated. The remainder (0.067) is not the grid blends or the seed; the boxed enumerators (M6) and the layer arithmetic
+are what is left. Next, measure before cutting: time `Accumulate`'s own parts, not its expansions.
+
+## Verdict (first set only, kept for the record)
+
+A small win
 
 A small win in the predicted direction: roots −0.020 ms per rebuild (−4%), sampling −0.014, adjust −0.002, the accumulate remainder
 −0.005. Above the 0.01 ms bar but near the noise: the paired runs go 0.268→0.268, 0.273→0.259, 0.280→0.253 in sampling and
