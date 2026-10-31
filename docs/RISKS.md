@@ -40251,6 +40251,48 @@ It is tested red-first. It names which thread waited and where the draw had got 
 **Reopen if** the `queue stall` line ever appears in a viewer log, or if this test's hang rate on the branch, measured
 the same way, exceeds the baseline's.
 
+## B636 — the world pass gets the exposure only on frames that draw a 3D-sky or water view (2026-10-31) — OPEN, lead
+
+**Measured (f12, cp_process_f12, HDR_TYPE_INTEGER, Debug `--shot`):** every capture logs "drawn with tone-map scale
+0.7009725". At camera `-3722 -1403 726 25 99`, though, `+mat_force_tonemap_scale 1` against the default changes
+27,644 px by at most 10 levels. At `-3516 -2200 763 35 -28` the same pin brightens the whole frame (images under
+`D:/measure-f12/decal-cmp/`, `y-default`/`y-forced` and `debug/H-30000-tonemap1.png`). A build with B635's fix and one
+without draw the far camera identically (0 px) and the close camera very differently. So the scale reaching the
+shader depends on the camera.
+
+**Read from our code (the mechanism, not yet proved by a capture):**
+- `ReplayUploads` writes the main view's world constants before `DrawFrame` sets `LinearLightScale`
+  (`Device3D.cs:1368-1386`), so they carry the previous frame's end value.
+- That end value is reset to 1 for the HUD (`:2007-2010`).
+- Only `ReapplyCamera`, after the 3D sky (`:1720-1746`) or the water views (`:1753-1766`), re-uploads at the frame's
+  own scale.
+- Valve sets `LINEAR_LIGHT_SCALE` for the whole view (`SetToneMappingScaleLinear`, B514).
+- The capture log reports `_drawnScale`, not the uploaded constant: a second route (B243).
+
+**Why it may matter beyond decals:** B514's open residue, "outdoor world short by ~19 levels, indoor 45000 over by ~22"
+(findings 76), has this shape if indoor frames are drawn at 1 and outdoor ones at the exposure. *Interpolated.*
+
+**Next:** carry the uploaded constant to the capture log; shoot one camera with and without a 3D-sky view in frame; then
+move the world upload after the scale is set. Every auto-exposure shot changes when it is fixed.
+
+## B635 — explosive scorch decals look dark and pixelated at a close camera (2026-10-31) — FIXED on `fix/b633-modulate-tonemap-none`, not merged
+
+**Cause (measured):** the HDR tone-map scale reached `DecalModulate` draws; Valve's is `TONEMAP_SCALE_NONE`. Two
+divergences found beside it stay open, ranked in the measurement: no alpha test on DecalModulate, and no grey fog on it.
+
+**The owner's words, verbatim, in order:** *"why are our explosive decals so pixelated?"*, then *"i can see massive
+pixelation in your shots. how about doing a comparison with real tf2, then you will see it"*, then *"our shots are like
+our transparency or something is set to super low"*, then *"the headless actually might."*, then *"the cams not facing
+the right place"*, then *"the decals look fine in that last ss's so i guess it was the headless stuff"*, then *"you have
+to be able to notice those explosion scorch marks are much cleaner and less pixelated"* (of the tick-29900 shot), then
+*"see how dark those are in the earlier image?"*, then *"its not the rocket being shot at that time, theres no soldier
+in view... and stacking shouldnt cause this"*.
+
+**The shot he means:** `D:/measure-f12/decal/close1.png` (f12, tick 30000, `TF2VIEW_CAMERA="-3516 -2200 763 35 -28"`,
+984x551, Debug `--shot`). The clean one beside it: `D:/measure-f12/b624/merged-after-29900.png` (also Debug `--shot`).
+
+**Measurement:** `docs/measurements/2026-10-31-explosive-decals-vs-tf2.md`, which carries every number and image.
+
 ## B632 — `SpeedSlider_AtEachEnd_ReachesSpeedsTheButtonsCannot` fails intermittently: real key input does not reach the speed slider (2026-10-31) — OPEN
 
 **Observed (measured, 2026-10-31, same machine, desktop shared with the owner's browser):**

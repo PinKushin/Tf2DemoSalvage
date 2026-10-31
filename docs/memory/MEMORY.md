@@ -135,3 +135,4 @@
 - [Owner input does not affect RCON-driven runs](owner-input-does-not-affect-rcon-driven-runs.md) — no "hands-off" for specimen runs; only the launcher click is his.
 - [Owner narration is not an instruction](owner-narration-is-not-an-instruction.md) — "it got to the menu" is observation; no agent messages or plan changes from it.
 - [Per-pass GPU needs a fixed window condition](per-pass-gpu-needs-a-fixed-window-condition.md) — any visible part of the viewer window flips Clear/Sky3D/World GPU; run all off screen (`TF2VIEW_WINDOW_POS=-3000,100`), classify by Clear GPU (2026-10-30).
+- [A modulate output is a multiplier, not light](a-modulate-output-is-a-multiplier-not-light.md) — Modulate/DecalModulate are TONEMAP_SCALE_NONE; shots disagreeing by camera → pin `+mat_force_tonemap_scale 1` first (B635, 2026-10-31).

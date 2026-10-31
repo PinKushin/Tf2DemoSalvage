@@ -97,6 +97,7 @@ internal static class MapCache
     /// <param name="mapName">Which map, without folder or extension.</param>
     /// <param name="spriteMaterials">Sprite materials to load beside the map, or null.</param>
     /// <param name="wornModels">Models to load as worn (bone-merged) ones, or null.</param>
+    /// <param name="decalMaterials">Decal materials to load into the world's table, by the name a Subrect draws, or null.</param>
     /// <returns>The assets, shared with every other caller asking the same thing.</returns>
     /// <remarks>
     /// Skips the calling test when the game or the map is absent, which is checked BEFORE the cache
@@ -108,8 +109,9 @@ internal static class MapCache
         IReadOnlyCollection<string>? entityModels = null,
         string mapName = DefaultMap,
         IReadOnlyCollection<string>? spriteMaterials = null,
-        IReadOnlyCollection<string>? wornModels = null) =>
-        Loaded_(maximumTextureSize, entityModels, mapName, spriteMaterials, wornModels).Assets;
+        IReadOnlyCollection<string>? wornModels = null,
+        IReadOnlyCollection<string>? decalMaterials = null) =>
+        Loaded_(maximumTextureSize, entityModels, mapName, spriteMaterials, wornModels, decalMaterials).Assets;
 
     /// <summary>
     /// Every sprite material the effect-entity tests draw with — beam, halo, cable, trail — so they share ONE load.
@@ -156,7 +158,8 @@ internal static class MapCache
         IReadOnlyCollection<string>? entityModels,
         string mapName,
         IReadOnlyCollection<string>? spriteMaterials,
-        IReadOnlyCollection<string>? wornModels)
+        IReadOnlyCollection<string>? wornModels,
+        IReadOnlyCollection<string>? decalMaterials = null)
     {
         // Both skips happen here, before the cache is touched.
         RequirePath(mapName);
@@ -165,8 +168,10 @@ internal static class MapCache
         static string Listed(IReadOnlyCollection<string>? names) =>
             names is null ? string.Empty : string.Join(',', names.Order(StringComparer.Ordinal));
 
+        // The decal list joins the key only when given, so every existing request keeps its key (DefaultKey among them).
         string key = string.Join(
-            '|', mapName, maximumTextureSize, Listed(entityModels), Listed(spriteMaterials), Listed(wornModels));
+            '|', mapName, maximumTextureSize, Listed(entityModels), Listed(spriteMaterials), Listed(wornModels)) +
+            (decalMaterials is null ? string.Empty : "|decals:" + Listed(decalMaterials));
 
         MapAssets assets = Loaded.Get(
             key,
@@ -180,7 +185,8 @@ internal static class MapCache
                     entityModels,
                     wornModels,
                     spriteMaterials,
-                    loggers: log);
+                    loggers: log,
+                    decalMaterials: decalMaterials);
 
                 Logs.AddOrUpdate(made, log);
 
