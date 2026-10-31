@@ -26,9 +26,9 @@ public sealed class AccumulatePartsTests
     /// (only the capture before the sample and the solve after the compose read it), compose 20 ms, sample 30 ms. The
     /// lists count their own reads, so each part's floor is reads × spin. The lock reads split one to `Capture` and four
     /// to `Solve` (`IkLocks.cs`: `EffectorOf(locks[at])` in the capture; the guard, the chain, the position weight and the
-    /// rotation weight in the solve), and the total is the control. The chain sits at the origin, so its solve FAILS, and
-    /// since B622 a failed solve still slams and slerps as `SolveLock` does (`bone_setup.cpp:4431-4447`); the count was
-    /// three while a failed solve skipped that. A solve left unstamped or charged to the capture falls below four reads, and a
+    /// rotation weight in the solve), and the total is the control. `Solve` reads the rotation weight whether or not the
+    /// solve succeeds, because `SolveLock` slerps by `flLocalQWeight` on every lock (`bone_setup.cpp:4447`, B622); this
+    /// chain sits at the origin and fails. A solve left unstamped or charged to the capture falls below four reads, and a
     /// compose stamped from before the sample reads the 30 ms twice and drives the residual negative.
     /// </remarks>
     [Test]

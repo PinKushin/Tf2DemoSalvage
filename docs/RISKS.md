@@ -40444,16 +40444,36 @@ successful solves. Evidence:
   red on foot y (0 instead of 5).
 - **Two tests encoded the divergence** (`AccumulatePartsTests`, two cases). Their chain sits at the
   origin, so its solve fails. They counted three lock reads in `Solve` because the `continue`
-  skipped the `flLocalQWeight` read. They now count four.
-- **Failure rate on f12, measured:** 3 in 2,794 lock solves in the viewer path over 30 sampled
-  ticks.
-- **Visible difference, measured in one frame:** none. 0 pixels differ at tick 58301 in first
-  person, where a lock is confirmed to fail in the viewer path, and nobody has established why. The
-  tick 54871 shots are only a noise floor, because the viewer path fails no lock there. Full account:
-  `docs/findings/09-valve-implementation.md`, "A sequence's IK lock ignores its own solver's
-  verdict".
+  skipped the `flLocalQWeight` read. They now count four, because `Solve` reads the rotation
+  weight whether or not the solve succeeds.
+- **Review follow-up tests** (each sabotage-checked):
+  - A failed solve at `flLocalQWeight` 0.5 lands halfway to the SEQUENCE's rotation
+    (`:4445-4447`). A slerp toward the captured rotation reddens it (z 0.707 against 0.383).
+  - `Applied` is 0 on the refused leg and 1 on a solvable control. Counting before the gate gives
+    (1, 1); never counting gives (0, 0).
+- **Counters:** `Moved` and `FurthestMove` keep their meaning of "of the solves". Their only
+  consumers are `SkeletonPose.LockEffect` → `EntityModelSet.IkLockEffect` → the `bone-flags` probe.
+- **Failure rate on f12, measured:** 3 in 2,794 lock solves in the viewer path, first person, over
+  30 sampled ticks. One is located at tick 58301; the other two are not located beyond ticks
+  61730-102883.
+- **Visible difference: none found, because no failure was found in a DRAWN pose.**
+  - **Where the located failure sits:** a temporary instrument in the same `--shot` run as the
+    comparison traced the only failing solve at 58301 to the bullet-decal replay's hitbox trace
+    (`BulletStrikes.StruckPlayer` → `EntityModelSet.TraceHitboxes`), not the draw. Its entity index
+    could not be recovered.
+  - **Tick 58301, first person:** 0 pixels differ, as that implies.
+  - **Tick 54871:** the shots are only a noise floor, because the viewer fails no lock there.
+  - No third-person retake was taken, because there was no drawn failure to aim at.
+  - Full account: `docs/findings/09-valve-implementation.md`, "A sequence's IK lock ignores its own
+    solver's verdict".
+- **Related, not part of this fix:**
+  - B627: `SolveChain` picks its overload from the chain's link `kneeDir`, not the captured one
+    (`:4431`).
+  - B630: the clamped position and rotation weights.
+  - B628: the missing bone-mask early return (`:4415`). It is now reachable on more paths, since a
+    failed solve proceeds to the slam.
 
-**Evidence class (as filed): both sides read from published source and our tree for this entry; the visible effect is *interpolated*, and the lock-solve failure rate is *not measured*.** D1 of the IK-lock bracket read.
+**Evidence class AT FILING, superseded by the FIXED evidence above:** both sides read from published source and our tree; the visible effect was *interpolated* and the failure rate *not measured* when this was filed. D1 of the IK-lock bracket read. The text below is the original filing.
 
 - **Valve:** `SolveLock` calls `Studio_SolveIK(...)` and ignores its return (`bone_setup.cpp:4431-4438`), then slams the
   captured rotation onto the effector (`:4441-4442`) and rebuilds all three bones with `SolveBone` (`:4446`, `:4449`,

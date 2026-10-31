@@ -192,6 +192,61 @@ public sealed class IkLockConformanceTests
         }
     }
 
+    /// <remarks>
+    /// **The slerp runs on a failed solve too, and toward the SEQUENCE's rotation** —
+    /// `QuaternionSlerp( q[bone], q2, plock->flLocalQWeight, q[bone] )` with `q2 = q[ bone ]` taken
+    /// before the rebuild (`bone_setup.cpp:4445-4447`). At 0.5 between the captured 90° about Z and
+    /// the sequence's identity the foot lands at 45° about Z: (0, 0, sin 22.5°, cos 22.5°). A slerp
+    /// toward the captured rotation would leave 90°.
+    /// </remarks>
+    [Test]
+    public void Solve_WithALegTooStraightAtHalfRotationWeight_LandsHalfwayToTheSequencesRotation()
+    {
+        IkLocks locks = new(Parents, BoneCount);
+
+        const float Half = 0.70710678f;
+
+        StudioBonePose[] pose = DeadStraight();
+        pose[3] = pose[3] with { Rotation = (0f, 0f, Half, Half) };
+
+        IReadOnlyList<StudioIkLock> halfTurn = [new StudioIkLock(0, 1f, 0.5f, 0)];
+
+        locks.Capture(halfTurn, Chains, pose);
+
+        pose[3] = pose[3] with { Rotation = (0f, 0f, 0f, 1f) };
+
+        locks.Solve(halfTurn, Chains, pose);
+
+        (float x, float y, float z, float w) = pose[3].Rotation;
+        float sign = w < 0f ? -1f : 1f;
+
+        (sign * x).ShouldBe(0f, Tolerance);
+        (sign * y).ShouldBe(0f, Tolerance);
+        (sign * z).ShouldBe(0.38268343f, Tolerance, "sin 22.5°: halfway between 90° and 0°");
+        (sign * w).ShouldBe(0.92387953f, Tolerance, "cos 22.5°");
+    }
+
+    /// <remarks>
+    /// **`Applied` counts solves, not slams.** The dead-straight leg is refused at `:2735`, so it
+    /// is slammed but not counted; the bent leg of <see cref="Straight"/> solves, and is. The
+    /// control is what makes the zero mean "refused" rather than "never reached".
+    /// </remarks>
+    [Test]
+    public void Applied_ARefusedLegAndASolvableOne_CountsOnlyTheSolve()
+    {
+        IkLocks refused = new(Parents, BoneCount);
+        StudioBonePose[] straight = DeadStraight();
+        refused.Capture([Held(weight: 1f)], Chains, straight);
+        refused.Solve([Held(weight: 1f)], Chains, straight);
+
+        IkLocks solvable = new(Parents, BoneCount);
+        StudioBonePose[] bent = Straight();
+        solvable.Capture([Held(weight: 1f)], Chains, bent);
+        solvable.Solve([Held(weight: 1f)], Chains, bent);
+
+        (refused.Applied, solvable.Applied).ShouldBe((0, 1));
+    }
+
     /// <summary>The chain dead straight along +X: bones at 0, 10 and 20, all unrotated.</summary>
     private static StudioBonePose[] DeadStraight() =>
     [
