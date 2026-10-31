@@ -141,6 +141,66 @@ public sealed class IkLockConformanceTests
         Tip(pose).Y.ShouldBe(5f, Tolerance, "the lock named nothing, so nothing was pinned");
     }
 
+    /// <remarks>
+    /// **A failed solve still slams the captured rotation onto the foot** (B622). `SolveLock` calls
+    /// `Studio_SolveIK` and ignores its return (`bone_setup.cpp:4431-4438`), then reads the foot's
+    /// position — unsolved — and puts the captured rotation on it (`:4441-4442`), and rebuilds all
+    /// three bones (`:4446`, `:4449`, `:4450`). `SolveDependencies` is the control: it DOES gate on
+    /// the return (`:4211`), so the omission in `SolveLock` is not house style.
+    ///
+    /// **The failure is the engine's own:** a dead-straight leg has `l3` = 20 against
+    /// `(l1 + l2) * 0.9998` = 19.996, so the no-knee-direction overload returns false at `:2735`
+    /// before touching a matrix — and the seven-argument overload, on its own failure, also writes
+    /// nothing (`:2859-2867`). So the engine's answer is: the foot keeps the SEQUENCE's position
+    /// (carried 5 along +Y with the root — not pinned) and takes the CAPTURED rotation (90° about Z,
+    /// slerped toward the sequence's by `flLocalQWeight` 0, so kept); thigh and knee are untouched.
+    /// The position assertion catches a fix that also places the foot; the rotation one is red on a
+    /// `continue` that skips the slam.
+    /// </remarks>
+    [Test]
+    public void Solve_WithALegTooStraightToSolve_SlamsTheCapturedRotationWhereTheSequenceLeftTheFoot()
+    {
+        IkLocks locks = new(Parents, BoneCount);
+
+        const float Half = 0.70710678f;
+
+        StudioBonePose[] pose = DeadStraight();
+        pose[3] = pose[3] with { Rotation = (0f, 0f, Half, Half) };
+
+        locks.Capture([Held(weight: 1f)], Chains, pose);
+
+        // The sequence: the leg carried five units sideways, the foot turned back to identity.
+        pose[0] = pose[0] with { Position = (0f, 5f, 0f) };
+        pose[3] = pose[3] with { Rotation = (0f, 0f, 0f, 1f) };
+
+        locks.Solve([Held(weight: 1f)], Chains, pose);
+
+        BoneChain chain = new(Parents, BoneCount);
+
+        chain.Build(3, pose);
+
+        // 90° about Z: X → +Y, Y → −X. Rows of a 3×4, translation in the last column.
+        float[] foot = [0f, -1f, 0f, 20f, 1f, 0f, 0f, 5f, 0f, 0f, 1f, 0f];
+        float[] thigh = [1f, 0f, 0f, 0f, 0f, 1f, 0f, 5f, 0f, 0f, 1f, 0f];
+        float[] knee = [1f, 0f, 0f, 10f, 0f, 1f, 0f, 5f, 0f, 0f, 1f, 0f];
+
+        for (int at = 0; at < 12; at++)
+        {
+            chain.Matrix(3)[at].ShouldBe(foot[at], Tolerance, $"foot matrix element {at}");
+            chain.Matrix(1)[at].ShouldBe(thigh[at], Tolerance, $"thigh matrix element {at}");
+            chain.Matrix(2)[at].ShouldBe(knee[at], Tolerance, $"knee matrix element {at}");
+        }
+    }
+
+    /// <summary>The chain dead straight along +X: bones at 0, 10 and 20, all unrotated.</summary>
+    private static StudioBonePose[] DeadStraight() =>
+    [
+        new StudioBonePose(0, (0f, 0f, 0f), (0f, 0f, 0f, 1f)),
+        new StudioBonePose(1, (0f, 0f, 0f), (0f, 0f, 0f, 1f)),
+        new StudioBonePose(2, (10f, 0f, 0f), (0f, 0f, 0f, 1f)),
+        new StudioBonePose(3, (10f, 0f, 0f), (0f, 0f, 0f, 1f)),
+    ];
+
     /// <summary>Four bones: a root and a three-link chain running along +X.</summary>
     private static int[] Parents => [-1, 0, 1, 2];
 

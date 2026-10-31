@@ -40427,9 +40427,33 @@ is fixed here.
 - **What would settle it:** a synthetic test (`Core.Tests`, per D38): a locking sequence on a model with `Pose.Scale = 1.75`;
   assert the pose carries `Locks`. Red on ours confirms it. A corpus count of scaled players in a real match is a separate probe.
 
-## B622 — a failed lock solve does not slam the foot; the engine slams it regardless (2026-10-31) — OPEN
+## B622 — a failed lock solve does not slam the foot; the engine slams it regardless (2026-10-31) — FIXED
 
-**Evidence class: both sides read from published source and our tree for this entry; the visible effect is *interpolated*, and the lock-solve failure rate is *not measured*.** D1 of the IK-lock bracket read. Nothing is fixed here.
+**FIXED (branch `fix/b622-failed-solve-slams-foot`).** `IkLocks.Solve` no longer `continue`s on a
+failed `SolveChain`. It slams the captured rotation onto the unsolved foot and rebuilds all three
+bones, as `SolveLock` does (`bone_setup.cpp:4431-4450`). A failed solve writes no matrix (`:2735`,
+`:2859-2867`), so the slam lands where the sequence left the foot. `Applied` still counts only
+successful solves. Evidence:
+
+- **Conformance test, red before and green after:**
+  `IkLockConformanceTests.Solve_WithALegTooStraightToSolve_SlamsTheCapturedRotationWhereTheSequenceLeftTheFoot`.
+  It uses a dead-straight leg (`l3` 20 > 19.996) and asserts the foot, thigh and knee model
+  matrices. Before the fix it failed on foot element 0: it was 1, the sequence's identity rotation,
+  and the engine's answer is 0, the captured rotation.
+- **Sabotage:** writing the target position into the foot on the failure path turns the same test
+  red on foot y (0 instead of 5).
+- **Two tests encoded the divergence** (`AccumulatePartsTests`, two cases). Their chain sits at the
+  origin, so its solve fails. They counted three lock reads in `Solve` because the `continue`
+  skipped the `flLocalQWeight` read. They now count four.
+- **Failure rate on f12, measured:** 3 in 2,794 lock solves in the viewer path over 30 sampled
+  ticks.
+- **Visible difference, measured in one frame:** none. 0 pixels differ at tick 58301 in first
+  person, where a lock is confirmed to fail in the viewer path, and nobody has established why. The
+  tick 54871 shots are only a noise floor, because the viewer path fails no lock there. Full account:
+  `docs/findings/09-valve-implementation.md`, "A sequence's IK lock ignores its own solver's
+  verdict".
+
+**Evidence class (as filed): both sides read from published source and our tree for this entry; the visible effect is *interpolated*, and the lock-solve failure rate is *not measured*.** D1 of the IK-lock bracket read.
 
 - **Valve:** `SolveLock` calls `Studio_SolveIK(...)` and ignores its return (`bone_setup.cpp:4431-4438`), then slams the
   captured rotation onto the effector (`:4441-4442`) and rebuilds all three bones with `SolveBone` (`:4446`, `:4449`,

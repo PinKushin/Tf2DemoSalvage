@@ -218,10 +218,11 @@ public sealed class IkLocks
 
             Vector3 wanted = (now * (1f - weight)) + (_held[at].Position * weight);
 
-            if (!IkContext.SolveChain(chain, wanted, _chain.Bones))
-            {
-                continue;
-            }
+            // **The return is NOT a gate** (B622): `SolveLock` ignores it (`bone_setup.cpp:4431-4438`)
+            // and slams and rebuilds regardless, where `SolveDependencies` does gate (`:4211`). A
+            // failed solve writes no matrix (`:2735`, `:2859-2867`), so the slam below lands on the
+            // foot where the sequence left it.
+            bool solved = IkContext.SolveChain(chain, wanted, _chain.Bones);
 
             // "slam orientation" — the solver only positions, so the remembered rotation is put
             // onto the end bone while the solve's position is kept.
@@ -243,8 +244,11 @@ public sealed class IkLocks
             Rebuild(chain.Links[0].Bone, pose);
 
             // Counted here rather than at the top of the loop, so a lock that named nothing or
-            // whose chain the solver refused is not reported as work done.
-            Applied++;
+            // whose chain the solver refused is not reported as a solve.
+            if (solved)
+            {
+                Applied++;
+            }
 
             // **The distance the effector actually travelled**, measured between where the sequence
             // left it and where the lock put it — carried out of this loop rather than recomputed
