@@ -40251,6 +40251,21 @@ It is tested red-first. It names which thread waited and where the draw had got 
 **Reopen if** the `queue stall` line ever appears in a viewer log, or if this test's hang rate on the branch, measured
 the same way, exceeds the baseline's.
 
+## B633 — explosive scorch decals look dark and pixelated at a close camera (2026-10-31) — OPEN, under measurement
+
+**The owner's words, verbatim, in order:** *"why are our explosive decals so pixelated?"*, then *"i can see massive
+pixelation in your shots. how about doing a comparison with real tf2, then you will see it"*, then *"our shots are like
+our transparency or something is set to super low"*, then *"the headless actually might."*, then *"the cams not facing
+the right place"*, then *"the decals look fine in that last ss's so i guess it was the headless stuff"*, then *"you have
+to be able to notice those explosion scorch marks are much cleaner and less pixelated"* (of the tick-29900 shot), then
+*"see how dark those are in the earlier image?"*, then *"its not the rocket being shot at that time, theres no soldier
+in view... and stacking shouldnt cause this"*.
+
+**The shot he means:** `D:/measure-f12/decal/close1.png` (f12, tick 30000, `TF2VIEW_CAMERA="-3516 -2200 763 35 -28"`,
+984x551, Debug `--shot`). The clean one beside it: `D:/measure-f12/b624/merged-after-29900.png` (also Debug `--shot`).
+
+**Measurement:** `docs/measurements/2026-10-31-explosive-decals-vs-tf2.md`, which carries every number and image.
+
 ## B632 — `SpeedSlider_AtEachEnd_ReachesSpeedsTheButtonsCannot` fails intermittently: real key input does not reach the speed slider (2026-10-31) — OPEN
 
 **Observed (measured, 2026-10-31, same machine, desktop shared with the owner's browser):**
