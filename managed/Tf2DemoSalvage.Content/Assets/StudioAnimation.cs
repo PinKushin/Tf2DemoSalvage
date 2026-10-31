@@ -519,7 +519,7 @@ public static class StudioAnimation
             return pose;
         }
 
-        StudioPoseBlend.BlendExpanded(bones, fraction, left, right);
+        StudioPoseBlend.BlendExpanded(bones, fraction, left, right, left);
 
         return between;
     }
