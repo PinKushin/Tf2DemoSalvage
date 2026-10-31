@@ -568,6 +568,12 @@ public static class StudioPoseBlend
     /// The shape of the engine's <c>BlendBones</c>, which blends into the caller's <c>q1</c>/<c>pos1</c> through
     /// arrays taken from <c>CBoneSetupMemoryPool</c> (<c>bone_setup.cpp:49-79</c>) rather than allocating (finding 88).
     /// Writing into a list that is also being read would expand over its own input, so that is refused.
+    ///
+    /// **An input that is already dense is read where it lies, not expanded again.** A grid's corners come out of the
+    /// frame blend dense, and its second blend reads the first's result; Valve's <c>BlendBones</c> blends two dense
+    /// arrays and has no expand step at all. Seeding a dense pose and overlaying it reproduces it to the bit, so
+    /// skipping the four passes changes nothing but the cost (<c>DensePoseBlendDifferentialTests</c>). Any other shape
+    /// is expanded as before, side by side, so one dense corner beside a sparse one still takes the short way.
     /// </remarks>
     internal static IReadOnlyList<StudioBonePose> BlendInto(
         IReadOnlyList<StudioBone> bones,
@@ -591,11 +597,78 @@ public static class StudioPoseBlend
         }
 
         CollectionsMarshal.SetCount(into, bones.Count);
-        CollectionsMarshal.SetCount(scratch, bones.Count);
 
-        BlendSpans(bones, first, second, s, additive, CollectionsMarshal.AsSpan(into), CollectionsMarshal.AsSpan(scratch));
+        Span<StudioBonePose> output = CollectionsMarshal.AsSpan(into);
+        ReadOnlySpan<StudioBonePose> left = AsDense(first, bones.Count);
+        ReadOnlySpan<StudioBonePose> right = AsDense(second, bones.Count);
+
+        // Stryker disable once all : a cost branch the differential cannot tell apart - expanding a dense input gives the same bits, only slower, so mutants that widen it survive by equivalence
+        if (left.IsEmpty)
+        {
+            SeedInto(bones, additive, output);
+            Overlay(first, output);
+            left = output;
+        }
+
+        // Stryker disable once all : the same cost branch for the second input
+        if (right.IsEmpty)
+        {
+            CollectionsMarshal.SetCount(scratch, bones.Count);
+
+            Span<StudioBonePose> expanded = CollectionsMarshal.AsSpan(scratch);
+
+            SeedInto(bones, additive, expanded);
+            Overlay(second, expanded);
+            right = expanded;
+        }
+
+        BlendExpanded(bones, s, left, right, output);
 
         return into;
+    }
+
+    /// <summary>A pose as one entry per bone in bone order, read where it lies; empty when it is any other shape.</summary>
+    /// <param name="pose">The pose, sparse or dense.</param>
+    /// <param name="bones">How many bones the skeleton has.</param>
+    /// <returns>
+    /// The pose's own storage when it is an array or a <see cref="List{T}"/> of exactly <paramref name="bones"/>
+    /// entries whose <see cref="StudioBonePose.Bone"/> is its own index; otherwise empty. Valid until the list is next
+    /// written.
+    /// </returns>
+    /// <exception cref="ArgumentNullException"><paramref name="pose"/> is null.</exception>
+    /// <remarks>
+    /// **The test that lets a consumer skip re-expanding a pose that is already Valve's shape.** The engine's
+    /// <c>pos</c>/<c>q</c> are dense from <c>InitPose</c> to <c>BuildTransformations</c> (<c>bone_setup.cpp:1782</c>,
+    /// <c>:1373</c>, <c>:1531</c>, <c>:2462</c>); ours are sparse out of a single-frame read and dense after any blend.
+    /// For a pose that passes, seeding the skeleton and overlaying the pose writes every entry back over itself, so
+    /// reading it directly is the same to the bit. Anything else - sparse, out of order, a bone twice, a count that
+    /// differs, a list behind another interface - answers empty and is expanded as before.
+    /// </remarks>
+    public static ReadOnlySpan<StudioBonePose> AsDense(IReadOnlyList<StudioBonePose> pose, int bones)
+    {
+        ArgumentNullException.ThrowIfNull(pose);
+
+        ReadOnlySpan<StudioBonePose> entries = pose switch
+        {
+            StudioBonePose[] array => array,
+            List<StudioBonePose> list => CollectionsMarshal.AsSpan(list),
+            _ => default,
+        };
+
+        if (bones <= 0 || entries.Length != bones)
+        {
+            return default;
+        }
+
+        for (int entry = 0; entry < entries.Length; entry++)
+        {
+            if (entries[entry].Bone != entry)
+            {
+                return default;
+            }
+        }
+
+        return entries;
     }
 
     /// <summary>The body of <see cref="Blend"/>: expands both poses and blends the second into the first.</summary>
@@ -613,7 +686,7 @@ public static class StudioPoseBlend
         SeedInto(bones, additive, right);
         Overlay(second, right);
 
-        BlendExpanded(bones, s, left, right);
+        BlendExpanded(bones, s, left, right, left);
     }
 
     /// <summary>What an unlisted bone holds before a pose is overlaid: identity and zero for a delta, rest otherwise.</summary>
@@ -633,19 +706,27 @@ public static class StudioPoseBlend
     }
 
     /// <summary>
-    /// The blend of two dense poses, one entry per bone, written over <paramref name="left"/>: the loop of
+    /// The blend of two dense poses, one entry per bone, written into <paramref name="into"/>: the loop of
     /// <c>BlendBones</c> (<c>bone_setup.cpp:1531</c>) after both sides are expanded.
     /// </summary>
     /// <param name="bones">The skeleton, for each bone's fixed-alignment flag.</param>
     /// <param name="s">How far toward <paramref name="right"/>.</param>
-    /// <param name="left">The pose at weight <c>1 - s</c>; receives the blend.</param>
+    /// <param name="left">The pose at weight <c>1 - s</c>.</param>
     /// <param name="right">The pose at weight <paramref name="s"/>.</param>
+    /// <param name="into">
+    /// Receives the blend; may be <paramref name="left"/> itself, as <c>BlendBones</c> writes over its <c>q1</c>,
+    /// because each bone is read in full before it is written.
+    /// </param>
     internal static void BlendExpanded(
-        IReadOnlyList<StudioBone> bones, float s, Span<StudioBonePose> left, ReadOnlySpan<StudioBonePose> right)
+        IReadOnlyList<StudioBone> bones,
+        float s,
+        ReadOnlySpan<StudioBonePose> left,
+        ReadOnlySpan<StudioBonePose> right,
+        Span<StudioBonePose> into)
     {
         float weightFirst = 1f - s;
 
-        for (int bone = 0; bone < left.Length; bone++)
+        for (int bone = 0; bone < into.Length; bone++)
         {
             (float X, float Y, float Z, float W) p = left[bone].Rotation;
 
@@ -664,7 +745,7 @@ public static class StudioPoseBlend
             (float X, float Y, float Z) a = left[bone].Position;
             (float X, float Y, float Z) b = right[bone].Position;
 
-            left[bone] = new StudioBonePose(
+            into[bone] = new StudioBonePose(
                 bone,
                 ((a.X * weightFirst) + (b.X * s),
                  (a.Y * weightFirst) + (b.Y * s),

@@ -208,8 +208,8 @@ public sealed class SkeletonPose : IBonePose
 
     /// <summary>Which entry of the animation overrides each bone, or −1.</summary>
     /// <remarks>
-    /// Allocated once per entity and refilled per build, per D87: the size is known when the model
-    /// is, and a frame has a deadline that RAM does not.
+    /// Allocated once per entity and refilled per build that needs it, per D87: the size is known when the model
+    /// is, and a frame has a deadline that RAM does not. A dense pose needs no index and leaves this untouched.
     /// </remarks>
     private readonly int[] _overrideOf;
 
@@ -423,15 +423,25 @@ public sealed class SkeletonPose : IBonePose
         // The arrangement it replaced (StudioBones.Posed) applied overrides by index and was O(n).
         // Losing that was a silent cost — the pose is identical either way, so nothing but a
         // stopwatch could see it.
-        Array.Fill(_overrideOf, -1);
+        //
+        // **And a dense pose needs no index at all**: entry `bone` IS bone `bone`, so the loop reads it directly, as
+        // `BuildTransformations` reads `pos[i]`/`q[i]`. The view is safe across the loop because nothing in it samples an
+        // animation, so the workspace list it may point into is not written until the next build.
+        ReadOnlySpan<StudioBonePose> dense = StudioPoseBlend.AsDense(animated, _bones.Count);
 
-        for (int entry = 0; entry < animated.Count; entry++)
+        // Stryker disable once all : a cost branch the differential cannot tell apart - indexing a dense pose gives the identity, the same bits, only slower
+        if (dense.IsEmpty)
         {
-            int bone = animated[entry].Bone;
+            Array.Fill(_overrideOf, -1);
 
-            if (bone >= 0 && bone < _bones.Count)
+            for (int entry = 0; entry < animated.Count; entry++)
             {
-                _overrideOf[bone] = entry;
+                int bone = animated[entry].Bone;
+
+                if (bone >= 0 && bone < _bones.Count)
+                {
+                    _overrideOf[bone] = entry;
+                }
             }
         }
 
@@ -473,9 +483,9 @@ public sealed class SkeletonPose : IBonePose
             (float X, float Y, float Z, float W) rotation = rest.Rotation;
             (float X, float Y, float Z) position = rest.Position;
 
-            if (_overrideOf[bone] is var entry && entry >= 0)
+            if (!dense.IsEmpty || _overrideOf[bone] >= 0)
             {
-                StudioBonePose moved = animated[entry];
+                StudioBonePose moved = dense.IsEmpty ? animated[_overrideOf[bone]] : dense[bone];
 
                 // **An animated bone that has TRAVELLED is the shape of a bad track** (B222).
                 // `c_demo_arms` bones 16 and 17 have the same parent and an identical rest
@@ -874,34 +884,53 @@ public sealed class SkeletonPose : IBonePose
         }
 
         StudioBonePose[] result = _layered;
+        bool locked = Locks.Count > 0 && IkChains.Count > 0;
 
-        for (int bone = 0; bone < _bones.Count; bone++)
+        // **A dense base is copied, not re-expanded** (docs/measurements/2026-10-31-setup-bones-read.md §5). Valve's
+        // `pos`/`q` are seeded once by `InitPose` and the main sequence lands in them (`bone_setup.cpp:1782`, `:2393`);
+        // a base that already names every bone in order overwrites a whole seed, so seeding it first was work that
+        // changed no bit. **Still a copy and not a view**: the first layer's sample reuses the workspace list this
+        // base lives in, so the base has to leave it before any layer is sampled.
+        ReadOnlySpan<StudioBonePose> dense = StudioPoseBlend.AsDense(basePose, result.Length);
+
+        // Stryker disable once all : a cost branch the differential cannot tell apart - seeding before a dense copy gives the same bits, only slower
+        if (locked || dense.IsEmpty)
         {
-            result[bone] = new StudioBonePose(
-                bone, _bones[bone].Position, _bones[bone].Rotation);
+            for (int bone = 0; bone < _bones.Count; bone++)
+            {
+                result[bone] = new StudioBonePose(
+                    bone, _bones[bone].Position, _bones[bone].Rotation);
+            }
         }
 
         // **The MAIN sequence's bracket, and its "before" is the BIND pose** (B311). The engine's
         // first `AccumulatePose` runs on `pos`/`q` straight out of `InitPose`, so
         // `AddSequenceLocks` records where the chain ends in the rest skeleton — which is why a
         // locked sequence holds a foot at its bind position rather than at wherever the previous
-        // frame left it.
-        if (Locks.Count > 0 && IkChains.Count > 0)
+        // frame left it. That is why the seed above stays whenever a lock will read it.
+        if (locked)
         {
             Held().Capture(Locks, IkChains, result);
         }
 
-        for (int entry = 0; entry < basePose.Count; entry++)
+        if (!dense.IsEmpty)
         {
-            StudioBonePose moved = basePose[entry];
-
-            if (moved.Bone >= 0 && moved.Bone < result.Length)
+            dense.CopyTo(result);
+        }
+        else
+        {
+            for (int entry = 0; entry < basePose.Count; entry++)
             {
-                result[moved.Bone] = moved;
+                StudioBonePose moved = basePose[entry];
+
+                if (moved.Bone >= 0 && moved.Bone < result.Length)
+                {
+                    result[moved.Bone] = moved;
+                }
             }
         }
 
-        if (Locks.Count > 0 && IkChains.Count > 0)
+        if (locked)
         {
             Held().Solve(Locks, IkChains, result);
         }
@@ -1154,17 +1183,29 @@ public sealed class SkeletonPose : IBonePose
 
         StudioBonePose[] adjusted = _adjusted;
 
-        for (int bone = 0; bone < _bones.Count; bone++)
-        {
-            adjusted[bone] = new StudioBonePose(
-                bone, _bones[bone].Position, _bones[bone].Rotation);
-        }
+        // A dense pose is copied rather than re-expanded, as in `Accumulate`: `CalcBoneAdj` works in place on the
+        // dense `pos`/`q` (`bone_setup.cpp:2462`), and seeding under a pose that names every bone changes no bit.
+        ReadOnlySpan<StudioBonePose> dense = StudioPoseBlend.AsDense(pose, adjusted.Length);
 
-        foreach (StudioBonePose moved in pose)
+        // Stryker disable once all : a cost branch the differential cannot tell apart - expanding a dense pose gives the same bits, only slower
+        if (!dense.IsEmpty)
         {
-            if (moved.Bone >= 0 && moved.Bone < adjusted.Length)
+            dense.CopyTo(adjusted);
+        }
+        else
+        {
+            for (int bone = 0; bone < _bones.Count; bone++)
             {
-                adjusted[moved.Bone] = moved;
+                adjusted[bone] = new StudioBonePose(
+                    bone, _bones[bone].Position, _bones[bone].Rotation);
+            }
+
+            foreach (StudioBonePose moved in pose)
+            {
+                if (moved.Bone >= 0 && moved.Bone < adjusted.Length)
+                {
+                    adjusted[moved.Bone] = moved;
+                }
             }
         }
 
