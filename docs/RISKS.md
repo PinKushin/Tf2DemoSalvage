@@ -40452,6 +40452,12 @@ the engine has it (`c_baseanimatingoverlay.cpp:356`, our `LayersFor`).
   (`AccumulatePathReference`, which held the old guard) disagreed with production in 16 cells over its scout scenarios once
   the weight-0 locking layer bracketed, the first `0.99534196` against `0.99534184`. A re-solve of an unmoved leg is
   near-identity, not identity. The reference now brackets too, marked where it does.
+- **Added per-frame work, and it is parity** (the B624 review): weight-0 autolayers now also reach `BuildBlend`'s
+  `IkFor` loop. Valve's `AccumulatePose` calls `pIKContext->AddDependencies( …, flWeight )` with no weight test
+  (`bone_setup.cpp:2444-2447`; `AddDependencies` only clamps, `:3265-3267`), so walking their rules is the engine's
+  work too. Ours adds no rule at zero influence (`IkRuleDependencyTests.IkFor_BeforeTheEnvelopeOrAtZeroInfluence_AddsNothing`),
+  so the cost is the walk, not the solve. It is one part of B624's measured total
+  (+0.04 ms a root rebuild, measurements/2026-10-31-b624-cost.md); its own share was not measured apart.
 
 **Evidence class: Valve side read from published source; the visible effect is *interpolated*.** D5 of the IK-lock bracket read. Nothing is fixed here.
 

@@ -165,7 +165,9 @@ transitions exist. Run on this branch before any production change, `pose-layers
   1,534 nested under the same 1,396 parents. Players are not every root, so the share of a rebuild's samples is lower
   than 23%. **Revised cost [pred]: 0.02-0.04 ms per root rebuild** — ~2-3 added samples at ~11 µs sample + compose,
   ~0.004 ms of added brackets (16% on the measured 0.024), and a weight-0 bracket's solve with no sample where one occurs.
-  The depth pool's first use of a new depth allocates one `IkLocks` once per skeleton.
+  The depth pool's first use of a new depth allocates one `IkLocks` once per skeleton. **Weight-0 autolayers also now
+  reach `IkFor`** (parity: `AddDependencies` runs at any weight, `bone_setup.cpp:2444-2447`); ours adds no rule at
+  zero influence, so that part is a walk of their rules, not a solve.
 - **Where it lands in `RootSetupParts`:** `layer sampling` (the samples, `over N` rises), `compose`, `capture` and
   `solve`. A solve that now closes after a later layer is stamped from the end of that layer's compose, so no tick is
   counted in two parts (`AccumulatePartsTests` green unchanged).

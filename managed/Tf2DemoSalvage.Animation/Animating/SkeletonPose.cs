@@ -844,12 +844,25 @@ public sealed class SkeletonPose : IBonePose
     {
         _parents ??= [.. _bones.Select(bone => bone.Parent)];
 
-        while (_brackets.Count <= depth)
+        IkLocks[] held = _brackets;
+
+        if (depth >= held.Length)
         {
-            _brackets.Add(new IkLocks(_parents, _bones.Count));
+            // **Grown by REPLACEMENT, never in place**, so a counter read on another thread holds a complete array: it sees
+            // the old set or the new one, never a list mid-`Add` (the B624 review). A new depth is a once-per-skeleton event.
+            IkLocks[] grown = new IkLocks[depth + 1];
+            held.CopyTo(grown, 0);
+
+            for (int at = held.Length; at < grown.Length; at++)
+            {
+                grown[at] = new IkLocks(_parents, _bones.Count);
+            }
+
+            Volatile.Write(ref _brackets, grown);
+            held = grown;
         }
 
-        return _brackets[depth];
+        return held[depth];
     }
 
     /// <summary>Every rule that asked for something this frame, with its target and weight.</summary>
@@ -882,10 +895,11 @@ public sealed class SkeletonPose : IBonePose
         get
         {
             int applied = 0;
+            IkLocks[] held = Volatile.Read(ref _brackets);
 
-            foreach (IkLocks bracket in _brackets)
+            for (int at = 0; at < held.Length; at++)
             {
-                applied += bracket.Applied;
+                applied += held[at].Applied;
             }
 
             return applied;
@@ -907,11 +921,12 @@ public sealed class SkeletonPose : IBonePose
         get
         {
             (int moved, float furthest) = (0, 0f);
+            IkLocks[] held = Volatile.Read(ref _brackets);
 
-            foreach (IkLocks bracket in _brackets)
+            for (int at = 0; at < held.Length; at++)
             {
-                moved += bracket.Moved;
-                furthest = MathF.Max(furthest, bracket.FurthestMove);
+                moved += held[at].Moved;
+                furthest = MathF.Max(furthest, held[at].FurthestMove);
             }
 
             return (moved, furthest);
@@ -922,7 +937,13 @@ public sealed class SkeletonPose : IBonePose
     private IkContext? _ik;
 
     /// <summary>One lock bracket per nesting depth, grown as deeper brackets first open (B625).</summary>
-    private readonly List<IkLocks> _brackets = [];
+    /// <remarks>
+    /// **An array replaced whole, read through a snapshot**: the counters above may be read while a build adds a depth, and
+    /// the old `_held?.Applied` was a tear-free read. Today the only reader (`AppliedIkLocks`, `IkLockEffect`, read by the
+    /// `bone-flags` probe) runs after `Instances` returns, so after the bone-setup join; this keeps that true for any future
+    /// reader rather than relying on it.
+    /// </remarks>
+    private IkLocks[] _brackets = [];
 
     /// <summary>The brackets open during one accumulate, innermost last: each its closing layer index and its locks.</summary>
     private readonly List<(int Close, IReadOnlyList<StudioIkLock> Locks)> _open = [];
