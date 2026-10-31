@@ -10,7 +10,10 @@ namespace Tf2DemoSalvage.Content.Tests.Assets;
 
 /// <summary>
 /// <see cref="StudioAnimation.PoseBetweenInto"/> against <see cref="FramePairReference"/>, the two-pass frame pair as it
-/// stood before the single-pass rewrite: the same bits, every float, on every case either path can take.
+/// stood before the single-pass rewrite: the same bits, every float. Each of the reference's four outcomes is reached
+/// and counted as a control: empty, the frame alone because no blend was asked for, the frame alone because the frame
+/// after it read nothing, and the dense blend. On the new side, that means the single pass and both exits of the
+/// two-pass fallback.
 /// </summary>
 /// <remarks>
 /// **A pure cost reduction, so the only correct answer is the old one, bit for bit.** The comparison is on each float's
@@ -20,7 +23,8 @@ namespace Tf2DemoSalvage.Content.Tests.Assets;
 /// The synthetic model is built to reach every branch of the old reader: both packed rotations, a raw position, the
 /// run-length walk across blocks with <c>valid &lt; total</c>, a terminator, a missing channel, per-track and
 /// whole-animation deltas, a fixed-alignment bone, a bone named twice, sections whose pair straddles a boundary and the
-/// trailing last-frame section, sections sharing one chain, a one-frame animation, a blocked one and an empty one. The
+/// trailing last-frame section, a trailing section held in an external block (so the frame after the last regular one
+/// reads nothing), sections sharing one chain, a one-frame animation, a blocked one and an empty one. The
 /// real test then runs every player's animations both ways, unremapped and remapped onto its player skeleton, which is
 /// the shape production calls.
 /// </remarks>
@@ -44,7 +48,7 @@ public sealed class FramePairDifferentialTests
 
         int animations = StudioAnimation.Count(model);
 
-        animations.ShouldBe(9, "the control: every synthetic animation is declared");
+        animations.ShouldBe(10, "the control: every synthetic animation is declared");
 
         foreach (int[]? remap in remaps)
         {
@@ -68,6 +72,8 @@ public sealed class FramePairDifferentialTests
         tally.Dense.ShouldBeGreaterThan(0, "the control: a blend was compared");
         tally.Sparse.ShouldBeGreaterThan(0, "the control: a single frame was compared");
         tally.Empty.ShouldBeGreaterThan(0, "the control: an empty pose was compared");
+        tally.HeldAtEnd.ShouldBeGreaterThan(
+            0, "the control: a blend whose frame read and whose next frame did not was compared");
         tally.Straddling.ShouldBeGreaterThan(0, "the control: a pair across a section boundary was compared");
         tally.IntoTrailing.ShouldBeGreaterThan(0, "the control: a pair into the trailing last-frame section was compared");
         tally.WithinOne.ShouldBeGreaterThan(0, "the control: a pair inside one section was compared");
@@ -85,10 +91,12 @@ public sealed class FramePairDifferentialTests
 
         GameInstall.Require();
 
+        VpkArchive[] archives = Archives();
+
         foreach (string name in classes)
         {
-            if (Read($"models/player/{name}_animations.mdl") is not { } model ||
-                Read($"models/player/{name}.mdl") is not { } player)
+            if (Read(archives, $"models/player/{name}_animations.mdl") is not { } model ||
+                Read(archives, $"models/player/{name}.mdl") is not { } player)
             {
                 continue;
             }
@@ -148,11 +156,13 @@ public sealed class FramePairDifferentialTests
 
         GameInstall.Require();
 
+        VpkArchive[] archives = Archives();
+
         foreach ((string path, string? basePath) in subjects)
         {
-            byte[]? baseModel = basePath is null ? null : Read(basePath);
+            byte[]? baseModel = basePath is null ? null : Read(archives, basePath);
 
-            if (Read(path) is not { } model || (basePath is not null && baseModel is null))
+            if (Read(archives, path) is not { } model || (basePath is not null && baseModel is null))
             {
                 missing.Add(path);
                 continue;
@@ -198,26 +208,48 @@ public sealed class FramePairDifferentialTests
         }
     }
 
+    /// <remarks>
+    /// **Warmed up, then measured twice, and the SECOND measurement is the one asserted.** The first calls grow the
+    /// workspace's lists, which is the one allocation the design allows. After that, tiered compilation can still
+    /// patch a call site or allocate a stub on this thread the first time a method is promoted, and that has nothing
+    /// to do with posing. A pass after the warm-up that is itself followed by a clean pass separates the two.
+    /// </remarks>
     [Test]
     public void PoseBetweenInto_ASecondCallIntoTheSameWorkspace_AllocatesNothing()
     {
+        const int warmUp = 64;
+
         byte[] model = Synthetic();
         List<StudioBone> bones = Skeleton();
         int[] remap = [3, -1, 0, 0, 7, 9, 2, 1];
         StudioPoseWorkspace workspace = new();
 
-        StudioAnimation.PoseBetweenInto(model, bones, null, 0, 2, 0.5f, workspace, 0);
-        StudioAnimation.PoseBetweenInto(model, bones, remap, 0, 2, 0.5f, workspace, 1);
-        StudioAnimation.PoseBetweenInto(model, bones, null, 2, 3, 0.5f, workspace, 2);
+        for (int pass = 0; pass < warmUp; pass++)
+        {
+            ThreePaths(model, bones, remap, workspace);
+        }
 
-        long before = GC.GetAllocatedBytesForCurrentThread();
-        List<StudioBonePose> plain = StudioAnimation.PoseBetweenInto(model, bones, null, 0, 2, 0.5f, workspace, 0);
-        StudioAnimation.PoseBetweenInto(model, bones, remap, 0, 2, 0.5f, workspace, 1);
-        StudioAnimation.PoseBetweenInto(model, bones, null, 2, 3, 0.5f, workspace, 2);
-        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+        long first = GC.GetAllocatedBytesForCurrentThread();
+        ThreePaths(model, bones, remap, workspace);
+        long second = GC.GetAllocatedBytesForCurrentThread();
+        List<StudioBonePose> plain = ThreePaths(model, bones, remap, workspace);
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - second;
 
+        TestContext.Out.WriteLine($"first measured pass {second - first} bytes, second {allocated}");
         allocated.ShouldBe(0L);
         plain.Count.ShouldBe(bones.Count, "the control: the call blended, so the whole path ran");
+    }
+
+    /// <summary>The single pass, the single pass through a remap, and the two-pass fallback across a section edge.</summary>
+    private static List<StudioBonePose> ThreePaths(
+        byte[] model, List<StudioBone> bones, int[] remap, StudioPoseWorkspace workspace)
+    {
+        List<StudioBonePose> plain = StudioAnimation.PoseBetweenInto(model, bones, null, 0, 2, 0.5f, workspace, 0);
+
+        StudioAnimation.PoseBetweenInto(model, bones, remap, 0, 2, 0.5f, workspace, 1);
+        StudioAnimation.PoseBetweenInto(model, bones, null, 2, 3, 0.5f, workspace, 2);
+
+        return plain;
     }
 
     private static void Compare(
@@ -240,17 +272,24 @@ public sealed class FramePairDifferentialTests
 
         tally.Compared++;
 
+        // Classified by which list the reference answered with, which is which branch of it ran.
         if (want.Count == 0)
         {
             tally.Empty++;
         }
-        else if (want.Count == bones.Count && fraction is > 0f or float.NaN)
+        else if (ReferenceEquals(want, lists.Between))
         {
             tally.Dense++;
         }
         else
         {
             tally.Sparse++;
+
+            // A blend was asked for and the frame came back alone: the frame read, the frame after it did not.
+            if (fraction is > 0f or float.NaN)
+            {
+                tally.HeldAtEnd++;
+            }
         }
 
         if (Diff(got, want) is { } difference)
@@ -327,6 +366,8 @@ public sealed class FramePairDifferentialTests
 
         public int Empty { get; set; }
 
+        public int HeldAtEnd { get; set; }
+
         public int Mismatches { get; set; }
 
         public string? First { get; set; }
@@ -371,7 +412,14 @@ public sealed class FramePairDifferentialTests
 
     private sealed record Track(int Bone, int Flags, byte[] Payload);
 
-    private sealed record Animation(int Frames, Track[][] Chains, int Flags = 0, int SectionFrames = 0, int Block = 0, int[]? SectionMap = null);
+    private sealed record Animation(
+        int Frames,
+        Track[][] Chains,
+        int Flags = 0,
+        int SectionFrames = 0,
+        int Block = 0,
+        int[]? SectionMap = null,
+        int[]? SectionBlocks = null);
 
     /// <summary>Eight bones, each with its own rest, Euler, scales; bone 5 fixed-aligned, bone 7 with a zero roll scale.</summary>
     private static List<StudioBone> Skeleton() =>
@@ -439,6 +487,9 @@ public sealed class FramePairDifferentialTests
             new(6, [[new(200, rawPos, [.. V48(1f, 1f, 1f)])]]),
             new(0, [mixed]),
             new(3, [Section(600, 6)], SectionFrames: 4),
+
+            // The trailing last-frame section lives in an external block, so frame 8 reads and frame 9 does not.
+            new(10, [Section(700, 7), Section(800, 8), Section(900, 9)], SectionFrames: 4, SectionBlocks: [0, 0, 0, 1]),
         ];
 
         byte[] file = new byte[16384];
@@ -482,7 +533,10 @@ public sealed class FramePairDifferentialTests
                 int chain = animation.SectionMap?[Math.Min(section, animation.SectionMap.Length - 1)] ??
                     Math.Min(section, chains.Length - 1);
 
-                Write32(file, table + (section * StudioLayout.AnimationSectionStride), 0);
+                Write32(
+                    file,
+                    table + (section * StudioLayout.AnimationSectionStride),
+                    animation.SectionBlocks is { } blocks && section < blocks.Length ? blocks[section] : 0);
                 Write32(
                     file,
                     table + (section * StudioLayout.AnimationSectionStride) + StudioLayout.AnimationSectionDataOffset,
@@ -607,13 +661,20 @@ public sealed class FramePairDifferentialTests
         return bytes;
     }
 
-    private static byte[]? Read(string path)
-    {
-        foreach (string name in new[] { "tf2_misc_dir.vpk", "tf2_textures_dir.vpk" })
-        {
-            string? archive = GameInstall.Find(name);
+    /// <summary>The game's model archives, each opened once: an open reads the whole directory tree.</summary>
+    private static VpkArchive[] Archives() =>
+    [
+        .. new[] { "tf2_misc_dir.vpk", "tf2_textures_dir.vpk" }
+            .Select(GameInstall.Find)
+            .OfType<string>()
+            .Select(VpkArchive.Open),
+    ];
 
-            if (archive is not null && VpkArchive.Open(archive).ReadFile(path) is { } found)
+    private static byte[]? Read(VpkArchive[] archives, string path)
+    {
+        foreach (VpkArchive archive in archives)
+        {
+            if (archive.ReadFile(path) is { } found)
             {
                 return found;
             }
