@@ -40485,6 +40485,17 @@ where they were missing.** Plan, with Valve's structure and ours at file:line:
   whose cause was not checked (box x 314-540, y 67-334); the fix against a repeat of itself: 0. Before, the launcher hangs straight down from one hand; after, both
   arms hold it raised. **Whether that matches TF2 is the owner's call** — it is what Valve's structure produces, not a
   comparison against the game. Shots in `D:/measure-f12/b624/`.
+- **Retaken after merging B622 (`c01b388e`), so the diff is B624 alone** — base `c01b388e` built from `git archive`
+  against the merged branch, same cameras, `D:/measure-f12/b624/b622base-before-*.png` and `merged-after-*.png`:
+  - tick 30000, entity 7 (`ReloadStand_PRIMARY_loop` → arms layer): **19,894** pixels differ below the HUD band, the
+    same count and box as against `9a43ea9e`; B622 changed no scene pixel here.
+  - tick 29900, entity 8, a running soldier playing the voice gesture `gesture_primary_help` →
+    `layer_gesture_primary_help_armL`, camera `-3722 -1403 726 25 99`: **4,088** pixels differ below the HUD band (box
+    x 414-548, y 205-305); before, both hands stay on the launcher, after, the left hand goes up to his head. A repeat of
+    the after shot: 0.
+  - **The HUD band (rows 0-36) also differs between the two archive bases** (`9a43ea9e` against `c01b388e`: 23,031
+    pixels, all in that band), while the fix built before the merge and the merged branch are identical there (0). It is
+    not B624's — cause not checked — so both counts above exclude rows 0-37.
 - **Not established:** `AddLocalLayers` for a sequence other than the main one (B634); the transition order (B633);
   autoplay rules in `auto_ik` (B631). The cost is predicted, not measured (the plan's §8, about 0.02-0.04 ms a root rebuild).
 
