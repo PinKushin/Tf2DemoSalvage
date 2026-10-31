@@ -66,6 +66,28 @@ rule is one helper. Three more runs into `2026-10-31-frame-pair-one-pass/after-r
 mean 0.360 less 0.02, i.e. mean 0.30-0.34; the shared walk costs nothing measurable (the pair path loses one branch per block).
 **Falsified if** the mean base + layer sampling is above 0.36 (the change would have given the win back) or below 0.27.
 
+### Result of the second after-set
+
+`after-review/01.txt`..`03.txt` (n = 17, 16, 16; no void condition: `prepose 0 over 0`, roots built 13.1-13.9, eligible 4.85-4.92,
+samples 12.5-12.9, `.err` empty). Per run, ms per rebuild:
+
+| part | 01 | 02 | 03 | mean | before mean (setup-parts runs) |
+|---|---|---|---|---|---|
+| base | 0.162 | 0.165 | 0.170 | 0.166 | 0.220 |
+| layer sampling | 0.106 | 0.108 | 0.110 | 0.108 | 0.140 |
+| base + layer sampling | 0.268 | 0.273 | 0.280 | **0.274** | 0.360 (best single before run 0.338) |
+| roots total | 0.481 | 0.497 | 0.507 | 0.495 | 0.608 |
+| `anim` | 0.171 | 0.169 | 0.181 | 0.174 | 0.236 |
+| blend | 0.071 | 0.074 | 0.076 | 0.074 | 0.083 |
+| loop | 0.038 | 0.040 | 0.041 | 0.040 | 0.043 |
+
+**Against the prediction (mean 0.30-0.34, falsified above 0.36 or below 0.27): not falsified, but below the predicted range**
+(0.274, just above the 0.27 line). The shared block walk did not give the win back. The spread across these three runs is
+0.012 ms, against 0.07 for the first after-set and the before set, whose slow third runs (roots 0.69) this set does not repeat, so
+the first sets carried load noise the third set did not. Taken at face value the move is sampling −0.086 (−24%) and roots
+−0.113 (−19%); against the best single before run the sampling move is −0.064. **Weight the range, not the point**: the
+before set's own spread is 0.07, so the safe statement is "sampling down by 0.06-0.09 ms per root rebuild".
+
 ## Verdict (first after-set)
 
 Direction is consistent: base and layer sampling are lower in all three runs, 6 of 6 comparisons, and `anim` follows. The size
