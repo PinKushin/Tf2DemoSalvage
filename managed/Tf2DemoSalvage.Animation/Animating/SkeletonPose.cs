@@ -39,6 +39,11 @@ namespace Tf2DemoSalvage.Animation.Animating;
 /// `AddSequenceLocks` and `SolveSequenceLocks`, so the locks belong to the layer rather than to the
 /// entity (B311).
 /// </param>
+/// <param name="Nested">
+/// How many of the layers immediately after this one are accumulated INSIDE its `AccumulatePose` — its own autolayers,
+/// recursively (B624). `AddSequenceLayers` runs between `AddSequenceLocks` and `SolveSequenceLocks`
+/// (<c>bone_setup.cpp:2424-2454</c>), so this layer's lock bracket closes only after those layers are composed.
+/// </param>
 /// <remarks>
 /// **The per-bone list is the whole mechanism, not a refinement.** A gesture's weight list is 1 on
 /// the arms and 0 on the legs, which is how a reload plays on a running player without stopping
@@ -55,7 +60,8 @@ public readonly record struct PoseLayer(
     IReadOnlyList<float> BoneWeights,
     bool Delta = false,
     bool Post = false,
-    IReadOnlyList<StudioIkLock>? Locks = null);
+    IReadOnlyList<StudioIkLock>? Locks = null,
+    int Nested = 0);
 
 /// <summary>
 /// A real studio skeleton, driven by whatever the animation says its bones are doing.
