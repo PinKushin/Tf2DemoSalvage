@@ -162,8 +162,9 @@ these limits, none fixed before the runs:
    (`SkeletonPose.cs:393`). With the pre-pass on, worker contention on that static reads as `accumulate − sampling`, which
    prediction 5 attributes to seed, overlay and slerp. Small with the pre-pass off, the only non-void case.
 6. **The Scene charge (`SetupRootParts`, the `RootParts` field of `MarkSetup`, `RootParts.Since` in `PoseCounters.Since`,
-   `EntityModels.cs:630`) has no test.** Control 6 catches only "every part about 0". A partial break prints cumulative parts,
-   noticed only once they exceed the root total and `unsplit` goes negative. Follow-up: a Scene-level wiring test.
+   `EntityModels.cs:630`) had no test; it does now** (`EntityModelSetSetupPartsTests`, pre-pass off, 2026-10-31): dropping
+   the `Since` argument, passing the running total, dropping `.Since` in `ChargeSetup` and recording `default` in `MarkSetup`
+   each turn it red. Control 6 alone catches only "every part about 0".
 
 ## Environment
 
