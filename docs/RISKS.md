@@ -40251,6 +40251,30 @@ It is tested red-first. It names which thread waited and where the draw had got 
 **Reopen if** the `queue stall` line ever appears in a viewer log, or if this test's hang rate on the branch, measured
 the same way, exceeds the baseline's.
 
+## B634 — the world pass gets the exposure only on frames that draw a 3D-sky or water view (2026-10-31) — OPEN, lead
+
+**Measured (f12, cp_process_f12, HDR_TYPE_INTEGER, Debug `--shot`):** every capture logs "drawn with tone-map scale
+0.7009725". At camera `-3722 -1403 726 25 99`, though, `+mat_force_tonemap_scale 1` against the default changes
+27,644 px by at most 10 levels. At `-3516 -2200 763 35 -28` the same pin brightens the whole frame (images under
+`D:/measure-f12/decal-cmp/`, `y-default`/`y-forced` and `debug/H-30000-tonemap1.png`). A build with B633's fix and one
+without draw the far camera identically (0 px) and the close camera very differently. So the scale reaching the
+shader depends on the camera.
+
+**Read from our code (the mechanism, not yet proved by a capture):**
+- `ReplayUploads` writes the main view's world constants before `DrawFrame` sets `LinearLightScale`
+  (`Device3D.cs:1368-1386`), so they carry the previous frame's end value.
+- That end value is reset to 1 for the HUD (`:2007-2010`).
+- Only `ReapplyCamera`, after the 3D sky (`:1720-1746`) or the water views (`:1753-1766`), re-uploads at the frame's
+  own scale.
+- Valve sets `LINEAR_LIGHT_SCALE` for the whole view (`SetToneMappingScaleLinear`, B514).
+- The capture log reports `_drawnScale`, not the uploaded constant: a second route (B243).
+
+**Why it may matter beyond decals:** B514's open residue, "outdoor world short by ~19 levels, indoor 45000 over by ~22"
+(findings 76), has this shape if indoor frames are drawn at 1 and outdoor ones at the exposure. *Interpolated.*
+
+**Next:** carry the uploaded constant to the capture log; shoot one camera with and without a 3D-sky view in frame; then
+move the world upload after the scale is set. Every auto-exposure shot changes when it is fixed.
+
 ## B633 — explosive scorch decals look dark and pixelated at a close camera (2026-10-31) — FIXED on `fix/b633-modulate-tonemap-none`, not merged
 
 **Cause (measured):** the HDR tone-map scale reached `DecalModulate` draws; Valve's is `TONEMAP_SCALE_NONE`. Two

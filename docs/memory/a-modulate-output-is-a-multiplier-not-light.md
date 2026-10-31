@@ -12,8 +12,10 @@ scorch's neutral 128-grey surround halved the floor. The result was dark, straig
 "massive pixelation" (B633, findings 18).
 
 **Why it is worth remembering:** it looked like a magnification, capture-path or build problem, because the same decals
-looked clean from another camera. The exposure follows the VIEW. When two shots of one subject disagree by camera,
-pin `+mat_force_tonemap_scale 1` first. It is one cvar and it separates exposure from everything else.
+looked clean from another camera. Whether the exposure reaches the world pass at all depends on the camera: only
+frames that draw a 3D-sky or water view re-upload it (B634). The capture log's "drawn with tone-map scale" is not the
+uploaded value. When two shots of one subject disagree by camera, pin `+mat_force_tonemap_scale 1` first. It is one cvar
+and it separates exposure from everything else.
 
 **How to apply:** any new path that draws a blend-multiplied material (`DST_COLOR` blends, mod2x) must skip the tone-map
 scale and the fog colour's scale, as `PixelFog` mode 2 does. Before calling a texel "neutral", ask what multiplies the

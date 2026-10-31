@@ -178,3 +178,27 @@ decal or `Modulate` material in frame, including the B624 and B622 before/after 
 their between-build differences stand, and the decals in them are too dark); the golden comparisons pinned at
 `mat_force_tonemap_scale 1` are not affected (a scale of one is the identity), while their auto-exposure cases are, in
 proportion to the decal area in frame.
+
+## Addendum (after the verdict): the far camera, measured, and a correction to "why it hid"
+
+The Verdict said the same decals "looked clean from the tick-29900 camera" because the exposure follows the view. That
+reason was interpolated. It has now been measured, and the mechanism is different.
+
+| run | builds | camera, tick | result |
+|---|---|---|---|
+| far pair | `bin-base` (built from `517564ec`, no fix; checked by the fix line's ABSENCE in `Tf2DemoSalvage.Render.dll`, with `PixelFog` PRESENT as the control) against `bin-fix` | far, 29900 | **0 px differ** |
+| | the same | far, 30000 | 0 px |
+| | the same | close, 29900 | 203,734 px, max 52, box (0,37)-(690,550) |
+| far forced | `bin-base`, default against `+mat_force_tonemap_scale 1` | far, 29900 | 27,644 px, max 10 |
+
+Every one of these captures logs "drawn with tone-map scale 0.7009725" (the forced one logs 1). So the logged scale is not
+what reached the shader at the far camera. *Read:* the world constants are uploaded before the scale is set and
+re-uploaded at it only after a 3D-sky or water view; filed as **B634** with the line references. **For B633 this means:**
+the decal fault showed only on frames whose world pass received the exposure, which is why one camera showed it and the
+other did not. The fix is unchanged; Valve's modulate shaders take no scale on any frame.
+
+**Instrument note:** the first "before" for the far pair was void. The merge gate's own build had already put the fix
+into `bin/Debug` (Render.dll 11:09). The pair is re-shot from a scratch pre-fix build. Every close-camera "before" in
+Result was taken from 10:05 to 10:45, before that rebuild. The `fix/` and `alphatest/` sidecars name the commit their
+source was on, `c01b388e`/`517564ec` with no `-dirty`, although both were built from uncommitted changes. Do not
+reproduce "after" from those sidecars.

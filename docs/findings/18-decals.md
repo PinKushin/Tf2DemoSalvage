@@ -542,10 +542,22 @@ overlapping squares cut the floor into straight-edged blocks. That is the "pixel
 (`modulate_ps2x.fxc:37`), and `DecalModulate` does the same (`decalmodulate_ps2x.fxc:44`). `FinalOutput` under NONE is
 `result.rgb = vShaderColor.rgb` (`common_ps_fxc.h:356-358`).
 
-**Why it hid** (*measured*): the darkening is the exposure, and the exposure follows the view. The far camera at tick
-29900 sat under an exposure near one and drew the same decals cleanly; the close camera at 30000 did not. Two shots of
-the same scorches disagreeing by camera read as magnification or a headless-capture fault. The question that
-separated them was one cvar, `+mat_force_tonemap_scale 1`, and it took the blocks away without touching a line.
+**Why it hid, and the wrong first account of that.** Written first: "the far camera sat under an exposure near one".
+That was *interpolated* and stated as measured. Measuring it falsified it: every capture, close and far, logged
+"drawn with tone-map scale 0.7009725". Yet at the far camera a pre-fix and a fixed build drew identical frames
+(0 px, tick 29900 and 30000), and pinning the scale to 1 there moved only 27,644 px by at most 10 levels. At the
+close camera the same pin brightened the whole frame. So the logged figure is not the value the shader received.
+
+*Read from our code:* the main view's world constants, `LINEAR_LIGHT_SCALE` among them, are uploaded in
+`ReplayUploads` before `DrawFrame` sets the scale (`Device3D.cs:1368-1386`). At that point the scale holds the
+previous frame's end value, which is reset to 1 for the HUD (`:2007-2010`). It is re-uploaded at the frame's own scale
+only by `ReapplyCamera`, after the 3D skybox (`:1720-1746`) or the water views (`:1753-1766`). The log reports
+`_drawnScale`, a second route to the number (B243). *Interpolated:* the close camera's frame draws a 3D-sky view and
+the far camera's does not. That is the likeliest reason only the first carried the exposure into the world pass, and
+with it the decal fault. That world-exposure fault is its own entry (B634).
+
+The question that separated decal from everything else was still one cvar, `+mat_force_tonemap_scale 1`, which took
+the blocks away without touching a line.
 
 **What was wrong first, kept:** the first lead was that the scorch's outside-mask texels were drawn because ours does
 not alpha-test DecalModulate where Valve does (`AlphaFunc( SHADER_ALPHAFUNC_GREATER, 0.0f )`,
