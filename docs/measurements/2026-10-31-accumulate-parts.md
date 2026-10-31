@@ -268,8 +268,55 @@ These apply to the new sub-parts:
 
 ## Environment
 
-To be recorded with the result: the branch commit, the build, load before and after each run.
+Merge `aab2a427` (instrument `55f15f8f` on `74f4519e`), Release build in the command that ran it, off screen
+(`TF2VIEW_WINDOW_POS=-3000,100`), f12 tick 30000 spectating gummo, 20 s playback, three runs, driver `all.sh`, reader
+`2026-10-31-setup-parts/summ.ps1 -Dir` (extended with the new patterns). Desktop lock held by the runs; no other load.
 
 ## Result
 
-Not run. The runs are the lead's to schedule (the viewer takes the desktop lock).
+`01.txt`..`03.txt` (n = 16, 16, 17; no void condition: `prepose 0 over 0`, roots built 13.2-13.5, eligible 4.8-5.0, samples
+12.5-13.2; `.err` empty). Run means, ms per rebuild:
+
+| part | 01 | 02 | 03 | mean | share of the remainder |
+|---|---|---|---|---|---|
+| compose | 0.034 | 0.035 | 0.035 | 0.035 | 54% |
+| solve | 0.016 | 0.016 | 0.016 | 0.016 | 25% |
+| capture | 0.008 | 0.008 | 0.008 | 0.008 | 12% |
+| seed | 0.003 | 0.003 | 0.004 | 0.003 | 5% |
+| other | 0.004 | 0.004 | 0.004 | 0.004 | 6% |
+| **accumulate − layer sampling** | 0.064 | 0.066 | 0.066 | **0.065** | |
+| accumulate | 0.168 | 0.175 | 0.170 | 0.171 | |
+| layer sampling | 0.104 | 0.109 | 0.104 | 0.106 | |
+| enumerators per rebuild | 17.9 | 18.5 | 18.9 | 18.4 | |
+| roots total | 0.487 | 0.496 | 0.482 | 0.488 | |
+| `unsplit` | 0.008 | 0.008 | 0.008 | 0.008 | |
+
+**Controls:** the five sub-parts sum to the remainder in every run (0.064 / 0.066 / 0.066 = 0.003+0.008+0.016+0.034+0.004 and
+neighbours, to print width); `other` ≥ 0; the four timed sub-parts are far from zero; `unsplit` 0.008 (unchanged in kind, ≤ 0.05).
+No audit caveat bit: pre-pass off, no corpse-driven `unsplit`.
+
+**Predictions against the result:**
+
+| # | Prediction | Result |
+|---|---|---|
+| 1 | five sub-parts together 0.05-0.09 | holds, 0.065 |
+| 2 | compose largest, 0.02-0.05 | holds, 0.035, largest |
+| 3 | capture + solve 0.005-0.04, solve ≥ capture | holds, 0.024, solve 0.016 ≥ capture 0.008 |
+| 4 | seed ≤ 0.005 | holds, 0.003-0.004 |
+| 5 | other ≤ 0.01 | holds, 0.004 |
+| 6 | enumerators 15-30 | holds, 18.4 |
+
+## Verdict
+
+All six predictions hold; the remainder is **not** the grids, the seed or the statics: **compose is 54% (0.035 ms = about
+2.7 µs per sample over 12.7 samples, around 34 ns a bone) and the IK-lock bracket (capture + solve) is 37% (0.024 ms)**. Seed and
+other together are 11%. Two next places to look, in this order:
+
+1. **The IK-lock bracket, 0.024 ms**, bigger than the whole frame-pair saving per rebuild. The record cannot say how many
+   brackets run (audit limit: no bracket count) or whether Valve does the work per layer: that is an engine read (`AddDependencies`
+   per sequence, `SolveDependencies` once or per layer, `bone_setup.cpp`), not a guess.
+2. **Compose, 0.035 ms**: a per-bone pass per layer after its sample; the enumerator allocations (18 per rebuild, an upper
+   bound) are inside it. The saving there is the boxed `foreach` over `IReadOnlyList` and a dense layer pass; the
+   arithmetic is Valve's `SlerpBones`/`ScaleBones` and stays.
+
+Nothing here is a before/after: the instrument adds about 0.002 ms and no optimization was made.
