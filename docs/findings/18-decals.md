@@ -591,8 +591,7 @@ opaque and then multiplying also darkens. It caught the fault only once it asser
 
 *Measured:* no shipped material uses a `_DX9`/`_DX8`/`_DX6` alias of these shaders (0 of 30,994). Fog (*read*):
 Valve's Modulate fogs toward its neutral value, grey under `$mod2x` (`FogToGrey`), otherwise
-`FogToOOOverbright` (`modulate_dx9.cpp:201-209`). Ours fogs a modulating material not at all, which is the open
-ponytail at the upload.
+`FogToOOOverbright` (`modulate_dx9.cpp:201-209`). Ours fogged a modulating material not at all until B637, below.
 
 ## A modulating material reads no light, and the gamma compensation belongs to the material (B639, B638, 2026-11-01)
 
@@ -662,3 +661,29 @@ surround is 1.000, as in TF2's live pair.
 **The real frame against TF2** (stored on/off ratios at `-3116 -1344 300 89 0`): the centre went from 0.554 (linear) to
 0.577 (exact), against TF2's 0.591 with fog off; the ring from 0.690 to 0.704, against 0.725. The 2-3% that remains
 is open in B641 with what it is not.
+
+## A modulating draw fogs toward grey, and the shader API decides which grey (B637, 2026-11-02)
+
+**What was believed:** "fog toward middle grey" meant one value, 0.5, for every modulating shader and every fog type.
+The SDK alone supports that: `FogToGrey()` and `FogToOOOverbright()` both name 128.
+
+**What the shader API does** (*disassembly*, `shaderapidx9.dll`, `0x180014200` and `0x180025a50`): the fog-mode apply
+stores the pixel fog colour as r/255 RAW whatever the mode; its gamma correction and tone-map scale go only into the
+fixed-function `D3DRS_FOGCOLOR`. The c29 upload then makes its own decisions: range fog linearises the colour only
+when sRGB writes are on (these two shaders write without), height fog linearises it always (`pow 2.2`), and either is
+multiplied by the tone-map scale under integer HDR unless the shader called `DisableFogGammaCorrection( true )`. Only
+DecalModulate does ("fog should stay exactly middle grey", `DecalModulate_dx9.cpp:79`). So DecalModulate's grey is
+128/255 under range fog; Modulate's, `$mod2x` or not, is 128/255 times the exposure; and under water every one of them
+fades toward pow(128/255, 2.2) = 0.22 in a gamma pipeline, a dark grey. **That last one reads as a Valve bug and is
+kept**: the shader never re-encodes the colour the API linearised for it.
+
+**Two things learned beside it.** The comment "fog should stay exactly middle grey" is true only for range fog. And
+plain Modulate fogs to the same 0.5 as `$mod2x`, which halves what is behind it at full fog, since its blend is `dst · s`
+(the shader's own comment, "We need to fog to *white* regardless of overbrighting", `modulate_dx9.cpp:201`, describes
+the intent, not the arithmetic).
+
+**Measured on `ctf_crasher`'s scorch** against TF2's live fog-on/fog-off pair: the fog's share of the ring is ×1.065 in
+both, the centre ×1.123 against TF2's ×1.116. Numbers and images: `docs/measurements/2026-11-02-modulate-fog-plan.md`.
+
+**An instrument note:** `r_drawentities 0` does not hide the scorch `func_brush` in our viewer (the hidden and shown
+frames came out identical); the control frame needed a scratch build.

@@ -40472,7 +40472,20 @@ compensation. `DecalMesh` compensates only `DecalModulate` decals, through `Modu
 shipped non-`$mod2x` Modulate, including the capture point's `cappoint_logo_*_dark` signs (`VmtMaterial.IsModulate`'s
 remark). The `$mod2x` case lands within about 4 levels of Valve's arithmetic (90 against 94) and is held by the brush test.
 
-## B637 — a Modulate or DecalModulate draw takes no fog; Valve fogs it toward its neutral value (2026-10-31) — OPEN
+## B637 — a Modulate or DecalModulate draw takes no fog; Valve fogs it toward its neutral value (2026-10-31) — FIXED (branch `fix/b637-modulate-fog`, 2026-11-02)
+
+**Fix (read and measured; plan, engine read, tests and frame: `docs/measurements/2026-11-02-modulate-fog-plan.md`).**
+Both fog branches now take a modulating material: fog mode 4 for DecalModulate (`pow( f, 0.4 )` first, grey unscaled),
+mode 3 for Modulate (grey times the tone-map scale, and never radial: its z-only `CalcPixelFogFactor` turns radial into
+range, `common_ps_fxc.h:272-273`). *Read in `shaderapidx9.dll`:* the grey reaches c29 as 128/255 raw
+under range fog and as pow(128/255, 2.2) under height fog; only DecalModulate's `DisableFogGammaCorrection` keeps the
+tone-map scale off it. On `ctf_crasher`'s scorch the fog's share now matches TF2's live pair: ring ×1.065 (TF2 ×1.065),
+centre ×1.123 (TF2 ×1.116). The tripwire is replaced by `ModulateFogConformanceTests`, which holds the height branch
+unscaled by its pixels. **Still open:** which curve the height-fog grey takes on a TF2 machine (pow 2.2 assumed, as for
+the water fog colour); a modulating draw writes alpha in a refraction view where Valve's DecalModulate writes none
+(`DecalModulate_dx9.cpp:71`), outside fog and older than this.
+
+**As filed:**
 
 *Read:* `DecalModulate` calls `FogToGrey` (`DecalModulate_dx9.cpp:80`) and pre-scales the factor by
 `pow( saturate( fogFactor ), 0.4 )` (`decalmodulate_ps2x.fxc:42`). `Modulate` calls `FogToGrey` under `$mod2x` and

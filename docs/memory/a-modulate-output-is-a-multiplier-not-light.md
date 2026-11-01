@@ -18,8 +18,13 @@ uploaded value. When two shots of one subject disagree by camera, pin `+mat_forc
 and it separates exposure from everything else.
 
 **How to apply:** any new path that draws a blend-multiplied material (`DST_COLOR` blends, mod2x) must skip the tone-map
-scale and the fog colour's scale, as `PixelFog` mode 2 does. Before calling a texel "neutral", ask what multiplies the
+scale on its colour (`ToneMapScale(tintControl.w)`). Before calling a texel "neutral", ask what multiplies the
 shader's output after the texture.
+
+**Its FOG is not one grey (B637).** The grey it fades toward is decided in the closed shader API, not the SDK: 128/255
+under range fog, pow(128/255, 2.2) under height fog, and times the exposure for Modulate but not DecalModulate (only
+DecalModulate disables fog gamma correction). Read `shaderapidx9.dll` `0x180025a50` before assuming any fog colour a
+shader "obviously" gets; the SDK comment "fog should stay exactly middle grey" holds for range fog only.
 
 **And it reads no light at all (B639, B638).** Neither modulating shader samples a lightmap or a vertex colour. The
 linear blend's gamma compensation (2^2.2/2 for mod2x, 1 for plain) is the MATERIAL's unlit diffuse
