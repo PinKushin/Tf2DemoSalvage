@@ -28,7 +28,12 @@ fades toward a dark grey, which is Valve's arithmetic too (below).
   itself (`:295-298`).
 - Vertex fog: `CalcFog` returns 1, no fog, for height fog on vs20 ("We do this work in the pixel shader in dx9",
   `common_vs_fxc.h:571-575`). Range and radial vertex fog are computed (`:563-570`) but are the fixed-function path; the
-  world here already draws pixel fog only (B139), and this change keeps that choice for these two shaders.
+  world here already draws pixel fog only (B139), and this change keeps that choice for these two shaders. *Measured,
+  not read:* on `ctf_crasher` TF2's fog changes the DecalModulate scorch by the same factor ours does with one pixel fog
+  (below), so no second fixed-function fog stacks on it there. That covers DecalModulate under range fog only.
+- **Radial fog: DecalModulate takes it, Modulate does not.** The legacy overload Modulate calls turns
+  `PIXEL_FOG_TYPE_RANGE_RADIAL` into range (`common_ps_fxc.h:272-273`), so on an official map (radial forced, findings
+  69) a Modulate surface fogs by projected depth while a DecalModulate one fogs by distance.
 
 **The shadow state** (*published source*): DecalModulate `DisableFogGammaCorrection( true ); //fog should stay exactly
 middle grey` and `FogToGrey()` (`DecalModulate_dx9.cpp:79-80`), sRGB read and write off (`:74-75`). Modulate
@@ -79,30 +84,44 @@ fog colour already takes `pow 2.2`, `WorldRenderer.Water.cs` `Linear`, so this f
 
 ## The change (minimal)
 
-- `FogModeOf(surface, shader)`: DecalModulate mode 4, any other modulating material mode 3 (`WorldRenderer.cs:6662`,
-  constants `:6645`, `:6648`), from the one caller that already holds the shader name (`:3912`).
+- `FogModeOf(surface, shader)`: DecalModulate mode 4, any other modulating material mode 3 (`WorldRenderer.cs:6665`,
+  constants `:6648`, `:6651`), from the one caller that already holds the shader name (`:3915`).
 - In the shader: `Fogs(mode)` admits 0, 1, 3 and 4; `FogTarget(mode, colour, grey)` (`:917`) returns the grey,
   multiplied by `debugModes2.y` (the linear light scale) for mode 3 only; `ModulateFogFactor` applies `pow( f, 0.4 )` for
-  mode 4. `PixelFog` (`:931`) passes `StoredGrey` (128/255, `:906`); the height branch (`:2053`) passes `LinearGrey`
-  (0.2195). The height branch's `* ToneMapScale(tintControl.w)` is unchanged, so a modulating draw there stays
-  unscaled except for its grey.
-- The single gamma exit (`:2078`) is untouched: both branches fog in gamma before it, so the no-twin fallback decodes a
+  mode 4. `PixelFog` (`:931`) fogs mode 3 by projected depth even under radial fog, and passes `StoredGrey` (128/255,
+  `:906`); the height branch (`:2056`) passes `LinearGrey` (0.2195). The height branch's `* ToneMapScale(tintControl.w)`
+  is unchanged, so a modulating draw there stays unscaled except for its grey.
+- The single gamma exit (`:2081`) is untouched: both branches fog in gamma before it, so the no-twin fallback decodes a
   fogged value.
 - Not changed: the alpha a modulating draw writes inside a refraction view (Valve's DecalModulate writes none,
   `DecalModulate_dx9.cpp:71`; ours writes `albedo.a` with its blend). Pre-existing, outside fog; reported.
 
-## Tests (synthetic, `ModulateFogConformanceTests`, 17; tripwire replaced in `ModulateToneMapConformanceTests`)
+## Tests (synthetic, `ModulateFogConformanceTests`, 19; tripwire replaced in `ModulateToneMapConformanceTests`)
 
 An identity camera puts the quad at clip z 0.9: range fog over 0..0.9 makes max density the factor, and a water
 surface at −0.9 with a range of 1.8 makes the height factor exactly 0.5. Expected values are Valve's arithmetic above,
 ±2 levels. Cases: the unfogged control per material (47, 47, 116); half range fog (decal 128, Modulate 59, mod2x 145);
 half height fog (decal 74, Modulate-128 68, mod2x 109); full range fog (decal ≈ 189, Modulate ≈ 94); Modulate's scaled
 grey at scale 0.5 (≈ 47) beside DecalModulate's unscaled one (≈ 189); the height branch at scales 0.5 and 2 equal to 1
-for DecalModulate; the no-twin fallback under full fog (128: fogged in gamma, then decoded); and the lit control under
+for DecalModulate; radial fog at the view's left edge (Modulate by depth ≈ 85, DecalModulate by distance ≈ 189); the
+no-twin fallback under full fog (128: fogged in gamma, then decoded); and the lit control under
 full red fog (255, 0, 0), which proves the fog reaches the draw.
 
 **First run, before any shader change: 10 red, 6 green**, every red one at its unfogged value (47, 47, 116, and the
 fallback at 32), the controls green.
+
+**Sabotage, one change at a time, each restored by its inverse edit** (fog class, 17 then 19; plus the tone-map class
+for the fourth):
+
+| broken | reddened |
+|---|---|
+| Modulate's grey not tone-map scaled | the Modulate case of `…AtHalfToneMapScale…` (1) |
+| height fog toward 128/255 instead of the linear grey | all three `…HalfHeightFog…` (3) |
+| DecalModulate's `pow( f, 0.4 )` dropped | the decal cases of half range and half height (2) |
+| DecalModulate classified as Modulate (mode 3) | the decal cases of half range, half height, scale 0.5, both height-scale cases, and the mode test (6 of 42) |
+| the height branch scaled by the linear light scale for every material | both `…HeightFogAtAnyToneMapScale_IsUnscaled` (2) |
+| Modulate fogged radially (the shader before the radial fix; first run of the new test) | the Modulate edge case: drew 94, the radial value, against range's 85 (1) |
+| DecalModulate denied radial fog | the DecalModulate edge case: drew 177, the range value, against radial's 189 (1) |
 
 ## Real frame
 
@@ -135,3 +154,6 @@ and nothing else. Images: `D:/measure-f12/decal-cmp/b637/` (`before/`, `after/`,
 - Height fog on a real frame: not measured (no refraction view with a decal in a captured frame).
 - Modulate's tone-map-scaled grey on a real frame: not measured; held by the synthetic test only.
 - A modulating draw's alpha write in a refraction view (above).
+- Modulate's grey takes `LINEAR_LIGHT_SCALE`, so it inherits B636's stale exposure on frames without a 3D-sky or water
+  view.
+- `r_drawentities 0` leaving the scorch `func_brush` drawn: TF2's toggle hides brush entities. Not looked into here.

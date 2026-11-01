@@ -895,18 +895,53 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             return toneMapScaleNone > 0.5f ? 1.0f : debugModes2.y;
         }
 
+        // **A modulating material fogs toward a grey of 128/255** (B637): `FogToGrey()` under DecalModulate and `$mod2x`,
+        // `FogToOOOverbright()` under plain Modulate (DecalModulate_dx9.cpp:79-80, modulate_dx9.cpp:201-209), both r = g = b
+        // = 128. What reaches g_LinearFogColor (shaderapidx9.dll, read in the plan doc 2026-11-02-modulate-fog-plan.md):
+        // range fog passes 128/255 as it is (these shaders write without sRGB); height fog takes it to linear, pow 2.2; and
+        // either is multiplied by the tone-map scale under integer HDR UNLESS the shader disabled fog gamma correction, which
+        // only DecalModulate does. Mode 3 is Modulate (scaled), mode 4 DecalModulate (unscaled, and its factor first takes
+        // `pow( saturate( fogFactor ), 0.4f )`, decalmodulate_ps2x.fxc:42). The output is a gamma value (B641), so the lerp
+        // is in gamma as Valve's is. Mode 2, none, is no longer given to any material.
+        static const float StoredGrey = 128.0f / 255.0f;
+
+        // pow( 128/255, 2.2 ): the grey as the height-fog path converts it.
+        static const float LinearGrey = 0.2195190f;
+
+        bool Fogs(float mode)
+        {
+            return mode < 1.5f || mode > 2.5f;
+        }
+
+        // `grey` is the grey as this fog type delivers it; `colour` the scene's or the volume's fog colour.
+        float3 FogTarget(float mode, float3 colour, float grey)
+        {
+            float scaledGrey = mode > 3.5f ? grey : grey * debugModes2.y;
+
+            return mode > 2.5f ? float3(scaledGrey, scaledGrey, scaledGrey)
+                : mode > 0.5f ? float3(0.0f, 0.0f, 0.0f)
+                : colour;
+        }
+
+        float ModulateFogFactor(float factor, float mode)
+        {
+            return mode > 3.5f ? pow(saturate(factor), 0.4f) : factor;
+        }
+
         float3 PixelFog(float3 lit, float3 wpos, float mode, float toneMapScaleNone)
         {
             lit *= ToneMapScale(toneMapScaleNone);
 
-            if (fogColour.w > 0.5f && mode < 1.5f)
+            if (fogColour.w > 0.5f && Fogs(mode))
             {
-                float projZ = fogColour.w > 1.5f
+                // Modulate (mode 3) never fogs radially: it calls the z-only CalcPixelFogFactor (modulate_ps2x.fxc:36),
+                // which turns RANGE_RADIAL into RANGE (common_ps_fxc.h:272-273). DecalModulate's float3 call keeps it.
+                bool radial = fogColour.w > 1.5f && abs(mode - 3.0f) > 0.5f;
+                float projZ = radial
                     ? distance(eyePosition.xyz, wpos)
                     : mul(float4(wpos, 1.0f), viewProjection).z;
-                float fogFactor = saturate(min(fogParams.z, (projZ * fogParams.w) - fogParams.x));
-                float3 toward = mode > 0.5f ? float3(0.0f, 0.0f, 0.0f) : fogColour.rgb * debugModes2.y;
-                lit = lerp(lit, toward, fogFactor * fogFactor);
+                float fogFactor = ModulateFogFactor(saturate(min(fogParams.z, (projZ * fogParams.w) - fogParams.x)), mode);
+                lit = lerp(lit, FogTarget(mode, fogColour.rgb * debugModes2.y, StoredGrey), fogFactor * fogFactor);
             }
 
             return lit;
@@ -2018,14 +2053,16 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             // water shader reads back out of `_rt_WaterRefraction`.
             float4 result;
 
-            if (heightFog.x > 0.5f && tintControl.z < 1.5f)
+            if (heightFog.x > 0.5f && Fogs(tintControl.z))
             {
                 float waterFog = WaterFogAlpha(input.wpos);
-                float3 under = tintControl.z > 0.5f ? float3(0.0f, 0.0f, 0.0f) : heightFogColour.rgb;
 
                 // "can't write a special value to dest alpha if we're actually using as-intended alpha"
-                // (lightmappedgeneric_dx9_helper.cpp:907-918): only a fully opaque draw writes the factor.
-                result = float4(lerp(lit, under, waterFog) * ToneMapScale(tintControl.w), heightFog.z > 0.5f ? waterFog : albedo.a);
+                // (lightmappedgeneric_dx9_helper.cpp:907-918): only a fully opaque draw writes the factor. A modulating
+                // material reaches here since B637 and keeps its scale exemption through ToneMapScale.
+                result = float4(
+                    lerp(lit, FogTarget(tintControl.z, heightFogColour.rgb, LinearGrey), ModulateFogFactor(waterFog, tintControl.z)) * ToneMapScale(tintControl.w),
+                    heightFog.z > 0.5f ? waterFog : albedo.a);
             }
             else
             {
@@ -2039,8 +2076,8 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             // filters it (B641 review). The renderer draws these runs through a non-sRGB twin of the bound target
             // (`UseGammaTarget`), and gammaOutput.x says the twin is bound: the value goes out as it is. A target without
             // one gets the texel DECODED to linear instead, the linear blend, rather than a gamma value through an sRGB view.
-            // One exit, so the water-fog branch above is covered too: no modulating material reaches it today (fog mode 2),
-            // but a B637 fix would send one there.
+            // One exit, so the water-fog branch above is covered too, which a modulating material reaches since B637. Both
+            // fog branches lerp toward their grey BEFORE this decode, so the fallback decodes a fogged gamma value.
             if (tintControl.w > 0.5f && gammaOutput.x < 0.5f)
             {
                 float3 stored = saturate(result.rgb);
@@ -3868,15 +3905,14 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             // for an additive material — fog that ADDS the fog colour would brighten the haze where
             // the material should fade out. INTERPOLATED: `DefaultFog`'s body is in the closed
             // shaderlib; every additive pass the SDK shows fogs to black (`FogToBlack`,
-            // BaseVSShader.cpp:1305, the envmap pass added over a lightmapped surface) — and 2 none for a
-            // modulating decal. ponytail: Valve fogs a modulate decal to middle grey
-            // (decalmodulate_dx9.cpp:80), which fades it; none leaves it at full strength in fog. Changing this mode does
-            // NOT change the tone map: that is `toneMapScaleNone` below, its own constant (B635).
+            // BaseVSShader.cpp:1305, the envmap pass added over a lightmapped surface) — and 3 or 4, the stored grey, for a
+            // modulating material (B637, `FogModeOf`). Changing this mode does NOT change the tone map: that is
+            // `toneMapScaleNone` below, its own constant (B635).
             //
             // **Modulate before additive** (B635): `Modulate` picks its blend from `$mod2x` alone
             // (modulate_dx9.cpp:141-148) and `DecalModulate`'s is fixed (DecalModulate_dx9.cpp:78), so `$additive` changes
             // neither. Five shipped Modulate materials declare `$additive 1` (vmt-param $additive shader=Modulate).
-            float fogMode = FogModeOf(surface);
+            float fogMode = FogModeOf(surface, shader);
             float toneMapScaleNone = ToneMapScaleNoneOf(surface);
 
             // **The two colours TF2's paint chain works on, kept apart from their product** (B330).
@@ -6608,17 +6644,27 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
     /// <returns>True for either modulating shader, whatever else the material declares (B635).</returns>
     private static bool Modulates(MapTexture? surface) => surface is { IsModulate: true } or { IsModulateTwice: true };
 
-    /// <summary>A material's fog mode (B139), the shader constant's <c>tintControl.z</c>: 0 fog colour, 1 black, 2 none.</summary>
+    /// <summary>Fog mode 3: toward the grey times the tone-map scale, the factor as it is (`Modulate`, B637).</summary>
+    internal const float FogModeGrey = 3f;
+
+    /// <summary>Fog mode 4: toward the grey unscaled, the factor through `pow( f, 0.4 )` first (`DecalModulate`, B637).</summary>
+    internal const float FogModeDecalGrey = 4f;
+
+    /// <summary>
+    /// A material's fog mode (B139), the shader constant's <c>tintControl.z</c>: 0 fog colour, 1 black, 2 none, 3 Modulate's
+    /// grey, 4 DecalModulate's (B637).
+    /// </summary>
     /// <param name="surface">The material's base texture and flags, or null.</param>
-    /// <returns>2 for a modulating material whatever it declares, 1 for an additive one, else 0.</returns>
+    /// <param name="shader">The material's shader name, which tells `DecalModulate` from `Modulate`.</param>
+    /// <returns><see cref="FogModeDecalGrey"/> for DecalModulate, <see cref="FogModeGrey"/> for any other modulating
+    /// material whatever it declares, 1 for an additive one, else 0.</returns>
     /// <remarks>
-    /// **The water-fog branch relies on this**: it scales by <see cref="ToneMapScaleNoneOf"/> and is entered only below
-    /// mode 1.5, so no modulating material reaches it today. Giving a modulate decal Valve's grey fog (the ponytail at the
-    /// upload) changes that; <c>ModulateToneMapConformanceTests</c> pins the pairing so the change cannot be silent.
+    /// **Both fog branches take a modulating material now**, the water's height fog included, and each scales by
+    /// <see cref="ToneMapScaleNoneOf"/>, not by the mode: <c>ModulateFogConformanceTests</c> holds the height branch unscaled.
     /// </remarks>
-    internal static float FogModeOf(MapTexture? surface) => surface switch
+    internal static float FogModeOf(MapTexture? surface, string? shader) => surface switch
     {
-        _ when Modulates(surface) => 2f,
+        _ when Modulates(surface) => VmtMaterial.IsDecalModulateShader(shader) ? FogModeDecalGrey : FogModeGrey,
         { IsAdditive: true } => 1f,
         _ => 0f,
     };

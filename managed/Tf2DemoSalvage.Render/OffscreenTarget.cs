@@ -171,6 +171,10 @@ internal sealed unsafe class OffscreenTarget : IDisposable
     /// <c>LINEAR_LIGHT_SCALE</c> for this draw only, as <c>Device3D</c> sets it from the exposure under HDR_TYPE_INTEGER;
     /// null keeps the world renderer's own. Restored after the draw, so it never leaks into the next one (B635).
     /// </param>
+    /// <param name="heightFog">
+    /// A water volume's height fog, as a refraction view sets it (<c>SetWaterView</c>), or null for none (B637). Cleared
+    /// after the draw.
+    /// </param>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <remarks>
     /// **The renderer's own shader, not a copy of it.** Everything this project invents rather than
@@ -196,7 +200,8 @@ internal sealed unsafe class OffscreenTarget : IDisposable
         DebugModes debug = default,
         bool translucent = true,
         Tf2DemoSalvage.Core.Scene.SceneFog? fog = null,
-        float? toneMapScale = null)
+        float? toneMapScale = null,
+        VolumeFog? heightFog = null)
     {
         ArgumentNullException.ThrowIfNull(vertices);
         ArgumentNullException.ThrowIfNull(batches);
@@ -227,6 +232,11 @@ internal sealed unsafe class OffscreenTarget : IDisposable
                 _device, _context, matrix, surfaceColours, specular: true, fullbright,
                 debug, fog: fog);
 
+            if (heightFog is { } volume)
+            {
+                world.SetWaterView(_context, HeightClip.None, volume);
+            }
+
             // What a later DrawTranslucentWorld puts back: a model drawn between leaves its own camera constants. The
             // matrix is copied, so a caller reusing its array cannot move the camera after the fact.
             float drawnScale = world.LinearLightScale;
@@ -248,12 +258,19 @@ internal sealed unsafe class OffscreenTarget : IDisposable
 
             if (translucent)
             {
+                // A refraction view's order (`ExecuteView`): only the opaque draws write the height fog factor to alpha.
+                world.WriteWaterFogToAlpha(_context, opaque: false);
                 world.DrawTranslucentWorld(_context);
             }
         }
         finally
         {
             world.LinearLightScale = before;
+
+            if (heightFog is not null)
+            {
+                world.SetWaterView(_context, HeightClip.None);
+            }
         }
     }
 

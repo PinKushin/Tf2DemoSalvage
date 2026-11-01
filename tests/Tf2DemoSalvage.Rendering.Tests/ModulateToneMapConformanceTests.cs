@@ -211,30 +211,29 @@ public sealed class ModulateToneMapConformanceTests
     }
 
     /// <remarks>
-    /// **A TRIPWIRE for the open divergence B637, not a statement of Valve's behaviour.** Valve fogs a modulating material
-    /// toward its neutral value (`FogToGrey`, DecalModulate_dx9.cpp:80, modulate_dx9.cpp:201-209); ours gives it fog mode
-    /// 2, none. The water-fog branch scales by <c>ToneMapScale(tintControl.w)</c> and is entered only below mode 1.5, so
-    /// today no modulating material reaches it and a render test there cannot fail. **When B637 is fixed this goes red by
-    /// design**: that is not a regression, it is the signal to check the water-fog branch keeps the scale exemption.
+    /// **Fogged toward the grey and never tone-mapped** (B637 replaced the tripwire that pinned fog mode 2 here). Every
+    /// modulating material now enters both fog branches, so the scale exemption must ride on <c>tintControl.w</c> alone:
+    /// <c>ModulateFogConformanceTests.Draw_DecalModulateUnderHeightFogAtAnyToneMapScale_IsUnscaled</c> holds the water branch
+    /// by its pixels.
     /// </remarks>
-    [TestCase(DecalModulateNeutral)]
-    [TestCase(PlainModulate)]
-    [TestCase(AdditiveModulate)]
-    [TestCase(ModulateTwiceDark)]
-    public void FogModeAndToneMapType_AModulatingMaterial_IsFogModeTwoAndNoToneMap(int material)
+    [TestCase(DecalModulateNeutral, WorldRenderer.FogModeDecalGrey)]
+    [TestCase(PlainModulate, WorldRenderer.FogModeGrey)]
+    [TestCase(AdditiveModulate, WorldRenderer.FogModeGrey)]
+    [TestCase(ModulateTwiceDark, WorldRenderer.FogModeGrey)]
+    public void FogModeAndToneMapType_AModulatingMaterial_IsGreyFogAndNoToneMap(int material, float mode)
     {
-        WorldRenderer.FogModeOf(Assets.Textures[material]).ShouldBe(2f, "fog mode 2, B637's open no-fog");
+        WorldRenderer.FogModeOf(Assets.Textures[material], Assets.Shaders[material]).ShouldBe(mode, "the stored grey, B637");
         WorldRenderer.ToneMapScaleNoneOf(Assets.Textures[material]).ShouldBe(1f, "TONEMAP_SCALE_NONE");
     }
 
     [Test]
     public void FogModeAndToneMapType_LitAdditiveAndMissingMaterials_AreFoggedAndToneMapped()
     {
-        WorldRenderer.FogModeOf(Assets.Textures[Lit]).ShouldBe(0f);
+        WorldRenderer.FogModeOf(Assets.Textures[Lit], Assets.Shaders[Lit]).ShouldBe(0f);
         WorldRenderer.ToneMapScaleNoneOf(Assets.Textures[Lit]).ShouldBe(0f);
-        WorldRenderer.FogModeOf(Grey(100, additive: true)).ShouldBe(1f, "an additive material fogs to black");
+        WorldRenderer.FogModeOf(Grey(100, additive: true), "UnlitGeneric").ShouldBe(1f, "an additive material fogs to black");
         WorldRenderer.ToneMapScaleNoneOf(Grey(100, additive: true)).ShouldBe(0f);
-        WorldRenderer.FogModeOf(null).ShouldBe(0f);
+        WorldRenderer.FogModeOf(null, null).ShouldBe(0f);
         WorldRenderer.ToneMapScaleNoneOf(null).ShouldBe(0f);
     }
 
