@@ -396,10 +396,10 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             //
             // z: 1 when a `$blendmodulatetexture` shapes that mix (BlendModulation.Applies), 0 otherwise.
             //
-            // w: 0 for a lit shader; otherwise the unlit diffuse it is drawn with (`UnlitDiffuseOf`, B639): 1 for UnlitGeneric,
-            //    UnlitTwoTexture and plain Modulate, 2^2.2/2 ≈ 2.297 for DecalModulate and `$mod2x`. The shader tests it
-            //    against 0.5 (`> 0.5` unlit, `< 0.5` lit), which assumes no unlit diffuse is ever below 0.5; one that is
-            //    would be read as lit.
+            // w: 0 for a lit shader; otherwise the unlit diffuse it is drawn with (`UnlitDiffuseOf`): 1 for UnlitGeneric,
+            //    UnlitTwoTexture, Modulate and DecalModulate (B641 removed the 2^2.2/2 mod2x compensation: the blend is
+            //    exact on stored values). The shader tests it against 0.5 (`> 0.5` unlit, `< 0.5` lit), which assumes no
+            //    unlit diffuse is ever below 0.5; one that is would be read as lit.
             float4 combine;
 
             // **The baked reflection's shading, xyz tint and w contrast.** Packed together because
@@ -2015,7 +2015,23 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
                 return float4(lerp(lit, under, waterFog) * ToneMapScale(tintControl.w), heightFog.z > 0.5f ? waterFog : albedo.a);
             }
 
-            return float4(PixelFog(lit, input.wpos, tintControl.z, tintControl.w), albedo.a);
+            float3 shaded = PixelFog(lit, input.wpos, tintControl.z, tintControl.w);
+
+            // **A modulating material writes a GAMMA value, last of all** (B641). Valve's DecalModulate and Modulate read
+            // their texture and write the target with sRGB off (DecalModulate_dx9.cpp:74-75), so the blend multiplies
+            // stored values: dst · 2s, or dst · s. The renderer draws these runs through a non-sRGB twin of the bound
+            // target (`EnterGammaTarget`), and this encodes the texel back to what the file stores. The same predicate
+            // (`Modulates`) sets tintControl.w and chooses the twin. The exact sRGB curve is used, not a 2.2 power,
+            // because the texel was decoded by it.
+            if (tintControl.w > 0.5f)
+            {
+                float3 linearColour = saturate(shaded);
+                shaded = linearColour <= 0.0031308f
+                    ? linearColour * 12.92f
+                    : (1.055f * pow(linearColour, 1.0f / 2.4f)) - 0.055f;
+            }
+
+            return float4(shaded, albedo.a);
         }
         """;
 
@@ -6374,43 +6390,111 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
         }
     }
 
-    /// <summary>The diffuse a mod2x material is drawn with so this pipeline reproduces the engine's blend (B415, B639).</summary>
-    /// <remarks>
-    /// **The engine's mod2x multiplies GAMMA values**: `DecalModulate` reads its texture with `EnableSRGBRead( false )`
-    /// and writes with `EnableSRGBWrite( false )` (DecalModulate_dx9.cpp:74-75), so the framebuffer's stored value becomes
-    /// `dst · 2s`, and a texel of 128 leaves the wall unchanged. This renderer blends in LINEAR space — the target view is
-    /// sRGB — and samples the texture decoded, so the same equation in linear terms is
-    /// `dst_lin · (2s)^2.2 = dst_lin · 2^2.2 · s_lin`. The blend supplies one factor of two; this is the rest, `2^2.2 / 2`.
-    ///
-    /// **It is not light.** Neither modulating shader reads any (`STATIC_LIGHT_LIGHTMAP 0`, `NUM_LIGHTS 0`,
-    /// `VERTEXCOLOR false`, DecalModulate_dx9.cpp:89 and :184-191), so it rides in the material's unlit diffuse
-    /// (<see cref="UnlitDiffuseOf"/>) and reaches every path alike. Until B639 it was a decal's vertex colour times the
-    /// lightmap's white texel, and a brush entity, which has no such vertex colour, drew at 2.0 instead.
-    ///
-    /// *Arithmetic.* Exact only on the 2.2 approximation. On the real sRGB curve a texel of 128 over 188 draws 186.8
-    /// against 187.5, and a texel of 64 over 231 draws 120 against Valve's 116. The linear blend's error grows toward
-    /// black. A texel above about 0.68 would brighten past what an
-    /// unsigned-normalised output can carry and is clamped; a bullet hole's atlas is dark.
-    /// </remarks>
-    public const float ModulateTwiceDiffuse = 2.2973967f;
-
     /// <summary>The diffuse an unlit material is drawn with, the shader's <c>combine.w</c>; zero for a lit one.</summary>
     /// <param name="surface">The material's base texture and flags, or null.</param>
     /// <param name="shader">The material's shader name.</param>
-    /// <returns>
-    /// <see cref="ModulateTwiceDiffuse"/> for DecalModulate and `$mod2x` Modulate, 1 for plain Modulate (`dst · s`, which the
-    /// linear blend reproduces as it stands) and for UnlitGeneric and UnlitTwoTexture, 0 otherwise.
-    /// </returns>
-    /// <remarks>Modulating shaders read no light (B639, B638): `Modulate` draws through `unlitgeneric_vs20`
-    /// (modulate_dx9.cpp:186) and `DecalModulate` sets every light combo to zero (DecalModulate_dx9.cpp:184-191).</remarks>
-    internal static float UnlitDiffuseOf(MapTexture? surface, string shader)
+    /// <returns>1 for Modulate, DecalModulate, UnlitGeneric and UnlitTwoTexture; 0 otherwise.</returns>
+    /// <remarks>
+    /// Modulating shaders read no light (B639, B638): `Modulate` draws through `unlitgeneric_vs20` (modulate_dx9.cpp:186)
+    /// and `DecalModulate` sets every light combo to zero (DecalModulate_dx9.cpp:184-191). **One, and no compensation**
+    /// (B641). The mod2x arithmetic is the blend's own: these runs draw through a non-sRGB twin of the target, and the
+    /// shader writes the gamma texel, so `DST_COLOR, SRC_COLOR` stores `dst · 2s` exactly as Valve's does. The 2^2.2/2
+    /// figure this replaced reproduced that on the 2.2 curve only, 2 to 6 levels off toward black.
+    /// </remarks>
+    internal static float UnlitDiffuseOf(MapTexture? surface, string shader) =>
+        Modulates(surface) || !ModelMaterialShading.TakesDiffuseLighting(shader) ? 1f : 0f;
+
+    /// <summary>The non-sRGB twin of each sRGB target view a modulating run may land on, by the view's address.</summary>
+    /// <remarks>
+    /// **Non-owning** (B641): the owner of each view registers and clears its pair, so a swap chain's back buffer can still
+    /// be resized (`ResizeBuffers` fails while any view of the buffer lives). The water and camera targets are this
+    /// renderer's own and their twins are in <see cref="_ownedGammaTwins"/>.
+    /// </remarks>
+    private readonly Dictionary<nint, nint> _gammaTwins = [];
+
+    /// <summary>The twins this renderer created for its own targets, released with it.</summary>
+    private readonly List<ComPtr<ID3D11RenderTargetView>> _ownedGammaTwins = [];
+
+    /// <summary>Whether a modulating run found no gamma twin, so the warning is said once.</summary>
+    private bool _reportedMissingTwin;
+
+    /// <summary>How many modulating runs found no gamma twin and drew through the sRGB view: a test's tripwire.</summary>
+    internal int MissingGammaTwins { get; private set; }
+
+    /// <summary>Registers the non-sRGB twin of an sRGB target view, for modulating runs drawn into it (B641).</summary>
+    /// <param name="srgb">The sRGB view the frame is drawn through.</param>
+    /// <param name="gamma">A UNORM view of the same resource.</param>
+    internal void SetGammaTwin(ComPtr<ID3D11RenderTargetView> srgb, ComPtr<ID3D11RenderTargetView> gamma)
     {
-        if (Modulates(surface))
+        if (srgb.Handle is not null && gamma.Handle is not null)
         {
-            return surface!.Value.IsModulateTwice ? ModulateTwiceDiffuse : 1f;
+            _gammaTwins[(nint)srgb.Handle] = (nint)gamma.Handle;
+        }
+    }
+
+    /// <summary>Forgets a view's twin, before its owner releases either.</summary>
+    /// <param name="srgb">The sRGB view.</param>
+    internal void ClearGammaTwin(ComPtr<ID3D11RenderTargetView> srgb)
+    {
+        if (srgb.Handle is not null)
+        {
+            _gammaTwins.Remove((nint)srgb.Handle);
+        }
+    }
+
+    /// <summary>
+    /// Binds the bound target's non-sRGB twin for a modulating run, keeping the depth view; the caller draws and then calls
+    /// <see cref="LeaveGammaTarget"/> when this returns true (B641).
+    /// </summary>
+    /// <param name="context">The context.</param>
+    /// <param name="material">The run's material.</param>
+    /// <param name="restore">The views to put back, holding the references <c>OMGetRenderTargets</c> added.</param>
+    /// <returns>Whether the twin is bound.</returns>
+    private bool EnterGammaTarget(ComPtr<ID3D11DeviceContext> context, int material, out BoundTarget restore)
+    {
+        restore = default;
+
+        if (!_modulate.ContainsKey(material))
+        {
+            return false;
         }
 
-        return ModelMaterialShading.TakesDiffuseLighting(shader) ? 0f : 1f;
+        ComPtr<ID3D11RenderTargetView> target = default;
+        ComPtr<ID3D11DepthStencilView> depth = default;
+
+        context.OMGetRenderTargets(1u, ref target, ref depth);
+
+        if (target.Handle is null || !_gammaTwins.TryGetValue((nint)target.Handle, out nint twin))
+        {
+            MissingGammaTwins++;
+
+            if (!_reportedMissingTwin)
+            {
+                _reportedMissingTwin = true;
+                _render.LogWarning("A modulating run found no gamma twin for its target and drew through the sRGB view (B641)");
+            }
+
+            target.Dispose();
+            depth.Dispose();
+            return false;
+        }
+
+        ID3D11RenderTargetView* gamma = (ID3D11RenderTargetView*)twin;
+
+        context.OMSetRenderTargets(1u, &gamma, depth);
+        restore = new BoundTarget(target, depth);
+        return true;
+    }
+
+    /// <summary>The views bound before a gamma run, holding the references <c>OMGetRenderTargets</c> added.</summary>
+    private readonly record struct BoundTarget(ComPtr<ID3D11RenderTargetView> Target, ComPtr<ID3D11DepthStencilView> Depth);
+
+    /// <summary>Puts back the views <see cref="EnterGammaTarget"/> replaced, and releases its references.</summary>
+    private static void LeaveGammaTarget(ComPtr<ID3D11DeviceContext> context, BoundTarget restore)
+    {
+        context.OMSetRenderTargets(1u, restore.Target.GetAddressOf(), restore.Depth);
+        restore.Target.Dispose();
+        restore.Depth.Dispose();
     }
 
     /// <summary>Whether a material is drawn by `Modulate` or `DecalModulate`, whose colour multiplies the framebuffer.</summary>
@@ -6724,7 +6808,14 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
 
         if (!ModelVertexClamp.Suppresses(cap))
         {
+            bool gamma = EnterGammaTarget(context, batch.MaterialIndex, out BoundTarget restore);
+
             SubmitCounters.Draw(); context.Draw((uint)ModelVertexClamp.Apply(batch.VertexCount, cap), (uint)batch.FirstVertex);
+
+            if (gamma)
+            {
+                LeaveGammaTarget(context, restore);
+            }
         }
     }
 
@@ -6844,7 +6935,14 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             context.PSSetShaderResources(4, 1, ref bump);
         }
 
+        bool gamma = EnterGammaTarget(context, batch.MaterialIndex, out BoundTarget restore);
+
         SubmitCounters.Draw(); context.Draw((uint)batch.VertexCount, (uint)batch.FirstVertex);
+
+        if (gamma)
+        {
+            LeaveGammaTarget(context, restore);
+        }
     }
 
     /// <summary>The visible translucent and additive world runs by leaf place, or null to draw them all at once.</summary>
@@ -7895,7 +7993,14 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
 
             if ((cloakPass is null || CloakPass.DrawsStandardPass(cloaked.Factor)) && !ModelVertexClamp.Suppresses(ModelVertexCap))
             {
+                bool gamma = EnterGammaTarget(context, material, out BoundTarget restore);
+
                 SubmitCounters.Draw(); context.Draw((uint)submitted, (uint)batch.FirstVertex);
+
+                if (gamma)
+                {
+                    LeaveGammaTarget(context, restore);
+                }
             }
 
             SubmitSpans.Lap(SubmitSpan.DrawCall);

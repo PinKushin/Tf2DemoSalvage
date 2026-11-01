@@ -25,8 +25,8 @@ public static class DecalMesh
     /// an overlay's are. **An unlit one takes the atlas's reserved white texel** — a zero rectangle: `DecalModulate`'s
     /// pixel shader samples its texture and nothing else, and its mod2x blend multiplies the surface below, lightmap and
     /// all. **Every corner is white.** `DecalModulate` reads no vertex colour (`VERTEXCOLOR false`,
-    /// DecalModulate_dx9.cpp:89), and its mod2x compensation is the material's own diffuse
-    /// (`WorldRenderer.ModulateTwiceDiffuse`, B639). A corner light here would apply it twice.
+    /// DecalModulate_dx9.cpp:89), and its mod2x arithmetic is the blend's own, on stored values (B641). A corner light
+    /// here would scale it.
     /// </remarks>
     public static void Build(
         IReadOnlyList<PlacedDecal> decals,

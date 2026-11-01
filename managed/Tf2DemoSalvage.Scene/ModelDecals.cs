@@ -18,7 +18,7 @@ namespace Tf2DemoSalvage.Scene;
 /// A decal's corners are the model's own vertices carrying the decal's UV and material, so the renderer draws them
 /// with the model's bones. **Their corners are white whatever the material** (B639 review):
 /// - **DecalModulate** reads no vertex colour (`VERTEXCOLOR false`, DecalModulate_dx9.cpp:89), and its mod2x compensation
-///   is the material's own diffuse (`WorldRenderer.ModulateTwiceDiffuse`).
+///   is the blend's own, on the target's stored values (B641).
 /// - **A lit studio decal** (`decals/bigshot1model`, `break1model`, `bproof1model` and `beersplashmodel` are
 ///   VertexLitGeneric) takes the model's light like the model's own surface, which carries white. Until B639 every
 ///   studio decal carried 2^2.2/4 here, so a lit one drew about 13% brighter than its model. That figure only ever

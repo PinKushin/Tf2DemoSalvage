@@ -2188,6 +2188,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
             return;
         }
 
+        _world?.ClearGammaTwin(_backBufferView);
         _backBufferView.Dispose();
         _backBufferView = default;
         _gammaView.Dispose();
@@ -3771,6 +3772,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         _world = WorldRenderer.Create(_device, _loggers);
         _world.Wireframe = _wireframe;
         _world.DrawWorld = _drawWorld;
+        _world.SetGammaTwin(_backBufferView, _gammaView);
     }
 
     /// <summary>The view the previous <see cref="SetCamera(FreeCamera, bool)"/> was given, culled or not.</summary>
@@ -5298,6 +5300,9 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
 
         buffer.Dispose();
         _backBufferView = view;
+
+        // The twin a modulating run draws through, so its blend multiplies stored values (B641).
+        _world?.SetGammaTwin(_backBufferView, _gammaView);
 
         CreateDepthView();
 
