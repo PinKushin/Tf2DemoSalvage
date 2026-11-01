@@ -68,8 +68,8 @@ is Valve's. Fog colours read from each map's `env_fog_controller` with the `enti
 | `pl_upward` | 174 193 205 | 0.4313 / 0.4233, 0.5418 / 0.5333, 0.6187 / 0.6105 | 175.5 / 174, 194.4 / 193, 206.2 / 205 |
 
 With the sRGB decode, full fog stores the controller's own bytes exactly, since the target encodes by the inverse curve.
-`pow 2.2` lands about 1 to 1.5 levels HIGH on every outdoor colour above, and LOW on dark ones: 3 levels low at 58,
-7.5 at 26, 7.4 at 10. The two curves cross near 0.5 (128 stores 129.0 against 128).
+`pow 2.2` lands about 1 to 1.5 levels HIGH on every outdoor colour above, and LOW on dark ones: 2.8 levels low at 58,
+6.85 at 26, 7.35 at 10. The two curves cross near 0.5 (128 stores 129.0 against 128).
 
 **On a typical frame** the fog factor is well under one, and the change is the factor squared times the linear
 difference: at f² = 0.25 on `cp_process_f12`, under half a level. **So the expected pixel change on an outdoor fogged
@@ -133,12 +133,38 @@ restored. Diffs are from `D:/measure-f12/b653/scripts/diff.py`. Images are under
 repeat was taken under the lock, as every shot was. Shots a and b have no repeat. Their deltas are all −1 or −2 and
 never positive, which is the predicted signature, not noise.
 
+**Do not pair** `after/c.png` (the unrepeatable shot) or `after/d.png` / `after/e.png` with anything. d and e have
+no before shot: that run was stopped at its time limit.
+
 **As predicted:** every change is DOWN, at most 1-3 levels, and it sits on the scattered pixels that cross a rounding
 boundary. They are densest in the far room (`diffmap-c.png`). At f12's colour `pow 2.2` stored about 1 to 1.4 levels
 high at full fog, and these distances reach only a fraction of full fog. **The change is invisible on this frame. It is
 parity, held by the synthetic tests.**
 
+**The fog-heavy frame.** f12's cameras reach only a fraction of full fog, so one outdoor frame on a map with nearer fog
+was shot as well. **The demo changes here, to `demostf-pl_upward_f12-1491354.dem`** (lcor). Its map is
+`pl_upward_f12`. Read with `entity-keys`: the world controller is 174 193 205, 100..6000, max density 0.85; the
+`sky_camera` is 174 193 205, 100..20000, scale 16. Settings: `--spectate 3 --tick 20000 --first-person`, so the camera is
+player 3's recorded eye (`831.4 570.3 456`, pitch 10.2, yaw 47.2, from the shot's sidecar). The tone-map scale is
+0.800975 in all four shots' logs.
+- **Repeat controls:** `after1` against `after2` differ on 0 px. `before1` against `before2` differ on 21,372 px, all
+  in rows 0-36, which is the HUD bar. The scene rows agree. So `before2` is paired with `after1`.
+- **Before (`pow 2.2`) against after: 35,913 px changed, every one DOWN.** Box (0,37)-(973,432), the scene and not the
+  HUD. Channel deltas: −1 on 46,277, −2 on 8,710, −3 on 816, −4 on 20, −5 on 1.
+- `upward/diffmap.png` shows where: on the far snow mountain (3D sky) and the distant buildings, which are the
+  most-fogged pixels. The near wood and the viewmodel are untouched.
+- **Largest single change:** (389,164) on the mountain, (176,171,162) to (175,169,157).
+
+**Against the prediction:** the sign and the place are as predicted. **The size is not.** For the controller's colour
+at scale 0.80, full fog moves a stored channel by at most about 1.2 levels (*arithmetic*). Up to 5 were measured on the
+3D-sky mountain. Not explained here. The 3D sky's fog colour reaches the view from the player's `m_skybox3d.fog`, which
+was not read for this tick (`moment-dump` does not print it). A darker colour there would give bigger deltas, as the
+table above shows. The post chain is the other candidate. *Open.*
+
 ## What is unsettled
+
+- Why the 3D-sky mountain on `pl_upward_f12` moves by up to 5 levels, where the controller's colour predicts about
+  1.2 (above).
 
 - The range branch's gate (hardware-config `+0x1c0`, the ConVar at `0x1800a2378`) is unidentified. If it were false,
   c29.rgb would be zero. TF2 draws coloured fog, so it holds on a live client (*interpolated*).

@@ -40254,8 +40254,15 @@ the same way, exceeds the baseline's.
 ## B653 — the scene and water fog colours are made linear by `pow 2.2`; shaderapi takes the exact sRGB decode (2026-11-02) — FIXED on `fix/fog-colour-curve` (not merged)
 
 **Fixed:** `FogConstants.SrgbDecode` now carries both colours. `FogColourCurveConformanceTests` was red first. On the f12
-frame every changed pixel went down by 1 to 3 levels, and none went up. That is invisible, and it is parity. The plan
-doc holds the numbers, images and what is unsettled.
+frame every changed pixel went down by 1 to 3 levels, and none went up. That is invisible, and it is parity. On a fogged
+outdoor frame of `pl_upward_f12` 35,913 px went down, by up to 5 levels, on the far 3D-sky mountain. That is more than
+the controller's colour predicts (about 1.2), and it is not explained. The plan doc holds the numbers, images and what
+is unsettled.
+**A seam the fix opens, OPEN:** the water view's clear colour (`WorldRenderer.Water.cs:761-763`, from
+`SetClearColorToFogColor`, `viewrender.cpp:759-766`) still takes `pow 2.2`. Fully fogged water geometry now takes the
+sRGB decode, so where the two meet they differ. At full fog the gap is 6.85 stored levels on a channel of 26 and 2.8
+on 58 (*arithmetic*, same table). The open question is whether a D3D9 `Clear` honours `SRGBWRITEENABLE`. That decides
+which curve the clear really lands on. Not read.
 
 **As filed:**
 
