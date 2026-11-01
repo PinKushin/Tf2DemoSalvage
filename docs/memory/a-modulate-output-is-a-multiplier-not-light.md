@@ -22,8 +22,9 @@ scale on its colour (`ToneMapScale(tintControl.w)`). Before calling a texel "neu
 shader's output after the texture.
 
 **Its FOG is not one grey (B637).** The grey it fades toward is decided in the closed shader API, not the SDK: 128/255
-under range fog, pow(128/255, 2.2) under height fog, and times the exposure for Modulate but not DecalModulate (only
-DecalModulate disables fog gamma correction). Read `shaderapidx9.dll` `0x180025a50` before assuming any fog colour a
+under range fog, its sRGB decode 0.2159 under height fog (`r_shader_srgb 0`, the default; pow 2.2 only at 1), and
+times the exposure for Modulate but not DecalModulate (only DecalModulate disables fog gamma correction). Neither
+writes destination alpha. Read `shaderapidx9.dll` `0x180025a50` before assuming any fog colour a
 shader "obviously" gets; the SDK comment "fog should stay exactly middle grey" holds for range fog only.
 
 **And it reads no light at all (B639, B638).** Neither modulating shader samples a lightmap or a vertex colour. The

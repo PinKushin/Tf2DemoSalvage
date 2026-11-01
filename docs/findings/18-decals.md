@@ -670,12 +670,20 @@ The SDK alone supports that: `FogToGrey()` and `FogToOOOverbright()` both name 1
 **What the shader API does** (*disassembly*, `shaderapidx9.dll`, `0x180014200` and `0x180025a50`): the fog-mode apply
 stores the pixel fog colour as r/255 RAW whatever the mode; its gamma correction and tone-map scale go only into the
 fixed-function `D3DRS_FOGCOLOR`. The c29 upload then makes its own decisions: range fog linearises the colour only
-when sRGB writes are on (these two shaders write without), height fog linearises it always (`pow 2.2`), and either is
+when sRGB writes are on (these two shaders write without), height fog linearises it always, and either is
 multiplied by the tone-map scale under integer HDR unless the shader called `DisableFogGammaCorrection( true )`. Only
 DecalModulate does ("fog should stay exactly middle grey", `DecalModulate_dx9.cpp:79`). So DecalModulate's grey is
 128/255 under range fog; Modulate's, `$mod2x` or not, is 128/255 times the exposure; and under water every one of them
-fades toward pow(128/255, 2.2) = 0.22 in a gamma pipeline, a dark grey. **That last one reads as a Valve bug and is
-kept**: the shader never re-encodes the colour the API linearised for it.
+fades toward the linear 0.22 in a gamma pipeline, a dark grey. **That last one reads as a Valve bug and is kept**: the
+shader never re-encodes the colour the API linearised for it.
+
+**Which curve, and a wrong first guess (review, 2026-11-02).** The first version took `pow 2.2` for that conversion,
+because our water fog colour already did. The API has two: `pow 2.2` and the exact sRGB decode, chosen by
+`r_shader_srgb` ("0 = use hardware srgb", the default). At the default it is the sRGB decode, so the grey is 0.2159,
+not 0.2195. The difference is under two 8-bit levels, which no render test here can see; the reading holds it. The
+same choice applies to the water's own fog colour and to the scene fog colour under sRGB write, both still `pow 2.2` in
+ours (RISKS B637). The gamma-correction flag DecalModulate sets is tested only after the conversion, so it skips the
+tone-map scale and nothing else.
 
 **Two things learned beside it.** The comment "fog should stay exactly middle grey" is true only for range fog. And
 plain Modulate fogs to the same 0.5 as `$mod2x`, which halves what is behind it at full fog, since its blend is `dst · s`

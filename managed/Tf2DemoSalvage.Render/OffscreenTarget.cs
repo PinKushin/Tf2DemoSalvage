@@ -242,10 +242,19 @@ internal sealed unsafe class OffscreenTarget : IDisposable
             float drawnScale = world.LinearLightScale;
             float[] drawnMatrix = (float[])matrix.Clone();
 
+            // The water view too (B637 review): DrawWorld's `finally` clears it, so a later translucent draw would otherwise
+            // run with no height fog. It is cleared again after that draw (`ClearWorldWaterView`).
+            _worldHeightFog = heightFog;
             _reapplyWorldCamera = () =>
             {
                 world.LinearLightScale = drawnScale;
                 world.SetCamera(_device, _context, drawnMatrix, surfaceColours, specular: true, fullbright, debug, fog: fog);
+
+                if (heightFog is { } again)
+                {
+                    world.SetWaterView(_context, HeightClip.None, again);
+                    world.WriteWaterFogToAlpha(_context, opaque: false);
+                }
             };
 
             Viewport viewport = new(0f, 0f, _width, _height, 0f, 1f);
@@ -366,6 +375,7 @@ internal sealed unsafe class OffscreenTarget : IDisposable
         // it, so the value now, before they run, is the main view's.
         float mainScale = world.LinearLightScale;
 
+        _worldHeightFog = null;
         _reapplyWorldCamera = () =>
         {
             world.LinearLightScale = mainScale;
@@ -410,8 +420,20 @@ internal sealed unsafe class OffscreenTarget : IDisposable
     /// <summary>The assets whose textures the renderer holds now.</summary>
     private MapAssets? _uploaded;
 
-    /// <summary>The last <see cref="DrawWorld"/>'s camera and tone-map scale, set again; null before any.</summary>
+    /// <summary>The last <see cref="DrawWorld"/>'s camera, tone-map scale and water view, set again; null before any.</summary>
     private Action? _reapplyWorldCamera;
+
+    /// <summary>The last <see cref="DrawWorld"/>'s height fog, which <see cref="_reapplyWorldCamera"/> sets again; null for none.</summary>
+    private VolumeFog? _worldHeightFog;
+
+    /// <summary>Clears the water view a reapplied camera set, as <see cref="DrawWorld"/>'s own <c>finally</c> does.</summary>
+    private void ClearWorldWaterView(WorldRenderer world)
+    {
+        if (_worldHeightFog is not null)
+        {
+            world.SetWaterView(_context, HeightClip.None);
+        }
+    }
 
     /// <summary>The translucent world of the last <see cref="DrawWorld"/>, drawn now — after a model, as the engine does (B426).</summary>
     /// <remarks>
@@ -436,6 +458,7 @@ internal sealed unsafe class OffscreenTarget : IDisposable
         finally
         {
             world.LinearLightScale = before;
+            ClearWorldWaterView(world);
         }
     }
 
@@ -469,6 +492,7 @@ internal sealed unsafe class OffscreenTarget : IDisposable
         finally
         {
             world.LinearLightScale = before;
+            ClearWorldWaterView(world);
         }
     }
 

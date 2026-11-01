@@ -93,17 +93,34 @@ public sealed class BlendStateConformanceTests
     }
 
     [Test]
-    public void BlendState_EveryState_WritesEveryChannel()
+    public void BlendState_AdditiveAndTranslucent_WriteEveryChannel()
     {
         // A write mask short of All silently drops a channel, which looks like a colour bug rather
-        // than a state bug. Asserted across all three because it is the kind of field that gets
+        // than a state bug. Asserted across both because it is the kind of field that gets
         // copied correctly twice and wrongly once.
-        foreach (BlendDesc description in
-            new[] { BlendStates.Additive, BlendStates.Translucent, BlendStates.Modulate })
+        foreach (BlendDesc description in new[] { BlendStates.Additive, BlendStates.Translucent })
         {
             description.RenderTarget[0].RenderTargetWriteMask.ShouldBe((byte)ColorWriteEnable.All);
             description.RenderTarget[0].BlendOpAlpha.ShouldBe(BlendOp.Add);
         }
+    }
+
+    /// <remarks>
+    /// **The modulating shaders write no alpha** (B637 review): DecalModulate `EnableAlphaWrites( false )` ("Be sure not
+    /// to write to dest alpha", <c>DecalModulate_dx9.cpp:70-71</c>), Modulate <c>EnableAlphaWrites( bWriteZ &amp;&amp;
+    /// bFullyOpaque )</c> (<c>modulate_dx9.cpp:211</c>), false for every Modulate without <c>$writez</c>. In a refraction
+    /// view the destination alpha is the height fog factor the opaque draws wrote (<c>WRITEWATERFOGTODESTALPHA</c>), which
+    /// the water shader reads back; a scorch writing its own alpha over it changed the water's depth under the scorch.
+    /// </remarks>
+    [Test]
+    public void BlendState_ModulateAndModulateTwice_WriteColourButNoAlpha()
+    {
+        const byte Colour = (byte)(ColorWriteEnable.Red | ColorWriteEnable.Green | ColorWriteEnable.Blue);
+
+        BlendStates.Modulate.RenderTarget[0].RenderTargetWriteMask.ShouldBe(Colour);
+        BlendStates.ModulateTwice.RenderTarget[0].RenderTargetWriteMask.ShouldBe(Colour);
+        BlendStates.ModulateTwice.RenderTarget[0].SrcBlend.ShouldBe(Blend.DestColor);
+        BlendStates.ModulateTwice.RenderTarget[0].DestBlend.ShouldBe(Blend.SrcColor);
     }
 
     [Test]
