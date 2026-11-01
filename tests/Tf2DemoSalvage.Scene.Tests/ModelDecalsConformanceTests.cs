@@ -1,3 +1,4 @@
+using System.Linq;
 using System.Numerics;
 
 namespace Tf2DemoSalvage.Scene.Tests;
@@ -50,7 +51,7 @@ public sealed class ModelDecalsConformanceTests
     [Test]
     public void For_ADecal_IsTheModelsOwnCornersWithTheDecalsUvAndMaterial()
     {
-        ModelDecals decals = new() { UnlitLight = 2f };
+        ModelDecals decals = new();
 
         Shoot(decals, entity: 1, material: 7);
 
@@ -61,7 +62,27 @@ public sealed class ModelDecalsConformanceTests
         vertices[0].X.ShouldBe(0f);
         vertices[0].Y.ShouldBe(2f);
         vertices[0].U.ShouldBe(0.75f);
-        vertices[0].Red.ShouldBe(2f);
+    }
+
+    /// <remarks>
+    /// **White, whatever the material** (B639 review). DecalModulate reads no vertex colour (`VERTEXCOLOR false`,
+    /// DecalModulate_dx9.cpp:89), and its mod2x compensation is the material's diffuse. A lit studio decal (VertexLitGeneric:
+    /// `decals/bigshot1model`) takes the model's light, which the model's own white corners carry. The model's corners
+    /// here are coloured 0.5, so a decal that kept them, or scaled them as the old 2^2.2/4 did, fails.
+    /// </remarks>
+    [Test]
+    public void For_AnyDecal_HasWhiteCornersOnTheWhiteTexel()
+    {
+        WorldVertex[] tinted = [.. Face.Select(static corner => corner with { Red = 0.5f, Green = 0.5f, Blue = 0.5f, LightU = 0.3f, LightV = 0.3f })];
+        ModelDecals decals = new();
+
+        decals.Add(1, tinted, [Identity], new Vector3(100f, 0f, 0f), new Vector3(-110f, 0f, 0f), 4f, material: 7).ShouldBeTrue();
+
+        foreach (WorldVertex corner in decals.For(1)!.Value.Vertices)
+        {
+            (corner.Red, corner.Green, corner.Blue).ShouldBe((1f, 1f, 1f), "a studio decal's corner is white");
+            (corner.LightU, corner.LightV).ShouldBe((0f, 0f), "on the atlas's reserved white texel");
+        }
     }
 
     [Test]

@@ -16,8 +16,14 @@ namespace Tf2DemoSalvage.Scene;
 /// </code>
 ///
 /// A decal's corners are the model's own vertices carrying the decal's UV and material, so the renderer draws them
-/// with the model's bones. They light as an unlit mod2x decal does: `DecalModulate` samples its texture and nothing
-/// else (<see cref="UnlitLight"/>).
+/// with the model's bones. **Their corners are white whatever the material** (B639 review):
+/// - **DecalModulate** reads no vertex colour (`VERTEXCOLOR false`, DecalModulate_dx9.cpp:89), and its mod2x compensation
+///   is the material's own diffuse (`WorldRenderer.ModulateTwiceDiffuse`).
+/// - **A lit studio decal** (`decals/bigshot1model`, `break1model`, `bproof1model` and `beersplashmodel` are
+///   VertexLitGeneric) takes the model's light like the model's own surface, which carries white. Until B639 every
+///   studio decal carried 2^2.2/4 here, so a lit one drew about 13% brighter than its model. That figure only ever
+///   compensated a gamma mod2x blend, and a lit decal has none (*arithmetic*). *Unread:* studiorender's decal draw is
+///   closed source, so "lit as the model is" is *interpolated*.
 /// </remarks>
 public sealed class ModelDecals
 {
@@ -30,9 +36,6 @@ public sealed class ModelDecals
     private readonly Dictionary<int, List<Decal>> _byEntity = [];
     private readonly LinkedList<(int Entity, Decal Decal)> _age = [];
     private readonly Dictionary<int, (IReadOnlyList<WorldVertex> Vertices, IReadOnlyList<WorldBatch> Batches)> _built = [];
-
-    /// <summary>A mod2x decal's corner light, so this pipeline reproduces the engine's blend — the renderer's own figure.</summary>
-    public float UnlitLight { get; init; } = 1f;
 
     /// <summary>`r_maxmodeldecal`, read from the viewer's config: each model's cap, and 1.5 times it the pool's.</summary>
     public int PerModel { get; set; } = MaximumPerModel;
@@ -132,8 +135,9 @@ public sealed class ModelDecals
         return true;
     }
 
-    private WorldVertex Unlit(WorldVertex corner) =>
-        corner with { LightU = 0f, LightV = 0f, Red = UnlitLight, Green = UnlitLight, Blue = UnlitLight };
+    /// <summary>A corner on the atlas's reserved white texel, coloured white (see the class remarks).</summary>
+    private static WorldVertex Unlit(WorldVertex corner) =>
+        corner with { LightU = 0f, LightV = 0f, Red = 1f, Green = 1f, Blue = 1f };
 
     /// <summary>`AddDecal`'s first two limits: the oldest of any model past 1.5 · r_maxmodeldecal, then this model's past it.</summary>
     private void RetireForOneMore(int entity)

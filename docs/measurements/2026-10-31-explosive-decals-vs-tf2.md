@@ -159,6 +159,8 @@ made. **The live window was not captured** either; the exposure explanation pred
    at `WorldRenderer.cs` fogMode). No fog in this room, so nothing here. *Read*. Open.
 4. **Gamma-space mod2x reproduced in linear space** — `ModulateTwiceLight` (`WorldRenderer.cs`, 2^2.2/4) is the 2.2
    approximation of the sRGB curve: a 128 texel gives 0.992 against Valve's 1.004. *Arithmetic*. Known, documented there.
+   *Since B639:* replaced by the material's diffuse `ModulateTwiceDiffuse` (2^2.2/2); findings 18, "A modulating
+   material reads no light".
 
 Checked and NOT divergent: the decal is unlit as Valve's (`DecalMesh` binds the atlas's white texel); the sampler is
 16x anisotropic as the owner's `mat_forceaniso 16`; the scorch material is the atlas Subrect at `$decalscale` .65 (166.4

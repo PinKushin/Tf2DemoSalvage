@@ -148,15 +148,16 @@ public sealed class ModulateToneMapConformanceTests
         // Multiplied: darker than the surface by far, where an opaque draw of the texel would not be.
         atOne.Item2.ShouldBeLessThan(under.Item2 - 40, $"the brush Modulate drew {atOne} over {under}: not multiplied");
 
-        // The value itself for `$mod2x`: Valve's gamma arithmetic, dst · 2 · 64/255, within the linear blend's sRGB-curve
-        // error, so an error the brush and model paths share cannot pass. Since B639 the diffuse is 2^2.2/2, exact at 128
-        // and 120 here against 116 (*measured*); at the old white-texel 2.0 it was 112, and unlit at 1 it would be about 80.
-        // The neutral texel (ModulateUnlitConformanceTests) is what tells 2.0 from 2^2.2/2; this bounds the dark end.
+        // The value itself for `$mod2x`. Valve's gamma arithmetic is dst · 2 · 64/255 = 116. Ours lands 4 above it, at 120
+        // (*measured*): the linear blend reproduces a gamma multiply only on the 2.2 curve, and the sRGB curve departs from
+        // it toward black (*arithmetic*: 231 · 4.595 · sRGB⁻¹(64) gives 120). So the window is that offset, [+2, +6]. It
+        // excludes the white-texel diffuse of 2.0 (112, B639) and an unlit 1 (about 80), so an error the brush and model
+        // paths share cannot pass.
         if (twice)
         {
             int expected = (int)System.Math.Round(under.Item2 * 2.0 * 64.0 / 255.0);
 
-            atOne.Item2.ShouldBeInRange(expected - 5, expected + 5, $"the brush mod2x Modulate drew {atOne} over {under}; Valve's arithmetic {expected}");
+            atOne.Item2.ShouldBeInRange(expected + 2, expected + 6, $"the brush mod2x Modulate drew {atOne} over {under}; Valve's arithmetic {expected}, ours 4 above it");
         }
 
         // Exactly the model pass's multiply over the bare surface: drawing it opaque first, then multiplying over that,
@@ -623,7 +624,8 @@ public sealed class ModulateToneMapConformanceTests
 
         target.Clear(surface, surface, surface);
 
-        // An unlit decal's corners carry the mod2x light (DecalMesh); everything else is lit by the reserved white texel.
+        // White corners on every route: a DecalModulate decal's are DecalMesh's (VERTEXCOLOR false), and the mod2x
+        // compensation is the material's own diffuse since B639. Kept as the named constant so the two cannot drift.
         List<WorldVertex> quad = Quad(material is DecalModulateNeutral or DecalModulateDark ? Device3D.DecalModulateLight : 1f);
         float[] camera = Camera();
 
@@ -689,7 +691,7 @@ public sealed class ModulateToneMapConformanceTests
     }
 
     /// <summary>A 4x4 texture of one grey, opaque, with the flags a shader of that kind gives its material.</summary>
-    private static MapTexture Grey(
+    internal static MapTexture Grey(
         byte value,
         bool modulate = false,
         bool twice = false,
