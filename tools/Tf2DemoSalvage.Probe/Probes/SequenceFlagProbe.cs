@@ -222,9 +222,19 @@ public sealed class SequenceFlagProbe : IProbe
 
                 if ((sequence.Flags & 0x0200) != 0)
                 {
+                    // Each local autolayer's TARGET too: one that is itself `STUDIO_LOCAL` runs its own local pass now
+                    // (B634), on every frame its parent plays. Same-file relative index, which a single .mdl resolves.
+                    IReadOnlyList<StudioSequence> all = StudioSequences.Read(model);
+                    string targets = string.Join(
+                        ", ",
+                        declared.Where(entry => entry.IsLocal).Select(entry =>
+                            entry.Sequence >= 0 && entry.Sequence < all.Count
+                                ? $"{all[entry.Sequence].Label} 0x{all[entry.Sequence].Flags:X}"
+                                : $"#{entry.Sequence} outside this file"));
+
                     localSequences.Add(
                         $"{path}:{sequence.Label} delta {((sequence.Flags & 0x0004) != 0 ? "yes" : "no")} " +
-                        $"local autolayers {localLayers} other autolayers {declared.Count - localLayers}");
+                        $"local autolayers {localLayers} other autolayers {declared.Count - localLayers} -> {targets}");
                 }
                 else if (localLayers > 0)
                 {

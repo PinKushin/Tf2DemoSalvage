@@ -192,9 +192,16 @@ inside the bracket and now covers both passes: `[S, S's local subtree (Local lay
   - Control: the after shot against a cold `--tick 29756` with no seek-through: 53,508 pixels differ (box x 407-720,
     y 37-341). So seeking through changes the frame, but **it is not shown that it fills the transition queue the way
     the probe's per-tick walk does.**
-  - **Unsettled**: whether the viewer's drawn pose at those ticks carried two fading roots at all. A zero difference
-    is what one root would give. What would settle it is the queue length as the draw used it, and no public instrument
-    carries that. `TF2VIEW_PLAY_SHOTS` needs `--measure`, which this task excluded.
+  - **Kill-transitions control, which comes back positive**: `pending.Transitions = []` was set temporarily in
+    `EntityModels.Simulation.cs`, then the viewer was rebuilt in the same command and shot at 29756 with the same camera
+    and seek-through. Against the after shot, **83,729 pixels differ**: with no transitions the soldier stands square,
+    with them he is mid-stride. The edit was then reversed exactly. **So transitions do reach the drawn pose through
+    seek-through.** The three zeros therefore mean that at most one fading root was in the drawn pose at those ticks.
+    The probe's per-tick walk saw two at 29756, so the viewer's drawn moment and the probe's tick are not aligned. That
+    is [interp]: interpolation lag is the likely cause, and it is not checked.
+  - **Still unsettled**: a drawn frame with two fading roots, i.e. the visible B633 effect. Finding one needs the queue
+    length as the draw used it, which no public instrument carries. `TF2VIEW_PLAY_SHOTS` needs `--measure`, which this
+    task excluded.
   - Shots, masks and the diff script are in `D:/measure-f12/b633-b634/`.
 - **Cost on the roots-split instrument [pred]**: unchanged for players. B633 removes one `List.Reverse` per entity
   with transitions. B634 adds one `Local` test per layer, under 0.0001 ms per root rebuild. A viewmodel fading out of a

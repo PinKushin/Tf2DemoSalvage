@@ -40373,7 +40373,9 @@ a layer's `AddLocalLayers` subtree; the builder `EntityModelSet.AccumulatePose` 
 the subtree there and blends it in at the close. Conformance: `NestedLockBracketConformanceTests` (four `Build_*Local*`),
 `AccumulatePoseConformanceTests.LayersFor_ALocalWireLayerWithALocalAutolayer_*` with its main-sequence control.
 **Who reaches it [meas, `sequence-flags`, all 14,416 models in `tf2_misc_dir.vpk`]: all 48 `STUDIO_LOCAL` sequences are
-viewmodel arms** (`c_<class>_animations.mdl`: `melee_allclass_*`, `throw_*`), one local autolayer each, none delta. So no
+viewmodel arms** (`c_<class>_animations.mdl`: `melee_allclass_*`, `throw_*`), one local autolayer each, none delta, and every one targets `r_handposes`, flags
+`0x501` (`LOOPING|REALTIME|HIDDEN`, not `STUDIO_LOCAL`), so no target runs a local pass of its own and a viewmodel's
+main sequence is unchanged by this fix [meas, same run]. So no
 player changes; a viewmodel changes only while fading out of one of them [interp, not observed]. **Not established:** a
 dynamic count on a POV demo; the main sequence's own bone weights below one (the base is copied whole, where Valve's
 `SlerpBones` at 1.0 keeps bind on a weight-0 bone), a neighbour not fixed here.
@@ -40409,8 +40411,9 @@ IK rules `BuildBlend` gathers follow the list, so their order flips to Valve's a
 walks the same way in Valve; ours has no counterpart. **How often [meas, proxy]:** 35 main-sequence changes within
 0.2 s of the entity's last one in 2,709 player-ticks of f12 29700-30000 (`pose-layers`, read off `FrameOf`). **Not
 established, visibly:** three before/after `--shot` pairs on entity 8 (ticks 29756, 29760, 29764, with
-`TF2VIEW_SEEK_THROUGH` from 29700) differ by 0 pixels. Whether the drawn pose there carried two fading roots at all is
-unproven, because no instrument carries the queue length as the draw used it. Details are in the plan's §8.
+`TF2VIEW_SEEK_THROUGH` from 29700) differ by 0 pixels. A control shows transitions DO reach the drawn pose: emptying
+`pending.Transitions` changes 83,729 pixels at 29756. So at most one fading root was drawn at those ticks, and no frame
+with two has been shot. No instrument carries the queue length as the draw used it. Details are in the plan's §8.
 
 **Evidence class: read from published source on both sides; the visible effect is *interpolated*.** Found while fixing
 B624, and left out of that change so its before/after shows one thing.
