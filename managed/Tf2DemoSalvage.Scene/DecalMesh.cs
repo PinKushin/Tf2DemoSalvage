@@ -10,10 +10,7 @@ public static class DecalMesh
     /// <summary>Every placed decal as triangle fans, grouped by the material that draws it.</summary>
     /// <param name="decals">The placed decals, in pool order.</param>
     /// <param name="materialIndex">The table index of a decal's drawn material, or −1 when it is not loaded.</param>
-    /// <param name="unlit">
-    /// For a table material that ignores the lightmap, as `DecalModulate` does, the vertex light its corners carry;
-    /// null for one lit by the face beneath.
-    /// </param>
+    /// <param name="isUnlit">Whether a table material ignores the lightmap, as `DecalModulate` does.</param>
     /// <param name="lightmaps">Where each face's lightmap sits in the atlas, by face index.</param>
     /// <param name="vertices">Cleared, then filled.</param>
     /// <param name="batches">Cleared, then filled: one run per material.</param>
@@ -25,14 +22,16 @@ public static class DecalMesh
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <remarks>
     /// **A lit decal takes the light of the face it lies on**, its corners remapped into that face's atlas rectangle as
-    /// an overlay's are. **An unlit one takes the atlas's reserved white texel** — a zero rectangle — and the vertex
-    /// light its caller names: `DecalModulate`'s pixel shader samples its texture and nothing else, and its mod2x blend
-    /// multiplies the surface below, lightmap and all.
+    /// an overlay's are. **An unlit one takes the atlas's reserved white texel** — a zero rectangle: `DecalModulate`'s
+    /// pixel shader samples its texture and nothing else, and its mod2x blend multiplies the surface below, lightmap and
+    /// all. **Every corner is white.** `DecalModulate` reads no vertex colour (`VERTEXCOLOR false`,
+    /// DecalModulate_dx9.cpp:89), and its mod2x compensation is the material's own diffuse
+    /// (`WorldRenderer.ModulateTwiceDiffuse`, B639). A corner light here would apply it twice.
     /// </remarks>
     public static void Build(
         IReadOnlyList<PlacedDecal> decals,
         Func<DecalMaterial, int> materialIndex,
-        Func<int, float?> unlit,
+        Func<int, bool> isUnlit,
         IReadOnlyList<AtlasRect> lightmaps,
         ICollection<WorldVertex> vertices,
         ICollection<WorldBatch> batches,
@@ -41,7 +40,7 @@ public static class DecalMesh
     {
         ArgumentNullException.ThrowIfNull(decals);
         ArgumentNullException.ThrowIfNull(materialIndex);
-        ArgumentNullException.ThrowIfNull(unlit);
+        ArgumentNullException.ThrowIfNull(isUnlit);
         ArgumentNullException.ThrowIfNull(lightmaps);
         ArgumentNullException.ThrowIfNull(vertices);
         ArgumentNullException.ThrowIfNull(batches);
@@ -77,7 +76,7 @@ public static class DecalMesh
             foreach (int material in order)
             {
                 int first = vertices.Count;
-                float? white = unlit(material);
+                bool white = isUnlit(material);
 
                 foreach (PlacedDecal decal in byMaterial[material])
                 {
@@ -97,7 +96,7 @@ public static class DecalMesh
 
     /// <summary>One placed decal as a triangle fan — the clip keeps the polygon convex.</summary>
     private static void Fan(
-        PlacedDecal decal, float? white, IReadOnlyList<AtlasRect> lightmaps, Func<int, Vector3?>? entityOrigin, ICollection<WorldVertex> vertices)
+        PlacedDecal decal, bool white, IReadOnlyList<AtlasRect> lightmaps, Func<int, Vector3?>? entityOrigin, ICollection<WorldVertex> vertices)
     {
         // A decal on a brush entity is in its model's frame and draws where the entity now stands; one whose entity is gone
         // draws nothing.
@@ -113,19 +112,18 @@ public static class DecalMesh
             offset = origin;
         }
 
-        float light = white ?? 1f;
-        AtlasRect face = white is null && decal.Face >= 0 && decal.Face < lightmaps.Count ? lightmaps[decal.Face] : default;
+        AtlasRect face = !white && decal.Face >= 0 && decal.Face < lightmaps.Count ? lightmaps[decal.Face] : default;
         IReadOnlyList<DecalVertex> polygon = decal.Polygon;
 
         for (int corner = 1; corner + 1 < polygon.Count; corner++)
         {
-            vertices.Add(Corner(polygon[0], face, light, offset));
-            vertices.Add(Corner(polygon[corner], face, light, offset));
-            vertices.Add(Corner(polygon[corner + 1], face, light, offset));
+            vertices.Add(Corner(polygon[0], face, offset));
+            vertices.Add(Corner(polygon[corner], face, offset));
+            vertices.Add(Corner(polygon[corner + 1], face, offset));
         }
     }
 
-    private static WorldVertex Corner(DecalVertex corner, AtlasRect face, float light, Vector3 offset) =>
+    private static WorldVertex Corner(DecalVertex corner, AtlasRect face, Vector3 offset) =>
         new(
             corner.Position.X + offset.X,
             corner.Position.Y + offset.Y,
@@ -135,7 +133,7 @@ public static class DecalMesh
             face.U + (Math.Clamp(corner.LightU, 0f, 1f) * face.Width),
             face.V + (Math.Clamp(corner.LightV, 0f, 1f) * face.Height),
             0f,
-            light,
-            light,
-            light);
+            1f,
+            1f,
+            1f);
 }

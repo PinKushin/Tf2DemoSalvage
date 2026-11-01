@@ -396,8 +396,10 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             //
             // z: 1 when a `$blendmodulatetexture` shapes that mix (BlendModulation.Applies), 0 otherwise.
             //
-            // w: 1 for a shader that reads no diffuse light — UnlitGeneric, UnlitTwoTexture
-            //    (ModelMaterialShading.TakesDiffuseLighting), 0 otherwise.
+            // w: 0 for a lit shader; otherwise the unlit diffuse it is drawn with (`UnlitDiffuseOf`, B639): 1 for UnlitGeneric,
+            //    UnlitTwoTexture and plain Modulate, 2^2.2/2 ≈ 2.297 for DecalModulate and `$mod2x`. The shader tests it
+            //    against 0.5 (`> 0.5` unlit, `< 0.5` lit), which assumes no unlit diffuse is ever below 0.5; one that is
+            //    would be read as lit.
             float4 combine;
 
             // **The baked reflection's shading, xyz tint and w contrast.** Packed together because
@@ -1537,7 +1539,13 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             // silent precedence bug. Flat white rather than grey, which is what distinguishes it
             // from mat_fullbright 2: this one keeps the surface at full brightness so the shape
             // reads, that one dims it so the lighting reads.
-            if (debugModes.x > 0.5f)
+            //
+            // **Not for a modulating material (tintControl.w)** (B639 review). DecalModulate sets
+            // MATERIAL_VAR_NO_DEBUG_OVERRIDE (DecalModulate_dx9.cpp:43), which exempts it from the debug views. Whitened
+            // here, its mod2x output clamped and doubled the floor. *Unread, and a choice:* plain Modulate does not set the
+            // flag, and what the closed shader system draws in its place is unread. Ours keeps its texture rather than
+            // inventing a multiply.
+            if (debugModes.x > 0.5f && tintControl.w < 0.5f)
             {
                 albedo.rgb = float3(1.0f, 1.0f, 1.0f);
             }
@@ -3450,8 +3458,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
                 _modulate[index] = texture!.Value.IsModulateTwice;
 
                 // DecalModulate asks for the decal polygon offset in its shadow state; plain Modulate does not.
-                if (index < assets.Shaders.Count &&
-                    assets.Shaders[index].Equals("DecalModulate", StringComparison.OrdinalIgnoreCase))
+                if (index < assets.Shaders.Count && VmtMaterial.IsDecalModulateShader(assets.Shaders[index]))
                 {
                     _decalPolyOffsetMaterials.Add(index);
                 }

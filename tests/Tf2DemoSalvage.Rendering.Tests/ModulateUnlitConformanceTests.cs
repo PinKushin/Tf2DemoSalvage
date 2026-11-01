@@ -152,6 +152,24 @@ public sealed class ModulateUnlitConformanceTests
         Close(lightingOnly, off, $"UnlitGeneric drew {off} and {lightingOnly} under mat_fullbright 2");
     }
 
+    /// <remarks>
+    /// **`mat_drawflat` does not reach DecalModulate.** The shader sets `MATERIAL_VAR_NO_DEBUG_OVERRIDE`
+    /// (DecalModulate_dx9.cpp:43), the flag that exempts a material from the debug views (imaterial.h:356). Ours replaced
+    /// its albedo with white. Under the B639 diffuse the mod2x output then clamps to 1 and doubles the floor where a dark
+    /// scorch should be. *Unread:* what the closed shader system draws for plain Modulate, which does not set the flag;
+    /// see the shader's note.
+    /// </remarks>
+    [Test]
+    public void DrawModel_DecalModulateDarkTexelUnderDrawFlat_DrawsAsWithout()
+    {
+        (int, int, int) off = DrawModel(ModulateToneMapConformanceTests.DecalModulateDark) ?? Skip();
+        (int, int, int) flat = DrawModel(ModulateToneMapConformanceTests.DecalModulateDark, debug: new DebugModes { DrawFlat = true }) ?? Skip();
+
+        off.Item2.ShouldBeLessThan(188 - 40, $"the dark scorch drew {off}: nothing drew");
+
+        Close(flat, off, $"the dark scorch drew {off} and {flat} under mat_drawflat");
+    }
+
     private const int UnlitGeneric = 0;
 
     /// <summary>One opaque UnlitGeneric of texel 100, far from the 188 surface and from grey's 128.</summary>
@@ -194,7 +212,8 @@ public sealed class ModulateUnlitConformanceTests
     /// One quad of a material as a brush entity reaches the screen: the model pass, white corners, lightmap coordinates on
     /// the atlas's reserved white texel, no ambient cube.
     /// </summary>
-    private static (int, int, int)? DrawModel(int material, Fullbright fullbright = Fullbright.Off, MapAssets? assets = null)
+    private static (int, int, int)? DrawModel(
+        int material, Fullbright fullbright = Fullbright.Off, MapAssets? assets = null, DebugModes debug = default)
     {
         using OffscreenTarget? target = OffscreenTarget.TryCreate(16, 16);
 
@@ -217,6 +236,7 @@ public sealed class ModulateUnlitConformanceTests
             assets ?? ModulateToneMapConformanceTests.Assets,
             bothSides: true,
             fullbright: fullbright,
+            debug: debug,
             toneMapScale: 1f);
 
         return target.PixelAt(8, 8);
