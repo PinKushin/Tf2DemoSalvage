@@ -257,8 +257,15 @@ public readonly record struct ModelInstance(
 
     // **The light its decals draw with, where it is not the model's own** (B642): a colour-mesh static prop's draw leaves
     // out the static state its colours carry, and `engine.dll` hands its decals the full state at the lighting origin
-    // (`0x1800f1bd0`, `0x1800eb5e0`). Null for everything else: the decals take `Light`, `Sun` and `Locals`.
-    (PointLighting Lighting, SunLight? Sun)? DecalLight = null);
+    // (`0x1800f1bd0`, `0x1800eb5e0`). Null for everything else, and for a prop holding no decal: the decals take `Light`,
+    // `Sun` and `Locals`. A reference, so the struct copied on every sort and add grows by a pointer, not by the light.
+    DecalLighting? DecalLight = null);
+
+/// <summary>The light a colour-mesh static prop's decals draw with: the full state at its lighting origin (B642).</summary>
+/// <param name="Cube">The ambient cube.</param>
+/// <param name="Sun">The sun reaching it, or null.</param>
+/// <param name="Locals">At most four local lights.</param>
+public sealed record DecalLighting(AmbientCube Cube, SunLight? Sun, IReadOnlyList<LocalLight> Locals);
 
 /// <summary>A run of buffer slots, the first and how many (B597).</summary>
 /// <param name="First">The first slot.</param>

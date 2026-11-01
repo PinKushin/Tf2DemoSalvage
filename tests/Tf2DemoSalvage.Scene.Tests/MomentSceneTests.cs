@@ -1069,6 +1069,7 @@ public sealed class MomentSceneTests
                     StudioFlags = studioFlags,
                 },
                 StaticPropColours = new Dictionary<int, float[]> { [PropModels.FirstStaticPropEntityIndex] = [.. Enumerable.Repeat(0.25f, 9)] },
+                Decals = ModelDecalsDrawTests.HoldingADecal(0),
             };
 
             MomentScene scene = new(models, new ViewmodelScene(), new RecordingLogger())
@@ -1093,12 +1094,100 @@ public sealed class MomentSceneTests
         baked.Light.ShouldBeNull("and its own draw takes no cube");
         bumped.Light.ShouldNotBeNull("the control: the bump-mapped prop is lit by its handle's cube");
 
-        (Content.Bsp.PointLighting lighting, SunLight? sun) = baked.DecalLight.ShouldNotBeNull("a colour-mesh prop's decals are lit by the full state");
+        DecalLighting decal = baked.DecalLight.ShouldNotBeNull("a colour-mesh prop holding a decal is lit by the full state");
 
-        lighting.Cube.ShouldBe(bumped.Light.Value);
-        lighting.Locals.ShouldHaveSingleItem().ShouldBe(bumped.Locals.ShouldNotBeNull().ShouldHaveSingleItem(), "the style-0 lamp the colours hold");
-        sun.ShouldBe(bumped.Sun);
+        decal.Cube.ShouldBe(bumped.Light.Value);
+        decal.Locals.ShouldHaveSingleItem().ShouldBe(bumped.Locals.ShouldNotBeNull().ShouldHaveSingleItem(), "the style-0 lamp the colours hold");
+        decal.Sun.ShouldBe(bumped.Sun);
         bumped.DecalLight.ShouldBeNull("a bump-mapped prop's decals take its own light");
+    }
+
+    /// <summary>A colour-mesh static prop under the recorder's fireball, a live dlight, holding a decal or not.</summary>
+    private static (MomentScene Scene, LevelLighting Lighting, EntityModelSet Models) UnderAFireball(bool holdsADecal)
+    {
+        EntityModelSet models = new()
+        {
+            Geometry = _ => new PropModels.ModelFrames(
+                [new[] { new PropVertex(0, 0f, 0f, 0f, 0f, MaterialIndex: 3) }],
+                new Dictionary<int, (int Start, int Frames, float CyclesPerSecond)> { [0] = (0, 1, 0f) },
+                [0],
+                [true]),
+            StaticPropColours = new Dictionary<int, float[]> { [PropModels.FirstStaticPropEntityIndex] = [.5f, .5f, .5f] },
+            Decals = holdsADecal ? ModelDecalsDrawTests.HoldingADecal(0) : new ModelDecals(),
+        };
+
+        LevelLighting lighting = StaticPlusDynamicLightingConformanceTests.Map([]);
+        MomentScene scene = new(models, new ViewmodelScene(), new RecordingLogger())
+        {
+            Upload = new Uploads(),
+            Appearance = new Appearance(),
+            Lighting = lighting,
+            StaticProps =
+                [PropModels.StaticModel(new Content.Bsp.BspStaticProp("models/props/crate.mdl", 0f, 0f, 100f, 0f, 0f, 0f, 1f), 0)],
+        };
+
+        SceneProp fireball = new(
+            300, "models/empty.mdl", SceneModelKind.Studio, new ScenePose { Z = 120f }, OwnedBy: 9,
+            ClassName: "CTFProjectile_BallOfFire");
+
+        scene.Build([], [fireball], Info() with { Recorder = 9 });
+
+        return (scene, lighting, models);
+    }
+
+    /// <remarks>
+    /// **A prop holding no decal pays nothing for one** (B642 review): `engine.dll` builds the decal light only for a
+    /// prop whose record holds decals (`record + 0x10 != 0`, `0x1800f1bd0`, `0x1800eb5e0`). Under a live dlight the flags-6
+    /// draw ranks; the flags-7 decal light must not rank a second time, nor allocate. The holder is the control.
+    /// </remarks>
+    [Test]
+    public void Pose_ABakedStaticPropUnderALiveDlight_LightsItsDecalsOnlyWhenItHoldsOne()
+    {
+        (MomentScene bare, LevelLighting bareLighting, _) = UnderAFireball(holdsADecal: false);
+        (MomentScene held, LevelLighting heldLighting, _) = UnderAFireball(holdsADecal: true);
+
+        bare.Pose(Info() with { Recorder = 9 });
+        held.Pose(Info() with { Recorder = 9 });
+
+        held.Instances.Single(static instance => instance.EntityIndex == PropModels.FirstStaticPropEntityIndex)
+            .DecalLight.ShouldNotBeNull("the control: a holder is lit")
+            .Locals.ShouldHaveSingleItem().Z.ShouldBe(120f, "with the fireball");
+        heldLighting.FullStateRequests.ShouldBe(1, "the control: its decal light asked for flags 7 once");
+
+        ModelInstance drawn = bare.Instances.Single(static instance => instance.EntityIndex == PropModels.FirstStaticPropEntityIndex);
+        drawn.Locals.ShouldNotBeNull().ShouldHaveSingleItem("the control: the dlight reached the draw");
+        drawn.DecalLight.ShouldBeNull();
+        bareLighting.FullStateRequests.ShouldBe(0, "no second ranking for a prop with no decal");
+    }
+
+    /// <remarks>
+    /// **And no allocation for it**: the same non-holding prop posed with the decal light wired and without, after a
+    /// warm-up pose each, allocates the same bytes per pose.
+    /// </remarks>
+    [Test]
+    public void Pose_ABakedStaticPropHoldingNoDecalUnderALiveDlight_AllocatesNothingForTheDecalLight()
+    {
+        long Allocated(bool wired)
+        {
+            (MomentScene scene, _, EntityModelSet models) = UnderAFireball(holdsADecal: false);
+
+            if (!wired)
+            {
+                models.StaticPropFullLighting = null;
+            }
+
+            scene.Pose(Info() with { Recorder = 9 });
+            scene.Pose(Info() with { Recorder = 9 });
+
+            long before = System.GC.GetAllocatedBytesForCurrentThread();
+            scene.Pose(Info() with { Recorder = 9 });
+
+            return System.GC.GetAllocatedBytesForCurrentThread() - before;
+        }
+
+        long unwired = Allocated(wired: false);
+
+        Allocated(wired: true).ShouldBe(unwired);
     }
 
     /// <remarks>
@@ -1120,6 +1209,7 @@ public sealed class MomentSceneTests
                 StudioFlags = Content.Assets.StudioModelFlags.StaticProp,
             },
             StaticPropColours = new Dictionary<int, float[]> { [PropModels.FirstStaticPropEntityIndex] = [.. Enumerable.Repeat(0.25f, 9)] },
+            Decals = ModelDecalsDrawTests.HoldingADecal(0),
         };
 
         LevelLighting lighting = LevelLightingTests.Lit([LevelLightingTests.Lamp((0f, 0f, 120f), 400f)]);

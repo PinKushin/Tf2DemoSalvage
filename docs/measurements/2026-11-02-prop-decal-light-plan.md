@@ -94,6 +94,8 @@ lighting". The cvar is `r_decalstaticprops`, `param_8` is the `DrawModelInfo_t`,
    `ponytail:` the engine sums the draw state (flags 6) with the record's static state (flags 1) and appends the
    record's lights first without re-ranking; ours ranks the static, styled and dynamic lights once. They differ only past
    four lights at one prop.
+   *Superseded by the review batch:* computed only for a prop that holds a decal, and the field is a reference (RISKS
+   B642). As first built:
    Computed for every colour-mesh prop, not only the decaled ones. The decal step runs after the model pass has built
    the instances (`FramePresenter.DrawOver`), so a predicate on the pool would leave a just-decaled prop, and a
    single-frame `--shot`, without its light for a frame. The two lookups it adds are cached (`StaticPropLightingAt` by

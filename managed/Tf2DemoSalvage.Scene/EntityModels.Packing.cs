@@ -187,8 +187,15 @@ public sealed partial class EntityModelSet
     {
         long precacheAt = System.Diagnostics.Stopwatch.GetTimestamp();
         PrecacheStaticLighting();
-        PrecacheTicks += System.Diagnostics.Stopwatch.GetTimestamp() - precacheAt;
+
+        long took = System.Diagnostics.Stopwatch.GetTimestamp() - precacheAt;
+
+        PrecacheTicks += took;
+        StaticLightingPrecached?.Invoke(took);
     }
+
+    /// <summary>Told the ticks each level's static-prop lighting took to build, as it loads, for the load log (B642).</summary>
+    public Action<long>? StaticLightingPrecached { get; set; }
 
     /// <summary><see cref="Add(IReadOnlyList{SceneProp}, Func{string, PropModels.ModelFrames?})"/>'s body, for one list.</summary>
     private bool PackModels(IReadOnlyList<SceneProp> props, Func<string, PropModels.ModelFrames?> load)

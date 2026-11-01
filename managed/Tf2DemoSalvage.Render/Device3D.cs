@@ -1923,7 +1923,10 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
                     // **A fading static prop keeps its holes** (B642): `DrawModelStaticProp` draws its decals in whichever
                     // pass draws it, and the world decal pass that used to carry them drew them whatever the fade. A
                     // two-pass prop's were drawn with its opaque half.
-                    if (!twoPass && instance.EntityIndex >= PropModels.FirstStaticPropEntityIndex)
+                    // Blend and raster need no restoring after it: every step of this walk sets its own, the next model per
+                    // batch (`DrawModel`), the world leaf per run (`DrawTranslucentLeaf`) and the grass on its draw
+                    // (`DetailSpriteRenderer`).
+                    if (ModelDecals.DrawsAfterTranslucent(instance, twoPass))
                     {
                         DrawDecalsOf(instance, _depthReadOnly);
                     }
@@ -4672,6 +4675,12 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
             (ModelInstance instance, bool twoPass) = _skyTranslucentDraw[at].Entry;
 
             DrawInstance(instance, twoPass ? ModelPass.TranslucentOnly : ModelPass.EntireModel);
+
+            // A fading static prop in the sky room keeps its decals, as in the main view's walk (B642).
+            if (ModelDecals.DrawsAfterTranslucent(instance, twoPass))
+            {
+                DrawDecalsOf(instance, _depthReadOnly);
+            }
         }
 
         WorldRenderer.ResetBlend(_context);
@@ -4721,13 +4730,53 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
             return;
         }
 
-        (AmbientCube? light, SunLight? sun, IReadOnlyList<LocalLight>? locals) = instance.DecalLight is { } decal
-            ? (decal.Lighting.Cube, decal.Sun, decal.Lighting.Locals)
-            : (instance.Light, instance.Sun, instance.Locals);
+        (AmbientCube? light, SunLight? sun, IReadOnlyList<LocalLight>? locals) = ModelDecals.LightFor(instance);
 
         _world.DrawModelDecals(
             _device, _context, decals.Vertices, decals.Batches, instance.Bones?.Count ?? 0, light, sun, locals);
         _context.OMSetDepthStencilState(depth, 0);
+
+        if (instance.EntityIndex >= PropModels.FirstStaticPropEntityIndex)
+        {
+            StaticPropDecalDraws++;
+            ReportFirstStaticPropDecal(instance, decals.Batches[0].MaterialIndex, light);
+        }
+    }
+
+    /// <summary>Static props whose decals the model pass drew, ever — the control that prop decals reach the draw (B642).</summary>
+    public long StaticPropDecalDraws { get; private set; }
+
+    /// <summary>Whether the first static prop's decal draw has been logged.</summary>
+    private bool _reportedStaticPropDecal;
+
+    /// <summary>Logs the first static prop whose decals draw, with the light they took (B642).</summary>
+    private void ReportFirstStaticPropDecal(ModelInstance instance, int material, AmbientCube? light)
+    {
+        if (_reportedStaticPropDecal)
+        {
+            return;
+        }
+
+        _reportedStaticPropDecal = true;
+
+        string source = "its own cube";
+
+        if (instance.DecalLight is not null)
+        {
+            source = "its decal light";
+        }
+        else if (light is null)
+        {
+            source = "none (the texel)";
+        }
+
+        // Stryker disable once all : a mutated interpolated string cannot bind to its handler (CS1620) and Safe Mode drops the method - B410
+        _render.LogInformation(
+            "{Message}",
+            string.Create(
+                CultureInfo.InvariantCulture,
+                $"first static prop decal drawn: entity {instance.EntityIndex}, material {material}, light {source}" +
+                $"{(light is { } cube ? $", +z {cube.PositiveZ.Red:0.###} {cube.PositiveZ.Green:0.###} {cube.PositiveZ.Blue:0.###}" : string.Empty)}"));
     }
 
     /// <summary>The render group collation asks for — <see cref="Classify"/>, once per collated renderable.</summary>
