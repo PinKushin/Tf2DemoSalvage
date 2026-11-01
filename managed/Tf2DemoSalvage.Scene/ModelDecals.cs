@@ -20,10 +20,10 @@ namespace Tf2DemoSalvage.Scene;
 /// - **DecalModulate** reads no vertex colour (`VERTEXCOLOR false`, DecalModulate_dx9.cpp:89), and its mod2x compensation
 ///   is the blend's own, on the target's stored values (B641).
 /// - **A lit studio decal** (`decals/bigshot1model`, `break1model`, `bproof1model` and `beersplashmodel` are
-///   VertexLitGeneric) takes the model's light like the model's own surface, which carries white. Until B639 every
-///   studio decal carried 2^2.2/4 here, so a lit one drew about 13% brighter than its model. That figure only ever
-///   compensated a gamma mod2x blend, and a lit decal has none (*arithmetic*). *Unread:* studiorender's decal draw is
-///   closed source, so "lit as the model is" is *interpolated*.
+///   VertexLitGeneric) is white-cornered in Valve too: studiorender's decal vertex builder writes colour `0xffffffff`
+///   (`0x1800096c0`, B642). Until B639 every studio decal carried 2^2.2/4 here, which only ever compensated a gamma mod2x
+///   blend (*arithmetic*). **Its LIGHT is still not Valve's:** `WorldRenderer.DrawModelDecals` hands no ambient cube, so
+///   a lit decal takes the atlas's white texel, where studiorender lights it with the model's cube and lights (B642).
 /// </remarks>
 public sealed class ModelDecals
 {

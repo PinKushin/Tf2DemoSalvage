@@ -40330,8 +40330,12 @@ baked colour mesh, as ours is (`ModelDecals.Unlit`). **What still diverges is th
 prop's ambient cube and local lights, and ours draws it in the world decal pass on the lightmap atlas's white texel
 (about 2.0, measured for a brush entity in B639). **Unread:** whether the engine sets `m_bStaticLighting` for a TF2
 static prop (`engine.dll`). If it does not, the decal draws under whatever lighting state the prop's own draw left.
+**The same light gap on a DYNAMIC model** (read from our code, 2026-11-01): `WorldRenderer.DrawModelDecals` sets no
+ambient cube ("Unlit: `DecalModulate` samples its texture and nothing else"). That holds for DecalModulate, but a
+VertexLitGeneric studio decal (`decals/bigshot1model` and three more) is then lit by the white texel at about 2.0,
+not by its model's light. *Not measured on a frame.*
 **Fix shape, once that is read:** draw a static prop's decals after the prop in the model pass, with the prop
-instance's `Light` and `Locals`, rather than in the world decal pass. Not done here: it reroutes `PropDecals` and rests
+instance's `Light` and `Locals`, rather than in the world decal pass, and hand a dynamic model's cube to its lit decals. Not done here: it reroutes `PropDecals` and rests
 on the unread flag.
 
 **As filed:**
