@@ -458,3 +458,31 @@ takes one — an easy mistake, because every other pass in this pipeline is addi
 that guard — so a rule whose control is the root bone writes stack garbage. Measured unreachable on
 every model that carries the rule: each control has a parent. This project leaves such a bone at its
 animated transform.
+
+## 10. The fading list ran oldest first, under a comment that said the engine did (2026-11-01, B633)
+
+When the sequence transitions were ported (the stage table above lists `MaintainSequenceTransitions` as absent),
+`TransitionsFor` built its list newest first and then reversed it. The comment said the engine "walks its queue from the
+front and each accumulates onto the last". The comment was confident, cited nothing, and was wrong. Order matters
+whenever two sequences fade at once, because each is a partial slerp onto the result of the one before: slerp(slerp(P,
+A, a), B, b) is not slerp(slerp(P, B, b), A, a).
+
+**What disproved it [src], read in all four trees under `F:/src`.** The 2013 SDK, `hl2sdk-tf2`, Orange Box `hl2sdk` and
+`hl2sdk-episode1` agree line for line:
+
+- `CSequenceTransitioner::CheckForSequenceChange` treats the queue's TAIL as the current sequence
+  (`sequence_Transitioner.cpp:36`). On a change it `AddToTail`s a new current (`:64`), so the outgoing sequences sit in
+  front of it, oldest first. `UpdateCurrent` removes an expired one in place (`:101-114`), keeping the order.
+- `MaintainSequenceTransitions` then walks `for (int i = m_animationQueue.Count() - 2; i >= 0; i--)`
+  (`c_baseanimating.cpp:1848`; `hl2sdk` `:1604`; episode 1 `cl_dll/c_baseanimating.cpp:1435`). It starts at the
+  newest fading sequence and ends at the oldest, each an `AccumulatePose` onto the last (`:1863`).
+  `GetBlendedLinearVelocity` walks the same way (`hl2sdk` `:4778`).
+
+So the engine accumulates **newest first**. Our loop already ran in that direction, because it walked backwards so it
+could remove as it went. The `Reverse()` written to match the comment was the whole defect. It came out in B633,
+held by `AccumulatePoseConformanceTests.BuildBlend_TwoSequencesFadingAtOnce_AccumulatesTheNewerFirst`, red first with
+`[1, 2]`.
+
+**The lesson is about where the comment's claim came from.** "From the front" is how a queue is usually drained, so
+the claim read as obvious, and nobody looked for the loop bound. The `Count() - 2` start is the detail that settles it,
+and it sits at the one line the comment was paraphrasing.
