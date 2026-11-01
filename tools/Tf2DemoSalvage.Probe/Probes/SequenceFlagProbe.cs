@@ -85,7 +85,7 @@ public sealed class SequenceFlagProbe : IProbe
             ("STUDIO_ALLZEROS", AllZeros),
             ("STUDIO_CYCLEPOSE", CyclePose),
             ("STUDIO_REALTIME", Realtime),
-            ("STUDIO_LOCAL", 0x0200),
+            ("STUDIO_LOCAL", StudioSequenceFlags.Local),
             ("STUDIO_HIDDEN", Hidden),
         ];
 
@@ -130,7 +130,10 @@ public sealed class SequenceFlagProbe : IProbe
 
             int local = -1;
 
-            foreach (StudioSequence sequence in StudioSequences.Read(model))
+            // Read once per model: the loop walks it, and B634's target lookup below indexes it.
+            IReadOnlyList<StudioSequence> all = StudioSequences.Read(model);
+
+            foreach (StudioSequence sequence in all)
             {
                 sequences++;
                 local++;
@@ -220,11 +223,10 @@ public sealed class SequenceFlagProbe : IProbe
                 IReadOnlyList<StudioAutoLayer> declared = StudioAutoLayers.Read(model, local);
                 int localLayers = declared.Count(entry => entry.IsLocal);
 
-                if ((sequence.Flags & 0x0200) != 0)
+                if ((sequence.Flags & StudioSequenceFlags.Local) != 0)
                 {
                     // Each local autolayer's TARGET too: one that is itself `STUDIO_LOCAL` runs its own local pass now
                     // (B634), on every frame its parent plays. Same-file relative index, which a single .mdl resolves.
-                    IReadOnlyList<StudioSequence> all = StudioSequences.Read(model);
                     string targets = string.Join(
                         ", ",
                         declared.Where(entry => entry.IsLocal).Select(entry =>
@@ -284,7 +286,7 @@ public sealed class SequenceFlagProbe : IProbe
                 // adds nothing, so that half is a no-op — but a LOCAL autolayer of that sequence
                 // would not be applied at all, and that is a real difference. It needs the two to
                 // coincide on one sequence.
-                if ((sequence.Flags & 0x0200) == 0)
+                if ((sequence.Flags & StudioSequenceFlags.Local) == 0)
                 {
                     continue;
                 }

@@ -118,6 +118,34 @@ public sealed class AccumulatePartsTests
         (added.Seed, added.Capture, added.Solve, added.Compose, added.Enumerators).ShouldBe((0L, 0L, 0L, 0L, 0L));
     }
 
+    /// <remarks>
+    /// **Local scopes keep the stamp chain whole (B634)**: a weighted local parent (own pose sampled, its child composed
+    /// into it, the pose blended at the close) and a weight-0 local parent whose child is skipped. Two samples — the
+    /// weighted parent and its child; the zero-weight parent and its skipped child take none — and two enumerators, the
+    /// layer loop and the child's compose (the own pose is overlaid by index). The residual stays non-negative and the
+    /// parts still add up, so the skip and the close are each stamped once.
+    /// </remarks>
+    [Test]
+    public void Build_WithALocalScopeAndASkippedOne_KeepsThePartsAddingUp()
+    {
+        SkeletonPose pose = Pose(layerPose: [Rest(0)], layerTicks: Millisecond);
+        pose.Layers =
+        [
+            Layer(weight: 1f) with { Nested = 1, Local = 1 },
+            Layer(weight: 1f),
+            Layer(weight: 0f) with { Nested = 1, Local = 1 },
+            Layer(weight: 1f),
+        ];
+
+        RootSetupParts parts = Built(pose);
+
+        (parts.Samples, parts.Enumerators).ShouldBe((2L, 2L));
+        parts.Sampling.ShouldBeGreaterThanOrEqualTo(2 * Millisecond);
+        parts.AccumulateOther.ShouldBeGreaterThanOrEqualTo(0, "a sub-part counted a span twice");
+        (parts.Seed + parts.Capture + parts.Solve + parts.Compose + parts.AccumulateOther)
+            .ShouldBe(parts.Accumulate - parts.Sampling);
+    }
+
     private static RootSetupParts Built(SkeletonPose pose)
     {
         BoneAccessor bones = new(Bones) { WritableBones = Everything, ReadableBones = Everything };

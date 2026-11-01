@@ -117,9 +117,14 @@ inside the bracket and now covers both passes: `[S, S's local subtree (Local lay
     result. (Not an equivalent mutant, as first written here: without the skip the subtree would compose onto the parent
     target, since no own pose was opened. `Build_AZeroWeightLayerWithALocalLayer_ComposesNeither` holds it.) The IK rules
     of those layers are still gathered scene-side, as Valve's `AddDependencies` runs regardless.
-- **Seed**: bind, Valve's `InitPose`. For a `STUDIO_DELTA` local sequence the engine would compose a pose whose
-  un-animated bones are bind, not identity; the census found no such sequence, so the literal port is exact on the
-  content and stated as such.
+- **Seed** (corrected 2026-11-01 in the review batch; the first version of this line said the opposite and was wrong):
+  `InitPose` seeds bind (`:2433`), but `CalcPoseSingle` → `CalcAnimation` then overwrites every bone whose
+  `seqdesc.weight` is above 0 (`bone_setup.cpp:1095-1126`). A bone with a track gets the track's value. A bone without
+  one gets the bind pose for an ordinary animation, and **identity / zero for a `STUDIO_DELTA` one** (`:1112-1116`). So a
+  delta local sequence's unnamed weighted bones are identity, not bind. The code now seeds identity for a delta layer
+  (`SkeletonPose.SeedIdentity`), keyed on the sequence's delta bit, where the engine keys on the animation's. No shipped
+  local sequence is delta (census), so the case is synthetic only:
+  `NestedLockBracketConformanceTests.Build_ADeltaLocalParent_SeedsItsUnnamedBonesWithIdentity`.
 - **Timers**: the scratch sample lands in `layer sampling`, its compose and the scratch-onto-parent compose in
   `compose`, brackets in `capture`/`solve`. No new span. `AccumulatePartsTests` stay unchanged.
 
@@ -206,3 +211,45 @@ inside the bracket and now covers both passes: `[S, S's local subtree (Local lay
 - **Cost on the roots-split instrument [pred]**: unchanged for players. B633 removes one `List.Reverse` per entity
   with transitions. B634 adds one `Local` test per layer, under 0.0001 ms per root rebuild. A viewmodel fading out of a
   local sequence pays one more sample and two dense passes, about 0.01-0.015 ms on that rebuild.
+
+## 9. Review batch (`fix/b633-b634-review-batch`, from merge `a1e2d14c`)
+
+Every item below is [src] for the engine side; each test is synthetic.
+
+- **Nested local scopes, depth two**: `Build_TwoNestedLocalScopes_BlendInnermostFirstAndReturnToTheAccumulator`. It
+  passed first time. Two sabotages each reddened it alone: one own pose shared by every depth (`Scratch(0)`), and the
+  target left on the inner pose at a close.
+- **A locking parent whose subtree is all local**: `Build_ALockingLayerWhoseSubtreeIsAllLocal_SolvesAfterItsOwnPoseIsBlended`.
+  It passed first time. Pushing the bracket above the own pose (so it pops first) reddened it alone, giving 8 against
+  the expected 6.
+- **A sparse local sample**: `Build_ASparseLocalSampleWithAWeightedUnnamedBone_PullsItHalfwayToBind`.
+  - Engine arithmetic: `CalcAnimation` writes bind into every weighted bone without a track
+    (`bone_setup.cpp:1110-1121`), and `SlerpBones` blends it at weight × per-bone weight. So the knee goes from 6 to 3
+    and the tip's X stays 20.
+  - The local path already did this; the test passed first time. Inverting the delta test, so a non-delta pose is
+    seeded with identity, reddened it (X 15).
+  - **Found while settling it, and not fixed here: the NON-local path diverges for the same reason.** A layer sampled
+    at a whole frame comes back sparse (`StudioAnimation.PoseBetweenInto`: "the frame alone, sparse, when fraction is
+    not above zero"). `ComposeBone` then touches only the named bones. The engine's `pos2` holds bind on every weighted
+    unnamed bone and blends it in. At a fractional frame the sample is dense and the two agree, so the same layer
+    behaves differently at a whole frame and a fractional one. **Needs a B number**; who reaches it is unmeasured.
+- **A delta local parent seeds identity**: `Build_ADeltaLocalParent_SeedsItsUnnamedBonesWithIdentity`. Red first,
+  with X 40 against 20 under the bind seed. §4 is corrected above.
+- **IK-rule weight of a local layer**: Valve's value is the 1.0-derived one, independent of the parent's weight.
+  - `AddLocalLayers` runs inside `if (CalcPoseSingle(…))`, which has no weight test (`:2436`).
+  - Its `AccumulatePose` calls `AddDependencies( …, flWeight )` with the layer's own weight, which becomes
+    `ikrule.flRuleWeight` (`:3317`).
+  - So ours, `IkFor` at `layer.Weight`, is equal. Held by `LayersFor_ALocalWireLayerWithALocalAutolayer_*` at parent
+    weights 0.5 and 0.1, where the child stays at 1.
+  - At parent weight 0, Valve still adds the rules, and so does `BuildBlend`, which walks every listed layer. The
+    skeleton's skip of that subtree is about the pose only.
+- **Timers**: `AccumulatePartsTests.Build_WithALocalScopeAndASkippedOne_KeepsThePartsAddingUp`. It counts 2 samples and
+  2 enumerators, the parts sum to the total, and the residual is not negative.
+- **Fading roots keep their subtrees**: `BuildBlend_TwoFadingSequencesWithAutolayers_KeepEachSubtreeBehindItsRoot`
+  (2, 0, 1, 0).
+- **Tidy**:
+  - `OpenScope` now carries `Locks` or an `OwnPose? Own` (parent pose, layer index, weight) instead of a whole
+    `PoseLayer` and an `Into!`.
+  - `STUDIO_LOCAL` is one public constant, `StudioSequenceFlags.Local`, the value of `StudioFlags.SequenceLocal`.
+  - `sequence-flags` reads each model's sequence table once.
+  - `VmtMaterial.IsDecalModulate` is inlined.

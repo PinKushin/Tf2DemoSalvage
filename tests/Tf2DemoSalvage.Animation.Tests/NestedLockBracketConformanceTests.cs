@@ -196,6 +196,101 @@ public sealed class NestedLockBracketConformanceTests
         TipY(pose).ShouldBe(0f, Tolerance, "the lock captured on the parent's own bind-seeded pose");
     }
 
+    /// <remarks>
+    /// **Local scopes nest** (B634): `AddLocalLayers` → `AccumulatePose` → `AddLocalLayers` (`bone_setup.cpp:2439`,
+    /// `:2284`), each into the `pos2` of the one above. Layer 1 (0.5, root 2) holds layer 2 (0.5, root 4) in its own pose,
+    /// and 2 holds 3 (1, root 8) in its own. 2's pose: 4 then 8 = 8. Into 1's: 0.5 · 2 + 0.5 · 8 = 5. Into the
+    /// accumulator: 0.5 · 0 + 0.5 · 5 = 2.5. Then layer 4 (0.5, root 10), after both scopes closed, composes onto the
+    /// accumulator again: 0.5 · 2.5 + 0.5 · 10 = 6.25 — which reads only if the target came back from the inner pose.
+    /// </remarks>
+    [Test]
+    public void Build_TwoNestedLocalScopes_BlendInnermostFirstAndReturnToTheAccumulator()
+    {
+        SkeletonPose pose = Pose(rootY: new() { [1] = 2f, [2] = 4f, [3] = 8f, [4] = 10f });
+        pose.Layers =
+        [
+            Layer(1, weight: 0.5f, locks: false, nested: 2, local: 2),
+            Layer(2, weight: 0.5f, locks: false, nested: 1, local: 1),
+            Layer(3, weight: 1f, locks: false),
+            Layer(4, weight: 0.5f, locks: false),
+        ];
+
+        TipY(pose).ShouldBe(6.25f, Tolerance);
+    }
+
+    /// <remarks>
+    /// **A locking parent whose whole subtree is local: the blend first, then the solve, both at one index.**
+    /// `AccumulatePose` captures on `pos` (`bone_setup.cpp:2424-2429`), blends `pos2` in (`:2440`) and solves on `pos`
+    /// last (`:2451-2454`). Layer 3 puts the accumulator's root at 6, so the parent captures the tip at 6; its own pose
+    /// (root 4, then its local layer's 8) blends in whole on the root, and the solve pins the tip back to 6. Solved
+    /// before the blend, the solve finds nothing to do and the blend leaves 8.
+    /// </remarks>
+    [Test]
+    public void Build_ALockingLayerWhoseSubtreeIsAllLocal_SolvesAfterItsOwnPoseIsBlended()
+    {
+        SkeletonPose pose = Pose(rootY: new() { [3] = 6f, [1] = 4f, [2] = 8f });
+        pose.Layers =
+        [
+            Layer(3, weight: 1f, locks: false),
+            Layer(1, weight: 1f, locks: true, nested: 1, local: 1),
+            Layer(2, weight: 1f, locks: false),
+        ];
+
+        TipY(pose).ShouldBe(6f, Tolerance, "the parent's bracket solves on the accumulator after its own pose is in");
+    }
+
+    /// <remarks>
+    /// **A sparse local sample: a bone it does not name is the BIND pose in the parent's own pose, and is blended.**
+    /// `CalcAnimation` writes every bone whose `seqdesc.weight` is above 0 — `q[i] = pbone->quat; pos[i] = pbone->pos;`
+    /// for one with no track (`bone_setup.cpp:1110-1121`) — so `SlerpBones` at 0.5 pulls it halfway to bind. The knee
+    /// layer first raises bone 2 to Y 6; the local parent names no bone and weighs every bone 1, so bone 2 goes to
+    /// 0.5 · 6 + 0.5 · 0 = 3, and the tip with it.
+    /// </remarks>
+    [Test]
+    public void Build_ASparseLocalSampleWithAWeightedUnnamedBone_PullsItHalfwayToBind()
+    {
+        SkeletonPose pose = Pose(rootY: []);
+        pose.Layers =
+        [
+            Layer(Knee, weight: 1f, locks: false) with { BoneWeights = All },
+            Layer(1, weight: 0.5f, locks: false, nested: 1, local: 1) with { BoneWeights = All },
+            Layer(2, weight: 1f, locks: false),
+        ];
+
+        (float x, float y) = Tip(pose);
+
+        y.ShouldBe(3f, Tolerance, "bone 2 halfway from 6 to its bind 0; untouched, it would stay at 6");
+        x.ShouldBe(20f, Tolerance, "bind's X, 10, on both sides of the blend; an identity seed would halve it to 15");
+    }
+
+    /// <remarks>
+    /// **A DELTA local parent seeds its unnamed bones with IDENTITY, not bind** (`bone_setup.cpp:1112-1116`,
+    /// `if (animdesc.flags &amp; STUDIO_DELTA) { q[i].Init( 0, 0, 0, 1 ); pos[i].Init( 0, 0, 0 ); }`). The parent names only
+    /// the root, +2 in Y, and adds at 1 over every bone. Identity elsewhere adds nothing, so the tip stays at X 20; a bind
+    /// seed would add each bone's rest offset a second time and put it at 40. No shipped sequence reaches this (none of the
+    /// 48 `STUDIO_LOCAL` sequences is delta).
+    /// </remarks>
+    [Test]
+    public void Build_ADeltaLocalParent_SeedsItsUnnamedBonesWithIdentity()
+    {
+        SkeletonPose pose = Pose(rootY: new() { [1] = 2f });
+        pose.Layers =
+        [
+            Layer(1, weight: 1f, locks: false, nested: 1, local: 1) with { BoneWeights = All, Delta = true },
+            Layer(2, weight: 1f, locks: false),
+        ];
+
+        (float x, float y) = Tip(pose);
+
+        x.ShouldBe(20f, Tolerance, "the rest leg alone, nothing added twice");
+        y.ShouldBe(2f, Tolerance, "the root's delta");
+    }
+
+    /// <summary>A sequence that raises bone 2 to Y 6 and names nothing else.</summary>
+    private const int Knee = 9;
+
+    private static readonly float[] All = [1f, 1f, 1f, 1f];
+
     /// <summary>The leg, whose base (sequence 0) is the rest pose and whose layer sequences each place the root.</summary>
     /// <remarks>A sequence not in <paramref name="rootY"/> animates no bone at all.</remarks>
     private static SkeletonPose Pose(Dictionary<int, float> rootY) =>
@@ -210,6 +305,11 @@ public sealed class NestedLockBracketConformanceTests
         if (sequence == 0)
         {
             return Rest();
+        }
+
+        if (sequence == Knee)
+        {
+            return [new StudioBonePose(2, (10f, 6f, 5f), (0f, 0f, 0f, 1f))];
         }
 
         return rootY.TryGetValue(sequence, out float y) ? [new StudioBonePose(0, (0f, y, 0f), (0f, 0f, 0f, 1f))] : [];
@@ -258,11 +358,16 @@ public sealed class NestedLockBracketConformanceTests
     }
 
     /// <summary>Builds the pose and reads the tip's Y off its bone matrix.</summary>
-    private static float TipY(SkeletonPose pose)
+    private static float TipY(SkeletonPose pose) => Tip(pose).Y;
+
+    /// <summary>Builds the pose and reads the tip's X and Y off its bone matrix.</summary>
+    private static (float X, float Y) Tip(SkeletonPose pose)
     {
         BoneAccessor bones = new(4) { WritableBones = Everything, ReadableBones = Everything };
         pose.Build(Everything, 0d, bones, new BoneBitList(4));
 
-        return bones.BoneForWrite(3)[7];
+        float[] tip = bones.BoneForWrite(3);
+
+        return (tip[3], tip[7]);
     }
 }
