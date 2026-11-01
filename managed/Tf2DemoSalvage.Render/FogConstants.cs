@@ -11,15 +11,22 @@ namespace Tf2DemoSalvage.Render;
 /// (common_ps_fxc.h:45) and <c>fogParams</c> as <c>CalcRangeFog</c> unpacks them
 /// (common_ps_fxc.h:250): x start/(end−start), y the water height, z max density, w 1/(end−start).
 ///
-/// **Interpolated: the gamma-to-linear curve.** The conversion lives in the closed shader API. Its
-/// string table names <c>m_bFogColorSpecifiedInLinearSpace</c>, so a gamma colour IS converted; the
-/// curve used here is mathlib's <c>GammaToLinearFullRange</c>, <c>pow(x, 2.2)</c>
-/// (color_conversion.cpp:264), which is Source's own and not the sRGB one.
+/// **The gamma-to-linear curve is the exact sRGB decode, read** (B653; <c>shaderapidx9.dll</c> <c>0x180025a50</c>, the c29
+/// upload, converts on the CPU): under range fog with sRGB writes on, as every lit shader sets them, and under height fog
+/// at the default <c>r_shader_srgb 0</c>, each channel goes through <c>0x18003ddf0</c>. <c>pow 2.2</c> is only the
+/// height path at <c>r_shader_srgb 1</c>. Addresses: <c>docs/measurements/2026-11-02-fog-colour-curve-plan.md</c>.
 /// </remarks>
 public static class FogConstants
 {
-    /// <summary>Source's gamma, <c>GammaToLinearFullRange</c>.</summary>
-    private const float Gamma = 2.2f;
+    /// <summary>shaderapi's sRGB-to-linear (<c>0x18003ddf0</c>): clamped to 0..1, then the exact sRGB curve.</summary>
+    /// <param name="gamma">A fog colour channel as the material system holds it, gamma 0..1.</param>
+    /// <returns>The linear channel c29 carries.</returns>
+    public static float SrgbDecode(float gamma)
+    {
+        float x = Math.Clamp(gamma, 0f, 1f);
+
+        return x <= 0.04045f ? x / 12.92f : MathF.Pow((x + 0.055f) / 1.055f, 2.4f);
+    }
 
     /// <summary>Two float4s: linear colour with w = 1 when fog is on, then the range parameters.</summary>
     /// <param name="fog">The fog in force, or null for <c>MATERIAL_FOG_NONE</c>.</param>
@@ -40,9 +47,9 @@ public static class FogConstants
 
         return
         [
-            MathF.Pow(on.Red, Gamma),
-            MathF.Pow(on.Green, Gamma),
-            MathF.Pow(on.Blue, Gamma),
+            SrgbDecode(on.Red),
+            SrgbDecode(on.Green),
+            SrgbDecode(on.Blue),
 
             // Which PIXEL_FOG_TYPE the shader runs (common_ps_fxc.h:69-71): 1 range, 2 radial, and
             // 0 — every float of a null fog — off.

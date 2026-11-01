@@ -681,8 +681,9 @@ shader never re-encodes the colour the API linearised for it.
 because our water fog colour already did. The API has two: `pow 2.2` and the exact sRGB decode, chosen by
 `r_shader_srgb` ("0 = use hardware srgb", the default). At the default it is the sRGB decode, so the grey is 0.2159,
 not 0.2195. The difference is under two 8-bit levels, which no render test here can see; the reading holds it. The
-same choice applies to the water's own fog colour and to the scene fog colour under sRGB write, both still `pow 2.2` in
-ours (RISKS B637). The gamma-correction flag DecalModulate sets is tested only after the conversion, so it skips the
+same choice applies to the water's own fog colour and to the scene fog colour under sRGB write. Both were `pow 2.2` in
+ours, and B653 moved them to the decode. The range branch, it turned out, takes the decode under sRGB write with no
+`r_shader_srgb` test at all (`docs/measurements/2026-11-02-fog-colour-curve-plan.md`). The gamma-correction flag DecalModulate sets is tested only after the conversion, so it skips the
 tone-map scale and nothing else.
 
 **Two things learned beside it.** The comment "fog should stay exactly middle grey" is true only for range fog. And

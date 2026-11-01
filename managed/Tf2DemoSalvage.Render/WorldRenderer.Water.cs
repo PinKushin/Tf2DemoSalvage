@@ -469,7 +469,8 @@ internal sealed unsafe partial class WorldRenderer
 
         // **The volume's height fog, as R_SetFogVolumeState sets it** (engine.dll 0x1800e0cd0): SetFogZ, the colour,
         // start and end. CalcWaterFogAlpha reads the fog z from g_FogParams.y and one over the range from .w — packed
-        // here as the range fog's own registers are (FogConstants, B139).
+        // here as the range fog's own registers are (FogConstants, B139). The colour takes shaderapi's height-fog
+        // conversion, the sRGB decode at the default r_shader_srgb 0 (0x180025b9a, B653), not pow 2.2.
         if (heightFog is { HeightFog: true } fog)
         {
             float range = fog.End - fog.Start;
@@ -478,9 +479,9 @@ internal sealed unsafe partial class WorldRenderer
             _waterView[5] = fog.FogZ;
             _waterView[6] = 1f;
             _waterView[7] = range != 0f ? 1f / range : 0f;
-            _waterView[8] = Linear(fog.Color.Red);
-            _waterView[9] = Linear(fog.Color.Green);
-            _waterView[10] = Linear(fog.Color.Blue);
+            _waterView[8] = FogConstants.SrgbDecode(fog.Color.Red);
+            _waterView[9] = FogConstants.SrgbDecode(fog.Color.Green);
+            _waterView[10] = FogConstants.SrgbDecode(fog.Color.Blue);
         }
 
         WriteWater(context, null, -1);

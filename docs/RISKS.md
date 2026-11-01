@@ -40265,6 +40265,29 @@ this**, not only bump-mapped props' draws. *Not measured:* how often more than f
 map. **Fix shape:** keep the static list (`StaticPropLightingAt`'s locals) and append the draw's lights in the engine's
 order, without the ranking.
 
+## B653 — the scene and water fog colours are made linear by `pow 2.2`; shaderapi takes the exact sRGB decode (2026-11-02) — FIXED on `fix/fog-colour-curve` (not merged)
+
+**Fixed:** `FogConstants.SrgbDecode` now carries both colours. `FogColourCurveConformanceTests` was red first. On the f12
+frame every changed pixel went down by 1 to 3 levels, and none went up. That is invisible, and it is parity. On a fogged
+outdoor frame of `pl_upward_f12` 35,913 px went down, by up to 5 levels, on the far 3D-sky mountain. That is more than
+the controller's colour predicts (about 1.2), and it is not explained. The plan doc holds the numbers, images and what
+is unsettled.
+**A seam the fix opens, OPEN:** the water view's clear colour (`WorldRenderer.Water.cs:761-763`, from
+`SetClearColorToFogColor`, `viewrender.cpp:759-766`) still takes `pow 2.2`. Fully fogged water geometry now takes the
+sRGB decode, so where the two meet they differ. At full fog the gap is 6.85 stored levels on a channel of 26 and 2.8
+on 58 (*arithmetic*, same table). The open question is whether a D3D9 `Clear` honours `SRGBWRITEENABLE`. That decides
+which curve the clear really lands on. Not read.
+
+**As filed:**
+
+**Read** (*disassembly*, `shaderapidx9.dll` `0x180025a50`, the c29 upload): under range fog with sRGB writes on, which
+every lit shader sets (`EnableSRGBWrite( true )`, `lightmappedgeneric_dx9_helper.cpp:614`), the colour goes through the
+sRGB decode (`0x18003ddf0`) with no `r_shader_srgb` test; under height fog it takes the same decode at the default
+`r_shader_srgb 0` and `pow 2.2` only at 1. **Ours:** `FogConstants.For` and the water volume's colour
+(`WorldRenderer.Water.cs` `Linear`) both take `pow 2.2`. **Who it reaches:** every fogged lit surface and every surface
+under water fog. The size: about 1.4 levels high near mid grey and up to 7 levels low at a dark channel, at full fog
+(*arithmetic*). Found in B637's review. Plan, numbers and the fix: `docs/measurements/2026-11-02-fog-colour-curve-plan.md`.
+
 ## B652 — four edge and debug paths left by the B641 gamma-twin work (2026-11-02) — OPEN, low
 
 Found by the Opus review of `fix/b641-review-batch` (merged at `d4f32ef8`, gated); none reaches a normal frame. **Read from
@@ -40614,8 +40637,8 @@ only DecalModulate's `DisableFogGammaCorrection` keeps the tone-map scale off it
 centre ×1.123 (TF2 ×1.116). The tripwire is replaced by `ModulateFogConformanceTests`, which holds the height branch
 unscaled by its pixels. **Review batch (`fix/b637-review-batch`):** the height grey's curve read (sRGB, not pow 2.2) and
 the modulate blends stopped writing alpha, as Valve's do (`DecalModulate_dx9.cpp:70-71`, `modulate_dx9.cpp:211`).
-**Still open:** our water fog colour and the scene fog colour under sRGB write still take pow 2.2 where shaderapi's
-default path takes the sRGB curve (lit materials; plan doc, review batch).
+**Moved to B653:** our water fog colour and the scene fog colour under sRGB write took pow 2.2 where shaderapi's
+default path takes the sRGB curve (lit materials).
 
 **As filed:**
 

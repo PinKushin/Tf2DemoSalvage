@@ -21,7 +21,14 @@ however many controllers the map holds. The 3D skybox's fog is not a controller'
 - **The fog colour leaves the client in GAMMA space**: `GetFogColor` divides 0–255 by 255 with a `FIXME: convert to
   linear colorspace` beside it, and the pixel shader reads `g_LinearFogColor`. The conversion is in the closed shader
   API; its string table names `m_bFogColorSpecifiedInLinearSpace` and `m_bFogColorAlwaysLinearSpace`, so a conversion
-  exists. The curve used here is mathlib's `pow(x, 2.2)`. *Interpolated.*
+  exists. The curve used here was mathlib's `pow(x, 2.2)`. *Interpolated, and wrong; see below.*
+- **The curve is the exact sRGB decode** (B653, 2026-11-02; *disassembly*, `shaderapidx9.dll` `0x180025a50`): the c29
+  upload converts on the CPU through `0x18003ddf0`. Under range fog it does so whenever sRGB writes are on, as every lit
+  shader sets them, and it never consults `r_shader_srgb`. Under height fog it takes the same decode at the default
+  `r_shader_srgb 0`, and `pow 2.2` only at 1. The interpolation above came from the one curve Source's mathlib names.
+  The binary has two curves, and the default path takes the other one. The size: about one stored level high near the
+  outdoor fog colours, and up to seven low on a dark channel, at full fog. On f12 at ordinary distances every changed
+  pixel moved by 1 to 3 levels, all down. Numbers: `docs/measurements/2026-11-02-fog-colour-curve-plan.md`.
 - **The first fog constant is start over range**, `CalcRangeFog( z, fogParams.x, fogParams.z, fogParams.w )`
   subtracts it, and the radial path names the same register `flFogEndOverRange` while using it identically. Max
   density clamps before the saturate, and the blend squares the factor. *Published source.*

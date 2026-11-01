@@ -22,7 +22,7 @@ namespace Tf2DemoSalvage.Rendering.Tests;
 /// DecalModulate and `$mod2x`, `dst · s` for plain Modulate.
 ///
 /// **The fog colour is decided in the shader API** (<c>shaderapidx9.dll</c> <c>0x180025a50</c>): 128/255 under range fog,
-/// pow( 128/255, 2.2 ) under height fog, times the tone-map scale for Modulate and not for DecalModulate. What is read and
+/// the sRGB decode of 128/255 under height fog, times the tone-map scale for Modulate and not for DecalModulate. What is read and
 /// what is interpolated: <c>docs/measurements/2026-11-02-modulate-fog-plan.md</c>.
 ///
 /// **The condition makes the factor exact** (<see cref="FogRenderTests"/>' trick): an identity camera puts the quad at
