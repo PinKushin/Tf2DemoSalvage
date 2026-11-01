@@ -40251,6 +40251,16 @@ It is tested red-first. It names which thread waited and where the draw had got 
 **Reopen if** the `queue stall` line ever appears in a viewer log, or if this test's hang rate on the branch, measured
 the same way, exceeds the baseline's.
 
+## B653 — the scene and water fog colours are made linear by `pow 2.2`; shaderapi takes the exact sRGB decode (2026-11-02) — OPEN
+
+**Read** (*disassembly*, `shaderapidx9.dll` `0x180025a50`, the c29 upload): under range fog with sRGB writes on, which
+every lit shader sets (`EnableSRGBWrite( true )`, `lightmappedgeneric_dx9_helper.cpp:614`), the colour goes through the
+sRGB decode (`0x18003ddf0`) with no `r_shader_srgb` test; under height fog it takes the same decode at the default
+`r_shader_srgb 0` and `pow 2.2` only at 1. **Ours:** `FogConstants.For` and the water volume's colour
+(`WorldRenderer.Water.cs` `Linear`) both take `pow 2.2`. **Who it reaches:** every fogged lit surface and every surface
+under water fog. The size: about 1.4 levels high near mid grey and up to 7 levels low at a dark channel, at full fog
+(*arithmetic*). Found in B637's review. Plan, numbers and the fix: `docs/measurements/2026-11-02-fog-colour-curve-plan.md`.
+
 ## B652 — four edge and debug paths left by the B641 gamma-twin work (2026-11-02) — OPEN, low
 
 Found by the Opus review of `fix/b641-review-batch` (merged at `d4f32ef8`, gated); none reaches a normal frame. **Read from
