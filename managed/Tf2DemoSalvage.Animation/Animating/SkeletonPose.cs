@@ -44,6 +44,11 @@ namespace Tf2DemoSalvage.Animation.Animating;
 /// recursively (B624). `AddSequenceLayers` runs between `AddSequenceLocks` and `SolveSequenceLocks`
 /// (<c>bone_setup.cpp:2424-2454</c>), so this layer's lock bracket closes only after those layers are composed.
 /// </param>
+/// <param name="Local">
+/// How many of those <paramref name="Nested"/> layers, the first ones, are this layer's `AddLocalLayers` subtree (B634):
+/// composed into the layer's OWN pose — seeded by `InitPose`, sampled, then layered — before that pose is blended in at
+/// <paramref name="Weight"/> (<c>bone_setup.cpp:2433-2440</c>). The rest compose onto the accumulator after it.
+/// </param>
 /// <remarks>
 /// **The per-bone list is the whole mechanism, not a refinement.** A gesture's weight list is 1 on
 /// the arms and 0 on the legs, which is how a reload plays on a running player without stopping
@@ -61,7 +66,8 @@ public readonly record struct PoseLayer(
     bool Delta = false,
     bool Post = false,
     IReadOnlyList<StudioIkLock>? Locks = null,
-    int Nested = 0);
+    int Nested = 0,
+    int Local = 0);
 
 /// <summary>
 /// A real studio skeleton, driven by whatever the animation says its bones are doing.
@@ -945,8 +951,32 @@ public sealed class SkeletonPose : IBonePose
     /// </remarks>
     private IkLocks[] _brackets = [];
 
-    /// <summary>The brackets open during one accumulate, innermost last: each its closing layer index and its locks.</summary>
-    private readonly List<(int Close, IReadOnlyList<StudioIkLock> Locks)> _open = [];
+    /// <summary>The scopes open during one accumulate, innermost last: lock brackets and local poses, each with its close.</summary>
+    private readonly List<OpenScope> _open = [];
+
+    /// <summary>Where the next layer composes: the accumulator, or the innermost open local scope's own pose (B634).</summary>
+    private StudioBonePose[] _target = [];
+
+    /// <summary>How many local scopes are open, which is the depth of the next one's own pose.</summary>
+    private int _locals;
+
+    /// <summary>One own pose per local-scope depth, grown as deeper scopes first open (B634).</summary>
+    private readonly List<StudioBonePose[]> _scratch = [];
+
+    /// <summary>One open `AccumulatePose` scope.</summary>
+    /// <param name="Close">The index of the last layer inside it.</param>
+    /// <param name="Locks">A lock bracket's locks, solved on <paramref name="On"/> at the close; null for a local scope.</param>
+    /// <param name="On">The pose the bracket captured on, or the local scope's own pose.</param>
+    /// <param name="Into">A local scope's parent pose, which its own is blended into at the close.</param>
+    /// <param name="Layer">A local scope's layer, for its per-bone weights and delta flags.</param>
+    /// <param name="Weight">A local scope's weight, clamped to one.</param>
+    private readonly record struct OpenScope(
+        int Close,
+        IReadOnlyList<StudioIkLock>? Locks,
+        StudioBonePose[] On,
+        StudioBonePose[]? Into,
+        PoseLayer Layer,
+        float Weight);
 
     /// <summary>Each bone's parent, built once for a model with chains.</summary>
     private int[]? _parents;
@@ -1008,11 +1038,7 @@ public sealed class SkeletonPose : IBonePose
 
         if (locked || dense.IsEmpty)
         {
-            for (int bone = 0; bone < _bones.Count; bone++)
-            {
-                result[bone] = new StudioBonePose(
-                    bone, _bones[bone].Position, _bones[bone].Rotation);
-            }
+            SeedBind(result);
         }
 
         // **The MAIN sequence's bracket, and its "before" is the BIND pose** (B311). The engine's
@@ -1021,6 +1047,8 @@ public sealed class SkeletonPose : IBonePose
         // locked sequence holds a foot at its bind position rather than at wherever the previous
         // frame left it. That is why the seed above stays whenever a lock will read it.
         _open.Clear();
+        _target = result;
+        _locals = 0;
 
         if (locked)
         {
@@ -1033,22 +1061,7 @@ public sealed class SkeletonPose : IBonePose
             _capture += seedingAt - capturingAt;
         }
 
-        if (!dense.IsEmpty)
-        {
-            dense.CopyTo(result);
-        }
-        else
-        {
-            for (int entry = 0; entry < basePose.Count; entry++)
-            {
-                StudioBonePose moved = basePose[entry];
-
-                if (moved.Bone >= 0 && moved.Bone < result.Length)
-                {
-                    result[moved.Bone] = moved;
-                }
-            }
-        }
+        Overlay(basePose, dense, result);
 
         long seededAt = System.Diagnostics.Stopwatch.GetTimestamp();
         _seed += seededAt - seedingAt;
@@ -1056,21 +1069,34 @@ public sealed class SkeletonPose : IBonePose
         // **The main sequence's bracket stays OPEN over its own autolayers** (B625): `AccumulatePose` runs
         // `AddLocalLayers` and `AddSequenceLayers` before `SolveSequenceLocks` (`bone_setup.cpp:2439`, `:2449`,
         // `:2451-2454`), and those are the first `BaseNested` layers.
+        //
+        // **The main sequence's local layers compose straight onto `result`** (B634), because here `result` IS its own
+        // `pos2`: the base is copied in whole, which is `SlerpBones` at the literal 1.0 (`c_baseanimating.cpp:1986`).
         if (locked)
         {
-            _open.Add((BaseNested - 1, Locks));
+            _open.Add(new OpenScope(BaseNested - 1, Locks, result, null, default, 0f));
         }
 
-        long last = CloseBrackets(-1, result, seededAt);
+        long last = CloseBrackets(-1, seededAt);
 
         // Counted, not timed (the setup-bones read's M6): `Layers` is an interface, so this takes an enumerator from it.
         _enumerators++;
 
         int index = -1;
+        int skipThrough = -1;
 
         foreach (PoseLayer layer in Layers)
         {
             index++;
+
+            // **A weight-0 layer's local subtree is not accumulated** (B634): it would compose into the layer's own `pos2`,
+            // which `SlerpBones` at 0 then discards (`bone_setup.cpp:2440`, `if (s2 <= 0.0f) continue;`), so the result is
+            // Valve's. Brackets that close inside the range still close.
+            if (index <= skipThrough)
+            {
+                last = CloseBrackets(index, last);
+                continue;
+            }
 
             // **No weight test on the bracket** (B626). A layer reaching here at weight 0 is an autolayer whose window
             // computed zero, and `AddSequenceLayers` accumulates it regardless (`bone_setup.cpp:2209`): `AccumulatePose`
@@ -1086,23 +1112,31 @@ public sealed class SkeletonPose : IBonePose
             // not the bind pose — which is what the engine's `pos`/`q` hold at that point.
             bool holds = layer.Locks is { Count: > 0 } && IkChains.Count > 0;
 
+            // Where this layer composes: the accumulator, or the own pose of the local layer it sits under (B634).
+            StudioBonePose[] target = _target;
+
             long sampledAt = System.Diagnostics.Stopwatch.GetTimestamp();
 
             if (holds)
             {
-                Bracket(_open.Count).Capture(layer.Locks!, IkChains, result);
-                _open.Add((index + Math.Max(0, layer.Nested), layer.Locks!));
+                Bracket(_open.Count).Capture(layer.Locks!, IkChains, target);
+                _open.Add(new OpenScope(index + Math.Max(0, layer.Nested), layer.Locks!, target, null, default, 0f));
 
                 long capturedAt = System.Diagnostics.Stopwatch.GetTimestamp();
                 _capture += capturedAt - sampledAt;
                 sampledAt = capturedAt;
             }
 
+            // The first `Local` of the `Nested` layers are this one's `AddLocalLayers` subtree; a count past `Nested` is
+            // malformed and held to it, so the subtree cannot outlive the bracket that encloses it.
+            int local = Math.Clamp(layer.Local, 0, Math.Max(0, layer.Nested));
+
             // **A zero weight composes nothing, so it is not sampled**: `SlerpBones` skips every bone on
             // `if (s2 <= 0.0f) continue;`, so Valve's `CalcPoseSingle` there is work whose result is discarded.
             if (weight <= 0f)
             {
-                last = CloseBrackets(index, result, sampledAt);
+                skipThrough = index + local;
+                last = CloseBrackets(index, sampledAt);
                 continue;
             }
 
@@ -1113,93 +1147,37 @@ public sealed class SkeletonPose : IBonePose
             _layerSampling += composingAt - sampledAt;
             _layerSamples++;
 
+            // **A layer with a local pass gets a pose of its own** (B634), Valve's `pos2`: `InitPose` (`bone_setup.cpp:2433`),
+            // `CalcPoseSingle` into it (`:2436`), then `AddLocalLayers` composes the next `local` layers there (`:2439`). The
+            // scope closes after them, and only then is the pose blended in at this layer's weight (`:2440`).
+            if (local > 0)
+            {
+                StudioBonePose[] own = Scratch(_locals);
+                ReadOnlySpan<StudioBonePose> whole = StudioPoseBlend.AsDense(sampled, own.Length);
+
+                if (whole.IsEmpty)
+                {
+                    SeedBind(own);
+                }
+
+                Overlay(sampled, whole, own);
+
+                _open.Add(new OpenScope(index + local, null, own, target, layer, weight));
+                _locals++;
+                _target = own;
+
+                long ownAt = System.Diagnostics.Stopwatch.GetTimestamp();
+                _seed += ownAt - composingAt;
+                last = CloseBrackets(index, ownAt);
+                continue;
+            }
+
             // `sampled` is an interface too: one more enumerator, inside the compose span.
             _enumerators++;
 
             foreach (StudioBonePose over in sampled)
             {
-                int bone = over.Bone;
-
-                // Stryker disable all : the condition spans two lines, so 'disable once' cannot
-                // reach it (measured). A mutant that empties the guard body leaves 'weights'
-                // unassigned below (CS0165), and Safe Mode then drops every mutation in this
-                // method — B410.
-                if (bone < 0 || bone >= result.Length ||
-                    layer.BoneWeights is not { } weights || bone >= weights.Count)
-                {
-                    continue;
-                }
-
-                // Stryker restore all
-
-                float s2 = weight * weights[bone];
-
-                if (s2 <= 0f)
-                {
-                    continue;
-                }
-
-                if (s2 > 1f)
-                {
-                    s2 = 1f;
-                }
-
-                StudioBonePose under = result[bone];
-
-                // **A delta layer ADDS; it does not blend toward** (B284). `SlerpBones` splits on
-                // the sequence's `STUDIO_DELTA` before it does anything else
-                // (`bone_setup.cpp:1434`):
-                //
-                //     if ( seqdesc.flags & STUDIO_POST ) QuaternionMA( q1[i], s2, q2[i], q1[i] );
-                //     else                               QuaternionSM( s2, q2[i], q1[i], q1[i] );
-                //     pos1[i] = pos1[i] + pos2[i] * s2;
-                //
-                // **Every TF2 player gesture takes this branch**, measured on `scout.mdl`:
-                // `PRIMARY_reload_start` and `jumpland_primary` both carry the delta bit on the
-                // sequence AND on the animation behind it. Slerping toward one instead replaces the
-                // skeleton with a difference — which is not a pose at all — and lays the player
-                // flat on the ground.
-                if (layer.Delta)
-                {
-                    result[bone] = new StudioBonePose(
-                        bone,
-                        (under.Position.X + (over.Position.X * s2),
-                         under.Position.Y + (over.Position.Y * s2),
-                         under.Position.Z + (over.Position.Z * s2)),
-                        layer.Post
-                            ? StudioBones.ScaleAfter(under.Rotation, s2, over.Rotation)
-                            : StudioBones.ScaleBefore(s2, over.Rotation, under.Rotation));
-
-                    continue;
-                }
-
-                float s1 = 1f - s2;
-
-                // **`BONE_FIXED_ALIGNMENT` picks the blend that does NOT re-align** (B292):
-                //
-                //     if ( pStudioHdr->boneFlags(i) & BONE_FIXED_ALIGNMENT )
-                //         QuaternionSlerpNoAlign( q2[i], q1[i], s1, q3 );
-                //     else
-                //         QuaternionSlerp( q2[i], q1[i], s1, q3 );
-                //
-                // (`bone_setup.cpp:1492`). Aligning negates the target when it points the long way
-                // round, which is normally what keeps a limb from swinging through the body — but
-                // on a bone the animator has declared constrained, that negation flips it out of
-                // its authored range instead.
-                //
-                // **Valve's argument order is kept — layer first, base second, at `s1`.** For the
-                // aligning form the two orders agree, since the trig is symmetric under swapping
-                // the pair and the fraction. `SlerpNoAlign`'s ANTIPODAL arm is not: it builds a
-                // perpendicular out of its SECOND argument, so writing the pair the other way round
-                // would silently change the result in exactly the case the flag exists for.
-                result[bone] = new StudioBonePose(
-                    bone,
-                    ((under.Position.X * s1) + (over.Position.X * s2),
-                     (under.Position.Y * s1) + (over.Position.Y * s2),
-                     (under.Position.Z * s1) + (over.Position.Z * s2)),
-                    (_bones[bone].Flags & StudioBoneFlags.FixedAlignment) != 0
-                        ? StudioBones.SlerpNoAlign(over.Rotation, under.Rotation, s1)
-                        : StudioBones.Slerp(under.Rotation, over.Rotation, s2));
+                ComposeBone(layer, weight, over, target);
             }
 
             long composedAt = System.Diagnostics.Stopwatch.GetTimestamp();
@@ -1208,42 +1186,197 @@ public sealed class SkeletonPose : IBonePose
             // `if (seqdesc.numiklocks) seq_ik.SolveSequenceLocks( seqdesc, pos, q );` — the closing half, after the layer
             // AND everything nested in it has been composed: this layer's own if it nests nothing, and its ancestors'
             // when it is the last of their subtrees.
-            last = CloseBrackets(index, result, composedAt);
+            last = CloseBrackets(index, composedAt);
         }
 
         // A bracket whose nesting ran past the list — a `BaseNested` with no layers to enclose, or a malformed count —
         // still closes, because its capture ran.
-        CloseBrackets(int.MaxValue, result, last);
+        CloseBrackets(int.MaxValue, last);
 
         return result;
     }
 
-    /// <summary>Solves every open bracket that closes at or before a layer, innermost first.</summary>
+    /// <summary>One bone of <c>SlerpBones</c>: a layer's value composed onto a pose at the layer's weight.</summary>
+    /// <param name="layer">The layer, for its per-bone weights and its delta flags.</param>
+    /// <param name="weight">Its weight, already clamped to one.</param>
+    /// <param name="over">The layer's value for one bone.</param>
+    /// <param name="result">The pose it composes onto, in place.</param>
+    private void ComposeBone(in PoseLayer layer, float weight, in StudioBonePose over, StudioBonePose[] result)
+    {
+        int bone = over.Bone;
+
+        // Stryker disable all : the condition spans two lines, so 'disable once' cannot
+        // reach it (measured). A mutant that empties the guard body leaves 'weights'
+        // unassigned below (CS0165), and Safe Mode then drops every mutation in this
+        // method — B410.
+        if (bone < 0 || bone >= result.Length ||
+            layer.BoneWeights is not { } weights || bone >= weights.Count)
+        {
+            return;
+        }
+
+        // Stryker restore all
+
+        float s2 = weight * weights[bone];
+
+        if (s2 <= 0f)
+        {
+            return;
+        }
+
+        if (s2 > 1f)
+        {
+            s2 = 1f;
+        }
+
+        StudioBonePose under = result[bone];
+
+        // **A delta layer ADDS; it does not blend toward** (B284). `SlerpBones` splits on
+        // the sequence's `STUDIO_DELTA` before it does anything else
+        // (`bone_setup.cpp:1434`):
+        //
+        //     if ( seqdesc.flags & STUDIO_POST ) QuaternionMA( q1[i], s2, q2[i], q1[i] );
+        //     else                               QuaternionSM( s2, q2[i], q1[i], q1[i] );
+        //     pos1[i] = pos1[i] + pos2[i] * s2;
+        //
+        // **Every TF2 player gesture takes this branch**, measured on `scout.mdl`:
+        // `PRIMARY_reload_start` and `jumpland_primary` both carry the delta bit on the
+        // sequence AND on the animation behind it. Slerping toward one instead replaces the
+        // skeleton with a difference — which is not a pose at all — and lays the player
+        // flat on the ground.
+        if (layer.Delta)
+        {
+            result[bone] = new StudioBonePose(
+                bone,
+                (under.Position.X + (over.Position.X * s2),
+                 under.Position.Y + (over.Position.Y * s2),
+                 under.Position.Z + (over.Position.Z * s2)),
+                layer.Post
+                    ? StudioBones.ScaleAfter(under.Rotation, s2, over.Rotation)
+                    : StudioBones.ScaleBefore(s2, over.Rotation, under.Rotation));
+
+            return;
+        }
+
+        float s1 = 1f - s2;
+
+        // **`BONE_FIXED_ALIGNMENT` picks the blend that does NOT re-align** (B292):
+        //
+        //     if ( pStudioHdr->boneFlags(i) & BONE_FIXED_ALIGNMENT )
+        //         QuaternionSlerpNoAlign( q2[i], q1[i], s1, q3 );
+        //     else
+        //         QuaternionSlerp( q2[i], q1[i], s1, q3 );
+        //
+        // (`bone_setup.cpp:1492`). Aligning negates the target when it points the long way
+        // round, which is normally what keeps a limb from swinging through the body — but
+        // on a bone the animator has declared constrained, that negation flips it out of
+        // its authored range instead.
+        //
+        // **Valve's argument order is kept — layer first, base second, at `s1`.** For the
+        // aligning form the two orders agree, since the trig is symmetric under swapping
+        // the pair and the fraction. `SlerpNoAlign`'s ANTIPODAL arm is not: it builds a
+        // perpendicular out of its SECOND argument, so writing the pair the other way round
+        // would silently change the result in exactly the case the flag exists for.
+        result[bone] = new StudioBonePose(
+            bone,
+            ((under.Position.X * s1) + (over.Position.X * s2),
+             (under.Position.Y * s1) + (over.Position.Y * s2),
+             (under.Position.Z * s1) + (over.Position.Z * s2)),
+            (_bones[bone].Flags & StudioBoneFlags.FixedAlignment) != 0
+                ? StudioBones.SlerpNoAlign(over.Rotation, under.Rotation, s1)
+                : StudioBones.Slerp(under.Rotation, over.Rotation, s2));
+    }
+
+    /// <summary>Closes every open scope that ends at or before a layer, innermost first.</summary>
     /// <param name="index">The layer just accumulated; −1 for the base.</param>
-    /// <param name="result">The pose, solved in place.</param>
-    /// <param name="from">The stamp the last span ended at, where the first solve's span begins.</param>
-    /// <returns>The stamp the last solve ended at, or <paramref name="from"/> when none ran.</returns>
+    /// <param name="from">The stamp the last span ended at, where the first close's span begins.</param>
+    /// <returns>The stamp the last close ended at, or <paramref name="from"/> when none ran.</returns>
     /// <remarks>
     /// **Innermost first is the engine's order** (B625): a nested `AccumulatePose` returns, solving its own locks, before
     /// its parent reaches `SolveSequenceLocks` (<c>bone_setup.cpp:2449-2454</c>). Each solve uses the bracket at its own
-    /// depth, which holds that sequence's capture and no other. Every solve is stamped from the end of the span before it,
-    /// so no tick is counted in two parts.
+    /// depth, which holds that sequence's capture and no other, and solves the pose it captured on.
+    ///
+    /// **A local scope closes by blending its own pose in** (B634): `SlerpBones( q, pos, …, q2, pos2, flWeight )`
+    /// (<c>bone_setup.cpp:2440</c>) after `AddLocalLayers` has run, and before the same sequence's non-local autolayers and
+    /// its own solve — which LIFO gives, because its bracket was opened before its pose was sampled. Every close is stamped
+    /// from the end of the span before it, so no tick is counted in two parts: a solve in `solve`, a blend in `compose`.
     /// </remarks>
-    private long CloseBrackets(int index, StudioBonePose[] result, long from)
+    private long CloseBrackets(int index, long from)
     {
         while (_open.Count > 0 && _open[^1].Close <= index)
         {
-            IReadOnlyList<StudioIkLock> locks = _open[^1].Locks;
+            OpenScope scope = _open[^1];
             _open.RemoveAt(_open.Count - 1);
 
-            Bracket(_open.Count).Solve(locks, IkChains, result);
+            if (scope.Locks is { } locks)
+            {
+                Bracket(_open.Count).Solve(locks, IkChains, scope.On);
 
-            long solvedAt = System.Diagnostics.Stopwatch.GetTimestamp();
-            _solve += solvedAt - from;
-            from = solvedAt;
+                long solvedAt = System.Diagnostics.Stopwatch.GetTimestamp();
+                _solve += solvedAt - from;
+                from = solvedAt;
+                continue;
+            }
+
+            StudioBonePose[] into = scope.Into!;
+            _locals--;
+            _target = into;
+
+            for (int bone = 0; bone < scope.On.Length; bone++)
+            {
+                ComposeBone(scope.Layer, scope.Weight, scope.On[bone], into);
+            }
+
+            long blendedAt = System.Diagnostics.Stopwatch.GetTimestamp();
+            _compose += blendedAt - from;
+            from = blendedAt;
         }
 
         return from;
+    }
+
+    /// <summary>Writes the bind pose into every bone — <c>InitPose</c>.</summary>
+    private void SeedBind(StudioBonePose[] onto)
+    {
+        for (int bone = 0; bone < _bones.Count; bone++)
+        {
+            onto[bone] = new StudioBonePose(bone, _bones[bone].Position, _bones[bone].Rotation);
+        }
+    }
+
+    /// <summary>Writes a sampled pose over a whole one: copied when it is dense, entry by entry when it is sparse.</summary>
+    /// <param name="pose">The sample.</param>
+    /// <param name="dense">The sample as a span when it already names every bone in order, else empty.</param>
+    /// <param name="onto">The pose written.</param>
+    private static void Overlay(IReadOnlyList<StudioBonePose> pose, ReadOnlySpan<StudioBonePose> dense, StudioBonePose[] onto)
+    {
+        if (!dense.IsEmpty)
+        {
+            dense.CopyTo(onto);
+            return;
+        }
+
+        for (int entry = 0; entry < pose.Count; entry++)
+        {
+            StudioBonePose moved = pose[entry];
+
+            if (moved.Bone >= 0 && moved.Bone < onto.Length)
+            {
+                onto[moved.Bone] = moved;
+            }
+        }
+    }
+
+    /// <summary>The own pose of a local scope at one depth, made the first time a scope that deep opens (B634).</summary>
+    /// <remarks>One per depth because local scopes nest, and kept, so a steady state allocates nothing.</remarks>
+    private StudioBonePose[] Scratch(int depth)
+    {
+        while (_scratch.Count <= depth)
+        {
+            _scratch.Add(new StudioBonePose[_bones.Count]);
+        }
+
+        return _scratch[depth];
     }
 
     /// <summary>The bone a procedural barrel spin overwrites, or -1 when there is none.</summary>

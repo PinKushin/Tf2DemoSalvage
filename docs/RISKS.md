@@ -40382,7 +40382,25 @@ in view... and stacking shouldnt cause this"*.
 
 **Measurement:** `docs/measurements/2026-10-31-explosive-decals-vs-tf2.md`, which carries every number and image.
 
-## B634 — `AddLocalLayers` runs only for the main sequence; the engine runs it inside every `AccumulatePose` (2026-10-31) — OPEN, latent on players
+## B634 — `AddLocalLayers` runs only for the main sequence; the engine runs it inside every `AccumulatePose` (2026-10-31) — FIXED on `fix/b633-b634-layer-order` (2026-11-01), viewmodels only
+
+**Fixed (2026-11-01), plan and evidence `docs/measurements/2026-11-01-layer-order-plan.md`.** Read in all four SDK trees
+(`bone_setup.cpp:2433-2440` in 2013 and `hl2sdk-tf2`, `:2344-2353` Orange Box, `:1635-1644` episode 1): `InitPose` seeds
+`pos2` for a `STUDIO_LOCAL` sequence, `CalcPoseSingle` samples into it, `AddLocalLayers( pos2, q2, …, 1.0, … )` runs a full
+`AccumulatePose` per local autolayer INTO `pos2` (`:2284`) — its brackets on `pos2` — and only then `SlerpBones` blends
+`pos2` in at `flWeight`. **The entry below understated it**: the builder ran no local pass at all, so a non-main
+`STUDIO_LOCAL` sequence lost its local layers outright, at any weight, not only below one. The fix: `PoseLayer.Local` marks
+a layer's `AddLocalLayers` subtree; the builder `EntityModelSet.AccumulatePose` runs the local pass at the literal 1.0;
+`SkeletonPose.Accumulate` gives such a layer its own pose per depth (`OpenScope`, LIFO with the lock brackets), composes
+the subtree there and blends it in at the close. Conformance: `NestedLockBracketConformanceTests` (four `Build_*Local*`),
+`AccumulatePoseConformanceTests.LayersFor_ALocalWireLayerWithALocalAutolayer_*` with its main-sequence control.
+**Who reaches it [meas, `sequence-flags`, all 14,416 models in `tf2_misc_dir.vpk`]: all 48 `STUDIO_LOCAL` sequences are
+viewmodel arms** (`c_<class>_animations.mdl`: `melee_allclass_*`, `throw_*`), one local autolayer each, none delta, and every one targets `r_handposes`, flags
+`0x501` (`LOOPING|REALTIME|HIDDEN`, not `STUDIO_LOCAL`), so no target runs a local pass of its own and a viewmodel's
+main sequence is unchanged by this fix [meas, same run]. So no
+player changes; a viewmodel changes only while fading out of one of them [interp, not observed]. **Not established:** a
+dynamic count on a POV demo; the main sequence's own bone weights below one (the base is copied whole, where Valve's
+`SlerpBones` at 1.0 keeps bind on a weight-0 bone), a neighbour not fixed here.
 
 **Evidence class: read from published source; who reaches it measured as a flag census only.** Found while fixing B624, and
 deliberately left out of that change (`docs/measurements/2026-10-31-sequence-autolayers-plan.md` §4, "Not ported").
@@ -40405,7 +40423,19 @@ deliberately left out of that change (`docs/measurements/2026-10-31-sequence-aut
 - **What would settle it:** a `transitions`-style walk over a POV demo counting fading viewmodel sequences that carry
   `STUDIO_LOCAL` with local autolayers. Control: the same walk must count the viewmodel's ordinary transitions.
 
-## B633 — fading sequences are accumulated oldest first; the engine accumulates the newest first (2026-10-31) — OPEN
+## B633 — fading sequences are accumulated oldest first; the engine accumulates the newest first (2026-10-31) — FIXED on `fix/b633-b634-layer-order` (2026-11-01)
+
+**Fixed (2026-11-01).** The order was confirmed in all four SDK trees: `AddToTail` at `sequence_Transitioner.cpp:64` (and
+`:64` in `hl2sdk`, `hl2sdk-tf2`, `hl2sdk-episode1`), the walk `Count() - 2` down to 0 at `c_baseanimating.cpp:1848`
+(`hl2sdk` `:1604`, episode 1 `:1435`). `fading.Reverse()` is gone; the loop already walked newest first. Conformance:
+`AccumulatePoseConformanceTests.BuildBlend_TwoSequencesFadingAtOnce_AccumulatesTheNewerFirst`, red before (`[1, 2]`). The
+IK rules `BuildBlend` gathers follow the list, so their order flips to Valve's accumulation order too. `GetBlendedLinearVelocity`
+walks the same way in Valve; ours has no counterpart. **How often [meas, proxy]:** 35 main-sequence changes within
+0.2 s of the entity's last one in 2,709 player-ticks of f12 29700-30000 (`pose-layers`, read off `FrameOf`). **Not
+established, visibly:** three before/after `--shot` pairs on entity 8 (ticks 29756, 29760, 29764, with
+`TF2VIEW_SEEK_THROUGH` from 29700) differ by 0 pixels. A control shows transitions DO reach the drawn pose: emptying
+`pending.Transitions` changes 83,729 pixels at 29756. So at most one fading root was drawn at those ticks, and no frame
+with two has been shot. No instrument carries the queue length as the draw used it. Details are in the plan's §8.
 
 **Evidence class: read from published source on both sides; the visible effect is *interpolated*.** Found while fixing
 B624, and left out of that change so its before/after shows one thing.

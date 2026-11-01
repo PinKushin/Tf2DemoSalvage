@@ -111,6 +111,8 @@ public sealed class SequenceFlagProbe : IProbe
         List<string> ordinaryExamples = [];
         List<string> poseKeyExamples = [];
         List<string> lockExamples = [];
+        List<string> localSequences = [];
+        int deadLocalLayers = 0;
 
         foreach (string path in archive.Paths
             .Where(entry => entry.EndsWith(".mdl", StringComparison.OrdinalIgnoreCase))
@@ -210,6 +212,35 @@ public sealed class SequenceFlagProbe : IProbe
                 }
 
                 Count(sequenceFlags, sequenceCounts, sequence.Flags, examples, path, sequence.Label);
+
+                // **B634: every `STUDIO_LOCAL` sequence, not two examples.** `AddLocalLayers` returns at once unless the
+                // sequence carries the flag (`bone_setup.cpp:2229`) and then runs only its `STUDIO_AL_LOCAL` autolayers, so
+                // a local sequence with none of them is inert and one with them is what B634 can reach. Delta is listed
+                // because the local pass composes into a pose seeded by `InitPose`, which is bind, not identity.
+                IReadOnlyList<StudioAutoLayer> declared = StudioAutoLayers.Read(model, local);
+                int localLayers = declared.Count(entry => entry.IsLocal);
+
+                if ((sequence.Flags & 0x0200) != 0)
+                {
+                    // Each local autolayer's TARGET too: one that is itself `STUDIO_LOCAL` runs its own local pass now
+                    // (B634), on every frame its parent plays. Same-file relative index, which a single .mdl resolves.
+                    IReadOnlyList<StudioSequence> all = StudioSequences.Read(model);
+                    string targets = string.Join(
+                        ", ",
+                        declared.Where(entry => entry.IsLocal).Select(entry =>
+                            entry.Sequence >= 0 && entry.Sequence < all.Count
+                                ? $"{all[entry.Sequence].Label} 0x{all[entry.Sequence].Flags:X}"
+                                : $"#{entry.Sequence} outside this file"));
+
+                    localSequences.Add(
+                        $"{path}:{sequence.Label} delta {((sequence.Flags & 0x0004) != 0 ? "yes" : "no")} " +
+                        $"local autolayers {localLayers} other autolayers {declared.Count - localLayers} -> {targets}");
+                }
+                else if (localLayers > 0)
+                {
+                    // The control half: a local autolayer under a sequence WITHOUT the flag is one nothing applies.
+                    deadLocalLayers += localLayers;
+                }
 
                 // **The question `ScaleBones` turns on.** An all-zeros corner reached by a DELTA
                 // sequence is already nothing — expanding it to identity and blending gives what
@@ -336,6 +367,15 @@ public sealed class SequenceFlagProbe : IProbe
             $"  {weighted} of {lockedChains} locks carry a non-zero weight — the rest are no-ops " +
             "the engine still runs the bracket for" +
             (weightExamples.Count > 0 ? $": {string.Join("; ", weightExamples)}" : string.Empty));
+
+        output.WriteLine(
+            $"STUDIO_LOCAL sequences, every one (B634): {localSequences.Count}; " +
+            $"STUDIO_AL_LOCAL autolayers under a sequence without STUDIO_LOCAL (never applied): {deadLocalLayers}");
+
+        foreach (string line in localSequences)
+        {
+            output.WriteLine($"  {line}");
+        }
     }
 
     /// <summary>`STUDIO_ALLZEROS` (<c>studio.h:3083</c>) — the animation carries no real data.</summary>
