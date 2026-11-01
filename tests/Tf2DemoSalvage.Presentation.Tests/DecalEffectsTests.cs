@@ -162,6 +162,25 @@ public sealed class DecalEffectsTests
         return (new DecalEffects(models, new BulletStrikes(models, new RecordingLogger()), log), device, models, log);
     }
 
+    /// <remarks>
+    /// **The model pass and the draw read one pool** (B642 review): the model set lights a static prop's decals only when
+    /// the pool it holds says the prop holds one, so it must be the very pool the device draws from. Every Scene test sets
+    /// it by hand; this is the production wiring, `DecalEffects(EntityModelSet, …)`.
+    /// </remarks>
+    [Test]
+    public void StepOver_OverTheProductionModelSet_HandsTheDeviceTheModelSetsPool()
+    {
+        EntityModelSet models = new();
+        DecalEffects decals = new(models, new BulletStrikes(models, new RecordingLogger()), new RecordingLogger());
+        FakeDecalUpload device = new();
+
+        decals.StepOver(Frame(50), Content(), device);
+
+        device.ModelDecals.ShouldNotBeNull("the control: the step handed the device its pool");
+        models.Decals.ShouldBeSameAs(device.ModelDecals);
+        models.DecalLightPasses.ShouldBe(1, "the step lights the decals it placed after the pose, before the draw");
+    }
+
     [Test]
     public void StepOver_AServerImpactOnAnEnemy_PutsItsFleshDecalOnHisModel()
     {

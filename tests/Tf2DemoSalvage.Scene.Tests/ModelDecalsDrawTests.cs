@@ -1,6 +1,5 @@
 using System.Collections.Generic;
 using System.Numerics;
-using System.Runtime.CompilerServices;
 
 using Tf2DemoSalvage.Content.Bsp;
 
@@ -48,11 +47,34 @@ public sealed class ModelDecalsDrawTests
     {
         ModelInstance entity = new("models/player/heavy.mdl", [], ModelCube, ModelSun, Locals: ModelLamps, EntityIndex: 4);
 
-        (AmbientCube? light, SunLight? sun, IReadOnlyList<LocalLight>? locals) = ModelDecals.LightFor(entity);
+        (AmbientCube? light, SunLight? sun, IReadOnlyList<LocalLight>? locals, bool decalLit) = ModelDecals.LightFor(entity, new ModelDecals());
 
         light.ShouldBe(ModelCube);
         sun.ShouldBe(ModelSun);
         locals.ShouldBeSameAs(ModelLamps);
+        decalLit.ShouldBeFalse();
+    }
+
+    /// <remarks>
+    /// **A decal the replay placed after the pose takes the pool's late light** (B642 review): the instance was posed with
+    /// no holder and carries no <see cref="ModelInstance.DecalLight"/>, and a paused viewer does not pose again.
+    /// </remarks>
+    [Test]
+    public void LightFor_AStaticPropPosedBeforeItsDecalWithALateLight_IsTheLateLight()
+    {
+        ModelInstance prop = new(
+            "models/props/crate.mdl", [], LevelLighting.NoStaticState, null, Locals: ModelLamps,
+            EntityIndex: PropModels.FirstStaticPropEntityIndex + 3);
+        ModelDecals pool = HoldingADecal(3);
+
+        pool.SetLateLights([new(DecalReplay.StaticPropKey(3), new DecalLighting(PropCube, PropSun, PropLamps))]);
+
+        (AmbientCube? light, SunLight? sun, IReadOnlyList<LocalLight>? locals, bool decalLit) = ModelDecals.LightFor(prop, pool);
+
+        light.ShouldBe(PropCube);
+        sun.ShouldBe(PropSun);
+        locals.ShouldBeSameAs(PropLamps);
+        decalLit.ShouldBeTrue();
     }
 
     /// <remarks>
@@ -66,13 +88,16 @@ public sealed class ModelDecalsDrawTests
             "models/props/crate.mdl", [], LevelLighting.NoStaticState, null, Locals: ModelLamps,
             EntityIndex: PropModels.FirstStaticPropEntityIndex, DecalLight: new DecalLighting(PropCube, PropSun, PropLamps));
 
-        (AmbientCube? light, SunLight? sun, IReadOnlyList<LocalLight>? locals) = ModelDecals.LightFor(prop);
+        (AmbientCube? light, SunLight? sun, IReadOnlyList<LocalLight>? locals, bool decalLit) = ModelDecals.LightFor(prop, null);
 
         light.ShouldBe(PropCube);
         sun.ShouldBe(PropSun);
         locals.ShouldBeSameAs(PropLamps);
+        decalLit.ShouldBeTrue();
     }
 
+    [TestCase(PropModels.FirstStaticPropEntityIndex, false, true)]
+    [TestCase(PropModels.FirstStaticPropEntityIndex - 1, false, false)]
     [TestCase(PropModels.FirstStaticPropEntityIndex + 3, false, true)]
     [TestCase(PropModels.FirstStaticPropEntityIndex + 3, true, false)]
     [TestCase(4, false, false)]
@@ -89,14 +114,33 @@ public sealed class ModelDecalsDrawTests
     }
 
     /// <remarks>
-    /// **The decal light rides as a reference** (B642 review): the struct is copied on every collation add and sort, and
-    /// the first form, a nullable `(PointLighting, SunLight?)` inline, made it 144 bytes larger. A pointer adds 8.
-    /// Measured with <c>Unsafe.SizeOf</c> on each build: 432 at `56da2627`, 576 at `d8cd9101`, 440 here.
+    /// **A model whose only decal was retired holds none**: `Retire` leaves its list in place, empty (the 1.5 · limit rule
+    /// retires the oldest decal of any model).
     /// </remarks>
     [Test]
-    public void ModelInstance_Size_IsTheSizeBeforeTheDecalLightPlusOnePointer() =>
-        Unsafe.SizeOf<ModelInstance>().ShouldBe(SizeBeforeDecalLight + 8);
+    public void Holds_AStaticPropWhoseOnlyDecalWasRetired_IsFalse()
+    {
+        ModelDecals pool = HoldingADecal(3);
+        int key = DecalReplay.StaticPropKey(3);
 
-    /// <summary><c>Unsafe.SizeOf&lt;ModelInstance&gt;()</c> at `56da2627`, before B642 added the field.</summary>
-    private const int SizeBeforeDecalLight = 432;
+        for (int shot = 0; shot < ModelDecals.MaximumPerModel * 3 / 2; shot++)
+        {
+            pool.AddClipped(
+                DecalReplay.StaticPropKey(10 + (shot / ModelDecals.MaximumPerModel)), Face, Vector3.Zero, new Vector3(-1.1f, 0f, 0f), 4f, 0)
+                .ShouldBeTrue();
+        }
+
+        pool.Models.ShouldContain(key, "the control: the retired model's list is still in the pool");
+        pool.Holds(key).ShouldBeFalse();
+    }
+
+    /// <remarks>
+    /// **The decal light rides as a reference** (B642 review): the struct is copied on every collation add and sort, and
+    /// the first form, a nullable `(PointLighting, SunLight?)` inline, made it 144 bytes larger (432 at `56da2627`, 576 at
+    /// `d8cd9101`, 440 with the reference, each measured with <c>Unsafe.SizeOf</c>). Asserted on the field's kind rather
+    /// than a byte count, which follows the runtime's layout.
+    /// </remarks>
+    [Test]
+    public void ModelInstance_DecalLight_IsAReferenceNotAnInlineValue() =>
+        typeof(ModelInstance).GetProperty(nameof(ModelInstance.DecalLight))!.PropertyType.IsValueType.ShouldBeFalse();
 }

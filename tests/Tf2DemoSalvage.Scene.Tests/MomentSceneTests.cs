@@ -1161,6 +1161,131 @@ public sealed class MomentSceneTests
     }
 
     /// <remarks>
+    /// **The decal light follows the light, and is kept only while the light holds** (B642 review): posed after the
+    /// fireball's dlight has died, the holder takes a new one without the lamp; posed again with nothing changed, it keeps
+    /// that one. A reuse test that always kept the old one would draw the dead lamp. (Under a live dlight the lamps are
+    /// ranked into a new list each pose, so nothing is kept then.)
+    /// </remarks>
+    [Test]
+    public void Pose_ADecalHoldingPropAfterTheDlightDiesThenAgain_TakesTheNewLightThenKeepsIt()
+    {
+        (MomentScene scene, _, _) = UnderAFireball(holdsADecal: true);
+        static ModelInstance Prop(MomentScene of) =>
+            of.Instances.Single(static instance => instance.EntityIndex == PropModels.FirstStaticPropEntityIndex);
+        void PoseAt(int tick)
+        {
+            MomentInfo at = Info() with { Tick = tick, CurrentTick = tick, Recorder = 9 };
+            scene.Build([], [], at);
+            scene.Pose(at);
+        }
+
+        scene.Pose(Info() with { Recorder = 9 });
+        DecalLighting lit = Prop(scene).DecalLight.ShouldNotBeNull();
+
+        // Tick 10 is drawn before that frame's `CL_DecayLights`; tick 11 is the first without the dlight.
+        PoseAt(10);
+        PoseAt(11);
+        DecalLighting dark = Prop(scene).DecalLight.ShouldNotBeNull();
+
+        PoseAt(12);
+
+        lit.Locals.ShouldHaveSingleItem("the control: the fireball lit the first");
+        dark.Locals.ShouldBeEmpty("the dead dlight's lamp is gone");
+        Prop(scene).DecalLight.ShouldBeSameAs(dark, "nothing changed: the kept instance");
+    }
+
+    /// <summary>A colour-mesh static prop posed before any decal, with the pool it will be shot into.</summary>
+    private static (MomentScene Scene, EntityModelSet Models, ModelDecals Pool, LevelLighting Lighting) PosedBeforeItsDecal()
+    {
+        ModelDecals pool = new();
+        EntityModelSet models = new()
+        {
+            Geometry = _ => new PropModels.ModelFrames(
+                [new[] { new PropVertex(0, 0f, 0f, 0f, 0f, MaterialIndex: 3), new PropVertex(1, 0f, 0f, 0f, 0f, MaterialIndex: 3), new PropVertex(2, 0f, 0f, 0f, 0f, MaterialIndex: 3) }],
+                new Dictionary<int, (int Start, int Frames, float CyclesPerSecond)> { [0] = (0, 1, 0f) },
+                [0],
+                [true])
+            {
+                StudioFlags = Content.Assets.StudioModelFlags.StaticProp,
+            },
+            StaticPropColours = new Dictionary<int, float[]> { [PropModels.FirstStaticPropEntityIndex] = [.. Enumerable.Repeat(0.25f, 9)] },
+            Decals = pool,
+        };
+
+        LevelLighting lighting = LevelLightingTests.Lit([LevelLightingTests.Lamp((0f, 0f, 120f), 400f)]);
+        MomentScene scene = new(models, new ViewmodelScene(), new RecordingLogger())
+        {
+            Upload = new Uploads(),
+            Appearance = new Appearance(),
+            Lighting = lighting,
+            StaticProps =
+                [PropModels.StaticModel(new Content.Bsp.BspStaticProp("models/props/dome.mdl", 0f, 0f, 100f, 0f, 0f, 0f, 1f), 0)],
+        };
+
+        scene.Build([], [], Info());
+        scene.Pose(Info());
+
+        return (scene, models, pool, lighting);
+    }
+
+    /// <summary>Shoots the prop at lump 0, as the decal replay does after the pose.</summary>
+    private static void ShootTheProp(ModelDecals pool) =>
+        pool.AddClipped(
+            DecalReplay.StaticPropKey(0), ModelDecalsDrawTests.Face, System.Numerics.Vector3.Zero,
+            new System.Numerics.Vector3(-1.1f, 0f, 0f), 4f, 0).ShouldBeTrue("the control: the decal took");
+
+    /// <remarks>
+    /// **The replay's real timing** (B642 review): `DecalEffects.StepOver` places a static prop's decals AFTER the pose — a
+    /// map's first frame, after a seek — and `MomentPresenter.PoseNow` poses once per build, so a paused viewer never poses
+    /// again. The first draw must still light the decal with the full state, as `engine.dll` does with the record's state
+    /// built at load (`0x1800eac60`), not with the prop's own flags-6 light.
+    /// </remarks>
+    [Test]
+    public void LightDecalHolders_ADecalPlacedAfterThePose_IsLitAtTheFirstDraw()
+    {
+        (MomentScene scene, EntityModelSet models, ModelDecals pool, LevelLighting lighting) = PosedBeforeItsDecal();
+        ModelInstance prop = scene.Instances.ShouldHaveSingleItem();
+
+        prop.DecalLight.ShouldBeNull("the control: posed before the decal, it carries none");
+
+        ShootTheProp(pool);
+        models.LightDecalHolders();
+
+        (Content.Bsp.AmbientCube? light, SunLight? sun, IReadOnlyList<Content.Bsp.LocalLight>? locals, bool decalLit) = ModelDecals.LightFor(prop, pool);
+        (float x, float y, float z) = models.IlluminationPoint(scene.StaticProps[0], scene.StaticProps[0].Pose);
+        (Content.Bsp.PointLighting full, SunLight? fullSun) = lighting.StaticPropFullLightingAt(PropModels.FirstStaticPropEntityIndex, x, y, z);
+
+        decalLit.ShouldBeTrue("the first draw takes the decal light");
+        light.ShouldBe(full.Cube);
+        sun.ShouldBe(fullSun);
+        locals.ShouldNotBeNull().ShouldHaveSingleItem().ShouldBe(full.Locals.ShouldHaveSingleItem(), "the style-0 lamp the colours hold");
+    }
+
+    /// <remarks>
+    /// **A paused seek** (B642 review): the seek clears the props' decals and the replay places them again, with no pose
+    /// between. The light follows the pool: gone with the decals, back with the new ones, all without a pose.
+    /// </remarks>
+    [Test]
+    public void LightDecalHolders_APausedSeekClearsThenReplacesTheDecal_FollowsThePoolWithoutAPose()
+    {
+        (MomentScene scene, EntityModelSet models, ModelDecals pool, _) = PosedBeforeItsDecal();
+        ModelInstance prop = scene.Instances.ShouldHaveSingleItem();
+
+        ShootTheProp(pool);
+        models.LightDecalHolders();
+        ModelDecals.LightFor(prop, pool).DecalLit.ShouldBeTrue("the control: lit before the seek");
+
+        pool.ClearWhere(DecalReplay.IsStaticPropKey);
+        models.LightDecalHolders();
+        pool.LateLightOf(DecalReplay.StaticPropKey(0)).ShouldBeNull("the seek took the decal and its light");
+
+        ShootTheProp(pool);
+        models.LightDecalHolders();
+        ModelDecals.LightFor(prop, pool).DecalLit.ShouldBeTrue("replayed after the seek, lit again with no pose");
+        models.LateDecalLights.ShouldBe(2, "lit once per change of the pool");
+    }
+
+    /// <remarks>
     /// **And no allocation for it**: the same non-holding prop posed with the decal light wired and without, after a
     /// warm-up pose each, allocates the same bytes per pose.
     /// </remarks>

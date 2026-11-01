@@ -214,8 +214,10 @@ public sealed class DecalEffects
     {
         ArgumentNullException.ThrowIfNull(models);
 
-        // The pool the device draws, so the model pass lights only a static prop that holds a decal (B642).
+        // The pool the device draws, so the model pass lights only a static prop that holds a decal (B642), and the light
+        // for one the replay decals after the pose, built once the step is done.
         models.Decals = _modelDecals;
+        _lightDecalHolders = models.LightDecalHolders;
     }
 
     /// <summary>Over any posed entities.</summary>
@@ -287,8 +289,14 @@ public sealed class DecalEffects
         StepDecals(frame.Tick, device);
         StepModelDecals(frame.Tick, device);
 
+        // A static prop the replay just decaled was posed with no decal light; light it before the draw (B642).
+        _lightDecalHolders?.Invoke();
+
         return _landed;
     }
+
+    /// <summary>The model set's late decal lighting, <see cref="EntityModelSet.LightDecalHolders"/>; null over a fake.</summary>
+    private readonly Action? _lightDecalHolders;
 
     /// <summary>What a frame's map and game hold, the map read out once.</summary>
     private DecalContent ContentOf(in DecalFrame frame)

@@ -185,15 +185,49 @@ public sealed class ModelDecals
     public bool Holds(int key) => _byEntity.TryGetValue(key, out List<Decal>? held) && held.Count > 0;
 
     /// <summary>
-    /// The light a drawn model's decals take (B642): a colour-mesh static prop's <see cref="ModelInstance.DecalLight"/>
-    /// where it has one, else the model's own cube, sun and lamps — the lighting state studiorender leaves standing.
+    /// Decal lights for static props whose decals were placed after this frame's model pass, by pool key (B642).
+    /// </summary>
+    /// <remarks>
+    /// The decal replay places a static prop's decals after the pose: on a map's first frame, after a seek, and on any frame
+    /// a bullet lands. That pose saw no holder, so the instance carries no <see cref="ModelInstance.DecalLight"/>, and a
+    /// paused viewer poses once per build. Written by <see cref="EntityModelSet.LightDecalHolders"/> after the decal step,
+    /// read by the draw.
+    /// </remarks>
+    private readonly Dictionary<int, DecalLighting> _lateLights = [];
+
+    /// <summary>The decal light placed for a key after the pose, or null (B642).</summary>
+    /// <param name="key">The model's key in this pool.</param>
+    /// <returns>The light, or null.</returns>
+    public DecalLighting? LateLightOf(int key) => _lateLights.GetValueOrDefault(key);
+
+    /// <summary>Replaces every late decal light with <paramref name="lights"/> (B642).</summary>
+    /// <param name="lights">The lights by key.</param>
+    /// <exception cref="ArgumentNullException"><paramref name="lights"/> is null.</exception>
+    public void SetLateLights(IEnumerable<KeyValuePair<int, DecalLighting>> lights)
+    {
+        ArgumentNullException.ThrowIfNull(lights);
+
+        _lateLights.Clear();
+
+        foreach ((int key, DecalLighting light) in lights)
+        {
+            _lateLights[key] = light;
+        }
+    }
+
+    /// <summary>
+    /// The light a drawn model's decals take (B642): a colour-mesh static prop's decal light, from its pose or, where the
+    /// decal was placed after the pose, from <paramref name="pool"/>; else the model's own cube, sun and lamps — the lighting
+    /// state studiorender leaves standing.
     /// </summary>
     /// <param name="instance">The model just drawn.</param>
-    /// <returns>The cube, sun and lamps to draw its decals with.</returns>
-    public static (AmbientCube? Light, SunLight? Sun, IReadOnlyList<LocalLight>? Locals) LightFor(in ModelInstance instance) =>
-        instance.DecalLight is { } decal
-            ? (decal.Cube, decal.Sun, decal.Locals)
-            : (instance.Light, instance.Sun, instance.Locals);
+    /// <param name="pool">The pool its decals come from, for a light placed after the pose; null for none.</param>
+    /// <returns>The cube, sun and lamps to draw its decals with, and whether that is a decal light.</returns>
+    public static (AmbientCube? Light, SunLight? Sun, IReadOnlyList<LocalLight>? Locals, bool DecalLit) LightFor(
+        in ModelInstance instance, ModelDecals? pool) =>
+        (instance.DecalLight ?? pool?.LateLightOf(DecalReplay.KeyOf(instance.EntityIndex))) is { } decal
+            ? (decal.Cube, decal.Sun, decal.Locals, true)
+            : (instance.Light, instance.Sun, instance.Locals, false);
 
     /// <summary>
     /// Whether a model drawn in the translucent pass draws its decals there (B642): a static prop that is not two-pass.
@@ -254,6 +288,7 @@ public sealed class ModelDecals
         _byEntity.Clear();
         _age.Clear();
         _built.Clear();
+        _lateLights.Clear();
         Version++;
     }
 

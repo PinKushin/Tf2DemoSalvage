@@ -334,6 +334,9 @@ public sealed class MomentScene : IGameSystemPerFrame
             _models.StaticPropFullLighting = value.StaticPropFullLightingAt;
             _models.StaticPropHandle = value.PrecacheStaticProp;
             _models.StaticLightingPrecached = ReportStaticPropLightingAtLoad;
+
+            // A new lighting object counts from zero; the model set's colour meshes keep counting.
+            _loadReported = (value.StaticStateBuilds, value.StaticStateBuildTicks, _models.BakedBuilds, value.StyledListsBuilt);
         }
     } = LevelLighting.Unlit(NullLogger.Instance);
 
@@ -1016,15 +1019,26 @@ public sealed class MomentScene : IGameSystemPerFrame
     /// <param name="ticks">The precache's own clock, this load.</param>
     private void ReportStaticPropLightingAtLoad(long ticks)
     {
+        // **This level's share, not the process's** (B642 review): the counters are lifetime totals, and a second level, or
+        // a lighting object kept across one, would otherwise report the sum. Each read is taken against the last report.
+        (int States, long StateTicks, int Baked, int Lists) now =
+            (Lighting.StaticStateBuilds, Lighting.StaticStateBuildTicks, _models.BakedBuilds, Lighting.StyledListsBuilt);
+        (int States, long StateTicks, int Baked, int Lists) last = _loadReported;
+
+        _loadReported = now;
+
         // Stryker disable once all : a mutated interpolated string cannot bind to its handler (CS1620) and Safe Mode drops the method - B410
         _render.LogInformation(
             "{Message}",
             string.Create(
                 CultureInfo.InvariantCulture,
-                $"static-prop lighting at load: {ticks * 1000d / Stopwatch.Frequency:0.0} ms; static states " +
-                $"{Lighting.StaticStateBuilds} built, {Lighting.StaticStateBuildTicks * 1000d / Stopwatch.Frequency:0.0} ms; " +
-                $"colour meshes {_models.BakedBuilds}; styled lists {Lighting.StyledListsBuilt}"));
+                $"static-prop lighting at load, this level: {ticks * 1000d / Stopwatch.Frequency:0.0} ms; static states " +
+                $"{now.States - last.States} built, {(now.StateTicks - last.StateTicks) * 1000d / Stopwatch.Frequency:0.0} ms; " +
+                $"colour meshes {now.Baked - last.Baked}; styled lists {now.Lists - last.Lists}"));
     }
+
+    /// <summary>The counters as the last load report read them, so the next reports only its own level's.</summary>
+    private (int States, long StateTicks, int Baked, int Lists) _loadReported;
 
     /// <summary>Reads whatever geometry this moment needs, and uploads it if the set grew.</summary>
     /// <remarks>

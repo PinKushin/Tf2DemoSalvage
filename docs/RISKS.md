@@ -40408,14 +40408,36 @@ Valve's timing.
 when `ModelDecals.Holds` the prop's key, as the engine's gate `record + 0x10 != 0` does, and keeps the `DecalLighting`
 instance while nothing changes. A prop holding none, under a live dlight, asks nothing and allocates nothing
 (`MomentSceneTests`, red with the gate removed). `DecalLight` is a reference: `ModelInstance` is 440 bytes, against 432
-before B642 and 576 with the inline tuple the first fix used (`ModelDecalsDrawTests`). The pool is read as the model
-pass sees it. A decal placed later in a frame lights from the next frame, but a `--shot` showed no lag. The f12 dark
-hole drew the same 32,29,23 as in the first after-shot.
+before B642 and 576 with the inline tuple the first fix used. `ModelDecalsDrawTests` now asserts the kind (a reference),
+not a byte count.
+
+**The gate opened a window, closed by review batch 2 (branch `fix/b642-review-batch-2`).** ~~The pool is read as the
+model pass sees it. A decal placed later in a frame lights from the next frame, but a `--shot` showed no lag.~~ That was
+wrong, and one `--shot` could not show it. `DecalEffects.StepOver` places static-prop decals AFTER the pose: every
+decal on a map's first frame, again after a seek, and each bullet as it lands. `MomentPresenter.PoseNow` poses once
+per build, so a paused frame never poses again. On that frame every newly decaled colour-mesh prop had no
+`DecalLight`. Its decals drew under the prop's own flags-6 state, the zero cube and the styled lamps, and a paused
+viewer kept that wrong light. The engine has no such window: the record's static state is built with the colour mesh
+(`0x1800eac60`) and read at the draw (`0x1800eb5e0`).
+- **The fix keeps the gate.** After the step, `EntityModelSet.LightDecalHolders` lights every colour-mesh holder, at the
+  lighting origin recorded at load, into the pool's late lights (`ModelDecals.SetLateLights`).
+- **The draw reads both.** `ModelDecals.LightFor(instance, pool)` takes the instance's light, else the late light.
+- **It costs a compare when the pool did not change.** It runs only when the pool's version moved, and lights only
+  holders.
+- **The late lights are written after the device's wait** (`FinishDrawBeforeEffects`), where the pool itself is written.
+  No draw in flight reads them.
+- **Held by tests.** `MomentSceneTests.LightDecalHolders_ADecalPlacedAfterThePose_IsLitAtTheFirstDraw` and
+  `…_APausedSeekClearsThenReplacesTheDecal_FollowsThePoolWithoutAPose` went red with the late lights discarded.
+  `DecalEffectsTests.StepOver_OverTheProductionModelSet_HandsTheDeviceTheModelSetsPool` holds the wiring: the model
+  set's pool is the device's, and the step lights it. It went red with either line removed.
+- **Reuse is tested now:** `…_TakesTheNewLightThenKeepsIt` went red with an always-reuse mutant.
 
 **Held now:** `Device3D.DrawDecalsOf` makes three calls, each tested in `ModelDecalsDrawTests`: `DecalReplay.KeyOf`,
-`ModelDecals.LightFor` (every slot distinct, so a swapped sun or lamp fails), and `ModelDecals.DrawsAfterTranslucent`.
-The device keeps a count, `StaticPropDecalDraws`, and logs `first static prop decal drawn: entity …, light …` once.
-The device's calls themselves are still not held. **The entity half is offscreen-only:** no real frame showed a lit
+`ModelDecals.LightFor` (every slot distinct, so a swapped sun or lamp fails), and `ModelDecals.DrawsAfterTranslucent`
+(the boundary entity, and `Holds` on a model whose only decal was retired). The device counts `StaticPropDecalDraws`
+under a decal light and `StaticPropDecalFallbacks` under the prop's own light. That fallback is right for a bump-mapped
+prop and a defect for a colour-mesh one. It logs the first of each, the fallback worded as one. The load log line is
+per level. The device's calls themselves are still not held. **The entity half is offscreen-only:** no real frame showed a lit
 decal on a dynamic model. Blood is DecalModulate, and wood holes land on props.
 
 **State after a decal in the translucent walk (read, not tested):** every step that can follow sets its own blend and
@@ -40428,8 +40450,9 @@ state goes back by `DrawDecalsOf`'s argument.
 - The 3D sky draws them: opaque props through `DrawSkyRenderables` → `DrawOpaqueRenderable`, and since the review batch a
   fading one-pass prop in the sky loop too.
 - **A fading prop's hole is drawn unfaded.** Ours draws the decal at full alpha after a half-faded prop. *Unread:*
-  whether studiorender modulates a decal's alpha by the model's. The read was blocked: the Ghidra port was held by
-  another agent's server.
+  whether studiorender modulates a decal's alpha by the model's. The read was blocked twice (review batches 1 and 2).
+  Port 8089 was held by another agent's `shaderapidx9` Ghidra server, and opening a program in it would move that
+  agent's current program.
 - *Unread:* whether studiorender's `DrawModelStaticProp` (slot 30) reads `+0x44/+0x8c` exactly as slot 31 does.
 - The ranking divergence is filed as B654.
 - **A prop whose model resolves after the precache would build its static state mid-play.** Read from our code, this
