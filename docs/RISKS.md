@@ -40363,8 +40363,22 @@ the white texel. It now draws 50 under a cube face of 0.25 and 100 under 1.0. Al
 
 Every moved pixel went darker; nothing else in those frames changed. In the dark the hole drew as a pale spot on the
 crate and now takes its shade. In the lit room the two lights nearly agree. Images, with enlarged pairs
-(`sbs-*-before-left-after-right.png`): `D:/measure-f12/decal-cmp/b642/`. **Not compared with TF2.** No live
+(`sbs-*-before-left-after-right.png`): `D:/measure-f12/decal-cmp/b642/`. **DecalModulate is not verified on a
+frame.** Two views of the mid containers (`±280 ∓500 700 30 90/270`, decaled props #518 and #1306 among them) are
+identical below the HUD in both builds. No DecalModulate hole was identified in them, so they show no change but
+prove no draw. The move to the model pass (ordering, gamma twin, fog) is covered offscreen by the light test's
+DecalModulate control only. **The HUD strip** (top 37 px) differed between builds in at least two of the eleven pairs at
+the same tick, max 210. *Unexplained*, and outside this change's code. **Not compared with TF2.** No live
 TF2 capture of these holes was taken. Three overhead cameras hit ceilings and showed nothing.
+
+**Cost:** the decal light reads every colour-mesh prop's static state, which B607 had built only for bump-mapped
+props. `PrecacheStaticLighting` now builds it at load for all of them (`0x1800eac60` fills `record + 0x88` with the
+colour mesh), so play builds none (`MomentSceneTests`). The added load time is not measured.
+
+**Not held by a test:** `Device3D.DrawDecalsOf` itself. Nothing reddens if it reads `instance.Light` instead of
+`DecalLight`, drops the `KeyOf` lookup, or loses the translucent call. The f12 pairs above show it working today.
+**The entity half is offscreen-only:** no real frame showed a lit decal on a dynamic model. Blood is DecalModulate,
+and wood holes land on props.
 
 **Open residue:** the water views (`DrawViewEntities`) and the 3D sky draw no model decals. The world decal pass drew a
 static prop's decals in a reflection; after this change it does not, which is how an entity's already were. *Unread:*
