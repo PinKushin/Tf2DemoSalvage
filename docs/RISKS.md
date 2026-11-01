@@ -40251,7 +40251,29 @@ It is tested red-first. It names which thread waited and where the draw had got 
 **Reopen if** the `queue stall` line ever appears in a viewer log, or if this test's hang rate on the branch, measured
 the same way, exceeds the baseline's.
 
-## B642 — a static prop's studio decal takes white corners, but the prop's own light is its baked vertex colour (2026-11-01) — OPEN, interpolated
+## B642 — a static prop's studio decal takes white corners, but the prop's own light is its baked vertex colour (2026-11-01) — OPEN; the corners are settled as Valve's, the light source is not ours
+
+**Read from the binary (`studiorender.dll` x64, 2026-11-01, Ghidra; addresses only, nothing carried but these facts).**
+Route in: the `CStudioRenderContext` vtable at `0x180081120` (RTTI `.?AVCStudioRenderContext@@`). Counting five
+`IAppSystem` slots, slot 31 is `DrawStaticPropDecals` (`0x180056c90`), a queued-mode wrapper around `0x180009bf0`. That
+function reads the decal handle at `DrawModelInfo_t + 0x10` and the LOD at `+0x30`, which fixes the struct's layout
+against `istudiorender.h:203-218`. Then:
+- **Lighting:** `0x18000a880`. When `m_bStaticLighting` (`+0x40`) is set, it loads the draw's ambient cube (`+0x44`,
+  six vectors, w 1) and its local lights (`+0x8c` count, `+0x90` descs). When the flag is clear, it sets nothing, so the
+  current state stands. **`m_pColorMeshes` (`+0x38`) is not read on this path.**
+- **The decal's vertices:** `0x1800096c0`, one of the four builders `0x180007d20` chooses. It writes position, normal,
+  texcoord and **colour `0xffffffff`**: white.
+
+**So the filed question is answered for the corners:** Valve's static-prop decal is white-cornered and never takes the
+baked colour mesh, as ours is (`ModelDecals.Unlit`). **What still diverges is the light:** Valve lights it with the
+prop's ambient cube and local lights, and ours draws it in the world decal pass on the lightmap atlas's white texel
+(about 2.0, measured for a brush entity in B639). **Unread:** whether the engine sets `m_bStaticLighting` for a TF2
+static prop (`engine.dll`). If it does not, the decal draws under whatever lighting state the prop's own draw left.
+**Fix shape, once that is read:** draw a static prop's decals after the prop in the model pass, with the prop
+instance's `Light` and `Locals`, rather than in the world decal pass. Not done here: it reroutes `PropDecals` and rests
+on the unread flag.
+
+**As filed:**
 
 *Read from our code:* `ModelDecals.Unlit` gives every studio decal white corners on the atlas's white texel (B639
 review). `DecalEffects` copies a static prop's held decal corners unchanged into the world decal pass. A dynamic
