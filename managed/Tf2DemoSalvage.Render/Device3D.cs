@@ -4730,53 +4730,65 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
             return;
         }
 
-        (AmbientCube? light, SunLight? sun, IReadOnlyList<LocalLight>? locals) = ModelDecals.LightFor(instance);
+        (AmbientCube? light, SunLight? sun, IReadOnlyList<LocalLight>? locals, bool decalLit) =
+            ModelDecals.LightFor(instance, ModelDecals);
 
         _world.DrawModelDecals(
             _device, _context, decals.Vertices, decals.Batches, instance.Bones?.Count ?? 0, light, sun, locals);
         _context.OMSetDepthStencilState(depth, 0);
 
-        if (instance.EntityIndex >= PropModels.FirstStaticPropEntityIndex)
-        {
-            StaticPropDecalDraws++;
-            ReportFirstStaticPropDecal(instance, decals.Batches[0].MaterialIndex, light);
-        }
-    }
-
-    /// <summary>Static props whose decals the model pass drew, ever — the control that prop decals reach the draw (B642).</summary>
-    public long StaticPropDecalDraws { get; private set; }
-
-    /// <summary>Whether the first static prop's decal draw has been logged.</summary>
-    private bool _reportedStaticPropDecal;
-
-    /// <summary>Logs the first static prop whose decals draw, with the light they took (B642).</summary>
-    private void ReportFirstStaticPropDecal(ModelInstance instance, int material, AmbientCube? light)
-    {
-        if (_reportedStaticPropDecal)
+        if (instance.EntityIndex < PropModels.FirstStaticPropEntityIndex)
         {
             return;
         }
 
-        _reportedStaticPropDecal = true;
-
-        string source = "its own cube";
-
-        if (instance.DecalLight is not null)
+        if (decalLit)
         {
-            source = "its decal light";
+            StaticPropDecalDraws++;
         }
-        else if (light is null)
+        else
         {
-            source = "none (the texel)";
+            StaticPropDecalFallbacks++;
         }
+
+        ReportFirstStaticPropDecal(instance.EntityIndex, decals.Batches[0].MaterialIndex, light, decalLit);
+    }
+
+    /// <summary>Static props whose decals the model pass drew under their decal light, ever (B642).</summary>
+    public long StaticPropDecalDraws { get; private set; }
+
+    /// <summary>
+    /// Static props whose decals drew under the prop's own light instead: right for a bump-mapped prop, whose own light is
+    /// the full state; a defect for a colour-mesh one (B642).
+    /// </summary>
+    public long StaticPropDecalFallbacks { get; private set; }
+
+    /// <summary>Whether the first decal-lit and the first fallback static prop decal draw have been logged.</summary>
+    private (bool DecalLit, bool Fallback) _reportedStaticPropDecal;
+
+    /// <summary>Logs the first static prop decal drawn under a decal light, and the first under the prop's own (B642).</summary>
+    private void ReportFirstStaticPropDecal(int entity, int material, AmbientCube? light, bool decalLit)
+    {
+        if (decalLit ? _reportedStaticPropDecal.DecalLit : _reportedStaticPropDecal.Fallback)
+        {
+            return;
+        }
+
+        _reportedStaticPropDecal = decalLit
+            ? _reportedStaticPropDecal with { DecalLit = true }
+            : _reportedStaticPropDecal with { Fallback = true };
+
+        string cube = light is { } lit
+            ? string.Create(CultureInfo.InvariantCulture, $", +z {lit.PositiveZ.Red:0.###} {lit.PositiveZ.Green:0.###} {lit.PositiveZ.Blue:0.###}")
+            : ", no cube (the texel)";
 
         // Stryker disable once all : a mutated interpolated string cannot bind to its handler (CS1620) and Safe Mode drops the method - B410
         _render.LogInformation(
             "{Message}",
             string.Create(
                 CultureInfo.InvariantCulture,
-                $"first static prop decal drawn: entity {instance.EntityIndex}, material {material}, light {source}" +
-                $"{(light is { } cube ? $", +z {cube.PositiveZ.Red:0.###} {cube.PositiveZ.Green:0.###} {cube.PositiveZ.Blue:0.###}" : string.Empty)}"));
+                $"first static prop decal drawn {(decalLit ? "under its decal light" : "under the FALLBACK, the prop's own light")}: " +
+                $"entity {entity}, material {material}{cube}"));
     }
 
     /// <summary>The render group collation asks for — <see cref="Classify"/>, once per collated renderable.</summary>

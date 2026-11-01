@@ -108,6 +108,7 @@ Tf2DemoSalvage.Scene.EntityModelSet|field|_barrelSpin|Private readonly|System.Co
 Tf2DemoSalvage.Scene.EntityModelSet|field|_boneFrames|Private readonly|Tf2DemoSalvage.Animation.Animating.BoneFrameCounter
 Tf2DemoSalvage.Scene.EntityModelSet|field|_byModel|Private readonly|System.Collections.Generic.Dictionary`2[System.String,System.Collections.Generic.List`1[System.Collections.Generic.List`1[Tf2DemoSalvage.Scene.WorldBatch]]]
 Tf2DemoSalvage.Scene.EntityModelSet|field|_clientCycles|Private readonly|System.Collections.Generic.Dictionary`2[System.Int32,System.ValueTuple`2[System.Double,System.Double]]
+Tf2DemoSalvage.Scene.EntityModelSet|field|_colourMeshOrigins|Private readonly|System.Collections.Generic.Dictionary`2[System.Int32,System.ValueTuple`3[System.Single,System.Single,System.Single]]
 Tf2DemoSalvage.Scene.EntityModelSet|field|_corpseRequests|Private readonly|System.Collections.Generic.List`1[Tf2DemoSalvage.Scene.CorpseRequest]
 Tf2DemoSalvage.Scene.EntityModelSet|field|_currentSequence|Private readonly|System.Collections.Generic.Dictionary`2[System.Int32,System.ValueTuple`4[System.Int32,System.Single,System.Double,System.Double]]
 Tf2DemoSalvage.Scene.EntityModelSet|field|_decalLights|Private readonly|System.Collections.Generic.Dictionary`2[System.Int32,Tf2DemoSalvage.Scene.DecalLighting]
@@ -134,6 +135,7 @@ Tf2DemoSalvage.Scene.EntityModelSet|field|_frames|Private readonly|System.Collec
 Tf2DemoSalvage.Scene.EntityModelSet|field|_handleOf|Private readonly|System.Collections.Generic.Dictionary`2[System.ValueTuple`3[System.Int32,System.String,System.Int32],System.Int32]
 Tf2DemoSalvage.Scene.EntityModelSet|field|_inView|Private readonly|System.Collections.Generic.HashSet`1[System.Int32]
 Tf2DemoSalvage.Scene.EntityModelSet|field|_lastFace|Private readonly|System.Collections.Generic.Dictionary`2[System.Int32,System.ValueTuple`5[System.Single[],System.Single[],System.Single[],System.Single[],Tf2DemoSalvage.Scene.FlexedCorners]][]
+Tf2DemoSalvage.Scene.EntityModelSet|field|_lateLitVersion|Private|System.Int32
 Tf2DemoSalvage.Scene.EntityModelSet|field|_leafSystem|Private|Tf2DemoSalvage.Scene.ClientLeafSystem
 Tf2DemoSalvage.Scene.EntityModelSet|field|_lightPoints|Private readonly|System.Collections.Generic.Dictionary`2[System.Int32,System.ValueTuple`3[System.Single,System.Single,System.Single]]
 Tf2DemoSalvage.Scene.EntityModelSet|field|_lighting|Private readonly|Tf2DemoSalvage.Scene.ModelLighting
@@ -225,6 +227,7 @@ Tf2DemoSalvage.Scene.EntityModelSet|method|CanDraw|Public static|(Tf2DemoSalvage
 Tf2DemoSalvage.Scene.EntityModelSet|method|ChargeSetup|Private|(Tf2DemoSalvage.Scene.EntityModelSet+SetupMark,System.Boolean,System.Boolean)|System.Int64
 Tf2DemoSalvage.Scene.EntityModelSet|method|Collate|Private|(System.Collections.Generic.IReadOnlyList`1[Tf2DemoSalvage.Core.Scene.SceneProp],Tf2DemoSalvage.Scene.ViewFrustum,Tf2DemoSalvage.Scene.RenderableViews,System.String)|System.Void
 Tf2DemoSalvage.Scene.EntityModelSet|method|CorpseSequence|Private|(Tf2DemoSalvage.Core.Scene.SceneProp)|System.Int32
+Tf2DemoSalvage.Scene.EntityModelSet|method|DecalLightAt|Private|(System.Int32,System.Single,System.Single,System.Single)|Tf2DemoSalvage.Scene.DecalLighting
 Tf2DemoSalvage.Scene.EntityModelSet|method|DecalLightOf|Private|(System.Int32,System.Single,System.Single,System.Single)|Tf2DemoSalvage.Scene.DecalLighting
 Tf2DemoSalvage.Scene.EntityModelSet|method|Delayed|Private|(System.Int32,System.Single[],System.Double)|System.Single[]
 Tf2DemoSalvage.Scene.EntityModelSet|method|DesiredSequence|Private static|(Tf2DemoSalvage.Core.Scene.SceneProp,Tf2DemoSalvage.Scene.PropModels+SkinnedModel,System.Single)|System.Int32
@@ -266,6 +269,7 @@ Tf2DemoSalvage.Scene.EntityModelSet|method|LayersFor|Private|(Tf2DemoSalvage.Cor
 Tf2DemoSalvage.Scene.EntityModelSet|method|LayersOf|Public|(System.Int32)|System.Collections.Generic.IReadOnlyList`1[Tf2DemoSalvage.Animation.Animating.PoseLayer]
 Tf2DemoSalvage.Scene.EntityModelSet|method|Layer|Private static|(System.Collections.Generic.List`1[Tf2DemoSalvage.Animation.Animating.PoseLayer],Tf2DemoSalvage.Scene.PropModels+SkinnedModel,System.Int32,Tf2DemoSalvage.Core.Scene.SceneGesture,System.Double,System.Collections.Generic.IReadOnlyList`1[System.Single])|System.Void
 Tf2DemoSalvage.Scene.EntityModelSet|method|LevelShutdown|Public|()|System.Void
+Tf2DemoSalvage.Scene.EntityModelSet|method|LightDecalHolders|Public|()|System.Void
 Tf2DemoSalvage.Scene.EntityModelSet|method|LoopingPoseParameters|Private static|(Tf2DemoSalvage.Scene.PropModels+SkinnedModel)|System.Boolean[]
 Tf2DemoSalvage.Scene.EntityModelSet|method|MainSequence|Private|(Tf2DemoSalvage.Core.Scene.SceneProp,Tf2DemoSalvage.Scene.PropModels+SkinnedModel,System.Int32,System.Boolean)|System.Int32
 Tf2DemoSalvage.Scene.EntityModelSet|method|MarkSetup|Private|()|Tf2DemoSalvage.Scene.EntityModelSet+SetupMark
@@ -396,6 +400,7 @@ Tf2DemoSalvage.Scene.EntityModelSet|property|Count|()|System.Int32|get=True|set=
 Tf2DemoSalvage.Scene.EntityModelSet|property|CulledByVisibility|()|System.Int32|get=True|set=True
 Tf2DemoSalvage.Scene.EntityModelSet|property|Culled|()|System.Int32|get=True|set=True
 Tf2DemoSalvage.Scene.EntityModelSet|property|CurrentTick|()|System.Double|get=True|set=True
+Tf2DemoSalvage.Scene.EntityModelSet|property|DecalLightPasses|()|System.Int32|get=True|set=True
 Tf2DemoSalvage.Scene.EntityModelSet|property|Decals|()|Tf2DemoSalvage.Scene.ModelDecals|get=True|set=True
 Tf2DemoSalvage.Scene.EntityModelSet|property|EntitiesBuilt|()|System.Int32|get=True|set=True
 Tf2DemoSalvage.Scene.EntityModelSet|property|EntityTint|()|System.Func`2[System.String,System.Nullable`1[System.ValueTuple`3[System.Single,System.Single,System.Single]]]|get=True|set=True
@@ -413,6 +418,7 @@ Tf2DemoSalvage.Scene.EntityModelSet|property|IkWork|()|System.ValueTuple`3[Syste
 Tf2DemoSalvage.Scene.EntityModelSet|property|InView|()|System.Collections.Generic.IReadOnlySet`1[System.Int32]|get=True|set=False
 Tf2DemoSalvage.Scene.EntityModelSet|property|IntervalPerTick|()|System.Single|get=True|set=True
 Tf2DemoSalvage.Scene.EntityModelSet|property|JigglingBones|()|System.Int32|get=True|set=False
+Tf2DemoSalvage.Scene.EntityModelSet|property|LateDecalLights|()|System.Int32|get=True|set=True
 Tf2DemoSalvage.Scene.EntityModelSet|property|LevelScreenFade|()|Tf2DemoSalvage.Core.Scene.ScreenFadeRange|get=True|set=True
 Tf2DemoSalvage.Scene.EntityModelSet|property|LightingTicks|()|System.Int64|get=True|set=True
 Tf2DemoSalvage.Scene.EntityModelSet|property|MaxRootTicks|()|System.Int64|get=True|set=True

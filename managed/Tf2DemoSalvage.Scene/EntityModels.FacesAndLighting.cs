@@ -395,6 +395,8 @@ public sealed partial class EntityModelSet
             field = value;
             _bakedByEntity.Clear();
             _decalLights.Clear();
+            _colourMeshOrigins.Clear();
+            _lateLitVersion = -1;
         }
     } = new Dictionary<int, float[]>();
 
@@ -426,13 +428,18 @@ public sealed partial class EntityModelSet
     /// **The static state its colours carry, added back**: `engine.dll` lights a colour-mesh prop's decals with its draw
     /// state plus the record's static state at `record + 0x88` (`0x1800f1bd0`, `0x1800eb5e0`), the full state, flags 7.
     /// **Only for a prop that holds a decal**, as the engine's gate `record + 0x10 != 0` is: a prop with none pays no second
-    /// ranking. The pool is read as this frame's model pass sees it; a decal placed later this frame is lit from the next.
+    /// ranking. The pool is read as this frame's model pass sees it; a decal the replay places after the pass is lit by
+    /// <see cref="LightDecalHolders"/>, which the decal step calls, so the first draw is right even on a paused frame.
     /// ponytail: one ranking over static, styled and dynamic lights; the engine lists the record's lights first and appends
     /// the draw's without ranking again, which differs only past four lights at one prop (B654).
     /// </remarks>
-    private DecalLighting? DecalLightOf(int entity, float x, float y, float z)
+    private DecalLighting? DecalLightOf(int entity, float x, float y, float z) =>
+        Decals?.Holds(DecalReplay.KeyOf(entity)) == true ? DecalLightAt(entity, x, y, z) : null;
+
+    /// <summary>The full state at a colour-mesh prop's lighting origin, the kept instance where nothing changed.</summary>
+    private DecalLighting? DecalLightAt(int entity, float x, float y, float z)
     {
-        if (StaticPropFullLighting is not { } fullLighting || Decals?.Holds(DecalReplay.KeyOf(entity)) != true)
+        if (StaticPropFullLighting is not { } fullLighting)
         {
             return null;
         }
@@ -449,6 +456,58 @@ public sealed partial class EntityModelSet
         _decalLights[entity] = made;
 
         return made;
+    }
+
+    /// <summary>Each colour-mesh static prop's lighting origin, recorded at load, for a decal lit after the pose (B642).</summary>
+    private readonly Dictionary<int, (float X, float Y, float Z)> _colourMeshOrigins = [];
+
+    /// <summary>The pool version <see cref="LightDecalHolders"/> last lit for.</summary>
+    private int _lateLitVersion = -1;
+
+    /// <summary>Decal lights built by <see cref="LightDecalHolders"/>, ever: the control that late holders are lit.</summary>
+    public int LateDecalLights { get; private set; }
+
+    /// <summary>Times <see cref="LightDecalHolders"/> found the pool changed and lit it, ever: the control that the step calls it.</summary>
+    public int DecalLightPasses { get; private set; }
+
+    /// <summary>
+    /// Lights every colour-mesh static prop holding a decal, into the pool's late lights, after the decal step (B642).
+    /// </summary>
+    /// <remarks>
+    /// **The replay places a static prop's decals after this frame's pose** (`DecalEffects.StepOver`): on a map's first
+    /// frame, after a seek, whenever a bullet lands. That pose saw no holder and a paused viewer poses once per build, so
+    /// without this the first draw — and every draw of a paused frame — would light the decal with the prop's own flags-6
+    /// state. `engine.dll` has no such window: the record's static state is built with the colour mesh (`0x1800eac60`) and
+    /// read at the draw. Runs only when the pool changed, and lights only holders, so a frame with no new decal costs a
+    /// compare.
+    /// </remarks>
+    public void LightDecalHolders()
+    {
+        if (Decals is not { } pool || pool.Version == _lateLitVersion)
+        {
+            return;
+        }
+
+        _lateLitVersion = pool.Version;
+        DecalLightPasses++;
+
+        List<KeyValuePair<int, DecalLighting>> lights = [];
+
+        foreach (int key in pool.Models)
+        {
+            int entity = PropModels.FirstStaticPropEntityIndex - 2 - key;
+
+            if (DecalReplay.IsStaticPropKey(key) &&
+                pool.Holds(key) &&
+                _colourMeshOrigins.TryGetValue(entity, out (float X, float Y, float Z) origin) &&
+                DecalLightAt(entity, origin.X, origin.Y, origin.Z) is { } light)
+            {
+                lights.Add(new(key, light));
+                LateDecalLights++;
+            }
+        }
+
+        pool.SetLateLights(lights);
     }
 
     /// <summary>
@@ -620,11 +679,18 @@ public sealed partial class EntityModelSet
 
             bool fullyLit = ResolvedFor(prop).Frames is { } frames && StaticPropVertexLighting.RefusesColourMesh(frames.StudioFlags);
 
-            // `fullyLit` is not redundant: a bump-mapped prop with no colours at all still draws with its handle (flags 7),
-            // and short-circuiting it also skips building a colour mesh it never draws.
-            if (fullyLit || BakedColoursOf(prop, pose, x, y, z) is not null)
+            // A bump-mapped prop draws with its handle (flags 7) whether it has colours or not, and builds no colour mesh it
+            // would never draw; its decals take its own light, so it records no decal origin.
+            if (fullyLit)
             {
                 StaticPropHandle?.Invoke(prop.EntityIndex, x, y, z);
+            }
+            else if (BakedColoursOf(prop, pose, x, y, z) is not null)
+            {
+                StaticPropHandle?.Invoke(prop.EntityIndex, x, y, z);
+
+                // Where its decals are lit when the replay places one after the pose (B642).
+                _colourMeshOrigins[prop.EntityIndex] = (x, y, z);
             }
         }
     }
