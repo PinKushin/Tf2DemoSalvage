@@ -1,5 +1,12 @@
 namespace Tf2DemoSalvage.Content.Assets;
 
+/// <summary>The sequence flags read outside this assembly, each the value of its <see cref="StudioFlags"/> entry.</summary>
+public static class StudioSequenceFlags
+{
+    /// <summary><c>STUDIO_LOCAL</c> — see <see cref="StudioFlags.SequenceLocal"/>.</summary>
+    public const int Local = StudioFlags.SequenceLocal;
+}
+
 /// <summary>
 /// The flag bits a studio model uses to say how its animation is stored and how it plays.
 /// </summary>

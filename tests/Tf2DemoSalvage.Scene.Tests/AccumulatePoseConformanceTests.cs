@@ -259,9 +259,16 @@ public sealed class AccumulatePoseConformanceTests
     /// 1.0, … )` for every sequence (`bone_setup.cpp:2439`). Sequence 1 is local and declares an unwindowed
     /// `STUDIO_AL_LOCAL` autolayer over 2; played as a networked layer at 0.5, 2 follows inside it at weight ONE — Valve's
     /// literal, composed into 1's own pose before 1 is blended at 0.5 — and `Local` says 2 belongs to that pass.
+    ///
+    /// **And the IK rules take that weight too, whatever the parent weighs** (the 0.1 case). The local layer's
+    /// `AccumulatePose` runs inside the parent's `if (CalcPoseSingle(…))`, which tests no weight (`bone_setup.cpp:2436`), and
+    /// calls `AddDependencies( …, flWeight )` with its own 1.0-derived weight (`:2444-2447`, `ikrule.flRuleWeight =
+    /// flWeight`, `:3317`) — the "this weight is wrong" Valve admits at `:2438`. `BuildBlend` asks `IkFor` at each listed
+    /// layer's `Weight`, so the list's 1 here is the rule weight.
     /// </remarks>
-    [Test]
-    public void LayersFor_ALocalWireLayerWithALocalAutolayer_AccumulatesItIntoItsOwnPoseAtWeightOne()
+    [TestCase(0.5f)]
+    [TestCase(0.1f)]
+    public void LayersFor_ALocalWireLayerWithALocalAutolayer_AccumulatesItIntoItsOwnPoseAtWeightOne(float parentWeight)
     {
         EntityModelSet models = new();
         SceneProp[] props =
@@ -273,7 +280,7 @@ public sealed class AccumulatePoseConformanceTests
                 new ScenePose
                 {
                     Sequence = 0,
-                    Layers = [new SceneAnimationLayer(Order: 0, Sequence: Parent, Cycle: 0.25f, Weight: 0.5f)],
+                    Layers = [new SceneAnimationLayer(Order: 0, Sequence: Parent, Cycle: 0.25f, Weight: parentWeight)],
                 },
                 null),
         ];
@@ -283,7 +290,7 @@ public sealed class AccumulatePoseConformanceTests
 
         models.LayersOf(9).ShouldNotBeNull()
             .Select(layer => (layer.Sequence, layer.Weight, layer.Local, layer.Nested))
-            .ShouldBe([(Parent, 0.5f, 1, 1), (Child, 1f, 0, 0)]);
+            .ShouldBe([(Parent, parentWeight, 1, 1), (Child, 1f, 0, 0)]);
     }
 
     /// <remarks>
@@ -303,8 +310,37 @@ public sealed class AccumulatePoseConformanceTests
         models.LayersOf(4).ShouldNotBeNull().Select(layer => (layer.Sequence, layer.Weight)).ShouldBe([(Child, 1f)]);
     }
 
-    /// <summary>`STUDIO_LOCAL` (<c>studio.h</c>), spelled out because the Content assembly keeps its own internal.</summary>
-    private const int Local = 0x0200;
+    private const int Local = StudioSequenceFlags.Local;
+
+    /// <remarks>
+    /// **B633 with autolayers: each fading root keeps its own subtree right behind it in the new order.** Sequences 1 and
+    /// 2 each declare an unwindowed autolayer over 0; the entity plays 1, then 2, then 0, so both fade at once. Newest
+    /// first, each root followed by its nested child: 2, 0, 1, 0.
+    /// </remarks>
+    [Test]
+    public void BuildBlend_TwoFadingSequencesWithAutolayers_KeepEachSubtreeBehindItsRoot()
+    {
+        Dictionary<int, StudioAutoLayer[]> autoLayers = new()
+        {
+            [Parent] = [new StudioAutoLayer(0, 0, 0, 0f, 0f, 0f, 0f)],
+            [Child] = [new StudioAutoLayer(0, 0, 0, 0f, 0f, 0f, 0f)],
+        };
+
+        EntityModelSet models = new();
+        List<SceneProp> drawn = [Playing(Parent)];
+
+        models.Add(drawn, _ => Model(autoLayers, ("a", 0), ("b", 0), ("c", 0)));
+        models.Instances(drawn, [], seconds: 0d);
+
+        drawn[0] = Playing(Child);
+        models.Instances(drawn, [], seconds: 0.05d);
+
+        drawn[0] = Playing(0);
+        models.Instances(drawn, [], seconds: 0.1d);
+
+        Shape(models.LayersOf(4)).Select(layer => (layer.Sequence, layer.Nested))
+            .ShouldBe([(Child, 1), (0, 0), (Parent, 1), (0, 0)]);
+    }
 
     /// <summary>Sequence 1 declares an unwindowed `STUDIO_AL_LOCAL` autolayer over 2.</summary>
     private static readonly Dictionary<int, StudioAutoLayer[]> LocalOnParent = new()

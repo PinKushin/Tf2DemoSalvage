@@ -963,20 +963,22 @@ public sealed class SkeletonPose : IBonePose
     /// <summary>One own pose per local-scope depth, grown as deeper scopes first open (B634).</summary>
     private readonly List<StudioBonePose[]> _scratch = [];
 
-    /// <summary>One open `AccumulatePose` scope.</summary>
+    /// <summary>One open `AccumulatePose` scope: a lock bracket (<paramref name="Locks"/>) or a local pose (<paramref name="Own"/>).</summary>
     /// <param name="Close">The index of the last layer inside it.</param>
-    /// <param name="Locks">A lock bracket's locks, solved on <paramref name="On"/> at the close; null for a local scope.</param>
     /// <param name="On">The pose the bracket captured on, or the local scope's own pose.</param>
-    /// <param name="Into">A local scope's parent pose, which its own is blended into at the close.</param>
-    /// <param name="Layer">A local scope's layer, for its per-bone weights and delta flags.</param>
-    /// <param name="Weight">A local scope's weight, clamped to one.</param>
+    /// <param name="Locks">A lock bracket's locks, solved on <paramref name="On"/> at the close; null for a local pose.</param>
+    /// <param name="Own">A local pose's blend at the close; null for a lock bracket.</param>
     private readonly record struct OpenScope(
         int Close,
-        IReadOnlyList<StudioIkLock>? Locks,
         StudioBonePose[] On,
-        StudioBonePose[]? Into,
-        PoseLayer Layer,
-        float Weight);
+        IReadOnlyList<StudioIkLock>? Locks,
+        OwnPose? Own);
+
+    /// <summary>How a local scope's own pose is blended into its parent when it closes (B634).</summary>
+    /// <param name="Into">The parent pose.</param>
+    /// <param name="Layer">The index into <see cref="Layers"/> of the layer whose pose it is, for its weights and flags.</param>
+    /// <param name="Weight">That layer's weight, clamped to one.</param>
+    private readonly record struct OwnPose(StudioBonePose[] Into, int Layer, float Weight);
 
     /// <summary>Each bone's parent, built once for a model with chains.</summary>
     private int[]? _parents;
@@ -1074,7 +1076,7 @@ public sealed class SkeletonPose : IBonePose
         // `pos2`: the base is copied in whole, which is `SlerpBones` at the literal 1.0 (`c_baseanimating.cpp:1986`).
         if (locked)
         {
-            _open.Add(new OpenScope(BaseNested - 1, Locks, result, null, default, 0f));
+            _open.Add(new OpenScope(BaseNested - 1, result, Locks, null));
         }
 
         long last = CloseBrackets(-1, seededAt);
@@ -1120,7 +1122,7 @@ public sealed class SkeletonPose : IBonePose
             if (holds)
             {
                 Bracket(_open.Count).Capture(layer.Locks!, IkChains, target);
-                _open.Add(new OpenScope(index + Math.Max(0, layer.Nested), layer.Locks!, target, null, default, 0f));
+                _open.Add(new OpenScope(index + Math.Max(0, layer.Nested), target, layer.Locks, null));
 
                 long capturedAt = System.Diagnostics.Stopwatch.GetTimestamp();
                 _capture += capturedAt - sampledAt;
@@ -1155,14 +1157,26 @@ public sealed class SkeletonPose : IBonePose
                 StudioBonePose[] own = Scratch(_locals);
                 ReadOnlySpan<StudioBonePose> whole = StudioPoseBlend.AsDense(sampled, own.Length);
 
+                // **What a bone the sample does not name holds**: `CalcAnimation` writes every weighted bone, the bind
+                // pose for an ordinary animation and identity for a delta one — `q.Init( 0, 0, 0, 1 ); pos.Init( 0, 0, 0 )`
+                // under `if (animdesc.flags & STUDIO_DELTA)` (`bone_setup.cpp:1110-1121`). A bone weighted 0 keeps
+                // `InitPose`'s bind, and the blend never reads it. Keyed on the SEQUENCE's delta bit, which every
+                // shipped local sequence shares with its animation (none is delta: `sequence-flags`, 2026-11-01).
                 if (whole.IsEmpty)
                 {
-                    SeedBind(own);
+                    if (layer.Delta)
+                    {
+                        SeedIdentity(own);
+                    }
+                    else
+                    {
+                        SeedBind(own);
+                    }
                 }
 
                 Overlay(sampled, whole, own);
 
-                _open.Add(new OpenScope(index + local, null, own, target, layer, weight));
+                _open.Add(new OpenScope(index + local, own, null, new OwnPose(target, index, weight)));
                 _locals++;
                 _target = own;
 
@@ -1308,28 +1322,30 @@ public sealed class SkeletonPose : IBonePose
             OpenScope scope = _open[^1];
             _open.RemoveAt(_open.Count - 1);
 
-            if (scope.Locks is { } locks)
+            if (scope.Own is { } own)
+            {
+                _locals--;
+                _target = own.Into;
+
+                PoseLayer layer = Layers[own.Layer];
+
+                for (int bone = 0; bone < scope.On.Length; bone++)
+                {
+                    ComposeBone(layer, own.Weight, scope.On[bone], own.Into);
+                }
+
+                long blendedAt = System.Diagnostics.Stopwatch.GetTimestamp();
+                _compose += blendedAt - from;
+                from = blendedAt;
+            }
+            else if (scope.Locks is { } locks)
             {
                 Bracket(_open.Count).Solve(locks, IkChains, scope.On);
 
                 long solvedAt = System.Diagnostics.Stopwatch.GetTimestamp();
                 _solve += solvedAt - from;
                 from = solvedAt;
-                continue;
             }
-
-            StudioBonePose[] into = scope.Into!;
-            _locals--;
-            _target = into;
-
-            for (int bone = 0; bone < scope.On.Length; bone++)
-            {
-                ComposeBone(scope.Layer, scope.Weight, scope.On[bone], into);
-            }
-
-            long blendedAt = System.Diagnostics.Stopwatch.GetTimestamp();
-            _compose += blendedAt - from;
-            from = blendedAt;
         }
 
         return from;
@@ -1341,6 +1357,15 @@ public sealed class SkeletonPose : IBonePose
         for (int bone = 0; bone < _bones.Count; bone++)
         {
             onto[bone] = new StudioBonePose(bone, _bones[bone].Position, _bones[bone].Rotation);
+        }
+    }
+
+    /// <summary>Writes the identity into every bone — what `CalcAnimation` gives a delta animation's unnamed bone.</summary>
+    private static void SeedIdentity(StudioBonePose[] onto)
+    {
+        for (int bone = 0; bone < onto.Length; bone++)
+        {
+            onto[bone] = new StudioBonePose(bone, (0f, 0f, 0f), (0f, 0f, 0f, 1f));
         }
     }
 

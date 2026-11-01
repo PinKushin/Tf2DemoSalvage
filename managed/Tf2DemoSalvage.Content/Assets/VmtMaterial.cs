@@ -250,9 +250,6 @@ public sealed class VmtMaterial
     /// </remarks>
     public bool IsModulate => IsModulateShader(Shader);
 
-    /// <summary>`DecalModulate`: the bullet holes' shader, a mod2x blend by construction (`DecalModulate_dx9.cpp:67`).</summary>
-    private bool IsDecalModulate => IsDecalModulateShader(Shader);
-
     /// <summary>Whether a shader name is `DecalModulate`: the one predicate every caller asks (B639 review).</summary>
     /// <param name="shader">The shader name as the VMT states it.</param>
     /// <returns>True for `DecalModulate`, case aside.</returns>
@@ -546,7 +543,8 @@ public sealed class VmtMaterial
     public string? SecondTexture => Value("$texture2");
 
     /// <summary>Whether a modulating material doubles its result.</summary>
-    public bool IsModulateTwice => IsDecalModulate || (IsModulate && Flag("$mod2x"));
+    /// <remarks>`DecalModulate`, the bullet holes' shader, is a mod2x blend by construction (`DecalModulate_dx9.cpp:67`).</remarks>
+    public bool IsModulateTwice => IsDecalModulateShader(Shader) || (IsModulate && Flag("$mod2x"));
 
     /// <summary>Whether the shader multiplies the vertex's alpha into its output (B329).</summary>
     /// <remarks>
