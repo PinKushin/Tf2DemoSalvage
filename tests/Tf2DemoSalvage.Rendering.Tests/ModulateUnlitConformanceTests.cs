@@ -1,4 +1,7 @@
 using System.Collections.Generic;
+using System.Linq;
+
+using Tf2DemoSalvage.Content.Assets;
 
 namespace Tf2DemoSalvage.Rendering.Tests;
 
@@ -169,6 +172,48 @@ public sealed class ModulateUnlitConformanceTests
 
         Close(flat, off, $"the dark scorch drew {off} and {flat} under mat_drawflat");
     }
+
+    /// <remarks>
+    /// **DecalModulate alpha-tests, GREATER 0** (`EnableAlphaTest( true )`, `AlphaFunc( SHADER_ALPHAFUNC_GREATER, 0.0f )`,
+    /// DecalModulate_dx9.cpp:64-65), so an alpha-0 texel is discarded whatever its colour. A scorch's surround is alpha 0
+    /// with RGB 120 to 131 (`texel-png` on `decals/scorch1`). Once the blend became exact (B641) that surround stored
+    /// 1.4% bright in a real frame, where TF2 leaves it at exactly 1.000. Texel 140 at alpha 0 would draw 206 over 188;
+    /// Valve draws nothing.
+    /// </remarks>
+    [Test]
+    public void DrawModel_DecalModulateTexelOfAlphaZero_IsDiscarded()
+    {
+        (int, int, int) under = Under(ModulateToneMapConformanceTests.Surface) ?? Skip();
+        (int, int, int) opaque = DrawModel(BrightOpaque, assets: AlphaPair) ?? Skip();
+        (int, int, int) clear = DrawModel(BrightClear, assets: AlphaPair) ?? Skip();
+
+        // The control: the same texel at alpha 255 draws, and brightens the surface.
+        opaque.Item2.ShouldBeGreaterThan(under.Item2 + 10, $"the opaque texel drew {opaque} over {under}: nothing drew");
+
+        Close(clear, under, $"an alpha-0 DecalModulate texel moved the surface from {under} to {clear}");
+    }
+
+    private const int BrightOpaque = 0;
+    private const int BrightClear = 1;
+
+    /// <summary>Two DecalModulate materials of RGB 140, one at alpha 255 and one at alpha 0.</summary>
+    private static readonly MapAssets AlphaPair = MapAssets.ForMaterials(
+        [DecalTexel(140, 255), DecalTexel(140, 0)], ["DecalModulate", "DecalModulate"]);
+
+    private static MapTexture DecalTexel(byte value, byte alpha) =>
+        new(
+            4,
+            4,
+            4,
+            4,
+            TextureImage.Rgba(Enumerable.Range(0, 16).SelectMany(_ => new[] { value, value, value, alpha }).ToArray()),
+            IsTransparent: false,
+            IsAdditive: false,
+            IsTranslucent: true,
+            IsModulate: true,
+            IsModulateTwice: true,
+            IsNoCull: false,
+            IsDecal: true);
 
     private const int UnlitGeneric = 0;
 

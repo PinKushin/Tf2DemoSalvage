@@ -77,6 +77,9 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
     /// </remarks>
     private const float DefaultAlphaTestReference = 0.5f;
 
+    /// <summary>DecalModulate's `AlphaFunc( GREATER, 0 )` as a clip cutoff: half an 8-bit step, so alpha 1/255 survives.</summary>
+    private const float DecalModulateAlphaCutoff = 0.5f / 255f;
+
     private static readonly string ShaderSource = (ShaderText + WaterShaderText).Replace(
         "MaxBones", MaxBones.ToString(System.Globalization.CultureInfo.InvariantCulture), StringComparison.Ordinal);
 
@@ -3612,6 +3615,13 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
                 alphaTested = surface.Value.AlphaTestReference > 0f
                     ? surface.Value.AlphaTestReference
                     : DefaultAlphaTestReference;
+            }
+            else if (VmtMaterial.IsDecalModulateShader(shader))
+            {
+                // **DecalModulate alpha-tests in its own shadow state, GREATER 0** (DecalModulate_dx9.cpp:64-65), whatever the
+                // VMT says. An 8-bit alpha passes from 1/255, so the clip keeps anything rounding there: half a step. A
+                // scorch's alpha-0 surround is RGB 120-131, and drawn it stored 1.4% bright once the blend was exact (B641).
+                alphaTested = DecalModulateAlphaCutoff;
             }
 
             // **Which of the two combines the shader should use.** UnLitTwoTexture multiplies its
