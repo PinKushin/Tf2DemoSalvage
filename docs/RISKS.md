@@ -40493,8 +40493,8 @@ only DecalModulate's `DisableFogGammaCorrection` keeps the tone-map scale off it
 centre ×1.123 (TF2 ×1.116). The tripwire is replaced by `ModulateFogConformanceTests`, which holds the height branch
 unscaled by its pixels. **Review batch (`fix/b637-review-batch`):** the height grey's curve read (sRGB, not pow 2.2) and
 the modulate blends stopped writing alpha, as Valve's do (`DecalModulate_dx9.cpp:70-71`, `modulate_dx9.cpp:211`).
-**Still open:** our water fog colour and the scene fog colour under sRGB write still take pow 2.2 where shaderapi's
-default path takes the sRGB curve (lit materials; plan doc, review batch).
+**Moved to B653:** our water fog colour and the scene fog colour under sRGB write took pow 2.2 where shaderapi's
+default path takes the sRGB curve (lit materials).
 
 **As filed:**
 
