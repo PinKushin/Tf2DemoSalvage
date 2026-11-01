@@ -93,6 +93,12 @@ public sealed class DecalReplay
     /// <returns>True for a <see cref="StaticPropKey"/>.</returns>
     public static bool IsStaticPropKey(int key) => key <= -2;
 
+    /// <summary>The pool key a drawn model's decals are held under: its entity index, or a static prop's lump key (B642).</summary>
+    /// <param name="entity">The instance's entity index; a static prop's is <see cref="PropModels.FirstStaticPropEntityIndex"/> plus its lump index.</param>
+    /// <returns>The key.</returns>
+    public static int KeyOf(int entity) =>
+        entity >= PropModels.FirstStaticPropEntityIndex ? StaticPropKey(entity - PropModels.FirstStaticPropEntityIndex) : entity;
+
     /// <summary>Shoots everything up to and including a tick, first clearing the pool when the tick went backwards.</summary>
     /// <param name="tick">The tick now shown.</param>
     /// <param name="struckPlayer">

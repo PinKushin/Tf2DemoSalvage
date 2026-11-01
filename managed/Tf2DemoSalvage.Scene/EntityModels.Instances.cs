@@ -379,11 +379,21 @@ public sealed partial class EntityModelSet
                 locals = state.Locals;
             }
 
+            (PointLighting Lighting, SunLight? Sun)? decalLight = null;
+
             if (baked is not null)
             {
                 locals = StaticPlusDynamicLights?.Invoke(prop.EntityIndex, lit.X, lit.Y, lit.Z) ?? [];
                 light = locals.Count > 0 ? LevelLighting.NoStaticState : null;
                 sun = null;
+
+                // **Its decals take the static state its colours carry, added back** (B642): `engine.dll` lights a
+                // colour-mesh prop's decals with its draw state plus the record's static state at `record + 0x88`
+                // (`0x1800f1bd0`, `0x1800eb5e0`), which is the full state, flags 7. For every colour-mesh prop, not only a
+                // decaled one: the decals are stepped after this pass, so a prop decaled this frame would miss it.
+                // ponytail: one ranking over static, styled and dynamic lights; the engine lists the record's lights first
+                // and appends the draw's without ranking again, which differs only past four lights at one prop.
+                decalLight = StaticPropFullLighting?.Invoke(prop.EntityIndex, lit.X, lit.Y, lit.Z);
             }
 
             BakedTicks += System.Diagnostics.Stopwatch.GetTimestamp() - bakedAt;
@@ -836,7 +846,8 @@ public sealed partial class EntityModelSet
                 InSky: inSky,
                 Cloak: cloak,
                 Flex: flex,
-                FlexRange: flexRange));
+                FlexRange: flexRange,
+                DecalLight: decalLight));
 
             long instancedAt = System.Diagnostics.Stopwatch.GetTimestamp();
             PlaceBuildTicks += instancedAt - buildingAt;

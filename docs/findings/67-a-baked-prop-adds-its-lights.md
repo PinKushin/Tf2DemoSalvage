@@ -109,6 +109,16 @@ colour mesh is built during play any more, the frame is unchanged, and the load 
 (measurements/2026-10-27-static-prop-handle-at-load.md). *Interpolated*, because this pass could not open the engine:
 whether the load-time build fills `+0x88` too, and that `+0xf8` is compared per listed style.
 
-Not ported: when cvar `DAT_18069c368` is nonzero a second combined state (the instance's `+0x88..+0xcc` added to
+~~Not ported: when cvar `DAT_18069c368` is nonzero a second combined state (the instance's `+0x88..+0xcc` added to
 the per-draw state, lights unioned to four, `0x1800f2120..0x1800f2232`) is built for a record at
-`param_1 + 0x18`; its consumer is the second `FUN_1800f0e10` call, not the prop's own lighting.
+`param_1 + 0x18`; its consumer is the second `FUN_1800f0e10` call, not the prop's own lighting.~~
+
+**That reading was wrong about whose state it is (2026-11-02, B642).** The cvar is `r_decalstaticprops`, default `"1"`
+(registered at `0x1800069d0`), so the branch runs by default. `param_8` is the `DrawModelInfo_t`, so `+0x44` and
+`+0x8c/+0x90` are its `m_vecAmbientCube` and `m_LocalLightDescs`, and the gate `record + 0x10 != 0` is "this prop holds
+decals". The state is the **decal's** light: the draw state plus the record's static state, `FUN_1801ba590(handle, 0, 1)`
+stored at `record + 0x88` by `0x1800eac60`. studiorender reads it under `m_bStaticLighting`. The batched path
+`0x1800eb5e0` builds the same sum and sets it before `DrawStaticPropDecals`. What killed the old reading was finding the
+ConVar's registration (a `DATA` cross-reference to the object, `0x18069c330`) and counting the `DrawModelInfo_t`
+fields that `0x1800eb1a0` builds on its stack. Ported as `ModelInstance.DecalLight`; the read is in
+`docs/measurements/2026-11-02-prop-decal-light-plan.md`. *Read from disassembly.*

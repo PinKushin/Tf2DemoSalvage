@@ -560,7 +560,9 @@ public sealed partial class EntityModelSet
     /// Run once the static props are packed, since the lighting origin reads the model's `illumposition`. Each prop takes
     /// the draw's own route — <see cref="IlluminationPoint"/> at its pose, the draw's colour-mesh test — so the draw finds
     /// what was built here under the same key. Only what a draw reads is built: the colour mesh, the handle of a prop
-    /// whose draw reads one (a colour mesh's flags 6, a bump-mapped model's flags 7), and the static state for flags 7.
+    /// whose draw reads one (a colour mesh's flags 6, a bump-mapped model's flags 7), and the static state, which flags 7
+    /// reads and a colour-mesh prop's decal light reads (B642). The engine fills that decal state, `record + 0x88`, when
+    /// it builds the colour mesh (`engine.dll` `0x1800eac60`), not per draw.
     /// </remarks>
     private void PrecacheStaticLighting()
     {
@@ -578,7 +580,7 @@ public sealed partial class EntityModelSet
 
             if (fullyLit || BakedColoursOf(prop, pose, x, y, z) is not null)
             {
-                StaticPropHandle?.Invoke(prop.EntityIndex, x, y, z, fullyLit);
+                StaticPropHandle?.Invoke(prop.EntityIndex, x, y, z, true);
             }
         }
     }

@@ -40330,7 +40330,61 @@ Found while settling the sparse-local question in B634's review batch (plan doc 
   - Then a census over a real demo: how many composed layers per rebuild are sparse, and how many of those weight an
     untracked bone above 0. Read off the sample the skeleton actually composed.
 
-## B642 — a static prop's studio decal takes white corners, but the prop's own light is its baked vertex colour (2026-11-01) — OPEN; the corners are settled as Valve's, the light source is not ours
+## B642 — a static prop's studio decal takes white corners, but the prop's own light is its baked vertex colour (2026-11-01) — FIXED (branch `fix/b642-decal-light`, 2026-11-02); water and sky views open
+
+**Fix (read from `engine.dll`, then built).** The flag the entry below left unread is settled, and so is the light.
+`0x1800f1bd0` sets `m_bStaticLighting` exactly when a static prop draws with a colour mesh on DX9. Both static-prop paths
+then hand its decals a cube and up to four local lights: the draw state plus the record's static state at
+`record + 0x88` (per prop: `0x1800eb1a0` → `0x1800f1bd0`, gated on `r_decalstaticprops`, default 1; batched:
+`0x1800eb5e0`, which sets that light before `DrawStaticPropDecals`). That is the prop's full state at its lighting
+origin, never the white texel. The whole read, with what is settled and what is interpolated:
+`docs/measurements/2026-11-02-prop-decal-light-plan.md`. It also corrects findings 67's reading of the same branch.
+- `WorldRenderer.DrawModelDecals` takes the cube, sun and lamps. An entity's decals take the model's own.
+- A colour-mesh static prop carries `ModelInstance.DecalLight`, `StaticPropFullLightingAt` at its lighting origin.
+- Its decals moved from the world decal pass to the model pass after the prop (`Device3D.DrawDecalsOf`), a fading
+  prop's translucent draw included.
+
+DecalModulate is unchanged. Held by `ModelDecalLightConformanceTests`, red first: a lit decal of texel 100 drew 138 at
+the white texel. It now draws 50 under a cube face of 0.25 and 100 under 1.0. Also held by
+`MomentSceneTests.Pose_AStaticPropWithBakedColours_HandsItsDecalsTheFullStateABumpMappedPropDrawsWith` and
+`DecalEffectsTests`.
+
+**Corrected by the read:** the lit decals are not only the four listed below. Wood bullet holes on a model are
+`decals/wood/shot1`..`5`, all VertexLitGeneric `$translucent` (`vmt`), so every wood prop hit carries one.
+
+**Real frame** (measured 2026-11-02, `--shot` with both builds, f12 `demostf-cp_process_f12-2026-08-08-2207.dem` tick
+40,000, where 29 static props hold decals; before is `56da2627`). Pixels that moved more than 3 levels, below the HUD:
+
+| camera | subject | pixels | mean before → after | max |
+|---|---|---|---|---|
+| `-3900 -2100 660 15 180` | bullet hole on the dark crate stack by the blue barrels (*interpolated* from position: `barrel_crate` #1170, baked mean 0.022) | 39 | 72.5 → 49.2 | 85 |
+| `-3950 -1950 700 25 225` | the same hole, second camera | 68 | 54.1 → 36.5 | 68 |
+| `1852 1490 840 8 270` | two holes on the shelf in a lit room (*interpolated*: `wood_pile` #720) | 38 | 139.5 → 134.9 | 7 |
+
+Every moved pixel went darker; nothing else in those frames changed. In the dark the hole drew as a pale spot on the
+crate and now takes its shade. In the lit room the two lights nearly agree. Images, with enlarged pairs
+(`sbs-*-before-left-after-right.png`): `D:/measure-f12/decal-cmp/b642/`. **DecalModulate is not verified on a
+frame.** Two views of the mid containers (`±280 ∓500 700 30 90/270`, decaled props #518 and #1306 among them) are
+identical below the HUD in both builds. No DecalModulate hole was identified in them, so they show no change but
+prove no draw. The move to the model pass (ordering, gamma twin, fog) is covered offscreen by the light test's
+DecalModulate control only. **The HUD strip** (top 37 px) differed between builds in at least two of the eleven pairs at
+the same tick, max 210. *Unexplained*, and outside this change's code. **Not compared with TF2.** No live
+TF2 capture of these holes was taken. Three overhead cameras hit ceilings and showed nothing.
+
+**Cost:** the decal light reads every colour-mesh prop's static state, which B607 had built only for bump-mapped
+props. `PrecacheStaticLighting` now builds it at load for all of them (`0x1800eac60` fills `record + 0x88` with the
+colour mesh), so play builds none (`MomentSceneTests`). The added load time is not measured.
+
+**Not held by a test:** `Device3D.DrawDecalsOf` itself. Nothing reddens if it reads `instance.Light` instead of
+`DecalLight`, drops the `KeyOf` lookup, or loses the translucent call. The f12 pairs above show it working today.
+**The entity half is offscreen-only:** no real frame showed a lit decal on a dynamic model. Blood is DecalModulate,
+and wood holes land on props.
+
+**Open residue:** the water views (`DrawViewEntities`) and the 3D sky draw no model decals. The world decal pass drew a
+static prop's decals in a reflection; after this change it does not, which is how an entity's already were. *Unread:*
+whether studiorender's `DrawModelStaticProp` (slot 30) reads `+0x44/+0x8c` exactly as slot 31 does.
+
+**As filed (2026-11-01):**
 
 **Read from the binary (`studiorender.dll` x64, 2026-11-01, Ghidra; addresses only, nothing carried but these facts).**
 Route in: the `CStudioRenderContext` vtable at `0x180081120` (RTTI `.?AVCStudioRenderContext@@`). Counting five

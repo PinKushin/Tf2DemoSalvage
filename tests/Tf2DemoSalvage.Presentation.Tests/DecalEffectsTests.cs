@@ -439,8 +439,12 @@ public sealed class DecalEffectsTests
         device.Uploads.Count.ShouldBe(2, "a new map's pool is new");
     }
 
+    /// <remarks>
+    /// **The prop's decal is held for the model pass, not copied into the world's mesh** (B642): the device draws it after
+    /// the prop, under the prop's decal light (`Device3D.DrawDecalsOf`), so the world upload must not carry it as well.
+    /// </remarks>
     [Test]
-    public void StepOver_AClientBulletAStaticPropStopped_DecalsThePropAndDrawsItAfterTheWorldsOwn()
+    public void StepOver_AClientBulletAStaticPropStopped_HoldsThePropsDecalForTheModelPassAndNotTheWorldMesh()
     {
         (DecalEffects decals, FakeDecalUpload device, FakePosedEntities models, _) = Presenter();
 
@@ -471,11 +475,18 @@ public sealed class DecalEffectsTests
         (WorldVertex[] vertices, WorldBatch[] batches, WorldBatch[] entityBatches) = device.Uploads[^1];
 
         batches.ShouldBeEmpty("the world itself took no decal");
-        entityBatches.ShouldHaveSingleItem().MaterialIndex.ShouldBe(6, "decals/concrete/shot1, the prop's own decal run");
-        vertices.Length.ShouldBe(entityBatches[0].VertexCount);
-        vertices.Select(static vertex => (vertex.Red, vertex.Green, vertex.Blue)).Distinct().ShouldBe(
+        entityBatches.ShouldBeEmpty("the prop's decal is drawn after the prop, not in the world's decal pass");
+        vertices.ShouldBeEmpty();
+
+        (IReadOnlyList<WorldVertex> held, IReadOnlyList<WorldBatch> runs) =
+            device.ModelDecals.ShouldNotBeNull("the pool the device draws model decals from")
+                .For(DecalReplay.KeyOf(PropModels.FirstStaticPropEntityIndex))
+                .ShouldNotBeNull("held under the key the drawn prop instance looks it up by");
+
+        runs.ShouldHaveSingleItem().MaterialIndex.ShouldBe(6, "decals/concrete/shot1, the prop's own decal run");
+        held.Select(static vertex => (vertex.Red, vertex.Green, vertex.Blue)).Distinct().ShouldBe(
             [(1f, 1f, 1f)],
-            "a DecalModulate decal's corners carry the white its shader ignores; the mod2x compensation is the material's (B639)");
+            "studiorender's decal corners are white (0x1800096c0); the light comes from the draw (B642)");
         decals.ModelDecalCount.ShouldBe(1, "one pool for every model: the prop's decal is held with the players'");
     }
 

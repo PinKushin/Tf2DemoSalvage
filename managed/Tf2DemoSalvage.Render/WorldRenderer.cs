@@ -6784,6 +6784,9 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
     /// <param name="vertices">The decal's corners: the model's own vertices, carrying the decal's UV and material.</param>
     /// <param name="batches">One run per decal material, into <paramref name="vertices"/>.</param>
     /// <param name="bones">How many bones skin the model, or zero.</param>
+    /// <param name="light">The cube the decals are lit by: the model's own, or a static prop's decal light (B642).</param>
+    /// <param name="sun">The sun reaching them, or null.</param>
+    /// <param name="locals">The lamps reaching them, or null.</param>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <remarks>
     /// **The world decal pass's state** — the decal depth bias, tested and never written, and each material's own blend
@@ -6794,7 +6797,10 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
         ComPtr<ID3D11DeviceContext> context,
         IReadOnlyList<WorldVertex> vertices,
         IReadOnlyList<WorldBatch> batches,
-        int bones)
+        int bones,
+        AmbientCube? light = null,
+        SunLight? sun = null,
+        IReadOnlyList<LocalLight>? locals = null)
     {
         ArgumentNullException.ThrowIfNull(vertices);
         ArgumentNullException.ThrowIfNull(batches);
@@ -6839,8 +6845,11 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
         context.RSSetState(Raster(_decalOffset));
         context.OMSetDepthStencilState(_decalDepth, 0);
 
-        // Unlit: `DecalModulate` samples its texture and nothing else, so no ambient cube is handed over.
-        SetModel(context, ModelIdentity, bones: bones);
+        // **Lit by the model's cube and lamps** (B642): studiorender lights a decal with the draw's cube and local lights
+        // (`studiorender.dll` `0x18000a880`), or under the state the engine set for it (`engine.dll` `0x1800eb5e0`), and
+        // its corners are white (`0x1800096c0`). Without a cube a VertexLitGeneric decal took the atlas's white texel.
+        // DecalModulate ignores all of it: an unlit material's light is `combine.w`.
+        SetModel(context, ModelIdentity, light, sun, bones: bones, locals: locals);
 
         if (!_reportedModelDecals)
         {

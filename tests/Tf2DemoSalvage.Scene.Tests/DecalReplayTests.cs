@@ -184,6 +184,20 @@ public sealed class DecalReplayTests
         replay.Decals.Count.ShouldBe(0);
     }
 
+    /// <remarks>
+    /// **A drawn static prop finds the decals its lump index was shot under** (B642): the instance carries
+    /// `FirstStaticPropEntityIndex + index` (`PropModels.StaticModel`), the pool keys the prop `-2 - index`, and an entity
+    /// keeps its own index.
+    /// </remarks>
+    [TestCase(PropModels.FirstStaticPropEntityIndex, -2)]
+    [TestCase(PropModels.FirstStaticPropEntityIndex + 7, -9)]
+    [TestCase(4, 4)]
+    public void KeyOf_ADrawnInstancesEntityIndex_IsItsPoolKey(int entity, int key)
+    {
+        DecalReplay.KeyOf(entity).ShouldBe(key);
+        DecalReplay.IsStaticPropKey(DecalReplay.KeyOf(entity)).ShouldBe(entity >= PropModels.FirstStaticPropEntityIndex);
+    }
+
     private static DecalReplay Replay(IReadOnlyList<SceneDecal> events) =>
         new(
             new WorldDecals(WorldDecalsConformanceTests.Wall()),
