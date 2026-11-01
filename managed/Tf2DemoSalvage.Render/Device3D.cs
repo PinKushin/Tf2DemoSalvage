@@ -2387,9 +2387,6 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         _world.Overlays = null;
     }
 
-    /// <summary>The vertex light a mod2x decal's corners carry — the reasoning is on the renderer's own constant.</summary>
-    public const float ModulateTwiceLight = WorldRenderer.ModulateTwiceLight;
-
     /// <summary>Replaces the decals the game has placed on the world — bullet holes and the demo's decal events (B415).</summary>
     /// <param name="vertices">Their triangles, grouped by material.</param>
     /// <param name="batches">One run per material.</param>
@@ -2560,8 +2557,12 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
     /// </remarks>
     public bool DrawSkybox { get; set { Lock(); field = value; } } = true;
 
-    /// <summary>The corner light a mod2x decal carries in this pipeline — the world decal pass's figure.</summary>
-    public const float DecalModulateLight = WorldRenderer.ModulateTwiceLight;
+    /// <summary>The corner light a DecalModulate decal carries: white, since its shader reads no vertex colour.</summary>
+    /// <remarks>
+    /// `VERTEXCOLOR false` (DecalModulate_dx9.cpp:89). The mod2x compensation is the material's own diffuse
+    /// (<c>WorldRenderer.ModulateTwiceDiffuse</c>); until B639 it rode here, which a brush entity never carried.
+    /// </remarks>
+    public const float DecalModulateLight = 1f;
 
     /// <summary>The decals on entities' models, drawn after each model with its bones (B415); null for none.</summary>
     public ModelDecals? ModelDecals { get; set { Lock(); field = value; } }

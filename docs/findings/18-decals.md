@@ -593,3 +593,53 @@ opaque and then multiplying also darkens. It caught the fault only once it asser
 Valve's Modulate fogs toward its neutral value, grey under `$mod2x` (`FogToGrey`), otherwise
 `FogToOOOverbright` (`modulate_dx9.cpp:201-209`). Ours fogs a modulating material not at all, which is the open
 ponytail at the upload.
+
+## A modulating material reads no light, and the gamma compensation belongs to the material (B639, B638, 2026-11-01)
+
+**The report, and why it was wrong.** B639 was filed as "`ctf_crasher`'s scorch `func_brush` LIGHTENS the floor in ours
+where TF2 darkens it", from a tick-5 against tick-2000 pair, with the cause guessed as the model pass lighting the
+brush entity. The direction was a misread. A signed count over the filed image itself
+(`owner/sbs-crasher-scorch-off-on.png`, every second pixel) gives 13,422 pixels darker and 95 lighter. A same-tick
+control, the brush hidden through a scratch switch at tick 2000 and camera `-3116 -1344 300 89 0` (the face's centre
+from `shader-faces`, plus 300 along its normal), also darkens: the median linear multiplier over the floor is 0.55.
+**Measured.** So no variable flips lighten to darken. What remained was the strength of the darkening.
+
+**The engine (*read*).** `DecalModulate` sets `STATIC_LIGHT_VERTEX 0`, `STATIC_LIGHT_LIGHTMAP 0`, `DYNAMIC_LIGHT 0`,
+`NUM_LIGHTS 0` and `VERTEXCOLOR false` (`DecalModulate_dx9.cpp:89`, `:184-191`). Its pixel shader is the texel alone
+(`decalmodulate_ps2x.fxc:35`). It reads and writes without sRGB (`:74-75`) and blends `DST_COLOR, SRC_COLOR`, so the
+stored value is `dst · 2s` in gamma. `Modulate` draws through `unlitgeneric_vs20` (`modulate_dx9.cpp:186`). Neither the
+entity's render colour nor any lightmap reaches either shader. In a linear blend the equivalent is
+`dst_lin · (2s)^2.2`, so the shader output must be `s_lin · 2^2.2/2` for mod2x, and `s_lin` for plain Modulate
+(*arithmetic*, on the 2.2 approximation).
+
+**Ours.** The scaling rode in two places: the decal's vertex colour (`2^2.2/4`), and the lightmap's white texel at
+2.0. A brush entity drawn by the model pass has a white vertex colour, so it got 2.0. *Measured* by ratio against a
+scratch run at diffuse 1: the brush entity's effective diffuse was 2.03. The control for that instrument: a run at
+2.297 measured 2.353 against the same baseline. A direct readout of the light, written to the screen, said 3.04. It
+had no control and disagreed with the ratio, so it was discarded. Plain Modulate took the same 2.0 and drew twice too
+bright (B638).
+
+**TF2, live (*measured*, 2026-11-01).** Listen server, `setpos -3116 -1344 232` (eye at z 300, matching ours, checked
+by the cap ring's size and place), `mat_force_tonemap_scale 1`, then `ent_fire gatescorch_red enable`. Median linear
+on/off multiplier, per region of the 984x551 frame:
+
+| region | TF2 fog on | TF2 `fog_enable 0` | ours before | ours after |
+|---|---|---|---|---|
+| alpha-0 surround, x 20-120 | 1.000 | 1.000 | 0.882 | 1.000 |
+| alpha-0 surround, x 870-970 | 1.000 | 1.000 | 0.867 | 1.000 |
+| scorch ring (150-300, 250-400) | 0.585 | 0.519 | 0.401 | 0.465 |
+| scorch centre (600-800, 280-400) | 0.428 | 0.348 | 0.265 | 0.307 |
+
+Before the fix the surround was a darker square some 600 units across that TF2 does not draw. It is now exactly
+neutral. The interior is still about 10% darker than TF2 with fog off. Fog accounts for the rest of the gap to TF2's
+fogged frame (B637). *Interpolated:* that the 10% is the linear blend's sRGB-curve error, which grows toward black.
+
+**The fix.** `WorldRenderer.UnlitDiffuseOf` gives every modulating material an unlit diffuse in `combine.w`:
+`ModulateTwiceDiffuse` (2^2.2/2) for DecalModulate and `$mod2x`, 1 for plain Modulate. The shader uses it as the
+light on every path (world, overlay, decal, model), and decal corners are white. `mat_fullbright 1` no longer
+overrides an unlit diffuse: it substitutes the lightmap, which an unlit shader never samples. That also stops it
+doubling UnlitGeneric. **Held by** `ModulateUnlitConformanceTests`, red first: the neutral brush entity drew 177 over
+188, now unchanged; plain Modulate of 128 drew 129, now about 94.
+
+**Still open, measured beside it:** no alpha test on DecalModulate. It is invisible now that the surround is neutral
+(texels 120-131). Fog is B637.

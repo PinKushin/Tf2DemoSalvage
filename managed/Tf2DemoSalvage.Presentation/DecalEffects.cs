@@ -1156,7 +1156,7 @@ public sealed class DecalEffects
 
         Func<int, float?> unlit = index => index < assets.Shaders.Count &&
                                            string.Equals(assets.Shaders[index], "DecalModulate", StringComparison.OrdinalIgnoreCase)
-            ? Device3D.ModulateTwiceLight
+            ? Device3D.DecalModulateLight
             : null;
 
         DecalMesh.Build(

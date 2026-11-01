@@ -25,10 +25,10 @@ namespace Tf2DemoSalvage.Rendering.Tests;
 [NonParallelizable]
 public sealed class ModulateToneMapConformanceTests
 {
-    private const int DecalModulateNeutral = 0;
+    internal const int DecalModulateNeutral = 0;
     internal const int DecalModulateDark = 1;
     internal const int Lit = 2;
-    private const int PlainModulate = 3;
+    internal const int PlainModulate = 3;
     private const int AdditiveModulate = 4;
     private const int TranslucentLit = 5;
     private const int ModulateTwiceDark = 6;
@@ -148,13 +148,15 @@ public sealed class ModulateToneMapConformanceTests
         // Multiplied: darker than the surface by far, where an opaque draw of the texel would not be.
         atOne.Item2.ShouldBeLessThan(under.Item2 - 40, $"the brush Modulate drew {atOne} over {under}: not multiplied");
 
-        // The value itself for `$mod2x`: Valve's gamma arithmetic, dst · 2 · 64/255, within the linear blend's 2.2-curve
-        // error, so an error the brush and model paths share cannot pass. Plain Modulate's value is B638.
+        // The value itself for `$mod2x`: Valve's gamma arithmetic, dst · 2 · 64/255, within the linear blend's sRGB-curve
+        // error, so an error the brush and model paths share cannot pass. Since B639 the diffuse is 2^2.2/2, exact at 128
+        // and 120 here against 116 (*measured*); at the old white-texel 2.0 it was 112, and unlit at 1 it would be about 80.
+        // The neutral texel (ModulateUnlitConformanceTests) is what tells 2.0 from 2^2.2/2; this bounds the dark end.
         if (twice)
         {
             int expected = (int)System.Math.Round(under.Item2 * 2.0 * 64.0 / 255.0);
 
-            atOne.Item2.ShouldBeInRange(expected - 6, expected + 2, $"the brush mod2x Modulate drew {atOne} over {under}; Valve's arithmetic {expected}");
+            atOne.Item2.ShouldBeInRange(expected - 5, expected + 5, $"the brush mod2x Modulate drew {atOne} over {under}; Valve's arithmetic {expected}");
         }
 
         // Exactly the model pass's multiply over the bare surface: drawing it opaque first, then multiplying over that,

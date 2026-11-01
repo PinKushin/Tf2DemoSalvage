@@ -21,4 +21,10 @@ and it separates exposure from everything else.
 scale and the fog colour's scale, as `PixelFog` mode 2 does. Before calling a texel "neutral", ask what multiplies the
 shader's output after the texture.
 
+**And it reads no light at all (B639, B638).** Neither modulating shader samples a lightmap or a vertex colour. The
+linear blend's gamma compensation (2^2.2/2 for mod2x, 1 for plain) is the MATERIAL's unlit diffuse
+(`UnlitDiffuseOf`), never a vertex colour, because a brush entity drawn by the model pass carries none. B639 was
+filed as "lightens". A signed pixel count on the filed image showed it darkened. Count the sign before you chase a
+direction.
+
 Related: [[instrument-bugs-outnumber-decoder-bugs]], [[take-your-own-screenshot]].
