@@ -40262,7 +40262,31 @@ though, is lit by its baked colour mesh (`PropModels.FromVertexByte`), which its
 source. DecalModulate decals are unaffected, since they read no light. **Next:** decompile `CStudioRender`'s decal draw
 for a static prop, then shoot a bullet hole on a lit prop against TF2.
 
-## B641 — a gamma-space multiply reproduced with a linear sRGB blend misses Valve's value toward black (2026-11-01) — OPEN, known residue
+## B641 — a gamma-space multiply reproduced with a linear sRGB blend misses Valve's value toward black (2026-11-01) — FIXED (branch `fix/b641-b642-decal-blend-and-prop-light`, 2026-11-01); a 2-3% interior residue open
+
+**Fix (read and measured):** every modulating run now draws through a non-sRGB twin of the bound target, and the
+shader writes the sRGB-encoded texel. The fixed-function blend therefore multiplies stored values, Valve's `dst · 2s`
+and `dst · s` exactly. `ModulateTwiceDiffuse` is deleted and the unlit diffuse is 1. Offscreen, over a stored 188,
+texel 32 now draws 47 (was 51), texel 128 draws 189, and the brush `$mod2x` case draws 116 ± 2 (was 120).
+`ModulateUnlitConformanceTests` holds this. Beside it, DecalModulate now alpha-tests GREATER 0
+(`DecalModulate_dx9.cpp:64-65`), because once the blend was exact the alpha-0 surround stored 1.4% bright.
+
+**Real frame (`ctf_crasher`, camera `-3116 -1344 300 89 0`, tick 2000, scorch hidden as the control).** Median
+on/off ratio of STORED values, which for Valve's blend is 2s and independent of the floor or the exposure:
+
+| region | TF2 `fog_enable 0` | before (linear) | after |
+|---|---|---|---|
+| alpha-0 surround | 1.000 | 1.000 | 1.000 |
+| ring | 0.725 | 0.690 | 0.704 |
+| centre | 0.591 | 0.554 | 0.577 |
+
+Images: `D:/measure-f12/decal-cmp/b641/sbs-b641-before-after-tf2.png`. **Open residue:** the interior is still 2-3%
+darker than TF2 in stored terms. *Not explained.* One named difference remains: our bilinear and mip filtering happen
+in linear space, where Valve's happen in gamma (sRGB read off). An sRGB-decoded texture would filter LIGHTER, not
+darker, so filtering is not an obvious fit for the sign. The next experiment is a texel-level read of the scorch at
+one screen pixel, ours against TF2.
+
+**As filed:**
 
 *Arithmetic and measured.* DecalModulate and `$mod2x` Modulate multiply gamma values (`dst · 2s`, sRGB read/write off,
 `DecalModulate_dx9.cpp:74-78`). Ours blends linearly and draws the texel times `ModulateTwiceDiffuse` (2^2.2/2). That
@@ -40339,6 +40363,10 @@ additive and fogged to black, which was also neutral for an additive draw.
 **Tripwire:** `ModulateToneMapConformanceTests.FogModeAndToneMapType_…` pins fog mode 2 for modulating materials. When
 this is fixed, that test goes red BY DESIGN. The water-fog branch (`ToneMapScale(tintControl.w)`) then becomes reachable
 by a modulating material, and has to keep its scale exemption.
+**Since B641 the output is gamma**, encoded after `PixelFog`. A fix must therefore fog toward the stored neutral in gamma,
+0.5 for mod2x, as Valve's `DisableFogGammaCorrection( true )` with `FogToGrey` does (DecalModulate_dx9.cpp:79-80).
+TF2's live pair puts the fog's share of the scorch at the gap between 0.591 (fog off) and 0.658 (fog on), stored, at
+the centre.
 
 ## B636 — the world pass gets the exposure only on frames that draw a 3D-sky or water view (2026-10-31) — OPEN, lead
 
