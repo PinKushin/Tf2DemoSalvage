@@ -662,3 +662,32 @@ surround is 1.000, as in TF2's live pair.
 **The real frame against TF2** (stored on/off ratios at `-3116 -1344 300 89 0`): the centre went from 0.554 (linear) to
 0.577 (exact), against TF2's 0.591 with fog off; the ring from 0.690 to 0.704, against 0.725. The 2-3% that remains
 is open in B641 with what it is not.
+
+## A studio decal is lit by its model, and a static prop's by the light its colours leave out (B642, 2026-11-02)
+
+**What was believed.** After B639 every studio decal had white corners, which is Valve's (studiorender's vertex builder
+writes `0xffffffff`, `0x1800096c0`). The open half was the light. Ours drew every model decal with no cube, so a
+VertexLitGeneric decal took the lightmap atlas's white texel whatever it sat on. studiorender lights a decal with the
+draw's cube and local lights when `m_bStaticLighting` is set (`0x18000a880`), and otherwise under the state already
+set. The question was whether the engine sets the flag for a static prop, and what light it hands over.
+
+**What the engine does** (`engine.dll`, read in Ghidra; the read and its addresses are in
+`docs/measurements/2026-11-02-prop-decal-light-plan.md`). The flag is set exactly when the prop draws with a colour
+mesh on DX9. Either way, both static-prop paths hand the decals the prop's draw state plus the static state that the
+colour mesh carries for the prop itself. That state is kept on the prop's record by the function that builds the
+colour mesh. The sum is the full lighting at the prop's lighting origin. **The engine's own design point is worth
+keeping:** a colour mesh is per-vertex light baked for the prop's geometry. A decal is a different mesh and cannot
+read it, so the engine rebuilds the static half of that light as a cube and lamps for the decals alone.
+
+**The wrong turn, kept.** Findings 67 had read the same branch weeks earlier. It filed it as "a second combined state
+… not the prop's own lighting", gated on an unnamed cvar, and left it unported. The cvar is `r_decalstaticprops`,
+default 1, and the struct it writes is the draw info's cube and lights. The branch was the decal light all along. The
+name came from the ConVar's registration, one `DATA` cross-reference away.
+
+**And the list of lit decals was short.** B642 named four VertexLitGeneric model decals. Every wood bullet hole on a
+model is another: the wood subrect decals name `decals/wood/shot1`..`5` as their `$modelmaterial`, and those are
+VertexLitGeneric. *Read from the shipped VMTs.*
+
+**Ours now:** the model decal draw takes a light. An entity's decals take the model's own. A colour-mesh static prop
+carries its full state as `ModelInstance.DecalLight`, and its decals draw after it in the model pass rather than in
+the world decal pass. The numbers, offscreen and on a real frame, are in B642.
