@@ -40251,7 +40251,13 @@ It is tested red-first. It names which thread waited and where the draw had got 
 **Reopen if** the `queue stall` line ever appears in a viewer log, or if this test's hang rate on the branch, measured
 the same way, exceeds the baseline's.
 
-## B653 — the scene and water fog colours are made linear by `pow 2.2`; shaderapi takes the exact sRGB decode (2026-11-02) — OPEN
+## B653 — the scene and water fog colours are made linear by `pow 2.2`; shaderapi takes the exact sRGB decode (2026-11-02) — FIXED on `fix/fog-colour-curve` (not merged)
+
+**Fixed:** `FogConstants.SrgbDecode` now carries both colours. `FogColourCurveConformanceTests` was red first. On the f12
+frame every changed pixel went down by 1 to 3 levels, and none went up. That is invisible, and it is parity. The plan
+doc holds the numbers, images and what is unsettled.
+
+**As filed:**
 
 **Read** (*disassembly*, `shaderapidx9.dll` `0x180025a50`, the c29 upload): under range fog with sRGB writes on, which
 every lit shader sets (`EnableSRGBWrite( true )`, `lightmappedgeneric_dx9_helper.cpp:614`), the colour goes through the

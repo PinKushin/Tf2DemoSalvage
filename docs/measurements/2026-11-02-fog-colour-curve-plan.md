@@ -94,6 +94,57 @@ Sabotage: put `pow 2.2` back in each of the two sites in turn. Each must redden 
 One `SrgbDecode` beside `FogConstants`, used by `FogConstants.For` and the water volume colour. `Linear` stays for the
 material-parameter conversions above.
 
-## Results
+## Results (2026-11-01)
 
-*(filled in after the run)*
+**Tests.** `FogColourCurveConformanceTests` (5) and the rewritten `FogConstantsTests` case were red before the fix, all
+through `OffscreenTarget.DrawWorld`, the production world shader. Full fog stored (3, 19, 55) for fog bytes
+(10, 26, 58). Half fog stored (1, 11, 38) against Valve's (5, 16, 40). Both sets are the `pow 2.2` answers. Green
+after the fix. Sabotage with `pow 2.2` put back in one site at a time:
+- in `FogConstants.For`, the two range cases and `FogConstantsTests` reddened (3);
+- in the water volume colour, the two height cases reddened (2).
+
+Each site was restored by inverse edit.
+
+**Counts after the fix:**
+
+| assembly | passed | skipped or not run | failed |
+|---|---|---|---|
+| Rendering | 1307 | 78 of 1385 not run | 0 |
+| Presentation | 1330 | 0 | 0 |
+| Scene | 3430 | 0 | 0 |
+| Content | 1828 | 29 | 0 |
+| Animation | 5386 | 1 | 0 |
+
+Whole `Tf2DemoSalvage.slnx` build: 0 warnings, 0 errors.
+
+**The real frame.** f12 (`D:/measure-f12/f12.dem`, cp_process_f12, fog 120 133 158, range 100..11000), tick 30000,
+Debug `--shot`, 984x551. The "before" is the same tree with `pow 2.2` put back in both sites, built and shot, then
+restored. Diffs are from `D:/measure-f12/b653/scripts/diff.py`. Images are under `D:/measure-f12/b653/` (`before/`,
+`after/`, `after2/`, `diffmap-a.png`, `diffmap-c.png`).
+
+| camera (`TF2VIEW_CAMERA`) | px changed | deltas, after minus before | sign |
+|---|---|---|---|
+| a `-3955 -954 640 12 157` (entity 8's framing, layer-order plan) | 1,142 | −1 on 1,147 channels | every channel down |
+| b `-2240 -3180 790 5 90` (finding 80's door camera) | 3,981 | −1 on 4,018, −2 on 7 | every channel down |
+| c `-3280 -1152 637 15 225` (finding 82), against the repeat `after2/c.png` | 13,333 | −1 on 13,524, −2 on 48, −3 on 1 | every channel down |
+
+**Control:** the first `after/c.png` against its own repeat `after2/c.png` (same build) differs on 64,585 px by up to
+181 levels. So that first shot was not repeatable, and it is not used: something besides the fog moved in it. The
+repeat was taken under the lock, as every shot was. Shots a and b have no repeat. Their deltas are all −1 or −2 and
+never positive, which is the predicted signature, not noise.
+
+**As predicted:** every change is DOWN, at most 1-3 levels, and it sits on the scattered pixels that cross a rounding
+boundary. They are densest in the far room (`diffmap-c.png`). At f12's colour `pow 2.2` stored about 1 to 1.4 levels
+high at full fog, and these distances reach only a fraction of full fog. **The change is invisible on this frame. It is
+parity, held by the synthetic tests.**
+
+## What is unsettled
+
+- The range branch's gate (hardware-config `+0x1c0`, the ConVar at `0x1800a2378`) is unidentified. If it were false,
+  c29.rgb would be zero. TF2 draws coloured fog, so it holds on a live client (*interpolated*).
+- `+0x2040` as "sRGB write" is read from what its setter does, not from a name.
+- No TF2 capture against ours. The difference is at most a level or two here, below what a live pair could settle.
+- A fogged frame with height fog was not shot (no water in these cameras). The height path is held by the synthetic
+  test only.
+- Water `$fogcolor`, `$refracttint`, `$reflecttint` and the water clear colour still take `pow 2.2`. Their path,
+  stdshader's `SetPixelShaderConstantGammaToLinear` and the engine's `SetClearColorToFogColor`, was not read here.
