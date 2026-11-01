@@ -984,6 +984,14 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
         // 0, 0, w, h, 0, 0, sw - 1, sh - 1, sw, sh )` over the 1024² copy, so the rectangle's texcoords run 0 to
         // 1023/1024 — through `$bumptransform` (refract_vs20's BUMPTRANSFORM) into the normal map. PsRefractModel then
         // places each pixel in the frame by SV_POSITION, which is the rectangle's own projection.
+        // **Whether this draw's target view stores gamma values** (B641 review): x is 1 only while a modulating run is drawn
+        // through the target's non-sRGB twin (`UseGammaTarget`). Unbound, it reads zero: the linear path, never a double
+        // encode through an sRGB view.
+        cbuffer GammaOutput : register(b7)
+        {
+            float4 gammaOutput;
+        };
+
         cbuffer ScreenOverlay : register(b6)
         {
             float4 overlayBump0;
@@ -2008,6 +2016,8 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             // `CalcWaterFogAlpha` (common_ps_fxc.h:213) blended unsquared (:297), and the factor written to
             // alpha — `WRITEWATERFOGTODESTALPHA` (lightmappedgeneric_ps2_3_x.h:575), which is the depth the
             // water shader reads back out of `_rt_WaterRefraction`.
+            float4 result;
+
             if (heightFog.x > 0.5f && tintControl.z < 1.5f)
             {
                 float waterFog = WaterFogAlpha(input.wpos);
@@ -2015,26 +2025,31 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
 
                 // "can't write a special value to dest alpha if we're actually using as-intended alpha"
                 // (lightmappedgeneric_dx9_helper.cpp:907-918): only a fully opaque draw writes the factor.
-                return float4(lerp(lit, under, waterFog) * ToneMapScale(tintControl.w), heightFog.z > 0.5f ? waterFog : albedo.a);
+                result = float4(lerp(lit, under, waterFog) * ToneMapScale(tintControl.w), heightFog.z > 0.5f ? waterFog : albedo.a);
             }
-
-            float3 shaded = PixelFog(lit, input.wpos, tintControl.z, tintControl.w);
-
-            // **A modulating material writes a GAMMA value, last of all** (B641). Valve's DecalModulate and Modulate read
-            // their texture and write the target with sRGB off (DecalModulate_dx9.cpp:74-75), so the blend multiplies
-            // stored values: dst · 2s, or dst · s. The renderer draws these runs through a non-sRGB twin of the bound
-            // target (`EnterGammaTarget`), and this encodes the texel back to what the file stores. The same predicate
-            // (`Modulates`) sets tintControl.w and chooses the twin. The exact sRGB curve is used, not a 2.2 power,
-            // because the texel was decoded by it.
-            if (tintControl.w > 0.5f)
+            else
             {
-                float3 linearColour = saturate(shaded);
-                shaded = linearColour <= 0.0031308f
-                    ? linearColour * 12.92f
-                    : (1.055f * pow(linearColour, 1.0f / 2.4f)) - 0.055f;
+                result = float4(PixelFog(lit, input.wpos, tintControl.z, tintControl.w), albedo.a);
             }
 
-            return float4(shaded, albedo.a);
+            // **A modulating material works in GAMMA values from sample to blend, on every path** (B641). Valve's
+            // DecalModulate and Modulate read their texture and write the target with sRGB off
+            // (DecalModulate_dx9.cpp:74-75), so the blend multiplies stored values: dst · 2s, or dst · s. Its texture is
+            // uploaded without the sRGB view, so `albedo` is already the stored texel, filtered in gamma as Valve's sampler
+            // filters it (B641 review). The renderer draws these runs through a non-sRGB twin of the bound target
+            // (`UseGammaTarget`), and gammaOutput.x says the twin is bound: the value goes out as it is. A target without
+            // one gets the texel DECODED to linear instead, the linear blend, rather than a gamma value through an sRGB view.
+            // One exit, so the water-fog branch above is covered too: no modulating material reaches it today (fog mode 2),
+            // but a B637 fix would send one there.
+            if (tintControl.w > 0.5f && gammaOutput.x < 0.5f)
+            {
+                float3 stored = saturate(result.rgb);
+                result.rgb = stored <= 0.04045f
+                    ? stored / 12.92f
+                    : pow((stored + 0.055f) / 1.055f, 2.4f);
+            }
+
+            return result;
         }
         """;
 
@@ -3391,7 +3406,10 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
         {
             MapTexture? texture = assets.Textures[index];
 
-            ComPtr<ID3D11ShaderResourceView> uploaded = Upload(device, context, texture);
+            // **A modulating material's texture is read as stored, without the sRGB curve** (B641 review): Valve's
+            // `EnableSRGBRead( SHADER_SAMPLER0, false )` (DecalModulate_dx9.cpp:74), so the sampler filters gamma texels,
+            // and the shader hands them to the gamma blend untouched.
+            ComPtr<ID3D11ShaderResourceView> uploaded = Upload(device, context, texture, srgb: !Modulates(texture));
 
             // `$basetexture _rt_Camera` samples the monitor target, not the stand-in image (B511).
             if (texture is { IsCameraTarget: true })
@@ -3610,18 +3628,19 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             // surfaces that make a map read as a map — foliage, grates, chain-link, ladders.
             float alphaTested = 0f;
 
-            if (surface is { IsTransparent: true, IsTranslucent: false })
+            // **DecalModulate first, unconditionally: it alpha-tests in its own shadow state, GREATER 0**
+            // (DecalModulate_dx9.cpp:64-65), whatever the VMT's `$alphatest` says, so the VMT branch below must not reach it
+            // (B641 review). An 8-bit alpha passes from 1/255, so the clip keeps anything rounding there: half a step. A
+            // scorch's alpha-0 surround is RGB 120-131, and drawn it stored 1.4% bright once the blend was exact (B641).
+            if (VmtMaterial.IsDecalModulateShader(shader))
+            {
+                alphaTested = DecalModulateAlphaCutoff;
+            }
+            else if (surface is { IsTransparent: true, IsTranslucent: false })
             {
                 alphaTested = surface.Value.AlphaTestReference > 0f
                     ? surface.Value.AlphaTestReference
                     : DefaultAlphaTestReference;
-            }
-            else if (VmtMaterial.IsDecalModulateShader(shader))
-            {
-                // **DecalModulate alpha-tests in its own shadow state, GREATER 0** (DecalModulate_dx9.cpp:64-65), whatever the
-                // VMT says. An 8-bit alpha passes from 1/255, so the clip keeps anything rounding there: half a step. A
-                // scorch's alpha-0 surround is RGB 120-131, and drawn it stored 1.4% bright once the blend was exact (B641).
-                alphaTested = DecalModulateAlphaCutoff;
             }
 
             // **Which of the two combines the shader should use.** UnLitTwoTexture multiplies its
@@ -3655,7 +3674,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             // **An unlit shader reads no light, and a model shader's `$color` is a gamma colour** (B514;
             // `ModelMaterialShading`). The first rides to the pixel shader in combine.w; the second is applied where
             // the constants are written, after the proxies, since a proxy writes the same gamma colour.
-            // A modulating material is unlit too, at the diffuse that reproduces its gamma blend (B639, B638).
+            // A modulating material is unlit too, at a diffuse of 1: its blend runs on stored values (B639, B638, B641).
             float unlit = UnlitDiffuseOf(surface, shader);
 
             _convertsModulation.Add(ModelMaterialShading.ConvertsModulation(shader));
@@ -3878,7 +3897,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             _animationFrames.Add(
                 animation is null
                     ? []
-                    : [.. animation.Select(frame => Upload(device, context, frame))]);
+                    : [.. animation.Select(frame => Upload(device, context, frame, srgb: !Modulates(surface)))]);
 
             // **The rate is per material, from its own proxy**, and the engine's default when a
             // material states none is 15 rather than the 30 TF2's own files almost all say.
@@ -6344,6 +6363,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
                 DrawDecalBatch(context, batch);
             }
 
+            EndGammaRun(context);
             context.IASetVertexBuffers(0, 1, ref _vertices, in stride, in offset);
         }
 
@@ -6398,6 +6418,8 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
                 DrawDecalBatch(context, batch, drawn);
             }
         }
+
+        EndGammaRun(context);
     }
 
     /// <summary>The diffuse an unlit material is drawn with, the shader's <c>combine.w</c>; zero for a lit one.</summary>
@@ -6452,21 +6474,63 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
         }
     }
 
+    /// <summary>Forgets and releases a twin this renderer created, before its target is replaced (B641 review).</summary>
+    /// <param name="srgb">The sRGB view whose twin goes.</param>
+    private void ReleaseOwnedGammaTwin(ComPtr<ID3D11RenderTargetView> srgb)
+    {
+        if (srgb.Handle is null || !_gammaTwins.Remove((nint)srgb.Handle, out nint twin))
+        {
+            return;
+        }
+
+        int at = _ownedGammaTwins.FindIndex(owned => (nint)owned.Handle == twin);
+
+        if (at >= 0)
+        {
+            _ownedGammaTwins[at].Dispose();
+            _ownedGammaTwins.RemoveAt(at);
+        }
+    }
+
+    /// <summary>How many gamma twins this renderer holds and maps: its own leak check (B641 review).</summary>
+    internal (int Owned, int Mapped) GammaTwinCounts => (_ownedGammaTwins.Count, _gammaTwins.Count);
+
+    /// <summary>The views bound before the open gamma run, or null when none is open (B641).</summary>
+    private BoundTarget? _gammaRun;
+
+    /// <summary>Whether a gamma run is still open: false after every public draw, or a later renderer draws into the twin.</summary>
+    internal bool GammaRunOpen => _gammaRun is not null;
+
+    /// <summary>The shader's <c>gammaOutput</c>, 1 or 0: immutable, bound to b7 as a run opens and closes.</summary>
+    private ComPtr<ID3D11Buffer> _gammaOutputOn;
+
+    private ComPtr<ID3D11Buffer> _gammaOutputOff;
+
     /// <summary>
-    /// Binds the bound target's non-sRGB twin for a modulating run, keeping the depth view; the caller draws and then calls
-    /// <see cref="LeaveGammaTarget"/> when this returns true (B641).
+    /// Puts a draw of <paramref name="material"/> on the right view (B641): a modulating material on the bound target's
+    /// non-sRGB twin, opening a run if none is open; anything else on the original view, closing an open run.
     /// </summary>
     /// <param name="context">The context.</param>
-    /// <param name="material">The run's material.</param>
-    /// <param name="restore">The views to put back, holding the references <c>OMGetRenderTargets</c> added.</param>
-    /// <returns>Whether the twin is bound.</returns>
-    private bool EnterGammaTarget(ComPtr<ID3D11DeviceContext> context, int material, out BoundTarget restore)
+    /// <param name="material">The draw's material.</param>
+    /// <remarks>
+    /// **A run, not a switch per draw** (B641 review). Consecutive modulating draws share one bind, so a list of overlays
+    /// costs one `OMGetRenderTargets` and two `OMSetRenderTargets` rather than that per overlay. Every caller closes the
+    /// run with <see cref="EndGammaRun"/> before returning. **The shader encodes only while the twin is bound**
+    /// (`gammaOutput`, b7). A target with no twin draws the linear blend, which is too dark toward black by B641's
+    /// measure, rather than an sRGB-encoded value through an sRGB view, which would be far too bright. It is counted in
+    /// <see cref="MissingGammaTwins"/>.
+    /// </remarks>
+    private void UseGammaTarget(ComPtr<ID3D11DeviceContext> context, int material)
     {
-        restore = default;
-
         if (!_modulate.ContainsKey(material))
         {
-            return false;
+            EndGammaRun(context);
+            return;
+        }
+
+        if (_gammaRun is not null)
+        {
+            return;
         }
 
         ComPtr<ID3D11RenderTargetView> target = default;
@@ -6481,31 +6545,63 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             if (!_reportedMissingTwin)
             {
                 _reportedMissingTwin = true;
-                _render.LogWarning("A modulating run found no gamma twin for its target and drew through the sRGB view (B641)");
+                _render.LogWarning("A modulating run found no gamma twin for its target and drew the linear blend (B641)");
             }
 
             target.Dispose();
             depth.Dispose();
-            return false;
+            return;
         }
 
         ID3D11RenderTargetView* gamma = (ID3D11RenderTargetView*)twin;
 
         context.OMSetRenderTargets(1u, &gamma, depth);
-        restore = new BoundTarget(target, depth);
-        return true;
+        context.PSSetConstantBuffers(GammaOutputSlot, 1, ref GammaOutputBuffer(on: true));
+        _gammaRun = new BoundTarget(target, depth);
+    }
+
+    /// <summary>Closes an open gamma run: the original views back, their references released, the encode off.</summary>
+    private void EndGammaRun(ComPtr<ID3D11DeviceContext> context)
+    {
+        if (_gammaRun is not { } restore)
+        {
+            return;
+        }
+
+        context.OMSetRenderTargets(1u, restore.Target.GetAddressOf(), restore.Depth);
+        context.PSSetConstantBuffers(GammaOutputSlot, 1, ref GammaOutputBuffer(on: false));
+        restore.Target.Dispose();
+        restore.Depth.Dispose();
+        _gammaRun = null;
+    }
+
+    /// <summary>The pixel shader's constant slot for <c>gammaOutput</c>.</summary>
+    private const uint GammaOutputSlot = 7;
+
+    /// <summary>One of the two immutable <c>gammaOutput</c> buffers, made on first use.</summary>
+    private ref ComPtr<ID3D11Buffer> GammaOutputBuffer(bool on)
+    {
+        ref ComPtr<ID3D11Buffer> buffer = ref on ? ref _gammaOutputOn : ref _gammaOutputOff;
+
+        if (buffer.Handle is null)
+        {
+            float* value = stackalloc float[4] { on ? 1f : 0f, 0f, 0f, 0f };
+            BufferDesc description = new()
+            {
+                ByteWidth = 16,
+                Usage = Usage.Immutable,
+                BindFlags = (uint)BindFlag.ConstantBuffer,
+            };
+            SubresourceData data = new() { PSysMem = value };
+
+            SilkMarshal.ThrowHResult(_device.CreateBuffer(in description, in data, ref buffer));
+        }
+
+        return ref buffer;
     }
 
     /// <summary>The views bound before a gamma run, holding the references <c>OMGetRenderTargets</c> added.</summary>
     private readonly record struct BoundTarget(ComPtr<ID3D11RenderTargetView> Target, ComPtr<ID3D11DepthStencilView> Depth);
-
-    /// <summary>Puts back the views <see cref="EnterGammaTarget"/> replaced, and releases its references.</summary>
-    private static void LeaveGammaTarget(ComPtr<ID3D11DeviceContext> context, BoundTarget restore)
-    {
-        context.OMSetRenderTargets(1u, restore.Target.GetAddressOf(), restore.Depth);
-        restore.Target.Dispose();
-        restore.Depth.Dispose();
-    }
 
     /// <summary>Whether a material is drawn by `Modulate` or `DecalModulate`, whose colour multiplies the framebuffer.</summary>
     /// <param name="surface">The material's base texture and flags, or null.</param>
@@ -6569,6 +6665,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             DrawDecalBatch(context, batch);
         }
 
+        EndGammaRun(context);
         context.IASetVertexBuffers(0, 1, ref _vertices, in stride, in offset);
         context.RSSetState(Raster(_bothSides));
     }
@@ -6728,6 +6825,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             DrawDecalBatch(context, batch, cap: ModelVertexCap);
         }
 
+        EndGammaRun(context);
         context.RSSetState(Raster(_bothSides));
     }
 
@@ -6818,14 +6916,9 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
 
         if (!ModelVertexClamp.Suppresses(cap))
         {
-            bool gamma = EnterGammaTarget(context, batch.MaterialIndex, out BoundTarget restore);
-
+            // The caller closes the run (EndGammaRun), so consecutive modulating batches share one bind.
+            UseGammaTarget(context, batch.MaterialIndex);
             SubmitCounters.Draw(); context.Draw((uint)ModelVertexClamp.Apply(batch.VertexCount, cap), (uint)batch.FirstVertex);
-
-            if (gamma)
-            {
-                LeaveGammaTarget(context, restore);
-            }
         }
     }
 
@@ -6872,6 +6965,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             DrawBlendedBatch(context, batch, additive: false);
         }
 
+        EndGammaRun(context);
         context.RSSetState(Raster(_bothSides));
 
         context.OMSetBlendState(default(ComPtr<ID3D11BlendState>), factor, 0xFFFFFFFF);
@@ -6945,14 +7039,9 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             context.PSSetShaderResources(4, 1, ref bump);
         }
 
-        bool gamma = EnterGammaTarget(context, batch.MaterialIndex, out BoundTarget restore);
-
+        // The caller closes the run (EndGammaRun), so consecutive modulating runs share one bind.
+        UseGammaTarget(context, batch.MaterialIndex);
         SubmitCounters.Draw(); context.Draw((uint)batch.VertexCount, (uint)batch.FirstVertex);
-
-        if (gamma)
-        {
-            LeaveGammaTarget(context, restore);
-        }
     }
 
     /// <summary>The visible translucent and additive world runs by leaf place, or null to draw them all at once.</summary>
@@ -7065,6 +7154,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             }
         }
 
+        EndGammaRun(context);
         context.RSSetState(Raster(_bothSides));
         context.OMSetBlendState(default(ComPtr<ID3D11BlendState>), factor, 0xFFFFFFFF);
 
@@ -8003,14 +8093,10 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
 
             if ((cloakPass is null || CloakPass.DrawsStandardPass(cloaked.Factor)) && !ModelVertexClamp.Suppresses(ModelVertexCap))
             {
-                bool gamma = EnterGammaTarget(context, material, out BoundTarget restore);
-
+                // Closed at once rather than left open: a later batch's refract copy reads the bound target.
+                UseGammaTarget(context, material);
                 SubmitCounters.Draw(); context.Draw((uint)submitted, (uint)batch.FirstVertex);
-
-                if (gamma)
-                {
-                    LeaveGammaTarget(context, restore);
-                }
+                EndGammaRun(context);
             }
 
             SubmitSpans.Lap(SubmitSpan.DrawCall);

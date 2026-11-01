@@ -107,6 +107,7 @@ internal sealed unsafe partial class WorldRenderer
 
     private void DisposeMonitor()
     {
+        ReleaseOwnedGammaTwin(_cameraTarget);
         _cameraView.Dispose();
         _cameraTarget.Dispose();
         _cameraTexture.Dispose();

@@ -582,6 +582,18 @@ internal sealed unsafe class OffscreenTarget : IDisposable
     /// <summary>How many modulating runs drew without a gamma twin — zero, or the B641 blend is not Valve's.</summary>
     internal int MissingGammaTwins => _world?.MissingGammaTwins ?? 0;
 
+    /// <summary>Whether a gamma run was left open after a draw: always false, or later draws land in the twin.</summary>
+    internal bool GammaRunOpen => _world?.GammaRunOpen ?? false;
+
+    /// <summary>The world renderer's owned and mapped gamma twins, for its leak check (B641 review).</summary>
+    internal (int Owned, int Mapped) GammaTwinCounts => _world?.GammaTwinCounts ?? (0, 0);
+
+    /// <summary>Unmaps this target's gamma twin, so a modulating run finds none: the fallback's test (B641 review).</summary>
+    internal void ForgetGammaTwin() => EnsureWorld().ClearGammaTwin(_view);
+
+    /// <summary>Releases the water targets so the next water read makes them afresh (B641 review).</summary>
+    internal void ReleaseWaterTargets() => _world?.ReleaseWaterTargets();
+
     /// <summary>The world renderer, created on first ask with this target's gamma twin registered (B641).</summary>
     [System.Diagnostics.CodeAnalysis.MemberNotNull(nameof(_world))]
     private WorldRenderer EnsureWorld()

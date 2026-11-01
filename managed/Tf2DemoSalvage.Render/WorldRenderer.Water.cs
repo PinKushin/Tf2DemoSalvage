@@ -421,20 +421,13 @@ internal sealed unsafe partial class WorldRenderer
         _waterShader.Dispose();
         _cheapWaterShader.Dispose();
         _waterBuffer.Dispose();
+        ReleaseWaterTargets();
 
-        foreach (ComPtr<ID3D11RenderTargetView> twin in _ownedGammaTwins)
-        {
-            twin.Dispose();
-        }
-
-        _ownedGammaTwins.Clear();
+        // Anything left is a twin registered by an owner outside this renderer (the back buffer's, an offscreen target's):
+        // forgotten, not released, since it is not ours.
         _gammaTwins.Clear();
-        _reflectionView.Dispose();
-        _reflectionTarget.Dispose();
-        _reflectionTexture.Dispose();
-        _refractionView.Dispose();
-        _refractionTarget.Dispose();
-        _refractionTexture.Dispose();
+        _gammaOutputOn.Dispose();
+        _gammaOutputOff.Dispose();
         _powerOfTwoView.Dispose();
         _refractModelShader.Dispose();
         _refractModelConstants.Dispose();
@@ -443,8 +436,6 @@ internal sealed unsafe partial class WorldRenderer
         ReleaseScreenOverlays();
         _powerOfTwoTarget.Dispose();
         _powerOfTwoTexture.Dispose();
-        _waterDepth.Dispose();
-        _waterDepthTexture.Dispose();
         _frameCopyView.Dispose();
         _frameCopy.Dispose();
         _blitVertex.Dispose();
@@ -1241,6 +1232,32 @@ internal sealed unsafe partial class WorldRenderer
         staging.Dispose();
 
         return result;
+    }
+
+    /// <summary>
+    /// The reflection and refraction targets and their depth gone, each target's gamma twin released and unmapped with it
+    /// (B641 review); <see cref="EnsureWaterTargets"/> makes them afresh on the next ask.
+    /// </summary>
+    internal void ReleaseWaterTargets()
+    {
+        ReleaseOwnedGammaTwin(_reflectionTarget);
+        ReleaseOwnedGammaTwin(_refractionTarget);
+        _reflectionView.Dispose();
+        _reflectionView = default;
+        _reflectionTarget.Dispose();
+        _reflectionTarget = default;
+        _reflectionTexture.Dispose();
+        _reflectionTexture = default;
+        _refractionView.Dispose();
+        _refractionView = default;
+        _refractionTarget.Dispose();
+        _refractionTarget = default;
+        _refractionTexture.Dispose();
+        _refractionTexture = default;
+        _waterDepth.Dispose();
+        _waterDepth = default;
+        _waterDepthTexture.Dispose();
+        _waterDepthTexture = default;
     }
 
     private void EnsureWaterTargets()

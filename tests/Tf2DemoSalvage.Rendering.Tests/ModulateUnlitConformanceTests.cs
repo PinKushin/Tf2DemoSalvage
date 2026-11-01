@@ -91,8 +91,9 @@ public sealed class ModulateUnlitConformanceTests
     }
 
     /// <remarks>
-    /// **The world route for the same neutral texel** (B639 review): <c>combine.w</c> is the material's, so every route reads
-    /// the one diffuse, but the brush route had no test at 128, where only 2^2.2/2 is neutral. At 2.0 it draws 177.
+    /// **The world route for the same neutral texel** (B639 review): the brush route had no test at 128. Since B641 the blend
+    /// runs on stored values, so 128 is neutral by Valve's own arithmetic (188 · 2 · 128/255 = 188.7). The B639 fault, the
+    /// model pass's lightmap light, drew 177.
     /// </remarks>
     [Test]
     public void DrawWorld_DecalModulateNeutralTexel_LeavesTheSurfaceUnchanged()
@@ -193,23 +194,74 @@ public sealed class ModulateUnlitConformanceTests
         Close(clear, under, $"an alpha-0 DecalModulate texel moved the surface from {under} to {clear}");
     }
 
+    /// <remarks>
+    /// **The override is unconditional** (B641 review). DecalModulate's shadow state sets its own alpha test, GREATER 0
+    /// (DecalModulate_dx9.cpp:64-65), whatever the VMT's `$alphatest` says. A texture flagged alpha-tested took the VMT
+    /// branch's 0.5 cutoff first, so a dark texel at alpha 64 (0.25) was discarded where Valve draws it.
+    /// </remarks>
+    [Test]
+    public void DrawModel_DecalModulateFlaggedAlphaTestedAtAlpha64_StillDraws()
+    {
+        (int, int, int) under = Under(ModulateToneMapConformanceTests.Surface) ?? Skip();
+        (int, int, int) drawn = DrawModel(DarkAlphaTested, assets: AlphaPair) ?? Skip();
+
+        // Valve's arithmetic: 188 · 2 · 32/255 = 47.2. Discarded, the surface would stay at 188.
+        drawn.Item2.ShouldBeInRange(46, 48, $"a dark DecalModulate texel at alpha 64, flagged alpha-tested, drew {drawn} over {under}");
+    }
+
+    /// <remarks>
+    /// **The texture is filtered in gamma, as Valve's sampler filters it** (B641 review). `EnableSRGBRead( SHADER_SAMPLER0,
+    /// false )` (DecalModulate_dx9.cpp:74): bilinear filtering averages the STORED texels. Halfway between a black and a
+    /// white column that is 127.5, so mod2x leaves the surface at 188. Filtered in linear and re-encoded, the same point is
+    /// 0.735, doubled to 1.47, and the surface goes to 255. A texel centre cannot tell the two apart; a midpoint can.
+    /// </remarks>
+    [Test]
+    public void DrawModel_DecalModulateBetweenABlackAndAWhiteTexel_FiltersInGamma()
+    {
+        (int, int, int) under = Under(ModulateToneMapConformanceTests.Surface) ?? Skip();
+        (int, int, int) drawn = DrawModel(BlackWhite, assets: AlphaPair) ?? Skip();
+
+        Close(drawn, under, $"halfway between black and white texels the scorch drew {drawn} over {under}");
+    }
+
     private const int BrightOpaque = 0;
     private const int BrightClear = 1;
+    private const int DarkAlphaTested = 2;
+    private const int BlackWhite = 3;
 
-    /// <summary>Two DecalModulate materials of RGB 140, one at alpha 255 and one at alpha 0.</summary>
+    /// <summary>
+    /// DecalModulate materials: RGB 140 at alpha 255 and at alpha 0; RGB 32 at alpha 64 flagged alpha-tested; and a 2x2 of
+    /// a black column beside a white one, which the quad's U of 0.5 samples halfway between.
+    /// </summary>
     private static readonly MapAssets AlphaPair = MapAssets.ForMaterials(
-        [DecalTexel(140, 255), DecalTexel(140, 0)], ["DecalModulate", "DecalModulate"]);
+        [DecalTexel(140, 255), DecalTexel(140, 0), DecalTexel(32, 64, alphaTested: true), BlackBesideWhite()],
+        ["DecalModulate", "DecalModulate", "DecalModulate", "DecalModulate"]);
 
-    private static MapTexture DecalTexel(byte value, byte alpha) =>
+    private static MapTexture BlackBesideWhite() =>
+        new(
+            2,
+            2,
+            2,
+            2,
+            TextureImage.Rgba(new byte[] { 0, 0, 0, 255, 255, 255, 255, 255, 0, 0, 0, 255, 255, 255, 255, 255 }),
+            IsTransparent: false,
+            IsAdditive: false,
+            IsTranslucent: true,
+            IsModulate: true,
+            IsModulateTwice: true,
+            IsNoCull: false,
+            IsDecal: true);
+
+    private static MapTexture DecalTexel(byte value, byte alpha, bool alphaTested = false) =>
         new(
             4,
             4,
             4,
             4,
             TextureImage.Rgba(Enumerable.Range(0, 16).SelectMany(_ => new[] { value, value, value, alpha }).ToArray()),
-            IsTransparent: false,
+            IsTransparent: alphaTested,
             IsAdditive: false,
-            IsTranslucent: true,
+            IsTranslucent: !alphaTested,
             IsModulate: true,
             IsModulateTwice: true,
             IsNoCull: false,
@@ -266,9 +318,12 @@ public sealed class ModulateUnlitConformanceTests
             ModulateToneMapConformanceTests.Camera(),
             ModulateToneMapConformanceTests.Assets,
             decals: [new WorldBatch(material, 0, 6, Category: SurfaceCategory.Overlay)],
+
+            // The overlay pass alone: the translucent world after it would close a run the overlay list left open.
+            translucent: false,
             toneMapScale: 1f);
 
-        target.MissingGammaTwins.ShouldBe(0, "every modulating run drew through the target's gamma twin (B641)");
+        DrewThroughTheTwin(target);
 
         return target.PixelAt(8, 8);
     }
@@ -294,8 +349,6 @@ public sealed class ModulateUnlitConformanceTests
         }
 
         target.Clear(surface, surface, surface);
-
-        target.MissingGammaTwins.ShouldBe(0, "every modulating run drew through the target's gamma twin (B641)");
 
         return target.PixelAt(8, 8);
     }
@@ -331,7 +384,7 @@ public sealed class ModulateUnlitConformanceTests
             debug: debug,
             toneMapScale: 1f);
 
-        target.MissingGammaTwins.ShouldBe(0, "every modulating run drew through the target's gamma twin (B641)");
+        DrewThroughTheTwin(target);
 
         return target.PixelAt(8, 8);
     }
@@ -356,9 +409,85 @@ public sealed class ModulateUnlitConformanceTests
             ModulateToneMapConformanceTests.Assets,
             toneMapScale: 1f);
 
-        target.MissingGammaTwins.ShouldBe(0, "every modulating run drew through the target's gamma twin (B641)");
+        DrewThroughTheTwin(target);
 
         return target.PixelAt(8, 8);
+    }
+
+    /// <summary>
+    /// After a draw: every modulating run found its target's gamma twin, and the run is closed, so nothing drawn later
+    /// lands in the twin (B641 review).
+    /// </summary>
+    private static void DrewThroughTheTwin(OffscreenTarget target)
+    {
+        target.MissingGammaTwins.ShouldBe(0, "every modulating run drew through the target's gamma twin (B641)");
+        target.GammaRunOpen.ShouldBeFalse("the draw closed its gamma run");
+    }
+
+    /// <remarks>
+    /// **A target with no twin draws the linear blend, not a gamma value through an sRGB view** (B641 review). The shader
+    /// decodes the stored texel to linear whenever the twin is NOT bound (`gammaOutput`). Texel 32 over 188 is then
+    /// 0.5 · 2 · sRGB⁻¹(32/255), about 32 stored (*arithmetic*), against Valve's 47. Left in gamma and written through the
+    /// sRGB view, it would be about 99. The miss is counted.
+    /// </remarks>
+    [Test]
+    public void DrawModel_DecalModulateOnATargetWithNoTwin_DrawsTheLinearBlendAndIsCounted()
+    {
+        using OffscreenTarget? target = OffscreenTarget.TryCreate(16, 16);
+
+        if (target is null)
+        {
+            Skip();
+            return;
+        }
+
+        float surface = ModulateToneMapConformanceTests.Surface;
+
+        target.Clear(surface, surface, surface);
+        target.ForgetGammaTwin();
+        target.DrawModelPose(
+            ModulateToneMapConformanceTests.Quad(1f),
+            [new WorldBatch(ModulateToneMapConformanceTests.DecalModulateDark, 0, 6)],
+            ModulateToneMapConformanceTests.Camera(),
+            ModulateToneMapConformanceTests.Identity,
+            ModulateToneMapConformanceTests.Assets,
+            bothSides: true,
+            toneMapScale: 1f);
+
+        (int Red, int Green, int Blue) drawn = target.PixelAt(8, 8);
+
+        target.MissingGammaTwins.ShouldBe(1, "the one modulating run found no twin");
+        target.GammaRunOpen.ShouldBeFalse("no run was opened");
+        drawn.Green.ShouldBeInRange(28, 36, $"with no twin the dark texel drew {drawn}: the linear blend is about 32, a double encode about 99");
+    }
+
+    /// <remarks>
+    /// **Replacing a target leaks no twin and leaves no stale entry** (B641 review). The water targets are made on the first
+    /// read, each with a gamma twin. Released and made again, the renderer must hold the same two owned twins, and map the
+    /// same three views (two water, plus this target's own), not five.
+    /// </remarks>
+    [Test]
+    public void ReleaseWaterTargets_ThenMadeAgain_LeaksNoGammaTwin()
+    {
+        using OffscreenTarget? target = OffscreenTarget.TryCreate(16, 16);
+
+        if (target is null)
+        {
+            Skip();
+            return;
+        }
+
+        target.WaterTargetPixel(refraction: true, 0, 0);
+
+        (int Owned, int Mapped) first = target.GammaTwinCounts;
+
+        first.ShouldBe((2, 3), "the control: two water twins owned, mapped beside the target's own");
+
+        target.ReleaseWaterTargets();
+        target.GammaTwinCounts.ShouldBe((0, 1), "released: only the target's own twin is mapped");
+
+        target.WaterTargetPixel(refraction: true, 0, 0);
+        target.GammaTwinCounts.ShouldBe(first, "made again, the counts are the first ones");
     }
 
     private static (int, int, int) Skip()
