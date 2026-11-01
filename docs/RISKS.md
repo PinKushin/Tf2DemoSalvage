@@ -40364,10 +40364,26 @@ on/off ratio of STORED values, which for Valve's blend is 2s and independent of 
 | centre | 0.591 | 0.554 | 0.577 |
 
 Images: `D:/measure-f12/decal-cmp/b641/sbs-b641-before-after-tf2.png`. **Open residue:** the interior is still 2-3%
-darker than TF2 in stored terms. *Not explained.* One named difference remains: our bilinear and mip filtering happen
-in linear space, where Valve's happen in gamma (sRGB read off). An sRGB-decoded texture would filter LIGHTER, not
-darker, so filtering is not an obvious fit for the sign. The next experiment is a texel-level read of the scorch at
-one screen pixel, ours against TF2.
+darker than TF2 in stored terms. *Not explained.* What it is not, from the review (2026-11-01):
+- **(a) Filtering space: measured, and not the cause.** The texture of a modulating material is now uploaded without
+  the sRGB view (`EnableSRGBRead( SHADER_SAMPLER0, false )`, DecalModulate_dx9.cpp:74), so the sampler filters stored
+  texels as Valve's does. A midpoint between a black and a white texel now stays neutral, as in Valve; it drew 255
+  before. On the real frame, though, the centre moved from 0.577 to 0.578 and the ring stayed at 0.704 (TF2 0.591 and
+  0.725), in `D:/measure-f12/decal-cmp/b641/review-gamma-filter/`. The scorch is magnified, so a pixel's sample sits
+  almost on one texel.
+- **(b) The alpha cutoff reads the FILTERED alpha.** Ours clips `filtered a < 0.5/255`. Valve's GREATER 0 compares the
+  shader's output alpha, which is the same filtered value written to 8 bits. *Interpolated* as equivalent at the
+  fringe; not measured. A bilinear fringe between an alpha-1 texel and alpha-0 neighbours rounds the same way in
+  both.
+- **(c) `$color` cannot reach it.** No shipped DecalModulate declares `$color`, `$color2` or `$alpha`
+  (`vmt-param … shader=DecalModulate`: 0, 0, 0 of 30,994). For Modulate, `$color` appears once, white
+  (`engine/modulatesinglecolor`). `$color2` appears twice, on `effects/invuln_overlay_*_dx80`, DX8 fallbacks the DX9
+  path does not load.
+
+**Next experiment:** the texel itself. The stored ratio is 2s for Valve's blend, so ours being 2.4% low at the centre
+means our sampled texel is about 2.4% darker, roughly one level at a texel of 54. The candidates are the block
+decoder's rounding of the scorch's compressed format against the GPU's, and which mip is chosen. Read the VTF's
+format and decode one block both ways.
 
 **As filed:**
 
