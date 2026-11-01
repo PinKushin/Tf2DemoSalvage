@@ -24,10 +24,11 @@ public sealed class FogConstantsTests
 
         packed.Length.ShouldBe(8);
 
-        // Colour: gamma 0..1 from GetFogColor, made linear with Source's 2.2 curve.
-        packed[0].ShouldBe(MathF.Pow(120f / 255f, 2.2f), 1e-6f);
-        packed[1].ShouldBe(MathF.Pow(133f / 255f, 2.2f), 1e-6f);
-        packed[2].ShouldBe(MathF.Pow(158f / 255f, 2.2f), 1e-6f);
+        // Colour: gamma 0..1 from GetFogColor, made linear by shaderapi's sRGB decode (0x18003ddf0, B653), not pow 2.2:
+        // 0.1878, 0.2346, 0.3419 where pow 2.2 gives 0.1905, 0.2388, 0.3489.
+        packed[0].ShouldBe((float)SrgbTarget.Decode(120), 1e-6f);
+        packed[1].ShouldBe((float)SrgbTarget.Decode(133), 1e-6f);
+        packed[2].ShouldBe((float)SrgbTarget.Decode(158), 1e-6f);
         packed[3].ShouldBe(1f);
 
         packed[4].ShouldBe(100f / 10900f, 1e-9f);
