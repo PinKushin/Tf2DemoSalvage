@@ -643,3 +643,22 @@ doubling UnlitGeneric. **Held by** `ModulateUnlitConformanceTests`, red first: t
 
 **Still open, measured beside it:** no alpha test on DecalModulate. It is invisible now that the surround is neutral
 (texels 120-131). Fog is B637.
+
+## The blend multiplies stored values, and that is what made the missing alpha test visible (B641, 2026-11-01)
+
+**The structural fix.** A gamma multiply cannot be written as a fixed-function blend on linear values, because
+`lin(2·s·gamma(d))` is not linear in `d`. Every target this renderer draws a world into is 8-bit UNORM viewed through
+the sRGB curve. A UNORM view of the same resource writes the stored bytes. So a modulating run now draws through that
+twin, and the shader re-encodes its decoded texel with the exact sRGB curve. `DST_COLOR, SRC_COLOR` then computes
+Valve's `dst · 2s` on stored values. No compensation constant is left. *Measured offscreen:* over 188, texel 32
+draws 47, which is Valve's arithmetic; the linear blend drew 51.
+
+**What the exact blend uncovered.** With the 2^2.2/2 compensation, the scorch's alpha-0 surround (RGB 120-131)
+happened to land at about 1.000. Through the exact blend it stored 1.014: the surround was being drawn at all, where
+Valve's `AlphaFunc( GREATER, 0 )` (DecalModulate_dx9.cpp:64-65) discards it. That is the divergence B635's measurement
+had filed and called invisible. It was invisible only because one error hid another. With the alpha test, the
+surround is 1.000, as in TF2's live pair.
+
+**The real frame against TF2** (stored on/off ratios at `-3116 -1344 300 89 0`): the centre went from 0.554 (linear) to
+0.577 (exact), against TF2's 0.591 with fog off; the ring from 0.690 to 0.704, against 0.725. The 2-3% that remains
+is open in B641 with what it is not.

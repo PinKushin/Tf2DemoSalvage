@@ -1,4 +1,7 @@
 using System.Collections.Generic;
+using System.Linq;
+
+using Tf2DemoSalvage.Content.Assets;
 
 namespace Tf2DemoSalvage.Rendering.Tests;
 
@@ -170,22 +173,109 @@ public sealed class ModulateUnlitConformanceTests
         Close(flat, off, $"the dark scorch drew {off} and {flat} under mat_drawflat");
     }
 
+    /// <remarks>
+    /// **DecalModulate alpha-tests, GREATER 0** (`EnableAlphaTest( true )`, `AlphaFunc( SHADER_ALPHAFUNC_GREATER, 0.0f )`,
+    /// DecalModulate_dx9.cpp:64-65), so an alpha-0 texel is discarded whatever its colour. A scorch's surround is alpha 0
+    /// with RGB 120 to 131 (`texel-png` on `decals/scorch1`). Once the blend became exact (B641) that surround stored
+    /// 1.4% bright in a real frame, where TF2 leaves it at exactly 1.000. Texel 140 at alpha 0 would draw 206 over 188;
+    /// Valve draws nothing.
+    /// </remarks>
+    [Test]
+    public void DrawModel_DecalModulateTexelOfAlphaZero_IsDiscarded()
+    {
+        (int, int, int) under = Under(ModulateToneMapConformanceTests.Surface) ?? Skip();
+        (int, int, int) opaque = DrawModel(BrightOpaque, assets: AlphaPair) ?? Skip();
+        (int, int, int) clear = DrawModel(BrightClear, assets: AlphaPair) ?? Skip();
+
+        // The control: the same texel at alpha 255 draws, and brightens the surface.
+        opaque.Item2.ShouldBeGreaterThan(under.Item2 + 10, $"the opaque texel drew {opaque} over {under}: nothing drew");
+
+        Close(clear, under, $"an alpha-0 DecalModulate texel moved the surface from {under} to {clear}");
+    }
+
+    private const int BrightOpaque = 0;
+    private const int BrightClear = 1;
+
+    /// <summary>Two DecalModulate materials of RGB 140, one at alpha 255 and one at alpha 0.</summary>
+    private static readonly MapAssets AlphaPair = MapAssets.ForMaterials(
+        [DecalTexel(140, 255), DecalTexel(140, 0)], ["DecalModulate", "DecalModulate"]);
+
+    private static MapTexture DecalTexel(byte value, byte alpha) =>
+        new(
+            4,
+            4,
+            4,
+            4,
+            TextureImage.Rgba(Enumerable.Range(0, 16).SelectMany(_ => new[] { value, value, value, alpha }).ToArray()),
+            IsTransparent: false,
+            IsAdditive: false,
+            IsTranslucent: true,
+            IsModulate: true,
+            IsModulateTwice: true,
+            IsNoCull: false,
+            IsDecal: true);
+
     private const int UnlitGeneric = 0;
 
     /// <summary>One opaque UnlitGeneric of texel 100, far from the 188 surface and from grey's 128.</summary>
     private static readonly MapAssets Unlit = MapAssets.ForMaterials([ModulateToneMapConformanceTests.Grey(100)], ["UnlitGeneric"]);
 
-    /// <summary>188 · 128/255 ≈ 94 in gamma; the linear blend lands within three levels of it.</summary>
+    /// <remarks>
+    /// **Valve's exact gamma product, on every route** (B641). The blend multiplies STORED values, sRGB read and write off
+    /// (DecalModulate_dx9.cpp:74-78): over a stored 188, a DecalModulate texel of 128 gives 188 · 2 · 128/255 = 188.7 and
+    /// one of 32 gives 47.2. A linear blend drew 187 and 51, 2 to 6 levels off and worse toward black.
+    /// </remarks>
+    [TestCase(ModulateToneMapConformanceTests.DecalModulateNeutral, 189)]
+    [TestCase(ModulateToneMapConformanceTests.DecalModulateDark, 47)]
+    public void Draw_DecalModulateOverAStored188_IsValvesGammaProductOnEveryRoute(int material, int expected)
+    {
+        (int, int, int) under = Under(ModulateToneMapConformanceTests.Surface) ?? Skip();
+        (int, int, int) model = DrawModel(material) ?? Skip();
+        (int, int, int) world = DrawWorld(material) ?? Skip();
+        (int, int, int) decal = DrawDecal(material) ?? Skip();
+
+        under.Item2.ShouldBe(188, "the control: the cleared surface reads 188");
+        model.Item2.ShouldBeInRange(expected - 1, expected + 1, $"on a model it drew {model}; Valve's {expected}");
+        world.Item2.ShouldBeInRange(expected - 1, expected + 1, $"on brushwork it drew {world}; Valve's {expected}");
+        decal.Item2.ShouldBeInRange(expected - 1, expected + 1, $"as a decal it drew {decal}; Valve's {expected}");
+    }
+
+    /// <summary>188 · 128/255 = 94.4 in gamma, which an exact gamma blend reproduces to a level (B641).</summary>
     private static void PlainModulateIsHalf((int, int, int) under, (int Red, int Green, int Blue) drawn, string where)
     {
         under.Item2.ShouldBe(188, "the control: the cleared surface reads 188");
-        drawn.Green.ShouldBeInRange(91, 97, $"a plain Modulate of 128 {where} drew {drawn} over {under}; Valve's arithmetic 94");
+        drawn.Green.ShouldBeInRange(93, 95, $"a plain Modulate of 128 {where} drew {drawn} over {under}; Valve's arithmetic 94");
+    }
+
+    /// <summary>One quad as a decal in the overlay pass, with one empty world run (the world pass returns with none).</summary>
+    private static (int, int, int)? DrawDecal(int material)
+    {
+        using OffscreenTarget? target = OffscreenTarget.TryCreate(16, 16);
+
+        if (target is null)
+        {
+            return null;
+        }
+
+        float surface = ModulateToneMapConformanceTests.Surface;
+
+        target.Clear(surface, surface, surface);
+        target.DrawWorld(
+            ModulateToneMapConformanceTests.Quad(1f),
+            [new WorldBatch(material, 0, 0)],
+            ModulateToneMapConformanceTests.Camera(),
+            ModulateToneMapConformanceTests.Assets,
+            decals: [new WorldBatch(material, 0, 6, Category: SurfaceCategory.Overlay)],
+            toneMapScale: 1f);
+
+        target.MissingGammaTwins.ShouldBe(0, "every modulating run drew through the target's gamma twin (B641)");
+
+        return target.PixelAt(8, 8);
     }
 
     /// <remarks>
-    /// ±2 levels. **For the neutral texel this has about one level of headroom, deliberately.** The sRGB curve puts
-    /// 0.5 · 4.595 · sRGB⁻¹(128/255) at 186.8 against the surface's 187.5 (*arithmetic*). 2^2.2/2 is exact only on the 2.2
-    /// curve. The B639 fault drew 177, far outside.
+    /// ±2 levels. Since B641 the neutral texel is exact: 188 · 2 · 128/255 = 188.7 stored. The B639 fault drew 177, far
+    /// outside.
     /// </remarks>
     private static void Close((int Red, int Green, int Blue) actual, (int Red, int Green, int Blue) expected, string because)
     {
@@ -204,6 +294,8 @@ public sealed class ModulateUnlitConformanceTests
         }
 
         target.Clear(surface, surface, surface);
+
+        target.MissingGammaTwins.ShouldBe(0, "every modulating run drew through the target's gamma twin (B641)");
 
         return target.PixelAt(8, 8);
     }
@@ -239,6 +331,8 @@ public sealed class ModulateUnlitConformanceTests
             debug: debug,
             toneMapScale: 1f);
 
+        target.MissingGammaTwins.ShouldBe(0, "every modulating run drew through the target's gamma twin (B641)");
+
         return target.PixelAt(8, 8);
     }
 
@@ -261,6 +355,8 @@ public sealed class ModulateUnlitConformanceTests
             ModulateToneMapConformanceTests.Camera(),
             ModulateToneMapConformanceTests.Assets,
             toneMapScale: 1f);
+
+        target.MissingGammaTwins.ShouldBe(0, "every modulating run drew through the target's gamma twin (B641)");
 
         return target.PixelAt(8, 8);
     }

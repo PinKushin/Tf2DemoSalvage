@@ -203,7 +203,7 @@ internal sealed unsafe class OffscreenTarget : IDisposable
         ArgumentNullException.ThrowIfNull(matrix);
         ArgumentNullException.ThrowIfNull(assets);
 
-        WorldRenderer world = _world ??= WorldRenderer.Create(_device, _loggers);
+        WorldRenderer world = EnsureWorld();
 
         // The constant buffer takes the scale at SetCamera; restored after, so a later draw never inherits it.
         float before = world.LinearLightScale;
@@ -335,7 +335,7 @@ internal sealed unsafe class OffscreenTarget : IDisposable
             Aspect = camera.Aspect,
         };
 
-        WorldRenderer world = _world ??= WorldRenderer.Create(_device, _loggers);
+        WorldRenderer world = EnsureWorld();
 
         world.Seconds = Seconds;
         world.UploadTextures(_device, _context, assets);
@@ -388,7 +388,7 @@ internal sealed unsafe class OffscreenTarget : IDisposable
     /// <param name="y">Row.</param>
     /// <returns>Red, green and blue.</returns>
     public (int Red, int Green, int Blue) WaterTargetPixel(bool refraction, int x, int y) =>
-        (_world ??= WorldRenderer.Create(_device, _loggers)).WaterTargetPixel(_context, refraction, x, y);
+        (EnsureWorld()).WaterTargetPixel(_context, refraction, x, y);
 
     /// <summary>The assets whose textures the renderer holds now.</summary>
     private MapAssets? _uploaded;
@@ -515,7 +515,7 @@ internal sealed unsafe class OffscreenTarget : IDisposable
         if (batch.Material.Refract is { } refract)
         {
             // UpdateRefractTexture before the draw, as DrawTranslucentRenderables does per renderable (B476).
-            ComPtr<ID3D11ShaderResourceView> frame = (_world ??= WorldRenderer.Create(_device, _loggers))
+            ComPtr<ID3D11ShaderResourceView> frame = (EnsureWorld())
                 .UpdateRefractTexture(_context, new WaterFrameTarget(_view, _depthView, _width, _height));
 
             _refractNormal.Dispose();
@@ -555,6 +555,16 @@ internal sealed unsafe class OffscreenTarget : IDisposable
 
         // EnableSRGBWrite( false ): the same texture through a view without the curve, so the blend runs on the stored
         // values — as `Device3D` draws it through its own gamma view.
+        _context.OMSetRenderTargets(1u, GammaView().GetAddressOf(), _depthView);
+        _sprites.Draw(_device, _context, camera);
+        _context.OMSetRenderTargets(1u, _view.GetAddressOf(), _depthView);
+    }
+
+    private ComPtr<ID3D11RenderTargetView> _gammaView;
+
+    /// <summary>The target through a view without the sRGB curve, created on first ask.</summary>
+    private ComPtr<ID3D11RenderTargetView> GammaView()
+    {
         if (_gammaView.Handle is null)
         {
             RenderTargetViewDesc stored = new()
@@ -566,12 +576,24 @@ internal sealed unsafe class OffscreenTarget : IDisposable
             SilkMarshal.ThrowHResult(_device.CreateRenderTargetView(_texture, in stored, ref _gammaView));
         }
 
-        _context.OMSetRenderTargets(1u, _gammaView.GetAddressOf(), _depthView);
-        _sprites.Draw(_device, _context, camera);
-        _context.OMSetRenderTargets(1u, _view.GetAddressOf(), _depthView);
+        return _gammaView;
     }
 
-    private ComPtr<ID3D11RenderTargetView> _gammaView;
+    /// <summary>How many modulating runs drew without a gamma twin — zero, or the B641 blend is not Valve's.</summary>
+    internal int MissingGammaTwins => _world?.MissingGammaTwins ?? 0;
+
+    /// <summary>The world renderer, created on first ask with this target's gamma twin registered (B641).</summary>
+    [System.Diagnostics.CodeAnalysis.MemberNotNull(nameof(_world))]
+    private WorldRenderer EnsureWorld()
+    {
+        if (_world is null)
+        {
+            _world = WorldRenderer.Create(_device, _loggers);
+            _world.SetGammaTwin(_view, GammaView());
+        }
+
+        return _world;
+    }
 
     private OcclusionQueries? _occlusion;
 
@@ -697,7 +719,7 @@ internal sealed unsafe class OffscreenTarget : IDisposable
 
         const string Posed = "offscreen/posed.mdl";
 
-        _world ??= WorldRenderer.Create(_device, _loggers);
+        EnsureWorld();
         _world.Seconds = Seconds;
         _world.ModelVertexCap = ModelVertexCap;
 
@@ -854,7 +876,7 @@ internal sealed unsafe class OffscreenTarget : IDisposable
     /// <returns>Whether anything was drawn.</returns>
     public bool DrawScreenOverlay(ScreenOverlayMaterial overlay, double seconds)
     {
-        _world ??= WorldRenderer.Create(_device, _loggers);
+        EnsureWorld();
 
         Viewport viewport = new(0f, 0f, _width, _height, 0f, 1f);
 

@@ -421,6 +421,14 @@ internal sealed unsafe partial class WorldRenderer
         _waterShader.Dispose();
         _cheapWaterShader.Dispose();
         _waterBuffer.Dispose();
+
+        foreach (ComPtr<ID3D11RenderTargetView> twin in _ownedGammaTwins)
+        {
+            twin.Dispose();
+        }
+
+        _ownedGammaTwins.Clear();
+        _gammaTwins.Clear();
         _reflectionView.Dispose();
         _reflectionTarget.Dispose();
         _reflectionTexture.Dispose();
@@ -1271,7 +1279,8 @@ internal sealed unsafe partial class WorldRenderer
             Height = WaterTargetSize,
             MipLevels = 1,
             ArraySize = 1,
-            Format = Silk.NET.DXGI.Format.FormatR8G8B8A8UnormSrgb,
+            // Typeless, viewed through the sRGB curve as before, so a modulating run can draw through a UNORM twin (B641).
+            Format = Silk.NET.DXGI.Format.FormatR8G8B8A8Typeless,
             SampleDesc = new Silk.NET.DXGI.SampleDesc(1, 0),
             Usage = Usage.Default,
             BindFlags = (uint)(BindFlag.RenderTarget | BindFlag.ShaderResource),
@@ -1279,11 +1288,31 @@ internal sealed unsafe partial class WorldRenderer
 
         ComPtr<ID3D11Texture2D> texture = default;
         ComPtr<ID3D11RenderTargetView> target = default;
+        ComPtr<ID3D11RenderTargetView> twin = default;
         ComPtr<ID3D11ShaderResourceView> view = default;
 
+        RenderTargetViewDesc srgbTarget = new()
+        {
+            Format = Silk.NET.DXGI.Format.FormatR8G8B8A8UnormSrgb,
+            ViewDimension = RtvDimension.Texture2D,
+        };
+
+        RenderTargetViewDesc gammaTarget = srgbTarget with { Format = Silk.NET.DXGI.Format.FormatR8G8B8A8Unorm };
+        ShaderResourceViewDesc srgbView = new()
+        {
+            Format = Silk.NET.DXGI.Format.FormatR8G8B8A8UnormSrgb,
+            ViewDimension = D3DSrvDimension.D3DSrvDimensionTexture2D,
+        };
+
+        srgbView.Texture2D.MipLevels = 1;
+
         SilkMarshal.ThrowHResult(_device.CreateTexture2D(in description, ref Unsafe.NullRef<SubresourceData>(), ref texture));
-        SilkMarshal.ThrowHResult(_device.CreateRenderTargetView(texture, ref Unsafe.NullRef<RenderTargetViewDesc>(), ref target));
-        SilkMarshal.ThrowHResult(_device.CreateShaderResourceView(texture, ref Unsafe.NullRef<ShaderResourceViewDesc>(), ref view));
+        SilkMarshal.ThrowHResult(_device.CreateRenderTargetView(texture, in srgbTarget, ref target));
+        SilkMarshal.ThrowHResult(_device.CreateRenderTargetView(texture, in gammaTarget, ref twin));
+        SilkMarshal.ThrowHResult(_device.CreateShaderResourceView(texture, in srgbView, ref view));
+
+        _ownedGammaTwins.Add(twin);
+        SetGammaTwin(target, twin);
 
         // **A target no view has drawn yet reads as opaque black with alpha one** — the engine's contents before
         // its first render are not in the SDK; alpha one is "deep", which lets the cheap pass cover it fully.

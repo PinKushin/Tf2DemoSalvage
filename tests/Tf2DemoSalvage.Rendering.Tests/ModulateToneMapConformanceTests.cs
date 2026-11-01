@@ -148,17 +148,14 @@ public sealed class ModulateToneMapConformanceTests
         // Multiplied: darker than the surface by far, where an opaque draw of the texel would not be.
         atOne.Item2.ShouldBeLessThan(under.Item2 - 40, $"the brush Modulate drew {atOne} over {under}: not multiplied");
 
-        // The value itself for `$mod2x`. Valve's gamma arithmetic is dst · 2 · 64/255 = 116. Ours lands 4 above it, at 120
-        // (*measured*): the linear blend reproduces a gamma multiply only on the 2.2 curve, and the sRGB curve departs from
-        // it toward black (*arithmetic*: 231 · 4.595 · sRGB⁻¹(64) gives 120). So the window is that offset, [+2, +6]. It
-        // excludes the white-texel diffuse of 2.0 (112, B639) and an unlit 1 (about 80), so an error the brush and model
-        // paths share cannot pass. **The offset itself is a known divergence, B641**: the residue of reproducing a gamma
-        // multiply with a linear sRGB blend. A future exact blend moves this window to [expected - 2, expected + 2].
+        // The value itself for `$mod2x`: Valve's gamma arithmetic, dst · 2 · 64/255 = 116. Since B641 the blend multiplies
+        // stored values, as Valve's does, so the window is Valve's value ±2. It excludes the linear blend's 120, the
+        // white-texel 112 (B639) and an unlit 80, so an error the brush and model paths share cannot pass.
         if (twice)
         {
             int expected = (int)System.Math.Round(under.Item2 * 2.0 * 64.0 / 255.0);
 
-            atOne.Item2.ShouldBeInRange(expected + 2, expected + 6, $"the brush mod2x Modulate drew {atOne} over {under}; Valve's arithmetic {expected}, ours 4 above it");
+            atOne.Item2.ShouldBeInRange(expected - 2, expected + 2, $"the brush mod2x Modulate drew {atOne} over {under}; Valve's arithmetic {expected}");
         }
 
         // Exactly the model pass's multiply over the bare surface: drawing it opaque first, then multiplying over that,
