@@ -898,15 +898,17 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
         // **A modulating material fogs toward a grey of 128/255** (B637): `FogToGrey()` under DecalModulate and `$mod2x`,
         // `FogToOOOverbright()` under plain Modulate (DecalModulate_dx9.cpp:79-80, modulate_dx9.cpp:201-209), both r = g = b
         // = 128. What reaches g_LinearFogColor (shaderapidx9.dll, read in the plan doc 2026-11-02-modulate-fog-plan.md):
-        // range fog passes 128/255 as it is (these shaders write without sRGB); height fog takes it to linear, pow 2.2; and
-        // either is multiplied by the tone-map scale under integer HDR UNLESS the shader disabled fog gamma correction, which
-        // only DecalModulate does. Mode 3 is Modulate (scaled), mode 4 DecalModulate (unscaled, and its factor first takes
+        // range fog passes 128/255 as it is (these shaders write without sRGB); height fog ALWAYS takes it to linear, for
+        // DecalModulate too (the conversion precedes the gamma-correction flag's only test); and either is multiplied by the
+        // tone-map scale under integer HDR UNLESS the shader disabled fog gamma correction, which only DecalModulate does.
+        // Mode 3 is Modulate (scaled), mode 4 DecalModulate (unscaled, and its factor first takes
         // `pow( saturate( fogFactor ), 0.4f )`, decalmodulate_ps2x.fxc:42). The output is a gamma value (B641), so the lerp
         // is in gamma as Valve's is. Mode 2, none, is no longer given to any material.
         static const float StoredGrey = 128.0f / 255.0f;
 
-        // pow( 128/255, 2.2 ): the grey as the height-fog path converts it.
-        static const float LinearGrey = 0.2195190f;
+        // The sRGB decode of 128/255: the height-fog path's conversion with `r_shader_srgb` at its default 0 (hardware sRGB),
+        // shaderapi's sRGB-to-linear, not pow 2.2 (B637 review; plan doc).
+        static const float LinearGrey = 0.2158605f;
 
         bool Fogs(float mode)
         {
@@ -3281,19 +3283,8 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
 
         if (_modulateTwiceBlend.Handle is null)
         {
-            // **$mod2x, which doubles the product.** DEST_COLOR against SRC_COLOR sums to twice the
-            // product, so a texel of mid grey leaves the destination unchanged and the material can
-            // brighten as well as darken — which is the whole reason a mapper reaches for it.
-            BlendDesc description = default;
-
-            description.RenderTarget[0].BlendEnable = 1;
-            description.RenderTarget[0].SrcBlend = Blend.DestColor;
-            description.RenderTarget[0].DestBlend = Blend.SrcColor;
-            description.RenderTarget[0].BlendOp = BlendOp.Add;
-            description.RenderTarget[0].SrcBlendAlpha = Blend.One;
-            description.RenderTarget[0].DestBlendAlpha = Blend.Zero;
-            description.RenderTarget[0].BlendOpAlpha = BlendOp.Add;
-            description.RenderTarget[0].RenderTargetWriteMask = (byte)ColorWriteEnable.All;
+            // **$mod2x, which doubles the product** — which is the whole reason a mapper reaches for it.
+            BlendDesc description = BlendStates.ModulateTwice;
 
             ComPtr<ID3D11BlendState> blend = default;
 

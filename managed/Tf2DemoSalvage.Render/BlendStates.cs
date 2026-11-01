@@ -52,10 +52,24 @@ internal static class BlendStates
     /// darken. White leaves the destination alone; black blacks it out.
     /// </remarks>
     public static BlendDesc Modulate =>
-        Describe(Blend.DestColor, Blend.Zero, Blend.One, Blend.Zero);
+        Describe(Blend.DestColor, Blend.Zero, Blend.One, Blend.Zero, ModulateWrites);
+
+    /// <summary>`DecalModulate` and `$mod2x` Modulate: <c>DST_COLOR, SRC_COLOR</c>, twice the product.</summary>
+    /// <remarks>
+    /// DEST_COLOR against SRC_COLOR sums to twice the product, so a texel of mid grey leaves the destination unchanged and
+    /// the material can brighten as well as darken (<c>DecalModulate_dx9.cpp:78</c>, <c>modulate_dx9.cpp:143</c>).
+    /// </remarks>
+    public static BlendDesc ModulateTwice =>
+        Describe(Blend.DestColor, Blend.SrcColor, Blend.One, Blend.Zero, ModulateWrites);
+
+    /// <summary>
+    /// Colour only: neither modulating shader writes destination alpha (<c>DecalModulate_dx9.cpp:70-71</c>,
+    /// <c>modulate_dx9.cpp:211</c> without `$writez`), which in a refraction view holds the height fog factor (B637 review).
+    /// </summary>
+    private const ColorWriteEnable ModulateWrites = ColorWriteEnable.Red | ColorWriteEnable.Green | ColorWriteEnable.Blue;
 
     private static BlendDesc Describe(
-        Blend source, Blend destination, Blend sourceAlpha, Blend destinationAlpha)
+        Blend source, Blend destination, Blend sourceAlpha, Blend destinationAlpha, ColorWriteEnable writes = ColorWriteEnable.All)
     {
         BlendDesc description = default;
 
@@ -66,7 +80,7 @@ internal static class BlendStates
         description.RenderTarget[0].SrcBlendAlpha = sourceAlpha;
         description.RenderTarget[0].DestBlendAlpha = destinationAlpha;
         description.RenderTarget[0].BlendOpAlpha = BlendOp.Add;
-        description.RenderTarget[0].RenderTargetWriteMask = (byte)ColorWriteEnable.All;
+        description.RenderTarget[0].RenderTargetWriteMask = (byte)writes;
 
         return description;
     }

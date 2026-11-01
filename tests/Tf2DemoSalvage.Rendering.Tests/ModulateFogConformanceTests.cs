@@ -45,8 +45,11 @@ public sealed class ModulateFogConformanceTests
     /// <summary>The grey both fog modes fade toward under range fog: 128 of 255, `r = g = b = 128` (plan doc).</summary>
     private const double Grey = 128.0 / 255.0;
 
-    /// <summary>The same grey as the height-fog path delivers it, pow( 128/255, 2.2 ) (plan doc).</summary>
-    private static readonly double LinearGrey = Math.Pow(Grey, 2.2);
+    /// <summary>
+    /// The same grey as the height-fog path delivers it: shaderapi's sRGB-to-linear of 128/255, 0.2159, with `r_shader_srgb`
+    /// at its default 0 (plan doc, B637 review).
+    /// </summary>
+    private static readonly double LinearGrey = SrgbTarget.Decode(128);
 
     /// <summary>Red fog, so a lerp toward the scene's fog colour instead of the grey shows as unequal channels.</summary>
     private static readonly SceneFog HalfRange = new(0f, Depth, 1f, 0f, 0f, 0.5f);
@@ -101,10 +104,10 @@ public sealed class ModulateFogConformanceTests
 
     /// <remarks>
     /// **Height fog, factor 0.5, unsquared** (<c>common_ps_fxc.h:297</c>), toward the grey the height-fog path makes
-    /// LINEAR: pow( 128/255, 2.2 ) = 0.2195 (shaderapidx9 <c>0x180025b2c</c>, plan doc). DecalModulate: 0.5^0.4 = 0.7579,
-    /// texel 32 becomes 0.1968 and stores 188 · 2 · 0.1968 ≈ 74 (unfogged 47; toward 128/255 it would be 154). Plain
-    /// Modulate of 128: weight 0.5, 0.3607, ≈ 68 (unfogged 94). The branch used to be unreachable for these materials, and
-    /// its exit is the gamma one.
+    /// LINEAR: the sRGB decode of 128/255 = 0.2159 (shaderapidx9 <c>0x180025b9a</c> under `r_shader_srgb 0`, plan doc).
+    /// DecalModulate: 0.5^0.4 = 0.7579, texel 32 becomes 0.1940 and stores 188 · 2 · 0.1940 ≈ 73 (unfogged 47; toward
+    /// 128/255 it would be 154). Plain Modulate of 128: weight 0.5, 0.3589, ≈ 67 (unfogged 94). The branch used to be
+    /// unreachable for these materials, and its exit is the gamma one.
     /// </remarks>
     [TestCase(DecalModulateDark, 32, true, 0.4)]
     [TestCase(PlainModulate128, 128, false, 1.0)]
@@ -123,8 +126,11 @@ public sealed class ModulateFogConformanceTests
     /// `DisableFogGammaCorrection( true )`, and shaderapi scales the pixel fog colour by the tone-map scale under integer
     /// HDR unless that flag is set (<c>0x180025bec</c>/<c>0x180025c8b</c>, plan doc). Full range fog at a scale of 0.5:
     /// plain Modulate outputs 128/255 · 0.5 and stores 188 · 0.251 ≈ 47; DecalModulate outputs 128/255 and stores ≈ 189.
+    /// **Texel 128 for Modulate, on purpose** (review): with texel 64 the correct answer (47) equals the unfogged control
+    /// (188 · 64/255 ≈ 47), so a Modulate that skipped fog whenever the scale was not 1 passed. At 128 the unfogged draw
+    /// and the unscaled grey both store 94.
     /// </remarks>
-    [TestCase(PlainModulate, false, 0.5)]
+    [TestCase(PlainModulate128, false, 0.5)]
     [TestCase(DecalModulateDark, true, 1.0)]
     public void Draw_AModulatingMaterialUnderFullRangeFogAtHalfToneMapScale_FadesTowardItsGrey(int material, bool twice, double greyScale)
     {
@@ -167,6 +173,22 @@ public sealed class ModulateFogConformanceTests
         (int, int, int) scaled = Draw(DecalModulateDark, surface, heightFog: HalfHeight, toneMapScale: scale) ?? Skip();
 
         Near(scaled, atOne, $"the fogged scorch drew {atOne} at scale 1 and {scaled} at {scale}");
+    }
+
+    /// <remarks>
+    /// **Modulate under height fog at a scale of 0.5: the scale is on the GREY, not on the result** (review). From the
+    /// shader's own formula, `lerp( texel, FogTarget(…) = LinearGrey · 0.5, waterFog ) · ToneMapScale(1)`: texel 128/255,
+    /// grey 0.2159 · 0.5 = 0.1079, weight 0.5, gives 0.3050 and stores 188 · 0.3050 ≈ 57. Moving the scale to the outer
+    /// multiply gives 0.1795, ≈ 34; dropping it gives 0.3589, ≈ 67.
+    /// </remarks>
+    [Test]
+    public void Draw_ModulateUnderHalfHeightFogAtHalfToneMapScale_ScalesOnlyTheGrey()
+    {
+        float surface = SurfaceFor(PlainModulate128);
+        (int, int, int) under = Under(surface) ?? Skip();
+        (int, int, int) drawn = Draw(PlainModulate128, surface, heightFog: HalfHeight, toneMapScale: 0.5f) ?? Skip();
+
+        Near(drawn, Predict(under.Item2, Grey, 0.5, false, LinearGrey * 0.5), $"Modulate 128 under half height fog at scale 0.5 drew {drawn} over {under}");
     }
 
     /// <remarks>
@@ -233,6 +255,46 @@ public sealed class ModulateFogConformanceTests
 
         target.MissingGammaTwins.ShouldBe(1, "the control: the run found no twin, so this is the fallback");
         drawn.Green.ShouldBeInRange(expected - 2, expected + 2, $"with no twin, full fog drew {drawn}; fogged in gamma then decoded {expected}");
+    }
+
+    /// <remarks>
+    /// **The same fallback on the height-fog path** (review): the height branch also lerps before the single exit decodes.
+    /// Half height fog takes texel 32 to o = 0.1255 + (0.2159 − 0.1255) · 0.7579 = 0.1940 in gamma; decoded and drawn
+    /// through the sRGB view over 0.5 linear, the store is sRGB( 0.5 · 2 · decode(o) ) = o, ≈ 49 (unfogged fallback ≈ 32).
+    /// </remarks>
+    [Test]
+    public void Draw_DecalModulateUnderHalfHeightFogOnATargetWithNoTwin_FogsBeforeTheDecode()
+    {
+        using OffscreenTarget? target = OffscreenTarget.TryCreate(16, 16);
+
+        if (target is null)
+        {
+            Skip();
+            return;
+        }
+
+        const float Surface = 0.5f;
+
+        target.Clear(Surface, Surface, Surface);
+        target.ForgetGammaTwin();
+        target.DrawWorld(
+            Wall(),
+            [new WorldBatch(DecalModulateDark, 0, 0)],
+            Identity,
+            Assets,
+            decals: [new WorldBatch(DecalModulateDark, 0, 6, Category: SurfaceCategory.Overlay)],
+            translucent: false,
+            toneMapScale: 1f,
+            heightFog: HalfHeight);
+
+        (int Red, int Green, int Blue) drawn = target.PixelAt(8, 8);
+        double texel = 32.0 / 255.0;
+        double fogged = texel + ((LinearGrey - texel) * Math.Pow(0.5, 0.4));
+        double decoded = fogged <= 0.04045 ? fogged / 12.92 : Math.Pow((fogged + 0.055) / 1.055, 2.4);
+        int expected = SrgbTarget.Encode(Surface * 2.0 * decoded);
+
+        target.MissingGammaTwins.ShouldBe(1, "the control: the run found no twin, so this is the fallback");
+        drawn.Green.ShouldBeInRange(expected - 2, expected + 2, $"with no twin, half height fog drew {drawn}; fogged in gamma then decoded {expected}");
     }
 
     /// <summary>The surface each case is drawn over: `$mod2x` over 0.8 linear, where a multiply and a cover differ.</summary>
@@ -314,15 +376,62 @@ public sealed class ModulateFogConformanceTests
     }
 
     /// <summary>The whole view at clip depth 0.9, every corner on one texel, white corners (FogRenderTests' winding).</summary>
-    private static List<WorldVertex> Wall() =>
+    /// <param name="offset">How far to the side, to put a model outside the view.</param>
+    private static List<WorldVertex> Wall(float offset = 0f) =>
     [
-        new(-1f, -1f, Depth, 0.5f, 0.5f, 0f, 0f, 0f, 1f, 1f, 1f),
-        new(1f, 1f, Depth, 0.5f, 0.5f, 0f, 0f, 0f, 1f, 1f, 1f),
-        new(1f, -1f, Depth, 0.5f, 0.5f, 0f, 0f, 0f, 1f, 1f, 1f),
-        new(-1f, -1f, Depth, 0.5f, 0.5f, 0f, 0f, 0f, 1f, 1f, 1f),
-        new(-1f, 1f, Depth, 0.5f, 0.5f, 0f, 0f, 0f, 1f, 1f, 1f),
-        new(1f, 1f, Depth, 0.5f, 0.5f, 0f, 0f, 0f, 1f, 1f, 1f),
+        new(offset - 1f, -1f, Depth, 0.5f, 0.5f, 0f, 0f, 0f, 1f, 1f, 1f),
+        new(offset + 1f, 1f, Depth, 0.5f, 0.5f, 0f, 0f, 0f, 1f, 1f, 1f),
+        new(offset + 1f, -1f, Depth, 0.5f, 0.5f, 0f, 0f, 0f, 1f, 1f, 1f),
+        new(offset - 1f, -1f, Depth, 0.5f, 0.5f, 0f, 0f, 0f, 1f, 1f, 1f),
+        new(offset - 1f, 1f, Depth, 0.5f, 0.5f, 0f, 0f, 0f, 1f, 1f, 1f),
+        new(offset + 1f, 1f, Depth, 0.5f, 0.5f, 0f, 0f, 0f, 1f, 1f, 1f),
     ];
+
+    /// <summary>
+    /// Modulate 128 as brushwork drawn the production way: the opaque pass, a model at another scale off to the side, then
+    /// the translucent world (B426), under the given fog. Null without a device.
+    /// </summary>
+    private static (int, int, int)? DrawTranslucentAfterAModel(SceneFog? fog, VolumeFog? heightFog, float scale)
+    {
+        using OffscreenTarget? target = OffscreenTarget.TryCreate(16, 16);
+
+        if (target is null)
+        {
+            return null;
+        }
+
+        target.Clear(0.5f, 0.5f, 0.5f);
+        target.DrawWorld(
+            Wall(), [new WorldBatch(PlainModulate128, 0, 6)], Identity, Assets, translucent: false, fog: fog, toneMapScale: scale, heightFog: heightFog);
+        target.DrawModelPose(
+            Wall(offset: 50f), [new WorldBatch(Lit, 0, 6)], Identity, Identity, Assets, bothSides: true, clearDepth: false, toneMapScale: 1f);
+        target.DrawTranslucentWorld();
+
+        return target.PixelAt(8, 8);
+    }
+
+    /// <remarks>
+    /// **The fog survives the translucent world being drawn after a model** (review). A Modulate brush run is in the
+    /// translucent world (B635), so production draws it after the models, through <c>ReapplyCamera</c>, and the harness
+    /// through <c>_reapplyWorldCamera</c>. That must put back the scene fog's tone-map scale (the grey takes it) and the
+    /// water view's height fog: here both draws must equal the same run drawn in one go. Before the harness kept the water
+    /// view, the height case drew the unfogged 94 against 67.
+    /// </remarks>
+    [TestCase(false)]
+    [TestCase(true)]
+    public void DrawTranslucentWorld_AModulateRunAfterAModelAtScaleOne_KeepsItsFogAndScale(bool height)
+    {
+        SceneFog? fog = height ? null : HalfRange with { MaxDensity = 1f };
+        VolumeFog? heightFog = height ? HalfHeight : null;
+        (int, int, int) together = Draw(PlainModulate128, 0.5f, fog: fog, heightFog: heightFog, toneMapScale: 0.5f) ?? Skip();
+        (int, int, int) apart = DrawTranslucentAfterAModel(fog, heightFog, 0.5f) ?? Skip();
+        (int, int, int) unfogged = Draw(PlainModulate128, 0.5f, toneMapScale: 0.5f) ?? Skip();
+
+        // The control: the fog moves this draw, so matching it is not two unfogged surfaces agreeing.
+        Math.Abs(together.Item2 - unfogged.Item2).ShouldBeGreaterThan(10, $"fogged {together} against unfogged {unfogged}");
+
+        Near(apart, together, $"the Modulate run drew {together} in one go and {apart} after a model at scale 1");
+    }
 
     private static float[] Identity =>
     [

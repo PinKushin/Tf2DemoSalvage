@@ -40478,12 +40478,13 @@ remark). The `$mod2x` case lands within about 4 levels of Valve's arithmetic (90
 Both fog branches now take a modulating material: fog mode 4 for DecalModulate (`pow( f, 0.4 )` first, grey unscaled),
 mode 3 for Modulate (grey times the tone-map scale, and never radial: its z-only `CalcPixelFogFactor` turns radial into
 range, `common_ps_fxc.h:272-273`). *Read in `shaderapidx9.dll`:* the grey reaches c29 as 128/255 raw
-under range fog and as pow(128/255, 2.2) under height fog; only DecalModulate's `DisableFogGammaCorrection` keeps the
-tone-map scale off it. On `ctf_crasher`'s scorch the fog's share now matches TF2's live pair: ring ×1.065 (TF2 ×1.065),
+under range fog and sRGB-decoded (0.2159, at the default `r_shader_srgb 0`; review) under height fog, for every shader;
+only DecalModulate's `DisableFogGammaCorrection` keeps the tone-map scale off it. On `ctf_crasher`'s scorch the fog's share now matches TF2's live pair: ring ×1.065 (TF2 ×1.065),
 centre ×1.123 (TF2 ×1.116). The tripwire is replaced by `ModulateFogConformanceTests`, which holds the height branch
-unscaled by its pixels. **Still open:** which curve the height-fog grey takes on a TF2 machine (pow 2.2 assumed, as for
-the water fog colour); a modulating draw writes alpha in a refraction view where Valve's DecalModulate writes none
-(`DecalModulate_dx9.cpp:71`), outside fog and older than this.
+unscaled by its pixels. **Review batch (`fix/b637-review-batch`):** the height grey's curve read (sRGB, not pow 2.2) and
+the modulate blends stopped writing alpha, as Valve's do (`DecalModulate_dx9.cpp:70-71`, `modulate_dx9.cpp:211`).
+**Still open:** our water fog colour and the scene fog colour under sRGB write still take pow 2.2 where shaderapi's
+default path takes the sRGB curve (lit materials; plan doc, review batch).
 
 **As filed:**
 
@@ -40525,6 +40526,14 @@ shader depends on the camera.
 
 **Next:** carry the uploaded constant to the capture log; shoot one camera with and without a 3D-sky view in frame; then
 move the world upload after the scale is set. Every auto-exposure shot changes when it is fixed.
+
+**Reaches B637's fog too (2026-11-02, read from our code, not measured):** Modulate's fog grey is 128/255 times
+`LINEAR_LIGHT_SCALE` (`debugModes2.y`), so a Modulate run drawn on the world constants this entry describes fogs toward a
+grey scaled by the previous frame's end value. In production the translucent world's leaves (`Device3D` ~1911,
+`DrawTranslucentLeaf`) draw on whatever world constants are bound at that point; whether those carry the frame's scale is
+this entry's open question and was not traced for B637. The harness order DrawWorld → model at another scale → DrawTranslucentWorld is held by
+`ModulateFogConformanceTests.DrawTranslucentWorld_AModulateRunAfterAModelAtScaleOne_KeepsItsFogAndScale`. DecalModulate's
+grey is unscaled and is not affected.
 
 ## B635 — explosive scorch decals look dark and pixelated at a close camera (2026-10-31) — FIXED (merged to local `main` 2026-10-31; branches `fix/b633-modulate-tonemap-none`, `fix/b635-review-batch`)
 

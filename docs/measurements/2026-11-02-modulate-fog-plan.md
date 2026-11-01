@@ -54,7 +54,8 @@ FOGCOLOR 4, WHITE 5.
     swaps the texture on sampler 15, the `SRGBOutput` gamma table: it is the sRGB-write state. These two shaders write
     without sRGB, so **raw 128/255**.
   - **height fog** (`== 2`): converted to linear unconditionally, `pow( c, 2.2 )` (`0x180025b2c`, the exponent the
-    double at `0x18007e0d8`, 2.2) or vtable `+0x758` when a hardware-config query (`+0x1f0`) returns 0.
+    double at `0x18007e0d8`, 2.2) or vtable `+0x758` when a hardware-config query (`+0x1f0`) returns 0. **Settled in
+    review (below): the default TF2 machine takes `+0x758`, the sRGB curve.**
   - then **times the tone-map scale** (`+0x3a8c`) when HDR type is 1 (integer) **and the no-gamma-correction flag is
     clear** (`0x180025bec`, `0x180025c8b`).
 
@@ -62,18 +63,19 @@ FOGCOLOR 4, WHITE 5.
 
 | shader | range/radial fog colour | height fog colour | lerp weight, range | lerp weight, height |
 |---|---|---|---|---|
-| DecalModulate | 128/255 | pow(128/255, 2.2) = 0.2195 | (f^0.4)^2 = f^0.8 | f^0.4 |
-| Modulate `$mod2x` | 128/255 · scale | 0.2195 · scale | f² | f |
-| Modulate | 128/255 · scale | 0.2195 · scale | f² | f |
+| DecalModulate | 128/255 | sRGB⁻¹(128/255) = 0.2159 (was 0.2195 by pow 2.2; review) | (f^0.4)^2 = f^0.8 | f^0.4 |
+| Modulate `$mod2x` | 128/255 · scale | 0.2159 · scale | f² | f |
+| Modulate | 128/255 · scale | 0.2159 · scale | f² | f |
 
 `scale` is `LINEAR_LIGHT_SCALE` under integer HDR, 1 otherwise. The lerp is on the shader's output, which for these
 two is the stored (gamma) value, and the blend then multiplies stored values (`dst · 2s` or `dst · s`, B641).
 **Two consequences that read as wrong but are Valve's:** plain Modulate in full fog halves what is behind it (0.5 is
-neutral only for a ×2 blend); and under height fog every one of them fades toward a DARK grey (0.2195 · 2 = 0.44 for
+neutral only for a ×2 blend); and under height fog every one of them fades toward a DARK grey (0.2159 · 2 = 0.43 for
 mod2x), since the height path linearises the grey and these shaders never re-encode it.
 
-**Unread, flagged:** which way the `+0x1f0` query goes on a TF2 machine (`pow 2.2` against vtable `+0x758`; our water
-fog colour already takes `pow 2.2`, `WorldRenderer.Water.cs` `Linear`, so this follows it). *Interpolated.*
+**First flagged as unread, then read in review (below):** which way the `+0x1f0` query goes on a TF2 machine. The first
+version took `pow 2.2`, following our water fog colour (`WorldRenderer.Water.cs` `Linear`). That was wrong for the
+default configuration.
 
 ## Ours, before (read)
 
@@ -93,8 +95,8 @@ fog colour already takes `pow 2.2`, `WorldRenderer.Water.cs` `Linear`, so this f
   is unchanged, so a modulating draw there stays unscaled except for its grey.
 - The single gamma exit (`:2081`) is untouched: both branches fog in gamma before it, so the no-twin fallback decodes a
   fogged value.
-- Not changed: the alpha a modulating draw writes inside a refraction view (Valve's DecalModulate writes none,
-  `DecalModulate_dx9.cpp:71`; ours writes `albedo.a` with its blend). Pre-existing, outside fog; reported.
+- Not changed at first: the alpha a modulating draw writes inside a refraction view (Valve's DecalModulate writes none,
+  `DecalModulate_dx9.cpp:71`). Fixed in the review batch (below).
 
 ## Tests (synthetic, `ModulateFogConformanceTests`, 19; tripwire replaced in `ModulateToneMapConformanceTests`)
 
@@ -148,12 +150,75 @@ API changes touch only Modulate's grey and height fog, neither in this frame.
 Pixel diff before against after (`pair-diff`): 195,596 px changed, max 21 levels, box (43,0)-(932,424), the scorch
 and nothing else. Images: `D:/measure-f12/decal-cmp/b637/` (`before/`, `after/`, `sbs-before-after.png`).
 
+**The ratio record** (review): every on/off number above comes from this one script, run as
+
+```
+python -I D:/measure-f12/decal-cmp/b637/scripts/ratios.py <on.png> <off.png>
+```
+
+| pair (on, off) | ring stored | centre stored | surround L/R |
+|---|---|---|---|
+| `b639/tf2-live-z300-nofog-on.png`, `…-nofog-off.png` (TF2 fog off) | 0.727 | 0.580 | 1.000 / 1.000 |
+| `b639/tf2-live-z300-on.png`, `…-off.png` (TF2 fog on) | 0.774 | 0.647 | 1.000 / 1.000 |
+| `b637/before/base-t2000.png`, `b637/before/hidden-t2000.png` | 0.705 | 0.563 | 1.000 / 1.000 |
+| `b637/after/base-t2000.png`, `b637/before/hidden-t2000.png` | 0.751 | 0.632 | 1.000 / 1.000 |
+| `b637/review/base-t2000.png`, `b637/before/hidden-t2000.png` (review build) | 0.751 | 0.632 | 1.000 / 1.000 |
+| `b637/before/base2-t2000.png`, `b637/before/base-t2000.png` (repeat control) | 1.000 | 1.000 | 1.000 / 1.000 |
+
+The fog shares are the quotients: TF2 0.774/0.727 = 1.065 and 0.647/0.580 = 1.116; ours 0.751/0.705 = 1.065 and
+0.632/0.563 = 1.123 (*arithmetic on the table*). Paths are under `D:/measure-f12/decal-cmp/`.
+
+## Review batch (2026-11-02, branch `fix/b637-review-batch`)
+
+**The height-fog grey's curve, read.** The question was whether DecalModulate's disabled gamma correction also skips
+the height path's linearisation. It does not. In `0x180025a50` the height branch runs from `0x180025b08` to the
+conversion at `0x180025b2c`/`0x180025b9a`, and the no-gamma-correction byte (`+0x1694`) is first read at `0x180025bec`,
+after it, where it only skips the tone-map multiply. So the scorch's height-fog grey is linear for every shader, and
+the reviewer's ~154 does not apply. **Which conversion:** the hardware-config slot `+0x1f0` (vtable `0x18007a198`, entry
+`0x180004bc0`) reads the convar `r_shader_srgb` ("-1 = use hardware caps. 0 = use hardware srgb. 1 = use shader
+srgb(software lookup)", registered at `0x180001120`, default "0"): 0 returns 0, 1 returns 1, -1 a caps bit. At the
+default the code takes vtable `+0x758` (`0x18001aed0`, a thunk to `0x18003ddf0`), the sRGB decode (`x ≤ 0.04045 ? x ·
+0.07739938 : pow( ( x + 0.055 ) / 1.055, 2.4 )`). `pow 2.2` is the `r_shader_srgb 1` path. **So the grey is 0.2159, not
+0.2195** (*disassembly*; that TF2 users run `r_shader_srgb 0` is the shipped default, *read*, not measured on a client).
+Changed in the shader and the tests. The test window cannot tell the two curves apart: they differ by 1.7%, under two
+8-bit levels in every case here, so this choice is held by the reading, not by a test (effect below resolution).
+**Wider, not fixed here:** the same height path converts the WATER's own fog colour, which ours converts by `pow 2.2`
+(`WorldRenderer.Water.cs` `Linear`); and range fog's scene colour under sRGB write goes through the same `+0x758`,
+where `FogConstants` uses `pow 2.2`. Both are the lit materials' fog, outside B637; reported to the lead.
+
+**Alpha writes.** DecalModulate `EnableAlphaWrites( false )` (`DecalModulate_dx9.cpp:70-71`), Modulate
+`EnableAlphaWrites( bWriteZ && bFullyOpaque )` (`modulate_dx9.cpp:211`), so neither writes destination alpha (Modulate
+only with `$writez` on a fully opaque material, not modelled). Both modulate blend states now write colour only
+(`BlendStates.Modulate`, `BlendStates.ModulateTwice`, the latter moved out of `WorldRenderer`), so a scorch in a refraction
+view no longer overwrites the height-fog factor the water reads back. Held by
+`BlendStateConformanceTests.BlendState_ModulateAndModulateTwice_WriteColourButNoAlpha`, red first.
+
+**Tests (review):** the scale case now uses Modulate 128 (texel 64 made the right answer equal the unfogged control);
+Modulate under height fog at scale 0.5, from the shader's formula `lerp( 128/255, 0.2159 · 0.5, 0.5 ) · 1` = 0.3050,
+188 · 0.3050 ≈ 57; the no-twin fallback on the height path (≈ 49); and the translucent world after a model at another
+scale under range and height fog, equal to the one-go draw. The harness's reapplied camera now restores the water view.
+`ModulateFogConformanceTests`: 23.
+
+| sabotage (review) | reddened |
+|---|---|
+| Modulate skips range fog when the scale is not 1 | the Modulate-128 scale case, and the translucent-after-model range case (2) |
+| Modulate's scale moved from the grey to the height branch's outer multiply | `…ScalesOnlyTheGrey`, drew 34 as predicted (1) |
+| height branch skips modulating materials | the three height cases, the height fallback, `…ScalesOnlyTheGrey`, the height translucent case (6) |
+| harness drops the water view on reapply | the height translucent case: 94 against 58 (1) |
+| harness drops the tone-map scale on reapply | both translucent cases and the two older `…AfterAModelAtAnotherScale…` (4) |
+
+**Real frame on the review build** (`review/base-t2000.png`): ratios identical to the merged build (table above);
+`pair-diff` against `after/base-t2000.png` changes 107 px by at most 2 levels, all in box (425,0)-(575,85), the HUD at
+the top, nothing on the scorch. That is expected: the frame has range fog only and a DecalModulate scorch, whose grey
+the review did not change.
+
 ## What is unsettled
 
-- The `+0x1f0` branch of the height-fog linearisation (pow 2.2 taken, as the water fog colour already is).
+- Which `r_shader_srgb` a given user runs (the default 0 is taken).
+- The water fog colour and the scene fog colour under sRGB write take `pow 2.2` in ours, the sRGB curve in shaderapi
+  (lit materials, outside B637).
 - Height fog on a real frame: not measured (no refraction view with a decal in a captured frame).
 - Modulate's tone-map-scaled grey on a real frame: not measured; held by the synthetic test only.
-- A modulating draw's alpha write in a refraction view (above).
 - Modulate's grey takes `LINEAR_LIGHT_SCALE`, so it inherits B636's stale exposure on frames without a 3D-sky or water
   view.
 - `r_drawentities 0` leaving the scorch `func_brush` drawn: TF2's toggle hides brush entities. Not looked into here.
