@@ -87,6 +87,76 @@ public sealed class ModulateUnlitConformanceTests
         Close(neutral, under, $"under mat_fullbright 1 a DecalModulate texel of 128 moved the surface from {under} to {neutral}");
     }
 
+    /// <remarks>
+    /// **The world route for the same neutral texel** (B639 review): <c>combine.w</c> is the material's, so every route reads
+    /// the one diffuse, but the brush route had no test at 128, where only 2^2.2/2 is neutral. At 2.0 it draws 177.
+    /// </remarks>
+    [Test]
+    public void DrawWorld_DecalModulateNeutralTexel_LeavesTheSurfaceUnchanged()
+    {
+        float surface = ModulateToneMapConformanceTests.Surface;
+        (int, int, int) under = Under(surface) ?? Skip();
+        (int, int, int) dark = DrawWorld(ModulateToneMapConformanceTests.DecalModulateDark) ?? Skip();
+        (int, int, int) neutral = DrawWorld(ModulateToneMapConformanceTests.DecalModulateNeutral) ?? Skip();
+
+        dark.Item2.ShouldBeLessThan(under.Item2 - 40, $"the dark scorch brush drew {dark} over {under}: nothing drew");
+
+        Close(neutral, under, $"a DecalModulate brush face of texel 128 moved the surface from {under} to {neutral}");
+    }
+
+    /// <remarks>
+    /// **An unlit shader reads no lightmap, so `mat_fullbright 1` cannot move it.** UnlitGeneric's diffuse is 1 because
+    /// `hasDiffuseLighting = bVertexLitGeneric` (vertexlitgeneric_dx9_helper.cpp:394) and the pixel shader keeps
+    /// <c>diffuseLighting = float3( 1.0f, 1.0f, 1.0f )</c> (vertexlit_and_unlit_generic_ps2x.fxc:344-348). *Read:* no
+    /// UnlitGeneric path binds a lightmap. *Unread:* where `mat_fullbright 1` swaps in `TEXTURE_LIGHTMAP_FULLBRIGHT` is the
+    /// closed material system. Before B639 ours forced every material's light to 2.0, which drew this one at 138.
+    /// </remarks>
+    [Test]
+    public void DrawModel_UnlitGenericUnderFullbright_DrawsAsWithout()
+    {
+        (int, int, int) off = DrawModel(UnlitGeneric, Fullbright.Off, Unlit) ?? Skip();
+        (int, int, int) fullbright = DrawModel(UnlitGeneric, Fullbright.NoLighting, Unlit) ?? Skip();
+
+        // The control: the material covers the 188 surface, so the value below is its own.
+        off.Item2.ShouldBeInRange(97, 103, $"UnlitGeneric of texel 100 drew {off}, not its own texel");
+
+        Close(fullbright, off, $"UnlitGeneric drew {off} and {fullbright} under mat_fullbright 1");
+    }
+
+    /// <remarks>
+    /// **`mat_fullbright 2` greys the albedo only where a shader asks it to.** LightmappedGeneric and VertexLitGeneric bind
+    /// `TEXTURE_GREY` in its place (lightmappedgeneric_dx9_helper.cpp:763-774; vertexlitgeneric_dx9_helper.cpp:1188, gated
+    /// on `bVertexLitGeneric`, so UnlitGeneric keeps its texture). DecalModulate binds its base texture unconditionally
+    /// (DecalModulate_dx9.cpp:161) and sets `MATERIAL_VAR_NO_DEBUG_OVERRIDE` (:43), and modulate_dx9.cpp never reads the
+    /// cvar. Ours greyed every albedo, so under the B639 diffuse a scorch went neutral and vanished.
+    /// </remarks>
+    [Test]
+    public void DrawModel_DecalModulateDarkTexelUnderLightingOnly_DrawsAsWithout()
+    {
+        (int, int, int) off = DrawModel(ModulateToneMapConformanceTests.DecalModulateDark) ?? Skip();
+        (int, int, int) lightingOnly = DrawModel(ModulateToneMapConformanceTests.DecalModulateDark, Fullbright.LightingOnly) ?? Skip();
+
+        off.Item2.ShouldBeLessThan(188 - 40, $"the dark scorch drew {off}: nothing drew");
+
+        Close(lightingOnly, off, $"the dark scorch drew {off} and {lightingOnly} under mat_fullbright 2");
+    }
+
+    [Test]
+    public void DrawModel_UnlitGenericUnderLightingOnly_DrawsAsWithout()
+    {
+        (int, int, int) off = DrawModel(UnlitGeneric, Fullbright.Off, Unlit) ?? Skip();
+        (int, int, int) lightingOnly = DrawModel(UnlitGeneric, Fullbright.LightingOnly, Unlit) ?? Skip();
+
+        off.Item2.ShouldBeInRange(97, 103, $"UnlitGeneric of texel 100 drew {off}, not its own texel");
+
+        Close(lightingOnly, off, $"UnlitGeneric drew {off} and {lightingOnly} under mat_fullbright 2");
+    }
+
+    private const int UnlitGeneric = 0;
+
+    /// <summary>One opaque UnlitGeneric of texel 100, far from the 188 surface and from grey's 128.</summary>
+    private static readonly MapAssets Unlit = MapAssets.ForMaterials([ModulateToneMapConformanceTests.Grey(100)], ["UnlitGeneric"]);
+
     /// <summary>188 · 128/255 ≈ 94 in gamma; the linear blend lands within three levels of it.</summary>
     private static void PlainModulateIsHalf((int, int, int) under, (int Red, int Green, int Blue) drawn, string where)
     {
@@ -94,6 +164,11 @@ public sealed class ModulateUnlitConformanceTests
         drawn.Green.ShouldBeInRange(91, 97, $"a plain Modulate of 128 {where} drew {drawn} over {under}; Valve's arithmetic 94");
     }
 
+    /// <remarks>
+    /// ±2 levels. **For the neutral texel this has about one level of headroom, deliberately.** The sRGB curve puts
+    /// 0.5 · 4.595 · sRGB⁻¹(128/255) at 186.8 against the surface's 187.5 (*arithmetic*). 2^2.2/2 is exact only on the 2.2
+    /// curve. The B639 fault drew 177, far outside.
+    /// </remarks>
     private static void Close((int Red, int Green, int Blue) actual, (int Red, int Green, int Blue) expected, string because)
     {
         actual.Red.ShouldBeInRange(expected.Red - 2, expected.Red + 2, because);
@@ -119,7 +194,7 @@ public sealed class ModulateUnlitConformanceTests
     /// One quad of a material as a brush entity reaches the screen: the model pass, white corners, lightmap coordinates on
     /// the atlas's reserved white texel, no ambient cube.
     /// </summary>
-    private static (int, int, int)? DrawModel(int material, Fullbright fullbright = Fullbright.Off)
+    private static (int, int, int)? DrawModel(int material, Fullbright fullbright = Fullbright.Off, MapAssets? assets = null)
     {
         using OffscreenTarget? target = OffscreenTarget.TryCreate(16, 16);
 
@@ -139,9 +214,32 @@ public sealed class ModulateUnlitConformanceTests
             [new WorldBatch(material, 0, 6)],
             ModulateToneMapConformanceTests.Camera(),
             ModulateToneMapConformanceTests.Identity,
-            ModulateToneMapConformanceTests.Assets,
+            assets ?? ModulateToneMapConformanceTests.Assets,
             bothSides: true,
             fullbright: fullbright,
+            toneMapScale: 1f);
+
+        return target.PixelAt(8, 8);
+    }
+
+    /// <summary>One quad as world brushwork: the opaque pass, then the translucent world a blended run belongs to.</summary>
+    private static (int, int, int)? DrawWorld(int material)
+    {
+        using OffscreenTarget? target = OffscreenTarget.TryCreate(16, 16);
+
+        if (target is null)
+        {
+            return null;
+        }
+
+        float surface = ModulateToneMapConformanceTests.Surface;
+
+        target.Clear(surface, surface, surface);
+        target.DrawWorld(
+            ModulateToneMapConformanceTests.Quad(1f),
+            [new WorldBatch(material, 0, 6)],
+            ModulateToneMapConformanceTests.Camera(),
+            ModulateToneMapConformanceTests.Assets,
             toneMapScale: 1f);
 
         return target.PixelAt(8, 8);

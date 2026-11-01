@@ -159,7 +159,7 @@ public sealed class DecalEffects
     private DecalWorld? _decalWorld;
 
     /// <summary>Every entity's model decals, drawn by the device after each model.</summary>
-    private readonly ModelDecals _modelDecals = new() { UnlitLight = Device3D.DecalModulateLight };
+    private readonly ModelDecals _modelDecals = new();
 
     /// <summary>The server's impacts on entities, found once per timeline.</summary>
     private IReadOnlyList<(int Index, SceneEffectDispatch Dispatch)>? _entityImpacts;
@@ -1192,14 +1192,14 @@ public sealed class DecalEffects
                         $"first static prop decal at tick {tick}, prop {prop}: corner ({corner.X:0} {corner.Y:0} {corner.Depth:0}), material {held.Batches[0].MaterialIndex}"));
             }
 
+            // The corners are already white (`ModelDecals.Unlit`), lit material or DecalModulate alike (B639 review).
             foreach (WorldBatch batch in held.Batches)
             {
-                float light = unlit(batch.MaterialIndex) ?? 1f;
                 int first = _decalVertices.Count;
 
                 for (int at = batch.FirstVertex; at < batch.FirstVertex + batch.VertexCount; at++)
                 {
-                    _decalVertices.Add(held.Vertices[at] with { Red = light, Green = light, Blue = light });
+                    _decalVertices.Add(held.Vertices[at]);
                 }
 
                 _entityDecalBatches.Add(batch with { FirstVertex = first });

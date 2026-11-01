@@ -100,7 +100,8 @@ public sealed class DecalModulateConformanceTests
 
         (int, int, int) under = target.PixelAt(8, 8);
 
-        // The corners an unlit decal carries (DecalMesh): the lightmap atlas's reserved white texel and the mod2x light.
+        // The corners an unlit decal carries (DecalMesh): the lightmap atlas's reserved white texel and a white vertex
+        // colour. The mod2x compensation is the material's diffuse, not the corner's (B639).
         float light = Device3D.DecalModulateLight;
         List<WorldVertex> quad =
         [

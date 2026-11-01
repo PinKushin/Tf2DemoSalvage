@@ -54,6 +54,9 @@ the world shader's overbright supplies another. The corners therefore carry `2^2
 (`WorldRenderer.ModulateTwiceLight`). *Arithmetic, on the 2.2 approximation of the sRGB curve.* After the change the
 square is gone (`decals2.png`).
 
+*Since B639 (2026-11-01):* the compensation is now the material's unlit diffuse, `WorldRenderer.ModulateTwiceDiffuse`
+(2^2.2/2). The corners are white. See findings 18, "A modulating material reads no light".
+
 ## Measured on f12
 
 Through the viewer's own load (`tracers` probe; `demostf-cp_process_f12-2026-08-07.dem`):

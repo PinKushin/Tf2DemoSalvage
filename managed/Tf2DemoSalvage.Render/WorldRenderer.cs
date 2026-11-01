@@ -1629,12 +1629,18 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             // Grey is 128/255, which is what TEXTURE_GREY holds — bound on the base sampler, which reads sRGB
             // (lightmappedgeneric_dx9_helper.cpp:423, :773), so it is 0.2158 as light. Taken as 0.502 a
             // lighting-only frame was 2.3 times TF2's (B539).
-            if (surfaceColours.w > 1.5f)
+            //
+            // **Neither substitution reaches an unlit material (combine.w), and both are Valve's.** The grey is bound only by
+            // shaders that ask for it: LightmappedGeneric, and VertexLitGeneric gated on `bVertexLitGeneric`
+            // (vertexlitgeneric_dx9_helper.cpp:1188), so UnlitGeneric keeps its texture. DecalModulate binds its base
+            // unconditionally (DecalModulate_dx9.cpp:161) under MATERIAL_VAR_NO_DEBUG_OVERRIDE (:43), and modulate_dx9.cpp
+            // never reads the cvar. Greyed here, a scorch at the B639 diffuse went neutral and vanished. mat_fullbright 1
+            // substitutes the LIGHTMAP, which no unlit shader samples. Forcing 2.0 here drew UnlitGeneric at twice its
+            // texel and undid the mod2x compensation (B639 review).
+            if (surfaceColours.w > 1.5f && combine.w < 0.5f)
             {
                 albedo.rgb = float3(0.2158605f, 0.2158605f, 0.2158605f);
             }
-            // Not for an unlit material (combine.w): the substitution is the LIGHTMAP texture, which an unlit shader never
-            // samples, so a mod2x decal's compensation must survive it (B639).
             else if (surfaceColours.w > 0.5f && combine.w < 0.5f)
             {
                 // **OverbrightScale, not one, and the measurement is what said so.** Substituting
@@ -6374,8 +6380,9 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
     /// (<see cref="UnlitDiffuseOf"/>) and reaches every path alike. Until B639 it was a decal's vertex colour times the
     /// lightmap's white texel, and a brush entity, which has no such vertex colour, drew at 2.0 instead.
     ///
-    /// *Arithmetic, on the sRGB curve's 2.2 approximation:* exact at 128; the linear blend's error grows toward black,
-    /// within about five levels at a texel of 64. A texel above about 0.68 would brighten past what an
+    /// *Arithmetic.* Exact only on the 2.2 approximation. On the real sRGB curve a texel of 128 over 188 draws 186.8
+    /// against 187.5, and a texel of 64 over 231 draws 120 against Valve's 116. The linear blend's error grows toward
+    /// black. A texel above about 0.68 would brighten past what an
     /// unsigned-normalised output can carry and is clamped; a bullet hole's atlas is dark.
     /// </remarks>
     public const float ModulateTwiceDiffuse = 2.2973967f;
