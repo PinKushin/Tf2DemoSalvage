@@ -40251,6 +40251,24 @@ It is tested red-first. It names which thread waited and where the draw had got 
 **Reopen if** the `queue stall` line ever appears in a viewer log, or if this test's hang rate on the branch, measured
 the same way, exceeds the baseline's.
 
+## B652 — four edge and debug paths left by the B641 gamma-twin work (2026-11-02) — OPEN, low
+
+Found by the Opus review of `fix/b641-review-batch` (merged at `d4f32ef8`, gated); none reaches a normal frame. **Read from
+code, not measured.**
+- **`mat_showlowresimage`:** `_thumbnails` are still uploaded through the sRGB view for modulating materials, so a modulating
+  draw under that debug view reads the decoded texel as gamma and draws too dark (`WorldRenderer.cs` ~3462 and the thumbnail
+  swap ~1564; the `debugModes.x` exemption does not cover it). Fix: upload thumbnails with `srgb: !Modulates(texture)`.
+- **Exceptions mid-run:** no `try/finally` around any gamma run (`_gammaRun`, ~6564). If `SetMaterial`, a proxy or
+  `AnimationFrame` throws between open and close, the flag survives into the next frame and the next `EndGammaRun` rebinds a
+  stale RTV/DSV, possibly released after a resize, and leaves the twin bound. Fix: close in a `finally` in each loop owner, or
+  clear the flag at frame start. Unchecked: whether a frame-level catch keeps rendering after an exception.
+- **Owned-twin fallback:** `WorldRenderer.Water.cs` `Dispose` no longer disposes leftover `_ownedGammaTwins`; a twin whose
+  source view was unmapped by another route would leak. None does today. Keep a final `foreach Dispose`.
+- **A test of a path production takes only at dispose:** `ReleaseWaterTargets` has no caller apart from `Dispose` and nothing
+  rebuilds the water targets mid-session, so the release test cannot catch a leak in the real `Dispose`; assert on `Dispose`.
+- **Doubtful:** a modulating material whose `$basetexture` is `_rt_Camera` would read the camera target's sRGB view as gamma
+  (`~3415`); no such material is known.
+
 ## B651 — the main sequence's per-bone weights are ignored: the base is copied whole, where the engine keeps bind on a weight-0 bone (2026-11-01) — OPEN, unmeasured
 
 Found during B634's review batch (`docs/measurements/2026-11-01-layer-order-plan.md` §4, "Not changed").
