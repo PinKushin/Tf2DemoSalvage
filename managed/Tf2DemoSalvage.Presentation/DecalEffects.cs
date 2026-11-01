@@ -193,12 +193,6 @@ public sealed class DecalEffects
     private readonly List<WorldVertex> _decalVertices = [];
     private readonly List<WorldBatch> _decalBatches = [];
 
-    /// <summary>The static props' decal pool version last uploaded.</summary>
-    private int _propDecalVersion = -1;
-
-    /// <summary>Whether the first static prop decal's place has been logged, the control that they are made at all.</summary>
-    private bool _reportedPropDecal;
-
     /// <summary>Whether the terrain decals' first count has been logged.</summary>
     private bool _reportedTerrainDecals;
 
@@ -1100,15 +1094,14 @@ public sealed class DecalEffects
             }
         }
 
-        if (replay.Decals.Version == _decalVersion &&
-            replay.PropDecals.Version == _propDecalVersion &&
-            doorsAt == _decalDoorsAt)
+        // **A static prop's decals are not in this mesh** (B642): they draw after their prop, in the model pass, from the
+        // shared pool the device already holds, so a change to them rebuilds nothing here.
+        if (replay.Decals.Version == _decalVersion && doorsAt == _decalDoorsAt)
         {
             return;
         }
 
         _decalVersion = replay.Decals.Version;
-        _propDecalVersion = replay.PropDecals.Version;
         _decalDoorsAt = doorsAt;
         replay.Decals.Placed(_placedDecals);
 
@@ -1164,43 +1157,6 @@ public sealed class DecalEffects
             _decalBatches,
             entity => loaded.Doors.Of(entity, tick)?.Origin,
             _entityDecalBatches);
-
-        // **A static prop's decals draw with the prop** (B421): already in the world, after the world's own decals.
-        foreach (int prop in replay.PropDecals.Models)
-        {
-            // Stryker disable once all : a mutated guard leaves its pattern variables unassigned (CS0165) and Safe Mode drops the method - B410
-            if (!DecalReplay.IsStaticPropKey(prop) || replay.PropDecals.For(prop) is not { } held)
-            {
-                continue;
-            }
-
-            if (!_reportedPropDecal)
-            {
-                _reportedPropDecal = true;
-
-                WorldVertex corner = held.Vertices[0];
-
-                // Stryker disable once all : a mutated interpolated string cannot bind to its handler (CS1620) and Safe Mode drops the method - B410
-                _renderLog.LogInformation(
-                    "{Message}",
-                    string.Create(
-                        CultureInfo.InvariantCulture,
-                        $"first static prop decal at tick {tick}, prop {prop}: corner ({corner.X:0} {corner.Y:0} {corner.Depth:0}), material {held.Batches[0].MaterialIndex}"));
-            }
-
-            // The corners are already white (`ModelDecals.Unlit`), lit material or DecalModulate alike (B639 review).
-            foreach (WorldBatch batch in held.Batches)
-            {
-                int first = _decalVertices.Count;
-
-                for (int at = batch.FirstVertex; at < batch.FirstVertex + batch.VertexCount; at++)
-                {
-                    _decalVertices.Add(held.Vertices[at]);
-                }
-
-                _entityDecalBatches.Add(batch with { FirstVertex = first });
-            }
-        }
 
         device.UploadShotDecals(_decalVertices, _decalBatches, _entityDecalBatches);
     }

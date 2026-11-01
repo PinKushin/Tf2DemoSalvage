@@ -1919,6 +1919,14 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
                     (ModelInstance instance, bool twoPass) = _translucentDraw[step.Index].Entry;
 
                     DrawInstance(instance, twoPass ? ModelPass.TranslucentOnly : ModelPass.EntireModel);
+
+                    // **A fading static prop keeps its holes** (B642): `DrawModelStaticProp` draws its decals in whichever
+                    // pass draws it, and the world decal pass that used to carry them drew them whatever the fade. A
+                    // two-pass prop's were drawn with its opaque half.
+                    if (!twoPass && instance.EntityIndex >= PropModels.FirstStaticPropEntityIndex)
+                    {
+                        DrawDecalsOf(instance, _depthReadOnly);
+                    }
                 }
 
                 WorldRenderer.ResetBlend(_context);
@@ -4691,16 +4699,35 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         // **Its decals straight after it, with its bones still bound** — `CStudioRender::DrawModel` draws a
         // model's decal meshes after its own (B415).
         SubmitSpans.Restart();
+        DrawDecalsOf(instance, _depthOn);
+        SubmitSpans.Lap(SubmitSpan.Renderable, counted: false);
+    }
 
-        if (instance.EntityIndex > 0 &&
-            ModelDecals?.For(instance.EntityIndex) is { } decals)
+    /// <summary>Draws a renderable's model decals after it, a static prop's included, under their light (B642).</summary>
+    /// <param name="instance">The renderable just drawn.</param>
+    /// <param name="depth">The depth state its pass goes back to.</param>
+    /// <remarks>
+    /// **A static prop's decals draw here too, not in the world decal pass**: that routing (B421) dates from when static
+    /// props were baked into the world's vertices, and every one is a model draw since B426. **The light is the
+    /// engine's**: an entity's decals are lit as the model is, and a colour-mesh static prop's by the full state at its
+    /// lighting origin (<see cref="ModelInstance.DecalLight"/>, `engine.dll` `0x1800f1bd0`, `0x1800eb5e0`).
+    /// </remarks>
+    private void DrawDecalsOf(ModelInstance instance, ComPtr<ID3D11DepthStencilState> depth)
+    {
+        if (_world is null ||
+            instance.EntityIndex <= 0 ||
+            ModelDecals?.For(DecalReplay.KeyOf(instance.EntityIndex)) is not { } decals)
         {
-            _world.DrawModelDecals(
-                _device, _context, decals.Vertices, decals.Batches, instance.Bones?.Count ?? 0);
-            _context.OMSetDepthStencilState(_depthOn, 0);
+            return;
         }
 
-        SubmitSpans.Lap(SubmitSpan.Renderable, counted: false);
+        (AmbientCube? light, SunLight? sun, IReadOnlyList<LocalLight>? locals) = instance.DecalLight is { } decal
+            ? (decal.Lighting.Cube, decal.Sun, decal.Lighting.Locals)
+            : (instance.Light, instance.Sun, instance.Locals);
+
+        _world.DrawModelDecals(
+            _device, _context, decals.Vertices, decals.Batches, instance.Bones?.Count ?? 0, light, sun, locals);
+        _context.OMSetDepthStencilState(depth, 0);
     }
 
     /// <summary>The render group collation asks for — <see cref="Classify"/>, once per collated renderable.</summary>

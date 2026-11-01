@@ -822,15 +822,23 @@ internal sealed unsafe class OffscreenTarget : IDisposable
     /// <summary>Draws decals on the model the last <see cref="DrawModelPose"/> drew, as <c>Device3D</c> does after it.</summary>
     /// <param name="vertices">The decal's corners.</param>
     /// <param name="batches">One run per decal material, into <paramref name="vertices"/>.</param>
+    /// <param name="light">The cube the decals are lit by, or null (B642).</param>
+    /// <param name="sun">The sun reaching them, or null.</param>
+    /// <param name="locals">The lamps reaching them, or null.</param>
     /// <exception cref="InvalidOperationException">No model has been drawn.</exception>
-    internal void DrawPosedModelDecals(IReadOnlyList<WorldVertex> vertices, IReadOnlyList<WorldBatch> batches)
+    internal void DrawPosedModelDecals(
+        IReadOnlyList<WorldVertex> vertices,
+        IReadOnlyList<WorldBatch> batches,
+        AmbientCube? light = null,
+        SunLight? sun = null,
+        IReadOnlyList<LocalLight>? locals = null)
     {
         WorldRenderer world =
             _world ?? throw new InvalidOperationException("DrawModelPose first: the decals draw with its camera and materials.");
 
         // The cap as it is now, so one set between the model and its decals is the one they draw under.
         world.ModelVertexCap = ModelVertexCap;
-        world.DrawModelDecals(_device, _context, vertices, batches, 0);
+        world.DrawModelDecals(_device, _context, vertices, batches, 0, light, sun, locals);
     }
 
     /// <summary>How long <see cref="InputVertices"/> waits on the GPU before it gives up.</summary>

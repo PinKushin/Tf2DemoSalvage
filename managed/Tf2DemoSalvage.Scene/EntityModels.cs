@@ -110,6 +110,7 @@ public readonly record struct FiredAnimationEvent(
 /// <param name="Cloak">What <c>spy_invis</c> and <c>invis</c> write into <c>$cloakfactor</c> for this entity.</param>
 /// <param name="Flex">The face's position and normal deltas per buffer vertex, or null (B513).</param>
 /// <param name="FlexRange">The slots of <paramref name="Flex"/> a flex can move, or null for all of them (B597).</param>
+/// <param name="DecalLight">The light its decals draw with, or null for the model's own (B642).</param>
 public readonly record struct ModelInstance(
     string ModelPath,
     float[] Matrix,
@@ -252,7 +253,12 @@ public readonly record struct ModelInstance(
 
     // **The only slots of the face that can be non-zero** (B597): the first to the last a flex of this model names, so the
     // renderer sends that range and keeps the zeros either side on the device. Null sends the whole array.
-    FlexSlots? FlexRange = null);
+    FlexSlots? FlexRange = null,
+
+    // **The light its decals draw with, where it is not the model's own** (B642): a colour-mesh static prop's draw leaves
+    // out the static state its colours carry, and `engine.dll` hands its decals the full state at the lighting origin
+    // (`0x1800f1bd0`, `0x1800eb5e0`). Null for everything else: the decals take `Light`, `Sun` and `Locals`.
+    (PointLighting Lighting, SunLight? Sun)? DecalLight = null);
 
 /// <summary>A run of buffer slots, the first and how many (B597).</summary>
 /// <param name="First">The first slot.</param>

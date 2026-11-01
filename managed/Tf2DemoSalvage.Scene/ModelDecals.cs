@@ -22,8 +22,8 @@ namespace Tf2DemoSalvage.Scene;
 /// - **A lit studio decal** (`decals/bigshot1model`, `break1model`, `bproof1model` and `beersplashmodel` are
 ///   VertexLitGeneric) is white-cornered in Valve too: studiorender's decal vertex builder writes colour `0xffffffff`
 ///   (`0x1800096c0`, B642). Until B639 every studio decal carried 2^2.2/4 here, which only ever compensated a gamma mod2x
-///   blend (*arithmetic*). **Its LIGHT is still not Valve's:** `WorldRenderer.DrawModelDecals` hands no ambient cube, so
-///   a lit decal takes the atlas's white texel, where studiorender lights it with the model's cube and lights (B642).
+///   blend (*arithmetic*). Its LIGHT is the model's cube and lamps, handed to `WorldRenderer.DrawModelDecals` after the
+///   model; a colour-mesh static prop's is the full state at its lighting origin (`ModelInstance.DecalLight`, B642).
 /// </remarks>
 public sealed class ModelDecals
 {

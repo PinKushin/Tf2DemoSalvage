@@ -1047,6 +1047,61 @@ public sealed class MomentSceneTests
     }
 
     /// <remarks>
+    /// **B642, the static prop's decal light.** `engine.dll` hands a colour-mesh static prop's decals the draw state plus
+    /// the record's static state (`0x1800f1bd0` under `r_decalstaticprops`, `0x1800eb5e0`): the full state at the lighting
+    /// origin, which is what a bump-mapped prop at the same place draws ITSELF with (flags 7). So the baked prop's
+    /// `DecalLight` must equal the bump-mapped prop's own cube, lamp and sun, while its own draw keeps no cube and no lamp.
+    /// The bump-mapped prop carries none: its decals take its own light.
+    /// </remarks>
+    [Test]
+    public void Pose_AStaticPropWithBakedColours_HandsItsDecalsTheFullStateABumpMappedPropDrawsWith()
+    {
+        ModelInstance Drawn(int studioFlags)
+        {
+            EntityModelSet models = new()
+            {
+                Geometry = _ => new PropModels.ModelFrames(
+                    [new[] { new PropVertex(0, 0f, 0f, 0f, 0f, MaterialIndex: 3), new PropVertex(1, 0f, 0f, 0f, 0f, MaterialIndex: 3), new PropVertex(2, 0f, 0f, 0f, 0f, MaterialIndex: 3) }],
+                    new Dictionary<int, (int Start, int Frames, float CyclesPerSecond)> { [0] = (0, 1, 0f) },
+                    [0],
+                    [true])
+                {
+                    StudioFlags = studioFlags,
+                },
+                StaticPropColours = new Dictionary<int, float[]> { [PropModels.FirstStaticPropEntityIndex] = [.. Enumerable.Repeat(0.25f, 9)] },
+            };
+
+            MomentScene scene = new(models, new ViewmodelScene(), new RecordingLogger())
+            {
+                Upload = new Uploads(),
+                Appearance = new Appearance(),
+                Lighting = LevelLightingTests.Lit([LevelLightingTests.Lamp((0f, 0f, 120f), 400f)]),
+                StaticProps =
+                    [PropModels.StaticModel(new Content.Bsp.BspStaticProp("models/props/dome.mdl", 0f, 0f, 100f, 0f, 0f, 0f, 1f), 0)],
+            };
+
+            scene.Build([], [], Info());
+            scene.Pose(Info());
+
+            return scene.Instances.ShouldHaveSingleItem();
+        }
+
+        ModelInstance baked = Drawn(Content.Assets.StudioModelFlags.StaticProp);
+        ModelInstance bumped = Drawn(Content.Assets.StudioModelFlags.StaticProp | Content.Assets.StudioModelFlags.UsesBumpmapping);
+
+        baked.BakedColours.ShouldNotBeNull("the control: the prop draws its colours");
+        baked.Light.ShouldBeNull("and its own draw takes no cube");
+        bumped.Light.ShouldNotBeNull("the control: the bump-mapped prop is lit by its handle's cube");
+
+        (Content.Bsp.PointLighting lighting, SunLight? sun) = baked.DecalLight.ShouldNotBeNull("a colour-mesh prop's decals are lit by the full state");
+
+        lighting.Cube.ShouldBe(bumped.Light.Value);
+        lighting.Locals.ShouldHaveSingleItem().ShouldBe(bumped.Locals.ShouldNotBeNull().ShouldHaveSingleItem(), "the style-0 lamp the colours hold");
+        sun.ShouldBe(bumped.Sun);
+        bumped.DecalLight.ShouldBeNull("a bump-mapped prop's decals take its own light");
+    }
+
+    /// <remarks>
     /// **B424 corrected, through the production route.** On DX9 (`engine.dll` `0x1800f1bd0`, hardware config `+0x150`
     /// true) a baked prop KEEPS its colours and draws with `FUN_1801ba590(handle, 6 + bit)`: no static state, plus the
     /// handle's styled lights (`FUN_1801b6bf0`: style nonzero, in PVS, in reach) at their current values. A switched-on
