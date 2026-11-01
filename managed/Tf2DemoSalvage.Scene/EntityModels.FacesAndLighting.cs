@@ -394,6 +394,7 @@ public sealed partial class EntityModelSet
         {
             field = value;
             _bakedByEntity.Clear();
+            _decalLights.Clear();
         }
     } = new Dictionary<int, float[]>();
 
@@ -408,6 +409,47 @@ public sealed partial class EntityModelSet
     /// (<see cref="LevelLighting.StaticPropFullLightingAt"/>, B514); null leaves it the model path's light.
     /// </summary>
     public Func<int, float, float, float, (PointLighting Lighting, SunLight? Sun)>? StaticPropFullLighting { get; set; }
+
+    /// <summary>The model decal pool the device draws from, read to light only a static prop that holds a decal (B642).</summary>
+    public ModelDecals? Decals { get; set; }
+
+    /// <summary>Each decal-holding colour-mesh prop's last decal light, kept while it is unchanged.</summary>
+    private readonly Dictionary<int, DecalLighting> _decalLights = [];
+
+    /// <summary>A colour-mesh static prop's decal light, or null when it holds no decal (B642).</summary>
+    /// <param name="entity">The prop's entity index.</param>
+    /// <param name="x">Its lighting origin.</param>
+    /// <param name="y">Its lighting origin.</param>
+    /// <param name="z">Its lighting origin.</param>
+    /// <returns>The full state at the origin, the instance kept from the last frame where nothing changed.</returns>
+    /// <remarks>
+    /// **The static state its colours carry, added back**: `engine.dll` lights a colour-mesh prop's decals with its draw
+    /// state plus the record's static state at `record + 0x88` (`0x1800f1bd0`, `0x1800eb5e0`), the full state, flags 7.
+    /// **Only for a prop that holds a decal**, as the engine's gate `record + 0x10 != 0` is: a prop with none pays no second
+    /// ranking. The pool is read as this frame's model pass sees it; a decal placed later this frame is lit from the next.
+    /// ponytail: one ranking over static, styled and dynamic lights; the engine lists the record's lights first and appends
+    /// the draw's without ranking again, which differs only past four lights at one prop (B654).
+    /// </remarks>
+    private DecalLighting? DecalLightOf(int entity, float x, float y, float z)
+    {
+        if (StaticPropFullLighting is not { } fullLighting || Decals?.Holds(DecalReplay.KeyOf(entity)) != true)
+        {
+            return null;
+        }
+
+        (PointLighting lighting, SunLight? sun) = fullLighting(entity, x, y, z);
+
+        if (_decalLights.TryGetValue(entity, out DecalLighting? kept) &&
+            kept.Cube == lighting.Cube && kept.Sun == sun && ReferenceEquals(kept.Locals, lighting.Locals))
+        {
+            return kept;
+        }
+
+        DecalLighting made = new(lighting.Cube, sun, lighting.Locals);
+        _decalLights[entity] = made;
+
+        return made;
+    }
 
     /// <summary>
     /// A static prop handle's static lighting state at its lighting origin (<see cref="LevelLighting.StaticPropLightingAt"/>),
@@ -547,10 +589,10 @@ public sealed partial class EntityModelSet
     }
 
     /// <summary>
-    /// Builds one static prop's light cache handle at its lighting origin, whether to build its static state too
+    /// Builds one static prop's light cache handle and its static state at its lighting origin
     /// (<see cref="LevelLighting.PrecacheStaticProp"/>); null builds none ahead of the draw.
     /// </summary>
-    public Action<int, float, float, float, bool>? StaticPropHandle { get; set; }
+    public Action<int, float, float, float>? StaticPropHandle { get; set; }
 
     /// <summary>
     /// Every static prop's lighting, built as its level loads (B607): `CStaticPropMgr::PrecacheLighting` (`engine.dll`
@@ -578,9 +620,11 @@ public sealed partial class EntityModelSet
 
             bool fullyLit = ResolvedFor(prop).Frames is { } frames && StaticPropVertexLighting.RefusesColourMesh(frames.StudioFlags);
 
+            // `fullyLit` is not redundant: a bump-mapped prop with no colours at all still draws with its handle (flags 7),
+            // and short-circuiting it also skips building a colour mesh it never draws.
             if (fullyLit || BakedColoursOf(prop, pose, x, y, z) is not null)
             {
-                StaticPropHandle?.Invoke(prop.EntityIndex, x, y, z, true);
+                StaticPropHandle?.Invoke(prop.EntityIndex, x, y, z);
             }
         }
     }

@@ -212,6 +212,10 @@ public sealed class DecalEffects
     public DecalEffects(EntityModelSet models, BulletStrikes strikes, ILogger render)
         : this((IPosedEntities)models, strikes, render)
     {
+        ArgumentNullException.ThrowIfNull(models);
+
+        // The pool the device draws, so the model pass lights only a static prop that holds a decal (B642).
+        models.Decals = _modelDecals;
     }
 
     /// <summary>Over any posed entities.</summary>

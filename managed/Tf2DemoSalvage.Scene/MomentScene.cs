@@ -333,6 +333,7 @@ public sealed class MomentScene : IGameSystemPerFrame
             _models.StaticPropLighting = value.StaticPropLightingAt;
             _models.StaticPropFullLighting = value.StaticPropFullLightingAt;
             _models.StaticPropHandle = value.PrecacheStaticProp;
+            _models.StaticLightingPrecached = ReportStaticPropLightingAtLoad;
         }
     } = LevelLighting.Unlit(NullLogger.Instance);
 
@@ -1007,6 +1008,23 @@ public sealed class MomentScene : IGameSystemPerFrame
 
     /// <summary>When the last <see cref="Pack"/> began, in stopwatch ticks — the first writer of the models' frames a HUD paint fork must finish before (finding 105 B7).</summary>
     public long PackedAt { get; private set; }
+
+    /// <summary>
+    /// The static props' lighting built as the level loaded (B607), with the static states it holds: since B642 one per
+    /// lit prop, which a colour-mesh prop's decal light reads (`engine.dll` `0x1800eac60` builds it with the colour mesh).
+    /// </summary>
+    /// <param name="ticks">The precache's own clock, this load.</param>
+    private void ReportStaticPropLightingAtLoad(long ticks)
+    {
+        // Stryker disable once all : a mutated interpolated string cannot bind to its handler (CS1620) and Safe Mode drops the method - B410
+        _render.LogInformation(
+            "{Message}",
+            string.Create(
+                CultureInfo.InvariantCulture,
+                $"static-prop lighting at load: {ticks * 1000d / Stopwatch.Frequency:0.0} ms; static states " +
+                $"{Lighting.StaticStateBuilds} built, {Lighting.StaticStateBuildTicks * 1000d / Stopwatch.Frequency:0.0} ms; " +
+                $"colour meshes {_models.BakedBuilds}; styled lists {Lighting.StyledListsBuilt}"));
+    }
 
     /// <summary>Reads whatever geometry this moment needs, and uploads it if the set grew.</summary>
     /// <remarks>

@@ -371,7 +371,7 @@ public sealed class StaticPlusDynamicLightingConformanceTests
     {
         LevelLighting lighting = Map([Lamp(Style, cluster: 0), Lamp(0, cluster: 0)]);
 
-        lighting.PrecacheStaticProp(1000, 0f, 0f, 100f, staticState: true);
+        lighting.PrecacheStaticProp(1000, 0f, 0f, 100f);
 
         (lighting.StyledListsBuilt, lighting.StaticStateBuilds).ShouldBe((1, 1));
 

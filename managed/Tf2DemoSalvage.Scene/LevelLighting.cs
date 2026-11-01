@@ -524,6 +524,9 @@ public sealed class LevelLighting
     /// <summary>Times a flags-7 draw ranked its static four with its styled lights, ever (the `Full` cache's misses).</summary>
     internal int FullRankings { get; private set; }
 
+    /// <summary>Times a flags-7 state was asked for, ever: a bump-mapped prop's draw or a decal-holding prop's decal light (B642).</summary>
+    internal int FullStateRequests { get; private set; }
+
     /// <summary>Static-prop handles' styled lists built, ever (`FUN_1801b6bf0`): once a prop, at load (B607).</summary>
     public int StyledListsBuilt { get; private set; }
 
@@ -541,25 +544,20 @@ public sealed class LevelLighting
     /// <param name="x">The prop's lighting origin (the handle's `+0x184`).</param>
     /// <param name="y">The prop's lighting origin.</param>
     /// <param name="z">The prop's lighting origin.</param>
-    /// <param name="staticState">Whether to build the static state at `+0x18` too.</param>
     /// <remarks>
-    /// The styled list (`+0x1b0`, `FUN_1801b6bf0`) and, when asked, the static state (`+0x18`,
-    /// <see cref="StaticPropLightingAt"/>). Bit 4's ranked cache (`+0x88`) is left to the first draw, whose stamp test finds
-    /// it never built — *interpolated*: whether `FUN_1801b8350` fills `+0x88` itself is unread. Either way the first draw's
-    /// light is the same, and a prop that lists nothing ranks nothing.
+    /// The styled list (`+0x1b0`, `FUN_1801b6bf0`) and the static state (`+0x18`, <see cref="StaticPropLightingAt"/>). Bit
+    /// 4's ranked cache (`+0x88`) is left to the first draw, whose stamp test finds it never built — *interpolated*: whether
+    /// `FUN_1801b8350` fills `+0x88` itself is unread. Either way the first draw's light is the same, and a prop that lists
+    /// nothing ranks nothing.
     ///
-    /// **`staticState` is the caller's**: it reads `+0x18` for a bump-mapped model's flags 7, the CPU bake of a
-    /// `$staticprop` without a `.vhv`, and a colour-mesh prop's decal light (B642, `0x1800eac60` copies it to the record's
-    /// `+0x88` with the colour mesh). *Interpolated:* the engine builds it for every handle.
+    /// **The static state for every handle**: a bump-mapped model's flags 7 reads it, the CPU bake of a `$staticprop`
+    /// without a `.vhv` reads it, and a colour-mesh prop's decal light reads it (B642; `engine.dll` `0x1800eac60` copies it to
+    /// the record's `+0x88` with the colour mesh). *Interpolated:* the engine builds it for every handle.
     /// </remarks>
-    public void PrecacheStaticProp(int entity, float x, float y, float z, bool staticState)
+    public void PrecacheStaticProp(int entity, float x, float y, float z)
     {
         _ = Handle(entity, x, y, z);
-
-        if (staticState)
-        {
-            _ = StaticPropLightingAt(x, y, z);
-        }
+        _ = StaticPropLightingAt(x, y, z);
     }
 
     /// <summary>A static prop's handle, built on the first ask — at load, by <see cref="PrecacheStaticProp"/>.</summary>
@@ -722,6 +720,8 @@ public sealed class LevelLighting
     /// </remarks>
     public (PointLighting Lighting, SunLight? Sun) StaticPropFullLightingAt(int entity, float x, float y, float z)
     {
+        FullStateRequests++;
+
         (PointLighting lighting, SunLight? sun) = StaticPropLightingAt(x, y, z);
         StyledHandle handle = Ranked(Handle(entity, x, y, z), x, y, z);
 

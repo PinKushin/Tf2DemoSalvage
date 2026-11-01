@@ -2,6 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.Numerics;
 
+using Tf2DemoSalvage.Content.Bsp;
+
 namespace Tf2DemoSalvage.Scene;
 
 /// <summary>Every model decal the client holds, per entity — `CStudioRender`'s decal lists (B415).</summary>
@@ -176,6 +178,33 @@ public sealed class ModelDecals
         _built.Remove(entity);
         Version++;
     }
+
+    /// <summary>Whether a model holds any decal, without building its draw list — the engine's `record + 0x10 != 0` (B642).</summary>
+    /// <param name="key">The model's key in this pool.</param>
+    /// <returns>True when at least one decal is held under it.</returns>
+    public bool Holds(int key) => _byEntity.TryGetValue(key, out List<Decal>? held) && held.Count > 0;
+
+    /// <summary>
+    /// The light a drawn model's decals take (B642): a colour-mesh static prop's <see cref="ModelInstance.DecalLight"/>
+    /// where it has one, else the model's own cube, sun and lamps — the lighting state studiorender leaves standing.
+    /// </summary>
+    /// <param name="instance">The model just drawn.</param>
+    /// <returns>The cube, sun and lamps to draw its decals with.</returns>
+    public static (AmbientCube? Light, SunLight? Sun, IReadOnlyList<LocalLight>? Locals) LightFor(in ModelInstance instance) =>
+        instance.DecalLight is { } decal
+            ? (decal.Cube, decal.Sun, decal.Locals)
+            : (instance.Light, instance.Sun, instance.Locals);
+
+    /// <summary>
+    /// Whether a model drawn in the translucent pass draws its decals there (B642): a static prop that is not two-pass.
+    /// `DrawModelStaticProp` draws a prop's decals in whichever pass draws the prop; a two-pass prop's were drawn with its
+    /// opaque half, and an entity's are drawn only after its opaque draw, as before.
+    /// </summary>
+    /// <param name="instance">The model.</param>
+    /// <param name="twoPass">Whether only its translucent half is being drawn.</param>
+    /// <returns>True when its decals follow its translucent draw.</returns>
+    public static bool DrawsAfterTranslucent(in ModelInstance instance, bool twoPass) =>
+        !twoPass && instance.EntityIndex >= PropModels.FirstStaticPropEntityIndex;
 
     /// <summary>`RemoveAllDecals` on one entity's model.</summary>
     /// <param name="entity">The entity.</param>

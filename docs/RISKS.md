@@ -40251,6 +40251,20 @@ It is tested red-first. It names which thread waited and where the draw had got 
 **Reopen if** the `queue stall` line ever appears in a viewer log, or if this test's hang rate on the branch, measured
 the same way, exceeds the baseline's.
 
+## B654 — a static prop's flags-7 lights are ranked once; the engine appends the draw's to the static four without ranking again (2026-11-02) — OPEN, low
+
+**Read (`engine.dll`).** A decal-holding colour-mesh prop's decal lights are the record's lights at `record + 0x88`, then
+the draw state's lights appended in order. A light already listed is skipped, and the list stops at four
+(`0x1800f2120..0x1800f2232`; batched path `0x1800eb5e0`). That is not one ranking. The flags-7 state of a bump-mapped
+prop is built the same way: `FUN_1801ba590` ranks the static four first and then each added light against them (B514).
+**Ours:** `LevelLighting.StaticPropFullLightingAt` ranks static, styled and dynamic lights together, the strongest four
+(`WithStyleZero`), and drops what loses. *Arithmetic:* the two agree whenever four or fewer lights reach the prop. Past
+four, the engine keeps every static light it listed and lets a styled or dynamic light in only to a free slot. Ours
+may drop a static light for a stronger dynamic one. **Since B642 every decal-holding colour-mesh prop's decals reach
+this**, not only bump-mapped props' draws. *Not measured:* how often more than four lights reach one prop on a real
+map. **Fix shape:** keep the static list (`StaticPropLightingAt`'s locals) and append the draw's lights in the engine's
+order, without the ranking.
+
 ## B652 — four edge and debug paths left by the B641 gamma-twin work (2026-11-02) — OPEN, low
 
 Found by the Opus review of `fix/b641-review-batch` (merged at `d4f32ef8`, gated); none reaches a normal frame. **Read from
@@ -40330,7 +40344,7 @@ Found while settling the sparse-local question in B634's review batch (plan doc 
   - Then a census over a real demo: how many composed layers per rebuild are sparse, and how many of those weight an
     untracked bone above 0. Read off the sample the skeleton actually composed.
 
-## B642 — a static prop's studio decal takes white corners, but the prop's own light is its baked vertex colour (2026-11-01) — FIXED (branch `fix/b642-decal-light`, 2026-11-02); water and sky views open
+## B642 — a static prop's studio decal takes white corners, but the prop's own light is its baked vertex colour (2026-11-01) — FIXED (branch `fix/b642-decal-light`, 2026-11-02; review batch `fix/b642-review-batch`); water views and a fading prop's decal alpha open
 
 **Fix (read from `engine.dll`, then built).** The flag the entry below left unread is settled, and so is the light.
 `0x1800f1bd0` sets `m_bStaticLighting` exactly when a static prop draws with a colour mesh on DX9. Both static-prop paths
@@ -40371,18 +40385,58 @@ DecalModulate control only. **The HUD strip** (top 37 px) differed between build
 the same tick, max 210. *Unexplained*, and outside this change's code. **Not compared with TF2.** No live
 TF2 capture of these holes was taken. Three overhead cameras hit ceilings and showed nothing.
 
-**Cost:** the decal light reads every colour-mesh prop's static state, which B607 had built only for bump-mapped
-props. `PrecacheStaticLighting` now builds it at load for all of them (`0x1800eac60` fills `record + 0x88` with the
-colour mesh), so play builds none (`MomentSceneTests`). The added load time is not measured.
+**Cost at load (review batch, branch `fix/b642-review-batch`).** The decal light reads a colour-mesh prop's static
+state, which B607 built only for bump-mapped and CPU-baked props. `PrecacheStaticLighting` now builds it for every lit
+prop at load, which is the engine's timing: `0x1800eac60` fills `record + 0x88` when it builds the colour mesh. So play
+builds none (`MomentSceneTests`). The load log now says so: `static-prop lighting at load: … ms; static states N built,
+… ms`.
+Predicted about 1.3 ms a state (measurements/2026-10-27-static-prop-handle-at-load.md: 404 states, 468-585 ms). Measured 2026-11-02 from the viewer's startup log of one `--shot`
+per demo, no `--measure`, one run each:
 
-**Not held by a test:** `Device3D.DrawDecalsOf` itself. Nothing reddens if it reads `instance.Light` instead of
-`DecalLight`, drops the `KeyOf` lookup, or loses the translucent call. The f12 pairs above show it working today.
-**The entity half is offscreen-only:** no real frame showed a lit decal on a dynamic model. Blood is DecalModulate,
-and wood holes land on props.
+| demo | predicted | measured: precache | static states |
+|---|---|---|---|
+| f12 `demostf-cp_process_f12-2026-08-08-2207.dem` | 1,300 states, 1.6-1.9 s | 1,305 ms | 1,353 in 1,202 ms (0.89 ms each) |
+| `demostf-pl_upward_f12-1491354.dem` | 1,107 states, about 1.4 s | 1,785 ms | 1,105 in 1,727 ms (1.56 ms each) |
 
-**Open residue:** the water views (`DrawViewEntities`) and the 3D sky draw no model decals. The world decal pass drew a
-static prop's decals in a reflection; after this change it does not, which is how an entity's already were. *Unread:*
-whether studiorender's `DrawModelStaticProp` (slot 30) reads `+0x44/+0x8c` exactly as slot 31 does.
+On f12 about 950 of those states are new, roughly +0.85 s of load. **A lazy form would be exact.** The static state is a
+pure function of the lighting origin, so building it when a prop takes its first decal gives the same light. The cost
+would move to that frame instead:
+an estimated 1 ms for the first decal on each prop, from the per-state means in the table. The lead decides. This branch keeps
+Valve's timing.
+
+**Paid only by a decal holder.** `EntityModelSet.Decals` is the device's pool. `DecalLightOf` asks the flags-7 state only
+when `ModelDecals.Holds` the prop's key, as the engine's gate `record + 0x10 != 0` does, and keeps the `DecalLighting`
+instance while nothing changes. A prop holding none, under a live dlight, asks nothing and allocates nothing
+(`MomentSceneTests`, red with the gate removed). `DecalLight` is a reference: `ModelInstance` is 440 bytes, against 432
+before B642 and 576 with the inline tuple the first fix used (`ModelDecalsDrawTests`). The pool is read as the model
+pass sees it. A decal placed later in a frame lights from the next frame, but a `--shot` showed no lag. The f12 dark
+hole drew the same 32,29,23 as in the first after-shot.
+
+**Held now:** `Device3D.DrawDecalsOf` makes three calls, each tested in `ModelDecalsDrawTests`: `DecalReplay.KeyOf`,
+`ModelDecals.LightFor` (every slot distinct, so a swapped sun or lamp fails), and `ModelDecals.DrawsAfterTranslucent`.
+The device keeps a count, `StaticPropDecalDraws`, and logs `first static prop decal drawn: entity …, light …` once.
+The device's calls themselves are still not held. **The entity half is offscreen-only:** no real frame showed a lit
+decal on a dynamic model. Blood is DecalModulate, and wood holes land on props.
+
+**State after a decal in the translucent walk (read, not tested):** every step that can follow sets its own blend and
+raster. `DrawModel` sets them per batch, `DrawTranslucentLeaf` per run, and `DetailSpriteRenderer` on its draw. The depth
+state goes back by `DrawDecalsOf`'s argument.
+
+**Open residue:**
+- The water views (`DrawViewEntities`) draw no model decals. The world decal pass drew a static prop's decals in a
+  reflection; after this change it does not, which is how an entity's already were.
+- The 3D sky draws them: opaque props through `DrawSkyRenderables` → `DrawOpaqueRenderable`, and since the review batch a
+  fading one-pass prop in the sky loop too.
+- **A fading prop's hole is drawn unfaded.** Ours draws the decal at full alpha after a half-faded prop. *Unread:*
+  whether studiorender modulates a decal's alpha by the model's. The read was blocked: the Ghidra port was held by
+  another agent's server.
+- *Unread:* whether studiorender's `DrawModelStaticProp` (slot 30) reads `+0x44/+0x8c` exactly as slot 31 does.
+- The ranking divergence is filed as B654.
+- **A prop whose model resolves after the precache would build its static state mid-play.** Read from our code, this
+  does not happen. `CanDraw` tests only the kind and the path, and static props are packed in the same `Add` that runs
+  the precache, right before it (`EntityModels.Packing.cs`, `PackModels(_staticProps, load)` then `TimedPrecache`).
+  The models load synchronously there. Held by
+  `MomentSceneTests.Pose_AStaticPropWithBakedColours_BuildsItsDecalsStaticStateBeforeTheFirstDraw`.
 
 **As filed (2026-11-01):**
 
