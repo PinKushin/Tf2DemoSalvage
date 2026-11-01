@@ -6,6 +6,22 @@ using Tf2DemoSalvage.Content.Bsp;
 
 namespace Tf2DemoSalvage.Scene;
 
+/// <summary>Which light a drawn model's decals took (B642), <see cref="ModelDecals.SourceOf"/>.</summary>
+public enum DecalLightSource
+{
+    /// <summary>An entity's: the model's own cube, sun and lamps, studiorender's standing state.</summary>
+    Entity,
+
+    /// <summary>A colour-mesh static prop's decal light, from its pose or placed after it.</summary>
+    DecalLight,
+
+    /// <summary>A bump-mapped static prop's own light, which is already its full state (flags 7): right.</summary>
+    OwnFullState,
+
+    /// <summary>A colour-mesh static prop drawn with its own flags-6 light: the defect.</summary>
+    Fallback,
+}
+
 /// <summary>Every model decal the client holds, per entity — `CStudioRender`'s decal lists (B415).</summary>
 /// <remarks>
 /// **The limits are `CStudioRender::AddDecal`'s, read out of `studiorender.dll`** (`0x180004c80`), with
@@ -48,8 +64,33 @@ public sealed class ModelDecals
     /// <summary>Changes whenever a decal is kept or cleared, so an unchanged pool costs its reader nothing.</summary>
     public int Version { get; private set; }
 
+    /// <summary>
+    /// Changes only when a static prop's decals are kept, retired or cleared (B642 review 3), so a player's decal, heal or
+    /// cloak does not make <see cref="EntityModelSet.LightDecalHolders"/> re-light every static prop.
+    /// </summary>
+    public int StaticPropVersion { get; private set; }
+
     /// <summary>The keys of every model holding decals.</summary>
     public IEnumerable<int> Models => _byEntity.Keys;
+
+    /// <summary>The static props' keys whose models hold a decal, into a list the caller reuses (B642 review 3).</summary>
+    /// <param name="into">Cleared, then filled.</param>
+    /// <exception cref="ArgumentNullException"><paramref name="into"/> is null.</exception>
+    /// <remarks>Over the dictionary's own key collection, whose enumerator is a struct: no allocation per call.</remarks>
+    internal void StaticPropHolders(List<int> into)
+    {
+        ArgumentNullException.ThrowIfNull(into);
+
+        into.Clear();
+
+        foreach (int key in _byEntity.Keys)
+        {
+            if (DecalReplay.IsStaticPropKey(key) && Holds(key))
+            {
+                into.Add(key);
+            }
+        }
+    }
 
     /// <summary>Projects one decal onto a model and keeps it — `CModelRender::AddDecal` → `CStudioRender::AddDecal`.</summary>
     /// <param name="entity">The entity whose model takes it.</param>
@@ -177,6 +218,7 @@ public sealed class ModelDecals
         _age.AddLast((entity, decal));
         _built.Remove(entity);
         Version++;
+        StaticPropChanged(entity);
     }
 
     /// <summary>Whether a model holds any decal, without building its draw list — the engine's `record + 0x10 != 0` (B642).</summary>
@@ -201,9 +243,9 @@ public sealed class ModelDecals
     public DecalLighting? LateLightOf(int key) => _lateLights.GetValueOrDefault(key);
 
     /// <summary>Replaces every late decal light with <paramref name="lights"/> (B642).</summary>
-    /// <param name="lights">The lights by key.</param>
+    /// <param name="lights">The lights by key; a list, so the copy enumerates without allocating.</param>
     /// <exception cref="ArgumentNullException"><paramref name="lights"/> is null.</exception>
-    public void SetLateLights(IEnumerable<KeyValuePair<int, DecalLighting>> lights)
+    internal void SetLateLights(List<KeyValuePair<int, DecalLighting>> lights)
     {
         ArgumentNullException.ThrowIfNull(lights);
 
@@ -228,6 +270,28 @@ public sealed class ModelDecals
         (instance.DecalLight ?? pool?.LateLightOf(DecalReplay.KeyOf(instance.EntityIndex))) is { } decal
             ? (decal.Cube, decal.Sun, decal.Locals, true)
             : (instance.Light, instance.Sun, instance.Locals, false);
+
+    /// <summary>Which light a drawn model's decals took, for the device's counters and its first-use log (B642 review 3).</summary>
+    /// <param name="instance">The model drawn.</param>
+    /// <param name="decalLit">What <see cref="LightFor"/> answered.</param>
+    /// <returns>
+    /// An entity's own light; a static prop's decal light; a bump-mapped prop's own light, which is its full state and so
+    /// right; or the fallback, a colour-mesh prop drawn without its decal light, which is the defect B642 fixed.
+    /// </returns>
+    public static DecalLightSource SourceOf(in ModelInstance instance, bool decalLit)
+    {
+        if (instance.EntityIndex < PropModels.FirstStaticPropEntityIndex)
+        {
+            return DecalLightSource.Entity;
+        }
+
+        if (decalLit)
+        {
+            return DecalLightSource.DecalLight;
+        }
+
+        return instance.BakedColours is null ? DecalLightSource.OwnFullState : DecalLightSource.Fallback;
+    }
 
     /// <summary>
     /// Whether a model drawn in the translucent pass draws its decals there (B642): a static prop that is not two-pass.
@@ -264,6 +328,7 @@ public sealed class ModelDecals
         }
 
         Version++;
+        StaticPropChanged(entity);
     }
 
     /// <summary>Every decal of the models whose keys match gone — one caller's share of a shared pool, on a seek.</summary>
@@ -290,6 +355,7 @@ public sealed class ModelDecals
         _built.Clear();
         _lateLights.Clear();
         Version++;
+        StaticPropVersion++;
     }
 
     /// <summary>One entity's decals as corners and one run per decal material, or null for none.</summary>
@@ -368,6 +434,7 @@ public sealed class ModelDecals
         {
             held.Remove(oldest.Decal);
             _built.Remove(oldest.Entity);
+            StaticPropChanged(oldest.Entity);
         }
 
         for (LinkedListNode<(int Entity, Decal Decal)>? node = _age.First; node is not null; node = node.Next)
@@ -377,6 +444,15 @@ public sealed class ModelDecals
                 _age.Remove(node);
                 break;
             }
+        }
+    }
+
+    /// <summary>Advances <see cref="StaticPropVersion"/> when the key changed is a static prop's.</summary>
+    private void StaticPropChanged(int key)
+    {
+        if (DecalReplay.IsStaticPropKey(key))
+        {
+            StaticPropVersion++;
         }
     }
 

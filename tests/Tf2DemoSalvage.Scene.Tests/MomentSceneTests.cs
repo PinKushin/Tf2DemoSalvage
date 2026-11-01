@@ -1249,9 +1249,14 @@ public sealed class MomentSceneTests
         prop.DecalLight.ShouldBeNull("the control: posed before the decal, it carries none");
 
         ShootTheProp(pool);
+        ModelDecals.SourceOf(prop, ModelDecals.LightFor(prop, pool).DecalLit)
+            .ShouldBe(DecalLightSource.Fallback, "the control: placed and not yet lit, it is the defect's fallback");
+
         models.LightDecalHolders();
 
         (Content.Bsp.AmbientCube? light, SunLight? sun, IReadOnlyList<Content.Bsp.LocalLight>? locals, bool decalLit) = ModelDecals.LightFor(prop, pool);
+
+        ModelDecals.SourceOf(prop, decalLit).ShouldBe(DecalLightSource.DecalLight, "no fallback for a colour-mesh holder");
         (float x, float y, float z) = models.IlluminationPoint(scene.StaticProps[0], scene.StaticProps[0].Pose);
         (Content.Bsp.PointLighting full, SunLight? fullSun) = lighting.StaticPropFullLightingAt(PropModels.FirstStaticPropEntityIndex, x, y, z);
 
@@ -1283,6 +1288,76 @@ public sealed class MomentSceneTests
         models.LightDecalHolders();
         ModelDecals.LightFor(prop, pool).DecalLit.ShouldBeTrue("replayed after the seek, lit again with no pose");
         models.LateDecalLights.ShouldBe(2, "lit once per change of the pool");
+    }
+
+    /// <remarks>
+    /// **Only a static prop's decals relight** (B642 review 3): a player's decal, heal, über, class change or cloak changes
+    /// the pool, and none of them changes a static prop's light. The pass is counted; the prop's decal is the control.
+    /// </remarks>
+    [Test]
+    public void LightDecalHolders_APlayersDecalThenAPropsDecal_RelightsOnlyForTheProps()
+    {
+        (_, EntityModelSet models, ModelDecals pool, _) = PosedBeforeItsDecal();
+
+        models.LightDecalHolders();
+        int passes = models.DecalLightPasses;
+
+        pool.AddClipped(4, ModelDecalsDrawTests.Face, System.Numerics.Vector3.Zero, new System.Numerics.Vector3(-1.1f, 0f, 0f), 4f, 0)
+            .ShouldBeTrue("the control: the player's decal took");
+        pool.Clear(4);
+        models.LightDecalHolders();
+        models.DecalLightPasses.ShouldBe(passes, "a player's decal kept and cleared lights nothing");
+
+        ShootTheProp(pool);
+        models.LightDecalHolders();
+        models.DecalLightPasses.ShouldBe(passes + 1, "the prop's decal does");
+    }
+
+    /// <remarks>
+    /// **A new pool is lit whatever its version** (B642 review 3): two pools each holding one prop decal share a static
+    /// version, so a pass that compared versions alone would skip the second.
+    /// </remarks>
+    [Test]
+    public void LightDecalHolders_ThePoolSwappedForOneOfTheSameVersion_LightsTheNewPool()
+    {
+        (_, EntityModelSet models, ModelDecals first, _) = PosedBeforeItsDecal();
+        ModelDecals second = new();
+
+        ShootTheProp(first);
+        ShootTheProp(second);
+        second.StaticPropVersion.ShouldBe(first.StaticPropVersion, "the control: the versions match");
+
+        models.LightDecalHolders();
+        models.Decals = second;
+        models.LightDecalHolders();
+
+        second.LateLightOf(DecalReplay.StaticPropKey(0)).ShouldNotBeNull();
+    }
+
+    /// <remarks>
+    /// **A pass allocates nothing of its own** (B642 review 3): its key and light lists are reused and walked by struct
+    /// enumerators. Measured on a pass with nothing left to light, after a warm pass has grown the lists.
+    /// </remarks>
+    [Test]
+    public void LightDecalHolders_APassWithNothingToLight_AllocatesNothing()
+    {
+        (_, EntityModelSet models, ModelDecals pool, _) = PosedBeforeItsDecal();
+
+        ShootTheProp(pool);
+        models.LightDecalHolders();
+        pool.ClearWhere(DecalReplay.IsStaticPropKey);
+        models.LightDecalHolders();
+        ShootTheProp(pool);
+        models.LightDecalHolders();
+        pool.ClearWhere(DecalReplay.IsStaticPropKey);
+
+        int passes = models.DecalLightPasses;
+        long before = System.GC.GetAllocatedBytesForCurrentThread();
+        models.LightDecalHolders();
+        long allocated = System.GC.GetAllocatedBytesForCurrentThread() - before;
+
+        models.DecalLightPasses.ShouldBe(passes + 1, "the control: the pass ran");
+        allocated.ShouldBe(0);
     }
 
     /// <remarks>

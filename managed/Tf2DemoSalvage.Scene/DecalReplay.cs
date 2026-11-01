@@ -88,6 +88,11 @@ public sealed class DecalReplay
     /// <returns>The key.</returns>
     public static int StaticPropKey(int prop) => -2 - prop;
 
+    /// <summary>The lump index a <see cref="StaticPropKey"/> was made from — its inverse.</summary>
+    /// <param name="key">A static prop's key; check <see cref="IsStaticPropKey"/> first.</param>
+    /// <returns>The prop's index in the map's lump.</returns>
+    public static int StaticPropOf(int key) => -2 - key;
+
     /// <summary>Whether a pool key is a static prop's.</summary>
     /// <param name="key">The key.</param>
     /// <returns>True for a <see cref="StaticPropKey"/>.</returns>

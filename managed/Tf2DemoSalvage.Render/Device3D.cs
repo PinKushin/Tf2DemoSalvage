@@ -4737,46 +4737,31 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
             _device, _context, decals.Vertices, decals.Batches, instance.Bones?.Count ?? 0, light, sun, locals);
         _context.OMSetDepthStencilState(depth, 0);
 
-        if (instance.EntityIndex < PropModels.FirstStaticPropEntityIndex)
-        {
-            return;
-        }
-
-        if (decalLit)
-        {
-            StaticPropDecalDraws++;
-        }
-        else
-        {
-            StaticPropDecalFallbacks++;
-        }
-
-        ReportFirstStaticPropDecal(instance.EntityIndex, decals.Batches[0].MaterialIndex, light, decalLit);
+        ReportFirstDecalLight(ModelDecals.SourceOf(instance, decalLit), instance.EntityIndex, decals.Batches[0].MaterialIndex, light);
     }
 
-    /// <summary>Static props whose decals the model pass drew under their decal light, ever (B642).</summary>
-    public long StaticPropDecalDraws { get; private set; }
+    /// <summary>The <see cref="DecalLightSource"/> kinds whose first draw has been logged.</summary>
+    private readonly bool[] _reportedDecalLight = new bool[Enum.GetValues<DecalLightSource>().Length];
 
     /// <summary>
-    /// Static props whose decals drew under the prop's own light instead: right for a bump-mapped prop, whose own light is
-    /// the full state; a defect for a colour-mesh one (B642).
+    /// Logs the first static prop decal drawn under each kind of light (B642): its decal light, a bump-mapped prop's own
+    /// full state (right), or a colour-mesh prop's own light (the defect, worded as one).
     /// </summary>
-    public long StaticPropDecalFallbacks { get; private set; }
-
-    /// <summary>Whether the first decal-lit and the first fallback static prop decal draw have been logged.</summary>
-    private (bool DecalLit, bool Fallback) _reportedStaticPropDecal;
-
-    /// <summary>Logs the first static prop decal drawn under a decal light, and the first under the prop's own (B642).</summary>
-    private void ReportFirstStaticPropDecal(int entity, int material, AmbientCube? light, bool decalLit)
+    private void ReportFirstDecalLight(DecalLightSource source, int entity, int material, AmbientCube? light)
     {
-        if (decalLit ? _reportedStaticPropDecal.DecalLit : _reportedStaticPropDecal.Fallback)
+        if (source == DecalLightSource.Entity || _reportedDecalLight[(int)source])
         {
             return;
         }
 
-        _reportedStaticPropDecal = decalLit
-            ? _reportedStaticPropDecal with { DecalLit = true }
-            : _reportedStaticPropDecal with { Fallback = true };
+        _reportedDecalLight[(int)source] = true;
+
+        string kind = source switch
+        {
+            DecalLightSource.DecalLight => "under its decal light",
+            DecalLightSource.OwnFullState => "under a bump-mapped prop's own light, its full state",
+            _ => "under the FALLBACK, a colour-mesh prop's own flags-6 light: a defect",
+        };
 
         string cube = light is { } lit
             ? string.Create(CultureInfo.InvariantCulture, $", +z {lit.PositiveZ.Red:0.###} {lit.PositiveZ.Green:0.###} {lit.PositiveZ.Blue:0.###}")
@@ -4785,10 +4770,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         // Stryker disable once all : a mutated interpolated string cannot bind to its handler (CS1620) and Safe Mode drops the method - B410
         _render.LogInformation(
             "{Message}",
-            string.Create(
-                CultureInfo.InvariantCulture,
-                $"first static prop decal drawn {(decalLit ? "under its decal light" : "under the FALLBACK, the prop's own light")}: " +
-                $"entity {entity}, material {material}{cube}"));
+            string.Create(CultureInfo.InvariantCulture, $"first static prop decal drawn {kind}: entity {entity}, material {material}{cube}"));
     }
 
     /// <summary>The render group collation asks for — <see cref="Classify"/>, once per collated renderable.</summary>

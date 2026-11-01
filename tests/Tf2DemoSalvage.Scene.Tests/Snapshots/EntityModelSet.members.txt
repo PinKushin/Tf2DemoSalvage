@@ -135,6 +135,8 @@ Tf2DemoSalvage.Scene.EntityModelSet|field|_frames|Private readonly|System.Collec
 Tf2DemoSalvage.Scene.EntityModelSet|field|_handleOf|Private readonly|System.Collections.Generic.Dictionary`2[System.ValueTuple`3[System.Int32,System.String,System.Int32],System.Int32]
 Tf2DemoSalvage.Scene.EntityModelSet|field|_inView|Private readonly|System.Collections.Generic.HashSet`1[System.Int32]
 Tf2DemoSalvage.Scene.EntityModelSet|field|_lastFace|Private readonly|System.Collections.Generic.Dictionary`2[System.Int32,System.ValueTuple`5[System.Single[],System.Single[],System.Single[],System.Single[],Tf2DemoSalvage.Scene.FlexedCorners]][]
+Tf2DemoSalvage.Scene.EntityModelSet|field|_lateHolderKeys|Private readonly|System.Collections.Generic.List`1[System.Int32]
+Tf2DemoSalvage.Scene.EntityModelSet|field|_lateLightBuffer|Private readonly|System.Collections.Generic.List`1[System.Collections.Generic.KeyValuePair`2[System.Int32,Tf2DemoSalvage.Scene.DecalLighting]]
 Tf2DemoSalvage.Scene.EntityModelSet|field|_lateLitVersion|Private|System.Int32
 Tf2DemoSalvage.Scene.EntityModelSet|field|_leafSystem|Private|Tf2DemoSalvage.Scene.ClientLeafSystem
 Tf2DemoSalvage.Scene.EntityModelSet|field|_lightPoints|Private readonly|System.Collections.Generic.Dictionary`2[System.Int32,System.ValueTuple`3[System.Single,System.Single,System.Single]]
@@ -360,6 +362,7 @@ Tf2DemoSalvage.Scene.EntityModelSet|method|get_Tally|Public|()|Tf2DemoSalvage.Sc
 Tf2DemoSalvage.Scene.EntityModelSet|method|get_Tree|Public|()|Tf2DemoSalvage.Content.Bsp.BspLeafTree
 Tf2DemoSalvage.Scene.EntityModelSet|method|get_VertexBytes|Public|()|System.Int64
 Tf2DemoSalvage.Scene.EntityModelSet|method|get_Vertices|Public|()|System.Collections.Generic.IReadOnlyList`1[Tf2DemoSalvage.Scene.WorldVertex]
+Tf2DemoSalvage.Scene.EntityModelSet|method|set_Decals|Public|(Tf2DemoSalvage.Scene.ModelDecals)|System.Void
 Tf2DemoSalvage.Scene.EntityModelSet|method|set_LightingTicks|Public|(System.Int64)|System.Void
 Tf2DemoSalvage.Scene.EntityModelSet|method|set_StaticPropColours|Public|(System.Collections.Generic.IReadOnlyDictionary`2[System.Int32,System.Single[]])|System.Void
 Tf2DemoSalvage.Scene.EntityModelSet|method|set_StaticPropLighting|Public|(System.Func`4[System.Single,System.Single,System.Single,System.ValueTuple`2[Tf2DemoSalvage.Content.Bsp.PointLighting,System.Nullable`1[Tf2DemoSalvage.Scene.SunLight]]])|System.Void

@@ -96,6 +96,45 @@ public sealed class ModelDecalsDrawTests
         decalLit.ShouldBeTrue();
     }
 
+    /// <remarks>
+    /// **The pose's light wins over a late one** (B642 review 3): a late light stays in the pool after a later pose sets the
+    /// instance's, and may carry a dead dlight's lamp; the pose's is current.
+    /// </remarks>
+    [Test]
+    public void LightFor_APosedLightAndALateLightBoth_IsThePosedLight()
+    {
+        ModelInstance prop = new(
+            "models/props/crate.mdl", [], LevelLighting.NoStaticState, null, Locals: ModelLamps,
+            EntityIndex: PropModels.FirstStaticPropEntityIndex + 3, DecalLight: new DecalLighting(PropCube, PropSun, PropLamps));
+        ModelDecals pool = HoldingADecal(3);
+
+        pool.SetLateLights([new(DecalReplay.StaticPropKey(3), new DecalLighting(ModelCube, ModelSun, ModelLamps))]);
+
+        (AmbientCube? light, SunLight? sun, IReadOnlyList<LocalLight>? locals, _) = ModelDecals.LightFor(prop, pool);
+
+        light.ShouldBe(PropCube);
+        sun.ShouldBe(PropSun);
+        locals.ShouldBeSameAs(PropLamps);
+    }
+
+    [TestCase(4, false, DecalLightSource.Entity)]
+    [TestCase(PropModels.FirstStaticPropEntityIndex, true, DecalLightSource.DecalLight)]
+    public void SourceOf_ByKindAndAnswer_NamesTheLight(int entity, bool decalLit, DecalLightSource expected) =>
+        ModelDecals.SourceOf(new ModelInstance("m.mdl", [], null, null, EntityIndex: entity), decalLit).ShouldBe(expected);
+
+    /// <remarks>
+    /// **Only a colour-mesh prop's own light is the fallback** (B642 review 3): a bump-mapped prop carries no colour mesh,
+    /// and its own light is its full state, which is right.
+    /// </remarks>
+    [TestCase(true, DecalLightSource.Fallback)]
+    [TestCase(false, DecalLightSource.OwnFullState)]
+    public void SourceOf_AStaticPropWithoutItsDecalLight_IsTheFallbackOnlyWithAColourMesh(bool colourMesh, DecalLightSource expected) =>
+        ModelDecals.SourceOf(
+                new ModelInstance(
+                    "m.mdl", [], null, null, EntityIndex: PropModels.FirstStaticPropEntityIndex, BakedColours: colourMesh ? [1f, 1f, 1f] : null),
+                decalLit: false)
+            .ShouldBe(expected);
+
     [TestCase(PropModels.FirstStaticPropEntityIndex, false, true)]
     [TestCase(PropModels.FirstStaticPropEntityIndex - 1, false, false)]
     [TestCase(PropModels.FirstStaticPropEntityIndex + 3, false, true)]
@@ -141,6 +180,14 @@ public sealed class ModelDecalsDrawTests
     /// than a byte count, which follows the runtime's layout.
     /// </remarks>
     [Test]
-    public void ModelInstance_DecalLight_IsAReferenceNotAnInlineValue() =>
+    public void ModelInstance_DecalLight_IsAReferenceNotAnInlineValue()
+    {
         typeof(ModelInstance).GetProperty(nameof(ModelInstance.DecalLight))!.PropertyType.IsValueType.ShouldBeFalse();
+
+        // And no other field grew with it: at most one pointer over the size before the field (B642 review 3).
+        System.Runtime.CompilerServices.Unsafe.SizeOf<ModelInstance>().ShouldBeLessThanOrEqualTo(SizeBeforeDecalLight + System.IntPtr.Size);
+    }
+
+    /// <summary><c>Unsafe.SizeOf&lt;ModelInstance&gt;()</c> at `56da2627`, before B642 added the field, on this runtime.</summary>
+    private const int SizeBeforeDecalLight = 432;
 }

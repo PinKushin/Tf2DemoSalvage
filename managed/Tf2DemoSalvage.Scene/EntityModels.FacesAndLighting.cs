@@ -413,7 +413,17 @@ public sealed partial class EntityModelSet
     public Func<int, float, float, float, (PointLighting Lighting, SunLight? Sun)>? StaticPropFullLighting { get; set; }
 
     /// <summary>The model decal pool the device draws from, read to light only a static prop that holds a decal (B642).</summary>
-    public ModelDecals? Decals { get; set; }
+    public ModelDecals? Decals
+    {
+        get;
+        set
+        {
+            field = value;
+
+            // A new pool may share the old one's version; light it on the next step whatever it says (B642 review 3).
+            _lateLitVersion = -1;
+        }
+    }
 
     /// <summary>Each decal-holding colour-mesh prop's last decal light, kept while it is unchanged.</summary>
     private readonly Dictionary<int, DecalLighting> _decalLights = [];
@@ -483,32 +493,40 @@ public sealed partial class EntityModelSet
     /// </remarks>
     public void LightDecalHolders()
     {
-        if (Decals is not { } pool || pool.Version == _lateLitVersion)
+        // **The static props' own version, not the pool's** (B642 review 3): a player's decal, heal, über, class change or
+        // cloak changes the pool and none of these lights.
+        if (Decals is not { } pool || pool.StaticPropVersion == _lateLitVersion)
         {
             return;
         }
 
-        _lateLitVersion = pool.Version;
+        _lateLitVersion = pool.StaticPropVersion;
         DecalLightPasses++;
 
-        List<KeyValuePair<int, DecalLighting>> lights = [];
+        // Reused lists: a pass allocates nothing of its own (B642 review 3).
+        pool.StaticPropHolders(_lateHolderKeys);
+        _lateLightBuffer.Clear();
 
-        foreach (int key in pool.Models)
+        foreach (int key in _lateHolderKeys)
         {
-            int entity = PropModels.FirstStaticPropEntityIndex - 2 - key;
+            int entity = PropModels.FirstStaticPropEntityIndex + DecalReplay.StaticPropOf(key);
 
-            if (DecalReplay.IsStaticPropKey(key) &&
-                pool.Holds(key) &&
-                _colourMeshOrigins.TryGetValue(entity, out (float X, float Y, float Z) origin) &&
+            if (_colourMeshOrigins.TryGetValue(entity, out (float X, float Y, float Z) origin) &&
                 DecalLightAt(entity, origin.X, origin.Y, origin.Z) is { } light)
             {
-                lights.Add(new(key, light));
+                _lateLightBuffer.Add(new(key, light));
                 LateDecalLights++;
             }
         }
 
-        pool.SetLateLights(lights);
+        pool.SetLateLights(_lateLightBuffer);
     }
+
+    /// <summary><see cref="LightDecalHolders"/>'s holder keys, reused.</summary>
+    private readonly List<int> _lateHolderKeys = [];
+
+    /// <summary><see cref="LightDecalHolders"/>'s lights, reused.</summary>
+    private readonly List<KeyValuePair<int, DecalLighting>> _lateLightBuffer = [];
 
     /// <summary>
     /// A static prop handle's static lighting state at its lighting origin (<see cref="LevelLighting.StaticPropLightingAt"/>),
