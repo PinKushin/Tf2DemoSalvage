@@ -180,6 +180,22 @@ inside the bracket and now covers both passes: `[S, S's local subtree (Local lay
 - **Timers**: the own pose's seed and overlay land in `seed` (the span already named "the rest seed and the base's copy or
   overlay"); its sample in `layer sampling`; its blend at the close in `compose`. On a player nothing changes, because no
   player sequence is local.
-- **Shots: none taken.** No player pixel can change from B634 (§3), and both changes need a transition queue that a cold
-  `--tick` build never fills. A B633 shot would need a tick where a player has two transitions in flight, which no
-  instrument here counts; the conformance test is the evidence.
+- **How often B633 applies [meas, proxy]**: `pose-layers D:/measure-f12/f12.dem 29700 30000`, extended on this branch,
+  found **35** main-sequence changes within 0.2 s of the same entity's previous change, in 2,709 player-ticks. It is a
+  proxy read off `FrameOf`, not the queue. The layer lists it prints show the two fading roots directly, newest first on
+  the fix: for example entity 8 at tick 29756, `crouch_walk_PRIMARY` w 1 then `run_PRIMARY` w 0.684.
+- **Shots [meas], and they show nothing yet.** Shots were taken with `--shot` under `run-exclusive.ps1`, with
+  `TF2VIEW_CAMERA="-3955 -954 640 12 157"` on entity 8 and `TF2VIEW_SEEK_THROUGH` set to every tick from 29700 to the shot
+  tick minus one. The base is `19efea71`, built from `git archive`.
+  - **Before against after: 0 of 542,184 pixels differ at ticks 29756, 29760 and 29764.**
+  - The after shot against a repeat of itself: 0.
+  - Control: the after shot against a cold `--tick 29756` with no seek-through: 53,508 pixels differ (box x 407-720,
+    y 37-341). So seeking through changes the frame, but **it is not shown that it fills the transition queue the way
+    the probe's per-tick walk does.**
+  - **Unsettled**: whether the viewer's drawn pose at those ticks carried two fading roots at all. A zero difference
+    is what one root would give. What would settle it is the queue length as the draw used it, and no public instrument
+    carries that. `TF2VIEW_PLAY_SHOTS` needs `--measure`, which this task excluded.
+  - Shots, masks and the diff script are in `D:/measure-f12/b633-b634/`.
+- **Cost on the roots-split instrument [pred]**: unchanged for players. B633 removes one `List.Reverse` per entity
+  with transitions. B634 adds one `Local` test per layer, under 0.0001 ms per root rebuild. A viewmodel fading out of a
+  local sequence pays one more sample and two dense passes, about 0.01-0.015 ms on that rebuild.

@@ -40406,8 +40406,11 @@ deliberately left out of that change (`docs/measurements/2026-10-31-sequence-aut
 (`hl2sdk` `:1604`, episode 1 `:1435`). `fading.Reverse()` is gone; the loop already walked newest first. Conformance:
 `AccumulatePoseConformanceTests.BuildBlend_TwoSequencesFadingAtOnce_AccumulatesTheNewerFirst`, red before (`[1, 2]`). The
 IK rules `BuildBlend` gathers follow the list, so their order flips to Valve's accumulation order too. `GetBlendedLinearVelocity`
-walks the same way in Valve; ours has no counterpart. **Not established:** how many player-ticks carry two fading
-sequences at once — no instrument here carries the queue length.
+walks the same way in Valve; ours has no counterpart. **How often [meas, proxy]:** 35 main-sequence changes within
+0.2 s of the entity's last one in 2,709 player-ticks of f12 29700-30000 (`pose-layers`, read off `FrameOf`). **Not
+established, visibly:** three before/after `--shot` pairs on entity 8 (ticks 29756, 29760, 29764, with
+`TF2VIEW_SEEK_THROUGH` from 29700) differ by 0 pixels. Whether the drawn pose there carried two fading roots at all is
+unproven, because no instrument carries the queue length as the draw used it. Details are in the plan's §8.
 
 **Evidence class: read from published source on both sides; the visible effect is *interpolated*.** Found while fixing
 B624, and left out of that change so its before/after shows one thing.
