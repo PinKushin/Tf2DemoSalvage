@@ -248,10 +248,24 @@ public sealed class VmtMaterial
     /// shipped materials, against 28 `Modulate` and 68 `DecalModulate`. Valve registers the alias
     /// (`DEFINE_FALLBACK_SHADER`, modulate_dx9.cpp:20); accept it here if a map's pakfile is ever seen naming it.
     /// </remarks>
-    public bool IsModulate => Shader.Equals("Modulate", StringComparison.OrdinalIgnoreCase) || IsDecalModulate;
+    public bool IsModulate => IsModulateShader(Shader);
 
     /// <summary>`DecalModulate`: the bullet holes' shader, a mod2x blend by construction (`DecalModulate_dx9.cpp:67`).</summary>
-    private bool IsDecalModulate => Shader.Equals("DecalModulate", StringComparison.OrdinalIgnoreCase);
+    private bool IsDecalModulate => IsDecalModulateShader(Shader);
+
+    /// <summary>Whether a shader name is `DecalModulate`: the one predicate every caller asks (B639 review).</summary>
+    /// <param name="shader">The shader name as the VMT states it.</param>
+    /// <returns>True for `DecalModulate`, case aside.</returns>
+    /// <remarks>Shared by this material's flags, the renderer's polygon-offset set and the decal mesh's white-texel
+    /// choice, so the texture flags and the shader-name tests cannot disagree.</remarks>
+    public static bool IsDecalModulateShader(string? shader) =>
+        string.Equals(shader, "DecalModulate", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>Whether a shader name is `Modulate` or `DecalModulate`, whose colour multiplies the framebuffer.</summary>
+    /// <param name="shader">The shader name as the VMT states it.</param>
+    /// <returns>True for either modulating shader, case aside.</returns>
+    public static bool IsModulateShader(string? shader) =>
+        string.Equals(shader, "Modulate", StringComparison.OrdinalIgnoreCase) || IsDecalModulateShader(shader);
 
     /// <summary>Whether this material is drawn from both sides.</summary>
     /// <remarks>

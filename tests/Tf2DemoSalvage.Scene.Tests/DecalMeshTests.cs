@@ -32,13 +32,15 @@ public sealed class DecalMeshTests
     }
 
     [Test]
-    public void Build_AnUnlitDecal_TakesTheWhiteTexelAndItsVertexLight()
+    public void Build_AnUnlitDecal_TakesTheWhiteTexelAndWhiteCorners()
     {
         (List<WorldVertex> vertices, _) = Build([Quad(0, Hole, face: 1), Quad(1, Scorch, face: 1)]);
 
         vertices[2].LightU.ShouldBe(0f);
         vertices[2].LightV.ShouldBe(0f);
-        (vertices[2].Red, vertices[2].Green, vertices[2].Blue).ShouldBe((1.25f, 1.25f, 1.25f));
+
+        // White: DecalModulate reads no vertex colour, and its mod2x compensation is the material's diffuse (B639).
+        (vertices[2].Red, vertices[2].Green, vertices[2].Blue).ShouldBe((1f, 1f, 1f));
 
         // The lit one keeps the vertex light a brush face carries: one.
         vertices[8].Red.ShouldBe(1f);
@@ -81,7 +83,7 @@ public sealed class DecalMeshTests
                 "decals/scorch1" => 9,
                 _ => -1,
             },
-            index => index == 7 ? 1.25f : null,
+            index => index == 7,
             Lightmaps,
             vertices,
             batches,

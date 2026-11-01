@@ -9,6 +9,7 @@ using Microsoft.Extensions.Logging;
 
 using Tf2DemoSalvage.Animation.Animating;
 using Tf2DemoSalvage.Audio;
+using Tf2DemoSalvage.Content.Assets;
 using Tf2DemoSalvage.Core.Scene;
 using Tf2DemoSalvage.Render;
 using Tf2DemoSalvage.Scene;
@@ -1154,15 +1155,10 @@ public sealed class DecalEffects
             }
         }
 
-        Func<int, float?> unlit = index => index < assets.Shaders.Count &&
-                                           string.Equals(assets.Shaders[index], "DecalModulate", StringComparison.OrdinalIgnoreCase)
-            ? Device3D.DecalModulateLight
-            : null;
-
         DecalMesh.Build(
             _placedDecals,
             material => material.Draws is { } drawn && assets.DecalMaterials.TryGetValue(drawn, out int index) ? index : -1,
-            unlit,
+            index => index < assets.Shaders.Count && VmtMaterial.IsDecalModulateShader(assets.Shaders[index]),
             assets.Lightmaps,
             _decalVertices,
             _decalBatches,

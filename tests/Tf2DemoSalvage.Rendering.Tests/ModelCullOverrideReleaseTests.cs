@@ -73,7 +73,7 @@ public sealed class ModelCullOverrideReleaseTests
             (int, int, int) under = target.PixelAt(8, 8);
 
             target.DrawModelPose(
-                ModulateToneMapConformanceTests.Quad(Device3D.DecalModulateLight, away: true),
+                ModulateToneMapConformanceTests.Quad(1f, away: true),
                 [new WorldBatch(ModulateToneMapConformanceTests.DecalModulateDark, 0, 6)],
                 ModulateToneMapConformanceTests.Camera(),
                 ModulateToneMapConformanceTests.Identity,

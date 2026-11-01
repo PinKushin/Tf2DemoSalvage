@@ -40251,6 +40251,28 @@ It is tested red-first. It names which thread waited and where the draw had got 
 **Reopen if** the `queue stall` line ever appears in a viewer log, or if this test's hang rate on the branch, measured
 the same way, exceeds the baseline's.
 
+## B642 — a static prop's studio decal takes white corners, but the prop's own light is its baked vertex colour (2026-11-01) — OPEN, interpolated
+
+*Read from our code:* `ModelDecals.Unlit` gives every studio decal white corners on the atlas's white texel (B639
+review). `DecalEffects` copies a static prop's held decal corners unchanged into the world decal pass. A dynamic
+model's decal is drawn with the model's ambient cube, so white corners leave it lit as the model is. A static prop,
+though, is lit by its baked colour mesh (`PropModels.FromVertexByte`), which its decal corners do not carry. A lit
+(VertexLitGeneric) decal on a static prop is therefore lit by the white texel instead of by the prop's light.
+*Interpolated:* that studiorender gives a static prop's decal the prop's per-vertex lighting. studiorender is closed
+source. DecalModulate decals are unaffected, since they read no light. **Next:** decompile `CStudioRender`'s decal draw
+for a static prop, then shoot a bullet hole on a lit prop against TF2.
+
+## B641 — a gamma-space multiply reproduced with a linear sRGB blend misses Valve's value toward black (2026-11-01) — OPEN, known residue
+
+*Arithmetic and measured.* DecalModulate and `$mod2x` Modulate multiply gamma values (`dst · 2s`, sRGB read/write off,
+`DecalModulate_dx9.cpp:74-78`). Ours blends linearly and draws the texel times `ModulateTwiceDiffuse` (2^2.2/2). That
+is exact on the 2.2 curve only. On the sRGB curve, a texel of 128 over 188 draws 186.8 against 187.5, and a texel of
+64 over 231 draws 120 against Valve's 116. `ModulateToneMapConformanceTests`' brush window pins this 2-6 level offset.
+Live TF2 with fog off measured the `ctf_crasher` scorch interior about 10% darker in ours (findings 18), which is the
+other sign. That gap is not explained by this arithmetic and stays open. **Fix shape:** an exact gamma multiply, by
+blending into a non-sRGB view of the target or doing the multiply in the shader against a copy. Either moves the
+window to [expected - 2, expected + 2].
+
 ## B640 — the uncullable translucent world ignores the view's water sort group; the engine's draws only the view's groups (2026-10-31) — OPEN, unfixed
 
 *Read (our disassembly citation, already on `DrawTranslucentLeaf`):* the engine's translucent walk draws group by group,

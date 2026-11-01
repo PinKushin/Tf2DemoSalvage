@@ -152,7 +152,8 @@ public sealed class ModulateToneMapConformanceTests
         // (*measured*): the linear blend reproduces a gamma multiply only on the 2.2 curve, and the sRGB curve departs from
         // it toward black (*arithmetic*: 231 · 4.595 · sRGB⁻¹(64) gives 120). So the window is that offset, [+2, +6]. It
         // excludes the white-texel diffuse of 2.0 (112, B639) and an unlit 1 (about 80), so an error the brush and model
-        // paths share cannot pass.
+        // paths share cannot pass. **The offset itself is a known divergence, B641**: the residue of reproducing a gamma
+        // multiply with a linear sRGB blend. A future exact blend moves this window to [expected - 2, expected + 2].
         if (twice)
         {
             int expected = (int)System.Math.Round(under.Item2 * 2.0 * 64.0 / 255.0);
@@ -367,7 +368,7 @@ public sealed class ModulateToneMapConformanceTests
         (int, int, int) wallOnly = target.PixelAt(8, 8);
 
         target.DrawModelPose(
-            Quad(Device3D.DecalModulateLight, depth: 0.02f), [new WorldBatch(DecalModulateDark, 0, 6)], Camera(), Identity, Assets, clearDepth: false, toneMapScale: 1f);
+            Quad(1f, depth: 0.02f), [new WorldBatch(DecalModulateDark, 0, 6)], Camera(), Identity, Assets, clearDepth: false, toneMapScale: 1f);
 
         (int, int, int) marked = target.PixelAt(8, 8);
 
@@ -431,7 +432,7 @@ public sealed class ModulateToneMapConformanceTests
         (int, int, int) under = target.PixelAt(8, 8);
 
         target.DrawModelPose(
-            Quad(Device3D.DecalModulateLight, away: true), [new WorldBatch(DecalModulateDarkNoCull, 0, 6)], Camera(), Identity, Assets, toneMapScale: 1f);
+            Quad(1f, away: true), [new WorldBatch(DecalModulateDarkNoCull, 0, 6)], Camera(), Identity, Assets, toneMapScale: 1f);
 
         (int, int, int) drawn = target.PixelAt(8, 8);
 
@@ -460,7 +461,7 @@ public sealed class ModulateToneMapConformanceTests
         (int, int, int) wallOnly = target.PixelAt(8, 8);
 
         target.DrawModelPose(
-            Quad(Device3D.DecalModulateLight, depth: 0.02f, away: true),
+            Quad(1f, depth: 0.02f, away: true),
             [new WorldBatch(DecalModulateDarkNoCull, 0, 6)],
             Camera(),
             Identity,
@@ -625,8 +626,8 @@ public sealed class ModulateToneMapConformanceTests
         target.Clear(surface, surface, surface);
 
         // White corners on every route: a DecalModulate decal's are DecalMesh's (VERTEXCOLOR false), and the mod2x
-        // compensation is the material's own diffuse since B639. Kept as the named constant so the two cannot drift.
-        List<WorldVertex> quad = Quad(material is DecalModulateNeutral or DecalModulateDark ? Device3D.DecalModulateLight : 1f);
+        // compensation is the material's own diffuse since B639.
+        List<WorldVertex> quad = Quad(1f);
         float[] camera = Camera();
 
         switch (route)

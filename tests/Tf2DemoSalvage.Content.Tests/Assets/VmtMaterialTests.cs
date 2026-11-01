@@ -31,6 +31,25 @@ public sealed class VmtMaterialTests
         material.BaseTexture.ShouldBe("concrete/concretefloor007b");
     }
 
+    /// <remarks>
+    /// **The flags and the name test are one predicate** (B639 review). The renderer's polygon-offset set and the decal
+    /// mesh's white-texel choice ask <see cref="VmtMaterial.IsDecalModulateShader"/> by name. The unlit diffuse reads the
+    /// flags. Each flag here must agree with the name test.
+    /// </remarks>
+    [TestCase("DecalModulate", true, true, true)]
+    [TestCase("decalmodulate", true, true, true)]
+    [TestCase("Modulate", false, true, false)]
+    [TestCase("UnlitGeneric", false, false, false)]
+    public void IsDecalModulateShader_AShaderName_AgreesWithTheParsedFlags(string shader, bool decalModulate, bool modulate, bool twice)
+    {
+        VmtMaterial material = Parse($"\"{shader}\"{{\"$basetexture\" \"a/b\"}}");
+
+        VmtMaterial.IsDecalModulateShader(shader).ShouldBe(decalModulate);
+        VmtMaterial.IsModulateShader(shader).ShouldBe(modulate);
+        material.IsModulate.ShouldBe(modulate);
+        material.IsModulateTwice.ShouldBe(twice, "DecalModulate is mod2x by construction; plain Modulate without $mod2x is not");
+    }
+
     [Test]
     public void Parse_KeysAreCaseInsensitive()
     {
