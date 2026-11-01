@@ -40251,6 +40251,67 @@ It is tested red-first. It names which thread waited and where the draw had got 
 **Reopen if** the `queue stall` line ever appears in a viewer log, or if this test's hang rate on the branch, measured
 the same way, exceeds the baseline's.
 
+## B651 — the main sequence's per-bone weights are ignored: the base is copied whole, where the engine keeps bind on a weight-0 bone (2026-11-01) — OPEN, unmeasured
+
+Found during B634's review batch (`docs/measurements/2026-11-01-layer-order-plan.md` §4, "Not changed").
+
+- **Valve [src].** `StandardBlendingRules` seeds `pos`/`q` with `InitPose` (bind), then calls
+  `AccumulatePose( pos, q, GetSequence(), fCycle, 1.0, … )` (`c_baseanimating.cpp:1985-1986`). That blends the main
+  sequence in through `SlerpBones` at `s = 1.0` (`bone_setup.cpp:2440`), and `SlerpBones` weights each bone:
+  `pS2[i] = s * seqdesc.weight( i )` (`:1419`), skipping `s2 <= 0` (`:1440`).
+  - A bone the main sequence weights 0 keeps the bind pose.
+  - A bone it weights 0.5 ends halfway between bind and the sequence.
+  - `CalcAnimation` does not even write a weight-0 bone into `pos2` (`:1099`, `:1110`).
+- **Ours [src].** `SkeletonPose.Accumulate` seeds bind only when the base is sparse or the main sequence locks
+  (`SkeletonPose.cs:1043`). It then writes the sampled base over the result whole (`Overlay(basePose, dense, result)`,
+  `:1066`). No per-bone weight of the main sequence is read on this path. The per-bone weight is applied only to
+  layers (`ComposeBone`, `:1227`).
+  - [interp] The sampler (`StudioAnimation.PoseBetweenInto`) reads no sequence weight list either, since none appears
+    in it. So a weight-0 bone takes the animation's value, or for a sparse frame whatever the seed held.
+- **Who could see it [interp].** Only a main sequence whose weight list holds a value below 1. Whether any shipped
+  player, viewmodel or prop main sequence has one is **not measured**.
+- **What would settle it:**
+  - A census of `mstudioseqdesc_t` weight lists over `tf2_misc_dir.vpk`: how many sequences carry any weight below 1,
+    and how many of those are ever a main sequence. Control: gestures must show partial weights, which every TF2 arm
+    gesture does (B284).
+  - Then a synthetic `SkeletonPose` test: a main sequence weighting one bone 0 leaves it at bind.
+
+## B650 — a non-local layer sampled exactly on a frame composes only the bones its sparse sample names; the engine blends every weighted bone (2026-11-01) — OPEN, unmeasured
+
+Found while settling the sparse-local question in B634's review batch (plan doc §9).
+
+- **Valve [src].** `AccumulatePose` samples each sequence into `pos2` through `CalcPoseSingle` → `CalcAnimation`. That
+  writes **every** bone whose `seqdesc.weight` is above 0 (`bone_setup.cpp:1095-1126`):
+  - a bone with a track gets the track's value;
+  - a bone without one gets bind (`q[i] = pbone->quat; pos[i] = pbone->pos;`, `:1119-1120`), or identity for a delta
+    animation (`:1112-1116`).
+  - `SlerpBones` then blends every such bone at `s * seqdesc.weight( i )` (`:1419`, `:1440`). So an untracked
+    weighted bone is pulled toward bind, or for a delta adds identity, which changes nothing.
+- **Ours [src].** `StudioAnimation.PoseBetweenInto` (`StudioAnimation.cs:439`) returns "the frame alone, sparse, when
+  fraction is not above zero" (`:416`), and a dense blend of two frames otherwise. `SkeletonPose.Accumulate` composes
+  a non-local layer with `foreach (StudioBonePose over in sampled) ComposeBone(…)` (`SkeletonPose.cs:1192`). So only
+  the bones the sample names are touched.
+  - **On a frame:** an untracked weighted bone keeps whatever the layers below left.
+  - **Between frames:** the dense sample carries a value for it, and the two paths agree [interp: the dense path's
+    seeding of an untracked bone was not re-read for this entry].
+  - So the same layer can pose a bone differently at exactly frame N and a hair after it.
+- **Not affected:**
+  - The local path, which seeds bind (or identity for delta) before overlaying:
+    `NestedLockBracketConformanceTests.Build_ASparseLocalSampleWithAWeightedUnnamedBone_PullsItHalfwayToBind`.
+  - The base, which is overlaid on a bind seed whenever it is sparse (`:1043`).
+  - A delta layer: identity adds nothing, so skipping the bone agrees [arith].
+- **Who could see it: unmeasured.** It needs all four of these at once [interp]:
+  - a non-delta layer (a wire layer, transition, autolayer or autoplay sequence);
+  - a sample landing exactly on a whole frame (a one-frame sequence, a held frame, or a cycle that lands on a frame);
+  - a bone the animation has no track for but the sequence weights above 0;
+  - a value below that differs from bind.
+  A one-frame aim matrix or pose sequence is the likeliest candidate.
+- **What would settle it:**
+  - A synthetic `SkeletonPose` test: a sparse non-local sample at fraction 0, weighting an untracked bone above 0, over
+    a moved bone. The engine arithmetic predicts a pull toward bind.
+  - Then a census over a real demo: how many composed layers per rebuild are sparse, and how many of those weight an
+    untracked bone above 0. Read off the sample the skeleton actually composed.
+
 ## B642 — a static prop's studio decal takes white corners, but the prop's own light is its baked vertex colour (2026-11-01) — OPEN, interpolated
 
 *Read from our code:* `ModelDecals.Unlit` gives every studio decal white corners on the atlas's white texel (B639
