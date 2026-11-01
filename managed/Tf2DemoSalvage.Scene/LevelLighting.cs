@@ -548,9 +548,9 @@ public sealed class LevelLighting
     /// it never built — *interpolated*: whether `FUN_1801b8350` fills `+0x88` itself is unread. Either way the first draw's
     /// light is the same, and a prop that lists nothing ranks nothing.
     ///
-    /// **`staticState` is the caller's**, because only two draws read `+0x18`: a bump-mapped model's flags 7, and the CPU
-    /// bake of a `$staticprop` without a `.vhv`. *Interpolated:* the engine builds it for every handle; a `.vhv` prop's
-    /// is never read here, and building it would cast that prop's rays for nothing.
+    /// **`staticState` is the caller's**: it reads `+0x18` for a bump-mapped model's flags 7, the CPU bake of a
+    /// `$staticprop` without a `.vhv`, and a colour-mesh prop's decal light (B642, `0x1800eac60` copies it to the record's
+    /// `+0x88` with the colour mesh). *Interpolated:* the engine builds it for every handle.
     /// </remarks>
     public void PrecacheStaticProp(int entity, float x, float y, float z, bool staticState)
     {

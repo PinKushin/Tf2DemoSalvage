@@ -1102,6 +1102,47 @@ public sealed class MomentSceneTests
     }
 
     /// <remarks>
+    /// **And that decal state is built with the colour mesh, at load, not in play** (B642, B607): `engine.dll`
+    /// `0x1800eac60` fills `record + 0x88` from the static state when it builds the colour mesh. A `.vhv` prop's static
+    /// state was never built before B642, so its first draw would cast its rays mid-play.
+    /// </remarks>
+    [Test]
+    public void Pose_AStaticPropWithBakedColours_BuildsItsDecalsStaticStateBeforeTheFirstDraw()
+    {
+        EntityModelSet models = new()
+        {
+            Geometry = _ => new PropModels.ModelFrames(
+                [new[] { new PropVertex(0, 0f, 0f, 0f, 0f, MaterialIndex: 3), new PropVertex(1, 0f, 0f, 0f, 0f, MaterialIndex: 3), new PropVertex(2, 0f, 0f, 0f, 0f, MaterialIndex: 3) }],
+                new Dictionary<int, (int Start, int Frames, float CyclesPerSecond)> { [0] = (0, 1, 0f) },
+                [0],
+                [true])
+            {
+                StudioFlags = Content.Assets.StudioModelFlags.StaticProp,
+            },
+            StaticPropColours = new Dictionary<int, float[]> { [PropModels.FirstStaticPropEntityIndex] = [.. Enumerable.Repeat(0.25f, 9)] },
+        };
+
+        LevelLighting lighting = LevelLightingTests.Lit([LevelLightingTests.Lamp((0f, 0f, 120f), 400f)]);
+        MomentScene scene = new(models, new ViewmodelScene(), new RecordingLogger())
+        {
+            Upload = new Uploads(),
+            Appearance = new Appearance(),
+            Lighting = lighting,
+            StaticProps =
+                [PropModels.StaticModel(new Content.Bsp.BspStaticProp("models/props/dome.mdl", 0f, 0f, 100f, 0f, 0f, 0f, 1f), 0)],
+        };
+
+        scene.Build([], [], Info());
+
+        lighting.StaticStateBuilds.ShouldBe(1, "built as the level's props are packed");
+
+        scene.Pose(Info());
+
+        scene.Instances.ShouldHaveSingleItem().DecalLight.ShouldNotBeNull("the control: the draw read it");
+        lighting.StaticStateBuilds.ShouldBe(1, "the draw read the state built at load");
+    }
+
+    /// <remarks>
     /// **B424 corrected, through the production route.** On DX9 (`engine.dll` `0x1800f1bd0`, hardware config `+0x150`
     /// true) a baked prop KEEPS its colours and draws with `FUN_1801ba590(handle, 6 + bit)`: no static state, plus the
     /// handle's styled lights (`FUN_1801b6bf0`: style nonzero, in PVS, in reach) at their current values. A switched-on
