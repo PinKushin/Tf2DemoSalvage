@@ -210,14 +210,24 @@ public sealed class DecalEffects
     /// <param name="strikes">Which bullets a player stopped.</param>
     /// <param name="render">The render log.</param>
     public DecalEffects(EntityModelSet models, BulletStrikes strikes, ILogger render)
-        : this((IPosedEntities)models, strikes, render)
+        : this(models, strikes, render, models)
     {
-        ArgumentNullException.ThrowIfNull(models);
+    }
+
+    /// <summary>Over posed entities, with the model set that lights static props' decals apart (B642 review 3).</summary>
+    /// <param name="models">The posed entities, for hitboxes and skinning.</param>
+    /// <param name="strikes">Which bullets a player stopped.</param>
+    /// <param name="render">The render log.</param>
+    /// <param name="lighting">The model set whose pose reads this pool and lights its static props' decals.</param>
+    internal DecalEffects(IPosedEntities models, BulletStrikes strikes, ILogger render, EntityModelSet lighting)
+        : this(models, strikes, render)
+    {
+        ArgumentNullException.ThrowIfNull(lighting);
 
         // The pool the device draws, so the model pass lights only a static prop that holds a decal (B642), and the light
         // for one the replay decals after the pose, built once the step is done.
-        models.Decals = _modelDecals;
-        _lightDecalHolders = models.LightDecalHolders;
+        lighting.Decals = _modelDecals;
+        _lightDecalHolders = lighting.LightDecalHolders;
     }
 
     /// <summary>Over any posed entities.</summary>

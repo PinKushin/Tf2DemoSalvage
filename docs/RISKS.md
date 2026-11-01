@@ -40457,10 +40457,32 @@ viewer kept that wrong light. The engine has no such window: the record's static
 
 **Held now:** `Device3D.DrawDecalsOf` makes three calls, each tested in `ModelDecalsDrawTests`: `DecalReplay.KeyOf`,
 `ModelDecals.LightFor` (every slot distinct, so a swapped sun or lamp fails), and `ModelDecals.DrawsAfterTranslucent`
-(the boundary entity, and `Holds` on a model whose only decal was retired). The device counts `StaticPropDecalDraws`
-under a decal light and `StaticPropDecalFallbacks` under the prop's own light. That fallback is right for a bump-mapped
-prop and a defect for a colour-mesh one. It logs the first of each, the fallback worded as one. The load log line is
-per level. The device's calls themselves are still not held. **The entity half is offscreen-only:** no real frame showed a lit
+(the boundary entity, and `Holds` on a model whose only decal was retired). Which light a draw took is
+`ModelDecals.SourceOf`:
+- `DecalLight`;
+- `OwnFullState`, a bump-mapped prop's own light, which is right;
+- `Fallback`, a colour-mesh prop's own flags-6 light, which is the defect.
+
+The device logs the first draw of each kind. The batch-2 counters had no reader and are gone. The first-frame test reads
+the source: `Fallback` before the light is built, `DecalLight` after. The load log line is per level. The device's
+calls themselves are still not held.
+
+**Review batch 3 (branch `fix/b642-review-batch-3`):**
+- **Relight trigger.** The pass relights only when `ModelDecals.StaticPropVersion` moved. It advances when a static
+  prop's decals are kept, retired or cleared. A player's decal, heal, über, class change or cloak changes `Version`,
+  not this.
+- **A swapped pool is always lit.** The `Decals` setter resets the last-lit version.
+- **No allocation per pass.** The keys come through `ModelDecals.StaticPropHolders` into a reused list, and the lights
+  go through a reused list into `SetLateLights(List<…>)`.
+- **The key inverse is shared.** `DecalReplay.StaticPropOf` inverts `StaticPropKey` and runs only after `IsStaticPropKey`.
+- **The pose's light wins** over a stale late one.
+- **Held.** Each of these went red under its mutant: relighting on `Version`; no reset in the setter; a list allocated
+  per pass; the `??` order swapped.
+- **The step lights after it places.** `DecalEffectsTests…LeavesItsDecalLitForTheFirstDraw` steps a frame that places
+  a colour-mesh prop's decal. It asserts the late light right after. It went red with the lighting call moved above the
+  steps, which is the bug B642 fixed.
+- **The size pin is two-sided.** The field is a reference, and `Unsafe.SizeOf<ModelInstance>()` is at most 432 + one
+  pointer. **The entity half is offscreen-only:** no real frame showed a lit
 decal on a dynamic model. Blood is DecalModulate, and wood holes land on props.
 
 **State after a decal in the translucent walk (read, not tested):** every step that can follow sets its own blend and
@@ -40473,7 +40495,7 @@ state goes back by `DrawDecalsOf`'s argument.
 - The 3D sky draws them: opaque props through `DrawSkyRenderables` → `DrawOpaqueRenderable`, and since the review batch a
   fading one-pass prop in the sky loop too.
 - **A fading prop's hole is drawn unfaded.** Ours draws the decal at full alpha after a half-faded prop. *Unread:*
-  whether studiorender modulates a decal's alpha by the model's. The read was blocked twice (review batches 1 and 2).
+  whether studiorender modulates a decal's alpha by the model's. The read was blocked three times (review batches 1 to 3).
   Port 8089 was held by another agent's `shaderapidx9` Ghidra server, and opening a program in it would move that
   agent's current program.
 - *Unread:* whether studiorender's `DrawModelStaticProp` (slot 30) reads `+0x44/+0x8c` exactly as slot 31 does.

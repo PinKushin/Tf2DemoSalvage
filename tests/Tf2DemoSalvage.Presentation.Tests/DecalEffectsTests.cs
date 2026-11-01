@@ -178,7 +178,6 @@ public sealed class DecalEffectsTests
 
         device.ModelDecals.ShouldNotBeNull("the control: the step handed the device its pool");
         models.Decals.ShouldBeSameAs(device.ModelDecals);
-        models.DecalLightPasses.ShouldBe(1, "the step lights the decals it placed after the pose, before the draw");
     }
 
     [Test]
@@ -507,6 +506,63 @@ public sealed class DecalEffectsTests
             [(1f, 1f, 1f)],
             "studiorender's decal corners are white (0x1800096c0); the light comes from the draw (B642)");
         decals.ModelDecalCount.ShouldBe(1, "one pool for every model: the prop's decal is held with the players'");
+    }
+
+    /// <remarks>
+    /// **The light is built AFTER the step places the decal** (B642 review 3): the replay places a static prop's decal in
+    /// this step, after the frame's pose, so the late light must be built after it. Built before, the pool held no decal
+    /// and the prop's first draw took its own flags-6 light, which is the defect B642 fixed. A colour-mesh prop at lump 0,
+    /// its origin recorded at load, and one client bullet that stops on it.
+    /// </remarks>
+    [Test]
+    public void StepOver_AClientBulletAColourMeshPropStopped_LeavesItsDecalLitForTheFirstDraw()
+    {
+        AmbientCube cube = new((0.1f, 0.2f, 0.3f), default, default, default, default, default);
+        EntityModelSet models = new()
+        {
+            Geometry = _ => new PropModels.ModelFrames(
+                [new[] { new PropVertex(0, 0f, 0f, 0f, 0f, MaterialIndex: 3), new PropVertex(1, 0f, 0f, 0f, 0f, MaterialIndex: 3), new PropVertex(2, 0f, 0f, 0f, 0f, MaterialIndex: 3) }],
+                new Dictionary<int, (int Start, int Frames, float CyclesPerSecond)> { [0] = (0, 1, 0f) },
+                [0],
+                [true])
+            {
+                StudioFlags = Tf2DemoSalvage.Content.Assets.StudioModelFlags.StaticProp,
+            },
+            StaticPropColours = new Dictionary<int, float[]> { [PropModels.FirstStaticPropEntityIndex] = [.. Enumerable.Repeat(0.25f, 9)] },
+            StaticPropFullLighting = (_, _, _, _) => (PointLighting.Bounce(cube), null),
+            StaticProps = [PropModels.StaticModel(new BspStaticProp("models/props/crate.mdl", 0f, 0f, 100f, 0f, 0f, 0f, 1f), 0)],
+        };
+
+        models.Add([]);
+
+        // The posing is the fixture's, with nobody in the bullet's way; the lighting is the production model set's.
+        (_, _, FakePosedEntities posed, _) = Presenter();
+        posed.Fractions.Clear();
+        DecalEffects decals = new(posed, new BulletStrikes(posed, new RecordingLogger()), new RecordingLogger(), models);
+        FakeDecalUpload device = new();
+        DecalAssets assets = Assets() with
+        {
+            Shaders = [string.Empty, string.Empty, string.Empty, string.Empty, string.Empty, string.Empty, "DecalModulate"],
+            PlacedProps = new Dictionary<int, PlacedProp>
+            {
+                [0] = new PlacedProp(
+                    new PropShape(
+                        [new Vector3(0f, 2f, 0f), new Vector3(0f, 0f, 2f), new Vector3(0f, -2f, -2f)],
+                        [Vector3.UnitX, Vector3.UnitX, Vector3.UnitX]),
+                    PropTransform.Identity),
+            },
+        };
+        ShotImpact onTheProp = new(0, 0, 50, Shooter, Red, (100f, 0f, 0f), (0f, 0f, 0f), (-900f, 0f, 0f), -1, Normal: (1f, 0f, 0f))
+        {
+            StaticProp = 0,
+        };
+
+        decals.StepOver(
+            Frame(50), new DecalContent(new DecalMap(Empty, [onTheProp], Decals(), SolidBrushEntities.None, assets), Surfaces, Scripts), device);
+
+        ModelDecals pool = device.ModelDecals.ShouldNotBeNull();
+        pool.Holds(DecalReplay.StaticPropKey(0)).ShouldBeTrue("the control: this step placed the prop's decal");
+        pool.LateLightOf(DecalReplay.StaticPropKey(0)).ShouldNotBeNull("lit after the step placed it").Cube.ShouldBe(cube);
     }
 
     [Test]
