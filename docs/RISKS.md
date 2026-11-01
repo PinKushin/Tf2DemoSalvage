@@ -40263,7 +40263,18 @@ check to the fallback that could never fire (every group −1) and claimed parit
 dead code reading as delivered. **The fix** is to give the uploaded runs their groups (split per material AND group), or
 to feed the water views' translucent world from the cull. Not small.
 
-## B639 — `ctf_crasher`'s scorch `func_brush` LIGHTENS the floor in ours where TF2 darkens it (2026-10-31) — OPEN, lead
+## B639 — `ctf_crasher`'s scorch `func_brush` LIGHTENS the floor in ours where TF2 darkens it (2026-10-31) — FIXED (branch `fix/b639-brush-entity-scorch`, 2026-11-01); the title's direction was a misread
+
+**Resolution (measured, 2026-11-01; full account in findings 18, "A modulating material reads no light").** Ours
+never lightened the floor. A signed count over `sbs-crasher-scorch-off-on.png` itself gives 13,422 px darker and 95
+lighter. At the same tick, with the brush hidden as the control, ours darkens too. The actual divergence was how
+strongly it darkened. The model pass lit the brush entity's DecalModulate face with the lightmap white texel (an
+effective diffuse of 2.03, measured by ratio). The linear blend needs 2^2.2/2 to reproduce Valve's gamma `dst · 2s`.
+TF2 live on/off (`D:/measure-f12/decal-cmp/b639/tf2-live-z300-*.png`) leaves the alpha-0 surround at 1.000. Ours was
+0.87 and is now 1.000. The scorch interior is still about 10% darker than TF2 with fog off. Fog is B637. Before, after
+and TF2: `D:/measure-f12/decal-cmp/b639/sbs-b639-before-after-tf2.png`. Held by `ModulateUnlitConformanceTests`.
+
+**As filed:**
 
 **Observed (pictures; images under `D:/measure-f12/decal-cmp/owner/`):** `ctf_crasher` carries four `func_brush`
 entities (`gatescorch_red`/`_blu`, `scorch_red`/`_blu`, `StartDisabled=1`) whose top face is `decals/scorch1`, a
@@ -40278,7 +40289,13 @@ Not isolated: the two ticks also differ in time, and the demo's first ticks may 
 **Next:** shoot one tick with the brush hidden through its own entity (or `r_drawentities 0`) and once shown, and
 read the light the model pass gives a brush entity's DecalModulate run.
 
-## B638 — a plain (non-`$mod2x`) Modulate draws about twice too bright in linear terms: it is lit, Valve's is not (2026-10-31) — OPEN
+## B638 — a plain (non-`$mod2x`) Modulate draws about twice too bright in linear terms: it is lit, Valve's is not (2026-10-31) — FIXED with B639 (branch `fix/b639-brush-entity-scorch`, 2026-11-01)
+
+**Same root as B639:** a modulating material now takes an unlit diffuse (`WorldRenderer.UnlitDiffuseOf`), 1 for plain
+Modulate. Texel 128 over 188 drew 129 and now draws about 94 on a model and on brushwork (`ModulateUnlitConformanceTests`,
+red first). The `$mod2x` brush case moved from 112 to 120 against Valve's 116, inside the test's ±5.
+
+**As filed:**
 
 **Measured (offscreen, `ModulateToneMapConformanceTests`' hand-built material):** a plain Modulate of texel 128 over a
 188 surface draws 129. Valve multiplies in gamma, `dst · src` (`DST_COLOR, ZERO`, `modulate_dx9.cpp:147`), so
