@@ -113,9 +113,10 @@ inside the bracket and now covers both passes: `[S, S's local subtree (Local lay
     solve. `S`'s bracket captures on the parent target BEFORE the sample (`:2424-2429`), as today.
   - Scratch buffers are per depth, allocated on first use and kept, like `Bracket(depth)`, so steady state allocates
     nothing.
-  - **At `S` weight 0 the local range is skipped**: `pos2` is discarded by a `SlerpBones` at 0, so this is
-    result-identical (marked as an equivalent mutant). The IK rules of those layers are still gathered scene-side, as
-    Valve's `AddDependencies` runs regardless.
+  - **At `S` weight 0 the local range is skipped**: `pos2` is discarded by a `SlerpBones` at 0, so skipping is Valve's
+    result. (Not an equivalent mutant, as first written here: without the skip the subtree would compose onto the parent
+    target, since no own pose was opened. `Build_AZeroWeightLayerWithALocalLayer_ComposesNeither` holds it.) The IK rules
+    of those layers are still gathered scene-side, as Valve's `AddDependencies` runs regardless.
 - **Seed**: bind, Valve's `InitPose`. For a `STUDIO_DELTA` local sequence the engine would compose a pose whose
   un-animated bones are bind, not identity; the census found no such sequence, so the literal port is exact on the
   content and stated as such.
@@ -163,4 +164,22 @@ inside the bracket and now covers both passes: `[S, S's local subtree (Local lay
 
 ## 8. Result
 
-(Filled in after the change.)
+- **Red first [meas]**: `BuildBlend_TwoSequencesFadingAtOnce_AccumulatesTheNewerFirst` got `[1, 2]`;
+  `LayersFor_ALocalWireLayerWithALocalAutolayer_*` got `[(1, 0.5, 0, 0)]` (no local layer at all); the skeleton's
+  `Build_AHalfWeightLayerWithALocalLayer_*` got 8 (predicted flat value 8, Valve 4) and
+  `Build_ALockingLocalLayer_*` got 6.0000005 (predicted 6, Valve 0). The control
+  `BuildBlend_ALocalMainSequenceWithALocalAutolayer_AccumulatesIt` and `…WithNothingLocal…` passed before and after.
+- **Green after**, none of those tests edited. Sabotage by hand, each restored by the inverse edit:
+  `fading.Reverse()` back → the B633 test alone; `Local = 0` in the builder → the local wire-layer test alone; the
+  own-pose blend at weight 1 → `Build_AHalfWeightLayerWithALocalLayer_*` alone; the capture on the accumulator instead of
+  the target → `Build_ALockingLocalLayer_*` alone; `skipThrough = index` → `Build_AZeroWeightLayerWithALocalLayer_*` alone.
+- **What changed in the structure**: the old per-layer path composed onto `result` only and `CloseBrackets` solved on
+  `result` only. Now every scope carries the pose it acts on (`OpenScope.On`), and a local scope carries its parent
+  (`Into`). The per-bone compose is one method (`ComposeBone`) used by both the layer pass and the own-pose blend; the
+  bind seed (`SeedBind`) and the sample overlay (`Overlay`) are one method each, used by the base and the own pose.
+- **Timers**: the own pose's seed and overlay land in `seed` (the span already named "the rest seed and the base's copy or
+  overlay"); its sample in `layer sampling`; its blend at the close in `compose`. On a player nothing changes, because no
+  player sequence is local.
+- **Shots: none taken.** No player pixel can change from B634 (§3), and both changes need a transition queue that a cold
+  `--tick` build never fills. A B633 shot would need a tick where a player has two transitions in flight, which no
+  instrument here counts; the conformance test is the evidence.

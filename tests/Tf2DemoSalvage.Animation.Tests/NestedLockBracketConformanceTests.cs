@@ -125,19 +125,98 @@ public sealed class NestedLockBracketConformanceTests
         TipY(pose).ShouldBe(0f, Tolerance, "SlerpBones skips every bone at s2 <= 0");
     }
 
+    /// <remarks>
+    /// **B634: a local layer composes into its parent's OWN pose, which is then blended at the parent's weight.**
+    /// `AccumulatePose` seeds `pos2` with `InitPose`, samples the parent into it, runs `AddLocalLayers( pos2, … 1.0 … )` and
+    /// only then `SlerpBones( q, pos, …, q2, pos2, flWeight )` (`bone_setup.cpp:2433-2440`). Parent 1 at 0.5 puts the root at
+    /// 4; its local layer 2 at 1 puts it at 8, inside `pos2`. Blended: 0.5 · 0 + 0.5 · 8 = 4. Flat — the layer composed onto
+    /// the accumulator after its parent — gives 0.5 · 4 = 2 then 8.
+    /// </remarks>
+    [Test]
+    public void Build_AHalfWeightLayerWithALocalLayer_BlendsItsOwnLayeredPose()
+    {
+        SkeletonPose pose = Pose(rootY: new() { [1] = 4f, [2] = 8f });
+        pose.Layers =
+        [
+            Layer(1, weight: 0.5f, locks: false, nested: 1, local: 1),
+            Layer(2, weight: 1f, locks: false),
+        ];
+
+        TipY(pose).ShouldBe(4f, Tolerance, "the local layer is inside the half-weight blend, not over it");
+    }
+
+    /// <remarks>
+    /// **At weight 0 the parent's own pose is discarded, local layers and all**: `SlerpBones` skips every bone at
+    /// `s2 &lt;= 0` (`bone_setup.cpp:2440`), so the local layer's 8 never reaches the accumulator and the tip stays at 0.
+    /// </remarks>
+    [Test]
+    public void Build_AZeroWeightLayerWithALocalLayer_ComposesNeither()
+    {
+        SkeletonPose pose = Pose(rootY: new() { [1] = 4f, [2] = 8f });
+        pose.Layers =
+        [
+            Layer(1, weight: 0f, locks: false, nested: 1, local: 1),
+            Layer(2, weight: 1f, locks: false),
+        ];
+
+        TipY(pose).ShouldBe(0f, Tolerance);
+    }
+
+    /// <remarks>The control: the same two layers with `Local` 0 compose flat, and the second's 8 stands.</remarks>
+    [Test]
+    public void Build_AHalfWeightLayerWithNothingLocal_LetsTheNextLayerComposeOverIt()
+    {
+        SkeletonPose pose = Pose(rootY: new() { [1] = 4f, [2] = 8f });
+        pose.Layers =
+        [
+            Layer(1, weight: 0.5f, locks: false, nested: 1),
+            Layer(2, weight: 1f, locks: false),
+        ];
+
+        TipY(pose).ShouldBe(8f, Tolerance);
+    }
+
+    /// <remarks>
+    /// **A local layer's bracket captures and solves on the parent's own pose, not on the accumulator.** Layer 3 moves the
+    /// accumulator's root to 6. Parent 1 animates no bone, so its own pose is the bind pose (root 0); its local layer 2
+    /// locks, captures the tip at 0 there, moves the root to 8 and pins the tip back to 0. Parent 1 weighs every bone at 1,
+    /// so the blend takes its pose whole: tip 0. Captured on the accumulator instead, the lock would pin to 6.
+    /// </remarks>
+    [Test]
+    public void Build_ALockingLocalLayer_PinsToWhatItsParentsOwnPoseHeld()
+    {
+        SkeletonPose pose = Pose(rootY: new() { [3] = 6f, [2] = 8f });
+        pose.Layers =
+        [
+            Layer(3, weight: 1f, locks: false),
+            Layer(1, weight: 1f, locks: false, nested: 1, local: 1) with { BoneWeights = [1f, 1f, 1f, 1f] },
+            Layer(2, weight: 1f, locks: true),
+        ];
+
+        TipY(pose).ShouldBe(0f, Tolerance, "the lock captured on the parent's own bind-seeded pose");
+    }
+
     /// <summary>The leg, whose base (sequence 0) is the rest pose and whose layer sequences each place the root.</summary>
+    /// <remarks>A sequence not in <paramref name="rootY"/> animates no bone at all.</remarks>
     private static SkeletonPose Pose(Dictionary<int, float> rootY) =>
-        new(Bones(), (sequence, _, _, _) =>
-            sequence == 0
-                ? Rest()
-                : [new StudioBonePose(0, (0f, rootY.GetValueOrDefault(sequence), 0f), (0f, 0f, 0f, 1f))])
+        new(Bones(), (sequence, _, _, _) => Sample(sequence, rootY))
         {
             Sequence = 0,
             IkChains = Chains(),
         };
 
-    private static PoseLayer Layer(int sequence, float weight, bool locks, int nested = 0) =>
-        new(sequence, 0, 0f, weight, [1f, 0f, 0f, 0f], Locks: locks ? [Lock()] : null, Nested: nested);
+    private static StudioBonePose[] Sample(int sequence, Dictionary<int, float> rootY)
+    {
+        if (sequence == 0)
+        {
+            return Rest();
+        }
+
+        return rootY.TryGetValue(sequence, out float y) ? [new StudioBonePose(0, (0f, y, 0f), (0f, 0f, 0f, 1f))] : [];
+    }
+
+    private static PoseLayer Layer(int sequence, float weight, bool locks, int nested = 0, int local = 0) =>
+        new(sequence, 0, 0f, weight, [1f, 0f, 0f, 0f], Locks: locks ? [Lock()] : null, Nested: nested, Local: local);
 
     private static StudioIkLock Lock() => new(Chain: 0, PositionWeight: 1f, LocalRotationWeight: 0f, Flags: 0);
 

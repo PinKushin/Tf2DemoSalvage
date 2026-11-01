@@ -225,6 +225,93 @@ public sealed class AccumulatePoseConformanceTests
             [3, 2, 1, 0, 4, 3, 2, 1, 0], "and the overlay root with four levels below it");
     }
 
+    /// <remarks>
+    /// **B633: the NEWEST fading sequence is accumulated first.** `CheckForSequenceChange` appends each outgoing sequence
+    /// with `AddToTail` (`sequence_Transitioner.cpp:64`) and `MaintainSequenceTransitions` walks
+    /// `for (i = Count() - 2; i >= 0; i--)` (`c_baseanimating.cpp:1848`). The entity plays 1, then 2 at 0.05 s, then 0 at
+    /// 0.1 s: both outgoing sequences are inside their 0.2 s windows, 2 left last, so 2 comes before 1. No autolayers, so
+    /// nothing interleaves.
+    /// </remarks>
+    [Test]
+    public void BuildBlend_TwoSequencesFadingAtOnce_AccumulatesTheNewerFirst()
+    {
+        EntityModelSet models = new();
+        List<SceneProp> drawn = [Playing(Parent)];
+        Dictionary<int, StudioAutoLayer[]> none = [];
+
+        models.Add(drawn, _ => Model(none, ("a", 0), ("b", 0), ("c", 0)));
+        models.Instances(drawn, [], seconds: 0d);
+
+        drawn[0] = Playing(Child);
+        models.Instances(drawn, [], seconds: 0.05d);
+
+        drawn[0] = Playing(0);
+        models.Instances(drawn, [], seconds: 0.1d);
+
+        IReadOnlyList<(int Sequence, float Weight, int Nested)> shape = Shape(models.LayersOf(4));
+
+        shape.Select(layer => layer.Sequence).ShouldBe([Child, Parent], "newest first, as the engine walks its queue");
+        shape[0].Weight.ShouldBeGreaterThan(shape[1].Weight, "the control: the newer has faded less");
+    }
+
+    /// <remarks>
+    /// **B634: a `STUDIO_LOCAL` overlay brings its local autolayer** — `AccumulatePose` runs `AddLocalLayers( pos2, q2, …,
+    /// 1.0, … )` for every sequence (`bone_setup.cpp:2439`). Sequence 1 is local and declares an unwindowed
+    /// `STUDIO_AL_LOCAL` autolayer over 2; played as a networked layer at 0.5, 2 follows inside it at weight ONE — Valve's
+    /// literal, composed into 1's own pose before 1 is blended at 0.5 — and `Local` says 2 belongs to that pass.
+    /// </remarks>
+    [Test]
+    public void LayersFor_ALocalWireLayerWithALocalAutolayer_AccumulatesItIntoItsOwnPoseAtWeightOne()
+    {
+        EntityModelSet models = new();
+        SceneProp[] props =
+        [
+            new(
+                9,
+                "models/props_gameplay/resupply_locker.mdl",
+                ScenePropTrack.Classify("models/props_gameplay/resupply_locker.mdl"),
+                new ScenePose
+                {
+                    Sequence = 0,
+                    Layers = [new SceneAnimationLayer(Order: 0, Sequence: Parent, Cycle: 0.25f, Weight: 0.5f)],
+                },
+                null),
+        ];
+
+        models.Add(props, _ => Model(LocalOnParent, ("a", 0x0001), ("b", 0x0001 | Local), ("c", 0x0001)));
+        models.Instances(props, [], seconds: 1d);
+
+        models.LayersOf(9).ShouldNotBeNull()
+            .Select(layer => (layer.Sequence, layer.Weight, layer.Local, layer.Nested))
+            .ShouldBe([(Parent, 0.5f, 1, 1), (Child, 1f, 0, 0)]);
+    }
+
+    /// <remarks>
+    /// **The control for the test above**: the same local autolayer under the MAIN sequence was accumulated before B634,
+    /// so a main sequence 1 shows 2. If this fails the synthetic flags never reached `IsLocal` and the test above proves
+    /// nothing.
+    /// </remarks>
+    [Test]
+    public void BuildBlend_ALocalMainSequenceWithALocalAutolayer_AccumulatesIt()
+    {
+        EntityModelSet models = new();
+        List<SceneProp> drawn = [Playing(Parent)];
+
+        models.Add(drawn, _ => Model(LocalOnParent, ("a", 0), ("b", Local), ("c", 0)));
+        models.Instances(drawn, [], seconds: 0.25d);
+
+        models.LayersOf(4).ShouldNotBeNull().Select(layer => (layer.Sequence, layer.Weight)).ShouldBe([(Child, 1f)]);
+    }
+
+    /// <summary>`STUDIO_LOCAL` (<c>studio.h</c>), spelled out because the Content assembly keeps its own internal.</summary>
+    private const int Local = 0x0200;
+
+    /// <summary>Sequence 1 declares an unwindowed `STUDIO_AL_LOCAL` autolayer over 2.</summary>
+    private static readonly Dictionary<int, StudioAutoLayer[]> LocalOnParent = new()
+    {
+        [Parent] = [new StudioAutoLayer(Child, 0, StudioAutoLayerFlags.Local, 0f, 0f, 0f, 0f)],
+    };
+
     private static IReadOnlyList<(int Sequence, float Weight, int Nested)> Shape(IReadOnlyList<PoseLayer>? layers) =>
         [.. layers.ShouldNotBeNull().Select(layer => (layer.Sequence, layer.Weight, layer.Nested))];
 

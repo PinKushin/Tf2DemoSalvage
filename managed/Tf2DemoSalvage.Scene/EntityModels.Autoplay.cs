@@ -239,10 +239,11 @@ public sealed partial class EntityModelSet
     /// gesture's autolayers and a fading run's aim matrices are accumulated, each nested inside its parent's bracket.
     /// `PoseLayer.Nested` writes that nesting into the flat list; the skeleton closes the bracket after it.
     ///
-    /// **Not ported: `AddLocalLayers` for a sequence other than the main one** (`:2439`). The local pass composes into the
-    /// sequence's own `pos2` before `SlerpBones` blends it at `flWeight`, which a flat list reproduces only at weight one
-    /// — the main sequence's case. `STUDIO_LOCAL` is on 48 shipped sequences; the census printed two, both viewmodel arms,
-    /// and the other 46 are not listed (B634).
+    /// **And its local pass, for every sequence** (B634): `AddLocalLayers` composes into the sequence's own `pos2` before
+    /// `SlerpBones` blends it at `flWeight` (`:2433-2440`). `PoseLayer.Local` marks those layers and the skeleton composes
+    /// them into a pose of the layer's own. All 48 shipped `STUDIO_LOCAL` sequences are viewmodel arms (`sequence-flags`,
+    /// 2026-11-01), so this reaches a viewmodel fading out of one; the main sequence's local pass stays in `BuildBlend`,
+    /// where the base IS that sequence's own pose.
     /// </remarks>
     private static void AccumulatePose(
         PropModels.SkinnedModel skinned,
@@ -275,9 +276,15 @@ public sealed partial class EntityModelSet
             Post: skinned.IsPost(sequence),
             Locks: skinned.LocksOf(sequence)));
 
+        // **`AddLocalLayers( pos2, q2, …, 1.0, … )` first** (`bone_setup.cpp:2439`, B634): into the sequence's own pose at a
+        // literal weight of one, before that pose is blended in at `flWeight`. `Local` tells the skeleton which of the
+        // following layers belong to that pose; it returns at once for a sequence without `STUDIO_LOCAL` (`:2229`).
+        AutoLayersFor(skinned, sequence, cycle, 1f, values, local: true, budget, seconds, layers);
+        int local = layers.Count - at - 1;
+
         AutoLayersFor(skinned, sequence, cycle, weight, values, local: false, budget, seconds, layers);
 
-        layers[at] = layers[at] with { Nested = layers.Count - at - 1 };
+        layers[at] = layers[at] with { Nested = layers.Count - at - 1, Local = local };
     }
 
     /// <summary>Where a pose-driven autolayer sits in its parameter's own range.</summary>
@@ -376,7 +383,7 @@ public sealed partial class EntityModelSet
     /// <param name="sequence">The sequence it is playing now.</param>
     /// <param name="cycle">Where that sequence's cycle stands.</param>
     /// <param name="seconds">Demo time now.</param>
-    /// <returns>A layer per sequence still fading, oldest first.</returns>
+    /// <returns>A root per sequence still fading, the most recently left first, as the engine accumulates them.</returns>
     /// <remarks>
     /// **`CSequenceTransitioner` and `MaintainSequenceTransitions` together**
     /// (`sequence_Transitioner.cpp:17` and `c_baseanimating.cpp:1815`). Without them every sequence
@@ -554,10 +561,12 @@ public sealed partial class EntityModelSet
             fading.Add(new FadingRoot(leaving.Sequence, clamped, at, part, weight));
         }
 
-        // Oldest first, because the engine walks its queue from the front and each accumulates onto
-        // the last — and the loop above ran backwards so it could remove as it went.
-        fading.Reverse();
-
+        // **Newest first, which is the order the loop above already walks** (B633). `CheckForSequenceChange` appends
+        // each outgoing sequence with `AddToTail` (`sequence_Transitioner.cpp:64`), and `MaintainSequenceTransitions`
+        // accumulates `for (i = Count() - 2; i >= 0; i--)` (`c_baseanimating.cpp:1848`) — from the one that left last
+        // down to the oldest, each a partial slerp onto the result of the one before. Our queue holds only the outgoing
+        // sequences, so our `Count - 1` is the engine's `Count() - 2`. This used to `Reverse()` under a comment saying the
+        // engine walks from the front, which it does not in any of the four SDK trees.
         return fading;
     }
 

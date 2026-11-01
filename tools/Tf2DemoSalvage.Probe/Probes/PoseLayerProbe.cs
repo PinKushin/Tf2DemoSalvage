@@ -101,6 +101,8 @@ public sealed class PoseLayerProbe : IProbe
         int mainParents = 0;
         int mainShown = 0;
         Dictionary<string, (int Count, int FirstTick, int Entity)> byParent = new(StringComparer.Ordinal);
+        Dictionary<int, (int Sequence, int ChangedAt)> lastMain = [];
+        int doubles = 0;
 
         for (int tick = from; tick <= to; tick++)
         {
@@ -128,6 +130,28 @@ public sealed class PoseLayerProbe : IProbe
                 }
 
                 playerTicks++;
+
+                // **B633: where two fading sequences can be in flight.** A PROXY, read off `FrameOf` rather than the
+                // transition queue, which nothing public carries: two main-sequence changes inside 0.2 s (TF2's usual
+                // fade window). It only PICKS the tick; the layer list printed beside it is what shows the fading roots.
+                int now = models.FrameOf(entity)?.Sequence ?? -1;
+
+                if (lastMain.TryGetValue(entity, out (int Sequence, int ChangedAt) seen) &&
+                    seen.Sequence != now)
+                {
+                    if ((tick - seen.ChangedAt) * timeline.IntervalPerTick < 0.2 && doubles++ < 5)
+                    {
+                        output.WriteLine(
+                            string.Create(CultureInfo.InvariantCulture, $"two changes inside 0.2 s: tick {tick}"));
+                        Describe(output, models, skinned, prop, layers);
+                    }
+
+                    lastMain[entity] = (now, tick);
+                }
+                else if (!lastMain.ContainsKey(entity))
+                {
+                    lastMain[entity] = (now, int.MinValue / 2);
+                }
 
                 // **The control** (the B624 review): a main sequence that declares autolayers — `stand_PRIMARY` →
                 // `PRIMARY_aimmatrix_idle` — must show one of its targets in the list, which was already true before B624.
@@ -184,6 +208,11 @@ public sealed class PoseLayerProbe : IProbe
                 $"{Path.GetFileName(path)} ticks {from}..{to}: {playerTicks} player-ticks, {layersSeen} layers, " +
                 $"{brackets} with locks; {parents} layers declare non-local autolayers, {directChildren} direct children " +
                 $"nested under them"));
+
+        output.WriteLine(
+            string.Create(
+                CultureInfo.InvariantCulture,
+                $"B633 proxy: {doubles} main-sequence changes came within 0.2 s of the entity's previous change"));
 
         // Pass/fail rather than a number to read: the main sequences' autolayers were built before B624, so seeing none
         // of them, or no parent at all, says the instrument is broken rather than the subject.
