@@ -474,8 +474,8 @@ public sealed class DecalEffectsTests
         entityBatches.ShouldHaveSingleItem().MaterialIndex.ShouldBe(6, "decals/concrete/shot1, the prop's own decal run");
         vertices.Length.ShouldBe(entityBatches[0].VertexCount);
         vertices.Select(static vertex => (vertex.Red, vertex.Green, vertex.Blue)).Distinct().ShouldBe(
-            [(Render.Device3D.ModulateTwiceLight, Render.Device3D.ModulateTwiceLight, Render.Device3D.ModulateTwiceLight)],
-            "a mod2x decal's corners carry the pipeline's light");
+            [(Render.Device3D.DecalModulateLight, Render.Device3D.DecalModulateLight, Render.Device3D.DecalModulateLight)],
+            "a DecalModulate decal's corners carry the white its shader ignores; the mod2x compensation is the material's (B639)");
         decals.ModelDecalCount.ShouldBe(1, "one pool for every model: the prop's decal is held with the players'");
     }
 

@@ -1515,9 +1515,12 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             // (vertexlit_and_unlit_generic_ps2x.fxc:344-348). No lightmap, no colour mesh, no cube, no sun, no lamp:
             // a static prop's baked colours multiplied into an UnlitGeneric card were light the engine never reads.
             // The vertex colour below is the `bVertexColor` half and still applies.
+            //
+            // **The diffuse is combine.w itself**: 1 for UnlitGeneric and plain Modulate, the gamma blend's compensation for
+            // DecalModulate and `$mod2x` (B639, `UnlitDiffuseOf`).
             if (combine.w > 0.5f)
             {
-                light = float3(1.0f, 1.0f, 1.0f);
+                light = combine.www;
             }
 
             // **mat_fullbright, and it is a texture SUBSTITUTION in the engine rather than a
@@ -1630,7 +1633,9 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             {
                 albedo.rgb = float3(0.2158605f, 0.2158605f, 0.2158605f);
             }
-            else if (surfaceColours.w > 0.5f)
+            // Not for an unlit material (combine.w): the substitution is the LIGHTMAP texture, which an unlit shader never
+            // samples, so a mod2x decal's compensation must survive it (B639).
+            else if (surfaceColours.w > 0.5f && combine.w < 0.5f)
             {
                 // **OverbrightScale, not one, and the measurement is what said so.** Substituting
                 // the RESULT with 1 made a lit wall DARKER — (255,180,4) against (255,255,8) —
@@ -3611,7 +3616,8 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             // **An unlit shader reads no light, and a model shader's `$color` is a gamma colour** (B514;
             // `ModelMaterialShading`). The first rides to the pixel shader in combine.w; the second is applied where
             // the constants are written, after the proxies, since a proxy writes the same gamma colour.
-            float unlit = ModelMaterialShading.TakesDiffuseLighting(shader) ? 0f : 1f;
+            // A modulating material is unlit too, at the diffuse that reproduces its gamma blend (B639, B638).
+            float unlit = UnlitDiffuseOf(surface, shader);
 
             _convertsModulation.Add(ModelMaterialShading.ConvertsModulation(shader));
 
@@ -6355,19 +6361,43 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
         }
     }
 
-    /// <summary>The vertex light a mod2x decal's corners carry so this pipeline reproduces the engine's blend (B415).</summary>
+    /// <summary>The diffuse a mod2x material is drawn with so this pipeline reproduces the engine's blend (B415, B639).</summary>
     /// <remarks>
     /// **The engine's mod2x multiplies GAMMA values**: `DecalModulate` reads its texture with `EnableSRGBRead( false )`
-    /// and writes with `EnableSRGBWrite( false )`, so the framebuffer's stored value becomes `dst · 2s`, and a texel of
-    /// 128 leaves the wall unchanged. This renderer blends in LINEAR space — the target view is sRGB — and samples the
-    /// texture decoded, so the same equation in linear terms is `dst_lin · (2s)^2.2 = dst_lin · 2^2.2 · s_lin`. The
-    /// blend supplies one factor of two; the shader lights an unlit corner from the white texel at `OverbrightScale`,
-    /// which is another; this carries what is left, `2^2.2 / 2 / 2`.
+    /// and writes with `EnableSRGBWrite( false )` (DecalModulate_dx9.cpp:74-75), so the framebuffer's stored value becomes
+    /// `dst · 2s`, and a texel of 128 leaves the wall unchanged. This renderer blends in LINEAR space — the target view is
+    /// sRGB — and samples the texture decoded, so the same equation in linear terms is
+    /// `dst_lin · (2s)^2.2 = dst_lin · 2^2.2 · s_lin`. The blend supplies one factor of two; this is the rest, `2^2.2 / 2`.
     ///
-    /// *Arithmetic, on the sRGB curve's 2.2 approximation.* A texel above about 0.68 would brighten past what an
+    /// **It is not light.** Neither modulating shader reads any (`STATIC_LIGHT_LIGHTMAP 0`, `NUM_LIGHTS 0`,
+    /// `VERTEXCOLOR false`, DecalModulate_dx9.cpp:89 and :184-191), so it rides in the material's unlit diffuse
+    /// (<see cref="UnlitDiffuseOf"/>) and reaches every path alike. Until B639 it was a decal's vertex colour times the
+    /// lightmap's white texel, and a brush entity, which has no such vertex colour, drew at 2.0 instead.
+    ///
+    /// *Arithmetic, on the sRGB curve's 2.2 approximation:* exact at 128; the linear blend's error grows toward black,
+    /// within about five levels at a texel of 64. A texel above about 0.68 would brighten past what an
     /// unsigned-normalised output can carry and is clamped; a bullet hole's atlas is dark.
     /// </remarks>
-    public const float ModulateTwiceLight = 1.1486983f;
+    public const float ModulateTwiceDiffuse = 2.2973967f;
+
+    /// <summary>The diffuse an unlit material is drawn with, the shader's <c>combine.w</c>; zero for a lit one.</summary>
+    /// <param name="surface">The material's base texture and flags, or null.</param>
+    /// <param name="shader">The material's shader name.</param>
+    /// <returns>
+    /// <see cref="ModulateTwiceDiffuse"/> for DecalModulate and `$mod2x` Modulate, 1 for plain Modulate (`dst · s`, which the
+    /// linear blend reproduces as it stands) and for UnlitGeneric and UnlitTwoTexture, 0 otherwise.
+    /// </returns>
+    /// <remarks>Modulating shaders read no light (B639, B638): `Modulate` draws through `unlitgeneric_vs20`
+    /// (modulate_dx9.cpp:186) and `DecalModulate` sets every light combo to zero (DecalModulate_dx9.cpp:184-191).</remarks>
+    internal static float UnlitDiffuseOf(MapTexture? surface, string shader)
+    {
+        if (Modulates(surface))
+        {
+            return surface!.Value.IsModulateTwice ? ModulateTwiceDiffuse : 1f;
+        }
+
+        return ModelMaterialShading.TakesDiffuseLighting(shader) ? 0f : 1f;
+    }
 
     /// <summary>Whether a material is drawn by `Modulate` or `DecalModulate`, whose colour multiplies the framebuffer.</summary>
     /// <param name="surface">The material's base texture and flags, or null.</param>
