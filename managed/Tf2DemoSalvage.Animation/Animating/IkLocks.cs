@@ -267,8 +267,10 @@ public sealed class IkLocks
             // of the `Reset` — made a LATER lock build on re-concatenated matrices. Valve shares one
             // `CBoneBitList` across a sequence's locks (`SolveSequenceLocks`, `:4301-4309`), so a lock
             // below an earlier lock's end bone builds on its SLAMMED matrix; held by
-            // `SharedLockMemoConformanceTests`. Latent on TF2, whose two foot chains share no bone a
-            // lock rewrites. The counters keep their meaning; the distance now ends at the solved
+            // `SharedLockMemoConformanceTests`. Inert on TF2's players, by census (`iklock-census`,
+            // 2026-11-02): all 814 lock lists of the nine classes are rfoot then lfoot at weights 1
+            // and 0, none locks a chain twice, and no later lock's walk passes through an earlier
+            // lock's links. The counters keep their meaning; the distance now ends at the solved
             // matrix instead of at its local-space round trip, a difference in the last bits.
             float travelled = (placed - now).Length();
 

@@ -619,9 +619,15 @@ failure on the memo. It cost 8 of the 15 bone builds in a successful two-lock so
 (`docs/measurements/2026-10-31-iklock-bracket-read.md` M1). Removed; the travel is now carried from the
 slammed matrix.
 
-**Latent on TF2** (arithmetic and a differential): the two foot chains share no bone a lock rewrites,
-and every shipped lock has `flLocalQWeight` 0, so the scout and heavy differential
-(`PoseBuildDifferentialTests`, 24 brackets where both locks solved) stays bit-identical. A synthetic
+**Inert on TF2's players** (measured, a census, then a differential). The `iklock-census` probe read
+every locking sequence of the nine classes' `_animations.mdl` against the class's own chains: **814 lock
+lists, 1,628 locks, every list `rfoot` then `lfoot`, every lock at position weight 1 and rotation
+weight 0**; no list locks a chain twice, and no later lock's `BuildBoneChain` walk passes through an
+earlier lock's three links. Its control is the totals themselves (zero would mean a broken reader). So
+the condition under which the memo matters never occurs in a player's content, and
+`PoseBuildDifferentialTests` — all nine classes, one lock list of each distinct shape (there is one),
+108 brackets where both locks solved and 502 nested layer brackets that solved both in one call — stays
+bit-identical. Non-player models were not censused. A synthetic
 second leg hung off the first leg's foot shows the difference exactly:
 `SharedLockMemoConformanceTests.Solve_ALockBelowAnEarlierLocksEndBone_BuildsOnTheSlammedMatrix` (bone 6 at
 X 22.20 as Valve has it, 42.35 under the re-walk).

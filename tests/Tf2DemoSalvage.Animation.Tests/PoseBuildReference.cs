@@ -244,7 +244,11 @@ internal sealed class PoseBuildReference
         return _brackets[depth];
     }
 
-    private readonly record struct OpenScope(int Close, StudioBonePose[] On, IReadOnlyList<StudioIkLock>? Locks, OwnPose? Own);
+    /// <summary>A scope; <paramref name="Nested"/> marks a layer's lock bracket that nests layers or sits inside another bracket.</summary>
+    private readonly record struct OpenScope(int Close, StudioBonePose[] On, IReadOnlyList<StudioIkLock>? Locks, OwnPose? Own, bool Nested = false);
+
+    /// <summary>Test instrument, not the frozen path: nested layer brackets whose solve applied two or more locks at once.</summary>
+    public int NestedBracketsWithBothLocks { get; private set; }
 
     private readonly record struct OwnPose(StudioBonePose[] Into, int Layer, float Weight);
 
@@ -303,7 +307,8 @@ internal sealed class PoseBuildReference
             if (holds)
             {
                 Bracket(_open.Count).Capture(layer.Locks!, IkChains, target);
-                _open.Add(new OpenScope(index + Math.Max(0, layer.Nested), target, layer.Locks, null));
+                _open.Add(new OpenScope(
+                    index + Math.Max(0, layer.Nested), target, layer.Locks, null, Nested: layer.Nested > 0 || _open.Count > 0));
             }
 
             int local = Math.Clamp(layer.Local, 0, Math.Max(0, layer.Nested));
@@ -428,7 +433,9 @@ internal sealed class PoseBuildReference
             }
             else if (scope.Locks is { } locks)
             {
-                Bracket(_open.Count).Solve(locks, IkChains, scope.On);
+                int applied = Bracket(_open.Count).Solve(locks, IkChains, scope.On);
+
+                NestedBracketsWithBothLocks += scope.Nested && applied >= 2 ? 1 : 0;
             }
         }
     }
@@ -656,8 +663,11 @@ internal sealed class PoseBuildReference
             }
         }
 
-        public void Solve(IReadOnlyList<StudioIkLock> locks, IReadOnlyList<StudioIkChain> chains, StudioBonePose[] pose)
+        /// <returns>How many locks this call applied (the test's own count, beside the frozen code).</returns>
+        public int Solve(IReadOnlyList<StudioIkLock> locks, IReadOnlyList<StudioIkChain> chains, StudioBonePose[] pose)
         {
+            int before = Applied;
+
             _chain.Reset();
 
             for (int at = 0; at < locks.Count && at < _held.Length; at++)
@@ -713,6 +723,8 @@ internal sealed class PoseBuildReference
 
                 FurthestMove = MathF.Max(FurthestMove, travelled);
             }
+
+            return Applied - before;
         }
 
         private static int? EffectorOf(StudioIkLock held, IReadOnlyList<StudioIkChain> chains)

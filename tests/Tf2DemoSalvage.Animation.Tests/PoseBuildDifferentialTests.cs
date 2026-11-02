@@ -49,7 +49,10 @@ public sealed class PoseBuildDifferentialTests
         Tally tally = new();
         StringBuilder read = new();
 
-        foreach (string name in new[] { "scout", "heavy" })
+        // Every class, and per class one lock list of each distinct shape (chains in order, weights) its sequences ship —
+        // the `iklock-census` probe found one shape in all 814 lists (rfoot+lfoot at weights 1 and 0), so a class's first
+        // list is a stratified sample of all of them; a new shape in a later game update would be picked up here.
+        foreach (string name in new[] { "scout", "soldier", "pyro", "demo", "heavy", "engineer", "medic", "sniper", "spy" })
         {
             byte[]? player = Read(archives, $"models/player/{name}.mdl");
             byte[]? animations = Read(archives, $"models/player/{name}_animations.mdl");
@@ -63,21 +66,16 @@ public sealed class PoseBuildDifferentialTests
             IReadOnlyList<StudioBone> bones = StudioBones.Read(player);
             IReadOnlyList<StudioBone> animationBones = StudioBones.Read(animations);
             IReadOnlyList<StudioIkChain> chains = StudioIkChains.Read(player);
-            Subject subject = new(
-                name,
-                bones,
-                animations,
-                animationBones,
-                StudioBones.Remap(animationBones, bones),
-                chains,
-                LocksOf(animations),
-                Controllers: [],
-                ControllerValues: []);
-
+            int[] remap = StudioBones.Remap(animationBones, bones);
+            IReadOnlyList<StudioIkLock>[] shapes = LockShapes(animations);
             int before = tally.Compared;
 
-            RunReal(subject, tally);
-            read.Append(name).Append(' ').Append(tally.Compared - before).Append("; ");
+            foreach (IReadOnlyList<StudioIkLock> locks in shapes)
+            {
+                RunReal(new Subject(name, bones, animations, animationBones, remap, chains, locks, Controllers: [], ControllerValues: []), tally);
+            }
+
+            read.Append(name).Append(' ').Append(tally.Compared - before).Append(" over ").Append(shapes.Length).Append(" lock shapes; ");
         }
 
         TestContext.Out.WriteLine($"compared {tally.Compared} ({read}) {tally}");
@@ -249,6 +247,25 @@ public sealed class PoseBuildDifferentialTests
         }
     }
 
+    /// <summary>One lock list per distinct shape — the chains in order and each lock's two weights — over every sequence.</summary>
+    private static IReadOnlyList<StudioIkLock>[] LockShapes(byte[] animations)
+    {
+        Dictionary<string, IReadOnlyList<StudioIkLock>> shapes = [];
+        int sequences = StudioSequences.Read(animations).Count;
+
+        for (int sequence = 0; sequence < sequences; sequence++)
+        {
+            IReadOnlyList<StudioIkLock> locks = StudioIkLocks.Read(animations, sequence);
+
+            if (locks.Count > 0)
+            {
+                shapes.TryAdd(string.Join(";", locks.Select(entry => $"{entry.Chain} {entry.PositionWeight:R} {entry.LocalRotationWeight:R}")), locks);
+            }
+        }
+
+        return [.. shapes.Values];
+    }
+
     /// <summary>One arrangement of layers, with the main sequence's own locks and how many layers its bracket encloses.</summary>
     internal sealed record Arrangement(string Name, PoseLayer[] Layers, IReadOnlyList<StudioIkLock> BaseLocks, int BaseNested);
 
@@ -381,7 +398,7 @@ public sealed class PoseBuildDifferentialTests
             return;
         }
 
-        tally.Count(setup, wantCounters.Applied, wantCounters.Moved, wantCounters.Solved, wantCounters.Spun);
+        tally.Count(setup, wantCounters.Applied, wantCounters.Moved, wantCounters.Solved, wantCounters.Spun, reference.NestedBracketsWithBothLocks);
 
         for (int bone = 0; bone < bones.Count; bone++)
         {
@@ -472,6 +489,7 @@ public sealed class PoseBuildDifferentialTests
         private int _controlled;
         private int _bothLocks;
         private int _failedLocks;
+        private int _nestedBoth;
 
         public void Mismatch(string what)
         {
@@ -479,8 +497,9 @@ public sealed class PoseBuildDifferentialTests
             First ??= what;
         }
 
-        public void Count(Setup setup, int applied, int moved, int solved, int spun)
+        public void Count(Setup setup, int applied, int moved, int solved, int spun, int nestedBoth)
         {
+            _nestedBoth += nestedBoth;
             _arrangements.Add(setup.Arrangement.Name);
             _applied += applied > 0 ? 1 : 0;
             _moved += moved > 0 ? 1 : 0;
@@ -506,6 +525,7 @@ public sealed class PoseBuildDifferentialTests
             // Both locks of one bracket solving is the case the old mid-solve Reset ran in (a success followed by a lock),
             // so the real players must reach it too, or "bit-identical on TF2" would rest on nothing.
             _bothLocks.ShouldBeGreaterThan(0, "the control: both locks of one bracket solved");
+            _nestedBoth.ShouldBeGreaterThan(0, "the control: both locks of one NESTED layer bracket solved in one solve");
 
             if (synthetic)
             {
@@ -515,7 +535,7 @@ public sealed class PoseBuildDifferentialTests
 
         public override string ToString() =>
             $"arrangements {_arrangements.Count}, locks applied {_applied}, moved {_moved}, IK solved {_solved}, barrel {_spun}, " +
-            $"controllers {_controlled}, both locks {_bothLocks}, failed locks {_failedLocks}";
+            $"controllers {_controlled}, both locks {_bothLocks} (nested brackets {_nestedBoth}), failed locks {_failedLocks}";
     }
 
     private static (StudioIkRule Rule, Vector3 Position, Quaternion Rotation, float Weight) Rule(
