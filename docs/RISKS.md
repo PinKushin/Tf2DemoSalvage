@@ -40275,7 +40275,7 @@ view at that camera, where ours ran none.
 targets held from views run earlier in the session. That is **B662**, which the SDK cannot answer. Kept as a record
 of the wrong turn.
 
-## B663 — brush-entity water drawn inside a water view samples the target that view is drawing into (2026-11-02) — OPEN, unread
+## B663 — brush-entity water drawn inside a water view samples the target that view is drawing into (2026-11-02) — RESOLVED BY INTERPOLATION on `fix/b663-water-view-sampling` (D244; the engine's result is undefined, not parity)
 
 **Read:** the refraction view always draws entities (`viewrender.cpp:6041`). The reflection view does with
 `$reflectentities` (`:5985`). Brush entities are among those entities, and their water faces bind
@@ -40315,6 +40315,16 @@ parity claim.
     target holds when the bind happens, without the in-flight writes.
   - (c) Sample the previous frame's copy, taken before the view's clear.
   - (d) Skip the face. Not parity: the engine draws it.
+
+**Implemented, option (b), the lead's pick (D244), 2026-11-02: AN INTERPOLATION OF UNDEFINED D3D9 BEHAVIOUR, NOT
+PARITY.**
+- `WorldRenderer.ViewSnapshot` copies the target being drawn into at the view's first water bind, once per view, and
+  only in a view where a water face draws. The face samples that copy.
+- Test `DrawWaterWorld_BrushWaterInsideTheRefractionView_SamplesTheViewsSnapshot`: the face draws (79, 38, 5) inside
+  the refraction target, where zeros drew (0, 0, 0). That was its red run, with the snapshot sabotaged to the null input.
+- The view's image away from the face is unchanged (255, 0, 0) against a run with no face.
+- One snapshot with the face, none without.
+- Revisit with (a), (c) or (d) above if the owner prefers.
 
 **Tested at the seam (second review):**
 - `WaterViewInputsConformanceTests` covers the two decisions: which target a view's draws land in (`DrawnInto`; an

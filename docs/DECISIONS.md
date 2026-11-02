@@ -11388,3 +11388,25 @@ Supersedes the manifest's description of era specimens as ad-hoc recordings. It 
 corpus's eventual home is still archive.org. Evidence: `docs/measurements/2026-10-28-era-specimens-v2-plan.md` (session
 logs, differences table, the 4269 and 2013 re-records), `docs/measurements/2026-10-29-gcor-swap-prep.md`.
 
+## D244 — a Water face inside a water view samples a snapshot of the target being drawn into: an interpolation, not parity (2026-11-02)
+
+*The lead's pick, not owner-voiced.* The owner asked, through the lead, for B663 to be fixed. His exact words are not in
+this record. The engine leaves the case undefined:
+- It draws a brush entity's water face inside the refraction view (`viewrender.cpp:6033`).
+- It binds the live render target to the face with no guard (shaderapidx9 `0x1800149b0` to `0x180023840`).
+- D3D9 leaves sampling a bound render target undefined.
+
+So no parity answer exists. The lead chose option (b) of four.
+
+**The decision:** the face samples a copy of the target taken at the view's first water bind. That is what the target
+holds when the bind happens, without the in-flight writes. It is copied lazily, once per view, and only when a water
+face draws in that view.
+
+**The alternatives, for the owner to revisit:**
+- (a) Zeros, as D3D11 nulls the input. It was the state before this.
+- (c) The previous frame's copy.
+- (d) Skip the face. Not parity, because the engine draws it.
+
+**Where it lives:** `WorldRenderer.ViewSnapshot`, RISKS B663, and `BrushEntityWaterConformanceTests`
+(`…BrushWaterInsideTheRefractionView_SamplesTheViewsSnapshot`).
+

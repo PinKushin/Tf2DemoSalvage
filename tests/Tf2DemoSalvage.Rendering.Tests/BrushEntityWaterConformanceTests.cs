@@ -196,6 +196,57 @@ public sealed class BrushEntityWaterConformanceTests
         target.WorldWaterDraws.ShouldBe((0, 0, 0), "the Water passes ran under a vertex cap of zero");
     }
 
+    /// <remarks>
+    /// **NOT PARITY: what this pins is an interpolation** (RISKS B663). The engine draws a brush entity's water face
+    /// inside the refraction view (DF_DRAW_ENTITITES, <c>viewrender.cpp:6033</c>) and binds the live target it is drawing
+    /// into (shaderapidx9 <c>0x1800149b0</c>, no guard), which D3D9 leaves undefined. The lead picked option (b): the face
+    /// samples a copy of the target as it stands at the view's first water bind. Here that is the red floor the view drew
+    /// before its entities, so the face is red-dominant, where the nulled input it replaced gave black.
+    /// </remarks>
+    [Test]
+    public void DrawWaterWorld_BrushWaterInsideTheRefractionView_SamplesTheViewsSnapshot()
+    {
+        using OffscreenTarget? target = OffscreenTarget.TryCreate(64, 64);
+        using OffscreenTarget? control = OffscreenTarget.TryCreate(64, 64);
+
+        if (target is null || control is null)
+        {
+            Assert.Ignore("no Direct3D device on this machine");
+            return;
+        }
+
+        List<WorldVertex> face = Shifted(Quad(-2f, (1f, 1f, 1f)), 0.15f, 0f);
+        List<WorldVertex> world = [.. Quad(-5f, (1f, 0f, 0f)), .. Quad(0f, (1f, 1f, 1f))];
+        WorldBatch[] batches = [new(Floor, 0, 6), new(Water, 6, 6)];
+
+        target.Clear(0f, 0f, 0f);
+        target.DrawWaterWorld(world, batches, Above, Assets, Frame() with
+        {
+            DrawEntities = view =>
+            {
+                if (view.Kind == WaterViewKind.Refraction)
+                {
+                    target.DrawModelInCurrentView(face, [new(Water, 0, 6)], Identity);
+                }
+            },
+        });
+
+        control.Clear(0f, 0f, 0f);
+        control.DrawWaterWorld(world, batches, Above, Assets, Frame());
+
+        (int R, int G, int B) inside = target.WaterTargetPixel(refraction: true, 512, 512);
+        (int R, int G, int B) edge = target.WaterTargetPixel(refraction: true, 40, 40);
+        (int R, int G, int B) controlEdge = control.WaterTargetPixel(refraction: true, 40, 40);
+
+        TestContext.Out.WriteLine(
+            $"REFRACTION TARGET: BRUSH FACE {inside}; EDGE {edge}; CONTROL EDGE {controlEdge}; SNAPSHOTS {target.WorldViewSnapshots}");
+
+        (inside.R - inside.G).ShouldBeGreaterThan(20, "the brush water face inside the view did not sample the view's own content");
+        edge.ShouldBe(controlEdge, "the view's image changed outside the brush water face");
+        target.WorldViewSnapshots.ShouldBe(1, "one water face in one view is one snapshot");
+        control.WorldViewSnapshots.ShouldBe(0, "a view with no water face took a snapshot");
+    }
+
     /// <summary>The world's water face over the floor, through the frame's refraction view.</summary>
     private static (int, int, int)? WorldWater((float, float, float) floor)
     {

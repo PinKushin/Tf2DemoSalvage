@@ -130,6 +130,13 @@ our plan logs there.
 Both games plan cheap water at the vat. TF2's teal is the refraction target's opaque-black alpha, either from earlier
 views or from the creation clear above. A fresh session with every water view off gives the same teal (B662).
 
+**Inside a water view the engine samples its own render target (B663, disassembly).** The refraction view draws
+entities (`viewrender.cpp:6033`), so a brush entity's water face is drawn while `_rt_WaterRefraction` is the output.
+shaderapidx9's `BindTexture` (`0x1800149b0`) goes straight to `SetTextureState` (`0x180023840`) and
+`IDirect3DDevice9::SetTexture`, with no check against the render target. The one guard, `UnbindTexture`
+(`0x180025470`), runs only when a render target is set. D3D9 leaves the result undefined. This renderer samples a
+copy of the target taken at the view's first water bind. That is an interpolation and not parity (D244).
+
 ## The fog the water views draw under — read in disassembly
 
 `IVRenderView::SetFogVolumeState` is vtable slot 30 of the object `VEngineRenderView014` registers (vtable

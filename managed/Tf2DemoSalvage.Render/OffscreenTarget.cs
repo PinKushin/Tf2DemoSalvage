@@ -886,6 +886,29 @@ internal sealed unsafe class OffscreenTarget : IDisposable
         }
     }
 
+    /// <summary>
+    /// Draws a model into whatever the renderer has bound right now, under its current camera: a water view's
+    /// <c>DrawEntities</c> callback, where <see cref="DrawModelPose"/> would rebind this target's own frame (B663).
+    /// </summary>
+    /// <param name="vertices">The model's corners.</param>
+    /// <param name="batches">Its material runs.</param>
+    /// <param name="model">Sixteen floats, row-vector model matrix.</param>
+    internal void DrawModelInCurrentView(IReadOnlyList<WorldVertex> vertices, IReadOnlyList<WorldBatch> batches, float[] model)
+    {
+        const string InView = "offscreen/in-view.mdl";
+
+        WorldRenderer world = EnsureWorld();
+
+        world.ClearModels();
+        world.UploadModels(
+            _device,
+            new Dictionary<string, PackedModel>(StringComparer.Ordinal) { [InView] = new PackedModel(vertices, new[] { batches }) });
+        world.DrawModel(_context, InView, model, world.ModelBatches(InView));
+    }
+
+    /// <summary>How many water view snapshots the world renderer has copied (B663).</summary>
+    internal int WorldViewSnapshots => EnsureWorld().ViewSnapshots;
+
     /// <summary>The B597 vertex cap <see cref="DrawModelPose"/> draws under; null, the default, draws whole.</summary>
     internal int? ModelVertexCap { get; set; }
 

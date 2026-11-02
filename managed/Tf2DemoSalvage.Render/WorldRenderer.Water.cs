@@ -808,6 +808,54 @@ internal sealed unsafe partial class WorldRenderer
     internal static (bool Refraction, bool Reflection) WaterInputsWhileDrawing(WaterViewTarget drawingInto) =>
         (drawingInto != WaterViewTarget.Refraction, drawingInto != WaterViewTarget.Reflection);
 
+    /// <summary>
+    /// The snapshot a Water face inside a water view samples in place of the target being drawn into (B663): copied
+    /// once per view, at its first water bind, so a view with no water face copies nothing. NOT PARITY (see RISKS B663).
+    /// </summary>
+    /// <param name="context">The context.</param>
+    /// <returns>The snapshot's view; nothing when no water target is being drawn into.</returns>
+    private ComPtr<ID3D11ShaderResourceView> ViewSnapshot(ComPtr<ID3D11DeviceContext> context)
+    {
+        ComPtr<ID3D11Texture2D> source = _drawingInto switch
+        {
+            WaterViewTarget.Refraction => _refractionTexture,
+            WaterViewTarget.Reflection => _reflectionTexture,
+            _ => default,
+        };
+
+        if (source.Handle is null)
+        {
+            return default;
+        }
+
+        if (_viewSnapshotTexture.Handle is null)
+        {
+            (_viewSnapshotTexture, ComPtr<ID3D11RenderTargetView> unused, _viewSnapshotView) = WaterTarget();
+
+            // Only ever a copy destination and an input; its render-target view and gamma twin are not needed.
+            ReleaseOwnedGammaTwin(unused);
+            unused.Dispose();
+        }
+
+        if (!_viewSnapshotTaken)
+        {
+            context.CopyResource(_viewSnapshotTexture, source);
+            _viewSnapshotTaken = true;
+            ViewSnapshots++;
+        }
+
+        return _viewSnapshotView;
+    }
+
+    private ComPtr<ID3D11Texture2D> _viewSnapshotTexture;
+    private ComPtr<ID3D11ShaderResourceView> _viewSnapshotView;
+
+    /// <summary>Whether this view's snapshot is taken; reset as each water view starts.</summary>
+    private bool _viewSnapshotTaken;
+
+    /// <summary>How many view snapshots were copied since the renderer started, for a test.</summary>
+    internal int ViewSnapshots { get; private set; }
+
     /// <summary>The water target a view's draws actually land in, as <see cref="DrawWaterViews"/> chose its output (B663).</summary>
     /// <param name="reflection">The view is the reflection.</param>
     /// <param name="viaFrame">The view draws into the frame and is copied out after.</param>
@@ -871,12 +919,14 @@ internal sealed unsafe partial class WorldRenderer
         // 0x18003cd60, "%s - Clearing"), so the shader samples alpha 1, a full fog, never an unbound zero.
         EnsureWaterTargets();
 
-        // **The target a water view is drawing into is bound as nothing** (B663): a brush entity's water face inside the
-        // refraction or reflection view would sample its own render target. The engine has no gate for it and what D3D9
-        // returns there is unread; D3D11 would null the input anyway, so it is nulled here explicitly, with no hazard.
+        // **The target a water view is drawing into is sampled through a snapshot** (B663): a brush entity's water face
+        // inside the refraction or reflection view binds its own render target in the engine (shaderapidx9 BindTexture
+        // 0x1800149b0 to SetTextureState 0x180023840, no guard), which D3D9 leaves undefined. NOT PARITY: an interpolation,
+        // the lead's pick of option (b) in RISKS B663. The live target, copied at this view's first water bind, without
+        // the in-flight writes. Alternatives kept there: (a) zeros, (c) last frame's copy, (d) skip the face.
         (bool sampleRefraction, bool sampleReflection) = WaterInputsWhileDrawing(_drawingInto);
-        ComPtr<ID3D11ShaderResourceView> refract = sampleRefraction ? _refractionView : default;
-        ComPtr<ID3D11ShaderResourceView> reflect = sampleReflection ? _reflectionView : default;
+        ComPtr<ID3D11ShaderResourceView> refract = sampleRefraction ? _refractionView : ViewSnapshot(context);
+        ComPtr<ID3D11ShaderResourceView> reflect = sampleReflection ? _reflectionView : ViewSnapshot(context);
 
         context.PSSetShaderResources(4, 1, ref normal);
         context.PSSetShaderResources(5, 1, ref cube);
@@ -1026,6 +1076,7 @@ internal sealed unsafe partial class WorldRenderer
             // The target this view draws into, which a water face inside it must not sample (B663). Through the frame,
             // the refraction target is not the output, so it stays bound: last frame's copy, as the engine's would be.
             _drawingInto = DrawnInto(reflection, viaFrame);
+            _viewSnapshotTaken = false;
 
             try
             {
@@ -1517,6 +1568,10 @@ internal sealed unsafe partial class WorldRenderer
         _waterDepth = default;
         _waterDepthTexture.Dispose();
         _waterDepthTexture = default;
+        _viewSnapshotView.Dispose();
+        _viewSnapshotView = default;
+        _viewSnapshotTexture.Dispose();
+        _viewSnapshotTexture = default;
     }
 
     /// <summary>The two colour targets, the engine's own, created cleared on first ask (B662).</summary>
