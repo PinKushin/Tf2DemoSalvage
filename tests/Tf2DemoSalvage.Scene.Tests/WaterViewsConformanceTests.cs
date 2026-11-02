@@ -547,4 +547,23 @@ public sealed class WaterViewsConformanceTests
         WaterViews.UnderwaterOverlay(info, eyeInFogVolume: true, MapWater.From(Vmt("\"$abovewater\" 0"), null)).ShouldBeNull();
         WaterViews.UnderwaterOverlay(info, eyeInFogVolume: true, null).ShouldBeNull();
     }
+
+    /// <remarks>
+    /// <c>CUnderWaterView::Setup</c> reads the overlay from <c>m_pFogVolumeMaterial</c> (<c>viewrender.cpp:6115-6128</c>),
+    /// which from inside is the <c>$bottommaterial</c> — 2fort's shape: the surface declares none, the bottom does (B658).
+    /// Reading it from the surface material yields nothing.
+    /// </remarks>
+    [Test]
+    public void UnderwaterOverlay_FromInsideAVolume_IsTheBottomMaterialsNotTheSurfaces()
+    {
+        MapWater surface = MapWater.From(Vmt("\"$bottommaterial\" \"water/under\""), null);
+        MapWater bottom = MapWater.From(Vmt("\"$abovewater\" 0\n$underwateroverlay \"effects/water_warp_2fort\""), null);
+        Content.Bsp.BspWaterVolume[] volumes = [new(64f, 0f, 3, SurfaceTexdata: 0)];
+        MapWater?[] waters = [surface, bottom];
+        string[] names = ["water/top", "water/under"];
+        WaterRenderInfo info = new(false, true, false, false, true, false);
+
+        WaterViews.UnderwaterOverlay(info, new FogVolumeInfo(0, 5, true, 0f, 64f, 3), volumes, waters, names)
+            .ShouldBe("effects/water_warp_2fort");
+    }
 }

@@ -2353,7 +2353,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         half.SimpleViewDraws = main.Draw;
 
         // CUnderWaterView::Setup's overlay, from the fog volume's material (the bottom one from inside), B658.
-        half.UnderwaterOverlay = WaterViews.UnderwaterOverlay(info, fog.EyeInFogVolume, Water(material)) is { } overlay &&
+        half.UnderwaterOverlay = WaterViews.UnderwaterOverlay(info, fog, _water.Volumes, _waters, _materialNames) is { } overlay &&
             _screenOverlays.TryGetValue(overlay, out ScreenOverlayMaterial? loaded)
                 ? loaded
                 : null;

@@ -40343,11 +40343,13 @@ Tests:
 The pillars now warp as in TF2. A and C are unchanged to the decimal: the control, since only the under-water view
 sets the overlay.
 
-**Not tested:** the `Device3D` hand-off (the plan setting it and the draw reading it). Only the shot covers it. No seam
-reaches it without a window (`Device3D.Create` takes a window handle), so `PlanWater` passing the surface material in
-place of the bottom one cannot fail a test. The below-window pieces are tested
-(`FogVolumeMaterial_FromInside_IsTheBottomMaterial`, `UnderwaterOverlay_ByViewAndEye_IsSetOnlyByTheUnderWaterView`).
-Moving the choice into `WaterViews` would make it testable.
+**Material choice now tested (`fix/underwater-overlay-material-test`):** which material the overlay is read from was
+chosen inside `PlanWater`, where no test reaches (`Device3D.Create` takes a window handle). It moved into
+`WaterViews.UnderwaterOverlay(info, fog, volumes, waters, names)`, which finds the fog volume's material itself, and
+`PlanWater` calls that. `UnderwaterOverlay_FromInsideAVolume_IsTheBottomMaterialsNotTheSurfaces` uses 2fort's shape:
+the surface declares no overlay, the bottom does. It went red when the seam read the surface material, first before the
+fix and again as a sabotage after it. **Still not tested:** the rest of the hand-off, meaning `PlanWater` storing the
+loaded overlay on the half and the draw reading it. Only the shot covers that.
 
 **Review follow-ups (`fix/water-review-followups`):**
 - The overlay texture cache was keyed by name and outlived the map, so a later map's own overlay under the same name
