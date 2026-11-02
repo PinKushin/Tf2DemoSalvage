@@ -65,31 +65,40 @@ public sealed class WaterBrushEntityProbe : IProbe
         int mapsRead = 0;
         int withWorldWater = 0;
         int withEntityWater = 0;
+        int skipped = 0;
         HashSet<string> unresolved = new(StringComparer.OrdinalIgnoreCase);
 
         foreach (string map in maps)
         {
-            MapLevel level;
-            PakFile pak;
-
             // Per map: a pakfile can ship its own material under a name the game also has.
             isWater.Clear();
 
+            // **One bad map is a line, not the end of the census**: the read, the pakfile and every VMT it resolves.
             try
             {
                 byte[] bytes = File.ReadAllBytes(map);
 
-                level = MapLevel.Read(bytes, NullLogger.Instance);
-                pak = PakFile.ReadFrom(bytes);
+                Census(map, MapLevel.Read(bytes, NullLogger.Instance), PakFile.ReadFrom(bytes));
+                mapsRead++;
             }
-            catch (InvalidDataException failure)
+            catch (Exception failure) when (failure is IOException or UnauthorizedAccessException or InvalidDataException
+                or ArgumentException or IndexOutOfRangeException or OverflowException or InvalidOperationException)
             {
-                output.WriteLine($"{Path.GetFileName(map)}: unreadable, {failure.Message}");
-                continue;
+                skipped++;
+                output.WriteLine($"{Path.GetFileName(map)}: skipped, {failure.GetType().Name}: {failure.Message}");
             }
+        }
 
-            mapsRead++;
+        output.WriteLine(string.Create(CultureInfo.InvariantCulture,
+            $"{mapsRead} maps read, {skipped} skipped unreadable; {withWorldWater} with world water; {withEntityWater} with water on a brush entity"));
 
+        if (unresolved.Count > 0)
+        {
+            output.WriteLine($"names with 'water' not resolved to a VMT ({unresolved.Count}): {string.Join(", ", unresolved.Order(StringComparer.Ordinal))}");
+        }
+
+        void Census(string map, MapLevel level, PakFile pak)
+        {
             IReadOnlyList<BspModel> models = level.BrushModels ?? [];
             int worldFaces = models.Count > 0 ? models[0].FaceCount : int.MaxValue;
 
@@ -152,14 +161,6 @@ public sealed class WaterBrushEntityProbe : IProbe
                     output.WriteLine("    " + line);
                 }
             }
-        }
-
-        output.WriteLine(string.Create(CultureInfo.InvariantCulture,
-            $"{mapsRead} maps read; {withWorldWater} with world water; {withEntityWater} with water on a brush entity"));
-
-        if (unresolved.Count > 0)
-        {
-            output.WriteLine($"names with 'water' not resolved to a VMT ({unresolved.Count}): {string.Join(", ", unresolved.Order(StringComparer.Ordinal))}");
         }
     }
 

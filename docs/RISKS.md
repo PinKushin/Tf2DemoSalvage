@@ -40251,6 +40251,41 @@ It is tested red-first. It names which thread waited and where the draw had got 
 **Reopen if** the `queue stall` line ever appears in a viewer log, or if this test's hang rate on the branch, measured
 the same way, exceeds the baseline's.
 
+## B661 — an empty `$underwateroverlay ""` is no overlay here and a lookup of "" in the engine (2026-11-02) — OPEN, unfixed
+
+**Read:** `CUnderWaterView::Setup` (`viewrender.cpp:6118-6125`) takes the variable when `IsDefined()`. Then the only
+guard is `pOverlayName[0] != '0'`. An empty string's first character is the terminator, so it passes and
+`materials->FindMaterial( "", TEXTURE_GROUP_OTHER )` runs. **Interpolated, not read:** that a VMT key with an empty
+value is `IsDefined()`, and that `FindMaterial("")` answers the error material. Both are inside the closed material
+system. If both hold, the error material reaches `DrawUnderwaterOverlay`'s plain-rectangle branch (`:1332-1338`, see
+B660) and covers the screen from inside the water.
+
+**Ours:** `MapWater.cs` reads `{ Length: > 0 }`, so an empty value is null and nothing draws. No stock material is
+known to declare it empty (not censused). Filed only, from the water review.
+
+## B660 — a non-Refract under-water overlay is drawn as nothing or as a fade, where Valve draws a plain full-screen rectangle (2026-11-02) — OPEN, unfixed
+
+**Read:** `CViewRender::DrawUnderwaterOverlay` (`viewrender.cpp:1300-1340`) has three branches:
+- `NeedsFullFrameBufferTexture()`: `DrawScreenEffectMaterial` (`:1313-1317`).
+- `NeedsPowerOfTwoFrameBufferTexture()`: `UpdateRefractTexture` and a screen rectangle (`:1318-1331`), the `Refract`
+  path B658 ported.
+- Anything else: a bare `DrawScreenSpaceRectangle( pOverlayMat, 0, 0, w, h, 0, 0, 1, 1, 1, 1 )` (`:1332-1338`, Valve's
+  own "FIXME: actually test this code path"). The material draws under its own shader and blend state, so a
+  non-translucent one is an opaque full-screen rectangle.
+
+It never takes `ViewDrawFade`, which is `PerformScreenOverlay`'s branch (`:1242-1246`), not this one's.
+
+**Ours:** the under-water overlay goes through `WorldRenderer.DrawScreenOverlay`, shared with the player's screen
+overlay, and only the `Refract` case matches:
+- Not `Refract`, not translucent: `Fade` is null, so it returns false at its first check (`WorldRenderer.ScreenOverlay.cs`) and
+  nothing draws.
+- Not `Refract`, translucent, not additive, with a `$basetexture`: `MapAssets.LoadScreenOverlays` gives it a `Fade`, so
+  it draws as `ViewDrawFade`'s blended quad, a different route from Valve's rectangle.
+- `NeedsFullFrameBufferTexture` has no branch.
+
+**Unreached by stock content, per the review, not re-measured here:** stock under-water overlays are all `Refract`.
+A custom map's could reach it. Filed only.
+
 ## B659 — water on a brush ENTITY is drawn by the model path, without the Water shader (2026-11-02) — OPEN, unfixed
 
 **Measured** (probe `water-brush-ents`, all 239 installed maps, the map's pakfile then the game's archives, cubemap
@@ -40308,7 +40343,18 @@ Tests:
 The pillars now warp as in TF2. A and C are unchanged to the decimal: the control, since only the under-water view
 sets the overlay.
 
-**Not tested:** the `Device3D` hand-off (the plan setting it and the draw reading it). Only the shot covers it.
+**Not tested:** the `Device3D` hand-off (the plan setting it and the draw reading it). Only the shot covers it. No seam
+reaches it without a window (`Device3D.Create` takes a window handle), so `PlanWater` passing the surface material in
+place of the bottom one cannot fail a test. The below-window pieces are tested
+(`FogVolumeMaterial_FromInside_IsTheBottomMaterial`, `UnderwaterOverlay_ByViewAndEye_IsSetOnlyByTheUnderWaterView`).
+Moving the choice into `WaterViews` would make it testable.
+
+**Review follow-ups (`fix/water-review-followups`):**
+- The overlay texture cache was keyed by name and outlived the map, so a later map's own overlay under the same name
+  drew the first map's texture. `ReleaseTextures` now drops it, tested by
+  `CloakRenderTests.DrawScreenOverlay_SameNameAfterAMapLoad_DrawsTheNewMapsTexture`, which was red before the fix.
+- B657's two-sided reset after a Plain water batch had no test, because water was the last batch.
+  `WaterCullConformanceTests.DrawWaterWorld_TwoSidedFaceAfterPlainWater_StillDraws` reddens when the reset is deleted.
 
 ## B657 — ctf_2fort's water is grey-green in ours and brown in TF2, 20 to 50 levels apart (2026-11-02) — FIXED on `fix/b657-water` (merged into `perf/b597-gpu-split`); review on `fix/b657-water-2`
 
