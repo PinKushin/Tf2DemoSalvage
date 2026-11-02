@@ -29,8 +29,13 @@ The commits, in order, each its own record in git:
    the real-model differential is bit-identical. `Moved`/`FurthestMove` keep their meaning ("of the successful solves,
    effector travel") but now measure to the solved matrix rather than to its local-space round trip: a last-bits change of
    route (B243), compared with a tolerance in the differential.
-3. **The span and stackalloc items**, if kept (see that commit's message): `BoneChain.Build` reads a `StudioBonePose[]` pose
-   by index (M2) and its walk buffer is not zeroed (M3).
+3. **The array read and the unzeroed walk buffer** (`perf: read a lock's dense pose by index, unzeroed walk buffer`):
+   `BoneChain.Build` reads a `StudioBonePose[]` pose (what every lock bracket passes) by index instead of twice through
+   the interface per bone (M2), and carries `[SkipLocalsInit]`, so the 512-byte walk buffer and the 12-float local are
+   not zeroed before being written whole (M3). Bit-identical by construction; a sabotaged array read reddened both
+   differentials, which also shows production takes the array path. **Rank 4 (resolve each lock's chain once per
+   bracket) was left**: predicted at most 0.0005 ms, and it changes the lock-list read counts that `AccumulatePartsTests`
+   uses as its timing controls.
 
 ## Before
 
@@ -80,7 +85,7 @@ done
 | 1c | indexed loops | roots total moves by less than the run-to-run spread (about 0.02) | it moves by more than 0.03 either way |
 | 2a | no re-walk | capture + solve falls by **0.003-0.006** (the bracket read's rank 1, from 8 of 15 bone builds in a successful solve) | it falls by less than 0.001 or more than 0.012 |
 | 2b | no re-walk | `Applied`, `Moved` per build unchanged (the `bone-flags` probe's lock counters, if read) | either moves by more than 1% |
-| 3 | span + stackalloc | capture + solve falls by a further **0.001-0.003** (ranks 2 and 3: 0.0005-0.002 and 0.0003-0.001) | it falls by more than 0.006, or rises |
+| 3 | array read + unzeroed buffer | capture + solve falls by a further **0.001-0.003** (ranks 2 and 3: 0.0005-0.002 and 0.0003-0.001); below one set's resolution | it falls by more than 0.006, or rises by more than 0.003 |
 | all | all three | roots total falls by **0.005-0.012**, about 1-2% of 0.53, which is **within one set's spread**: three runs per commit will probably not separate commit 1 or 3 from noise, only commit 2 at best | the roots total falls by more than 0.03 (then something other than these changes moved) |
 
 **Void conditions** (the setup-parts and accumulate-parts records'): `prepose 0 over 0`; roots built 8-21 and eligible 4-7;

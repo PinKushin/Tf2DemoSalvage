@@ -109,6 +109,12 @@ public sealed class BoneChain
     /// parent loop terminates with a wrong matrix rather than a stack overflow. That is the same
     /// trade the rest of this reader makes: a malformed model draws oddly instead of crashing.
     /// </remarks>
+    /// <remarks>
+    /// **Not zero-initialised** (<c>SkipLocalsInit</c>, iklock-compose M3): the 512-byte walk buffer is written up to
+    /// <c>depth</c> before any of it is read, and <c>local</c> is written whole by <c>FromQuaternion</c> before the
+    /// concatenate reads it, so the zeroing the runtime would do is work no read sees.
+    /// </remarks>
+    [System.Runtime.CompilerServices.SkipLocalsInit]
     public void Build(int bone, IReadOnlyList<StudioBonePose> pose)
     {
         ArgumentNullException.ThrowIfNull(pose);
@@ -144,11 +150,17 @@ public sealed class BoneChain
 
         Span<float> local = stackalloc float[12];
 
+        // **The lock brackets hand over their dense pose array** (iklock-compose M2), so it is read by index rather than
+        // through the interface twice per bone; any other list takes the general route.
+        StudioBonePose[]? dense = pose as StudioBonePose[];
+
         for (int step = depth - 1; step >= 0; step--)
         {
             int at = upwards[step];
 
-            StudioBonePose stated = Stated(pose, at);
+            StudioBonePose stated = dense is not null && at < dense.Length && dense[at].Bone == at
+                ? dense[at]
+                : Stated(pose, at);
 
             StudioBones.FromQuaternion(stated.Rotation, stated.Position, local);
 
