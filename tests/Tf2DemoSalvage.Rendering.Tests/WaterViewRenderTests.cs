@@ -393,6 +393,61 @@ public sealed class WaterViewRenderTests
         both.ShouldBe(alone, "the downward face drew from above");
     }
 
+    /// <remarks>
+    /// **The same claim on 2fort's OWN faces, as the world builder triangulates them** — the hand-built quad above
+    /// proves the cull, this proves the BSP's winding agrees with the cull's convention, which no fixture can. The
+    /// surface's run and its beneath run from <c>MapWorldBuilder</c>, from straight above the river: the pixel with
+    /// both runs drawn, the beneath first, is exactly the surface run's alone.
+    /// </remarks>
+    [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
+    public void DrawWaterWorld_TwoFortsBuiltSurfaceFromAbove_DrawsTheSurfaceNotTheBeneath()
+    {
+        if (!Direct3DApi.IsAvailable || !MapCache.Has("ctf_2fort"))
+        {
+            Assert.Ignore("needs Direct3D and TF2's ctf_2fort");
+            return;
+        }
+
+        (_, MapWorld world) = WorldCullingMapTests.Built("ctf_2fort");
+        MapAssets assets = MapCache.Load(mapName: "ctf_2fort");
+        WorldBatch top = world.Batches.First(batch => assets.Waters[batch.MaterialIndex] is { AboveWater: true, View.RefractTexture: true });
+        WorldBatch bottom = world.Batches.First(batch => assets.Waters[batch.MaterialIndex] is { AboveWater: false });
+
+        // From the fog-open camera A's spot, looking straight down at the river.
+        FreeCamera above = new() { Origin = (-294f, 29f, -60f), Angles = (89f, 0f, 0f), Aspect = 1f };
+        WaterRenderInfo info = WaterRenderInfo.Determine(
+            assets.Waters[top.MaterialIndex]!.View, 0f, new WaterLodSession().Current.End, WaterConVars.Defaults);
+        IReadOnlyList<WaterView> views = WaterViews.Plan(info, new WaterFrame(false, false, -128f, false), ViewClears.Depth);
+
+        // The control looks UP from under the river at the same spot, where the beneath run faces the eye and must draw.
+        FreeCamera below = new() { Origin = (-294f, 29f, -200f), Angles = (-89f, 0f, 0f), Aspect = 1f };
+        IReadOnlyList<WaterView> under = WaterViews.Plan(info, new WaterFrame(true, false, -128f, false), ViewClears.Depth);
+
+        (int, int, int) Draw(WorldBatch[] batches, FreeCamera camera, IReadOnlyList<WaterView> plan)
+        {
+            using OffscreenTarget target = OffscreenTarget.TryCreate(64, 64)!;
+
+            target.Clear(0f, 0f, 0f);
+            target.DrawWaterWorld(world.Vertices, batches, camera, assets, new WaterDraw(plan, top.MaterialIndex, -128f, [], [], null, null));
+
+            return target.PixelAt(32, 32);
+        }
+
+        (int, int, int) alone = Draw([top], above, views);
+        (int, int, int) beneath = Draw([bottom], above, views);
+        (int, int, int) both = Draw([bottom, top], above, views);
+        (int, int, int) beneathFromBelow = Draw([bottom], below, under);
+
+        TestContext.Out.WriteLine(
+            $"2FORT FROM ABOVE: SURFACE {alone} BENEATH {beneath} BOTH {both}; BENEATH FROM BELOW {beneathFromBelow}");
+
+        beneathFromBelow.ShouldNotBe((0, 0, 0), "the beneath run does not reach this pixel, so its cull from above proves nothing");
+        alone.ShouldNotBe((0, 0, 0), "the surface run does not reach this pixel from above");
+        beneath.ShouldBe((0, 0, 0), "2fort's beneath face drew from above");
+        both.ShouldBe(alone, "2fort's beneath face drew over the surface from above");
+    }
+
     private static List<WorldVertex> Reversed(List<WorldVertex> face)
     {
         List<WorldVertex> flipped = [];

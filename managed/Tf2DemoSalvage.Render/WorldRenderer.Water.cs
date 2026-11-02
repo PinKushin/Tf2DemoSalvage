@@ -806,8 +806,10 @@ internal sealed unsafe partial class WorldRenderer
         // measured against TF2, shaderlib being unpublished). A volume's surface is two coplanar faces, the downward one
         // with $bottommaterial (vbsp faces.cpp:1255-1289), and the world walk keeps both (a water-leaf surface skips the
         // plane-side test, VisibleWorld.Surfaces), so this cull alone decides which one the eye sees. Without it 2fort's
-        // surface drew water_2fort_beneath from above, 20-50 levels grey-green over TF2's brown.
-        context.RSSetState(Raster(_modelCull));
+        // surface drew water_2fort_beneath from above, 20-50 levels grey-green over TF2's brown. A $nocull water material
+        // keeps both sides, as MATERIAL_VAR_NOCULL does for every shader (interpolated, shaderlib being unpublished; TF2
+        // ships no such water).
+        context.RSSetState(Raster(_noCull.Contains(batch.MaterialIndex) ? _bothSides : _modelCull));
 
         if ((passes & WaterPass.ReflectionRefraction) != 0)
         {

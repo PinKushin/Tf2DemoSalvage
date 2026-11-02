@@ -40279,7 +40279,13 @@ for camera A. That named the cause.
 
 **Fixed:** `WaterBatch` draws with back faces culled (`_modelCull`, the convention the models use) and hands the
 two-sided raster back after. Test `WaterViewRenderTests.DrawWaterWorld_TheSurfacesTwoCoplanarFaces_OnlyTheOneFacingTheEyeDraws`,
-both orders: red before (bottom face first: 169 63 49 against the surface alone's 231 1 0), green after.
+both orders: red before (bottom face first: 169 63 49 against the surface alone's 231 1 0), green after. And on 2fort's
+own faces as `MapWorldBuilder` triangulates them, `DrawWaterWorld_TwoFortsBuiltSurfaceFromAbove_DrawsTheSurfaceNotTheBeneath`.
+It pins that the BSP winding agrees with the cull's convention. With the cull sabotaged, the beneath run alone draws
+68 68 47 from above. Restored, it is culled, and the surface reads 48 39 5. Control: the beneath from below draws
+46 51 39. A `$nocull` water material keeps both sides (*interpolated*; TF2 ships none; untested).
+From below, the fixed build's camera-B shot differs from the old one by 1,998 px. The picture is unchanged by eye, and
+the beneath face still draws, so the winding also holds from below.
 
 **After** (`D:/measure-f12/b657/fixed/mode0/`, side by side `D:/measure-f12/b657/b657-side-by-side.png`):
 
