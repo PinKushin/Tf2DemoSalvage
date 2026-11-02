@@ -1361,6 +1361,72 @@ public sealed class MomentSceneTests
     }
 
     /// <remarks>
+    /// **A decal placed before the level's lighting is precached is lit once it is** (B642 review 3 follow-up): a map's
+    /// colours reset the origins, and the origins are recorded only when the next pack precaches the static props. A decal
+    /// step that ran in between found no origin and marked the pool lit; with nothing else changing the pool, a paused
+    /// viewer would draw that decal under the prop's own flags-6 light for ever. The precache must re-open the pass.
+    /// </remarks>
+    [Test]
+    public void LightDecalHolders_ADecalPlacedBeforeThePrecache_IsLitOnceThePrecacheRecordsItsOrigin()
+    {
+        Content.Bsp.AmbientCube cube = new((0.1f, 0.2f, 0.3f), default, default, default, default, default);
+        ModelDecals pool = new();
+        EntityModelSet models = new()
+        {
+            Geometry = _ => new PropModels.ModelFrames(
+                [new[] { new PropVertex(0, 0f, 0f, 0f, 0f, MaterialIndex: 3), new PropVertex(1, 0f, 0f, 0f, 0f, MaterialIndex: 3), new PropVertex(2, 0f, 0f, 0f, 0f, MaterialIndex: 3) }],
+                new Dictionary<int, (int Start, int Frames, float CyclesPerSecond)> { [0] = (0, 1, 0f) },
+                [0],
+                [true])
+            {
+                StudioFlags = Content.Assets.StudioModelFlags.StaticProp,
+            },
+            StaticPropColours = new Dictionary<int, float[]> { [PropModels.FirstStaticPropEntityIndex] = [.. Enumerable.Repeat(0.25f, 9)] },
+            StaticPropFullLighting = (_, _, _, _) => (Content.Bsp.PointLighting.Bounce(cube), null),
+            StaticProps = [PropModels.StaticModel(new Content.Bsp.BspStaticProp("models/props/dome.mdl", 0f, 0f, 100f, 0f, 0f, 0f, 1f), 0)],
+            Decals = pool,
+        };
+
+        ShootTheProp(pool);
+        models.LightDecalHolders();
+        pool.LateLightOf(DecalReplay.StaticPropKey(0)).ShouldBeNull("the control: no origin recorded yet, nothing lit");
+
+        models.Add([]);
+        models.LightDecalHolders();
+
+        pool.LateLightOf(DecalReplay.StaticPropKey(0)).ShouldNotBeNull("lit once the precache recorded the origin").Cube.ShouldBe(cube);
+    }
+
+    /// <remarks>
+    /// **A pass that lights a holder allocates nothing either** (B642 review 3 follow-up): the prop is shot again under
+    /// unchanged light, so the pass walks a holder, asks for its full state, takes the kept instance back and refills the
+    /// late lights. The empty pass above cannot see an allocation in that half.
+    /// </remarks>
+    [Test]
+    public void LightDecalHolders_APassOverAHolderUnderUnchangedLight_AllocatesNothing()
+    {
+        (_, EntityModelSet models, ModelDecals pool, _) = PosedBeforeItsDecal();
+
+        ShootTheProp(pool);
+        models.LightDecalHolders();
+        DecalLighting kept = pool.LateLightOf(DecalReplay.StaticPropKey(0)).ShouldNotBeNull("the control: the warm pass lit it");
+        ShootTheProp(pool);
+        models.LightDecalHolders();
+        ShootTheProp(pool);
+
+        int passes = models.DecalLightPasses;
+        int lights = models.LateDecalLights;
+        long before = System.GC.GetAllocatedBytesForCurrentThread();
+        models.LightDecalHolders();
+        long allocated = System.GC.GetAllocatedBytesForCurrentThread() - before;
+
+        models.DecalLightPasses.ShouldBe(passes + 1, "the control: the pass ran");
+        models.LateDecalLights.ShouldBe(lights + 1, "the control: it lit the holder");
+        pool.LateLightOf(DecalReplay.StaticPropKey(0)).ShouldBeSameAs(kept, "the control: the kept instance, nothing rebuilt");
+        allocated.ShouldBe(0);
+    }
+
+    /// <remarks>
     /// **And no allocation for it**: the same non-holding prop posed with the decal light wired and without, after a
     /// warm-up pose each, allocates the same bytes per pose.
     /// </remarks>

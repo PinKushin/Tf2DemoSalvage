@@ -61,9 +61,6 @@ public sealed class ModelDecals
     /// <summary>How many decals are held across every model.</summary>
     public int Count => _age.Count;
 
-    /// <summary>Changes whenever a decal is kept or cleared, so an unchanged pool costs its reader nothing.</summary>
-    public int Version { get; private set; }
-
     /// <summary>
     /// Changes only when a static prop's decals are kept, retired or cleared (B642 review 3), so a player's decal, heal or
     /// cloak does not make <see cref="EntityModelSet.LightDecalHolders"/> re-light every static prop.
@@ -217,7 +214,6 @@ public sealed class ModelDecals
         held.Add(decal);
         _age.AddLast((entity, decal));
         _built.Remove(entity);
-        Version++;
         StaticPropChanged(entity);
     }
 
@@ -271,7 +267,7 @@ public sealed class ModelDecals
             ? (decal.Cube, decal.Sun, decal.Locals, true)
             : (instance.Light, instance.Sun, instance.Locals, false);
 
-    /// <summary>Which light a drawn model's decals took, for the device's counters and its first-use log (B642 review 3).</summary>
+    /// <summary>Which light a drawn model's decals took, for the device's first-use log (B642 review 3).</summary>
     /// <param name="instance">The model drawn.</param>
     /// <param name="decalLit">What <see cref="LightFor"/> answered.</param>
     /// <returns>
@@ -327,7 +323,6 @@ public sealed class ModelDecals
             node = next;
         }
 
-        Version++;
         StaticPropChanged(entity);
     }
 
@@ -354,7 +349,6 @@ public sealed class ModelDecals
         _age.Clear();
         _built.Clear();
         _lateLights.Clear();
-        Version++;
         StaticPropVersion++;
     }
 

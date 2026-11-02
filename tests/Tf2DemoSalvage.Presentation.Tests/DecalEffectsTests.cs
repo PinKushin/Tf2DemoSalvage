@@ -180,6 +180,25 @@ public sealed class DecalEffectsTests
         models.Decals.ShouldBeSameAs(device.ModelDecals);
     }
 
+    /// <remarks>
+    /// **The production constructor's step lights the model set it was given** (B642 review 3 follow-up): the late light
+    /// is built by `EntityModelSet.LightDecalHolders` once the step has placed this frame's decals, and the public
+    /// constructor is the only route the viewer takes to it. A new pool is lit whatever its version, so the first step
+    /// runs exactly one pass; a constructor or step that dropped the call runs none.
+    /// </remarks>
+    [Test]
+    public void StepOver_OverTheProductionModelSet_RunsItsDecalLightPassOnce()
+    {
+        EntityModelSet models = new();
+        DecalEffects decals = new(models, new BulletStrikes(models, new RecordingLogger()), new RecordingLogger());
+
+        models.DecalLightPasses.ShouldBe(0, "the control: nothing lit before the step");
+
+        decals.StepOver(Frame(50), Content(), new FakeDecalUpload());
+
+        models.DecalLightPasses.ShouldBe(1);
+    }
+
     [Test]
     public void StepOver_AServerImpactOnAnEnemy_PutsItsFleshDecalOnHisModel()
     {
