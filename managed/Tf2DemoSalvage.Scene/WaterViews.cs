@@ -502,31 +502,23 @@ public static class WaterViews
         !info.CheapWater && eyeInFogVolume ? fogVolumeMaterial?.UnderwaterOverlay : null;
 
     /// <summary>
-    /// <see cref="UnderwaterOverlay(WaterRenderInfo, bool, MapWater?)"/> from the visible volume: the material is
-    /// <see cref="FogVolumeMaterial"/> for <paramref name="fog"/> as it stands — from inside, the <c>$bottommaterial</c>,
-    /// never the surface's (<c>viewrender.cpp:6115-6128</c>; 2fort's surface declares no overlay, B658).
+    /// <c>m_pFogVolumeMaterial</c> for <paramref name="fog"/> as it stands — <see cref="FogVolumeMaterial"/>'s index and
+    /// the water material at it, found once a frame. From inside it is the <c>$bottommaterial</c>, never the surface's:
+    /// the views, the volume fog and <see cref="UnderwaterOverlay(WaterRenderInfo, bool, MapWater?)"/>
+    /// (<c>viewrender.cpp:6115-6128</c>; 2fort's surface declares no overlay, B658) all take this one.
     /// </summary>
-    /// <param name="info">The water's cost this frame.</param>
     /// <param name="fog">The visible volume.</param>
     /// <param name="volumes">The map's water volumes.</param>
     /// <param name="waters">The map's water materials, by material index.</param>
     /// <param name="names">The map's material names, by the same index.</param>
-    /// <returns>The overlay material's name, or null.</returns>
-    public static string? UnderwaterOverlay(
-        WaterRenderInfo info, FogVolumeInfo fog, IReadOnlyList<Content.Bsp.BspWaterVolume> volumes,
-        IReadOnlyList<MapWater?> waters, IReadOnlyList<string> names)
+    /// <returns>The material index, −1 for none, and its water material or null.</returns>
+    public static (int Index, MapWater? Water) FogVolumeWater(
+        FogVolumeInfo fog, IReadOnlyList<Content.Bsp.BspWaterVolume> volumes, IReadOnlyList<MapWater?> waters,
+        IReadOnlyList<string> names)
     {
-        ArgumentNullException.ThrowIfNull(waters);
+        int index = FogVolumeMaterial(fog, volumes, waters, names);
 
-        // Above water or cheap there is no overlay, so the bottom material's name search is skipped.
-        if (info.CheapWater || !fog.EyeInFogVolume)
-        {
-            return null;
-        }
-
-        int material = FogVolumeMaterial(fog, volumes, waters, names);
-
-        return UnderwaterOverlay(info, fog.EyeInFogVolume, material >= 0 && material < waters.Count ? waters[material] : null);
+        return (index, index >= 0 && index < waters.Count ? waters[index] : null);
     }
 
     /// <summary><c>R_SetFogVolumeState</c>, engine.dll <c>0x1800e0cd0</c>, read in disassembly.</summary>

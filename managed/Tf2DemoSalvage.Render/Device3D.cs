@@ -2333,12 +2333,10 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
             leaf => leaf >= 0 && leaf < culling.VisibleByLeaf.Length && culling.VisibleByLeaf[leaf],
             (_, _) => true);
 
-        int material = WaterViews.FogVolumeMaterial(fog, _water.Volumes, _waters, _materialNames);
-        int surface = WaterViews.FogVolumeMaterial(fog with { EyeInFogVolume = false }, _water.Volumes, _waters, _materialNames);
-        MapWater? Water(int index) => index >= 0 && index < _waters.Count ? _waters[index] : null;
+        (int material, MapWater? water) = WaterViews.FogVolumeWater(fog, _water.Volumes, _waters, _materialNames);
 
         WaterRenderInfo info = WaterRenderInfo.Determine(
-            Water(material)?.View, fog.DistanceToWater, _waterLod.Current.End, WaterConVars.Defaults);
+            water?.View, fog.DistanceToWater, _waterLod.Current.End, WaterConVars.Defaults);
 
         // DoesViewPlaneIntersectWater (viewrender.cpp:2741) through DoesBoxIntersectWaterVolume (engine.dll 0x18012ea20).
         bool crosses = WaterViews.ViewPlaneIntersectsWater(
@@ -2353,7 +2351,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         half.SimpleViewDraws = main.Draw;
 
         // CUnderWaterView::Setup's overlay, from the fog volume's material (the bottom one from inside), B658.
-        half.UnderwaterOverlay = WaterViews.UnderwaterOverlay(info, fog, _water.Volumes, _waters, _materialNames) is { } overlay &&
+        half.UnderwaterOverlay = WaterViews.UnderwaterOverlay(info, fog.EyeInFogVolume, water) is { } overlay &&
             _screenOverlays.TryGetValue(overlay, out ScreenOverlayMaterial? loaded)
                 ? loaded
                 : null;
@@ -2361,7 +2359,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         // From inside the volume the main view draws under its own fog: SetFogVolumeState( fogInfo, false ), the bottom
         // material's (engine.dll 0x1800e0cd0).
         if (main.Fog == WaterViewFog.Volume &&
-            WaterViews.VolumeFogFor(Water(material), fog.WaterHeight, useHeightFog: false) is { } inside)
+            WaterViews.VolumeFogFor(water, fog.WaterHeight, useHeightFog: false) is { } inside)
         {
             half.WaterMainFog = new(inside.Start, inside.End, inside.Color.Red, inside.Color.Green, inside.Color.Blue, inside.MaxDensity);
             half.WaterMainClear = WorldRenderer.MainViewFogClear(main, inside);
@@ -2371,6 +2369,11 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         {
             return;
         }
+
+        // The surface's own material: the same index as the volume's from above, so the name search runs only from inside.
+        int surface = fog.EyeInFogVolume
+            ? WaterViews.FogVolumeMaterial(fog with { EyeInFogVolume = false }, _water.Volumes, _waters, _materialNames)
+            : material;
 
         ((float X, float Y, float Z) origin, (float Pitch, float Yaw, float Roll) angles) =
             WaterViews.Reflect(camera.Origin, camera.Angles, fog.WaterHeight);
