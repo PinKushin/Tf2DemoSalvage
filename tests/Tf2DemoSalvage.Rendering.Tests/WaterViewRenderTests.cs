@@ -321,6 +321,147 @@ public sealed class WaterViewRenderTests
         target.WorldLinearLightScale.ShouldBe(1f, "the draw's scale is restored when it returns");
     }
 
+    /// <remarks>
+    /// **B657: a water volume's surface is TWO coplanar faces, and only the one facing the eye draws.** vbsp gives the
+    /// downward face the surface material's <c>$bottommaterial</c> (<c>utils/vbsp/faces.cpp:1255-1289</c>), so 2fort's
+    /// surface is <c>water_2fort</c> facing up and <c>water_2fort_beneath</c> facing down, in one plane. The engine's
+    /// world walk keeps both: a surface in a water leaf skips the plane-side test (engine.dll <c>0x1800e0600</c>,
+    /// <c>VisibleWorld.Surfaces</c>). What removes the far one is the hardware cull the <c>Water</c> shader leaves on:
+    /// its shadow state turns culling off only in the editor (<c>water.cpp:393-397</c>, "In edit mode, use nocull").
+    ///
+    /// **Expected, Valve's arithmetic:** from above, the downward face is culled whatever order it draws in, so the
+    /// pixel is exactly the up-facing surface's own. Literal comparison of two draws, no curve. Both orders, because
+    /// with no cull the depth test lets whichever coplanar face drew first win, and on 2fort that was the bottom.
+    /// </remarks>
+    [TestCase(false)]
+    [TestCase(true)]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
+    public void DrawWaterWorld_TheSurfacesTwoCoplanarFaces_OnlyTheOneFacingTheEyeDraws(bool bottomFirst)
+    {
+        if (!Direct3DApi.IsAvailable || Assets is not { } assets)
+        {
+            Assert.Ignore("needs Direct3D and TF2's ctf_2fort");
+            return;
+        }
+
+        (int top, int floor) = Materials(assets);
+        int bottom = Enumerable.Range(0, assets.Waters.Count).First(index => assets.Waters[index] is { AboveWater: false });
+
+        // The subject: 2fort's beneath material is not the surface's, so either face drawing shows.
+        assets.Waters[top]!.BottomMaterial.ShouldNotBeNull();
+        assets.Waters[bottom]!.FogColor.ShouldNotBe(assets.Waters[top]!.FogColor);
+
+        WaterRenderInfo info = WaterRenderInfo.Determine(
+            assets.Waters[top]!.View, 0f, new WaterLodSession().Current.End, WaterConVars.Defaults);
+        IReadOnlyList<WaterView> views = WaterViews.Plan(info, new WaterFrame(false, false, 0f, false), ViewClears.Depth);
+
+        (int, int, int) Draw(bool withBottom)
+        {
+            using OffscreenTarget target = OffscreenTarget.TryCreate(64, 64)!;
+            List<WorldVertex> vertices = [.. Quad(-5f, (1f, 0f, 0f))];
+            List<WorldBatch> batches = [new(floor, 0, 6)];
+
+            void Add(List<WorldVertex> face, int material)
+            {
+                batches.Add(new(material, vertices.Count, face.Count));
+                vertices.AddRange(face);
+            }
+
+            if (withBottom && bottomFirst)
+            {
+                Add(Reversed(Quad(0f, (1f, 1f, 1f))), bottom);
+            }
+
+            Add(Quad(0f, (1f, 1f, 1f)), top);
+
+            if (withBottom && !bottomFirst)
+            {
+                Add(Reversed(Quad(0f, (1f, 1f, 1f))), bottom);
+            }
+
+            target.Clear(0f, 0f, 0f);
+            target.DrawWaterWorld(vertices, batches, Camera, assets, new WaterDraw(views, top, 0f, [], [], null, null));
+
+            return target.PixelAt(32, 32);
+        }
+
+        (int, int, int) alone = Draw(withBottom: false);
+        (int, int, int) both = Draw(withBottom: true);
+
+        TestContext.Out.WriteLine($"SURFACE ALONE {alone} WITH THE BOTTOM FACE {(bottomFirst ? "FIRST" : "LAST")} {both}");
+
+        both.ShouldBe(alone, "the downward face drew from above");
+    }
+
+    /// <remarks>
+    /// **The same claim on 2fort's OWN faces, as the world builder triangulates them** — the hand-built quad above
+    /// proves the cull, this proves the BSP's winding agrees with the cull's convention, which no fixture can. The
+    /// surface's run and its beneath run from <c>MapWorldBuilder</c>, from straight above the river: the pixel with
+    /// both runs drawn, the beneath first, is exactly the surface run's alone.
+    /// </remarks>
+    [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
+    public void DrawWaterWorld_TwoFortsBuiltSurfaceFromAbove_DrawsTheSurfaceNotTheBeneath()
+    {
+        if (!Direct3DApi.IsAvailable || !MapCache.Has("ctf_2fort"))
+        {
+            Assert.Ignore("needs Direct3D and TF2's ctf_2fort");
+            return;
+        }
+
+        (_, MapWorld world) = WorldCullingMapTests.Built("ctf_2fort");
+        MapAssets assets = MapCache.Load(mapName: "ctf_2fort");
+        WorldBatch top = world.Batches.First(batch => assets.Waters[batch.MaterialIndex] is { AboveWater: true, View.RefractTexture: true });
+        WorldBatch bottom = world.Batches.First(batch => assets.Waters[batch.MaterialIndex] is { AboveWater: false });
+
+        // From the fog-open camera A's spot, looking straight down at the river.
+        FreeCamera above = new() { Origin = (-294f, 29f, -60f), Angles = (89f, 0f, 0f), Aspect = 1f };
+        WaterRenderInfo info = WaterRenderInfo.Determine(
+            assets.Waters[top.MaterialIndex]!.View, 0f, new WaterLodSession().Current.End, WaterConVars.Defaults);
+        IReadOnlyList<WaterView> views = WaterViews.Plan(info, new WaterFrame(false, false, -128f, false), ViewClears.Depth);
+
+        // The control looks UP from under the river at the same spot, where the beneath run faces the eye and must draw.
+        FreeCamera below = new() { Origin = (-294f, 29f, -200f), Angles = (-89f, 0f, 0f), Aspect = 1f };
+        IReadOnlyList<WaterView> under = WaterViews.Plan(info, new WaterFrame(true, false, -128f, false), ViewClears.Depth);
+
+        (int, int, int) Draw(WorldBatch[] batches, FreeCamera camera, IReadOnlyList<WaterView> plan)
+        {
+            using OffscreenTarget target = OffscreenTarget.TryCreate(64, 64)!;
+
+            target.Clear(0f, 0f, 0f);
+            target.DrawWaterWorld(world.Vertices, batches, camera, assets, new WaterDraw(plan, top.MaterialIndex, -128f, [], [], null, null));
+
+            return target.PixelAt(32, 32);
+        }
+
+        (int, int, int) alone = Draw([top], above, views);
+        (int, int, int) beneath = Draw([bottom], above, views);
+        (int, int, int) both = Draw([bottom, top], above, views);
+        (int, int, int) beneathFromBelow = Draw([bottom], below, under);
+
+        TestContext.Out.WriteLine(
+            $"2FORT FROM ABOVE: SURFACE {alone} BENEATH {beneath} BOTH {both}; BENEATH FROM BELOW {beneathFromBelow}");
+
+        beneathFromBelow.ShouldNotBe((0, 0, 0), "the beneath run does not reach this pixel, so its cull from above proves nothing");
+        alone.ShouldNotBe((0, 0, 0), "the surface run does not reach this pixel from above");
+        beneath.ShouldBe((0, 0, 0), "2fort's beneath face drew from above");
+        both.ShouldBe(alone, "2fort's beneath face drew over the surface from above");
+    }
+
+    private static List<WorldVertex> Reversed(List<WorldVertex> face)
+    {
+        List<WorldVertex> flipped = [];
+
+        for (int at = 0; at < face.Count; at += 3)
+        {
+            flipped.Add(face[at] with { NormalZ = -1f });
+            flipped.Add(face[at + 2] with { NormalZ = -1f });
+            flipped.Add(face[at + 1] with { NormalZ = -1f });
+        }
+
+        return flipped;
+    }
+
     private static double Linear(int srgb)
     {
         double c = srgb / 255.0;

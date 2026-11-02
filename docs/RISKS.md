@@ -40251,7 +40251,65 @@ It is tested red-first. It names which thread waited and where the draw had got 
 **Reopen if** the `queue stall` line ever appears in a viewer log, or if this test's hang rate on the branch, measured
 the same way, exceeds the baseline's.
 
-## B657 — ctf_2fort's water is grey-green in ours and brown in TF2, 20 to 50 levels apart (2026-11-02) — OPEN, unexplained
+## B657 — ctf_2fort's water is grey-green in ours and brown in TF2, 20 to 50 levels apart (2026-11-02) — FIXED on `fix/b657-water` (not merged); the under-water gap is still open
+
+**Cause (measured, then read):** ours drew the surface's DOWNWARD face from above. A water volume's surface is two
+coplanar faces: vbsp gives the downward one the surface material's `$bottommaterial` (`utils/vbsp/faces.cpp:1255-1289`),
+here `water/water_2fort_beneath` (`$abovewater 0`, `$fogcolor` 92 100 80, refracting, blurred). The world walk keeps
+both, because a surface in a water leaf skips the plane-side test (engine.dll `0x1800e0600`, `VisibleWorld.Surfaces`).
+In the engine the hardware cull removes the far one: the `Water` shader turns culling off only in the editor
+(`water.cpp:393-397`, *"In edit mode, use nocull"*). That culling is otherwise ON is read from that line and measured
+on the live pair. shaderlib's `SetInitialShadowState` is not published (*interpolated from the published caller*).
+Ours drew every world batch two-sided. On 2fort the beneath batch drew first, so the depth test kept it over the top
+face.
+
+**How it was found:** a scratch build with an environment switch replaced the water's output one variable at a time,
+on the same three cameras (`D:/measure-f12/b657/mode*/`):
+
+| what the water pixel output | A near | reading |
+|---|---|---|
+| unchanged | 61 61 44 | |
+| the raw refraction texel | 42 30 13 | already TF2's 41 31 10: the refraction target was right |
+| the material's own fog colour | **92 100 79 over the whole surface** | the beneath's `$fogcolor`, not 2fort's 51 43 13 |
+| the cheap pass alone, or with alpha 0 | unchanged | the cheap pass did not draw for the visible (beneath) material; why is not read |
+
+The first suspects (the reflection, the cubemap, the refraction's height fog, the LOD, the tone-map scale) were all
+wrong. The material's constants were right too, for the wrong material. The log printed only the beneath material
+for camera A. That named the cause.
+
+**Fixed:** `WaterBatch` draws with back faces culled (`_modelCull`, the convention the models use) and hands the
+two-sided raster back after. Test `WaterViewRenderTests.DrawWaterWorld_TheSurfacesTwoCoplanarFaces_OnlyTheOneFacingTheEyeDraws`,
+both orders: red before (bottom face first: 169 63 49 against the surface alone's 231 1 0), green after. And on 2fort's
+own faces as `MapWorldBuilder` triangulates them, `DrawWaterWorld_TwoFortsBuiltSurfaceFromAbove_DrawsTheSurfaceNotTheBeneath`.
+It pins that the BSP winding agrees with the cull's convention. With the cull sabotaged, the beneath run alone draws
+68 68 47 from above. Restored, it is culled, and the surface reads 48 39 5. Control: the beneath from below draws
+46 51 39. A `$nocull` water material keeps both sides (*interpolated*; TF2 ships none; untested).
+From below, the fixed build's camera-B shot differs from the old one by 1,998 px. The picture is unchanged by eye, and
+the beneath face still draws, so the winding also holds from below.
+
+**After** (`D:/measure-f12/b657/fixed/mode0/`, side by side `D:/measure-f12/b657/b657-side-by-side.png`):
+
+| camera, box | TF2 | before | after |
+|---|---|---|---|
+| A surface near (600,560) | 41.1 30.6 9.8 | 61.2 60.6 44.0 | 42.0 31.3 11.0 |
+| A surface mid (400,380) | 86.6 64.7 38.3 | 111.5 90.3 60.4 | 83.3 59.5 30.0 |
+| C water at the shore (600,420) | 42.6 32.0 11.7 | 64.3 64.7 47.8 | 43.7 32.3 11.0 |
+| C (1150,380), also water | 94.3 67.5 41.1 | 112.0 91.5 61.8 | 94.7 67.3 36.3 |
+| B far fog, under water (560,280) | 56.9 71.1 67.8 | 79.7 84.0 66.7 | 79.7 84.0 66.7 |
+
+The pillars' submerged parts now show through the surface, as in TF2.
+
+**Still open:**
+- **Under water (camera B) is unchanged and 13-23 levels off**, teal and darker in TF2. TF2's frame also warps the
+  pillars. That points at the beneath material's `$underwateroverlay` (`CViewRender::DrawUnderwaterOverlay`), which
+  nothing here reads (no match for `underwateroverlay` in `managed/`). *Unread, unmeasured*: the next lead, and it needs a
+  number of its own.
+- A mid is 4-8 levels low in blue. TF2's surface carries faint bluish highlights that ours lacks. Unexplained; the
+  cheap pass's fresnel envmap is the first suspect (*unread*).
+- `WaterPass.Plain` (a water material neither pass can draw) still falls through to the two-sided opaque loop. TF2 ships
+  none.
+
+**As filed:**
 
 **Measured** (live pair, `docs/measurements/2026-11-02-fog-open-items-plan.md` §2; images `D:/measure-f12/fog-open/`):
 `ctf_2fort`, listen server, `spec_goto` cameras from the map's water cubemap origin (`c-294_29_-127`), `mat_hdr_level
