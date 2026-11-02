@@ -254,6 +254,12 @@ public sealed class DecalEffects
         _decalReplay = null;
         _decalVersion = -1;
         _decalWorld = null;
+
+        // **The model decals go too** (B642 follow-up): a static prop's key is its lump index, so the old map's prop decals
+        // would land on the new map's prop at that index, and every entity index names someone new.
+        _modelDecals.ClearAll();
+        _modelDecalTick = int.MinValue;
+        _decalHolders.Clear();
     }
 
     /// <summary>The map as both engine walks see it, built once per map and shared with whoever else walks it.</summary>

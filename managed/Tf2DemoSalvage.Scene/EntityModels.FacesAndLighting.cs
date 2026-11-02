@@ -685,6 +685,10 @@ public sealed partial class EntityModelSet
     /// </remarks>
     private void PrecacheStaticLighting()
     {
+        // The origins are recorded now: a decal step that ran since the map's colours cleared them found none and marked the
+        // pool lit, so light it again on the next step (B642 review 3 follow-up).
+        _lateLitVersion = -1;
+
         foreach (SceneProp prop in _staticProps)
         {
             if (!CanDraw(prop) || prop.EntityIndex < PropModels.FirstStaticPropEntityIndex)

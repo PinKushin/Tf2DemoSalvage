@@ -725,3 +725,40 @@ VertexLitGeneric. *Read from the shipped VMTs.*
 **Ours now:** the model decal draw takes a light. An entity's decals take the model's own. A colour-mesh static prop
 carries its full state as `ModelInstance.DecalLight`, and its decals draw after it in the model pass rather than in
 the world decal pass. The numbers, offscreen and on a real frame, are in B642.
+
+## A fading model's decals do not fade (B642 residue, 2026-11-01)
+
+**The question.** A static prop past its fade distance draws translucent at its fade alpha. Ours draws its decals at
+full alpha after it. Does studiorender modulate a decal by the model's alpha? The read had been blocked three times by
+a shared Ghidra port.
+
+**What studiorender does** (`studiorender.dll`, x64, read in Ghidra; disassembly, no decompiled code carried). *Read
+from the binary.*
+- `IStudioRender::SetAlphaModulation` is vtable slot 28 (`0x180081200` → `0x180059930`): one `movss [rcx+0x258], xmm1`.
+  `SetAmbientLightColors` writes the context at `+0x88` and the draw reads the same cube at `m_pRC + 0x78`, so the
+  render context starts at `+0x10` and the alpha is `m_pRC + 0x248`.
+- **The model draw reads it.** The mesh loop passes it to the mesh draw (`0x180011c47`, `0x180011cad`, `0x18000f9de`).
+  The software path scales it by a constant and writes it into the vertex colour (`0x18000fa6e`).
+- **No decal function reads it.** Searching every operand `+ 0x248]` in the program finds readers only in
+  `0x1800041c0`, `0x18000f580`, `0x180011a20` and `0x18004fcf0`. The decal chain never reads it: `DrawDecal`
+  (`0x180007b00`), `DrawStaticPropDecals` (`0x180009bf0`), the per-material draw (`0x180007d20`), its four vertex
+  builders (`0x1800096c0`, `0x1800098b0`, `0x180008180`, `0x180008aa0`), and the decal light (`0x18000a880`).
+- **Each decal corner's colour is the constant `0xffffffff`**, alpha 255, in both builders read (`0x1800096c0`,
+  `0x180008180`). The per-material draw binds the decal material (`+0x48`) and calls no modulation on it.
+- **The control.** The same search finds the model path's reads, so an empty result for the decal chain is a real
+  absence and not a broken search.
+- **Colour modulation is the same.** `SetColorModulation` is slot 27 (`0x180059b30`). It stores three floats at
+  context `+0x24c`, which is `m_pRC + 0x23c`. Its readers are `0x1800041c0`, `0x18004fcf0` and a context copy
+  (`0x180054960`), none in the decal chain.
+- **The path a one-pass fading prop takes reaches the decals.** `DrawModelStaticProp`, slot 30 (`0x180056b80`), calls
+  the model draw `0x1800524e0`, and that calls `DrawDecal` (`0x180007b00`). `DrawModel` (`0x180051ad0`) draws decals
+  unless the draw is translucent-only (`(flags & 3) != 2`), so a two-pass prop's decals go with its opaque half.
+
+**And the engine still hands them over** (`engine.dll` x64, `0x1800eb1a0`, the per-prop draw). The decal handle
+`record + 0x10` goes into the draw info unless the prop has no record or bit 30 of its render flags is set. Bit 30 is
+`STUDIO_SHADOWDEPTHTEXTURE`, which also adds the `0x200` draw flag. Nothing there reads the fade. *Read from the
+binary.* Not re-read: the batched path `0x1800eb5e0`. A fading prop joins the translucent list and is drawn one at a
+time (B432), so the batched path should not see it. That is *interpolated*.
+
+**So Valve draws a fading prop's decals unfaded**, at their own material's alpha. Ours already does. Nothing to
+change. *Not compared on a frame:* no live TF2 capture of a fading prop with a decal was taken.

@@ -180,6 +180,43 @@ public sealed class DecalEffectsTests
         models.Decals.ShouldBeSameAs(device.ModelDecals);
     }
 
+    /// <remarks>
+    /// **The production constructor's step lights the model set it was given** (B642 review 3 follow-up): the late light
+    /// is built by `EntityModelSet.LightDecalHolders` once the step has placed this frame's decals, and the public
+    /// constructor is the only route the viewer takes to it. A new pool is lit whatever its version, so the first step
+    /// runs exactly one pass; a constructor or step that dropped the call runs none.
+    /// </remarks>
+    [Test]
+    public void StepOver_OverTheProductionModelSet_RunsItsDecalLightPassOnce()
+    {
+        EntityModelSet models = new();
+        DecalEffects decals = new(models, new BulletStrikes(models, new RecordingLogger()), new RecordingLogger());
+
+        models.DecalLightPasses.ShouldBe(0, "the control: nothing lit before the step");
+
+        decals.StepOver(Frame(50), Content(), new FakeDecalUpload());
+
+        models.DecalLightPasses.ShouldBe(1);
+    }
+
+    /// <remarks>
+    /// **A new map starts with no model decals** (B642 follow-up): the pool outlives the map's replay, and a static
+    /// prop's key is its lump index, so an old map's prop decals would land on whichever prop of the new map shares the
+    /// index. `ModelDecals.ClearAll` ("a seek backwards, or a new map") had no caller.
+    /// </remarks>
+    [Test]
+    public void ClearMap_AfterAModelDecalWasPlaced_EmptiesTheModelDecalPool()
+    {
+        (DecalEffects decals, FakeDecalUpload device, _, _) = Presenter();
+
+        decals.StepOver(Frame(ImpactTick), Content(), device);
+        decals.ModelDecalCount.ShouldBe(1, "the control: the step placed one");
+
+        decals.ClearMap();
+
+        decals.ModelDecalCount.ShouldBe(0);
+    }
+
     [Test]
     public void StepOver_AServerImpactOnAnEnemy_PutsItsFleshDecalOnHisModel()
     {
