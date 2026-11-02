@@ -84,7 +84,7 @@ view's only fog clear is the radial-vis one (`:1423`), not modelled (B655). The 
 clear, took the reflection-quartered scale had a reflection view cleared to fog, and never cleared the simple view. All
 fixed; the B641 gamma twins are never cleared (every clear is on the sRGB view) and read the same texels.
 
-**Tests** (red by sabotage, each restored by inverse edit): `WaterClearConformanceTests` clears the offscreen sRGB view
+**Tests** (written alongside the code, so red was shown by sabotage, not red-first; each restored by inverse edit): `WaterClearConformanceTests` clears the offscreen sRGB view
 with every byte 0-255 and reads it back raw (control: 128 handed as linear stores 188), plus scaled bytes at 0.6 and 4;
 `WaterColourConformanceTests` holds the wrap (200 at 4 is 119, 190 at 2 is 4), the truncation (0.5 is 127), which views
 scale, and the simple view's clear.
@@ -111,6 +111,11 @@ water changes) and `e82e081d` (after), each from `git archive` into a scratch fo
 | C water at the shore (600,420) | 42.6 32.0 11.7 | 63.0 64.7 47.0 | 64.3 64.7 47.8 | 64.3 64.7 47.8 |
 
 - **Control:** `e82e081d` shot twice: 0 px differ on all three cameras.
+- **Framing:** checked by eye at landmarks, not measured: the hull's portholes and the pillars sit within about 20-30
+  px of each other in TF2's and ours in A and C (both 90 degrees, 1280x720), ours slightly lower and right; the boxes
+  lie in broad uniform areas of water or sand on both sides. Neither side applies colour correction
+  (TF2 `mat_colorcorrection 0`; the viewer has none). So the boxes cover the same content, with one difference that is
+  itself B657: TF2 shows the pillars' submerged parts through the surface, ours does not.
 - `38a984c5` against `e82e081d`: 663,973 / 207,650 / 623,795 px changed, at most 7 / 8 / 6 levels; the surface's red
   went UP by 1-5 levels, away from TF2.
 - This branch against `e82e081d`: 1 / 3 / 0 px, 1 level. Byte-derived colours quantise to themselves, and at a pinned
@@ -137,12 +142,20 @@ srgb. 1 = use shader srgb(software lookup)"). Every reader of its parent pointer
 default "1"), the curves, and the tone-map multiply only when `GetHDRType()` is 1. No other HDR branch. c29.w is
 1 / `+0x2044` (not traced here). The clear (item 1) has no HDR branch in shaderapi; the client scales only under integer
 HDR. Lit shaders set sRGB write unconditionally (`lightmappedgeneric_dx9_helper.cpp:614`). **Ours:** `mat_hdr_level`
-0/1 is honoured (B537); `LinearLightScale` is 1 outside integer HDR (`Device3D`), so the shader's fog scale is 1; the
-clear's scale is now gated on `HdrType` itself (`WaterClearColour( …, scaled )`, its test the `scaled: false` case).
+0/1 is honoured (B537); `LinearLightScale` is 1 outside integer HDR (`Device3D`, line ~1652; **that gate has no test**,
+it needs a window-backed `Device3D`), so the shader's fog scale is 1. The clear's scale is gated on `HdrType` itself:
+`WaterViewRenderTests.DrawWaterWorld_TheRefractionViewsFogClearAtHalfScale_IsScaledOnlyUnderIntegerHdr` draws 2fort's
+water through `DrawWaterViews` at scale 0.5 and reads the refraction target, IntegerHdr and None; gating on any HDR
+type reddens the None case.
+
+**Held by nothing that can fail:** the simple view's back-buffer fog clear in `Device3D` (its decision,
+`MainViewFogClear`, is tested; the clear call is not); the clear taking the frame's scale rather than the reflection
+view's (no reflection view clears to fog); `PackHeightFog`'s colour assertion at `r_shader_srgb 0` (it compares with the
+function it calls; the 1 case discriminates).
 
 ### Counts
 
-Whole `Tf2DemoSalvage.slnx`: 0 warnings, 0 errors. Rendering 1352 passed, 59 skipped, of 1411. Presentation 1332.
+Whole `Tf2DemoSalvage.slnx`: 0 warnings, 0 errors. Rendering 1354 passed, 59 skipped, of 1413 (after the LDR clear test). Presentation 1332.
 Scene 3459. Content 1828 (29 skipped). Animation 5386 (1 skipped). None failed. Viewer3D 160 of 162: the two failures
 (`LoadDemo_WithAutoplay_LeavesTheTransportPlaying`, `LoadDemoAsync_TheFirstDemoOpened_…`) open a gcor demo, and in this
 worktree the gcor demos are 131-byte LFS pointers (`docs/memory/a-worktree-copies-gcor-demos-never-lfs-pull.md`), so the
