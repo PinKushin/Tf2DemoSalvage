@@ -62,8 +62,8 @@ internal sealed class ViewHalf
     /// <summary>The water views, or null when the frame is one simple view (B62).</summary>
     public WaterDraw? WaterDraw { get; set; }
 
-    /// <summary>The water plan last logged for this half (volume, leaf, eye in, material, info), so the line fires on a change.</summary>
-    public (int Volume, int Leaf, bool EyeIn, int Material, WaterRenderInfo Info)? LastWaterPlan { get; set; }
+    /// <summary>The water plan last logged for this half (volume, leaf, eye in, material, cheap end, info), so the line fires on a change.</summary>
+    public (int Volume, int Leaf, bool EyeIn, int Material, float CheapEnd, WaterRenderInfo Info)? LastWaterPlan { get; set; }
 
     /// <summary>The visible volume's own fog the main view draws under from inside it.</summary>
     public Tf2DemoSalvage.Core.Scene.SceneFog? WaterMainFog { get; set; }

@@ -2291,6 +2291,12 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         _water = assets.Water;
         _waters = assets.Waters;
         _screenOverlays = assets.ScreenOverlays;
+
+        // A new map's first plan is said even when its indices match the last map's.
+        foreach (ViewHalf each in _views.Both)
+        {
+            each.LastWaterPlan = null;
+        }
         _materialNames = [.. assets.Materials.Select(material => material.Name)];
 
         foreach (ViewHalf half in _views.Both)
@@ -2315,7 +2321,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
     /// </summary>
     private void ReportWaterPlan(ViewHalf half, FogVolumeInfo fog, int material, float cheapEnd, WaterRenderInfo info)
     {
-        (int, int, bool, int, WaterRenderInfo) plan = (fog.Volume, fog.Leaf, fog.EyeInFogVolume, material, info);
+        (int, int, bool, int, float, WaterRenderInfo) plan = (fog.Volume, fog.Leaf, fog.EyeInFogVolume, material, cheapEnd, info);
 
         if (half.LastWaterPlan is { } last && last.Equals(plan))
         {
@@ -2349,6 +2355,8 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
 
         if (half.Culling is not { CanCull: true } culling || _water.Volumes.Count == 0)
         {
+            // Not planning: the next plan, whenever it comes, is new.
+            half.LastWaterPlan = null;
             return;
         }
 

@@ -187,10 +187,13 @@ public sealed class BrushEntityWaterConformanceTests
 
         (int, int, int) floor = target.PixelAt(32, 32);
 
+        target.WorldWaterDraws.ShouldBe((0, 0, 0), "the floor alone drew a water pass");
+
         target.ModelVertexCap = 0;
         target.DrawModelPose(Quad(0f, (1f, 1f, 1f)), [new(Water, 0, 6)], Above.ToMatrix(), Identity, Assets, clearDepth: false);
 
         target.PixelAt(32, 32).ShouldBe(floor, "a water batch drew under a vertex cap of zero");
+        target.WorldWaterDraws.ShouldBe((0, 0, 0), "the Water passes ran under a vertex cap of zero");
     }
 
     /// <summary>The world's water face over the floor, through the frame's refraction view.</summary>
@@ -239,8 +242,8 @@ public sealed class BrushEntityWaterConformanceTests
             return null;
         }
 
-        // A small additive square in a corner of the frame, well away from the sampled centre.
-        List<WorldVertex> vertices = [.. Shifted(Quad(0f, (1f, 1f, 1f)), 0.05f, -300f), .. Quad(0f, (1f, 1f, 1f))];
+        // A small additive square in view (the frame spans ±200 units at this height), well left of the sampled centre.
+        List<WorldVertex> vertices = [.. Shifted(Quad(0f, (1f, 1f, 1f)), 0.05f, -150f), .. Quad(0f, (1f, 1f, 1f))];
 
         target.Clear(0f, 0f, 0f);
         target.DrawWaterWorld(Quad(-5f, floor), [new(Floor, 0, 6)], Above, Assets, Frame());
@@ -259,12 +262,13 @@ public sealed class BrushEntityWaterConformanceTests
             return null;
         }
 
-        // Row-vector convention: the translation is row three. The vertices sit 300 units along x; the matrix puts them back.
-        float[] back = [1f, 0f, 0f, 0f, 0f, 1f, 0f, 0f, 0f, 0f, 1f, 0f, -300f, 0f, 0f, 1f];
+        // Row-vector convention: the translation is row three. The vertices sit 1000 units along x, wholly out of the ±200
+        // the frame sees, so a draw that ignored the matrix leaves the floor; the matrix puts them back.
+        float[] back = [1f, 0f, 0f, 0f, 0f, 1f, 0f, 0f, 0f, 0f, 1f, 0f, -1000f, 0f, 0f, 1f];
 
         target.Clear(0f, 0f, 0f);
         target.DrawWaterWorld(Quad(-5f, floor), [new(Floor, 0, 6)], Above, Assets, Frame());
-        target.DrawModelPose(Shifted(Quad(0f, (1f, 1f, 1f)), 1f, 300f), [new(Water, 0, 6)], Above.ToMatrix(), back, Assets,
+        target.DrawModelPose(Shifted(Quad(0f, (1f, 1f, 1f)), 1f, 1000f), [new(Water, 0, 6)], Above.ToMatrix(), back, Assets,
             clearDepth: false);
 
         return target.PixelAt(32, 32);

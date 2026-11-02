@@ -429,6 +429,9 @@ internal sealed unsafe class OffscreenTarget : IDisposable
     internal void BeginSimpleView(ViewDraws draws, (float Red, float Green, float Blue)? fogClear) =>
         EnsureWorld().BeginSimpleView(_context, _view, draws, fogClear);
 
+    /// <summary>How many water batches drew each pass since the last <see cref="DrawWaterWorld"/> reset them.</summary>
+    internal (int Expensive, int Cheap, int Plain) WorldWaterDraws => EnsureWorld().WaterDraws;
+
     /// <summary>The world renderer's draw flags as they stand.</summary>
     internal ViewDraws WorldViewDraws => EnsureWorld().ViewDraws;
 

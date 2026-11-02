@@ -802,6 +802,26 @@ internal sealed unsafe partial class WorldRenderer
         return true;
     }
 
+    /// <summary>Which water targets a Water face may sample while a view draws into one of them: never its own output (B663).</summary>
+    /// <param name="drawingInto">The water target being drawn into, or <see cref="WaterViewTarget.BackBuffer"/> for none.</param>
+    /// <returns>Whether the refraction and the reflection are bound as inputs.</returns>
+    internal static (bool Refraction, bool Reflection) WaterInputsWhileDrawing(WaterViewTarget drawingInto) =>
+        (drawingInto != WaterViewTarget.Refraction, drawingInto != WaterViewTarget.Reflection);
+
+    /// <summary>The water target a view's draws actually land in, as <see cref="DrawWaterViews"/> chose its output (B663).</summary>
+    /// <param name="reflection">The view is the reflection.</param>
+    /// <param name="viaFrame">The view draws into the frame and is copied out after.</param>
+    /// <returns>Reflection, the frame (no water target), or the refraction target.</returns>
+    internal static WaterViewTarget DrawnInto(bool reflection, bool viaFrame)
+    {
+        if (reflection)
+        {
+            return WaterViewTarget.Reflection;
+        }
+
+        return viaFrame ? WaterViewTarget.BackBuffer : WaterViewTarget.Refraction;
+    }
+
     /// <summary>
     /// The <c>Water</c> shader's <c>SHADER_DRAW</c> on one run (<c>water.cpp:534-584</c>), for the world's water surface
     /// and a brush entity's water face alike: the shader has no input saying which it is drawing (B659).
@@ -854,8 +874,9 @@ internal sealed unsafe partial class WorldRenderer
         // **The target a water view is drawing into is bound as nothing** (B663): a brush entity's water face inside the
         // refraction or reflection view would sample its own render target. The engine has no gate for it and what D3D9
         // returns there is unread; D3D11 would null the input anyway, so it is nulled here explicitly, with no hazard.
-        ComPtr<ID3D11ShaderResourceView> refract = _drawingInto == WaterViewTarget.Refraction ? default : _refractionView;
-        ComPtr<ID3D11ShaderResourceView> reflect = _drawingInto == WaterViewTarget.Reflection ? default : _reflectionView;
+        (bool sampleRefraction, bool sampleReflection) = WaterInputsWhileDrawing(_drawingInto);
+        ComPtr<ID3D11ShaderResourceView> refract = sampleRefraction ? _refractionView : default;
+        ComPtr<ID3D11ShaderResourceView> reflect = sampleReflection ? _reflectionView : default;
 
         context.PSSetShaderResources(4, 1, ref normal);
         context.PSSetShaderResources(5, 1, ref cube);
@@ -864,12 +885,13 @@ internal sealed unsafe partial class WorldRenderer
 
         context.RSSetState(WaterRaster(material));
 
+        // Neither DrawReflectionRefraction's shadow state (water.cpp:182-266) nor the cheap pass's without bBlend
+        // (:399-402) enables blending, and a material's shadow state is set whole on bind: both passes start opaque,
+        // whatever the previous run left (a model's additive batch included). The blended cheap pass sets its own below.
+        ResetBlend(context);
+
         if ((passes & WaterPass.ReflectionRefraction) != 0)
         {
-            // DrawReflectionRefraction's shadow state enables no blending (water.cpp:182-266), and a material's shadow state
-            // is set whole on bind: the expensive pass is opaque whatever the previous run left, a model's additive batch
-            // included.
-            ResetBlend(context);
             context.PSSetShader(_waterShader, ref Unsafe.NullRef<ComPtr<ID3D11ClassInstance>>(), 0);
             SubmitCounters.Draw(); context.Draw((uint)vertexCount, (uint)firstVertex);
             expensive++;
@@ -883,11 +905,6 @@ internal sealed unsafe partial class WorldRenderer
                 float* factor = stackalloc float[4] { 1f, 1f, 1f, 1f };
 
                 context.OMSetBlendState(_alphaBlend, factor, 0xFFFFFFFF);
-            }
-            else
-            {
-                // No bBlend, no blending in the cheap pass's shadow state (water.cpp:399-402).
-                ResetBlend(context);
             }
 
             context.PSSetShader(_cheapWaterShader, ref Unsafe.NullRef<ComPtr<ID3D11ClassInstance>>(), 0);
@@ -1008,7 +1025,7 @@ internal sealed unsafe partial class WorldRenderer
 
             // The target this view draws into, which a water face inside it must not sample (B663). Through the frame,
             // the refraction target is not the output, so it stays bound: last frame's copy, as the engine's would be.
-            _drawingInto = viaFrame ? WaterViewTarget.BackBuffer : target;
+            _drawingInto = DrawnInto(reflection, viaFrame);
 
             try
             {
@@ -1103,6 +1120,12 @@ internal sealed unsafe partial class WorldRenderer
     private void StretchFrameToRefraction(ComPtr<ID3D11DeviceContext> context, WaterFrameTarget frame)
     {
         EnsureWaterTargets();
+
+        // A water face inside the view may have left the refraction bound as an input; it is the output now.
+        ComPtr<ID3D11ShaderResourceView> none = default;
+
+        context.PSSetShaderResources(12, 1, ref none);
+        context.PSSetShaderResources(13, 1, ref none);
         StretchFrameInto(context, frame, _refractionTarget);
     }
 

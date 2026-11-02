@@ -40292,7 +40292,15 @@ and shaderapi's handling is not read.
   the face samples the previous frame's target, which stays bound.
 
 **What D3D9 returns when a pixel shader samples the bound render target is *unread*.** Ours is D3D11's zeros, not a
-parity claim. Untested: no cheap harness draws a model inside a water view.
+parity claim.
+
+**Tested at the seam (second review):**
+- `WaterViewInputsConformanceTests` covers the two decisions: which target a view's draws land in (`DrawnInto`; an
+  under-water view with no frame now counts as the refraction), and which inputs that leaves bound
+  (`WaterInputsWhileDrawing`).
+- Each reddened under a sabotage, and each was restored.
+- The via-frame stretch also unbinds t12/t13 before it draws into the refraction.
+- Not covered: a model drawn inside a live water view. No harness does that without a window.
 
 ## B662 — water that samples a target no view wrote read zeros here, where the engine's target is cleared opaque black (2026-11-02) — FIXED on `fix/b659-brush-entity-water` for a target never written; a map load that flips HDR is still OPEN
 
