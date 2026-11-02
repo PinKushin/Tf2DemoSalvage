@@ -882,8 +882,8 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
         // fog mode — 0 toward the fog colour, 1 toward black, 2 none.
         //
         // **FinalOutput's TONEMAP_SCALE_LINEAR first** (:348-350): the colour times LINEAR_LIGHT_SCALE, then the fog. The
-        // fog colour is taken at the same scale — interpolated from SetClearColorToFogColor (viewrender.cpp:759-766), which
-        // scales the fog colour by the tone-map scale under HDR_TYPE_INTEGER; shaderapi's g_LinearFogColor is not read.
+        // fog colour is taken at the same scale: shaderapi's c29 upload multiplies g_LinearFogColor by the tone-map scale
+        // under HDR_TYPE_INTEGER unless the shader disabled fog gamma correction (shaderapidx9.dll 0x180025a50, B653).
         //
         // **`toneMapScaleNone` (tintControl.w), not the fog mode, decides the scale** (B635): `Modulate` and `DecalModulate`
         // both end in `FinalOutput( …, TONEMAP_SCALE_NONE )` (modulate_ps2x.fxc:37, decalmodulate_ps2x.fxc:44), which leaves
