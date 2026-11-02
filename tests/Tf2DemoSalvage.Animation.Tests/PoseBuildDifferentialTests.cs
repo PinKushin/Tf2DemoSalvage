@@ -30,6 +30,9 @@ public sealed class PoseBuildDifferentialTests
 {
     private const int Everything = ~0;
 
+    /// <summary>Units: float round-trip noise on a travel of tens of units is far below this, a real change far above.</summary>
+    private const float FurthestTolerance = 1e-3f;
+
     private static readonly float[] LayerWeights = [0f, 0.5f, 1f, 1.5f];
 
     [Test]
@@ -368,8 +371,10 @@ public sealed class PoseBuildDifferentialTests
         (int Applied, int Moved, float Furthest, int Solved, int Spun) gotCounters =
             (production.AppliedLocks, production.LockEffect.Moved, production.LockEffect.Furthest, production.SolvedChains, production.SpunBarrels);
 
+        // `FurthestMove` within a tolerance, not to the bit: since the iklock-compose re-walk went, a lock's travel ends at
+        // the solved matrix rather than at its local-space round trip (B243), a last-bits change of route.
         if (gotCounters.Applied != wantCounters.Applied || gotCounters.Moved != wantCounters.Moved ||
-            BitConverter.SingleToInt32Bits(gotCounters.Furthest) != BitConverter.SingleToInt32Bits(wantCounters.Furthest) ||
+            MathF.Abs(gotCounters.Furthest - wantCounters.Furthest) > FurthestTolerance ||
             gotCounters.Solved != wantCounters.Solved || gotCounters.Spun != wantCounters.Spun)
         {
             tally.Mismatch($"{label}: counters (applied, moved, furthest, solved, spun) {gotCounters}, want {wantCounters}");
