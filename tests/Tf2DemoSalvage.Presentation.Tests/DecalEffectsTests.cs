@@ -199,6 +199,24 @@ public sealed class DecalEffectsTests
         models.DecalLightPasses.ShouldBe(1);
     }
 
+    /// <remarks>
+    /// **A new map starts with no model decals** (B642 follow-up): the pool outlives the map's replay, and a static
+    /// prop's key is its lump index, so an old map's prop decals would land on whichever prop of the new map shares the
+    /// index. `ModelDecals.ClearAll` ("a seek backwards, or a new map") had no caller.
+    /// </remarks>
+    [Test]
+    public void ClearMap_AfterAModelDecalWasPlaced_EmptiesTheModelDecalPool()
+    {
+        (DecalEffects decals, FakeDecalUpload device, _, _) = Presenter();
+
+        decals.StepOver(Frame(ImpactTick), Content(), device);
+        decals.ModelDecalCount.ShouldBe(1, "the control: the step placed one");
+
+        decals.ClearMap();
+
+        decals.ModelDecalCount.ShouldBe(0);
+    }
+
     [Test]
     public void StepOver_AServerImpactOnAnEnemy_PutsItsFleshDecalOnHisModel()
     {

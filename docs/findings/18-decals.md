@@ -747,6 +747,18 @@ from the binary.*
   `0x180008180`). The per-material draw binds the decal material (`+0x48`) and calls no modulation on it.
 - **The control.** The same search finds the model path's reads, so an empty result for the decal chain is a real
   absence and not a broken search.
+- **Colour modulation is the same.** `SetColorModulation` is slot 27 (`0x180059b30`). It stores three floats at
+  context `+0x24c`, which is `m_pRC + 0x23c`. Its readers are `0x1800041c0`, `0x18004fcf0` and a context copy
+  (`0x180054960`), none in the decal chain.
+- **The path a one-pass fading prop takes reaches the decals.** `DrawModelStaticProp`, slot 30 (`0x180056b80`), calls
+  the model draw `0x1800524e0`, and that calls `DrawDecal` (`0x180007b00`). `DrawModel` (`0x180051ad0`) draws decals
+  unless the draw is translucent-only (`(flags & 3) != 2`), so a two-pass prop's decals go with its opaque half.
+
+**And the engine still hands them over** (`engine.dll` x64, `0x1800eb1a0`, the per-prop draw). The decal handle
+`record + 0x10` goes into the draw info unless the prop has no record or bit 30 of its render flags is set. Bit 30 is
+`STUDIO_SHADOWDEPTHTEXTURE`, which also adds the `0x200` draw flag. Nothing there reads the fade. *Read from the
+binary.* Not re-read: the batched path `0x1800eb5e0`. A fading prop joins the translucent list and is drawn one at a
+time (B432), so the batched path should not see it. That is *interpolated*.
 
 **So Valve draws a fading prop's decals unfaded**, at their own material's alpha. Ours already does. Nothing to
 change. *Not compared on a frame:* no live TF2 capture of a fading prop with a decal was taken.

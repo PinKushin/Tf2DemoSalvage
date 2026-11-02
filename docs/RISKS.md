@@ -40466,7 +40466,8 @@ viewer kept that wrong light. The engine has no such window: the record's static
 - **Held by tests.** `MomentSceneTests.LightDecalHolders_ADecalPlacedAfterThePose_IsLitAtTheFirstDraw` and
   `…_APausedSeekClearsThenReplacesTheDecal_FollowsThePoolWithoutAPose` went red with the late lights discarded.
   `DecalEffectsTests.StepOver_OverTheProductionModelSet_HandsTheDeviceTheModelSetsPool` holds the wiring: the model
-  set's pool is the device's, and the step lights it. It went red with either line removed.
+  set's pool is the device's. ~~…and the step lights it. It went red with either line removed.~~ It asserts only the
+  pool. Nothing proved the step lights it until `…RunsItsDecalLightPassOnce` (follow-ups, below).
 - **Reuse is tested now:** `…_TakesTheNewLightThenKeepsIt` went red with an always-reuse mutant.
 
 **Held now:** `Device3D.DrawDecalsOf` makes three calls, each tested in `ModelDecalsDrawTests`: `DecalReplay.KeyOf`,
@@ -40505,9 +40506,16 @@ decal on a dynamic model. Blood is DecalModulate, and wood holes land on props.
 - **The precache re-opens the light pass.** A map's colours clear the lighting origins, and only the next pack's
   precache records them again. A decal step that ran in between found no origin, lit nothing, and still marked the
   pool lit. With nothing else changing the pool, a paused viewer kept the prop's own flags-6 light on that decal.
-  `PrecacheStaticLighting` now resets the last-lit version. *Read from our code:* `LevelSystems.Load` sets the colours
-  and the next `Add` precaches before that frame's pose and step, so the window needs a step between them. The fix
-  closes it whatever the order. `MomentSceneTests…ADecalPlacedBeforeThePrecache…` was red before the fix.
+  `PrecacheStaticLighting` now resets the last-lit version. *Read from our code, not tested as an order:*
+  `LevelSystems.Load` sets the colours. Each frame then runs `ViewerSession` `Show` (`MomentPresenter` → `MomentScene.Build`
+  → `EntityModelSet.Add`, which precaches once a level), then `ProjectWorld` → `PoseOver` (pose, then
+  `FinishDrawBeforeEffects`), then the decal step. So on one thread the window looks unreachable. The fix closes it
+  whatever the order. `MomentSceneTests…ADecalPlacedBeforeThePrecache…` was red before the fix.
+- **A new map empties the model decal pool.** `DecalEffects.ClearMap` dropped the replay but kept `_modelDecals`, and
+  `ModelDecals.ClearAll` ("a seek backwards, or a new map") had no caller. A static prop's key is its lump index, so
+  the old map's prop decals stayed on whichever new-map prop shared the index. The entities' decals stayed too.
+  `ClearMap` now calls `ClearAll` and forgets the step's tick and holders.
+  `DecalEffectsTests.ClearMap_AfterAModelDecalWasPlaced_EmptiesTheModelDecalPool` was red before.
 - **A pass over a holder allocates nothing.** The test is a holder under unchanged light, which takes the kept instance.
   A `ToArray` over the keys reddens it and leaves the empty-pass test green.
 - **The production constructor's step runs the pass.** `DecalEffectsTests…RunsItsDecalLightPassOnce`, red with the
@@ -40525,9 +40533,12 @@ state goes back by `DrawDecalsOf`'s argument.
 - ~~**A fading prop's hole is drawn unfaded.**~~ **Valve-equal, settled 2026-11-01 (branch `fix/b642-followups`).**
   studiorender never modulates a decal by the model's alpha. `SetAlphaModulation` (`0x180059930`) stores it at
   `m_pRC + 0x248`, the model draw reads it, and no function in the decal chain does. Each corner's colour is the
-  constant `0xffffffff`. *Read from the binary*; the addresses and the control are in findings 18, "A fading model's
-  decals do not fade". Ours draws them at full alpha, which matches.
-- *Unread:* whether studiorender's `DrawModelStaticProp` (slot 30) reads `+0x44/+0x8c` exactly as slot 31 does.
+  constant `0xffffffff`. Colour modulation is the same. `engine.dll`'s per-prop draw (`0x1800eb1a0`) withholds the
+  decal handle only for a shadow-depth draw, never for a fade. *Read from the binary*; the addresses and the control
+  are in findings 18, "A fading model's decals do not fade". Ours draws them at full alpha, which matches.
+- ~~*Unread:* whether studiorender's `DrawModelStaticProp` (slot 30) reads `+0x44/+0x8c` exactly as slot 31 does.~~
+  **Read 2026-11-01:** slot 30 (`0x180056b80`) calls `0x1800524e0`, which calls `DrawDecal` (`0x180007b00`), whose
+  first step is the same decal light `0x18000a880` that slot 31 calls. Same reads.
 - The ranking divergence is filed as B654.
 - **A prop whose model resolves after the precache would build its static state mid-play.** Read from our code, this
   does not happen. `CanDraw` tests only the kind and the path, and static props are packed in the same `Add` that runs
