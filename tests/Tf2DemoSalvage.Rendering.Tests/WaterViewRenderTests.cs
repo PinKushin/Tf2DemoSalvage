@@ -458,6 +458,47 @@ public sealed class WaterViewRenderTests
         both.ShouldBe(alone, "2fort's beneath face drew over the surface from above");
     }
 
+    /// <remarks>
+    /// **B658: from inside 2fort's water, the frame is drawn through <c>effects/water_warp_2fort</c>.** The beneath
+    /// material names it (<c>$underwateroverlay</c>), <c>CUnderWaterView::Setup</c> takes it (<c>viewrender.cpp:6115-6128</c>)
+    /// and <c>DrawUnderwaterOverlay</c> draws it over the frame (<c>:1300-1340</c>). It is a <c>Refract</c> with
+    /// <c>$refracttint {185 215 245}</c>, so over a grey frame it must draw, and darken red most and blue least. The
+    /// measured pair is in RISKS B658; this holds that the map's own load makes it drawable.
+    /// </remarks>
+    [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
+    public void DrawScreenOverlay_TwoFortsUnderwaterOverlay_TintsTheFrameBlue()
+    {
+        if (!Direct3DApi.IsAvailable || !MapCache.Has("ctf_2fort"))
+        {
+            Assert.Ignore("needs Direct3D and TF2's ctf_2fort");
+            return;
+        }
+
+        MapAssets assets = MapCache.Load(mapName: "ctf_2fort");
+        MapWater beneath = assets.Waters.OfType<MapWater>().First(water => !water.AboveWater);
+
+        beneath.UnderwaterOverlay.ShouldBe("effects/water_warp_2fort");
+        assets.ScreenOverlays.TryGetValue(beneath.UnderwaterOverlay!, out ScreenOverlayMaterial? overlay).ShouldBeTrue("the overlay was not loaded with the map");
+        overlay.Refract.ShouldNotBeNull("the overlay loaded but this port would not draw it");
+
+        using OffscreenTarget target = OffscreenTarget.TryCreate(64, 64)!;
+
+        target.Clear(0.5f, 0.5f, 0.5f);
+
+        (int red, int green, int blue) under = target.PixelAt(32, 32);
+
+        target.DrawScreenOverlay(overlay, 0.0).ShouldBeTrue();
+
+        (int red, int green, int blue) drawn = target.PixelAt(32, 32);
+
+        TestContext.Out.WriteLine($"GREY {under} THROUGH water_warp_2fort {drawn}");
+
+        drawn.red.ShouldBeLessThan(under.red - 20, "the tint's 185 red did not darken the frame");
+        drawn.red.ShouldBeLessThan(drawn.green);
+        drawn.green.ShouldBeLessThan(drawn.blue);
+    }
+
     /// <summary>2fort's surface water alone over black, from above with its own plan, on a fresh renderer; null without 2fort or Direct3D.</summary>
     /// <remarks>A fresh target reads TF2VIEW_MODEL_CULL afresh, which is what <see cref="ModelCullOverrideReleaseTests"/> needs.</remarks>
     internal static (int, int, int)? SurfaceFromAbove()

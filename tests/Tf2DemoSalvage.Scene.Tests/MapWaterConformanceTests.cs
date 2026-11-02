@@ -57,6 +57,21 @@ public sealed class MapWaterConformanceTests
         water.View.ForceExpensive.ShouldBeTrue();
     }
 
+    /// <remarks>
+    /// <c>CUnderWaterView::Setup</c> (<c>viewrender.cpp:6115-6128</c>): <c>FindVar( "$underwateroverlay" )</c> on the fog
+    /// volume's material, used when defined and its first character is not '0'. 2fort's beneath material
+    /// writes the key unquoted: <c> $underwateroverlay "effects/water_warp_2fort"</c>.
+    /// </remarks>
+    [TestCase("\"$underwateroverlay\" \"effects/water_warp_2fort\"", "effects/water_warp_2fort")]
+    [TestCase("$underwateroverlay \"effects/water_warp_2fort\"", "effects/water_warp_2fort")]
+    [TestCase("\"$underwateroverlay\" \"0\"", null)]
+    [TestCase("\"$underwateroverlay\" \"0something\"", null)]
+    [TestCase("", null)]
+    public void From_UnderwaterOverlay_IsTheNamedMaterialUnlessItStartsWithZero(string declared, string? expected)
+    {
+        Read(declared).UnderwaterOverlay.ShouldBe(expected);
+    }
+
     [Test]
     public void From_ScrollAndBlur_SelectTheirCombos()
     {

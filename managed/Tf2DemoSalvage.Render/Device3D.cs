@@ -1999,6 +1999,13 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
 
                 Passed(profile, RenderPass.Particles);
 
+                // **`DrawUnderwaterOverlay`, right after the viewmodels** (viewrender.cpp:2160-2162, :1300-1340, B658): the
+                // under-water view's `$underwateroverlay`, before the fade and the player's own overlay.
+                if (view.UnderwaterOverlay is { } underwater)
+                {
+                    _world.DrawScreenOverlay(_context, underwater, _world.Seconds);
+                }
+
                 // **`PerformScreenOverlay`, after the viewmodels and before the HUD** (viewrender.cpp:2177): the local
                 // player's overlay over the finished world.
                 if (ScreenOverlay is { } screenOverlay)
@@ -2283,6 +2290,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
 
         _water = assets.Water;
         _waters = assets.Waters;
+        _screenOverlays = assets.ScreenOverlays;
         _materialNames = [.. assets.Materials.Select(material => material.Name)];
 
         foreach (ViewHalf half in _views.Both)
@@ -2297,6 +2305,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
 
     private Content.Bsp.BspWater _water = new([], []);
     private IReadOnlyList<MapWater?> _waters = [];
+    private IReadOnlyDictionary<string, ScreenOverlayMaterial> _screenOverlays = new Dictionary<string, ScreenOverlayMaterial>();
     private string[] _materialNames = [];
 
     /// <summary>
@@ -2342,6 +2351,12 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         WaterView main = views.First(view => view.Target == WaterViewTarget.BackBuffer);
 
         half.SimpleViewDraws = main.Draw;
+
+        // CUnderWaterView::Setup's overlay, from the fog volume's material (the bottom one from inside), B658.
+        half.UnderwaterOverlay = WaterViews.UnderwaterOverlay(info, fog.EyeInFogVolume, Water(material)) is { } overlay &&
+            _screenOverlays.TryGetValue(overlay, out ScreenOverlayMaterial? loaded)
+                ? loaded
+                : null;
 
         // From inside the volume the main view draws under its own fog: SetFogVolumeState( fogInfo, false ), the bottom
         // material's (engine.dll 0x1800e0cd0).

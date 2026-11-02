@@ -52,6 +52,12 @@ public sealed record MapWater(
     /// <summary><c>$fogenable</c>, read as an int by <c>R_SetFogVolumeState</c> (engine.dll <c>0x1800e0d98</c>).</summary>
     public bool FogEnable { get; init; }
 
+    /// <summary>
+    /// <c>$underwateroverlay</c> as <c>CUnderWaterView::Setup</c> takes it (<c>viewrender.cpp:6118-6126</c>): the named
+    /// material when the variable is defined and its first character is not '0' (a test Valve marks as a known shortcut); otherwise null.
+    /// </summary>
+    public string? UnderwaterOverlay { get; init; }
+
     /// <summary>The proxies the material runs, in order.</summary>
     public IReadOnlyList<MaterialProxy> Proxies { get; init; } = [];
 
@@ -172,6 +178,7 @@ public sealed record MapWater(
             FogEnable = material.Value("$fogenable") is { } fog && int.TryParse(
                 fog.Trim().Split('.')[0], System.Globalization.NumberStyles.Integer,
                 System.Globalization.CultureInfo.InvariantCulture, out int on) && on != 0,
+            UnderwaterOverlay = material.Value("$underwateroverlay") is { Length: > 0 } overlay && overlay[0] != '0' ? overlay : null,
             Proxies = material.Proxies,
             Variables = material.NumericValues(),
             NormalFrames = normalFrames,

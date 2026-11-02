@@ -1880,7 +1880,8 @@ public sealed class MapAssets
             ParticleSystemsByName = particleSystems,
             ParticleMaterials = allParticleMaterials,
             SpriteMaterials = sprites,
-            ScreenOverlays = LoadScreenOverlays(assets, pak, archives, maximumTextureSize),
+            ScreenOverlays = LoadScreenOverlays(
+                assets, pak, archives, maximumTextureSize, table.Waters.Select(water => water?.UnderwaterOverlay).OfType<string>()),
             DecalMaterials = decals,
             DetailModelNames = detailModelNames,
             EntityModels = models,
@@ -2709,12 +2710,18 @@ public sealed class MapAssets
     /// <c>BurnLevel</c> — and <c>PerformScreenOverlay</c> binds it with no entity, so <c>CProxyBurnLevel</c> answers 0
     /// (`c_tf_player.cpp`, its <c>!pEntity</c> branch) and the overlay adds black: it draws nothing, faithfully.
     /// </remarks>
+    /// <param name="assets">The asset log.</param>
+    /// <param name="pak">The map's pakfile, read first.</param>
+    /// <param name="archives">The game's archives.</param>
+    /// <param name="maximumTextureSize">Largest texture edge to decode.</param>
+    /// <param name="underwater">Each water material's <c>$underwateroverlay</c>, which <c>DrawUnderwaterOverlay</c> draws the
+    /// same way (<c>viewrender.cpp:1300-1340</c>, B658).</param>
     private static Dictionary<string, ScreenOverlayMaterial> LoadScreenOverlays(
-        ILogger assets, PakFile pak, GameArchives archives, int maximumTextureSize)
+        ILogger assets, PakFile pak, GameArchives archives, int maximumTextureSize, IEnumerable<string> underwater)
     {
         Dictionary<string, ScreenOverlayMaterial> overlays = new(StringComparer.OrdinalIgnoreCase);
 
-        foreach (string named in Core.Scene.ScreenOverlay.All)
+        foreach (string named in Core.Scene.ScreenOverlay.All.Concat(underwater).Distinct(StringComparer.OrdinalIgnoreCase))
         {
             if (ReadVmt(named, pak, archives) is not { } vmt)
             {
