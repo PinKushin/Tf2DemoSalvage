@@ -186,9 +186,8 @@ public sealed class DensePoseAccumulateDifferentialTests
     }
 
     /// <remarks>
-    /// **The no-layer path, dense and sparse, allocates nothing after a warm-up.** The layered path is not asserted:
-    /// its <c>foreach</c> over the layer and sample interfaces boxes an enumerator per build (setup-bones read M6),
-    /// which predates the dense-pose change and is unchanged by it.
+    /// **The no-layer path, dense and sparse, allocates nothing after a warm-up.** The layered path is asserted by
+    /// <c>PoseBuildDifferentialTests</c>, since the iklock-compose change indexed its loops (setup-bones read M6).
     ///
     /// **Instrumentation can make this fail without production allocating.** A mutation run rewrites the code under
     /// test with mutant switches and per-test coverage capture, which can record into collections on the measuring
@@ -416,7 +415,7 @@ public sealed class DensePoseAccumulateDifferentialTests
     /// </summary>
     /// <param name="answer">The pose for a sequence, frame and fraction, and whether it arrives as a plain list.</param>
     /// <param name="bones">The skeleton's bone count, for the test's own reading of "dense".</param>
-    private sealed class Sampler(
+    internal sealed class Sampler(
         Func<int, int, float, (IReadOnlyList<StudioBonePose> Pose, bool Listed)> answer, int bones)
     {
         private readonly List<StudioBonePose> _reused = [];
@@ -549,7 +548,7 @@ public sealed class DensePoseAccumulateDifferentialTests
         }
     }
 
-    private sealed record Subject(
+    internal sealed record Subject(
         string Name,
         IReadOnlyList<StudioBone> Bones,
         byte[] File,
@@ -700,7 +699,7 @@ public sealed class DensePoseAccumulateDifferentialTests
     }
 
     /// <summary>The first sequences of the animation model that lock a chain, as a lock list to hold.</summary>
-    private static IReadOnlyList<StudioIkLock> LocksOf(byte[] animations)
+    internal static IReadOnlyList<StudioIkLock> LocksOf(byte[] animations)
     {
         int sequences = StudioSequences.Read(animations).Count;
 
@@ -715,7 +714,7 @@ public sealed class DensePoseAccumulateDifferentialTests
         return [];
     }
 
-    private static VpkArchive[] Archives() =>
+    internal static VpkArchive[] Archives() =>
     [
         .. new[] { "tf2_misc_dir.vpk", "tf2_textures_dir.vpk" }
             .Select(GameInstall.Find)
@@ -723,7 +722,7 @@ public sealed class DensePoseAccumulateDifferentialTests
             .Select(VpkArchive.Open),
     ];
 
-    private static byte[]? Read(VpkArchive[] archives, string path)
+    internal static byte[]? Read(VpkArchive[] archives, string path)
     {
         foreach (VpkArchive archive in archives)
         {

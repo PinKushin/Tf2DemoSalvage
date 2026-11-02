@@ -411,7 +411,6 @@ public sealed class SkeletonPose : IBonePose
         _capture = 0;
         _solve = 0;
         _compose = 0;
-        _enumerators = 0;
 
         // **The layers, over the base pose and in order** (B282). `StandardBlendingRules` runs
         // `AccumulateLayers` straight after the main sequence, and each layer accumulates onto the
@@ -667,8 +666,7 @@ public sealed class SkeletonPose : IBonePose
             Seed: _seed,
             Capture: _capture,
             Solve: _solve,
-            Compose: _compose,
-            Enumerators: _enumerators);
+            Compose: _compose);
     }
 
     /// <summary>The layers' own samples in the build under way, carried into <see cref="LastBuild"/>.</summary>
@@ -688,9 +686,6 @@ public sealed class SkeletonPose : IBonePose
 
     /// <summary>Of the build under way's accumulate: each layer's per-bone pass after its sample.</summary>
     private long _compose;
-
-    /// <summary>How many interface enumerators <c>Accumulate</c>'s loops took in the build under way.</summary>
-    private long _enumerators;
 
     /// <summary>Pulls each chain's end to where its rules ask — <c>CIKContext::SolveDependencies</c>.</summary>
     /// <remarks>
@@ -732,13 +727,16 @@ public sealed class SkeletonPose : IBonePose
         // everything above it may be hanging off a bone that moved.
         int from = int.MaxValue;
 
-        foreach (StudioIkChain chain in IkChains)
+        // Indexed, as `IsChainBone` is: a `foreach` over either interface boxes an enumerator.
+        for (int chain = 0; chain < IkChains.Count; chain++)
         {
-            foreach (StudioIkLink link in chain.Links)
+            IReadOnlyList<StudioIkLink> links = IkChains[chain].Links;
+
+            for (int link = 0; link < links.Count; link++)
             {
-                if (link.Bone >= 0 && link.Bone < from)
+                if (links[link].Bone >= 0 && links[link].Bone < from)
                 {
-                    from = link.Bone;
+                    from = links[link].Bone;
                 }
             }
         }
@@ -1081,15 +1079,13 @@ public sealed class SkeletonPose : IBonePose
 
         long last = CloseBrackets(-1, seededAt);
 
-        // Counted, not timed (the setup-bones read's M6): `Layers` is an interface, so this takes an enumerator from it.
-        _enumerators++;
-
-        int index = -1;
         int skipThrough = -1;
 
-        foreach (PoseLayer layer in Layers)
+        // **Indexed, not `foreach`** (the setup-bones read's M6): `Layers` is an interface, so a `foreach` boxed an
+        // enumerator per build, and the sample loop below one per weighted layer — 21.4 a rebuild on f12 (2026-10-31).
+        for (int index = 0; index < Layers.Count; index++)
         {
-            index++;
+            PoseLayer layer = Layers[index];
 
             // **A weight-0 layer's local subtree is not accumulated** (B634): it would compose into the layer's own `pos2`,
             // which `SlerpBones` at 0 then discards (`bone_setup.cpp:2440`, `if (s2 <= 0.0f) continue;`), so the result is
@@ -1186,12 +1182,9 @@ public sealed class SkeletonPose : IBonePose
                 continue;
             }
 
-            // `sampled` is an interface too: one more enumerator, inside the compose span.
-            _enumerators++;
-
-            foreach (StudioBonePose over in sampled)
+            for (int entry = 0; entry < sampled.Count; entry++)
             {
-                ComposeBone(layer, weight, over, target);
+                ComposeBone(layer, weight, sampled[entry], target);
             }
 
             long composedAt = System.Diagnostics.Stopwatch.GetTimestamp();
@@ -1492,8 +1485,10 @@ public sealed class SkeletonPose : IBonePose
         List<StudioBonePose> spinning = new(pose.Count + 1);
         bool wrote = false;
 
-        foreach (StudioBonePose moved in pose)
+        for (int entry = 0; entry < pose.Count; entry++)
         {
+            StudioBonePose moved = pose[entry];
+
             if (moved.Bone == BarrelBone)
             {
                 spinning.Add(new StudioBonePose(moved.Bone, moved.Position, spun));
@@ -1541,8 +1536,10 @@ public sealed class SkeletonPose : IBonePose
                     bone, _bones[bone].Position, _bones[bone].Rotation);
             }
 
-            foreach (StudioBonePose moved in pose)
+            for (int entry = 0; entry < pose.Count; entry++)
             {
+                StudioBonePose moved = pose[entry];
+
                 if (moved.Bone >= 0 && moved.Bone < adjusted.Length)
                 {
                     adjusted[moved.Bone] = moved;
@@ -1552,8 +1549,9 @@ public sealed class SkeletonPose : IBonePose
 
         bool touched = false;
 
-        foreach (StudioBoneController controller in Controllers)
+        for (int at = 0; at < Controllers.Count; at++)
         {
+            StudioBoneController controller = Controllers[at];
             int bone = controller.Bone;
 
             if (bone < 0 || bone >= adjusted.Length ||

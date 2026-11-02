@@ -28,7 +28,9 @@ namespace Tf2DemoSalvage.Animation.Animating;
 /// </param>
 /// <param name="Enumerators">
 /// A count, not ticks: the interface enumerators <c>Accumulate</c>'s <c>foreach</c> loops took (the setup-bones read's
-/// M6). Each non-empty one is a heap object; an empty array's is a shared one.
+/// M6). Each non-empty one is a heap object; an empty array's is a shared one. **Zero since the iklock-compose change**
+/// (docs/measurements/2026-11-02-iklock-compose-cost.md), which indexes those loops: <c>SkeletonPose</c> no longer
+/// takes one, so nothing adds to it. Kept as a column so the cost line's reader is unchanged.
 /// </param>
 public readonly record struct RootSetupParts(
     long Blend = 0,

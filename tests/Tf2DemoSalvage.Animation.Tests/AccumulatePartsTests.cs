@@ -38,7 +38,7 @@ public sealed class AccumulatePartsTests
         SlowList<StudioIkLock> locks = new([Lock()], indexTicks: 5 * Millisecond);
         SkeletonPose pose = Pose(
             basePose: basePose,
-            layerPose: new SlowList<StudioBonePose>([Rest(0), Rest(1), Rest(2)], enumerateTicks: 20 * Millisecond),
+            layerPose: new SlowList<StudioBonePose>([Rest(0), Rest(1), Rest(2)], indexTicks: 20 * Millisecond),
             layerTicks: 30 * Millisecond);
         pose.IkChains = [Chain()];
         pose.Layers = [Layer(weight: 1f) with { Locks = locks }];
@@ -80,30 +80,20 @@ public sealed class AccumulatePartsTests
         parts.AccumulateOther.ShouldBeGreaterThanOrEqualTo(0, "a sub-part counted a span twice");
     }
 
-    /// <remarks>
-    /// **One enumerator for the layer loop and one per sampled layer**: two weighted layers and one at zero weight, which is
-    /// not sampled, so three. The control: a pose with no layers and no locks returns before any loop and takes none.
-    /// </remarks>
-    [Test]
-    public void Build_WithTwoWeightedLayersAndOneAtZero_TakesThreeEnumerators()
-    {
-        SkeletonPose layered = Pose();
-        layered.Layers = [Layer(weight: 1f), Layer(weight: 0.5f), Layer(weight: 0f)];
-        SkeletonPose bare = Pose();
-
-        (Built(layered).Enumerators, Built(bare).Enumerators).ShouldBe((3L, 0L));
-    }
+    // The enumerator count's own test went with the enumerators (iklock-compose, 2026-11-02): the layer and sample loops
+    // are indexed, so the count is zero by construction, and what holds that is
+    // `PoseBuildDifferentialTests.Build_ASecondLayeredBuildWithLocksControllersAndIk_AllocatesNothing`.
 
     /// <remarks>
-    /// **A child's accumulate is not a root's.** The child's layer composes over a 10 ms enumerator; every sub-part of the
-    /// roots stays exactly where it was. The control: the child's own build carries the compose and the two enumerators.
+    /// **A child's accumulate is not a root's.** The child's layer composes over a 10 ms read; every sub-part of the
+    /// roots stays exactly where it was. The control: the child's own build carries the compose.
     /// </remarks>
     [Test]
     public void SetupBones_AChildWithALayer_AddsNoAccumulatePartToTheRoots()
     {
         BoneFrameCounter clock = new();
         AnimatingEntity parent = new(Pose(), clock);
-        SkeletonPose childPose = Pose(layerPose: new SlowList<StudioBonePose>([Rest(0)], enumerateTicks: 10 * Millisecond));
+        SkeletonPose childPose = Pose(layerPose: new SlowList<StudioBonePose>([Rest(0)], indexTicks: 10 * Millisecond));
         childPose.Layers = [Layer(weight: 1f)];
         AnimatingEntity child = new(childPose, clock) { Follows = parent };
 
@@ -114,15 +104,13 @@ public sealed class AccumulatePartsTests
         RootSetupParts added = clock.Meter.RootParts.Since(before);
 
         childPose.LastBuild.Compose.ShouldBeGreaterThanOrEqualTo(10 * Millisecond);
-        childPose.LastBuild.Enumerators.ShouldBe(2);
-        (added.Seed, added.Capture, added.Solve, added.Compose, added.Enumerators).ShouldBe((0L, 0L, 0L, 0L, 0L));
+        (added.Seed, added.Capture, added.Solve, added.Compose).ShouldBe((0L, 0L, 0L, 0L));
     }
 
     /// <remarks>
     /// **Local scopes keep the stamp chain whole (B634)**: a weighted local parent (own pose sampled, its child composed
     /// into it, the pose blended at the close) and a weight-0 local parent whose child is skipped. Two samples — the
-    /// weighted parent and its child; the zero-weight parent and its skipped child take none — and two enumerators, the
-    /// layer loop and the child's compose (the own pose is overlaid by index). The residual stays non-negative and the
+    /// weighted parent and its child; the zero-weight parent and its skipped child take none. The residual stays non-negative and the
     /// parts still add up, so the skip and the close are each stamped once.
     /// </remarks>
     [Test]
@@ -139,7 +127,7 @@ public sealed class AccumulatePartsTests
 
         RootSetupParts parts = Built(pose);
 
-        (parts.Samples, parts.Enumerators).ShouldBe((2L, 2L));
+        parts.Samples.ShouldBe(2L);
         parts.Sampling.ShouldBeGreaterThanOrEqualTo(2 * Millisecond);
         parts.AccumulateOther.ShouldBeGreaterThanOrEqualTo(0, "a sub-part counted a span twice");
         (parts.Seed + parts.Capture + parts.Solve + parts.Compose + parts.AccumulateOther)
