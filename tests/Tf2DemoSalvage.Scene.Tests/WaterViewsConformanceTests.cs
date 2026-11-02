@@ -562,8 +562,69 @@ public sealed class WaterViewsConformanceTests
         MapWater?[] waters = [surface, bottom];
         string[] names = ["water/top", "water/under"];
         WaterRenderInfo info = new(false, true, false, false, true, false);
+        FogVolumeInfo fog = new(0, 5, true, 0f, 64f, 3);
 
-        WaterViews.UnderwaterOverlay(info, new FogVolumeInfo(0, 5, true, 0f, 64f, 3), volumes, waters, names)
-            .ShouldBe("effects/water_warp_2fort");
+        (int material, MapWater? water) = WaterViews.FogVolumeWater(fog, volumes, waters, names);
+
+        material.ShouldBe(1);
+        WaterViews.UnderwaterOverlay(info, fog.EyeInFogVolume, water).ShouldBe("effects/water_warp_2fort");
+    }
+
+    /// <remarks>
+    /// The <c>$bottommaterial</c> is looked up by name in the map's table; one no face uses is not found and the
+    /// surface's is kept (<see cref="WaterViews.FogVolumeMaterial"/>'s divergence). The surface declares its own overlay
+    /// here so the fallback is told apart from finding nothing.
+    /// </remarks>
+    [Test]
+    public void UnderwaterOverlay_BottomMaterialNotInTheMap_IsTheSurfaces()
+    {
+        MapWater surface = MapWater.From(
+            Vmt("\"$bottommaterial\" \"water/missing\"\n$underwateroverlay \"effects/surface_warp\""), null);
+        Content.Bsp.BspWaterVolume[] volumes = [new(64f, 0f, 3, SurfaceTexdata: 0)];
+        FogVolumeInfo fog = new(0, 5, true, 0f, 64f, 3);
+
+        (int material, MapWater? water) = WaterViews.FogVolumeWater(fog, volumes, [surface], ["water/top"]);
+
+        material.ShouldBe(0);
+        WaterViews.UnderwaterOverlay(new(false, true, false, false, true, false), fog.EyeInFogVolume, water)
+            .ShouldBe("effects/surface_warp");
+    }
+
+    /// <remarks>
+    /// Both materials declare an overlay, so a null proves the gate — cheap water, or the eye above the volume
+    /// (<c>:2674</c>, <c>:2704-2717</c>) — and not a missing name. The control row is neither, and finds the bottom's.
+    /// </remarks>
+    [TestCase(false, true, "effects/bottom_warp")]
+    [TestCase(true, true, null)]
+    [TestCase(false, false, null)]
+    public void UnderwaterOverlay_CheapOrEyeAbove_IsNoneThoughBothMaterialsDeclareOne(
+        bool cheap, bool eyeInVolume, string? expected)
+    {
+        MapWater surface = MapWater.From(
+            Vmt("\"$bottommaterial\" \"water/under\"\n$underwateroverlay \"effects/surface_warp\""), null);
+        MapWater bottom = MapWater.From(Vmt("\"$abovewater\" 0\n$underwateroverlay \"effects/bottom_warp\""), null);
+        Content.Bsp.BspWaterVolume[] volumes = [new(64f, 0f, 3, SurfaceTexdata: 0)];
+        FogVolumeInfo fog = new(0, 5, eyeInVolume, 0f, 64f, 3);
+        WaterRenderInfo info = new(CheapWater: cheap, Refract: !cheap, Reflect: false, ReflectEntities: false,
+            DrawWaterSurface: true, OpaqueWater: cheap);
+
+        (_, MapWater? water) = WaterViews.FogVolumeWater(fog, volumes, [surface, bottom], ["water/top", "water/under"]);
+
+        WaterViews.UnderwaterOverlay(info, fog.EyeInFogVolume, water).ShouldBe(expected);
+    }
+
+    /// <remarks>Eye in, not cheap, and the surface declares an overlay: a null can only be the range check's −1.</remarks>
+    [Test]
+    public void FogVolumeWater_VolumeOutOfRange_IsNoMaterial()
+    {
+        MapWater surface = MapWater.From(Vmt("$underwateroverlay \"effects/surface_warp\""), null);
+        Content.Bsp.BspWaterVolume[] volumes = [new(64f, 0f, 3, SurfaceTexdata: 0)];
+        FogVolumeInfo fog = new(1, 5, true, 0f, 64f, 3);
+
+        (int material, MapWater? water) = WaterViews.FogVolumeWater(fog, volumes, [surface], ["water/top"]);
+
+        material.ShouldBe(-1);
+        water.ShouldBeNull();
+        WaterViews.UnderwaterOverlay(new(false, true, false, false, true, false), fog.EyeInFogVolume, water).ShouldBeNull();
     }
 }

@@ -62,6 +62,9 @@ internal sealed class ViewHalf
     /// <summary>The water views, or null when the frame is one simple view (B62).</summary>
     public WaterDraw? WaterDraw { get; set; }
 
+    /// <summary>The water plan last logged for this half (volume, leaf, eye in, material, cheap end, info), so the line fires on a change.</summary>
+    public (int Volume, int Leaf, bool EyeIn, int Material, float CheapEnd, WaterRenderInfo Info)? LastWaterPlan { get; set; }
+
     /// <summary>The visible volume's own fog the main view draws under from inside it.</summary>
     public Tf2DemoSalvage.Core.Scene.SceneFog? WaterMainFog { get; set; }
 
@@ -71,7 +74,7 @@ internal sealed class ViewHalf
     /// </summary>
     public (float Red, float Green, float Blue)? WaterMainClear { get; set; }
 
-    /// <summary>The frame's under-water overlay, <see cref="WaterViews.UnderwaterOverlay(WaterRenderInfo, FogVolumeInfo, IReadOnlyList{Content.Bsp.BspWaterVolume}, IReadOnlyList{MapWater}, IReadOnlyList{string})"/>, or null (B658).</summary>
+    /// <summary>The frame's under-water overlay, <see cref="WaterViews.UnderwaterOverlay"/>, or null (B658).</summary>
     public ScreenOverlayMaterial? UnderwaterOverlay { get; set; }
 
     /// <summary>The main view's draw flags when it is a <c>CSimpleWorldView</c>.</summary>

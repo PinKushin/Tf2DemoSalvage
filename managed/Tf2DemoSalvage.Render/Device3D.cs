@@ -2291,6 +2291,12 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         _water = assets.Water;
         _waters = assets.Waters;
         _screenOverlays = assets.ScreenOverlays;
+
+        // A new map's first plan is said even when its indices match the last map's.
+        foreach (ViewHalf each in _views.Both)
+        {
+            each.LastWaterPlan = null;
+        }
         _materialNames = [.. assets.Materials.Select(material => material.Name)];
 
         foreach (ViewHalf half in _views.Both)
@@ -2308,26 +2314,28 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
     private IReadOnlyDictionary<string, ScreenOverlayMaterial> _screenOverlays = new Dictionary<string, ScreenOverlayMaterial>();
     private string[] _materialNames = [];
 
-    /// <summary>The last water plan said, so the line fires on a change rather than every frame.</summary>
-    private string? _lastWaterPlan;
-
     /// <summary>
     /// <c>r_debugcheapwater</c>'s question, answered with the values the plan USED (B664): the fog volume the walk found,
-    /// the distance and cheap end <c>Determine</c> compared, and its answer.
+    /// the distance and cheap end <c>Determine</c> compared, and its answer. Said when the half's plan changes; the
+    /// distance is printed but not compared, so a moving camera inside one leaf does not log every frame.
     /// </summary>
-    private void ReportWaterPlan(FogVolumeInfo fog, int material, WaterRenderInfo info)
+    private void ReportWaterPlan(ViewHalf half, FogVolumeInfo fog, int material, float cheapEnd, WaterRenderInfo info)
     {
-        string line = string.Create(
-            System.Globalization.CultureInfo.InvariantCulture,
-            $"water plan: volume {fog.Volume} leaf {fog.Leaf} eye in {fog.EyeInFogVolume} dist to water {fog.DistanceToWater} " +
-            $"cheap end {_waterLod.Current.End} material {(material >= 0 && material < _materialNames.Length ? _materialNames[material] : "-")} " +
-            $"cheap {info.CheapWater} refract {info.Refract} reflect {info.Reflect}");
+        (int, int, bool, int, float, WaterRenderInfo) plan = (fog.Volume, fog.Leaf, fog.EyeInFogVolume, material, cheapEnd, info);
 
-        if (line != _lastWaterPlan)
+        if (half.LastWaterPlan is { } last && last.Equals(plan))
         {
-            _lastWaterPlan = line;
-            _render.LogInformation("{Message}", line);
+            return;
         }
+
+        half.LastWaterPlan = plan;
+        _render.LogInformation(
+            "{Message}",
+            string.Create(
+                System.Globalization.CultureInfo.InvariantCulture,
+                $"water plan: volume {fog.Volume} leaf {fog.Leaf} eye in {fog.EyeInFogVolume} dist to water {fog.DistanceToWater} " +
+                $"cheap end {cheapEnd} material {(material >= 0 && material < _materialNames.Length ? _materialNames[material] : "-")} " +
+                $"cheap {info.CheapWater} refract {info.Refract} reflect {info.Reflect}"));
     }
 
     /// <summary>
@@ -2347,6 +2355,8 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
 
         if (half.Culling is not { CanCull: true } culling || _water.Volumes.Count == 0)
         {
+            // Not planning: the next plan, whenever it comes, is new.
+            half.LastWaterPlan = null;
             return;
         }
 
@@ -2355,14 +2365,12 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
             leaf => leaf >= 0 && leaf < culling.VisibleByLeaf.Length && culling.VisibleByLeaf[leaf],
             (_, _) => true);
 
-        int material = WaterViews.FogVolumeMaterial(fog, _water.Volumes, _waters, _materialNames);
-        int surface = WaterViews.FogVolumeMaterial(fog with { EyeInFogVolume = false }, _water.Volumes, _waters, _materialNames);
-        MapWater? Water(int index) => index >= 0 && index < _waters.Count ? _waters[index] : null;
+        (int material, MapWater? water) = WaterViews.FogVolumeWater(fog, _water.Volumes, _waters, _materialNames);
 
-        WaterRenderInfo info = WaterRenderInfo.Determine(
-            Water(material)?.View, fog.DistanceToWater, _waterLod.Current.End, WaterConVars.Defaults);
+        float cheapEnd = _waterLod.Current.End;
+        WaterRenderInfo info = WaterRenderInfo.Determine(water?.View, fog.DistanceToWater, cheapEnd, WaterConVars.Defaults);
 
-        ReportWaterPlan(fog, material, info);
+        ReportWaterPlan(half, fog, material, cheapEnd, info);
 
         // DoesViewPlaneIntersectWater (viewrender.cpp:2741) through DoesBoxIntersectWaterVolume (engine.dll 0x18012ea20).
         bool crosses = WaterViews.ViewPlaneIntersectsWater(
@@ -2377,7 +2385,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         half.SimpleViewDraws = main.Draw;
 
         // CUnderWaterView::Setup's overlay, from the fog volume's material (the bottom one from inside), B658.
-        half.UnderwaterOverlay = WaterViews.UnderwaterOverlay(info, fog, _water.Volumes, _waters, _materialNames) is { } overlay &&
+        half.UnderwaterOverlay = WaterViews.UnderwaterOverlay(info, fog.EyeInFogVolume, water) is { } overlay &&
             _screenOverlays.TryGetValue(overlay, out ScreenOverlayMaterial? loaded)
                 ? loaded
                 : null;
@@ -2385,7 +2393,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         // From inside the volume the main view draws under its own fog: SetFogVolumeState( fogInfo, false ), the bottom
         // material's (engine.dll 0x1800e0cd0).
         if (main.Fog == WaterViewFog.Volume &&
-            WaterViews.VolumeFogFor(Water(material), fog.WaterHeight, useHeightFog: false) is { } inside)
+            WaterViews.VolumeFogFor(water, fog.WaterHeight, useHeightFog: false) is { } inside)
         {
             half.WaterMainFog = new(inside.Start, inside.End, inside.Color.Red, inside.Color.Green, inside.Color.Blue, inside.MaxDensity);
             half.WaterMainClear = WorldRenderer.MainViewFogClear(main, inside);
@@ -2395,6 +2403,9 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         {
             return;
         }
+
+        // The surface's own material: with the eye out, FogVolumeMaterial returns the surface index without a name search.
+        int surface = WaterViews.FogVolumeMaterial(fog with { EyeInFogVolume = false }, _water.Volumes, _waters, _materialNames);
 
         ((float X, float Y, float Z) origin, (float Pitch, float Yaw, float Roll) angles) =
             WaterViews.Reflect(camera.Origin, camera.Angles, fog.WaterHeight);

@@ -25,11 +25,14 @@ public sealed class BrushEntityWaterConformanceTests
 {
     private const int Floor = 0;
     private const int Water = 1;
+    private const int Additive = 2;
+    private const int PlainWater = 3;
 
     private static readonly MapAssets Assets = MapAssets.ForMaterials(
-        [ModulateToneMapConformanceTests.Grey(200), ModulateToneMapConformanceTests.Grey(40)],
-        ["LightmappedGeneric", "Water"],
-        [null, Refracting()]);
+        [ModulateToneMapConformanceTests.Grey(200), ModulateToneMapConformanceTests.Grey(40),
+            ModulateToneMapConformanceTests.Grey(200, additive: true), null],
+        ["LightmappedGeneric", "Water", "UnlitGeneric", "Water"],
+        [null, Refracting(), null, PlainWaterMaterial()]);
 
     private static readonly FreeCamera Above = new() { Origin = (0f, 0f, 200f), Angles = (89f, 0f, 0f), Aspect = 1f };
 
@@ -81,6 +84,118 @@ public sealed class BrushEntityWaterConformanceTests
             "the brush entity's water face did not sample the refraction target");
     }
 
+    /// <remarks>
+    /// <c>DrawReflectionRefraction</c>'s shadow state enables no blending (<c>water.cpp:182-266</c>), and the material system
+    /// applies a material's whole shadow state on bind, so the expensive pass is opaque whatever drew before it. An additive
+    /// batch earlier in the same model must not leave its blend on the water.
+    /// </remarks>
+    [Test]
+    public void DrawModelPose_BrushWaterAfterAnAdditiveBatch_DrawsTheWorldWatersPixel()
+    {
+        (int, int, int)? world = WorldWater((1f, 0f, 0f));
+        (int, int, int)? brush = BrushWaterAfterAdditive((1f, 0f, 0f));
+
+        if (world is not { } surface || brush is not { } entity)
+        {
+            Assert.Ignore("no Direct3D device on this machine");
+            return;
+        }
+
+        TestContext.Out.WriteLine($"WORLD WATER {surface}; BRUSH WATER AFTER ADDITIVE {entity}");
+
+        entity.ShouldBe(surface, "the water pass drew under the previous batch's additive blend");
+    }
+
+    /// <summary>A brush entity placed by its model matrix: the water face's world position, not its stored one, is drawn.</summary>
+    [Test]
+    public void DrawModelPose_BrushWaterMovedByItsMatrix_DrawsTheWorldWatersPixel()
+    {
+        (int, int, int)? world = WorldWater((1f, 0f, 0f));
+        (int, int, int)? brush = BrushWaterMoved((1f, 0f, 0f));
+
+        if (world is not { } surface || brush is not { } entity)
+        {
+            Assert.Ignore("no Direct3D device on this machine");
+            return;
+        }
+
+        TestContext.Out.WriteLine($"WORLD WATER {surface}; MOVED BRUSH WATER {entity}");
+
+        entity.ShouldBe(surface, "a brush water face placed by a non-identity matrix did not draw the world water's pixel");
+    }
+
+    /// <summary>
+    /// A Water material with no pass (no refraction, reflection or cubemap) is Valve's bare <c>Draw()</c>
+    /// (<c>water.cpp:579-584</c>), on a brush entity as on the world: the same untextured white.
+    /// </summary>
+    [Test]
+    public void DrawModelPose_PlainWaterOnABrushEntity_DrawsTheWorldsPlainPixel()
+    {
+        (int, int, int)? world = null;
+        (int, int, int)? brush = null;
+
+        using (OffscreenTarget? target = OffscreenTarget.TryCreate(64, 64))
+        {
+            if (target is not null)
+            {
+                target.Clear(0f, 0f, 0f);
+                (_, _, int plain) = target.DrawWaterWorld(
+                    [.. Quad(-5f, (1f, 0f, 0f)), .. Quad(0f, (1f, 1f, 1f))], [new(Floor, 0, 6), new(PlainWater, 6, 6)], Above, Assets,
+                    Frame());
+
+                plain.ShouldBe(1, "the world's face did not take the Plain fallback");
+                world = target.PixelAt(32, 32);
+            }
+        }
+
+        using (OffscreenTarget? target = OffscreenTarget.TryCreate(64, 64))
+        {
+            if (target is not null)
+            {
+                target.Clear(0f, 0f, 0f);
+                target.DrawWaterWorld(Quad(-5f, (1f, 0f, 0f)), [new(Floor, 0, 6)], Above, Assets, Frame());
+                target.DrawModelPose(Quad(0f, (1f, 1f, 1f)), [new(PlainWater, 0, 6)], Above.ToMatrix(), Identity, Assets, clearDepth: false);
+                brush = target.PixelAt(32, 32);
+            }
+        }
+
+        if (world is not { } surface || brush is not { } entity)
+        {
+            Assert.Ignore("no Direct3D device on this machine");
+            return;
+        }
+
+        TestContext.Out.WriteLine($"PLAIN WATER: WORLD {surface}; BRUSH ENTITY {entity}");
+
+        entity.ShouldBe(surface, "a brush entity's Plain water drew differently from the world's");
+    }
+
+    /// <summary>The B597 vertex cap of zero suppresses a water batch too: the frame keeps the floor beneath it.</summary>
+    [Test]
+    public void DrawModelPose_BrushWaterUnderAZeroVertexCap_DrawsNothing()
+    {
+        using OffscreenTarget? target = OffscreenTarget.TryCreate(64, 64);
+
+        if (target is null)
+        {
+            Assert.Ignore("no Direct3D device on this machine");
+            return;
+        }
+
+        target.Clear(0f, 0f, 0f);
+        target.DrawWaterWorld(Quad(-5f, (1f, 0f, 0f)), [new(Floor, 0, 6)], Above, Assets, Frame());
+
+        (int, int, int) floor = target.PixelAt(32, 32);
+
+        target.WorldWaterDraws.ShouldBe((0, 0, 0), "the floor alone drew a water pass");
+
+        target.ModelVertexCap = 0;
+        target.DrawModelPose(Quad(0f, (1f, 1f, 1f)), [new(Water, 0, 6)], Above.ToMatrix(), Identity, Assets, clearDepth: false);
+
+        target.PixelAt(32, 32).ShouldBe(floor, "a water batch drew under a vertex cap of zero");
+        target.WorldWaterDraws.ShouldBe((0, 0, 0), "the Water passes ran under a vertex cap of zero");
+    }
+
     /// <summary>The world's water face over the floor, through the frame's refraction view.</summary>
     private static (int, int, int)? WorldWater((float, float, float) floor)
     {
@@ -117,6 +232,52 @@ public sealed class BrushEntityWaterConformanceTests
         return target.PixelAt(32, 32);
     }
 
+    /// <summary>The water face as a brush entity drawn after an additive batch of the same model, off to the side.</summary>
+    private static (int, int, int)? BrushWaterAfterAdditive((float, float, float) floor)
+    {
+        using OffscreenTarget? target = OffscreenTarget.TryCreate(64, 64);
+
+        if (target is null)
+        {
+            return null;
+        }
+
+        // A small additive square in view (the frame spans ±200 units at this height), well left of the sampled centre.
+        List<WorldVertex> vertices = [.. Shifted(Quad(0f, (1f, 1f, 1f)), 0.05f, -150f), .. Quad(0f, (1f, 1f, 1f))];
+
+        target.Clear(0f, 0f, 0f);
+        target.DrawWaterWorld(Quad(-5f, floor), [new(Floor, 0, 6)], Above, Assets, Frame());
+        target.DrawModelPose(vertices, [new(Additive, 0, 6), new(Water, 6, 6)], Above.ToMatrix(), Identity, Assets, clearDepth: false);
+
+        return target.PixelAt(32, 32);
+    }
+
+    /// <summary>The water face as a brush entity whose model matrix moves it: the face is built 300 units off and moved back.</summary>
+    private static (int, int, int)? BrushWaterMoved((float, float, float) floor)
+    {
+        using OffscreenTarget? target = OffscreenTarget.TryCreate(64, 64);
+
+        if (target is null)
+        {
+            return null;
+        }
+
+        // Row-vector convention: the translation is row three. The vertices sit 1000 units along x, wholly out of the ±200
+        // the frame sees, so a draw that ignored the matrix leaves the floor; the matrix puts them back.
+        float[] back = [1f, 0f, 0f, 0f, 0f, 1f, 0f, 0f, 0f, 0f, 1f, 0f, -1000f, 0f, 0f, 1f];
+
+        target.Clear(0f, 0f, 0f);
+        target.DrawWaterWorld(Quad(-5f, floor), [new(Floor, 0, 6)], Above, Assets, Frame());
+        target.DrawModelPose(Shifted(Quad(0f, (1f, 1f, 1f)), 1f, 1000f), [new(Water, 0, 6)], Above.ToMatrix(), back, Assets,
+            clearDepth: false);
+
+        return target.PixelAt(32, 32);
+    }
+
+    /// <summary>A quad scaled about its centre and moved along x.</summary>
+    private static List<WorldVertex> Shifted(List<WorldVertex> quad, float scale, float x) =>
+        [.. quad.ConvertAll(vertex => vertex with { X = (vertex.X * scale) + x, Y = vertex.Y * scale })];
+
     /// <summary>The above-water plan with a refraction view, as <c>CAboveWaterView</c> makes it for refracting water.</summary>
     private static WaterDraw Frame()
     {
@@ -131,6 +292,10 @@ public sealed class BrushEntityWaterConformanceTests
         MapWater.From(VmtMaterial.Parse(Encoding.UTF8.GetBytes(
             "\"Water\"\n{\n\"$refracttexture\" \"_rt_WaterRefraction\"\n\"$refractamount\" \"0\"\n\"$abovewater\" \"1\"\n" +
             "\"$fogcolor\" \"{51 43 13}\"\n\"$fogstart\" \"-100\"\n\"$fogend\" \"400\"\n}")), null);
+
+    private static MapWater PlainWaterMaterial() =>
+        MapWater.From(VmtMaterial.Parse(Encoding.UTF8.GetBytes(
+            "\"Water\"\n{\n\"$abovewater\" \"1\"\n\"$fogcolor\" \"{51 43 13}\"\n}")), null);
 
     private static List<WorldVertex> Quad(float z, (float Red, float Green, float Blue) colour)
     {

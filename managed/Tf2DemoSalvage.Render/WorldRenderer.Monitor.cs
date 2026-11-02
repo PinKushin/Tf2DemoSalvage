@@ -60,7 +60,7 @@ internal sealed unsafe partial class WorldRenderer
         }
 
         // The depth buffer is the water views', the same size and used one view at a time.
-        EnsureWaterTargets();
+        EnsureWaterDepth();
 
         // **Unbound everywhere first**: a texture cannot be an input and the output at once, and a model on the
         // monitor's own screen could have left it bound in any slot.

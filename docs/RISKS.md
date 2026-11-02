@@ -40284,12 +40284,23 @@ target being rendered. **What D3D9 returns then is *unread*.** A read of a bound
 and shaderapi's handling is not read.
 
 **Ours:**
-- Above water, `PSSetShaderResources` on a resource bound as the output is nulled by the D3D11 runtime, so the
-  face samples zeros.
+- Above water, the target the view is drawing into is bound as **nothing**, explicitly (`_drawingInto` in
+  `DrawWaterPasses`, 2026-11-02 review). D3D11 would null it anyway, and binding it would raise the debug layer's
+  hazard. So the face samples zeros (alpha 0: no fog depth). No gate was added, because the engine has none (B659's
+  read).
 - The under-water refraction view draws into the frame and is copied out after (`viewrender.cpp:6203-6248`), so there
-  the face samples the previous frame's target.
+  the face samples the previous frame's target, which stays bound.
 
-Neither case is a parity claim. Filed only, from B659.
+**What D3D9 returns when a pixel shader samples the bound render target is *unread*.** Ours is D3D11's zeros, not a
+parity claim.
+
+**Tested at the seam (second review):**
+- `WaterViewInputsConformanceTests` covers the two decisions: which target a view's draws land in (`DrawnInto`; an
+  under-water view with no frame now counts as the refraction), and which inputs that leaves bound
+  (`WaterInputsWhileDrawing`).
+- Each reddened under a sabotage, and each was restored.
+- The via-frame stretch also unbinds t12/t13 before it draws into the refraction.
+- Not covered: a model drawn inside a live water view. No harness does that without a window.
 
 ## B662 — water that samples a target no view wrote read zeros here, where the engine's target is cleared opaque black (2026-11-02) — FIXED on `fix/b659-brush-entity-water` for a target never written; a map load that flips HDR is still OPEN
 
@@ -40425,7 +40436,36 @@ the world's does.
   - `BrushModels.Append` fans a face 0, i, i+1, as `MapWorld` does (`MapWorld.cs:416-418`).
   - `_waterCull` is the convention B657's test pinned on the world's faces.
   - Both water materials sample a null target here, so the picture cannot tell them apart.
-- **Untested:** the model path's Plain fallback, and the absence of a `DF_RENDER_WATER` gate on brush water.
+- **Untested:** the absence of a `DF_RENDER_WATER` gate on brush water (see B663).
+
+**Review (2026-11-02, two reviews):**
+- **Blend fixed.** The expensive pass now resets the blend first, and so does a cheap pass with no `bBlend`.
+  `DrawReflectionRefraction`'s shadow state enables no blending (`water.cpp:182-266`), and a material's shadow state
+  is applied whole on bind. A model's earlier additive batch had left its blend on the water: (255, 38, 5) against
+  the world's (79, 38, 5). `DrawModelPose_BrushWaterAfterAnAdditiveBatch_DrawsTheWorldWatersPixel` was red first.
+- **New tests, all green:**
+  - `…BrushWaterMovedByItsMatrix…` places the face by a non-identity matrix.
+  - `…PlainWaterOnABrushEntity…` checks the Plain fallthrough. It reddens when the untextured white is sabotaged
+    back to the chequer.
+  - `…UnderAZeroVertexCap…` reddens when the cap is removed.
+- **No entity colour or blend on the water, by the shader:** `water.cpp:179-384` reads no colour or alpha modulation
+  constant. So the tint, paint, burn and urine the model draw passes `SetMaterial` cannot reach a Water face. The
+  entity's render colour and fx alpha only choose its render group, which is draw order. `UseGammaTarget` and
+  `BindBlendModulation` belong to Modulate materials. Not a defect.
+- **Mirrored and decal raster:**
+  - Brush models are never drawn mirrored here; that flag is the viewmodel's.
+  - A Water material is never DecalModulate.
+  - `WaterRaster` ignores both, as `WaterBatch` always has. Filed only.
+- **Opaque or translucent split.** Measured, live TF2 on koth_toxic over the world-water vat:
+  - With `r_drawtranslucentworld 0` the water surface still draws.
+  - Control: the same switch removes something translucent over it (centre 25 110 81 becomes 25 99 79; 20,222
+    sampled pixels differ).
+  - `mat_drawwater 0` removes the surface, so the surface is the water.
+  - Images: `D:/measure-f12/b659/trans/`.
+  - So a `Water` surface is not flagged `0x20` (`SURFDRAW_TRANS`, an interpolated name).
+  - *Interpolated:* that a brush face of the same material gets the same flag. The same surface lump is loaded for
+    both, but the flag's setter was not disassembled.
+  - Ours draws brush water in the opaque half (`wantsBlending` is false for it), which matches.
 
 **Not covered:** no corpus demo is on these maps (the corpus is competitive maps), so there is no corpus-level
 assertion. The before/after shots are the output-level check. Brush water inside a water view: **B663**. A target
@@ -40493,7 +40533,14 @@ chosen inside `PlanWater`, where no test reaches (`Device3D.Create` takes a wind
 `WaterViews.UnderwaterOverlay(info, fog, volumes, waters, names)`, which finds the fog volume's material itself, and
 `PlanWater` calls that. `UnderwaterOverlay_FromInsideAVolume_IsTheBottomMaterialsNotTheSurfaces` uses 2fort's shape:
 the surface declares no overlay, the bottom does. It went red when the seam read the surface material, first before the
-fix and again as a sabotage after it. **Still not tested:** the rest of the hand-off, meaning `PlanWater` storing the
+fix and again as a sabotage after it. Review (`fix/water-review-2`): that overload ran the name search a second time
+each under-water frame, so the seam is now `WaterViews.FogVolumeWater(fog, volumes, waters, names)`, which returns the
+index and its water material once; `PlanWater` takes the views' material, the volume fog and the overlay from it. The
+pin test now reddens, alone with its control row, when that seam reads the surface material. Added beside it:
+`UnderwaterOverlay_BottomMaterialNotInTheMap_IsTheSurfaces` (the surface's own overlay),
+`UnderwaterOverlay_CheapOrEyeAbove_IsNoneThoughBothMaterialsDeclareOne` (cheap water and an eye above the volume, with
+both materials declaring overlays, plus a control row), and `FogVolumeWater_VolumeOutOfRange_IsNoMaterial`.
+**Still not tested:** the rest of the hand-off, meaning `PlanWater` storing the
 loaded overlay on the half and the draw reading it. Only the shot covers that.
 
 **Review follow-ups (`fix/water-review-followups`):**
