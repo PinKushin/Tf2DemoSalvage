@@ -140,6 +140,14 @@ HDR. Lit shaders set sRGB write unconditionally (`lightmappedgeneric_dx9_helper.
 0/1 is honoured (B537); `LinearLightScale` is 1 outside integer HDR (`Device3D`), so the shader's fog scale is 1; the
 clear's scale is now gated on `HdrType` itself (`WaterClearColour( …, scaled )`, its test the `scaled: false` case).
 
+### Counts
+
+Whole `Tf2DemoSalvage.slnx`: 0 warnings, 0 errors. Rendering 1352 passed, 59 skipped, of 1411. Presentation 1332.
+Scene 3459. Content 1828 (29 skipped). Animation 5386 (1 skipped). None failed. Viewer3D 160 of 162: the two failures
+(`LoadDemo_WithAutoplay_LeavesTheTransportPlaying`, `LoadDemoAsync_TheFirstDemoOpened_…`) open a gcor demo, and in this
+worktree the gcor demos are 131-byte LFS pointers (`docs/memory/a-worktree-copies-gcor-demos-never-lfs-pull.md`), so the
+load fails before anything this branch touches. *Not re-run with the real demos.*
+
 ### What is still unread
 
 - `+0x3860` in `0x18001aee0` has no writer found by displacement; a computed-address writer is not excluded.
