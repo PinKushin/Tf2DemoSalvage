@@ -41329,6 +41329,15 @@ desktop idle. beta.57's gate ran the full suite green on the final code.
 **Gate note:** `main` at `0979f203` was pushed before this was understood (the push was chained to the phase 2 command
 without reading its result); a full phase 2 on the same code has since passed once.
 
+**A second test of the same family, 2026-11-02 (measured):** the gate on `02995516` failed 1 of 84 in
+`ViewerApplicationActivateUiTests.Activate_AMenuItemWithAnotherAppInFront_TogglesItWithoutTheCursor`
+(`ViewerApplicationActivateUiTests.cs:120`): `cursorAfter` was `{623,1078}`, expected `{623,1079}`, one pixel, message
+*"activating a menu item moved the real cursor"*. The test alone passed (1 of 1) and the full suite rerun on the same code
+passed 76 / 8 / 0, 84. Two other agents were driving the desktop around then (TF2 sessions under the lock, so not at the same
+instant); the 1-pixel Y drift is what a person's hand on the mouse or another process's cursor nudge looks like, but that is
+a reading, not an observation. Same instrument question as above: capture the foreground window and the cursor position
+when the assertion fires.
+
 ## B631 — autoplay IK rules go to the entity's one `IkErrors`; the engine solves them in a separate `auto_ik` (2026-10-31) — OPEN, latent
 
 **Evidence class: read from published source on the Valve side; our side read at `0979f203`; nothing measured except that players carry no autoplay locks.** D10 of `docs/measurements/2026-10-31-iklock-bracket-read.md` §3. Nothing is fixed here.
