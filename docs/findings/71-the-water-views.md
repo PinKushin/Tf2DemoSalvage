@@ -135,7 +135,9 @@ entities (`viewrender.cpp:6033`), so a brush entity's water face is drawn while 
 shaderapidx9's `BindTexture` (`0x1800149b0`) goes straight to `SetTextureState` (`0x180023840`) and
 `IDirect3DDevice9::SetTexture`, with no check against the render target. The one guard, `UnbindTexture`
 (`0x180025470`), runs only when a render target is set. D3D9 leaves the result undefined. This renderer samples a
-copy of the target taken at the view's first water bind. That is an interpolation and not parity (D244).
+copy of the target taken at the view's first water bind that reads it. The copy holds the view's clear, its world,
+and entities drawn before that face. It is taken once per view. That is an interpolation and not parity (D244, RISKS
+B663).
 
 ## The fog the water views draw under — read in disassembly
 

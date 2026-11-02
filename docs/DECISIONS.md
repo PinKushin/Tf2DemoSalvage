@@ -11407,6 +11407,10 @@ face draws in that view.
 - (c) The previous frame's copy.
 - (d) Skip the face. Not parity, because the engine draws it.
 
-**Where it lives:** `WorldRenderer.ViewSnapshot`, RISKS B663, and `BrushEntityWaterConformanceTests`
-(`…BrushWaterInsideTheRefractionView_SamplesTheViewsSnapshot`).
+**Where it lives:**
+- The choice is the one pure function `WorldRenderer.WaterSampleWhileDrawing`, so switching to (a) or (c) is a change
+  in one place.
+- The copy is `ViewSnapshot`.
+- RISKS B663 holds the evidence.
+- The tests are `WaterViewSnapshotConformanceTests` and `WaterViewInputsConformanceTests`.
 

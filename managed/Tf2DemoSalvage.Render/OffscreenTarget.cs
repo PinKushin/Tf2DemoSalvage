@@ -895,16 +895,19 @@ internal sealed unsafe class OffscreenTarget : IDisposable
     /// <param name="model">Sixteen floats, row-vector model matrix.</param>
     internal void DrawModelInCurrentView(IReadOnlyList<WorldVertex> vertices, IReadOnlyList<WorldBatch> batches, float[] model)
     {
-        const string InView = "offscreen/in-view.mdl";
+        // A name per call, never cleared: several models in one view each keep their own geometry.
+        string name = string.Create(System.Globalization.CultureInfo.InvariantCulture, $"offscreen/in-view-{_inViewModels++}.mdl");
 
         WorldRenderer world = EnsureWorld();
 
-        world.ClearModels();
         world.UploadModels(
             _device,
-            new Dictionary<string, PackedModel>(StringComparer.Ordinal) { [InView] = new PackedModel(vertices, new[] { batches }) });
-        world.DrawModel(_context, InView, model, world.ModelBatches(InView));
+            new Dictionary<string, PackedModel>(StringComparer.Ordinal) { [name] = new PackedModel(vertices, new[] { batches }) });
+        world.DrawModel(_context, name, model, world.ModelBatches(name));
     }
+
+    /// <summary>How many models <see cref="DrawModelInCurrentView"/> has drawn, for each one's name.</summary>
+    private int _inViewModels;
 
     /// <summary>How many water view snapshots the world renderer has copied (B663).</summary>
     internal int WorldViewSnapshots => EnsureWorld().ViewSnapshots;

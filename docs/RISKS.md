@@ -40277,24 +40277,7 @@ of the wrong turn.
 
 ## B663 — brush-entity water drawn inside a water view samples the target that view is drawing into (2026-11-02) — RESOLVED BY INTERPOLATION on `fix/b663-water-view-sampling` (D244; the engine's result is undefined, not parity)
 
-**Read:** the refraction view always draws entities (`viewrender.cpp:6041`). The reflection view does with
-`$reflectentities` (`:5985`). Brush entities are among those entities, and their water faces bind
-`_rt_WaterRefraction` or `_rt_WaterReflection` (B659). So a brush water face inside the refraction view samples the
-target being rendered. **What D3D9 returns then is *unread*.** A read of a bound render target is undefined in the API,
-and shaderapi's handling is not read.
-
-**Ours:**
-- Above water, the target the view is drawing into is bound as **nothing**, explicitly (`_drawingInto` in
-  `DrawWaterPasses`, 2026-11-02 review). D3D11 would null it anyway, and binding it would raise the debug layer's
-  hazard. So the face samples zeros (alpha 0: no fog depth). No gate was added, because the engine has none (B659's
-  read).
-- The under-water refraction view draws into the frame and is copied out after (`viewrender.cpp:6203-6248`), so there
-  the face samples the previous frame's target, which stays bound.
-
-**What D3D9 returns when a pixel shader samples the bound render target is *unread*.** Ours is D3D11's zeros, not a
-parity claim.
-
-**The engine's side, read (2026-11-02; disassembly unless marked):**
+**The engine (2026-11-02; disassembly unless marked):**
 - **Brush entities are drawn in these views.** The refraction view sets `DF_DRAW_ENTITITES` unconditionally
   (`viewrender.cpp:6033-6060`), the reflection view with `$reflectentities` (`:5970-5990`). The translucent loop
   skips only renderables that use the frame-buffer textures (`:978-983`), and Water's targets are not those
@@ -40309,30 +40292,37 @@ parity claim.
   bound as both input and output undefined (the spec, not a read of a driver). At the moment of the bind, the
   refraction target holds this view's clear and the world drawn before the entities (`DrawExecute`'s order,
   `viewrender.cpp:5524-5553`). What a driver returns from that is not readable from here.
-- **Options, none implemented:**
-  - (a) Keep D3D11's zeros (current).
-  - (b) Sample a copy of the target taken after the view's world pass, before its entities. That is the content the
-    target holds when the bind happens, without the in-flight writes.
-  - (c) Sample the previous frame's copy, taken before the view's clear.
-  - (d) Skip the face. Not parity: the engine draws it.
+**What is implemented (D244, the lead's pick): AN INTERPOLATION OF UNDEFINED D3D9 BEHAVIOUR, NOT PARITY.**
+- A Water face inside the refraction or reflection view samples a **snapshot** of the target being drawn into. Every
+  other target it samples live.
+- The snapshot is copied at **the view's first water bind that reads a target**: once per view, and only when a face's
+  expensive pass reads that target. So it holds the view's clear, its world, and any entities drawn before that face.
+- It does not hold that face's own in-flight writes, nor anything drawn after the first face. A second face in the same
+  view reuses it.
+- The choice lives in one pure function, `WorldRenderer.WaterSampleWhileDrawing`. The alternatives would each be a
+  one-line change there:
+  - (a) zeros, an unbound input. It was the state before this.
+  - (c) the previous frame's copy.
+  - (d) skip the face. Not parity, because the engine draws it.
+- **Under water**, the refraction view draws into the frame and is copied out (`viewrender.cpp:6203-6248`). The face
+  there samples the refraction target's last copy live, so no snapshot is taken.
+- Not measured: an under-water frame with no frame target, which draws straight into the refraction. It counts as the
+  refraction (`DrawnInto`).
 
-**Implemented, option (b), the lead's pick (D244), 2026-11-02: AN INTERPOLATION OF UNDEFINED D3D9 BEHAVIOUR, NOT
-PARITY.**
-- `WorldRenderer.ViewSnapshot` copies the target being drawn into at the view's first water bind, once per view, and
-  only in a view where a water face draws. The face samples that copy.
-- Test `DrawWaterWorld_BrushWaterInsideTheRefractionView_SamplesTheViewsSnapshot`: the face draws (79, 38, 5) inside
-  the refraction target, where zeros drew (0, 0, 0). That was its red run, with the snapshot sabotaged to the null input.
-- The view's image away from the face is unchanged (255, 0, 0) against a run with no face.
-- One snapshot with the face, none without.
-- Revisit with (a), (c) or (d) above if the owner prefers.
-
-**Tested at the seam (second review):**
-- `WaterViewInputsConformanceTests` covers the two decisions: which target a view's draws land in (`DrawnInto`; an
-  under-water view with no frame now counts as the refraction), and which inputs that leaves bound
-  (`WaterInputsWhileDrawing`).
-- Each reddened under a sabotage, and each was restored.
-- The via-frame stretch also unbinds t12/t13 before it draws into the refraction.
-- Not covered: a model drawn inside a live water view. No harness does that without a window.
+**Tests** (`WaterViewSnapshotConformanceTests`, `WaterViewInputsConformanceTests`). Each was red under a sabotage and
+restored:
+- **Refraction.** The face draws (79, 38, 5) in the target, where the control draws (255, 0, 0). The face counts one
+  more expensive pass. The edge is unchanged. One snapshot, none without a face. It is red with option (a) and with a
+  copy taken at the view's start.
+- **Reflection.** The face draws (46, 38, 5) against (0, 0, 0). One snapshot. Red with option (a).
+- **Two faces in one view:** one snapshot. Red when every bind copies.
+- **An entity drawn before the face is in the snapshot.** A green square under the face turns it (46, 74, 5). Red
+  with a copy taken at the view's start.
+- **The pure decisions:** which target a view draws into (`DrawnInto`), and what each slot binds
+  (`WaterSampleWhileDrawing`).
+- **Not tested:** a cheap-only face binds and copies nothing. Reaching the cheap pass needs a cubemap, which the
+  synthetic assets cannot give. It is held by the pass gate in `DrawWaterPasses`.
+- The via-frame stretch unbinds t12/t13 before it draws into the refraction.
 
 ## B662 — water that samples a target no view wrote read zeros here, where the engine's target is cleared opaque black (2026-11-02) — FIXED on `fix/b659-brush-entity-water` for a target never written; a map load that flips HDR is still OPEN
 
