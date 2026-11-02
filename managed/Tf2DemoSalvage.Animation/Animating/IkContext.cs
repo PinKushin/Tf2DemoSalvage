@@ -163,9 +163,12 @@ public sealed class IkContext
         // SEVERAL sequences.** `AccumulatePose` calls `AddDependencies` for every sequence it
         // accumulates — the main one and each autolayer — so two rules with the same index in
         // different animations are different rules. Carrying the rule removes the collision.
-        foreach ((StudioIkRule declared, Vector3 position, Quaternion rotation, float weight) in
-            errors)
+        //
+        // Indexed rather than `foreach`, which boxes an enumerator over the interface per solve (the setup-bones read's M6).
+        for (int at = 0; at < errors.Count; at++)
         {
+            (StudioIkRule declared, Vector3 position, Quaternion rotation, float weight) = errors[at];
+
             if (weight <= 0f)
             {
                 continue;

@@ -248,14 +248,13 @@ public sealed class MomentCostLogTests
             log.Report(phases, sampleTicks: 0),
             Does.Contain(
                 "roots split (blend 2, base 3, accumulate 13 of which layer sampling 5 over 6"
-                + " (seed 0, capture 0, solve 0, compose 0, other 8; enumerators 0), adjust 1, loop 11, ik 4, finish 8"
+                + " (seed 0, capture 0, solve 0, compose 0, other 8), adjust 1, loop 11, ik 4, finish 8"
                 + "; unsplit 28)"));
     }
 
     /// <remarks>
     /// **The parts of `accumulate`, and its own residual**, over two identical rebuilds. 13 ms of accumulate less layer
-    /// sampling 5, seed 0.5, capture 0.75, solve 0.125 and compose 5.5 leaves other 1.125; the enumerators are a count, 18 over two
-    /// rebuilds. The roots' `unsplit` stays 28: the sub-parts are inside accumulate and must not be subtracted again.
+    /// sampling 5, seed 0.5, capture 0.75, solve 0.125 and compose 5.5 leaves other 1.125. The roots' `unsplit` stays 28: the sub-parts are inside accumulate and must not be subtracted again.
     /// </remarks>
     [Test]
     public void Report_WithAccumulateSubParts_NamesEachAndLeavesTheOtherResidual()
@@ -280,8 +279,7 @@ public sealed class MomentCostLogTests
                     Seed: Millisecond / 2,
                     Capture: 3 * Millisecond / 4,
                     Solve: Millisecond / 8,
-                    Compose: 11 * Millisecond / 2,
-                    Enumerators: 9)),
+                    Compose: 11 * Millisecond / 2)),
         };
 
         _ = log.Report(phases, sampleTicks: 0);
@@ -290,7 +288,7 @@ public sealed class MomentCostLogTests
             log.Report(phases, sampleTicks: 0),
             Does.Contain(
                 "roots split (blend 2, base 3, accumulate 13 of which layer sampling 5 over 6"
-                + " (seed 0.5, capture 0.75, solve 0.125, compose 5.5, other 1.125; enumerators 9), adjust 1, loop 11, ik 4"
+                + " (seed 0.5, capture 0.75, solve 0.125, compose 5.5, other 1.125), adjust 1, loop 11, ik 4"
                 + ", finish 8; unsplit 28)"));
     }
 

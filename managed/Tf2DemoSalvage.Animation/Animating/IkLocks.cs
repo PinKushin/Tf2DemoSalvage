@@ -227,7 +227,9 @@ public sealed class IkLocks
             // "slam orientation" — the solver only positions, so the remembered rotation is put
             // onto the end bone at whatever position it now has: the solve's when it succeeded, the
             // sequence's when it failed (`MatrixPosition( boneToWorld[bone], p3 )`, `:4441`).
-            Compose(_held[at].Rotation, Position(_chain.Matrix(bone)), _chain.Bones.BoneForWrite(bone));
+            Vector3 placed = Position(_chain.Matrix(bone));
+
+            Compose(_held[at].Rotation, placed, _chain.Bones.BoneForWrite(bone));
 
             (float X, float Y, float Z, float W) sequenced = pose[bone].Rotation;
 
@@ -256,13 +258,21 @@ public sealed class IkLocks
             Applied++;
 
             // **The distance the effector actually travelled**, measured between where the sequence
-            // left it and where the lock put it — carried out of this loop rather than recomputed
-            // by a second route (B243). `now` is the pre-solve position read above; rebuilding the
-            // chain gives the post-solve one.
-            _chain.Reset();
-            _chain.Build(bone, pose);
-
-            float travelled = (Position(_chain.Matrix(bone)) - now).Length();
+            // left it (`now`) and where the lock put it — `placed`, the slammed matrix's position,
+            // Valve's `boneToWorld[bone]` after `:4442`, carried rather than recomputed (B243).
+            //
+            // **No `Reset` and re-walk here, and that is parity as well as cost** (iklock-compose,
+            // 2026-11-02). This used to rebuild the chain from the rebuilt local pose to read the
+            // post-solve position, which cost 8 of a successful solve's 15 bone builds and — because
+            // of the `Reset` — made a LATER lock build on re-concatenated matrices. Valve shares one
+            // `CBoneBitList` across a sequence's locks (`SolveSequenceLocks`, `:4301-4309`), so a lock
+            // below an earlier lock's end bone builds on its SLAMMED matrix; held by
+            // `SharedLockMemoConformanceTests`. Inert on TF2's players, by census (`iklock-census`,
+            // 2026-11-02): all 814 lock lists of the nine classes are rfoot then lfoot at weights 1
+            // and 0, none locks a chain twice, and no later lock's walk passes through an earlier
+            // lock's links. The counters keep their meaning; the distance now ends at the solved
+            // matrix instead of at its local-space round trip, a difference in the last bits.
+            float travelled = (placed - now).Length();
 
             if (travelled > NoticeableMove)
             {

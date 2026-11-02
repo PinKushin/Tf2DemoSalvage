@@ -23,7 +23,8 @@ public sealed class AccumulatePartsTests
 
     /// <remarks>
     /// One layer that locks a chain: each base read 10 ms (only the sparse base's overlay reads it), each lock read 5 ms
-    /// (only the capture before the sample and the solve after the compose read it), compose 20 ms, sample 30 ms. The
+    /// (only the capture before the sample and the solve after the compose read it), compose 20 ms per entry read (three
+    /// entries, each read once), sample 30 ms. The
     /// lists count their own reads, so each part's floor is reads × spin. The lock reads split one to `Capture` and four
     /// to `Solve` (`IkLocks.cs`: `EffectorOf(locks[at])` in the capture; the guard, the chain, the position weight and the
     /// rotation weight in the solve), and the total is the control. `Solve` reads the rotation weight whether or not the
@@ -36,10 +37,8 @@ public sealed class AccumulatePartsTests
     {
         SlowList<StudioBonePose> basePose = new([Rest(0)], indexTicks: 10 * Millisecond);
         SlowList<StudioIkLock> locks = new([Lock()], indexTicks: 5 * Millisecond);
-        SkeletonPose pose = Pose(
-            basePose: basePose,
-            layerPose: new SlowList<StudioBonePose>([Rest(0), Rest(1), Rest(2)], enumerateTicks: 20 * Millisecond),
-            layerTicks: 30 * Millisecond);
+        SlowList<StudioBonePose> layerPose = new([Rest(0), Rest(1), Rest(2)], indexTicks: 20 * Millisecond);
+        SkeletonPose pose = Pose(basePose: basePose, layerPose: layerPose, layerTicks: 30 * Millisecond);
         pose.IkChains = [Chain()];
         pose.Layers = [Layer(weight: 1f) with { Locks = locks }];
 
@@ -49,7 +48,8 @@ public sealed class AccumulatePartsTests
         parts.Seed.ShouldBeGreaterThanOrEqualTo(basePose.Reads * 10 * Millisecond);
         parts.Capture.ShouldBeGreaterThanOrEqualTo(1 * 5 * Millisecond);
         parts.Solve.ShouldBeGreaterThanOrEqualTo(4 * 5 * Millisecond);
-        parts.Compose.ShouldBeGreaterThanOrEqualTo(20 * Millisecond);
+        layerPose.Reads.ShouldBe(3, "the control: the compose reads each sampled entry once");
+        parts.Compose.ShouldBeGreaterThanOrEqualTo(layerPose.Reads * 20 * Millisecond);
         parts.Sampling.ShouldBeGreaterThanOrEqualTo(30 * Millisecond);
         parts.AccumulateOther.ShouldBeGreaterThanOrEqualTo(0, "a sub-part counted a span twice");
         (parts.Seed + parts.Capture + parts.Solve + parts.Compose + parts.AccumulateOther)
@@ -80,30 +80,20 @@ public sealed class AccumulatePartsTests
         parts.AccumulateOther.ShouldBeGreaterThanOrEqualTo(0, "a sub-part counted a span twice");
     }
 
-    /// <remarks>
-    /// **One enumerator for the layer loop and one per sampled layer**: two weighted layers and one at zero weight, which is
-    /// not sampled, so three. The control: a pose with no layers and no locks returns before any loop and takes none.
-    /// </remarks>
-    [Test]
-    public void Build_WithTwoWeightedLayersAndOneAtZero_TakesThreeEnumerators()
-    {
-        SkeletonPose layered = Pose();
-        layered.Layers = [Layer(weight: 1f), Layer(weight: 0.5f), Layer(weight: 0f)];
-        SkeletonPose bare = Pose();
-
-        (Built(layered).Enumerators, Built(bare).Enumerators).ShouldBe((3L, 0L));
-    }
+    // The enumerator count's own test went with the enumerators (iklock-compose, 2026-11-02): the layer and sample loops
+    // are indexed, so the count is zero by construction, and what holds that is
+    // `PoseBuildDifferentialTests.Build_ASecondLayeredBuildWithLocksControllersAndIk_AllocatesNothing`.
 
     /// <remarks>
-    /// **A child's accumulate is not a root's.** The child's layer composes over a 10 ms enumerator; every sub-part of the
-    /// roots stays exactly where it was. The control: the child's own build carries the compose and the two enumerators.
+    /// **A child's accumulate is not a root's.** The child's layer composes over a 10 ms read; every sub-part of the
+    /// roots stays exactly where it was. The control: the child's own build carries the compose.
     /// </remarks>
     [Test]
     public void SetupBones_AChildWithALayer_AddsNoAccumulatePartToTheRoots()
     {
         BoneFrameCounter clock = new();
         AnimatingEntity parent = new(Pose(), clock);
-        SkeletonPose childPose = Pose(layerPose: new SlowList<StudioBonePose>([Rest(0)], enumerateTicks: 10 * Millisecond));
+        SkeletonPose childPose = Pose(layerPose: new SlowList<StudioBonePose>([Rest(0)], indexTicks: 10 * Millisecond));
         childPose.Layers = [Layer(weight: 1f)];
         AnimatingEntity child = new(childPose, clock) { Follows = parent };
 
@@ -114,15 +104,13 @@ public sealed class AccumulatePartsTests
         RootSetupParts added = clock.Meter.RootParts.Since(before);
 
         childPose.LastBuild.Compose.ShouldBeGreaterThanOrEqualTo(10 * Millisecond);
-        childPose.LastBuild.Enumerators.ShouldBe(2);
-        (added.Seed, added.Capture, added.Solve, added.Compose, added.Enumerators).ShouldBe((0L, 0L, 0L, 0L, 0L));
+        (added.Seed, added.Capture, added.Solve, added.Compose).ShouldBe((0L, 0L, 0L, 0L));
     }
 
     /// <remarks>
     /// **Local scopes keep the stamp chain whole (B634)**: a weighted local parent (own pose sampled, its child composed
     /// into it, the pose blended at the close) and a weight-0 local parent whose child is skipped. Two samples — the
-    /// weighted parent and its child; the zero-weight parent and its skipped child take none — and two enumerators, the
-    /// layer loop and the child's compose (the own pose is overlaid by index). The residual stays non-negative and the
+    /// weighted parent and its child; the zero-weight parent and its skipped child take none. The residual stays non-negative and the
     /// parts still add up, so the skip and the close are each stamped once.
     /// </remarks>
     [Test]
@@ -139,7 +127,7 @@ public sealed class AccumulatePartsTests
 
         RootSetupParts parts = Built(pose);
 
-        (parts.Samples, parts.Enumerators).ShouldBe((2L, 2L));
+        parts.Samples.ShouldBe(2L);
         parts.Sampling.ShouldBeGreaterThanOrEqualTo(2 * Millisecond);
         parts.AccumulateOther.ShouldBeGreaterThanOrEqualTo(0, "a sub-part counted a span twice");
         (parts.Seed + parts.Capture + parts.Solve + parts.Compose + parts.AccumulateOther)
@@ -200,7 +188,7 @@ public sealed class AccumulatePartsTests
     }
 
     /// <summary>A list whose indexer and enumerator each cost a known time, so the step that reads it is known.</summary>
-    private sealed class SlowList<T>(T[] items, long indexTicks = 0, long enumerateTicks = 0) : IReadOnlyList<T>
+    private sealed class SlowList<T>(T[] items, long indexTicks = 0) : IReadOnlyList<T>
     {
         public int Count => items.Length;
 
@@ -217,11 +205,7 @@ public sealed class AccumulatePartsTests
             }
         }
 
-        public IEnumerator<T> GetEnumerator()
-        {
-            Spin(enumerateTicks);
-            return ((IEnumerable<T>)items).GetEnumerator();
-        }
+        public IEnumerator<T> GetEnumerator() => ((IEnumerable<T>)items).GetEnumerator();
 
         IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
     }

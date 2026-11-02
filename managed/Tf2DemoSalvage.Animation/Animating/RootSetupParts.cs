@@ -23,13 +23,15 @@ namespace Tf2DemoSalvage.Animation.Animating;
 /// <param name="Capture">Of <paramref name="Accumulate"/>: every IK-lock capture (<c>IkLocks.Capture</c>), the base's and each layer's.</param>
 /// <param name="Solve">Of <paramref name="Accumulate"/>: every IK-lock solve (<c>IkLocks.Solve</c>), the base's and each layer's.</param>
 /// <param name="Compose">
-/// Of <paramref name="Accumulate"/>: each layer's per-bone pass after its sample — the enumerator, the bone and weight
-/// guards, and the slerp or delta add. Interleaved per bone, so not split further.
+/// Of <paramref name="Accumulate"/>: each layer's per-bone pass after its sample — the bone and weight guards, and the
+/// slerp or delta add. Interleaved per bone, so not split further.
 /// </param>
-/// <param name="Enumerators">
-/// A count, not ticks: the interface enumerators <c>Accumulate</c>'s <c>foreach</c> loops took (the setup-bones read's
-/// M6). Each non-empty one is a heap object; an empty array's is a shared one.
-/// </param>
+/// <remarks>
+/// **There was an `Enumerators` count here** (the setup-bones read's M6: 18.4, then 21.4 a rebuild). The iklock-compose
+/// change indexed those loops, so nothing could add to it, and a column printing 0 read as a measured absence; it was
+/// removed end to end (docs/measurements/2026-11-02-iklock-compose-cost.md). What holds the loops allocation-free is
+/// <c>PoseBuildDifferentialTests</c>' allocation test.
+/// </remarks>
 public readonly record struct RootSetupParts(
     long Blend = 0,
     long Base = 0,
@@ -43,8 +45,7 @@ public readonly record struct RootSetupParts(
     long Seed = 0,
     long Capture = 0,
     long Solve = 0,
-    long Compose = 0,
-    long Enumerators = 0)
+    long Compose = 0)
 {
     /// <summary>The disjoint parts summed: everything but the sub-parts of <see cref="Accumulate"/>, which are inside it.</summary>
     public long Sum => Blend + Base + Accumulate + Adjust + Loop + Ik + Finish;
@@ -72,8 +73,7 @@ public readonly record struct RootSetupParts(
             Seed - before.Seed,
             Capture - before.Capture,
             Solve - before.Solve,
-            Compose - before.Compose,
-            Enumerators - before.Enumerators);
+            Compose - before.Compose);
 
     /// <summary>This and another, field by field: a window's total.</summary>
     /// <param name="other">The other.</param>
@@ -92,6 +92,5 @@ public readonly record struct RootSetupParts(
             Seed + other.Seed,
             Capture + other.Capture,
             Solve + other.Solve,
-            Compose + other.Compose,
-            Enumerators + other.Enumerators);
+            Compose + other.Compose);
 }
