@@ -40325,7 +40325,7 @@ restored:
   synthetic assets cannot give. It is held by the pass gate in `DrawWaterPasses`.
 - The via-frame stretch unbinds t12/t13 before it draws into the refraction.
 
-## B662 — water that samples a target no view wrote read zeros here, where the engine's target is cleared opaque black (2026-11-02) — FIXED on `fix/b659-brush-entity-water` for a target never written; a map load that flips HDR is still OPEN
+## B662 — water that samples a target no view wrote read zeros here, where the engine's target is cleared opaque black (2026-11-02) — FIXED, merged in beta.58, for a target never written; a map load that flips HDR is still OPEN
 
 **When:** a water face draws while no water view has written the targets:
 - brush-entity water on a map whose world water never got views (B659);
@@ -40410,7 +40410,7 @@ So the ratio function itself may trace any kind unless asked not to. *Interpolat
 ranking's call through `FUN_1801b99a0` (flags not recorded) would trace spots too, and the vat's three white spots would
 take no slot. **Read `FUN_1801b9570`'s bit-2 branch and the flags `FUN_1801b60a0` passes before porting anything.**
 
-## B665 — a spotlight whose cone misses a model's lighting origin took one of its four light slots (2026-11-02) — FIXED on this branch (not merged), looked at by the agent, not yet by the owner
+## B665 — a spotlight whose cone misses a model's lighting origin took one of its four light slots (2026-11-02) — FIXED, merged in beta.58 (the owner saw the vat's rim and said go)
 
 **Reported by the owner:** on `koth_toxic`, camera `-208 1360 80 60 90` (the vat), *TF2 draws the tank rim/walls around
 the water GREEN; ours draws them GREY*. Evidence: `D:/measure-f12/b662/sbs-camB.png`.
@@ -40518,7 +40518,7 @@ overlay, and only the `Refract` case matches:
 **Unreached by stock content, per the review, not re-measured here:** stock under-water overlays are all `Refract`.
 A custom map's could reach it. Filed only.
 
-## B659 — water on a brush ENTITY is drawn by the model path, without the Water shader (2026-11-02) — FIXED on `fix/b659-brush-entity-water` (not merged)
+## B659 — water on a brush ENTITY is drawn by the model path, without the Water shader (2026-11-02) — FIXED, merged in beta.58
 
 **Read** (disassembly; the reasoning in `docs/findings/71-the-water-views.md`, "Water on a brush entity is just a
 surface of its model"):
@@ -40620,7 +40620,7 @@ because it read `water/water_2fort_beneath.vmt` with its suffix; the other 49 ar
 did not regress them. **Unread:** how the engine draws a brush entity's water surface (whether it joins
 `MAT_SORT_GROUP_WATERSURFACE`, and which fog volume a `func_water_analog` belongs to). Unmeasured against TF2.
 
-## B658 — the under-water screen overlay was not drawn (2026-11-02) — FIXED on `fix/b657-water-2` (not merged)
+## B658 — the under-water screen overlay was not drawn (2026-11-02) — FIXED, merged in beta.58
 
 **Read:** `CUnderWaterView::Setup` (`viewrender.cpp:6115-6128`) takes the fog volume's material's
 `$underwateroverlay` when it is defined and does not start with '0'. From inside, that material is the
@@ -40678,7 +40678,7 @@ loaded overlay on the half and the draw reading it. Only the shot covers that.
 - B657's two-sided reset after a Plain water batch had no test, because water was the last batch.
   `WaterCullConformanceTests.DrawWaterWorld_TwoSidedFaceAfterPlainWater_StillDraws` reddens when the reset is deleted.
 
-## B657 — ctf_2fort's water is grey-green in ours and brown in TF2, 20 to 50 levels apart (2026-11-02) — FIXED on `fix/b657-water` (merged into `perf/b597-gpu-split`); review on `fix/b657-water-2`
+## B657 — ctf_2fort's water is grey-green in ours and brown in TF2, 20 to 50 levels apart (2026-11-02) — FIXED, merged in beta.58 (with its review round)
 
 **Cause (measured, then read):** ours drew the surface's DOWNWARD face from above. A water volume's surface is two
 coplanar faces: vbsp gives the downward one the surface material's `$bottommaterial` (`utils/vbsp/faces.cpp:1255-1289`),

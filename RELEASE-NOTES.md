@@ -3,29 +3,29 @@
 ## Changes in 0.1.0-beta.58
 
 Gate for this release (every test executed, 0 failed): core 2737, cli 75, logging 37, fonts 5, animation 5390, scene 3477, audio 383, presentation 1334, content 1896, corpus 242, rendering 1470, viewer 163; the UI suite at 84 counted as 76 passed, 8 skipped and 0 failed.
-Water figures are on `ctf_2fort` (TF2 and the viewer at the same camera, the mean of a 20 by 20 pixel box, RGB); decal and fog figures are on `cp_process_f12`, `pl_upward_f12` and `ctf_crasher`; the file beside each figure holds it. Changes matched against a TF2 capture say so, and so do the ones that are not.
+Water figures are on `ctf_2fort` (TF2 and the viewer at the same camera, the mean of a 20 by 20 pixel box, RGB); the `koth_toxic` vat figures are the same kind of box; decal and fog figures are on `cp_process_f12`, `pl_upward_f12` and `ctf_crasher`; the record named under each item holds its figures. Changes matched against a TF2 capture say so, and so do the ones that are not.
 
 - **Water draws only the face toward you.** A water surface is two faces on top of each other, and the one facing down uses the water's "beneath" material. The viewer drew it from above, so 2fort's water looked flat grey-green over TF2's brown.
-  Near the shore camera the surface now reads 42.0 31.3 11.0 against TF2's 41.1 30.6 9.8 (before 61.2 60.6 44.0); the middle of the pond reads 83.3 59.5 30.0 against TF2's 86.6 64.7 38.3 (before 111.5 90.3 60.4); the pillars' submerged parts now show through the surface as they do in TF2 (docs/RISKS.md, the entry on 2fort's water being grey-green; docs/findings/71-the-water-views.md).
+  At the camera above the water the near surface now reads 42.0 31.3 11.0 against TF2's 41.1 30.6 9.8 (before 61.2 60.6 44.0); the middle of the pond reads 83.3 59.5 30.0 against TF2's 86.6 64.7 38.3 (before 111.5 90.3 60.4); the pillars' submerged parts now show through the surface as they do in TF2 (docs/RISKS.md, the entry on 2fort's water being grey-green; docs/findings/71-the-water-views.md).
   Water has its own back-face culling now, so `TF2VIEW_MODEL_CULL` no longer changes it (with the old shared setting, `TF2VIEW_MODEL_CULL=front` removed 2fort's surface from above entirely). A water material marked `$nocull` keeps both faces; TF2 ships none, so that is untested against the game.
   **Not done:** the middle of the pond is still 4 to 8 levels low in blue, where TF2's surface carries faint bluish highlights; the cause is not found. Seen from below, the picture is unchanged by eye.
 - **The screen tint and warp from inside water now draws.** 2fort's `water_warp_2fort` overlay tints and warps the frame while the camera is under the surface; the viewer drew none. At the under-water camera the distant fog now reads 56.0 70.1 66.9 against TF2's 56.9 71.1 67.8 (before 79.7 84.0 66.7), and the near floor 31.2 32.1 28.7 against 33.1 35.1 31.5 (before 46.6 39.9 28.6); the pillars warp as they do in TF2. Cameras above the water are unchanged to the decimal (docs/RISKS.md, the entry on the under-water screen overlay).
   A map change now drops the previous map's overlay textures, so a later map's own overlay of the same name draws its own picture.
   **Not done:** an overlay that is not a Refract material is drawn as nothing or a fade where Valve draws a plain rectangle, and an empty `$underwateroverlay ""` is treated as no overlay where the engine looks up a material with an empty name (docs/RISKS.md, same section).
 - **Water on a moving or placed brush (a "brush entity") now draws through the Water shader.** `koth_suijin`, `koth_toxic`, `pd_farmageddon` and `pl_patagonia` carry such water (a census of the 239 installed maps found these four); it drew as the missing-material chequer, magenta and green. On `koth_toxic`'s vat the water now reads 20 88 82 against TF2's 19 86 77 (before, the chequer).
-  Water that samples a target no water view has written now reads opaque black, as TF2's target does when it has never been drawn into; that is what brings the vat within a few levels of TF2 (the same camera read 0 1 1 before). TF2 launched with the water views off drew the same teal vat (19 86 77).
+  Water that samples a target no water view has written now reads opaque black, as TF2's target does when it has never been drawn into; that is what brings the vat within a few levels of TF2 (the same camera read 0 1 1 before). TF2 launched with the water views off drew a teal vat too (19 86 77; with the views on it reads 20 86 80).
   **An approximation:** brush water drawn inside a reflection or refraction view samples a snapshot of that view's target taken at its first water draw. The engine samples the target it is drawing into, which Direct3D leaves undefined, so there is no result to match; this is a choice, not parity (docs/RISKS.md, the entry on brush-entity water inside a water view).
   **Checked on screen** only on `koth_toxic`; the other three maps use the same code path and are held by synthetic tests. Whether TF2 itself draws `pd_farmageddon`'s brush water was not verified.
 - **Fog colors follow TF2's sRGB decode.** The scene and water fog colors were made linear with a plain power of 2.2; TF2's graphics layer uses the exact sRGB curve. On the `cp_process_f12` frame every changed pixel went darker by 1 to 3 levels and none went lighter; on a fogged outdoor frame of `pl_upward_f12` 35,913 pixels went darker, by up to 5 levels, on the far 3D-sky mountain. That is more than the controller's color predicts (about 1.2); the leading candidate, not checked, is a doubling overlay over the fogged surface (docs/measurements/2026-11-02-fog-colour-curve-plan.md).
-  The fog-colored background clears now store the bytes TF2 stores (rather than rounded, clamped values), the clear from inside a water volume is no longer scaled by the exposure, and the water's own tint colors take the engine's table (docs/measurements/2026-11-02-fog-open-items-plan.md). The `r_shader_srgb` setting is honored for the height-fog color only, and at its default of 0 the picture is the same; the rest of what `r_shader_srgb 1` changes in TF2 (how it encodes its output) is not modeled.
+  The fog-colored background clears now store the bytes TF2 stores (rather than rounded, clamped values), the clear from inside a water volume is no longer scaled by the exposure, and the water's own tint colors take the engine's table (docs/measurements/2026-11-02-fog-open-items-plan.md). The `r_shader_srgb` setting is honored for the height-fog color only, and at its default of 0 the picture is the same; the rest of what `r_shader_srgb 1` changes in TF2 (how it encodes its output) is not modeled. **Not compared against a TF2 capture on screen:** these figures are the viewer before and after.
 - **Scorch marks, bullet holes and other modulating materials now match TF2's arithmetic, including in fog.**
   A plain `Modulate` material drew about twice too bright because the viewer lit it and TF2 does not: a texel of 128 over a surface of 188 drew 129 and now draws about 94 (TF2's arithmetic gives 94). A modulating material now multiplies the stored colors exactly as TF2's blend does.
   On `ctf_crasher`'s scorch with fog off, the grey surround is 1.000 against TF2's 1.000 (before 0.87), and against TF2 the ring is 0.704 against 0.725 (0.690 before the exact blend) and the centre 0.577 against 0.591 (0.554 before). The surround's fully transparent pixels are no longer drawn at all.
   Modulating materials now fog toward TF2's grey: with fog on, the scorch's ring is multiplied by 1.065 (TF2 1.065) and its centre by 1.123 (TF2 1.116). This also changes `mp_energy` on `koth_nucleus` and `arena_nucleus`, which were at full strength in fog (docs/findings/18-decals.md, docs/measurements/2026-11-02-modulate-fog-plan.md).
   **Not done:** the scorch's interior is still 2 to 3% darker than TF2's and the cause is not found.
-- **Decals on models are lit by the model's light.** A bullet hole on a wooden prop was drawn at full brightness; TF2 lights it with the prop's own light, so in the dark it was a pale spot. On `cp_process_f12` (tick 40,000, three cameras, only pixels that moved by more than 3 levels) every moved pixel went darker: the hole on the dark crate stack went from a mean of 72.5 to 49.2 (39 pixels), the second camera from 54.1 to 36.5 (68 pixels), and two holes on a shelf in a lit room from 139.5 to 134.9 (38 pixels). **Not compared against real TF2 on screen** (docs/measurements/2026-11-02-prop-decal-light-plan.md).
-  **This costs load time:** the light is built when the map loads, as TF2 does, about 0.85 seconds longer on the f12 demo (one run each; docs/RISKS.md, the entry on a static prop's studio decal; docs/measurements/2026-11-02-prop-decal-light-plan.md). It adds nothing while playing.
-- **A spotlight whose cone misses a model no longer takes one of the model's four light slots.** Lights are now ranked by distance times the spot cone, as TF2's light cache does, so a spot aimed away from the model scores zero. On `koth_toxic`'s vat the walls were grey where TF2's are green; now the inner rim wall reads 17 61 41 against TF2's 16 60 41 (before 12 18 15), and the outer wall 13 56 39 against 15 56 38 (before 7 13 9). This applies to players, dynamic models, static props and decals.
+- **Decals on models are lit by the model's light.** A bullet hole on a wooden prop was drawn at full brightness; TF2 lights it with the prop's own light, so in the dark it was a pale spot. On `cp_process_f12` (tick 40,000, three cameras, only pixels that moved by more than 3 levels) every moved pixel went darker: the hole on the dark crate stack went from a mean of 72.5 to 49.2 (39 pixels), the second camera from 54.1 to 36.5 (68 pixels), and two holes on a shelf in a lit room from 139.5 to 134.9 (38 pixels). **Not compared against real TF2 on screen** (docs/RISKS.md, the entry on a static prop's studio decal).
+  **This costs load time:** the light is built when the map loads, as TF2 does, an estimated 0.85 seconds longer on the f12 demo (an estimate from the number of states built and the cost of each, not a before and after run; same entry). It adds nothing while playing.
+- **A spotlight whose cone misses a model no longer takes one of the model's four light slots.** Lights are now ranked by distance times the spot cone, as TF2's light cache does, so a spot aimed away from the model scores zero. On `koth_toxic`'s vat the walls were grey where TF2's are green; now the inner rim wall reads 17 61 41 against TF2's 16 60 41 (before 13 18 16), and the outer wall 13 56 39 against 15 56 38 (before 7 13 9). This applies to players, dynamic models, static props and decals.
   A spot that misses the model's lighting point but covers part of the model now lights none of it, which is what TF2 does if its ranking multiplies the cone, a step read in pieces and not as one instruction.
   **Not done:** the vat's rim top is still lighter than TF2's (32 83 60 against 13 76 52 at one camera), and its right rim top is lighter still (see *Known gaps*).
 - **Animation layer order matches Valve's.** Fading sequences are blended newest first, and every layered sequence runs its local pass. No frame with two fading sequences was captured: three before/after shots at ticks where a transition was in flight differed by 0 pixels, so this is held by tests that read exact values (docs/measurements/2026-11-01-layer-order-plan.md). The local-layer part reaches only the first-person arms (all 48 such sequences in the game files are arm animations), and only while one fades out.
@@ -640,118 +640,7 @@ in many places, so most scenes look different from beta.40 (usually brighter or 
 - The `--help` text for `TF2VIEW_WINDOW_POS` and `TF2VIEW_WINDOW_SIZE` now shows the formats the viewer reads
   (`85,78` and `1576x889`) (B517).
 
-## Changes in 0.1.0-beta.40
-
-- **TF2 faces now move.** Taunt and voice-line scene expressions and flex animations drive the face as the game
-  does, and a voice line's sentence data lip-syncs the mouth. Overlapping scenes blend, faces keep running while
-  off-screen so they are right when they come into view, and a respawned player's corpse shows its own face. Flexed
-  vertices also move their normals and tangents, so the lighting follows (B513).
-- **Cached sound lengths were doubled and are now correct.** The sample rate of a cached sound was read at the
-  wrong bit, which halved the rate and doubled every length. Sounds that end by length now end on time.
-- Measurement runs moved to GitHub Actions (D212). Nothing changes for users.
-
-## Changes in 0.1.0-beta.39
-
-- **Models now light through their normal maps.** Players, weapons and cosmetics that have a bump map now use it
-  for their shading, highlights, rim light and environment reflections, because the viewer reads the model file's
-  tangent frame, as the game does. A cloaking spy's warp now follows the folds of his suit rather than the screen.
-  No measurable change in frame time (B512, B170, B508).
-
-## Changes in 0.1.0-beta.38
-
-- **Camera monitors now show the camera's view.** A `point_camera` feeding a screen is rendered into `_rt_Camera`
-  as the game does, so for example the stage mirrors on `koth_boardwalk` show what the camera sees, including the
-  recorder's own player. `cl_drawmonitors 0` in your config turns it off, as in the game (B511).
-
-## Changes in 0.1.0-beta.37
-
-- **Every spy now cloaks the way the game draws it.** Cloak and Dagger (the watch whose cloak fades with how fast
-  the spy moves) now applies to every spy, not only the recorder. The recorder's own weapons also stay pinned at
-  0.3 visibility when his cloak meter is empty (B508).
-- **Your Eternal Reward victims now cloak.** The corpse fades out over one second, as in the game. Dead Ringer
-  corpses never cloak, so they are drawn normally; the earlier note saying otherwise was wrong (B508).
-- **Halloween stealth.** The stealth spell's visibility cap and its screen overlay are drawn (B508, B509).
-- **Animated screen overlays animate.** Jarate, bleed and gas overlays now play their animation at 30 frames a
-  second instead of showing the first frame. The burning overlay (`imcookin`) draws nothing in the game either,
-  so that is correct (B509).
-
-## Changes in 0.1.0-beta.36
-
-- **The recorder now hears his own landings.** In a point-of-view demo, a hard landing plays the ground's footstep
-  sound at the game's volume (full past a fast fall, a little less past a medium one; a scout lands audibly only
-  when it hurts), as the game does. The game predicts these on the recorder's own client and never records them.
-  Other players' landings, and every landing in a SourceTV demo, stay silent by design: the game's server leaves
-  out anyone who can see the player, so nobody else is meant to hear them either (B172).
-
-## Changes in 0.1.0-beta.35
-
-- **Ropes are now ported in full.** A rope's impulse (the force the two maps `ctf_helltrain_event` and
-  `arena_perks` apply to theirs), the `ShakeRopes` shake, holiday lights on ropes (including Pyrovision's white
-  lights), the cable material's bump term, and ropes whose ends go dormant now follow the game (B478). The
-  holiday lights follow the game's Christmas rules and blink and cycle colour as it does.
-
-## Changes in 0.1.0-beta.34
-
-- **Cloaked spies now cloak.** A spy at any level of cloak drew as a solid player. He now warps the frame behind
-  him with the game's cloak pass and fades with the cloak level; at full cloak the recorder's enemy spies vanish,
-  while the recorder's teammates and every spy in a SourceTV demo keep the game's 0.95 shimmer. Team tint follows
-  the game (B508).
-- **The recorder's screen overlays now draw.** In first person on a point-of-view demo, uber, jarate, bleed and
-  gas tint and warp the view, as the game does (B509).
-- **Demos at protocols 18 and 19 are no longer held back by a list.** They already decoded; the test that checked
-  them had pinned the accepted protocols, and now asks only for protocol 11 or later (D211). No change to
-  decoding.
-
-## Changes in 0.1.0-beta.33
-
-- **Refracting materials on models now draw.** The Bazaar Bargain lens, the crystal ball and the blurred muzzle
-  flash showed the missing-material checkerboard; they now warp a copy of the frame behind them, as the game
-  does (B506).
-
-## Changes in 0.1.0-beta.32
-
-- **A map you do not have installed now loads on the first open.** The viewer starts fetching the map as soon as
-  the demo header names it, in parallel with decoding, and the load waits for it. Before, a first download could
-  leave a view with no map, or crash (B507). Fetched maps are cached in `%LOCALAPPDATA%\Tf2DemoSalvage\maps`.
-
-## Changes in 0.1.0-beta.31
-
-- **Refract trails now draw.** Trails drawn with a refracting material (the `beam001` trails attached to players,
-  common in real matches) were skipped. They now warp a copy of the frame behind them and fade into fog, as the
-  game does (B476).
-- **No user-visible change:** offscreen test pictures now use the same sRGB format as the window.
-
-## Changes in 0.1.0-beta.30
-
-- **A seek now replays the game's skip, silently.** HUD sounds and animation-event sounds in the skipped ticks
-  count toward a script's no-repeat wave deck, as in TF2, so the waves you hear after a seek match what the game
-  would play (B504).
-- **Seeks are slower, and that is the cost of the above.** On the f12 demo, seeking forward to tick 90,006 takes
-  about 4 s longer, and rewinding to tick 50,000 about 0.9 s longer. TF2 itself restarts the demo and
-  fast-forwards on a rewind.
-- **Within a frame that covers several ticks, sounds follow the game's order** (B505).
-
-## Changes in 0.1.0-beta.29
-
-- **A script's waves no longer repeat until every wave has played.** The game deals a sound script's waves like a
-  deck, shared by every sound that names that script; the viewer now does the same (B503).
-- **Within a tick, sounds play in the game's frame order:** HUD sounds, medigun patches, animation events and
-  footsteps, physics impacts and friction, then temp entities in the order they arrived (B505).
-- **Seeking follows the game's own skip.** Unreliable temp entities (explosions, impacts) in skipped ticks no
-  longer fire or deal a wave, and the deck is kept, not rebuilt (B504).
-- **Every wave of a script a demo uses is precached,** so a sound's first play no longer hitches (B503).
-
-## Changes in 0.1.0-beta.28
-
-- **Game sound scripts are read as the game reads them.** A script's volume, pitch and sound level are parsed and
-  stored the way the game's sound system does, so a few shipped scripts now play at a slightly different volume
-  (tiny differences) (B487).
-- **Sounds are drawn in the game's order.** For a script sound the viewer now picks volume, pitch, wave and sound
-  level in the order the game does (B502).
-- **A footstep with a single wave keeps its pitch and sound level per foot,** reusing the first draw as the game
-  does, instead of redrawing each step (B502).
-- **The medigun loop plays at pitch 100,** not the script's pitch (B502).
-- **The sound of a corpse sliding uses the script's channel and volume** (B502).
+Releases 0.1.0-beta.28 to 0.1.0-beta.40 were trimmed from this file to stay under GitHub's release-body limit: see the history of this file in the repository.
 
 ## Changes in 0.1.0-beta.27
 
@@ -1007,7 +896,7 @@ writes no log file; send its console output.
 
 Each claim below is a measurement, not an expectation.
 
-- **Merge gate (beta.58):** all twelve assemblies passed (core 2737, cli 75, logging 37, fonts 5, animation 5390, scene 3477, audio 383, presentation 1334, content 1896, corpus 242, rendering 1470, viewer 163), with the UI suite at 84 of 84 counted as 76 passed, 8 skipped and 0 failed (the gate on 00df07a4; the release commit adds only notes, the version and one `--help` line). During this release's earlier gate on the water work, one UI test (a cursor-drift check) failed once by a single pixel on a shared desktop and passed alone and on a full rerun (docs/RISKS.md, the entry on the speed slider).
+- **Merge gate (beta.58):** all twelve assemblies passed (core 2737, cli 75, logging 37, fonts 5, animation 5390, scene 3477, audio 383, presentation 1334, content 1896, corpus 242, rendering 1470, viewer 163), with the UI suite at 84 of 84 counted as 76 passed, 8 skipped and 0 failed (both phases ran on the release commit's code, 946e6cae). During this release's earlier gate on the water work, one UI test (a cursor-drift check) failed once by a single pixel on a shared desktop and passed alone and on a full rerun (docs/RISKS.md, the entry on the speed slider).
   The water, fog, decal and lighting changes are held by tests that read exact values and by the before/after boxes in *Changes in 0.1.0-beta.58*; the water and under-water changes were also compared against a TF2 capture of `ctf_2fort` at the same cameras, and the `koth_toxic` vat against one of its own. The decal-light and layer-order changes are not compared against real TF2 on screen.
 
 - **Merge gate (beta.57):** all twelve assemblies passed (core 2737, cli 75, logging 37, fonts 5, animation 5378, scene 3424, audio 383, presentation 1330, content 1890, corpus 242, rendering 1340, viewer 159), with the UI suite at 84 of 84 counted as 76 passed, 8 skipped and 0 failed. CI on the merge commit 105e5584: Test and CodeQL green, annotations only the Ubuntu 26 runner notice.
@@ -1154,7 +1043,9 @@ Things a user is likely to notice. Each has an entry in `docs/RISKS.md` in the r
   after a map load that switches HDR on or off, the water's reflection and refraction targets keep the previous map's last picture where TF2 clears them to black (B662);
   the main view's fog-colored clear for a far-clipped map is not modeled, nor the clear from inside a fogless water volume (B655);
   a prop's lights are ranked together where the engine ranks its static four and then appends the draw's (B654);
-  `r_shader_srgb 1` is modeled for the height-fog color only (B656).
+  `r_shader_srgb 1` is modeled for the height-fog color only (B656);
+  a static prop's decals are missing from water reflections and refractions (B642);
+  two animation divergences are filed and unmeasured (B650 and B651).
 - **Decals and modulating materials (beta.58), open:**
   the interior of a scorch is 2 to 3% darker than TF2's (B641, cause not found);
   the world pass receives the exposure only on frames that draw a 3D-sky or water view, so the same decal can look different from two cameras, and it may reach other world lighting (B636, mechanism read from our code and not yet proved by a capture; the wider reach is interpolated);
