@@ -306,7 +306,7 @@ public sealed class StaticPropModelsWiringTests
     /// <summary>The world light a local light was made from, found by origin; null names the lamp.</summary>
     private static BspWorldLight WorldLightAt(MapLevel level, LocalLight lamp) =>
         level.WorldLights
-            .Where(candidate => Distance(candidate.Origin, (lamp.X, lamp.Y, lamp.Z)) < 0.5f)
+            .Where(candidate => candidate.Style == 0 && Distance(candidate.Origin, (lamp.X, lamp.Y, lamp.Z)) < 0.5f)
             .Cast<BspWorldLight?>()
             .FirstOrDefault()
             .ShouldNotBeNull($"no world light at the lamp's origin ({lamp.X:0} {lamp.Y:0} {lamp.Z:0})");

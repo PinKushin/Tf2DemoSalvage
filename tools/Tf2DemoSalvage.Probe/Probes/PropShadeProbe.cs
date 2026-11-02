@@ -44,7 +44,7 @@ public sealed class PropShadeProbe : IProbe
 
         if (arguments.Count >= 3)
         {
-            if (!float.TryParse(arguments[2], NumberStyles.Float, CultureInfo.InvariantCulture, out float parsed) || parsed < 0f)
+            if (!float.TryParse(arguments[2], NumberStyles.Float, CultureInfo.InvariantCulture, out float parsed) || !float.IsFinite(parsed) || parsed < 0f)
             {
                 output.WriteLine($"'{arguments[2]}' is not a radius. {Summary}");
                 return;
