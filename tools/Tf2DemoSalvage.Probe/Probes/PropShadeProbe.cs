@@ -32,7 +32,7 @@ public sealed class PropShadeProbe : IProbe
 
     /// <inheritdoc/>
     public string Summary =>
-        "each placement of a static prop model: skin, material, shader, modulation, $nofog and the light its draw is given: prop-shade <map> <model substring>";
+        "each placement of a static prop model: skin, material, shader, modulation, $nofog and the light its draw is given: prop-shade <map> <model substring> [x y z: a lighting origin from prop-light, to list the style-0 lights near it]";
 
     /// <inheritdoc/>
     public void Run(TextWriter output, IReadOnlyList<string> arguments)
@@ -58,7 +58,8 @@ public sealed class PropShadeProbe : IProbe
         GameArchives archives = GameArchives.Open(folder);
         PakFile pak = PakFile.ReadFrom(bytes);
         MapAssets assets = MapAssets.Load(bytes, archives, 64, mapName: path);
-        LevelLighting lighting = LevelLighting.From(MapLevel.Read(bytes, NullLogger.Instance), NullLogger.Instance);
+        MapLevel level = MapLevel.Read(bytes, NullLogger.Instance);
+        LevelLighting lighting = LevelLighting.From(level, NullLogger.Instance);
 
         BspEntity? sky = BspEntities.ReadFrom(bytes).FirstOrDefault(
             entity => entity.TryGetValue("classname", out string name) && name == BspEntities.SkyCameraClass);
@@ -107,7 +108,8 @@ public sealed class PropShadeProbe : IProbe
                 output.WriteLine(string.Create(
                     CultureInfo.InvariantCulture,
                     $"  material [{material}] {name}: shader '{assets.Shaders[material]}', modulation {vmt?.Modulation}, $nofog '{vmt?.Value("$nofog") ?? "(unset)"}', " +
-                    $"$translucent '{vmt?.Value("$translucent") ?? "(unset)"}', $alphatest '{vmt?.Value("$alphatest") ?? "(unset)"}', $vertexcolor '{vmt?.Value("$vertexcolor") ?? "(unset)"}'"));
+                    $"$translucent '{vmt?.Value("$translucent") ?? "(unset)"}', $alphatest '{vmt?.Value("$alphatest") ?? "(unset)"}', $vertexcolor '{vmt?.Value("$vertexcolor") ?? "(unset)"}', " +
+                    $"$bumpmap '{vmt?.Value("$bumpmap") ?? "(unset)"}', $phong '{vmt?.Value("$phong") ?? "(unset)"}', $envmap '{vmt?.Value("$envmap") ?? "(unset)"}'"));
             }
 
             float[]? baked = instance.BakedColours;
@@ -120,6 +122,58 @@ public sealed class PropShadeProbe : IProbe
             output.WriteLine(
                 $"  draw is given: baked colours {colours}; cube {(instance.Light is { } cube ? $"up {cube.PositiveZ}" : "none")}; " +
                 $"sun {(instance.Sun is null ? "none" : "yes")}; {instance.Locals?.Count ?? 0} lamps");
+
+            // The lighting origin, as `prop-light` prints it: given on the command line, since the draw does not carry it.
+            if (arguments.Count >= 5)
+            {
+                WriteNearbyLights(output, level.WorldLights, (
+                    float.Parse(arguments[2], CultureInfo.InvariantCulture),
+                    float.Parse(arguments[3], CultureInfo.InvariantCulture),
+                    float.Parse(arguments[4], CultureInfo.InvariantCulture)));
+            }
+
+            foreach (LocalLight lamp in instance.Locals ?? [])
+            {
+                string kind = lamp.Directional ? "directional" : "point";
+
+                if (lamp.Spot)
+                {
+                    kind = string.Create(CultureInfo.InvariantCulture, $"spot dir {lamp.Direction} cone {lamp.SpotInner:0.###}..{lamp.SpotOuter:0.###}");
+                }
+
+                output.WriteLine(string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"    lamp at ({lamp.X:0} {lamp.Y:0} {lamp.Z:0}) colour ({lamp.Red:0.###} {lamp.Green:0.###} {lamp.Blue:0.###}) " +
+                    $"attenuation {lamp.Constant:0.###}/{lamp.Linear:0.###}/{lamp.Quadratic:0.###} {kind}"));
+            }
+        }
+    }
+
+    /// <summary>
+    /// Every style-0 world light within 600 units of the draw's lighting origin, with whether the production
+    /// <see cref="LocalLights.Reaches"/> (distance, radius and cone) admits it there: the candidates the four lamps were
+    /// picked from, so a lamp that reaches and was not picked is visible beside the four that were.
+    /// </summary>
+    private static void WriteNearbyLights(TextWriter output, IReadOnlyList<BspWorldLight> lights, (float X, float Y, float Z) origin)
+    {
+        output.WriteLine(string.Create(CultureInfo.InvariantCulture, $"    lighting origin ({origin.X:0.#} {origin.Y:0.#} {origin.Z:0.#}); style-0 lights within 600:"));
+
+        foreach (BspWorldLight light in lights)
+        {
+            float dx = light.Origin.X - origin.X;
+            float dy = light.Origin.Y - origin.Y;
+            float dz = light.Origin.Z - origin.Z;
+            float distance = MathF.Sqrt((dx * dx) + (dy * dy) + (dz * dz));
+
+            if (light.Style != 0 || distance > 600f)
+            {
+                continue;
+            }
+
+            output.WriteLine(string.Create(
+                CultureInfo.InvariantCulture,
+                $"      {light.Kind} at ({light.Origin.X:0} {light.Origin.Y:0} {light.Origin.Z:0}) {distance:0} away, normal {light.Normal}, " +
+                $"intensity ({light.Intensity.Red:0} {light.Intensity.Green:0} {light.Intensity.Blue:0}), reaches {LocalLights.Reaches(light, origin.X, origin.Y, origin.Z)}"));
         }
     }
 

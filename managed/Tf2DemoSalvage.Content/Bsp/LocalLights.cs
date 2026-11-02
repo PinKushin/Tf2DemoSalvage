@@ -178,8 +178,9 @@ public static class LocalLights
 
         // **The strongest four by contribution, not the first four in file order.** A map lists its
         // lights in the order the compiler emitted them, which has nothing to do with what is near
-        // anything. Strength here is the falloff alone — distance and range — because the six faces
-        // disagree about direction and a single ranking has to serve all of them.
+        // anything. Strength here carries no n·d — the six faces disagree about direction and a single
+        // ranking has to serve all of them — but it does carry a spotlight's cone, which is the light's
+        // own direction and the same for every face (B665).
         Span<int> chosen = stackalloc int[MaximumLocalLights];
         Span<float> strengths = stackalloc float[MaximumLocalLights];
 
@@ -350,9 +351,14 @@ public static class LocalLights
     /// `engine.dll` `FUN_1801b8e20` returns before anything is added when the BRIGHTEST channel times the falloff is below
     /// `r_worldlightmin` — a different test from the ranking's luminance one, and the only one that drops a light outright.
     /// </remarks>
+    /// <remarks>
+    /// **The falloff is the trace function's ratio, cone included** (B665): `FUN_1801b60a0` ranks by luminance times the
+    /// ratio `FUN_1801b99a0` → `FUN_1801b9570` returns, which carries a spotlight's cone, so a spot whose cone misses the
+    /// point takes no slot. Ranked by distance alone, such spots evicted the lamps that do reach it.
+    /// </remarks>
     private static bool Admitted(BspWorldLight light, float x, float y, float z, Func<int, float> style, out float falloff)
     {
-        falloff = IsLocal(light.Kind) ? Falloff(light, x, y, z, style) : 0f;
+        falloff = IsLocal(light.Kind) ? Ratio(light, x, y, z) * style(light.Style) : 0f;
 
         return falloff > 0f &&
             falloff * Math.Max(light.Intensity.Red, Math.Max(light.Intensity.Green, light.Intensity.Blue)) >= WorldLightMinimum;
@@ -440,17 +446,7 @@ public static class LocalLights
             return false;
         }
 
-        float falloff = Distance(light, x, y, z);
-
-        if (light.Kind is WorldLightKind.Spotlight or WorldLightKind.Surface)
-        {
-            float dx = light.Origin.X - x;
-            float dy = light.Origin.Y - y;
-            float dz = light.Origin.Z - z;
-            float length = MathF.Sqrt((dx * dx) + (dy * dy) + (dz * dz));
-
-            falloff = length > 0f ? falloff * Cone(light, dx / length, dy / length, dz / length) : falloff;
-        }
+        float falloff = Ratio(light, x, y, z);
 
         if (falloff <= 0f)
         {
@@ -459,6 +455,27 @@ public static class LocalLights
 
         return light.Kind == WorldLightKind.Surface ||
             falloff * Math.Max(light.Intensity.Red, Math.Max(light.Intensity.Green, light.Intensity.Blue)) >= WorldLightMinimum;
+    }
+
+    /// <summary>
+    /// A light's ratio at a point, as `FUN_1801b9570` computes it without the style or the trace: the distance falloff,
+    /// times a spotlight's or surface light's cone.
+    /// </summary>
+    private static float Ratio(BspWorldLight light, float x, float y, float z)
+    {
+        float falloff = Distance(light, x, y, z);
+
+        if (light.Kind is not (WorldLightKind.Spotlight or WorldLightKind.Surface))
+        {
+            return falloff;
+        }
+
+        float dx = light.Origin.X - x;
+        float dy = light.Origin.Y - y;
+        float dz = light.Origin.Z - z;
+        float length = MathF.Sqrt((dx * dx) + (dy * dy) + (dz * dz));
+
+        return length > 0f ? falloff * Cone(light, dx / length, dy / length, dz / length) : falloff;
     }
 
     /// <summary>vrad's all-zero rule, applied once so no caller has to know it.</summary>
