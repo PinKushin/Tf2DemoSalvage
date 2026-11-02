@@ -1,0 +1,6 @@
+before pair 01 exit=0
+after pair 01 exit=0
+before pair 02 exit=0
+after pair 02 exit=0
+before pair 03 exit=0
+after pair 03 exit=0

@@ -110,4 +110,40 @@ changes alters what is built; the parts plus `unsplit` sum to the roots total; `
 
 ## Result
 
-Not run. The lead fills this in.
+Interleaved protocol (`2026-11-02-iklock-compose-cost/interleaved.sh`): three pairs, before then after in each, from two
+separate Release builds (before = a checkout of `6e8f2f47`, after = `20568e46`), off screen, f12 tick 30000 spectating
+gummo, 20 s playback, `.err` empty. The earlier standalone before-run is **void** (kept as
+`2026-11-02-iklock-compose-cost-void-before/`): other agents were building during it, roots 0.683 against 0.530 on near
+identical code. Means over the `moment cost` lines per run with the first left out (n = 14-16), ms per rebuild:
+
+| pair | roots before / after | accumulate − sampling before / after | solve | capture | compose | samples before / after |
+|---|---|---|---|---|---|---|
+| 01 | 0.706 / 0.575 | 0.105 / 0.078 | 0.026 / 0.016 | 0.013 / 0.010 | 0.054 / 0.042 | 15.1 / 16.1 |
+| 02 | 0.585 / 0.621 | 0.084 / 0.083 | 0.019 / 0.018 | 0.010 / 0.011 | 0.042 / 0.041 | 14.7 / 15.3 |
+| 03 | 0.552 / 0.579 | 0.079 / 0.074 | 0.019 / 0.018 | 0.009 / 0.009 | 0.043 / 0.040 | 15.6 / 15.5 |
+| **mean** | **0.614 / 0.592 (−0.023)** | **0.089 / 0.078 (−0.011)** | **0.0213 / 0.0173 (−0.0040)** | **0.0107 / 0.0100 (−0.0007)** | **0.0463 / 0.0410 (−0.0053)** | 15.1 / 15.6 |
+
+Void checks: `prepose 0 over 0`; roots built 12.5-13.4 and eligible 4.6-5.0 (within ±1 of each other, 12.8 → 13.2 and 4.7 → 4.8);
+samples per rebuild 15.1 → 15.6, which is +0.5, **at the edge of the ±0.5 void bound** (pair 01 +1.0, pair 02 +0.6, pair 03
+−0.1), so the first pair's roots figure carries a load/phase difference as well. `unsplit` 0.008-0.011.
+
+**Predictions against the result:**
+
+| # | Prediction | Result |
+|---|---|---|
+| 2a | `solve` falls 0.003-0.006 | **holds**, −0.0040; falls in all three pairs (−0.010, −0.001, −0.001) |
+| 2c | `capture` unchanged ±0.001 (control) | **holds**, −0.0007 |
+| 1b | accumulate − layer sampling falls 0.0005-0.003 (commit 1 alone) | not separable: the after set carries all three commits, and the drop (−0.011: solve −0.004, compose −0.005, rest −0.002) is inside commits 1-3 together; just over the 0.010 falsifier if read as commit 1 alone |
+| 3 | capture + solve falls a further 0.001-0.003 | not separable from 2a with one set per variant (capture + solve −0.0047 in all) |
+| all | roots total falls 0.005-0.012; falsified above 0.03 | −0.023: above the predicted range, below the falsifier, and **inside the spread**: the pairs go −0.131, +0.036, +0.027, so the roots total does not separate |
+| 1c | roots total moves by less than the spread (about 0.02) | holds loosely (−0.023 mean, pair 01 dominated by a slow before run) |
+
+## Verdict
+
+The sub-parts moved the way the change predicts and consistently: `remainder`, `solve` and `compose` are lower in all three
+pairs or flat, `capture` is the unmoved control. That is a small real saving on the accumulate side, about **0.011 ms per root
+rebuild (accumulate − sampling −12%)**, and it comes with an allocation drop to zero on the layered path (the allocation
+test, not this table, is the evidence for the enumerators). **The roots total is not distinguished from noise**: pair 01's
+slow before run (0.706) carries the −0.023 mean, and pairs 02 and 03 go the other way by 0.03. Reported as: a measured saving of
+about 0.01 ms in the accumulate sub-parts, roots total unresolved at this resolution. Kept: the output is bit-identical in the
+differentials and the branch removes real work and garbage.
