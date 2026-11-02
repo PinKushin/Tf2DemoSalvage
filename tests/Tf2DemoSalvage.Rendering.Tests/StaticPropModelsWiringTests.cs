@@ -237,6 +237,86 @@ public sealed class StaticPropModelsWiringTests
     }
 
     /// <remarks>
+    /// **B665, the vats on `koth_toxic`.** `models/props_toxic/vat_large_02.mdl` draws a `$phong` material, so it takes its
+    /// handle's full state (flags 7). `engine.dll FUN_1801b60a0` ranks a light by the ratio `FUN_1801b9570` returns, cone
+    /// included, so a spotlight whose cone misses the lighting origin takes no slot. The viewer ranked by distance alone:
+    /// three such spots — the green one aimed UP from the vat's mouth, two white ones whose cones miss — filled three of
+    /// four slots and evicted the green `light` (40 215 151, 300) hung 76 units over the vat, so its rim drew grey where
+    /// TF2 draws it green. Measured with `prop-shade koth_toxic vat_large_02 600`.
+    /// </remarks>
+    [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
+    public void Instances_KothToxicVats_TakeOnlyLampsThatReachAndTheGreenLampOverTheFirst()
+    {
+        const string Map = "koth_toxic";
+
+        if (!MapCache.Exists(Map))
+        {
+            Assert.Ignore("koth_toxic or the game is not installed");
+            return;
+        }
+
+        MapAssets assets = MapCache.With(mapName: Map).Assets;
+        MapLevel level = MapLevel.Read(MapCache.Bytes(Map), NullLogger.Instance);
+        LevelLighting lighting = LevelLighting.From(level, NullLogger.Instance);
+
+        EntityModelSet models = new()
+        {
+            Geometry = assets.Geometry,
+            StaticPropColours = assets.StaticModelColours,
+            StaticPlusDynamicLights = lighting.StaticPlusDynamicLights,
+            StaticPropLighting = lighting.StaticPropLightingAt,
+            StaticPropFullLighting = lighting.StaticPropFullLightingAt,
+        };
+
+        models.Add(assets.StaticModels);
+
+        List<ModelInstance> drawn = [];
+        models.Instances(assets.StaticModels, drawn, lighting.ModelLightingAt, lighting.ModelSunAt);
+
+        Dictionary<int, Core.Scene.SceneProp> byEntity = assets.StaticModels.ToDictionary(prop => prop.EntityIndex);
+        List<ModelInstance> vats =
+            [.. drawn.Where(instance => byEntity[instance.EntityIndex].ModelPath.Contains("vat_large_02", StringComparison.OrdinalIgnoreCase))];
+
+        vats.Count.ShouldBe(2, "the control: the map places the vat twice");
+
+        foreach (ModelInstance vat in vats)
+        {
+            Core.Scene.ScenePose at = byEntity[vat.EntityIndex].Pose;
+            (float X, float Y, float Z) point = models.IlluminationPoint(byEntity[vat.EntityIndex], at);
+
+            vat.BakedColours.ShouldBeNull("the control: its $phong material refuses the colour mesh");
+            IReadOnlyList<LocalLight> lamps = vat.Locals.ShouldNotBeNull();
+            lamps.ShouldNotBeEmpty();
+
+            foreach (LocalLight lamp in lamps)
+            {
+                LocalLights.Reaches(WorldLightAt(level, lamp), point.X, point.Y, point.Z).ShouldBeTrue(
+                    $"a lamp at ({lamp.X:0} {lamp.Y:0} {lamp.Z:0}) that does not reach ({point.X:0} {point.Y:0} {point.Z:0}) took a slot");
+            }
+        }
+
+        // The vat at (-208 1440 -192): the green point lamp 76 units over its mouth is in its state.
+        ModelInstance first = vats.Single(vat => byEntity[vat.EntityIndex].Pose.Y > 0f);
+        first.Locals.ShouldNotBeNull().ShouldContain(
+            lamp => !lamp.Spot && MathF.Abs(lamp.X + 208f) < 0.5f && MathF.Abs(lamp.Y - 1440f) < 0.5f && MathF.Abs(lamp.Z - 76f) < 0.5f,
+            "the green lamp over the vat");
+    }
+
+    /// <summary>The world light a local light was made from, found by origin; null names the lamp.</summary>
+    private static BspWorldLight WorldLightAt(MapLevel level, LocalLight lamp) =>
+        level.WorldLights
+            .Where(candidate => Distance(candidate.Origin, (lamp.X, lamp.Y, lamp.Z)) < 0.5f)
+            .Cast<BspWorldLight?>()
+            .FirstOrDefault()
+            .ShouldNotBeNull($"no world light at the lamp's origin ({lamp.X:0} {lamp.Y:0} {lamp.Z:0})");
+
+    private static float LampDistance(LocalLight lamp, float x, float y, float z) => Distance((lamp.X, lamp.Y, lamp.Z), (x, y, z));
+
+    private static float Distance((float X, float Y, float Z) a, (float X, float Y, float Z) b) =>
+        MathF.Sqrt(((a.X - b.X) * (a.X - b.X)) + ((a.Y - b.Y) * (a.Y - b.Y)) + ((a.Z - b.Z) * (a.Z - b.Z)));
+
+    /// <remarks>
     /// **B514, on the parity map.** `models/props_hydro/observatory_dome.mdl` draws
     /// `materials/models/props_hydro/observatory_dome.vmt`, a `VertexLitGeneric` with `$phong 1` and no `$bumpmap`.
     /// `studiorender.dll FUN_180057da0` flags the model `STUDIOHDR_FLAGS_USES_BUMPMAPPING` for the `$phong`, and
@@ -247,7 +327,7 @@ public sealed class StaticPropModelsWiringTests
     /// </remarks>
     [Test]
     [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
-    public void Instances_CpProcessF12ObservatoryDome_DrawsNoBakedColoursAndTakesItsCubeItsLampAndTheSun()
+    public void Instances_CpProcessF12ObservatoryDome_DrawsNoBakedColoursAndTakesItsCubeTheSunAndOnlyLampsThatReach()
     {
         const string Map = "cp_process_f12";
 
@@ -308,10 +388,35 @@ public sealed class StaticPropModelsWiringTests
             sun.Green.ShouldBe(2.1162f, 0.0005f);
             sun.Blue.ShouldBe(1.5030f, 0.0005f);
 
-            // And the `light` the mapper stood beside each dome: intensity 31,373, 290 units away.
-            dome.Locals.ShouldNotBeNull().ShouldContain(
-                lamp => lamp.Red > 30000f && MathF.Abs(lamp.X - at.X) < 400f && MathF.Abs(lamp.Y - at.Y) < 400f,
-                "the lamp beside the dome is in its state too");
+            // **Not the spotlight beside each dome** (B665): intensity 31,373, 469 units from the lighting point and 341
+            // below it, aimed down (normal -0.247 -0.025 -0.969), so its cone misses the point and `FUN_1801b60a0`'s ratio
+            // there is zero. This asserted it WAS in the state, which the port's distance-only ranking put there; it lit
+            // nothing, since the shader applies the cone. Every lamp the state holds reaches the point.
+            (float X, float Y, float Z) origin = models.IlluminationPoint(byEntity[dome.EntityIndex], at);
+            IReadOnlyList<LocalLight> lamps = dome.Locals.ShouldNotBeNull();
+            lamps.ShouldNotBeEmpty();
+
+            BspWorldLight spot = level.WorldLights
+                .Where(light => light.Kind == WorldLightKind.Spotlight && light.Intensity.Red > 30000f)
+                .Cast<BspWorldLight?>()
+                .MinBy(light => Distance(light!.Value.Origin, origin))
+                .ShouldNotBeNull("the control: the map has a 31,373 spotlight");
+            Distance(spot.Origin, origin).ShouldBeLessThan(500f, "the control: the spotlight beside the dome is found");
+            LocalLights.Reaches(spot, origin.X, origin.Y, origin.Z).ShouldBeFalse("the control: its cone misses the point");
+            (float spotX, float spotY, float spotZ) = spot.Origin;
+            lamps.ShouldNotContain(lamp => LampDistance(lamp, spotX, spotY, spotZ) < 0.5f, "a spot whose cone misses the point took a slot");
+
+            // One lamp pinned: the up-aimed lamp at (±2256 ±416 598), on the dome's side of the map, which reaches.
+            float side = MathF.Sign(at.X);
+            lamps.ShouldContain(
+                lamp => LampDistance(lamp, side * 2256f, side * 416f, 598f) < 0.5f,
+                "the up-aimed lamp at (±2256 ±416 598) is in its state");
+
+            foreach (LocalLight lamp in lamps)
+            {
+                LocalLights.Reaches(WorldLightAt(level, lamp), origin.X, origin.Y, origin.Z).ShouldBeTrue(
+                    $"a lamp at ({lamp.X:0} {lamp.Y:0} {lamp.Z:0}) that does not reach the dome's point took a slot");
+            }
             // **And its cube is computed, not its leaf's** (`ComputeAmbientFromSphericalSamples`, `engine.dll`
             // `FUN_1801b74f0`): above the roofs, the upward face is the map's sky ambient light almost alone.
             AmbientCube cube = dome.Light.ShouldNotBeNull("lit by its handle's cube");

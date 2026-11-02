@@ -36831,7 +36831,8 @@ So the dome's state is now its computed cube, the sun (travelling 0.2113 −0.36
 2.1162 1.5030) and the lamp beside it. Tests: `MapLevelSweepTests.StrikesSky_FromAPointInsideABrushThatIsNotOpaque_…`,
 `LevelLightingTests.SunAt_ALeafFlaggedOrNotForSkyInItsPvs_…` and `.StaticPropLightingAt_GivenTheComputedAmbient_…`,
 `StaticPropAmbientConformanceTests`, `SurfaceColourConformanceTests.LightVec_…`, and the dome's
-(`StaticPropModelsWiringTests.Instances_CpProcessF12ObservatoryDome_DrawsNoBakedColoursAndTakesItsCubeItsLampAndTheSun`).
+(`StaticPropModelsWiringTests.Instances_CpProcessF12ObservatoryDome_DrawsNoBakedColoursAndTakesItsCubeTheSunAndOnlyLampsThatReach`,
+renamed under B665, whose cone ranking reversed its lamp assertion).
 **Cost:** the dome test went from 7 s to 9 s with all 394 flagged placements lit, so about 2 s of rays on
 cp_process_f12, paid as each prop is first drawn rather than at load. **Wider than the dome:** the mask reaches every
 model's sun (`SunAt` shares the trace), and the computed cube also lights the CPU-baked props (B429).
@@ -40376,6 +40377,111 @@ black. Not fixed: our equivalent of the engine's HDR-enabled decision is not est
   on `*145`. Live, `ent_dump func_water_analog` said "no such entity". **That absence has no control**: no
   known-present class was dumped beside it, and `cl_find_ent water` searches client class names, which a
   `CFuncMoveLinear` need not contain. So whether TF2 draws `*145` at all is *unverified*, and nothing was captured.
+
+## B666 — a lamp behind a wall still takes a light slot and lights a static prop (2026-11-02) — OPEN, unfixed; B453's open item, now measured
+
+**Read (engine), from B453 and not re-read here:** `FUN_1801b8e20` makes a per-light visibility trace before a light is
+added. B453 records it as "for point lights", gated by a cvar at `DAT_18075b318 + 0x58` and the 192-unit shadow cache.
+**Which kinds it covers is not established.** "For point lights" may or may not include spots, and that decides whether
+the cases below are divergences. **Ours:** no light is traced. `LevelLighting.StaticPropFullLightingAt` ranks every
+style-0 light that reaches by distance and cone (B665).
+
+**Measured** (`prop-shade <map> <model> 600`, which now traces a world-only `MASK_OPAQUE` ray from each lighting origin
+to each lamp):
+- **`koth_toxic` vat #130, after B665.** Its lamps are the green point lamp (clear) and three white spots at
+  (-206 1807 205), (224 1248 667) and (204 815 419). None of the three spots is clear. The vat at (-204 -1456 -192) has
+  the same split.
+- **`cp_process_f12` observatory dome.** All four lamps are up-aimed, linear-attenuation lamps 1,300 to 2,100 units off,
+  and none is clear. Before B665 three of them held slots, beside a down-aimed spot that lit nothing. B665 gave the
+  fourth slot to the fourth of them.
+
+**Visible if the engine traces these kinds:** white light the engine would block, on whichever surfaces of these props
+face the lamps. *Interpolated:* that is the likely cause of the vat's right rim top, which reads 63/96/81 in ours
+against 13/72/48 in TF2 after B665. **Not separated** from the phong term. **Next:** read `FUN_1801b8e20`'s trace
+gate (kinds, the cvar's default, the shadow cache). Then port it, with a conformance test first.
+
+**Which lights the engine traces: still not read** (2026-11-02, review of B665). No `engine.dll` instance was reachable
+through the Ghidra MCP this session. Two older records point different ways:
+- B453 says the trace in `FUN_1801b8e20` is "for point lights".
+- B424 read `FUN_1801b9570`, the ratio function, as taking flags in which bit 2 SKIPS a trace. The handle's list asks
+  for `9|2`.
+
+So the ratio function itself may trace any kind unless asked not to. *Interpolated, not read.* If it does, then the
+ranking's call through `FUN_1801b99a0` (flags not recorded) would trace spots too, and the vat's three white spots would
+take no slot. **Read `FUN_1801b9570`'s bit-2 branch and the flags `FUN_1801b60a0` passes before porting anything.**
+
+## B665 — a spotlight whose cone misses a model's lighting origin took one of its four light slots (2026-11-02) — FIXED on this branch (not merged), looked at by the agent, not yet by the owner
+
+**Reported by the owner:** on `koth_toxic`, camera `-208 1360 80 60 90` (the vat), *TF2 draws the tank rim/walls around
+the water GREEN; ours draws them GREY*. Evidence: `D:/measure-f12/b662/sbs-camB.png`.
+
+**Measured at the output first** (the same camera, TF2 `D:/measure-f12/b659/tf2-camB.png` against ours
+`D:/measure-f12/b662/after-camB.png`, RGB): rim top 13/76/52 against 25/35/28; inner rim wall 16/60/41 against 12/18/15;
+outer vat wall 15/56/38 against 7/13/9. The control, the world-brush wall in the top corners, agrees (25/62/41 against
+19/58/37), and so does the water. So the fault is the prop, not fog or the lightmap.
+
+**Which surface:** the static prop `models/props_toxic/vat_large_02.mdl` #130 at (-208 1440 -192) (`map-near`). Its
+material `models/props_toxic/vat_large_01` is `VertexLitGeneric` with `$phong 1`, so the model is flagged bump mapped and
+drawn with its handle's full state, flags 7, not its `.vhv` colours (B514). That state held the cube (up face 0.0099,
+0.0266, 0.0135) and four lamps (`prop-shade koth_toxic vat_large_02 600`, which now lists them and the style-0 lights within 600 of each lighting origin):
+
+- the green `light_spot` at (-208 1440 0), `_light 40 215 151 2700`, aimed straight UP. Its lump normal is (0 0 1), and
+  the lighting origin is 84 units below it;
+- three white spots at z 187-205, aimed down. Two of their cones miss the origin.
+
+`LocalLights.Reaches` said false for three of the four. The green `light` at (-208 1440 76), `_light 40 215 151 300`,
+which reaches the origin from 160 units, was not among them.
+
+**Read (engine):** `FUN_1801b60a0` (`AddWorldLightToLightingState`) ranks by luminance times the light's ratio at the
+point and adds nothing when the ratio is not positive. The ratio is `FUN_1801b99a0` → `FUN_1801b9570`, the distance
+falloff times a spotlight's cone. *Each link is read in disassembly* (B453, B424's `FUN_1801b9570`, B514's sky trace).
+**That the ranking multiplies this ratio is the chain of those reads, not one read of the multiply: interpolated.** This
+session could not reach `engine.dll` through the Ghidra MCP: the bridge serves only another agent's instance. **Ours:**
+`LocalLights.Choose` ranked by `Falloff`, distance and style only, and the cone was applied only when the chosen four
+were shaded. So a spot aimed away from a model could take a slot, light nothing, and evict a lamp that lights it. This
+holds for every caller of `Strongest`, `StrongestIndices`, `Split` and `AddTo`: players, dynamic models, static props
+and decals.
+
+**Fixed:** `LocalLights.Admitted` ranks by `Ratio`, the distance falloff times `Cone`, the same function `Reaches` uses,
+times the style. *Arithmetic:* the green lamp's luminance strength at the origin is about 5,229 / 160² = 0.20, and the
+out-of-cone spots now score 0. Tests: `LocalLightRankingConformanceTests` (two, exact), and on the map
+`StaticPropModelsWiringTests.Instances_KothToxicVats_TakeOnlyLampsThatReachAndTheGreenLampOverTheFirst` (every lamp in
+both vats' state reaches its origin; the first vat holds the lamp at z 76). Sabotage: ranking by `Falloff` again turned
+all three red, with the map test naming the spot at (-208 1440 0).
+
+**After** (`D:/measure-f12/b665/after-camB.png`; side by side `D:/measure-f12/b665/sbs-camB.png`): inner rim wall
+17/61/41 (TF2 16/60/41), outer vat wall 13/56/39 (TF2 15/56/38), rim top 32/83/60 (TF2 13/76/52).
+
+**A B514 assertion reversed.** `Instances_CpProcessF12ObservatoryDome_…` asserted that the dome's state holds "the
+`light` the mapper stood beside each dome", at intensity 31,373. The lump says it is a **spotlight**, not a `light`. It
+sits 341 units below the dome's lighting point and is aimed down (normal -0.247 -0.025 -0.969). Its cone misses the
+point, so it lit nothing even when it held the slot. Only the distance-only ranking had put it there. The test now
+asserts the opposite, and that every lamp it holds reaches. Its slot goes to a fourth weak, far lamp that does reach, beside three of its kind already there. All four are occluded
+from the point (B666).
+*Not looked at on screen.*
+
+**Not settled:**
+- The rim top on the right reads 63/96/81 against TF2's 13/72/48. That is whiter. B666 measures that the three white
+  spots left in the vat's state are all occluded from its origin.
+- Both of this branch's shots are on `63bf881a`, which lacks the lead's water fix. The checkerboard in the vat is that,
+  not this. The same-base before is `D:/measure-f12/b665/before-camB.png`: the sabotage edit, built and shot.
+- B654's ranking order is unchanged.
+
+**Players and dynamic models (review question, 2026-11-02).** They too are ranked at ONE point: the light cache entry's,
+`LightCacheCell` here. A spotlight whose cone misses that point, but covers part of the model, now takes no slot. It is
+also not folded into the cube, because `Split` folds only admitted lights. Before this fix it held a slot and the
+shader applied the cone per pixel, so it lit the covered part.
+
+**What the engine does:** `LightcacheGet` adds world lights and live dlights alike through
+`AddWorldLightToLightingState` (`0x1801b60a0`) at the entry's point (findings 66). The add returns before ranking or
+folding when the ratio at that point is not positive. The fold, `FUN_1801b5db0`, is reached only by a light that was
+added and then lost its slot. So a spot whose cone misses the point lights none of the model, and the port now matches.
+
+*Evidence class:* the add-at-the-point and the fold are read in disassembly (findings 66, B453). "Not positive returns
+before the fold" and "the ratio carries the cone" are this entry's interpolated chain, not a read of those
+instructions. **One thing would overturn it:** `FUN_1801b99a0` receiving the model's bounds (B424 notes it takes them)
+and testing the cone against the box rather than the point. B424 read those bounds as a pre-cull that only rejects,
+which would leave this standing. Not re-read here.
 
 ## B661 — an empty `$underwateroverlay ""` is no overlay here and a lookup of "" in the engine (2026-11-02) — OPEN, unfixed
 

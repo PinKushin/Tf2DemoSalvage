@@ -78,3 +78,12 @@ every loser — the evicted light, or the newcomer when nothing is weaker, or an
 luminance — into the ambient cube through `FUN_1801b5db0`: `max(0, n·d) · ratio · intensity` per face. A separate,
 earlier test in `FUN_1801b8e20` drops a light outright when its BRIGHTEST channel times falloff is under the minimum,
 so the two minimums use different weights on purpose. The SDK has none of this; it is the closed lightcache.
+
+**The "falloff" in that ranking includes a spotlight's cone, and the port left it out** (B665, 2026-11-02). The ratio
+`FUN_1801b60a0` ranks by comes from `FUN_1801b99a0` → `FUN_1801b9570`, which multiplies the distance falloff by the
+cone. The port ranked by distance alone, with a comment saying the six cube faces "disagree about direction". That
+argument is about `n·d`. It does not cover the cone, which is the light's own direction and the same for every face.
+*Interpolated* from the two disassembly reads of those functions, not read at the multiply. The owner saw what it costs
+on `koth_toxic`: the vat's rim drew grey where TF2 draws it green. Three spotlights that light nothing at the vat's
+lighting origin filled three of its four slots: one aimed up from the vat's mouth, two whose cones miss. They evicted
+the green lamp hung over it, which does reach.
