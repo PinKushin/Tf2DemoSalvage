@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Linq;
 
 using Tf2DemoSalvage.Content.Bsp;
 
@@ -33,18 +34,31 @@ public sealed class LightVisibilityTraceConformanceTests
     }
 
     [Test]
-    public void ModelLightingAt_AWorldLampBehindAWall_TakesNoSlotAndIsNotFolded()
+    public void ModelLightingAt_AWorldLampBehindAWall_TakesNoSlot()
     {
-        LevelLighting open = StaticPlusDynamicLightingConformanceTests.Map([Lamp(0)]);
-        LevelLighting walled = StaticPlusDynamicLightingConformanceTests.Map([Lamp(0)], Wall);
+        StaticPlusDynamicLightingConformanceTests.Map([Lamp(0)]).ModelLightingAt(0f, 0f, 100f).Locals.Count.ShouldBe(1, "the control");
+        StaticPlusDynamicLightingConformanceTests.Map([Lamp(0)], Wall).ModelLightingAt(0f, 0f, 100f).Locals.ShouldBeEmpty();
+    }
 
-        open.ModelLightingAt(0f, 0f, 100f).Locals.Count.ShouldBe(1, "the control");
+    /// <summary>Four brighter lamps take the slots, so the walled lamp would be the fifth, folded; occluded, it is not.</summary>
+    [Test]
+    public void ModelLightingAt_AFifthLampBehindAWall_IsNotFoldedIntoTheCube()
+    {
+        List<BspWorldLight> four =
+        [
+            .. new (float X, float Y, float Z)[] { (20f, 0f, 100f), (-20f, 0f, 100f), (0f, 20f, 100f), (0f, -20f, 100f) }
+                .Select(at => Lamp(0) with { Origin = at, Intensity = (800f, 800f, 800f) }),
+        ];
 
-        PointLighting lit = walled.ModelLightingAt(0f, 0f, 100f);
+        AmbientCube withoutIt = StaticPlusDynamicLightingConformanceTests.Map(four).ModelLightingAt(0f, 0f, 100f).Cube;
 
-        lit.Locals.ShouldBeEmpty();
-        lit.Cube.ShouldBe(
-            StaticPlusDynamicLightingConformanceTests.Map([]).ModelLightingAt(0f, 0f, 100f).Cube, "the bounce alone: the lamp is not folded");
+        StaticPlusDynamicLightingConformanceTests.Map([.. four, Lamp(0)]).ModelLightingAt(0f, 0f, 100f).Cube
+            .ShouldNotBe(withoutIt, "the control: seen, the fifth lamp is folded");
+
+        PointLighting walled = StaticPlusDynamicLightingConformanceTests.Map([.. four, Lamp(0)], Wall).ModelLightingAt(0f, 0f, 100f);
+
+        walled.Locals.Count.ShouldBe(4);
+        walled.Cube.ShouldBe(withoutIt);
     }
 
     /// <summary>A dlight at the lamp's own spot, behind the same wall, still lights: `0x1801b7a10` skips the trace.</summary>

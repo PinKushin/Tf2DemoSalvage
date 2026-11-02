@@ -521,8 +521,8 @@ public static class LocalLights
     /// <param name="z">The handle's lighting origin.</param>
     /// <returns>True when it reaches.</returns>
     /// <remarks>
-    /// `engine.dll` `FUN_1801b99a0` → `FUN_1801b9570` with flags `9|2`: bit 8 skips the style scale and bit 0 the
-    /// visibility trace (<see cref="Visible"/>; B666 read bit 0 there, where B424 had written bit 2), so this is the
+    /// `engine.dll` `FUN_1801b99a0` → `FUN_1801b9570` with flags `9|2`: the value 8 skips the style scale and the value 1
+    /// the visibility trace (<see cref="Visible"/>; B666's read, superseding B424's "2 skips the trace"), so this is the
     /// distance falloff (radius cutoff included), a spotlight's or surface light's cone, and
     /// `r_worldlightmin` for every kind but `emit_surface`. Sky and sky-ambient lights never reach a point this way.
     /// `FUN_1801b99a0`'s pre-culls against the prop's bounds are skipped: for an origin inside the bounds they reject

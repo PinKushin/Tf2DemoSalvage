@@ -220,9 +220,10 @@ origin (`+0x184`) for a static prop.
 three white spots, at (-206 1807 205), (224 1248 667) and (204 815 419), are blocked 226, 490 and 627 units short
 of its lighting origin. After the fix the vat holds only the
 green lamp and two dim spots in its floor. Through the viewer, at the owner's camera `-208 1360 80 60 90`, the right
-rim top reads 16/76/50 against TF2's 14/74/47; B665 had left it at 62/96/73. On `cp_process_f12` both observatory domes
+rim top reads 16/76/50 against TF2's 14/74/47. The same tree with the trace off reads 62/96/73. On `cp_process_f12` both observatory domes
 now hold no lamp: every lamp that reaches them is behind the roofs.
 
-**What it cost** (measured, Debug, `docs/measurements/2026-11-02-b666-light-trace-load.md`): no frame time this run can
-resolve, but 5.9 s more at map load on koth_toxic. That is 2,225 static states, each tracing nearly every lamp on the
-map, because a 70,000-intensity lamp clears `r_worldlightmin` out to about 18,700 units.
+**What it cost** (measured, Debug, `docs/measurements/2026-11-02-b666-light-trace-load.md`):
+- 5.9 s more at map load on koth_toxic. That is 2,225 static states, each tracing nearly every lamp on the map, because
+  a 70,000-intensity lamp clears `r_worldlightmin` out to about 18,700 units.
+- About 0.3 ms more a frame in the pose's lighting on f12 (measurements/2026-11-02-b666-light-trace-load.md).

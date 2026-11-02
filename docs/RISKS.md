@@ -40390,7 +40390,8 @@ In short:
   they trace from the lit point to the light: `MASK_OPAQUE`, `TRACE_WORLD_ONLY`.
 - They return 0.0 when `(1 − fraction) · distance > 8`.
 
-So "for point lights" (below) was wrong. B424's "bit 2 skips the trace" is bit 0.
+So "for point lights" (below) was wrong. The lead's read (flag value 1 skips the trace) supersedes B424's "2 skips the
+trace".
 
 **Which sites trace:**
 - Traced: the static state's style-0 lights (`StaticPropLightingAt`, `0x1801b5a50`), a light cache entry
@@ -40412,23 +40413,27 @@ So "for point lights" (below) was wrong. B424's "bit 2 skips the trace" is bit 0
 **Tests:**
 - `LocalLightVisibilityConformanceTests` (Content, 8): the fifth lamp takes an occluded one's slot; exactly 8 keeps a
   light and 8.01 drops it; a spot is traced; an occluded light is not folded; the ray runs point → light.
-- `LightVisibilityTraceConformanceTests` (Scene, 5): one per site.
+- `LightVisibilityTraceConformanceTests` (Scene, 6): one per site, and a fifth lamp that is not folded.
 - `StaticPropModelsWiringTests` on both maps.
+- Counts from the TRX: Content 1,838 executed of 1,904, Scene 3,483 of 3,483, Rendering 1,392 of 1,470; none failed.
 
 **Sabotage proofs** (inverse edits, restored):
 - Skipping the trace in `Choose` turned 5 + 5 + 2 tests red.
 - Making `Kept` use `>=` turned the exact-8 case red.
 - Reversing the ray turned 6 + 5 red.
-- Folding before the trace turned the fold test red.
-- One edit per `LevelLighting` site: each turned its own Scene test red.
+- Folding before the trace turned each project's fold test red.
+- `LevelLighting` sites: tracing the dlights, and tracing the handle list, each turned its one test red. The other four
+  sites were sabotaged in pairs: static state with flags 7, then the handle ranking with the cache entry. Each pair
+  turned exactly its two sites' tests red.
 
 **Measured** (`prop-shade koth_toxic vat_large_02 1000`, production trace):
 - Vat #130 lost all three white spots, blocked 226, 490 and 627 units short. It now holds the green lamp at
   (-208 1440 76) and the two dim up-aimed spots at (-336 1329 -186) and (-328 1577 -186).
 - Vat #1810 likewise lost its spots at (224 -1248 667) and (191 -820 428), blocked 496 and 609.
 - Through the viewer (`D:/measure-f12/b666/after-camB.png`, `TF2VIEW_CAMERA="-208 1360 80 60 90"`, tick 600 of
-  `b659_toxic.dem`), the right rim top at pixel (1250, 300) reads 16/76/50. TF2 reads 14/74/47 there and B665 read
-  62/96/73.
+  `b659_toxic.dem`), the right rim top at pixel (1250, 300) reads 16/76/50. TF2 reads 14/74/47 there.
+- The same-base control, `D:/measure-f12/b666/before-camB.png`, is the same tree with the trace off. It reads 62/96/73
+  there, so the change is this fix's and not the base's.
 
 **Two assertions flipped,** both in
 `Instances_CpProcessF12ObservatoryDome_…AndNoLampBehindTheRoofs` (renamed from `…AndOnlyLampsThatReach`):
@@ -40436,10 +40441,17 @@ So "for point lights" (below) was wrong. B424's "bit 2 skips the trace" is bit 0
 - The pinned up-aimed lamp at (±2256 ±416 598) is now the control: it reaches by distance and cone and is blocked more
   than 8 units short.
 
-**Cost, still open:** +5.9 s at load on koth_toxic, from 2,225 static states (Debug,
-`docs/measurements/2026-11-02-b666-light-trace-load.md`). The fix that preserves the output: for `Strongest`, which
-folds nothing, rank first and trace strongest-down until four are seen.
-- *Interpolated:* the engine pays these traces too, and its traces are faster.
+**Cost, still open** (Debug, `docs/measurements/2026-11-02-b666-light-trace-load.md`):
+- **Load:** +5.9 s on koth_toxic (2,225 static states) and +0.47 s on f12 (1,353).
+- **Frame, f12** (`f12.dem --tick 5000`): the pose's `lighting` column averaged 0.44 ms over 16 intervals without the
+  trace and 0.76 ms with it, about +0.3 ms a frame (measurements/2026-11-02-b666-light-trace-load.md). The frame rates
+  are too noisy to separate.
+
+Two fixes would keep the output the same:
+- For `Strongest`, which folds nothing, rank first and trace strongest-down until four are seen.
+- For a light cache entry relit on a style change, keep its point's per-light visibility, because neither the world nor
+  the point moves.
+- *Interpolated:* the engine retraces only the styled lights when a style changes.
 
 **Still open:** the cvar at `DAT_18075b318 + 0x58` and the 192-unit shadow cache that B453 recorded for `FUN_1801b8e20`
 are not covered by this read. The world-light path passes no cache, so the port has no shadow cache.

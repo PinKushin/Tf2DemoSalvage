@@ -34,13 +34,31 @@ Per-interval frame rates (fps / mean ms / frames), in order:
 
 `moment cost … lighting 0` in both: no entry is rebuilt in steady play here.
 
+## f12, where entries are relit in play
+
+Same A/B, `F:/…/tf/f12.dem --tick 5000 --first-person --measure 20 +fps_max 0` (cp_process_f12).
+
+| | static-prop lighting at load | static states 1353 |
+|---|---|---|
+| A, no trace | 1,130.8 ms | 1,052.0 ms |
+| B, traced | 1,608.8 ms | 1,519.7 ms |
+
+Pose `lighting` column per interval (ms), the control that entries are being lit in this window:
+- A: 0.6 1.6 1.2 0.6 0.8 0.1 0 0.1 0.1 0.2 0 0.1 0.4 0.5 0.4 0.3, mean 0.44
+- B: 0.9 2 1.8 1.4 0.9 0.3 0.1 0.1 0.2 0.5 0 0.1 0.9 1.1 1 0.9, mean 0.76
+
+Frame rates (fps/ms): A 46/20.9 55/18.5 59/15.6 73/14.6 84/12.6 95/10.0 129/7.4 178/5.0 187/5.3 228/4.7 157/6.3
+250/3.4 209/5.3 127/10.6 112/8.5 124/7.5 135/8.3 133/7.2; B 50/17.5 65/21.7 58/15.6 64/14.7 58/15.8 84/11.2 106/10.7
+143/6.3 172/6.7 190/5.1 156/6.0 208/5.0 270/3.4 110/9.2 112/9.9 99/9.6 98/10.4 116/8.9. They are too noisy to separate.
+
 ## Verdict
 
 - **Load: +5.9 s** (static states 3.3 s → 9.2 s, measured, Debug). That is 2,225 static states each tracing every
   style-0 light that clears `r_worldlightmin` at its origin: on this map nearly every lamp, since a 70,000-intensity
   quadratic lamp clears it out to about 18,700 units (*arithmetic*: √(70000 / 0.0002)).
-- **Frame: no difference this run can resolve.** The steady tails overlap (A 1,219–1,503 fps, B 1,137–1,490). koth_toxic
-  has no animated style re-lighting entries in this window, so a style-heavy map is unmeasured.
+- **Frame: about +0.3 ms on f12**, in the pose's `lighting` column (0.44 → 0.76 ms mean). On koth_toxic no entry was
+  lit in the window (`lighting 0` both ways), so that run cannot see it. The f12 frame rates are too noisy to show it.
 - **The fix the engine's own order allows** (*interpolated, not built*): `Strongest` folds nothing, so ranking first and
   tracing candidates strongest-down until four are seen gives the same four lights with far fewer traces; `Split` must
-  still trace every admitted light, since the visible losers are folded. Filed under B666 as a follow-up.
+  still trace every admitted light, since the visible losers are folded. A light cache entry relit on a style change can
+  keep its point's visibility, because the world does not move. Filed under B666 as a follow-up.
