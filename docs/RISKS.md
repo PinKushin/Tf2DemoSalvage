@@ -36831,7 +36831,8 @@ So the dome's state is now its computed cube, the sun (travelling 0.2113 −0.36
 2.1162 1.5030) and the lamp beside it. Tests: `MapLevelSweepTests.StrikesSky_FromAPointInsideABrushThatIsNotOpaque_…`,
 `LevelLightingTests.SunAt_ALeafFlaggedOrNotForSkyInItsPvs_…` and `.StaticPropLightingAt_GivenTheComputedAmbient_…`,
 `StaticPropAmbientConformanceTests`, `SurfaceColourConformanceTests.LightVec_…`, and the dome's
-(`StaticPropModelsWiringTests.Instances_CpProcessF12ObservatoryDome_DrawsNoBakedColoursAndTakesItsCubeItsLampAndTheSun`).
+(`StaticPropModelsWiringTests.Instances_CpProcessF12ObservatoryDome_DrawsNoBakedColoursAndTakesItsCubeTheSunAndOnlyLampsThatReach`,
+renamed under B665, whose cone ranking reversed its lamp assertion).
 **Cost:** the dome test went from 7 s to 9 s with all 394 flagged placements lit, so about 2 s of rays on
 cp_process_f12, paid as each prop is first drawn rather than at load. **Wider than the dome:** the mask reaches every
 model's sun (`SunAt` shares the trace), and the computed cube also lights the CPU-baked props (B429).
@@ -40377,6 +40378,16 @@ face the lamps. *Interpolated:* that is the likely cause of the vat's right rim 
 against 13/72/48 in TF2 after B665. **Not separated** from the phong term. **Next:** read `FUN_1801b8e20`'s trace
 gate (kinds, the cvar's default, the shadow cache). Then port it, with a conformance test first.
 
+**Which lights the engine traces: still not read** (2026-11-02, review of B665). No `engine.dll` instance was reachable
+through the Ghidra MCP this session. Two older records point different ways:
+- B453 says the trace in `FUN_1801b8e20` is "for point lights".
+- B424 read `FUN_1801b9570`, the ratio function, as taking flags in which bit 2 SKIPS a trace. The handle's list asks
+  for `9|2`.
+
+So the ratio function itself may trace any kind unless asked not to. *Interpolated, not read.* If it does, then the
+ranking's call through `FUN_1801b99a0` (flags not recorded) would trace spots too, and the vat's three white spots would
+take no slot. **Read `FUN_1801b9570`'s bit-2 branch and the flags `FUN_1801b60a0` passes before porting anything.**
+
 ## B665 — a spotlight whose cone misses a model's lighting origin took one of its four light slots (2026-11-02) — FIXED on this branch (not merged), looked at by the agent, not yet by the owner
 
 **Reported by the owner:** on `koth_toxic`, camera `-208 1360 80 60 90` (the vat), *TF2 draws the tank rim/walls around
@@ -40390,7 +40401,7 @@ outer vat wall 15/56/38 against 7/13/9. The control, the world-brush wall in the
 **Which surface:** the static prop `models/props_toxic/vat_large_02.mdl` #130 at (-208 1440 -192) (`map-near`). Its
 material `models/props_toxic/vat_large_01` is `VertexLitGeneric` with `$phong 1`, so the model is flagged bump mapped and
 drawn with its handle's full state, flags 7, not its `.vhv` colours (B514). That state held the cube (up face 0.0099,
-0.0266, 0.0135) and four lamps (`prop-shade koth_toxic vat_large_02 -210.5 1437.5 -84`, which now lists them):
+0.0266, 0.0135) and four lamps (`prop-shade koth_toxic vat_large_02 600`, which now lists them and the style-0 lights within 600 of each lighting origin):
 
 - the green `light_spot` at (-208 1440 0), `_light 40 215 151 2700`, aimed straight UP. Its lump normal is (0 0 1), and
   the lighting origin is 84 units below it;
@@ -40433,6 +40444,22 @@ from the point (B666).
 - Both of this branch's shots are on `63bf881a`, which lacks the lead's water fix. The checkerboard in the vat is that,
   not this. The same-base before is `D:/measure-f12/b665/before-camB.png`: the sabotage edit, built and shot.
 - B654's ranking order is unchanged.
+
+**Players and dynamic models (review question, 2026-11-02).** They too are ranked at ONE point: the light cache entry's,
+`LightCacheCell` here. A spotlight whose cone misses that point, but covers part of the model, now takes no slot. It is
+also not folded into the cube, because `Split` folds only admitted lights. Before this fix it held a slot and the
+shader applied the cone per pixel, so it lit the covered part.
+
+**What the engine does:** `LightcacheGet` adds world lights and live dlights alike through
+`AddWorldLightToLightingState` (`0x1801b60a0`) at the entry's point (findings 66). The add returns before ranking or
+folding when the ratio at that point is not positive. The fold, `FUN_1801b5db0`, is reached only by a light that was
+added and then lost its slot. So a spot whose cone misses the point lights none of the model, and the port now matches.
+
+*Evidence class:* the add-at-the-point and the fold are read in disassembly (findings 66, B453). "Not positive returns
+before the fold" and "the ratio carries the cone" are this entry's interpolated chain, not a read of those
+instructions. **One thing would overturn it:** `FUN_1801b99a0` receiving the model's bounds (B424 notes it takes them)
+and testing the cone against the box rather than the point. B424 read those bounds as a pre-cull that only rejects,
+which would leave this standing. Not re-read here.
 
 ## B661 — an empty `$underwateroverlay ""` is no overlay here and a lookup of "" in the engine (2026-11-02) — OPEN, unfixed
 

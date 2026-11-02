@@ -242,7 +242,7 @@ public sealed class StaticPropModelsWiringTests
     /// included, so a spotlight whose cone misses the lighting origin takes no slot. The viewer ranked by distance alone:
     /// three such spots — the green one aimed UP from the vat's mouth, two white ones whose cones miss — filled three of
     /// four slots and evicted the green `light` (40 215 151, 300) hung 76 units over the vat, so its rim drew grey where
-    /// TF2 draws it green. Measured with `prop-shade koth_toxic vat_large_02 -210.5 1437.5 -84`.
+    /// TF2 draws it green. Measured with `prop-shade koth_toxic vat_large_02 600`.
     /// </remarks>
     [Test]
     [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
@@ -291,10 +291,7 @@ public sealed class StaticPropModelsWiringTests
 
             foreach (LocalLight lamp in lamps)
             {
-                BspWorldLight light = level.WorldLights.First(candidate =>
-                    candidate.Origin == (lamp.X, lamp.Y, lamp.Z) && candidate.Style == 0);
-
-                LocalLights.Reaches(light, point.X, point.Y, point.Z).ShouldBeTrue(
+                LocalLights.Reaches(WorldLightAt(level, lamp), point.X, point.Y, point.Z).ShouldBeTrue(
                     $"a lamp at ({lamp.X:0} {lamp.Y:0} {lamp.Z:0}) that does not reach ({point.X:0} {point.Y:0} {point.Z:0}) took a slot");
             }
         }
@@ -305,6 +302,19 @@ public sealed class StaticPropModelsWiringTests
             lamp => !lamp.Spot && MathF.Abs(lamp.X + 208f) < 0.5f && MathF.Abs(lamp.Y - 1440f) < 0.5f && MathF.Abs(lamp.Z - 76f) < 0.5f,
             "the green lamp over the vat");
     }
+
+    /// <summary>The world light a local light was made from, found by origin; null names the lamp.</summary>
+    private static BspWorldLight WorldLightAt(MapLevel level, LocalLight lamp) =>
+        level.WorldLights
+            .Where(candidate => Distance(candidate.Origin, (lamp.X, lamp.Y, lamp.Z)) < 0.5f)
+            .Cast<BspWorldLight?>()
+            .FirstOrDefault()
+            .ShouldNotBeNull($"no world light at the lamp's origin ({lamp.X:0} {lamp.Y:0} {lamp.Z:0})");
+
+    private static float LampDistance(LocalLight lamp, float x, float y, float z) => Distance((lamp.X, lamp.Y, lamp.Z), (x, y, z));
+
+    private static float Distance((float X, float Y, float Z) a, (float X, float Y, float Z) b) =>
+        MathF.Sqrt(((a.X - b.X) * (a.X - b.X)) + ((a.Y - b.Y) * (a.Y - b.Y)) + ((a.Z - b.Z) * (a.Z - b.Z)));
 
     /// <remarks>
     /// **B514, on the parity map.** `models/props_hydro/observatory_dome.mdl` draws
@@ -317,7 +327,7 @@ public sealed class StaticPropModelsWiringTests
     /// </remarks>
     [Test]
     [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
-    public void Instances_CpProcessF12ObservatoryDome_DrawsNoBakedColoursAndTakesItsCubeItsLampAndTheSun()
+    public void Instances_CpProcessF12ObservatoryDome_DrawsNoBakedColoursAndTakesItsCubeTheSunAndOnlyLampsThatReach()
     {
         const string Map = "cp_process_f12";
 
@@ -382,15 +392,30 @@ public sealed class StaticPropModelsWiringTests
             // below it, aimed down (normal -0.247 -0.025 -0.969), so its cone misses the point and `FUN_1801b60a0`'s ratio
             // there is zero. This asserted it WAS in the state, which the port's distance-only ranking put there; it lit
             // nothing, since the shader applies the cone. Every lamp the state holds reaches the point.
-            foreach (LocalLight lamp in dome.Locals.ShouldNotBeNull())
+            (float X, float Y, float Z) origin = models.IlluminationPoint(byEntity[dome.EntityIndex], at);
+            IReadOnlyList<LocalLight> lamps = dome.Locals.ShouldNotBeNull();
+            lamps.ShouldNotBeEmpty();
+
+            BspWorldLight spot = level.WorldLights
+                .Where(light => light.Kind == WorldLightKind.Spotlight && light.Intensity.Red > 30000f)
+                .Cast<BspWorldLight?>()
+                .MinBy(light => Distance(light!.Value.Origin, origin))
+                .ShouldNotBeNull("the control: the map has a 31,373 spotlight");
+            Distance(spot.Origin, origin).ShouldBeLessThan(500f, "the control: the spotlight beside the dome is found");
+            LocalLights.Reaches(spot, origin.X, origin.Y, origin.Z).ShouldBeFalse("the control: its cone misses the point");
+            (float spotX, float spotY, float spotZ) = spot.Origin;
+            lamps.ShouldNotContain(lamp => LampDistance(lamp, spotX, spotY, spotZ) < 0.5f, "a spot whose cone misses the point took a slot");
+
+            // One lamp pinned: the up-aimed lamp at (±2256 ±416 598), on the dome's side of the map, which reaches.
+            float side = MathF.Sign(at.X);
+            lamps.ShouldContain(
+                lamp => LampDistance(lamp, side * 2256f, side * 416f, 598f) < 0.5f,
+                "the up-aimed lamp at (±2256 ±416 598) is in its state");
+
+            foreach (LocalLight lamp in lamps)
             {
-                lamp.Red.ShouldBeLessThan(30000f, "the spotlight aimed down from below the lighting point takes no slot");
-
-                BspWorldLight light = level.WorldLights.First(candidate =>
-                    candidate.Origin == (lamp.X, lamp.Y, lamp.Z) && candidate.Style == 0);
-                (float X, float Y, float Z) origin = models.IlluminationPoint(byEntity[dome.EntityIndex], at);
-
-                LocalLights.Reaches(light, origin.X, origin.Y, origin.Z).ShouldBeTrue();
+                LocalLights.Reaches(WorldLightAt(level, lamp), origin.X, origin.Y, origin.Z).ShouldBeTrue(
+                    $"a lamp at ({lamp.X:0} {lamp.Y:0} {lamp.Z:0}) that does not reach the dome's point took a slot");
             }
             // **And its cube is computed, not its leaf's** (`ComputeAmbientFromSphericalSamples`, `engine.dll`
             // `FUN_1801b74f0`): above the roofs, the upward face is the map's sky ambient light almost alone.

@@ -350,8 +350,7 @@ public static class LocalLights
     /// <remarks>
     /// `engine.dll` `FUN_1801b8e20` returns before anything is added when the BRIGHTEST channel times the falloff is below
     /// `r_worldlightmin` — a different test from the ranking's luminance one, and the only one that drops a light outright.
-    /// </remarks>
-    /// <remarks>
+    ///
     /// **The falloff is the trace function's ratio, cone included** (B665): `FUN_1801b60a0` ranks by luminance times the
     /// ratio `FUN_1801b99a0` → `FUN_1801b9570` returns, which carries a spotlight's cone, so a spot whose cone misses the
     /// point takes no slot. Ranked by distance alone, such spots evicted the lamps that do reach it.
@@ -516,11 +515,13 @@ public static class LocalLights
         kind is WorldLightKind.Point or WorldLightKind.Spotlight or WorldLightKind.QuakeLight;
 
     /// <summary>
-    /// Distance falloff, as <c>LightDesc_t::ComputeLightAtPoints</c> computes it.
+    /// Distance falloff times the style, as <c>LightDesc_t::ComputeLightAtPoints</c> computes it — what a folded light's
+    /// cube face is scaled by, which applies the cone itself (<see cref="Face"/>).
     /// </summary>
     /// <remarks>
-    /// **Times the light's style value over 264**, as the lightcache multiplies it before ranking (`engine.dll`
-    /// `0x1801b8e20`): a switchable lamp turned off falls to nothing and is never chosen.
+    /// **Times the light's style value over 264**, as the lightcache multiplies it (`engine.dll` `0x1801b8e20`): a
+    /// switchable lamp turned off adds nothing. The ranking takes the style the same way, on <see cref="Ratio"/> rather
+    /// than on this (<see cref="Admitted"/>).
     /// </remarks>
     private static float Falloff(BspWorldLight light, float x, float y, float z, Func<int, float> style) =>
         Distance(light, x, y, z) * style(light.Style);

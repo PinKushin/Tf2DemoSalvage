@@ -32,13 +32,26 @@ public sealed class PropShadeProbe : IProbe
 
     /// <inheritdoc/>
     public string Summary =>
-        "each placement of a static prop model: skin, material, shader, modulation, $nofog and the light its draw is given: prop-shade <map> <model substring> [radius: list the style-0 lights that near each lighting origin]";
+        "each placement of a static prop model: skin, material, shader, modulation, $nofog and the light its draw is given: prop-shade <map> <model substring> [radius: also list the style-0 lights within it of each lighting origin, with reach and a clear-ray check]";
 
     /// <inheritdoc/>
     public void Run(TextWriter output, IReadOnlyList<string> arguments)
     {
         ArgumentNullException.ThrowIfNull(output);
         ArgumentNullException.ThrowIfNull(arguments);
+
+        float? radius = null;
+
+        if (arguments.Count >= 3)
+        {
+            if (!float.TryParse(arguments[2], NumberStyles.Float, CultureInfo.InvariantCulture, out float parsed) || parsed < 0f)
+            {
+                output.WriteLine($"'{arguments[2]}' is not a radius. {Summary}");
+                return;
+            }
+
+            radius = parsed;
+        }
 
         if (arguments.Count < 2)
         {
@@ -126,9 +139,9 @@ public sealed class PropShadeProbe : IProbe
             // The lighting origin the draw was lit at, through the set's own route.
             (float X, float Y, float Z) origin = models.IlluminationPoint(prop, prop.Pose);
 
-            if (arguments.Count >= 3)
+            if (radius is { } within)
             {
-                WriteNearbyLights(output, level, origin, float.Parse(arguments[2], CultureInfo.InvariantCulture));
+                WriteNearbyLights(output, level, origin, within);
             }
 
             foreach (LocalLight lamp in instance.Locals ?? [])
