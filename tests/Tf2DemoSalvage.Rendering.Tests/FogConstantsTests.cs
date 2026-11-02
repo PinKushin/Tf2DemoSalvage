@@ -142,18 +142,29 @@ public sealed class FogConstantsTests
     /// <remarks>
     /// **<c>r_shader_srgb</c> on the height branch** (<c>0x180025b1f</c>-<c>0x180025be7</c>, through
     /// <c>NeedsShaderSRGBConversion</c> <c>0x180004bc0</c>): 0 the sRGB decode, 1 <c>pow( x, 2.2 )</c> in double, and -1 the
-    /// caps bit, taken as hardware sRGB. At byte 16 the two curves are 8.5 stored levels apart: 0.005182 against 0.003535.
+    /// caps bit, taken as hardware sRGB, as is any other value (the ConVar has no bounds). At byte 16: the sRGB decode
+    /// ((16/255 + 0.055) / 1.055)^2.4 = 0.0051815, against (16/255)^2.2 = 0.0022630.
     /// </remarks>
-    [TestCase(0)]
-    [TestCase(1)]
-    [TestCase(-1)]
-    public void HeightFogChannel_EachShaderSrgb_TakesItsCurve(int shaderSrgb)
+    [TestCase(0, 0.0051815f)]
+    [TestCase(1, 0.0022630f)]
+    [TestCase(-1, 0.0051815f)]
+    [TestCase(5, 0.0051815f)]
+    public void HeightFogChannel_EachShaderSrgb_TakesItsCurve(int shaderSrgb, float expected)
     {
-        float stored = FogConstants.StoredChannel(16f / 255f);
-        float expected = shaderSrgb == 1 ? (float)Math.Pow(stored, 2.200000047683716) : FogConstants.SrgbDecode(stored);
+        FogConstants.HeightFogChannel(16f / 255f, shaderSrgb).ShouldBe(expected, 1e-7f);
+    }
 
-        Math.Abs(FogConstants.SrgbDecode(stored) - (float)Math.Pow(stored, 2.2)).ShouldBeGreaterThan(1e-3f, "the instrument");
-        FogConstants.HeightFogChannel(16f / 255f, shaderSrgb).ShouldBe(expected);
+    /// <remarks>
+    /// **CVTTSS2SI, not .NET's saturating cast**: NaN and anything beyond int's range give <c>0x80000000</c>, so the
+    /// materialsystem's clamp stores 0 for a colour of 1e10 where a saturating cast would store 255.
+    /// </remarks>
+    [TestCase(1e10f, 0)]
+    [TestCase(float.NaN, 0)]
+    [TestCase(float.PositiveInfinity, 0)]
+    public void StoredByte_BeyondIntsRange_IsTheIntegerIndefinitesZero(float gamma, int expected)
+    {
+        FogConstants.Cvttss2si(1e10f).ShouldBe(int.MinValue);
+        FogConstants.StoredByte(gamma).ShouldBe(expected);
     }
 
     /// <remarks>
@@ -161,17 +172,29 @@ public sealed class FogConstantsTests
     /// applier hands c29 (<c>0x180014200</c>, modes 1 and 3) go through the same height branch, so they are packed into the
     /// water view's <c>heightFogColour.w</c> beside the colour, and the shader reads them there.
     /// </remarks>
-    [TestCase(0)]
-    [TestCase(1)]
-    public void PackHeightFog_TheModulatingGrey_IsTheHeightBranchOf128(int shaderSrgb)
+    /// <remarks>Literals: byte 51 is 0.2, decoded 0.033105 or 0.2^2.2 = 0.028991; the grey 128 decoded 0.2158605, or 0.2195197.</remarks>
+    [TestCase(0, 0.033105f, 0.2158605f)]
+    [TestCase(1, 0.028991f, 0.2195197f)]
+    public void PackHeightFog_TheModulatingGrey_IsTheHeightBranchOf128(int shaderSrgb, float red, float grey)
     {
         float[] view = new float[12];
 
         WorldRenderer.PackHeightFog(view, new VolumeFog(true, 10f, (51f / 255f, 43f / 255f, 13f / 255f), -100f, 400f, 1f), shaderSrgb);
 
-        view[8].ShouldBe(FogConstants.HeightFogChannel(51f / 255f, shaderSrgb));
-        view[11].ShouldBe(FogConstants.HeightFogChannel(128f / 255f, shaderSrgb));
+        view[8].ShouldBe(red, 1e-6f);
+        view[11].ShouldBe(grey, 1e-6f);
         WorldRenderer.CompiledShaderSourceText.ShouldContain("FogTarget(tintControl.z, heightFogColour.rgb, heightFogColour.w)", Case.Sensitive);
+    }
+
+    /// <remarks>Without height fog every one of the view's fog floats is zero, whatever the span held, so a caller needs no clear first.</remarks>
+    [Test]
+    public void PackHeightFog_NoHeightFog_ZeroesFourToEleven()
+    {
+        float[] view = [9f, 9f, 9f, 9f, 9f, 9f, 9f, 9f, 9f, 9f, 9f, 9f];
+
+        WorldRenderer.PackHeightFog(view, null, 0);
+
+        view.ShouldBe([9f, 9f, 9f, 9f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f]);
     }
 
     [Test]

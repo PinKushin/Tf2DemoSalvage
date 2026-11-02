@@ -36,6 +36,32 @@ public sealed class WaterClearConformanceTests
     }
 
     /// <remarks>
+    /// **The simple view's start clears over the 3D sky** (<c>viewrender.cpp:5772-5780</c>): <c>BeginSimpleView</c>, which
+    /// <c>Device3D</c> calls where the main view begins, after the sky pass. The target is first filled red as the sky
+    /// would leave it; with the fog clear it stores 2fort's water fog bytes (51, 43, 13), without it the red survives. The
+    /// view's draw flags are set either way.
+    /// </remarks>
+    [Test]
+    public void BeginSimpleView_FromInsideTheVolume_ClearsOverTheSkyToTheFogBytes()
+    {
+        using OffscreenTarget target = Skip.Unless(OffscreenTarget.TryCreate(4, 4), "no Direct3D on this machine");
+        VolumeFog inside = new(false, 0f, (51f / 255f, 43f / 255f, 13f / 255f), -100f, 400f, 1f);
+        WaterView simple = new(WaterViewKind.Simple, ViewDraws.RenderUnderWater, ViewClears.Color | ViewClears.Depth,
+            WaterViewTarget.BackBuffer, WaterViewFog.Volume, true, HeightClip.None);
+
+        target.Clear(1f, 0f, 0f);
+        target.BeginSimpleView(ViewDraws.RenderAboveWater, null);
+
+        target.PixelAt(1, 1).ShouldBe((255, 0, 0), "the control: no fog clear keeps the sky");
+        target.WorldViewDraws.ShouldBe(ViewDraws.RenderAboveWater);
+
+        target.BeginSimpleView(ViewDraws.RenderUnderWater, WorldRenderer.MainViewFogClear(simple, inside));
+
+        target.PixelAt(1, 1).ShouldBe((51, 43, 13));
+        target.WorldViewDraws.ShouldBe(ViewDraws.RenderUnderWater);
+    }
+
+    /// <remarks>
     /// Scaled, at the reflection-free frame scale 0.6 and at 4 (integer HDR's overbright reach): the stored texel is
     /// <c>(int)( byte · pow( s, 1/2.2 ) ) &amp; 255</c> (<c>client.dll</c> <c>0x18034d560</c>). At 4, 200 stores 119.
     /// </remarks>

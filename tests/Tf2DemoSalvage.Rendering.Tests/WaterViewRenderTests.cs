@@ -288,12 +288,13 @@ public sealed class WaterViewRenderTests
     /// <c>SetClearColorToFogColor</c> scales the bytes by <c>pow( 0.5, 1/2.2 )</c> = 0.72974 only under
     /// <c>HDR_TYPE_INTEGER</c> (<c>client.dll</c> <c>0x18034d560</c>, <c>viewrender.cpp:759</c>), truncated, and shaderapi
     /// stores the bytes (<c>0x180014bd0</c>). Nothing but the water surface is drawn, which the refraction view leaves out,
-    /// so the target is the clear. Under no HDR the same draw at the same scale stores the bytes themselves.
+    /// so the target is the clear. Under no HDR the same draw at the same scale stores the bytes themselves. Literals:
+    /// 2fort's <c>$fogcolor {51 43 13}</c> times 0.729740 is 37.2, 31.4, 9.49, stored 37, 31, 9.
     /// </remarks>
-    [TestCase(HdrType.IntegerHdr)]
-    [TestCase(HdrType.None)]
+    [TestCase(HdrType.IntegerHdr, 37, 31, 9)]
+    [TestCase(HdrType.None, 51, 43, 13)]
     [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
-    public void DrawWaterWorld_TheRefractionViewsFogClearAtHalfScale_IsScaledOnlyUnderIntegerHdr(HdrType hdr)
+    public void DrawWaterWorld_TheRefractionViewsFogClearAtHalfScale_IsScaledOnlyUnderIntegerHdr(HdrType hdr, int red, int green, int blue)
     {
         if (!Direct3DApi.IsAvailable || Assets is not { } assets)
         {
@@ -307,6 +308,8 @@ public sealed class WaterViewRenderTests
         IReadOnlyList<WaterView> plan = WaterViews.Plan(info, new WaterFrame(false, false, 0f, false), ViewClears.Depth);
 
         material.FogEnable.ShouldBeTrue("the clear needs the volume's fog");
+        (FogConstants.StoredByte(material.FogColor.Red), FogConstants.StoredByte(material.FogColor.Green),
+            FogConstants.StoredByte(material.FogColor.Blue)).ShouldBe((51, 43, 13), "the subject: 2fort's water fog");
 
         using OffscreenTarget target = OffscreenTarget.TryCreate(64, 64)!;
 
@@ -314,19 +317,8 @@ public sealed class WaterViewRenderTests
         target.DrawWaterWorld([.. Quad(0f, (1f, 1f, 1f))], [new(water, 0, 6)], Camera, assets,
             new WaterDraw(plan, water, 0f, [], [], null, null), hdr, toneMapScale: 0.5f);
 
-        int Expected(float gamma)
-        {
-            int fogByte = (int)(gamma * 255f);
-
-            return hdr == HdrType.IntegerHdr ? (int)(fogByte * 0.72974f) : fogByte;
-        }
-
-        (int Red, int Green, int Blue) expected =
-            (Expected(material.FogColor.Red), Expected(material.FogColor.Green), Expected(material.FogColor.Blue));
-
-        Expected(material.FogColor.Red).ShouldNotBe(
-            hdr == HdrType.IntegerHdr ? (int)(material.FogColor.Red * 255f) : -1, "the instrument: the scale must move the red byte");
-        target.WaterTargetPixel(refraction: true, 512, 512).ShouldBe(expected);
+        target.WaterTargetPixel(refraction: true, 512, 512).ShouldBe((red, green, blue));
+        target.WorldLinearLightScale.ShouldBe(1f, "the draw's scale is restored when it returns");
     }
 
     private static double Linear(int srgb)

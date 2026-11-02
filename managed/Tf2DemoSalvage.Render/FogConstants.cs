@@ -65,7 +65,17 @@ public static class FogConstants
     /// <summary>The fog byte <c>FogColor3fv</c> stores: <c>clamp( (int)( x · 255 ), 0, 255 )</c>, truncated (<c>0x18002bf40</c>).</summary>
     /// <param name="gamma">A fog colour channel, gamma 0..1.</param>
     /// <returns>The byte <c>GetFogColor</c> hands back.</returns>
-    public static int StoredByte(float gamma) => Math.Clamp((int)(gamma * 255f), 0, 255);
+    public static int StoredByte(float gamma) => Math.Clamp(Cvttss2si(gamma * 255f), 0, 255);
+
+    /// <summary>
+    /// x86's <c>CVTTSS2SI</c>, the float-to-int the engine's casts compile to: truncation, and the "integer indefinite"
+    /// <c>0x80000000</c> for NaN or anything outside int's range. .NET 9+'s <c>(int)</c> saturates there instead
+    /// (int.MaxValue), so an overflowing product would store 255 where the engine stores 0.
+    /// </summary>
+    /// <param name="value">The float.</param>
+    /// <returns>What the instruction returns.</returns>
+    internal static int Cvttss2si(float value) =>
+        value is >= -2147483648f and < 2147483648f ? (int)value : int.MinValue;
 
     /// <summary>c29's raw channel before any conversion: the stored byte times 1/255 (<c>0x180014200</c>).</summary>
     /// <param name="gamma">A fog colour channel, gamma 0..1.</param>
@@ -79,6 +89,11 @@ public static class FogConstants
     /// </summary>
     /// <param name="shaderSrgb"><c>r_shader_srgb</c>, default 0.</param>
     /// <returns>Whether shaderapi converts in the shader rather than by hardware sRGB.</returns>
+    /// <remarks>
+    /// The ConVar has no bounds: it is registered through the four-argument constructor (<c>0x18003ed80</c> from
+    /// <c>0x180001120</c>: name, "0", flags <c>0x40000</c>, help), so 2 or 5 is stored as given and, like -1, takes the
+    /// caps branch.
+    /// </remarks>
     public static bool NeedsShaderSrgbConversion(int shaderSrgb) => shaderSrgb == 1;
 
     /// <summary>
@@ -89,9 +104,18 @@ public static class FogConstants
     /// <param name="gamma">A fog colour channel, gamma 0..1.</param>
     /// <param name="shaderSrgb"><c>r_shader_srgb</c>.</param>
     /// <returns>The linear channel.</returns>
-    public static float HeightFogChannel(float gamma, int shaderSrgb)
+    public static float HeightFogChannel(float gamma, int shaderSrgb) => HeightFogChannelOfByte(StoredByte(gamma), shaderSrgb);
+
+    /// <summary>
+    /// <see cref="HeightFogChannel"/> from a byte the applier already holds: the scene fog's stored byte, or a fog mode's
+    /// literal (<c>0x80</c> for the modulating grey, <c>0x180014200</c>), times 1/255 and through the height branch.
+    /// </summary>
+    /// <param name="fogByte">The byte, 0..255.</param>
+    /// <param name="shaderSrgb"><c>r_shader_srgb</c>.</param>
+    /// <returns>The linear channel.</returns>
+    public static float HeightFogChannelOfByte(int fogByte, int shaderSrgb)
     {
-        float stored = StoredChannel(gamma);
+        float stored = fogByte * ByteScale;
 
         return NeedsShaderSrgbConversion(shaderSrgb) ? (float)Math.Pow(stored, ShaderSrgbExponent) : SrgbDecode(stored);
     }
