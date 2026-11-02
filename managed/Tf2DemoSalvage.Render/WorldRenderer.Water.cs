@@ -756,6 +756,22 @@ internal sealed unsafe partial class WorldRenderer
         return (forceExpensive && water.View.ReflectTexture, water.View.RefractTexture, forceCheap);
     }
 
+    /// <summary>The raster a water material draws with: back faces culled, as the <c>Water</c> shader leaves them (B657).</summary>
+    /// <param name="material">The material.</param>
+    /// <returns>The water cull, or both sides for a <c>$nocull</c> material; the wireframe twin under <c>mat_wireframe</c>.</returns>
+    /// <remarks>
+    /// The shader's shadow state turns culling off only in the editor (<c>water.cpp:393-397</c>, "In edit mode, use
+    /// nocull"; that the default is on is read from that line and measured against TF2, shaderlib being unpublished). A
+    /// volume's surface is two coplanar faces, the downward one with <c>$bottommaterial</c> (vbsp <c>faces.cpp:1255-1289</c>),
+    /// and the world walk keeps both (a water-leaf surface skips the plane-side test, <c>VisibleWorld.Surfaces</c>), so this
+    /// cull alone decides which one the eye sees. Without it 2fort's surface drew <c>water_2fort_beneath</c> from above,
+    /// 20-50 levels grey-green over TF2's brown. A <c>$nocull</c> water material keeps both sides, as
+    /// <c>MATERIAL_VAR_NOCULL</c> does for every shader (interpolated; TF2 ships no such water). Its own state, not the
+    /// model cull, so <c>TF2VIEW_MODEL_CULL</c> leaves water alone.
+    /// </remarks>
+    private ComPtr<ID3D11RasterizerState> WaterRaster(int material) =>
+        Raster(_noCull.Contains(material) ? _bothSides : _waterCull);
+
     /// <summary>Draws one water batch with the <c>Water</c> shader's passes.</summary>
     /// <returns>True when handled here; false for the Plain fallback, which the opaque loop draws white.</returns>
     private bool WaterBatch(ComPtr<ID3D11DeviceContext> context, WorldBatch batch)
@@ -783,7 +799,10 @@ internal sealed unsafe partial class WorldRenderer
 
         if (passes == WaterPass.Plain)
         {
+            // Valve's bare Draw() still runs under the Water shader's shadow state, culling included (water.cpp:579-584):
+            // the opaque loop's draw takes this raster and hands the two-sided one back after it (B657 review).
             WaterDraws = (expensive, cheap, plain + 1);
+            context.RSSetState(WaterRaster(batch.MaterialIndex));
             return false;
         }
 
@@ -801,15 +820,7 @@ internal sealed unsafe partial class WorldRenderer
         context.PSSetShaderResources(12, 1, ref _refractionView);
         context.PSSetShaderResources(13, 1, ref _reflectionView);
 
-        // **Back faces culled, as the Water shader leaves them** (B657): its shadow state turns culling off only in the
-        // editor (water.cpp:393-397, "In edit mode, use nocull"; that the default is on is read from that line and
-        // measured against TF2, shaderlib being unpublished). A volume's surface is two coplanar faces, the downward one
-        // with $bottommaterial (vbsp faces.cpp:1255-1289), and the world walk keeps both (a water-leaf surface skips the
-        // plane-side test, VisibleWorld.Surfaces), so this cull alone decides which one the eye sees. Without it 2fort's
-        // surface drew water_2fort_beneath from above, 20-50 levels grey-green over TF2's brown. A $nocull water material
-        // keeps both sides, as MATERIAL_VAR_NOCULL does for every shader (interpolated, shaderlib being unpublished; TF2
-        // ships no such water).
-        context.RSSetState(Raster(_noCull.Contains(batch.MaterialIndex) ? _bothSides : _modelCull));
+        context.RSSetState(WaterRaster(batch.MaterialIndex));
 
         if ((passes & WaterPass.ReflectionRefraction) != 0)
         {

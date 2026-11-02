@@ -90,5 +90,43 @@ public sealed class ModelCullOverrideReleaseTests
         }
     }
 
+    /// <remarks>
+    /// **The experiment changes models only** (B657 review): TF2VIEW_MODEL_CULL rebuilds the MODEL cull, and water drew
+    /// with that state, so `front` culled 2fort's surface away from above. Water has its own back-cull, the Water shader's
+    /// (<c>water.cpp:393-397</c>), which no model experiment reaches. Expected: the surface pixel under `front` is exactly
+    /// the pixel with no override. Only `front` can fail here: `none` keeps an up-facing face either way.
+    /// </remarks>
+    [Test]
+    public void DrawWaterWorld_SurfaceUnderModelCullFront_IsUnchanged()
+    {
+        const string cull = "front";
+        string? before = Environment.GetEnvironmentVariable(Variable);
+        (int, int, int)? plain;
+        (int, int, int)? overridden;
+
+        try
+        {
+            Environment.SetEnvironmentVariable(Variable, null);
+            plain = WaterViewRenderTests.SurfaceFromAbove();
+            Environment.SetEnvironmentVariable(Variable, cull);
+            overridden = WaterViewRenderTests.SurfaceFromAbove();
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(Variable, before);
+        }
+
+        if (plain is not { } expected || overridden is not { } drawn)
+        {
+            Assert.Ignore("needs Direct3D and TF2's ctf_2fort");
+            return;
+        }
+
+        TestContext.Out.WriteLine($"2FORT SURFACE FROM ABOVE: NO OVERRIDE {expected}, {Variable}={cull} {drawn}");
+
+        expected.ShouldNotBe((0, 0, 0), "the surface does not reach the pixel");
+        drawn.ShouldBe(expected, $"{Variable}={cull} changed the water");
+    }
+
     private static OffscreenTarget Ignored() => throw new IgnoreException("no Direct3D device on this machine");
 }

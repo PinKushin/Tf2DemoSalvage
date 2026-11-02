@@ -519,8 +519,10 @@ public sealed class MapAssets
     /// <summary>A table of hand-built materials and nothing else: no map, no game install (B635's synthetic guard).</summary>
     /// <param name="textures">Each material's base texture and flags, by table index.</param>
     /// <param name="shaders">Each material's shader name, by the same index.</param>
+    /// <param name="waters">Each material's <c>Water</c> parameters by the same index, or null for none (B657's synthetic water).</param>
     /// <returns>Assets whose every other per-material slot is empty, with an atlas holding only the reserved white texel.</returns>
-    internal static MapAssets ForMaterials(IReadOnlyList<MapTexture?> textures, IReadOnlyList<string> shaders)
+    internal static MapAssets ForMaterials(
+        IReadOnlyList<MapTexture?> textures, IReadOnlyList<string> shaders, IReadOnlyList<MapWater?>? waters = null)
     {
         ArgumentNullException.ThrowIfNull(textures);
         ArgumentNullException.ThrowIfNull(shaders);
@@ -538,7 +540,10 @@ public sealed class MapAssets
             shaders,
             LightmapAtlas.Pack([]),
             count,
-            0);
+            0)
+        {
+            Waters = waters ?? [],
+        };
     }
 
     /// <summary>Each drawn static prop's model shape and placement, by its index in the map's lump — for its decals (B421).</summary>

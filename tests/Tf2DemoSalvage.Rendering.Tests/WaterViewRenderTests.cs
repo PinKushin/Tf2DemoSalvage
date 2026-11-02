@@ -330,13 +330,16 @@ public sealed class WaterViewRenderTests
     /// its shadow state turns culling off only in the editor (<c>water.cpp:393-397</c>, "In edit mode, use nocull").
     ///
     /// **Expected, Valve's arithmetic:** from above, the downward face is culled whatever order it draws in, so the
-    /// pixel is exactly the up-facing surface's own. Literal comparison of two draws, no curve. Both orders, because
-    /// with no cull the depth test lets whichever coplanar face drew first win, and on 2fort that was the bottom.
+    /// pixel is exactly the up-facing surface's own. Literal comparison of two draws, no curve. The bottom face draws
+    /// FIRST, the only order that can fail: the opaque depth test is <c>Less</c>, so a coplanar face drawn second loses
+    /// the tie with or without a cull (review: the second-order case could not fail, and is gone).
+    ///
+    /// **The control: the bottom material facing UP draws a different pixel from the same camera.** Both materials
+    /// refract the same target, so without it `both == alone` could hold with no cull at all.
     /// </remarks>
-    [TestCase(false)]
-    [TestCase(true)]
+    [Test]
     [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
-    public void DrawWaterWorld_TheSurfacesTwoCoplanarFaces_OnlyTheOneFacingTheEyeDraws(bool bottomFirst)
+    public void DrawWaterWorld_TheSurfacesTwoCoplanarFaces_OnlyTheOneFacingTheEyeDraws()
     {
         if (!Direct3DApi.IsAvailable || Assets is not { } assets)
         {
@@ -355,28 +358,16 @@ public sealed class WaterViewRenderTests
             assets.Waters[top]!.View, 0f, new WaterLodSession().Current.End, WaterConVars.Defaults);
         IReadOnlyList<WaterView> views = WaterViews.Plan(info, new WaterFrame(false, false, 0f, false), ViewClears.Depth);
 
-        (int, int, int) Draw(bool withBottom)
+        (int, int, int) Draw(params (int Material, List<WorldVertex> Face)[] faces)
         {
             using OffscreenTarget target = OffscreenTarget.TryCreate(64, 64)!;
             List<WorldVertex> vertices = [.. Quad(-5f, (1f, 0f, 0f))];
             List<WorldBatch> batches = [new(floor, 0, 6)];
 
-            void Add(List<WorldVertex> face, int material)
+            foreach ((int material, List<WorldVertex> face) in faces)
             {
                 batches.Add(new(material, vertices.Count, face.Count));
                 vertices.AddRange(face);
-            }
-
-            if (withBottom && bottomFirst)
-            {
-                Add(Reversed(Quad(0f, (1f, 1f, 1f))), bottom);
-            }
-
-            Add(Quad(0f, (1f, 1f, 1f)), top);
-
-            if (withBottom && !bottomFirst)
-            {
-                Add(Reversed(Quad(0f, (1f, 1f, 1f))), bottom);
             }
 
             target.Clear(0f, 0f, 0f);
@@ -385,11 +376,13 @@ public sealed class WaterViewRenderTests
             return target.PixelAt(32, 32);
         }
 
-        (int, int, int) alone = Draw(withBottom: false);
-        (int, int, int) both = Draw(withBottom: true);
+        (int, int, int) alone = Draw((top, Quad(0f, (1f, 1f, 1f))));
+        (int, int, int) bottomFacingUp = Draw((bottom, Quad(0f, (1f, 1f, 1f))));
+        (int, int, int) both = Draw((bottom, Reversed(Quad(0f, (1f, 1f, 1f)))), (top, Quad(0f, (1f, 1f, 1f))));
 
-        TestContext.Out.WriteLine($"SURFACE ALONE {alone} WITH THE BOTTOM FACE {(bottomFirst ? "FIRST" : "LAST")} {both}");
+        TestContext.Out.WriteLine($"SURFACE ALONE {alone}; BOTTOM MATERIAL FACING UP {bottomFacingUp}; BOTTOM FACE FIRST, THEN THE SURFACE {both}");
 
+        bottomFacingUp.ShouldNotBe(alone, "the bottom material draws the surface's pixel, so the cull cannot be seen");
         both.ShouldBe(alone, "the downward face drew from above");
     }
 
@@ -424,12 +417,26 @@ public sealed class WaterViewRenderTests
         FreeCamera below = new() { Origin = (-294f, 29f, -200f), Angles = (-89f, 0f, 0f), Aspect = 1f };
         IReadOnlyList<WaterView> under = WaterViews.Plan(info, new WaterFrame(true, false, -128f, false), ViewClears.Depth);
 
+        // The beneath run's own triangles wound the other way, appended: the same run, facing UP. Drawn from above it is
+        // kept by the cull, so if it reaches the pixel the above-water view does not reject the run's sort group, and
+        // the beneath's black from above below is the cull's (review: RenderUnderWater is unset when info.Refract).
+        List<WorldVertex> vertices = [.. world.Vertices];
+        List<WorldVertex> beneathRun = [.. world.Vertices.Skip(bottom.FirstVertex).Take(bottom.VertexCount)];
+        WorldBatch beneathFacingUp = bottom with { FirstVertex = vertices.Count };
+
+        for (int at = 0; at < beneathRun.Count; at += 3)
+        {
+            vertices.Add(beneathRun[at]);
+            vertices.Add(beneathRun[at + 2]);
+            vertices.Add(beneathRun[at + 1]);
+        }
+
         (int, int, int) Draw(WorldBatch[] batches, FreeCamera camera, IReadOnlyList<WaterView> plan)
         {
             using OffscreenTarget target = OffscreenTarget.TryCreate(64, 64)!;
 
             target.Clear(0f, 0f, 0f);
-            target.DrawWaterWorld(world.Vertices, batches, camera, assets, new WaterDraw(plan, top.MaterialIndex, -128f, [], [], null, null));
+            target.DrawWaterWorld(vertices, batches, camera, assets, new WaterDraw(plan, top.MaterialIndex, -128f, [], [], null, null));
 
             return target.PixelAt(32, 32);
         }
@@ -438,14 +445,39 @@ public sealed class WaterViewRenderTests
         (int, int, int) beneath = Draw([bottom], above, views);
         (int, int, int) both = Draw([bottom, top], above, views);
         (int, int, int) beneathFromBelow = Draw([bottom], below, under);
+        (int, int, int) beneathTurnedUp = Draw([beneathFacingUp], above, views);
 
         TestContext.Out.WriteLine(
-            $"2FORT FROM ABOVE: SURFACE {alone} BENEATH {beneath} BOTH {both}; BENEATH FROM BELOW {beneathFromBelow}");
+            $"2FORT FROM ABOVE: SURFACE {alone} BENEATH {beneath} BOTH {both} BENEATH TURNED UP {beneathTurnedUp}; " +
+            $"BENEATH FROM BELOW {beneathFromBelow}");
 
         beneathFromBelow.ShouldNotBe((0, 0, 0), "the beneath run does not reach this pixel, so its cull from above proves nothing");
+        beneathTurnedUp.ShouldNotBe((0, 0, 0), "the above-water view rejects the beneath run, so its black from above is not the cull");
         alone.ShouldNotBe((0, 0, 0), "the surface run does not reach this pixel from above");
         beneath.ShouldBe((0, 0, 0), "2fort's beneath face drew from above");
         both.ShouldBe(alone, "2fort's beneath face drew over the surface from above");
+    }
+
+    /// <summary>2fort's surface water alone over black, from above with its own plan, on a fresh renderer; null without 2fort or Direct3D.</summary>
+    /// <remarks>A fresh target reads TF2VIEW_MODEL_CULL afresh, which is what <see cref="ModelCullOverrideReleaseTests"/> needs.</remarks>
+    internal static (int, int, int)? SurfaceFromAbove()
+    {
+        if (!Direct3DApi.IsAvailable || Assets is not { } assets)
+        {
+            return null;
+        }
+
+        (int top, _) = Materials(assets);
+        WaterRenderInfo info = WaterRenderInfo.Determine(
+            assets.Waters[top]!.View, 0f, new WaterLodSession().Current.End, WaterConVars.Defaults);
+        IReadOnlyList<WaterView> views = WaterViews.Plan(info, new WaterFrame(false, false, 0f, false), ViewClears.Depth);
+
+        using OffscreenTarget target = OffscreenTarget.TryCreate(64, 64)!;
+
+        target.Clear(0f, 0f, 0f);
+        target.DrawWaterWorld(Quad(0f, (1f, 1f, 1f)), [new(top, 0, 6)], Camera, assets, new WaterDraw(views, top, 0f, [], [], null, null));
+
+        return target.PixelAt(32, 32);
     }
 
     private static List<WorldVertex> Reversed(List<WorldVertex> face)
