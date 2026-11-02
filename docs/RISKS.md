@@ -40270,13 +40270,27 @@ order, without the ranking.
 **Fixed:** `FogConstants.SrgbDecode` now carries both colours. `FogColourCurveConformanceTests` was red first. On the f12
 frame every changed pixel went down by 1 to 3 levels, and none went up. That is invisible, and it is parity. On a fogged
 outdoor frame of `pl_upward_f12` 35,913 px went down, by up to 5 levels, on the far 3D-sky mountain. That is more than
-the controller's colour predicts (about 1.2), and it is not explained. The plan doc holds the numbers, images and what
-is unsettled.
-**A seam the fix opens, OPEN:** the water view's clear colour (`WorldRenderer.Water.cs:761-763`, from
-`SetClearColorToFogColor`, `viewrender.cpp:759-766`) still takes `pow 2.2`. Fully fogged water geometry now takes the
-sRGB decode, so where the two meet they differ. At full fog the gap is 6.85 stored levels on a channel of 26 and 2.8
-on 58 (*arithmetic*, same table). The open question is whether a D3D9 `Clear` honours `SRGBWRITEENABLE`. That decides
-which curve the clear really lands on. Not read.
+the controller's colour predicts (about 1.2). The plan doc holds the numbers, images and what is unsettled.
+
+**Review (branch `fix/fog-colour-curve-review`, 2026-11-02):**
+- **The 5 levels are not auto-exposure feedback.** With the exposure pinned (`+mat_force_tonemap_scale 0.800975`),
+  the pair is the same: 36,089 px down, max 5, at the same pixel. Bloom off (`+mat_disable_bloom 1`) drops the max to 4,
+  and the 3-level count from 793 to 79. The remaining 3-4 are isolated single channels on the mountain. Leading candidate,
+  *interpolated and not checked*: a `$mod2x` overlay over the fogged surface doubles the destination's change.
+- **The refract model's and the refract sprite's fog colour now take the tone-map scale**, as c29 carries it.
+  Refract never calls `DisableFogGammaCorrection` (`refract_dx9_helper.cpp:155`, `:213`). Red first.
+- **The water material's `$refracttint`, `$reflecttint` and `$fogcolor`** go through
+  `SetPixelShaderConstantGammaToLinear` (`BaseVSShader.cpp:146-165`). That is mathlib's byte table of `pow 2.2`, with
+  1 from 0.95 and a pass-through above 1; integer HDR's reflect tint is `GammaToLinear · 4`, with no pass-through. All
+  fixed, red first. So the water's own fog colour is `pow 2.2`, and the height fog under it is the sRGB decode: **that
+  seam is Valve's, kept**.
+- **The water clear colour** is now `SetClearColorToFogColor`'s arithmetic (`viewrender.cpp:754-768`): the byte times
+  `pow( scale, 1/2.2 )`, truncated. It is cleared as that stored byte. **Still OPEN:** whether shaderapi's clear runs
+  with sRGB writes on. D3D9 honours `D3DRS_SRGBWRITEENABLE` on a clear (Microsoft, "Gamma (Direct3D 9)"), which would
+  treat the bytes as linear and brighten them. Which state is current at `ClearBuffers` was not read.
+- `SrgbDecode` takes `0x18003ddf0`'s constants bit for bit, a textbook curve with no table. The LDR side of the upload
+  and the range branch's gate were not read. `r_shader_srgb 1` is not modelled. `LinearGrey` is written from the
+  decode.
 
 **As filed:**
 
@@ -40285,7 +40299,7 @@ every lit shader sets (`EnableSRGBWrite( true )`, `lightmappedgeneric_dx9_helper
 sRGB decode (`0x18003ddf0`) with no `r_shader_srgb` test; under height fog it takes the same decode at the default
 `r_shader_srgb 0` and `pow 2.2` only at 1. **Ours:** `FogConstants.For` and the water volume's colour
 (`WorldRenderer.Water.cs` `Linear`) both take `pow 2.2`. **Who it reaches:** every fogged lit surface and every surface
-under water fog. The size: about 1.4 levels high near mid grey and up to 7 levels low at a dark channel, at full fog
+under water fog. The size: at most 1.49 levels high (byte 171) and up to 8.54 levels low at a dark channel (byte 16; 8.3-8.5 for 13-18), at full fog
 (*arithmetic*). Found in B637's review. Plan, numbers and the fix: `docs/measurements/2026-11-02-fog-colour-curve-plan.md`.
 
 ## B652 — four edge and debug paths left by the B641 gamma-twin work (2026-11-02) — OPEN, low

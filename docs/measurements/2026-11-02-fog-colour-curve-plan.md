@@ -69,7 +69,8 @@ is Valve's. Fog colours read from each map's `env_fog_controller` with the `enti
 
 With the sRGB decode, full fog stores the controller's own bytes exactly, since the target encodes by the inverse curve.
 `pow 2.2` lands about 1 to 1.5 levels HIGH on every outdoor colour above, and LOW on dark ones: 2.8 levels low at 58,
-6.85 at 26, 7.35 at 10. The two curves cross near 0.5 (128 stores 129.0 against 128).
+6.85 at 26, 7.35 at 10, and the most is 8.54 at 16 (8.3-8.5 across 13-18; review). The highest it lands is 1.49
+at 171. The two curves cross near 0.5 (128 stores 129.0 against 128).
 
 **On a typical frame** the fog factor is well under one, and the change is the factor squared times the linear
 difference: at f² = 0.25 on `cp_process_f12`, under half a level. **So the expected pixel change on an outdoor fogged
@@ -161,10 +162,76 @@ at scale 0.80, full fog moves a stored channel by at most about 1.2 levels (*ari
 was not read for this tick (`moment-dump` does not print it). A darker colour there would give bigger deltas, as the
 table above shows. The post chain is the other candidate. *Open.*
 
+## Review batch (branch `fix/fog-colour-curve-review`, from `38a984c5`)
+
+**1. The 5 levels are not exposure feedback (measured, refuted).** I shot the same camera with the exposure pinned at
+the settled value, `+mat_force_tonemap_scale 0.800975`. Each side was built from the review tree; the before side had
+`pow 2.2` put back in both sites and then restored. Images: `D:/measure-f12/b653/pinned/`.
+
+| pair | px changed | deltas | max |
+|---|---|---|---|
+| `before2` against `after`, pinned | 36,089 | −1 on 46,503, −2 on 8,771, −3 on 793, −4 on 20, −5 on 1; none up | 5, at (389,164) as before |
+| `before-nobloom` against `after-nobloom`, pinned, `+mat_disable_bloom 1` | 29,860 | −1 on 40,888, −2 on 3,083, −3 on 79, −4 on 4; none up | 4 |
+
+- The repeat `before1` against `before2` differs only in the HUD rows 0-36.
+- The auto-exposure shots already logged 0.800975 on both sides, and the pinned and unpinned after shots differ by at
+  most 2 levels. So the exposure never moved.
+- Bloom carries about one level of it.
+- The rest are isolated single channels on the mountain, e.g. (390,165) green 149 to 145 with red and blue unchanged.
+  A shader that lerps toward a colour cannot do that. A `$mod2x` overlay over the fogged surface would: it doubles the
+  destination's change. That is the leading candidate, *interpolated, not checked*.
+- (The earlier note that a darker 3D-sky fog colour would give bigger deltas had the sign wrong. Below about byte 128
+  the decode is BRIGHTER than `pow 2.2`, so such pixels would have gone up, and none did.)
+
+**2. Refract fog colour.** Refract's shadow state is `DefaultFog()` with `EnableSRGBWrite( true )`
+(`refract_dx9_helper.cpp:155`, `:213`), with no `DisableFogGammaCorrection`. So c29 arrives times the tone-map scale.
+Both of our refract fogs lerped toward the unscaled colour. Now:
+- the refract model multiplies by `debugModes2.y`, as `PixelFog` does;
+- the refract sprite folds the scale into its constants (`SetRefract`, `Device3D` passes `LinearLightScale`).
+
+`RefractModelRenderTests.DrawModelPose_TheLensInFullFogAtHalfToneMapScale_IsTheScaledFogColour` and
+`RefractTrailRenderTests.Render_ARefractStripInFullFogAtHalfToneMapScale_IsTheScaledFogColour` were red first (255
+against 188). `OffscreenTarget.DrawModelPose` takes a fog now, so the model test can set one.
+
+**3. `LinearGrey`** is written into the shader from `FogConstants.SrgbDecode( 128/255 )` when the source is assembled.
+`FogConstantsTests.ShaderSource_TheHeightFogGrey_IsTheSrgbDecodeOf128` was red against the hand copy.
+
+**4. Water.**
+- (a) Read: `water.cpp` sends its tints and fog colour through `CBaseVSShader::SetPixelShaderConstantGammaToLinear`
+  (`BaseVSShader.cpp:146-165`; `water.cpp:291`, `:311`, `:342`). That is `x > 1 ? x : GammaToLinear( x )`, mathlib's
+  table of `pow( round( x · 255 ) / 255, 2.2 )` with 1 from 0.95 (`color_conversion.cpp:210`, `:274-293`). The
+  reflect tint under integer HDR is `GammaToLinear( x ) · 4`, with no pass-through (`:296-307`). `Linear` is now that
+  (`ModelMaterialShading.ModulationToLinear`), and the reflect tint has its own branch.
+  `WaterColourConformanceTests` was red first on 0.5, 0.97 and 1.5. The water surface's `pow 2.2` fog beside the
+  height fog's sRGB decode is Valve's own seam, kept.
+- (b) The clear colour: `SetClearColorToFogColor` takes the byte times `pow( scale, 1/2.2 )`, truncated into an
+  `unsigned char` (`viewrender.cpp:754-768`). Ours now clears the sRGB view with `SrgbDecode` of that byte, so the
+  stored byte is the engine's: 200 at 0.5 stores 145, red first. **Open:** D3D9 honours `D3DRS_SRGBWRITEENABLE` on a
+  clear ("Gamma (Direct3D 9)", Microsoft Learn). If shaderapi clears with sRGB writes on, the bytes are taken as linear
+  and stored brighter. Which state is current at the clear was not read.
+
+**5. The decode, re-read.** `0x18003ddf0`'s constants are the textbook curve, with no table: 0.04045 (`0x3D25AEE6`),
+1/12.92 (`0x3D9E8391`), 1/1.055 (`0x3F72A76F`), 0.055/1.055 (`0x3D55891A`), 2.4 (a double). `SrgbDecode` now uses
+them bit for bit and takes the pow in double, as the binary does.
+`FogConstantsTests.SrgbDecode_BetweenTheTwoPublishedKnees_TakesTheLinearBranch` feeds it 0.04, between 0.03928 and
+0.04045. The two branches differ there by 4.8e-7, which the test proves exceeds its tolerance first. Sabotage: knee
+0.03928 reddens it. The clamp is the binary's (MAXSS/MINSS) and is tested at −0.5 and 1.5. No test here needs a device.
+**Not read:** the LDR side of the upload and the HW sRGB gate. **Not modelled:** `r_shader_srgb 1`. Both are in the
+`FogConstants` remark.
+
+**6. Docs and tests.**
+- The largest gap is 8.54 levels low at byte 16, not 7.
+- The half-fog blue case keeps ±1: its `pow 2.2` answer, 38, lies outside 39..41, and the separation check asserts it.
+- The height cases assert the identity camera has no eye (`EyePosition.From`), the premise their saturated fraction
+  rests on.
+
+**Counts (review):** Rendering 1324 passed, 59 skipped, of 1383. Presentation 1331. Scene 3451. Content 1828 (29
+skipped). Animation 5386 (1 skipped). None failed. Whole `.slnx` build: 0 warnings, 0 errors.
+
 ## What is unsettled
 
-- Why the 3D-sky mountain on `pl_upward_f12` moves by up to 5 levels, where the controller's colour predicts about
-  1.2 (above).
+- The isolated 3-4-level single-channel changes on `pl_upward_f12`'s mountain (`$mod2x` overlay suspected, not checked).
+- Whether shaderapi's clear runs with sRGB writes on (the water clear colour, above).
 
 - The range branch's gate (hardware-config `+0x1c0`, the ConVar at `0x1800a2378`) is unidentified. If it were false,
   c29.rgb would be zero. TF2 draws coloured fog, so it holds on a live client (*interpolated*).
@@ -172,5 +239,4 @@ table above shows. The post chain is the other candidate. *Open.*
 - No TF2 capture against ours. The difference is at most a level or two here, below what a live pair could settle.
 - A fogged frame with height fog was not shot (no water in these cameras). The height path is held by the synthetic
   test only.
-- Water `$fogcolor`, `$refracttint`, `$reflecttint` and the water clear colour still take `pow 2.2`. Their path,
-  stdshader's `SetPixelShaderConstantGammaToLinear` and the engine's `SetClearColorToFogColor`, was not read here.
+- No real frame with water was shot for the water changes; they are held by the unit tests only.
