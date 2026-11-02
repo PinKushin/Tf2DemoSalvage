@@ -36831,7 +36831,8 @@ So the dome's state is now its computed cube, the sun (travelling 0.2113 −0.36
 2.1162 1.5030) and the lamp beside it. Tests: `MapLevelSweepTests.StrikesSky_FromAPointInsideABrushThatIsNotOpaque_…`,
 `LevelLightingTests.SunAt_ALeafFlaggedOrNotForSkyInItsPvs_…` and `.StaticPropLightingAt_GivenTheComputedAmbient_…`,
 `StaticPropAmbientConformanceTests`, `SurfaceColourConformanceTests.LightVec_…`, and the dome's
-(`StaticPropModelsWiringTests.Instances_CpProcessF12ObservatoryDome_DrawsNoBakedColoursAndTakesItsCubeTheSunAndOnlyLampsThatReach`,
+(`StaticPropModelsWiringTests.Instances_CpProcessF12ObservatoryDome_DrawsNoBakedColoursAndTakesItsCubeTheSunAndNoLampBehindTheRoofs`,
+renamed by B666,
 renamed under B665, whose cone ranking reversed its lamp assertion).
 **Cost:** the dome test went from 7 s to 9 s with all 394 flagged placements lit, so about 2 s of rays on
 cp_process_f12, paid as each prop is first drawn rather than at load. **Wider than the dome:** the mask reaches every
@@ -40378,7 +40379,72 @@ black. Not fixed: our equivalent of the engine's HDR-enabled decision is not est
   known-present class was dumped beside it, and `cl_find_ent water` searches client class names, which a
   `CFuncMoveLinear` need not contain. So whether TF2 draws `*145` at all is *unverified*, and nothing was captured.
 
-## B666 — a lamp behind a wall still takes a light slot and lights a static prop (2026-11-02) — OPEN, unfixed; B453's open item, now measured
+## B666 — a lamp behind a wall still takes a light slot and lights a static prop (2026-11-02) — FIXED, pending merge; B453's open item
+
+**Read (engine), 2026-11-02, by the lead in Ghidra on `engine.dll`** (disassembly). Whole read and its table of
+callers: finding [66](findings/66-tf2-barely-uses-dynamic-lights.md#a-world-light-behind-a-wall-lights-nothing-a-dlight-behind-one-still-does-b666-2026-11-02).
+In short:
+- `FUN_1801b9570` and `FUN_1801b8e20` return the ratio in XMM0, which the decompile drops. The listing shows it at
+  `0x1801b9930`/`0x1801b996b` and `0x1801b929d`/`0x1801b94e2`/`0x1801b9520`.
+- For surface, point, **spot** and quake lights, after the brightest-channel cutoff and unless flags bit 0 is set,
+  they trace from the lit point to the light: `MASK_OPAQUE`, `TRACE_WORLD_ONLY`.
+- They return 0.0 when `(1 − fraction) · distance > 8`.
+
+So "for point lights" (below) was wrong. B424's "bit 2 skips the trace" is bit 0.
+
+**Which sites trace:**
+- Traced: the static state's style-0 lights (`StaticPropLightingAt`, `0x1801b5a50`), a light cache entry
+  (`LightingAt`, and the world half of `WithDynamicLightsFrom`), a handle's styled ranking (`Ranked`, `0x1801b5400`),
+  and the style-0 half of flags 7 (`WithStyleZero`).
+- Not traced: dlights (`0x1801b7a10`), the handle list's admission (`StyledLights` → `Reaches`, flags `9|2`), and the
+  re-rankings of lights already traced at the same point (`Ranked`'s second `Strongest`, `StaticPlusDynamicLights`).
+- `ComputeLighting` → `AddTo` is **not traced and not settled**. `IVEngineClient::ComputeLighting` is not among the
+  callers read.
+
+**Fixed:**
+- `LocalLights.Blocked`, `Visible` and `Kept` hold the rule once. `Choose` takes a per-index `visible` predicate after
+  `Admitted` and before the luminance minimum. `Split` ranks in one pass, so an occluded light is neither slotted nor
+  folded, and each light is traced once.
+- `LevelLighting.From` passes the `MASK_OPAQUE` `TraceBrushOnly` fraction that its `reaches` already used.
+- `PropShadeProbe` prints the production `LevelLighting.Occlusion`. The probe's own `Fraction >= 1` check, which had no
+  8-unit slack, is gone.
+
+**Tests:**
+- `LocalLightVisibilityConformanceTests` (Content, 8): the fifth lamp takes an occluded one's slot; exactly 8 keeps a
+  light and 8.01 drops it; a spot is traced; an occluded light is not folded; the ray runs point → light.
+- `LightVisibilityTraceConformanceTests` (Scene, 5): one per site.
+- `StaticPropModelsWiringTests` on both maps.
+
+**Sabotage proofs** (inverse edits, restored):
+- Skipping the trace in `Choose` turned 5 + 5 + 2 tests red.
+- Making `Kept` use `>=` turned the exact-8 case red.
+- Reversing the ray turned 6 + 5 red.
+- Folding before the trace turned the fold test red.
+- One edit per `LevelLighting` site: each turned its own Scene test red.
+
+**Measured** (`prop-shade koth_toxic vat_large_02 1000`, production trace):
+- Vat #130 lost all three white spots, blocked 226, 490 and 627 units short. It now holds the green lamp at
+  (-208 1440 76) and the two dim up-aimed spots at (-336 1329 -186) and (-328 1577 -186).
+- Vat #1810 likewise lost its spots at (224 -1248 667) and (191 -820 428), blocked 496 and 609.
+- Through the viewer (`D:/measure-f12/b666/after-camB.png`, `TF2VIEW_CAMERA="-208 1360 80 60 90"`, tick 600 of
+  `b659_toxic.dem`), the right rim top at pixel (1250, 300) reads 16/76/50. TF2 reads 14/74/47 there and B665 read
+  62/96/73.
+
+**Two assertions flipped,** both in
+`Instances_CpProcessF12ObservatoryDome_…AndNoLampBehindTheRoofs` (renamed from `…AndOnlyLampsThatReach`):
+- The dome's state is now empty. Every lamp that reaches it is behind the roofs.
+- The pinned up-aimed lamp at (±2256 ±416 598) is now the control: it reaches by distance and cone and is blocked more
+  than 8 units short.
+
+**Cost, still open:** +5.9 s at load on koth_toxic, from 2,225 static states (Debug,
+`docs/measurements/2026-11-02-b666-light-trace-load.md`). The fix that preserves the output: for `Strongest`, which
+folds nothing, rank first and trace strongest-down until four are seen.
+- *Interpolated:* the engine pays these traces too, and its traces are faster.
+
+**Still open:** the cvar at `DAT_18075b318 + 0x58` and the 192-unit shadow cache that B453 recorded for `FUN_1801b8e20`
+are not covered by this read. The world-light path passes no cache, so the port has no shadow cache.
+
+**The record before the read:**
 
 **Read (engine), from B453 and not re-read here:** `FUN_1801b8e20` makes a per-light visibility trace before a light is
 added. B453 records it as "for point lights", gated by a cvar at `DAT_18075b318 + 0x58` and the 192-unit shadow cache.
@@ -40462,7 +40528,7 @@ from the point (B666).
 
 **Not settled:**
 - The rim top on the right reads 63/96/81 against TF2's 13/72/48. That is whiter. B666 measures that the three white
-  spots left in the vat's state are all occluded from its origin.
+  spots left in the vat's state are all occluded from its origin. *Settled by B666's trace: 16/76/50.*
 - Both of this branch's shots are on `63bf881a`, which lacks the lead's water fix. The checkerboard in the vat is that,
   not this. The same-base before is `D:/measure-f12/b665/before-camB.png`: the sabotage edit, built and shot.
 - B654's ranking order is unchanged.

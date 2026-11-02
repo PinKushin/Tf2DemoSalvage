@@ -174,3 +174,55 @@ lists, pushed down the tree by box because the load-time builder was not found.
 lights copied before the decay (`MomentScene.WorldLights`, as `EndUpdateLightmaps` `0x1800d5fa0` copies `cl_dlights`),
 and the viewer's `StepLightStyles` calling it after the styles. On `tf2-2026-pub-pov-clean` no light reaches the world
 (`CorpusWorldDynamicLightTests`, with a recorder-17 control that finds them).
+
+## A world light behind a wall lights nothing; a dlight behind one still does (B666, 2026-11-02)
+
+Evidence class: **disassembly**, read by the lead in Ghidra on `engine.dll` (x64), except where marked.
+
+`AddWorldLightToLightingState` (`0x1801b60a0`) gets each light's ratio from `FUN_1801b99a0` → `FUN_1801b9570`, or from
+`FUN_1801b8e20` when the caller has a shadow cache (`LightcacheGet`'s world lights pass none). **Both return a float in
+XMM0 that Ghidra's decompile drops.** It shows up in the listing at `0x1801b9930`/`0x1801b996b` (`9570`) and
+`0x1801b929d`/`0x1801b94e2`/`0x1801b9520` (`8e20`). The value is the light's ratio, or 0.0 when the light is rejected.
+Read from the decompile alone, the function looks as though it returns nothing, and that is how B453 and B665 came to
+argue about it from two partial records.
+
+For types 0, 1, 2 and 4 (surface, point, **spot**, quake) the path is the same:
+1. The distance and cone ratio (`FUN_1800efe40`).
+2. The brightest channel × ratio against `r_worldlightmin`.
+3. Then, **unless flags bit 0 is set**, `IEngineTrace::TraceRay` from the lit point to the light's origin, at full
+   length. The trace uses `MASK_OPAQUE` (`0x4081`) and a filter (`0x18035e800`) whose `GetTraceType` is
+   `TRACE_WORLD_ONLY`, so it sees world brushes and displacements, but no entity and no static prop.
+4. The light is rejected when `(1.0 − fraction) · distance > 8.0`. Both constants were read: `0x18035c93c` = 1.0 and
+   `0x1803adc70` = 8.0.
+
+Type 3, the skylight, has its own sky trace (B514). Type 5 returns 0.
+
+**So it is not "for point lights".** B453 had recorded it that way. It covers spots, and a spot was what the open
+question turned on. **A rejected light is not folded either**: the add returns before ranking, so the light is in
+neither the four slots nor the cube.
+
+**Who traces** is decided by `skipTrace`, the 7th argument of `0x1801b60a0`, which becomes flags bit 0:
+
+| Caller | `skipTrace` | Traced? |
+|---|---|---|
+| style-0 world lights (`0x1801b5a50`) | 0 | yes |
+| `LightcacheGet`'s styled lights (`0x1801ba322`) | 0 | yes |
+| a stored list ranked into a state (`0x1801b5890`) | 0 | yes |
+| a static prop handle's styled list (`0x1801b5400`, flags 0) | 0 | yes |
+| live dlights (`0x1801b7a10`) and `0x1801bb040` | 1 | no |
+| the handle list's admission (`FUN_1801b6bf0`, flags `9\|2`) | bit 0 set | no |
+
+A dlight behind a wall therefore still lights a model, while the world lamp at the same spot does not. The trace's
+start is whatever point the caller passes: the cache cell's point for a moving model, and the handle's own lighting
+origin (`+0x184`) for a static prop.
+
+**Measured on `koth_toxic`** (`prop-shade koth_toxic vat_large_02 600`, which reports the production trace): vat #130's
+three white spots, at (-206 1807 205), (224 1248 667) and (204 815 419), are blocked 226, 490 and 627 units short
+of its lighting origin. After the fix the vat holds only the
+green lamp and two dim spots in its floor. Through the viewer, at the owner's camera `-208 1360 80 60 90`, the right
+rim top reads 16/76/50 against TF2's 14/74/47; B665 had left it at 62/96/73. On `cp_process_f12` both observatory domes
+now hold no lamp: every lamp that reaches them is behind the roofs.
+
+**What it cost** (measured, Debug, `docs/measurements/2026-11-02-b666-light-trace-load.md`): no frame time this run can
+resolve, but 5.9 s more at map load on koth_toxic. That is 2,225 static states, each tracing nearly every lamp on the
+map, because a 70,000-intensity lamp clears `r_worldlightmin` out to about 18,700 units.
