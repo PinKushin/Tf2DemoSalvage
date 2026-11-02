@@ -503,9 +503,12 @@ public sealed class PoseBuildDifferentialTests
             _spun.ShouldBeGreaterThan(0, "the control: a build spun a barrel");
             _controlled.ShouldBeGreaterThan(0, "the control: a build ran bone controllers");
 
+            // Both locks of one bracket solving is the case the old mid-solve Reset ran in (a success followed by a lock),
+            // so the real players must reach it too, or "bit-identical on TF2" would rest on nothing.
+            _bothLocks.ShouldBeGreaterThan(0, "the control: both locks of one bracket solved");
+
             if (synthetic)
             {
-                _bothLocks.ShouldBeGreaterThan(0, "the control: both locks of one bracket solved");
                 _failedLocks.ShouldBeGreaterThan(0, "the control: a bracket whose locks failed to solve");
             }
         }

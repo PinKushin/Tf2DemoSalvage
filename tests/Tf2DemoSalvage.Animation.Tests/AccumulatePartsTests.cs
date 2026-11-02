@@ -23,7 +23,8 @@ public sealed class AccumulatePartsTests
 
     /// <remarks>
     /// One layer that locks a chain: each base read 10 ms (only the sparse base's overlay reads it), each lock read 5 ms
-    /// (only the capture before the sample and the solve after the compose read it), compose 20 ms, sample 30 ms. The
+    /// (only the capture before the sample and the solve after the compose read it), compose 20 ms per entry read (three
+    /// entries, so 60 ms; asserted as at least 20), sample 30 ms. The
     /// lists count their own reads, so each part's floor is reads × spin. The lock reads split one to `Capture` and four
     /// to `Solve` (`IkLocks.cs`: `EffectorOf(locks[at])` in the capture; the guard, the chain, the position weight and the
     /// rotation weight in the solve), and the total is the control. `Solve` reads the rotation weight whether or not the

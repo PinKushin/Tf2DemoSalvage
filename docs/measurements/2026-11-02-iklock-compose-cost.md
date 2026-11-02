@@ -39,7 +39,10 @@ The commits, in order, each its own record in git:
 
 ## Before
 
-The nearest measured "before" is `2026-10-31-b624-cost.md`'s **after** (merge `d67f496d`), ms per root rebuild:
+The numbers the task started from, `2026-10-31-accumulate-parts.md`'s Result (before B624): accumulate remainder **0.065** ms
+per root rebuild = compose 0.035, solve 0.016, capture 0.008, seed 0.003, other 0.004; **18.4** enumerators per rebuild.
+
+The nearest measured "before" WITH B624 is `2026-10-31-b624-cost.md`'s **after** (merge `d67f496d`), ms per root rebuild:
 
 | part | mean |
 |---|---|
@@ -63,8 +66,10 @@ the command that runs it, read with `2026-10-31-setup-parts/summ.ps1 -Dir`. Its 
 change it to whichever checkout holds the commit being measured, and `out` to a folder per commit (`c1/`, `c2/`, `c3/`).
 
 ```bash
+# Usage: all.sh before|c1|c2|c3
 repo=/c/Users/pinku/source/repos/PinKushin/Tf2DemoSalvage/.claude/worktrees/agent-acdedeefe17a7e7cf
-out="$repo/docs/measurements/2026-11-02-iklock-compose-cost"
+out="$repo/docs/measurements/2026-11-02-iklock-compose-cost/${1:?before|c1|c2|c3}"
+mkdir -p "$out"
 for n in 01 02 03; do
   MSBUILDDISABLENODEREUSE=1 dotnet build "$repo/managed/Tf2DemoSalvage.Viewer3D" -c Release > "$out/$n-build.txt" 2>&1 && \
   TF2VIEW_WINDOW_POS=-3000,100 TF2VIEW_AUTOPLAY=1 TF2VIEW_VIEWPORT_SIZE=1280x720 \
@@ -83,9 +88,10 @@ done
 | 1a | indexed loops | the `enumerators` column reads **0** | it reads anything else. **This is not a control of the change**: nothing increments the counter any more, so it reads 0 by construction. The allocation test is the evidence that the loops box nothing |
 | 1b | indexed loops | accumulate − layer sampling falls by **0.0005-0.003** (about 21 heap enumerators and their interface dispatch, 20-60 ns each [interp], plus less gen0 pressure) | it falls by more than 0.010 (then something else moved), or rises by more than 0.005 |
 | 1c | indexed loops | roots total moves by less than the run-to-run spread (about 0.02) | it moves by more than 0.03 either way |
-| 2a | no re-walk | capture + solve falls by **0.003-0.006** (the bracket read's rank 1, from 8 of 15 bone builds in a successful solve) | it falls by less than 0.001 or more than 0.012 |
+| 2a | no re-walk | `solve` falls by **0.003-0.006** (the bracket read's rank 1, from 8 of 15 bone builds in a successful solve) | it falls by less than 0.001 or more than 0.012 |
+| 2c | no re-walk | `capture` unchanged, ±0.001: the re-walk was only in the solve, so this is the control | it moves by more than 0.002 |
 | 2b | no re-walk | `Applied`, `Moved` per build unchanged (the `bone-flags` probe's lock counters, if read) | either moves by more than 1% |
-| 3 | array read + unzeroed buffer | capture + solve falls by a further **0.001-0.003** (ranks 2 and 3: 0.0005-0.002 and 0.0003-0.001); below one set's resolution | it falls by more than 0.006, or rises by more than 0.003 |
+| 3 | array read + unzeroed buffer | capture + solve (both build chains) falls by a further **0.001-0.003** (ranks 2 and 3: 0.0005-0.002 and 0.0003-0.001); below one set's resolution | it falls by more than 0.006, or rises by more than 0.003 |
 | all | all three | roots total falls by **0.005-0.012**, about 1-2% of 0.53, which is **within one set's spread**: three runs per commit will probably not separate commit 1 or 3 from noise, only commit 2 at best | the roots total falls by more than 0.03 (then something other than these changes moved) |
 
 **Void conditions** (the setup-parts and accumulate-parts records'): `prepose 0 over 0`; roots built 8-21 and eligible 4-7;

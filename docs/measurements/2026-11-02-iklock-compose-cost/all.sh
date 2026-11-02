@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Three runs of the command in ../2026-10-31-setup-parts.md "Method", each built in the same command it runs.
-# repo: the checkout holding the commit measured; out: a folder per commit (before/, c1/, c2/, c3/) under this one.
+# Usage: all.sh before|c1|c2|c3. repo: the checkout holding the commit measured; the runs go in a folder per commit.
 repo=/c/Users/pinku/source/repos/PinKushin/Tf2DemoSalvage/.claude/worktrees/agent-acdedeefe17a7e7cf
-out="$repo/docs/measurements/2026-11-02-iklock-compose-cost"
+out="$repo/docs/measurements/2026-11-02-iklock-compose-cost/${1:?before|c1|c2|c3}"
+mkdir -p "$out"
 for n in 01 02 03; do
   MSBUILDDISABLENODEREUSE=1 dotnet build "$repo/managed/Tf2DemoSalvage.Viewer3D" -c Release > "$out/$n-build.txt" 2>&1 && \
   TF2VIEW_WINDOW_POS=-3000,100 TF2VIEW_AUTOPLAY=1 TF2VIEW_VIEWPORT_SIZE=1280x720 \

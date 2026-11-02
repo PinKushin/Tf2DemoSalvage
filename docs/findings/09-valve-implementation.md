@@ -601,3 +601,27 @@ can show it.
 
 A synthetic chain shows the effect exactly:
 `IkLockConformanceTests.Solve_WithALegTooStraightToSolve_SlamsTheCapturedRotationWhereTheSequenceLeftTheFoot`.
+
+## A sequence's locks share one memo of built bones (2026-11-02, iklock-compose)
+
+`CIKContext::SolveSequenceLocks` (`bone_setup.cpp:4295-4311`) makes ONE `CBoneBitList boneComputed` and
+one `boneToWorld` and hands both to every `SolveLock` of the sequence. Read from published source.
+`SolveLock` marks a bone only through `BuildBoneChain` (`:4419`); `Studio_SolveIK` and the slam then
+overwrite `boneToWorld` for the chain's three bones (`:4437-4442`) without unmarking anything. So a
+later lock whose chain hangs BELOW an earlier lock's end bone builds on that bone's **slammed**
+matrix — the captured rotation at the solved position — and not on the local pose that `SolveBone`
+and the `flLocalQWeight` slerp wrote afterwards (`:4446-4450`).
+
+**What we had:** after every successful lock, `IkLocks.Solve` cleared its memo and re-walked the foot
+from the rebuilt local pose, to measure how far the lock moved it. That was an instrument, and it
+changed what the next lock read: after a success a later lock built on a re-concatenation, after a
+failure on the memo. It cost 8 of the 15 bone builds in a successful two-lock solve
+(`docs/measurements/2026-10-31-iklock-bracket-read.md` M1). Removed; the travel is now carried from the
+slammed matrix.
+
+**Latent on TF2** (arithmetic and a differential): the two foot chains share no bone a lock rewrites,
+and every shipped lock has `flLocalQWeight` 0, so the scout and heavy differential
+(`PoseBuildDifferentialTests`, 24 brackets where both locks solved) stays bit-identical. A synthetic
+second leg hung off the first leg's foot shows the difference exactly:
+`SharedLockMemoConformanceTests.Solve_ALockBelowAnEarlierLocksEndBone_BuildsOnTheSlammedMatrix` (bone 6 at
+X 22.20 as Valve has it, 42.35 under the re-walk).

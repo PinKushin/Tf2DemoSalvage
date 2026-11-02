@@ -17,9 +17,11 @@ namespace Tf2DemoSalvage.Animation.Tests;
 /// <remarks>
 /// **Copied, not shared**, so a fault in the change cannot appear on both sides — and that includes the two leaves the
 /// change edits: <c>IkLocks</c> and <c>BoneChain</c> are frozen here too, as <see cref="FrozenIkLocks"/> and
-/// <see cref="FrozenBoneChain"/>. Shared are only leaves the change does not touch: <c>StudioBones</c>' quaternion and
-/// matrix arithmetic, <c>IkContext</c> (its rule solve and <c>SolveChain</c>), <c>StudioPoseBlend.AsDense</c>,
-/// <c>StudioBoneController.Value</c> and <see cref="BoneAccessor"/>.
+/// <see cref="FrozenBoneChain"/>. Shared are <c>StudioBones</c>' quaternion and matrix arithmetic,
+/// <c>StudioPoseBlend.AsDense</c>, <c>StudioBoneController.Value</c>, <see cref="BoneAccessor"/> and <c>IkContext</c>.
+/// **<c>IkContext.Solve</c> IS touched** (its rule loop was indexed in the same commit), so a fault there would appear on
+/// both sides; what holds it is <c>IkContext</c>'s own tests: starting that loop at 1 reddened five of them (measured
+/// 2026-11-02), and the differentials too.
 ///
 /// **Omitted, and held off by the caller**: the procedural bones (<c>JiggleSource</c> null, no quaternion-interpolated
 /// bone), the duck-jump shift (0), the three scales (1), the root reflection (null), the diagnostics and the timers.
