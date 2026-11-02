@@ -40251,6 +40251,21 @@ It is tested red-first. It names which thread waited and where the draw had got 
 **Reopen if** the `queue stall` line ever appears in a viewer log, or if this test's hang rate on the branch, measured
 the same way, exceeds the baseline's.
 
+## B664 — over koth_toxic's vat TF2 runs a refraction view off a world water 1500 units away; ours runs none (2026-11-02) — OPEN, undiagnosed
+
+**Measured (live TF2):** koth_toxic, spectator, `spec_goto -208 1360 80 60 90`, which looks down into the
+`func_water_analog` `*4` vat. With `r_debugcheapwater 1`, every frame prints the world water `water_toxic_-584_784_184`,
+"dist to water: 1500", `forceexpensive: true`, "refract: true reflect: false". So `DetermineWaterRenderInfo` found a
+world fog volume, and the refraction view ran.
+
+**Ours, same camera** (`TF2VIEW_CAMERA`, the demo `D:/measure-f12/b659/b659_toxic.dem` recorded in that session, tick
+600): the vat's water samples (0, 1, 1). **Arithmetic, from the shader as ported:** the output is
+`lerp(refract, fog, saturate(a - 0.05))`, and the cheap pass is scaled by `saturate((a - 0.05) · 20)`. Only a target
+with alpha near 0 and colour near 0 gives (0, 1, 1). That is the null bind, so no water view ran in our frames.
+
+**Not separated:** which half differs. Either `VisibleFogVolume.Find` returns no volume at this eye, or the cheap
+distance decides cheap. The map has a `water_lod_control`, and the shot logs no plan. Instrument the plan first.
+
 ## B663 — brush-entity water drawn inside a water view samples the target that view is drawing into (2026-11-02) — OPEN, unread
 
 **Read:** the refraction view always draws entities (`viewrender.cpp:6041`). The reflection view does with
@@ -40283,6 +40298,15 @@ Neither case is a parity claim. Filed only, from B659.
 clears them. Whether the closed engine does on a map load is *unread*. So what an unwritten-this-session target holds
 depends on earlier maps and the driver, not on the frame: **unreadable from the SDK, and not modelled.** Fixing the
 null bind changes world water too, so it is filed, not fixed.
+
+**The live game did not settle it either (2026-11-02):**
+- On koth_toxic, the brush water's camera turned out to have a world refraction view every frame (B664). That is
+  not the case asked about.
+- With `r_WaterDrawRefraction 0`, the vat still draws a uniform teal, about `$fogcolor` {26 85 80}
+  (`D:/measure-f12/b659/tf2-camB-refraction-off.png`). That target had been written earlier in the session.
+- pd_farmageddon, the one map with brush water and no world water, has no client `func_water_analog` (`ent_dump`:
+  "no such entity"; `cl_find_ent water` finds only `C_WaterLODControl`). So its brush water is not drawn at all,
+  and there is nothing to capture.
 
 ## B661 — an empty `$underwateroverlay ""` is no overlay here and a lookup of "" in the engine (2026-11-02) — OPEN, unfixed
 
@@ -40342,6 +40366,19 @@ the world's does.
 - The brush face over a floor draws the world water face's pixel: (79, 38, 5) for both.
 - The brush face follows the floor's colour through the refraction target.
 - Red before the fix: the brush face drew its base texture, (58, 58, 58) over a red floor and over a green one.
+
+**Shots** (viewer `--shot`, camera B `-208 1360 80 60 90` over `*4`, `D:/measure-f12/b659/`, side by side
+`sbs-camB.png`):
+
+| | the vat's water (640,400) |
+|---|---|
+| TF2 (`tf2-camB.png`) | 20 86 80 |
+| before (`before-camB.png`) | the missing-material chequer, magenta and green, blurred |
+| after (`after-camB.png`) | 0 1 1 |
+
+- The after shot is the Water shader on a null refraction target, because our viewer ran no water view there
+  (**B664**). Its value is right for that input and wrong against TF2 until B664 is fixed.
+- The vat's walls are grey in ours and green in TF2. That is unrelated to the water and not looked at.
 
 **Not covered:** no corpus demo is on these maps (the corpus is competitive maps), so there is no corpus-level
 assertion. The before/after shots are the output-level check. Brush water inside a water view: **B663**. A target
