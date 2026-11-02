@@ -206,6 +206,7 @@ public static class EngineConVars
         new("spec_autodirector", "1", Replicated: false, Cheat: false),                      // hltvcamera.cpp:25
         new("mat_disable_bloom", "0", Replicated: false, Cheat: false),                      // viewpostprocess.cpp:57
         new("mat_force_tonemap_scale", "0.0", Replicated: false, Cheat: true),               // viewpostprocess.cpp:1128
+        new("r_shader_srgb", "0", Replicated: false, Cheat: false),                          // shaderapidx9.dll 0x180001120
         new("mat_specular", "1", Replicated: false, Cheat: false),                           // engine; help
         new("mat_fullbright", "0", Replicated: false, Cheat: true),                          // c_rope.cpp:82
         new("r_dopixelvisibility", "1", Replicated: false, Cheat: false),                    // c_pixel_visibility.cpp:24

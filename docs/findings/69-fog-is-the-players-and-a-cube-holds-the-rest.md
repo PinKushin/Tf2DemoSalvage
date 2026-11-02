@@ -29,6 +29,19 @@ however many controllers the map holds. The 3D skybox's fog is not a controller'
   The binary has two curves, and the default path takes the other one. The size: about one stored level high near the
   outdoor fog colours (at most 1.49), and up to 8.54 low on a dark channel (byte 16), at full fog. On f12 at ordinary distances every changed
   pixel moved by 1 to 3 levels, all down. Numbers: `docs/measurements/2026-11-02-fog-colour-curve-plan.md`.
+- **The colour the curve starts from is a byte, and the clear stores bytes** (fog-open-items, 2026-11-02; *disassembly*
+  of three binaries). materialsystem's `FogColor3f(v)` truncates the float colour to a byte
+  (`clamp( (int)( x · 255 ), 0, 255 )`, `0x18002bed0`/`0x18002bf40`), and shaderapi's fog-mode applier hands the upload
+  that byte times 1/255 (`0x180014200`), so a blended fog colour is quantised before it is decoded. The water view's fog
+  clear goes the other way round: `SetClearColorToFogColor` scales the BYTE in gamma and keeps the low byte of the
+  truncation, so above 255 it wraps rather than saturating (`client.dll` `0x18034d560`), and shaderapi turns
+  `D3DRS_SRGBWRITEENABLE` off around the clear (`0x180014bd0`), so what lands is that byte, not its encode. The open
+  question from B653's review, whether D3D9's documented sRGB-on-clear behaviour brightened it, is answered by Valve's
+  own guard: the engine never lets the state reach a clear. Only two of the six fog clears scale at all; the under-water
+  ones take `GetFogColor` unscaled. Numbers: `docs/measurements/2026-11-02-fog-open-items-plan.md`.
+- **`r_shader_srgb` reaches three places in shaderapi** (the height-fog curve, the lookup texture on sampler 15, and
+  hardware sRGB write forced off), all through one hardware-config query (`0x180004bc0`); the range branch's gate,
+  read at last, is `r_pixelfog` (default 1). The LDR side of the upload is the same curve with no tone-map multiply.
 - **The first fog constant is start over range**, `CalcRangeFog( z, fogParams.x, fogParams.z, fogParams.w )`
   subtracts it, and the radial path names the same register `flFogEndOverRange` while using it identically. Max
   density clamps before the saturate, and the blend squares the factor. *Published source.*

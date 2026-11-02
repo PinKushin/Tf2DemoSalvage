@@ -81,11 +81,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
     private const float DecalModulateAlphaCutoff = 0.5f / 255f;
 
     private static readonly string ShaderSource = (ShaderText + WaterShaderText)
-        .Replace("MaxBones", MaxBones.ToString(System.Globalization.CultureInfo.InvariantCulture), StringComparison.Ordinal)
-        .Replace(
-            "LinearGreyValue",
-            FogConstants.SrgbDecode(128f / 255f).ToString("R", System.Globalization.CultureInfo.InvariantCulture) + "f",
-            StringComparison.Ordinal);
+        .Replace("MaxBones", MaxBones.ToString(System.Globalization.CultureInfo.InvariantCulture), StringComparison.Ordinal);
 
     private const string ShaderText = """
         struct VsIn
@@ -185,7 +181,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
         {
             float4 clipPlane;
             float4 heightFog;       // x on, y water z, z write the factor to alpha (opaque draws), w 1 / (fogend - fogstart)
-            float4 heightFogColour; // rgb linear
+            float4 heightFogColour; // rgb linear; w the modulating grey under height fog
             float4 refractTint;
             float4 reflectTint;
             float4 reflectRefractScale;
@@ -886,8 +882,8 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
         // fog mode — 0 toward the fog colour, 1 toward black, 2 none.
         //
         // **FinalOutput's TONEMAP_SCALE_LINEAR first** (:348-350): the colour times LINEAR_LIGHT_SCALE, then the fog. The
-        // fog colour is taken at the same scale — interpolated from SetClearColorToFogColor (viewrender.cpp:759-766), which
-        // scales the fog colour by the tone-map scale under HDR_TYPE_INTEGER; shaderapi's g_LinearFogColor is not read.
+        // fog colour is taken at the same scale: shaderapi's c29 upload multiplies g_LinearFogColor by the tone-map scale
+        // under HDR_TYPE_INTEGER unless the shader disabled fog gamma correction (shaderapidx9.dll 0x180025a50, B653).
         //
         // **`toneMapScaleNone` (tintControl.w), not the fog mode, decides the scale** (B635): `Modulate` and `DecalModulate`
         // both end in `FinalOutput( …, TONEMAP_SCALE_NONE )` (modulate_ps2x.fxc:37, decalmodulate_ps2x.fxc:44), which leaves
@@ -910,10 +906,8 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
         // is in gamma as Valve's is. Mode 2, none, is no longer given to any material.
         static const float StoredGrey = 128.0f / 255.0f;
 
-        // The sRGB decode of 128/255: the height-fog path's conversion with `r_shader_srgb` at its default 0 (hardware sRGB),
-        // shaderapi's sRGB-to-linear, not pow 2.2 (B637 review; plan doc). Written from FogConstants.SrgbDecode when the
-        // source is assembled (ShaderSource), so it has one owner (B653 review).
-        static const float LinearGrey = LinearGreyValue;
+        // Under height fog the grey is 128/255 through the height-fog branch's conversion, which follows `r_shader_srgb`
+        // (the sRGB decode at 0, pow 2.2 at 1): uploaded in heightFogColour.w by WorldRenderer.PackHeightFog (fog-open-items).
 
         bool Fogs(float mode)
         {
@@ -2070,7 +2064,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
                 // (lightmappedgeneric_dx9_helper.cpp:907-918): only a fully opaque draw writes the factor. A modulating
                 // material reaches here since B637 and keeps its scale exemption through ToneMapScale.
                 result = float4(
-                    lerp(lit, FogTarget(tintControl.z, heightFogColour.rgb, LinearGrey), ModulateFogFactor(waterFog, tintControl.z)) * ToneMapScale(tintControl.w),
+                    lerp(lit, FogTarget(tintControl.z, heightFogColour.rgb, heightFogColour.w), ModulateFogFactor(waterFog, tintControl.z)) * ToneMapScale(tintControl.w),
                     heightFog.z > 0.5f ? waterFog : albedo.a);
             }
             else

@@ -122,7 +122,8 @@ public sealed class RefractModelRenderTests
     /// **The lens under full red fog at tone-map scale 0.5 is the SCALED fog colour** (B653 review): the c29 colour is
     /// multiplied by the scale on the CPU (<c>shaderapidx9.dll</c> <c>0x180025c98</c>-<c>0x180025cd7</c>), and Refract
     /// never disables that (<c>refract_dx9_helper.cpp:213</c>, <c>DefaultFog()</c>). The quad sits at clip z 0.5; fog over
-    /// 0..0.25 is full there, so the pixel stores encode( 0.5 ) = 188, not 255. The control is the same draw unfogged.
+    /// 0..0.25 is full there, so the pixel stores encode( 0.5 ) = 188, not 255. The control is the same fogged draw at
+    /// scale 1, which must store the unscaled 255: it proves the fog is full and the scale is the only variable (review).
     /// </remarks>
     [Test]
     [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
@@ -130,16 +131,17 @@ public sealed class RefractModelRenderTests
     {
         using OffscreenTarget target = Skip.Unless(OffscreenTarget.TryCreate(Size, Size), "no Direct3D on this machine");
         MapAssets assets = MapCache.Load(entityModels: [Rifle]);
+        SceneFog red = new(0f, 0.25f, 1f, 0f, 0f, 1f);
 
         target.Clear(0.5f, 0.5f, 0.5f);
-        DrawQuad(target, assets, LensIndex(assets), toneMapScale: 0.5f);
+        DrawQuad(target, assets, LensIndex(assets), toneMapScale: 1f, fog: red);
 
-        (int, int, int) unfogged = target.PixelAt(32, 32);
+        (int, int, int) atScaleOne = target.PixelAt(32, 32);
 
         target.Clear(0.5f, 0.5f, 0.5f);
-        DrawQuad(target, assets, LensIndex(assets), toneMapScale: 0.5f, fog: new SceneFog(0f, 0.25f, 1f, 0f, 0f, 1f));
+        DrawQuad(target, assets, LensIndex(assets), toneMapScale: 0.5f, fog: red);
 
-        unfogged.ShouldNotBe((SrgbTarget.Encode(0.5), 0, 0), "the control: unfogged, the lens is the grey frame");
+        atScaleOne.ShouldBe((255, 0, 0), "the control: at scale 1 the same fogged lens is the unscaled fog colour");
         Near(target.PixelAt(32, 32), (SrgbTarget.Encode(0.5), 0, 0));
     }
 

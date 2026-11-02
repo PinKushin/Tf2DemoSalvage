@@ -467,24 +467,43 @@ internal sealed unsafe partial class WorldRenderer
             _waterView[3] = clip.Z;
         }
 
-        // **The volume's height fog, as R_SetFogVolumeState sets it** (engine.dll 0x1800e0cd0): SetFogZ, the colour,
-        // start and end. CalcWaterFogAlpha reads the fog z from g_FogParams.y and one over the range from .w — packed
-        // here as the range fog's own registers are (FogConstants, B139). The colour takes shaderapi's height-fog
-        // conversion, the sRGB decode at the default r_shader_srgb 0 (0x180025b9a, B653), not pow 2.2.
-        if (heightFog is { HeightFog: true } fog)
-        {
-            float range = fog.End - fog.Start;
+        PackHeightFog(_waterView, heightFog, ShaderSrgb);
+        WriteWater(context, null, -1);
+    }
 
-            _waterView[4] = 1f;
-            _waterView[5] = fog.FogZ;
-            _waterView[6] = 1f;
-            _waterView[7] = range != 0f ? 1f / range : 0f;
-            _waterView[8] = FogConstants.SrgbDecode(fog.Color.Red);
-            _waterView[9] = FogConstants.SrgbDecode(fog.Color.Green);
-            _waterView[10] = FogConstants.SrgbDecode(fog.Color.Blue);
+    /// <summary>
+    /// <c>r_shader_srgb</c>, default 0 ("-1 = use hardware caps. 0 = use hardware srgb. 1 = use shader srgb", the ConVar
+    /// at <c>shaderapidx9.dll 0x1800a16e0</c>). Only the height-fog colour reads it here (<see cref="FogConstants.HeightFogChannel"/>).
+    /// </summary>
+    public int ShaderSrgb { get; set; }
+
+    /// <summary>
+    /// **The volume's height fog, as R_SetFogVolumeState sets it** (engine.dll 0x1800e0cd0): SetFogZ, the colour, start and
+    /// end, into the water view's constants 4-11. CalcWaterFogAlpha reads the fog z from g_FogParams.y and one over the
+    /// range from .w, packed as the range fog's own registers are (FogConstants, B139). The colour, and in .w the grey of
+    /// 128 a modulating material fogs toward (B637; shader fog mode 1 or 3 hands c29 the bytes 0x80, 0x180014200), take
+    /// shaderapi's height-fog conversion: the sRGB decode at <c>r_shader_srgb 0</c>, <c>pow 2.2</c> at 1 (0x180025b1f).
+    /// </summary>
+    /// <param name="view">The water view's twelve floats; 4-11 are written, or left as they are without height fog.</param>
+    /// <param name="heightFog">The volume's fog, or null.</param>
+    /// <param name="shaderSrgb"><c>r_shader_srgb</c>.</param>
+    internal static void PackHeightFog(Span<float> view, VolumeFog? heightFog, int shaderSrgb)
+    {
+        if (heightFog is not { HeightFog: true } fog)
+        {
+            return;
         }
 
-        WriteWater(context, null, -1);
+        float range = fog.End - fog.Start;
+
+        view[4] = 1f;
+        view[5] = fog.FogZ;
+        view[6] = 1f;
+        view[7] = range != 0f ? 1f / range : 0f;
+        view[8] = FogConstants.HeightFogChannel(fog.Color.Red, shaderSrgb);
+        view[9] = FogConstants.HeightFogChannel(fog.Color.Green, shaderSrgb);
+        view[10] = FogConstants.HeightFogChannel(fog.Color.Blue, shaderSrgb);
+        view[11] = FogConstants.HeightFogChannel(128f / 255f, shaderSrgb);
     }
 
     /// <summary>
@@ -499,20 +518,90 @@ internal sealed unsafe partial class WorldRenderer
         integerHdr ? ModelMaterialShading.GammaToLinear(gamma) : Linear(gamma);
 
     /// <summary>
-    /// One channel of the water view's clear colour, as the linear value an sRGB view needs to store the engine's byte.
-    /// <c>SetClearColorToFogColor</c> (<c>viewrender.cpp:754-768</c>): the fog colour's byte times
-    /// <c>LinearToGammaFullRange( scale )</c>, truncated into an <c>unsigned char</c>, then <c>ClearColor4ub</c>.
-    /// Read as stored bytes; whether D3D9's clear ran with sRGB writes on is open (RISKS B653).
+    /// c16, the reflect tint (<c>water.cpp:296-312</c>): under integer HDR water.cpp converts it itself, <c>GammaToLinear( x )
+    /// · 4</c> with no pass-through above 1 (:300-306); otherwise <c>SetPixelShaderConstantGammaToLinear</c> (:311), which
+    /// passes values above 1 through. Times the HDR type's reflect scale.
     /// </summary>
-    /// <param name="gamma">The fog volume's colour channel, gamma 0..1, as <c>GetFogColor</c>'s byte over 255.</param>
-    /// <param name="scale">The tone-map scale under integer HDR, else 1.</param>
-    /// <returns>The value to clear with.</returns>
-    internal static float WaterClearColour(float gamma, float scale)
+    /// <param name="tint"><c>$reflecttint</c>, gamma.</param>
+    /// <param name="hdr">The map's HDR type.</param>
+    /// <returns>The three channels c16 carries.</returns>
+    internal static (float Red, float Green, float Blue) ReflectTintConstant((float Red, float Green, float Blue) tint, HdrType hdr)
     {
-        float stored = MathF.Round(Math.Clamp(gamma, 0f, 1f) * 255f);
-        float scaled = MathF.Floor(stored * MathF.Pow(scale, 1f / 2.2f));
+        bool integerHdr = hdr == HdrType.IntegerHdr;
+        float scale = BspHdr.WaterScales(hdr).ReflectTint;
 
-        return FogConstants.SrgbDecode(Math.Min(scaled, 255f) / 255f);
+        return (ReflectTint(tint.Red, integerHdr) * scale, ReflectTint(tint.Green, integerHdr) * scale,
+            ReflectTint(tint.Blue, integerHdr) * scale);
+    }
+
+    /// <summary>
+    /// <c>LinearToGammaFullRange</c> as the client calls it (<c>client.dll</c> <c>0x18085bcf0</c>): <c>pow</c> in double,
+    /// with the exponent the binary stores at <c>0x180b34560</c>, <c>1.0 / (double)2.2f</c>, cast back to float.
+    /// </summary>
+    private static readonly double LinearToGammaExponent = BitConverter.Int64BitsToDouble(0x3FDD1745C6E043B8);
+
+    /// <summary>
+    /// One channel of a water view's fog clear, as the linear value the sRGB view needs to store the engine's byte.
+    /// </summary>
+    /// <remarks>
+    /// <c>GetFogColor</c>'s byte is <c>FogColor3fv</c>'s truncation (<see cref="FogConstants.StoredByte"/>). A scaled clear is
+    /// <c>SetClearColorToFogColor</c> (<c>client.dll</c> <c>0x18034d560</c>, <c>viewrender.cpp:754-768</c>), only under
+    /// <c>HDR_TYPE_INTEGER</c>: <c>(float)byte · LinearToGammaFullRange( scale )</c>, CVTTSS2SI, and the low byte stored, so a
+    /// product above 255 WRAPS (200 at scale 4 stores 119). An unscaled one is <c>GetFogColor</c> straight into
+    /// <c>ClearColor4ub</c>.
+    ///
+    /// **shaderapi stores the clear's bytes as they are** (<c>shaderapidx9.dll</c>): <c>ClearColor4ub</c> (<c>0x180014f90</c>)
+    /// packs them with no conversion, and <c>ClearBuffers</c> (<c>0x180014bd0</c>) turns <c>D3DRS_SRGBWRITEENABLE</c> off
+    /// around <c>Clear</c> when the current shadow state has it on, restoring it after (<c>0x180031db0</c>). So the decode
+    /// here, through our sRGB view, stores exactly the byte; the B641 gamma twin reads the same texels.
+    /// </remarks>
+    /// <param name="gamma">The fog colour channel, gamma 0..1.</param>
+    /// <param name="scale">The frame's tone-map scale, before any water view quartered it.</param>
+    /// <param name="scaled">The clear is <see cref="ClearScalesWithToneMap"/>'s and the map is integer HDR.</param>
+    /// <returns>The value to clear with.</returns>
+    internal static float WaterClearColour(float gamma, float scale, bool scaled)
+    {
+        int stored = FogConstants.StoredByte(gamma);
+
+        if (scaled)
+        {
+            float factor = (float)Math.Pow(scale, LinearToGammaExponent);
+
+            stored = (int)(stored * factor) & 0xFF;
+        }
+
+        return FogConstants.SrgbDecode(stored / 255f);
+    }
+
+    /// <summary>
+    /// Whether a view's fog clear is <c>SetClearColorToFogColor</c>'s, scaled: the above-water refraction view (<c>:6061</c>)
+    /// and the intersection view (<c>:6097</c>), as the radial-vis main view (<c>:1423</c>, not modelled) would be. The
+    /// eye-in-volume simple view (<c>:5780</c>), the under-water main view (<c>:6178</c>) and its refraction view
+    /// (<c>:6228</c>) put <c>GetFogColor</c> into <c>ClearColor4ub</c> unscaled.
+    /// </summary>
+    /// <param name="kind">The view.</param>
+    /// <returns>True for the scaled clears.</returns>
+    internal static bool ClearScalesWithToneMap(WaterViewKind kind) =>
+        kind is WaterViewKind.Refraction or WaterViewKind.Intersection;
+
+    /// <summary>
+    /// The main view's own fog clear: <c>CSimpleWorldView::DrawExecute</c> from inside a volume sets
+    /// <c>VIEW_CLEAR_COLOR</c>, <c>SetFogVolumeState( m_fogInfo, false )</c>, then <c>GetFogColor</c> into
+    /// <c>ClearColor4ub</c> unscaled (<c>viewrender.cpp:5772-5780</c>), after the 3D sky drew, which it covers. The
+    /// under-water main view sets the clear colour too (<c>:6178</c>) but clears depth only (<c>:6134</c>), so nothing.
+    /// </summary>
+    /// <param name="main">The frame's back-buffer view.</param>
+    /// <param name="inside">The volume's fog as the view sets it (the bottom material's, not height fog).</param>
+    /// <returns>The sRGB-view values that store the fog bytes, or null when the view clears no colour to fog.</returns>
+    public static (float Red, float Green, float Blue)? MainViewFogClear(WaterView main, VolumeFog inside)
+    {
+        if (!main.ClearToFogColor || (main.Clear & ViewClears.Color) == 0)
+        {
+            return null;
+        }
+
+        return (WaterClearColour(inside.Color.Red, 1f, scaled: false), WaterClearColour(inside.Color.Green, 1f, scaled: false),
+            WaterClearColour(inside.Color.Blue, 1f, scaled: false));
     }
 
     /// <summary>Whether the draws that follow write the height fog factor to alpha — only fully opaque ones do.</summary>
@@ -564,17 +653,12 @@ internal sealed unsafe partial class WorldRenderer
             // colour, linear; c7 start, end − start and the reflect overbright. Under HDR_TYPE_INTEGER the reflect tint
             // AND the overbright are 4, undoing the reflection view's ×0.25 (water.cpp:296-312, :351-355) — so the
             // BLURRY_REFRACT path, which applies both, carries 16.
-            (float reflectScale, float overbright, _) = BspHdr.WaterScales(HdrType);
+            float overbright = BspHdr.WaterScales(HdrType).Overbright;
 
             Put(c, 12, Linear(water.RefractTint.Red), Linear(water.RefractTint.Green), Linear(water.RefractTint.Blue), 1f);
-            // Under integer HDR water.cpp converts the reflect tint itself, GammaToLinear( x ) · 4 with no pass-through above
-            // 1 (:300-306); otherwise SetPixelShaderConstantGammaToLinear (:311), which passes values above 1 through.
-            bool integerHdr = HdrType == HdrType.IntegerHdr;
+            (float tintRed, float tintGreen, float tintBlue) = ReflectTintConstant(water.ReflectTint, HdrType);
 
-            Put(
-                c, 16, ReflectTint(water.ReflectTint.Red, integerHdr) * reflectScale,
-                ReflectTint(water.ReflectTint.Green, integerHdr) * reflectScale,
-                ReflectTint(water.ReflectTint.Blue, integerHdr) * reflectScale, 1f);
+            Put(c, 16, tintRed, tintGreen, tintBlue, 1f);
             Put(c, 20, water.ReflectAmount, water.ReflectAmount, water.RefractAmount, water.RefractAmount);
             Put(c, 24, Linear(water.FogColor.Red), Linear(water.FogColor.Green), Linear(water.FogColor.Blue), 1f);
             Put(c, 28, water.FogStart, water.FogEnd - water.FogStart, overbright, 0f);
@@ -787,11 +871,14 @@ internal sealed unsafe partial class WorldRenderer
 
             if (view.ClearToFogColor && WaterViews.VolumeFogFor(Water(frame.Surface), frame.WaterHeight, true) is { } clearFog)
             {
-                // SetClearColorToFogColor (viewrender.cpp:759-766): under HDR_TYPE_INTEGER the gamma bytes times
-                // LinearToGammaFullRange( scale ), which is the linear colour times the scale.
-                colour[0] = WaterClearColour(clearFog.Color.Red, LinearLightScale);
-                colour[1] = WaterClearColour(clearFog.Color.Green, LinearLightScale);
-                colour[2] = WaterClearColour(clearFog.Color.Blue, LinearLightScale);
+                // The colour is taken before PushView quarters a reflection view's scale (SetLightmapScaleForWater runs in
+                // DrawExecute's PushView, after SetClearColorToFogColor), so from the frame's scale; and only the
+                // SetClearColorToFogColor views scale it, only under HDR_TYPE_INTEGER (WaterClearColour).
+                bool scaled = HdrType == HdrType.IntegerHdr && ClearScalesWithToneMap(view.Kind);
+
+                colour[0] = WaterClearColour(clearFog.Color.Red, savedScale, scaled);
+                colour[1] = WaterClearColour(clearFog.Color.Green, savedScale, scaled);
+                colour[2] = WaterClearColour(clearFog.Color.Blue, savedScale, scaled);
             }
 
             if ((view.Clear & ViewClears.Color) != 0)

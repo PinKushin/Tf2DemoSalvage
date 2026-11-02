@@ -821,6 +821,15 @@ public sealed record ViewerSettings
     public const string ForceToneMapScaleCommand = "mat_force_tonemap_scale";
 
     /// <summary>
+    /// <c>r_shader_srgb</c>, default 0 (<c>shaderapidx9.dll</c>, registered at <c>0x180001120</c>): "-1 = use hardware caps. 0 =
+    /// use hardware srgb. 1 = use shader srgb(software lookup)". Here only the height-fog colour's curve reads it.
+    /// </summary>
+    public int ShaderSrgb { get; init; }
+
+    /// <summary>Command name for <see cref="ShaderSrgb"/>.</summary>
+    public const string ShaderSrgbCommand = "r_shader_srgb";
+
+    /// <summary>
     /// <c>mat_hdr_level</c>, default 2 (`shaderapidx9.dll 0x18007e700`), B537: below 2 a map is drawn from its LDR
     /// lighting with no tone mapping, as TF2 draws it for a config that says so (<see cref="Content.Bsp.BspHdr"/>).
     /// Read when a map loads.
@@ -1114,6 +1123,11 @@ public sealed record ViewerSettings
         if (ReadNumber(values, ForceToneMapScaleCommand) is { } forcedScale)
         {
             settings = settings with { ForceToneMapScale = forcedScale };
+        }
+
+        if (Read(values, ShaderSrgbCommand) is { } shaderSrgb)
+        {
+            settings = settings with { ShaderSrgb = shaderSrgb };
         }
 
         if (Read(values, SpecularCommand) is { } specular)
@@ -1411,6 +1425,7 @@ public sealed record ViewerSettings
         (AutoDirectorCommand, s => Switch(s.AutoDirector)),
         (DisableBloomCommand, s => Switch(s.DisableBloom)),
         (ForceToneMapScaleCommand, s => EngineFloat(s.ForceToneMapScale)),
+        (ShaderSrgbCommand, s => Int(s.ShaderSrgb)),
         (SpecularCommand, s => Switch(s.Specular)),
         (FullbrightCommand, s => Int(s.Fullbright)),
         (DoPixelVisibilityCommand, s => Switch(s.DoPixelVisibility)),
