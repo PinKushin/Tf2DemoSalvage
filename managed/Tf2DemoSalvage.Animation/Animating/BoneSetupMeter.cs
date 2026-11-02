@@ -62,8 +62,7 @@ public sealed class BoneSetupMeter
         Interlocked.Read(ref _seed),
         Interlocked.Read(ref _capture),
         Interlocked.Read(ref _solve),
-        Interlocked.Read(ref _compose),
-        Interlocked.Read(ref _enumerators));
+        Interlocked.Read(ref _compose));
 
     private long _blend;
     private long _base;
@@ -78,7 +77,6 @@ public sealed class BoneSetupMeter
     private long _capture;
     private long _solve;
     private long _compose;
-    private long _enumerators;
 
     /// <summary>Records one call.</summary>
     /// <param name="root">Whether the entity follows nothing.</param>
@@ -107,7 +105,7 @@ public sealed class BoneSetupMeter
         }
 
         // The parts of those ticks, beside them; a child's are not a root's (the 2026-10-31 setup-parts split). A cache hit
-        // carries a blend and nothing else, so it pays one add rather than fourteen.
+        // carries a blend and nothing else, so it pays one add rather than thirteen.
         Interlocked.Add(ref _blend, parts.Blend);
 
         if (built)
@@ -124,7 +122,6 @@ public sealed class BoneSetupMeter
             Interlocked.Add(ref _capture, parts.Capture);
             Interlocked.Add(ref _solve, parts.Solve);
             Interlocked.Add(ref _compose, parts.Compose);
-            Interlocked.Add(ref _enumerators, parts.Enumerators);
         }
     }
 }

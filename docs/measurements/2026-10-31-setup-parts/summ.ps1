@@ -12,8 +12,8 @@ $parts = [ordered]@{
     capture = 'capture ([0-9.]+), solve'
     solve   = 'solve ([0-9.]+), compose'
     compose = 'compose ([0-9.]+), other'
-    other   = 'other (-?[0-9.]+); enumerators'
-    enums   = 'enumerators ([0-9.]+)\)'
+    # `other` ended at `; enumerators N)` until iklock-compose (2026-11-02) removed that count; it ends at `)` since.
+    other   = 'other (-?[0-9.]+)(; enumerators|\))'
     adjust  = 'adjust ([0-9.]+)'
     loop    = 'loop ([0-9.]+), ik'
     ik      = 'ik ([0-9.]+), finish'

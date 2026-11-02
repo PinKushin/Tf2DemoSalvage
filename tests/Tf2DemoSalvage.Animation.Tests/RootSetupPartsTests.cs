@@ -88,7 +88,7 @@ public sealed class RootSetupPartsTests
         clock.Meter.ChildTicks.ShouldBeGreaterThanOrEqualTo(10 * Millisecond);
         (added.Base, added.Accumulate, added.Sampling, added.Samples, added.Adjust, added.Loop, added.Ik, added.Finish)
             .ShouldBe((0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L));
-        (added.Seed, added.Capture, added.Solve, added.Compose, added.Enumerators).ShouldBe((0L, 0L, 0L, 0L, 0L));
+        (added.Seed, added.Capture, added.Solve, added.Compose).ShouldBe((0L, 0L, 0L, 0L));
     }
 
     /// <remarks>
@@ -99,11 +99,11 @@ public sealed class RootSetupPartsTests
     [Test]
     public void SinceAndAdd_EveryFieldDistinct_WorkFieldByField()
     {
-        RootSetupParts later = new(101, 103, 107, 109, 113, 127, 131, 137, 139, 149, 151, 157, 163, 167);
-        RootSetupParts earlier = new(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14);
+        RootSetupParts later = new(101, 103, 107, 109, 113, 127, 131, 137, 139, 149, 151, 157, 163);
+        RootSetupParts earlier = new(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13);
 
-        later.Since(earlier).ShouldBe(new RootSetupParts(100, 101, 104, 105, 108, 121, 124, 129, 130, 139, 140, 145, 150, 153));
-        later.Add(earlier).ShouldBe(new RootSetupParts(102, 105, 110, 113, 118, 133, 138, 145, 148, 159, 162, 169, 176, 181));
+        later.Since(earlier).ShouldBe(new RootSetupParts(100, 101, 104, 105, 108, 121, 124, 129, 130, 139, 140, 145, 150));
+        later.Add(earlier).ShouldBe(new RootSetupParts(102, 105, 110, 113, 118, 133, 138, 145, 148, 159, 162, 169, 176));
     }
 
     /// <summary>A one-bone skeleton whose base sequence (0) and layer sequences (anything else) spin for a known time.</summary>

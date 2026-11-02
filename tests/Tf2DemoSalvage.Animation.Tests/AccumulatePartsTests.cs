@@ -24,7 +24,7 @@ public sealed class AccumulatePartsTests
     /// <remarks>
     /// One layer that locks a chain: each base read 10 ms (only the sparse base's overlay reads it), each lock read 5 ms
     /// (only the capture before the sample and the solve after the compose read it), compose 20 ms per entry read (three
-    /// entries, so 60 ms; asserted as at least 20), sample 30 ms. The
+    /// entries, each read once), sample 30 ms. The
     /// lists count their own reads, so each part's floor is reads × spin. The lock reads split one to `Capture` and four
     /// to `Solve` (`IkLocks.cs`: `EffectorOf(locks[at])` in the capture; the guard, the chain, the position weight and the
     /// rotation weight in the solve), and the total is the control. `Solve` reads the rotation weight whether or not the
@@ -37,10 +37,8 @@ public sealed class AccumulatePartsTests
     {
         SlowList<StudioBonePose> basePose = new([Rest(0)], indexTicks: 10 * Millisecond);
         SlowList<StudioIkLock> locks = new([Lock()], indexTicks: 5 * Millisecond);
-        SkeletonPose pose = Pose(
-            basePose: basePose,
-            layerPose: new SlowList<StudioBonePose>([Rest(0), Rest(1), Rest(2)], indexTicks: 20 * Millisecond),
-            layerTicks: 30 * Millisecond);
+        SlowList<StudioBonePose> layerPose = new([Rest(0), Rest(1), Rest(2)], indexTicks: 20 * Millisecond);
+        SkeletonPose pose = Pose(basePose: basePose, layerPose: layerPose, layerTicks: 30 * Millisecond);
         pose.IkChains = [Chain()];
         pose.Layers = [Layer(weight: 1f) with { Locks = locks }];
 
@@ -50,7 +48,8 @@ public sealed class AccumulatePartsTests
         parts.Seed.ShouldBeGreaterThanOrEqualTo(basePose.Reads * 10 * Millisecond);
         parts.Capture.ShouldBeGreaterThanOrEqualTo(1 * 5 * Millisecond);
         parts.Solve.ShouldBeGreaterThanOrEqualTo(4 * 5 * Millisecond);
-        parts.Compose.ShouldBeGreaterThanOrEqualTo(20 * Millisecond);
+        layerPose.Reads.ShouldBe(3, "the control: the compose reads each sampled entry once");
+        parts.Compose.ShouldBeGreaterThanOrEqualTo(layerPose.Reads * 20 * Millisecond);
         parts.Sampling.ShouldBeGreaterThanOrEqualTo(30 * Millisecond);
         parts.AccumulateOther.ShouldBeGreaterThanOrEqualTo(0, "a sub-part counted a span twice");
         (parts.Seed + parts.Capture + parts.Solve + parts.Compose + parts.AccumulateOther)
@@ -189,7 +188,7 @@ public sealed class AccumulatePartsTests
     }
 
     /// <summary>A list whose indexer and enumerator each cost a known time, so the step that reads it is known.</summary>
-    private sealed class SlowList<T>(T[] items, long indexTicks = 0, long enumerateTicks = 0) : IReadOnlyList<T>
+    private sealed class SlowList<T>(T[] items, long indexTicks = 0) : IReadOnlyList<T>
     {
         public int Count => items.Length;
 
@@ -206,11 +205,7 @@ public sealed class AccumulatePartsTests
             }
         }
 
-        public IEnumerator<T> GetEnumerator()
-        {
-            Spin(enumerateTicks);
-            return ((IEnumerable<T>)items).GetEnumerator();
-        }
+        public IEnumerator<T> GetEnumerator() => ((IEnumerable<T>)items).GetEnumerator();
 
         IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
     }
