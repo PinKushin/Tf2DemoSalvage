@@ -29,6 +29,9 @@ public interface IViewerDevice
     /// <summary>`mat_force_tonemap_scale`; zero is the automatic exposure.</summary>
     public float ForceToneMapScale { get; set; }
 
+    /// <summary>`r_shader_srgb`: 1 makes the height-fog colour `pow 2.2` rather than the sRGB decode.</summary>
+    public int ShaderSrgb { get; set; }
+
     /// <summary>`cl_drawhud`.</summary>
     public bool DrawHud { get; set; }
 

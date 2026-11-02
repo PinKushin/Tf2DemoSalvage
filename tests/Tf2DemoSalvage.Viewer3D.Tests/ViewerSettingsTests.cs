@@ -503,6 +503,18 @@ public sealed class ViewerSettingsTests
         settings.DrawHud.ShouldBeFalse();
     }
 
+    /// <summary>`r_shader_srgb` (default 0, shaderapidx9.dll 0x180001120) is read from a config, any of its three values.</summary>
+    [TestCase("", 0)]
+    [TestCase("r_shader_srgb 1\n", 1)]
+    [TestCase("r_shader_srgb -1\n", -1)]
+    public void Load_ShaderSrgb_ReadsTheConfigOrKeepsTheDefault(string line, int expected)
+    {
+        string file = Path.Combine(_folder, "settings.cfg");
+        File.WriteAllText(file, line);
+
+        ViewerSettings.Load(file).ShaderSrgb.ShouldBe(expected);
+    }
+
     /// <remarks>
     /// Three of Valve's switches a config or a command line may carry, which were logged as set and reached nothing
     /// (B521): `mat_specular` ("If mat_specular 0, then get rid of envmap"), `mat_fullbright` (0, 1 or 2) and

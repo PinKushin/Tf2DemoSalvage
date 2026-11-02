@@ -16,10 +16,14 @@ namespace Tf2DemoSalvage.Render;
 /// at the default <c>r_shader_srgb 0</c>, each channel goes through <c>0x18003ddf0</c>. <c>pow 2.2</c> is only the
 /// height path at <c>r_shader_srgb 1</c>. Addresses: <c>docs/measurements/2026-11-02-fog-colour-curve-plan.md</c>.
 ///
-/// **Not modelled:** <c>r_shader_srgb 1</c>, under which height fog takes <c>pow 2.2</c>; the default 0 is taken. **Not
-/// read:** the LDR side of the upload (HDR type none, <c>mat_hdr_level 0</c>) and the range branch's gate
-/// (hardware-config <c>+0x1c0</c>, the ConVar at <c>0x1800a2378</c>). Only the integer-HDR path TF2 runs by default was
-/// traced. The tone-map scale is applied in the shader (<c>debugModes2.y</c>), not here.
+/// **The colour c29 starts from is a BYTE** (fog-open-items plan): materialsystem's <c>FogColor3f</c>/<c>FogColor3fv</c>
+/// (<c>0x18002bed0</c>/<c>0x18002bf40</c>, the queued context's vtable at <c>0x1800b6da8</c>) store
+/// <c>clamp( (int)( x · 255 ), 0, 255 )</c>, truncated, and shaderapi's fog-mode applier (<c>0x180014200</c>) hands the
+/// upload that byte times 1/255 (<see cref="StoredChannel"/>). **The LDR side is the same curve** (<c>0x180025a50</c> has
+/// no HDR branch but the tone-map multiply, which only <c>HDR_TYPE_INTEGER</c> takes). The outer gate is DX level 90 or
+/// more; the range gate is a hardware-config caps bit and <c>r_pixelfog</c> (default 1, the ConVar at
+/// <c>0x1800a2340</c>). The tone-map scale is applied in the shader (<c>debugModes2.y</c>), not here, and is 1 outside
+/// integer HDR (<c>Device3D</c>).
 /// </remarks>
 public static class FogConstants
 {
@@ -52,6 +56,46 @@ public static class FogConstants
         return x <= Knee ? x * LinearSlope : (float)Math.Pow((x * CurveScale) + CurveOffset, CurveExponent);
     }
 
+    /// <summary>One over 255 as shaderapi multiplies a stored byte by it (<c>0x180014200</c>).</summary>
+    private const float ByteScale = 1f / 255f;
+
+    /// <summary><c>pow</c>'s exponent on the height branch at <c>r_shader_srgb 1</c>: 2.2 as a double from a float (<c>0x18007e0d8</c>).</summary>
+    private const double ShaderSrgbExponent = 2.200000047683716;
+
+    /// <summary>The fog byte <c>FogColor3fv</c> stores: <c>clamp( (int)( x · 255 ), 0, 255 )</c>, truncated (<c>0x18002bf40</c>).</summary>
+    /// <param name="gamma">A fog colour channel, gamma 0..1.</param>
+    /// <returns>The byte <c>GetFogColor</c> hands back.</returns>
+    public static int StoredByte(float gamma) => Math.Clamp((int)(gamma * 255f), 0, 255);
+
+    /// <summary>c29's raw channel before any conversion: the stored byte times 1/255 (<c>0x180014200</c>).</summary>
+    /// <param name="gamma">A fog colour channel, gamma 0..1.</param>
+    /// <returns>The channel the upload starts from.</returns>
+    public static float StoredChannel(float gamma) => StoredByte(gamma) * ByteScale;
+
+    /// <summary>
+    /// The hardware-config query <c>0x180004bc0</c> (vtable <c>+0x1f0</c>, <c>NeedsShaderSRGBConversion</c>): 0 at
+    /// <c>r_shader_srgb 0</c>, 1 at 1, and any other value a caps bit (<c>+0x5c0</c> bit 6). That bit is taken as 0, the
+    /// hardware sRGB every DX9-class card offers (*interpolated*: the bit is not named).
+    /// </summary>
+    /// <param name="shaderSrgb"><c>r_shader_srgb</c>, default 0.</param>
+    /// <returns>Whether shaderapi converts in the shader rather than by hardware sRGB.</returns>
+    public static bool NeedsShaderSrgbConversion(int shaderSrgb) => shaderSrgb == 1;
+
+    /// <summary>
+    /// A height-fog (water) colour channel as c29 carries it (<c>0x180025b1f</c>-<c>0x180025be7</c>): the stored byte, then
+    /// the sRGB decode, or <c>pow( x, 2.2 )</c> in double when <see cref="NeedsShaderSrgbConversion"/>. No sRGB-write test
+    /// on this branch, so a modulating draw takes it too.
+    /// </summary>
+    /// <param name="gamma">A fog colour channel, gamma 0..1.</param>
+    /// <param name="shaderSrgb"><c>r_shader_srgb</c>.</param>
+    /// <returns>The linear channel.</returns>
+    public static float HeightFogChannel(float gamma, int shaderSrgb)
+    {
+        float stored = StoredChannel(gamma);
+
+        return NeedsShaderSrgbConversion(shaderSrgb) ? (float)Math.Pow(stored, ShaderSrgbExponent) : SrgbDecode(stored);
+    }
+
     /// <summary>Two float4s: linear colour with w = 1 when fog is on, then the range parameters.</summary>
     /// <param name="fog">The fog in force, or null for <c>MATERIAL_FOG_NONE</c>.</param>
     /// <param name="distanceScale">
@@ -71,9 +115,9 @@ public static class FogConstants
 
         return
         [
-            SrgbDecode(on.Red),
-            SrgbDecode(on.Green),
-            SrgbDecode(on.Blue),
+            SrgbDecode(StoredChannel(on.Red)),
+            SrgbDecode(StoredChannel(on.Green)),
+            SrgbDecode(StoredChannel(on.Blue)),
 
             // Which PIXEL_FOG_TYPE the shader runs (common_ps_fxc.h:69-71): 1 range, 2 radial, and
             // 0 — every float of a null fog — off.

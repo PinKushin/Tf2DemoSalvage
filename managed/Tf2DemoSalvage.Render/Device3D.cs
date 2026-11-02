@@ -1287,6 +1287,22 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
     /// </summary>
     public float ForceToneMapScale { get; set { Lock(); field = value; } }
 
+    /// <summary>Valve's <c>r_shader_srgb</c>, default 0: handed to the world's height-fog colour (<see cref="WorldRenderer.ShaderSrgb"/>).</summary>
+    public int ShaderSrgb
+    {
+        get;
+        set
+        {
+            Lock();
+            field = value;
+
+            if (_world is not null)
+            {
+                _world.ShaderSrgb = value;
+            }
+        }
+    }
+
     /// <summary>Valve's <c>cl_drawhud</c>, default 1: whether the HUD pass runs.</summary>
     public bool DrawHud { get; set { Lock(); field = value; } } = true;
 
@@ -1747,6 +1763,15 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
                 }
 
                 Passed(profile, RenderPass.Sky3D);
+
+                // From inside a volume the simple view clears colour to the volume's fog AFTER the 3D sky, which it
+                // covers (WorldRenderer.MainViewFogClear, viewrender.cpp:5772-5780).
+                if (view.WaterMainClear is { } fogClear)
+                {
+                    float* clear = stackalloc float[4] { fogClear.Red, fogClear.Green, fogClear.Blue, 1f };
+
+                    _context.ClearRenderTargetView(_backBufferView, clear);
+                }
 
                 // **The water views before the main one** (B62) — DrawWorldAndEntities' AddViewToScene order:
                 // the reflection and refraction render into their targets, then this view draws.
@@ -2332,6 +2357,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
             WaterViews.VolumeFogFor(Water(material), fog.WaterHeight, useHeightFog: false) is { } inside)
         {
             half.WaterMainFog = new(inside.Start, inside.End, inside.Color.Red, inside.Color.Green, inside.Color.Blue, inside.MaxDensity);
+            half.WaterMainClear = WorldRenderer.MainViewFogClear(main, inside);
         }
 
         if (info.CheapWater)
@@ -3784,6 +3810,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         _world = WorldRenderer.Create(_device, _loggers);
         _world.Wireframe = _wireframe;
         _world.DrawWorld = _drawWorld;
+        _world.ShaderSrgb = ShaderSrgb;
         _world.SetGammaTwin(_backBufferView, _gammaView);
     }
 

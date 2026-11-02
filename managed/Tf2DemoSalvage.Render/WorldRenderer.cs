@@ -81,11 +81,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
     private const float DecalModulateAlphaCutoff = 0.5f / 255f;
 
     private static readonly string ShaderSource = (ShaderText + WaterShaderText)
-        .Replace("MaxBones", MaxBones.ToString(System.Globalization.CultureInfo.InvariantCulture), StringComparison.Ordinal)
-        .Replace(
-            "LinearGreyValue",
-            FogConstants.SrgbDecode(128f / 255f).ToString("R", System.Globalization.CultureInfo.InvariantCulture) + "f",
-            StringComparison.Ordinal);
+        .Replace("MaxBones", MaxBones.ToString(System.Globalization.CultureInfo.InvariantCulture), StringComparison.Ordinal);
 
     private const string ShaderText = """
         struct VsIn
@@ -185,7 +181,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
         {
             float4 clipPlane;
             float4 heightFog;       // x on, y water z, z write the factor to alpha (opaque draws), w 1 / (fogend - fogstart)
-            float4 heightFogColour; // rgb linear
+            float4 heightFogColour; // rgb linear; w the modulating grey under height fog
             float4 refractTint;
             float4 reflectTint;
             float4 reflectRefractScale;
@@ -910,10 +906,8 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
         // is in gamma as Valve's is. Mode 2, none, is no longer given to any material.
         static const float StoredGrey = 128.0f / 255.0f;
 
-        // The sRGB decode of 128/255: the height-fog path's conversion with `r_shader_srgb` at its default 0 (hardware sRGB),
-        // shaderapi's sRGB-to-linear, not pow 2.2 (B637 review; plan doc). Written from FogConstants.SrgbDecode when the
-        // source is assembled (ShaderSource), so it has one owner (B653 review).
-        static const float LinearGrey = LinearGreyValue;
+        // Under height fog the grey is 128/255 through the height-fog branch's conversion, which follows `r_shader_srgb`
+        // (the sRGB decode at 0, pow 2.2 at 1): uploaded in heightFogColour.w by WorldRenderer.PackHeightFog (fog-open-items).
 
         bool Fogs(float mode)
         {
@@ -2070,7 +2064,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
                 // (lightmappedgeneric_dx9_helper.cpp:907-918): only a fully opaque draw writes the factor. A modulating
                 // material reaches here since B637 and keeps its scale exemption through ToneMapScale.
                 result = float4(
-                    lerp(lit, FogTarget(tintControl.z, heightFogColour.rgb, LinearGrey), ModulateFogFactor(waterFog, tintControl.z)) * ToneMapScale(tintControl.w),
+                    lerp(lit, FogTarget(tintControl.z, heightFogColour.rgb, heightFogColour.w), ModulateFogFactor(waterFog, tintControl.z)) * ToneMapScale(tintControl.w),
                     heightFog.z > 0.5f ? waterFog : albedo.a);
             }
             else

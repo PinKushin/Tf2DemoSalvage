@@ -44,6 +44,8 @@ internal sealed class FakeViewerDevice : IViewerDevice
 
     public float ForceToneMapScale { get => 0f; set => Note(nameof(ForceToneMapScale), value); }
 
+    public int ShaderSrgb { get => 0; set => Note(nameof(ShaderSrgb), value); }
+
     public bool DrawHud { get => false; set => Note(nameof(DrawHud), value); }
 
     public int Draw3dSky { get => 0; set => Note(nameof(Draw3dSky), value); }

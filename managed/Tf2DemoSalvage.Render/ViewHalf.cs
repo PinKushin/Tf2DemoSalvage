@@ -65,6 +65,12 @@ internal sealed class ViewHalf
     /// <summary>The visible volume's own fog the main view draws under from inside it.</summary>
     public Tf2DemoSalvage.Core.Scene.SceneFog? WaterMainFog { get; set; }
 
+    /// <summary>
+    /// The colour the main view clears to after the 3D sky, the value an sRGB view needs: only the eye-in-volume simple
+    /// view, <c>VIEW_CLEAR_COLOR</c> to <c>GetFogColor</c> unscaled (<c>viewrender.cpp:5772-5780</c>). Null for no clear.
+    /// </summary>
+    public (float Red, float Green, float Blue)? WaterMainClear { get; set; }
+
     /// <summary>The main view's draw flags when it is a <c>CSimpleWorldView</c>.</summary>
     public ViewDraws SimpleViewDraws { get; set; } = WorldRenderer.AllWaterDraws;
 
@@ -145,6 +151,7 @@ internal sealed class ViewHalf
     {
         WaterDraw = null;
         WaterMainFog = null;
+        WaterMainClear = null;
         SimpleViewDraws = WorldRenderer.AllWaterDraws;
     }
 }

@@ -453,6 +453,7 @@ public sealed class SettingsPresenter
         // The golden comparison's three switches, applied where the others are (B161).
         device.DisableBloom = _settings.DisableBloom;
         device.ForceToneMapScale = _settings.ForceToneMapScale;
+        device.ShaderSrgb = _settings.ShaderSrgb;
         device.DrawHud = _settings.DrawHud;
 
         // **`mat_specular` and `mat_fullbright` from the config or the command line** (B521). Both were menu items

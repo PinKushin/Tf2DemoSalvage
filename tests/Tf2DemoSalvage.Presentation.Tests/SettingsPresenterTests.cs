@@ -255,6 +255,7 @@ public sealed class SettingsPresenterTests
             DrawMonitors = false,
             DisableBloom = true,
             ForceToneMapScale = 1.5f,
+            ShaderSrgb = 1,
             DrawHud = false,
             Specular = false,
             Fullbright = 2,
@@ -269,7 +270,7 @@ public sealed class SettingsPresenterTests
 
         device.Set.ShouldBe(
         [
-            "VerticalSync True", "QueueMode 2", "Phong False", "DrawMonitors False", "DisableBloom True", "ForceToneMapScale 1.5", "DrawHud False",
+            "VerticalSync True", "QueueMode 2", "Phong False", "DrawMonitors False", "DisableBloom True", "ForceToneMapScale 1.5", "ShaderSrgb 1", "DrawHud False",
             "specular off", "fullbright 2",
             "Draw3dSky 0", "DetailDistance 100", "DetailFadeWidth 50",
         ]);
