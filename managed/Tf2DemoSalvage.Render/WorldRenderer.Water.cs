@@ -787,9 +787,38 @@ internal sealed unsafe partial class WorldRenderer
             return true;
         }
 
+        if (!DrawWaterPasses(context, water, batch.MaterialIndex, batch.Category, batch.VertexCount, batch.FirstVertex))
+        {
+            // The opaque loop's draw takes the water raster and hands the two-sided one back after it (B657 review).
+            return false;
+        }
+
+        // Hand the world's two-sided raster back to the next batch.
+        context.RSSetState(Raster(_bothSides));
+
+        return true;
+    }
+
+    /// <summary>
+    /// The <c>Water</c> shader's <c>SHADER_DRAW</c> on one run (<c>water.cpp:534-584</c>), for the world's water surface
+    /// and a brush entity's water face alike: the shader has no input saying which it is drawing (B659).
+    /// </summary>
+    /// <param name="context">The context, with the run's vertices bound.</param>
+    /// <param name="water">The material's water parameters.</param>
+    /// <param name="material">The material index.</param>
+    /// <param name="category">The run's category.</param>
+    /// <param name="vertexCount">Vertices in the run.</param>
+    /// <param name="firstVertex">Where it starts.</param>
+    /// <returns>
+    /// True when a pass drew, the pixel shader and the view's water constants handed back; false for the Plain fallback,
+    /// with only the water raster set, for the caller's own untextured draw (Valve's bare <c>Draw()</c>).
+    /// </returns>
+    private bool DrawWaterPasses(
+        ComPtr<ID3D11DeviceContext> context, MapWater water, int material, SurfaceCategory category, int vertexCount,
+        int firstVertex)
+    {
         (_, bool refraction, bool forceCheap) = Combos(water);
-        ComPtr<ID3D11ShaderResourceView> cube =
-            batch.MaterialIndex < _cubemaps.Count ? _cubemaps[batch.MaterialIndex] : default;
+        ComPtr<ID3D11ShaderResourceView> cube = material < _cubemaps.Count ? _cubemaps[material] : default;
 
         WaterPass passes = WaterShader.Pass(
             refraction, water.View.ReflectTexture, cube.Handle is not null, forceCheap,
@@ -799,19 +828,18 @@ internal sealed unsafe partial class WorldRenderer
 
         if (passes == WaterPass.Plain)
         {
-            // Valve's bare Draw() still runs under the Water shader's shadow state, culling included (water.cpp:579-584):
-            // the opaque loop's draw takes this raster and hands the two-sided one back after it (B657 review).
+            // Valve's bare Draw() still runs under the Water shader's shadow state, culling included (water.cpp:579-584).
             WaterDraws = (expensive, cheap, plain + 1);
-            context.RSSetState(WaterRaster(batch.MaterialIndex));
+            context.RSSetState(WaterRaster(material));
             return false;
         }
 
-        SetMaterial(context, batch.MaterialIndex, batch.Category);
-        WriteWater(context, water, batch.MaterialIndex);
+        SetMaterial(context, material, category);
+        WriteWater(context, water, material);
 
         // BindTexture( NORMALMAP, BUMPFRAME ), BUMPFRAME being the AnimatedTexture proxy's output.
         ComPtr<ID3D11ShaderResourceView> normal =
-            _waterNormals.TryGetValue(batch.MaterialIndex, out List<ComPtr<ID3D11ShaderResourceView>>? frames)
+            _waterNormals.TryGetValue(material, out List<ComPtr<ID3D11ShaderResourceView>>? frames)
                 ? frames[water.NormalFrameAt(Seconds, frames.Count)]
                 : _flatWhite;
 
@@ -820,12 +848,12 @@ internal sealed unsafe partial class WorldRenderer
         context.PSSetShaderResources(12, 1, ref _refractionView);
         context.PSSetShaderResources(13, 1, ref _reflectionView);
 
-        context.RSSetState(WaterRaster(batch.MaterialIndex));
+        context.RSSetState(WaterRaster(material));
 
         if ((passes & WaterPass.ReflectionRefraction) != 0)
         {
             context.PSSetShader(_waterShader, ref Unsafe.NullRef<ComPtr<ID3D11ClassInstance>>(), 0);
-            SubmitCounters.Draw(); context.Draw((uint)batch.VertexCount, (uint)batch.FirstVertex);
+            SubmitCounters.Draw(); context.Draw((uint)vertexCount, (uint)firstVertex);
             expensive++;
         }
 
@@ -840,15 +868,14 @@ internal sealed unsafe partial class WorldRenderer
             }
 
             context.PSSetShader(_cheapWaterShader, ref Unsafe.NullRef<ComPtr<ID3D11ClassInstance>>(), 0);
-            SubmitCounters.Draw(); context.Draw((uint)batch.VertexCount, (uint)batch.FirstVertex);
+            SubmitCounters.Draw(); context.Draw((uint)vertexCount, (uint)firstVertex);
             ResetBlend(context);
             cheap++;
         }
 
         WaterDraws = (expensive, cheap, plain);
 
-        // Hand the world shader, its two-sided raster and the view's constants back to the next batch.
-        context.RSSetState(Raster(_bothSides));
+        // Hand the shader and the view's constants back to the next run.
         context.PSSetShader(_pixelShader, ref Unsafe.NullRef<ComPtr<ID3D11ClassInstance>>(), 0);
         WriteWater(context, null, -1);
 

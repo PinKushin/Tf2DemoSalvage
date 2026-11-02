@@ -7920,6 +7920,24 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
 
             kept++;
 
+            // **A brush entity's water face draws with the Water shader, as any other surface of its model does** (B659).
+            // R_DrawBrushModel batches a model's surfaces by their own material, testing no water flag (engine.dll
+            // 0x1800ddfa0, 0x1800dabb0), and binds each batch's material to draw it (0x1800db920, 0x1800dcaa0); water.cpp
+            // reads only its parameters, so the face samples _rt_WaterRefraction/_rt_WaterReflection as they stand. No
+            // DF_RENDER_WATER gate: that is the world's sort group, and a renderable draws whenever entities do. The Plain
+            // fallback falls through under the water raster to the ordinary draw, its untextured white.
+            if (material >= 0 && material < _waters.Count && _waters[material] is { } water)
+            {
+                int waterVertices = ModelVertexClamp.Apply(batch.VertexCount, ModelVertexCap);
+
+                if (!ModelVertexClamp.Suppresses(ModelVertexCap) &&
+                    DrawWaterPasses(context, water, material, batch.Category, waterVertices, batch.FirstVertex))
+                {
+                    drawn += waterVertices;
+                    continue;
+                }
+            }
+
             // **UpdateRefractTexture() before the renderable, as DrawTranslucentRenderables does per renderable**
             // (`viewrender.cpp:4609-4635`, B506). The copy rebinds the world pipeline, so this model's own vertex
             // streams go back on after it.
@@ -7965,11 +7983,13 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             context.OMSetBlendState(blending, blendFactor, 0xFFFFFFFF);
 
 
+            // Plain white for a shader that wants no texture, the chequer only for a missing one, as the world draws (B62).
+            ComPtr<ID3D11ShaderResourceView> absent = _untextured.Contains(material) ? _flatWhite : _white;
             ComPtr<ID3D11ShaderResourceView> texture =
                 material >= 0 && material < _textures.Count &&
                 _textures[material].Handle is not null
                     ? _textures[material]
-                    : _white;
+                    : absent;
 
             // **The material's second texture, where it has one.** Binding the base to both slots
             // was right while the only combine was a vertex-alpha mix, since mixing a texture with

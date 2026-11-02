@@ -80,6 +80,39 @@ refraction texel already matched TF2 (42 30 13 against 41 31 10). The material's
 surface 92 100 79, which is the beneath's `$fogcolor`, not 2fort's 51 43 13. With back faces culled, the surface
 reads 42 31 11. The numbers and the open under-water gap are in `docs/RISKS.md` B657.
 
+## Water on a brush entity is just a surface of its model (B659): read in disassembly
+
+**A water material on a `func_brush` or `func_water_analog` gets no water view and no water rule of its own.** The SDK
+side hands a brush entity to `render->DrawBrushModelEx` (`c_baseentity.cpp:1959`, `:1152`). `DetermineWaterRenderInfo`
+(`viewrender.cpp:2488`) builds the reflection and refraction views from the eye's WORLD fog volume, and nothing else
+does, except `func_reflective_glass`.
+
+In engine.dll, `R_DrawBrushModel` (`0x1800df3d0`) picks one of three paths:
+- The opaque batches, `0x1800db920`. Its batch builder `0x1800ddfa0` keeps every surface of the model whose flag bit
+  `0x20` is clear, sorts them by sort id, and batches them by material and lightmap page.
+- The translucent walk, `0x1800dd600` to `0x1800dabb0` to `0x1800dcaa0`. It takes the model's nodes back to front and
+  keeps the surfaces with `0x20` set that face the eye (bit `0x40` against the side, or `0x200`).
+- An installed `IBrushRenderer` per surface, `0x1800df720` to `0x1800e13e0`.
+
+The bit uses are disassembly. Their names (`SURFDRAW_TRANS`, `_PLANEBACK`, `_NOCULL`) come from the unpublished
+`gl_model_private.h` and are *interpolated*.
+
+**None of the three tests a water or warp flag**, and both drawing paths bind each batch's own material. So the
+`Water` shader runs on the face. It reads only its parameters (`water.cpp:534-584`) and samples
+`_rt_WaterRefraction` and `_rt_WaterReflection` as they stand, filled this frame only by the world water's views.
+
+The third path cannot be reached in TF2. Its global is written only by a bare setter (`0x1800e0390`), which is
+`InstallBrushSurfaceRenderer`. clangd finds no caller of that in the SDK's client. As a control,
+`DrawBrushModelEx` on the same line shape finds three.
+
+The opaque path also front-face tests each surface in software (`dot - dist < -0.01` skips it) before the
+hardware cull.
+
+**What this leaves unknowable from here:** a map with brush water and no world water samples targets created once at client start
+(`baseclientrendertargets.cpp:17,28`). Nothing in the SDK clears them on a map load, and whether the closed engine
+does is *unread*. They hold whatever an earlier map's views or
+the driver left, which depends on the session, not the frame. See `docs/RISKS.md` B662.
+
 ## The fog the water views draw under — read in disassembly
 
 `IVRenderView::SetFogVolumeState` is vtable slot 30 of the object `VEngineRenderView014` registers (vtable

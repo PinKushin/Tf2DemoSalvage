@@ -40251,6 +40251,39 @@ It is tested red-first. It names which thread waited and where the draw had got 
 **Reopen if** the `queue stall` line ever appears in a viewer log, or if this test's hang rate on the branch, measured
 the same way, exceeds the baseline's.
 
+## B663 — brush-entity water drawn inside a water view samples the target that view is drawing into (2026-11-02) — OPEN, unread
+
+**Read:** the refraction view always draws entities (`viewrender.cpp:6041`). The reflection view does with
+`$reflectentities` (`:5985`). Brush entities are among those entities, and their water faces bind
+`_rt_WaterRefraction` or `_rt_WaterReflection` (B659). So a brush water face inside the refraction view samples the
+target being rendered. **What D3D9 returns then is *unread*.** A read of a bound render target is undefined in the API,
+and shaderapi's handling is not read.
+
+**Ours:**
+- Above water, `PSSetShaderResources` on a resource bound as the output is nulled by the D3D11 runtime, so the
+  face samples zeros.
+- The under-water refraction view draws into the frame and is copied out after (`viewrender.cpp:6203-6248`), so there
+  the face samples the previous frame's target.
+
+Neither case is a parity claim. Filed only, from B659.
+
+## B662 — water that samples a target no view wrote reads zeros here; the engine's content is unreadable (2026-11-02) — OPEN, unread
+
+**When:** a water face draws while no water view has run since our renderer started:
+- brush-entity water on a map whose world water never got views (B659);
+- world water that is not the eye's fog volume, before any view ran.
+
+**Ours:**
+- `DrawWaterPasses` binds `_refractionView`/`_reflectionView` without `EnsureWaterTargets`, so an uncreated target
+  binds null and samples (0, 0, 0, 0).
+- `WaterTarget`'s comment says "opaque black with alpha one". That holds only once a target exists.
+- Once created, our targets persist across frames and map loads, as the engine's do.
+
+**Engine:** the targets are created once at client start (`baseclientrendertargets.cpp:17,28`). Nothing in the SDK
+clears them. Whether the closed engine does on a map load is *unread*. So what an unwritten-this-session target holds
+depends on earlier maps and the driver, not on the frame: **unreadable from the SDK, and not modelled.** Fixing the
+null bind changes world water too, so it is filed, not fixed.
+
 ## B661 — an empty `$underwateroverlay ""` is no overlay here and a lookup of "" in the engine (2026-11-02) — OPEN, unfixed
 
 **Read:** `CUnderWaterView::Setup` (`viewrender.cpp:6118-6125`) takes the variable when `IsDefined()`. Then the only
@@ -40286,7 +40319,35 @@ overlay, and only the `Refract` case matches:
 **Unreached by stock content, per the review, not re-measured here:** stock under-water overlays are all `Refract`.
 A custom map's could reach it. Filed only.
 
-## B659 — water on a brush ENTITY is drawn by the model path, without the Water shader (2026-11-02) — OPEN, unfixed
+## B659 — water on a brush ENTITY is drawn by the model path, without the Water shader (2026-11-02) — FIXED on `fix/b659-brush-entity-water` (not merged)
+
+**Read** (disassembly; the reasoning in `docs/findings/71-the-water-views.md`, "Water on a brush entity is just a
+surface of its model"):
+- `R_DrawBrushModel`'s batch builders (`0x1800ddfa0`, `0x1800dabb0`) split a model's surfaces on bit `0x20` alone,
+  translucent or not, and test no water flag.
+- Both draws (`0x1800db920`, `0x1800dcaa0`) bind each batch's own material.
+- The per-surface `IBrushRenderer` path (`0x1800df720`, `0x1800e13e0`) is unreachable in TF2: no SDK client caller
+  of `InstallBrushSurfaceRenderer` (clangd, with a control).
+
+So the face runs the `Water` shader. It samples the targets the WORLD water's views filled
+(`DetermineWaterRenderInfo`, `viewrender.cpp:2488`, reads the eye's world fog volume only). Its culling is the
+shader's, plus the opaque path's software front-face test (`dot - dist < -0.01`).
+
+**Fixed:** `WorldRenderer.DrawModel` routes a batch whose material is `Water` through `DrawWaterPasses`. That is the
+`Water` shader's passes, now shared with the world's `WaterBatch`. It has no `DF_RENDER_WATER` gate, which is the
+world sort group's rule and not a renderable's. The Plain fallback draws untextured white under the water raster, as
+the world's does.
+
+**Test:** `BrushEntityWaterConformanceTests`, synthetic (D38):
+- The brush face over a floor draws the world water face's pixel: (79, 38, 5) for both.
+- The brush face follows the floor's colour through the refraction target.
+- Red before the fix: the brush face drew its base texture, (58, 58, 58) over a red floor and over a green one.
+
+**Not covered:** no corpus demo is on these maps (the corpus is competitive maps), so there is no corpus-level
+assertion. The before/after shots are the output-level check. Brush water inside a water view: **B663**. A target
+no view wrote: **B662**.
+
+**As filed:**
 
 **Measured** (probe `water-brush-ents`, all 239 installed maps, the map's pakfile then the game's archives, cubemap
 patches followed through `include`). A brush model past the world's whose faces carry a `Water` material:
