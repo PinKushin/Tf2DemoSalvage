@@ -40251,6 +40251,45 @@ It is tested red-first. It names which thread waited and where the draw had got 
 **Reopen if** the `queue stall` line ever appears in a viewer log, or if this test's hang rate on the branch, measured
 the same way, exceeds the baseline's.
 
+## B657 — ctf_2fort's water is grey-green in ours and brown in TF2, 20 to 50 levels apart (2026-11-02) — OPEN, unexplained
+
+**Measured** (live pair, `docs/measurements/2026-11-02-fog-open-items-plan.md` §2; images `D:/measure-f12/fog-open/`):
+`ctf_2fort`, listen server, `spec_goto` cameras from the map's water cubemap origin (`c-294_29_-127`), `mat_hdr_level
+2`, `mat_force_tonemap_scale 1`, `mat_disable_bloom 1` on both sides, 1280x720. Mean RGB of 20x20 boxes:
+
+| camera | box | TF2 | ours |
+|---|---|---|---|
+| A, above the water | surface near (600,560) | 41 31 10 | 61 61 44 |
+| A | surface mid (400,380) | 87 65 38 | 112 90 60 |
+| B, under it | far fog (560,280) | 57 71 68 | 80 84 67 |
+| C, the shore | water (600,420) | 43 32 12 | 64 65 48 |
+
+TF2's surface is brown, near `$fogcolor {51 43 13}`, with the floor showing through; ours is a flat grey-green over the
+whole surface. The B653 water changes move these pixels by at most 7 levels, so this is not them. Not diagnosed. First
+suspects, *unread*: the reflection (`$envmap env_cubemap`, `$reflecttint`, fresnel) dominating where TF2's refraction
+does, and the refraction view's height fog toward `$fogcolor`. The water's normal map animates, so single pixels are not
+comparable; the boxes are.
+
+## B656 — `r_shader_srgb 1` is modelled for the height-fog colour only (2026-11-02) — OPEN, low
+
+**Read** (`shaderapidx9.dll`): the ConVar (`0x1800a16e0`, default "0") is read by `0x180004bc0`
+(`NeedsShaderSRGBConversion`, hardware-config vtable `+0x1f0`: 0 → 0, 1 → 1, else a caps bit `+0x5c0` bit 6) and by
+`0x1800057c0` (vtable `+0x1f8`: true at 0 when caps `+0x5c0` bit 6 is set), which nothing in shaderapi calls. The `+0x1f0`
+query has three callers:
+- `0x180025a50`, the c29 upload: height fog `pow 2.2` at 1. **Modelled** (`FogConstants.HeightFogChannel`).
+- `0x180019970`, the sRGB-write setter: at 1 with sRGB write on, binds the shader-sRGB lookup texture to sampler 15.
+- `0x180031db0`, the shadow sRGB-write applier: at 1, with the caps bit `+0x1c0`, turns hardware
+  `D3DRS_SRGBWRITEENABLE` off, so the shader encodes through that lookup. **Not modelled:** ours always encodes in
+  hardware. The `+0x1f8` consumers outside shaderapi (stdshader, materialsystem) are unread. -1's caps bit is taken as
+  hardware sRGB (*interpolated*). Low: the default is 0 and no shipped config sets it.
+
+## B655 — the main view's radial-vis fog clear is not modelled (2026-11-02) — OPEN, low
+
+**Read:** `CViewRender::ViewDrawScene` clears colour to `SetClearColorToFogColor` (scaled) when no 3D sky was drawn, no
+skybox is visible and radial vis clipped the far plane (`viewrender.cpp:1417-1424`). Ours has no radial vis
+(`VIEW_SETUP_VIS_EX_RETURN_FLAGS_USES_RADIAL_VIS`, a map's `env_fog_controller` far Z), so it never takes this clear.
+Who it reaches: a map whose fog controller sets a far Z, from a camera that sees no sky. Unmeasured.
+
 ## B654 — a static prop's flags-7 lights are ranked once; the engine appends the draw's to the static four without ranking again (2026-11-02) — OPEN, low
 
 **Read (`engine.dll`).** A decal-holding colour-mesh prop's decal lights are the record's lights at `record + 0x88`, then
@@ -40285,12 +40324,30 @@ the controller's colour predicts (about 1.2). The plan doc holds the numbers, im
   fixed, red first. So the water's own fog colour is `pow 2.2`, and the height fog under it is the sRGB decode: **that
   seam is Valve's, kept**.
 - **The water clear colour** is now `SetClearColorToFogColor`'s arithmetic (`viewrender.cpp:754-768`): the byte times
-  `pow( scale, 1/2.2 )`, truncated. It is cleared as that stored byte. **Still OPEN:** whether shaderapi's clear runs
-  with sRGB writes on. D3D9 honours `D3DRS_SRGBWRITEENABLE` on a clear (Microsoft, "Gamma (Direct3D 9)"), which would
-  treat the bytes as linear and brighten them. Which state is current at `ClearBuffers` was not read.
-- `SrgbDecode` takes `0x18003ddf0`'s constants bit for bit, a textbook curve with no table. The LDR side of the upload
-  and the range branch's gate were not read. `r_shader_srgb 1` is not modelled. `LinearGrey` is written from the
-  decode.
+  `pow( scale, 1/2.2 )`, truncated. It is cleared as that stored byte.
+- `SrgbDecode` takes `0x18003ddf0`'s constants bit for bit, a textbook curve with no table.
+
+**Open items settled (branch `fix/fog-open-items`, 2026-11-02; plan `docs/measurements/2026-11-02-fog-open-items-plan.md`):**
+- **The clear stores the bytes** (*disassembly*). shaderapi's `ClearBuffers` (`0x180014bd0`) sets
+  `D3DRS_SRGBWRITEENABLE` to 0 around `Clear` whenever the current shadow state has it on and restores it after
+  (`0x180031db0`); `ClearColor4ub` (`0x180014f90`) packs the bytes unconverted. Ours was right; now held on a real target
+  for all 256 bytes (`WaterClearConformanceTests`). The sky view clears black, the same under either state.
+- **The clear's byte**, read in `client.dll` x64 (`0x18034d560`): `(float)byte · pow( s, 1.0/(double)2.2f )`,
+  CVTTSS2SI, low byte stored, so above 255 it WRAPS (200 at scale 4 stores 119); only under integer HDR. `GetFogColor`'s
+  byte is `FogColor3fv`'s truncation (`materialsystem.dll` `0x18002bf40`). Ours clamped and rounded; fixed.
+- **Which clears scale:** only `SetClearColorToFogColor`'s (refraction `:6061`, intersection `:6097`). The under-water
+  refraction clear (`:6228`) is `GetFogColor` unscaled; ours scaled it. Fixed. The eye-in-volume simple view clears to
+  the bottom material's fog unscaled after the 3D sky (`:5772-5780`); ours did not clear. Added. The radial-vis main view
+  clear (`:1423`) is not modelled: **B655**.
+- **c29 starts from that truncated byte** (`0x180014200` reads it back as byte · 1/255), so the range and height fog
+  colours are quantised before the curve.
+- **`r_shader_srgb`** (ConVar `0x1800a16e0`, default "0") is modelled for the height-fog colour and its modulating grey,
+  the grey now uploaded in `heightFogColour.w`. The rest of what it switches is filed as **B656**.
+- **LDR:** the c29 upload has no HDR branch but the tone-map multiply (integer HDR only); the clear has none. Ours
+  matches (`LinearLightScale` is 1 outside integer HDR; the clear's scale is gated on `HdrType`). The range gate's ConVar
+  is `r_pixelfog` (default 1).
+- **A real frame with water** (ctf_2fort, against TF2): the B653 water changes move the water by up to 7 levels, but ours
+  is 20-50 levels off TF2 for another reason: **B657**.
 
 **As filed:**
 
@@ -40675,6 +40732,12 @@ unscaled by its pixels. **Review batch (`fix/b637-review-batch`):** the height g
 the modulate blends stopped writing alpha, as Valve's do (`DecalModulate_dx9.cpp:70-71`, `modulate_dx9.cpp:211`).
 **Moved to B653:** our water fog colour and the scene fog colour under sRGB write took pow 2.2 where shaderapi's
 default path takes the sRGB curve (lit materials).
+**Fog-open-items (`fix/fog-open-items`, 2026-11-02):** where the grey comes from is now read, not inferred. shaderapi's
+fog-mode applier `0x180014200` picks c29's raw bytes by shader fog mode: 1 and 3 give `0x80`, 2 gives 0, 4 the scene
+fog bytes, anything else `0xFF`, and hands the upload byte · 1/255. The height-fog grey follows `r_shader_srgb` like the
+colour, so it moved from the shader constant `LinearGrey` into the water view's `heightFogColour.w`
+(`WorldRenderer.PackHeightFog`); the same value at the default 0 to within a float step (*arithmetic*, not checked bit
+for bit).
 
 **As filed:**
 
