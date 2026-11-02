@@ -123,6 +123,8 @@ water changes) and `e82e081d` (after), each from `git archive` into a scratch fo
 - **Verdict:** inconclusive for the B653 water change. Ours is 20-50 levels off TF2 on every water pixel, grey-green
   where TF2 is brown, for a reason that is not these changes (B657). The live pair cannot judge a 1-7 level change under
   that. The water's normal map animates (TF2 at its own time, ours at tick 400), so the boxes are compared, not pixels.
+- **Later (B657):** the 20-50 levels were the surface's downward face, `water_2fort_beneath`, drawn from above. The
+  cause, the fix and the after numbers on these cameras are in `docs/RISKS.md` B657.
 
 ### 3. `r_shader_srgb` (*disassembly*)
 

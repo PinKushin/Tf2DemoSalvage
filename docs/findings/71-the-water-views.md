@@ -61,6 +61,25 @@ the shader declares**; `BLURRY_REFRACT` reads `$blurrefract`. Valve's own map, i
 `WaterViewRenderTests`: the water drawn over a red and a green floor five units down reads (205,0,0) and (0,107,0);
 with the refraction view removed, (0,0,0) both times.
 
+## A surface is two faces, and the cull picks one (B657) — measured, then read
+
+**ctf_2fort's water drew grey-green where TF2's is brown, 20-50 levels off on every pixel**, against a live pair at a
+pinned exposure. The suspects filed with it were the reflection, the cubemap and the refraction's height fog. Every
+one was wrong. The material's constants were right too, but they belonged to the wrong material.
+
+vbsp builds a water surface as **two coplanar faces**: the upward one with the surface material, and the downward one
+re-textured with that material's `$bottommaterial` (`utils/vbsp/faces.cpp:1255-1289`, `AssignBottomWaterMaterialToFace`).
+The engine's world walk does not separate them: a surface in a water leaf skips the plane-side test that culls every
+other node surface (engine.dll `0x1800e0600`). **The hardware cull does it.** The `Water` shader leaves culling on
+everywhere but the editor (`water.cpp:393-397`, *"In edit mode, use nocull"*). That culling is otherwise on is
+*interpolated* from that line, because shaderlib is unpublished. The live pair confirms it. This renderer drew every
+world batch two-sided, so the two faces z-fought, and 2fort's `water_2fort_beneath` drew first and won.
+
+**The instrument that found it** was a scratch build that output one quantity from the water shader at a time. The raw
+refraction texel already matched TF2 (42 30 13 against 41 31 10). The material's own fog colour painted the whole
+surface 92 100 79, which is the beneath's `$fogcolor`, not 2fort's 51 43 13. With back faces culled, the surface
+reads 42 31 11. The numbers and the open under-water gap are in `docs/RISKS.md` B657.
+
 ## The fog the water views draw under — read in disassembly
 
 `IVRenderView::SetFogVolumeState` is vtable slot 30 of the object `VEngineRenderView014` registers (vtable
