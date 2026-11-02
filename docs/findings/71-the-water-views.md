@@ -101,9 +101,10 @@ The bit uses are disassembly. Their names (`SURFDRAW_TRANS`, `_PLANEBACK`, `_NOC
 `Water` shader runs on the face. It reads only its parameters (`water.cpp:534-584`) and samples
 `_rt_WaterRefraction` and `_rt_WaterReflection` as they stand, filled this frame only by the world water's views.
 
-The third path cannot be reached in TF2. Its global is written only by a bare setter (`0x1800e0390`), which is
-`InstallBrushSurfaceRenderer`. clangd finds no caller of that in the SDK's client. As a control,
-`DrawBrushModelEx` on the same line shape finds three.
+The third path runs only while an `IBrushRenderer` is installed. Its global is written only by a bare setter
+(`0x1800e0390`). That setter is reached only through a thunk in the `VEngineRenderView014` vtable (slot 31,
+`InstallBrushSurfaceRenderer`), so the engine never calls it itself. clangd finds no caller of it in the SDK's
+client; as a control, `DrawBrushModelEx` on the same line shape finds three. The live `client.dll` is not checked.
 
 The opaque path also front-face tests each surface in software (`dot - dist < -0.01` skips it) before the
 hardware cull.

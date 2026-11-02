@@ -40304,9 +40304,10 @@ null bind changes world water too, so it is filed, not fixed.
   not the case asked about.
 - With `r_WaterDrawRefraction 0`, the vat still draws a uniform teal, about `$fogcolor` {26 85 80}
   (`D:/measure-f12/b659/tf2-camB-refraction-off.png`). That target had been written earlier in the session.
-- pd_farmageddon, the one map with brush water and no world water, has no client `func_water_analog` (`ent_dump`:
-  "no such entity"; `cl_find_ent water` finds only `C_WaterLODControl`). So its brush water is not drawn at all,
-  and there is nothing to capture.
+- pd_farmageddon is the one map with brush water and no world water. Its entity lump places a `func_water_analog`
+  on `*145`. Live, `ent_dump func_water_analog` said "no such entity". **That absence has no control**: no
+  known-present class was dumped beside it, and `cl_find_ent water` searches client class names, which a
+  `CFuncMoveLinear` need not contain. So whether TF2 draws `*145` at all is *unverified*, and nothing was captured.
 
 ## B661 — an empty `$underwateroverlay ""` is no overlay here and a lookup of "" in the engine (2026-11-02) — OPEN, unfixed
 
@@ -40350,8 +40351,12 @@ surface of its model"):
 - `R_DrawBrushModel`'s batch builders (`0x1800ddfa0`, `0x1800dabb0`) split a model's surfaces on bit `0x20` alone,
   translucent or not, and test no water flag.
 - Both draws (`0x1800db920`, `0x1800dcaa0`) bind each batch's own material.
-- The per-surface `IBrushRenderer` path (`0x1800df720`, `0x1800e13e0`) is unreachable in TF2: no SDK client caller
-  of `InstallBrushSurfaceRenderer` (clangd, with a control).
+- The per-surface `IBrushRenderer` path (`0x1800df720`, `0x1800e13e0`) runs only while a renderer is installed.
+  Its global is set by `0x1800e0390`, which is reached only through a thunk (`0x18012e9e0`) in the
+  `VEngineRenderView014` vtable (data reference `0x180394470`, slot 31, `InstallBrushSurfaceRenderer`). So the engine
+  never installs one itself [disassembly].
+- No SDK client code calls it (clangd, with `DrawBrushModelEx` as the control). The live `client.dll` is not
+  checked, so "unreachable in TF2" holds for SDK source only.
 
 So the face runs the `Water` shader. It samples the targets the WORLD water's views filled
 (`DetermineWaterRenderInfo`, `viewrender.cpp:2488`, reads the eye's world fog volume only). Its culling is the
@@ -40379,6 +40384,12 @@ the world's does.
 - The after shot is the Water shader on a null refraction target, because our viewer ran no water view there
   (**B664**). Its value is right for that input and wrong against TF2 until B664 is fixed.
 - The vat's walls are grey in ours and green in TF2. That is unrelated to the water and not looked at.
+- **Which face drew is read, not seen.** `TF2VIEW_PICK "640 400"` names entity `*4` and not the face. From above,
+  the top face (`water_toxic`) should be the one that survives the cull. Reasons:
+  - `BrushModels.Append` fans a face 0, i, i+1, as `MapWorld` does (`MapWorld.cs:416-418`).
+  - `_waterCull` is the convention B657's test pinned on the world's faces.
+  - Both water materials sample a null target here, so the picture cannot tell them apart.
+- **Untested:** the model path's Plain fallback, and the absence of a `DF_RENDER_WATER` gate on brush water.
 
 **Not covered:** no corpus demo is on these maps (the corpus is competitive maps), so there is no corpus-level
 assertion. The before/after shots are the output-level check. Brush water inside a water view: **B663**. A target
