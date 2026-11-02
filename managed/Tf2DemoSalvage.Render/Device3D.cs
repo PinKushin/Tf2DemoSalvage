@@ -2308,26 +2308,28 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
     private IReadOnlyDictionary<string, ScreenOverlayMaterial> _screenOverlays = new Dictionary<string, ScreenOverlayMaterial>();
     private string[] _materialNames = [];
 
-    /// <summary>The last water plan said, so the line fires on a change rather than every frame.</summary>
-    private string? _lastWaterPlan;
-
     /// <summary>
     /// <c>r_debugcheapwater</c>'s question, answered with the values the plan USED (B664): the fog volume the walk found,
-    /// the distance and cheap end <c>Determine</c> compared, and its answer.
+    /// the distance and cheap end <c>Determine</c> compared, and its answer. Said when the half's plan changes; the
+    /// distance is printed but not compared, so a moving camera inside one leaf does not log every frame.
     /// </summary>
-    private void ReportWaterPlan(FogVolumeInfo fog, int material, WaterRenderInfo info)
+    private void ReportWaterPlan(ViewHalf half, FogVolumeInfo fog, int material, float cheapEnd, WaterRenderInfo info)
     {
-        string line = string.Create(
-            System.Globalization.CultureInfo.InvariantCulture,
-            $"water plan: volume {fog.Volume} leaf {fog.Leaf} eye in {fog.EyeInFogVolume} dist to water {fog.DistanceToWater} " +
-            $"cheap end {_waterLod.Current.End} material {(material >= 0 && material < _materialNames.Length ? _materialNames[material] : "-")} " +
-            $"cheap {info.CheapWater} refract {info.Refract} reflect {info.Reflect}");
+        (int, int, bool, int, WaterRenderInfo) plan = (fog.Volume, fog.Leaf, fog.EyeInFogVolume, material, info);
 
-        if (line != _lastWaterPlan)
+        if (half.LastWaterPlan is { } last && last.Equals(plan))
         {
-            _lastWaterPlan = line;
-            _render.LogInformation("{Message}", line);
+            return;
         }
+
+        half.LastWaterPlan = plan;
+        _render.LogInformation(
+            "{Message}",
+            string.Create(
+                System.Globalization.CultureInfo.InvariantCulture,
+                $"water plan: volume {fog.Volume} leaf {fog.Leaf} eye in {fog.EyeInFogVolume} dist to water {fog.DistanceToWater} " +
+                $"cheap end {cheapEnd} material {(material >= 0 && material < _materialNames.Length ? _materialNames[material] : "-")} " +
+                $"cheap {info.CheapWater} refract {info.Refract} reflect {info.Reflect}"));
     }
 
     /// <summary>
@@ -2357,10 +2359,10 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
 
         (int material, MapWater? water) = WaterViews.FogVolumeWater(fog, _water.Volumes, _waters, _materialNames);
 
-        WaterRenderInfo info = WaterRenderInfo.Determine(
-            water?.View, fog.DistanceToWater, _waterLod.Current.End, WaterConVars.Defaults);
+        float cheapEnd = _waterLod.Current.End;
+        WaterRenderInfo info = WaterRenderInfo.Determine(water?.View, fog.DistanceToWater, cheapEnd, WaterConVars.Defaults);
 
-        ReportWaterPlan(fog, material, info);
+        ReportWaterPlan(half, fog, material, cheapEnd, info);
 
         // DoesViewPlaneIntersectWater (viewrender.cpp:2741) through DoesBoxIntersectWaterVolume (engine.dll 0x18012ea20).
         bool crosses = WaterViews.ViewPlaneIntersectsWater(

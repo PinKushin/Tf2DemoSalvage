@@ -354,6 +354,9 @@ internal sealed unsafe partial class WorldRenderer
     private ComPtr<ID3D11Texture2D> _waterDepthTexture;
     private ComPtr<ID3D11DepthStencilView> _waterDepth;
 
+    /// <summary>The water target a view is drawing into right now, or <see cref="WaterViewTarget.BackBuffer"/> for none (B663).</summary>
+    private WaterViewTarget _drawingInto = WaterViewTarget.BackBuffer;
+
     /// <summary>What the last <see cref="SetCamera"/> was told besides the matrix, so a water view keeps the main view's switches.</summary>
     private (bool Colours, bool Specular, Fullbright Fullbright, DebugModes Debug, bool Phong) _cameraSwitches = (false, true, Fullbright.Off, default, true);
 
@@ -848,15 +851,25 @@ internal sealed unsafe partial class WorldRenderer
         // 0x18003cd60, "%s - Clearing"), so the shader samples alpha 1, a full fog, never an unbound zero.
         EnsureWaterTargets();
 
+        // **The target a water view is drawing into is bound as nothing** (B663): a brush entity's water face inside the
+        // refraction or reflection view would sample its own render target. The engine has no gate for it and what D3D9
+        // returns there is unread; D3D11 would null the input anyway, so it is nulled here explicitly, with no hazard.
+        ComPtr<ID3D11ShaderResourceView> refract = _drawingInto == WaterViewTarget.Refraction ? default : _refractionView;
+        ComPtr<ID3D11ShaderResourceView> reflect = _drawingInto == WaterViewTarget.Reflection ? default : _reflectionView;
+
         context.PSSetShaderResources(4, 1, ref normal);
         context.PSSetShaderResources(5, 1, ref cube);
-        context.PSSetShaderResources(12, 1, ref _refractionView);
-        context.PSSetShaderResources(13, 1, ref _reflectionView);
+        context.PSSetShaderResources(12, 1, ref refract);
+        context.PSSetShaderResources(13, 1, ref reflect);
 
         context.RSSetState(WaterRaster(material));
 
         if ((passes & WaterPass.ReflectionRefraction) != 0)
         {
+            // DrawReflectionRefraction's shadow state enables no blending (water.cpp:182-266), and a material's shadow state
+            // is set whole on bind: the expensive pass is opaque whatever the previous run left, a model's additive batch
+            // included.
+            ResetBlend(context);
             context.PSSetShader(_waterShader, ref Unsafe.NullRef<ComPtr<ID3D11ClassInstance>>(), 0);
             SubmitCounters.Draw(); context.Draw((uint)vertexCount, (uint)firstVertex);
             expensive++;
@@ -870,6 +883,11 @@ internal sealed unsafe partial class WorldRenderer
                 float* factor = stackalloc float[4] { 1f, 1f, 1f, 1f };
 
                 context.OMSetBlendState(_alphaBlend, factor, 0xFFFFFFFF);
+            }
+            else
+            {
+                // No bBlend, no blending in the cheap pass's shadow state (water.cpp:399-402).
+                ResetBlend(context);
             }
 
             context.PSSetShader(_cheapWaterShader, ref Unsafe.NullRef<ComPtr<ID3D11ClassInstance>>(), 0);
@@ -916,7 +934,7 @@ internal sealed unsafe partial class WorldRenderer
                 continue;
             }
 
-            EnsureWaterTargets();
+            EnsureWaterDepth();
 
             // **The under-water refraction renders into the FRAME and is copied out** (viewrender.cpp:6203-6248):
             // "Refraction renders into the back buffer ... It is then blitted out into the refraction target."
@@ -988,7 +1006,18 @@ internal sealed unsafe partial class WorldRenderer
                 frame.DrawSkybox?.Invoke(camera);
             }
 
-            ExecuteView(context, frame, view);
+            // The target this view draws into, which a water face inside it must not sample (B663). Through the frame,
+            // the refraction target is not the output, so it stays bound: last frame's copy, as the engine's would be.
+            _drawingInto = viaFrame ? WaterViewTarget.BackBuffer : target;
+
+            try
+            {
+                ExecuteView(context, frame, view);
+            }
+            finally
+            {
+                _drawingInto = WaterViewTarget.BackBuffer;
+            }
 
             if (viaFrame)
             {
@@ -1467,6 +1496,7 @@ internal sealed unsafe partial class WorldRenderer
         _waterDepthTexture = default;
     }
 
+    /// <summary>The two colour targets, the engine's own, created cleared on first ask (B662).</summary>
     private void EnsureWaterTargets()
     {
         if (_reflectionTarget.Handle is not null)
@@ -1476,6 +1506,17 @@ internal sealed unsafe partial class WorldRenderer
 
         (_reflectionTexture, _reflectionTarget, _reflectionView) = WaterTarget();
         (_refractionTexture, _refractionTarget, _refractionView) = WaterTarget();
+    }
+
+    /// <summary>The depth the water views draw with, which only a view needs, so a cheap-only frame never makes it.</summary>
+    private void EnsureWaterDepth()
+    {
+        EnsureWaterTargets();
+
+        if (_waterDepth.Handle is not null)
+        {
+            return;
+        }
 
         Texture2DDesc depth = new()
         {
@@ -1540,7 +1581,8 @@ internal sealed unsafe partial class WorldRenderer
 
         // **A target no view has drawn yet reads as opaque black with alpha one**, as the engine clears every new colour
         // render target: CTexture::ReconstructTexture's ClearColor4ub( 0, 0, 0, 255 ) and ClearBuffers (materialsystem.dll
-        // 0x18003cd60, "%s - Clearing"; disassembly, B662).
+        // 0x18003cd60, "%s - Clearing"; disassembly, B662). Cleared on the immediate context, which is the only one: this
+        // renderer creates no deferred context, so a call mid-draw lands in order with the draw that asked for it.
         float* black = stackalloc float[4] { 0f, 0f, 0f, 1f };
 
         ComPtr<ID3D11DeviceContext> immediate = default;
