@@ -69,8 +69,10 @@ public static class ModelMaterialShading
             : tint;
     }
 
-    /// <summary><c>GammaToLinear</c>, <c>mathlib/color_conversion.cpp:273-291</c>.</summary>
-    private static float GammaToLinear(float gamma)
+    /// <summary><c>GammaToLinear</c>, <c>mathlib/color_conversion.cpp:273-291</c>: 0 below 0, 1 from 0.95, else the byte table of <c>pow( i / 255, 2.2 )</c>.</summary>
+    /// <param name="gamma">A gamma channel.</param>
+    /// <returns>The linear channel, with no pass-through above 1.</returns>
+    public static float GammaToLinear(float gamma)
     {
         if (gamma < 0f)
         {

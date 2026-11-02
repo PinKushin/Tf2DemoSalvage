@@ -487,8 +487,33 @@ internal sealed unsafe partial class WorldRenderer
         WriteWater(context, null, -1);
     }
 
-    /// <summary><c>GammaToLinear</c>, as <c>SetPixelShaderConstantGammaToLinear</c> converts a colour parameter.</summary>
-    internal static float Linear(float gamma) => MathF.Pow(gamma, 2.2f);
+    /// <summary>
+    /// A material colour parameter as <c>CBaseVSShader::SetPixelShaderConstantGammaToLinear</c> converts it
+    /// (<c>BaseVSShader.cpp:146-165</c>): <c>x &gt; 1 ? x : GammaToLinear( x )</c>, mathlib's byte table of
+    /// <c>pow( i / 255, 2.2 )</c> with 1 from 0.95. Not shaderapi's fog upload, which is the sRGB decode (B653 review).
+    /// </summary>
+    internal static float Linear(float gamma) => ModelMaterialShading.ModulationToLinear(gamma);
+
+    /// <summary><c>$reflecttint</c>'s conversion: mathlib's <c>GammaToLinear</c> under integer HDR (<c>water.cpp:300-306</c>), else <see cref="Linear"/>.</summary>
+    internal static float ReflectTint(float gamma, bool integerHdr) =>
+        integerHdr ? ModelMaterialShading.GammaToLinear(gamma) : Linear(gamma);
+
+    /// <summary>
+    /// One channel of the water view's clear colour, as the linear value an sRGB view needs to store the engine's byte.
+    /// <c>SetClearColorToFogColor</c> (<c>viewrender.cpp:754-768</c>): the fog colour's byte times
+    /// <c>LinearToGammaFullRange( scale )</c>, truncated into an <c>unsigned char</c>, then <c>ClearColor4ub</c>.
+    /// Read as stored bytes; whether D3D9's clear ran with sRGB writes on is open (RISKS B653).
+    /// </summary>
+    /// <param name="gamma">The fog volume's colour channel, gamma 0..1, as <c>GetFogColor</c>'s byte over 255.</param>
+    /// <param name="scale">The tone-map scale under integer HDR, else 1.</param>
+    /// <returns>The value to clear with.</returns>
+    internal static float WaterClearColour(float gamma, float scale)
+    {
+        float stored = MathF.Round(Math.Clamp(gamma, 0f, 1f) * 255f);
+        float scaled = MathF.Floor(stored * MathF.Pow(scale, 1f / 2.2f));
+
+        return FogConstants.SrgbDecode(Math.Min(scaled, 255f) / 255f);
+    }
 
     /// <summary>Whether the draws that follow write the height fog factor to alpha — only fully opaque ones do.</summary>
     /// <param name="context">The context.</param>
@@ -542,9 +567,14 @@ internal sealed unsafe partial class WorldRenderer
             (float reflectScale, float overbright, _) = BspHdr.WaterScales(HdrType);
 
             Put(c, 12, Linear(water.RefractTint.Red), Linear(water.RefractTint.Green), Linear(water.RefractTint.Blue), 1f);
+            // Under integer HDR water.cpp converts the reflect tint itself, GammaToLinear( x ) · 4 with no pass-through above
+            // 1 (:300-306); otherwise SetPixelShaderConstantGammaToLinear (:311), which passes values above 1 through.
+            bool integerHdr = HdrType == HdrType.IntegerHdr;
+
             Put(
-                c, 16, Linear(water.ReflectTint.Red) * reflectScale, Linear(water.ReflectTint.Green) * reflectScale,
-                Linear(water.ReflectTint.Blue) * reflectScale, 1f);
+                c, 16, ReflectTint(water.ReflectTint.Red, integerHdr) * reflectScale,
+                ReflectTint(water.ReflectTint.Green, integerHdr) * reflectScale,
+                ReflectTint(water.ReflectTint.Blue, integerHdr) * reflectScale, 1f);
             Put(c, 20, water.ReflectAmount, water.ReflectAmount, water.RefractAmount, water.RefractAmount);
             Put(c, 24, Linear(water.FogColor.Red), Linear(water.FogColor.Green), Linear(water.FogColor.Blue), 1f);
             Put(c, 28, water.FogStart, water.FogEnd - water.FogStart, overbright, 0f);
@@ -759,9 +789,9 @@ internal sealed unsafe partial class WorldRenderer
             {
                 // SetClearColorToFogColor (viewrender.cpp:759-766): under HDR_TYPE_INTEGER the gamma bytes times
                 // LinearToGammaFullRange( scale ), which is the linear colour times the scale.
-                colour[0] = Linear(clearFog.Color.Red) * LinearLightScale;
-                colour[1] = Linear(clearFog.Color.Green) * LinearLightScale;
-                colour[2] = Linear(clearFog.Color.Blue) * LinearLightScale;
+                colour[0] = WaterClearColour(clearFog.Color.Red, LinearLightScale);
+                colour[1] = WaterClearColour(clearFog.Color.Green, LinearLightScale);
+                colour[2] = WaterClearColour(clearFog.Color.Blue, LinearLightScale);
             }
 
             if ((view.Clear & ViewClears.Color) != 0)

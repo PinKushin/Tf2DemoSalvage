@@ -160,8 +160,8 @@ public sealed unsafe class DetailSpriteRenderer : IDisposable
             }
 
             // FinalOutput( …, TONEMAP_SCALE_NONE ) with CalcPixelFogFactor: the range or radial fog the world's PixelFog
-            // runs, toward the fog colour by the squared factor. Interpolated: the fog colour is unscaled, as
-            // TONEMAP_SCALE_NONE scales nothing else.
+            // runs, toward the fog colour by the squared factor. TONEMAP_SCALE_NONE leaves the result unscaled, but the
+            // colour arrives already times the tone-map scale, as shaderapi uploads it (SetRefract; B653 review).
             if (refractFlags.w > 0.5f && refractFogColour.w > 0.5f)
             {
                 // Refract_vs20.fxc's worldPos_projPosZ: the projected z, carried from the vertex shader (the camera
@@ -295,19 +295,29 @@ public sealed unsafe class DetailSpriteRenderer : IDisposable
     /// <param name="tint">Its tint texture, uploaded through the sRGB curve; a null handle when it has none.</param>
     /// <param name="fog">The fog in force, or null for none.</param>
     /// <param name="eye">Where the camera is, for radial fog.</param>
+    /// <param name="toneMapScale">
+    /// The view's tone-map scale, folded into the fog colour as shaderapi folds it into c29 under integer HDR
+    /// (0x180025c98-0x180025cd7); Refract never disables that (refract_dx9_helper.cpp:213). B653 review.
+    /// </param>
     public void SetRefract(
         Tf2DemoSalvage.Scene.RefractMaterial? refract,
         ComPtr<ID3D11ShaderResourceView> normal = default,
         ComPtr<ID3D11ShaderResourceView> frame = default,
         ComPtr<ID3D11ShaderResourceView> tint = default,
         Tf2DemoSalvage.Core.Scene.SceneFog? fog = null,
-        System.Numerics.Vector3 eye = default)
+        System.Numerics.Vector3 eye = default,
+        float toneMapScale = 1f)
     {
         _refract = refract;
         _refractNormal = normal;
         _refractFrame = frame;
         _refractTint = tint;
         _refractFog = FogConstants.For(fog);
+
+        for (int channel = 0; channel < 3; channel++)
+        {
+            _refractFog[channel] *= toneMapScale;
+        }
         _refractEye = eye;
     }
 

@@ -81,6 +81,25 @@ public sealed class RefractTrailRenderTests
         Near(target.PixelAt(48, 32), fogged ? (255, 0, 0) : wall);
     }
 
+    /// <remarks>
+    /// **The fog colour carries the tone-map scale** (B653 review). shaderapi's c29 upload multiplies the colour by the
+    /// tone-map scale under integer HDR unless the shader called <c>DisableFogGammaCorrection( true )</c>
+    /// (<c>shaderapidx9.dll</c> <c>0x180025c98</c>-<c>0x180025cd7</c>). <c>Refract</c> does not; its shadow state is
+    /// <c>DefaultFog()</c> and <c>EnableSRGBWrite( true )</c> (<c>refract_dx9_helper.cpp:155</c>, <c>:213</c>). Its
+    /// <c>TONEMAP_SCALE_NONE</c> leaves the result unscaled, not the colour. So full red fog at a scale of 0.5 stores
+    /// encode( 1 · 0.5 ) = 188, not the unscaled 255.
+    /// </remarks>
+    [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
+    public void Render_ARefractStripInFullFogAtHalfToneMapScale_IsTheScaledFogColour()
+    {
+        using OffscreenTarget target = Skip.Unless(OffscreenTarget.TryCreate(Size, Size), "no Direct3D on this machine");
+
+        DrawFrameThenStrip(target, Refract(0f), (1f, 1f, 1f, 1f), 48, new SceneFog(0f, 0.25f, 1f, 0f, 0f, 1f), toneMapScale: 0.5f);
+
+        Near(target.PixelAt(48, 32), (SrgbTarget.Encode(0.5), 0, 0));
+    }
+
     private static void Near((int Red, int Green, int Blue) actual, (int Red, int Green, int Blue) expected)
     {
         Math.Abs(actual.Red - expected.Red).ShouldBeLessThanOrEqualTo(1, $"red {actual} against {expected}");
@@ -225,7 +244,8 @@ public sealed class RefractTrailRenderTests
         RefractMaterial refract,
         (float Red, float Green, float Blue, float Alpha) colour,
         int column,
-        SceneFog? fog = null)
+        SceneFog? fog = null,
+        float toneMapScale = 1f)
     {
         List<WorldVertex> wall =
         [
@@ -259,7 +279,8 @@ public sealed class RefractTrailRenderTests
                     Refract = refract,
                 }),
             Identity,
-            fog);
+            fog,
+            toneMapScale);
 
         return before;
     }

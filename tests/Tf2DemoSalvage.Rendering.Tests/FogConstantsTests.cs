@@ -64,6 +64,53 @@ public sealed class FogConstantsTests
         FogConstants.For(Process with { Radial = true })[3].ShouldBe(2f);
     }
 
+    /// <remarks>
+    /// **The knee is the binary's 0.04045** (<c>0x180082924</c> = <c>0x3D25AEE6</c>; B653 review), compared with COMISS/JA
+    /// so the knee itself takes the linear branch. 0.04 falls between 0.04045 and the other published knee, 0.03928, so
+    /// only the right knee sends it down the linear branch: 0.04 · (1/12.92) = 0.00309598. The pow branch would give
+    /// 0.00309550 there. The curve is built to be nearly continuous at its knee, so the two differ by only 4.8e-7. That
+    /// is still 2,000 float steps at this magnitude, and the first assertion proves the gap exceeds the tolerance.
+    /// </remarks>
+    [Test]
+    public void SrgbDecode_BetweenTheTwoPublishedKnees_TakesTheLinearBranch()
+    {
+        double linear = 0.04 / 12.92;
+        double curved = Math.Pow((0.04 + 0.055) / 1.055, 2.4);
+
+        Math.Abs(linear - curved).ShouldBeGreaterThan(1e-7, "the instrument: the two branches must differ here");
+        FogConstants.SrgbDecode(0.04f).ShouldBe((float)linear, 1e-8f);
+    }
+
+    /// <remarks>Above the knee, the curve: ((0.5 + 0.055) / 1.055)^2.4 = 0.2140411 (the binary's own constants).</remarks>
+    [Test]
+    public void SrgbDecode_AboveTheKnee_IsTheSrgbCurve()
+    {
+        FogConstants.SrgbDecode(0.5f).ShouldBe((float)Math.Pow(0.555 / 1.055, 2.4), 1e-6f);
+    }
+
+    /// <remarks>
+    /// **The binary clamps before it decodes** (<c>0x18003de0b</c> MAXSS with 0, <c>0x18003de11</c> MINSS with 1). A
+    /// byte colour never leaves 0..1, so this is the engine's guard, held as written.
+    /// </remarks>
+    [TestCase(-0.5f, 0f)]
+    [TestCase(1.5f, 1f)]
+    public void SrgbDecode_OutsideZeroToOne_IsClamped(float gamma, float expected)
+    {
+        FogConstants.SrgbDecode(gamma).ShouldBe(expected);
+    }
+
+    /// <remarks>
+    /// **The height-fog grey has one owner** (B653 review): the shader's <c>LinearGrey</c> is written from
+    /// <see cref="FogConstants.SrgbDecode"/> of 128/255, not a hand copy, so a change to the decode reaches it.
+    /// </remarks>
+    [Test]
+    public void ShaderSource_TheHeightFogGrey_IsTheSrgbDecodeOf128()
+    {
+        string grey = FogConstants.SrgbDecode(128f / 255f).ToString("R", System.Globalization.CultureInfo.InvariantCulture);
+
+        WorldRenderer.CompiledShaderSourceText.ShouldContain($"static const float LinearGrey = {grey}f;", Case.Sensitive);
+    }
+
     [Test]
     public void For_AMaxDensityBelowOne_IsCarriedUnchanged()
     {

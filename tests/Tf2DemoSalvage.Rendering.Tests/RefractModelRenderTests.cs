@@ -1,6 +1,7 @@
 using System;
 using System.Linq;
 
+using Tf2DemoSalvage.Core.Scene;
 using Tf2DemoSalvage.SdkReference;
 
 namespace Tf2DemoSalvage.Rendering.Tests;
@@ -117,6 +118,31 @@ public sealed class RefractModelRenderTests
         }
     }
 
+    /// <remarks>
+    /// **The lens under full red fog at tone-map scale 0.5 is the SCALED fog colour** (B653 review): the c29 colour is
+    /// multiplied by the scale on the CPU (<c>shaderapidx9.dll</c> <c>0x180025c98</c>-<c>0x180025cd7</c>), and Refract
+    /// never disables that (<c>refract_dx9_helper.cpp:213</c>, <c>DefaultFog()</c>). The quad sits at clip z 0.5; fog over
+    /// 0..0.25 is full there, so the pixel stores encode( 0.5 ) = 188, not 255. The control is the same draw unfogged.
+    /// </remarks>
+    [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
+    public void DrawModelPose_TheLensInFullFogAtHalfToneMapScale_IsTheScaledFogColour()
+    {
+        using OffscreenTarget target = Skip.Unless(OffscreenTarget.TryCreate(Size, Size), "no Direct3D on this machine");
+        MapAssets assets = MapCache.Load(entityModels: [Rifle]);
+
+        target.Clear(0.5f, 0.5f, 0.5f);
+        DrawQuad(target, assets, LensIndex(assets), toneMapScale: 0.5f);
+
+        (int, int, int) unfogged = target.PixelAt(32, 32);
+
+        target.Clear(0.5f, 0.5f, 0.5f);
+        DrawQuad(target, assets, LensIndex(assets), toneMapScale: 0.5f, fog: new SceneFog(0f, 0.25f, 1f, 0f, 0f, 1f));
+
+        unfogged.ShouldNotBe((SrgbTarget.Encode(0.5), 0, 0), "the control: unfogged, the lens is the grey frame");
+        Near(target.PixelAt(32, 32), (SrgbTarget.Encode(0.5), 0, 0));
+    }
+
     private static int Mix(int channel, double share) => SrgbTarget.Encode(SrgbTarget.Decode(channel) * share);
 
     private static int Sum((int Red, int Green, int Blue) pixel) => pixel.Red + pixel.Green + pixel.Blue;
@@ -153,7 +179,8 @@ public sealed class RefractModelRenderTests
     }
 
     /// <summary>The lens material on one quad over the whole target, in front of everything.</summary>
-    private static void DrawQuad(OffscreenTarget target, MapAssets assets, int material, bool clearDepth = true)
+    private static void DrawQuad(
+        OffscreenTarget target, MapAssets assets, int material, bool clearDepth = true, float? toneMapScale = null, SceneFog? fog = null)
     {
         WorldVertex Corner(float x, float y, float u, float v) =>
             new(x, y, 0.5f, u, v, 0f, 0f, 1f) { NormalZ = -1f };
@@ -164,7 +191,7 @@ public sealed class RefractModelRenderTests
             Corner(-1f, -1f, 0f, 1f), Corner(-1f, 1f, 0f, 0f), Corner(1f, 1f, 1f, 0f),
         ];
 
-        target.DrawModelPose(quad, [new WorldBatch(material, 0, quad.Length)], Identity, Identity, assets, bothSides: true, clearDepth: clearDepth);
+        target.DrawModelPose(quad, [new WorldBatch(material, 0, quad.Length)], Identity, Identity, assets, bothSides: true, clearDepth: clearDepth, toneMapScale: toneMapScale, fog: fog);
     }
 
     private static float[] Identity =>

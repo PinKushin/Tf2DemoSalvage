@@ -80,8 +80,12 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
     /// <summary>DecalModulate's `AlphaFunc( GREATER, 0 )` as a clip cutoff: half an 8-bit step, so alpha 1/255 survives.</summary>
     private const float DecalModulateAlphaCutoff = 0.5f / 255f;
 
-    private static readonly string ShaderSource = (ShaderText + WaterShaderText).Replace(
-        "MaxBones", MaxBones.ToString(System.Globalization.CultureInfo.InvariantCulture), StringComparison.Ordinal);
+    private static readonly string ShaderSource = (ShaderText + WaterShaderText)
+        .Replace("MaxBones", MaxBones.ToString(System.Globalization.CultureInfo.InvariantCulture), StringComparison.Ordinal)
+        .Replace(
+            "LinearGreyValue",
+            FogConstants.SrgbDecode(128f / 255f).ToString("R", System.Globalization.CultureInfo.InvariantCulture) + "f",
+            StringComparison.Ordinal);
 
     private const string ShaderText = """
         struct VsIn
@@ -907,8 +911,9 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
         static const float StoredGrey = 128.0f / 255.0f;
 
         // The sRGB decode of 128/255: the height-fog path's conversion with `r_shader_srgb` at its default 0 (hardware sRGB),
-        // shaderapi's sRGB-to-linear, not pow 2.2 (B637 review; plan doc).
-        static const float LinearGrey = 0.2158605f;
+        // shaderapi's sRGB-to-linear, not pow 2.2 (B637 review; plan doc). Written from FogConstants.SrgbDecode when the
+        // source is assembled (ShaderSource), so it has one owner (B653 review).
+        static const float LinearGrey = LinearGreyValue;
 
         bool Fogs(float mode)
         {
@@ -1004,14 +1009,16 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
                 result = refractFrameCopy.Sample(clampSampler, vRefractTexCoord).rgb * refractTintColor;
             }
 
-            // FinalOutput( …, TONEMAP_SCALE_NONE ): the fog with no light scale.
+            // FinalOutput( …, TONEMAP_SCALE_NONE ): the RESULT takes no light scale, but the fog colour does. shaderapi
+            // multiplies c29 by the tone-map scale on the CPU (0x180025c98-0x180025cd7) unless the shader disabled fog gamma
+            // correction, and Refract does not (refract_dx9_helper.cpp:213, DefaultFog). B653 review.
             if (refractModelFlags.z > 0.5f && fogColour.w > 0.5f)
             {
                 float projZ = fogColour.w > 1.5f
                     ? distance(eyePosition.xyz, input.wpos)
                     : mul(float4(input.wpos, 1.0f), viewProjection).z;
                 float fogFactor = saturate(min(fogParams.z, (projZ * fogParams.w) - fogParams.x));
-                result = lerp(result, fogColour.rgb, fogFactor * fogFactor);
+                result = lerp(result, fogColour.rgb * debugModes2.y, fogFactor * fogFactor);
             }
 
             return float4(result, vNormal.a);
@@ -4713,6 +4720,9 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
 
     /// <summary>The shader source, so a test can read what the pipeline actually declares.</summary>
     internal static string ShaderSourceText => ShaderText;
+
+    /// <summary>The shader source as compiled, after its placeholders are written.</summary>
+    internal static string CompiledShaderSourceText => ShaderSource;
 
     private static readonly float[] NoDetail =
     [

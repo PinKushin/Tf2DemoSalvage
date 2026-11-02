@@ -535,7 +535,8 @@ internal sealed unsafe class OffscreenTarget : IDisposable
     /// <exception cref="ArgumentNullException">The camera is null.</exception>
     /// <exception cref="ArgumentException">The batch has no sheet.</exception>
     /// <param name="fog">The fog a refracting batch blends toward, or null for none.</param>
-    public void DrawSprites(ParticleBatch batch, float[] camera, Tf2DemoSalvage.Core.Scene.SceneFog? fog = null)
+    /// <param name="toneMapScale">The view's tone-map scale, which shaderapi folds into the fog colour (B653 review).</param>
+    public void DrawSprites(ParticleBatch batch, float[] camera, Tf2DemoSalvage.Core.Scene.SceneFog? fog = null, float toneMapScale = 1f)
     {
         ArgumentNullException.ThrowIfNull(camera);
 
@@ -563,7 +564,7 @@ internal sealed unsafe class OffscreenTarget : IDisposable
             _refractNormal = WorldRenderer.UploadTexture(_device, _context, refract.NormalMap, srgb: false);
             _refractTint.Dispose();
             _refractTint = WorldRenderer.UploadTexture(_device, _context, refract.RefractTintTexture);
-            _sprites.SetRefract(refract, _refractNormal, frame, _refractTint, fog);
+            _sprites.SetRefract(refract, _refractNormal, frame, _refractTint, fog, toneMapScale: toneMapScale);
         }
         else
         {
@@ -730,6 +731,7 @@ internal sealed unsafe class OffscreenTarget : IDisposable
     /// <param name="flexRange">The slots of <paramref name="flex"/> to send, or null for all (B597).</param>
     /// <param name="sameModel">The previous call drew these same vertices: keep the model and its face buffer (B597).</param>
     /// <param name="toneMapScale"><c>LINEAR_LIGHT_SCALE</c> for this draw only, restored after it; null keeps the renderer's own (B635).</param>
+    /// <param name="fog">The fog the camera constants carry, or null for none, so a fogged model draw can be tested.</param>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <remarks>
     /// **The model path is not the world path and the difference has hidden a defect.** Every
@@ -762,7 +764,8 @@ internal sealed unsafe class OffscreenTarget : IDisposable
         float[]? flex = null,
         FlexSlots? flexRange = null,
         bool sameModel = false,
-        float? toneMapScale = null)
+        float? toneMapScale = null,
+        Tf2DemoSalvage.Core.Scene.SceneFog? fog = null)
     {
         ArgumentNullException.ThrowIfNull(vertices);
         ArgumentNullException.ThrowIfNull(batches);
@@ -827,7 +830,7 @@ internal sealed unsafe class OffscreenTarget : IDisposable
         try
         {
             _world.SetCamera(
-                _device, _context, camera, surfaceColours, specular, fullbright, debug, phong);
+                _device, _context, camera, surfaceColours, specular, fullbright, debug, phong, fog: fog);
 
             Viewport viewport = new(0f, 0f, _width, _height, 0f, 1f);
 

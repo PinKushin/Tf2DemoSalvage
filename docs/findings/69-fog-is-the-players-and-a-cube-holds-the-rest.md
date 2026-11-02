@@ -27,7 +27,7 @@ however many controllers the map holds. The 3D skybox's fog is not a controller'
   shader sets them, and it never consults `r_shader_srgb`. Under height fog it takes the same decode at the default
   `r_shader_srgb 0`, and `pow 2.2` only at 1. The interpolation above came from the one curve Source's mathlib names.
   The binary has two curves, and the default path takes the other one. The size: about one stored level high near the
-  outdoor fog colours, and up to seven low on a dark channel, at full fog. On f12 at ordinary distances every changed
+  outdoor fog colours (at most 1.49), and up to 8.54 low on a dark channel (byte 16), at full fog. On f12 at ordinary distances every changed
   pixel moved by 1 to 3 levels, all down. Numbers: `docs/measurements/2026-11-02-fog-colour-curve-plan.md`.
 - **The first fog constant is start over range**, `CalcRangeFog( z, fogParams.x, fogParams.z, fogParams.w )`
   subtracts it, and the radial path names the same register `flFogEndOverRange` while using it identically. Max

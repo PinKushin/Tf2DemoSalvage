@@ -97,6 +97,8 @@ public sealed class FogColourCurveConformanceTests
     /// <summary>Valve's store, and the `pow 2.2` store beside it; proves they are apart, then checks the drawn pixel.</summary>
     private static void AssertCurve((int Red, int Green, int Blue) drawn, double weight, bool exact, string condition)
     {
+        // ±1 on the half cases, for the blend's rounding. Every channel still separates: the half-fog blue is 40 under the
+        // decode and 38 under pow 2.2, outside 39..41, and the separation check below asserts that rather than assuming it.
         int tolerance = exact ? 0 : 1;
         int[] fog = [FogBytes.Red, FogBytes.Green, FogBytes.Blue];
         int[] actual = [drawn.Red, drawn.Green, drawn.Blue];
@@ -119,8 +121,18 @@ public sealed class FogColourCurveConformanceTests
         new(0f, Depth, FogBytes.Red / 255f, FogBytes.Green / 255f, FogBytes.Blue / 255f, maxDensity);
 
     /// <summary>Height fog over the whole line of sight; the factor is <see cref="Depth"/> over <paramref name="range"/>.</summary>
-    private static VolumeFog Height(float range) =>
-        new(HeightFog: true, FogZ: -Depth, Color: (FogBytes.Red / 255f, FogBytes.Green / 255f, FogBytes.Blue / 255f), Start: 0f, End: range, MaxDensity: 1f);
+    /// <remarks>
+    /// **Why the whole line is under water** (review): <c>CalcWaterFogAlpha</c> divides the wall's depth below the water
+    /// (0.9 − (−0.9)) by its depth below the EYE. The identity camera has no eye (<c>EyePosition.From</c> returns null),
+    /// so the shader is given the origin, z 0, and the fraction is 1.8 / 0.9, saturated to 1. An eye above the wall would
+    /// make it negative. The assertion holds that premise rather than leaving it to coincidence.
+    /// </remarks>
+    private static VolumeFog Height(float range)
+    {
+        EyePosition.From(Identity).ShouldBeNull("the identity camera has no eye, so the shader's eye is the origin, z 0");
+
+        return new(HeightFog: true, FogZ: -Depth, Color: (FogBytes.Red / 255f, FogBytes.Green / 255f, FogBytes.Blue / 255f), Start: 0f, End: range, MaxDensity: 1f);
+    }
 
     /// <summary>The black lit quad over a black clear, at tone-map scale 1. Null without a device.</summary>
     private static (int, int, int)? Draw(SceneFog? fog = null, VolumeFog? heightFog = null)
