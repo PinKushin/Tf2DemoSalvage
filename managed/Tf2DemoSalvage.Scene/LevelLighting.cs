@@ -286,7 +286,8 @@ public sealed class LevelLighting
         // Folded from the BOUNCE cube again, not from the entry's: the entry's cube already holds the world lights that
         // lost to each other, and they are re-ranked here with the dynamic ones (B453).
         AmbientCube cube = leaf >= 0 && leaf < _ambient.Count ? _ambient[leaf].At(x, y, z) : default;
-        int found = LocalLights.Split(lights, x, y, z, nearest, ref cube, StyleScale);
+        // The world lights traced at the entry's point, the dlights after them not (`0x1801b7a10` skips it; B666).
+        int found = LocalLights.Split(lights, x, y, z, nearest, ref cube, StyleScale, Visible(lights, x, y, z, end: _worldLights.Count));
         Array.Resize(ref nearest, found);
 
         return new PointLighting(cube, nearest);
@@ -366,6 +367,10 @@ public sealed class LevelLighting
     /// A static prop's computed ambient cube at its lighting origin (<see cref="StaticPropAmbient"/>); without one a
     /// static prop takes its leaf's samples, as a model that moves does.
     /// </param>
+    /// <param name="lightTrace">
+    /// The fraction of a `MASK_OPAQUE` world trace between two points that is clear, for each world light's visibility
+    /// trace (<see cref="LocalLights.Visible"/>, B666); without one no light is traced.
+    /// </param>
     /// <exception cref="ArgumentNullException">An argument other than the map data is null.</exception>
     public LevelLighting(
         BspLeafTree? leaves,
@@ -376,9 +381,11 @@ public sealed class LevelLighting
         Func<(float X, float Y, float Z), (float X, float Y, float Z), bool>? strikesSky = null,
         Func<(float X, float Y, float Z), (float X, float Y, float Z), bool>? reaches = null,
         BspVisibility? visibility = null,
-        Func<float, float, float, AmbientCube>? staticPropAmbient = null)
+        Func<float, float, float, AmbientCube>? staticPropAmbient = null,
+        Func<(float X, float Y, float Z), (float X, float Y, float Z), float>? lightTrace = null)
     {
         _reaches = reaches;
+        _lightTrace = lightTrace;
         _visibility = visibility;
         _staticPropAmbient = staticPropAmbient;
         ArgumentNullException.ThrowIfNull(ambient);
@@ -432,6 +439,11 @@ public sealed class LevelLighting
     {
         ArgumentNullException.ThrowIfNull(level);
 
+        // One trace for both: `0x1801b6860`'s cell placement and `FUN_1801b9570`'s light visibility are each `MASK_OPAQUE`,
+        // world only — brushes and displacements, no entity or static prop.
+        Func<(float X, float Y, float Z), (float X, float Y, float Z), float> opaque =
+            (from, to) => level.TraceBrushOnly(from, to, 0f, MaskOpaque).Fraction;
+
         return new LevelLighting(
             level.Leaves,
             level.Ambient,
@@ -439,9 +451,45 @@ public sealed class LevelLighting
             level.Sun,
             render,
             level.StrikesSky,
-            (from, to) => level.TraceBrushOnly(from, to, 0f, MaskOpaque).Fraction >= 1f,
+            (from, to) => opaque(from, to) >= 1f,
             level.Visibility,
-            StaticPropAmbientOf(level));
+            StaticPropAmbientOf(level),
+            opaque);
+    }
+
+    /// <summary>The visibility trace's fraction; see the constructor.</summary>
+    private readonly Func<(float X, float Y, float Z), (float X, float Y, float Z), float>? _lightTrace;
+
+    /// <summary>
+    /// The light cache's visibility trace (<see cref="LocalLights.Visible"/>) over <paramref name="lights"/> at a point, for
+    /// the indices from <paramref name="first"/> up to <paramref name="end"/>; every other index is not traced, as a
+    /// caller that sets `FUN_1801b9570`'s flags bit 0 asks. Null — nothing traced — without a trace.
+    /// </summary>
+    /// <remarks>
+    /// *Read in disassembly* (B666), the callers of `AddWorldLightToLightingState` (`0x1801b60a0`) and the `skipTrace`
+    /// each passes: traced are the style-0 world lights (`0x1801b5a50`, from `ComputeStaticLightingForCacheEntry`), the
+    /// light cache's styled lights (`0x1801ba322`), its stored lists (`0x1801b5890`) and a static prop handle's styled
+    /// list (`0x1801b5400`); not traced are live dlights (`0x1801b7a10`, `0x1801bb040`) and the handle list's admission
+    /// (`FUN_1801b6bf0`, flags `9|2`, <see cref="StyledLights"/>). The point is the caller's: the cache cell's, or a
+    /// static prop's own lighting origin.
+    /// </remarks>
+    private Func<int, bool>? Visible(
+        IReadOnlyList<BspWorldLight> lights, float x, float y, float z, int first = 0, int end = int.MaxValue) =>
+        _lightTrace is { } trace
+            ? index => index < first || index >= end || LocalLights.Visible(lights[index], x, y, z, trace)
+            : null;
+
+    /// <summary>How far short of a light its visibility trace from a point stops (<see cref="LocalLights.Blocked"/>).</summary>
+    /// <param name="light">The light's origin.</param>
+    /// <param name="x">The point being lit.</param>
+    /// <param name="y">The point being lit.</param>
+    /// <param name="z">The point being lit.</param>
+    /// <returns>The blocked length and whether the light is kept (<see cref="LocalLights.Kept"/>); zero and kept without a trace.</returns>
+    public (float Blocked, bool Visible) Occlusion((float X, float Y, float Z) light, float x, float y, float z)
+    {
+        float blocked = _lightTrace is { } trace ? LocalLights.Blocked(light, x, y, z, trace) : 0f;
+
+        return (blocked, LocalLights.Kept(blocked));
     }
 
     /// <summary><see cref="StaticPropAmbient"/> over one level, or null when it lacks the lumps the rays read.</summary>
@@ -587,7 +635,8 @@ public sealed class LevelLighting
         }
 
         Span<int> chosen = stackalloc int[LocalLights.MaximumLocalLights];
-        int found = LocalLights.StrongestIndices(handle.Listed, x, y, z, chosen, StyleScale);
+        // Traced at the handle's origin (`FUN_1801b5400`, flags 0; B666). The second ranking below is of these alone.
+        int found = LocalLights.StrongestIndices(handle.Listed, x, y, z, chosen, StyleScale, Visible(handle.Listed, x, y, z));
         BspWorldLight[] ranked = new BspWorldLight[found];
 
         for (int slot = 0; slot < found; slot++)
@@ -753,10 +802,13 @@ public sealed class LevelLighting
     /// <summary>Flags 7's one ranking: these added lights with every style-0 world light, strongest four.</summary>
     private LocalLight[] WithStyleZero(List<BspWorldLight> added, float x, float y, float z)
     {
+        // Only the style-0 lights are traced here (`0x1801b5a50`; B666): the ranked styled ones were traced when bit 4
+        // ranked them at this point, and a dlight is not traced.
+        int styleZero = added.Count;
         added.AddRange(_worldLights.Where(static light => light.Style == 0));
 
         LocalLight[] nearest = new LocalLight[LocalLights.MaximumLocalLights];
-        Array.Resize(ref nearest, LocalLights.Strongest(added, x, y, z, nearest, StyleScale));
+        Array.Resize(ref nearest, LocalLights.Strongest(added, x, y, z, nearest, StyleScale, Visible(added, x, y, z, first: styleZero)));
 
         return nearest;
     }
@@ -852,7 +904,8 @@ public sealed class LevelLighting
         }
 
         LocalLight[] nearest = new LocalLight[LocalLights.MaximumLocalLights];
-        int found = LocalLights.Strongest(_worldLights, x, y, z, nearest, static style => style == 0 ? 1f : 0f);
+        int found = LocalLights.Strongest(
+            _worldLights, x, y, z, nearest, static style => style == 0 ? 1f : 0f, Visible(_worldLights, x, y, z));
         Array.Resize(ref nearest, found);
 
         SunLight? sun = _sun is { } light && _strikesSky is { } strikesSky
@@ -910,6 +963,9 @@ public sealed class LevelLighting
         // see LightingAt, which hands the nearest four to the shader instead so they can shade
         // against a normal. A caller must take one or the other: the engine adds the cube and the
         // local lights, so a light in both is counted twice.
+        //
+        // Not traced (B666): `IVEngineClient::ComputeLighting` is not among the callers of `0x1801b60a0` that were read,
+        // so whether it makes the visibility trace is unestablished.
         AmbientCube lit = LocalLights.AddTo(bounced, _worldLights, x, y, z, StyleScale);
 
         // **The two terms reported apart, because one number cannot say which is missing.** Every
@@ -968,7 +1024,7 @@ public sealed class LevelLighting
         LocalLight[] nearest = new LocalLight[LocalLights.MaximumLocalLights];
 
         // **The lights that take no slot are folded into the cube** (B453), as the lightcache does.
-        int found = LocalLights.Split(_worldLights, x, y, z, nearest, ref bounced, StyleScale);
+        int found = LocalLights.Split(_worldLights, x, y, z, nearest, ref bounced, StyleScale, Visible(_worldLights, x, y, z));
 
         if (found == 0)
         {

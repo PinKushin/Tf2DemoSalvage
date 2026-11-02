@@ -32,7 +32,7 @@ public sealed class PropShadeProbe : IProbe
 
     /// <inheritdoc/>
     public string Summary =>
-        "each placement of a static prop model: skin, material, shader, modulation, $nofog and the light its draw is given: prop-shade <map> <model substring> [radius: also list the style-0 lights within it of each lighting origin, with reach and a clear-ray check]";
+        "each placement of a static prop model: skin, material, shader, modulation, $nofog and the light its draw is given: prop-shade <map> <model substring> [radius: also list the style-0 lights within it of each lighting origin, with reach and the light cache's visibility trace]";
 
     /// <inheritdoc/>
     public void Run(TextWriter output, IReadOnlyList<string> arguments)
@@ -141,7 +141,7 @@ public sealed class PropShadeProbe : IProbe
 
             if (radius is { } within)
             {
-                WriteNearbyLights(output, level, origin, within);
+                WriteNearbyLights(output, level, lighting, origin, within);
             }
 
             foreach (LocalLight lamp in instance.Locals ?? [])
@@ -156,28 +156,30 @@ public sealed class PropShadeProbe : IProbe
                 output.WriteLine(string.Create(
                     CultureInfo.InvariantCulture,
                     $"    lamp at ({lamp.X:0} {lamp.Y:0} {lamp.Z:0}) colour ({lamp.Red:0.###} {lamp.Green:0.###} {lamp.Blue:0.###}) " +
-                    $"attenuation {lamp.Constant:0.###}/{lamp.Linear:0.###}/{lamp.Quadratic:0.###} {kind}, clear {Clear(level, origin, (lamp.X, lamp.Y, lamp.Z))}"));
+                    $"attenuation {lamp.Constant:0.###}/{lamp.Linear:0.###}/{lamp.Quadratic:0.###} {kind}, {Seen(lighting, origin, (lamp.X, lamp.Y, lamp.Z))}"));
             }
         }
     }
 
-    /// <summary>`MASK_OPAQUE` (`bspflags.h:113-114`), the mask the engine's light visibility trace uses (B453, B514).</summary>
-    private const int MaskOpaque = 0x4081;
-
     /// <summary>
-    /// Whether a world-only `MASK_OPAQUE` ray from the lighting origin reaches a light: the per-light visibility trace the
-    /// engine makes (B453's open item) and the port does not, so this is the engine's question asked here, not a value
-    /// production used.
+    /// The production visibility trace from the lighting origin to a light (<see cref="LevelLighting.Occlusion"/>, B666):
+    /// how far short of it the ray stops, and whether the light cache keeps it.
     /// </summary>
-    private static bool Clear(MapLevel level, (float X, float Y, float Z) from, (float X, float Y, float Z) to) =>
-        level.TraceBrushOnly(from, to, 0f, MaskOpaque).Fraction >= 1f;
+    private static string Seen(LevelLighting lighting, (float X, float Y, float Z) from, (float X, float Y, float Z) light)
+    {
+        (float blocked, bool visible) = lighting.Occlusion(light, from.X, from.Y, from.Z);
+
+        return string.Create(CultureInfo.InvariantCulture, $"blocked {blocked:0.#}, visible {visible}");
+    }
 
     /// <summary>
     /// Every style-0 world light within a radius of the draw's lighting origin, with whether the production
-    /// <see cref="LocalLights.Reaches"/> (distance, radius and cone) admits it there and whether a ray to it is clear: the
-    /// candidates the four lamps were picked from, so a lamp that reaches and was not picked shows beside the four that were.
+    /// <see cref="LocalLights.Reaches"/> (distance, radius and cone) admits it there and whether the visibility trace keeps
+    /// it: the candidates the four lamps were picked from, so a lamp that reaches and was not picked shows beside the four
+    /// that were.
     /// </summary>
-    private static void WriteNearbyLights(TextWriter output, MapLevel level, (float X, float Y, float Z) origin, float radius)
+    private static void WriteNearbyLights(
+        TextWriter output, MapLevel level, LevelLighting lighting, (float X, float Y, float Z) origin, float radius)
     {
         output.WriteLine(string.Create(
             CultureInfo.InvariantCulture, $"    lighting origin ({origin.X:0.#} {origin.Y:0.#} {origin.Z:0.#}); style-0 lights within {radius:0}:"));
@@ -198,7 +200,7 @@ public sealed class PropShadeProbe : IProbe
                 CultureInfo.InvariantCulture,
                 $"      {light.Kind} at ({light.Origin.X:0} {light.Origin.Y:0} {light.Origin.Z:0}) {distance:0} away, normal {light.Normal}, " +
                 $"intensity ({light.Intensity.Red:0} {light.Intensity.Green:0} {light.Intensity.Blue:0}), " +
-                $"reaches {LocalLights.Reaches(light, origin.X, origin.Y, origin.Z)}, clear {Clear(level, origin, light.Origin)}"));
+                $"reaches {LocalLights.Reaches(light, origin.X, origin.Y, origin.Z)}, {Seen(lighting, origin, light.Origin)}"));
         }
     }
 

@@ -386,7 +386,11 @@ public sealed class StaticPlusDynamicLightingConformanceTests
         LevelLightingTests.Lamp((0f, 0f, 120f), 400f) with { Style = style, Cluster = cluster, Radius = radius };
 
     /// <summary>Two leaves split at z = 0: leaf 2 above in cluster 0, leaf 1 below in cluster 1, each seeing only itself.</summary>
-    internal static LevelLighting Map(IReadOnlyList<BspWorldLight> lights)
+    /// <param name="lights">The world lights.</param>
+    /// <param name="lightTrace">The lights' visibility trace's fraction; none traced when null.</param>
+    internal static LevelLighting Map(
+        IReadOnlyList<BspWorldLight> lights,
+        Func<(float X, float Y, float Z), (float X, float Y, float Z), float>? lightTrace = null)
     {
         byte[] plane = new byte[20];
         BinaryPrimitives.WriteSingleLittleEndian(plane.AsSpan(8), 1f);
@@ -420,6 +424,7 @@ public sealed class StaticPlusDynamicLightingConformanceTests
             lights,
             null,
             new RecordingLogger(),
-            visibility: BspVisibility.FromLump(vis));
+            visibility: BspVisibility.FromLump(vis),
+            lightTrace: lightTrace);
     }
 }

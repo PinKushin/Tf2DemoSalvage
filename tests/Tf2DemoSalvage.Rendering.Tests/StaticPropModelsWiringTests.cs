@@ -293,14 +293,32 @@ public sealed class StaticPropModelsWiringTests
             {
                 LocalLights.Reaches(WorldLightAt(level, lamp), point.X, point.Y, point.Z).ShouldBeTrue(
                     $"a lamp at ({lamp.X:0} {lamp.Y:0} {lamp.Z:0}) that does not reach ({point.X:0} {point.Y:0} {point.Z:0}) took a slot");
+
+                // And the light cache's visibility trace keeps it (B666).
+                lighting.Occlusion((lamp.X, lamp.Y, lamp.Z), point.X, point.Y, point.Z).Visible.ShouldBeTrue(
+                    $"a lamp at ({lamp.X:0} {lamp.Y:0} {lamp.Z:0}) behind a wall from ({point.X:0} {point.Y:0} {point.Z:0}) took a slot");
             }
+
+            // **No white spot** (B666): the three that held slots after B665 are each blocked hundreds of units short of
+            // the lighting origin, so `FUN_1801b9570` returns zero for them. What is left is the green lamp and the two
+            // dim up-aimed spots in the vat's floor (intensity about 1), which the trace sees.
+            lamps.ShouldNotContain(lamp => lamp.Spot && lamp.Red > 30000f, "a white spot behind a wall took a slot");
+            lamps.Count.ShouldBe(3);
         }
 
         // The vat at (-208 1440 -192): the green point lamp 76 units over its mouth is in its state.
         ModelInstance first = vats.Single(vat => byEntity[vat.EntityIndex].Pose.Y > 0f);
+        (float X, float Y, float Z) origin = models.IlluminationPoint(byEntity[first.EntityIndex], byEntity[first.EntityIndex].Pose);
         first.Locals.ShouldNotBeNull().ShouldContain(
             lamp => !lamp.Spot && MathF.Abs(lamp.X + 208f) < 0.5f && MathF.Abs(lamp.Y - 1440f) < 0.5f && MathF.Abs(lamp.Z - 76f) < 0.5f,
             "the green lamp over the vat");
+
+        // The control for the white spots' absence: the one at (-206 1807 205) reaches the origin by distance and cone,
+        // and only the trace drops it.
+        BspWorldLight white = level.WorldLights.Single(
+            light => light.Style == 0 && Distance(light.Origin, (-206f, 1807f, 205f)) < 1f);
+        LocalLights.Reaches(white, origin.X, origin.Y, origin.Z).ShouldBeTrue("the control: it reaches the vat's origin");
+        lighting.Occlusion(white.Origin, origin.X, origin.Y, origin.Z).Blocked.ShouldBeGreaterThan(8f, "the control: a wall is between");
     }
 
     /// <summary>The world light a local light was made from, found by origin; null names the lamp.</summary>
@@ -327,7 +345,7 @@ public sealed class StaticPropModelsWiringTests
     /// </remarks>
     [Test]
     [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
-    public void Instances_CpProcessF12ObservatoryDome_DrawsNoBakedColoursAndTakesItsCubeTheSunAndOnlyLampsThatReach()
+    public void Instances_CpProcessF12ObservatoryDome_DrawsNoBakedColoursAndTakesItsCubeTheSunAndNoLampBehindTheRoofs()
     {
         const string Map = "cp_process_f12";
 
@@ -393,8 +411,7 @@ public sealed class StaticPropModelsWiringTests
             // there is zero. This asserted it WAS in the state, which the port's distance-only ranking put there; it lit
             // nothing, since the shader applies the cone. Every lamp the state holds reaches the point.
             (float X, float Y, float Z) origin = models.IlluminationPoint(byEntity[dome.EntityIndex], at);
-            IReadOnlyList<LocalLight> lamps = dome.Locals.ShouldNotBeNull();
-            lamps.ShouldNotBeEmpty();
+            IReadOnlyList<LocalLight> lamps = dome.Locals ?? [];
 
             BspWorldLight spot = level.WorldLights
                 .Where(light => light.Kind == WorldLightKind.Spotlight && light.Intensity.Red > 30000f)
@@ -406,17 +423,17 @@ public sealed class StaticPropModelsWiringTests
             (float spotX, float spotY, float spotZ) = spot.Origin;
             lamps.ShouldNotContain(lamp => LampDistance(lamp, spotX, spotY, spotZ) < 0.5f, "a spot whose cone misses the point took a slot");
 
-            // One lamp pinned: the up-aimed lamp at (±2256 ±416 598), on the dome's side of the map, which reaches.
-            float side = MathF.Sign(at.X);
-            lamps.ShouldContain(
-                lamp => LampDistance(lamp, side * 2256f, side * 416f, 598f) < 0.5f,
-                "the up-aimed lamp at (±2256 ±416 598) is in its state");
+            // **No lamp at all** (B666). After B665 the state held four up-aimed, linear-attenuation lamps 1,300 to 2,100
+            // units off, which reach the point by distance and cone; every one is behind the roofs, and the light cache's
+            // visibility trace returns zero for each. This pinned the one at (±2256 ±416 598) as held; it is now the
+            // control that it reaches and is blocked.
+            lamps.ShouldBeEmpty("every lamp that reaches the dome's point is behind a wall");
 
-            foreach (LocalLight lamp in lamps)
-            {
-                LocalLights.Reaches(WorldLightAt(level, lamp), origin.X, origin.Y, origin.Z).ShouldBeTrue(
-                    $"a lamp at ({lamp.X:0} {lamp.Y:0} {lamp.Z:0}) that does not reach the dome's point took a slot");
-            }
+            float side = MathF.Sign(at.X);
+            BspWorldLight upAimed = level.WorldLights.Single(
+                light => light.Style == 0 && Distance(light.Origin, (side * 2256f, side * 416f, 598f)) < 1f);
+            LocalLights.Reaches(upAimed, origin.X, origin.Y, origin.Z).ShouldBeTrue("the control: it reaches the point");
+            lighting.Occlusion(upAimed.Origin, origin.X, origin.Y, origin.Z).Blocked.ShouldBeGreaterThan(8f, "the control: a wall is between");
             // **And its cube is computed, not its leaf's** (`ComputeAmbientFromSphericalSamples`, `engine.dll`
             // `FUN_1801b74f0`): above the roofs, the upward face is the map's sky ambient light almost alone.
             AmbientCube cube = dome.Light.ShouldNotBeNull("lit by its handle's cube");
