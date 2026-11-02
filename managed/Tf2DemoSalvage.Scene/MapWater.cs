@@ -178,6 +178,7 @@ public sealed record MapWater(
             FogEnable = material.Value("$fogenable") is { } fog && int.TryParse(
                 fog.Trim().Split('.')[0], System.Globalization.NumberStyles.Integer,
                 System.Globalization.CultureInfo.InvariantCulture, out int on) && on != 0,
+            // An empty value is null here and defined to Valve, which looks "" up (B661, unfixed).
             UnderwaterOverlay = material.Value("$underwateroverlay") is { Length: > 0 } overlay && overlay[0] != '0' ? overlay : null,
             Proxies = material.Proxies,
             Variables = material.NumericValues(),

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 
 using Tf2DemoSalvage.Core.Scene;
@@ -214,6 +215,57 @@ public sealed class CloakRenderTests
         red.ShouldBeLessThan(grey.red);
         green.ShouldBe(red);
         blue.ShouldBe(red);
+    }
+
+    /// <remarks>
+    /// **A map load drops the overlay textures the last map uploaded** (water review): the renderer outlives a map, and its
+    /// overlay cache was keyed by name alone, so a second map's own <c>$underwateroverlay</c> under a name the first map
+    /// used drew the first map's texture. Hand-built (D38): two opaque fade overlays named alike, grey 200 then grey 40, so
+    /// each replaces the frame outright. The control is grey 40's pixel on a fresh target.
+    /// </remarks>
+    [Test]
+    public void DrawScreenOverlay_SameNameAfterAMapLoad_DrawsTheNewMapsTexture()
+    {
+        const string Name = "effects/synthetic_overlay";
+        ScreenOverlayMaterial first = new(Name, null, [], new Dictionary<string, (float, float, float)>())
+        {
+            Fade = ModulateToneMapConformanceTests.Grey(200),
+        };
+        ScreenOverlayMaterial second = first with { Fade = ModulateToneMapConformanceTests.Grey(40) };
+        MapAssets map = MapAssets.ForMaterials([ModulateToneMapConformanceTests.Grey(120)], ["UnlitGeneric"]);
+        FreeCamera camera = new() { Origin = (0f, 0f, 200f), Angles = (89f, 0f, 0f), Aspect = 1f };
+        WorldVertex[] face =
+        [
+            new(-10f, -10f, 0f, 0f, 0f, 0f, 0f, 1f),
+            new(10f, 10f, 0f, 1f, 1f, 0f, 0f, 1f),
+            new(10f, -10f, 0f, 1f, 0f, 0f, 0f, 1f),
+        ];
+
+        (int, int, int) expected;
+
+        using (OffscreenTarget control = Skip.Unless(OffscreenTarget.TryCreate(Size, Size), "no Direct3D on this machine"))
+        {
+            control.Clear(0f, 0f, 0f);
+            control.DrawScreenOverlay(second, 0.0).ShouldBeTrue();
+            expected = control.PixelAt(32, 32);
+        }
+
+        using OffscreenTarget target = Skip.Unless(OffscreenTarget.TryCreate(Size, Size), "no Direct3D on this machine");
+
+        target.Clear(0f, 0f, 0f);
+        target.DrawScreenOverlay(first, 0.0).ShouldBeTrue();
+        (int, int, int) before = target.PixelAt(32, 32);
+
+        // The next map: its textures replace the last map's, as Device3D.UploadWorldTextures does.
+        target.DrawWorld(face, [new WorldBatch(0, 0, face.Length)], camera.ToMatrix(), map);
+        target.Clear(0f, 0f, 0f);
+        target.DrawScreenOverlay(second, 0.0).ShouldBeTrue();
+        (int, int, int) after = target.PixelAt(32, 32);
+
+        TestContext.Out.WriteLine($"FIRST MAP {before}; SECOND MAP {after}; SECOND ALONE {expected}");
+
+        before.ShouldNotBe(expected, "the two overlays draw the same pixel, so the cache cannot be seen");
+        after.ShouldBe(expected, "the second map drew the first map's overlay texture");
     }
 
     /// <remarks>

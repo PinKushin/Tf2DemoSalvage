@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Linq;
 using System.Text;
 
 using Tf2DemoSalvage.Content.Assets;
@@ -63,7 +64,43 @@ public sealed class WaterCullConformanceTests
         drawn.ShouldBe(surface, "the plain-fallback bottom face drew from above");
     }
 
-    private static (int, int, int)? Draw(IReadOnlyList<(int Material, List<WorldVertex> Face)> faces)
+    /// <remarks>
+    /// **The cull is the Water shader's alone**: after a Plain water batch the next material draws two-sided again, as every
+    /// world batch here does. The wall is a non-water face turned away from the eye, above the water and drawn after it;
+    /// the control is the wall drawn alone, which shows the pixel it paints when it is not culled.
+    /// </remarks>
+    [Test]
+    public void DrawWaterWorld_TwoSidedFaceAfterPlainWater_StillDraws()
+    {
+        const int water = 0;
+        const int wall = 1;
+        MapAssets assets = MapAssets.ForMaterials(
+            [ModulateToneMapConformanceTests.Grey(200), ModulateToneMapConformanceTests.Grey(40)],
+            ["Water", "UnlitGeneric"],
+            [Plain(above: true), null]);
+        List<WorldVertex> awayFromTheEye = [.. Down().Select(vertex => vertex with { Depth = 100f })];
+
+        (int, int, int)? surface = Draw([(water, Up())], assets, plainBatches: 1);
+        (int, int, int)? alone = Draw([(wall, awayFromTheEye)], assets, plainBatches: 0);
+        (int, int, int)? both = Draw([(water, Up()), (wall, awayFromTheEye)], assets, plainBatches: 1);
+
+        if (surface is not { } under || alone is not { } painted || both is not { } drawn)
+        {
+            Assert.Ignore("no Direct3D device on this machine");
+            return;
+        }
+
+        TestContext.Out.WriteLine($"WATER {under}; WALL ALONE {painted}; WALL AFTER WATER {drawn}");
+
+        painted.ShouldNotBe(under, "the wall and the water draw the same pixel, so a culled wall cannot be seen");
+        drawn.ShouldBe(painted, "the face after the Plain water batch drew under the water's back cull");
+    }
+
+    private static (int, int, int)? Draw(IReadOnlyList<(int Material, List<WorldVertex> Face)> faces) =>
+        Draw(faces, Assets, faces.Count);
+
+    private static (int, int, int)? Draw(
+        IReadOnlyList<(int Material, List<WorldVertex> Face)> faces, MapAssets assets, int plainBatches)
     {
         using OffscreenTarget? target = OffscreenTarget.TryCreate(64, 64);
 
@@ -86,10 +123,10 @@ public sealed class WaterCullConformanceTests
             DrawWaterSurface: true, OpaqueWater: true);
 
         target.Clear(0f, 0f, 0f);
-        (_, _, int plain) = target.DrawWaterWorld(vertices, batches, Above, Assets,
+        (_, _, int plain) = target.DrawWaterWorld(vertices, batches, Above, assets,
             new WaterDraw(WaterViews.Plan(info, new WaterFrame(false, false, 0f, false), ViewClears.Depth), Top, 0f, [], [], null, null));
 
-        plain.ShouldBe(faces.Count, "a face did not take the Plain fallback");
+        plain.ShouldBe(plainBatches, "a water face did not take the Plain fallback");
 
         return target.PixelAt(32, 32);
     }
