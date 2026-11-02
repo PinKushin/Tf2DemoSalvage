@@ -40251,7 +40251,66 @@ It is tested red-first. It names which thread waited and where the draw had got 
 **Reopen if** the `queue stall` line ever appears in a viewer log, or if this test's hang rate on the branch, measured
 the same way, exceeds the baseline's.
 
-## B657 — ctf_2fort's water is grey-green in ours and brown in TF2, 20 to 50 levels apart (2026-11-02) — FIXED on `fix/b657-water` (not merged); the under-water gap is still open
+## B659 — water on a brush ENTITY is drawn by the model path, without the Water shader (2026-11-02) — OPEN, unfixed
+
+**Measured** (probe `water-brush-ents`, all 239 installed maps, the map's pakfile then the game's archives, cubemap
+patches followed through `include`). A brush model past the world's whose faces carry a `Water` material:
+
+| map | entity | Water materials on it |
+|---|---|---|
+| koth_suijin | `*13`, `*36` func_brush | `water/water_well_beneath` |
+| koth_toxic | `*4`, `*23`, `*83` func_water_analog | `water/water_well_beneath`, the map's `water_toxic` (cubemap-patched) / `water_toxic_cheap` |
+| pd_farmageddon | `*145` func_water_analog | `water/nuclearwaste_alt_beneath` |
+| pl_patagonia | 12 func_water_analog | `water/water_well_beneath` |
+
+cp_holyhell, pl_aquarius and pl_citadel place a `func_water_analog` whose faces carry no `Water` material. Control:
+2fort reports 100 world water faces and none on an entity. 51 are the surface faces, which a first run counted alone
+because it read `water/water_2fort_beneath.vmt` with its suffix; the other 49 are the beneath faces. One name containing "water" resolved to no VMT (`BRICK/BLENDTESTWALL002_WATERGATE`), so its faces are uncounted.
+
+**Ours:** a brush entity's faces are drawn by the model path (`WorldRenderer.cs` `CullFor`), never through
+`WaterBatch`, so these get neither the `Water` shader's passes nor its fog. They are already back-culled there, so B657
+did not regress them. **Unread:** how the engine draws a brush entity's water surface (whether it joins
+`MAT_SORT_GROUP_WATERSURFACE`, and which fog volume a `func_water_analog` belongs to). Unmeasured against TF2.
+
+## B658 — the under-water screen overlay was not drawn (2026-11-02) — FIXED on `fix/b657-water-2` (not merged)
+
+**Read:** `CUnderWaterView::Setup` (`viewrender.cpp:6115-6128`) takes the fog volume's material's
+`$underwateroverlay` when it is defined and does not start with '0'. From inside, that material is the
+`$bottommaterial`. `RenderView` shuts the overlay down every frame (`:2030`, "underwater view will set").
+`DrawUnderwaterOverlay` (`:1300-1340`) draws it after the viewmodels (`:2160-2162`), before the fade and
+`PerformScreenOverlay`. Only the under-water view sets it: the water is not cheap and the eye is in the volume
+(`:2674`, `:2704-2717`). 2fort's `water_2fort_beneath` names `effects/water_warp_2fort`, a `Refract` with
+`$refracttint {185 215 245}`, `$refractamount .05`, `$bluramount 1`, an animated `$normalmap`.
+
+**Arithmetic before the fix:** ours at B far fog, 80 84 67, through the tint linearised (0.494 0.687 0.916) gives about
+56 70 65 against TF2's 57 71 68.
+
+**Fixed:**
+- `MapWater.UnderwaterOverlay` reads the variable.
+- `WaterViews.UnderwaterOverlay` makes the view's decision.
+- `MapAssets` loads each water's overlay with the screen overlays.
+- `Device3D` draws it through the existing Refract screen-overlay pass (`DrawScreenOverlay`) at that point in the
+  frame.
+
+Tests:
+- `MapWaterConformanceTests.From_UnderwaterOverlay_IsTheNamedMaterialUnlessItStartsWithZero` and
+  `WaterViewsConformanceTests.UnderwaterOverlay_ByViewAndEye_IsSetOnlyByTheUnderWaterView`: red first, against a stub.
+- `WaterViewRenderTests.DrawScreenOverlay_TwoFortsUnderwaterOverlay_TintsTheFrameBlue`: 2fort's own load draws grey 188
+  as 137 159 188. With the overlay names dropped from the load, it reddens ("not loaded with the map").
+
+**Measured** (viewer `--shot`, same cameras, `D:/measure-f12/b657/overlay/mode0/`):
+
+| box | TF2 | before | after |
+|---|---|---|---|
+| B far fog (560,280) | 56.9 71.1 67.8 | 79.7 84.0 66.7 | 56.0 70.1 66.9 |
+| B floor near (400,620) | 33.1 35.1 31.5 | 46.6 39.9 28.6 | 31.2 32.1 28.7 |
+
+The pillars now warp as in TF2. A and C are unchanged to the decimal: the control, since only the under-water view
+sets the overlay.
+
+**Not tested:** the `Device3D` hand-off (the plan setting it and the draw reading it). Only the shot covers it.
+
+## B657 — ctf_2fort's water is grey-green in ours and brown in TF2, 20 to 50 levels apart (2026-11-02) — FIXED on `fix/b657-water` (merged into `perf/b597-gpu-split`); review on `fix/b657-water-2`
 
 **Cause (measured, then read):** ours drew the surface's DOWNWARD face from above. A water volume's surface is two
 coplanar faces: vbsp gives the downward one the surface material's `$bottommaterial` (`utils/vbsp/faces.cpp:1255-1289`),
@@ -40299,15 +40358,23 @@ the beneath face still draws, so the winding also holds from below.
 
 The pillars' submerged parts now show through the surface, as in TF2.
 
+**Review (`fix/b657-water-2`, 2026-11-02):**
+- **The Plain fallback culls too.** Valve's bare `Draw()` runs under the shader's shadow state (`water.cpp:579-584`).
+  Ours handed the batch back to the two-sided loop before setting the cull. `WaterCullConformanceTests`, red first: the
+  bottom face drawn first gave 58 58 58 over the surface's 255 255 255.
+- **Water has its own cull state** (`_waterCull`, with its wireframe twin). It reused `_modelCull`, so
+  `TF2VIEW_MODEL_CULL=front` culled 2fort's surface away from above, 0 0 0 against 48 39 5
+  (`ModelCullOverrideReleaseTests.DrawWaterWorld_SurfaceUnderModelCullFront_IsUnchanged`, red first).
+- **The tests can fail now.** The synthetic test's bottom-last case could not fail, because the opaque depth test is
+  `Less`, so it is gone. It gains a control: the bottom material facing up draws 169 63 49. The 2fort-faces test gains
+  the beneath run rewound to face up, which draws 68 68 47 from above. So its culled 0 0 0 comes from the cull, not
+  the sort group. With the main path's cull removed, both tests redden. With the beneath-is-black assertion
+  disabled, the surface-alone assertion reddens on its own.
+- Under water: **B658**. Brush-entity water: **B659**.
+
 **Still open:**
-- **Under water (camera B) is unchanged and 13-23 levels off**, teal and darker in TF2. TF2's frame also warps the
-  pillars. That points at the beneath material's `$underwateroverlay` (`CViewRender::DrawUnderwaterOverlay`), which
-  nothing here reads (no match for `underwateroverlay` in `managed/`). *Unread, unmeasured*: the next lead, and it needs a
-  number of its own.
 - A mid is 4-8 levels low in blue. TF2's surface carries faint bluish highlights that ours lacks. Unexplained; the
-  cheap pass's fresnel envmap is the first suspect (*unread*).
-- `WaterPass.Plain` (a water material neither pass can draw) still falls through to the two-sided opaque loop. TF2 ships
-  none.
+  cheap pass's fresnel envmap is the first suspect (*unread*; the cheap pass on the top material was never isolated).
 
 **As filed:**
 

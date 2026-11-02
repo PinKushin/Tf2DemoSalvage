@@ -487,6 +487,20 @@ public static class WaterViews
         return views;
     }
 
+    /// <summary>
+    /// The frame's under-water screen overlay: set only by <c>CUnderWaterView::Setup</c> (<c>viewrender.cpp:6115-6128</c>),
+    /// which runs when the water is not cheap and the eye is in the volume (<c>:2674</c>, <c>:2704-2717</c>), from the fog
+    /// volume's material — from inside, the <c>$bottommaterial</c>. <c>RenderView</c> shuts it down at the start of every
+    /// frame (<c>:2030</c>), so no other frame has one. Drawn by <c>DrawUnderwaterOverlay</c> after the viewmodels
+    /// (<c>:2160-2162</c>).
+    /// </summary>
+    /// <param name="info">The water's cost this frame.</param>
+    /// <param name="eyeInFogVolume"><c>m_bEyeInFogVolume</c>.</param>
+    /// <param name="fogVolumeMaterial">The fog volume's material as the views take it, or null.</param>
+    /// <returns>The overlay material's name, or null.</returns>
+    public static string? UnderwaterOverlay(WaterRenderInfo info, bool eyeInFogVolume, MapWater? fogVolumeMaterial) =>
+        !info.CheapWater && eyeInFogVolume ? fogVolumeMaterial?.UnderwaterOverlay : null;
+
     /// <summary><c>R_SetFogVolumeState</c>, engine.dll <c>0x1800e0cd0</c>, read in disassembly.</summary>
     /// <param name="material">The volume's material — the SURFACE's for height fog, the <c>$bottommaterial</c> otherwise:
     /// the function asks <c>0x1800dffd0</c> with its second argument <c>!bUseHeightFog</c> (<c>0x1800e0cf5</c>).</param>

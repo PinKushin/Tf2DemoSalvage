@@ -71,6 +71,9 @@ internal sealed class ViewHalf
     /// </summary>
     public (float Red, float Green, float Blue)? WaterMainClear { get; set; }
 
+    /// <summary>The frame's under-water overlay, <see cref="WaterViews.UnderwaterOverlay"/>, or null (B658).</summary>
+    public ScreenOverlayMaterial? UnderwaterOverlay { get; set; }
+
     /// <summary>The main view's draw flags when it is a <c>CSimpleWorldView</c>.</summary>
     public ViewDraws SimpleViewDraws { get; set; } = WorldRenderer.AllWaterDraws;
 
@@ -152,6 +155,7 @@ internal sealed class ViewHalf
         WaterDraw = null;
         WaterMainFog = null;
         WaterMainClear = null;
+        UnderwaterOverlay = null;
         SimpleViewDraws = WorldRenderer.AllWaterDraws;
     }
 }

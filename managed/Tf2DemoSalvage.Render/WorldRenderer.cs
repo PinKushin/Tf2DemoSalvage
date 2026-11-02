@@ -2207,6 +2207,9 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
     /// <summary>Back faces culled, for models — Source culls them and their materials expect it.</summary>
     private ComPtr<ID3D11RasterizerState> _modelCull;
 
+    /// <summary>Back faces culled for the <c>Water</c> shader's draws, which no model-cull experiment reaches (B657).</summary>
+    private ComPtr<ID3D11RasterizerState> _waterCull;
+
     /// <summary>The same state wound the other way, for a mirrored viewmodel.</summary>
     private ComPtr<ID3D11RasterizerState> _viewmodelCull;
 
@@ -2886,6 +2889,16 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
         ComPtr<ID3D11RasterizerState> culled = default;
         SilkMarshal.ThrowHResult(device.CreateRasterizerState(in modelRasterizer, ref culled));
 
+        // **The Water shader's own back-cull, apart from the models'** (B657 review): TF2VIEW_MODEL_CULL is an experiment
+        // on models and must not flip water. Same convention as Valve's default MATERIAL_CULLMODE_CCW; D3D11 hands back
+        // the model cull's object while the experiment is off, which the wireframe twin below tolerates.
+        RasterizerDesc waterRasterizer = rasterizer;
+
+        waterRasterizer.CullMode = CullMode.Back;
+
+        ComPtr<ID3D11RasterizerState> waterCull = default;
+        SilkMarshal.ThrowHResult(device.CreateRasterizerState(in waterRasterizer, ref waterCull));
+
         // **The mirror of the above, for a viewmodel.** Same state with the winding reversed,
         // created once rather than switched per draw: a rasterizer state is immutable in D3D11 and
         // building one mid-frame would be the expensive way to say the same thing.
@@ -2952,6 +2965,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
 
         AddWire(bothSides, rasterizer);
         AddWire(culled, modelRasterizer);
+        AddWire(waterCull, waterRasterizer);
         AddWire(mirrored, mirroredRasterizer);
         AddWire(decalOffset, biased);
         AddWire(decalPolyOffset, polyOffset);
@@ -2997,6 +3011,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
         {
             _bothSides = bothSides,
             _modelCull = culled,
+            _waterCull = waterCull,
             _viewmodelCull = mirrored,
             _decalOffset = decalOffset,
             _decalPolyOffset = decalPolyOffset,
@@ -4550,6 +4565,12 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             context.PSSetShaderResources(5, 1, ref reflection);
             BindBlendModulation(context, batch.MaterialIndex);
             SubmitCounters.Draw(); context.Draw((uint)batch.VertexCount, (uint)batch.FirstVertex);
+
+            // A water material's Plain fallback drew under the Water shader's cull (WaterBatch); the rest stay two-sided.
+            if (IsWater(batch.MaterialIndex))
+            {
+                context.RSSetState(Raster(_bothSides));
+            }
         }
     }
 
@@ -7238,6 +7259,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
         _polyOffsetFor.Clear();
         _bothSides.Dispose();
         _modelCull.Dispose();
+        _waterCull.Dispose();
 
         // **Made on first use and never released, until 2026-10-18**: each kept the device alive, and the device every
         // texture uploaded through it — the render suite's private bytes reached 26 GB from targets like this one.

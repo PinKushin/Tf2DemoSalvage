@@ -519,4 +519,32 @@ public sealed class WaterViewsConformanceTests
         origin.ShouldBe((10f, 20f, 28f));
         angles.ShouldBe((-30f, 45f, -5f));
     }
+
+    // ---- the under-water screen overlay: CUnderWaterView::Setup (:6115-6128), reset each RenderView (:2030) ----
+
+    /// <remarks>
+    /// Only <c>CUnderWaterView</c> sets it, which runs only when the water is not cheap and the eye is in the volume
+    /// (<c>DrawWorldAndEntities</c>, <c>:2674</c> and <c>:2704-2717</c>); <c>RenderView</c> shuts it down first every frame
+    /// ("underwater view will set"), so any other frame has none.
+    /// </remarks>
+    [TestCase(false, true, "effects/water_warp_2fort")]
+    [TestCase(true, true, null)]
+    [TestCase(false, false, null)]
+    public void UnderwaterOverlay_ByViewAndEye_IsSetOnlyByTheUnderWaterView(bool cheap, bool eyeInVolume, string? expected)
+    {
+        MapWater bottom = MapWater.From(Vmt("\"$abovewater\" 0\n$underwateroverlay \"effects/water_warp_2fort\""), null);
+        WaterRenderInfo info = new(CheapWater: cheap, Refract: !cheap, Reflect: false, ReflectEntities: false,
+            DrawWaterSurface: true, OpaqueWater: cheap);
+
+        WaterViews.UnderwaterOverlay(info, eyeInVolume, bottom).ShouldBe(expected);
+    }
+
+    [Test]
+    public void UnderwaterOverlay_NoMaterialDeclaresOne_IsNone()
+    {
+        WaterRenderInfo info = new(false, true, false, false, true, false);
+
+        WaterViews.UnderwaterOverlay(info, eyeInFogVolume: true, MapWater.From(Vmt("\"$abovewater\" 0"), null)).ShouldBeNull();
+        WaterViews.UnderwaterOverlay(info, eyeInFogVolume: true, null).ShouldBeNull();
+    }
 }

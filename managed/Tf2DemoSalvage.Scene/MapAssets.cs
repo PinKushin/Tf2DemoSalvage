@@ -519,8 +519,10 @@ public sealed class MapAssets
     /// <summary>A table of hand-built materials and nothing else: no map, no game install (B635's synthetic guard).</summary>
     /// <param name="textures">Each material's base texture and flags, by table index.</param>
     /// <param name="shaders">Each material's shader name, by the same index.</param>
+    /// <param name="waters">Each material's <c>Water</c> parameters by the same index, or null for none (B657's synthetic water).</param>
     /// <returns>Assets whose every other per-material slot is empty, with an atlas holding only the reserved white texel.</returns>
-    internal static MapAssets ForMaterials(IReadOnlyList<MapTexture?> textures, IReadOnlyList<string> shaders)
+    internal static MapAssets ForMaterials(
+        IReadOnlyList<MapTexture?> textures, IReadOnlyList<string> shaders, IReadOnlyList<MapWater?>? waters = null)
     {
         ArgumentNullException.ThrowIfNull(textures);
         ArgumentNullException.ThrowIfNull(shaders);
@@ -538,7 +540,10 @@ public sealed class MapAssets
             shaders,
             LightmapAtlas.Pack([]),
             count,
-            0);
+            0)
+        {
+            Waters = waters ?? [],
+        };
     }
 
     /// <summary>Each drawn static prop's model shape and placement, by its index in the map's lump — for its decals (B421).</summary>
@@ -1875,7 +1880,8 @@ public sealed class MapAssets
             ParticleSystemsByName = particleSystems,
             ParticleMaterials = allParticleMaterials,
             SpriteMaterials = sprites,
-            ScreenOverlays = LoadScreenOverlays(assets, pak, archives, maximumTextureSize),
+            ScreenOverlays = LoadScreenOverlays(
+                assets, pak, archives, maximumTextureSize, table.Waters.Select(water => water?.UnderwaterOverlay).OfType<string>()),
             DecalMaterials = decals,
             DetailModelNames = detailModelNames,
             EntityModels = models,
@@ -2704,12 +2710,18 @@ public sealed class MapAssets
     /// <c>BurnLevel</c> — and <c>PerformScreenOverlay</c> binds it with no entity, so <c>CProxyBurnLevel</c> answers 0
     /// (`c_tf_player.cpp`, its <c>!pEntity</c> branch) and the overlay adds black: it draws nothing, faithfully.
     /// </remarks>
+    /// <param name="assets">The asset log.</param>
+    /// <param name="pak">The map's pakfile, read first.</param>
+    /// <param name="archives">The game's archives.</param>
+    /// <param name="maximumTextureSize">Largest texture edge to decode.</param>
+    /// <param name="underwater">Each water material's <c>$underwateroverlay</c>, which <c>DrawUnderwaterOverlay</c> draws the
+    /// same way (<c>viewrender.cpp:1300-1340</c>, B658).</param>
     private static Dictionary<string, ScreenOverlayMaterial> LoadScreenOverlays(
-        ILogger assets, PakFile pak, GameArchives archives, int maximumTextureSize)
+        ILogger assets, PakFile pak, GameArchives archives, int maximumTextureSize, IEnumerable<string> underwater)
     {
         Dictionary<string, ScreenOverlayMaterial> overlays = new(StringComparer.OrdinalIgnoreCase);
 
-        foreach (string named in Core.Scene.ScreenOverlay.All)
+        foreach (string named in Core.Scene.ScreenOverlay.All.Concat(underwater).Distinct(StringComparer.OrdinalIgnoreCase))
         {
             if (ReadVmt(named, pak, archives) is not { } vmt)
             {
