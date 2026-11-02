@@ -25,8 +25,9 @@ The commits, in order, each its own record in git:
    carries `travelled` from the slammed end matrix, Valve's `boneToWorld[bone]`. **This is also a latent parity fix**: Valve's
    `SolveSequenceLocks` shares one `CBoneBitList` across every `SolveLock` of a sequence (`bone_setup.cpp:4301-4309`), so a
    later lock whose chain hangs below an earlier lock's end bone reads that bone's SLAMMED matrix; the mid-solve `Reset` made
-   ours read a re-concatenation instead (after a success only). Latent on TF2: the two foot chains share no rewritten bone, so
-   the real-model differential is bit-identical. `Moved`/`FurthestMove` keep their meaning ("of the successful solves,
+   ours read a re-concatenation instead (after a success only). Inert on TF2's players by census (`iklock-census`: 814 lock
+   lists, all rfoot then lfoot at weights 1/0, no chain locked twice, no walk through an earlier lock's links), and the
+   nine-class differential is bit-identical. `Moved`/`FurthestMove` keep their meaning ("of the successful solves,
    effector travel") but now measure to the solved matrix rather than to its local-space round trip: a last-bits change of
    route (B243), compared with a tolerance in the differential.
 3. **The array read and the unzeroed walk buffer** (`perf: read a lock's dense pose by index, unzeroed walk buffer`):
@@ -55,20 +56,29 @@ The nearest measured "before" WITH B624 is `2026-10-31-b624-cost.md`'s **after**
 | enumerators | 21.4 |
 | roots built / eligible | 13.4 / 4.9 |
 
-**B622, B633 and B634 have landed since** (this branch starts at `55484e1f`), so that table is not a clean before. **The lead
-should run `all.sh` once on `55484e1f`** (the owner's t3 worktree is at it) into `before/`, and the predictions below are moves
-from THAT run, falling back to the table above only if it is not taken.
+**B622, B633 and B634 have landed since**, so that table is not a clean before.
+
+## Protocol: two sets
+
+- **before** — the pushed tree at `6e8f2f47`, measured by the lead with its own copy of `all.sh` in the main tree, folder
+  `before/`.
+- **after** — the same tree with this branch (`perf/iklock-compose` and `perf/iklock-compose-2`) merged, folder `after/`.
+
+The predictions below are moves from `before` to `after`. The three commits are NOT measured one by one: their per-commit
+predictions are kept so the after set's split can be read against them, but only the sum is a measured move, and only the
+`solve` drop (2a) is expected to stand clear of one set's spread. **The `enumerators` column is gone from the after set**: it
+was removed end to end (`perf/iklock-compose-2`), so prediction 1a is moot and `summ.ps1` reads `other` from both line shapes.
 
 ## Method
 
 `2026-11-02-iklock-compose-cost/all.sh`: the setup-parts command (`2026-10-31-setup-parts.md` Method), three runs, each built in
-the command that runs it, read with `2026-10-31-setup-parts/summ.ps1 -Dir`. Its `repo` is the worktree that built this branch;
-change it to whichever checkout holds the commit being measured, and `out` to a folder per commit (`c1/`, `c2/`, `c3/`).
+the command that runs it, read with `2026-10-31-setup-parts/summ.ps1 -Dir`. It measures the checkout it sits in (three folders
+up) and takes the set's folder as its argument.
 
 ```bash
-# Usage: all.sh before|c1|c2|c3
-repo=/c/Users/pinku/source/repos/PinKushin/Tf2DemoSalvage/.claude/worktrees/agent-acdedeefe17a7e7cf
-out="$repo/docs/measurements/2026-11-02-iklock-compose-cost/${1:?before|c1|c2|c3}"
+# Usage: all.sh before|after
+repo="$(cd "$(dirname "$0")/../../.." && pwd)"
+out="$repo/docs/measurements/2026-11-02-iklock-compose-cost/${1:?before|after}"
 mkdir -p "$out"
 for n in 01 02 03; do
   MSBUILDDISABLENODEREUSE=1 dotnet build "$repo/managed/Tf2DemoSalvage.Viewer3D" -c Release > "$out/$n-build.txt" 2>&1 && \
@@ -81,11 +91,11 @@ for n in 01 02 03; do
 done
 ```
 
-## Predictions (all [pred], per root rebuild, against the `55484e1f` run)
+## Predictions (all [pred], per root rebuild, after set against the `6e8f2f47` before set)
 
 | # | commit | prediction | falsified if |
 |---|---|---|---|
-| 1a | indexed loops | the `enumerators` column reads **0** | it reads anything else. **This is not a control of the change**: nothing increments the counter any more, so it reads 0 by construction. The allocation test is the evidence that the loops box nothing |
+| 1a | indexed loops | (moot: the `enumerators` column was removed in `perf/iklock-compose-2`; the allocation test is the evidence that the loops box nothing) | — |
 | 1b | indexed loops | accumulate − layer sampling falls by **0.0005-0.003** (about 21 heap enumerators and their interface dispatch, 20-60 ns each [interp], plus less gen0 pressure) | it falls by more than 0.010 (then something else moved), or rises by more than 0.005 |
 | 1c | indexed loops | roots total moves by less than the run-to-run spread (about 0.02) | it moves by more than 0.03 either way |
 | 2a | no re-walk | `solve` falls by **0.003-0.006** (the bracket read's rank 1, from 8 of 15 bone builds in a successful solve) | it falls by less than 0.001 or more than 0.012 |
