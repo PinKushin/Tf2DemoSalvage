@@ -1764,15 +1764,6 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
 
                 Passed(profile, RenderPass.Sky3D);
 
-                // From inside a volume the simple view clears colour to the volume's fog AFTER the 3D sky, which it
-                // covers (WorldRenderer.MainViewFogClear, viewrender.cpp:5772-5780).
-                if (view.WaterMainClear is { } fogClear)
-                {
-                    float* clear = stackalloc float[4] { fogClear.Red, fogClear.Green, fogClear.Blue, 1f };
-
-                    _context.ClearRenderTargetView(_backBufferView, clear);
-                }
-
                 // **The water views before the main one** (B62) — DrawWorldAndEntities' AddViewToScene order:
                 // the reflection and refraction render into their targets, then this view draws.
                 if (view.WaterDraw is { } water)
@@ -1792,8 +1783,9 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
                 }
                 else
                 {
-                    // A simple view still draws only its sides of the water (CSimpleWorldView::Setup, viewrender.cpp:5710).
-                    _world.ViewDraws = view.SimpleViewDraws;
+                    // A simple view still draws only its sides of the water (CSimpleWorldView::Setup, viewrender.cpp:5710),
+                    // and from inside a volume clears to its fog after the 3D sky (:5772-5780).
+                    _world.BeginSimpleView(_context, _backBufferView, view.SimpleViewDraws, view.WaterMainClear);
                 }
 
                 Passed(profile, RenderPass.WaterViews);

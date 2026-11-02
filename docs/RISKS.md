@@ -40290,6 +40290,12 @@ skybox is visible and radial vis clipped the far plane (`viewrender.cpp:1417-142
 (`VIEW_SETUP_VIS_EX_RETURN_FLAGS_USES_RADIAL_VIS`, a map's `env_fog_controller` far Z), so it never takes this clear.
 Who it reaches: a map whose fog controller sets a far Z, from a camera that sees no sky. Unmeasured.
 
+**A second unmodelled fog clear (fog-open-items-2):** from inside a volume whose material has `$fogenable 0`, the simple
+view still clears colour (`viewrender.cpp:5772`, unconditional), but `R_SetFogVolumeState` sets no colour (engine.dll
+`0x1800e0cd0`), so `GetFogColor` hands back the byte the material system last stored: the previous `FogColor3fv` of this
+frame or an earlier one. That depends on call history, not on the frame; ours keeps the earlier clear
+(`WorldRenderer.MainViewFogClear`'s remarks). Who it reaches: being inside a cheap, fogless water volume. Unmeasured.
+
 ## B654 — a static prop's flags-7 lights are ranked once; the engine appends the draw's to the static four without ranking again (2026-11-02) — OPEN, low
 
 **Read (`engine.dll`).** A decal-holding colour-mesh prop's decal lights are the record's lights at `record + 0x88`, then

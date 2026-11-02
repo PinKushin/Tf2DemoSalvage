@@ -212,9 +212,24 @@ public sealed class DecalEffectsTests
         decals.StepOver(Frame(ImpactTick), Content(), device);
         decals.ModelDecalCount.ShouldBe(1, "the control: the step placed one");
 
+        // A static prop's decal too, whose key is the lump index that would collide on the next map (review): a clear of
+        // entity keys alone would leave it.
+        ModelDecals pool = device.ModelDecals.ShouldNotBeNull();
+        WorldVertex[] face =
+        [
+            new(0f, -100f, -100f, 0f, 0f, 0f, 0f, 1f, NormalX: 1f, NormalY: 0f, NormalZ: 0f),
+            new(0f, 100f, -100f, 0f, 0f, 0f, 0f, 1f, NormalX: 1f, NormalY: 0f, NormalZ: 0f),
+            new(0f, 0f, 100f, 0f, 0f, 0f, 0f, 1f, NormalX: 1f, NormalY: 0f, NormalZ: 0f),
+        ];
+        int prop = DecalReplay.StaticPropKey(3);
+
+        pool.AddClipped(prop, face, System.Numerics.Vector3.Zero, new System.Numerics.Vector3(-1.1f, 0f, 0f), 4f, 1)
+            .ShouldBeTrue("the control: the prop took its decal");
+
         decals.ClearMap();
 
         decals.ModelDecalCount.ShouldBe(0);
+        pool.Holds(prop).ShouldBeFalse("the static prop's decal is gone");
     }
 
     [Test]

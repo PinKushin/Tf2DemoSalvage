@@ -484,13 +484,15 @@ internal sealed unsafe partial class WorldRenderer
     /// 128 a modulating material fogs toward (B637; shader fog mode 1 or 3 hands c29 the bytes 0x80, 0x180014200), take
     /// shaderapi's height-fog conversion: the sRGB decode at <c>r_shader_srgb 0</c>, <c>pow 2.2</c> at 1 (0x180025b1f).
     /// </summary>
-    /// <param name="view">The water view's twelve floats; 4-11 are written, or left as they are without height fog.</param>
+    /// <param name="view">The water view's twelve floats; 4-11 are written, all zero without height fog.</param>
     /// <param name="heightFog">The volume's fog, or null.</param>
     /// <param name="shaderSrgb"><c>r_shader_srgb</c>.</param>
     internal static void PackHeightFog(Span<float> view, VolumeFog? heightFog, int shaderSrgb)
     {
         if (heightFog is not { HeightFog: true } fog)
         {
+            view[4..12].Clear();
+
             return;
         }
 
@@ -503,7 +505,33 @@ internal sealed unsafe partial class WorldRenderer
         view[8] = FogConstants.HeightFogChannel(fog.Color.Red, shaderSrgb);
         view[9] = FogConstants.HeightFogChannel(fog.Color.Green, shaderSrgb);
         view[10] = FogConstants.HeightFogChannel(fog.Color.Blue, shaderSrgb);
-        view[11] = FogConstants.HeightFogChannel(128f / 255f, shaderSrgb);
+        view[11] = FogConstants.HeightFogChannelOfByte(ModulatingGreyByte, shaderSrgb);
+    }
+
+    /// <summary>The literal byte shader fog modes 1 and 3 hand c29 (<c>shaderapidx9.dll</c> <c>0x180014200</c>).</summary>
+    private const int ModulatingGreyByte = 0x80;
+
+    /// <summary>
+    /// <c>CSimpleWorldView</c>'s own start (<c>viewrender.cpp:5705-5781</c>): its draw flags, and from inside a volume its
+    /// colour clear to the volume's fog (<see cref="MainViewFogClear"/>). Called where the main view begins, after the 3D
+    /// sky, which the clear covers.
+    /// </summary>
+    /// <param name="context">The context.</param>
+    /// <param name="target">The main view's target, its sRGB view.</param>
+    /// <param name="draws">The view's draw flags.</param>
+    /// <param name="fogClear">The fog clear, or null for none.</param>
+    public void BeginSimpleView(
+        ComPtr<ID3D11DeviceContext> context, ComPtr<ID3D11RenderTargetView> target, ViewDraws draws,
+        (float Red, float Green, float Blue)? fogClear)
+    {
+        ViewDraws = draws;
+
+        if (fogClear is { } colour)
+        {
+            float* clear = stackalloc float[4] { colour.Red, colour.Green, colour.Blue, 1f };
+
+            context.ClearRenderTargetView(target, clear);
+        }
     }
 
     /// <summary>
@@ -567,7 +595,7 @@ internal sealed unsafe partial class WorldRenderer
         {
             float factor = (float)Math.Pow(scale, LinearToGammaExponent);
 
-            stored = (int)(stored * factor) & 0xFF;
+            stored = FogConstants.Cvttss2si(stored * factor) & 0xFF;
         }
 
         return FogConstants.SrgbDecode(stored / 255f);
@@ -590,6 +618,13 @@ internal sealed unsafe partial class WorldRenderer
     /// <c>ClearColor4ub</c> unscaled (<c>viewrender.cpp:5772-5780</c>), after the 3D sky drew, which it covers. The
     /// under-water main view sets the clear colour too (<c>:6178</c>) but clears depth only (<c>:6134</c>), so nothing.
     /// </summary>
+    /// <remarks>
+    /// **A volume whose material has <c>$fogenable 0</c> is not cleared here, where Valve still clears.** The clear is
+    /// unconditional (<c>:5772</c>), but <c>R_SetFogVolumeState</c> then sets <c>MATERIAL_FOG_NONE</c> and no colour
+    /// (engine.dll <c>0x1800e0cd0</c>), so <c>GetFogColor</c> returns whatever byte the material system last stored: the
+    /// previous <c>FogColor3fv</c> of this frame or an earlier one (the 3D sky's fog, the world's, another volume's). That
+    /// depends on the call history, not on the frame, and is not modelled; the frame keeps its earlier clear (RISKS B655).
+    /// </remarks>
     /// <param name="main">The frame's back-buffer view.</param>
     /// <param name="inside">The volume's fog as the view sets it (the bottom material's, not height fog).</param>
     /// <returns>The sRGB-view values that store the fog bytes, or null when the view clears no colour to fog.</returns>

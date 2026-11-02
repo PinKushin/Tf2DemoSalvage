@@ -373,10 +373,9 @@ internal sealed unsafe class OffscreenTarget : IDisposable
         world.UploadGeometry(_device, vertices, batches);
         world.Overlays = [];
 
-        if (toneMapScale is { } scale)
-        {
-            world.LinearLightScale = scale;
-        }
+        float before = world.LinearLightScale;
+
+        world.LinearLightScale = toneMapScale ?? before;
 
         // The main view this draw ends on is what a later DrawTranslucentWorld or DrawTranslucentLeaf puts back, not an
         // older DrawWorld's (B635 review). Captured BEFORE the water views on purpose: they push their own scale and pop
@@ -398,24 +397,40 @@ internal sealed unsafe class OffscreenTarget : IDisposable
             Frame = new WaterFrameTarget(_view, _depthView, _width, _height),
         };
 
-        world.DrawWaterViews(
-            _context,
-            draw,
-            () =>
-            {
-                _context.RSSetViewports(1, in viewport);
-                _context.OMSetRenderTargets(1u, _view.GetAddressOf(), _depthView);
-                world.SetCamera(_device, _context, matrix);
-            });
+        try
+        {
+            world.DrawWaterViews(
+                _context,
+                draw,
+                () =>
+                {
+                    _context.RSSetViewports(1, in viewport);
+                    _context.OMSetRenderTargets(1u, _view.GetAddressOf(), _depthView);
+                    world.SetCamera(_device, _context, matrix);
+                });
 
-        // The main view clears depth only (VIEW_CLEAR_DEPTH), so what it does not draw keeps the frame's colour.
-        _context.ClearDepthStencilView(_depthView, (uint)ClearFlag.Depth, 1f, 0);
-        world.Draw(_context);
-        world.DrawTranslucentWorld(_context);
-        world.DrawWaterIntersection(_context, draw);
+            // The main view clears depth only (VIEW_CLEAR_DEPTH), so what it does not draw keeps the frame's colour.
+            _context.ClearDepthStencilView(_depthView, (uint)ClearFlag.Depth, 1f, 0);
+            world.Draw(_context);
+            world.DrawTranslucentWorld(_context);
+            world.DrawWaterIntersection(_context, draw);
 
-        return world.WaterDraws;
+            return world.WaterDraws;
+        }
+        finally
+        {
+            world.LinearLightScale = before;
+        }
     }
+
+    /// <summary>The simple main view's start as <c>Device3D</c> begins it, over what this target already holds (the 3D sky's place).</summary>
+    /// <param name="draws">The view's draw flags.</param>
+    /// <param name="fogClear">The eye-in-volume fog clear, or null.</param>
+    internal void BeginSimpleView(ViewDraws draws, (float Red, float Green, float Blue)? fogClear) =>
+        EnsureWorld().BeginSimpleView(_context, _view, draws, fogClear);
+
+    /// <summary>The world renderer's draw flags as they stand.</summary>
+    internal ViewDraws WorldViewDraws => EnsureWorld().ViewDraws;
 
     /// <summary>A pixel of the water reflection or refraction target, as stored.</summary>
     /// <param name="refraction">The refraction target, else the reflection.</param>

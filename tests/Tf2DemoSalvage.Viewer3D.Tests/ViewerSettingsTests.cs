@@ -503,10 +503,14 @@ public sealed class ViewerSettingsTests
         settings.DrawHud.ShouldBeFalse();
     }
 
-    /// <summary>`r_shader_srgb` (default 0, shaderapidx9.dll 0x180001120) is read from a config, any of its three values.</summary>
+    /// <summary>
+    /// `r_shader_srgb` (default 0, shaderapidx9.dll 0x180001120) is read from a config, its three documented values and an
+    /// undocumented 5, stored as given: the ConVar has no bounds (the four-argument constructor 0x18003ed80).
+    /// </summary>
     [TestCase("", 0)]
     [TestCase("r_shader_srgb 1\n", 1)]
     [TestCase("r_shader_srgb -1\n", -1)]
+    [TestCase("r_shader_srgb 5\n", 5)]
     public void Load_ShaderSrgb_ReadsTheConfigOrKeepsTheDefault(string line, int expected)
     {
         string file = Path.Combine(_folder, "settings.cfg");

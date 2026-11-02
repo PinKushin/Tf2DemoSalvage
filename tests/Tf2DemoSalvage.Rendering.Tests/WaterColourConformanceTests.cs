@@ -62,11 +62,13 @@ public sealed class WaterColourConformanceTests
     /// <remarks>
     /// **Above 255 the byte WRAPS**: the client stores CVTTSS2SI's low byte (<c>0x18034d5dc</c>-<c>0x18034d5ec</c>), no
     /// clamp. 200 at scale 4 is 200 · 1.8779 = 375.6, 375 &amp; 255 = 119, where a clamp would give 255. 190 at scale 2 is
-    /// 190 · 1.3703 = 260.4, so 4. Unscaled (<c>scaled: false</c>), the byte is kept whatever the scale.
+    /// 190 · 1.3703 = 260.4, so 4. Unscaled (<c>scaled: false</c>), the byte is kept whatever the scale. A product beyond
+    /// int's range is CVTTSS2SI's <c>0x80000000</c>, low byte 0 (unreachable at any real scale; .NET's cast would give 255).
     /// </remarks>
     [TestCase(200f, 4f, true, 119)]
     [TestCase(190f, 2f, true, 4)]
     [TestCase(200f, 4f, false, 200)]
+    [TestCase(200f, 1e30f, true, 0)]
     public void WaterClearColour_AProductAbove255_WrapsAsAnUnsignedChar(float fogByte, float scale, bool scaled, int expected)
     {
         SrgbTarget.Encode(WorldRenderer.WaterClearColour(fogByte / 255f, scale, scaled)).ShouldBe(expected);
