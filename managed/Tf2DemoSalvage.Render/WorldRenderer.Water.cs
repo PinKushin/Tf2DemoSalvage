@@ -801,6 +801,14 @@ internal sealed unsafe partial class WorldRenderer
         context.PSSetShaderResources(12, 1, ref _refractionView);
         context.PSSetShaderResources(13, 1, ref _reflectionView);
 
+        // **Back faces culled, as the Water shader leaves them** (B657): its shadow state turns culling off only in the
+        // editor (water.cpp:393-397, "In edit mode, use nocull"; that the default is on is read from that line and
+        // measured against TF2, shaderlib being unpublished). A volume's surface is two coplanar faces, the downward one
+        // with $bottommaterial (vbsp faces.cpp:1255-1289), and the world walk keeps both (a water-leaf surface skips the
+        // plane-side test, VisibleWorld.Surfaces), so this cull alone decides which one the eye sees. Without it 2fort's
+        // surface drew water_2fort_beneath from above, 20-50 levels grey-green over TF2's brown.
+        context.RSSetState(Raster(_modelCull));
+
         if ((passes & WaterPass.ReflectionRefraction) != 0)
         {
             context.PSSetShader(_waterShader, ref Unsafe.NullRef<ComPtr<ID3D11ClassInstance>>(), 0);
@@ -826,7 +834,8 @@ internal sealed unsafe partial class WorldRenderer
 
         WaterDraws = (expensive, cheap, plain);
 
-        // Hand the world shader and the view's constants back to the next batch.
+        // Hand the world shader, its two-sided raster and the view's constants back to the next batch.
+        context.RSSetState(Raster(_bothSides));
         context.PSSetShader(_pixelShader, ref Unsafe.NullRef<ComPtr<ID3D11ClassInstance>>(), 0);
         WriteWater(context, null, -1);
 

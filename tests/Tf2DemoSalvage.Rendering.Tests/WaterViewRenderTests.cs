@@ -321,6 +321,92 @@ public sealed class WaterViewRenderTests
         target.WorldLinearLightScale.ShouldBe(1f, "the draw's scale is restored when it returns");
     }
 
+    /// <remarks>
+    /// **B657: a water volume's surface is TWO coplanar faces, and only the one facing the eye draws.** vbsp gives the
+    /// downward face the surface material's <c>$bottommaterial</c> (<c>utils/vbsp/faces.cpp:1255-1289</c>), so 2fort's
+    /// surface is <c>water_2fort</c> facing up and <c>water_2fort_beneath</c> facing down, in one plane. The engine's
+    /// world walk keeps both: a surface in a water leaf skips the plane-side test (engine.dll <c>0x1800e0600</c>,
+    /// <c>VisibleWorld.Surfaces</c>). What removes the far one is the hardware cull the <c>Water</c> shader leaves on:
+    /// its shadow state turns culling off only in the editor (<c>water.cpp:393-397</c>, "In edit mode, use nocull").
+    ///
+    /// **Expected, Valve's arithmetic:** from above, the downward face is culled whatever order it draws in, so the
+    /// pixel is exactly the up-facing surface's own. Literal comparison of two draws, no curve. Both orders, because
+    /// with no cull the depth test lets whichever coplanar face drew first win, and on 2fort that was the bottom.
+    /// </remarks>
+    [TestCase(false)]
+    [TestCase(true)]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
+    public void DrawWaterWorld_TheSurfacesTwoCoplanarFaces_OnlyTheOneFacingTheEyeDraws(bool bottomFirst)
+    {
+        if (!Direct3DApi.IsAvailable || Assets is not { } assets)
+        {
+            Assert.Ignore("needs Direct3D and TF2's ctf_2fort");
+            return;
+        }
+
+        (int top, int floor) = Materials(assets);
+        int bottom = Enumerable.Range(0, assets.Waters.Count).First(index => assets.Waters[index] is { AboveWater: false });
+
+        // The subject: 2fort's beneath material is not the surface's, so either face drawing shows.
+        assets.Waters[top]!.BottomMaterial.ShouldNotBeNull();
+        assets.Waters[bottom]!.FogColor.ShouldNotBe(assets.Waters[top]!.FogColor);
+
+        WaterRenderInfo info = WaterRenderInfo.Determine(
+            assets.Waters[top]!.View, 0f, new WaterLodSession().Current.End, WaterConVars.Defaults);
+        IReadOnlyList<WaterView> views = WaterViews.Plan(info, new WaterFrame(false, false, 0f, false), ViewClears.Depth);
+
+        (int, int, int) Draw(bool withBottom)
+        {
+            using OffscreenTarget target = OffscreenTarget.TryCreate(64, 64)!;
+            List<WorldVertex> vertices = [.. Quad(-5f, (1f, 0f, 0f))];
+            List<WorldBatch> batches = [new(floor, 0, 6)];
+
+            void Add(List<WorldVertex> face, int material)
+            {
+                batches.Add(new(material, vertices.Count, face.Count));
+                vertices.AddRange(face);
+            }
+
+            if (withBottom && bottomFirst)
+            {
+                Add(Reversed(Quad(0f, (1f, 1f, 1f))), bottom);
+            }
+
+            Add(Quad(0f, (1f, 1f, 1f)), top);
+
+            if (withBottom && !bottomFirst)
+            {
+                Add(Reversed(Quad(0f, (1f, 1f, 1f))), bottom);
+            }
+
+            target.Clear(0f, 0f, 0f);
+            target.DrawWaterWorld(vertices, batches, Camera, assets, new WaterDraw(views, top, 0f, [], [], null, null));
+
+            return target.PixelAt(32, 32);
+        }
+
+        (int, int, int) alone = Draw(withBottom: false);
+        (int, int, int) both = Draw(withBottom: true);
+
+        TestContext.Out.WriteLine($"SURFACE ALONE {alone} WITH THE BOTTOM FACE {(bottomFirst ? "FIRST" : "LAST")} {both}");
+
+        both.ShouldBe(alone, "the downward face drew from above");
+    }
+
+    private static List<WorldVertex> Reversed(List<WorldVertex> face)
+    {
+        List<WorldVertex> flipped = [];
+
+        for (int at = 0; at < face.Count; at += 3)
+        {
+            flipped.Add(face[at] with { NormalZ = -1f });
+            flipped.Add(face[at + 2] with { NormalZ = -1f });
+            flipped.Add(face[at + 1] with { NormalZ = -1f });
+        }
+
+        return flipped;
+    }
+
     private static double Linear(int srgb)
     {
         double c = srgb / 255.0;
