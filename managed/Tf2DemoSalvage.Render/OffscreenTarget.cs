@@ -336,14 +336,17 @@ internal sealed unsafe class OffscreenTarget : IDisposable
     /// <param name="camera">The main view.</param>
     /// <param name="assets">The map's materials.</param>
     /// <param name="frame">The views; its matrices are filled from <paramref name="camera"/> here.</param>
-    /// <param name="hdr">The HDR type to draw under in place of the map's own, or null for the map's.</param>    /// <returns>How many water batches drew each pass.</returns>
+    /// <param name="hdr">The HDR type to draw under in place of the map's own, or null for the map's.</param>
+    /// <param name="toneMapScale">The frame's tone-map scale to draw at, or null to keep the world's as it stands.</param>
+    /// <returns>How many water batches drew each pass.</returns>
     public (int Expensive, int Cheap, int Plain) DrawWaterWorld(
         IReadOnlyList<WorldVertex> vertices,
         IReadOnlyList<WorldBatch> batches,
         FreeCamera camera,
         MapAssets assets,
         WaterDraw frame,
-        Content.Bsp.HdrType? hdr = null)
+        Content.Bsp.HdrType? hdr = null,
+        float? toneMapScale = null)
     {
         ArgumentNullException.ThrowIfNull(camera);
         ArgumentNullException.ThrowIfNull(frame);
@@ -369,6 +372,11 @@ internal sealed unsafe class OffscreenTarget : IDisposable
         world.HdrType = hdr ?? assets.Hdr;
         world.UploadGeometry(_device, vertices, batches);
         world.Overlays = [];
+
+        if (toneMapScale is { } scale)
+        {
+            world.LinearLightScale = scale;
+        }
 
         // The main view this draw ends on is what a later DrawTranslucentWorld or DrawTranslucentLeaf puts back, not an
         // older DrawWorld's (B635 review). Captured BEFORE the water views on purpose: they push their own scale and pop
