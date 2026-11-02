@@ -1,7 +1,11 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Reflection;
+using System.Threading;
+using System.Threading.Tasks;
 
+using Tf2DemoSalvage.Animation.Animating;
 using Tf2DemoSalvage.Content.Assets;
 using Tf2DemoSalvage.Core.Scene;
 
@@ -76,6 +80,75 @@ public sealed class EntityModelSetPrePoseTests
         (prePosed.SetupRootBuilds, prePosed.SetupEligibleBuilds, prePosed.SetupChildBuilds)
             .ShouldBe((serial.SetupRootBuilds, serial.SetupEligibleBuilds, serial.SetupChildBuilds), "every build counted once, on whichever thread");
         prePosed.BoneWorkers.Forks.ShouldBe(lane == Lanes.Serial ? 0 : FrameCount, "the control: the forked lanes forked every frame");
+    }
+
+    /// <remarks>
+    /// **Why a root's layer list is not torn while its pose is built** (iklock-compose review, 2026-11-02). `BuildBlend`
+    /// refills the skeleton's own `Layers` and `IkErrors` lists in place, and `SkeletonPose.Build` reads them by index on
+    /// the pre-pass's workers, so the two must never overlap. They cannot, for three reasons, and this pins the one the
+    /// scene owns: **every root's blend that does work runs on the calling thread before the fork**. The other two are in
+    /// the code beside it — `BuildBlend` does its work once a frame (`pending.Ready`), so the worker's own `BeforeBuild` is
+    /// a no-op; and the fork poses only roots (`PrePoseEligible` needs `Follows` null), each once, so no worker reaches
+    /// another entity's `SetupBones`. The control: the fork did call `BeforeBuild` again, on other threads.
+    /// </remarks>
+    [Test]
+    public void Instances_ThreadedPrePass_RunsEveryRootsFirstBlendOnTheCallerBeforeTheFork()
+    {
+        (EntityModelSet models, List<ModelInstance> drawn) = Scene(threaded: true);
+        int caller = Environment.CurrentManagedThreadId;
+        bool inFork = false;
+        int duringFork = 0;
+        int firstInFork = 0;
+        int firstElsewhere = 0;
+        int firsts = 0;
+        HashSet<AnimatingEntity> blended = [];
+        object gate = new();
+
+        models.BoneWorkers = new WorkerLane(new GameWorkers((count, body) =>
+        {
+            Volatile.Write(ref inFork, true);
+            Parallel.For(0, count, body);
+            Volatile.Write(ref inFork, false);
+        }));
+
+        models.Instances(Props(0), drawn, seconds: 0d);
+
+        FieldInfo? field = typeof(EntityModelSet).GetField("_entities", BindingFlags.NonPublic | BindingFlags.Instance);
+        field.ShouldNotBeNull("EntityModelSet._entities renamed? This test wraps each entity's BeforeBuild through it.");
+
+        foreach (AnimatingEntity entity in ((Dictionary<int, AnimatingEntity>)field.GetValue(models)!).Values)
+        {
+            Action? original = entity.BeforeBuild;
+            entity.BeforeBuild = () =>
+            {
+                lock (gate)
+                {
+                    bool forking = Volatile.Read(ref inFork);
+
+                    duringFork += forking && Environment.CurrentManagedThreadId != caller ? 1 : 0;
+
+                    if (blended.Add(entity))
+                    {
+                        firsts++;
+                        firstInFork += forking ? 1 : 0;
+                        firstElsewhere += Environment.CurrentManagedThreadId != caller ? 1 : 0;
+                    }
+                }
+
+                original?.Invoke();
+            };
+        }
+
+        for (int frame = 1; frame < FrameCount; frame++)
+        {
+            blended.Clear();
+            models.Instances(Props(frame), drawn, seconds: frame / 66d);
+        }
+
+        models.PrePosed.ShouldBeGreaterThan(0, "the control: the pre-pass posed roots");
+        duringFork.ShouldBeGreaterThan(0, "the control: the fork's workers reached BeforeBuild on other threads");
+        firsts.ShouldBeGreaterThan(0, "the control: the wrapper saw the frames' blends");
+        (firstInFork, firstElsewhere).ShouldBe((0, 0), "a frame's first blend of any entity ran inside the fork or off the caller");
     }
 
     /// <summary>How the pre-pass's roots are run.</summary>

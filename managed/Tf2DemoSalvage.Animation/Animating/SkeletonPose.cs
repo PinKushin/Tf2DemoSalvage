@@ -1083,6 +1083,11 @@ public sealed class SkeletonPose : IBonePose
 
         // **Indexed, not `foreach`** (the setup-bones read's M6): `Layers` is an interface, so a `foreach` boxed an
         // enumerator per build, and the sample loop below one per weighted layer — 21.4 a rebuild on f12 (2026-10-31).
+        //
+        // **An index loop cannot detect a list changed under it, as a `foreach` would have thrown; nothing can change it.**
+        // `Layers` and `IkErrors` are refilled in place only by the scene's `BuildBlend`, which runs from this entity's own
+        // `BeforeBuild` at the top of its `SetupBones`, once a frame, and for the threaded pre-pass's roots on the calling
+        // thread before the fork: `EntityModelSetPrePoseTests.Instances_ThreadedPrePass_RunsEveryRootsFirstBlendOnTheCallerBeforeTheFork`.
         for (int index = 0; index < Layers.Count; index++)
         {
             PoseLayer layer = Layers[index];
