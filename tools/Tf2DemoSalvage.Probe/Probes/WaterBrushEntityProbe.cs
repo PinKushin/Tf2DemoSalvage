@@ -74,8 +74,9 @@ public sealed class WaterBrushEntityProbe : IProbe
             isWater.Clear();
 
             // **One bad map is a line, not the end of the census** — but only a bad FILE: the read, the level, the pakfile,
-            // and a VMT or pakfile entry the census reads (those readers throw InvalidDataException). The census's own
-            // logic is outside every guard, so a bug in it throws rather than reading as a skipped map.
+            // and a VMT, pakfile entry or archive the census reads (InvalidDataException, IOException). Argument and
+            // overflow exceptions are not caught: a reader throws those only on its own bug, and the census's logic is
+            // outside every guard, so a bug in either throws rather than reading as a skipped map.
             MapLevel level;
             PakFile pak;
 
@@ -86,8 +87,7 @@ public sealed class WaterBrushEntityProbe : IProbe
                 level = MapLevel.Read(bytes, NullLogger.Instance);
                 pak = PakFile.ReadFrom(bytes);
             }
-            catch (Exception failure) when (failure is IOException or UnauthorizedAccessException or InvalidDataException
-                or ArgumentException or OverflowException)
+            catch (Exception failure) when (failure is IOException or UnauthorizedAccessException or InvalidDataException)
             {
                 Skip(map, failure);
                 continue;
@@ -101,7 +101,7 @@ public sealed class WaterBrushEntityProbe : IProbe
             {
                 result = Census(level, pak, mapUnresolved);
             }
-            catch (InvalidDataException failure)
+            catch (Exception failure) when (failure is InvalidDataException or IOException)
             {
                 Skip(map, failure);
                 continue;

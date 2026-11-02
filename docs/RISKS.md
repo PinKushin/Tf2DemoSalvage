@@ -40351,9 +40351,11 @@ the surface declares no overlay, the bottom does. It went red when the seam read
 fix and again as a sabotage after it. Review (`fix/water-review-2`): that overload ran the name search a second time
 each under-water frame, so the seam is now `WaterViews.FogVolumeWater(fog, volumes, waters, names)`, which returns the
 index and its water material once; `PlanWater` takes the views' material, the volume fog and the overlay from it. The
-pin test now reddens, alone with its control row, when that seam reads the surface material; four more cases cover a
-bottom material missing from the map (the surface's own overlay), cheap water and an eye above the volume with both
-materials declaring overlays, and an out-of-range volume. **Still not tested:** the rest of the hand-off, meaning `PlanWater` storing the
+pin test now reddens, alone with its control row, when that seam reads the surface material. Added beside it:
+`UnderwaterOverlay_BottomMaterialNotInTheMap_IsTheSurfaces` (the surface's own overlay),
+`UnderwaterOverlay_CheapOrEyeAbove_IsNoneThoughBothMaterialsDeclareOne` (cheap water and an eye above the volume, with
+both materials declaring overlays, plus a control row), and `FogVolumeWater_VolumeOutOfRange_IsNoMaterial`.
+**Still not tested:** the rest of the hand-off, meaning `PlanWater` storing the
 loaded overlay on the half and the draw reading it. Only the shot covers that.
 
 **Review follow-ups (`fix/water-review-followups`):**

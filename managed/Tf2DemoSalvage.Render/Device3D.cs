@@ -2334,7 +2334,6 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
             (_, _) => true);
 
         (int material, MapWater? water) = WaterViews.FogVolumeWater(fog, _water.Volumes, _waters, _materialNames);
-        int surface = WaterViews.FogVolumeMaterial(fog with { EyeInFogVolume = false }, _water.Volumes, _waters, _materialNames);
 
         WaterRenderInfo info = WaterRenderInfo.Determine(
             water?.View, fog.DistanceToWater, _waterLod.Current.End, WaterConVars.Defaults);
@@ -2370,6 +2369,11 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         {
             return;
         }
+
+        // The surface's own material: the same index as the volume's from above, so the name search runs only from inside.
+        int surface = fog.EyeInFogVolume
+            ? WaterViews.FogVolumeMaterial(fog with { EyeInFogVolume = false }, _water.Volumes, _waters, _materialNames)
+            : material;
 
         ((float X, float Y, float Z) origin, (float Pitch, float Yaw, float Roll) angles) =
             WaterViews.Reflect(camera.Origin, camera.Angles, fog.WaterHeight);
