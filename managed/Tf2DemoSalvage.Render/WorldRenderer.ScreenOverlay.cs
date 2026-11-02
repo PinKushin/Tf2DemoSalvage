@@ -36,6 +36,7 @@ internal sealed unsafe partial class WorldRenderer
     {
         System.ArgumentNullException.ThrowIfNull(overlay);
 
+        // An unfixed divergence for the under-water slot (B660): Valve draws such an overlay as a plain full-screen rectangle.
         if (overlay.Refract is null && overlay.Fade is null)
         {
             return false;
@@ -143,7 +144,9 @@ internal sealed unsafe partial class WorldRenderer
         SilkMarshal.ThrowHResult(_device.CreateDepthStencilState(in depth, ref _overlayDepth));
     }
 
-    private void ReleaseScreenOverlays()
+    /// <summary>Drops the overlay textures with the map's: the cache is keyed by name, and the next map may ship its own
+    /// material under a name this one used (its <c>$underwateroverlay</c>, from its pakfile).</summary>
+    private void ReleaseOverlayTextures()
     {
         foreach ((ComPtr<ID3D11ShaderResourceView>[] normal, ComPtr<ID3D11ShaderResourceView> tint) in _overlayTextures.Values)
         {
@@ -156,6 +159,11 @@ internal sealed unsafe partial class WorldRenderer
         }
 
         _overlayTextures.Clear();
+    }
+
+    private void ReleaseScreenOverlays()
+    {
+        ReleaseOverlayTextures();
         _overlayVertex.Dispose();
         _overlayConstants.Dispose();
         _overlayDepth.Dispose();

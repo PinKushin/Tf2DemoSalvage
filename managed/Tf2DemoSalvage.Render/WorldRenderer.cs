@@ -7350,6 +7350,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
         _noCull.Clear();
         _decalPolyOffsetMaterials.Clear();
         ReleaseWaters();
+        ReleaseOverlayTextures();
 
         foreach ((RefractMaterial _, ComPtr<ID3D11ShaderResourceView> normal, ComPtr<ID3D11ShaderResourceView> tint) in _refracts.Values)
         {
