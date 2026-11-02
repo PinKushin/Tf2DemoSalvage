@@ -109,10 +109,14 @@ client; as a control, `DrawBrushModelEx` on the same line shape finds three. The
 The opaque path also front-face tests each surface in software (`dot - dist < -0.01` skips it) before the
 hardware cull.
 
-**What this leaves unknowable from here:** a map with brush water and no world water samples targets created once at client start
-(`baseclientrendertargets.cpp:17,28`). Nothing in the SDK clears them on a map load, and whether the closed engine
-does is *unread*. They hold whatever an earlier map's views or
-the driver left, which depends on the session, not the frame. See `docs/RISKS.md` B662.
+**What a target holds before any view writes it** (B662): the SDK stops at `baseclientrendertargets.cpp:16-34`, but
+the closed material system answers. `CTexture::ReconstructTexture` (materialsystem.dll `0x18003cd60`) clears every
+new colour render target opaque black, `( 0, 0, 0, 255 )` (disassembly; the clear's names are interpolated from its
+arguments). shaderapi's `CreateD3DTexture` clears nothing. Alpha 1 is "deep", so water over a never-written
+refraction fogs fully to its `$fogcolor`. TF2 launched with the water views switched off shows exactly that.
+
+A map load keeps the targets unless the map's HDR-enabled state flips (`Mod_LoadMapFlags`, engine.dll
+`0x1800ffa10`). A flip recreates them, and the recreated targets are cleared again.
 
 **A wrong turn, and what killed it (B664):** over koth_toxic's vat, TF2's water is teal and ours was black. The
 `r_debugcheapwater` tail showed a world water "1500" away with "refract: true", so the first reading was that TF2 ran
@@ -123,7 +127,8 @@ reaches `console.log`, so the tail was the spawn camera's. Searched after a fres
 nothing for 10 s. The control, a camera over the world water, printed "dist to water: 176" at once, the same value
 our plan logs there.
 
-Both games plan cheap water at the vat. TF2's teal is what the targets kept from earlier views (B662).
+Both games plan cheap water at the vat. TF2's teal is the refraction target's opaque-black alpha, either from earlier
+views or from the creation clear above. A fresh session with every water view off gives the same teal (B662).
 
 ## The fog the water views draw under — read in disassembly
 

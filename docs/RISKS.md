@@ -40291,30 +40291,54 @@ and shaderapi's handling is not read.
 
 Neither case is a parity claim. Filed only, from B659.
 
-## B662 — water that samples a target no view wrote reads zeros here; the engine's content is unreadable (2026-11-02) — OPEN, unread
+## B662 — water that samples a target no view wrote read zeros here, where the engine's target is cleared opaque black (2026-11-02) — FIXED on `fix/b659-brush-entity-water` for a target never written; a map load that flips HDR is still OPEN
 
-**When:** a water face draws while no water view has run since our renderer started:
+**When:** a water face draws while no water view has written the targets:
 - brush-entity water on a map whose world water never got views (B659);
 - world water that is not the eye's fog volume, before any view ran.
 
-**Ours:**
-- `DrawWaterPasses` binds `_refractionView`/`_reflectionView` without `EnsureWaterTargets`, so an uncreated target
-  binds null and samples (0, 0, 0, 0).
-- `WaterTarget`'s comment says "opaque black with alpha one". That holds only once a target exists.
-- Once created, our targets persist across frames and map loads, as the engine's do.
+**Engine (disassembly; the class of each step marked):**
+- **Creation.** engine.dll `InitWellKnownRenderTargets` (`0x1800f6920`) hands the water targets to the client's
+  `InitClientRenderTargets` when the client registered one. That is `baseclientrendertargets.cpp:16-34`:
+  `_rt_WaterRefraction` RGBA8888, `_rt_WaterReflection` the back-buffer format, both 1024 `RT_SIZE_PICMIP`.
+- **Who calls it.** Startup (`0x1800f6510`), a material-system reload (`0x1800f98b0`), and `Mod_LoadMapFlags`
+  (`0x1800ffa10`). The last runs shutdown then init only when the map's HDR-enabled state differs from the current
+  one. Any other map load keeps the targets and whatever they hold.
+- **No clear in shaderapi.** `CShaderAPIDx8::CreateTextures` (shaderapidx9.dll `0x1800183d0`) to `CreateD3DTexture`
+  (`0x18002f480`) is `IDirect3DDevice9::CreateTexture` (vtable `+0xb8`) with no clear.
+- **The clear is materialsystem's.** `CTexture::ReconstructTexture` (materialsystem.dll `0x18003cd60`), in
+  "%s - RT Stuff" / "%s - Clearing": for any render target whose format is not one of the six depth formats
+  (`0x1e`-`0x23`), it pushes the target, calls shaderapi vtable `+0x330` with `( 0, 0, 0, 0xff )` and `+0x320` with
+  `( 1, 0, 0, width, height )`, then pops. The names `ClearColor4ub` and `ClearBuffers( color, depth, stencil, w, h )`
+  are *interpolated* from those arguments.
+- **So a target no view has written is opaque black, alpha 1.** Alpha is the refraction's fog depth, so the water
+  fogs fully to its `$fogcolor`.
 
-**Engine:** the targets are created once at client start (`baseclientrendertargets.cpp:17,28`). Nothing in the SDK
-clears them. Whether the closed engine does on a map load is *unread*. So what an unwritten-this-session target holds
-depends on earlier maps and the driver, not on the frame: **unreadable from the SDK, and not modelled.** Fixing the
-null bind changes world water too, so it is filed, not fixed.
+**Measured, the control the read predicts:** TF2 launched fresh with
+`+r_WaterDrawRefraction 0 +r_WaterDrawReflection 0 +map koth_toxic`. `r_debugcheapwater` at a world-water camera
+prints "refract: false reflect: false", so no view ever wrote the targets.
+- The vat's brush water draws 19 86 77, about `$fogcolor` {26 85 80}: `D:/measure-f12/b659/tf2-camB-fresh-noviews.png`.
+- The world water, also a vat, is teal too: `tf2-camCtl-fresh-noviews.png`.
+- *Interpolated:* that the command-line cvars applied before the map's first frame. They read 0 at the first query.
 
-**The live game did not settle it either (2026-11-02):**
-- On koth_toxic, TF2 plans no water view at the vat camera, and neither do we (B664, measured against a control).
-  TF2 still draws the vat's brush water a uniform teal, 20 86 80, about `$fogcolor` {26 85 80}
-  (`D:/measure-f12/b659/tf2-camB.png`, and `tf2-camB-refraction-off.png` the same). So TF2 samples targets written
-  by views run earlier in the session. Read through the shader, that is a refraction alpha high enough to fog fully.
-  Ours, starting at that camera, binds a null target and draws 0 1 1. **This is B662's case, live.** What a
-  target holds then depends on the session's history, so no value is picked.
+**Ours before:** `DrawWaterPasses` bound `_refractionView`/`_reflectionView` without creating them, so a target never
+created bound null and sampled (0, 0, 0, 0): black at the vat, 0 1 1.
+
+**Fixed:** `DrawWaterPasses` calls `EnsureWaterTargets` before it binds, and `WaterTarget` already clears a new target
+to (0, 0, 0, 1). Test `WaterTargetInitialContentConformanceTests.DrawWaterWorld_RefractingWaterBeforeAnyView_SamplesAnOpaqueBlackTarget`
+predicts 0.95 · `GammaToLinear( $fogcolor )` through sRGB, (197, 98, 45) for {200 100 50}. It was red first at (0, 0, 0).
+
+**Shots** (`D:/measure-f12/b662/`):
+- koth_toxic vat, camB: before 0 1 1, after 20 88 82, TF2 (no views ever) 19 86 77. Side by side: `sbs-camB.png`.
+- **World water control:** 2fort A (surface), B (under water) and C (shoreline), shot with `--like` from B657's
+  sidecars. Before and after are identical on every sampled pixel (230,400 per shot, max channel difference 0). Views
+  run there, so the targets already existed: the engine predicts no change.
+
+**Still open:** a map load that flips the HDR-enabled state recreates the targets in the engine, cleared black again.
+Ours keeps them across every map load, so after such a flip ours samples the old map's last views where TF2 samples
+black. Not fixed: our equivalent of the engine's HDR-enabled decision is not established.
+
+**Earlier, before the read:**
 - pd_farmageddon is the one map with brush water and no world water. Its entity lump places a `func_water_analog`
   on `*145`. Live, `ent_dump func_water_analog` said "no such entity". **That absence has no control**: no
   known-present class was dumped beside it, and `cl_find_ent water` searches client class names, which a
@@ -40393,7 +40417,8 @@ the world's does.
 | after (`after-camB.png`) | 0 1 1 |
 
 - The after shot is the Water shader on a null refraction target. Neither TF2 nor our viewer runs a water view at
-  that camera (B664 was a wrong reading). TF2's teal is a target left over from earlier views, which is **B662**.
+  that camera (B664 was a wrong reading). With **B662** fixed the same camera draws 20 88 82, against TF2's 19 86 77
+  (`D:/measure-f12/b662/sbs-camB.png`).
 - The vat's walls are grey in ours and green in TF2. That is unrelated to the water and not looked at.
 - **Which face drew is read, not seen.** `TF2VIEW_PICK "640 400"` names entity `*4` and not the face. From above,
   the top face (`water_toxic`) should be the one that survives the cull. Reasons:

@@ -843,6 +843,11 @@ internal sealed unsafe partial class WorldRenderer
                 ? frames[water.NormalFrameAt(Seconds, frames.Count)]
                 : _flatWhite;
 
+        // **A target no view has written still exists, cleared opaque black** (B662): materialsystem creates a render
+        // target through CTexture::ReconstructTexture and clears it with ClearColor4ub( 0, 0, 0, 255 ) (materialsystem.dll
+        // 0x18003cd60, "%s - Clearing"), so the shader samples alpha 1, a full fog, never an unbound zero.
+        EnsureWaterTargets();
+
         context.PSSetShaderResources(4, 1, ref normal);
         context.PSSetShaderResources(5, 1, ref cube);
         context.PSSetShaderResources(12, 1, ref _refractionView);
@@ -1533,8 +1538,9 @@ internal sealed unsafe partial class WorldRenderer
         _ownedGammaTwins.Add(twin);
         SetGammaTwin(target, twin);
 
-        // **A target no view has drawn yet reads as opaque black with alpha one** — the engine's contents before
-        // its first render are not in the SDK; alpha one is "deep", which lets the cheap pass cover it fully.
+        // **A target no view has drawn yet reads as opaque black with alpha one**, as the engine clears every new colour
+        // render target: CTexture::ReconstructTexture's ClearColor4ub( 0, 0, 0, 255 ) and ClearBuffers (materialsystem.dll
+        // 0x18003cd60, "%s - Clearing"; disassembly, B662).
         float* black = stackalloc float[4] { 0f, 0f, 0f, 1f };
 
         ComPtr<ID3D11DeviceContext> immediate = default;
