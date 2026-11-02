@@ -40294,6 +40294,28 @@ and shaderapi's handling is not read.
 **What D3D9 returns when a pixel shader samples the bound render target is *unread*.** Ours is D3D11's zeros, not a
 parity claim.
 
+**The engine's side, read (2026-11-02; disassembly unless marked):**
+- **Brush entities are drawn in these views.** The refraction view sets `DF_DRAW_ENTITITES` unconditionally
+  (`viewrender.cpp:6033-6060`), the reflection view with `$reflectentities` (`:5970-5990`). The translucent loop
+  skips only renderables that use the frame-buffer textures (`:978-983`), and Water's targets are not those
+  (published source).
+- **shaderapidx9 does not guard the bind.** `BindTexture` is a thunk (`0x1800149b0`) that jumps straight to
+  `SetTextureState` (`0x180023840`). That issues `IDirect3DDevice9::SetTexture` (vtable `+0x208`) with no comparison
+  against the current render target.
+- **The only guard is at `SetRenderTargetEx` time** (`0x180022da0`). Its `UnbindTexture` (`0x180025470`) zeroes the
+  cached sampler slot for a texture that becomes the target, and resets vertex samplers through the device. A Water
+  material's `BindTexture( SAMPLER0, REFRACTTEXTURE )` during that view re-binds the live target.
+- **So the engine samples the render target it is drawing into, and the result is undefined.** D3D9 leaves a texture
+  bound as both input and output undefined (the spec, not a read of a driver). At the moment of the bind, the
+  refraction target holds this view's clear and the world drawn before the entities (`DrawExecute`'s order,
+  `viewrender.cpp:5524-5553`). What a driver returns from that is not readable from here.
+- **Options, none implemented:**
+  - (a) Keep D3D11's zeros (current).
+  - (b) Sample a copy of the target taken after the view's world pass, before its entities. That is the content the
+    target holds when the bind happens, without the in-flight writes.
+  - (c) Sample the previous frame's copy, taken before the view's clear.
+  - (d) Skip the face. Not parity: the engine draws it.
+
 **Tested at the seam (second review):**
 - `WaterViewInputsConformanceTests` covers the two decisions: which target a view's draws land in (`DrawnInto`; an
   under-water view with no frame now counts as the refraction), and which inputs that leaves bound
