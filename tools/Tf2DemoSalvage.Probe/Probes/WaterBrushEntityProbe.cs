@@ -73,19 +73,54 @@ public sealed class WaterBrushEntityProbe : IProbe
             // Per map: a pakfile can ship its own material under a name the game also has.
             isWater.Clear();
 
-            // **One bad map is a line, not the end of the census**: the read, the pakfile and every VMT it resolves.
+            // **One bad map is a line, not the end of the census** — but only a bad FILE: the read, the level, the pakfile,
+            // and a VMT, pakfile entry or archive the census reads (InvalidDataException, IOException). Argument and
+            // overflow exceptions are not caught: a reader throws those only on its own bug, and the census's logic is
+            // outside every guard, so a bug in either throws rather than reading as a skipped map.
+            MapLevel level;
+            PakFile pak;
+
             try
             {
                 byte[] bytes = File.ReadAllBytes(map);
 
-                Census(map, MapLevel.Read(bytes, NullLogger.Instance), PakFile.ReadFrom(bytes));
-                mapsRead++;
+                level = MapLevel.Read(bytes, NullLogger.Instance);
+                pak = PakFile.ReadFrom(bytes);
             }
-            catch (Exception failure) when (failure is IOException or UnauthorizedAccessException or InvalidDataException
-                or ArgumentException or IndexOutOfRangeException or OverflowException or InvalidOperationException)
+            catch (Exception failure) when (failure is IOException or UnauthorizedAccessException or InvalidDataException)
             {
-                skipped++;
-                output.WriteLine($"{Path.GetFileName(map)}: skipped, {failure.GetType().Name}: {failure.Message}");
+                Skip(map, failure);
+                continue;
+            }
+
+            // Collected per map and merged only once the map completes, so a skipped map adds no unresolved names.
+            HashSet<string> mapUnresolved = new(StringComparer.OrdinalIgnoreCase);
+            CensusResult result;
+
+            try
+            {
+                result = Census(level, pak, mapUnresolved);
+            }
+            catch (Exception failure) when (failure is InvalidDataException or IOException)
+            {
+                Skip(map, failure);
+                continue;
+            }
+
+            mapsRead++;
+            unresolved.UnionWith(mapUnresolved);
+            withWorldWater += result.WorldWater > 0 ? 1 : 0;
+            withEntityWater += result.Found.Count > 0 || result.Analogs > 0 ? 1 : 0;
+
+            if (result.WorldWater > 0 || result.Found.Count > 0 || result.Analogs > 0)
+            {
+                output.WriteLine(string.Create(CultureInfo.InvariantCulture,
+                    $"{Path.GetFileName(map)}: world water faces {result.WorldWater}, func_water_analog {result.Analogs}, brush models with water {result.Found.Count}"));
+
+                foreach (string line in result.Found)
+                {
+                    output.WriteLine("    " + line);
+                }
             }
         }
 
@@ -97,7 +132,13 @@ public sealed class WaterBrushEntityProbe : IProbe
             output.WriteLine($"names with 'water' not resolved to a VMT ({unresolved.Count}): {string.Join(", ", unresolved.Order(StringComparer.Ordinal))}");
         }
 
-        void Census(string map, MapLevel level, PakFile pak)
+        void Skip(string map, Exception failure)
+        {
+            skipped++;
+            output.WriteLine($"{Path.GetFileName(map)}: skipped, {failure.GetType().Name}: {failure.Message}");
+        }
+
+        CensusResult Census(MapLevel level, PakFile pak, HashSet<string> mapUnresolved)
         {
             IReadOnlyList<BspModel> models = level.BrushModels ?? [];
             int worldFaces = models.Count > 0 ? models[0].FaceCount : int.MaxValue;
@@ -113,7 +154,7 @@ public sealed class WaterBrushEntityProbe : IProbe
 
                 if (!isWater.TryGetValue(name, out bool known))
                 {
-                    known = Resolve(pak, archives, name, unresolved);
+                    known = Resolve(pak, archives, name, mapUnresolved);
                     isWater[name] = known;
                 }
 
@@ -148,21 +189,12 @@ public sealed class WaterBrushEntityProbe : IProbe
             int analogs = level.Entities.Count(entity =>
                 entity.ClassName.Equals("func_water_analog", StringComparison.OrdinalIgnoreCase));
 
-            withWorldWater += worldWater > 0 ? 1 : 0;
-            withEntityWater += found.Count > 0 || analogs > 0 ? 1 : 0;
-
-            if (worldWater > 0 || found.Count > 0 || analogs > 0)
-            {
-                output.WriteLine(string.Create(CultureInfo.InvariantCulture,
-                    $"{Path.GetFileName(map)}: world water faces {worldWater}, func_water_analog {analogs}, brush models with water {found.Count}"));
-
-                foreach (string line in found)
-                {
-                    output.WriteLine("    " + line);
-                }
-            }
+            return new(worldWater, analogs, found);
         }
     }
+
+    /// <summary>One map's census, reported only once the whole map has been read.</summary>
+    private sealed record CensusResult(int WorldWater, int Analogs, IReadOnlyList<string> Found);
 
     /// <summary>Whether a material's VMT names the Water shader: the map's pakfile first, then the game's, through a patch's include.</summary>
     private static bool Resolve(PakFile pak, GameArchives archives, string name, HashSet<string> unresolved)
