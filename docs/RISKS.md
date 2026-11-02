@@ -40355,6 +40355,28 @@ black. Not fixed: our equivalent of the engine's HDR-enabled decision is not est
   known-present class was dumped beside it, and `cl_find_ent water` searches client class names, which a
   `CFuncMoveLinear` need not contain. So whether TF2 draws `*145` at all is *unverified*, and nothing was captured.
 
+## B666 — a lamp behind a wall still takes a light slot and lights a static prop (2026-11-02) — OPEN, unfixed; B453's open item, now measured
+
+**Read (engine), from B453 and not re-read here:** `FUN_1801b8e20` makes a per-light visibility trace before a light is
+added. B453 records it as "for point lights", gated by a cvar at `DAT_18075b318 + 0x58` and the 192-unit shadow cache.
+**Which kinds it covers is not established.** "For point lights" may or may not include spots, and that decides whether
+the cases below are divergences. **Ours:** no light is traced. `LevelLighting.StaticPropFullLightingAt` ranks every
+style-0 light that reaches by distance and cone (B665).
+
+**Measured** (`prop-shade <map> <model> 600`, which now traces a world-only `MASK_OPAQUE` ray from each lighting origin
+to each lamp):
+- **`koth_toxic` vat #130, after B665.** Its lamps are the green point lamp (clear) and three white spots at
+  (-206 1807 205), (224 1248 667) and (204 815 419). None of the three spots is clear. The vat at (-204 -1456 -192) has
+  the same split.
+- **`cp_process_f12` observatory dome.** All four lamps are up-aimed, linear-attenuation lamps 1,300 to 2,100 units off,
+  and none is clear. Before B665 three of them held slots, beside a down-aimed spot that lit nothing. B665 gave the
+  fourth slot to the fourth of them.
+
+**Visible if the engine traces these kinds:** white light the engine would block, on whichever surfaces of these props
+face the lamps. *Interpolated:* that is the likely cause of the vat's right rim top, which reads 63/96/81 in ours
+against 13/72/48 in TF2 after B665. **Not separated** from the phong term. **Next:** read `FUN_1801b8e20`'s trace
+gate (kinds, the cvar's default, the shadow cache). Then port it, with a conformance test first.
+
 ## B665 — a spotlight whose cone misses a model's lighting origin took one of its four light slots (2026-11-02) — FIXED on this branch (not merged), looked at by the agent, not yet by the owner
 
 **Reported by the owner:** on `koth_toxic`, camera `-208 1360 80 60 90` (the vat), *TF2 draws the tank rim/walls around
@@ -40401,15 +40423,15 @@ all three red, with the map test naming the spot at (-208 1440 0).
 `light` the mapper stood beside each dome", at intensity 31,373. The lump says it is a **spotlight**, not a `light`. It
 sits 341 units below the dome's lighting point and is aimed down (normal -0.247 -0.025 -0.969). Its cone misses the
 point, so it lit nothing even when it held the slot. Only the distance-only ranking had put it there. The test now
-asserts the opposite, and that every lamp it holds reaches. Its slot goes to weak, far lamps that do reach.
+asserts the opposite, and that every lamp it holds reaches. Its slot goes to a fourth weak, far lamp that does reach, beside three of its kind already there. All four are occluded
+from the point (B666).
 *Not looked at on screen.*
 
 **Not settled:**
-- The rim top on the right reads 63/96/81 against TF2's 13/72/48. That is whiter, likely the phong highlight from the
-  one white spot that does reach. Not separated.
-- The after shot was taken on `63bf881a`, which lacks the lead's water fix. The checkerboard in the vat is that, not
-  this.
-- The per-light visibility trace (B453's open item) is still not ported.
+- The rim top on the right reads 63/96/81 against TF2's 13/72/48. That is whiter. B666 measures that the three white
+  spots left in the vat's state are all occluded from its origin.
+- Both of this branch's shots are on `63bf881a`, which lacks the lead's water fix. The checkerboard in the vat is that,
+  not this. The same-base before is `D:/measure-f12/b665/before-camB.png`: the sabotage edit, built and shot.
 - B654's ranking order is unchanged.
 
 ## B661 — an empty `$underwateroverlay ""` is no overlay here and a lookup of "" in the engine (2026-11-02) — OPEN, unfixed

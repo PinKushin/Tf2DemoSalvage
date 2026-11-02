@@ -32,7 +32,7 @@ public sealed class PropShadeProbe : IProbe
 
     /// <inheritdoc/>
     public string Summary =>
-        "each placement of a static prop model: skin, material, shader, modulation, $nofog and the light its draw is given: prop-shade <map> <model substring> [x y z: a lighting origin from prop-light, to list the style-0 lights near it]";
+        "each placement of a static prop model: skin, material, shader, modulation, $nofog and the light its draw is given: prop-shade <map> <model substring> [radius: list the style-0 lights that near each lighting origin]";
 
     /// <inheritdoc/>
     public void Run(TextWriter output, IReadOnlyList<string> arguments)
@@ -123,13 +123,12 @@ public sealed class PropShadeProbe : IProbe
                 $"  draw is given: baked colours {colours}; cube {(instance.Light is { } cube ? $"up {cube.PositiveZ}" : "none")}; " +
                 $"sun {(instance.Sun is null ? "none" : "yes")}; {instance.Locals?.Count ?? 0} lamps");
 
-            // The lighting origin, as `prop-light` prints it: given on the command line, since the draw does not carry it.
-            if (arguments.Count >= 5)
+            // The lighting origin the draw was lit at, through the set's own route.
+            (float X, float Y, float Z) origin = models.IlluminationPoint(prop, prop.Pose);
+
+            if (arguments.Count >= 3)
             {
-                WriteNearbyLights(output, level.WorldLights, (
-                    float.Parse(arguments[2], CultureInfo.InvariantCulture),
-                    float.Parse(arguments[3], CultureInfo.InvariantCulture),
-                    float.Parse(arguments[4], CultureInfo.InvariantCulture)));
+                WriteNearbyLights(output, level, origin, float.Parse(arguments[2], CultureInfo.InvariantCulture));
             }
 
             foreach (LocalLight lamp in instance.Locals ?? [])
@@ -144,28 +143,40 @@ public sealed class PropShadeProbe : IProbe
                 output.WriteLine(string.Create(
                     CultureInfo.InvariantCulture,
                     $"    lamp at ({lamp.X:0} {lamp.Y:0} {lamp.Z:0}) colour ({lamp.Red:0.###} {lamp.Green:0.###} {lamp.Blue:0.###}) " +
-                    $"attenuation {lamp.Constant:0.###}/{lamp.Linear:0.###}/{lamp.Quadratic:0.###} {kind}"));
+                    $"attenuation {lamp.Constant:0.###}/{lamp.Linear:0.###}/{lamp.Quadratic:0.###} {kind}, clear {Clear(level, origin, (lamp.X, lamp.Y, lamp.Z))}"));
             }
         }
     }
 
-    /// <summary>
-    /// Every style-0 world light within 600 units of the draw's lighting origin, with whether the production
-    /// <see cref="LocalLights.Reaches"/> (distance, radius and cone) admits it there: the candidates the four lamps were
-    /// picked from, so a lamp that reaches and was not picked is visible beside the four that were.
-    /// </summary>
-    private static void WriteNearbyLights(TextWriter output, IReadOnlyList<BspWorldLight> lights, (float X, float Y, float Z) origin)
-    {
-        output.WriteLine(string.Create(CultureInfo.InvariantCulture, $"    lighting origin ({origin.X:0.#} {origin.Y:0.#} {origin.Z:0.#}); style-0 lights within 600:"));
+    /// <summary>`MASK_OPAQUE` (`bspflags.h:113-114`), the mask the engine's light visibility trace uses (B453, B514).</summary>
+    private const int MaskOpaque = 0x4081;
 
-        foreach (BspWorldLight light in lights)
+    /// <summary>
+    /// Whether a world-only `MASK_OPAQUE` ray from the lighting origin reaches a light: the per-light visibility trace the
+    /// engine makes (B453's open item) and the port does not, so this is the engine's question asked here, not a value
+    /// production used.
+    /// </summary>
+    private static bool Clear(MapLevel level, (float X, float Y, float Z) from, (float X, float Y, float Z) to) =>
+        level.TraceBrushOnly(from, to, 0f, MaskOpaque).Fraction >= 1f;
+
+    /// <summary>
+    /// Every style-0 world light within a radius of the draw's lighting origin, with whether the production
+    /// <see cref="LocalLights.Reaches"/> (distance, radius and cone) admits it there and whether a ray to it is clear: the
+    /// candidates the four lamps were picked from, so a lamp that reaches and was not picked shows beside the four that were.
+    /// </summary>
+    private static void WriteNearbyLights(TextWriter output, MapLevel level, (float X, float Y, float Z) origin, float radius)
+    {
+        output.WriteLine(string.Create(
+            CultureInfo.InvariantCulture, $"    lighting origin ({origin.X:0.#} {origin.Y:0.#} {origin.Z:0.#}); style-0 lights within {radius:0}:"));
+
+        foreach (BspWorldLight light in level.WorldLights)
         {
             float dx = light.Origin.X - origin.X;
             float dy = light.Origin.Y - origin.Y;
             float dz = light.Origin.Z - origin.Z;
             float distance = MathF.Sqrt((dx * dx) + (dy * dy) + (dz * dz));
 
-            if (light.Style != 0 || distance > 600f)
+            if (light.Style != 0 || distance > radius)
             {
                 continue;
             }
@@ -173,7 +184,8 @@ public sealed class PropShadeProbe : IProbe
             output.WriteLine(string.Create(
                 CultureInfo.InvariantCulture,
                 $"      {light.Kind} at ({light.Origin.X:0} {light.Origin.Y:0} {light.Origin.Z:0}) {distance:0} away, normal {light.Normal}, " +
-                $"intensity ({light.Intensity.Red:0} {light.Intensity.Green:0} {light.Intensity.Blue:0}), reaches {LocalLights.Reaches(light, origin.X, origin.Y, origin.Z)}"));
+                $"intensity ({light.Intensity.Red:0} {light.Intensity.Green:0} {light.Intensity.Blue:0}), " +
+                $"reaches {LocalLights.Reaches(light, origin.X, origin.Y, origin.Z)}, clear {Clear(level, origin, light.Origin)}"));
         }
     }
 
