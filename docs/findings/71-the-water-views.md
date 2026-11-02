@@ -114,6 +114,17 @@ hardware cull.
 does is *unread*. They hold whatever an earlier map's views or
 the driver left, which depends on the session, not the frame. See `docs/RISKS.md` B662.
 
+**A wrong turn, and what killed it (B664):** over koth_toxic's vat, TF2's water is teal and ours was black. The
+`r_debugcheapwater` tail showed a world water "1500" away with "refract: true", so the first reading was that TF2 ran
+a refraction view there and we did not.
+
+That function prints only once it has a fog volume (`viewrender.cpp:2503-2504` returns first), and RCON output never
+reaches `console.log`, so the tail was the spawn camera's. Searched after a fresh log mark at the vat, it printed
+nothing for 10 s. The control, a camera over the world water, printed "dist to water: 176" at once, the same value
+our plan logs there.
+
+Both games plan cheap water at the vat. TF2's teal is what the targets kept from earlier views (B662).
+
 ## The fog the water views draw under — read in disassembly
 
 `IVRenderView::SetFogVolumeState` is vtable slot 30 of the object `VEngineRenderView014` registers (vtable

@@ -2308,6 +2308,28 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
     private IReadOnlyDictionary<string, ScreenOverlayMaterial> _screenOverlays = new Dictionary<string, ScreenOverlayMaterial>();
     private string[] _materialNames = [];
 
+    /// <summary>The last water plan said, so the line fires on a change rather than every frame.</summary>
+    private string? _lastWaterPlan;
+
+    /// <summary>
+    /// <c>r_debugcheapwater</c>'s question, answered with the values the plan USED (B664): the fog volume the walk found,
+    /// the distance and cheap end <c>Determine</c> compared, and its answer.
+    /// </summary>
+    private void ReportWaterPlan(FogVolumeInfo fog, int material, WaterRenderInfo info)
+    {
+        string line = string.Create(
+            System.Globalization.CultureInfo.InvariantCulture,
+            $"water plan: volume {fog.Volume} leaf {fog.Leaf} eye in {fog.EyeInFogVolume} dist to water {fog.DistanceToWater} " +
+            $"cheap end {_waterLod.Current.End} material {(material >= 0 && material < _materialNames.Length ? _materialNames[material] : "-")} " +
+            $"cheap {info.CheapWater} refract {info.Refract} reflect {info.Reflect}");
+
+        if (line != _lastWaterPlan)
+        {
+            _lastWaterPlan = line;
+            _render.LogInformation("{Message}", line);
+        }
+    }
+
     /// <summary>
     /// <c>CViewRender::DrawWorldAndEntities</c> for this camera (B62): the visible fog volume, its material's
     /// <c>WaterRenderInfo</c> and the views it needs.
@@ -2339,6 +2361,8 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
 
         WaterRenderInfo info = WaterRenderInfo.Determine(
             Water(material)?.View, fog.DistanceToWater, _waterLod.Current.End, WaterConVars.Defaults);
+
+        ReportWaterPlan(fog, material, info);
 
         // DoesViewPlaneIntersectWater (viewrender.cpp:2741) through DoesBoxIntersectWaterVolume (engine.dll 0x18012ea20).
         bool crosses = WaterViews.ViewPlaneIntersectsWater(

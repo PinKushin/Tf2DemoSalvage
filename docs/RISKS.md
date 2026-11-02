@@ -40251,20 +40251,29 @@ It is tested red-first. It names which thread waited and where the draw had got 
 **Reopen if** the `queue stall` line ever appears in a viewer log, or if this test's hang rate on the branch, measured
 the same way, exceeds the baseline's.
 
-## B664 — over koth_toxic's vat TF2 runs a refraction view off a world water 1500 units away; ours runs none (2026-11-02) — OPEN, undiagnosed
+## B664 — "TF2 runs a refraction view over koth_toxic's vat and ours runs none" (2026-11-02) — CLOSED, a wrong reading; the gap is B662
 
-**Measured (live TF2):** koth_toxic, spectator, `spec_goto -208 1360 80 60 90`, which looks down into the
-`func_water_analog` `*4` vat. With `r_debugcheapwater 1`, every frame prints the world water `water_toxic_-584_784_184`,
-"dist to water: 1500", `forceexpensive: true`, "refract: true reflect: false". So `DetermineWaterRenderInfo` found a
-world fog volume, and the refraction view ran.
+**As filed (wrong):** with `r_debugcheapwater 1` at `spec_goto -208 1360 80 60 90`, the console tail showed the world
+water `water_toxic_-584_784_184`, "dist to water: 1500", "refract: true". That was read as TF2 running a refraction
+view at that camera, where ours ran none.
 
-**Ours, same camera** (`TF2VIEW_CAMERA`, the demo `D:/measure-f12/b659/b659_toxic.dem` recorded in that session, tick
-600): the vat's water samples (0, 1, 1). **Arithmetic, from the shader as ported:** the output is
-`lerp(refract, fog, saturate(a - 0.05))`, and the cheap pass is scaled by `saturate((a - 0.05) · 20)`. Only a target
-with alpha near 0 and colour near 0 gives (0, 1, 1). That is the null bind, so no water view ran in our frames.
+**What killed it** (measured, both halves with a control):
+- `DetermineWaterRenderInfo` prints only after it has a fog volume (`viewrender.cpp:2503-2504` returns before the
+  `Msg`). So the tail could have come from any earlier camera. RCON output does not go to `console.log`, so an
+  echoed marker could not order it.
+- Searched only after a fresh log mark, at the vat camera: **no line in 10 s**. Control: the same search after
+  `spec_goto -584 700 300 60 90` printed `water_toxic_-584_784_184`, "dist to water: 176" at once. The 1500 lines
+  were the spawn camera's, (2024 152 152), before `spec_goto` took effect.
+- Ours, through the new `water plan:` log line, which reports the values `PlanWater` used:
+  - at the vat, `volume -1 … dist to water 65535 … cheap True`;
+  - at the control camera, `volume 2 leaf 3537 … dist to water 176 … water_toxic_-584_784_184 … refract True`.
+- The `fog-leaf` probe reads the eye leaf from z −48 to 208 over the vat: distance 65535 and no
+  `CONTENTS_TESTFOGVOLUME` throughout. `R_GetVisibleFogVolume` (engine.dll `0x1800e0080`) reports exactly that
+  leaf's lump entry (`0x1800e031f`), and stops when the flag is clear.
 
-**Not separated:** which half differs. Either `VisibleFogVolume.Find` returns no volume at this eye, or the cheap
-distance decides cheap. The map has a `water_lod_control`, and the shot logs no plan. Instrument the plan first.
+**So TF2 and ours plan the same thing at the vat: cheap water, no view.** The teal TF2 draws there is whatever the
+targets held from views run earlier in the session. That is **B662**, which the SDK cannot answer. Kept as a record
+of the wrong turn.
 
 ## B663 — brush-entity water drawn inside a water view samples the target that view is drawing into (2026-11-02) — OPEN, unread
 
@@ -40300,10 +40309,12 @@ depends on earlier maps and the driver, not on the frame: **unreadable from the 
 null bind changes world water too, so it is filed, not fixed.
 
 **The live game did not settle it either (2026-11-02):**
-- On koth_toxic, the brush water's camera turned out to have a world refraction view every frame (B664). That is
-  not the case asked about.
-- With `r_WaterDrawRefraction 0`, the vat still draws a uniform teal, about `$fogcolor` {26 85 80}
-  (`D:/measure-f12/b659/tf2-camB-refraction-off.png`). That target had been written earlier in the session.
+- On koth_toxic, TF2 plans no water view at the vat camera, and neither do we (B664, measured against a control).
+  TF2 still draws the vat's brush water a uniform teal, 20 86 80, about `$fogcolor` {26 85 80}
+  (`D:/measure-f12/b659/tf2-camB.png`, and `tf2-camB-refraction-off.png` the same). So TF2 samples targets written
+  by views run earlier in the session. Read through the shader, that is a refraction alpha high enough to fog fully.
+  Ours, starting at that camera, binds a null target and draws 0 1 1. **This is B662's case, live.** What a
+  target holds then depends on the session's history, so no value is picked.
 - pd_farmageddon is the one map with brush water and no world water. Its entity lump places a `func_water_analog`
   on `*145`. Live, `ent_dump func_water_analog` said "no such entity". **That absence has no control**: no
   known-present class was dumped beside it, and `cl_find_ent water` searches client class names, which a
@@ -40381,8 +40392,8 @@ the world's does.
 | before (`before-camB.png`) | the missing-material chequer, magenta and green, blurred |
 | after (`after-camB.png`) | 0 1 1 |
 
-- The after shot is the Water shader on a null refraction target, because our viewer ran no water view there
-  (**B664**). Its value is right for that input and wrong against TF2 until B664 is fixed.
+- The after shot is the Water shader on a null refraction target. Neither TF2 nor our viewer runs a water view at
+  that camera (B664 was a wrong reading). TF2's teal is a target left over from earlier views, which is **B662**.
 - The vat's walls are grey in ours and green in TF2. That is unrelated to the water and not looked at.
 - **Which face drew is read, not seen.** `TF2VIEW_PICK "640 400"` names entity `*4` and not the face. From above,
   the top face (`water_toxic`) should be the one that survives the cull. Reasons:
