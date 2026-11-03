@@ -40449,7 +40449,7 @@ for every renderable prop. *Not read:* that creating the instance sets `+0x12e` 
 
 **Measured**, `docs/measurements/2026-11-03-static-props-leave-the-light-cache.md`: on f12 static props were 86% of lookups, 135.5 a frame against moving models' 22.5, and 1,375 builds against 1,901. With them out, `lighting` past warm-up falls 0.053 and 0.162 ms in the two adjacent pairs of A B B A, 0.11 ms mean, 1.5% of the frame; builds fall from 1.48 to 1.01 a frame. Allocation rose in one pair and fell in the other. **Pixels:** A against A identical; A against B, no world or static prop pixel, 17,096 on the viewmodel, largest channel 33, as it is now lit from an entry a static prop did not build. No TF2 capture of that compared.
 
-**A top-of-screen difference turned up in that record and is not this:** one of four shots, from a binary whose other shot matched, had rows 0-40 different across the whole width, largest 206. Not investigated.
+**A top-of-screen difference turned up in that record and is not this:** `--shot` of one tick has two states, differing in rows 0-40 across the whole width, largest channel 206 and nothing below. The record saw it once in four shots and called it one in four. More shots after it, from A and from this branch's head, show both binaries take either state, and with the top band equal A against the head differs by the same 17,096 viewmodel pixels. So a byte comparison of two `--shot`s is not a control here until this is understood. Not investigated; its own entry when someone takes it.
 
 `StaticPropHandleConformanceTests`, sabotaged three ways, each failing only its own. `MomentSceneTests`' allocation control nulled `StaticPropFullLighting`, which now means no handle, so it stands in a delegate that does no work.
 
