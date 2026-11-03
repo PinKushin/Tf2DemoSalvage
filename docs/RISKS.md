@@ -40643,6 +40643,12 @@ lighting origin is not waste.
 `LocalLights.ChooseStrongestFirst` traces only lights that are admitted and rank, strongest first, and stops at four seen.
 The engine traces every admitted light.
 
+**Tried against that brush tree, 2026-11-03, and dropped:** Quake 2's per-trace `checkcount` skip of a brush already clipped. Only
+a ray that misses in the near leaf, or hits past the split, ever reaches a repeat, so the clips only fell to 0.92 (koth_toxic) and
+0.88 (f12) of what they were, with the tree's time about flat (measurements/2026-11-03-brush-clip-once.md). The cache's lookup, not the trace, moved the pose's
+`lighting` column slightly past warm-up: one `LightcacheGet` a model rather than one each for its lights and its sun. Over all
+intervals the second adjacent pair of its A B B A does not show it (measurements/2026-11-03-one-light-cache-lookup.md).
+
 ## B666 — a lamp behind a wall still takes a light slot and lights a static prop (2026-11-02) — FIXED, merged (`91bda1d2`); B453's open item
 
 **Read (engine), 2026-11-02, by the lead in Ghidra on `engine.dll`** (disassembly). Whole read and its table of
