@@ -383,10 +383,11 @@ public sealed partial class EntityModelSet
 
             if (baked is not null)
             {
-                // Flags 6: no static state, so the cube is only what fell out of the slots (`FUN_1801ba590`).
+                // Flags 6: no static state, so the cube is only what fell out of the slots (`FUN_1801ba590`), whatever the slot count:
+                // a light under `r_worldlightmin` takes no slot and is still in it. Nothing at all is the colours alone.
                 PointLighting added = StaticPlusDynamicLights?.Invoke(prop.EntityIndex, lit.X, lit.Y, lit.Z) ?? PointLighting.None;
                 locals = added.Locals;
-                light = locals.Count > 0 ? added.Cube : null;
+                light = locals.Count > 0 || added.Cube != LevelLighting.NoStaticState ? added.Cube : null;
                 sun = null;
                 decalLight = DecalLightOf(prop.EntityIndex, lit.X, lit.Y, lit.Z);
             }

@@ -427,6 +427,63 @@ public sealed class LevelLightingTests
     }
 
     /// <remarks>
+    /// **`FUN_1801b7fd0` asks with flags `0xf`, so past the budget it takes the nearest entry and builds nothing** (`0x1801b9cd0`). The third point
+    /// stands in the bright leaf, and the nearest entry is the dim leaf's, so the answer is the dim cube; next frame it builds its own.
+    /// </remarks>
+    [Test]
+    public void ComputeLighting_PastTheMissBudget_TakesTheNearestEntryThenItsOwn()
+    {
+        LevelLighting lighting = Lit();
+
+        lighting.Frame = LightCache<int>.UnthrottledFrames + 40;
+        lighting.ComputeLighting(3200f, 0f, 100f);
+        lighting.ComputeLighting(0f, 0f, -100f);
+
+        lighting.ComputeLighting(0f, 0f, 100f).ShouldBe(Grey(0.05f));
+
+        lighting.Frame++;
+        lighting.ComputeLighting(0f, 0f, 100f).ShouldBe(Grey(0.6f));
+    }
+
+    /// <remarks>
+    /// **What `FUN_1801b7fd0` gets from a zeroed pool entry is zero, and that is its answer.** `0x1801b9cd0`'s scan treats those entries as key 0 like any
+    /// other, so a point near the map's far corner can be nearest one; it copies the entry's zero cube and no slots out, and the fold has nothing to do.
+    /// Nothing here draws full bright: the only consumers are `RopeLight`, which averages the faces, and a log line.
+    /// </remarks>
+    [Test]
+    public void ComputeLighting_PastTheMissBudgetNearestAZeroedEntry_IsZero()
+    {
+        LevelLighting lighting = Lit();
+
+        lighting.Frame = LightCache<int>.UnthrottledFrames + 40;
+        lighting.ComputeLighting(30000f, 30000f, 30000f);
+        lighting.ComputeLighting(30000f, 30000f, 29000f);
+
+        lighting.ComputeLighting(-32000f, -32000f, -32000f).ShouldBe(default(AmbientCube));
+
+        lighting.Frame++;
+        lighting.ComputeLighting(-32000f, -32000f, -32000f).PositiveX.Red.ShouldBe(0.05f, 0.0001f, "the control: its own entry, next frame");
+    }
+
+    /// <remarks>
+    /// **The memo answers only the question just asked.** A `ComputeLighting` at another point between a model's two questions replaces it, so the second
+    /// question looks in the cache again, where the engine's one `LightcacheGet` would not.
+    /// </remarks>
+    [Test]
+    public void ModelSunAt_AfterComputeLightingAtAnotherPoint_LooksAgain()
+    {
+        LevelLighting lighting = Sunny();
+
+        lighting.ModelLightingAt(0f, 0f, 100f);
+        lighting.ModelSunAt(0f, 0f, 100f);
+        lighting.LightCacheLookups.ShouldBe(1, "the control: nothing came between");
+
+        lighting.ComputeLighting(0f, 0f, -100f);
+        lighting.ModelSunAt(0f, 0f, 100f);
+        lighting.LightCacheLookups.ShouldBe(3);
+    }
+
+    /// <remarks>
     /// A build that throws answered nothing, so nothing is remembered for its point. Point A's sun strikes sky and point B's does
     /// not, so A's entry read at B would hand B a sun it does not have.
     /// </remarks>
