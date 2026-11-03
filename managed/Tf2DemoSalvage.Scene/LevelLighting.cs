@@ -59,6 +59,13 @@ public sealed class LevelLighting
     private readonly BspLeafTree? _leaves;
     private readonly IReadOnlyList<AmbientSamples> _ambient;
     private readonly IReadOnlyList<BspWorldLight> _worldLights;
+
+    /// <summary>
+    /// The world lights a caller whose cube came from the leaf adds: all but those vrad put in the leaf cubes, as
+    /// `engine.dll` `FUN_1801b5a50` passes over `flags &amp; 1` when `FUN_1801bb4b0` read the leaf (B669).
+    /// </summary>
+    private readonly IReadOnlyList<BspWorldLight> _leafCubeLights;
+
     private readonly BspWorldLight? _sun;
     private readonly ILogger _render;
 
@@ -256,7 +263,7 @@ public sealed class LevelLighting
     {
         int from = tree.ClusterAt(x, y, z);
         bool anyCluster = _visibility is not { HasData: true };
-        List<BspWorldLight> lights = [.. _worldLights];
+        List<BspWorldLight> lights = [.. _leafCubeLights];
 
         foreach (DynamicLight light in _dynamic)
         {
@@ -269,7 +276,7 @@ public sealed class LevelLighting
             }
         }
 
-        if (lights.Count == _worldLights.Count)
+        if (lights.Count == _leafCubeLights.Count)
         {
             return lit;
         }
@@ -287,7 +294,7 @@ public sealed class LevelLighting
         // lost to each other, and they are re-ranked here with the dynamic ones (B453).
         AmbientCube cube = leaf >= 0 && leaf < _ambient.Count ? _ambient[leaf].At(x, y, z) : default;
         // The world lights traced at the entry's point, the dlights after them not (`0x1801b7a10` skips it; B666).
-        int found = LocalLights.Split(lights, x, y, z, nearest, ref cube, StyleScale, TraceSeen(lights, x, y, z, end: _worldLights.Count));
+        int found = LocalLights.Split(lights, x, y, z, nearest, ref cube, StyleScale, TraceSeen(lights, x, y, z, end: _leafCubeLights.Count));
         TraceDone();
         Array.Resize(ref nearest, found);
 
@@ -397,6 +404,7 @@ public sealed class LevelLighting
         _leaves = leaves;
         _ambient = ambient;
         _worldLights = worldLights;
+        _leafCubeLights = [.. worldLights.Where(static light => !light.InAmbientCube)];
         _sun = sun;
         _render = render;
         _strikesSky = strikesSky;
@@ -999,9 +1007,12 @@ public sealed class LevelLighting
             bounced = computed(x, y, z);
         }
 
+        // **Every style-0 light, surface lights included, and the losers folded** (B669): `FUN_1801b5a50` hands each to
+        // `FUN_1801b60a0`, which ranks it into the four slots or adds it to this cube. It passes over a light vrad put in the
+        // leaf cubes only when the cube came from the leaf; a computed cube holds none of them (`FUN_1801b74f0`).
         LocalLight[] nearest = new LocalLight[LocalLights.MaximumLocalLights];
-        int found = LocalLights.Strongest(
-            _worldLights, x, y, z, nearest, static style => style == 0 ? 1f : 0f, TraceSeen(_worldLights, x, y, z));
+        int found = LocalLights.Split(
+            _worldLights, x, y, z, nearest, ref bounced, static style => style == 0 ? 1f : 0f, TraceSeen(_worldLights, x, y, z));
         TraceDone();
         Array.Resize(ref nearest, found);
 
@@ -1063,7 +1074,7 @@ public sealed class LevelLighting
         //
         // Not traced (B666): `IVEngineClient::ComputeLighting` is not among the callers of `0x1801b60a0` that were read,
         // so whether it makes the visibility trace is unestablished.
-        AmbientCube lit = LocalLights.AddTo(bounced, _worldLights, x, y, z, StyleScale);
+        AmbientCube lit = LocalLights.AddTo(bounced, _leafCubeLights, x, y, z, StyleScale);
 
         // **The two terms reported apart, because one number cannot say which is missing.** Every
         // model on z1800 sampled between 0.09 and 0.12 in a room with three ceiling lamps overhead,
@@ -1113,7 +1124,7 @@ public sealed class LevelLighting
             ? _ambient[leaf].At(x, y, z)
             : default;
 
-        if (_worldLights.Count == 0)
+        if (_leafCubeLights.Count == 0)
         {
             return PointLighting.Bounce(bounced);
         }
@@ -1121,7 +1132,7 @@ public sealed class LevelLighting
         LocalLight[] nearest = new LocalLight[LocalLights.MaximumLocalLights];
 
         // **The lights that take no slot are folded into the cube** (B453), as the lightcache does.
-        int found = LocalLights.Split(_worldLights, x, y, z, nearest, ref bounced, StyleScale, TraceSeen(_worldLights, x, y, z));
+        int found = LocalLights.Split(_leafCubeLights, x, y, z, nearest, ref bounced, StyleScale, TraceSeen(_leafCubeLights, x, y, z));
         TraceDone();
 
         if (found == 0)

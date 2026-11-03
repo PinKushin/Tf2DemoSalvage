@@ -63,6 +63,19 @@ public sealed class HdrLumpChoiceConformanceTests
         read.Style.ShouldBe(5);
     }
 
+    /// <remarks>B669: `FUN_1801b5a50` tests `flags &amp; 1` at `+0x4c`, a leaf-lit model's only skip.</remarks>
+    [Test]
+    public void WorldLightsRead_ALightsFlags_AreItsOwnField()
+    {
+        byte[] light = new byte[BspStructLayout.WorldLightStride];
+        light[0x4c] = 3;
+
+        BspWorldLight read = BspWorldLights.Read(SyntheticBsp.Build(new Dictionary<int, byte[]> { [WorldLights] = light }))[0];
+
+        read.Flags.ShouldBe(3);
+        read.InAmbientCube.ShouldBeTrue();
+    }
+
     [Test]
     public void WorldLightsRead_AMapCarryingBothSets_ReadsTheHdrLights()
     {

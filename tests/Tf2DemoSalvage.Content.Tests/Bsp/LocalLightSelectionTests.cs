@@ -87,20 +87,18 @@ public sealed class LocalLightSelectionTests
         into[0].X.ShouldBe(400f, "the brighter light contributes more even from further away");
     }
 
-    /// <summary>That the sun and surface lights never arrive as local lights.</summary>
+    /// <summary>That the sun never arrives as a local light.</summary>
     /// <remarks>
-    /// **A control, not a formality.** `emit_skylight` has no falloff and would be applied at
-    /// whatever origin the compiler recorded; `emit_surface` is already resolved into the lightmaps
-    /// and the leaf cube, so passing one here double-counts it. Both were measured doing exactly
-    /// that on cp_process — see the remarks on `LocalLights.IsLocal`.
+    /// **A control, not a formality.** `emit_skylight` has no falloff and would be applied at whatever origin the compiler
+    /// recorded. This test also refused `emit_surface` until B669, on a wrong reading: see the remarks on
+    /// `LocalLights.IsLocal`, and `LocalLightSurfaceConformanceTests` for what the engine does with one.
     /// </remarks>
     [Test]
-    public void Strongest_GivenASkylightAndASurfaceLight_KeepsNeither()
+    public void Strongest_GivenASkylight_DropsIt()
     {
         List<BspWorldLight> lights =
         [
             Lamp(100f, 0f, 0f) with { Kind = WorldLightKind.SkyLight },
-            Lamp(120f, 0f, 0f) with { Kind = WorldLightKind.Surface },
             Lamp(140f, 0f, 0f),
         ];
 

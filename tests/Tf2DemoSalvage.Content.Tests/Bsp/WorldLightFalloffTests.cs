@@ -92,16 +92,15 @@ public sealed class WorldLightFalloffTests
     [Test]
     public void SurfaceLights_HaveNoFalloffAtAll_WhichIsWhyTheyAreNotRuntimeLights()
     {
-        // **The measurement that explained a blown-out capture point**, kept because it is the
-        // reason `emit_surface` is excluded and because the exclusion looks arbitrary without it.
+        // **The measurement that explained a blown-out capture point, and what was wrongly drawn from it.**
         //
         // All 108 of cp_process's surface lights carry attenuation of exactly zero with intensities
-        // around 7,000. Evaluated as runtime lights they never attenuate, so four of them dominate
-        // every model on the map: mid drew at luminance 6.3 with no lamp near it, which is what
-        // sent the investigation looking for nearby lights that did not exist.
+        // around 7,000. Evaluated through vrad's all-zero rule they never attenuate, so four of them
+        // dominated every model on the map: mid drew at luminance 6.3 with no lamp near it.
         //
-        // An area light for the radiosity solver has no distance term because it is never evaluated
-        // at a distance — it is resolved at compile time into the lightmaps and the leaf ambient.
+        // That was read as "an area light is never evaluated at a distance", and the kind was excluded
+        // for it. The engine evaluates one at `1 / d²` and never reads these terms (B669,
+        // `LocalLightSurfaceConformanceTests`), so the zeros here mean nothing to it.
         if (!File.Exists(MapPath))
         {
             Assert.Ignore("cp_process_f12.bsp is not on this machine.");

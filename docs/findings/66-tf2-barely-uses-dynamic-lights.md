@@ -175,6 +175,57 @@ lights copied before the decay (`MomentScene.WorldLights`, as `EndUpdateLightmap
 and the viewer's `StepLightStyles` calling it after the styles. On `tf2-2026-pub-pov-clean` no light reaches the world
 (`CorpusWorldDynamicLightTests`, with a recorder-17 control that finds them).
 
+## An `emit_surface` light is a runtime light, and a static prop's state folds (B669, 2026-11-03)
+
+**The wrong conclusion, kept because it was confidently written in three places.** All 108 of cp_process's surface lights
+have attenuation terms of exactly zero and intensities around 7,000. Evaluated through vrad's all-zero rule they did not
+attenuate, the middle capture point drew at a luminance of 6.3, and the kind was excluded with the reasoning *"an area light
+for the radiosity solver has no distance term because it is never evaluated at a distance. It is resolved at compile time
+into the lightmaps and into the leaf ambient cube."* The measurement was real. Both halves of the reasoning are wrong.
+
+**What killed it, read in disassembly** (`engine.dll`, x64), with the published twin where vrad keeps one:
+- **It has a distance term and never reads those fields.** `FUN_1800efe40` case 0 returns `1 / max( 1, d² + 1e-10 )`, zero past
+  a nonzero radius (`Engine_WorldLightDistanceFalloff`, `leaf_ambient_lighting.cpp:77`).
+- **It has an angle.** `FUN_1800efbf0` case 0: `dot2 = -delta · normal`, zero at or under 0.01, else one cosine
+  (`Engine_WorldLightAngle`, `:58-73`).
+- **No `r_worldlightmin`.** `FUN_1801b9570`'s test and `FUN_1801b60a0`'s are both guarded by `type != 0`.
+- **It is in the leaf cube only if vrad flagged it, and only a leaf-lit caller cares.** `FUN_1801b8270` asks `FUN_1801bb4b0` for
+  the cube, which sets an out-flag only where it read the leaf (`FUN_180100f60`). `FUN_1801b5a50` skips a light only when
+  that flag is set AND the light has `DWL_FLAGS_INAMBIENTCUBE`. A static prop's 162-ray cube holds no surface light, so a
+  static prop takes all of them.
+- **In a slot it is a spot** (`FUN_1800f0e10` case 0): attenuation 0/0/1, theta and phi pi, both dots 0, falloff 1.
+
+**Measured** (`world-light-kinds`): **0 of cp_process_f12's 108 surface lights and 0 of koth_toxic's 4 carry the flag.** So
+"already in the leaf cube" was false for every surface light on both maps, and moving models take them too. The flag's reader
+is proved only on a synthetic lump: no shipped specimen with the bit set has been seen.
+
+**The second defect it uncovered: the static state did not fold.** `StaticPropLightingAt` kept the strongest four and dropped
+the rest, where `FUN_1801b60a0` sends every loser to the cube (`FUN_1801b5db0`). Harmless to notice while few lights reached a
+prop; with 108 more candidates it is most of the light.
+
+**The route here, wrong turns included** (live TF2 build 11191711, `mat_hdr_level 2`, `mat_force_tonemap_scale 1`, bloom off,
+far camera; linear luminance x1000; the reference reproduced to the digit, 228.1, before any manipulation):
+1. *"Glass"* (B669's filed guess). `r_drawtranslucentworld 0` in TF2: the pipes stay white. The pipes alone read 355/281/232
+   top to bottom against ours 226/154/99, so most of it is not the glass.
+2. *"Ambient boost"* (`r_ambientboost`; ported nowhere). `FUN_1800f1bd0` reads it and it would be a constant lift, which is
+   the shape measured. But the owner's config has `r_ambientmin 0`, so it cannot fire in this reference, and TF2 with it off
+   measured the same to the digit. Ruled out here, and still unported: B672.
+3. *"B666's trace drops too much."* Keeping every light moved the pipes to 217/185/173: the wrong shape, the bottom brighter
+   than TF2 and the top darker. Restored; the trace stands.
+4. *"Phong."* `mat_phong 0` darkened TF2's pipes to about ours (287/188/90), and looked like the answer. `r_worldlights 0` then
+   left no lamp to make a highlight from and TF2 still read 329/265/232, so the light is not in the highlights. *Interpolated:*
+   that `r_worldlights 0` empties the slots into the cube, and that `mat_phong 0` also changes the model's shading path, are
+   what the numbers imply; neither was read.
+5. **The measured shape**: TF2's pipes minus ours was nearly constant down the cylinder (+128, +127, +133). The cube is what adds
+   a constant, and reading what writes the cube found the kinds this port refused.
+
+**After the fix** (ours, glass hidden, against TF2 glass hidden): 311/233/167 against 355/281/232 on the upper pipe; 299/211/148
+against 349/253/194 on the lower; **the same material with no glass in front, left pipe, 82.0 against 83.0** (was 57.8) and
+63.0 against 54.3 (was 47.7). The static cube's up face on placement #214 went 0.137 to 0.273. *Measured.*
+
+**Not settled.** The pipes behind the pane stay 12-28% short while the same material elsewhere agrees, so something about this
+placement remains. The pane itself adds more in TF2: B669 has the fit.
+
 ## A world light behind a wall lights nothing; a dlight behind one still does (B666, 2026-11-02)
 
 Evidence class: **disassembly**, read by the lead in Ghidra on `engine.dll` (x64), except where marked.

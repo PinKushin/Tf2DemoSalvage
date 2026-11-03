@@ -51,6 +51,7 @@ public enum WorldLightKind
 /// <param name="Exponent">Shapes the penumbra falloff between the two cosines.</param>
 /// <param name="Style">`dworldlight_t.style`: the light style it answers to, 0 for always on.</param>
 /// <param name="Cluster">`dworldlight_t.cluster`: the PVS cluster vrad placed it in; −1 when not read.</param>
+/// <param name="Flags">`dworldlight_t.flags`: the `DWL_FLAGS_` bits.</param>
 /// <remarks>
 /// **The falloff is Valve's, stated inline in <c>bspfile.h</c> rather than inferred:**
 /// <c>1 / (constant_attn + linear_attn * dist + quadratic_attn * dist^2)</c>, for
@@ -74,7 +75,12 @@ public readonly record struct BspWorldLight(
     float StopDot2 = 0f,
     float Exponent = 0f,
     int Style = 0,
-    int Cluster = -1);
+    int Cluster = -1,
+    int Flags = 0)
+{
+    /// <summary>`DWL_FLAGS_INAMBIENTCUBE` (`bspfile.h:966`): vrad put this light in the per-leaf ambient cubes.</summary>
+    public bool InAmbientCube => (Flags & 1) != 0;
+}
 
 /// <summary>
 /// The lights a map was compiled with, including its sun.
@@ -142,7 +148,8 @@ public static class BspWorldLights
                 Float(entry, BspStructLayout.WorldLightStopDot2Offset),
                 Float(entry, BspStructLayout.WorldLightExponentOffset),
                 BinaryPrimitives.ReadInt32LittleEndian(entry[BspStructLayout.WorldLightStyleOffset..]),
-                BinaryPrimitives.ReadInt32LittleEndian(entry[BspStructLayout.WorldLightClusterOffset..])));
+                BinaryPrimitives.ReadInt32LittleEndian(entry[BspStructLayout.WorldLightClusterOffset..]),
+                BinaryPrimitives.ReadInt32LittleEndian(entry[BspStructLayout.WorldLightFlagsOffset..])));
         }
 
         DecodeLog.Note(

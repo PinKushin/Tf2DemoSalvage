@@ -40410,7 +40410,40 @@ its recreation shows nothing; that `_rt_FullFrameFB` and the bloom targets are l
   known-present class was dumped beside it, and `cl_find_ent water` searches client class names, which a
   `CFuncMoveLinear` need not contain. So whether TF2 draws `*145` at all is *unverified*, and nothing was captured.
 
-## B669 — cp_process_f12's white pipes and glass panel read 34% dark in ours at the same exposure (2026-11-03) — OPEN, found by B636's TF2 comparison
+## B673 — `Instances_ThreadedPrePass_RunsEveryRootsFirstBlendOnTheCallerBeforeTheFork` can fail its own control under load (2026-11-03) — OPEN
+
+**Measured once** in a Scene.Tests run while other agents loaded the machine: `duringFork` 0, "the control: the fork's workers
+reached BeforeBuild on other threads". The same source passed in the run before it. *Interpolated cause:* the test forks through
+`Parallel.For`, which may run every body on the calling thread, so the control depends on the scheduler. Not retried and not
+touched; the failure is in the fork fixture, not in anything lit.
+
+## B672 — `r_ambientboost` is not ported (2026-11-03) — OPEN, read and not implemented
+
+**Read in disassembly**, `engine.dll` `FUN_1800f1bd0` at `0x1800f2765`-`0x1800f2d70`, the model draw. With at least one light,
+the model flag `0x800` (`model_t` `+0x24`, *interpolated* as `MODELFLAG_STUDIOHDR_AMBIENT_BOOST`: the name was not read) and
+`r_ambientboost` nonzero:
+- `avg` is the mean of the six faces' `0.3 r + 0.59 g + 0.11 b`, and `max` the largest of them.
+- `direct` sums each slot's same luminance over `constant + linear d + quadratic d²` (no cone, `1` when that is at or under `1e-5`).
+- If `avg < r_ambientmin` and `avg < r_ambientfraction · direct`, the cube sent to the studio render is scaled by
+  `min( r_ambientfraction · direct / max, 5 )`. **The 5 is a constant** (`0x180374cc8`): nothing reads `r_ambientfactor`.
+
+Defaults 1, 0.3, 0.1. It cannot have fired in B669's reference, since the owner's `config.cfg` has `r_ambientmin 0`, and TF2 with
+it off measured the same to the digit. Stock configs do fire it, on models carrying the flag; which models do was not surveyed.
+
+## B671 — `+mat_specular 0` changes nothing in a `--shot` (2026-11-03) — OPEN, the B521 fix does not reach it
+
+**Measured**: at the far camera, f12 tick 45091, a shot with `+mat_specular 0` is byte-identical to its control, though the log
+says `[render] mat_specular 0` at startup, and a temporary shader edit proved the same frame's envmap branch runs on the panes
+and the cap disc. So this instrument cannot be believed until that is explained; B669 used shader edits instead.
+
+## B670 — cp_process_f12's cap disc reads twice TF2's brightness (2026-11-03) — OPEN, not read
+
+**Measured** (far camera, scale 1, bloom off; x 950-1250, y 500-700): **372.3 in ours, 190.9 in TF2**, unmoved by B669 (372.8) and
+by TF2's `mat_phong`, `r_worldlights` and translucent-world switches (188.6-191.0). B669 as filed said the other far patches
+agree; that rested on the wall and the whole frame only. The floor around it also differs by eye. TF2's disc looks like a metal
+with its reflection showing, ours like a pale diffuse one, so a reflective surface is the first thing to read. *Interpolated.*
+
+## B669 — cp_process_f12's white pipes and glass panel read 34% dark in ours at the same exposure (2026-11-03) — PART FIXED: the pipes' missing light; the pane and a residue on these pipes stay OPEN
 
 **Measured** (live TF2 against ours, both `mat_force_tonemap_scale 1` and bloom off, camera `-3722 -1403 726 25 99`, patch
 x 800-1100, y 270-330 of the 1280x720 frame, `D:/b636/tf2/` and `D:/b636/ours/`): mean linear luminance x1000 **228.0 in
@@ -40418,6 +40451,59 @@ TF2, 149.7 in ours**; sRGB 127 129 127 against 106 104 101. The other far patche
 219.7, whole frame 155.5 against 166.2). The patch holds white pipes behind glass-like grating on a catwalk, so a
 translucent or lit-through-glass surface is the first suspect. *Not investigated; no read of the engine yet.* The frame
 is the one B636's fix now draws at TF2's exposure, which is why the residual shows (before it, ours read 176.9 against 190.0).
+
+**What occupies the patch** (`faces-near`, `TF2VIEW_PICK`, `prop-shade`): faces 4087-4089, `glass/glasswindow001a` patched to the
+baked cube `c-3840_-880_656`, LightmappedGeneric `$translucent`; behind them `models/props_mining/industrial_pipe01_256_01` and
+`_128_01` (VertexLitGeneric `$phong`, so no `.vhv`: flags 7, B514) over a concrete and I-beam cavity. It is not a grating.
+
+**Cause of the larger part, read in disassembly: `emit_surface` lights were refused, and the static state did not fold.** The
+account, the wrong turns and every address: finding [66](findings/66-tf2-barely-uses-dynamic-lights.md#an-emit_surface-light-is-a-runtime-light-and-a-static-props-state-folds-b669-2026-11-03).
+Fixed in `LocalLights` (the kind, its `1 / max(1, d²)`, one cosine past 0.01, no `r_worldlightmin`, the engine's spot shape),
+`BspWorldLights` (`dworldlight_t.flags`) and `LevelLighting` (`StaticPropLightingAt` folds; a leaf-lit caller skips what vrad
+flagged). **So moving models take surface lights too**: none of f12's 108 or toxic's 4 is flagged. No player was in this frame, so
+that half has no picture against TF2.
+
+**Against live TF2** (build 11191711, `mat_hdr_level 2`, the reference reproduced at 228.1 before any manipulation; ours Debug,
+f12 tick 45091; `D:/b669/`), linear luminance x1000. *Glass hidden* is `r_drawtranslucentworld 0` in TF2 and a temporary shader
+edit in ours, reversed:
+
+| | TF2 | ours before | ours after |
+|---|---|---|---|
+| **the patch** | **228.1** | **149.7** | **178.0** |
+| whole frame | 155.5 | 166.2 | 167.4 |
+| upper pipe, top / mid / low, glass hidden | 354.7 / 281.0 / 232.1 | 226.5 / 154.0 / 98.7 | 311.4 / 233.0 / 166.9 |
+| lower pipe, top / mid / low, glass hidden | 349.4 / 252.6 / 194.3 | 228.2 / 151.8 / 97.7 | 299.3 / 211.4 / 148.2 |
+| same material, no glass in front (x 345-352): y 535-539 | 83.0 | 57.8 | 82.0 |
+| same, y 513-517 | 54.3 | 47.7 | 63.0 |
+| wall behind the pane, glass hidden / shown | 126.5 / 187.2 | 139.8 / 143.3 | 139.8 / 143.3 |
+| gap below the pipes, glass hidden / shown | 24.4 / 125.1 | 41.1 / 67.5 | 41.1 / 67.5 |
+| concrete control | 187.0 | 187.0 | 187.0 |
+
+**Still open, each measured and none explained:**
+- **The pane adds more in TF2.** Fitting `with = (1 − a) · without + X` over the gap tiles: TF2 a 0.31, X 106; ours a 0.25, X 43.
+  The texture's mean alpha is 65 of 255 down to its 8-texel mip (`vtf`), and there is no second pane on the world's faces (`faces-near`;
+  a brush entity's faces are in model coordinates, so that is no answer for one). Ours' reflection alone is about 3 of the 43
+  (a temporary reflection-only shot). **So the next read is what this pane reflects**: a cube, tint or contrast difference is the
+  suspect, *interpolated*. TF2 also shows the wire pattern at this distance and ours does not.
+- **These pipes stay 12-28% short** with the glass hidden, where the same material with no glass in front agrees at one row and
+  overshoots at the other.
+- **The wall and gap behind the pane read brighter in ours** with the glass hidden (139.8 against 126.5, 41.1 against 24.4).
+  World lightmaps, unmoved by this fix.
+
+**Instruments that lied or could not answer here:** `pixel-face` says "0 world faces" for a hit off the drawn plane, hence `faces-near`.
+`+mat_specular 0` does nothing in a `--shot` (B671). `r_ambientlightingonly 1` changed nothing in TF2 on a running map, so it says
+nothing about the cube. A real-map test added here was NotExecuted (the map is not at that test's path), so the flag's reader is
+pinned on a synthetic lump instead.
+
+**Tests:** `LocalLightSurfaceConformanceTests` (Content), `SurfaceLightCacheConformanceTests` (Scene), and
+`WorldLightsRead_ALightsFlags_AreItsOwnField`. Red first, for the kind being refused. `Strongest_GivenASkylightAndASurfaceLight_KeepsNeither`
+pinned the wrong reading and is now `Strongest_GivenASkylight_DropsIt`. **Sabotage, each reversed:** the inverse-square branch off,
+4 red; two cosines and no epsilon, 3; the minimum applied at admission, 1; at ranking, 1; the leaf skip off, 2; the static fold off, 1.
+TRX, Debug: Content 1,868 executed of 1,934; Scene 3,492 passed, 1 failed (B673, passed the run before); Rendering 1,399 executed of 1,477.
+
+**Load, measured once on a shared machine, not a before-and-after pair:** `trace-cost cp_process_f12` after the fix gave
+`LevelLighting.From` static states 1,312 ms, beside 1.27 s in B667's record (measurements/2026-11-02-b667-trace-cost.md). So it did
+not blow up, and that is all this can say.
 
 ## B668 — `IVEngineClient::ComputeLighting` → `LocalLights.AddTo` is not traced (2026-11-02) — OPEN, partly read (an inferred divergence)
 
