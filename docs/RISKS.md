@@ -40490,7 +40490,7 @@ with its reflection showing, ours like a pale diffuse one, so a reflective surfa
 ## B669 — cp_process_f12's white pipes and glass panel read 34% dark in ours at the same exposure (2026-11-03) — PART FIXED: the pipes' missing light; the pane and a residue on these pipes stay OPEN
 
 **Measured** (live TF2 against ours, both `mat_force_tonemap_scale 1` and bloom off, camera `-3722 -1403 726 25 99`, patch
-x 800-1100, y 270-330 of the 1280x720 frame, `D:/b636/tf2/` and `D:/b636/ours/`): mean linear luminance x1000 **228.0 in
+x 800-1100, y 270-330 of the 1280x720 frame, `D:/measure-f12/b636/tf2/` and `D:/measure-f12/b636/ours/`): mean linear luminance x1000 **228.0 in
 TF2, 149.7 in ours**; sRGB 127 129 127 against 106 104 101. The other far patches agree at scale 1 (concrete wall 220.3 against
 219.7, whole frame 155.5 against 166.2). The patch holds white pipes behind glass-like grating on a catwalk, so a
 translucent or lit-through-glass surface is the first suspect. *Not investigated; no read of the engine yet.* The frame
@@ -40507,7 +40507,7 @@ Fixed in `LocalLights` (the kind, its `1 / max(1, d²)`, one cosine past 0.01, n
 flagged; the style-0 path has the engine's PVS gate). **So moving models take surface lights too**: none of f12's 108 or toxic's 4 is
 flagged, as vrad's threshold predicts.
 
-**Models off the static path, against live TF2** (same setup, build 11191711; ours `e6f8a67a` and `97a72e39`; **measured**, `D:/b669/`).
+**Models off the static path, against live TF2** (same setup, build 11191711; ours `e6f8a67a` and `97a72e39`; **measured**, `D:/measure-f12/b669/`).
 The leaf path takes these lights. No player was compared: a bot's pose cannot be held to a demo's, so these are fixed dynamic props:
 
 | camera, subject | TF2 | main | branch |
@@ -40531,7 +40531,7 @@ Dragon's Fury fireball, and `entity-census` finds no such class against 1,669 ro
 are baked props, which take no static state; `prop-shade` was not read for each, and the chair's gap to TF2 was there before.
 
 **Against live TF2** (build 11191711, `mat_hdr_level 2`, the reference reproduced at 228.1 before any manipulation; ours Debug,
-f12 tick 45091; `D:/b669/`), linear luminance x1000. *Glass hidden* is `r_drawtranslucentworld 0` in TF2 and a temporary shader
+f12 tick 45091; `D:/measure-f12/b669/`), linear luminance x1000. *Glass hidden* is `r_drawtranslucentworld 0` in TF2 and a temporary shader
 edit in ours, reversed:
 
 | | TF2 | ours before | ours after |
@@ -41737,7 +41737,7 @@ the centre.
 ## B636 — the world pass gets the exposure only on frames that draw a 3D-sky or water view (2026-10-31) — FIXED 2026-11-03, checked against live TF2
 
 **Against live TF2 (2026-11-03, measured; TF2 build 11191711, `mat_hdr_level 2`, an empty listen server on `cp_process_f12`,
-`spec_goto`, 1280x720; ours the same camera at tick 45091 with `+cl_drawhud 0`; images in `D:/b636/tf2/` and `D:/b636/ours/`).**
+`spec_goto`, 1280x720; ours the same camera at tick 45091 with `+cl_drawhud 0`; images in `D:/measure-f12/b636/tf2/` and `D:/measure-f12/b636/ours/`).**
 Mean linear luminance x1000 over one rectangle in both frames, TF2's auto exposure read at 0.700 at both cameras:
 
 | camera, patch | TF2 default | ours BEFORE | ours AFTER |
@@ -41756,7 +41756,7 @@ at scale 1** (-34%): a separate lighting residual that the pinned control shows 
 exposed by removing the scale-1 error that had been hiding it (before 176.9 against 190.0 was a coincidence). Not
 investigated here.
 
-**Measured on our own captures (2026-11-03, Debug builds of main `9639f0be` and of this fix, f12 tick 30000, `D:/b636/shots/`;
+**Measured on our own captures (2026-11-03, Debug builds of main `9639f0be` and of this fix, f12 tick 30000, `D:/measure-f12/b636/shots/`;
 side by side `sbs-far-before-after.png`; the numbers are 2x-subsampled pixel counts and mean channel mean).**
 - **Far camera `-3722 -1403 726 25 99` (no 3D sky or water view in frame):** before 103.27 mean, after 86.65: 126,443 of
   135,792 sampled pixels change, by at most 54 levels. `+mat_force_tonemap_scale 1` before changed 40,324 px by at most 14

@@ -40,7 +40,7 @@ as spread rather than being hidden.
 ## Result
 
 A = `e6f8a67a`, B = `97a72e39`, Debug, `--measure 20`, f12 tick 30000, first person, in this order on 2026-11-03 from 07:47. Parsed from the
-tool's own printed lines by `D:/b669/abba.py`; `lighting` is the mean of each run's per-interval `pose = lighting` figure (16-17 samples).
+tool's own printed lines by `D:/measure-f12/b669/abba.py`; `lighting` is the mean of each run's per-interval `pose = lighting` figure (16-17 samples).
 
 | run | side | ticks advanced | frame ms | lighting ms |
 |---|---|---|---|---|
