@@ -244,6 +244,12 @@ landing-tick fault below reaches the free camera too, through what is IN the fra
 by ~19 levels, indoor 45000 over by ~22. The likeliest remaining term is bloom's add space, the one interpolation left
 in it.
 
+B636 offered a second candidate: the world pass read a stale `LINEAR_LIGHT_SCALE` on frames with no 3D sky or water
+view. That was fixed on 2026-11-02. **Predicted, not measured:** the fix does not move this residue. The tables above
+were drawn at a scale of exactly 1, so the stale value and the frame's value are both 1 (arithmetic).
+- If a re-shoot after the fix moves the 45000 residue, the logged 1 was not what the shader read.
+- If it moves an outdoor case, the same is true there.
+
 ### The instrument's open fault: TF2 lands earlier than the tick asked for
 
 *Measured, interpolation flagged.* At the free camera, the camera IS gummo's eye as TF2 reported it (`spec_pos` the

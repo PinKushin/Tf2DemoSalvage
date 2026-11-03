@@ -330,6 +330,28 @@ internal sealed unsafe class OffscreenTarget : IDisposable
     /// <summary>The world renderer's own tone-map scale as it stands (water views push and pop it), one before any draw.</summary>
     internal float WorldLinearLightScale => _world?.LinearLightScale ?? 1f;
 
+    /// <summary>The scale the world's constants last carried to the GPU, one before any draw (B636, B243).</summary>
+    internal float WorldUploadedLinearLightScale => _world?.UploadedLinearLightScale ?? 1f;
+
+    /// <summary>Sets the frame's <c>LINEAR_LIGHT_SCALE</c> through the call <c>Device3D.DrawFrame</c> makes (B636).</summary>
+    /// <param name="scale">The scale.</param>
+    internal void SetToneMappingScaleLinear(float scale) => EnsureWorld().SetToneMappingScaleLinear(_context, scale);
+
+    /// <summary>
+    /// The last <see cref="DrawWorld"/>'s geometry drawn again under the constants as they stand, with no camera upload: a
+    /// still camera's frame, whose camera <c>Device3D</c> does not send again (B636). Depth is cleared, colour is not.
+    /// </summary>
+    internal void RedrawWorld()
+    {
+        WorldRenderer world = EnsureWorld();
+        Viewport viewport = new(0f, 0f, _width, _height, 0f, 1f);
+
+        _context.RSSetViewports(1, in viewport);
+        _context.ClearDepthStencilView(_depthView, (uint)ClearFlag.Depth, 1f, 0);
+        _context.OMSetRenderTargets(1u, _view.GetAddressOf(), _depthView);
+        world.Draw(_context);
+    }
+
     /// <summary>Draws the world through its water views first, as <c>DrawWorldAndEntities</c> does (B62).</summary>
     /// <param name="vertices">Triangle corners in world coordinates.</param>
     /// <param name="batches">Material runs.</param>

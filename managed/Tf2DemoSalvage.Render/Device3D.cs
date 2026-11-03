@@ -1381,8 +1381,8 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
     /// <summary>A half's context uploads, played when its draw begins (finding 98 §9 step 2).</summary>
     /// <param name="half">The half about to draw.</param>
     /// <param name="camera">The camera recorded for it since its last draw, or null.</param>
-    /// <remarks>**Before `DrawFrame` sets `LinearLightScale`**: the camera upload writes that scale, and the game-thread
-    /// upload this replaces saw the previous frame's end value, which is what the scale still holds here.</remarks>
+    /// <remarks>**Before `DrawFrame` sets the frame's scale**, so the camera upload carries the previous frame's end value;
+    /// `SetToneMappingScaleLinear` then writes the frame's own into the same constants (B636).</remarks>
     private void ReplayUploads(ViewHalf half, CameraUpload? camera)
     {
         // `SetObserverTarget`'s reset, before anything reads the exposure (finding 98 §9 step 4).
@@ -1658,14 +1658,16 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
             if (_world is { HasMap: true })
             {
                 // **`LINEAR_LIGHT_SCALE` is the exposure's current scale under integer HDR, and one otherwise**
-                // (`SetToneMappingScaleLinear`, shaderapidx9.dll 0x180023be0; B514). Set before anything of this view.
+                // (`SetToneMappingScaleLinear`, shaderapidx9.dll 0x180023be0; B514). Set before anything of this view, and
+                // written into the world's constants now: a frame that sends no camera after it draws at it too (B636).
                 // `mat_force_tonemap_scale` wins first, as `SetToneMapScale` lets it (viewpostprocess.cpp:1143).
                 if (ForceToneMapScale > 0f)
                 {
                     _exposure.Reset(ForceToneMapScale);
                 }
 
-                _world.LinearLightScale = _world.HdrType == Content.Bsp.HdrType.IntegerHdr ? _exposure.Current : 1f;
+                _world.SetToneMappingScaleLinear(
+                    _context, _world.HdrType == Content.Bsp.HdrType.IntegerHdr ? _exposure.Current : 1f);
 
                 // **The monitors before anything of this view** (B511): `RenderView` calls `DrawMonitors` ahead of
                 // `SceneBegin` (`viewrender.cpp:2074-2081`), so `_rt_Camera` holds this frame's camera view when the
@@ -1790,6 +1792,9 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
 
                 Passed(profile, RenderPass.WaterViews);
                 _world.Draw(_context);
+
+                // **The scale the world pass READ, carried from its constants** (B636, B243): the capture log's figure.
+                _drawnScale = _world.UploadedLinearLightScale;
                 Passed(profile, RenderPass.World);
 
                 // **The grass is NOT drawn here** but in the translucent pass below, leaf by leaf
@@ -2040,9 +2045,9 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
                 Passed(profile, RenderPass.Bloom);
 
                 // **The scale the HUD draws under is not the scene's** (viewrender.cpp:2211-2216): reset to 1 under integer
-                // HDR before the 2D section, so a HUD panel's model draws unexposed. The scene's is kept for the capture log.
-                _drawnScale = _world.LinearLightScale;
-                _world.LinearLightScale = ToneMapScaleAfterPostProcessing(_world.HdrType, _world.LinearLightScale);
+                // HDR before the 2D section, so a HUD panel's model draws unexposed. The capture log's is the world pass's (above).
+                _world.SetToneMappingScaleLinear(
+                    _context, ToneMapScaleAfterPostProcessing(_world.HdrType, _world.LinearLightScale));
             }
             else
             {

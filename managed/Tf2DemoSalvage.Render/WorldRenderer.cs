@@ -4692,13 +4692,21 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             .. FogConstants.For(fog, fogDistanceScale),
         ];
 
+        // Kept whole: `SetToneMappingScaleLinear` rewrites the buffer with only the scale changed (B636).
+        contents.CopyTo(_cameraContents, 0);
+        UploadCamera(context);
+    }
+
+    /// <summary>Sends <see cref="_cameraContents"/> into the camera buffer, whole: a discard map keeps nothing.</summary>
+    private void UploadCamera(ComPtr<ID3D11DeviceContext> context)
+    {
         MappedSubresource mapped = default;
 
         SubmitCounters.Upload();
         SilkMarshal.ThrowHResult(
             context.Map(_camera, 0, Map.WriteDiscard, 0, ref mapped));
 
-        fixed (float* source = contents)
+        fixed (float* source = _cameraContents)
         {
             // **Sized from the array, not from a literal.** This was a hardcoded twenty and the
             // buffer has now grown by a float4 — the same edit that gets forgotten and leaves the
@@ -4707,11 +4715,39 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
                 source,
                 mapped.PData,
                 sizeof(float) * CameraConstants,
-                sizeof(float) * contents.Length);
+                sizeof(float) * _cameraContents.Length);
         }
 
         context.Unmap(_camera, 0);
     }
+
+    /// <summary>
+    /// <c>SetToneMappingScaleLinear</c>: sets <see cref="LinearLightScale"/> AND writes it into the camera constants now,
+    /// for whatever draws next (B636).
+    /// </summary>
+    /// <param name="context">The context the constants are written on.</param>
+    /// <param name="scale">The scale.</param>
+    /// <remarks>
+    /// **Valve's is a shader constant written when it is called** (shaderapidx9.dll 0x180023be0, B514), not part of the
+    /// view. Setting only the property left the constants at the last <see cref="SetCamera"/>'s scale, so a frame that
+    /// sent no camera after it drew the world at the previous upload's: 1 after the HUD's reset, or the last frame's.
+    /// Before any camera there are no constants, and the first <see cref="SetCamera"/> reads the property.
+    /// </remarks>
+    public void SetToneMappingScaleLinear(ComPtr<ID3D11DeviceContext> context, float scale)
+    {
+        LinearLightScale = scale;
+
+        if (_camera.Handle is null)
+        {
+            return;
+        }
+
+        _cameraContents[LinearLightScaleSlot] = scale;
+        UploadCamera(context);
+    }
+
+    /// <summary>The scale the camera constants last carried to the GPU (B243: the value the shaders read, not the property).</summary>
+    public float UploadedLinearLightScale => _cameraContents[LinearLightScaleSlot];
 
     /// <summary>The per-material constants a material without a detail texture gets.</summary>
     /// <remarks>
@@ -5065,6 +5101,12 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
     // The last two float4s are fog's, which Valve keeps in the engine's own registers rather than
     // the shader's twelve (B139).
     private const int CameraConstants = 16 + 4 + 4 + 4 + 4 + 4 + 4;
+
+    /// <summary>Where <c>LINEAR_LIGHT_SCALE</c> sits in the camera constants: <c>debugModes2.y</c>, after the matrix and four float4s.</summary>
+    private const int LinearLightScaleSlot = 16 + 4 + 4 + 4 + 1;
+
+    /// <summary>The camera constants as last sent, zero before any camera (B636).</summary>
+    private readonly float[] _cameraContents = new float[CameraConstants];
 
     /// <summary>Floats in the bone buffer: three rows of four per bone.</summary>
     private const int BoneConstants = MaxBones * 3 * 4;

@@ -125,7 +125,7 @@ public sealed class ViewHalvesTests
         halves.Job(a, () => order.Add("draw"))();
         halves.Job(a, () => order.Add("draw"))();
 
-        // The draw is where `DrawFrame` sets `LinearLightScale`, which the camera upload writes into the constant buffer.
+        // The draw is where `DrawFrame` sets the frame's scale, which it writes into the constants itself (B636).
         order.ShouldBe([matrix, "draw", "none", "draw"]);
     }
 

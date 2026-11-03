@@ -41544,7 +41544,54 @@ by a modulating material, and has to keep its scale exemption.
 TF2's live pair puts the fog's share of the scorch at the gap between 0.591 (fog off) and 0.658 (fog on), stored, at
 the centre.
 
-## B636 — the world pass gets the exposure only on frames that draw a 3D-sky or water view (2026-10-31) — OPEN, lead
+## B636 — the world pass gets the exposure only on frames that draw a 3D-sky or water view (2026-10-31) — FIXED on `b636-exposure` (2026-11-02); captures owed
+
+**Mechanism proved (2026-11-02): read from our code, then a red harness test; the camera dependence is NOT yet measured
+on a capture.** The constants every world-camera draw reads (world, overlays, opaque models, entity decals, translucent
+leaves and world, B637's Modulate fog grey) took `LINEAR_LIGHT_SCALE` only inside `WorldRenderer.SetCamera`. `DrawFrame`
+set the property and sent nothing, so the world pass read the last upload's scale. The routes to that upload:
+
+| this frame | the world pass read |
+|---|---|
+| 3D sky in view, water in view, or a monitor view | the frame's exposure (`ReapplyCamera` after it) |
+| none of those, camera moved | 1 under integer HDR (`ReplayUploads` ran before the scale was set, carrying the HUD's reset) |
+| none of those, camera still | the previous frame's last upload: 1 after a HUD panel model, its exposure after viewmodels or a 3D-sky/water reapply |
+
+This matches the far/close split above, but not by measurement: a far camera drawn at about 1 (the pin moved little)
+and a close one drawn at the exposure. Which view the close camera drew was not checked.
+
+**Fix:** `WorldRenderer.SetToneMappingScaleLinear(context, scale)` sets the property AND rewrites the camera
+constants now with only the scale changed. That is Valve's shape, a constant written when it is set rather than a field
+of the view. `DrawFrame` uses it for the frame's scale and for the HUD's reset to 1, so a HUD panel model still draws at
+1. The 3D-sky, water and monitor `ReapplyCamera` paths are unchanged. The water views' quarter-scale push and pop still
+goes through `SetCamera`. **Unchanged passes:** the 2D sky and particles, which take the scale as an argument; the
+detail sprites (`SetColourScale`); the 3D sky, water views, viewmodels and HUD panels, each of which uploads its own
+camera; and DecalModulate, whose output is unscaled.
+
+**The capture log now reports the uploaded constant** (B243): `_drawnScale` is `UploadedLinearLightScale`, read right
+after the world pass from the array that was last sent, where it used to be the property at frame end.
+
+**Tests:** `FrameToneMapScaleConformanceTests`, 3 tests in Rendering.Tests. **Red first, against a stub I wrote**: the
+new method as a bare property assignment, which is what `DrawFrame` did before.
+- Under the stub, a lit quad drawn at 1 and then redrawn after the frame's scale of 0.5, with no camera upload, read
+  138 where the shader arithmetic predicts 100: `srgb(0.5 · linear(138/255))`.
+- After the HUD's reset to 1 it read 100 where 138 was due.
+- The carried-value control read 0.5 (the property) where 0.25 was uploaded.
+
+**Sabotage (2026-11-02):**
+- With the slot moved one float along, onto a spare component, all 3 tests go red.
+- With the array patched but no upload, the 2 pixel tests go red. The reader test stays green, because it reads the
+  array last sent and not the GPU. So it proves "carried, not the property", not that the upload happened. The pixel
+  tests hold the upload.
+
+**What the test does not hold:** `Device3D`'s call order, which no harness reaches without a window. That half rests on
+reading the code until the captures below run.
+
+**Captures owed (desktop):** f12 at tick 30000, Debug `--shot`, under `run-exclusive.ps1`, at both cameras
+`-3722 -1403 726 25 99` and `-3516 -2200 763 35 -28`. Shoot each with the default scale and with
+`+mat_force_tonemap_scale 1`, on this branch and on its base. **Predicted, not measured:** after the fix the far
+camera's pin difference grows to the close camera's size, and the capture log reports the exposure (about 0.70) for
+both.
 
 **Measured (f12, cp_process_f12, HDR_TYPE_INTEGER, Debug `--shot`):** every capture logs "drawn with tone-map scale
 0.7009725". At camera `-3722 -1403 726 25 99`, though, `+mat_force_tonemap_scale 1` against the default changes
@@ -41564,9 +41611,12 @@ shader depends on the camera.
 
 **Why it may matter beyond decals:** B514's open residue, "outdoor world short by ~19 levels, indoor 45000 over by ~22"
 (findings 76), has this shape if indoor frames are drawn at 1 and outdoor ones at the exposure. *Interpolated.*
+**Withdrawn (2026-11-02, arithmetic, not measured):** findings 76's five goldens were drawn at a tone-map scale of exactly 1,
+logged for all five. Every route in the table above then reads 1, so this fix predicts no change to that residue.
 
-**Next:** carry the uploaded constant to the capture log; shoot one camera with and without a 3D-sky view in frame; then
-move the world upload after the scale is set. Every auto-exposure shot changes when it is fixed.
+**Next (2026-10-31; done on `b636-exposure` apart from the shots):** carry the uploaded constant to the capture log;
+shoot one camera with and without a 3D-sky view in frame; then move the world upload after the scale is set. Every
+auto-exposure shot changes when it is fixed.
 
 **Reaches B637's fog too (2026-11-02, read from our code, not measured):** Modulate's fog grey is 128/255 times
 `LINEAR_LIGHT_SCALE` (`debugModes2.y`), so a Modulate run drawn on the world constants this entry describes fogs toward a
