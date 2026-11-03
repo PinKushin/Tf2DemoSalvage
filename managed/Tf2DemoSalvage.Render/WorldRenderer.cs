@@ -1391,7 +1391,26 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             float3 light;
 
             // The normal every model lighting term below reads: the bump through the tangent frame, or the vertex's.
-            float3 shadingNormal = ModelShadingNormal(input);
+            //
+            // **A brush face turns its texel through the frame its vertex carries** (B669): `worldSpaceNormal = mul( vNormal,
+            // i.tangentSpaceTranspose )` (lightmappedgeneric_ps2_3_x.h:479) over the frame vs20 builds (:127-129). The texel is
+            // the mixed one (:376-383, BumpTexel); an ssbump's normal is rebuilt from its three weights (:447). No cube says a
+            // brush face: every model draw supplies one.
+            float3 shadingNormal;
+
+            if (ambientCube[0].w < 0.5f && input.tangent.w != 0.0f && bump.x > 0.5f)
+            {
+                float3 faceTexel = BumpTexel(input.uv, blendfactor).rgb;
+                float3 tangentSpace = bump.y > 0.5f
+                    ? normalize(bumpBasis[0] * faceTexel.x + bumpBasis[1] * faceTexel.y + bumpBasis[2] * faceTexel.z)
+                    : faceTexel * 2.0f - 1.0f;
+
+                shadingNormal = TangentToWorld(tangentSpace, normalize(input.nrm), input.tangent);
+            }
+            else
+            {
+                shadingNormal = ModelShadingNormal(input);
+            }
 
             if (bump.x > 0.5f && input.ls > 0.0f)
             {
@@ -7160,6 +7179,14 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
 
             context.PSSetShaderResources(4, 1, ref bump);
         }
+
+        // **Its own cube, or the slot empty** (B669): `BindTexture( SHADER_SAMPLER2, info.m_nEnvmap )` runs on every draw of the
+        // shader (lightmappedgeneric_dx9_helper.cpp:876). This pass bound none, so a translucent pane reflected the cube of
+        // whichever run drew last: on the far pane its neighbour's, and a fit of the frame says so to three digits.
+        ComPtr<ID3D11ShaderResourceView> reflection =
+            batch.MaterialIndex < _cubemaps.Count ? _cubemaps[batch.MaterialIndex] : default;
+
+        context.PSSetShaderResources(5, 1, ref reflection);
 
         // The caller closes the run (EndGammaRun), so consecutive modulating runs share one bind.
         UseGammaTarget(context, batch.MaterialIndex);

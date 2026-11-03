@@ -12988,14 +12988,9 @@ world faces take the normal of their PLANE (`BspSurfaces.ReadNormal`), and the w
 sets a per-vertex normal at all — every `WorldVertex` keeps the record default `NormalZ = 1f`. That
 sounds like every surface lit as though facing up.
 
-It is not, because **the world pass never uploads a normal**: `WorldRenderer`'s input layout is
-`POSITION` plus texcoords, with no `NORMAL` semantic. World lighting is the map's baked lightmap, so
-a per-vertex normal has nothing to feed. Models are a different path and do carry one.
-
-**It becomes a real gap the moment the world is lit per pixel** — world bumpmapping, specular, or
-any `$bumpmap` on brushwork — because the tangent basis those need is built from exactly these two
-lumps. Anyone adding that must read them first rather than deriving a normal from the plane, which
-is flat by construction and wrong on every displacement.
+**That was wrong, and it hid B669 for months: a reflection reads the normal.** Reasoning from the lightmap, this paragraph
+concluded nothing fed from it; the input layout did carry `NORMAL`, and every world `$envmap` drew about (0, 0, 1). Since B669
+each corner carries these lumps' normal and a frame.
 
 ### B201 — The live client REFUSES this demo, and it is schema drift, not the map — CONFIRMED 2026-08-25
 
@@ -40410,6 +40405,10 @@ its recreation shows nothing; that `_rt_FullFrameFB` and the bloom targets are l
   known-present class was dumped beside it, and `cl_find_ent water` searches client class names, which a
   `CFuncMoveLinear` need not contain. So whether TF2 draws `*145` at all is *unverified*, and nothing was captured.
 
+## B678 — a displacement's and an overlay's reflection normal is not the engine's (2026-11-03) — OPEN, a named ceiling of B669's fix
+
+B669 gave a brush face's corner its compiled normal and frame (`FUN_1800f4d40`). **A displacement takes its base face's**, where the engine has a per-grid-vertex one from its own builder, not read; finding 66 already records `CalcNormalFromEdges` as unported for dlights. **An overlay fragment still carries the `WorldVertex` default, (0, 0, 1)**: what the engine's overlay vertices carry was not read. Neither moves a material with no `$envmap`, and how many displacements and overlays carry one on any map was not counted. *Also not read:* `SEAMLESS` and `$outline` forcing the pixel shader's fast path, so their contrast and saturation keep the VMT's (`BlendModulation.EnvMapShaping`).
+
 ## B677 — `--shot` of one tick has two states, and a byte comparison of two shots is no control until this is understood (2026-11-03) — OPEN, not investigated
 
 **Measured** (`docs/measurements/2026-11-03-static-props-leave-the-light-cache.md`): f12 at tick 30000, the same binary, rows 0-40 differ across the whole width, 24,620 pixels, largest channel 206, and nothing below them. Both the base and this branch's head show both states, in runs of the same hash. The band is where the spectator HUD's top bar is drawn; *interpolated*, not read. **What it puts in doubt:** a verdict resting on two byte-identical shots of an unchanged build, as `2026-11-03-one-light-cache-lookup.md`'s control does, may have matched by chance. Its comparisons still hold when the hashes agree, since nothing else varied here; a mismatch is what can no longer be trusted without looking at where it falls.
@@ -40483,7 +40482,9 @@ it off measured the same to the digit. Stock configs do fire it, on models carry
 says `[render] mat_specular 0` at startup, and a temporary shader edit proved the same frame's envmap branch runs on the panes
 and the cap disc. So this instrument cannot be believed until that is explained; B669 used shader edits instead.
 
-## B670 — cp_process_f12's cap disc reads twice TF2's brightness (2026-11-03) — OPEN, not read
+## B670 — cp_process_f12's cap disc reads twice TF2's brightness (2026-11-03) — the reflection FIXED by B669's world normal
+
+**After B669** (`measurements/2026-11-03-b669-the-pane.md`): the far box reads **177.3 in ours, 190.8 in TF2**, from 372.8, its reflection 53.8 against 55.8; at the near camera `-3540 -1450 700 35 90`, x 400-880 y 280-580, **152.8 against 162.9**, from 307.8, and the disc now looks like TF2's metal. It moved with the world normal and not the bind (177.3 at both). What is left is under the reflection, 135.0 in TF2 with `mat_specular 0`, and was not read. The filing below blames a `CDynamicProp`; a model's normal did not change here, so *what draws this disc's reflecting face was not re-read*.
 
 It is `models/props_gameplay/cap_point_base.mdl`, a `CDynamicProp`; near it, B669's table has the same factor of two.
 **Measured** (far camera, scale 1, bloom off; x 950-1250, y 500-700): **372.3 in ours, 190.9 in TF2**, unmoved by B669 (372.8) and
@@ -40491,7 +40492,24 @@ by TF2's `mat_phong`, `r_worldlights` and translucent-world switches (188.6-191.
 agree; that rested on the wall and the whole frame only. The floor around it also differs by eye. TF2's disc looks like a metal
 with its reflection showing, ours like a pale diffuse one, so a reflective surface is the first thing to read. *Interpolated.*
 
-## B669 — cp_process_f12's white pipes and glass panel read 34% dark in ours at the same exposure (2026-11-03) — PART FIXED: the pipes' missing light; the pane and a residue on these pipes stay OPEN
+## B669 — cp_process_f12's white pipes and glass panel read 34% dark in ours at the same exposure (2026-11-03) — PART FIXED: the pipes' missing light and the pane's reflection; what stands behind the pane stays OPEN
+
+**The pane, settled (measurements/2026-11-03-b669-the-pane.md, finding [66](findings/66-tf2-barely-uses-dynamic-lights.md#what-the-pane-reflects-b669-2026-11-03)): the patch reads 229.1 against TF2's 228.1, from 178.0.** Three defects, each read and each with a test: no brush face carried a vertex normal, so all reflected about (0, 0, 1); the translucent pass bound no cube, so a pane reflected the last run's; and `$envmapcontrast .5` alone is the shader's fast path, contrast 0. That patch figure hides a residue going both ways, the pipes short and the wall bright, and with the reflection now exact both are what stands behind the glass:
+
+| | TF2 | before | now | behind the glass, ours − TF2, × 0.73 |
+|---|---|---|---|---|
+| the patch | 228.1 | 178.0 | **229.1** | |
+| whole frame | 155.5 | 167.4 | 154.0 | |
+| upper pipe, top | 357.1 | 268.3 | 326.5 | −31 (now −31) |
+| upper pipe, mid | 303.8 | 209.4 | 268.7 | −35 (now −35) |
+| wall behind | 187.2 | 143.3 | 199.0 | +10 (now +12) |
+| gap below | 125.1 | 67.5 | 139.3 | +12 (now +14) |
+
+**The reflection's own numbers, with `mat_specular 0` (TF2) and the term removed (ours) as the control:** a near window 23.9 against 24.0, channel by channel; each pane's reflection divided by 0.9 and 65/255 fits the bilinear lookup of `c-3840_-880_656` along that pixel's mirror ray to 0.001-0.008 in TF2, first of the map's 40 cubes.
+
+**Why `a` read 0.31 and not 65/255: it did not.** The fit assumes X is one number across the tiles, and the reflection is 62-77 from tile to tile. With the reflection off, the fit over the upper pipe's top and the gap in TF2 gives a 0.27 and X 30, the same material as ours' 0.25.
+
+The open items as first filed follow, and the pipes and wall are still as they say.
 
 **Measured** (live TF2 against ours, both `mat_force_tonemap_scale 1` and bloom off, camera `-3722 -1403 726 25 99`, patch
 x 800-1100, y 270-330 of the 1280x720 frame, `D:/measure-f12/b636/tf2/` and `D:/measure-f12/b636/ours/`): mean linear luminance x1000 **228.0 in

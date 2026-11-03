@@ -3450,10 +3450,15 @@ public sealed class MapAssets
                 return (0f, 1f);
             }
 
-            return BlendModulation.EnvMapShaping(
-                Lightmapped() && material.BlendModulateTexture is not null,
-                material.EnvMapContrast,
-                material.EnvMapSaturation);
+            // The arrangement of registers and constants is LightmappedGeneric's; a model's shader reads its VMT's pair.
+            return Lightmapped()
+                ? BlendModulation.EnvMapShaping(
+                    material.BlendModulateTexture is not null,
+                    material.EnvMapContrast,
+                    material.EnvMapSaturation,
+                    material.FresnelReflection,
+                    material.IsSelfIlluminated && material.SelfIllumTint != (1f, 1f, 1f))
+                : (material.EnvMapContrast, material.EnvMapSaturation);
         }
 
         MapCubemap? ResolveCubemap()

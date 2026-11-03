@@ -19,8 +19,12 @@ namespace Tf2DemoSalvage.Content.Bsp;
 /// Blend between a two-layer material's textures, 0 for the first and 1 for the second. Only
 /// displacements carry one; every other surface is zero, which is its own first texture.
 /// </param>
+/// <param name="NormalX">The corner's compiled vertex normal; all three zero where the map stated none.</param>
+/// <param name="NormalY">The normal.</param>
+/// <param name="NormalZ">The normal.</param>
 public readonly record struct SurfaceVertex(
-    float X, float Y, float Z, float U, float V, float LightU, float LightV, float Alpha = 0f);
+    float X, float Y, float Z, float U, float V, float LightU, float LightV, float Alpha = 0f,
+    float NormalX = 0f, float NormalY = 0f, float NormalZ = 0f);
 
 /// <summary>How a face turns a world position into a coordinate in its own lightmap.</summary>
 /// <param name="Across">The lightmap U row of the texinfo: three axis terms and an offset.</param>
@@ -184,6 +188,12 @@ public static class BspSurfaces
 
         List<BspSurface> surfaces = new(faceCount);
 
+        VertexNormals compiled = BspVertexNormals.Read(file);
+
+        // **A face's first normal is the corners of every face before it**, kept or not: vrad's SaveVertexNormals walks all
+        // of them in order, and the engine reads `vertnormalindices[ first + corner ]` (`FUN_1800f4d40`, B669).
+        int nextNormal = 0;
+
         for (int index = 0; index < faceCount; index++)
         {
             ReadOnlySpan<byte> face = faces.Slice(index * FaceStride, FaceStride);
@@ -193,6 +203,9 @@ public static class BspSurfaces
             int firstEdge = BinaryPrimitives.ReadInt32LittleEndian(face[4..]);
             int edgesInFace = BinaryPrimitives.ReadInt16LittleEndian(face[8..]);
             int texinfoIndex = BinaryPrimitives.ReadInt16LittleEndian(face[FaceTexinfoOffset..]);
+
+            int firstNormal = nextNormal;
+            nextNormal += Math.Max(edgesInFace, 0);
 
             if (edgesInFace <= 0 || texinfoIndex < 0 || texinfoIndex >= texinfoCount)
             {
@@ -260,7 +273,9 @@ public static class BspSurfaces
                 float lightV = LuxelMapping.Coordinate(
                     Project(info, TexinfoLightmapVecsOffset + 16, x, y, z) - luxelMinV, luxelHeight);
 
-                vertices.Add(new SurfaceVertex(x, y, z, u, v, lightU, lightV));
+                (float normalX, float normalY, float normalZ) = CornerNormal(compiled, firstNormal + step);
+
+                vertices.Add(new SurfaceVertex(x, y, z, u, v, lightU, lightV, 0f, normalX, normalY, normalZ));
             }
 
             surfaces.Add(new BspSurface(
@@ -290,6 +305,19 @@ public static class BspSurfaces
         }
 
         return surfaces;
+    }
+
+    /// <summary>A corner's compiled normal, or zero where the lumps do not reach it (a map compiled without them).</summary>
+    private static (float X, float Y, float Z) CornerNormal(VertexNormals compiled, int corner)
+    {
+        if (corner >= compiled.Indices.Count)
+        {
+            return default;
+        }
+
+        int normal = compiled.Indices[corner];
+
+        return normal < compiled.Normals.Count ? compiled.Normals[normal] : default;
     }
 
     /// <summary>Applies one of texinfo's plane equations to a world position.</summary>

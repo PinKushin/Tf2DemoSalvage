@@ -85,6 +85,145 @@ public sealed class ReflectionRenderTests
             "a reflection follows the normal, so two normals must sample different texels");
     }
 
+    /// <summary>
+    /// A bumped brush face reflects about its bump map: `worldSpaceNormal = mul( vNormal, i.tangentSpaceTranspose )`,
+    /// `lightmappedgeneric_ps2_3_x.h:479`, so the tangent frame its vertex carries (B669) must change the picture.
+    /// </summary>
+    [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
+    public void ReflectionRender_ABumpedBrushFaceWithAFrame_ReflectsAboutItsBumpMap()
+    {
+        using OffscreenTarget? target = OffscreenTarget.TryCreate(64, 64);
+
+        if (target is null)
+        {
+            Assert.Ignore("no Direct3D on this machine");
+            return;
+        }
+
+        if (Assets is not { } assets)
+        {
+            Assert.Ignore("the map or the game is not installed");
+            return;
+        }
+
+        int? found = Enumerable.Range(0, assets.Cubemaps.Count).Cast<int?>().FirstOrDefault(index =>
+            assets.Cubemaps[index!.Value] is not null && assets.Bumps[index.Value] is not null && assets.Textures[index.Value] is not null);
+
+        if (found is not { } material)
+        {
+            Assert.Ignore("no material on this map is bumped and carries a baked cubemap");
+            return;
+        }
+
+        (int R, int G, int B) flat = DrawBumped(target, assets, material, tangentW: 0f);
+        (int R, int G, int B) framed = DrawBumped(target, assets, material, tangentW: -1f);
+
+        TestContext.Out.WriteLine($"material {material}: no frame {flat}, frame {framed}");
+
+        (flat.R + flat.G + flat.B).ShouldBeGreaterThan(0, "the surface must be drawn before its reflection can be measured");
+        framed.ShouldNotBe(flat, "the frame is what lets the bump map reach the reflection");
+    }
+
+    /// <summary>
+    /// A blended brush run reflects its OWN cube, whatever the last draw left in the slot (B669): `DynamicCmdsOut.BindTexture(
+    /// pShader, SHADER_SAMPLER2, info.m_nEnvmap, ...)` runs on every draw of the shader (`lightmappedgeneric_dx9_helper.cpp:876`).
+    /// </summary>
+    /// <remarks>
+    /// The translucent pass bound no cube at all, so the far pane read the cube of whichever opaque run drew last. The
+    /// manipulation is that opaque run, out of sight behind the camera: it changes nothing a correct renderer shows.
+    /// </remarks>
+    [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
+    public void ReflectionRender_ABlendedRunAfterAnotherReflectiveRun_ReflectsItsOwnCube()
+    {
+        using OffscreenTarget? target = OffscreenTarget.TryCreate(64, 64);
+
+        if (target is null)
+        {
+            Assert.Ignore("no Direct3D on this machine");
+            return;
+        }
+
+        if (Assets is not { } assets)
+        {
+            Assert.Ignore("the map or the game is not installed");
+            return;
+        }
+
+        int? glass = Enumerable.Range(0, assets.Cubemaps.Count).Cast<int?>().FirstOrDefault(index =>
+            assets.Cubemaps[index!.Value] is not null && assets.Textures[index.Value] is { IsTranslucent: true });
+
+        int? opaque = Enumerable.Range(0, assets.Cubemaps.Count).Cast<int?>().FirstOrDefault(index =>
+            assets.Cubemaps[index!.Value] is not null && assets.Textures[index.Value] is { IsTranslucent: false, IsAdditive: false });
+
+        if (glass is not { } blended || opaque is not { } other)
+        {
+            Assert.Ignore("this map has no translucent and opaque pair that both carry a baked cubemap");
+            return;
+        }
+
+        List<WorldVertex> pane = FacingQuad(0f);
+        List<WorldVertex> behindTheCamera = FacingQuad(-2000f);
+
+        List<WorldVertex> both = [.. behindTheCamera, .. pane];
+        WorldBatch[] paneAlone = [new WorldBatch(blended, 0, pane.Count)];
+        WorldBatch[] afterOpaque = [new WorldBatch(other, 0, behindTheCamera.Count), new WorldBatch(blended, behindTheCamera.Count, pane.Count)];
+
+        target.Clear(0f, 0f, 0f);
+        target.DrawWorld(pane, paneAlone, Camera, assets);
+        (int R, int G, int B) alone = target.PixelAt(32, 32);
+
+        target.Clear(0f, 0f, 0f);
+        target.DrawWorld(both, afterOpaque, Camera, assets);
+        (int R, int G, int B) after = target.PixelAt(32, 32);
+
+        TestContext.Out.WriteLine($"translucent {blended}, opaque {other}: alone {alone}, after the opaque run {after}");
+
+        (alone.R + alone.G + alone.B).ShouldBeGreaterThan(0, "the pane must be drawn before its reflection can be measured");
+        after.ShouldBe(alone, "a run drawn out of sight cannot change what another run reflects");
+    }
+
+    /// <summary>A quad across the view at one depth along the camera's axis.</summary>
+    private static List<WorldVertex> FacingQuad(float y)
+    {
+        (float X, float Y, float Z) facing = (0f, -1f, 0f);
+
+        return
+        [
+            Vertex(-256f, y, -256f, 0f, 0f, facing),
+            Vertex(256f, y, -256f, 1f, 0f, facing),
+            Vertex(256f, y, 256f, 1f, 1f, facing),
+            Vertex(-256f, y, -256f, 0f, 0f, facing),
+            Vertex(256f, y, 256f, 1f, 1f, facing),
+            Vertex(-256f, y, 256f, 0f, 1f, facing),
+        ];
+    }
+
+    /// <summary>The quad of <see cref="Draw"/> facing the camera, at a texel off a normal map's flat, with or without a frame.</summary>
+    private static (int R, int G, int B) DrawBumped(OffscreenTarget target, MapAssets assets, int material, float tangentW)
+    {
+        (float X, float Y, float Z) facing = (0f, -1f, 0f);
+
+        WorldVertex Corner(float x, float z, float u, float v) =>
+            Vertex(x, 0f, z, u, v, facing) with { TangentX = 1f, TangentY = 0f, TangentZ = 0f, TangentW = tangentW };
+
+        List<WorldVertex> vertices =
+        [
+            Corner(-256f, -256f, 0f, 0f),
+            Corner(256f, -256f, 1f, 0f),
+            Corner(256f, 256f, 1f, 1f),
+            Corner(-256f, -256f, 0f, 0f),
+            Corner(256f, 256f, 1f, 1f),
+            Corner(-256f, 256f, 0f, 1f),
+        ];
+
+        target.Clear(0f, 0f, 0f);
+        target.DrawWorld(vertices, [new WorldBatch(material, 0, vertices.Count)], Camera, assets);
+
+        return target.PixelAt(32, 32);
+    }
+
     [Test]
     [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void ReflectionRender_ASurfaceWithNoCubemap_DoesNotChangeWithItsNormal()
