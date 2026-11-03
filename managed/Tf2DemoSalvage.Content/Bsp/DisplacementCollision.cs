@@ -316,7 +316,7 @@ public sealed class DisplacementCollision
     /// is its own triangles' wherever they lie. **Eight is not evidence-backed**: four measured within this machine's noise
     /// of it (measurements/2026-11-02-b667-trace-cost.md).
     /// </remarks>
-    private const int GroupSize = 8;
+    internal const int GroupSize = 8;
 
     /// <summary>Whether the swept segment, short of <paramref name="best"/>, passes clear of a box — so no triangle inside it can stop it shorter.</summary>
     /// <remarks>
@@ -343,6 +343,13 @@ public sealed class DisplacementCollision
     /// can be LATER than a strongly negative entry an edge plane gave `Against`, so "the box enters no later" fails for
     /// that axis. The cull is still safe: the box's entry is then below 0, which is below any <paramref name="best"/>, and
     /// the box's exit on every axis is above 0 whenever the triangle is not rejected, so neither test fires on it.
+    ///
+    /// **That leans on <paramref name="best"/> being above 0, so the case where it is not is stated here.** With a bound of
+    /// 0, or once a hit at fraction 0 has been found, <paramref name="best"/> is 0, and a group entered at or after 0 is
+    /// culled. Nothing is lost: `Against` returns a value below its `best` only for an entry below it, and an entry below 0
+    /// comes back clamped to 0, which is not below 0 — so with a best of 0 no triangle, culled or swept, can replace it.
+    /// The answer is the bound, or the fraction-0 hit already held. `DisplacementGroupCullTests`'
+    /// `SweepSurface_ALimitOfZeroAndStartsOnABoxFace_EqualsTheBruteForceExactly` pins it.
     ///
     /// The ray's reciprocal and grown extents are worked out once a sweep (<see cref="Line"/>), so this multiplies where it
     /// would divide, as Valve's `vecInvDelta` does.
