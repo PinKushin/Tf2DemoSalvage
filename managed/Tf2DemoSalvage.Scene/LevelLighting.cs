@@ -303,7 +303,8 @@ public sealed class LevelLighting
 
     /// <remarks>
     /// **One lookup a model, as the engine's model path makes one `LightcacheGet`** (`0x1800f1bd0`, `0x1801b9cd0`) and reads its
-    /// lights and sun from the entry; ours has two questions, <see cref="ModelLightingAt"/> and <see cref="ModelSunAt"/>, so the
+    /// lights and sun from the entry (*inferred* from the flags `0xf` read above and B514's read of the skylight in that state,
+    /// not re-read for this change); ours has two questions, <see cref="ModelLightingAt"/> and <see cref="ModelSunAt"/>, so the
     /// last answer is remembered. **Repeating the lookup could not answer differently (arithmetic):** no other lookup came
     /// between. After a hit the entry is at the front, after a build it is at the front and a hit, and past the budget
     /// <see cref="LightCache{T}.Get"/> has changed nothing and would scan the same list. The frame is part of the question because

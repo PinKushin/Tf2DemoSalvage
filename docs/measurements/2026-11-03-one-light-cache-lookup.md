@@ -82,9 +82,14 @@ frame, 1.559. So entries are built at the same rate, and B's allocation came bac
 
 ## Verdict
 
-**Mostly confirmed.** The column past warm-up fell 0.107 ms and 0.069 ms in the two adjacent pairs of A B B A, against a predicted
-0.05 or more: 0.09 ms mean, 1.0% of the 8.9 ms frame. The frame means (8.87-9.04 against 8.88-9.33, spread 0.17 and 0.45 ms) are too
-noisy to show it, as the Method said they would be. Bytes identical and the entries built at the same rate. **The allocation clause
-is inconclusive, not confirmed:** B read 0.83 and 0.85 in the ABBA and 0.80 in the added pair, A 0.80 three times; a hit is measured
-at zero bytes and nothing added allocates, but the first two B readings are unexplained. The change stays, as it costs nothing and
-makes the model path one lookup as the engine's is.
+Clause by clause:
+- **The column: confirmed.** Past warm-up it fell 0.107 ms and 0.069 ms in the two adjacent pairs of A B B A, against a predicted
+  0.05 or more: 0.09 ms mean, 1.0% of the 8.9 ms frame. The column prints at 0.1 ms an interval, so these are means of quantised
+  values. Over all intervals the second pair does not show it (B 0.641, A 0.635), and the frame means (A 8.87-9.04, B 8.88-9.33)
+  cannot resolve it.
+- **Allocation: falsified on the planned runs, cause not found.** B read 0.83 and 0.85 against A's 0.80 and 0.80. No line added
+  allocates, a hit is pinned at zero bytes, and removing a per-call closure should lower it, not raise it. The unplanned pair read
+  0.80 on both sides, and was run after seeing this, so it is additional data and does not overturn the planned reading.
+- **The shot: confirmed.** Byte-identical, control included. Only a test speaks to the per-frame budget.
+
+The change stays: it is output-identical, and it makes the model path one lookup.

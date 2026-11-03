@@ -432,18 +432,23 @@ public sealed class LevelLightingTests
     {
         LevelLighting lighting = Sunny();
 
-        lighting.ModelLightingAt(0f, 0f, -100f);
-        lighting.ModelSunAt(100f, 0f, -100f);
+        // Warmed by the same loop, unmeasured, so only the hits themselves are read.
+        AskTwoCellsAThousandTimes(lighting);
 
         long before = GC.GetAllocatedBytesForCurrentThread();
 
+        AskTwoCellsAThousandTimes(lighting);
+
+        (GC.GetAllocatedBytesForCurrentThread() - before).ShouldBe(0);
+    }
+
+    private static void AskTwoCellsAThousandTimes(LevelLighting lighting)
+    {
         for (int each = 0; each < 1000; each++)
         {
             lighting.ModelLightingAt(0f, 0f, -100f);
             lighting.ModelSunAt(100f, 0f, -100f);
         }
-
-        (GC.GetAllocatedBytesForCurrentThread() - before).ShouldBe(0);
     }
 
     /// <summary>A two-leaf map with a sun that always strikes sky, so a counted sun marks each entry built.</summary>
