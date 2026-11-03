@@ -372,6 +372,91 @@ public sealed class LevelLightingTests
     }
 
     /// <remarks>
+    /// A model draw's one `LightcacheGet` (`0x1800f1bd0`, `0x1801b9cd0`) answers both its lights and its sun: asked twice at one
+    /// point in one frame, the cache is looked in once.
+    /// </remarks>
+    [Test]
+    public void ModelSunAt_AfterModelLightingAtTheSamePointAndFrame_LooksInTheCacheOnce()
+    {
+        LevelLighting lighting = Sunny();
+
+        lighting.ModelLightingAt(0f, 0f, -100f);
+        lighting.ModelSunAt(0f, 0f, -100f);
+
+        lighting.LightCacheLookups.ShouldBe(1);
+    }
+
+    /// <remarks>
+    /// Another point in between is looked up again, so that point's touch of the LRU is not skipped, and it answers with its own
+    /// entry: a build for each of two cells, then the first's own sun, and no third build.
+    /// </remarks>
+    [Test]
+    public void ModelSunAt_WithAnotherPointAskedInBetween_LooksInTheCacheAgain()
+    {
+        LevelLighting lighting = Sunny();
+
+        lighting.ModelLightingAt(0f, 0f, -100f);
+        lighting.ModelLightingAt(100f, 0f, -100f);
+        lighting.ModelSunAt(0f, 0f, -100f);
+
+        lighting.LightCacheLookups.ShouldBe(3);
+        lighting.SunWork.LightCache.ShouldBe(2);
+    }
+
+    /// <remarks>
+    /// **The budget is per frame, which is why the frame is part of the remembered question.** Past `lightcache_maxmiss` a third
+    /// cell takes the nearest entry and builds nothing; the same point next frame has a fresh budget and must build its own.
+    /// </remarks>
+    [Test]
+    public void ModelSunAt_APointPastTheBudgetAskedAgainNextFrame_BuildsItsOwnEntry()
+    {
+        LevelLighting lighting = Sunny();
+
+        lighting.Frame = LightCache<int>.UnthrottledFrames + 40;
+        lighting.ModelSunAt(0f, 0f, -100f);
+        lighting.ModelSunAt(100f, 0f, -100f);
+        lighting.ModelSunAt(200f, 0f, -100f);
+        lighting.ModelSunAt(200f, 0f, -100f);
+
+        lighting.SunWork.LightCache.ShouldBe(2, "the budget of two is spent, so the third cell takes the nearest");
+
+        lighting.Frame++;
+        lighting.ModelSunAt(200f, 0f, -100f);
+
+        lighting.SunWork.LightCache.ShouldBe(3);
+    }
+
+    /// <remarks>A hit is every model every frame, so it owes the collector nothing: no closure over the point.</remarks>
+    [Test]
+    public void ModelLightingAt_AHitInAnotherCell_AllocatesNothing()
+    {
+        LevelLighting lighting = Sunny();
+
+        lighting.ModelLightingAt(0f, 0f, -100f);
+        lighting.ModelSunAt(100f, 0f, -100f);
+
+        long before = GC.GetAllocatedBytesForCurrentThread();
+
+        for (int each = 0; each < 1000; each++)
+        {
+            lighting.ModelLightingAt(0f, 0f, -100f);
+            lighting.ModelSunAt(100f, 0f, -100f);
+        }
+
+        (GC.GetAllocatedBytesForCurrentThread() - before).ShouldBe(0);
+    }
+
+    /// <summary>A two-leaf map with a sun that always strikes sky, so a counted sun marks each entry built.</summary>
+    private static LevelLighting Sunny() =>
+        new(
+            leaves: OneSplit(above: 1, below: 0, solidLeaf: -1),
+            ambient: [Samples(Grey(0.5f)), Samples(Grey(0.1f))],
+            worldLights: [],
+            sun: Sky(),
+            new RecordingLogger(),
+            strikesSky: static (_, _) => true);
+
+    /// <remarks>
     /// The production path a model is drawn with folds a fifth lamp into its cube (B453, `LocalLights.Split`): five
     /// lamps to the east, so the fold lands on +X only, and four lamps are the control — nothing left to fold.
     /// </remarks>
