@@ -40415,7 +40415,11 @@ trace".
   light and 8.01 drops it; a spot is traced; an occluded light is not folded; the ray runs point → light.
 - `LightVisibilityTraceConformanceTests` (Scene, 6): one per site, and a fifth lamp that is not folded.
 - `StaticPropModelsWiringTests` on both maps.
-- Counts from the TRX: Content 1,838 executed of 1,904, Scene 3,483 of 3,483, Rendering 1,392 of 1,470; none failed.
+- Counts from the TRX at `d1096d5c`: Content 1,840 executed of 1,906, Scene 3,484 of 3,484, Rendering 1,392 of 1,470;
+  none failed.
+- The first Rendering run at that commit failed 3 archive-reading tests: unresolved materials, the particle-definition
+  count, and the proxies byte-identity. Steam rewrote the TF2 VPKs at 19:11:21, during that run.
+- Those 3 passed alone, and so did the whole suite once the update had finished.
 
 **Sabotage proofs** (inverse edits, restored):
 - Skipping the trace in `Choose` turned 5 + 5 + 2 tests red.
