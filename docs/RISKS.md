@@ -40488,6 +40488,20 @@ sides.
   `SweepSurface_ALimitOfZeroAndStartsOnABoxFace_EqualsTheBruteForceExactly`. The inside-start test also counts its starts
   inside a group's box and asserts some are.
 
+**A flake found on the way, in B666's ranking (2026-11-02).** `Strongest_TracedAndWarm_AllocatesNothing` failed once in a
+full Content run: 7,920 B over 1,000 warm calls. It passed alone, and 20 times in a loop.
+- *Measured, not reproduced:* the `ranking-alloc` probe ran 5,000 trials with forced and natural gen-2 churn on another
+  thread and found 0 B. Its empty-window control also read 0, so the instrument is sound.
+- *Why, read from `SharedArrayPool.Trim`:* at this machine's memory load (Medium) a gen-2 collection drops a thread's
+  pooled array only after 15 s unused, and a warm ranking resets that clock on every call. Only High pressure drops it at
+  once, and a full parallel run beside the owner's game is the plausible way to reach it.
+- *Not identified:* the 7,920 B itself. One fresh rent is 152 B.
+- *Fixed at the root anyway:* `ChooseStrongestFirst` ranks up to 64 candidates on the stack, so the common case owes
+  nothing to the pool.
+- *The test now makes the condition deterministically:* it holds the array a renting ranking would take, after a forced
+  gen-2 collection. Put back on the pool, the ranking measures exactly 152 B and the test reddens.
+- `Strongest_MoreCandidatesThanTheStackHolds_TakesTheSameLightsAsTracingEveryOne` pins the rented path above the bound.
+
 **Open:** the brush tree is untouched, and is now two thirds of the remaining trace cost (about 340 ms). 121 traces a
 lighting origin is not waste.
 `LocalLights.ChooseStrongestFirst` traces only lights that are admitted and rank, strongest first, and stops at four seen.

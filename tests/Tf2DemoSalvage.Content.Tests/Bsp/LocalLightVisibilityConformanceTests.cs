@@ -1,4 +1,5 @@
 using System;
+using System.Buffers;
 using System.Collections.Generic;
 using System.Linq;
 
@@ -154,6 +155,33 @@ public sealed class LocalLightVisibilityConformanceTests
             [(-64f, 0f, 0f), (0f, -64f, 0f), (0f, 0f, 64f), (0f, 0f, -64f)]);
     }
 
+    /// <summary>
+    /// Past the stack's bound the ranking rents instead (<see cref="LocalLights.StackCandidates"/>), and takes the same
+    /// lights as the folding ranking, which traces every one: 80 lamps of falling brightness, every third blocked.
+    /// </summary>
+    [Test]
+    public void Strongest_MoreCandidatesThanTheStackHolds_TakesTheSameLightsAsTracingEveryOne()
+    {
+        List<BspWorldLight> lights = [];
+
+        for (int lamp = 0; lamp < LocalLights.StackCandidates + 16; lamp++)
+        {
+            lights.Add(Lamp((64f + lamp, 0f, 0f), 2000f - (lamp * 10f)));
+        }
+
+        Func<int, bool> keeps = static index => index % 3 != 0;
+
+        Span<LocalLight> lazy = stackalloc LocalLight[LocalLights.MaximumLocalLights];
+        LocalLights.Strongest(lights, 0f, 0f, 0f, lazy, traceKeeps: keeps).ShouldBe(4);
+
+        Span<LocalLight> split = stackalloc LocalLight[LocalLights.MaximumLocalLights];
+        AmbientCube cube = default;
+        LocalLights.Split(lights, 0f, 0f, 0f, split, ref cube, traceKeeps: keeps).ShouldBe(4);
+
+        lazy.ToArray().ShouldBe(split.ToArray());
+        lazy.ToArray().Select(lamp => lamp.X).ShouldBe([65f, 66f, 68f, 69f], "the control: lamps 1, 2, 4 and 5, the first and fourth blocked");
+    }
+
     /// <summary>Of equal lamps the earlier keeps the slot, as `Insert` keeps it: five of 700, the fifth not taken.</summary>
     [Test]
     public void Strongest_FiveEqualLampsOneBlocked_KeepsTheEarliestFourSeen()
@@ -202,11 +230,22 @@ public sealed class LocalLightVisibilityConformanceTests
 
         LocalLights.Strongest(lights, 0f, 0f, 0f, into, traceKeeps: keeps).ShouldBe(3, "the control: lamps 1, 3 and 5 are kept");
 
-        // Warm: tiering and the array pool's first rent, before anything is counted.
+        // Warm: tiering, before anything is counted.
         for (int call = 0; call < 50; call++)
         {
             LocalLights.Strongest(lights, 0f, 0f, 0f, into, traceKeeps: keeps);
         }
+
+        // The pool emptied of this size, as `ArrayPool.Shared` empties itself when a gen-2 collection finds memory pressure
+        // high — which a full parallel run can and a quiet one does not, so the condition is made here rather than hoped
+        // for: this thread holds the array a renting ranking would have taken (B667 round 4). A forced gen-2 collection
+        // too, which on its own trims nothing recently used.
+        (float Strength, int Index)[] held = ArrayPool<(float Strength, int Index)>.Shared.Rent(lights.Count);
+
+#pragma warning disable S1215 // The collection is part of the condition under test: the property must survive one.
+        GC.Collect(2, GCCollectionMode.Forced, blocking: true);
+        GC.WaitForPendingFinalizers();
+#pragma warning restore S1215
 
         long before = GC.GetAllocatedBytesForCurrentThread();
 
@@ -215,7 +254,10 @@ public sealed class LocalLightVisibilityConformanceTests
             LocalLights.Strongest(lights, 0f, 0f, 0f, into, traceKeeps: keeps);
         }
 
-        (GC.GetAllocatedBytesForCurrentThread() - before).ShouldBe(0L);
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+        ArrayPool<(float Strength, int Index)>.Shared.Return(held);
+
+        allocated.ShouldBe(0L);
     }
 
     /// <summary>
