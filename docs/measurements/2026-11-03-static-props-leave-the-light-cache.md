@@ -106,6 +106,13 @@ The `lighting` column, each rebuild report, ms:
 - The handle's state only under the bump flag: `Instances_AStaticPropWithNoColourMeshAndNoBump_DrawsTheHandlesFullState` fails, alone.
 - No handle for a prop with no mesh: `Instances_AStaticPropWithNoColourMeshAndNoBump_AsksTheCacheNothing` fails, alone.
 
+**Added after the run, to ask what the first shots could not. They correct the shot clause below.**
+- More `--shot`s of the same tick: A `3A0CE4B336F68516` three times; this branch's head (`b5be4cdd`, B plus B675) `9EAE71159A9BDBB5` twice, which is the first B's hash. A's first two against its later three: rows 0-40 only, 24,620 pixels, largest 206. So **both binaries take either state of the top band** and "one run in four" was too few shots to say. A against A matched by chance, so it was no control. That is B677.
+- The shot clause rests on the pair with the band equal: A `3A0C…` against the head `9EAE…`, rows 0-300 no pixel, rows 300-551 17,096 pixels, largest 33. The same count as A against the second B.
+- **`baked`, past the first four, read from the same four logs, frame-weighted:** A 0.042, B 0.051, B 0.043, A 0.052. It did not rise, so the column's fall is not work moved to the handle's side.
+- **At load, from the same logs:** `baked built 959, static states 1353, styled lists 1353` in A and in both B runs. So the third class has no handle of its own to add across all of f12, not only among props drawn in the window: it is empty on this map.
+- **`Pose_ABakedStaticPropHoldingNoDecalUnderALiveDlight_AllocatesNothingForTheDecalLight`'s changed control still fails when it should:** with `DecalLightOf` building for a prop that holds no decal, it fails, beside the two tests that assert the same thing by counts. Restored by the inverse edit.
+
 ## Verdict
 
 Clause by clause:

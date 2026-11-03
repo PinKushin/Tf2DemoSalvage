@@ -40410,6 +40410,10 @@ its recreation shows nothing; that `_rt_FullFrameFB` and the bloom targets are l
   known-present class was dumped beside it, and `cl_find_ent water` searches client class names, which a
   `CFuncMoveLinear` need not contain. So whether TF2 draws `*145` at all is *unverified*, and nothing was captured.
 
+## B677 — `--shot` of one tick has two states, and a byte comparison of two shots is no control until this is understood (2026-11-03) — OPEN, not investigated
+
+**Measured** (`docs/measurements/2026-11-03-static-props-leave-the-light-cache.md`): f12 at tick 30000, the same binary, rows 0-40 differ across the whole width, 24,620 pixels, largest channel 206, and nothing below them. Both the base and this branch's head show both states, in runs of the same hash. The band is where the spectator HUD's top bar is drawn; *interpolated*, not read. **What it puts in doubt:** a verdict resting on two byte-identical shots of an unchanged build, as `2026-11-03-one-light-cache-lookup.md`'s control does, may have matched by chance. Its comparisons still hold when the hashes agree, since nothing else varied here; a mismatch is what can no longer be trusted without looking at where it falls.
+
 ## B676 — a moving model's lighting is not averaged over time: `r_lightaverage` / `r_lightinterp` are not ported (2026-11-03) — OPEN, read and not implemented
 
 **Read in decompile**, `engine.dll` `FUN_1800f1bd0`, then `FUN_1800f3110`, `FUN_1800f2e90`, `FUN_1800f1370`. Found reading B675. After the state is built, a model with no handle and no colour mesh
@@ -40431,7 +40435,7 @@ so TF2 dims a model 8% that frame, and this viewer draws it black.
 flag 4, nothing, since its style mask is zero; flag 2, `FUN_1801b7a10` with no PVS row handed in, which looks one up from the ENTRY's origin `+0x184`, (0 0 0). **Ours already gave all three**, now pinned by
 `ModelLightingAt_PastTheMissBudgetNearestAZeroedEntry_IsZeroWithOnlyDlightsSeenFromTheOrigin`, sabotage-proved by asking from the point instead. One divergence is left in, as `CachePoint` moves (0 0 0) where the engine's
 `+0x184` is literal; it can change the rank of a dlight past four at one model, on an entry a model reaches this rarely. **Reachability, arithmetic:** with 32-unit cells from key 0, a zeroed entry beats a built one only for a point whose x and y cells are nearer 0
-than to any built entry, which needs them 16,384 units apart at least. Frame 60 throttles it; whether a map load resets `r_framecount`, read as `FUN_1800f87d0`'s write and not followed, decides nothing here, as our count starts at 0 with the map.
+than to any built entry, which needs them 16,384 units apart at least. Below frame 60 no miss is throttled, and a map load resets the count in both: `FUN_1800f87d0` sets `r_framecount` to 1, and ours starts at 0 with each map's `LevelLighting`.
 
 **What the entry claimed, checked:**
 - *"May draw black for a frame"*: **true here, and half true of TF2.** On a first draw TF2 draws black too; with history it fades: B676. Unmatched until that is ported.
@@ -40447,9 +40451,7 @@ than to any built entry, which needs them 16,384 units apart at least. Frame 60 
 **Read in decompile**, `engine.dll`: `FUN_1800f1bd0` with `param_4` set has no call to `LightcacheGet`, only `FUN_1801ba590`, flags 7 when `*param_7` is 0 and `6 + FUN_1801bb8a0` with a colour mesh on DX9; `FUN_1800eb5e0` chooses the same way; `FUN_180205b20` makes a handle
 for every renderable prop. *Not read:* that creating the instance sets `+0x12e` bit 0 with a handle, which `FUN_1800eb1a0` tests, through a vtable. **The entry was right and too narrow:** a prop with no colour mesh and no bump flag kept the cache's cell, cube and sun here where the engine has flags 7, and built no handle at load. That class now takes its handle's state, and none is on f12's frames, so it moved no pixel there.
 
-**Measured**, `docs/measurements/2026-11-03-static-props-leave-the-light-cache.md`: on f12 static props were 86% of lookups, 135.5 a frame against moving models' 22.5, and 1,375 builds against 1,901. With them out, `lighting` past warm-up falls 0.053 and 0.162 ms in the two adjacent pairs of A B B A, 0.11 ms mean, 1.5% of the frame; builds fall from 1.48 to 1.01 a frame. Allocation rose in one pair and fell in the other. **Pixels:** A against A identical; A against B, no world or static prop pixel, 17,096 on the viewmodel, largest channel 33, as it is now lit from an entry a static prop did not build. No TF2 capture of that compared.
-
-**A top-of-screen difference turned up in that record and is not this:** `--shot` of one tick has two states, differing in rows 0-40 across the whole width, largest channel 206 and nothing below. The record saw it once in four shots and called it one in four. More shots after it, from A and from this branch's head, show both binaries take either state, and with the top band equal A against the head differs by the same 17,096 viewmodel pixels. So a byte comparison of two `--shot`s is not a control here until this is understood. Not investigated; its own entry when someone takes it.
+**Measured**, `docs/measurements/2026-11-03-static-props-leave-the-light-cache.md`: on f12 static props were 86% of lookups, 135.5 a frame against moving models' 22.5, and 1,375 builds against 1,901. With them out, `lighting` past warm-up falls 0.053 and 0.162 ms in the two adjacent pairs of A B B A, 0.11 ms mean, 1.5% of the frame; builds fall from 1.48 to 1.01 a frame. Allocation rose in one pair and fell in the other. **Pixels:** A against A identical; A against B, no world or static prop pixel, 17,096 on the viewmodel, largest channel 33; *interpolated:* as it is now lit from an entry no static prop built, the one path this change touches, and not observed. No TF2 capture of that compared.
 
 `StaticPropHandleConformanceTests`, sabotaged three ways, each failing only its own. `MomentSceneTests`' allocation control nulled `StaticPropFullLighting`, which now means no handle, so it stands in a delegate that does no work.
 
