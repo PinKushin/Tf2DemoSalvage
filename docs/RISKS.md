@@ -40415,7 +40415,14 @@ its recreation shows nothing; that `_rt_FullFrameFB` and the bloom targets are l
 B666 ported the engine's per-light visibility trace at every `AddWorldLightToLightingState` (`0x1801b60a0`) site that passes
 `skipTrace` 0. `LevelLighting`'s `AddTo` path (the `ComputeLighting` entry) stays untraced: **its engine caller was not among
 the callers read**, so whether it reaches `0x1801b60a0` with the trace on is *unknown*, not "no". Next step: read the
-`ComputeLighting` implementation in `engine.dll` and its `skipTrace` argument, then trace or document why not. Also unread:
+`ComputeLighting` implementation in `engine.dll` and its `skipTrace` argument, then trace or document why not.
+**Partial read (2026-11-02, disassembly):** the five direct callers of `AddWorldLightToLightingState` (`0x1801b60a0`) are all
+inside the light cache (`0x1801b5890`, `0x1801b5a50`, `0x1801b7a10`, `0x1801b9cd0`, `0x1801bb040`); `LightcacheGet`
+(`0x1801b9cd0`) has eight callers, none of them `AddTo`-shaped except possibly `0x18021ebd0` (a helper that takes
+`LightcacheGet`'s state and weights each light by its style, flags 7) and `0x1800eb5e0`/`0x1800ecb30`, which were not read.
+So whichever of them `ComputeLighting` is, **it reaches the lights through `LightcacheGet` and is therefore traced** — an
+inference from "no other route to `0x1801b60a0`", *not* a read of `ComputeLighting`. If that holds, our `AddTo` path (ropes,
+the eye light, impact-particle colour) is a divergence. Also unread:
 the cvar at `DAT_18075b318 + 0x58` (its name and default) and the 192-unit shadow cache of `FUN_1801b8e20` that B453 recorded;
 the world-light path passes no cache, so the cache only matters if another caller does.
 
