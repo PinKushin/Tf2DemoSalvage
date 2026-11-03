@@ -41544,7 +41544,7 @@ by a modulating material, and has to keep its scale exemption.
 TF2's live pair puts the fog's share of the scorch at the gap between 0.591 (fog off) and 0.658 (fog on), stored, at
 the centre.
 
-## B636 — the world pass gets the exposure only on frames that draw a 3D-sky or water view (2026-10-31) — FIXED on `b636-exposure` (2026-11-02); captures owed
+## B636 — the world pass gets the exposure only on frames that draw a 3D-sky or water view (2026-10-31) — FIXED in code on `b636-exposure` (2026-11-02), unmerged, not verified by looking; captures owed
 
 **Mechanism proved (2026-11-02): read from our code, then a red harness test; the camera dependence is NOT yet measured
 on a capture.** The constants every world-camera draw reads (world, overlays, opaque models, entity decals, translucent
@@ -41587,11 +41587,18 @@ new method as a bare property assignment, which is what `DrawFrame` did before.
 **What the test does not hold:** `Device3D`'s call order, which no harness reaches without a window. That half rests on
 reading the code until the captures below run.
 
-**Captures owed (desktop):** f12 at tick 30000, Debug `--shot`, under `run-exclusive.ps1`, at both cameras
-`-3722 -1403 726 25 99` and `-3516 -2200 763 35 -28`. Shoot each with the default scale and with
-`+mat_force_tonemap_scale 1`, on this branch and on its base. **Predicted, not measured:** after the fix the far
-camera's pin difference grows to the close camera's size, and the capture log reports the exposure (about 0.70) for
-both.
+**Captures owed (desktop):** the recipe from `docs/measurements/2026-10-31-explosive-decals-vs-tf2.md`:
+`tf2demoview D:/measure-f12/f12.dem --tick 30000 --shot <png>`, Debug, under `run-exclusive.ps1`, with
+`TF2VIEW_CAMERA` at each of `-3722 -1403 726 25 99` and `-3516 -2200 763 35 -28`. Shoot each with the default scale and
+with `+mat_force_tonemap_scale 1`, on this branch and on its base. Add the control that separates the routes: the close
+camera with `+r_3dsky 0`, on both.
+
+**Predicted, not measured:**
+- On the base, the sky-off close camera's pin difference collapses to the far camera's size. On this branch it does not.
+- After the fix, the far camera's pin difference is no longer small, and the log reports the frame's exposure at both
+  cameras.
+- The far camera's settled exposure is NOT predicted. The goal comes from the histogram of the frame as drawn
+  (`AutoExposure`), and the base drew that frame at 1, so its 0.7009725 can move. The re-shoot measures it.
 
 **Measured (f12, cp_process_f12, HDR_TYPE_INTEGER, Debug `--shot`):** every capture logs "drawn with tone-map scale
 0.7009725". At camera `-3722 -1403 726 25 99`, though, `+mat_force_tonemap_scale 1` against the default changes
@@ -41621,8 +41628,8 @@ auto-exposure shot changes when it is fixed.
 **Reaches B637's fog too (2026-11-02, read from our code, not measured):** Modulate's fog grey is 128/255 times
 `LINEAR_LIGHT_SCALE` (`debugModes2.y`), so a Modulate run drawn on the world constants this entry describes fogs toward a
 grey scaled by the previous frame's end value. In production the translucent world's leaves (`Device3D` ~1911,
-`DrawTranslucentLeaf`) draw on whatever world constants are bound at that point; whether those carry the frame's scale is
-this entry's open question and was not traced for B637. The harness order DrawWorld → model at another scale → DrawTranslucentWorld is held by
+`DrawTranslucentLeaf`) draw on whatever world constants are bound at that point. They carried the frame's scale only on
+the routes in the table at the top of this entry, and since the fix they always do. The harness order DrawWorld → model at another scale → DrawTranslucentWorld is held by
 `ModulateFogConformanceTests.DrawTranslucentWorld_AModulateRunAfterAModelAtScaleOne_KeepsItsFogAndScale`. DecalModulate's
 grey is unscaled and is not affected.
 
