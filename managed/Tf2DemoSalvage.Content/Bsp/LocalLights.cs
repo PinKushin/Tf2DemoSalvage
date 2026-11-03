@@ -384,6 +384,12 @@ public static class LocalLights
         Func<int, bool>? visible,
         List<int>? reached)
     {
+        // Nothing folded: only the slots matter, so trace strongest-down until they are decided (same lights, fewer traces).
+        if (visible is { } slotsOnly && reached is null)
+        {
+            return ChooseStrongestFirst(lights, x, y, z, chosen, strengths, style, slotsOnly);
+        }
+
         int count = 0;
 
         for (int index = 0; index < lights.Count; index++)
@@ -422,6 +428,63 @@ public static class LocalLights
             }
 
             Insert(chosen, strengths, ref count, index, strength);
+        }
+
+        return count;
+    }
+
+    /// <summary>
+    /// <see cref="Choose"/> for a caller that folds nothing: every admitted light ranked first, then traced strongest-down
+    /// until the slots are full.
+    /// </summary>
+    /// <remarks>
+    /// **The same lights as tracing every one, in the same order** — pinned by
+    /// `LocalLightVisibilityConformanceTests.Strongest_SixLampsTheStrongestBlocked_TakesTheSameLightsAsTracingEveryOne`.
+    /// A light that is not traced is one that could not take a slot: four seen lights stronger than it are already in.
+    /// Ties go to the lower index, which is what <see cref="Insert"/> keeps (it refuses a light no stronger than its last,
+    /// and moves one up only past a weaker one). A light under the luminance minimum is never traced: it would take no
+    /// slot either way. The engine traces every admitted light (B666); this changes the cost, not the answer. A caller that
+    /// folds (<see cref="Split"/>) still traces every admitted light, since every seen loser is added to the cube.
+    /// </remarks>
+    private static int ChooseStrongestFirst(
+        IReadOnlyList<BspWorldLight> lights,
+        float x, float y, float z,
+        Span<int> chosen,
+        Span<float> strengths,
+        Func<int, float> style,
+        Func<int, bool> visible)
+    {
+        List<(float Strength, int Index)> ranked = [];
+
+        for (int index = 0; index < lights.Count; index++)
+        {
+            BspWorldLight light = lights[index];
+
+            if (IsLocal(light.Kind) &&
+                Admitted(light, x, y, z, style, out float falloff) &&
+                falloff * Luminance(light) is var strength and >= WorldLightMinimum)
+            {
+                ranked.Add((strength, index));
+            }
+        }
+
+        ranked.Sort(static (a, b) => b.Strength.CompareTo(a.Strength) is var stronger and not 0 ? stronger : a.Index.CompareTo(b.Index));
+
+        int count = 0;
+
+        foreach ((float strength, int index) in ranked)
+        {
+            if (count == MaximumLocalLights)
+            {
+                break;
+            }
+
+            if (visible(index))
+            {
+                chosen[count] = index;
+                strengths[count] = strength;
+                count++;
+            }
         }
 
         return count;

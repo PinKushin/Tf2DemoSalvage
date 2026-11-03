@@ -98,6 +98,33 @@ public sealed class LightVisibilityTraceConformanceTests
         lighting.StaticPropFullLightingAt(1000, 0f, 0f, 100f).Lighting.Locals.ShouldHaveSingleItem().Y.ShouldBe(20f);
     }
 
+    /// <summary>
+    /// An entry relit on a style change traces nothing again: the world and its point have not moved, so the answer is
+    /// remembered. The lights it is relit with are the same.
+    /// </summary>
+    [Test]
+    public void ModelLightingAt_AnEntryRelitAfterAStyleChange_TracesNoLightTwice()
+    {
+        int traces = 0;
+        LevelLighting lighting = StaticPlusDynamicLightingConformanceTests.Map(
+            [Lamp(0), Lamp(Style) with { Origin = (0f, 20f, 100f) }],
+            (from, to) =>
+            {
+                traces++;
+                return Wall(from, to);
+            });
+
+        IReadOnlyList<LocalLight> first = lighting.ModelLightingAt(0f, 0f, 100f).Locals;
+        traces.ShouldBe(2, "the control: both lamps traced once");
+
+        lighting.StylesChanged([Style]);
+        IReadOnlyList<LocalLight> again = lighting.ModelLightingAt(0f, 0f, 100f).Locals;
+
+        traces.ShouldBe(2);
+        again.ShouldBe(first);
+        again.ShouldHaveSingleItem().Y.ShouldBe(20f, "the walled lamp stays out");
+    }
+
     /// <summary>Half of the ray from (0 0 100) to (0 0 120) is blocked; every other ray is clear.</summary>
     private static float Wall((float X, float Y, float Z) from, (float X, float Y, float Z) to) =>
         from == (0f, 0f, 100f) && to == (0f, 0f, 120f) ? 0.5f : 1f;

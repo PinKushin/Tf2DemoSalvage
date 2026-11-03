@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 
 using Tf2DemoSalvage.Content.Bsp;
 
@@ -103,6 +104,80 @@ public sealed class LocalLightVisibilityConformanceTests
         // Folded onto +Z with n·d 1: 500 / 64² = 0.1220703.
         seen.PositiveZ.Red.ShouldBe(500f / 4096f, 1e-6f, "the control: seen, it is folded");
         hidden.ShouldBe(default(AmbientCube));
+    }
+
+    /// <summary>
+    /// Ranking first and tracing strongest-down takes the same lights, in the same slots, as tracing every light, which is
+    /// what the engine does (and what `Split`, which folds, still does). Ties included: two lamps share a strength.
+    /// </summary>
+    [Test]
+    public void Strongest_SixLampsTheStrongestBlocked_TakesTheSameLightsAsTracingEveryOne()
+    {
+        // All 64 units off, strengths 900, 800, 700, 700, 600, 500, 400 / 4096. The 900 and the first 700 are behind a wall.
+        List<BspWorldLight> lights =
+        [
+            Lamp((64f, 0f, 0f), 900f),
+            Lamp((-64f, 0f, 0f), 800f),
+            Lamp((0f, 64f, 0f), 700f),
+            Lamp((0f, -64f, 0f), 700f),
+            Lamp((0f, 0f, 64f), 600f),
+            Lamp((0f, 0f, -64f), 500f),
+            Lamp((45.254833f, 45.254833f, 0f), 400f),
+        ];
+
+        HashSet<int> blocked = [0, 2];
+        List<int> traced = [];
+        Func<int, bool> visible = index =>
+        {
+            traced.Add(index);
+            return !blocked.Contains(index);
+        };
+
+        Span<LocalLight> lazy = stackalloc LocalLight[LocalLights.MaximumLocalLights];
+        LocalLights.Strongest(lights, 0f, 0f, 0f, lazy, visible: visible).ShouldBe(4);
+
+        // Strongest-down: 900 (blocked), 800, 700 (blocked), 700, 600, 500 — and the 400 is never traced.
+        traced.ShouldBe([0, 1, 2, 3, 4, 5]);
+
+        // Tracing every one: what the lamps the trace keeps rank to, untraced, and `Split`'s slots.
+        List<BspWorldLight> seen = [.. lights.Where((_, index) => !blocked.Contains(index))];
+        Span<LocalLight> every = stackalloc LocalLight[LocalLights.MaximumLocalLights];
+        LocalLights.Strongest(seen, 0f, 0f, 0f, every).ShouldBe(4);
+
+        Span<LocalLight> split = stackalloc LocalLight[LocalLights.MaximumLocalLights];
+        AmbientCube cube = default;
+        LocalLights.Split(lights, 0f, 0f, 0f, split, ref cube, visible: index => !blocked.Contains(index)).ShouldBe(4);
+
+        lazy.ToArray().ShouldBe(every.ToArray());
+        lazy.ToArray().ShouldBe(split.ToArray());
+        lazy.ToArray().Select(lamp => (lamp.X, lamp.Y, lamp.Z)).ShouldBe(
+            [(-64f, 0f, 0f), (0f, -64f, 0f), (0f, 0f, 64f), (0f, 0f, -64f)]);
+    }
+
+    /// <summary>Of equal lamps the earlier keeps the slot, as `Insert` keeps it: five of 700, the fifth not taken.</summary>
+    [Test]
+    public void Strongest_FiveEqualLampsOneBlocked_KeepsTheEarliestFourSeen()
+    {
+        List<BspWorldLight> lights =
+        [
+            Lamp((64f, 0f, 0f), 700f),
+            Lamp((-64f, 0f, 0f), 700f),
+            Lamp((0f, 64f, 0f), 700f),
+            Lamp((0f, -64f, 0f), 700f),
+            Lamp((0f, 0f, 64f), 700f),
+            Lamp((0f, 0f, -64f), 700f),
+        ];
+
+        Span<LocalLight> lazy = stackalloc LocalLight[LocalLights.MaximumLocalLights];
+        LocalLights.Strongest(lights, 0f, 0f, 0f, lazy, visible: index => index != 1).ShouldBe(4);
+
+        Span<LocalLight> split = stackalloc LocalLight[LocalLights.MaximumLocalLights];
+        AmbientCube cube = default;
+        LocalLights.Split(lights, 0f, 0f, 0f, split, ref cube, visible: index => index != 1).ShouldBe(4);
+
+        lazy.ToArray().ShouldBe(split.ToArray());
+        lazy.ToArray().Select(lamp => (lamp.X, lamp.Y, lamp.Z)).ShouldBe(
+            [(64f, 0f, 0f), (0f, 64f, 0f), (0f, -64f, 0f), (0f, 0f, 64f)]);
     }
 
     /// <summary>The rule itself: the ray is cast from the point to the light, and `(1 − fraction) · distance` is compared.</summary>

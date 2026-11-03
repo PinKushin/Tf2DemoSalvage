@@ -476,8 +476,44 @@ public sealed class LevelLighting
     private Func<int, bool>? Visible(
         IReadOnlyList<BspWorldLight> lights, float x, float y, float z, int first = 0, int end = int.MaxValue) =>
         _lightTrace is { } trace
-            ? index => index < first || index >= end || LocalLights.Visible(lights[index], x, y, z, trace)
+            ? index => index < first || index >= end || Seen(lights[index].Origin, x, y, z, trace)
             : null;
+
+    /// <summary>
+    /// <see cref="LocalLights.Visible"/>, remembered per light origin and point: the world does not move, so a point lit
+    /// again — an entry relit on a style change, a ranking redone — asks no trace twice. One map's, as this object is.
+    /// </summary>
+    private bool Seen(
+        (float X, float Y, float Z) light, float x, float y, float z,
+        Func<(float X, float Y, float Z), (float X, float Y, float Z), float> trace)
+    {
+        ((float, float, float), (float, float, float)) key = (light, (x, y, z));
+
+        if (_seen.TryGetValue(key, out bool seen))
+        {
+            return seen;
+        }
+
+        // ponytail: dropped whole at the cap rather than evicted, which only costs traces again; LRU if that shows up.
+        if (_seen.Count >= SeenLimit)
+        {
+            _seen.Clear();
+        }
+
+        seen = LocalLights.Kept(LocalLights.Blocked(light, x, y, z, trace));
+        _seen[key] = seen;
+        LightTraces++;
+
+        return seen;
+    }
+
+    /// <summary>The most visibility answers <see cref="Seen"/> keeps: about 10 MB of entries.</summary>
+    private const int SeenLimit = 1 << 18;
+
+    private readonly Dictionary<((float, float, float) Light, (float, float, float) Point), bool> _seen = [];
+
+    /// <summary>Visibility traces made, ever: each light and point traced once, which the conformance tests count.</summary>
+    internal int LightTraces { get; private set; }
 
     /// <summary>How far short of a light its visibility trace from a point stops (<see cref="LocalLights.Blocked"/>).</summary>
     /// <param name="light">The light's origin.</param>
