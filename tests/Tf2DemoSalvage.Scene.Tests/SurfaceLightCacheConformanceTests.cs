@@ -72,6 +72,48 @@ public sealed class SurfaceLightCacheConformanceTests
         with.Cube.NegativeZ.Red.ShouldBe(without.NegativeZ.Red);
     }
 
+    /// <summary>
+    /// `FUN_1801b60a0` drops a light whose cluster is negative or out of the PVS `FUN_1801b8270` built, before it traces (the
+    /// test map's point is in cluster 0, which sees only itself).
+    /// </summary>
+    [TestCase(0, 1)]
+    [TestCase(1, 0)]
+    [TestCase(-1, 0)]
+    public void StaticPropLightingAt_ALightsCluster_MustBeInThePvs(int cluster, int expected)
+    {
+        StaticPlusDynamicLightingConformanceTests.Map([Surface(flags: 0) with { Cluster = cluster }], Clear)
+            .StaticPropLightingAt(0f, 0f, 100f).Lighting.Locals.Count.ShouldBe(expected);
+    }
+
+    /// <summary>The same gate on a moving model's entry, for a point lamp too: it is not a surface light's own rule.</summary>
+    [TestCase(0, 1)]
+    [TestCase(1, 0)]
+    [TestCase(-1, 0)]
+    public void ModelLightingAt_ALampsCluster_MustBeInThePvs(int cluster, int expected)
+    {
+        StaticPlusDynamicLightingConformanceTests.Map([StaticPlusDynamicLightingConformanceTests.Lamp(0, cluster)], Clear)
+            .ModelLightingAt(0f, 0f, 100f).Locals.Count.ShouldBe(expected);
+    }
+
+    /// <summary>A light out of the PVS is not folded either: the gate returns before the rank.</summary>
+    [Test]
+    public void StaticPropLightingAt_AFifthLightOutOfThePvs_IsNotFolded()
+    {
+        List<BspWorldLight> four =
+        [
+            .. new (float X, float Y, float Z)[] { (40f, 0f, 100f), (-40f, 0f, 100f), (0f, 40f, 100f), (0f, -40f, 100f) }
+                .Select(static at => new BspWorldLight(at, (900000f, 900000f, 900000f), default, WorldLightKind.Point, QuadraticAttenuation: 1f, Cluster: 0)),
+        ];
+
+        AmbientCube without = StaticPlusDynamicLightingConformanceTests.Map(four, Clear).StaticPropLightingAt(0f, 0f, 100f).Lighting.Cube;
+
+        StaticPlusDynamicLightingConformanceTests.Map([.. four, Surface(flags: 0) with { Cluster = 1 }], Clear)
+            .StaticPropLightingAt(0f, 0f, 100f).Lighting.Cube.ShouldBe(without);
+    }
+
+    /// <summary>Every ray clear, so only the PVS gate can drop a light.</summary>
+    private static float Clear((float X, float Y, float Z) from, (float X, float Y, float Z) to) => 1f;
+
     private static BspWorldLight Surface(int flags) =>
         new((0f, 0f, 120f), (4000f, 4000f, 4000f), (0f, 0f, -1f), WorldLightKind.Surface, Flags: flags);
 }

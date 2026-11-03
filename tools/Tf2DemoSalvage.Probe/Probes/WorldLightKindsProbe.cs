@@ -17,6 +17,12 @@ namespace Tf2DemoSalvage.Probe.Probes;
 /// </remarks>
 public sealed class WorldLightKindsProbe : IProbe
 {
+    /// <summary>`IsLeafAmbientSurfaceLight` (`leaf_ambient_lighting.cpp:183-198`): flagged when `brightest / 512² &lt; 0.005`, so style-0 surface lights under this.</summary>
+    private const float FlagLimit = 0.005f * 512f * 512f;
+
+    private static float Brightest(BspWorldLight light) =>
+        Math.Max(light.Intensity.Red, Math.Max(light.Intensity.Green, light.Intensity.Blue));
+
     /// <inheritdoc/>
     public string Name => "world-light-kinds";
 
@@ -41,7 +47,9 @@ public sealed class WorldLightKindsProbe : IProbe
         {
             output.WriteLine(string.Create(
                 CultureInfo.InvariantCulture,
-                $"{kind.Key,-12} {kind.Count(),5}  in the leaf cubes {kind.Count(static light => light.InAmbientCube),5}"));
+                $"{kind.Key,-12} {kind.Count(),5}  in the leaf cubes {kind.Count(static light => light.InAmbientCube),5}, " +
+                $"outside every cluster {kind.Count(static light => light.Cluster < 0),5}, " +
+                $"brightest channel {kind.Min(Brightest):0.0}..{kind.Max(Brightest):0.0}, vrad flags under {FlagLimit:0.0}: {kind.Count(light => Brightest(light) < FlagLimit),5}"));
         }
     }
 }

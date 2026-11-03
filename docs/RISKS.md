@@ -40460,8 +40460,12 @@ baked cube `c-3840_-880_656`, LightmappedGeneric `$translucent`; behind them `mo
 account, the wrong turns and every address: finding [66](findings/66-tf2-barely-uses-dynamic-lights.md#an-emit_surface-light-is-a-runtime-light-and-a-static-props-state-folds-b669-2026-11-03).
 Fixed in `LocalLights` (the kind, its `1 / max(1, d²)`, one cosine past 0.01, no `r_worldlightmin`, the engine's spot shape),
 `BspWorldLights` (`dworldlight_t.flags`) and `LevelLighting` (`StaticPropLightingAt` folds; a leaf-lit caller skips what vrad
-flagged). **So moving models take surface lights too**: none of f12's 108 or toxic's 4 is flagged. No player was in this frame, so
-that half has no picture against TF2.
+flagged; the style-0 path has the engine's PVS gate). **So moving models take surface lights too**: none of f12's 108 or toxic's 4 is
+flagged, as vrad's threshold predicts. No player was in this frame, so **that half is unverified against TF2.**
+
+**No other model moved away from TF2** in this frame, so this is not an overshoot elsewhere: yellow rail 106.3 (TF2 103.7), barrels
+64.8 (63.9), chair behind glass 114.9 (142.0), vents 92.1 (90.0), each the same before and after to the digit. *Interpolated:* those
+are baked props, which take no static state; `prop-shade` was not read for each, and the chair's gap to TF2 was there before.
 
 **Against live TF2** (build 11191711, `mat_hdr_level 2`, the reference reproduced at 228.1 before any manipulation; ours Debug,
 f12 tick 45091; `D:/b669/`), linear luminance x1000. *Glass hidden* is `r_drawtranslucentworld 0` in TF2 and a temporary shader
@@ -40481,7 +40485,7 @@ edit in ours, reversed:
 
 **Still open, each measured and none explained:**
 - **The pane adds more in TF2.** Fitting `with = (1 − a) · without + X` over the gap tiles: TF2 a 0.31, X 106; ours a 0.25, X 43.
-  The texture's mean alpha is 65 of 255 down to its 8-texel mip (`vtf`), and there is no second pane on the world's faces (`faces-near`;
+  The texture's mean alpha is 65 of 255 at every mip (`vtf`), so mip choice cannot move the blend, and there is no second pane on the world's faces (`faces-near`;
   a brush entity's faces are in model coordinates, so that is no answer for one). Ours' reflection alone is about 3 of the 43
   (a temporary reflection-only shot). **So the next read is what this pane reflects**: a cube, tint or contrast difference is the
   suspect, *interpolated*. TF2 also shows the wire pattern at this distance and ours does not.
@@ -40495,11 +40499,14 @@ edit in ours, reversed:
 nothing about the cube. A real-map test added here was NotExecuted (the map is not at that test's path), so the flag's reader is
 pinned on a synthetic lump instead.
 
-**Tests:** `LocalLightSurfaceConformanceTests` (Content), `SurfaceLightCacheConformanceTests` (Scene), and
-`WorldLightsRead_ALightsFlags_AreItsOwnField`. Red first, for the kind being refused. `Strongest_GivenASkylightAndASurfaceLight_KeepsNeither`
+**Tests:** `LocalLightSurfaceConformanceTests` (Content), `SurfaceLightCacheConformanceTests` (Scene),
+`WorldLightsRead_ALightsFlags_AreItsOwnField`, and on real bytes
+`StaticPropLightingAt_InFrontOfTheMapsSurfaceLights_TakesThemIntoSlots` (Rendering). Red first, for the kind being refused. `Strongest_GivenASkylightAndASurfaceLight_KeepsNeither`
 pinned the wrong reading and is now `Strongest_GivenASkylight_DropsIt`. **Sabotage, each reversed:** the inverse-square branch off,
-4 red; two cosines and no epsilon, 3; the minimum applied at admission, 1; at ranking, 1; the leaf skip off, 2; the static fold off, 1.
-TRX, Debug: Content 1,868 executed of 1,934; Scene 3,492 passed, 1 failed (B673, passed the run before); Rendering 1,399 executed of 1,477.
+4 red; two cosines and no epsilon, 3; the minimum applied at admission, 1; at ranking, 1; the leaf skip off, 2; the static fold off, 1; the
+PVS gate open, 5; the kind refused, the real-map test (0 of 256 against 256 of 256 on cp_process_final).
+TRX, Debug, on the final source: Content 1,868 executed of 1,934; Scene 3,500 of 3,500; Rendering 1,400 executed of 1,478; none failed. An
+earlier Scene run failed one test unrelated to light: B673.
 
 **Load, measured once on a shared machine, not a before-and-after pair:** `trace-cost cp_process_f12` after the fix gave
 `LevelLighting.From` static states 1,312 ms, beside 1.27 s in B667's record (measurements/2026-11-02-b667-trace-cost.md). So it did
@@ -40520,6 +40527,8 @@ inference from "no other route to `0x1801b60a0`", *not* a read of `ComputeLighti
 the eye light, impact-particle colour) is a divergence. Also unread:
 the cvar at `DAT_18075b318 + 0x58` (its name and default) and the 192-unit shadow cache of `FUN_1801b8e20` that B453 recorded;
 the world-light path passes no cache, so the cache only matters if another caller does.
+**Widened by B669 (2026-11-03):** surface lights now reach `AddTo` too, with no `r_worldlightmin`, still untraced and with no PVS gate, so
+a rope, the eye light or impact colour can pick up a light panel through a wall. That is further from the traced behaviour inferred above.
 
 ## B667 — a visibility trace costs map load time: +2.2 s on koth_toxic (2026-11-02) — FIXED in part: the displacement sweep is a third of what it was, output identical; the brush tree is untouched
 

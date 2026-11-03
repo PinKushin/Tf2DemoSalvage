@@ -195,13 +195,19 @@ into the lightmaps and into the leaf ambient cube."* The measurement was real. B
   static prop takes all of them.
 - **In a slot it is a spot** (`FUN_1800f0e10` case 0): attenuation 0/0/1, theta and phi pi, both dots 0, falloff 1.
 
-**Measured** (`world-light-kinds`): **0 of cp_process_f12's 108 surface lights and 0 of koth_toxic's 4 carry the flag.** So
-"already in the leaf cube" was false for every surface light on both maps, and moving models take them too. The flag's reader
-is proved only on a synthetic lump: no shipped specimen with the bit set has been seen.
+**Measured** (`world-light-kinds`): **0 of cp_process_f12's 108 surface lights and 0 of koth_toxic's 4 carry the flag**, and that
+is what vrad's rule predicts: `IsLeafAmbientSurfaceLight` (`leaf_ambient_lighting.cpp:183-198`) flags a style-0 surface light whose
+brightest channel is under `0.005 · 512²` = 1310.7, and the dimmest of these are 3660.9 and 5941.2. So "already in the leaf cube" was
+false for every surface light on both maps, and moving models take them too. No shipped specimen with the bit set has been seen,
+so the reader itself is proved on a synthetic lump.
 
 **The second defect it uncovered: the static state did not fold.** `StaticPropLightingAt` kept the strongest four and dropped
 the rest, where `FUN_1801b60a0` sends every loser to the cube (`FUN_1801b5db0`). Harmless to notice while few lights reached a
 prop; with 108 more candidates it is most of the light.
+
+**The third: no PVS gate on the style-0 path.** `FUN_1801b60a0` returns before it traces when a light's cluster is negative or out
+of the PVS `FUN_1801b8270` built from the entry's leaf, for every kind but the sky. Ours traced them all. Now gated. It changed
+nothing in the far frame, byte-for-byte in these boxes; it is a parity and cost fix, pinned synthetically.
 
 **The route here, wrong turns included** (live TF2 build 11191711, `mat_hdr_level 2`, `mat_force_tonemap_scale 1`, bloom off,
 far camera; linear luminance x1000; the reference reproduced to the digit, 228.1, before any manipulation):
@@ -219,12 +225,8 @@ far camera; linear luminance x1000; the reference reproduced to the digit, 228.1
 5. **The measured shape**: TF2's pipes minus ours was nearly constant down the cylinder (+128, +127, +133). The cube is what adds
    a constant, and reading what writes the cube found the kinds this port refused.
 
-**After the fix** (ours, glass hidden, against TF2 glass hidden): 311/233/167 against 355/281/232 on the upper pipe; 299/211/148
-against 349/253/194 on the lower; **the same material with no glass in front, left pipe, 82.0 against 83.0** (was 57.8) and
-63.0 against 54.3 (was 47.7). The static cube's up face on placement #214 went 0.137 to 0.273. *Measured.*
-
-**Not settled.** The pipes behind the pane stay 12-28% short while the same material elsewhere agrees, so something about this
-placement remains. The pane itself adds more in TF2: B669 has the fit.
+**After the fix:** the static cube's up face on placement #214 went 0.137 to 0.273 (`prop-shade`). The numbers against TF2, and what
+stays unexplained: [B669](../RISKS.md).
 
 ## A world light behind a wall lights nothing; a dlight behind one still does (B666, 2026-11-02)
 

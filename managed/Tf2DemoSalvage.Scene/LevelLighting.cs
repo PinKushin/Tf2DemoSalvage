@@ -294,7 +294,7 @@ public sealed class LevelLighting
         // lost to each other, and they are re-ranked here with the dynamic ones (B453).
         AmbientCube cube = leaf >= 0 && leaf < _ambient.Count ? _ambient[leaf].At(x, y, z) : default;
         // The world lights traced at the entry's point, the dlights after them not (`0x1801b7a10` skips it; B666).
-        int found = LocalLights.Split(lights, x, y, z, nearest, ref cube, StyleScale, TraceSeen(lights, x, y, z, end: _leafCubeLights.Count));
+        int found = LocalLights.Split(lights, x, y, z, nearest, ref cube, StyleScale, TraceSeen(lights, x, y, z, end: _leafCubeLights.Count, cluster: from));
         TraceDone();
         Array.Resize(ref nearest, found);
 
@@ -490,9 +490,13 @@ public sealed class LevelLighting
     /// ONE <see cref="LocalLights"/> call, then call <see cref="TraceDone"/>, which drops the list it holds — a per-call
     /// list such as `WithStyleZero`'s is not kept reachable. A second taken before the first is done would retarget the
     /// first; a debug build asserts against it. This object is used from one thread, as its caches are.
+    ///
+    /// **The PVS first** (B669): `FUN_1801b60a0` returns before it traces when the light's cluster (`+0x24`) is negative or
+    /// out of the PVS `FUN_1801b8270` built from the entry's own leaf, so such a light takes no slot and is not folded.
+    /// `cluster` is that leaf's, for a caller whose lit point is a cell rather than the point itself.
     /// </remarks>
     private Func<int, bool>? TraceSeen(
-        IReadOnlyList<BspWorldLight> lights, float x, float y, float z, int first = 0, int end = int.MaxValue)
+        IReadOnlyList<BspWorldLight> lights, float x, float y, float z, int first = 0, int end = int.MaxValue, int? cluster = null)
     {
         if (_lightTrace is null)
         {
@@ -506,9 +510,14 @@ public sealed class LevelLighting
         _ask.Point = (x, y, z);
         _ask.First = first;
         _ask.End = end;
+        _ask.Cluster = cluster ?? _leaves?.ClusterAt(x, y, z) ?? -1;
 
         return _ask.Keeps;
     }
+
+    /// <summary>Whether a light's cluster is in a point's PVS. A map without vis data admits every cluster, as <see cref="StyledLights"/> does.</summary>
+    private bool InPvs(int from, int cluster) =>
+        _visibility is not { HasData: true } || (cluster >= 0 && _visibility.Visible(from, cluster));
 
     /// <summary>The <see cref="TraceSeen"/> delegate's call is over: drop the list it held.</summary>
     private void TraceDone()
@@ -521,7 +530,8 @@ public sealed class LevelLighting
     private sealed class TraceAsk
     {
         public TraceAsk(LevelLighting owner) => Keeps = index =>
-            index < First || index >= End || LocalLights.Kept(owner.Blocked(Lights[index].Origin, Point));
+            index < First || index >= End ||
+            (owner.InPvs(Cluster, Lights[index].Cluster) && LocalLights.Kept(owner.Blocked(Lights[index].Origin, Point)));
 
         public Func<int, bool> Keeps { get; }
 
@@ -534,6 +544,8 @@ public sealed class LevelLighting
         public int First { get; set; }
 
         public int End { get; set; }
+
+        public int Cluster { get; set; }
     }
 
     private readonly TraceAsk _ask;
@@ -1117,6 +1129,7 @@ public sealed class LevelLighting
 
         // The entry is keyed on the point's own leaf and lit at its cell's point (`0x1801b8270` takes both).
         int leaf = tree.LeafAt(x, y, z);
+        int cluster = tree.ClusterAt(x, y, z);
 
         (x, y, z) = CachePoint(x, y, z);
 
@@ -1132,7 +1145,7 @@ public sealed class LevelLighting
         LocalLight[] nearest = new LocalLight[LocalLights.MaximumLocalLights];
 
         // **The lights that take no slot are folded into the cube** (B453), as the lightcache does.
-        int found = LocalLights.Split(_leafCubeLights, x, y, z, nearest, ref bounced, StyleScale, TraceSeen(_leafCubeLights, x, y, z));
+        int found = LocalLights.Split(_leafCubeLights, x, y, z, nearest, ref bounced, StyleScale, TraceSeen(_leafCubeLights, x, y, z, cluster: cluster));
         TraceDone();
 
         if (found == 0)

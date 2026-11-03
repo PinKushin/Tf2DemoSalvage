@@ -19,6 +19,38 @@ namespace Tf2DemoSalvage.Rendering.Tests;
 /// </remarks>
 public sealed class StaticPropModelsWiringTests
 {
+    /// <summary>
+    /// Through `LevelLighting.From` and the map's real lump: 40 units in front of a real surface light, a static state either
+    /// holds that light in a slot or lost it to brighter ones or a wall. Most hold it, and a slot is the engine's 0/0/1 spot
+    /// (B669). The unit tests choose their own lights, so only this fails when the lump or the wiring drops the kind.
+    /// </summary>
+    [Test]
+    public void StaticPropLightingAt_InFrontOfTheMapsSurfaceLights_TakesThemIntoSlots()
+    {
+        byte[] bytes = MapCache.Bytes();
+        IReadOnlyList<BspWorldLight> surfaces =
+            [.. BspWorldLights.Read(bytes).Where(static light => light is { Kind: WorldLightKind.Surface, Style: 0 })];
+
+        surfaces.Count.ShouldBeGreaterThan(0, "the control: the reference map has surface lights");
+
+        LevelLighting lighting = LevelLighting.From(MapLevel.Read(bytes, NullLogger.Instance), NullLogger.Instance);
+        List<LocalLight> taken = [];
+
+        foreach (BspWorldLight light in surfaces)
+        {
+            float x = light.Origin.X + (light.Normal.X * 40f);
+            float y = light.Origin.Y + (light.Normal.Y * 40f);
+            float z = light.Origin.Z + (light.Normal.Z * 40f);
+
+            taken.AddRange(lighting.StaticPropLightingAt(x, y, z).Lighting.Locals
+                .Where(local => (local.X, local.Y, local.Z) == light.Origin));
+        }
+
+        TestContext.Out.WriteLine($"REFERENCE MAP {taken.Count} of {surfaces.Count} surface lights hold a slot 40 units in front of themselves");
+        taken.Count.ShouldBeGreaterThan(surfaces.Count / 2);
+        taken.ShouldAllBe(static local => local.Spot && local.Constant == 0f && local.Linear == 0f && local.Quadratic > 0.999f && local.Quadratic < 1.001f);
+    }
+
     [Test]
     [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void Load_TheReferenceMap_DrawsEveryPropAsAModelAndTheBakedOnesWithTheirColours()

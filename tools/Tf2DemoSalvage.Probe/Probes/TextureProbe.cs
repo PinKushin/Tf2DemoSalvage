@@ -124,7 +124,7 @@ public sealed class TextureProbe : IProbe
             byte[] level = VtfTexture.Decode(bytes, maximumSize: size).Pixels;
             double[] means = new double[4];
 
-            for (int at = 0; at + 3 < level.Length; at++)
+            for (int at = 0; at < level.Length; at++)
             {
                 means[at % 4] += level[at];
             }
