@@ -27,10 +27,10 @@ namespace Tf2DemoSalvage.Content.Bsp;
 /// displacement's collision tree when the map loads. Deferring it would make a read into a write
 /// (`docs/memory/a-lazy-cache-makes-reading-a-write.md`) on a path the render loop calls.
 ///
-/// **The per-displacement AABB tree Valve walks INSIDE one displacement is here one level deep**
-/// (`CDispCollTree::AABBTree_*`): a box per eight triangles, culled by the line rather than the
-/// travel box (<see cref="Misses"/>). The profile that asked for it was B667's: a light's
-/// visibility trace sweeping 37 triangles a ray on koth_toxic.
+/// **Inside one displacement, a one-level box cull in the spirit of `CDispCollTree::AABBTree_SweepAABB`**
+/// (`dispcoll_common.cpp:891`): a box per eight triangles, culled by the line rather than the
+/// travel box (<see cref="Misses"/>, which names how it differs from Valve's tree). The profile that
+/// asked for it was B667's: a light's visibility trace sweeping 37 triangles a ray on koth_toxic.
 /// </remarks>
 public sealed class DisplacementCollision
 {
@@ -128,13 +128,6 @@ public sealed class DisplacementCollision
             DisplacementTriangle[] triangles = new DisplacementTriangle[corners.Count / 3];
             bool[] second = new bool[triangles.Length];
 
-            float minX = float.PositiveInfinity;
-            float minY = float.PositiveInfinity;
-            float minZ = float.PositiveInfinity;
-            float maxX = float.NegativeInfinity;
-            float maxY = float.NegativeInfinity;
-            float maxZ = float.NegativeInfinity;
-
             for (int triangle = 0; triangle < triangles.Length; triangle++)
             {
                 SurfaceVertex a = corners[triangle * 3];
@@ -146,19 +139,9 @@ public sealed class DisplacementCollision
 
                 // `CDispCollTree::Create`: `flTotalAlpha > DISP_ALPHA_PROP_DELTA` flags `DISPSURF_FLAG_SURFPROP2`.
                 second[triangle] = a.Alpha + b.Alpha + c.Alpha > SecondPropAlpha;
-
-                foreach (SurfaceVertex vertex in (SurfaceVertex[])[a, b, c])
-                {
-                    minX = MathF.Min(minX, vertex.X);
-                    minY = MathF.Min(minY, vertex.Y);
-                    minZ = MathF.Min(minZ, vertex.Z);
-                    maxX = MathF.Max(maxX, vertex.X);
-                    maxY = MathF.Max(maxY, vertex.Y);
-                    maxZ = MathF.Max(maxZ, vertex.Z);
-                }
             }
 
-            built.Add(new Displacement(triangles, second, texdata, minX, minY, minZ, maxX, maxY, maxZ));
+            built.Add(new Displacement(triangles, second, texdata));
         }
 
         return built.Count == 0 ? Empty : new DisplacementCollision([.. built]);
@@ -177,8 +160,9 @@ public sealed class DisplacementCollision
     /// **The WHOLE ray, every time, which is the trap the brush trace already paid for.**
     /// `CM_TraceToLeaf` clips the entire trace and the tree walk only chooses candidates; handing a
     /// clip a sub-segment finds no entry, because the piece already begins inside the surface, and
-    /// the sweep then reports clear. There is no tree walk here at all, so the rule is easy to keep
-    /// — it is written down because the next person adding one will need it.
+    /// the sweep then reports clear. The group cull inside a displacement (<see cref="Misses"/>) keeps
+    /// the rule: it only chooses which triangles are tested, and every one tested is handed the
+    /// whole ray.
     /// </remarks>
     public float Sweep(
         float fromX, float fromY, float fromZ,
@@ -232,6 +216,20 @@ public sealed class DisplacementCollision
         int mask,
         float limit = 1f)
     {
+        SweepCounts counts = default;
+
+        return SweepSurface(fromX, fromY, fromZ, toX, toY, toZ, extents, mask, limit, ref counts);
+    }
+
+    /// <summary>The sweep, counting what the group cull did — the seam its tests and the `trace-cost` probe read.</summary>
+    internal (float Fraction, int Texdata, bool SurfaceProp2, (float X, float Y, float Z) Normal, float Distance) SweepSurface(
+        float fromX, float fromY, float fromZ,
+        float toX, float toY, float toZ,
+        (float X, float Y, float Z) extents,
+        int mask,
+        float limit,
+        ref SweepCounts counts)
+    {
         if (_displacements.Length == 0 || (mask & BspLeafTree.ContentsSolid) == 0)
         {
             return (limit, -1, false, default, 0f);
@@ -258,12 +256,13 @@ public sealed class DisplacementCollision
         bool second = false;
         (float X, float Y, float Z) normal = default;
         float distance = 0f;
+        Line line = new(start, delta, extents);
 
         foreach (Displacement displacement in _displacements)
         {
-            if (displacement.MinX > highX || displacement.MaxX < lowX ||
-                displacement.MinY > highY || displacement.MaxY < lowY ||
-                displacement.MinZ > highZ || displacement.MaxZ < lowZ)
+            if (displacement.Bounds.MinX > highX || displacement.Bounds.MaxX < lowX ||
+                displacement.Bounds.MinY > highY || displacement.Bounds.MaxY < lowY ||
+                displacement.Bounds.MinZ > highZ || displacement.Bounds.MaxZ < lowZ)
             {
                 continue;
             }
@@ -271,12 +270,15 @@ public sealed class DisplacementCollision
             for (int group = 0; group < displacement.Groups.Length; group++)
             {
                 // Against the shortest hit so far, not the bound: only a shorter one can replace it.
-                if (Misses(start, delta, extents, hit, displacement.Groups[group]))
+                if (Misses(line, hit, displacement.Groups[group]))
                 {
+                    counts.GroupsCulled++;
                     continue;
                 }
 
                 int end = Math.Min((group + 1) * GroupSize, displacement.Triangles.Length);
+                counts.GroupsSwept++;
+                counts.TrianglesSwept += end - (group * GroupSize);
 
                 for (int index = group * GroupSize; index < end; index++)
                 {
@@ -308,17 +310,25 @@ public sealed class DisplacementCollision
 
     /// <summary>How many consecutive triangles share one <see cref="Displacement.Groups"/> box.</summary>
     /// <remarks>
-    /// A displacement's triangles come two to a quad in row order, so eight are four neighbouring quads: a box tight to
-    /// that piece of the surface, where the displacement's own box spans every hill on it.
+    /// **Assumes the triangle list is two to a quad in row order** (`BspTerrain.ReadTriangles`), so eight are four
+    /// neighbouring quads in a strip — a box tight to that piece of the surface, where the displacement's own box spans
+    /// every hill on it. Were the order different the boxes would be looser and cull less; never wrong, since a group's box
+    /// is its own triangles' wherever they lie. **Eight is not evidence-backed**: four measured within this machine's noise
+    /// of it (measurements/2026-11-02-b667-trace-cost.md).
     /// </remarks>
     private const int GroupSize = 8;
 
     /// <summary>Whether the swept segment, short of <paramref name="best"/>, passes clear of a box — so no triangle inside it can stop it shorter.</summary>
     /// <remarks>
-    /// **Valve's `CDispCollTree::AABBTree_*` walk, one level deep** (B667). Without it a light's visibility trace swept
-    /// every triangle of each displacement whose box it crossed, 37 a ray on koth_toxic — 58% of the trace's cost
-    /// (`trace-cost` probe). This is the slab test of the line against a group's box grown by the extents and
-    /// <see cref="SegmentPad"/>.
+    /// **A one-level box cull in the spirit of `CDispCollTree::AABBTree_SweepAABB` (`dispcoll_common.cpp:891`), not a
+    /// transcription of it** (B667). Without it a light's visibility trace swept every triangle of each displacement whose
+    /// box it crossed, 37 a ray on koth_toxic, 58% of the trace's cost (measurements/2026-11-02-b667-trace-cost.md). It
+    /// differs from Valve's in three ways, and the output is the same either way:
+    /// - Valve's leaves hold two triangles in a quadtree of 2 × 2 quad blocks; ours are one level of eight triangles in row
+    ///   order, a 4 × 1 strip.
+    /// - Valve pads a node's box by the extents plus `DISPCOLL_DIST_EPSILON` (1/32); ours by the extents plus
+    ///   <see cref="SegmentPad"/>, one unit.
+    /// - Valve's `BuildRayLeafList` tests the whole ray; ours also skips a group entered at or past the shortest hit so far.
     ///
     /// **Why it can never cull a hit — arithmetic, not measured.** Each triangle lies inside its group's box, so the
     /// grown box's slab on every axis contains the triangle's axis-plane slab with <see cref="SegmentPad"/> to spare, more
@@ -328,31 +338,41 @@ public sealed class DisplacementCollision
     /// <paramref name="best"/>. A box window shut by 0.001, or entered at or past <paramref name="best"/>, shuts that one
     /// too. An axis the travel does not move along culls only when the start is outside the grown slab, where `Against`'s
     /// two plane distances on that axis are both positive and it rejects.
+    ///
+    /// **The case that needs care: a start already inside a slab.** There the box's entry on that axis is negative, and it
+    /// can be LATER than a strongly negative entry an edge plane gave `Against`, so "the box enters no later" fails for
+    /// that axis. The cull is still safe: the box's entry is then below 0, which is below any <paramref name="best"/>, and
+    /// the box's exit on every axis is above 0 whenever the triangle is not rejected, so neither test fires on it.
+    ///
+    /// The ray's reciprocal and grown extents are worked out once a sweep (<see cref="Line"/>), so this multiplies where it
+    /// would divide, as Valve's `vecInvDelta` does.
     /// </remarks>
-    private static bool Misses(
-        (float X, float Y, float Z) start, (float X, float Y, float Z) delta, (float X, float Y, float Z) extents, float best,
-        in Box box)
+    private static bool Misses(in Line line, float best, in Box box)
     {
         float enter = float.NegativeInfinity;
         float exit = float.PositiveInfinity;
 
-        return Slab(start.X, delta.X, box.MinX - extents.X - SegmentPad, box.MaxX + extents.X + SegmentPad, ref enter, ref exit) ||
-            Slab(start.Y, delta.Y, box.MinY - extents.Y - SegmentPad, box.MaxY + extents.Y + SegmentPad, ref enter, ref exit) ||
-            Slab(start.Z, delta.Z, box.MinZ - extents.Z - SegmentPad, box.MaxZ + extents.Z + SegmentPad, ref enter, ref exit) ||
+        return Slab(line.Start.X, line.Inverse.X, line.Flat.X, box.MinX - line.Grown.X, box.MaxX + line.Grown.X, ref enter, ref exit) ||
+            Slab(line.Start.Y, line.Inverse.Y, line.Flat.Y, box.MinY - line.Grown.Y, box.MaxY + line.Grown.Y, ref enter, ref exit) ||
+            Slab(line.Start.Z, line.Inverse.Z, line.Flat.Z, box.MinZ - line.Grown.Z, box.MaxZ + line.Grown.Z, ref enter, ref exit) ||
             enter >= best ||
             enter >= MathF.Min(exit, 1f) + WindowTolerance;
     }
 
     /// <summary>Narrows the line's window to one axis's slab; true when the line never enters it.</summary>
-    private static bool Slab(float start, float delta, float low, float high, ref float enter, ref float exit)
+    /// <remarks>
+    /// A reciprocal that overflows to infinity can meet a zero distance and give NaN; NaN makes every later comparison
+    /// false, so the group is swept rather than culled — the safe side.
+    /// </remarks>
+    private static bool Slab(float start, float inverse, bool flat, float low, float high, ref float enter, ref float exit)
     {
-        if (delta == 0f)
+        if (flat)
         {
             return start < low || start > high;
         }
 
-        float near = (low - start) / delta;
-        float far = (high - start) / delta;
+        float near = (low - start) * inverse;
+        float far = (high - start) * inverse;
 
         enter = MathF.Max(enter, MathF.Min(near, far));
         exit = MathF.Min(exit, MathF.Max(near, far));
@@ -360,64 +380,84 @@ public sealed class DisplacementCollision
         return false;
     }
 
+    /// <summary>One sweep's ray as <see cref="Misses"/> reads it, worked out once.</summary>
+    private readonly struct Line((float X, float Y, float Z) start, (float X, float Y, float Z) delta, (float X, float Y, float Z) extents)
+    {
+        public (float X, float Y, float Z) Start { get; } = start;
+
+        /// <summary>1 / delta per axis; unused where <see cref="Flat"/>.</summary>
+        public (float X, float Y, float Z) Inverse { get; } = (1f / delta.X, 1f / delta.Y, 1f / delta.Z);
+
+        /// <summary>Whether the ray does not move along each axis.</summary>
+        public (bool X, bool Y, bool Z) Flat { get; } = (delta.X == 0f, delta.Y == 0f, delta.Z == 0f);
+
+        /// <summary>How far a box is grown on each axis: the extents and <see cref="SegmentPad"/>.</summary>
+        public (float X, float Y, float Z) Grown { get; } = (extents.X + SegmentPad, extents.Y + SegmentPad, extents.Z + SegmentPad);
+    }
+
     /// <summary>An axis-aligned box.</summary>
-    private readonly record struct Box(float MinX, float MinY, float MinZ, float MaxX, float MaxY, float MaxZ);
+    private readonly record struct Box(float MinX, float MinY, float MinZ, float MaxX, float MaxY, float MaxZ)
+    {
+        /// <summary>The box that holds nothing, which any point grows.</summary>
+        public static Box Nothing { get; } = new(
+            float.PositiveInfinity, float.PositiveInfinity, float.PositiveInfinity,
+            float.NegativeInfinity, float.NegativeInfinity, float.NegativeInfinity);
+
+        /// <summary>This box grown to hold a point.</summary>
+        public Box Holding((float X, float Y, float Z) point) => new(
+            MathF.Min(MinX, point.X), MathF.Min(MinY, point.Y), MathF.Min(MinZ, point.Z),
+            MathF.Max(MaxX, point.X), MathF.Max(MaxY, point.Y), MathF.Max(MaxZ, point.Z));
+
+        /// <summary>This box grown to hold another.</summary>
+        public Box Holding(in Box other) => Holding((other.MinX, other.MinY, other.MinZ)).Holding((other.MaxX, other.MaxY, other.MaxZ));
+    }
 
     /// <summary>One displacement surface: its triangles and the box they live in.</summary>
-    private sealed class Displacement(
-        DisplacementTriangle[] triangles,
-        bool[] secondProp,
-        int texdata,
-        float minX, float minY, float minZ,
-        float maxX, float maxY, float maxZ)
+    private sealed class Displacement
     {
-        public DisplacementTriangle[] Triangles { get; } = triangles;
-
-        /// <summary>The box of each run of <see cref="GroupSize"/> triangles, in order.</summary>
-        public Box[] Groups { get; } = GroupBoxes(triangles);
-
-        private static Box[] GroupBoxes(DisplacementTriangle[] triangles)
+        public Displacement(DisplacementTriangle[] triangles, bool[] secondProp, int texdata)
         {
-            Box[] groups = new Box[(triangles.Length + GroupSize - 1) / GroupSize];
+            Triangles = triangles;
+            SecondProp = secondProp;
+            Texdata = texdata;
+            Groups = new Box[(triangles.Length + GroupSize - 1) / GroupSize];
 
-            for (int group = 0; group < groups.Length; group++)
+            Box bounds = Box.Nothing;
+
+            for (int group = 0; group < Groups.Length; group++)
             {
-                Box box = new(
-                    float.PositiveInfinity, float.PositiveInfinity, float.PositiveInfinity,
-                    float.NegativeInfinity, float.NegativeInfinity, float.NegativeInfinity);
+                Box box = Box.Nothing;
 
                 for (int index = group * GroupSize; index < Math.Min((group + 1) * GroupSize, triangles.Length); index++)
                 {
-                    foreach ((float x, float y, float z) in (ReadOnlySpan<(float X, float Y, float Z)>)[triangles[index].A, triangles[index].B, triangles[index].C])
-                    {
-                        box = new Box(
-                            MathF.Min(box.MinX, x), MathF.Min(box.MinY, y), MathF.Min(box.MinZ, z),
-                            MathF.Max(box.MaxX, x), MathF.Max(box.MaxY, y), MathF.Max(box.MaxZ, z));
-                    }
+                    box = box.Holding(triangles[index].A).Holding(triangles[index].B).Holding(triangles[index].C);
                 }
 
-                groups[group] = box;
+                Groups[group] = box;
+                bounds = bounds.Holding(box);
             }
 
-            return groups;
+            Bounds = bounds;
         }
 
+        public DisplacementTriangle[] Triangles { get; }
+
+        /// <summary>The box of each run of <see cref="GroupSize"/> triangles, in order.</summary>
+        public Box[] Groups { get; }
+
+        /// <summary>Every triangle's box: the union of <see cref="Groups"/>.</summary>
+        public Box Bounds { get; }
+
         /// <summary>Per triangle, `DISPSURF_FLAG_SURFPROP2`.</summary>
-        public bool[] SecondProp { get; } = secondProp;
+        public bool[] SecondProp { get; }
 
         /// <summary>The face's texdata, which carries its material's two surfaceprops.</summary>
-        public int Texdata { get; } = texdata;
-
-        public float MinX { get; } = minX;
-
-        public float MinY { get; } = minY;
-
-        public float MinZ { get; } = minZ;
-
-        public float MaxX { get; } = maxX;
-
-        public float MaxY { get; } = maxY;
-
-        public float MaxZ { get; } = maxZ;
+        public int Texdata { get; }
     }
 }
+
+/// <summary>What one sweep's group cull did (<see cref="DisplacementCollision"/>): the seam its tests and the probe read.</summary>
+/// <param name="GroupsCulled">Groups skipped by their box.</param>
+/// <param name="GroupsSwept">Groups whose triangles were swept.</param>
+/// <param name="TrianglesSwept">Triangles handed to <see cref="DisplacementSweep.Against"/>.</param>
+internal record struct SweepCounts(int GroupsCulled, int GroupsSwept, int TrianglesSwept);

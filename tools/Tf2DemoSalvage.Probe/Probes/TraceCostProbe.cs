@@ -21,8 +21,10 @@ namespace Tf2DemoSalvage.Probe.Probes;
 /// reading the production counter <see cref="LevelLighting.StaticStateBuildTicks"/>; the traced run's delegate is
 /// `LevelLighting.From`'s own (`TraceBrushOnly`, `MASK_OPAQUE`, a line), wrapped to record each ray and its time. Then it
 /// replays the recorded rays split into the brush tree and the displacement sweep bounded by the brush fraction, exactly
-/// as `TraceBrushOnly` composes them. **The control** is that the wrapped total must come to the counter's delta, and the
-/// replayed whole must come to the wrapped total, or the split measures something else.
+/// as `TraceBrushOnly` composes them. **The control**, printed with its gap and flagged MISMATCH past 25%, is that the
+/// wrapped total comes to the counter's delta; the replayed whole beside its two parts is printed for the reader to compare.
+/// Last, the triangles the sweep actually tested, counted inside it (`SweepCounts`), beside the travel-box census
+/// from before the group cull.
 /// <code>
 ///   trace-cost &lt;map&gt;
 /// </code>
@@ -87,6 +89,14 @@ public sealed class TraceCostProbe : IProbe
             $"{points.Count} points; static states untraced {untracedCount} {Ms(untraced):0.0} ms, traced {tracedCount} {Ms(traced):0.0} ms, " +
             $"delta {Ms(traced - untraced):0.0} ms; {rays.Count} traces inside it, {Ms(wrapped):0.0} ms, {Ms(wrapped) * 1000d / Math.Max(1, rays.Count):0.0} us each"));
 
+        // The control: the wrapped traces must account for the counter's delta, or the split below measures something else.
+        double gap = Ms(wrapped) - Ms(traced - untraced);
+        bool agrees = Math.Abs(gap) <= ControlTolerance * Ms(traced - untraced);
+
+        output.WriteLine(string.Create(
+            CultureInfo.InvariantCulture,
+            $"control: wrapped total minus counter delta {gap:+0.0;-0.0} ms, {(agrees ? "agrees" : "MISMATCH")} within {ControlTolerance:P0}"));
+
         // The production build, computed ambient and all, as the viewer's "static-prop lighting at load" counter reads it.
         LevelLighting production = LevelLighting.From(level, NullLogger.Instance);
 
@@ -137,8 +147,8 @@ public sealed class TraceCostProbe : IProbe
 
             long wholeTicks = Stopwatch.GetTimestamp() - wholeAt;
 
-            // Every field `TraceBrushOnly` sets, FNV over the bits: `HashCode` is seeded per process, so it would not compare
-            // across two runs, one with a change and one without.
+            // All thirteen values of `BspTrace` (the normal is three), FNV over the bits: `HashCode` is seeded per process, so
+            // it would not compare across two runs, one with a change and one without.
             ulong hash = 14695981039346656037ul;
 
             foreach (((float X, float Y, float Z) from, (float X, float Y, float Z) to) in rays)
@@ -148,8 +158,8 @@ public sealed class TraceCostProbe : IProbe
                 foreach (int bits in (ReadOnlySpan<int>)[
                     BitConverter.SingleToInt32Bits(trace.Fraction), trace.Texinfo, BitConverter.SingleToInt32Bits(trace.Normal.X),
                     BitConverter.SingleToInt32Bits(trace.Normal.Y), BitConverter.SingleToInt32Bits(trace.Normal.Z),
-                    BitConverter.SingleToInt32Bits(trace.Distance), trace.DisplacementTexdata, trace.SurfaceProp2 ? 1 : 0,
-                    trace.AllSolid ? 1 : 0, trace.StartSolid ? 1 : 0])
+                    trace.AllSolid ? 1 : 0, BitConverter.SingleToInt32Bits(trace.Distance), trace.DisplacementTexdata,
+                    trace.SurfaceProp2 ? 1 : 0, trace.StudioSurfaceProp, trace.BrushEntity, trace.StaticProp, trace.StartSolid ? 1 : 0])
                 {
                     hash = (hash ^ (uint)bits) * 1099511628211ul;
                 }
@@ -167,12 +177,29 @@ public sealed class TraceCostProbe : IProbe
             $"displacement sweep {Ms(terrain):0.0} ms; terrain won {terrainWon}; {level.Displacements.Count} displacements, " +
             $"{level.Displacements.TriangleCount} triangles; checksum of every trace {checksum:x16}"));
 
-        (long overlapped, long swept) = Census(level, rays);
+        (long overlapped, long candidates) = Census(level, rays);
+        double perRay = Math.Max(1, rays.Count);
 
         output.WriteLine(string.Create(
             CultureInfo.InvariantCulture,
-            $"travel boxes overlap {overlapped / (double)Math.Max(1, rays.Count):0.00} displacements a ray, {swept / (double)Math.Max(1, rays.Count):0.0} triangles a ray"));
+            $"before the group cull (travel-box overlap, recomputed here): {overlapped / perRay:0.00} displacements a ray, {candidates / perRay:0.0} triangles a ray"));
+
+        // What the sweep itself did, carried out of it through its counting seam.
+        SweepCounts counts = default;
+
+        foreach (((float X, float Y, float Z) from, (float X, float Y, float Z) to) in rays)
+        {
+            float bound = tree?.Trace(from.X, from.Y, from.Z, to.X, to.Y, to.Z, (0f, 0f, 0f), 0, MaskOpaque).Fraction ?? 1f;
+            _ = level.Displacements.SweepSurface(from.X, from.Y, from.Z, to.X, to.Y, to.Z, (0f, 0f, 0f), MaskOpaque, bound, ref counts);
+        }
+
+        output.WriteLine(string.Create(
+            CultureInfo.InvariantCulture,
+            $"swept (counted in the sweep): {counts.TrianglesSwept / perRay:0.0} triangles a ray; groups culled {counts.GroupsCulled / perRay:0.0}, swept {counts.GroupsSwept / perRay:0.0} a ray"));
     }
+
+    /// <summary>How far the wrapped trace total may stand from the counter's delta before the control calls a mismatch.</summary>
+    private const double ControlTolerance = 0.25;
 
     /// <summary>
     /// How much of the terrain a ray's travel box (bounded by the brush fraction, as `SweepSurface` builds it) overlaps:
