@@ -524,6 +524,7 @@ public sealed class StaticPropModelsWiringTests
             Geometry = assets.Geometry,
             StaticPropColours = assets.StaticModelColours,
             StaticPropLighting = lighting.StaticPropLightingAt,
+            StaticPropFullLighting = lighting.StaticPropFullLightingAt,
         };
 
         models.Add(assets.StaticModels);
@@ -531,7 +532,7 @@ public sealed class StaticPropModelsWiringTests
         List<ModelInstance> drawn = [];
         models.Instances(assets.StaticModels, drawn, lighting.ModelLightingAt, lighting.ModelSunAt);
 
-        List<ModelInstance> unbaked = [.. drawn.Where(instance => !assets.StaticModelColours.ContainsKey(instance.EntityIndex))];
+        List<ModelInstance> unbaked =[.. drawn.Where(instance => !assets.StaticModelColours.ContainsKey(instance.EntityIndex))];
         unbaked.Count.ShouldBe(8, "the control: koth_harvest_final's unbaked placements");
 
         // **They are the eight REFUSED `.vhv`s** (B436): `0x1800f4760` refuses each header, so `FUN_1800f36e0` bakes
