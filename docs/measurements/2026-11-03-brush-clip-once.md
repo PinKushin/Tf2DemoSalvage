@@ -59,4 +59,30 @@ RTX 3060, i5-10600K; Debug build (optimized, D176), the build the owner runs. Co
 
 ## Result
 
+Run 2026-11-03 04:57-05:04, A and B built from `7bd2440c` plus the seam (and, for B, the skip); neither was committed. The
+lock showed other agents' runs near these: a holder before koth_toxic's first B, and short shared probes (`vmt`, `pak`,
+`prop-shade`) finishing as three of the f12 runs began. The timings carry that noise, and no other load was recorded. The columns are each probe output's `replay` and `brush clips` lines.
+
+| map | run | `brush clips a ray` | `brush tree`, best of 3 | `TraceBrushOnly` | checksum |
+|---|---|---:|---:|---:|---|
+| koth_toxic, 267,527 rays | A | 14.6 | 387.0 ms | 591.8 ms | `5fe80ad4d5e01f8e` |
+| | B | 13.5 | 354.1 ms | 497.1 ms | `5fe80ad4d5e01f8e` |
+| | B | 13.5 | 332.3 ms | 528.3 ms | `5fe80ad4d5e01f8e` |
+| | A | 14.6 | 341.1 ms | 533.3 ms | `5fe80ad4d5e01f8e` |
+| cp_process_f12, 47,923 rays | A | 10.4 | 60.9 ms | 132.6 ms | `76d663f449d20c7c` |
+| | B | 9.2 | 59.9 ms | 129.8 ms | `76d663f449d20c7c` |
+| | B | 9.2 | 59.4 ms | 148.3 ms | `76d663f449d20c7c` |
+| | A | 10.4 | 59.9 ms | 125.6 ms | `76d663f449d20c7c` |
+
+The probe's three controls held on every run: the composed fraction differed on 0 rays, and both timing controls agreed. The
+count's controls held: A and B both read above zero, and B below A.
+
+Instrument 2 was not run: the census decided it first.
+
 ## Verdict
+
+**Falsified.** Clips with the skip are 0.92 of those without on koth_toxic (13.5/14.6) and 0.88 on f12 (9.2/10.4), against a
+predicted 0.8 or less, and the brush tree moved about 1 ms of 60 on f12. Only a repeat in a ray that reaches a second leaf can be
+skipped: a ray that hits in the near half never walks the far leaf. Every checksum held, so the arithmetic that a repeat changes
+no answer stands, but the change is dropped, as the prediction said it would be: no code from this measurement is on the branch.
+The dropped test file is kept outside the repo, `D:/nfw-scratch/dropped/BrushClipOnceConformanceTests.cs`.
