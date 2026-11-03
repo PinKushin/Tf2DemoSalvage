@@ -51,6 +51,36 @@ Frame rates (fps/ms): A 46/20.9 55/18.5 59/15.6 73/14.6 84/12.6 95/10.0 129/7.4 
 250/3.4 209/5.3 127/10.6 112/8.5 124/7.5 135/8.3 133/7.2; B 50/17.5 65/21.7 58/15.6 64/14.7 58/15.8 84/11.2 106/10.7
 143/6.3 172/6.7 190/5.1 156/6.0 208/5.0 270/3.4 110/9.2 112/9.9 99/9.6 98/10.4 116/8.9. They are too noisy to separate.
 
+## C: strongest-down tracing and the per-point memo (`d1096d5c`)
+
+The same commands, run C. `Strongest`/`StrongestIndices` trace from the strongest admitted light down until four are seen.
+`Split` still traces every admitted light, because each seen loser is folded. Each (light origin, point) answer is kept.
+
+| | koth_toxic static states 2225 | f12 static states 1353 | f12 pose `lighting`, mean of 16 intervals |
+|---|---|---|---|
+| A, no trace | 3,326.0 ms | 1,052.0 ms | 0.44 ms |
+| B, trace every light | 9,236.8 ms | 1,519.7 ms | 0.76 ms |
+| C, strongest-down + memo | 5,568.3 ms | 1,269.7 ms | 0.71 ms |
+
+The rows are not equally reliable. koth_toxic A and B reproduced, but every other cell is a single run, so the
+0.71 → 0.76 ms difference is within its noise.
+
+The raw C numbers:
+- C, koth_toxic: static-prop lighting at load 5,727.9 ms, baked built 1692 in 143.1 ms. Lighting per interval: 0.1 0 0 0
+  0 0 0 0 0.
+- C, f12: static-prop lighting at load 1,362.3 ms, baked built 959 in 67.4 ms. Lighting per interval: 0.9 1.9 1.7 1.2
+  0.6 0.2 0.1 0.5 0.4 0.2 0 0.3 1 0.9 0.8 0.7. Frames (fps/ms): 52/16.8 55/22.1 55/16.8 72/11.9 70/17.5 94/10.3
+  116/9.1 164/6.6 194/4.8 216/5.9 156/5.5 262/3.3 232/3.8 113/9.9 105/9.0 101/11.3 112/8.3 115/8.6.
+
+**What is left, and why.**
+- At load, C still costs +2.2 s on koth_toxic. Where a point sees fewer than four of its admitted lights, every one of
+  them must be traced to know the slots. The vat and the domes are such points.
+- In play, the `lighting` column barely moves. Its work is new light cache entries, built through `Split`. Every seen
+  loser is folded into the cube, so every admitted light must be traced. The memo helps only an entry relit at the same
+  point.
+- Both remaining costs are the engine's own work (`FUN_1801b9570` traces every admitted light). The open lever is the cost
+  of one trace: `MapLevel.TraceBrushOnly` also sweeps displacements over the full ray. *Not measured per trace.*
+
 ## Verdict
 
 - **Load: +5.9 s** (static states 3.3 s → 9.2 s, measured, Debug). That is 2,225 static states each tracing every

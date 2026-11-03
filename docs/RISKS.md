@@ -40447,11 +40447,29 @@ trace".
   trace and 0.76 ms with it, about +0.3 ms a frame (measurements/2026-11-02-b666-light-trace-load.md). The frame rates
   are too noisy to separate.
 
-Two fixes would keep the output the same:
-- For `Strongest`, which folds nothing, rank first and trace strongest-down until four are seen.
-- For a light cache entry relit on a style change, keep its point's per-light visibility, because neither the world nor
-  the point moves.
-- *Interpolated:* the engine retraces only the styled lights when a style changes.
+**Both output-preserving fixes are built** (`d1096d5c`):
+- `Strongest`/`StrongestIndices` rank first and trace strongest-down until four are seen.
+- `LevelLighting` keeps each (light, point) answer.
+- Equivalence is pinned by `Strongest_SixLampsTheStrongestBlocked_TakesTheSameLightsAsTracingEveryOne` (the same
+  lights as tracing every one, and as `Split`'s slots) and `Strongest_FiveEqualLampsOneBlocked_KeepsTheEarliestFourSeen`
+  (ties). Reversing the tie order or stopping at three slots turned them red.
+- The memo is pinned by `ModelLightingAt_AnEntryRelitAfterAStyleChange_TracesNoLightTwice`, which bypassing the memo
+  turned red.
+
+**After** (same commands; A and B koth_toxic reproduced, the rest single runs):
+
+| | koth_toxic static states | f12 static states | f12 lighting column |
+|---|---|---|---|
+| no trace (measurements/2026-11-02-b666-light-trace-load.md) | 3.3 s | 1.05 s | 0.44 ms |
+| trace every light (measurements/2026-11-02-b666-light-trace-load.md) | 9.2 s | 1.52 s | 0.76 ms |
+| strongest-down + memo (measurements/2026-11-02-b666-light-trace-load.md) | 5.6 s | 1.27 s | 0.71 ms |
+
+**`Split` must still trace every admitted light**, because every seen loser is folded into the cube. The lighting
+column is new cache entries, so it barely moves (0.76 → 0.71 ms, within one run's noise; measurements/2026-11-02-b666-light-trace-load.md).
+- What is left is the engine's own work.
+- The remaining lever is one trace's cost: `TraceBrushOnly` also sweeps displacements along the whole ray. *Not
+  measured.*
+- Measurements: `docs/measurements/2026-11-02-b666-light-trace-load.md`.
 
 **Still open:** the cvar at `DAT_18075b318 + 0x58` and the 192-unit shadow cache that B453 recorded for `FUN_1801b8e20`
 are not covered by this read. The world-light path passes no cache, so the port has no shadow cache.
