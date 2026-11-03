@@ -40379,7 +40379,7 @@ black. Not fixed: our equivalent of the engine's HDR-enabled decision is not est
   known-present class was dumped beside it, and `cl_find_ent water` searches client class names, which a
   `CFuncMoveLinear` need not contain. So whether TF2 draws `*145` at all is *unverified*, and nothing was captured.
 
-## B666 — a lamp behind a wall still takes a light slot and lights a static prop (2026-11-02) — FIXED, pending merge; B453's open item
+## B666 — a lamp behind a wall still takes a light slot and lights a static prop (2026-11-02) — FIXED, merged (`91bda1d2`); B453's open item
 
 **Read (engine), 2026-11-02, by the lead in Ghidra on `engine.dll`** (disassembly). Whole read and its table of
 callers: finding [66](findings/66-tf2-barely-uses-dynamic-lights.md#a-world-light-behind-a-wall-lights-nothing-a-dlight-behind-one-still-does-b666-2026-11-02).
