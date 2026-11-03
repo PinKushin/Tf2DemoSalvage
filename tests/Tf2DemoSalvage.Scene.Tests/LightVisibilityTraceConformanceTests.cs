@@ -189,13 +189,21 @@ public sealed class LightVisibilityTraceConformanceTests
         LevelLighting untraced = StaticPlusDynamicLightingConformanceTests.Map(lamps);
         LevelLighting traced = StaticPlusDynamicLightingConformanceTests.Map(lamps, static (_, _) => 1f);
 
+        // The same calls on both, so each one's logger list has the same length — and grows at the same call — in the
+        // window: a capacity doubling then lands in both or neither.
+        untraced.LightingAt(0f, 0f, 100f).Locals.Count.ShouldBe(3, "the control: every lamp reaches");
         traced.LightingAt(0f, 0f, 100f).Locals.Count.ShouldBe(3, "the control: every lamp seen");
 
         Allocated(untraced).ShouldBe(Allocated(traced));
 
         static long Allocated(LevelLighting lighting)
         {
-            lighting.LightingAt(0f, 0f, 100f);
+            // Warm: tiering, the memo and every first use, before anything is counted.
+            for (int call = 0; call < 50; call++)
+            {
+                lighting.LightingAt(0f, 0f, 100f);
+            }
+
             long before = GC.GetAllocatedBytesForCurrentThread();
 
             for (int call = 0; call < 100; call++)

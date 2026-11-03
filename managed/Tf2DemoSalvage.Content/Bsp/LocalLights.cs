@@ -254,7 +254,7 @@ public static class LocalLights
         Span<int> chosen = stackalloc int[MaximumLocalLights];
         Span<float> strengths = stackalloc float[MaximumLocalLights];
 
-        int count = Choose(lights, x, y, z, chosen, strengths, style, traceKeeps,reached: null);
+        int count = Choose(lights, x, y, z, chosen, strengths, style, traceKeeps, reached: null);
 
         Write(lights, chosen[..count], into, style);
 
@@ -427,29 +427,36 @@ public static class LocalLights
     /// **Ranked by luminance times falloff** (B453): `engine.dll` `FUN_1801b60a0` weighs the intensity by Rec.601's 0.299,
     /// 0.587, 0.114 (`0x18047be38`) — not by its brightest channel, which ranked a saturated blue lamp above a
     /// brighter-looking green one.
+    ///
+    /// `strength` is meaningful only when this returns true: a light it rejects is given 0, without its luminance being
+    /// computed.
     /// </remarks>
     private static bool Candidate(BspWorldLight light, float x, float y, float z, Func<int, float> style, out float strength)
     {
-        bool admitted = Admitted(light, x, y, z, style, out float falloff);
+        if (!Admitted(light, x, y, z, style, out float falloff))
+        {
+            strength = 0f;
+            return false;
+        }
+
         strength = falloff * Luminance(light);
 
-        return admitted;
+        return true;
     }
 
     /// <summary>
     /// `r_worldlightmin` again, by the ranking's luminance: a light below it takes no slot and is folded into the cube
-    /// instead (`JC 0x1801b64f5`; see <see cref="Split"/>). Written as "not below", so a NaN strength ranks, as the
-    /// engine's compare keeps it.
+    /// instead (`JC 0x1801b64f5`; see <see cref="Split"/>). Written as "at least", so a NaN strength takes no slot.
     /// </summary>
-    private static bool Ranks(float strength) => !(strength < WorldLightMinimum);
+    private static bool Ranks(float strength) => strength >= WorldLightMinimum;
 
     /// <summary>
     /// The ranking's order, the one definition of it: stronger first, and of two equal lights the EARLIER in the list.
     /// </summary>
     /// <remarks>
     /// <see cref="Insert"/> sees lights in index order, so for it the tie never favours the newcomer — the engine's
-    /// evict-the-weakest order. <see cref="ChooseStrongestFirst"/> sorts by the same rule. A NaN strength's place is not
-    /// pinned; none occurs, since every falloff is finite.
+    /// evict-the-weakest order. <see cref="ChooseStrongestFirst"/> sorts by the same rule. A NaN strength never reaches
+    /// it: <see cref="Ranks"/> refuses one first.
     /// </remarks>
     private static bool Outranks(float strength, int index, float other, int otherIndex) =>
         strength > other || (!(strength < other) && index < otherIndex);
@@ -576,7 +583,7 @@ public static class LocalLights
         List<int> rest = [];
 
         // One pass, so each light is traced once: the chosen go to the slots, the rest of what it reached to the cube.
-        int count = Choose(lights, x, y, z, chosen, strengths, style, traceKeeps,rest);
+        int count = Choose(lights, x, y, z, chosen, strengths, style, traceKeeps, rest);
 
         Write(lights, chosen[..count], into, style);
 

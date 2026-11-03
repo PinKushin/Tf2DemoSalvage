@@ -409,8 +409,19 @@ public sealed class StaticPropModelsWiringTests
             // the point; after it the state held four up-aimed, linear-attenuation lamps 1,300 to 2,100 units off, which
             // reach the point by distance and cone. Every one is behind the roofs, and the light cache's visibility trace
             // returns zero for each. This pinned the one at (±2256 ±416 598) as held; it is now the control that it
-            // reaches and is blocked. (The spot's own absence is implied by an empty state, so it is no longer asserted.)
+            // reaches and is blocked.
             (float X, float Y, float Z) origin = models.IlluminationPoint(byEntity[dome.EntityIndex], at);
+
+            // B665's control, kept apart from the trace: the 31,373 spotlight beside the dome, 469 units off, is excluded
+            // by its CONE alone — so a cone regression fails here even though the trace would also block it.
+            BspWorldLight spot = level.WorldLights
+                .Where(light => light.Kind == WorldLightKind.Spotlight && light.Intensity.Red > 30000f)
+                .Cast<BspWorldLight?>()
+                .MinBy(light => Distance(light!.Value.Origin, origin))
+                .ShouldNotBeNull("the control: the map has a 31,373 spotlight");
+            Distance(spot.Origin, origin).ShouldBeLessThan(500f, "the control: the spotlight beside the dome is found");
+            LocalLights.Reaches(spot, origin.X, origin.Y, origin.Z).ShouldBeFalse("its cone misses the point (B665)");
+
             dome.Locals.ShouldNotBeNull().ShouldBeEmpty("every lamp that reaches the dome's point is behind a wall");
 
             float side = MathF.Sign(at.X);

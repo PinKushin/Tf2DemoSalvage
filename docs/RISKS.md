@@ -40482,6 +40482,17 @@ trace".
 - **The memo** is keyed on the light's origin and the point.
 - **TRX:** Content 1,841 executed of 1,907, Scene 3,488 of 3,488, Rendering 1,392 of 1,470; none failed.
 
+**Round 2 of the review:**
+- Both allocation tests warm up for 50 calls. The `LightingAt` one makes its control call on both objects, so their
+  logger lists grow in step.
+- Each passed under `[Repeat(20)]`.
+- `Candidate` computes no strength for a light it rejects.
+- A NaN strength takes no slot on either ranking. `Ranks` is `>=` again, and a test covers it.
+- The dome test asserts B665's cone control again: `Reaches(spot)` is false, independent of the trace.
+- `TraceSeen`'s shared delegate has a stated one-outstanding contract, a debug assert, and `TraceDone()` after each
+  ranking, which drops the list it held.
+- **TRX:** Content 1,843 executed of 1,909, Scene 3,488 of 3,488, Rendering 1,392 of 1,470; none failed.
+
 **`Split` must still trace every admitted light**, because every seen loser is folded into the cube. The lighting
 column is new cache entries, so it barely moves (0.76 → 0.71 ms, within one run's noise; measurements/2026-11-02-b666-light-trace-load.md).
 - What is left is the engine's own work.

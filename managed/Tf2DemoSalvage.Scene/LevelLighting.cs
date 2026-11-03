@@ -288,6 +288,7 @@ public sealed class LevelLighting
         AmbientCube cube = leaf >= 0 && leaf < _ambient.Count ? _ambient[leaf].At(x, y, z) : default;
         // The world lights traced at the entry's point, the dlights after them not (`0x1801b7a10` skips it; B666).
         int found = LocalLights.Split(lights, x, y, z, nearest, ref cube, StyleScale, TraceSeen(lights, x, y, z, end: _worldLights.Count));
+        TraceDone();
         Array.Resize(ref nearest, found);
 
         return new PointLighting(cube, nearest);
@@ -475,8 +476,12 @@ public sealed class LevelLighting
     /// static prop's own lighting origin.
     ///
     /// **One delegate, made once, reading the call's arguments from fields** (<see cref="TraceAsk"/>), so a ranking
-    /// allocates no closure — a static prop under a live dlight ranks every frame. It is valid only for the length of the
-    /// one <see cref="LocalLights"/> call it is handed to; this object is used from one thread, as its caches are.
+    /// allocates no closure — a static prop under a live dlight ranks every frame.
+    ///
+    /// **The contract, because the delegate is shared:** one thread, and one outstanding at a time. Take it, hand it to
+    /// ONE <see cref="LocalLights"/> call, then call <see cref="TraceDone"/>, which drops the list it holds — a per-call
+    /// list such as `WithStyleZero`'s is not kept reachable. A second taken before the first is done would retarget the
+    /// first; a debug build asserts against it. This object is used from one thread, as its caches are.
     /// </remarks>
     private Func<int, bool>? TraceSeen(
         IReadOnlyList<BspWorldLight> lights, float x, float y, float z, int first = 0, int end = int.MaxValue)
@@ -486,12 +491,22 @@ public sealed class LevelLighting
             return null;
         }
 
+        Debug.Assert(!_ask.Outstanding, "a TraceSeen delegate was taken before the last one was done");
+
+        _ask.Outstanding = true;
         _ask.Lights = lights;
         _ask.Point = (x, y, z);
         _ask.First = first;
         _ask.End = end;
 
         return _ask.Keeps;
+    }
+
+    /// <summary>The <see cref="TraceSeen"/> delegate's call is over: drop the list it held.</summary>
+    private void TraceDone()
+    {
+        _ask.Outstanding = false;
+        _ask.Lights = [];
     }
 
     /// <summary>The arguments of the ranking <see cref="TraceSeen"/> was last asked for, and the one delegate that reads them.</summary>
@@ -503,6 +518,8 @@ public sealed class LevelLighting
         public Func<int, bool> Keeps { get; }
 
         public IReadOnlyList<BspWorldLight> Lights { get; set; } = [];
+
+        public bool Outstanding { get; set; }
 
         public (float X, float Y, float Z) Point { get; set; }
 
@@ -714,6 +731,7 @@ public sealed class LevelLighting
         Span<int> chosen = stackalloc int[LocalLights.MaximumLocalLights];
         // Traced at the handle's origin (`FUN_1801b5400`, flags 0; B666). The second ranking below is of these alone.
         int found = LocalLights.StrongestIndices(handle.Listed, x, y, z, chosen, StyleScale, TraceSeen(handle.Listed, x, y, z));
+        TraceDone();
         BspWorldLight[] ranked = new BspWorldLight[found];
 
         for (int slot = 0; slot < found; slot++)
@@ -886,6 +904,7 @@ public sealed class LevelLighting
 
         LocalLight[] nearest = new LocalLight[LocalLights.MaximumLocalLights];
         Array.Resize(ref nearest, LocalLights.Strongest(added, x, y, z, nearest, StyleScale, TraceSeen(added, x, y, z, first: styleZero)));
+        TraceDone();
 
         return nearest;
     }
@@ -983,6 +1002,7 @@ public sealed class LevelLighting
         LocalLight[] nearest = new LocalLight[LocalLights.MaximumLocalLights];
         int found = LocalLights.Strongest(
             _worldLights, x, y, z, nearest, static style => style == 0 ? 1f : 0f, TraceSeen(_worldLights, x, y, z));
+        TraceDone();
         Array.Resize(ref nearest, found);
 
         SunLight? sun = _sun is { } light && _strikesSky is { } strikesSky
@@ -1102,6 +1122,7 @@ public sealed class LevelLighting
 
         // **The lights that take no slot are folded into the cube** (B453), as the lightcache does.
         int found = LocalLights.Split(_worldLights, x, y, z, nearest, ref bounced, StyleScale, TraceSeen(_worldLights, x, y, z));
+        TraceDone();
 
         if (found == 0)
         {

@@ -202,6 +202,12 @@ public sealed class LocalLightVisibilityConformanceTests
 
         LocalLights.Strongest(lights, 0f, 0f, 0f, into, traceKeeps: keeps).ShouldBe(3, "the control: lamps 1, 3 and 5 are kept");
 
+        // Warm: tiering and the array pool's first rent, before anything is counted.
+        for (int call = 0; call < 50; call++)
+        {
+            LocalLights.Strongest(lights, 0f, 0f, 0f, into, traceKeeps: keeps);
+        }
+
         long before = GC.GetAllocatedBytesForCurrentThread();
 
         for (int call = 0; call < 1000; call++)
@@ -210,6 +216,29 @@ public sealed class LocalLightVisibilityConformanceTests
         }
 
         (GC.GetAllocatedBytesForCurrentThread() - before).ShouldBe(0L);
+    }
+
+    /// <summary>
+    /// A light whose ranking strength is NaN takes no slot, on both rankings: the luminance minimum is `>=`, which NaN fails.
+    /// </summary>
+    /// <remarks>
+    /// Intensity (+∞, −∞, 0) passes the brightest-channel cutoff (its brightest is +∞) and has a Rec.601 luminance of
+    /// 0.299·∞ − 0.587·∞ = NaN.
+    /// </remarks>
+    [TestCase(false)]
+    [TestCase(true)]
+    public void Strongest_ALightWhoseStrengthIsNaN_TakesNoSlot(bool traced)
+    {
+        List<BspWorldLight> lights =
+        [
+            Lamp((64f, 0f, 0f), 0f) with { Intensity = (float.PositiveInfinity, float.NegativeInfinity, 0f) },
+            Lamp((-64f, 0f, 0f), 500f),
+        ];
+
+        Span<LocalLight> into = stackalloc LocalLight[LocalLights.MaximumLocalLights];
+
+        LocalLights.Strongest(lights, 0f, 0f, 0f, into, traceKeeps: traced ? static _ => true : null).ShouldBe(1);
+        into[0].X.ShouldBe(-64f, "the finite lamp");
     }
 
     /// <summary>The rule itself: the ray is cast from the point to the light, and `(1 − fraction) · distance` is compared.</summary>
