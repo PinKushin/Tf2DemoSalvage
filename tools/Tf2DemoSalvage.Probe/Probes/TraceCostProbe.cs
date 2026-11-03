@@ -87,6 +87,18 @@ public sealed class TraceCostProbe : IProbe
             $"{points.Count} points; static states untraced {untracedCount} {Ms(untraced):0.0} ms, traced {tracedCount} {Ms(traced):0.0} ms, " +
             $"delta {Ms(traced - untraced):0.0} ms; {rays.Count} traces inside it, {Ms(wrapped):0.0} ms, {Ms(wrapped) * 1000d / Math.Max(1, rays.Count):0.0} us each"));
 
+        // The production build, computed ambient and all, as the viewer's "static-prop lighting at load" counter reads it.
+        LevelLighting production = LevelLighting.From(level, NullLogger.Instance);
+
+        foreach ((float x, float y, float z) in points)
+        {
+            _ = production.StaticPropLightingAt(x, y, z);
+        }
+
+        output.WriteLine(string.Create(
+            CultureInfo.InvariantCulture,
+            $"LevelLighting.From: static states {production.StaticStateBuilds} {Ms(production.StaticStateBuildTicks):0.0} ms"));
+
         BspLeafTree? tree = level.Leaves;
         long brushes = long.MaxValue;
         long terrain = long.MaxValue;
