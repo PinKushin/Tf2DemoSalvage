@@ -349,7 +349,7 @@ public sealed class DisplacementCollision
     /// culled. Nothing is lost: `Against` returns a value below its `best` only for an entry below it, and an entry below 0
     /// comes back clamped to 0, which is not below 0 — so with a best of 0 no triangle, culled or swept, can replace it.
     /// The answer is the bound, or the fraction-0 hit already held. `DisplacementGroupCullTests`'
-    /// `SweepSurface_ALimitOfZeroAndStartsOnABoxFace_EqualsTheBruteForceExactly` pins it.
+    /// `SweepSurface_StartsOnEveryBoxFaceABoundOfZeroAndAVertex_EqualsTheBruteForceExactly` pins both.
     ///
     /// The ray's reciprocal and grown extents are worked out once a sweep (<see cref="Line"/>), so this multiplies where it
     /// would divide, as Valve's `vecInvDelta` does.
