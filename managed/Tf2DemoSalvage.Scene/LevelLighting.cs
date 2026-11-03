@@ -321,10 +321,15 @@ public sealed class LevelLighting
 
         if (_entryAsked is null || point != _entryPoint || Frame != _entryFrame)
         {
+            _buildAt = point;
+            LightCacheLookups++;
+
+            // All three only once it returned: a build that throws answered nothing, and must not name the last point's entry.
+            CachedLight answered = _cache.Get(point, tree.LeafAt(x, y, z), Frame, allowFast: true, _buildEntry);
+
+            _entryAsked = answered;
             _entryPoint = point;
             _entryFrame = Frame;
-            LightCacheLookups++;
-            _entryAsked = _cache.Get(point, tree.LeafAt(x, y, z), Frame, allowFast: true, _buildEntry);
         }
 
         CachedLight entry = _entryAsked;
@@ -338,8 +343,11 @@ public sealed class LevelLighting
         return entry;
     }
 
-    /// <summary>Lights a new entry at <see cref="_entryPoint"/>; one delegate, so a hit allocates no closure.</summary>
+    /// <summary>Lights a new entry at <see cref="_buildAt"/>; one delegate, so a hit allocates no closure.</summary>
     private readonly Func<CachedLight> _buildEntry;
+
+    /// <summary>The point the lookup under way asks about, which <see cref="_buildEntry"/> reads.</summary>
+    private System.Numerics.Vector3 _buildAt;
 
     /// <summary>The point <see cref="_entryAsked"/> answered.</summary>
     private System.Numerics.Vector3 _entryPoint;
@@ -419,7 +427,7 @@ public sealed class LevelLighting
         _ask = new TraceAsk(this);
         _buildEntry = () =>
         {
-            (float x, float y, float z) = (_entryPoint.X, _entryPoint.Y, _entryPoint.Z);
+            (float x, float y, float z) = (_buildAt.X, _buildAt.Y, _buildAt.Z);
 
             return new CachedLight(x, y, z, LightingAt(x, y, z), CellSun(SunCaller.LightCache, x, y, z), _styleVersion);
         };

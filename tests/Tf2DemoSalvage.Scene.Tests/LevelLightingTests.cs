@@ -426,6 +426,39 @@ public sealed class LevelLightingTests
         lighting.SunWork.LightCache.ShouldBe(3);
     }
 
+    /// <remarks>
+    /// A build that throws answered nothing, so nothing is remembered for its point. Point A's sun strikes sky and point B's does
+    /// not, so A's entry read at B would hand B a sun it does not have.
+    /// </remarks>
+    [Test]
+    public void ModelSunAt_AfterABuildThatThrew_IsNotTheLastPointsEntry()
+    {
+        bool throwing = false;
+        LevelLighting lighting = new(
+            leaves: OneSplit(above: 1, below: 0, solidLeaf: -1),
+            ambient: [Samples(Grey(0.5f)), Samples(Grey(0.1f))],
+            worldLights: [],
+            sun: Sky(),
+            new RecordingLogger(),
+            strikesSky: (from, _) =>
+            {
+                if (from.X < 50f)
+                {
+                    return true;
+                }
+
+                return throwing ? throw new InvalidOperationException("the trace failed") : false;
+            });
+
+        lighting.ModelSunAt(0f, 0f, -100f).ShouldNotBeNull();
+
+        throwing = true;
+        Should.Throw<InvalidOperationException>(() => lighting.ModelSunAt(100f, 0f, -100f));
+        throwing = false;
+
+        lighting.ModelSunAt(100f, 0f, -100f).ShouldBeNull();
+    }
+
     /// <remarks>A hit is every model every frame, so it owes the collector nothing: no closure over the point.</remarks>
     [Test]
     public void ModelLightingAt_AHitInAnotherCell_AllocatesNothing()
