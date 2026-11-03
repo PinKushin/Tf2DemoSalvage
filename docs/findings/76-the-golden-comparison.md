@@ -245,7 +245,7 @@ by ~19 levels, indoor 45000 over by ~22. The likeliest remaining term is bloom's
 in it.
 
 B636 offered a second candidate: the world pass read a stale `LINEAR_LIGHT_SCALE` on frames with no 3D sky or water
-view. It was fixed in code on 2026-11-02, on branch `b636-exposure`, unmerged and not verified by looking. **Predicted, not measured:** the fix does not move this residue. The tables above
+view. It was fixed in code on 2026-11-02, on branch `batch-2` and shot: the far camera drops from 103.27 to 86.65 mean (RISKS B636). **Predicted, not measured:** the fix does not move this residue. The tables above
 were drawn at a scale of exactly 1, so the stale value and the frame's value are both 1 (arithmetic).
 - If a re-shoot after the fix moves the 45000 residue, the logged 1 was not what the shader read.
 - If it moves an outdoor case, the same is true there.

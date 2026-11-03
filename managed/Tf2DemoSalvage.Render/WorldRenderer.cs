@@ -4742,12 +4742,21 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             return;
         }
 
+        // The array mirrors the last full upload, so an unchanged scale is already on the GPU: no second discard map.
+        if (BitConverter.SingleToInt32Bits(_cameraContents[LinearLightScaleSlot]) == BitConverter.SingleToInt32Bits(scale))
+        {
+            return;
+        }
+
         _cameraContents[LinearLightScaleSlot] = scale;
         UploadCamera(context);
     }
 
-    /// <summary>The scale the camera constants last carried to the GPU (B243: the value the shaders read, not the property).</summary>
-    public float UploadedLinearLightScale => _cameraContents[LinearLightScaleSlot];
+    /// <summary>
+    /// The scale the camera constants last carried to the GPU (B243: the value the shaders read, not the property). Before
+    /// any camera there are no constants, and the first <see cref="SetCamera"/> reads the property, so that is the answer.
+    /// </summary>
+    public float UploadedLinearLightScale => _camera.Handle is null ? LinearLightScale : _cameraContents[LinearLightScaleSlot];
 
     /// <summary>The per-material constants a material without a detail texture gets.</summary>
     /// <remarks>
@@ -5102,7 +5111,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
     // the shader's twelve (B139).
     private const int CameraConstants = 16 + 4 + 4 + 4 + 4 + 4 + 4;
 
-    /// <summary>Where <c>LINEAR_LIGHT_SCALE</c> sits in the camera constants: <c>debugModes2.y</c>, after the matrix and four float4s.</summary>
+    /// <summary>Where <c>LINEAR_LIGHT_SCALE</c> sits in the camera constants: <c>debugModes2.y</c>, after the matrix and three float4s.</summary>
     private const int LinearLightScaleSlot = 16 + 4 + 4 + 4 + 1;
 
     /// <summary>The camera constants as last sent, zero before any camera (B636).</summary>

@@ -41544,10 +41544,23 @@ by a modulating material, and has to keep its scale exemption.
 TF2's live pair puts the fog's share of the scorch at the gap between 0.591 (fog off) and 0.658 (fog on), stored, at
 the centre.
 
-## B636 — the world pass gets the exposure only on frames that draw a 3D-sky or water view (2026-10-31) — FIXED in code on `b636-exposure` (2026-11-02), unmerged, not verified by looking; captures owed
+## B636 — the world pass gets the exposure only on frames that draw a 3D-sky or water view (2026-10-31) — FIXED in code (branch `batch-2`, 2026-11-03), shot before and after; **owner-visible, awaiting the owner's go before it is pushed**
 
-**Mechanism proved (2026-11-02): read from our code, then a red harness test; the camera dependence is NOT yet measured
-on a capture.** The constants every world-camera draw reads (world, overlays, opaque models, entity decals, translucent
+**Measured on captures (2026-11-03, Debug builds of main `9639f0be` and of this branch, f12 tick 30000, `D:/b636/shots/`;
+side by side `sbs-far-before-after.png`; the numbers are 2x-subsampled pixel counts and mean channel mean).**
+- **Far camera `-3722 -1403 726 25 99` (no 3D sky or water view in frame):** before 103.27 mean, after 86.65: 126,443 of
+  135,792 sampled pixels change, by at most 54 levels. `+mat_force_tonemap_scale 1` before changed 40,324 px by at most 14
+  (the old "small" difference); after, default against forced changes 126,444 px by at most 54, i.e. the default now
+  carries the exposure (about 0.70).
+- **Close camera `-3516 -2200 763 35 -28`:** before and after identical (0 px): it already drew at the frame's scale.
+  Default against forced differs by 126,444 px either way (62.84 to 75.03).
+- **Control:** with `+mat_force_tonemap_scale 1` before and after are identical at both cameras (0 px).
+- So the camera dependence of the old build is shown: only frames with no sky/water re-send drew at the wrong scale, and
+  the fix makes the far camera behave as the close one. **Not compared against a TF2 capture**, so whether 86.65 is the
+  value TF2 reads at this view is *unmeasured*; the fix follows Valve's constant-write, not a pixel match.
+
+**Review 2026-11-03 (code-review high + Opus):** the capture-log scale read 0 before any camera upload (fixed: before a
+camera it is the property); the per-call upload now skips an unchanged scale. **Mechanism proved (2026-11-02): read from our code, then a red harness test.** The constants every world-camera draw reads (world, overlays, opaque models, entity decals, translucent
 leaves and world, B637's Modulate fog grey) took `LINEAR_LIGHT_SCALE` only inside `WorldRenderer.SetCamera`. `DrawFrame`
 set the property and sent nothing, so the world pass read the last upload's scale. The routes to that upload:
 

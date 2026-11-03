@@ -27,7 +27,7 @@ public sealed class FrameToneMapScaleConformanceTests
     /// <c>srgb(0.5 · linear(p1))</c> of the pixel <c>p1</c> drawn at 1 — about 138 to about 100 for this quad.
     /// </remarks>
     [Test]
-    public void RedrawWorld_AfterTheFrameScaleIsSetWithNoCameraUpload_DrawsAtTheFrameScale()
+    public void SetToneMappingScaleLinear_WithNoCameraUploadAfterIt_DrawsTheWorldAtTheFrameScale()
     {
         using OffscreenTarget? target = OffscreenTarget.TryCreate(16, 16);
 
@@ -64,7 +64,7 @@ public sealed class FrameToneMapScaleConformanceTests
     /// world's constants back at 1, so anything drawn on them after it is unexposed.
     /// </remarks>
     [Test]
-    public void RedrawWorld_AfterTheHudsResetToOne_DrawsAtOne()
+    public void SetToneMappingScaleLinear_TheHudsResetToOne_DrawsTheWorldAtOne()
     {
         using OffscreenTarget? target = OffscreenTarget.TryCreate(16, 16);
 
