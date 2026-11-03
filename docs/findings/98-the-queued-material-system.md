@@ -168,8 +168,9 @@ start, the only safe join point in today's code, saves only the gap between fram
 the worker for 1.9-2.1 ms of a 2.2-2.8 ms draw. Joining later, so that simulate, camera and hud overlap the draw,
 crashed in the first second on a shared list. Finding 98's blocker is real: **any saving above ~0.5 ms needs the
 snapshot first, and what the snapshot copy costs is still unmeasured.** Steps 3-7 were not started. The prototype's
-code (a throwaway `TF2VIEW_PROTO_RENDER_THREAD` switch in `FrameSequence.cs`) is NOT on main; it is on the branch
-`feat/queued-material-system` and should be removed before anything from it merges.
+code (a throwaway `TF2VIEW_PROTO_RENDER_THREAD` switch in `FrameSequence.cs`) is NOT on main; it is kept as two patches
+(`measurements/2026-10-22-render-thread-prototype/*.patch`, commits `d8b4329d` and `866b3b87`) and the switch should be removed
+before anything from it is used.
 
 **Step 1 (the Ghidra read) was not done.** The session's Ghidra MCP bridge connected to `tf2materialsystem` but
 registered its 214 analysis tools after this agent's tool list was fixed, so no read tool was callable. The
@@ -916,9 +917,9 @@ and the scattered writes.
 
 ## (16) Appendix, written 2026-10-22, recovered 2026-11-03: the Ghidra read of `materialsystem.dll` (x64, shipped 2026-10-13)
 
-*Recovered from branch `feat/queued-material-system` (commit "docs: finding 98 section 8 - the Ghidra read of
-materialsystem.dll"), where it was numbered section 8 and settled section 1's unknowns; never merged, so main's own
-sections 8 to 15 were written without it. Section 10's `-1` default and fall-backs rest on this read.*
+*Recovered 2026-11-03 from an old unmerged commit ("docs: finding 98 section 8 - the Ghidra read of materialsystem.dll"),
+where it was numbered section 8 and settled section 1's unknowns; never merged, so main's own sections 8 to 15 were
+written without it. Section 10's `-1` default and fall-backs rest on this read.*
 
 *Read from the closed binary* (Ghidra project `tf2materialsystem` on D:, via the MCP). Addresses are the image's.
 Logic is paraphrased; no decompiler output is reproduced.

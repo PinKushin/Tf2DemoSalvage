@@ -1,0 +1,91 @@
+From 866b3b87ae9434c562cb1ff14c84da69341e6d04 Mon Sep 17 00:00:00 2001
+From: "John (PinKushin)" <pinkushin1@gmail.com>
+Date: Thu, 22 Oct 2026 20:39:11 -0400
+Subject: [PATCH 2/2] measure: B581 prototype result - checkpoint stops the
+ full design
+
+The safe join saves only the inter-frame gap (~0.5 ms) and the game thread waits
+1.9-2.1 ms on the render thread each frame. The unsafe overlap crashed on a shared list.
+The Ghidra read is blocked (MCP tools not callable from this agent).
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ .../findings/98-the-queued-material-system.md | 13 ++++++
+ .../2026-10-22-render-thread-prototype.md     | 43 ++++++++++++++++++-
+ 2 files changed, 55 insertions(+), 1 deletion(-)
+
+diff --git a/docs/findings/98-the-queued-material-system.md b/docs/findings/98-the-queued-material-system.md
+index 119a93d2..4333e08b 100644
+--- a/docs/findings/98-the-queued-material-system.md
++++ b/docs/findings/98-the-queued-material-system.md
+@@ -160,3 +160,16 @@ our renderer already has. A is the fallback only if the snapshot proves unbuilda
+    — the conformance test's thread-id assertion must redden.
+ 7. **Measure after**, ABBA on f12, with the render thread's time reported in its own column and the game thread's
+    `draw` named as the hand-off wait.
++
++## (7) Follow-up, 2026-10-22: the prototype stopped it at the checkpoint
++
++**Measured** (`docs/measurements/2026-10-22-render-thread-prototype.md`): `Draw` on a worker joined at the next frame's
++start, the only safe join point in today's code, saves only the gap between frames (~0.5 ms). The game thread waits on
++the worker for 1.9-2.1 ms of a 2.2-2.8 ms draw. Joining later, so that simulate, camera and hud overlap the draw,
++crashed in the first second on a shared list. Finding 98's blocker is real: **any saving above ~0.5 ms needs the
++snapshot first, and what the snapshot copy costs is still unmeasured.** Steps 3-7 were not started.
++
++**Step 1 (the Ghidra read) was not done.** The session's Ghidra MCP bridge connected to `tf2materialsystem` but
++registered its 214 analysis tools after this agent's tool list was fixed, so no read tool was callable. The
++headless-script and HTTP routes are closed by the binary-reads hook. Three things are still interpolated: what -1
++resolves to, when `EndFrame` waits, and how many frames are in flight.
+diff --git a/docs/measurements/2026-10-22-render-thread-prototype.md b/docs/measurements/2026-10-22-render-thread-prototype.md
+index 68c3dfdf..2ea87ee1 100644
+--- a/docs/measurements/2026-10-22-render-thread-prototype.md
++++ b/docs/measurements/2026-10-22-render-thread-prototype.md
+@@ -31,4 +31,45 @@ thread most of the time, stops the full design.
+ 
+ ## Results
+ 
+-(filled in after the runs)
++**Deviation from the record, stated.** A sibling agent's run-exclusive hold (60 minutes, measuring TF2 and the viewer)
++overlapped the first serial run, which read 14.65 ms at load 76%; it is discarded. The rest ran 19:48-20:20 after the
++hold ended, in the order below rather than a strict A B B A per mode, because the run-to-run spread turned out to be
++larger than the effect and the deciding number is not the frame mean (below). Same command for every run; no
++`--spectate gummo`, so these are not comparable with the 2026-10-22 TF2 pair, only with each other.
++
++| # | mode | load % | frames | mean ms | phase sum ms | frame - phases ms | draw ms |
++|---|---|---|---|---|---|---|---|
++| 1 | racy | 27 | - | crashed: `ArgumentOutOfRangeException` (index out of range), exit 0xE0434352 | | | |
++| 2 | serial | 96 | 919 | 21.77 | | | 3.09 |
++| 3 | start | 45 | 1291 | 15.49 | 13.37 | **2.12** | 0.01 |
++| 4 | start | 36 | 1522 | 13.14 | 11.26 | **1.88** | 0.01 |
++| 5 | serial | 23 | 1164 | 17.18 | 17.18 | 0.00 | 2.73 |
++| 6 | end | 21 | 1148 | 17.42 | 17.42 | 0.00 | 2.83 |
++| 7 | end | 35 | 1411 | 14.18 | 14.18 | 0.00 | 2.28 |
++| 8 | serial | 20 | 1465 | 13.65 | 13.66 | 0.00 | 2.17 |
++
++Run 2 is at 96% load and is not used. Ticks advanced 1250-1345 against the expected ~1334: playback windows are full.
++
++**The deciding number is `frame - phases`.** In `start` mode the join sits before the first phase, so the time the
++game thread spends waiting for the previous frame's draw is the only time in the frame no phase owns. It is
++1.88-2.12 ms against a serial `draw` of 2.17-2.83 ms: **the game thread waits for the render thread for about 80-90% of
++the draw**, and the overlap actually won is the inter-frame gap (`between`, 0.46-0.62 ms) and no more, which is what
++the `start` mode's design predicted. The controls hold: serial and `end` have zero unaccounted time, so the phase
++timers cover the whole frame and the hand-off itself costs nothing measurable.
++
++The prototype's own `worker draw` / `join wait` counters were not windowed to the measured interval (they count every
++frame since launch, including ~580,000 near-empty loading frames), so they read 0.2 ms and are **not** used; the
++`frame - phases` residual is carried from the same report the means come from.
++
++**The ceiling could not be measured.** `racy` overlaps the next frame's simulate, camera and hud with the previous
++draw, and crashed in the first second on a shared list, which is exactly finding 98's blocker: every list `draw`
++reads is written by the next frame's stages. So in today's code a render thread can overlap only the gap between
++frames, and any saving above ~0.5 ms exists only after the snapshot of finding 98's design C, whose copy cost is
++unmeasured.
++
++## Verdict
++
++**The checkpoint stops it.** Measured saving at the only safe join point: at most the inter-frame gap, about 0.5 ms,
++with the game thread blocked on the render thread for ~2 ms of every frame. Both of the task's stop conditions hold.
++The frame means themselves cannot separate the modes: same-mode runs differ by up to 3.3 ms (13.14 against 15.49), more
++than the whole of `draw`.
+-- 
+2.55.0.windows.3
+

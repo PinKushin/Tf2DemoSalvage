@@ -122,7 +122,7 @@ For any particle job, and for the rung-2 render thread (`ViewHalves`, `DrawFeeds
 The engine's, mapped: after the serial offer pass of `ParticleEffects.Bursts` (and of `Update` for trails), fork the
 played steps, join before the write-back in offer order and before `FadeUnoffered`/`Retire`. Everything after it in
 `DrawOver` — `Build`, sprites, `SetParticles` — runs after the join, as `DetectChanges` and `DrawModel` do. This is
-exactly finding 94's shape (`eb5f63ea` on `worktree-agent-a15ceb35cdf667d9a`). **Nothing crosses a frame**, so the
+exactly finding 94's shape (`eb5f63ea`, patch in `measurements/2026-10-22-threaded-particles/`). **Nothing crosses a frame**, so the
 render thread never sees particle state mid-step.
 
 ## (5) Determinism — what proves it

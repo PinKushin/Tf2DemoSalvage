@@ -16,7 +16,7 @@ every frame, so two runs show the same moments. **`TF2VIEW_PLAY_SHOTS="<folder> 
 free-camera sweeps of 14 ticks (18050 to 19350). Most ticks are byte-identical. The same few differ every time, and
 always inside one box: (37,441)-(408,538) at 18150, 18250 and 30050, with up to about 9,000 pixels at 30150/30350/31050.
 That is the noise floor, and it never reaches the regions below. Builds were main `e05064db` with the instrument
-commit cherry-picked (`scratch/particle-diff-main`), and the branch at `55deabf5`.
+commit cherry-picked (`d7e69f75`), and the B557 particle work at `55deabf5`.
 
 ## First person, main against the branch (both runs clean)
 
@@ -64,8 +64,8 @@ recorder at 31050 and 31250 have their flash and streaks a frame behind. The roc
 at 30850 and 30950 sit a frame apart along their paths. By eye the two sides look alike apart from the fireball's
 size at 18350.
 
-**Attribution: row 6 (the creation frame).** I built the branch with row 6's two commits reverted
-(`scratch/particle-diff-no-row6`). It matches main pixel for pixel at all 14 first-person ticks outside the noise box,
+**Attribution: row 6 (the creation frame).** I built `55deabf5` with row 6's two commits reverted
+(the build was at `13598457`, a revert of row 6's fix). It matches main pixel for pixel at all 14 first-person ticks outside the noise box,
 so rows 1, 3, 9 and 17 change nothing visible in that window. The free-camera attribution is inferred from that run, not
 run separately.
 

@@ -5,7 +5,7 @@
 ## Observation
 
 1. Finding 94 measured the fork-join of the per-effect particle step at `bursts/step` 0.36 → 0.28 ms on f12 first person
-   (`2026-10-22-threaded-particles.md`, on branch `worktree-agent-a15ceb35cdf667d9a`), behind an invented
+   (`2026-10-22-threaded-particles.md`, code as patches beside it), behind an invented
    `cl_frame_workers`. Finding 103 showed the engine does exactly this (`ParallelProcess( …, ProcessPSystem )`,
    particlemgr.cpp:1869-1897, `r_threaded_particles` default 1 at :1543). Branch `perf/threaded-particles-sunfrom` ports the
    step split onto main behind `r_threaded_particles` (the build stays serial, as the engine's does), with a fork of

@@ -1,0 +1,195 @@
+From ba46fc25251290d74d07020f77146db1739463d0 Mon Sep 17 00:00:00 2001
+From: "John (PinKushin)" <pinkushin1@gmail.com>
+Date: Thu, 22 Oct 2026 11:32:37 -0400
+Subject: [PATCH] fix: HUD particle panels stay serial; test the
+ duplicate-offer flush
+
+A bare ParticleEffects now defaults to one worker, so only the scene's
+instance follows cl_frame_workers and the HUD model panels stay serial as
+the help text says. New test: a key offered twice in a frame gives the
+frames of one offer; deleting the flush reddened it, restored.
+
+Docs: finding 94 corrects its first bone-setup blocker (SkinnedModel's
+caches are ConcurrentDictionary already), records that the seek-based shot
+fallback also fails serial against serial, and qualifies the draw overlap's
+3 ms as an estimate. The measurement's Result explains that the frame
+column is not the phase sum, so its lower threaded reading is not a saving.
+
+Tested by: ParticleEffectsWorkersTests (8), Scene.Tests 3220, Presentation.Tests 1274
+Observed: docs/measurements/2026-10-22-threaded-particles.md
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ .../94-threads-buy-little-of-the-camera.md    | 30 ++++++++++++-------
+ docs/findings/README.md                       |  7 +++--
+ .../2026-10-22-threaded-particles.md          |  9 +++++-
+ .../Tf2DemoSalvage.Scene/ParticleEffects.cs   |  3 +-
+ .../ParticleEffectsWorkersTests.cs            | 17 ++++++++---
+ 5 files changed, 47 insertions(+), 19 deletions(-)
+
+diff --git a/docs/findings/94-threads-buy-little-of-the-camera.md b/docs/findings/94-threads-buy-little-of-the-camera.md
+index afd9d3ac..2754032d 100644
+--- a/docs/findings/94-threads-buy-little-of-the-camera.md
++++ b/docs/findings/94-threads-buy-little-of-the-camera.md
+@@ -66,16 +66,24 @@ reason, *not measured*: the gather is a small share of `build`, which also holds
+ and the merge copies every vertex a second time. The threaded build is kept because it is identical and not slower, but it
+ earns nothing on f12. **Unverified: an output-level identity on f12.** The fixed-step capture meant for it is not
+ deterministic even serial against serial (`TF2VIEW_FIXED_FRAME` did not stop the wall clock advancing the demo), so the
+-pictures prove nothing either way. The identity rests on the synthetic test.
++pictures prove nothing either way. The seek-based fallback failed the same control: `--shot` at ticks 30100, 30200 and
++30300, taken at 1, 8 and 1 workers, gave three different PNG hashes at every tick, and the two serial shots' sidecars are
++identical except for their capture time and file name. So the capture is not deterministic even where the recorded state
++is the same (*measured*; the cause was not looked for). The identity rests on the synthetic test. An output-level check
++needs an instrument that hashes the particle batches and instance list of each frame directly rather than the pixels.
+ 
+ ## (4) Bone setup: not attempted, and why (*read from our code*)
+ 
+ Setup plus anim measured 0.4-0.6 ms (finding 93 (1)), so the 0.6-0.9 estimate was already mostly flex and place, which run
+-after the serial lighting call. Before any of it can run on two threads, four things must change:
+-- **Shared lazy caches on every skinned model.** `PropModels.SkinnedModel`, one per model and shared by every entity
+-  wearing it, fills about ten plain `Dictionary` caches on first use during a pose: `_ikRules`, `_bonesByGroup`,
+-  `_remapByGroup`, `_locks`, `_autoLayers`, `_relativeSequences`, `_boneWeights`, `_boneMaps`, `_groupBones`, and the `??=`
+-  fields `_ikChains` and `_autoplay`. Two soldiers posed at once write the same dictionary, which corrupts it silently.
++after the serial lighting call.
++
++**A wrong first reading, kept because it was committed.** The first version of this finding listed "about ten plain
++`Dictionary` caches" on `PropModels.SkinnedModel` (one per model, shared by every entity wearing it) as the first blocker,
++read from their assignment lines alone. Their declarations say otherwise: `_ikRules`, `_bonesByGroup`, `_remapByGroup`,
++`_locks`, `_autoLayers`, `_relativeSequences`, `_boneWeights`, `_boneMaps` and `_groupBones` are all `ConcurrentDictionary`
++(PropModels.cs:1746-1771, :2259-2262). The two `??=` fields, `_ikChains` and `_autoplay`, compute a pure value from the
++model, so a race only computes it twice. The model caches are not a blocker. Content's own decode caches below
++`LocalsInto` (`StudioAnimation` and the sequence readers) were not audited. What remains:
+ - **Static counters and timers inside the pose:** `SkeletonPose.PoseBuilds`, `AnimationTicks` and `AnimationCalls` are
+   static `++`/`+=`. That is a race, and every `Builds*` delta and the `anim` part would stop meaning anything.
+ - **A follow chain crosses trees by design.** `AnimatingEntity.SetupBones` asks `Follows.SetupBones` from inside itself
+@@ -84,14 +92,16 @@ after the serial lighting call. Before any of it can run on two threads, four th
+ - **A pre-pass must reach exactly the set the draw loop reaches**, with its skips (`RenderMode.None`, no geometry, the
+   lookups) and its order relative to `_lighting.For`. The light cache's LRU and its two-builds-a-frame budget are output.
+ 
+-Each of these is fixable: concurrent or pre-filled caches, per-thread counters summed after, a serial partition, and a
+-pre-pass that is the loop's own selection. But together they are a refactor of the pose path for at most 0.4-0.6 ms of
+-work, before scheduling cost. It is left for its own task.
++Each of these is fixable: per-thread counters summed afterwards, a serial partition, and a pre-pass that is the loop's
++own selection. But the work they unlock is at most 0.4-0.6 ms, before scheduling cost. Scaled by the particle row's
++sevenfold overestimate, the saving is under 0.1 ms. That is an *estimate*, and not measured. It is left for its own task.
+ 
+ ## (5) Does the draw/HUD overlap look feasible?
+ 
+ The 3 ms item (draw 2.1 + hud 1.0) was not attempted. On this evidence, **the overlap is now the only threading lead
+ left with a size worth the work.** The two per-unit parts gave 0.08 ms and a refactor blocker. What it needs is unchanged
+ from finding 93: an immutable snapshot of the frame, so that the next frame's simulation cannot change what is being
+-drawn. The particle split shows the shape that works here: serial decisions, per-unit buffers, and a merge in serial
++drawn. **Its "up to 3 ms" is the same kind of estimate that just came in seven times too high.** So the first step is to
++measure how much of draw plus HUD is CPU work that could run beside the next frame's simulation, before building a
++snapshot. The particle split shows the shape that works here: serial decisions, per-unit buffers, and a merge in serial
+ order.
+diff --git a/docs/findings/README.md b/docs/findings/README.md
+index e03e8b4e..ffd861cd 100644
+--- a/docs/findings/README.md
++++ b/docs/findings/README.md
+@@ -339,9 +339,10 @@ in any public writeup found:
+   each frame (0.53 → 0.19 ms). The dynamic-light merge never runs on f12, and a struct copy's sampled share proved not to
+   be its cost. The finding ends with a design note on which parts could run on other threads with identical output
+   ([93](93-the-camera-phase-is-a-long-tail.md)).
+-- **Threading the particles saved a tenth of the estimate, and bone setup cannot be threaded as it stands.** The played
+-  bursts step on workers with byte-identical output (step 0.36 → 0.28 ms); the threaded build does not move. Shared lazy
+-  caches on every skinned model and static counters block threaded bone setup ([94](94-threads-buy-little-of-the-camera.md),
++- **Threading the particles saved about a seventh of the estimate, and bone setup cannot be threaded as it stands.** The played
++  bursts step on workers with byte-identical output (step 0.36 → 0.28 ms); the threaded build does not move. Static
++  pose counters, cross-tree follow chains and the draw loop's reach block threaded bone setup (the model caches, first
++  named as the blocker, turned out to be concurrent already) ([94](94-threads-buy-little-of-the-camera.md),
+   measurements/2026-10-22-threaded-particles.md).
+ 
+ ## Conventions used throughout
+diff --git a/docs/measurements/2026-10-22-threaded-particles.md b/docs/measurements/2026-10-22-threaded-particles.md
+index 3fa9d39c..fd96270b 100644
+--- a/docs/measurements/2026-10-22-threaded-particles.md
++++ b/docs/measurements/2026-10-22-threaded-particles.md
+@@ -63,6 +63,13 @@ per-second lines after the first five, frame-weighted (the arithmetic of the bre
+ | S2 (1 worker) | 11.41 | 6.57 | 2.04 | 0.91 | 0.36 | 0.68 | 3.83 | 2.12 |
+ | T2 (6 workers) | 10.87 | 6.60 | 2.01 | 0.85 | 0.28 | 0.70 | 3.91 | 2.13 |
+ 
++**The frame column is not explained by any phase.** The steady phase means (sound, camera, advance, hud, draw) sum to
++10.96 / 11.01 / 10.92 / 10.99 ms for S1 / T1 / S2 / T2, so the phases are equal within 0.1 ms, and the T sums sit ABOVE the
++T frame column. The column (the `, N ms;` field of each per-second line, as `parts.ps1` reads it) is therefore not the sum
++of the phases, and its 0.3-0.7 ms difference is not taken as a saving. GC, from the first `gc:` line of each run: paused
++0.58 / 0.62 / 0.59 / 0.63 ms a frame, allocated 2.44 / 2.48 / 2.44 / 2.47 MB a frame, so threaded allocates about
++0.03-0.04 MB a frame more and pauses about 0.04 ms more.
++
+ **Controls.**
+ - Same content: the census lines of all four runs report `model decals 75` and burst counts in the same range at the
+   same ticks (met).
+@@ -79,7 +86,7 @@ per-second lines after the first five, frame-weighted (the arithmetic of the bre
+ **Prediction falsified.** Stepping the played bursts on six workers cuts the main thread's wait in `bursts/step` from 0.36
+ to 0.28 ms; the build does not move outside noise (0.68-0.73 serial, 0.68-0.70 threaded), so the gather it threads is a
+ small part of `build` or its merge copy eats what it saves; `camera particles` falls by about 0.03 ms and `camera` not
+-at all. The whole frame reads 0.3-0.7 ms lower threaded, which `camera` does not explain and is not claimed. Finding 93's
++at all. The whole frame's phases are equal S against T; the frame column's lower T reading is not a saving (Result). Finding 93's
+ 0.5-0.7 ms estimate for this row was about seven times too high. The byte-identity of the threaded output rests on the
+ synthetic equivalence test only; the output-level f12 comparison is still open, because the fixed-step capture is not
+ deterministic.
+diff --git a/managed/Tf2DemoSalvage.Scene/ParticleEffects.cs b/managed/Tf2DemoSalvage.Scene/ParticleEffects.cs
+index 7f2222e1..8cd8d420 100644
+--- a/managed/Tf2DemoSalvage.Scene/ParticleEffects.cs
++++ b/managed/Tf2DemoSalvage.Scene/ParticleEffects.cs
+@@ -73,7 +73,8 @@ public sealed class ParticleEffects
+     /// The threads the bursts' steps and every effect's quads are built on (finding 94): `ProcessPSystem` per effect, as
+     /// `r_threaded_particles` runs it (particlemgr.cpp:1543, :1869-1884). The output is the serial output at any count.
+     /// </summary>
+-    public FrameWorkers Workers { get; set; } = new();
++    /// <remarks>Serial unless the owner says otherwise: the scene's follows `cl_frame_workers`, a HUD panel's stays on one.</remarks>
++    public FrameWorkers Workers { get; set; } = new() { Count = 1 };
+ 
+     /// <summary>The sheet each system's material carries, for `Lifetime From Sequence`; null before a map's materials load.</summary>
+     public Func<ParticleSystem, IReadOnlyList<SheetSequence>?>? Sheets { get; set; }
+diff --git a/tests/Tf2DemoSalvage.Scene.Tests/ParticleEffectsWorkersTests.cs b/tests/Tf2DemoSalvage.Scene.Tests/ParticleEffectsWorkersTests.cs
+index b182d362..0aa81151 100644
+--- a/tests/Tf2DemoSalvage.Scene.Tests/ParticleEffectsWorkersTests.cs
++++ b/tests/Tf2DemoSalvage.Scene.Tests/ParticleEffectsWorkersTests.cs
+@@ -123,14 +123,23 @@ public sealed class ParticleEffectsWorkersTests
+ 
+     private static readonly Vector3 Eye = new(0f, -1000f, 0f);
+ 
+-    private static byte[] Run(FrameWorkers workers)
++    /// <remarks>
++    /// **The duplicate offer, which the comparisons above cannot see** for the reason the seek test gives. Serially a
++    /// second offer of a key in one frame finds it already stepped to the frame's moment and steps nothing, so the frames
++    /// are those of one offer; an offer that read the state from before the first offer's write would step it twice.
++    /// </remarks>
++    [Test]
++    public void Frames_AKeyOfferedTwiceInAFrame_AreTheFramesOfOneOffer() =>
++        Run(new FrameWorkers { Count = 1 }).ShouldBe(Run(new FrameWorkers { Count = 1 }, duplicate: false));
++
++    private static byte[] Run(FrameWorkers workers, bool duplicate = true)
+     {
+         ParticleEffects effects = new() { Workers = workers };
+         List<byte> bytes = [];
+ 
+         for (int tick = First; tick <= Last; tick++)
+         {
+-            Frame(effects, tick);
++            Frame(effects, tick, duplicate);
+ 
+             foreach (ParticleBatch batch in effects.Build(Eye, Vector3.UnitX, Vector3.UnitZ, Materials))
+             {
+@@ -153,7 +162,7 @@ public sealed class ParticleEffectsWorkersTests
+         return [.. bytes];
+     }
+ 
+-    private static void Frame(ParticleEffects effects, int tick)
++    private static void Frame(ParticleEffects effects, int tick, bool duplicate = true)
+     {
+         bool seeked = tick == Seek;
+         List<ParticleBurst> live =
+@@ -164,7 +173,7 @@ public sealed class ParticleEffectsWorkersTests
+             Burst(4, A, 110, tick, stop: 120) with { DormantAt = at => at is >= 115 and < 118 },
+         ];
+ 
+-        if (tick is 105 or 106)
++        if (duplicate && tick is 105 or 106)
+         {
+             // Offered twice in one frame: the second must see the first's write, as the serial loop does.
+             live.Add(Burst(2, B, 102, tick));
+-- 
+2.55.0.windows.3
+

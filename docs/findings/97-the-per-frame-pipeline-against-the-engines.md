@@ -138,7 +138,7 @@ timer and two runs a side; a frame-level difference under ~0.5 ms is inside run-
 
 A read of `main` @ `01faad62` filed eight more per-frame costs as **B583-B590** in `docs/RISKS.md`. Their code-read
 estimates sum to roughly **2.3-3.9 ms** of the ~13 ms frame. That sum is **unmeasured** (ESTIMATE): it must be measured,
-with stage timers or the benchmark harness on branch `perf/where-main-thread-goes`, before any of the eight is called a cause.
+with stage timers or the benchmark harness (`benchmarks/Tf2DemoSalvage.Benchmarks/PoseBlendBenchmarks.cs`), before any of the eight is called a cause.
 
 ## (7) The main thread sampled, 2026-10-24 (measured)
 
@@ -155,7 +155,7 @@ within ~2 points (measurements/2026-10-24-main-thread-cpu-profile.md). The empty
 
 ## (8) Four profile leads timed, 2026-10-24 (measured)
 
-Section (7), on branch `docs/main-thread-cpu-profile`, is the main-thread profile
+Section (7) is the main-thread profile
 (`measurements/2026-10-24-main-thread-cpu-profile.md`), which named four leads by share. Each was changed with an
 equivalence test and timed in Release: interleaved, three runs a side, gummo first person and the empty view. Records:
 `measurements/2026-10-24-muzzle-flash-log-line.md` and `measurements/2026-10-24-burst-walk-and-pose-copies.md`.

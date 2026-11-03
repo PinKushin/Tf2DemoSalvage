@@ -11255,7 +11255,7 @@ result, and what it does not fix, is `docs/measurements/2026-10-27-retime-view-b
 
 ## D239 — merge B581 rung 3 step 1 (the pose into its own half); the one UI-suite hang is filed as a flake, B609 (2026-10-28)
 
-**The owner, 2026-10-28**, on the branch `perf/double-buffer-pose` and its one phase-2 hang: *"merge it, file the hang
+**The owner, 2026-10-28**, on the double-buffer-pose change (merged as `35000cda`) and its one phase-2 hang: *"merge it, file the hang
 as a flake, i think it was probably just a slow load because tf2 was open or somethign"*. The text is his, verbatim,
 with the typo kept.
 

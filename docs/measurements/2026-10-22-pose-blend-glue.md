@@ -53,7 +53,7 @@ one tick blends.
 
 ## Environment
 
-i5-10600K, RTX 3060; Release, .NET 10; branch `perf/where-main-thread-goes` from `504673db`.
+i5-10600K, RTX 3060; Release, .NET 10; run from commit `504673db`'s tree with the harness now on main.
 
 ## Result R2 (the one to quote)
 

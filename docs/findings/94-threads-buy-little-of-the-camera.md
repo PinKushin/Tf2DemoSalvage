@@ -2,8 +2,9 @@
 
 **Status: the code described below is NOT on main.** It matched serial output byte for byte on synthetic scenes but
 saved nothing measurable on f12, and rewrote most of `ParticleEffects.cs` (+609/-165 lines) plus a worker-count
-setting for no gain, so it was not merged. It is kept on the branch `worktree-agent-a15ceb35cdf667d9a` (commits
-`eb5f63ea`, `ba46fc25`) and is the starting point if a later change makes the threaded build worth having. This record
+setting for no gain, so it was not merged. It is kept as two patches (commits `eb5f63ea`, `ba46fc25`) in
+`measurements/2026-10-22-threaded-particles/` (`*.patch`, applied in that order with `git am`) and is the starting point if a later change
+makes the threaded build worth having. This record
 and its measurement stay because the wrong estimate (about seven times too high) and what falsified it are the point.
 
 **The question.** Finding 93's design note named two parts of `camera` that could run on worker threads with

@@ -18583,7 +18583,7 @@ entities enter the PVS must have a baseline available to a real client.
 **This holds up B245, and the open question is now sharper.** The fix drafted there — an `Enter`
 forgets and re-decodes from its baseline, which is what `CL_CopyNewEntity` does — produces the
 intended outcome: the bonesaw reads `WEAPON_NOT_CARRIED` and player 20 holds exactly one weapon at
-tick 14000. It sits on the branch `fix/enter-pvs-resets-from-baseline`, unmerged, and it fails two
+tick 14000. It was drafted on a side branch, unmerged at the time (closed below, "B245, closed"), and it failed two
 tests that encode B231 — `EntityState_LeavingTheVisibleSet_IsNotDestruction` and
 `Apply_AnEntityReenteringWithTheSameSerial_KeepsWhatItAlreadyKnew` — both asserting that a
 re-entering entity keeps what it knew, using fixtures that supply no baseline at all.
@@ -40032,7 +40032,7 @@ things `UnlitGeneric` does that `VguiRenderer` does not, none reachable by a sto
   `ammo_blue_bg.vmt` has `$vertexcolor` commented out. The renderer multiplies by the vertex colour unconditionally.
   Whether `CMatSystemSurface` forces the flag on the materials it draws has not been read — that read comes first.
 - **`$separatedetailuvs`** (unlitgeneric_dx9.cpp:72, :152). The detail is then sampled from the second texture-coordinate
-  set; the renderer always samples the base's. Added from the Fable review of `fix/hud-followups` (2026-10-18).
+  set; the renderer always samples the base's. Added from the Fable review of the HUD follow-ups (2026-10-18).
 
 ## B555 — a particle name declared twice kept the FIRST definition; the engine keeps the last — FIXED 2026-10-19 (`fix/b554-map-particle-manifest`)
 
@@ -40210,7 +40210,7 @@ reddens four tests), and a child's drawn size against its own scale alone.
 
 ## B609 — `PausedSoundUiTests.Footsteps_HeardWhilePlaying_StopWhenTheDemoIsPaused` hung once in the UI suite — KNOWN FLAKE (2026-10-28)
 
-**Filed as a flake by the owner's decision (D239)**, on branch `perf/double-buffer-pose` (B581 rung 3 step 1). The
+**Filed as a flake by the owner's decision (D239)**, on the double-buffer-pose change (B581 rung 3 step 1, merged as `35000cda`). The
 measurements behind it are in `docs/measurements/2026-10-28-double-buffer-pose.md` ("Gate" and "Verdict on the hang").
 
 **What happened, once.** The suite's first run of the day, at 13:34, took 11 m 8 s against about 6 m for every later
@@ -42250,7 +42250,7 @@ is the owner's to schedule. The swap's own record: `docs/measurements/2026-10-28
 
 ## B610 — a native access violation in D3D11 `Map` under the offscreen screen-overlay draw aborted the rendering tests once — OPEN (2026-10-28)
 
-**Seen once**, in phase 1 of the gate on branch `perf/double-buffer-pose` (`6991bf4c` plus records), 2026-10-28 18:13-18:27.
+**Seen once**, in phase 1 of the gate for the double-buffer-pose change (`6991bf4c` plus records; merged as `35000cda`), 2026-10-28 18:13-18:27.
 - `Tf2DemoSalvage.Rendering.Tests` aborted with `0xC0000005` after 129 tests had passed.
 - The stack ran `Silk.NET.Direct3D11.ID3D11DeviceContext.Map` ← `WorldRenderer.DrawScreenOverlay` ←
   `OffscreenTarget.DrawScreenOverlay` ← `CloakRenderTests.DrawScreenOverlay_JarateOverAUniformFrame_KeepsRedAndDarkensBlue`.

@@ -1,0 +1,172 @@
+From d8b4329d9de999447ac9e1881d4f2865a4b2fbf1 Mon Sep 17 00:00:00 2001
+From: "John (PinKushin)" <pinkushin1@gmail.com>
+Date: Thu, 22 Oct 2026 19:10:18 -0400
+Subject: [PATCH 1/2] measure: B581 render-thread prototype record and
+ throwaway switch
+
+Record written before the run (Observation, Question, Method, Control).
+The switch in FrameSequence is throwaway and is removed with the prototype.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ .../2026-10-22-render-thread-prototype.md     | 34 +++++++++
+ .../FrameSequence.cs                          | 71 ++++++++++++++++++-
+ .../ViewerSession.Frame.cs                    |  5 ++
+ 3 files changed, 109 insertions(+), 1 deletion(-)
+ create mode 100644 docs/measurements/2026-10-22-render-thread-prototype.md
+
+diff --git a/docs/measurements/2026-10-22-render-thread-prototype.md b/docs/measurements/2026-10-22-render-thread-prototype.md
+new file mode 100644
+index 00000000..68c3dfdf
+--- /dev/null
++++ b/docs/measurements/2026-10-22-render-thread-prototype.md
+@@ -0,0 +1,34 @@
++# Measurement 2026-10-22: a throwaway render-thread prototype (B581, finding 98 step 2)
++
++## Record (written and committed before the first run)
++
++**Observation.** Finding 98 estimates a queued render thread would save about 1-1.5 ms of a 13.4 ms f12 frame
++(arithmetic, not measured): `draw` is about 2.1-2.8 ms of processor time and is the only stage that would move.
++
++**Question.** On f12 from tick 30000 first person, how much frame time does running `Draw` on a second thread
++save, (a) at the only join point that is safe in today's code, and (b) at an unsafe ceiling?
++
++**Method.** `FrameSequence.Run` behind `TF2VIEW_PROTO_RENDER_THREAD` (throwaway; nothing else changed):
++
++- `end` (control): `Draw` is handed to a worker and joined at the end of the same frame. Same work as serial plus
++  the hand-off; it must read the same as serial within noise, or the hand-off itself costs something.
++- `start` (safe): joined at the start of the NEXT frame. Overlaps only the time between frames (message pump, idle).
++  Safe, because every stage of the next frame runs after the join; this is a lower bound.
++- `racy` (ceiling, UNSAFE): joined just before the next frame's `Draw`, so shot, simulate, camera, sound, project and
++  hud all overlap the previous draw while sharing its lists and the immediate context. It may crash or draw garbage;
++  if it runs, its frame time is the most a render thread could save without a snapshot cost.
++
++Runs, each `TF2VIEW_AUTOPLAY=1 TF2VIEW_VIEWPORT_SIZE=1280x720 [TF2VIEW_PROTO_RENDER_THREAD=<mode>] pwsh
++C:/Users/pinku/source/repos/PinKushin/run-exclusive.ps1 tf2demoview.exe D:/measure-f12/f12.dem --tick 30000
++--first-person --measure 20 +fps_max 0`, order A B B A for serial (A) against each prototype mode (B). Machine load
++read before each run with `Get-CimInstance Win32_Processor | Select LoadPercentage`.
++
++**Control.** The `end` mode (identical work, worker thread) and the ABBA order (drift shows as A1 against A2).
++Ticks advanced should be about 66.7 x 20.
++
++**Verdict rule (from the task).** A measured saving under about 0.5 ms, or a game thread blocked on the render
++thread most of the time, stops the full design.
++
++## Results
++
++(filled in after the runs)
+diff --git a/managed/Tf2DemoSalvage.Presentation/FrameSequence.cs b/managed/Tf2DemoSalvage.Presentation/FrameSequence.cs
+index b226eb38..cd0a71f9 100644
+--- a/managed/Tf2DemoSalvage.Presentation/FrameSequence.cs
++++ b/managed/Tf2DemoSalvage.Presentation/FrameSequence.cs
+@@ -113,6 +113,10 @@ public static class FrameSequence
+         ArgumentNullException.ThrowIfNull(steps);
+ 
+         long start = Stopwatch.GetTimestamp();
++        if (PrototypeMode != "racy")
++        {
++            TimedJoin();
++        }
+ 
+         // **The shot stage FIRST, because it can seek** (B431). It applies the opening state, and
+         // run after the camera and the projection it left this frame drawing a pose made before
+@@ -129,7 +133,38 @@ public static class FrameSequence
+         FrameOverlay overlay = steps.BuildOverlay();
+         long hud = Stopwatch.GetTimestamp() - hudAt;
+ 
+-        long draw = Time(() => steps.Draw(overlay));
++        long draw;
++
++        if (PrototypeMode is null)
++        {
++            draw = Time(() => steps.Draw(overlay));
++        }
++        else
++        {
++            // ponytail: THROWAWAY B581 prototype (finding 99). Draw runs on a worker; the join point
++            // is either the next frame's start ("start") or this frame's end ("end", the control).
++            long at = Stopwatch.GetTimestamp();
++            if (PrototypeMode == "racy")
++            {
++                // UNSAFE ceiling: every stage of this frame overlapped the previous draw.
++                TimedJoin();
++            }
++
++            _pending = System.Threading.Tasks.Task.Run(() =>
++            {
++                long workerAt = Stopwatch.GetTimestamp();
++                steps.Draw(overlay);
++                System.Threading.Interlocked.Add(ref _workerTicks, Stopwatch.GetTimestamp() - workerAt);
++                System.Threading.Interlocked.Increment(ref _workerFrames);
++            });
++
++            if (PrototypeMode == "end")
++            {
++                JoinPrototype();
++            }
++
++            draw = Stopwatch.GetTimestamp() - at;
++        }
+ 
+         return new FramePhases(
+             Sound: sound,
+@@ -142,6 +177,40 @@ public static class FrameSequence
+             Total: Stopwatch.GetTimestamp() - start);
+     }
+ 
++    // ponytail: THROWAWAY B581 prototype state; deleted with the prototype.
++    private static readonly string? PrototypeMode = Environment.GetEnvironmentVariable("TF2VIEW_PROTO_RENDER_THREAD");
++    private static System.Threading.Tasks.Task? _pending;
++    private static long _workerTicks;
++    private static long _workerFrames;
++    private static long _joinTicks;
++
++    private static void TimedJoin()
++    {
++        long at = Stopwatch.GetTimestamp();
++        JoinPrototype();
++        System.Threading.Interlocked.Add(ref _joinTicks, Stopwatch.GetTimestamp() - at);
++    }
++
++    /// <summary>Prototype: waits for the previous frame's draw.</summary>
++    public static void JoinPrototype()
++    {
++        System.Threading.Tasks.Task? pending = _pending;
++        _pending = null;
++        pending?.GetAwaiter().GetResult();
++    }
++
++    /// <summary>Prototype: the worker's mean draw and the game thread's total join wait, in ms.</summary>
++    /// <returns>A report line, or null when the prototype is off.</returns>
++    public static string? PrototypeReport()
++    {
++        long frames = System.Threading.Interlocked.Read(ref _workerFrames);
++        return PrototypeMode is null || frames == 0
++            ? null
++            : string.Create(
++                System.Globalization.CultureInfo.InvariantCulture,
++                $"prototype {PrototypeMode}: {frames} frames, worker draw {_workerTicks * 1000.0 / Stopwatch.Frequency / frames:0.00} ms, join wait {_joinTicks * 1000.0 / Stopwatch.Frequency / frames:0.00} ms");
++    }
++
+     /// <summary>How long a stage took, in stopwatch ticks.</summary>
+     private static long Time(Action stage)
+     {
+diff --git a/managed/Tf2DemoSalvage.Presentation/ViewerSession.Frame.cs b/managed/Tf2DemoSalvage.Presentation/ViewerSession.Frame.cs
+index e2cd7e03..7bea8955 100644
+--- a/managed/Tf2DemoSalvage.Presentation/ViewerSession.Frame.cs
++++ b/managed/Tf2DemoSalvage.Presentation/ViewerSession.Frame.cs
+@@ -293,6 +293,11 @@ public sealed partial class ViewerSession
+                 _host.Out.WriteLine("  " + pauses.Report(_pausesFrom));
+             }
+             _host.Out.WriteLine("  " + JitReading.Now().Since(_jitAtStart));
++            if (FrameSequence.PrototypeReport() is { } prototype)
++            {
++                _host.Out.WriteLine("  " + prototype);
++            }
++
+             _host.Out.WriteLine("  " + _effects.ParticleCost.Since(_particlesAtStart, _framesMeasured));
+             _host.Out.WriteLine("  " + _effects.ParticleWork.Since(_particleWorkAtStart, _framesMeasured));
+             _host.Out.WriteLine("  " + ParticleBirths.Since(_birthsAtStart, Tf2DemoSalvage.Content.Assets.ParticleEffect.BirthsBySystem, _frameSeconds, 12));
+-- 
+2.55.0.windows.3
+

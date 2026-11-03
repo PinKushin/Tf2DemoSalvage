@@ -2,8 +2,8 @@
 
 ## Record (written and committed before the first run)
 
-**Observation.** The render-thread prototype (`2026-10-22-render-thread-prototype.md`, branch
-`feat/queued-material-system`) found that without a frame snapshot a render thread saves at most ~0.5 ms, and that
+**Observation.** The render-thread prototype (`2026-10-22-render-thread-prototype.md`, patches in
+`2026-10-22-render-thread-prototype/`) found that without a frame snapshot a render thread saves at most ~0.5 ms, and that
 joining later crashes on shared lists. `draw` is 2.1-2.8 ms of a 13.4 ms f12 frame. D228's queued design needs a
 snapshot of everything `Draw` reads that a later game-thread stage rewrites; its copy cost is unmeasured.
 

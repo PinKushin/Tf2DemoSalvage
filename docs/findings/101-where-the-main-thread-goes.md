@@ -1,9 +1,10 @@
 # 101. Where the main thread goes: a long tail; managed glue is one layout choice, large where it occurs, not the gap (2026-10-22)
 
-**Status: the benchmark harness (`benchmarks/Tf2DemoSalvage.Benchmarks/PoseBlendBenchmarks.cs`) is NOT on main.** It is a
-new project with a BenchmarkDotNet dependency and reads the game folder from a fixed path; it lives on the branch
-`perf/where-main-thread-goes` until adding that project and package is decided. The numbers below were transcribed from
-its runs into `docs/measurements/2026-10-22-pose-blend-glue.md`.
+**Status: the benchmark harness (`benchmarks/Tf2DemoSalvage.Benchmarks/PoseBlendBenchmarks.cs`) is on main** (added
+2026-11-03, built clean in Release). It was held back at first because it was a new project with a BenchmarkDotNet
+dependency; that project and package are on main now (`Mp3DecodeBenchmarks`, `ParseBenchmarks`), so nothing was left to
+decide. It reads the game folder from a fixed path, as the others do. The numbers below were transcribed from its runs into
+`docs/measurements/2026-10-22-pose-blend-glue.md`.
 
 **The question.** The owner, 2026-10-22: *"we still need more fps... if we are not matching valve now then we need to
 start looking at native code"*, and he suspects the architecture. On f12 first person the viewer's one busy thread costs

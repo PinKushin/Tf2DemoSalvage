@@ -12,7 +12,7 @@ closes, that mode is still on: every later keystroke goes to the menu, whatever 
 shared-viewer session that failed ten key-press and full-screen tests after `ExportCompileUiTests`
 (CI red from c3b05a7b to 0b0ae93a).
 
-**Why:** measured, not inferred, on branch `fix/ci-ui-dialog` (2026-10-03):
+**Why:** measured, not inferred, in a CI probe (2026-10-03):
 - With the test ignored, the later tests passed (run 37138141067).
 - With only "File menu, Export, Cancel" and no export, nine of them failed (run 37147488078).
 - Reproduced locally: SPACE switched the camera before the menu and did nothing after, Escape included.
