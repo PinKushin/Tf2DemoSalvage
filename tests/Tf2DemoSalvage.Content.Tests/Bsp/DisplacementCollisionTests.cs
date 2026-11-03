@@ -149,6 +149,73 @@ public sealed class DisplacementCollisionTests
             8, "the sample must mostly hit terrain, or 'they agree' is a statement about empty air");
     }
 
+    /// <remarks>
+    /// **The group cull inside a displacement must never change an answer** (B667): a light's visibility trace is a long
+    /// diagonal line, and its triangles are skipped a group at a time by the line's slab test against each group's box.
+    /// The oracle sweeps every triangle of the map, in the set's own order, with the same bound, so the two must agree
+    /// bit for bit — fraction, texdata and plane. **The control is the count of rays terrain stopped**, without which the
+    /// agreement is about empty air; rays start just above the ground and end far off and below it, so most graze it.
+    /// </remarks>
+    [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
+    public void SweepSurface_LongDiagonalRaysOverAMap_IsTheBruteForceAnswerFieldForField()
+    {
+        if (Map() is not { } map)
+        {
+            Assert.Ignore(GameInstall.Missing);
+            return;
+        }
+
+        DisplacementCollision collision = DisplacementCollision.From(map.Surfaces, map.Terrain);
+        List<BspSurface> surfaces = [.. map.Surfaces.Where(each => each.IsDisplacement)];
+        List<(int Texdata, DisplacementTriangle[] Triangles)> every =
+            [.. surfaces.Select(each => (each.MaterialIndex, Triples(map.Terrain.ReadTriangles(each)).ToArray()))];
+        Random random = new(667);
+        int stopped = 0;
+        int rays = 0;
+
+        for (int index = 0; index < surfaces.Count; index += 20)
+        {
+            SurfaceVertex target = map.Terrain.ReadTriangles(surfaces[index])[0];
+
+            for (int each = 0; each < 4; each++, rays++)
+            {
+                (float X, float Y, float Z) from = (target.X, target.Y, target.Z + 48f);
+                (float X, float Y, float Z) to = (
+                    from.X + Next(random, -1500f, 1500f), from.Y + Next(random, -1500f, 1500f), from.Z + Next(random, -600f, 300f));
+                (float X, float Y, float Z) extents = each % 2 == 0 ? (0f, 0f, 0f) : (6f, 6f, 6f);
+                float limit = each < 2 ? 1f : Next(random, 0.2f, 1f);
+
+                (float fraction, int texdata, _, (float X, float Y, float Z) normal, float distance) = collision.SweepSurface(
+                    from.X, from.Y, from.Z, to.X, to.Y, to.Z, extents, BspLeafTree.MaskSolid, limit);
+
+                (float X, float Y, float Z) delta = (to.X - from.X, to.Y - from.Y, to.Z - from.Z);
+                (float Fraction, int Texdata, (float X, float Y, float Z) Normal, float Distance) brute = (limit, -1, default, 0f);
+
+                foreach ((int material, DisplacementTriangle[] triangles) in every)
+                {
+                    foreach (DisplacementTriangle triangle in triangles)
+                    {
+                        float against = DisplacementSweep.Against(from, delta, extents, triangle, brute.Fraction);
+
+                        if (against < brute.Fraction)
+                        {
+                            brute = (against, material, triangle.Normal, triangle.Distance);
+                        }
+                    }
+                }
+
+                (fraction, texdata, normal, distance).ShouldBe(brute, $"ray {rays} from {from} to {to}, extents {extents}, limit {limit}");
+                stopped += brute.Texdata >= 0 ? 1 : 0;
+            }
+        }
+
+        // The control: terrain stopped a good share of them, so the agreement is about hits.
+        stopped.ShouldBeGreaterThan(rays / 4, $"of {rays} rays");
+    }
+
+    private static float Next(Random random, float low, float high) => low + ((float)random.NextDouble() * (high - low));
+
     /// <summary>A spread of points over terrain, one per displacement sampled across the map.</summary>
     /// <remarks>
     /// Spread through the displacement list rather than taken from the front: displacements are
