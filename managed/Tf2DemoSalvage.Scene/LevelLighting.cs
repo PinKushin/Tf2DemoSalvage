@@ -302,10 +302,13 @@ public sealed class LevelLighting
     /// **One lookup a model, as the engine's model path makes one `LightcacheGet`** (`0x1800f1bd0`, `0x1801b9cd0`) and reads its
     /// lights and sun from the entry (*inferred* from the flags `0xf` read above and B514's read of the skylight in that state,
     /// not re-read for this change); ours has two questions, <see cref="ModelLightingAt"/> and <see cref="ModelSunAt"/>, so the
-    /// last answer is remembered. **Repeating the lookup could not answer differently (arithmetic):** no other lookup came
-    /// between. After a hit the entry is at the front, after a build it is at the front and a hit, and past the budget
-    /// <see cref="LightCache{T}.Get"/> has changed nothing and would scan the same list. The frame is part of the question because
-    /// the budget is per frame. The relight below is not remembered, so a style change between the two is still seen.
+    /// last answer is remembered. **Repeating the lookup could not answer differently (arithmetic), when the memo is used:** every
+    /// lookup comes through here and replaces it, so a match means the last lookup was this point's. After a hit the entry is at the
+    /// front, after a build it is at the front and a hit, and past the budget <see cref="LightCache{T}.Get"/> has changed nothing and
+    /// would scan the same list. **A model's two questions are not guaranteed one lookup:** a <see cref="ComputeLighting"/> at another
+    /// point between them replaces the memo, so the second looks again, and past the budget it can take a different entry than the
+    /// first, where the engine's one `LightcacheGet` could not. The frame is part of the question because the budget is per frame.
+    /// The relight below is not remembered, so a style change between the two is still seen.
     /// </remarks>
     private CachedLight? Entry(float x, float y, float z)
     {
@@ -599,6 +602,8 @@ public sealed class LevelLighting
     /// in −1 reads the byte before the row, which is not a rule to port; every real lump's light but two of koth_toxic's has a cluster.
     /// `FUN_1801b5260` (a static prop under a dlight) asks from the dlight's row whether the prop's leaves are in it, and the prop's
     /// origin stands for its leaves here. ponytail: a prop spanning leaves, or with its origin in solid, differs; ask per leaf if that shows.
+    /// **Inferred, not read:** <see cref="StyledLights"/> and `WithDynamic` taking this −1 rule. `FUN_1801b6bf0` has no negative test, and
+    /// `FUN_1801b5260` was read for its row and not for a dlight or prop in −1; the rule is carried over from `FUN_1801b60a0` and `CM_Vis`.
     /// </summary>
     private bool InPvs(int from, int cluster) =>
         _leaves is not { HasLeaves: true } ||
@@ -1098,9 +1103,10 @@ public sealed class LevelLighting
     /// again). ponytail: the entry's state without its dlights. The engine ranks them first, but it folds only the world lights, and an
     /// evicted one arrives through the cube either way, at the entry's point rather than this one.
     ///
-    /// An unlit answer is returned as a default cube, which the shader reads as "no cube supplied"
-    /// and draws at full brightness rather than black — a model lit by a measurement nobody made is
-    /// worse than one that is merely too bright.
+    /// **A zero cube is an answer here, not "no cube supplied".** With no map data there is nothing to ask. Past `lightcache_maxmiss` the
+    /// entry is the nearest (`0x1801b9cd0` under flag 8), and a zeroed pool entry nearest a point in the map's far corner gives zero,
+    /// as it does in the engine, which copies that entry's empty state out. The readers are `RopeLight`, which averages the faces, and a
+    /// log line; no shader sees this cube.
     /// </remarks>
     public AmbientCube ComputeLighting(float x, float y, float z)
     {

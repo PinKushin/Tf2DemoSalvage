@@ -1570,6 +1570,39 @@ public sealed class MomentSceneTests
     [Test]
     public void Pose_ABakedStaticPropBesideFiveStyledLamps_DrawsTheLoserInItsCube()
     {
+        Content.Bsp.BspWorldLight lamp = StaticPlusDynamicLightingConformanceTests.Lamp(BakedLampStyle, 0, 0f);
+        Content.Bsp.BspWorldLight loser = LevelLightingTests.Lamp((0f, 0f, 140f), 400f) with { Style = BakedLampStyle, Cluster = 0 };
+
+        (ModelInstance drawn, LightStyleValues values) = BakedPropAmong([lamp, lamp, lamp, lamp, loser]);
+
+        drawn.Locals.ShouldNotBeNull().Count.ShouldBe(4, "the fifth lamp loses its slot");
+        drawn.Light.ShouldBe(
+            Content.Bsp.LocalLights.Fold(LevelLighting.NoStaticState, loser, 0f, 0f, 100f, values.Scale),
+            "the cube starts at zero and holds exactly the loser, folded at the prop's own point");
+    }
+
+    /// <remarks>
+    /// **The cube is added whatever the slot count** (`FUN_1801ba590`). This blue lamp passes the brightest-channel `r_worldlightmin` that
+    /// lists it (0.2 / 20² = 0.0005) and fails the luminance one that ranks it, so `FUN_1801b60a0` folds it and no slot is taken. Testing the
+    /// slot count for whether a cube exists lost it.
+    /// </remarks>
+    [Test]
+    public void Pose_ABakedStaticPropBesideASubMinimumStyledLamp_KeepsTheFoldedCubeWithNoSlot()
+    {
+        Content.Bsp.BspWorldLight faint = LevelLightingTests.Lamp((0f, 0f, 120f), 0f) with { Intensity = (0f, 0f, .2f), Style = BakedLampStyle, Cluster = 0 };
+
+        (ModelInstance drawn, LightStyleValues values) = BakedPropAmong([faint]);
+
+        drawn.Locals.ShouldBeEmpty();
+        drawn.Light.ShouldBe(Content.Bsp.LocalLights.Fold(LevelLighting.NoStaticState, faint, 0f, 0f, 100f, values.Scale));
+        drawn.Light.ShouldNotBe(LevelLighting.NoStaticState, "the control: the fold is not zero, or this cannot tell the two apart");
+    }
+
+    private const int BakedLampStyle = 5;
+
+    /// <summary>A baked static prop at z = 100, posed among these lights with <see cref="BakedLampStyle"/> at full value.</summary>
+    private static (ModelInstance Drawn, LightStyleValues Values) BakedPropAmong(IReadOnlyList<Content.Bsp.BspWorldLight> lights)
+    {
         EntityModelSet models = new()
         {
             Geometry = _ => new PropModels.ModelFrames(
@@ -1582,14 +1615,10 @@ public sealed class MomentSceneTests
         models.StaticPropColours = new Dictionary<int, float[]> { [PropModels.FirstStaticPropEntityIndex] = [.5f, .5f, .5f] };
 
         LightStyleValues values = new();
-        values.Set(5, "m");
+        values.Set(BakedLampStyle, "m");
         values.Advance(0d);
 
-        Content.Bsp.BspWorldLight lamp = StaticPlusDynamicLightingConformanceTests.Lamp(5, 0, 0f);
-
-        Content.Bsp.BspWorldLight loser = LevelLightingTests.Lamp((0f, 0f, 140f), 400f) with { Style = 5, Cluster = 0 };
-
-        LevelLighting lighting = StaticPlusDynamicLightingConformanceTests.Map([lamp, lamp, lamp, lamp, loser]);
+        LevelLighting lighting = StaticPlusDynamicLightingConformanceTests.Map(lights);
         lighting.StyleScale = values.Scale;
 
         MomentScene scene = new(models, new ViewmodelScene(), new RecordingLogger())
@@ -1604,12 +1633,7 @@ public sealed class MomentSceneTests
         scene.Build([], [], Info());
         scene.Pose(Info());
 
-        ModelInstance drawn = scene.Instances.ShouldHaveSingleItem();
-
-        drawn.Locals.ShouldNotBeNull().Count.ShouldBe(4, "the fifth lamp loses its slot");
-        drawn.Light.ShouldBe(
-            Content.Bsp.LocalLights.Fold(LevelLighting.NoStaticState, loser, 0f, 0f, 100f, values.Scale),
-            "the cube starts at zero and holds exactly the loser, folded at the prop's own point");
+        return (scene.Instances.ShouldHaveSingleItem(), values);
     }
 
     /// <remarks>
