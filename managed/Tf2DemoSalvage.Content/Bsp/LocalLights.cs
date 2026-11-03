@@ -272,8 +272,10 @@ public static class LocalLights
             float scale = IntensityScale * style(light.Style);
             bool surface = light.Kind == WorldLightKind.Surface;
 
-            // `engine.dll` `FUN_1800f0e10` case 0: a surface light goes to the shader as a spot with both dots 0 and falloff
-            // 1, whatever its stopdots hold, so its vertex attenuation is `1/d²` times one cosine of its own.
+            // `engine.dll` `FUN_1800f0e10` case 0: a surface light's `LightDesc_t` is a spot with both dots 0 and falloff 1,
+            // whatever its stopdots hold. So the CPU path is flat (`studiorender.dll` `0x180021b20` keeps N·L at or past
+            // ThetaDot). The vertex shader's form, `( cos − PhiDot ) · 1`, gives one cosine of its own: *interpolated*, since
+            // what shaderapi uploads for a zero spread was not read.
             into[slot] = new LocalLight(
                 light.Origin.X, light.Origin.Y, light.Origin.Z,
                 light.Intensity.Red * scale,

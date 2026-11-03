@@ -23,6 +23,8 @@ public sealed class StaticPropModelsWiringTests
     /// Through `LevelLighting.From` and the map's real lump: 40 units in front of a real surface light, a static state either
     /// holds that light in a slot or lost it to brighter ones or a wall. Most hold it, and a slot is the engine's 0/0/1 spot
     /// (B669). The unit tests choose their own lights, so only this fails when the lump or the wiring drops the kind.
+    /// **The flag path is not exercised here:** no surface light on the maps measured (cp_process_f12's 108, koth_toxic's 4,
+    /// `world-light-kinds`) carries `DWL_FLAGS_INAMBIENTCUBE`, so `SurfaceLightCacheConformanceTests` alone holds it.
     /// </summary>
     [Test]
     public void StaticPropLightingAt_InFrontOfTheMapsSurfaceLights_TakesThemIntoSlots()

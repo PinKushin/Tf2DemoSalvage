@@ -90,7 +90,7 @@ public sealed class WorldLightFalloffTests
     }
 
     [Test]
-    public void SurfaceLights_HaveNoFalloffAtAll_WhichIsWhyTheyAreNotRuntimeLights()
+    public void SurfaceLights_OnARealMap_CarryAllZeroAttenuationTerms()
     {
         // **The measurement that explained a blown-out capture point, and what was wrongly drawn from it.**
         //

@@ -18,11 +18,69 @@ namespace Tf2DemoSalvage.Scene.Tests;
 /// </remarks>
 public sealed class SurfaceLightCacheConformanceTests
 {
+    /// <summary>A computed cube holds no surface light (`FUN_1801b74f0`), so the static state takes even a flagged one.</summary>
     [Test]
-    public void StaticPropLightingAt_ASurfaceLightVradPutInTheLeafCube_TakesASlot()
+    public void StaticPropLightingAt_AFlaggedSurfaceLightOverAComputedCube_TakesASlot()
+    {
+        StaticPlusDynamicLightingConformanceTests.Map([Surface(flags: 1)], staticPropAmbient: Computed)
+            .StaticPropLightingAt(0f, 0f, 100f).Lighting.Locals.ShouldHaveSingleItem().Red.ShouldBe(4000f);
+    }
+
+    /// <summary>Where the rays cannot be cast the cube is the leaf's, which holds it already: taken again it counts twice.</summary>
+    [Test]
+    public void StaticPropLightingAt_AFlaggedSurfaceLightOverTheLeafCube_IsSkipped()
     {
         StaticPlusDynamicLightingConformanceTests.Map([Surface(flags: 1)]).StaticPropLightingAt(0f, 0f, 100f).Lighting.Locals
-            .ShouldHaveSingleItem().Red.ShouldBe(4000f);
+            .ShouldBeEmpty();
+    }
+
+    /// <summary>Flags 7 ranks the same list again beside a styled lamp, under the same rule.</summary>
+    [TestCase(true, 2)]
+    [TestCase(false, 1)]
+    public void StaticPropFullLightingAt_AFlaggedSurfaceLightBesideAStyledLamp_FollowsTheCubesSource(bool computed, int expected)
+    {
+        BspWorldLight styled = StaticPlusDynamicLightingConformanceTests.Lamp(5, 0) with { Origin = (0f, 20f, 100f) };
+
+        StaticPlusDynamicLightingConformanceTests.Map([styled, Surface(flags: 1)], staticPropAmbient: computed ? Computed : null)
+            .StaticPropFullLightingAt(1000, 0f, 0f, 100f).Lighting.Locals.Count.ShouldBe(expected);
+    }
+
+    /// <summary>Over the map's vis data and without it, the point in cluster 0 or −1 (`FUN_18016b230`, `0x1801b616e`).</summary>
+    [TestCase(true, 0, 0, 1)]
+    [TestCase(true, 0, -1, 0)]
+    [TestCase(true, -1, 0, 0)]
+    [TestCase(false, 0, 0, 1)]
+    [TestCase(false, 0, 1, 1)]
+    [TestCase(false, 0, -1, 0)]
+    [TestCase(false, -1, 0, 0)]
+    public void ModelLightingAt_ThePointsAndTheLampsClusters_FollowCmVis(bool vis, short pointCluster, int lampCluster, int expected)
+    {
+        // The point stands in the map's back leaf, whose cluster the case states.
+        StaticPlusDynamicLightingConformanceTests.Map(
+                [StaticPlusDynamicLightingConformanceTests.Lamp(0, lampCluster) with { Origin = (0f, 0f, -120f) }],
+                Clear,
+                withVis: vis,
+                backCluster: pointCluster)
+            .ModelLightingAt(0f, 0f, -100f).Locals.Count.ShouldBe(expected);
+    }
+
+    /// <summary>The gate is not the trace's: a level with no trace wired still takes it.</summary>
+    [TestCase(0, 1)]
+    [TestCase(1, 0)]
+    [TestCase(-1, 0)]
+    public void StaticPropLightingAt_NoTraceWired_StillHasThePvsGate(int cluster, int expected)
+    {
+        StaticPlusDynamicLightingConformanceTests.Map([Surface(flags: 0) with { Cluster = cluster }])
+            .StaticPropLightingAt(0f, 0f, 100f).Lighting.Locals.Count.ShouldBe(expected);
+    }
+
+    /// <summary>`FUN_1801b5400` goes straight to `FUN_1801b9570`: a listed styled lamp is not asked again.</summary>
+    [Test]
+    public void StaticPlusDynamicLights_AListedLampInClusterMinusOne_IsNotGated()
+    {
+        StaticPlusDynamicLightingConformanceTests.Map(
+                [StaticPlusDynamicLightingConformanceTests.Lamp(5, -1)], Clear, withVis: false)
+            .StaticPlusDynamicLights(1000, 0f, 0f, 100f).Count.ShouldBe(1);
     }
 
     [Test]
@@ -61,11 +119,11 @@ public sealed class SurfaceLightCacheConformanceTests
         List<BspWorldLight> four =
         [
             .. new (float X, float Y, float Z)[] { (40f, 0f, 100f), (-40f, 0f, 100f), (0f, 40f, 100f), (0f, -40f, 100f) }
-                .Select(static at => new BspWorldLight(at, (900000f, 900000f, 900000f), default, WorldLightKind.Point, QuadraticAttenuation: 1f)),
+                .Select(static at => new BspWorldLight(at, (900000f, 900000f, 900000f), default, WorldLightKind.Point, QuadraticAttenuation: 1f, Cluster: 0)),
         ];
 
         AmbientCube without = StaticPlusDynamicLightingConformanceTests.Map(four).StaticPropLightingAt(0f, 0f, 100f).Lighting.Cube;
-        PointLighting with = StaticPlusDynamicLightingConformanceTests.Map([.. four, Surface(flags: 1)]).StaticPropLightingAt(0f, 0f, 100f).Lighting;
+        PointLighting with = StaticPlusDynamicLightingConformanceTests.Map([.. four, Surface(flags: 0)]).StaticPropLightingAt(0f, 0f, 100f).Lighting;
 
         with.Locals.Count.ShouldBe(4);
         (with.Cube.PositiveZ.Red - without.PositiveZ.Red).ShouldBe(10f, 0.0001f);
@@ -114,6 +172,9 @@ public sealed class SurfaceLightCacheConformanceTests
     /// <summary>Every ray clear, so only the PVS gate can drop a light.</summary>
     private static float Clear((float X, float Y, float Z) from, (float X, float Y, float Z) to) => 1f;
 
+    /// <summary>A cube from rays: its value is not the point here, only where it came from.</summary>
+    private static AmbientCube Computed(float x, float y, float z) => default;
+
     private static BspWorldLight Surface(int flags) =>
-        new((0f, 0f, 120f), (4000f, 4000f, 4000f), (0f, 0f, -1f), WorldLightKind.Surface, Flags: flags);
+        new((0f, 0f, 120f), (4000f, 4000f, 4000f), (0f, 0f, -1f), WorldLightKind.Surface, Cluster: 0, Flags: flags);
 }

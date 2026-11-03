@@ -491,14 +491,19 @@ public sealed class LevelLighting
     /// list such as `WithStyleZero`'s is not kept reachable. A second taken before the first is done would retarget the
     /// first; a debug build asserts against it. This object is used from one thread, as its caches are.
     ///
-    /// **The PVS first** (B669): `FUN_1801b60a0` returns before it traces when the light's cluster (`+0x24`) is negative or
-    /// out of the PVS `FUN_1801b8270` built from the entry's own leaf, so such a light takes no slot and is not folded.
-    /// `cluster` is that leaf's, for a caller whose lit point is a cell rather than the point itself.
+    /// **The PVS first, and a rule of its own** (B669): `FUN_1801b60a0` returns before it traces when the light's cluster
+    /// (`+0x24`) is negative or out of the PVS `FUN_1801b8270` built from the entry's own leaf, so such a light takes no slot
+    /// and is not folded. A level with no trace wired still takes this gate. `cluster` is that leaf's, for a caller whose lit
+    /// point is a cell rather than the point itself. `pvs` false is `FUN_1801b5400`, which goes to `FUN_1801b9570` directly and
+    /// has no gate: its list was admitted by the PVS when it was built.
     /// </remarks>
     private Func<int, bool>? TraceSeen(
-        IReadOnlyList<BspWorldLight> lights, float x, float y, float z, int first = 0, int end = int.MaxValue, int? cluster = null)
+        IReadOnlyList<BspWorldLight> lights, float x, float y, float z, int first = 0, int end = int.MaxValue, int? cluster = null,
+        bool pvs = true)
     {
-        if (_lightTrace is null)
+        bool gated = pvs && _leaves is { HasLeaves: true };
+
+        if (_lightTrace is null && !gated)
         {
             return null;
         }
@@ -510,14 +515,24 @@ public sealed class LevelLighting
         _ask.Point = (x, y, z);
         _ask.First = first;
         _ask.End = end;
-        _ask.Cluster = cluster ?? _leaves?.ClusterAt(x, y, z) ?? -1;
+        _ask.Gated = gated;
+
+        // Read even with no vis data: `CM_Vis` tests for cluster −1 before it looks for any (`FUN_18016b230`).
+        _ask.Cluster = gated ? cluster ?? _leaves!.ClusterAt(x, y, z) : -1;
 
         return _ask.Keeps;
     }
 
-    /// <summary>Whether a light's cluster is in a point's PVS. A map without vis data admits every cluster, as <see cref="StyledLights"/> does.</summary>
+    /// <summary>
+    /// `FUN_1801b60a0`'s gate. A light in cluster −1 is out whatever the map holds (`JS 0x1801b6523` at `0x1801b616e`). A point
+    /// in cluster −1 sees nothing: `FUN_18016b230` zeroes the row for exactly −1, before it looks for vis data. With no vis
+    /// data at all, the row is all ones and every other pair is in.
+    /// </summary>
     private bool InPvs(int from, int cluster) =>
-        _visibility is not { HasData: true } || (cluster >= 0 && _visibility.Visible(from, cluster));
+        cluster >= 0 && from != -1 && (_visibility is not { HasData: true } || _visibility.Visible(from, cluster));
+
+    /// <summary>What a static state ranks: all of them over a computed cube, which holds none; the leaf path's list where the cube is the leaf's.</summary>
+    private IReadOnlyList<BspWorldLight> StaticStateLights => _staticPropAmbient is null ? _leafCubeLights : _worldLights;
 
     /// <summary>The <see cref="TraceSeen"/> delegate's call is over: drop the list it held.</summary>
     private void TraceDone()
@@ -531,7 +546,8 @@ public sealed class LevelLighting
     {
         public TraceAsk(LevelLighting owner) => Keeps = index =>
             index < First || index >= End ||
-            (owner.InPvs(Cluster, Lights[index].Cluster) && LocalLights.Kept(owner.Blocked(Lights[index].Origin, Point)));
+            ((!Gated || owner.InPvs(Cluster, Lights[index].Cluster)) &&
+             (owner._lightTrace is null || LocalLights.Kept(owner.Blocked(Lights[index].Origin, Point))));
 
         public Func<int, bool> Keeps { get; }
 
@@ -546,6 +562,8 @@ public sealed class LevelLighting
         public int End { get; set; }
 
         public int Cluster { get; set; }
+
+        public bool Gated { get; set; }
     }
 
     private readonly TraceAsk _ask;
@@ -750,7 +768,7 @@ public sealed class LevelLighting
 
         Span<int> chosen = stackalloc int[LocalLights.MaximumLocalLights];
         // Traced at the handle's origin (`FUN_1801b5400`, flags 0; B666). The second ranking below is of these alone.
-        int found = LocalLights.StrongestIndices(handle.Listed, x, y, z, chosen, StyleScale, TraceSeen(handle.Listed, x, y, z));
+        int found = LocalLights.StrongestIndices(handle.Listed, x, y, z, chosen, StyleScale, TraceSeen(handle.Listed, x, y, z, pvs: false));
         TraceDone();
         BspWorldLight[] ranked = new BspWorldLight[found];
 
@@ -920,7 +938,7 @@ public sealed class LevelLighting
         // Only the style-0 lights are traced here (`0x1801b5a50`; B666): the ranked styled ones were traced when bit 4
         // ranked them at this point, and a dlight is not traced.
         int styleZero = added.Count;
-        added.AddRange(_worldLights.Where(static light => light.Style == 0));
+        added.AddRange(StaticStateLights.Where(static light => light.Style == 0));
 
         LocalLight[] nearest = new LocalLight[LocalLights.MaximumLocalLights];
         Array.Resize(ref nearest, LocalLights.Strongest(added, x, y, z, nearest, StyleScale, TraceSeen(added, x, y, z, first: styleZero)));
@@ -1022,9 +1040,10 @@ public sealed class LevelLighting
         // **Every style-0 light, surface lights included, and the losers folded** (B669): `FUN_1801b5a50` hands each to
         // `FUN_1801b60a0`, which ranks it into the four slots or adds it to this cube. It passes over a light vrad put in the
         // leaf cubes only when the cube came from the leaf; a computed cube holds none of them (`FUN_1801b74f0`).
+        IReadOnlyList<BspWorldLight> lights = StaticStateLights;
         LocalLight[] nearest = new LocalLight[LocalLights.MaximumLocalLights];
         int found = LocalLights.Split(
-            _worldLights, x, y, z, nearest, ref bounced, static style => style == 0 ? 1f : 0f, TraceSeen(_worldLights, x, y, z));
+            lights, x, y, z, nearest, ref bounced, static style => style == 0 ? 1f : 0f, TraceSeen(lights, x, y, z));
         TraceDone();
         Array.Resize(ref nearest, found);
 

@@ -207,7 +207,19 @@ prop; with 108 more candidates it is most of the light.
 
 **The third: no PVS gate on the style-0 path.** `FUN_1801b60a0` returns before it traces when a light's cluster is negative or out
 of the PVS `FUN_1801b8270` built from the entry's leaf, for every kind but the sky. Ours traced them all. Now gated. It changed
-nothing in the far frame, byte-for-byte in these boxes; it is a parity and cost fix, pinned synthetically.
+nothing in the far frame, byte-for-byte in these boxes; it is a parity and cost fix, pinned synthetically. **Both negatives, read:** a light
+in cluster −1 is out on any map (`JS 0x1801b6523` at `0x1801b616e`, before the row is looked at). A POINT in cluster −1 sees nothing, on
+any map: `CM_Vis` (`FUN_18016b230`) zeroes the row for exactly −1 before it looks for vis data; only with no vis data and a real cluster
+is the row all ones. So a model standing in solid loses every world light but the sky, and that is the engine. `FUN_1801b5400`, a static
+prop handle's styled list, goes straight to `FUN_1801b9570` and has no gate: its list was admitted at build.
+
+**Where the cube came from decides the list.** With the rays unavailable a static state's cube is the leaf's, so it takes the leaf path's
+list and skips what vrad flagged; otherwise that light counts twice.
+
+**A slot-held surface light is not one shape everywhere, and that is the engine's.** Ranking and fold take one cosine of its own
+(`FUN_1800efbf0`). The CPU path does not: `studiorender.dll` `0x180021b20` keeps N·L alone once the light's cosine is at or past
+`ThetaDot`, and `FUN_1800f0e10` writes `ThetaDot` 0. *Read.* The GPU's cosine is the vertex shader's form with a zero spread taken as 1,
+*interpolated*: what shaderapi uploads for that spread was not read.
 
 **The route here, wrong turns included** (live TF2 build 11191711, `mat_hdr_level 2`, `mat_force_tonemap_scale 1`, bloom off,
 far camera; linear luminance x1000; the reference reproduced to the digit, 228.1, before any manipulation):
