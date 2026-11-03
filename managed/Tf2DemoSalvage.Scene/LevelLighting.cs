@@ -308,6 +308,15 @@ public sealed class LevelLighting
     /// <returns>The entry's sun, or null.</returns>
     public SunLight? ModelSunAt(float x, float y, float z) => Entry(x, y, z) is { } entry ? entry.Sun : SunAt(x, y, z);
 
+    /// <remarks>
+    /// **One lookup a model, as the engine's model path makes one `LightcacheGet`** (`0x1800f1bd0`, `0x1801b9cd0`) and reads its
+    /// lights and sun from the entry (*inferred* from the flags `0xf` read above and B514's read of the skylight in that state,
+    /// not re-read for this change); ours has two questions, <see cref="ModelLightingAt"/> and <see cref="ModelSunAt"/>, so the
+    /// last answer is remembered. **Repeating the lookup could not answer differently (arithmetic):** no other lookup came
+    /// between. After a hit the entry is at the front, after a build it is at the front and a hit, and past the budget
+    /// <see cref="LightCache{T}.Get"/> has changed nothing and would scan the same list. The frame is part of the question because
+    /// the budget is per frame. The relight below is not remembered, so a style change between the two is still seen.
+    /// </remarks>
     private CachedLight? Entry(float x, float y, float z)
     {
         if (_leaves is not { } tree || _ambient.Count == 0)
@@ -315,12 +324,22 @@ public sealed class LevelLighting
             return null;
         }
 
-        CachedLight entry = _cache.Get(
-            new System.Numerics.Vector3(x, y, z),
-            tree.LeafAt(x, y, z),
-            Frame,
-            allowFast: true,
-            () => new CachedLight(x, y, z, LightingAt(x, y, z), CellSun(SunCaller.LightCache, x, y, z), _styleVersion));
+        System.Numerics.Vector3 point = new(x, y, z);
+
+        if (_entryAsked is null || point != _entryPoint || Frame != _entryFrame)
+        {
+            _buildAt = point;
+            LightCacheLookups++;
+
+            // All three only once it returned: a build that throws answered nothing, and must not name the last point's entry.
+            CachedLight answered = _cache.Get(point, tree.LeafAt(x, y, z), Frame, allowFast: true, _buildEntry);
+
+            _entryAsked = answered;
+            _entryPoint = point;
+            _entryFrame = Frame;
+        }
+
+        CachedLight entry = _entryAsked;
 
         if (entry.Built && entry.StyleVersion != _styleVersion)
         {
@@ -330,6 +349,24 @@ public sealed class LevelLighting
 
         return entry;
     }
+
+    /// <summary>Lights a new entry at <see cref="_buildAt"/>; one delegate, so a hit allocates no closure.</summary>
+    private readonly Func<CachedLight> _buildEntry;
+
+    /// <summary>The point the lookup under way asks about, which <see cref="_buildEntry"/> reads.</summary>
+    private System.Numerics.Vector3 _buildAt;
+
+    /// <summary>The point <see cref="_entryAsked"/> answered.</summary>
+    private System.Numerics.Vector3 _entryPoint;
+
+    /// <summary>The frame <see cref="_entryAsked"/> answered in.</summary>
+    private int _entryFrame;
+
+    /// <summary>The cache's last answer; see <see cref="Entry"/>.</summary>
+    private CachedLight? _entryAsked;
+
+    /// <summary>Since the map loaded: times <see cref="Entry"/> looked in the cache, counted where it does.</summary>
+    public long LightCacheLookups { get; private set; }
 
     /// <summary>What a cache entry holds: where it was built, and what it lit there.</summary>
     private sealed class CachedLight(float x, float y, float z, PointLighting lighting, SunLight? sun, int styleVersion)
@@ -395,6 +432,12 @@ public sealed class LevelLighting
         _reaches = reaches;
         _lightTrace = lightTrace;
         _ask = new TraceAsk(this);
+        _buildEntry = () =>
+        {
+            (float x, float y, float z) = (_buildAt.X, _buildAt.Y, _buildAt.Z);
+
+            return new CachedLight(x, y, z, LightingAt(x, y, z), CellSun(SunCaller.LightCache, x, y, z), _styleVersion);
+        };
         _visibility = visibility;
         _staticPropAmbient = staticPropAmbient;
         ArgumentNullException.ThrowIfNull(ambient);
