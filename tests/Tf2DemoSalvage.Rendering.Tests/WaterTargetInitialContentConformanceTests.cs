@@ -67,6 +67,128 @@ public sealed class WaterTargetInitialContentConformanceTests
         blue.ShouldBeInRange(expected.Blue - 2, expected.Blue + 2, "blue");
     }
 
+    /// <summary>
+    /// A map load that flips the HDR-enabled state recreates the targets, cleared opaque black, so the next map's water
+    /// samples black where the old map's view had drawn (B662's second half).
+    /// </summary>
+    /// <remarks>
+    /// engine.dll <c>Mod_LoadMapFlags</c> (<c>0x1800ffa10</c>, read in disassembly): the HDR-enabled state wanted is the
+    /// map's HDR lighting and <c>mat_hdr_level</c> above 1 and DX level above 89, our <c>MapAssets.Hdr != None</c>. When
+    /// it differs from materialsystem's current one (vtable <c>+0x228</c>), it sets it (<c>+0x230</c>) and shuts down and
+    /// re-initialises the well-known render targets (<c>FUN_1800f6920</c>), which <c>CTexture::ReconstructTexture</c>
+    /// clears opaque black.
+    /// </remarks>
+    [TestCase(Content.Bsp.HdrType.None, Content.Bsp.HdrType.IntegerHdr)]
+    [TestCase(Content.Bsp.HdrType.IntegerHdr, Content.Bsp.HdrType.None)]
+    public void DrawWaterWorld_MapLoadThatFlipsHdr_SamplesAnOpaqueBlackTarget(
+        Content.Bsp.HdrType first, Content.Bsp.HdrType second)
+    {
+        if (TwoMaps(first, second) is not { } run)
+        {
+            Assert.Ignore("no Direct3D device on this machine");
+            return;
+        }
+
+        (int Red, int Green, int Blue) expected = (Stored(FogColor.Red), Stored(FogColor.Green), Stored(FogColor.Blue));
+
+        TestContext.Out.WriteLine(
+            $"FLIP {first} -> {second}: FIRST MAP {run.First}; SECOND {run.Second}; EXPECTED {expected}; TEXEL {run.Texel}");
+
+        run.Texel.ShouldBe((0, 0, 0), "the target kept the first map's view across a load that flips HDR");
+        run.Second.Red.ShouldBeInRange(expected.Red - 2, expected.Red + 2, "red");
+        run.Second.Green.ShouldBeInRange(expected.Green - 2, expected.Green + 2, "green");
+        run.Second.Blue.ShouldBeInRange(expected.Blue - 2, expected.Blue + 2, "blue");
+    }
+
+    /// <summary>
+    /// The control: a map load whose HDR-enabled state equals the current one keeps the targets and what the old map's
+    /// view drew, so the water samples exactly what it sampled on the first map.
+    /// </summary>
+    [TestCase(Content.Bsp.HdrType.None)]
+    [TestCase(Content.Bsp.HdrType.IntegerHdr)]
+    public void DrawWaterWorld_MapLoadThatKeepsHdr_SamplesTheOldViewsContent(Content.Bsp.HdrType hdr)
+    {
+        if (TwoMaps(hdr, hdr) is not { } run)
+        {
+            Assert.Ignore("no Direct3D device on this machine");
+            return;
+        }
+
+        TestContext.Out.WriteLine($"KEEP {hdr}: FIRST MAP {run.First}; SECOND {run.Second}; TEXEL {run.Texel}");
+
+        run.Texel.ShouldBe((255, 0, 0), "the target lost the first map's view across a load that keeps HDR");
+        run.Second.ShouldBe(run.First, "the second map's water did not sample what the first map's view drew");
+    }
+
+    /// <summary>
+    /// The first map draws its water through a refraction view over a red floor; the second, a cheap-only frame over the
+    /// water alone, so nothing writes the target before its water samples it. Both water pixels, at the centre.
+    /// </summary>
+    private static Run? TwoMaps(
+        Content.Bsp.HdrType first, Content.Bsp.HdrType second)
+    {
+        using OffscreenTarget? target = OffscreenTarget.TryCreate(64, 64);
+
+        if (target is null)
+        {
+            return null;
+        }
+
+        WaterRenderInfo refract = new(CheapWater: false, Refract: true, Reflect: false, ReflectEntities: false,
+            DrawWaterSurface: true, OpaqueWater: false);
+
+        target.Clear(1f, 0f, 1f);
+        target.DrawWaterWorld(
+            [.. Quad(), .. RedFloor()], [new(0, 0, 6), new(1, 6, 6)], Above, WithFloor(first),
+            new WaterDraw(WaterViews.Plan(refract, new WaterFrame(false, false, 0f, false), ViewClears.Depth), 0, 0f, [], [], null, null));
+
+        (int, int, int) firstPixel = target.PixelAt(32, 32);
+
+        WaterRenderInfo cheap = new(CheapWater: true, Refract: false, Reflect: false, ReflectEntities: false,
+            DrawWaterSurface: true, OpaqueWater: true);
+
+        target.Clear(1f, 0f, 1f);
+        (int expensive, _, _) = target.DrawWaterWorld(
+            Quad(), [new(0, 0, 6)], Above, WithFloor(second),
+            new WaterDraw(WaterViews.Plan(cheap, new WaterFrame(false, false, 0f, false), ViewClears.Depth), 0, 0f, [], [], null, null));
+
+        expensive.ShouldBe(1, "the second map's water did not take the expensive pass");
+
+        return new Run(firstPixel, target.PixelAt(32, 32), target.WaterTargetPixel(true, 512, 512));
+    }
+
+    /// <summary>
+    /// The water pixel on each map, and the refraction target's centre texel after the second. The first map's view
+    /// fills it with the floor, (255, 0, 0); the water itself shows that only as 0.05 of its colour, because the view
+    /// writes a full fog depth, so the texel is the instrument that sees the floor plainly and the pixel is what is drawn.
+    /// </summary>
+    private readonly record struct Run(
+        (int Red, int Green, int Blue) First, (int Red, int Green, int Blue) Second, (int Red, int Green, int Blue) Texel);
+
+    /// <summary>The refracting water and a lightmapped floor, under the given HDR type.</summary>
+    private static MapAssets WithFloor(Content.Bsp.HdrType hdr) => MapAssets.ForMaterials(
+        [ModulateToneMapConformanceTests.Grey(40), ModulateToneMapConformanceTests.Grey(200)],
+        ["Water", "LightmappedGeneric"],
+        [Refracting(), null],
+        hdr);
+
+    /// <summary>A red floor 5 units under the water, which only a refraction view draws into the target.</summary>
+    private static List<WorldVertex> RedFloor()
+    {
+        const float half = 400f;
+        const float z = -5f;
+
+        return
+        [
+            new(-half, -half, z, 0f, 0f, 0f, 0f, 0f, 1f, 0f, 0f, NormalZ: 1f),
+            new(half, half, z, 4f, 4f, 0f, 0f, 0f, 1f, 0f, 0f, NormalZ: 1f),
+            new(half, -half, z, 4f, 0f, 0f, 0f, 0f, 1f, 0f, 0f, NormalZ: 1f),
+            new(-half, -half, z, 0f, 0f, 0f, 0f, 0f, 1f, 0f, 0f, NormalZ: 1f),
+            new(-half, half, z, 0f, 4f, 0f, 0f, 0f, 1f, 0f, 0f, NormalZ: 1f),
+            new(half, half, z, 4f, 4f, 0f, 0f, 0f, 1f, 0f, 0f, NormalZ: 1f),
+        ];
+    }
+
     /// <summary>0.95 of the fog colour's linear value, stored through the sRGB curve.</summary>
     private static int Stored(byte gamma)
     {

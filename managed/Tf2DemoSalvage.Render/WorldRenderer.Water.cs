@@ -382,9 +382,27 @@ internal sealed unsafe partial class WorldRenderer
     /// <summary>How many water batches drew each pass this frame — reset by <see cref="DrawWaterViews"/>.</summary>
     public (int Expensive, int Cheap, int Plain) WaterDraws { get; private set; }
 
+    /// <summary>
+    /// materialsystem's HDR-enabled state, which only a map load changes: false before any map (B662). Kept apart from
+    /// <see cref="HdrType"/>, which a caller may set for one draw without loading a map.
+    /// </summary>
+    private bool _hdrEnabled;
+
     private void UploadWaters(ComPtr<ID3D11Device> device, ComPtr<ID3D11DeviceContext> context, MapAssets assets)
     {
         ReleaseWaters();
+
+        // engine.dll Mod_LoadMapFlags (0x1800ffa10, disassembly): when the map's HDR-enabled state differs from
+        // materialsystem's (+0x228), it sets it (+0x230) and shuts down and re-creates the well-known render targets
+        // (FUN_1800f6920), cleared opaque black by CTexture::ReconstructTexture. An equal state keeps them and what they hold.
+        bool hdrEnabled = assets.Hdr != HdrType.None;
+
+        if (hdrEnabled != _hdrEnabled)
+        {
+            ReleaseWaterTargets();
+            _hdrEnabled = hdrEnabled;
+        }
+
         _waters = assets.Waters;
         HdrType = assets.Hdr;
         Bloom = assets.Bloom;

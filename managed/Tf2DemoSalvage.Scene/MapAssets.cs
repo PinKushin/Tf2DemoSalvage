@@ -520,9 +520,13 @@ public sealed class MapAssets
     /// <param name="textures">Each material's base texture and flags, by table index.</param>
     /// <param name="shaders">Each material's shader name, by the same index.</param>
     /// <param name="waters">Each material's <c>Water</c> parameters by the same index, or null for none (B657's synthetic water).</param>
+    /// <param name="hdr">The map's HDR type, which decides whether loading it recreates the water targets (B662).</param>
     /// <returns>Assets whose every other per-material slot is empty, with an atlas holding only the reserved white texel.</returns>
     internal static MapAssets ForMaterials(
-        IReadOnlyList<MapTexture?> textures, IReadOnlyList<string> shaders, IReadOnlyList<MapWater?>? waters = null)
+        IReadOnlyList<MapTexture?> textures,
+        IReadOnlyList<string> shaders,
+        IReadOnlyList<MapWater?>? waters = null,
+        Content.Bsp.HdrType hdr = Content.Bsp.HdrType.None)
     {
         ArgumentNullException.ThrowIfNull(textures);
         ArgumentNullException.ThrowIfNull(shaders);
@@ -543,6 +547,7 @@ public sealed class MapAssets
             0)
         {
             Waters = waters ?? [],
+            Hdr = hdr,
         };
     }
 

@@ -40326,7 +40326,7 @@ restored:
   synthetic assets cannot give. It is held by the pass gate in `DrawWaterPasses`.
 - The via-frame stretch unbinds t12/t13 before it draws into the refraction.
 
-## B662 — water that samples a target no view wrote read zeros here, where the engine's target is cleared opaque black (2026-11-02) — FIXED, merged in beta.58, for a target never written; a map load that flips HDR is still OPEN
+## B662 — water that samples a target no view wrote read zeros here, where the engine's target is cleared opaque black (2026-11-02) — FIXED: a target never written (merged in beta.58), and a map load that flips HDR (2026-11-02)
 
 **When:** a water face draws while no water view has written the targets:
 - brush-entity water on a map whose world water never got views (B659);
@@ -40372,6 +40372,33 @@ predicts 0.95 · `GammaToLinear( $fogcolor )` through sRGB, (197, 98, 45) for {2
 **Still open:** a map load that flips the HDR-enabled state recreates the targets in the engine, cleared black again.
 Ours keeps them across every map load, so after such a flip ours samples the old map's last views where TF2 samples
 black. Not fixed: our equivalent of the engine's HDR-enabled decision is not established.
+
+**FIXED, the flip (2026-11-02).** The read, by the lead in Ghidra (disassembly), engine.dll `Mod_LoadMapFlags`
+(`0x1800ffa10`):
+- It computes "map has HDR lighting": lump 53 `LIGHTING_HDR` and lump 54 `WORLDLIGHTS_HDR` non-empty, and the map
+  version below 20 or the HDR leaf-ambient lump non-empty. That is `BspHdr.MapHasHdr`.
+- The HDR-enabled state wanted is that, and `mat_hdr_level` (`DAT_18069f248 + 0x58`) above 1, and the DX support level
+  (materialsystem vtable `+0x100`) above 89. That is `BspHdr.ForTf2`, carried per map as `MapAssets.Hdr != None`.
+- When materialsystem's current state (vtable `+0x228`) differs, it sets it (`+0x230`), then `FUN_1800f7de0` and
+  `FUN_1800f6920` (`InitWellKnownRenderTargets`): shutdown then init of the well-known render targets. An equal state
+  keeps them and what they hold. The names `GetHDREnabled`/`SetHDREnabled` are *interpolated* from the compare-and-set
+  shape. The state before any map is taken as off.
+
+Ours: `WorldRenderer.UploadWaters`, the one map-upload path (`UploadTextures` calls it for every map, waters or not),
+keeps its own `_hdrEnabled`, apart from `HdrType`, which a test harness may override for one draw. On a flip it calls
+`ReleaseWaterTargets`, so the next ask recreates them cleared (0, 0, 0, 1). Tests (`WaterTargetInitialContentConformanceTests`):
+`DrawWaterWorld_MapLoadThatFlipsHdr_SamplesAnOpaqueBlackTarget` (None to integer and back) has a refraction view draw a
+red floor on the first map, then a cheap-only second map: the target texel is (0, 0, 0) and the water (197, 98, 45),
+the same prediction as above. It was red first at (204, 98, 45), the old view's red showing through 0.05 of the lerp.
+The control `DrawWaterWorld_MapLoadThatKeepsHdr_SamplesTheOldViewsContent` keeps (255, 0, 0) and the first map's pixel.
+Sabotage: no release reddens both flips; releasing on every load reddens both controls.
+
+**Also in that block, not ported:** `_rt_Camera` (`tf_rendertargets.cpp`, created by the client's
+`InitClientRenderTargets`) is recreated by the same flip, and ours keeps it across every map load
+(`WorldRenderer.Monitor.cs`). A monitor that shows it with no `point_camera` active would sample the old map's camera
+view where TF2 shows black. Not a release-and-recreate: materials hold references to the view taken at upload, so the
+equivalent is a clear. Unfixed and *unmeasured*. `_rt_PowerOfTwoFB`, `_rt_FullFrameFB` and the bloom targets are
+rewritten every frame before they are read, so their recreation shows nothing.
 
 **Earlier, before the read:**
 - pd_farmageddon is the one map with brush water and no world water. Its entity lump places a `func_water_analog`

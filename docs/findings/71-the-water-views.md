@@ -116,7 +116,9 @@ arguments). shaderapi's `CreateD3DTexture` clears nothing. Alpha 1 is "deep", so
 refraction fogs fully to its `$fogcolor`. TF2 launched with the water views switched off shows exactly that.
 
 A map load keeps the targets unless the map's HDR-enabled state flips (`Mod_LoadMapFlags`, engine.dll
-`0x1800ffa10`). A flip recreates them, and the recreated targets are cleared again.
+`0x1800ffa10`). A flip recreates them, and the recreated targets are cleared again. The state compared is "map has
+HDR lighting, `mat_hdr_level` > 1, DX level > 89", which is our `MapAssets.Hdr != None`; ours now releases the water
+targets on exactly that flip and keeps them otherwise (B662's second half, disassembly).
 
 **A wrong turn, and what killed it (B664):** over koth_toxic's vat, TF2's water is teal and ours was black. The
 `r_debugcheapwater` tail showed a world water "1500" away with "refract: true", so the first reading was that TF2 ran
