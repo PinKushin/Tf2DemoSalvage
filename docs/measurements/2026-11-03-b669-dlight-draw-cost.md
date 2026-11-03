@@ -49,7 +49,7 @@ three carry tiered JIT.
 
 Controls: `traces since the fill` read 0 on all ten passes. Asked read 1347 of 1347 live and the dead pass adds none. **`re-ranked` read 836 of 1347, so the
 record's first control failed as written.** It assumed every light 64 units above a prop was in the prop's PVS. The probe then counted that gate from
-`ClusterAt` and `Visible` directly, and got 836 of 1347, which reconciles exactly: the other 511 are the gate refusing, so the path ran for every draw it should.
+`ClusterAt` and `Visible` directly, and got 836 of 1347, which reconciles exactly: the other 511 are the gate refusing, so the path ran for every draw it should. The static-prop route has no `DynamicMerges`, so a later run compared each live answer with its dead one: 836 of 1347 differ, the same count.
 
 Arithmetic, not measured: a window of about 2,860 frames (`20 s` at the 7 ms frame of `2026-11-03-b669-surface-light-cost.md`) with the 331,621 draws of
 `2026-10-22-dynamic-light-merge.md` is about 116 model draws a frame. With a light reaching all of them, the merge is about 0.07-0.23 ms a frame and 190 KB of garbage.

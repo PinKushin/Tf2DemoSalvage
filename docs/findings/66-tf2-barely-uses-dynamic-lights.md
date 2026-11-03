@@ -245,8 +245,9 @@ stays unexplained: [B669](../RISKS.md).
 Evidence class: **disassembly**, `engine.dll` x64. This ended an inference: B668 had reasoned that `ComputeLighting` must reach the lights through
 `LightcacheGet` because nothing else reaches `FUN_1801b60a0`.
 
-- **`FUN_1801b7fd0` is `IVEngineClient::ComputeLighting`.** It takes `LightcacheGet` with flags 0xf, so the state it starts from is the cached entry's: already traced, gated and folded.
-- **With no normal, it folds each non-dlight slot at the asked point** through `FUN_1801b9570` with flags 1. That is a fold, not a new ranking and not a trace.
+- **`FUN_1801b7fd0` is `IVEngineClient::ComputeLighting`.** It takes `LightcacheGet` with flags 0xf, so the state it starts from is the cached entry's, already traced, gated and folded, with the live dlights merged in (flag 2).
+- **With no normal, it folds each non-dlight slot at the asked point** through `FUN_1801b9570` with flags 1 and `FUN_1800efbf0`'s angle. That is a fold, not a new ranking and not a trace. A slot whose pointer lies in `DAT_180773730..0x18077582f`, the converted dlights, is skipped, so a dlight in a slot adds nothing to this answer.
+- **Our port leaves the dlight merge out, a named ceiling and not parity.** A world light a dlight evicts folds at the entry's point in the engine and the asked one in ours, and a dlight that loses a slot reaches the engine's cube and not ours.
 
 So our `AddTo` route was wrong in more than the trace it was filed for. It re-ran the admission over every light at the asked point. A rope or an eye light reads the cube of the cache entry it stands in.
 

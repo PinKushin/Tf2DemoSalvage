@@ -1587,8 +1587,9 @@ public sealed class MomentSceneTests
 
         Content.Bsp.BspWorldLight lamp = StaticPlusDynamicLightingConformanceTests.Lamp(5, 0, 0f);
 
-        LevelLighting lighting = StaticPlusDynamicLightingConformanceTests.Map(
-            [lamp, lamp, lamp, lamp, LevelLightingTests.Lamp((0f, 0f, 140f), 400f) with { Style = 5, Cluster = 0 }]);
+        Content.Bsp.BspWorldLight loser = LevelLightingTests.Lamp((0f, 0f, 140f), 400f) with { Style = 5, Cluster = 0 };
+
+        LevelLighting lighting = StaticPlusDynamicLightingConformanceTests.Map([lamp, lamp, lamp, lamp, loser]);
         lighting.StyleScale = values.Scale;
 
         MomentScene scene = new(models, new ViewmodelScene(), new RecordingLogger())
@@ -1606,7 +1607,9 @@ public sealed class MomentSceneTests
         ModelInstance drawn = scene.Instances.ShouldHaveSingleItem();
 
         drawn.Locals.ShouldNotBeNull().Count.ShouldBe(4, "the fifth lamp loses its slot");
-        drawn.Light.ShouldNotBe(LevelLighting.NoStaticState, "the loser folds into the cube");
+        drawn.Light.ShouldBe(
+            Content.Bsp.LocalLights.Fold(LevelLighting.NoStaticState, loser, 0f, 0f, 100f, values.Scale),
+            "the cube starts at zero and holds exactly the loser, folded at the prop's own point");
     }
 
     /// <remarks>

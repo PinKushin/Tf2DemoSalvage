@@ -109,11 +109,14 @@ public sealed class DlightCostProbe : IProbe
             (long _, long asked1, long merged1, long ticks1) = lighting.DynamicMerges;
             dynamic.Clear();
 
-            (long propDead, _) = Pass(points, (index, point) => _ = lighting.StaticPlusDynamicLights(index, point.X, point.Y, point.Z));
+            int added = 0;
+            PointLighting[] answers = new PointLighting[points.Count];
+            (long propDead, _) = Pass(points, (index, point) => answers[index] = lighting.StaticPlusDynamicLights(index, point.X, point.Y, point.Z));
             (long propLive, long propBytes) = Pass(points, (index, point) =>
             {
                 DynamicLights.DragonsFury(dynamic, 1, (point.X, point.Y, point.Z + 64f));
-                _ = lighting.StaticPlusDynamicLights(index, point.X, point.Y, point.Z);
+                // With no dlight added the route hands back the dead pass's answer, the same list, so a different one is the route having added one.
+                added += lighting.StaticPlusDynamicLights(index, point.X, point.Y, point.Z).Equals(answers[index]) ? 0 : 1;
             });
             dynamic.Clear();
 
@@ -121,7 +124,7 @@ public sealed class DlightCostProbe : IProbe
                 CultureInfo.InvariantCulture,
                 $"pass {pass}: model draw dead {Us(dead, points.Count):0.00} us, live {Us(live, points.Count):0.00} us, asked {asked1 - asked0}, re-ranked {merged1 - merged0} " +
                 $"of {points.Count}, in the merge {Us(ticks1 - ticks0, points.Count):0.00} us, {liveBytes / points.Count} B; " +
-                $"static prop dead {Us(propDead, points.Count):0.00} us, live {Us(propLive, points.Count):0.00} us, {propBytes / points.Count} B; " +
+                $"static prop dead {Us(propDead, points.Count):0.00} us, live {Us(propLive, points.Count):0.00} us, {propBytes / points.Count} B, added {added}; " +
                 $"traces since the fill {traces - tracesFilled}"));
         }
     }

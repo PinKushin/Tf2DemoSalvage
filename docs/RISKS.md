@@ -40533,7 +40533,7 @@ earlier Scene run failed one test unrelated to light: B673.
 `FUN_1801b5400` then `FUN_1801b6550` over a cloned `LightingState`, with eviction and fold, replacing `Strongest`/`WithStyleZero` and their "differs past four lights" ceilings. A dlight on a static prop
 has threshold 100000. NaN strength is refused (`Candidate`). `Traced` and `AddListed` are the only takers of `TraceSeen`, each in a `finally`. Every PVS test goes through `InPvs`, and `Occlusion` reports the
 gate's answer beside the trace's. **Sabotage, each reversed, Scene unless named:** `ComputeLighting` with no fold, 2; bypassing the entry, 3; dlight precedence off, 2; the fold dropped, 4; NaN admitted, 1 (Content);
-no `finally` with `Occlusion` ignoring the gate, 2 (`StaticPropLightingAt_ATraceThatThrows_LeavesTheNextRankingWorking`, `Occlusion_ALightsCluster_IsTheGatesAnswer`); the three remaining gates (model dlights, styled list, static-prop dlights) open together, 6.
+no `finally` with `Occlusion` ignoring the gate, 2 (`StaticPropLightingAt_ATraceThatThrows_LeavesTheNextRankingWorking`, `Occlusion_ALightsCluster_IsTheGatesAnswer`); the three remaining gates (model dlights, styled list, static-prop dlights) open together, 6. **`InPvs`'s own clauses, one at a time:** no-leaves branch, at least 3 (`Pose_AFireballAboveAStaticProp_*`); a light's −1, at least 3 (`StaticPlusDynamicLights_ALampsCluster_FollowsCmVis(False,-1,0)`); a point's −1, exactly 2 (`StyledLights_APointInClusterMinusOneWithNoVisData_ListsNothing`); the no-vis-data all-ones branch, at least 3 (`ModelLightingAt_ThePointsAndTheLampsClusters_FollowCmVis(False,0,0,1)`). "At least" because the output was cut at three names.
 **A survivor, then a test:** dropping flags 6's cube for `NoStaticState` left all 3,538 green, so `Pose_ABakedStaticPropBesideFiveStyledLamps_DrawsTheLoserInItsCube` now fails on it.
 `FUN_1801b6bf0` reads `row[-1]` for a lamp in cluster −1, and we call that out of the PVS (`InPvs`'s remarks; two of koth_toxic's lights are the only known case).
 TRX, Debug, on this source: Content 1,869 executed of 1,935; Scene 3,539 of 3,539; Rendering 1,400 of 1,478; Presentation 1,334 of 1,334; none failed. The far frame re-shot on this source: patch 178.0 against TF2's 228.1, whole frame 167.4, both as the table above reads, so the review moved nothing in this frame.
@@ -40546,7 +40546,7 @@ in finding 66.
 `LevelLighting.From` static states 1,312 ms, beside 1.27 s in B667's record (measurements/2026-11-02-b667-trace-cost.md). So it did
 not blow up, and that is all this can say.
 
-## B668 — `IVEngineClient::ComputeLighting` → `LocalLights.AddTo` is not traced (2026-11-02) — FIXED 2026-11-03: read as `FUN_1801b7fd0` and ported
+## B668 — `IVEngineClient::ComputeLighting` → `LocalLights.AddTo` is not traced (2026-11-02) — PART FIXED 2026-11-03: read as `FUN_1801b7fd0` and ported, without the live-dlight term
 
 B666 ported the engine's per-light visibility trace at every `AddWorldLightToLightingState` (`0x1801b60a0`) site that passes
 `skipTrace` 0. `LevelLighting`'s `AddTo` path (the `ComputeLighting` entry) stays untraced: **its engine caller was not among
@@ -40564,7 +40564,7 @@ the world-light path passes no cache, so the cache only matters if another calle
 **Widened by B669 (2026-11-03), and then closed by the read above being finished:** surface lights reached `AddTo` too, untraced and ungated, so
 a rope, the eye light or impact colour could pick up a light panel through a wall. Finding [66](findings/66-tf2-barely-uses-dynamic-lights.md#computelighting-reads-the-cache-and-folds-its-slots-b668-2026-11-03)
 has the read (`FUN_1801b7fd0`) and `LevelLighting.ComputeLighting` is now its port: the entry's own state, traced and gated when it was built, with
-each slot folded at the asked point. So B668 is **FIXED**; the two unread items above (the cvar and `FUN_1801b8e20`'s shadow cache) stay unread. `LocalLights.AddTo` no
+each slot folded at the asked point. **Still divergent, only under a live dlight:** the engine's flags 0xf merge dlights into that state. A dlight holding a slot adds nothing here, since the fold skips it, and ours matches that. A world light it evicts folds at the entry's point rather than the asked one, and a dlight that loses a slot reaches the cube. Ours has neither. The only allocator a demo drives is the recorder's own Dragon's Fury fireball. The two unread items above (the cvar and `FUN_1801b8e20`'s shadow cache) stay unread. `LocalLights.AddTo` no
 longer has a production caller. Tests: `ComputeLighting_*` in `LightingStateConformanceTests`; sabotage below in B669's review list.
 
 ## B667 — a visibility trace costs map load time: +2.2 s on koth_toxic (2026-11-02) — FIXED in part: the displacement sweep is a third of what it was, output identical; the brush tree is untouched
