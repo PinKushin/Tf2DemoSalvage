@@ -40426,13 +40426,58 @@ the eye light, impact-particle colour) is a divergence. Also unread:
 the cvar at `DAT_18075b318 + 0x58` (its name and default) and the 192-unit shadow cache of `FUN_1801b8e20` that B453 recorded;
 the world-light path passes no cache, so the cache only matters if another caller does.
 
-## B667 — a visibility trace costs map load time: +2.2 s on koth_toxic (2026-11-02) — OPEN, a lever unmeasured
+## B667 — a visibility trace costs map load time: +2.2 s on koth_toxic (2026-11-02) — FIXED in part, a 0.29 s gain at the bar: the displacement sweep is a third of what it was, the brush tree is untouched
 
 B666's trace made koth_toxic's 2,225 static states take 5.6 s against 3.3 s untraced (Debug; f12: 1.27 s against 1.05 s).
 Ranking strongest-first and remembering each (light origin, point) answer already cut it from 9.2 s. What is left is the cost
-of one trace: `MapLevel.TraceBrushOnly` also sweeps displacements along the whole ray. **Not measured per trace**, so whether
-displacement sweeping is the cost is a guess. Next step: time `TraceBrushOnly` split into brush and displacement parts over
-the vat's rays, then decide. The engine makes the same traces, so this is cost, not a departure.
+of one trace. The engine traces every admitted light (B666), and we trace no more than it does, so this is cost, not a departure.
+
+**Measured, 2026-11-02, with the `trace-cost` probe** (`tools/Tf2DemoSalvage.Probe/Probes/TraceCostProbe.cs`).
+- It builds every static prop's static state twice, untraced and traced, through `StaticPropLightingAt`, and reads the
+  production counter. The traced delegate is `LevelLighting.From`'s own, wrapped to record each ray.
+- It then replays those rays split into the brush tree and the displacement sweep, as `TraceBrushOnly` composes them.
+- Last, it builds once through `LevelLighting.From` itself, computed ambient included.
+- The machine was shared with a running game, so there are three to five runs per side. Debug is optimized (D176), so Debug
+  and Release agree.
+
+| koth_toxic, 2,212 lighting origins, 267,527 traces | before | after |
+|---|---|---|
+| `LevelLighting.From`, static states, mean of five (measurements/2026-11-02-b667-trace-cost.md) | 3,893 ms | 3,601 ms |
+| traced minus untraced, mean of five (measurements/2026-11-02-b667-trace-cost.md) | 888 ms | 588 ms |
+| replay, `TraceBrushOnly` (measurements/2026-11-02-b667-trace-cost.md) | 870–993 ms | 509–522 ms |
+| of it, brush tree (measurements/2026-11-02-b667-trace-cost.md) | 345–399 ms | 337–347 ms |
+| of it, displacement sweep (measurements/2026-11-02-b667-trace-cost.md) | 525–583 ms | 163–173 ms |
+| checksum of every field of every trace | `b8a86a7a26b05bbb` | `b8a86a7a26b05bbb` |
+
+On cp_process_f12 (measurements/2026-11-02-b667-trace-cost.md), `From` went from 963–1,045 ms to 952–959 ms.
+The sweep halved, 135 to 66 ms (measurements/2026-11-02-b667-trace-cost.md). The checksum was the same both sides over 47,923 rays.
+
+- **The gain is 0.29 s on koth_toxic, at the task's 0.3 s bar rather than clear of it**
+  (measurements/2026-11-02-b667-trace-cost.md). It is kept as one revertable commit, and the lead decides.
+- **The internal controls held** (measurements/2026-11-02-b667-trace-cost.md). The wrapped trace total came to the
+  counter's delta, and the replayed whole came to the sum of its two parts.
+- **The control against the viewer did not.** `From` reaches 3.9 s where the viewer measured 5.6 s
+  (measurements/2026-11-02-b667-trace-cost.md). The rest of `From` is the computed ambient, about 2.8 s by subtraction and
+  unchanged by the fix. *Not settled*: whether the viewer's extra time is contention with the rest of its load. Re-read its
+  own "static-prop lighting at load" line when the desktop is free.
+- **Where the sweep's time went (a census in the probe).** The travel box already rejected all but 0.31 displacements a ray.
+  Those were 37.1 triangles a ray, each a full `SweepAABBTriIntersect`.
+- **A first fix did nothing.** Culling whole displacements by the line rather than the box gave the same checksum and saved
+  nothing, 500 against 523 ms (measurements/2026-11-02-b667-trace-cost.md): the line really does cross those displacement
+  boxes.
+- **The fix is Valve's `CDispCollTree::AABBTree_*` walk, one level deep** (`DisplacementCollision.Misses`). Each run of eight
+  triangles gets a box. A group whose box the line misses, grown by the extents and one unit, is skipped. So is a group
+  entered at or past the shortest hit so far.
+- **Why it cannot change an answer (arithmetic).** The grown box contains each triangle's axis-plane slab with more than
+  `DISPCOLL_DIST_EPSILON` to spare, and the window tolerance (0.001) is kept. The proof is in `Misses`' remarks. It is also
+  measured: the same checksum over all 267,527 real rays.
+- **Pinned by** `DisplacementCollisionTests.SweepSurface_LongDiagonalRaysOverAMap_IsTheBruteForceAnswerFieldForField`: 240
+  long diagonal rays on cp_badlands, compared bit for bit with a sweep of every triangle.
+
+**Open:** the brush tree is untouched, and is now two thirds of the remaining trace cost
+(about 340 ms, measurements/2026-11-02-b667-trace-cost.md). 121 traces a lighting origin is not waste.
+`LocalLights.ChooseStrongestFirst` traces only lights that are admitted and rank, strongest first, and stops at four seen.
+The engine traces every admitted light.
 
 ## B666 — a lamp behind a wall still takes a light slot and lights a static prop (2026-11-02) — FIXED, merged (`91bda1d2`); B453's open item
 

@@ -27,10 +27,10 @@ namespace Tf2DemoSalvage.Content.Bsp;
 /// displacement's collision tree when the map loads. Deferring it would make a read into a write
 /// (`docs/memory/a-lazy-cache-makes-reading-a-write.md`) on a path the render loop calls.
 ///
-/// **The per-displacement AABB tree Valve walks INSIDE one displacement is still not here**
-/// (`CDispCollTree::AABBTree_*`). That one is an optimisation over a few hundred triangles, and this
-/// rejects whole displacements before reaching them; it is the right thing to add when a profile
-/// says so, and no earlier.
+/// **The per-displacement AABB tree Valve walks INSIDE one displacement is here one level deep**
+/// (`CDispCollTree::AABBTree_*`): a box per eight triangles, culled by the line rather than the
+/// travel box (<see cref="Misses"/>). The profile that asked for it was B667's: a light's
+/// visibility trace sweeping 37 triangles a ray on koth_toxic.
 /// </remarks>
 public sealed class DisplacementCollision
 {
@@ -268,17 +268,28 @@ public sealed class DisplacementCollision
                 continue;
             }
 
-            for (int index = 0; index < displacement.Triangles.Length; index++)
+            for (int group = 0; group < displacement.Groups.Length; group++)
             {
-                float against = DisplacementSweep.Against(start, delta, extents, displacement.Triangles[index], hit);
-
-                if (against < hit)
+                // Against the shortest hit so far, not the bound: only a shorter one can replace it.
+                if (Misses(start, delta, extents, hit, displacement.Groups[group]))
                 {
-                    hit = against;
-                    texdata = displacement.Texdata;
-                    second = displacement.SecondProp[index];
-                    normal = displacement.Triangles[index].Normal;
-                    distance = displacement.Triangles[index].Distance;
+                    continue;
+                }
+
+                int end = Math.Min((group + 1) * GroupSize, displacement.Triangles.Length);
+
+                for (int index = group * GroupSize; index < end; index++)
+                {
+                    float against = DisplacementSweep.Against(start, delta, extents, displacement.Triangles[index], hit);
+
+                    if (against < hit)
+                    {
+                        hit = against;
+                        texdata = displacement.Texdata;
+                        second = displacement.SecondProp[index];
+                        normal = displacement.Triangles[index].Normal;
+                        distance = displacement.Triangles[index].Distance;
+                    }
                 }
             }
         }
@@ -289,6 +300,69 @@ public sealed class DisplacementCollision
     /// <summary>How far a bounded travel box is grown beyond the sweeping box: only ever adds candidates, which the bound then filters.</summary>
     private const float BoundPad = 1f;
 
+    /// <summary>How far <see cref="Misses"/> grows a displacement's box: 32 times `DISPCOLL_DIST_EPSILON`, which is all a plane is moved by.</summary>
+    private const float SegmentPad = 1f;
+
+    /// <summary>`SweepAABBTriIntersect`'s window tolerance, the `0.001` in <see cref="DisplacementSweep.Against"/>.</summary>
+    private const float WindowTolerance = 0.001f;
+
+    /// <summary>How many consecutive triangles share one <see cref="Displacement.Groups"/> box.</summary>
+    /// <remarks>
+    /// A displacement's triangles come two to a quad in row order, so eight are four neighbouring quads: a box tight to
+    /// that piece of the surface, where the displacement's own box spans every hill on it.
+    /// </remarks>
+    private const int GroupSize = 8;
+
+    /// <summary>Whether the swept segment, short of <paramref name="best"/>, passes clear of a box — so no triangle inside it can stop it shorter.</summary>
+    /// <remarks>
+    /// **Valve's `CDispCollTree::AABBTree_*` walk, one level deep** (B667). Without it a light's visibility trace swept
+    /// every triangle of each displacement whose box it crossed, 37 a ray on koth_toxic — 58% of the trace's cost
+    /// (`trace-cost` probe). This is the slab test of the line against a group's box grown by the extents and
+    /// <see cref="SegmentPad"/>.
+    ///
+    /// **Why it can never cull a hit — arithmetic, not measured.** Each triangle lies inside its group's box, so the
+    /// grown box's slab on every axis contains the triangle's axis-plane slab with <see cref="SegmentPad"/> to spare, more
+    /// than the `DISPCOLL_DIST_EPSILON` <see cref="DisplacementSweep.Against"/> moves a plane by. Its entry on an axis is
+    /// therefore no later, and its exit no earlier, than the axis planes'. `Against` returns a hit only when its window,
+    /// entry the largest of the planes' and exit the smallest beside 1, is open within 0.001, and its entry is below
+    /// <paramref name="best"/>. A box window shut by 0.001, or entered at or past <paramref name="best"/>, shuts that one
+    /// too. An axis the travel does not move along culls only when the start is outside the grown slab, where `Against`'s
+    /// two plane distances on that axis are both positive and it rejects.
+    /// </remarks>
+    private static bool Misses(
+        (float X, float Y, float Z) start, (float X, float Y, float Z) delta, (float X, float Y, float Z) extents, float best,
+        in Box box)
+    {
+        float enter = float.NegativeInfinity;
+        float exit = float.PositiveInfinity;
+
+        return Slab(start.X, delta.X, box.MinX - extents.X - SegmentPad, box.MaxX + extents.X + SegmentPad, ref enter, ref exit) ||
+            Slab(start.Y, delta.Y, box.MinY - extents.Y - SegmentPad, box.MaxY + extents.Y + SegmentPad, ref enter, ref exit) ||
+            Slab(start.Z, delta.Z, box.MinZ - extents.Z - SegmentPad, box.MaxZ + extents.Z + SegmentPad, ref enter, ref exit) ||
+            enter >= best ||
+            enter >= MathF.Min(exit, 1f) + WindowTolerance;
+    }
+
+    /// <summary>Narrows the line's window to one axis's slab; true when the line never enters it.</summary>
+    private static bool Slab(float start, float delta, float low, float high, ref float enter, ref float exit)
+    {
+        if (delta == 0f)
+        {
+            return start < low || start > high;
+        }
+
+        float near = (low - start) / delta;
+        float far = (high - start) / delta;
+
+        enter = MathF.Max(enter, MathF.Min(near, far));
+        exit = MathF.Min(exit, MathF.Max(near, far));
+
+        return false;
+    }
+
+    /// <summary>An axis-aligned box.</summary>
+    private readonly record struct Box(float MinX, float MinY, float MinZ, float MaxX, float MaxY, float MaxZ);
+
     /// <summary>One displacement surface: its triangles and the box they live in.</summary>
     private sealed class Displacement(
         DisplacementTriangle[] triangles,
@@ -298,6 +372,35 @@ public sealed class DisplacementCollision
         float maxX, float maxY, float maxZ)
     {
         public DisplacementTriangle[] Triangles { get; } = triangles;
+
+        /// <summary>The box of each run of <see cref="GroupSize"/> triangles, in order.</summary>
+        public Box[] Groups { get; } = GroupBoxes(triangles);
+
+        private static Box[] GroupBoxes(DisplacementTriangle[] triangles)
+        {
+            Box[] groups = new Box[(triangles.Length + GroupSize - 1) / GroupSize];
+
+            for (int group = 0; group < groups.Length; group++)
+            {
+                Box box = new(
+                    float.PositiveInfinity, float.PositiveInfinity, float.PositiveInfinity,
+                    float.NegativeInfinity, float.NegativeInfinity, float.NegativeInfinity);
+
+                for (int index = group * GroupSize; index < Math.Min((group + 1) * GroupSize, triangles.Length); index++)
+                {
+                    foreach ((float x, float y, float z) in (ReadOnlySpan<(float X, float Y, float Z)>)[triangles[index].A, triangles[index].B, triangles[index].C])
+                    {
+                        box = new Box(
+                            MathF.Min(box.MinX, x), MathF.Min(box.MinY, y), MathF.Min(box.MinZ, z),
+                            MathF.Max(box.MaxX, x), MathF.Max(box.MaxY, y), MathF.Max(box.MaxZ, z));
+                    }
+                }
+
+                groups[group] = box;
+            }
+
+            return groups;
+        }
 
         /// <summary>Per triangle, `DISPSURF_FLAG_SURFPROP2`.</summary>
         public bool[] SecondProp { get; } = secondProp;
