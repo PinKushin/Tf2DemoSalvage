@@ -40369,7 +40369,7 @@ predicts 0.95 · `GammaToLinear( $fogcolor )` through sRGB, (197, 98, 45) for {2
   sidecars. Before and after are identical on every sampled pixel (230,400 per shot, max channel difference 0). Views
   run there, so the targets already existed: the engine predicts no change.
 
-**Still open:** a map load that flips the HDR-enabled state recreates the targets in the engine, cleared black again.
+**Was open (before the read below; fixed):** a map load that flips the HDR-enabled state recreates the targets in the engine, cleared black again.
 Ours keeps them across every map load, so after such a flip ours samples the old map's last views where TF2 samples
 black. Not fixed: our equivalent of the engine's HDR-enabled decision is not established.
 
@@ -40382,7 +40382,7 @@ black. Not fixed: our equivalent of the engine's HDR-enabled decision is not est
 - When materialsystem's current state (vtable `+0x228`) differs, it sets it (`+0x230`), then `FUN_1800f7de0` and
   `FUN_1800f6920` (`InitWellKnownRenderTargets`): shutdown then init of the well-known render targets. An equal state
   keeps them and what they hold. The names `GetHDREnabled`/`SetHDREnabled` are *interpolated* from the compare-and-set
-  shape. The state before any map is taken as off.
+  shape. The state before any map is taken as off (*interpolated*; it cannot change behaviour, since before the first map the targets either do not exist or were only ever cleared black).
 
 Ours: `WorldRenderer.UploadWaters`, the one map-upload path (`UploadTextures` calls it for every map, waters or not),
 keeps its own `_hdrEnabled`, apart from `HdrType`, which a test harness may override for one draw. On a flip it calls
