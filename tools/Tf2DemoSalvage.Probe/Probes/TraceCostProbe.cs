@@ -21,9 +21,10 @@ namespace Tf2DemoSalvage.Probe.Probes;
 /// reading the production counter <see cref="LevelLighting.StaticStateBuildTicks"/>; the traced run's delegate is
 /// `LevelLighting.From`'s own (`TraceBrushOnly`, `MASK_OPAQUE`, a line), wrapped to record each ray and its time. Then it
 /// replays the recorded rays split into the brush tree and the displacement sweep bounded by the brush fraction, exactly
-/// as `TraceBrushOnly` composes them. **Two controls**, each printed with its signed gap and flagged MISMATCH past the
-/// larger of 25 ms and 25%: the wrapped total comes to the counter's delta, and the split's two parts come to the replayed
-/// whole. Last, the triangles the sweep actually tested, counted inside it (`SweepCounts`), beside the travel-box census
+/// as `TraceBrushOnly` composes them. **Three controls.** Two are timings, each printed with its signed gap and flagged
+/// MISMATCH past the larger of 25 ms and 25%: the wrapped total against the counter's delta, and the split's two parts
+/// (from one pass, biased high by its extra clock reads) against the replayed whole. The third is exact: the split's
+/// composed fraction against `TraceBrushOnly`'s, ray for ray, with any difference flagged. Last, the triangles the sweep actually tested, counted inside it (`SweepCounts`), beside the travel-box census
 /// from before the group cull.
 ///
 /// **The split and the counted pass compose `TraceBrushOnly` by a second route** — the brush tree, then the sweep bounded
@@ -116,8 +117,11 @@ public sealed class TraceCostProbe : IProbe
         int terrainWon = 0;
         ulong checksum = 0;
 
-        // Each ray's brush fraction as the split replay found it: the bound the counted pass below hands the sweep.
+        // Each ray's brush fraction and terrain answer as the split replay found them: the bound the counted pass below hands
+        // the sweep, and the composition checked against the production call.
         float[] bounds = new float[rays.Count];
+        float[] hits = new float[rays.Count];
+        long split = long.MaxValue;
 
         for (int pass = 0; pass < 3; pass++)
         {
@@ -141,7 +145,11 @@ public sealed class TraceCostProbe : IProbe
                 terrainTicks += end - mid;
                 terrainWon += hit < brush.Fraction ? 1 : 0;
                 bounds[ray] = brush.Fraction;
+                hits[ray] = hit;
             }
+
+            // Both parts from the same pass, so the sum is one pass's work rather than two best cases from different passes.
+            split = Math.Min(split, brushTicks + terrainTicks);
 
             long wholeAt = Stopwatch.GetTimestamp();
 
@@ -182,8 +190,23 @@ public sealed class TraceCostProbe : IProbe
             $"displacement sweep {Ms(terrain):0.0} ms; terrain won {terrainWon}; {level.Displacements.Count} displacements, " +
             $"{level.Displacements.TriangleCount} triangles; checksum of every trace {checksum:x16}"));
 
-        // The second control: the split's two parts must come to the whole they were split from.
-        output.WriteLine(Control("split (brush tree + displacement sweep) minus replayed TraceBrushOnly", Ms(brushes + terrain), Ms(whole)));
+        // The second control: the split's two parts, from one pass, must come to the whole they were split from. The split
+        // reads the clock three times a ray where the whole reads it twice a pass, so its timer overhead biases it high.
+        output.WriteLine(Control("split (brush tree + displacement sweep, one pass) minus replayed TraceBrushOnly", Ms(split), Ms(whole)));
+
+        // And the split's composition must be the production call's, ray for ray: the smaller of the two fractions.
+        int differ = 0;
+
+        for (int ray = 0; ray < rays.Count; ray++)
+        {
+            ((float X, float Y, float Z) from, (float X, float Y, float Z) to) = rays[ray];
+            float composed = MathF.Min(hits[ray], bounds[ray]);
+            float traceBrushOnly = level.TraceBrushOnly(from, to, 0f, MaskOpaque).Fraction;
+
+            differ += BitConverter.SingleToInt32Bits(composed) == BitConverter.SingleToInt32Bits(traceBrushOnly) ? 0 : 1;
+        }
+
+        output.WriteLine($"control: split's composed fraction against TraceBrushOnly's, {differ} of {rays.Count} differ{(differ > 0 ? " — MISMATCH" : string.Empty)}");
 
         (long overlapped, long candidates) = Census(level, rays);
         double perRay = Math.Max(1, rays.Count);

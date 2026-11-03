@@ -157,19 +157,24 @@ public sealed class LocalLightVisibilityConformanceTests
 
     /// <summary>
     /// Past the stack's bound the ranking rents instead (<see cref="LocalLights.StackCandidates"/>), and takes the same
-    /// lights as the folding ranking, which traces every one: 80 lamps of falling brightness, every third blocked.
+    /// lights as the folding ranking, which traces every one: 80 lamps whose brightness is a shuffle of 80 steps, so the
+    /// list arrives out of order and the rented path must sort it, every third blocked.
     /// </summary>
     [Test]
     public void Strongest_MoreCandidatesThanTheStackHolds_TakesTheSameLightsAsTracingEveryOne()
     {
+        const int Count = LocalLights.StackCandidates + 16;
         List<BspWorldLight> lights = [];
 
-        for (int lamp = 0; lamp < LocalLights.StackCandidates + 16; lamp++)
+        // 37 is coprime with 80, so `37 · lamp mod 80` visits every step once, in no sorted order. The lamps sit a
+        // thousandth of a unit apart, which names each one and moves its strength by far less than a brightness step.
+        for (int lamp = 0; lamp < Count; lamp++)
         {
-            lights.Add(Lamp((64f + lamp, 0f, 0f), 2000f - (lamp * 10f)));
+            lights.Add(Lamp((64f, lamp * 0.001f, 0f), Bright(lamp)));
         }
 
         Func<int, bool> keeps = static index => index % 3 != 0;
+        float[] expected = [.. Enumerable.Range(0, Count).Where(index => keeps(index)).OrderByDescending(Bright).Take(4).Select(index => index * 0.001f)];
 
         Span<LocalLight> lazy = stackalloc LocalLight[LocalLights.MaximumLocalLights];
         LocalLights.Strongest(lights, 0f, 0f, 0f, lazy, traceKeeps: keeps).ShouldBe(4);
@@ -179,7 +184,9 @@ public sealed class LocalLightVisibilityConformanceTests
         LocalLights.Split(lights, 0f, 0f, 0f, split, ref cube, traceKeeps: keeps).ShouldBe(4);
 
         lazy.ToArray().ShouldBe(split.ToArray());
-        lazy.ToArray().Select(lamp => lamp.X).ShouldBe([65f, 66f, 68f, 69f], "the control: lamps 1, 2, 4 and 5, the first and fourth blocked");
+        lazy.ToArray().Select(lamp => lamp.Y).ShouldBe(expected, "the control: the four brightest unblocked lamps, wherever they sat in the list");
+
+        static float Bright(int lamp) => 1000f + ((37 * lamp % Count) * 10f);
     }
 
     /// <summary>Of equal lamps the earlier keeps the slot, as `Insert` keeps it: five of 700, the fifth not taken.</summary>
@@ -212,6 +219,10 @@ public sealed class LocalLightVisibilityConformanceTests
     /// A traced ranking allocates nothing once warm: a static prop under a live dlight ranks this way every frame
     /// (`StaticPropFullLightingAt` → `WithStyleZero`).
     /// </summary>
+    /// <remarks>
+    /// If this ever fails again, capture the allocation BY TYPE first (an `EventListener` on the runtime's allocation
+    /// events, or `dotnet-counters`/`dotnet-trace`) before changing anything: the one recorded failure was never explained.
+    /// </remarks>
     [Test]
     public void Strongest_TracedAndWarm_AllocatesNothing()
     {
@@ -236,16 +247,12 @@ public sealed class LocalLightVisibilityConformanceTests
             LocalLights.Strongest(lights, 0f, 0f, 0f, into, traceKeeps: keeps);
         }
 
-        // The pool emptied of this size, as `ArrayPool.Shared` empties itself when a gen-2 collection finds memory pressure
-        // high — which a full parallel run can and a quiet one does not, so the condition is made here rather than hoped
-        // for: this thread holds the array a renting ranking would have taken (B667 round 4). A forced gen-2 collection
-        // too, which on its own trims nothing recently used.
+        // **A revert guard, not a model of the flake this test once showed** (7,920 B in one full run, B667; its source is
+        // unidentified). The ranking keeps a short list on the stack; were it to rent again, an emptied pool would make it
+        // allocate. This thread holds the array a renting ranking would take, so a return to the pool reads 152 B and fails.
+        // No forced collection: one was tried and on its own trims nothing recently used, so it added a stall for every
+        // parallel test and no condition.
         (float Strength, int Index)[] held = ArrayPool<(float Strength, int Index)>.Shared.Rent(lights.Count);
-
-#pragma warning disable S1215 // The collection is part of the condition under test: the property must survive one.
-        GC.Collect(2, GCCollectionMode.Forced, blocking: true);
-        GC.WaitForPendingFinalizers();
-#pragma warning restore S1215
 
         long before = GC.GetAllocatedBytesForCurrentThread();
 

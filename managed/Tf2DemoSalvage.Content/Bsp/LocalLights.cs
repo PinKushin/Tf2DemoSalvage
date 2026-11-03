@@ -478,7 +478,7 @@ public static class LocalLights
     /// the answer. A caller that folds (<see cref="Split"/>) still traces every admitted light, since every seen loser is
     /// added to the cube.
     ///
-    /// **Allocates nothing**: up to <see cref="StackCandidates"/> candidates go on the stack, sorted by a cached
+    /// **Allocates nothing**: a list of up to <see cref="StackCandidates"/> lights is ranked on the stack, sorted by a cached
     /// comparison — a static prop under a live dlight ranks this way every frame (`StaticPropFullLightingAt`). Only a
     /// longer list rents, and only it can allocate when the pool has been trimmed.
     /// </remarks>
@@ -491,10 +491,11 @@ public static class LocalLights
         Func<int, bool> traceKeeps)
     {
         // On the stack up to a bound, so the common case owes nothing to the pool: `ArrayPool.Shared` drops what it holds
-        // under memory pressure, and a ranking that rented would then allocate afresh (B667 round 4).
+        // under memory pressure, and a ranking that rented would then allocate afresh (B667). Sized to the list, which bounds
+        // the candidates, so a six-lamp list clears 48 bytes rather than the bound's 512.
         (float Strength, int Index)[]? pooled =
             lights.Count > StackCandidates ? ArrayPool<(float Strength, int Index)>.Shared.Rent(lights.Count) : null;
-        Span<(float Strength, int Index)> buffer = pooled is null ? stackalloc (float Strength, int Index)[StackCandidates] : pooled;
+        Span<(float Strength, int Index)> buffer = pooled is null ? stackalloc (float Strength, int Index)[lights.Count] : pooled;
 
         try
         {
@@ -535,8 +536,8 @@ public static class LocalLights
     }
 
     /// <summary>
-    /// How many candidates <see cref="ChooseStrongestFirst"/> ranks on the stack, 512 bytes of it; a list longer than this
-    /// rents from the pool instead.
+    /// The longest list <see cref="ChooseStrongestFirst"/> ranks on the stack, at most 512 bytes of it; a longer list rents
+    /// from the pool instead.
     /// </summary>
     internal const int StackCandidates = 64;
 

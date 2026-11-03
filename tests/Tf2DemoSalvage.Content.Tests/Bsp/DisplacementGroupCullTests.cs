@@ -99,45 +99,76 @@ public sealed class DisplacementGroupCullTests
     }
 
     /// <remarks>
-    /// The two edges of `Misses`' safety argument that are not long rays: a start exactly on a group box's face, where a
-    /// slab's entry is exactly 0, and a bound of 0, where the best hit is 0 from the start and every group entered at or
-    /// after 0 is culled (see `Misses`' remarks). Both must give the brute force's answer exactly.
+    /// The edges of `Misses`' safety argument that are not long rays:
+    /// - a start exactly on each of a group box's six faces, where that slab's entry or exit is exactly 0;
+    /// - a bound of 0, where the best is 0 from the start and every group entered at or after 0 is culled;
+    /// - a start exactly on a hill vertex, which the terrain stops at fraction 0, so the best is 0 for every later group.
+    ///
+    /// All must give the brute force's answer exactly; see `Misses`' remarks for why a best of 0 loses nothing.
     /// </remarks>
     [Test]
-    public void SweepSurface_ALimitOfZeroAndStartsOnABoxFace_EqualsTheBruteForceExactly()
+    public void SweepSurface_StartsOnEveryBoxFaceABoundOfZeroAndAVertex_EqualsTheBruteForceExactly()
     {
         List<(int Texdata, IReadOnlyList<SurfaceVertex> Corners)> hills = Hills();
         DisplacementCollision collision = DisplacementCollision.FromTriangles(hills);
         int stopped = 0;
-        int rays = 0;
+        int whole = 0;
 
         foreach (((float X, float Y, float Z) low, (float X, float Y, float Z) high) in GroupBoxes(hills))
         {
             (float X, float Y, float Z) middle = ((low.X + high.X) / 2f, (low.Y + high.Y) / 2f, (low.Z + high.Z) / 2f);
 
+            // Each starts on one face, its other two coordinates inside the box, and travels down and across it.
             ((float X, float Y, float Z) From, (float X, float Y, float Z) To)[] onFaces =
             [
-                ((middle.X, middle.Y, high.Z), (middle.X + 40f, middle.Y - 30f, high.Z - 300f)), // on the top face, down
-                ((low.X, middle.Y, middle.Z), (low.X + 500f, middle.Y + 20f, middle.Z - 200f)), // on the low X face, inward
-                ((high.X, middle.Y, high.Z + 20f), (high.X, middle.Y, low.Z - 50f)),            // in the high X face's plane, down
+                ((low.X, middle.Y, middle.Z), (low.X + 500f, middle.Y + 20f, middle.Z - 200f)),
+                ((high.X, middle.Y, middle.Z), (high.X - 500f, middle.Y - 20f, middle.Z - 200f)),
+                ((middle.X, low.Y, middle.Z), (middle.X + 20f, low.Y + 500f, middle.Z - 200f)),
+                ((middle.X, high.Y, middle.Z), (middle.X - 20f, high.Y - 500f, middle.Z - 200f)),
+                ((middle.X, middle.Y, low.Z), (middle.X + 40f, middle.Y - 30f, low.Z - 300f)),
+                ((middle.X, middle.Y, high.Z), (middle.X + 40f, middle.Y - 30f, high.Z - 300f)),
             ];
 
             foreach (((float X, float Y, float Z) from, (float X, float Y, float Z) to) in onFaces)
             {
                 foreach (float limit in (ReadOnlySpan<float>)[1f, 0f])
                 {
-                    Swept culled = collision.SweepSurface(from.X, from.Y, from.Z, to.X, to.Y, to.Z, (0f, 0f, 0f), BspLeafTree.MaskSolid, limit);
-                    Swept brute = DisplacementBruteForce.Sweep(hills, from, to, (0f, 0f, 0f), limit);
+                    Swept brute = Agrees(collision, hills, from, to, limit);
 
-                    DisplacementBruteForce.Bits(culled).ShouldBe(DisplacementBruteForce.Bits(brute), $"from {from} to {to}, limit {limit}");
-                    stopped += brute.Texdata >= 0 ? 1 : 0;
-                    rays++;
+                    if (limit >= 1f)
+                    {
+                        stopped += brute.Texdata >= 0 ? 1 : 0;
+                        whole++;
+                    }
                 }
             }
         }
 
-        // The control: with a bound of 1 the face starts meet terrain often; with 0 none can, so a quarter is plenty.
-        stopped.ShouldBeGreaterThan(rays / 4, $"of {rays}");
+        // The control, over the bound-1 rays only — a bound of 0 can stop nothing: most face starts meet terrain.
+        stopped.ShouldBeGreaterThan(whole / 4, $"of {whole} rays with a bound of 1");
+
+        // A start on a hill vertex, travelling down into it: the terrain stops it at fraction 0, so a best of 0 really is
+        // held while the later groups and displacements are tested.
+        SurfaceVertex vertex = hills[0].Corners[3 * 30];
+        Swept atVertex = Agrees(collision, hills, (vertex.X, vertex.Y, vertex.Z), (vertex.X + 30f, vertex.Y + 20f, vertex.Z - 400f), 1f);
+        atVertex.Fraction.ShouldBe(0f, "the control: a fraction-0 hit exists");
+        atVertex.Texdata.ShouldBeGreaterThanOrEqualTo(0);
+    }
+
+    /// <summary>The set's sweep and the brute force's, exactly equal; returns the brute force's.</summary>
+    private static Swept Agrees(
+        DisplacementCollision collision,
+        List<(int Texdata, IReadOnlyList<SurfaceVertex> Corners)> hills,
+        (float X, float Y, float Z) from,
+        (float X, float Y, float Z) to,
+        float limit)
+    {
+        Swept culled = collision.SweepSurface(from.X, from.Y, from.Z, to.X, to.Y, to.Z, (0f, 0f, 0f), BspLeafTree.MaskSolid, limit);
+        Swept brute = DisplacementBruteForce.Sweep(hills, from, to, (0f, 0f, 0f), limit);
+
+        DisplacementBruteForce.Bits(culled).ShouldBe(DisplacementBruteForce.Bits(brute), $"from {from} to {to}, limit {limit}");
+
+        return brute;
     }
 
     /// <summary>Each run of <see cref="DisplacementCollision.GroupSize"/> triangles' box, read from the corners as the set groups them.</summary>

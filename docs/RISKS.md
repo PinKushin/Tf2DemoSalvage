@@ -40434,15 +40434,15 @@ figure in this entry, with its raw lines, is in measurements/2026-11-02-b667-tra
 - The machine was shared with a running game, so there are three to five runs per side. Debug is optimized (D176), so Debug
   and Release agree.
 
-"Before" is the flat loop (five runs), "after" the code as committed (four runs); both are the measurements doc's
+"Before" is the flat loop (five runs), "after" the code as committed (five runs); both are the measurements doc's
 sections of those names.
 
 | koth_toxic, 2,212 lighting origins, 267,527 traces | before | after |
 |---|---|---|
-| `LevelLighting.From`, static states, mean | 3,893 ms | 3,596 ms |
-| traced minus untraced, mean | 888 ms | 645 ms |
-| replay, `TraceBrushOnly` | 870–993 ms | 487–532 ms |
-| of it, brush tree | 345–399 ms | 336–339 ms |
+| `LevelLighting.From`, static states, mean | 3,893 ms | 3,606 ms |
+| traced minus untraced, mean | 888 ms | 640 ms |
+| replay, `TraceBrushOnly` | 870–993 ms | 487–535 ms |
+| of it, brush tree | 345–399 ms | 336–340 ms |
 | of it, displacement sweep | 525–583 ms | 156–198 ms |
 | triangles swept a ray (counted in the sweep after; the travel-box census before) | 37.1 | 2.4 |
 | checksum of all 13 `BspTrace` values of every trace | `5fe80ad4d5e01f8e` | `5fe80ad4d5e01f8e` |
@@ -40453,9 +40453,11 @@ sides.
 - **The gain on `From`, about 0.3 s, is within noise of the task's 0.3 s bar.** It is the difference of two means, taken on a
   machine shared with a running game. It is kept because the change is output-identical (the checksum, and the tests below)
   and cuts the sweep itself to a third. It is one revertable commit (`d780e5ca`).
-- **Both internal controls held in every run that printed them.** The probe prints each with its signed gap, flagged past
-  the larger of 25 ms and 25%. The first is the wrapped trace total against the counter's delta. The second is the split's
-  two parts against the replayed whole.
+- **The probe's controls held where they were printed, and they were not printed everywhere.**
+  - The wrapped trace total against the counter's delta: every run.
+  - The split's two parts against the replayed whole: only 2 of the 5 final koth_toxic runs and 1 of the 2 f12 runs,
+    since it was added late. Only the last koth_toxic run takes both parts from one pass.
+  - The split's composed fraction against `TraceBrushOnly`'s, ray for ray: the last koth_toxic run only, 0 of 267,527 differ.
 - **The control against the viewer did not.** `From` reaches 3.9 s where the viewer measured 5.6 s
   (measurements/2026-11-02-b667-trace-cost.md). The rest of `From` is the computed ambient, about 2.8 s by subtraction and
   unchanged by the fix. *Not settled*: whether the viewer's extra time is contention with the rest of its load. Re-read its
@@ -40483,24 +40485,25 @@ sides.
   cp_badlands. Both assert that the cull skipped more groups than it swept, read through the `SweepCounts` seam.
 - **The ray's reciprocal is hoisted out of the per-group test,** as Valve's `vecInvDelta` is. It made no measurable
   difference (the measurements doc's "after review" section), and the checksums are unchanged.
-- **Edges pinned besides those:** a start exactly on a group box's face, and a bound of 0, where `best` is 0 and every group
-  entered at or after 0 is culled. With a best of 0 no triangle can replace it, which `Misses`' remarks state. Both are in
-  `SweepSurface_ALimitOfZeroAndStartsOnABoxFace_EqualsTheBruteForceExactly`. The inside-start test also counts its starts
+- **Edges pinned besides those** (`SweepSurface_StartsOnEveryBoxFaceABoundOfZeroAndAVertex_EqualsTheBruteForceExactly`):
+  - a start exactly on each of a group box's six faces;
+  - a bound of 0, where `best` is 0 and every group entered at or after 0 is culled;
+  - a start on a hill vertex, which the terrain stops at fraction 0, asserted as its control, so a held best of 0 is real.
+  With a best of 0 no triangle can replace it, which `Misses`' remarks state. The inside-start test also counts its starts
   inside a group's box and asserts some are.
 
-**A flake found on the way, in B666's ranking (2026-11-02).** `Strongest_TracedAndWarm_AllocatesNothing` failed once in a
-full Content run: 7,920 B over 1,000 warm calls. It passed alone, and 20 times in a loop.
-- *Measured, not reproduced:* the `ranking-alloc` probe ran 5,000 trials with forced and natural gen-2 churn on another
-  thread and found 0 B. Its empty-window control also read 0, so the instrument is sound.
-- *Why, read from `SharedArrayPool.Trim`:* at this machine's memory load (Medium) a gen-2 collection drops a thread's
-  pooled array only after 15 s unused, and a warm ranking resets that clock on every call. Only High pressure drops it at
-  once, and a full parallel run beside the owner's game is the plausible way to reach it.
-- *Not identified:* the 7,920 B itself. One fresh rent is 152 B.
-- *Fixed at the root anyway:* `ChooseStrongestFirst` ranks up to 64 candidates on the stack, so the common case owes
-  nothing to the pool.
-- *The test now makes the condition deterministically:* it holds the array a renting ranking would take, after a forced
-  gen-2 collection. Put back on the pool, the ranking measures exactly 152 B and the test reddens.
-- `Strongest_MoreCandidatesThanTheStackHolds_TakesTheSameLightsAsTracingEveryOne` pins the rented path above the bound.
+**A flake found on the way, in B666's ranking (2026-11-02): UNIDENTIFIED.** `Strongest_TracedAndWarm_AllocatesNothing`
+failed once in a full Content run: 7,920 B over 1,000 warm calls. It passed alone, and 20 times in a loop.
+- *What it was not shown to be:* a trimmed `ArrayPool`. 5,000 probe trials under forced and natural gen-2 churn found
+  0 B, with an empty-window control at 0. `SharedArrayPool.Trim` drops a recently used thread-local array only under High
+  memory pressure, and 7,920 B is not a fresh rent: one is 152 B. Nothing in the traced path allocates by reading.
+- *What changed anyway:* `ChooseStrongestFirst` ranks a list of up to 64 lights on the stack, sized to the list, so the
+  common case no longer touches the pool. The test is a revert guard for that, not a model of the flake. It holds the
+  array a renting ranking would take, so a return to the pool reads exactly 152 B and fails.
+- *If it flakes again:* capture the allocation by type first (an `EventListener` on the runtime's allocation events, or
+  `dotnet-counters`/`dotnet-trace`), before changing anything else.
+- `Strongest_MoreCandidatesThanTheStackHolds_TakesTheSameLightsAsTracingEveryOne` pins the rented path above the bound,
+  with lamps that arrive unsorted. Without the sort, it alone fails.
 
 **Open:** the brush tree is untouched, and is now two thirds of the remaining trace cost (about 340 ms). 121 traces a
 lighting origin is not waste.
