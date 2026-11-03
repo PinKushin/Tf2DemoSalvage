@@ -349,7 +349,12 @@ public sealed partial class EntityModelSet
             // was sixty to eighty lines inside this loop, and none of them is about posing a model —
             // which is how the body reached two hundred lines of code with five jobs in it and the
             // engine's stage boundaries invisible.
-            ModelLight lit = _lighting.For(prop, lightAt, sunAt);
+            //
+            // **A static prop has a handle, and the handle is all it asks** (B674): with `param_4` set, `engine.dll` `0x1800f1bd0`
+            // has no call to `LightcacheGet`, so this takes only the point, which spends no `lightcache_maxmiss` and evicts no entry.
+            bool isStatic = prop.EntityIndex >= PropModels.FirstStaticPropEntityIndex;
+            bool hasHandle = isStatic && StaticPropFullLighting is not null;
+            ModelLight lit = hasHandle ? _lighting.For(prop, null, null) : _lighting.For(prop, lightAt, sunAt);
 
             AmbientCube? light = lit.Light;
             SunLight? sun = lit.Sun;
@@ -357,22 +362,23 @@ public sealed partial class EntityModelSet
 
             // **A static prop with a colour mesh draws its colours PLUS its styled and dynamic lights** (B426, B424,
             // B425): `engine.dll` `0x1800f1bd0` on DX9 keeps the mesh and lights it with `FUN_1801ba590` flags 6 or 7 —
-            // no cube, no sun, no style-0 light, since the colours hold those. With none reaching, the colours alone.
+            // no static state, so no leaf cube, no sun and no style-0 light, since the colours hold those; what the slots
+            // lost is in the cube. With nothing at all, the colours alone.
             //
             // **Unless its model is flagged bump mapped — any material with `$phong` on or a `$bumpmap`** (B514):
             // `engine.dll FUN_1800eb1a0` then refuses static lighting, no colour mesh is drawn (the phong shader could
             // not read one: `skin_ps20b.fxc:220-222` passes a zero static colour), and the state is the handle's full
-            // one, flags 7.
+            // one, flags 7. **So is a prop with no colour mesh for any other reason** (B674): `*param_7` is 0, `LAB_1800f1f3b`.
             long bakedAt = System.Diagnostics.Stopwatch.GetTimestamp();
 
             bool fullyLit =
-                prop.EntityIndex >= PropModels.FirstStaticPropEntityIndex &&
+                isStatic &&
                 frames is not null &&
                 StaticPropVertexLighting.RefusesColourMesh(frames.StudioFlags);
 
             float[]? baked = fullyLit ? null : BakedColoursOf(prop, pose, lit.X, lit.Y, lit.Z);
 
-            if (fullyLit && StaticPropFullLighting is { } fullLighting)
+            if (isStatic && baked is null && StaticPropFullLighting is { } fullLighting)
             {
                 (PointLighting state, sun) = fullLighting(prop.EntityIndex, lit.X, lit.Y, lit.Z);
                 light = state.Cube;
@@ -411,7 +417,8 @@ public sealed partial class EntityModelSet
 
             if (lightAt is not null)
             {
-                _reports.Lit(prop, lit, skin);
+                // What is drawn, not what was asked for first, which for a static prop asked nothing (B674, B243).
+                _reports.Lit(prop, lit with { Light = light, Sun = sun, Locals = locals }, skin);
             }
 
             _reports.Animating(prop, frame, packedFrames, blend);

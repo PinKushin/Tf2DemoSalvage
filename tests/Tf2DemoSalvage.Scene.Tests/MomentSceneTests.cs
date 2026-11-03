@@ -1437,9 +1437,10 @@ public sealed class MomentSceneTests
         {
             (MomentScene scene, _, EntityModelSet models) = UnderAFireball(holdsADecal: false);
 
+            // A stand-in that does no work rather than null: null is what says the prop has no handle, and that sends it to the cache (B674).
             if (!wired)
             {
-                models.StaticPropFullLighting = null;
+                models.StaticPropFullLighting = static (_, _, _, _) => (Content.Bsp.PointLighting.None, null);
             }
 
             scene.Pose(Info() with { Recorder = 9 });
