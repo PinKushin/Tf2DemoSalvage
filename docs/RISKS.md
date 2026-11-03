@@ -40438,6 +40438,7 @@ and the cap disc. So this instrument cannot be believed until that is explained;
 
 ## B670 — cp_process_f12's cap disc reads twice TF2's brightness (2026-11-03) — OPEN, not read
 
+It is `models/props_gameplay/cap_point_base.mdl`, a `CDynamicProp`; near it, B669's table has the same factor of two.
 **Measured** (far camera, scale 1, bloom off; x 950-1250, y 500-700): **372.3 in ours, 190.9 in TF2**, unmoved by B669 (372.8) and
 by TF2's `mat_phong`, `r_worldlights` and translucent-world switches (188.6-191.0). B669 as filed said the other far patches
 agree; that rested on the wall and the whole frame only. The floor around it also differs by eye. TF2's disc looks like a metal
@@ -40461,7 +40462,23 @@ account, the wrong turns and every address: finding [66](findings/66-tf2-barely-
 Fixed in `LocalLights` (the kind, its `1 / max(1, d²)`, one cosine past 0.01, no `r_worldlightmin`, the engine's spot shape),
 `BspWorldLights` (`dworldlight_t.flags`) and `LevelLighting` (`StaticPropLightingAt` folds; a leaf-lit caller skips what vrad
 flagged; the style-0 path has the engine's PVS gate). **So moving models take surface lights too**: none of f12's 108 or toxic's 4 is
-flagged, as vrad's threshold predicts. No player was in this frame, so **that half is unverified against TF2.**
+flagged, as vrad's threshold predicts.
+
+**Models off the static path, against live TF2** (same setup, build 11191711; ours `e6f8a67a` and `97a72e39`; **measured**, `D:/b669/`).
+The leaf path takes these lights. No player was compared: a bot's pose cannot be held to a demo's, so these are fixed dynamic props:
+
+| camera, subject | TF2 | main | branch |
+|---|---|---|---|
+| `4560 1040 640 20 0`, `resupply_locker` (`CDynamicProp`, entity 313, by `TF2VIEW_PICK`), x 540-730 y 100-600 | 98.0 | 62.7 | **86.8** |
+| `-2240 -2500 800 10 270`, `door_slide_large_dynamic` slats | 172.6 | 170.7 | 170.7 |
+| `-3540 -1450 700 35 90`, `cap_point_base` rim (B670, unrelated) | 157.8 | 307.4 | 307.9 |
+| `-2350 -848 660 30 0`, ammo pack (TF2's spins, so its pose differs) | 119.8 | 124.3 | 125.1 |
+| same camera, world floor, the control | 127.9 | 127.8 | 127.8 |
+
+So the one dynamic prop these lights reach moved toward TF2, and none moved away beyond the ammo pack's 0.8, which a different pose can
+hold. A static phong tank at that last camera went 266.6 to 287.2 against 291.4.
+
+**Frame cost (measurements/2026-11-03-b669-surface-light-cost.md):** none observed, A B B A twice on f12 first person.
 
 **No other model moved away from TF2** in this frame, so this is not an overshoot elsewhere: yellow rail 106.3 (TF2 103.7), barrels
 64.8 (63.9), chair behind glass 114.9 (142.0), vents 92.1 (90.0), each the same before and after to the digit. *Interpolated:* those
@@ -40504,9 +40521,14 @@ pinned on a synthetic lump instead.
 `StaticPropLightingAt_InFrontOfTheMapsSurfaceLights_TakesThemIntoSlots` (Rendering). Red first, for the kind being refused. `Strongest_GivenASkylightAndASurfaceLight_KeepsNeither`
 pinned the wrong reading and is now `Strongest_GivenASkylight_DropsIt`. **Sabotage, each reversed:** the inverse-square branch off,
 4 red; two cosines and no epsilon, 3; the minimum applied at admission, 1; at ranking, 1; the leaf skip off, 2; the static fold off, 1; the
-PVS gate open, 5; the kind refused, the real-map test (0 of 256 against 256 of 256 on cp_process_final).
-TRX, Debug, on the final source: Content 1,868 executed of 1,934; Scene 3,500 of 3,500; Rendering 1,400 executed of 1,478; none failed. An
+PVS gate open, 5; the kind refused, the real-map test (0 of 256 against 256 of 256 on cp_process_final). From review: the leaf-cube list
+ignored, 2; a point's −1 rule off, 1; a light's −1 rule off, 1; the gate tied to the trace, 2; the handle's list gated, 1; a cosine on the CPU path,
+1. TRX, Debug, on the final source: Content 1,868 executed of 1,934; Scene 3,515 of 3,515; Rendering 1,400 executed of 1,478; none failed. An
 earlier Scene run failed one test unrelated to light: B673.
+
+**Review that did not become a change:** the cluster is read on a map with no vis data, because `CM_Vis` tests for −1 before it looks for any, so a
+point in solid on such a map must still see nothing. A model in cluster −1 losing every world light is the engine, not a port bug. Both are
+in finding 66.
 
 **Load, measured once on a shared machine, not a before-and-after pair:** `trace-cost cp_process_f12` after the fix gave
 `LevelLighting.From` static states 1,312 ms, beside 1.27 s in B667's record (measurements/2026-11-02-b667-trace-cost.md). So it did
