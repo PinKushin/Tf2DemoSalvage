@@ -352,9 +352,19 @@ public sealed partial class EntityModelSet
             //
             // **A static prop has a handle, and the handle is all it asks** (B674): with `param_4` set, `engine.dll` `0x1800f1bd0`
             // has no call to `LightcacheGet`, so this takes only the point, which spends no `lightcache_maxmiss` and evicts no entry.
+            // Every static prop: `0x180205b20` makes each one a handle, so there is no static prop that takes the cache to fall back to.
             bool isStatic = prop.EntityIndex >= PropModels.FirstStaticPropEntityIndex;
-            bool hasHandle = isStatic && StaticPropFullLighting is not null;
-            ModelLight lit = hasHandle ? _lighting.For(prop, null, null) : _lighting.For(prop, lightAt, sunAt);
+            ModelLight lit;
+
+            if (isStatic)
+            {
+                (float pointX, float pointY, float pointZ) = IlluminationPoint(prop, pose);
+                lit = new ModelLight(null, null, pointX, pointY, pointZ, []);
+            }
+            else
+            {
+                lit = _lighting.For(prop, lightAt, sunAt);
+            }
 
             AmbientCube? light = lit.Light;
             SunLight? sun = lit.Sun;
@@ -383,6 +393,7 @@ public sealed partial class EntityModelSet
                 (PointLighting state, sun) = fullLighting(prop.EntityIndex, lit.X, lit.Y, lit.Z);
                 light = state.Cube;
                 locals = state.Locals;
+                _lighting.Report(prop, lightAt, light);
             }
 
             DecalLighting? decalLight = null;

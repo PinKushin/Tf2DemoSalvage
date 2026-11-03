@@ -48,7 +48,7 @@ public static class StaticPropVertexLighting
     /// <summary><c>STUDIOHDR_FLAGS_CONSTANT_DIRECTIONAL_LIGHT_DOT</c>, `studio.h:2073`.</summary>
     /// <summary>Whether the engine refuses a static prop of this model its colour mesh and lights it per draw (B514).</summary>
     /// <param name="studioFlags">The model's flags, with the load-time ones set.</param>
-    /// <returns>True for a model flagged <c>STUDIOHDR_FLAGS_USES_BUMPMAPPING</c>.</returns>
+    /// <returns>True for a model flagged <c>STUDIOHDR_FLAGS_USES_BUMPMAPPING</c>, or not flagged <c>STUDIOHDR_FLAGS_STATIC_PROP</c>.</returns>
     /// <remarks>
     /// *Read in disassembly*, <c>engine.dll FUN_1800eb1a0</c>, the model draw's static-lighting decision:
     ///
@@ -60,8 +60,11 @@ public static class StaticPropVertexLighting
     /// Without <c>static</c> no colour mesh reaches the studio render and the lighting state is the handle's full one
     /// (<see cref="LevelLighting.StaticPropFullLightingAt"/>). *Interpolated*: that <c>model_t</c> bit <c>0x200</c>
     /// mirrors <c>studiohdr_t</c> bit <c>0x80</c>, from the two published names (<c>model_types.h</c>, <c>studio.h:2051</c>).
+    /// **Both halves are this test** (B674): a model not compiled <c>$staticprop</c> takes flags 7 whatever <c>.vhv</c> the map holds. vbsp deletes such a prop at
+    /// compile (<c>staticprop.cpp:170-180</c>), so it reaches a draw only when the model on disk changed after the map was built, which `0x1802052c0` warns of.
     /// </remarks>
-    public static bool RefusesColourMesh(int studioFlags) => (studioFlags & Content.Assets.StudioModelFlags.UsesBumpmapping) != 0;
+    public static bool RefusesColourMesh(int studioFlags) =>
+        !Lights(studioFlags) || (studioFlags & Content.Assets.StudioModelFlags.UsesBumpmapping) != 0;
 
     public const int ConstantDirectionalLightDot = Content.Assets.StudioModelFlags.ConstantDirectionalLightDot;
 

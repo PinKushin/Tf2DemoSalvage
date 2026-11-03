@@ -778,7 +778,7 @@ public sealed class LevelLighting
     /// <summary>Times a flags-7 draw ranked its static four with its styled lights, ever (the `Full` cache's misses).</summary>
     internal int FullRankings { get; private set; }
 
-    /// <summary>Times a flags-7 state was asked for, ever: a bump-mapped prop's draw or a decal-holding prop's decal light (B642).</summary>
+    /// <summary>Times a flags-7 state was asked for, ever: a draw with no colour mesh or a decal-holding prop's decal light (B642, B674).</summary>
     internal int FullStateRequests { get; private set; }
 
     /// <summary>Static-prop handles' styled lists built, ever (`FUN_1801b6bf0`): once a prop, at load (B607).</summary>
@@ -935,7 +935,7 @@ public sealed class LevelLighting
 
     /// <summary>
     /// The whole lighting state of a static prop that draws WITHOUT a colour mesh — a model flagged
-    /// `STUDIOHDR_FLAGS_USES_BUMPMAPPING` (B514): `FUN_1801ba590(handle, …, 7)`, `engine.dll` `0x1800f1bd0` at
+    /// `STUDIOHDR_FLAGS_USES_BUMPMAPPING` (B514), or with no mesh for another reason (B674): `FUN_1801ba590(handle, …, 7)`, `engine.dll` `0x1800f1bd0` at
     /// `LAB_1800f1f3b`.
     /// </summary>
     /// <param name="entity">The prop's entity index, which keys its handle's list.</param>
@@ -1052,7 +1052,9 @@ public sealed class LevelLighting
     /// <summary><see cref="StaticPropLightingAt"/> with the state itself, for bit 4 and bit 2 to copy and add to.</summary>
     private (PointLighting Lighting, SunLight? Sun, LightingState State) StaticState(float x, float y, float z)
     {
-        if (_leaves is not { } tree || _ambient.Count == 0)
+        // **An empty ambient lump costs only the leaf's cube** (B674 review): `FUN_1801b8270` runs `FUN_1801b5a50` over the world lights
+        // whatever `FUN_1801bb4b0` found, and a static caller's cube is cast by rays (`FUN_1801b74f0`), not read from the lump.
+        if (_leaves is not { } tree)
         {
             return (PointLighting.None, null, new LightingState(default));
         }
@@ -1127,7 +1129,8 @@ public sealed class LevelLighting
         // chosen, or lights chosen that contribute nothing once attenuated. A log that names only
         // the total makes those indistinguishable — see
         // docs/memory/logs-are-the-debugger.md#a-log-must-name-what-it-measured.
-        // The entry's own cube, carried from it: the answer was built from that one, which past the budget is not the asked point's leaf (B243).
+        // The entry's own cube, carried from it: the answer was built from that one, which past the budget is not the asked point's
+        // leaf (B243). It holds the bounce and the lights that took no slot, so the second number is what the slots add.
         ReportLightTerms(entry.State.Cube, lit, x, y, z);
 
         return lit;
@@ -1280,7 +1283,7 @@ public sealed class LevelLighting
             sun.Normal.Z);
     }
 
-    /// <summary>Says what the bounce gave and what the direct lights added, once per place.</summary>
+    /// <summary>Says what the entry's cube gave, bounce and the lights that took no slot, and what its slots added, once per place.</summary>
     /// <remarks>
     /// **Debug, and the work is behind the same guard as the write** (B191). This runs for every
     /// model every time one moves, and the stall that froze playback for 120 ms every few seconds

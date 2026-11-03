@@ -106,15 +106,22 @@ The `lighting` column, each rebuild report, ms:
 - The handle's state only under the bump flag: `Instances_AStaticPropWithNoColourMeshAndNoBump_DrawsTheHandlesFullState` fails, alone.
 - No handle for a prop with no mesh: `Instances_AStaticPropWithNoColourMeshAndNoBump_AsksTheCacheNothing` fails, alone.
 
+**Added after the run, to ask what the first shots could not. They correct the shot clause below.**
+- More `--shot`s of the same tick: A `3A0CE4B336F68516` three times; this branch's head (`b5be4cdd`, B plus B675) `9EAE71159A9BDBB5` twice, which is the first B's hash. A's first two against its later three: rows 0-40 only, 24,620 pixels, largest 206. So **both binaries take either state of the top band** and "one run in four" was too few shots to say. A against A matched by chance, so it was no control. That is B677.
+- The shot clause rests on the pair with the band equal: A `3A0C…` against the head `9EAE…`, rows 0-300 no pixel, rows 300-551 17,096 pixels, largest 33. The same count as A against the second B.
+- **`baked`, past the first four, read from the same four logs, frame-weighted:** A 0.042, B 0.051, B 0.043, A 0.052. It did not rise, so the column's fall is not work moved to the handle's side.
+- **At load, from the same logs:** `baked built 959, static states 1353, styled lists 1353` in A and in both B runs. So the third class has no handle of its own to add across all of f12, not only among props drawn in the window: it is empty on this map.
+- **`Pose_ABakedStaticPropHoldingNoDecalUnderALiveDlight_AllocatesNothingForTheDecalLight`'s changed control still fails when it should:** with `DecalLightOf` building for a prop that holds no decal, it fails, beside the two tests that assert the same thing by counts. Restored by the inverse edit.
+
 ## Verdict
 
 Clause by clause:
 - **Static props are above half of lookups: confirmed**, 86%. The third class is empty on f12's frames, so it changes no pixel here.
-- **The column: confirmed.** Past warm-up it fell 0.053 ms and 0.162 ms in the two adjacent pairs, against a predicted 0.05 or more: 0.11 ms mean, 1.5% of a 7.4 ms frame.
-  It prints at 0.1 ms an interval, so these are means of quantised values, and the first pair clears the prediction by 0.003. The frame means (A 7.03 and 7.74, B 7.97 and 6.83) follow the load and cannot resolve it.
+- **The column: inconclusive by the prediction's own pairs, and the direction holds.** Past warm-up the adjacent pairs fell 0.053 ms and 0.162 ms against a predicted 0.05 or more, but the same binary differs by 0.031 (A) and 0.078 (B) between its own runs, so the first pair is inside the noise. What holds: both B runs (0.266, 0.188) are below both A runs (0.319, 0.350). The frame means (A 7.03 and 7.74, B 7.97 and 6.83) follow the load and cannot resolve it. No size is claimed for the saving.
 - **Allocation: falsified on one pair.** B read 0.81 against A's 0.75 in the first pair, 0.75 against 0.79 in the second. It moves with the slow runs on both sides, and no line added allocates, but
   the prediction was that it would not rise and in one pair it did.
-- **Builds, unpredicted: they fell.** `sun … light cache`, one a build, is 1.01 mean in B against 1.48 in A. What static props stop building is more than what moving models then build themselves.
-- **The shot: confirmed.** A against A identical, and B against A differs on a moving model only, the viewmodel, lit from another point's entry. No static prop moved.
+- **Builds: no finding.** The Result's `sun … light cache` is a mean of sample means, not frame-weighted and not a count of builds as such, and the counters ran on COUNT only, so B has no build count to set beside A's. The record says nothing about whether builds rose or fell.
+- **The shot: confirmed only as corrected above.** A against A was no control, since the top band varies within one binary (B677). With the band equal, B differs from A on rows 300-551 only, x 422 to 588, the viewmodel; *interpolated* that it is now lit from another point's entry. No static prop moved.
+- **What the shot does not cover:** the class whose light actually changed, a static prop with no colour mesh and no bump flag. It is empty on f12, so no pixel here speaks for it, and a census of the 239 installed maps (`static-prop-flag-census`: 361,705 placements, none not `$staticprop`) found no map to compare with TF2 on. A map whose `.vhv` does not cover its geometry was not censused.
 
-The change stays: it is what the engine does, and it costs the column less.
+The change stays because it is what the engine does, which is a reading, not this record.

@@ -122,6 +122,9 @@ public sealed class ModelLighting
     }
 
     /// <summary>Says once per model when it is drawn with no light at all.</summary>
+    /// <param name="prop">The prop.</param>
+    /// <param name="lightAt">The caller's sampler; null means it does not do lighting, and nothing is said.</param>
+    /// <param name="light">The cube it is drawn with, which for a static prop is its handle's (B674).</param>
     /// <remarks>
     /// **A model lit by nothing draws black, and that is worth saying out loud.** The cube comes
     /// from the leaf a model stands in, and a player's origin is at its FEET — so a point resting
@@ -132,9 +135,11 @@ public sealed class ModelLighting
     /// Logged with the position, because the defect is positional and a count would not let anyone
     /// go and look at the spot.
     /// </remarks>
-    private void Report(
+    public void Report(
         SceneProp prop, Func<float, float, float, PointLighting>? lightAt, AmbientCube? light)
     {
+        ArgumentNullException.ThrowIfNull(prop);
+
         if (lightAt is null || light is not { } cube || !IsUnlit(cube) ||
             !_reportedDark.Add(prop.ModelPath))
         {

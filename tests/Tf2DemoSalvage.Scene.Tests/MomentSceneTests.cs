@@ -963,7 +963,7 @@ public sealed class MomentSceneTests
                 [new[] { Corner(0), Corner(1), Corner(2), Corner(3), Corner(4), Corner(5) }],
                 new Dictionary<int, (int Start, int Frames, float CyclesPerSecond)> { [0] = (0, 1, 0f) },
                 [0],
-                [true]),
+                [true]) { StudioFlags = Content.Assets.StudioModelFlags.StaticProp },
         };
 
         int entity = PropModels.FirstStaticPropEntityIndex;
@@ -1111,7 +1111,7 @@ public sealed class MomentSceneTests
                 [new[] { new PropVertex(0, 0f, 0f, 0f, 0f, MaterialIndex: 3) }],
                 new Dictionary<int, (int Start, int Frames, float CyclesPerSecond)> { [0] = (0, 1, 0f) },
                 [0],
-                [true]),
+                [true]) { StudioFlags = Content.Assets.StudioModelFlags.StaticProp },
             StaticPropColours = new Dictionary<int, float[]> { [PropModels.FirstStaticPropEntityIndex] = [.5f, .5f, .5f] },
             Decals = holdsADecal ? ModelDecalsDrawTests.HoldingADecal(0) : new ModelDecals(),
         };
@@ -1437,10 +1437,9 @@ public sealed class MomentSceneTests
         {
             (MomentScene scene, _, EntityModelSet models) = UnderAFireball(holdsADecal: false);
 
-            // A stand-in that does no work rather than null: null is what says the prop has no handle, and that sends it to the cache (B674).
             if (!wired)
             {
-                models.StaticPropFullLighting = static (_, _, _, _) => (Content.Bsp.PointLighting.None, null);
+                models.StaticPropFullLighting = null;
             }
 
             scene.Pose(Info() with { Recorder = 9 });
@@ -1521,7 +1520,7 @@ public sealed class MomentSceneTests
                 [new[] { new PropVertex(0, 0f, 0f, 0f, 0f, MaterialIndex: 3) }],
                 new Dictionary<int, (int Start, int Frames, float CyclesPerSecond)> { [0] = (0, 1, 0f) },
                 [0],
-                [true]),
+                [true]) { StudioFlags = Content.Assets.StudioModelFlags.StaticProp },
         };
 
         models.StaticPropColours = new Dictionary<int, float[]> { [PropModels.FirstStaticPropEntityIndex] = [.5f, .5f, .5f] };
@@ -1610,7 +1609,7 @@ public sealed class MomentSceneTests
                 [new[] { new PropVertex(0, 0f, 0f, 0f, 0f, MaterialIndex: 3) }],
                 new Dictionary<int, (int Start, int Frames, float CyclesPerSecond)> { [0] = (0, 1, 0f) },
                 [0],
-                [true]),
+                [true]) { StudioFlags = Content.Assets.StudioModelFlags.StaticProp },
         };
 
         models.StaticPropColours = new Dictionary<int, float[]> { [PropModels.FirstStaticPropEntityIndex] = [.5f, .5f, .5f] };
@@ -1651,7 +1650,7 @@ public sealed class MomentSceneTests
                 [new[] { new PropVertex(0, 0f, 0f, 0f, 0f, MaterialIndex: 3) }],
                 new Dictionary<int, (int Start, int Frames, float CyclesPerSecond)> { [0] = (0, 1, 0f) },
                 [0],
-                [true]),
+                [true]) { StudioFlags = Content.Assets.StudioModelFlags.StaticProp },
             StaticPropColours = new Dictionary<int, float[]> { [PropModels.FirstStaticPropEntityIndex] = [.5f, .5f, .5f] },
         };
 
@@ -1840,7 +1839,7 @@ public sealed class MomentSceneTests
                 [new[] { corner }],
                 new Dictionary<int, (int Start, int Frames, float CyclesPerSecond)> { [0] = (0, 1, 0f) },
                 [0],
-                [true]),
+                [true]) { StudioFlags = Content.Assets.StudioModelFlags.StaticProp },
             StaticPropColours = new Dictionary<int, float[]> { [PropModels.FirstStaticPropEntityIndex] = [.5f, .5f, .5f] },
         };
 
