@@ -117,11 +117,11 @@ The `lighting` column, each rebuild report, ms:
 
 Clause by clause:
 - **Static props are above half of lookups: confirmed**, 86%. The third class is empty on f12's frames, so it changes no pixel here.
-- **The column: confirmed.** Past warm-up it fell 0.053 ms and 0.162 ms in the two adjacent pairs, against a predicted 0.05 or more: 0.11 ms mean, 1.5% of a 7.4 ms frame.
-  It prints at 0.1 ms an interval, so these are means of quantised values, and the first pair clears the prediction by 0.003. The frame means (A 7.03 and 7.74, B 7.97 and 6.83) follow the load and cannot resolve it.
+- **The column: inconclusive by the prediction's own pairs, and the direction holds.** Past warm-up the adjacent pairs fell 0.053 ms and 0.162 ms against a predicted 0.05 or more, but the same binary differs by 0.031 (A) and 0.078 (B) between its own runs, so the first pair is inside the noise. What holds: both B runs (0.266, 0.188) are below both A runs (0.319, 0.350). The frame means (A 7.03 and 7.74, B 7.97 and 6.83) follow the load and cannot resolve it. No size is claimed for the saving.
 - **Allocation: falsified on one pair.** B read 0.81 against A's 0.75 in the first pair, 0.75 against 0.79 in the second. It moves with the slow runs on both sides, and no line added allocates, but
   the prediction was that it would not rise and in one pair it did.
-- **Builds, unpredicted: they fell.** `sun … light cache`, one a build, is 1.01 mean in B against 1.48 in A. What static props stop building is more than what moving models then build themselves.
-- **The shot: confirmed.** A against A identical, and B against A differs on a moving model only, the viewmodel, lit from another point's entry. No static prop moved.
+- **Builds: no finding.** The Result's `sun … light cache` is a mean of sample means, not frame-weighted and not a count of builds as such, and the counters ran on COUNT only, so B has no build count to set beside A's. The record says nothing about whether builds rose or fell.
+- **The shot: confirmed only as corrected above.** A against A was no control, since the top band varies within one binary (B677). With the band equal, B differs from A on rows 300-551 only, x 422 to 588, the viewmodel; *interpolated* that it is now lit from another point's entry. No static prop moved.
+- **What the shot does not cover:** the class whose light actually changed, a static prop with no colour mesh and no bump flag. It is empty on f12, so no pixel here speaks for it, and a census of the 239 installed maps (`static-prop-flag-census`: 361,705 placements, none not `$staticprop`) found no map to compare with TF2 on. A map whose `.vhv` does not cover its geometry was not censused.
 
-The change stays: it is what the engine does, and it costs the column less.
+The change stays because it is what the engine does, which is a reading, not this record.

@@ -93,6 +93,83 @@ public sealed class StaticPropHandleConformanceTests
         handles.ShouldBe([PropModels.FirstStaticPropEntityIndex], "`0x180205b20` builds a handle for every prop, once");
     }
 
+    /// <remarks>
+    /// **The `.vhv` does not decide** (`FUN_1800eb1a0`): `studiohdr.flags &amp; 0x10` is part of the test for a colour mesh, so a model not `$staticprop` takes flags 7 with
+    /// colours on file. vbsp deletes such a prop at compile; it reaches a draw when the model changed since.
+    /// </remarks>
+    [Test]
+    public void Instances_AModelNotStaticPropWithColoursOnFile_DrawsTheHandlesFullState()
+    {
+        EntityModelSet models = Models(0, colours: true, []);
+        List<ModelInstance> drawn = [];
+
+        models.StaticProps = [StaticProp()];
+        models.Add([]);
+        models.Instances([], drawn, new Asked().LightAt);
+
+        ModelInstance instance = drawn.ShouldHaveSingleItem();
+
+        instance.BakedColours.ShouldBeNull();
+        instance.Light.ShouldBe(HandleCube);
+    }
+
+    /// <remarks>**The warning is about what is drawn** (B674 review): a handle state with a zero cube on a prop the caller lights says so; one with a cube does not.</remarks>
+    [TestCase(true, 1)]
+    [TestCase(false, 0)]
+    public void Instances_AStaticPropWhoseHandleStateIsDark_SaysSoOnce(bool dark, int said)
+    {
+        RecordingLoggerFactory loggers = new();
+        EntityModelSet models = new(loggers)
+        {
+            Geometry = _ => Frames(StudioModelFlags.StaticProp | StudioModelFlags.UsesBumpmapping),
+            StaticPropFullLighting = (_, _, _, _) => (dark ? PointLighting.None : PointLighting.Bounce(HandleCube), null),
+        };
+        List<ModelInstance> drawn = [];
+
+        models.StaticProps = [StaticProp()];
+        models.Add([]);
+        models.Instances([], drawn, new Asked().LightAt);
+        models.Instances([], drawn, new Asked().LightAt);
+
+        loggers.Recorder.Count("is lit by nothing").ShouldBe(said);
+    }
+
+    /// <remarks>
+    /// **The line reports what is drawn, carried from it** (B243): not the cache's cube, which this prop never asks for. A colour-mesh prop with nothing added has no cube and that is not
+    /// a lightmap; a brush entity's is.
+    /// </remarks>
+    [Test]
+    public void Instances_TheLitLine_NamesTheStateDrawn()
+    {
+        RecordingLoggerFactory loggers = new();
+        EntityModelSet bumped = new(loggers)
+        {
+            Geometry = _ => Frames(StudioModelFlags.StaticProp | StudioModelFlags.UsesBumpmapping),
+            StaticPropFullLighting = static (_, _, _, _) => (PointLighting.Bounce(HandleCube), null),
+        };
+        List<ModelInstance> drawn = [];
+
+        bumped.StaticProps = [StaticProp()];
+        bumped.Add([]);
+        bumped.Instances([], drawn, new Asked().LightAt);
+
+        loggers.Recorder.Count($"luminance {AmbientCube.Luminance(HandleCube).ToString("0.####", System.Globalization.CultureInfo.CurrentCulture)}").ShouldBe(1);
+
+        RecordingLoggerFactory colouredLog = new();
+        EntityModelSet coloured = new(colouredLog)
+        {
+            Geometry = _ => Frames(StudioModelFlags.StaticProp),
+            StaticPropColours = new Dictionary<int, float[]> { [PropModels.FirstStaticPropEntityIndex] = [0.25f, 0.25f, 0.25f, 0.25f, 0.25f, 0.25f, 0.25f, 0.25f, 0.25f] },
+            StaticPropFullLighting = static (_, _, _, _) => (PointLighting.Bounce(HandleCube), null),
+        };
+
+        coloured.StaticProps = [StaticProp()];
+        coloured.Add([]);
+        coloured.Instances([], drawn, new Asked().LightAt);
+
+        colouredLog.Recorder.Count("colour mesh, no cube").ShouldBe(1);
+    }
+
     /// <remarks>The control for the test above: the same set asks the cache for a model that moves, which has no handle (`param_4` null, flags `0xf`).</remarks>
     [Test]
     public void Instances_AMovingModel_AsksTheCacheOnceEach()

@@ -594,6 +594,28 @@ public sealed class LevelLightingTests
         lighting.ModelLightingAt(-32000f, -32000f, -32000f).Locals.ShouldHaveSingleItem().Z.ShouldBe(-20f);
     }
 
+    /// <remarks>
+    /// **An empty ambient lump costs a static state its leaf cube and nothing else** (B674 review): `FUN_1801b8270` calls `FUN_1801b5a50` over the world lights whatever `FUN_1801bb4b0`
+    /// found. Without this a prop lit from its handle on such a map loses its sun and lamps.
+    /// </remarks>
+    [Test]
+    public void StaticPropLightingAt_OnAMapWithNoAmbientLump_KeepsTheSunAndTheLamps()
+    {
+        LevelLighting lighting = new(
+            leaves: OneSplit(above: 1, below: 0, solidLeaf: -1),
+            ambient: [],
+            worldLights: [Lamp((0f, 0f, 120f), 400f)],
+            sun: Sky(),
+            new RecordingLogger(),
+            strikesSky: static (_, _) => true);
+
+        (PointLighting state, SunLight? sun) = lighting.StaticPropLightingAt(0f, 0f, 100f);
+
+        sun.ShouldNotBeNull();
+        state.Locals.ShouldHaveSingleItem().Z.ShouldBe(120f);
+        state.Cube.ShouldBe(default(AmbientCube));
+    }
+
     /// <remarks>A hit is every model every frame, so it owes the collector nothing: no closure over the point.</remarks>
     [Test]
     public void ModelLightingAt_AHitInAnotherCell_AllocatesNothing()
