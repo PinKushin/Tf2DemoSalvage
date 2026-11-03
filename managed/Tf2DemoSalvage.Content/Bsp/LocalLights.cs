@@ -49,7 +49,7 @@ namespace Tf2DemoSalvage.Content.Bsp;
 /// <param name="SpotInner">`stopdot`: the cosine inside which a spotlight is at full strength.</param>
 /// <param name="SpotOuter">`stopdot2`: the cosine outside which it is dark.</param>
 /// <param name="SpotExponent">`exponent`: shapes the penumbra between the two.</param>
-/// <param name="Spot">Whether it is a spotlight; the cone is read only then.</param>
+/// <param name="Spot">Whether it takes a cone: a spotlight, or a surface light (the engine's spot with both dots 0); read only then.</param>
 /// <param name="Directional">
 /// Whether it is `MATERIAL_LIGHT_DIRECTIONAL`: unattenuated, lighting along <paramref name="Direction"/> (the way it
 /// travels). Only a model panel's lights make one; a map's directional light is the sun.
@@ -60,9 +60,8 @@ namespace Tf2DemoSalvage.Content.Bsp;
 /// <c>Constant = 1</c>, which is what vrad writes and what stops a reciprocal running to infinity —
 /// a mistake this project made once and measured as a luminance of ∞ at four capture points.
 ///
-/// **Point or spot, and nothing else**, because only the kinds that attenuate reach here. The sun is
-/// directional and travels its own path; `emit_surface` is resolved into the lightmaps and the leaf cube
-/// at compile time. <see cref="LocalLights.IsLocal"/> is where that is decided and why.
+/// **Point, spot or surface**, the kinds with a position (B669). The sun is directional and travels its own path.
+/// <see cref="LocalLights.IsLocal"/> is where that is decided and why.
 /// </remarks>
 public readonly record struct LocalLight(
     float X, float Y, float Z,
@@ -99,6 +98,50 @@ public readonly record struct PointLighting(AmbientCube Cube, IReadOnlyList<Loca
     /// <param name="cube">The bounce term.</param>
     /// <returns>That cube with no direct lights.</returns>
     public static PointLighting Bounce(AmbientCube cube) => new(cube, []);
+}
+
+/// <summary>
+/// The light cache's `LightingState_t` while it is being built: the cube, the slots as lights rather than as the shader takes them,
+/// and each slot's rank (`engine.dll` `FUN_1801b60a0` keeps those beside the state, `FUN_1801b89a0` reads them to evict).
+/// </summary>
+public sealed class LightingState
+{
+    private readonly BspWorldLight[] _slots = new BspWorldLight[LocalLights.MaximumLocalLights];
+    private readonly float[] _strengths = new float[LocalLights.MaximumLocalLights];
+
+    /// <summary>A state with no light in a slot.</summary>
+    /// <param name="cube">The cube it starts from.</param>
+    public LightingState(AmbientCube cube) => Cube = cube;
+
+    /// <summary>The cube, with everything evicted or refused a slot folded in.</summary>
+    public AmbientCube Cube { get; set; }
+
+    /// <summary>How many slots hold a light.</summary>
+    public int Count { get; set; }
+
+    /// <summary>The slots; only the first <see cref="Count"/> mean anything.</summary>
+    internal BspWorldLight[] Slots => _slots;
+
+    /// <summary>Each slot's rank.</summary>
+    internal float[] Strengths => _strengths;
+
+    /// <summary>A copy to add to, as `FUN_1801ba590` copies the static state before bit 4 and bit 2 add to it.</summary>
+    /// <returns>The copy.</returns>
+    public LightingState Clone()
+    {
+        LightingState copy = new(Cube) { Count = Count };
+
+        Array.Copy(_slots, copy._slots, Count);
+        Array.Copy(_strengths, copy._strengths, Count);
+
+        return copy;
+    }
+
+    /// <summary>The state as a model draws it.</summary>
+    /// <param name="styleScale">Each light style's value over 264; one for every style when null.</param>
+    /// <returns>The cube and exactly <see cref="Count"/> local lights.</returns>
+    public PointLighting Lighting(Func<int, float>? styleScale = null) =>
+        Count == 0 ? PointLighting.Bounce(Cube) : new PointLighting(Cube, Array.AsReadOnly(LocalLights.Slotted(this, styleScale)));
 }
 
 public static class LocalLights
@@ -266,29 +309,33 @@ public static class LocalLights
     {
         for (int slot = 0; slot < chosen.Length; slot++)
         {
-            BspWorldLight light = lights[chosen[slot]];
-
-            (float constant, float linear, float quadratic) = Normalised(light);
-            float scale = IntensityScale * style(light.Style);
-            bool surface = light.Kind == WorldLightKind.Surface;
-
-            // `engine.dll` `FUN_1800f0e10` case 0: a surface light's `LightDesc_t` is a spot with both dots 0 and falloff 1,
-            // whatever its stopdots hold. So the CPU path is flat (`studiorender.dll` `0x180021b20` keeps N·L at or past
-            // ThetaDot). The vertex shader's form, `( cos − PhiDot ) · 1`, gives one cosine of its own: *interpolated*, since
-            // what shaderapi uploads for a zero spread was not read.
-            into[slot] = new LocalLight(
-                light.Origin.X, light.Origin.Y, light.Origin.Z,
-                light.Intensity.Red * scale,
-                light.Intensity.Green * scale,
-                light.Intensity.Blue * scale,
-                constant, linear, quadratic,
-                light.Radius,
-                light.Normal,
-                surface ? 0f : light.StopDot,
-                surface ? 0f : light.StopDot2,
-                surface ? 1f : light.Exponent,
-                surface || light.Kind == WorldLightKind.Spotlight);
+            into[slot] = Local(lights[chosen[slot]], style);
         }
+    }
+
+    /// <summary>One light as the shader takes it, at its style value.</summary>
+    private static LocalLight Local(BspWorldLight light, Func<int, float> style)
+    {
+        (float constant, float linear, float quadratic) = Normalised(light);
+        float scale = IntensityScale * style(light.Style);
+        bool surface = light.Kind == WorldLightKind.Surface;
+
+        // `engine.dll` `FUN_1800f0e10` case 0: a surface light's `LightDesc_t` is a spot with both dots 0 and falloff 1,
+        // whatever its stopdots hold. So the CPU path is flat (`studiorender.dll` `0x180021b20` keeps N·L at or past
+        // ThetaDot). The vertex shader's form, `( cos − PhiDot ) · 1`, gives one cosine of its own: *interpolated*, since
+        // what shaderapi uploads for a zero spread was not read.
+        return new LocalLight(
+            light.Origin.X, light.Origin.Y, light.Origin.Z,
+            light.Intensity.Red * scale,
+            light.Intensity.Green * scale,
+            light.Intensity.Blue * scale,
+            constant, linear, quadratic,
+            light.Radius,
+            light.Normal,
+            surface ? 0f : light.StopDot,
+            surface ? 0f : light.StopDot2,
+            surface ? 1f : light.Exponent,
+            surface || light.Kind == WorldLightKind.Spotlight);
     }
 
     /// <summary>How far short of a light a trace from a point stops: `(1 − fraction) · distance`, the light cache's measure.</summary>
@@ -433,6 +480,10 @@ public static class LocalLights
     /// 0.587, 0.114 (`0x18047be38`) — not by its brightest channel, which ranked a saturated blue lamp above a
     /// brighter-looking green one.
     ///
+    /// **A NaN strength is refused here, for every kind.** It was the two `r_worldlightmin` comparisons' side effect until a surface light
+    /// was exempted from them; one reaching a slot would break <see cref="Outranks"/>'s order and poison a cached cube. An
+    /// addition of ours: the engine has no such test, and a lump holding a NaN is a stranger's.
+    ///
     /// `strength` is meaningful only when this returns true: a light it rejects is given 0, without its luminance being
     /// computed.
     /// </remarks>
@@ -446,13 +497,13 @@ public static class LocalLights
 
         strength = falloff * Luminance(light);
 
-        return true;
+        return !float.IsNaN(strength);
     }
 
     /// <summary>
     /// `r_worldlightmin` again, by the ranking's luminance: a light below it takes no slot and is folded into the cube
-    /// instead (`JC 0x1801b64f5`; see <see cref="Split"/>). Written as "at least", so a NaN strength takes no slot. A surface
-    /// light is exempt: the test is guarded by `type != 0` (`FUN_1801b60a0`).
+    /// instead (`JC 0x1801b64f5`; see <see cref="Split"/>). A surface light is exempt: the test is guarded by `type != 0`
+    /// (`FUN_1801b60a0`). A NaN strength never reaches this: <see cref="Candidate"/> refuses one.
     /// </summary>
     private static bool Ranks(BspWorldLight light, float strength) =>
         light.Kind == WorldLightKind.Surface || strength >= WorldLightMinimum;
@@ -463,7 +514,7 @@ public static class LocalLights
     /// <remarks>
     /// <see cref="Insert"/> sees lights in index order, so for it the tie never favours the newcomer — the engine's
     /// evict-the-weakest order. <see cref="ChooseStrongestFirst"/> sorts by the same rule. A NaN strength never reaches
-    /// it: <see cref="Ranks"/> refuses one first.
+    /// it: <see cref="Candidate"/> refuses one first.
     /// </remarks>
     private static bool Outranks(float strength, int index, float other, int otherIndex) =>
         strength > other || (!(strength < other) && index < otherIndex);
@@ -592,48 +643,192 @@ public static class LocalLights
         IReadOnlyList<BspWorldLight> lights, float x, float y, float z, Span<LocalLight> into, ref AmbientCube cube,
         Func<int, float>? styleScale = null, Func<int, bool>? traceKeeps = null)
     {
-        ArgumentNullException.ThrowIfNull(lights);
-
-        Func<int, float> style = styleScale ?? Steady;
-
         if (into.Length < MaximumLocalLights)
         {
             throw new ArgumentException($"Room for {MaximumLocalLights} lights is needed.", nameof(into));
         }
 
+        LightingState state = Build(lights, x, y, z, cube, styleScale, traceKeeps);
+
+        cube = state.Cube;
+        WriteSlots(state, into, styleScale ?? Steady);
+
+        return state.Count;
+    }
+
+    /// <summary>A state from a whole list at once, as <see cref="Split"/> ranks it: the strongest four in slots, strongest first, the rest folded.</summary>
+    /// <param name="lights">Every world light the map carries.</param>
+    /// <param name="x">World position being lit.</param>
+    /// <param name="y">World position being lit.</param>
+    /// <param name="z">World position being lit.</param>
+    /// <param name="cube">The cube it starts from.</param>
+    /// <param name="styleScale">Each light style's value over 264; one for every style when null.</param>
+    /// <param name="traceKeeps">The visibility trace by index (<see cref="TraceKeeps"/>); null traces none.</param>
+    /// <returns>The state.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="lights"/> is null.</exception>
+    public static LightingState Build(
+        IReadOnlyList<BspWorldLight> lights, float x, float y, float z, AmbientCube cube,
+        Func<int, float>? styleScale = null, Func<int, bool>? traceKeeps = null)
+    {
+        ArgumentNullException.ThrowIfNull(lights);
+
+        Func<int, float> style = styleScale ?? Steady;
         Span<int> chosen = stackalloc int[MaximumLocalLights];
         Span<float> strengths = stackalloc float[MaximumLocalLights];
         List<int> rest = [];
 
         // One pass, so each light is traced once: the chosen go to the slots, the rest of what it reached to the cube.
         int count = Choose(lights, x, y, z, chosen, strengths, style, traceKeeps, rest);
+        LightingState state = new(cube) { Count = count };
 
-        Write(lights, chosen[..count], into, style);
+        for (int slot = 0; slot < count; slot++)
+        {
+            state.Slots[slot] = lights[chosen[slot]];
+            state.Strengths[slot] = strengths[slot];
+        }
 
         ReadOnlySpan<int> taken = chosen[..count];
 
-        for (int at = rest.Count - 1; at >= 0; at--)
+        foreach (int index in rest)
         {
-            if (taken.Contains(rest[at]))
+            if (!taken.Contains(index))
             {
-                rest.RemoveAt(at);
+                state.Cube = Fold(state.Cube, lights[index], x, y, z, style);
             }
         }
 
-        if (rest.Count > 0)
-        {
-            ReadOnlySpan<int> folded = [.. rest];
+        return state;
+    }
 
-            cube = new AmbientCube(
-                Face(cube.PositiveX, lights, folded, folded.Length, x, y, z, 1f, 0f, 0f, style),
-                Face(cube.NegativeX, lights, folded, folded.Length, x, y, z, -1f, 0f, 0f, style),
-                Face(cube.PositiveY, lights, folded, folded.Length, x, y, z, 0f, 1f, 0f, style),
-                Face(cube.NegativeY, lights, folded, folded.Length, x, y, z, 0f, -1f, 0f, style),
-                Face(cube.PositiveZ, lights, folded, folded.Length, x, y, z, 0f, 0f, 1f, style),
-                Face(cube.NegativeZ, lights, folded, folded.Length, x, y, z, 0f, 0f, -1f, style));
+    /// <summary>
+    /// One more light into a finished state, as `engine.dll` `FUN_1801b5400` adds a listed lamp and `FUN_1801b6550` a dlight: a free slot if
+    /// there is one, else it evicts the weakest slot below its threshold (`FUN_1801b89a0`), in place, and whatever is evicted or
+    /// refused goes to the cube (`FUN_1801b5db0`).
+    /// </summary>
+    /// <param name="state">The state to add to.</param>
+    /// <param name="light">The light.</param>
+    /// <param name="x">World position being lit.</param>
+    /// <param name="y">World position being lit.</param>
+    /// <param name="z">World position being lit.</param>
+    /// <param name="styleScale">Each light style's value over 264; one for every style when null.</param>
+    /// <param name="dynamicLight">
+    /// A static prop's dlight (`FUN_1801b6550`'s `param_5`): the threshold is 100000 rather than the light's own strength, so it takes a
+    /// slot from all but an enormous lamp. A moving model's dlight comes through `FUN_1801b5890` and has no such rule.
+    /// </param>
+    /// <exception cref="ArgumentNullException"><paramref name="state"/> is null.</exception>
+    public static void Add(
+        LightingState state, BspWorldLight light, float x, float y, float z, Func<int, float>? styleScale = null, bool dynamicLight = false)
+    {
+        ArgumentNullException.ThrowIfNull(state);
+
+        Func<int, float> style = styleScale ?? Steady;
+
+        if (!Candidate(light, x, y, z, style, out float strength))
+        {
+            return;
         }
 
-        return count;
+        BspWorldLight folded = light;
+
+        if (Ranks(light, strength))
+        {
+            if (state.Count < MaximumLocalLights)
+            {
+                state.Slots[state.Count] = light;
+                state.Strengths[state.Count] = strength;
+                state.Count++;
+
+                return;
+            }
+
+            float below = dynamicLight ? DynamicLightEvictionThreshold : strength;
+            int weakest = -1;
+
+            for (int slot = 0; slot < state.Count; slot++)
+            {
+                if (state.Strengths[slot] < below)
+                {
+                    below = state.Strengths[slot];
+                    weakest = slot;
+                }
+            }
+
+            if (weakest >= 0)
+            {
+                folded = state.Slots[weakest];
+                state.Slots[weakest] = light;
+                state.Strengths[weakest] = strength;
+            }
+        }
+
+        state.Cube = Fold(state.Cube, folded, x, y, z, style);
+    }
+
+    /// <summary>A static prop's dlight's threshold to evict a slot: `FUN_1801b6550`'s constant.</summary>
+    private const float DynamicLightEvictionThreshold = 100000f;
+
+    /// <summary>One light's fold into a cube at a point: `FUN_1801b5db0`, on each face.</summary>
+    /// <param name="cube">The cube.</param>
+    /// <param name="light">The light.</param>
+    /// <param name="x">World position being lit.</param>
+    /// <param name="y">World position being lit.</param>
+    /// <param name="z">World position being lit.</param>
+    /// <param name="styleScale">Each light style's value over 264; one for every style when null.</param>
+    /// <returns>The cube with the light added.</returns>
+    public static AmbientCube Fold(AmbientCube cube, BspWorldLight light, float x, float y, float z, Func<int, float>? styleScale = null)
+    {
+        Func<int, float> style = styleScale ?? Steady;
+
+        return new AmbientCube(
+            FaceOf(cube.PositiveX, light, x, y, z, 1f, 0f, 0f, style),
+            FaceOf(cube.NegativeX, light, x, y, z, -1f, 0f, 0f, style),
+            FaceOf(cube.PositiveY, light, x, y, z, 0f, 1f, 0f, style),
+            FaceOf(cube.NegativeY, light, x, y, z, 0f, -1f, 0f, style),
+            FaceOf(cube.PositiveZ, light, x, y, z, 0f, 0f, 1f, style),
+            FaceOf(cube.NegativeZ, light, x, y, z, 0f, 0f, -1f, style));
+    }
+
+    /// <summary>A state's cube with every slot's light folded in at a point: `engine.dll` `FUN_1801b7fd0`, given no normal.</summary>
+    /// <param name="state">The state.</param>
+    /// <param name="x">The point asked about.</param>
+    /// <param name="y">The point asked about.</param>
+    /// <param name="z">The point asked about.</param>
+    /// <param name="styleScale">Each light style's value over 264; one for every style when null.</param>
+    /// <returns>The cube; the state is unchanged.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="state"/> is null.</exception>
+    public static AmbientCube FoldSlots(LightingState state, float x, float y, float z, Func<int, float>? styleScale = null)
+    {
+        ArgumentNullException.ThrowIfNull(state);
+
+        AmbientCube cube = state.Cube;
+
+        for (int slot = 0; slot < state.Count; slot++)
+        {
+            cube = Fold(cube, state.Slots[slot], x, y, z, styleScale);
+        }
+
+        return cube;
+    }
+
+    /// <summary>A state's slots as the shader takes them.</summary>
+    /// <param name="state">The state.</param>
+    /// <param name="styleScale">Each light style's value over 264; one for every style when null.</param>
+    /// <returns>Exactly <see cref="LightingState.Count"/> local lights.</returns>
+    internal static LocalLight[] Slotted(LightingState state, Func<int, float>? styleScale)
+    {
+        LocalLight[] locals = new LocalLight[state.Count];
+
+        WriteSlots(state, locals, styleScale ?? Steady);
+
+        return locals;
+    }
+
+    private static void WriteSlots(LightingState state, Span<LocalLight> into, Func<int, float> style)
+    {
+        for (int slot = 0; slot < state.Count; slot++)
+        {
+            into[slot] = Local(state.Slots[slot], style);
+        }
     }
 
     /// <summary>Whether a light's contribution at a point is positive, as a static prop's handle list admits it.</summary>
@@ -813,56 +1008,59 @@ public static class LocalLights
         float normalX, float normalY, float normalZ,
         Func<int, float> style)
     {
-        float red = face.Red;
-        float green = face.Green;
-        float blue = face.Blue;
-
         for (int slot = 0; slot < count; slot++)
         {
-            BspWorldLight light = lights[chosen[slot]];
+            face = FaceOf(face, lights[chosen[slot]], x, y, z, normalX, normalY, normalZ, style);
+        }
 
-            float dx = light.Origin.X - x;
-            float dy = light.Origin.Y - y;
-            float dz = light.Origin.Z - z;
+        return face;
+    }
 
-            float length = MathF.Sqrt((dx * dx) + (dy * dy) + (dz * dz));
+    /// <summary>One light's contribution to one face of the cube.</summary>
+    private static (float Red, float Green, float Blue) FaceOf(
+        (float Red, float Green, float Blue) face,
+        BspWorldLight light,
+        float x, float y, float z,
+        float normalX, float normalY, float normalZ,
+        Func<int, float> style)
+    {
+        float dx = light.Origin.X - x;
+        float dy = light.Origin.Y - y;
+        float dz = light.Origin.Z - z;
 
-            if (length <= 0f)
-            {
-                continue;
-            }
+        float length = MathF.Sqrt((dx * dx) + (dy * dy) + (dz * dz));
 
-            dx /= length;
-            dy /= length;
-            dz /= length;
+        if (length <= 0f)
+        {
+            return face;
+        }
 
-            // max(0, delta . normal): a face turned away from the light receives nothing, which is
-            // what stops a lamp lighting the far side of everything it touches.
-            float strength = Math.Max(0f, (dx * normalX) + (dy * normalY) + (dz * normalZ));
+        dx /= length;
+        dy /= length;
+        dz /= length;
+
+        // max(0, delta . normal): a face turned away from the light receives nothing, which is
+        // what stops a lamp lighting the far side of everything it touches.
+        float strength = Math.Max(0f, (dx * normalX) + (dy * normalY) + (dz * normalZ));
+
+        if (strength <= 0f)
+        {
+            return face;
+        }
+
+        if (light.Kind is WorldLightKind.Spotlight or WorldLightKind.Surface)
+        {
+            strength *= Cone(light, dx, dy, dz);
 
             if (strength <= 0f)
             {
-                continue;
+                return face;
             }
-
-            if (light.Kind is WorldLightKind.Spotlight or WorldLightKind.Surface)
-            {
-                strength *= Cone(light, dx, dy, dz);
-
-                if (strength <= 0f)
-                {
-                    continue;
-                }
-            }
-
-            float scale = strength * Falloff(light, x, y, z, style) * IntensityScale;
-
-            red += scale * light.Intensity.Red;
-            green += scale * light.Intensity.Green;
-            blue += scale * light.Intensity.Blue;
         }
 
-        return (red, green, blue);
+        float scale = strength * Falloff(light, x, y, z, style) * IntensityScale;
+
+        return (face.Red + (scale * light.Intensity.Red), face.Green + (scale * light.Intensity.Green), face.Blue + (scale * light.Intensity.Blue));
     }
 
     /// <summary>A spotlight's angular attenuation for a direction, or zero outside the cone.</summary>

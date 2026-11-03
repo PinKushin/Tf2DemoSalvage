@@ -404,7 +404,7 @@ public sealed partial class EntityModelSet
     /// The styled and dynamic lights a static prop with a colour mesh draws on top of its colours, by entity and lighting
     /// origin (<see cref="LevelLighting.StaticPlusDynamicLights"/>, B424, B425); null gives it none.
     /// </summary>
-    public Func<int, float, float, float, IReadOnlyList<LocalLight>>? StaticPlusDynamicLights { get; set; }
+    public Func<int, float, float, float, PointLighting>? StaticPlusDynamicLights { get; set; }
 
     /// <summary>
     /// The whole lighting state of a static prop drawn without a colour mesh, by entity and lighting origin

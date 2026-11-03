@@ -86,7 +86,7 @@ public sealed class LightVisibilityTraceConformanceTests
         LevelLighting lighting = StaticPlusDynamicLightingConformanceTests.Map([Lamp(Style)], Wall);
 
         lighting.StyledLights(0f, 0f, 100f).ShouldBe([0]);
-        lighting.StaticPlusDynamicLights(1000, 0f, 0f, 100f).ShouldBeEmpty();
+        lighting.StaticPlusDynamicLights(1000, 0f, 0f, 100f).Locals.ShouldBeEmpty();
     }
 
     /// <summary>Flags 7 with a styled lamp ranked: the style-0 lamp behind the wall is not added beside it.</summary>
@@ -150,9 +150,9 @@ public sealed class LightVisibilityTraceConformanceTests
     [Test]
     public void Occlusion_WithNoTraceWired_IsNull()
     {
-        StaticPlusDynamicLightingConformanceTests.Map([Lamp(0)]).Occlusion((0f, 0f, 120f), 0f, 0f, 100f).ShouldBeNull();
-        StaticPlusDynamicLightingConformanceTests.Map([Lamp(0)], Wall).Occlusion((0f, 0f, 120f), 0f, 0f, 100f)
-            .ShouldBe((10f, false), "the control: wired, the wall blocks 10 of the 20 units");
+        StaticPlusDynamicLightingConformanceTests.Map([Lamp(0)]).Occlusion(Lamp(0), 0f, 0f, 100f).ShouldBeNull();
+        StaticPlusDynamicLightingConformanceTests.Map([Lamp(0)], Wall).Occlusion(Lamp(0), 0f, 0f, 100f)
+            .ShouldBe((10f, true, false), "the control: wired, the wall blocks 10 of the 20 units");
     }
 
     /// <summary>
@@ -174,7 +174,7 @@ public sealed class LightVisibilityTraceConformanceTests
         lighting.StaticPropLightingAt(0f, 0f, 100f).Lighting.Locals.ShouldBeEmpty("the control: the ranking traced it and dropped it");
         traces.ShouldBe(1);
 
-        lighting.Occlusion((0f, 0f, 120f), 0f, 0f, 100f).ShouldBe((10f, false));
+        lighting.Occlusion(Lamp(0), 0f, 0f, 100f).ShouldBe((10f, true, false));
         traces.ShouldBe(1);
     }
 

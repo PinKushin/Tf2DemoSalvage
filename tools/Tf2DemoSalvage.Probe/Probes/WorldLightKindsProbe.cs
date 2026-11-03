@@ -49,7 +49,7 @@ public sealed class WorldLightKindsProbe : IProbe
                 CultureInfo.InvariantCulture,
                 $"{kind.Key,-12} {kind.Count(),5}  in the leaf cubes {kind.Count(static light => light.InAmbientCube),5}, " +
                 $"outside every cluster {kind.Count(static light => light.Cluster < 0),5}, " +
-                $"brightest channel {kind.Min(Brightest):0.0}..{kind.Max(Brightest):0.0}, vrad flags under {FlagLimit:0.0}: {kind.Count(light => Brightest(light) < FlagLimit),5}"));
+                $"brightest channel {kind.Min(Brightest):0.0}..{kind.Max(Brightest):0.0}, vrad's rule would flag {kind.Count(static light => light is { Kind: WorldLightKind.Surface, Style: 0 } && Brightest(light) < FlagLimit),5}"));
         }
     }
 }

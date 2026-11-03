@@ -83,8 +83,8 @@ public sealed class ModelLighting
     /// **No memo here: the engine's light cache is the memo** (<see cref="LightCache{T}"/>, via
     /// <see cref="LevelLighting.ModelLightingAt"/>). A per-entity memo (B99) kept a standing model from asking, which
     /// skipped the cache's LRU touch and could not see an entry rebuilt at another model's point. A hit costs a leaf
-    /// walk and a lookup; the expensive sampling B99 measured happens only on a miss, capped per frame by
-    /// `lightcache_maxmiss`.
+    /// walk and a lookup, and one lookup a model since the entry is remembered between the light and the sun; the expensive sampling B99
+    /// measured happens only on a miss, capped per frame by `lightcache_maxmiss`.
     /// </remarks>
     public ModelLight For(
         SceneProp prop,

@@ -153,11 +153,11 @@ public sealed class LightStyleEffectsTests
         LightStyleEffects lights = new(new RecordingLogger());
         Map map = WithAStyleThreeLamp();
 
-        map.Lighting.StaticPlusDynamicLights(1000, 0f, 0f, 100f).Count.ShouldBe(1, "the control: unscaled, the lamp lights it");
+        map.Lighting.StaticPlusDynamicLights(1000, 0f, 0f, 100f).Locals.Count.ShouldBe(1, "the control: unscaled, the lamp lights it");
 
         Step(lights, map, new FakeFrameDevice(), 0);
 
-        map.Lighting.StaticPlusDynamicLights(1000, 0f, 0f, 100f).ShouldBeEmpty("style 3 is a at time zero");
+        map.Lighting.StaticPlusDynamicLights(1000, 0f, 0f, 100f).Locals.ShouldBeEmpty("style 3 is a at time zero");
         map.Lighting.StyledRankings.ShouldBe(2);
     }
 
@@ -197,16 +197,16 @@ public sealed class LightStyleEffectsTests
         void At(int tick) => lights.StepOver(TwoAnimatedStyles, map.Data(), tick, new DynamicLights(), [], device);
 
         At(0);
-        map.Lighting.StaticPlusDynamicLights(1000, 0f, 0f, 100f).ShouldBeEmpty("style 4 is a at time zero");
+        map.Lighting.StaticPlusDynamicLights(1000, 0f, 0f, 100f).Locals.ShouldBeEmpty("style 4 is a at time zero");
         map.Lighting.StyledRankings.ShouldBe(1);
 
         At(7);
         lights.Scale(3).ShouldBe(550f / 264f, "the control: style 3 stepped to z");
-        map.Lighting.StaticPlusDynamicLights(1000, 0f, 0f, 100f).ShouldBeEmpty();
+        map.Lighting.StaticPlusDynamicLights(1000, 0f, 0f, 100f).Locals.ShouldBeEmpty();
         map.Lighting.StyledRankings.ShouldBe(1, "style 3 is not the handle's: +0x88 read");
 
         At(14);
-        map.Lighting.StaticPlusDynamicLights(1000, 0f, 0f, 100f).Count.ShouldBe(1, "style 4 stepped to z: the lamp is on");
+        map.Lighting.StaticPlusDynamicLights(1000, 0f, 0f, 100f).Locals.Count.ShouldBe(1, "style 4 stepped to z: the lamp is on");
         map.Lighting.StyledRankings.ShouldBe(2);
     }
 

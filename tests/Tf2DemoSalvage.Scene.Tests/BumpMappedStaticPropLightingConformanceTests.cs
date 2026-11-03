@@ -88,7 +88,7 @@ public sealed class BumpMappedStaticPropLightingConformanceTests
         ]);
 
         lighting.StaticPropLightingAt(0f, 0f, 100f).Lighting.Locals.ShouldHaveSingleItem().Y.ShouldBe(30f);
-        lighting.StaticPlusDynamicLights(1000, 0f, 0f, 100f).ShouldHaveSingleItem().Y.ShouldBe(0f);
+        lighting.StaticPlusDynamicLights(1000, 0f, 0f, 100f).Locals.ShouldHaveSingleItem().Y.ShouldBe(0f);
 
         (PointLighting full, _) = lighting.StaticPropFullLightingAt(1000, 0f, 0f, 100f);
 

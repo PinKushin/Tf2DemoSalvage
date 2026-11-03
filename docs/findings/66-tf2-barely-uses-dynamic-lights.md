@@ -240,6 +240,30 @@ far camera; linear luminance x1000; the reference reproduced to the digit, 228.1
 **After the fix:** the static cube's up face on placement #214 went 0.137 to 0.273 (`prop-shade`). The numbers against TF2, and what
 stays unexplained: [B669](../RISKS.md).
 
+## ComputeLighting reads the cache and folds its slots (B668, 2026-11-03)
+
+Evidence class: **disassembly**, `engine.dll` x64. This ended an inference: B668 had reasoned that `ComputeLighting` must reach the lights through
+`LightcacheGet` because nothing else reaches `FUN_1801b60a0`.
+
+- **`FUN_1801b7fd0` is `IVEngineClient::ComputeLighting`.** It takes `LightcacheGet` with flags 0xf, so the state it starts from is the cached entry's: already traced, gated and folded.
+- **With no normal, it folds each non-dlight slot at the asked point** through `FUN_1801b9570` with flags 1. That is a fold, not a new ranking and not a trace.
+
+So our `AddTo` route was wrong in more than the trace it was filed for. It re-ran the admission over every light at the asked point. A rope or an eye light reads the cube of the cache entry it stands in.
+
+## A static prop's flags 6 and 7 add to a copy, and a dlight has the right of way (B669 review, 2026-11-03)
+
+Evidence class: **disassembly**. The second review asked what happens to the light `Strongest` dropped, and the answer was the same defect as the static state's, one call later.
+
+- **`FUN_1801b5400`** walks a handle's styled list straight into the state, flags 0, so it traces, and with no PVS gate: the list was admitted at build.
+- **`FUN_1801b6550`** adds a dlight with flags 1, no trace, and with a threshold of 100000: once the slots are full a dlight evicts the weakest whatever its own strength, unless all four rank over that (`FUN_1801b89a0`).
+- **`FUN_1801b60a0`'s eviction folds the loser (`FUN_1801b5db0`).** Nothing vanishes. Ours kept four and dropped the rest, and the comments called that a difference "only past four lights". With 108 surface lights on f12, past four lights is the normal case.
+- **`FUN_1801b5260` asks from the dlight's row**, not the prop's, so the clusters are that way round in `WithDynamic`.
+
+**The PVS copies disagreed, and it mattered on one edge.** Three loops had their own reading of the gate. `CM_Vis` (`FUN_18016b230`) zeroes the row for a cluster of exactly −1 before looking for vis data, and with no vis data and a real cluster the row is all ones. That is now one
+method, `LevelLighting.InPvs`. **One edge left as a choice:** `FUN_1801b6bf0` tests the row bit with no negative test, so a lamp in cluster −1 reads `row[-1]`, memory before the row. We call it out of the PVS. *Read; what that byte holds in a shipped map was not measured.*
+
+**A wrong turn in the record's own control:** the cost probe's record predicted every dlight 64 units above a prop would re-rank it. 836 of 1,347 did, and a count of the gate from its two inputs gave 836. The other 511 are the gate refusing, so the path ran for everything it should have. Kept here because the first reading of that number was "the instrument failed".
+
 ## A world light behind a wall lights nothing; a dlight behind one still does (B666, 2026-11-02)
 
 Evidence class: **disassembly**, read by the lead in Ghidra on `engine.dll` (x64), except where marked.

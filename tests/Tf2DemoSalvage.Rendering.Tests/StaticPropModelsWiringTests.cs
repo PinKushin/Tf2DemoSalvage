@@ -329,7 +329,7 @@ public sealed class StaticPropModelsWiringTests
                     $"a lamp at ({lamp.X:0} {lamp.Y:0} {lamp.Z:0}) that does not reach ({point.X:0} {point.Y:0} {point.Z:0}) took a slot");
 
                 // And the light cache's visibility trace keeps it (B666).
-                lighting.Occlusion((lamp.X, lamp.Y, lamp.Z), point.X, point.Y, point.Z).ShouldNotBeNull("a trace ran").Kept.ShouldBeTrue(
+                lighting.Occlusion(WorldLightAt(level, lamp), point.X, point.Y, point.Z).ShouldNotBeNull("a trace ran").Kept.ShouldBeTrue(
                     $"a lamp at ({lamp.X:0} {lamp.Y:0} {lamp.Z:0}) behind a wall from ({point.X:0} {point.Y:0} {point.Z:0}) took a slot");
             }
 
@@ -352,7 +352,7 @@ public sealed class StaticPropModelsWiringTests
         BspWorldLight white = level.WorldLights.Single(
             light => light.Style == 0 && Distance(light.Origin, (-206f, 1807f, 205f)) < 1f);
         LocalLights.Reaches(white, origin.X, origin.Y, origin.Z).ShouldBeTrue("the control: it reaches the vat's origin");
-        lighting.Occlusion(white.Origin, origin.X, origin.Y, origin.Z).ShouldNotBeNull("a trace ran").Blocked
+        lighting.Occlusion(white, origin.X, origin.Y, origin.Z).ShouldNotBeNull("a trace ran").Blocked
             .ShouldBeGreaterThan(8f, "the control: a wall is between");
     }
 
@@ -462,7 +462,7 @@ public sealed class StaticPropModelsWiringTests
             BspWorldLight upAimed = level.WorldLights.Single(
                 light => light.Style == 0 && Distance(light.Origin, (side * 2256f, side * 416f, 598f)) < 1f);
             LocalLights.Reaches(upAimed, origin.X, origin.Y, origin.Z).ShouldBeTrue("the control: it reaches the point");
-            lighting.Occlusion(upAimed.Origin, origin.X, origin.Y, origin.Z).ShouldNotBeNull("a trace ran").Blocked
+            lighting.Occlusion(upAimed, origin.X, origin.Y, origin.Z).ShouldNotBeNull("a trace ran").Blocked
                 .ShouldBeGreaterThan(8f, "the control: a wall is between");
             // **And its cube is computed, not its leaf's** (`ComputeAmbientFromSphericalSamples`, `engine.dll`
             // `FUN_1801b74f0`): above the roofs, the upward face is the map's sky ambient light almost alone.

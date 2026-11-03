@@ -383,8 +383,10 @@ public sealed partial class EntityModelSet
 
             if (baked is not null)
             {
-                locals = StaticPlusDynamicLights?.Invoke(prop.EntityIndex, lit.X, lit.Y, lit.Z) ?? [];
-                light = locals.Count > 0 ? LevelLighting.NoStaticState : null;
+                // Flags 6: no static state, so the cube is only what fell out of the slots (`FUN_1801ba590`).
+                PointLighting added = StaticPlusDynamicLights?.Invoke(prop.EntityIndex, lit.X, lit.Y, lit.Z) ?? PointLighting.None;
+                locals = added.Locals;
+                light = locals.Count > 0 ? added.Cube : null;
                 sun = null;
                 decalLight = DecalLightOf(prop.EntityIndex, lit.X, lit.Y, lit.Z);
             }

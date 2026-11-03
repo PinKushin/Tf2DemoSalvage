@@ -202,7 +202,7 @@ public sealed class LevelLighting
         PointLighting lit = entry?.Lighting ?? LightingAt(x, y, z);
 
         return Dynamic is { } dynamic && _leaves is { } tree
-            ? WithDynamicLights(lit, dynamic, tree, entry?.X ?? x, entry?.Y ?? y, entry?.Z ?? z)
+            ? WithDynamicLights(lit, entry?.State, dynamic, tree, entry?.X ?? x, entry?.Y ?? y, entry?.Z ?? z)
             : lit;
     }
 
@@ -215,14 +215,16 @@ public sealed class LevelLighting
     /// <summary>
     /// `LightcacheGet` flag 2 (`engine.dll` `0x1801b9cd0` → `0x1801b7a10`, merged by `0x1801b5890`): each dynamic light
     /// whose cluster is in the PVS of the model's leaf is converted (<see cref="DynamicLights.ToWorldLight"/>) and
-    /// ranked with the entry's lights at the entry's point, so it takes a local-light slot from a weaker world light.
+    /// ranked against the entry's state at the entry's point, so it takes a local-light slot from a weaker world light.
     /// </summary>
     /// <remarks>
-    /// The ranking is this port's <see cref="LocalLights.Strongest"/> over the world lights and the dynamic ones together,
-    /// which is what the static selection would have been with them present; the losers are folded into the cube, as the
-    /// engine folds them (B453).
+    /// **Added to a copy of the entry's state, as `0x1801b5890` adds to the copy `LightcacheGet` made**: no re-ranking of the world lights, no
+    /// trace, and an evicted light or a loser folded (`FUN_1801b60a0`, B453). No precedence: that is `FUN_1801b6550`, a static prop's.
+    /// ponytail: the engine ranks dlights among themselves first and merges that state's cube; added one at a time the set differs only
+    /// past four dlights at one model.
     /// </remarks>
-    private PointLighting WithDynamicLights(PointLighting lit, DynamicLights dynamic, BspLeafTree tree, float x, float y, float z)
+    private PointLighting WithDynamicLights(
+        PointLighting lit, LightingState? state, DynamicLights dynamic, BspLeafTree tree, float x, float y, float z)
     {
         dynamic.ModelLights(_dynamic);
         _dynamicChecked++;
@@ -238,7 +240,7 @@ public sealed class LevelLighting
         {
             _dynamicAsked++;
 
-            return WithDynamicLightsFrom(lit, tree, x, y, z);
+            return WithDynamicLightsFrom(lit, state, tree, x, y, z);
         }
         finally
         {
@@ -259,46 +261,34 @@ public sealed class LevelLighting
     public (long Checked, long Asked, long Merged, long Ticks) DynamicMerges =>
         (_dynamicChecked, _dynamicAsked, _dynamicMerged, _dynamicTicks);
 
-    private PointLighting WithDynamicLightsFrom(PointLighting lit, BspLeafTree tree, float x, float y, float z)
+    private PointLighting WithDynamicLightsFrom(PointLighting lit, LightingState? state, BspLeafTree tree, float x, float y, float z)
     {
         int from = tree.ClusterAt(x, y, z);
-        bool anyCluster = _visibility is not { HasData: true };
-        List<BspWorldLight> lights = [.. _leafCubeLights];
+        LightingState? merged = null;
+
+        // At the entry's point, as LightingAt lights it. Neither `0x1801b7a10` nor `0x1801b5890` traces a dlight (B666).
+        (float atX, float atY, float atZ) = CachePoint(x, y, z);
 
         foreach (DynamicLight light in _dynamic)
         {
             int cluster = tree.ClusterAt(light.X, light.Y, light.Z);
 
-            // A map without vis data admits every cluster, as `StyledLights` does; with it, a cluster of −1 is outside.
-            if (anyCluster || (cluster >= 0 && _visibility!.Visible(from, cluster)))
+            // `0x1801b7a10` tests the same row: a cluster of 0 or more, with its bit set.
+            if (InPvs(from, cluster))
             {
-                lights.Add(DynamicLights.ToWorldLight(light, cluster));
+                merged ??= state?.Clone() ?? new LightingState(default);
+                LocalLights.Add(merged, DynamicLights.ToWorldLight(light, cluster), atX, atY, atZ, StyleScale);
             }
         }
 
-        if (lights.Count == _leafCubeLights.Count)
+        if (merged is null)
         {
             return lit;
         }
 
         _dynamicMerged++;
 
-        // Keyed on the point's own leaf and lit at its cell's point, as LightingAt does.
-        int leaf = tree.LeafAt(x, y, z);
-
-        (x, y, z) = CachePoint(x, y, z);
-
-        LocalLight[] nearest = new LocalLight[LocalLights.MaximumLocalLights];
-
-        // Folded from the BOUNCE cube again, not from the entry's: the entry's cube already holds the world lights that
-        // lost to each other, and they are re-ranked here with the dynamic ones (B453).
-        AmbientCube cube = leaf >= 0 && leaf < _ambient.Count ? _ambient[leaf].At(x, y, z) : default;
-        // The world lights traced at the entry's point, the dlights after them not (`0x1801b7a10` skips it; B666).
-        int found = LocalLights.Split(lights, x, y, z, nearest, ref cube, StyleScale, TraceSeen(lights, x, y, z, end: _leafCubeLights.Count, cluster: from));
-        TraceDone();
-        Array.Resize(ref nearest, found);
-
-        return new PointLighting(cube, nearest);
+        return merged.Lighting(StyleScale);
     }
 
     /// <summary>The sun a model's light cache entry sees: see <see cref="ModelLightingAt"/>.</summary>
@@ -343,7 +333,8 @@ public sealed class LevelLighting
 
         if (entry.Built && entry.StyleVersion != _styleVersion)
         {
-            entry.Lighting = LightingAt(entry.X, entry.Y, entry.Z);
+            entry.State = StateAt(entry.X, entry.Y, entry.Z);
+            entry.Lighting = entry.State.Lighting(StyleScale);
             entry.StyleVersion = _styleVersion;
         }
 
@@ -369,10 +360,13 @@ public sealed class LevelLighting
     public long LightCacheLookups { get; private set; }
 
     /// <summary>What a cache entry holds: where it was built, and what it lit there.</summary>
-    private sealed class CachedLight(float x, float y, float z, PointLighting lighting, SunLight? sun, int styleVersion)
+    private sealed class CachedLight(float x, float y, float z, LightingState state, PointLighting lighting, SunLight? sun, int styleVersion)
     {
         /// <summary>A zeroed pool entry (`0x1801bb640`): no cube, no lights, no sun.</summary>
-        public static readonly CachedLight Unbuilt = new(0f, 0f, 0f, PointLighting.None, null, -1) { Built = false };
+        public static readonly CachedLight Unbuilt = new(0f, 0f, 0f, new LightingState(default), PointLighting.None, null, -1) { Built = false };
+
+        /// <summary>The state itself, for a dlight to be ranked against and `ComputeLighting` to fold.</summary>
+        public LightingState State { get; set; } = state;
 
         public float X { get; } = x;
 
@@ -436,7 +430,9 @@ public sealed class LevelLighting
         {
             (float x, float y, float z) = (_buildAt.X, _buildAt.Y, _buildAt.Z);
 
-            return new CachedLight(x, y, z, LightingAt(x, y, z), CellSun(SunCaller.LightCache, x, y, z), _styleVersion);
+            LightingState state = StateAt(x, y, z);
+
+            return new CachedLight(x, y, z, state, state.Lighting(StyleScale), CellSun(SunCaller.LightCache, x, y, z), _styleVersion);
         };
         _visibility = visibility;
         _staticPropAmbient = staticPropAmbient;
@@ -460,7 +456,7 @@ public sealed class LevelLighting
     /// Each static state already built, by lighting origin: the handle's `+0x18`, computed once
     /// (`FUN_1801ba590`'s `+0x174 &amp; 4`) — style-0 lights, the sun and the cube, none of which change.
     /// </summary>
-    private readonly Dictionary<(float X, float Y, float Z), (PointLighting Lighting, SunLight? Sun)> _staticStates = [];
+    private readonly Dictionary<(float X, float Y, float Z), (PointLighting Lighting, SunLight? Sun, LightingState State)> _staticStates = [];
 
     /// <summary>The skylight's visibility trace; see the constructor.</summary>
     private readonly Func<(float X, float Y, float Z), (float X, float Y, float Z), bool>? _strikesSky;
@@ -514,9 +510,8 @@ public sealed class LevelLighting
     private readonly Func<(float X, float Y, float Z), (float X, float Y, float Z), float>? _lightTrace;
 
     /// <summary>
-    /// The light cache's visibility trace (<see cref="LocalLights.TraceKeeps"/>) over <paramref name="lights"/> at a point, for
-    /// the indices from <paramref name="first"/> up to <paramref name="end"/>; every other index is not traced, as a
-    /// caller that sets `FUN_1801b9570`'s flags bit 0 asks. Null — nothing traced — without a trace.
+    /// The light cache's PVS gate and visibility trace (<see cref="LocalLights.TraceKeeps"/>) over <paramref name="lights"/> at a point.
+    /// Null only with neither to apply. A caller that sets `FUN_1801b9570`'s flags bit 0, a dlight's, does not come through here.
     /// </summary>
     /// <remarks>
     /// *Read in disassembly* (B666), the callers of `AddWorldLightToLightingState` (`0x1801b60a0`) and the `skipTrace`
@@ -529,24 +524,20 @@ public sealed class LevelLighting
     /// **One delegate, made once, reading the call's arguments from fields** (<see cref="TraceAsk"/>), so a ranking
     /// allocates no closure — a static prop under a live dlight ranks every frame.
     ///
-    /// **The contract, because the delegate is shared:** one thread, and one outstanding at a time. Take it, hand it to
-    /// ONE <see cref="LocalLights"/> call, then call <see cref="TraceDone"/>, which drops the list it holds — a per-call
-    /// list such as `WithStyleZero`'s is not kept reachable. A second taken before the first is done would retarget the
-    /// first; a debug build asserts against it. This object is used from one thread, as its caches are.
+    /// **The contract, because the delegate is shared:** one thread, and one outstanding at a time. <see cref="Traced"/> and
+    /// <see cref="AddListed"/> are its only takers, and each releases it in a `finally`, so a trace that throws leaves it free. A second
+    /// taken before the first is done would retarget the first; a debug build asserts against it. This object is used from one thread,
+    /// as its caches are.
     ///
     /// **The PVS first, and a rule of its own** (B669): `FUN_1801b60a0` returns before it traces when the light's cluster
     /// (`+0x24`) is negative or out of the PVS `FUN_1801b8270` built from the entry's own leaf, so such a light takes no slot
     /// and is not folded. A level with no trace wired still takes this gate. `cluster` is that leaf's, for a caller whose lit
-    /// point is a cell rather than the point itself. `pvs` false is `FUN_1801b5400`, which goes to `FUN_1801b9570` directly and
-    /// has no gate: its list was admitted by the PVS when it was built.
+    /// point is a cell rather than the point itself. `FUN_1801b5400` has no gate of its own, since its list passed the same row when it
+    /// was built (<see cref="StyledLights"/>), so asking again answers the same.
     /// </remarks>
-    private Func<int, bool>? TraceSeen(
-        IReadOnlyList<BspWorldLight> lights, float x, float y, float z, int first = 0, int end = int.MaxValue, int? cluster = null,
-        bool pvs = true)
+    private Func<int, bool>? TraceSeen(IReadOnlyList<BspWorldLight> lights, float x, float y, float z, int? cluster = null)
     {
-        bool gated = pvs && _leaves is { HasLeaves: true };
-
-        if (_lightTrace is null && !gated)
+        if (_lightTrace is null && _leaves is not { HasLeaves: true })
         {
             return null;
         }
@@ -556,23 +547,62 @@ public sealed class LevelLighting
         _ask.Outstanding = true;
         _ask.Lights = lights;
         _ask.Point = (x, y, z);
-        _ask.First = first;
-        _ask.End = end;
-        _ask.Gated = gated;
 
         // Read even with no vis data: `CM_Vis` tests for cluster −1 before it looks for any (`FUN_18016b230`).
-        _ask.Cluster = gated ? cluster ?? _leaves!.ClusterAt(x, y, z) : -1;
+        _ask.Cluster = cluster ?? _leaves?.ClusterAt(x, y, z) ?? -1;
 
         return _ask.Keeps;
+    }
+
+    /// <summary>A state from a whole list, gated and traced.</summary>
+    private LightingState Traced(
+        IReadOnlyList<BspWorldLight> lights, float x, float y, float z, AmbientCube cube, Func<int, float>? style, int? cluster = null)
+    {
+        Func<int, bool>? keeps = TraceSeen(lights, x, y, z, cluster);
+
+        try
+        {
+            return LocalLights.Build(lights, x, y, z, cube, style, keeps);
+        }
+        finally
+        {
+            TraceDone();
+        }
+    }
+
+    /// <summary>`FUN_1801b5400`: each listed lamp seen from the handle's origin, added to a state at its current style value.</summary>
+    private void AddListed(LightingState state, BspWorldLight[] listed, float x, float y, float z)
+    {
+        Func<int, bool>? keeps = TraceSeen(listed, x, y, z);
+
+        try
+        {
+            for (int index = 0; index < listed.Length; index++)
+            {
+                if (keeps is null || keeps(index))
+                {
+                    LocalLights.Add(state, listed[index], x, y, z, StyleScale);
+                }
+            }
+        }
+        finally
+        {
+            TraceDone();
+        }
     }
 
     /// <summary>
     /// `FUN_1801b60a0`'s gate. A light in cluster −1 is out whatever the map holds (`JS 0x1801b6523` at `0x1801b616e`). A point
     /// in cluster −1 sees nothing: `FUN_18016b230` zeroes the row for exactly −1, before it looks for vis data. With no vis
-    /// data at all, the row is all ones and every other pair is in.
+    /// data at all, the row is all ones and every other pair is in. **The one copy of that rule:** `FUN_1801b7a10` (a model's dlight)
+    /// tests the same row and a cluster of 0 or more. `FUN_1801b6bf0` (the handle's list) tests the row with no negative test, so a lamp
+    /// in −1 reads the byte before the row, which is not a rule to port; every real lump's light but two of koth_toxic's has a cluster.
+    /// `FUN_1801b5260` (a static prop under a dlight) asks from the dlight's row whether the prop's leaves are in it, and the prop's
+    /// origin stands for its leaves here. ponytail: a prop spanning leaves, or with its origin in solid, differs; ask per leaf if that shows.
     /// </summary>
     private bool InPvs(int from, int cluster) =>
-        cluster >= 0 && from != -1 && (_visibility is not { HasData: true } || _visibility.Visible(from, cluster));
+        _leaves is not { HasLeaves: true } ||
+        (cluster >= 0 && from != -1 && (_visibility is not { HasData: true } || _visibility.Visible(from, cluster)));
 
     /// <summary>What a static state ranks: all of them over a computed cube, which holds none; the leaf path's list where the cube is the leaf's.</summary>
     private IReadOnlyList<BspWorldLight> StaticStateLights => _staticPropAmbient is null ? _leafCubeLights : _worldLights;
@@ -588,9 +618,8 @@ public sealed class LevelLighting
     private sealed class TraceAsk
     {
         public TraceAsk(LevelLighting owner) => Keeps = index =>
-            index < First || index >= End ||
-            ((!Gated || owner.InPvs(Cluster, Lights[index].Cluster)) &&
-             (owner._lightTrace is null || LocalLights.Kept(owner.Blocked(Lights[index].Origin, Point))));
+            owner.InPvs(Cluster, Lights[index].Cluster) &&
+            (owner._lightTrace is null || LocalLights.Kept(owner.Blocked(Lights[index].Origin, Point)));
 
         public Func<int, bool> Keeps { get; }
 
@@ -600,13 +629,7 @@ public sealed class LevelLighting
 
         public (float X, float Y, float Z) Point { get; set; }
 
-        public int First { get; set; }
-
-        public int End { get; set; }
-
         public int Cluster { get; set; }
-
-        public bool Gated { get; set; }
     }
 
     private readonly TraceAsk _ask;
@@ -647,24 +670,25 @@ public sealed class LevelLighting
     private readonly Dictionary<((float X, float Y, float Z) Light, (float X, float Y, float Z) Point), float> _blocked = [];
 
     /// <summary>How far short of a light its visibility trace from a point stops, as the ranking read it.</summary>
-    /// <param name="light">The light's origin.</param>
+    /// <param name="light">The light.</param>
     /// <param name="x">The point being lit.</param>
     /// <param name="y">The point being lit.</param>
     /// <param name="z">The point being lit.</param>
     /// <returns>
-    /// The blocked length and whether the light is kept (<see cref="LocalLights.Kept"/>); NULL when this map has no trace
-    /// wired, so no caller can read an untraced light as seen.
+    /// The blocked length, whether the PVS gate lets it through, and whether the ranking keeps it, which takes both; NULL when this map has
+    /// no trace wired, so no caller can read an untraced light as seen.
     /// </returns>
-    public (float Blocked, bool Kept)? Occlusion((float X, float Y, float Z) light, float x, float y, float z)
+    public (float Blocked, bool InPvs, bool Kept)? Occlusion(BspWorldLight light, float x, float y, float z)
     {
         if (_lightTrace is null)
         {
             return null;
         }
 
-        float blocked = Blocked(light, (x, y, z));
+        float blocked = Blocked(light.Origin, (x, y, z));
+        bool inPvs = InPvs(_leaves?.ClusterAt(x, y, z) ?? -1, light.Cluster);
 
-        return (blocked, LocalLights.Kept(blocked));
+        return (blocked, inPvs, inPvs && LocalLights.Kept(blocked));
     }
 
     /// <summary><see cref="StaticPropAmbient"/> over one level, or null when it lacks the lumps the rays read.</summary>
@@ -722,23 +746,21 @@ public sealed class LevelLighting
         public int[] Styles { get; } = [.. listed.Select(static light => light.Style).Distinct()];
 
         /// <summary>
-        /// `+0x88`: the listed lights ranked at their style values when <see cref="BuiltAt"/> was stamped. Read-only, since
-        /// every draw of the prop is handed this one list.
+        /// `+0x88` under flags 6: the listed lights added to an empty state at their style values when <see cref="BuiltAt"/> was stamped.
         /// </summary>
-        public System.Collections.ObjectModel.ReadOnlyCollection<LocalLight> Ranked { get; set; } =
-            System.Collections.ObjectModel.ReadOnlyCollection<LocalLight>.Empty;
+        public LightingState Ranked { get; set; } = new(LevelLighting.NoStaticState);
 
-        /// <summary>The same ranked lights as world lights, for a live dlight to be ranked against.</summary>
-        public BspWorldLight[] RankedLights { get; set; } = [];
+        /// <summary><see cref="Ranked"/> as a draw takes it; every draw of the prop is handed this one.</summary>
+        public PointLighting RankedLighting { get; set; } = PointLighting.Bounce(LevelLighting.NoStaticState);
 
         /// <summary>`+0xf8`: the <see cref="_styleVersion"/> <see cref="Ranked"/> was built at; never, until the first draw.</summary>
         public int BuiltAt { get; set; } = -1;
 
         /// <summary>
-        /// Flags 7's finished lights with no live dlight — the style-0 lights and <see cref="RankedLights"/> ranked together —
-        /// and the later of <see cref="BuiltAt"/> and style 0's stamp they were ranked at; null until a flags-7 draw asks.
+        /// `+0x88` under flags 7: the listed lights added to a copy of the static state, and the later of <see cref="BuiltAt"/> and style 0's stamp
+        /// it was built at; null until a flags-7 draw asks.
         /// </summary>
-        public (System.Collections.ObjectModel.ReadOnlyCollection<LocalLight> Locals, int At)? Full { get; set; }
+        public (LightingState State, PointLighting Lighting, int At)? Full { get; set; }
     }
 
     /// <summary>Times bit 4 ranked a handle's styled lights, ever: the conformance tests' count of the `+0x88` cache's misses.</summary>
@@ -809,22 +831,13 @@ public sealed class LevelLighting
             return handle;
         }
 
-        Span<int> chosen = stackalloc int[LocalLights.MaximumLocalLights];
-        // Traced at the handle's origin (`FUN_1801b5400`, flags 0; B666). The second ranking below is of these alone.
-        int found = LocalLights.StrongestIndices(handle.Listed, x, y, z, chosen, StyleScale, TraceSeen(handle.Listed, x, y, z, pvs: false));
-        TraceDone();
-        BspWorldLight[] ranked = new BspWorldLight[found];
+        LightingState state = new(NoStaticState);
 
-        for (int slot = 0; slot < found; slot++)
-        {
-            ranked[slot] = handle.Listed[chosen[slot]];
-        }
+        // Traced at the handle's origin (`FUN_1801b5400`, flags 0; B666).
+        AddListed(state, handle.Listed, x, y, z);
 
-        LocalLight[] locals = new LocalLight[LocalLights.MaximumLocalLights];
-        Array.Resize(ref locals, LocalLights.Strongest(ranked, x, y, z, locals, StyleScale));
-
-        handle.RankedLights = ranked;
-        handle.Ranked = Array.AsReadOnly(locals);
+        handle.Ranked = state;
+        handle.RankedLighting = state.Lighting(StyleScale);
         handle.BuiltAt = _styleVersion;
         StyledRankings++;
 
@@ -857,21 +870,19 @@ public sealed class LevelLighting
     /// <returns>Indices into the world lights, in lump order.</returns>
     /// <remarks>
     /// Every light whose style (`+0x2c`) is nonzero — style 0 is what vrad baked — whose cluster (`+0x24`) is in the
-    /// PVS of the leaf holding the origin, and whose contribution there is positive (<see cref="LocalLights.Reaches"/>).
-    /// A map without vis data admits every cluster.
+    /// PVS of the leaf holding the origin (<see cref="InPvs"/>), and whose contribution there is positive (<see cref="LocalLights.Reaches"/>).
     /// </remarks>
     public int[] StyledLights(float x, float y, float z)
     {
         List<int> listed = [];
         int from = _leaves?.ClusterAt(x, y, z) ?? -1;
-        bool anyCluster = _visibility is not { HasData: true };
 
         for (int index = 0; index < _worldLights.Count; index++)
         {
             BspWorldLight light = _worldLights[index];
 
             if (light.Style != 0 &&
-                (anyCluster || _visibility!.Visible(from, light.Cluster)) &&
+                InPvs(from, light.Cluster) &&
                 LocalLights.Reaches(light, x, y, z))
             {
                 listed.Add(index);
@@ -892,7 +903,7 @@ public sealed class LevelLighting
     /// <param name="x">The prop's lighting origin (the handle's `+0x184`).</param>
     /// <param name="y">The prop's lighting origin.</param>
     /// <param name="z">The prop's lighting origin.</param>
-    /// <returns>At most four lights, strongest first; empty when none reaches, which leaves the colours alone.</returns>
+    /// <returns>The cube the losers made and at most four lights; no lights when none reaches, which leaves the colours alone.</returns>
     /// <remarks>
     /// **The DX9 path only.** Hardware config `+0x150` (`SupportsStaticPlusDynamicLighting`) is true on every DX9 part, so
     /// the colour mesh is kept and this state is ADDED by the shader. The other branch — drop the colours for full lighting
@@ -902,26 +913,15 @@ public sealed class LevelLighting
     /// Without bit 1 the state holds no leaf cube and no style-0 light (<see cref="NoStaticState"/>). Bit 4
     /// (`FUN_1801b5400`) adds every light of the handle's list (<see cref="StyledLights"/>, built once, as
     /// `FUN_1801b8350` builds it) at its current style value; bit 2 adds each LIVE dlight (`DAT_1806996c4`) whose bit
-    /// `FUN_1801b5260` set — the prop in the dlight's PVS — through `FUN_1801bb940` and `FUN_1801b6550`. Both rank into
-    /// the four slots and fold a loser into the cube; the port drops the loser, as <see cref="ModelLightingAt"/> does.
-    /// ponytail: one ranking over both sets; the engine gives a dlight precedence when evicting (`FUN_1801b6550` ranks
-    /// it at 100000), which differs only past four lights at one prop.
+    /// `FUN_1801b5260` set — the prop in the dlight's PVS — through `FUN_1801bb940` and `FUN_1801b6550`. Both fill the
+    /// four slots and then evict, and what is evicted or refused goes to the cube (<see cref="LocalLights.Add"/>), which is why this answers
+    /// a cube as well as lights.
     /// </remarks>
-    public IReadOnlyList<LocalLight> StaticPlusDynamicLights(int entity, float x, float y, float z)
+    public PointLighting StaticPlusDynamicLights(int entity, float x, float y, float z)
     {
         StyledHandle handle = Ranked(Handle(entity, x, y, z), x, y, z);
-        List<BspWorldLight>? lights = WithDynamic(handle, x, y, z);
 
-        if (lights is null)
-        {
-            return handle.Ranked;
-        }
-
-        LocalLight[] nearest = new LocalLight[LocalLights.MaximumLocalLights];
-        int found = LocalLights.Strongest(lights, x, y, z, nearest, StyleScale);
-        Array.Resize(ref nearest, found);
-
-        return nearest;
+        return WithDynamic(handle.Ranked, x, y, z)?.Lighting(StyleScale) ?? handle.RankedLighting;
     }
 
     /// <summary>
@@ -939,63 +939,45 @@ public sealed class LevelLighting
     /// level is at least 80 and the model carries `MODELFLAG_STUDIOHDR_USES_BUMPMAPPING` (`0x200`); `*param_7` is then
     /// false, no colour mesh is handed to the studio render, and with the prop's lighting handle the state is flags 7:
     /// bit 1 the static state (<see cref="StaticPropLightingAt"/>), bit 4 the handle's styled lights at their current
-    /// values, bit 2 its live dlights (<see cref="StaticPlusDynamicLights"/>).
-    /// ponytail: one ranking over all three sets; the engine ranks the static four first and then each added light
-    /// against them, which differs only past four lights at one prop.
+    /// values, bit 2 its live dlights (<see cref="StaticPlusDynamicLights"/>). `FUN_1801ba590` copies the static state and adds to the
+    /// copy, so the static four are not ranked again: a styled lamp or a dlight evicts or loses against them, and what falls out is folded.
     /// </remarks>
     public (PointLighting Lighting, SunLight? Sun) StaticPropFullLightingAt(int entity, float x, float y, float z)
     {
         FullStateRequests++;
 
-        (PointLighting lighting, SunLight? sun) = StaticPropLightingAt(x, y, z);
+        (PointLighting lighting, SunLight? sun, LightingState state) = StaticState(x, y, z);
         StyledHandle handle = Ranked(Handle(entity, x, y, z), x, y, z);
 
-        if (WithDynamic(handle, x, y, z) is { } added)
+        if (handle.Listed.Length != 0)
         {
-            return (new PointLighting(lighting.Cube, WithStyleZero(added, x, y, z)), sun);
+            // **The finished state is the handle's `+0x88`, and the draw only adds to it**: built again only when bit 4 was, or
+            // style 0 was stamped, so a frame with nothing stamped allocates and ranks nothing.
+            int at = Math.Max(handle.BuiltAt, _styleStamps.GetValueOrDefault(0, -1));
+
+            if (handle.Full is not { } full || full.At != at)
+            {
+                LightingState added = state.Clone();
+
+                AddListed(added, handle.Listed, x, y, z);
+                full = (added, added.Lighting(StyleScale), at);
+                handle.Full = full;
+                FullRankings++;
+            }
+
+            state = full.State;
+            lighting = full.Lighting;
         }
 
-        if (handle.RankedLights.Length == 0)
-        {
-            return (lighting, sun);
-        }
-
-        // **With no live dlight the finished state is the handle's** (`+0x88` holds the ranked result and the draw only
-        // adds to it): ranked again only when bit 4 was, or style 0 (which the style-0 lights are ranked at) was stamped,
-        // so a frame with nothing stamped allocates and ranks nothing.
-        int at = Math.Max(handle.BuiltAt, _styleStamps.GetValueOrDefault(0, -1));
-
-        if (handle.Full is not { } full || full.At != at)
-        {
-            full = (Array.AsReadOnly(WithStyleZero([.. handle.RankedLights], x, y, z)), at);
-            handle.Full = full;
-            FullRankings++;
-        }
-
-        return (new PointLighting(lighting.Cube, full.Locals), sun);
-    }
-
-    /// <summary>Flags 7's one ranking: these added lights with every style-0 world light, strongest four.</summary>
-    private LocalLight[] WithStyleZero(List<BspWorldLight> added, float x, float y, float z)
-    {
-        // Only the style-0 lights are traced here (`0x1801b5a50`; B666): the ranked styled ones were traced when bit 4
-        // ranked them at this point, and a dlight is not traced.
-        int styleZero = added.Count;
-        added.AddRange(StaticStateLights.Where(static light => light.Style == 0));
-
-        LocalLight[] nearest = new LocalLight[LocalLights.MaximumLocalLights];
-        Array.Resize(ref nearest, LocalLights.Strongest(added, x, y, z, nearest, StyleScale, TraceSeen(added, x, y, z, first: styleZero)));
-        TraceDone();
-
-        return nearest;
+        return (WithDynamic(state, x, y, z)?.Lighting(StyleScale) ?? lighting, sun);
     }
 
     /// <summary>Dlight slots a static prop's bit-2 gather has examined, ever: the conformance tests' count of the live-set walk.</summary>
     internal int DlightsExamined { get; private set; }
 
     /// <summary>
-    /// A handle's ranked styled lights (bit 4's `+0x88`) and the live dlights that reach it (bit 2), unranked; null when
-    /// no dlight reaches, which leaves the cached ranking the whole answer.
+    /// A copy of a handle's state with the live dlights that reach it added (bit 2); null when no dlight reaches, which leaves the
+    /// state the whole answer and allocates nothing.
     /// </summary>
     /// <remarks>
     /// **Bit 2 walks the live set, `r_dlightactive`, and nothing else** (`FUN_1801ba590` masks the handle's `+0x1a4` by
@@ -1003,15 +985,10 @@ public sealed class LevelLighting
     /// every frame: ~4,000 slot reads a frame on f12 with no dlight live (measurement 2026-10-27-static-prop-lighting).
     /// The live slots are visited in slot order, as the walk over every slot visited them.
     ///
-    /// **Ranked against the cached four, not the whole list** (`FUN_1801b6550` adds to the state bit 4 left): a light's
-    /// strength is its own, so the strongest of the four and the dlights are the strongest of the list and the dlights.
-    /// That holds on ties too, because `LocalLights`' insert keeps the EARLIER of two equal lights (a full list refuses
-    /// a light no stronger than its last, and a light moves up only past a weaker one): the four come in rank order before
-    /// the dlights, as the list came in lump order before them. Pinned by
-    /// `StaticPlusDynamicLights_FiveEqualStyledLampsAndADlight_RankAsOneListWould`, which asserts WHICH four of five equal
-    /// lamps are kept (the first four, in lump order) and then that the dlight ranks as one list would.
+    /// **Added to the state bit 4 left, with `FUN_1801b6550`'s precedence** (<see cref="LocalLights.Add"/>): not traced (flags 1), and once the
+    /// slots are full a dlight evicts the weakest whatever its own strength, unless all four rank over 100000.
     /// </remarks>
-    private List<BspWorldLight>? WithDynamic(StyledHandle handle, float x, float y, float z)
+    private LightingState? WithDynamic(LightingState state, float x, float y, float z)
     {
         uint live = Dynamic?.ActiveMask ?? 0u;
 
@@ -1020,25 +997,25 @@ public sealed class LevelLighting
             return null;
         }
 
-        List<BspWorldLight>? lights = null;
-        int from = tree.ClusterAt(x, y, z);
-        bool anyCluster = _visibility is not { HasData: true };
+        LightingState? added = null;
+        int propCluster = tree.ClusterAt(x, y, z);
 
         for (; live != 0u; live &= live - 1u)
         {
             int index = System.Numerics.BitOperations.TrailingZeroCount(live);
             DlightsExamined++;
             DynamicLight light = dynamic.Dlights[index];
-            int cluster = tree.ClusterAt(light.X, light.Y, light.Z);
+            int lightCluster = tree.ClusterAt(light.X, light.Y, light.Z);
 
-            if (dynamic.LightsModels(index) && (anyCluster || (cluster >= 0 && _visibility!.Visible(cluster, from))))
+            // `FUN_1801b5260` asks from the DLIGHT's row, so the two clusters are this way round.
+            if (dynamic.LightsModels(index) && InPvs(lightCluster, propCluster))
             {
-                lights ??= [.. handle.RankedLights];
-                lights.Add(DynamicLights.ToWorldLight(light, cluster));
+                added ??= state.Clone();
+                LocalLights.Add(added, DynamicLights.ToWorldLight(light, lightCluster), x, y, z, StyleScale, dynamicLight: true);
             }
         }
 
-        return lights;
+        return added;
     }
 
     /// <summary>
@@ -1058,12 +1035,20 @@ public sealed class LevelLighting
     /// </remarks>
     public (PointLighting Lighting, SunLight? Sun) StaticPropLightingAt(float x, float y, float z)
     {
+        (PointLighting lighting, SunLight? sun, _) = StaticState(x, y, z);
+
+        return (lighting, sun);
+    }
+
+    /// <summary><see cref="StaticPropLightingAt"/> with the state itself, for bit 4 and bit 2 to copy and add to.</summary>
+    private (PointLighting Lighting, SunLight? Sun, LightingState State) StaticState(float x, float y, float z)
+    {
         if (_leaves is not { } tree || _ambient.Count == 0)
         {
-            return (PointLighting.None, null);
+            return (PointLighting.None, null, new LightingState(default));
         }
 
-        if (_staticStates.TryGetValue((x, y, z), out (PointLighting Lighting, SunLight? Sun) built))
+        if (_staticStates.TryGetValue((x, y, z), out (PointLighting Lighting, SunLight? Sun, LightingState State) built))
         {
             return built;
         }
@@ -1083,19 +1068,14 @@ public sealed class LevelLighting
         // **Every style-0 light, surface lights included, and the losers folded** (B669): `FUN_1801b5a50` hands each to
         // `FUN_1801b60a0`, which ranks it into the four slots or adds it to this cube. It passes over a light vrad put in the
         // leaf cubes only when the cube came from the leaf; a computed cube holds none of them (`FUN_1801b74f0`).
-        IReadOnlyList<BspWorldLight> lights = StaticStateLights;
-        LocalLight[] nearest = new LocalLight[LocalLights.MaximumLocalLights];
-        int found = LocalLights.Split(
-            lights, x, y, z, nearest, ref bounced, static style => style == 0 ? 1f : 0f, TraceSeen(lights, x, y, z));
-        TraceDone();
-        Array.Resize(ref nearest, found);
+        LightingState state = Traced(StaticStateLights, x, y, z, bounced, StyleZeroOnly);
 
         SunLight? sun = _sun is { } light && _strikesSky is { } strikesSky
             ? SunFrom(SunCaller.StaticProp, light, strikesSky, x, y, z)
             : null;
 
         // Read-only: this one state is every later draw's and bake's (B607).
-        built = (found == 0 ? PointLighting.Bounce(bounced) : new PointLighting(bounced, Array.AsReadOnly(nearest)), sun);
+        built = (state.Lighting(StyleZeroOnly), sun, state);
         _staticStates[(x, y, z)] = built;
         StaticStateBuilds++;
         StaticStateBuildTicks += System.Diagnostics.Stopwatch.GetTimestamp() - buildAt;
@@ -1103,15 +1083,20 @@ public sealed class LevelLighting
         return built;
     }
 
-    /// <summary>The ambient light at a world position.</summary>
+    /// <summary>A static state's style scale: `FUN_1801b5a50` adds a light only when its style is 0.</summary>
+    private static readonly Func<int, float> StyleZeroOnly = static style => style == 0 ? 1f : 0f;
+
+    /// <summary>`IVEngineClient::ComputeLighting` with no normal: all the world light at a point, as a cube.</summary>
     /// <param name="x">World position.</param>
     /// <param name="y">World position.</param>
     /// <param name="z">World position.</param>
     /// <returns>The cube, or a default one where the map cannot say.</returns>
     /// <remarks>
-    /// **The leaf decides, which is how the engine does it.** A model takes the light measured
-    /// inside the leaf it stands in, so two crates either side of a doorway are lit differently
-    /// without either carrying a lightmap.
+    /// *Read in disassembly*, `engine.dll` `FUN_1801b7fd0` (B668): `FUN_1801b9cd0` (LightcacheGet) with flags `0xf`, a moving model's own path,
+    /// so the leaf's cube, the flag's skip, the PVS gate and the trace, and it is built at the entry's cell. With no normal, each light in a
+    /// slot but a dlight is then folded into the cube at the ASKED point (`FUN_1801b5db0`, `FUN_1801b9570` flags 1, so not traced
+    /// again). ponytail: the entry's state without its dlights. The engine ranks them first, but it folds only the world lights, and an
+    /// evicted one arrives through the cube either way, at the entry's point rather than this one.
     ///
     /// An unlit answer is returned as a default cube, which the shader reads as "no cube supplied"
     /// and draws at full brightness rather than black — a model lit by a measurement nobody made is
@@ -1135,20 +1120,8 @@ public sealed class LevelLighting
             ? _ambient[leaf].At(x, y, z)
             : default;
 
-        // **And the direct term, which is the other half of what the engine gives a model.**
-        // istudiorender.h describes the cube as "ambient, and lights that aren't in locallight[]",
-        // so a cube carrying a nearby lamp's light is the shape the engine itself produces for
-        // every light past the nearest four. Without this a prop out of daylight is lit by the
-        // bounce alone, which is why anything indoors read as though it were in shade (B95).
-        //
-        // **Kept for callers that want one number**, and NOT what a model is drawn with any more —
-        // see LightingAt, which hands the nearest four to the shader instead so they can shade
-        // against a normal. A caller must take one or the other: the engine adds the cube and the
-        // local lights, so a light in both is counted twice.
-        //
-        // Not traced (B666): `IVEngineClient::ComputeLighting` is not among the callers of `0x1801b60a0` that were read,
-        // so whether it makes the visibility trace is unestablished.
-        AmbientCube lit = LocalLights.AddTo(bounced, _leafCubeLights, x, y, z, StyleScale);
+        LightingState state = Entry(x, y, z)?.State ?? new LightingState(bounced);
+        AmbientCube lit = LocalLights.FoldSlots(state, x, y, z, StyleScale);
 
         // **The two terms reported apart, because one number cannot say which is missing.** Every
         // model on z1800 sampled between 0.09 and 0.12 in a room with three ceiling lamps overhead,
@@ -1169,9 +1142,8 @@ public sealed class LevelLighting
     /// <remarks>
     /// **This is what a model is drawn with, and <see cref="ComputeLighting"/> is not.** The cube
     /// here is vrad's own: `ComputeAmbientFromSphericalSamples` builds it from rays cast at
-    /// surfaces — bounce — plus the dim `emit_surface` lights, and Valve's comment there says why
-    /// only those. Point and spot lamps are absent from the lump because they are meant to arrive
-    /// at runtime, which is what the second half of this is.
+    /// surfaces — bounce — plus the `emit_surface` lights dim enough to flag (`IsLeafAmbientSurfaceLight`). Everything else
+    /// arrives at runtime, which is what the second half of this is.
     ///
     /// **The difference is not brightness, it is direction.** A lamp folded into a cube arrives
     /// from all six faces at once, so a model takes no N·L falloff from it and can cast no
@@ -1182,11 +1154,14 @@ public sealed class LevelLighting
     /// split. `PixelShaderDoLightingLinear` accumulates the cube and then each light, so a light appearing in both
     /// would be counted twice — and that mistake reads as a lighting change rather than as a bug.
     /// </remarks>
-    public PointLighting LightingAt(float x, float y, float z)
+    public PointLighting LightingAt(float x, float y, float z) => StateAt(x, y, z).Lighting(StyleScale);
+
+    /// <summary><see cref="LightingAt"/> as a state, which a cache entry keeps for a dlight to be ranked against.</summary>
+    private LightingState StateAt(float x, float y, float z)
     {
         if (_leaves is not { } tree || _ambient.Count == 0)
         {
-            return PointLighting.None;
+            return new LightingState(default);
         }
 
         // The entry is keyed on the point's own leaf and lit at its cell's point (`0x1801b8270` takes both).
@@ -1199,43 +1174,24 @@ public sealed class LevelLighting
             ? _ambient[leaf].At(x, y, z)
             : default;
 
-        if (_leafCubeLights.Count == 0)
-        {
-            return PointLighting.Bounce(bounced);
-        }
-
-        LocalLight[] nearest = new LocalLight[LocalLights.MaximumLocalLights];
-
         // **The lights that take no slot are folded into the cube** (B453), as the lightcache does.
-        int found = LocalLights.Split(_leafCubeLights, x, y, z, nearest, ref bounced, StyleScale, TraceSeen(_leafCubeLights, x, y, z, cluster: cluster));
-        TraceDone();
+        LightingState state = Traced(_leafCubeLights, x, y, z, bounced, StyleScale, cluster);
 
-        if (found == 0)
+        // **What matters on this path is how many lights were chosen**, because "no lamp near enough" and "lamps chosen that
+        // contribute nothing" look identical in a single brightness figure.
+        if (state.Count > 0 && _render.IsEnabled(LogLevel.Debug))
         {
-            return PointLighting.Bounce(bounced);
-        }
+            LocalLight strongest = state.Lighting(StyleScale).Locals[0];
 
-        // Trimmed rather than passed with a count, so a consumer cannot read past what was found —
-        // the shader takes a live flag per slot and this keeps the two saying the same thing.
-        Array.Resize(ref nearest, found);
-
-        // **Reported from what is already in hand.** `ComputeLighting`'s ReportLightTerms compares
-        // the cube against the folded one, which would mean computing the fold here purely to log
-        // it — the expensive-argument case CA1873 exists for. What matters on this path is a
-        // different question anyway: how many lights were chosen and how near the strongest is,
-        // because "no lamp near enough" and "lamps chosen that contribute nothing" look identical
-        // in a single brightness figure.
-        if (_render.IsEnabled(LogLevel.Debug))
-        {
             _render.LogDebug(
                 "local lights at ({X}, {Y}, {Z}): {Count} chosen, strongest at ({LX}, {LY}, {LZ}) " +
                 "intensity {Intensity}",
-                x, y, z, found,
-                nearest[0].X, nearest[0].Y, nearest[0].Z,
-                Math.Max(nearest[0].Red, Math.Max(nearest[0].Green, nearest[0].Blue)));
+                x, y, z, state.Count,
+                strongest.X, strongest.Y, strongest.Z,
+                Math.Max(strongest.Red, Math.Max(strongest.Green, strongest.Blue)));
         }
 
-        return new PointLighting(bounced, nearest);
+        return state;
     }
 
     /// <summary>The sun reaching a world position, or null when it does not.</summary>

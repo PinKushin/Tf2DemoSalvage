@@ -74,15 +74,6 @@ public sealed class SurfaceLightCacheConformanceTests
             .StaticPropLightingAt(0f, 0f, 100f).Lighting.Locals.Count.ShouldBe(expected);
     }
 
-    /// <summary>`FUN_1801b5400` goes straight to `FUN_1801b9570`: a listed styled lamp is not asked again.</summary>
-    [Test]
-    public void StaticPlusDynamicLights_AListedLampInClusterMinusOne_IsNotGated()
-    {
-        StaticPlusDynamicLightingConformanceTests.Map(
-                [StaticPlusDynamicLightingConformanceTests.Lamp(5, -1)], Clear, withVis: false)
-            .StaticPlusDynamicLights(1000, 0f, 0f, 100f).Count.ShouldBe(1);
-    }
-
     [Test]
     public void ModelLightingAt_ASurfaceLightVradPutInTheLeafCube_IsSkipped()
     {

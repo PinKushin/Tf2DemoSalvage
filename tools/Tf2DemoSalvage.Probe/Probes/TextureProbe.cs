@@ -119,9 +119,11 @@ public sealed class TextureProbe : IProbe
             $"  mean R G B as stored: {sums[0] / texels:0.0} {sums[1] / texels:0.0} {sums[2] / texels:0.0}"));
 
         // Each stored mip's means: a chain whose small levels were authored apart from the top one reads differently far off (B669).
-        for (int size = first.Width; size >= 1; size /= 2)
+        // `maximumSize` bounds the longer side, so starting from the width would skip the top levels of a tall texture.
+        for (int size = Math.Max(first.Width, first.Height); size >= 1; size /= 2)
         {
-            byte[] level = VtfTexture.Decode(bytes, maximumSize: size).Pixels;
+            VtfTexture decoded = VtfTexture.Decode(bytes, maximumSize: size);
+            byte[] level = decoded.Pixels;
             double[] means = new double[4];
 
             for (int at = 0; at < level.Length; at++)
@@ -133,7 +135,7 @@ public sealed class TextureProbe : IProbe
 
             output.WriteLine(string.Create(
                 CultureInfo.InvariantCulture,
-                $"  mip {size}: mean R G B A {means[0] / count:0.0} {means[1] / count:0.0} {means[2] / count:0.0} {means[3] / count:0.0}, {level.Length / 4} texels"));
+                $"  mip at most {size}: {decoded.Width}x{decoded.Height}, mean R G B A {means[0] / count:0.0} {means[1] / count:0.0} {means[2] / count:0.0} {means[3] / count:0.0}, {level.Length / 4} texels"));
         }
 
         // **The picture, coarsely, because a statistic cannot say WHAT is wrong.** A mean says grey,
