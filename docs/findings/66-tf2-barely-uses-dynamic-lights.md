@@ -252,6 +252,14 @@ Evidence class: **disassembly**, `engine.dll` x64. This ended an inference: B668
 
 So our `AddTo` route was wrong in more than the trace it was filed for. It re-ran the admission over every light at the asked point. A rope or an eye light reads the cube of the cache entry it stands in.
 
+## A static prop has no cache entry, and a moving model's light has a time constant (B674, B675, B676, 2026-11-03)
+
+Evidence class: **decompile**, `engine.dll` x64, and **measured** where a number is given. The review that filed B675 asked what a model draws from a zeroed entry, and the answer was not in `LightcacheGet` at all.
+
+- **With a handle, `FUN_1800f1bd0` never calls `LightcacheGet`.** `FUN_180205b20` makes a handle for every renderable prop, so a static prop has no entry, spends no `lightcache_maxmiss` and evicts nothing. Ours asked anyway and discarded the answer: 86% of lookups on f12 (`measurements/2026-11-03-static-props-leave-the-light-cache.md`). Taking them out moved no world pixel and did move the viewmodel's, which had been lit from an entry a static prop built.
+- **A zeroed entry's dlights are asked from (0 0 0).** `FUN_1801b7a10` receives no PVS row past the budget and looks one up from the entry's origin `+0x184`. An earlier reading here took it from the entry's leaf, `+0x178`, which is 0, the solid leaf, and would have meant no dlights; `param_4` is that leaf and the function does not read it. Kept because a guard written on that reading would have looked right.
+- **The state is not what a moving model draws.** `FUN_1800f3110`, under `r_lightaverage` 1 and `r_lightinterp` 5, blends it with the instance's last state by `exp(−5·dt)` (the `exp` *interpolated*), lights by pointer, and lets a light that left the slots fade out. A first draw takes the state as it stands. This viewer has none of it: B676. So a zeroed entry draws black here for a frame where TF2 dims by 1 − exp(−5/60), 8%, at a 1/60 s frame (arithmetic, not run).
+
 ## A static prop's flags 6 and 7 add to a copy, and a dlight has the right of way (B669 review, 2026-11-03)
 
 Evidence class: **disassembly**. The second review asked what happens to the light `Strongest` dropped, and the answer was the same defect as the static state's, one call later.

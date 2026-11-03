@@ -40418,11 +40418,11 @@ its recreation shows nothing; that `_rt_FullFrameFB` and the bloom targets are l
 - **First draw**, instance `+0x128` still −999999: `FUN_1800f1370` stores the state with each slot's colour and the time, and returns the state as it stands.
 - **After that:** `dt` is client time (`FUN_1800a3020(&DAT_180536810)`) less `+0x128`, and `f = FUN_180334c10(−dt · r_lightinterp)`, *interpolated* as `exp`. Each cube face is `new − (new − old) · f`, clamped to 0..8 (`FUN_1800f2e90`)
   and stored back. A light still in a slot gets the same blend on its colour, by light pointer. A light that left the slots stays while its stored colour's squared length is at least 1, at `f` of that colour, up to four
-  slots. Past `r_` max lights (`DAT_18075adc8`, clamped by hardware) a kept one is folded (`FUN_1801b5d40`).
+  slots. A kept one past the draw's light limit (`DAT_18075adc8`, clamped by hardware) is folded (`FUN_1801b5d40`).
 - *Not read:* the gate `DAT_18069d930 + 0x43` beside the max-light clamp, and what zeroes `+0x128` on a teleport or a new entity.
 
 **So what a moving model draws has a time constant of 0.2 s in TF2 and none here**: a player crossing a cell steps where TF2 eases. Porting it changes every moving model every frame, so it wants its own conformance test,
-a per-instance store, the sun folded into its slots' identity, a seek's `dt` and an A B B A, and it is not on B675's branch. **The other half of B675's claim is here:** past the budget on a zeroed entry, with `dt` 1/60, `f` is 0.92,
+a per-instance store, the sun folded into its slots' identity, a seek's `dt` and an A B B A, and it is not on B675's branch. **The other half of B675's claim is here:** past the budget on a zeroed entry, with `dt` 1/60, `f` is 0.92 (arithmetic, not run),
 so TF2 dims a model 8% that frame, and this viewer draws it black.
 
 ## B675 — a moving model past the miss budget, nearest a zeroed cache entry, may draw black for a frame (2026-11-03) — PART FIXED: the cache and the log; what the model draws is B676
