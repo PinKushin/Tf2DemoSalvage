@@ -425,7 +425,10 @@ public sealed class LevelLightingTests
 
             // `1 / (constant + linear * dist + quadratic * dist^2)`, stated inline in `bspfile.h`.
             // A purely quadratic lamp is the ordinary case a mapper places.
-            QuadraticAttenuation: 1f);
+            QuadraticAttenuation: 1f,
+
+            // In the PVS: a real light's cluster is read from the lump, and `FUN_1801b60a0` drops a negative one (B669).
+            Cluster: 0);
 
     /// <summary>The sun, pointing straight down.</summary>
     private static BspWorldLight Sky() =>

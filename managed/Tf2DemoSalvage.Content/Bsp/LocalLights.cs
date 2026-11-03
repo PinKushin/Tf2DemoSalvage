@@ -270,7 +270,12 @@ public static class LocalLights
 
             (float constant, float linear, float quadratic) = Normalised(light);
             float scale = IntensityScale * style(light.Style);
+            bool surface = light.Kind == WorldLightKind.Surface;
 
+            // `engine.dll` `FUN_1800f0e10` case 0: a surface light's `LightDesc_t` is a spot with both dots 0 and falloff 1,
+            // whatever its stopdots hold. So the CPU path is flat (`studiorender.dll` `0x180021b20` keeps N·L at or past
+            // ThetaDot). The vertex shader's form, `( cos − PhiDot ) · 1`, gives one cosine of its own: *interpolated*, since
+            // what shaderapi uploads for a zero spread was not read.
             into[slot] = new LocalLight(
                 light.Origin.X, light.Origin.Y, light.Origin.Z,
                 light.Intensity.Red * scale,
@@ -279,10 +284,10 @@ public static class LocalLights
                 constant, linear, quadratic,
                 light.Radius,
                 light.Normal,
-                light.StopDot,
-                light.StopDot2,
-                light.Exponent,
-                light.Kind == WorldLightKind.Spotlight);
+                surface ? 0f : light.StopDot,
+                surface ? 0f : light.StopDot2,
+                surface ? 1f : light.Exponent,
+                surface || light.Kind == WorldLightKind.Spotlight);
         }
     }
 
@@ -409,7 +414,7 @@ public static class LocalLights
 
             reached?.Add(index);
 
-            if (!Ranks(strength))
+            if (!Ranks(lights[index], strength))
             {
                 continue;
             }
@@ -446,9 +451,11 @@ public static class LocalLights
 
     /// <summary>
     /// `r_worldlightmin` again, by the ranking's luminance: a light below it takes no slot and is folded into the cube
-    /// instead (`JC 0x1801b64f5`; see <see cref="Split"/>). Written as "at least", so a NaN strength takes no slot.
+    /// instead (`JC 0x1801b64f5`; see <see cref="Split"/>). Written as "at least", so a NaN strength takes no slot. A surface
+    /// light is exempt: the test is guarded by `type != 0` (`FUN_1801b60a0`).
     /// </summary>
-    private static bool Ranks(float strength) => strength >= WorldLightMinimum;
+    private static bool Ranks(BspWorldLight light, float strength) =>
+        light.Kind == WorldLightKind.Surface || strength >= WorldLightMinimum;
 
     /// <summary>
     /// The ranking's order, the one definition of it: stronger first, and of two equal lights the EARLIER in the list.
@@ -503,7 +510,7 @@ public static class LocalLights
 
             for (int index = 0; index < lights.Count; index++)
             {
-                if (Candidate(lights[index], x, y, z, style, out float strength) && Ranks(strength))
+                if (Candidate(lights[index], x, y, z, style, out float strength) && Ranks(lights[index], strength))
                 {
                     buffer[candidates++] = (strength, index);
                 }
@@ -548,14 +555,15 @@ public static class LocalLights
     ///
     /// **The falloff is the trace function's ratio, cone included** (B665): `FUN_1801b60a0` ranks by luminance times the
     /// ratio `FUN_1801b99a0` → `FUN_1801b9570` returns, which carries a spotlight's cone, so a spot whose cone misses the
-    /// point takes no slot. Ranked by distance alone, such spots evicted the lamps that do reach it.
+    /// point takes no slot. Ranked by distance alone, such spots evicted the lamps that do reach it. A surface light skips
+    /// the minimum: `FUN_1801b9570` guards it with `type != 0`.
     /// </remarks>
     private static bool Admitted(BspWorldLight light, float x, float y, float z, Func<int, float> style, out float falloff)
     {
         falloff = IsLocal(light.Kind) ? Ratio(light, x, y, z) * style(light.Style) : 0f;
 
-        return falloff > 0f &&
-            falloff * Math.Max(light.Intensity.Red, Math.Max(light.Intensity.Green, light.Intensity.Blue)) >= WorldLightMinimum;
+        return falloff > 0f && (light.Kind == WorldLightKind.Surface ||
+            falloff * Math.Max(light.Intensity.Red, Math.Max(light.Intensity.Green, light.Intensity.Blue)) >= WorldLightMinimum);
     }
 
     /// <summary>Rec.601 luminance, the lightcache's ranking weight (`engine.dll` `0x18047be38`).</summary>
@@ -644,7 +652,7 @@ public static class LocalLights
     /// </remarks>
     public static bool Reaches(BspWorldLight light, float x, float y, float z)
     {
-        if (!IsLocal(light.Kind) && light.Kind != WorldLightKind.Surface)
+        if (!IsLocal(light.Kind))
         {
             return false;
         }
@@ -681,9 +689,14 @@ public static class LocalLights
         return length > 0f ? falloff * Cone(light, dx / length, dy / length, dz / length) : falloff;
     }
 
-    /// <summary>vrad's all-zero rule, applied once so no caller has to know it.</summary>
+    /// <summary>vrad's all-zero rule, applied once so no caller has to know it; a surface light's terms are the engine's 0/0/1.</summary>
     private static (float Constant, float Linear, float Quadratic) Normalised(BspWorldLight light)
     {
+        if (light.Kind == WorldLightKind.Surface)
+        {
+            return (0f, 0f, 1f);
+        }
+
         float constant = light.ConstantAttenuation;
 
         if (constant < AttenuationEpsilon &&
@@ -703,20 +716,16 @@ public static class LocalLights
     /// falloff (surface must trace to SKY texture)" — so treating it as a positional light would
     /// put the sun wherever its origin happens to be recorded. It is applied on its own path.
     ///
-    /// **<c>emit_surface</c> is excluded too, and the map proves why.** All 108 of cp_process's
-    /// surface lights carry attenuation terms of exactly zero, with intensities around 7,000 to
-    /// 8,300. A light with no falloff reaches everywhere at full strength — vrad's normalisation
-    /// turns the all-zero case into <c>constant_attn = 1</c>, so four of them dominated every model
-    /// on the map and the middle capture point drew at a luminance of 6.3 with no lamp anywhere
-    /// near it.
-    ///
-    /// That absent falloff is the evidence rather than an inconvenience: an area light for the
-    /// radiosity solver has no distance term because it is never evaluated at a distance. It is
-    /// resolved at compile time into the lightmaps and into the leaf ambient cube, so applying it
-    /// again at runtime both double-counts it and never attenuates it.
+    /// **<c>emit_surface</c> is included, and it was excluded here on a wrong reading (B669).** All 108 of cp_process's
+    /// surface lights have attenuation terms of exactly zero, and evaluated through the all-zero rule they drew the middle
+    /// capture point at a luminance of 6.3. That was read as "an area light is never evaluated at a distance". It is:
+    /// `FUN_1800efe40` case 0 gives it `1 / max( 1, d² )` and never reads those terms, as
+    /// `Engine_WorldLightDistanceFalloff` does (`leaf_ambient_lighting.cpp:77`). And "already in the leaf cube" holds only
+    /// for a caller whose cube came from the leaf, which passes such lights over by their flag
+    /// (<see cref="BspWorldLight.InAmbientCube"/>, `FUN_1801b5a50`); a static prop's computed cube holds none.
     /// </remarks>
     private static bool IsLocal(WorldLightKind kind) =>
-        kind is WorldLightKind.Point or WorldLightKind.Spotlight or WorldLightKind.QuakeLight;
+        kind is WorldLightKind.Surface or WorldLightKind.Point or WorldLightKind.Spotlight or WorldLightKind.QuakeLight;
 
     /// <summary>
     /// Distance falloff times the style, as <c>LightDesc_t::ComputeLightAtPoints</c> computes it — what a folded light's
@@ -742,6 +751,12 @@ public static class LocalLights
         // **Clamped, not offset**: MaxSIMD( Four_Ones, dist2 ). The ambient reconstruction next
         // door uses 1 / (dist + 1) and the two are easy to confuse.
         distanceSquared = Math.Max(1f, distanceSquared);
+
+        // `FUN_1800efe40` case 0: inverse square, whatever the attenuation terms hold; out only strictly past the radius.
+        if (light.Kind == WorldLightKind.Surface)
+        {
+            return light.Radius != 0f && distanceSquared > light.Radius * light.Radius ? 0f : 1f / distanceSquared;
+        }
 
         // Strictly less than, and a range of zero means no cutoff at all. Every light on
         // cp_process stores zero, so reading it as a real radius extinguishes the whole map.
@@ -869,10 +884,8 @@ public static class LocalLights
     /// on-axis test cannot see that, because there <c>dot2</c> is one — which is why the suite held
     /// the wrong behaviour while passing.
     ///
-    /// <c>emit_surface</c> takes the same cosine (<c>lightmap.cpp:1907</c>) and no fringe. Both kinds
-    /// come through here, and the fringe terms of a surface light are zero, so the arithmetic is the
-    /// same for it either way. Only spotlights matter in practice: a surface light carries no falloff
-    /// terms at all and is excluded before this — all eight of `koth_harvest_final`'s are.
+    /// <c>emit_surface</c> takes the same cosine once and no fringe, and is lit only past 0.01
+    /// (`FUN_1800efbf0` case 0, `Engine_WorldLightAngle`, `leaf_ambient_lighting.cpp:68-72`: "behind light surface").
     ///
     /// The mask is applied AFTER the exponent, as Valve does and for their stated reason: it masks
     /// "any invalid results from pow function". Zeroing first would leave a negative scale to be
@@ -881,6 +894,11 @@ public static class LocalLights
     private static float Cone(BspWorldLight light, float dx, float dy, float dz)
     {
         float dot2 = -((dx * light.Normal.X) + (dy * light.Normal.Y) + (dz * light.Normal.Z));
+
+        if (light.Kind == WorldLightKind.Surface)
+        {
+            return dot2 > 0.01f ? dot2 : 0f;
+        }
 
         float spread = light.StopDot - light.StopDot2;
 

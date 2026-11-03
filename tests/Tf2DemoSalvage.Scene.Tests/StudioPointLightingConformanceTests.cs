@@ -101,6 +101,22 @@ public sealed class StudioPointLightingConformanceTests
         StudioPointLighting.At(Lit(Spot(exponent: 1f)), null, new Vector3(200f, 0f, 0f), Vector3.UnitZ).X.ShouldBe(0f);
     }
 
+    /// <summary>
+    /// A slot-held surface light is FLAT here, where ranking and fold take a cosine of its own (B669). `0x180021b20` keeps N·L when
+    /// the cosine is at or past `ThetaDot` (`+0x14c`), and `FUN_1800f0e10` writes both dots 0 for type 0. 141.4 units off at 45 degrees:
+    /// `0.7071 · 1/20000 · 20000`, not `0.5`.
+    /// </summary>
+    [Test]
+    public void At_ASlotHeldSurfaceLightOffItsNormal_TakesNLOnly()
+    {
+        BspWorldLight surface = new((100f, 0f, 100f), (20000f, 20000f, 20000f), (0f, 0f, -1f), WorldLightKind.Surface);
+        LocalLight[] slot = new LocalLight[LocalLights.MaximumLocalLights];
+
+        LocalLights.Strongest([surface], 0f, 0f, 0f, slot).ShouldBe(1);
+
+        StudioPointLighting.At(Lit(slot[0]), null, Vector3.Zero, Vector3.UnitZ).X.ShouldBe(MathF.Sqrt(0.5f), 0.0001f);
+    }
+
     private static LocalLight Spot(float exponent) =>
         new(0f, 0f, 100f, 1f, 0f, 0f, 1f, 0f, 0f, 0f, (0f, 0f, -1f), 0.9f, 0.5f, exponent, Spot: true);
 

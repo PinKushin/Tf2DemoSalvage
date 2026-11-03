@@ -175,6 +175,71 @@ lights copied before the decay (`MomentScene.WorldLights`, as `EndUpdateLightmap
 and the viewer's `StepLightStyles` calling it after the styles. On `tf2-2026-pub-pov-clean` no light reaches the world
 (`CorpusWorldDynamicLightTests`, with a recorder-17 control that finds them).
 
+## An `emit_surface` light is a runtime light, and a static prop's state folds (B669, 2026-11-03)
+
+**The wrong conclusion, kept because it was confidently written in three places.** All 108 of cp_process's surface lights
+have attenuation terms of exactly zero and intensities around 7,000. Evaluated through vrad's all-zero rule they did not
+attenuate, the middle capture point drew at a luminance of 6.3, and the kind was excluded with the reasoning *"an area light
+for the radiosity solver has no distance term because it is never evaluated at a distance. It is resolved at compile time
+into the lightmaps and into the leaf ambient cube."* The measurement was real. Both halves of the reasoning are wrong.
+
+**What killed it, read in disassembly** (`engine.dll`, x64), with the published twin where vrad keeps one:
+- **It has a distance term and never reads those fields.** `FUN_1800efe40` case 0 returns `1 / max( 1, d² + 1e-10 )`, zero past
+  a nonzero radius (`Engine_WorldLightDistanceFalloff`, `leaf_ambient_lighting.cpp:77`).
+- **It has an angle.** `FUN_1800efbf0` case 0: `dot2 = -delta · normal`, zero at or under 0.01, else one cosine
+  (`Engine_WorldLightAngle`, `:58-73`).
+- **No `r_worldlightmin`.** `FUN_1801b9570`'s test and `FUN_1801b60a0`'s are both guarded by `type != 0`.
+- **It is in the leaf cube only if vrad flagged it, and only a leaf-lit caller cares.** `FUN_1801b8270` asks `FUN_1801bb4b0` for
+  the cube, which sets an out-flag only where it read the leaf (`FUN_180100f60`). `FUN_1801b5a50` skips a light only when
+  that flag is set AND the light has `DWL_FLAGS_INAMBIENTCUBE`. A static prop's 162-ray cube holds no surface light, so a
+  static prop takes all of them.
+- **In a slot it is a spot** (`FUN_1800f0e10` case 0): attenuation 0/0/1, theta and phi pi, both dots 0, falloff 1.
+
+**Measured** (`world-light-kinds`): **0 of cp_process_f12's 108 surface lights and 0 of koth_toxic's 4 carry the flag**, and that
+is what vrad's rule predicts: `IsLeafAmbientSurfaceLight` (`leaf_ambient_lighting.cpp:183-198`) flags a style-0 surface light whose
+brightest channel is under `0.005 · 512²` = 1310.7, and the dimmest of these are 3660.9 and 5941.2. So "already in the leaf cube" was
+false for every surface light on both maps, and moving models take them too. No shipped specimen with the bit set has been seen,
+so the reader itself is proved on a synthetic lump.
+
+**The second defect it uncovered: the static state did not fold.** `StaticPropLightingAt` kept the strongest four and dropped
+the rest, where `FUN_1801b60a0` sends every loser to the cube (`FUN_1801b5db0`). Harmless to notice while few lights reached a
+prop; with 108 more candidates it is most of the light.
+
+**The third: no PVS gate on the style-0 path.** `FUN_1801b60a0` returns before it traces when a light's cluster is negative or out
+of the PVS `FUN_1801b8270` built from the entry's leaf, for every kind but the sky. Ours traced them all. Now gated. It changed
+nothing in the far frame, byte-for-byte in these boxes; it is a parity and cost fix, pinned synthetically. **Both negatives, read:** a light
+in cluster −1 is out on any map (`JS 0x1801b6523` at `0x1801b616e`, before the row is looked at). A POINT in cluster −1 sees nothing, on
+any map: `CM_Vis` (`FUN_18016b230`) zeroes the row for exactly −1 before it looks for vis data; only with no vis data and a real cluster
+is the row all ones. So a model standing in solid loses every world light but the sky, and that is the engine. `FUN_1801b5400`, a static
+prop handle's styled list, goes straight to `FUN_1801b9570` and has no gate: its list was admitted at build.
+
+**Where the cube came from decides the list.** With the rays unavailable a static state's cube is the leaf's, so it takes the leaf path's
+list and skips what vrad flagged; otherwise that light counts twice.
+
+**A slot-held surface light is not one shape everywhere, and that is the engine's.** Ranking and fold take one cosine of its own
+(`FUN_1800efbf0`). The CPU path does not: `studiorender.dll` `0x180021b20` keeps N·L alone once the light's cosine is at or past
+`ThetaDot`, and `FUN_1800f0e10` writes `ThetaDot` 0. *Read.* The GPU's cosine is the vertex shader's form with a zero spread taken as 1,
+*interpolated*: what shaderapi uploads for that spread was not read.
+
+**The route here, wrong turns included** (live TF2 build 11191711, `mat_hdr_level 2`, `mat_force_tonemap_scale 1`, bloom off,
+far camera; linear luminance x1000; the reference reproduced to the digit, 228.1, before any manipulation):
+1. *"Glass"* (B669's filed guess). `r_drawtranslucentworld 0` in TF2: the pipes stay white. The pipes alone read 355/281/232
+   top to bottom against ours 226/154/99, so most of it is not the glass.
+2. *"Ambient boost"* (`r_ambientboost`; ported nowhere). `FUN_1800f1bd0` reads it and it would be a constant lift, which is
+   the shape measured. But the owner's config has `r_ambientmin 0`, so it cannot fire in this reference, and TF2 with it off
+   measured the same to the digit. Ruled out here, and still unported: B672.
+3. *"B666's trace drops too much."* Keeping every light moved the pipes to 217/185/173: the wrong shape, the bottom brighter
+   than TF2 and the top darker. Restored; the trace stands.
+4. *"Phong."* `mat_phong 0` darkened TF2's pipes to about ours (287/188/90), and looked like the answer. `r_worldlights 0` then
+   left no lamp to make a highlight from and TF2 still read 329/265/232, so the light is not in the highlights. *Interpolated:*
+   that `r_worldlights 0` empties the slots into the cube, and that `mat_phong 0` also changes the model's shading path, are
+   what the numbers imply; neither was read.
+5. **The measured shape**: TF2's pipes minus ours was nearly constant down the cylinder (+128, +127, +133). The cube is what adds
+   a constant, and reading what writes the cube found the kinds this port refused.
+
+**After the fix:** the static cube's up face on placement #214 went 0.137 to 0.273 (`prop-shade`). The numbers against TF2, and what
+stays unexplained: [B669](../RISKS.md).
+
 ## A world light behind a wall lights nothing; a dlight behind one still does (B666, 2026-11-02)
 
 Evidence class: **disassembly**, read by the lead in Ghidra on `engine.dll` (x64), except where marked.

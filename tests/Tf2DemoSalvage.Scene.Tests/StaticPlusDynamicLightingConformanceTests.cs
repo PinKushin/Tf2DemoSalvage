@@ -389,10 +389,16 @@ public sealed class StaticPlusDynamicLightingConformanceTests
     /// <param name="lights">The world lights.</param>
     /// <param name="lightTrace">The lights' visibility trace's fraction; none traced when null.</param>
     /// <param name="reaches">The cell placement's clear-trace test; a model is lit where it stands when null.</param>
+    /// <param name="staticPropAmbient">A static prop's computed cube; the leaf's stands in when null.</param>
+    /// <param name="withVis">Whether the map carries its vis data.</param>
+    /// <param name="backCluster">The cluster of the leaf below z = 0.</param>
     internal static LevelLighting Map(
         IReadOnlyList<BspWorldLight> lights,
         Func<(float X, float Y, float Z), (float X, float Y, float Z), float>? lightTrace = null,
-        Func<(float X, float Y, float Z), (float X, float Y, float Z), bool>? reaches = null)
+        Func<(float X, float Y, float Z), (float X, float Y, float Z), bool>? reaches = null,
+        Func<float, float, float, AmbientCube>? staticPropAmbient = null,
+        bool withVis = true,
+        short backCluster = 1)
     {
         byte[] plane = new byte[20];
         BinaryPrimitives.WriteSingleLittleEndian(plane.AsSpan(8), 1f);
@@ -404,7 +410,7 @@ public sealed class StaticPlusDynamicLightingConformanceTests
         byte[] leaves = new byte[96];
         BinaryPrimitives.WriteInt32LittleEndian(leaves.AsSpan(0), 1);
         BinaryPrimitives.WriteInt16LittleEndian(leaves.AsSpan(4), -1);
-        BinaryPrimitives.WriteInt16LittleEndian(leaves.AsSpan(32 + 4), 1);
+        BinaryPrimitives.WriteInt16LittleEndian(leaves.AsSpan(32 + 4), backCluster);
         BinaryPrimitives.WriteInt16LittleEndian(leaves.AsSpan(64 + 4), 0);
 
         // numclusters, then (pvs, pas) offsets per cluster, then one literal row byte each.
@@ -426,8 +432,9 @@ public sealed class StaticPlusDynamicLightingConformanceTests
             lights,
             null,
             new RecordingLogger(),
+            staticPropAmbient: staticPropAmbient,
             reaches: reaches,
-            visibility: BspVisibility.FromLump(vis),
+            visibility: withVis ? BspVisibility.FromLump(vis) : null,
             lightTrace: lightTrace);
     }
 }

@@ -243,6 +243,9 @@ public sealed class BspLeafTree
         return BinaryPrimitives.ReadInt16LittleEndian(leaves[(at + 4)..]);
     }
 
+    /// <summary>Whether this tree carries the leaf lump, which every compiled map does: without it no leaf has a cluster to ask about.</summary>
+    public bool HasLeaves => !_leaves.IsEmpty;
+
     /// <summary>Which visibility cluster contains a point, or −1.</summary>
     /// <param name="x">World position.</param>
     /// <param name="y">World position.</param>
