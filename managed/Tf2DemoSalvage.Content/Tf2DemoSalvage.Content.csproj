@@ -21,6 +21,8 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="Tf2DemoSalvage.Content.Tests" />
+    <!-- The `trace-cost` probe reads DisplacementCollision's SweepCounts seam: what the group cull did, carried from the sweep. -->
+    <InternalsVisibleTo Include="Tf2DemoSalvage.Probe" />
     <!-- StudioPoseWorkspace's lists and the *Into pose calls: concrete lists on purpose, so a pose is written in
          place with no wrapper, which keeps them off the public surface CA1002 guards (finding 88). -->
     <InternalsVisibleTo Include="Tf2DemoSalvage.Scene" />

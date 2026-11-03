@@ -150,11 +150,11 @@ public sealed class DisplacementCollisionTests
     }
 
     /// <remarks>
-    /// **The group cull inside a displacement must never change an answer** (B667): a light's visibility trace is a long
-    /// diagonal line, and its triangles are skipped a group at a time by the line's slab test against each group's box.
-    /// The oracle sweeps every triangle of the map, in the set's own order, with the same bound, so the two must agree
-    /// bit for bit — fraction, texdata and plane. **The control is the count of rays terrain stopped**, without which the
-    /// agreement is about empty air; rays start just above the ground and end far off and below it, so most graze it.
+    /// **The group cull inside a displacement must never change an answer** (B667), here on real terrain; the hand-built
+    /// cases are `DisplacementGroupCullTests`. The oracle (<see cref="DisplacementBruteForce"/>) sweeps every triangle of
+    /// the map, in the set's own order, with the same bound, so the two must be exactly equal — fraction, texdata,
+    /// `DISPSURF_FLAG_SURFPROP2` and plane. **Two controls**: the count of rays terrain stopped, without which the agreement
+    /// is about empty air, and the count of groups the cull skipped, without which it is about nothing culled.
     /// </remarks>
     [Test]
     [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
@@ -168,9 +168,10 @@ public sealed class DisplacementCollisionTests
 
         DisplacementCollision collision = DisplacementCollision.From(map.Surfaces, map.Terrain);
         List<BspSurface> surfaces = [.. map.Surfaces.Where(each => each.IsDisplacement)];
-        List<(int Texdata, DisplacementTriangle[] Triangles)> every =
-            [.. surfaces.Select(each => (each.MaterialIndex, Triples(map.Terrain.ReadTriangles(each)).ToArray()))];
+        List<(int Texdata, IReadOnlyList<SurfaceVertex> Corners)> every =
+            [.. surfaces.Select(each => (each.MaterialIndex, map.Terrain.ReadTriangles(each)))];
         Random random = new(667);
+        SweepCounts counts = default;
         int stopped = 0;
         int rays = 0;
 
@@ -186,32 +187,20 @@ public sealed class DisplacementCollisionTests
                 (float X, float Y, float Z) extents = each % 2 == 0 ? (0f, 0f, 0f) : (6f, 6f, 6f);
                 float limit = each < 2 ? 1f : Next(random, 0.2f, 1f);
 
-                (float fraction, int texdata, _, (float X, float Y, float Z) normal, float distance) = collision.SweepSurface(
-                    from.X, from.Y, from.Z, to.X, to.Y, to.Z, extents, BspLeafTree.MaskSolid, limit);
+                (float Fraction, int Texdata, bool SurfaceProp2, (float X, float Y, float Z) Normal, float Distance) culled =
+                    collision.SweepSurface(from.X, from.Y, from.Z, to.X, to.Y, to.Z, extents, BspLeafTree.MaskSolid, limit, ref counts);
+                (float Fraction, int Texdata, bool SurfaceProp2, (float X, float Y, float Z) Normal, float Distance) brute =
+                    DisplacementBruteForce.Sweep(every, from, to, extents, limit);
 
-                (float X, float Y, float Z) delta = (to.X - from.X, to.Y - from.Y, to.Z - from.Z);
-                (float Fraction, int Texdata, (float X, float Y, float Z) Normal, float Distance) brute = (limit, -1, default, 0f);
-
-                foreach ((int material, DisplacementTriangle[] triangles) in every)
-                {
-                    foreach (DisplacementTriangle triangle in triangles)
-                    {
-                        float against = DisplacementSweep.Against(from, delta, extents, triangle, brute.Fraction);
-
-                        if (against < brute.Fraction)
-                        {
-                            brute = (against, material, triangle.Normal, triangle.Distance);
-                        }
-                    }
-                }
-
-                (fraction, texdata, normal, distance).ShouldBe(brute, $"ray {rays} from {from} to {to}, extents {extents}, limit {limit}");
+                DisplacementBruteForce.Bits(culled).ShouldBe(
+                    DisplacementBruteForce.Bits(brute), $"ray {rays} from {from} to {to}, extents {extents}, limit {limit}");
                 stopped += brute.Texdata >= 0 ? 1 : 0;
             }
         }
 
-        // The control: terrain stopped a good share of them, so the agreement is about hits.
+        // The controls: terrain stopped a good share of them, and the cull skipped more groups than it swept.
         stopped.ShouldBeGreaterThan(rays / 4, $"of {rays} rays");
+        counts.GroupsCulled.ShouldBeGreaterThan(counts.GroupsSwept, $"culled {counts.GroupsCulled}, swept {counts.GroupsSwept}");
     }
 
     private static float Next(Random random, float low, float high) => low + ((float)random.NextDouble() * (high - low));
