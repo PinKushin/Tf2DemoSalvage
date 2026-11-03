@@ -255,6 +255,16 @@ Evidence classes marked per line. Linear luminance x1000, live TF2 build 1119171
 
 **The wire pattern is not settled.** At the far camera TF2's pane shows a sharp hatch and ours a soft one, on the lattice's 5.6-pixel period in TF2; `mat_forceaniso 1` and `mat_picmip 0` did not remove it from TF2. A mip bias in ours was tried only with the glass hidden, so it says nothing here. What decides it was not found; `mat_showmiplevels 1` did not read clearly through the tint. It does not move the mean: the texture's mean alpha is 65 at every mip.
 
+## The reference carries a halo (B669, 2026-11-03)
+
+Evidence class: **measured**, and one line *interpolated*. The numbers: `measurements/2026-11-03-b669-behind-the-pane.md`.
+
+Ours' wall matched the lightmap lump to the digit, and TF2's did not, more so with distance. **The clue that broke it was one surface along one ray:** 42.8 at 40 units falling smoothly to 27.6 at 859, on a wall no layer of which is darker at distance. Fog was tried and moved nothing. `mat_fullbright 1` then showed a grey band where the wall should be saturated, which read as a prop only in the lower LOD; that was a wrong turn, and `r_lod 0` left it to the digit. **Removing the static props exposed the shape:** the two shots agree to the digit down to row 265, then differ more and more toward the pipe's edge, and again below it. About eleven rows at 215 units, and about ten at 859: its width is in screen pixels.
+
+So not a decal, not a shadow, not LOD. Nothing named it, and `-vulkan` removed it, with the pipes, concrete and close-up world unchanged. *Interpolated:* the driver's ambient occlusion, applied to TF2's D3D9 path.
+
+**Every D3D9 reference in this project has it**, which is why the ratio image of ours over TF2 embossed every edge in the frame, and why a far patch can match for the wrong reason. The patch's 229.1 against 228.1 was partly that: the pipes short, the wall dark from a thing that is not the engine. **A capture for parity is taken with `-vulkan` until the driver setting is ruled out.**
+
 ## ComputeLighting reads the cache and folds its slots (B668, 2026-11-03)
 
 Evidence class: **disassembly**, `engine.dll` x64. This ended an inference: B668 had reasoned that `ComputeLighting` must reach the lights through

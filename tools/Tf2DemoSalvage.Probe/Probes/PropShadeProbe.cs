@@ -132,12 +132,15 @@ public sealed class PropShadeProbe : IProbe
                     $"mean ({Mean(baked, 0):0.000} {Mean(baked, 1):0.000} {Mean(baked, 2):0.000}) over {baked.Length / 3} corners")
                 : "none";
 
+            // The six faces as the draw holds them, carried on the instance rather than asked for again.
             output.WriteLine(
-                $"  draw is given: baked colours {colours}; cube {(instance.Light is { } cube ? $"up {cube.PositiveZ}" : "none")}; " +
+                $"  draw is given: baked colours {colours}; cube {(instance.Light is { } cube ? $"+x {cube.PositiveX} -x {cube.NegativeX} +y {cube.PositiveY} -y {cube.NegativeY} +z {cube.PositiveZ} -z {cube.NegativeZ}" : "none")}; " +
                 $"sun {(instance.Sun is null ? "none" : "yes")}; {instance.Locals?.Count ?? 0} lamps");
 
             // The lighting origin the draw was lit at, through the set's own route.
             (float X, float Y, float Z) origin = models.IlluminationPoint(prop, prop.Pose);
+
+            output.WriteLine(string.Create(CultureInfo.InvariantCulture, $"  lit at ({origin.X:0.0} {origin.Y:0.0} {origin.Z:0.0})"));
 
             if (radius is { } within)
             {
@@ -183,24 +186,26 @@ public sealed class PropShadeProbe : IProbe
         output.WriteLine(string.Create(
             CultureInfo.InvariantCulture, $"    lighting origin ({origin.X:0.#} {origin.Y:0.#} {origin.Z:0.#}); style-0 lights within {radius:0}:"));
 
-        foreach (BspWorldLight light in level.WorldLights)
+        foreach ((BspWorldLight light, float distance, float strength) in level.WorldLights
+                     .Select(light => (Light: light, Distance: Distance(light, origin), Strength: LocalLights.StrengthAt(light, origin.X, origin.Y, origin.Z)))
+                     .Where(entry => entry.Light.Style == 0 && entry.Distance <= radius)
+                     .OrderByDescending(entry => entry.Strength))
         {
-            float dx = light.Origin.X - origin.X;
-            float dy = light.Origin.Y - origin.Y;
-            float dz = light.Origin.Z - origin.Z;
-            float distance = MathF.Sqrt((dx * dx) + (dy * dy) + (dz * dz));
-
-            if (light.Style != 0 || distance > radius)
-            {
-                continue;
-            }
-
             output.WriteLine(string.Create(
                 CultureInfo.InvariantCulture,
                 $"      {light.Kind} at ({light.Origin.X:0} {light.Origin.Y:0} {light.Origin.Z:0}) {distance:0} away, normal {light.Normal}, " +
-                $"intensity ({light.Intensity.Red:0} {light.Intensity.Green:0} {light.Intensity.Blue:0}), " +
+                $"intensity ({light.Intensity.Red:0} {light.Intensity.Green:0} {light.Intensity.Blue:0}), strength here {strength:0.####}, " +
                 $"reaches {LocalLights.Reaches(light, origin.X, origin.Y, origin.Z)}, {Seen(lighting, origin, light)}"));
         }
+    }
+
+    private static float Distance(BspWorldLight light, (float X, float Y, float Z) point)
+    {
+        float dx = light.Origin.X - point.X;
+        float dy = light.Origin.Y - point.Y;
+        float dz = light.Origin.Z - point.Z;
+
+        return MathF.Sqrt((dx * dx) + (dy * dy) + (dz * dz));
     }
 
     private static float Mean(float[] colours, int channel)

@@ -1016,6 +1016,24 @@ public static class LocalLights
         return face;
     }
 
+    /// <summary>What a light adds to a cube face turned squarely at it, the fold's own arithmetic, for a probe that ranks them.</summary>
+    /// <param name="light">The light.</param>
+    /// <param name="x">The point.</param>
+    /// <param name="y">The point.</param>
+    /// <param name="z">The point.</param>
+    /// <returns>The green channel, the fold's value for that face.</returns>
+    public static float StrengthAt(BspWorldLight light, float x, float y, float z)
+    {
+        float dx = light.Origin.X - x;
+        float dy = light.Origin.Y - y;
+        float dz = light.Origin.Z - z;
+        float length = MathF.Sqrt((dx * dx) + (dy * dy) + (dz * dz));
+
+        return length <= 0f
+            ? 0f
+            : FaceOf(default, light, x, y, z, dx / length, dy / length, dz / length, static _ => 1f).Green;
+    }
+
     /// <summary>One light's contribution to one face of the cube.</summary>
     private static (float Red, float Green, float Blue) FaceOf(
         (float Red, float Green, float Blue) face,
