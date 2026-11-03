@@ -40405,6 +40405,10 @@ its recreation shows nothing; that `_rt_FullFrameFB` and the bloom targets are l
   known-present class was dumped beside it, and `cl_find_ent water` searches client class names, which a
   `CFuncMoveLinear` need not contain. So whether TF2 draws `*145` at all is *unverified*, and nothing was captured.
 
+## B679 — `r_lightmap_bicubic` is not ported (2026-11-03) — OPEN, seen and not implemented
+
+Found measuring B669. TF2 declares it (default 0), the owner's config has it at 1, and the shader's combo reads it (`lightmappedgeneric_dx9_helper.cpp:932`, `BICUBIC_LIGHTMAP`); nothing here samples other than bilinear. **Measured**, far camera, glass hidden, TF2 with it at 1 and 0: patch 178.8/179.1, wall 126.5/124.1, gap 24.4/23.3. Small, and on lightmap edges more than means. Which of the two is the parity target is the owner's choice of config, not read here (D-level question: `defaults-are-highest-quality`).
+
 ## B678 — a displacement's and an overlay's reflection normal is not the engine's (2026-11-03) — OPEN, a named ceiling of B669's fix
 
 B669 gave a brush face's corner its compiled normal and frame (`FUN_1800f4d40`). **A displacement takes its base face's**, where the engine has a per-grid-vertex one from its own builder, not read; finding 66 already records `CalcNormalFromEdges` as unported for dlights. **An overlay fragment still carries the `WorldVertex` default, (0, 0, 1)**: what the engine's overlay vertices carry was not read. Neither moves a material with no `$envmap`, and how many displacements and overlays carry one on any map was not counted. *Also not read:* `SEAMLESS` and `$outline` forcing the pixel shader's fast path, so their contrast and saturation keep the VMT's (`BlendModulation.EnvMapShaping`).
@@ -40480,7 +40484,7 @@ it off measured the same to the digit. Stock configs do fire it, on models carry
 
 **Measured**: at the far camera, f12 tick 45091, a shot with `+mat_specular 0` is byte-identical to its control, though the log
 says `[render] mat_specular 0` at startup, and a temporary shader edit proved the same frame's envmap branch runs on the panes
-and the cap disc. So this instrument cannot be believed until that is explained; B669 used shader edits instead.
+and the cap disc. So this instrument cannot be believed until that is explained; B669 used shader edits instead. *Widened (2026-11-03):* `+mat_fullbright 1` beside `+r_drawtranslucentworld 0` is byte-identical too, md5 for md5, so it is not only `mat_specular`; what applies a render switch from the command line was not read.
 
 ## B670 — cp_process_f12's cap disc reads twice TF2's brightness (2026-11-03) — the reflection FIXED by B669's world normal
 
@@ -40509,7 +40513,12 @@ with its reflection showing, ours like a pale diffuse one, so a reflective surfa
 
 **Why `a` read 0.31 and not 65/255: it did not.** The fit assumes X is one number across the tiles, and the reflection is 62-77 from tile to tile. With the reflection off, the fit over the upper pipe's top and the gap in TF2 gives a 0.27 and X 30, the same material as ours' 0.25.
 
-The open items as first filed follow, and the pipes and wall are still as they say.
+**The pipes and the wall are still open**, the two bullets at the end of this entry. What the evidence shows, measured:
+
+- **The wall and gap are not a lightmap defect in ours.** Ours' lighting-only column down the wall equals the bilinear lump value, row by row (`wallpred.py`: 56.4/56.4, 58.5/59.4, 53.7/54.6 at rows 268, 270, 276). From a close camera in the cavity (`-3390 -700 540 0 90`, lit, glass hidden) the world agrees: 50.6/49.8, 138.9/136.4, 74.2/79.6, 68.9/68.8. The gap appears only at the far camera, and **TF2 reads darker there than its own close-up of the same wall**, so it is a view-dependent term in TF2 that was not found. Ruled out in TF2: `r_lightmap_bicubic 0` (124.1, 23.3 against 126.5, 24.4: B679), `r_shadows 0`, `r_renderoverlayfragment 0` (all to the digit). Ruled out in ours: a mip bias of −1 moved nothing in the mean. Ruled out as an alignment artefact: ours is a pixel off TF2 (`align.py`, best shift −1, −1), and the shifted boxes read the same, 137.2 and 42.7. *Not a parity claim:* this stays open.
+- **The pipes' shortfall is in the model's light and it is bottom-heavy.** Close camera, lit: 346.5/311.8, 272.0/224.7, 197.8/145.4 top to bottom; lighting only: 116.5/108.4, 86.9/71.7, 64.6/47.5. That is no longer the constant B669's first half fixed, and it is not the glass. The light's source was not read further.
+
+As first filed:
 
 **Measured** (live TF2 against ours, both `mat_force_tonemap_scale 1` and bloom off, camera `-3722 -1403 726 25 99`, patch
 x 800-1100, y 270-330 of the 1280x720 frame, `D:/measure-f12/b636/tf2/` and `D:/measure-f12/b636/ours/`): mean linear luminance x1000 **228.0 in
@@ -40569,11 +40578,7 @@ edit in ours, reversed:
 | concrete control | 187.0 | 187.0 | 187.0 |
 
 **Still open, each measured and none explained:**
-- **The pane adds more in TF2.** Fitting `with = (1 − a) · without + X` over the gap tiles: TF2 a 0.31, X 106; ours a 0.25, X 43.
-  The texture's mean alpha is 64.6-65.3 of 255 across its eight mips, 128x128 to 1x1 (`vtf`, rechecked after the probe's size fix), so mip choice cannot move the blend, and there is no second pane on the world's faces (`faces-near`;
-  a brush entity's faces are in model coordinates, so that is no answer for one). Ours' reflection alone is about 3 of the 43
-  (a temporary reflection-only shot). **So the next read is what this pane reflects**: a cube, tint or contrast difference is the
-  suspect, *interpolated*. TF2 also shows the wire pattern at this distance and ours does not.
+- **The pane adds more in TF2**, read and settled above; the wire pattern's sharpness is not: finding 66.
 - **These pipes stay 12-28% short** with the glass hidden, where the same material with no glass in front agrees at one row and
   overshoots at the other.
 - **The wall and gap behind the pane read brighter in ours** with the glass hidden (139.8 against 126.5, 41.1 against 24.4).
