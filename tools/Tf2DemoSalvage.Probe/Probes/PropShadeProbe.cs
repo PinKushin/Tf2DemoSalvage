@@ -163,14 +163,12 @@ public sealed class PropShadeProbe : IProbe
 
     /// <summary>
     /// The production visibility trace from the lighting origin to a light (<see cref="LevelLighting.Occlusion"/>, B666):
-    /// how far short of it the ray stops, and whether the light cache keeps it.
+    /// how far short of it the ray stops, and whether the light cache keeps it — or, loudly, that no trace ran.
     /// </summary>
-    private static string Seen(LevelLighting lighting, (float X, float Y, float Z) from, (float X, float Y, float Z) light)
-    {
-        (float blocked, bool visible) = lighting.Occlusion(light, from.X, from.Y, from.Z);
-
-        return string.Create(CultureInfo.InvariantCulture, $"blocked {blocked:0.#}, visible {visible}");
-    }
+    private static string Seen(LevelLighting lighting, (float X, float Y, float Z) from, (float X, float Y, float Z) light) =>
+        lighting.Occlusion(light, from.X, from.Y, from.Z) is { } traced
+            ? string.Create(CultureInfo.InvariantCulture, $"blocked {traced.Blocked:0.#}, trace keeps {traced.Kept}")
+            : "NOT TRACED: no visibility trace is wired, so whether the light is behind a wall is unknown";
 
     /// <summary>
     /// Every style-0 world light within a radius of the draw's lighting origin, with whether the production

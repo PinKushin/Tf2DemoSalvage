@@ -287,7 +287,7 @@ public sealed class LevelLighting
         // lost to each other, and they are re-ranked here with the dynamic ones (B453).
         AmbientCube cube = leaf >= 0 && leaf < _ambient.Count ? _ambient[leaf].At(x, y, z) : default;
         // The world lights traced at the entry's point, the dlights after them not (`0x1801b7a10` skips it; B666).
-        int found = LocalLights.Split(lights, x, y, z, nearest, ref cube, StyleScale, Visible(lights, x, y, z, end: _worldLights.Count));
+        int found = LocalLights.Split(lights, x, y, z, nearest, ref cube, StyleScale, TraceSeen(lights, x, y, z, end: _worldLights.Count));
         Array.Resize(ref nearest, found);
 
         return new PointLighting(cube, nearest);
@@ -369,7 +369,7 @@ public sealed class LevelLighting
     /// </param>
     /// <param name="lightTrace">
     /// The fraction of a `MASK_OPAQUE` world trace between two points that is clear, for each world light's visibility
-    /// trace (<see cref="LocalLights.Visible"/>, B666); without one no light is traced.
+    /// trace (<see cref="LocalLights.TraceKeeps"/>, B666); without one no light is traced.
     /// </param>
     /// <exception cref="ArgumentNullException">An argument other than the map data is null.</exception>
     public LevelLighting(
@@ -386,6 +386,7 @@ public sealed class LevelLighting
     {
         _reaches = reaches;
         _lightTrace = lightTrace;
+        _ask = new TraceAsk(this);
         _visibility = visibility;
         _staticPropAmbient = staticPropAmbient;
         ArgumentNullException.ThrowIfNull(ambient);
@@ -461,7 +462,7 @@ public sealed class LevelLighting
     private readonly Func<(float X, float Y, float Z), (float X, float Y, float Z), float>? _lightTrace;
 
     /// <summary>
-    /// The light cache's visibility trace (<see cref="LocalLights.Visible"/>) over <paramref name="lights"/> at a point, for
+    /// The light cache's visibility trace (<see cref="LocalLights.TraceKeeps"/>) over <paramref name="lights"/> at a point, for
     /// the indices from <paramref name="first"/> up to <paramref name="end"/>; every other index is not traced, as a
     /// caller that sets `FUN_1801b9570`'s flags bit 0 asks. Null — nothing traced — without a trace.
     /// </summary>
@@ -472,58 +473,98 @@ public sealed class LevelLighting
     /// list (`0x1801b5400`); not traced are live dlights (`0x1801b7a10`, `0x1801bb040`) and the handle list's admission
     /// (`FUN_1801b6bf0`, flags `9|2`, <see cref="StyledLights"/>). The point is the caller's: the cache cell's, or a
     /// static prop's own lighting origin.
+    ///
+    /// **One delegate, made once, reading the call's arguments from fields** (<see cref="TraceAsk"/>), so a ranking
+    /// allocates no closure — a static prop under a live dlight ranks every frame. It is valid only for the length of the
+    /// one <see cref="LocalLights"/> call it is handed to; this object is used from one thread, as its caches are.
     /// </remarks>
-    private Func<int, bool>? Visible(
-        IReadOnlyList<BspWorldLight> lights, float x, float y, float z, int first = 0, int end = int.MaxValue) =>
-        _lightTrace is { } trace
-            ? index => index < first || index >= end || Seen(lights[index].Origin, x, y, z, trace)
-            : null;
+    private Func<int, bool>? TraceSeen(
+        IReadOnlyList<BspWorldLight> lights, float x, float y, float z, int first = 0, int end = int.MaxValue)
+    {
+        if (_lightTrace is null)
+        {
+            return null;
+        }
+
+        _ask.Lights = lights;
+        _ask.Point = (x, y, z);
+        _ask.First = first;
+        _ask.End = end;
+
+        return _ask.Keeps;
+    }
+
+    /// <summary>The arguments of the ranking <see cref="TraceSeen"/> was last asked for, and the one delegate that reads them.</summary>
+    private sealed class TraceAsk
+    {
+        public TraceAsk(LevelLighting owner) => Keeps = index =>
+            index < First || index >= End || LocalLights.Kept(owner.Blocked(Lights[index].Origin, Point));
+
+        public Func<int, bool> Keeps { get; }
+
+        public IReadOnlyList<BspWorldLight> Lights { get; set; } = [];
+
+        public (float X, float Y, float Z) Point { get; set; }
+
+        public int First { get; set; }
+
+        public int End { get; set; }
+    }
+
+    private readonly TraceAsk _ask;
 
     /// <summary>
-    /// <see cref="LocalLights.Visible"/>, remembered per light origin and point: the world does not move, so a point lit
-    /// again — an entry relit on a style change, a ranking redone — asks no trace twice. One map's, as this object is.
+    /// <see cref="LocalLights.Blocked"/> from a point to a light, remembered: the world does not move, so a point lit again
+    /// — an entry relit on a style change, a ranking redone — traces nothing twice. One map's, as this object is.
     /// </summary>
-    private bool Seen(
-        (float X, float Y, float Z) light, float x, float y, float z,
-        Func<(float X, float Y, float Z), (float X, float Y, float Z), float> trace)
+    /// <remarks>The ONE place a light's visibility is read, by the ranking and by <see cref="Occlusion"/> alike.</remarks>
+    private float Blocked((float X, float Y, float Z) light, (float X, float Y, float Z) point)
     {
-        ((float, float, float), (float, float, float)) key = (light, (x, y, z));
-
-        if (_seen.TryGetValue(key, out bool seen))
+        if (_blocked.TryGetValue((light, point), out float blocked))
         {
-            return seen;
+            return blocked;
         }
 
         // ponytail: dropped whole at the cap rather than evicted, which only costs traces again; LRU if that shows up.
-        if (_seen.Count >= SeenLimit)
+        if (_blocked.Count >= BlockedLimit)
         {
-            _seen.Clear();
+            _blocked.Clear();
         }
 
-        seen = LocalLights.Kept(LocalLights.Blocked(light, x, y, z, trace));
-        _seen[key] = seen;
-        LightTraces++;
+        blocked = LocalLights.Blocked(light, point.X, point.Y, point.Z, _lightTrace!);
+        _blocked[(light, point)] = blocked;
 
-        return seen;
+        return blocked;
     }
 
-    /// <summary>The most visibility answers <see cref="Seen"/> keeps: about 10 MB of entries.</summary>
-    private const int SeenLimit = 1 << 18;
+    /// <summary>The most answers <see cref="Blocked"/> keeps: about 10 MB of entries.</summary>
+    private const int BlockedLimit = 1 << 18;
 
-    private readonly Dictionary<((float, float, float) Light, (float, float, float) Point), bool> _seen = [];
+    /// <summary>Each traced (light, point)'s blocked length.</summary>
+    /// <remarks>
+    /// **Keyed on the light's ORIGIN and the point, not on a light's index**: the lists ranked are several (the world's,
+    /// a handle's, the world's with dlights appended), so an index names different lights in each. Two lights at one origin
+    /// share an entry, which is correct, since the trace reads nothing of a light but its origin.
+    /// </remarks>
+    private readonly Dictionary<((float X, float Y, float Z) Light, (float X, float Y, float Z) Point), float> _blocked = [];
 
-    /// <summary>Visibility traces made, ever: each light and point traced once, which the conformance tests count.</summary>
-    internal int LightTraces { get; private set; }
-
-    /// <summary>How far short of a light its visibility trace from a point stops (<see cref="LocalLights.Blocked"/>).</summary>
+    /// <summary>How far short of a light its visibility trace from a point stops, as the ranking read it.</summary>
     /// <param name="light">The light's origin.</param>
     /// <param name="x">The point being lit.</param>
     /// <param name="y">The point being lit.</param>
     /// <param name="z">The point being lit.</param>
-    /// <returns>The blocked length and whether the light is kept (<see cref="LocalLights.Kept"/>); zero and kept without a trace.</returns>
-    public (float Blocked, bool Visible) Occlusion((float X, float Y, float Z) light, float x, float y, float z)
+    /// <returns>
+    /// The blocked length and whether the light is kept (<see cref="LocalLights.Kept"/>); NULL when this map has no trace
+    /// wired, so no caller can read an untraced light as seen.
+    /// </returns>
+    public (float Blocked, bool Kept)? Occlusion((float X, float Y, float Z) light, float x, float y, float z)
     {
-        float blocked = _lightTrace is { } trace ? LocalLights.Blocked(light, x, y, z, trace) : 0f;
+        if (_lightTrace is null)
+        {
+            return null;
+        }
+
+        float blocked = Blocked(light, (x, y, z));
 
         return (blocked, LocalLights.Kept(blocked));
     }
@@ -672,7 +713,7 @@ public sealed class LevelLighting
 
         Span<int> chosen = stackalloc int[LocalLights.MaximumLocalLights];
         // Traced at the handle's origin (`FUN_1801b5400`, flags 0; B666). The second ranking below is of these alone.
-        int found = LocalLights.StrongestIndices(handle.Listed, x, y, z, chosen, StyleScale, Visible(handle.Listed, x, y, z));
+        int found = LocalLights.StrongestIndices(handle.Listed, x, y, z, chosen, StyleScale, TraceSeen(handle.Listed, x, y, z));
         BspWorldLight[] ranked = new BspWorldLight[found];
 
         for (int slot = 0; slot < found; slot++)
@@ -844,7 +885,7 @@ public sealed class LevelLighting
         added.AddRange(_worldLights.Where(static light => light.Style == 0));
 
         LocalLight[] nearest = new LocalLight[LocalLights.MaximumLocalLights];
-        Array.Resize(ref nearest, LocalLights.Strongest(added, x, y, z, nearest, StyleScale, Visible(added, x, y, z, first: styleZero)));
+        Array.Resize(ref nearest, LocalLights.Strongest(added, x, y, z, nearest, StyleScale, TraceSeen(added, x, y, z, first: styleZero)));
 
         return nearest;
     }
@@ -941,7 +982,7 @@ public sealed class LevelLighting
 
         LocalLight[] nearest = new LocalLight[LocalLights.MaximumLocalLights];
         int found = LocalLights.Strongest(
-            _worldLights, x, y, z, nearest, static style => style == 0 ? 1f : 0f, Visible(_worldLights, x, y, z));
+            _worldLights, x, y, z, nearest, static style => style == 0 ? 1f : 0f, TraceSeen(_worldLights, x, y, z));
         Array.Resize(ref nearest, found);
 
         SunLight? sun = _sun is { } light && _strikesSky is { } strikesSky
@@ -1060,7 +1101,7 @@ public sealed class LevelLighting
         LocalLight[] nearest = new LocalLight[LocalLights.MaximumLocalLights];
 
         // **The lights that take no slot are folded into the cube** (B453), as the lightcache does.
-        int found = LocalLights.Split(_worldLights, x, y, z, nearest, ref bounced, StyleScale, Visible(_worldLights, x, y, z));
+        int found = LocalLights.Split(_worldLights, x, y, z, nearest, ref bounced, StyleScale, TraceSeen(_worldLights, x, y, z));
 
         if (found == 0)
         {

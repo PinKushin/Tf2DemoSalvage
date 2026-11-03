@@ -1,4 +1,5 @@
 using System;
+using System.Buffers;
 using System.Collections.Generic;
 
 namespace Tf2DemoSalvage.Content.Bsp;
@@ -184,7 +185,7 @@ public static class LocalLights
         Span<int> chosen = stackalloc int[MaximumLocalLights];
         Span<float> strengths = stackalloc float[MaximumLocalLights];
 
-        int count = Choose(lights, x, y, z, chosen, strengths, style, visible: null, reached: null);
+        int count = Choose(lights, x, y, z, chosen, strengths, style, traceKeeps: null, reached: null);
 
         if (count == 0)
         {
@@ -210,8 +211,8 @@ public static class LocalLights
     /// <param name="z">World position being lit.</param>
     /// <param name="into">Where to put them; at most <see cref="MaximumLocalLights"/> are written.</param>
     /// <param name="styleScale">Each light style's value over 264; one for every style when null.</param>
-    /// <param name="visible">
-    /// The light cache's visibility trace by index into <paramref name="lights"/> (<see cref="Visible"/>); null traces
+    /// <param name="traceKeeps">
+    /// The light cache's visibility trace by index into <paramref name="lights"/> (<see cref="TraceKeeps"/>); null traces
     /// none, which is what a caller passing `FUN_1801b9570` flags bit 0 asks for (B666).
     /// </param>
     /// <returns>How many were written.</returns>
@@ -238,7 +239,7 @@ public static class LocalLights
     /// </remarks>
     public static int Strongest(
         IReadOnlyList<BspWorldLight> lights, float x, float y, float z, Span<LocalLight> into, Func<int, float>? styleScale = null,
-        Func<int, bool>? visible = null)
+        Func<int, bool>? traceKeeps = null)
     {
         ArgumentNullException.ThrowIfNull(lights);
 
@@ -253,7 +254,7 @@ public static class LocalLights
         Span<int> chosen = stackalloc int[MaximumLocalLights];
         Span<float> strengths = stackalloc float[MaximumLocalLights];
 
-        int count = Choose(lights, x, y, z, chosen, strengths, style, visible, reached: null);
+        int count = Choose(lights, x, y, z, chosen, strengths, style, traceKeeps,reached: null);
 
         Write(lights, chosen[..count], into, style);
 
@@ -324,7 +325,7 @@ public static class LocalLights
     /// The slack is the engine's: `(1.0 − fraction) · distance > 8.0` rejects (`0x18035c93c` = 1.0, `0x1803adc70` = 8.0,
     /// both read), so a lamp whose ray stops within eight units of it — against its own fixture or ceiling — still lights.
     /// </remarks>
-    public static bool Visible(
+    public static bool TraceKeeps(
         BspWorldLight light, float x, float y, float z,
         Func<(float X, float Y, float Z), (float X, float Y, float Z), float> fraction) =>
         Kept(Blocked(light.Origin, x, y, z, fraction));
@@ -344,7 +345,7 @@ public static class LocalLights
     /// <param name="z">World position being lit.</param>
     /// <param name="chosen">Where to put them; at most <see cref="MaximumLocalLights"/> are written.</param>
     /// <param name="styleScale">Each light style's value over 264; one for every style when null.</param>
-    /// <param name="visible">The visibility trace by index (<see cref="Visible"/>); null traces none.</param>
+    /// <param name="traceKeeps">The visibility trace by index (<see cref="TraceKeeps"/>); null traces none.</param>
     /// <returns>How many were written.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="lights"/> is null.</exception>
     /// <exception cref="ArgumentException"><paramref name="chosen"/> is too short.</exception>
@@ -355,7 +356,7 @@ public static class LocalLights
     /// </remarks>
     public static int StrongestIndices(
         IReadOnlyList<BspWorldLight> lights, float x, float y, float z, Span<int> chosen, Func<int, float>? styleScale = null,
-        Func<int, bool>? visible = null)
+        Func<int, bool>? traceKeeps = null)
     {
         ArgumentNullException.ThrowIfNull(lights);
 
@@ -366,12 +367,12 @@ public static class LocalLights
 
         Span<float> strengths = stackalloc float[MaximumLocalLights];
 
-        return Choose(lights, x, y, z, chosen, strengths, styleScale ?? Steady, visible, reached: null);
+        return Choose(lights, x, y, z, chosen, strengths, styleScale ?? Steady, traceKeeps, reached: null);
     }
 
     /// <summary>Ranks the local lights at a point and keeps the strongest few.</summary>
     /// <remarks>
-    /// `visible` is the visibility trace by index (<see cref="Visible"/>); null traces none, as a caller passing flags bit
+    /// `traceKeeps` is the visibility trace by index (<see cref="TraceKeeps"/>); null traces none, as a caller passing flags bit
     /// 0 — a live dlight, a static prop's handle list — skips it. `reached`, when given, collects every light that passed
     /// the cutoff and the trace, chosen or not: the fold's set.
     /// </remarks>
@@ -381,11 +382,11 @@ public static class LocalLights
         Span<int> chosen,
         Span<float> strengths,
         Func<int, float> style,
-        Func<int, bool>? visible,
+        Func<int, bool>? traceKeeps,
         List<int>? reached)
     {
         // Nothing folded: only the slots matter, so trace strongest-down until they are decided (same lights, fewer traces).
-        if (visible is { } slotsOnly && reached is null)
+        if (traceKeeps is { } slotsOnly && reached is null)
         {
             return ChooseStrongestFirst(lights, x, y, z, chosen, strengths, style, slotsOnly);
         }
@@ -394,35 +395,21 @@ public static class LocalLights
 
         for (int index = 0; index < lights.Count; index++)
         {
-            BspWorldLight light = lights[index];
-
-            if (!IsLocal(light.Kind))
-            {
-                continue;
-            }
-
-            if (!Admitted(light, x, y, z, style, out float falloff))
+            if (!Candidate(lights[index], x, y, z, style, out float strength))
             {
                 continue;
             }
 
             // **Then the visibility trace, where `FUN_1801b9570` makes it**: after the brightest-channel cutoff and before
             // anything is ranked (B666). A light it rejects has a ratio of zero, so it takes no slot and is not folded.
-            if (visible is { } traced && !traced(index))
+            if (traceKeeps is { } keeps && !keeps(index))
             {
                 continue;
             }
 
             reached?.Add(index);
 
-            // **Ranked by luminance times falloff** (B453): `engine.dll` `FUN_1801b60a0` weighs the
-            // intensity by Rec.601's 0.299, 0.587, 0.114 (`0x18047be38`) — not by its brightest
-            // channel, which ranked a saturated blue lamp above a brighter-looking green one.
-            float strength = falloff * Luminance(light);
-
-            // And `r_worldlightmin` again, by that luminance: a light below it takes no slot and is
-            // folded into the cube instead (`JC 0x1801b64f5`). See Split.
-            if (strength < WorldLightMinimum)
+            if (!Ranks(strength))
             {
                 continue;
             }
@@ -434,17 +421,58 @@ public static class LocalLights
     }
 
     /// <summary>
+    /// Whether a light passes the trace function's cutoff (<see cref="Admitted"/>), and the strength it is ranked by.
+    /// </summary>
+    /// <remarks>
+    /// **Ranked by luminance times falloff** (B453): `engine.dll` `FUN_1801b60a0` weighs the intensity by Rec.601's 0.299,
+    /// 0.587, 0.114 (`0x18047be38`) — not by its brightest channel, which ranked a saturated blue lamp above a
+    /// brighter-looking green one.
+    /// </remarks>
+    private static bool Candidate(BspWorldLight light, float x, float y, float z, Func<int, float> style, out float strength)
+    {
+        bool admitted = Admitted(light, x, y, z, style, out float falloff);
+        strength = falloff * Luminance(light);
+
+        return admitted;
+    }
+
+    /// <summary>
+    /// `r_worldlightmin` again, by the ranking's luminance: a light below it takes no slot and is folded into the cube
+    /// instead (`JC 0x1801b64f5`; see <see cref="Split"/>). Written as "not below", so a NaN strength ranks, as the
+    /// engine's compare keeps it.
+    /// </summary>
+    private static bool Ranks(float strength) => !(strength < WorldLightMinimum);
+
+    /// <summary>
+    /// The ranking's order, the one definition of it: stronger first, and of two equal lights the EARLIER in the list.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="Insert"/> sees lights in index order, so for it the tie never favours the newcomer — the engine's
+    /// evict-the-weakest order. <see cref="ChooseStrongestFirst"/> sorts by the same rule. A NaN strength's place is not
+    /// pinned; none occurs, since every falloff is finite.
+    /// </remarks>
+    private static bool Outranks(float strength, int index, float other, int otherIndex) =>
+        strength > other || (!(strength < other) && index < otherIndex);
+
+    /// <summary><see cref="Outranks"/> as a sort's comparison, cached so a sort allocates nothing.</summary>
+    private static readonly Comparison<(float Strength, int Index)> StrongerFirst = static (a, b) =>
+        (Outranks(b.Strength, b.Index, a.Strength, a.Index) ? 1 : 0) - (Outranks(a.Strength, a.Index, b.Strength, b.Index) ? 1 : 0);
+
+    /// <summary>
     /// <see cref="Choose"/> for a caller that folds nothing: every admitted light ranked first, then traced strongest-down
     /// until the slots are full.
     /// </summary>
     /// <remarks>
     /// **The same lights as tracing every one, in the same order** — pinned by
     /// `LocalLightVisibilityConformanceTests.Strongest_SixLampsTheStrongestBlocked_TakesTheSameLightsAsTracingEveryOne`.
-    /// A light that is not traced is one that could not take a slot: four seen lights stronger than it are already in.
-    /// Ties go to the lower index, which is what <see cref="Insert"/> keeps (it refuses a light no stronger than its last,
-    /// and moves one up only past a weaker one). A light under the luminance minimum is never traced: it would take no
-    /// slot either way. The engine traces every admitted light (B666); this changes the cost, not the answer. A caller that
-    /// folds (<see cref="Split"/>) still traces every admitted light, since every seen loser is added to the cube.
+    /// A light that is not traced is one that could not take a slot: four seen lights that outrank it are already in. The
+    /// order is <see cref="Outranks"/>, the one <see cref="Insert"/> keeps. A light under the luminance minimum is never
+    /// traced: it would take no slot either way. The engine traces every admitted light (B666); this changes the cost, not
+    /// the answer. A caller that folds (<see cref="Split"/>) still traces every admitted light, since every seen loser is
+    /// added to the cube.
+    ///
+    /// **Allocates nothing once warm**: the candidates go in a pooled array, sorted by a cached comparison — a static
+    /// prop under a live dlight ranks this way every frame (`StaticPropFullLightingAt`).
     /// </remarks>
     private static int ChooseStrongestFirst(
         IReadOnlyList<BspWorldLight> lights,
@@ -452,42 +480,43 @@ public static class LocalLights
         Span<int> chosen,
         Span<float> strengths,
         Func<int, float> style,
-        Func<int, bool> visible)
+        Func<int, bool> traceKeeps)
     {
-        List<(float Strength, int Index)> ranked = [];
+        (float Strength, int Index)[] pooled = ArrayPool<(float Strength, int Index)>.Shared.Rent(lights.Count);
 
-        for (int index = 0; index < lights.Count; index++)
+        try
         {
-            BspWorldLight light = lights[index];
+            int candidates = 0;
 
-            if (IsLocal(light.Kind) &&
-                Admitted(light, x, y, z, style, out float falloff) &&
-                falloff * Luminance(light) is var strength and >= WorldLightMinimum)
+            for (int index = 0; index < lights.Count; index++)
             {
-                ranked.Add((strength, index));
+                if (Candidate(lights[index], x, y, z, style, out float strength) && Ranks(strength))
+                {
+                    pooled[candidates++] = (strength, index);
+                }
             }
+
+            Span<(float Strength, int Index)> ranked = pooled.AsSpan(0, candidates);
+            ranked.Sort(StrongerFirst);
+
+            int count = 0;
+
+            for (int at = 0; at < ranked.Length && count < MaximumLocalLights; at++)
+            {
+                if (traceKeeps(ranked[at].Index))
+                {
+                    chosen[count] = ranked[at].Index;
+                    strengths[count] = ranked[at].Strength;
+                    count++;
+                }
+            }
+
+            return count;
         }
-
-        ranked.Sort(static (a, b) => b.Strength.CompareTo(a.Strength) is var stronger and not 0 ? stronger : a.Index.CompareTo(b.Index));
-
-        int count = 0;
-
-        foreach ((float strength, int index) in ranked)
+        finally
         {
-            if (count == MaximumLocalLights)
-            {
-                break;
-            }
-
-            if (visible(index))
-            {
-                chosen[count] = index;
-                strengths[count] = strength;
-                count++;
-            }
+            ArrayPool<(float Strength, int Index)>.Shared.Return(pooled);
         }
-
-        return count;
     }
 
     /// <summary>Whether a light reaches a point at all: a local kind, positive falloff, and the trace function's `r_worldlightmin`.</summary>
@@ -521,7 +550,7 @@ public static class LocalLights
     /// <param name="into">The local lights; at most <see cref="MaximumLocalLights"/> are written.</param>
     /// <param name="cube">The bounce cube, which the lights that take no slot are added to.</param>
     /// <param name="styleScale">Each light style's value over 264; one for every style when null.</param>
-    /// <param name="visible">The visibility trace by index (<see cref="Visible"/>); null traces none.</param>
+    /// <param name="traceKeeps">The visibility trace by index (<see cref="TraceKeeps"/>); null traces none.</param>
     /// <returns>How many local lights were written.</returns>
     /// <remarks>
     /// `engine.dll` `FUN_1801b60a0` (B453): a light that loses its slot, or never wins one, is not dropped — it goes to
@@ -531,7 +560,7 @@ public static class LocalLights
     /// </remarks>
     public static int Split(
         IReadOnlyList<BspWorldLight> lights, float x, float y, float z, Span<LocalLight> into, ref AmbientCube cube,
-        Func<int, float>? styleScale = null, Func<int, bool>? visible = null)
+        Func<int, float>? styleScale = null, Func<int, bool>? traceKeeps = null)
     {
         ArgumentNullException.ThrowIfNull(lights);
 
@@ -547,7 +576,7 @@ public static class LocalLights
         List<int> rest = [];
 
         // One pass, so each light is traced once: the chosen go to the slots, the rest of what it reached to the cube.
-        int count = Choose(lights, x, y, z, chosen, strengths, style, visible, rest);
+        int count = Choose(lights, x, y, z, chosen, strengths, style, traceKeeps,rest);
 
         Write(lights, chosen[..count], into, style);
 
@@ -585,7 +614,7 @@ public static class LocalLights
     /// <returns>True when it reaches.</returns>
     /// <remarks>
     /// `engine.dll` `FUN_1801b99a0` → `FUN_1801b9570` with flags `9|2`: the value 8 skips the style scale and the value 1
-    /// the visibility trace (<see cref="Visible"/>; B666's read, superseding B424's "2 skips the trace"), so this is the
+    /// the visibility trace (<see cref="TraceKeeps"/>; B666's read, superseding B424's "2 skips the trace"), so this is the
     /// distance falloff (radius cutoff included), a spotlight's or surface light's cone, and
     /// `r_worldlightmin` for every kind but `emit_surface`. Sky and sky-ambient lights never reach a point this way.
     /// `FUN_1801b99a0`'s pre-culls against the prop's bounds are skipped: for an origin inside the bounds they reject
@@ -853,7 +882,7 @@ public static class LocalLights
     {
         int at = count < MaximumLocalLights ? count : MaximumLocalLights - 1;
 
-        if (count == MaximumLocalLights && strength <= strengths[at])
+        if (count == MaximumLocalLights && !Outranks(strength, index, strengths[at], chosen[at]))
         {
             return;
         }
@@ -866,7 +895,7 @@ public static class LocalLights
             count++;
         }
 
-        for (int slot = at; slot > 0 && strengths[slot] > strengths[slot - 1]; slot--)
+        for (int slot = at; slot > 0 && Outranks(strengths[slot], chosen[slot], strengths[slot - 1], chosen[slot - 1]); slot--)
         {
             (strengths[slot], strengths[slot - 1]) = (strengths[slot - 1], strengths[slot]);
             (chosen[slot], chosen[slot - 1]) = (chosen[slot - 1], chosen[slot]);

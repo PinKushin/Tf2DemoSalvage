@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 
@@ -123,6 +124,87 @@ public sealed class LightVisibilityTraceConformanceTests
         traces.ShouldBe(2);
         again.ShouldBe(first);
         again.ShouldHaveSingleItem().Y.ShouldBe(20f, "the walled lamp stays out");
+    }
+
+    /// <summary>
+    /// The trace starts at the light cache's point, not the model's: a model at (1 1 100) is lit at its cell's centre
+    /// (16 16 64), so a wall between THAT point and the lamp drops it (`LightcacheGet` passes the entry's point; B666).
+    /// </summary>
+    [Test]
+    public void ModelLightingAt_ACellPointBehindAWallFromTheLamp_DropsTheLampTheModelPointWouldSee()
+    {
+        BspWorldLight lamp = Lamp(0) with { Origin = (16f, 16f, 84f) };
+
+        // A wall only between the cell's centre and the lamp; every other ray, the model's own included, is clear.
+        static float WallAtTheCell((float X, float Y, float Z) from, (float X, float Y, float Z) to) =>
+            from == (16f, 16f, 64f) && to == (16f, 16f, 84f) ? 0.5f : 1f;
+
+        StaticPlusDynamicLightingConformanceTests.Map([lamp], WallAtTheCell).ModelLightingAt(1f, 1f, 100f).Locals.Count
+            .ShouldBe(1, "the control: with no reach test the model is lit where it stands, and sees the lamp");
+
+        StaticPlusDynamicLightingConformanceTests.Map([lamp], WallAtTheCell, reaches: static (_, _) => true)
+            .ModelLightingAt(1f, 1f, 100f).Locals.ShouldBeEmpty();
+    }
+
+    /// <summary>Without a trace wired, <see cref="LevelLighting.Occlusion"/> says so rather than calling a light seen.</summary>
+    [Test]
+    public void Occlusion_WithNoTraceWired_IsNull()
+    {
+        StaticPlusDynamicLightingConformanceTests.Map([Lamp(0)]).Occlusion((0f, 0f, 120f), 0f, 0f, 100f).ShouldBeNull();
+        StaticPlusDynamicLightingConformanceTests.Map([Lamp(0)], Wall).Occlusion((0f, 0f, 120f), 0f, 0f, 100f)
+            .ShouldBe((10f, false), "the control: wired, the wall blocks 10 of the 20 units");
+    }
+
+    /// <summary>
+    /// What <see cref="LevelLighting.Occlusion"/> reports is what the ranking read: the remembered answer, not a second
+    /// trace — so a probe printing it prints the value production used.
+    /// </summary>
+    [Test]
+    public void Occlusion_AfterTheRankingTracedALight_ReadsTheSameAnswerWithoutTracing()
+    {
+        int traces = 0;
+        LevelLighting lighting = StaticPlusDynamicLightingConformanceTests.Map(
+            [Lamp(0)],
+            (from, to) =>
+            {
+                traces++;
+                return Wall(from, to);
+            });
+
+        lighting.StaticPropLightingAt(0f, 0f, 100f).Lighting.Locals.ShouldBeEmpty("the control: the ranking traced it and dropped it");
+        traces.ShouldBe(1);
+
+        lighting.Occlusion((0f, 0f, 120f), 0f, 0f, 100f).ShouldBe((10f, false));
+        traces.ShouldBe(1);
+    }
+
+    /// <summary>
+    /// With every answer remembered, the trace adds no allocation to a ranking: the same call allocates exactly what it does
+    /// with no trace wired (the delegate is made once, not per call).
+    /// </summary>
+    [Test]
+    public void LightingAt_TracedWithTheAnswersRemembered_AllocatesNoMoreThanUntraced()
+    {
+        BspWorldLight[] lamps = [Lamp(0), Lamp(0) with { Origin = (0f, 20f, 100f) }, Lamp(0) with { Origin = (20f, 0f, 100f) }];
+        LevelLighting untraced = StaticPlusDynamicLightingConformanceTests.Map(lamps);
+        LevelLighting traced = StaticPlusDynamicLightingConformanceTests.Map(lamps, static (_, _) => 1f);
+
+        traced.LightingAt(0f, 0f, 100f).Locals.Count.ShouldBe(3, "the control: every lamp seen");
+
+        Allocated(untraced).ShouldBe(Allocated(traced));
+
+        static long Allocated(LevelLighting lighting)
+        {
+            lighting.LightingAt(0f, 0f, 100f);
+            long before = GC.GetAllocatedBytesForCurrentThread();
+
+            for (int call = 0; call < 100; call++)
+            {
+                lighting.LightingAt(0f, 0f, 100f);
+            }
+
+            return GC.GetAllocatedBytesForCurrentThread() - before;
+        }
     }
 
     /// <summary>Half of the ray from (0 0 100) to (0 0 120) is blocked; every other ray is clear.</summary>

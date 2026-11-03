@@ -388,9 +388,11 @@ public sealed class StaticPlusDynamicLightingConformanceTests
     /// <summary>Two leaves split at z = 0: leaf 2 above in cluster 0, leaf 1 below in cluster 1, each seeing only itself.</summary>
     /// <param name="lights">The world lights.</param>
     /// <param name="lightTrace">The lights' visibility trace's fraction; none traced when null.</param>
+    /// <param name="reaches">The cell placement's clear-trace test; a model is lit where it stands when null.</param>
     internal static LevelLighting Map(
         IReadOnlyList<BspWorldLight> lights,
-        Func<(float X, float Y, float Z), (float X, float Y, float Z), float>? lightTrace = null)
+        Func<(float X, float Y, float Z), (float X, float Y, float Z), float>? lightTrace = null,
+        Func<(float X, float Y, float Z), (float X, float Y, float Z), bool>? reaches = null)
     {
         byte[] plane = new byte[20];
         BinaryPrimitives.WriteSingleLittleEndian(plane.AsSpan(8), 1f);
@@ -424,6 +426,7 @@ public sealed class StaticPlusDynamicLightingConformanceTests
             lights,
             null,
             new RecordingLogger(),
+            reaches: reaches,
             visibility: BspVisibility.FromLump(vis),
             lightTrace: lightTrace);
     }

@@ -40,7 +40,7 @@ public sealed class LocalLightVisibilityConformanceTests
         Span<LocalLight> into = stackalloc LocalLight[LocalLights.MaximumLocalLights];
 
         // The wall stops the ray half way: 32 units of the 64 are blocked.
-        LocalLights.Strongest(lights, 0f, 0f, 0f, into, visible: Traced(lights, (64f, 0f, 0f), 0.5f)).ShouldBe(4);
+        LocalLights.Strongest(lights, 0f, 0f, 0f, into, traceKeeps: Traced(lights, (64f, 0f, 0f), 0.5f)).ShouldBe(4);
 
         into[0].Red.ShouldBe(800f);
         into[1].Red.ShouldBe(700f);
@@ -58,7 +58,7 @@ public sealed class LocalLightVisibilityConformanceTests
         List<BspWorldLight> lights = [Lamp((0f, 0f, 64f), 500f)];
         Span<LocalLight> into = stackalloc LocalLight[LocalLights.MaximumLocalLights];
 
-        LocalLights.Strongest(lights, 0f, 0f, 0f, into, visible: Traced(lights, (0f, 0f, 64f), fraction)).ShouldBe(expected);
+        LocalLights.Strongest(lights, 0f, 0f, 0f, into, traceKeeps: Traced(lights, (0f, 0f, 64f), fraction)).ShouldBe(expected);
     }
 
     /// <summary>A spotlight is traced the same way: `FUN_1801b9570` takes types 0, 1, 2 and 4 down one path.</summary>
@@ -77,7 +77,7 @@ public sealed class LocalLightVisibilityConformanceTests
         Span<LocalLight> into = stackalloc LocalLight[LocalLights.MaximumLocalLights];
 
         LocalLights.Strongest(lights, 0f, 0f, 0f, into).ShouldBe(1, "the control: untraced, the spot reaches");
-        LocalLights.Strongest(lights, 0f, 0f, 0f, into, visible: Traced(lights, (0f, 0f, 64f), 0.5f)).ShouldBe(0);
+        LocalLights.Strongest(lights, 0f, 0f, 0f, into, traceKeeps: Traced(lights, (0f, 0f, 64f), 0.5f)).ShouldBe(0);
     }
 
     /// <summary>An occluded light is not folded into the cube either: the ratio is zero, so `FUN_1801b60a0` adds nothing.</summary>
@@ -99,7 +99,7 @@ public sealed class LocalLightVisibilityConformanceTests
         AmbientCube hidden = default;
 
         LocalLights.Split(lights, 0f, 0f, 0f, into, ref seen).ShouldBe(4);
-        LocalLights.Split(lights, 0f, 0f, 0f, into, ref hidden, visible: Traced(lights, (0f, 0f, 64f), 0.5f)).ShouldBe(4);
+        LocalLights.Split(lights, 0f, 0f, 0f, into, ref hidden, traceKeeps: Traced(lights, (0f, 0f, 64f), 0.5f)).ShouldBe(4);
 
         // Folded onto +Z with n·d 1: 500 / 64² = 0.1220703.
         seen.PositiveZ.Red.ShouldBe(500f / 4096f, 1e-6f, "the control: seen, it is folded");
@@ -127,14 +127,14 @@ public sealed class LocalLightVisibilityConformanceTests
 
         HashSet<int> blocked = [0, 2];
         List<int> traced = [];
-        Func<int, bool> visible = index =>
+        Func<int, bool> keeps = index =>
         {
             traced.Add(index);
             return !blocked.Contains(index);
         };
 
         Span<LocalLight> lazy = stackalloc LocalLight[LocalLights.MaximumLocalLights];
-        LocalLights.Strongest(lights, 0f, 0f, 0f, lazy, visible: visible).ShouldBe(4);
+        LocalLights.Strongest(lights, 0f, 0f, 0f, lazy, traceKeeps: keeps).ShouldBe(4);
 
         // Strongest-down: 900 (blocked), 800, 700 (blocked), 700, 600, 500 — and the 400 is never traced.
         traced.ShouldBe([0, 1, 2, 3, 4, 5]);
@@ -146,7 +146,7 @@ public sealed class LocalLightVisibilityConformanceTests
 
         Span<LocalLight> split = stackalloc LocalLight[LocalLights.MaximumLocalLights];
         AmbientCube cube = default;
-        LocalLights.Split(lights, 0f, 0f, 0f, split, ref cube, visible: index => !blocked.Contains(index)).ShouldBe(4);
+        LocalLights.Split(lights, 0f, 0f, 0f, split, ref cube, traceKeeps: index => !blocked.Contains(index)).ShouldBe(4);
 
         lazy.ToArray().ShouldBe(every.ToArray());
         lazy.ToArray().ShouldBe(split.ToArray());
@@ -169,26 +169,58 @@ public sealed class LocalLightVisibilityConformanceTests
         ];
 
         Span<LocalLight> lazy = stackalloc LocalLight[LocalLights.MaximumLocalLights];
-        LocalLights.Strongest(lights, 0f, 0f, 0f, lazy, visible: index => index != 1).ShouldBe(4);
+        LocalLights.Strongest(lights, 0f, 0f, 0f, lazy, traceKeeps: index => index != 1).ShouldBe(4);
 
         Span<LocalLight> split = stackalloc LocalLight[LocalLights.MaximumLocalLights];
         AmbientCube cube = default;
-        LocalLights.Split(lights, 0f, 0f, 0f, split, ref cube, visible: index => index != 1).ShouldBe(4);
+        LocalLights.Split(lights, 0f, 0f, 0f, split, ref cube, traceKeeps: index => index != 1).ShouldBe(4);
 
         lazy.ToArray().ShouldBe(split.ToArray());
         lazy.ToArray().Select(lamp => (lamp.X, lamp.Y, lamp.Z)).ShouldBe(
             [(64f, 0f, 0f), (0f, 64f, 0f), (0f, -64f, 0f), (0f, 0f, 64f)]);
     }
 
+    /// <summary>
+    /// A traced ranking allocates nothing once warm: a static prop under a live dlight ranks this way every frame
+    /// (`StaticPropFullLightingAt` → `WithStyleZero`).
+    /// </summary>
+    [Test]
+    public void Strongest_TracedAndWarm_AllocatesNothing()
+    {
+        List<BspWorldLight> lights =
+        [
+            Lamp((64f, 0f, 0f), 900f),
+            Lamp((-64f, 0f, 0f), 800f),
+            Lamp((0f, 64f, 0f), 700f),
+            Lamp((0f, -64f, 0f), 700f),
+            Lamp((0f, 0f, 64f), 600f),
+            Lamp((0f, 0f, -64f), 500f),
+        ];
+
+        Func<int, bool> keeps = static index => index % 2 == 1;
+        Span<LocalLight> into = stackalloc LocalLight[LocalLights.MaximumLocalLights];
+
+        LocalLights.Strongest(lights, 0f, 0f, 0f, into, traceKeeps: keeps).ShouldBe(3, "the control: lamps 1, 3 and 5 are kept");
+
+        long before = GC.GetAllocatedBytesForCurrentThread();
+
+        for (int call = 0; call < 1000; call++)
+        {
+            LocalLights.Strongest(lights, 0f, 0f, 0f, into, traceKeeps: keeps);
+        }
+
+        (GC.GetAllocatedBytesForCurrentThread() - before).ShouldBe(0L);
+    }
+
     /// <summary>The rule itself: the ray is cast from the point to the light, and `(1 − fraction) · distance` is compared.</summary>
     [Test]
-    public void Visible_TheRay_RunsFromThePointToTheLight()
+    public void TraceKeeps_TheRay_RunsFromThePointToTheLight()
     {
         BspWorldLight lamp = Lamp((10f, 20f, 30f), 500f);
         (float X, float Y, float Z)? from = null;
         (float X, float Y, float Z)? to = null;
 
-        LocalLights.Visible(lamp, 1f, 2f, 3f, (start, end) => { (from, to) = (start, end); return 1f; }).ShouldBeTrue();
+        LocalLights.TraceKeeps(lamp, 1f, 2f, 3f, (start, end) => { (from, to) = (start, end); return 1f; }).ShouldBeTrue();
 
         from.ShouldBe((1f, 2f, 3f));
         to.ShouldBe((10f, 20f, 30f));
@@ -200,7 +232,7 @@ public sealed class LocalLightVisibilityConformanceTests
     /// </summary>
     private static Func<int, bool> Traced(
         List<BspWorldLight> lights, (float X, float Y, float Z) blocked, float fraction) =>
-        index => LocalLights.Visible(
+        index => LocalLights.TraceKeeps(
             lights[index], 0f, 0f, 0f, (from, to) => from == (0f, 0f, 0f) && to == blocked ? fraction : 1f);
 
     private static BspWorldLight Lamp((float X, float Y, float Z) origin, float bright) =>

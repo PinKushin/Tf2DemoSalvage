@@ -40468,6 +40468,20 @@ trace".
 | trace every light (measurements/2026-11-02-b666-light-trace-load.md) | 9.2 s | 1.52 s | 0.76 ms |
 | strongest-down + memo (measurements/2026-11-02-b666-light-trace-load.md) | 5.6 s | 1.27 s | 0.71 ms |
 
+**Review fixes** (2026-11-02, after two reviews of `105daa23`):
+- **No silent "seen".** `LevelLighting.Occlusion` returns null when no trace is wired, and `PropShadeProbe` then prints
+  NOT TRACED. Otherwise it reads the same remembered blocked length the ranking used, not a second trace.
+- **Point pinned.** The trace starts at the light cache's point, not the model's, and a test now holds that.
+- **No per-call allocation on the traced ranking.**
+  - Before, the strongest-first ranking allocated a list and a sort every call, 176 B on 6 lamps; it now uses a pooled
+    array and a cached comparison. `Strongest_TracedAndWarm_AllocatesNothing` asserts 0 bytes over 1,000 calls.
+  - Before, `LevelLighting` made a closure per call, 64 B; it now hands out one delegate made once. A test asserts
+    `LightingAt` allocates exactly what it does untraced.
+- **The ranking order is defined once** (`Outranks`), for `Insert` and the sort alike.
+- **Renames:** `LocalLights.Visible` is now `TraceKeeps`, and the per-call predicate is now `TraceSeen`.
+- **The memo** is keyed on the light's origin and the point.
+- **TRX:** Content 1,841 executed of 1,907, Scene 3,488 of 3,488, Rendering 1,392 of 1,470; none failed.
+
 **`Split` must still trace every admitted light**, because every seen loser is folded into the cube. The lighting
 column is new cache entries, so it barely moves (0.76 → 0.71 ms, within one run's noise; measurements/2026-11-02-b666-light-trace-load.md).
 - What is left is the engine's own work.
