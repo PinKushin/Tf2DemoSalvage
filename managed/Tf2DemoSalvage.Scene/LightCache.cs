@@ -22,6 +22,7 @@ public sealed class LightCache<T>
     /// <summary>Frames that are never throttled (`DAT_1804716a0` under `0x3c`).</summary>
     public const int UnthrottledFrames = 60;
 
+    private readonly T _unbuilt;
     private readonly Entry[] _entries = new Entry[Capacity];
     private readonly int[] _next = new int[Capacity];
     private readonly int[] _previous = new int[Capacity];
@@ -35,6 +36,8 @@ public sealed class LightCache<T>
     /// <param name="unbuilt">What a zeroed entry holds, for a fallback that reaches one.</param>
     public LightCache(T unbuilt)
     {
+        _unbuilt = unbuilt;
+
         for (int index = 0; index < Capacity; index++)
         {
             _entries[index] = new Entry(0, 0, 0, 0, false, unbuilt);
@@ -96,6 +99,9 @@ public sealed class LightCache<T>
         if (old.Built)
         {
             _byKey.Remove((old.X, old.Y, old.Z, old.Leaf));
+
+            // Zeroed before the build, since a build that throws must not leave a slot still claiming the key just given up (B675).
+            _entries[victim] = new Entry(0, 0, 0, 0, false, _unbuilt);
         }
 
         ToFront(victim);

@@ -1,3 +1,4 @@
+using System;
 using System.Numerics;
 
 namespace Tf2DemoSalvage.Scene.Tests;
@@ -53,6 +54,36 @@ public sealed class LightCacheConformanceTests
 
         // Both misses this frame are spent; a third cell reuses the nearest: cell 3 is 3 from cell 0 and 7 from cell 10.
         cache.Get(new Vector3(100f, 0f, 0f), 0, 100, allowFast: true, () => 3).ShouldBe(1);
+    }
+
+    /// <remarks>
+    /// **The engine's build cannot throw; ours can, so what a throw leaves is ours to keep straight.** The victim's key is gone by the build. Left marked built with
+    /// that old key, its later eviction would drop the key again, which by then may name a slot that rebuilt it: that entry is built a second time for nothing.
+    /// </remarks>
+    [Test]
+    public void Get_AfterABuildThatThrew_TheVictimsLaterEvictionLeavesItsOldKeyAlone()
+    {
+        LightCache<int> cache = new(unbuilt: -1);
+        static Vector3 Cell(int index) => new(index * 32f, 0f, 0f);
+        const int Frame = 1;
+
+        for (int index = 0; index < LightCache<int>.Capacity; index++)
+        {
+            cache.Get(Cell(index), 0, Frame, allowFast: true, () => 1);
+        }
+
+        // Cell 0 is at the back, so it is the victim; asked again it is built in cell 1's slot.
+        Should.Throw<InvalidOperationException>(() =>
+            cache.Get(Cell(1000), 0, Frame, allowFast: true, () => throw new InvalidOperationException("the trace failed")));
+        cache.Get(Cell(0), 0, Frame, allowFast: true, () => 777).ShouldBe(777, "the control: the key was gone, so it built");
+
+        // Cells 2 to 199, then the slot that threw: 199 misses, with cell 0's own slot still in front of it.
+        for (int index = 0; index < LightCache<int>.Capacity - 1; index++)
+        {
+            cache.Get(Cell(2000 + index), 0, Frame, allowFast: true, () => 2);
+        }
+
+        cache.Get(Cell(0), 0, Frame, allowFast: true, () => 888).ShouldBe(777);
     }
 
     [Test]

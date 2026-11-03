@@ -40410,13 +40410,48 @@ its recreation shows nothing; that `_rt_FullFrameFB` and the bloom targets are l
   known-present class was dumped beside it, and `cl_find_ent water` searches client class names, which a
   `CFuncMoveLinear` need not contain. So whether TF2 draws `*145` at all is *unverified*, and nothing was captured.
 
-## B675 — a moving model past the miss budget, nearest a zeroed cache entry, may draw black for a frame (2026-11-03) — OPEN, from review, not run
+## B676 — a moving model's lighting is not averaged over time: `r_lightaverage` / `r_lightinterp` are not ported (2026-11-03) — OPEN, read and not implemented
 
-**Read from our code, not reproduced:** `ModelLightingAt` can receive `CachedLight.Unbuilt`, whose zero cube is passed as a real cube. The engine read for `ComputeLighting` (B668) says the engine also copies a zeroed entry; what its model path draws then is not read. The remark that no shader sees this cube covers `ComputeLighting` only. Also from that review: a throwing build can leave `Entry`'s memo stale after `LightCache.Get` moved its victim, `ComputeLighting`'s debug line recomputes `bounced` by a second route (B243), and remarks at `LevelLighting.cs` ~911, `EntityModels.Instances.cs` ~360, `EntityModels.cs` ~235 and `PropModels.cs` ~541 still say a baked prop takes no cube.
+**Read in decompile**, `engine.dll` `FUN_1800f1bd0`, then `FUN_1800f3110`, `FUN_1800f2e90`, `FUN_1800f1370`. Found reading B675. After the state is built, a model with no handle and no colour mesh
+(`*param_7 == 0 && param_4 == 0`) draws `FUN_1800f3110(this, instance, &state, …)`'s answer rather than the state, when `r_lightaverage` (default `1`, `FUN_180006ed0`) is on, `r_lightinterp`
+(default `5`, `FUN_180006f50`) is not 0, and it has an instance. So no static prop averages: it has a handle (B674).
+- **First draw**, instance `+0x128` still −999999: `FUN_1800f1370` stores the state with each slot's colour and the time, and returns the state as it stands.
+- **After that:** `dt` is client time (`FUN_1800a3020(&DAT_180536810)`) less `+0x128`, and `f = FUN_180334c10(−dt · r_lightinterp)`, *interpolated* as `exp`. Each cube face is `new − (new − old) · f`, clamped to 0..8 (`FUN_1800f2e90`)
+  and stored back. A light still in a slot gets the same blend on its colour, by light pointer. A light that left the slots stays while its stored colour's squared length is at least 1, at `f` of that colour, up to four
+  slots. A kept one past the draw's light limit (`DAT_18075adc8`, clamped by hardware) is folded (`FUN_1801b5d40`).
+- *Not read:* the gate `DAT_18069d930 + 0x43` beside the max-light clamp, and what zeroes `+0x128` on a teleport or a new entity.
 
-## B674 — baked static props spend light cache budget on an answer they discard (2026-11-03) — OPEN, from review, not run
+**So what a moving model draws has a time constant of 0.2 s in TF2 and none here**: a player crossing a cell steps where TF2 eases. Porting it changes every moving model every frame, so it wants its own conformance test,
+a per-instance store, the sun folded into its slots' identity, a seek's `dt` and an A B B A, and it is not on B675's branch. **The other half of B675's claim is here:** past the budget on a zeroed entry, with `dt` 1/60, `f` is 0.92 (arithmetic, not run),
+so TF2 dims a model 8% that frame, and this viewer draws it black.
 
-**Read from our code, not measured:** `EntityModels.Instances.cs` ~352 calls `_lighting.For` (so `ModelLightingAt` and `ModelSunAt`) for every baked or bump-mapped static prop, then ~388-391 discards it for the handle's state (`FUN_1801ba590`). If so, those props use `lightcache_maxmiss` builds and evict entries that players need, and pay per-frame cost. Next: count `Entry` calls by caller on f12.
+## B675 — a moving model past the miss budget, nearest a zeroed cache entry, may draw black for a frame (2026-11-03) — PART FIXED: the cache and the log; what the model draws is B676
+
+**Read in decompile**, `engine.dll` `FUN_1801b9cd0`, `FUN_1800f1bd0`, `FUN_1801b7a10`, `FUN_1801bb640`. Past the budget with flag 8 the nearest entry may be a zeroed one. The model path then gets: flag 1, its zero cube and no slots;
+flag 4, nothing, since its style mask is zero; flag 2, `FUN_1801b7a10` with no PVS row handed in, which looks one up from the ENTRY's origin `+0x184`, (0 0 0). **Ours already gave all three**, now pinned by
+`ModelLightingAt_PastTheMissBudgetNearestAZeroedEntry_IsZeroWithOnlyDlightsSeenFromTheOrigin`, sabotage-proved by asking from the point instead. One divergence is left in, as `CachePoint` moves (0 0 0) where the engine's
+`+0x184` is literal; it can change the rank of a dlight past four at one model, on an entry a model reaches this rarely. **Reachability, arithmetic:** with 32-unit cells from key 0, a zeroed entry beats a built one only for a point whose x and y cells are nearer 0
+than to any built entry, which needs them 16,384 units apart at least. Frame 60 throttles it; whether a map load resets `r_framecount`, read as `FUN_1800f87d0`'s write and not followed, decides nothing here, as our count starts at 0 with the map.
+
+**What the entry claimed, checked:**
+- *"May draw black for a frame"*: **true here, and half true of TF2.** On a first draw TF2 draws black too; with history it fades: B676. Unmatched until that is ported.
+- *The remark that no shader sees this cube covers `ComputeLighting` only*: **true.** The comment now says so and points at the model path.
+- *A throwing build can leave `Entry`'s memo stale after `Get` moved its victim*: **half false.** The memo cannot name the victim: its entry is at the front, or past the budget in a frame that can build nothing more. The answer was still right; what was wrong
+  was that repeating the lookup was no longer a no-op, so the LRU differed. Forgotten before the look now. **The real fault was beside it, in `LightCache.Get`:** the victim gave up its key and kept claiming it, so its later eviction removed a key another slot had rebuilt, and that entry was built twice. Zeroed before the build now.
+  Both tests were red first (`Get_AfterABuildThatThrew_TheVictimsLaterEvictionLeavesItsOldKeyAlone`, `ModelSunAt_AfterAnotherPointsBuildThrew_LooksInTheCacheAgain`). The engine's build has no throw.
+- *The debug line's second route* (B243): **true.** It read the asked point's leaf, which past the budget is not what the answer used. It reports the entry's cube now, labeled `cube`; a `?? new LightingState(bounced)` that could not run went with it. Red first: `ComputeLighting_PastTheMissBudget_ReportsTheEntrysCube`.
+- *Stale remarks:* `EntityModels.Instances.cs` ~360, `EntityModels.cs` ~235 and `PropModels.cs` ~541 **true**, fixed. `LevelLighting.cs` ~911 **false**: its cube was already right, one word tightened. `StaticPropModelsWiringTests.cs` lines 15-16 said the same and were not listed, fixed.
+
+## B674 — baked static props spend light cache budget on an answer they discard (2026-11-03) — FIXED on `fix/b674-b675`: a static prop asks the cache nothing
+
+**Read in decompile**, `engine.dll`: `FUN_1800f1bd0` with `param_4` set has no call to `LightcacheGet`, only `FUN_1801ba590`, flags 7 when `*param_7` is 0 and `6 + FUN_1801bb8a0` with a colour mesh on DX9; `FUN_1800eb5e0` chooses the same way; `FUN_180205b20` makes a handle
+for every renderable prop. *Not read:* that creating the instance sets `+0x12e` bit 0 with a handle, which `FUN_1800eb1a0` tests, through a vtable. **The entry was right and too narrow:** a prop with no colour mesh and no bump flag kept the cache's cell, cube and sun here where the engine has flags 7, and built no handle at load. That class now takes its handle's state, and none is on f12's frames, so it moved no pixel there.
+
+**Measured**, `docs/measurements/2026-11-03-static-props-leave-the-light-cache.md`: on f12 static props were 86% of lookups, 135.5 a frame against moving models' 22.5, and 1,375 builds against 1,901. With them out, `lighting` past warm-up falls 0.053 and 0.162 ms in the two adjacent pairs of A B B A, 0.11 ms mean, 1.5% of the frame; builds fall from 1.48 to 1.01 a frame. Allocation rose in one pair and fell in the other. **Pixels:** A against A identical; A against B, no world or static prop pixel, 17,096 on the viewmodel, largest channel 33, as it is now lit from an entry a static prop did not build. No TF2 capture of that compared.
+
+**A top-of-screen difference turned up in that record and is not this:** one of four shots, from a binary whose other shot matched, had rows 0-40 different across the whole width, largest 206. Not investigated.
+
+`StaticPropHandleConformanceTests`, sabotaged three ways, each failing only its own. `MomentSceneTests`' allocation control nulled `StaticPropFullLighting`, which now means no handle, so it stands in a delegate that does no work.
 
 ## B673 — `Instances_ThreadedPrePass_RunsEveryRootsFirstBlendOnTheCallerBeforeTheFork` can fail its own control under load (2026-11-03) — OPEN
 

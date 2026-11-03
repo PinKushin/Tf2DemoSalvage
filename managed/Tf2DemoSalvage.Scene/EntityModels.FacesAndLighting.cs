@@ -678,8 +678,8 @@ public sealed partial class EntityModelSet
     /// <remarks>
     /// Run once the static props are packed, since the lighting origin reads the model's `illumposition`. Each prop takes
     /// the draw's own route — <see cref="IlluminationPoint"/> at its pose, the draw's colour-mesh test — so the draw finds
-    /// what was built here under the same key. Only what a draw reads is built: the colour mesh, the handle of a prop
-    /// whose draw reads one (a colour mesh's flags 6, a bump-mapped model's flags 7), and the static state, which flags 7
+    /// what was built here under the same key. Every prop gets its handle, as `0x180205b20` makes one for each, and every
+    /// draw reads it (a colour mesh's flags 6, flags 7 otherwise, B674), with the colour mesh and the static state, which flags 7
     /// reads and a colour-mesh prop's decal light reads (B642). The engine fills that decal state, `record + 0x88`, when
     /// it builds the colour mesh (`engine.dll` `0x1800eac60`), not per draw.
     /// </remarks>
@@ -701,16 +701,12 @@ public sealed partial class EntityModelSet
 
             bool fullyLit = ResolvedFor(prop).Frames is { } frames && StaticPropVertexLighting.RefusesColourMesh(frames.StudioFlags);
 
-            // A bump-mapped prop draws with its handle (flags 7) whether it has colours or not, and builds no colour mesh it
-            // would never draw; its decals take its own light, so it records no decal origin.
-            if (fullyLit)
-            {
-                StaticPropHandle?.Invoke(prop.EntityIndex, x, y, z);
-            }
-            else if (BakedColoursOf(prop, pose, x, y, z) is not null)
-            {
-                StaticPropHandle?.Invoke(prop.EntityIndex, x, y, z);
+            StaticPropHandle?.Invoke(prop.EntityIndex, x, y, z);
 
+            // A bump-mapped prop builds no colour mesh it would never draw; its decals take its own light, so it records no
+            // decal origin, and neither does a prop that has no colours to add them back to.
+            if (!fullyLit && BakedColoursOf(prop, pose, x, y, z) is not null)
+            {
                 // Where its decals are lit when the replay places one after the pose (B642).
                 _colourMeshOrigins[prop.EntityIndex] = (x, y, z);
             }

@@ -149,6 +149,9 @@ public sealed class ModelReports
 
         long loggedAt = System.Diagnostics.Stopwatch.GetTimestamp();
 
+        // A static prop drawn on its colours alone has no cube either, and that is not a lightmap (B674).
+        string noCube = prop.Kind == SceneModelKind.Brush ? "lightmapped" : "colour mesh, no cube";
+
         // **Debug: once per ENTITY is still per-frame detail during a match** (B191). Entities keep
         // arriving — every projectile, every dropped weapon, every respawn — so "once each" is a
         // stream rather than a burst at load, and each line is a disk flush. Measured after the
@@ -164,7 +167,7 @@ public sealed class ModelReports
             // this line answer "why is that door flat" without a second run.
             (lit.Light is { } cube
                 ? $"luminance {AmbientCube.Luminance(cube):0.####}"
-                : "lightmapped"));
+                : noCube));
 
         LogTicks += System.Diagnostics.Stopwatch.GetTimestamp() - loggedAt;
     }

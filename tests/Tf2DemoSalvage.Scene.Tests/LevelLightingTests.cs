@@ -516,6 +516,84 @@ public sealed class LevelLightingTests
         lighting.ModelSunAt(100f, 0f, -100f).ShouldBeNull();
     }
 
+    /// <remarks>
+    /// **After a throw the last answer is not this lookup's, so it answers nothing** (B675). The cache moved its victim to the front before the build threw, so
+    /// repeating point A's lookup is no longer the no-op the memo's arithmetic rests on: it moves A's entry back to the front.
+    /// </remarks>
+    [Test]
+    public void ModelSunAt_AfterAnotherPointsBuildThrew_LooksInTheCacheAgain()
+    {
+        bool throwing = false;
+        LevelLighting lighting = new(
+            leaves: OneSplit(above: 1, below: 0, solidLeaf: -1),
+            ambient: [Samples(Grey(0.5f)), Samples(Grey(0.1f))],
+            worldLights: [],
+            sun: Sky(),
+            new RecordingLogger(),
+            strikesSky: (from, _) => throwing && from.X > 50f ? throw new InvalidOperationException("the trace failed") : true);
+
+        lighting.ModelSunAt(0f, 0f, -100f);
+        lighting.ModelSunAt(0f, 0f, -100f);
+        lighting.LightCacheLookups.ShouldBe(1, "the control: asked again with nothing between, it is remembered");
+
+        throwing = true;
+        Should.Throw<InvalidOperationException>(() => lighting.ModelSunAt(100f, 0f, -100f));
+        throwing = false;
+
+        lighting.ModelSunAt(0f, 0f, -100f);
+        lighting.LightCacheLookups.ShouldBe(3);
+    }
+
+    /// <remarks>
+    /// **The line reports the cube the answer used, carried from it, not a second reading of the asked point's leaf** (B675, B243). Past the budget the entry is the
+    /// dim leaf's while the asked point stands in the bright one, so a second route says 0.6 about an answer built from 0.05.
+    /// </remarks>
+    [Test]
+    public void ComputeLighting_PastTheMissBudget_ReportsTheEntrysCube()
+    {
+        RecordingLogger log = new();
+        LevelLighting lighting = Lit([Lamp((100000f, 0f, 100000f), 1f)], log: log);
+
+        lighting.Frame = LightCache<int>.UnthrottledFrames + 40;
+        lighting.ComputeLighting(3200f, 0f, 100f);
+        lighting.ComputeLighting(0f, 0f, -100f);
+        lighting.ComputeLighting(0f, 0f, 100f);
+
+        log.Lines.ShouldContain(line => line.Message.Contains("light terms at (0,0,100): cube 0.05,", StringComparison.Ordinal));
+    }
+
+    /// <remarks>
+    /// **What the model path takes from a zeroed entry** (`0x1801b9cd0` with flags `0xf`, reached past the budget): flag 1 copies its zero cube and no slots; flag 4's
+    /// styled mask is zero; flag 2 reaches `FUN_1801b7a10` with no PVS row, which looks one up from the ENTRY's origin `+0x184`, (0 0 0), so a dlight seen from the map's
+    /// origin is in it. `ComputeLighting`'s zero is the same copy. What the DRAW does next, `FUN_1800f3110`, is not ported: B676.
+    /// </remarks>
+    [Test]
+    public void ModelLightingAt_PastTheMissBudgetNearestAZeroedEntry_IsZeroWithOnlyDlightsSeenFromTheOrigin()
+    {
+        LevelLighting lighting = StaticPlusDynamicLightingConformanceTests.Map([]);
+
+        lighting.Frame = LightCache<int>.UnthrottledFrames + 40;
+        lighting.ModelLightingAt(30000f, 30000f, 30000f);
+        lighting.ModelLightingAt(30000f, 30000f, 29000f);
+
+        PointLighting zero = lighting.ModelLightingAt(-32000f, -32000f, -32000f);
+
+        zero.Cube.ShouldBe(default(AmbientCube));
+        zero.Locals.ShouldBeEmpty();
+
+        // The map's origin is in cluster 1, below the plane; the asked point's own leaf is not what is asked. Cluster 0 is not in cluster 1's PVS.
+        DynamicLights lights = new() { Time = 1f };
+        lighting.Dynamic = lights;
+        DynamicLight light = lights.AllocDlight(1);
+        (light.X, light.Y, light.Z, light.Radius, light.Red) = (0f, 0f, 120f, 255f, 255);
+
+        lighting.ModelLightingAt(-32000f, -32000f, -32000f).Locals.ShouldBeEmpty("the control: not seen from the origin");
+
+        light.Z = -20f;
+
+        lighting.ModelLightingAt(-32000f, -32000f, -32000f).Locals.ShouldHaveSingleItem().Z.ShouldBe(-20f);
+    }
+
     /// <remarks>A hit is every model every frame, so it owes the collector nothing: no closure over the point.</remarks>
     [Test]
     public void ModelLightingAt_AHitInAnotherCell_AllocatesNothing()
