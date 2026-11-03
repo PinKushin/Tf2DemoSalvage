@@ -265,6 +265,20 @@ So not a decal, not a shadow, not LOD. Nothing named it, and `-vulkan` removed i
 
 **Every D3D9 reference in this project has it**, which is why the ratio image of ours over TF2 embossed every edge in the frame, and why a far patch can match for the wrong reason. The patch's 229.1 against 228.1 was partly that: the pipes short, the wall dark from a thing that is not the engine. **A capture for parity is taken with `-vulkan` until the driver setting is ruled out.**
 
+## The pipes behind the pane: what it is not (B669, 2026-11-03)
+
+Evidence classes marked per line. The numbers: `measurements/2026-11-03-b669-pipe-lights.md`. The cause was not found.
+
+**A wrong turn worth keeping, because it was an instrument and it looked like a discovery.** The back of the pipe read 0.021, and the colour was exactly the map's `emit_surface` tint, r/g 0.84. That named four lights, and all of their rays stop on detail brush 3637, so it read as TF2 tracing through detail. A fit with two more lights came within 1% on four faces, and it was wrong. **A camera at yaw 270 has −x on its right**, the reading was the left of the frame, and that is the next placement along. On #215's side the back is zero. The colour was real and belonged to another pipe. Six shots and a brush-by-brush table went into a question about the wrong object; the fit agreeing was the part that should have been distrusted.
+
+- *Disassembly:* the light cache's trace has no detail rule. `FUN_180167e40` tests a leaf brush's contents against the mask, and 0x8000001 has the solid bit. `FUN_18016bfc0`, the box-brush case, is a plain slab test.
+- *Disassembly:* a world-only trace ends after `FUN_180168cb0` on head node 0 (`FUN_18018e870`), so a static prop cannot block a light.
+- *Disassembly:* the static handle's point is the lighting origin stored as given (`FUN_1801b8350`). `r_DrawModelLightOrigin` puts its cross there (*measured*).
+- *Measured:* `r_dynamic 0` changes no digit on the pipe, so no dlight supplies the gap.
+- *Arithmetic:* no subset of the lights ours rejects gives TF2's surplus of 0.065 on −y and 0.063 on +z with nothing on −z.
+
+**Seen in passing, in the same clip routines, and filed apart:** ours' `ClipToBrush` differs from `FUN_180167050` in two ways (B681), and `IlluminationPoint` turns the point by yaw alone (B682). Neither is this gap: #215's point has zero y and z in the model, and its bevels only make a brush larger in the engine.
+
 ## ComputeLighting reads the cache and folds its slots (B668, 2026-11-03)
 
 Evidence class: **disassembly**, `engine.dll` x64. This ended an inference: B668 had reasoned that `ComputeLighting` must reach the lights through

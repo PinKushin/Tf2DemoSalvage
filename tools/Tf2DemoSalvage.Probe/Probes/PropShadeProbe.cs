@@ -24,6 +24,9 @@ namespace Tf2DemoSalvage.Probe.Probes;
 /// </remarks>
 public sealed class PropShadeProbe : IProbe
 {
+    /// <summary>`MASK_OPAQUE`, as the light cache's trace passes it (`engine.dll` `0x1801b9570`).</summary>
+    private const int LightTraceMask = 0x4081;
+
     private static readonly string[] FogKeys =
         ["scale", "fogenable", "fogblend", "fogcolor", "fogcolor2", "fogdir", "fogstart", "fogend", "fogmaxdensity"];
 
@@ -32,7 +35,7 @@ public sealed class PropShadeProbe : IProbe
 
     /// <inheritdoc/>
     public string Summary =>
-        "each placement of a static prop model: skin, material, shader, modulation, $nofog and the light its draw is given: prop-shade <map> <model substring> [radius: also list the style-0 lights within it of each lighting origin, with reach and the light cache's visibility trace]";
+        "each placement of a static prop model: skin, material, shader, modulation, $nofog and the light its draw is given: prop-shade <map> <model substring> [radius: also list the style-0 lights within it of each lighting origin, with reach, the light cache's visibility trace, what it struck, and each light's share of the four faces] [x y z: list them at this point instead]";
 
     /// <inheritdoc/>
     public void Run(TextWriter output, IReadOnlyList<string> arguments)
@@ -140,7 +143,15 @@ public sealed class PropShadeProbe : IProbe
             // The lighting origin the draw was lit at, through the set's own route.
             (float X, float Y, float Z) origin = models.IlluminationPoint(prop, prop.Pose);
 
-            output.WriteLine(string.Create(CultureInfo.InvariantCulture, $"  lit at ({origin.X:0.0} {origin.Y:0.0} {origin.Z:0.0})"));
+            output.WriteLine(string.Create(
+                CultureInfo.InvariantCulture,
+                $"  lit at ({origin.X:0.0} {origin.Y:0.0} {origin.Z:0.0}), angles ({prop.Pose.Pitch:0.#} {prop.Pose.Yaw:0.#} {prop.Pose.Roll:0.#}), lump lighting origin {prop.LightingOrigin is not null}"));
+
+            // A question about another point: `prop-shade <map> <model> <radius> <x> <y> <z>` lists the lights there instead.
+            if (arguments.Count >= 6)
+            {
+                origin = (float.Parse(arguments[3], CultureInfo.InvariantCulture), float.Parse(arguments[4], CultureInfo.InvariantCulture), float.Parse(arguments[5], CultureInfo.InvariantCulture));
+            }
 
             if (radius is { } within)
             {
@@ -186,17 +197,72 @@ public sealed class PropShadeProbe : IProbe
         output.WriteLine(string.Create(
             CultureInfo.InvariantCulture, $"    lighting origin ({origin.X:0.#} {origin.Y:0.#} {origin.Z:0.#}); style-0 lights within {radius:0}:"));
 
+        float keptNegativeY = 0f;
+        float keptPositiveY = 0f;
+        float keptPositiveZ = 0f;
+        float keptNegativeZ = 0f;
+
         foreach ((BspWorldLight light, float distance, float strength) in level.WorldLights
                      .Select(light => (Light: light, Distance: Distance(light, origin), Strength: LocalLights.StrengthAt(light, origin.X, origin.Y, origin.Z)))
                      .Where(entry => entry.Light.Style == 0 && entry.Distance <= radius)
                      .OrderByDescending(entry => entry.Strength))
         {
+            // What a fold of this light adds to each face: its strength times the face's cosine, FUN_1801b5db0.
+            float toY = distance > 0f ? (light.Origin.Y - origin.Y) / distance : 0f;
+            float toZ = distance > 0f ? (light.Origin.Z - origin.Z) / distance : 0f;
+            bool kept = lighting.Occlusion(light, origin.X, origin.Y, origin.Z) is { Kept: true };
+
+            if (kept)
+            {
+                keptNegativeY += strength * MathF.Max(0f, -toY);
+                keptPositiveY += strength * MathF.Max(0f, toY);
+                keptPositiveZ += strength * MathF.Max(0f, toZ);
+                keptNegativeZ += strength * MathF.Max(0f, -toZ);
+            }
+
             output.WriteLine(string.Create(
                 CultureInfo.InvariantCulture,
                 $"      {light.Kind} at ({light.Origin.X:0} {light.Origin.Y:0} {light.Origin.Z:0}) {distance:0} away, normal {light.Normal}, " +
-                $"intensity ({light.Intensity.Red:0} {light.Intensity.Green:0} {light.Intensity.Blue:0}), strength here {strength:0.####}, " +
-                $"reaches {LocalLights.Reaches(light, origin.X, origin.Y, origin.Z)}, {Seen(lighting, origin, light)}"));
+                $"colour ({light.Intensity.Red / MathF.Max(light.Intensity.Green, 1e-6f):0.00} 1 {light.Intensity.Blue / MathF.Max(light.Intensity.Green, 1e-6f):0.00}), strength here {strength:0.####} -y {strength * MathF.Max(0f, -toY):0.####} +y {strength * MathF.Max(0f, toY):0.####} +z {strength * MathF.Max(0f, toZ):0.####} -z {strength * MathF.Max(0f, -toZ):0.####}, " +
+                $"reaches {LocalLights.Reaches(light, origin.X, origin.Y, origin.Z)}, {Seen(lighting, origin, light)}{Struck(level, origin, light)}"));
         }
+
+        output.WriteLine(string.Create(
+            CultureInfo.InvariantCulture,
+            $"    every kept light folded:-y {keptNegativeY:0.####} +y {keptPositiveY:0.####} +z {keptPositiveZ:0.####} -z {keptNegativeZ:0.####}"));
+    }
+
+    /// <summary>What the production trace struck on the way to a light: where, on which material, and the contents of the leaf just inside it.</summary>
+    private static string Struck(MapLevel level, (float X, float Y, float Z) from, BspWorldLight light)
+    {
+        BspTrace hit = level.TraceBrushOnly(from, light.Origin, 0f, LightTraceMask);
+
+        if (hit.Fraction >= 1f)
+        {
+            return string.Empty;
+        }
+
+        float length = Distance(light, from);
+        float past = hit.Fraction + (0.5f / MathF.Max(length, 1f));
+        (float X, float Y, float Z) inside = (
+            from.X + ((light.Origin.X - from.X) * past),
+            from.Y + ((light.Origin.Y - from.Y) * past),
+            from.Z + ((light.Origin.Z - from.Z) * past));
+
+        string surface = hit.DisplacementTexdata >= 0 ? "terrain" : "no surface";
+
+        if (hit.Texinfo >= 0 && hit.Texinfo < level.Texinfo.Count)
+        {
+            int texdata = level.Texinfo[hit.Texinfo].Texdata;
+
+            surface = string.Create(
+                CultureInfo.InvariantCulture,
+                $"'{(texdata >= 0 && texdata < level.Materials.Count ? level.Materials[texdata].Name : "?")}' flags 0x{level.Texinfo[hit.Texinfo].Flags:X}");
+        }
+
+        return string.Create(
+            CultureInfo.InvariantCulture,
+            $", struck at ({from.X + ((light.Origin.X - from.X) * hit.Fraction):0} {from.Y + ((light.Origin.Y - from.Y) * hit.Fraction):0} {from.Z + ((light.Origin.Z - from.Z) * hit.Fraction):0}) {surface}, leaf inside 0x{level.Leaves?.ContentsAt(inside.X, inside.Y, inside.Z):X}");
     }
 
     private static float Distance(BspWorldLight light, (float X, float Y, float Z) point)
