@@ -913,3 +913,52 @@ against three: about a quarter. The accumulation is still about 9 ns a vertex an
 measurements/2026-10-30-flex-for-cost-after.md: 0.16 ms over 17,000), well above what its six adds need.
 Where the rest goes is the next split, not yet made. Candidates: the four ramps per flex over every flex of the model,
 and the scattered writes.
+
+## (16) Appendix, written 2026-10-22, recovered 2026-11-03: the Ghidra read of `materialsystem.dll` (x64, shipped 2026-10-13)
+
+*Recovered from branch `feat/queued-material-system` (commit "docs: finding 98 section 8 - the Ghidra read of
+materialsystem.dll"), where it was numbered section 8 and settled section 1's unknowns; never merged, so main's own
+sections 8 to 15 were written without it. Section 10's `-1` default and fall-backs rest on this read.*
+
+*Read from the closed binary* (Ghidra project `tf2materialsystem` on D:, via the MCP). Addresses are the image's.
+Logic is paraphrased; no decompiler output is reproduced.
+
+- **`CMaterialSystem::EndFrame` is `FUN_180014bc0`.** It is named by its own telemetry/VProf strings
+  ("CMaterialSystem::EndFrame", "Swap_Buffers", `cmaterialsystem.cpp` line 0xe40), and it is the only reader of
+  `mat_queue_mode`'s value (the ConVar at `1800f7660`, registered in `FUN_180001c70`; its value is read through the
+  parent pointer at `1800f7698`, int at +0x58).
+- **How the convar maps to a mode** (inside EndFrame): `-2` means 2; `1` means 0, so mode 1 is never selected from the
+  convar; any other negative value, **`-1` included, means "whatever was last set by `SetThreadMode`"**, a field the
+  constructor (`FUN_18000e130`) starts at 0. The mode is then forced to 0 when threading is not allowed (flag `+0x306d`)
+  or when a shader-API query fails (the alt-tab path, *"Handling alt-tab in queued mode!"*), and for one frame when a
+  pending one-shot flag is set.
+- **What `-1` resolves to on an N-core PC.** `AllowThreading` (`FUN_180010f90`) allows threading only when
+  `-threads` (default **2**, so the default passes) is above 1 **and** `CPUInformation` byte +6 is at least 2. Its
+  layout comes from the SDK (`public/tier0/platform.h:1282-1296`, `m_nPhysicalProcessors`), so that part is
+  *read from published source* and matched to the offset. When allowed and the field is still 0, it logs
+  *"Queued Material System: ENABLED!"* and calls `SetThreadMode(2, serviceThread)` (vtable +0x50, which stores the mode
+  at +0x2f08, `18001dd80`). **So `-1` is 2 on any PC with two or more physical cores.** The only threshold is two, and
+  there is no per-core-count table. Whether and when the engine calls `AllowThreading(true)` lives in `engine.dll`,
+  which was not read. The DevMsg proves the path exists; it does not prove when the engine takes it.
+- **When EndFrame makes the game thread wait, and how many frames are in flight.** In mode 2, EndFrame first checks
+  the previous frame's job (+0x610). If that job is still pending or running, the game thread **blocks** on it through
+  the thread pool with no timeout. Only then does it flip between **two** queued contexts (index at +0x2f00, toggled
+  with `^1`) and submit a new job, `"ThreadExecuteQueuedContext"` (`FUN_18001e6d0`), to play the context just recorded.
+  **One frame executes on the render thread while the game thread records the next, and never more**: frame N's hand-off
+  waits for N-1 to finish.
+- **Where Present runs** (*interpolated from the call order, not traced into the shader API*): EndFrame's
+  `Swap_Buffers` call goes through the thread-local current render context. In mode 2 that is the queued context, so
+  the swap is recorded and played on the render thread at the end of that frame's execution.
+
+**Latency, for the owner** (*arithmetic over the read above*). Serial: frame N is presented at the end of the game
+thread's frame N. Queued: frame N is presented when the render thread finishes playing it, which overlaps the game
+thread's frame N+1. Two consequences follow:
+
+- **Nothing is held beyond that.** Depth is one, and EndFrame refuses to queue a second frame, so no frame waits
+  behind another.
+- **The picture still trails the view and input it was built from by the render thread's play-back time.** That is up
+  to one frame period when the render side is the slower one, and less otherwise.
+
+Input sampling is client and engine code, not read here; the SDK's order (view set up before the material calls are
+recorded) is the assumption. **The owner's expectation of no held frame is right; one frame of pipeline lag in the
+worst case is still the engine's behaviour.**
