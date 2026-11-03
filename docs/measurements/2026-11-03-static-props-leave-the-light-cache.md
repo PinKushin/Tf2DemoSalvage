@@ -62,4 +62,59 @@ RTX 3060, i5-10600K; Debug build (optimized, D176), the build the owner runs. Co
 
 ## Result
 
+Run 2026-11-03, each under `run-exclusive.ps1`. Commits: COUNT `020ebfe0`, A `ff40b283` (`f7ec0bb6` plus this file), B `66d142e6`. No build
+overlapped. Load was not read; other agents were working, and B1 and A2 ran slower in every phase, render passes included
+(Sky3D cpu 0.211 and 0.200 ms against 0.180 and 0.185).
+
+**Count**, tick 30000 to 31340, 2,853 frames, mean 7.01 ms. The line is cumulative from the map's load, last sample:
+
+| caller | `Entry` calls | lookups | builds |
+|---|---:|---:|---:|
+| neither (`ComputeLighting`) | 1 | 1 | 0 |
+| static props | 766,982 | 383,491 | 1,375 |
+| moving models | 216,416 | 62,780 | 1,901 |
+
+The control: 1 + 383,491 + 62,780 = 446,272, the `LightCacheLookups` printed beside it. Static draws 383,491, so one lookup a draw; third-class
+draws 0. Between the first sample (76 frames) and the last, about 2,777 frames: static props 135.5 lookups and 0.45 builds a frame, moving
+models 22.5 lookups and 0.68 builds a frame. Static props are 86% of lookups. The sample's own window has no line for them: the cumulative
+reading is what was printed.
+
+**Frame**, order A B B A, ticks 30000 to 31347, 1,347 advanced in every run:
+
+| run | started | frames | mean ms | `lighting` all, frame-weighted | `lighting` past the first four | `allocated` MB a frame | `sun … light cache` mean of 19 samples |
+|---|---|---:|---:|---:|---:|---:|---:|
+| A | 11:25 | 2,845 | 7.03 | 0.500 | **0.319** | 0.75 | 1.467 |
+| B | 11:29 | 2,511 | 7.97 | 0.361 | **0.266** | 0.81 | 1.057 |
+| B | 11:32 | 2,929 | 6.83 | 0.264 | **0.188** | 0.75 | 0.966 |
+| A | 11:36 | 2,584 | 7.74 | 0.551 | **0.350** | 0.79 | 1.493 |
+
+The `lighting` column, each rebuild report, ms:
+- A 11:25: 1.8 2.5 1.9 1.2 0.6 0.1 0.2 0.8 0.5 0.2 0.1 0.3 0.5 0.4 0.1 0.4
+- B 11:29: 0.6 1.2 1.2 0.8 0.5 0.1 0.3 0.5 0.4 0 0.1 0.3 0.3 0.4 0.1 0.5
+- B 11:32: 0.5 1.3 1 0.4 0.3 0.1 0.1 0.4 0.3 0.1 0.1 0.2 0.2 0.3 0.1 0.2
+- A 11:36: 2.1 2.6 1.9 1.2 0.6 0.1 0.1 0.8 0.6 0.2 0.1 0.6 0.6 0.5 0.1 0.3
+
+**Output**, `--shot` of tick 30000, SHA-256 prefix: A `2D92FC09F2A9C509`, A again `2D92FC09F2A9C509`, B `9EAE71159A9BDBB5`, B again `28BBF95AF172D2BA`.
+- A against the second B: rows 0-40 and 40-300 no pixel; rows 300-551, 17,096 pixels, largest channel difference 33, all at x 422 to 588. That is the first-person
+  viewmodel; the world, every static prop in view included, did not move a pixel.
+- **The first B against the second, the same binary:** rows 0-40, 24,620 pixels, largest 206, the whole width; nothing below them. So the top band
+  varies run to run and this change is not its cause: A against the second B has none. One run in four showed it; not investigated.
+- One frame after a seek, so the shot cannot see the per-frame budget. No TF2 capture was compared, so which viewmodel shade is right is the engine read, not an observation.
+
+**Sabotages, each restored by the inverse edit**, `StaticPropHandleConformanceTests`, 5 tests:
+- Static props asking the cache again: the three `…_AsksTheCacheNothing` fail, alone.
+- The handle's state only under the bump flag: `Instances_AStaticPropWithNoColourMeshAndNoBump_DrawsTheHandlesFullState` fails, alone.
+- No handle for a prop with no mesh: `Instances_AStaticPropWithNoColourMeshAndNoBump_AsksTheCacheNothing` fails, alone.
+
 ## Verdict
+
+Clause by clause:
+- **Static props are above half of lookups: confirmed**, 86%. The third class is empty on f12's frames, so it changes no pixel here.
+- **The column: confirmed.** Past warm-up it fell 0.053 ms and 0.162 ms in the two adjacent pairs, against a predicted 0.05 or more: 0.11 ms mean, 1.5% of a 7.4 ms frame.
+  It prints at 0.1 ms an interval, so these are means of quantised values, and the first pair clears the prediction by 0.003. The frame means (A 7.03 and 7.74, B 7.97 and 6.83) follow the load and cannot resolve it.
+- **Allocation: falsified on one pair.** B read 0.81 against A's 0.75 in the first pair, 0.75 against 0.79 in the second. It moves with the slow runs on both sides, and no line added allocates, but
+  the prediction was that it would not rise and in one pair it did.
+- **Builds, unpredicted: they fell.** `sun … light cache`, one a build, is 1.01 mean in B against 1.48 in A. What static props stop building is more than what moving models then build themselves.
+- **The shot: confirmed.** A against A identical, and B against A differs on a moving model only, the viewmodel, lit from another point's entry. No static prop moved.
+
+The change stays: it is what the engine does, and it costs the column less.
