@@ -40389,16 +40389,20 @@ keeps its own `_hdrEnabled`, apart from `HdrType`, which a test harness may over
 `ReleaseWaterTargets`, so the next ask recreates them cleared (0, 0, 0, 1). Tests (`WaterTargetInitialContentConformanceTests`):
 `DrawWaterWorld_MapLoadThatFlipsHdr_SamplesAnOpaqueBlackTarget` (None to integer and back) has a refraction view draw a
 red floor on the first map, then a cheap-only second map: the target texel is (0, 0, 0) and the water (197, 98, 45),
-the same prediction as above. It was red first at (204, 98, 45), the old view's red showing through 0.05 of the lerp.
+the same prediction as above. Its pixel assertion was red first at (204, 98, 45), the old view's red showing through
+0.05 of the lerp; the texel assertion was added after, and the no-release sabotage below is what showed it can fail.
 The control `DrawWaterWorld_MapLoadThatKeepsHdr_SamplesTheOldViewsContent` keeps (255, 0, 0) and the first map's pixel.
 Sabotage: no release reddens both flips; releasing on every load reddens both controls.
 
-**Also in that block, not ported:** `_rt_Camera` (`tf_rendertargets.cpp`, created by the client's
-`InitClientRenderTargets`) is recreated by the same flip, and ours keeps it across every map load
-(`WorldRenderer.Monitor.cs`). A monitor that shows it with no `point_camera` active would sample the old map's camera
-view where TF2 shows black. Not a release-and-recreate: materials hold references to the view taken at upload, so the
-equivalent is a clear. Unfixed and *unmeasured*. `_rt_PowerOfTwoFB`, `_rt_FullFrameFB` and the bloom targets are
-rewritten every frame before they are read, so their recreation shows nothing.
+**Also in that block, not ported:** `_rt_Camera` is recreated by the same flip — a chain: the SDK creates it in the
+client's `InitClientRenderTargets` (`tf_rendertargets.cpp`, read from published source), and the disassembly above shows
+`InitWellKnownRenderTargets` handing off to that. Ours keeps it across every map load (`WorldRenderer.Monitor.cs`). A
+monitor that shows it with no `point_camera` active would sample the old map's camera view where TF2 shows black. Not a
+release-and-recreate: materials hold references to the view taken at upload, so the equivalent is a clear. Unfixed and
+*unmeasured*. `_rt_PowerOfTwoFB` is refilled by `UpdateRefractTexture` before every read (`WorldRenderer.Water.cs`), so
+its recreation shows nothing; that `_rt_FullFrameFB` and the bloom targets are likewise written before every read is
+*interpolated*, not checked per target. The water targets are bound from their fields at each draw
+(`WorldRenderer.Water.cs`, the only readers), so no holder keeps a released one.
 
 **Earlier, before the read:**
 - pd_farmageddon is the one map with brush water and no world water. Its entity lump places a `func_water_analog`
