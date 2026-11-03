@@ -538,7 +538,7 @@ public static class PropModels
 
             // **Every static prop is a model draw** (B426, D198): `engine.dll` `0x1800f1bd0`. An unbaked one
             // is lit every frame with the handle's cube and local lights (`FUN_1801ba590`); a baked one carries
-            // its per-placement colour mesh — the `.vhv` colours per corner — and takes no cube and no locals.
+            // its per-placement colour mesh — the `.vhv` colours per corner — plus only what flags 6 hold (B669).
             // Its skin family is the model draw's (`EntityModelSet.SkinSwap`, B229).
             StaticModelOf(placement, index, model, lighting, drawnAsModels, bakedColours);
             placed++;

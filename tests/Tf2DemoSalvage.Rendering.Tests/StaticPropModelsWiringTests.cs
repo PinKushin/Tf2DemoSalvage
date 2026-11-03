@@ -12,8 +12,8 @@ namespace Tf2DemoSalvage.Rendering.Tests;
 
 /// <summary>Every static prop drawn as a model, on a real map (B426, D198).</summary>
 /// <remarks>
-/// `engine.dll` `0x1800f1bd0`: a prop with baked `.vhv` colours draws them with no cube and no local
-/// lights, and one without draws lit per frame like any model — both through the model draw. So on a
+/// `engine.dll` `0x1800f1bd0`: a prop with baked `.vhv` colours draws them plus its handle's flags 6, which
+/// this wiring gives none of, and one without draws its handle's flags 7 — both through the model draw (B669, B674). So on a
 /// real map every placement must reach <see cref="MapAssets.StaticModels"/>, the baked ones must carry
 /// their colours, and the world's batches must hold no prop at all.
 /// </remarks>

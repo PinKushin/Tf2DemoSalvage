@@ -195,6 +195,11 @@ public sealed class LevelLighting
     /// <remarks>
     /// **The entry is built at the first point to miss its cell and leaf**, and every model after it in that cell is lit
     /// with it — model lighting passes flags `0xf` (`0x1800f1bd0`), so past `lightcache_maxmiss` it takes the nearest entry.
+    ///
+    /// **That nearest can be a zeroed one, and this is the engine's copy of it**: a zero cube, no slots, and the dlights seen from its origin (0 0 0)
+    /// (`FUN_1801b7a10`, no PVS row handed in). It wins only over a built entry further away than the pool's key 0 is, so a point in the map's low corner with
+    /// every built entry at the far side, some 16,000 units off (arithmetic: 32-unit cells from key 0). **The engine then does not draw it as it stands:** a
+    /// non-static model's draw blends it with the instance's last state (`FUN_1800f3110`, B676), unported, so here it draws black where the engine fades.
     /// </remarks>
     public PointLighting ModelLightingAt(float x, float y, float z)
     {
@@ -324,10 +329,9 @@ public sealed class LevelLighting
             _buildAt = point;
             LightCacheLookups++;
 
-            // All three only once it returned: a build that throws answered nothing, and must not name the last point's entry.
-            CachedLight answered = _cache.Get(point, tree.LeafAt(x, y, z), Frame, allowFast: true, _buildEntry);
-
-            _entryAsked = answered;
+            // Forgotten before it looks: a build that throws answered nothing and has moved its victim, so no later question may skip a look (B675).
+            _entryAsked = null;
+            _entryAsked = _cache.Get(point, tree.LeafAt(x, y, z), Frame, allowFast: true, _buildEntry);
             _entryPoint = point;
             _entryFrame = Frame;
         }
@@ -908,7 +912,7 @@ public sealed class LevelLighting
     /// <param name="x">The prop's lighting origin (the handle's `+0x184`).</param>
     /// <param name="y">The prop's lighting origin.</param>
     /// <param name="z">The prop's lighting origin.</param>
-    /// <returns>The cube the losers made and at most four lights; no lights when none reaches, which leaves the colours alone.</returns>
+    /// <returns>The cube the losers made and at most four lights; neither when none reaches, which leaves the colours alone.</returns>
     /// <remarks>
     /// **The DX9 path only.** Hardware config `+0x150` (`SupportsStaticPlusDynamicLighting`) is true on every DX9 part, so
     /// the colour mesh is kept and this state is ADDED by the shader. The other branch — drop the colours for full lighting
@@ -1106,28 +1110,16 @@ public sealed class LevelLighting
     /// **A zero cube is an answer here, not "no cube supplied".** With no map data there is nothing to ask. Past `lightcache_maxmiss` the
     /// entry is the nearest (`0x1801b9cd0` under flag 8), and a zeroed pool entry nearest a point in the map's far corner gives zero,
     /// as it does in the engine, which copies that entry's empty state out. The readers are `RopeLight`, which averages the faces, and a
-    /// log line; no shader sees this cube.
+    /// log line; no shader sees this cube. `FUN_1801b7fd0` has no time average; the model draw does, `FUN_1800f3110`, unported (B676).
     /// </remarks>
     public AmbientCube ComputeLighting(float x, float y, float z)
     {
-        if (_leaves is not { } tree || _ambient.Count == 0)
+        if (Entry(x, y, z) is not { } entry)
         {
             return default;
         }
 
-        int leaf = tree.LeafAt(x, y, z);
-
-        // **Blended, as Mod_LeafAmbientColorAtPos blends it.** vrad thins a leaf's samples down to
-        // the ones an inverse-squared-distance average cannot already predict, so the stored set
-        // only reconstructs the original lighting when it is interpolated. Taking the nearest read
-        // back whichever survivor of that thinning was closest, which is why one capture point on
-        // cp_process drew at 0.10 while its mirror image on a symmetric map drew at 0.39.
-        AmbientCube bounced = leaf >= 0 && leaf < _ambient.Count
-            ? _ambient[leaf].At(x, y, z)
-            : default;
-
-        LightingState state = Entry(x, y, z)?.State ?? new LightingState(bounced);
-        AmbientCube lit = LocalLights.FoldSlots(state, x, y, z, StyleScale);
+        AmbientCube lit = LocalLights.FoldSlots(entry.State, x, y, z, StyleScale);
 
         // **The two terms reported apart, because one number cannot say which is missing.** Every
         // model on z1800 sampled between 0.09 and 0.12 in a room with three ceiling lamps overhead,
@@ -1135,7 +1127,8 @@ public sealed class LevelLighting
         // chosen, or lights chosen that contribute nothing once attenuated. A log that names only
         // the total makes those indistinguishable — see
         // docs/memory/logs-are-the-debugger.md#a-log-must-name-what-it-measured.
-        ReportLightTerms(bounced, lit, x, y, z);
+        // The entry's own cube, carried from it: the answer was built from that one, which past the budget is not the asked point's leaf (B243).
+        ReportLightTerms(entry.State.Cube, lit, x, y, z);
 
         return lit;
     }
@@ -1298,7 +1291,7 @@ public sealed class LevelLighting
     /// Sampled rather than per call: the question it answers is about a PLACE rather than about a
     /// frame.
     /// </remarks>
-    private void ReportLightTerms(AmbientCube bounced, AmbientCube lit, float x, float y, float z)
+    private void ReportLightTerms(AmbientCube cube, AmbientCube lit, float x, float y, float z)
     {
         if (_worldLights.Count == 0 ||
             _reportedLightTerms.Count >= LightTermReportLimit ||
@@ -1319,7 +1312,7 @@ public sealed class LevelLighting
             "{Message}",
             string.Create(
                 CultureInfo.InvariantCulture,
-                $"light terms at ({x:0},{y:0},{z:0}): bounce {AmbientCube.Luminance(bounced):0.####}, " +
+                $"light terms at ({x:0},{y:0},{z:0}): cube {AmbientCube.Luminance(cube):0.####}, " +
                 $"with direct {AmbientCube.Luminance(lit):0.####}, " +
                 $"{_worldLights.Count} world lights on the map"));
 

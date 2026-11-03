@@ -232,7 +232,7 @@ public readonly record struct ModelInstance(
 
     // **A baked static prop's colour mesh** (B426): red, green, blue per vertex of the model's buffer, in
     // the buffer's order, overbright applied. `engine.dll` `0x1800f1bd0` draws a prop with baked colours
-    // with them and with no cube and no local lights. Null for everything else — and null is the switch
+    // with them, plus only what its handle's flags 6 hold (B669). Null for everything else — and null is the switch
     // B424 needs: a prop whose colours are dropped for a frame is drawn with full lighting instead.
     float[]? BakedColours = null,
 
