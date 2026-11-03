@@ -40410,6 +40410,14 @@ its recreation shows nothing; that `_rt_FullFrameFB` and the bloom targets are l
   known-present class was dumped beside it, and `cl_find_ent water` searches client class names, which a
   `CFuncMoveLinear` need not contain. So whether TF2 draws `*145` at all is *unverified*, and nothing was captured.
 
+## B675 — a moving model past the miss budget, nearest a zeroed cache entry, may draw black for a frame (2026-11-03) — OPEN, from review, not run
+
+**Read from our code, not reproduced:** `ModelLightingAt` can receive `CachedLight.Unbuilt`, whose zero cube is passed as a real cube. The engine read for `ComputeLighting` (B668) says the engine also copies a zeroed entry; what its model path draws then is not read. The remark that no shader sees this cube covers `ComputeLighting` only. Also from that review: a throwing build can leave `Entry`'s memo stale after `LightCache.Get` moved its victim, `ComputeLighting`'s debug line recomputes `bounced` by a second route (B243), and remarks at `LevelLighting.cs` ~911, `EntityModels.Instances.cs` ~360, `EntityModels.cs` ~235 and `PropModels.cs` ~541 still say a baked prop takes no cube.
+
+## B674 — baked static props spend light cache budget on an answer they discard (2026-11-03) — OPEN, from review, not run
+
+**Read from our code, not measured:** `EntityModels.Instances.cs` ~352 calls `_lighting.For` (so `ModelLightingAt` and `ModelSunAt`) for every baked or bump-mapped static prop, then ~388-391 discards it for the handle's state (`FUN_1801ba590`). If so, those props use `lightcache_maxmiss` builds and evict entries that players need, and pay per-frame cost. Next: count `Entry` calls by caller on f12.
+
 ## B673 — `Instances_ThreadedPrePass_RunsEveryRootsFirstBlendOnTheCallerBeforeTheFork` can fail its own control under load (2026-11-03) — OPEN
 
 **Measured once** in a Scene.Tests run while other agents loaded the machine: `duringFork` 0, "the control: the fork's workers
