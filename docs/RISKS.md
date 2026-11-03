@@ -40371,7 +40371,7 @@ predicts 0.95 · `GammaToLinear( $fogcolor )` through sRGB, (197, 98, 45) for {2
 
 **Was open (before the read below; fixed):** a map load that flips the HDR-enabled state recreates the targets in the engine, cleared black again.
 Ours keeps them across every map load, so after such a flip ours samples the old map's last views where TF2 samples
-black. Not fixed: our equivalent of the engine's HDR-enabled decision is not established.
+black. *(Then: our equivalent of the engine's HDR-enabled decision was thought not established. It is: `BspHdr.ForTf2`, see the read below.)*
 
 **FIXED, the flip (2026-11-02).** The read, by the lead in Ghidra (disassembly), engine.dll `Mod_LoadMapFlags`
 (`0x1800ffa10`):
@@ -40410,7 +40410,7 @@ its recreation shows nothing; that `_rt_FullFrameFB` and the bloom targets are l
   known-present class was dumped beside it, and `cl_find_ent water` searches client class names, which a
   `CFuncMoveLinear` need not contain. So whether TF2 draws `*145` at all is *unverified*, and nothing was captured.
 
-## B668 — `IVEngineClient::ComputeLighting` → `LocalLights.AddTo` is not traced (2026-11-02) — OPEN, unread
+## B668 — `IVEngineClient::ComputeLighting` → `LocalLights.AddTo` is not traced (2026-11-02) — OPEN, partly read (an inferred divergence)
 
 B666 ported the engine's per-light visibility trace at every `AddWorldLightToLightingState` (`0x1801b60a0`) site that passes
 `skipTrace` 0. `LevelLighting`'s `AddTo` path (the `ComputeLighting` entry) stays untraced: **its engine caller was not among
