@@ -40480,6 +40480,9 @@ hold. A static phong tank at that last camera went 266.6 to 287.2 against 291.4.
 
 **Frame cost (measurements/2026-11-03-b669-surface-light-cost.md):** none observed, A B B A twice on f12 first person.
 
+**Under a live dlight (measurements/2026-11-03-b669-dlight-draw-cost.md):** no f12 section has one, and none can: the one allocator a demo drives is the local player's
+Dragon's Fury fireball, and `entity-census` finds no such class against 1,669 rockets. So the probe drives the production calls on f12's map: no trace, about 0.6-2 us a draw in the merge.
+
 **No other model moved away from TF2** in this frame, so this is not an overshoot elsewhere: yellow rail 106.3 (TF2 103.7), barrels
 64.8 (63.9), chair behind glass 114.9 (142.0), vents 92.1 (90.0), each the same before and after to the digit. *Interpolated:* those
 are baked props, which take no static state; `prop-shade` was not read for each, and the chair's gap to TF2 was there before.
@@ -40502,7 +40505,7 @@ edit in ours, reversed:
 
 **Still open, each measured and none explained:**
 - **The pane adds more in TF2.** Fitting `with = (1 − a) · without + X` over the gap tiles: TF2 a 0.31, X 106; ours a 0.25, X 43.
-  The texture's mean alpha is 65 of 255 at every mip (`vtf`), so mip choice cannot move the blend, and there is no second pane on the world's faces (`faces-near`;
+  The texture's mean alpha is 64.6-65.3 of 255 across its eight mips, 128x128 to 1x1 (`vtf`, rechecked after the probe's size fix), so mip choice cannot move the blend, and there is no second pane on the world's faces (`faces-near`;
   a brush entity's faces are in model coordinates, so that is no answer for one). Ours' reflection alone is about 3 of the 43
   (a temporary reflection-only shot). **So the next read is what this pane reflects**: a cube, tint or contrast difference is the
   suspect, *interpolated*. TF2 also shows the wire pattern at this distance and ours does not.
@@ -40526,6 +40529,15 @@ ignored, 2; a point's −1 rule off, 1; a light's −1 rule off, 1; the gate tie
 1. TRX, Debug, on the final source: Content 1,868 executed of 1,934; Scene 3,515 of 3,515; Rendering 1,400 executed of 1,478; none failed. An
 earlier Scene run failed one test unrelated to light: B673.
 
+**Second review, with `perf/next-frame-win` merged (2026-11-03), each read in finding 66:** `ComputeLighting` is the cached entry with its slots folded (B668). A static prop's flags 6 and 7 are
+`FUN_1801b5400` then `FUN_1801b6550` over a cloned `LightingState`, with eviction and fold, replacing `Strongest`/`WithStyleZero` and their "differs past four lights" ceilings. A dlight on a static prop
+has threshold 100000. NaN strength is refused (`Candidate`). `Traced` and `AddListed` are the only takers of `TraceSeen`, each in a `finally`. Every PVS test goes through `InPvs`, and `Occlusion` reports the
+gate's answer beside the trace's. **Sabotage, each reversed, Scene unless named:** `ComputeLighting` with no fold, 2; bypassing the entry, 3; dlight precedence off, 2; the fold dropped, 4; NaN admitted, 1 (Content);
+no `finally` with `Occlusion` ignoring the gate, 2 (`StaticPropLightingAt_ATraceThatThrows_LeavesTheNextRankingWorking`, `Occlusion_ALightsCluster_IsTheGatesAnswer`); the three remaining gates (model dlights, styled list, static-prop dlights) open together, 6. **`InPvs`'s own clauses, one at a time:** no-leaves branch, at least 3 (`Pose_AFireballAboveAStaticProp_*`); a light's −1, at least 3 (`StaticPlusDynamicLights_ALampsCluster_FollowsCmVis(False,-1,0)`); a point's −1, exactly 2 (`StyledLights_APointInClusterMinusOneWithNoVisData_ListsNothing`); the no-vis-data all-ones branch, at least 3 (`ModelLightingAt_ThePointsAndTheLampsClusters_FollowCmVis(False,0,0,1)`). "At least" because the output was cut at three names.
+**A survivor, then a test:** dropping flags 6's cube for `NoStaticState` left all 3,538 green, so `Pose_ABakedStaticPropBesideFiveStyledLamps_DrawsTheLoserInItsCube` now fails on it.
+`FUN_1801b6bf0` reads `row[-1]` for a lamp in cluster −1, and we call that out of the PVS (`InPvs`'s remarks; two of koth_toxic's lights are the only known case).
+TRX, Debug, on this source: Content 1,869 executed of 1,935; Scene 3,539 of 3,539; Rendering 1,400 of 1,478; Presentation 1,334 of 1,334; none failed. The far frame re-shot on this source: patch 178.0 against TF2's 228.1, whole frame 167.4, both as the table above reads, so the review moved nothing in this frame.
+
 **Review that did not become a change:** the cluster is read on a map with no vis data, because `CM_Vis` tests for −1 before it looks for any, so a
 point in solid on such a map must still see nothing. A model in cluster −1 losing every world light is the engine, not a port bug. Both are
 in finding 66.
@@ -40534,7 +40546,7 @@ in finding 66.
 `LevelLighting.From` static states 1,312 ms, beside 1.27 s in B667's record (measurements/2026-11-02-b667-trace-cost.md). So it did
 not blow up, and that is all this can say.
 
-## B668 — `IVEngineClient::ComputeLighting` → `LocalLights.AddTo` is not traced (2026-11-02) — OPEN, partly read (an inferred divergence)
+## B668 — `IVEngineClient::ComputeLighting` → `LocalLights.AddTo` is not traced (2026-11-02) — PART FIXED 2026-11-03: read as `FUN_1801b7fd0` and ported, without the live-dlight term
 
 B666 ported the engine's per-light visibility trace at every `AddWorldLightToLightingState` (`0x1801b60a0`) site that passes
 `skipTrace` 0. `LevelLighting`'s `AddTo` path (the `ComputeLighting` entry) stays untraced: **its engine caller was not among
@@ -40549,8 +40561,11 @@ inference from "no other route to `0x1801b60a0`", *not* a read of `ComputeLighti
 the eye light, impact-particle colour) is a divergence. Also unread:
 the cvar at `DAT_18075b318 + 0x58` (its name and default) and the 192-unit shadow cache of `FUN_1801b8e20` that B453 recorded;
 the world-light path passes no cache, so the cache only matters if another caller does.
-**Widened by B669 (2026-11-03):** surface lights now reach `AddTo` too, with no `r_worldlightmin`, still untraced and with no PVS gate, so
-a rope, the eye light or impact colour can pick up a light panel through a wall. That is further from the traced behaviour inferred above.
+**Widened by B669 (2026-11-03), and then closed by the read above being finished:** surface lights reached `AddTo` too, untraced and ungated, so
+a rope, the eye light or impact colour could pick up a light panel through a wall. Finding [66](findings/66-tf2-barely-uses-dynamic-lights.md#computelighting-reads-the-cache-and-folds-its-slots-b668-2026-11-03)
+has the read (`FUN_1801b7fd0`) and `LevelLighting.ComputeLighting` is now its port: the entry's own state, traced and gated when it was built, with
+each slot folded at the asked point. **Still divergent, only under a live dlight:** the engine's flags 0xf merge dlights into that state. A dlight holding a slot adds nothing here, since the fold skips it, and ours matches that. A world light it evicts folds at the entry's point rather than the asked one, and a dlight that loses a slot reaches the cube. Ours has neither. The only allocator a demo drives is the recorder's own Dragon's Fury fireball. The two unread items above (the cvar and `FUN_1801b8e20`'s shadow cache) stay unread. `LocalLights.AddTo` no
+longer has a production caller. Tests: `ComputeLighting_*` in `LightingStateConformanceTests`; sabotage below in B669's review list.
 
 ## B667 — a visibility trace costs map load time: +2.2 s on koth_toxic (2026-11-02) — FIXED in part: the displacement sweep is a third of what it was, output identical; the brush tree is untouched
 

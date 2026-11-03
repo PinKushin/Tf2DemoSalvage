@@ -156,18 +156,19 @@ public sealed class PropShadeProbe : IProbe
                 output.WriteLine(string.Create(
                     CultureInfo.InvariantCulture,
                     $"    lamp at ({lamp.X:0} {lamp.Y:0} {lamp.Z:0}) colour ({lamp.Red:0.###} {lamp.Green:0.###} {lamp.Blue:0.###}) " +
-                    $"attenuation {lamp.Constant:0.###}/{lamp.Linear:0.###}/{lamp.Quadratic:0.###} {kind}, {Seen(lighting, origin, (lamp.X, lamp.Y, lamp.Z))}"));
+                    $"attenuation {lamp.Constant:0.###}/{lamp.Linear:0.###}/{lamp.Quadratic:0.###} {kind}, {Seen(lighting, origin, level.WorldLights.First(light => light.Origin == (lamp.X, lamp.Y, lamp.Z)))}"));
             }
         }
     }
 
     /// <summary>
     /// The production visibility trace from the lighting origin to a light (<see cref="LevelLighting.Occlusion"/>, B666):
-    /// how far short of it the ray stops, and whether the light cache keeps it — or, loudly, that no trace ran.
+    /// how far short of it the ray stops, whether the PVS lets it through, and whether the light cache keeps it — or, loudly, that no
+    /// trace ran.
     /// </summary>
-    private static string Seen(LevelLighting lighting, (float X, float Y, float Z) from, (float X, float Y, float Z) light) =>
+    private static string Seen(LevelLighting lighting, (float X, float Y, float Z) from, BspWorldLight light) =>
         lighting.Occlusion(light, from.X, from.Y, from.Z) is { } traced
-            ? string.Create(CultureInfo.InvariantCulture, $"blocked {traced.Blocked:0.#}, trace keeps {traced.Kept}")
+            ? string.Create(CultureInfo.InvariantCulture, $"blocked {traced.Blocked:0.#}, in pvs {traced.InPvs}, trace keeps {traced.Kept}")
             : "NOT TRACED: no visibility trace is wired, so whether the light is behind a wall is unknown";
 
     /// <summary>
@@ -198,7 +199,7 @@ public sealed class PropShadeProbe : IProbe
                 CultureInfo.InvariantCulture,
                 $"      {light.Kind} at ({light.Origin.X:0} {light.Origin.Y:0} {light.Origin.Z:0}) {distance:0} away, normal {light.Normal}, " +
                 $"intensity ({light.Intensity.Red:0} {light.Intensity.Green:0} {light.Intensity.Blue:0}), " +
-                $"reaches {LocalLights.Reaches(light, origin.X, origin.Y, origin.Z)}, {Seen(lighting, origin, light.Origin)}"));
+                $"reaches {LocalLights.Reaches(light, origin.X, origin.Y, origin.Z)}, {Seen(lighting, origin, light)}"));
         }
     }
 

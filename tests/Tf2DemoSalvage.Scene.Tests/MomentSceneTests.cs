@@ -1563,6 +1563,56 @@ public sealed class MomentSceneTests
     }
 
     /// <remarks>
+    /// **B669's flags-6 cube.** `FUN_1801ba590` starts a baked prop's cube at zero, and `FUN_1801b60a0` folds the light
+    /// that loses the fifth rank into it through `FUN_1801b5db0`. So a fifth styled lamp shows in the cube, not as a
+    /// slot. Dropping the cube for `NoStaticState` made the loser vanish while the test above stayed green.
+    /// </remarks>
+    [Test]
+    public void Pose_ABakedStaticPropBesideFiveStyledLamps_DrawsTheLoserInItsCube()
+    {
+        EntityModelSet models = new()
+        {
+            Geometry = _ => new PropModels.ModelFrames(
+                [new[] { new PropVertex(0, 0f, 0f, 0f, 0f, MaterialIndex: 3) }],
+                new Dictionary<int, (int Start, int Frames, float CyclesPerSecond)> { [0] = (0, 1, 0f) },
+                [0],
+                [true]),
+        };
+
+        models.StaticPropColours = new Dictionary<int, float[]> { [PropModels.FirstStaticPropEntityIndex] = [.5f, .5f, .5f] };
+
+        LightStyleValues values = new();
+        values.Set(5, "m");
+        values.Advance(0d);
+
+        Content.Bsp.BspWorldLight lamp = StaticPlusDynamicLightingConformanceTests.Lamp(5, 0, 0f);
+
+        Content.Bsp.BspWorldLight loser = LevelLightingTests.Lamp((0f, 0f, 140f), 400f) with { Style = 5, Cluster = 0 };
+
+        LevelLighting lighting = StaticPlusDynamicLightingConformanceTests.Map([lamp, lamp, lamp, lamp, loser]);
+        lighting.StyleScale = values.Scale;
+
+        MomentScene scene = new(models, new ViewmodelScene(), new RecordingLogger())
+        {
+            Upload = new Uploads(),
+            Appearance = new Appearance(),
+            Lighting = lighting,
+            StaticProps =
+                [PropModels.StaticModel(new Content.Bsp.BspStaticProp("models/props/crate.mdl", 0f, 0f, 100f, 0f, 0f, 0f, 1f), 0)],
+        };
+
+        scene.Build([], [], Info());
+        scene.Pose(Info());
+
+        ModelInstance drawn = scene.Instances.ShouldHaveSingleItem();
+
+        drawn.Locals.ShouldNotBeNull().Count.ShouldBe(4, "the fifth lamp loses its slot");
+        drawn.Light.ShouldBe(
+            Content.Bsp.LocalLights.Fold(LevelLighting.NoStaticState, loser, 0f, 0f, 100f, values.Scale),
+            "the cube starts at zero and holds exactly the loser, folded at the prop's own point");
+    }
+
+    /// <remarks>
     /// **B425's static-prop bit.** `FUN_1801b5260` sets a dlight's bit in the handle's `+0x1a4` when the dlight's PVS
     /// holds the prop, and `FUN_1801ba590` bit 2 ranks it in on top of the colours; once `CL_DecayLights` kills it the
     /// live mask `DAT_1806996c4` clears the bit and the colours stand alone.

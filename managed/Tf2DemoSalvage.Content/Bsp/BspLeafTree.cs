@@ -222,8 +222,9 @@ public sealed class BspLeafTree
     ///
     /// **−1 is an ordinary answer, not an error.** `vvis` gives solid leaves no cluster, and a point
     /// inside the world's shell or outside the map lands in one — which the viewer's free camera
-    /// does constantly. A caller filtering by visibility has to treat that as "no filter available
-    /// here" rather than as "nothing is visible".
+    /// does constantly. What it means is the caller's to say: to the light cache it means nothing is visible, since `CM_Vis`
+    /// (`engine.dll` `FUN_18016b230`) zeroes the row for exactly −1, with vis data or without; a caller that culls a free camera
+    /// may instead take it as "no filter available here".
     /// </remarks>
     public int Cluster(int leaf)
     {

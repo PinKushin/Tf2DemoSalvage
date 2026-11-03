@@ -86,6 +86,27 @@ public sealed class LocalLightSurfaceConformanceTests
         into[0].Spot.ShouldBeTrue();
     }
 
+    /// <summary>
+    /// The surface exemption skips both comparisons that used to refuse a NaN, and one in a slot breaks the sort's order and poisons a
+    /// cached cube. A NaN strength is refused for every kind, and the control beside it survives.
+    /// </summary>
+    [Test]
+    public void Split_ASurfaceLightOfNaNIntensity_IsNeitherSlottedNorFolded()
+    {
+        List<BspWorldLight> lights =
+        [
+            Surface((0f, 0f, 100f), (0f, 0f, -1f), float.NaN),
+            Lamp((0f, 0f, 100f), 10000f),
+        ];
+        Span<LocalLight> into = stackalloc LocalLight[LocalLights.MaximumLocalLights];
+        AmbientCube cube = default;
+
+        LocalLights.Split(lights, 0f, 0f, 0f, into, ref cube).ShouldBe(1);
+
+        into[0].Red.ShouldBe(10000f);
+        cube.PositiveZ.Red.ShouldBe(0f);
+    }
+
     /// <summary>The radius is the only cull: `d² &gt; r²` is out, and exactly on it is in.</summary>
     [TestCase(100f, 1)]
     [TestCase(99.9f, 0)]

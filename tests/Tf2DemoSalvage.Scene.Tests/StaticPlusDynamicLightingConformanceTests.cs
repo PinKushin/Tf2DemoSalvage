@@ -52,7 +52,7 @@ public sealed class StaticPlusDynamicLightingConformanceTests
         LevelLighting lighting = Map([Lamp(0, cluster: 0) with { Origin = (0f, 30f, 120f) }, Lamp(Style, cluster: 0)]);
 
         lighting.LightingAt(0f, 0f, 100f).Locals.Count.ShouldBe(2, "the control: both lamps reach the point");
-        lighting.StaticPlusDynamicLights(1000, 0f, 0f, 100f).ShouldHaveSingleItem().Y.ShouldBe(0f, "only the styled lamp");
+        lighting.StaticPlusDynamicLights(1000, 0f, 0f, 100f).Locals.ShouldHaveSingleItem().Y.ShouldBe(0f, "only the styled lamp");
     }
 
     /// <summary>`FUN_1801b5400` takes each listed light at its current style value: `'g'` is 132 of 264, half.</summary>
@@ -64,7 +64,7 @@ public sealed class StaticPlusDynamicLightingConformanceTests
         values.Advance(0d);
 
         LevelLighting lighting = Map([Lamp(Style, cluster: 0)]);
-        LocalLight full = lighting.StaticPlusDynamicLights(1000, 0f, 0f, 100f).ShouldHaveSingleItem();
+        LocalLight full = lighting.StaticPlusDynamicLights(1000, 0f, 0f, 100f).Locals.ShouldHaveSingleItem();
 
         lighting.StyleScale = values.Scale;
 
@@ -72,7 +72,7 @@ public sealed class StaticPlusDynamicLightingConformanceTests
         // because the first `Advance` reports every style changed and `LightStyleEffects` stamps them — pinned by
         // `LightStyleEffectsTests.StepOver_TheFirstFrame_RanksAStaticPropsStyledLightsAgainAtTheDemosValue`.
         lighting.StylesChanged([Style]);
-        LocalLight half = lighting.StaticPlusDynamicLights(1000, 0f, 0f, 100f).ShouldHaveSingleItem();
+        LocalLight half = lighting.StaticPlusDynamicLights(1000, 0f, 0f, 100f).Locals.ShouldHaveSingleItem();
 
         values.Scale(Style).ShouldBe(0.5f);
         half.ShouldBe(full with { Red = full.Red * 0.5f, Green = full.Green * 0.5f, Blue = full.Blue * 0.5f });
@@ -85,7 +85,7 @@ public sealed class StaticPlusDynamicLightingConformanceTests
         LevelLighting lighting = Map([Lamp(Style, cluster: 0)]);
         lighting.StyleScale = _ => 0f;
 
-        lighting.StaticPlusDynamicLights(1000, 0f, 0f, 100f).ShouldBeEmpty();
+        lighting.StaticPlusDynamicLights(1000, 0f, 0f, 100f).Locals.ShouldBeEmpty();
     }
 
     /// <summary>Bit 2: a live dlight whose PVS holds the prop is ranked in; out of PVS or dead, it is not.</summary>
@@ -103,7 +103,7 @@ public sealed class StaticPlusDynamicLightingConformanceTests
         lights.Time = now;
         lights.Decay(0.05f);
 
-        lighting.StaticPlusDynamicLights(1000, 0f, 0f, 100f).Count.ShouldBe(expected);
+        lighting.StaticPlusDynamicLights(1000, 0f, 0f, 100f).Locals.Count.ShouldBe(expected);
     }
 
     /// <summary>
@@ -119,11 +119,11 @@ public sealed class StaticPlusDynamicLightingConformanceTests
         DynamicLight light = lights.AllocDlight(1);
         (light.X, light.Y, light.Z, light.Radius, light.Red, light.Die) = (0f, 0f, 120f, 255f, 255, 1.05f);
 
-        lighting.StaticPlusDynamicLights(1000, 0f, 0f, 100f).Count.ShouldBe(1, "the control: unflagged, it lights");
+        lighting.StaticPlusDynamicLights(1000, 0f, 0f, 100f).Locals.Count.ShouldBe(1, "the control: unflagged, it lights");
 
         light.Flags = DynamicLights.NoModelIllumination;
 
-        lighting.StaticPlusDynamicLights(1000, 0f, 0f, 100f).ShouldBeEmpty();
+        lighting.StaticPlusDynamicLights(1000, 0f, 0f, 100f).Locals.ShouldBeEmpty();
     }
 
     /// <summary>
@@ -137,7 +137,7 @@ public sealed class StaticPlusDynamicLightingConformanceTests
         LevelLighting lighting = Map([]);
         lighting.Dynamic = new DynamicLights { Time = 1f };
 
-        lighting.StaticPlusDynamicLights(1000, 0f, 0f, 100f).ShouldBeEmpty();
+        lighting.StaticPlusDynamicLights(1000, 0f, 0f, 100f).Locals.ShouldBeEmpty();
         lighting.StaticPropFullLightingAt(1000, 0f, 0f, 100f).Lighting.Locals.ShouldBeEmpty();
 
         lighting.DlightsExamined.ShouldBe(0, "32 dead slots: none is the live set's");
@@ -157,7 +157,7 @@ public sealed class StaticPlusDynamicLightingConformanceTests
             (light.X, light.Y, light.Z, light.Radius, light.Red, light.Die) = (0f, 0f, 120f, radius, 255, 2f);
         }
 
-        lighting.StaticPlusDynamicLights(1000, 0f, 0f, 100f).Count.ShouldBe(1, "a radius of 1 does not reach 20 units");
+        lighting.StaticPlusDynamicLights(1000, 0f, 0f, 100f).Locals.Count.ShouldBe(1, "a radius of 1 does not reach 20 units");
         lighting.DlightsExamined.ShouldBe(3);
     }
 
@@ -168,7 +168,7 @@ public sealed class StaticPlusDynamicLightingConformanceTests
         LevelLighting lighting = Map([Lamp(Style, cluster: 0)]);
         lighting.Dynamic = new DynamicLights { Time = 1f };
 
-        lighting.StaticPlusDynamicLights(1000, 0f, 0f, 100f).ShouldHaveSingleItem();
+        lighting.StaticPlusDynamicLights(1000, 0f, 0f, 100f).Locals.ShouldHaveSingleItem();
         lighting.DlightsExamined.ShouldBe(0);
     }
 
@@ -191,7 +191,7 @@ public sealed class StaticPlusDynamicLightingConformanceTests
         allocated[1].Radius = 0f;
         lights.Decay(0.05f);
 
-        lighting.StaticPlusDynamicLights(1000, 0f, 0f, 100f).Count.ShouldBe(2);
+        lighting.StaticPlusDynamicLights(1000, 0f, 0f, 100f).Locals.Count.ShouldBe(2);
         lighting.DlightsExamined.ShouldBe(2, "slots 0 and 2; slot 1 is dead");
     }
 
@@ -205,8 +205,8 @@ public sealed class StaticPlusDynamicLightingConformanceTests
     {
         LevelLighting lighting = Map([Lamp(Style, cluster: 0)]);
 
-        LocalLight first = lighting.StaticPlusDynamicLights(1000, 0f, 0f, 100f).ShouldHaveSingleItem();
-        lighting.StaticPlusDynamicLights(1000, 0f, 0f, 100f).ShouldHaveSingleItem().ShouldBe(first);
+        LocalLight first = lighting.StaticPlusDynamicLights(1000, 0f, 0f, 100f).Locals.ShouldHaveSingleItem();
+        lighting.StaticPlusDynamicLights(1000, 0f, 0f, 100f).Locals.ShouldHaveSingleItem().ShouldBe(first);
 
         lighting.StyledRankings.ShouldBe(1, "the second draw reads +0x88");
     }
@@ -221,14 +221,14 @@ public sealed class StaticPlusDynamicLightingConformanceTests
         lighting.StyleScale = values.Scale;
         lighting.StylesChanged(values.Advance(0d));
 
-        LocalLight full = lighting.StaticPlusDynamicLights(1000, 0f, 0f, 100f).ShouldHaveSingleItem();
+        LocalLight full = lighting.StaticPlusDynamicLights(1000, 0f, 0f, 100f).Locals.ShouldHaveSingleItem();
 
         values.Set(Style, "g");
         IReadOnlyList<int> changed = values.Advance(0d);
         changed.ShouldBe([Style]);
         lighting.StylesChanged(changed);
 
-        LocalLight half = lighting.StaticPlusDynamicLights(1000, 0f, 0f, 100f).ShouldHaveSingleItem();
+        LocalLight half = lighting.StaticPlusDynamicLights(1000, 0f, 0f, 100f).Locals.ShouldHaveSingleItem();
 
         half.ShouldBe(full with { Red = full.Red * 0.5f, Green = full.Green * 0.5f, Blue = full.Blue * 0.5f });
         lighting.StyledRankings.ShouldBe(2);
@@ -240,9 +240,9 @@ public sealed class StaticPlusDynamicLightingConformanceTests
     {
         LevelLighting lighting = Map([Lamp(Style, cluster: 0), Lamp(Style + 1, cluster: 1)]);
 
-        lighting.StaticPlusDynamicLights(1000, 0f, 0f, 100f).ShouldHaveSingleItem();
+        lighting.StaticPlusDynamicLights(1000, 0f, 0f, 100f).Locals.ShouldHaveSingleItem();
         lighting.StylesChanged([Style + 1]);
-        lighting.StaticPlusDynamicLights(1000, 0f, 0f, 100f).ShouldHaveSingleItem();
+        lighting.StaticPlusDynamicLights(1000, 0f, 0f, 100f).Locals.ShouldHaveSingleItem();
 
         lighting.StyledRankings.ShouldBe(1, "style 6's lamp is out of PVS, so not listed; its stamp is not this handle's");
     }
@@ -255,24 +255,24 @@ public sealed class StaticPlusDynamicLightingConformanceTests
         DynamicLights lights = new() { Time = 1f };
         lighting.Dynamic = lights;
 
-        lighting.StaticPlusDynamicLights(1000, 0f, 0f, 100f).ShouldHaveSingleItem().Y.ShouldBe(30f, "the control: the lamp alone");
+        lighting.StaticPlusDynamicLights(1000, 0f, 0f, 100f).Locals.ShouldHaveSingleItem().Y.ShouldBe(30f, "the control: the lamp alone");
 
         DynamicLight light = lights.AllocDlight(1);
         (light.X, light.Y, light.Z, light.Radius, light.Red, light.Die) = (0f, 0f, 120f, 255f, 255, 2f);
 
-        IReadOnlyList<LocalLight> both = lighting.StaticPlusDynamicLights(1000, 0f, 0f, 100f);
+        IReadOnlyList<LocalLight> both = lighting.StaticPlusDynamicLights(1000, 0f, 0f, 100f).Locals;
 
         both.Select(static local => (local.Y, local.Z)).ShouldBe([(30f, 120f), (0f, 120f)], ignoreOrder: true);
         lighting.StyledRankings.ShouldBe(1);
     }
 
     /// <summary>
-    /// The cached four plus a dlight rank as the whole list plus the dlight would, ties included: five styled lamps at one
-    /// distance tie, so which four keep their slots is the tie rule's, and the dlight is ranked in among them. The expected
-    /// value is one ranking over everything, the shape this replaced.
+    /// Five styled lamps at one distance tie, so the earlier four keep the slots and the fifth is folded. A dlight far weaker than any of
+    /// them then evicts the first weakest in place (`FUN_1801b6550` at 100000, `FUN_1801b89a0`), and that lamp is folded too. This
+    /// test used to expect one ranking over everything, a ceiling the port had, not the engine's rule (B669).
     /// </summary>
     [Test]
-    public void StaticPlusDynamicLights_FiveEqualStyledLampsAndADlight_RankAsOneListWould()
+    public void StaticPlusDynamicLights_FiveEqualStyledLampsAndADlight_EvictsTheFirstOfTheFour()
     {
         BspWorldLight[] lamps =
         [
@@ -285,26 +285,24 @@ public sealed class StaticPlusDynamicLightingConformanceTests
 
         // The tie rule itself: of five equal lamps the EARLIER four keep the slots, in lump order, and the fifth — the lamp
         // straight above — takes none (`LocalLights`' insert refuses a light no stronger than the last kept).
-        lighting.StaticPlusDynamicLights(1000, 0f, 0f, 100f).Select(static local => (local.X, local.Y, local.Z))
+        lighting.StaticPlusDynamicLights(1000, 0f, 0f, 100f).Locals.Select(static local => (local.X, local.Y, local.Z))
             .ShouldBe([(20f, 0f, 100f), (-20f, 0f, 100f), (0f, 20f, 100f), (0f, -20f, 100f)]);
 
         DynamicLight light = lights.AllocDlight(1);
         (light.X, light.Y, light.Z, light.Radius, light.Red, light.Die) = (0f, 0f, 80f, 255f, 255, 2f);
 
-        LocalLight[] expected = new LocalLight[LocalLights.MaximumLocalLights];
-        int found = LocalLights.Strongest([.. lamps, DynamicLights.ToWorldLight(light, 0)], 0f, 0f, 100f, expected);
-
-        lighting.StaticPlusDynamicLights(1000, 0f, 0f, 100f).ShouldBe(expected[..found]);
+        lighting.StaticPlusDynamicLights(1000, 0f, 0f, 100f).Locals.Select(static local => (local.X, local.Y, local.Z))
+            .ShouldBe([(0f, 0f, 80f), (-20f, 0f, 100f), (0f, 20f, 100f), (0f, -20f, 100f)]);
         lighting.StyledRankings.ShouldBe(1);
     }
 
     /// <summary>
     /// Flags 7 with no live dlight hands over the handle's finished state (B607): `+0x88` holds the ranked result and the
     /// draw only adds to it. A second draw with nothing stamped ranks nothing and returns the same list; a stamp of a
-    /// listed style ranks once more, and the lights are what one ranking over the styled and style-0 lights gives.
+    /// listed style ranks once more, and the lights are the static state's then the listed one's, as `FUN_1801b5400` appends it.
     /// </summary>
     [Test]
-    public void StaticPropFullLightingAt_NoStampThenAListedStamp_RanksOnlyOnTheStampAndAsOneListWould()
+    public void StaticPropFullLightingAt_NoStampThenAListedStamp_RanksOnlyOnTheStamp()
     {
         BspWorldLight[] lamps = [Lamp(Style, cluster: 0), Lamp(0, cluster: 0) with { Origin = (0f, 30f, 120f) }];
         LevelLighting lighting = Map(lamps);
@@ -317,8 +315,7 @@ public sealed class StaticPlusDynamicLightingConformanceTests
         IReadOnlyList<LocalLight> again = lighting.StaticPropFullLightingAt(1000, 0f, 0f, 100f).Lighting.Locals;
 
         lighting.FullRankings.ShouldBe(2);
-        LocalLight[] expected = new LocalLight[LocalLights.MaximumLocalLights];
-        again.ShouldBe(expected[..LocalLights.Strongest(lamps, 0f, 0f, 100f, expected)]);
+        again.Select(static local => local.Y).ShouldBe([30f, 0f]);
         first.ShouldBe(again, "the stamp changed no value");
     }
 
@@ -333,7 +330,7 @@ public sealed class StaticPlusDynamicLightingConformanceTests
         LevelLighting lighting = Map([Lamp(Style, cluster: 0), Lamp(0, cluster: 0) with { Origin = (0f, 30f, 120f) }]);
         LevelLighting unstyled = Map([Lamp(0, cluster: 0)]);
 
-        IReadOnlyList<LocalLight> plus = lighting.StaticPlusDynamicLights(1000, 0f, 0f, 100f);
+        IReadOnlyList<LocalLight> plus = lighting.StaticPlusDynamicLights(1000, 0f, 0f, 100f).Locals;
         IReadOnlyList<LocalLight> full = lighting.StaticPropFullLightingAt(1000, 0f, 0f, 100f).Lighting.Locals;
         IReadOnlyList<LocalLight> state = unstyled.StaticPropFullLightingAt(1000, 0f, 0f, 100f).Lighting.Locals;
 
@@ -375,7 +372,7 @@ public sealed class StaticPlusDynamicLightingConformanceTests
 
         (lighting.StyledListsBuilt, lighting.StaticStateBuilds).ShouldBe((1, 1));
 
-        lighting.StaticPlusDynamicLights(1000, 0f, 0f, 100f).ShouldHaveSingleItem();
+        lighting.StaticPlusDynamicLights(1000, 0f, 0f, 100f).Locals.ShouldHaveSingleItem();
         lighting.StaticPropFullLightingAt(1000, 0f, 0f, 100f).Lighting.Locals.Count.ShouldBe(2);
 
         (lighting.StyledListsBuilt, lighting.StaticStateBuilds).ShouldBe((1, 1), "both draws read the handle built at load");
