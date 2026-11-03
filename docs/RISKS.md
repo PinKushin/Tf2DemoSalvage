@@ -40441,24 +40441,28 @@ figure in this entry, with its raw lines, is in measurements/2026-11-02-b667-tra
 - The machine was shared with a running game, so there are three to five runs per side. Debug is optimized (D176), so Debug
   and Release agree.
 
+"Before" is the flat loop (five runs), "after" the code as committed (four runs); both are the measurements doc's
+sections of those names.
+
 | koth_toxic, 2,212 lighting origins, 267,527 traces | before | after |
 |---|---|---|
-| `LevelLighting.From`, static states, mean of five | 3,893 ms | 3,601 ms |
-| traced minus untraced, mean of five | 888 ms | 588 ms |
-| replay, `TraceBrushOnly` | 870–993 ms | 509–522 ms |
-| of it, brush tree | 345–399 ms | 337–347 ms |
-| of it, displacement sweep | 525–583 ms | 163–173 ms |
+| `LevelLighting.From`, static states, mean | 3,893 ms | 3,596 ms |
+| traced minus untraced, mean | 888 ms | 645 ms |
+| replay, `TraceBrushOnly` | 870–993 ms | 487–532 ms |
+| of it, brush tree | 345–399 ms | 336–339 ms |
+| of it, displacement sweep | 525–583 ms | 156–198 ms |
 | triangles swept a ray (counted in the sweep after; the travel-box census before) | 37.1 | 2.4 |
 | checksum of all 13 `BspTrace` values of every trace | `5fe80ad4d5e01f8e` | `5fe80ad4d5e01f8e` |
 
-On cp_process_f12, `From` went from 963–1,045 ms to 952–1,024 ms, and the sweep from 135 ms to 66–91 ms; the checksum
-over 47,923 rays is `76d663f449d20c7c` both sides.
+On cp_process_f12 the sweep went from 134–136 ms to 64–91 ms, and the checksum over 47,923 rays is `76d663f449d20c7c` both
+sides.
 
-- **The 0.29 s gain is within noise of the task's 0.3 s bar.** It is the difference of two five-run means, taken on a machine
-  shared with a running game. It is kept because the change is output-identical (the checksum, and the tests below) and cuts
-  the sweep itself to a third. It is one revertable commit (`d780e5ca`).
-- **The internal control held.** The probe prints the wrapped trace total minus the counter's delta and flags a mismatch
-  past 25%: +18 to +99 ms, within it in every run.
+- **The gain on `From`, about 0.3 s, is within noise of the task's 0.3 s bar.** It is the difference of two means, taken on a
+  machine shared with a running game. It is kept because the change is output-identical (the checksum, and the tests below)
+  and cuts the sweep itself to a third. It is one revertable commit (`d780e5ca`).
+- **Both internal controls held in every run that printed them.** The probe prints each with its signed gap, flagged past
+  the larger of 25 ms and 25%. The first is the wrapped trace total against the counter's delta. The second is the split's
+  two parts against the replayed whole.
 - **The control against the viewer did not.** `From` reaches 3.9 s where the viewer measured 5.6 s
   (measurements/2026-11-02-b667-trace-cost.md). The rest of `From` is the computed ambient, about 2.8 s by subtraction and
   unchanged by the fix. *Not settled*: whether the viewer's extra time is contention with the rest of its load. Re-read its
@@ -40484,8 +40488,26 @@ over 47,923 rays is `76d663f449d20c7c` both sides.
   the best hit (`>`). On real terrain the pin is
   `DisplacementCollisionTests.SweepSurface_LongDiagonalRaysOverAMap_IsTheBruteForceAnswerFieldForField`: 240 rays on
   cp_badlands. Both assert that the cull skipped more groups than it swept, read through the `SweepCounts` seam.
-- **The ray's reciprocal is hoisted out of the per-group test,** as Valve's `vecInvDelta` is. It made no measurable difference
-  (sweep 156–198 ms after, against 163–173 ms without), and the checksums are unchanged.
+- **The ray's reciprocal is hoisted out of the per-group test,** as Valve's `vecInvDelta` is. It made no measurable
+  difference (the measurements doc's "after review" section), and the checksums are unchanged.
+- **Edges pinned besides those:** a start exactly on a group box's face, and a bound of 0, where `best` is 0 and every group
+  entered at or after 0 is culled. With a best of 0 no triangle can replace it, which `Misses`' remarks state. Both are in
+  `SweepSurface_ALimitOfZeroAndStartsOnABoxFace_EqualsTheBruteForceExactly`. The inside-start test also counts its starts
+  inside a group's box and asserts some are.
+
+**A flake found on the way, in B666's ranking (2026-11-02).** `Strongest_TracedAndWarm_AllocatesNothing` failed once in a
+full Content run: 7,920 B over 1,000 warm calls. It passed alone, and 20 times in a loop.
+- *Measured, not reproduced:* the `ranking-alloc` probe ran 5,000 trials with forced and natural gen-2 churn on another
+  thread and found 0 B. Its empty-window control also read 0, so the instrument is sound.
+- *Why, read from `SharedArrayPool.Trim`:* at this machine's memory load (Medium) a gen-2 collection drops a thread's
+  pooled array only after 15 s unused, and a warm ranking resets that clock on every call. Only High pressure drops it at
+  once, and a full parallel run beside the owner's game is the plausible way to reach it.
+- *Not identified:* the 7,920 B itself. One fresh rent is 152 B.
+- *Fixed at the root anyway:* `ChooseStrongestFirst` ranks up to 64 candidates on the stack, so the common case owes
+  nothing to the pool.
+- *The test now makes the condition deterministically:* it holds the array a renting ranking would take, after a forced
+  gen-2 collection. Put back on the pool, the ranking measures exactly 152 B and the test reddens.
+- `Strongest_MoreCandidatesThanTheStackHolds_TakesTheSameLightsAsTracingEveryOne` pins the rented path above the bound.
 
 **Open:** the brush tree is untouched, and is now two thirds of the remaining trace cost (about 340 ms). 121 traces a
 lighting origin is not waste.

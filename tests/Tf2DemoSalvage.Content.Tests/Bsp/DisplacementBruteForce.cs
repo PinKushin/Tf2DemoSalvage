@@ -12,6 +12,10 @@ namespace Tf2DemoSalvage.Content.Tests.Bsp;
 /// <remarks>
 /// Same order and the same strict `&lt;` as the set, so the two agree exactly — fraction, texdata, `DISPSURF_FLAG_SURFPROP2`,
 /// and plane — unless the set skipped a triangle that would have stopped the sweep shorter.
+///
+/// **The second-surfaceprop threshold and its "alpha sum above it" rule are a deliberate independent copy** of
+/// `DisplacementCollision`'s, taken from the SDK rather than read from production. Shared, a wrong threshold would agree with
+/// itself; copied, a change to the production rule reddens the comparison, which is the point of an oracle.
 /// </remarks>
 internal static class DisplacementBruteForce
 {

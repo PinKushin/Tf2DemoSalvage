@@ -478,8 +478,9 @@ public static class LocalLights
     /// the answer. A caller that folds (<see cref="Split"/>) still traces every admitted light, since every seen loser is
     /// added to the cube.
     ///
-    /// **Allocates nothing once warm**: the candidates go in a pooled array, sorted by a cached comparison — a static
-    /// prop under a live dlight ranks this way every frame (`StaticPropFullLightingAt`).
+    /// **Allocates nothing**: up to <see cref="StackCandidates"/> candidates go on the stack, sorted by a cached
+    /// comparison — a static prop under a live dlight ranks this way every frame (`StaticPropFullLightingAt`). Only a
+    /// longer list rents, and only it can allocate when the pool has been trimmed.
     /// </remarks>
     private static int ChooseStrongestFirst(
         IReadOnlyList<BspWorldLight> lights,
@@ -489,7 +490,11 @@ public static class LocalLights
         Func<int, float> style,
         Func<int, bool> traceKeeps)
     {
-        (float Strength, int Index)[] pooled = ArrayPool<(float Strength, int Index)>.Shared.Rent(lights.Count);
+        // On the stack up to a bound, so the common case owes nothing to the pool: `ArrayPool.Shared` drops what it holds
+        // under memory pressure, and a ranking that rented would then allocate afresh (B667 round 4).
+        (float Strength, int Index)[]? pooled =
+            lights.Count > StackCandidates ? ArrayPool<(float Strength, int Index)>.Shared.Rent(lights.Count) : null;
+        Span<(float Strength, int Index)> buffer = pooled is null ? stackalloc (float Strength, int Index)[StackCandidates] : pooled;
 
         try
         {
@@ -499,11 +504,11 @@ public static class LocalLights
             {
                 if (Candidate(lights[index], x, y, z, style, out float strength) && Ranks(strength))
                 {
-                    pooled[candidates++] = (strength, index);
+                    buffer[candidates++] = (strength, index);
                 }
             }
 
-            Span<(float Strength, int Index)> ranked = pooled.AsSpan(0, candidates);
+            Span<(float Strength, int Index)> ranked = buffer[..candidates];
             ranked.Sort(StrongerFirst);
 
             int count = 0;
@@ -522,9 +527,18 @@ public static class LocalLights
         }
         finally
         {
-            ArrayPool<(float Strength, int Index)>.Shared.Return(pooled);
+            if (pooled is not null)
+            {
+                ArrayPool<(float Strength, int Index)>.Shared.Return(pooled);
+            }
         }
     }
+
+    /// <summary>
+    /// How many candidates <see cref="ChooseStrongestFirst"/> ranks on the stack, 512 bytes of it; a list longer than this
+    /// rents from the pool instead.
+    /// </summary>
+    internal const int StackCandidates = 64;
 
     /// <summary>Whether a light reaches a point at all: a local kind, positive falloff, and the trace function's `r_worldlightmin`.</summary>
     /// <remarks>

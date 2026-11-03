@@ -77,6 +77,8 @@ public sealed class DisplacementGroupCullTests
         }
 
         int stopped = 0;
+        List<((float X, float Y, float Z) Low, (float X, float Y, float Z) High)> boxes = GroupBoxes(hills);
+        int insideStarts = 0;
 
         foreach (((float X, float Y, float Z) from, (float X, float Y, float Z) to) in rays)
         {
@@ -88,10 +90,86 @@ public sealed class DisplacementGroupCullTests
                 DisplacementBruteForce.Bits(culled).ShouldBe(DisplacementBruteForce.Bits(brute), $"from {from} to {to}, extents {extents}");
                 stopped += brute.Texdata >= 0 ? 1 : 0;
             }
+
+            insideStarts += boxes.Exists(box => Inside(from, box)) ? 1 : 0;
         }
 
         stopped.ShouldBeGreaterThan(rays.Count / 4, "the control: most of these rays meet terrain");
+        insideStarts.ShouldBeGreaterThan(0, "the control: some rays start inside a group's box, the inside-a-slab case of Misses");
     }
+
+    /// <remarks>
+    /// The two edges of `Misses`' safety argument that are not long rays: a start exactly on a group box's face, where a
+    /// slab's entry is exactly 0, and a bound of 0, where the best hit is 0 from the start and every group entered at or
+    /// after 0 is culled (see `Misses`' remarks). Both must give the brute force's answer exactly.
+    /// </remarks>
+    [Test]
+    public void SweepSurface_ALimitOfZeroAndStartsOnABoxFace_EqualsTheBruteForceExactly()
+    {
+        List<(int Texdata, IReadOnlyList<SurfaceVertex> Corners)> hills = Hills();
+        DisplacementCollision collision = DisplacementCollision.FromTriangles(hills);
+        int stopped = 0;
+        int rays = 0;
+
+        foreach (((float X, float Y, float Z) low, (float X, float Y, float Z) high) in GroupBoxes(hills))
+        {
+            (float X, float Y, float Z) middle = ((low.X + high.X) / 2f, (low.Y + high.Y) / 2f, (low.Z + high.Z) / 2f);
+
+            ((float X, float Y, float Z) From, (float X, float Y, float Z) To)[] onFaces =
+            [
+                ((middle.X, middle.Y, high.Z), (middle.X + 40f, middle.Y - 30f, high.Z - 300f)), // on the top face, down
+                ((low.X, middle.Y, middle.Z), (low.X + 500f, middle.Y + 20f, middle.Z - 200f)), // on the low X face, inward
+                ((high.X, middle.Y, high.Z + 20f), (high.X, middle.Y, low.Z - 50f)),            // in the high X face's plane, down
+            ];
+
+            foreach (((float X, float Y, float Z) from, (float X, float Y, float Z) to) in onFaces)
+            {
+                foreach (float limit in (ReadOnlySpan<float>)[1f, 0f])
+                {
+                    Swept culled = collision.SweepSurface(from.X, from.Y, from.Z, to.X, to.Y, to.Z, (0f, 0f, 0f), BspLeafTree.MaskSolid, limit);
+                    Swept brute = DisplacementBruteForce.Sweep(hills, from, to, (0f, 0f, 0f), limit);
+
+                    DisplacementBruteForce.Bits(culled).ShouldBe(DisplacementBruteForce.Bits(brute), $"from {from} to {to}, limit {limit}");
+                    stopped += brute.Texdata >= 0 ? 1 : 0;
+                    rays++;
+                }
+            }
+        }
+
+        // The control: with a bound of 1 the face starts meet terrain often; with 0 none can, so a quarter is plenty.
+        stopped.ShouldBeGreaterThan(rays / 4, $"of {rays}");
+    }
+
+    /// <summary>Each run of <see cref="DisplacementCollision.GroupSize"/> triangles' box, read from the corners as the set groups them.</summary>
+    private static List<((float X, float Y, float Z) Low, (float X, float Y, float Z) High)> GroupBoxes(
+        List<(int Texdata, IReadOnlyList<SurfaceVertex> Corners)> displacements)
+    {
+        List<((float X, float Y, float Z) Low, (float X, float Y, float Z) High)> boxes = [];
+
+        foreach ((_, IReadOnlyList<SurfaceVertex> corners) in displacements)
+        {
+            for (int first = 0; first < corners.Count; first += 3 * DisplacementCollision.GroupSize)
+            {
+                (float X, float Y, float Z) low = (float.PositiveInfinity, float.PositiveInfinity, float.PositiveInfinity);
+                (float X, float Y, float Z) high = (float.NegativeInfinity, float.NegativeInfinity, float.NegativeInfinity);
+
+                for (int at = first; at < Math.Min(first + (3 * DisplacementCollision.GroupSize), corners.Count); at++)
+                {
+                    low = (MathF.Min(low.X, corners[at].X), MathF.Min(low.Y, corners[at].Y), MathF.Min(low.Z, corners[at].Z));
+                    high = (MathF.Max(high.X, corners[at].X), MathF.Max(high.Y, corners[at].Y), MathF.Max(high.Z, corners[at].Z));
+                }
+
+                boxes.Add((low, high));
+            }
+        }
+
+        return boxes;
+    }
+
+    private static bool Inside((float X, float Y, float Z) point, ((float X, float Y, float Z) Low, (float X, float Y, float Z) High) box) =>
+        point.X > box.Low.X && point.X < box.High.X &&
+        point.Y > box.Low.Y && point.Y < box.High.Y &&
+        point.Z > box.Low.Z && point.Z < box.High.Z;
 
     /// <remarks>
     /// Two flat surfaces, the later 1/64 above the earlier, struck from above. The earlier's hit sets the best at
