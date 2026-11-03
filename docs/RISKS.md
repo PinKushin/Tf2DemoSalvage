@@ -40410,6 +40410,15 @@ its recreation shows nothing; that `_rt_FullFrameFB` and the bloom targets are l
   known-present class was dumped beside it, and `cl_find_ent water` searches client class names, which a
   `CFuncMoveLinear` need not contain. So whether TF2 draws `*145` at all is *unverified*, and nothing was captured.
 
+## B669 — cp_process_f12's white pipes and glass panel read 34% dark in ours at the same exposure (2026-11-03) — OPEN, found by B636's TF2 comparison
+
+**Measured** (live TF2 against ours, both `mat_force_tonemap_scale 1` and bloom off, camera `-3722 -1403 726 25 99`, patch
+x 800-1100, y 270-330 of the 1280x720 frame, `D:/b636/tf2/` and `D:/b636/ours/`): mean linear luminance x1000 **228.0 in
+TF2, 149.7 in ours**; sRGB 127 129 127 against 106 104 101. The other far patches agree at scale 1 (concrete wall 220.3 against
+219.7, whole frame 155.5 against 166.2). The patch holds white pipes behind glass-like grating on a catwalk, so a
+translucent or lit-through-glass surface is the first suspect. *Not investigated; no read of the engine yet.* The frame
+is the one B636's fix now draws at TF2's exposure, which is why the residual shows (before it, ours read 176.9 against 190.0).
+
 ## B668 — `IVEngineClient::ComputeLighting` → `LocalLights.AddTo` is not traced (2026-11-02) — OPEN, partly read (an inferred divergence)
 
 B666 ported the engine's per-light visibility trace at every `AddWorldLightToLightingState` (`0x1801b60a0`) site that passes
@@ -41544,9 +41553,29 @@ by a modulating material, and has to keep its scale exemption.
 TF2's live pair puts the fog's share of the scorch at the gap between 0.591 (fog off) and 0.658 (fog on), stored, at
 the centre.
 
-## B636 — the world pass gets the exposure only on frames that draw a 3D-sky or water view (2026-10-31) — FIXED in code (branch `batch-2`, 2026-11-03), shot before and after; **owner-visible, awaiting the owner's go before it is pushed**
+## B636 — the world pass gets the exposure only on frames that draw a 3D-sky or water view (2026-10-31) — FIXED 2026-11-03, checked against live TF2
 
-**Measured on captures (2026-11-03, Debug builds of main `9639f0be` and of this branch, f12 tick 30000, `D:/b636/shots/`;
+**Against live TF2 (2026-11-03, measured; TF2 build 11191711, `mat_hdr_level 2`, an empty listen server on `cp_process_f12`,
+`spec_goto`, 1280x720; ours the same camera at tick 45091 with `+cl_drawhud 0`; images in `D:/b636/tf2/` and `D:/b636/ours/`).**
+Mean linear luminance x1000 over one rectangle in both frames, TF2's auto exposure read at 0.700 at both cameras:
+
+| camera, patch | TF2 default | ours BEFORE | ours AFTER |
+|---|---|---|---|
+| far `-3722 -1403 726 25 99`, upper-left concrete wall | 180.7 | 276.5 (+53%) | **180.4** (-0.2%) |
+| far, concrete floor | 158.1 | 228.4 (+44%) | **150.5** (-4.8%) |
+| far, whole frame | 128.3 | 212.8 (+66%) | **140.3** (+9%) |
+| outdoor `-526 -422 575 0 15` (3D sky in frame), brick wall | 439.3 | 440.1 | 440.1 |
+| outdoor, sky | 487.8 | 489.5 | 489.5 |
+
+So the old far-camera frame was drawn at scale 1 where TF2 applies 0.70, and the fix brings it to TF2's within a few
+percent. The outdoor camera already re-sent the camera after the 3D sky, so it is unchanged and already matched (0.2-0.3%).
+**The pinned control** (`mat_force_tonemap_scale 1`, bloom off, both sides): the far wall reads 220.3 in TF2 and 219.7 in
+ours, the floor 196.1 and 187.0. One far patch, the white pipes and glass panel, reads **228.0 in TF2 against 149.7 in ours
+at scale 1** (-34%): a separate lighting residual that the pinned control shows is not exposure, and that B636's fix
+exposed by removing the scale-1 error that had been hiding it (before 176.9 against 190.0 was a coincidence). Not
+investigated here.
+
+**Measured on our own captures (2026-11-03, Debug builds of main `9639f0be` and of this fix, f12 tick 30000, `D:/b636/shots/`;
 side by side `sbs-far-before-after.png`; the numbers are 2x-subsampled pixel counts and mean channel mean).**
 - **Far camera `-3722 -1403 726 25 99` (no 3D sky or water view in frame):** before 103.27 mean, after 86.65: 126,443 of
   135,792 sampled pixels change, by at most 54 levels. `+mat_force_tonemap_scale 1` before changed 40,324 px by at most 14
@@ -41556,8 +41585,7 @@ side by side `sbs-far-before-after.png`; the numbers are 2x-subsampled pixel cou
   Default against forced differs by 126,444 px either way (62.84 to 75.03).
 - **Control:** with `+mat_force_tonemap_scale 1` before and after are identical at both cameras (0 px).
 - So the camera dependence of the old build is shown: only frames with no sky/water re-send drew at the wrong scale, and
-  the fix makes the far camera behave as the close one. **Not compared against a TF2 capture**, so whether 86.65 is the
-  value TF2 reads at this view is *unmeasured*; the fix follows Valve's constant-write, not a pixel match.
+  the fix makes the far camera behave as the close one. The TF2 comparison above settles which is right.
 
 **Review 2026-11-03 (code-review high + Opus):** the capture-log scale read 0 before any camera upload (fixed: before a
 camera it is the property); the per-call upload now skips an unchanged scale. **Mechanism proved (2026-11-02): read from our code, then a red harness test.** The constants every world-camera draw reads (world, overlays, opaque models, entity decals, translucent
