@@ -40379,6 +40379,23 @@ black. Not fixed: our equivalent of the engine's HDR-enabled decision is not est
   known-present class was dumped beside it, and `cl_find_ent water` searches client class names, which a
   `CFuncMoveLinear` need not contain. So whether TF2 draws `*145` at all is *unverified*, and nothing was captured.
 
+## B668 — `IVEngineClient::ComputeLighting` → `LocalLights.AddTo` is not traced (2026-11-02) — OPEN, unread
+
+B666 ported the engine's per-light visibility trace at every `AddWorldLightToLightingState` (`0x1801b60a0`) site that passes
+`skipTrace` 0. `LevelLighting`'s `AddTo` path (the `ComputeLighting` entry) stays untraced: **its engine caller was not among
+the callers read**, so whether it reaches `0x1801b60a0` with the trace on is *unknown*, not "no". Next step: read the
+`ComputeLighting` implementation in `engine.dll` and its `skipTrace` argument, then trace or document why not. Also unread:
+the cvar at `DAT_18075b318 + 0x58` (its name and default) and the 192-unit shadow cache of `FUN_1801b8e20` that B453 recorded;
+the world-light path passes no cache, so the cache only matters if another caller does.
+
+## B667 — a visibility trace costs map load time: +2.2 s on koth_toxic (2026-11-02) — OPEN, a lever unmeasured
+
+B666's trace made koth_toxic's 2,225 static states take 5.6 s against 3.3 s untraced (Debug; f12: 1.27 s against 1.05 s).
+Ranking strongest-first and remembering each (light origin, point) answer already cut it from 9.2 s. What is left is the cost
+of one trace: `MapLevel.TraceBrushOnly` also sweeps displacements along the whole ray. **Not measured per trace**, so whether
+displacement sweeping is the cost is a guess. Next step: time `TraceBrushOnly` split into brush and displacement parts over
+the vat's rays, then decide. The engine makes the same traces, so this is cost, not a departure.
+
 ## B666 — a lamp behind a wall still takes a light slot and lights a static prop (2026-11-02) — FIXED, merged (`91bda1d2`); B453's open item
 
 **Read (engine), 2026-11-02, by the lead in Ghidra on `engine.dll`** (disassembly). Whole read and its table of
