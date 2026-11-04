@@ -112,6 +112,20 @@ public sealed class PlaybackPresenterTests
         view.LastShownTick.ShouldBe(1);
     }
 
+    /// <remarks>A skip's frames spend no playback time (B708): the frame after its landing moves by that frame, not the walk.</remarks>
+    [Test]
+    public void HoldClock_WhilePlaying_RestartsTheElapsedTime()
+    {
+        (PlaybackPresenter presenter, FakePlaybackView view, FakeElapsedTime time) = Wired();
+
+        view.PressPlayPause(true);
+        int restarts = time.Restarts;
+
+        presenter.HoldClock();
+
+        time.Restarts.ShouldBe(restarts + 1);
+    }
+
     [Test]
     public void Advance_AStallLongerThanTheCap_IsClampedRatherThanTeleporting()
     {

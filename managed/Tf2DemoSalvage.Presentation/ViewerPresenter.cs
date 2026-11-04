@@ -848,6 +848,9 @@ public sealed partial class ViewerPresenter : IDisposable
             _view.OnUi(() =>
             {
                 _readingMap = true;
+
+                // RenderFrame returns early from here, so nothing would step a skip under way, and `Skipping` would hold through the load.
+                _effects.DropSkip();
                 ClearMap();
                 return 0;
             });
@@ -1042,6 +1045,7 @@ public sealed partial class ViewerPresenter : IDisposable
     /// </remarks>
     private DemoLoadResult Apply(DecodedDemo decoded, bool? read = null)
     {
+        _effects.DropSkip();
         _demo = decoded.Demo;
         _timeline = decoded.Timeline;
 
@@ -1160,6 +1164,7 @@ public sealed partial class ViewerPresenter : IDisposable
     /// <summary>Puts the form back into a state with no demo, and says why. UI thread only.</summary>
     private DemoLoadResult CouldNotOpen(string path, Exception failure)
     {
+        _effects.DropSkip();
         _demo = null;
         _timeline = null;
         _windowCheck?.Dispose();

@@ -247,6 +247,21 @@ public sealed partial class SoundPresenter(
     /// <remarks>A seek before that pass drops it, as it silences everything in flight.</remarks>
     public void Emit(SceneSound sound) => _emitted.Add(sound);
 
+    /// <summary>The frames of a skip go on with what is playing: gain and loops follow the ears, and nothing starts (B708).</summary>
+    /// <param name="output">Where sound goes.</param>
+    /// <param name="listener">Where the ears are.</param>
+    /// <remarks>
+    /// `_Host_RunFrame_Sound` (engine.dll FUN_18002fbe0) has no skip test, so the mixer runs through a skip. What this leaves out is every start:
+    /// a skip's sounds deal at its landing, unplayed (B504). The frame's <see cref="FrameSkip"/> is not taken here: the landing's update takes it.
+    /// </remarks>
+    public void FollowListener(IAudioSink output, (float X, float Y, float Z) listener)
+    {
+        ArgumentNullException.ThrowIfNull(output);
+
+        output.Reclaim();
+        Attenuate(output, listener);
+    }
+
     /// <summary>Hands over what the client made during a skip, for the next <see cref="Update"/> at its tick to deal (B504).</summary>
     /// <param name="skip">The skip's frames.</param>
     public void Skipped(SoundSkip skip) => _skip = skip;
@@ -528,25 +543,45 @@ public sealed partial class SoundPresenter(
     /// </remarks>
     private void Skip(SoundSchedule schedule, int? from, int to)
     {
+        SoundSkip? skip = _skip;
+
+        _skip = null;
+        _skipDealt = SequenceHash.Empty;
+
+        // What it read before a reload dealt first, as those frames ran first; and each reload then reads from the start (B708).
+        foreach (SoundSkip reloaded in skip?.Reloaded ?? [])
+        {
+            DealSkip(schedule, from, reloaded.To, reloaded, closes: false);
+            from = null;
+        }
+
+        DealSkip(schedule, from, to, skip, closes: true);
+    }
+
+    /// <summary>Deals one read of the demo: its temp entities' sounds and its frames, each frame after the sounds before it.</summary>
+    /// <param name="schedule">The demo's sounds.</param>
+    /// <param name="from">Where the read began, or null from the start.</param>
+    /// <param name="to">The last tick it read.</param>
+    /// <param name="skip">The client's frames during it, or null.</param>
+    /// <param name="closes">Whether this read lands: the landing frame then closes the list.</param>
+    private void DealSkip(SoundSchedule schedule, int? from, int to, SoundSkip? skip, bool closes)
+    {
         long began = Stopwatch.GetTimestamp();
         int after = from is { } at && at <= to ? at : int.MinValue;
         int dealt = 0;
 
-        _skipDealt = SequenceHash.Empty;
-
         // The client's frames during the skip, handed over by the view as it built the moment — which this update may reach a
         // tick or two later; one beyond it, or behind where playback was, is not this skip's. Without them, one frame.
         // The landing frame — the batch that reaches the target — closes the list; its own sounds come through `Emit`.
-        List<SkipFrame> frames = _skip is { } skip && skip.To <= to && skip.To > after ? [.. skip.Frames] : [];
+        List<SkipFrame> frames = skip is not null && skip.To <= to && skip.To > after ? [.. skip.Frames] : [];
 
-        if (frames.Count == 0 || frames[^1].Through < to)
+        if (closes && (frames.Count == 0 || frames[^1].Through < to))
         {
             frames.Add(new SkipFrame(to, []));
         }
+
         List<SceneSound> fired = [];
         int frame = 0;
-
-        _skip = null;
 
         foreach (SceneSound sound in schedule.Through(to))
         {

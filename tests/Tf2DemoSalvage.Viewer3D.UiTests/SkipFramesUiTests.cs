@@ -9,7 +9,7 @@ namespace Tf2DemoSalvage.Viewer3D.UiTests;
 public sealed class SkipFramesUiTests
 {
     private static readonly Regex Landed = new(
-        Regex.Escape(FramePresenter.SkipLandedLine) + @" (?<tick>\d+) after (?<batches>\d+) batches over (?<frames>\d+) frames",
+        Regex.Escape(FramePresenter.SkipLandedLine) + @" (?<tick>\d+) after (?<batches>\d+) batches over (?<frames>\d+) frames, at most (?<most>\d+) in a frame",
         RegexOptions.CultureInvariant,
         System.TimeSpan.FromSeconds(1));
 
@@ -41,6 +41,7 @@ public sealed class SkipFramesUiTests
             (ViewerSession.OpeningTick / DemoSkip.PacketsPerFrame) - 1,
             ViewerSession.OpeningTick / DemoSkip.PacketsPerFrame);
         frames.ShouldBeGreaterThan(1, "the frames are drawn, not run in one call");
-        (batches / (double)frames).ShouldBeLessThanOrEqualTo(7d, "at most a frame's six ticks of batches, and the empty one");
+        int.Parse(landed.Groups["most"].Value, CultureInfo.InvariantCulture)
+            .ShouldBeLessThanOrEqualTo(DemoSkip.BatchesThisFrame(double.MaxValue, 0.015f), "no frame reads more than `Host_FilterTime`'s 0.1 s of batches");
     }
 }

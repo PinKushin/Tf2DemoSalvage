@@ -40,6 +40,23 @@ public sealed class SoundPresenterMusicVolumeTests
         sink.Gained.ShouldBe([0.4f], "re-gained on the next pass while it plays");
     }
 
+    /// <remarks>`_Host_RunFrame_Sound` (engine.dll FUN_18002fbe0) has no skip test: what is playing keeps its gain current through a skip's frames (B708).</remarks>
+    [Test]
+    public void FollowListener_OnAFrameOfASkip_GainsWhatPlaysAndStartsNothing()
+    {
+        float musicVolume = 0.25f;
+        (SoundPresenter presenter, Sink sink) = Presenter(() => musicVolume, Sound(50, "#music/song.wav", 0.8f), Sound(70, "#music/next.wav", 0.8f));
+
+        Run(presenter, sink, 40, 60);
+        int started = sink.Started.Count;
+
+        musicVolume = 0.5f;
+        presenter.FollowListener(sink, (0f, 0f, 0f));
+
+        sink.Gained.ShouldBe([0.4f]);
+        sink.Started.Count.ShouldBe(started, "the sound at tick 70 is not reached by a frame of a skip");
+    }
+
     [Test]
     public void Update_AMusicOneShotAtMusicVolumeZero_StillStartsSoRaisingItIsHeard()
     {

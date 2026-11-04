@@ -12,11 +12,8 @@ internal enum SkipPhase
     /// <summary>The frames `demo_gototick` renders on its way (<see cref="DemoSkip"/>).</summary>
     Frames,
 
-    /// <summary>The model decals' replay of the ticks before the target, which is ours.</summary>
+    /// <summary>Its frames have read what they read: what is left of the decals' replay, and then the landing.</summary>
     Decals,
-
-    /// <summary>Everything is done, and the next step shows the tick.</summary>
-    Landing,
 }
 
 /// <summary>A skip under way across frames (B708): where its reading has got to, what it was asked for, what it has made.</summary>
@@ -41,21 +38,36 @@ internal sealed class SkipWalk(DemoTimeline timeline, int? from, int first, int 
 
     public SkipPhase Phase { get; set; }
 
-    /// <summary>The last tick shown on the way, or null before any.</summary>
-    public int? Shown { get; set; }
+    /// <summary>The tick a frame drawn during it shows: the last batch's, moving only forward until a reload.</summary>
+    public int Shown { get; set; }
 
     /// <summary>Whether its frames are read at all: with no sound scripts there is nothing they could deal.</summary>
     public bool ReadsFrames { get; init; } = true;
 
+    /// <summary>Whether the decals' replay is running beside its frames.</summary>
+    public bool DecalsUnderWay { get; set; }
+
     public List<SkipFrame> Frames { get; } = [];
+
+    /// <summary>The sounds of the last frame read, which a frame drawn at its tick adds to; null before the first.</summary>
+    public List<SceneSound>? LastLive { get; set; }
+
+    /// <summary>What it read before each reload: those frames ran, and nothing resets the deck they dealt (B504).</summary>
+    public List<SoundSkip> Reloaded { get; } = [];
 
     /// <summary>The read loops run so far, the frames' and the empty one that ends them.</summary>
     public int Batches { get; set; }
 
+    /// <summary>The most read loops one drawn frame ran.</summary>
+    public int MostBatchesInAFrame { get; set; }
+
     /// <summary>The frames drawn while it ran.</summary>
     public int FramesDrawn { get; set; }
 
-    public SkipCounts Counts { get; private set; } = new();
+    /// <summary>The corpses' stepping clock when it began, for what the walk's frames cost in it.</summary>
+    public long CorpseTicksAtStart { get; init; }
+
+    public SkipCounts Counts { get; } = new();
 
     /// <summary>The next batch's last tick, or null when the batch that reaches the target is next: that is the landing's.</summary>
     /// <returns>The tick, every one before the target.</returns>
@@ -78,29 +90,31 @@ internal sealed class SkipWalk(DemoTimeline timeline, int? from, int first, int 
         return through;
     }
 
-    /// <summary>Goes on to a new target, from where it is, or from the demo's start for one behind it.</summary>
+    /// <summary>Goes on to a new target: the reading only moves its target, unless it has read past it and reloads.</summary>
     /// <param name="target">The new tick.</param>
     /// <param name="start">The demo's first tick.</param>
-    /// <remarks>`SkipToTick` (FUN_180073b10) reloads for a target behind the one it has reached, and otherwise just moves the target.</remarks>
+    /// <remarks>
+    /// `SkipToTick` (engine.dll FUN_180073b10) compares the target with the tick playback has reached (vtable +0x18, `mov eax,[rcx+0x550]`,
+    /// not the skip target at +0x5bc): behind it, it reloads and reads from the start; otherwise it writes the target and the read goes on.
+    /// </remarks>
     public void Retarget(int target, int start)
     {
-        int reached = Phase == SkipPhase.Frames ? _cursor : Target + 1;
-
-        if (target < reached)
+        if (target < _cursor)
         {
+            // What it read stands, up to the last batch it reached, not the target it was on its way to.
+            if (Frames.Count > 0)
+            {
+                Reloaded.Add(new SoundSkip(From, Frames[^1].Through, [.. Frames]));
+            }
+
             _cursor = start;
             From = null;
-        }
-        else
-        {
-            _cursor = reached;
-            From = reached - 1;
+            Frames.Clear();
+            LastLive = null;
         }
 
         Target = target;
         Phase = SkipPhase.Frames;
-        Frames.Clear();
-        Counts = new SkipCounts();
     }
 }
 
@@ -141,11 +155,15 @@ internal sealed class SkipCounts
 
     public long PosingTicks { get; set; }
 
-    public long DecalBegan { get; set; }
+    public long DecalTicks { get; set; }
 
     public int DecalStart { get; set; }
 
-    public (long Simulate, long Setup, long Skin) DecalWas { get; set; }
+    public long DecalSimulate { get; set; }
+
+    public long DecalSetup { get; set; }
+
+    public long DecalSkin { get; set; }
 
     public bool Hud { get; set; }
 }

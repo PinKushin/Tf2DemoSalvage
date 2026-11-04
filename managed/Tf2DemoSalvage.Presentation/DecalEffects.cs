@@ -836,7 +836,7 @@ public sealed class DecalEffects
 
         do
         {
-            report = StepReplayOver(int.MaxValue, device, pose);
+            report = StepReplayOver(int.MaxValue, int.MaxValue, device, pose);
         }
         while (report is null);
 
@@ -879,17 +879,22 @@ public sealed class DecalEffects
         _replay = (timeline, start, target, ReplayTicks(timeline, start, target), props);
     }
 
-    /// <summary>Runs up to <paramref name="ticks"/> ticks of the replay.</summary>
-    /// <param name="ticks">How many ticks this frame takes.</param>
+    /// <summary>Forgets a replay under way, and the demo it holds.</summary>
+    public void AbandonReplay() => _replay = null;
+
+    /// <summary>Runs up to <paramref name="ticks"/> ticks of the replay, none past <paramref name="through"/>.</summary>
+    /// <param name="ticks">How many ticks this step takes.</param>
+    /// <param name="through">The last tick it may reach: the batch of the skip it runs beside.</param>
     /// <param name="device">The device that draws the decals.</param>
     /// <param name="pose">Shows a tick and poses its players, then answers that tick's frame.</param>
     /// <returns>What the replay did once it has finished, or null while it has not.</returns>
-    public DecalReplayReport? StepReplay(int ticks, IDecalUpload device, Func<int, DecalFrame> pose)
+    public DecalReplayReport? StepReplay(int ticks, int through, IDecalUpload device, Func<int, DecalFrame> pose)
     {
         ArgumentNullException.ThrowIfNull(pose);
 
         return StepReplayOver(
             ticks,
+            through,
             device,
             tick =>
             {
@@ -899,14 +904,20 @@ public sealed class DecalEffects
             });
     }
 
-    private DecalReplayReport? StepReplayOver(int ticks, IDecalUpload device, Func<int, (DecalFrame Frame, DecalContent Content)> pose)
+    /// <summary>The same over any device, each posed tick answering its frame and what its map and game hold (D214).</summary>
+    /// <param name="ticks">How many ticks this step takes.</param>
+    /// <param name="through">The last tick it may reach.</param>
+    /// <param name="device">The device that draws the decals.</param>
+    /// <param name="pose">Shows a tick and poses its players, then answers that tick's frame and content.</param>
+    /// <returns>What the replay did once it has finished, or null while it has not.</returns>
+    internal DecalReplayReport? StepReplayOver(int ticks, int through, IDecalUpload device, Func<int, (DecalFrame Frame, DecalContent Content)> pose)
     {
         if (_replay is not { } replay)
         {
             return new DecalReplayReport(0, _replaySkipping, _modelDecals.Count);
         }
 
-        for (int taken = 0; taken < ticks && _replayTick < replay.Target; taken++)
+        for (int taken = 0; taken < ticks && _replayTick < replay.Target && _replayTick <= through; taken++)
         {
             int tick = _replayTick++;
 

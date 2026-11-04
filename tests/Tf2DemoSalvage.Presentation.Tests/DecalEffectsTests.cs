@@ -759,6 +759,34 @@ public sealed class DecalEffectsTests
         device.ModelDecals.ShouldNotBeNull().For(Victim).ShouldNotBeNull();
     }
 
+    /// <remarks>A skip's batches take the replay with them, so the tick posed never passes the batch that read it (B708); in pieces it lands the same.</remarks>
+    [Test]
+    public void StepReplayOver_ThroughABatchsLastTick_PosesNothingPastItAndFinishesTheSameLater()
+    {
+        (DecalEffects decals, FakeDecalUpload device, _, _) = Presenter();
+        List<int> posed = [];
+        int start = decals.ReplayStartOver(Frame(300), Content(), 300).ShouldNotBeNull();
+
+        (DecalFrame, DecalContent) Pose(int tick)
+        {
+            posed.Add(tick);
+
+            return (Frame(tick, silent: true, [.. Timeline.PlayersAt(tick)]), Content());
+        }
+
+        decals.BeginReplay(start, 300);
+
+        decals.StepReplayOver(int.MaxValue, ImpactTick - 10, device, Pose).ShouldBeNull();
+        posed.ShouldBe(Enumerable.Range(ImpactTick - 16, 7));
+        decals.StepReplayOver(3, int.MaxValue, device, Pose).ShouldBeNull("the most a step may take");
+        posed.Count.ShouldBe(10);
+
+        DecalReplayReport report = decals.StepReplayOver(int.MaxValue, int.MaxValue, device, Pose).ShouldNotBeNull();
+
+        posed.ShouldBe(Enumerable.Range(ImpactTick - 16, 25));
+        report.Held.ShouldBe(1);
+    }
+
     [Test]
     public void ReplayOver_ASeek_ForgetsWhatTheModelsHeldBefore()
     {

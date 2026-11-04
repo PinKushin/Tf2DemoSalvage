@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 
+using Tf2DemoSalvage.Audio;
 using Tf2DemoSalvage.Content.Tests.Bsp;
 using Tf2DemoSalvage.Core.Container;
 using Tf2DemoSalvage.Render;
@@ -39,6 +40,7 @@ public sealed class ViewerSessionTests
     {
         _folder = Path.Combine(Path.GetTempPath(), "tf2salvage-tests", Path.GetRandomFileName());
         _gameFolder = null;
+        _environmentAtStart = [];
         _dirtyReads = 0;
         _hostBuild = "Debug";
         Directory.CreateDirectory(Path.Combine(_folder, "maps"));
@@ -131,7 +133,7 @@ public sealed class ViewerSessionTests
         StringWriter output = new();
         StringWriter error = new();
         List<int> exits = [];
-        Dictionary<string, string> environment = new(StringComparer.Ordinal);
+        Dictionary<string, string> environment = new(_environmentAtStart, StringComparer.Ordinal);
 #pragma warning disable CA2000 // The session disposes the provider; the rig disposes the session.
         MapProvider maps = new(
             Path.Combine(_folder, "no-steam-library.vdf"),
@@ -191,6 +193,9 @@ public sealed class ViewerSessionTests
     }
 
     private Dictionary<string, string> _environment = [];
+
+    /// <summary>What the session finds in its environment as it is built, for what it reads only then.</summary>
+    private Dictionary<string, string> _environmentAtStart = [];
 
     private static KeyPress Key(
         string name,
@@ -1476,6 +1481,192 @@ public sealed class ViewerSessionTests
         rig.Transport.Playing.ShouldBeFalse();
         rig.Transport.ShownTicks.ShouldContain(300);
         rig.Window.Count("Close now").ShouldBe(1);
+    }
+
+    /// <summary>The session's own frames are what a skip spreads over (B708): this is what makes every other skip test here mean anything.</summary>
+    [Test]
+    public void Construct_AnySession_SpreadsASkipOverItsFrames()
+    {
+        using Rig rig = Build();
+
+        rig.Session.Presenter.SkipsAcrossFrames.ShouldBeTrue();
+    }
+
+    /// <remarks>
+    /// `_Host_RunFrame` runs the read that reaches the target and then renders it: the frame it lands on is the tick asked for, not that tick
+    /// plus the frame's time, and a `--shot` and `--measure` take it from there.
+    /// </remarks>
+    [Test]
+    public async Task RenderFrame_ASkipWhilePlaying_LandsOnTheTickAskedFor()
+    {
+        using Rig rig = Build(WriteDemo("landing"), "--autoplay", "--tick", "700");
+        rig.Session.PlanStartup();
+        rig.Session.WindowShown();
+        (await rig.Session.Loading.ConfigureAwait(false)).Loaded.ShouldBeTrue();
+
+        for (int frame = 0; frame < 200 && (rig.Session.Presenter.Skipping || !rig.Transport.ShownTicks.Contains(700)); frame++)
+        {
+            rig.Session.RenderFrame();
+        }
+
+        rig.Transport.ShownTicks.ShouldContain(700, "the control: the opening sought it");
+        rig.Session.Presenter.Skipping.ShouldBeFalse("the control: it has landed");
+        rig.Transport.LastShownTick.ShouldBe(700, "the frame it landed on has not moved the clock past it");
+
+        rig.Session.RenderFrame();
+
+        rig.Transport.LastShownTick.ShouldBeInRange(701, 707, "and the next frame plays on from there by at most one frame's time");
+    }
+
+    [Test]
+    public async Task RenderFrame_WithoutAShot_TheOpeningLandingClearsAfterTheSkip()
+    {
+        using Rig rig = Build(WriteDemo("noshot"), "--tick", "700");
+        rig.Session.PlanStartup();
+        rig.Session.WindowShown();
+        (await rig.Session.Loading.ConfigureAwait(false)).Loaded.ShouldBeTrue();
+
+        Frames(rig.Session, 30);
+
+        rig.Log.Count("opening state applied at tick 700").ShouldBe(1);
+    }
+
+    /// <summary>`TF2VIEW_PLAY_SHOTS` reads the back buffer on a skip's frames too, paused or not: the walk's only instrument of what it drew.</summary>
+    [Test]
+    public async Task RenderFrame_APlayShotAtATickOnASkipsWay_IsCapturedWhilePaused()
+    {
+        string demo = WriteDemo("walked");
+
+        _environmentAtStart = new(StringComparer.Ordinal) { ["TF2VIEW_PLAY_SHOTS"] = $"{_folder} 0" };
+
+        using Rig rig = Build(demo, "--tick", "700").WithDevice();
+        rig.Session.PlanStartup();
+        rig.Session.WindowShown();
+        (await rig.Session.Loading.ConfigureAwait(false)).Loaded.ShouldBeTrue();
+
+        Frames(rig.Session, 60);
+
+        rig.Transport.Playing.ShouldBeFalse("the control: no frame here played");
+        rig.Device.Captured.Count.ShouldBe(1);
+    }
+
+    /// <summary>Records what a frame asked of the sound device.</summary>
+    private sealed class AskedSink : IAudioSink
+    {
+        public float MasterGain { get; set; } = 1f;
+
+        public int Reclaims { get; private set; }
+
+        public int Silences { get; private set; }
+
+        public int Play(SoundSample sample, float leftPan, float rightPan, float gain, float pitch, int entity, int channel) => 0;
+
+        public bool SetVoiceGain(int voice, float gain) => false;
+
+        public bool SetVoicePitch(int voice, float pitch) => false;
+
+        public bool SetGain(int entity, int channel, float gain) => false;
+
+        public bool SetPitch(int entity, int channel, float pitch) => false;
+
+        public void SilenceAll() => Silences++;
+
+        public int Reclaim() => Reclaims++;
+
+        public void Silence(int entity, int channel)
+        {
+            // Nothing is held.
+        }
+
+        public int Silence(int entity, int channel, SoundSample sample) => 0;
+    }
+
+    /// <remarks>
+    /// `_Host_RunFrame_Sound` (engine.dll FUN_18002fbe0) has no skip test, so losing focus mutes through a skip (`snd_mute_losefocus`), and
+    /// what is playing keeps following the ears. **But the move is the landing's**: taken here, the landing would not see it was a jump, and
+    /// what is in flight would go on over the new place.
+    /// </remarks>
+    [Test]
+    public async Task PlaySoundsOver_DuringASkip_FollowsFocusAndLeavesTheJumpToTheLanding()
+    {
+        using Rig rig = Build();
+        (await rig.Session.Presenter.LoadDemoAsync(WriteDemo("heard")).ConfigureAwait(false)).Loaded.ShouldBeTrue();
+        AskedSink sink = new();
+        FreeCamera ears = new() { Origin = (0f, 0f, 0f), Angles = (0f, 0f, 0f) };
+
+        // A schedule's first call has nothing in flight to silence: the demo's opening move takes it.
+        rig.Session.Presenter.FinishSkip();
+        rig.Session.Presenter.PlaySoundsOver(sink, () => ears, static () => null, 0, focused: true);
+        int reclaims = sink.Reclaims;
+
+        // Within `SoundSchedule.CatchUpTicks`, so only the jump says it is a skip: the distance would say so on its own past that.
+        rig.Transport.Scrub(50);
+        rig.Session.Presenter.Skipping.ShouldBeTrue("the control: the scrub began a walk");
+
+        rig.Session.Presenter.PlaySoundsOver(sink, () => ears, static () => null, 50, focused: false);
+        rig.Session.Presenter.PlaySoundsOver(sink, () => null, static () => null, 50, focused: false);
+
+        sink.MasterGain.ShouldBe(0f, "snd_mute_losefocus ships at 1");
+        sink.Reclaims.ShouldBe(reclaims + 1, "the frame with ears followed them");
+        sink.Silences.ShouldBe(0, "a frame of a skip starts and stops nothing");
+
+        rig.Session.Presenter.FinishSkip();
+        rig.Session.Presenter.PlaySoundsOver(sink, () => ears, static () => null, 50, focused: true);
+
+        sink.MasterGain.ShouldBe(1f);
+        sink.Silences.ShouldBe(1, "the landing took the jump, and silenced what was in flight");
+    }
+
+    /// <summary>The close path: a load that fails during a walk leaves nothing skipping, or every frame after it would wait for the landing.</summary>
+    [Test]
+    public async Task LoadDemo_AFailureDuringASkip_LeavesNothingSkipping()
+    {
+        using Rig rig = Build();
+        (await rig.Session.Presenter.LoadDemoAsync(WriteDemo("open")).ConfigureAwait(false)).Loaded.ShouldBeTrue();
+        rig.Transport.Scrub(700);
+        rig.Session.Presenter.Skipping.ShouldBeTrue("the control: the scrub began a walk and no frame has stepped it");
+
+        string broken = Path.Combine(_folder, "broken.dem");
+
+        await File.WriteAllBytesAsync(broken, [1, 2, 3]).ConfigureAwait(false);
+        (await rig.Session.Presenter.LoadDemoAsync(broken).ConfigureAwait(false)).Loaded.ShouldBeFalse();
+
+        rig.Session.Presenter.Skipping.ShouldBeFalse();
+    }
+
+    /// <summary>The load path: a demo opened during a walk ends it, and the frame after the read does not wait on it.</summary>
+    [Test]
+    public async Task LoadDemo_ANewDemoDuringASkip_EndsTheWalk()
+    {
+        using Rig rig = Build();
+        (await rig.Session.Presenter.LoadDemoAsync(WriteDemo("open")).ConfigureAwait(false)).Loaded.ShouldBeTrue();
+        rig.Transport.Scrub(700);
+        rig.Session.Presenter.Skipping.ShouldBeTrue("the control: the scrub began a walk and no frame has stepped it");
+
+        (await rig.Session.Presenter.LoadDemoAsync(WriteDemo("next")).ConfigureAwait(false)).Loaded.ShouldBeTrue();
+
+        rig.Log.Count(FramePresenter.SkipLandedLine + " 700").ShouldBe(0);
+    }
+
+    /// <summary>What `--then-seek` measures is the paused frame at its tick: nothing written on the walk there counts, and it says where it ended.</summary>
+    [Test]
+    public async Task RenderFrame_ThenSeekOnAMeasureRun_EndsAtTheTickWithNoSampleFromTheWalk()
+    {
+        using Rig rig = Build(WriteDemo("then"), "--measure", "1", "--then-seek", "700", "--autoplay");
+        rig.Session.PlanStartup();
+        rig.Session.WindowShown();
+        (await rig.Session.Loading.ConfigureAwait(false)).Loaded.ShouldBeTrue();
+
+        for (int frame = 0; frame < 60 && rig.Window.Count("Close") == 0; frame++)
+        {
+            rig.Session.RenderFrame();
+        }
+
+        string printed = rig.Out.ToString();
+
+        printed.ShouldContain(", ending at tick ");
+        printed.ShouldContain("measured 1 seconds paused at 700 after the seek, 0 samples", customMessage: "two frames of half a second write no second's line of their own");
+        rig.Transport.LastShownTick.ShouldBe(700);
     }
 
     [Test]

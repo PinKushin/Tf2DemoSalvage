@@ -154,6 +154,10 @@ public sealed class PlaybackPresenter
     /// </remarks>
     public void SetDemoLength(int lastTick) => _view.SetDemoLength(lastTick);
 
+    /// <summary>A frame that moved the clock some other way: the next <see cref="Advance"/> counts only the time since this one.</summary>
+    /// <remarks>Host frame time accumulates per frame; a skip's frames read the demo and spend none of it on playback (B708).</remarks>
+    public void HoldClock() => _elapsed.Restart();
+
     public void Play()
     {
         if (_clock is null)

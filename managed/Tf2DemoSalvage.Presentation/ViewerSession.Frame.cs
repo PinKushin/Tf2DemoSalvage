@@ -491,17 +491,7 @@ public sealed partial class ViewerSession
     /// **What is left here is the LISTENER and nothing else** (B188, D214): which camera the ears are at and whose eyes
     /// it is, asked for by <see cref="ViewerPresenter.PlaySounds(int, bool)"/> only once it knows there is a device to play through.
     /// </remarks>
-    private void PlaySounds()
-    {
-        // The skip's sounds deal at its end, unplayed, and what is already playing goes on in the device: the engine's mixer runs
-        // through a skip (`_Host_RunFrame_Sound`, no skip test) and the frames start nothing new (B504, B708).
-        if (!_presenter.Skipping)
-        {
-            PlaySoundsNow();
-        }
-    }
-
-    private void PlaySoundsNow() => _presenter.PlaySounds(_transport.CurrentTick, _window.IsActiveApp);
+    private void PlaySounds() => _presenter.PlaySounds(_transport.CurrentTick, _window.IsActiveApp);
 
     /// <returns>Whether a frame was actually drawn.</returns>
     /// <remarks>
@@ -578,8 +568,9 @@ public sealed partial class ViewerSession
         // **Nor a skip's frames** (B708): they are the seek, not playback, and each is a batch of it.
         bool onScreen = _presenter.HasDemo && _presenter.LoadsInFlight == 0 && openedBefore && !_presenter.Skipping && !_openingLanding;
 
-        // Nothing is opening once a frame has drawn with no demo and no load: a window with nothing to watch needs no beat.
-        if (onScreen || (!_presenter.HasDemo && _presenter.LoadsInFlight == 0))
+        // Nothing is opening once a frame has drawn with nothing to show and no load: a window with nothing to watch needs no beat.
+        // The timeline and not the demo: one whose schema failed has a header and no timeline, and its opening state never applies.
+        if (onScreen || (!_presenter.HasTimeline && _presenter.LoadsInFlight == 0))
         {
             _windowThread.Stop();
         }
@@ -663,7 +654,9 @@ public sealed partial class ViewerSession
             WriteSidecar(written);
         }
 
-        if (onScreen && _transport.Playing && _playedCaptures?.Due(_shownTick) is { } played)
+        // **And on a skip's frames, at the tick each shows** (B708): what the back buffer holds on the way, which no shot of a landing can say.
+        // A capture costs its frame a read-back, so a run taken for the walk's time lists none.
+        if (((onScreen && _transport.Playing) || _presenter.Skipping) && _playedCaptures?.Due(_shownTick) is { } played)
         {
             CaptureViewport(played);
         }
@@ -723,18 +716,27 @@ public sealed partial class ViewerSession
             // rather than gathered separately so the two cannot differ: what stdout shows is
             // literally what the log shows, which is the rule that stops a summary from being a
             // second, disagreeing measurement.
-            _measured.AddRate(rate);
+            //
+            // **Only playback's** (B708): `--then-seek` clears these and seeks, and a walk's seconds written after that are no second of the paused frame.
+            if (onScreen)
+            {
+                _measured.AddRate(rate);
+            }
 
             // The rebuild breakdown beside the rate, since one without the other says where the
             // frame went but not what it was doing.
             if (_moments.LastCost is { } cost)
             {
-                _measured.AddCost(cost);
+                if (onScreen)
+                {
+                    _measured.AddCost(cost);
+                }
+
                 _moments.LastCost = null;
             }
 
             // **What is alive, once a second, for a leak to show as a count that climbs** (lifetime audit, 2026-10-17).
-            if (_launch.MeasureSeconds is not null)
+            if (onScreen && _launch.MeasureSeconds is not null)
             {
                 (int trails, int modelDecals) = _effects.KeptCounts;
                 (long replayTicks, long replaySteps) = _effects.ParticleReplay;
@@ -811,8 +813,13 @@ public sealed partial class ViewerSession
     /// </remarks>
     public void Simulate()
     {
-        // **The demo's clock waits while a skip reads ahead** (B708): the frame's work is the skip's batch.
-        if (!_presenter.StepSkip())
+        // **The demo's clock waits while a skip reads ahead** (B708): the frame's work is the skip's batch, and the frame it lands on
+        // shows the tick asked for, with playback going on from there by the next frame's time and not the walk's.
+        if (_presenter.StepSkip())
+        {
+            _playback.HoldClock();
+        }
+        else
         {
             _playback.Advance();
         }

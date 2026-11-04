@@ -14,7 +14,11 @@ public readonly record struct SkipFrame(int Through, IReadOnlyList<SceneSound> L
 /// <param name="From">Where playback was, or null when it was nowhere.</param>
 /// <param name="To">The tick skipped to.</param>
 /// <param name="Frames">The frames, in order.</param>
-public sealed record SoundSkip(int? From, int To, IReadOnlyList<SkipFrame> Frames);
+public sealed record SoundSkip(int? From, int To, IReadOnlyList<SkipFrame> Frames)
+{
+    /// <summary>What it read before each reload a later `demo_gototick` made it take, in order; each dealt before this.</summary>
+    public IReadOnlyList<SoundSkip> Reloaded { get; init; } = [];
+}
 
 /// <summary>The frames `demo_gototick` renders on its way to a tick (B504).</summary>
 public static class DemoSkip
