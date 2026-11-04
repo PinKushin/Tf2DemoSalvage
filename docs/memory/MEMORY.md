@@ -7,7 +7,7 @@
 - [[the-lead-publishes-releases]] (D227); [[the-lead-does-not-decide-to-drop-an-item]]; [[when-to-call-the-advisor]] — after the first plan and on the changes.
 - [[how-to-prioritize-the-work]] — bugs, then measured fps/memory wins, then parity, housekeeping in the gaps.
 - [[parity-and-fps-gains-need-no-ask]]; [[parity-includes-how-the-engine-schedules-work]] — audits cover threads/queues/pools, not only what is drawn.
-- [[show-a-comparison-dont-ask-him-to-look]]; [[take-your-own-screenshot]]; [[read-the-back-buffer-for-a-picture-claim]]; [[take-the-golden-shot-dont-ask]]; [[delete-captures-after-measuring]]; [[delete-leftover-files-yourself]].
+- [[show-a-comparison-dont-ask-him-to-look]]; [[take-your-own-screenshot]]; [[use-each-apps-own-screenshot-command]]; [[read-the-back-buffer-for-a-picture-claim]]; [[take-the-golden-shot-dont-ask]]; [[delete-captures-after-measuring]]; [[delete-leftover-files-yourself]].
 - [[no-task-cards]] (D169/D171); [[no-interim-status-replies]]; [[spend-fewer-tokens]]; [[push-when-work-piles-up]]; [[verify-origin-main-after-push]]; [[check-at-the-owners-moment]].
 - [[one-run-at-a-time]]; [[parallel-agents-lock-the-gate-too]]; [[a-lock-holder-must-time-itself-out]]; [[a-gui-exe-does-not-hold-the-lock]]; [[my-own-processes-are-mine]]; [[take-the-desktop-lock-dont-defer]]; [[announce-before-launching]].
 - [[never-stop-a-working-subagent]]; [[one-subagent-and-prefer-cheap-models]] (D196); [[review-subagents-deeply]]; [[read-the-diff-before-merging-agent-work]]; [[review-for-recall]]; [[one-lsp-instance-is-shared-by-every-agent]].

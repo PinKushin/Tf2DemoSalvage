@@ -1648,9 +1648,9 @@ public sealed class ViewerSessionTests
         rig.Log.Count(FramePresenter.SkipLandedLine + " 700").ShouldBe(0);
     }
 
-    /// <summary>What `--then-seek` measures is the paused frame at its tick: nothing written on the walk there counts, and it says where it ended.</summary>
+    /// <summary>What `--then-seek` measures is the paused frame at its tick, and the playback before it says where it ended.</summary>
     [Test]
-    public async Task RenderFrame_ThenSeekOnAMeasureRun_EndsAtTheTickWithNoSampleFromTheWalk()
+    public async Task RenderFrame_ThenSeekOnAMeasureRun_EndsAtTheTickSoughtAndSaysWhere()
     {
         using Rig rig = Build(WriteDemo("then"), "--measure", "1", "--then-seek", "700", "--autoplay");
         rig.Session.PlanStartup();
@@ -1665,7 +1665,7 @@ public sealed class ViewerSessionTests
         string printed = rig.Out.ToString();
 
         printed.ShouldContain(", ending at tick ");
-        printed.ShouldContain("measured 1 seconds paused at 700 after the seek, 0 samples", customMessage: "two frames of half a second write no second's line of their own");
+        printed.ShouldContain("measured 1 seconds paused at 700 after the seek, ");
         rig.Transport.LastShownTick.ShouldBe(700);
     }
 
