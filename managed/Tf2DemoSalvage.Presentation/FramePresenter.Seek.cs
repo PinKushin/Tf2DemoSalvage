@@ -58,7 +58,15 @@ public sealed partial class FramePresenter
     /// a skip's read at 99 packets a frame (see <see cref="ReplaySkip"/>). **Sent messages only, ours and not the engine's**:
     /// a posted key or click waits for the walk, so nothing re-enters it, where the engine dispatches them each frame.
     /// </remarks>
-    public Action? ServeWindow { get; set; }
+    public Action? ServeWindow
+    {
+        get;
+        set
+        {
+            field = value;
+            _models.Corpses.ServeWindow = value;
+        }
+    }
 
     /// <summary>The same, over any device (D214).</summary>
     /// <param name="frame">What the window knows of the frame.</param>

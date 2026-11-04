@@ -200,6 +200,9 @@ public sealed class CorpsePhysics
         _placements.Clear();
     }
 
+    /// <summary>Answers other threads between a catch-up's steps; null where there is no window (B708).</summary>
+    public Action? ServeWindow { get; set; }
+
     /// <summary>Brings the environment up to a tick, with every corpse in the moment in it, and attaches each one's pose.</summary>
     /// <param name="corpses">Every corpse the moment carries, seen or not.</param>
     /// <param name="tick">The tick being drawn.</param>
@@ -283,6 +286,9 @@ public sealed class CorpsePhysics
 
         while (_worldTick < tick)
         {
+            // The catch-up after a seek is the walk's longest single piece: the engine steps this once a frame (B708).
+            ServeWindow?.Invoke();
+
             world.Simulate(interval);
             _worldTick++;
             Steps++;

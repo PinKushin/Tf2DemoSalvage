@@ -66,7 +66,8 @@ public sealed class WindowThreadWatchTests
     [Test]
     public void Idled_WhileMessagesKeepComing_ReportsAnIdleGapWithNoMessageGap()
     {
-        WindowThreadWatch watch = Watch(new Lines());
+        Lines log = new();
+        WindowThreadWatch watch = Watch(log);
 
         watch.Idled();
 
@@ -82,6 +83,7 @@ public sealed class WindowThreadWatchTests
 
         watch.LargestGapMilliseconds.ShouldBe(100d);
         watch.LargestIdleGapMilliseconds.ShouldBe(30000d, "a later, shorter gap does not replace it");
+        log.Said.ShouldBe(["window thread reached no idle pass for 30000 ms, until now"]);
     }
 
     [Test]

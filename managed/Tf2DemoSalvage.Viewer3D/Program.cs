@@ -51,6 +51,19 @@ internal static class Program
         // and this is the composition root — nothing here substitutes a different factory.
         using LoggerFactory loggers = new([logs]);
 
+        // **Each step before the window, from the process's own start** (B707): a slow CI run spent about 12 s here with no line
+        // at all, and "window shown after 15,843 ms" could not say where.
+        ILogger startup = loggers.CreateLogger("viewer");
+
+        void StartupStep(string step)
+        {
+            using System.Diagnostics.Process self = System.Diagnostics.Process.GetCurrentProcess();
+
+            startup.LogInformation("startup: {Step} {Elapsed:F0} ms after the process started", step, (DateTime.UtcNow - self.StartTime.ToUniversalTime()).TotalMilliseconds);
+        }
+
+        StartupStep("Main entered");
+
         // **Core and Content can now say what they lost.** Both are libraries and neither can see
         // this log, so until they had a sink their only honest options were to throw or return
         // nothing - and the second is the silent fallback this project bans everywhere it can
@@ -88,7 +101,9 @@ internal static class Program
         // **Before anything else is built, because being first is its whole job** (D182). WinForms' own initialisation must
         // come before any window, the splash's included, so it moved up from beside the form.
         ApplicationConfiguration.Initialize();
+        StartupStep("WinForms initialized");
         Action closeSplash = StartupSplash.Open(loggers.CreateLogger("viewer"));
+        StartupStep("splash asked for");
 
         // **A crash in the message loop has no name until something writes one down** (B402). The
         // capture test reported exit `-1073740771` — `STATUS_FATAL_USER_CALLBACK_EXCEPTION`, an
@@ -145,7 +160,10 @@ internal static class Program
         // Passed straight through: double-clicking a .dem, selecting several and pressing enter,
         // or dropping a folder on the executable all arrive here as paths, and all go through the
         // same library code the Open buttons use.
+        StartupStep("building the window");
         using MainForm shell = new(loggers, args);
+
+        StartupStep("window built");
 
         // The splash goes when the real window is on screen, not when it is built — and that moment is the boot time.
         shell.Shown += (_, _) =>

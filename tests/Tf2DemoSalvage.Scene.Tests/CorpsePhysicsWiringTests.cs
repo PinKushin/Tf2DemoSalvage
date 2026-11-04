@@ -34,6 +34,27 @@ public sealed class CorpsePhysicsWiringTests
     /// the clock is the DEMO's and not the frame's.
     /// </remarks>
     [Test]
+    public void Instances_ACatchUpOfManyTicks_ServesTheWindowOncePerStep()
+    {
+        SceneProp corpse = Corpse();
+        int served = 0;
+        EntityModelSet models = new() { Geometry = _ => Frames() };
+        List<SceneProp> drawn = [corpse];
+
+        models.Corpses.ServeWindow = () => served++;
+        models.Add(drawn, _ => Frames());
+        models.CurrentTick = 66d;
+        models.Instances(drawn, [], seconds: 1d);
+        served.ShouldBe(0, "nothing stepped yet");
+
+        models.CurrentTick = 132d;
+        models.Instances(drawn, [], seconds: 2d);
+
+        served.ShouldBe(models.Corpses.Steps, "a window is served between every step of a catch-up (B708)");
+        served.ShouldBe(66);
+    }
+
+    [Test]
     public void Instances_ForACorpseDrawnASecondLater_SimulatesTheTicksBetween()
     {
         SceneProp corpse = Corpse();

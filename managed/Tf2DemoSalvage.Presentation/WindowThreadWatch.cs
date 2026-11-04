@@ -89,7 +89,14 @@ public sealed class WindowThreadWatch(ILogger log, Func<long> timestamp, long fr
 
         if (_lastIdle >= 0)
         {
-            LargestIdleGapMilliseconds = Math.Max(LargestIdleGapMilliseconds, Milliseconds(now - _lastIdle));
+            double gap = Milliseconds(now - _lastIdle);
+
+            LargestIdleGapMilliseconds = Math.Max(LargestIdleGapMilliseconds, gap);
+
+            if (gap >= SayFromMilliseconds)
+            {
+                Say($"window thread reached no idle pass for {gap:F0} ms, until now");
+            }
         }
 
         _lastIdle = now;
