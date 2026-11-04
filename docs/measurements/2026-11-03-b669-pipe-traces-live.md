@@ -65,29 +65,46 @@ So the shots were right and the state is what they read.
 | +z | 0.40297 | 0.272 | 0.40617 |
 | -z | 0.03904 | 0.03904 | 0.03904 |
 
-Ours' lights fold to the engine's wl0 faces within 0.0002 by addition, so what stands over on -x, -y and +z is in the bounce: B683.
+**Admission, diffed with no game.** `prop-shade` at the head, its `reaches True, in pvs True` set for #215 against the engine's traced list, the sky light left out: 83 and 83, none on one side only. So the sphere, the cell and the computed radius hold at this point, whatever `DAT_18075b318` is called. Its kept subset sums to -y 0.2017, +z 0.3939, -z 0.0009, from four-decimal shares, against the engine's 0.20194, 0.39385, 0.00089. So what stands over on -x, -y and +z is in the bounce: B683.
 
-**Far camera, `-3722 -1403 726 25 99`, tick 45091, scale 1, bloom off, linear luminance x1000.** Ours before is `b06d9ae4`'s column in B669:
+**The left pipe, a second placement, a fourth run** (`2pipe_straight_64` #226, the far camera's left pipe by its ray and `map-near`; *interpolated:* `TF2VIEW_PICK`'s line was not recovered from the shot's log). Engine's point (-3833.5 -1216 609.0), ours (-3834 -1216 609.5): B682. **Slots equal:** (-3831 -1280 1062), (-3798 -905 1161), (-2848 -2080 582), (-3767 -936 1161). G:
+
+| | +x | -x | +y | -y | +z | -z |
+|---|---|---|---|---|---|---|
+| engine | 0.39234 | 0.12832 | 0.20646 | 0.24364 | 0.39281 | 0.15434 |
+| ours | 0.39065 | 0.11029 | 0.20073 | 0.23326 | 0.38496 | 0.15333 |
+
+So ours' state is at or UNDER the engine's on every face, and the shot reads OVER: B685 is past the state.
+
+**Far camera, `-3722 -1403 726 25 99`, tick 45091, scale 1, bloom off, linear luminance x1000.** Ours before is the shot at the parent (`final.png`):
 
 | | TF2 D3D9 | TF2 Vulkan | ours before | ours now |
 |---|---|---|---|---|
 | patch | 228.1 | 241.7 | 229.1 | **241.1** |
 | upper pipe top | 357.1 | 358.1 | 326.5 | **351.4** |
 | upper pipe mid | 303.8 | 303.8 | 268.7 | **297.0** |
-| lower pipe top | 358.5 | 358.4 | | 352.1 |
-| lower pipe mid | 289.2 | 289.0 | | 284.9 |
+| lower pipe top | 358.5 | 358.4 | 322.3 | 352.1 |
+| lower pipe mid | 289.2 | 289.0 | 260.1 | 284.9 |
 | wall behind | 187.2 | 207.7 | 199.0 | 199.0 |
 | gap below | 125.1 | 139.5 | 139.3 | 139.3 |
 | concrete, the control | 187.0 | 187.0 | 187.0 | 187.0 |
-| cap disc | 190.8 | 194.2 | | 192.0 |
-| left pipe upper | 54.3 | 67.5 | 63.0, an earlier shot | 74.4 |
-| left pipe lower | 83.0 | 93.2 | 82.0, an earlier shot | 101.6 |
+| cap disc | 190.8 | 194.2 | 177.3 | 192.0 |
+| left pipe upper | 54.3 | 67.5 | 63.0 | 74.4 |
+| left pipe lower | 83.0 | 93.2 | 82.0 | 101.6 |
 | whole frame | 155.5 | 160.0 | 154.0 | 155.8 |
 
-The D3D9 column keeps its driver halo (`measurements/2026-11-03-b669-behind-the-pane.md`), so Vulkan is the column to read. **The left pipe went past TF2**: -4.5 to +6.9 and -11.2 to +8.4. That is not explained.
+The D3D9 column keeps its driver halo (`measurements/2026-11-03-b669-behind-the-pane.md`), so Vulkan is the column to read. **The left pipe went past TF2**: -4.5 to +6.9, and -11.2 to +8.4 (B685).
 
-**B665's vat**, `-208 1360 80 60 90`, RGB linear x1000, TF2 against now against B665's shot: outer wall (x 20-60, y 400-600) 5.6 60.4 45.7, 6.1 68.3 53.0, 11.6 53.8 27.6. Upper wall (x 1000-1100, y 90-130) 4.8 53.9 27.5, 5.4 50.3 27.5.
+**B665's vat**, `-208 1360 80 60 90`, linear RGB x1000, with the old arithmetic put back by temporary edits for the before (reversed):
+
+| box | TF2 | before | now |
+|---|---|---|---|
+| outer wall, x 20-60 y 400-600 | 5.6 60.4 45.7 | 9.5 71.6 55.9 | 6.1 68.3 53.0 |
+| upper wall, x 1000-1100 y 90-130 | 4.8 53.9 27.5 | 6.8 51.7 28.7 | 5.4 50.3 27.5 |
+| upper left, x 60-110 y 120-170 | 9.8 42.4 19.4 | 7.3 38.8 17.5 | 7.3 38.8 17.5 |
+
+The vat's slots are ours: **a white spot in a slot there is what the rule gives, not a log of that map**, whose debugging the approval did not cover.
 
 ## Verdict
 
-**Explained and fixed.** The cause was the angle of a folded spotlight, with the rank and the admission beside it. The logged state and ours agree light for light and slot for slot. The residuals are B683, in the bounce, and the left pipe's overshoot.
+**The pipes behind the pane are explained and fixed.** The cause was the angle of a folded spotlight, with the rank and the admission beside it. At #215 the logged state and ours agree light for light and slot for slot, and admission to the digit. Left: B683, in the bounce, and B685, a second placement whose state is right and whose pixels read over, which this record does not explain.

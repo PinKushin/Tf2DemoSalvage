@@ -385,7 +385,8 @@ public sealed class StaticPropModelsWiringTests
 
             // The three white spots that held slots after B665 are each blocked hundreds of units short of the lighting
             // origin (B666). A white spot the trace does see may hold one: the rank has no cone in it (B669), and it lights
-            // only as far as the shader's cone allows.
+            // only as far as the shader's cone allows. **What ours gives, not a log of this map:** only cp_process_f12's
+            // slots have been read from the engine.
             lamps.Count.ShouldBe(4);
         }
 
