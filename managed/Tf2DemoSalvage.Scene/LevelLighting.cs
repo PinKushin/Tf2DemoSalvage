@@ -714,9 +714,7 @@ public sealed class LevelLighting
             return null;
         }
 
-        Lazy<SurfaceColour> rays = new(() => Rays(level, tree, leafFaces, samples));
-
-        return AmbientOver(level, () => rays.Value);
+        return AmbientOver(level, new Lazy<SurfaceColour>(() => Rays(level, tree, leafFaces, samples)));
     }
 
     /// <summary><see cref="StaticPropAmbient"/> casting against a walker the caller holds, so a probe's table and cube read one instance.</summary>
@@ -728,10 +726,10 @@ public sealed class LevelLighting
         ArgumentNullException.ThrowIfNull(level);
         ArgumentNullException.ThrowIfNull(rays);
 
-        return AmbientOver(level, () => rays);
+        return AmbientOver(level, new Lazy<SurfaceColour>(rays));
     }
 
-    private static Func<float, float, float, AmbientCube> AmbientOver(MapLevel level, Func<SurfaceColour> rays)
+    private static Func<float, float, float, AmbientCube> AmbientOver(MapLevel level, Lazy<SurfaceColour> rays)
     {
         IReadOnlyList<BspMaterial> materials = level.Materials;
 
@@ -749,7 +747,7 @@ public sealed class LevelLighting
 
         return (x, y, z) => StaticPropAmbient.Compute(
             new Vector3(x, y, z),
-            (start, end) => rays().LightVec(start, end, styles: false),
+            (start, end) => rays.Value.LightVec(start, end, styles: false),
             texdata => texdata >= 0 && texdata < materials.Count
                 ? new Vector3(materials[texdata].Reflectivity.Red, materials[texdata].Reflectivity.Green, materials[texdata].Reflectivity.Blue)
                 : Vector3.Zero,

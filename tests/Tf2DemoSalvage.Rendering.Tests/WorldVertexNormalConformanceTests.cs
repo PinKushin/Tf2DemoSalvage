@@ -146,7 +146,7 @@ public sealed class WorldVertexNormalConformanceTests
 
     /// <summary>
     /// Logged from the running engine, cp_process_f12, build 11191711, at `FUN_1800f83c0`'s `RET` (`0x1800f978b`): normal, tvec, the flip the caller passed, S and T as written
-    /// (`measurements/2026-11-03-b669-review-admission.md`). The flip is `FUN_1800f8590`'s, `( S × T ) · plane &gt; 0`; the S handed in here sets that sign.
+    /// (`measurements/2026-11-03-b669-review-admission.md`). The flip is `FUN_1800f8590`'s, `( S × T ) · plane &gt; 0`; the S handed in here is built to give that sign, so this proves the arithmetic after the flip and not the flip's choice on a real face.
     /// </summary>
     [TestCase(0f, -1f, 0f, false, 1f, 0f, 0f)]
     [TestCase(-0.50545f, -0.86286f, 0f, false, 0.86286f, -0.50545f, 0f)]
@@ -154,7 +154,7 @@ public sealed class WorldVertexNormalConformanceTests
     [TestCase(-0.92388f, -0.38268f, 0f, true, -0.38268f, 0.92388f, 0f)]
     [TestCase(0f, 1f, 0f, false, -1f, 0f, 0f)]
     [TestCase(0f, 1f, 0f, true, 1f, 0f, 0f)]
-    public void Of_TheEnginesLoggedCorners_ReproduceItsSAndT(float nx, float ny, float nz, bool flip, float sx, float sy, float sz)
+    public void Of_TheEnginesLoggedCornersGivenTheirFlip_ReproduceItsSAndT(float nx, float ny, float nz, bool flip, float sx, float sy, float sz)
     {
         (float X, float Y, float Z) t = (0f, 0f, -1f);
         (float X, float Y, float Z) normal = (nx, ny, nz);

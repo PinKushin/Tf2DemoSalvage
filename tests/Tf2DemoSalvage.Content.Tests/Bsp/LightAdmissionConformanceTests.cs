@@ -194,6 +194,62 @@ public sealed class LightAdmissionConformanceTests
         LocalLights.Fold(default, light, 0f, 0f, 0f).PositiveZ.Red.ShouldBe(expected, 0.001f);
     }
 
+    /// <summary>`FUN_1800cbdd0`'s floor is on the quadratic root only: a linear lamp's answer can be negative, and then its square is the cutoff. `0x1800ccfd0`, read.</summary>
+    [Test]
+    public void AsLoaded_ALinearLampWhoseConstantIsOverItsThreshold_KeepsANegativeRadius()
+    {
+        // (66.67 * 1.7321 - 200) / 4 = -21.13. A quadratic with the same terms answers 0: the other test's case.
+        BspWorldLight linear = new((0f, 0f, 150f), (1f, 1f, 1f), default, WorldLightKind.Point, ConstantAttenuation: 200f, LinearAttenuation: 4f);
+        BspWorldLight loaded = BspWorldLights.AsLoaded(linear, hdrLump: true);
+
+        loaded.Radius.ShouldBe(-21.13f, 0.01f);
+    }
+
+    /// <summary>
+    /// `FUN_1800efe40` at d = 0: a point's `DIVSS` is infinite, so it ranks first. `FUN_1801baeb0` normalizes with 1e-10 in the root, so the direction is 0 and
+    /// `FUN_1801b76f0`'s `0 &lt; dot` adds nothing to any face. No NaN and no infinity in the cube.
+    /// </summary>
+    [TestCase(WorldLightKind.Point)]
+    [TestCase(WorldLightKind.Spotlight)]
+    public void Fold_APointAtTheLight_LeavesTheCubeAndRanksFirst(WorldLightKind kind)
+    {
+        BspWorldLight light = new((0f, 0f, 0f), (1f, 1f, 1f), (0f, 0f, -1f), kind, QuadraticAttenuation: 1f, Radius: 100f, StopDot: 0.9f, StopDot2: 0.5f, Exponent: 1f);
+        AmbientCube cube = new((0.5f, 0.5f, 0.5f), default, default, default, default, default);
+
+        LocalLights.Fold(cube, light, 0f, 0f, 0f).ShouldBe(cube);
+
+        LightingState state = new(default);
+        BspWorldLight weaker = light with { Origin = (0f, 0f, 10f), Kind = WorldLightKind.Point };
+
+        LocalLights.Add(state, weaker, 0f, 0f, 0f);
+        LocalLights.Add(state, weaker, 0f, 0f, 0f);
+        LocalLights.Add(state, weaker, 0f, 0f, 0f);
+        LocalLights.Add(state, weaker, 0f, 0f, 0f);
+        LocalLights.Add(state, light with { Kind = WorldLightKind.Point }, 0f, 0f, 0f);
+
+        state.Slots[0].Origin.ShouldBe((0f, 0f, 0f), "infinity evicts the weakest of equals, the first");
+    }
+
+    /// <summary>
+    /// `FUN_1800f0e10`, cases 4 and 5: no `LightDesc_t` for a quake light. It holds a slot in the state, by its own rank, and the draw takes the lamp beside it only.
+    /// </summary>
+    [Test]
+    public void Strongest_AQuakeLightBesideALamp_DrawsOnlyTheLamp()
+    {
+        BspWorldLight quake = new((0f, 0f, 30f), (1f, 1f, 1f), default, WorldLightKind.QuakeLight, LinearAttenuation: 60f, Radius: 100f);
+        BspWorldLight lamp = Lamp(100f) with { Origin = (0f, 0f, 10f), Radius = 100f };
+        LocalLight[] into = new LocalLight[LocalLights.MaximumLocalLights];
+
+        LocalLights.Strongest([quake, lamp], 0f, 0f, 0f, into).ShouldBe(1);
+        into[0].Z.ShouldBe(10f);
+        into[0].Spot.ShouldBeFalse();
+
+        LightingState state = LocalLights.Build([quake, lamp], 0f, 0f, 0f, default);
+
+        state.Count.ShouldBe(2, "it keeps its slot");
+        state.Lighting().Locals.ShouldHaveSingleItem().Z.ShouldBe(10f);
+    }
+
     /// <summary>`emit_quakelight`, `linear_attn − d`, 0 past it, and all-zero terms are not rewritten: the load's loop has no case for it.</summary>
     [TestCase(30f, 60f, 30f)]
     [TestCase(70f, 60f, 0f)]

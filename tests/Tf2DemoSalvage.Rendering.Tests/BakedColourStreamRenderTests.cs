@@ -170,39 +170,6 @@ public sealed class BakedColourStreamRenderTests
         both.Red.ShouldBeInRange(predicted - 1, predicted + 1, "colours plus lamp");
     }
 
-    /// <summary>
-    /// `VertexAttenInternal` (`common_vs_fxc.h:762`) has no range term: `LightDesc_t::m_Range` is the CPU path's. A lamp 150 away with a range of 10 draws exactly as one with a range of 1000.
-    /// </summary>
-    [Test]
-    public void LampDiffuse_ARangeShorterThanTheDistance_CutsNothing()
-    {
-        using OffscreenTarget? target = OffscreenTarget.TryCreate(64, 64);
-
-        if (target is null || GameInstall.Root is not { } tf || !File.Exists(Path.Combine(tf, "maps", "cp_process_final.bsp")))
-        {
-            Assert.Ignore("no Direct3D, or the map or the game is not installed");
-            return;
-        }
-
-        MapAssets assets = MapCache.With().Assets;
-
-        (int Red, int Green, int Blue) Draw(float range)
-        {
-            target.Clear(0f, 0f, 0f);
-            target.DrawModelPose(
-                Face(), [new WorldBatch(0, 0, 6)], Camera(), Identity(), assets,
-                light: default(AmbientCube), bothSides: true, debug: new DebugModes(DrawFlat: true),
-                locals: [new LocalLight(0f, -150f, 0f, 0.3f, 0f, 0f, 0f, 0f, 1f / (150f * 150f), range)]);
-
-            return target.PixelAt(32, 32);
-        }
-
-        (int Red, int Green, int Blue) far = Draw(1000f);
-
-        far.Red.ShouldBeGreaterThan(0, "the control: the lamp lights the quad");
-        Draw(10f).ShouldBe(far);
-    }
-
     /// <summary>Two triangles facing the camera: the first lower right, the second upper left.</summary>
     private static WorldVertex[] Face() =>
     [

@@ -108,12 +108,9 @@ public sealed class ReflectionRenderTests
             return;
         }
 
-        int? found = Enumerable.Range(0, assets.Cubemaps.Count).Cast<int?>().FirstOrDefault(index =>
-            assets.Cubemaps[index!.Value] is not null && assets.Bumps[index.Value] is not null && assets.Textures[index.Value] is not null);
-
-        if (found is not { } material)
+        if (Reflective(assets) is not { } material)
         {
-            Assert.Ignore("no material on this map is bumped and carries a baked cubemap");
+            Assert.Ignore("no material on this map carries a baked cubemap");
             return;
         }
 
@@ -121,11 +118,14 @@ public sealed class ReflectionRenderTests
         byte[] leaning = [.. Enumerable.Range(0, 16).SelectMany(static _ => new byte[] { 128, 242, 182, 255 })];
         MapTexture flatBump = new(4, 4, 4, 4, TextureImage.Rgba(leaning), IsTransparent: false);
         (float A, float B, float C) n = ((128 / 255f * 2f) - 1f, (242 / 255f * 2f) - 1f, (182 / 255f * 2f) - 1f);
+
+        // Its tint turned down, so neither sign's picture reaches 255: a saturated pair agrees whatever the shader did.
+        MapCubemap cube = assets.Cubemaps[material]!.Value;
         MapAssets known = MapAssets.ForMaterials(
             [assets.Textures[material]],
             ["LightmappedGeneric"],
             bumps: [new MapBump(flatBump, false)],
-            cubemaps: [assets.Cubemaps[material]]);
+            cubemaps: [cube with { Shading = cube.Shading with { Tint = (0.2f, 0.2f, 0.2f) } }]);
 
         (float U, float V) uv = (0.5f, 0.5f);
 
@@ -142,6 +142,8 @@ public sealed class ReflectionRenderTests
             $"material {material}, texel normal {n}: frame +1 {plus}, -1 {minus}; flat at those normals {flatPlus}, {flatMinus}");
 
         Math.Max(Math.Abs(plus.R - minus.R), Math.Max(Math.Abs(plus.G - minus.G), Math.Abs(plus.B - minus.B))).ShouldBeGreaterThan(8, "the sign must turn the picture by far more than the resolution");
+        Math.Max(Math.Max(plus.R, plus.G), plus.B).ShouldBeLessThan(255, "unsaturated at +1");
+        Math.Max(Math.Max(minus.R, minus.G), minus.B).ShouldBeLessThan(255, "unsaturated at -1");
 
         Math.Abs(plus.R - flatPlus.R).ShouldBeLessThanOrEqualTo(1, "red, w +1");
         Math.Abs(plus.G - flatPlus.G).ShouldBeLessThanOrEqualTo(1, "green, w +1");

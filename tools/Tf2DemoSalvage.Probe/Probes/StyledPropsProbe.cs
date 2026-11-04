@@ -46,6 +46,8 @@ public sealed class StyledPropsProbe : IProbe
             return;
         }
 
+        GameArchives archives = GameArchives.Open(game);
+
         foreach (string name in arguments)
         {
             if (maps.Find(name) is not { } path)
@@ -59,7 +61,7 @@ public sealed class StyledPropsProbe : IProbe
             LevelLighting lighting = new(
                 BspLeafTree.Read(file), [], lights, null, NullLogger.Instance, visibility: BspVisibility.Read(file));
 
-            MapAssets assets = MapAssets.Load(file.ToArray(), GameArchives.Open(game), 64, mapName: path);
+            MapAssets assets = MapAssets.Load(file.ToArray(), archives, 64, mapName: name);
             Dictionary<int, int> propsByStyle = [];
             int reached = 0;
             int props = 0;
@@ -98,7 +100,7 @@ public sealed class StyledPropsProbe : IProbe
                     .Select(group => $"{group.Key}x{group.Count()}"));
 
             output.WriteLine(
-                $"{Path.GetFileName(path)}: {lights.Count} lights, styled [{styled}]; {props} props, {reached} listed; " +
+                $"{Path.GetFileName(path)}: {lights.Count} lights, styled [{styled}]; {props} of the lump's {BspStaticProps.Read(file).Count} props, {reached} listed; " +
                 $"props by style [{string.Join(" ", propsByStyle.OrderBy(pair => pair.Key).Select(pair => $"{pair.Key}:{pair.Value}"))}]");
         }
     }

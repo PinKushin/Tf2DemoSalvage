@@ -6,10 +6,10 @@ using Tf2DemoSalvage.Content.Bsp;
 namespace Tf2DemoSalvage.Content.Tests.Bsp;
 
 /// <summary>
-/// Evaluating a world light the way <c>LightDesc_t::ComputeLightAtPoints</c> evaluates it.
+/// Evaluating a world light the way the light cache's `FUN_1800efe40` and `FUN_1801b76f0` evaluate it.
 /// </summary>
 /// <remarks>
-/// Expected values are computed by hand from <c>mathlib/lightdesc.cpp</c>, not captured from a run
+/// Expected values are computed by hand, not captured from a run
 /// of the code under test — a captured expectation records what the code does, which is the one
 /// thing a parity test must never assert.
 ///
@@ -127,7 +127,7 @@ public sealed class LocalLightsTests
             Radius: radius);
 
     [Test]
-    public void APointLightAbove_LightsTheUpwardFace()
+    public void AddTo_APointLightAbove_LightsTheUpwardFace()
     {
         // Light 10 units straight up from the origin.
         //   dist2 = 100, falloff = 1 / (1 * 100) = 0.01
@@ -140,7 +140,7 @@ public sealed class LocalLightsTests
     }
 
     [Test]
-    public void APointLightAbove_LeavesTheDownwardFaceDark()
+    public void AddTo_APointLightAbove_LeavesTheDownwardFaceDark()
     {
         // The control for the test above, and the one that catches a missing dot product: with
         // strength = max(0, delta . normal), the -Z face faces away and receives nothing. An
@@ -153,7 +153,7 @@ public sealed class LocalLightsTests
     }
 
     [Test]
-    public void ExistingAmbientIsKept_NotReplaced()
+    public void AddTo_AnExistingAmbient_IsAddedToNotReplaced()
     {
         // The cube is the bounce term and the lights are the direct one; they add. Replacing would
         // make a lit room darker than an unlit one wherever no light is in range.
@@ -169,7 +169,7 @@ public sealed class LocalLightsTests
     }
 
     [Test]
-    public void Distance_UnderOneUnit_IsNotClampedOrOffset()
+    public void AddTo_APointLightUnderOneUnitAway_IsNotClampedOrOffset()
     {
         // `FUN_1800efe40` cases 1 and 2 have neither. The clamp this test used to assert, MaxSIMD( Four_Ones, dist2 ), is the shader path's
         // (`VertexAttenInternal`, `lightdesc.cpp`) and a surface light's own (`Fold_ALightUnderOneUnitAway_ClampsOnlyASurfaceLight`).
@@ -184,7 +184,7 @@ public sealed class LocalLightsTests
     }
 
     [Test]
-    public void LocalLights_ARadius_CullsBeyondThePointsCellNotThePoint()
+    public void AddTo_ARadius_CutsAtThePointsCellNotThePoint()
     {
         // `FUN_1801b99a0` tests the radius against the box, and flags 2 skips `FUN_1800efe40`'s own cut. The cell
         // of (0 0 0) ends at z 128. A radius of 5 from z 200 misses it by 67.
@@ -218,7 +218,7 @@ public sealed class LocalLightsTests
     }
 
     [Test]
-    public void ASpotlightInsideItsInnerCone_IsAtFullStrength()
+    public void AddTo_ASpotlightInsideItsInnerCone_IsAtFullStrength()
     {
         // Pointing straight down from 10 units up, inner cone cos 0.9, outer cos 0.5. The point
         // below is on the axis, so dot2 = 1: the cone scale is (1 - 0.5) / (0.9 - 0.5) = 1.25,
@@ -234,7 +234,7 @@ public sealed class LocalLightsTests
     }
 
     [Test]
-    public void ASpotlightPointingAway_ContributesNothing()
+    public void AddTo_ASpotlightPointingAway_ContributesNothing()
     {
         // Same light turned to point straight up, away from the surface below it. dot2 = -1, which
         // is below phiDot, so the cone masks it out entirely. Without that mask the cone scale goes
@@ -250,7 +250,7 @@ public sealed class LocalLightsTests
     }
 
     [Test]
-    public void LocalLights_OnlyTheFourStrongest_Apply()
+    public void AddTo_FiveEqualLights_ContributeAsFour()
     {
         // The engine carries four: LightDesc_t m_LocalLightDescs[4]. Five identical lights at the
         // same distance must contribute as four, not five.
@@ -266,7 +266,7 @@ public sealed class LocalLightsTests
     }
 
     [Test]
-    public void TheStrongestAreChosen_NotTheFirstFour()
+    public void AddTo_FourDimLightsBeforeABrightOne_TakesTheBrightOne()
     {
         // Four dim lights listed before one bright one. Taking the first four in file order would
         // drop the only light that matters, and a map lists its lights in no useful order.
@@ -284,7 +284,7 @@ public sealed class LocalLightsTests
     }
 
     [Test]
-    public void ALightWithNoAttenuation_IsQuadraticOne_NotInfinite()
+    public void AddTo_ALightWithNoAttenuation_IsQuadraticOneNotInfinite()
     {
         // **Found in the viewer's own log, not by any of the tests above**, which is the point of
         // it existing. Four capture points reported a luminance of ∞ while all eleven unit tests
@@ -308,7 +308,7 @@ public sealed class LocalLightsTests
     }
 
     [Test]
-    public void TheSun_IsNotALocalLight()
+    public void AddTo_TheSun_AddsNothing()
     {
         // emit_skylight is directional and reaches only what can see the sky, which needs a trace
         // this project does not do. It is applied elsewhere; treating it as a point light here

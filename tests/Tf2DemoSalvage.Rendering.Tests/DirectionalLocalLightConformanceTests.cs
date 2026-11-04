@@ -43,6 +43,22 @@ public sealed class DirectionalLocalLightConformanceTests
         contents[WorldRenderer.LocalLightBase + 3].ShouldBe(0f);
     }
 
+    /// <summary>`VertexAttenInternal` (`common_vs_fxc.h:762`) has no range term, so no constant carries one: a lamp's range is `StudioPointLighting`'s only.</summary>
+    [Test]
+    public void WriteLocalLights_TwoRanges_WriteTheSameConstants()
+    {
+        float[] Written(float range)
+        {
+            float[] contents = new float[WorldRenderer.LocalLightBase + (Slots * 4 * 5)];
+
+            WorldRenderer.WriteLocalLights(contents, [new LocalLight(1f, 2f, 3f, 0.3f, 0.4f, 0.5f, 0f, 0f, 1f, range)]);
+
+            return contents;
+        }
+
+        Written(10f).ShouldBe(Written(1000f));
+    }
+
     [TestCase("VsMain", "vs_5_0")]
     [TestCase("PsMain", "ps_5_0")]
     public void Compile_TheModelShader_Succeeds(string entry, string profile)
