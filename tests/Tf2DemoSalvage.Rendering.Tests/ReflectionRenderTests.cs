@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 
+using Tf2DemoSalvage.Content.Assets;
 using Tf2DemoSalvage.Content.Bsp;
 using Tf2DemoSalvage.SdkReference;
 
@@ -83,6 +84,358 @@ public sealed class ReflectionRenderTests
         (facingUp.R + facingUp.G + facingUp.B).ShouldNotBe(
             facingSide.R + facingSide.G + facingSide.B,
             "a reflection follows the normal, so two normals must sample different texels");
+    }
+
+    /// <summary>
+    /// A bumped brush face reflects about its bump map: `worldSpaceNormal = mul( vNormal, i.tangentSpaceTranspose )`,
+    /// `lightmappedgeneric_ps2_3_x.h:479`, so the tangent frame its vertex carries (B669) must change the picture.
+    /// </summary>
+    [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
+    public void ReflectionRender_ABumpedBrushFaceWithAFrame_ReflectsAboutItsBumpMap()
+    {
+        using OffscreenTarget? target = OffscreenTarget.TryCreate(64, 64);
+
+        if (target is null)
+        {
+            Assert.Ignore("no Direct3D on this machine");
+            return;
+        }
+
+        if (Assets is not { } assets)
+        {
+            Assert.Ignore("the map or the game is not installed");
+            return;
+        }
+
+        if (Reflective(assets) is not { } material)
+        {
+            Assert.Ignore("no material on this map carries a baked cubemap");
+            return;
+        }
+
+        // **One known normal, every texel the same**, so no filter or mip of a real map's can stand between the texel and the prediction: x 128, y 242, z 182, so w sends the mirror ray about 50 degrees up or down the cube.
+        byte[] leaning = [.. Enumerable.Range(0, 16).SelectMany(static _ => new byte[] { 128, 242, 182, 255 })];
+        MapTexture flatBump = new(4, 4, 4, 4, TextureImage.Rgba(leaning), IsTransparent: false);
+        (float A, float B, float C) n = ((128 / 255f * 2f) - 1f, (242 / 255f * 2f) - 1f, (182 / 255f * 2f) - 1f);
+
+        // Its tint turned down, so neither sign's picture reaches 255: a saturated pair agrees whatever the shader did.
+        MapCubemap cube = assets.Cubemaps[material]!.Value;
+        MapAssets known = MapAssets.ForMaterials(
+            [assets.Textures[material]],
+            ["LightmappedGeneric"],
+            bumps: [new MapBump(flatBump, false)],
+            cubemaps: [cube with { Shading = cube.Shading with { Tint = (0.2f, 0.2f, 0.2f) } }]);
+
+        (float U, float V) uv = (0.5f, 0.5f);
+
+        // The frame this quad carries: N (0 -1 0), S (1 0 0), and T = cross( N, S ) * w = (0 0 1) * w.
+        (int R, int G, int B) plus = DrawBumped(target, known, 0, tangentW: 1f, uv);
+        (int R, int G, int B) minus = DrawBumped(target, known, 0, tangentW: -1f, uv);
+
+        // **The prediction: the same normals handed to the flat path.** `mul( vNormal, tangentSpaceTranspose )` for w = +1 and w = -1 is these two vectors, so each picture
+        // is the other's to the count: resolution 1 of 255, the target's rounding. Sensitivity: the two pictures lie much further apart than that.
+        (int R, int G, int B) flatPlus = DrawFlatAt(target, known, 0, Unit((n.A, -n.C, n.B)), uv);
+        (int R, int G, int B) flatMinus = DrawFlatAt(target, known, 0, Unit((n.A, -n.C, -n.B)), uv);
+
+        TestContext.Out.WriteLine(
+            $"material {material}, texel normal {n}: frame +1 {plus}, -1 {minus}; flat at those normals {flatPlus}, {flatMinus}");
+
+        Math.Max(Math.Abs(plus.R - minus.R), Math.Max(Math.Abs(plus.G - minus.G), Math.Abs(plus.B - minus.B))).ShouldBeGreaterThan(8, "the sign must turn the picture by far more than the resolution");
+        Math.Max(Math.Max(plus.R, plus.G), plus.B).ShouldBeLessThan(255, "unsaturated at +1");
+        Math.Max(Math.Max(minus.R, minus.G), minus.B).ShouldBeLessThan(255, "unsaturated at -1");
+
+        Math.Abs(plus.R - flatPlus.R).ShouldBeLessThanOrEqualTo(1, "red, w +1");
+        Math.Abs(plus.G - flatPlus.G).ShouldBeLessThanOrEqualTo(1, "green, w +1");
+        Math.Abs(plus.B - flatPlus.B).ShouldBeLessThanOrEqualTo(1, "blue, w +1");
+        Math.Abs(minus.R - flatMinus.R).ShouldBeLessThanOrEqualTo(1, "red, w -1");
+        Math.Abs(minus.G - flatMinus.G).ShouldBeLessThanOrEqualTo(1, "green, w -1");
+        Math.Abs(minus.B - flatMinus.B).ShouldBeLessThanOrEqualTo(1, "blue, w -1");
+    }
+
+    private static (float X, float Y, float Z) Unit((float X, float Y, float Z) v)
+    {
+        float length = MathF.Sqrt((v.X * v.X) + (v.Y * v.Y) + (v.Z * v.Z));
+
+        return (v.X / length, v.Y / length, v.Z / length);
+    }
+
+    /// <summary>A quad with no frame at one texel, reflecting about the given normal.</summary>
+    private static (int R, int G, int B) DrawFlatAt(
+        OffscreenTarget target, MapAssets assets, int material, (float X, float Y, float Z) normal, (float U, float V) uv)
+    {
+        List<WorldVertex> vertices =
+        [
+            Vertex(-256f, 0f, -256f, uv.U, uv.V, normal),
+            Vertex(256f, 0f, -256f, uv.U, uv.V, normal),
+            Vertex(256f, 0f, 256f, uv.U, uv.V, normal),
+            Vertex(-256f, 0f, -256f, uv.U, uv.V, normal),
+            Vertex(256f, 0f, 256f, uv.U, uv.V, normal),
+            Vertex(-256f, 0f, 256f, uv.U, uv.V, normal),
+        ];
+
+        target.Clear(0f, 0f, 0f);
+        target.DrawWorld(vertices, [new WorldBatch(material, 0, vertices.Count)], Camera, assets);
+
+        return target.PixelAt(32, 32);
+    }
+
+    /// <summary>The mean colour across a baked cube's faces, to prove two cubes are not one picture.</summary>
+    private static double CubeBrightness(MapCubemap cube) => cube.Faces.Average(face => Brightness(face));
+
+    /// <summary>The reflective, opaque material whose cube looks least like a given one, and how far apart they are.</summary>
+    private static (int Material, double Apart)? LeastLike(MapAssets assets, int material)
+    {
+        double own = CubeBrightness(assets.Cubemaps[material]!.Value);
+
+        return Enumerable.Range(0, assets.Cubemaps.Count)
+            .Where(index => assets.Cubemaps[index] is not null && assets.Textures[index] is { IsTranslucent: false, IsAdditive: false })
+            .Select(index => (Material: index, Apart: Math.Abs(CubeBrightness(assets.Cubemaps[index]!.Value) - own)))
+            .OrderByDescending(pair => pair.Apart)
+            .Cast<(int Material, double Apart)?>()
+            .FirstOrDefault();
+    }
+
+    /// <summary>A decal reflects its own cube too: `DrawDecalBatch` binds it, for the same reason as a blended run (B669).</summary>
+    [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
+    public void ReflectionRender_ADecalAfterAnotherReflectiveRun_ReflectsItsOwnCube()
+    {
+        using OffscreenTarget? target = OffscreenTarget.TryCreate(64, 64);
+
+        if (target is null)
+        {
+            Assert.Ignore("no Direct3D on this machine");
+            return;
+        }
+
+        if (Assets is not { } assets)
+        {
+            Assert.Ignore("the map or the game is not installed");
+            return;
+        }
+
+        // A translucent material, because the decal pass blends by alpha and an opaque material's alpha is its mask, 0 at this pixel on this map.
+        int? glass = Enumerable.Range(0, assets.Cubemaps.Count).Cast<int?>().FirstOrDefault(index =>
+            assets.Cubemaps[index!.Value] is not null && assets.Textures[index.Value] is { IsTranslucent: true });
+
+        if (glass is not { } decal || LeastLike(assets, decal) is not { } least)
+        {
+            Assert.Ignore("this map has no translucent and opaque pair that both carry a baked cubemap");
+            return;
+        }
+
+        least.Apart.ShouldBeGreaterThan(4d, "the two runs' cubes must differ, or this measures nothing");
+
+        // Wound the other way: the decal rasteriser culls, as the world pass's does not.
+        List<WorldVertex> pane = [.. Enumerable.Reverse(FacingQuad(0f))];
+        List<WorldVertex> behindTheCamera = FacingQuad(-2000f);
+        List<WorldVertex> both = [.. behindTheCamera, .. pane];
+
+        // One EMPTY world run: the world pass returns before its decals when it has no runs at all (`WorldRenderer.Draw`).
+        target.Clear(0f, 0f, 0f);
+        target.DrawWorld(pane, [new WorldBatch(decal, 0, 0)], Camera, assets, decals: [new WorldBatch(decal, 0, pane.Count, Category: SurfaceCategory.Overlay)]);
+        (int R, int G, int B) alone = target.PixelAt(32, 32);
+
+        target.Clear(0f, 0f, 0f);
+        target.DrawWorld(
+            both,
+            [new WorldBatch(least.Material, 0, behindTheCamera.Count)],
+            Camera,
+            assets,
+            decals: [new WorldBatch(decal, behindTheCamera.Count, pane.Count, Category: SurfaceCategory.Overlay)]);
+        (int R, int G, int B) after = target.PixelAt(32, 32);
+
+        TestContext.Out.WriteLine($"decal {decal}, run before it {least.Material}, cubes apart {least.Apart:0.0}: alone {alone}, after {after}");
+
+        (alone.R + alone.G + alone.B).ShouldBeGreaterThan(0, "the decal must be drawn before its reflection can be measured");
+        after.ShouldBe(alone, "a run drawn out of sight cannot change what a decal reflects");
+    }
+
+    /// <summary>
+    /// An additive brush run binds its own bump map: a brush vertex's `tangent.w` is not 0 now (B669), so the shader reads slot 4, and an additive
+    /// run that bound nothing read the bump of whichever run drew last.
+    /// </summary>
+    [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
+    public void ReflectionRender_AnAdditiveRunAfterABumpedRun_IsUnchangedByThatBump()
+    {
+        using OffscreenTarget? target = OffscreenTarget.TryCreate(64, 64);
+
+        if (target is null)
+        {
+            Assert.Ignore("no Direct3D on this machine");
+            return;
+        }
+
+        if (Assets is not { } assets)
+        {
+            Assert.Ignore("the map or the game is not installed");
+            return;
+        }
+
+        // No shipped additive material on this map has a bump and a cube, so the map's real pair is made additive here.
+        // One reflective bumped material, and the other bumped material whose texel is furthest from it at one uv.
+        const float At = 0.5f;
+
+        int[] bumped = [.. Enumerable.Range(0, assets.Bumps.Count).Where(index =>
+            assets.Bumps[index] is not null && assets.Textures[index] is { IsTranslucent: false, IsAdditive: false })];
+        int[] reflective = [.. bumped.Where(index => assets.Cubemaps[index] is not null)];
+
+        if (reflective.Length == 0 || bumped.Length < 2)
+        {
+            Assert.Ignore("this map has no two bumped materials, one reflective");
+            return;
+        }
+
+        int own = reflective[0];
+        (int R, int G) Texel(int material)
+        {
+            MapTexture bump = assets.Bumps[material]!.Value.Texture;
+            ReadOnlySpan<byte> rgba = bump.Image.ToRgba(bump.Width, bump.Height);
+            int at = (((int)(At * bump.Height) * bump.Width) + (int)(At * bump.Width)) * 4;
+
+            return (rgba[at], rgba[at + 1]);
+        }
+
+        (int R, int G) mine = Texel(own);
+        int other = bumped.Where(index => index != own).MaxBy(index => Math.Abs(Texel(index).R - mine.R) + Math.Abs(Texel(index).G - mine.G));
+
+        MapTexture additive = assets.Textures[own]!.Value with { IsAdditive = true, IsTranslucent = false };
+        MapTexture opaque = assets.Textures[other]!.Value;
+
+        MapAssets Pair(int bumpOfAdditive) => MapAssets.ForMaterials(
+            [additive, opaque],
+            ["LightmappedGeneric", "LightmappedGeneric"],
+            bumps: [assets.Bumps[bumpOfAdditive], assets.Bumps[other]],
+            cubemaps: [assets.Cubemaps[own], null]);
+
+        static WorldVertex Framed(WorldVertex vertex) =>
+            vertex with { U = At, V = At, TangentX = 1f, TangentY = 0f, TangentZ = 0f, TangentW = 1f };
+
+        List<WorldVertex> pane = [.. FacingQuad(0f).Select(Framed)];
+        List<WorldVertex> behindTheCamera = [.. FacingQuad(-2000f).Select(Framed)];
+        List<WorldVertex> both = [.. behindTheCamera, .. pane];
+        WorldBatch[] after = [new WorldBatch(1, 0, behindTheCamera.Count), new WorldBatch(0, behindTheCamera.Count, pane.Count)];
+
+        target.Clear(0f, 0f, 0f);
+        target.DrawWorld(pane, [new WorldBatch(0, 0, pane.Count)], Camera, Pair(own));
+        (int R, int G, int B) alone = target.PixelAt(32, 32);
+
+        // The control: what a stale slot would draw, its bump the other material's.
+        target.Clear(0f, 0f, 0f);
+        target.DrawWorld(pane, [new WorldBatch(0, 0, pane.Count)], Camera, Pair(other));
+        (int R, int G, int B) stale = target.PixelAt(32, 32);
+
+        target.Clear(0f, 0f, 0f);
+        target.DrawWorld(both, after, Camera, Pair(own));
+        (int R, int G, int B) drawn = target.PixelAt(32, 32);
+
+        TestContext.Out.WriteLine($"additive {own}, bumped {other}: alone {alone}, with the other's bump {stale}, after the other's run {drawn}");
+
+        stale.ShouldNotBe(alone, "the two bumps must look different, or this measures nothing");
+        drawn.ShouldBe(alone, "a run drawn out of sight cannot change an additive run's bump");
+    }
+
+    /// <summary>
+    /// A blended brush run reflects its OWN cube, whatever the last draw left in the slot (B669): `DynamicCmdsOut.BindTexture(
+    /// pShader, SHADER_SAMPLER2, info.m_nEnvmap, ...)` runs on every draw of the shader (`lightmappedgeneric_dx9_helper.cpp:876`).
+    /// </summary>
+    /// <remarks>
+    /// The translucent pass bound no cube at all, so the far pane read the cube of whichever opaque run drew last. The
+    /// manipulation is that opaque run, out of sight behind the camera: it changes nothing a correct renderer shows.
+    /// </remarks>
+    [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
+    public void ReflectionRender_ABlendedRunAfterAnotherReflectiveRun_ReflectsItsOwnCube()
+    {
+        using OffscreenTarget? target = OffscreenTarget.TryCreate(64, 64);
+
+        if (target is null)
+        {
+            Assert.Ignore("no Direct3D on this machine");
+            return;
+        }
+
+        if (Assets is not { } assets)
+        {
+            Assert.Ignore("the map or the game is not installed");
+            return;
+        }
+
+        int? glass = Enumerable.Range(0, assets.Cubemaps.Count).Cast<int?>().FirstOrDefault(index =>
+            assets.Cubemaps[index!.Value] is not null && assets.Textures[index.Value] is { IsTranslucent: true });
+
+        if (glass is not { } blended || LeastLike(assets, blended) is not { } least)
+        {
+            Assert.Ignore("this map has no translucent and opaque pair that both carry a baked cubemap");
+            return;
+        }
+
+        // **The condition must be able to fail**: with two runs on one cube, a stale slot and a correct bind predict the same picture.
+        least.Apart.ShouldBeGreaterThan(4d, "the two runs' cubes must differ, or this measures nothing");
+
+        int other = least.Material;
+
+        List<WorldVertex> pane = FacingQuad(0f);
+        List<WorldVertex> behindTheCamera = FacingQuad(-2000f);
+
+        List<WorldVertex> both = [.. behindTheCamera, .. pane];
+        WorldBatch[] paneAlone = [new WorldBatch(blended, 0, pane.Count)];
+        WorldBatch[] afterOpaque = [new WorldBatch(other, 0, behindTheCamera.Count), new WorldBatch(blended, behindTheCamera.Count, pane.Count)];
+
+        target.Clear(0f, 0f, 0f);
+        target.DrawWorld(pane, paneAlone, Camera, assets);
+        (int R, int G, int B) alone = target.PixelAt(32, 32);
+
+        target.Clear(0f, 0f, 0f);
+        target.DrawWorld(both, afterOpaque, Camera, assets);
+        (int R, int G, int B) after = target.PixelAt(32, 32);
+
+        TestContext.Out.WriteLine($"translucent {blended}, opaque {other}: alone {alone}, after the opaque run {after}");
+
+        (alone.R + alone.G + alone.B).ShouldBeGreaterThan(0, "the pane must be drawn before its reflection can be measured");
+        after.ShouldBe(alone, "a run drawn out of sight cannot change what another run reflects");
+    }
+
+    /// <summary>A quad across the view at one depth along the camera's axis.</summary>
+    private static List<WorldVertex> FacingQuad(float y)
+    {
+        (float X, float Y, float Z) facing = (0f, -1f, 0f);
+
+        return
+        [
+            Vertex(-256f, y, -256f, 0f, 0f, facing),
+            Vertex(256f, y, -256f, 1f, 0f, facing),
+            Vertex(256f, y, 256f, 1f, 1f, facing),
+            Vertex(-256f, y, -256f, 0f, 0f, facing),
+            Vertex(256f, y, 256f, 1f, 1f, facing),
+            Vertex(-256f, y, 256f, 0f, 1f, facing),
+        ];
+    }
+
+    /// <summary>The quad of <see cref="Draw"/> facing the camera, at one texel of a normal map, with a frame.</summary>
+    private static (int R, int G, int B) DrawBumped(OffscreenTarget target, MapAssets assets, int material, float tangentW, (float U, float V) uv)
+    {
+        (float X, float Y, float Z) facing = (0f, -1f, 0f);
+
+        WorldVertex Corner(float x, float z) =>
+            Vertex(x, 0f, z, uv.U, uv.V, facing) with { TangentX = 1f, TangentY = 0f, TangentZ = 0f, TangentW = tangentW };
+
+        List<WorldVertex> vertices =
+        [
+            Corner(-256f, -256f),
+            Corner(256f, -256f),
+            Corner(256f, 256f),
+            Corner(-256f, -256f),
+            Corner(256f, 256f),
+            Corner(-256f, 256f),
+        ];
+
+        target.Clear(0f, 0f, 0f);
+        target.DrawWorld(vertices, [new WorldBatch(material, 0, vertices.Count)], Camera, assets);
+
+        return target.PixelAt(32, 32);
     }
 
     [Test]

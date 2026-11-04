@@ -49,7 +49,8 @@ public sealed class LocalLightSelectionTests
     {
         List<BspWorldLight> lights = [];
 
-        foreach (int distance in new[] { 600, 100, 500, 200, 400, 300 })
+        // All inside this lamp's computed radius of about 340 (`FUN_1800cbdd0`).
+        foreach (int distance in new[] { 300, 50, 250, 100, 200, 150 })
         {
             lights.Add(Lamp(distance, 0f, 0f));
         }
@@ -59,10 +60,10 @@ public sealed class LocalLightSelectionTests
         LocalLights.Strongest(lights, 0f, 0f, 0f, into).ShouldBe(4);
 
         // Strongest first, so the distances come back ascending.
-        into[0].X.ShouldBe(100f);
-        into[1].X.ShouldBe(200f);
-        into[2].X.ShouldBe(300f);
-        into[3].X.ShouldBe(400f);
+        into[0].X.ShouldBe(50f);
+        into[1].X.ShouldBe(100f);
+        into[2].X.ShouldBe(150f);
+        into[3].X.ShouldBe(200f);
     }
 
     /// <summary>That a bright far light beats a dim near one, which is why strength is ranked.</summary>
@@ -108,15 +109,15 @@ public sealed class LocalLightSelectionTests
         into[0].X.ShouldBe(140f);
     }
 
-    /// <summary>That a light with no attenuation at all leaves with vrad's constant of one.</summary>
+    /// <summary>That a light with no attenuation at all leaves with the loader's quadratic of one.</summary>
     /// <remarks>
-    /// **The number that was once float.Epsilon and made a reciprocal infinite.** vrad's
-    /// `lightmap.cpp` normalises the all-zero case to `constant_attn = 1`; doing it here means no
+    /// **The number that was once float.Epsilon and made a reciprocal infinite.** `Mod_LoadWorldlights`
+    /// (`FUN_1801042d0`) writes quadratic 1 over all-zero terms for a point and a spot; doing it here means no
     /// consumer has to, and a shader dividing by the raw zero would produce infinity rather than a
     /// wrong colour — which is the failure mode that reads as a driver fault.
     /// </remarks>
     [Test]
-    public void Strongest_ForALightWithNoAttenuationTerms_NormalisesConstantToOne()
+    public void Strongest_ForALightWithNoAttenuationTerms_NormalisesQuadraticToOne()
     {
         List<BspWorldLight> lights = [Lamp(100f, 0f, 0f) with
         {
@@ -127,9 +128,9 @@ public sealed class LocalLightSelectionTests
 
         LocalLights.Strongest(lights, 0f, 0f, 0f, into).ShouldBe(1);
 
-        into[0].Constant.ShouldBe(1f);
+        into[0].Constant.ShouldBe(0f);
         into[0].Linear.ShouldBe(0f);
-        into[0].Quadratic.ShouldBe(0f);
+        into[0].Quadratic.ShouldBe(1f);
     }
 
     /// <summary>That real attenuation terms are passed through untouched.</summary>
@@ -187,11 +188,11 @@ public sealed class LocalLightSelectionTests
         new()
         {
             Origin = (x, y, z),
+            Radius = 100000f,
             Intensity = (intensity, intensity, intensity),
             Kind = WorldLightKind.Point,
             ConstantAttenuation = 0f,
             LinearAttenuation = 0f,
             QuadraticAttenuation = 1f,
-            Radius = 0f,
         };
 }

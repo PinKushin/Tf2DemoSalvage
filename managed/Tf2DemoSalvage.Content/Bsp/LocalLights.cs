@@ -20,19 +20,9 @@ namespace Tf2DemoSalvage.Content.Bsp;
 /// lit from one end shades evenly rather than falling off along its length — and needs no change to
 /// the vertex format or the shader, which a per-light path would.
 ///
-/// **The arithmetic is Valve's, from <c>mathlib/lightdesc.cpp</c>**, and four details of it are the
-/// ones a reimplementation gets wrong:
-///
-/// * <c>dist2</c> is CLAMPED to a minimum of one (<c>MaxSIMD( Four_Ones, dist2 )</c>), not offset by
-///   one. The ambient reconstruction in <see cref="AmbientSamples.At"/> uses <c>dist + 1</c> and the
-///   two are easy to conflate now that both live here.
-/// * a zero constant term starts the falloff at <c>Four_Epsilons</c> rather than zero, which is what
-///   keeps the reciprocal finite for a light with no constant attenuation — every point light on
-///   cp_process is exactly that case.
-/// * the range cull is strict: light survives where <c>dist2 &lt; range²</c>, and a range of zero
-///   means no cull at all.
-/// * a spotlight's cone is zeroed OUTSIDE <c>phiDot</c> after the exponent is applied, deliberately,
-///   "to mask out any invalid results from pow function".
+/// **The arithmetic is `engine.dll`'s light cache, not `mathlib/lightdesc.cpp`.** The falloff's account is <see cref="LocalLights"/>'s
+/// private `Distance`, the admission's `ReachesBox`, and the fold's `FaceOf`; `lightdesc.cpp`'s clamp at one and range belong to the
+/// shader and to `StudioPointLighting`.
 /// </remarks>
 /// <summary>One world light as the shader needs it, ready to be attenuated and shaded.</summary>
 /// <param name="X">Where the light is, world space.</param>
@@ -56,8 +46,8 @@ namespace Tf2DemoSalvage.Content.Bsp;
 /// </param>
 /// <remarks>
 /// **The attenuation terms are normalised on the way out**, so a consumer never has to know about
-/// vrad's all-zero rule. A light with all three below `EQUAL_EPSILON` leaves here with
-/// <c>Constant = 1</c>, which is what vrad writes and what stops a reciprocal running to infinity —
+/// `Mod_LoadWorldlights`' all-zero rule. A point or spot with all three exactly 0 leaves here with
+/// <c>Quadratic = 1</c>, what stops a reciprocal running to infinity —
 /// a mistake this project made once and measured as a luminance of ∞ at four capture points.
 ///
 /// **Point, spot or surface**, the kinds with a position (B669). The sun is directional and travels its own path.
@@ -139,10 +129,15 @@ public sealed class LightingState
 
     /// <summary>The state as a model draws it.</summary>
     /// <param name="styleScale">Each light style's value over 264; one for every style when null.</param>
-    /// <returns>The cube and exactly <see cref="Count"/> local lights.</returns>
+    /// <returns>The cube and a local light for each slot but a quake light's (<see cref="LocalLights.Slotted"/>).</returns>
     public PointLighting Lighting(Func<int, float>? styleScale = null) =>
         Count == 0 ? PointLighting.Bounce(Cube) : new PointLighting(Cube, Array.AsReadOnly(LocalLights.Slotted(this, styleScale)));
 }
+
+/// <summary>The box `FUN_1801b99a0` tests a light against.</summary>
+/// <param name="Min">Its least corner, world space.</param>
+/// <param name="Max">Its greatest corner, world space.</param>
+public readonly record struct LightBounds((float X, float Y, float Z) Min, (float X, float Y, float Z) Max);
 
 public static class LocalLights
 {
@@ -153,15 +148,6 @@ public static class LocalLights
     /// rather than passing them separately.
     /// </remarks>
     public const int MaximumLocalLights = 4;
-
-    /// <summary>
-    /// Below this, an attenuation term counts as absent — Valve's <c>EQUAL_EPSILON</c>.
-    /// </summary>
-    /// <remarks>
-    /// <c>#define EQUAL_EPSILON 0.001</c>, from <c>public/mathlib/mathlib.h</c>. Used here for the
-    /// same test vrad applies when it decides a light has no falloff at all.
-    /// </remarks>
-    private const float AttenuationEpsilon = 0.001f;
 
     /// <summary>`r_worldlightmin`'s default, `"0.0002"` (`engine.dll` `0x180010110`).</summary>
     private const float WorldLightMinimum = 0.0002f;
@@ -222,9 +208,7 @@ public static class LocalLights
 
         // **The strongest four by contribution, not the first four in file order.** A map lists its
         // lights in the order the compiler emitted them, which has nothing to do with what is near
-        // anything. Strength here carries no n·d — the six faces disagree about direction and a single
-        // ranking has to serve all of them — but it does carry a spotlight's cone, which is the light's
-        // own direction and the same for every face (B665).
+        // anything. Strength here carries no n·d and no cone: luminance times distance falloff (B669).
         Span<int> chosen = stackalloc int[MaximumLocalLights];
         Span<float> strengths = stackalloc float[MaximumLocalLights];
 
@@ -299,18 +283,17 @@ public static class LocalLights
 
         int count = Choose(lights, x, y, z, chosen, strengths, style, traceKeeps, reached: null);
 
-        Write(lights, chosen[..count], into, style);
+        int written = 0;
 
-        return count;
-    }
-
-    /// <summary>The chosen lights as the shader takes them, at their style values.</summary>
-    private static void Write(IReadOnlyList<BspWorldLight> lights, ReadOnlySpan<int> chosen, Span<LocalLight> into, Func<int, float> style)
-    {
-        for (int slot = 0; slot < chosen.Length; slot++)
+        foreach (int index in chosen[..count])
         {
-            into[slot] = Local(lights[chosen[slot]], style);
+            if (lights[index].Kind != WorldLightKind.QuakeLight)
+            {
+                into[written++] = Local(lights[index], style);
+            }
         }
+
+        return written;
     }
 
     /// <summary>One light as the shader takes it, at its style value.</summary>
@@ -487,9 +470,9 @@ public static class LocalLights
     /// `strength` is meaningful only when this returns true: a light it rejects is given 0, without its luminance being
     /// computed.
     /// </remarks>
-    private static bool Candidate(BspWorldLight light, float x, float y, float z, Func<int, float> style, out float strength)
+    private static bool Candidate(BspWorldLight light, float x, float y, float z, Func<int, float> style, out float strength, LightBounds? bounds = null)
     {
-        if (!Admitted(light, x, y, z, style, out float falloff))
+        if (!Admitted(light, x, y, z, style, bounds, out float falloff))
         {
             strength = 0f;
             return false;
@@ -604,17 +587,139 @@ public static class LocalLights
     /// `engine.dll` `FUN_1801b8e20` returns before anything is added when the BRIGHTEST channel times the falloff is below
     /// `r_worldlightmin` — a different test from the ranking's luminance one, and the only one that drops a light outright.
     ///
-    /// **The falloff is the trace function's ratio, cone included** (B665): `FUN_1801b60a0` ranks by luminance times the
-    /// ratio `FUN_1801b99a0` → `FUN_1801b9570` returns, which carries a spotlight's cone, so a spot whose cone misses the
-    /// point takes no slot. Ranked by distance alone, such spots evicted the lamps that do reach it. A surface light skips
-    /// the minimum: `FUN_1801b9570` guards it with `type != 0`.
+    /// **The ranking's falloff has no cone in it** (B669, correcting B665's interpolation). `FUN_1801b60a0` multiplies the
+    /// luminance by `FUN_1801b9570`'s return and keeps `FUN_1800efbf0`'s angle apart for the fold, and that return is the
+    /// distance falloff times the style: logged from the running engine, 0.002225 at 449 units from a spot whose fringe there
+    /// is 0.0512. What keeps a spot aimed away out of a slot is <see cref="ReachesBox"/>, before any trace. A surface
+    /// light skips the minimum: `FUN_1801b9570` guards it with `type != 0`.
     /// </remarks>
-    private static bool Admitted(BspWorldLight light, float x, float y, float z, Func<int, float> style, out float falloff)
+    private static bool Admitted(
+        BspWorldLight light, float x, float y, float z, Func<int, float> style, LightBounds? bounds, out float falloff)
     {
-        falloff = IsLocal(light.Kind) ? Ratio(light, x, y, z) * style(light.Style) : 0f;
+        falloff = IsLocal(light.Kind) ? Distance(light, x, y, z) * style(light.Style) : 0f;
 
         return falloff > 0f && (light.Kind == WorldLightKind.Surface ||
-            falloff * Math.Max(light.Intensity.Red, Math.Max(light.Intensity.Green, light.Intensity.Blue)) >= WorldLightMinimum);
+            falloff * Math.Max(light.Intensity.Red, Math.Max(light.Intensity.Green, light.Intensity.Blue)) >= WorldLightMinimum) &&
+            ReachesBox(light, x, y, z, bounds ?? Cell(x, y, z));
+    }
+
+    /// <summary>
+    /// `FUN_1801b99a0`'s tests, before any trace, against a box: the light's radius, and a spot's or surface light's cone against a sphere
+    /// around the point, radius the distance to the box's far corner.
+    /// </summary>
+    /// <remarks>
+    /// **Which box is the caller's:** the point's 32x32x128 cell in `FUN_1801b60a0` and `FUN_1801b5400`, the prop's bounds in a handle's list
+    /// (`FUN_1801b6bf0`) and a static prop's dlight (`FUN_1801b6550`, from `FUN_1801ba590`).
+    ///
+    /// `DAT_18075b318` read as 0 takes this branch. *Interpolated:* that it is `r_oldlightselection`, since the lights logged from the running
+    /// engine fit no other branch; the 83 it traced for #215 are exactly what this admits. Surface and spot: out when the sphere's radius plus
+    /// the light's is short of the distance. Then `FUN_1801736b0`. A spot's sine and cosine are of `stopdot2` (*interpolated*: `FUN_18033435c`
+    /// and `FUN_18032e370` were not decompiled, and the arguments fit `acos` then `sin`); a surface light's are 1 and 0, a hemisphere. So a
+    /// light near a point can take a slot aimed away from it, lighting nothing. Point and spot: out when the light's distance from the box
+    /// passes its radius (`FUN_180276b00`).
+    ///
+    /// **A radius of 0 is a radius here, not "no cutoff".** Load replaces a lump's 0 (<see cref="BspWorldLights.AsLoaded"/>), and where `FUN_1800cbdd0`
+    /// answers 0 again, a falloff that never reaches its threshold, `r² &lt; d²` refuses the light from any box it stands outside. Only the
+    /// falloff's own case 0 reads 0 as none (<see cref="Distance"/>).
+    /// </remarks>
+    private static bool ReachesBox(BspWorldLight light, float x, float y, float z, LightBounds box)
+    {
+        if (light.Kind == WorldLightKind.QuakeLight)
+        {
+            return true;
+        }
+
+        float radius = light.Radius;
+
+        if (light.Kind is WorldLightKind.Surface or WorldLightKind.Spotlight)
+        {
+            float fromLightX = x - light.Origin.X;
+            float fromLightY = y - light.Origin.Y;
+            float fromLightZ = z - light.Origin.Z;
+            float length = MathF.Sqrt((fromLightX * fromLightX) + (fromLightY * fromLightY) + (fromLightZ * fromLightZ));
+            float toFarX = box.Max.X - x;
+            float toFarY = box.Max.Y - y;
+            float toFarZ = box.Max.Z - z;
+            float sphere = MathF.Sqrt((toFarX * toFarX) + (toFarY * toFarY) + (toFarZ * toFarZ));
+
+            if (sphere + radius < length)
+            {
+                return false;
+            }
+
+            float cosine = light.Kind == WorldLightKind.Surface ? 0f : light.StopDot2;
+            float sine = light.Kind == WorldLightKind.Surface ? 1f : MathF.Sqrt(MathF.Max(0f, 1f - (cosine * cosine)));
+
+            if (!SphereTouchesCone(fromLightX, fromLightY, fromLightZ, length, sphere, light.Normal, sine, cosine))
+            {
+                return false;
+            }
+
+            if (light.Kind == WorldLightKind.Surface)
+            {
+                return true;
+            }
+        }
+
+        float boxX = PastBox(light.Origin.X, box.Min.X, box.Max.X);
+        float boxY = PastBox(light.Origin.Y, box.Min.Y, box.Max.Y);
+        float boxZ = PastBox(light.Origin.Z, box.Min.Z, box.Max.Z);
+
+        return !(radius * radius < (boxX * boxX) + (boxY * boxY) + (boxZ * boxZ));
+    }
+
+    /// <summary>How far past a box a coordinate lies on one axis, by `FUN_180276b00`'s plain compares: an inverted box measures from its min first, and cannot throw.</summary>
+    private static float PastBox(float at, float min, float max)
+    {
+        if (at < min)
+        {
+            return min - at;
+        }
+
+        return at > max ? at - max : 0f;
+    }
+
+    /// <summary>`FUN_1801736b0`, a sphere against a cone, with the sphere's centre given from the light.</summary>
+    /// <remarks>
+    /// **The comparisons are written as the disassembly's `COMISS`/`JC`, because NaN goes the way they send it.** A spot whose `stopdot2` is 1 has
+    /// a sine of 0, so the apex is pulled back by infinity, and on any axis the normal has a 0 that is NaN. The first `JC` is taken on unordered:
+    /// refused. A `&lt;` that returned false on NaN would admit it.
+    /// </remarks>
+    private static bool SphereTouchesCone(
+        float fromLightX, float fromLightY, float fromLightZ, float length, float sphere, (float X, float Y, float Z) normal, float sine, float cosine)
+    {
+        float back = sphere / sine;
+        float fromApexX = fromLightX + (normal.X * back);
+        float fromApexY = fromLightY + (normal.Y * back);
+        float fromApexZ = fromLightZ + (normal.Z * back);
+
+        if (!((fromApexX * normal.X) + (fromApexY * normal.Y) + (fromApexZ * normal.Z) >=
+            MathF.Sqrt((fromApexX * fromApexX) + (fromApexY * fromApexY) + (fromApexZ * fromApexZ)) * cosine))
+        {
+            return false;
+        }
+
+        // Past the slope's front, the cone's body holds it. Behind it, only the sphere reaching the light itself does.
+        return !(-((fromLightX * normal.X) + (fromLightY * normal.Y) + (fromLightZ * normal.Z)) >= length * sine) || length <= sphere;
+    }
+
+    /// <summary>The point's cell, as `FUN_1801b60a0` builds it.</summary>
+    private static LightBounds Cell(float x, float y, float z)
+    {
+        (float farX, float farY, float farZ) = (CellFarCorner(x, 5), CellFarCorner(y, 5), CellFarCorner(z, 7));
+
+        return new LightBounds((farX - 32f, farY - 32f, farZ - 128f), (farX, farY, farZ));
+    }
+
+    /// <summary>The far edge of a point's cell on one axis, as `FUN_1801b60a0` builds it: the magnitude truncated and shifted down, complemented when negative.</summary>
+    /// <param name="value">The coordinate.</param>
+    /// <param name="shift">5 for x and y, 7 for z.</param>
+    /// <returns>The edge. So -32 and -33 are both in the cell ending at -32, and -31.5 in the one ending at 0.</returns>
+    internal static float CellFarCorner(float value, int shift)
+    {
+        int cell = (int)MathF.Abs(value) >> shift;
+
+        return ((value < 0f ? ~cell : cell) << shift) + (1 << shift);
     }
 
     /// <summary>Rec.601 luminance, the lightcache's ranking weight (`engine.dll` `0x18047be38`).</summary>
@@ -651,9 +756,8 @@ public static class LocalLights
         LightingState state = Build(lights, x, y, z, cube, styleScale, traceKeeps);
 
         cube = state.Cube;
-        WriteSlots(state, into, styleScale ?? Steady);
 
-        return state.Count;
+        return WriteSlots(state, into, styleScale ?? Steady);
     }
 
     /// <summary>A state from a whole list at once, as <see cref="Split"/> ranks it: the strongest four in slots, strongest first, the rest folded.</summary>
@@ -715,15 +819,20 @@ public static class LocalLights
     /// A static prop's dlight (`FUN_1801b6550`'s `param_5`): the threshold is 100000 rather than the light's own strength, so it takes a
     /// slot from all but an enormous lamp. A moving model's dlight comes through `FUN_1801b5890` and has no such rule.
     /// </param>
+    /// <param name="bounds">
+    /// The box `FUN_1801b99a0` tests against: a static prop's bounds for its dlight (`FUN_1801b6550`, from `FUN_1801ba590`); null for the point's
+    /// cell, which `FUN_1801b60a0` and `FUN_1801b5400` pass.
+    /// </param>
     /// <exception cref="ArgumentNullException"><paramref name="state"/> is null.</exception>
     public static void Add(
-        LightingState state, BspWorldLight light, float x, float y, float z, Func<int, float>? styleScale = null, bool dynamicLight = false)
+        LightingState state, BspWorldLight light, float x, float y, float z, Func<int, float>? styleScale = null, bool dynamicLight = false,
+        LightBounds? bounds = null)
     {
         ArgumentNullException.ThrowIfNull(state);
 
         Func<int, float> style = styleScale ?? Steady;
 
-        if (!Candidate(light, x, y, z, style, out float strength))
+        if (!Candidate(light, x, y, z, style, out float strength, bounds))
         {
             return;
         }
@@ -813,22 +922,31 @@ public static class LocalLights
     /// <summary>A state's slots as the shader takes them.</summary>
     /// <param name="state">The state.</param>
     /// <param name="styleScale">Each light style's value over 264; one for every style when null.</param>
-    /// <returns>Exactly <see cref="LightingState.Count"/> local lights.</returns>
+    /// <returns>A local light for each slot but a quake light's.</returns>
+    /// <remarks>
+    /// `engine.dll` `FUN_1800f0e10` (`0x1800f2010`, cases 4 and 5): a quake light keeps its slot in the state, and its rank there, and makes no `LightDesc_t`, so it
+    /// draws nothing from that slot.
+    /// </remarks>
     internal static LocalLight[] Slotted(LightingState state, Func<int, float>? styleScale)
     {
-        LocalLight[] locals = new LocalLight[state.Count];
+        LocalLight[] locals = new LocalLight[LocalLights.MaximumLocalLights];
 
-        WriteSlots(state, locals, styleScale ?? Steady);
-
-        return locals;
+        return locals[..WriteSlots(state, locals, styleScale ?? Steady)];
     }
 
-    private static void WriteSlots(LightingState state, Span<LocalLight> into, Func<int, float> style)
+    private static int WriteSlots(LightingState state, Span<LocalLight> into, Func<int, float> style)
     {
+        int written = 0;
+
         for (int slot = 0; slot < state.Count; slot++)
         {
-            into[slot] = Local(state.Slots[slot], style);
+            if (state.Slots[slot].Kind != WorldLightKind.QuakeLight)
+            {
+                into[written++] = Local(state.Slots[slot], style);
+            }
         }
+
+        return written;
     }
 
     /// <summary>Whether a light's contribution at a point is positive, as a static prop's handle list admits it.</summary>
@@ -836,55 +954,19 @@ public static class LocalLights
     /// <param name="x">The handle's lighting origin.</param>
     /// <param name="y">The handle's lighting origin.</param>
     /// <param name="z">The handle's lighting origin.</param>
+    /// <param name="bounds">The prop's world box; null tests the point's cell.</param>
     /// <returns>True when it reaches.</returns>
     /// <remarks>
     /// `engine.dll` `FUN_1801b99a0` → `FUN_1801b9570` with flags `9|2`: the value 8 skips the style scale and the value 1
-    /// the visibility trace (<see cref="TraceKeeps"/>; B666's read, superseding B424's "2 skips the trace"), so this is the
-    /// distance falloff (radius cutoff included), a spotlight's or surface light's cone, and
-    /// `r_worldlightmin` for every kind but `emit_surface`. Sky and sky-ambient lights never reach a point this way.
-    /// `FUN_1801b99a0`'s pre-culls against the prop's bounds are skipped: for an origin inside the bounds they reject
-    /// nothing the point test keeps. ponytail: add them if a lighting origin outside its bounds ever matters.
+    /// the visibility trace (<see cref="TraceKeeps"/>; B666's read, superseding B424's "2 skips the trace"), so this is
+    /// `r_worldlightmin` for every kind but `emit_surface`, a surface light's radius in the falloff, and <see cref="ReachesBox"/>
+    /// against `bounds`, the prop's in `FUN_1801b6bf0`, the point's cell where none is given. Sky and sky-ambient lights never
+    /// reach a point this way.
     /// </remarks>
-    public static bool Reaches(BspWorldLight light, float x, float y, float z)
-    {
-        if (!IsLocal(light.Kind))
-        {
-            return false;
-        }
+    public static bool Reaches(BspWorldLight light, float x, float y, float z, LightBounds? bounds = null) =>
+        Admitted(light, x, y, z, Steady, bounds, out _);
 
-        float falloff = Ratio(light, x, y, z);
-
-        if (falloff <= 0f)
-        {
-            return false;
-        }
-
-        return light.Kind == WorldLightKind.Surface ||
-            falloff * Math.Max(light.Intensity.Red, Math.Max(light.Intensity.Green, light.Intensity.Blue)) >= WorldLightMinimum;
-    }
-
-    /// <summary>
-    /// A light's ratio at a point, as `FUN_1801b9570` computes it without the style or the trace: the distance falloff,
-    /// times a spotlight's or surface light's cone.
-    /// </summary>
-    private static float Ratio(BspWorldLight light, float x, float y, float z)
-    {
-        float falloff = Distance(light, x, y, z);
-
-        if (light.Kind is not (WorldLightKind.Spotlight or WorldLightKind.Surface))
-        {
-            return falloff;
-        }
-
-        float dx = light.Origin.X - x;
-        float dy = light.Origin.Y - y;
-        float dz = light.Origin.Z - z;
-        float length = MathF.Sqrt((dx * dx) + (dy * dy) + (dz * dz));
-
-        return length > 0f ? falloff * Cone(light, dx / length, dy / length, dz / length) : falloff;
-    }
-
-    /// <summary>vrad's all-zero rule, applied once so no caller has to know it; a surface light's terms are the engine's 0/0/1.</summary>
+    /// <summary>A light's terms as the slot takes them: a surface light's are the engine's 0/0/1, and all zero is quadratic, as <see cref="Distance"/>.</summary>
     private static (float Constant, float Linear, float Quadratic) Normalised(BspWorldLight light)
     {
         if (light.Kind == WorldLightKind.Surface)
@@ -892,16 +974,9 @@ public static class LocalLights
             return (0f, 0f, 1f);
         }
 
-        float constant = light.ConstantAttenuation;
-
-        if (constant < AttenuationEpsilon &&
-            light.LinearAttenuation < AttenuationEpsilon &&
-            light.QuadraticAttenuation < AttenuationEpsilon)
-        {
-            constant = 1f;
-        }
-
-        return (constant, light.LinearAttenuation, light.QuadraticAttenuation);
+        return light is { ConstantAttenuation: 0f, LinearAttenuation: 0f, QuadraticAttenuation: 0f }
+            ? (0f, 0f, 1f)
+            : (light.ConstantAttenuation, light.LinearAttenuation, light.QuadraticAttenuation);
     }
 
     /// <summary>Whether a light casts direct light from a position.</summary>
@@ -923,18 +998,21 @@ public static class LocalLights
         kind is WorldLightKind.Surface or WorldLightKind.Point or WorldLightKind.Spotlight or WorldLightKind.QuakeLight;
 
     /// <summary>
-    /// Distance falloff times the style, as <c>LightDesc_t::ComputeLightAtPoints</c> computes it — what a folded light's
-    /// cube face is scaled by, which applies the cone itself (<see cref="Face"/>).
+    /// `FUN_1800efe40`'s distance falloff times the style: what a folded light's cube face is scaled by, the cone applied apart (<see cref="Face"/>).
     /// </summary>
     /// <remarks>
     /// **Times the light's style value over 264**, as the lightcache multiplies it (`engine.dll` `0x1801b8e20`): a
-    /// switchable lamp turned off adds nothing. The ranking takes the style the same way, on <see cref="Ratio"/> rather
-    /// than on this (<see cref="Admitted"/>).
+    /// switchable lamp turned off adds nothing. The ranking takes this same value (<see cref="Admitted"/>).
     /// </remarks>
     private static float Falloff(BspWorldLight light, float x, float y, float z, Func<int, float> style) =>
         Distance(light, x, y, z) * style(light.Style);
 
-    /// <summary>The distance falloff alone.</summary>
+    /// <summary>The distance falloff alone: `engine.dll` `FUN_1800efe40`, every branch (`0x1800f1040` on build 11191711, read there).</summary>
+    /// <remarks>
+    /// Case 0's reciprocal is `RCPSS`, an estimate good to about 1 part in 2,700 that differs between CPUs; this is the exact one. Its `ADDSS` of 1e-10 is
+    /// left out as it cannot move `MAXSS` with 1: under 1 the 1 wins, and at or over 1 the addition rounds away. **A point or spot at d = 0 divides by 0 as the
+    /// engine's `DIVSS` does**, to infinity, which ranks it first; `FaceOf` adds nothing for it, as the engine's zero direction does.
+    /// </remarks>
     private static float Distance(BspWorldLight light, float x, float y, float z)
     {
         float dx = light.Origin.X - x;
@@ -943,59 +1021,29 @@ public static class LocalLights
 
         float distanceSquared = (dx * dx) + (dy * dy) + (dz * dz);
 
-        // **Clamped, not offset**: MaxSIMD( Four_Ones, dist2 ). The ambient reconstruction next
-        // door uses 1 / (dist + 1) and the two are easy to confuse.
-        distanceSquared = Math.Max(1f, distanceSquared);
-
-        // `FUN_1800efe40` case 0: inverse square, whatever the attenuation terms hold; out only strictly past the radius.
-        if (light.Kind == WorldLightKind.Surface)
+        switch (light.Kind)
         {
-            return light.Radius != 0f && distanceSquared > light.Radius * light.Radius ? 0f : 1f / distanceSquared;
+            // Inverse square clamped at 1, whatever the attenuation terms hold; out only strictly past the radius, and 0 is none. The radius is
+            // read here whichever way the light is reached: this case ignores the flag.
+            case WorldLightKind.Surface:
+                return light.Radius != 0f && distanceSquared > light.Radius * light.Radius ? 0f : 1f / MathF.Max(1f, distanceSquared);
+
+            // **No radius**: every route here passes `FUN_1801b99a0`, whose `flags | 2` is the third argument that skips this case's cutoff.
+            // `ReachesBox` is its test instead. **And no clamp**: the shader's `max( 1, d² )` is `VertexAttenInternal`'s, not this function's.
+            case WorldLightKind.Point:
+            case WorldLightKind.Spotlight:
+                // A lump's all-zero terms are gone by here (`BspWorldLights.AsLoaded`). A light built by hand can still have them: the same answer.
+                float quadratic = light is { ConstantAttenuation: 0f, LinearAttenuation: 0f, QuadraticAttenuation: 0f } ? 1f : light.QuadraticAttenuation;
+
+                return 1f / ((MathF.Sqrt(distanceSquared) * light.LinearAttenuation) + light.ConstantAttenuation + (distanceSquared * quadratic));
+
+            // `emit_quakelight`: linear, reaching 0 at a distance of its linear term.
+            case WorldLightKind.QuakeLight:
+                return MathF.Max(0f, light.LinearAttenuation - MathF.Sqrt(distanceSquared));
+
+            default:
+                return 1f;
         }
-
-        // Strictly less than, and a range of zero means no cutoff at all. Every light on
-        // cp_process stores zero, so reading it as a real radius extinguishes the whole map.
-        if (light.Radius != 0f && distanceSquared >= light.Radius * light.Radius)
-        {
-            return 0f;
-        }
-
-        float constant = light.ConstantAttenuation;
-        float linear = light.LinearAttenuation;
-        float quadratic = light.QuadraticAttenuation;
-
-        // **A light with no attenuation at all is a constant-1 light, not an epsilon one.** vrad
-        // normalises exactly this case when it builds a light (`lightmap.cpp`):
-        //
-        //     if ( constant_attn < EQUAL_EPSILON && linear_attn < EQUAL_EPSILON &&
-        //          quadratic_attn < EQUAL_EPSILON )
-        //         constant_attn = 1;
-        //
-        // EQUAL_EPSILON is 0.001 (`mathlib.h`). This was first transcribed from
-        // `ComputeLightAtPoints`, whose `else falloff = Four_Epsilons` branch guards the
-        // reciprocal rather than describing the light — and rendering it as float.Epsilon, the
-        // smallest denormal, made 1/falloff infinite. Four capture points reported a luminance of
-        // ∞ and the unit tests all passed, because none of them used a light with no attenuation.
-        if (constant < AttenuationEpsilon &&
-            linear < AttenuationEpsilon &&
-            quadratic < AttenuationEpsilon)
-        {
-            constant = 1f;
-        }
-
-        float falloff = constant;
-
-        if (linear != 0f)
-        {
-            falloff += linear * MathF.Sqrt(distanceSquared);
-        }
-
-        if (quadratic != 0f)
-        {
-            falloff += quadratic * distanceSquared;
-        }
-
-        return 1f / falloff;
     }
 
     /// <summary>Adds every chosen light's contribution to one face of the cube.</summary>
@@ -1016,6 +1064,24 @@ public static class LocalLights
         return face;
     }
 
+    /// <summary>What a light adds to a cube face turned squarely at it, the fold's own arithmetic, for a probe that ranks them.</summary>
+    /// <param name="light">The light.</param>
+    /// <param name="x">The point.</param>
+    /// <param name="y">The point.</param>
+    /// <param name="z">The point.</param>
+    /// <returns>The green channel, the fold's value for that face.</returns>
+    public static float StrengthAt(BspWorldLight light, float x, float y, float z)
+    {
+        float dx = light.Origin.X - x;
+        float dy = light.Origin.Y - y;
+        float dz = light.Origin.Z - z;
+        float length = MathF.Sqrt((dx * dx) + (dy * dy) + (dz * dz));
+
+        return length <= 0f
+            ? 0f
+            : FaceOf(default, light, x, y, z, dx / length, dy / length, dz / length, static _ => 1f).Green;
+    }
+
     /// <summary>One light's contribution to one face of the cube.</summary>
     private static (float Red, float Green, float Blue) FaceOf(
         (float Red, float Green, float Blue) face,
@@ -1028,12 +1094,8 @@ public static class LocalLights
         float dy = light.Origin.Y - y;
         float dz = light.Origin.Z - z;
 
-        float length = MathF.Sqrt((dx * dx) + (dy * dy) + (dz * dz));
-
-        if (length <= 0f)
-        {
-            return face;
-        }
+        // `FUN_1801baeb0`'s normalize, `1 / sqrt( d² + 1e-10 )`: at d = 0 the direction is (0 0 0), so every face below takes nothing.
+        float length = MathF.Sqrt((dx * dx) + (dy * dy) + (dz * dz) + 1e-10f);
 
         dx /= length;
         dy /= length;
@@ -1063,31 +1125,18 @@ public static class LocalLights
         return (face.Red + (scale * light.Intensity.Red), face.Green + (scale * light.Intensity.Green), face.Blue + (scale * light.Intensity.Blue));
     }
 
-    /// <summary>A spotlight's angular attenuation for a direction, or zero outside the cone.</summary>
+    /// <summary>What a light's direction contributes to its fold: `engine.dll` `FUN_1800efbf0`, with the direction as the surface normal.</summary>
     /// <remarks>
     /// <c>dot2</c> is negated because <paramref name="dx"/> points from the surface toward the
     /// light while the light's normal points the way it shines.
     ///
-    /// **It is then used TWICE, which is the part this originally missed (B122).** vrad multiplies
-    /// the falloff by <c>dot2</c> as a plain cosine — a spotlight dims away from its axis everywhere,
-    /// not only in the penumbra — and separately applies the fringe between the inner and outer
-    /// cones (<c>lightmap.cpp:1929</c>-1942):
+    /// **A spot takes the fringe alone** (case 2): 1 at or inside `stopdot`, 0 at or outside `stopdot2`, and between them the
+    /// ratio, raised to the exponent unless that is 0 or 1. B122 also multiplied by <c>dot2</c>, from vrad's
+    /// <c>lightmap.cpp:1929</c>: that is the bake, which the runtime cube does not share. Logged from the running engine, the spot
+    /// at (-3400 -1128 486) folds at 1/449 times its fringe of 0.0512, and that cosine made it 22 times too dim (B669).
     ///
-    /// <code>
-    /// out.m_flFalloff = MulSIMD( out.m_flFalloff, dot2 );
-    /// mult = ( dot2 - stopdot2 ) / ( stopdot - stopdot2 ), clamped
-    /// </code>
-    ///
-    /// Returning only the fringe left a light at full strength anywhere inside its inner cone. An
-    /// on-axis test cannot see that, because there <c>dot2</c> is one — which is why the suite held
-    /// the wrong behaviour while passing.
-    ///
-    /// <c>emit_surface</c> takes the same cosine once and no fringe, and is lit only past 0.01
-    /// (`FUN_1800efbf0` case 0, `Engine_WorldLightAngle`, `leaf_ambient_lighting.cpp:68-72`: "behind light surface").
-    ///
-    /// The mask is applied AFTER the exponent, as Valve does and for their stated reason: it masks
-    /// "any invalid results from pow function". Zeroing first would leave a negative scale to be
-    /// raised to a power.
+    /// <c>emit_surface</c> takes the cosine once and no fringe, and is lit only past 0.01
+    /// (case 0, `Engine_WorldLightAngle`, `leaf_ambient_lighting.cpp:68-72`: "behind light surface").
     /// </remarks>
     private static float Cone(BspWorldLight light, float dx, float dy, float dz)
     {
@@ -1098,20 +1147,19 @@ public static class LocalLights
             return dot2 > 0.01f ? dot2 : 0f;
         }
 
-        float spread = light.StopDot - light.StopDot2;
-
-        // Hard falloff instead of divide by zero, which is the engine's own comment on this case.
-        float oneOverSpread = spread > 1.0e-10f ? 1f / spread : 1f;
-
-        float cone = Math.Min((dot2 - light.StopDot2) * oneOverSpread, 1f);
-
-        if (light.Exponent is not (0f or 1f))
+        if (!(light.StopDot2 < dot2))
         {
-            cone = MathF.Pow(cone, light.Exponent);
+            return 0f;
         }
 
-        // The cosine and the fringe together, in that order, as the engine composes them.
-        return dot2 > light.StopDot2 ? dot2 * cone : 0f;
+        if (light.StopDot <= dot2)
+        {
+            return 1f;
+        }
+
+        float fringe = (dot2 - light.StopDot2) / (light.StopDot - light.StopDot2);
+
+        return light.Exponent is 0f or 1f ? fringe : MathF.Pow(fringe, light.Exponent);
     }
 
     /// <summary>Keeps the strongest lights seen so far, brightest first.</summary>

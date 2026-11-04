@@ -68,7 +68,7 @@ public sealed class StaticPropHandleConformanceTests
             : new Dictionary<int, float[]>(),
         StaticPlusDynamicLights = static (_, _, _, _) => PointLighting.None,
         StaticPropFullLighting = static (_, _, _, _) => (PointLighting.Bounce(HandleCube), HandleSun),
-        StaticPropHandle = (entity, _, _, _) => handles.Add(entity),
+        StaticPropHandle = (entity, _, _, _, _) => handles.Add(entity),
     };
 
     /// <remarks>Whichever state it draws with: colour mesh (flags 6), bump mapped (flags 7), or neither (flags 7).</remarks>
@@ -91,6 +91,25 @@ public sealed class StaticPropHandleConformanceTests
         asked.Light.ShouldBe(0);
         asked.Sun.ShouldBe(0);
         handles.ShouldBe([PropModels.FirstStaticPropEntityIndex], "`0x180205b20` builds a handle for every prop, once");
+    }
+
+    /// <remarks>`FUN_180205b20` hands `FUN_1801b8350` the record's world bounds, `+0x9c` and `+0xa8`: min first, placed at the prop's origin.</remarks>
+    [Test]
+    public void Instances_AStaticProp_HandsItsHandleItsWorldBox()
+    {
+        List<LightBounds?> boxes = [];
+        EntityModelSet models = new()
+        {
+            Geometry = _ => Frames(StudioModelFlags.StaticProp) with { HeaderBounds = new StudioBox(-1f, -2f, -3f, 4f, 5f, 6f) },
+            StaticPropFullLighting = static (_, _, _, _) => (PointLighting.Bounce(HandleCube), HandleSun),
+            StaticPropHandle = (_, _, _, _, bounds) => boxes.Add(bounds),
+        };
+
+        models.StaticProps = [StaticProp()];
+        models.Add([]);
+        models.Instances([], [], new Asked().LightAt);
+
+        boxes.ShouldHaveSingleItem().ShouldBe(new LightBounds((-1f, -2f, 97f), (4f, 5f, 106f)));
     }
 
     /// <remarks>

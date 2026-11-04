@@ -280,6 +280,93 @@ public sealed class StaticPropModelsWiringTests
     /// </remarks>
     [Test]
     [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
+    public void IlluminationPoint_CpProcessF12RolledPipes_AreTheEnginesLoggedPoints()
+    {
+        // `FUN_1801b8270`'s point, logged from the running engine (`measurements/2026-11-03-b669-pipe-traces-live.md`): the whole
+        // AngleMatrix of the placement, roll included. `2pipe_straight_64`, angles (0 270 -90), offset (0 0 0.5) in the model.
+        const string Map = "cp_process_f12";
+
+        if (!MapCache.Exists(Map))
+        {
+            Assert.Ignore("cp_process_f12 or the game is not installed");
+            return;
+        }
+
+        MapAssets assets = MapCache.With(mapName: Map).Assets;
+        EntityModelSet models = new() { Geometry = assets.Geometry };
+
+        models.Add(assets.StaticModels);
+
+        Core.Scene.SceneProp rolled = assets.StaticModels.Single(prop =>
+            prop.ModelPath.Contains("2pipe_straight_64", StringComparison.OrdinalIgnoreCase) && MathF.Abs(prop.Pose.X + 3834f) < 1f && MathF.Abs(prop.Pose.Y + 1216f) < 1f);
+        Core.Scene.SceneProp pipe = assets.StaticModels.Single(prop =>
+            prop.ModelPath.Contains("industrial_pipe01_256_01", StringComparison.OrdinalIgnoreCase) && MathF.Abs(prop.Pose.X + 3331f) < 1f && MathF.Abs(prop.Pose.Y + 683f) < 1f);
+
+        (float x, float y, float z) = models.IlluminationPoint(rolled, rolled.Pose);
+
+        x.ShouldBe(-3833.5f, 0.1f);
+        y.ShouldBe(-1216f, 0.1f);
+        z.ShouldBe(609f, 0.1f);
+
+        // The control: its offset lies on the axis the roll turns about, so yaw alone had this one right.
+        (float pipeX, float pipeY, float pipeZ) = models.IlluminationPoint(pipe, pipe.Pose);
+
+        pipeX.ShouldBe(-3459f, 0.1f);
+        pipeY.ShouldBe(-683f, 0.1f);
+        pipeZ.ShouldBe(506f, 0.1f);
+    }
+
+    [Test]
+    public void Instances_CpProcessF12LowerPipe_HoldsTheEnginesSlotsAndCube()
+    {
+        // **Logged from the running engine**, `FUN_1801ba590`'s state for the handle at (-3459 -683 506), default cvars:
+        // `measurements/2026-11-03-b669-pipe-traces-live.md`. Green channel, +x -x +y -y +z -z.
+        const string Map = "cp_process_f12";
+
+        if (!MapCache.Exists(Map))
+        {
+            Assert.Ignore("cp_process_f12 or the game is not installed");
+            return;
+        }
+
+        MapAssets assets = MapCache.With(mapName: Map).Assets;
+        MapLevel level = MapLevel.Read(MapCache.Bytes(Map), NullLogger.Instance);
+        LevelLighting lighting = LevelLighting.From(level, NullLogger.Instance);
+
+        EntityModelSet models = new()
+        {
+            Geometry = assets.Geometry,
+            StaticPropColours = assets.StaticModelColours,
+            StaticPlusDynamicLights = lighting.StaticPlusDynamicLights,
+            StaticPropLighting = lighting.StaticPropLightingAt,
+            StaticPropFullLighting = lighting.StaticPropFullLightingAt,
+        };
+
+        models.Add(assets.StaticModels);
+
+        List<ModelInstance> drawn = [];
+        models.Instances(assets.StaticModels, drawn, lighting.ModelLightingAt, lighting.ModelSunAt);
+
+        Core.Scene.SceneProp pipe = assets.StaticModels.Single(prop =>
+            prop.ModelPath.Contains("industrial_pipe01_256_01", StringComparison.OrdinalIgnoreCase) && MathF.Abs(prop.Pose.X + 3331f) < 1f && MathF.Abs(prop.Pose.Y + 683f) < 1f && MathF.Abs(prop.Pose.Z - 506f) < 1f);
+        ModelInstance instance = drawn.Single(drawnProp => drawnProp.EntityIndex == pipe.EntityIndex);
+
+        instance.Locals.ShouldNotBeNull().Select(lamp => ((int)MathF.Round(lamp.X), (int)MathF.Round(lamp.Y), (int)MathF.Round(lamp.Z))).ShouldBe(
+            [(-3400, -1128, 486), (-3000, -1112, 486), (-3425, -772, 1161), (-3425, -816, 1161)], ignoreOrder: true);
+
+        AmbientCube cube = instance.Light.ShouldNotBeNull();
+
+        // Three faces to the fifth digit. -x, -y and +z read over by 0.0007, 0.0033 and 0.0032, in the bounce (B683); the lights'
+        // own folds match light for light.
+        cube.PositiveX.Green.ShouldBe(0.13899f, 0.0001f);
+        cube.PositiveY.Green.ShouldBe(0.06567f, 0.0001f);
+        cube.NegativeZ.Green.ShouldBe(0.03904f, 0.0001f);
+        cube.NegativeX.Green.ShouldBe(0.23487f, 0.001f);
+        cube.NegativeY.Green.ShouldBe(0.27004f, 0.004f);
+        cube.PositiveZ.Green.ShouldBe(0.40297f, 0.004f);
+    }
+
+    [Test]
     public void Instances_KothToxicVats_TakeOnlyLampsThatReachAndTheGreenLampOverTheFirst()
     {
         const string Map = "koth_toxic";
@@ -333,11 +420,11 @@ public sealed class StaticPropModelsWiringTests
                     $"a lamp at ({lamp.X:0} {lamp.Y:0} {lamp.Z:0}) behind a wall from ({point.X:0} {point.Y:0} {point.Z:0}) took a slot");
             }
 
-            // **No white spot** (B666): the three that held slots after B665 are each blocked hundreds of units short of
-            // the lighting origin, so `FUN_1801b9570` returns zero for them. What is left is the green lamp and the two
-            // dim up-aimed spots in the vat's floor (intensity about 1), which the trace sees.
-            lamps.ShouldNotContain(lamp => lamp.Spot && lamp.Red > 30000f, "a white spot behind a wall took a slot");
-            lamps.Count.ShouldBe(3);
+            // The three white spots that held slots after B665 are each blocked hundreds of units short of the lighting
+            // origin (B666). A white spot the trace does see may hold one: the rank has no cone in it (B669), and it lights
+            // only as far as the shader's cone allows. **What ours gives, not a log of this map:** only cp_process_f12's
+            // slots have been read from the engine.
+            lamps.Count.ShouldBe(4);
         }
 
         // The vat at (-208 1440 -192): the green point lamp 76 units over its mouth is in its state.

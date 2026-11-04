@@ -705,16 +705,32 @@ public sealed class LevelLighting
     /// ponytail: its own <see cref="DecalWorld"/>, built on the first static prop that asks; the viewer builds a second
     /// for decals and impacts. Share one if the build time shows up.
     /// </remarks>
-    private static Func<float, float, float, AmbientCube>? StaticPropAmbientOf(MapLevel level)
+    public static Func<float, float, float, AmbientCube>? StaticPropAmbientOf(MapLevel level)
     {
+        ArgumentNullException.ThrowIfNull(level);
+
         if (level.Leaves is not { } tree || level.LeafFaces is not { } leafFaces || level.LightSamples is not { } samples)
         {
             return null;
         }
 
-        Lazy<SurfaceColour> rays = new(
-            () => new SurfaceColour(DecalWorld.From(tree, leafFaces, level.Surfaces, level.Terrain), samples, static _ => null));
+        return AmbientOver(level, new Lazy<SurfaceColour>(() => Rays(level, tree, leafFaces, samples)));
+    }
 
+    /// <summary><see cref="StaticPropAmbient"/> casting against a walker the caller holds, so a probe's table and cube read one instance.</summary>
+    /// <param name="level">The level.</param>
+    /// <param name="rays">The walker, from <see cref="StaticPropRays"/>.</param>
+    /// <returns>The cube at a point.</returns>
+    public static Func<float, float, float, AmbientCube> StaticPropAmbientOf(MapLevel level, SurfaceColour rays)
+    {
+        ArgumentNullException.ThrowIfNull(level);
+        ArgumentNullException.ThrowIfNull(rays);
+
+        return AmbientOver(level, new Lazy<SurfaceColour>(rays));
+    }
+
+    private static Func<float, float, float, AmbientCube> AmbientOver(MapLevel level, Lazy<SurfaceColour> rays)
+    {
         IReadOnlyList<BspMaterial> materials = level.Materials;
 
         // `FUN_1801b74f0`'s first loop: the first world light of type 5.
@@ -738,6 +754,21 @@ public sealed class LevelLighting
             skyAmbient);
     }
 
+    /// <summary>What <see cref="StaticPropAmbientOf(MapLevel)"/> casts its rays against, so a probe of them reads the production walker.</summary>
+    /// <param name="level">The level.</param>
+    /// <returns>The walker, or null when the level lacks the lumps.</returns>
+    public static SurfaceColour? StaticPropRays(MapLevel level)
+    {
+        ArgumentNullException.ThrowIfNull(level);
+
+        return level.Leaves is { } tree && level.LeafFaces is { } leafFaces && level.LightSamples is { } samples
+            ? Rays(level, tree, leafFaces, samples)
+            : null;
+    }
+
+    private static SurfaceColour Rays(MapLevel level, BspLeafTree tree, BspLeafFaces leafFaces, BspLightSamples samples) =>
+        new(DecalWorld.From(tree, leafFaces, level.Surfaces, level.Terrain), samples, static _ => null);
+
     /// <summary>The PVS, for a static prop's styled-light list; null or empty admits every cluster.</summary>
     private readonly BspVisibility? _visibility;
 
@@ -746,8 +777,12 @@ public sealed class LevelLighting
 
     /// <summary>The part of a static prop's light cache handle bit 4 reads (`FUN_1801ba590`, finding 67, B607).</summary>
     /// <param name="listed">`+0x1b0`: <see cref="StyledLights"/> at the lighting origin, built once.</param>
-    private sealed class StyledHandle(BspWorldLight[] listed)
+    /// <param name="bounds">The prop's world box; see <see cref="Bounds"/>.</param>
+    private sealed class StyledHandle(BspWorldLight[] listed, LightBounds? bounds)
     {
+        /// <summary>`+0x1d4` and `+0x1e0`: the box `FUN_1801b6bf0` and `FUN_1801b6550` test a light against. Null for a prop asked about before its model is known.</summary>
+        public LightBounds? Bounds { get; } = bounds;
+
         /// <summary>`+0x1b0`, as the lights themselves.</summary>
         public BspWorldLight[] Listed { get; } = listed;
 
@@ -798,6 +833,7 @@ public sealed class LevelLighting
     /// <param name="x">The prop's lighting origin (the handle's `+0x184`).</param>
     /// <param name="y">The prop's lighting origin.</param>
     /// <param name="z">The prop's lighting origin.</param>
+    /// <param name="bounds">The prop's world box, which `FUN_1801b6bf0` tests each light against; null tests the point's cell.</param>
     /// <remarks>
     /// The styled list (`+0x1b0`, `FUN_1801b6bf0`) and the static state (`+0x18`, <see cref="StaticPropLightingAt"/>). Bit
     /// 4's ranked cache (`+0x88`) is left to the first draw, whose stamp test finds it never built — *interpolated*: whether
@@ -808,18 +844,18 @@ public sealed class LevelLighting
     /// without a `.vhv` reads it, and a colour-mesh prop's decal light reads it (B642; `engine.dll` `0x1800eac60` copies it to
     /// the record's `+0x88` with the colour mesh). *Interpolated:* the engine builds it for every handle.
     /// </remarks>
-    public void PrecacheStaticProp(int entity, float x, float y, float z)
+    public void PrecacheStaticProp(int entity, float x, float y, float z, LightBounds? bounds = null)
     {
-        _ = Handle(entity, x, y, z);
+        _ = Handle(entity, x, y, z, bounds);
         _ = StaticPropLightingAt(x, y, z);
     }
 
     /// <summary>A static prop's handle, built on the first ask — at load, by <see cref="PrecacheStaticProp"/>.</summary>
-    private StyledHandle Handle(int entity, float x, float y, float z)
+    private StyledHandle Handle(int entity, float x, float y, float z, LightBounds? bounds = null)
     {
         if (!_styledByEntity.TryGetValue(entity, out StyledHandle? handle))
         {
-            handle = new StyledHandle([.. StyledLights(x, y, z).Select(index => _worldLights[index])]);
+            handle = new StyledHandle([.. StyledLights(x, y, z, bounds).Select(index => _worldLights[index])], bounds);
             _styledByEntity[entity] = handle;
             StyledListsBuilt++;
         }
@@ -876,12 +912,13 @@ public sealed class LevelLighting
     /// <param name="x">The prop's lighting origin.</param>
     /// <param name="y">The prop's lighting origin.</param>
     /// <param name="z">The prop's lighting origin.</param>
+    /// <param name="bounds">The prop's bounds, `FUN_1801b6bf0`'s `param_2` and `param_3`; null for the point's cell.</param>
     /// <returns>Indices into the world lights, in lump order.</returns>
     /// <remarks>
     /// Every light whose style (`+0x2c`) is nonzero — style 0 is what vrad baked — whose cluster (`+0x24`) is in the
-    /// PVS of the leaf holding the origin (<see cref="InPvs"/>), and whose contribution there is positive (<see cref="LocalLights.Reaches"/>).
+    /// PVS of the leaf holding the origin (<see cref="InPvs"/>), and that `FUN_1801b99a0` passes against those bounds with flags 9 (<see cref="LocalLights.Reaches"/>).
     /// </remarks>
-    public int[] StyledLights(float x, float y, float z)
+    public int[] StyledLights(float x, float y, float z, LightBounds? bounds = null)
     {
         List<int> listed = [];
         int from = _leaves?.ClusterAt(x, y, z) ?? -1;
@@ -892,7 +929,7 @@ public sealed class LevelLighting
 
             if (light.Style != 0 &&
                 InPvs(from, light.Cluster) &&
-                LocalLights.Reaches(light, x, y, z))
+                LocalLights.Reaches(light, x, y, z, bounds))
             {
                 listed.Add(index);
             }
@@ -930,7 +967,7 @@ public sealed class LevelLighting
     {
         StyledHandle handle = Ranked(Handle(entity, x, y, z), x, y, z);
 
-        return WithDynamic(handle.Ranked, x, y, z)?.Lighting(StyleScale) ?? handle.RankedLighting;
+        return WithDynamic(handle.Ranked, x, y, z, handle.Bounds)?.Lighting(StyleScale) ?? handle.RankedLighting;
     }
 
     /// <summary>
@@ -978,7 +1015,7 @@ public sealed class LevelLighting
             lighting = full.Lighting;
         }
 
-        return (WithDynamic(state, x, y, z)?.Lighting(StyleScale) ?? lighting, sun);
+        return (WithDynamic(state, x, y, z, handle.Bounds)?.Lighting(StyleScale) ?? lighting, sun);
     }
 
     /// <summary>Dlight slots a static prop's bit-2 gather has examined, ever: the conformance tests' count of the live-set walk.</summary>
@@ -997,7 +1034,7 @@ public sealed class LevelLighting
     /// **Added to the state bit 4 left, with `FUN_1801b6550`'s precedence** (<see cref="LocalLights.Add"/>): not traced (flags 1), and once the
     /// slots are full a dlight evicts the weakest whatever its own strength, unless all four rank over 100000.
     /// </remarks>
-    private LightingState? WithDynamic(LightingState state, float x, float y, float z)
+    private LightingState? WithDynamic(LightingState state, float x, float y, float z, LightBounds? bounds)
     {
         uint live = Dynamic?.ActiveMask ?? 0u;
 
@@ -1020,7 +1057,7 @@ public sealed class LevelLighting
             if (dynamic.LightsModels(index) && InPvs(lightCluster, propCluster))
             {
                 added ??= state.Clone();
-                LocalLights.Add(added, DynamicLights.ToWorldLight(light, lightCluster), x, y, z, StyleScale, dynamicLight: true);
+                LocalLights.Add(added, DynamicLights.ToWorldLight(light, lightCluster), x, y, z, StyleScale, dynamicLight: true, bounds);
             }
         }
 

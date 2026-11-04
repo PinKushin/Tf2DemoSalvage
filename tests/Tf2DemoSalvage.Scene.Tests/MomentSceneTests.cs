@@ -1505,11 +1505,11 @@ public sealed class MomentSceneTests
     /// style lights it, whether it animates or not; one at 'a' (value 0), style 0, out of PVS or out of reach does not.
     /// The first version of this test asserted the colours DROPPED under a flicker — the non-DX9 branch TF2 never takes.
     /// </remarks>
-    [TestCase(StaticPlusDynamicLightingConformanceTests.Flicker, 5, 0, 0f, true)]
-    [TestCase("m", 5, 0, 0f, true)]
-    [TestCase("a", 5, 0, 0f, false)]
-    [TestCase("m", 0, 0, 0f, false)]
-    [TestCase("m", 5, 1, 0f, false)]
+    [TestCase(StaticPlusDynamicLightingConformanceTests.Flicker, 5, 0, 100000f, true)]
+    [TestCase("m", 5, 0, 100000f, true)]
+    [TestCase("a", 5, 0, 100000f, false)]
+    [TestCase("m", 0, 0, 100000f, false)]
+    [TestCase("m", 5, 1, 100000f, false)]
     [TestCase("m", 5, 0, 10f, false)]
     public void Pose_ABakedStaticPropBesideAStyledLamp_KeepsItsColoursAndTakesTheLitLamp(
         string pattern, int style, int cluster, float radius, bool lamp)
@@ -1570,7 +1570,7 @@ public sealed class MomentSceneTests
     [Test]
     public void Pose_ABakedStaticPropBesideFiveStyledLamps_DrawsTheLoserInItsCube()
     {
-        Content.Bsp.BspWorldLight lamp = StaticPlusDynamicLightingConformanceTests.Lamp(BakedLampStyle, 0, 0f);
+        Content.Bsp.BspWorldLight lamp = StaticPlusDynamicLightingConformanceTests.Lamp(BakedLampStyle, 0);
         Content.Bsp.BspWorldLight loser = LevelLightingTests.Lamp((0f, 0f, 140f), 400f) with { Style = BakedLampStyle, Cluster = 0 };
 
         (ModelInstance drawn, LightStyleValues values) = BakedPropAmong([lamp, lamp, lamp, lamp, loser]);

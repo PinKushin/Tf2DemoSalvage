@@ -9930,6 +9930,8 @@ too, which can move a flicker's step by up to a tick.
 
 ### B122 — a spotlight's cosine term is missing from the falloff — FIXED
 
+**Reversed for the cube by B669 (2026-11-03):** the term below is vrad's bake, and the runtime fold has none (`FUN_1800efbf0` case 2, logged from the running engine). The reasoning here read true of the file it cited and was applied to the wrong path.
+
 **Follow-up, fixed 2026-09-25: the per-light path had no cone at all.** B122 fixed `LocalLights.Cone`, which only the
 cube fold uses. A model is drawn with `LightingAt`'s four `LocalLight`s, which carried no direction or cone, and the
 vertex shader's `LampAttenuation` said so: *"a spotlight's cone is not decoded yet"*. Every model near a spotlight was
@@ -12988,14 +12990,9 @@ world faces take the normal of their PLANE (`BspSurfaces.ReadNormal`), and the w
 sets a per-vertex normal at all — every `WorldVertex` keeps the record default `NormalZ = 1f`. That
 sounds like every surface lit as though facing up.
 
-It is not, because **the world pass never uploads a normal**: `WorldRenderer`'s input layout is
-`POSITION` plus texcoords, with no `NORMAL` semantic. World lighting is the map's baked lightmap, so
-a per-vertex normal has nothing to feed. Models are a different path and do carry one.
-
-**It becomes a real gap the moment the world is lit per pixel** — world bumpmapping, specular, or
-any `$bumpmap` on brushwork — because the tangent basis those need is built from exactly these two
-lumps. Anyone adding that must read them first rather than deriving a normal from the plane, which
-is flat by construction and wrong on every displacement.
+**That was wrong, and it hid B669 for months: a reflection reads the normal.** Reasoning from the lightmap, this paragraph
+concluded nothing fed from it; the input layout did carry `NORMAL`, and every world `$envmap` drew about (0, 0, 1). Since B669
+each corner carries these lumps' normal and a frame.
 
 ### B201 — The live client REFUSES this demo, and it is schema drift, not the map — CONFIRMED 2026-08-25
 
@@ -40410,6 +40407,56 @@ its recreation shows nothing; that `_rt_FullFrameFB` and the bloom targets are l
   known-present class was dumped beside it, and `cl_find_ent water` searches client class names, which a
   `CFuncMoveLinear` need not contain. So whether TF2 draws `*145` at all is *unverified*, and nothing was captured.
 
+## B688 — three HUD regression locks are red on main with lcor present (2026-11-03) — OPEN for the locks; the corpus test beside them FIXED
+
+Found when real lcor demos reached a worktree. **`RegressionLock_TheElement_MatchesTheFixedRender`, all three cases, red** (limit 2.0), **and red on `origin/main` `f7ec0bb6`** in a worktree with lcor junctioned, the same three. **Measured**, the lock's recipe, soldier at tick 1830, worst 16x16 cell against the lock image: ammo 20.5 and class and health 26.4 on `e6f8a67a` and to the digit the same on this branch, and 571 of 576 40x40 cells differ there. So B669 moved nothing in those boxes; the images date from 2026-10-19 and the world behind the panels has moved since. **Not regenerated here:** the recipe in the test's remarks wants the merged head, looked at.
+
+**`ContinuousDecoding_SurvivesAtLeastAHundredConsecutiveSnapshots`, also red on `origin/main`: a wrong assert, not a decoder.** It asked for 500 from every demo, and `golden_cp_granary2.dem` holds 498 from its first full snapshot, read the same uncapped, all decoded with no stop. The 500 is the walk's cap, not a claim: `ee40a336` "stop sizing a test to a demo" named the mistake. `Decoded == Available` cannot fail alone, so the test now asserts the end: on a demo up to 5 MiB, the walk uncapped, its last snapshot within 67 ticks of the container's last packet; on a larger one, all of the 500 past the skipped lead; and at least the hundred the name says. Stopping the walk at 2,000 commands turned it red.
+
+## B687 — `BspSurface.Normal` points into the solid on every face its side flips (2026-11-03) — OPEN, one reader fixed, the rest not audited
+
+**Measured**, `cube-rays` with a temporary count, reversed, cp_process_f12: on faces where `Normal` opposes `PlaneNormal`, 26,602 compiled corner normals side with the plane, 6 against, 174 across; on the others 39,035, 6, 203. The door's face at x = -4 of a plate from -4 to 4 has plane (-1 0 0) and `Normal` (1 0 0). So the plane already faces out. *Read:* `df->side = f->planenum & 1` (`utils/vbsp/writebsp.cpp:467`), so `side` is the low bit of a plane number that already names the flipped plane; *interpolated:* that the reader's side flip is therefore a second one. Not read: whether the engine flips by it for anything but `SURFDRAW_PLANEBACK`. **`MapWorldBuilder.Frame`'s fallback for a corner with no compiled normal now takes the plane**, with `Build_AFlippedFaceWithNoCompiledNormal_TakesThePlanesDirection`. Every other reader of `Normal` is unaudited, and the field's doc says "already corrected for the face's side". What depends on it, including culling and decals, wants its own census before it is changed.
+
+## B686 — every edge of a frame falls half a pixel from TF2's (2026-11-03) — OPEN, measured and not fixed
+
+Least-squares bilinear fit of ours onto TF2 on `-vulkan`, cp_process_f12, close and far cameras, world and model edges alike: TF2's frame is ours sampled at about (-0.5, -0.5), to 0.1-0.5 per box (`measurements/2026-11-03-b685-left-pipe-terms.md`). *Interpolated:* D3D9 places a pixel's centre on its integer coordinate, Source corrects that for full-screen passes and not for 3D, and DXVK keeps it. Not read in shaderapi or DXVK. **It decides any box narrower than a few pixels on an edge, and any term that is steep at a silhouette.** A fix moves every 3D pass together and has to leave the screen-space samples where they are, so it wants its own branch and a census of what reads `ScreenPosition`.
+
+## B685 — cp_process_f12's far-left pipe reads over TF2 (2026-11-03) — CLOSED, not a defect in the light
+
+Far camera, Vulkan: upper 67.5 against 73.5, lower 93.2 against 100.7. With ours shifted half a pixel (B686): 66.1 and 93.9, where before B669 they would read 56.5 and 76.3. Summed across the two pipes, 1152 and 752 against 1157 and 747. The boxes are 7 pixels wide on a thin diagonal with a steep rim. Terms, materials and the two switches that do not do what they say: `measurements/2026-11-03-b685-left-pipe-terms.md`. Over the close camera's bodies ours is 5% under, which is B683.
+
+## B684 — the Ghidra project's `engine.dll` is older than the game's (2026-11-03) — PART DONE: the current binary is imported; the addresses in this file are still the old copy's
+
+Measured by a debugger: `0x1801b9570` rebased onto the running module holds other bytes, and that function's prologue is at RVA `0x1BAEB0`, +0x1940. The old project was imported 2026-09-12 and the file on disk is dated 2026-10-07. **Now imported and analysed as `engine_11191711.dll`, `D:/ghidra-proj/current/`**, beside the old copy. Every address in this file and in finding 66 stays the old copy's.
+
+**Re-verified on the current binary, by reading it:** `FUN_1801042d0` at `0x1801054d0`, `FUN_1800cbdd0` at `0x1800ccfd0`, `FUN_1800efbf0` at `0x1800f0df0`, `FUN_1800efe40` at `0x1800f1040`, `FUN_1800f0e10` at `0x1800f2010`, `FUN_1800f83c0` at `0x1800f95c0`, `FUN_1800f8590` at `0x1800f9790`, `FUN_1801b99a0` at `0x1801bb2e0`, `FUN_180276b00` at `0x180278440`. **Read only on the current binary, with its own addresses:** the overlay's `FUN_180112d30`, `FUN_180111830`. **Rebased by a unique first-bytes signature, not re-read:** +0x1200 `FUN_1800f4d40`; +0x16c0 `FUN_1801736b0`; +0x16b0 `FUN_18016bfc0`; +0x1940 `FUN_1801b6bf0` `FUN_1801b6550` `FUN_1801b60a0` `FUN_1801ba590` `FUN_1801b74f0` `FUN_180205b20`, and by the debugger's shift only `FUN_1801b9570` `FUN_1801b8270` `FUN_1801b8e20` `FUN_1801b5db0` `FUN_1801b5a50`. **Not matched:** `FUN_180167050`, whose first bytes changed. Script: `D:/measure-f12/b669/rem/rebase.py`.
+
+## B683 — a static prop's 162-ray cube reads about 3% over on some faces of cp_process_f12's lower pipe (2026-11-03) — OPEN, cause not found
+
+Logged from the running engine (`measurements/2026-11-03-b669-pipe-traces-live.md`), default cvars, green: ours -x 0.23552 against 0.23487, -y 0.27335 against 0.27004, +z 0.40617 against 0.40297. +x, +y and -z match to five digits, and the lights' folds match. So the excess is in the bounce, along about (-0.14, -0.7, 0.7), which is the shape of one or two rays of 162. *Interpolated:* that a ray strikes something else or something brighter in ours. Find it with `cube-rays` against a log of `FUN_1801b74f0`.
+
+**Larger on `2pipe_straight_64` #226, at the engine's point:** -x 0.1113 against 0.1283, -y 0.2347 against 0.2436, +z 0.3862 against 0.3928. No light in its state lies toward -x, so that face is all bounce and 13% under, with the opposite sign to the lower pipe's. That is the 5% in those pipes' bodies. *Seen, a lead not followed:* `cube-rays` there prints the most-struck material's texdata reflectivity (0.386 0.399 0.344) beside its VTF header's (0.408 0.407 0.363), and `FUN_1801b74f0` reads `IMaterial::GetReflectivity`.
+
+## B682 — `IlluminationPoint` turned a model's illumination position by yaw alone (2026-11-03) — FIXED
+
+`EntityModelSet.IlluminationPoint` rotated `illumposition` by the pose's yaw and added z unchanged. **Measured from the running engine:** `2pipe_straight_64` #226, angles (0 270 -90), engine (-3833.5 -1216 609.0), ours (-3834 -1216 609.5). Now the whole `AngleMatrix`. Test: `IlluminationPoint_CpProcessF12RolledPipes_AreTheEnginesLoggedPoints`, red before, red again with the up axis sabotaged, reversed. This cube moved by up to 0.0042. How far other rolled placements move was not measured.
+
+## B681 — `ClipToBrush` answers a start inside a brush with fraction 0, and clips bevel sides (2026-11-03) — OPEN, seen and not fixed
+
+*Decompile,* `engine.dll` `FUN_180167050`, the brush clip this project's remark calls unshipped. **A start inside a brush that the ray leaves does not stop the trace:** it sets `startsolid` and a left-solid fraction, and fraction 0 only when the ray never gets out. Ours answers 0 for both. And the engine skips a side whose bevel flag is set, where `ClipToBrush` tests every side. `FUN_180167e40` also returns from a leaf at fraction 0, which the remark there declines on purpose. So a light-cache trace from a point inside a brush, which `StrikesSky`'s remark names for f12's dome, may be refused here and pass there. *Not measured.* Not B669's pipes: #215's point starts outside, and its lights trace to fractions past 0. A fix reaches every caller of `BspLeafTree.Trace`, including movement, so it needs its own conformance tests.
+
+## B680 — a `$detail` surface reads darker in ours than TF2 at a distance, by about one mip of the detail's fade (2026-11-03) — OPEN, cause not found
+
+Found measuring B669, against TF2 on Vulkan, far camera, glass hidden. `overlays/detail001` fades brighter down its mips (mean 125.5 at 128x128, then 136.0, 146.8, 155.7, 164.0, ... 186 at 1x1), and with mode 0's `2 * detail` that brightens a far surface. **Measured:** wall 139.8 against 150.4 (bicubic off), floor 90.7/93.8, back wall 69.0/79.2; close up they agree, 136.4/138.9. A temporary `SampleBias` of +1 reads 151.6, 94.9, 72.3, so ours' detail is about a mip finer than TF2's. That is a fit, not a cause: **no bias was adopted**, and neither scale, sampler nor mapping width was found to differ. `mat_forceaniso 1` moved TF2's wall 187.2 to 192.7, so its detail does respond to the filter. *Interpolated:* the detail layer, since nothing but detail fades in these materials' chains.
+
+## B679 — `r_lightmap_bicubic` is not ported (2026-11-03) — OPEN, seen and not implemented
+
+Found measuring B669. TF2 declares it (default 0), the owner's config has it at 1, and the shader's combo reads it (`lightmappedgeneric_dx9_helper.cpp:932`, `BICUBIC_LIGHTMAP`); nothing here samples other than bilinear. **Measured**, far camera, glass hidden, TF2 with it at 1 and 0: patch 178.8/179.1, wall 126.5/124.1, gap 24.4/23.3. Small, and on lightmap edges more than means. Which of the two is the parity target is the owner's choice of config, not read here (D-level question: `defaults-are-highest-quality`).
+
+## B678 — a displacement's and an overlay's reflection normal is not the engine's (2026-11-03) — OPEN, a named ceiling of B669's fix
+
+B669 gave a brush face's corner its compiled normal and frame (`FUN_1800f4d40`). **A displacement takes its base face's plane**, where the engine has a per-grid-vertex one from its own builder, not read; finding 66 already records `CalcNormalFromEdges` as unported for dlights, and it is not cheap, so it stays. **An overlay fragment takes what the engine gives it.** *Decompile,* `Overlay.cpp`, on the current binary: `FUN_180112d30` writes the surface's plane normal, unflipped, to each corner, and `FUN_180111830`, the draw, writes position, normal, colour and three texture coordinates and no tangent, so an overlay has no frame for a review's "overlay's own basis" to build. *Not read:* what the shader's tangent stream holds for that mesh, which nothing wrote. *Seen, not ported:* the same function pushes each corner 0.1 along that normal, where this project takes a depth bias. **A bumped brush face's frame reaches the existing model path, which does a plain bump only**: an ssbump's rebuilt normal (`ps2_3_x.h:447`) and a second bump map (`:376-383`) stay flat here. A branch for them was written and removed: `cp_process_final` carries no such reflective material, so nothing could fail it. And `ReflectionRender_ABumpedBrushFaceWithAFrame_ReflectsAboutItsBumpMap` was **not** red first, so the fix commit's "red first" is wrong for it: it predates the frame's path. It now draws one known normal and predicts each of `w` +1 and -1 equals the flat path at that normal, to a resolution of 1 count of 255: measured (161 163 172) and (146 142 144) on both, exactly, neither saturated, and it reddens with the sign flipped. Both sides of that are our shader. **The engine's side is logged:** `Of_TheEnginesLoggedCornersGivenTheirFlip_ReproduceItsSAndT` holds six corners the running engine wrote at `FUN_1800f83c0`'s `RET`. Its S is built from the logged flip, so it proves the arithmetic after the flip. `FUN_1800f8590`'s choice of flip is read at `0x1800f9790` and matched to no face in our lump. Neither moves a material with no `$envmap`, and how many displacements and overlays carry one on any map was not counted. *Also not read:* `SEAMLESS` and `$outline` forcing the pixel shader's fast path, so their contrast and saturation keep the VMT's (`BlendModulation.EnvMapShaping`).
+
 ## B677 — `--shot` of one tick has two states, and a byte comparison of two shots is no control until this is understood (2026-11-03) — OPEN, not investigated
 
 **Measured** (`docs/measurements/2026-11-03-static-props-leave-the-light-cache.md`): f12 at tick 30000, the same binary, rows 0-40 differ across the whole width, 24,620 pixels, largest channel 206, and nothing below them. Both the base and this branch's head show both states, in runs of the same hash. The band is where the spectator HUD's top bar is drawn; *interpolated*, not read. **What it puts in doubt:** a verdict resting on two byte-identical shots of an unchanged build, as `2026-11-03-one-light-cache-lookup.md`'s control does, may have matched by chance. Its comparisons still hold when the hashes agree, since nothing else varied here; a mismatch is what can no longer be trusted without looking at where it falls.
@@ -40481,9 +40528,11 @@ it off measured the same to the digit. Stock configs do fire it, on models carry
 
 **Measured**: at the far camera, f12 tick 45091, a shot with `+mat_specular 0` is byte-identical to its control, though the log
 says `[render] mat_specular 0` at startup, and a temporary shader edit proved the same frame's envmap branch runs on the panes
-and the cap disc. So this instrument cannot be believed until that is explained; B669 used shader edits instead.
+and the cap disc. So this instrument cannot be believed until that is explained; B669 used shader edits instead. *Widened (2026-11-03):* `+mat_fullbright 1` beside `+r_drawtranslucentworld 0` is byte-identical too, md5 for md5, so it is not only `mat_specular`; what applies a render switch from the command line was not read.
 
-## B670 — cp_process_f12's cap disc reads twice TF2's brightness (2026-11-03) — OPEN, not read
+## B670 — cp_process_f12's cap disc reads twice TF2's brightness (2026-11-03) — FIXED before B669's remainder, by the B674 commits; a tenth short under the reflection stays
+
+**Correction:** an earlier line here, and `b06d9ae4`'s message, credited B669's world normal. *Measured:* with that fix switched off the far box still reads 177.3. The disc is `models/props_gameplay/cap_point_base.mdl`, VertexLitGeneric with `$envmap env_cubemap` and `$normalmapalphaenvmapmask`, and takes no brush-face normal. The move is between the baseline shot at `73c00501` (372.8) and `60d2e197` (177.3), so among `66d142e6` and `56265c79`; *interpolated* which, not bisected. Against TF2 now: far box **177.3/190.8** (Vulkan 194.2), near camera `-3540 -1450 700 35 90`, x 400-880 y 280-580, **152.8/162.9**, from 307.8; its reflection 53.8/55.8. What is left is under the reflection, 135.0 in TF2 with `mat_specular 0`, and was not read. **Closed on the far box by B669's fold (2026-11-03):** 192.0 against 190.8 on D3D9 and 194.2 on Vulkan.
 
 It is `models/props_gameplay/cap_point_base.mdl`, a `CDynamicProp`; near it, B669's table has the same factor of two.
 **Measured** (far camera, scale 1, bloom off; x 950-1250, y 500-700): **372.3 in ours, 190.9 in TF2**, unmoved by B669 (372.8) and
@@ -40491,7 +40540,35 @@ by TF2's `mat_phong`, `r_worldlights` and translucent-world switches (188.6-191.
 agree; that rested on the wall and the whole frame only. The floor around it also differs by eye. TF2's disc looks like a metal
 with its reflection showing, ours like a pale diffuse one, so a reflective surface is the first thing to read. *Interpolated.*
 
-## B669 — cp_process_f12's white pipes and glass panel read 34% dark in ours at the same exposure (2026-11-03) — PART FIXED: the pipes' missing light; the pane and a residue on these pipes stay OPEN
+## B669 — cp_process_f12's white pipes and glass panel read 34% dark in ours at the same exposure (2026-11-03) — PART FIXED: the pipes' missing light and the pane's reflection; what stands behind the pane stays OPEN
+
+**The pane, settled (measurements/2026-11-03-b669-the-pane.md, finding [66](findings/66-tf2-barely-uses-dynamic-lights.md#what-the-pane-reflects-b669-2026-11-03)): the patch reads 241.1 against TF2 on Vulkan's 241.7.** The table below is the D3D9 reference, whose halo made its 228.1 too dark: on that the patch read 229.1, from 178.0, partly by coincidence (below). Three defects, each read and each with a test: no brush face carried a vertex normal, so all reflected about (0, 0, 1); the translucent pass bound no cube, so a pane reflected the last run's; and `$envmapcontrast .5` alone is the shader's fast path, contrast 0. That patch figure hides a residue going both ways, the pipes short and the wall bright, and with the reflection now exact both are what stands behind the glass:
+
+| | TF2 | before | now | behind the glass, ours − TF2, × 0.73 |
+|---|---|---|---|---|
+| the patch | 228.1 | 178.0 | **229.1** | |
+| whole frame | 155.5 | 167.4 | 154.0 | |
+| upper pipe, top | 357.1 | 268.3 | 326.5 | −31 (now −31) |
+| upper pipe, mid | 303.8 | 209.4 | 268.7 | −35 (now −35) |
+| wall behind | 187.2 | 143.3 | 199.0 | +10 (now +12) |
+| gap below | 125.1 | 67.5 | 139.3 | +12 (now +14) |
+
+**The reflection's own numbers, with `mat_specular 0` (TF2) and the term removed (ours) as the control:** a near window 23.9 against 24.0, channel by channel; each pane's reflection divided by 0.9 and 65/255 fits the bilinear lookup of `c-3840_-880_656` along that pixel's mirror ray to 0.001-0.008 in TF2, first of the map's 40 cubes.
+
+**Why `a` read 0.31 and not 65/255: it did not.** The fit assumes X is one number across the tiles, and the reflection is 62-77 from tile to tile. With the reflection off, a two-point solve over the upper pipe's top and the gap gives TF2 a 0.27 and X 30.
+
+**The reference itself was wrong for the wall, and that changes what the patch's match means.** Every D3D9 capture in this entry carries a screen-space dark halo around geometry that `-vulkan` removes (`measurements/2026-11-03-b669-behind-the-pane.md`; finding [66](findings/66-tf2-barely-uses-dynamic-lights.md#the-reference-carries-a-halo-b669-2026-11-03)). **So the 229.1 against 228.1 above is partly coincidence: against TF2 on Vulkan the patch is 241.7**, wall 207.7 (ours 199.0), gap 139.5 (ours 139.3), whole frame 160.0 (ours 154.0). The pane's reflection numbers are unaffected: they are a difference of two shots.
+
+- **Item 3, the wall and gap: not a defect in ours, and the darkness is not TF2's engine.** Ours' column equals the lightmap lump row by row. The D3D9 darkening is about ten screen pixels wide at 215 units and at 859, follows every depth edge, survives `mat_fullbright 2`, and is named by no cvar or shader; *interpolated:* a driver ambient occlusion. **For the owner:** a driver setting forced on this game is what to check; it was not read. No decal, fog or shadow switch moves it. What is left against Vulkan is B680.
+- **Item 2, the pipes: FIXED, and the reading of the engine alone could not find it.** No subset of the lights fitted (`measurements/2026-11-03-b669-pipe-lights.md`) because the set was right and the values were wrong. Logged from the running engine, by the owner's approval through the coordinator (`measurements/2026-11-03-b669-pipe-traces-live.md`): **a folded spot takes its fringe and no cosine of its own** (`FUN_1800efbf0` case 2). `LocalLights.Cone` multiplied by `dot2`, B122's reading of vrad's bake. Also a light ranks by luminance times the distance falloff, no cone (`FUN_1801b60a0`, correcting B665), and is admitted by `FUN_1801b99a0`'s sphere against the cone and `FUN_1800cbdd0`'s computed radius. Patch 241.1 against Vulkan's 241.7; upper pipe top 351.4 against 358.1, from 326.5. #215's slots and folds match the engine's. Tests: `SpotlightFalloffConformanceTests`, `LocalLightRankingConformanceTests`, `LocalLightSurfaceConformanceTests`, `LightAdmissionConformanceTests`, `StaticPropModelsWiringTests.Instances_CpProcessF12LowerPipe_HoldsTheEnginesSlotsAndCube`. Sabotage, each reversed: the cosine back reddened the logged-spot and off-axis tests; the cell test off reddened four. **Left:** B683. The far-left pipe's apparent excess was a half pixel on a narrow box: B685, B686.
+
+**The review of that fix** (`measurements/2026-11-03-b669-review-admission.md`). The radius is the engine's one value now, written once at load with the lump's factor; a point or spot past it still folds, because flags 2 skips `FUN_1800efe40`'s cut and only the box test uses it. Zero attenuation is quadratic 1 on a point and a spot everywhere, and a surface light is not rewritten. A handle's list and a static prop's dlight test the prop's box; a ranked listed lamp and a moving model's dlight test the cell. `sine` 0 is refused. An additive run binds its bump. **Every figure held to the digit:** 83 admitted and 83 traced, patch 241.1, upper pipe top 351.4. **Rejected:** `EnvMapShaping` needing `hasEnvmap`: the helper's own test is `hasEnvmap && ...`, and our pair feeds only the shading of a resolved cube, so without a cube nothing reads it; and it reaching `WorldVertexTransition` is correct, as `worldvertextransition.cpp:154` calls `DrawLightmappedGeneric_DX9`. **A brush entity's normal reaches no ambient:** its `Light` is null, so the cube branch does not run, and none of f12's brush-entity materials has an `$envmap`, of 42 materials on the map that do. The far camera with the plane's normal and no frame on brush entities is byte-identical; no camera at a door was taken, since nothing there can read one. **Sabotage seen red, each reversed:** `CellFarCorner`'s complement, the apex pull-back, `Add`'s box, `Reaches`' box, a surface light's radius, a point's radius cut, the NaN refusal, the behind-the-spot test, the lump's factor, a linear lamp's constant, exponent 0, all-zero terms; the decal, additive and blended binds and `tangent.w`'s sign. `AsLoaded_ASurfaceLight_KeepsItsTermsAndHas2000` passed one such sabotage until it asserted the constant too, and that line has since been seen red.
+
+**A second review, of that.** `FUN_180276b00`'s plain compares replace `Math.Clamp`, which threw on an inverted box. A radius of 0 is now refused from outside the box, as `FUN_1801b99a0` does (`FUN_1800cbdd0` can leave one), so every hand-built lamp in the tests needed a radius. `FUN_1800efe40` is ported whole, read at `0x1800f1040`: points and spots have no clamp under 1, which an older test asserted from the shader's path; a quake light is `linear − d`, floored at 0, and is not rewritten at load; the rest are 1. The shader's `colour.w` upload is gone, as nothing read it; `LocalLight.Range` stays, for `StudioPointLighting`. **Unchanged after all of it:** the far camera, 0 pixels against the shot before it.
+
+**A third.** A quake light keeps its slot and rank in the state and makes no `LightDesc_t` (`FUN_1800f0e10`, cases 4 and 5). A point or spot at d = 0 is infinite by `DIVSS`, ranks first, and adds nothing to a cube, as `FUN_1801baeb0`'s root has 1e-10 in it: the direction is 0. A linear lamp's computed radius can be negative where a quadratic's floors at 0, read at `0x1800ccfd0`, and `AsLoaded_ALinearLampWhoseConstantIsOverItsThreshold_KeepsANegativeRadius` records that this is the engine's. Case 0's `ADDSS` of 1e-10 is dropped from `Distance`, as it cannot move `MAXSS` with 1. A render test of the range, which could not fail, became `WriteLocalLights_TwoRanges_WriteTheSameConstants`.
+
+As first filed:
 
 **Measured** (live TF2 against ours, both `mat_force_tonemap_scale 1` and bloom off, camera `-3722 -1403 726 25 99`, patch
 x 800-1100, y 270-330 of the 1280x720 frame, `D:/measure-f12/b636/tf2/` and `D:/measure-f12/b636/ours/`): mean linear luminance x1000 **228.0 in
@@ -40551,11 +40628,7 @@ edit in ours, reversed:
 | concrete control | 187.0 | 187.0 | 187.0 |
 
 **Still open, each measured and none explained:**
-- **The pane adds more in TF2.** Fitting `with = (1 − a) · without + X` over the gap tiles: TF2 a 0.31, X 106; ours a 0.25, X 43.
-  The texture's mean alpha is 64.6-65.3 of 255 across its eight mips, 128x128 to 1x1 (`vtf`, rechecked after the probe's size fix), so mip choice cannot move the blend, and there is no second pane on the world's faces (`faces-near`;
-  a brush entity's faces are in model coordinates, so that is no answer for one). Ours' reflection alone is about 3 of the 43
-  (a temporary reflection-only shot). **So the next read is what this pane reflects**: a cube, tint or contrast difference is the
-  suspect, *interpolated*. TF2 also shows the wire pattern at this distance and ours does not.
+- **The pane adds more in TF2**, read and settled above; the wire pattern's sharpness is not: finding 66.
 - **These pipes stay 12-28% short** with the glass hidden, where the same material with no glass in front agrees at one row and
   overshoots at the other.
 - **The wall and gap behind the pane read brighter in ours** with the glass hidden (139.8 against 126.5, 41.1 against 24.4).
@@ -40888,6 +40961,8 @@ drawn with its handle's full state, flags 7, not its `.vhv` colours (B514). That
 
 `LocalLights.Reaches` said false for three of the four. The green `light` at (-208 1440 76), `_light 40 215 151 300`,
 which reaches the origin from 160 units, was not among them.
+
+**Corrected by B669 (2026-11-03):** the interpolation below was wrong. The ratio holds no cone (0.002225 from a spot 449 units off, logged from the running engine). What refuses a spot aimed away is `FUN_1801b99a0`'s sphere against the cone, before the trace, so a spot near a point can still take a slot. The rim's move toward TF2 stands, and the fix's rule changed.
 
 **Read (engine):** `FUN_1801b60a0` (`AddWorldLightToLightingState`) ranks by luminance times the light's ratio at the
 point and adds nothing when the ratio is not positive. The ratio is `FUN_1801b99a0` → `FUN_1801b9570`, the distance

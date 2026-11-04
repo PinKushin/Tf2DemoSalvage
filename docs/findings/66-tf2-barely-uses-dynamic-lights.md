@@ -240,6 +240,67 @@ far camera; linear luminance x1000; the reference reproduced to the digit, 228.1
 **After the fix:** the static cube's up face on placement #214 went 0.137 to 0.273 (`prop-shade`). The numbers against TF2, and what
 stays unexplained: [B669](../RISKS.md).
 
+## What the pane reflects (B669, 2026-11-03)
+
+Evidence classes marked per line. Linear luminance x1000, live TF2 build 11191711, the far camera; the numbers: `measurements/2026-11-03-b669-the-pane.md`.
+
+**The filed suspect was the pane's diffuse, and it was not.** `mat_specular 0` in TF2 took the patch from 228.1 to 166.5 and left a pane that looks like ours: the 62 the pane adds beyond ours is the reflection. Ours' reflection was about a tenth of that. A shot of the reflection term alone read 0.018 to 0.031 on a surface whose cube holds 0.23 along the mirror ray, and **the vector drawn as colour read (0.40, 0.88, 0.23)**: the view ray with its z flipped. The normal in the pixel shader was (0, 0, 1).
+
+- **No brush face had a normal.** *Read:* the world builder never set one, so `WorldVertex` kept its record default. RISKS said so in B194, and reasoned that the world pass "never uploads a normal", which was false and would have mattered only for a reflection, which it did not consider. `ReflectionRenderTests` proved the shader with hand-set normals, so every assertion held while production passed none. *Disassembly*, `FUN_1800f4d40`: the normal is `vertnormals[ vertnormalindices[ first + corner ] ]`; `BspVertexNormals` had read those lumps since D93 for a consumer that had not arrived. On a floor (0, 0, 1) is right, which is why nobody saw it.
+- **A bumped brush face needs the frame too**, or it reflects flat where TF2's follows the bump. *Disassembly*, `FUN_1800f83c0` over `FUN_1800f8590`: S from the normal and `textureVecs[1]`, negated by `s × t` against the PLANE. Tested on the arithmetic and by the frame moving a pixel of a real bumped reflective material, by one count at the quad's centre: a weak manipulation. Plain bumps only: B678.
+- **The translucent pass bound no cube.** With the normal right, the reflection came out blue where TF2's is grey. *Measured:* fitting each pane against all 40 of the map's cubes, TF2 is `c-3840_-880_656`, the name in the face's patched VMT, to 0.001-0.008, and ours was `c-3540_-1280_656` to 0.001-0.002, whichever run drew last. `DrawBlendedBatch` never set slot 5, where the world's opaque path binds it every draw as a comment there insists. *Read:* `lightmappedgeneric_dx9_helper.cpp:876` binds it on every draw.
+- **`$envmapcontrast .5` is no contrast at all.** *Read, then read again in the shipped binary:* `bUsingContrast` also needs `$envmapsaturation != 1` (helper `:714`; `stdshader_dx9.dll` `FUN_18002c950`), so this material takes the fast path, whose constant is 0 (`ps2_3_x.h:54-57`) unless the value is exactly 1. A lone `$envmapsaturation` is likewise dropped. *Measured:* the near window's reflection is 23.9 in TF2 and 24.0 in ours, channel by channel.
+
+**A wrong turn, kept.** With the normal fixed and the wrong cube still bound, keeping the VMT's contrast read closer on the wall and gap, and looked like TF2 contradicting the source. The cube fit is what killed that: it requires no reading of ours' shader, and it fits contrast 0 to three digits.
+
+**The wire pattern is not settled.** At the far camera TF2's pane shows a sharp hatch and ours a soft one, on the lattice's 5.6-pixel period in TF2; `mat_forceaniso 1` and `mat_picmip 0` did not remove it from TF2. A mip bias in ours was tried only with the glass hidden, so it says nothing here. What decides it was not found; `mat_showmiplevels 1` did not read clearly through the tint. It does not move the mean: the texture's mean alpha is 65 at every mip.
+
+## The reference carries a halo (B669, 2026-11-03)
+
+Evidence class: **measured**, and one line *interpolated*. The numbers: `measurements/2026-11-03-b669-behind-the-pane.md`.
+
+Ours' wall matched the lightmap lump to the digit, and TF2's did not, more so with distance. **The clue that broke it was one surface along one ray:** 42.8 at 40 units falling smoothly to 27.6 at 859, on a wall no layer of which is darker at distance. Fog was tried and moved nothing. `mat_fullbright 1` then showed a grey band where the wall should be saturated, which read as a prop only in the lower LOD; that was a wrong turn, and `r_lod 0` left it to the digit. **Removing the static props exposed the shape:** the two shots agree to the digit down to row 265, then differ more and more toward the pipe's edge, and again below it. About eleven rows at 215 units, and about ten at 859: its width is in screen pixels.
+
+So not a decal, not a shadow, not LOD. Nothing named it, and `-vulkan` removed it, with the pipes, concrete and close-up world unchanged. *Interpolated:* the driver's ambient occlusion, applied to TF2's D3D9 path.
+
+**Every D3D9 reference in this project has it**, which is why the ratio image of ours over TF2 embossed every edge in the frame, and why a far patch can match for the wrong reason. The patch's 229.1 against 228.1 was partly that: the pipes short, the wall dark from a thing that is not the engine. **A capture for parity is taken with `-vulkan` until the driver setting is ruled out.**
+
+## The pipes behind the pane: a spot has no cosine at runtime (B669, 2026-11-03)
+
+Evidence classes marked per line. The numbers: `measurements/2026-11-03-b669-pipe-lights.md`, then `measurements/2026-11-03-b669-pipe-traces-live.md`.
+
+**Found by asking the running engine, after reading it could not.** A debugger on `FUN_1801b5db0` listed each light it folded for this one state, with the amount. *Measured:* the set matched ours, and the amounts did not: the spot at (-3400 -1128 486) folded 22 times what ours gave it. *Decompile, then read as what it had always said:* `FUN_1800efbf0` case 2 returns the fringe, no `dot2`. **B122 had put a cosine in**, from `lightmap.cpp:1929`, which does have one, because that is the bake. A correct citation of the wrong path, tested on-axis and off-axis against itself.
+
+**Why reading missed it.** Every subset of lights failed because the trace was fine: the question "which lights" was wrong, and each answer sharpened it. `Cone` was read in this session and taken as ported.
+
+**Two more, from the same log.** *Decompile and measured:* the rank has no cone (`FUN_1801b60a0`'s XMM6 is luminance times the return, and the return for that spot is 1/449). B665 had that *interpolated*. And admission is a sphere around the point against the cone (`FUN_1801736b0`), radius to the far corner of the 32x32x128 cell, with a radius `Mod_LoadWorldlights` computes (`FUN_1800cbdd0`): a lump's 0 is not "no cutoff" in memory. A point lamp 761 units off with a radius of 475.8 is never traced.
+
+**And the instrument was stale.** The Ghidra project's `engine.dll` predates the game's, all checked functions at +0x1940: B684.
+
+**A regression that was not one (B685).** The fix pushed a pipe over TF2 by 8%, on a 7-pixel box. The state was right, so the search went to the draw. *Measured:* every edge in TF2's frame sits half a pixel from ours (B686), and with ours resampled that far, the pipe reads 66.1 and 93.9 against 67.5 and 93.2. **Two TF2 switches misled on the way:** `r_rimlight 0` leaves the rim on at boost 1 (*arithmetic:* the rows fit that exactly, against `skin_dx9_helper.cpp:848`), and `mat_specular 0` is VertexLitGeneric's rule, which a `$phong` material's skin path does not have. A switch that does not move a thing is not evidence the thing is absent: the pipes' identical rows under `mat_specular 0` looked like "no envmap" for a moment.
+
+**The review of that account found the fix half-applied.** *Decompile:* `Mod_LoadWorldlights` (`FUN_1801042d0`, re-read on the current binary at `0x1801054d0`) writes the radius into the light once, so it is what every later reader sees. The fix had computed it in the admission test only. **The radius still does not cut a folded point or spot**: `FUN_1801b99a0` passes flags 2 to `FUN_1800efe40`, so past the radius at the point a light folds in full, and only the box stops it. A surface light tests its radius whichever way it is reached. *Decompile:* the rewrite gives a point and spot of no attenuation quadratic 1. Earlier tests said constant 1, from vrad's value at compile time, the same error as the cosine: a right citation of the bake. *Disassembly:* `FUN_1801736b0` compares with `COMISS` and `JC`, so a `sine` of 0 makes NaN and refuses the light, and the C# had to be written `!(a >= b)` to agree. *Decompile:* the box is the point's cell in `FUN_1801b60a0` and `FUN_1801b5400`, and the prop's own in `FUN_1801b6bf0` and a static prop's dlight in `FUN_1801b6550`. So a lamp only the prop's box admits sits on the list and takes no slot.
+
+*Decompile, the second review:* a radius `FUN_1800cbdd0` leaves at 0 is refused from outside the box, so 0 is a radius there and "no cutoff" only in the falloff's surface case. And that falloff has four shapes, not one: a clamp at 1 on a surface light only, none on a point or spot, `linear − d` on a quake light, 1 on the rest. The clamp this project applied to all was the vertex shader's, a path two functions away.
+
+*Decompile, overlays:* `FUN_180112d30` gives each fragment corner the surface's unflipped plane normal, and `FUN_180111830` writes no tangent at all, so "the overlay's own basis" is not a frame the engine has.
+
+*Measured:* none of it moves #215: 83 admitted of 83 traced, and every far box to the digit (`measurements/2026-11-03-b669-review-admission.md`). That is what a half-applied fix looks like from a frame: right where it was measured.
+
+**And `BspSurface.Normal` points into the solid on a flipped face (B687).** *Measured,* compiled normals side with the plane on both kinds of face. It came up asking whether a brush entity's normal mattered: the plane's normal and the compiled one differed by exactly 2 in `1 − dot`, on half of a door's corners, which is a sign and not smoothing.
+
+The first part of this account, kept for the record of what was ruled out:
+
+**A wrong turn worth keeping, because it was an instrument and it looked like a discovery.** The back of the pipe read 0.021, and the colour was exactly the map's `emit_surface` tint, r/g 0.84. That named four lights, and all of their rays stop on detail brush 3637, so it read as TF2 tracing through detail. A fit with two more lights came within 1% on four faces, and it was wrong. **A camera at yaw 270 has −x on its right**, the reading was the left of the frame, and that is the next placement along. On #215's side the back is zero. The colour was real and belonged to another pipe. Six shots and a brush-by-brush table went into a question about the wrong object; the fit agreeing was the part that should have been distrusted.
+
+- *Disassembly:* the light cache's trace has no detail rule. `FUN_180167e40` tests a leaf brush's contents against the mask, and 0x8000001 has the solid bit. `FUN_18016bfc0`, the box-brush case, is a plain slab test.
+- *Disassembly:* a world-only trace ends after `FUN_180168cb0` on head node 0 (`FUN_18018e870`), so a static prop cannot block a light.
+- *Disassembly:* the static handle's point is the lighting origin stored as given (`FUN_1801b8350`). `r_DrawModelLightOrigin` puts its cross there (*measured*).
+- *Measured:* `r_dynamic 0` changes no digit on the pipe, so no dlight supplies the gap.
+- *Arithmetic:* no subset of the lights ours rejects gives TF2's surplus of 0.065 on −y and 0.063 on +z with nothing on −z.
+
+**Seen in passing, in the same clip routines, and filed apart:** ours' `ClipToBrush` differs from `FUN_180167050` in two ways (B681), and `IlluminationPoint` turns the point by yaw alone (B682). Neither is this gap: #215's point has zero y and z in the model, and its bevels only make a brush larger in the engine.
+
 ## ComputeLighting reads the cache and folds its slots (B668, 2026-11-03)
 
 Evidence class: **disassembly**, `engine.dll` x64. This ended an inference: B668 had reasoned that `ComputeLighting` must reach the lights through

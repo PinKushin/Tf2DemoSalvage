@@ -44,8 +44,8 @@ public enum WorldLightKind
 /// <param name="ConstantAttenuation">First falloff term; see the remarks.</param>
 /// <param name="LinearAttenuation">Second falloff term, multiplied by distance.</param>
 /// <param name="QuadraticAttenuation">Third falloff term, multiplied by distance squared.</param>
-/// <param name="Radius">Cutoff distance, beyond which the light contributes nothing. Zero means
-/// no cutoff, and the falloff alone decides where it stops mattering.</param>
+/// <param name="Radius">The distance <see cref="LocalLights"/>' admission tests against a box. A lump's 0 is replaced at load
+/// (<see cref="BspWorldLights.AsLoaded"/>); one still 0 after that is refused from any box it stands outside.</param>
 /// <param name="StopDot">Cosine at which a spotlight's penumbra begins.</param>
 /// <param name="StopDot2">Cosine at which it ends; outside this the spotlight is dark.</param>
 /// <param name="Exponent">Shapes the penumbra falloff between the two cosines.</param>
@@ -119,7 +119,8 @@ public static class BspWorldLights
         // **`LUMP_WORLDLIGHTS_HDR` when HDR is on and the map has it**, as `CModelLoader_Map_LoadModel` (`engine.dll`
         // 0x1800ffc30) loads; vrad writes its intensities from each light's `_lightHDR`.
         ReadOnlySpan<byte> hdr = hdrEnabled ? BspLumpData.Read(file, header.Lump(BspLumpIndex.WorldLightsHdr)).Span : default;
-        ReadOnlySpan<byte> lump = hdr.IsEmpty ? BspLumpData.Read(file, header.Lump(BspLumpIndex.WorldLights)).Span : hdr;
+        bool hdrLump = !hdr.IsEmpty;
+        ReadOnlySpan<byte> lump = hdrLump ? hdr : BspLumpData.Read(file, header.Lump(BspLumpIndex.WorldLights)).Span;
 
         if (lump.IsEmpty)
         {
@@ -135,7 +136,7 @@ public static class BspWorldLights
         {
             ReadOnlySpan<byte> entry = lump[at..];
 
-            lights.Add(new BspWorldLight(
+            lights.Add(AsLoaded(new BspWorldLight(
                 (Float(entry, 0), Float(entry, 4), Float(entry, 8)),
                 (Float(entry, 12), Float(entry, 16), Float(entry, 20)),
                 (Float(entry, 24), Float(entry, 28), Float(entry, 32)),
@@ -149,7 +150,7 @@ public static class BspWorldLights
                 Float(entry, BspStructLayout.WorldLightExponentOffset),
                 BinaryPrimitives.ReadInt32LittleEndian(entry[BspStructLayout.WorldLightStyleOffset..]),
                 BinaryPrimitives.ReadInt32LittleEndian(entry[BspStructLayout.WorldLightClusterOffset..]),
-                BinaryPrimitives.ReadInt32LittleEndian(entry[BspStructLayout.WorldLightFlagsOffset..])));
+                BinaryPrimitives.ReadInt32LittleEndian(entry[BspStructLayout.WorldLightFlagsOffset..])), hdrLump));
         }
 
         DecodeLog.Note(
@@ -157,6 +158,49 @@ public static class BspWorldLights
             $"{lights.Count} world lights, {lights.Count(light => light.Kind == WorldLightKind.SkyLight)} of them sky");
 
         return lights;
+    }
+
+    /// <summary>A light as `Mod_LoadWorldlights` leaves it in memory: `engine.dll` `FUN_1801042d0`, once, at load.</summary>
+    /// <param name="light">The light as the lump holds it.</param>
+    /// <param name="hdrLump">Whether it came from `LUMP_WORLDLIGHTS_HDR`: `CModelLoader_Map_LoadModel` passes 1 for lump 0x36, 0 for lump 0xf.</param>
+    /// <returns>The light with its terms and radius replaced.</returns>
+    /// <remarks>
+    /// A spot's and a point's all-zero attenuation becomes quadratic 1, and a spot's exponent of 0 becomes 1. **A surface light is not rewritten**:
+    /// the loop has no case for it, and `FUN_1800efe40` never reads its terms. Then any radius under 1 goes to `FUN_1800cbdd0`, which keeps one
+    /// that is not 0, and for 0 answers where the falloff reaches 1/66.67 of the intensity's length on the HDR lump, 1/33.33 on the other, or
+    /// 2000 where no such distance exists. Every kind, so a surface light's is 2000.
+    /// </remarks>
+    public static BspWorldLight AsLoaded(BspWorldLight light, bool hdrLump)
+    {
+        if (light.Kind == WorldLightKind.Spotlight && light.Exponent == 0f)
+        {
+            light = light with { Exponent = 1f };
+        }
+
+        if (light is { Kind: WorldLightKind.Spotlight or WorldLightKind.Point, ConstantAttenuation: 0f, LinearAttenuation: 0f, QuadraticAttenuation: 0f })
+        {
+            light = light with { QuadraticAttenuation = 1f };
+        }
+
+        return light.Radius == 0f ? light with { Radius = ComputedRadius(light, hdrLump) } : light;
+    }
+
+    private static float ComputedRadius(BspWorldLight light, bool hdrLump)
+    {
+        float scale = hdrLump ? 66.66667f : 33.333336f;
+        float intensity = MathF.Sqrt(
+            (light.Intensity.Red * light.Intensity.Red) + (light.Intensity.Green * light.Intensity.Green) + (light.Intensity.Blue * light.Intensity.Blue));
+        float linear = light.LinearAttenuation;
+        float quadratic = light.QuadraticAttenuation;
+
+        if (quadratic == 0f)
+        {
+            return linear != 0f ? ((scale * intensity) - light.ConstantAttenuation) / linear : 2000f;
+        }
+
+        float discriminant = (linear * linear) - ((light.ConstantAttenuation - (scale * intensity)) * quadratic * 4f);
+
+        return discriminant >= 0f ? MathF.Max(0f, (MathF.Sqrt(discriminant) - linear) * (0.5f / quadratic)) : 2000f;
     }
 
     /// <summary>The map's sun, when it has one.</summary>

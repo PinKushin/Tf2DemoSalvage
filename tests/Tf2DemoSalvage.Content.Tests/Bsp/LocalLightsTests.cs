@@ -6,10 +6,10 @@ using Tf2DemoSalvage.Content.Bsp;
 namespace Tf2DemoSalvage.Content.Tests.Bsp;
 
 /// <summary>
-/// Evaluating a world light the way <c>LightDesc_t::ComputeLightAtPoints</c> evaluates it.
+/// Evaluating a world light the way the light cache's `FUN_1800efe40` and `FUN_1801b76f0` evaluate it.
 /// </summary>
 /// <remarks>
-/// Expected values are computed by hand from <c>mathlib/lightdesc.cpp</c>, not captured from a run
+/// Expected values are computed by hand, not captured from a run
 /// of the code under test — a captured expectation records what the code does, which is the one
 /// thing a parity test must never assert.
 ///
@@ -121,13 +121,13 @@ public sealed class LocalLightsTests
 
     /// <summary>An inverse-square point light, which is what a map actually ships.</summary>
     private static BspWorldLight Point(
-        (float X, float Y, float Z) origin, float intensity, float radius = 0f) =>
+        (float X, float Y, float Z) origin, float intensity, float radius = 100000f) =>
         new(origin, (intensity, intensity, intensity), (0f, 0f, 0f), WorldLightKind.Point,
             ConstantAttenuation: 0f, LinearAttenuation: 0f, QuadraticAttenuation: 1f,
             Radius: radius);
 
     [Test]
-    public void APointLightAbove_LightsTheUpwardFace()
+    public void AddTo_APointLightAbove_LightsTheUpwardFace()
     {
         // Light 10 units straight up from the origin.
         //   dist2 = 100, falloff = 1 / (1 * 100) = 0.01
@@ -140,7 +140,7 @@ public sealed class LocalLightsTests
     }
 
     [Test]
-    public void APointLightAbove_LeavesTheDownwardFaceDark()
+    public void AddTo_APointLightAbove_LeavesTheDownwardFaceDark()
     {
         // The control for the test above, and the one that catches a missing dot product: with
         // strength = max(0, delta . normal), the -Z face faces away and receives nothing. An
@@ -153,7 +153,7 @@ public sealed class LocalLightsTests
     }
 
     [Test]
-    public void ExistingAmbientIsKept_NotReplaced()
+    public void AddTo_AnExistingAmbient_IsAddedToNotReplaced()
     {
         // The cube is the bounce term and the lights are the direct one; they add. Replacing would
         // make a lit room darker than an unlit one wherever no light is in range.
@@ -169,45 +169,48 @@ public sealed class LocalLightsTests
     }
 
     [Test]
-    public void DistanceIsClampedToOne_NotOffsetByOne()
+    public void AddTo_APointLightUnderOneUnitAway_IsNotClampedOrOffset()
     {
-        // **The detail most easily conflated with the ambient blend**, which uses 1 / (dist + 1).
-        // Valve clamps instead: MaxSIMD( Four_Ones, dist2 ). A light exactly one unit away has
-        // dist2 = 1 either way, so the distinguishing case is a light CLOSER than one unit.
+        // `FUN_1800efe40` cases 1 and 2 have neither. The clamp this test used to assert, MaxSIMD( Four_Ones, dist2 ), is the shader path's
+        // (`VertexAttenInternal`, `lightdesc.cpp`) and a surface light's own (`Fold_ALightUnderOneUnitAway_ClampsOnlyASurfaceLight`).
         //
-        //   at 0.5 units: true dist2 = 0.25, clamped to 1, falloff = 1/1 = 1
-        //   contribution = 1 * 1 * 3 = 3.0
+        //   at 0.5 units: dist2 = 0.25, falloff = 1 / 0.25 = 4, contribution = 4 * 3 = 12
         //
-        // The offset form would give 1 / (0.25 + 1) = 0.8 and a contribution of 2.4.
+        // A clamp gives 3, and an offset 1 / 1.25 * 3 = 2.4.
         AmbientCube lit = LocalLights.AddTo(
             Black, [Point((0f, 0f, 0.5f), 3f)], 0f, 0f, 0f);
 
-        lit.PositiveZ.Red.ShouldBe(3f, 0.001f);
+        lit.PositiveZ.Red.ShouldBe(12f, 0.001f);
     }
 
     [Test]
-    public void LocalLights_ARadius_CullsBeyondIt()
+    public void AddTo_ARadius_CutsAtThePointsCellNotThePoint()
     {
-        // dist2 = 100 against range^2 = 25, so the light is culled entirely.
+        // `FUN_1801b99a0` tests the radius against the box, and flags 2 skips `FUN_1800efe40`'s own cut. The cell
+        // of (0 0 0) ends at z 128. A radius of 5 from z 200 misses it by 67.
         AmbientCube lit = LocalLights.AddTo(
+            Black, [Point((0f, 0f, 200f), Bright, radius: 5f)], 0f, 0f, 0f);
+
+        lit.PositiveZ.Red.ShouldBe(0f, 0.0001f);
+
+        // The control: a radius of 100 reaches the same cell, and folds at the point's full 1/d², 200 from it.
+        AmbientCube reached = LocalLights.AddTo(
+            Black, [Point((0f, 0f, 200f), Bright, radius: 100f)], 0f, 0f, 0f);
+
+        reached.PositiveZ.Red.ShouldBe(Bright / 40000f, 0.0001f);
+
+        // Inside the cell the radius does not cut at all, though the point is twice as far as the radius.
+        AmbientCube within = LocalLights.AddTo(
             Black, [Point((0f, 0f, 10f), Bright, radius: 5f)], 0f, 0f, 0f);
 
-        lit.PositiveZ.Red.ShouldBe(0f, 0.001f);
-
-        // The control: the same light with a radius that reaches still lights the face. Without
-        // this, an implementation that culled everything would pass.
-        AmbientCube reached = LocalLights.AddTo(
-            Black, [Point((0f, 0f, 10f), Bright, radius: 20f)], 0f, 0f, 0f);
-
-        reached.PositiveZ.Red.ShouldBe(1f, 0.001f);
+        within.PositiveZ.Red.ShouldBe(Bright / 100f, 0.001f);
     }
 
     [Test]
-    public void AZeroRadius_MeansNoCull()
+    public void AddTo_ARadiusOfZeroInsideTheCell_StillLights()
     {
-        // Zero is "no cutoff", not "cut off at zero distance" - `if (m_Range != 0.f)`. Reading it
-        // as a real radius extinguishes every light on the map, since cp_process stores zero for
-        // all of them.
+        // `r² < d²` is `0 < 0` for a light the box holds. From outside it is refused: Reaches_ARadiusOfZeroLeftByTheLoad_IsRefusedOutsideTheBox.
+        // cp_process's lump stores zero for every light, and the load replaces it: BspWorldLights.AsLoaded.
         AmbientCube lit = LocalLights.AddTo(
             Black, [Point((0f, 0f, 10f), Bright, radius: 0f)], 0f, 0f, 0f);
 
@@ -215,7 +218,7 @@ public sealed class LocalLightsTests
     }
 
     [Test]
-    public void ASpotlightInsideItsInnerCone_IsAtFullStrength()
+    public void AddTo_ASpotlightInsideItsInnerCone_IsAtFullStrength()
     {
         // Pointing straight down from 10 units up, inner cone cos 0.9, outer cos 0.5. The point
         // below is on the axis, so dot2 = 1: the cone scale is (1 - 0.5) / (0.9 - 0.5) = 1.25,
@@ -231,7 +234,7 @@ public sealed class LocalLightsTests
     }
 
     [Test]
-    public void ASpotlightPointingAway_ContributesNothing()
+    public void AddTo_ASpotlightPointingAway_ContributesNothing()
     {
         // Same light turned to point straight up, away from the surface below it. dot2 = -1, which
         // is below phiDot, so the cone masks it out entirely. Without that mask the cone scale goes
@@ -247,7 +250,7 @@ public sealed class LocalLightsTests
     }
 
     [Test]
-    public void LocalLights_OnlyTheFourStrongest_Apply()
+    public void AddTo_FiveEqualLights_ContributeAsFour()
     {
         // The engine carries four: LightDesc_t m_LocalLightDescs[4]. Five identical lights at the
         // same distance must contribute as four, not five.
@@ -263,7 +266,7 @@ public sealed class LocalLightsTests
     }
 
     [Test]
-    public void TheStrongestAreChosen_NotTheFirstFour()
+    public void AddTo_FourDimLightsBeforeABrightOne_TakesTheBrightOne()
     {
         // Four dim lights listed before one bright one. Taking the first four in file order would
         // drop the only light that matters, and a map lists its lights in no useful order.
@@ -281,7 +284,7 @@ public sealed class LocalLightsTests
     }
 
     [Test]
-    public void ALightWithNoAttenuation_IsConstantOne_NotInfinite()
+    public void AddTo_ALightWithNoAttenuation_IsQuadraticOneNotInfinite()
     {
         // **Found in the viewer's own log, not by any of the tests above**, which is the point of
         // it existing. Four capture points reported a luminance of ∞ while all eleven unit tests
@@ -291,20 +294,21 @@ public sealed class LocalLightsTests
         // The first transcription took `else falloff = Four_Epsilons` from ComputeLightAtPoints
         // literally, as float.Epsilon — the smallest denormal — so 1/falloff overflowed. That
         // branch guards a reciprocal; it does not describe the light. vrad states what such a
-        // light IS: constant_attn = 1 when all three terms are below EQUAL_EPSILON.
+        // light IS at compile time, constant_attn = 1, but what the engine does with one that reaches
+        // it is different: `Mod_LoadWorldlights` (`FUN_1801042d0`) sets quadratic to 1 (B669's review).
         //
-        //   falloff = 1 / 1 = 1, strength = 1, contribution = 1 * 1 * 2 = 2.0
+        //   falloff = 1 / 10^2, contribution = 2 * 0.01 = 0.02
         BspWorldLight bare = new(
             (0f, 0f, 10f), (2f, 2f, 2f), (0f, 0f, 0f), WorldLightKind.Point);
 
         AmbientCube lit = LocalLights.AddTo(Black, [bare], 0f, 0f, 0f);
 
         float.IsFinite(lit.PositiveZ.Red).ShouldBeTrue();
-        lit.PositiveZ.Red.ShouldBe(2f, 0.001f);
+        lit.PositiveZ.Red.ShouldBe(0.02f, 0.0001f);
     }
 
     [Test]
-    public void TheSun_IsNotALocalLight()
+    public void AddTo_TheSun_AddsNothing()
     {
         // emit_skylight is directional and reaches only what can see the sky, which needs a trace
         // this project does not do. It is applied elsewhere; treating it as a point light here

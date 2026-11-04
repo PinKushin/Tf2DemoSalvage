@@ -33,7 +33,8 @@ public sealed class LocalLightFoldTests
     {
         List<BspWorldLight> lights = [];
 
-        foreach (int distance in new[] { 600, 100, 500, 200, 400, 300 })
+        // All inside this lamp's computed radius of about 340 (`FUN_1800cbdd0`).
+        foreach (int distance in new[] { 300, 50, 250, 100, 200, 150 })
         {
             lights.Add(Lamp(distance, (1000f, 1000f, 1000f)));
         }
@@ -43,11 +44,11 @@ public sealed class LocalLightFoldTests
 
         LocalLights.Split(lights, 0f, 0f, 0f, into, ref cube).ShouldBe(4);
 
-        into[3].X.ShouldBe(400f);
+        into[3].X.ShouldBe(200f);
 
-        // 1000 / 500² + 1000 / 600², all on +X: the two lamps lie along +X, so every other face's
+        // 1000 / 250² + 1000 / 300², all on +X: the two lamps lie along +X, so every other face's
         // n·d is zero or negative and takes nothing.
-        float folded = (1000f / (500f * 500f)) + (1000f / (600f * 600f));
+        float folded = (1000f / (250f * 250f)) + (1000f / (300f * 300f));
 
         cube.PositiveX.Red.ShouldBe(folded, 1e-7f);
         cube.PositiveX.Blue.ShouldBe(folded, 1e-7f);
@@ -89,8 +90,8 @@ public sealed class LocalLightFoldTests
     {
         // Blue 1 at 50 units: brightest channel 1 / 2500 = 0.0004 passes the trace function's
         // r_worldlightmin (0.0002, max channel, `FUN_1801b8e20`); luminance 0.114 / 2500 fails the
-        // ranking's, so it is folded rather than given a slot.
-        List<BspWorldLight> lights = [Lamp(50f, (0f, 0f, 1f))];
+        // ranking's, so it is folded rather than given a slot. Its lump radius keeps `FUN_1800cbdd0`'s computed one, 8 units, away.
+        List<BspWorldLight> lights = [Lamp(50f, (0f, 0f, 1f)) with { Radius = 100f }];
 
         Span<LocalLight> into = stackalloc LocalLight[LocalLights.MaximumLocalLights];
         AmbientCube cube = default;
@@ -109,6 +110,6 @@ public sealed class LocalLightFoldTests
             ConstantAttenuation = 0f,
             LinearAttenuation = 0f,
             QuadraticAttenuation = 1f,
-            Radius = 0f,
+            Radius = 100000f,
         };
 }

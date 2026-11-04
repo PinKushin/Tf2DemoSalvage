@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Diagnostics;
 using System.Linq;
+using System.Numerics;
 using Microsoft.Extensions.Logging;
 using Tf2DemoSalvage.Animation.Animating;
 using Tf2DemoSalvage.Content.Assets;
@@ -669,7 +670,7 @@ public sealed partial class EntityModelSet
     /// Builds one static prop's light cache handle and its static state at its lighting origin
     /// (<see cref="LevelLighting.PrecacheStaticProp"/>); null builds none ahead of the draw.
     /// </summary>
-    public Action<int, float, float, float>? StaticPropHandle { get; set; }
+    public Action<int, float, float, float, LightBounds?>? StaticPropHandle { get; set; }
 
     /// <summary>
     /// Every static prop's lighting, built as its level loads (B607): `CStaticPropMgr::PrecacheLighting` (`engine.dll`
@@ -705,7 +706,10 @@ public sealed partial class EntityModelSet
             // A prop refused one builds none it would never draw; its decals take its own light, so it records no decal origin.
             bool coloured = !fullyLit && BakedColoursOf(prop, pose, x, y, z) is not null;
 
-            StaticPropHandle?.Invoke(prop.EntityIndex, x, y, z);
+            // `FUN_180205b20` hands `FUN_1801b8350` the record's world bounds, `+0x9c` and `+0xa8`.
+            (float minX, float minY, float minZ, float maxX, float maxY, float maxZ) = WorldBoxFor(prop);
+
+            StaticPropHandle?.Invoke(prop.EntityIndex, x, y, z, new LightBounds((minX, minY, minZ), (maxX, maxY, maxZ)));
 
             if (coloured)
             {
@@ -766,12 +770,13 @@ public sealed partial class EntityModelSet
             return (pose.X, pose.Y, pose.Z);
         }
 
-        float radians = pose.Yaw * (MathF.PI / 180f);
-        (float sine, float cosine) = MathF.SinCos(radians);
+        // The whole AngleMatrix of the placement (B682): logged from the running engine, `2pipe_straight_64` at angles (0 270 -90) with
+        // its offset (0 0 0.5) is lit half a unit along +x, not above itself.
+        (Vector3 forward, Vector3 left, Vector3 up) = StaticPropCollision.AngleMatrix(pose.Pitch, pose.Yaw, pose.Roll);
 
         return (
-            pose.X + (x * cosine) - (y * sine),
-            pose.Y + (x * sine) + (y * cosine),
-            pose.Z + z);
+            pose.X + (x * forward.X) + (y * left.X) + (z * up.X),
+            pose.Y + (x * forward.Y) + (y * left.Y) + (z * up.Y),
+            pose.Z + (x * forward.Z) + (y * left.Z) + (z * up.Z));
     }
 }

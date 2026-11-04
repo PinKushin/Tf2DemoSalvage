@@ -5,6 +5,7 @@ using System.Linq;
 using Tf2DemoSalvage.Core.Container;
 using Tf2DemoSalvage.Core.Net;
 using Tf2DemoSalvage.Core.Schema;
+using Tf2DemoSalvage.Probe;
 
 namespace Tf2DemoSalvage.Core.Tests.Schema;
 
@@ -118,13 +119,38 @@ public sealed class CorpusEntityDecodeTests
         // The history is worth the comment. Zero before the flattening order was fixed, then
         // 62-205, then 332, then complete, and every jump came from implementing another
         // message type that had been truncating its packet rather than from any decoder fix.
+        //
+        // **Not a count of 500** (B688): `golden_cp_granary2.dem` holds 498 from its first full snapshot, as the uncapped walk reads too, and that is the whole demo.
+        // `Decoded == Available` cannot fail alone, as this file's POV test says of itself, so what is asserted is the walk reaching the end: the last snapshot
+        // within a second of the last packet the container holds. Capped at 500 on a large demo, where the walk is asked for every one of the 500.
+        const int LargeDemoBytes = 5 * 1024 * 1024;
+        const int Cap = 500;
+        const int TicksInASecond = 67;
+
         foreach (string path in SourceTvDemos())
         {
-            DecodeRun run = DecodeContinuously(path, 500);
-            TestContext.Out.WriteLine($"{Path.GetFileName(path)}: {run.Decoded} snapshots, " +
-                             $"stopped: {run.Stopped ?? "not at all"}");
-            run.Stopped.ShouldBeNull(Path.GetFileName(path));
-            run.Decoded.ShouldBe(500);
+            string name = Path.GetFileName(path);
+            bool whole = new FileInfo(path).Length <= LargeDemoBytes;
+            DecodeRun run = DecodeContinuously(path, whole ? int.MaxValue : Cap);
+
+            TestContext.Out.WriteLine($"{name}: {run.Decoded} snapshots, last tick {run.LastTick}, stopped: {run.Stopped ?? "not at all"}");
+
+            run.Stopped.ShouldBeNull(name);
+            run.Decoded.ShouldBeGreaterThanOrEqualTo(100, name);
+
+            if (whole)
+            {
+                int lastPacket = DemoCommandReader.Read(File.ReadAllBytes(path).AsMemory(DemoHeader.SizeBytes))
+                    .Last(static command => command.Type == DemoCommandType.Packet).Tick;
+
+                (lastPacket - run.LastTick).ShouldBeLessThanOrEqualTo(TicksInASecond, name);
+            }
+            else
+            {
+                int skipped = Snapshots(path).TakeWhile(static snapshot => !snapshot.IsFullSnapshot).Count();
+
+                run.Decoded.ShouldBe(Cap - skipped, name);
+            }
         }
     }
 
@@ -135,7 +161,8 @@ public sealed class CorpusEntityDecodeTests
     /// nothing stopped, and it is the pair that makes the claim testable on a demo of any length.
     /// </param>
     /// <param name="Stopped">The error that ended the walk, or <c>null</c>.</param>
-    private sealed record DecodeRun(int Decoded, int Available, string? Stopped);
+    /// <param name="LastTick">The tick of the command that carried the last snapshot walked.</param>
+    private sealed record DecodeRun(int Decoded, int Available, string? Stopped, int LastTick = 0);
 
     private static DecodeRun DecodeContinuously(string path, int limit)
     {
@@ -145,9 +172,12 @@ public sealed class CorpusEntityDecodeTests
         int decoded = 0;
 
         int available = 0;
+        int lastTick = 0;
 
-        foreach (PacketEntitiesMessage message in Snapshots(path).Take(limit))
+        foreach (DemoEntitySnapshot entry in Corpus.EntitySnapshots(path).Take(limit))
         {
+            PacketEntitiesMessage message = entry.Snapshot;
+
             started |= message.IsFullSnapshot;
             if (!started)
             {
@@ -155,6 +185,7 @@ public sealed class CorpusEntityDecodeTests
             }
 
             available++;
+            lastTick = entry.Command.Tick;
 
             try
             {
@@ -165,11 +196,11 @@ public sealed class CorpusEntityDecodeTests
             {
                 // Running off the end of the body is the same desynchronisation reported a
                 // different way - the reader asks for bits the message does not have.
-                return new DecodeRun(decoded, available, error.Message);
+                return new DecodeRun(decoded, available, error.Message, lastTick);
             }
         }
 
-        return new DecodeRun(decoded, available, null);
+        return new DecodeRun(decoded, available, null, lastTick);
     }
 
     [Test]

@@ -316,5 +316,5 @@ public sealed class LocalLightVisibilityConformanceTests
     private static BspWorldLight Lamp((float X, float Y, float Z) origin, float bright) =>
         new(
             origin, (bright, bright, bright), (0f, 0f, 0f), WorldLightKind.Point,
-            ConstantAttenuation: 0f, LinearAttenuation: 0f, QuadraticAttenuation: 1f);
+            ConstantAttenuation: 0f, LinearAttenuation: 0f, QuadraticAttenuation: 1f, Radius: 100000f);
 }

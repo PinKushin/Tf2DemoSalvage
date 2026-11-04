@@ -380,7 +380,7 @@ public static class MapWorldBuilder
                     // **White, always** (B219). The category's colour is chosen at draw time from
                     // `WorldBatch.Category` now, so nothing here depends on which view is on and
                     // switching views rebuilds nothing.
-                    Append(vertices, corner, rectangle, lightStep, 1f, 1f, 1f);
+                    Append(vertices, surface, corner, rectangle, lightStep, 1f, 1f, 1f);
                 }
 
                 if (subdivided.Count > 0)
@@ -413,9 +413,9 @@ public static class MapWorldBuilder
 
             for (int index = 1; index + 1 < corners.Count; index++)
             {
-                Append(vertices, corners[0], rectangle, lightStep, brushRed, brushGreen, brushBlue);
-                Append(vertices, corners[index], rectangle, lightStep, brushRed, brushGreen, brushBlue);
-                Append(vertices, corners[index + 1], rectangle, lightStep, brushRed, brushGreen, brushBlue);
+                Append(vertices, surface, corners[0], rectangle, lightStep, brushRed, brushGreen, brushBlue);
+                Append(vertices, surface, corners[index], rectangle, lightStep, brushRed, brushGreen, brushBlue);
+                Append(vertices, surface, corners[index + 1], rectangle, lightStep, brushRed, brushGreen, brushBlue);
             }
 
             Span(
@@ -727,6 +727,11 @@ public static class MapWorldBuilder
 
                 List<WorldVertex> corners = new(fragment.Count);
 
+                // `engine.dll` `FUN_180112d30` (`Overlay.cpp`, 0x180112d30 on build 11191711, read): every fragment corner's normal is the surface's plane
+                // normal, unflipped. **And no tangent**: `FUN_180111830`, the draw, writes position, normal, colour and three texture coordinates and
+                // nothing else, so a frame is not the engine's to give. Left with no frame, `w` 0, it reflects about that normal.
+                (float X, float Y, float Z) normal = MapWorldBuilder.Frame(piece, default).Normal;
+
                 foreach ((float x, float y, float z) in fragment)
                 {
                     (float lightU, float lightV) = piece.Lighting.Project(x, y, z);
@@ -746,7 +751,12 @@ public static class MapWorldBuilder
                         0f,
                         red,
                         green,
-                        blue));
+                        blue)
+                    {
+                        NormalX = normal.X,
+                        NormalY = normal.Y,
+                        NormalZ = normal.Z,
+                    });
                 }
 
                 int first = all.Count;
@@ -865,8 +875,31 @@ public static class MapWorldBuilder
         return float.IsFinite(lowest) && highest > lowest ? (lowest, highest) : (0f, 1f);
     }
 
+    /// <summary>A corner's normal and tangent frame: the compiled normal, or its face's where the map has none (B669).</summary>
+    /// <param name="surface">The face.</param>
+    /// <param name="corner">The corner.</param>
+    /// <returns>
+    /// What the engine's vertex build writes (`FUN_1800f4d40`). **A displacement's own corners carry no normal, so they take
+    /// the base face's**; the engine computes one per grid vertex (`CalcNormalFromEdges`), not ported, B678. That base is the
+    /// PLANE's, not <see cref="BspSurface.Normal"/>, which a face's side flips: measured on cp_process_f12, the compiled normals
+    /// side with the plane on both kinds of face, against <c>Normal</c> on every flipped one (B687).
+    /// </returns>
+    internal static ((float X, float Y, float Z) Normal, (float X, float Y, float Z, float W) Tangent) Frame(
+        BspSurface surface, SurfaceVertex corner)
+    {
+        (float X, float Y, float Z) normal = (corner, surface.PlaneNormal) switch
+        {
+            ({ NormalX: not 0f } or { NormalY: not 0f } or { NormalZ: not 0f }, _) => (corner.NormalX, corner.NormalY, corner.NormalZ),
+            (_, (0f, 0f, 0f)) => surface.Normal,
+            _ => surface.PlaneNormal,
+        };
+
+        return (normal, SurfaceTangent.Of(normal, surface.TextureS, surface.TextureT, surface.PlaneNormal));
+    }
+
     private static void Append(
         List<WorldVertex> vertices,
+        BspSurface surface,
         SurfaceVertex corner,
         AtlasRect rectangle,
         float lightStep,
@@ -896,9 +929,18 @@ public static class MapWorldBuilder
         float lightU = rectangle.U + (Math.Clamp(corner.LightU, 0f, 1f) * rectangle.Width);
         float lightV = rectangle.V + (Math.Clamp(corner.LightV, 0f, 1f) * rectangle.Height);
 
+        ((float X, float Y, float Z) normal, (float X, float Y, float Z, float W) tangent) = Frame(surface, corner);
+
         vertices.Add(new WorldVertex(
             x, y, depth, corner.U, corner.V, lightU, lightV, corner.Alpha, red, green, blue,
-            lightStep));
+            lightStep,
+            NormalX: normal.X,
+            NormalY: normal.Y,
+            NormalZ: normal.Z,
+            TangentX: tangent.X,
+            TangentY: tangent.Y,
+            TangentZ: tangent.Z,
+            TangentW: tangent.W));
     }
 
     /// <summary>

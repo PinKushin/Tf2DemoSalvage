@@ -521,12 +521,16 @@ public sealed class MapAssets
     /// <param name="shaders">Each material's shader name, by the same index.</param>
     /// <param name="waters">Each material's <c>Water</c> parameters by the same index, or null for none (B657's synthetic water).</param>
     /// <param name="hdr">The map's HDR type, which decides whether loading it recreates the water targets (B662).</param>
+    /// <param name="bumps">Each material's bump map by the same index, or null for none.</param>
+    /// <param name="cubemaps">Each material's baked cube by the same index, or null for none.</param>
     /// <returns>Assets whose every other per-material slot is empty, with an atlas holding only the reserved white texel.</returns>
     internal static MapAssets ForMaterials(
         IReadOnlyList<MapTexture?> textures,
         IReadOnlyList<string> shaders,
         IReadOnlyList<MapWater?>? waters = null,
-        Content.Bsp.HdrType hdr = Content.Bsp.HdrType.None)
+        Content.Bsp.HdrType hdr = Content.Bsp.HdrType.None,
+        IReadOnlyList<MapBump?>? bumps = null,
+        IReadOnlyList<MapCubemap?>? cubemaps = null)
     {
         ArgumentNullException.ThrowIfNull(textures);
         ArgumentNullException.ThrowIfNull(shaders);
@@ -537,8 +541,8 @@ public sealed class MapAssets
             textures,
             new MapTexture?[count],
             new MapDetail?[count],
-            new MapBump?[count],
-            new MapCubemap?[count],
+            bumps ?? new MapBump?[count],
+            cubemaps ?? new MapCubemap?[count],
             [.. Enumerable.Repeat<IReadOnlyList<MaterialProxy>>([], count)],
             [.. Enumerable.Range(0, count).Select(index => new BspMaterial($"synthetic/{index}", (1f, 1f, 1f), 1, 1))],
             shaders,
@@ -3450,10 +3454,15 @@ public sealed class MapAssets
                 return (0f, 1f);
             }
 
-            return BlendModulation.EnvMapShaping(
-                Lightmapped() && material.BlendModulateTexture is not null,
-                material.EnvMapContrast,
-                material.EnvMapSaturation);
+            // The arrangement of registers and constants is LightmappedGeneric's; a model's shader reads its VMT's pair.
+            return Lightmapped()
+                ? BlendModulation.EnvMapShaping(
+                    material.BlendModulateTexture is not null,
+                    material.EnvMapContrast,
+                    material.EnvMapSaturation,
+                    material.FresnelReflection,
+                    material.IsSelfIlluminated && material.SelfIllumTint != (1f, 1f, 1f))
+                : (material.EnvMapContrast, material.EnvMapSaturation);
         }
 
         MapCubemap? ResolveCubemap()

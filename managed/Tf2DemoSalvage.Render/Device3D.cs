@@ -3568,7 +3568,6 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
                     hash.Value(light.Red);
                     hash.Value(light.Green);
                     hash.Value(light.Blue);
-                    hash.Value(light.Range);
                 }
             }
 

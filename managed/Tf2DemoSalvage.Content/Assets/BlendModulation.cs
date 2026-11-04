@@ -49,9 +49,35 @@ public static class BlendModulation
     /// <param name="hasMask">`FANCY_BLENDING`: the mask is a texture (`lightmappedgeneric_dx9_helper.cpp:315-317`, `:568`).</param>
     /// <param name="contrast">`$envmapcontrast`.</param>
     /// <param name="saturation">`$envmapsaturation`.</param>
-    /// <returns>The pair as given, or the two values that change nothing when the block is compiled out.</returns>
-    public static (float Contrast, float Saturation) EnvMapShaping(bool hasMask, float contrast, float saturation) =>
-        hasMask ? (0f, 1f) : (contrast, saturation);
+    /// <param name="fresnelReflection">`$fresnelreflection`.</param>
+    /// <param name="selfIllumTinted">`$selfillum` with a `$selfillumtint` off white.</param>
+    /// <returns>
+    /// The pair as given where the shader reads its registers, the fast path's constants where it does not
+    /// (`lightmappedgeneric_dx9_helper.cpp:714-720, 925`; `ps2_3_x.h:54-59`), and the two values that change nothing where the
+    /// block is compiled out. So `$envmapcontrast .5` alone is no contrast, and a lone `$envmapsaturation` is ignored.
+    /// </returns>
+    /// <remarks>
+    /// *A ceiling, not parity:* `SEAMLESS` and `$outline` force the shader's fast path too (`ps2_3_x.h:44-48`, helper `:924`), and
+    /// this does not. Neither is read here; a material with either and a reflection keeps its registers' values.
+    /// </remarks>
+    public static (float Contrast, float Saturation) EnvMapShaping(
+        bool hasMask, float contrast, float saturation, float fresnelReflection = 1f, bool selfIllumTinted = false)
+    {
+        if (hasMask)
+        {
+            return (0f, 1f);
+        }
+
+        // Exact comparisons, as the helper makes them: a VMT's 1 is the float 1, and .999 really is off the fast path.
+        bool usingContrast = contrast is not (0f or 1f) && saturation is not 1f;
+
+        if (usingContrast || fresnelReflection is not 1f || selfIllumTinted)
+        {
+            return (contrast, saturation);
+        }
+
+        return (contrast is 1f ? 1f : 0f, 1f);
+    }
 
     /// <summary>HLSL's `saturate`, NaN to zero included.</summary>
     private static float Saturate(float value) => value > 0f ? System.MathF.Min(value, 1f) : 0f;

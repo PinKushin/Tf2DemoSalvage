@@ -327,8 +327,6 @@ public sealed class DynamicLights
     /// Intensity is `color · table[exponent]`, the table at `0x18047e280` holding 2^e / 255. The radius is floored at
     /// 0.1, and the quadratic term is `1 / (r · max(minlight, 1/256) · r)` with no constant or linear term, so the
     /// light falls to `minlight` exactly at its radius. The exponent is never written and stays zero.
-    /// ponytail: `LocalLights` applies vrad's all-terms-below-0.001 rule to every light, so a dlight with
-    /// `r² · minlight &gt; 1000` (radius past ~505 at the 1/256 floor) would be read as constant; TF2's allocators stay under it.
     /// </remarks>
     public static BspWorldLight ToWorldLight(DynamicLight light, int cluster)
     {

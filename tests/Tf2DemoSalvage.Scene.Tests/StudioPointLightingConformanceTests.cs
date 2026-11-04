@@ -109,7 +109,7 @@ public sealed class StudioPointLightingConformanceTests
     [Test]
     public void At_ASlotHeldSurfaceLightOffItsNormal_TakesNLOnly()
     {
-        BspWorldLight surface = new((100f, 0f, 100f), (20000f, 20000f, 20000f), (0f, 0f, -1f), WorldLightKind.Surface);
+        BspWorldLight surface = new((100f, 0f, 100f), (20000f, 20000f, 20000f), (0f, 0f, -1f), WorldLightKind.Surface, Radius: 2000f);
         LocalLight[] slot = new LocalLight[LocalLights.MaximumLocalLights];
 
         LocalLights.Strongest([surface], 0f, 0f, 0f, slot).ShouldBe(1);

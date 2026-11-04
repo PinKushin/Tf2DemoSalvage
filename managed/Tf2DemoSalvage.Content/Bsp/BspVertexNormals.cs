@@ -29,12 +29,8 @@ public readonly record struct VertexNormals(
 
 /// <summary>Reads the vertex-normal lumps.</summary>
 /// <remarks>
-/// **Read but not yet drawn, and that is deliberate (D93).** Nothing consumes these today: the world
-/// pass is lit by the map's baked lightmaps, and Valve's own bumped path takes its normal from the
-/// bump map against `g_localBumpBasis` rather than from a vertex. They are read because decoding is
-/// total and rendering is not — the file is understood now, and the consumer arrives with the
-/// feature that needs it (per-pixel world lighting, specular, or a tangent basis for `$bumpmap` on
-/// brushwork). See B194.
+/// **What reads them is a brush face's reflection** (B669): `BspSurfaces.Read` puts each corner's on its
+/// <see cref="SurfaceVertex"/>, as the engine's vertex build does (`FUN_1800f4d40`). A lightmap has no use for them.
 /// </remarks>
 public static class BspVertexNormals
 {

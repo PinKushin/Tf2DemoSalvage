@@ -245,13 +245,20 @@ public static class BrushModels
         float lightU = rectangle.U + (Math.Clamp(vertex.LightU, 0f, 1f) * rectangle.Width);
         float lightV = rectangle.V + (Math.Clamp(vertex.LightV, 0f, 1f) * rectangle.Height);
 
+        // The same vertex build as the world's (`FUN_1800f4d40`, B669), turned by the model matrix in the vertex shader.
+        ((float X, float Y, float Z) normal, (float X, float Y, float Z, float W) tangent) = MapWorldBuilder.Frame(surface, vertex);
+
         corners.Add(new PropVertex(
             vertex.X, vertex.Y, vertex.Z,
             vertex.U, vertex.V,
             surface.MaterialIndex,
-            NormalX: surface.Normal.X,
-            NormalY: surface.Normal.Y,
-            NormalZ: surface.Normal.Z,
+            NormalX: normal.X,
+            NormalY: normal.Y,
+            NormalZ: normal.Z,
+            TangentX: tangent.X,
+            TangentY: tangent.Y,
+            TangentZ: tangent.Z,
+            TangentW: tangent.W,
             LightU: lightU,
             LightV: lightV,
             LightStep: lightStep,

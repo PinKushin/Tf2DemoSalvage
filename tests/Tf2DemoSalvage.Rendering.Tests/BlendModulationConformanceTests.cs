@@ -112,6 +112,55 @@ public sealed class BlendModulationConformanceTests
         bool hasMask, float contrast, float saturation, float expectedContrast, float expectedSaturation) =>
         BlendModulation.EnvMapShaping(hasMask, contrast, saturation).ShouldBe((expectedContrast, expectedSaturation));
 
+    /// <remarks>
+    /// **The fast path, which a material falls onto by leaving one of the pair alone** (B669). Only with both off their
+    /// neutral values does the helper count contrast as used (`lightmappedgeneric_dx9_helper.cpp:714`):
+    /// <c>bUsingContrast = hasEnvmap &amp;&amp; ( (contrast != 0) &amp;&amp; (contrast != 1) ) &amp;&amp; (saturation != 1)</c>. Otherwise,
+    /// with no Fresnel and no self-illum tint (`:715-720`), the shader's fast path takes the constants at
+    /// `lightmappedgeneric_ps2_3_x.h:54-59`: contrast 1 if `$envmapcontrast` is exactly 1 (`:925`), else 0, and
+    /// saturation 1. So the far pane's `$envmapcontrast .5` is no contrast at all, and a lone `$envmapsaturation` is ignored.
+    /// </remarks>
+    [TestCase(0.5f, 1f, 0f, 1f)]
+    [TestCase(1f, 1f, 1f, 1f)]
+    [TestCase(0f, 0.5f, 0f, 1f)]
+    [TestCase(1f, 0.5f, 1f, 1f)]
+    [TestCase(0f, 1f, 0f, 1f)]
+    [TestCase(0.5f, 0.5f, 0.5f, 0.5f)]
+    public void EnvMapShaping_WithoutFresnelOrTint_IsTheFastPathsConstantsUnlessBothAreSet(
+        float contrast, float saturation, float expectedContrast, float expectedSaturation) =>
+        BlendModulation.EnvMapShaping(false, contrast, saturation).ShouldBe((expectedContrast, expectedSaturation));
+
+    /// <remarks>A Fresnel off 1 (`:715`) or a tinted self-illum (`:716`) leaves the fast path, and the registers hold the VMT's values.</remarks>
+    [TestCase(0.5f, 1f, 0.25f, false)]
+    [TestCase(0f, 0.5f, 0.25f, false)]
+    [TestCase(0.5f, 1f, 1f, true)]
+    [TestCase(0f, 0.5f, 1f, true)]
+    public void EnvMapShaping_OffTheFastPath_IsTheMaterialsOwn(float contrast, float saturation, float fresnel, bool tinted) =>
+        BlendModulation.EnvMapShaping(false, contrast, saturation, fresnel, tinted).ShouldBe((contrast, saturation));
+
+    /// <remarks>`FANCY_BLENDING` compiles the block out on either path.</remarks>
+    [Test]
+    public void EnvMapShaping_WithAMaskOffTheFastPath_IsStillNeither() =>
+        BlendModulation.EnvMapShaping(true, 0.5f, 0.5f, 0.25f, true).ShouldBe((0f, 1f));
+
+    [Test]
+    public void Sdk_TheFastPathsConditionsAndConstants_AreTheOnesPorted()
+    {
+        string helper = Sdk(Helper);
+
+        helper.ShouldContain("bool bUsingContrast = hasEnvmap && ( (envmapContrast != 0.0f) && (envmapContrast != 1.0f) ) && (envmapSaturation != 1.0f);", Case.Sensitive);
+        helper.ShouldContain("bool bUsingFresnel = hasEnvmap && (fresnelReflection != 1.0f);", Case.Sensitive);
+        helper.ShouldContain("bool bUsingSelfIllumTint = IS_FLAG_SET(MATERIAL_VAR_SELFILLUM) && (selfIllumTintVal[0] != 1.0f || selfIllumTintVal[1] != 1.0f || selfIllumTintVal[2] != 1.0f);", Case.Sensitive);
+        helper.ShouldContain("if ( bUsingContrast || bUsingFresnel || bUsingSelfIllumTint || !g_pConfig->bShowSpecular )", Case.Sensitive);
+        helper.ShouldContain("SET_DYNAMIC_PIXEL_SHADER_COMBO( FASTPATHENVMAPCONTRAST,  bPixelShaderFastPath && envmapContrast == 1.0f );", Case.Sensitive);
+
+        string shader = Sdk(PixelShader);
+
+        shader.ShouldContain("static const HALF3 g_EnvmapContrast = { 0.0f, 0.0f, 0.0f };", Case.Sensitive);
+        shader.ShouldContain("static const HALF3 g_EnvmapContrast = { 1.0f, 1.0f, 1.0f };", Case.Sensitive);
+        shader.ShouldContain("static const HALF3 g_EnvmapSaturation = { 1.0f, 1.0f, 1.0f };", Case.Sensitive);
+    }
+
     [Test]
     public void Sdk_TheCubemapsShapingUnderFancyBlending_IsCompiledOut()
     {

@@ -71,7 +71,7 @@ public sealed class FacesNearProbe : IProbe
 
             output.WriteLine(string.Create(
                 CultureInfo.InvariantCulture,
-                $"face {face.FaceIndex} '{material}' normal ({face.Normal.X:0.00} {face.Normal.Y:0.00} {face.Normal.Z:0.00}) flags [{face.Flags}] " +
+                $"face {face.FaceIndex} '{material}' normal ({face.Normal.X:0.00} {face.Normal.Y:0.00} {face.Normal.Z:0.00}) flags [{face.Flags}] styles {face.Style0} {face.Style1} " +
                 $"x {face.Vertices.Min(v => v.X):0}..{face.Vertices.Max(v => v.X):0} y {face.Vertices.Min(v => v.Y):0}..{face.Vertices.Max(v => v.Y):0} " +
                 $"z {face.Vertices.Min(v => v.Z):0}..{face.Vertices.Max(v => v.Z):0}"));
         }
