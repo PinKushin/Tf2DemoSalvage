@@ -373,7 +373,7 @@ public sealed partial class EntityModelSet
             // **What a moving model draws is not its state but the state averaged over time** (B676, `FUN_1800f2dd0`). Only what is drawn:
             // a culled model never got here, nor a pass that poses nothing. A caller's own list with no state behind it has no raw colours
             // to blend, and only a test hands one over.
-            if (!isStatic && light is { } sampledCube && (lit.Sampled.State is not null || locals.Count == 0))
+            if (light is { } sampledCube && (lit.Sampled.State is not null || locals.Count == 0))
             {
                 long averagedAt = System.Diagnostics.Stopwatch.GetTimestamp();
 
