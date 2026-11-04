@@ -1450,7 +1450,8 @@ public sealed class ViewerSessionTests
         }
 
         appliedAt.ShouldNotBeNull();
-        frames.ShouldBe(appliedAt.Value + 1 + 1 + 4, "the seek frame, the one after it, then four counted");
+        // Applied the frame after the seek's landing (B708), which is also the one not counted: its interval holds the seek's tail.
+        frames.ShouldBe(appliedAt.Value + 1 + 4, "the frame it is applied in, then four counted");
         rig.Out.ToString().ShouldContain("; 4 frames, mean 500.00 ms");
         rig.Out.ToString().ShouldContain(", between ");
     }

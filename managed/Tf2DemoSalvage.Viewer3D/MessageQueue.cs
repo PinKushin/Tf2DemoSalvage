@@ -89,13 +89,6 @@ internal static partial class MessageQueue
     /// <remarks>Called on the window's own thread, the one that reads it, so a plain write is enough.</remarks>
     public static void ObjectRequested() => _objectRequested = true;
 
-    /// <summary>Dispatches what other threads have sent this one, and takes nothing off the queue (B708).</summary>
-    /// <remarks>`PM_QS_SENDMESSAGE`: a sent message is delivered by the peek itself, and posted input stays queued for later.</remarks>
-    public static void ServeSentMessages() => PeekMessage(out NativeMessage _, IntPtr.Zero, 0, 0, PeekNoRemove | PeekSentOnly);
-
-    /// <summary><c>PM_QS_SENDMESSAGE</c>: <c>QS_SENDMESSAGE</c> in the high word.</summary>
-    private const uint PeekSentOnly = 0x0040 << 16;
-
     /// <summary><c>WM_GETOBJECT</c>.</summary>
     public const int WmGetObject = 0x003D;
 

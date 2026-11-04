@@ -142,7 +142,7 @@ public sealed partial class ViewerSession : IFrameSteps, ILoadView, ICameraView,
         // string, so the log format is unchanged.
         _loggers = loggers;
         _log = loggers.CreateLogger("viewer");
-        _windowThread = new WindowThreadWatch(_log, Stopwatch.GetTimestamp, Stopwatch.Frequency);
+        _windowThread = new WindowThreadWatch(_log, Stopwatch.GetTimestamp, Stopwatch.Frequency, ProcessClock.SinceStart());
         _renderLog = loggers.CreateLogger("render");
         _demoLog = loggers.CreateLogger("demo");
         _configLog = loggers.CreateLogger("config");
@@ -172,6 +172,7 @@ public sealed partial class ViewerSession : IFrameSteps, ILoadView, ICameraView,
             this, loggers, this, () => CameraWindowNow, () => _launch.SpectateWho, _maps, _settingsOwner, _playback, ClientConVar, _shutdown.Token);
         _moments = _presenter.Moments;
         _effects = _presenter.Effects;
+        _effects.SkipsAcrossFrames = true;
         _camera = _presenter.Camera;
 
         // What the presenter asks of the frame at its own moment, attached once; it gives the HUD the rest (D214).

@@ -1490,9 +1490,6 @@ internal class MainForm : Form, IViewerWindow, IIdleHost
     /// <inheritdoc/>
     bool IIdleHost.AutomationListening => MessageQueue.AutomationListening();
 
-    /// <inheritdoc/>
-    void IIdleHost.ServeSentMessages() => MessageQueue.ServeSentMessages();
-
     /// <summary>Notes a UI Automation request for the window's provider, for the traffic wait's gate (finding 88), and tells the session a message came.</summary>
     /// <param name="m">The message.</param>
     protected override void WndProc(ref Message m)

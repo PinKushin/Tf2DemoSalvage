@@ -11,4 +11,6 @@ metadata:
 
 **To hold a thread on purpose, spin.** `ManualResetEventSlim.Wait` on an STA thread pumps sent messages: a 1500 ms hold read 0.5 ms.
 
-**The seek's walk serves sent messages only** (`FramePresenter.ServeWindow`). Input waits for the walk, so nothing re-enters it.
+**A sampler's `WM_NULL` reaches the watch's `WndProc`**: agreement with one shows arithmetic only. Control with no sender: the frame ledger.
+
+**Never serve messages inside a walk** (rejected on review, B708): a sent `WM_SIZE` or `WM_CLOSE` re-enters it. A skip spreads over frames (`SkipWalk`), the engine's shape.

@@ -51,22 +51,23 @@ public sealed partial class FramePresenter
     /// </summary>
     private QueuedRenderThread? _seekQueue;
 
-    /// <summary>Answers what other threads have sent the window, between a seek's frames; null where there is no window (B708).</summary>
+    /// <summary>Whether a skip spreads over frames, as the engine's does (B708); false runs it to the end in the call that began it.</summary>
     /// <remarks>
-    /// **The engine pumps between its skip frames; a walk of ours ran them all in one call**, and the window answered nothing
-    /// for 6.5 s on z1800. Engine.dll's only `PeekMessageA` calls are the drain in its main loop (0x18020d460), and `ReadPacket` caps
-    /// a skip's read at 99 packets a frame (see <see cref="ReplaySkip"/>). **Sent messages only, ours and not the engine's**:
-    /// a posted key or click waits for the walk, so nothing re-enters it, where the engine dispatches them each frame.
+    /// **The engine's main loop drains the window's queue and then runs `CEngine::Frame`** (engine.dll `0x18020d460`, frame at vtable
+    /// +0x28, `0x18020e510`), `CDemoPlayer::ReadPacket` ends a read loop at the 100th packet of a skip, and `_Host_RunFrame` renders
+    /// after it. So paint and input run between a skip's batches with nothing re-entered. False where nothing draws frames between
+    /// calls: the presenter's own tests, and `TF2VIEW_SEEK_THROUGH`, which asks to pass each tick it names.
     /// </remarks>
-    public Action? ServeWindow
-    {
-        get;
-        set
-        {
-            field = value;
-            _models.Corpses.ServeWindow = value;
-        }
-    }
+    public bool SkipsAcrossFrames { get; set; }
+
+    /// <summary>Whether a skip is under way: the moment shown is on its way to the tick the transport names.</summary>
+    public bool Skipping => _skipWalk is not null;
+
+    /// <summary>The skip under way, or null.</summary>
+    private SkipWalk? _skipWalk;
+
+    /// <summary>The start of the line a skip's landing writes; the UI suite reads its counts.</summary>
+    public const string SkipLandedLine = "skip landed at";
 
     /// <summary>The same, over any device (D214).</summary>
     /// <param name="frame">What the window knows of the frame.</param>
@@ -105,9 +106,128 @@ public sealed partial class FramePresenter
     /// <summary>`MainForm.ShowMoment`, which the decals' replay re-enters for each tick it poses.</summary>
     private void ShowMomentNow(double tick)
     {
-        ReplaySkip((int)tick);
+        // Asked again while it runs: a new target, or the same one from a repaint. The frame's own step does the work.
+        if (_skipWalk is { } walking)
+        {
+            Retarget(walking, tick);
+
+            return;
+        }
+
+        // Walked: it is under way and will show the tick when it lands, or ran to its landing in this call and already has.
+        if (ReplaySkip((int)tick, tick))
+        {
+            return;
+        }
+
         ReplayModelDecals((int)tick);
         ShowOnly(tick);
+    }
+
+    /// <summary>One frame of a skip under way: what the engine's client runs between two renders (B708).</summary>
+    /// <param name="frame">What the window knows of the frame.</param>
+    /// <returns>Whether the skip is still under way, so this frame shows a tick on the way and not the one it lands on.</returns>
+    /// <remarks>
+    /// **One batch per tick the frame built up, and at least one**: `_Host_RunFrame` runs `_Host_RunFrame_Client` once per tick it
+    /// accumulated (FUN_1801a4570), and once with none while skipping; each runs a read loop `ReadPacket` ends at the 100th packet.
+    /// </remarks>
+    public bool StepSkip(in ViewFrame frame)
+    {
+        if (_skipWalk is not { } walk)
+        {
+            return false;
+        }
+
+        _frame = frame;
+
+        // The demo it was walking has gone: a new one starts its own history.
+        if (!ReferenceEquals(frame.Timeline, walk.Timeline))
+        {
+            _skipWalk = null;
+
+            return false;
+        }
+
+        // The frame's real length, not the demo's: a paused demo's frame still accumulates host time.
+        int batches = DemoSkip.BatchesThisFrame(frame.FrameSeconds, walk.Timeline.IntervalPerTick);
+
+        walk.FramesDrawn++;
+
+        for (int batch = 0; batch < batches && _skipWalk is not null; batch++)
+        {
+            walk.Batches += walk.Phase == SkipPhase.Frames ? 1 : 0;
+            StepWalk(walk, DemoSkip.PacketsPerFrame);
+        }
+
+        // Drawn as the frame it is, with every entity: the batch's own show is entities only, and poses nothing it can be seen by.
+        if (_skipWalk is not null && walk.Shown is { } shown)
+        {
+            ShowOnly(shown);
+        }
+
+        return _skipWalk is not null;
+    }
+
+    /// <summary>Runs a skip under way to its landing, for a caller that needs the tick reached now.</summary>
+    public void FinishSkip()
+    {
+        while (_skipWalk is { } walk)
+        {
+            StepWalk(walk, int.MaxValue);
+        }
+    }
+
+    /// <summary>One batch of a skip's frames, or a run of its decal replay, or the landing.</summary>
+    private void StepWalk(SkipWalk walk, int decalTicks)
+    {
+        switch (walk.Phase)
+        {
+            case SkipPhase.Frames when walk.NextThrough() is { } through:
+                RunSkipFrame(walk, through);
+                break;
+
+            case SkipPhase.Frames:
+                EndSkipFrames(walk);
+                BeginDecalWalk(walk);
+                break;
+
+            case SkipPhase.Decals:
+                StepDecalWalk(walk, decalTicks);
+                break;
+
+            default:
+                _skipWalk = null;
+                ShowOnly(walk.Tick);
+
+                // Stryker disable once all : a mutated interpolated string cannot bind to its handler (CS1620) and Safe Mode drops the method - B410
+                _renderLog.LogInformation(
+                    "{Message}",
+                    string.Create(CultureInfo.InvariantCulture, $"{SkipLandedLine} {walk.Target} after {walk.Batches} batches over {walk.FramesDrawn} frames"));
+                break;
+        }
+    }
+
+    /// <summary>A new tick asked for while a skip runs: on from where it is, or from the demo's start for one behind it, as `SkipToTick` reloads.</summary>
+    private void Retarget(SkipWalk walk, double tick)
+    {
+        int target = (int)tick;
+
+        walk.Tick = tick;
+
+        if (target == walk.Target)
+        {
+            return;
+        }
+
+        // What it has already made is dealt: those frames ran, and the deck keeps what they dealt.
+        if (walk.Phase == SkipPhase.Frames)
+        {
+            EndSkipFrames(walk);
+        }
+
+        _skipShown = target;
+        Skip = new FrameSkip(target, (Skip?.Generation ?? 0) + 1, (Skip?.Skips ?? 0) + 1) { Skipped = true };
+        walk.Retarget(target, walk.Timeline.FirstTick);
     }
 
     private void ShowOnly(double tick) => _frame = _show(tick);
@@ -177,11 +297,11 @@ public sealed partial class FramePresenter
     /// <see cref="SoundPresenter.Skipped"/>, which deals them with the skip's temp entities, frame by frame, unplayed.
     /// **Interpolated:** one frame per 99 ticks — see <see cref="DemoSkip.Frames"/>.
     /// </remarks>
-    private void ReplaySkip(int target)
+    private bool ReplaySkip(int target, double tick)
     {
         if (Replaying || _skipFrameSounds is not null)
         {
-            return;
+            return false;
         }
 
         // A new demo starts its own history: its first move is a skip, not a move from the last demo's tick.
@@ -210,37 +330,46 @@ public sealed partial class FramePresenter
         }
 
         // Stryker disable once all : a mutated guard leaves its pattern variables unassigned (CS0165) and Safe Mode drops the method - B410
-        if (_frame.Timeline is not { } timeline || !skipped || _sound.Scripts is not { } scripts)
+        if (_frame.Timeline is not { } timeline || !skipped)
+        {
+            return false;
+        }
+
+        bool reads = _sound.Scripts is not null;
+
+        // Nothing to deal and nothing to draw between: the caller shows the moment in the same call.
+        if (!reads && !SkipsAcrossFrames)
+        {
+            return false;
+        }
+
+        // Stryker disable once all : a mutated guard leaves its pattern variables unassigned (CS0165) and Safe Mode drops the method - B410
+        bool back = from is not { } was || target < was;
+
+        _skipWalk = new SkipWalk(timeline, back ? null : from, back ? timeline.FirstTick : from!.Value + 1, target, tick) { ReadsFrames = reads };
+
+        if (!SkipsAcrossFrames)
+        {
+            FinishSkip();
+        }
+
+        return true;
+    }
+
+    /// <summary>One batch of a skip: its HUD, its moment and its pose, keeping what it made.</summary>
+    private void RunSkipFrame(SkipWalk walk, int through)
+    {
+        if (_sound.Scripts is not { } scripts)
         {
             return;
         }
 
         _seekQueue?.Lock();
 
-        long began = Stopwatch.GetTimestamp();
-        // Stryker disable once all : a mutated guard leaves its pattern variables unassigned (CS0165) and Safe Mode drops the method - B410
-        bool back = from is not { } was || target < was;
-        int first = back ? timeline.FirstTick : from!.Value + 1;
-        IReadOnlyList<int> throughs = DemoSkip.Frames(first, Math.Max(first, target));
-        List<SkipFrame> frames = new(throughs.Count);
-        bool hud = _skipHudFrame is not null;
-        int heard = 0;
-        int crossed = 0;
-
-        // Every event the frames crossed, the instrument's control: none at all would mean no walk, not no sound.
-        int walked = 0;
-        int steps = 0;
-
-        // What the frames made, in order — every HUD sound and every crossed event — so two builds compare exactly.
-        ulong events = SequenceHash.Empty;
-        long hudTicks = 0;
-        long buildTicks = 0;
-        long poseTicks = 0;
+        SkipCounts counts = walk.Counts;
         long simulatedBefore = _models.SimulateTicks;
-        long sampleTicks = 0;
-        long drawListTicks = 0;
-        long modelTicks = 0;
 
+        counts.Hud = _skipHudFrame is not null;
         _models.HoldsCorpses = true;
         _moment.EntitiesOnly = true;
         _models.SimulatesOnly = true;
@@ -253,61 +382,54 @@ public sealed partial class FramePresenter
 
         try
         {
-            foreach (int through in throughs)
+            List<SceneSound> live = [];
+
+            _skipFrameSounds = live;
+            _skipFrameTick = through;
+
+            long phase = Stopwatch.GetTimestamp();
+
+            _skipHudFrame?.Invoke(walk.Timeline, through);
+
+            counts.HudTicks += Stopwatch.GetTimestamp() - phase;
+            _skipFrameSounds = null;
+            counts.Heard += live.Count;
+
+            foreach (SceneSound made in live)
             {
-                ServeWindow?.Invoke();
-
-                List<SceneSound> live = [];
-
-                _skipFrameSounds = live;
-                _skipFrameTick = through;
-
-                long phase = Stopwatch.GetTimestamp();
-
-                if (hud)
-                {
-                    _skipHudFrame?.Invoke(timeline, through);
-                }
-
-                hudTicks += Stopwatch.GetTimestamp() - phase;
-                _skipFrameSounds = null;
-                heard += live.Count;
-
-                foreach (SceneSound made in live)
-                {
-                    events = SequenceHash.Add(events, made.Name);
-                }
-
-                phase = Stopwatch.GetTimestamp();
-                ShowOnly(through);
-                buildTicks += Stopwatch.GetTimestamp() - phase;
-                sampleTicks += _moments.LastBuild.Sampled;
-                drawListTicks += _moments.LastBuild.Built.DrawList;
-                modelTicks += _moments.LastBuild.Built.Models;
-                phase = Stopwatch.GetTimestamp();
-                _moments.PoseNow(ViewFrustum.Nothing);
-                poseTicks += Stopwatch.GetTimestamp() - phase;
-                _firedEvents.Clear();
-                _models.TakeFiredEvents(_firedEvents);
-
-                walked += _firedEvents.Count;
-
-                foreach (FiredAnimationEvent fired in _firedEvents)
-                {
-                    steps += fired.Event.Id == SoundPresenter.FootstepEvent ? 1 : 0;
-                    // Stryker disable once all : a mutated interpolated string cannot bind to its handler (CS1620) and Safe Mode drops the method - B410
-                    events = SequenceHash.Add(events, string.Create(CultureInfo.InvariantCulture, $"{through}:{fired.EntityIndex}:{fired.Event.Id}"));
-
-                    if (fired.Event.Id == SoundPresenter.PlaySoundEvent &&
-                        EntitySounds.Emit(through, fired.EntityIndex, fired.Event.Options, fired.Origin, scripts.Entries, emitted: true, ClientSoundPhase.Simulate) is { } sound)
-                    {
-                        live.Add(sound);
-                        crossed++;
-                    }
-                }
-
-                frames.Add(new SkipFrame(through, live));
+                counts.Events = SequenceHash.Add(counts.Events, made.Name);
             }
+
+            phase = Stopwatch.GetTimestamp();
+            ShowOnly(through);
+            counts.BuildTicks += Stopwatch.GetTimestamp() - phase;
+            counts.SampleTicks += _moments.LastBuild.Sampled;
+            counts.DrawListTicks += _moments.LastBuild.Built.DrawList;
+            counts.ModelTicks += _moments.LastBuild.Built.Models;
+            phase = Stopwatch.GetTimestamp();
+            _moments.PoseNow(ViewFrustum.Nothing);
+            counts.PoseTicks += Stopwatch.GetTimestamp() - phase;
+            _firedEvents.Clear();
+            _models.TakeFiredEvents(_firedEvents);
+
+            counts.Walked += _firedEvents.Count;
+
+            foreach (FiredAnimationEvent fired in _firedEvents)
+            {
+                counts.Steps += fired.Event.Id == SoundPresenter.FootstepEvent ? 1 : 0;
+                // Stryker disable once all : a mutated interpolated string cannot bind to its handler (CS1620) and Safe Mode drops the method - B410
+                counts.Events = SequenceHash.Add(counts.Events, string.Create(CultureInfo.InvariantCulture, $"{through}:{fired.EntityIndex}:{fired.Event.Id}"));
+
+                if (fired.Event.Id == SoundPresenter.PlaySoundEvent &&
+                    EntitySounds.Emit(through, fired.EntityIndex, fired.Event.Options, fired.Origin, scripts.Entries, emitted: true, ClientSoundPhase.Simulate) is { } sound)
+                {
+                    live.Add(sound);
+                    counts.Crossed++;
+                }
+            }
+
+            walk.Frames.Add(new SkipFrame(through, live));
+            walk.Shown = through;
         }
         finally
         {
@@ -316,19 +438,137 @@ public sealed partial class FramePresenter
             _moment.EntitiesOnly = false;
             _models.SimulatesOnly = false;
             _models.Paused = paused;
+            counts.SimulateTicks += _models.SimulateTicks - simulatedBefore;
+        }
+    }
+
+    /// <summary>A skip's frames are read: deals what they made, and says so.</summary>
+    private void EndSkipFrames(SkipWalk walk)
+    {
+        if (!walk.ReadsFrames)
+        {
+            return;
         }
 
-        _sound.Skipped(new SoundSkip(from, target, frames));
+        _seekQueue?.Lock();
+        _sound.Skipped(new SoundSkip(walk.From, walk.Target, [.. walk.Frames]));
+
+        SkipCounts counts = walk.Counts;
 
         // Stryker disable once all : a mutated interpolated string cannot bind to its handler (CS1620) and Safe Mode drops the method - B410
         _audioLog.LogInformation(
             "{Message}",
             string.Create(
                 CultureInfo.InvariantCulture,
-                $"skip: to {target} from {(back ? "the start" : from!.Value.ToString(CultureInfo.InvariantCulture))} in {frames.Count} frames " +
-                $"made {heard} HUD and {crossed} animation script sounds (of {walked} animation events, {steps} of them footsteps, which only read){(hud ? string.Empty : " (no HUD yet)")} in {Stopwatch.GetElapsedTime(began).TotalMilliseconds:0} ms " +
-                $"(hud {Ms(hudTicks):0}, build {Ms(buildTicks):0} (sample {Ms(sampleTicks):0}, drawlist {Ms(drawListTicks):0}, models {Ms(modelTicks):0}), pose {Ms(poseTicks):0} of which simulate {Ms(_models.SimulateTicks - simulatedBefore):0}; " +
-                $"last frame {_moment.Drawn.Count} drawn, {_moment.StaticProps.Count} static; sequence {events:x16})"));
+                $"skip: to {walk.Target} from {(walk.From is { } from ? from.ToString(CultureInfo.InvariantCulture) : "the start")} in {walk.Frames.Count} frames " +
+                $"made {counts.Heard} HUD and {counts.Crossed} animation script sounds (of {counts.Walked} animation events, {counts.Steps} of them footsteps, which only read){(counts.Hud ? string.Empty : " (no HUD yet)")} in {Stopwatch.GetElapsedTime(counts.Began).TotalMilliseconds:0} ms " +
+                $"(hud {Ms(counts.HudTicks):0}, build {Ms(counts.BuildTicks):0} (sample {Ms(counts.SampleTicks):0}, drawlist {Ms(counts.DrawListTicks):0}, models {Ms(counts.ModelTicks):0}), pose {Ms(counts.PoseTicks):0} of which simulate {Ms(counts.SimulateTicks):0}; " +
+                $"last frame {_moment.Drawn.Count} drawn, {_moment.StaticProps.Count} static; sequence {counts.Events:x16})"));
+
+        static double Ms(long ticks) => ticks * 1000d / Stopwatch.Frequency;
+    }
+
+    /// <summary>Starts the decals' part of a skip, or goes on to the landing when it needs none.</summary>
+    private void BeginDecalWalk(SkipWalk walk)
+    {
+        walk.Phase = SkipPhase.Landing;
+
+        // Stryker disable once all : a mutated guard leaves its pattern variables unassigned (CS0165) and Safe Mode drops the method - B410
+        if (_frame.Timeline is null || _seekDevice is null)
+        {
+            return;
+        }
+
+        long lookingBack = Stopwatch.GetTimestamp();
+
+        // Stryker disable once all : a mutated guard leaves its pattern variables unassigned (CS0165) and Safe Mode drops the method - B410
+        if (_decals.ReplayStart(DecalFrameAt(walk.Target), walk.Target) is not { } start)
+        {
+            return;
+        }
+
+        _seekQueue?.Lock();
+
+        SkipCounts counts = walk.Counts;
+
+        counts.LookbackTicks = Stopwatch.GetTimestamp() - lookingBack;
+        counts.DecalStart = start;
+        counts.DecalWas = (_models.SimulateTicks, _models.SetupTicks, _models.SkinTicks);
+        counts.DecalBegan = Stopwatch.GetTimestamp();
+        counts.BuildingTicks = 0;
+        counts.PosingTicks = 0;
+        _decals.BeginReplay(start, walk.Target);
+        walk.Phase = SkipPhase.Decals;
+    }
+
+    /// <summary>Up to <paramref name="ticks"/> ticks of the decals' replay.</summary>
+    private void StepDecalWalk(SkipWalk walk, int ticks)
+    {
+        if (_seekDevice is not { } device)
+        {
+            walk.Phase = SkipPhase.Landing;
+
+            return;
+        }
+
+        _seekQueue?.Lock();
+
+        SkipCounts counts = walk.Counts;
+
+        Replaying = true;
+        _models.HoldsCorpses = true;
+        _moments.PlayersOnly = true;
+
+        // Ours, not the engine's: its poses must not move the animation-event walk (B504).
+        _models.WalksEvents = false;
+
+        DecalReplayReport? replayed;
+
+        try
+        {
+            replayed = _decals.StepReplay(
+                ticks,
+                device,
+                tick =>
+                {
+                    long phase = Stopwatch.GetTimestamp();
+                    ShowOnly(tick);
+                    counts.BuildingTicks += Stopwatch.GetTimestamp() - phase;
+
+                    // Simulated, not drawn: `CModelRender::AddDecal` sets up the struck player's bones itself (`SkinningOf`).
+                    phase = Stopwatch.GetTimestamp();
+                    _moments.PoseNow(ViewFrustum.Nothing);
+                    counts.PosingTicks += Stopwatch.GetTimestamp() - phase;
+                    walk.Shown = tick;
+
+                    return DecalFrameAt(tick);
+                });
+        }
+        finally
+        {
+            Replaying = false;
+            _models.HoldsCorpses = false;
+            _moments.PlayersOnly = false;
+            _models.WalksEvents = true;
+        }
+
+        if (replayed is not { } report)
+        {
+            return;
+        }
+
+        walk.Phase = SkipPhase.Landing;
+
+        // Stryker disable once all : a mutated interpolated string cannot bind to its handler (CS1620) and Safe Mode drops the method - B410
+        _renderLog.LogInformation(
+            "{Message}",
+            string.Create(
+                CultureInfo.InvariantCulture,
+                $"model decals: a seek to {walk.Target} replayed ticks {counts.DecalStart}-{walk.Target - 1}, posing {report.Stepped} of them, in {Ms(Stopwatch.GetTimestamp() - counts.DecalBegan):0} ms " +
+                $"(lookback {Ms(counts.LookbackTicks):0}, skipped ticks {report.Skipping.TotalMilliseconds:0}, building {Ms(counts.BuildingTicks):0}, " +
+                $"posing {Ms(counts.PosingTicks):0} of which simulate {Ms(_models.SimulateTicks - counts.DecalWas.Simulate):0}, " +
+                $"bones {Ms(_models.SetupTicks - counts.DecalWas.Setup):0}, skin {Ms(_models.SkinTicks - counts.DecalWas.Skin):0}; " +
+                $"the rest placing decals); {report.Held} held"));
 
         static double Ms(long ticks) => ticks * 1000d / Stopwatch.Frequency;
     }
@@ -379,8 +619,6 @@ public sealed partial class FramePresenter
                 device,
                 tick =>
                 {
-                    ServeWindow?.Invoke();
-
                     long phase = Stopwatch.GetTimestamp();
                     ShowMomentNow(tick);
                     building += Stopwatch.GetElapsedTime(phase);

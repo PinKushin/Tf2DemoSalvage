@@ -48,11 +48,20 @@ public sealed partial class ViewerSession
     {
         ArgumentNullException.ThrowIfNull(host);
 
-        _windowThread.Idled();
+        _windowThread.IdleBegan();
 
-        // The one host there is; only a seek's walk uses it, between its frames (B708).
-        _effects.ServeWindow ??= host.ServeSentMessages;
+        try
+        {
+            IdleLoop(host);
+        }
+        finally
+        {
+            _windowThread.IdleEnded();
+        }
+    }
 
+    private void IdleLoop(IIdleHost host)
+    {
         uint? waiting;
 
         // A cross-thread caller (UI Automation, over COM) sends its next call right after our reply.

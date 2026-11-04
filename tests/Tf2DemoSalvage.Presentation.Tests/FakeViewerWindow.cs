@@ -119,11 +119,6 @@ internal sealed class FakeIdleHost : IIdleHost
     public bool AutomationListening { get; set; } = true;
 
     /// <inheritdoc/>
-    public void ServeSentMessages()
-    {
-    }
-
-    /// <inheritdoc/>
     public bool ArrivesWithin(double seconds)
     {
         Waits.Add(seconds);

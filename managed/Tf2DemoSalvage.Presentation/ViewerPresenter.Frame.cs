@@ -151,6 +151,23 @@ public sealed partial class ViewerPresenter
             _jumps.Jumps);
     }
 
+    /// <summary>Whether a skip is under way, so the moment shown is on its way to the transport's tick (B708).</summary>
+    public bool Skipping => _effects.Skipping;
+
+    /// <summary>Runs this frame's part of a skip under way.</summary>
+    /// <returns>Whether it is still under way.</returns>
+    public bool StepSkip() => _effects.StepSkip(ViewFrameNow);
+
+    /// <summary>Whether a skip spreads over frames, as the engine's does.</summary>
+    public bool SkipsAcrossFrames
+    {
+        get => _effects.SkipsAcrossFrames;
+        set => _effects.SkipsAcrossFrames = value;
+    }
+
+    /// <summary>Runs a skip under way to its landing.</summary>
+    public void FinishSkip() => _effects.FinishSkip();
+
     /// <summary>Whether `--windows` asked for the window cache beside the whole timeline (D217 step 4).</summary>
     public bool CheckWindows { get; internal set; }
 

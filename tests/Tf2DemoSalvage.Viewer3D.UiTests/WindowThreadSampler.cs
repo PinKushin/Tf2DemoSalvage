@@ -16,6 +16,9 @@ internal sealed partial class WindowThreadSampler : IDisposable
     private readonly nint _window;
     private readonly ManualResetEventSlim _stop = new();
     private readonly Thread _sender;
+    private long _longestTicks;
+    private int _samples;
+    private int _failures;
 
     public WindowThreadSampler(nint window)
     {
@@ -24,11 +27,15 @@ internal sealed partial class WindowThreadSampler : IDisposable
         _sender.Start();
     }
 
-    /// <summary>The longest round trip so far. Read after <see cref="Dispose"/> for the whole series.</summary>
-    public double LongestMilliseconds { get; private set; }
+    /// <summary>The longest answered round trip so far.</summary>
+    public double LongestMilliseconds =>
+        Interlocked.Read(ref _longestTicks) * 1000d / System.Diagnostics.Stopwatch.Frequency;
 
-    /// <summary>How many round trips were timed, the instrument's control: none means nothing was measured.</summary>
-    public int Samples { get; private set; }
+    /// <summary>How many round trips were answered, the instrument's control: none means nothing was measured.</summary>
+    public int Samples => Volatile.Read(ref _samples);
+
+    /// <summary>How many sends were not answered: a closed window or the limit, neither of them a measurement.</summary>
+    public int Failures => Volatile.Read(ref _failures);
 
     public void Dispose()
     {
@@ -44,10 +51,20 @@ internal sealed partial class WindowThreadSampler : IDisposable
         {
             long at = System.Diagnostics.Stopwatch.GetTimestamp();
 
-            SendMessageTimeout(_window, WmNull, 0, 0, 0, SendLimitMilliseconds, out _);
+            if (SendMessageTimeout(_window, WmNull, 0, 0, 0, SendLimitMilliseconds, out _) == 0)
+            {
+                Interlocked.Increment(ref _failures);
+                continue;
+            }
 
-            LongestMilliseconds = Math.Max(LongestMilliseconds, System.Diagnostics.Stopwatch.GetElapsedTime(at).TotalMilliseconds);
-            Samples++;
+            long taken = System.Diagnostics.Stopwatch.GetTimestamp() - at;
+
+            if (taken > Interlocked.Read(ref _longestTicks))
+            {
+                Interlocked.Exchange(ref _longestTicks, taken);
+            }
+
+            Interlocked.Increment(ref _samples);
         }
     }
 

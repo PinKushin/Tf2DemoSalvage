@@ -108,9 +108,6 @@ public interface IIdleHost
 
     /// <summary>Whether a UI Automation client is attached to this process, so cross-thread calls may follow a reply.</summary>
     public bool AutomationListening { get; }
-
-    /// <summary>Dispatches what other threads have sent this one, leaving posted messages queued.</summary>
-    public void ServeSentMessages();
 }
 
 /// <summary>The process a session runs in: its two streams, its exit code, its environment and its clocks.</summary>

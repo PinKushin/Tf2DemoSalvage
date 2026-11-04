@@ -830,20 +830,44 @@ public sealed class DecalEffects
     /// <returns>What the replay did.</returns>
     internal DecalReplayReport ReplayOver(int start, int target, IDecalUpload device, Func<int, (DecalFrame Frame, DecalContent Content)> pose)
     {
-        TimeSpan skipping = TimeSpan.Zero;
+        BeginReplay(start, target);
+
+        DecalReplayReport? report;
+
+        do
+        {
+            report = StepReplayOver(int.MaxValue, device, pose);
+        }
+        while (report is null);
+
+        return report.Value;
+    }
+
+    /// <summary>The replay under way, or null.</summary>
+    private (DemoTimeline Timeline, int Start, int Target, bool[] Needed, DecalReplay? Props)? _replay;
+
+    private int _replayTick;
+    private int _replayStepped;
+    private TimeSpan _replaySkipping;
+
+    /// <summary>Starts a replay that <see cref="StepReplay"/> runs in pieces, a frame's at a time (B708).</summary>
+    /// <param name="start">Where to replay from.</param>
+    /// <param name="target">The tick sought.</param>
+    public void BeginReplay(int start, int target)
+    {
+        _replayStepped = 0;
+        _replaySkipping = TimeSpan.Zero;
+        _replay = null;
 
         // Stryker disable once all : a mutated guard leaves its pattern variables unassigned (CS0165) and Safe Mode drops the method - B410
         if (_frame.Timeline is not { } timeline)
         {
-            return new DecalReplayReport(0, skipping, _modelDecals.Count);
+            return;
         }
 
         _modelDecals.ClearWhere(static key => !DecalReplay.IsStaticPropKey(key));
         _decalHolders.Clear();
         _modelDecalTick = start;
-
-        bool[] needed = ReplayTicks(timeline, start, target);
-        int stepped = 0;
 
         // **The props' decals up to the window first, and then tick by tick with the players'** (B421): the pool is
         // shared and retires its oldest, so the two must arrive in the order they landed. A player judged only on his own
@@ -851,34 +875,73 @@ public sealed class DecalEffects
         DecalReplay? props = DecalReplayOf();
 
         props?.AdvanceTo(start, static _ => false);
+        _replayTick = start + 1;
+        _replay = (timeline, start, target, ReplayTicks(timeline, start, target), props);
+    }
 
-        for (int tick = start + 1; tick < target; tick++)
+    /// <summary>Runs up to <paramref name="ticks"/> ticks of the replay.</summary>
+    /// <param name="ticks">How many ticks this frame takes.</param>
+    /// <param name="device">The device that draws the decals.</param>
+    /// <param name="pose">Shows a tick and poses its players, then answers that tick's frame.</param>
+    /// <returns>What the replay did once it has finished, or null while it has not.</returns>
+    public DecalReplayReport? StepReplay(int ticks, IDecalUpload device, Func<int, DecalFrame> pose)
+    {
+        ArgumentNullException.ThrowIfNull(pose);
+
+        return StepReplayOver(
+            ticks,
+            device,
+            tick =>
+            {
+                DecalFrame frame = pose(tick);
+
+                return (frame, ContentOf(frame));
+            });
+    }
+
+    private DecalReplayReport? StepReplayOver(int ticks, IDecalUpload device, Func<int, (DecalFrame Frame, DecalContent Content)> pose)
+    {
+        if (_replay is not { } replay)
         {
-            if (!needed[tick - start])
+            return new DecalReplayReport(0, _replaySkipping, _modelDecals.Count);
+        }
+
+        for (int taken = 0; taken < ticks && _replayTick < replay.Target; taken++)
+        {
+            int tick = _replayTick++;
+
+            if (!replay.Needed[tick - replay.Start])
             {
                 long skipped = Stopwatch.GetTimestamp();
 
                 // Nothing lands here: only the wipes are brought up to date, from the demo without posing anyone.
-                foreach (ScenePlayer player in timeline.PlayersAt(tick))
+                foreach (ScenePlayer player in replay.Timeline.PlayersAt(tick))
                 {
                     ClearOnChange(player);
                 }
 
-                props?.AdvanceTo(tick, static _ => false);
+                replay.Props?.AdvanceTo(tick, static _ => false);
                 _modelDecalTick = tick;
-                skipping += Stopwatch.GetElapsedTime(skipped);
+                _replaySkipping += Stopwatch.GetElapsedTime(skipped);
                 continue;
             }
 
             // Simulated, not drawn: `CModelRender::AddDecal` sets up the struck player's bones itself (`SkinningOf`).
             (_frame, _content) = pose(tick);
 
-            props?.AdvanceTo(tick, bullet => _strikes.StruckPlayer(bullet, tick, _frame.Bullets));
+            replay.Props?.AdvanceTo(tick, bullet => _strikes.StruckPlayer(bullet, tick, _frame.Bullets));
             StepModelDecals(tick, device);
-            stepped++;
+            _replayStepped++;
         }
 
-        return new DecalReplayReport(stepped, skipping, _modelDecals.Count);
+        if (_replayTick < replay.Target)
+        {
+            return null;
+        }
+
+        _replay = null;
+
+        return new DecalReplayReport(_replayStepped, _replaySkipping, _modelDecals.Count);
     }
 
     /// <summary>The server's impacts on entities, selected once per demo.</summary>

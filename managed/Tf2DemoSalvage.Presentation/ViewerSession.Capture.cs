@@ -124,6 +124,17 @@ public sealed partial class ViewerSession
             return;
         }
 
+        // **A shot is of the tick it asked for, never one on the way** (B708): the settling frames count from the landing.
+        if (_presenter.Skipping)
+        {
+            return;
+        }
+
+        if (_openingLanding)
+        {
+            FinishOpeningState();
+        }
+
         // **Nothing left to do, so nothing asked of the device** (B581): the settle test below reads the device, which in
         // `mat_queue_mode 2` waits for the frame in flight, and it ran every frame for the rest of a session whose
         // opening was long over — the sequence answers `Nothing` from here on regardless.
@@ -221,12 +232,33 @@ public sealed partial class ViewerSession
             _playback.Seek(through);
             _transport.ShowTick(through);
             ShowMoment(through);
+
+            // The variable asks to pass each tick it names, so each is reached before the next is asked for.
+            _presenter.FinishSkip();
             _log.LogInformation("{Message}", $"opening state sought through tick {through}");
         }
 
         _playback.Seek(_launch.ShotTick);
         _transport.ShowTick(_launch.ShotTick);
         ShowMoment(_launch.ShotTick);
+
+        // **The rest reads the moment, so it waits for the skip to land** (B708): entering first person places the camera at the
+        // tick shown. `TakeAutomaticShot` comes back here when it has.
+        _openingLanding = true;
+
+        if (!_presenter.Skipping)
+        {
+            FinishOpeningState();
+        }
+    }
+
+    /// <summary>The opening's seek is on its way, and what follows it has not run.</summary>
+    private bool _openingLanding;
+
+    /// <summary>What the opening state does once its tick is on screen.</summary>
+    private void FinishOpeningState()
+    {
+        _openingLanding = false;
 
         _log.LogInformation("{Message}", $"opening state applied at tick {_launch.ShotTick}");
         _reportFirstDrawAfterOpening = true;

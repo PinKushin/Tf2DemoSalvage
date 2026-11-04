@@ -59,10 +59,13 @@ public sealed partial class ViewerSession
         _presenter.Show(tick, _transport.Playing);
     }
 
+    /// <summary>The tick this frame draws: the transport's, or on a skip's frame the one it has read to, where the HUD and the camera are.</summary>
+    private int TickOfThisFrame => _presenter.Skipping ? (int)_shownTick : _transport.CurrentTick;
+
     /// <summary>What this window knows of the frame it is drawing; the presenter adds the demo, the map and the settings.</summary>
     private WindowFrame WindowFrameNow =>
         new(
-            _transport.CurrentTick,
+            TickOfThisFrame,
             _shownTick,
             _transport.Playing,
             _window.Viewport.Width,
@@ -73,7 +76,7 @@ public sealed partial class ViewerSession
     /// <summary>What this window knows that a camera needs: the transport's tick, the tick last shown, its shape.</summary>
     private CameraWindow CameraWindowNow =>
         new(
-            _transport.CurrentTick,
+            TickOfThisFrame,
             _shownTick,
             _window.Viewport.Width,
             _window.Viewport.Height,
@@ -488,7 +491,17 @@ public sealed partial class ViewerSession
     /// **What is left here is the LISTENER and nothing else** (B188, D214): which camera the ears are at and whose eyes
     /// it is, asked for by <see cref="ViewerPresenter.PlaySounds(int, bool)"/> only once it knows there is a device to play through.
     /// </remarks>
-    private void PlaySounds() => _presenter.PlaySounds(_transport.CurrentTick, _window.IsActiveApp);
+    private void PlaySounds()
+    {
+        // The skip's sounds deal at its end, unplayed, and what is already playing goes on in the device: the engine's mixer runs
+        // through a skip (`_Host_RunFrame_Sound`, no skip test) and the frames start nothing new (B504, B708).
+        if (!_presenter.Skipping)
+        {
+            PlaySoundsNow();
+        }
+    }
+
+    private void PlaySoundsNow() => _presenter.PlaySounds(_transport.CurrentTick, _window.IsActiveApp);
 
     /// <returns>Whether a frame was actually drawn.</returns>
     /// <remarks>
@@ -562,9 +575,11 @@ public sealed partial class ViewerSession
         // **Nor the opening** (finding 82): the frame that seeks to `--tick` and the one after it, whose interval holds
         // that seek's tail, are the opening state, not playback. Counted, they were about 8 of `--measure 20`'s seconds
         // on f12 — three frames of about two seconds each — and every mean before 2026-10-19 carried them.
-        bool onScreen = _presenter.HasDemo && _presenter.LoadsInFlight == 0 && openedBefore;
+        // **Nor a skip's frames** (B708): they are the seek, not playback, and each is a batch of it.
+        bool onScreen = _presenter.HasDemo && _presenter.LoadsInFlight == 0 && openedBefore && !_presenter.Skipping && !_openingLanding;
 
-        if (onScreen)
+        // Nothing is opening once a frame has drawn with no demo and no load: a window with nothing to watch needs no beat.
+        if (onScreen || (!_presenter.HasDemo && _presenter.LoadsInFlight == 0))
         {
             _windowThread.Stop();
         }
@@ -794,7 +809,14 @@ public sealed partial class ViewerSession
     /// entities through tick T's eye. Valve simulates in `CHLClient::HudUpdate`, before the view is
     /// built at all (`cdll_client_int.cpp:1308`).
     /// </remarks>
-    public void Simulate() => _playback.Advance();
+    public void Simulate()
+    {
+        // **The demo's clock waits while a skip reads ahead** (B708): the frame's work is the skip's batch.
+        if (!_presenter.StepSkip())
+        {
+            _playback.Advance();
+        }
+    }
 
     /// <summary>`--measure`'s sun line, over the whole frame.</summary>
     private readonly SunMeter _sunMeter = new();

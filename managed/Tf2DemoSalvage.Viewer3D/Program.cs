@@ -55,12 +55,8 @@ internal static class Program
         // at all, and "window shown after 15,843 ms" could not say where.
         ILogger startup = loggers.CreateLogger("viewer");
 
-        void StartupStep(string step)
-        {
-            using System.Diagnostics.Process self = System.Diagnostics.Process.GetCurrentProcess();
-
-            startup.LogInformation("startup: {Step} {Elapsed:F0} ms after the process started", step, (DateTime.UtcNow - self.StartTime.ToUniversalTime()).TotalMilliseconds);
-        }
+        void StartupStep(string step) =>
+            startup.LogInformation("startup: {Step} {Elapsed:F0} ms after the process started", step, ProcessClock.SinceStart().TotalMilliseconds);
 
         StartupStep("Main entered");
 
@@ -169,8 +165,7 @@ internal static class Program
         shell.Shown += (_, _) =>
         {
             closeSplash();
-            using System.Diagnostics.Process self = System.Diagnostics.Process.GetCurrentProcess();
-            shell.Session.ReportStartup(DateTime.UtcNow - self.StartTime.ToUniversalTime());
+            shell.Session.ReportStartup(ProcessClock.SinceStart());
         };
 
         // **The `developer` cvar's other end.** The sink has always filtered on a settable Minimum

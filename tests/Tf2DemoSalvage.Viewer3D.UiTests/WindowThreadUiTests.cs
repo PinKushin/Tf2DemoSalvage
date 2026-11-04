@@ -4,24 +4,9 @@ using System.Windows.Forms;
 
 namespace Tf2DemoSalvage.Viewer3D.UiTests;
 
-/// <summary>The window thread answers through a load and the seek that opens it (B708).</summary>
+/// <summary>The instrument B708 was found with: a thread held for a known time reads as that time.</summary>
 public sealed class WindowThreadUiTests
 {
-    /// <summary>
-    /// Windows' own line for a hung window: `IsHungAppWindow` calls an application not responding when it has not asked for
-    /// messages for 5 seconds. Past it the window ghosts, and a UI Automation client times out.
-    /// </summary>
-    private const double NotRespondingMilliseconds = 5000;
-
-    /// <summary>The session's own viewer on z1800, sampled from the window appearing until the first frame after its seek.</summary>
-    [Test]
-    public void Opening_ADemoAtATick_AnswersWithinTheNotRespondingLine()
-    {
-        ViewerSession.WindowThread.Samples.ShouldBeGreaterThan(0, "nothing was measured");
-        ViewerSession.WindowThread.LongestMilliseconds.ShouldBeLessThan(NotRespondingMilliseconds);
-    }
-
-    /// <summary>The control: a thread held for a known time reads as that time, and a free one does not.</summary>
     [Test]
     public void Sampler_OverAWindowItsThreadHolds_ReportsTheHold()
     {
@@ -51,37 +36,45 @@ public sealed class WindowThreadUiTests
         owner.Start();
         shown.Wait(TimeSpan.FromSeconds(30)).ShouldBeTrue("the control's window never appeared");
 
-        WindowThreadSampler free = new(handle);
+        double free;
+        double stalled;
+        int answered;
 
-        // Ended on the first answered round trips, not on a time.
-        SpinWait.SpinUntil(() => free.Samples >= 10, TimeSpan.FromSeconds(30)).ShouldBeTrue();
-        free.Dispose();
-
-        WindowThreadSampler stalled = new(handle);
-
-        SpinWait.SpinUntil(() => stalled.Samples >= 1, TimeSpan.FromSeconds(30)).ShouldBeTrue();
-
-        // A spin, because a blocking wait on an STA thread pumps sent messages: the first version of this control read 0.5 ms.
-        form!.BeginInvoke(() =>
+        using (WindowThreadSampler sampler = new(handle))
         {
-            long began = System.Diagnostics.Stopwatch.GetTimestamp();
+            // Ended on the first answered round trips, not on a time.
+            SpinWait.SpinUntil(() => sampler.Samples >= 10, TimeSpan.FromSeconds(30)).ShouldBeTrue();
+            free = sampler.LongestMilliseconds;
 
-            while (System.Diagnostics.Stopwatch.GetElapsedTime(began).TotalMilliseconds < HoldMilliseconds)
+            // A spin, because a blocking wait on an STA thread pumps sent messages: the first version of this control read 0.5 ms.
+            form!.BeginInvoke(() =>
             {
-                Thread.SpinWait(1000);
-            }
+                long began = System.Diagnostics.Stopwatch.GetTimestamp();
 
-            held.Set();
-        });
-        held.Wait(TimeSpan.FromSeconds(30)).ShouldBeTrue();
-        SpinWait.SpinUntil(() => stalled.LongestMilliseconds > 0 && stalled.Samples >= 10, TimeSpan.FromSeconds(30)).ShouldBeTrue();
-        stalled.Dispose();
+                while (System.Diagnostics.Stopwatch.GetElapsedTime(began).TotalMilliseconds < HoldMilliseconds)
+                {
+                    Thread.SpinWait(1000);
+                }
+
+                held.Set();
+            });
+            held.Wait(TimeSpan.FromSeconds(30)).ShouldBeTrue();
+
+            int before = sampler.Samples;
+
+            SpinWait.SpinUntil(() => sampler.Samples > before + 5, TimeSpan.FromSeconds(30)).ShouldBeTrue();
+            stalled = sampler.LongestMilliseconds;
+            answered = sampler.Samples;
+            sampler.Failures.ShouldBe(0);
+        }
 
         form.BeginInvoke(form.Close);
         owner.Join(TimeSpan.FromSeconds(30)).ShouldBeTrue();
 
+        answered.ShouldBeGreaterThan(10);
+
         // Half the hold, because the sampler's next send lands somewhere inside it, later on a busy machine.
-        stalled.LongestMilliseconds.ShouldBeGreaterThan(HoldMilliseconds / 2d);
-        free.LongestMilliseconds.ShouldBeLessThan(stalled.LongestMilliseconds);
+        stalled.ShouldBeGreaterThan(HoldMilliseconds / 2d);
+        free.ShouldBeLessThan(stalled);
     }
 }

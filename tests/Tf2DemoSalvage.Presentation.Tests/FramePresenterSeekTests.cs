@@ -133,6 +133,116 @@ public sealed class FramePresenterSeekTests
     }
 
     /// <remarks>
+    /// `CDemoPlayer::ReadPacket` (engine.dll FUN_180072ee0) returns null at the 100th packet while skipping, ending the read loop, and
+    /// `_Host_RunFrame` (FUN_1801a4570) renders after it; the main loop at `0x18020d460` drains the window's queue before each
+    /// `CEngine::Frame`. So one frame reads one batch and asks nothing of the caller until the frame's own step.
+    /// </remarks>
+    [Test]
+    public void StepSkip_AcrossFrames_ReadsAtMostOneBatchAFrameAndLandsOnTheTick()
+    {
+        Seeking seek = new();
+
+        seek.Frames.SkipsAcrossFrames = true;
+        seek.Show(500d);
+
+        seek.Frames.Skipping.ShouldBeTrue("the call that asked reads nothing: the frames do");
+        seek.HudFrames.ShouldBeEmpty();
+
+        List<int> perFrame = [];
+        int steps = 0;
+
+        while (seek.Frames.Skipping && steps++ < 100)
+        {
+            int before = seek.HudFrames.Count;
+
+            seek.Frames.StepSkip(HostFrame(0f));
+            perFrame.Add(seek.HudFrames.Count - before);
+        }
+
+        perFrame.ShouldAllBe(batches => batches <= 1, "99 packets a frame");
+        seek.HudFrames.Count.ShouldBeGreaterThan(2, "the control: it read batches");
+
+        int last = Timeline.FirstTick - 1;
+
+        foreach (int through in seek.HudFrames)
+        {
+            (through - last).ShouldBe(DemoSkip.PacketsPerFrame);
+            last = through;
+        }
+
+        seek.Frames.Skipping.ShouldBeFalse();
+        seek.Shown[^1].ShouldBe(500d, "it lands on the tick asked for");
+    }
+
+    [Test]
+    public void StepSkip_AFrameOfManyTicks_ReadsOneBatchPerTick()
+    {
+        Seeking seek = new();
+
+        seek.Frames.SkipsAcrossFrames = true;
+        seek.Show(500d);
+        seek.Frames.StepSkip(HostFrame(3.5f * Timeline.IntervalPerTick));
+
+        seek.HudFrames.Count.ShouldBe(3, "`_Host_RunFrame` runs a read loop per whole tick it accumulated");
+    }
+
+    [Test]
+    public void ShowMomentOver_AnotherTickDuringASkip_GoesOnForwardAndRestartsBackward()
+    {
+        Seeking seek = new();
+
+        seek.Frames.SkipsAcrossFrames = true;
+        seek.Show(500d);
+        seek.Frames.StepSkip(HostFrame(0f));
+        seek.Frames.StepSkip(HostFrame(0f));
+
+        int reached = seek.HudFrames[^1];
+
+        seek.Show(600d);
+        seek.Frames.StepSkip(HostFrame(0f));
+        seek.HudFrames[^1].ShouldBe(reached + DemoSkip.PacketsPerFrame, "a target ahead moves the target and the reading goes on");
+
+        seek.Show(250d);
+        seek.Frames.StepSkip(HostFrame(0f));
+        seek.HudFrames[^1].ShouldBe(Timeline.FirstTick + DemoSkip.PacketsPerFrame - 1, "a target behind reads from the start, as `SkipToTick` reloads");
+
+        seek.Frames.FinishSkip();
+        seek.Shown[^1].ShouldBe(250d);
+    }
+
+    [Test]
+    public void ShowMomentOver_TheSameTickAgainDuringASkip_DoesNoWorkOfItsOwn()
+    {
+        Seeking seek = new();
+
+        seek.Frames.SkipsAcrossFrames = true;
+        seek.Show(500d);
+        seek.Frames.StepSkip(HostFrame(0f));
+
+        int read = seek.HudFrames.Count;
+
+        seek.Show(500d, jump: false);
+        seek.Show(500d, jump: false);
+
+        seek.HudFrames.Count.ShouldBe(read, "a repaint asks again; only the frame's step reads");
+    }
+
+    [Test]
+    public void BatchesThisFrame_ByFrameLength_IsOnePerWholeTickCappedAtTheHostsLongestFrame()
+    {
+        const float Interval = 0.015f;
+
+        DemoSkip.PacketsPerFrame.ShouldBe(99, "`ReadPacket` returns null at the 100th packet of a skip (`if ( 99 < count )`)");
+        DemoSkip.BatchesThisFrame(0d, Interval).ShouldBe(1, "one with none, while skipping");
+        DemoSkip.BatchesThisFrame(0.0301, Interval).ShouldBe(2);
+        DemoSkip.BatchesThisFrame(5d, Interval).ShouldBe(6, "`Host_FilterTime` caps a demo frame at 0.1 s");
+        DemoSkip.BatchesThisFrame(1d, 0f).ShouldBe(1, "a demo that names no interval");
+    }
+
+    private static ViewFrame HostFrame(float frameSeconds) =>
+        new(Timeline, null, null, 0, 0d, false, false, null, 1280, 720, frameSeconds, 0d, true, true, true, 2048, 50);
+
+    /// <remarks>
     /// `C_BaseAnimating::Simulate` walks events only `if ( gpGlobals->frametime != 0.0f )` (`c_baseanimating.cpp:5162`).
     /// The client's frametime is zero while `IsPlaybackPaused()`, which answers FALSE for the length of a skip whatever
     /// the pause flag says and the flag once the skip has landed (engine.dll FUN_1800729f0, FUN_1800a2d40) — so a seek
@@ -177,7 +287,7 @@ public sealed class FramePresenterSeekTests
 
             seek.InFlight.Count.ShouldBeGreaterThan(2, "the control: the seek ran skip frames");
             seek.InFlight.ShouldAllBe(inFlight => !inFlight);
-            drainedBy.ShouldBe("ReplaySkip");
+            drainedBy.ShouldBe("RunSkipFrame");
         }
         finally
         {
