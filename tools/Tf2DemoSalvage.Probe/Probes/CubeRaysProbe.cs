@@ -54,26 +54,15 @@ public sealed class CubeRaysProbe : IProbe
         MapLevel level = MapLevel.Read(bytes, NullLogger.Instance);
         IReadOnlyList<BspMaterial> materials = level.Materials;
 
-        if (level.Leaves is not { } tree || level.LeafFaces is not { } leafFaces || level.LightSamples is not { } samples)
+
+        // Production's own: the cube the draw is given, and the walker it casts with.
+        if (LevelLighting.StaticPropRays(level) is not { } walker || LevelLighting.StaticPropAmbientOf(level) is not { } ambient)
         {
             output.WriteLine("this map lacks the lumps the rays read");
             return;
         }
 
-        // As `LevelLighting.StaticPropAmbientOf` builds it.
-        SurfaceColour walker = new(DecalWorld.From(tree, leafFaces, level.Surfaces, level.Terrain), samples, static _ => null);
-
-        Vector3? skyAmbient = level.WorldLights.FirstOrDefault(light => light.Kind == WorldLightKind.SkyAmbient) is { } sky
-            ? new Vector3(sky.Intensity.Red, sky.Intensity.Green, sky.Intensity.Blue)
-            : null;
-
-        AmbientCube cube = StaticPropAmbient.Compute(
-            origin,
-            (start, end) => walker.LightVec(start, end, styles: false),
-            texdata => texdata >= 0 && texdata < materials.Count
-                ? new Vector3(materials[texdata].Reflectivity.Red, materials[texdata].Reflectivity.Green, materials[texdata].Reflectivity.Blue)
-                : Vector3.Zero,
-            skyAmbient);
+        AmbientCube cube = ambient(origin.X, origin.Y, origin.Z);
 
         output.WriteLine($"cube at {origin}: +x {cube.PositiveX} -x {cube.NegativeX} +y {cube.PositiveY} -y {cube.NegativeY} +z {cube.PositiveZ} -z {cube.NegativeZ}");
 

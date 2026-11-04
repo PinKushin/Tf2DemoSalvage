@@ -94,6 +94,26 @@ public sealed class WorldVertexNormalConformanceTests
         (first.NormalX, first.NormalY, first.NormalZ).ShouldBe((0f, -1f, 0f));
     }
 
+    /// <summary>
+    /// A base face's normal with none compiled, on a face whose side flips <see cref="BspSurface.Normal"/>, is the plane's. Measured on cp_process_f12:
+    /// compiled normals side with the plane on 26,602 of 26,782 corners of flipped faces, and 6 against it (B687).
+    /// </summary>
+    [Test]
+    public void Build_AFlippedFaceWithNoCompiledNormal_TakesThePlanesDirection()
+    {
+        BspSurface face = Face(
+            (1f, 0f, 0f),
+            [
+                new SurfaceVertex(0f, 0f, 0f, 0f, 0f, 0f, 0f),
+                new SurfaceVertex(0f, 64f, 0f, 1f, 0f, 1f, 0f),
+                new SurfaceVertex(0f, 64f, 64f, 1f, 1f, 1f, 1f),
+            ]) with { PlaneNormal = (-1f, 0f, 0f) };
+
+        WorldVertex first = MapWorldBuilder.Build(null, [face], Materials, LightmapAtlas.Pack([]), null).Vertices[0];
+
+        (first.NormalX, first.NormalY, first.NormalZ).ShouldBe((-1f, 0f, 0f));
+    }
+
     /// <summary>The frame's arithmetic reaches the vertex: a face's S lands in the tangent, its handedness in w.</summary>
     [Test]
     public void Build_AFaceWithATextureProjection_EveryCornerCarriesItsTangentFrame()

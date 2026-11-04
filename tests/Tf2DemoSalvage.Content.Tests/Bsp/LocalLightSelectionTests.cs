@@ -109,15 +109,15 @@ public sealed class LocalLightSelectionTests
         into[0].X.ShouldBe(140f);
     }
 
-    /// <summary>That a light with no attenuation at all leaves with vrad's constant of one.</summary>
+    /// <summary>That a light with no attenuation at all leaves with the loader's quadratic of one.</summary>
     /// <remarks>
-    /// **The number that was once float.Epsilon and made a reciprocal infinite.** vrad's
-    /// `lightmap.cpp` normalises the all-zero case to `constant_attn = 1`; doing it here means no
+    /// **The number that was once float.Epsilon and made a reciprocal infinite.** `Mod_LoadWorldlights`
+    /// (`FUN_1801042d0`) writes quadratic 1 over all-zero terms for a point and a spot; doing it here means no
     /// consumer has to, and a shader dividing by the raw zero would produce infinity rather than a
     /// wrong colour — which is the failure mode that reads as a driver fault.
     /// </remarks>
     [Test]
-    public void Strongest_ForALightWithNoAttenuationTerms_NormalisesConstantToOne()
+    public void Strongest_ForALightWithNoAttenuationTerms_NormalisesQuadraticToOne()
     {
         List<BspWorldLight> lights = [Lamp(100f, 0f, 0f) with
         {
@@ -128,9 +128,9 @@ public sealed class LocalLightSelectionTests
 
         LocalLights.Strongest(lights, 0f, 0f, 0f, into).ShouldBe(1);
 
-        into[0].Constant.ShouldBe(1f);
+        into[0].Constant.ShouldBe(0f);
         into[0].Linear.ShouldBe(0f);
-        into[0].Quadratic.ShouldBe(0f);
+        into[0].Quadratic.ShouldBe(1f);
     }
 
     /// <summary>That real attenuation terms are passed through untouched.</summary>

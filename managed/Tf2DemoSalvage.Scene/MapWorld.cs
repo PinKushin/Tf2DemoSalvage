@@ -727,6 +727,10 @@ public static class MapWorldBuilder
 
                 List<WorldVertex> corners = new(fragment.Count);
 
+                // The face's normal and frame (B678): a fragment's corners are not the face's, so it has no compiled corner normal to take.
+                // *Interpolated:* what the engine's overlay vertices carry was not read; its reflection would otherwise turn about (0, 0, 1).
+                ((float X, float Y, float Z) normal, (float X, float Y, float Z, float W) tangent) = MapWorldBuilder.Frame(piece, default);
+
                 foreach ((float x, float y, float z) in fragment)
                 {
                     (float lightU, float lightV) = piece.Lighting.Project(x, y, z);
@@ -746,7 +750,16 @@ public static class MapWorldBuilder
                         0f,
                         red,
                         green,
-                        blue));
+                        blue)
+                    {
+                        NormalX = normal.X,
+                        NormalY = normal.Y,
+                        NormalZ = normal.Z,
+                        TangentX = tangent.X,
+                        TangentY = tangent.Y,
+                        TangentZ = tangent.Z,
+                        TangentW = tangent.W,
+                    });
                 }
 
                 int first = all.Count;
@@ -870,14 +883,19 @@ public static class MapWorldBuilder
     /// <param name="corner">The corner.</param>
     /// <returns>
     /// What the engine's vertex build writes (`FUN_1800f4d40`). **A displacement's own corners carry no normal, so they take
-    /// the base face's**; the engine computes one per grid vertex (`CalcNormalFromEdges`), not ported, B678.
+    /// the base face's**; the engine computes one per grid vertex (`CalcNormalFromEdges`), not ported, B678. That base is the
+    /// PLANE's, not <see cref="BspSurface.Normal"/>, which a face's side flips: measured on cp_process_f12, the compiled normals
+    /// side with the plane on both kinds of face, against <c>Normal</c> on every flipped one (B687).
     /// </returns>
     internal static ((float X, float Y, float Z) Normal, (float X, float Y, float Z, float W) Tangent) Frame(
         BspSurface surface, SurfaceVertex corner)
     {
-        (float X, float Y, float Z) normal = corner is { NormalX: 0f, NormalY: 0f, NormalZ: 0f }
-            ? surface.Normal
-            : (corner.NormalX, corner.NormalY, corner.NormalZ);
+        (float X, float Y, float Z) normal = (corner, surface.PlaneNormal) switch
+        {
+            ({ NormalX: not 0f } or { NormalY: not 0f } or { NormalZ: not 0f }, _) => (corner.NormalX, corner.NormalY, corner.NormalZ),
+            (_, (0f, 0f, 0f)) => surface.Normal,
+            _ => surface.PlaneNormal,
+        };
 
         return (normal, SurfaceTangent.Of(normal, surface.TextureS, surface.TextureT, surface.PlaneNormal));
     }

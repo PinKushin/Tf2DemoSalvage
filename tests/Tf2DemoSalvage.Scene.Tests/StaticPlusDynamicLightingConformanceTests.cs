@@ -40,9 +40,39 @@ public sealed class StaticPlusDynamicLightingConformanceTests
     [Test]
     public void StyledLights_AStyledLampInPvsAndReach_IsListed()
     {
-        LevelLighting lighting = Map([Lamp(Style, cluster: 0), Lamp(0, cluster: 0), Lamp(Style, cluster: 1), Lamp(Style, cluster: 0, radius: 10f)]);
+        LevelLighting lighting = Map(
+        [
+            Lamp(Style, cluster: 0),
+            Lamp(0, cluster: 0),
+            Lamp(Style, cluster: 1),
+            Lamp(Style, cluster: 0, radius: 10f) with { Origin = (0f, 0f, 160f) },
+        ]);
 
-        lighting.StyledLights(0f, 0f, 100f).ShouldBe([0], "style 0 is baked, cluster 1 is out of PVS, a radius of 10 does not reach");
+        lighting.StyledLights(0f, 0f, 100f).ShouldBe([0], "style 0 is baked, cluster 1 is out of PVS, a radius of 10 at z 160 misses the cell, which ends at 128");
+    }
+
+    /// <summary>`FUN_1801b6bf0` tests a handle's list against the prop's box: `+0x1d4` and `+0x1e0`, not the lighting origin's cell.</summary>
+    [Test]
+    public void StyledLights_ALampOutOfTheCellButNearThePropsBox_IsListed()
+    {
+        LevelLighting lighting = Map([Lamp(Style, cluster: 0, radius: 10f) with { Origin = (0f, 0f, 160f) }]);
+
+        lighting.StyledLights(0f, 0f, 100f).ShouldBeEmpty("the control: the point's cell ends at 128");
+        lighting.StyledLights(0f, 0f, 100f, new LightBounds((0f, 0f, 0f), (0f, 0f, 155f))).ShouldBe([0], "the box ends 5 from the lamp");
+    }
+
+    /// <summary>
+    /// `FUN_1801b5400` adds a listed lamp through `FUN_1801b5890`, which tests the point's cell, so a lamp only the box admitted is on the list and takes
+    /// no slot. Read in decompile: the list is what bit 4 walks, and bit 4 tests again.
+    /// </summary>
+    [Test]
+    public void StaticPlusDynamicLights_ALampOnlyThePropsBoxAdmitted_RanksNowhere()
+    {
+        LevelLighting lighting = Map([Lamp(Style, cluster: 0, radius: 10f) with { Origin = (0f, 0f, 160f) }]);
+
+        lighting.PrecacheStaticProp(1000, 0f, 0f, 100f, new LightBounds((0f, 0f, 0f), (0f, 0f, 155f)));
+
+        lighting.StaticPlusDynamicLights(1000, 0f, 0f, 100f).Locals.Count.ShouldBe(0);
     }
 
     /// <summary>Flags 6: no static state — the style-0 lamp beside the styled one is what the colours already hold.</summary>

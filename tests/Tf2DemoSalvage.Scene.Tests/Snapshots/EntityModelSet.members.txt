@@ -482,7 +482,7 @@ Tf2DemoSalvage.Scene.EntityModelSet|property|StaticLightingPrecached|()|System.A
 Tf2DemoSalvage.Scene.EntityModelSet|property|StaticPlusDynamicLights|()|System.Func`5[System.Int32,System.Single,System.Single,System.Single,Tf2DemoSalvage.Content.Bsp.PointLighting]|get=True|set=True
 Tf2DemoSalvage.Scene.EntityModelSet|property|StaticPropColours|()|System.Collections.Generic.IReadOnlyDictionary`2[System.Int32,System.Single[]]|get=True|set=True
 Tf2DemoSalvage.Scene.EntityModelSet|property|StaticPropFullLighting|()|System.Func`5[System.Int32,System.Single,System.Single,System.Single,System.ValueTuple`2[Tf2DemoSalvage.Content.Bsp.PointLighting,System.Nullable`1[Tf2DemoSalvage.Scene.SunLight]]]|get=True|set=True
-Tf2DemoSalvage.Scene.EntityModelSet|property|StaticPropHandle|()|System.Action`4[System.Int32,System.Single,System.Single,System.Single]|get=True|set=True
+Tf2DemoSalvage.Scene.EntityModelSet|property|StaticPropHandle|()|System.Action`5[System.Int32,System.Single,System.Single,System.Single,System.Nullable`1[Tf2DemoSalvage.Content.Bsp.LightBounds]]|get=True|set=True
 Tf2DemoSalvage.Scene.EntityModelSet|property|StaticPropLighting|()|System.Func`4[System.Single,System.Single,System.Single,System.ValueTuple`2[Tf2DemoSalvage.Content.Bsp.PointLighting,System.Nullable`1[Tf2DemoSalvage.Scene.SunLight]]]|get=True|set=True
 Tf2DemoSalvage.Scene.EntityModelSet|property|StaticPropsFiled|()|System.Int32|get=True|set=True
 Tf2DemoSalvage.Scene.EntityModelSet|property|StaticProps|()|System.Collections.Generic.IReadOnlyList`1[Tf2DemoSalvage.Core.Scene.SceneProp]|get=True|set=True

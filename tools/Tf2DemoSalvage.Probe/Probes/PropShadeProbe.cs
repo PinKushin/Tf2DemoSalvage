@@ -187,7 +187,7 @@ public sealed class PropShadeProbe : IProbe
 
     /// <summary>
     /// Every style-0 world light within a radius of the draw's lighting origin, with whether the production
-    /// <see cref="LocalLights.Reaches"/> (distance, radius and cone) admits it there and whether the visibility trace keeps
+    /// <see cref="LocalLights.Reaches"/> (the point's cell against the radius and cone, and `r_worldlightmin`) admits it there and whether the visibility trace keeps
     /// it: the candidates the four lamps were picked from, so a lamp that reaches and was not picked shows beside the four
     /// that were.
     /// </summary>
@@ -207,24 +207,24 @@ public sealed class PropShadeProbe : IProbe
                      .Where(entry => entry.Light.Style == 0 && entry.Distance <= radius)
                      .OrderByDescending(entry => entry.Strength))
         {
-            // What a fold of this light adds to each face: its strength times the face's cosine, FUN_1801b5db0.
-            float toY = distance > 0f ? (light.Origin.Y - origin.Y) / distance : 0f;
-            float toZ = distance > 0f ? (light.Origin.Z - origin.Z) / distance : 0f;
-            bool kept = lighting.Occlusion(light, origin.X, origin.Y, origin.Z) is { Kept: true };
+            // What this light's fold adds to each face, from the production fold (`FUN_1801b5db0`): carried, not recomputed (B243).
+            AmbientCube fold = LocalLights.Fold(default, light, origin.X, origin.Y, origin.Z);
+            bool reaches = LocalLights.Reaches(light, origin.X, origin.Y, origin.Z);
+            bool kept = reaches && lighting.Occlusion(light, origin.X, origin.Y, origin.Z) is { Kept: true };
 
             if (kept)
             {
-                keptNegativeY += strength * MathF.Max(0f, -toY);
-                keptPositiveY += strength * MathF.Max(0f, toY);
-                keptPositiveZ += strength * MathF.Max(0f, toZ);
-                keptNegativeZ += strength * MathF.Max(0f, -toZ);
+                keptNegativeY += fold.NegativeY.Green;
+                keptPositiveY += fold.PositiveY.Green;
+                keptPositiveZ += fold.PositiveZ.Green;
+                keptNegativeZ += fold.NegativeZ.Green;
             }
 
             output.WriteLine(string.Create(
                 CultureInfo.InvariantCulture,
                 $"      {light.Kind} at ({light.Origin.X:0} {light.Origin.Y:0} {light.Origin.Z:0}) {distance:0} away, normal {light.Normal}, " +
-                $"colour ({light.Intensity.Red / MathF.Max(light.Intensity.Green, 1e-6f):0.00} 1 {light.Intensity.Blue / MathF.Max(light.Intensity.Green, 1e-6f):0.00}), strength here {strength:0.####} -y {strength * MathF.Max(0f, -toY):0.####} +y {strength * MathF.Max(0f, toY):0.####} +z {strength * MathF.Max(0f, toZ):0.####} -z {strength * MathF.Max(0f, -toZ):0.####}, " +
-                $"reaches {LocalLights.Reaches(light, origin.X, origin.Y, origin.Z)}, {Seen(lighting, origin, light)}{Struck(level, origin, light)}"));
+                $"colour ({light.Intensity.Red / MathF.Max(light.Intensity.Green, 1e-6f):0.00} 1 {light.Intensity.Blue / MathF.Max(light.Intensity.Green, 1e-6f):0.00}), strength here {strength:0.####} -y {fold.NegativeY.Green:0.####} +y {fold.PositiveY.Green:0.####} +z {fold.PositiveZ.Green:0.####} -z {fold.NegativeZ.Green:0.####}, " +
+                $"reaches {reaches}, {Seen(lighting, origin, light)}{Struck(level, origin, light)}"));
         }
 
         output.WriteLine(string.Create(

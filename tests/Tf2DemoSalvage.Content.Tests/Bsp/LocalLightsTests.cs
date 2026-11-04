@@ -186,20 +186,26 @@ public sealed class LocalLightsTests
     }
 
     [Test]
-    public void LocalLights_ARadius_CullsBeyondIt()
+    public void LocalLights_ARadius_CullsBeyondThePointsCellNotThePoint()
     {
-        // dist2 = 100 against range^2 = 25, so the light is culled entirely.
+        // `FUN_1801b99a0` tests the radius against the box, and flags 2 skips `FUN_1800efe40`'s own cut. The cell
+        // of (0 0 0) ends at z 128. A radius of 5 from z 200 misses it by 67.
         AmbientCube lit = LocalLights.AddTo(
+            Black, [Point((0f, 0f, 200f), Bright, radius: 5f)], 0f, 0f, 0f);
+
+        lit.PositiveZ.Red.ShouldBe(0f, 0.0001f);
+
+        // The control: a radius of 100 reaches the same cell, and folds at the point's full 1/d², 200 from it.
+        AmbientCube reached = LocalLights.AddTo(
+            Black, [Point((0f, 0f, 200f), Bright, radius: 100f)], 0f, 0f, 0f);
+
+        reached.PositiveZ.Red.ShouldBe(Bright / 40000f, 0.0001f);
+
+        // Inside the cell the radius does not cut at all, though the point is twice as far as the radius.
+        AmbientCube within = LocalLights.AddTo(
             Black, [Point((0f, 0f, 10f), Bright, radius: 5f)], 0f, 0f, 0f);
 
-        lit.PositiveZ.Red.ShouldBe(0f, 0.001f);
-
-        // The control: the same light with a radius that reaches still lights the face. Without
-        // this, an implementation that culled everything would pass.
-        AmbientCube reached = LocalLights.AddTo(
-            Black, [Point((0f, 0f, 10f), Bright, radius: 20f)], 0f, 0f, 0f);
-
-        reached.PositiveZ.Red.ShouldBe(1f, 0.001f);
+        within.PositiveZ.Red.ShouldBe(Bright / 100f, 0.001f);
     }
 
     [Test]
@@ -281,7 +287,7 @@ public sealed class LocalLightsTests
     }
 
     [Test]
-    public void ALightWithNoAttenuation_IsConstantOne_NotInfinite()
+    public void ALightWithNoAttenuation_IsQuadraticOne_NotInfinite()
     {
         // **Found in the viewer's own log, not by any of the tests above**, which is the point of
         // it existing. Four capture points reported a luminance of ∞ while all eleven unit tests
@@ -291,16 +297,17 @@ public sealed class LocalLightsTests
         // The first transcription took `else falloff = Four_Epsilons` from ComputeLightAtPoints
         // literally, as float.Epsilon — the smallest denormal — so 1/falloff overflowed. That
         // branch guards a reciprocal; it does not describe the light. vrad states what such a
-        // light IS: constant_attn = 1 when all three terms are below EQUAL_EPSILON.
+        // light IS at compile time, constant_attn = 1, but what the engine does with one that reaches
+        // it is different: `Mod_LoadWorldlights` (`FUN_1801042d0`) sets quadratic to 1 (B669's review).
         //
-        //   falloff = 1 / 1 = 1, strength = 1, contribution = 1 * 1 * 2 = 2.0
+        //   falloff = 1 / 10^2, contribution = 2 * 0.01 = 0.02
         BspWorldLight bare = new(
             (0f, 0f, 10f), (2f, 2f, 2f), (0f, 0f, 0f), WorldLightKind.Point);
 
         AmbientCube lit = LocalLights.AddTo(Black, [bare], 0f, 0f, 0f);
 
         float.IsFinite(lit.PositiveZ.Red).ShouldBeTrue();
-        lit.PositiveZ.Red.ShouldBe(2f, 0.001f);
+        lit.PositiveZ.Red.ShouldBe(0.02f, 0.0001f);
     }
 
     [Test]

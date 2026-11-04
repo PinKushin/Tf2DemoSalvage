@@ -103,9 +103,9 @@ public sealed class LocalLightRankingConformanceTests
     [TestCase(500f, 0)]
     public void Strongest_APointLampAroundItsComputedRadius_IsCutOffThere(float distance, int expected)
     {
-        // At a cell corner, so the cell adds 1.73 at most. HDR is on by default in `BspHdr`.
+        // At a cell corner, so the cell adds 1.73 at most.
         (float x, float y, float z) = (32f - NearCorner, 32f - NearCorner, 128f - NearCorner);
-        List<BspWorldLight> lights = [Lamp((x, y, z + distance), 1960.7844f)];
+        List<BspWorldLight> lights = [BspWorldLights.AsLoaded(Lamp((x, y, z + distance), 1960.7844f), hdrLump: true)];
         Span<LocalLight> into = stackalloc LocalLight[LocalLights.MaximumLocalLights];
 
         LocalLights.Strongest(lights, x, y, z, into).ShouldBe(expected);

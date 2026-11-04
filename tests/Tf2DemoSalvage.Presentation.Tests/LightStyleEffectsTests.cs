@@ -187,7 +187,7 @@ public sealed class LightStyleEffectsTests
                 [],
                 [
                     new BspWorldLight((0f, 0f, 120f), (400f, 400f, 400f), (0f, 0f, -1f), WorldLightKind.Point, QuadraticAttenuation: 1f) { Style = 4 },
-                    new BspWorldLight((0f, 0f, 120f), (400f, 400f, 400f), (0f, 0f, -1f), WorldLightKind.Point, QuadraticAttenuation: 1f) { Style = 3, Radius = 10f },
+                    new BspWorldLight((0f, 0f, 160f), (400f, 400f, 400f), (0f, 0f, -1f), WorldLightKind.Point, QuadraticAttenuation: 1f) { Style = 3, Radius = 10f },
                 ],
                 null,
                 new RecordingLogger()),

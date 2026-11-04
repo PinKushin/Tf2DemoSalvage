@@ -614,11 +614,9 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
         // `common_vs_fxc.h:762`, directional bypass included (:806): a model panel's second directional
         // light is a local one, flagged by its position's w.
         //
-        // Returns zero for a light beyond its range. Valve does not cull in the shader at all,
-        // because `LightDesc_t::ComputeLightAtPoints` culled on the CPU before the light was
-        // chosen — this project culls there too, at the model's sample point, so this is the same
-        // test applied where a large model can extend past it. Every light on cp_process carries a
-        // range of zero, which means no cutoff, so it is inert on that map either way.
+        // **No range here: Valve does not cull in the vertex shader** (`VertexAttenInternal` has no such term). The range is
+        // `LightDesc_t::m_Range`, for the CPU path (`StudioPointLighting`). This had a cutoff, inert while a lump's radius of 0 reached it;
+        // load gives every light its radius now (`BspWorldLights.AsLoaded`), and it would have cut a large model along its length.
         float LampAttenuation(int lamp, float3 world)
         {
             float3 toLamp = localLightPosition[lamp].xyz - world;
@@ -627,13 +625,6 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             // **Clamped, not offset**: MaxSIMD( Four_Ones, dist2 ) in lightdesc.cpp. The ambient
             // reconstruction uses 1 / (dist + 1) and the two are easy to conflate.
             distanceSquared = max(1.0f, distanceSquared);
-
-            // Strictly less than, and a range of zero means no cutoff at all — which is what every
-            // light on cp_process carries, so reading zero as a real radius extinguishes the map.
-            if (localLightColour[lamp].w != 0.0f && distanceSquared >= localLightColour[lamp].w)
-            {
-                return 0.0f;
-            }
 
             // `1 / dot( atten.xyz, vDist )` where vDist is dst(dist2, 1/dist) = (1, d, d²).
             float distanceAtten = 1.0f / dot(
@@ -1139,7 +1130,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
         // - no $bumpmap (bump.x), or an ssbump (bump.y), which a model shader never decodes as a normal;
         // - $phong with $basemapalphaphongmask (phongControl.z, .w) — `lerp( normal, float3(0, 0, 1), g_fBaseMapAlphaPhongMask )`
         //   (skin_ps20b.fxc:199) is the flat normal, which the frame turns back into N;
-        // - a vertex with no tangent (w zero): brushwork, water, and a `.vvd` with no tangent array.
+        // - a vertex with no tangent (w zero): water, and a `.vvd` with no tangent array.
         float3 ModelShadingNormal(VsOut input)
         {
             if (input.tangent.w == 0.0f || bump.x < 0.5f || bump.y > 0.5f ||
@@ -4540,16 +4531,6 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
                     ? _bumps[batch.MaterialIndex]
                     : _white;
 
-            // **Bound for every draw, not only the reflecting ones.** A shader resource slot keeps
-            // whatever was set last, so a material with no cubemap would sample the previous
-            // material's — and the shader's own guard is what stops it being read, not the absence
-            // of a binding. Setting a null view here is deliberate: it makes the slot empty rather
-            // than stale.
-            ComPtr<ID3D11ShaderResourceView> reflection =
-                batch.MaterialIndex >= 0 && batch.MaterialIndex < _cubemaps.Count
-                    ? _cubemaps[batch.MaterialIndex]
-                    : default;
-
             SetMaterial(context, batch.MaterialIndex, batch.Category);
 
             // **After the chain has run, because the chain is what writes the frame** (B343).
@@ -4562,7 +4543,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             context.PSSetShaderResources(2, 1, ref blend);
             context.PSSetShaderResources(3, 1, ref detail);
             context.PSSetShaderResources(4, 1, ref bump);
-            context.PSSetShaderResources(5, 1, ref reflection);
+            BindOwnCube(context, batch.MaterialIndex);
             BindBlendModulation(context, batch.MaterialIndex);
             SubmitCounters.Draw(); context.Draw((uint)batch.VertexCount, (uint)batch.FirstVertex);
 
@@ -7050,6 +7031,8 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
     /// `BindTexture( SHADER_SAMPLER2, info.m_nEnvmap )` runs on every draw of the shader (lightmappedgeneric_dx9_helper.cpp:876).
     /// The blended and decal passes bound none, so a translucent pane reflected the cube of whichever run drew last: on the
     /// far pane its neighbour's, and a fit of the frame says so to three digits.
+    ///
+    /// **Bound for every draw, not only the reflecting ones.** A slot keeps what was set last, and a null view makes it empty, not stale.
     /// </remarks>
     private void BindOwnCube(ComPtr<ID3D11DeviceContext> context, int material)
     {
@@ -7099,7 +7082,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             // does filter by group (0x1800e4fd0) and this fallback does not, B640.
             context.OMSetBlendState(BlendFor(batch.MaterialIndex), factor, 0xFFFFFFFF);
             context.RSSetState(BlendedRaster(batch.MaterialIndex));
-            DrawBlendedBatch(context, batch, additive: false);
+            DrawBlendedBatch(context, batch);
         }
 
         EndGammaRun(context);
@@ -7123,7 +7106,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
         {
             if (_additive.Contains(batch.MaterialIndex))
             {
-                DrawBlendedBatch(context, batch, additive: true);
+                DrawBlendedBatch(context, batch);
             }
         }
 
@@ -7134,8 +7117,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
     /// <summary>Binds one blended world run's material and textures and draws it; the caller set the blend state.</summary>
     /// <param name="context">The device context.</param>
     /// <param name="batch">The run.</param>
-    /// <param name="additive">An additive run, which binds no bump map (as its pass always has).</param>
-    private void DrawBlendedBatch(ComPtr<ID3D11DeviceContext> context, WorldBatch batch, bool additive)
+    private void DrawBlendedBatch(ComPtr<ID3D11DeviceContext> context, WorldBatch batch)
     {
         if (batch.MaterialIndex >= _textures.Count ||
             _textures[batch.MaterialIndex].Handle is null)
@@ -7165,16 +7147,15 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
         context.PSSetShaderResources(2, 1, ref texture);
         context.PSSetShaderResources(3, 1, ref detail);
 
-        if (!additive)
-        {
-            ComPtr<ID3D11ShaderResourceView> bump =
-                batch.MaterialIndex < _bumps.Count &&
-                _bumps[batch.MaterialIndex].Handle is not null
-                    ? _bumps[batch.MaterialIndex]
-                    : _white;
+        // **Every run, additive too**: a brush face's frame now has `tangent.w != 0` (B669), so the shader reads slot 4, and an additive run
+        // that skipped this read the last run's bump: the same fault as the cube.
+        ComPtr<ID3D11ShaderResourceView> bump =
+            batch.MaterialIndex < _bumps.Count &&
+            _bumps[batch.MaterialIndex].Handle is not null
+                ? _bumps[batch.MaterialIndex]
+                : _white;
 
-            context.PSSetShaderResources(4, 1, ref bump);
-        }
+        context.PSSetShaderResources(4, 1, ref bump);
 
         BindOwnCube(context, batch.MaterialIndex);
 
@@ -7277,7 +7258,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
 
             context.OMSetBlendState(additive ? _addBlend : BlendFor(batch.MaterialIndex), factor, 0xFFFFFFFF);
             context.RSSetState(BlendedRaster(batch.MaterialIndex));
-            DrawBlendedBatch(context, batch, additive);
+            DrawBlendedBatch(context, batch);
 
             // **The surface's overlays straight after it** (0x1800e4fd0, B457), with the overlay pass's own state;
             // then the translucent state back for the next run.

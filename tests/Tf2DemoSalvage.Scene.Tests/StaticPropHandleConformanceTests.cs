@@ -68,7 +68,7 @@ public sealed class StaticPropHandleConformanceTests
             : new Dictionary<int, float[]>(),
         StaticPlusDynamicLights = static (_, _, _, _) => PointLighting.None,
         StaticPropFullLighting = static (_, _, _, _) => (PointLighting.Bounce(HandleCube), HandleSun),
-        StaticPropHandle = (entity, _, _, _) => handles.Add(entity),
+        StaticPropHandle = (entity, _, _, _, _) => handles.Add(entity),
     };
 
     /// <remarks>Whichever state it draws with: colour mesh (flags 6), bump mapped (flags 7), or neither (flags 7).</remarks>
