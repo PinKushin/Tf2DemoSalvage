@@ -1,5 +1,7 @@
 # 2026-11-04 — does an unpinned `ref ComPtr` field crash the process when the collector moves it? (B706)
 
+**Written after the runs:** no pre-run record was committed and no prediction was registered, so read this as a report.
+
 ## Observation
 
 CI, run 41805476486 attempt 1, job "Corpus + Audio (Windows)", commit `ac838c42`: `Capture_AtATickOnACorpusDemo_ExitsCleanlyAndWritesThePng`

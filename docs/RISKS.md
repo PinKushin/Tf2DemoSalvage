@@ -40409,9 +40409,11 @@ its recreation shows nothing; that `_rt_FullFrameFB` and the bloom targets are l
 
 ## B707 — `LoadingOverlay_WhenTheWindowFirstAppears_SaysTheDemoIsLoading` read a label after the stage it asserts had passed (2026-11-04) — FIXED, the test
 
-Run 41669140049 (`f7ec0bb6`) failed with the label reading "Loading the map…". **Not B706, and not a product fault.** *Measured on that run's viewer log:* the window was shown at 16:09:41, the decode ended at 16:10:34 (`building the position timeline took 52.88s`) and the map read began at 16:10:35. *Read from source:* `ViewerPresenter.LoadDemoAsync` sets that stage only after the decode, so the label was correct and UI Automation reached it more than 52 s after the window appeared. *Not measured:* the moment of the read itself; the job log does not timestamp it.
+Run 41669140049 (`f7ec0bb6`) failed with the label reading "Loading the map…". **Not B706, and not a product fault.** *Measured on that run's viewer log:* the window was shown at 16:09:41, the decode ended at 16:10:34 (`building the position timeline took 52.88s`) and the map read began at 16:10:35. *Read from source:* `ViewerPresenter.LoadDemoAsync` sets that stage only after the decode, so the label was correct. The same log has `UI Automation client attached` at 16:10:35.474, 1.3 s after the decode ended, so the first client the viewer saw arrived too late to read the decode stage.
 
-**Fix:** the label can only hold the latest stage, so the test keeps its check that the overlay was on screen through UI Automation and now reads the first stage from a log line the presenter writes when it reports it. `ViewerPresenterTests` already pins the order of the stages. The test was not retried or loosened: "told the decode" is still asserted, from a source that cannot be late.
+**Fix:** the label can only hold the latest stage, so the test keeps its check that the overlay was on screen through UI Automation and now reads the first stage from the log. `ViewerPresenter.ReportStage` hands one value to the view and logs that value, and the test asserts the first `loading overlay:` line is the decode. It was not retried, and still fails if the first stage shown changes: swapping the first stage for the map's reddened it with "but was … Loading the map", and not its neighbour.
+
+**Seen once, unexplained:** `LoadingOverlay_OnceTheWorldIsBuilt_IsGone` failed at its 10 s bound in one filtered run on a sabotaged build, the first after a rebuild. It passed in the three filtered runs after it, one with the same sabotage. Not reproduced and not diagnosed; the sabotage has no route to hiding the overlay as far as can be read.
 
 ## B706 — a `ref` to a `ComPtr` field reaches native code unpinned, and a collection moves it: `0xC0000005` under `PSSetConstantBuffers` (2026-11-04) — FIXED the mechanism; CI's crash attributed, not proven
 
@@ -42661,7 +42663,7 @@ not touch it. TF2 was running on the desktop throughout.
 - a driver fault under GPU contention.
 
 **Next:** run the class in a loop under the desktop lock with TF2 closed and open, and capture the `Map` call's resource
-and its `HRESULT` path.
+and its `HRESULT` path. B706 adds an unconfirmed reading of this crash.
 
 ## B608 — a font handle's validity was a scan of every handle, per character — FIXED (2026-10-27)
 

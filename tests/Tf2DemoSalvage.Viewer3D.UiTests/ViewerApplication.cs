@@ -183,6 +183,11 @@ internal sealed partial class ViewerApplication : IDisposable
         return tally.Seen;
     }
 
+    /// <summary>The first line of this run's log holding <paramref name="text"/>, or null when none does.</summary>
+    /// <param name="text">The text, as the viewer writes it.</param>
+    /// <returns>The whole line.</returns>
+    public string? FirstLine(string text) => Lines().Find(line => line.Contains(text, StringComparison.Ordinal));
+
     /// <summary>The last <paramref name="count"/> lines of this run's log, for a failure report.</summary>
     public IReadOnlyList<string> Tail(int count)
     {
