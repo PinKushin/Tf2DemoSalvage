@@ -67,4 +67,7 @@ The first pass of each is before tiered JIT settles. The off path allocates beca
 
 ## Verdict
 
+**Superseded by `2026-11-04-b676-the-switch-and-the-count.md` and `2026-11-04-b676-worst-case-cost.md`.**
+
+
 Prediction **falsified on the per-draw figure** (237 ns against "under 200 ns") and **confirmed on the falsifier that decides anything**: no `lighting` column rose by 0.05 ms. At the estimated 60 models that is about 0.014 ms a frame on a 3 ms frame, about 0.5%, allocating nothing, which the frame mean cannot resolve. A parity port of this size stays.

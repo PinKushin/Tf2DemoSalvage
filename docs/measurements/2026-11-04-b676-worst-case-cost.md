@@ -26,4 +26,17 @@ Machine as in the record beside this one. Build: the commit carrying this file.
 
 ## Result
 
+Commit `02ab9382`. Second pass of each shape, 2,000,000 draws (the first pass, before tiered JIT settles, read 433.5, 264.7, 217.6, 44.3):
+
+| shape | ns a draw | bytes a draw |
+|---|---|---|
+| all matched | 297.6 | 0.0 |
+| none matched | 289.4 | 0.0 |
+| left | 208.8 | 0.0 |
+| off | 37.8 | 0.0 |
+
+**Control met:** off is 37.8 ns with no allocation, so the loop is not the number. A shared gate run on another branch held the machine's lock until this started, and nothing of mine ran beside it; nothing here rules out another agent's load.
+
 ## Verdict
+
+Prediction **confirmed**: 289.4 ns for "none matched", against under 600, and no allocation on any shape. **The worst shape measured is not the one predicted**: "all matched" costs slightly more, at 297.6 ns, than the most comparisons do. So 297.6 ns times 63 models is **0.019 ms a moment, 0.37% of the 5.1 ms frame**, replacing the 237 ns and 0.3% quoted before. RISKS carries this now.
