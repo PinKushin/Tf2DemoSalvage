@@ -72,6 +72,9 @@ public sealed class ModelLightAverage
     /// <summary>How many instances have drawn through here since the level loaded, counted where they are stored.</summary>
     public int Instances => _histories.Count;
 
+    /// <summary>How many draws have blended with a history or begun one, counted past the two switches.</summary>
+    public long Draws { get; private set; }
+
     /// <summary>Forgets every instance: a level shutdown destroys them.</summary>
     public void Clear() => _histories.Clear();
 
@@ -109,9 +112,13 @@ public sealed class ModelLightAverage
             return new Averaged(cube, sun, state?.Lighting(style).Locals ?? []);
         }
 
+        Draws++;
+
         Span<BspWorldLight> now = stackalloc BspWorldLight[Stored];
         int count = Current(state, sun, now);
 
+        // ponytail: an instance is an entity index and a model, with no serial reaching a SceneProp, so a recreated entity (a corpse's list
+        // position above all) takes its predecessor's history if it comes back within about a second; carry the serial if that shows.
         if (!_histories.TryGetValue(instance, out History? history) || !string.Equals(history.Model, model, StringComparison.Ordinal) ||
             seconds < history.Time - LongestBackstep)
         {

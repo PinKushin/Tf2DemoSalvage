@@ -32,6 +32,7 @@ public readonly record struct ViewmodelSplit(long Resolve, long Build, long Add,
 /// <param name="Viewmodel">What the viewmodel cost, inside <paramref name="Pose"/> but outside the counters.</param>
 /// <param name="Counters">Every pose-phase counter for THIS moment, already differenced.</param>
 /// <param name="Drawn">How many props were posed, the control for <c>Counters.Built</c>.</param>
+/// <param name="LightAveraged">Models blended with their history this moment (B676), counted in the blend.</param>
 /// <param name="Unjudgeable">How many the cull could not judge, for want of render bounds.</param>
 /// <param name="Hidden">How many the visibility half rejected, of those the frustum kept.</param>
 /// <param name="Undrawn">The pass over props posed for a decal but never drawn, whole — its counters are not differenced.</param>
@@ -87,7 +88,10 @@ public readonly record struct MomentPhases(
     ViewmodelSplit ViewmodelSplit = default,
 
     // The sun traces and the undrawn pass's output this moment (B594), counted where each runs.
-    UndrawnCensus UndrawnCensus = default)
+    UndrawnCensus UndrawnCensus = default,
+
+    // Models blended with their history this moment (B676), counted in the blend: zero is `r_lightaverage 0` having arrived.
+    int LightAveraged = 0)
 {
     /// <summary>The part of <see cref="Pose"/> no timer covers, by subtraction — the one formula every report reads.</summary>
     /// <remarks>
@@ -822,6 +826,7 @@ public sealed class MomentScene : IGameSystemPerFrame
         // The watcher's `r_lightaverage` and `r_lightinterp`, read at each draw as the engine reads them (B676).
         _models.LightAverage.Enabled = info.LightAverage;
         _models.LightAverage.Rate = info.LightInterp;
+        long averagedBefore = _models.LightAverage.Draws;
 
         long sunBefore = Lighting.SunCalls;
 
@@ -971,7 +976,8 @@ public sealed class MomentScene : IGameSystemPerFrame
             Undrawn: undrawnTicks,
             ViewmodelCounters: viewmodelCounters,
             ViewmodelSplit: _viewmodelSplit,
-            UndrawnCensus: census);
+            UndrawnCensus: census,
+            LightAveraged: (int)(_models.LightAverage.Draws - averagedBefore));
     }
 
     /// <summary>The client thinks that allocate dynamic lights this moment (B425), at the moment's time.</summary>

@@ -110,6 +110,7 @@ public sealed class MomentCostLog
     private long _poseBuilds;
     private long _report;
     private long _drawn;
+    private long _lightAveraged;
     private long _selected;
     private long _hidden;
     private long _unjudged;
@@ -216,6 +217,7 @@ public sealed class MomentCostLog
         // so `SetupBones` is reached only for what the PVS and frustum already kept. This project
         // poses every prop the tick carries, so the ratio is the size of that divergence.
         _drawn += phases.Drawn;
+        _lightAveraged += phases.LightAveraged;
         _selected += phases.Selected;
         _hidden += phases.Hidden;
         _unjudged += phases.Unjudgeable;
@@ -310,6 +312,7 @@ public sealed class MomentCostLog
             + $"; posed {_drawn / (double)over:0.#} of {_selected / (double)over:0.#} selected"
             + $", {_hidden / (double)over:0.#} hidden by pvs"
             + $", {_unjudged / (double)over:0.#} unjudgeable"
+            + $"; light averaged {_lightAveraged / (double)over:0.#}"
 
             // Finding 82: of the unparented props collated, how many were filed by identity, untouched.
             + $"; collated unparented {_fixed / (double)over:0.#}, by identity {_byIdentity / (double)over:0.#}");
@@ -375,6 +378,7 @@ public sealed class MomentCostLog
         _poseBuilds = 0;
         _report = 0;
         _drawn = 0;
+        _lightAveraged = 0;
         _selected = 0;
         _hidden = 0;
         _unjudged = 0;

@@ -367,6 +367,7 @@ public sealed class MomentPresenter
             // sibling rule: report the value the code USED, carried to it, never the one a
             // neighbouring record happens to hold.
             Drawn = posing.Drawn,
+            LightAveraged = posing.LightAveraged,
             Selected = posing.Selected,
             Hidden = posing.Hidden,
 

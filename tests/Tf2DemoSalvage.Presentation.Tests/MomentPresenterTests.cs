@@ -346,6 +346,21 @@ public sealed class MomentPresenterTests
         scene.Appearance.ShouldBeSameAs(appearances.Answer);
     }
 
+    /// <summary>The view's two cvars reach the average a pose uses (B676).</summary>
+    [Test]
+    public void PoseNow_AViewWithTheLightAverageOff_HandsItToTheModelSet()
+    {
+        EntityModelSet models = new();
+        MomentScene scene = new(models, new ViewmodelScene(), NullLogger.Instance);
+        MomentPresenter presenter = new(scene, new FrameLedger(), NullLogger.Instance) { Source = new StubSource() };
+
+        presenter.Show(0d, View() with { LightAverage = false, LightInterp = 2f });
+        presenter.PoseNow();
+
+        models.LightAverage.Enabled.ShouldBeFalse();
+        models.LightAverage.Rate.ShouldBe(2f);
+    }
+
     private static MomentPresenter Presenter(out FrameLedger ledger) =>
         Presenter(out ledger, out MomentScene _);
 

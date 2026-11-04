@@ -21,12 +21,14 @@ namespace Tf2DemoSalvage.Core.Tests.Scene;
 /// so a wire left out of the draw path fails here and nowhere else. The prediction is the engine's recurrence, run here over the raw
 /// states the same cache answers. **The control** is `r_lightaverage 0`, the same walk, which must draw every raw state exactly.
 ///
-/// `hudref-cp_process_f12-2026-10-17-pov` is chosen for being short, one player, on cp_process_f12, the parity map; the walk is the
-/// whole recording. A model with no skeleton stands at his feet: the question is the light, and bones would only cost time.
+/// `tf2-live-build11138802-spec-pov-cp_granary` is chosen because it is in gcor, so the merge gate runs this rather than skipping it, and
+/// its map is installed; the walk is the whole recording. A model with no skeleton stands at his feet: the question is the light, and
+/// bones would only cost time. On a machine without the game, as CI is, it skips.
 /// </remarks>
 public sealed class CorpusModelLightAverageTests
 {
-    private const string Demo = "hudref-cp_process_f12-2026-10-17-pov";
+    private const string Demo = "tf2-live-build11138802-spec-pov-cp_granary";
+    private const string Map = "cp_granary";
 
     /// <summary>A moving entity's index: any below the static props'.</summary>
     private const int Walker = 5;
@@ -85,9 +87,9 @@ public sealed class CorpusModelLightAverageTests
 
         MapLocator locator = new(MapProvider.SteamLibraryFile, MapProvider.OwnMapsFolder);
 
-        if (locator.Find("cp_process_f12") is not { } map || locator.FindGameFolder() is not { } folder)
+        if (locator.Find(Map) is not { } map || locator.FindGameFolder() is not { } folder)
         {
-            Assert.Ignore("cp_process_f12 or the game folder is not available");
+            Assert.Ignore($"{Map} or the game folder is not available");
             throw new InvalidOperationException();
         }
 
