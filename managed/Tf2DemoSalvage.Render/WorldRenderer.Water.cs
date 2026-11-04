@@ -1116,7 +1116,7 @@ internal sealed unsafe partial class WorldRenderer
 
             context.PSSetShaderResources(12, 1, ref none);
             context.PSSetShaderResources(13, 1, ref none);
-            context.OMSetRenderTargets(1u, into.GetAddressOf(), depth);
+            context.OMSetRenderTarget(into, depth);
             context.RSSetViewports(1, in viewport);
 
             // VIEW_CLEAR_COLOR to the fog colour where the view sets it — SetFogVolumeState( fogInfo, true ) then
@@ -1502,7 +1502,7 @@ internal sealed unsafe partial class WorldRenderer
 
         Viewport frameViewport = new(0f, 0f, frame.Width, frame.Height, 0f, 1f);
 
-        context.OMSetRenderTargets(1u, frame.Target.GetAddressOf(), frame.Depth);
+        context.OMSetRenderTarget(frame.Target, frame.Depth);
         context.RSSetViewports(1, in frameViewport);
     }
 
@@ -1526,9 +1526,8 @@ internal sealed unsafe partial class WorldRenderer
         }
 
         Viewport viewport = new(0f, 0f, WaterTargetSize, WaterTargetSize, 0f, 1f);
-        ComPtr<ID3D11DepthStencilView> noDepth = default;
 
-        context.OMSetRenderTargets(1u, target.GetAddressOf(), noDepth);
+        context.OMSetRenderTarget(target, default);
         context.RSSetViewports(1, in viewport);
         context.IASetInputLayout(default(ComPtr<ID3D11InputLayout>));
         context.IASetPrimitiveTopology(D3DPrimitiveTopology.D3DPrimitiveTopologyTrianglelist);

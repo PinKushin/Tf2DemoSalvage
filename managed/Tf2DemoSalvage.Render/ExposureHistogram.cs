@@ -158,7 +158,7 @@ public sealed unsafe class ExposureHistogram : IHistogramQueries, IDisposable
         context.VSSetShader(_vertex, ref Unsafe.NullRef<ComPtr<ID3D11ClassInstance>>(), 0);
         context.PSSetShader(_compare, ref Unsafe.NullRef<ComPtr<ID3D11ClassInstance>>(), 0);
         context.PSSetConstantBuffers(0, 1, ref _constants);
-        context.OMSetRenderTargets(1, ref target, default(ComPtr<ID3D11DepthStencilView>));
+        context.OMSetRenderTarget(target, default);
         context.PSSetShaderResources(0, 1, ref _copyView);
         context.OMSetBlendState(_noColour, factor, 0xFFFFFFFF);
         context.OMSetDepthStencilState(_noDepth, 0);

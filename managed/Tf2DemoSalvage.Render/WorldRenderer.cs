@@ -6632,9 +6632,8 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             return;
         }
 
-        ID3D11RenderTargetView* gamma = (ID3D11RenderTargetView*)twin;
-
-        context.OMSetRenderTargets(1u, &gamma, depth);
+        // `Handle` set directly: `new ComPtr(pointer)` would take a reference nothing releases.
+        context.OMSetRenderTarget(new ComPtr<ID3D11RenderTargetView> { Handle = (ID3D11RenderTargetView*)twin }, depth);
         context.PSSetConstantBuffers(GammaOutputSlot, 1, ref GammaOutputBuffer(on: true));
         _gammaRun = new BoundTarget(target, depth);
     }
@@ -6647,7 +6646,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             return;
         }
 
-        context.OMSetRenderTargets(1u, restore.Target.GetAddressOf(), restore.Depth);
+        context.OMSetRenderTarget(restore.Target, restore.Depth);
         context.PSSetConstantBuffers(GammaOutputSlot, 1, ref GammaOutputBuffer(on: false));
         restore.Target.Dispose();
         restore.Depth.Dispose();

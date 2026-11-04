@@ -252,7 +252,7 @@ public sealed unsafe class BloomRenderer : IDisposable
         // Unbind the input before it can be an output of the next pass, then bind this pass's pair.
         ComPtr<ID3D11ShaderResourceView> none = default;
         context.PSSetShaderResources(0, 1, ref none);
-        context.OMSetRenderTargets(1, ref output, default(ComPtr<ID3D11DepthStencilView>));
+        context.OMSetRenderTarget(output, default);
 
         MappedSubresource mapped = default;
         SubmitCounters.Upload(); SilkMarshal.ThrowHResult(context.Map(_constants, 0, Map.WriteDiscard, 0, ref mapped));

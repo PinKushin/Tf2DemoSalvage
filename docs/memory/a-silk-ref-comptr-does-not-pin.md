@@ -11,4 +11,4 @@ metadata:
 
 **Why it hid:** it needs a collection to land in a window of a few instructions, which tier 0 code (the first frames after a load) and a two-core runner widen. A stale read of a region not yet decommitted gets the old, correct handle and nothing happens. Both local gates passed on the same commit, and CI's rerun of the failed job passed too.
 
-**The instrument that found it:** a process with no viewer in it, one thread making the call and one collecting, with a control differing only in where the address lives. See `docs/measurements/2026-11-04-unpinned-comptr.md`.
+**The instrument that found it:** a process with no viewer in it, one thread making the call and one collecting, with a control differing only in where the address lives. Probe `comptr-pinning`; record `docs/measurements/2026-11-04-unpinned-comptr.md`. It needs tier 0 and several runs: one survival means nothing.

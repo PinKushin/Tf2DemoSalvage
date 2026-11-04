@@ -2,6 +2,8 @@
 
 **Written after the runs:** no pre-run record was committed and no prediction was registered, so read this as a report.
 
+**Re-running it:** the first version of this file showed an excerpt of a harness kept in a temp folder, so it could not be re-run. The harness is now the probe `comptr-pinning` (`tools/Tf2DemoSalvage.Probe/Probes/ComPtrPinningProbe.cs`). The tables below are from the temp copy; the probe's own runs are under "Re-run on the probe". `dotnet run --project tools/Tf2DemoSalvage.Probe -c Release -- comptr-pinning field 60 warp 2`, with the two environment variables in Method.
+
 ## Observation
 
 CI, run 41805476486 attempt 1, job "Corpus + Audio (Windows)", commit `ac838c42`: `Capture_AtATickOnACorpusDemo_ExitsCleanlyAndWritesThePng`
@@ -105,3 +107,20 @@ GC.Collect(GC.MaxGeneration, GCCollectionMode.Aggressive, blocking: true, compac
 ## Verdict
 
 **Yes to both, in the harness: the unpinned field overload crashes with CI's top frames, on WARP and on hardware, and neither a local copy nor `fixed` does (`field` 11 of 13, others 0 of 13).** The real viewer did not reproduce it in 30 `before` runs, so this establishes the defect and its mechanism but does not show that CI's crash was this one; `PinnedComCalls` removes the mechanism, and only further CI runs can speak to the crash.
+
+## Re-run on the probe
+
+`comptr-pinning`, same settings, WARP, 60 s a run, alternating:
+
+| form | shape | crashed |
+|---|---|---|
+| `field` | inline in the draw loop, the probe's first version | 0 of 3 |
+| `stack` | inline | 0 of 3 |
+| `pinned` | inline | 0 of 3 |
+| `field` | its own method with no loop, as the first harness | 2 of 4, one at 18 s; the fourth run had the dump settings on |
+| `stack` | its own method | 0 of 3 |
+| `pinned` | its own method | 0 of 3 |
+
+**The rate is lower than the first harness's 11 of 13, and the probe is not an exact copy of it**: its holder has no padding fields, and its `pinned` form pins once around both calls. Why inline survived is not established; the sample is too small to compare, and on-stack replacement optimising the loop is a reading, untested. The direction is unchanged: only the `field` form crashed.
+
+**Dump settings, checked on that crash:** `DOTNET_DbgEnableMiniDump=1`, `DOTNET_DbgMiniDumpType=2` and `DOTNET_DbgMiniDumpName` with `%e-%p` wrote `Tf2DemoSalvage.Probe.exe-38996.dmp`, 47 MB in about 3 s. The dump was not opened or analysed.

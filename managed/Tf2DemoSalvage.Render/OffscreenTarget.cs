@@ -1038,7 +1038,7 @@ internal sealed unsafe class OffscreenTarget : IDisposable
         Viewport viewport = new(0f, 0f, _width, _height, 0f, 1f);
 
         _context.RSSetViewports(1, in viewport);
-        _context.OMSetRenderTargets(1, ref _view, ref Unsafe.NullRef<ID3D11DepthStencilView>());
+        _context.OMSetRenderTarget(_view, default);
 
         _vgui.Draw(_device, _context, list, resolve, _width, _height);
     }
@@ -1154,7 +1154,7 @@ internal sealed unsafe class OffscreenTarget : IDisposable
 
         Viewport viewport = new(0f, 0f, _width, _height, 0f, 1f);
         _context.RSSetViewports(1, in viewport);
-        _context.OMSetRenderTargets(1, ref _view, ref Unsafe.NullRef<ID3D11DepthStencilView>());
+        _context.OMSetRenderTarget(_view, default);
 
         _points.Draw(_device, _context, points);
     }
@@ -1174,7 +1174,7 @@ internal sealed unsafe class OffscreenTarget : IDisposable
 
         Viewport viewport = new(0f, 0f, _width, _height, 0f, 1f);
         _context.RSSetViewports(1, in viewport);
-        _context.OMSetRenderTargets(1, ref _view, ref Unsafe.NullRef<ID3D11DepthStencilView>());
+        _context.OMSetRenderTarget(_view, default);
 
         _points.DrawLines(_device, _context, segments, red, green, blue);
     }

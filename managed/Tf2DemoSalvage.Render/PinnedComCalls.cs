@@ -17,7 +17,7 @@ namespace Tf2DemoSalvage.Render;
 /// `UnpinnedComPtrConformanceTests` is for: it reads the IL and refuses a heap address reaching Silk.NET.
 ///
 /// A `ref local` is on the stack and was never at risk, so only what a field reaches is here. `OMSetRenderTarget` takes its
-/// view by value, for the `GetAddressOf()` sites, which no overload can intercept.
+/// view by value, in place of `GetAddressOf()`, which no overload can intercept and the conformance test refuses outright.
 /// </remarks>
 internal static unsafe class PinnedComCalls
 {
@@ -64,26 +64,7 @@ internal static unsafe class PinnedComCalls
         }
     }
 
-    public static void OMSetRenderTargets(
-        this ComPtr<ID3D11DeviceContext> context, uint count, ref ComPtr<ID3D11RenderTargetView> targets, ComPtr<ID3D11DepthStencilView> depth)
-    {
-        fixed (ComPtr<ID3D11RenderTargetView>* pinned = &targets)
-        {
-            context.Handle->OMSetRenderTargets(count, (ID3D11RenderTargetView**)pinned, depth.Handle);
-        }
-    }
-
-    public static void OMSetRenderTargets(
-        this ComPtr<ID3D11DeviceContext> context, uint count, ref ComPtr<ID3D11RenderTargetView> targets, ref ID3D11DepthStencilView depth)
-    {
-        fixed (ComPtr<ID3D11RenderTargetView>* pinned = &targets)
-        fixed (ID3D11DepthStencilView* view = &depth)
-        {
-            context.Handle->OMSetRenderTargets(count, (ID3D11RenderTargetView**)pinned, view);
-        }
-    }
-
-    /// <summary>Binds one render target, taken by value so its address is on this stack.</summary>
+    /// <summary>Binds one render target, taken by value so its address is on this stack. Every bind in the renderer goes through here.</summary>
     /// <param name="context">The context.</param>
     /// <param name="target">The target.</param>
     /// <param name="depth">The depth view, which may be empty.</param>
