@@ -51,6 +51,15 @@ public sealed partial class FramePresenter
     /// </summary>
     private QueuedRenderThread? _seekQueue;
 
+    /// <summary>Answers what other threads have sent the window, between a seek's frames; null where there is no window (B708).</summary>
+    /// <remarks>
+    /// **The engine pumps between its skip frames; a walk of ours ran them all in one call**, and the window answered nothing
+    /// for 6.5 s on z1800. Engine.dll's only `PeekMessageA` calls are the drain in its main loop (0x18020d460), and `ReadPacket` caps
+    /// a skip's read at 99 packets a frame (see <see cref="ReplaySkip"/>). **Sent messages only, ours and not the engine's**:
+    /// a posted key or click waits for the walk, so nothing re-enters it, where the engine dispatches them each frame.
+    /// </remarks>
+    public Action? ServeWindow { get; set; }
+
     /// <summary>The same, over any device (D214).</summary>
     /// <param name="frame">What the window knows of the frame.</param>
     /// <param name="tick">The moment to show.</param>
@@ -238,6 +247,8 @@ public sealed partial class FramePresenter
         {
             foreach (int through in throughs)
             {
+                ServeWindow?.Invoke();
+
                 List<SceneSound> live = [];
 
                 _skipFrameSounds = live;
@@ -360,6 +371,8 @@ public sealed partial class FramePresenter
                 device,
                 tick =>
                 {
+                    ServeWindow?.Invoke();
+
                     long phase = Stopwatch.GetTimestamp();
                     ShowMomentNow(tick);
                     building += Stopwatch.GetElapsedTime(phase);

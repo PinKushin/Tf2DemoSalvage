@@ -220,6 +220,8 @@ internal sealed partial class ViewerSession
         _viewer = ViewerApplication.Launch(
             DemoPath, "--tick", OpeningTick.ToString(System.Globalization.CultureInfo.InvariantCulture));
 
+        WindowThreadSampler sampler = new(_viewer.Window.Properties.NativeWindowHandle.Value);
+
         // Synchronised on the world appearing in the log, not on a delay. Loading a map reads a
         // hundred megabytes and decodes a couple of hundred textures, and how long that takes is a
         // property of the machine, not of the program. The ceiling is only there to end a hung run:
@@ -232,7 +234,24 @@ internal sealed partial class ViewerSession
                 $"The viewer never reported building a world. Log: {_viewer.LogPath ?? "NONE FOUND"} " +
                 $"in {ViewerApplication.Folder} (−1 below means no log was read); " +
                 $"worlds {_viewer.Count(WorldBuildLine)}, textures {_viewer.Count(TextureUploadLine)}.");
+
+        // **The opening is over only at the first frame after its seek** (B708): the world line comes well before the load's
+        // last steps and the walk to the opening tick, and the suite started querying in the middle of them.
+        Retry.WhileFalse(
+            () => App.Count(WindowThreadWatch.ReportLine) > 0,
+            TimeSpan.FromSeconds(300),
+            throwOnTimeout: true,
+            timeoutMessage: $"The viewer never reported its first frame on screen. Log: {_viewer.LogPath ?? "NONE FOUND"}.");
+
+        sampler.Dispose();
+        _windowThread = sampler;
     }
+
+    /// <summary>The window thread's round trips from launch to the first frame on screen (B708).</summary>
+    public static WindowThreadSampler WindowThread => _windowThread ?? throw new InvalidOperationException(
+        "The session has not finished opening.");
+
+    private static WindowThreadSampler? _windowThread;
 
     /// <summary>What the viewer logs when the first-person view is entered, either way.</summary>
     /// <remarks>

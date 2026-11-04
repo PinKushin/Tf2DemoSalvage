@@ -264,6 +264,8 @@ internal class MainForm : Form, IViewerWindow, IIdleHost
         Justification = "Released by Dispose in three announced steps with this window's own teardown between them (B402); its Dispose is those steps.")]
     private readonly ViewerSession _session;
 
+    private readonly System.Windows.Forms.Timer _windowBeat = new() { Interval = 100 };
+
     /// <summary>The session, for the composition root and the tests that drive it.</summary>
     internal ViewerSession Session => _session;
 
@@ -514,6 +516,10 @@ internal class MainForm : Form, IViewerWindow, IIdleHost
         // presenters, the launch options, the opening sequence and the player's own controls, in the order they were
         // built here.
         _session = ViewerSession.Open(this, _transport, loggers, initialPaths, _gdi);
+
+        // A beat for an idle window, so a gap in the session's watch is the thread not running, not nothing to do (B707).
+        _windowBeat.Tick += (_, _) => _windowBeat.Enabled = _session.WindowBeat();
+        _windowBeat.Enabled = true;
 
         // **What a load fills is composed by its owner** (D214): the model set, the sound cache, soundscape and
         // presenter, the moment scene and presenter, the frame presenter, the level's systems and the demo's — in the
@@ -1484,7 +1490,10 @@ internal class MainForm : Form, IViewerWindow, IIdleHost
     /// <inheritdoc/>
     bool IIdleHost.AutomationListening => MessageQueue.AutomationListening();
 
-    /// <summary>Notes a UI Automation request for the window's provider, for the traffic wait's gate (finding 88).</summary>
+    /// <inheritdoc/>
+    void IIdleHost.ServeSentMessages() => MessageQueue.ServeSentMessages();
+
+    /// <summary>Notes a UI Automation request for the window's provider, for the traffic wait's gate (finding 88), and tells the session a message came.</summary>
     /// <param name="m">The message.</param>
     protected override void WndProc(ref Message m)
     {
@@ -1492,6 +1501,9 @@ internal class MainForm : Form, IViewerWindow, IIdleHost
         {
             MessageQueue.ObjectRequested();
         }
+
+        // Null while the base constructor makes the handle.
+        Session?.WindowMessage(m.Msg == MessageQueue.WmGetObject);
 
         base.WndProc(ref m);
     }
@@ -2182,6 +2194,7 @@ internal class MainForm : Form, IViewerWindow, IIdleHost
         if (disposing && ShutdownRuns == 0)
         {
             ShutdownRuns++;
+            _windowBeat.Dispose();
 
             // **First, before anything it might touch is released** (B402). A map fetch in flight
             // resumes on this thread to set the status and build geometry; cancelling here is what

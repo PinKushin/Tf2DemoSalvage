@@ -564,6 +564,11 @@ public sealed partial class ViewerSession
         // on f12 — three frames of about two seconds each — and every mean before 2026-10-19 carried them.
         bool onScreen = _presenter.HasDemo && _presenter.LoadsInFlight == 0 && openedBefore;
 
+        if (onScreen)
+        {
+            _windowThread.Stop();
+        }
+
         if (onScreen && _wasOnScreen)
         {
             _frameSeconds += _clock.LastFrameSeconds;

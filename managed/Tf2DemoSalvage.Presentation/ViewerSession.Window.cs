@@ -142,6 +142,7 @@ public sealed partial class ViewerSession : IFrameSteps, ILoadView, ICameraView,
         // string, so the log format is unchanged.
         _loggers = loggers;
         _log = loggers.CreateLogger("viewer");
+        _windowThread = new WindowThreadWatch(_log, Stopwatch.GetTimestamp, Stopwatch.Frequency);
         _renderLog = loggers.CreateLogger("render");
         _demoLog = loggers.CreateLogger("demo");
         _configLog = loggers.CreateLogger("config");

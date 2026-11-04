@@ -15,6 +15,22 @@ namespace Tf2DemoSalvage.Presentation;
 
 public sealed partial class ViewerSession
 {
+    /// <summary>What the window thread did up to the first frame on screen (B707, B708).</summary>
+    private readonly WindowThreadWatch _windowThread;
+
+    /// <summary>The window dispatched a message.</summary>
+    /// <param name="objectRequest">Whether it is <c>WM_GETOBJECT</c>.</param>
+    public void WindowMessage(bool objectRequest) => _windowThread.Message(objectRequest);
+
+    /// <summary>The window's timer ticked.</summary>
+    /// <returns>Whether to keep it running.</returns>
+    public bool WindowBeat()
+    {
+        _windowThread.Message(objectRequest: false);
+
+        return _windowThread.Watching;
+    }
+
     /// <summary>Renders continuously for as long as Windows has nothing else for this thread.</summary>
     /// <remarks>
     /// **This loop is the render loop; the event only starts it.** <c>Application.Idle</c> fires
@@ -31,6 +47,11 @@ public sealed partial class ViewerSession
     public void Idle(IIdleHost host)
     {
         ArgumentNullException.ThrowIfNull(host);
+
+        _windowThread.Idled();
+
+        // The one host there is; only a seek's walk uses it, between its frames (B708).
+        _effects.ServeWindow ??= host.ServeSentMessages;
 
         uint? waiting;
 
