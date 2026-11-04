@@ -558,6 +558,19 @@ jobs:
               Write-Host "$lib $((Get-Item $path).Length) bytes"
           }
 
+      - name: Keep a dump of any native crash
+        # **B706: a stack with no native frames left its cause an inference, and the runner is gone
+        # afterwards.** From here on every .NET process in this job, the viewer and the test hosts,
+        # writes a dump as it dies. Type 2 holds the heap, so a stale pointer can be read against
+        # where the object really is. In GITHUB_ENV because a job-level `env` cannot read `runner`.
+        shell: pwsh
+        run: |
+          $dumps = Join-Path $env:RUNNER_TEMP 'crash-dumps'
+          New-Item -ItemType Directory -Force $dumps | Out-Null
+          Add-Content $env:GITHUB_ENV 'DOTNET_DbgEnableMiniDump=1'
+          Add-Content $env:GITHUB_ENV 'DOTNET_DbgMiniDumpType=2'
+          Add-Content $env:GITHUB_ENV "DOTNET_DbgMiniDumpName=$dumps\%e-%p.dmp"
+
       - name: Viewer shell
         # Windows-only because WinForms is. These construct the form without showing it, so they
         # need no display and no graphics adapter - the device is only created once the viewport
@@ -744,3 +757,13 @@ jobs:
             ~/AppData/Local/Tf2DemoSalvage/*.png
             ~/AppData/Local/Temp/tf2ds-ui-captures/last-run/*.png
           if-no-files-found: ignore
+
+      # **Its own artifact, on the same two settings and for the same reasons**: most failures write no
+      # dump, and that must not raise an annotation. Kept a week because a dump is large.
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+        if: failure()
+        with:
+          name: crash-dumps
+          path: ${{ runner.temp }}/crash-dumps/*.dmp
+          if-no-files-found: ignore
+          retention-days: 7
