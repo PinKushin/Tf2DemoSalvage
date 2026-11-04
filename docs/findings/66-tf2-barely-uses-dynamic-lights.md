@@ -277,6 +277,8 @@ Evidence classes marked per line. The numbers: `measurements/2026-11-03-b669-pip
 
 **And the instrument was stale.** The Ghidra project's `engine.dll` predates the game's, all checked functions at +0x1940: B684.
 
+**A regression that was not one (B685).** The fix pushed a pipe over TF2 by 8%, on a 7-pixel box. The state was right, so the search went to the draw. *Measured:* every edge in TF2's frame sits half a pixel from ours (B686), and with ours resampled that far, the pipe reads 66.1 and 93.9 against 67.5 and 93.2. **Two TF2 switches misled on the way:** `r_rimlight 0` leaves the rim on at boost 1 (*arithmetic:* the rows fit that exactly, against `skin_dx9_helper.cpp:848`), and `mat_specular 0` is VertexLitGeneric's rule, which a `$phong` material's skin path does not have. A switch that does not move a thing is not evidence the thing is absent: the pipes' identical rows under `mat_specular 0` looked like "no envmap" for a moment.
+
 The first part of this account, kept for the record of what was ruled out:
 
 **A wrong turn worth keeping, because it was an instrument and it looked like a discovery.** The back of the pipe read 0.021, and the colour was exactly the map's `emit_surface` tint, r/g 0.84. That named four lights, and all of their rays stop on detail brush 3637, so it read as TF2 tracing through detail. A fit with two more lights came within 1% on four faces, and it was wrong. **A camera at yaw 270 has −x on its right**, the reading was the left of the frame, and that is the next placement along. On #215's side the back is zero. The colour was real and belonged to another pipe. Six shots and a brush-by-brush table went into a question about the wrong object; the fit agreeing was the part that should have been distrusted.

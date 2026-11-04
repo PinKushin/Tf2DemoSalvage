@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Diagnostics;
 using System.Linq;
+using System.Numerics;
 using Microsoft.Extensions.Logging;
 using Tf2DemoSalvage.Animation.Animating;
 using Tf2DemoSalvage.Content.Assets;
@@ -766,12 +767,13 @@ public sealed partial class EntityModelSet
             return (pose.X, pose.Y, pose.Z);
         }
 
-        float radians = pose.Yaw * (MathF.PI / 180f);
-        (float sine, float cosine) = MathF.SinCos(radians);
+        // The whole AngleMatrix of the placement (B682): logged from the running engine, `2pipe_straight_64` at angles (0 270 -90) with
+        // its offset (0 0 0.5) is lit half a unit along +x, not above itself.
+        (Vector3 forward, Vector3 left, Vector3 up) = StaticPropCollision.AngleMatrix(pose.Pitch, pose.Yaw, pose.Roll);
 
         return (
-            pose.X + (x * cosine) - (y * sine),
-            pose.Y + (x * sine) + (y * cosine),
-            pose.Z + z);
+            pose.X + (x * forward.X) + (y * left.X) + (z * up.X),
+            pose.Y + (x * forward.Y) + (y * left.Y) + (z * up.Y),
+            pose.Z + (x * forward.Z) + (y * left.Z) + (z * up.Z));
     }
 }

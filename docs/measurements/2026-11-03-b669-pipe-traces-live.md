@@ -74,7 +74,7 @@ So the shots were right and the state is what they read.
 | engine | 0.39234 | 0.12832 | 0.20646 | 0.24364 | 0.39281 | 0.15434 |
 | ours | 0.39065 | 0.11029 | 0.20073 | 0.23326 | 0.38496 | 0.15333 |
 
-So ours' state is at or UNDER the engine's on every face, and the shot reads OVER: B685 is past the state.
+So ours' state is at or under the engine's on every face, and the shot reads over. That was the half pixel, not the state.
 
 **Far camera, `-3722 -1403 726 25 99`, tick 45091, scale 1, bloom off, linear luminance x1000.** Ours before is the shot at the parent (`final.png`):
 
@@ -93,7 +93,7 @@ So ours' state is at or UNDER the engine's on every face, and the shot reads OVE
 | left pipe lower | 83.0 | 93.2 | 82.0 | 101.6 |
 | whole frame | 155.5 | 160.0 | 154.0 | 155.8 |
 
-The D3D9 column keeps its driver halo (`measurements/2026-11-03-b669-behind-the-pane.md`), so Vulkan is the column to read. **The left pipe went past TF2**: -4.5 to +6.9, and -11.2 to +8.4 (B685).
+The D3D9 column keeps its driver halo (`measurements/2026-11-03-b669-behind-the-pane.md`), so Vulkan is the column to read. **The left pipe's "over" is a half pixel on a narrow box, not light:** `measurements/2026-11-03-b685-left-pipe-terms.md`.
 
 **B665's vat**, `-208 1360 80 60 90`, linear RGB x1000, with the old arithmetic put back by temporary edits for the before (reversed):
 
@@ -107,4 +107,4 @@ The vat's slots are ours: **a white spot in a slot there is what the rule gives,
 
 ## Verdict
 
-**The pipes behind the pane are explained and fixed.** The cause was the angle of a folded spotlight, with the rank and the admission beside it. At #215 the logged state and ours agree light for light and slot for slot, and admission to the digit. Left: B683, in the bounce, and B685, a second placement whose state is right and whose pixels read over, which this record does not explain.
+**The pipes behind the pane are explained and fixed.** The cause was the angle of a folded spotlight, with the rank and the admission beside it. At #215 the logged state and ours agree light for light and slot for slot, and admission to the digit. Left: B683, in the bounce. B685, a second placement that read over, is closed by the next record.

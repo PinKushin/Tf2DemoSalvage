@@ -280,6 +280,43 @@ public sealed class StaticPropModelsWiringTests
     /// </remarks>
     [Test]
     [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
+    public void IlluminationPoint_CpProcessF12RolledPipes_AreTheEnginesLoggedPoints()
+    {
+        // `FUN_1801b8270`'s point, logged from the running engine (`measurements/2026-11-03-b669-pipe-traces-live.md`): the whole
+        // AngleMatrix of the placement, roll included. `2pipe_straight_64`, angles (0 270 -90), offset (0 0 0.5) in the model.
+        const string Map = "cp_process_f12";
+
+        if (!MapCache.Exists(Map))
+        {
+            Assert.Ignore("cp_process_f12 or the game is not installed");
+            return;
+        }
+
+        MapAssets assets = MapCache.With(mapName: Map).Assets;
+        EntityModelSet models = new() { Geometry = assets.Geometry };
+
+        models.Add(assets.StaticModels);
+
+        Core.Scene.SceneProp rolled = assets.StaticModels.Single(prop =>
+            prop.ModelPath.Contains("2pipe_straight_64", StringComparison.OrdinalIgnoreCase) && MathF.Abs(prop.Pose.X + 3834f) < 1f && MathF.Abs(prop.Pose.Y + 1216f) < 1f);
+        Core.Scene.SceneProp pipe = assets.StaticModels.Single(prop =>
+            prop.ModelPath.Contains("industrial_pipe01_256_01", StringComparison.OrdinalIgnoreCase) && MathF.Abs(prop.Pose.X + 3331f) < 1f && MathF.Abs(prop.Pose.Y + 683f) < 1f);
+
+        (float x, float y, float z) = models.IlluminationPoint(rolled, rolled.Pose);
+
+        x.ShouldBe(-3833.5f, 0.1f);
+        y.ShouldBe(-1216f, 0.1f);
+        z.ShouldBe(609f, 0.1f);
+
+        // The control: its offset lies on the axis the roll turns about, so yaw alone had this one right.
+        (float pipeX, float pipeY, float pipeZ) = models.IlluminationPoint(pipe, pipe.Pose);
+
+        pipeX.ShouldBe(-3459f, 0.1f);
+        pipeY.ShouldBe(-683f, 0.1f);
+        pipeZ.ShouldBe(506f, 0.1f);
+    }
+
+    [Test]
     public void Instances_CpProcessF12LowerPipe_HoldsTheEnginesSlotsAndCube()
     {
         // **Logged from the running engine**, `FUN_1801ba590`'s state for the handle at (-3459 -683 506), default cvars:
