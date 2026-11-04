@@ -69,7 +69,7 @@ internal sealed unsafe partial class WorldRenderer
         float* black = stackalloc float[4] { 0f, 0f, 0f, 1f };
         Silk.NET.Direct3D11.Viewport viewport = new(0f, 0f, CameraTargetSize, CameraTargetSize, 0f, 1f);
 
-        context.OMSetRenderTargets(1u, _cameraTarget.GetAddressOf(), _waterDepth);
+        context.OMSetRenderTarget(_cameraTarget, _waterDepth);
         context.RSSetViewports(1, in viewport);
         context.ClearRenderTargetView(_cameraTarget, black);
         context.ClearDepthStencilView(_waterDepth, (uint)ClearFlag.Depth, 1f, 0);

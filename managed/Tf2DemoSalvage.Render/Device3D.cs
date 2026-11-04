@@ -1353,7 +1353,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
             {
                 world.VisibleBatches = mainBatches;
                 _context.RSSetViewports(1, in viewport);
-                _context.OMSetRenderTargets(1u, _backBufferView.GetAddressOf(), _depthView);
+                _context.OMSetRenderTarget(_backBufferView, _depthView);
                 _context.OMSetDepthStencilState(_depthOn, 0);
                 ReapplyCamera(Drawn);
             });
@@ -1651,7 +1651,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
 
             Viewport viewport = new(0f, 0f, _width, _height, 0f, 1f);
             _context.RSSetViewports(1, in viewport);
-            _context.OMSetRenderTargets(1u, _backBufferView.GetAddressOf(), _depthView);
+            _context.OMSetRenderTarget(_backBufferView, _depthView);
 
             // **The textured world replaces the flat fill when it is available.** Drawing both
             // would put a shaded grey slab over the map's own textures.
@@ -1778,7 +1778,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
                         () =>
                         {
                             _context.RSSetViewports(1, in viewport);
-                            _context.OMSetRenderTargets(1u, _backBufferView.GetAddressOf(), _depthView);
+                            _context.OMSetRenderTarget(_backBufferView, _depthView);
                             _context.OMSetDepthStencilState(_depthOn, 0);
                             ReapplyCamera(view);
                         });
@@ -2091,7 +2091,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         {
             Viewport vguiViewport = new(0f, 0f, _width, _height, 0f, 1f);
             _context.RSSetViewports(1, in vguiViewport);
-            _context.OMSetRenderTargets(1u, _backBufferView.GetAddressOf(), _depthView);
+            _context.OMSetRenderTarget(_backBufferView, _depthView);
             _context.OMSetDepthStencilState(_depthOff, 0);
 
             _vgui ??= VguiRenderer.Create(_device, _context);
@@ -2170,7 +2170,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
 
         Viewport viewport = new(0f, 0f, _width, _height, 0f, 1f);
         _context.RSSetViewports(1, in viewport);
-        _context.OMSetRenderTargets(1u, _backBufferView.GetAddressOf(), _depthView);
+        _context.OMSetRenderTarget(_backBufferView, _depthView);
         WorldRenderer.ResetBlend(_context);
 
         for (int bin = 0; bin < AutoExposure.Bins; bin++)
@@ -2204,7 +2204,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
 
         Viewport viewport = new(0f, 0f, _width, _height, 0f, 1f);
         _context.RSSetViewports(1, in viewport);
-        _context.OMSetRenderTargets(1u, _backBufferView.GetAddressOf(), _depthView);
+        _context.OMSetRenderTarget(_backBufferView, _depthView);
         WorldRenderer.ResetBlend(_context);
     }
 
@@ -2913,9 +2913,9 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
             if (gammaSpace)
             {
                 _particleSprites.SetColourScale(SpriteLightScale.For(gammaSpace: true, _world?.LinearLightScale ?? 1f, overbright));
-                _context.OMSetRenderTargets(1u, _gammaView.GetAddressOf(), _depthView);
+                _context.OMSetRenderTarget(_gammaView, _depthView);
                 _particleSprites.Draw(_device, _context, viewProjection);
-                _context.OMSetRenderTargets(1u, _backBufferView.GetAddressOf(), _depthView);
+                _context.OMSetRenderTarget(_backBufferView, _depthView);
                 _particleSprites.SetColourScale(1f);
             }
             else
@@ -5450,8 +5450,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
 
         CreateDepthView();
 
-        _context.OMSetRenderTargets(
-            1u, _backBufferView.GetAddressOf(), _depthView);
+        _context.OMSetRenderTarget(_backBufferView, _depthView);
     }
 
     /// <summary>Creates a depth buffer matching the back buffer.</summary>

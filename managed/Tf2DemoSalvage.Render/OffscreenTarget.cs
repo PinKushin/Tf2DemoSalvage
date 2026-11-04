@@ -261,7 +261,7 @@ internal sealed unsafe class OffscreenTarget : IDisposable
 
             _context.RSSetViewports(1, in viewport);
             _context.ClearDepthStencilView(_depthView, (uint)ClearFlag.Depth, 1f, 0);
-            _context.OMSetRenderTargets(1u, _view.GetAddressOf(), _depthView);
+            _context.OMSetRenderTarget(_view, _depthView);
 
             world.Draw(_context);
 
@@ -306,7 +306,7 @@ internal sealed unsafe class OffscreenTarget : IDisposable
         Viewport viewport = new(0f, 0f, _width, _height, 0f, 1f);
 
         _context.RSSetViewports(1, in viewport);
-        _context.OMSetRenderTargets(1u, _view.GetAddressOf(), _depthView);
+        _context.OMSetRenderTarget(_view, _depthView);
         sky.Draw(_device, _context, camera.Origin, camera.ToMatrix(), 1000f, linearLightScale);
 
         foreach (ComPtr<ID3D11ShaderResourceView> view in held)
@@ -348,7 +348,7 @@ internal sealed unsafe class OffscreenTarget : IDisposable
 
         _context.RSSetViewports(1, in viewport);
         _context.ClearDepthStencilView(_depthView, (uint)ClearFlag.Depth, 1f, 0);
-        _context.OMSetRenderTargets(1u, _view.GetAddressOf(), _depthView);
+        _context.OMSetRenderTarget(_view, _depthView);
         world.Draw(_context);
     }
 
@@ -427,7 +427,7 @@ internal sealed unsafe class OffscreenTarget : IDisposable
                 () =>
                 {
                     _context.RSSetViewports(1, in viewport);
-                    _context.OMSetRenderTargets(1u, _view.GetAddressOf(), _depthView);
+                    _context.OMSetRenderTarget(_view, _depthView);
                     world.SetCamera(_device, _context, matrix);
                 });
 
@@ -645,9 +645,9 @@ internal sealed unsafe class OffscreenTarget : IDisposable
 
         // EnableSRGBWrite( false ): the same texture through a view without the curve, so the blend runs on the stored
         // values — as `Device3D` draws it through its own gamma view.
-        _context.OMSetRenderTargets(1u, GammaView().GetAddressOf(), _depthView);
+        _context.OMSetRenderTarget(GammaView(), _depthView);
         _sprites.Draw(_device, _context, camera);
-        _context.OMSetRenderTargets(1u, _view.GetAddressOf(), _depthView);
+        _context.OMSetRenderTarget(_view, _depthView);
     }
 
     private ComPtr<ID3D11RenderTargetView> _gammaView;
@@ -714,7 +714,7 @@ internal sealed unsafe class OffscreenTarget : IDisposable
         Viewport viewport = new(0f, 0f, _width, _height, 0f, 1f);
 
         _context.RSSetViewports(1, in viewport);
-        _context.OMSetRenderTargets(1u, _view.GetAddressOf(), _depthView);
+        _context.OMSetRenderTarget(_view, _depthView);
         _occlusion.Issue(_device, _context, proxies, camera);
         WorldRenderer.ResetBlend(_context);
 
@@ -889,7 +889,7 @@ internal sealed unsafe class OffscreenTarget : IDisposable
                 _context.ClearDepthStencilView(_depthView, (uint)ClearFlag.Depth, 1f, 0);
             }
 
-            _context.OMSetRenderTargets(1u, _view.GetAddressOf(), _depthView);
+            _context.OMSetRenderTarget(_view, _depthView);
 
             // A skinned pose: the matrices as production uploads them, and the count the shader skins by.
             if (bones is not null)
@@ -1019,7 +1019,7 @@ internal sealed unsafe class OffscreenTarget : IDisposable
         Viewport viewport = new(0f, 0f, _width, _height, 0f, 1f);
 
         _context.RSSetViewports(1, in viewport);
-        _context.OMSetRenderTargets(1u, _view.GetAddressOf(), _depthView);
+        _context.OMSetRenderTarget(_view, _depthView);
 
         return _world.DrawScreenOverlay(_context, overlay, seconds);
     }

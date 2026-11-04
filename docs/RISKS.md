@@ -40407,6 +40407,42 @@ its recreation shows nothing; that `_rt_FullFrameFB` and the bloom targets are l
   known-present class was dumped beside it, and `cl_find_ent water` searches client class names, which a
   `CFuncMoveLinear` need not contain. So whether TF2 draws `*145` at all is *unverified*, and nothing was captured.
 
+## B707 — `LoadingOverlay_WhenTheWindowFirstAppears_SaysTheDemoIsLoading` read a label after the stage it asserts had passed (2026-11-04) — FIXED, the test
+
+Run 41669140049 (`f7ec0bb6`) failed with the label reading "Loading the map…". **Not B706, and not a product fault.** *Measured on that run's viewer log:* the window was shown at 16:09:41, the decode ended at 16:10:34 (`building the position timeline took 52.88s`) and the map read began at 16:10:35. *Read from source:* `ViewerPresenter.LoadDemoAsync` sets that stage only after the decode, so the label was correct and UI Automation reached it more than 52 s after the window appeared. *Not measured:* the moment of the read itself; the job log does not timestamp it.
+
+**Fix:** the label can only hold the latest stage, so the test keeps its check that the overlay was on screen through UI Automation and now reads the first stage from a log line the presenter writes when it reports it. `ViewerPresenterTests` already pins the order of the stages. The test was not retried or loosened: "told the decode" is still asserted, from a source that cannot be late.
+
+## B706 — a `ref` to a `ComPtr` field reaches native code unpinned, and a collection moves it: `0xC0000005` under `PSSetConstantBuffers` (2026-11-04) — FIXED the mechanism; CI's crash attributed, not proven
+
+Run 41805476486 attempt 1 (`ac838c42`): `Capture_AtATickOnACorpusDemo_ExitsCleanlyAndWritesThePng` died in `WorldRenderer.BindPipeline` under `DrawSky`, in `PSSetConstantBuffers` called with `ref _camera`, one line after `VSSetConstantBuffers` succeeded with the same field. Attempt 2 passed, and both local gates had passed.
+
+**Read from source (Silk.NET 2.23.0):** `ComPtr<T>.GetAddressOf()` is `(T**)Unsafe.AsPointer(ref Unsafe.AsRef(in this))`, and the generated `ref ComPtr<T>` overloads, including the one in CI's stack, pass that on. Nothing pins the object. `ViewerPresenter` runs an Aggressive compacting collection after a load (D199), which also decommits the freed regions, and since the queued render thread (D228) a frame can be drawing while it runs.
+
+**Measured** (measurements/2026-11-04-unpinned-comptr.md): in a program with none of this project's code, `field` crashed 11 of 13 runs with CI's top frames, on WARP and on hardware, while a local copy and `fixed` crashed 0 of 13. **The real viewer did not reproduce it**: 0 of 30 captures on the unpinned binary, on WARP with tier 0 kept, on two cores, 10 of them with collector stress settings whose extra compaction was not shown. So that this was CI's crash is an **inference** from the identical top frames, the read mechanism and the timing below, and only further CI runs can speak to it.
+
+*Measured on the crashing run's log, with the caveat that the log is buffered and a fatal error loses its tail:* the last lines are "memory after load (after a 104 ms full collection)" at 09:22:03.346 and a water plan at 03.441, about ten seconds into the process. *Interpolated:* why it needs a runner. Tier 0 keeps call boundaries between the address being taken and the native call, where a thread can be stopped for a collection, and two cores make being stopped there more likely. A stale read from a region not yet reused gets the old, correct handle and shows nothing.
+
+**The hypotheses going in, with what settled each:**
+
+| hypothesis | status | evidence |
+|---|---|---|
+| shutdown race on the device | not supported | *read:* `QueuedRenderThread.Dispose` and the device's teardown drain first; *log, caveat above:* no capture or shutdown line; *measured:* the harness crashes with no shutdown at all |
+| device lost under WARP | not needed | *measured:* the same crash on a hardware device with nothing removed; a removed device reports through an HRESULT (*documented behaviour, not tested here*) |
+| out-of-bounds write through a mapped buffer | not needed, not excluded | *read:* B669 removed one write and changed no size; `WriteLocalLights` writes through a `Span<float>` of `ModelConstants`, the buffer's `ByteWidth`, so an overrun would throw. *Not audited:* the raw `float*` writes at the other mapped sites, which B669 did not touch. *Measured:* the harness has no `Map` |
+| stale `_camera` value | killed as a value | *observed:* the same field served the VS call one line earlier. What went stale is its address |
+
+**B669 did not cause this** as far as can be read: its renderer diff has no buffer, device or lifetime change. It may have moved when collections land; that is unmeasured.
+
+**Fixed:** `PinnedComCalls` shadows the Silk.NET overloads a field reaches with `fixed` ones, found first because extension lookup asks the enclosing namespace before a file's `using`, so 100-odd call sites needed no edit. The 19 `.GetAddressOf()` sites on fields go through a by-value `OMSetRenderTarget`. The create calls are the worse half: a stale `ref _field` there writes the new handle over whatever lives at the old address and leaves the field empty. The post-load collection stays; it is the owner's (D199) and only makes the fault louder.
+
+**Tested by** `UnpinnedComPtrConformanceTests`, which reads the renderer's IL and refuses an address not rooted on the stack, and fails closed on what it cannot prove. Its control asserts the exact heap forms named and the stack forms passed. It was red on `ac838c42`'s call sites, and compiling the overloads out reddened that test and not its control.
+
+**Open:**
+- Whether CI stops crashing: watch this test across runs. A crash there again means this was not the cause, or not all of it.
+- **B610** (`Map` under `DrawScreenOverlay`) stays open, with a new *unconfirmed* reading: `_overlayConstants` was created through `ref _overlayConstants`, so a stale write would leave it empty and `Map` would be handed null. Nothing tested that.
+- A crash stack has no native frames here, so the faulting instruction was never seen. A dump from CI would settle attribution the next time it happens.
+
 ## B688 — three HUD regression locks are red on main with lcor present (2026-11-03) — OPEN for the locks; the corpus test beside them FIXED
 
 Found when real lcor demos reached a worktree. **`RegressionLock_TheElement_MatchesTheFixedRender`, all three cases, red** (limit 2.0), **and red on `origin/main` `f7ec0bb6`** in a worktree with lcor junctioned, the same three. **Measured**, the lock's recipe, soldier at tick 1830, worst 16x16 cell against the lock image: ammo 20.5 and class and health 26.4 on `e6f8a67a` and to the digit the same on this branch, and 571 of 576 40x40 cells differ there. So B669 moved nothing in those boxes; the images date from 2026-10-19 and the world behind the panels has moved since. **Not regenerated here:** the recipe in the test's remarks wants the merged head, looked at.
