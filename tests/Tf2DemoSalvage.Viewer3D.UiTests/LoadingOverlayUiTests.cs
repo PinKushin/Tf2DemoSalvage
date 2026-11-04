@@ -12,11 +12,17 @@ namespace Tf2DemoSalvage.Viewer3D.UiTests;
 /// </remarks>
 public sealed class LoadingOverlayUiTests
 {
+    /// <summary>The overlay was on screen during the load, and the stage it was first told was the decode.</summary>
+    /// <remarks>
+    /// **Two sources, because the label cannot answer the second** (B707). UI Automation reads it whenever it arrives: on run
+    /// 41669140049 that was after the 52.88 s decode, so it said "Loading the map…", correctly. The log carries what was told,
+    /// from the presenter, at the moment it was told; `ViewerPresenterTests` pins the order of the stages.
+    /// </remarks>
     [Test]
     public void LoadingOverlay_WhenTheWindowFirstAppears_SaysTheDemoIsLoading()
     {
         ViewerSession.LoadingStageAtLaunch.ShouldNotBeNull("the overlay was not on screen while the demo loaded");
-        ViewerSession.LoadingStageAtLaunch.ShouldStartWith("Decoding the demo");
+        ViewerSession.App.Count("loading overlay: Decoding the demo").ShouldBeGreaterThan(0, "the overlay was never told the decode");
     }
 
     [Test]

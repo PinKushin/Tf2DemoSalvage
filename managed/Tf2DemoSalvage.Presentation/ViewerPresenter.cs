@@ -779,6 +779,9 @@ public sealed partial class ViewerPresenter : IDisposable
         _loadsInFlight++;
         _view.ReportLoading(LoadingDecode, 0d);
 
+        // The label holds only the latest stage, and UI Automation can arrive after the decode (B707): this keeps the first.
+        _log.LogInformation("loading overlay: {Stage}", LoadingDecode);
+
         try
         {
             ILogger demoLog = _demoLog;
