@@ -20,13 +20,15 @@ namespace Tf2DemoSalvage.Scene;
 /// brush entity, whose light is already in its lightmap, and empty where the map has no lamps near
 /// enough to matter.
 /// </param>
+/// <param name="Sampled">What they were read from, for the model's average over time (B676).</param>
 public readonly record struct ModelLight(
     AmbientCube? Light,
     SunLight? Sun,
     float X,
     float Y,
     float Z,
-    IReadOnlyList<LocalLight> Locals);
+    IReadOnlyList<LocalLight> Locals,
+    PointLighting Sampled = default);
 
 /// <summary>
 /// The ambient cube and sun each model is drawn with, cached on the point it was sampled at.
@@ -118,7 +120,7 @@ public sealed class ModelLighting
 
         Report(prop, lightAt, light);
 
-        return new ModelLight(light, sun, x, y, z, locals);
+        return new ModelLight(light, sun, x, y, z, locals, sampled);
     }
 
     /// <summary>Says once per model when it is drawn with no light at all.</summary>

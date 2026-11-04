@@ -332,6 +332,12 @@ public sealed record ViewerSettings
     /// </remarks>
     public const string DrawViewmodelCommand = "r_drawviewmodel";
 
+    /// <summary>`r_lightaverage`, default "1": whether a moving model's light is averaged over time (`engine.dll` `FUN_1800f4310`, B676).</summary>
+    public const string LightAverageCommand = "r_lightaverage";
+
+    /// <summary>`r_lightinterp`, default "5": the average's rate, per second; 0 turns it off.</summary>
+    public const string LightInterpCommand = "r_lightinterp";
+
     /// <summary>Whether materials asking for <c>$phong</c> get their highlight.</summary>
     /// <remarks>
     /// **Valve's, default 1**, read from the game's own shipped list: <c>mat_phong : 1 : :</c>. No
@@ -725,6 +731,12 @@ public sealed record ViewerSettings
     /// </remarks>
     public bool DrawViewmodel { get; init; } = true;
 
+    /// <summary>Whether a moving model's light is averaged over time: `r_lightaverage` (B676).</summary>
+    public bool LightAverage { get; init; } = EngineConVars.ByName(LightAverageCommand).Number != 0f;
+
+    /// <summary>How fast that average follows the light, per second: `r_lightinterp` (B676).</summary>
+    public float LightInterp { get; init; } = EngineConVars.ByName(LightInterpCommand).Number;
+
     /// <summary>Whether <c>$phong</c> materials get their specular highlight — <c>mat_phong</c>.</summary>
     /// <remarks>
     /// **The term is large and additive, which is why a switch for it is worth having.** Valve
@@ -1053,6 +1065,16 @@ public sealed record ViewerSettings
         if (Read(values, DrawViewmodelCommand) is { } drawViewmodel)
         {
             settings = settings with { DrawViewmodel = drawViewmodel != 0 };
+        }
+
+        if (Read(values, LightAverageCommand) is { } lightAverage)
+        {
+            settings = settings with { LightAverage = lightAverage != 0 };
+        }
+
+        if (Read(values, LightInterpCommand) is { } lightInterp)
+        {
+            settings = settings with { LightInterp = lightInterp };
         }
 
         // **`mat_phong`, read the same way and for the same reason** — a Source config writes a
@@ -1414,6 +1436,8 @@ public sealed record ViewerSettings
         (ViewmodelFieldOfViewCommand, s => EngineFloat(s.ViewmodelFieldOfView)),
         (DemoViewmodelFieldOfViewCommand, s => EngineFloat(s.ViewmodelFieldOfView)),
         (DrawViewmodelCommand, s => Switch(s.DrawViewmodel)),
+        (LightAverageCommand, s => Switch(s.LightAverage)),
+        (LightInterpCommand, s => EngineFloat(s.LightInterp)),
         (PhongCommand, s => Switch(s.Phong)),
         (DrawMonitorsCommand, s => Switch(s.DrawMonitors)),
         (VolumeCommand, s => EngineFloat(s.Volume)),

@@ -116,7 +116,13 @@ public sealed partial class EntityModelSet
         _reportedPoses.Clear();
         _posedSize.Clear();
         _reports.LevelShutdown();
+
+        // The level's instances go with its entities (B676).
+        LightAverage.Clear();
     }
+
+    /// <summary>What each moving model drew last: `r_lightaverage`, `r_lightinterp` (B676).</summary>
+    public ModelLightAverage LightAverage { get; } = new();
 
     /// <summary>Packs whatever a moment needs that is not packed already.</summary>
     /// <param name="props">What exists at this tick, from the timeline.</param>

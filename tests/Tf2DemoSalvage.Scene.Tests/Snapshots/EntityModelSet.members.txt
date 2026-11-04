@@ -423,6 +423,7 @@ Tf2DemoSalvage.Scene.EntityModelSet|property|IntervalPerTick|()|System.Single|ge
 Tf2DemoSalvage.Scene.EntityModelSet|property|JigglingBones|()|System.Int32|get=True|set=False
 Tf2DemoSalvage.Scene.EntityModelSet|property|LateDecalLights|()|System.Int32|get=True|set=True
 Tf2DemoSalvage.Scene.EntityModelSet|property|LevelScreenFade|()|Tf2DemoSalvage.Core.Scene.ScreenFadeRange|get=True|set=True
+Tf2DemoSalvage.Scene.EntityModelSet|property|LightAverage|()|Tf2DemoSalvage.Scene.ModelLightAverage|get=True|set=False
 Tf2DemoSalvage.Scene.EntityModelSet|property|LightingTicks|()|System.Int64|get=True|set=True
 Tf2DemoSalvage.Scene.EntityModelSet|property|MaxRootTicks|()|System.Int64|get=True|set=True
 Tf2DemoSalvage.Scene.EntityModelSet|property|ModelResolved|()|System.Action`3[System.Int32,System.Collections.Generic.IReadOnlyList`1[System.Boolean],System.Boolean]|get=True|set=True

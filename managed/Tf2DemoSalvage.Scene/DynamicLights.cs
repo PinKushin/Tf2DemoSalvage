@@ -60,6 +60,9 @@ public sealed class DynamicLight
     /// <summary>`m_OuterAngle`, degrees: zero is a point light.</summary>
     public float OuterAngle { get; set; }
 
+    /// <summary>Which converted slot this one is written to (`FUN_1801b9350`, elights after dlights), which is its identity to a model's average (B676); -1 for one outside the arrays.</summary>
+    public int Slot { get; init; } = -1;
+
     /// <summary>What `0x18008a9c0`'s eight stores leave: every field zero, the key set.</summary>
     internal void Reset(int key)
     {
@@ -107,7 +110,7 @@ public sealed class DynamicLights
     public const float MinimumLightingValue = 1f / 256f;
 
     private readonly DynamicLight[] _dlights = CreateSlots(MaxDlights);
-    private readonly DynamicLight[] _elights = CreateSlots(MaxElights);
+    private readonly DynamicLight[] _elights = CreateSlots(MaxElights, MaxDlights);
 
     /// <summary>`r_dlightactive`, `0x1806996c4`: a bit per dlight, set on allocation and rebuilt by each decay.</summary>
     private uint _active;
@@ -121,13 +124,13 @@ public sealed class DynamicLights
     /// <summary>The elight slots, in order.</summary>
     public IReadOnlyList<DynamicLight> Elights => _elights;
 
-    private static DynamicLight[] CreateSlots(int count)
+    private static DynamicLight[] CreateSlots(int count, int first = 0)
     {
         DynamicLight[] slots = new DynamicLight[count];
 
         for (int index = 0; index < count; index++)
         {
-            slots[index] = new DynamicLight();
+            slots[index] = new DynamicLight { Slot = first + index };
         }
 
         return slots;
@@ -347,7 +350,8 @@ public sealed class DynamicLights
             StopDot: spot ? (float)Math.Cos(light.InnerAngle * 0.017453292519943295) : 0f,
             StopDot2: spot ? (float)Math.Cos(light.OuterAngle * 0.017453292519943295) : 0f,
             Style: light.Style,
-            Cluster: cluster);
+            Cluster: cluster,
+            DynamicSlot: light.Slot);
     }
 
     /// <summary>`CTFProjectile_BallOfFire::ClientThink` for the local player's own fireball (`tf_projectile_dragons_fury.cpp:509-528`).</summary>

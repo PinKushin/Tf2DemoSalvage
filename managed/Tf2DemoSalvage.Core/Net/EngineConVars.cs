@@ -192,6 +192,8 @@ public static class EngineConVars
         new("cl_detaildist", "1200", Replicated: false, Cheat: false),                       // detailobjectsystem.cpp:52
         new("cl_detailfade", "400", Replicated: false, Cheat: false),                        // detailobjectsystem.cpp:53
         new("r_drawviewmodel", "1", Replicated: false, Cheat: false),                        // viewrender.cpp:116
+        new("r_lightaverage", "1", Replicated: false, Cheat: false),                         // engine.dll, B676
+        new("r_lightinterp", "5", Replicated: false, Cheat: true),                           // engine.dll, flags 0x4000, B676
         new("mat_phong", "1", Replicated: false, Cheat: false),                              // engine; help
 
         // materialsystem.dll's registration, the default string at 0x1800b69b4 (finding 99; D229): threaded on 2+

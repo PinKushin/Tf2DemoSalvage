@@ -32,6 +32,8 @@ namespace Tf2DemoSalvage.Presentation;
 /// </remarks>
 /// <param name="FlipViewModels">The watcher's own <c>cl_flipviewmodels</c> (B515).</param>
 /// <param name="UseMinViewmodels">The watcher's own <c>tf_use_min_viewmodels</c> (B525).</param>
+/// <param name="LightAverage">The watcher's own <c>r_lightaverage</c> (B676).</param>
+/// <param name="LightInterp">The watcher's own <c>r_lightinterp</c> (B676).</param>
 public readonly record struct MomentView(
     int CurrentTick,
     bool FirstPerson,
@@ -51,7 +53,11 @@ public readonly record struct MomentView(
     bool FlipViewModels = false,
 
     // The watcher's `tf_use_min_viewmodels` (B525), the same kind of thing.
-    bool UseMinViewmodels = false);
+    bool UseMinViewmodels = false,
+
+    // The watcher's `r_lightaverage` and `r_lightinterp` (B676), the same kind of thing.
+    bool LightAverage = true,
+    float LightInterp = 5f);
 
 /// <summary>Samples a moment from the demo and hands it to the scene.</summary>
 /// <remarks>
@@ -288,7 +294,9 @@ public sealed class MomentPresenter
             source.HalloweenScenarioAt(tick),
             view.FlipViewModels,
             view.UseMinViewmodels,
-            view.Playing);
+            view.Playing,
+            view.LightAverage,
+            view.LightInterp);
 
         // **Selection only. The pose is `Pose`, and it runs after the camera** (B255).
         _built = _moment.Build(_players, _props, info);

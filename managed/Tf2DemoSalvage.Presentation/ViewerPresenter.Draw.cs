@@ -170,7 +170,11 @@ public sealed partial class ViewerPresenter
                 _settings.FlipViewModels,
 
                 // The watcher's `tf_use_min_viewmodels` (B525).
-                _settings.UseMinViewmodels));
+                _settings.UseMinViewmodels,
+
+                // The watcher's `r_lightaverage` and `r_lightinterp` (B676).
+                _settings.LightAverage,
+                _settings.LightInterp));
     }
 
     /// <summary>The recorder's screen overlay, resolved against the map's loaded materials (`CViewRender::PerformScreenOverlay`).</summary>

@@ -88,6 +88,12 @@ public readonly record struct PointLighting(AmbientCube Cube, IReadOnlyList<Loca
     /// <param name="cube">The bounce term.</param>
     /// <returns>That cube with no direct lights.</returns>
     public static PointLighting Bounce(AmbientCube cube) => new(cube, []);
+
+    /// <summary>The state these were read from, with its lights' raw colours, for a moving model's average (B676); null when there is none.</summary>
+    public LightingState? State { get; init; }
+
+    /// <summary>The style values <see cref="Locals"/> were read with, for the same.</summary>
+    public Func<int, float>? Style { get; init; }
 }
 
 /// <summary>
@@ -131,7 +137,17 @@ public sealed class LightingState
     /// <param name="styleScale">Each light style's value over 264; one for every style when null.</param>
     /// <returns>The cube and a local light for each slot but a quake light's (<see cref="LocalLights.Slotted"/>).</returns>
     public PointLighting Lighting(Func<int, float>? styleScale = null) =>
-        Count == 0 ? PointLighting.Bounce(Cube) : new PointLighting(Cube, Array.AsReadOnly(LocalLights.Slotted(this, styleScale)));
+        (Count == 0 ? PointLighting.Bounce(Cube) : new PointLighting(Cube, Array.AsReadOnly(LocalLights.Slotted(this, styleScale))))
+        with { State = this, Style = styleScale };
+
+    /// <summary>The light in a slot.</summary>
+    /// <param name="slot">The slot, below <see cref="Count"/>.</param>
+    /// <returns>The light, at its raw colour.</returns>
+    public BspWorldLight SlotAt(int slot) => _slots[slot];
+
+    /// <summary>Takes the next free slot, unranked: for a state a caller already knows.</summary>
+    /// <param name="light">The light.</param>
+    public void Put(in BspWorldLight light) => _slots[Count++] = light;
 }
 
 /// <summary>The box `FUN_1801b99a0` tests a light against.</summary>
@@ -296,7 +312,12 @@ public static class LocalLights
         return written;
     }
 
-    /// <summary>One light as the shader takes it, at its style value.</summary>
+    /// <summary>One light as the shader takes it, at its style value (`FUN_1800f2010`), every style at one when none is given.</summary>
+    /// <param name="light">The light.</param>
+    /// <param name="styleScale">Each light style's value over 264.</param>
+    /// <returns>The light for the shader.</returns>
+    public static LocalLight Local(in BspWorldLight light, Func<int, float>? styleScale) => Local(light, styleScale ?? Steady);
+
     private static LocalLight Local(BspWorldLight light, Func<int, float> style)
     {
         (float constant, float linear, float quadratic) = Normalised(light);
@@ -1090,6 +1111,15 @@ public static class LocalLights
         float normalX, float normalY, float normalZ,
         Func<int, float> style)
     {
+        // The sun's direction is `-normal`, its falloff and angle both 1 (`FUN_1801baeb0`'s first branch, `FUN_1800f0df0` case 3). Whether
+        // it reaches the point is the caller's: only a moving model's average folds it (B676).
+        if (light.Kind == WorldLightKind.SkyLight)
+        {
+            float toward = Math.Max(0f, -((light.Normal.X * normalX) + (light.Normal.Y * normalY) + (light.Normal.Z * normalZ)));
+
+            return (face.Red + (toward * light.Intensity.Red), face.Green + (toward * light.Intensity.Green), face.Blue + (toward * light.Intensity.Blue));
+        }
+
         float dx = light.Origin.X - x;
         float dy = light.Origin.Y - y;
         float dz = light.Origin.Z - z;

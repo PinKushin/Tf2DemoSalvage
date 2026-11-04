@@ -370,6 +370,20 @@ public sealed partial class EntityModelSet
             SunLight? sun = lit.Sun;
             IReadOnlyList<LocalLight> locals = lit.Locals;
 
+            // **What a moving model draws is not its state but the state averaged over time** (B676, `FUN_1800f2dd0`). Only what is drawn:
+            // a culled model never got here, nor a pass that poses nothing. A caller's own list with no state behind it has no raw colours
+            // to blend, and only a test hands one over.
+            if (!isStatic && light is { } sampledCube && (lit.Sampled.State is not null || locals.Count == 0))
+            {
+                long averagedAt = System.Diagnostics.Stopwatch.GetTimestamp();
+
+                ModelLightAverage.Averaged averaged = LightAverage.Draw(
+                    prop.EntityIndex, prop.ModelPath, lit.Sampled.State, sampledCube, sun, lit.X, lit.Y, lit.Z, seconds, PoseHalf, lit.Sampled.Style);
+
+                (light, sun, locals) = (averaged.Cube, averaged.Sun, averaged.Locals);
+                _lighting.Ticks += System.Diagnostics.Stopwatch.GetTimestamp() - averagedAt;
+            }
+
             // **A static prop with a colour mesh draws its colours PLUS its styled and dynamic lights** (B426, B424,
             // B425): `engine.dll` `0x1800f1bd0` on DX9 keeps the mesh and lights it with `FUN_1801ba590` flags 6 or 7 —
             // no static state, so no leaf cube, no sun and no style-0 light, since the colours hold those; what the slots

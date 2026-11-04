@@ -199,7 +199,7 @@ public sealed class LevelLighting
     /// **That nearest can be a zeroed one, and this is the engine's copy of it**: a zero cube, no slots, and the dlights seen from its origin (0 0 0)
     /// (`FUN_1801b7a10`, no PVS row handed in). It wins only over a built entry further away than the pool's key 0 is, so a point in the map's low corner with
     /// every built entry at the far side, some 16,000 units off (arithmetic: 32-unit cells from key 0). **The engine then does not draw it as it stands:** a
-    /// non-static model's draw blends it with the instance's last state (`FUN_1800f3110`, B676), unported, so here it draws black where the engine fades.
+    /// non-static model's draw blends it with the instance's last state (`FUN_1800f4310`, <see cref="ModelLightAverage"/>), so it fades there and here.
     /// </remarks>
     public PointLighting ModelLightingAt(float x, float y, float z)
     {
@@ -665,6 +665,27 @@ public sealed class LevelLighting
         _blocked[(light, point)] = blocked;
 
         return blocked;
+    }
+
+    /// <summary>
+    /// What `FUN_1801baeb0` asks given flags 0, for a light a moving model's average folds: the sky along the sun's way, or a lamp by the
+    /// ranking's slack. With no trace wired, every light is seen.
+    /// </summary>
+    /// <param name="light">The light.</param>
+    /// <param name="x">The model's illumination point.</param>
+    /// <param name="y">The model's illumination point.</param>
+    /// <param name="z">The model's illumination point.</param>
+    /// <returns>Whether it reaches the point.</returns>
+    public bool FoldSees(BspWorldLight light, float x, float y, float z)
+    {
+        if (light.Kind == WorldLightKind.SkyLight)
+        {
+            return _strikesSky is not { } strikesSky || strikesSky(
+                (x, y, z),
+                (x - (light.Normal.X * SkyTraceLength), y - (light.Normal.Y * SkyTraceLength), z - (light.Normal.Z * SkyTraceLength)));
+        }
+
+        return _lightTrace is null || LocalLights.Kept(Blocked(light.Origin, (x, y, z)));
     }
 
     /// <summary>The most answers <see cref="Blocked"/> keeps: about 10 MB of entries.</summary>

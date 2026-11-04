@@ -334,6 +334,7 @@ public sealed class MomentScene : IGameSystemPerFrame
             _models.StaticPropFullLighting = value.StaticPropFullLightingAt;
             _models.StaticPropHandle = value.PrecacheStaticProp;
             _models.StaticLightingPrecached = ReportStaticPropLightingAtLoad;
+            _models.LightAverage.Seen = value.FoldSees;
 
             // A new lighting object counts from zero; the model set's colour meshes keep counting.
             _loadReported = (value.StaticStateBuilds, value.StaticStateBuildTicks, _models.BakedBuilds, value.StyledListsBuilt);
@@ -817,6 +818,10 @@ public sealed class MomentScene : IGameSystemPerFrame
 
         // `r_framecount` for the light cache: its miss budget is per frame (`LightcacheGet`, `0x1801b9cd0`).
         Lighting.Frame++;
+
+        // The watcher's `r_lightaverage` and `r_lightinterp`, read at each draw as the engine reads them (B676).
+        _models.LightAverage.Enabled = info.LightAverage;
+        _models.LightAverage.Rate = info.LightInterp;
 
         long sunBefore = Lighting.SunCalls;
 

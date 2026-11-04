@@ -27,6 +27,8 @@ namespace Tf2DemoSalvage.Scene;
 /// <param name="HolidayVisionFlags">`TF_VISION_FILTER_HALLOWEEN` while Halloween or a full moon is active, else 0.</param>
 /// <param name="ServerTime">The server clock in seconds, which the cloak ramp is timed on.</param>
 /// <param name="HalloweenScenario">`m_halloweenScenario`, which caps the Hightower stealth spell.</param>
+/// <param name="LightAverage">The watcher's `r_lightaverage` (B676).</param>
+/// <param name="LightInterp">The watcher's `r_lightinterp` (B676).</param>
 /// <remarks>
 /// **This is <c>SetupRenderInfo_t</c>'s shape, and the shape is the point.** Valve's renderables-list
 /// builder takes one:
@@ -114,7 +116,11 @@ public readonly record struct MomentInfo(
 
     // Whether playback is running — `gpGlobals->frametime` is not zero — which is all the viewmodel's bob asks of a
     // frame before it steps (`CalcViewModelBobHelper`, tf_weaponbase.cpp:4735; B525).
-    bool Playing = true)
+    bool Playing = true,
+
+    // The watcher's `r_lightaverage` and `r_lightinterp` (B676): defaults as `engine.dll` registers them.
+    bool LightAverage = true,
+    float LightInterp = 5f)
 {
     /// <summary>How far into the demo this moment is, in seconds.</summary>
     /// <remarks>
