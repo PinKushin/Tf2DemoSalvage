@@ -1,6 +1,7 @@
 - [[a-measurement-hook-checks-the-record-not-the-science]] — pre-run file, verdict, `fix:`/`perf:` names its test; `git cat-file`, not `git show sha:path`.
 - [[handoff-2026-10-31]] READ FIRST — beta.57 PUBLISHED, tag on `d3e008fe`; supersedes [[handoff-2026-10-29]], which supersedes [[handoff-2026-10-28]].
 - [[index-notes]] — D numbers formerly beside links.
+- [[cheat-engine-is-for-live-tf2]] — attack live TF2 with it when disassembly stops answering; no ask.
 - [[credits-queue]] — API-credit jobs: JSON in `F:\credits-queue\pending`, owner runs the runner; [[api-jobs-get-the-tools-paragraph-from-the-wrapper]].
 - [[gate-once-per-batch]]; [[gate-once-per-merge-not-per-commit]]; [[parent-branch-defers-the-gate]]; [[branch-granularity-is-fine-here]]; [[a-gate-that-waits-says-what-it-waits-on]] (B520) — one implementer until UI runs beside phase 1.
 - [[the-lead-publishes-releases]] (D227); [[the-lead-does-not-decide-to-drop-an-item]]; [[when-to-call-the-advisor]] — after the first plan and on the changes.
