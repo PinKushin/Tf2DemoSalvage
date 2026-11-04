@@ -716,27 +716,18 @@ public sealed partial class ViewerSession
             // rather than gathered separately so the two cannot differ: what stdout shows is
             // literally what the log shows, which is the rule that stops a summary from being a
             // second, disagreeing measurement.
-            //
-            // **Only playback's** (B708): `--then-seek` clears these and seeks, and a walk's seconds written after that are no second of the paused frame.
-            if (onScreen)
-            {
-                _measured.AddRate(rate);
-            }
+            _measured.AddRate(rate);
 
             // The rebuild breakdown beside the rate, since one without the other says where the
             // frame went but not what it was doing.
             if (_moments.LastCost is { } cost)
             {
-                if (onScreen)
-                {
-                    _measured.AddCost(cost);
-                }
-
+                _measured.AddCost(cost);
                 _moments.LastCost = null;
             }
 
             // **What is alive, once a second, for a leak to show as a count that climbs** (lifetime audit, 2026-10-17).
-            if (onScreen && _launch.MeasureSeconds is not null)
+            if (_launch.MeasureSeconds is not null)
             {
                 (int trails, int modelDecals) = _effects.KeptCounts;
                 (long replayTicks, long replaySteps) = _effects.ParticleReplay;
