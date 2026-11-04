@@ -658,7 +658,8 @@ public sealed class LevelLightingTests
     [Test]
     public void LightingAt_FiveLampsToTheEast_FoldsTheFifthIntoThePositiveXFace()
     {
-        BspWorldLight[] five = [.. new[] { 100f, 200f, 300f, 400f, 500f }.Select(x => Lamp((x, 0f, 100f), 400f))];
+        // Bright enough for 500 units to be inside the computed radius, about 680 (`FUN_1800cbdd0`).
+        BspWorldLight[] five = [.. new[] { 100f, 200f, 300f, 400f, 500f }.Select(x => Lamp((x, 0f, 100f), 4000f))];
 
         PointLighting withFive = Lit(five).LightingAt(0f, 0f, 100f);
         PointLighting withFour = Lit(five[..4]).LightingAt(0f, 0f, 100f);
@@ -667,8 +668,8 @@ public sealed class LevelLightingTests
         withFour.Cube.PositiveX.Red.ShouldBe(0.6f, "the control: four lamps all take slots");
         withFive.Cube.NegativeX.Red.ShouldBe(0.6f, "a lamp to the east adds nothing to the west face");
 
-        // About 400 / 500² = 0.0016, from wherever the cache cell puts the point.
-        withFive.Cube.PositiveX.Red.ShouldBeGreaterThan(0.6f + 0.001f);
+        // About 4000 / 500² = 0.016, from wherever the cache cell puts the point.
+        withFive.Cube.PositiveX.Red.ShouldBeGreaterThan(0.6f + 0.01f);
     }
 
     /// <summary>A map lit brightly above the z = 0 plane and dimly below it.</summary>

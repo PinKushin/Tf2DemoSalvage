@@ -49,7 +49,8 @@ public sealed class LocalLightSelectionTests
     {
         List<BspWorldLight> lights = [];
 
-        foreach (int distance in new[] { 600, 100, 500, 200, 400, 300 })
+        // All inside this lamp's computed radius of about 340 (`FUN_1800cbdd0`).
+        foreach (int distance in new[] { 300, 50, 250, 100, 200, 150 })
         {
             lights.Add(Lamp(distance, 0f, 0f));
         }
@@ -59,10 +60,10 @@ public sealed class LocalLightSelectionTests
         LocalLights.Strongest(lights, 0f, 0f, 0f, into).ShouldBe(4);
 
         // Strongest first, so the distances come back ascending.
-        into[0].X.ShouldBe(100f);
-        into[1].X.ShouldBe(200f);
-        into[2].X.ShouldBe(300f);
-        into[3].X.ShouldBe(400f);
+        into[0].X.ShouldBe(50f);
+        into[1].X.ShouldBe(100f);
+        into[2].X.ShouldBe(150f);
+        into[3].X.ShouldBe(200f);
     }
 
     /// <summary>That a bright far light beats a dim near one, which is why strength is ranked.</summary>

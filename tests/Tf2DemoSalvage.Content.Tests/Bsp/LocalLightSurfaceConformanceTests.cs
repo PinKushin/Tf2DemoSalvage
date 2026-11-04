@@ -35,12 +35,13 @@ public sealed class LocalLightSurfaceConformanceTests
     }
 
     /// <summary>
-    /// 200 units off and 60 degrees from its normal, a surface light of 40000 ranks at `1/40000 · 0.5 · 40000` = 0.5, between
-    /// lamps at 0.75 and 0.3. With no cosine it would rank first (1), and with two, last (0.25).
+    /// 200 units off and 60 degrees from its normal, a surface light of 40000 ranks at `1/40000 · 40000` = 1, over lamps at 0.75
+    /// and 0.3. The cosine goes to the fold, not to the rank.
     /// </summary>
     [Test]
-    public void Strongest_ASurfaceLightOffItsNormal_RanksByDistanceTimesOneCosine()
+    public void Strongest_ASurfaceLightOffItsNormal_RanksByDistanceAlone()
     {
+        // 200 units off: 40000 / 40000 = 1.0, with no cosine in the rank (`FUN_1801b60a0`'s XMM6; B669). The lamps are 0.75 and 0.3.
         List<BspWorldLight> lights =
         [
             Surface((173.2050808f, 0f, 100f), (0f, 0f, -1f), 40000f),
@@ -51,22 +52,36 @@ public sealed class LocalLightSurfaceConformanceTests
 
         LocalLights.Strongest(lights, 0f, 0f, 0f, into).ShouldBe(3);
 
-        into[0].Red.ShouldBe(7500f);
-        into[1].Red.ShouldBe(40000f);
+        into[0].Red.ShouldBe(40000f);
+        into[1].Red.ShouldBe(7500f);
         into[2].Red.ShouldBe(12000f);
     }
 
-    /// <summary>`0.01 &lt; dot2`, strictly: a point behind the surface or at 0.01 is unlit, and just inside it is lit.</summary>
+    /// <summary>`FUN_1801b99a0`'s hemisphere: only behind the surface by more than the sphere's radius takes no slot.</summary>
     [TestCase(-1f, 0)]
-    [TestCase(0.009f, 0)]
-    [TestCase(0.011f, 1)]
-    public void Strongest_ASurfaceLightsNormalAgainstThePoint_NeedsMoreThanTheEpsilon(float dot2, int expected)
+    [TestCase(-0.1f, 0)]
+    [TestCase(-0.009f, 1)]
+    [TestCase(0.009f, 1)]
+    public void Strongest_ASurfaceLightsNormalAgainstThePoint_IsAdmittedByTheCellsSphere(float dot2, int expected)
     {
-        // The point is 100 units down -Z from the light, so delta (point to light) is +Z and dot2 = -normal.Z.
-        List<BspWorldLight> lights = [Surface((0f, 0f, 100f), (MathF.Sqrt(1f - (dot2 * dot2)), 0f, -dot2), 5000f)];
+        // At (31 31 127), a corner of its cell, so the radius is 1.73; the light is 100 units up, so dot2 = -normal.Z and the
+        // sphere reaches past the surface's plane by 1.73 of 100.
+        List<BspWorldLight> lights = [Surface((31f, 31f, 227f), (MathF.Sqrt(1f - (dot2 * dot2)), 0f, -dot2), 5000f)];
         Span<LocalLight> into = stackalloc LocalLight[LocalLights.MaximumLocalLights];
 
-        LocalLights.Strongest(lights, 0f, 0f, 0f, into).ShouldBe(expected);
+        LocalLights.Strongest(lights, 31f, 31f, 127f, into).ShouldBe(expected);
+    }
+
+    /// <summary>`0.01 &lt; dot2`, strictly (`FUN_1800efbf0` case 0): at or under it the fold adds nothing.</summary>
+    [TestCase(-1f, 0f)]
+    [TestCase(0.009f, 0f)]
+    [TestCase(0.011f, 0.0055f)]
+    public void Fold_ASurfaceLightsNormalAgainstThePoint_NeedsMoreThanTheEpsilon(float dot2, float expected)
+    {
+        // 100 units up: 5000 / 10000 = 0.5 of intensity, times dot2.
+        BspWorldLight light = Surface((0f, 0f, 100f), (MathF.Sqrt(1f - (dot2 * dot2)), 0f, -dot2), 5000f);
+
+        LocalLights.Fold(default, light, 0f, 0f, 0f).PositiveZ.Red.ShouldBe(expected, 0.0001f);
     }
 
     /// <summary>Neither `r_worldlightmin` test applies to type 0; the point lamp beside it is the control that the test still runs.</summary>

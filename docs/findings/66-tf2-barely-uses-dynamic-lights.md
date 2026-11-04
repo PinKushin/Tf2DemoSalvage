@@ -265,9 +265,19 @@ So not a decal, not a shadow, not LOD. Nothing named it, and `-vulkan` removed i
 
 **Every D3D9 reference in this project has it**, which is why the ratio image of ours over TF2 embossed every edge in the frame, and why a far patch can match for the wrong reason. The patch's 229.1 against 228.1 was partly that: the pipes short, the wall dark from a thing that is not the engine. **A capture for parity is taken with `-vulkan` until the driver setting is ruled out.**
 
-## The pipes behind the pane: what it is not (B669, 2026-11-03)
+## The pipes behind the pane: a spot has no cosine at runtime (B669, 2026-11-03)
 
-Evidence classes marked per line. The numbers: `measurements/2026-11-03-b669-pipe-lights.md`. The cause was not found.
+Evidence classes marked per line. The numbers: `measurements/2026-11-03-b669-pipe-lights.md`, then `measurements/2026-11-03-b669-pipe-traces-live.md`.
+
+**Found by asking the running engine, after reading it could not.** A debugger on `FUN_1801b5db0` listed each light it folded for this one state, with the amount. *Measured:* the set matched ours, and the amounts did not: the spot at (-3400 -1128 486) folded 22 times what ours gave it. *Decompile, then read as what it had always said:* `FUN_1800efbf0` case 2 returns the fringe, no `dot2`. **B122 had put a cosine in**, from `lightmap.cpp:1929`, which does have one, because that is the bake. A correct citation of the wrong path, tested on-axis and off-axis against itself.
+
+**Why reading missed it.** Every subset of lights failed because the trace was fine: the question "which lights" was wrong, and each answer sharpened it. `Cone` was read in this session and taken as ported.
+
+**Two more, from the same log.** *Decompile and measured:* the rank has no cone (`FUN_1801b60a0`'s XMM6 is luminance times the return, and the return for that spot is 1/449). B665 had that *interpolated*. And admission is a sphere around the point against the cone (`FUN_1801736b0`), radius to the far corner of the 32x32x128 cell, with a radius `Mod_LoadWorldlights` computes (`FUN_1800cbdd0`): a lump's 0 is not "no cutoff" in memory. A point lamp 761 units off with a radius of 475.8 is never traced.
+
+**And the instrument was stale.** The Ghidra project's `engine.dll` predates the game's, all checked functions at +0x1940: B684.
+
+The first part of this account, kept for the record of what was ruled out:
 
 **A wrong turn worth keeping, because it was an instrument and it looked like a discovery.** The back of the pipe read 0.021, and the colour was exactly the map's `emit_surface` tint, r/g 0.84. That named four lights, and all of their rays stop on detail brush 3637, so it read as TF2 tracing through detail. A fit with two more lights came within 1% on four faces, and it was wrong. **A camera at yaw 270 has −x on its right**, the reading was the left of the frame, and that is the next placement along. On #215's side the back is zero. The colour was real and belonged to another pipe. Six shots and a brush-by-brush table went into a question about the wrong object; the fit agreeing was the part that should have been distrusted.
 

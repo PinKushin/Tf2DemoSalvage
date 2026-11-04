@@ -9930,6 +9930,8 @@ too, which can move a flicker's step by up to a tick.
 
 ### B122 — a spotlight's cosine term is missing from the falloff — FIXED
 
+**Reversed for the cube by B669 (2026-11-03):** the term below is vrad's bake, and the runtime fold has none (`FUN_1800efbf0` case 2, logged from the running engine). The reasoning here read true of the file it cited and was applied to the wrong path.
+
 **Follow-up, fixed 2026-09-25: the per-light path had no cone at all.** B122 fixed `LocalLights.Cone`, which only the
 cube fold uses. A model is drawn with `LightingAt`'s four `LocalLight`s, which carried no direction or cone, and the
 vertex shader's `LampAttenuation` said so: *"a spotlight's cone is not decoded yet"*. Every model near a spotlight was
@@ -40405,6 +40407,14 @@ its recreation shows nothing; that `_rt_FullFrameFB` and the bloom targets are l
   known-present class was dumped beside it, and `cl_find_ent water` searches client class names, which a
   `CFuncMoveLinear` need not contain. So whether TF2 draws `*145` at all is *unverified*, and nothing was captured.
 
+## B684 — the Ghidra project's `engine.dll` is older than the game's (2026-11-03) — OPEN, a stale instrument
+
+Measured by a debugger: `0x1801b9570` rebased onto the running module holds other bytes, and that function's prologue is at RVA `0x1BAEB0`, +0x1940, as are four others checked. The project was imported 2026-09-12 and the file on disk is dated 2026-10-07. Every address in this file and in finding 66 is the old copy's. The functions read so far kept their shape, as the logged values fit them, but a read of a later change would be of the wrong binary. Re-import under `D:` and re-run analysis; `docs/DECOMPILING.md` has the invocation. A debugger rebases by signature until then.
+
+## B683 — a static prop's 162-ray cube reads about 3% over on some faces of cp_process_f12's lower pipe (2026-11-03) — OPEN, cause not found
+
+Logged from the running engine (`measurements/2026-11-03-b669-pipe-traces-live.md`), default cvars, green: ours -x 0.23552 against 0.23487, -y 0.27335 against 0.27004, +z 0.40617 against 0.40297. +x, +y and -z match to five digits, and the lights' folds match. So the excess is in the bounce, along about (-0.14, -0.7, 0.7), which is the shape of one or two rays of 162. *Interpolated:* that a ray strikes something else or something brighter in ours. Find it with `cube-rays` against a log of `FUN_1801b74f0`.
+
 ## B682 — `IlluminationPoint` turns a model's illumination position by yaw alone (2026-11-03) — OPEN, seen and not fixed
 
 `EntityModelSet.IlluminationPoint` rotates `illumposition` by the pose's yaw and adds z unchanged, so a prop with pitch or roll and a non-zero offset off its axis is lit from the wrong point. *Not measured how many placements this moves.* Found reading B669: placement #215 has angles (0 180 90) and the offset is along x, so it is unaffected. *Not read:* the engine's own transform; `R_StudioGetIlluminationPoint` is the name to find.
@@ -40528,7 +40538,7 @@ with its reflection showing, ours like a pale diffuse one, so a reflective surfa
 **The reference itself was wrong for the wall, and that changes what the patch's match means.** Every D3D9 capture in this entry carries a screen-space dark halo around geometry that `-vulkan` removes (`measurements/2026-11-03-b669-behind-the-pane.md`; finding [66](findings/66-tf2-barely-uses-dynamic-lights.md#the-reference-carries-a-halo-b669-2026-11-03)). **So the 229.1 against 228.1 above is partly coincidence: against TF2 on Vulkan the patch is 241.7**, wall 207.7 (ours 199.0), gap 139.5 (ours 139.3), whole frame 160.0 (ours 154.0). The pane's reflection numbers are unaffected: they are a difference of two shots.
 
 - **Item 3, the wall and gap: not a defect in ours, and the darkness is not TF2's engine.** Ours' column equals the lightmap lump row by row. The D3D9 darkening is about ten screen pixels wide at 215 units and at 859, follows every depth edge, survives `mat_fullbright 2`, and is named by no cvar or shader; *interpolated:* a driver ambient occlusion. **For the owner:** a driver setting forced on this game is what to check; it was not read. No decal, fog or shadow switch moves it. What is left against Vulkan is B680.
-- **Item 2, the pipes: open, cause not found.** They are the same on D3D9 and Vulkan. Lighting only, placement #215: the bounce is exact on −y (TF2 0.115, ours 0.1147). The direct lights are short on two faces and agree on two: −y 0.201 against 0.136, +z 0.391 against 0.328, +y 0 and −z about 0 in both. **Ruled out by reading the engine:** the trace's start (the lump's origin, unchanged), its mask, its 8-unit rejection, its world-only filter so no static prop blocks, a detail-brush rule, baked data, and a dlight (`r_dynamic 0` changes no digit). **No subset of the map's lights fits**, and no start point the engine names. The trace, the table and the arithmetic: `measurements/2026-11-03-b669-pipe-lights.md`. **The next step needs the owner:** `r_visualizelighttraces 2` crashed the game on a mass rebuild, so seeing the rejected traces means a breakpoint at `0x1801b9570` in his game. No tuned constant was taken.
+- **Item 2, the pipes: FIXED, and the reading of the engine alone could not find it.** No subset of the lights fitted (`measurements/2026-11-03-b669-pipe-lights.md`) because the set was right and the values were wrong. Logged from the running engine, by the owner's approval through the coordinator (`measurements/2026-11-03-b669-pipe-traces-live.md`): **a folded spot takes its fringe and no cosine of its own** (`FUN_1800efbf0` case 2). `LocalLights.Cone` multiplied by `dot2`, B122's reading of vrad's bake. Also a light ranks by luminance times the distance falloff, no cone (`FUN_1801b60a0`, correcting B665), and is admitted by `FUN_1801b99a0`'s sphere against the cone and `FUN_1800cbdd0`'s computed radius. Patch 241.1 against Vulkan's 241.7; upper pipe top 351.4 against 358.1, from 326.5. #215's slots and folds match the engine's. Tests: `SpotlightFalloffConformanceTests`, `LocalLightRankingConformanceTests`, `LocalLightSurfaceConformanceTests`, `StaticPropModelsWiringTests.Instances_CpProcessF12LowerPipe_HoldsTheEnginesSlotsAndCube`. Sabotage, each reversed: the cosine back reddened the logged-spot and off-axis tests; the cell test off reddened four. **Left:** B683, and the far-left pipe now reads over TF2 by 7-8 where it read under by 4-11, not explained.
 
 As first filed:
 
@@ -40923,6 +40933,8 @@ drawn with its handle's full state, flags 7, not its `.vhv` colours (B514). That
 
 `LocalLights.Reaches` said false for three of the four. The green `light` at (-208 1440 76), `_light 40 215 151 300`,
 which reaches the origin from 160 units, was not among them.
+
+**Corrected by B669 (2026-11-03):** the interpolation below was wrong. The ratio holds no cone (0.002225 from a spot 449 units off, logged from the running engine). What refuses a spot aimed away is `FUN_1801b99a0`'s sphere against the cone, before the trace, so a spot near a point can still take a slot. The rim's move toward TF2 stands, and the fix's rule changed.
 
 **Read (engine):** `FUN_1801b60a0` (`AddWorldLightToLightingState`) ranks by luminance times the light's ratio at the
 point and adds nothing when the ratio is not positive. The ratio is `FUN_1801b99a0` → `FUN_1801b9570`, the distance
