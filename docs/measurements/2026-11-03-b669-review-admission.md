@@ -38,4 +38,8 @@ Machine and build as in the records above. Ours: this branch's working tree at t
 
 **After `Frame`'s fallback moved to the plane (B687):** those shots predate it, and it is what overlays and displacements reach. A shot at that source against `rev-far`: 0 pixels differ, so every box above stands for it too. That says nothing at a camera on a flipped overlay with an `$envmap`; none was sought.
 
+## Added before the run: an engine tangent
+
+**Question.** Does `SurfaceTangent.Of` reproduce what the running engine's `FUN_1800f83c0` (`0x1800f95c0`) writes, on real faces of cp_process_f12? **Method.** TF2 started directly with `-insecure`, under a self-timed lock, one attempt. Log-only breakpoint at that function's `RET`, Cheat Engine, reads registers and memory: S at RCX, T at RDX, normal at R8, tvec at R9, flip byte at `[RSP+0x28]`. Then the same faces through `SurfaceTangent.Of`, a temporary probe edit reversed. **Control.** |S| and |T| are 1, and S is perpendicular to the logged normal, before anything is compared. **Prediction.** S matches to 0.001 with w = +1 where the flip is set, and T = cross( N, S ) · w.
+
 **Not predicted.** That count's `1 − dot` reached 2 on half the corners: `BspSurface.Normal` opposes the compiled normal on a flipped face. Across the map, 26,602 corners of flipped faces side with the plane, 6 against, 174 across; 39,035, 6 and 203 on the others. B687.
