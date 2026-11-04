@@ -11414,3 +11414,11 @@ face draws in that view.
 - RISKS B663 holds the evidence.
 - The tests are `WaterViewSnapshotConformanceTests` and `WaterViewInputsConformanceTests`.
 
+## D245 — the lead implements inline on Opus or Fable; reviews stay subagents (2026-11-04)
+
+**Owner-voiced.** *"5.5 is MORE efficient than 5, i literally saw less single agent usage with 5.5, but started using 2 agents at a time. So its all the cache writes from the sub-model imps, because they stupidly dont share a cache, yep go back to implementing inline as long as you are opus or fable model"*. Then: *"So long context isnt as bad as multiple cache writes."* The owner first delegated implementation expecting subagents' smaller contexts to be cheaper, and keeps the reviews.
+
+**Evidence, measured from the transcripts of every project:** cache writes 50-60M a week in W33-W36, 452M in W42, 223M in W44, mostly implementer agents, while weighted use per call stayed about equal between lead and implementer. Reviewer agents were about 4% of W44. Whether the writes alone explain the limit is inferred: the limit's accounting is not visible.
+
+**Changes D196's routing:** a lead on Sonnet or below still delegates implementation to Opus. Doc and mechanical work may go to cheap or free models. A fork, which should share the lead's cache, is allowed later if it is measured, and not while the weekly limit is low.
+
