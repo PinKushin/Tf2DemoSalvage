@@ -27,6 +27,8 @@ before a probe was taught to print where the data actually is. A position known 
 (the recorder's own eye via `--first-person`) is free and always works. See
 [[point-the-camera-from-the-data]].
 
+**Owner's rule for any visual check, relayed by the lead 2026-11-04:** capture TF2 and the viewer with their own screenshot commands, not the desktop; TF2 works in the background; open every shot before reporting from it. **Numbers count as reporting:** B688's cell tables were quoted from no-HUD shots nobody had opened, and opening them found a viewmodel moving in a box called "the world".
+
 ---
 
 ## `viewer-screenshots-are-f5` — the key a person presses, and never name one from memory
