@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 
+using Tf2DemoSalvage.Content.Assets;
 using Tf2DemoSalvage.Content.Bsp;
 using Tf2DemoSalvage.SdkReference;
 
@@ -116,45 +117,38 @@ public sealed class ReflectionRenderTests
             return;
         }
 
-        // A texel whose tangent-space normal leans most along the binormal, so the sign of w has the most to turn.
-        MapTexture bump = assets.Bumps[material]!.Value.Texture;
-        ReadOnlySpan<byte> texels = bump.Image.ToRgba(bump.Width, bump.Height);
-        int leaning = 0;
+        // **One known normal, every texel the same**, so no filter or mip of a real map's can stand between the texel and the prediction: x 128, y 242, z 182, so w sends the mirror ray about 50 degrees up or down the cube.
+        byte[] leaning = [.. Enumerable.Range(0, 16).SelectMany(static _ => new byte[] { 128, 242, 182, 255 })];
+        MapTexture flatBump = new(4, 4, 4, 4, TextureImage.Rgba(leaning), IsTransparent: false);
+        (float A, float B, float C) n = ((128 / 255f * 2f) - 1f, (242 / 255f * 2f) - 1f, (182 / 255f * 2f) - 1f);
+        MapAssets known = MapAssets.ForMaterials(
+            [assets.Textures[material]],
+            ["LightmappedGeneric"],
+            bumps: [new MapBump(flatBump, false)],
+            cubemaps: [assets.Cubemaps[material]]);
 
-        for (int at = 0; at < texels.Length / 4; at++)
-        {
-            if (Math.Abs(texels[(at * 4) + 1] - 128) > Math.Abs(texels[(leaning * 4) + 1] - 128))
-            {
-                leaning = at;
-            }
-        }
-
-        (float U, float V) uv = (((leaning % bump.Width) + 0.5f) / bump.Width, ((leaning / bump.Width) + 0.5f) / bump.Height);
-        (float A, float B, float C) n = (
-            (texels[leaning * 4] / 255f * 2f) - 1f,
-            (texels[(leaning * 4) + 1] / 255f * 2f) - 1f,
-            (texels[(leaning * 4) + 2] / 255f * 2f) - 1f);
+        (float U, float V) uv = (0.5f, 0.5f);
 
         // The frame this quad carries: N (0 -1 0), S (1 0 0), and T = cross( N, S ) * w = (0 0 1) * w.
-        (int R, int G, int B) plus = DrawBumped(target, assets, material, tangentW: 1f, uv);
-        (int R, int G, int B) minus = DrawBumped(target, assets, material, tangentW: -1f, uv);
+        (int R, int G, int B) plus = DrawBumped(target, known, 0, tangentW: 1f, uv);
+        (int R, int G, int B) minus = DrawBumped(target, known, 0, tangentW: -1f, uv);
 
-        // **The prediction: the same normals handed to the flat path.** `mul( vNormal, tangentSpaceTranspose )` for w = +1 and w = -1 is the two
-        // vectors below. The diffuse does not depend on w, so the difference of each pair is the reflection's alone, and the two differences match.
-        (float X, float Y, float Z) worldPlus = Unit((n.A, -n.C, n.B));
-        (float X, float Y, float Z) worldMinus = Unit((n.A, -n.C, -n.B));
-        (int R, int G, int B) flatPlus = DrawFlatAt(target, assets, material, worldPlus, uv);
-        (int R, int G, int B) flatMinus = DrawFlatAt(target, assets, material, worldMinus, uv);
+        // **The prediction: the same normals handed to the flat path.** `mul( vNormal, tangentSpaceTranspose )` for w = +1 and w = -1 is these two vectors, so each picture
+        // is the other's to the count: resolution 1 of 255, the target's rounding. Sensitivity: the two pictures lie much further apart than that.
+        (int R, int G, int B) flatPlus = DrawFlatAt(target, known, 0, Unit((n.A, -n.C, n.B)), uv);
+        (int R, int G, int B) flatMinus = DrawFlatAt(target, known, 0, Unit((n.A, -n.C, -n.B)), uv);
 
         TestContext.Out.WriteLine(
             $"material {material}, texel normal {n}: frame +1 {plus}, -1 {minus}; flat at those normals {flatPlus}, {flatMinus}");
 
-        (plus.R + plus.G + plus.B).ShouldBeGreaterThan(0, "the surface must be drawn before its reflection can be measured");
-        plus.ShouldNotBe(minus, "the frame's sign turns the bump map's lean over");
+        Math.Max(Math.Abs(plus.R - minus.R), Math.Max(Math.Abs(plus.G - minus.G), Math.Abs(plus.B - minus.B))).ShouldBeGreaterThan(8, "the sign must turn the picture by far more than the resolution");
 
-        Math.Abs((plus.R - minus.R) - (flatPlus.R - flatMinus.R)).ShouldBeLessThanOrEqualTo(2, "red");
-        Math.Abs((plus.G - minus.G) - (flatPlus.G - flatMinus.G)).ShouldBeLessThanOrEqualTo(2, "green");
-        Math.Abs((plus.B - minus.B) - (flatPlus.B - flatMinus.B)).ShouldBeLessThanOrEqualTo(2, "blue");
+        Math.Abs(plus.R - flatPlus.R).ShouldBeLessThanOrEqualTo(1, "red, w +1");
+        Math.Abs(plus.G - flatPlus.G).ShouldBeLessThanOrEqualTo(1, "green, w +1");
+        Math.Abs(plus.B - flatPlus.B).ShouldBeLessThanOrEqualTo(1, "blue, w +1");
+        Math.Abs(minus.R - flatMinus.R).ShouldBeLessThanOrEqualTo(1, "red, w -1");
+        Math.Abs(minus.G - flatMinus.G).ShouldBeLessThanOrEqualTo(1, "green, w -1");
+        Math.Abs(minus.B - flatMinus.B).ShouldBeLessThanOrEqualTo(1, "blue, w -1");
     }
 
     private static (float X, float Y, float Z) Unit((float X, float Y, float Z) v)

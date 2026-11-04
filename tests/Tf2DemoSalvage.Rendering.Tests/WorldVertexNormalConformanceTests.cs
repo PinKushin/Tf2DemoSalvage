@@ -114,6 +114,71 @@ public sealed class WorldVertexNormalConformanceTests
         (first.NormalX, first.NormalY, first.NormalZ).ShouldBe((-1f, 0f, 0f));
     }
 
+    /// <summary>
+    /// `FUN_180112d30`: an overlay fragment's corner normal is the surface's plane normal, unflipped. `FUN_180111830` writes no tangent, so the fragment has no
+    /// frame, even on a face with a texture projection that gives its own corners one.
+    /// </summary>
+    [Test]
+    public void Build_AnOverlayOnAFlippedProjectedFace_TakesThePlaneAndNoFrame()
+    {
+        BspSurface face = Face(
+            (1f, 0f, 0f),
+            [
+                new SurfaceVertex(0f, 0f, 0f, 0f, 0f, 0f, 0f),
+                new SurfaceVertex(0f, 64f, 0f, 1f, 0f, 1f, 0f),
+                new SurfaceVertex(0f, 64f, 64f, 1f, 1f, 1f, 1f),
+                new SurfaceVertex(0f, 0f, 64f, 0f, 1f, 0f, 1f),
+            ]) with { PlaneNormal = (-1f, 0f, 0f), TextureS = (0f, 1f, 0f, 0f), TextureT = (0f, 0f, 1f, 0f) };
+
+        BspOverlay overlay = new(
+            0, 0, 0, 0, [0], (0f, 1f), (0f, 1f), [(-8f, -8f), (8f, -8f), (8f, 8f), (-8f, 8f)], (0f, 32f, 32f), (-1f, 0f, 0f), (0f, 1f, 0f), (0f, 0f, 1f));
+
+        MapWorld world = MapWorldBuilder.Build(null, [face], Materials, LightmapAtlas.Pack([]), null, overlays: [overlay]);
+
+        world.Vertices[0].TangentW.ShouldNotBe(0f, "the control: the face's own corner has a frame");
+
+        WorldVertex corner = world.Vertices[^1];
+
+        corner.U.ShouldBeInRange(0f, 1f);
+        (corner.NormalX, corner.NormalY, corner.NormalZ).ShouldBe((-1f, 0f, 0f));
+        (corner.TangentX, corner.TangentY, corner.TangentZ, corner.TangentW).ShouldBe((0f, 0f, 0f, 0f));
+    }
+
+    /// <summary>
+    /// Logged from the running engine, cp_process_f12, build 11191711, at `FUN_1800f83c0`'s `RET` (`0x1800f978b`): normal, tvec, the flip the caller passed, S and T as written
+    /// (`measurements/2026-11-03-b669-review-admission.md`). The flip is `FUN_1800f8590`'s, `( S × T ) · plane &gt; 0`; the S handed in here sets that sign.
+    /// </summary>
+    [TestCase(0f, -1f, 0f, false, 1f, 0f, 0f)]
+    [TestCase(-0.50545f, -0.86286f, 0f, false, 0.86286f, -0.50545f, 0f)]
+    [TestCase(-0.92388f, 0.38268f, 0f, true, 0.38268f, 0.92388f, 0f)]
+    [TestCase(-0.92388f, -0.38268f, 0f, true, -0.38268f, 0.92388f, 0f)]
+    [TestCase(0f, 1f, 0f, false, -1f, 0f, 0f)]
+    [TestCase(0f, 1f, 0f, true, 1f, 0f, 0f)]
+    public void Of_TheEnginesLoggedCorners_ReproduceItsSAndT(float nx, float ny, float nz, bool flip, float sx, float sy, float sz)
+    {
+        (float X, float Y, float Z) t = (0f, 0f, -1f);
+        (float X, float Y, float Z) normal = (nx, ny, nz);
+
+        // A texture S across the normal, one way or the other, so `( S × T ) · normal` has the sign the logged flip says.
+        (float X, float Y, float Z) acrossThenT = ((ny * t.Z) - (nz * t.Y), (nz * t.X) - (nx * t.Z), (nx * t.Y) - (ny * t.X));
+        float toward = flip ? -1f : 1f;
+        (float, float, float, float) textureS = (acrossThenT.X * toward, acrossThenT.Y * toward, acrossThenT.Z * toward, 0f);
+
+        (float X, float Y, float Z, float W) tangent = SurfaceTangent.Of(normal, textureS, (t.X, t.Y, t.Z, 0f), normal);
+
+        tangent.X.ShouldBe(sx, 0.0001f);
+        tangent.Y.ShouldBe(sy, 0.0001f);
+        tangent.Z.ShouldBe(sz, 0.0001f);
+        tangent.W.ShouldBe(flip ? 1f : -1f);
+
+        // Every logged T was (0 0 -1): the shader's `cross( N, S ) * w`.
+        (float crossX, float crossY, float crossZ) = ((ny * tangent.Z) - (nz * tangent.Y), (nz * tangent.X) - (nx * tangent.Z), (nx * tangent.Y) - (ny * tangent.X));
+
+        (crossX * tangent.W).ShouldBe(0f, 0.0001f);
+        (crossY * tangent.W).ShouldBe(0f, 0.0001f);
+        (crossZ * tangent.W).ShouldBe(-1f, 0.0001f);
+    }
+
     /// <summary>The frame's arithmetic reaches the vertex: a face's S lands in the tangent, its handedness in w.</summary>
     [Test]
     public void Build_AFaceWithATextureProjection_EveryCornerCarriesItsTangentFrame()

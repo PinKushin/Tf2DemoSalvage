@@ -201,8 +201,8 @@ public sealed class LocalLightSurfaceConformanceTests
         (Surface(default, (0f, 0f, -1f), 1f) with { Flags = flags }).InAmbientCube.ShouldBe(expected);
 
     private static BspWorldLight Surface((float X, float Y, float Z) origin, (float X, float Y, float Z) normal, float bright) =>
-        new(origin, (bright, bright, bright), normal, WorldLightKind.Surface);
+        new(origin, (bright, bright, bright), normal, WorldLightKind.Surface, Radius: 100000f);
 
     private static BspWorldLight Lamp((float X, float Y, float Z) origin, float bright) =>
-        new(origin, (bright, bright, bright), default, WorldLightKind.Point, QuadraticAttenuation: 1f);
+        new(origin, (bright, bright, bright), default, WorldLightKind.Point, QuadraticAttenuation: 1f, Radius: 100000f);
 }

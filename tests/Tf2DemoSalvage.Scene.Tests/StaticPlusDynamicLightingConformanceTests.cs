@@ -411,7 +411,7 @@ public sealed class StaticPlusDynamicLightingConformanceTests
     }
 
     /// <summary>A lamp 20 units above the prop's lighting origin.</summary>
-    internal static BspWorldLight Lamp(int style, int cluster, float radius = 0f) =>
+    internal static BspWorldLight Lamp(int style, int cluster, float radius = 100000f) =>
         LevelLightingTests.Lamp((0f, 0f, 120f), 400f) with { Style = style, Cluster = cluster, Radius = radius };
 
     /// <summary>Two leaves split at z = 0: leaf 2 above in cluster 0, leaf 1 below in cluster 1, each seeing only itself.</summary>

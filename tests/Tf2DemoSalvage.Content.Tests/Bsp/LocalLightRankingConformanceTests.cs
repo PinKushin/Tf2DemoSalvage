@@ -74,7 +74,7 @@ public sealed class LocalLightRankingConformanceTests
         [
             new(
                 (0f, 0f, 8f), (100f, 100f, 100f), (0f, 0f, -1f), WorldLightKind.Spotlight,
-                ConstantAttenuation: 0f, LinearAttenuation: 0f, QuadraticAttenuation: 1f,
+                ConstantAttenuation: 0f, LinearAttenuation: 0f, QuadraticAttenuation: 1f, Radius: 100000f,
                 StopDot: 0.9f, StopDot2: 0.5f, Exponent: 1f),
             Lamp((16f, 0f, 0f), 70f),
             Lamp((-4f, 0f, 0f), 70f),
@@ -105,7 +105,7 @@ public sealed class LocalLightRankingConformanceTests
     {
         // At a cell corner, so the cell adds 1.73 at most.
         (float x, float y, float z) = (32f - NearCorner, 32f - NearCorner, 128f - NearCorner);
-        List<BspWorldLight> lights = [BspWorldLights.AsLoaded(Lamp((x, y, z + distance), 1960.7844f), hdrLump: true)];
+        List<BspWorldLight> lights = [BspWorldLights.AsLoaded(Lamp((x, y, z + distance), 1960.7844f) with { Radius = 0f }, hdrLump: true)];
         Span<LocalLight> into = stackalloc LocalLight[LocalLights.MaximumLocalLights];
 
         LocalLights.Strongest(lights, x, y, z, into).ShouldBe(expected);
@@ -114,11 +114,11 @@ public sealed class LocalLightRankingConformanceTests
     private static BspWorldLight Spot((float X, float Y, float Z) origin, (float X, float Y, float Z) aim) =>
         new(
             origin, (10000f, 10000f, 10000f), aim, WorldLightKind.Spotlight,
-            ConstantAttenuation: 0f, LinearAttenuation: 0f, QuadraticAttenuation: 1f,
+            ConstantAttenuation: 0f, LinearAttenuation: 0f, QuadraticAttenuation: 1f, Radius: 100000f,
             StopDot: 0.9f, StopDot2: 0.7f, Exponent: 1f);
 
     private static BspWorldLight Lamp((float X, float Y, float Z) origin, float bright) =>
         new(
             origin, (bright, bright, bright), (0f, 0f, 0f), WorldLightKind.Point,
-            ConstantAttenuation: 0f, LinearAttenuation: 0f, QuadraticAttenuation: 1f);
+            ConstantAttenuation: 0f, LinearAttenuation: 0f, QuadraticAttenuation: 1f, Radius: 100000f);
 }

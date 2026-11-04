@@ -121,7 +121,7 @@ public sealed class LocalLightsTests
 
     /// <summary>An inverse-square point light, which is what a map actually ships.</summary>
     private static BspWorldLight Point(
-        (float X, float Y, float Z) origin, float intensity, float radius = 0f) =>
+        (float X, float Y, float Z) origin, float intensity, float radius = 100000f) =>
         new(origin, (intensity, intensity, intensity), (0f, 0f, 0f), WorldLightKind.Point,
             ConstantAttenuation: 0f, LinearAttenuation: 0f, QuadraticAttenuation: 1f,
             Radius: radius);
@@ -169,20 +169,18 @@ public sealed class LocalLightsTests
     }
 
     [Test]
-    public void DistanceIsClampedToOne_NotOffsetByOne()
+    public void Distance_UnderOneUnit_IsNotClampedOrOffset()
     {
-        // **The detail most easily conflated with the ambient blend**, which uses 1 / (dist + 1).
-        // Valve clamps instead: MaxSIMD( Four_Ones, dist2 ). A light exactly one unit away has
-        // dist2 = 1 either way, so the distinguishing case is a light CLOSER than one unit.
+        // `FUN_1800efe40` cases 1 and 2 have neither. The clamp this test used to assert, MaxSIMD( Four_Ones, dist2 ), is the shader path's
+        // (`VertexAttenInternal`, `lightdesc.cpp`) and a surface light's own (`Fold_ALightUnderOneUnitAway_ClampsOnlyASurfaceLight`).
         //
-        //   at 0.5 units: true dist2 = 0.25, clamped to 1, falloff = 1/1 = 1
-        //   contribution = 1 * 1 * 3 = 3.0
+        //   at 0.5 units: dist2 = 0.25, falloff = 1 / 0.25 = 4, contribution = 4 * 3 = 12
         //
-        // The offset form would give 1 / (0.25 + 1) = 0.8 and a contribution of 2.4.
+        // A clamp gives 3, and an offset 1 / 1.25 * 3 = 2.4.
         AmbientCube lit = LocalLights.AddTo(
             Black, [Point((0f, 0f, 0.5f), 3f)], 0f, 0f, 0f);
 
-        lit.PositiveZ.Red.ShouldBe(3f, 0.001f);
+        lit.PositiveZ.Red.ShouldBe(12f, 0.001f);
     }
 
     [Test]
@@ -209,11 +207,10 @@ public sealed class LocalLightsTests
     }
 
     [Test]
-    public void AZeroRadius_MeansNoCull()
+    public void AddTo_ARadiusOfZeroInsideTheCell_StillLights()
     {
-        // Zero is "no cutoff", not "cut off at zero distance" - `if (m_Range != 0.f)`. Reading it
-        // as a real radius extinguishes every light on the map, since cp_process stores zero for
-        // all of them.
+        // `r² < d²` is `0 < 0` for a light the box holds. From outside it is refused: Reaches_ARadiusOfZeroLeftByTheLoad_IsRefusedOutsideTheBox.
+        // cp_process's lump stores zero for every light, and the load replaces it: BspWorldLights.AsLoaded.
         AmbientCube lit = LocalLights.AddTo(
             Black, [Point((0f, 0f, 10f), Bright, radius: 0f)], 0f, 0f, 0f);
 

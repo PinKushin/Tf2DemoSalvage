@@ -84,7 +84,8 @@ public sealed class WorldLightScaleConformanceTests
             Intensity: (Stored, Stored, Stored),
             Normal: (0f, 0f, -1f),
             Kind: WorldLightKind.Point,
-            QuadraticAttenuation: 1f);
+            QuadraticAttenuation: 1f,
+            Radius: 1000f);
 
         AmbientCube lit = LocalLights.AddTo(Dark, [lamp], 0f, 0f, 0f);
 

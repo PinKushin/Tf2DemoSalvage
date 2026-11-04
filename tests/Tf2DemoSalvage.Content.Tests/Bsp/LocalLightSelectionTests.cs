@@ -188,11 +188,11 @@ public sealed class LocalLightSelectionTests
         new()
         {
             Origin = (x, y, z),
+            Radius = 100000f,
             Intensity = (intensity, intensity, intensity),
             Kind = WorldLightKind.Point,
             ConstantAttenuation = 0f,
             LinearAttenuation = 0f,
             QuadraticAttenuation = 1f,
-            Radius = 0f,
         };
 }

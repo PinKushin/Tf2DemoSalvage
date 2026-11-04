@@ -56,8 +56,8 @@ namespace Tf2DemoSalvage.Content.Bsp;
 /// </param>
 /// <remarks>
 /// **The attenuation terms are normalised on the way out**, so a consumer never has to know about
-/// vrad's all-zero rule. A light with all three below `EQUAL_EPSILON` leaves here with
-/// <c>Constant = 1</c>, which is what vrad writes and what stops a reciprocal running to infinity —
+/// `Mod_LoadWorldlights`' all-zero rule. A point or spot with all three exactly 0 leaves here with
+/// <c>Quadratic = 1</c>, what stops a reciprocal running to infinity —
 /// a mistake this project made once and measured as a luminance of ∞ at four capture points.
 ///
 /// **Point, spot or surface**, the kinds with a position (B669). The sun is directional and travels its own path.
@@ -629,8 +629,9 @@ public static class LocalLights
     /// light near a point can take a slot aimed away from it, lighting nothing. Point and spot: out when the light's distance from the box
     /// passes its radius (`FUN_180276b00`).
     ///
-    /// **A radius of 0 skips the radius tests**, which the engine's would not: load replaces 0 (<see cref="BspWorldLights.AsLoaded"/>), so only a
-    /// light that never came through a lump has one here.
+    /// **A radius of 0 is a radius here, not "no cutoff".** Load replaces a lump's 0 (<see cref="BspWorldLights.AsLoaded"/>), and where `FUN_1800cbdd0`
+    /// answers 0 again, a falloff that never reaches its threshold, `r² &lt; d²` refuses the light from any box it stands outside. Only the
+    /// falloff's own case 0 reads 0 as none (<see cref="Distance"/>).
     /// </remarks>
     private static bool ReachesBox(BspWorldLight light, float x, float y, float z, LightBounds box)
     {
@@ -652,7 +653,7 @@ public static class LocalLights
             float toFarZ = box.Max.Z - z;
             float sphere = MathF.Sqrt((toFarX * toFarX) + (toFarY * toFarY) + (toFarZ * toFarZ));
 
-            if (radius != 0f && sphere + radius < length)
+            if (sphere + radius < length)
             {
                 return false;
             }
@@ -671,11 +672,22 @@ public static class LocalLights
             }
         }
 
-        float boxX = light.Origin.X - Math.Clamp(light.Origin.X, box.Min.X, box.Max.X);
-        float boxY = light.Origin.Y - Math.Clamp(light.Origin.Y, box.Min.Y, box.Max.Y);
-        float boxZ = light.Origin.Z - Math.Clamp(light.Origin.Z, box.Min.Z, box.Max.Z);
+        float boxX = PastBox(light.Origin.X, box.Min.X, box.Max.X);
+        float boxY = PastBox(light.Origin.Y, box.Min.Y, box.Max.Y);
+        float boxZ = PastBox(light.Origin.Z, box.Min.Z, box.Max.Z);
 
-        return radius == 0f || !(radius * radius < (boxX * boxX) + (boxY * boxY) + (boxZ * boxZ));
+        return !(radius * radius < (boxX * boxX) + (boxY * boxY) + (boxZ * boxZ));
+    }
+
+    /// <summary>How far past a box a coordinate lies on one axis, by `FUN_180276b00`'s plain compares: an inverted box measures from its min first, and cannot throw.</summary>
+    private static float PastBox(float at, float min, float max)
+    {
+        if (at < min)
+        {
+            return min - at;
+        }
+
+        return at > max ? at - max : 0f;
     }
 
     /// <summary>`FUN_1801736b0`, a sphere against a cone, with the sphere's centre given from the light.</summary>
@@ -965,7 +977,7 @@ public static class LocalLights
             return (0f, 0f, 1f);
         }
 
-        return light is { ConstantAttenuation: 0f, LinearAttenuation: 0f, QuadraticAttenuation: 0f }
+        return light is { Kind: WorldLightKind.Point or WorldLightKind.Spotlight, ConstantAttenuation: 0f, LinearAttenuation: 0f, QuadraticAttenuation: 0f }
             ? (0f, 0f, 1f)
             : (light.ConstantAttenuation, light.LinearAttenuation, light.QuadraticAttenuation);
     }
@@ -999,7 +1011,10 @@ public static class LocalLights
     private static float Falloff(BspWorldLight light, float x, float y, float z, Func<int, float> style) =>
         Distance(light, x, y, z) * style(light.Style);
 
-    /// <summary>The distance falloff alone.</summary>
+    /// <summary>The distance falloff alone: `engine.dll` `FUN_1800efe40`, every branch (`0x1800f1040` on build 11191711, read there).</summary>
+    /// <remarks>
+    /// Case 0's reciprocal is `RCPSS`, an estimate good to about 1 part in 2,700 that differs between CPUs; this is the exact one.
+    /// </remarks>
     private static float Distance(BspWorldLight light, float x, float y, float z)
     {
         float dx = light.Origin.X - x;
@@ -1008,42 +1023,29 @@ public static class LocalLights
 
         float distanceSquared = (dx * dx) + (dy * dy) + (dz * dz);
 
-        // **Clamped, not offset**: MaxSIMD( Four_Ones, dist2 ). The ambient reconstruction next
-        // door uses 1 / (dist + 1) and the two are easy to confuse.
-        distanceSquared = Math.Max(1f, distanceSquared);
-
-        // `FUN_1800efe40` case 0: inverse square, whatever the attenuation terms hold; out only strictly past the radius. The radius is
-        // read here whichever way the light is reached: this case ignores the flag.
-        if (light.Kind == WorldLightKind.Surface)
+        switch (light.Kind)
         {
-            return light.Radius != 0f && distanceSquared > light.Radius * light.Radius ? 0f : 1f / distanceSquared;
+            // Inverse square clamped at 1, whatever the attenuation terms hold; out only strictly past the radius, and 0 is none. The radius is
+            // read here whichever way the light is reached: this case ignores the flag.
+            case WorldLightKind.Surface:
+                return light.Radius != 0f && !(distanceSquared <= light.Radius * light.Radius) ? 0f : 1f / MathF.Max(1f, distanceSquared + 1e-10f);
+
+            // **No radius**: every route here passes `FUN_1801b99a0`, whose `flags | 2` is the third argument that skips this case's cutoff.
+            // `ReachesBox` is its test instead. **And no clamp**: the shader's `max( 1, d² )` is `VertexAttenInternal`'s, not this function's.
+            case WorldLightKind.Point:
+            case WorldLightKind.Spotlight:
+                // A lump's all-zero terms are gone by here (`BspWorldLights.AsLoaded`). A light built by hand can still have them: the same answer.
+                float quadratic = light is { ConstantAttenuation: 0f, LinearAttenuation: 0f, QuadraticAttenuation: 0f } ? 1f : light.QuadraticAttenuation;
+
+                return 1f / ((MathF.Sqrt(distanceSquared) * light.LinearAttenuation) + light.ConstantAttenuation + (distanceSquared * quadratic));
+
+            // `emit_quakelight`: linear, reaching 0 at a distance of its linear term.
+            case WorldLightKind.QuakeLight:
+                return MathF.Max(0f, light.LinearAttenuation - MathF.Sqrt(distanceSquared));
+
+            default:
+                return 1f;
         }
-
-        // **No radius for a point or a spot**: every route here passes `FUN_1801b99a0`, whose `flags | 2` is the third argument that
-        // skips this case's cutoff. `ReachesBox` is its test instead, on a box and not on this point.
-        float constant = light.ConstantAttenuation;
-        float linear = light.LinearAttenuation;
-        float quadratic = light.QuadraticAttenuation;
-
-        // A lump's all-zero terms are gone by here (`BspWorldLights.AsLoaded`). A light built by hand can still have them: the same answer.
-        if (constant == 0f && linear == 0f && quadratic == 0f)
-        {
-            quadratic = 1f;
-        }
-
-        float falloff = constant;
-
-        if (linear != 0f)
-        {
-            falloff += linear * MathF.Sqrt(distanceSquared);
-        }
-
-        if (quadratic != 0f)
-        {
-            falloff += quadratic * distanceSquared;
-        }
-
-        return 1f / falloff;
     }
 
     /// <summary>Adds every chosen light's contribution to one face of the cube.</summary>

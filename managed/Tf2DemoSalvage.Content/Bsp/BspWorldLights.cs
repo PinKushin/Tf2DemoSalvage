@@ -44,8 +44,8 @@ public enum WorldLightKind
 /// <param name="ConstantAttenuation">First falloff term; see the remarks.</param>
 /// <param name="LinearAttenuation">Second falloff term, multiplied by distance.</param>
 /// <param name="QuadraticAttenuation">Third falloff term, multiplied by distance squared.</param>
-/// <param name="Radius">Cutoff distance, beyond which the light contributes nothing. Zero means
-/// no cutoff, and the falloff alone decides where it stops mattering.</param>
+/// <param name="Radius">The distance <see cref="LocalLights"/>' admission tests against a box. A lump's 0 is replaced at load
+/// (<see cref="BspWorldLights.AsLoaded"/>); one still 0 after that is refused from any box it stands outside.</param>
 /// <param name="StopDot">Cosine at which a spotlight's penumbra begins.</param>
 /// <param name="StopDot2">Cosine at which it ends; outside this the spotlight is dark.</param>
 /// <param name="Exponent">Shapes the penumbra falloff between the two cosines.</param>

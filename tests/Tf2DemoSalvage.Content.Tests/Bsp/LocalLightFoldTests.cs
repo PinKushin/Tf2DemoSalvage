@@ -110,6 +110,6 @@ public sealed class LocalLightFoldTests
             ConstantAttenuation = 0f,
             LinearAttenuation = 0f,
             QuadraticAttenuation = 1f,
-            Radius = 0f,
+            Radius = 100000f,
         };
 }

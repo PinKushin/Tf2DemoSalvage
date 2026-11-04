@@ -87,7 +87,7 @@ public sealed class LightAdmissionConformanceTests
 
     private static BspWorldLight SpotDown(float x, float y, float z, float outer) =>
         new((x, y, z), (100000f, 100000f, 100000f), (0f, 0f, -1f), WorldLightKind.Spotlight,
-            QuadraticAttenuation: 1f, StopDot: 1f, StopDot2: outer, Exponent: 1f);
+            QuadraticAttenuation: 1f, Radius: 100000f, StopDot: 1f, StopDot2: outer, Exponent: 1f);
 
     /// <summary>
     /// A sphere of 1.73 at a cell's corner, a 45-degree cone 100 above it. 102 off the axis the sphere pokes into the cone by the pulled-back
@@ -156,6 +156,55 @@ public sealed class LightAdmissionConformanceTests
 
         cell.Count.ShouldBe(0);
         box.Count.ShouldBe(1);
+    }
+
+    /// <summary>`FUN_180276b00` uses plain compares: an inverted box, as a negative scale can make, measures from its min and throws nothing.</summary>
+    [TestCase(25f, false)]
+    [TestCase(50f, true)]
+    public void Reaches_AnInvertedBox_MeasuresFromItsMinFirst(float radius, bool expected)
+    {
+        // Min 40, max 0 on x: the light at 5 is under the min, so 35 away.
+        BspWorldLight lamp = Lamp(100f) with { Origin = (5f, 0f, 0f), Radius = radius };
+
+        LocalLights.Reaches(lamp, 0f, 0f, 0f, new LightBounds((40f, 0f, 0f), (0f, 0f, 0f))).ShouldBe(expected);
+    }
+
+    /// <summary>`FUN_1800cbdd0` answers 0 where the falloff never reaches its threshold, and `FUN_1801b99a0` then has `r² &lt; d²` refuse it from outside the box; inside is `0 &lt; 0`.</summary>
+    [TestCase(129f, false)]
+    [TestCase(100f, true)]
+    public void Reaches_ARadiusOfZeroLeftByTheLoad_IsRefusedOutsideTheBox(float z, bool expected)
+    {
+        // The cell of (0 0 0) ends at 128. 66.67 * |I| = 1154.7, under the constant: the root, (sqrt( 25 - 21.2 ) - 5) / 2, is negative, so 0. Its falloff
+        // at 129 is 5.4e-4 of the 10, over `r_worldlightmin`, so the radius is what refuses it.
+        BspWorldLight lamp = BspWorldLights.AsLoaded(
+            new BspWorldLight((0f, 0f, z), (10f, 10f, 10f), default, WorldLightKind.Point, ConstantAttenuation: 1160f, LinearAttenuation: 5f, QuadraticAttenuation: 1f), hdrLump: true);
+
+        lamp.Radius.ShouldBe(0f, "the control: the load left it 0");
+        LocalLights.Reaches(lamp, 0f, 0f, 0f).ShouldBe(expected);
+    }
+
+    /// <summary>`FUN_1800efe40`'s branches: a point or spot has no clamp under 1, a surface light has, a quake light is its linear term less the distance, and a sky light is 1.</summary>
+    [TestCase(WorldLightKind.Point, 0.5f, 3f, 12f)]
+    [TestCase(WorldLightKind.Spotlight, 0.5f, 3f, 12f)]
+    [TestCase(WorldLightKind.Surface, 0.5f, 3f, 3f)]
+    public void Fold_ALightUnderOneUnitAway_ClampsOnlyASurfaceLight(WorldLightKind kind, float distance, float bright, float expected)
+    {
+        BspWorldLight light = new((0f, 0f, distance), (bright, bright, bright), (0f, 0f, -1f), kind, QuadraticAttenuation: 1f, StopDot: 0.5f, StopDot2: 0.5f, Exponent: 1f);
+
+        LocalLights.Fold(default, light, 0f, 0f, 0f).PositiveZ.Red.ShouldBe(expected, 0.001f);
+    }
+
+    /// <summary>`emit_quakelight`, `linear_attn − d`, 0 past it, and all-zero terms are not rewritten: the load's loop has no case for it.</summary>
+    [TestCase(30f, 60f, 30f)]
+    [TestCase(70f, 60f, 0f)]
+    [TestCase(30f, 0f, 0f)]
+    public void Fold_AQuakeLight_IsItsLinearTermLessTheDistance(float distance, float linear, float expected)
+    {
+        BspWorldLight light = BspWorldLights.AsLoaded(
+            new BspWorldLight((0f, 0f, distance), (1f, 1f, 1f), default, WorldLightKind.QuakeLight, LinearAttenuation: linear), hdrLump: true);
+
+        light.QuadraticAttenuation.ShouldBe(0f);
+        LocalLights.Fold(default, light, 0f, 0f, 0f).PositiveZ.Red.ShouldBe(expected, 0.001f);
     }
 
     /// <summary>`FUN_1800efe40` case 0 reads the radius whichever way it is reached; it is the point and spot case that takes the flag.</summary>

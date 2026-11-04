@@ -709,13 +709,30 @@ public sealed class LevelLighting
     {
         ArgumentNullException.ThrowIfNull(level);
 
-        if (level.Leaves is null || level.LeafFaces is null || level.LightSamples is null)
+        if (level.Leaves is not { } tree || level.LeafFaces is not { } leafFaces || level.LightSamples is not { } samples)
         {
             return null;
         }
 
-        Lazy<SurfaceColour> rays = new(() => StaticPropRays(level)!);
+        Lazy<SurfaceColour> rays = new(() => Rays(level, tree, leafFaces, samples));
 
+        return AmbientOver(level, () => rays.Value);
+    }
+
+    /// <summary><see cref="StaticPropAmbient"/> casting against a walker the caller holds, so a probe's table and cube read one instance.</summary>
+    /// <param name="level">The level.</param>
+    /// <param name="rays">The walker, from <see cref="StaticPropRays"/>.</param>
+    /// <returns>The cube at a point.</returns>
+    public static Func<float, float, float, AmbientCube> StaticPropAmbientOf(MapLevel level, SurfaceColour rays)
+    {
+        ArgumentNullException.ThrowIfNull(level);
+        ArgumentNullException.ThrowIfNull(rays);
+
+        return AmbientOver(level, () => rays);
+    }
+
+    private static Func<float, float, float, AmbientCube> AmbientOver(MapLevel level, Func<SurfaceColour> rays)
+    {
         IReadOnlyList<BspMaterial> materials = level.Materials;
 
         // `FUN_1801b74f0`'s first loop: the first world light of type 5.
@@ -732,14 +749,14 @@ public sealed class LevelLighting
 
         return (x, y, z) => StaticPropAmbient.Compute(
             new Vector3(x, y, z),
-            (start, end) => rays.Value.LightVec(start, end, styles: false),
+            (start, end) => rays().LightVec(start, end, styles: false),
             texdata => texdata >= 0 && texdata < materials.Count
                 ? new Vector3(materials[texdata].Reflectivity.Red, materials[texdata].Reflectivity.Green, materials[texdata].Reflectivity.Blue)
                 : Vector3.Zero,
             skyAmbient);
     }
 
-    /// <summary>What <see cref="StaticPropAmbientOf"/> casts its rays against, so a probe of them reads the production walker.</summary>
+    /// <summary>What <see cref="StaticPropAmbientOf(MapLevel)"/> casts its rays against, so a probe of them reads the production walker.</summary>
     /// <param name="level">The level.</param>
     /// <returns>The walker, or null when the level lacks the lumps.</returns>
     public static SurfaceColour? StaticPropRays(MapLevel level)
@@ -747,9 +764,12 @@ public sealed class LevelLighting
         ArgumentNullException.ThrowIfNull(level);
 
         return level.Leaves is { } tree && level.LeafFaces is { } leafFaces && level.LightSamples is { } samples
-            ? new SurfaceColour(DecalWorld.From(tree, leafFaces, level.Surfaces, level.Terrain), samples, static _ => null)
+            ? Rays(level, tree, leafFaces, samples)
             : null;
     }
+
+    private static SurfaceColour Rays(MapLevel level, BspLeafTree tree, BspLeafFaces leafFaces, BspLightSamples samples) =>
+        new(DecalWorld.From(tree, leafFaces, level.Surfaces, level.Terrain), samples, static _ => null);
 
     /// <summary>The PVS, for a static prop's styled-light list; null or empty admits every cluster.</summary>
     private readonly BspVisibility? _visibility;

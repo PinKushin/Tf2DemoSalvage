@@ -110,7 +110,7 @@ public sealed class SurfaceLightCacheConformanceTests
         List<BspWorldLight> four =
         [
             .. new (float X, float Y, float Z)[] { (40f, 0f, 100f), (-40f, 0f, 100f), (0f, 40f, 100f), (0f, -40f, 100f) }
-                .Select(static at => new BspWorldLight(at, (900000f, 900000f, 900000f), default, WorldLightKind.Point, QuadraticAttenuation: 1f, Cluster: 0)),
+                .Select(static at => new BspWorldLight(at, (900000f, 900000f, 900000f), default, WorldLightKind.Point, QuadraticAttenuation: 1f, Radius: 100000f, Cluster: 0)),
         ];
 
         AmbientCube without = StaticPlusDynamicLightingConformanceTests.Map(four).StaticPropLightingAt(0f, 0f, 100f).Lighting.Cube;
@@ -151,7 +151,7 @@ public sealed class SurfaceLightCacheConformanceTests
         List<BspWorldLight> four =
         [
             .. new (float X, float Y, float Z)[] { (40f, 0f, 100f), (-40f, 0f, 100f), (0f, 40f, 100f), (0f, -40f, 100f) }
-                .Select(static at => new BspWorldLight(at, (900000f, 900000f, 900000f), default, WorldLightKind.Point, QuadraticAttenuation: 1f, Cluster: 0)),
+                .Select(static at => new BspWorldLight(at, (900000f, 900000f, 900000f), default, WorldLightKind.Point, QuadraticAttenuation: 1f, Radius: 100000f, Cluster: 0)),
         ];
 
         AmbientCube without = StaticPlusDynamicLightingConformanceTests.Map(four, Clear).StaticPropLightingAt(0f, 0f, 100f).Lighting.Cube;
@@ -167,5 +167,5 @@ public sealed class SurfaceLightCacheConformanceTests
     private static AmbientCube Computed(float x, float y, float z) => default;
 
     private static BspWorldLight Surface(int flags) =>
-        new((0f, 0f, 120f), (4000f, 4000f, 4000f), (0f, 0f, -1f), WorldLightKind.Surface, Cluster: 0, Flags: flags);
+        new((0f, 0f, 120f), (4000f, 4000f, 4000f), (0f, 0f, -1f), WorldLightKind.Surface, Radius: 100000f, Cluster: 0, Flags: flags);
 }

@@ -93,6 +93,25 @@ public sealed class StaticPropHandleConformanceTests
         handles.ShouldBe([PropModels.FirstStaticPropEntityIndex], "`0x180205b20` builds a handle for every prop, once");
     }
 
+    /// <remarks>`FUN_180205b20` hands `FUN_1801b8350` the record's world bounds, `+0x9c` and `+0xa8`: min first, placed at the prop's origin.</remarks>
+    [Test]
+    public void Instances_AStaticProp_HandsItsHandleItsWorldBox()
+    {
+        List<LightBounds?> boxes = [];
+        EntityModelSet models = new()
+        {
+            Geometry = _ => Frames(StudioModelFlags.StaticProp) with { HeaderBounds = new StudioBox(-1f, -2f, -3f, 4f, 5f, 6f) },
+            StaticPropFullLighting = static (_, _, _, _) => (PointLighting.Bounce(HandleCube), HandleSun),
+            StaticPropHandle = (_, _, _, _, bounds) => boxes.Add(bounds),
+        };
+
+        models.StaticProps = [StaticProp()];
+        models.Add([]);
+        models.Instances([], [], new Asked().LightAt);
+
+        boxes.ShouldHaveSingleItem().ShouldBe(new LightBounds((-1f, -2f, 97f), (4f, 5f, 106f)));
+    }
+
     /// <remarks>
     /// **The `.vhv` does not decide** (`FUN_1800eb1a0`): `studiohdr.flags &amp; 0x10` is part of the test for a colour mesh, so a model not `$staticprop` takes flags 7 with
     /// colours on file. vbsp deletes such a prop at compile; it reaches a draw when the model changed since.

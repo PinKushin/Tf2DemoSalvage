@@ -54,15 +54,14 @@ public sealed class CubeRaysProbe : IProbe
         MapLevel level = MapLevel.Read(bytes, NullLogger.Instance);
         IReadOnlyList<BspMaterial> materials = level.Materials;
 
-
-        // Production's own: the cube the draw is given, and the walker it casts with.
-        if (LevelLighting.StaticPropRays(level) is not { } walker || LevelLighting.StaticPropAmbientOf(level) is not { } ambient)
+        // Production's own: the walker it casts with, and the cube the draw is given, off that one instance.
+        if (LevelLighting.StaticPropRays(level) is not { } walker)
         {
             output.WriteLine("this map lacks the lumps the rays read");
             return;
         }
 
-        AmbientCube cube = ambient(origin.X, origin.Y, origin.Z);
+        AmbientCube cube = LevelLighting.StaticPropAmbientOf(level, walker)(origin.X, origin.Y, origin.Z);
 
         output.WriteLine($"cube at {origin}: +x {cube.PositiveX} -x {cube.NegativeX} +y {cube.PositiveY} -y {cube.NegativeY} +z {cube.PositiveZ} -z {cube.NegativeZ}");
 

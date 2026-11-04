@@ -118,13 +118,17 @@ public sealed class CorpusEntityDecodeTests
         // The history is worth the comment. Zero before the flattening order was fixed, then
         // 62-205, then 332, then complete, and every jump came from implementing another
         // message type that had been truncating its packet rather than from any decoder fix.
+        //
+        // **The count is what the demo offered, not 500** (B688): `golden_cp_granary2.dem` holds 498, all decoded. `DecodeRun`'s pair exists for this:
+        // ee40a336 "stop sizing a test to a demo". The hundred is the name's and this test's claim, the floor of a demo worth asking.
         foreach (string path in SourceTvDemos())
         {
             DecodeRun run = DecodeContinuously(path, 500);
             TestContext.Out.WriteLine($"{Path.GetFileName(path)}: {run.Decoded} snapshots, " +
                              $"stopped: {run.Stopped ?? "not at all"}");
             run.Stopped.ShouldBeNull(Path.GetFileName(path));
-            run.Decoded.ShouldBe(500);
+            run.Decoded.ShouldBe(run.Available, Path.GetFileName(path));
+            run.Decoded.ShouldBeGreaterThanOrEqualTo(100, Path.GetFileName(path));
         }
     }
 

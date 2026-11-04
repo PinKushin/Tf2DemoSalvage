@@ -5000,11 +5000,6 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
                 contents[colour + 1] = lamp.Green;
                 contents[colour + 2] = lamp.Blue;
 
-                // Squared here rather than in the shader, which would do it per pixel to reach the
-                // same number — and zero stays zero, which is the "no cutoff" every light on
-                // cp_process actually carries.
-                contents[colour + 3] = lamp.Range * lamp.Range;
-
                 contents[falloff] = lamp.Constant;
                 contents[falloff + 1] = lamp.Linear;
                 contents[falloff + 2] = lamp.Quadratic;

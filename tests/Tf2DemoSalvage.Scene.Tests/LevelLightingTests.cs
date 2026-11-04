@@ -708,6 +708,9 @@ public sealed class LevelLightingTests
             // A purely quadratic lamp is the ordinary case a mapper places.
             QuadraticAttenuation: 1f,
 
+            // Past every test's reach: the load never leaves a real lamp 0 here, and 0 is refused from outside the box.
+            Radius: 100000f,
+
             // In the PVS: a real light's cluster is read from the lump, and `FUN_1801b60a0` drops a negative one (B669).
             Cluster: 0);
 

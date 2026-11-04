@@ -727,9 +727,10 @@ public static class MapWorldBuilder
 
                 List<WorldVertex> corners = new(fragment.Count);
 
-                // The face's normal and frame (B678): a fragment's corners are not the face's, so it has no compiled corner normal to take.
-                // *Interpolated:* what the engine's overlay vertices carry was not read; its reflection would otherwise turn about (0, 0, 1).
-                ((float X, float Y, float Z) normal, (float X, float Y, float Z, float W) tangent) = MapWorldBuilder.Frame(piece, default);
+                // `engine.dll` `FUN_180112d30` (`Overlay.cpp`, 0x180112d30 on build 11191711, read): every fragment corner's normal is the surface's plane
+                // normal, unflipped. **And no tangent**: `FUN_180111830`, the draw, writes position, normal, colour and three texture coordinates and
+                // nothing else, so a frame is not the engine's to give. Left with no frame, `w` 0, it reflects about that normal.
+                (float X, float Y, float Z) normal = MapWorldBuilder.Frame(piece, default).Normal;
 
                 foreach ((float x, float y, float z) in fragment)
                 {
@@ -755,10 +756,6 @@ public static class MapWorldBuilder
                         NormalX = normal.X,
                         NormalY = normal.Y,
                         NormalZ = normal.Z,
-                        TangentX = tangent.X,
-                        TangentY = tangent.Y,
-                        TangentZ = tangent.Z,
-                        TangentW = tangent.W,
                     });
                 }
 
