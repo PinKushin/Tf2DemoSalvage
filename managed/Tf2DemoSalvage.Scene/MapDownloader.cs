@@ -124,11 +124,14 @@ public sealed class MapDownloader : IDisposable
     /// to care which client is used should call this instead of arguing with the analyzer.
     ///
     /// The constructor stays public for the tests, which supply a client with a stubbed handler.
+    ///
+    /// **No timeout against the test seam's mirror**, which holds a request for as long as its test needs: the client's
+    /// own 100 s default ended a held stage of the loading overlay (B707).
     /// </remarks>
-    public static MapDownloader Create(string folder) => new(
-        new HttpClient(),
-        folder,
-        Environment.GetEnvironmentVariable(MirrorVariable) is { Length: > 0 } test ? test : DefaultMirror);
+    public static MapDownloader Create(string folder) =>
+        Environment.GetEnvironmentVariable(MirrorVariable) is { Length: > 0 } test
+            ? new MapDownloader(new HttpClient { Timeout = Timeout.InfiniteTimeSpan }, folder, test)
+            : new MapDownloader(new HttpClient(), folder, DefaultMirror);
 
     /// <summary>Builds a downloader.</summary>
     /// <param name="client">Client to fetch with; disposed with this object.</param>

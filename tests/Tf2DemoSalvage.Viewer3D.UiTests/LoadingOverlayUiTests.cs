@@ -1,32 +1,76 @@
 using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Threading.Tasks;
 
 using FlaUI.Core.Tools;
+
+using Tf2DemoSalvage.Presentation;
+using Tf2DemoSalvage.Scene;
 
 namespace Tf2DemoSalvage.Viewer3D.UiTests;
 
 /// <summary>The loading screen the owner asked for: up at once, gone once the demo is on screen.</summary>
 /// <remarks>
 /// *"is there a way to add like a splash screen that pops up immediately on boot and gives the user a progress bar?"* — the window
-/// used to stay off screen for the whole decode and map read. What it said at launch is read by <see cref="ViewerSession"/>,
-/// because by the time a test runs the load is over.
+/// used to stay off screen for the whole decode and map read.
 /// </remarks>
 public sealed class LoadingOverlayUiTests
 {
-    /// <summary>The overlay was on screen during the load, and the stage it was first told was the decode.</summary>
+    /// <summary>The label a person reads says the load is on the map, for as long as the map has not arrived.</summary>
     /// <remarks>
-    /// **Two sources, because the label cannot answer the second** (B707). UI Automation reads it whenever it arrives: on run
-    /// 41669140049 that was after the 52.88 s decode, so it said "Loading the map…", correctly. The log carries the value the
-    /// presenter handed the overlay, at the moment it handed it, so its first such line is the first stage shown.
+    /// **The stage is held, so no client can be too late for it** (B707). This read the shared session's label in one window at
+    /// launch, and on run 41669140049 UI Automation arrived after the decode. Here the mirror keeps the fetch open until the test
+    /// has read the words, and a load cannot pass the map while its fetch is open (`ViewerPresenter.LoadDemoAsync`). The ceiling
+    /// only ends a hung run. That the decode is the first stage is pinned synthetically:
+    /// `LoadDemoAsync_ADemoWithItsMap_ReadsTheMapOffTheWindowsThreadBehindTheBarrier`.
     /// </remarks>
     [Test]
-    public void LoadingOverlay_WhenTheWindowFirstAppears_SaysTheDemoIsLoading()
+    public void LoadingOverlay_WhileTheMapIsBeingFetched_SaysSoOnScreen()
     {
-        ViewerSession.LoadingStageAtLaunch.ShouldNotBeNull("the overlay was not on screen while the demo loaded");
+        if (!File.Exists(CaptureUiTests.DemoPath))
+        {
+            Assert.Ignore($"The corpus demo is not present at {CaptureUiTests.DemoPath}.");
+            return;
+        }
 
-        string? first = ViewerSession.App.FirstLine("loading overlay: ");
+        string root = Directory.CreateDirectory(Path.Combine(Path.GetTempPath(), "tf2ds-ui-overlay-" + Guid.NewGuid().ToString("N"))).FullName;
+        TaskCompletionSource held = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        first.ShouldNotBeNull("the log has no stage the overlay was told");
-        first.Trim().ShouldEndWith("loading overlay: Decoding the demo");
+        try
+        {
+            using LocalMirror mirror = new("cp_granary", [], held.Task);
+            using ViewerApplication viewer = ViewerApplication.Launch(
+                new Dictionary<string, string?>
+                {
+                    [SteamInstall.SteamRootVariable] = Directory.CreateDirectory(Path.Combine(root, "emptysteam")).FullName,
+                    [SteamInstall.OverrideVariable] = null,
+                    [MapDownloader.CacheVariable] = Directory.CreateDirectory(Path.Combine(root, "cache")).FullName,
+                    [MapDownloader.MirrorVariable] = mirror.Url,
+                },
+                askForGameFolder: false,
+                CaptureUiTests.DemoPath);
+
+            string? stage = null;
+
+            Retry.WhileFalse(
+                () =>
+                {
+                    stage = viewer.Exists(MainForm.LoadingStageId) ? viewer.Find(MainForm.LoadingStageId).Name : stage;
+
+                    return stage?.StartsWith("Loading the map", StringComparison.Ordinal) == true;
+                },
+                TimeSpan.FromSeconds(180));
+
+            stage.ShouldNotBeNull("the overlay was not on screen while the map was being fetched");
+            stage.ShouldStartWith("Loading the map");
+            held.SetResult();
+        }
+        finally
+        {
+            held.TrySetResult();
+            CaptureUiTests.Clean(root);
+        }
     }
 
     [Test]

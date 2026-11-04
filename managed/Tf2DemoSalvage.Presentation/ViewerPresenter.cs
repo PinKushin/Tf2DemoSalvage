@@ -777,7 +777,7 @@ public sealed partial class ViewerPresenter : IDisposable
 
         _view.Status = DemoLoadResult.Opening(path);
         _loadsInFlight++;
-        ReportStage(LoadingDecode, 0d);
+        _view.ReportLoading(LoadingDecode, 0d);
 
         try
         {
@@ -824,7 +824,7 @@ public sealed partial class ViewerPresenter : IDisposable
             _view.OnUi(() =>
             {
                 decoding = false;
-                ReportStage(LoadingMap, fraction: null);
+                _view.ReportLoading(LoadingMap, fraction: null);
                 return 0;
             });
 
@@ -867,7 +867,7 @@ public sealed partial class ViewerPresenter : IDisposable
 
                     _view.OnUi(() =>
                     {
-                        ReportStage(LoadingAssets, fraction: null);
+                        _view.ReportLoading(LoadingAssets, fraction: null);
                         return 0;
                     });
 
@@ -989,16 +989,6 @@ public sealed partial class ViewerPresenter : IDisposable
 
     /// <summary>The background corpse pass, held so its outcome is observed — a test awaits it, and a fault is not lost (D181).</summary>
     public Task CorpseRecording { get; private set; } = Task.CompletedTask;
-
-    /// <summary>Tells the overlay a new stage and logs the same value.</summary>
-    /// <param name="stage">The overlay's words.</param>
-    /// <param name="fraction">How far through, or null when unknown.</param>
-    /// <remarks>The label holds only the latest stage and UI Automation can arrive after the decode (B707), so the log keeps the order. Not the decode's progress, which repeats a stage.</remarks>
-    private void ReportStage(string stage, double? fraction)
-    {
-        _view.ReportLoading(stage, fraction);
-        _log.LogInformation("loading overlay: {Stage}", stage);
-    }
 
     /// <summary>The overlay's words for the decode.</summary>
     private const string LoadingDecode = "Decoding the demo";

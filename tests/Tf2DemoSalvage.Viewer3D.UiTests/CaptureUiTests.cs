@@ -63,7 +63,7 @@ public sealed class CaptureUiTests
     /// </remarks>
     private const int ShotTick = 1000;
 
-    private static string DemoPath => Path.GetFullPath(Path.Combine(
+    internal static string DemoPath => Path.GetFullPath(Path.Combine(
         TestContext.CurrentContext.TestDirectory,
         "..", "..", "..", "..", "..",
         "tools", "corpus", "demos", DemoName));
