@@ -58,6 +58,7 @@ public sealed class LightAdmissionConformanceTests
         BspWorldLight loaded = BspWorldLights.AsLoaded(new BspWorldLight((0f, 0f, 0f), (100f, 100f, 100f), default, WorldLightKind.Surface), hdrLump: true);
 
         loaded.QuadraticAttenuation.ShouldBe(0f);
+        loaded.ConstantAttenuation.ShouldBe(0f, "a sabotage that wrote the constant passed until this line");
         loaded.Radius.ShouldBe(2000f);
     }
 
@@ -164,5 +165,8 @@ public sealed class LightAdmissionConformanceTests
         BspWorldLight surface = new((0f, 0f, 200f), (1000f, 1000f, 1000f), (0f, 0f, -1f), WorldLightKind.Surface, Radius: 100f);
 
         LocalLights.Fold(default, surface, 0f, 0f, 0f).PositiveZ.Red.ShouldBe(0f);
+
+        // The control: a radius that reaches adds the same light's 1000 / 200^2.
+        LocalLights.Fold(default, surface with { Radius = 300f }, 0f, 0f, 0f).PositiveZ.Red.ShouldBe(0.025f, 0.0001f);
     }
 }

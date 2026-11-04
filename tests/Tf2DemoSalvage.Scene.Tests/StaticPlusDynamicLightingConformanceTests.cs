@@ -63,7 +63,8 @@ public sealed class StaticPlusDynamicLightingConformanceTests
 
     /// <summary>
     /// `FUN_1801b5400` adds a listed lamp through `FUN_1801b5890`, which tests the point's cell, so a lamp only the box admitted is on the list and takes
-    /// no slot. Read in decompile: the list is what bit 4 walks, and bit 4 tests again.
+    /// no slot. Read in decompile on the older build (`+0x1940` on 11191711, by signature only): the list is what bit 4 walks, and bit 4 tests again.
+    /// The ranking count is the control: `Ranked` runs only for a handle whose list holds something, so the box did reach the list.
     /// </summary>
     [Test]
     public void StaticPlusDynamicLights_ALampOnlyThePropsBoxAdmitted_RanksNowhere()
@@ -73,6 +74,7 @@ public sealed class StaticPlusDynamicLightingConformanceTests
         lighting.PrecacheStaticProp(1000, 0f, 0f, 100f, new LightBounds((0f, 0f, 0f), (0f, 0f, 155f)));
 
         lighting.StaticPlusDynamicLights(1000, 0f, 0f, 100f).Locals.Count.ShouldBe(0);
+        lighting.StyledRankings.ShouldBe(1, "the box listed it, so bit 4 ranked");
     }
 
     /// <summary>Flags 6: no static state — the style-0 lamp beside the styled one is what the colours already hold.</summary>
