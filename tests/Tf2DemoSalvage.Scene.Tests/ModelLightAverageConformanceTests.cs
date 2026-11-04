@@ -332,6 +332,22 @@ public sealed class ModelLightAverageConformanceTests
         Draw(off, State(0.25f), 10.4d).Cube.ShouldBe(Flat(0.25f));
     }
 
+    /// <summary>A dlit state's list is built on demand; with the average off it is read here, at this moment's style, as the render thread must not read it later (B581).</summary>
+    [Test]
+    public void Draw_WithTheAverageOffOverAListBuiltOnDemand_FixesItAtThisMomentsStyle()
+    {
+        ModelLightAverage off = new() { Enabled = false };
+        float scale = 1f;
+        LightingState state = State(0f, LampA);
+        PointLighting lazily = state.LightingOnDemand(_ => scale);
+
+        System.Collections.Generic.IReadOnlyList<LocalLight> drawn = off.Draw(Entity, Model, state, state.Cube, null, lazily.Locals, 0f, 0f, 0f, 10d, 0, lazily.Style).Locals;
+
+        scale = 0f;
+
+        drawn.Single().Red.ShouldBe(40f);
+    }
+
     /// <summary>The instance goes with the model it was made for, so a new model is a first draw.</summary>
     [Test]
     public void Draw_AfterTheEntitysModelChanged_IsAFirstDraw()

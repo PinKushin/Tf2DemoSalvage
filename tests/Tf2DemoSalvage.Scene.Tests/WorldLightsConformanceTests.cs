@@ -4,6 +4,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 
 using Tf2DemoSalvage.Content.Bsp;
 using Tf2DemoSalvage.Core.Net;
+using Tf2DemoSalvage.Core.Scene;
 
 namespace Tf2DemoSalvage.Scene.Tests;
 
@@ -16,7 +17,7 @@ namespace Tf2DemoSalvage.Scene.Tests;
 /// </remarks>
 public sealed class WorldLightsConformanceTests
 {
-    /// <summary>Two lamps at a known falloff from the point: 16 and 4 at 4 and 2 of green at the +X face.</summary>
+    /// <summary>Two lamps ten units along +X of the point, a falloff of 1/100: 8 and 4 on the +X face. Handed weaker first, so ranking keeps the stronger and not the list's order.</summary>
     private static readonly BspWorldLight Stronger = new((10f, 0f, 0f), (800f, 800f, 800f), default, WorldLightKind.Point, QuadraticAttenuation: 1f, Radius: 1000f, LumpIndex: 0);
 
     private static readonly BspWorldLight Weaker = new((10f, 0f, 0f), (400f, 400f, 400f), default, WorldLightKind.Point, QuadraticAttenuation: 1f, Radius: 1000f, LumpIndex: 1);
@@ -74,18 +75,81 @@ public sealed class WorldLightsConformanceTests
         lighting.WorldLightSlots.ShouldBe(4);
     }
 
-    /// <summary>The average's own reader: the production path sets its limit from the level's, and a light that left past it folds.</summary>
+    /// <summary>
+    /// The production path, to what the draw carries: one slot from a config, through `MomentScene.Build` and `Pose`, onto the lamp that wins it, the
+    /// other in the cube. The level's light is a real state through a real leaf tree; a light at (10 0 100) from the walker at (0 0 100).
+    /// </summary>
     [Test]
-    public void Pose_AConfigsWorldLights_ReachesTheLevelAndTheAverage()
+    public void Pose_AConfigsWorldLightsOfOne_DrawsOneLampAndTheOtherInTheCube()
     {
-        EntityModelSet models = new();
-        MomentScene scene = new(models, new ViewmodelScene(), NullLogger.Instance);
-        MomentInfo info = new(0d, 0, false, null, null, 0.015f, 54f, WorldLights: 2);
+        ModelInstance drawn = Drawn(worldLights: 1);
 
-        scene.Build([], [], info);
+        drawn.Locals.ShouldNotBeNull().Single().Red.ShouldBe(800f, 0.001f);
+        drawn.Light.ShouldNotBeNull().PositiveX.Red.ShouldBe(4f, 0.001f);
+
+        // The control, the default: both lamps in slots and nothing in the cube.
+        ModelInstance control = Drawn(worldLights: 4);
+
+        control.Locals.ShouldNotBeNull().Count.ShouldBe(2);
+        control.Light.ShouldNotBeNull().PositiveX.Red.ShouldBe(0f, 0.001f);
+    }
+
+    private static ModelInstance Drawn(int worldLights)
+    {
+        BspWorldLight weaker = Weaker with { Origin = (10f, 0f, 100f), Cluster = 0 };
+        BspWorldLight stronger = Stronger with { Origin = (10f, 0f, 100f), Cluster = 0 };
+        SceneProp prop = EntityModelSetPrePoseTests.Prop("models/player/demo.mdl", 5) with { Pose = new ScenePose { Z = 100f, Scale = 1f } };
+        EntityModelSet models = new();
+
+        models.Add([prop], static _ => EntityModelSetPrePoseTests.Skinned("root"));
+
+        MomentScene scene = new(models, new ViewmodelScene(), NullLogger.Instance)
+        {
+            Lighting = StaticPlusDynamicLightingConformanceTests.Map([weaker, stronger]),
+        };
+        MomentInfo info = new(0d, 0, false, null, null, 0.015f, 54f, WorldLights: worldLights);
+
+        scene.Build([], [prop], info);
         scene.Pose(info);
 
-        scene.Lighting.WorldLightSlots.ShouldBe(2);
-        models.LightAverage.Limit.ShouldBe(2);
+        models.LightAverage.Limit.ShouldBe(scene.Lighting.WorldLightSlots);
+
+        return scene.Instances.Single();
+    }
+
+    /// <summary>A change relights every handle (`FUN_1801bcbb0`) and a handle keeps the world box it was made with, or its list and its dlights would test the point's cell.</summary>
+    [Test]
+    public void WorldLightSlots_Changed_RanksAHandleAgainWithItsListAndBox()
+    {
+        // Only the box lists this lamp, and only a listed lamp makes a ranking: a list rebuilt from the point's cell would rank nothing.
+        BspWorldLight onlyTheBox = new((0f, 0f, 160f), (9f, 9f, 9f), default, WorldLightKind.Point, QuadraticAttenuation: 1f, Radius: 10f, Style: 5, Cluster: 0, LumpIndex: 0);
+        LevelLighting lighting = StaticPlusDynamicLightingConformanceTests.Map([onlyTheBox]);
+
+        lighting.PrecacheStaticProp(1000, 0f, 0f, 100f, new LightBounds((0f, 0f, 0f), (0f, 0f, 155f)));
+        lighting.StaticPlusDynamicLights(1000, 0f, 0f, 100f);
+        lighting.StyledRankings.ShouldBe(1, "the control: the box listed it");
+
+        lighting.WorldLightSlots = 1;
+        lighting.StaticPlusDynamicLights(1000, 0f, 0f, 100f);
+
+        lighting.StyledRankings.ShouldBe(2);
+        lighting.StyledListsBuilt.ShouldBe(1, "the list was kept, not built again");
+    }
+
+    /// <summary>A dlight lighting a static prop writes the table as a moving model's does: `FUN_1801bbed0` passes `DAT_180775730` (`0x1801bc569`).</summary>
+    [Test]
+    public void StaticPropFullLightingAt_ADlightOnAStaticProp_WritesItsConvertedSlot()
+    {
+        LevelLighting lighting = StaticPlusDynamicLightingConformanceTests.Map([]);
+        DynamicLights dynamic = new();
+        DynamicLight light = dynamic.AllocDlight(1);
+
+        (light.X, light.Y, light.Z, light.Radius, light.Red, light.Green, light.Blue) = (0f, 0f, 120f, 100f, 200, 200, 200);
+        light.Die = 100f;
+        lighting.Dynamic = dynamic;
+
+        lighting.StaticPropFullLightingAt(1000, 0f, 0f, 100f);
+
+        lighting.ConvertedDlights[light.Slot].Origin.ShouldBe((0f, 0f, 120f));
     }
 }

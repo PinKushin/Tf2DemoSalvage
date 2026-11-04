@@ -160,7 +160,13 @@ public sealed class LevelLighting
             _cache = new LightCache<CachedLight>(CachedLight.Unbuilt);
             _entryAsked = null;
             _staticStates.Clear();
-            _styledByEntity.Clear();
+
+            // Reranked at their next ask, with the list and the world box they were made with (`FUN_1801bbed0( handle, 0, 1 )`).
+            foreach (StyledHandle handle in _styledByEntity.Values)
+            {
+                handle.BuiltAt = -1;
+                handle.Full = null;
+            }
         }
     } = LocalLights.MaximumLocalLights;
 
@@ -1117,7 +1123,16 @@ public sealed class LevelLighting
             if (dynamic.LightsModels(index) && InPvs(lightCluster, propCluster))
             {
                 added ??= state.Clone();
-                LocalLights.Add(added, DynamicLights.ToWorldLight(light, lightCluster), x, y, z, StyleScale, dynamicLight: true, bounds, WorldLightSlots);
+
+                // Into the same table as a moving model's merge: `FUN_1801bbed0` hands `FUN_1801bd280` `DAT_180775730` too (`0x1801bc569`).
+                BspWorldLight converted = DynamicLights.ToWorldLight(light, lightCluster);
+
+                if (light.Slot >= 0)
+                {
+                    ConvertedDlights[light.Slot] = converted;
+                }
+
+                LocalLights.Add(added, converted, x, y, z, StyleScale, dynamicLight: true, bounds, WorldLightSlots);
             }
         }
 

@@ -23,8 +23,8 @@ namespace Tf2DemoSalvage.Scene;
 /// (`FUN_1800f4310` copies 0x58 bytes through the stored pointer, then writes only the colour). The sun is one light in a slot
 /// (`FUN_1800f2010` case 3) and travels apart in this project, so here it is stored and counted among the slots.
 ///
-/// **A jump back is not this class's**: `FramePresenter`'s skip back calls <see cref="Clear"/>, as the engine's reload makes every instance
-/// new. Here, as there, a clock behind the stored time holds the light (B676).
+/// **Going back is not this class's**: `FramePresenter` calls <see cref="Clear"/> on any whole tick shown behind the last, a jump or reverse
+/// play, as the engine's reload makes every instance new. Here, as there, a clock behind the stored time holds the light (B676).
 ///
 /// **`f` is clamped in the cube alone and is raw on the slots**, as `FUN_1800f4090` clamps its own copy and `FUN_1800f4310` does not, so a
 /// negative `r_lightinterp` extrapolates a slot and a NaN one persists, in the engine too: `FUN_180283e80` registers the cvar with no bounds.
@@ -109,9 +109,13 @@ public sealed class ModelLightAverage
         Func<int, float>? style)
     {
         ArgumentNullException.ThrowIfNull(model);
+        ArgumentNullException.ThrowIfNull(locals);
 
         if (!Enabled || Rate == 0f)
         {
+            // The count forces a list built on demand, here on the main thread at this moment's styles: the render thread reads what it is handed (B581).
+            _ = locals.Count;
+
             return new Averaged(cube, sun, locals);
         }
 

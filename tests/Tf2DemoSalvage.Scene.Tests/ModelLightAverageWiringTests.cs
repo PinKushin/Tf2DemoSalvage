@@ -106,6 +106,54 @@ public sealed class ModelLightAverageWiringTests
         models.LightAverage.Draws.ShouldBe(0L);
     }
 
+    /// <summary>A stuck arrow is a `C_LocalTempEntity`, `MODEL_INSTANCE_INVALID` (`c_te_legacytempents.cpp:178`), so `param_2 != 0xffff` fails and it draws its state. Logged live.</summary>
+    [Test]
+    public void Instances_AStuckArrow_DrawsItsStateAndStoresNoHistory()
+    {
+        SceneProp arrow = Prop(BoltImpacts.FirstArrowEntityIndex);
+        EntityModelSet models = Models(arrow);
+        List<ModelInstance> drawn = [];
+
+        models.Instances([arrow], drawn, (_, _, _) => Lit(1f, Lamp), static (_, _, _) => null, 10d);
+        models.Instances([arrow], drawn, (_, _, _) => Lit(0.5f, Lamp), static (_, _, _) => null, 10.2d);
+
+        drawn.Single().Light.ShouldBe(Flat(0.5f));
+        models.LightAverage.Draws.ShouldBe(0L);
+    }
+
+    /// <summary>An econ attachment is drawn with `instance = MODEL_INSTANCE_INVALID` (`econ_entity.cpp:129`), so it draws the state its parent's history blends.</summary>
+    [Test]
+    public void Instances_AnEconAttachment_DrawsTheStateItsParentAverages()
+    {
+        SceneProp prop = Prop();
+        EntityModelSet models = Models(prop);
+        List<ModelInstance> drawn = [];
+
+        models.Attachments = static _ => ["models/attached.mdl"];
+        models.Instances([prop], drawn, (_, _, _) => Lit(1f, Lamp), static (_, _, _) => null, 10d);
+        models.Instances([prop], drawn, (_, _, _) => Lit(0.5f, Lamp), static (_, _, _) => null, 10.2d);
+
+        drawn.Single(static instance => instance.ModelPath == Path).Light.ShouldNotBeNull().PositiveX.Red.ShouldBe(0.5f + (0.5f * F), 0.0001f);
+        drawn.Single(static instance => instance.ModelPath == "models/attached.mdl").Light.ShouldBe(Flat(0.5f));
+    }
+
+    /// <summary>The undrawn pass is posed for what may be a monitor's draw and the hidden pass for a decal's: neither stamps a history, and the undrawn one's model carries its raw state.</summary>
+    [Test]
+    public void Instances_TheUndrawnAndHiddenPasses_StoreNoHistory()
+    {
+        SceneProp prop = Prop();
+        EntityModelSet models = Models(prop);
+        List<ModelInstance> drawn = [];
+
+        models.Instances([prop], drawn, (_, _, _) => Lit(1f, Lamp), static (_, _, _) => null, 10d, pass: EntityModelSet.UndrawnPass);
+
+        drawn.Single().Light.ShouldBe(Flat(1f), "the instrument: the undrawn pass reached the draw's code");
+
+        models.Instances([prop], drawn, (_, _, _) => Lit(1f, Lamp), static (_, _, _) => null, 10d, pass: EntityModelSet.HiddenPass);
+
+        models.LightAverage.Draws.ShouldBe(0L);
+    }
+
     /// <summary>A static prop has a handle, `param_4`, so `FUN_1800f2dd0` draws its full state with no average, however it changes.</summary>
     [Test]
     public void Instances_AStaticProp_DrawsItsStateAndStoresNoHistory()

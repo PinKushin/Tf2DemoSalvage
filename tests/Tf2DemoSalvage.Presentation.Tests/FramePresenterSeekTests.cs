@@ -30,25 +30,57 @@ public sealed class FramePresenterSeekTests
 {
     private const string HudScript = "Hud.Hint";
 
-    /// <summary>A skip back reloads the demo in TF2, so every instance is new (B676); a skip forward keeps them, and so does a frame a hair behind.</summary>
+    private static void Stamp(Seeking seeking) => seeking.Models.LightAverage.Draw(1, "model", null, default, null, [], 0f, 0f, 0f, 1d, 0, null);
+
+    /// <summary>A skip back reloads the demo in TF2, so every instance is new (B676); a skip forward keeps them, and so does a frame behind within its tick.</summary>
     [Test]
-    public void Show_ASkipBackAndNoOtherMove_ForgetsTheModelsLightHistory()
+    public void Show_ASkipBack_ForgetsTheModelsLightHistoryAndNothingForwardDoes()
     {
         Seeking seeking = new();
 
-        void Stamp() => seeking.Models.LightAverage.Draw(1, "model", null, default, null, [], 0f, 0f, 0f, 1d, 0, null);
-
         seeking.Show(100d);
-        Stamp();
+        Stamp(seeking);
 
-        seeking.Show(200d);
+        seeking.Show(200.75d);
         seeking.Models.LightAverage.Instances.ShouldBe(1, "a skip forward keeps them");
 
-        seeking.Show(199d, jump: false);
-        seeking.Models.LightAverage.Instances.ShouldBe(1, "a played frame a hair behind keeps them");
+        seeking.Show(200.25d, jump: false);
+        seeking.Models.LightAverage.Instances.ShouldBe(1, "a played frame behind within its tick keeps them");
 
         seeking.Show(50d);
         seeking.Models.LightAverage.Instances.ShouldBe(0);
+    }
+
+    /// <summary>Reverse play changes no jump count, and going back behaves as a reload, or each model holds its light until forward play passes the old time.</summary>
+    [Test]
+    public void Show_ReversePlayWithNoJump_ForgetsTheModelsLightHistory()
+    {
+        Seeking seeking = new();
+
+        seeking.Show(100d);
+        seeking.Show(120d, jump: false);
+        Stamp(seeking);
+
+        seeking.Show(119d, jump: false);
+
+        seeking.Models.LightAverage.Instances.ShouldBe(0);
+    }
+
+    /// <summary>A walk's own shows return before the decision, so what clears a jump back is the outer call, before the walk's first frame.</summary>
+    [Test]
+    public void Show_AJumpBack_HasClearedBeforeItsWalksFirstFrame()
+    {
+        Seeking seeking = new();
+        List<int> during = [];
+
+        seeking.Show(500d);
+        Stamp(seeking);
+        seeking.InHudFrame = _ => during.Add(seeking.Models.LightAverage.Instances);
+
+        seeking.Show(300d);
+
+        during.ShouldNotBeEmpty("the instrument: the walk ran");
+        during.ShouldAllBe(static count => count == 0);
     }
 
     private static readonly DemoTimeline Timeline = DemoTimeline.Build(SyntheticEffects.Demo(

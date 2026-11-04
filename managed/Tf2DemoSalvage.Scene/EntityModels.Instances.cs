@@ -792,8 +792,17 @@ public sealed partial class EntityModelSet
             // `FUN_1800f2dd0` (from `FUN_1800ec3a0`) only from a `DrawModel` that was not refused, so this stands after every refusal above:
             // a wearer not drawn, `C_TFPlayer::DrawModel`'s cloak. **Not a static prop's**: it has a handle, `param_4` (B674). A caller's own
             // list with no state behind it has no raw colours to blend, and only a test hands one over. Clocked to the lighting column and out
-            // of the placing one it sits inside.
-            if (!isStatic && light is { } sampledCube && (lit.Sampled.State is not null || locals.Count == 0))
+            // of the placing one it sits inside. ponytail: the undrawn pass is posed when a monitor CAN draw, which is not that one did, so it stamps
+            // nothing, and a first-person recorder seen in a monitor draws his raw state where TF2's would ease; ask the device if a monitor shows it.
+            //
+            // **And a model with no instance draws its state**, the gate's third test, `param_2 != 0xffff`. Logged from the running engine, every such
+            // model on f12 was a stuck arrow's `C_LocalTempEntity` (`c_te_legacytempents.cpp:178`) or an econ attachment (`econ_entity.cpp:129`), so
+            // those keep what was sampled (`measurements/2026-11-04-b676-no-instance.md`).
+            AmbientCube? rawLight = light;
+            SunLight? rawSun = sun;
+            IReadOnlyList<LocalLight> rawLocals = locals;
+
+            if (!isStatic && pass != UndrawnPass && !BoltImpacts.IsArrow(prop.EntityIndex) && light is { } sampledCube && (lit.Sampled.State is not null || locals.Count == 0))
             {
                 long averagedAt = System.Diagnostics.Stopwatch.GetTimestamp();
 
@@ -806,12 +815,22 @@ public sealed partial class EntityModelSet
 
                 _lighting.Ticks += averagedFor;
                 placingAt += averagedFor;
+                buildingAt += averagedFor;
             }
 
             if (lightAt is not null)
             {
-                // What is drawn, not what was asked for first, which for a static prop asked nothing (B674, B243).
+                // What is drawn, not what was asked for first, which for a static prop asked nothing (B674, B243). In the report column, as it was
+                // when it ran above, and so out of the placing ones it now sits inside.
+                long litAt = System.Diagnostics.Stopwatch.GetTimestamp();
+
                 _reports.Lit(prop, lit with { Light = light, Sun = sun, Locals = locals }, skin);
+
+                long litFor = System.Diagnostics.Stopwatch.GetTimestamp() - litAt;
+
+                ReportTicks += litFor;
+                placingAt += litFor;
+                buildingAt += litFor;
             }
 
             into.Add(new ModelInstance(
@@ -923,6 +942,9 @@ public sealed partial class EntityModelSet
                 continue;
             }
 
+            // Forces a list built on demand, here on the main thread at this moment's styles: the render thread reads what it is handed (B581).
+            _ = rawLocals.Count;
+
             foreach (string attachment in attachmentsFor(prop))
             {
                 _ = _frames.TryGetValue(attachment, out PropModels.ModelFrames? attachedParts);
@@ -948,8 +970,8 @@ public sealed partial class EntityModelSet
                 into.Add(new ModelInstance(
                     attachment,
                     matrices.Next(transform),
-                    light,
-                    sun,
+                    rawLight,
+                    rawSun,
                     frame,
                     blend,
                     bones,
@@ -961,7 +983,7 @@ public sealed partial class EntityModelSet
                     Mirrored: prop.FlipViewModel,
                     Origin: origin,
                     Tint: EntityTint(attachment),
-                    Locals: locals,
+                    Locals: rawLocals,
                     WorldBounds: bounds,
                     TwoPass: attachedParts?.TwoPass ?? false,
                     Alpha: fx.Blend,

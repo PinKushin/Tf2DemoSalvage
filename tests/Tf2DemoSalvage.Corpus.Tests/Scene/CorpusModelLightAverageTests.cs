@@ -63,6 +63,71 @@ public sealed class CorpusModelLightAverageTests
         averaged.WorstSlot.ShouldBeLessThan(0.0005f, "each light's colour through the draw");
     }
 
+    /// <summary>
+    /// `r_worldlights 1` on the production path, `MomentScene.Build` and `Pose`, along the same walk: never more than one lamp reaches the draw, and
+    /// what lost its slot is in the cube. The control is the default on the same walk, which must draw more than one somewhere.
+    /// </summary>
+    [Test]
+    public void Pose_AlongARealWalkAtWorldLightsOfOne_DrawsOneLampAndFoldsTheRestIntoTheCube()
+    {
+        (MapAssets assets, MapLevel level, DemoTimeline timeline) = Load();
+        (int oneMost, int oneDraws, float oneCube) = SceneWalk(assets, level, timeline, 1);
+        (int fourMost, int fourDraws, float fourCube) = SceneWalk(assets, level, timeline, 4);
+
+        TestContext.Out.WriteLine($"one: most {oneMost}, draws {oneDraws}, cube {oneCube:0.0}; four: most {fourMost}, draws {fourDraws}, cube {fourCube:0.0}");
+
+        oneDraws.ShouldBe(fourDraws, "the same walk");
+        oneDraws.ShouldBeGreaterThan(100, "the instrument: a model along the walk");
+        fourMost.ShouldBeGreaterThan(1, "the control: this walk has more than one lamp to lose");
+        oneMost.ShouldBe(1);
+        oneCube.ShouldBeGreaterThan(fourCube, "the lamps that lost their slots went to the cube");
+    }
+
+    private static (int MostLamps, int Draws, float Cube) SceneWalk(MapAssets assets, MapLevel level, DemoTimeline timeline, int worldLights)
+    {
+        LevelLighting lighting = LevelLighting.From(level, NullLogger.Instance);
+        EntityModelSet models = new() { Geometry = assets.Geometry };
+        MomentScene scene = new(models, new ViewmodelScene(), NullLogger.Instance) { Lighting = lighting };
+        SceneProp stands = assets.StaticModels[0] with { EntityIndex = Walker };
+        List<ScenePlayer> players = [];
+        int recorder = timeline.RecorderEntityIndex ?? throw new InvalidOperationException("a point-of-view demo has a recorder");
+        int most = 0;
+        int draws = 0;
+        float cube = 0f;
+
+        models.Add([stands]);
+
+        for (int tick = timeline.FirstTick; tick <= timeline.LastTick; tick += 4)
+        {
+            timeline.PlayersAt(tick, players, false);
+
+            int at = players.FindIndex(candidate => candidate.EntityIndex == recorder);
+
+            if (at < 0)
+            {
+                continue;
+            }
+
+            SceneProp prop = stands with { Pose = stands.Pose with { X = players[at].X, Y = players[at].Y, Z = players[at].Z } };
+            MomentInfo info = new(tick, tick, false, null, null, timeline.IntervalPerTick, 54f, WorldLights: worldLights);
+
+            scene.Build([], [prop], info);
+            scene.Pose(info);
+
+            foreach (ModelInstance instance in scene.Instances)
+            {
+                if (instance.EntityIndex == Walker && instance.Light is { } light)
+                {
+                    draws++;
+                    most = Math.Max(most, instance.Locals?.Count ?? 0);
+                    cube += Faces(light).Sum();
+                }
+            }
+        }
+
+        return (most, draws, cube);
+    }
+
     private static (MapAssets Assets, MapLevel Level, DemoTimeline Timeline) Load()
     {
         if (Corpus.Demo(Demo) is not { } path)
@@ -197,8 +262,16 @@ public sealed class CorpusModelLightAverageTests
             now.Add(new BspWorldLight(default, (reaching.Red, reaching.Green, reaching.Blue), (reaching.DirectionX, reaching.DirectionY, reaching.DirectionZ), WorldLightKind.SkyLight));
         }
 
-        bool Same(BspWorldLight a, BspWorldLight b) =>
-            a.Kind == WorldLightKind.SkyLight || b.Kind == WorldLightKind.SkyLight ? a.Kind == b.Kind : a.LumpIndex == b.LumpIndex;
+        // A dlight by its slot, a lump light by its entry, the sun being one light.
+        bool Same(BspWorldLight a, BspWorldLight b)
+        {
+            if (a.DynamicSlot >= 0 || b.DynamicSlot >= 0)
+            {
+                return a.DynamicSlot == b.DynamicSlot;
+            }
+
+            return a.Kind == WorldLightKind.SkyLight || b.Kind == WorldLightKind.SkyLight ? a.Kind == b.Kind : a.LumpIndex == b.LumpIndex;
+        }
 
         List<Slot> next = [];
 
@@ -240,12 +313,18 @@ public sealed class CorpusModelLightAverageTests
             if (slot.Light.Kind == WorldLightKind.SkyLight)
             {
                 suns++;
-                worst = Math.Max(worst, Relative(shownSun.ShouldNotBeNull("the sun in the prediction reached the draw").Red, slot.Colour.Red));
+
+                SunLight sun = shownSun.ShouldNotBeNull("the sun in the prediction reached the draw");
+
+                worst = Math.Max(worst, Relative3((sun.Red, sun.Green, sun.Blue), slot.Colour, 1f));
             }
             else if (slot.Light.Kind != WorldLightKind.QuakeLight)
             {
                 lamps++;
-                worst = Math.Max(worst, Relative(shownLamps[lamp++].Red, slot.Colour.Red * (state.Style?.Invoke(slot.Light.Style) ?? 1f)));
+
+                LocalLight shown = shownLamps[lamp++];
+
+                worst = Math.Max(worst, Relative3((shown.Red, shown.Green, shown.Blue), slot.Colour, state.Style?.Invoke(slot.Light.Style) ?? 1f));
             }
         }
 
@@ -257,6 +336,11 @@ public sealed class CorpusModelLightAverageTests
 
     /// <summary>Lump colours run to hundreds, so a float's error is compared to the size of what it is in.</summary>
     private static float Relative(float shown, float predicted) => Math.Abs(shown - predicted) / (Math.Abs(predicted) + 1f);
+
+    private static float Relative3((float Red, float Green, float Blue) shown, (float Red, float Green, float Blue) colour, float style) =>
+        Math.Max(
+            Relative(shown.Red, colour.Red * style),
+            Math.Max(Relative(shown.Green, colour.Green * style), Relative(shown.Blue, colour.Blue * style)));
 
     private static float[] Faces(AmbientCube cube) =>
     [

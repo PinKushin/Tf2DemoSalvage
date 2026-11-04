@@ -186,8 +186,10 @@ public sealed partial class FramePresenter
 
         _jumpsSkipped = _jumpsNow;
 
-        // A skip back reloads the demo in TF2, so every model instance is new and its next draw a first draw (B676, `FUN_1800eb5d0`).
-        if (skipped && target < from)
+        // Going back behaves as a reload (B676, `FUN_1800eb5d0`): TF2's skip back is one, so every model instance is new and its next draw a
+        // first draw; reverse play is ours and follows it, whole ticks being the measure, so a frame behind within its tick holds. The
+        // guard above returns only inside a seek's own walk, whose outer call has cleared already and whose poses draw nothing.
+        if (target < from)
         {
             _models.LightAverage.Clear();
         }

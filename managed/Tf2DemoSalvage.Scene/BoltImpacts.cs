@@ -129,6 +129,11 @@ public static class BoltImpacts
     /// <summary>How many arrows can be told apart at once; an index is reused after this many.</summary>
     private const int ArrowSlots = 1024;
 
+    /// <summary>Whether an entity index is a stuck arrow's, a `C_LocalTempEntity` in the engine (`c_te_legacytempents.cpp:178`): a model with no instance (B676).</summary>
+    /// <param name="entity">The index.</param>
+    /// <returns>True for an arrow's.</returns>
+    public static bool IsArrow(int entity) => entity is >= FirstArrowEntityIndex and < FirstArrowEntityIndex + ArrowSlots;
+
     /// <summary>Adds every arrow standing at a tick to a frame's props.</summary>
     /// <param name="arrows">The demo's arrows, in tick order.</param>
     /// <param name="tick">The tick drawn.</param>
