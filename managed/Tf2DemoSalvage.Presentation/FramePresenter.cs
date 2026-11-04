@@ -351,6 +351,17 @@ public sealed partial class FramePresenter
     internal void DrawOver(in ViewFrame frame, FreeCamera viewing, IFrameDevice device)
     {
         _frame = frame;
+
+        // **No effects on a skip's frames** (B708): a jump rebuilds them at the landing (D221), and stepping them here over 99
+        // ticks a frame would fire one-shots the engine's skip drops (`svc_TempEntities`, B504).
+        if (Skipping)
+        {
+            _lastParticles = [];
+            device.SetParticles([]);
+
+            return;
+        }
+
         _particles.Workers.Threaded = frame.ThreadedParticles;
 
         int tick = _frame.Tick;

@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 
 using Tf2DemoSalvage.Core.Scene;
@@ -13,13 +14,33 @@ public readonly record struct SkipFrame(int Through, IReadOnlyList<SceneSound> L
 /// <param name="From">Where playback was, or null when it was nowhere.</param>
 /// <param name="To">The tick skipped to.</param>
 /// <param name="Frames">The frames, in order.</param>
-public sealed record SoundSkip(int? From, int To, IReadOnlyList<SkipFrame> Frames);
+public sealed record SoundSkip(int? From, int To, IReadOnlyList<SkipFrame> Frames)
+{
+    /// <summary>What it read before each reload a later `demo_gototick` made it take, in order; each dealt before this.</summary>
+    public IReadOnlyList<SoundSkip> Reloaded { get; init; } = [];
+}
 
 /// <summary>The frames `demo_gototick` renders on its way to a tick (B504).</summary>
 public static class DemoSkip
 {
     /// <summary>The packets one read loop takes while skipping.</summary>
     public const int PacketsPerFrame = 99;
+
+    /// <summary>The most demo seconds a frame can carry: `Host_FilterTime` (engine.dll FUN_18019ffe0) caps a demo frame at 0.1 s.</summary>
+    private const double LongestFrameSeconds = 0.1;
+
+    /// <summary>How many read loops a frame runs: one per tick the frame built up, and one with none.</summary>
+    /// <param name="frameSeconds">The frame's length.</param>
+    /// <param name="intervalPerTick">Seconds per tick; zero for a demo that does not say.</param>
+    /// <returns>At least one.</returns>
+    /// <remarks>
+    /// `_Host_RunFrame` (FUN_1801a4570) divides its accumulated time by the interval and runs `_Host_RunFrame_Client` that many
+    /// times; with no tick it still runs it once, when the demo player says it is skipping.
+    /// </remarks>
+    public static int BatchesThisFrame(double frameSeconds, float intervalPerTick) =>
+        intervalPerTick > 0f
+            ? Math.Max(1, (int)(Math.Min(frameSeconds, LongestFrameSeconds) / intervalPerTick))
+            : 1;
 
     /// <summary>The last tick of each batch a skip reads and renders before the frame that reaches its target.</summary>
     /// <param name="first">The first tick the skip reads.</param>

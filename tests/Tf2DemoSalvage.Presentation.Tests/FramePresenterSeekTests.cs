@@ -101,7 +101,7 @@ public sealed class FramePresenterSeekTests
                 new SoundscapeSystem(new ActiveLoops(), static _ => null, NullLogger.Instance),
                 new ActiveLoops(),
                 static _ => null,
-                NullLogger.Instance);
+                Audio);
 
             if (scripts)
             {
@@ -181,9 +181,431 @@ public sealed class FramePresenterSeekTests
                 jump ? ++_jumps : _jumps,
                 Queue);
 
-        private static ViewFrame Frame(double shown, double demoFrameSeconds) =>
-            new(Timeline, null, null, (int)shown, shown, false, false, null, 1280, 720, 0.016f, demoFrameSeconds, true, true, true, 2048, 50);
+        /// <summary>The demo the window has open.</summary>
+        public DemoTimeline Demo { get; set; } = Timeline;
+
+        private ViewFrame Frame(double shown, double demoFrameSeconds) =>
+            new(Demo, null, null, (int)shown, shown, false, false, null, 1280, 720, 0.016f, demoFrameSeconds, true, true, true, 2048, 50);
+
+        /// <summary>One frame's step of the walk: the host's frame, one batch long, over the open demo.</summary>
+        public bool Step() =>
+            Frames.StepSkip(new ViewFrame(Demo, null, null, 0, 0d, false, false, null, 1280, 720, 0f, 0d, true, true, true, 2048, 50));
+
+        /// <summary>Hands the deck what the walk made, as the update on the frame it lands on does.</summary>
+        public void Landed(int tick) =>
+            Sound.Update(new NoSink(), tick, (0f, 0f, 0f), (0f, -1f, 0f), 0d, move: Frames.Skip);
     }
+
+    /// <summary>Plays nothing.</summary>
+    private sealed class NoSink : IAudioSink
+    {
+        public float MasterGain { get; set; } = 1f;
+
+        public int Play(SoundSample sample, float leftPan, float rightPan, float gain, float pitch, int entity, int channel) => 0;
+
+        public bool SetVoiceGain(int voice, float gain) => false;
+
+        public bool SetVoicePitch(int voice, float pitch) => false;
+
+        public bool SetGain(int entity, int channel, float gain) => false;
+
+        public bool SetPitch(int entity, int channel, float pitch) => false;
+
+        public void SilenceAll()
+        {
+            // Nothing is held.
+        }
+
+        public int Reclaim() => 0;
+
+        public void Silence(int entity, int channel)
+        {
+            // Nothing is held.
+        }
+
+        public int Silence(int entity, int channel, SoundSample sample) => 0;
+    }
+
+    /// <remarks>
+    /// A second demo opened during a walk is not a new target for it: its ticks are another recording's, and what the walk made is
+    /// not its history (`Skip`'s deck outlives demos, B504, so an old frame handed over would deal into the new one).
+    /// </remarks>
+    [Test]
+    public void ShowMomentOver_AnotherDemoDuringASkip_DropsTheWalkAndSkipsInTheNewOne()
+    {
+        Seeking seek = new();
+
+        seek.Frames.SkipsAcrossFrames = true;
+        seek.Show(500d);
+        seek.Step();
+
+        seek.Demo = DemoTimeline.Build(SyntheticEffects.Demo(
+            [new(1, SyntheticEffects.PlayerClass, SyntheticEffects.Standing(0f, 0f, 0f, 2))],
+            [],
+            [],
+            [],
+            new SyntheticEffects.Effect(900, "CTETFBlood", new Dictionary<string, PropertyValue>(StringComparer.Ordinal))));
+        seek.HudFrames.Clear();
+        seek.Show(300d);
+
+        seek.Frames.Skipping.ShouldBeTrue("the new demo's own seek");
+
+        while (seek.Frames.Skipping)
+        {
+            seek.Step();
+        }
+
+        seek.Shown[^1].ShouldBe(300d, "the moment asked of the new demo is shown");
+        seek.HudFrames[0].ShouldBe(seek.Demo.FirstTick + DemoSkip.PacketsPerFrame - 1, "from the new demo's start");
+        seek.Audio.Count("skip: to 500").ShouldBe(0, "the old walk hands nothing to the deck");
+        seek.Render.Count(FramePresenter.SkipLandedLine + " 500").ShouldBe(0);
+        seek.Render.Count(FramePresenter.SkipLandedLine + " 300").ShouldBe(1);
+    }
+
+    /// <summary>The close and load paths' call: `RenderFrame` steps nothing during a map read, so nothing else would end the walk.</summary>
+    [Test]
+    public void DropSkip_DuringASkip_LandsNothingDealsNothingAndHoldsNothing()
+    {
+        Seeking seek = new();
+
+        seek.Frames.SkipsAcrossFrames = true;
+        seek.Show(500d);
+        seek.Step();
+        seek.Models.HoldsCorpses.ShouldBeTrue("the control: the walk holds them");
+
+        seek.Frames.DropSkip();
+
+        seek.Frames.Skipping.ShouldBeFalse();
+        seek.Render.Count(FramePresenter.SkipLandedLine).ShouldBe(0);
+        seek.Audio.Count("skip: to 500").ShouldBe(0);
+        (seek.Models.HoldsCorpses, seek.Models.WalksEvents).ShouldBe((false, true));
+        seek.Step().ShouldBeFalse("nothing is left to step");
+    }
+
+    /// <remarks>
+    /// `SkipToTick` (engine.dll FUN_180073b10) with a target ahead only writes it (+0x5bc), so the read goes on and everything it read
+    /// stands, whichever target it was read towards (B504's deck, B708).
+    /// </remarks>
+    [Test]
+    public void ShowMomentOver_ATargetAheadDuringASkip_DealsEveryFrameOfBothLegs()
+    {
+        Seeking seek = new();
+
+        seek.Sound.Schedule = new SoundSchedule([]);
+        seek.Frames.SkipsAcrossFrames = true;
+        seek.InHudFrame = _ => seek.Frames.HudSound(0, HudScript, hudReplaying: false);
+        seek.Show(500d);
+        seek.Step();
+        seek.Step();
+        seek.Show(700d);
+        seek.Frames.FinishSkip();
+        seek.Landed(700);
+
+        int frames = DemoSkip.Frames(Timeline.FirstTick, 700).Count;
+
+        seek.HudFrames.Count.ShouldBe(frames, "the control: the read went on through both");
+        seek.Audio.Count($"skip: to 700 from the start in {frames} frames made {frames} HUD").ShouldBe(1);
+        seek.Audio.Count($"wave deck: a skip to tick 700 from the start over {frames + 1} frames dealt {frames} script sounds").ShouldBe(1, "the landing's frame closes the list");
+    }
+
+    /// <remarks>
+    /// A target behind what it has read reloads and reads from the start (FUN_180073b10), and what the first read dealt stays dealt: the
+    /// flags live in soundemittersystem.dll, which a reload does not touch (B504). So the deck takes the first read, ended at the last
+    /// batch it reached and not at the target it was going to, and then the second.
+    /// </remarks>
+    [Test]
+    public void ShowMomentOver_ATargetBehindDuringASkip_DealsWhatItReadUpToTheLastBatchAndThenTheNewRead()
+    {
+        Seeking seek = new();
+
+        seek.Sound.Schedule = new SoundSchedule([]);
+        seek.Frames.SkipsAcrossFrames = true;
+        seek.InHudFrame = _ => seek.Frames.HudSound(0, HudScript, hudReplaying: false);
+        seek.Show(800d);
+        seek.Step();
+        seek.Step();
+        seek.Step();
+
+        int reached = seek.HudFrames[^1];
+
+        seek.Show(reached - 150d);
+        seek.Frames.FinishSkip();
+        seek.Landed(reached - 150);
+
+        int second = DemoSkip.Frames(Timeline.FirstTick, reached - 150).Count;
+
+        seek.Audio.Count($"wave deck: a skip to tick {reached} from the start over 3 frames dealt 3 script sounds").ShouldBe(1);
+        seek.Audio.Count($"wave deck: a skip to tick {reached - 150} from the start over {second + 1} frames dealt {second} script sounds").ShouldBe(1);
+    }
+
+    /// <summary>A jump a walk takes is that walk's: the next played tick is no skip of its own, and there is one landing (D221).</summary>
+    [Test]
+    public void ShowMomentOver_APlayedTickAfterARetargetedWalkLands_IsNoSecondSkip()
+    {
+        Seeking seek = new();
+
+        seek.Frames.SkipsAcrossFrames = true;
+        seek.Show(500d);
+        seek.Step();
+        seek.Show(600d);
+        seek.Frames.FinishSkip();
+
+        seek.Show(601d, jump: false);
+
+        seek.Frames.Skipping.ShouldBeFalse("a played tick starts no walk");
+        seek.Frames.Skip.ShouldNotBeNull().Skipped.ShouldBeFalse();
+        seek.Render.Count(FramePresenter.SkipLandedLine).ShouldBe(1);
+        seek.Shown[^1].ShouldBe(601d);
+    }
+
+    /// <summary>`SkipToTick` reloads only for a target behind what has been read, so a drag back does not restart the read every frame.</summary>
+    [Test]
+    public void ShowMomentOver_RepeatedTargetsBehindTheOldOneButAheadOfTheRead_ReloadOnce()
+    {
+        Seeking seek = new();
+
+        seek.Frames.SkipsAcrossFrames = true;
+        seek.Show(800d);
+        seek.Step();
+        seek.Step();
+        seek.Show(120d);
+        seek.Step();
+
+        int reached = seek.HudFrames[^1];
+
+        reached.ShouldBe(Timeline.FirstTick + DemoSkip.PacketsPerFrame - 1, "the control: 120 was behind what it had read, so it reloaded");
+
+        // Ahead of what the reload has read, though behind the first target: only the target moves.
+        seek.Show(650d);
+        seek.Show(640d);
+        seek.Show(630d);
+        seek.Step();
+
+        seek.HudFrames[^1].ShouldBe(reached + DemoSkip.PacketsPerFrame, "the read went on");
+    }
+
+    /// <remarks>
+    /// The frame drawn between batches shows the last batch's tick, so the HUD's feed and the camera only move forward, and it poses with
+    /// corpses held and walks no event (B504; a `C_TFRagdoll` made while skipping makes no ragdoll, `c_tf_player.cpp:583`, `:1190-1193`).
+    /// </remarks>
+    [Test]
+    public void StepSkip_TheFrameItDraws_ShowsTheLastBatchWithCorpsesHeldAndEventsNotWalked()
+    {
+        Seeking seek = new();
+
+        seek.Frames.SkipsAcrossFrames = true;
+        seek.Show(500d);
+        seek.Step();
+
+        int through = seek.HudFrames[^1];
+
+        seek.Shown[^1].ShouldBe(through);
+        seek.Held[^1].ShouldBe((true, false, false, false, false, false), "the drawn frame: every entity, corpses held, no event walked");
+        (seek.Models.HoldsCorpses, seek.Models.WalksEvents).ShouldBe((true, false), "and so the pose that follows it in the camera stage");
+
+        seek.Frames.FinishSkip();
+
+        (seek.Models.HoldsCorpses, seek.Models.WalksEvents).ShouldBe((false, true), "released at the landing");
+        seek.Held[^1].ShouldBe((false, false, false, false, true, false));
+    }
+
+    /// <summary>A target asked for during the decals' part: the frames go on, the replay restarts for it, and one landing comes.</summary>
+    [Test]
+    public void ShowMomentOver_AnotherTargetAfterItsFramesHaveEnded_GoesOnAndLandsOnce()
+    {
+        Seeking seek = new();
+
+        seek.Frames.SkipsAcrossFrames = true;
+        seek.Show(150d, device: new FakeFrameDevice());
+        seek.Step();
+
+        // One batch fits under 150 from the demo's start, so this step ends the frames; the landing is next.
+        seek.Step();
+        seek.Frames.Skipping.ShouldBeTrue("the control: it has not landed");
+
+        int read = seek.HudFrames.Count;
+
+        seek.Show(600d, device: new FakeFrameDevice());
+
+        while (seek.Frames.Skipping)
+        {
+            seek.Step();
+        }
+
+        seek.HudFrames.Count.ShouldBeGreaterThan(read, "the read went on to the new target");
+        seek.Render.Count(FramePresenter.SkipLandedLine).ShouldBe(1);
+        seek.Render.Count(FramePresenter.SkipLandedLine + " 600").ShouldBe(1);
+        seek.Render.Count("model decals: a seek to 150").ShouldBe(0, "the replay it was running was for a tick it never landed on");
+        seek.Render.Count("model decals: a seek to 600").ShouldBe(1);
+        seek.Shown[^1].ShouldBe(600d);
+    }
+
+    /// <remarks>`IsPlaybackPaused` answers false for a skip's length (FUN_1800729f0): a paused seek's batches walk, the landing's frame does not.</remarks>
+    [Test]
+    public void StepSkip_ASeekWhilePausedAcrossFrames_WalksItsBatchesAndLandsPaused()
+    {
+        Seeking seek = new();
+
+        seek.Frames.SkipsAcrossFrames = true;
+        seek.Show(500d);
+
+        while (seek.Frames.Skipping)
+        {
+            seek.Step();
+        }
+
+        seek.Shown[^1].ShouldBe(500d);
+        seek.Paused[^1].ShouldBeTrue("the frame it lands on has the flag's frametime");
+        seek.Paused.ShouldContain(false, "the batches do not");
+        seek.Models.Paused.ShouldBeTrue();
+    }
+
+    /// <summary>A sound the HUD asks for while painting a frame drawn during a skip is that batch's, dealt with the skip, not played at the landing.</summary>
+    [Test]
+    public void HudSound_OnAFrameDrawnDuringASkip_IsDealtWithTheSkipAndNotPlayed()
+    {
+        Seeking seek = new();
+
+        seek.Sound.Schedule = new SoundSchedule([]);
+        seek.Frames.SkipsAcrossFrames = true;
+        seek.Show(500d);
+        seek.Step();
+
+        seek.Frames.HudSound(500, HudScript, hudReplaying: false);
+
+        seek.Sound.Emitted.ShouldBeEmpty();
+
+        seek.Frames.FinishSkip();
+        seek.Landed(500);
+
+        seek.Audio.Count("made 1 HUD and 0 animation script sounds").ShouldBe(1);
+        seek.Audio.Count(" dealt 1 script sounds").ShouldBe(1);
+    }
+
+    /// <summary>The one count the walk's line carries of its per-frame cap: the batches it actually read, at their largest.</summary>
+    [Test]
+    public void StepSkip_AFrameOfManyTicks_SaysTheMostBatchesItReadInAFrame()
+    {
+        Seeking seek = new();
+
+        seek.Frames.SkipsAcrossFrames = true;
+        seek.Show(500d);
+        seek.Frames.StepSkip(HostFrame(3.5f * Timeline.IntervalPerTick));
+        seek.Frames.StepSkip(HostFrame(0f));
+        seek.Frames.FinishSkip();
+
+        seek.Render.Count("at most 3 in a frame").ShouldBe(1);
+    }
+
+    /// <remarks>
+    /// `CDemoPlayer::ReadPacket` (engine.dll FUN_180072ee0) returns null at the 100th packet while skipping, ending the read loop, and
+    /// `_Host_RunFrame` (FUN_1801a4570) renders after it; the main loop at `0x18020d460` drains the window's queue before each
+    /// `CEngine::Frame`. So one frame reads one batch and asks nothing of the caller until the frame's own step.
+    /// </remarks>
+    [Test]
+    public void StepSkip_AcrossFrames_ReadsAtMostOneBatchAFrameAndLandsOnTheTick()
+    {
+        Seeking seek = new();
+
+        seek.Frames.SkipsAcrossFrames = true;
+        seek.Show(500d);
+
+        seek.Frames.Skipping.ShouldBeTrue("the call that asked reads nothing: the frames do");
+        seek.HudFrames.ShouldBeEmpty();
+
+        List<int> perFrame = [];
+        int steps = 0;
+
+        while (seek.Frames.Skipping && steps++ < 100)
+        {
+            int before = seek.HudFrames.Count;
+
+            seek.Frames.StepSkip(HostFrame(0f));
+            perFrame.Add(seek.HudFrames.Count - before);
+        }
+
+        perFrame.ShouldAllBe(batches => batches <= 1, "99 packets a frame");
+        seek.HudFrames.Count.ShouldBeGreaterThan(2, "the control: it read batches");
+
+        int last = Timeline.FirstTick - 1;
+
+        foreach (int through in seek.HudFrames)
+        {
+            (through - last).ShouldBe(DemoSkip.PacketsPerFrame);
+            last = through;
+        }
+
+        seek.Frames.Skipping.ShouldBeFalse();
+        seek.Shown[^1].ShouldBe(500d, "it lands on the tick asked for");
+    }
+
+    [Test]
+    public void StepSkip_AFrameOfManyTicks_ReadsOneBatchPerTick()
+    {
+        Seeking seek = new();
+
+        seek.Frames.SkipsAcrossFrames = true;
+        seek.Show(500d);
+        seek.Frames.StepSkip(HostFrame(3.5f * Timeline.IntervalPerTick));
+
+        seek.HudFrames.Count.ShouldBe(3, "`_Host_RunFrame` runs a read loop per whole tick it accumulated");
+    }
+
+    [Test]
+    public void ShowMomentOver_AnotherTickDuringASkip_GoesOnForwardAndRestartsBackward()
+    {
+        Seeking seek = new();
+
+        seek.Frames.SkipsAcrossFrames = true;
+        seek.Show(500d);
+        seek.Frames.StepSkip(HostFrame(0f));
+        seek.Frames.StepSkip(HostFrame(0f));
+
+        int reached = seek.HudFrames[^1];
+
+        seek.Show(600d);
+        seek.Frames.StepSkip(HostFrame(0f));
+        seek.HudFrames[^1].ShouldBe(reached + DemoSkip.PacketsPerFrame, "a target ahead moves the target and the reading goes on");
+
+        seek.Show(250d);
+        seek.Frames.StepSkip(HostFrame(0f));
+        seek.HudFrames[^1].ShouldBe(Timeline.FirstTick + DemoSkip.PacketsPerFrame - 1, "a target behind reads from the start, as `SkipToTick` reloads");
+
+        seek.Frames.FinishSkip();
+        seek.Shown[^1].ShouldBe(250d);
+    }
+
+    [Test]
+    public void ShowMomentOver_TheSameTickAgainDuringASkip_DoesNoWorkOfItsOwn()
+    {
+        Seeking seek = new();
+
+        seek.Frames.SkipsAcrossFrames = true;
+        seek.Show(500d);
+        seek.Frames.StepSkip(HostFrame(0f));
+
+        int read = seek.HudFrames.Count;
+
+        seek.Show(500d, jump: false);
+        seek.Show(500d, jump: false);
+
+        seek.HudFrames.Count.ShouldBe(read, "a repaint asks again; only the frame's step reads");
+    }
+
+    [Test]
+    public void BatchesThisFrame_ByFrameLength_IsOnePerWholeTickCappedAtTheHostsLongestFrame()
+    {
+        const float Interval = 0.015f;
+
+        DemoSkip.PacketsPerFrame.ShouldBe(99, "`ReadPacket` returns null at the 100th packet of a skip (`if ( 99 < count )`)");
+        DemoSkip.BatchesThisFrame(0d, Interval).ShouldBe(1, "one with none, while skipping");
+        DemoSkip.BatchesThisFrame(0.0301, Interval).ShouldBe(2);
+        DemoSkip.BatchesThisFrame(5d, Interval).ShouldBe(6, "`Host_FilterTime` caps a demo frame at 0.1 s");
+        DemoSkip.BatchesThisFrame(1d, 0f).ShouldBe(1, "a demo that names no interval");
+    }
+
+    private static ViewFrame HostFrame(float frameSeconds) =>
+        new(Timeline, null, null, 0, 0d, false, false, null, 1280, 720, frameSeconds, 0d, true, true, true, 2048, 50);
 
     /// <remarks>
     /// `C_BaseAnimating::Simulate` walks events only `if ( gpGlobals->frametime != 0.0f )` (`c_baseanimating.cpp:5162`).
@@ -230,7 +652,7 @@ public sealed class FramePresenterSeekTests
 
             seek.InFlight.Count.ShouldBeGreaterThan(2, "the control: the seek ran skip frames");
             seek.InFlight.ShouldAllBe(inFlight => !inFlight);
-            drainedBy.ShouldBe("ReplaySkip");
+            drainedBy.ShouldBe("RunSkipFrame");
         }
         finally
         {
@@ -264,7 +686,7 @@ public sealed class FramePresenterSeekTests
 
             seek.Render.Count("model decals: a seek to 500 replayed ticks ").ShouldBe(1, "the control: the decals replayed");
             seek.InFlight.ShouldAllBe(inFlight => !inFlight);
-            drainedBy.ShouldBe("ReplayModelDecals");
+            drainedBy.ShouldBe("BeginDecals");
         }
         finally
         {
