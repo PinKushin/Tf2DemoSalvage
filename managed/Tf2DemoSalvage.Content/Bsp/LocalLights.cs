@@ -140,6 +140,13 @@ public sealed class LightingState
         (Count == 0 ? PointLighting.Bounce(Cube) : new PointLighting(Cube, Array.AsReadOnly(LocalLights.Slotted(this, styleScale))))
         with { State = this, Style = styleScale };
 
+    /// <summary><see cref="Lighting"/> for a state nothing changes after this, whose reader may never want the list: built at its first read.</summary>
+    /// <param name="styleScale">Each light style's value over 264; one for every style when null.</param>
+    /// <returns>The cube and the slots.</returns>
+    /// <remarks>A moving model's dlit state is one such a frame, and its average reads <see cref="PointLighting.State"/> instead (B676).</remarks>
+    public PointLighting LightingOnDemand(Func<int, float>? styleScale) =>
+        new PointLighting(Cube, Count == 0 ? [] : new SlotsOnDemand(this, styleScale)) with { State = this, Style = styleScale };
+
     /// <summary>The light in a slot.</summary>
     /// <param name="slot">The slot, below <see cref="Count"/>.</param>
     /// <returns>The light, at its raw colour.</returns>
@@ -148,6 +155,22 @@ public sealed class LightingState
     /// <summary>Takes the next free slot, unranked: for a state a caller already knows.</summary>
     /// <param name="light">The light.</param>
     public void Put(in BspWorldLight light) => _slots[Count++] = light;
+
+    /// <summary>A state's slots as the shader takes them, written when first asked for.</summary>
+    private sealed class SlotsOnDemand(LightingState state, Func<int, float>? style) : IReadOnlyList<LocalLight>
+    {
+        private LocalLight[]? _locals;
+
+        private LocalLight[] Locals => _locals ??= LocalLights.Slotted(state, style);
+
+        public int Count => Locals.Length;
+
+        public LocalLight this[int index] => Locals[index];
+
+        public IEnumerator<LocalLight> GetEnumerator() => ((IEnumerable<LocalLight>)Locals).GetEnumerator();
+
+        System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() => GetEnumerator();
+    }
 }
 
 /// <summary>The box `FUN_1801b99a0` tests a light against.</summary>
@@ -439,7 +462,8 @@ public static class LocalLights
         Span<float> strengths,
         Func<int, float> style,
         Func<int, bool>? traceKeeps,
-        List<int>? reached)
+        List<int>? reached,
+        int slots = MaximumLocalLights)
     {
         // Nothing folded: only the slots matter, so trace strongest-down until they are decided (same lights, fewer traces).
         if (traceKeeps is { } slotsOnly && reached is null)
@@ -470,7 +494,7 @@ public static class LocalLights
                 continue;
             }
 
-            Insert(chosen, strengths, ref count, index, strength);
+            Insert(chosen, strengths, ref count, index, strength, slots);
         }
 
         return count;
@@ -789,11 +813,12 @@ public static class LocalLights
     /// <param name="cube">The cube it starts from.</param>
     /// <param name="styleScale">Each light style's value over 264; one for every style when null.</param>
     /// <param name="traceKeeps">The visibility trace by index (<see cref="TraceKeeps"/>); null traces none.</param>
+    /// <param name="slots">How many take a slot, `min( r_worldlights, MaxNumLights )` (`FUN_1801b79e0`); what loses is folded.</param>
     /// <returns>The state.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="lights"/> is null.</exception>
     public static LightingState Build(
         IReadOnlyList<BspWorldLight> lights, float x, float y, float z, AmbientCube cube,
-        Func<int, float>? styleScale = null, Func<int, bool>? traceKeeps = null)
+        Func<int, float>? styleScale = null, Func<int, bool>? traceKeeps = null, int slots = MaximumLocalLights)
     {
         ArgumentNullException.ThrowIfNull(lights);
 
@@ -803,7 +828,7 @@ public static class LocalLights
         List<int> rest = [];
 
         // One pass, so each light is traced once: the chosen go to the slots, the rest of what it reached to the cube.
-        int count = Choose(lights, x, y, z, chosen, strengths, style, traceKeeps, rest);
+        int count = Choose(lights, x, y, z, chosen, strengths, style, traceKeeps, rest, slots);
         LightingState state = new(cube) { Count = count };
 
         for (int slot = 0; slot < count; slot++)
@@ -844,10 +869,11 @@ public static class LocalLights
     /// The box `FUN_1801b99a0` tests against: a static prop's bounds for its dlight (`FUN_1801b6550`, from `FUN_1801ba590`); null for the point's
     /// cell, which `FUN_1801b60a0` and `FUN_1801b5400` pass.
     /// </param>
+    /// <param name="slots">How many slots there are: `min( r_worldlights, MaxNumLights )`, in `FUN_1801b6d40` and `FUN_1801b7e90` alike.</param>
     /// <exception cref="ArgumentNullException"><paramref name="state"/> is null.</exception>
     public static void Add(
         LightingState state, BspWorldLight light, float x, float y, float z, Func<int, float>? styleScale = null, bool dynamicLight = false,
-        LightBounds? bounds = null)
+        LightBounds? bounds = null, int slots = MaximumLocalLights)
     {
         ArgumentNullException.ThrowIfNull(state);
 
@@ -862,7 +888,7 @@ public static class LocalLights
 
         if (Ranks(light, strength))
         {
-            if (state.Count < MaximumLocalLights)
+            if (state.Count < slots)
             {
                 state.Slots[state.Count] = light;
                 state.Strengths[state.Count] = strength;
@@ -1194,11 +1220,16 @@ public static class LocalLights
 
     /// <summary>Keeps the strongest lights seen so far, brightest first.</summary>
     private static void Insert(
-        Span<int> chosen, Span<float> strengths, ref int count, int index, float strength)
+        Span<int> chosen, Span<float> strengths, ref int count, int index, float strength, int slots = MaximumLocalLights)
     {
-        int at = count < MaximumLocalLights ? count : MaximumLocalLights - 1;
+        if (slots <= 0)
+        {
+            return;
+        }
 
-        if (count == MaximumLocalLights && !Outranks(strength, index, strengths[at], chosen[at]))
+        int at = count < slots ? count : slots - 1;
+
+        if (count == slots && !Outranks(strength, index, strengths[at], chosen[at]))
         {
             return;
         }
@@ -1206,7 +1237,7 @@ public static class LocalLights
         strengths[at] = strength;
         chosen[at] = index;
 
-        if (count < MaximumLocalLights)
+        if (count < slots)
         {
             count++;
         }

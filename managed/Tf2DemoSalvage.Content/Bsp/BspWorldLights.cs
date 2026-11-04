@@ -56,6 +56,7 @@ public enum WorldLightKind
 /// Which converted dlight slot this is, −1 for a light of the map. The engine writes each dlight to one fixed entry of `DAT_180775730`
 /// (`FUN_1801b9350`), so a dlight's identity is its slot, whatever the slot holds now (B676).
 /// </param>
+/// <param name="LumpIndex">Which entry of the lump this is, −1 for a light built by hand: a world light's identity, the engine's pointer (B676).</param>
 /// <remarks>
 /// **The falloff is Valve's, stated inline in <c>bspfile.h</c> rather than inferred:**
 /// <c>1 / (constant_attn + linear_attn * dist + quadratic_attn * dist^2)</c>, for
@@ -81,7 +82,8 @@ public readonly record struct BspWorldLight(
     int Style = 0,
     int Cluster = -1,
     int Flags = 0,
-    int DynamicSlot = -1)
+    int DynamicSlot = -1,
+    int LumpIndex = -1)
 {
     /// <summary>`DWL_FLAGS_INAMBIENTCUBE` (`bspfile.h:966`): vrad put this light in the per-leaf ambient cubes.</summary>
     public bool InAmbientCube => (Flags & 1) != 0;
@@ -155,7 +157,8 @@ public static class BspWorldLights
                 Float(entry, BspStructLayout.WorldLightExponentOffset),
                 BinaryPrimitives.ReadInt32LittleEndian(entry[BspStructLayout.WorldLightStyleOffset..]),
                 BinaryPrimitives.ReadInt32LittleEndian(entry[BspStructLayout.WorldLightClusterOffset..]),
-                BinaryPrimitives.ReadInt32LittleEndian(entry[BspStructLayout.WorldLightFlagsOffset..])), hdrLump));
+                BinaryPrimitives.ReadInt32LittleEndian(entry[BspStructLayout.WorldLightFlagsOffset..]),
+                LumpIndex: lights.Count), hdrLump));
         }
 
         DecodeLog.Note(

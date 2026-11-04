@@ -42,7 +42,7 @@ public sealed class ModelLightAverageConformanceTests
 
     private static ModelLightAverage.Averaged Draw(
         ModelLightAverage average, LightingState state, double seconds, SunLight? sun = null, int half = 0, string model = Model, Func<int, float>? style = null) =>
-        average.Draw(Entity, model, state, state.Cube, sun, 0f, 0f, 0f, seconds, half, style);
+        average.Draw(Entity, model, state, state.Cube, sun, state.Lighting(style).Locals, 0f, 0f, 0f, seconds, half, style);
 
     private static ModelLightAverage Average(int limit = 4) => new() { Rate = Rate, Limit = limit };
 
@@ -344,17 +344,89 @@ public sealed class ModelLightAverageConformanceTests
     }
 
     /// <summary>
-    /// **The engine has no seek: a skip back reloads the demo, every instance is new, and each next draw is a first draw.** Left to the
-    /// dt rule alone, a model would hold its light until the clock caught up with where it had been.
+    /// **The clock alone does not start an instance again, however far back**: `dt` is 0 and the stored time stays. A skip back is the
+    /// presenter's to say, by <see cref="ModelLightAverage.Clear"/> (`FramePresenterSeekTests`).
     /// </summary>
     [Test]
-    public void Draw_AJumpBackward_IsAFirstDraw()
+    public void Draw_TheClockFarBehind_HoldsTheHistory()
     {
         ModelLightAverage average = Average();
 
         Draw(average, State(1f), 100d);
 
-        Draw(average, State(0.5f), 50d).Cube.ShouldBe(Flat(0.5f));
+        Draw(average, State(0.5f), 50d).Cube.ShouldBe(Flat(1f));
+    }
+
+    /// <summary>
+    /// Two lump entries alike in every field are two pointers, so each finds its own colour and neither is left over. Compared by value, both
+    /// took the first stored one and the second stayed behind as a light that left, on top of the two.
+    /// </summary>
+    [Test]
+    public void Draw_TwoLumpLightsAlike_AreTwoLightsAndLeaveNoGhost()
+    {
+        ModelLightAverage average = Average();
+        BspWorldLight one = LampA with { LumpIndex = 7 };
+        BspWorldLight two = LampA with { LumpIndex = 8 };
+
+        Draw(average, State(0f, one, two), 10d);
+
+        ModelLightAverage.Averaged drawn = Draw(average, State(0f, one, two), 10.2d);
+
+        drawn.Locals.Count.ShouldBe(2);
+        drawn.Locals.Sum(static local => local.Red).ShouldBe(80f, 0.001f);
+    }
+
+    /// <summary>
+    /// `FUN_1800f4310` copies a left light through its pointer, so a dlight's place is what its slot holds now, and only the colour is the
+    /// stored one, at f.
+    /// </summary>
+    [Test]
+    public void Draw_ADynamicLightThatLeftWhileItsSlotMoved_FadesAtTheSlotsPlaceFromItsStoredColour()
+    {
+        BspWorldLight[] slots = new BspWorldLight[8];
+        ModelLightAverage average = new() { Rate = Rate, DynamicSlots = slots };
+        BspWorldLight there = new((5f, 0f, 0f), (10f, 10f, 10f), default, WorldLightKind.Point, QuadraticAttenuation: 1f, DynamicSlot: 3);
+
+        Draw(average, State(0f, there), 10d);
+
+        slots[3] = there with { Origin = (9f, 0f, 0f), Intensity = (99f, 99f, 99f) };
+
+        LocalLight drawn = Draw(average, State(0f), 10.2d).Locals.Single();
+
+        drawn.X.ShouldBe(9f);
+        drawn.Red.ShouldBe(10f * F, 0.001f);
+    }
+
+    /// <summary>
+    /// `FUN_1800f4090` clamps its own copy of f and `FUN_1800f4310` keeps the raw one for the slots: at a rate of -5 f is e, so the cube takes
+    /// the history whole and a slot extrapolates past it. The cvar has no bounds (`FUN_180283e80`).
+    /// </summary>
+    [Test]
+    public void Draw_ANegativeRate_ClampsFInTheCubeAndExtrapolatesASlot()
+    {
+        ModelLightAverage average = new() { Rate = -5f };
+        BspWorldLight dimmer = LampA with { LumpIndex = 1, Intensity = (20f, 20f, 20f) };
+        BspWorldLight brighter = dimmer with { Intensity = (40f, 40f, 40f) };
+
+        Draw(average, State(1f, dimmer), 10d);
+
+        ModelLightAverage.Averaged drawn = Draw(average, State(0.5f, brighter), 10.2d);
+
+        drawn.Cube.ShouldBe(Flat(1f));
+        drawn.Locals.Single().Red.ShouldBe(40f - (20f * MathF.Exp(1f)), 0.001f);
+    }
+
+    /// <summary>A NaN rate is not 0, so it passes the gate, and NaN stays in the history, as both the engine's `COMISS` pairs let it.</summary>
+    [Test]
+    public void Draw_ANaNRate_PersistsInTheHistoryAsTheEnginesDoes()
+    {
+        ModelLightAverage average = new() { Rate = float.NaN };
+
+        Draw(average, State(1f), 10d);
+
+        Draw(average, State(0.5f), 10.2d).Cube.PositiveX.Red.ShouldBe(float.NaN);
+        average.Rate = Rate;
+        Draw(average, State(0.5f), 10.4d).Cube.PositiveX.Red.ShouldBe(float.NaN);
     }
 
     /// <summary>Forward, the engine's own arithmetic: at sixty seconds f is nothing, and what left is gone below length one.</summary>
@@ -397,7 +469,7 @@ public sealed class ModelLightAverageConformanceTests
 
         LightingState other = State(0.5f);
 
-        average.Draw(Entity + 1, Model, other, other.Cube, null, 0f, 0f, 0f, 10.2d, 0, null).Cube.ShouldBe(Flat(0.5f));
+        average.Draw(Entity + 1, Model, other, other.Cube, null, [], 0f, 0f, 0f, 10.2d, 0, null).Cube.ShouldBe(Flat(0.5f));
     }
 
     /// <summary>

@@ -370,20 +370,6 @@ public sealed partial class EntityModelSet
             SunLight? sun = lit.Sun;
             IReadOnlyList<LocalLight> locals = lit.Locals;
 
-            // **What a moving model draws is not its state but the state averaged over time** (B676, `FUN_1800f2dd0`). Only what is drawn:
-            // a culled model never got here, nor a pass that poses nothing. A caller's own list with no state behind it has no raw colours
-            // to blend, and only a test hands one over.
-            if (light is { } sampledCube && (lit.Sampled.State is not null || locals.Count == 0))
-            {
-                long averagedAt = System.Diagnostics.Stopwatch.GetTimestamp();
-
-                ModelLightAverage.Averaged averaged = LightAverage.Draw(
-                    prop.EntityIndex, prop.ModelPath, lit.Sampled.State, sampledCube, sun, lit.X, lit.Y, lit.Z, seconds, PoseHalf, lit.Sampled.Style);
-
-                (light, sun, locals) = (averaged.Cube, averaged.Sun, averaged.Locals);
-                _lighting.Ticks += System.Diagnostics.Stopwatch.GetTimestamp() - averagedAt;
-            }
-
             // **A static prop with a colour mesh draws its colours PLUS its styled and dynamic lights** (B426, B424,
             // B425): `engine.dll` `0x1800f1bd0` on DX9 keeps the mesh and lights it with `FUN_1801ba590` flags 6 or 7 —
             // no static state, so no leaf cube, no sun and no style-0 light, since the colours hold those; what the slots
@@ -439,13 +425,6 @@ public sealed partial class EntityModelSet
             long reportedAt = System.Diagnostics.Stopwatch.GetTimestamp();
 
             _reports.BrushMoved(prop, seconds);
-
-            if (lightAt is not null)
-            {
-                // What is drawn, not what was asked for first, which for a static prop asked nothing (B674, B243).
-                _reports.Lit(prop, lit with { Light = light, Sun = sun, Locals = locals }, skin);
-            }
-
             _reports.Animating(prop, frame, packedFrames, blend);
 
             ReportTicks += System.Diagnostics.Stopwatch.GetTimestamp() - reportedAt;
@@ -808,6 +787,32 @@ public sealed partial class EntityModelSet
             (float[]? flex, FlexSlots? flexRange) = FlexFor(prop, parts, seconds);
             PlaceLookupsTicks += System.Diagnostics.Stopwatch.GetTimestamp() - boundAt;
             PlaceFlexTicks += System.Diagnostics.Stopwatch.GetTimestamp() - swappedAt;
+
+            // **What a moving model draws is not its state but the state averaged over time** (B676). `CModelRender`'s draw reaches
+            // `FUN_1800f2dd0` (from `FUN_1800ec3a0`) only from a `DrawModel` that was not refused, so this stands after every refusal above:
+            // a wearer not drawn, `C_TFPlayer::DrawModel`'s cloak. **Not a static prop's**: it has a handle, `param_4` (B674). A caller's own
+            // list with no state behind it has no raw colours to blend, and only a test hands one over. Clocked to the lighting column and out
+            // of the placing one it sits inside.
+            if (!isStatic && light is { } sampledCube && (lit.Sampled.State is not null || locals.Count == 0))
+            {
+                long averagedAt = System.Diagnostics.Stopwatch.GetTimestamp();
+
+                ModelLightAverage.Averaged averaged = LightAverage.Draw(
+                    prop.EntityIndex, prop.ModelPath, lit.Sampled.State, sampledCube, sun, locals, lit.X, lit.Y, lit.Z, seconds, PoseHalf, lit.Sampled.Style);
+
+                (light, sun, locals) = (averaged.Cube, averaged.Sun, averaged.Locals);
+
+                long averagedFor = System.Diagnostics.Stopwatch.GetTimestamp() - averagedAt;
+
+                _lighting.Ticks += averagedFor;
+                placingAt += averagedFor;
+            }
+
+            if (lightAt is not null)
+            {
+                // What is drawn, not what was asked for first, which for a static prop asked nothing (B674, B243).
+                _reports.Lit(prop, lit with { Light = light, Sun = sun, Locals = locals }, skin);
+            }
 
             into.Add(new ModelInstance(
                 prop.ModelPath,

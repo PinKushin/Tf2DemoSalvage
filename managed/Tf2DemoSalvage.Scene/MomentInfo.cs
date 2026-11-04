@@ -29,6 +29,7 @@ namespace Tf2DemoSalvage.Scene;
 /// <param name="HalloweenScenario">`m_halloweenScenario`, which caps the Hightower stealth spell.</param>
 /// <param name="LightAverage">The watcher's `r_lightaverage` (B676).</param>
 /// <param name="LightInterp">The watcher's `r_lightinterp` (B676).</param>
+/// <param name="WorldLights">The watcher's `r_worldlights` (B676).</param>
 /// <remarks>
 /// **This is <c>SetupRenderInfo_t</c>'s shape, and the shape is the point.** Valve's renderables-list
 /// builder takes one:
@@ -120,7 +121,10 @@ public readonly record struct MomentInfo(
 
     // The watcher's `r_lightaverage` and `r_lightinterp` (B676): defaults as `engine.dll` registers them.
     bool LightAverage = true,
-    float LightInterp = 5f)
+    float LightInterp = 5f,
+
+    // The watcher's `r_worldlights` (B676), default "4" as `FUN_180010150` registers it.
+    int WorldLights = 4)
 {
     /// <summary>How far into the demo this moment is, in seconds.</summary>
     /// <remarks>

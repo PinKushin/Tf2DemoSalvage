@@ -34,6 +34,7 @@ namespace Tf2DemoSalvage.Presentation;
 /// <param name="UseMinViewmodels">The watcher's own <c>tf_use_min_viewmodels</c> (B525).</param>
 /// <param name="LightAverage">The watcher's own <c>r_lightaverage</c> (B676).</param>
 /// <param name="LightInterp">The watcher's own <c>r_lightinterp</c> (B676).</param>
+/// <param name="WorldLights">The watcher's own <c>r_worldlights</c> (B676).</param>
 public readonly record struct MomentView(
     int CurrentTick,
     bool FirstPerson,
@@ -57,7 +58,8 @@ public readonly record struct MomentView(
 
     // The watcher's `r_lightaverage` and `r_lightinterp` (B676), the same kind of thing.
     bool LightAverage = true,
-    float LightInterp = 5f);
+    float LightInterp = 5f,
+    int WorldLights = 4);
 
 /// <summary>Samples a moment from the demo and hands it to the scene.</summary>
 /// <remarks>
@@ -296,7 +298,8 @@ public sealed class MomentPresenter
             view.UseMinViewmodels,
             view.Playing,
             view.LightAverage,
-            view.LightInterp);
+            view.LightInterp,
+            view.WorldLights);
 
         // **Selection only. The pose is `Pose`, and it runs after the camera** (B255).
         _built = _moment.Build(_players, _props, info);

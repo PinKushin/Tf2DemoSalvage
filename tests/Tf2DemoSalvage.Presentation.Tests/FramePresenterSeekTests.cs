@@ -30,6 +30,27 @@ public sealed class FramePresenterSeekTests
 {
     private const string HudScript = "Hud.Hint";
 
+    /// <summary>A skip back reloads the demo in TF2, so every instance is new (B676); a skip forward keeps them, and so does a frame a hair behind.</summary>
+    [Test]
+    public void Show_ASkipBackAndNoOtherMove_ForgetsTheModelsLightHistory()
+    {
+        Seeking seeking = new();
+
+        void Stamp() => seeking.Models.LightAverage.Draw(1, "model", null, default, null, [], 0f, 0f, 0f, 1d, 0, null);
+
+        seeking.Show(100d);
+        Stamp();
+
+        seeking.Show(200d);
+        seeking.Models.LightAverage.Instances.ShouldBe(1, "a skip forward keeps them");
+
+        seeking.Show(199d, jump: false);
+        seeking.Models.LightAverage.Instances.ShouldBe(1, "a played frame a hair behind keeps them");
+
+        seeking.Show(50d);
+        seeking.Models.LightAverage.Instances.ShouldBe(0);
+    }
+
     private static readonly DemoTimeline Timeline = DemoTimeline.Build(SyntheticEffects.Demo(
         [new(1, SyntheticEffects.PlayerClass, SyntheticEffects.Standing(0f, 0f, 0f, 2))],
         [],

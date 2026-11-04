@@ -42,7 +42,7 @@ public sealed class HudGoldenImageUiTests
     /// 23.1 on 2026-10-17, 63.2 before the fixes). Both fell by the same cause, B636: the world behind the panel came down to
     /// TF2's, and the portrait did not move, so that fall is not a fix of B559's model brightness.
     ///
-    /// **What the ammo case is, and is not.** Its headroom is 1.2 (10.8 against 12) over cell MEANS that include the
+    /// **What the ammo case is, and is not.** Its headroom is 5.7 (6.3 against 12) over cell MEANS that include the
     /// map behind the translucent panel, so it is a world-shading lock as much as a HUD test: the HUD tone-map scale
     /// alone moved this cell before. **It catches** the B552 regression (removing the `ZPos` re-run in
     /// `VguiPanel.SetParent` puts the worst back to about 53) and a lost or mis-scaled panel. **It misses** a 1-pixel

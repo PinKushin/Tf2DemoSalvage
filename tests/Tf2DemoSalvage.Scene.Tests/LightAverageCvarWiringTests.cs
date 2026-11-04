@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Logging.Abstractions;
 
 using Tf2DemoSalvage.Core.Net;
+using Tf2DemoSalvage.Core.Scene;
 
 namespace Tf2DemoSalvage.Scene.Tests;
 
@@ -31,19 +32,27 @@ public sealed class LightAverageCvarWiringTests
         settings.LightInterp.ShouldBe(2f);
     }
 
-    [Test]
-    public void Pose_AMomentWithBothSet_HandsThemToTheAverageAndCountsNothingWithNoModel()
+    /// <summary>A model is drawn each way, so this fails if the pose or the draw ignores the setting: off counts nothing, on counts it.</summary>
+    [TestCase(false, 2f, 0)]
+    [TestCase(true, 2f, 1)]
+    [TestCase(true, 0f, 0)]
+    public void Pose_AMomentWithAModelDrawn_AveragesItOnlyWithBothSwitchesOn(bool average, float interp, int counted)
     {
+        SceneProp prop = EntityModelSetPrePoseTests.Prop("models/player/demo.mdl", 5);
         EntityModelSet models = new();
-        MomentScene scene = new(models, new ViewmodelScene(), NullLogger.Instance);
-        MomentInfo info = new(0d, 0, false, null, null, 0.015f, 54f, LightAverage: false, LightInterp: 2f);
 
-        scene.Build([], [], info);
+        models.Add([prop], static _ => EntityModelSetPrePoseTests.Skinned("root"));
+
+        MomentScene scene = new(models, new ViewmodelScene(), NullLogger.Instance);
+        MomentInfo info = new(0d, 0, false, null, null, 0.015f, 54f, LightAverage: average, LightInterp: interp);
+
+        scene.Build([], [prop], info);
 
         MomentPhases phases = scene.Pose(info);
 
-        models.LightAverage.Enabled.ShouldBeFalse();
-        models.LightAverage.Rate.ShouldBe(2f);
-        phases.LightAveraged.ShouldBe(0);
+        scene.Instances.Count.ShouldBe(1, "the instrument: the model was drawn");
+        models.LightAverage.Enabled.ShouldBe(average);
+        models.LightAverage.Rate.ShouldBe(interp);
+        phases.LightAveraged.ShouldBe(counted);
     }
 }

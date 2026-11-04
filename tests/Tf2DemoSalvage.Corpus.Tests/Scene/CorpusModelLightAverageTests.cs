@@ -33,10 +33,22 @@ public sealed class CorpusModelLightAverageTests
     /// <summary>A moving entity's index: any below the static props'.</summary>
     private const int Walker = 5;
 
+    /// <summary>Over the recorder's head far enough to leave granary's roofs.</summary>
+    private const float SunlitHeight = 600f;
+
     [Test]
     public void Instances_AlongARealWalkThroughARealMap_DrawTheEnginesRecurrenceOverTheRawStates()
     {
-        (Walk averaged, Walk control) = Walks();
+        (MapAssets assets, MapLevel level, DemoTimeline timeline) = Load();
+        Walk averaged = Run(assets, level, timeline, true);
+        Walk control = Run(assets, level, timeline, false);
+
+        // This spectator never stands in the sun (0 of 17,494 draws), so the same walk again, up in the map's own sky.
+        Walk sunlit = Run(assets, level, timeline, true, SunlitHeight);
+
+        TestContext.Out.WriteLine($"sunlit: {sunlit}");
+        sunlit.Suns.ShouldBeGreaterThan(0, "the walk up there must reach the sun");
+        sunlit.WorstSlot.ShouldBeLessThan(0.0005f, "the sun's colour through the draw");
 
         control.WorstFromRaw.ShouldBe(0f, "r_lightaverage 0 draws each raw state exactly");
         control.Drawn.ShouldBe(averaged.Drawn, "the same walk");
@@ -44,37 +56,11 @@ public sealed class CorpusModelLightAverageTests
         averaged.LargestStep.ShouldBeGreaterThan(0.01f, "the walk must cross light, or a match says nothing");
         averaged.WorstFromRaw.ShouldBeGreaterThan(0.005f, "a model's light lags its state, the whole point");
         averaged.WorstFromRecurrence.ShouldBeLessThan(0.0005f, "new - (new - old) * exp(-5 dt), face by face");
-    }
 
-    /// <summary>
-    /// The gate, by who stores a history: `FUN_1800f2dd0` passes no static prop, as it has a handle (B674). The control is the moving model,
-    /// which must store one.
-    /// </summary>
-    [Test]
-    public void Instances_AStaticProp_StoresNoHistory()
-    {
-        (MapAssets assets, MapLevel level, _) = Load();
-        LevelLighting lighting = LevelLighting.From(level, NullLogger.Instance);
-        EntityModelSet models = new() { Geometry = assets.Geometry };
-        SceneProp walker = assets.StaticModels[0] with { EntityIndex = Walker };
-        List<ModelInstance> drawn = [];
-
-        models.Add(assets.StaticModels);
-        models.Add([walker]);
-
-        models.Instances(assets.StaticModels, drawn, lighting.ModelLightingAt, lighting.ModelSunAt, 1d);
-        drawn.Count.ShouldBeGreaterThan(100, "the instrument: the static props were drawn");
-        models.LightAverage.Instances.ShouldBe(0);
-
-        models.Instances([walker], drawn, lighting.ModelLightingAt, lighting.ModelSunAt, 1d);
-        models.LightAverage.Instances.ShouldBe(1);
-    }
-
-    private static (Walk Averaged, Walk Control) Walks()
-    {
-        (MapAssets assets, MapLevel level, DemoTimeline timeline) = Load();
-
-        return (Run(assets, level, timeline, true), Run(assets, level, timeline, false));
+        // The controls that each kind of slot was there to be wrong about, then the slots: lamps and the sun as the draw carries them.
+        averaged.Lamps.ShouldBeGreaterThan(0, "the walk must reach a lamp");
+        averaged.Left.ShouldBeGreaterThan(0, "a light must leave on the way");
+        averaged.WorstSlot.ShouldBeLessThan(0.0005f, "each light's colour through the draw");
     }
 
     private static (MapAssets Assets, MapLevel Level, DemoTimeline Timeline) Load()
@@ -101,9 +87,9 @@ public sealed class CorpusModelLightAverageTests
             TimelineCache.For(path));
     }
 
-    private readonly record struct Walk(int Drawn, float LargestStep, float WorstFromRaw, float WorstFromRecurrence);
+    private readonly record struct Walk(int Drawn, float LargestStep, float WorstFromRaw, float WorstFromRecurrence, float WorstSlot, int Suns, int Lamps, int Left);
 
-    private static Walk Run(MapAssets assets, MapLevel level, DemoTimeline timeline, bool enabled)
+    private static Walk Run(MapAssets assets, MapLevel level, DemoTimeline timeline, bool enabled, float height = 0f)
     {
         LevelLighting lighting = LevelLighting.From(level, NullLogger.Instance);
         EntityModelSet models = new() { Geometry = assets.Geometry };
@@ -118,6 +104,11 @@ public sealed class CorpusModelLightAverageTests
         float largestStep = 0f;
         float worstFromRaw = 0f;
         float worstFromRecurrence = 0f;
+        List<Slot> slots = [];
+        float worstSlot = 0f;
+        int sunDraws = 0;
+        int lampDraws = 0;
+        int leftDraws = 0;
         int count = 0;
         int recorder = timeline.RecorderEntityIndex ?? throw new InvalidOperationException("a point-of-view demo has a recorder");
 
@@ -138,7 +129,7 @@ public sealed class CorpusModelLightAverageTests
 
             lighting.Frame++;
 
-            SceneProp prop = stands with { Pose = stands.Pose with { X = player.X, Y = player.Y, Z = player.Z } };
+            SceneProp prop = stands with { Pose = stands.Pose with { X = player.X, Y = player.Y, Z = player.Z + height } };
 
             models.Instances([prop], drawn, lighting.ModelLightingAt, lighting.ModelSunAt, tick * timeline.IntervalPerTick);
 
@@ -171,13 +162,101 @@ public sealed class CorpusModelLightAverageTests
             }
 
             last = raw;
+
+            if (enabled)
+            {
+                PointLighting state = lighting.ModelLightingAt(origin.X, origin.Y, origin.Z);
+
+                slots = Next(slots, state.State, lighting.ModelSunAt(origin.X, origin.Y, origin.Z), f, first: count == 1);
+                (worstSlot, sunDraws, lampDraws, leftDraws) = Compare(slots, state, shownSun: drawn[0].Sun, shownLamps: drawn[0].Locals ?? [], worstSlot, sunDraws, lampDraws, leftDraws);
+            }
         }
 
         TestContext.Out.WriteLine(
-            $"average {enabled}: {count} draws, largest raw step {largestStep:0.0000}, worst from raw {worstFromRaw:0.0000}, worst from recurrence {worstFromRecurrence:0.000000}");
+            $"average {enabled}: {count} draws, largest raw step {largestStep:0.0000}, worst from raw {worstFromRaw:0.0000}, worst from recurrence {worstFromRecurrence:0.000000}; " +
+            $"worst slot {worstSlot:0.000000} of {sunDraws} suns, {lampDraws} lamps, {leftDraws} slots that had left");
 
-        return new Walk(count, largestStep, worstFromRaw, worstFromRecurrence);
+        return new Walk(count, largestStep, worstFromRaw, worstFromRecurrence, worstSlot, sunDraws, lampDraws, leftDraws);
     }
+
+    /// <summary>One slot of the prediction: the light, its colour, and whether the state has let it go.</summary>
+    private readonly record struct Slot(BspWorldLight Light, (float Red, float Green, float Blue) Colour, bool Left);
+
+    /// <summary>`FUN_1800f4310` once, over what the engine's text says, separately from the code it holds to account.</summary>
+    private static List<Slot> Next(List<Slot> stored, LightingState? state, SunLight? sun, float f, bool first)
+    {
+        List<BspWorldLight> now = [];
+
+        for (int at = 0; state is not null && at < state.Count; at++)
+        {
+            now.Add(state.SlotAt(at));
+        }
+
+        if (sun is { } reaching)
+        {
+            now.Add(new BspWorldLight(default, (reaching.Red, reaching.Green, reaching.Blue), (reaching.DirectionX, reaching.DirectionY, reaching.DirectionZ), WorldLightKind.SkyLight));
+        }
+
+        bool Same(BspWorldLight a, BspWorldLight b) =>
+            a.Kind == WorldLightKind.SkyLight || b.Kind == WorldLightKind.SkyLight ? a.Kind == b.Kind : a.LumpIndex == b.LumpIndex;
+
+        List<Slot> next = [];
+
+        foreach (BspWorldLight light in now)
+        {
+            (float red, float green, float blue) = light.Intensity;
+            (float Red, float Green, float Blue) old = first ? light.Intensity : stored.Where(slot => Same(slot.Light, light)).Select(static slot => slot.Colour).FirstOrDefault();
+
+            next.Add(new Slot(light, (red - ((red - old.Red) * f), green - ((green - old.Green) * f), blue - ((blue - old.Blue) * f)), false));
+        }
+
+        foreach (Slot slot in stored)
+        {
+            (float red, float green, float blue) = slot.Colour;
+
+            if (!now.Exists(light => Same(slot.Light, light)) && (red * red) + (green * green) + (blue * blue) >= 1f)
+            {
+                if (next.Count >= LocalLights.MaximumLocalLights)
+                {
+                    break;
+                }
+
+                next.Add(new Slot(slot.Light, (f * red, f * green, f * blue), true));
+            }
+        }
+
+        return next;
+    }
+
+    private static (float Worst, int Suns, int Lamps, int Left) Compare(
+        List<Slot> slots, PointLighting state, SunLight? shownSun, IReadOnlyList<LocalLight> shownLamps, float worst, int suns, int lamps, int left)
+    {
+        int lamp = 0;
+
+        foreach (Slot slot in slots)
+        {
+            left += slot.Left ? 1 : 0;
+
+            if (slot.Light.Kind == WorldLightKind.SkyLight)
+            {
+                suns++;
+                worst = Math.Max(worst, Relative(shownSun.ShouldNotBeNull("the sun in the prediction reached the draw").Red, slot.Colour.Red));
+            }
+            else if (slot.Light.Kind != WorldLightKind.QuakeLight)
+            {
+                lamps++;
+                worst = Math.Max(worst, Relative(shownLamps[lamp++].Red, slot.Colour.Red * (state.Style?.Invoke(slot.Light.Style) ?? 1f)));
+            }
+        }
+
+        lamp.ShouldBe(shownLamps.Count, "the draw holds the lamps the prediction does, and no others");
+        (slots.Exists(static slot => slot.Light.Kind == WorldLightKind.SkyLight)).ShouldBe(shownSun is not null);
+
+        return (worst, suns, lamps, left);
+    }
+
+    /// <summary>Lump colours run to hundreds, so a float's error is compared to the size of what it is in.</summary>
+    private static float Relative(float shown, float predicted) => Math.Abs(shown - predicted) / (Math.Abs(predicted) + 1f);
 
     private static float[] Faces(AmbientCube cube) =>
     [

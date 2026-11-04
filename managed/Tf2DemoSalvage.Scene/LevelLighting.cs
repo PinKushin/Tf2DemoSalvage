@@ -134,7 +134,38 @@ public sealed class LevelLighting
     private readonly Func<(float X, float Y, float Z), (float X, float Y, float Z), bool>? _reaches;
 
     /// <summary>The engine's model light cache (<see cref="LightCache{T}"/>), one per map as a map load flushes it.</summary>
-    private readonly LightCache<CachedLight> _cache = new(CachedLight.Unbuilt);
+    private LightCache<CachedLight> _cache = new(CachedLight.Unbuilt);
+
+    /// <summary>
+    /// `min( r_worldlights, MaxNumLights )`: how many lights take a slot, what `FUN_1801b79e0`, `FUN_1801b6d40` and `FUN_1801b7e90` each read
+    /// before they append, the rest folding. A hardware of four lights here, as this viewer's shader is.
+    /// </summary>
+    /// <remarks>
+    /// **A change flushes the cache and relights every handle** (`FUN_1801bcbb0`, each frame, against `DAT_18047de20`), so nothing keeps the
+    /// old count. A colour mesh baked already keeps it, there too: `FUN_1801bbed0` rebuilds the handle's state, not the mesh.
+    /// </remarks>
+    public int WorldLightSlots
+    {
+        get;
+        set
+        {
+            int clamped = Math.Min(value, LocalLights.MaximumLocalLights);
+
+            if (clamped == field)
+            {
+                return;
+            }
+
+            field = clamped;
+            _cache = new LightCache<CachedLight>(CachedLight.Unbuilt);
+            _entryAsked = null;
+            _staticStates.Clear();
+            _styledByEntity.Clear();
+        }
+    } = LocalLights.MaximumLocalLights;
+
+    /// <summary>What each dlight's slot holds, as the last conversion wrote it (`DAT_180775730`, `FUN_1801b9350`), which a model's average reads for a dlight that left (B676).</summary>
+    public BspWorldLight[] ConvertedDlights { get; } = new BspWorldLight[DynamicLights.MaxDlights + DynamicLights.MaxElights];
 
     /// <summary>Bumped when a style a world light answers to changes; an entry built before it is relit on its next hit.</summary>
     private int _styleVersion;
@@ -282,7 +313,15 @@ public sealed class LevelLighting
             if (InPvs(from, cluster))
             {
                 merged ??= state?.Clone() ?? new LightingState(default);
-                LocalLights.Add(merged, DynamicLights.ToWorldLight(light, cluster), atX, atY, atZ, StyleScale);
+
+                BspWorldLight converted = DynamicLights.ToWorldLight(light, cluster);
+
+                if (light.Slot >= 0)
+                {
+                    ConvertedDlights[light.Slot] = converted;
+                }
+
+                LocalLights.Add(merged, converted, atX, atY, atZ, StyleScale, slots: WorldLightSlots);
             }
         }
 
@@ -293,7 +332,7 @@ public sealed class LevelLighting
 
         _dynamicMerged++;
 
-        return merged.Lighting(StyleScale);
+        return merged.LightingOnDemand(StyleScale);
     }
 
     /// <summary>The sun a model's light cache entry sees: see <see cref="ModelLightingAt"/>.</summary>
@@ -569,7 +608,7 @@ public sealed class LevelLighting
 
         try
         {
-            return LocalLights.Build(lights, x, y, z, cube, style, keeps);
+            return LocalLights.Build(lights, x, y, z, cube, style, keeps, WorldLightSlots);
         }
         finally
         {
@@ -588,7 +627,7 @@ public sealed class LevelLighting
             {
                 if (keeps is null || keeps(index))
                 {
-                    LocalLights.Add(state, listed[index], x, y, z, StyleScale);
+                    LocalLights.Add(state, listed[index], x, y, z, StyleScale, slots: WorldLightSlots);
                 }
             }
         }
@@ -1078,7 +1117,7 @@ public sealed class LevelLighting
             if (dynamic.LightsModels(index) && InPvs(lightCluster, propCluster))
             {
                 added ??= state.Clone();
-                LocalLights.Add(added, DynamicLights.ToWorldLight(light, lightCluster), x, y, z, StyleScale, dynamicLight: true, bounds);
+                LocalLights.Add(added, DynamicLights.ToWorldLight(light, lightCluster), x, y, z, StyleScale, dynamicLight: true, bounds, WorldLightSlots);
             }
         }
 

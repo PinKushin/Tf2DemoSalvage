@@ -15,12 +15,19 @@ namespace Tf2DemoSalvage.Scene;
 /// are both 0, so never a static prop's, which has a handle. `FUN_1800f2570` is the first draw and `FUN_1800f4090` the cube.
 ///
 /// **The history lives on the model instance**, created with `+0x128 = -999999` (`FUN_1800eb5d0`, the only such write) and stamped
-/// only by `FUN_1800f2570` and `FUN_1800f4310`: nothing resets it on a teleport or a respawn. *Not read for this:* that a model change
-/// destroys the instance (`C_BaseEntity::SetModelPointer`, from memory of the SDK), so it starts again here on that.
+/// only by `FUN_1800f2570` and `FUN_1800f4310`: nothing resets it on a teleport or a respawn. A model change destroys the instance
+/// (`C_BaseEntity::SetModelPointer`, `c_baseentity.cpp:1786`), so it starts again here on that.
 ///
-/// **Identity is the engine's pointer.** A world light is one lump entry, which this compares by value, since two entries alike in every
-/// field draw alike. A dlight is a slot the engine overwrites each frame (`FUN_1801b9350`, `DAT_180775730`), so it is its slot here. The
-/// sun is one light in a slot (`FUN_1800f2010` case 3) and travels apart in this project, so here it is stored and counted among the slots.
+/// **Identity is the engine's pointer.** A world light is its lump entry, so two alike are two lights. A dlight is a slot the engine
+/// overwrites each frame (`FUN_1801b9350`, `DAT_180775730`), so it is its slot here, and one that left is read from the slot as it stands
+/// (`FUN_1800f4310` copies 0x58 bytes through the stored pointer, then writes only the colour). The sun is one light in a slot
+/// (`FUN_1800f2010` case 3) and travels apart in this project, so here it is stored and counted among the slots.
+///
+/// **A jump back is not this class's**: `FramePresenter`'s skip back calls <see cref="Clear"/>, as the engine's reload makes every instance
+/// new. Here, as there, a clock behind the stored time holds the light (B676).
+///
+/// **`f` is clamped in the cube alone and is raw on the slots**, as `FUN_1800f4090` clamps its own copy and `FUN_1800f4310` does not, so a
+/// negative `r_lightinterp` extrapolates a slot and a NaN one persists, in the engine too: `FUN_180283e80` registers the cvar with no bounds.
 ///
 /// **The blend is of the raw intensity.** The style comes after, in `FUN_1800f2010`, so a flickering lamp flickers at once.
 /// </remarks>
@@ -31,12 +38,6 @@ public sealed class ModelLightAverage
 
     /// <summary>What can be stored: four slots, and this project's sun, which its own ranking does not count among them.</summary>
     private const int Stored = Slots + 1;
-
-    /// <summary>
-    /// A clock further behind than this is a seek, as <see cref="EntityModelSet"/>'s client cycles judge one: the engine cannot seek backward,
-    /// since a skip back reloads the demo and makes every instance new. Nearer than this the engine's rule holds the light.
-    /// </summary>
-    private const double LongestBackstep = 1d;
 
     /// <summary>`1.0 &lt;= r² + g² + b²`: a light that left stays while its stored colour is this long.</summary>
     private const float KeptLengthSquared = 1f;
@@ -52,11 +53,11 @@ public sealed class ModelLightAverage
     /// <summary>`r_lightinterp`, default 5.</summary>
     public float Rate { get; set; } = 5f;
 
-    /// <summary>
-    /// `min( r_worldlights, MaxNumLights )` (`DAT_18075cdc8`, named by `FUN_180010150`). Four: `r_worldlights` is not ported, nor does this
-    /// project's state builder take it, so only a test sets this lower.
-    /// </summary>
-    public int Limit { get; init; } = Slots;
+    /// <summary>`min( r_worldlights, MaxNumLights )` (`DAT_18075cdc8`, named by `FUN_180010150`), <see cref="LevelLighting.WorldLightSlots"/>.</summary>
+    public int Limit { get; set; } = Slots;
+
+    /// <summary>What each dlight's slot holds now, `DAT_180775730`: a dlight that left is read from here, as its pointer is; null reads the copy it was stored with.</summary>
+    public BspWorldLight[]? DynamicSlots { get; set; }
 
     /// <summary>
     /// Whether the fold's light reaches a point: `FUN_1801baeb0`, flags 0, traces. Null sees everything. Asked only past <see cref="Limit"/>.
@@ -84,6 +85,7 @@ public sealed class ModelLightAverage
     /// <param name="state">The state, or null where the caller has no slots to give, as a map with no lights.</param>
     /// <param name="cube">The state's cube.</param>
     /// <param name="sun">The sun the state sees.</param>
+    /// <param name="locals">The state's lights as the shader takes them, which the two switches hand back as they are.</param>
     /// <param name="x">The model's illumination point, for the fold.</param>
     /// <param name="y">The model's illumination point.</param>
     /// <param name="z">The model's illumination point.</param>
@@ -98,6 +100,7 @@ public sealed class ModelLightAverage
         LightingState? state,
         AmbientCube cube,
         SunLight? sun,
+        IReadOnlyList<LocalLight> locals,
         float x,
         float y,
         float z,
@@ -109,7 +112,7 @@ public sealed class ModelLightAverage
 
         if (!Enabled || Rate == 0f)
         {
-            return new Averaged(cube, sun, state?.Lighting(style).Locals ?? []);
+            return new Averaged(cube, sun, locals);
         }
 
         Draws++;
@@ -118,15 +121,21 @@ public sealed class ModelLightAverage
         int count = Current(state, sun, now);
 
         // ponytail: an instance is an entity index and a model, with no serial reaching a SceneProp, so a recreated entity (a corpse's list
-        // position above all) takes its predecessor's history if it comes back within about a second; carry the serial if that shows.
-        if (!_histories.TryGetValue(instance, out History? history) || !string.Equals(history.Model, model, StringComparison.Ordinal) ||
-            seconds < history.Time - LongestBackstep)
+        // position above all) inherits its predecessor's history however long ago that drew; its weight is `exp( -rate * gap )`, under 1% past
+        // 0.92 s at the default. Carry the serial if a recreation near that gap shows.
+        if (!_histories.TryGetValue(instance, out History? history))
         {
-            history = new History(model);
+            history = new History();
             _histories[instance] = history;
+        }
+
+        // Kept and rewritten when the model changes, as a viewmodel's slot does at every weapon switch: nothing to allocate.
+        if (!string.Equals(history.Model, model, StringComparison.Ordinal))
+        {
+            history.Model = model;
             history.Store(cube, now, count, seconds);
 
-            return Output(cube, now, history.Colours, count, half, style, history.Lists);
+            return Output(cube, now, history.Colours, count, count, half, style, history.Lists);
         }
 
         double elapsed = seconds - history.Time;
@@ -222,7 +231,10 @@ public sealed class ModelLightAverage
                 break;
             }
 
-            lights[total] = history.Lights[stored];
+            // Through the pointer: a dlight's slot holds whatever it was last converted from, and only the colour below is the stored one.
+            lights[total] = DynamicSlots is { } slots && history.Lights[stored].DynamicSlot is >= 0 and var slot
+                ? slots[slot]
+                : history.Lights[stored];
             colours[total] = (f * red, f * green, f * blue);
 
             if (total >= Limit)
@@ -246,16 +258,20 @@ public sealed class ModelLightAverage
             history.Colours[index] = colours[index];
         }
 
-        // Four lamps and this project's sun are five, and the limit is the engine's four slots, so at its default it cuts nothing.
-        return Output(folded, lights, history.Colours, Limit >= Slots ? total : Math.Min(total, Limit), half, style, history.Lists);
+        return Output(folded, lights, history.Colours, total, count, half, style, history.Lists);
     }
 
-    /// <summary>What the draw takes: the first `drawn` of the lights, each at its colour and then its style.</summary>
-    private static Averaged Output(
+    /// <summary>What the draw takes: `numlights = min( n, limit )`, each light at its colour and then its style.</summary>
+    /// <remarks>
+    /// **Except this project's sun while the state sees it**, which it does not rank among the slots (B676's remainder), so no limit can have
+    /// folded it first: cut here it would simply be lost. One that has left is cut and folded as any light that left.
+    /// </remarks>
+    private Averaged Output(
         AmbientCube cube,
         ReadOnlySpan<BspWorldLight> lights,
         ReadOnlySpan<(float Red, float Green, float Blue)> colours,
-        int drawn,
+        int total,
+        int current,
         int half,
         Func<int, float>? style,
         LocalsList[] lists)
@@ -265,8 +281,13 @@ public sealed class ModelLightAverage
 
         list.Count = 0;
 
-        for (int index = 0; index < drawn; index++)
+        for (int index = 0; index < total; index++)
         {
+            if (index >= Limit && !(lights[index].Kind == WorldLightKind.SkyLight && index < current))
+            {
+                continue;
+            }
+
             BspWorldLight light = lights[index] with { Intensity = colours[index] };
 
             if (light.Kind == WorldLightKind.SkyLight)
@@ -327,6 +348,11 @@ public sealed class ModelLightAverage
             return a.DynamicSlot == b.DynamicSlot;
         }
 
+        if (a.LumpIndex >= 0 || b.LumpIndex >= 0)
+        {
+            return a.LumpIndex == b.LumpIndex;
+        }
+
         if (a.Kind == WorldLightKind.SkyLight || b.Kind == WorldLightKind.SkyLight)
         {
             return a.Kind == b.Kind;
@@ -336,9 +362,10 @@ public sealed class ModelLightAverage
     }
 
     /// <summary>One instance's `+0x18..+0x128`, and the lists it hands each pose half.</summary>
-    private sealed class History(string model)
+    private sealed class History
     {
-        public string Model { get; } = model;
+        /// <summary>The model it was made for; null before its first draw, which is the engine's -999999.</summary>
+        public string? Model { get; set; }
 
         public double Time { get; set; }
 

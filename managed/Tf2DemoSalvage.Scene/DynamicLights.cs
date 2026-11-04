@@ -63,6 +63,7 @@ public sealed class DynamicLight
     /// <summary>Which converted slot this one is written to (`FUN_1801b9350`, elights after dlights), which is its identity to a model's average (B676); -1 for one outside the arrays.</summary>
     public int Slot { get; init; } = -1;
 
+
     /// <summary>What `0x18008a9c0`'s eight stores leave: every field zero, the key set.</summary>
     internal void Reset(int key)
     {

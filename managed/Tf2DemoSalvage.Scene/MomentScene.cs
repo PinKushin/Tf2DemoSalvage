@@ -339,6 +339,7 @@ public sealed class MomentScene : IGameSystemPerFrame
             _models.StaticPropHandle = value.PrecacheStaticProp;
             _models.StaticLightingPrecached = ReportStaticPropLightingAtLoad;
             _models.LightAverage.Seen = value.FoldSees;
+            _models.LightAverage.DynamicSlots = value.ConvertedDlights;
 
             // A new lighting object counts from zero; the model set's colour meshes keep counting.
             _loadReported = (value.StaticStateBuilds, value.StaticStateBuildTicks, _models.BakedBuilds, value.StyledListsBuilt);
@@ -446,6 +447,9 @@ public sealed class MomentScene : IGameSystemPerFrame
         ArgumentNullException.ThrowIfNull(props);
 
         long momentAt = Stopwatch.GetTimestamp();
+
+        // Before `Pack`, whose static props are lit with it (B676).
+        Lighting.WorldLightSlots = info.WorldLights;
 
         ThinkDynamicLights(props, info);
 
@@ -826,6 +830,7 @@ public sealed class MomentScene : IGameSystemPerFrame
         // The watcher's `r_lightaverage` and `r_lightinterp`, read at each draw as the engine reads them (B676).
         _models.LightAverage.Enabled = info.LightAverage;
         _models.LightAverage.Rate = info.LightInterp;
+        _models.LightAverage.Limit = Lighting.WorldLightSlots;
         long averagedBefore = _models.LightAverage.Draws;
 
         long sunBefore = Lighting.SunCalls;

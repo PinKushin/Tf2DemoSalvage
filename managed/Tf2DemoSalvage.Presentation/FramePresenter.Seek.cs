@@ -186,6 +186,12 @@ public sealed partial class FramePresenter
 
         _jumpsSkipped = _jumpsNow;
 
+        // A skip back reloads the demo in TF2, so every model instance is new and its next draw a first draw (B676, `FUN_1800eb5d0`).
+        if (skipped && target < from)
+        {
+            _models.LightAverage.Clear();
+        }
+
         // A jump that lands on the tick already shown is still a skip, and its readers must see it.
         if (from != target || skipped)
         {
