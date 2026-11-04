@@ -115,7 +115,8 @@ public sealed class ModelLightAverageWiringTests
         List<ModelInstance> drawn = [];
         float now = 1f;
 
-        models.StaticPropFullLighting = (_, _, _, _) => (Lit(now, Lamp), null);
+        // No lamp in it: the gate is all that keeps a state this plain from the average.
+        models.StaticPropFullLighting = (_, _, _, _) => (new LightingState(Flat(now)).Lighting(), null);
         models.Instances([prop], drawn, (_, _, _) => Lit(9f, Lamp), static (_, _, _) => null, 10d);
         drawn.Single().Light.ShouldBe(Flat(1f), "the instrument: the handle's state reached the draw");
 
