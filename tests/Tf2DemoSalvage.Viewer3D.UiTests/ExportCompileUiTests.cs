@@ -435,8 +435,15 @@ public sealed class ExportCompileUiTests
             WorkTimeout).Success;
 
         string? line = _viewer.LastLine(marker);
-        (logged && line is not null).ShouldBeTrue(
-            $"the viewer never logged '{outcome} …'; last failure: '{_viewer.LastLine("] Failed: ")}'\n" + DescribeWindows());
+
+        // **The report only when it failed** (B708): built eagerly, it walked the whole desktop through UI Automation on every pass,
+        // and a window anywhere that did not answer failed an export that had just succeeded.
+        if (!logged || line is null)
+        {
+            Assert.Fail($"the viewer never logged '{outcome} …'; last failure: '{_viewer.LastLine("] Failed: ")}'\n" + DescribeWindows());
+            return string.Empty;
+        }
+
         // The log is CRLF and lines are split on the LF, so each keeps its CR.
         return line.TrimEnd();
     }

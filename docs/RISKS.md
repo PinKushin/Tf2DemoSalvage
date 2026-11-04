@@ -40424,6 +40424,7 @@ its recreation shows nothing; that `_rt_FullFrameFB` and the bloom targets are l
 - The longest answers left: the post-load collection with the second precache (1292 ms, D199 keeps the collection), and the landing's frame (952 ms, mostly the particle rebuild a jump does, which is ours: the engine has simulated them through the skip). Splitting the second would need that rebuild to step, and was not done.
 - Mid-walk frames draw no particles, where the engine's draw what it has.
 - An F12 screenshot during a walk photographs the tick read to, as TF2's would.
+- **`FillDialog_ForegroundTakenByAnotherAppAfterItOpens_StillExports` failed once in phase 2, on a report and not on the export:** `WaitForOutcome` built its failure text on every pass, walking the whole desktop through UI Automation, and that walk timed out (`0x80131505`) 4 s after the export had logged its success. The report is built only on failure now. *Not established:* which window did not answer; the viewer's own watch had stopped by then.
 
 ## B707 — the loading overlay's test read its label in one window at launch (2026-11-04) — FIXED, the test; why the client was late is narrowed, not settled
 

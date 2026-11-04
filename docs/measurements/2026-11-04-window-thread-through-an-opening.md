@@ -2,6 +2,8 @@
 
 **Written after the runs:** no pre-run record was committed and no prediction was registered, so read this as a report.
 
+**Its "after" columns measure a fix since removed on review (`ServeWindow`).** The "before" column and the slow-machine run stand; the current figures are in `2026-11-04-skip-across-frames.md`.
+
 ## Observation
 
 `LoadingOverlay_OnceTheWorldIsBuilt_IsGone` failed with a UI Automation timeout when run first on the shared viewer. RISKS first read the time between `building the world` and `memory after load`, 6.5 s, as the hold. On run 41669140049 a client also arrived late (B707).
