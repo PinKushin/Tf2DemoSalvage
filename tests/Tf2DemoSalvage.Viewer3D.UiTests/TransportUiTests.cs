@@ -82,6 +82,33 @@ public sealed class TransportUiTests
             $"TRANSPORT speed reads '{speed.Name}'");
     }
 
+    /// <summary>Rewind through the real bar on a real demo (D246): the jump to the start lands at once, and no walk ever lands there.</summary>
+    [Test]
+    public void Transport_JumpBackToTheStart_ShowsItWithNoWalk()
+    {
+        string Readout() => _viewer.Find(TransportBar.TickLabelId).Name;
+
+        _viewer.Find(TransportBar.EndButtonId).AsButton().Invoke();
+        Retry.WhileFalse(() => AtEnd(Readout()), TimeSpan.FromSeconds(5), throwOnTimeout: true, timeoutMessage: $"Never reached the end; {Readout()}.");
+
+        _viewer.Find(TransportBar.StartButtonId).AsButton().Invoke();
+        Retry.WhileFalse(() => !AtEnd(Readout()), TimeSpan.FromSeconds(5), throwOnTimeout: true, timeoutMessage: $"The jump back did not show; {Readout()}.");
+
+        string shown = Readout();
+        string tick = shown.Split(' ', StringSplitOptions.RemoveEmptyEntries)[1];
+        string end = shown.Split(' ', StringSplitOptions.RemoveEmptyEntries)[^1];
+
+        // The control: going forward again walks, and its landing line reaching the log means anything before it has too.
+        _viewer.Find(TransportBar.EndButtonId).AsButton().Invoke();
+        Retry.WhileFalse(
+            () => ViewerSession.App.LastLine($"{FramePresenter.SkipLandedLine} {end} ") is not null,
+            TimeSpan.FromSeconds(120),
+            throwOnTimeout: true,
+            timeoutMessage: "The walk forward never landed, so the log says nothing about the jump back.");
+
+        ViewerSession.App.LastLine($"{FramePresenter.SkipLandedLine} {tick} ").ShouldBeNull("a step back must not walk from the start");
+    }
+
     [Test]
     public void Transport_JumpToEnd_MovesTheScrubBar()
     {

@@ -1,6 +1,6 @@
 ---
 name: when-to-call-the-advisor
-description: "Call the advisor to review a PLAN (after the first plan, before building) and to review the CHANGES; not before every merge or push, which the cross-model review and the gate already cover."
+description: "No advisor while the lead is Opus (owner, 2026-11-04: \"advisor only needs to be used when using sonnet or haiku\"). On Sonnet or Haiku: review a PLAN and the CHANGES; not before every merge or push."
 metadata:
   node_type: memory
   type: feedback

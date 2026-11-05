@@ -1483,6 +1483,25 @@ public sealed class ViewerSessionTests
         rig.Window.Count("Close now").ShouldBe(1);
     }
 
+    /// <summary>The session turns rewind on, not a test's setter (D246): its opening walks and a step back after it does not.</summary>
+    [Test]
+    public async Task RenderFrame_AStepBackAfterTheOpening_ShowsItsTickWithNoWalk()
+    {
+        using Rig rig = Build(WriteDemo("back"), "--measure", "1", "--tick", "300", "--then-seek", "100", "--autoplay");
+        rig.Session.PlanStartup();
+        rig.Session.WindowShown();
+        (await rig.Session.Loading.ConfigureAwait(false)).Loaded.ShouldBeTrue();
+
+        for (int frame = 0; frame < 200 && rig.Window.Count("Close") == 0; frame++)
+        {
+            rig.Session.RenderFrame();
+        }
+
+        rig.Log.Count($"{FramePresenter.SkipLandedLine} 300").ShouldBe(1, "the control: the opening seek forward walks");
+        rig.Transport.ShownTicks.ShouldContain(100);
+        rig.Log.Count($"{FramePresenter.SkipLandedLine} 100").ShouldBe(0, "a step back must not walk from the start");
+    }
+
     /// <summary>The session's own frames are what a skip spreads over (B708): this is what makes every other skip test here mean anything.</summary>
     [Test]
     public void Construct_AnySession_SpreadsASkipOverItsFrames()
