@@ -227,7 +227,8 @@ public sealed class TfHudTimeStatusConformanceTests
     {
         TfHudMatchStatus status = Built(state, useMatchHud);
 
-        Think(status, state);
+        // With the same choice as `Built`: a state without it reads the cvar's default, and that flip reloads the scheme.
+        Think(status, state.WithMatchHud(useMatchHud));
         return status;
     }
 
