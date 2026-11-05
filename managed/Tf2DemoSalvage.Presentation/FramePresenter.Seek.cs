@@ -116,7 +116,7 @@ public sealed partial class FramePresenter
         // Asked again while it runs: a new target, or the same one from a repaint. The frame's own step does the work.
         if (_skipWalk is { } walking)
         {
-            if (RewindsAtOnce && tick < walking.Shown)
+            if (RewindsAtOnce && (int)tick < walking.Target)
             {
                 // A rewind, not a new target: what the walk read so far is left undealt, as a rewind deals nothing.
                 DropSkip();

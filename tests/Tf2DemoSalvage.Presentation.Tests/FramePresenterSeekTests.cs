@@ -622,6 +622,33 @@ public sealed class FramePresenterSeekTests
         seek.Shown[^1].ShouldBe(400d);
     }
 
+    /// <summary>Behind where the walk is going but ahead of what it has drawn: still a step back, and `Retarget` would read that from the start.</summary>
+    [Test]
+    public void Rewind_DuringAWalkToATickBetweenShownAndTarget_ReadsNoFurtherFrames()
+    {
+        Seeking seek = new();
+
+        seek.Frames.SkipsAcrossFrames = true;
+        seek.Frames.RewindsAtOnce = true;
+        seek.Show(100d);
+        seek.Frames.FinishSkip();
+        seek.Show(600d);
+        seek.Frames.StepSkip(HostFrame(0f));
+
+        int shown = seek.HudFrames[^1];
+        double between = shown + 10d;
+
+        between.ShouldBeLessThan(600d, "the case needs a tick between what is drawn and the target");
+        seek.HudFrames.Clear();
+
+        seek.Show(between);
+        seek.Frames.FinishSkip();
+
+        seek.Frames.Skipping.ShouldBeFalse();
+        seek.HudFrames.ShouldBeEmpty();
+        seek.Shown[^1].ShouldBe(between);
+    }
+
     [Test]
     public void ShowMomentOver_TheSameTickAgainDuringASkip_DoesNoWorkOfItsOwn()
     {
