@@ -260,6 +260,9 @@ public sealed partial class ViewerSession
     {
         _openingLanding = false;
 
+        // From here a step back is the watcher's rewind (D246); the opening's own seeks, `TF2VIEW_SEEK_THROUGH`'s reload included, keep the engine's walk.
+        _effects.RewindsAtOnce = true;
+
         _log.LogInformation("{Message}", $"opening state applied at tick {_launch.ShotTick}");
         _reportFirstDrawAfterOpening = true;
 

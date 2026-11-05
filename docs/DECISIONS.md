@@ -11422,3 +11422,13 @@ face draws in that view.
 
 **Changes D196's routing:** a lead on Sonnet or below still delegates implementation to Opus. Doc and mechanical work may go to cheap or free models. A fork, which should share the lead's cache, is allowed later if it is measured, and not while the weekly limit is low.
 
+## D246 — rewind is instant again, and nothing above the engine may be lost to parity or memory work (2026-11-04)
+
+**Owner-voiced.** *"I would have never authorized that, i was not told it removed our rewind, we were supposed to be fixing the memory load caused by having rewind and fps at that point in time"*; *"we spent like half of last month dropping memory usage, but it was NEVER authorized to drop a feature"*; *"Make a test that would have passed the previous code, but will fail now... and also make sure we are testing everything we do above valve parity, since the 100% parity rule is probably why the subagent fucked up"*.
+
+**What happened.** B504 (2026-10-05) made every seek read the engine's skip frames, so a step back read from tick 0. A memory note then said the owner accepted the hitch; the owner never did, and that note is corrected.
+
+**What changed.** After the opening, a step back (`RewindsAtOnce`) shows its tick at once: the moment is sampled, and the HUD and decals rebuild from their own windows, which is the path the code had before B504. Measured on f12, tick 60000 back to 59000: no walk, no frames read. `docs/ABOVE-VALVE.md` lists every addition with a test, held by `AboveValveConformanceTests`. `Rewind_AShortStepBack_ReadsNoMoreThanOneCheckpointSpan` was seen red on the code before this fix; the code before B504 reads no frames on a seek, read and not run, so it would pass.
+
+**The trade, the owner's to overrule.** A rewind no longer deals the frames it would have read to the script-sound deck, so which wave a script sound picks after a rewind can differ from TF2 after `demo_gototick` back. TF2 has no rewind control to compare against. Forward seeks and the opening's own seeks, `TF2VIEW_SEEK_THROUGH` included, keep the engine's walk.
+

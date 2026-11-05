@@ -575,6 +575,53 @@ public sealed class FramePresenterSeekTests
         seek.Shown[^1].ShouldBe(250d);
     }
 
+    /// <summary>
+    /// Rewind is the owner's addition above the engine (D246). B504 made it read from tick 0 with nobody told; this test holds what came before:
+    /// a step back never reads the demo from its start. D217's bound is one 2 s checkpoint span.
+    /// </summary>
+    [Test]
+    public void Rewind_AShortStepBack_ReadsNoMoreThanOneCheckpointSpan()
+    {
+        const int CheckpointSpan = 133;
+
+        Seeking seek = new();
+
+        seek.Frames.SkipsAcrossFrames = true;
+        seek.Frames.RewindsAtOnce = true;
+        seek.Show(500d);
+        seek.Frames.FinishSkip();
+        seek.HudFrames.ShouldNotBeEmpty("the control: a seek forward does read frames");
+        seek.HudFrames.Clear();
+
+        seek.Show(490d);
+        seek.Frames.FinishSkip();
+
+        seek.HudFrames.ShouldAllBe(tick => tick >= 490 - CheckpointSpan, "a step back must not read from the demo's start");
+        seek.Shown[^1].ShouldBe(490d);
+    }
+
+    /// <summary>A step back during a forward walk is a rewind too, and the walk it interrupts is dropped.</summary>
+    [Test]
+    public void Rewind_DuringAForwardWalk_ShowsItsTickWithNoFurtherFrames()
+    {
+        Seeking seek = new();
+
+        seek.Frames.SkipsAcrossFrames = true;
+        seek.Frames.RewindsAtOnce = true;
+        seek.Show(500d);
+        seek.Frames.FinishSkip();
+        seek.Show(600d);
+        seek.Frames.StepSkip(HostFrame(0f));
+        seek.HudFrames.Clear();
+
+        seek.Show(400d);
+        seek.Frames.FinishSkip();
+
+        seek.Frames.Skipping.ShouldBeFalse();
+        seek.HudFrames.ShouldBeEmpty();
+        seek.Shown[^1].ShouldBe(400d);
+    }
+
     [Test]
     public void ShowMomentOver_TheSameTickAgainDuringASkip_DoesNoWorkOfItsOwn()
     {

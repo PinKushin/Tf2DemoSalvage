@@ -7,7 +7,7 @@ metadata:
 
 TF2 has no rewind: a skip back reloads the demo and fast-forwards. Our viewer rewound instantly because most
 state is preloaded. B504 (2026-10-05) made a seek replay the engine's skip frames (HUD, wave deck), so a skip back
-now replays from tick 0 - a hitch the owner accepts for now.
+now replays from tick 0. **The owner never authorized losing instant rewind** (owner, 2026-11-04: *"I NEVER FUCKING AUTHORIZED THAT!"*); an earlier version of this note wrongly said the hitch was accepted. It is a regression to fix. Owner: *"i was not told it removed our rewind, we were supposed to be fixing the memory load caused by having rewind and fps at that point in time"*: the aim was keeping rewind at lower memory cost, never removing it.
 
 Owner, 2026-10-05: *"we get 100% parity, then we worry about optimizing for out better than valve choices"*; *"i
 meant the reqind is better than valve, becaiuse it is"*; *"before the hud work and this latest work we could go

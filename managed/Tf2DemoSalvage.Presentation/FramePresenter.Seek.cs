@@ -60,6 +60,13 @@ public sealed partial class FramePresenter
     /// </remarks>
     public bool SkipsAcrossFrames { get; set; }
 
+    /// <summary>Whether going back shows its tick at once rather than reading from the demo's start.</summary>
+    /// <remarks>
+    /// **Rewind is an addition above the engine, and the owner's** (D246): TF2's only way back is a reload that reads from the start
+    /// (FUN_180073b10). False only where a test or `TF2VIEW_SEEK_THROUGH` asks for that reload.
+    /// </remarks>
+    public bool RewindsAtOnce { get; set; }
+
     /// <summary>Whether a skip is under way: the moment shown is on its way to the tick the transport names.</summary>
     public bool Skipping => _skipWalk is not null;
 
@@ -109,15 +116,23 @@ public sealed partial class FramePresenter
         // Asked again while it runs: a new target, or the same one from a repaint. The frame's own step does the work.
         if (_skipWalk is { } walking)
         {
-            if (ReferenceEquals(_frame.Timeline, walking.Timeline))
+            if (RewindsAtOnce && tick < walking.Shown)
+            {
+                // A rewind, not a new target: what the walk read so far is left undealt, as a rewind deals nothing.
+                DropSkip();
+            }
+            else if (ReferenceEquals(_frame.Timeline, walking.Timeline))
             {
                 Retarget(walking, tick);
 
                 return;
             }
 
-            // Another demo: nothing of this walk is its history, and the walk is not its seek.
-            DropSkip();
+            else
+            {
+                // Another demo: nothing of this walk is its history, and the walk is not its seek.
+                DropSkip();
+            }
         }
 
         // Walked: it is under way and will show the tick when it lands, or ran to its landing in this call and already has.
@@ -400,6 +415,12 @@ public sealed partial class FramePresenter
 
         // Stryker disable once all : a mutated guard leaves its pattern variables unassigned (CS0165) and Safe Mode drops the method - B410
         if (_frame.Timeline is not { } timeline || !skipped)
+        {
+            return false;
+        }
+
+        // Rewind (D246): the moment is sampled and the decals and HUD rebuild from their own windows, so nothing needs the demo read again.
+        if (RewindsAtOnce && target < from)
         {
             return false;
         }

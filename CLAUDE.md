@@ -47,6 +47,9 @@ viewer/UI rows take `run-exclusive.ps1` because they take the desktop.
 
 ## Non-negotiable constraints (owner-stated, don't relitigate without asking)
 
+- **Parity never removes a feature.** Anything above the engine is listed in `docs/ABOVE-VALVE.md` with a test. If a parity fix or
+  memory work would lose one, stop and tell the owner first (D246).
+
 - **No Rust**, explicitly rejected, don't suggest it. **No C++ by default** — the one exception is
   wrapping Source SDK code for a specific Phase 3 asset format, behind a C ABI shim (D4). **No Python
   for the core**, too slow for bulk corpus processing.
