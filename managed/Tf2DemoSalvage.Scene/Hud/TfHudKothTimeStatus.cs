@@ -12,6 +12,9 @@ namespace Tf2DemoSalvage.Scene.Hud;
 /// </remarks>
 public sealed class TfHudKothTimeStatus : VguiEditablePanel, IHudElement
 {
+    /// <summary>The element's panel name.</summary>
+    public const string ElementName = "HudKothTimeStatus";
+
     private const int TeamUnassigned = 0;
     private const int TeamRed = 2;
     private const int TeamBlue = 3;
@@ -22,7 +25,7 @@ public sealed class TfHudKothTimeStatus : VguiEditablePanel, IHudElement
     /// <summary>`CTFHudKothTimeStatus( "HudKothTimeStatus" )`: parented to the viewport, its two panels made, RED's set to RED.</summary>
     /// <param name="viewport">The viewport.</param>
     public TfHudKothTimeStatus(VguiPanel viewport)
-        : base(viewport, "HudKothTimeStatus")
+        : base(viewport, ElementName)
     {
         BluePanel = new TfHudTimeStatus(this, "BlueTimer");
         RedPanel = new TfHudTimeStatus(this, "RedTimer") { Team = TeamRed };
