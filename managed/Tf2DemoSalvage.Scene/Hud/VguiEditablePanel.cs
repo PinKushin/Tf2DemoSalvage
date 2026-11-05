@@ -253,6 +253,7 @@ public static class VguiControlFactory
         ["ScalableImagePanel"] = () => new VguiScalableImagePanel(null, null),
         ["ProgressBar"] = () => new VguiProgressBar(null, null),
         ["ContinuousProgressBar"] = () => new VguiContinuousProgressBar(null, null),
+        ["CircularProgressBar"] = () => new VguiCircularProgressBar(null, null),
 
         // client.dll's own, registered by its `DECLARE_BUILD_FACTORY` at load.
         ["CExLabel"] = () => new TfExLabel(null, null),
