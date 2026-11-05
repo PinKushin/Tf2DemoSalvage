@@ -205,6 +205,7 @@ public sealed class TfControlPointIcon : VguiEditablePanel
     private string? _overlay;
     private bool _locked;
     private int _players = -1;
+    private readonly TfControlPointCountdown _countdown;
     private TfControlPointSwoop? _capHighlightImage;
     private TfControlPointCapturePulse? _capPulseImage;
 
@@ -217,6 +218,7 @@ public sealed class TfControlPointIcon : VguiEditablePanel
         _baseImage = new TfControlPointPulseable(this, "BaseImage");
         _baseImage.SetShouldScaleImage(true);
         _capImage = new TfControlPointCapArrow(this, "CapImage") { Visible = false, ZPos = 2 };
+        _countdown = new TfControlPointCountdown(this, "Countdown") { ZPos = 4 };
     }
 
     /// <inheritdoc/>
@@ -357,9 +359,15 @@ public sealed class TfControlPointIcon : VguiEditablePanel
         _baseImage.Visible = true;
         (_baseImage.X, _baseImage.Y, _baseImage.Wide, _baseImage.Tall) = (0, 0, Wide, Tall);
 
+        (_countdown.X, _countdown.Y, _countdown.Wide, _countdown.Tall) = (0, 0, Wide, Tall);
+        _countdown.Update(state, point.UnlockTime);
+
         // Only a change builds a name: this runs for every icon every frame.
         string? material = objectives.IconNames.GetValueOrDefault(point.Icons[point.Owner]);
-        bool locked = IsPointLocked(state, objectives, index);
+
+        // `UpdateImage` (:299): the lock comes off once the unlock countdown is under six seconds (:438-453).
+        bool locked = IsPointLocked(state, objectives, index)
+            && !(_countdown.UnlockTime > 0f && !state.Rules.WaitingForPlayers && (int)(_countdown.UnlockTime - state.CurTime) < 6);
 
         if (material is not null && (!ReferenceEquals(material, _material) || locked != _locked))
         {
@@ -561,6 +569,82 @@ public sealed class TfControlPointPulseable(VguiPanel parent, string name) : Vgu
             _pulseImage.SetSize(Wide, Tall);
             _pulseImage.Paint(surface);
         }
+    }
+}
+
+/// <summary>`CControlPointCountdown` (hud_controlpointicons.cpp:1771): the seconds left before a locked point unlocks, from five.</summary>
+/// <remarks>
+/// Valve ticks it every 100 ms (`AddTickSignal( 100 )`); this updates every frame, so a change lands up to 0.1 s sooner.
+/// **Not ported:** the announcer's countdown and "capture enabled" lines it plays (:1857, :1878-1910).
+/// </remarks>
+/// <param name="parent">The icon.</param>
+/// <param name="name">The panel's name.</param>
+public sealed class TfControlPointCountdown(VguiPanel parent, string name) : VguiEditablePanel(parent, name)
+{
+    private const int RoundRunning = 4;
+
+    private float _unlockTime;
+    private float _seen;
+    private float _lastNow;
+
+    /// <summary>`m_flUnlockTime`.</summary>
+    public float UnlockTime => _unlockTime;
+
+    /// <inheritdoc/>
+    public override void ApplySchemeSettings(VguiContext context)
+    {
+        base.ApplySchemeSettings(context);
+        LoadControlSettings("resource/UI/ControlPointCountdown.res", context);
+    }
+
+    /// <inheritdoc/>
+    protected override void PerformLayout()
+    {
+        if (FindChildByName("CapCountdownLabel") is { } label)
+        {
+            (label.X, label.Y, label.Wide, label.Tall) = (0, 0, Wide, Tall);
+        }
+    }
+
+    /// <summary>`SetUnlockTime` when `controlpoint_unlock_updated` would fire, then `OnTick`.</summary>
+    /// <param name="state">The game state.</param>
+    /// <param name="unlockTime">`m_flUnlockTimes` for the point.</param>
+    public void Update(HudState state, float unlockTime)
+    {
+        // The event fires on a change (c_team_objectiveresource.cpp:219); a seek back replays to it.
+        if (MathF.Abs(unlockTime - _seen) > 1e-4f || state.CurTime < _lastNow)
+        {
+            (_seen, _unlockTime) = (unlockTime, unlockTime);
+        }
+
+        _lastNow = state.CurTime;
+
+        if (!state.InGame || _unlockTime <= 0f)
+        {
+            Visible = false;
+            return;
+        }
+
+        if (state.Rules.WaitingForPlayers || state.RoundState != RoundRunning)
+        {
+            return;
+        }
+
+        int timeLeft = (int)(_unlockTime - state.CurTime);
+
+        if (timeLeft > 5 || timeLeft <= 0)
+        {
+            if (timeLeft <= 0)
+            {
+                _unlockTime = 0f;
+            }
+
+            Visible = false;
+            return;
+        }
+
+        Visible = true;
+        SetDialogVariable("capturetime", timeLeft.ToString(CultureInfo.InvariantCulture));
     }
 }
 

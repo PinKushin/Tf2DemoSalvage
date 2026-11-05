@@ -196,6 +196,40 @@ public sealed class TfControlPointIconConformanceTests
         swoop.Visible.ShouldBeFalse();
     }
 
+    /// <remarks>`(int)( 13.5 - 10 )` is 3, inside the five seconds `OnTick` shows (:1851-1876).</remarks>
+    [Test]
+    public void Update_ThreeAndAHalfSecondsBeforeUnlock_Shows3()
+    {
+        TfControlPointCountdown countdown = new(new VguiPanel(null, "icon"), "Countdown");
+
+        countdown.Update(Running(10f), 13.5f);
+
+        countdown.Visible.ShouldBeTrue();
+    }
+
+    [Test]
+    public void Update_SixSecondsBeforeUnlock_IsHidden()
+    {
+        TfControlPointCountdown countdown = new(new VguiPanel(null, "icon"), "Countdown");
+
+        countdown.Update(Running(10f), 16f);
+
+        countdown.Visible.ShouldBeFalse();
+    }
+
+    [Test]
+    public void Update_PastTheUnlock_ClearsTheTimeAsOnTickDoes()
+    {
+        TfControlPointCountdown countdown = new(new VguiPanel(null, "icon"), "Countdown");
+
+        countdown.Update(Running(10f), 13.5f);
+        countdown.Update(Running(14f), 13.5f);
+
+        (countdown.Visible, countdown.UnlockTime).ShouldBe((false, 0f));
+    }
+
+    private static HudState Running(float now) => default(HudState) with { InGame = true, CurTime = now, RoundState = 4 };
+
     [Test]
     public void PulseAlphaAt_NoStart_IsNull() =>
         TfControlPointPulseable.PulseAlphaAt(default, 12f, 0f, false).ShouldBeNull();
