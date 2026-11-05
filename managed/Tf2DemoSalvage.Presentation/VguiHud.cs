@@ -227,14 +227,11 @@ public sealed class VguiHud
 
             // The scheme applied now, as the game applies it at `CHud::Init` long before any packet: an element caches
             // icons and fonts there, and the events below may be the first thing it handles.
-            VguiLayout.SolveTraverse(Viewport, _context);
-
-            // **Forced rather than left to `SolveTraverse`'s own scheme pass**, which only visits VISIBLE children
-            // (`VguiLayout.SchemeSettingsTraverse`) — a simplification this port's tree walk makes that real vgui's
-            // scheme reload does not. The scoreboard starts hidden, so without this its `.res` and score font would
-            // never load until the first time TAB is held, which is also the first frame it needs to paint correctly.
-            Scoreboard.ApplySchemeSettings(_context);
-            SpectatorGui.ApplySchemeSettings(_context);
+            //
+            // **Forced, so a hidden panel and its children both apply, children first (0x1800109e0).** The scoreboard and the
+            // spectator GUI start hidden. Calling their `ApplySchemeSettings` directly left their children's first pass
+            // pending, and the bar's own pass then ran after the panel had painted it, leaving it transparent (B709).
+            VguiLayout.SolveTraverse(Viewport, _context, forceApplySchemeSettings: true);
         }
 
         if (reset)

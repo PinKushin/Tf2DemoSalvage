@@ -47,6 +47,20 @@ public sealed class VguiHudTests
         hud.Crosshair.TimeToHideUntil.ShouldBe(-1f);
     }
 
+    /// <summary>B709: a panel shown on the first frame keeps the bar colour `CSpectatorGUI::ApplySchemeSettings` gave it, as the bar's own pass runs first (0x1800109e0).</summary>
+    [Test]
+    public void Frame_TheSpectatorGuiShownOnTheFirstFrame_KeepsItsTopBarColour()
+    {
+        VguiHud hud = Hud();
+        HudState spectating = Local with { IsHltv = true };
+
+        hud.Frame(spectating);
+        hud.Frame(spectating);
+
+        hud.SpectatorGui.Visible.ShouldBeTrue("the control");
+        hud.SpectatorGui.TopBar.BgColor.ShouldBe(((byte)52, (byte)48, (byte)45, (byte)255));
+    }
+
     private static VguiHud Hud()
     {
         VguiSurfaceHost host = EmptySchemeHost();
