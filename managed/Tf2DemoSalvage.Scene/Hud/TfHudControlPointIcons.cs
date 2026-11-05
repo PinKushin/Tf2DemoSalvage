@@ -391,13 +391,19 @@ public sealed class TfControlPointIcon : VguiEditablePanel
 
         // `PerformLayout` (:517-521, :565-571): the swoop rises from the icon three quarters of the screen; the capture pulse
         // is three icons wide, centred on it.
-        if (_capHighlightImage is { } swoop && Parent?.Parent is { } screen)
+        if (_capHighlightImage is { } swoop)
         {
-            int indentX = 2 * screen.Wide / 640;
-            int indentY = 2 * screen.Tall / 480;
-            int height = (int)(screen.Tall * 0.75f);
+            if (Parent?.Parent is { } screen)
+            {
+                // `XRES( 2 )` and `YRES( 2 )` are floats (cdll_util.h:53-54); each sum truncates once.
+                float indentX = 2f * screen.Wide / 640f;
+                float indentY = 2f * screen.Tall / 480f;
+                int height = (int)(screen.Tall * 0.75f);
 
-            (swoop.X, swoop.Y, swoop.Wide, swoop.Tall) = (AbsX + indentX, AbsY - height, Wide - (indentX * 2), height + Tall - indentY);
+                (swoop.X, swoop.Y, swoop.Wide, swoop.Tall) =
+                    ((int)(AbsX + indentX), AbsY - height, (int)(Wide - (indentX * 2f)), (int)(height + Tall - indentY));
+            }
+
             swoop.Step(point.Pulse.Accelerate && capping && defending ? point.Pulse.Start : 0f, state.CurTime, freezeCam);
         }
 
@@ -580,8 +586,33 @@ public abstract class TfControlPointOneShot(VguiPanel parent, string name, strin
     {
         if (MathF.Abs(start - _start) > 1e-4f || now < _lastNow)
         {
-            (_start, _done) = (start, false);
+            (_start, _done, _lastNow) = (start, false, float.MinValue);
         }
+
+        Evaluate(now, freezeCam);
+    }
+
+    /// <summary>
+    /// The engine's panel hides itself in its own `PaintBackground`, so it finishes even on a frame its icon is not updated —
+    /// a point leaving the round, or the objectives gone. This one advances on its own think for the same reason.
+    /// </summary>
+    protected override void OnThink()
+    {
+        if (HudViewport.Of(this) is { } viewport)
+        {
+            Evaluate(viewport.State.CurTime, viewport.State.ObserverMode == ObserverModes.FreezeCam);
+        }
+    }
+
+    private void Evaluate(float now, bool freezeCam)
+    {
+        // Once a frame: a second look at the same moment would hide the last frame before it is drawn.
+        if (now <= _lastNow)
+        {
+            return;
+        }
+
+        float start = _start;
 
         _lastNow = now;
         Elapsed = now - start;
