@@ -53,6 +53,7 @@ public sealed class VguiHud
         MatchStatus = new TfHudMatchStatus(Viewport, mdlCache);
         KothTimeStatus = new TfHudKothTimeStatus(Viewport);
         ControlPointIcons = new TfHudControlPointIcons(Viewport);
+        ObjectiveStatus = new TfHudObjectiveStatus(Viewport, ControlPointIcons);
         Chat = new TfHudChat(Viewport);
 
         // `CTFClientScoreBoardDialog` is a viewport panel added by `CBaseViewport::CreatePanelByName`, not a
@@ -71,6 +72,9 @@ public sealed class VguiHud
 
     /// <summary>`CHudChat`.</summary>
     public TfHudChat Chat { get; }
+
+    /// <summary>`CTFHudObjectiveStatus`.</summary>
+    public TfHudObjectiveStatus ObjectiveStatus { get; }
 
     /// <summary>`CHudControlPointIcons`.</summary>
     public TfHudControlPointIcons ControlPointIcons { get; }

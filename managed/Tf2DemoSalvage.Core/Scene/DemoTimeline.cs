@@ -682,6 +682,12 @@ public readonly record struct SceneGameRules(bool MannVsMachine, int HalloweenSc
     /// <summary>`m_nGameType` (tf_gamerules.cpp:1486); `IsInArenaMode()` is <see cref="GameTypeArena"/>.</summary>
     public int GameType { get; init; }
 
+    /// <summary>`GetHUDType()`: `m_nHudType`, `TF_HUDTYPE_UNDEFINED` (0) unsent.</summary>
+    public int HudType { get; init; }
+
+    /// <summary>`IsPlayingHybrid_CTF_CP()`: `m_bPlayingHybrid_CTF_CP`.</summary>
+    public bool PlayingHybridCtfCp { get; init; }
+
     /// <summary>`GetCurrentMatchGroup()`: `m_nMatchGroupType` (tf_gamerules.cpp:1536), `k_eTFMatchGroup_Invalid` (-1) unsent.</summary>
     public int MatchGroup { get; init; } = -1;
 
@@ -4714,6 +4720,8 @@ public sealed class DemoTimeline
                 Setup = gameRules?.Integer("DT_TeamplayRoundBasedRules.m_bInSetup") is > 0,
                 StopWatch = gameRules?.Integer("DT_TeamplayRoundBasedRules.m_bStopWatch") is > 0,
                 GameType = gameRules?.Integer("DT_TFGameRules.m_nGameType") ?? 0,
+                HudType = gameRules?.Integer("DT_TFGameRules.m_nHudType") ?? 0,
+                PlayingHybridCtfCp = gameRules?.Integer("DT_TFGameRules.m_bPlayingHybrid_CTF_CP") is > 0,
                 RoundsPlayed = gameRules?.Integer("DT_TeamplayRoundBasedRules.m_nRoundsPlayed") ?? 0,
                 MapResetTime = gameRules?.Number("DT_TeamplayRoundBasedRules.m_flMapResetTime") ?? 0f,
                 ActiveMinigame = entities.OfClass("CTFMinigameLogic").FirstOrDefault() is { } minigameLogic
