@@ -240,6 +240,14 @@ public sealed class TfControlPointIconConformanceTests
         (icon.TimerLabel.Visible, icon.TimerLabel.Text, icon.TimerLabel.FgColor).ShouldBe((true, "5", ((byte)192, (byte)28, (byte)0, (byte)255)));
     }
 
+    /// <remarks>Set 30 s out at 0: ticks every 0.15 s; the first at or under ten seconds left is tick 134 (20.1 s), red.</remarks>
+    [TestCase(20.05f, false)]
+    [TestCase(20.12f, true)]
+    [TestCase(20.27f, false)]
+    [TestCase(20.42f, true)]
+    public void TimerIsRed_ATimerSetThirtySecondsOut_FlashesFromTheTenSecondMark(float now, bool red) =>
+        TfControlPointIcon.TimerIsRed(0f, 30f, now).ShouldBe(red);
+
     [Test]
     public void Update_NoPointTimer_HidesTheLabel()
     {

@@ -81,6 +81,11 @@ public sealed class TfHudControlPointIcons : VguiEditablePanel, IHudElement
             {
                 _icons[slot].Update(state, _shown[slot]);
             }
+            else
+            {
+                // The timer sits among the icons, so it does not hide with its icon.
+                _icons[slot].HideTimer();
+            }
         }
 
         if (changed)
@@ -233,6 +238,29 @@ public sealed class TfControlPointIcon : VguiEditablePanel
         _timerBackground.SetShouldScaleImage(true);
     }
 
+    /// <summary>The timer's label and background hidden, as a point leaving the round leaves them among the icons.</summary>
+    public void HideTimer()
+    {
+        _timerLabel.Visible = false;
+        _timerBackground.Visible = false;
+    }
+
+    /// <summary>
+    /// `m_bRedText` at a moment: `SetTimerTime` clears it and ticks every 150 ms from then, and a tick only flips it once
+    /// `ceil( m_flCPTimerTime - curtime )` is ten or fewer (:593-605), so the first such tick is red.
+    /// </summary>
+    /// <param name="setAt">When `SetTimerTime` ran.</param>
+    /// <param name="timerTime">`m_flCPTimerTime`.</param>
+    /// <param name="now">`gpGlobals->curtime`.</param>
+    /// <returns>Whether the text is red.</returns>
+    public static bool TimerIsRed(float setAt, float timerTime, float now)
+    {
+        int last = (int)((now - setAt) / TimerTick);
+        int first = Math.Max(0, (int)MathF.Ceiling((timerTime - 10f - setAt) / TimerTick));
+
+        return last >= first && (last - first) % 2 == 0;
+    }
+
     /// <summary>`m_pCPTimerLabel`.</summary>
     public VguiLabel TimerLabel => _timerLabel;
 
@@ -262,16 +290,15 @@ public sealed class TfControlPointIcon : VguiEditablePanel
 
         _timerBackground.X = X;
         _timerBackground.Y = Y;
-        _timerLabel.X = X + Wide - (int)(Parent?.Parent is { } screen ? screen.Wide / 640f : 1f);
+
+        // `XRES( 1 )`: the screen's width over 640.
+        _timerLabel.X = X + Wide - (int)((HudViewport.Of(this)?.Wide ?? 640) / 640f);
         _timerLabel.Y = Y + (Tall / 2) - (_timerLabel.Tall / 2);
 
         float left = timerTime - state.CurTime;
         int seconds = left > 0f ? (int)MathF.Ceiling(left) : 0;
 
-        // The first tick runs at `SetTimerTime`, so the colour flips on every tick from then: odd ticks red.
-        int ticks = (int)((state.CurTime - _timerSetAt) / TimerTick) + 1;
-
-        _timerLabel.FgColor = seconds <= 10 && ticks % 2 == 1 ? _highlightColor : _regularColor;
+        _timerLabel.FgColor = TimerIsRed(_timerSetAt, timerTime, state.CurTime) ? _highlightColor : _regularColor;
         _timerLabel.SetText(seconds.ToString(CultureInfo.InvariantCulture), text => text);
     }
 
@@ -415,8 +442,7 @@ public sealed class TfControlPointIcon : VguiEditablePanel
         if (state.Objectives is not { } objectives)
         {
             _baseImage.PulseAlpha = null;
-            _timerLabel.Visible = false;
-            _timerBackground.Visible = false;
+            HideTimer();
             return;
         }
 
@@ -652,6 +678,8 @@ public sealed class TfControlPointCountdown(VguiPanel parent, string name) : Vgu
 
     private float _unlockTime;
     private float _seen;
+    private readonly bool[] _fire = [true, true, true, true, true, true];
+    private bool _fire0 = true;
     private float _lastNow;
 
     /// <summary>`m_flUnlockTime`.</summary>
@@ -682,6 +710,12 @@ public sealed class TfControlPointCountdown(VguiPanel parent, string name) : Vgu
         if (MathF.Abs(unlockTime - _seen) > 1e-4f || state.CurTime < _lastNow)
         {
             (_seen, _unlockTime) = (unlockTime, unlockTime);
+
+            // `SetUnlockTime` (:1814): the five lines re-arm by the time left, `m_bFire0SecRemain` does not.
+            for (int line = 1; line <= 5; line++)
+            {
+                _fire[line] = unlockTime - state.CurTime >= line;
+            }
         }
 
         _lastNow = state.CurTime;
@@ -701,9 +735,10 @@ public sealed class TfControlPointCountdown(VguiPanel parent, string name) : Vgu
 
         if (timeLeft > 5 || timeLeft <= 0)
         {
-            if (timeLeft <= 0)
+            // Only the expiry that `m_bFire0SecRemain` still allows clears the time (:1854-1859).
+            if (timeLeft <= 0 && _fire0)
             {
-                _unlockTime = 0f;
+                (_fire0, _unlockTime) = (false, 0f);
             }
 
             Visible = false;
@@ -711,6 +746,17 @@ public sealed class TfControlPointCountdown(VguiPanel parent, string name) : Vgu
         }
 
         Visible = true;
+
+        // One announcer line per tick, five down to one (:1878-1903); the last re-arms the expiry. The lines are sound only.
+        for (int line = 5; line >= 1; line--)
+        {
+            if (timeLeft <= line && _fire[line])
+            {
+                _fire[line] = false;
+                _fire0 |= line == 1;
+                break;
+            }
+        }
         SetDialogVariable("capturetime", timeLeft.ToString(CultureInfo.InvariantCulture));
     }
 }
