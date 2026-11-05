@@ -26,7 +26,12 @@ public sealed class ObjectivesProbe : IProbe
         {
             Scene.MapLocator maps = new(Presentation.MapProvider.SteamLibraryFile, Presentation.MapProvider.OwnMapsFolder);
             Content.Assets.GameArchives archives = Content.Assets.GameArchives.Open(maps.FindGameFolder()!);
-            Scene.MapTexture? found = Scene.MapAssets.ResolveVguiMaterial(
+            if (archives.Read($"materials/{material}.vtf") is { } vtf)
+            {
+                output.WriteLine($"vtf flags 0x{BitConverter.ToUInt32(vtf, 20):x} (0x4 clamps, 0x8 clampt)");
+            }
+
+            Scene.MapTexture? found =Scene.MapAssets.ResolveVguiMaterial(
                 Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance, material, Content.Assets.PakFile.Read(ReadOnlyMemory<byte>.Empty), archives, 4096);
 
             if (found is not { } texture)

@@ -27,8 +27,11 @@ public sealed record VguiShading(MapDetail? Detail, VguiDistanceAlpha? DistanceA
         System.ArgumentNullException.ThrowIfNull(material);
 
         VguiDistanceAlpha? distanceAlpha = VguiDistanceAlpha.Read(material.Value);
+
+        // `#if SEPARATE_DETAIL_UVS`: `o.detailTexCoord.xy = v.vTexCoord1.xy` (vertexlit_and_unlit_generic_vs20.fxc:275-276), with no transform.
+        (float U, float V) scale = material.Value("$separatedetailuvs") is "1" ? (1f, 1f) : material.DetailScale;
         MapDetail? combined = detail is { } texture
-            ? new MapDetail(texture, material.DetailScale, material.DetailBlendFactor, material.DetailBlendMode, (1f, 1f, 1f))
+            ? new MapDetail(texture, scale, material.DetailBlendFactor, material.DetailBlendMode, (1f, 1f, 1f))
             : null;
 
         return combined is null && distanceAlpha is null ? null : new VguiShading(combined, distanceAlpha);
