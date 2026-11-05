@@ -1,7 +1,7 @@
 - [[a-measurement-hook-checks-the-record-not-the-science]] — pre-run file, verdict, `fix:`/`perf:` names its test; `git cat-file`, not `git show sha:path`.
 - [[handoff-2026-10-31]] READ FIRST — beta.57 PUBLISHED, tag on `d3e008fe`; supersedes [[handoff-2026-10-29]], which supersedes [[handoff-2026-10-28]].
 - [[index-notes]] — D numbers formerly beside links.
-- [[split-a-composite-by-fitting-its-alpha]] (B688) — a red golden over a translucent panel: HUD on and off at both builds, one `1-a` per pixel.
+- [[split-a-composite-by-fitting-its-alpha]] (B688) — a red golden over a translucent panel: HUD on and off at both builds, one `1-a` per pixel; [[predict-a-translucent-pixel-before-calling-it-wrong]] (B709).
 - [[implement-inline-on-opus-or-fable]] (D245) — no implementer agents while lead is Opus or Fable; reviews stay.
 - [[mcp-tools-first]] — an installed MCP tool before any hand script.
 - [[cheat-engine-is-for-live-tf2]] — attack live TF2 with it when disassembly stops answering; no ask.
