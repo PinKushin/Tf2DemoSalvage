@@ -25,6 +25,9 @@ public sealed class TfHudMatchStatus : VguiEditablePanel, IHudElement
 {
     private bool _usedMatchHud;
 
+    /// <summary>`m_eMatchGroupSettings`: the group the scheme last loaded for; null before any think has seen game rules.</summary>
+    private int? _matchGroupSettings;
+
     /// <summary>`CTFHudMatchStatus( "HudMatchStatus" )` (:268): parented to the viewport, its panels made up front.</summary>
     /// <param name="viewport">The viewport.</param>
     /// <param name="mdlCache">The models the two model panels draw.</param>
@@ -33,7 +36,7 @@ public sealed class TfHudMatchStatus : VguiEditablePanel, IHudElement
     {
         MatchStartModelPanel = new VguiModelPanel(this, "MatchDoors", mdlCache);
         RoundCounter = new TfRoundCounterPanel(this);
-        TimePanel = new TfHudTimeStatus(this, "ObjectiveStatusTimePanel");
+        TimePanel = new TfHudTimeStatus(this, "ObjectiveStatusTimePanel") { UseMatchHud = false };
         RoundSignModel = new VguiModelPanel(this, "RoundSignModel", mdlCache);
 
         // (:287-298). The leader avatars are `CAvatarImagePanel`s, whose picture Steam serves; the demo carries no image.
@@ -142,7 +145,7 @@ public sealed class TfHudMatchStatus : VguiEditablePanel, IHudElement
         HudState state = HudViewport.Of(this)?.State ?? default;
 
         _usedMatchHud = ShouldUseMatchHud(state);
-        TimePanel.UseMatchHud = _usedMatchHud;
+        TimePanel.UseMatchHud = _usedMatchHud && _matchGroupSettings is not null;
         RoundCounter.UseMatchHud = _usedMatchHud;
 
         // `SetPanelsVisible` (:339): `m_pRoundCounter->SetVisible( ShouldUseMatchHUD() )`.
@@ -306,9 +309,16 @@ public sealed class TfHudMatchStatus : VguiEditablePanel, IHudElement
 
         HudState state = viewport.State;
 
-        // A different choice reloads the scheme, which reapplies the conditions.
-        if (ShouldUseMatchHud(state) != _usedMatchHud)
+        // `OnThink` (tf_hud_match_status.cpp:434-465): a different choice or a different match group reloads the scheme. The first think
+        // with game rules is always a different group, and that reload is how the time panel gets `if_match`, which its own
+        // `ApplySchemeSettings` asks for only `if ( TFGameRules() )` (tf_time_panel.cpp:626). Its parent has its size by then, so `wide "p1"`
+        // reads the parent's width, where a first pass, children first, would read the default of 64 (B709).
+        bool firstRules = _matchGroupSettings != state.Rules.MatchGroup;
+
+        if (firstRules || ShouldUseMatchHud(state) != _usedMatchHud)
         {
+            _matchGroupSettings = state.Rules.MatchGroup;
+            TimePanel.UseMatchHud = ShouldUseMatchHud(state);
             InvalidateLayout(reloadScheme: true);
         }
 

@@ -225,13 +225,6 @@ public sealed class VguiHud
             // icons and fonts there, and the events below may be the first thing it handles.
             VguiLayout.SolveTraverse(Viewport, _context);
 
-            // **A second pass, now every parent has its size** (B709): the walk is children first (0x1800109e0), so `wide "p1"` on a
-            // panel's child read the parent's default on the first. *Interpolated:* the game's HUD gets its second pass from a later
-            // `CBaseViewport::ReloadScheme` (baseviewport.cpp:212); which call that is at startup was not read.
-            // Only this panel: a second pass over the whole viewport also rescaled the class portrait, which is filed under B709.
-            MatchStatus.InvalidateLayout(reloadScheme: true);
-            VguiLayout.SolveTraverse(Viewport, _context);
-
             // **Forced rather than left to `SolveTraverse`'s own scheme pass**, which only visits VISIBLE children
             // (`VguiLayout.SchemeSettingsTraverse`) — a simplification this port's tree walk makes that real vgui's
             // scheme reload does not. The scoreboard starts hidden, so without this its `.res` and score font would

@@ -67,11 +67,12 @@ public sealed class VguiHudTests
         0);
 
     /// <summary>
-    /// B709. TF2's `HudObjectiveTimePanel.res` gives the waiting label `wide "p1"`, the time panel's own width, and `HudMatchStatus.res`
-    /// sizes that panel. The scheme walk is children first, so one pass read the panel's default of 64 and clipped "WAITING FOR PLAYERS".
+    /// B709. Under `if_match`, TF2's `HudObjectiveTimePanel.res` gives the waiting label `wide "p1"`. `if_match` is asked for only `if ( TFGameRules() )`,
+    /// so it arrives with the reload `CTFHudMatchStatus::OnThink` makes on the first match group, when the parent has its size. Read
+    /// on the first pass, children first, `p1` took the default of 64 and clipped "WAITING FOR PLAYERS".
     /// </summary>
     [Test]
-    public void Frame_AChildWhoseWidthIsItsParents_TakesTheParentsResWidth()
+    public void Frame_TheMatchLabelsParentRelativeWidth_ReadsTheParentsResWidth()
     {
         static byte[] Res(string text) => System.Text.Encoding.UTF8.GetBytes(text);
 
@@ -83,7 +84,7 @@ public sealed class VguiHudTests
                     "x" { "ObjectiveStatusTimePanel" { "fieldName" "ObjectiveStatusTimePanel" "wide" "130" "tall" "150" } }
                     """),
                 "resource/UI/HudObjectiveTimePanel.res" => Res("""
-                    "x" { "WaitingForPlayersLabel" { "ControlName" "CExLabel" "fieldName" "WaitingForPlayersLabel" "proportionalToParent" "1" "wide" "p1" "tall" "19" } }
+                    "x" { "WaitingForPlayersLabel" { "ControlName" "CExLabel" "fieldName" "WaitingForPlayersLabel" "wide" "78" "tall" "19" "if_match" { "proportionalToParent" "1" "wide" "p1" } } }
                     """),
                 _ => null,
             },
@@ -95,9 +96,16 @@ public sealed class VguiHudTests
 
         VguiHud hud = new(host, new EntityModelSet());
 
-        hud.Frame(Local, reset: false);
+        HudState matchHud = Local with { ConVars = new HudConVars(name => name == "tf_use_match_hud" ? "1" : null) };
 
+        hud.Frame(matchHud, reset: false);
+
+        // `.res` hides these until a timer is live, and only a visible panel thinks or takes its scheme; the demo's first timer does this.
         VguiPanel panel = hud.MatchStatus.TimePanel;
+
+        hud.MatchStatus.Visible = true;
+        hud.Frame(matchHud, reset: false);
+        panel.PerformApplySchemeSettings(hud.Viewport.Context.ShouldNotBeNull());
 
         panel.Wide.ShouldBe(130, "the control: the parent took its file's width");
         panel.FindChildByName("WaitingForPlayersLabel").ShouldNotBeNull().Wide.ShouldBe(129, "`p1` is the parent less one (Panel.cpp `ComputeWide`), and one pass read 63");
