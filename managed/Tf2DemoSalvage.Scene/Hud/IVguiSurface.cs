@@ -83,6 +83,18 @@ public interface IVguiSurface
     /// <param name="t1">Bottom texture coordinate.</param>
     public void DrawTexturedQuad(float x0, float y0, float x1, float y1, float s0, float t0, float s1, float t1);
 
+    /// <summary>A quad whose detail reads a second coordinate spanning it 0 to 1 while the base's moves (`$separatedetailuvs`).</summary>
+    /// <param name="x0">Left.</param>
+    /// <param name="y0">Top.</param>
+    /// <param name="x1">Right.</param>
+    /// <param name="y1">Bottom.</param>
+    /// <param name="s0">Left texture coordinate.</param>
+    /// <param name="t0">Top texture coordinate.</param>
+    /// <param name="s1">Right texture coordinate.</param>
+    /// <param name="t1">Bottom texture coordinate.</param>
+    public void DrawTexturedQuadSeparateDetail(float x0, float y0, float x1, float y1, float s0, float t0, float s1, float t1) =>
+        DrawTexturedQuad(x0, y0, x1, y1, s0, t0, s1, t1);
+
     /// <summary>`DrawTexturedPolygon( n, verts )`, clipped — the default `bClipVertices`.</summary>
     /// <param name="vertices">The corners, in panel pixels, in fan order.</param>
     public void DrawTexturedPolygon(System.ReadOnlySpan<VguiVertex> vertices);

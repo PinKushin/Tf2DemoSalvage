@@ -67,6 +67,7 @@ public static class HudStates
             RoundState = timeline.RoundStateAt(tick),
             RoundTimers = timeline.RoundTimersAt(tick),
             Teams = timeline.TeamsAt(tick),
+            Objectives = timeline.ObjectivesAt(tick),
             Buildings = timeline.BuildingsAt(tick),
             IdEntities = timeline.IdEntitiesAt(tick),
             ScoreboardPlayers = timeline.ScoreboardPlayersAt(tick),

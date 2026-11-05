@@ -20,15 +20,16 @@ namespace Tf2DemoSalvage.Render;
 internal sealed unsafe class VguiRenderer : IDisposable
 {
     private const int VerticesPerQuad = 6;
-    private const int FloatsPerVertex = 8;
+    private const int FloatsPerVertex = 10;
     private const int VertexStride = sizeof(float) * FloatsPerVertex;
 
     private const string ShaderSource = """
         Texture2D Base : register(t0);
         SamplerState Sampler : register(s0);
 
-        struct VsIn  { float2 pos : POSITION; float2 uv : TEXCOORD; float4 col : COLOR; };
-        struct VsOut { float4 pos : SV_POSITION; float2 uv : TEXCOORD; float4 col : COLOR; };
+        // `detailUv`: the mesh's second coordinate, which `$separatedetailuvs` reads; the first everywhere else.
+        struct VsIn  { float2 pos : POSITION; float2 uv : TEXCOORD0; float4 col : COLOR; float2 detailUv : TEXCOORD1; };
+        struct VsOut { float4 pos : SV_POSITION; float2 uv : TEXCOORD0; float4 col : COLOR; float2 detailUv : TEXCOORD1; };
 
         VsOut VsMain(VsIn input)
         {
@@ -36,6 +37,7 @@ internal sealed unsafe class VguiRenderer : IDisposable
             output.pos = float4(input.pos, 0.0f, 1.0f);
             output.uv = input.uv;
             output.col = input.col;
+            output.detailUv = input.detailUv;
             return output;
         }
 
@@ -57,7 +59,7 @@ internal sealed unsafe class VguiRenderer : IDisposable
         float4 PsMain(VsOut input) : SV_TARGET
         {
             float4 baseColor = Base.Sample(Sampler, input.uv);
-            float2 detailUv = input.uv * DetailScale.xy;
+            float2 detailUv = input.detailUv * DetailScale.xy;
             int detailMode = (int)round(DetailSwitches.z);
 
             // `#if DISTANCEALPHA && (DISTANCEALPHAFROMDETAIL == 0)` (:257-259): the base's alpha, taken BEFORE the combine
@@ -195,6 +197,7 @@ internal sealed unsafe class VguiRenderer : IDisposable
             new() { SemanticName = position, Format = Silk.NET.DXGI.Format.FormatR32G32Float, AlignedByteOffset = 0, InputSlotClass = InputClassification.PerVertexData },
             new() { SemanticName = texture, Format = Silk.NET.DXGI.Format.FormatR32G32Float, AlignedByteOffset = sizeof(float) * 2, InputSlotClass = InputClassification.PerVertexData },
             new() { SemanticName = colour, Format = Silk.NET.DXGI.Format.FormatR32G32B32A32Float, AlignedByteOffset = sizeof(float) * 4, InputSlotClass = InputClassification.PerVertexData },
+            new() { SemanticName = texture, SemanticIndex = 1, Format = Silk.NET.DXGI.Format.FormatR32G32Float, AlignedByteOffset = sizeof(float) * 8, InputSlotClass = InputClassification.PerVertexData },
         ];
 
         fixed (InputElementDesc* first = elements)
@@ -455,26 +458,29 @@ internal sealed unsafe class VguiRenderer : IDisposable
                 {
                     Append(
                         data, ref at, (corner.X / viewportWidth * 2f) - 1f, 1f - (corner.Y / viewportHeight * 2f), corner.S, corner.T,
-                        red, green, blue, quad.AlphaTopLeft);
+                        red, green, blue, quad.AlphaTopLeft, corner.S, corner.T);
                 }
 
                 continue;
             }
 
             // (tl, tr, br) and (tl, br, bl).
-            Append(data, ref at, left, top, quad.S0, quad.T0, red, green, blue, quad.AlphaTopLeft);
-            Append(data, ref at, right, top, quad.S1, quad.T0, red, green, blue, quad.AlphaTopRight);
-            Append(data, ref at, right, bottom, quad.S1, quad.T1, red, green, blue, quad.AlphaBottomRight);
-            Append(data, ref at, left, top, quad.S0, quad.T0, red, green, blue, quad.AlphaTopLeft);
-            Append(data, ref at, right, bottom, quad.S1, quad.T1, red, green, blue, quad.AlphaBottomRight);
-            Append(data, ref at, left, bottom, quad.S0, quad.T1, red, green, blue, quad.AlphaBottomLeft);
+            // `$separatedetailuvs`: the second coordinate spans the quad (hud_controlpointicons.cpp:1742) while the first moves.
+            (float ds0, float dt0, float ds1, float dt1) = quad.SeparateDetailUvs ? (0f, 0f, 1f, 1f) : (quad.S0, quad.T0, quad.S1, quad.T1);
+
+            Append(data, ref at, left, top, quad.S0, quad.T0, red, green, blue, quad.AlphaTopLeft, ds0, dt0);
+            Append(data, ref at, right, top, quad.S1, quad.T0, red, green, blue, quad.AlphaTopRight, ds1, dt0);
+            Append(data, ref at, right, bottom, quad.S1, quad.T1, red, green, blue, quad.AlphaBottomRight, ds1, dt1);
+            Append(data, ref at, left, top, quad.S0, quad.T0, red, green, blue, quad.AlphaTopLeft, ds0, dt0);
+            Append(data, ref at, right, bottom, quad.S1, quad.T1, red, green, blue, quad.AlphaBottomRight, ds1, dt1);
+            Append(data, ref at, left, bottom, quad.S0, quad.T1, red, green, blue, quad.AlphaBottomLeft, ds0, dt1);
         }
     }
 
     /// <summary>`GammaToLinear` (common_fxc.h): <c>pow( x, 2.2 )</c>.</summary>
     private static float GammaToLinear(byte channel) => MathF.Pow(channel / 255f, 2.2f);
 
-    private static void Append(Span<float> data, ref int at, float x, float y, float s, float t, float red, float green, float blue, byte alpha)
+    private static void Append(Span<float> data, ref int at, float x, float y, float s, float t, float red, float green, float blue, byte alpha, float detailS, float detailT)
     {
         data[at++] = x;
         data[at++] = y;
@@ -484,6 +490,8 @@ internal sealed unsafe class VguiRenderer : IDisposable
         data[at++] = green;
         data[at++] = blue;
         data[at++] = alpha / 255f;
+        data[at++] = detailS;
+        data[at++] = detailT;
     }
 
     /// <summary>What a run samples: the white texel for a fill, a glyph page, or a material.</summary>

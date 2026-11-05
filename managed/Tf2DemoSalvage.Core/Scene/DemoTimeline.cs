@@ -641,6 +641,7 @@ public readonly record struct TimelinePhases(
 /// resource entity. See <see cref="SceneScoreboardPlayer"/>.
 /// </param>
 /// <param name="IdEntities">Every dropped weapon and revive marker, or null when there is none.</param>
+/// <param name="Objectives">The objective resource, or null when there is none.</param>
 public readonly record struct TimelineFrame(
     int Tick,
     IReadOnlyList<ScenePlayer> Players,
@@ -652,7 +653,8 @@ public readonly record struct TimelineFrame(
     IReadOnlyList<SceneBuilding>? Buildings = null,
     IReadOnlyList<SceneTeam>? Teams = null,
     IReadOnlyList<SceneScoreboardPlayer>? ScoreboardPlayers = null,
-    IReadOnlyList<SceneIdEntity>? IdEntities = null);
+    IReadOnlyList<SceneIdEntity>? IdEntities = null,
+    SceneObjectives? Objectives = null);
 
 /// <summary>What the client's HUD asks of `TFGameRules()` and the logic entities at one tick.</summary>
 /// <param name="MannVsMachine">`IsMannVsMachineMode()`: `m_bPlayingMannVsMachine` (tf_gamerules.h:606).</param>
@@ -3172,6 +3174,7 @@ public sealed class DemoTimeline
         private readonly Dictionary<int, List<SceneGesture>> gesturedBefore;
         private readonly Dictionary<int, ScenePlayerDetail> detailBefore;
         private readonly ModelPrecache precache;
+        private readonly NameTable materials = new();
         private readonly LightStyleFeed lightStyles;
         private readonly int protocol;
         private readonly SoundNames soundNames;
@@ -3679,6 +3682,15 @@ public sealed class DemoTimeline
 
                     // Which model each m_nModelIndex names. Without this every entity carrying a
                     // model resolves to nothing and the scene is players on an empty map.
+                    case CreateStringTableMessage { Name: SceneObjectives.MaterialsTable } materialTable:
+                        materials.Replace(materialTable.Entries);
+                        continue;
+
+                    case UpdateStringTableMessage materialUpdate
+                        when state.StringTableName(materialUpdate.TableId) == SceneObjectives.MaterialsTable:
+                        materials.Apply(materialUpdate.Entries);
+                        continue;
+
                     case CreateStringTableMessage { Name: ModelPrecache.TableName } models:
                         precache.Replace(models.Entries);
                         continue;
@@ -4736,6 +4748,8 @@ public sealed class DemoTimeline
             IReadOnlyList<SceneTeam>? teams = Teams(entities);
             IReadOnlyList<SceneScoreboardPlayer>? scoreboardPlayers = ScoreboardPlayers(entities);
             IReadOnlyList<SceneIdEntity>? idEntities = IdEntities(entities, index => precache.Path(ModelPrecache.Unpack(index, protocol)));
+            SceneObjectives? objectives = SceneObjectives.Read(
+                entities.OfClass(ObjectiveResourceClass).FirstOrDefault(), frames.Count > 0 ? frames[^1].Objectives : null, materials);
             frameTicks += Stopwatch.GetTimestamp() - frameFrom;
 
             // Kept for the life of the demo, so not at `Add`'s doubled capacity (B433).
@@ -4744,7 +4758,7 @@ public sealed class DemoTimeline
             if (frames.Count > 0 && frames[^1].Tick >= command.Tick)
             {
                 frames[^1] = new TimelineFrame(
-                    frames[^1].Tick, players, recorderTeam, roundState, rules, serverTick, roundTimers, buildings, teams, scoreboardPlayers, idEntities);
+                    frames[^1].Tick, players, recorderTeam, roundState, rules, serverTick, roundTimers, buildings, teams, scoreboardPlayers, idEntities, objectives);
                 continue;
             }
 
@@ -4755,7 +4769,7 @@ public sealed class DemoTimeline
             }
 
             firstFrameTick ??= command.Tick;
-            frames.Add(new TimelineFrame(command.Tick, players, recorderTeam, roundState, rules, serverTick, roundTimers, buildings, teams, scoreboardPlayers, idEntities));
+            frames.Add(new TimelineFrame(command.Tick, players, recorderTeam, roundState, rules, serverTick, roundTimers, buildings, teams, scoreboardPlayers, idEntities, objectives));
         }
         }
 
@@ -7915,6 +7929,11 @@ public sealed class DemoTimeline
     /// <summary>Every `CTFTeam` at a tick.</summary>
     /// <param name="tick">The demo tick.</param>
     public IReadOnlyList<SceneTeam> TeamsAt(int tick) => FrameAt(tick)?.Teams ?? [];
+
+    /// <summary>The objective resource at a tick, or null with none.</summary>
+    /// <param name="tick">The tick.</param>
+    /// <returns>The objectives.</returns>
+    public SceneObjectives? ObjectivesAt(int tick) => FrameAt(tick)?.Objectives;
 
     /// <summary>Every player slot the scoreboard would list at a tick.</summary>
     /// <param name="tick">The demo tick.</param>

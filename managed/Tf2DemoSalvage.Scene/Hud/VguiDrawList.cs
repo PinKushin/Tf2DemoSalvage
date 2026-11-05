@@ -22,6 +22,7 @@ namespace Tf2DemoSalvage.Scene.Hud;
 /// <param name="AlphaBottomLeft">Alpha at the bottom-left corner.</param>
 /// <param name="Additive">Whether it blends additively whatever its texture's material says — an additive font's glyph.</param>
 /// <param name="Triangle">Set for one triangle of a polygon's fan: its three corners replace the rectangle, at <paramref name="AlphaTopLeft"/>.</param>
+/// <param name="SeparateDetailUvs">Whether the detail's coordinate spans the quad 0 to 1 while the base's is the one given (`$separatedetailuvs`).</param>
 public readonly record struct VguiQuad(
     string? Texture,
     float X0,
@@ -40,7 +41,8 @@ public readonly record struct VguiQuad(
     byte AlphaBottomRight,
     byte AlphaBottomLeft,
     bool Additive = false,
-    (VguiVertex A, VguiVertex B, VguiVertex C)? Triangle = null);
+    (VguiVertex A, VguiVertex B, VguiVertex C)? Triangle = null,
+    bool SeparateDetailUvs = false);
 
 /// <summary>
 /// A panel's 3D paint: `Begin3DPaint` … `End3DPaint` (vguimatsurface `CMatSystemSurface_Begin3DPaint`, 0x180008db0) with
@@ -208,6 +210,20 @@ public sealed class VguiDrawList(Func<string, (int Wide, int Tall)> textureSize,
         if (_color.Alpha != 0)
         {
             Add(_texture, x0, y0, x1, y1, s0, t0, s1, t1, (_color.Alpha, _color.Alpha, _color.Alpha, _color.Alpha), interpolate: true);
+        }
+    }
+
+    /// <inheritdoc/>
+    /// <remarks>Unclipped coordinates: the one caller, the capture arrow, stays inside its icon.</remarks>
+    public void DrawTexturedQuadSeparateDetail(float x0, float y0, float x1, float y1, float s0, float t0, float s1, float t1)
+    {
+        int before = _quads.Count;
+
+        DrawTexturedQuad(x0, y0, x1, y1, s0, t0, s1, t1);
+
+        if (_quads.Count > before)
+        {
+            _quads[^1] = _quads[^1] with { SeparateDetailUvs = true };
         }
     }
 

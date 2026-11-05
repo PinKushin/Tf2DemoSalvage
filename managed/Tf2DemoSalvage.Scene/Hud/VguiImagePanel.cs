@@ -83,6 +83,10 @@ public class VguiImagePanel : VguiPanel
     /// <inheritdoc/>
     public override string ClassName => "ImagePanel";
 
+    /// <summary>`SetShouldScaleImage`.</summary>
+    /// <param name="scale">Whether the image scales to the panel.</param>
+    public void SetShouldScaleImage(bool scale) => _scaleImage = scale;
+
     /// <summary>`m_pImage`: set by `ApplySchemeSettings` from the image name.</summary>
     public VguiBitmap? Image { get; set; }
 

@@ -57,6 +57,7 @@ internal static class TimelineAnswers
         yield return ("round timers", timeline.RoundTimersAt(whole));
         yield return ("buildings", timeline.BuildingsAt(whole));
         yield return ("teams", timeline.TeamsAt(whole));
+        yield return ("objectives", timeline.ObjectivesAt(whole));
         yield return ("scoreboard", timeline.ScoreboardPlayersAt(whole));
         yield return ("id entities", timeline.IdEntitiesAt(whole));
         yield return ("recorder team", timeline.RecorderTeamAt(whole));
