@@ -338,6 +338,7 @@ public sealed class TfControlPointIcon : VguiEditablePanel
     {
         if (state.Objectives is not { } objectives)
         {
+            _baseImage.PulseAlpha = null;
             return;
         }
 
@@ -479,8 +480,11 @@ public sealed class TfControlPointPulseable(VguiPanel parent, string name) : Vgu
 
         // Valve sets the alpha here, after `PaintTraverse` read it, so the multiplier on this frame's two draws is what the
         // last frame left (Panel.cpp:1141, :1199): the base fades with the white, a frame behind.
-        SetAlpha(OpaqueAlpha);
-        base.PaintBackground(surface, context);
+        if (Image is not null)
+        {
+            SetAlpha(OpaqueAlpha);
+            base.PaintBackground(surface, context);
+        }
 
         if (PulseAlpha is { } alpha)
         {
