@@ -154,6 +154,48 @@ public sealed class TfControlPointIconConformanceTests
         image.PulseAlpha.ShouldBeNull();
     }
 
+    /// <remarks>By hand: a quarter of the way through 0.4 s over a 400 tall panel is y 100.</remarks>
+    [Test]
+    public void ImageY_AQuarterThroughTheSwoop_IsAQuarterDown() =>
+        TfControlPointSwoop.ImageY(0.1f, 400).ShouldBe(100);
+
+    /// <remarks>By hand: halfway through 0.2 s from 150 to 50 is 100.</remarks>
+    [Test]
+    public void ImageSize_HalfwayThroughTheCapturePulse_IsHalfwayToTheIcon() =>
+        TfControlPointCapturePulse.ImageSize(0.1f, 150, 50).ShouldBe(100);
+
+    [Test]
+    public void Step_ASwoopPastItsLength_ShowsOneFrameThenHides()
+    {
+        TfControlPointSwoop swoop = new(new VguiPanel(null, "viewport"), "CapHighlightImage");
+
+        swoop.Step(10f, 10.41f, false);
+        swoop.Visible.ShouldBeTrue();
+
+        swoop.Step(10f, 10.45f, false);
+        swoop.Visible.ShouldBeFalse();
+    }
+
+    [Test]
+    public void Step_ACapturePulseAtItsStart_IsNotYetShown()
+    {
+        TfControlPointCapturePulse flash = new(new VguiPanel(null, "viewport"), "CapPulse");
+
+        flash.Step(10f, 50, 10f, false);
+
+        flash.Visible.ShouldBeFalse();
+    }
+
+    [Test]
+    public void Step_ASwoopInTheFreezeCam_IsHidden()
+    {
+        TfControlPointSwoop swoop = new(new VguiPanel(null, "viewport"), "CapHighlightImage");
+
+        swoop.Step(10f, 10.1f, true);
+
+        swoop.Visible.ShouldBeFalse();
+    }
+
     [Test]
     public void PulseAlphaAt_NoStart_IsNull() =>
         TfControlPointPulseable.PulseAlphaAt(default, 12f, 0f, false).ShouldBeNull();

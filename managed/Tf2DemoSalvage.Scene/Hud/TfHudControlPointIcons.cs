@@ -205,6 +205,8 @@ public sealed class TfControlPointIcon : VguiEditablePanel
     private string? _overlay;
     private bool _locked;
     private int _players = -1;
+    private TfControlPointSwoop? _capHighlightImage;
+    private TfControlPointCapturePulse? _capPulseImage;
 
     /// <summary>`CControlPointIcon( parent, name, index )`, and the children `ApplySchemeSettings` makes on its first pass (:174).</summary>
     /// <param name="parent">The icons panel.</param>
@@ -233,6 +235,14 @@ public sealed class TfControlPointIcon : VguiEditablePanel
     public override void ApplySchemeSettings(VguiContext context)
     {
         base.ApplySchemeSettings(context);
+
+        // :157-172: both on the viewport, the swoop above the HUD and the capture pulse below the icons.
+        if (_capHighlightImage is null && HudViewport.Of(this) is { } viewport)
+        {
+            _capHighlightImage = new TfControlPointSwoop(viewport, "CapHighlightImage") { ZPos = 10 };
+            _capPulseImage = new TfControlPointCapturePulse(viewport, "CapPulse") { ZPos = -1, Visible = false };
+        }
+
         LoadControlSettings("resource/UI/ControlPointIcon.res", context);
 
         _capPlayerImage = FindChildByName("CapPlayerImage") as VguiImagePanel;
@@ -377,6 +387,32 @@ public sealed class TfControlPointIcon : VguiEditablePanel
 
         _baseImage.Step(point.Pulse, state.CurTime, Math.Clamp(1f - point.LazyCapPercent, 0f, 1f), defending);
 
+        bool freezeCam = state.ObserverMode == ObserverModes.FreezeCam;
+
+        // `PerformLayout` (:517-521, :565-571): the swoop rises from the icon three quarters of the screen; the capture pulse
+        // is three icons wide, centred on it.
+        if (_capHighlightImage is { } swoop && Parent?.Parent is { } screen)
+        {
+            int indentX = 2 * screen.Wide / 640;
+            int indentY = 2 * screen.Tall / 480;
+            int height = (int)(screen.Tall * 0.75f);
+
+            (swoop.X, swoop.Y, swoop.Wide, swoop.Tall) = (AbsX + indentX, AbsY - height, Wide - (indentX * 2), height + Tall - indentY);
+            swoop.Step(point.Pulse.Accelerate && capping && defending ? point.Pulse.Start : 0f, state.CurTime, freezeCam);
+        }
+
+        if (_capPulseImage is { } flash)
+        {
+            int size = Wide * 3;
+
+            (flash.X, flash.Y, flash.Wide, flash.Tall) = (AbsX - ((size - Wide) / 2), AbsY - ((size - Tall) / 2), size, size);
+
+            // `StartPulse( curtime, GetWide() )` (:334) runs with `StartPulsing( FINISHCAPANIM_SWOOP_LENGTH, ... )`.
+            bool finished = !point.Pulse.Accelerate && point.Pulse.Length > 0f;
+
+            flash.Step(finished ? point.Pulse.Start - CapPulse.FinishDelay : 0f, Wide, state.CurTime, freezeCam);
+        }
+
         _capImage.Visible = capping;
         (_capImage.X, _capImage.Y, _capImage.Wide, _capImage.Tall) = (0, 0, Wide, Tall);
 
@@ -519,6 +555,133 @@ public sealed class TfControlPointPulseable(VguiPanel parent, string name) : Vgu
             _pulseImage.SetSize(Wide, Tall);
             _pulseImage.Paint(surface);
         }
+    }
+}
+
+/// <summary>A one-shot animation keyed to its start: it draws until the frame that reaches its length, then hides, and a seek back plays it again.</summary>
+/// <param name="parent">The viewport.</param>
+/// <param name="name">The panel's name.</param>
+/// <param name="image">The image.</param>
+/// <param name="length">The animation's length.</param>
+public abstract class TfControlPointOneShot(VguiPanel parent, string name, string image, float length) : VguiImagePanel(parent, name)
+{
+    private float _start;
+    private float _lastNow;
+    private bool _done;
+
+    /// <summary>The seconds since the start this frame.</summary>
+    protected float Elapsed { get; private set; }
+
+    /// <summary>Shows the animation for this frame.</summary>
+    /// <param name="start">The start, or 0 for none.</param>
+    /// <param name="now">`gpGlobals->curtime`.</param>
+    /// <param name="freezeCam">`IsInFreezeCam`, which hides it.</param>
+    protected void StepAt(float start, float now, bool freezeCam)
+    {
+        if (MathF.Abs(start - _start) > 1e-4f || now < _lastNow)
+        {
+            (_start, _done) = (start, false);
+        }
+
+        _lastNow = now;
+        Elapsed = now - start;
+        Visible = start > 0f && !_done && !freezeCam && Elapsed >= 0f;
+
+        // "Once we've finished the swoop, go away", after the frame that reached it.
+        _done = _done || (Visible && Elapsed >= length);
+
+        if (Visible && Image is null)
+        {
+            SetImage(image);
+            SetShouldScaleImage(true);
+        }
+    }
+}
+
+/// <summary>`CControlPointIconSwoop` (hud_controlpointicons.h:115): the highlight that sweeps down over a defended point as its capture starts.</summary>
+/// <param name="parent">The viewport.</param>
+/// <param name="name">The panel's name.</param>
+public sealed class TfControlPointSwoop(VguiPanel parent, string name)
+    : TfControlPointOneShot(parent, name, "../sprites/obj_icons/capture_highlight", StartLength)
+{
+    /// <summary>`STARTCAPANIM_SWOOP_LENGTH`.</summary>
+    public const float StartLength = 0.4f;
+
+    /// <summary>`StartSwoop` when the capture started, as `UpdateCapImage` calls it.</summary>
+    /// <param name="start">The start, or 0 for none.</param>
+    /// <param name="now">`gpGlobals->curtime`.</param>
+    /// <param name="freezeCam">`IsInFreezeCam`.</param>
+    public void Step(float start, float now, bool freezeCam) => StepAt(start, now, freezeCam);
+
+    /// <summary>`RemapValClamped( flElapsedTime, 0, STARTCAPANIM_SWOOP_LENGTH, 0, GetTall() )`, truncated to an int.</summary>
+    /// <param name="elapsed">Seconds since the start.</param>
+    /// <param name="tall">The panel's height.</param>
+    /// <returns>The image's y.</returns>
+    public static int ImageY(float elapsed, int tall) => (int)(Math.Clamp(elapsed / StartLength, 0f, 1f) * tall);
+
+    /// <inheritdoc/>
+    public override void PaintBackground(IVguiSurface surface, VguiContext context)
+    {
+        ArgumentNullException.ThrowIfNull(surface);
+
+        if (Image is not { } image)
+        {
+            return;
+        }
+
+        image.Color = (255, 255, 255, 255);
+        image.SetSize(Wide, Tall);
+        image.SetPos(0, ImageY(Elapsed, Tall));
+        image.Paint(surface);
+    }
+}
+
+/// <summary>`CControlPointIconCapturePulse` (hud_controlpointicons.h:200): the white flash that shrinks onto a point as it is captured.</summary>
+/// <param name="parent">The viewport.</param>
+/// <param name="name">The panel's name.</param>
+public sealed class TfControlPointCapturePulse(VguiPanel parent, string name)
+    : TfControlPointOneShot(parent, name, "../sprites/obj_icons/icon_obj_white", CapPulse.FinishDelay)
+{
+    private int _shrinkSize;
+
+    /// <summary>`StartPulse( flTime, iShrinkSize )` as of this frame.</summary>
+    /// <param name="start">`m_flFinishCapAnimStart`, or 0 for none.</param>
+    /// <param name="shrinkSize">`m_iShrinkSize`, the icon's width.</param>
+    /// <param name="now">`gpGlobals->curtime`.</param>
+    /// <param name="freezeCam">`IsInFreezeCam`.</param>
+    public void Step(float start, int shrinkSize, float now, bool freezeCam)
+    {
+        _shrinkSize = shrinkSize;
+        StepAt(start, now, freezeCam);
+
+        // `curtime > m_flFinishCapAnimStart`: strictly after.
+        Visible = Visible && Elapsed > 0f;
+    }
+
+    /// <summary>`RemapValClamped( flElapsedTime, 0, FINISHCAPANIM_SWOOP_LENGTH, GetWide(), m_iShrinkSize )`, truncated.</summary>
+    /// <param name="elapsed">Seconds since the capture.</param>
+    /// <param name="wide">The panel's width.</param>
+    /// <param name="shrinkSize">The size it shrinks to.</param>
+    /// <returns>The image's size.</returns>
+    public static int ImageSize(float elapsed, int wide, int shrinkSize) =>
+        (int)(wide + ((shrinkSize - wide) * Math.Clamp(elapsed / CapPulse.FinishDelay, 0f, 1f)));
+
+    /// <inheritdoc/>
+    public override void PaintBackground(IVguiSurface surface, VguiContext context)
+    {
+        ArgumentNullException.ThrowIfNull(surface);
+
+        if (Image is not { } image)
+        {
+            return;
+        }
+
+        int size = ImageSize(Math.Max(0f, Elapsed), Wide, _shrinkSize);
+
+        image.Color = (255, 255, 255, 255);
+        image.SetPos((int)((Wide - size) * 0.5f), (int)((Tall - size) * 0.5f));
+        image.SetSize(size, size);
+        image.Paint(surface);
     }
 }
 
