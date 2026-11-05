@@ -264,12 +264,16 @@ public sealed class TfControlPointIconConformanceTests
     public void PulseAlphaAt_NoStart_IsNull() =>
         TfControlPointPulseable.PulseAlphaAt(default, 12f, 0f, false).ShouldBeNull();
 
-    /// <remarks>`SetVisiblePanels` (tf_hud_objectivestatus.cpp:259-263): game types 2 (CP), 4 (arena) and 6 (MvM), unless the HUD type says otherwise.</remarks>
+    /// <remarks>`SetVisiblePanels` (tf_hud_objectivestatus.cpp:259-263) over tf_shareddefs.h:277-311: game types 2 (CP), 4 (arena)
+    /// and 5 (MvM), unless the HUD type is CTF (1), escort (3) or training (5).</remarks>
     [TestCase(2, 0, false, true)]
     [TestCase(3, 0, false, false)]
     [TestCase(1, 0, true, true)]
     [TestCase(2, 3, false, false)]
-    [TestCase(2, 4, false, false)]
+    [TestCase(2, 5, false, false)]
+    [TestCase(4, 4, false, true)]
+    [TestCase(5, 0, false, true)]
+    [TestCase(6, 0, false, false)]
     public void ControlPointsVisible_ByGameAndHudType_FollowsSetVisiblePanels(int gameType, int hudType, bool hybrid, bool visible) =>
         TfHudObjectiveStatus.ControlPointsVisible(new Core.Scene.SceneGameRules(false, 0, false) { GameType = gameType, HudType = hudType, PlayingHybridCtfCp = hybrid })
             .ShouldBe(visible);

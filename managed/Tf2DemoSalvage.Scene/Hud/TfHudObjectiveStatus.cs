@@ -9,11 +9,12 @@ public sealed class TfHudObjectiveStatus : VguiEditablePanel, IHudElement
 {
     private const int GameTypeCp = 2;
     private const int GameTypeArena = 4;
-    private const int GameTypeMvm = 6;
+    // `ETFGameType` and the `TF_HUDTYPE_*` enum (tf_shareddefs.h:277-311).
+    private const int GameTypeMvm = 5;
     private const int HudTypeCtf = 1;
     private const int HudTypeCp = 2;
     private const int HudTypeEscort = 3;
-    private const int HudTypeTraining = 4;
+    private const int HudTypeTraining = 5;
 
     private readonly TfHudControlPointIcons _controlPointIcons;
     private bool _iconsAdopted;
@@ -65,7 +66,7 @@ public sealed class TfHudObjectiveStatus : VguiEditablePanel, IHudElement
     /// <remarks>`Think` (:301): nothing without game rules.</remarks>
     protected override void OnThink()
     {
-        if (HudViewport.Of(this) is { State.InGame: true } viewport)
+        if (HudViewport.Of(this) is { State: { InGame: true, Rules.Present: true } } viewport)
         {
             _controlPointIcons.Visible = ControlPointsVisible(viewport.State.Rules);
         }
