@@ -15,7 +15,7 @@ commit as the feature. The list came from `docs/DECISIONS.md` and the transport 
 | Maps fetched from a mirror | none found | `MapDownloader_TheDefaultMirror_IsHttps` |
 | Export a demo to text and compile it back | none found | `ExportThenCompile_OpenDemo_RebuildsItsBytes` |
 | A demo decompiled to a text trace | ROADMAP Phase 1 | `Trace_WritesTheTraceFormatToTheGivenFile` |
-| A chosen HUD is kept | none found | `SaveThenLoad_KeepsTheChosenHud` |
+| A chosen HUD is kept | D91 | `SaveThenLoad_KeepsTheChosenHud` |
 | A rewind during a forward seek | D246 | `Rewind_DuringAForwardWalk_ShowsItsTickWithNoFurtherFrames` |
 | Reverse play | D246 | `ANegativeTimeScale_PlaysBackwards` |
 | Scrubbing | D217 | `Scrub_SeeksTheClockAndReportsTheMomentWithoutPlaying` |
