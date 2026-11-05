@@ -228,6 +228,28 @@ public sealed class TfControlPointIconConformanceTests
         (countdown.Visible, countdown.UnlockTime).ShouldBe((false, 0f));
     }
 
+    /// <remarks>`ceil( 14.5 - 10 )` is 5; under ten seconds the first tick, at `SetTimerTime`, turns it red (:593-603).</remarks>
+    [Test]
+    public void Update_APointTimerFourAndAHalfSecondsOut_Shows5InRed()
+    {
+        TfControlPointIcon icon = new(new VguiPanel(null, "icons"), "ControlPointIcon");
+        SceneObjectives objectives = FivePoints() with { Points = [Point(Blue) with { TimerTime = 14.5f }, Point(Blue), Point(Red), Point(Red), Point(Red)] };
+
+        icon.Update(Running(10f) with { Objectives = objectives }, 0);
+
+        (icon.TimerLabel.Visible, icon.TimerLabel.Text, icon.TimerLabel.FgColor).ShouldBe((true, "5", ((byte)192, (byte)28, (byte)0, (byte)255)));
+    }
+
+    [Test]
+    public void Update_NoPointTimer_HidesTheLabel()
+    {
+        TfControlPointIcon icon = new(new VguiPanel(null, "icons"), "ControlPointIcon");
+
+        icon.Update(Running(10f) with { Objectives = FivePoints() }, 0);
+
+        icon.TimerLabel.Visible.ShouldBeFalse();
+    }
+
     private static HudState Running(float now) => default(HudState) with { InGame = true, CurTime = now, RoundState = 4 };
 
     [Test]

@@ -205,7 +205,16 @@ public sealed class TfControlPointIcon : VguiEditablePanel
     private string? _overlay;
     private bool _locked;
     private int _players = -1;
+    private const float TimerTick = 0.15f;
+
     private readonly TfControlPointCountdown _countdown;
+    private readonly TfExLabel _timerLabel;
+    private readonly VguiImagePanel _timerBackground;
+    private (byte, byte, byte, byte) _regularColor = (235, 226, 202, 255);
+    private (byte, byte, byte, byte) _highlightColor = (192, 28, 0, 255);
+    private float _timerSeen = -1f;
+    private float _timerSetAt;
+    private float _timerLastNow;
     private TfControlPointSwoop? _capHighlightImage;
     private TfControlPointCapturePulse? _capPulseImage;
 
@@ -219,6 +228,51 @@ public sealed class TfControlPointIcon : VguiEditablePanel
         _baseImage.SetShouldScaleImage(true);
         _capImage = new TfControlPointCapArrow(this, "CapImage") { Visible = false, ZPos = 2 };
         _countdown = new TfControlPointCountdown(this, "Countdown") { ZPos = 4 };
+        _timerLabel = new TfExLabel(this, "CPTimerLabel") { ZPos = 0 };
+        _timerBackground = new VguiImagePanel(this, "CPTimerBG") { ZPos = -1 };
+        _timerBackground.SetShouldScaleImage(true);
+    }
+
+    /// <summary>`m_pCPTimerLabel`.</summary>
+    public VguiLabel TimerLabel => _timerLabel;
+
+    /// <summary>`SetTimerTime` and `OnTick` (:579-641): a `CCPTimerLogic` countdown beside the icon, flashing red every
+    /// 150 ms tick from ten seconds.</summary>
+    /// <param name="state">The game state.</param>
+    /// <param name="timerTime">`m_flCPTimerTimes`.</param>
+    private void UpdateTimer(HudState state, float timerTime)
+    {
+        // `controlpoint_timer_updated` fires on a change (c_team_objectiveresource.cpp:230); a seek back replays to it.
+        if (MathF.Abs(timerTime - _timerSeen) > 1e-4f || state.CurTime < _timerLastNow)
+        {
+            (_timerSeen, _timerSetAt) = (timerTime, state.CurTime);
+        }
+
+        _timerLastNow = state.CurTime;
+
+        bool shown = timerTime >= 0f;
+
+        _timerLabel.Visible = shown;
+        _timerBackground.Visible = shown;
+
+        if (!shown)
+        {
+            return;
+        }
+
+        _timerBackground.X = X;
+        _timerBackground.Y = Y;
+        _timerLabel.X = X + Wide - (int)(Parent?.Parent is { } screen ? screen.Wide / 640f : 1f);
+        _timerLabel.Y = Y + (Tall / 2) - (_timerLabel.Tall / 2);
+
+        float left = timerTime - state.CurTime;
+        int seconds = left > 0f ? (int)MathF.Ceiling(left) : 0;
+
+        // The first tick runs at `SetTimerTime`, so the colour flips on every tick from then: odd ticks red.
+        int ticks = (int)((state.CurTime - _timerSetAt) / TimerTick) + 1;
+
+        _timerLabel.FgColor = seconds <= 10 && ticks % 2 == 1 ? _highlightColor : _regularColor;
+        _timerLabel.SetText(seconds.ToString(CultureInfo.InvariantCulture), text => text);
     }
 
     /// <inheritdoc/>
@@ -245,7 +299,17 @@ public sealed class TfControlPointIcon : VguiEditablePanel
             _capPulseImage = new TfControlPointCapturePulse(viewport, "CapPulse") { ZPos = -1, Visible = false };
         }
 
+        _regularColor = context.Scheme.GetColor("TanLight", (235, 226, 202, 255));
+        _highlightColor = context.Scheme.GetColor("RedSolid", (192, 28, 0, 255));
+
         LoadControlSettings("resource/UI/ControlPointIcon.res", context);
+
+        // :213-221: the timer's label and background are placed among the icons, not inside one.
+        if (Parent is { } icons)
+        {
+            _timerLabel.SetParent(icons);
+            _timerBackground.SetParent(icons);
+        }
 
         _capPlayerImage = FindChildByName("CapPlayerImage") as VguiImagePanel;
         _capNumPlayers = FindChildByName("CapNumPlayers") as VguiLabel;
@@ -351,6 +415,8 @@ public sealed class TfControlPointIcon : VguiEditablePanel
         if (state.Objectives is not { } objectives)
         {
             _baseImage.PulseAlpha = null;
+            _timerLabel.Visible = false;
+            _timerBackground.Visible = false;
             return;
         }
 
@@ -361,6 +427,7 @@ public sealed class TfControlPointIcon : VguiEditablePanel
 
         (_countdown.X, _countdown.Y, _countdown.Wide, _countdown.Tall) = (0, 0, Wide, Tall);
         _countdown.Update(state, point.UnlockTime);
+        UpdateTimer(state, point.TimerTime);
 
         // Only a change builds a name: this runs for every icon every frame.
         string? material = objectives.IconNames.GetValueOrDefault(point.Icons[point.Owner]);

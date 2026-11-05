@@ -41,6 +41,9 @@ public readonly record struct SceneControlPoint(
 {
     /// <summary>`m_iPrevCappers`, `m_flStartCapAnimStart`, `m_flPulseTime` and `m_bAccelerateOverCapture` of the point's icon.</summary>
     public CapPulse Pulse { get; init; }
+
+    /// <summary>`m_flCPTimerTimes`: when a `CCPTimerLogic` countdown on the point ends, or -1 with none.</summary>
+    public float TimerTime { get; init; } = -1f;
 }
 
 /// <summary>The pulse `CControlPointIcon` starts, kept with the point so a seek lands on what playing accumulated.</summary>
@@ -207,6 +210,7 @@ public sealed record SceneObjectives(
 
             points[index] = read with
             {
+                TimerTime = resource.Number(Key("m_flCPTimerTimes", index)) ?? -1f,
                 Pulse = pulse.Next(read.CappingTeam, read.Owner, read.CappingTeam != (before?.CappingTeam ?? 0), now),
             };
         }
