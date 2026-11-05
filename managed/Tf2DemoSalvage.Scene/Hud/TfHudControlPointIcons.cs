@@ -444,6 +444,7 @@ public sealed class TfControlPointPulseable(VguiPanel parent, string name) : Vgu
     private float _startSeen;
     private bool _delayed;
     private bool _stopped;
+    private float _lastNow;
 
     /// <summary>`255 * flPulseMod` this frame, or null when not pulsing.</summary>
     public float? PulseAlpha { get; set; }
@@ -460,6 +461,13 @@ public sealed class TfControlPointPulseable(VguiPanel parent, string name) : Vgu
         {
             (_startSeen, _delayed, _stopped) = (pulse.Start, defending, false);
         }
+        else if (now < _lastNow)
+        {
+            // A seek back replays to the landing, where the engine's panel has not stopped a pulse it has not drawn.
+            _stopped = false;
+        }
+
+        _lastNow = now;
 
         PulseAlpha = _stopped ? null : PulseAlphaAt(pulse, now, capPercent, _delayed);
 

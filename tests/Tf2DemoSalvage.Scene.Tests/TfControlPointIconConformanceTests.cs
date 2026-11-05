@@ -128,6 +128,21 @@ public sealed class TfControlPointIconConformanceTests
     }
 
     [Test]
+    public void Step_ASeekBackIntoAStoppedPulse_DrawsItAgain()
+    {
+        TfControlPointPulseable image = new(new VguiPanel(null, "parent"), "BaseImage");
+        CapPulse pulse = new(0, 12.2f, 0.5f, false);
+
+        image.Step(pulse, 12.8f, 0f, false);
+        image.Step(pulse, 12.85f, 0f, false);
+        image.PulseAlpha.ShouldBeNull("the control: stopped");
+
+        image.Step(pulse, 12.4f, 0f, false);
+
+        image.PulseAlpha.ShouldNotBeNull();
+    }
+
+    [Test]
     public void Step_TheLocalTeamChangingMidPulse_KeepsTheDelayFixedAtTheStart()
     {
         TfControlPointPulseable image = new(new VguiPanel(null, "parent"), "BaseImage");
