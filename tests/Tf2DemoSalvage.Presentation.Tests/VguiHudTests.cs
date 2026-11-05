@@ -66,6 +66,43 @@ public sealed class VguiHudTests
         "cp_test",
         0);
 
+    /// <summary>
+    /// B709. TF2's `HudObjectiveTimePanel.res` gives the waiting label `wide "p1"`, the time panel's own width, and `HudMatchStatus.res`
+    /// sizes that panel. The scheme walk is children first, so one pass read the panel's default of 64 and clipped "WAITING FOR PLAYERS".
+    /// </summary>
+    [Test]
+    public void Frame_AChildWhoseWidthIsItsParents_TakesTheParentsResWidth()
+    {
+        static byte[] Res(string text) => System.Text.Encoding.UTF8.GetBytes(text);
+
+        VguiSurfaceHost host = new(
+            path => path switch
+            {
+                "resource/ClientScheme.res" => [],
+                "resource/UI/HudMatchStatus.res" => Res("""
+                    "x" { "ObjectiveStatusTimePanel" { "fieldName" "ObjectiveStatusTimePanel" "wide" "130" "tall" "150" } }
+                    """),
+                "resource/UI/HudObjectiveTimePanel.res" => Res("""
+                    "x" { "WaitingForPlayersLabel" { "ControlName" "CExLabel" "fieldName" "WaitingForPlayersLabel" "proportionalToParent" "1" "wide" "p1" "tall" "19" } }
+                    """),
+                _ => null,
+            },
+            _ => null,
+            new FpsPanelTests.SolidGdi(),
+            _ => (0, 0));
+
+        host.BeginFrame(640, 480);
+
+        VguiHud hud = new(host, new EntityModelSet());
+
+        hud.Frame(Local, reset: false);
+
+        VguiPanel panel = hud.MatchStatus.TimePanel;
+
+        panel.Wide.ShouldBe(130, "the control: the parent took its file's width");
+        panel.FindChildByName("WaitingForPlayersLabel").ShouldNotBeNull().Wide.ShouldBe(129, "`p1` is the parent less one (Panel.cpp `ComputeWide`), and one pass read 63");
+    }
+
     /// <summary>A host whose `ClientScheme.res` exists and is empty, and which holds no other file: the HUD runs on defaults.</summary>
     /// <returns>The host.</returns>
     internal static VguiSurfaceHost EmptySchemeHost() =>
