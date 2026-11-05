@@ -14,13 +14,26 @@ public sealed class VguiRendererTests
 
         float[] data = VguiRenderer.BuildVertices([quad], 100, 50);
 
-        // (tl, tr, br) and (tl, br, bl), eight floats each: x y s t r g b a.
-        data.Length.ShouldBe(6 * 8);
+        // (tl, tr, br) and (tl, br, bl), ten floats each: x y s t r g b a detailS detailT.
+        data.Length.ShouldBe(6 * 10);
         (data[0], data[1], data[7]).ShouldBe((-1f, 1f, 10f / 255f), "top-left");
-        (data[8], data[9], data[15]).ShouldBe((0f, 1f, 20f / 255f), "top-right");
-        (data[16], data[17], data[23]).ShouldBe((0f, 0f, 30f / 255f), "bottom-right");
-        (data[40], data[41], data[47]).ShouldBe((-1f, 0f, 40f / 255f), "bottom-left");
+        (data[10], data[11], data[17]).ShouldBe((0f, 1f, 20f / 255f), "top-right");
+        (data[20], data[21], data[27]).ShouldBe((0f, 0f, 30f / 255f), "bottom-right");
+        (data[50], data[51], data[57]).ShouldBe((-1f, 0f, 40f / 255f), "bottom-left");
         data[4].ShouldBe(1f, "red");
+    }
+
+    /// <summary>The capture arrow (hud_controlpointicons.cpp:1742): the first coordinate slides, the second spans the quad.</summary>
+    [TestCase(true, 0f, 1f)]
+    [TestCase(false, 0.25f, 0.75f)]
+    public void BuildVertices_SeparateDetailUvs_SpanTheQuadOnlyWhenAsked(bool separate, float near, float far)
+    {
+        VguiQuad quad = new(null, 0f, 0f, 1f, 1f, 0.25f, 0.25f, 0.75f, 0.75f, 255, 255, 255, 255, 255, 255, 255) { SeparateDetailUvs = separate };
+
+        float[] data = VguiRenderer.BuildVertices([quad], 1, 1);
+
+        (data[2], data[3], data[8], data[9]).ShouldBe((0.25f, 0.25f, near, near), "top-left");
+        (data[22], data[23], data[28], data[29]).ShouldBe((0.75f, 0.75f, far, far), "bottom-right");
     }
 
     /// <remarks>
