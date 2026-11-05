@@ -111,6 +111,35 @@ public sealed class VguiHudTests
         panel.FindChildByName("WaitingForPlayersLabel").ShouldNotBeNull().Wide.ShouldBe(129, "`p1` is the parent less one (Panel.cpp `ComputeWide`), and one pass read 63");
     }
 
+    /// <summary>`CRoundCounterPanel::ApplySchemeSettings` loads its own file (tf_hud_match_status.cpp:92), which makes the indicators.</summary>
+    [Test]
+    public void Frame_TheRoundCountersOwnFile_MakesItsIndicators()
+    {
+        VguiSurfaceHost host = new(
+            path => path switch
+            {
+                "resource/ClientScheme.res" => [],
+                "resource/UI/HudRoundCounter.res" => System.Text.Encoding.UTF8.GetBytes("""
+                    "x" { "RoundCounter" { "fieldName" "RoundCounter" "wide" "300" "RoundIndicatorPanel_kv" { "wide" "8" } } }
+                    """),
+                _ => null,
+            },
+            _ => null,
+            new FpsPanelTests.SolidGdi(),
+            _ => (0, 0));
+
+        host.BeginFrame(640, 480);
+
+        VguiHud hud = new(host, new EntityModelSet());
+        HudState matchHud = Local with { ConVars = new HudConVars(name => name == "tf_use_match_hud" ? "1" : null) };
+
+        hud.Frame(matchHud, reset: false);
+        hud.MatchStatus.RoundCounter.PerformApplySchemeSettings(hud.Viewport.Context.ShouldNotBeNull());
+
+        hud.MatchStatus.RoundCounter.BlueRoundIndicators.Count.ShouldBe(5);
+        hud.MatchStatus.RoundCounter.Wide.ShouldBe(300, "the control: the file's own block reached the panel");
+    }
+
     /// <summary>A host whose `ClientScheme.res` exists and is empty, and which holds no other file: the HUD runs on defaults.</summary>
     /// <returns>The host.</returns>
     internal static VguiSurfaceHost EmptySchemeHost() =>

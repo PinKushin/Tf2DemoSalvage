@@ -65,6 +65,14 @@ public sealed class TfRoundCounterPanel : VguiEditablePanel
     public IReadOnlyList<VguiImagePanel> RedWinIndicators => _redWinIndicators;
 
     /// <inheritdoc/>
+    /// <remarks>`ApplySchemeSettings` (:88): the panel's own file, which holds its plate and its three indicator templates.</remarks>
+    public override void ApplySchemeSettings(VguiContext context)
+    {
+        base.ApplySchemeSettings(context);
+        LoadControlSettings("resource/UI/HudRoundCounter.res", context);
+    }
+
+    /// <inheritdoc/>
     public override void ApplySettings(KeyValuesTree block, VguiContext context)
     {
         ArgumentNullException.ThrowIfNull(block);

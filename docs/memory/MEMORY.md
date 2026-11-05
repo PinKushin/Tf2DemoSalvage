@@ -3,6 +3,7 @@
 - [[index-notes]] — D numbers formerly beside links.
 - [[split-a-composite-by-fitting-its-alpha]] (B688) — a red golden over a translucent panel: HUD on and off at both builds, one `1-a` per pixel.
 - [[implement-inline-on-opus-or-fable]] (D245) — no implementer agents while lead is Opus or Fable; reviews stay.
+- [[mcp-tools-first]] — an installed MCP tool before any hand script.
 - [[cheat-engine-is-for-live-tf2]] — attack live TF2 with it when disassembly stops answering; no ask.
 - [[credits-queue]] — API-credit jobs: JSON in `F:\credits-queue\pending`, owner runs the runner; [[api-jobs-get-the-tools-paragraph-from-the-wrapper]].
 - [[gate-once-per-batch]]; [[gate-once-per-merge-not-per-commit]]; [[parent-branch-defers-the-gate]]; [[branch-granularity-is-fine-here]]; [[a-gate-that-waits-says-what-it-waits-on]] (B520) — one implementer until UI runs beside phase 1.
