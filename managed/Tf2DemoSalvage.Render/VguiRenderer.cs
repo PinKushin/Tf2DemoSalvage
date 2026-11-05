@@ -431,7 +431,7 @@ internal sealed unsafe class VguiRenderer : IDisposable
     /// <param name="quads">The quads.</param>
     /// <param name="viewportWidth">Render target width.</param>
     /// <param name="viewportHeight">Render target height.</param>
-    /// <param name="data">At least six vertices of eight floats per quad.</param>
+    /// <param name="data">At least six vertices of ten floats per quad.</param>
     internal static void BuildVertices(IReadOnlyList<VguiQuad> quads, int viewportWidth, int viewportHeight, Span<float> data)
     {
         ArgumentNullException.ThrowIfNull(quads);

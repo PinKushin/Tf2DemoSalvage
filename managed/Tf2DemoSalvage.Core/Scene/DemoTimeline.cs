@@ -3680,8 +3680,7 @@ public sealed class DemoTimeline
                         BaselineBuilder.Apply(update.Entries, decoder);
                         continue;
 
-                    // Which model each m_nModelIndex names. Without this every entity carrying a
-                    // model resolves to nothing and the scene is players on an empty map.
+                    // The names `m_iTeamIcons` and `m_iTeamOverlays` index (B709): `GetMaterialNameFromIndex`.
                     case CreateStringTableMessage { Name: SceneObjectives.MaterialsTable } materialTable:
                         materials.Replace(materialTable.Entries);
                         continue;
@@ -3691,6 +3690,8 @@ public sealed class DemoTimeline
                         materials.Apply(materialUpdate.Entries);
                         continue;
 
+                    // Which model each m_nModelIndex names. Without this every entity carrying a
+                    // model resolves to nothing and the scene is players on an empty map.
                     case CreateStringTableMessage { Name: ModelPrecache.TableName } models:
                         precache.Replace(models.Entries);
                         continue;

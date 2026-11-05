@@ -201,6 +201,10 @@ public sealed class TfControlPointIcon : VguiEditablePanel
     private VguiImagePanel? _overlayImage;
     private VguiImagePanel? _capPlayerImage;
     private VguiLabel? _capNumPlayers;
+    private string? _material;
+    private string? _overlay;
+    private bool _locked;
+    private int _players = -1;
 
     /// <summary>`CControlPointIcon( parent, name, index )`, and the children `ApplySchemeSettings` makes on its first pass (:174).</summary>
     /// <param name="parent">The icons panel.</param>
@@ -291,7 +295,7 @@ public sealed class TfControlPointIcon : VguiEditablePanel
         {
             int required = SceneObjectives.UnpackPrevious(previous, slot);
 
-            if (required != -1 && required < objectives.Points.Count && objectives.Points[required].Owner != team)
+            if (required >= 0 && required < objectives.Points.Count && objectives.Points[required].Owner != team)
             {
                 return false;
             }
@@ -305,7 +309,7 @@ public sealed class TfControlPointIcon : VguiEditablePanel
     {
         int ownedEnd = team == TeamRed ? objectives.BaseRed : objectives.BaseBlue;
 
-        if (ownedEnd == -1)
+        if (ownedEnd < 0 || ownedEnd >= objectives.Points.Count)
         {
             return -1;
         }
@@ -342,9 +346,14 @@ public sealed class TfControlPointIcon : VguiEditablePanel
         _baseImage.Visible = true;
         (_baseImage.X, _baseImage.Y, _baseImage.Wide, _baseImage.Tall) = (0, 0, Wide, Tall);
 
-        if (objectives.IconNames.GetValueOrDefault(point.Icons[point.Owner]) is { } material)
+        // Only a change builds a name: this runs for every icon every frame.
+        string? material = objectives.IconNames.GetValueOrDefault(point.Icons[point.Owner]);
+        bool locked = IsPointLocked(state, objectives, index);
+
+        if (material is not null && (!ReferenceEquals(material, _material) || locked != _locked))
         {
-            _baseImage.SetImage(IsPointLocked(state, objectives, index) ? $"../{material}_locked" : $"../{material}");
+            (_material, _locked) = (material, locked);
+            _baseImage.SetImage(locked ? $"../{material}_locked" : $"../{material}");
         }
 
         if (_overlayImage is { } overlay)
@@ -353,8 +362,9 @@ public sealed class TfControlPointIcon : VguiEditablePanel
 
             overlay.Visible = name is not null;
 
-            if (name is not null)
+            if (name is not null && !ReferenceEquals(name, _overlay))
             {
+                _overlay = name;
                 overlay.SetImage($"../{name}");
             }
         }
@@ -368,7 +378,13 @@ public sealed class TfControlPointIcon : VguiEditablePanel
         {
             string team = point.CappingTeam == TeamRed ? "red" : "blu";
 
-            _capImage.Material = SwipeUp ? $"sprites/obj_icons/icon_obj_cap_{team}_up" : $"sprites/obj_icons/icon_obj_cap_{team}";
+            _capImage.Material = (team, SwipeUp) switch
+            {
+                ("red", true) => "sprites/obj_icons/icon_obj_cap_red_up",
+                ("red", false) => "sprites/obj_icons/icon_obj_cap_red",
+                (_, true) => "sprites/obj_icons/icon_obj_cap_blu_up",
+                _ => "sprites/obj_icons/icon_obj_cap_blu",
+            };
             _capImage.SwipeUp = SwipeUp;
             _capImage.CappingTeam = point.CappingTeam;
 
@@ -395,7 +411,13 @@ public sealed class TfControlPointIcon : VguiEditablePanel
         if (_capNumPlayers is { } label)
         {
             label.Visible = players > 1 && point.CappingTeam != 0;
-            SetDialogVariable("numcappers", players.ToString(CultureInfo.InvariantCulture));
+
+            if (players != _players)
+            {
+                _players = players;
+                SetDialogVariable("numcappers", players.ToString(CultureInfo.InvariantCulture));
+            }
+
             label.FgColor = (0, 0, 0, 255);
         }
     }

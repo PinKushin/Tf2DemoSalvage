@@ -149,7 +149,7 @@ public sealed class TimelineCheckpointsTests
 
         stepped.Differing.ShouldNotBeEmpty();
         stepped.Differing.ShouldBe(WindowEquivalence.Compare(whole, early, late).Differing);
-        (steps, stepped.Done).ShouldBe((25, true));
+        (steps, stepped.Done).ShouldBe((26, true));
         WindowEquivalence.Compare(whole, early, walk.Ticks[1] + 0.5).Differing.ShouldBeEmpty();
     }
 

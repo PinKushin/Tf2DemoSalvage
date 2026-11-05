@@ -64,6 +64,31 @@ public sealed class TfControlPointIconConformanceTests
         TfControlPointIcon.IsPointLocked(default, objectives, 0).ShouldBeFalse();
     }
 
+    /// <summary>`o.detailTexCoord.xy = v.vTexCoord1.xy` (vertexlit_and_unlit_generic_vs20.fxc:275-276): `$detailscale` does not reach a separate coordinate.</summary>
+    [TestCase("\"$separatedetailuvs\" \"1\"", 1f)]
+    [TestCase("", 4f)]
+    public void Read_ADetailWithOrWithoutSeparateUvs_ScalesOnlyWithout(string separate, float scale)
+    {
+        byte[] vmt = System.Text.Encoding.UTF8.GetBytes($$"""
+            "UnlitGeneric" { "$detail" "x" "$detailscale" "4" {{separate}} }
+            """);
+        VguiShading shading = VguiShading.Read(Content.Assets.VmtMaterial.Load(vmt, _ => null), default(MapTexture)).ShouldNotBeNull();
+
+        shading.Detail.ShouldNotBeNull().Scale.ShouldBe((scale, scale));
+    }
+
+    [Test]
+    public void IsPointLocked_ABaseIndexPastThePoints_DoesNotThrow() =>
+        TfControlPointIcon.IsPointLocked(default, FivePoints() with { BaseRed = 9, BaseBlue = 9 }, 1).ShouldBeTrue();
+
+    [Test]
+    public void IsPointLocked_ACannotCapPoint_IsLocked()
+    {
+        SceneControlPoint noTeam = Point(Blue) with { CanCap = default };
+
+        TfControlPointIcon.IsPointLocked(default, FivePoints() with { Points = [Point(Blue), noTeam, Point(Red), Point(Red), Point(Red)] }, 1).ShouldBeTrue();
+    }
+
     [Test]
     public void PackPrevious_ThreeSlots_UnpacksEachWithItsSign()
     {

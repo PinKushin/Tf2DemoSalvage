@@ -87,12 +87,19 @@ public sealed record SceneObjectives(
 
     private const string Table = "DT_BaseTeamObjectiveResource.";
 
+    /// <summary>How many names the `Materials` table held when <see cref="IconNames"/> was read.</summary>
+    public int MaterialCount { get; init; }
+
     /// <inheritdoc/>
     public bool Equals(SceneObjectives? other) =>
         other is not null
         && PlayingMiniRounds == other.PlayingMiniRounds
+        && BaseRed == other.BaseRed
+        && BaseBlue == other.BaseBlue
         && string.Equals(CapLayout, other.CapLayout, StringComparison.Ordinal)
-        && Points.SequenceEqual(other.Points);
+        && Points.SequenceEqual(other.Points)
+        && IconNames.Count == other.IconNames.Count
+        && IconNames.All(name => other.IconNames.TryGetValue(name.Key, out string? same) && string.Equals(name.Value, same, StringComparison.Ordinal));
 
     /// <inheritdoc/>
     public override int GetHashCode() => HashCode.Combine(CapLayout, Points.Count, PlayingMiniRounds);
@@ -158,8 +165,15 @@ public sealed record SceneObjectives(
         string layout = resource.Text(Table + "m_pszCapLayoutInHUD") ?? string.Empty;
         bool miniRounds = resource.Integer(Table + "m_bPlayingMiniRounds") is > 0;
 
+        int baseRed = resource.Integer(Key("m_iBaseControlPoints", 2)) ?? -1;
+        int baseBlue = resource.Integer(Key("m_iBaseControlPoints", 3)) ?? -1;
+
+        // The table's size too: a name that arrives after its point would otherwise never be read.
         if (last is not null
             && last.PlayingMiniRounds == miniRounds
+            && last.BaseRed == baseRed
+            && last.BaseBlue == baseBlue
+            && last.MaterialCount == materials.Count
             && string.Equals(last.CapLayout, layout, StringComparison.Ordinal)
             && last.Points.SequenceEqual(points))
         {
@@ -177,13 +191,7 @@ public sealed record SceneObjectives(
             }
         }
 
-        return new SceneObjectives(
-            points,
-            layout,
-            names,
-            miniRounds,
-            resource.Integer(Key("m_iBaseControlPoints", 2)) ?? -1,
-            resource.Integer(Key("m_iBaseControlPoints", 3)) ?? -1);
+        return new SceneObjectives(points, layout, names, miniRounds, baseRed, baseBlue) { MaterialCount = materials.Count };
     }
 
     private static void AddName(Dictionary<int, string> names, NameTable materials, int icon)
