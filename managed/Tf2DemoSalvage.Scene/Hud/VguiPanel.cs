@@ -895,6 +895,10 @@ public class VguiPanel
             ? [one, two, three, four]
             : null;
 
+    /// <summary>`Panel::SetAlpha` (Panel.cpp:1533).</summary>
+    /// <param name="alpha">`m_flAlpha`.</param>
+    public void SetAlpha(float alpha) => FindAnimationVar("alpha")!.Value = alpha;
+
     /// <summary>An animation variable's value as a float.</summary>
     /// <param name="name">The script name.</param>
     /// <returns>The value.</returns>

@@ -90,6 +90,39 @@ public sealed class TfControlPointIconConformanceTests
     }
 
     [Test]
+    public void Next_ACaptureStarting_PulsesFromNowAcceleratingWithNoEnd() =>
+        default(CapPulse).Next(Red, Blue, true, 10f).ShouldBe(new CapPulse(Red, 10f, 0f, true));
+
+    [Test]
+    public void Next_ACaptureAbandoned_StopsButRemembersTheCappers() =>
+        new CapPulse(Red, 10f, 0f, true).Next(0, Blue, true, 11f).ShouldBe(new CapPulse(Red, 0f, 0f, true));
+
+    [Test]
+    public void Next_TheCappersBecomingOwner_PulsesHalfASecondAfterTheSwoop() =>
+        new CapPulse(Red, 0f, 0f, true).Next(0, Red, false, 12f).ShouldBe(new CapPulse(0, 12.2f, 0.5f, false));
+
+    [Test]
+    public void Next_NothingChanged_KeepsThePulse() =>
+        new CapPulse(Red, 10f, 0f, true).Next(Red, Blue, false, 11f).ShouldBe(new CapPulse(Red, 10f, 0f, true));
+
+    /// <remarks>By hand: at half a capture the speed is 2 + 3 * 0.5 = 3.5; one second in, 255 * |sin 3.5| = 89.45.</remarks>
+    [Test]
+    public void PulseAlphaAt_HalfCapturedOneSecondIn_RunsAtTheRemappedSpeed() =>
+        TfControlPointPulseable.PulseAlphaAt(new CapPulse(Red, 10f, 0f, true), 11f, 0.5f, false).ShouldNotBeNull().ShouldBe(89.45f, 0.01f);
+
+    [Test]
+    public void PulseAlphaAt_ADefenderBeforeTheSwitch_HasNotStarted() =>
+        TfControlPointPulseable.PulseAlphaAt(new CapPulse(Red, 10f, 0f, true), 10.1f, 0f, true).ShouldBeNull();
+
+    [Test]
+    public void PulseAlphaAt_PastAFinishPulsesLength_HasStopped() =>
+        TfControlPointPulseable.PulseAlphaAt(new CapPulse(0, 12.2f, 0.5f, false), 12.8f, 0f, false).ShouldBeNull();
+
+    [Test]
+    public void PulseAlphaAt_NoStart_IsNull() =>
+        TfControlPointPulseable.PulseAlphaAt(default, 12f, 0f, false).ShouldBeNull();
+
+    [Test]
     public void PackPrevious_ThreeSlots_UnpacksEachWithItsSign()
     {
         int packed = SceneObjectives.PackPrevious(3, -1, 7);

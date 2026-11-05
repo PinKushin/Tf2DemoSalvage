@@ -37,7 +37,47 @@ public readonly record struct SceneControlPoint(
     TeamQuad<float> CapTime,
     bool InMiniRound = false,
     int PreviousRed = 0,
-    int PreviousBlue = 0);
+    int PreviousBlue = 0)
+{
+    /// <summary>`m_iPrevCappers`, `m_flStartCapAnimStart`, `m_flPulseTime` and `m_bAccelerateOverCapture` of the point's icon.</summary>
+    public CapPulse Pulse { get; init; }
+}
+
+/// <summary>The pulse `CControlPointIcon` starts, kept with the point so a seek lands on what playing accumulated.</summary>
+/// <param name="PreviousCappers">`m_iPrevCappers`.</param>
+/// <param name="Start">`m_flStartCapAnimStart`; 0 when not pulsing.</param>
+/// <param name="Length">`m_flPulseTime`; 0 runs until stopped.</param>
+/// <param name="Accelerate">`m_bAccelerateOverCapture`.</param>
+public readonly record struct CapPulse(int PreviousCappers, float Start, float Length, bool Accelerate)
+{
+    /// <summary>`FINISHCAPANIM_SWOOP_LENGTH` (hud_controlpointicons.h:37).</summary>
+    public const float FinishDelay = 0.2f;
+
+    /// <summary>The length of a successful capture's pulse (hud_controlpointicons.cpp:336).</summary>
+    public const float FinishLength = 0.5f;
+
+    /// <summary>`UpdateCapImage` when the capping team changes (:355, :393), then `UpdateImage`'s successful capture (:327).</summary>
+    /// <param name="capping">The capping team now.</param>
+    /// <param name="owner">The owner now.</param>
+    /// <param name="cappingChanged">Whether `SetCappingTeam` ran.</param>
+    /// <param name="now">`gpGlobals->curtime`.</param>
+    /// <returns>The pulse after this update.</returns>
+    public CapPulse Next(int capping, int owner, bool cappingChanged, float now)
+    {
+        CapPulse next = this;
+
+        if (cappingChanged)
+        {
+            next = capping != 0 && capping != owner
+                ? new CapPulse(capping, now, 0f, true)
+                : next with { Start = 0f };
+        }
+
+        return next.PreviousCappers != 0 && owner == next.PreviousCappers
+            ? new CapPulse(0, now + FinishDelay, FinishLength, false)
+            : next;
+    }
+}
 
 /// <summary>A value per team, `TEAM_ARRAY`'s team axis: unassigned, spectator, red, blue.</summary>
 /// <typeparam name="T">The value.</typeparam>
@@ -122,8 +162,9 @@ public sealed record SceneObjectives(
     /// <param name="resource">The objective resource, or null.</param>
     /// <param name="last">The previous frame's answer, or null.</param>
     /// <param name="materials">The `Materials` string table.</param>
+    /// <param name="now">`gpGlobals->curtime`.</param>
     /// <returns>The objectives, or null with no resource.</returns>
-    internal static SceneObjectives? Read(EntityState? resource, SceneObjectives? last, NameTable materials)
+    internal static SceneObjectives? Read(EntityState? resource, SceneObjectives? last, NameTable materials, float now)
     {
         if (resource is null)
         {
@@ -135,7 +176,7 @@ public sealed record SceneObjectives(
 
         for (int index = 0; index < count; index++)
         {
-            points[index] = new SceneControlPoint(
+            SceneControlPoint read = new(
                 resource.Integer(Key("m_bCPIsVisible", index)) is > 0,
                 resource.Integer(Key("m_iOwner", index)) ?? 0,
                 resource.Integer(Key("m_iCappingTeam", index)) ?? 0,
@@ -160,6 +201,14 @@ public sealed record SceneObjectives(
                 resource.Integer(Key("m_bInMiniRound", index)) is > 0,
                 Previous(resource, index, 2),
                 Previous(resource, index, 3));
+
+            SceneControlPoint? before = last is not null && index < last.Points.Count ? last.Points[index] : null;
+            CapPulse pulse = before?.Pulse ?? default;
+
+            points[index] = read with
+            {
+                Pulse = pulse.Next(read.CappingTeam, read.Owner, read.CappingTeam != (before?.CappingTeam ?? 0), now),
+            };
         }
 
         string layout = resource.Text(Table + "m_pszCapLayoutInHUD") ?? string.Empty;

@@ -196,7 +196,7 @@ public sealed class TfControlPointIcon : VguiEditablePanel
     /// <summary>The Arena value of `m_nGameType`, `TF_GAMETYPE_ARENA`.</summary>
     private const int GameTypeArena = 4;
 
-    private readonly VguiImagePanel _baseImage;
+    private readonly TfControlPointPulseable _baseImage;
     private readonly TfControlPointCapArrow _capImage;
     private VguiImagePanel? _overlayImage;
     private VguiImagePanel? _capPlayerImage;
@@ -212,7 +212,7 @@ public sealed class TfControlPointIcon : VguiEditablePanel
     public TfControlPointIcon(VguiPanel parent, string name)
         : base(parent, name)
     {
-        _baseImage = new VguiImagePanel(this, "BaseImage");
+        _baseImage = new TfControlPointPulseable(this, "BaseImage");
         _baseImage.SetShouldScaleImage(true);
         _capImage = new TfControlPointCapArrow(this, "CapImage") { Visible = false, ZPos = 2 };
     }
@@ -371,6 +371,11 @@ public sealed class TfControlPointIcon : VguiEditablePanel
 
         bool capping = point.CappingTeam != 0 && point.CappingTeam != point.Owner;
 
+        // :369-380: only a player on another team waits for the swoop's switch; a spectator's pulse starts at once.
+        bool defending = capping && state.Team > TfControlPointPulseable.LastSharedTeam && state.Team != point.CappingTeam;
+
+        _baseImage.PulseAlpha = TfControlPointPulseable.PulseAlphaAt(point.Pulse, state.CurTime, Math.Clamp(1f - point.LazyCapPercent, 0f, 1f), defending);
+
         _capImage.Visible = capping;
         (_capImage.X, _capImage.Y, _capImage.Wide, _capImage.Tall) = (0, 0, Wide, Tall);
 
@@ -419,6 +424,70 @@ public sealed class TfControlPointIcon : VguiEditablePanel
             }
 
             label.FgColor = (0, 0, 0, 255);
+        }
+    }
+}
+
+/// <summary>`CControlPointIconPulseable` (hud_controlpointicons.cpp:54): the base image, with the white icon pulsing over it.</summary>
+/// <param name="parent">The icon.</param>
+/// <param name="name">The panel's name.</param>
+public sealed class TfControlPointPulseable(VguiPanel parent, string name) : VguiImagePanel(parent, name)
+{
+    /// <summary>`LAST_SHARED_TEAM`.</summary>
+    public const int LastSharedTeam = 1;
+
+    private const float IconSwitch = 0.15f;
+    private const float OpaqueAlpha = 255f;
+
+    private readonly VguiBitmap _pulseImage = new("vgui/../sprites/obj_icons/icon_obj_white");
+
+    /// <summary>`255 * flPulseMod` this frame, or null when not pulsing.</summary>
+    public float? PulseAlpha { get; set; }
+
+    /// <summary>`flPulseMod` at a moment (:65-78), times 255; null before the start and after the length.</summary>
+    /// <param name="pulse">The point's pulse.</param>
+    /// <param name="now">`gpGlobals->curtime`.</param>
+    /// <param name="capPercent">`GetCPCapPercentage`.</param>
+    /// <param name="defending">Whether `StartPulsing` was given `STARTCAPANIM_ICON_SWITCH` (:376).</param>
+    /// <returns>The alpha, or null.</returns>
+    public static float? PulseAlphaAt(CapPulse pulse, float now, float capPercent, bool defending)
+    {
+        float start = pulse.Start + (defending ? IconSwitch : 0f);
+
+        if (pulse.Start == 0f || now <= start)
+        {
+            return null;
+        }
+
+        float elapsed = now - start;
+
+        if (pulse.Length != 0f && elapsed >= pulse.Length)
+        {
+            return null;
+        }
+
+        // `RemapValClamped( flCapPercentage, 0, 1, 2, 5 )`.
+        float speed = pulse.Accelerate ? 2f + (3f * Math.Clamp(capPercent, 0f, 1f)) : 20f;
+
+        return OpaqueAlpha * MathF.Abs(MathF.Sin(elapsed * speed));
+    }
+
+    /// <inheritdoc/>
+    public override void PaintBackground(IVguiSurface surface, VguiContext context)
+    {
+        ArgumentNullException.ThrowIfNull(surface);
+
+        // Valve sets the alpha here, after `PaintTraverse` read it, so the multiplier on this frame's two draws is what the
+        // last frame left (Panel.cpp:1141, :1199): the base fades with the white, a frame behind.
+        SetAlpha(OpaqueAlpha);
+        base.PaintBackground(surface, context);
+
+        if (PulseAlpha is { } alpha)
+        {
+            SetAlpha(alpha);
+            _pulseImage.SetPos(0, 0);
+            _pulseImage.SetSize(Wide, Tall);
+            _pulseImage.Paint(surface);
         }
     }
 }
