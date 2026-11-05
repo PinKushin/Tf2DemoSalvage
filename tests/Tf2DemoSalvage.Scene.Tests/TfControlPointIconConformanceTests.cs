@@ -115,8 +115,29 @@ public sealed class TfControlPointIconConformanceTests
         TfControlPointPulseable.PulseAlphaAt(new CapPulse(Red, 10f, 0f, true), 10.1f, 0f, true).ShouldBeNull();
 
     [Test]
-    public void PulseAlphaAt_PastAFinishPulsesLength_HasStopped() =>
-        TfControlPointPulseable.PulseAlphaAt(new CapPulse(0, 12.2f, 0.5f, false), 12.8f, 0f, false).ShouldBeNull();
+    public void Step_TheFramePastAFinishPulsesLength_DrawsOnceThenStops()
+    {
+        TfControlPointPulseable image = new(new VguiPanel(null, "parent"), "BaseImage");
+        CapPulse pulse = new(0, 12.2f, 0.5f, false);
+
+        image.Step(pulse, 12.8f, 0f, false);
+        image.PulseAlpha.ShouldNotBeNull();
+
+        image.Step(pulse, 12.85f, 0f, false);
+        image.PulseAlpha.ShouldBeNull();
+    }
+
+    [Test]
+    public void Step_TheLocalTeamChangingMidPulse_KeepsTheDelayFixedAtTheStart()
+    {
+        TfControlPointPulseable image = new(new VguiPanel(null, "parent"), "BaseImage");
+        CapPulse pulse = new(Red, 10f, 0f, true);
+
+        image.Step(pulse, 10f, 0f, true);
+        image.Step(pulse, 10.1f, 0f, false);
+
+        image.PulseAlpha.ShouldBeNull();
+    }
 
     [Test]
     public void PulseAlphaAt_NoStart_IsNull() =>

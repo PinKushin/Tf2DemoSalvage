@@ -375,7 +375,7 @@ public sealed class TfControlPointIcon : VguiEditablePanel
         // :369-380: only a player on another team waits for the swoop's switch; a spectator's pulse starts at once.
         bool defending = capping && state.Team > TfControlPointPulseable.LastSharedTeam && state.Team != point.CappingTeam;
 
-        _baseImage.PulseAlpha = TfControlPointPulseable.PulseAlphaAt(point.Pulse, state.CurTime, Math.Clamp(1f - point.LazyCapPercent, 0f, 1f), defending);
+        _baseImage.Step(point.Pulse, state.CurTime, Math.Clamp(1f - point.LazyCapPercent, 0f, 1f), defending);
 
         _capImage.Visible = capping;
         (_capImage.X, _capImage.Y, _capImage.Wide, _capImage.Tall) = (0, 0, Wide, Tall);
@@ -441,11 +441,34 @@ public sealed class TfControlPointPulseable(VguiPanel parent, string name) : Vgu
     private const float OpaqueAlpha = 255f;
 
     private readonly VguiBitmap _pulseImage = new("vgui/../sprites/obj_icons/icon_obj_white");
+    private float _startSeen;
+    private bool _delayed;
+    private bool _stopped;
 
     /// <summary>`255 * flPulseMod` this frame, or null when not pulsing.</summary>
     public float? PulseAlpha { get; set; }
 
-    /// <summary>`flPulseMod` at a moment (:65-78), times 255; null before the start and after the length.</summary>
+    /// <summary>This frame's pulse: the delay is fixed when a pulse starts (:376), and the frame that reaches the length still draws before `StopPulsing` (:91).</summary>
+    /// <param name="pulse">The point's pulse.</param>
+    /// <param name="now">`gpGlobals->curtime`.</param>
+    /// <param name="capPercent">`GetCPCapPercentage`.</param>
+    /// <param name="defending">Whether a pulse starting now waits for the icon switch.</param>
+    public void Step(CapPulse pulse, float now, float capPercent, bool defending)
+    {
+        // Two starts are at least a tick apart.
+        if (MathF.Abs(pulse.Start - _startSeen) > 1e-4f)
+        {
+            (_startSeen, _delayed, _stopped) = (pulse.Start, defending, false);
+        }
+
+        PulseAlpha = _stopped ? null : PulseAlphaAt(pulse, now, capPercent, _delayed);
+
+        // `elapsed >= m_flPulseTime`, as `PulseAlphaAt` starts counting.
+        _stopped = _stopped
+            || (PulseAlpha is not null && pulse.Length != 0f && now - pulse.Start - (_delayed ? IconSwitch : 0f) >= pulse.Length);
+    }
+
+    /// <summary>`flPulseMod` at a moment (:65-78), times 255; null before the start.</summary>
     /// <param name="pulse">The point's pulse.</param>
     /// <param name="now">`gpGlobals->curtime`.</param>
     /// <param name="capPercent">`GetCPCapPercentage`.</param>
@@ -461,11 +484,6 @@ public sealed class TfControlPointPulseable(VguiPanel parent, string name) : Vgu
         }
 
         float elapsed = now - start;
-
-        if (pulse.Length != 0f && elapsed >= pulse.Length)
-        {
-            return null;
-        }
 
         // `RemapValClamped( flCapPercentage, 0, 1, 2, 5 )`.
         float speed = pulse.Accelerate ? 2f + (3f * Math.Clamp(capPercent, 0f, 1f)) : 20f;

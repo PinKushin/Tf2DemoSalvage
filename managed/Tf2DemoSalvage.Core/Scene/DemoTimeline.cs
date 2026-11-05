@@ -4750,7 +4750,7 @@ public sealed class DemoTimeline
             IReadOnlyList<SceneScoreboardPlayer>? scoreboardPlayers = ScoreboardPlayers(entities);
             IReadOnlyList<SceneIdEntity>? idEntities = IdEntities(entities, index => precache.Path(ModelPrecache.Unpack(index, protocol)));
             SceneObjectives? objectives = SceneObjectives.Read(
-                entities.OfClass(ObjectiveResourceClass).FirstOrDefault(), frames.Count > 0 ? frames[^1].Objectives : null, materials, (float)(command.Tick * ScenePropTrack.Tf2TickInterval));
+                entities.OfClass(ObjectiveResourceClass).FirstOrDefault(), frames.Count > 0 ? frames[^1].Objectives : null, materials, command.Tick * (interval > 0f ? interval : (float)ScenePropTrack.Tf2TickInterval));
             frameTicks += Stopwatch.GetTimestamp() - frameFrom;
 
             // Kept for the life of the demo, so not at `Add`'s doubled capacity (B433).
