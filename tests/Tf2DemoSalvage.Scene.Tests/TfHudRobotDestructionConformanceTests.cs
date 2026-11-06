@@ -131,6 +131,36 @@ public sealed class TfHudRobotDestructionConformanceTests
     public void Score_ByTeam_IsThatTeams(int team, int score) =>
         new SceneRobotDestruction(false, 300, 7, 4, 0, 0, 0f, 0f, 45f, string.Empty, 0f, []).Score(team).ShouldBe(score);
 
+    /// <remarks>:822-823: `V_snwprintf` into `wchar_t[3]` keeps two digits and the terminator.</remarks>
+    [TestCase(0, "0")]
+    [TestCase(42, "42")]
+    [TestCase(150, "15")]
+    [TestCase(-15, "-1")]
+    public void LeaderScoreText_ByPoints_KeepsAtMostTwoDigits(int points, string text) =>
+        TfHudRobotDestruction.LeaderScoreText(points).ShouldBe(text);
+
+    /// <remarks>`GetVectorInHudSpace` (cdll_util.cpp:552): in front lands on the screen; behind is stomped to -640.</remarks>
+    [TestCase(1f, true, 320, 240)]
+    [TestCase(0.001f, true, 320, 240)]
+    [TestCase(0.0009f, false, -640, -640)]
+    [TestCase(-1f, false, -640, -640)]
+    public void GetVectorInHudSpace_InFrontOrBehind_IsValves(float w, bool onScreen, int x, int y)
+    {
+        float[] matrix = new float[16];
+        (matrix[0], matrix[5], matrix[10], matrix[15]) = (1f, 1f, 1f, w);
+
+        HudSpace.GetVectorInHudSpace(matrix, (0f, 0f, 0f), 640, 480).ShouldBe((onScreen, x, y));
+    }
+
+    /// <remarks>`cvttss2si`: out of range or NaN is `INT_MIN`; .NET's cast would saturate.</remarks>
+    [TestCase(12.9f, 12)]
+    [TestCase(-12.9f, -12)]
+    [TestCase(3e9f, int.MinValue)]
+    [TestCase(-3e9f, int.MinValue)]
+    [TestCase(float.NaN, int.MinValue)]
+    public void Truncate_InAndOutOfRange_IsTheInstructions(float value, int truncated) =>
+        HudSpace.Truncate(value).ShouldBe(truncated);
+
     /// <remarks>`CHandle::Get`: the index and the serial both, so a new group in the old slot is not the old one.</remarks>
     [TestCase(7, true)]
     [TestCase(8, false)]

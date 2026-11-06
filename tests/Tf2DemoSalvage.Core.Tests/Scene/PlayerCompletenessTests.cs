@@ -201,6 +201,7 @@ public sealed class PlayerCompletenessTests
         DisguiseTarget = 7,
         DisguiseHealth = 90,
         PlayerState = 3,
+        ModelScale = 1.75f,
         CarryingObject = true,
         StunFlags = 2,
         StunIndex = 0,

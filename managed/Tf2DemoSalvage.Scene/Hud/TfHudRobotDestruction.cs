@@ -747,6 +747,59 @@ public sealed class TfHudRobotDestruction : VguiEditablePanel
         }
     }
 
+    /// <summary>`PaintPDPlayerScore`'s text (:822-823): `%d` into a three-character buffer, so at most two digits.</summary>
+    /// <param name="points">The carried flag's `GetPointValue()`, or 0.</param>
+    /// <returns>The text.</returns>
+    public static string LeaderScoreText(int points)
+    {
+        string text = points.ToString(CultureInfo.InvariantCulture);
+
+        return text.Length > 2 ? text[..2] : text;
+    }
+
+    /// <inheritdoc/>
+    /// <remarks>`Paint` (:837): player destruction's team leaders' carried points over their heads, then the panel.</remarks>
+    public override void Paint(IVguiSurface surface, VguiContext context)
+    {
+        if (HudViewport.Of(this) is { } viewport && viewport.State.RobotDestruction is { PlayerDestruction: true } logic)
+        {
+            PaintPDPlayerScore(surface, context, viewport.State, logic.TeamLeaders.Red);
+            PaintPDPlayerScore(surface, context, viewport.State, logic.TeamLeaders.Blue);
+        }
+
+        base.Paint(surface, context);
+    }
+
+    /// <summary>`PaintPDPlayerScore` (:796): above the leader's hull, 20 higher, never over the local player.</summary>
+    private void PaintPDPlayerScore(IVguiSurface surface, VguiContext context, HudState state, int leader)
+    {
+        if (leader == 0 || leader == state.LocalIndex || state.Player(leader) is not { } player || state.WorldToScreen is not { } matrix)
+        {
+            return;
+        }
+
+        // `VEC_HULL_MAX_SCALED( pPlayer ).z`: the hull's top times `GetModelScale()`.
+        float hullTop = LeaderHullMaxZ * (player.ModelScale ?? 1f);
+        (bool onScreen, int x, int y) = HudSpace.GetVectorInHudSpace(matrix, (player.X, player.Y, player.Z + hullTop + 20f), context.ScreenWide, context.ScreenTall);
+
+        // A font the scheme lacks is handle 0, which draws nothing.
+        if (!onScreen || GetFont("player_name_font") is not { } font)
+        {
+            return;
+        }
+
+        string score = LeaderScoreText(CarriedBy(state.CaptureFlags?.Flags ?? [], leader)?.PointValue ?? 0);
+        int width = score.Length * 15;
+
+        surface.DrawSetTextFont(font);
+        surface.DrawSetTextPos(x - (width / 2), y);
+        surface.DrawSetTextColor(GetColor("text_color"));
+        surface.DrawPrintText(score, VguiFontDrawType.NonAdditive);
+    }
+
+    /// <summary>`VEC_HULL_MAX`'s z (tf_shareddefs).</summary>
+    private const float LeaderHullMaxZ = 82f;
+
     /// <inheritdoc/>
     /// <remarks>`PerformLayout` (:455): the robots sorted and placed, and the steal edges kept.</remarks>
     protected override void PerformLayout()

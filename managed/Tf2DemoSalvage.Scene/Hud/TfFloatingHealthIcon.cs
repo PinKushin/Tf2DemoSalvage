@@ -104,7 +104,9 @@ public sealed class TfFloatingHealthIcon : VguiEditablePanel
         }
 
         // `GetHealthBarHeightOffset()` is the base's 0 (c_baseentity.h:521).
-        (int x, int y) = GetVectorInHudSpace(matrix, target.X, target.Y, target.Z + HullMaxZ + 10f, ScreenWide(), ScreenTall());
+        // `VEC_HULL_MAX_SCALED`: the hull's top times `GetModelScale()` (tf_hud_target_id.cpp:1525).
+        float hullTop = HullMaxZ * (target.ModelScale ?? 1f);
+        (_, int x, int y) = HudSpace.GetVectorInHudSpace(matrix, (target.X, target.Y, target.Z + hullTop + 10f), ScreenWide(), ScreenTall());
 
         (X, Y) = (x - (Wide / 2), y - Tall);
         return true;
@@ -120,30 +122,6 @@ public sealed class TfFloatingHealthIcon : VguiEditablePanel
         }
 
         base.Paint(surface, context);
-    }
-
-    /// <summary>`GetVectorInHudSpace` (cdll_util.cpp:552) through `FrustumTransform` (view_scene.cpp:55).</summary>
-    private static (int X, int Y) GetVectorInHudSpace(float[] m, float x, float y, float z, int wide, int tall)
-    {
-        float screenX = (x * m[0]) + (y * m[4]) + (z * m[8]) + m[12];
-        float screenY = (x * m[1]) + (y * m[5]) + (z * m[9]) + m[13];
-        float w = (x * m[3]) + (y * m[7]) + (z * m[11]) + m[15];
-
-        if (w < 0.001f)
-        {
-            // "behind": pushed far off screen.
-            screenX *= 100000f;
-            screenY *= 100000f;
-        }
-        else
-        {
-            float invW = 1f / w;
-
-            screenX *= invW;
-            screenY *= invW;
-        }
-
-        return ((int)(0.5f * (1f + screenX) * wide), (int)(0.5f * (1f - screenY) * tall));
     }
 
     /// <summary>`OnTick` (:1457).</summary>

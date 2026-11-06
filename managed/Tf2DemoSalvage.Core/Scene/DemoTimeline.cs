@@ -257,6 +257,9 @@ public readonly record struct ScenePlayer(
     /// <summary>`m_Shared.m_nPlayerState` (tf_player_shared.cpp:543, sent to everyone): `TF_STATE_ACTIVE` 0 … `TF_STATE_DYING` 3.</summary>
     public int? PlayerState { get => D.PlayerState; init => _detail = ScenePlayerDetail.Normal(D with { PlayerState = value }); }
 
+    /// <summary>`GetModelScale()`: `m_flModelScale`, or null when never sent, which is 1.</summary>
+    public float? ModelScale { get => D.ModelScale; init => _detail = ScenePlayerDetail.Normal(D with { ModelScale = value }); }
+
     /// <summary>
     /// `m_Shared.m_bCarryingObject` (tf_player_shared.cpp:562, sent to everyone): `IsCarryingObject()`
     /// (tf_player_shared.h:601) — set while a building is on the Engineer's back.
@@ -4828,6 +4831,7 @@ public sealed class DemoTimeline
                     DisguiseTarget = EntityState.Slot(player.Integer("DT_TFPlayerShared.m_hDisguiseTarget")),
                     DisguiseHealth = player.Integer("DT_TFPlayerShared.m_iDisguiseHealth"),
                     PlayerState = player.Integer("DT_TFPlayerShared.m_nPlayerState"),
+                    ModelScale = player.ModelScale(),
                     CarryingObject = player.Integer(CarryingObjectProperty) is > 0,
                     StunFlags = player.StunFlags(),
                     StunIndex = player.StunIndex(),
