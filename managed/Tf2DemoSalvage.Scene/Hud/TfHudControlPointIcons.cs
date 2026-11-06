@@ -202,12 +202,15 @@ public sealed class TfHudControlPointIcons : VguiEditablePanel, IHudElement
 
         List<List<int>> lines = [[]];
         int last = 0;
+        int at = 0;
 
-        for (int at = 1; at <= layout.Length; at++)
+        // `while ( *pszChar ) { pszChar++; ... }`: the test is before the step, so the character after a separator, which
+        // the separator's own step lands on, is stepped over unread.
+        while (at < layout.Length)
         {
-            bool end = at == layout.Length;
+            at++;
 
-            if (!end && layout[at] is not (' ' or ','))
+            if (at >= layout.Length || layout[at] is not (' ' or ','))
             {
                 continue;
             }
@@ -218,13 +221,22 @@ public sealed class TfHudControlPointIcons : VguiEditablePanel, IHudElement
             {
                 lines[^1].Add(slot);
 
-                if (!end && layout[at] == ',')
+                if (layout[at] == ',')
                 {
                     lines.Add([]);
                 }
             }
 
-            last = at + 1;
+            at++;
+            last = at;
+        }
+
+        // "Now get the trailing number": it never starts a line.
+        int trailing = slotOf(PanelLayout.Atoi(layout.AsSpan(Math.Min(last, layout.Length))));
+
+        if (trailing >= 0)
+        {
+            lines[^1].Add(trailing);
         }
 
         // "If we've hit a line with nothing in it, we're done."

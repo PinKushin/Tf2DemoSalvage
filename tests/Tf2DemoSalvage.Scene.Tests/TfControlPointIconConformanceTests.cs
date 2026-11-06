@@ -317,6 +317,11 @@ public sealed class TfControlPointIconConformanceTests
     public void ParseLayout_AnUnknownPointBeforeAComma_LosesTheComma() =>
         TfHudControlPointIcons.ParseLayout("1 9,2", point => point == 9 ? -1 : point).ShouldBe([[1, 2]]);
 
+    /// <remarks>"1, 2": the space after the comma is stepped over, so no empty number reads as point 0, and " 2" trails.</remarks>
+    [Test]
+    public void ParseLayout_ACommaThenASpace_ReadsNoPointZero() =>
+        TfHudControlPointIcons.ParseLayout("1, 2", point => point).ShouldBe([[1], [2]]);
+
     [Test]
     public void PackPrevious_ThreeSlots_UnpacksEachWithItsSign()
     {
