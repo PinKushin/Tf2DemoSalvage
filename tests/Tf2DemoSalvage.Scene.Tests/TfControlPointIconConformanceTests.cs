@@ -323,17 +323,30 @@ public sealed class TfControlPointIconConformanceTests
         TfHudControlPointIcons.ParseLayout("1, 2", point => point).ShouldBe([[1], [2]]);
 
     /// <remarks>tf_hud_arena_capturepoint.cpp:117-159: arena (4), the stalemate state (7), `ceil( 13.5 - 10 )` is 4.</remarks>
-    [TestCase(4, 7, 4)]
-    [TestCase(2, 7, null)]
-    [TestCase(4, 4, null)]
-    public void SecondsShown_ArenaInItsStalemate_CountsDownFromFive(int gameType, int roundState, int? shown) =>
+    [TestCase(4, 7, 13.5f, 4)]
+    [TestCase(2, 7, 13.5f, null)]
+    [TestCase(4, 4, 13.5f, null)]
+    [TestCase(4, 7, 14.5f, 5)]
+    [TestCase(4, 7, 15.5f, null)]
+    [TestCase(4, 7, 10f, null)]
+    [TestCase(4, 7, 9f, null)]
+    public void SecondsShown_ArenaInItsStalemate_CountsDownFromFive(int gameType, int roundState, float enable, int? shown) =>
         TfHudArenaCapPointCountdown.SecondsShown(
             Running(10f) with
             {
                 HasLocalPlayer = true,
                 RoundState = roundState,
-                Rules = new SceneGameRules(false, 0, false) { Present = true, GameType = gameType, CapturePointEnableTime = 13.5f },
+                Rules = new SceneGameRules(false, 0, false) { Present = true, GameType = gameType, CapturePointEnableTime = enable },
             }).ShouldBe(shown);
+
+    [Test]
+    public void SecondsShown_WithNoLocalPlayer_IsHidden() =>
+        TfHudArenaCapPointCountdown.SecondsShown(
+            Running(10f) with
+            {
+                RoundState = 7,
+                Rules = new SceneGameRules(false, 0, false) { Present = true, GameType = 4, CapturePointEnableTime = 13.5f },
+            }).ShouldBeNull();
 
     [Test]
     public void PackPrevious_ThreeSlots_UnpacksEachWithItsSign()

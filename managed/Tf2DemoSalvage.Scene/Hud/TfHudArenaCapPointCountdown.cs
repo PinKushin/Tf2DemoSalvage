@@ -11,8 +11,6 @@ namespace Tf2DemoSalvage.Scene.Hud;
 /// <param name="viewport">The viewport.</param>
 public sealed class TfHudArenaCapPointCountdown(VguiPanel viewport) : VguiEditablePanel(viewport, "HudArenaCapPointCountdown"), IHudElement
 {
-    private const int GameTypeArena = 4;
-
     /// <inheritdoc/>
     public override string ClassName => "CHudArenaCapPointCountdown";
 
@@ -24,7 +22,7 @@ public sealed class TfHudArenaCapPointCountdown(VguiPanel viewport) : VguiEditab
     /// <returns>The seconds shown, or null.</returns>
     public static int? SecondsShown(HudState state)
     {
-        if (!state.Rules.Present || state.Rules.GameType != GameTypeArena || state.RoundState != HudState.RoundStateStalemate
+        if (!state.Rules.Present || state.Rules.GameType != Core.Scene.SceneGameRules.GameTypeArena || state.RoundState != HudState.RoundStateStalemate
             || !state.HasLocalPlayer)
         {
             return null;
