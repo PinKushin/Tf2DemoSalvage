@@ -2423,6 +2423,9 @@ public sealed class DemoTimeline
     }
 
     private const string TrainWatcherClass = "CTeamTrainWatcher";
+
+    /// <summary>`TF_TEAM_BLUE`.</summary>
+    private const int TeamBlueNumber = 3;
     private const string ControlPointStartTouch = "controlpoint_starttouch";
     private const string ControlPointEndTouch = "controlpoint_endtouch";
     private const string ResetHudMessage = "ResetHUD";
@@ -2480,93 +2483,40 @@ public sealed class DemoTimeline
     /// (c_team_train_watcher.cpp) turns into the client-side `escort_speed`, `escort_progress` and `escort_recede` events,
     /// which a demo never carries.
     /// </summary>
-    public IReadOnlyList<SceneTrainWatcher> EscortChanges { get; private init; } = [];
+    public IReadOnlyList<(int Tick, int Team, SceneEscort Escort)> EscortChanges { get; private init; } = [];
 
-    /// <summary>`CTFHudEscort`'s state for one team at a tick, from its watcher's changes (tf_hud_escort.cpp:870-925).</summary>
+    /// <summary>`CTFHudEscort`'s state for one team at a tick: the last state its watchers' events left at or before it.</summary>
     /// <param name="tick">The tick.</param>
-    /// <param name="team">`m_nTeam`; an event with team 0 reaches every panel (:879-881).</param>
-    /// <param name="interval">Seconds per tick, for `gpGlobals->curtime`.</param>
-    /// <returns>The state.</returns>
-    public SceneEscort EscortAt(int tick, int team, float interval)
+    /// <param name="team">`m_nTeam`.</param>
+    /// <returns>The state, or the default before any.</returns>
+    public SceneEscort EscortAt(int tick, int team)
     {
-        SceneEscort escort = default;
-        List<(float Time, float Progress)> history = [];
-        SceneTrainWatcher? previous = null;
+        int low = 0;
+        int high = EscortChanges.Count;
 
-        foreach (SceneTrainWatcher change in EscortChanges)
+        while (low < high)
         {
-            if (change.Tick > tick)
+            int middle = (low + high) / 2;
+
+            if (EscortChanges[middle].Tick <= tick)
             {
-                break;
+                low = middle + 1;
             }
-
-            if (change.Team != 0 && change.Team != team)
+            else
             {
-                continue;
-            }
-
-            float time = change.Tick * interval;
-
-            // `escort_speed` when the speed or the cappers change.
-            if (previous is not { } before || before.Speed != change.Speed || before.Cappers != change.Cappers)
-            {
-                // "iSpeedLevel > 0 && m_iSpeedLevel == 0": the swoop's start.
-                escort = escort with
-                {
-                    SwoopStart = change.Speed > 0 && escort.Speed == 0 ? time : escort.SwoopStart,
-                    Speed = change.Speed,
-                    Players = change.Cappers,
-                };
-            }
-
-            // `escort_progress`, with `reset` when the old progress was the -1 a new watcher starts at.
-            if (previous is not { } old || old.Progress.CompareTo(change.Progress) != 0)
-            {
-                if (previous is null)
-                {
-                    history.Clear();
-                }
-
-                history.Add((time, change.Progress));
-                escort = escort with { Progress = change.Progress };
-            }
-
-            // `escort_recede` when the recede time changes.
-            escort = escort with { RecedeTime = change.RecedeTime };
-            previous = change;
-        }
-
-        return escort with { ShownProgress = InterpolatedProgress(history, (tick * interval) - EscortInterpolation) };
-    }
-
-    /// <summary>`hud_escort_interp`'s default (tf_hud_escort.cpp:24).</summary>
-    public const float EscortInterpolation = 0.2f;
-
-    /// <summary>`CInterpolatedVar::Interpolate`: the history at a past moment, linear between the two changes around it.</summary>
-    private static float InterpolatedProgress(List<(float Time, float Progress)> history, float at)
-    {
-        if (history.Count == 0)
-        {
-            return 0f;
-        }
-
-        if (at <= history[0].Time)
-        {
-            return history[0].Progress;
-        }
-
-        for (int i = 1; i < history.Count; i++)
-        {
-            if (at <= history[i].Time)
-            {
-                (float t0, float p0) = history[i - 1];
-                (float t1, float p1) = history[i];
-
-                return t1 > t0 ? p0 + ((p1 - p0) * (at - t0) / (t1 - t0)) : p1;
+                high = middle;
             }
         }
 
-        return history[^1].Progress;
+        for (int at = low - 1; at >= 0; at--)
+        {
+            if (EscortChanges[at].Team == team)
+            {
+                return EscortChanges[at].Escort;
+            }
+        }
+
+        return default;
     }
 
     /// <summary>The network protocol the demo's header declares, or 0 for a timeline built from nothing.</summary>
@@ -3372,29 +3322,63 @@ public sealed class DemoTimeline
         // Deep-copied with the builder rather than marked: small, and a plain list (D217).
         private readonly List<(int Tick, bool Show)> spectatorGuiChanges;
         private readonly List<(int Tick, int Player, int Area)> touchChanges;
-        private readonly List<SceneTrainWatcher> escortChanges;
+        private readonly List<(int Tick, int Team, SceneEscort Escort)> escortChanges;
         private readonly Dictionary<int, SceneTrainWatcher> lastWatchers = [];
+        private readonly HashSet<int> seenWatchers = [];
+        private SceneEscort escortRed;
+        private SceneEscort escortBlue;
 
-        /// <summary>Each `CTeamTrainWatcher` whose state differs from its last, as `OnDataChanged` compares (c_team_train_watcher.cpp).</summary>
+        /// <summary>
+        /// Each `CTeamTrainWatcher` against its own last state, as `OnDataChanged` compares (c_team_train_watcher.cpp), its
+        /// events applied to the panels they reach: a team's, or both for team 0 (tf_hud_escort.cpp:879-881). A watcher the
+        /// frame no longer holds is forgotten, so one made again starts from the constructor's values.
+        /// </summary>
         private void NoteTrainWatchers(EntityStateTable entities, int tick)
         {
+            float now = tick * (interval > 0f ? interval : (float)ScenePropTrack.Tf2TickInterval);
+
+            seenWatchers.Clear();
+
             foreach (EntityState watcher in entities.OfClass(TrainWatcherClass))
             {
-                SceneTrainWatcher now = new(
-                    tick,
-                    watcher.Integer("DT_BaseEntity.m_iTeamNum") ?? 0,
+                int team = watcher.Integer("DT_BaseEntity.m_iTeamNum") ?? 0;
+                SceneTrainWatcher received = new(
+                    team,
                     watcher.Number("DT_TeamTrainWatcher.m_flTotalProgress") ?? -1f,
                     watcher.Integer("DT_TeamTrainWatcher.m_iTrainSpeedLevel") ?? -2,
                     watcher.Number("DT_TeamTrainWatcher.m_flRecedeTime") ?? -1f,
                     watcher.Integer("DT_TeamTrainWatcher.m_nNumCappers") ?? 0);
 
-                if (lastWatchers.TryGetValue(watcher.EntityIndex, out SceneTrainWatcher last) && last with { Tick = tick } == now)
+                seenWatchers.Add(watcher.EntityIndex);
+
+                SceneTrainWatcher old = lastWatchers.TryGetValue(watcher.EntityIndex, out SceneTrainWatcher was) ? was : SceneTrainWatcher.Created(team);
+
+                if (old == received)
                 {
                     continue;
                 }
 
-                lastWatchers[watcher.EntityIndex] = now;
-                escortChanges.Add(now);
+                lastWatchers[watcher.EntityIndex] = received;
+
+                if (team is 0 or SceneTeams.Red)
+                {
+                    escortRed = received.Apply(old, escortRed, now);
+                    escortChanges.Add((tick, SceneTeams.Red, escortRed));
+                }
+
+                if (team is 0 or TeamBlueNumber)
+                {
+                    escortBlue = received.Apply(old, escortBlue, now);
+                    escortChanges.Add((tick, TeamBlueNumber, escortBlue));
+                }
+            }
+
+            foreach (int index in lastWatchers.Keys)
+            {
+                if (!seenWatchers.Contains(index))
+                {
+                    lastWatchers.Remove(index);
+                }
             }
         }
         private IReadOnlyDictionary<int, PlayerInfo>? rosterAtEvent;

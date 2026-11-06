@@ -1,8 +1,9 @@
+using Tf2DemoSalvage.Core.Scene;
 using Tf2DemoSalvage.Scene.Hud;
 
 namespace Tf2DemoSalvage.Scene.Tests;
 
-/// <summary>`CTFHudEscort` (game/client/tf/tf_hud_escort.cpp) and `CSimpleControlPoint` (tf_hud_escort.h:101).</summary>
+/// <summary>`CTFHudEscort` (game/client/tf/tf_hud_escort.cpp), `CSimpleControlPoint` (tf_hud_escort.h:101) and `C_TeamTrainWatcher::OnDataChanged`.</summary>
 public sealed class TfHudEscortConformanceTests
 {
     /// <remarks>`ApplySchemeSettings` (:569-624).</remarks>
@@ -29,6 +30,24 @@ public sealed class TfHudEscortConformanceTests
     [TestCase(3, 2, false)]
     [TestCase(2, 0, false)]
     public void EscortVisible_ByGameAndHudType_FollowsSetVisiblePanels(int gameType, int hudType, bool visible) =>
-        TfHudObjectiveStatus.EscortVisible(new Core.Scene.SceneGameRules(false, 0, false) { GameType = gameType, HudType = hudType })
-            .ShouldBe(visible);
+        TfHudObjectiveStatus.EscortVisible(new SceneGameRules(false, 0, false) { GameType = gameType, HudType = hudType }).ShouldBe(visible);
+
+    [Test]
+    public void EscortVisible_OnAHybridCtfCpMap_IsHidden() =>
+        TfHudObjectiveStatus.EscortVisible(new SceneGameRules(false, 0, false) { GameType = 3, PlayingHybridCtfCp = true }).ShouldBeFalse();
+
+    /// <remarks>`OnDataChanged` from a new watcher's -2/-1/-1: speed and progress both fire; the swoop starts as it moves.</remarks>
+    [Test]
+    public void Apply_ANewWatcherMoving_TakesItsStateAndStartsTheSwoop() =>
+        new SceneTrainWatcher(3, 0.25f, 2, 5f, 3).Apply(SceneTrainWatcher.Created(3), default, 10f)
+            .ShouldBe(new SceneEscort(0.25f, 2, 3, 5f, 10f));
+
+    [Test]
+    public void Apply_OnlyTheProgressChanged_KeepsTheSwoopStart()
+    {
+        SceneTrainWatcher before = new(3, 0.25f, 2, -1f, 3);
+        SceneEscort escort = new(0.25f, 2, 3, 0f, 10f);
+
+        (before with { Progress = 0.3f }).Apply(before, escort, 12f).ShouldBe(escort with { Progress = 0.3f });
+    }
 }

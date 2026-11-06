@@ -153,8 +153,9 @@ public sealed class TfHudMultipleEscort : VguiEditablePanel
 /// <remarks>
 /// **From state each think, where the engine waits for its events**: the watcher's changes come through
 /// <see cref="DemoTimeline.EscortAt"/>, so a seek lands on what playing accumulated. **Not ported:** the status teardrop over the
-/// cart (`CEscortStatusTeardrop`, :158-317), the alarm's animation sequences, `cl_hud_minmode`'s swoop size, and the freeze-cam
-/// screenshot check.
+/// cart (`CEscortStatusTeardrop`, :158-317), the alarm's animation sequences, `cl_hud_minmode`'s swoop size, the freeze-cam
+/// screenshot check, and Helltower's hell, which hides both payload panels (tf_hud_objectivestatus.cpp:280-284). The
+/// objective resource's track is read afresh each timeline frame and shared only when unchanged.
 /// </remarks>
 public sealed class TfHudEscort : VguiEditablePanel
 {
@@ -175,6 +176,7 @@ public sealed class TfHudEscort : VguiEditablePanel
     private readonly TfEscortHillPanel[] _hills = new TfEscortHillPanel[SceneTrack.MaxHills];
     private readonly List<VguiImagePanel> _icons = [];
     private readonly List<int> _iconPoints = [];
+    private readonly List<(int Owner, bool Opaque)> _iconOwners = [];
     private TfControlPointSwoop? _swoop;
     private bool _multipleTrains;
     private int _hillCount;
@@ -311,7 +313,7 @@ public sealed class TfHudEscort : VguiEditablePanel
 
         foreach (int point in _iconPoints)
         {
-            anyBlocked |= point < objectives.Points.Count && objectives.Points[point].Blocked;
+            anyBlocked |= point >= 0 && point < objectives.Points.Count && objectives.Points[point].Blocked;
         }
 
         _blocked.Visible = anyBlocked && !showPlayers && escort.Speed >= 0;
@@ -392,18 +394,28 @@ public sealed class TfHudEscort : VguiEditablePanel
             (icon.X, icon.Y, icon.Wide, icon.Tall) = (_levelBar.X + (int)(_levelBar.Wide * distance) - (_cpTemplate.Wide / 2), _cpTemplate.Y, _cpTemplate.Wide, _cpTemplate.Tall);
             icon.ZPos = _cpTemplate.ZPos;
             icon.Visible = true;
-            icon.SetImage(PointImage(cp.Owner, opaque));
+
+            // `SetImage` returns early on the same name, so only a change of owner or opacity builds a name.
+            if (_iconOwners.Count <= count)
+            {
+                _iconOwners.Add((-1, false));
+            }
+
+            if (_iconOwners[count] != (cp.Owner, opaque))
+            {
+                _iconOwners[count] = (cp.Owner, opaque);
+                icon.SetImage(PointImage(cp.Owner, opaque));
+            }
             valid += distance > 0f ? 1 : 0;
             count++;
         }
 
+        // Valve deletes and remakes the icons; these are kept and hidden, so a mini-round change makes none afresh.
         for (int extra = count; extra < _icons.Count; extra++)
         {
             _icons[extra].Visible = false;
+            _iconPoints[extra] = -1;
         }
-
-        _iconPoints.RemoveRange(count, _iconPoints.Count - count);
-        _icons.RemoveRange(count, _icons.Count - count);
 
         // "we don't want to draw if we haven't got good point positions yet"
         _haveValidPointPositions = valid > 0;

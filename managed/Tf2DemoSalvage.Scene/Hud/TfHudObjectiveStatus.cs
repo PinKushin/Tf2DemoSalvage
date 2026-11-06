@@ -44,7 +44,8 @@ public sealed class TfHudObjectiveStatus : VguiEditablePanel, IHudElement
         rules.HudType != HudTypeTraining
         && (rules.GameType == GameTypeEscort || rules.HudType == HudTypeEscort)
         && rules.HudType != HudTypeCtf
-        && rules.HudType != HudTypeCp;
+        && rules.HudType != HudTypeCp
+        && !rules.PlayingHybridCtfCp;
 
     /// <summary>`m_pControlPointProgressBar`.</summary>
     public TfControlPointProgressBar ProgressBar { get; }
