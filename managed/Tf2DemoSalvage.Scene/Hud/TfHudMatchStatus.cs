@@ -39,6 +39,7 @@ public sealed class TfHudMatchStatus : VguiEditablePanel, IHudElement
         RoundCounter = new TfRoundCounterPanel(this);
         TimePanel = new TfHudTimeStatus(this, "ObjectiveStatusTimePanel") { UseMatchHud = false };
         RoundSignModel = new VguiModelPanel(this, "RoundSignModel", mdlCache);
+        TeamStatus = new TfTeamStatus(this);
 
         // (:287-298). The leader avatars are `CAvatarImagePanel`s, whose picture Steam serves; the demo carries no image.
         BlueTeamPanel = new VguiEditablePanel(this, "BlueTeamPanel");
@@ -121,6 +122,9 @@ public sealed class TfHudMatchStatus : VguiEditablePanel, IHudElement
 
     /// <summary>`m_pTimePanel`.</summary>
     public TfHudTimeStatus TimePanel { get; }
+
+    /// <summary>`m_pTeamStatus` (:285).</summary>
+    public TfTeamStatus TeamStatus { get; }
 
     /// <inheritdoc/>
     public override string ClassName => "CTFHudMatchStatus";
@@ -326,6 +330,9 @@ public sealed class TfHudMatchStatus : VguiEditablePanel, IHudElement
             InvalidateLayout(reloadScheme: true);
             Parent?.FindChildByName(TfHudKothTimeStatus.ElementName)?.InvalidateLayout(reloadScheme: true);
         }
+
+        // `CTFTeamStatus::OnTick`, by its own tick signal, which reaches it hidden too.
+        TeamStatus.Tick();
 
         bool display = state.ObserverMode != ObserverModes.FreezeCam;
 

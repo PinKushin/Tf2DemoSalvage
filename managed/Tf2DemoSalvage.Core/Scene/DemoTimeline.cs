@@ -1319,6 +1319,7 @@ public sealed class DemoTimeline
                 MaxHealth = resource.Integer($"m_iMaxHealth.{slot}") ?? 0,
                 NextRespawnTime = resource.Number($"m_flNextRespawnTime.{slot}") ?? 0f,
                 ChargeLevel = resource.Integer($"m_iChargeLevel.{slot}") ?? 0,
+                PlayerClassWhenKilled = resource.Integer($"m_iPlayerClassWhenKilled.{slot}") ?? 0,
             });
         }
 

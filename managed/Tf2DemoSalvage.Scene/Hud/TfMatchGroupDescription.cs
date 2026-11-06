@@ -20,6 +20,9 @@ public sealed record TfMatchGroupDescription(
     string? MatchStartSound,
     int MatchType)
 {
+    /// <summary>`BUsesMatchHUD()`: `m_bUseMatchHud`, false unless the ladder or casual constructor sets it (tf_match_description_comp.cpp:32, tf_match_description_casual.cpp:35).</summary>
+    public bool UsesMatchHud => MatchType is MatchTypeCompetitive or MatchTypeCasual;
+
     /// <summary>`k_eTFMatchGroup_Invalid`.</summary>
     public const int Invalid = -1;
 

@@ -64,4 +64,7 @@ public readonly record struct SceneScoreboardPlayer(int EntityIndex)
 
     /// <summary>`C_TFPlayerResource::GetChargeLevel` — `m_iChargeLevel`, a medic's percent.</summary>
     public int ChargeLevel { get; init; }
+
+    /// <summary>`C_TFPlayerResource::GetPlayerClassWhenKilled` — `m_iPlayerClassWhenKilled`, 0 unsent.</summary>
+    public int PlayerClassWhenKilled { get; init; }
 }

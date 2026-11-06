@@ -431,7 +431,7 @@ public sealed class TfPlayerPanelGuiHealth(VguiPanel? parent, string? name) : Tf
 }
 
 /// <summary>`CTFPlayerPanel` (game/client/tf/vgui/tf_playerpanel.cpp): one player's card in the tournament spectator GUI.</summary>
-public sealed class TfPlayerPanel : VguiEditablePanel
+public class TfPlayerPanel : VguiEditablePanel
 {
     private const int TeamRed = SceneTeams.Red;
     private const int FirstGameTeam = 2;
@@ -492,6 +492,20 @@ public sealed class TfPlayerPanel : VguiEditablePanel
     /// <summary>`m_pClassImage` — the `.res`'s `classimage`, or null.</summary>
     public TfClassImage? ClassImage => _classImage;
 
+    /// <summary>`GetTeam()`: the resource's team for the player, as last read.</summary>
+    public int Team => _team;
+
+    /// <summary>The slot of a player in the resource, or null.</summary>
+    /// <param name="state">The game state.</param>
+    /// <param name="index">The entity index.</param>
+    /// <returns>The slot.</returns>
+    protected static SceneScoreboardPlayer? ResourceSlot(HudState state, int index) => Slot(state, index);
+
+    /// <summary>`GetTeam()` read again for the panel's player, as `CTFPlayerPanel::GetTeam` does each call.</summary>
+    /// <param name="state">The game state.</param>
+    /// <returns>The team.</returns>
+    protected int RefreshTeam(HudState state) => _team = PlayerIndex > 0 ? ResourceTeam(state, PlayerIndex) : 0;
+
     /// <summary>`g_TF_PR->GetTeam( index )`: the resource's team for that slot, 0 when it lists none.</summary>
     /// <param name="state">The game state.</param>
     /// <param name="index">The entity index.</param>
@@ -521,7 +535,7 @@ public sealed class TfPlayerPanel : VguiEditablePanel
     }
 
     /// <summary>`Reset` (:64).</summary>
-    public void Reset()
+    public virtual void Reset()
     {
         _prevHealth = -999;
         _prevClass = -999;
@@ -564,7 +578,7 @@ public sealed class TfPlayerPanel : VguiEditablePanel
     /// <summary>`Update` (:81): class, health, respawn time and charge from the player resource.</summary>
     /// <param name="state">The game state.</param>
     /// <returns>Whether anything changed that needs the GUI to lay the panels out again.</returns>
-    public bool Update(HudState state)
+    public virtual bool Update(HudState state)
     {
         if (!state.HasLocalPlayer && !state.IsHltv)
         {
@@ -717,7 +731,7 @@ public sealed class TfPlayerPanel : VguiEditablePanel
     }
 
     /// <summary>`UpdateBorder` (:373): a dead player's plain border, a living one's in his team's colour.</summary>
-    private void UpdateBorder()
+    protected virtual void UpdateBorder()
     {
         if (HudViewport.Of(this)?.Context is not { } context)
         {
