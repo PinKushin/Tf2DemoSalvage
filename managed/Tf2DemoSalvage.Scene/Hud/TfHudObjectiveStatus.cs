@@ -2,7 +2,7 @@ namespace Tf2DemoSalvage.Scene.Hud;
 
 /// <summary>`CTFHudObjectiveStatus` (game/client/tf/tf_hud_objectivestatus.cpp:53): the objective panels' host, whose child the control-point icons become.</summary>
 /// <remarks>
-/// **Not ported:** its robot destruction panel (B709). `ShouldDraw`'s Halloween kart and match summary checks are the HUD's.
+/// `ShouldDraw`'s Halloween kart and match summary checks are the HUD's.
 /// </remarks>
 public sealed class TfHudObjectiveStatus : VguiEditablePanel, IHudElement
 {
@@ -35,6 +35,9 @@ public sealed class TfHudObjectiveStatus : VguiEditablePanel, IHudElement
         Passtime = new TfHudPasstime(this);
         Training = new TfHudTraining(this);
     }
+
+    /// <summary>`m_pRobotDestructionPanel`: made at each scheme pass, so null before the first; shown by `IsPlayingRobotDestructionMode()` (:199-203).</summary>
+    public TfHudRobotDestruction? RobotDestruction { get; private set; }
 
     /// <summary>`m_pTrainingPanel`: shown for the training HUD, else by `IsTrainingHUDVisible()` (:220-252).</summary>
     public TfHudTraining Training { get; }
@@ -83,6 +86,14 @@ public sealed class TfHudObjectiveStatus : VguiEditablePanel, IHudElement
     /// <remarks>`ApplySchemeSettings` (:85): the layout, then the icons taken as a child once.</remarks>
     public override void ApplySchemeSettings(VguiContext context)
     {
+        // :87-92: a new robot destruction panel each pass, the last one deleted.
+        if (RobotDestruction is { } previous)
+        {
+            OwnGroup.PanelRemoved(previous);
+            previous.SetParent(null);
+        }
+
+        RobotDestruction = new TfHudRobotDestruction(this, "ObjectiveStatusRobotDestruction");
         LoadControlSettings("resource/UI/HudObjectiveStatus.res", context);
 
         if (!_iconsAdopted)
@@ -123,6 +134,11 @@ public sealed class TfHudObjectiveStatus : VguiEditablePanel, IHudElement
 
         if (state is { InGame: true, Rules.Present: true })
         {
+            if (RobotDestruction is not null)
+            {
+                RobotDestruction.Visible = state.Rules.PlayingRobotDestruction;
+            }
+
             _controlPointIcons.Visible = ControlPointsVisible(state.Rules);
             FlagPanel.Visible = FlagsVisible(state.Rules);
             Passtime.Visible = state.Rules.HudType != HudTypeTraining && state.Rules.GameType == GameTypePasstime;
@@ -147,6 +163,9 @@ public sealed class TfHudObjectiveStatus : VguiEditablePanel, IHudElement
 
         // Its own 10 ms tick signal (:128), which reaches it hidden as well.
         Training.Update(state);
+
+        // Its own 50 ms tick signal (tf_hud_robot_destruction_status.cpp:301), hidden as well.
+        RobotDestruction?.Update(state);
 
         if (Escort.Visible)
         {

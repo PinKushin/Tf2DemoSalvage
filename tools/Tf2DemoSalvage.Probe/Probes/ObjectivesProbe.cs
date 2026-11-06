@@ -44,6 +44,26 @@ public sealed class ObjectivesProbe : IProbe
             output.WriteLine($"  goals: {string.Join("; ", passtime.Goals.Select(goal => $"{goal} frac {passtime.ProgressFrac(goal.Origin):F3}"))}");
             output.WriteLine($"  ball frac {passtime.ProgressFrac(passtime.BallOrigin):F3}");
         }
+        if (timeline.RobotDestructionAt(tick) is { } rd)
+        {
+            output.WriteLine($"robot destruction: {rd with { Groups = [] }} leaders {rd.TeamLeaders}");
+
+            foreach (SceneRobotGroup group in rd.Groups)
+            {
+                output.WriteLine($"  {group}");
+            }
+
+            foreach (SceneFlag flag in timeline.FlagsAt(tick)?.Flags ?? [])
+            {
+                output.WriteLine($"  flag {flag.EntityIndex} points {flag.PointValue} reset {flag.ResetTime} neutral {flag.NeutralTime} max {flag.MaxResetTime} prev {flag.PrevOwner}");
+            }
+
+            foreach (SceneCaptureZone zone in timeline.FlagsAt(tick)?.Zones ?? [])
+            {
+                output.WriteLine($"  zone {zone.EntityIndex} radius {zone.BoundingRadius}");
+            }
+        }
+
         output.WriteLine("resource teams: " + string.Join(' ', timeline.ScoreboardPlayersAt(tick).Select(player => $"{player.EntityIndex}:{player.Team}")));
 
         foreach ((int at, int player, int area) in timeline.TouchChanges.Where(change => Math.Abs(change.Tick - tick) < 200))

@@ -252,6 +252,9 @@ public static class EngineConVars
         new("tf_flag_caps_per_round", "3", Replicated: true, Cheat: false), // tf_gamerules.cpp:1299
         new("tf_passtime_scores_per_round", "5", Replicated: true, Cheat: false), // passtime_convars.cpp:14
         new("tf_passtime_powerball_threshold", "80", Replicated: true, Cheat: false), // passtime_convars.cpp:71
+        new("tf_rd_points_approach_interval", "0.1f", Replicated: true, Cheat: false), // tf_logic_robot_destruction.cpp:56
+        new("tf_rd_points_per_approach", "5", Replicated: true, Cheat: false), // tf_logic_robot_destruction.cpp:57
+        new("tf_rd_min_points_to_steal", "25", Replicated: true, Cheat: false), // tf_logic_robot_destruction.cpp:58
 
         // src/game/shared/tf/tf_gamerules.cpp:782-783, which C_TFTeam::UpdateTeamName shows in a tournament.
         new("mp_tournament_redteamname", "RED", Replicated: true, Cheat: false),

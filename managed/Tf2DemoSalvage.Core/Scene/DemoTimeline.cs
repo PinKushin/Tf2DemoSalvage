@@ -644,6 +644,7 @@ public readonly record struct TimelinePhases(
 /// <param name="Objectives">The objective resource, or null when there is none.</param>
 /// <param name="Flags">Every capture flag and capture zone, or null when there is none.</param>
 /// <param name="Passtime">The Pass Time logic, ball and goals, or null when there is none.</param>
+/// <param name="RobotDestruction">The robot destruction logic and robot groups, or null when there is none.</param>
 public readonly record struct TimelineFrame(
     int Tick,
     IReadOnlyList<ScenePlayer> Players,
@@ -658,7 +659,8 @@ public readonly record struct TimelineFrame(
     IReadOnlyList<SceneIdEntity>? IdEntities = null,
     SceneObjectives? Objectives = null,
     SceneFlags? Flags = null,
-    ScenePasstime? Passtime = null);
+    ScenePasstime? Passtime = null,
+    SceneRobotDestruction? RobotDestruction = null);
 
 /// <summary>What the client's HUD asks of `TFGameRules()` and the logic entities at one tick.</summary>
 /// <param name="MannVsMachine">`IsMannVsMachineMode()`: `m_bPlayingMannVsMachine` (tf_gamerules.h:606).</param>
@@ -700,6 +702,9 @@ public readonly record struct SceneGameRules(bool MannVsMachine, int HalloweenSc
 
     /// <summary>`IsWaitingForTrainingContinue()`: `m_bIsWaitingForTrainingContinue`.</summary>
     public bool WaitingForTrainingContinue { get; init; }
+
+    /// <summary>`IsPlayingRobotDestructionMode()`: `m_bPlayingRobotDestructionMode`.</summary>
+    public bool PlayingRobotDestruction { get; init; }
 
     /// <summary>`IsPlayingHybrid_CTF_CP()`: `m_bPlayingHybrid_CTF_CP`.</summary>
     public bool PlayingHybridCtfCp { get; init; }
@@ -4914,6 +4919,7 @@ public sealed class DemoTimeline
                 HudType = gameRules?.Integer("DT_TFGameRules.m_nHudType") ?? 0,
                 TrainingHudVisible = gameRules?.Integer("DT_TFGameRules.m_bIsTrainingHUDVisible") is > 0,
                 WaitingForTrainingContinue = gameRules?.Integer("DT_TFGameRules.m_bIsWaitingForTrainingContinue") is > 0,
+                PlayingRobotDestruction = gameRules?.Integer("DT_TFGameRules.m_bPlayingRobotDestructionMode") is > 0,
                 MultipleTrains = gameRules?.Integer("DT_TFGameRules.m_bMultipleTrains") is > 0,
                 CapturePointEnableTime = gameRules?.Number("DT_TFGameRules.m_flCapturePointEnableTime") ?? 0f,
                 PlayingHybridCtfCp = gameRules?.Integer("DT_TFGameRules.m_bPlayingHybrid_CTF_CP") is > 0,
@@ -4957,6 +4963,7 @@ public sealed class DemoTimeline
             NoteTrainWatchers(entities, command.Tick);
             SceneFlags? flags = SceneFlags.Read(entities, frames.Count > 0 ? frames[^1].Flags : null);
             ScenePasstime? passtime = ScenePasstime.Read(entities, frames.Count > 0 ? frames[^1].Passtime : null);
+            SceneRobotDestruction? robotDestruction = SceneRobotDestruction.Read(entities, frames.Count > 0 ? frames[^1].RobotDestruction : null);
             frameTicks += Stopwatch.GetTimestamp() - frameFrom;
 
             // Kept for the life of the demo, so not at `Add`'s doubled capacity (B433).
@@ -4965,7 +4972,7 @@ public sealed class DemoTimeline
             if (frames.Count > 0 && frames[^1].Tick >= command.Tick)
             {
                 frames[^1] = new TimelineFrame(
-                    frames[^1].Tick, players, recorderTeam, roundState, rules, serverTick, roundTimers, buildings, teams, scoreboardPlayers, idEntities, objectives, flags, passtime);
+                    frames[^1].Tick, players, recorderTeam, roundState, rules, serverTick, roundTimers, buildings, teams, scoreboardPlayers, idEntities, objectives, flags, passtime, robotDestruction);
                 continue;
             }
 
@@ -4976,7 +4983,7 @@ public sealed class DemoTimeline
             }
 
             firstFrameTick ??= command.Tick;
-            frames.Add(new TimelineFrame(command.Tick, players, recorderTeam, roundState, rules, serverTick, roundTimers, buildings, teams, scoreboardPlayers, idEntities, objectives, flags, passtime));
+            frames.Add(new TimelineFrame(command.Tick, players, recorderTeam, roundState, rules, serverTick, roundTimers, buildings, teams, scoreboardPlayers, idEntities, objectives, flags, passtime, robotDestruction));
         }
         }
 
@@ -8157,6 +8164,10 @@ public sealed class DemoTimeline
     /// <summary>The Pass Time logic, ball and goals at a tick, or null on a map without them.</summary>
     /// <param name="tick">The demo tick.</param>
     public ScenePasstime? PasstimeAt(int tick) => FrameAt(tick)?.Passtime;
+
+    /// <summary>The robot destruction logic and groups at a tick, or null on a map without them.</summary>
+    /// <param name="tick">The demo tick.</param>
+    public SceneRobotDestruction? RobotDestructionAt(int tick) => FrameAt(tick)?.RobotDestruction;
 
     /// <summary>Every dropped weapon and revive marker at a tick.</summary>
     /// <param name="tick">The tick.</param>

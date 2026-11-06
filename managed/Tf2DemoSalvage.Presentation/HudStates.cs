@@ -77,6 +77,7 @@ public static class HudStates
             EscortRed = timeline.EscortAt(tick, TeamRed),
             CaptureFlags = timeline.FlagsAt(tick),
             Passtime = timeline.PasstimeAt(tick),
+            RobotDestruction = timeline.RobotDestructionAt(tick),
             Buildings = timeline.BuildingsAt(tick),
             IdEntities = timeline.IdEntitiesAt(tick),
             ScoreboardPlayers = timeline.ScoreboardPlayersAt(tick),

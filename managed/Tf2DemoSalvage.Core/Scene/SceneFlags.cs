@@ -32,6 +32,29 @@ public readonly record struct SceneFlag(
 
     /// <summary>`IsDropped()`.</summary>
     public bool IsDropped => Status == 2;
+
+    /// <summary>`IsHome()`.</summary>
+    public bool IsHome => Status == 0;
+
+    /// <summary>`GetPointValue()`: `m_nPointValue`, robot destruction's points the flag carries.</summary>
+    public int PointValue { get; init; }
+
+    /// <summary>`m_flResetTime`.</summary>
+    public float ResetTime { get; init; }
+
+    /// <summary>`m_flNeutralTime`.</summary>
+    public float NeutralTime { get; init; }
+
+    /// <summary>`m_flMaxResetTime`.</summary>
+    public float MaxResetTime { get; init; }
+
+    /// <summary>`m_hPrevOwner`'s entity index, or 0.</summary>
+    public int PrevOwner { get; init; }
+
+    /// <summary>`GetReturnProgress` (entity_capture_flag.cpp:2583): `1 - (max(reset, neutral) - curtime) / max reset`.</summary>
+    /// <param name="curTime">`gpGlobals->curtime`.</param>
+    /// <returns>The progress; a zero max reset divides as C's floats do.</returns>
+    public float ReturnProgress(float curTime) => (float)(1.0 - ((MathF.Max(ResetTime, NeutralTime) - curTime) / MaxResetTime));
 }
 
 /// <summary>One `CCaptureZone` (`DT_CaptureZone`, func_capture_zone.cpp).</summary>
@@ -39,7 +62,11 @@ public readonly record struct SceneFlag(
 /// <param name="Team">`GetTeamNumber()`.</param>
 /// <param name="Disabled">`m_bDisabled`.</param>
 /// <param name="Center">`WorldSpaceCenter()`.</param>
-public readonly record struct SceneCaptureZone(int EntityIndex, int Team, bool Disabled, (float X, float Y, float Z) Center);
+public readonly record struct SceneCaptureZone(int EntityIndex, int Team, bool Disabled, (float X, float Y, float Z) Center)
+{
+    /// <summary>`BoundingRadius()`: `CCollisionProperty::m_flRadius`, half the bounds' diagonal (collisionproperty.cpp:707).</summary>
+    public float BoundingRadius { get; init; }
+}
 
 /// <summary>The capture flags and capture zones at one tick, in entity order as `ICaptureFlagAutoList` holds them by creation.</summary>
 /// <param name="Flags">The flags.</param>
@@ -73,7 +100,14 @@ public sealed record SceneFlags(IReadOnlyList<SceneFlag> Flags, IReadOnlyList<Sc
                 flag.Text("DT_CaptureFlag.m_szHudIcon") ?? string.Empty,
                 Center(entities, flag),
                 CarrierOf(entities, flag.EntityIndex),
-                flag.Number("DT_CaptureFlag.m_flTimeToSetPoisonous") ?? 0f));
+                flag.Number("DT_CaptureFlag.m_flTimeToSetPoisonous") ?? 0f)
+            {
+                PointValue = flag.Integer("DT_CaptureFlag.m_nPointValue") ?? 0,
+                ResetTime = flag.Number("DT_CaptureFlag.m_flResetTime") ?? 0f,
+                NeutralTime = flag.Number("DT_CaptureFlag.m_flNeutralTime") ?? 0f,
+                MaxResetTime = flag.Number("DT_CaptureFlag.m_flMaxResetTime") ?? 0f,
+                PrevOwner = entities.Resolve(flag.Integer("DT_CaptureFlag.m_hPrevOwner")) ?? 0,
+            });
         }
 
         foreach (EntityState zone in entities.OfClass("CCaptureZone"))
@@ -82,7 +116,10 @@ public sealed record SceneFlags(IReadOnlyList<SceneFlag> Flags, IReadOnlyList<Sc
                 zone.EntityIndex,
                 zone.Integer("DT_BaseEntity.m_iTeamNum") ?? 0,
                 zone.Integer("DT_CaptureZone.m_bDisabled") is > 0,
-                Center(entities, zone)));
+                Center(entities, zone))
+            {
+                BoundingRadius = Radius(zone),
+            });
         }
 
         if (flags is null && zones is null)
@@ -93,6 +130,18 @@ public sealed record SceneFlags(IReadOnlyList<SceneFlag> Flags, IReadOnlyList<Sc
         SceneFlags read = new(flags ?? [], zones ?? []);
 
         return last is not null && last.Equals(read) ? last : read;
+    }
+
+    /// <summary>`m_flRadius = ( m_vecMaxs - m_vecMins ).Length() * 0.5f` (collisionproperty.cpp:705-707).</summary>
+    private static float Radius(EntityState entity)
+    {
+        (float X, float Y, float Z) mins = entity.Vector("DT_CollisionProperty.m_vecMins") ?? default;
+        (float X, float Y, float Z) maxs = entity.Vector("DT_CollisionProperty.m_vecMaxs") ?? default;
+        float x = maxs.X - mins.X;
+        float y = maxs.Y - mins.Y;
+        float z = maxs.Z - mins.Z;
+
+        return MathF.Sqrt((x * x) + (y * y) + (z * z)) * 0.5f;
     }
 
     private static int CarrierOf(EntityStateTable entities, int flag)
@@ -121,7 +170,33 @@ public sealed record SceneFlags(IReadOnlyList<SceneFlag> Flags, IReadOnlyList<Sc
             : entity.Origin() ?? default;
         (float X, float Y, float Z) mins = entity.Vector("DT_CollisionProperty.m_vecMins") ?? default;
         (float X, float Y, float Z) maxs = entity.Vector("DT_CollisionProperty.m_vecMaxs") ?? default;
+        (float X, float Y, float Z) local = ((mins.X + maxs.X) / 2f, (mins.Y + maxs.Y) / 2f, (mins.Z + maxs.Z) / 2f);
 
-        return (origin.X + ((mins.X + maxs.X) / 2f), origin.Y + ((mins.Y + maxs.Y) / 2f), origin.Z + ((mins.Z + maxs.Z) / 2f));
+        // `CollisionToWorldSpace` (collisionproperty.h): bounds defined in entity space — neither `SOLID_NONE` (0) nor
+        // `SOLID_BBOX` (2), and no `FSOLID_FORCE_WORLD_ALIGNED` (0x40) — turn with the entity, so a zone placed by a rotated
+        // instance has its bounds about an origin elsewhere (rd_asteroid's BLU zone, yaw 180).
+        int solidType = entity.Integer("DT_CollisionProperty.m_nSolidType") ?? 0;
+        bool entitySpace = solidType is not 0 and not 2 && ((entity.Integer("DT_CollisionProperty.m_usSolidFlags") ?? 0) & 0x40) == 0;
+        (float X, float Y, float Z) turned = entitySpace
+            && entities.Resolve(entity.Integer("DT_BaseEntity.moveparent")) is null
+            && entity.Angles() is { } angles
+            ? Rotate(local, angles)
+            : local;
+
+        return (origin.X + turned.X, origin.Y + turned.Y, origin.Z + turned.Z);
+    }
+
+    /// <summary>`AngleMatrix` (mathlib_base.cpp) applied to a vector: `VectorRotate`.</summary>
+    private static (float X, float Y, float Z) Rotate((float X, float Y, float Z) v, (float Pitch, float Yaw, float Roll) angles)
+    {
+        const float toRadians = MathF.PI / 180f;
+        (float sp, float cp) = MathF.SinCos(angles.Pitch * toRadians);
+        (float sy, float cy) = MathF.SinCos(angles.Yaw * toRadians);
+        (float sr, float cr) = MathF.SinCos(angles.Roll * toRadians);
+
+        return (
+            (cp * cy * v.X) + (((sr * sp * cy) - (cr * sy)) * v.Y) + (((cr * sp * cy) + (sr * sy)) * v.Z),
+            (cp * sy * v.X) + (((sr * sp * sy) + (cr * cy)) * v.Y) + (((cr * sp * sy) - (sr * cy)) * v.Z),
+            (-sp * v.X) + (sr * cp * v.Y) + (cr * cp * v.Z));
     }
 }
