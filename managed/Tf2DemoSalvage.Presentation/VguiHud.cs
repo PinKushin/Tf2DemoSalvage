@@ -513,6 +513,11 @@ public sealed class VguiHud
         {
             _lastSpawnCounter = player.SpawnCounter ?? 0;
             ItemEffectMeters.HandleGameEvent(ClientEvent(0, "localplayer_respawn"), state);
+
+            // `CTFHudEscort::FireGameEvent` (tf_hud_escort.cpp:988): the alarm reset on the local player's respawn.
+            ObjectiveStatus.Escort.ResetAlarm();
+            ObjectiveStatus.MultipleEscort.BluePanel.ResetAlarm();
+            ObjectiveStatus.MultipleEscort.RedPanel.ResetAlarm();
         }
     }
 }

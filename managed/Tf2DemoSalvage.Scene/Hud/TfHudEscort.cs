@@ -149,11 +149,117 @@ public sealed class TfHudMultipleEscort : VguiEditablePanel
     }
 }
 
+/// <summary>`CEscortStatusTeardrop` (game/client/tf/tf_hud_escort.cpp:158): the status over the cart while the local player stands on its point.</summary>
+public sealed class TfEscortStatusTeardrop : VguiEditablePanel
+{
+    private readonly VguiLabel _barText;
+    private readonly VguiIconPanel _blocked;
+    private readonly VguiImagePanel _capping;
+    private bool _shown;
+
+    /// <summary>`CEscortStatusTeardrop( parent )`: its text, teardrop, blocked icon and capping image.</summary>
+    /// <param name="parent">The escort item panel.</param>
+    public TfEscortStatusTeardrop(VguiPanel parent)
+        : base(parent, "EscortTeardrop")
+    {
+        _barText = new VguiLabel(this, "ProgressText");
+        _ = new VguiIconPanel(this, "Teardrop");
+        _blocked = new VguiIconPanel(this, "Blocked");
+        _capping = new VguiImagePanel(this, "Capping");
+    }
+
+    /// <inheritdoc/>
+    public override string ClassName => "CEscortStatusTeardrop";
+
+    /// <summary>`m_pBarText`'s localization key, as last set.</summary>
+    public string? BarTextKey { get; private set; }
+
+    /// <summary>`UpdateBarText` (:257)'s key for a point the local player is on but not capping unblocked.</summary>
+    /// <param name="state">The game state.</param>
+    /// <param name="point">The point.</param>
+    /// <returns>The key, or empty.</returns>
+    public static string BarText(HudState state, SceneControlPoint point)
+    {
+        int team = state.Team;
+
+        if (!TfControlPointProgressBar.PointsMayBeCaptured(state))
+        {
+            return "#Team_Capture_NotNow";
+        }
+
+        // "Player is blocking an enemy capture".
+        if (point.CappingTeam != 0 && point.CappingTeam != team && point.Blocked)
+        {
+            return "#Team_Blocking_Capture";
+        }
+
+        if (point.Owner == team)
+        {
+            return "#Team_Capture_OwnPoint";
+        }
+
+        // "disguised spies etc can't cap or block".
+        if (TfControlPointProgressBar.PlayerMayNotCapture(state) is { } reason)
+        {
+            return reason;
+        }
+
+        return point.CappingTeam == team ? "#Team_Progress_Blocked" : string.Empty;
+    }
+
+    /// <summary>`SetupForPoint` (:199), and `IsVisible` (:185) hiding it in the freeze cam or under a "mid" lock.</summary>
+    /// <param name="state">The game state.</param>
+    /// <param name="index">The point, or -1.</param>
+    public void SetupForPoint(HudState state, int index)
+    {
+        if (state.Objectives is not { } objectives || !state.HasLocalPlayer)
+        {
+            return;
+        }
+
+        if (index == -1 || state.RoundState == TfControlPointProgressBar.RoundTeamWin)
+        {
+            _shown = false;
+        }
+        else
+        {
+            _shown = true;
+
+            SceneControlPoint point = objectives.Points[index];
+            bool capBlocked = TfControlPointProgressBar.CapIsBlocked(point);
+
+            if (!capBlocked && point.CappingTeam != 0 && point.CappingTeam != point.Owner && point.CappingTeam == state.Team)
+            {
+                // "it's not blocked and we're capping".
+                _blocked.Visible = false;
+                _capping.Visible = true;
+                _barText.Visible = false;
+            }
+            else
+            {
+                _capping.Visible = false;
+                _blocked.Visible = true;
+                _barText.Visible = true;
+                BarTextKey = BarText(state, point);
+                _barText.SetText(BarTextKey, HudViewport.Of(this)?.Context?.Localize);
+            }
+
+            InvalidateLayout();
+        }
+
+        ApplyVisibility(state);
+    }
+
+    /// <summary>`IsVisible` (:185): the freeze cam and a "mid" render group lock hide it whatever it was set to.</summary>
+    /// <param name="state">The game state.</param>
+    public void ApplyVisibility(HudState state) =>
+        Visible = _shown && state.ObserverMode != ObserverModes.FreezeCam && HudViewport.Of(this)?.IsRenderGroupLocked("mid") != true;
+}
+
 /// <summary>`CTFHudEscort` (game/client/tf/tf_hud_escort.cpp:395): a payload track, its points, its hills and the cart along it.</summary>
 /// <remarks>
 /// **From state each think, where the engine waits for its events**: the watcher's changes come through
-/// <see cref="DemoTimeline.EscortAt"/>, so a seek lands on what playing accumulated. **Not ported:** the status teardrop over the
-/// cart (`CEscortStatusTeardrop`, :158-317), the alarm's animation sequences, `cl_hud_minmode`'s swoop size, the freeze-cam
+/// <see cref="DemoTimeline.EscortAt"/>, so a seek lands on what playing accumulated. **Not ported:** `cl_hud_minmode`'s swoop size, the freeze-cam
 /// screenshot check, and Helltower's hell, which hides both payload panels (tf_hud_objectivestatus.cpp:280-284). The
 /// objective resource's track is read afresh each timeline frame and shared only when unchanged.
 /// </remarks>
@@ -181,6 +287,9 @@ public sealed class TfHudEscort : VguiEditablePanel
     private bool _multipleTrains;
     private int _hillCount;
     private bool _haveValidPointPositions;
+    private bool _alarm;
+    private int? _alarmTeam;
+    private (int Index, SceneControlPoint? Point)? _teardropFor;
 
     /// <summary>`CTFHudEscort( parent, name )` (:395).</summary>
     /// <param name="parent">The objective status, or the multiple escort.</param>
@@ -196,6 +305,7 @@ public sealed class TfHudEscort : VguiEditablePanel
         _itemImageBottom = new VguiImagePanel(_itemPanel, "EscortItemImageBottom");
         _blocked = new VguiImagePanel(_itemPanel, "Blocked");
         _itemImageAlert = new VguiImagePanel(_itemPanel, "EscortItemImageAlert");
+        Status = new TfEscortStatusTeardrop(_itemPanel);
         _ = new VguiImagePanel(this, "HomeCPIcon");
         _cpTemplate = new VguiImagePanel(this, "SimpleControlPointTemplate");
         _levelBar = new VguiImagePanel(this, "LevelBar");
@@ -216,6 +326,66 @@ public sealed class TfHudEscort : VguiEditablePanel
     /// <summary>`m_pEscortItemPanel`.</summary>
     public VguiEditablePanel ItemPanel => _itemPanel;
 
+    /// <summary>`m_pStatus`.</summary>
+    public TfEscortStatusTeardrop Status { get; }
+
+    /// <summary>`m_bAlarm`.</summary>
+    public bool Alarm => _alarm;
+
+    /// <summary>`localplayer_respawn` and `localplayer_changeteam` (:988-999): the alarm reset, restarted by the next update if due.</summary>
+    public void ResetAlarm()
+    {
+        _alarm = false;
+        UpdateAlarmAnimations();
+    }
+
+    /// <summary>`UpdateAlarmAnimations` (:656): with several trains, the alert shown and pulsing while the alarm sounds.</summary>
+    private void UpdateAlarmAnimations()
+    {
+        VguiAnimationController? animations = HudViewport.Of(this)?.Animations;
+
+        if (_multipleTrains && _alarm)
+        {
+            _itemImageAlert.Visible = true;
+            animations?.StartAnimationSequence(_itemPanel, "HudCartAlarmPulse");
+            return;
+        }
+
+        _itemImageAlert.Visible = false;
+
+        // Valve's own sequence name, with the `event` prefix no script defines (:678, :689).
+        animations?.StartAnimationSequence(_itemPanel, "eventHudCartAlarmPulseStop");
+    }
+
+    /// <summary>`UpdateStatusTeardropFor( m_iCurrentCP )` (:1006): only the local team's group and panel with several trains.</summary>
+    private void UpdateStatusTeardrop(HudState state, SceneObjectives objectives)
+    {
+        int index = state.TouchedPoint;
+
+        if (_multipleTrains
+            && ((index != -1 && index < objectives.Points.Count && objectives.Points[index].Group != Team - 2)
+                || (state.HasLocalPlayer && Team != state.Team)))
+        {
+            Status.ApplyVisibility(state);
+            return;
+        }
+
+        // Valve calls this on `controlpoint_updateimages`, `_updatecapping`, `_starttouch` and `_endtouch` (:930-983), not every
+        // tick: so on a change of the point stood on or of that point's networked state, which those events announce. A
+        // disguise or stealth starting mid-stand leaves the text as it was until then, as Valve's does.
+        index = index >= objectives.Points.Count ? -1 : index;
+        SceneControlPoint? point = index >= 0 ? objectives.Points[index] : null;
+
+        if ((index, point) != _teardropFor)
+        {
+            _teardropFor = (index, point);
+            Status.SetupForPoint(state, index);
+            return;
+        }
+
+        Status.ApplyVisibility(state);
+    }
+
     /// <summary>Whether the cart is drawn: `IsVisible`'s `m_bHaveValidPointPositions` (:507).</summary>
     public bool HaveValidPointPositions => _haveValidPointPositions;
 
@@ -235,6 +405,7 @@ public sealed class TfHudEscort : VguiEditablePanel
 
         _itemImageBottom.Visible = _multipleTrains && !TopPanel;
         _itemImage.Visible = !_multipleTrains || TopPanel;
+        _alarm = false;
     }
 
     /// <summary>The `.res` conditions `ApplySchemeSettings` builds (:569-624).</summary>
@@ -317,7 +488,25 @@ public sealed class TfHudEscort : VguiEditablePanel
         }
 
         _blocked.Visible = anyBlocked && !showPlayers && escort.Speed >= 0;
-        _itemImageAlert.Visible = _multipleTrains && track.TrackAlarm(Team);
+
+        // `localplayer_changeteam` (:994): the alarm reset, then :737-742 restarts it if the track still sounds. The first team
+        // seen is no change.
+        if (_alarmTeam is { } lastTeam && state.Team != lastTeam)
+        {
+            ResetAlarm();
+        }
+
+        _alarmTeam = state.Team;
+
+        bool alarm = track.TrackAlarm(Team);
+
+        if (alarm != _alarm)
+        {
+            _alarm = alarm;
+            UpdateAlarmAnimations();
+        }
+
+        UpdateStatusTeardrop(state, objectives);
 
         // "The escort item position approaches its actual pos" (:744-766). Valve reads `m_flProgress`, not the interpolated
         // value it computes on the line before: the cart jumps to each update.

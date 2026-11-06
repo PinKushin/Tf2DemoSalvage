@@ -14,6 +14,49 @@ public sealed class TfHudEscortConformanceTests
     public void Conditions_ByTeamTrainsAndHills_AreValves(int team, bool multipleTrains, bool topPanel, int hills, string conditions) =>
         string.Join(' ', TfHudEscort.Conditions(team, multipleTrains, topPanel, hills)!).ShouldBe(conditions);
 
+    /// <remarks>`CEscortStatusTeardrop::UpdateBarText` (:257-317), the local player on RED in a running round.</remarks>
+    [TestCase(2, 0, false, 4, "#Team_Capture_OwnPoint")]
+    [TestCase(0, 3, true, 4, "#Team_Blocking_Capture")]
+    [TestCase(3, 2, false, 4, "#Team_Progress_Blocked")]
+    [TestCase(0, 0, false, 4, "")]
+    [TestCase(0, 0, false, 5, "#Team_Capture_NotNow")]
+    [TestCase(2, 3, false, 4, "#Team_Capture_OwnPoint")]
+    public void BarText_ByOwnerCapperAndRound_IsValves(int owner, int capping, bool blocked, int roundState, string key)
+    {
+        HudState state = new(true, true, 0, 125, true, Team: 2, LocalIndex: 1, RoundState: roundState);
+        SceneControlPoint point = new(true, owner, capping, 0, false, blocked, 0f, 0f, default, default, default, default, default);
+
+        TfEscortStatusTeardrop.BarText(state, point).ShouldBe(key);
+    }
+
+    /// <remarks>:225-235: the local team capping, unblocked, shows the capping image and no text; :248-251 a won round hides it.</remarks>
+    [TestCase(4, true, true, false)]
+    [TestCase(5, false, false, false)]
+    public void SetupForPoint_TheLocalTeamCapping_ShowsCappingWithoutText(int roundState, bool shown, bool capping, bool text)
+    {
+        VguiPanel owner = new(null, "Owner");
+        TfEscortStatusTeardrop teardrop = new(owner);
+        SceneControlPoint point = new(true, 3, 2, 0, false, false, 0f, 0f, default, default, default, default, default);
+        HudState state = new(true, true, 0, 125, true, Team: 2, LocalIndex: 1, RoundState: roundState,
+            Objectives: new SceneObjectives([point], "", new System.Collections.Generic.Dictionary<int, string>()));
+
+        teardrop.SetupForPoint(state, 0);
+
+        (teardrop.Visible, teardrop.FindChildByName("Capping")!.Visible && shown, teardrop.FindChildByName("ProgressText")!.Visible && shown)
+            .ShouldBe((shown, capping, text));
+    }
+
+    [Test]
+    public void SetupForPoint_OffEveryPoint_HidesTheTeardrop()
+    {
+        TfEscortStatusTeardrop teardrop = new(new VguiPanel(null, "Owner")) { Visible = true };
+        HudState state = new(true, true, 0, 125, true, Team: 2, LocalIndex: 1, Objectives: new SceneObjectives([], "", new System.Collections.Generic.Dictionary<int, string>()));
+
+        teardrop.SetupForPoint(state, -1);
+
+        teardrop.Visible.ShouldBeFalse();
+    }
+
     [Test]
     public void Conditions_ForNoGameTeam_AreNone() =>
         TfHudEscort.Conditions(1, false, true, 0).ShouldBeNull();

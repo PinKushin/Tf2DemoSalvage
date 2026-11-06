@@ -516,6 +516,11 @@ public sealed class HudViewport : VguiEditablePanel
         }
     }
 
+    /// <summary>`IsRenderGroupLockedFor( NULL, group )` (hud.cpp:1126): any locker at all hides it.</summary>
+    /// <param name="group">The group.</param>
+    /// <returns>Whether anything locks it.</returns>
+    public bool IsRenderGroupLocked(string group) => _lockers.TryGetValue(group, out List<IHudElement>? lockers) && lockers.Count > 0;
+
     /// <summary>
     /// `CHud::IsRenderGroupLockedFor` (hud.cpp:1104): the queue's head — the highest-priority locker — hides an element
     /// of strictly lower priority.

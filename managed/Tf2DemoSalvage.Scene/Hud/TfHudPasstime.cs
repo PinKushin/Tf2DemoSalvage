@@ -63,8 +63,8 @@ public sealed class TfHudPasstimeTeamScore(VguiPanel parent) : VguiEditablePanel
 /// <summary>`CTFHudPasstimeBallStatus` (tf_hud_passtime.cpp:790): the track bar with the ball, the goals, every player and the power meter.</summary>
 /// <remarks>
 /// **From state each think.** The carrier's name shows while the ball has a carrier, which is what the `pass_get`, `pass_free`,
-/// `pass_ball_stolen`, `pass_pass_caught` and `pass_score` handlers (:1476-1539) leave it at. **Not ported:** the event text queue
-/// (`CTFHudPasstimeEventText`, :499-783) and its power-up and power-down notices.
+/// `pass_ball_stolen`, `pass_pass_caught` and `pass_score` handlers (:1476-1539) leave it at; the event text queue is
+/// <see cref="TfHudPasstimeEventText"/>.
 /// </remarks>
 public sealed class TfHudPasstimeBallStatus(VguiPanel parent) : VguiEditablePanel(parent, "HudPasstimeBallStatus")
 {
@@ -1268,7 +1268,6 @@ public sealed class TfHudPasstimePlayerOffscreenArrow(VguiPanel parent, int play
 }
 
 /// <summary>`CTFHudPasstime` (tf_hud_passtime.cpp:1634): the Pass Time HUD's host, on the objective status.</summary>
-/// <remarks>**Not ported:** the pass notice (`CTFHudPasstimePassNotify`), the ball and player off-screen arrows (B709).</remarks>
 public sealed class TfHudPasstime : VguiEditablePanel
 {
     /// <summary>`CTFHudPasstime( pParent )`.</summary>

@@ -441,8 +441,7 @@ public sealed class TfRobotDestructionProgressPanel : VguiImagePanel
 /// <summary>`CTFHUDRobotDestruction` (tf_hud_robot_destruction_status.cpp:293): robot destruction's scores, robots, stolen and carried cores.</summary>
 /// <remarks>
 /// **From state each think, where the engine ticks every 50 ms**, with its `PaintBackground` stolen-point placement run as the
-/// same think. **Not ported:** player destruction's `PaintPDPlayerScore` — the leaders' carried points drawn over their heads
-/// (:796) — the freeze-cam screenshot check, and the dormancy tests on groups, flags and zones. `m_pPlayingTo` is never
+/// same think. **Not ported:** the freeze-cam screenshot check, and the dormancy tests on groups, flags and zones. `m_pPlayingTo` is never
 /// assigned (:371), so `SetPlayingToLabelVisible` does nothing and the label stays as its layout leaves it — Valve's, kept.
 /// </remarks>
 public sealed class TfHudRobotDestruction : VguiEditablePanel

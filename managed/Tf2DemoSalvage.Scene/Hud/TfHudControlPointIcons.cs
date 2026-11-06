@@ -9,7 +9,7 @@ namespace Tf2DemoSalvage.Scene.Hud;
 /// <summary>`CHudControlPointIcons` (game/client/hud_controlpointicons.cpp:646): one icon per visible control point in the mini-round.</summary>
 /// <remarks>
 /// **From state each think, where the engine waits for `controlpoint_*` events**, as a seek or a rewind has no event history to
-/// replay. **Not ported:** the progress teardrop, the custom layout position, and arena's capture enable time (filed under B709).
+/// replay. The progress teardrop is `TfControlPointProgressBar`, arena's enable time `TfHudArenaCapPointCountdown`.
 /// </remarks>
 public sealed class TfHudControlPointIcons : VguiEditablePanel, IHudElement
 {

@@ -18,7 +18,8 @@ public sealed class TfControlPointProgressBar(VguiPanel parent) : VguiEditablePa
     private const int TeamRed = 2;
     private const int TeamBlue = 3;
     private const int RoundRunning = 4;
-    private const int RoundTeamWin = 5;
+    /// <summary>`GR_STATE_TEAM_WIN`: `RoundHasBeenWon()` (teamplayroundbased_gamerules.h:181).</summary>
+    internal const int RoundTeamWin = 5;
     private const int GameTypeArena = 4;
     private const int GameTypeMvm = 5;
 
@@ -194,7 +195,7 @@ public sealed class TfControlPointProgressBar(VguiPanel parent) : VguiEditablePa
     }
 
     /// <summary>`CTFGameRules::PointsMayBeCaptured` (tf_gamerules.cpp:22047) over the round-based rules' (teamplayroundbased_gamerules.h:192).</summary>
-    private static bool PointsMayBeCaptured(HudState state)
+    internal static bool PointsMayBeCaptured(HudState state)
     {
         if (state.Rules.GameType == GameTypeMvm)
         {
@@ -210,7 +211,7 @@ public sealed class TfControlPointProgressBar(VguiPanel parent) : VguiEditablePa
     }
 
     /// <summary>`CTFGameRules::PlayerMayCapturePoint` (tf_gamerules.cpp:16835) for what the demo carries.</summary>
-    private static string? PlayerMayNotCapture(HudState state)
+    internal static string? PlayerMayNotCapture(HudState state)
     {
         PlayerConditions conditions = state.Conditions;
 
@@ -237,7 +238,7 @@ public sealed class TfControlPointProgressBar(VguiPanel parent) : VguiEditablePa
     /// `m_flCapTimeLeft` is `m_flLazyCapPerc * m_flTeamCapTime` (:216), the share left, and `SetCappingTeam` zeroes it for the
     /// owner or no team (:326-333).
     /// </remarks>
-    private static bool CapIsBlocked(SceneControlPoint point) =>
+    internal static bool CapIsBlocked(SceneControlPoint point) =>
         point.CappingTeam > 1 && point.CappingTeam != point.Owner
         && point.LazyCapPercent * point.CapTime[point.CappingTeam] > 0f
         && point.TeamMembers[point.CappingTeam] == 0;
