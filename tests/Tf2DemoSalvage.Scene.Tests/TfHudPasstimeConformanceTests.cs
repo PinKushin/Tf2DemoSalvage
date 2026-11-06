@@ -1,3 +1,5 @@
+using System;
+
 using Tf2DemoSalvage.Core.Scene;
 using Tf2DemoSalvage.Scene.Hud;
 
@@ -106,6 +108,24 @@ public sealed class TfHudPasstimeConformanceTests
         text.SetControls(new TfExLabel(null, "a"), null, new TfExLabel(null, "b"));
         text.Enqueue(Strings, "#Msg_T", "#Msg_T", null);
         text.Queued.ShouldBe(0);
+    }
+
+    /// <remarks>:150-173: looking down +X, a target to the right points at angle 0, one above at 3π/2 (screen y grows down).</remarks>
+    [TestCase(100f, -100f, 0f, 0f)]
+    [TestCase(100f, 0f, 100f, 3f * MathF.PI / 2f)]
+    [TestCase(100f, 100f, 0f, MathF.PI)]
+    public void ArrowAngle_FromYawZero_IsTheScreenDirection(float x, float y, float z, float angle) =>
+        TfHudPasstimeOffscreenArrow.ArrowAngle((0f, 0f, 0f), (0f, 0f, 0f), (x, y, z), 16f / 9f).ShouldBe(angle, 1e-4f);
+
+    /// <remarks>:237-263: the right edge at 0.8, the top or bottom at 0.5.</remarks>
+    [TestCase(0f, 0.8f, 0f)]
+    [TestCase(MathF.PI / 2f, 0f, 0.5f)]
+    [TestCase(MathF.PI, -0.8f, 0f)]
+    public void HudPoint_ByAngle_MeetsTheScreensEdge(float angle, float x, float y)
+    {
+        (float hx, float hy) = TfHudPasstimeOffscreenArrow.HudPoint(angle);
+        hx.ShouldBe(x, 1e-4f);
+        hy.ShouldBe(y, 1e-4f);
     }
 
     [Test]

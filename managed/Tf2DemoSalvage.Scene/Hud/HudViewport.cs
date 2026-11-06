@@ -68,6 +68,7 @@ namespace Tf2DemoSalvage.Scene.Hud;
 /// <param name="EscortRed">The RED payload panel's escort state.</param>
 /// <param name="CaptureFlags">`ICaptureFlagAutoList` and `ICaptureZoneAutoList`, or null on a map without them.</param>
 /// <param name="Passtime">`g_pPasstimeLogic`, its ball and the goals, or null outside Pass Time.</param>
+/// <param name="WorldTrace">The world alone between two points, the fraction, 1 when clear; null where nothing traces.</param>
 /// <param name="View">`CalcView`'s eye and angles: the camera the last frame was drawn through, or null.</param>
 public readonly record struct HudState(
     bool InGame,
@@ -116,7 +117,8 @@ public readonly record struct HudState(
     Core.Scene.SceneEscort EscortRed = default,
     Core.Scene.SceneFlags? CaptureFlags = null,
     Core.Scene.ScenePasstime? Passtime = null,
-    FreeCamera? View = null)
+    FreeCamera? View = null,
+    Func<System.Numerics.Vector3, System.Numerics.Vector3, float>? WorldTrace = null)
 {
     /// <summary>`cl_entitylist->GetEnt` for a dropped weapon or revive marker: the one at that index, or null.</summary>
     /// <param name="index">The entity index.</param>

@@ -180,6 +180,9 @@ public sealed class IdTargets
 
         return state with
         {
+            // The Pass Time notice's `UTIL_TraceLine` with `CTraceFilterIgnorePlayers` (tf_hud_passtime.cpp:400): the world
+            // alone. **Interpolated:** `MASK_PLAYERSOLID`'s player clips are swept as the world's solid brushes.
+            WorldTrace = (from, to) => level.Sweep((from.X, from.Y, from.Z), (to.X, to.Y, to.Z), 0f),
             IdTarget = IdTargetTrace.GetIdTarget(
                 from, forward, state.LocalIndex, state.Team, isObserver: false, observerTarget: 0, traces.Solid, traces.Shot),
 

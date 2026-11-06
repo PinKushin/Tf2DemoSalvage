@@ -820,6 +820,422 @@ public sealed class TfHudPasstimeEventText
     }
 }
 
+/// <summary>`CTFHudPasstimePassNotify` (tf_hud_passtime.cpp:239): "pass incoming", "in pass range" or "locked on", with the name.</summary>
+public sealed class TfHudPasstimePassNotify(VguiPanel parent) : VguiEditablePanel(parent, "HudPasstimePassNotify")
+{
+    private const int TeamRed = 2;
+
+    /// <inheritdoc/>
+    public override void ApplySchemeSettings(VguiContext context)
+    {
+        base.ApplySchemeSettings(context);
+        LoadControlSettings("resource/UI/HudPasstimePassNotify.res", context);
+    }
+
+    /// <summary>`OnTick` (:267).</summary>
+    /// <param name="state">The game state.</param>
+    public void Update(HudState state)
+    {
+        VguiPanel? textBox = FindChildByName("TextBox");
+        VguiPanel? speech = FindChildByName("SpeechIndicator");
+        VguiImagePanel? passLock = FindChildByName("PassLockIndicator") as VguiImagePanel;
+        VguiLabel? inRange = textBox?.FindChildByName("TextInPassRange") as VguiLabel;
+        VguiLabel? lockedOn = textBox?.FindChildByName("TextLockedOn") as VguiLabel;
+        VguiLabel? incoming = textBox?.FindChildByName("TextPassIncoming") as VguiLabel;
+        VguiLabel? playerName = textBox?.FindChildByName("TextPlayerName") as VguiLabel;
+        VguiContext? context = HudViewport.Of(this)?.Context;
+
+        void HideAll()
+        {
+            SetVisible(textBox, false);
+            SetVisible(speech, false);
+            SetVisible(passLock, false);
+        }
+
+        // "nothing can work".
+        if (!state.HasLocalPlayer || state.Passtime is not { Ball: not 0 } passtime)
+        {
+            HideAll();
+            return;
+        }
+
+        if (passtime.Carrier == 0 && passtime.HomingTarget == state.LocalIndex)
+        {
+            // "Incoming pass", named by the previous carrier, "which will have the desired value anyway".
+            SetVisible(speech, false);
+            SetVisible(passLock, false);
+            SetVisible(textBox, true);
+            playerName?.SetText(passtime.PrevCarrier != 0 ? state.Names?.GetValueOrDefault(passtime.PrevCarrier) ?? string.Empty : "...", null);
+            SetVisible(lockedOn, false);
+            SetVisible(incoming, true);
+            SetVisible(inRange, false);
+
+            if (textBox is not null && context is not null)
+            {
+                textBox.Border = context.Borders.Get(state.Team == TeamRed ? "TFFatLineBorderRedBG" : "TFFatLineBorderBlueBG");
+            }
+
+            return;
+        }
+
+        // "No carrier, or carrier is on enemy team, or carrier is local player".
+        if (passtime.Carrier == 0 || state.ObserverMode != ObserverModes.None || passtime.Carrier == state.LocalIndex
+            || state.Player(passtime.Carrier)?.Team != state.Team)
+        {
+            HideAll();
+            return;
+        }
+
+        // "Carrier has the ball and is on our team": in range, then a clear `MASK_PLAYERSOLID` line ignoring players (:393-402).
+        ScenePasstimePlayer? carrier = passtime.Player(passtime.Carrier);
+        ScenePasstimePlayer? local = passtime.Player(state.LocalIndex);
+        bool targetable = false;
+
+        if (carrier is { } c && local is { } l)
+        {
+            float dx = c.Eye.X - l.Eye.X;
+            float dy = c.Eye.Y - l.Eye.Y;
+            float dz = c.Eye.Z - l.Eye.Z;
+            float range = passtime.MaxPassRange * passtime.MaxPassRange;
+
+            targetable = (dx * dx) + (dy * dy) + (dz * dz) < range
+                && state.WorldTrace is { } trace
+                && trace(new System.Numerics.Vector3(c.Eye.X, c.Eye.Y, c.Eye.Z), new System.Numerics.Vector3(l.Eye.X, l.Eye.Y, l.Eye.Z)) >= 1f;
+        }
+
+        if (!targetable)
+        {
+            HideAll();
+            return;
+        }
+
+        bool targeted = local?.TargetedForPass ?? false;
+
+        SetVisible(textBox, true);
+        SetVisible(passLock, targeted);
+        SetVisible(speech, (local?.AskForBallTime ?? 0f) > state.CurTime);
+
+        if (targeted)
+        {
+            if (passLock is not null)
+            {
+                passLock.DrawColor = TfHudPasstimeBallStatus.TeamColor(state.Team, 255);
+            }
+
+            SetVisible(lockedOn, true);
+            SetVisible(incoming, false);
+            SetVisible(inRange, false);
+        }
+        else
+        {
+            SetVisible(lockedOn, false);
+            SetVisible(incoming, false);
+            SetVisible(inRange, true);
+        }
+
+        playerName?.SetText(state.Names?.GetValueOrDefault(passtime.Carrier) ?? string.Empty, null);
+
+        if (textBox is not null && context is not null)
+        {
+            textBox.Border = context.Borders.Get("TFFatLineBorder");
+        }
+    }
+
+    private static void SetVisible(VguiPanel? panel, bool visible)
+    {
+        if (panel is not null)
+        {
+            panel.Visible = visible;
+        }
+    }
+}
+
+/// <summary>`CTFHudPasstimeOffscreenArrow` (tf_hud_passtime_ball_offscreen_arrow.cpp:49): a pointer at the screen's edge toward an entity off it.</summary>
+public abstract class TfHudPasstimeOffscreenArrow : VguiEditablePanel
+{
+    private const string ArrowMaterial = "HUD/medic_arrow";
+
+    /// <summary>`CTFHudPasstimeOffscreenArrow( parent, name )`.</summary>
+    /// <param name="parent">The Pass Time HUD.</param>
+    /// <param name="name">The panel's name.</param>
+    protected TfHudPasstimeOffscreenArrow(VguiPanel parent, string name)
+        : base(parent, name)
+    {
+    }
+
+    /// <summary>`m_pImage`.</summary>
+    protected VguiImagePanel? Image { get; private set; }
+
+    /// <inheritdoc/>
+    /// <remarks>`ApplySchemeSettings` (:66): 48 by 48 at `XRES`, its image centred at the same size.</remarks>
+    public override void ApplySchemeSettings(VguiContext context)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+
+        base.ApplySchemeSettings(context);
+        LoadControlSettings("resource/UI/HudPasstimeOffscreenArrow.res", context);
+        int size = XRes(context, 48);
+        (X, Y, Wide, Tall) = (0, 0, size, size);
+        Visible = true;
+        Image = FindChildByName("Image") as VguiImagePanel;
+
+        if (Image is not null)
+        {
+            Image.Visible = true;
+            (Image.Wide, Image.Tall) = (size, size);
+            (Image.X, Image.Y) = ((int)((Wide - Image.Wide) * 0.5f), (int)((Tall - Image.Tall) * 0.5f));
+        }
+    }
+
+    /// <summary>`XRES( x )`: `x * ScreenWidth() / 640`.</summary>
+    private static int XRes(VguiContext context, int x) => x * context.ScreenWide / 640;
+
+    /// <summary>`PreparePaint`: the entity to point at and the look for it, or null for none.</summary>
+    /// <param name="state">The game state.</param>
+    /// <param name="passtime">The Pass Time logic.</param>
+    /// <returns>The entity's index, whether it is `EF_NODRAW`, and its `WorldSpaceCenter()`; or null.</returns>
+    protected abstract (int Entity, bool NoDraw, (float X, float Y, float Z) Center)? PreparePaint(HudState state, ScenePasstime passtime);
+
+    /// <inheritdoc/>
+    /// <remarks>`PaintBackground` (:92): hidden on screen, else the arrow turned toward the entity, and the panel moved to the edge.</remarks>
+    public override void PaintBackground(IVguiSurface surface, VguiContext context)
+    {
+        ArgumentNullException.ThrowIfNull(surface);
+        ArgumentNullException.ThrowIfNull(context);
+
+        if (HudViewport.Of(this)?.State is not { Passtime: { } passtime } state)
+        {
+            return;
+        }
+
+        // "Check if everything is valid, friendly, and visible."
+        if (!state.HasLocalPlayer || PreparePaint(state, passtime) is not { } target || target.NoDraw || target.Entity == state.LocalIndex
+            || state.View is not { } view || state.WorldToScreen is not { } m)
+        {
+            SetAlpha(0f);
+            return;
+        }
+
+        // `HudTransform`: not behind and within the frustum's square means on screen.
+        (float X, float Y, float Z) at = target.Center;
+        float sx = (at.X * m[0]) + (at.Y * m[4]) + (at.Z * m[8]) + m[12];
+        float sy = (at.X * m[1]) + (at.Y * m[5]) + (at.Z * m[9]) + m[13];
+        float w = (at.X * m[3]) + (at.Y * m[7]) + (at.Z * m[11]) + m[15];
+        bool behind = w < 0.001f;
+
+        if (!behind && MathF.Abs(sx / w) < 1f && MathF.Abs(sy / w) < 1f)
+        {
+            SetAlpha(0f);
+            return;
+        }
+
+        float angle = ArrowAngle(view.Origin, view.Angles, at, (float)context.ScreenWide / context.ScreenTall);
+
+        // "Build the mesh for the arrow, because vgui can't rotate": scaled 1 to 2 along its length by distance.
+        ScenePasstimePlayer? local = passtime.Player(state.LocalIndex);
+        ScenePlayer? localPlayer = state.Player(state.LocalIndex);
+        (float X, float Y, float Z) origin = localPlayer is { } lp ? (lp.X, lp.Y, lp.Z) : local?.Eye ?? default;
+        float dx = at.X - origin.X;
+        float dy = at.Y - origin.Y;
+        float dz = at.Z - origin.Z;
+        float scale = (Math.Min((dx * dx) + (dy * dy) + (dz * dz), 1_000_000f) / 1_000_000f) + 1f;
+        int halfArrow = XRes(context, 24) / 2;
+        float c = MathF.Cos(angle);
+        float s = MathF.Sin(angle);
+        // `GetWide() / 2`: integer halves.
+        int cx = Wide / 2;
+        int cy = Tall / 2;
+
+        VguiVertex Corner(float x, float y, float u, float v)
+        {
+            float px = (x + (Wide / 2)) * scale;
+            return new VguiVertex(cx + (px * c) - (y * s), cy + (px * s) + (y * c), u, v);
+        }
+
+        // `Color4ub( 255, 255, 255, GetAlpha() )` on a raw mesh: the panel's alpha once. The surface already multiplies every
+        // draw by it (`PaintTraverse`), so the colour here is opaque.
+        surface.DrawSetTexture(ArrowMaterial);
+        surface.DrawSetColor((255, 255, 255, 255));
+        Span<VguiVertex> triangle = stackalloc VguiVertex[3];
+        VguiVertex a = Corner(-halfArrow, -halfArrow, 0f, 0f);
+        VguiVertex b = Corner(halfArrow, -halfArrow, 1f, 0f);
+        VguiVertex d = Corner(halfArrow, halfArrow, 1f, 1f);
+        VguiVertex e = Corner(-halfArrow, halfArrow, 0f, 1f);
+        (triangle[0], triangle[1], triangle[2]) = (a, b, d);
+        surface.DrawTexturedPolygon(triangle);
+        (triangle[0], triangle[1], triangle[2]) = (a, d, e);
+        surface.DrawTexturedPolygon(triangle);
+
+        (float hx, float hy) = HudPoint(angle);
+        X = (int)((0.5f * (1f + hx) * context.ScreenWide) - (Wide / 2));
+        Y = (int)((0.5f * (1f + hy) * context.ScreenTall) - (Tall / 2));
+    }
+
+    /// <summary>
+    /// :150-173: the target in view space (x forward, y left, z up), its screen direction `(-y / aspect, -z)` normalised, as an
+    /// angle in 0 to 2π.
+    /// </summary>
+    /// <param name="eye">`CurrentViewOrigin()`.</param>
+    /// <param name="angles">`CurrentViewAngles()`.</param>
+    /// <param name="target">The target.</param>
+    /// <param name="aspect">`engine->GetScreenAspectRatio()`.</param>
+    /// <returns>The angle in radians.</returns>
+    public static float ArrowAngle((float X, float Y, float Z) eye, (float Pitch, float Yaw, float Roll) angles, (float X, float Y, float Z) target, float aspect)
+    {
+        (float fx, float fy, float fz, float rx, float ry, float rz, float ux, float uy, float uz) = AngleBasis(angles);
+        float dx = target.X - eye.X;
+        float dy = target.Y - eye.Y;
+        float dz = target.Z - eye.Z;
+
+        // View space's left is the negated right.
+        float left = -((dx * rx) + (dy * ry) + (dz * rz));
+        float up = (dx * ux) + (dy * uy) + (dz * uz);
+        _ = fx + fy + fz;
+
+        float hx = -left / aspect;
+        float hy = -up;
+        float length = MathF.Sqrt((hx * hx) + (hy * hy));
+        (hx, hy) = length > 0f ? (hx / length, hy / length) : (0f, 0f);
+
+        float angle = MathF.Atan2(hy, hx);
+
+        if (angle > MathF.PI * 2f)
+        {
+            angle -= MathF.PI * 2f;
+        }
+        else if (angle < 0f)
+        {
+            angle += MathF.PI * 2f;
+        }
+
+        return angle;
+    }
+
+    /// <summary>:237-263: where the direction meets the screen's edge, brought toward the centre.</summary>
+    /// <param name="angle">The arrow's angle.</param>
+    /// <returns>The point in -1 to 1.</returns>
+    public static (float X, float Y) HudPoint(float angle)
+    {
+        float y = MathF.Tan(angle);
+        float x;
+        const float HalfPi = MathF.PI / 2f;
+
+        if (MathF.Abs(y) <= 1f)
+        {
+            (x, y) = angle < HalfPi || angle > MathF.PI + HalfPi ? (1f, y) : (-1f, -y);
+        }
+        else
+        {
+            (x, y) = angle < MathF.PI ? (1f / y, 1f) : (-1f / y, -1f);
+        }
+
+        return (x * 0.8f, y * 0.5f);
+    }
+
+    /// <summary>`AngleVectors` (mathlib_base.cpp): forward, right and up.</summary>
+    private static (float, float, float, float, float, float, float, float, float) AngleBasis((float Pitch, float Yaw, float Roll) angles)
+    {
+        float sp = MathF.Sin(angles.Pitch * MathF.PI / 180f);
+        float cp = MathF.Cos(angles.Pitch * MathF.PI / 180f);
+        float sy = MathF.Sin(angles.Yaw * MathF.PI / 180f);
+        float cy = MathF.Cos(angles.Yaw * MathF.PI / 180f);
+        float sr = MathF.Sin(angles.Roll * MathF.PI / 180f);
+        float cr = MathF.Cos(angles.Roll * MathF.PI / 180f);
+
+        return (
+            cp * cy, cp * sy, -sp,
+            (-1f * sr * sp * cy) + (-1f * cr * -sy), (-1f * sr * sp * sy) + (-1f * cr * cy), -1f * sr * cp,
+            (cr * sp * cy) + (-sr * -sy), (cr * sp * sy) + (-sr * cy), cr * cp);
+    }
+}
+
+/// <summary>`CTFHudPasstimeBallOffscreenArrow` (tf_hud_passtime_ball_offscreen_arrow.cpp:291): toward the ball or its carrier.</summary>
+public sealed class TfHudPasstimeBallOffscreenArrow(VguiPanel parent) : TfHudPasstimeOffscreenArrow(parent, "PasstimeBallOffscreenArrow")
+{
+    private const int TeamRed = 2;
+    private const int TeamBlue = 3;
+
+    /// <inheritdoc/>
+    /// <remarks>`PreparePaint` (:297) through `GetBallReticleTarget` (c_tf_passtime_logic.cpp:205).</remarks>
+    protected override (int Entity, bool NoDraw, (float X, float Y, float Z) Center)? PreparePaint(HudState state, ScenePasstime passtime)
+    {
+        if (Image is null || passtime.Ball == 0 || ReticleTarget(state, passtime) is not { } target)
+        {
+            return null;
+        }
+
+        bool flashing = (passtime.Player(state.LocalIndex)?.TargetedForPass ?? false) || passtime.HomingTarget != 0;
+        SetAlpha(flashing ? (int)((state.CurTime * 3f % 1f) * 255f) : 128f);
+
+        int team = target == passtime.Carrier ? state.Player(target)?.Team ?? 0 : passtime.BallTeam;
+        string image = team switch
+        {
+            TeamRed => "../passtime/hud/passtime_ball_offscreen_red",
+            TeamBlue => "../passtime/hud/passtime_ball_offscreen_blue",
+            _ => "../passtime/hud/passtime_ball",
+        };
+
+        if (!string.Equals(Image.ImageName, image, StringComparison.Ordinal))
+        {
+            Image.SetImage(image);
+        }
+
+        return (target, passtime.Target.NoDraw, passtime.Target.Center);
+    }
+
+    /// <summary>
+    /// `GetBallReticleTarget` (c_tf_passtime_logic.cpp:205): the carrier, else the ball; none for the local player, a hidden
+    /// one, another team's, or the one an observer follows outside roaming.
+    /// </summary>
+    private static int? ReticleTarget(HudState state, ScenePasstime passtime)
+    {
+        int entity = passtime.Carrier != 0 ? passtime.Carrier : passtime.Ball;
+        int team = passtime.Carrier != 0 ? state.Player(passtime.Carrier)?.Team ?? 0 : passtime.BallTeam;
+
+        if (entity == state.LocalIndex || passtime.Target.NoDraw || (team != 0 && team != state.Team)
+            || (state.ObserverMode != ObserverModes.None && state.ObserverMode != ObserverModes.Roaming && state.ObserverTarget == entity))
+        {
+            return null;
+        }
+
+        return entity;
+    }
+}
+
+/// <summary>`CTFHudPasstimePlayerOffscreenArrow` (tf_hud_passtime_ball_offscreen_arrow.cpp:346): toward a player asking for the ball.</summary>
+/// <param name="parent">The Pass Time HUD.</param>
+/// <param name="playerIndex">`m_iPlayerIndex`, 0 to 100 as Valve's loop numbers them.</param>
+public sealed class TfHudPasstimePlayerOffscreenArrow(VguiPanel parent, int playerIndex) : TfHudPasstimeOffscreenArrow(parent, "PasstimePlayerOffscreenArrow")
+{
+    /// <inheritdoc/>
+    /// <remarks>`PreparePaint` (:353): only while the local player holds the ball or observes, for a player whose ask is current.</remarks>
+    protected override (int Entity, bool NoDraw, (float X, float Y, float Z) Center)? PreparePaint(HudState state, ScenePasstime passtime)
+    {
+        bool hasBall = passtime.Player(state.LocalIndex)?.HasBall ?? false;
+
+        if (Image is null || (!hasBall && state.ObserverMode == ObserverModes.None))
+        {
+            return null;
+        }
+
+        if (state.Player(playerIndex) is not { } player || playerIndex == state.LocalIndex
+            || (passtime.Player(playerIndex)?.AskForBallTime ?? 0f) < state.CurTime)
+        {
+            return null;
+        }
+
+        SetAlpha(128f);
+
+        if (!string.Equals(Image.ImageName, "../passtime/hud/passtime_pass_to_me_prompt", StringComparison.Ordinal))
+        {
+            Image.SetImage("../passtime/hud/passtime_pass_to_me_prompt");
+        }
+
+        // **Interpolated:** a player's `EF_NODRAW` is not read; their centre is the origin plus half a standing hull (41 of 82).
+        return (playerIndex, false, (player.X, player.Y, player.Z + 41f));
+    }
+}
+
 /// <summary>`CTFHudPasstime` (tf_hud_passtime.cpp:1634): the Pass Time HUD's host, on the objective status.</summary>
 /// <remarks>**Not ported:** the pass notice (`CTFHudPasstimePassNotify`), the ball and player off-screen arrows (B709).</remarks>
 public sealed class TfHudPasstime : VguiEditablePanel
@@ -831,7 +1247,17 @@ public sealed class TfHudPasstime : VguiEditablePanel
     {
         BallStatus = new TfHudPasstimeBallStatus(this);
         TeamScore = new TfHudPasstimeTeamScore(this);
+        _ = new TfHudPasstimeBallOffscreenArrow(this);
+        PassNotify = new TfHudPasstimePassNotify(this);
+
+        for (int i = 0; i < 101; i++)
+        {
+            _ = new TfHudPasstimePlayerOffscreenArrow(this, i);
+        }
     }
+
+    /// <summary>`m_pPassNotify`.</summary>
+    public TfHudPasstimePassNotify PassNotify { get; }
 
     /// <summary>`m_pBallStatus`.</summary>
     public TfHudPasstimeBallStatus BallStatus { get; }
@@ -853,5 +1279,6 @@ public sealed class TfHudPasstime : VguiEditablePanel
         TeamScore.Visible = Visible;
         TeamScore.Update(state);
         BallStatus.Update(state);
+        PassNotify.Update(state);
     }
 }

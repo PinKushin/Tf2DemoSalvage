@@ -12,6 +12,14 @@ namespace Tf2DemoSalvage.Core.Scene;
 /// <param name="Origin">`GetAbsOrigin()`.</param>
 public readonly record struct ScenePasstimeGoal(int EntityIndex, int Team, bool TriggerDisabled, int GoalType, (float X, float Y, float Z) Origin);
 
+/// <summary>A player's Pass Time fields (`DT_TFPlayerShared`).</summary>
+/// <param name="EntityIndex">The player.</param>
+/// <param name="AskForBallTime">`m_askForBallTime`: `AskForBallTime()`.</param>
+/// <param name="TargetedForPass">`m_bIsTargetedForPasstimePass`.</param>
+/// <param name="HasBall">`m_bHasPasstimeBall`.</param>
+/// <param name="Eye">`EyePosition()`: the origin plus `m_vecViewOffset`.</param>
+public readonly record struct ScenePasstimePlayer(int EntityIndex, float AskForBallTime, bool TargetedForPass, bool HasBall, (float X, float Y, float Z) Eye);
+
 /// <summary>`CTFPasstimeLogic` and its `CPasstimeBall` (`DT_TFPasstimeLogic`, `DT_PasstimeBall`), as the Pass Time HUD reads them.</summary>
 /// <param name="TrackPoints">`m_trackPoints`: the sixteen points of the progress track, zero past its end.</param>
 /// <param name="NumSections">`m_iNumSections`.</param>
@@ -24,6 +32,8 @@ public readonly record struct ScenePasstimeGoal(int EntityIndex, int Team, bool 
 /// <param name="PrevCarrier">`m_hPrevCarrier`'s player, or 0.</param>
 /// <param name="HomingTarget">`m_hHomingTarget`'s player, or 0.</param>
 /// <param name="Goals">`C_FuncPasstimeGoal::GetAutoList()`, in entity order.</param>
+/// <param name="Players">Every player's Pass Time fields.</param>
+/// <param name="Target">The reticle's entity, the carrier or else the ball: its `EF_NODRAW` and `WorldSpaceCenter()`.</param>
 public sealed record ScenePasstime(
     IReadOnlyList<(float X, float Y, float Z)> TrackPoints,
     int NumSections,
@@ -35,8 +45,30 @@ public sealed record ScenePasstime(
     int Carrier,
     int PrevCarrier,
     int HomingTarget,
-    IReadOnlyList<ScenePasstimeGoal> Goals)
+    IReadOnlyList<ScenePasstimeGoal> Goals,
+    IReadOnlyList<ScenePasstimePlayer>? Players = null,
+    (bool NoDraw, (float X, float Y, float Z) Center) Target = default)
 {
+    private const int EffectNoDraw = 0x020;
+
+    /// <summary>A player's Pass Time fields, or null.</summary>
+    /// <param name="index">The player.</param>
+    /// <returns>The fields.</returns>
+    public ScenePasstimePlayer? Player(int index)
+    {
+        IReadOnlyList<ScenePasstimePlayer> players = Players ?? [];
+
+        for (int at = 0; at < players.Count; at++)
+        {
+            if (players[at].EntityIndex == index)
+            {
+                return players[at];
+            }
+        }
+
+        return null;
+    }
+
     private const int TrackPointCount = 16;
 
     /// <inheritdoc/>
@@ -52,7 +84,9 @@ public sealed record ScenePasstime(
         && Carrier == other.Carrier
         && PrevCarrier == other.PrevCarrier
         && HomingTarget == other.HomingTarget
-        && Goals.SequenceEqual(other.Goals);
+        && Goals.SequenceEqual(other.Goals)
+        && (Players ?? []).SequenceEqual(other.Players ?? [])
+        && Target.Equals(other.Target);
 
     /// <inheritdoc/>
     public override int GetHashCode() => HashCode.Combine(Ball, Carrier, BallPower, Goals.Count);
@@ -142,6 +176,29 @@ public sealed record ScenePasstime(
                 goal.Origin() ?? default));
         }
 
+        List<ScenePasstimePlayer> players = [];
+
+        foreach (EntityState player in entities.OfClass("CTFPlayer"))
+        {
+            (float X, float Y, float Z) origin = player.Origin() ?? default;
+            // `m_vecViewOffset` is sent to the local player alone, as three floats. **Interpolated:** another player's eye is
+            // taken as its origin, where the client holds the view offset it last received or its default.
+            (float X, float Y, float Z) offset = (
+                player.Number("DT_LocalPlayerExclusive.m_vecViewOffset[0]") ?? 0f,
+                player.Number("DT_LocalPlayerExclusive.m_vecViewOffset[1]") ?? 0f,
+                player.Number("DT_LocalPlayerExclusive.m_vecViewOffset[2]") ?? 0f);
+
+            players.Add(new ScenePasstimePlayer(
+                player.EntityIndex,
+                player.Number("DT_TFPlayerShared.m_askForBallTime") ?? 0f,
+                player.Integer("DT_TFPlayerShared.m_bIsTargetedForPasstimePass") is > 0,
+                player.Integer("DT_TFPlayerShared.m_bHasPasstimeBall") is > 0,
+                (origin.X + offset.X, origin.Y + offset.Y, origin.Z + offset.Z)));
+        }
+
+        int carrier = Player(entities, ballState, "DT_PasstimeBall.m_hCarrier");
+        EntityState? target = carrier != 0 && entities.TryGet(carrier, out EntityState? carrierState) ? carrierState : ballState;
+
         ScenePasstime read = new(
             points,
             logic.Integer("DT_TFPasstimeLogic.m_iNumSections") ?? 0,
@@ -150,12 +207,24 @@ public sealed record ScenePasstime(
             ballState is null ? 0 : ball,
             ballState?.Integer("DT_BaseEntity.m_iTeamNum") ?? 0,
             ballState?.Origin() ?? default,
-            Player(entities, ballState, "DT_PasstimeBall.m_hCarrier"),
+            carrier,
             Player(entities, ballState, "DT_PasstimeBall.m_hPrevCarrier"),
             Player(entities, ballState, "DT_PasstimeBall.m_hHomingTarget"),
-            goals);
+            goals,
+            players,
+            target is null ? default : (((target.Integer("DT_BaseEntity.m_fEffects") ?? 0) & EffectNoDraw) != 0, Center(target)));
 
         return last is not null && last.Equals(read) ? last : read;
+    }
+
+    /// <summary>`WorldSpaceCenter()`: the origin plus the middle of the collision box.</summary>
+    private static (float X, float Y, float Z) Center(EntityState entity)
+    {
+        (float X, float Y, float Z) origin = entity.Origin() ?? default;
+        (float X, float Y, float Z) mins = entity.Vector("DT_CollisionProperty.m_vecMins") ?? default;
+        (float X, float Y, float Z) maxs = entity.Vector("DT_CollisionProperty.m_vecMaxs") ?? default;
+
+        return (origin.X + ((mins.X + maxs.X) / 2f), origin.Y + ((mins.Y + maxs.Y) / 2f), origin.Z + ((mins.Z + maxs.Z) / 2f));
     }
 
     private static int Player(EntityStateTable entities, EntityState? ball, string key) =>
