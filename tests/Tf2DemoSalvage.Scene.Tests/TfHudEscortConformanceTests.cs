@@ -57,7 +57,10 @@ public sealed class TfHudEscortConformanceTests
         teardrop.Visible.ShouldBeFalse();
     }
 
-    /// <remarks>`CEscortHillPanel::OnTick` (:57-80): one fade per 750 ms tick on the hill the cart is on; off it, alpha 64 at once.</remarks>
+    /// <remarks>
+    /// `CEscortHillPanel::OnTick` (:57-80): the first tick a cycle after the signal is added, then one fade per 750 ms on the
+    /// hill the cart is on — a new fade replacing the last — and off it, alpha 64 at once.
+    /// </remarks>
     [Test]
     public void Tick_OnAHillThenOff_FadesOncePerCycleThenSits64()
     {
@@ -65,14 +68,16 @@ public sealed class TfHudEscortConformanceTests
         TfEscortHillPanel hill = new(viewport, "hill_panel0") { OnHill = true };
 
         hill.Tick(0f);
-        hill.Tick(0.1f);
-        int afterOneCycle = viewport.Animations.ActiveAnimationCount;
+        int beforeACycle = viewport.Animations.ActiveAnimationCount;
         hill.Tick(0.8f);
+        hill.Tick(0.9f);
+        int afterOneCycle = viewport.Animations.ActiveAnimationCount;
+        hill.Tick(1.6f);
         int afterTwo = viewport.Animations.ActiveAnimationCount;
         hill.OnHill = false;
-        hill.Tick(1.6f);
+        hill.Tick(2.4f);
 
-        (afterOneCycle, afterTwo, hill.GetFloat("alpha")).ShouldBe((1, 1, 64f));
+        (beforeACycle, afterOneCycle, afterTwo, hill.GetFloat("alpha")).ShouldBe((0, 1, 1, 64f));
     }
 
     [Test]

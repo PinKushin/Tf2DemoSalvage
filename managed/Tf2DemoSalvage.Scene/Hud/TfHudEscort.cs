@@ -21,18 +21,24 @@ public sealed class TfEscortHillPanel(VguiPanel parent, string name) : VguiPanel
     public const float AlphaCycleTime = 0.75f;
 
     private bool _fadingOut = true;
-    private float _nextTick;
+    private float _nextTick = float.NaN;
 
     /// <summary>`OnTick` (:57), on its 750 ms tick signal: on the hill the cart is on, an alpha fade between 32 and 96 each tick, else 64.</summary>
-    /// <param name="curTime">`gpGlobals->curtime`: the tick runs once each cycle.</param>
-    public void Tick(float curTime)
+    /// <param name="realTime">The vgui tick's clock, real time, which runs on through a paused demo.</param>
+    /// <remarks>`AddTickSignal` (:54) first fires a cycle after it is made: here, a cycle after the first time seen.</remarks>
+    public void Tick(float realTime)
     {
-        if (curTime < _nextTick && _nextTick - curTime <= AlphaCycleTime)
+        if (float.IsNaN(_nextTick))
+        {
+            _nextTick = realTime + AlphaCycleTime;
+        }
+
+        if (realTime < _nextTick)
         {
             return;
         }
 
-        _nextTick = curTime + AlphaCycleTime;
+        _nextTick = realTime + AlphaCycleTime;
 
         if (!Visible)
         {
@@ -511,7 +517,7 @@ public sealed class TfHudEscort : VguiEditablePanel
         }
 
         UpdateCpImages(objectives, track);
-        LayOutHills(track, Team == TeamRed ? state.EscortRed.Progress : state.EscortBlue.Progress, state.CurTime);
+        LayOutHills(track, Team == TeamRed ? state.EscortRed.Progress : state.EscortBlue.Progress, state.RealTime);
 
         SceneEscort escort = Team == TeamRed ? state.EscortRed : state.EscortBlue;
 
@@ -653,12 +659,14 @@ public sealed class TfHudEscort : VguiEditablePanel
     }
 
     /// <summary>`PerformLayout`'s hills (:516-560), and the watcher's `SetTrainOnHill` from its progress.</summary>
-    private void LayOutHills(SceneTrack track, float progress, float curTime)
+    private void LayOutHills(SceneTrack track, float progress, float realTime)
     {
         for (int hill = 0; hill < _hills.Length; hill++)
         {
             TfEscortHillPanel panel = _hills[hill];
 
+            // Every hill's own tick signal, on the `m_bOnHill` its last paint left (:106), before this frame's.
+            panel.Tick(realTime);
             panel.Team = Team;
             panel.Visible = hill < _hillCount;
 
@@ -675,7 +683,6 @@ public sealed class TfHudEscort : VguiEditablePanel
             panel.ZPos = _levelBar.ZPos + 1;
             panel.OnHill = progress >= start && progress <= end;
             panel.Downhill = track.IsDownhill(Team, hill);
-            panel.Tick(curTime);
         }
     }
 
