@@ -102,6 +102,9 @@ public sealed class TfHudObjectiveStatus : VguiEditablePanel, IHudElement
             _controlPointIcons.SetParent(this);
         }
 
+        // :103-106: the progress bar's scheme and layout at once.
+        ProgressBar.InvalidateLayout(layoutNow: true, reloadScheme: true, context);
+
         base.ApplySchemeSettings(context);
     }
 

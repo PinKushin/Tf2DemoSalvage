@@ -147,6 +147,29 @@ public sealed class HudViewportConformanceTests
         (child.X, child.Wide).ShouldBe((10, 0));
     }
 
+    /// <remarks>`SetSize` (Panel.cpp:932) sets both at once, so `VPanel::SetSize` calls `OnSizeChanged` once; a same size, none.</remarks>
+    [Test]
+    public void SetSize_BothAtOnce_CallsOnSizeChangedOnce()
+    {
+        SizeCounter panel = new();
+
+        panel.SetSize(100, 50);
+        panel.SetSize(100, 50);
+
+        (panel.Calls, panel.Wide, panel.Tall).ShouldBe((1, 100, 50));
+    }
+
+    private sealed class SizeCounter() : VguiPanel(null, "Sized")
+    {
+        public int Calls { get; private set; }
+
+        protected override void OnSizeChanged(int newWide, int newTall)
+        {
+            base.OnSizeChanged(newWide, newTall);
+            Calls++;
+        }
+    }
+
     [Test]
     public void OnSizeChanged_WithSkipAutoResize_LeavesTheChild()
     {

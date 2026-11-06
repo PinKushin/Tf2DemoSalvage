@@ -366,9 +366,10 @@ public sealed class TfTeamStatus(VguiPanel parent) : VguiEditablePanel(parent, "
         _team1GrowsWest = GrowsWest(block.Find("team1_grow_dir")?.Value, _team1GrowsWest);
         _team2GrowsWest = GrowsWest(block.Find("team2_grow_dir")?.Value, _team2GrowsWest);
 
+        // `CopySubkeys` into its own block (tf_teamstatus.cpp:382-383): the width written into it later stays ours.
         if (block.Find("playerpanels_kv") is { } kvs)
         {
-            _playerPanelKvs = kvs;
+            _playerPanelKvs = kvs.Copy();
         }
     }
 
@@ -416,9 +417,11 @@ public sealed class TfTeamStatus(VguiPanel parent) : VguiEditablePanel(parent, "
             if (wide != panel.Wide && _playerPanelKvs is not null && HudViewport.Of(this)?.Context is { } context)
             {
                 // "We change the width in the KV's then reapply settings so the children will do their magical
-                // proportionaltoparent layout." `GetProportionalNormalizedValueEx`: back to the 480-tall scale.
+                // proportionaltoparent layout" (:479-481). `GetProportionalNormalizedValueEx` (vgui2.dll 0x18000d4e0): back
+                // to the 480-tall scale in single precision (`MULSS`, `DIVSS`, `CVTTSS2SI`) by the scheme's sizing panel, else
+                // `GetProportionalNormalizedValue`; `ApplySettings` scales it up again, as Valve's does.
+                _playerPanelKvs.SetString("wide", context.Normalize(wide).ToString(CultureInfo.InvariantCulture));
                 panel.ApplySettings(_playerPanelKvs, context);
-                panel.Wide = wide;
                 panel.InvalidateLayout(reloadScheme: true);
                 panel.Update(state);
             }

@@ -140,13 +140,28 @@ public class VguiPanel
         }
     }
 
+    /// <summary>`SetSize` (Panel.cpp:932): both at once, so `VPanel::SetSize` calls `OnSizeChanged` once for a change.</summary>
+    /// <remarks>
+    /// **Interpolated:** `VPanel::SetSize` is vgui2.dll's, not in the SDK; that it skips an unchanged size is this port's
+    /// standing reading, which the <see cref="Wide"/> and <see cref="Tall"/> setters held before it.
+    /// </remarks>
+    /// <param name="wide">The wide.</param>
+    /// <param name="tall">The tall.</param>
+    public void SetSize(int wide, int tall)
+    {
+        if (_wide == wide && _tall == tall)
+        {
+            return;
+        }
+
+        (_wide, _tall) = (wide, tall);
+        OnSizeChanged(_wide, _tall);
+    }
+
     /// <summary>`Panel::OnSizeChanged` (Panel.cpp:1507): "our size changed so force us to layout again".</summary>
     /// <param name="newWide">The new wide.</param>
     /// <param name="newTall">The new tall.</param>
-    /// <remarks>
-    /// **Interpolated:** a width and a height set apart, as this port's setters are, call it twice where `SetSize` calls
-    /// it once; every rule it runs reaches the same bounds either way.
-    /// </remarks>
+    /// <remarks>The <see cref="Wide"/> and <see cref="Tall"/> setters call it alone, as `SetWide` and `SetTall` do.</remarks>
     protected virtual void OnSizeChanged(int newWide, int newTall) => _needsLayout = true;
 
     /// <summary>`zpos`: paint order among siblings, kept as a `short`.</summary>
@@ -375,7 +390,7 @@ public class VguiPanel
             ZPos = Int(block, "zpos", 0);
         }
 
-        (Wide, Tall) = (wide, tall);
+        SetSize(wide, tall);
         ApplyAutoResizeSettings(block, context);
 
         if (Int(block, "IgnoreScheme", 0) != 0)

@@ -463,8 +463,9 @@ public sealed class TfHudRobotDestruction : VguiEditablePanel
     private bool _playingRd;
     private int _stealLeftEdge;
     private int _stealRightEdge;
-    private int _redFlag;
-    private int _blueFlag;
+    // `m_hRedFlag` / `m_hBlueFlag` (tf_hud_robot_destruction_status.h:201): index and serial, as a `CHandle` holds them.
+    private (int Index, int Serial) _redFlag;
+    private (int Index, int Serial) _blueFlag;
 
     /// <summary>`CTFHUDRobotDestruction( parent, name )`.</summary>
     /// <param name="parent">The objective status.</param>
@@ -657,8 +658,11 @@ public sealed class TfHudRobotDestruction : VguiEditablePanel
             List<TfRobotIndicator> robots = group.Team == TeamRed ? _redRobots : _blueRobots;
             string panelName = group.Team == TeamRed ? "red" : "blue";
 
-            // `CFmtStr( "%s_group_%d", ..., robotVec.Count() )` reads the count after `AddToTail`.
-            robots.Add(new TfRobotIndicator(this, $"{panelName}_group_{robots.Count + 1}", group));
+            // `robotVec[ robotVec.AddToTail() ] = new ...( CFmtStr( "%s_group_%d", ..., robotVec.Count() ) )` (:439): C++17
+            // sequences an assignment's right side first ([expr.ass]/1), so the count is read before `AddToTail`. Measured in the
+            // live client: client.dll (x64) loads `Count` (`[R14+0x10]`) at 0x1805880d9 for the `CFmtStr`, and calls
+            // `AddToTail` at 0x180588125, after the indicator is made — the first panel is `red_group_0`.
+            robots.Add(new TfRobotIndicator(this, $"{panelName}_group_{robots.Count}", group));
         }
 
         SortRobots(_redRobots);
@@ -678,14 +682,16 @@ public sealed class TfHudRobotDestruction : VguiEditablePanel
         SceneRobotDestruction? logic = state.RobotDestruction;
         float curTime = state.ServerTime;
 
-        if (_playingRd != logic is not null)
+        // :564-573. With no scheme yet the reload cannot run, so the flip waits for it and the next frame retries; the rest of
+        // the tick runs regardless, as Valve's does.
+        if (logic is null)
         {
-            if (logic is not null && HudViewport.Of(this) is { Context: { } context })
-            {
-                InvalidateLayout(layoutNow: true, reloadScheme: true, context);
-            }
-
-            _playingRd = logic is not null;
+            _playingRd = false;
+        }
+        else if (!_playingRd && HudViewport.Of(this) is { Context: { } context })
+        {
+            InvalidateLayout(layoutNow: true, reloadScheme: true, context);
+            _playingRd = true;
         }
 
         TickChildren(state, logic, curTime);
@@ -885,6 +891,20 @@ public sealed class TfHudRobotDestruction : VguiEditablePanel
         for (int at = 0; at < flags.Count; at++)
         {
             if (entity != 0 && flags[at].EntityIndex == entity)
+            {
+                return flags[at];
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>A flag handle's `Get()`: the flag at its index while the serial matches, else null.</summary>
+    private static SceneFlag? Find(IReadOnlyList<SceneFlag> flags, (int Index, int Serial) handle)
+    {
+        for (int at = 0; at < flags.Count; at++)
+        {
+            if (handle.Index != 0 && flags[at].EntityIndex == handle.Index && flags[at].SerialNumber == handle.Serial)
             {
                 return flags[at];
             }
@@ -1117,9 +1137,10 @@ public sealed class TfHudRobotDestruction : VguiEditablePanel
 
         foreach (SceneFlag flag in flags)
         {
-            if (flag.IsStolen && flag.PrevOwner != 0)
+            // `IsStolen() && GetPrevOwner()` (:590): the owner's own team, read off its entity.
+            if (flag.IsStolen && flag.PrevOwnerTeam is { } ownerTeam)
             {
-                if (state.Player(flag.PrevOwner)?.Team == TeamRed)
+                if (ownerTeam == TeamRed)
                 {
                     red += flag.PointValue;
                 }
@@ -1158,11 +1179,11 @@ public sealed class TfHudRobotDestruction : VguiEditablePanel
             {
                 if (flag.Team == TeamBlue)
                 {
-                    _blueFlag = flag.EntityIndex;
+                    _blueFlag = (flag.EntityIndex, flag.SerialNumber);
                 }
                 else
                 {
-                    _redFlag = flag.EntityIndex;
+                    _redFlag = (flag.EntityIndex, flag.SerialNumber);
                 }
             }
         }
@@ -1230,8 +1251,8 @@ public sealed class TfHudRobotDestruction : VguiEditablePanel
             return;
         }
 
-        // "Use the player's pos if the flag is being carried": `SceneFlag.Center` already reads a carried flag at its carrier.
-        float progress = StolenProgress(team, stolen.Center, startZone, endZone);
+        // "Use the player's pos if the flag is being carried" (:899): the move parent's origin, else the flag's own — no bounds.
+        float progress = StolenProgress(team, stolen.Origin, startZone, endZone);
 
         container.X = (int)(((_stealRightEdge - (_stealLeftEdge + container.Wide)) * progress) + _stealLeftEdge);
     }

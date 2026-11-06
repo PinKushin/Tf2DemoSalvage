@@ -346,7 +346,9 @@ public sealed class KeyValuesTree
         }
     }
 
-    private KeyValuesTree Copy()
+    /// <summary>`MakeCopy`: this key and everything under it, as its own tree.</summary>
+    /// <returns>The copy.</returns>
+    public KeyValuesTree Copy()
     {
         KeyValuesTree copy = new(Name, Value);
 

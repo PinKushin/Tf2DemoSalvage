@@ -96,8 +96,7 @@ public class VguiEditablePanel : VguiPanel
             }
 
             (child.X, child.Y) = (x, y);
-            child.Wide = Math.Max(ex, x) - x;
-            child.Tall = Math.Max(ey, y) - y;
+            child.SetSize(Math.Max(ex, x) - x, Math.Max(ey, y) - y);
             child.InvalidateLayout();
         }
     }

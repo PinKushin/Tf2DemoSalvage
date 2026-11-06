@@ -39,6 +39,15 @@ public readonly record struct SceneFlag(
     /// <summary>`IsDormant()`: out of the client's PVS and still held.</summary>
     public bool Dormant { get; init; }
 
+    /// <summary>The entity's serial number, which a `CHandle` checks with its index.</summary>
+    public int SerialNumber { get; init; }
+
+    /// <summary>`GetAbsOrigin()`, or the move parent's when carried (tf_hud_robot_destruction_status.cpp:899) — no bounds.</summary>
+    public (float X, float Y, float Z) Origin { get; init; }
+
+    /// <summary>`GetPrevOwner()->GetTeamNumber()`, or null when the previous owner is no entity.</summary>
+    public int? PrevOwnerTeam { get; init; }
+
     /// <summary>`GetPointValue()`: `m_nPointValue`, robot destruction's points the flag carries.</summary>
     public int PointValue { get; init; }
 
@@ -97,6 +106,8 @@ public sealed record SceneFlags(IReadOnlyList<SceneFlag> Flags, IReadOnlyList<Sc
 
         foreach (EntityState flag in entities.OfClass("CCaptureFlag"))
         {
+            int? prevOwner = entities.Resolve(flag.Integer("DT_CaptureFlag.m_hPrevOwner"));
+
             (flags ??= []).Add(new SceneFlag(
                 flag.EntityIndex,
                 flag.Integer("DT_BaseEntity.m_iTeamNum") ?? 0,
@@ -113,8 +124,13 @@ public sealed record SceneFlags(IReadOnlyList<SceneFlag> Flags, IReadOnlyList<Sc
                 ResetTime = flag.Number("DT_CaptureFlag.m_flResetTime") ?? 0f,
                 NeutralTime = flag.Number("DT_CaptureFlag.m_flNeutralTime") ?? 0f,
                 MaxResetTime = flag.Number("DT_CaptureFlag.m_flMaxResetTime") ?? 0f,
-                PrevOwner = entities.Resolve(flag.Integer("DT_CaptureFlag.m_hPrevOwner")) ?? 0,
+                PrevOwner = prevOwner ?? 0,
+                PrevOwnerTeam = prevOwner is { } prev && entities.TryGet(prev, out EntityState? owner)
+                    ? owner.Integer("DT_BaseEntity.m_iTeamNum") ?? 0
+                    : null,
                 Dormant = isDormant?.Invoke(flag.EntityIndex) ?? false,
+                SerialNumber = flag.SerialNumber,
+                Origin = AbsOrigin(entities, flag),
             });
         }
 
@@ -171,12 +187,15 @@ public sealed record SceneFlags(IReadOnlyList<SceneFlag> Flags, IReadOnlyList<Sc
     /// networked origin is local to that. **Interpolated:** the carrier's origin stands for the attachment, which needs the
     /// carrier's bones; the compass turns by the horizontal direction alone, which that offset barely moves.
     /// </remarks>
-    private static (float X, float Y, float Z) Center(EntityStateTable entities, EntityState entity)
-    {
-        (float X, float Y, float Z) origin = entities.Resolve(entity.Integer("DT_BaseEntity.moveparent")) is { } parent
-            && entities.TryGet(parent, out EntityState? carrier)
+    /// <summary>A carried entity at its move parent's origin, else its own.</summary>
+    private static (float X, float Y, float Z) AbsOrigin(EntityStateTable entities, EntityState entity) =>
+        entities.Resolve(entity.Integer("DT_BaseEntity.moveparent")) is { } parent && entities.TryGet(parent, out EntityState? carrier)
             ? carrier.Origin() ?? default
             : entity.Origin() ?? default;
+
+    private static (float X, float Y, float Z) Center(EntityStateTable entities, EntityState entity)
+    {
+        (float X, float Y, float Z) origin = AbsOrigin(entities, entity);
         (float X, float Y, float Z) mins = entity.Vector("DT_CollisionProperty.m_vecMins") ?? default;
         (float X, float Y, float Z) maxs = entity.Vector("DT_CollisionProperty.m_vecMaxs") ?? default;
         (float X, float Y, float Z) local = ((mins.X + maxs.X) / 2f, (mins.Y + maxs.Y) / 2f, (mins.Z + maxs.Z) / 2f);
