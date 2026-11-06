@@ -29,7 +29,16 @@ public sealed class ObjectivesProbe : IProbe
             return;
         }
 
-        SceneObjectives? objectives = DemoTimeline.Build(File.ReadAllBytes(arguments[0])).ObjectivesAt(int.Parse(arguments[1], CultureInfo.InvariantCulture));
+        DemoTimeline timeline = DemoTimeline.Build(File.ReadAllBytes(arguments[0]));
+        int tick = int.Parse(arguments[1], CultureInfo.InvariantCulture);
+        SceneObjectives? objectives = timeline.ObjectivesAt(tick);
+
+        foreach ((int at, int player, int area) in timeline.TouchChanges.Where(change => Math.Abs(change.Tick - tick) < 200))
+        {
+            output.WriteLine($"  touch change at {at}: player {player}, area {area}");
+        }
+
+        output.WriteLine($"recorder {timeline.RecorderEntityIndex} touches point {timeline.TouchedPointAt(tick)}; {timeline.TouchChanges.Count} touch changes, the recorder's first at {timeline.TouchChanges.FirstOrDefault(change => change.Player == timeline.RecorderEntityIndex && change.Area >= 0)}");
 
         if (objectives is null)
         {

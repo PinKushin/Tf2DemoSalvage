@@ -278,6 +278,35 @@ public sealed class TfControlPointIconConformanceTests
         TfHudObjectiveStatus.ControlPointsVisible(new Core.Scene.SceneGameRules(false, 0, false) { GameType = gameType, HudType = hudType, PlayingHybridCtfCp = hybrid })
             .ShouldBe(visible);
 
+    /// <remarks>`UpdateBarText` (hud_controlpointicons.cpp:1585-1599): a point of the recorder's own the enemy can take back.</remarks>
+    [Test]
+    public void BarText_OnAnOwnPointTheEnemyCanTake_AsksToDefendIt() =>
+        TfControlPointProgressBar.BarText(Running(10f) with { Team = Blue }, FivePoints(), 1).ShouldBe("#Team_Capture_OwnPoint");
+
+    [Test]
+    public void BarText_OnALockedPoint_IsNotNow()
+    {
+        SceneObjectives objectives = FivePoints() with { Points = [Point(Blue), Point(Blue), Point(Red, locked: true), Point(Red), Point(Red)] };
+
+        TfControlPointProgressBar.BarText(Running(10f) with { Team = Blue }, objectives, 2).ShouldBe("#Team_Capture_NotNow");
+    }
+
+    [Test]
+    public void BarText_InSetupWithARoundTimer_IsNotNow() =>
+        TfControlPointProgressBar.BarText(
+            Running(10f) with { Team = Blue, Rules = new SceneGameRules(false, 0, false) { Setup = true }, RoundTimers = [default] },
+            FivePoints(),
+            2).ShouldBe("#Team_Capture_NotNow");
+
+    /// <remarks>Blue's farthest is 1, so 3 is two away: `TeamMayCapturePoint` refuses, linear (:1602-1612).</remarks>
+    [Test]
+    public void BarText_OnAPointBeyondTheFront_IsLinear() =>
+        TfControlPointProgressBar.BarText(Running(10f) with { Team = Blue }, FivePoints(), 3).ShouldBe("#Team_Capture_Linear");
+
+    [Test]
+    public void BarText_AFrontPointWithNobodyCapping_WaitsForATeammate() =>
+        TfControlPointProgressBar.BarText(Running(10f) with { Team = Blue }, FivePoints(), 2).ShouldBe("#Team_Waiting_for_teammate");
+
     [Test]
     public void PackPrevious_ThreeSlots_UnpacksEachWithItsSign()
     {

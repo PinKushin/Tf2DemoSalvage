@@ -34,6 +34,22 @@ public sealed class TfHudControlPointIcons : VguiEditablePanel, IHudElement
     /// <inheritdoc/>
     public int HiddenBits => HudVisibility.HideMiscStatus;
 
+    /// <summary>The icon whose `GetCapIndex()` is a control point (:1206-1212), or null.</summary>
+    /// <param name="index">The control point.</param>
+    /// <returns>The icon, or null.</returns>
+    public TfControlPointIcon? IconFor(int index)
+    {
+        for (int slot = 0; slot < _shownCount; slot++)
+        {
+            if (_shown[slot] == index)
+            {
+                return _icons[slot];
+            }
+        }
+
+        return null;
+    }
+
     /// <summary>`m_Icons`, those in use.</summary>
     public IReadOnlyList<TfControlPointIcon> Icons => _icons;
 
@@ -362,6 +378,19 @@ public sealed class TfControlPointIcon : VguiEditablePanel
         }
 
         return true;
+    }
+
+    /// <summary>`TeamplayGameRules()->TeamMayCapturePoint( team, index )`, for the progress bar's text.</summary>
+    /// <param name="state">The game state.</param>
+    /// <param name="objectives">The objectives.</param>
+    /// <param name="team">The team.</param>
+    /// <param name="index">The point.</param>
+    /// <returns>Whether the team may capture it.</returns>
+    public static bool TeamMayCapture(HudState state, SceneObjectives objectives, int team, int index)
+    {
+        ArgumentNullException.ThrowIfNull(objectives);
+
+        return TeamMayCapturePoint(state, objectives, team, index);
     }
 
     /// <summary>`CTFGameRules::TeamMayCapturePoint` (tf_gamerules.cpp:16770). `tf_caplinear` is on, its default.</summary>

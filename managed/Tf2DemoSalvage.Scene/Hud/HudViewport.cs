@@ -63,6 +63,7 @@ namespace Tf2DemoSalvage.Scene.Hud;
 /// <param name="IsHltv">`engine->IsHLTV()`: the demo's `svc_ServerInfo` `is_hltv`.</param>
 /// <param name="Objectives">`ObjectiveResource()`, or null when the demo has none.</param>
 /// <param name="SpectatorGuiShown">Whether the server last opened `specgui` for the recorder with a `VGUIMenu`.</param>
+/// <param name="TouchedPoint">`m_iCurrentCP`: the control point the recorder stands on, or -1.</param>
 public readonly record struct HudState(
     bool InGame,
     bool HasLocalPlayer,
@@ -104,7 +105,8 @@ public readonly record struct HudState(
     int FrozenFlag = Core.Scene.PlayerFlags.FrozenCurrent,
     bool IsHltv = false,
     bool SpectatorGuiShown = false,
-    Core.Scene.SceneObjectives? Objectives = null)
+    Core.Scene.SceneObjectives? Objectives = null,
+    int TouchedPoint = -1)
 {
     /// <summary>`cl_entitylist->GetEnt` for a dropped weapon or revive marker: the one at that index, or null.</summary>
     /// <param name="index">The entity index.</param>

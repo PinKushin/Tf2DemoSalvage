@@ -23,7 +23,14 @@ public sealed class TfHudObjectiveStatus : VguiEditablePanel, IHudElement
     /// <param name="viewport">The viewport.</param>
     /// <param name="controlPointIcons">`GET_HUDELEMENT( CHudControlPointIcons )`.</param>
     public TfHudObjectiveStatus(VguiPanel viewport, TfHudControlPointIcons controlPointIcons)
-        : base(viewport, "HudObjectiveStatus") => _controlPointIcons = controlPointIcons;
+        : base(viewport, "HudObjectiveStatus")
+    {
+        _controlPointIcons = controlPointIcons;
+        ProgressBar = new TfControlPointProgressBar(this);
+    }
+
+    /// <summary>`m_pControlPointProgressBar`.</summary>
+    public TfControlPointProgressBar ProgressBar { get; }
 
     /// <inheritdoc/>
     public override string ClassName => "CTFHudObjectiveStatus";
@@ -66,9 +73,22 @@ public sealed class TfHudObjectiveStatus : VguiEditablePanel, IHudElement
     /// <remarks>`Think` (:301): nothing without game rules.</remarks>
     protected override void OnThink()
     {
-        if (HudViewport.Of(this) is { State: { InGame: true, Rules.Present: true } } viewport)
+        if (HudViewport.Of(this) is not { } viewport)
         {
-            _controlPointIcons.Visible = ControlPointsVisible(viewport.State.Rules);
+            return;
         }
+
+        HudState state = viewport.State;
+
+        if (state is { InGame: true, Rules.Present: true })
+        {
+            _controlPointIcons.Visible = ControlPointsVisible(state.Rules);
+        }
+
+        // `UpdateProgressBarFor` (hud_controlpointicons.cpp:1183): nothing while the icons are hidden or off the points.
+        int touched = state.TouchedPoint;
+        bool onPoint = _controlPointIcons.Visible && touched >= 0 && touched < (state.Objectives?.Points.Count ?? 0);
+
+        ProgressBar.Update(state, onPoint ? _controlPointIcons.IconFor(touched) : null, touched, viewport.Context);
     }
 }

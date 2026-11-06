@@ -2415,6 +2415,42 @@ public sealed class DemoTimeline
         return shown;
     }
 
+    private const string ControlPointStartTouch = "controlpoint_starttouch";
+    private const string ControlPointEndTouch = "controlpoint_endtouch";
+    private const string ResetHudMessage = "ResetHUD";
+    private const int AnyPlayer = -2;
+
+    /// <summary>Every `controlpoint_starttouch` and `controlpoint_endtouch` (-1 area), and every `ResetHUD` (player -2), in tick order.</summary>
+    public IReadOnlyList<(int Tick, int Player, int Area)> TouchChanges { get; private init; } = [];
+
+    /// <summary>`m_iCurrentCP` at a tick: the point the recorder last started touching, or -1.</summary>
+    /// <param name="tick">The tick.</param>
+    /// <returns>The control point, or -1.</returns>
+    public int TouchedPointAt(int tick)
+    {
+        int area = -1;
+
+        if (RecorderEntityIndex is not { } recorder)
+        {
+            return area;
+        }
+
+        foreach ((int at, int player, int touched) in TouchChanges)
+        {
+            if (at > tick)
+            {
+                break;
+            }
+
+            if (player == recorder || player == AnyPlayer)
+            {
+                area = touched;
+            }
+        }
+
+        return area;
+    }
+
     /// <summary>The network protocol the demo's header declares, or 0 for a timeline built from nothing.</summary>
     /// <remarks>
     /// **What selects an old demo's content era** (B380, D160). A networked sequence number indexes the
@@ -3217,6 +3253,7 @@ public sealed class DemoTimeline
 
         // Deep-copied with the builder rather than marked: small, and a plain list (D217).
         private readonly List<(int Tick, bool Show)> spectatorGuiChanges;
+        private readonly List<(int Tick, int Player, int Area)> touchChanges;
         private IReadOnlyDictionary<int, PlayerInfo>? rosterAtEvent;
         private int walked;
         private readonly int reportEvery;
@@ -3486,6 +3523,7 @@ public sealed class DemoTimeline
         voice = [];
         voiceInits = [];
         spectatorGuiChanges = [];
+        touchChanges = [];
         rosterAtEvent = null;
 
         walked = 0;
@@ -3641,7 +3679,21 @@ public sealed class DemoTimeline
                     // names while handling the event and a slot can hold someone else later.
                     case GameEventMessage { Name: { } eventName } gameEvent:
                         rosterAtEvent ??= new Dictionary<int, PlayerInfo>(bySlot);
-                        gameEvents.Add(new SceneGameEvent(command.Tick, eventName, gameEvent.Values, rosterAtEvent));
+                        SceneGameEvent heard = new(command.Tick, eventName, gameEvent.Values, rosterAtEvent);
+
+                        gameEvents.Add(heard);
+
+                        // `m_iCurrentCP` (hud_controlpointicons.cpp:874-891), kept apart so a seek finds it without the feed.
+                        if (eventName is ControlPointStartTouch or ControlPointEndTouch)
+                        {
+                            touchChanges.Add((command.Tick, heard.GetInt("player"), eventName == ControlPointStartTouch ? heard.GetInt("area") : -1));
+                        }
+
+                        continue;
+
+                    // `CHudControlPointIcons::Reset` (:753) at `CHud::ResetHUD`: the recorder no longer stands on a point.
+                    case UserMessage { Name: ResetHudMessage }:
+                        touchChanges.Add((command.Tick, AnyPlayer, -1));
                         continue;
 
                     // **The chat's user messages, bodies kept** — the reader parses `SayText2` into a chat line, but the
@@ -5060,6 +5112,8 @@ public sealed class DemoTimeline
             {
                 spectatorGuiChanges.RemoveRange(0, gui);
             }
+
+            // The touches are per player, so all before the cut stay; a match holds a few hundred.
         }
 
         /// <summary>A copy of the pass that owns all of its state and output, from which any number of windows resume.</summary>
@@ -5277,6 +5331,7 @@ public sealed class DemoTimeline
             Voice = voice.HandOut(),
             VoiceInits = voiceInits.HandOut(),
             SpectatorGuiChanges = [.. spectatorGuiChanges],
+            TouchChanges = [.. touchChanges],
             RecorderEntityIndex = recorderSlot is { } recorded ? recorded + 1 : null,
             Corpses = [.. replaced, .. corpses.Values],
             Explosions = feeds.Explosions,
