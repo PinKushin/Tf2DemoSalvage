@@ -695,6 +695,12 @@ public readonly record struct SceneGameRules(bool MannVsMachine, int HalloweenSc
     /// <summary>`GetHUDType()`: `m_nHudType`, `TF_HUDTYPE_UNDEFINED` (0) unsent.</summary>
     public int HudType { get; init; }
 
+    /// <summary>`IsTrainingHUDVisible()`: `m_bIsTrainingHUDVisible`.</summary>
+    public bool TrainingHudVisible { get; init; }
+
+    /// <summary>`IsWaitingForTrainingContinue()`: `m_bIsWaitingForTrainingContinue`.</summary>
+    public bool WaitingForTrainingContinue { get; init; }
+
     /// <summary>`IsPlayingHybrid_CTF_CP()`: `m_bPlayingHybrid_CTF_CP`.</summary>
     public bool PlayingHybridCtfCp { get; init; }
 
@@ -4906,6 +4912,8 @@ public sealed class DemoTimeline
                 StopWatch = gameRules?.Integer("DT_TeamplayRoundBasedRules.m_bStopWatch") is > 0,
                 GameType = gameRules?.Integer("DT_TFGameRules.m_nGameType") ?? 0,
                 HudType = gameRules?.Integer("DT_TFGameRules.m_nHudType") ?? 0,
+                TrainingHudVisible = gameRules?.Integer("DT_TFGameRules.m_bIsTrainingHUDVisible") is > 0,
+                WaitingForTrainingContinue = gameRules?.Integer("DT_TFGameRules.m_bIsWaitingForTrainingContinue") is > 0,
                 MultipleTrains = gameRules?.Integer("DT_TFGameRules.m_bMultipleTrains") is > 0,
                 CapturePointEnableTime = gameRules?.Number("DT_TFGameRules.m_flCapturePointEnableTime") ?? 0f,
                 PlayingHybridCtfCp = gameRules?.Integer("DT_TFGameRules.m_bPlayingHybrid_CTF_CP") is > 0,

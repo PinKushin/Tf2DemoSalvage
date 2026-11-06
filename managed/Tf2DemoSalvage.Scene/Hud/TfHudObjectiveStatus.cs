@@ -2,7 +2,7 @@ namespace Tf2DemoSalvage.Scene.Hud;
 
 /// <summary>`CTFHudObjectiveStatus` (game/client/tf/tf_hud_objectivestatus.cpp:53): the objective panels' host, whose child the control-point icons become.</summary>
 /// <remarks>
-/// **Not ported:** its training, robot destruction and passtime panels (B709). `ShouldDraw`'s Halloween kart and match summary checks are the HUD's.
+/// **Not ported:** its robot destruction panel (B709). `ShouldDraw`'s Halloween kart and match summary checks are the HUD's.
 /// </remarks>
 public sealed class TfHudObjectiveStatus : VguiEditablePanel, IHudElement
 {
@@ -33,7 +33,11 @@ public sealed class TfHudObjectiveStatus : VguiEditablePanel, IHudElement
         MultipleEscort = new TfHudMultipleEscort(this);
         FlagPanel = new TfHudFlagObjectives(this);
         Passtime = new TfHudPasstime(this);
+        Training = new TfHudTraining(this);
     }
+
+    /// <summary>`m_pTrainingPanel`: shown for the training HUD, else by `IsTrainingHUDVisible()` (:220-252).</summary>
+    public TfHudTraining Training { get; }
 
     /// <summary>`m_pHudPasstime`, shown for `TF_GAMETYPE_PASSTIME` (:304-309).</summary>
     public TfHudPasstime Passtime { get; }
@@ -122,6 +126,7 @@ public sealed class TfHudObjectiveStatus : VguiEditablePanel, IHudElement
             _controlPointIcons.Visible = ControlPointsVisible(state.Rules);
             FlagPanel.Visible = FlagsVisible(state.Rules);
             Passtime.Visible = state.Rules.HudType != HudTypeTraining && state.Rules.GameType == GameTypePasstime;
+            Training.Visible = state.Rules.HudType == HudTypeTraining || state.Rules.TrainingHudVisible;
 
             // :286-325: one track, or one per team with several trains (Helltower's hell aside).
             bool escort = EscortVisible(state.Rules);
@@ -139,6 +144,9 @@ public sealed class TfHudObjectiveStatus : VguiEditablePanel, IHudElement
         {
             Passtime.Update(state);
         }
+
+        // Its own 10 ms tick signal (:128), which reaches it hidden as well.
+        Training.Update(state);
 
         if (Escort.Visible)
         {

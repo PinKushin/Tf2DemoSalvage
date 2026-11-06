@@ -249,6 +249,7 @@ public sealed class VguiHud
 
             // `CTFHudObjectiveStatus::Reset` (tf_hud_objectivestatus.cpp:141): the ball status guesses its state again.
             ObjectiveStatus.Passtime.BallStatus.Reset();
+            ObjectiveStatus.Training.Reset();
         }
 
         // The host frame (engine.dll `_Host_RunFrame`, 0x1801a4570) runs `_Host_RunFrame_Input` (0x1801a5b90) first, whose
