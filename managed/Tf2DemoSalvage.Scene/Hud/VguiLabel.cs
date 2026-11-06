@@ -226,7 +226,9 @@ public class VguiLabel : VguiPanel
 
         SetTextInset(insetX, insetY);
         _textImage.AllCaps = Int(block, "allcaps", 0) > 0;
-        InvalidateLayout(reloadScheme: true);
+
+        // `InvalidateLayout( true )` (Label.cpp:1290): laid out now, no scheme reload — the font was set above.
+        InvalidateLayout(layoutNow: true, reloadScheme: false, context);
     }
 
     /// <inheritdoc/>

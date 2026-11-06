@@ -391,6 +391,9 @@ public sealed class HudViewport : VguiEditablePanel
     /// <summary>The context this frame runs under — what `OnThink` hands the controller.</summary>
     public VguiContext? Context { get; set; }
 
+    /// <inheritdoc/>
+    protected override VguiContext? RootScheme => Context;
+
     /// <summary>`LoadHudAnimations` (baseviewport.cpp): each `file` in the manifest, the first wiping what was loaded.</summary>
     /// <param name="context">The scheme, screen and filesystem.</param>
     /// <returns>Whether the manifest was found.</returns>

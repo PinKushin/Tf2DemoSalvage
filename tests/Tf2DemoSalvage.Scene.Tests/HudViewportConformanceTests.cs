@@ -80,6 +80,39 @@ public sealed class HudViewportConformanceTests
         viewport.Proportional.ShouldBeTrue();
     }
 
+    /// <remarks>`InvalidateLayout( false, true )` (Panel.cpp:3924): the scheme applied at once under a viewport with a scheme.</remarks>
+    [Test]
+    public void InvalidateLayout_AReloadUnderTheViewport_AppliesTheSchemeAtOnce()
+    {
+        HudViewport viewport = new() { Context = Context() };
+        SchemeCounter panel = new(viewport);
+
+        panel.InvalidateLayout(reloadScheme: true);
+
+        panel.Applied.ShouldBe(1);
+    }
+
+    [Test]
+    public void InvalidateLayout_AReloadWithNoScheme_WaitsForTheTraversal()
+    {
+        SchemeCounter panel = new(new VguiPanel(null, "Root"));
+
+        panel.InvalidateLayout(reloadScheme: true);
+
+        panel.Applied.ShouldBe(0);
+    }
+
+    private sealed class SchemeCounter(VguiPanel parent) : VguiPanel(parent, "Counter")
+    {
+        public int Applied { get; private set; }
+
+        public override void ApplySchemeSettings(VguiContext context)
+        {
+            base.ApplySchemeSettings(context);
+            Applied++;
+        }
+    }
+
     private static VguiContext Context()
     {
         KeyValuesTree scheme = KeyValuesTree.Load(Encoding.UTF8.GetBytes("Scheme { Borders { } Fonts { } }"), "scheme.res", _ => null);

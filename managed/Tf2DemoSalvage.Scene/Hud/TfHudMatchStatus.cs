@@ -707,13 +707,16 @@ public sealed class TfHudTimeStatus : VguiEditablePanel
             return;
         }
 
+        // :678 reads the timer before :685's reload, which zeroes `m_iTimerIndex` in `ApplySchemeSettings` at once.
+        SceneRoundTimer? roundTimer = state.RoundTimer(TimerIndex);
+
         if (_kothMode != state.Rules.Koth)
         {
             _kothMode = state.Rules.Koth;
             InvalidateLayout(reloadScheme: true);
         }
 
-        if (state.RoundTimer(TimerIndex) is { } timer)
+        if (roundTimer is { } timer)
         {
             int totalTime = timer.TimerMaxLength;
             int timeRemaining = (int)timer.TimeRemainingAt(state.ServerTime);

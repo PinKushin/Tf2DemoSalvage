@@ -42,8 +42,11 @@ public static class VguiLayout
 
         Solve(panel);
 
-        foreach (VguiPanel child in panel.Children)
+        // By index, as `SchemeSettingsTraverse`: a scheme applied at once inside a think can add or move a child.
+        for (int i = 0; i < panel.Children.Count; i++)
         {
+            VguiPanel child = panel.Children[i];
+
             if (child.Visible)
             {
                 InternalSolveTraverse(child);
@@ -85,11 +88,22 @@ public static class VguiLayout
     {
         panel.Think();
 
-        foreach (VguiPanel child in panel.Children)
+        // By index, the count read each time: a think's immediate scheme pass (Panel.cpp:3924) can add a child, visited in
+        // the same walk, or move an earlier sibling away, which shifts this one down.
+        int i = 0;
+
+        while (i < panel.Children.Count)
         {
+            VguiPanel child = panel.Children[i];
+
             if (child.Visible)
             {
                 ThinkTraverse(child);
+            }
+
+            if (i >= panel.Children.Count || ReferenceEquals(panel.Children[i], child))
+            {
+                i++;
             }
         }
     }

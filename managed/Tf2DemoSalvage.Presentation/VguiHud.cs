@@ -231,7 +231,8 @@ public sealed class VguiHud
             // `CBaseViewport::ReloadScheme`: the animation scripts, then the layout.
             Viewport.LoadHudAnimations(_context);
             Viewport.LoadControlSettings(LayoutPath, _context);
-            Viewport.InvalidateLayout(reloadScheme: true);
+            // `InvalidateLayout( true, true )` (baseviewport.cpp:750): the scheme and the layout at once.
+            Viewport.InvalidateLayout(layoutNow: true, reloadScheme: true, _context);
 
             // The scheme applied now, as the game applies it at `CHud::Init` long before any packet: an element caches
             // icons and fonts there, and the events below may be the first thing it handles.

@@ -432,6 +432,24 @@ public class VguiPanel
         ApplyOverridableColors();
     }
 
+    /// <summary>The scheme a tree's root carries for an immediate pass: the viewport's context, or null.</summary>
+    protected virtual VguiContext? RootScheme => null;
+
+    /// <summary>`GetScheme()` for an immediate scheme pass: this panel's or a parent's own, else the root's; null with none.</summary>
+    /// <returns>The scheme.</returns>
+    private VguiContext? TreeScheme()
+    {
+        for (VguiPanel? at = this; at is not null; at = at.Parent)
+        {
+            if ((at.SchemeContext ?? at.RootScheme) is { } scheme)
+            {
+                return scheme;
+            }
+        }
+
+        return null;
+    }
+
     /// <summary>`SetScheme`: this panel's own scheme — a second scheme file, such as `ChatScheme.res` — or null to inherit.</summary>
     public VguiContext? SchemeContext { get; set; }
 
@@ -486,14 +504,24 @@ public class VguiPanel
         OnThink();
     }
 
-    /// <summary>`InvalidateLayout( layoutNow = false, reloadScheme )`: lay out again at the next think.</summary>
-    /// <param name="reloadScheme">Whether this panel and every child applies its scheme again, too.</param>
+    /// <summary>`InvalidateLayout( layoutNow = false, reloadScheme )` (Panel.cpp:3906): lay out again at the next think.</summary>
+    /// <param name="reloadScheme">Whether this panel and every child applies its scheme again — at once, as Valve's does (:3924).</param>
+    /// <remarks>
+    /// A panel under no scheme yet — not parented to a tree that has one — has nothing to apply, so its reload waits for the
+    /// first traversal; the engine's panels always have a scheme, so that wait is this port's.
+    /// </remarks>
     public void InvalidateLayout(bool reloadScheme = false)
     {
         _needsLayout = true;
 
         if (!reloadScheme)
         {
+            return;
+        }
+
+        if (TreeScheme() is { } context)
+        {
+            InvalidateLayout(layoutNow: false, reloadScheme: true, context);
             return;
         }
 
@@ -524,9 +552,10 @@ public class VguiPanel
         {
             _needsSchemeUpdate = true;
 
-            foreach (VguiPanel child in _children.ToArray())
+            // By index over the live list, as Valve's (:3915): an apply may add a child, visited too, or take one away.
+            for (int i = 0; i < _children.Count; i++)
             {
-                child.InvalidateLayout(layoutNow, reloadScheme: true, context);
+                _children[i].InvalidateLayout(layoutNow, reloadScheme: true, context);
             }
 
             PerformApplySchemeSettings(context);
