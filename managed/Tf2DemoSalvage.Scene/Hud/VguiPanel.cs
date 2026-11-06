@@ -506,6 +506,40 @@ public class VguiPanel
     }
 
     /// <summary>
+    /// `InvalidateLayout( layoutNow, reloadScheme )` (Panel.cpp:3906) as Valve runs it: a reload makes every child reload
+    /// and applies this panel's scheme at once, and `layoutNow` lays out at once unless a scheme is still pending (:3891).
+    /// </summary>
+    /// <param name="layoutNow">Whether to lay out now.</param>
+    /// <param name="reloadScheme">Whether this panel and every child applies its scheme again.</param>
+    /// <param name="context">The scheme the immediate pass applies.</param>
+    /// <remarks>
+    /// The two-argument form above defers the scheme to the next traversal, which Valve's does not; only callers that need
+    /// Valve's immediacy use this one, so the deferral elsewhere is unchanged.
+    /// </remarks>
+    public void InvalidateLayout(bool layoutNow, bool reloadScheme, VguiContext context)
+    {
+        _needsLayout = true;
+
+        if (reloadScheme)
+        {
+            _needsSchemeUpdate = true;
+
+            foreach (VguiPanel child in _children.ToArray())
+            {
+                child.InvalidateLayout(layoutNow, reloadScheme: true, context);
+            }
+
+            PerformApplySchemeSettings(context);
+        }
+
+        if (layoutNow && !_needsSchemeUpdate)
+        {
+            _needsLayout = false;
+            PerformLayout();
+        }
+    }
+
+    /// <summary>
     /// `Panel::OnCommand` (Panel.cpp:3960): "performlayout" and "reloadscheme" invalidate the layout; anything else goes
     /// to the action-signal targets, which no HUD panel here registers.
     /// </summary>

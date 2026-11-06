@@ -131,5 +131,58 @@ public sealed class TfHudRobotDestructionConformanceTests
     public void Score_ByTeam_IsThatTeams(int team, int score) =>
         new SceneRobotDestruction(false, 300, 7, 4, 0, 0, 0f, 0f, 45f, string.Empty, 0f, []).Score(team).ShouldBe(score);
 
+    /// <remarks>`CHandle::Get`: the index and the serial both, so a new group in the old slot is not the old one.</remarks>
+    [TestCase(7, true)]
+    [TestCase(8, false)]
+    public void Resolve_TheSameSlotBySerial_FindsOnlyTheSameEntity(int serial, bool found)
+    {
+        SceneRobotDestruction logic = new(false, 300, 0, 0, 0, 0, 0f, 0f, 45f, string.Empty, 0f, [Group(TfRobotIndicator.StateActive) with { SerialNumber = serial }]);
+
+        (TfHudRobotDestruction.Resolve(logic, Group(TfRobotIndicator.StateDead) with { SerialNumber = 7 }) is not null).ShouldBe(found);
+    }
+
+    /// <remarks>Panel.cpp:3906-3931: a reload applies the scheme at once, then `layoutNow` lays out at once.</remarks>
+    [Test]
+    public void InvalidateLayout_NowWithAReload_AppliesTheSchemeThenLaysOutAtOnce()
+    {
+        CountingPanel panel = new();
+
+        panel.InvalidateLayout(layoutNow: true, reloadScheme: true, Context());
+
+        panel.Calls.ShouldBe("scheme,layout");
+    }
+
+    [Test]
+    public void InvalidateLayout_LaterWithAReload_AppliesTheSchemeButDoesNotLayOut()
+    {
+        CountingPanel panel = new();
+
+        panel.InvalidateLayout(layoutNow: false, reloadScheme: true, Context());
+
+        panel.Calls.ShouldBe("scheme");
+    }
+
+    private static VguiContext Context()
+    {
+        Content.Assets.KeyValuesTree scheme = Content.Assets.KeyValuesTree.Load(
+            System.Text.Encoding.UTF8.GetBytes("Scheme { Borders { } Fonts { } }"), "scheme.res", _ => null);
+        VguiScheme colours = VguiScheme.Load(scheme);
+
+        return new VguiContext(colours, VguiBorders.Load(scheme, colours, 960), scheme.Find("Fonts")!, 1280, 960, "english");
+    }
+
+    private sealed class CountingPanel() : VguiPanel(null, "Counting")
+    {
+        public string Calls { get; private set; } = string.Empty;
+
+        public override void ApplySchemeSettings(VguiContext context)
+        {
+            base.ApplySchemeSettings(context);
+            Calls += Calls.Length == 0 ? "scheme" : ",scheme";
+        }
+
+        protected override void PerformLayout() => Calls += Calls.Length == 0 ? "layout" : ",layout";
+    }
+
     private static SceneRobotGroup Group(int state) => new(125, 2, 1, state, 10f, 20f, 0f, "../HUD/hud_bot_worker_outline_red");
 }

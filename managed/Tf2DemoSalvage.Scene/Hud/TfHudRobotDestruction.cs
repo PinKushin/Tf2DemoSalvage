@@ -644,9 +644,9 @@ public sealed class TfHudRobotDestruction : VguiEditablePanel
 
         if (_playingRd != logic is not null)
         {
-            if (logic is not null)
+            if (logic is not null && HudViewport.Of(this) is { Context: { } context })
             {
-                InvalidateLayout(reloadScheme: true);
+                InvalidateLayout(layoutNow: true, reloadScheme: true, context);
             }
 
             _playingRd = logic is not null;
@@ -817,6 +817,23 @@ public sealed class TfHudRobotDestruction : VguiEditablePanel
         return null;
     }
 
+    /// <summary>`m_hGroup.Get()`: the group at the handle's index while its serial still matches, else null for good.</summary>
+    /// <param name="logic">This frame's state, or null.</param>
+    /// <param name="held">The group the handle was made from.</param>
+    /// <returns>The group now, or null.</returns>
+    internal static SceneRobotGroup? Resolve(SceneRobotDestruction? logic, SceneRobotGroup held)
+    {
+        foreach (SceneRobotGroup group in logic?.Groups ?? [])
+        {
+            if (group.EntityIndex == held.EntityIndex && group.SerialNumber == held.SerialNumber)
+            {
+                return group;
+            }
+        }
+
+        return null;
+    }
+
     /// <summary>:750-767: the big score swaps for the finale countdown once a team is at its maximum.</summary>
     private static void UpdateFinale(SceneRobotDestruction logic, int team, VguiEditablePanel victory, VguiEditablePanel score, float curTime)
     {
@@ -907,18 +924,7 @@ public sealed class TfHudRobotDestruction : VguiEditablePanel
     {
         foreach (TfRobotIndicator robot in _redRobots.Concat(_blueRobots))
         {
-            int entity = robot.Group?.EntityIndex ?? 0;
-            SceneRobotGroup? current = null;
-
-            foreach (SceneRobotGroup group in logic?.Groups ?? [])
-            {
-                if (group.EntityIndex == entity)
-                {
-                    current = group;
-                }
-            }
-
-            robot.Group = current;
+            robot.Group = robot.Group is { } held ? Resolve(logic, held) : null;
             robot.Tick(state.Team, curTime);
         }
 
@@ -956,7 +962,12 @@ public sealed class TfHudRobotDestruction : VguiEditablePanel
 
         _redRobots.Clear();
         _blueRobots.Clear();
-        InvalidateLayout(reloadScheme: true);
+
+        // `InvalidateLayout( false, true )`: the scheme, and so the new indicators, at once (Panel.cpp:3924).
+        if (HudViewport.Of(this) is { Context: { } context })
+        {
+            InvalidateLayout(layoutNow: false, reloadScheme: true, context);
+        }
     }
 
     /// <summary>`PerformRobotLayout` (:478): spanning out from the bottom centre, RED to the right and BLU to the left.</summary>
@@ -996,7 +1007,10 @@ public sealed class TfHudRobotDestruction : VguiEditablePanel
 
             robot.X = (int)(centerX + startPos + (offset * activeIndex) - (wide * 0.5));
             robot.Y = yOffset - robot.Tall - (yStep * i);
-            robot.InvalidateLayout(reloadScheme: true);
+            if (context is not null)
+            {
+                robot.InvalidateLayout(layoutNow: true, reloadScheme: true, context);
+            }
 
             if (robot.State != TfRobotIndicator.StateInactive)
             {

@@ -21,7 +21,11 @@ public readonly record struct SceneRobotGroup(
     float RespawnStartTime,
     float RespawnEndTime,
     float LastAttackedTime,
-    string HudIcon);
+    string HudIcon)
+{
+    /// <summary>The entity's serial number, which a `CHandle` checks with its index.</summary>
+    public int SerialNumber { get; init; }
+}
 
 /// <summary>`CTFRobotDestructionLogic` (`DT_TFRobotDestructionLogic`) and its robot groups at one tick.</summary>
 /// <param name="PlayerDestruction">Whether the logic is `CTFPlayerDestructionLogic`, whose `GetType()` is `TYPE_PLAYER_DESTRUCTION`.</param>
@@ -124,7 +128,10 @@ public sealed record SceneRobotDestruction(
                 group.Number("DT_TFRobotDestruction_RobotGroup.m_flRespawnStartTime") ?? 0f,
                 group.Number("DT_TFRobotDestruction_RobotGroup.m_flRespawnEndTime") ?? 0f,
                 group.Number("DT_TFRobotDestruction_RobotGroup.m_flLastAttackedTime") ?? 0f,
-                group.Text("DT_TFRobotDestruction_RobotGroup.m_pszHudIcon") ?? string.Empty));
+                group.Text("DT_TFRobotDestruction_RobotGroup.m_pszHudIcon") ?? string.Empty)
+            {
+                SerialNumber = group.SerialNumber,
+            });
         }
 
         SceneRobotDestruction read = new(
