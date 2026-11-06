@@ -256,6 +256,9 @@ public sealed class VguiHud
         partAt = Part("hud scheme", partAt);
 
         Viewport.Think(reset ? state : _thinkState ?? state);
+
+        // `CTFTeamStatus`'s own tick signal (tf_teamstatus.cpp:334), which reaches it while it or the match status is hidden.
+        MatchStatus.TeamStatus.Tick();
         Viewport.SetState(state);
         _thinkState = state;
         partAt = Part("hud think", partAt);

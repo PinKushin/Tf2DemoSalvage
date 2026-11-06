@@ -94,7 +94,8 @@ public sealed class TfTeamStatusPlayerPanel : TfPlayerPanel
     public override void Reset()
     {
         base.Reset();
-        (_previousClass, _previousHealth, _previousRespawnWait, _previousAlive, _previousState) = (-999, -999, -999, false, null);
+        // `CTFPlayerPanel::Reset` (tf_playerpanel.cpp:73): `m_iPrevState = GR_STATE_PREGAME`.
+        (_previousClass, _previousHealth, _previousRespawnWait, _previousAlive, _previousState) = (-999, -999, -999, false, 1);
     }
 
     /// <inheritdoc/>

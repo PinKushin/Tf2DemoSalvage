@@ -331,9 +331,6 @@ public sealed class TfHudMatchStatus : VguiEditablePanel, IHudElement
             Parent?.FindChildByName(TfHudKothTimeStatus.ElementName)?.InvalidateLayout(reloadScheme: true);
         }
 
-        // `CTFTeamStatus::OnTick`, by its own tick signal, which reaches it hidden too.
-        TeamStatus.Tick();
-
         bool display = state.ObserverMode != ObserverModes.FreezeCam;
 
         // `IsInTournamentMode() && IsInWaitingForPlayers()` (:474); the former is `mp_tournament.GetBool()`
