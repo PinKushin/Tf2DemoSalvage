@@ -157,7 +157,7 @@ public static class DetailSprites
 
     /// <summary>What one view's build produced.</summary>
     /// <param name="Built">Quads emitted — six vertices each.</param>
-    /// <param name="Faded">Sprites the distance fade dropped entirely.</param>
+    /// <param name="Faded">Sprites the distance fade dropped entirely, among the leaves visited and in view.</param>
     /// <param name="Aligned">Of those built, how many were turned to face the eye.</param>
     /// <param name="Fast">Of those built, how many went down the fast lane (B435).</param>
     public readonly record struct Frame(int Built, int Faded, int Aligned, int Fast = 0);
@@ -197,6 +197,7 @@ public static class DetailSprites
     /// <param name="fastSprites"><c>cl_fastdetailsprites</c>.</param>
     /// <param name="reach">The map's runs, to visit only those near the eye (B580); null walks every prop. The quads are
     /// the same either way; <see cref="Frame.Faded"/> counts only props in runs visited.</param>
+    /// <param name="visibleLeaf">Whether the view draws a leaf; null builds every leaf, for a map that cannot be culled.</param>
     /// <returns>What was built, dropped and turned.</returns>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <remarks>
@@ -223,7 +224,8 @@ public static class DetailSprites
         DetailSpriteLeaves? leaves = null,
         (float X, float Y, float Z)? forward = null,
         bool fastSprites = FastDetailSprites,
-        DetailReach? reach = null)
+        DetailReach? reach = null,
+        Func<int, bool>? visibleLeaf = null)
     {
         ArgumentNullException.ThrowIfNull(objects);
         ArgumentNullException.ThrowIfNull(sprites);
@@ -266,8 +268,15 @@ public static class DetailSprites
             // A run is one leaf, so its start is a leaf change: forced here, because a skipped run between two runs
             // of one leaf would otherwise join their groups of four.
             int groupLeaf = int.MinValue;
+            bool leafInView = true;
 
             (int first, int end) = reach?.Range(run) ?? (0, props.Length);
+
+            // A reached run is one leaf: one out of view is skipped whole (its group restart is the run start's).
+            if (reach is not null && visibleLeaf is not null && first < end && !visibleLeaf(props[first].Leaf))
+            {
+                continue;
+            }
 
             for (int index = first; index < end; index++)
             {
@@ -277,6 +286,14 @@ public static class DetailSprites
                 {
                     EmitGroup(group, fastLane);
                     groupLeaf = prop.Leaf;
+
+                    // Valve builds sprites only for the world list's leaves (`viewrender.cpp:4591-4639`); asked once a leaf.
+                    leafInView = visibleLeaf?.Invoke(prop.Leaf) ?? true;
+                }
+
+                if (!leafInView)
+                {
+                    continue;
                 }
 
                 if (prop.Type != DetailPropType.Sprite ||

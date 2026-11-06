@@ -3061,7 +3061,8 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
             half.DetailCorners,
             half.DetailLeaves,
             forward,
-            reach: _detailReach);
+            reach: _detailReach,
+            visibleLeaf: half.Culling is { CanCull: true } culling && half.CulledFor is not null ? culling.MainLeafTest : null);
 
         ReportDetailSprites(half, frame);
     }
@@ -3152,7 +3153,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         _render.LogDebug(
             "{Message}",
             $"detail models: {frame.Built} placed of {_detailProps.Count} detail props " +
-            $"({frame.Faded} beyond {LiveDetailFade.Distance:0}, {frame.Aligned} turned toward the " +
+            $"({frame.Faded} in view beyond {LiveDetailFade.Distance:0}, {frame.Aligned} turned toward the " +
             $"eye, {frame.Translucent} mid-fade), {_detailModelNames.Count} in the dictionary");
     }
 
@@ -3683,6 +3684,11 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
              (half.TranslucentLeaves is null && culling is { CanCull: true })))
         {
             half.CulledFor = view;
+
+            // The detail sprites are built from this cull's leaves, so a new cull rebuilds them and re-sends them: the
+            // detail key holds no aspect or clip planes, so a resize keeps the key while the leaves change.
+            half.DetailBuiltFor = null;
+            _views.ForgetDetailUpload();
 
             // **Into the half, never the renderer** (step 3): the renderer is what the frame in flight draws from.
             half.VisibleBatches = culling?.Batches(
@@ -4370,7 +4376,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         _render.LogDebug(
             "{Message}",
             $"detail sprites: {frame.Built} quads of {_detailProps.Count} props " +
-            $"({frame.Fast} fast, {frame.Aligned} turned toward the eye, {frame.Faded} beyond {LiveDetailFade.Distance:0}" +
+            $"({frame.Fast} fast, {frame.Aligned} turned toward the eye, {frame.Faded} in view beyond {LiveDetailFade.Distance:0}" +
             $"{(_detailController is null ? string.Empty : ", the map's own")}), " +
             $"{half.DetailCorners.Count} corners");
     }

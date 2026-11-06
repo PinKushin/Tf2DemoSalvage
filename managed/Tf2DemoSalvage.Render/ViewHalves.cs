@@ -96,6 +96,6 @@ internal sealed class ViewHalves(Action<ViewHalf, CameraUpload?> replay)
         return true;
     }
 
-    /// <summary>Forgets what the detail buffer holds, for a new map's props.</summary>
+    /// <summary>Forgets what the detail buffer holds, for a new map's props or a new cull's leaves.</summary>
     public void ForgetDetailUpload() => _detailOnDevice = default;
 }

@@ -96,6 +96,36 @@ public sealed class DetailReachTests
         placed[0].Origin.X.ShouldBe(100f);
     }
 
+    /// <summary>
+    /// A leaf the view does not draw builds no sprite (<c>viewrender.cpp:4591-4639</c>: the detail mesh is built from the
+    /// world list's translucent leaves). Control: the same map with that leaf's props removed, walked whole. Leaf 10 is
+    /// the one excluded, so the far run between its two halves stays and both group restarts are exercised.
+    /// </summary>
+    [Test]
+    public void Build_WithALeafOutOfView_EmitsWhatTheMapWithoutThatLeafEmits()
+    {
+        List<BspDetailProp> props = Map();
+        List<BspDetailProp> without = props.FindAll(p => p.Leaf != 10);
+        DetailReach reach = new(props, [Rectangle]);
+        DetailFade fade = DetailFade.For(distance: 300f, fade: 100f);
+        (float X, float Y, float Z) eye = ((10 * Cell) + 20f, 30f, 10f);
+        (float X, float Y, float Z) forward = (1f, 0f, 0f);
+
+        List<DetailSpriteVertex> control = [];
+        List<DetailSpriteVertex> walked = [];
+        List<DetailSpriteVertex> reached = [];
+        DetailSprites.Build(without, [Rectangle], eye, fade, control, forward: forward);
+        DetailSprites.Build(props, [Rectangle], eye, fade, walked, forward: forward, visibleLeaf: leaf => leaf != 10);
+        DetailSprites.Build(
+            props, [Rectangle], eye, fade, reached, forward: forward, reach: reach, visibleLeaf: leaf => leaf != 10);
+
+        List<DetailSpriteVertex> all = [];
+        DetailSprites.Build(props, [Rectangle], eye, fade, all, forward: forward);
+        all.Count.ShouldBeGreaterThan(control.Count, "leaf 10 must hold sprites in view of this eye");
+        walked.ShouldBe(control);
+        reached.ShouldBe(control);
+    }
+
     private static double Fraction(double value) => value - Math.Floor(value);
 
     private static List<BspDetailProp> Map()

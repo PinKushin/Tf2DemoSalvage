@@ -298,6 +298,16 @@ public sealed class WorldCulling
     /// <returns>The leaf, or −1 for a place outside the list.</returns>
     public int LeafAt(int place) => place >= 0 && place < _mainLeaves.Count ? _mainLeaves[place] : -1;
 
+    /// <summary>Whether a BSP leaf is in the last view's world list — what <c>DrawDetailObjectsInLeaf</c> stamps (B434).</summary>
+    /// <param name="leaf">The leaf.</param>
+    /// <returns>True for a leaf the view draws.</returns>
+    public bool IsMainLeaf(int leaf) => leaf >= 0 && leaf < _positionByLeaf.Length && _positionByLeaf[leaf] >= 0;
+
+    /// <summary><see cref="IsMainLeaf"/> bound once, so a frame's caller allocates no delegate.</summary>
+    public Func<int, bool> MainLeafTest => _mainLeafTest ??= IsMainLeaf;
+
+    private Func<int, bool>? _mainLeafTest;
+
     /// <summary>The last view's main leaves, nearest first — <c>m_pWorldListInfo->m_pLeafList</c>, what collation walks (B262).</summary>
     public IReadOnlyList<int> MainLeaves => _mainLeaves;
 
